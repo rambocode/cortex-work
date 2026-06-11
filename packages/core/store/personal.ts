@@ -12,7 +12,11 @@ import type {
   SessionMeta,
   TimelineSettings,
 } from "../desktop/types";
-import { DEFAULT_MODEL, DEFAULT_PUSH_SETTINGS, DEFAULT_TIMELINE_SETTINGS } from "../desktop/types";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_PUSH_SETTINGS,
+  DEFAULT_TIMELINE_SETTINGS,
+} from "../desktop/types";
 
 let seq = 0;
 function newId(prefix: string): string {

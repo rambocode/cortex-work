@@ -334,22 +334,78 @@ export function buildSummaryPrompt(projectName: string, group: DayGroup): string
   );
 }
 
-// 日报分享文本（一键复制 / 推送共用）：标题 + 统计 + 日报正文（无则用事件列表）。
-export function buildDailyReportText(projectName: string, group: DayGroup): { subject: string; text: string } {
-  const subject = `【${projectName}】${group.day} 工作日报`;
+// 推送格式 Skill 的占位符数据（从一天的事件聚合,纯函数）。
+export interface PushReportData {
+  project: string;
+  date: string;
+  stats: string;
+  summary: string;
+  runs: string;
+  files: string;
+  commits: string;
+}
+
+export function buildPushReportData(projectName: string, group: DayGroup): PushReportData {
   const stats: string[] = [];
   if (group.stats.runs) stats.push(`${group.stats.runs} 轮交互`);
   if (group.stats.sessions) stats.push(`${group.stats.sessions} 个新会话`);
   if (group.stats.files) stats.push(`${group.stats.files} 个文件变更`);
   if (group.stats.commits) stats.push(`${group.stats.commits} 次提交`);
-  const body =
-    group.summary?.summary ??
-    group.events
-      .filter((e) => e.kind === "run")
-      .map((e) => `· ${e.title}`)
-      .join("\n");
-  const text = [subject, stats.join(" · "), body].filter(Boolean).join("\n\n");
-  return { subject, text };
+  const runs = group.events.filter((e) => e.kind === "run");
+  const files = [...new Set(group.events.flatMap((e) => e.files ?? []))];
+  const commits = group.events.filter((e) => e.kind === "git.commit");
+  return {
+    project: projectName,
+    date: group.day,
+    stats: stats.join(" · "),
+    summary: group.summary?.summary ?? "",
+    runs: runs.map((e) => `· ${e.title}`).join("\n"),
+    files: files.map((f) => `· ${f}`).join("\n"),
+    commits: commits.map((e) => `· ${e.meta?.hash?.slice(0, 7) ?? ""} ${e.title}`.trim()).join("\n"),
+  };
+}
+
+// 用推送格式 Skill 模板渲染：{{占位符}} 替换;含占位符的行替换后为空则整行
+// 剔除（数据缺失不留悬空行）;多余空行折叠;首行为推送标题。
+export function renderPushReport(template: string, data: PushReportData): { subject: string; text: string } {
+  const PLACEHOLDER = /\{\{\s*(\w+)\s*\}\}/g;
+  const rendered = template
+    .split("\n")
+    .map((line) => {
+      const hadPlaceholder = PLACEHOLDER.test(line);
+      PLACEHOLDER.lastIndex = 0;
+      const out = line.replace(PLACEHOLDER, (raw, key: string) =>
+        key in data ? data[key as keyof PushReportData] : raw,
+      );
+      return { out, drop: hadPlaceholder && out.trim() === "" };
+    })
+    .filter((l) => !l.drop)
+    .map((l) => l.out)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const firstLine = rendered.split("\n").find((l) => l.trim()) ?? "";
+  // 标题剥掉 markdown 标记（# / **）,用作邮件主题等纯文本场景。
+  const subject = firstLine.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim();
+  return { subject, text: rendered };
+}
+
+// 内置默认模板（未配置格式 Skill 时使用;也是「创建示例 Skill」的内容）。
+export const DEFAULT_PUSH_TEMPLATE = `【{{project}}】{{date}} 工作日报
+
+{{stats}}
+
+{{summary}}
+
+今日事项:
+{{runs}}
+`;
+
+// 日报分享文本（一键复制 / 推送共用）：未配置格式 Skill 时的默认渲染。
+export function buildDailyReportText(projectName: string, group: DayGroup): { subject: string; text: string } {
+  const data = buildPushReportData(projectName, group);
+  // 无 AI 日报时退化为事项列表,有日报时正文已含概括,默认模板两者都带。
+  return renderPushReport(DEFAULT_PUSH_TEMPLATE, data);
 }
 
 // AI 日报：按设置选择生成模型（集成 Agent 或 OpenAI 兼容端点）,落盘为 summary.day 事件。
@@ -436,7 +492,17 @@ export function usePushDailyReport(project: ProjectMeta | undefined): {
       if (list.length === 0) return ["未启用任何推送渠道,请先在 设置 → 推送 中配置"];
       setPushing(true);
       try {
-        const payload = buildDailyReportText(project.name, group);
+        // 配置了推送格式 Skill 则按模板渲染;读取失败回退默认格式。
+        const skillPath = usePersonalStore.getState().pushSettings.formatSkillPath;
+        let payload = buildDailyReportText(project.name, group);
+        if (skillPath) {
+          try {
+            const { content } = await bridge.readFile(skillPath);
+            payload = renderPushReport(content, buildPushReportData(project.name, group));
+          } catch {
+            // skill 文件被移动/删除时不阻塞推送,使用默认格式。
+          }
+        }
         const results = await Promise.all(
           list.map(async ({ label, target }) => {
             try {

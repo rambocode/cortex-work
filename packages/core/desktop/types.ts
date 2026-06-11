@@ -85,6 +85,9 @@ export interface PushSettings {
   wecom?: WecomPushConfig;
   dingtalk?: DingtalkPushConfig;
   email?: EmailPushConfig;
+  // 推送格式 Skill：Prompt 库中 .md 模板的绝对路径（占位符替换,首行为推送标题）;
+  // 未设置时使用内置默认格式。
+  formatSkillPath?: string;
 }
 
 export const DEFAULT_PUSH_SETTINGS: PushSettings = {};

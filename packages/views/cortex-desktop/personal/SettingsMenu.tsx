@@ -8,11 +8,21 @@ import { Icon } from "@cortex-work/ui/icons";
 import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
 import { Toggle } from "@cortex-work/ui/controls/Toggle";
 import { PaletteChips, type PaletteOption } from "@cortex-work/ui/controls/PaletteChips";
-import { AGENT_MODELS, DEFAULT_MODEL, useCortexUIStore, usePersonalStore, usePetStore, type PetKind } from "@cortex-work/core";
+import {
+  AGENT_MODELS,
+  DEFAULT_MODEL,
+  DEFAULT_PUSH_TEMPLATE,
+  useCortexUIStore,
+  useDesktopBridge,
+  usePersonalStore,
+  usePetStore,
+  type PetKind,
+} from "@cortex-work/core";
 import type {
   AgentKind,
   DingtalkPushConfig,
   EmailPushConfig,
+  PromptNode,
   SummaryModelConfig,
   WecomPushConfig,
 } from "@cortex-work/core";
@@ -229,11 +239,51 @@ function TimelineSection() {
   );
 }
 
+// Prompt 库树拍平为 .md 文件列表（推送格式 Skill 候选）。
+function flattenPromptFiles(node: PromptNode | undefined): { name: string; path: string }[] {
+  if (!node) return [];
+  const out: { name: string; path: string }[] = [];
+  const walk = (n: PromptNode) => {
+    if (n.kind === "file") out.push({ name: n.name, path: n.path });
+    for (const c of n.children ?? []) walk(c);
+  };
+  walk(node);
+  return out;
+}
+
+const EXAMPLE_SKILL_NAME = "推送格式-日报.md";
+
 // 全局推送渠道：所有需要推送的场景（当前为时间线日报,未来任务通知等）共用。
 function PushSection() {
+  const bridge = useDesktopBridge();
   const push = usePersonalStore((s) => s.pushSettings);
   const setPush = usePersonalStore((s) => s.setPushSettings);
+  const promptRoot = usePersonalStore((s) => s.promptRoot);
+  const promptTree = usePersonalStore((s) => s.promptTree);
+  const setPromptTree = usePersonalStore((s) => s.setPromptTree);
   const { wecom, dingtalk, email } = push;
+
+  const skillFiles = flattenPromptFiles(promptTree);
+  // 已配置的 skill 不在 Prompt 库里（被移动/删除）时仍显示,便于用户察觉。
+  const skillOptions = [
+    { label: "默认格式（内置）", value: "" },
+    ...skillFiles.map((f) => ({ label: f.name, value: f.path })),
+    ...(push.formatSkillPath && !skillFiles.some((f) => f.path === push.formatSkillPath)
+      ? [{ label: `${push.formatSkillPath}（已失效）`, value: push.formatSkillPath }]
+      : []),
+  ];
+
+  const createExampleSkill = async () => {
+    if (!bridge || !promptRoot) return;
+    const path = `${promptRoot.replace(/[/\\]+$/, "")}/${EXAMPLE_SKILL_NAME}`;
+    await bridge.writeFile(path, DEFAULT_PUSH_TEMPLATE);
+    setPush({ formatSkillPath: path });
+    try {
+      setPromptTree(await bridge.scanPromptTree(promptRoot));
+    } catch {
+      // 重扫失败不影响已写入的 skill 生效。
+    }
+  };
 
   const setWecom = (patch: Partial<WecomPushConfig>) =>
     setPush({ wecom: { enabled: false, webhookUrl: "", ...wecom, ...patch } });
@@ -259,6 +309,30 @@ function PushSection() {
     <>
       <div className="pw-dlg-title">推送渠道</div>
       <div className="pw-dlg-desc">全局推送配置,启用后可在任何支持推送的功能中使用（如时间线日报）。</div>
+
+      <div className="twk-sect">推送格式 Skill</div>
+      <div className="pw-set-group">
+        <div className="pw-set-hint">
+          用 Prompt 库中的 .md 模板固化推送格式,渲染后的第一行作为推送标题。可用占位符:
+          {" {{project}} 项目名、{{date}} 日期、{{stats}} 统计、{{summary}} 日报正文、{{runs}} 交互列表、{{files}} 文件列表、{{commits}} 提交列表"}
+          ;数据为空的占位符行会自动隐藏。
+        </div>
+        <Select
+          label="格式模板"
+          value={push.formatSkillPath ?? ""}
+          options={skillOptions}
+          onChange={(v) => setPush({ formatSkillPath: v || undefined })}
+        />
+        <div>
+          <button className="pw-tl-gen" disabled={!bridge || !promptRoot} onClick={() => void createExampleSkill()}>
+            <Icon.Plus size={12} />
+            在 Prompt 库创建示例 Skill
+          </button>
+          {!promptRoot ? <span className="pw-set-hint">（需先在右栏 Prompt 库选择目录）</span> : null}
+        </div>
+      </div>
+
+      <div className="twk-sect">渠道</div>
       <div className="pw-set-group">
         <Toggle label="企业微信机器人" value={!!wecom?.enabled} onChange={(v) => setWecom({ enabled: v })} />
         {wecom?.enabled ? (

@@ -4,12 +4,15 @@ import type { SessionMeta, TimelineEvent } from "../desktop/types";
 import {
   buildCalendarWeeks,
   buildDailyReportText,
+  buildPushReportData,
   dayKey,
+  DEFAULT_PUSH_TEMPLATE,
   deriveBackfillEvents,
   enabledPushTargets,
   extractChangedFile,
   groupEventsByDay,
   promptTitle,
+  renderPushReport,
   sessionCreatedEvents,
 } from "./timeline";
 
@@ -157,12 +160,9 @@ describe("buildDailyReportText", () => {
 describe("enabledPushTargets", () => {
   it("只返回启用且配置完整的渠道,空 secret 归一为 undefined", () => {
     const targets = enabledPushTargets({
-      summaryModel: { kind: "agent", agent: "claude" },
-      push: {
-        wecom: { enabled: true, webhookUrl: "https://qyapi.weixin.qq.com/x" },
-        dingtalk: { enabled: true, webhookUrl: "https://oapi.dingtalk.com/x", secret: "" },
-        email: { enabled: false, smtpHost: "smtp.qq.com", smtpPort: 465, secure: true, user: "u", pass: "p", from: "", to: "a@b.c" },
-      },
+      wecom: { enabled: true, webhookUrl: "https://qyapi.weixin.qq.com/x" },
+      dingtalk: { enabled: true, webhookUrl: "https://oapi.dingtalk.com/x", secret: "" },
+      email: { enabled: false, smtpHost: "smtp.qq.com", smtpPort: 465, secure: true, user: "u", pass: "p", from: "", to: "a@b.c" },
     });
     expect(targets.map((t) => t.target.kind)).toEqual(["wecom", "dingtalk"]);
     const ding = targets[1]!.target;
@@ -170,11 +170,57 @@ describe("enabledPushTargets", () => {
   });
 
   it("渠道启用但缺关键字段时不返回", () => {
-    expect(
-      enabledPushTargets({
-        summaryModel: { kind: "agent", agent: "claude" },
-        push: { wecom: { enabled: true, webhookUrl: "" } },
-      }),
-    ).toHaveLength(0);
+    expect(enabledPushTargets({ wecom: { enabled: true, webhookUrl: "" } })).toHaveLength(0);
+  });
+});
+
+describe("renderPushReport", () => {
+  const data = {
+    project: "demo",
+    date: "2026-06-10",
+    stats: "2 轮交互",
+    summary: "",
+    runs: "· 修复登录\n· 加测试",
+    files: "· src/a.ts",
+    commits: "",
+  };
+
+  it("占位符替换,首行剥 markdown 标记作为标题", () => {
+    const { subject, text } = renderPushReport("# 【{{project}}】{{date}}\n\n{{runs}}", data);
+    expect(subject).toBe("【demo】2026-06-10");
+    expect(text).toContain("· 修复登录");
+    expect(text.startsWith("# 【demo】")).toBe(true);
+  });
+
+  it("数据为空的占位符行整行剔除,未知占位符原样保留", () => {
+    const { text } = renderPushReport("标题\n{{summary}}\n{{commits}}\n{{unknown}}\n{{runs}}", data);
+    expect(text).not.toContain("{{summary}}");
+    expect(text.split("\n").filter((l: string) => l === "")).toHaveLength(0);
+    expect(text).toContain("{{unknown}}");
+  });
+
+  it("默认模板:无日报时不留空行,有统计与事项", () => {
+    const { subject, text } = renderPushReport(DEFAULT_PUSH_TEMPLATE, data);
+    expect(subject).toBe("【demo】2026-06-10 工作日报");
+    expect(text).toContain("2 轮交互");
+    expect(text).toContain("今日事项:");
+    expect(text).not.toMatch(/\n{3,}/);
+  });
+});
+
+describe("buildPushReportData", () => {
+  it("聚合统计/事项/去重文件/提交", () => {
+    const groups = groupEventsByDay([
+      ev({ ts: T0, title: "修复登录", files: ["a.ts", "b.ts"] }),
+      ev({ ts: T0 + 1, title: "加测试", files: ["a.ts"] }),
+      ev({ ts: T0 + 2, kind: "git.commit", title: "fix: login", meta: { hash: "abcdef1234" } }),
+      ev({ ts: T0 + 3, kind: "summary.day", summary: "概括。", meta: { day: "2026-06-10" } }),
+    ]);
+    const data = buildPushReportData("demo", groups[0]!);
+    expect(data).toMatchObject({ project: "demo", date: "2026-06-10", summary: "概括。" });
+    expect(data.stats).toBe("2 轮交互 · 2 个文件变更 · 1 次提交");
+    expect(data.runs).toBe("· 修复登录\n· 加测试");
+    expect(data.files.split("\n")).toHaveLength(2);
+    expect(data.commits).toBe("· abcdef1 fix: login");
   });
 });
