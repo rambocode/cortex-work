@@ -3,7 +3,7 @@
 
 import { dialog, ipcMain } from "electron";
 import { promises as fsp } from "fs";
-import { join, resolve, sep } from "path";
+import { dirname, join, resolve, sep } from "path";
 import { execFile } from "child_process";
 import type { PromptNode } from "./types";
 import { getPersistedState } from "./store";
@@ -187,7 +187,28 @@ export function registerFsHandlers(): void {
 
   ipcMain.handle("fs:writeFile", async (_e, path: string, content: string) => {
     await assertAllowed(path);
+    await fsp.mkdir(dirname(path), { recursive: true });
     await fsp.writeFile(path, content, "utf8");
+  });
+
+  ipcMain.handle("fs:deleteFile", async (_e, path: string) => {
+    await assertAllowed(path);
+    await fsp.rm(path, { force: true });
+  });
+
+  ipcMain.handle("fs:createTaskFile", async (_e, projectRoot: string, todoId: string, title: string) => {
+    await assertAllowed(projectRoot);
+    const taskDir = join(projectRoot, "tasks");
+    const taskPath = join(taskDir, `${todoId}.md`);
+    await assertAllowed(taskPath);
+    await fsp.mkdir(taskDir, { recursive: true });
+    const initial = `# ${title.trim() || "未命名 Todo"}\n\n## 背景\n\n## 实现要求\n\n## 验收\n`;
+    try {
+      await fsp.writeFile(taskPath, initial, { encoding: "utf8", flag: "wx" });
+    } catch (err) {
+      if (!(err instanceof Error) || !("code" in err) || err.code !== "EEXIST") throw err;
+    }
+    return taskPath;
   });
 
   ipcMain.handle("fs:validateDir", async (_e, path: string) => {

@@ -105,11 +105,13 @@ function TextMessage({
   m,
   grouped,
   markdown = false,
+  tail,
 }: {
   m: Extract<Message, { kind: "text" }>;
   grouped: boolean;
   // 个人工作区:agent 输出按 Markdown 渲染(用户自己的消息保持纯文本)。
   markdown?: boolean;
+  tail?: ReactNode;
 }) {
   const renderMd = markdown && m.who !== "me" && typeof m.text === "string";
   return (
@@ -130,6 +132,7 @@ function TextMessage({
         ) : (
           <div className="m-text">{renderRich(m.text)}</div>
         )}
+        {tail}
       </div>
     </div>
   );
@@ -348,6 +351,7 @@ export function MessageStream({
   markdownBodies = false,
   collapsibleLogs = false,
   leadingContent,
+  renderTextTail,
 }: {
   contact: Contact;
   convo: Conversation | null | undefined;
@@ -358,6 +362,7 @@ export function MessageStream({
   markdownBodies?: boolean;
   collapsibleLogs?: boolean;
   leadingContent?: ReactNode;
+  renderTextTail?: (message: Extract<Message, { kind: "text" }>) => ReactNode;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const msgCount = convo?.messages?.length || 0;
@@ -420,7 +425,7 @@ export function MessageStream({
         lastWho = m.who;
         switch (m.kind) {
           case "text":
-            return <TextMessage key={key} m={m} grouped={grouped} markdown={markdownBodies} />;
+            return <TextMessage key={key} m={m} grouped={grouped} markdown={markdownBodies} tail={renderTextTail?.(m)} />;
           case "agentLog":
             return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
           case "diff":

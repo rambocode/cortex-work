@@ -104,36 +104,36 @@ function CatParts() {
         style={{ transformOrigin: "114px 92px" }}
         d="M114 92 q16 -2 18 -16 q1.2 -8 -5 -11"
         fill="none"
-        stroke="#d99a62"
+        stroke="var(--pet-dark, #d99a62)"
         strokeWidth="9"
         strokeLinecap="round"
       />
       <g className="pet-body" style={{ transformOrigin: "70px 92px" }}>
-        <ellipse cx="70" cy="92" rx="46" ry="26" fill="#ecb98a" stroke={OUTLINE} strokeWidth="2" />
-        <path d="M96 72 q5 7 4 14" fill="none" stroke="#d99a62" strokeWidth="4" strokeLinecap="round" />
-        <path d="M106 78 q3.6 5.4 2.6 10.4" fill="none" stroke="#d99a62" strokeWidth="4" strokeLinecap="round" />
-        <ellipse cx="62" cy="98" rx="24" ry="14" fill="#f7dfc0" />
+        <ellipse cx="70" cy="92" rx="46" ry="26" fill="var(--pet-main, #ecb98a)" stroke={OUTLINE} strokeWidth="2" />
+        <path d="M96 72 q5 7 4 14" fill="none" stroke="var(--pet-dark, #d99a62)" strokeWidth="4" strokeLinecap="round" />
+        <path d="M106 78 q3.6 5.4 2.6 10.4" fill="none" stroke="var(--pet-dark, #d99a62)" strokeWidth="4" strokeLinecap="round" />
+        <ellipse cx="62" cy="98" rx="24" ry="14" fill="var(--pet-light, #f7dfc0)" />
       </g>
       <g className="pet-paws">
-        <ellipse className="paw p1" cx="48" cy="113" rx="10" ry="6" fill="#ecb98a" stroke={OUTLINE} strokeWidth="2" />
-        <ellipse className="paw p2" cx="76" cy="113" rx="10" ry="6" fill="#ecb98a" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse className="paw p1" cx="48" cy="113" rx="10" ry="6" fill="var(--pet-main, #ecb98a)" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse className="paw p2" cx="76" cy="113" rx="10" ry="6" fill="var(--pet-main, #ecb98a)" stroke={OUTLINE} strokeWidth="2" />
       </g>
       <g className="pet-head" style={{ transformOrigin: "60px 60px" }}>
         <g className="pet-ear-l" style={{ transformOrigin: "44px 22px" }}>
-          <path d="M34 26 l-4 -19 l19 9 z" fill="#ecb98a" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
+          <path d="M34 26 l-4 -19 l19 9 z" fill="var(--pet-main, #ecb98a)" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
           <path d="M36 22 l-2.4 -9.5 l9.5 4.7 z" fill="#e88e96" />
         </g>
         <g className="pet-ear-r" style={{ transformOrigin: "76px 22px" }}>
-          <path d="M86 26 l4 -19 l-19 9 z" fill="#ecb98a" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
+          <path d="M86 26 l4 -19 l-19 9 z" fill="var(--pet-main, #ecb98a)" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
           <path d="M84 22 l2.4 -9.5 l-9.5 4.7 z" fill="#e88e96" />
         </g>
-        <ellipse cx="60" cy="46" rx="34" ry="30" fill="#ecb98a" stroke={OUTLINE} strokeWidth="2" />
-        <g stroke="#d99a62" strokeWidth="3.4" strokeLinecap="round" fill="none">
+        <ellipse cx="60" cy="46" rx="34" ry="30" fill="var(--pet-main, #ecb98a)" stroke={OUTLINE} strokeWidth="2" />
+        <g stroke="var(--pet-dark, #d99a62)" strokeWidth="3.4" strokeLinecap="round" fill="none">
           <path d="M54 17.5 q1 5 0 8" />
           <path d="M60 16.6 q1.2 5.4 0 9" />
           <path d="M66 17.5 q-1 5 0 8" />
         </g>
-        <Eyes lidFill="#ecb98a" />
+        <Eyes lidFill="var(--pet-main, #ecb98a)" />
         <path d="M57 54 l3 3 l3 -3 z" fill="#e88e96" stroke={OUTLINE} strokeWidth="1.4" strokeLinejoin="round" />
         <path className="pet-mouth" d="M60 57.5 q-1 4 -5.5 3.6 M60 57.5 q1 4 5.5 3.6" fill="none" stroke={OUTLINE} strokeWidth="1.7" strokeLinecap="round" />
         <ellipse className="pet-mouth-talk" style={{ transformOrigin: "60px 61.5px" }} cx="60" cy="61.5" rx="3.6" ry="2.8" fill="#a8503e" />
@@ -163,37 +163,37 @@ function ShibaParts() {
         style={{ transformOrigin: "110px 86px" }}
         d="M110 88 q14 -4 12 -15 q-1.6 -8.5 -10 -7 q-6 1.2 -4.6 7"
         fill="none"
-        stroke="#e3a767"
+        stroke="var(--pet-main, #e3a767)"
         strokeWidth="9"
         strokeLinecap="round"
       />
       <g className="pet-body" style={{ transformOrigin: "70px 92px" }}>
-        <ellipse cx="70" cy="92" rx="46" ry="26" fill="#e3a767" stroke={OUTLINE} strokeWidth="2" />
-        <ellipse cx="62" cy="98" rx="26" ry="15" fill="#f8efdd" />
+        <ellipse cx="70" cy="92" rx="46" ry="26" fill="var(--pet-main, #e3a767)" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse cx="62" cy="98" rx="26" ry="15" fill="var(--pet-light, #f8efdd)" />
       </g>
       <g className="pet-paws">
-        <ellipse className="paw p1" cx="48" cy="113" rx="10" ry="6" fill="#f8efdd" stroke={OUTLINE} strokeWidth="2" />
-        <ellipse className="paw p2" cx="76" cy="113" rx="10" ry="6" fill="#f8efdd" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse className="paw p1" cx="48" cy="113" rx="10" ry="6" fill="var(--pet-light, #f8efdd)" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse className="paw p2" cx="76" cy="113" rx="10" ry="6" fill="var(--pet-light, #f8efdd)" stroke={OUTLINE} strokeWidth="2" />
       </g>
       <g className="pet-head" style={{ transformOrigin: "60px 60px" }}>
         <g className="pet-ear-l" style={{ transformOrigin: "40px 22px" }}>
-          <path d="M30 28 l-2 -20 l20 8 z" fill="#e3a767" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
+          <path d="M30 28 l-2 -20 l20 8 z" fill="var(--pet-main, #e3a767)" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
           <path d="M33 23 l-1.2 -10 l10.5 4.4 z" fill="#caa18a" />
         </g>
         <g className="pet-ear-r" style={{ transformOrigin: "80px 22px" }}>
-          <path d="M90 28 l2 -20 l-20 8 z" fill="#e3a767" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
+          <path d="M90 28 l2 -20 l-20 8 z" fill="var(--pet-main, #e3a767)" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
           <path d="M87 23 l1.2 -10 l-10.5 4.4 z" fill="#caa18a" />
         </g>
         {/* 头 + 白色面颊面具 */}
-        <ellipse cx="60" cy="46" rx="34" ry="30" fill="#e3a767" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse cx="60" cy="46" rx="34" ry="30" fill="var(--pet-main, #e3a767)" stroke={OUTLINE} strokeWidth="2" />
         <path
           d="M30 52 q4 -12 14 -13 q8 -1 16 6 q8 -7 16 -6 q10 1 14 13 q-5 22 -30 22 q-25 0 -30 -22z"
-          fill="#f8efdd"
+          fill="var(--pet-light, #f8efdd)"
         />
         {/* 眉点 */}
-        <circle cx="44" cy="31" r="2.6" fill="#f8efdd" />
-        <circle cx="76" cy="31" r="2.6" fill="#f8efdd" />
-        <Eyes lidFill="#e3a767" />
+        <circle cx="44" cy="31" r="2.6" fill="var(--pet-light, #f8efdd)" />
+        <circle cx="76" cy="31" r="2.6" fill="var(--pet-light, #f8efdd)" />
+        <Eyes lidFill="var(--pet-main, #e3a767)" />
         <path d="M56.5 54 a3.5 3 0 0 1 7 0 a3.5 3 0 0 1 -7 0z" fill="#2e2a22" />
         <path className="pet-mouth" d="M60 57 q-1 4.5 -6 4 M60 57 q1 4.5 6 4" fill="none" stroke={OUTLINE} strokeWidth="1.7" strokeLinecap="round" />
         {/* 说话时露出小舌头 */}
@@ -219,30 +219,30 @@ function BunnyParts() {
         cx="112"
         cy="94"
         r="8.5"
-        fill="#fbf6ec"
+        fill="var(--pet-light, #fbf6ec)"
         stroke={OUTLINE}
         strokeWidth="2"
       />
       <g className="pet-body" style={{ transformOrigin: "70px 92px" }}>
-        <ellipse cx="70" cy="93" rx="44" ry="25" fill="#f3ece1" stroke={OUTLINE} strokeWidth="2" />
-        <ellipse cx="62" cy="99" rx="23" ry="13" fill="#fffaf2" />
+        <ellipse cx="70" cy="93" rx="44" ry="25" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse cx="62" cy="99" rx="23" ry="13" fill="var(--pet-light, #fffaf2)" />
       </g>
       <g className="pet-paws">
-        <ellipse className="paw p1" cx="48" cy="113" rx="10" ry="6" fill="#f3ece1" stroke={OUTLINE} strokeWidth="2" />
-        <ellipse className="paw p2" cx="76" cy="113" rx="10" ry="6" fill="#f3ece1" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse className="paw p1" cx="48" cy="113" rx="10" ry="6" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse className="paw p2" cx="76" cy="113" rx="10" ry="6" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" />
       </g>
       <g className="pet-head" style={{ transformOrigin: "60px 60px" }}>
         {/* 长竖耳 */}
         <g className="pet-ear-l" style={{ transformOrigin: "47px 24px" }}>
-          <ellipse cx="44" cy="9" rx="8" ry="19" fill="#f3ece1" stroke={OUTLINE} strokeWidth="2" transform="rotate(-8 44 9)" />
+          <ellipse cx="44" cy="9" rx="8" ry="19" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" transform="rotate(-8 44 9)" />
           <ellipse cx="44.5" cy="10" rx="4" ry="13" fill="#efb9c4" transform="rotate(-8 44.5 10)" />
         </g>
         <g className="pet-ear-r" style={{ transformOrigin: "73px 24px" }}>
-          <ellipse cx="76" cy="9" rx="8" ry="19" fill="#f3ece1" stroke={OUTLINE} strokeWidth="2" transform="rotate(8 76 9)" />
+          <ellipse cx="76" cy="9" rx="8" ry="19" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" transform="rotate(8 76 9)" />
           <ellipse cx="75.5" cy="10" rx="4" ry="13" fill="#efb9c4" transform="rotate(8 75.5 10)" />
         </g>
-        <ellipse cx="60" cy="47" rx="33" ry="29" fill="#f3ece1" stroke={OUTLINE} strokeWidth="2" />
-        <Eyes lidFill="#f3ece1" />
+        <ellipse cx="60" cy="47" rx="33" ry="29" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" />
+        <Eyes lidFill="var(--pet-main, #f3ece1)" />
         {/* 三瓣嘴 + 门牙 */}
         <path d="M57.5 54 l2.5 2.5 l2.5 -2.5 z" fill="#efb9c4" stroke={OUTLINE} strokeWidth="1.3" strokeLinejoin="round" />
         <path className="pet-mouth" d="M60 56.5 q-1 3.5 -5 3.2 M60 56.5 q1 3.5 5 3.2 M57.5 59.4 h5 v3.4 a2.5 2.5 0 0 1 -5 0 z" fill="#fff" stroke={OUTLINE} strokeWidth="1.4" strokeLinecap="round" />
@@ -274,20 +274,20 @@ function RobotParts() {
         style={{ transformOrigin: "108px 90px" }}
         d="M108 90 q8 -1 9 -7 q1 -5 -4 -6 q-4 -0.8 -5 3 q-0.7 3 2.4 3.6"
         fill="none"
-        stroke="#8e887a"
+        stroke="var(--pet-dark, #8e887a)"
         strokeWidth="4.5"
         strokeLinecap="round"
       />
       <g className="pet-body" style={{ transformOrigin: "70px 92px" }}>
-        <rect x="32" y="72" width="76" height="40" rx="12" fill="#cfc9bb" stroke={OUTLINE} strokeWidth="2" />
-        <rect x="42" y="80" width="56" height="24" rx="7" fill="#efe9da" />
+        <rect x="32" y="72" width="76" height="40" rx="12" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
+        <rect x="42" y="80" width="56" height="24" rx="7" fill="var(--pet-light, #efe9da)" />
         {/* 胸口指示灯 */}
         <circle cx="58" cy="92" r="3.4" fill="var(--accent, #c96442)" />
-        <rect x="66" y="89" width="18" height="6" rx="3" fill="#b8b2a3" />
+        <rect x="66" y="89" width="18" height="6" rx="3" fill="var(--pet-dark, #b8b2a3)" />
       </g>
       <g className="pet-paws">
-        <rect className="paw p1" x="40" y="108" width="18" height="9" rx="4" fill="#cfc9bb" stroke={OUTLINE} strokeWidth="2" />
-        <rect className="paw p2" x="68" y="108" width="18" height="9" rx="4" fill="#cfc9bb" stroke={OUTLINE} strokeWidth="2" />
+        <rect className="paw p1" x="40" y="108" width="18" height="9" rx="4" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
+        <rect className="paw p2" x="68" y="108" width="18" height="9" rx="4" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
       </g>
       <g className="pet-head" style={{ transformOrigin: "60px 60px" }}>
         {/* 天线(耳朵动画挂在天线上) */}
@@ -297,11 +297,11 @@ function RobotParts() {
         </g>
         {/* 侧面螺栓 */}
         <g className="pet-ear-r" style={{ transformOrigin: "60px 40px" }}>
-          <rect x="20" y="36" width="7" height="12" rx="3" fill="#b8b2a3" stroke={OUTLINE} strokeWidth="1.8" />
-          <rect x="93" y="36" width="7" height="12" rx="3" fill="#b8b2a3" stroke={OUTLINE} strokeWidth="1.8" />
+          <rect x="20" y="36" width="7" height="12" rx="3" fill="var(--pet-dark, #b8b2a3)" stroke={OUTLINE} strokeWidth="1.8" />
+          <rect x="93" y="36" width="7" height="12" rx="3" fill="var(--pet-dark, #b8b2a3)" stroke={OUTLINE} strokeWidth="1.8" />
         </g>
         {/* 方头 + 屏幕脸 */}
-        <rect x="26" y="18" width="68" height="48" rx="13" fill="#cfc9bb" stroke={OUTLINE} strokeWidth="2" />
+        <rect x="26" y="18" width="68" height="48" rx="13" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
         <rect x="33" y="25" width="54" height="34" rx="9" fill="#3a352b" />
         <Eyes lidFill="#3a352b" />
         <path className="pet-mouth" d="M52 55.5 h16" stroke="#9be8c4" strokeWidth="2.2" strokeLinecap="round" fill="none" />
@@ -338,4 +338,82 @@ export function loadPetKind(): PetKind {
     /* 忽略 */
   }
   return "cat";
+}
+
+// ── 自定义配色:由主色派生深(轮廓纹路)/浅(肚皮面板)两档,生成 CSS 变量 ──────
+// 造型 SVG 的主题色都写成 var(--pet-main|dark|light, 各自默认色),
+// 不设变量时回落到造型原配色;设置后三档统一跟随用户主色。
+
+function hexToHsl(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(hex.trim());
+  if (!m?.[1]) return null;
+  let c = m[1];
+  if (c.length === 3) c = c.replace(/./g, (ch) => ch + ch);
+  const r = parseInt(c.slice(0, 2), 16) / 255;
+  const g = parseInt(c.slice(2, 4), 16) / 255;
+  const b = parseInt(c.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l * 100];
+  const d = max - min;
+  const s = d / (l > 0.5 ? 2 - max - min : max + min);
+  let h: number;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return [h * 360, s * 100, l * 100];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  s = Math.min(100, Math.max(0, s)) / 100;
+  l = Math.min(100, Math.max(0, l)) / 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(v * 255)
+      .toString(16)
+      .padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+/** 由主色生成宠物三档配色的 CSS 变量;hex 无效时返回 null。 */
+export function petColorVars(hex: string): Record<string, string> | null {
+  const hsl = hexToHsl(hex);
+  if (!hsl) return null;
+  const [h, s, l] = hsl;
+  return {
+    "--pet-main": hslToHex(h, s, l),
+    "--pet-dark": hslToHex(h, Math.min(100, s * 1.08), l * 0.76),
+    "--pet-light": hslToHex(h, s * 0.55, l + (100 - l) * 0.62),
+  };
+}
+
+// ── 尺寸 / 颜色持久化(沿用 PET_KIND_KEY 的 views 层 localStorage 模式) ────
+
+export const PET_SIZE_KEY = "cortex_pet_size";
+export const PET_COLOR_KEY = "cortex_pet_color";
+export const PET_SIZE_MIN = 0.8;
+export const PET_SIZE_MAX = 2;
+
+export function loadPetSize(): number {
+  try {
+    const v = Number(localStorage.getItem(PET_SIZE_KEY));
+    if (Number.isFinite(v) && v >= PET_SIZE_MIN && v <= PET_SIZE_MAX) return v;
+  } catch {
+    /* 忽略 */
+  }
+  return 1;
+}
+
+export function loadPetColor(): string | null {
+  try {
+    const c = localStorage.getItem(PET_COLOR_KEY);
+    if (c && petColorVars(c)) return c;
+  } catch {
+    /* 忽略 */
+  }
+  return null;
 }

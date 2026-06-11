@@ -9,6 +9,7 @@ import { registerPushHandlers } from "./push";
 import { registerLlmHandlers } from "./llm";
 import { registerPtyHandlers } from "./pty";
 import { registerUsageHandlers } from "./usage";
+import { registerAgentProjectsHandlers } from "./agent-projects";
 
 export function registerIpcHandlers(): void {
   registerFsHandlers();
@@ -20,6 +21,7 @@ export function registerIpcHandlers(): void {
   registerLlmHandlers();
   registerPtyHandlers();
   registerUsageHandlers();
+  registerAgentProjectsHandlers();
 }
 
 export { killAllCli } from "./cli";

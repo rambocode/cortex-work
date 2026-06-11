@@ -4,6 +4,7 @@ import type { SessionMeta, TimelineEvent } from "../desktop/types";
 import {
   buildCalendarWeeks,
   buildDailyReportText,
+  buildGlobalSummaryPrompt,
   buildPushReportData,
   dayKey,
   DEFAULT_PUSH_TEMPLATE,
@@ -205,6 +206,38 @@ describe("renderPushReport", () => {
     expect(text).toContain("2 轮交互");
     expect(text).toContain("今日事项:");
     expect(text).not.toMatch(/\n{3,}/);
+  });
+});
+
+describe("buildGlobalSummaryPrompt", () => {
+  const entries = (names: string[]) =>
+    names.map((projectName) => ({
+      projectName,
+      group: groupEventsByDay([ev({ ts: T0, title: `${projectName} 的工作` })])[0]!,
+    }));
+
+  it("按项目分节,含日期与项目数", () => {
+    const prompt = buildGlobalSummaryPrompt("2026-06-10", entries(["alpha", "beta"]));
+    expect(prompt).toContain("2026-06-10");
+    expect(prompt).toContain("2 个项目");
+    expect(prompt).toContain("## 项目「alpha」");
+    expect(prompt).toContain("## 项目「beta」");
+    expect(prompt).toContain("- [run] alpha 的工作");
+  });
+
+  it("事件行带结果与文件,正文整体截断", () => {
+    const group = groupEventsByDay([
+      ev({ ts: T0, title: "修复", summary: "完成了。", files: ["a.ts"] }),
+    ])[0]!;
+    const prompt = buildGlobalSummaryPrompt("2026-06-10", [{ projectName: "demo", group }]);
+    expect(prompt).toContain("结果:完成了。");
+    expect(prompt).toContain("文件:a.ts");
+    const big = groupEventsByDay([ev({ ts: T0, title: "x".repeat(50), summary: "y".repeat(200) })])[0]!;
+    const long = buildGlobalSummaryPrompt(
+      "2026-06-10",
+      Array.from({ length: 200 }, (_, i) => ({ projectName: `p${i}`, group: big })),
+    );
+    expect(long.length).toBeLessThan(6500);
   });
 });
 

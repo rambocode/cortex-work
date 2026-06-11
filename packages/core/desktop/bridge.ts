@@ -4,7 +4,10 @@
 
 import type {
   AgentKind,
+  AgentProjectInfo,
   AgentUsage,
+  AsrTranscribeRequest,
+  AsrTranscribeResponse,
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
@@ -18,6 +21,9 @@ import type {
   PtySpawnRequest,
   PtySpawnResult,
   ReadFileResult,
+  TtsListVoicesRequest,
+  TtsSynthesizeRequest,
+  TtsVoiceOption,
 } from "./types";
 
 export interface DesktopBridge {
@@ -30,6 +36,8 @@ export interface DesktopBridge {
   gitDiff(root: string, rel: string): Promise<string>;
   readFile(path: string): Promise<ReadFileResult>;
   writeFile(path: string, content: string): Promise<void>;
+  deleteFile(path: string): Promise<void>;
+  createTaskFile(projectRoot: string, todoId: string, title: string): Promise<string>;
   validateDir(path: string): Promise<boolean>;
   // 持久化
   loadState(): Promise<PersistedState>;
@@ -52,6 +60,12 @@ export interface DesktopBridge {
   openaiComplete(req: OpenAiCompleteRequest): Promise<string>;
   // 日报推送（企微/钉钉 webhook、SMTP 邮件;主进程发请求规避 CORS）
   pushReport(target: PushTarget, payload: { subject: string; text: string }): Promise<PushResult>;
+  // TTS：OpenAI 兼容 /v1/audio/speech 合成,返回音频字节（renderer 播放）
+  ttsSynthesize(req: TtsSynthesizeRequest): Promise<ArrayBuffer>;
+  // TTS：按模型发现可选音色；端点不支持时返回空数组。
+  listTtsVoices(req: TtsListVoicesRequest): Promise<TtsVoiceOption[]>;
+  // ASR：OpenAI 兼容 /v1/audio/transcriptions 转写,返回文本。
+  asrTranscribe(req: AsrTranscribeRequest): Promise<AsrTranscribeResponse>;
   killCli(runId: string): Promise<void>;
   onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;
   onCliExit(cb: (exit: CliExitEvent) => void): () => void;
@@ -64,6 +78,8 @@ export interface DesktopBridge {
   ptyCwd(id: string): Promise<string | null>;
   // Agent 用量统计（Claude/Codex 本地会话日志 + Claude 官方限额接口）
   agentUsage(): Promise<AgentUsage>;
+  // 扫描本机 agent 会话日志,聚合系统上所有 agent 项目（首页「Agent 项目」）
+  scanAgentProjects(): Promise<AgentProjectInfo[]>;
   onPtyData(cb: (id: string, data: string) => void): () => void;
   onPtyExit(cb: (id: string, exitCode: number) => void): () => void;
 }

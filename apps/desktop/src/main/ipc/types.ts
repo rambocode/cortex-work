@@ -17,6 +17,18 @@ export interface ProjectMeta {
   addedAt: number;
 }
 
+export type TodoStatus = "open" | "done";
+
+export interface TodoMeta {
+  id: string;
+  projectId: string;
+  title: string;
+  status: TodoStatus;
+  detailPath: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface SessionMeta {
   id: string;
   projectId: string;
@@ -42,6 +54,7 @@ export interface PersistedState {
   projects: ProjectMeta[];
   promptRoot?: string;
   sessions: SessionMeta[];
+  todos?: TodoMeta[];
 }
 
 export interface ReadFileResult {
@@ -93,6 +106,14 @@ export interface AgentUsage {
   } | null;
 }
 
+// 系统扫描发现的 agent 项目（来自 ~/.claude/projects 与 ~/.codex/sessions 的会话日志）。
+export interface AgentProjectInfo {
+  path: string; // 项目真实绝对路径（从会话日志 cwd 反解）
+  name: string; // basename
+  agents: AgentKind[];
+  lastActive: number; // epoch ms，取会话日志文件 mtime 最大值
+}
+
 export type CliStreamEvent =
   | { type: "init"; sessionId: string }
   | { type: "text"; delta: string }
@@ -104,4 +125,47 @@ export interface CliExitEvent {
   sessionId?: string;
   code: number | null;
   error?: string;
+}
+
+// ── TTS（与 core/desktop/types.ts 镜像） ─────────────────────────────────
+
+export interface TtsSynthesizeRequest {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+  voice: string;
+  speed?: number;
+  language?: string;
+  text: string;
+}
+
+export interface TtsListVoicesRequest {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+}
+
+export interface TtsVoiceOption {
+  id: string;
+  label?: string;
+  locale?: string;
+}
+
+// ── ASR（与 core/desktop/types.ts 镜像） ─────────────────────────────────
+
+export interface AsrTranscribeRequest {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+  language?: string;
+  fileName: string;
+  mimeType: string;
+  audio: ArrayBuffer;
+}
+
+export interface AsrTranscribeResponse {
+  text: string;
+  language?: string | null;
+  duration?: number | null;
+  segments?: Record<string, unknown>[] | null;
 }

@@ -3,7 +3,7 @@
 //   宠物  → 4 个造型卡片(实时预览,点击切换)
 //   外观  → 原右下角 Tweaks 迁移:布局密度 / 品牌色调 / 侧栏样式
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
 import { Toggle } from "@cortex-work/ui/controls/Toggle";
@@ -12,6 +12,8 @@ import {
   AGENT_MODELS,
   DEFAULT_MODEL,
   DEFAULT_PUSH_TEMPLATE,
+  speakText,
+  stopSpeaking,
   useCortexUIStore,
   useDesktopBridge,
   usePersonalStore,
@@ -24,10 +26,20 @@ import type {
   EmailPushConfig,
   PromptNode,
   SummaryModelConfig,
+  TtsEngineConfig,
+  TtsVoiceOption,
   WecomPushConfig,
 } from "@cortex-work/core";
 import type { Density, Palette, SidebarMode } from "@cortex-work/core/types";
-import { PET_DESIGNS, PET_KIND_KEY } from "../pet/designs";
+import {
+  PET_COLOR_KEY,
+  PET_DESIGNS,
+  PET_KIND_KEY,
+  PET_SIZE_KEY,
+  PET_SIZE_MAX,
+  PET_SIZE_MIN,
+  petColorVars,
+} from "../pet/designs";
 
 const PALETTES: PaletteOption[] = [
   { id: "clay", name: "Clay", colors: ["#c96442", "#f3e7df", "#1a1916"] },
@@ -38,18 +50,26 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
-type SettingsTab = "pet" | "appearance" | "timeline" | "push";
+type SettingsTab = "pet" | "appearance" | "timeline" | "push" | "voice";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
   { id: "appearance", label: "外观", icon: <Icon.Image size={14} /> },
   { id: "timeline", label: "时间线", icon: <Icon.Clock size={14} /> },
   { id: "push", label: "推送", icon: <Icon.Send size={14} /> },
+  { id: "voice", label: "语音", icon: <Icon.Mic size={14} /> },
 ];
+
+// 颜色预设(主色;深/浅两档由 petColorVars 自动派生)。
+const PET_COLOR_PRESETS = ["#ecb98a", "#e8a3b2", "#a3c4e8", "#9fc7a8", "#c9b6e8", "#9a958a"];
 
 function PetSection() {
   const petKind = usePetStore((s) => s.kind);
   const setPetKind = usePetStore((s) => s.setKind);
+  const petSize = usePetStore((s) => s.size);
+  const setPetSize = usePetStore((s) => s.setSize);
+  const petColor = usePetStore((s) => s.color);
+  const setPetColor = usePetStore((s) => s.setColor);
   const pick = (k: PetKind) => {
     setPetKind(k);
     try {
@@ -58,11 +78,29 @@ function PetSection() {
       /* 忽略 */
     }
   };
+  const pickSize = (v: number) => {
+    setPetSize(v);
+    try {
+      localStorage.setItem(PET_SIZE_KEY, String(v));
+    } catch {
+      /* 忽略 */
+    }
+  };
+  const pickColor = (c: string | null) => {
+    setPetColor(c);
+    try {
+      if (c) localStorage.setItem(PET_COLOR_KEY, c);
+      else localStorage.removeItem(PET_COLOR_KEY);
+    } catch {
+      /* 忽略 */
+    }
+  };
+  const colorVars = petColor ? petColorVars(petColor) : null;
   return (
     <>
       <div className="pw-dlg-title">桌面宠物</div>
       <div className="pw-dlg-desc">选择陪伴你工作的小伙伴,它会随输入、思考、执行工具等状态切换动画,可在界面上随意拖动。</div>
-      <div className="pw-pet-grid">
+      <div className="pw-pet-grid" style={colorVars as React.CSSProperties | undefined}>
         {PET_KINDS.map((k) => {
           const d = PET_DESIGNS[k];
           const Parts = d.Parts;
@@ -78,6 +116,50 @@ function PetSection() {
             </button>
           );
         })}
+      </div>
+
+      <div className="twk-sect">尺寸 · Size</div>
+      <div className="pw-pet-size">
+        <input
+          type="range"
+          min={PET_SIZE_MIN}
+          max={PET_SIZE_MAX}
+          step={0.05}
+          value={petSize}
+          onChange={(e) => pickSize(Number(e.target.value))}
+          aria-label="宠物尺寸"
+        />
+        <span className="pw-pet-size-val">{Math.round(petSize * 100)}%</span>
+        {petSize !== 1 ? (
+          <button className="pw-pet-reset" onClick={() => pickSize(1)}>
+            重置
+          </button>
+        ) : null}
+      </div>
+
+      <div className="twk-sect">颜色 · Color</div>
+      <div className="pw-set-hint">选择主色后,毛色深浅会自动派生;「默认」恢复各造型的原始配色。</div>
+      <div className="pw-pet-colors">
+        <button
+          className={`pw-pet-color-chip is-default ${petColor ? "" : "is-active"}`}
+          title="默认配色"
+          onClick={() => pickColor(null)}
+        >
+          默认
+        </button>
+        {PET_COLOR_PRESETS.map((c) => (
+          <button
+            key={c}
+            className={`pw-pet-color-chip ${petColor?.toLowerCase() === c ? "is-active" : ""}`}
+            style={{ background: c }}
+            title={c}
+            onClick={() => pickColor(c)}
+          />
+        ))}
+        <label className="pw-pet-color-chip is-custom" title="自定义颜色">
+          <input type="color" value={petColor ?? "#ecb98a"} onChange={(e) => pickColor(e.target.value)} />
+          <Icon.Plus size={12} />
+        </label>
       </div>
     </>
   );
@@ -393,6 +475,229 @@ function PushSection() {
   );
 }
 
+// ── 语音 TTS ──────────────────────────────────────────────────────────────
+
+const SPEECH_RATES = [
+  { label: "0.8×", value: "0.8" },
+  { label: "1×（默认）", value: "1" },
+  { label: "1.2×", value: "1.2" },
+  { label: "1.5×", value: "1.5" },
+];
+
+const FALLBACK_TTS_VOICES: TtsVoiceOption[] = [
+  { id: "alloy" },
+  { id: "ash" },
+  { id: "ballad" },
+  { id: "coral" },
+  { id: "echo" },
+  { id: "fable" },
+  { id: "nova" },
+  { id: "onyx" },
+  { id: "sage" },
+  { id: "shimmer" },
+];
+
+const TTS_LANGUAGES = [
+  { label: "中文 zh", value: "zh" },
+  { label: "中文 zh-CN", value: "zh-CN" },
+  { label: "English en", value: "en" },
+  { label: "日本語 ja", value: "ja" },
+  { label: "한국어 ko", value: "ko" },
+];
+
+function VoiceSection() {
+  const bridge = useDesktopBridge();
+  const tts = usePersonalStore((s) => s.ttsSettings);
+  const setTts = usePersonalStore((s) => s.setTtsSettings);
+  const engine = tts.engine;
+  const setEngine = (e: TtsEngineConfig) => setTts({ engine: e });
+  const [testing, setTesting] = useState(false);
+  const [customVoices, setCustomVoices] = useState<TtsVoiceOption[]>([]);
+  const [loadingVoices, setLoadingVoices] = useState(false);
+
+  // 系统语音列表（speechSynthesis 异步加载,中文音色排前）。
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  useEffect(() => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    const load = () => {
+      const list = [...synth.getVoices()];
+      list.sort((a, b) => Number(b.lang.startsWith("zh")) - Number(a.lang.startsWith("zh")));
+      setVoices(list);
+    };
+    load();
+    synth.addEventListener("voiceschanged", load);
+    return () => synth.removeEventListener("voiceschanged", load);
+  }, []);
+  const voiceOptions = useMemo(
+    () => [
+      { label: "系统默认", value: "" },
+      ...voices.map((v) => ({ label: `${v.name}（${v.lang}）`, value: v.name })),
+    ],
+    [voices],
+  );
+
+  useEffect(() => {
+    if (engine.kind !== "openai" || !bridge || !engine.baseUrl || !engine.model) {
+      setCustomVoices([]);
+      setLoadingVoices(false);
+      return;
+    }
+    let alive = true;
+    setLoadingVoices(true);
+    bridge
+      .listTtsVoices({ baseUrl: engine.baseUrl, apiKey: engine.apiKey, model: engine.model })
+      .then((list) => {
+        if (alive) setCustomVoices(list);
+      })
+      .catch(() => {
+        if (alive) setCustomVoices([]);
+      })
+      .finally(() => {
+        if (alive) setLoadingVoices(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [bridge, engine]);
+
+  const customVoiceOptions = useMemo(() => {
+    if (engine.kind !== "openai") return [];
+    const source = customVoices.length > 0 ? customVoices : FALLBACK_TTS_VOICES;
+    const seen = new Set<string>();
+    const options: { label: string; value: string }[] = [];
+    for (const v of source) {
+      if (!v.id || seen.has(v.id)) continue;
+      seen.add(v.id);
+      const suffix = v.locale ? ` · ${v.locale}` : "";
+      options.push({ value: v.id, label: `${v.label ?? v.id}${suffix}` });
+    }
+    if (engine.voice && !seen.has(engine.voice)) options.unshift({ value: engine.voice, label: `${engine.voice}（当前）` });
+    return options;
+  }, [customVoices, engine]);
+
+  const test = async () => {
+    if (testing) return;
+    setTesting(true);
+    try {
+      await speakText(bridge, tts, "你好,这是 Cortex Desktop 的语音测试。");
+    } catch {
+      // 端点不可用等,静默（按钮恢复即提示完成）
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="pw-dlg-title">语音（TTS）</div>
+      <div className="pw-dlg-desc">把 Agent / 大模型输出的内容转成语音。开启自动朗读后,每轮回复完成时朗读（代码块等会自动略过,新回复打断上一条）。</div>
+
+      <Toggle label="自动朗读 Agent 回复" value={tts.autoSpeak} onChange={(v) => setTts({ autoSpeak: v })} />
+
+      <div className="twk-sect">语音引擎</div>
+      <SegmentedRadio
+        value={engine.kind === "system" ? "系统语音" : "自定义模型"}
+        options={["系统语音", "自定义模型"]}
+        onChange={(v) =>
+          setEngine(
+            v === "系统语音"
+              ? { kind: "system" }
+              : { kind: "openai", baseUrl: "http://localhost:8880", apiKey: "", model: "tts-1", voice: "alloy", language: "zh" },
+          )
+        }
+      />
+      {engine.kind === "system" ? (
+        <div className="pw-set-group">
+          <div className="pw-set-hint">使用本机系统语音库,无需联网与配置。</div>
+          <div className="pw-set-row2">
+            <Select
+              label="音色"
+              value={engine.voice ?? ""}
+              options={voiceOptions}
+              onChange={(v) => setEngine({ ...engine, voice: v || undefined })}
+            />
+            <Select
+              label="语速"
+              value={String(engine.rate ?? 1)}
+              options={SPEECH_RATES}
+              onChange={(v) => setEngine({ ...engine, rate: Number(v) })}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="pw-set-group">
+          <div className="pw-set-hint">
+            OpenAI 兼容 /v1/audio/speech 接口（OpenAI TTS、LocalAI、Kokoro-FastAPI 等本地部署均可）。
+          </div>
+          <Field
+            label="Base URL"
+            value={engine.baseUrl}
+            placeholder="http://localhost:8880"
+            onChange={(v) => setEngine({ ...engine, baseUrl: v })}
+          />
+          <div className="pw-set-row2">
+            <Field label="模型名" value={engine.model} placeholder="tts-1" onChange={(v) => setEngine({ ...engine, model: v })} />
+            <Select
+              label={loadingVoices ? "音色 voice（加载中）" : customVoices.length > 0 ? "音色 voice（模型返回）" : "音色 voice（常用）"}
+              value={engine.voice}
+              options={customVoiceOptions}
+              onChange={(v) => setEngine({ ...engine, voice: v })}
+            />
+          </div>
+          <Field
+            label="自定义 voice"
+            value={engine.voice}
+            placeholder="alloy"
+            onChange={(v) => setEngine({ ...engine, voice: v })}
+          />
+          <div className="pw-set-row2">
+            <Field
+              label="API Key（可选）"
+              value={engine.apiKey ?? ""}
+              type="password"
+              onChange={(v) => setEngine({ ...engine, apiKey: v })}
+            />
+            <Select
+              label="语言 language"
+              value={engine.language ?? "zh"}
+              options={TTS_LANGUAGES}
+              onChange={(v) => setEngine({ ...engine, language: v })}
+            />
+          </div>
+          <div className="pw-set-row2">
+            <Field
+              label="自定义 language"
+              value={engine.language ?? "zh"}
+              placeholder="zh"
+              onChange={(v) => setEngine({ ...engine, language: v || undefined })}
+            />
+            <Select
+              label="语速"
+              value={String(engine.speed ?? 1)}
+              options={SPEECH_RATES}
+              onChange={(v) => setEngine({ ...engine, speed: Number(v) })}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="pw-set-group">
+        <div>
+          <button className="pw-tl-gen" disabled={testing} onClick={() => void test()}>
+            <Icon.Mic size={12} />
+            {testing ? "播放中…" : "试听"}
+          </button>
+          <button className="pw-tl-gen" style={{ marginLeft: 8 }} onClick={() => stopSpeaking()}>
+            <Icon.Stop size={12} />
+            停止
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<SettingsTab>("pet");
 
@@ -430,8 +735,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <AppearanceSection />
           ) : tab === "timeline" ? (
             <TimelineSection />
-          ) : (
+          ) : tab === "push" ? (
             <PushSection />
+          ) : (
+            <VoiceSection />
           )}
         </div>
       </div>

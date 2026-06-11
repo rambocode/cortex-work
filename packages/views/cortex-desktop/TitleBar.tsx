@@ -147,7 +147,7 @@ function PersonalPanelControls({
   const rightView = usePersonalStore((s) => s.rightView);
   const setRightView = usePersonalStore((s) => s.setRightView);
 
-  const pick = (view: "files" | "skills") => {
+  const pick = (view: "files" | "skills" | "todos") => {
     setRightView(view);
     if (!rightOpen) onToggleRight();
     setMenuOpen(false);
@@ -183,6 +183,11 @@ function PersonalPanelControls({
               <Icon.Sparkle size={14} />
               <span>Skills</span>
               {rightOpen && rightView === "skills" ? <Icon.Check size={13} /> : null}
+            </button>
+            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("todos")}>
+              <Icon.Task size={14} />
+              <span>Todos</span>
+              {rightOpen && rightView === "todos" ? <Icon.Check size={13} /> : null}
             </button>
             <button
               className="pw-tb-menu-item"

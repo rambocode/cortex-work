@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePetStore } from "@cortex-work/core";
-import { PET_DESIGNS, loadPetKind } from "./designs";
+import { PET_DESIGNS, loadPetColor, loadPetKind, loadPetSize, petColorVars } from "./designs";
 
 const STATE_LABEL: Record<string, (name: string) => string> = {
   idle: (n) => `${n}在待命`,
@@ -27,39 +27,45 @@ const POS_KEY = "cortex_pet_pos";
 const PET_W = 110;
 const PET_H = 100;
 
-function loadPos(): { x: number; y: number } | null {
+function loadPos(size: number): { x: number; y: number } | null {
   try {
     const raw = localStorage.getItem(POS_KEY);
     if (!raw) return null;
     const p = JSON.parse(raw);
-    if (typeof p?.x === "number" && typeof p?.y === "number") return clampPos(p);
+    if (typeof p?.x === "number" && typeof p?.y === "number") return clampPos(p, size);
   } catch {
     /* 忽略 */
   }
   return null;
 }
 
-function clampPos(p: { x: number; y: number }): { x: number; y: number } {
+function clampPos(p: { x: number; y: number }, size: number): { x: number; y: number } {
   return {
-    x: Math.min(Math.max(0, p.x), window.innerWidth - PET_W),
-    y: Math.min(Math.max(0, p.y), window.innerHeight - PET_H),
+    x: Math.min(Math.max(0, p.x), window.innerWidth - PET_W * size),
+    y: Math.min(Math.max(0, p.y), window.innerHeight - PET_H * size),
   };
 }
 
 export function Pet() {
   const state = usePetStore((s) => s.state);
   const kind = usePetStore((s) => s.kind);
+  const size = usePetStore((s) => s.size);
+  const color = usePetStore((s) => s.color);
   const set = usePetStore((s) => s.set);
   const setKind = usePetStore((s) => s.setKind);
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(loadPos);
+  const setSize = usePetStore((s) => s.setSize);
+  const setColor = usePetStore((s) => s.setColor);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => loadPos(loadPetSize()));
   const [tilt, setTilt] = useState<{ rx: number; ry: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // 启动时恢复上次选择的造型。
+  // 启动时恢复上次选择的造型 / 尺寸 / 配色。
   useEffect(() => {
     setKind(loadPetKind());
-  }, [setKind]);
+    setSize(loadPetSize());
+    setColor(loadPetColor());
+  }, [setKind, setSize, setColor]);
 
   // 节拍器:处理超时衰减。
   useEffect(() => {
@@ -94,7 +100,7 @@ export function Pet() {
       if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
       if (d.moved) {
         setTilt(null);
-        setPos(clampPos({ x: d.origX + dx, y: d.origY + dy }));
+        setPos(clampPos({ x: d.origX + dx, y: d.origY + dy }, size));
       }
       return;
     }
@@ -117,7 +123,7 @@ export function Pet() {
     }
     if (d?.moved) {
       // 用事件坐标重算终点（不读 rect:React 可能尚未重渲,会拿到旧位置）。
-      const final = clampPos({ x: d.origX + (e.clientX - d.startX), y: d.origY + (e.clientY - d.startY) });
+      const final = clampPos({ x: d.origX + (e.clientX - d.startX), y: d.origY + (e.clientY - d.startY) }, size);
       setPos(final);
       try {
         localStorage.setItem(POS_KEY, JSON.stringify(final));
@@ -129,15 +135,21 @@ export function Pet() {
     set(state === "happy" ? "idle" : "happy");
   };
 
-  // 窗口缩放时夹回可视区。
+  // 窗口缩放或宠物尺寸变化时夹回可视区。
   useEffect(() => {
-    const onResize = () => setPos((p) => (p ? clampPos(p) : p));
+    const onResize = () => setPos((p) => (p ? clampPos(p, size) : p));
+    onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
+  }, [size]);
 
   const design = PET_DESIGNS[kind];
   const Parts = design.Parts;
+  // 自定义配色变量(未自定义时为空,SVG 回落到造型默认色);--pet-scale 供阴影等 CSS 跟随。
+  const styleVars = {
+    "--pet-scale": size,
+    ...(color ? petColorVars(color) : null),
+  } as React.CSSProperties;
 
   return (
     <div
@@ -145,7 +157,7 @@ export function Pet() {
       className={`pet ${dragRef.current?.moved ? "is-dragging" : ""}`}
       data-state={state}
       title={STATE_LABEL[state]?.(design.name)}
-      style={pos ? { left: pos.x, top: pos.y, right: "auto", bottom: "auto" } : undefined}
+      style={{ ...styleVars, ...(pos ? { left: pos.x, top: pos.y, right: "auto", bottom: "auto" } : null) }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -155,7 +167,7 @@ export function Pet() {
         className="pet-3d"
         style={tilt ? { transform: `rotateX(${tilt.rx.toFixed(1)}deg) rotateY(${tilt.ry.toFixed(1)}deg)` } : undefined}
       >
-        <svg viewBox="0 0 140 120" width="104" height="89" aria-hidden="true">
+        <svg viewBox="0 0 140 120" width={Math.round(104 * size)} height={Math.round(89 * size)} aria-hidden="true">
           <Parts />
         </svg>
         <div className="pet-shadow" />

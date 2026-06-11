@@ -4,8 +4,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { AGENT_MODELS, useDesktopBridge, usePetStore } from "@cortex-work/core";
-import type { PromptAttachment, SessionMeta } from "@cortex-work/core";
+import type { PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
+import { TODO_DRAG_MIME } from "./TodosView";
 
 let attachSeq = 0;
 
@@ -13,6 +14,26 @@ let attachSeq = 0;
 const SLASH_COMMANDS: { cmd: string; desc: string }[] = [
   { cmd: "/clear", desc: "隐藏当前历史记录（可展开）" },
 ];
+
+const DEFAULT_ASR = {
+  baseUrl: "http://127.0.0.1:8000",
+  model: "Qwen3-ASR-1.7B-bf16",
+  language: "zh",
+};
+
+function pickRecordingMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  for (const type of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return "";
+}
+
+function extensionForMimeType(mimeType: string): string {
+  if (mimeType.includes("mp4")) return "m4a";
+  if (mimeType.includes("webm")) return "webm";
+  return "wav";
+}
 
 export function PersonalComposer({
   session,
@@ -25,7 +46,7 @@ export function PersonalComposer({
 }: {
   session: SessionMeta;
   running: boolean;
-  onSend: (text: string, attachments: PromptAttachment[]) => void;
+  onSend: (text: string, attachments: PersonalAttachment[]) => void;
   onStop: () => void;
   onChangeModel: (model: string) => void;
   onToggleSkills: () => void;
@@ -33,9 +54,14 @@ export function PersonalComposer({
 }) {
   const bridge = useDesktopBridge();
   const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
+  const [attachments, setAttachments] = useState<PersonalAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
 
   const models = AGENT_MODELS[session.agent];
   const useOwnSkills = session.useOwnSkills !== false;
@@ -51,6 +77,104 @@ export function PersonalComposer({
     onSend(text, attachments);
     setText("");
     setAttachments([]);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  const appendTranscript = (transcript: string) => {
+    setText((prev) => {
+      const clean = transcript.trim();
+      if (!prev.trim()) return clean;
+      return `${prev}${prev.endsWith("\n") ? "" : "\n"}${clean}`;
+    });
+    requestAnimationFrame(() => taRef.current?.focus());
+  };
+
+  const appendTodoInstruction = (title: string) => {
+    const instruction = `请根据拖入的 Todo「${title}」继续实现这个需求，先理解详情，再在当前项目中完成实现、验证并汇报结果。`;
+    setText((prev) => {
+      if (!prev.trim()) return instruction;
+      if (prev.includes(instruction)) return prev;
+      return `${prev}${prev.endsWith("\n") ? "" : "\n"}${instruction}`;
+    });
+    requestAnimationFrame(() => taRef.current?.focus());
+  };
+
+  const stopRecording = () => {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
+  };
+
+  const startRecording = async () => {
+    if (!bridge) {
+      onToast("当前环境不支持本地 ASR");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      onToast("当前浏览器不支持录音");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const mimeType = pickRecordingMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const stoppedStream = streamRef.current;
+        stoppedStream?.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        recorderRef.current = null;
+        setRecording(false);
+        const type = recorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        chunksRef.current = [];
+        if (blob.size === 0) {
+          onToast("没有录到音频");
+          return;
+        }
+        setTranscribing(true);
+        blob
+          .arrayBuffer()
+          .then((audio) =>
+            bridge.asrTranscribe({
+              ...DEFAULT_ASR,
+              fileName: `recording.${extensionForMimeType(type)}`,
+              mimeType: type,
+              audio,
+            }),
+          )
+          .then((result) => {
+            appendTranscript(result.text);
+          })
+          .catch((err) => {
+            onToast(`转写失败：${err instanceof Error ? err.message : String(err)}`);
+          })
+          .finally(() => setTranscribing(false));
+      };
+      recorder.start();
+      setRecording(true);
+    } catch (err) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      recorderRef.current = null;
+      setRecording(false);
+      onToast(`录音失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const toggleRecording = () => {
+    if (running || transcribing) return;
+    if (recording) stopRecording();
+    else void startRecording();
   };
 
   // slash 命令:输入 "/" 前缀即时匹配;唯一匹配时 Tab 直接执行。
@@ -78,17 +202,35 @@ export function PersonalComposer({
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const raw = e.dataTransfer.getData(PROMPT_DRAG_MIME);
-    if (!raw || !bridge) return;
+    const rawPrompt = e.dataTransfer.getData(PROMPT_DRAG_MIME);
+    const rawTodo = e.dataTransfer.getData(TODO_DRAG_MIME);
+    if ((!rawPrompt && !rawTodo) || !bridge) return;
     try {
-      const { path, name } = JSON.parse(raw) as { path: string; name: string };
+      if (rawTodo) {
+        const { id, detailPath, title, projectName } = JSON.parse(rawTodo) as {
+          id: string;
+          detailPath: string;
+          title: string;
+          projectName: string;
+        };
+        if (attachments.some((a) => a.kind === "todo" && a.id === id)) {
+          appendTodoInstruction(title);
+          return;
+        }
+        const { content, truncated } = await bridge.readFile(detailPath);
+        if (truncated) onToast(`${title} 过大,已截断注入`);
+        setAttachments((prev) => [...prev, { id, name: title, path: detailPath, kind: "todo", projectName, content }]);
+        appendTodoInstruction(title);
+        return;
+      }
+      const { path, name } = JSON.parse(rawPrompt) as { path: string; name: string };
       if (attachments.some((a) => a.path === path)) return;
       const { content, truncated } = await bridge.readFile(path);
       if (truncated) onToast(`${name} 过大,已截断注入`);
       attachSeq += 1;
       setAttachments((prev) => [...prev, { id: `pa-${attachSeq}`, name, path, kind: "prompt", content }]);
     } catch (err) {
-      onToast(`读取 Prompt 失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(`读取附件失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -97,7 +239,7 @@ export function PersonalComposer({
       <div
         className={`composer ${dragOver ? "pw-drop-target" : ""}`}
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes(PROMPT_DRAG_MIME)) {
+          if (e.dataTransfer.types.includes(PROMPT_DRAG_MIME) || e.dataTransfer.types.includes(TODO_DRAG_MIME)) {
             e.preventDefault();
             e.dataTransfer.dropEffect = "copy";
             setDragOver(true);
@@ -110,8 +252,14 @@ export function PersonalComposer({
           <div className="attach-row">
             {attachments.map((a) => (
               <span key={a.id} className="attach-pill">
-                <span className="ap-thumb" style={{ background: "linear-gradient(135deg,#c96442,#a84e30)" }}>
-                  SK
+                <span
+                  className="ap-thumb"
+                  style={{
+                    background:
+                      a.kind === "todo" ? "linear-gradient(135deg,#4f7f62,#2d5c45)" : "linear-gradient(135deg,#c96442,#a84e30)",
+                  }}
+                >
+                  {a.kind === "todo" ? "TD" : "SK"}
                 </span>
                 <span>{a.name}</span>
                 <button
@@ -171,6 +319,14 @@ export function PersonalComposer({
           >
             <Icon.Sparkle size={13} />
             Skills {useOwnSkills ? "开" : "关"}
+          </button>
+          <button
+            className={`pill pw-mic-btn ${recording ? "is-recording" : ""} ${transcribing ? "is-busy" : ""}`}
+            onClick={toggleRecording}
+            disabled={running || transcribing}
+            title={recording ? "停止录音并转写" : transcribing ? "正在转写" : "语音输入"}
+          >
+            {transcribing ? <Icon.Clock size={13} /> : <Icon.Mic size={13} />}
           </button>
           <div className="spacer" />
           <span className="pill pw-model-pill">

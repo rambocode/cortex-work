@@ -18,15 +18,25 @@ export type PetKind = "cat" | "shiba" | "bunny" | "robot";
 export interface PetStore {
   state: PetState;
   kind: PetKind;
+  /** 显示缩放(1 = 默认,范围约 0.8–2;持久化由 views 层负责)。 */
+  size: number;
+  /** 自定义主色(hex);null 表示使用造型默认配色。 */
+  color: string | null;
   lastActivity: number;
   set: (s: PetState) => void;
   setKind: (k: PetKind) => void;
+  setSize: (size: number) => void;
+  setColor: (color: string | null) => void;
 }
 
 export const usePetStore = create<PetStore>((set) => ({
   state: "idle",
   kind: "cat",
+  size: 1,
+  color: null,
   lastActivity: Date.now(),
   set: (s) => set({ state: s, lastActivity: Date.now() }),
   setKind: (k) => set({ kind: k }),
+  setSize: (size) => set({ size }),
+  setColor: (color) => set({ color }),
 }));

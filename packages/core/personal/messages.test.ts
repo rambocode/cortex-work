@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionMeta } from "../desktop/types";
-import { agentSessionPatch, createHiddenHistory, sessionResumeId, splitPersonalMessages } from "./messages";
+import { agentSessionPatch, buildAttachmentSystemPrompt, createHiddenHistory, sessionResumeId, splitPersonalMessages } from "./messages";
 import type { Message } from "../types";
 
 const baseSession: SessionMeta = {
@@ -73,5 +73,35 @@ describe("personal hidden history helpers", () => {
 
   it("创建隐藏游标时记录当前完整消息尾部", () => {
     expect(createHiddenHistory(messages, 1234)).toEqual({ count: 4, throughUid: "m4", hiddenAt: 1234 });
+  });
+});
+
+describe("personal attachment system prompt", () => {
+  it("把 prompt 和 todo 附件序列化为不同上下文块", () => {
+    expect(
+      buildAttachmentSystemPrompt([
+        { id: "p1", name: "review.md", path: "/prompts/review.md", kind: "prompt", content: "Review rules" },
+        {
+          id: "t1",
+          name: "实现续期",
+          path: "/code/app/tasks/t1.md",
+          kind: "todo",
+          projectName: "app",
+          content: "## 验收\n- 测试通过",
+        },
+      ]),
+    ).toBe(
+      [
+        '<skill name="review.md">',
+        "Review rules",
+        "</skill>",
+        "",
+        '<todo name="实现续期" project="app">',
+        "# 实现续期",
+        "",
+        "## 验收\n- 测试通过",
+        "</todo>",
+      ].join("\n"),
+    );
   });
 });

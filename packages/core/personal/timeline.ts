@@ -265,6 +265,33 @@ export function recordTimelineEvent(
 
 // ── Hooks ─────────────────────────────────────────────────────────────────
 
+// 读取项目时间线文件,首次（无 backfilledAt）自动回填历史会话。
+// 单项目 useProjectTimeline 与首页 useAllProjectsTimeline 共用（同 queryKey 必须
+// 同 queryFn,否则缓存竞态）。
+export async function loadTimelineData(bridge: DesktopBridge, projectId: string): Promise<TimelineFileData> {
+  const existing = parseFile(await bridge.loadTimeline(projectId)) ?? emptyFile();
+  if (existing.backfilledAt) return existing;
+  // 首次打开：回填历史（旧 chat JSON → run 事件）,与已记录的新事件合并。
+  const list = usePersonalStore.getState().sessions.filter((s) => s.projectId === projectId);
+  const chats: Record<string, Message[]> = {};
+  for (const sess of list) {
+    try {
+      chats[sess.id] = (await bridge.loadChat(sess.id)) as Message[];
+    } catch {
+      chats[sess.id] = [];
+    }
+  }
+  const liveIds = new Set(existing.events.map((e) => e.id));
+  const backfilled = deriveBackfillEvents(list, projectId, chats).filter((e) => !liveIds.has(e.id));
+  const merged: TimelineFileData = {
+    version: 1,
+    backfilledAt: Date.now(),
+    events: [...backfilled, ...existing.events],
+  };
+  await bridge.saveTimeline(projectId, merged);
+  return merged;
+}
+
 // 加载项目时间线；首次（无 backfilledAt）自动回填历史会话。
 export function useProjectTimeline(project: ProjectMeta | undefined): {
   events: TimelineEvent[];
@@ -279,30 +306,7 @@ export function useProjectTimeline(project: ProjectMeta | undefined): {
     enabled: !!bridge && !!projectId,
     staleTime: Infinity,
     gcTime: Infinity,
-    queryFn: async () => {
-      if (!bridge || !projectId) return emptyFile();
-      const existing = parseFile(await bridge.loadTimeline(projectId)) ?? emptyFile();
-      if (existing.backfilledAt) return existing;
-      // 首次打开：回填历史（旧 chat JSON → run 事件）,与已记录的新事件合并。
-      const list = usePersonalStore.getState().sessions.filter((s) => s.projectId === projectId);
-      const chats: Record<string, Message[]> = {};
-      for (const sess of list) {
-        try {
-          chats[sess.id] = (await bridge.loadChat(sess.id)) as Message[];
-        } catch {
-          chats[sess.id] = [];
-        }
-      }
-      const liveIds = new Set(existing.events.map((e) => e.id));
-      const backfilled = deriveBackfillEvents(list, projectId, chats).filter((e) => !liveIds.has(e.id));
-      const merged: TimelineFileData = {
-        version: 1,
-        backfilledAt: Date.now(),
-        events: [...backfilled, ...existing.events],
-      };
-      await bridge.saveTimeline(projectId, merged);
-      return merged;
-    },
+    queryFn: () => (bridge && projectId ? loadTimelineData(bridge, projectId) : Promise.resolve(emptyFile())),
   });
 
   // git 提交按需拉取（非 git 仓库为空）;失败不影响主时间线。
@@ -332,6 +336,95 @@ export function buildSummaryPrompt(projectName: string, group: DayGroup): string
     `请用中文写一段 3-5 句的工作日报,概括做了什么、改动了哪些方面,直接输出正文,不要标题和列表:\n\n` +
     lines.join("\n").slice(0, 4000)
   );
+}
+
+// ── 全局（跨项目）日总结 ──────────────────────────────────────────────────
+// 全局日报落盘在 timeline/<GLOBAL_TIMELINE_ID>.json,复用项目时间线的读写 IPC。
+// 该 id 通过主进程 SAFE_ID 校验,且与真实项目 id（proj-*）不冲突。
+
+export const GLOBAL_TIMELINE_ID = "global-summary";
+
+export interface GlobalSummaryEntry {
+  projectName: string;
+  group: DayGroup;
+}
+
+// 全局日报 prompt：按项目分节,事件行格式与单项目版一致,总长截断。
+export function buildGlobalSummaryPrompt(day: string, entries: GlobalSummaryEntry[]): string {
+  const sections = entries.map(({ projectName, group }) => {
+    const lines = group.events.map((ev) => {
+      const files = ev.files?.length ? ` 文件:${ev.files.join(",")}` : "";
+      const sum = ev.summary ? ` 结果:${ev.summary.slice(0, 120)}` : "";
+      return `- [${ev.kind}] ${ev.title}${sum}${files}`;
+    });
+    return `## 项目「${projectName}」\n${lines.join("\n")}`;
+  });
+  return (
+    `下面是我 ${day} 这天在 ${entries.length} 个项目中与 AI Agent 的协作记录。` +
+    `请用中文写一段 4-6 句的工作日报,跨项目概括做了什么、各项目的进展重点,直接输出正文,不要标题和列表:\n\n` +
+    sections.join("\n\n").slice(0, 6000)
+  );
+}
+
+// 读取已生成的全局日报,按天索引（同天多条保留最新）。
+export function useGlobalSummaries(): Record<string, TimelineEvent> {
+  const bridge = useDesktopBridge();
+  const { data } = useQuery<TimelineFileData>({
+    queryKey: timelineKeys.detail(GLOBAL_TIMELINE_ID),
+    enabled: !!bridge,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    queryFn: async () =>
+      bridge ? (parseFile(await bridge.loadTimeline(GLOBAL_TIMELINE_ID)) ?? emptyFile()) : emptyFile(),
+  });
+  const byDay: Record<string, TimelineEvent> = {};
+  for (const ev of data?.events ?? []) {
+    if (ev.kind !== "summary.day" || !ev.meta?.day) continue;
+    const prev = byDay[ev.meta.day];
+    if (!prev || ev.ts > prev.ts) byDay[ev.meta.day] = ev;
+  }
+  return byDay;
+}
+
+// 全局日报生成：聚合各项目某天的事件 → LLM → 落盘 summary.day（同天重生成替换）。
+export function useGenerateGlobalSummary(): {
+  generate: (day: string, entries: GlobalSummaryEntry[]) => Promise<void>;
+  generatingDay: string | null;
+} {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  const [generatingDay, setGeneratingDay] = useState<string | null>(null);
+
+  const generate = useCallback(
+    async (day: string, entries: GlobalSummaryEntry[]) => {
+      if (!bridge || generatingDay || entries.length === 0) return;
+      setGeneratingDay(day);
+      try {
+        const prompt = buildGlobalSummaryPrompt(day, entries);
+        const text = await completeWithSummaryModel(bridge, prompt);
+        const summary = text.trim();
+        if (!summary) return;
+        const event: TimelineEvent = {
+          id: `gs-${day}-${Date.now().toString(36)}`,
+          projectId: GLOBAL_TIMELINE_ID,
+          ts: Date.now(),
+          kind: "summary.day",
+          title: "全局日报",
+          summary,
+          meta: { day },
+        };
+        await mutateTimeline(qc, bridge, GLOBAL_TIMELINE_ID, (data) => ({
+          ...data,
+          events: [...data.events.filter((e) => !(e.kind === "summary.day" && e.meta?.day === day)), event],
+        }));
+      } finally {
+        setGeneratingDay(null);
+      }
+    },
+    [bridge, qc, generatingDay],
+  );
+
+  return { generate, generatingDay };
 }
 
 // 推送格式 Skill 的占位符数据（从一天的事件聚合,纯函数）。
@@ -408,7 +501,15 @@ export function buildDailyReportText(projectName: string, group: DayGroup): { su
   return renderPushReport(DEFAULT_PUSH_TEMPLATE, data);
 }
 
-// AI 日报：按设置选择生成模型（集成 Agent 或 OpenAI 兼容端点）,落盘为 summary.day 事件。
+// 按设置选择生成模型（集成 Agent 或 OpenAI 兼容端点）补全一段文本。
+async function completeWithSummaryModel(bridge: DesktopBridge, prompt: string): Promise<string> {
+  const cfg = usePersonalStore.getState().timelineSettings.summaryModel;
+  return cfg.kind === "openai"
+    ? bridge.openaiComplete({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, prompt })
+    : bridge.oneshotCli({ prompt, agent: cfg.agent, model: cfg.model });
+}
+
+// AI 日报：按设置选择生成模型,落盘为 summary.day 事件。
 export function useGenerateDaySummary(project: ProjectMeta | undefined): {
   generate: (group: DayGroup) => Promise<void>;
   generatingDay: string | null;
@@ -423,11 +524,7 @@ export function useGenerateDaySummary(project: ProjectMeta | undefined): {
       setGeneratingDay(group.day);
       try {
         const prompt = buildSummaryPrompt(project.name, group);
-        const cfg = usePersonalStore.getState().timelineSettings.summaryModel;
-        const text =
-          cfg.kind === "openai"
-            ? await bridge.openaiComplete({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, prompt })
-            : await bridge.oneshotCli({ prompt, agent: cfg.agent, model: cfg.model });
+        const text = await completeWithSummaryModel(bridge, prompt);
         const summary = text.trim();
         if (!summary) return;
         const event: TimelineEvent = {

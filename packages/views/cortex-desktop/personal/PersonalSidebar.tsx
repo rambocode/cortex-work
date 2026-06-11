@@ -85,6 +85,8 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const addProject = usePersonalStore((s) => s.addProject);
+  const homeOpen = usePersonalStore((s) => s.homeOpen);
+  const openHome = usePersonalStore((s) => s.openHome);
 
   const pickProject = async () => {
     if (!bridge) return;
@@ -97,6 +99,10 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
   return (
     <aside className="sidebar">
       <WorkspaceTabs />
+      <button className={`pw-home-btn ${homeOpen ? "is-active" : ""}`} onClick={openHome} title="首页（热力图 / 项目检索 / 全局日总结）">
+        <Icon.Chart size={14} />
+        <span>首页</span>
+      </button>
       <div className="pw-section-h">
         <span>项目</span>
         <button className="pw-icon-btn" title="添加项目（选择本地文件夹）" onClick={pickProject} disabled={!bridge}>

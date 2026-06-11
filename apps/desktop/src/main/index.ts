@@ -3,6 +3,8 @@ import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { registerIpcHandlers, killAllCli, killAllPty } from "./ipc/register";
 
+const appIconPath = join(__dirname, "../../assets/cortex-desktop-logo-minimal.png");
+
 function normalizedOS(): "macos" | "windows" | "linux" | "unknown" {
   switch (process.platform) {
     case "darwin":
@@ -27,6 +29,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#cfcbc1",
+    icon: appIconPath,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
@@ -49,6 +52,7 @@ ipcMain.on("app:get-info", (event) => {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId("ai.cortex.work");
+  if (process.platform === "darwin" && app.dock) app.dock.setIcon(appIconPath);
   app.on("browser-window-created", (_, window) => optimizer.watchWindowShortcuts(window));
 
   registerIpcHandlers();

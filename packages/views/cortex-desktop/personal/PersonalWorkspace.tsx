@@ -15,10 +15,12 @@ import { PersonalChatArea } from "./PersonalChatArea";
 import { PersonalRightPanel } from "./PersonalRightPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { TimelineView } from "./TimelineView";
+import { HomeView } from "./HomeView";
 
 export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void }) {
   const bridge = useDesktopBridge();
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
+  const homeOpen = usePersonalStore((s) => s.homeOpen);
   const timelineProject = usePersonalStore((s) =>
     s.timelineProjectId ? s.projects.find((p) => p.id === s.timelineProjectId) : undefined,
   );
@@ -47,7 +49,9 @@ export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void
       <PersonalSidebar onToast={onToast} />
       <div className="pw-main">
         <div className="pw-upper">
-          {timelineProject ? (
+          {homeOpen ? (
+            <HomeView onToast={onToast} />
+          ) : timelineProject ? (
             <TimelineView project={timelineProject} onToast={onToast} />
           ) : (
             <PersonalChatArea onToast={onToast} />

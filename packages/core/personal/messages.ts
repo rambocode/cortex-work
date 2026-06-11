@@ -12,6 +12,7 @@ import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
+import { speakText } from "./tts";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
 // 供模块级缓存写入函数做消息落盘。
@@ -27,6 +28,34 @@ export interface PromptAttachment {
   path: string;
   kind: "prompt";
   content: string;
+}
+
+export interface TodoAttachment {
+  id: string;
+  name: string;
+  path: string;
+  kind: "todo";
+  projectName: string;
+  content: string;
+}
+
+export type PersonalAttachment = PromptAttachment | TodoAttachment;
+
+export function buildAttachmentSystemPrompt(attachments: PersonalAttachment[]): string | undefined {
+  if (attachments.length === 0) return undefined;
+  return attachments
+    .map((a) =>
+      a.kind === "prompt"
+        ? `<skill name="${a.name}">\n${a.content}\n</skill>`
+        : [
+            `<todo name="${a.name}" project="${a.projectName}">`,
+            `# ${a.name}`,
+            "",
+            a.content,
+            "</todo>",
+          ].join("\n"),
+    )
+    .join("\n\n");
 }
 
 function realHHMM(): string {
@@ -307,6 +336,14 @@ function handleCliExit(
   // 成功收尾 → 开心一下;失败/中断 → 回闲置。
   usePetStore.getState().set(run.gotResult ? "happy" : "idle");
 
+  // TTS：开启自动朗读时,把这一轮的回复读出来（失败静默,不影响会话）。
+  const tts = usePersonalStore.getState().ttsSettings;
+  if (tts.autoSpeak && run.gotResult && run.buffer.trim()) {
+    speakText(bridgeRef, tts, run.buffer).catch(() => {
+      // TTS 端点不可用等,静默跳过
+    });
+  }
+
   // 时间线：记录这一轮 run 事件（恢复型 run 无 prompt,用回复首行兜底）。
   const session = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
   if (session) {
@@ -417,7 +454,7 @@ export function usePersonalChat(sessionId: string | undefined): PersonalChatSlic
 }
 
 export interface PersonalActions {
-  send: (session: SessionMeta, projectPath: string, text: string, attachments: PromptAttachment[]) => Promise<void>;
+  send: (session: SessionMeta, projectPath: string, text: string, attachments: PersonalAttachment[]) => Promise<void>;
   stop: (sessionId: string) => Promise<void>;
   // /clear:默认隐藏当前历史;磁盘历史保留,重启后仍从隐藏游标后显示。
   clearView: (sessionId: string) => void;
@@ -457,10 +494,7 @@ export function usePersonalActions(): PersonalActions {
       usePersonalStore.getState().setRunning(session.id, runId);
       usePetStore.getState().set("thinking");
 
-      const appendSystemPrompt =
-        attachments.length > 0
-          ? attachments.map((a) => `<skill name="${a.name}">\n${a.content}\n</skill>`).join("\n\n")
-          : undefined;
+      const appendSystemPrompt = buildAttachmentSystemPrompt(attachments);
 
       try {
         await bridge.startCli({

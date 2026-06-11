@@ -15,16 +15,23 @@ function storePath(): string {
 
 let writeQueue: Promise<void> = Promise.resolve();
 
+// 内存镜像：store:save 一到就同步更新,使后续 IPC（如 fs 路径白名单校验）立即
+// 看到最新 projects,不必等磁盘写完——否则「添加项目 → 马上扫描目录」会因
+// 落盘节流被误拒。
+let cached: PersistedState | null = null;
+
 export async function getPersistedState(): Promise<PersistedState> {
+  if (cached) return cached;
   await ensureMigrated();
   try {
     const raw = await fsp.readFile(storePath(), "utf8");
     const parsed = JSON.parse(raw) as PersistedState;
     if (parsed && parsed.version === 1 && Array.isArray(parsed.projects) && Array.isArray(parsed.sessions)) {
+      cached = parsed;
       return parsed;
     }
   } catch {
-    // 首次启动或文件损坏，回退空状态。
+    // 首次启动或文件损坏，回退空状态（不缓存,等首次 save 建立镜像）。
   }
   return EMPTY;
 }
@@ -41,6 +48,7 @@ async function savePersistedState(state: PersistedState): Promise<void> {
 export function registerStoreHandlers(): void {
   ipcMain.handle("store:load", () => getPersistedState());
   ipcMain.handle("store:save", (_e, state: PersistedState) => {
+    cached = state;
     writeQueue = writeQueue.then(() => savePersistedState(state)).catch((err) => {
       console.error("[personal-workspace] save failed:", err);
     });

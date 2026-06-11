@@ -47,7 +47,7 @@ export const DEFAULT_TWEAKS: Tweaks = {
 let toastSeq = 0;
 
 export const useCortexUIStore = create<CortexUIState>((set) => ({
-  workspace: "team",
+  workspace: "personal",
   currentOrgId: "dx",
   activeSection: "chat",
   activeContactId: "wangyutong",

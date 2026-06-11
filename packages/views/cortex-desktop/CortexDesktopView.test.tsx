@@ -15,6 +15,7 @@ describe("CortexDesktopView (integration)", () => {
   beforeEach(() => {
     // Reset UI store between tests (module-level singleton).
     useCortexUIStore.setState({
+      workspace: "team",
       currentOrgId: "dx",
       activeSection: "chat",
       activeContactId: "wangyutong",

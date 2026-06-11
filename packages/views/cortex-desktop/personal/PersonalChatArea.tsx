@@ -5,6 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   DEFAULT_MODEL,
+  getTtsPlaybackState,
+  speakText,
+  stopSpeaking,
+  subscribeTtsPlayback,
+  useDesktopBridge,
   usePersonalActions,
   usePersonalChat,
   usePersonalStore,
@@ -74,17 +79,22 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const runningBySession = usePersonalStore((s) => s.runningBySession);
   const updateSession = usePersonalStore((s) => s.updateSession);
+  const ttsSettings = usePersonalStore((s) => s.ttsSettings);
+  const bridge = useDesktopBridge();
 
   const session: SessionMeta | undefined = sessions.find((x) => x.id === activeSessionId);
   const project: ProjectMeta | undefined = session && projects.find((p) => p.id === session.projectId);
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
-  const { send, stop, clearView } = usePersonalActions();
+  const { send, stop: stopRun, clearView } = usePersonalActions();
   const [showHiddenHistory, setShowHiddenHistory] = useState(false);
+  const [ttsPlayback, setTtsPlayback] = useState(getTtsPlaybackState);
 
   useEffect(() => {
     setShowHiddenHistory(false);
   }, [session?.id, session?.hiddenHistory?.count, session?.hiddenHistory?.hiddenAt, session?.hiddenHistory?.throughUid]);
+
+  useEffect(() => subscribeTtsPlayback(setTtsPlayback), []);
 
   const agent = session?.agent;
   const contact = useMemo(() => (agent ? agentContact(agent) : null), [agent]);
@@ -157,6 +167,20 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         onApprove={() => {}}
         markdownBodies
         collapsibleLogs
+        renderTextTail={(m) =>
+          m.who === "me" || typeof m.text !== "string" ? null : (
+            <div className="m-tts-actions">
+              <button type="button" onClick={() => void speakText(bridge, ttsSettings, m.text as string)} title="重新朗读这条回复">
+                <Icon.Run size={12} />
+                重听
+              </button>
+              <button type="button" disabled={!ttsPlayback.isSpeaking} onClick={stopSpeaking} title="停止当前朗读">
+                <Icon.Stop size={12} />
+                停止
+              </button>
+            </div>
+          )
+        }
         leadingContent={
           hiddenCount > 0 ? (
             <HiddenHistoryGate
@@ -181,7 +205,7 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
           }
           void send(session, project.path, text, attachments);
         }}
-        onStop={() => void stop(session.id)}
+        onStop={() => void stopRun(session.id)}
         onChangeModel={(model) => updateSession(session.id, { model })}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills === false })}
         onToast={onToast}

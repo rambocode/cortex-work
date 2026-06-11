@@ -6,12 +6,19 @@
 import { usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
 import { PromptPanel } from "./PromptPanel";
+import { TodosView } from "./TodosView";
 
 export function PersonalRightPanel({ onToast }: { onToast: (text: string) => void }) {
   const view = usePersonalStore((s) => s.rightView);
   return (
     <aside className="right pw-prompts">
-      {view === "files" ? <FilesView onToast={onToast} /> : <PromptPanel onToast={onToast} bare />}
+      {view === "files" ? (
+        <FilesView onToast={onToast} />
+      ) : view === "todos" ? (
+        <TodosView onToast={onToast} />
+      ) : (
+        <PromptPanel onToast={onToast} bare />
+      )}
     </aside>
   );
 }
