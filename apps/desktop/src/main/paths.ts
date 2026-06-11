@@ -1,0 +1,67 @@
+// 个人工作区数据目录：~/.cortex-desktop/
+//   personal-workspace.json  项目/session 元数据
+//   chats/<sessionId>.json   会话消息历史
+// 旧版本数据存于 Electron userData，启动后首次访问时自动迁移。
+
+import { app } from "electron";
+import { promises as fsp } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+
+export function cortexHome(): string {
+  return join(homedir(), ".cortex-desktop");
+}
+
+export function workspaceStorePath(): string {
+  return join(cortexHome(), "personal-workspace.json");
+}
+
+export function chatsDir(): string {
+  return join(cortexHome(), "chats");
+}
+
+export function timelinesDir(): string {
+  return join(cortexHome(), "timelines");
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await fsp.access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let migrated: Promise<void> | null = null;
+
+// 幂等迁移：新位置缺失且旧位置存在时搬运（rename 同卷快速路径,失败回退复制）。
+export function ensureMigrated(): Promise<void> {
+  migrated ??= (async () => {
+    await fsp.mkdir(cortexHome(), { recursive: true });
+
+    const oldStore = join(app.getPath("userData"), "personal-workspace.json");
+    if (!(await exists(workspaceStorePath())) && (await exists(oldStore))) {
+      try {
+        await fsp.rename(oldStore, workspaceStorePath());
+      } catch {
+        await fsp.copyFile(oldStore, workspaceStorePath());
+      }
+    }
+
+    const oldChats = join(app.getPath("userData"), "personal-chats");
+    if (!(await exists(chatsDir())) && (await exists(oldChats))) {
+      try {
+        await fsp.rename(oldChats, chatsDir());
+      } catch {
+        await fsp.mkdir(chatsDir(), { recursive: true });
+        for (const f of await fsp.readdir(oldChats)) {
+          await fsp.copyFile(join(oldChats, f), join(chatsDir(), f));
+        }
+      }
+    }
+  })().catch((err) => {
+    console.error("[cortex-desktop] 数据迁移失败:", err);
+  });
+  return migrated;
+}

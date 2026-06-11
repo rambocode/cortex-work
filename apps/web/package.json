@@ -1,0 +1,33 @@
+{
+  "name": "@cortex-work/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "sh -c 'next dev --port \"${FRONTEND_PORT:-3000}\"'",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@cortex-work/core": "workspace:*",
+    "@cortex-work/ui": "workspace:*",
+    "@cortex-work/views": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "next": "^16.2.5",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@cortex-work/eslint-config": "workspace:*",
+    "@tailwindcss/postcss": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "eslint": "^9.28.0",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:"
+  }
+}

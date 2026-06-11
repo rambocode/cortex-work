@@ -1,0 +1,47 @@
+{
+  "name": "@cortex-work/desktop",
+  "productName": "Cortex Desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cortex-work/core": "workspace:*",
+    "@cortex-work/ui": "workspace:*",
+    "@cortex-work/views": "workspace:*",
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@tanstack/react-query": "catalog:",
+    "node-pty": "^1.1.0",
+    "nodemailer": "^8.0.11",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@cortex-work/eslint-config": "workspace:*",
+    "@cortex-work/tsconfig": "workspace:*",
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@tailwindcss/vite": "catalog:",
+    "@types/node": "catalog:",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "electron": "^39.2.6",
+    "electron-vite": "^5.0.0",
+    "eslint": "^9.28.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

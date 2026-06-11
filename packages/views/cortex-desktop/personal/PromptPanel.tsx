@@ -1,0 +1,153 @@
+// 个人工作区右栏：Prompt 库（用户自选根目录，递归 .md 树）。
+// 文件可点击进入编辑器，也可拖入聊天输入框（dataTransfer 自定义协议）。
+
+import { useState } from "react";
+import { Icon } from "@cortex-work/ui/icons";
+import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
+import type { PromptNode } from "@cortex-work/core";
+import { PromptEditor } from "./PromptEditor";
+
+export const PROMPT_DRAG_MIME = "application/x-cortex-prompt";
+
+function TreeNode({
+  node,
+  depth,
+  onOpenFile,
+}: {
+  node: PromptNode;
+  depth: number;
+  onOpenFile: (node: PromptNode) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(depth > 1);
+
+  if (node.kind === "file") {
+    return (
+      <button
+        className="pw-tree-row is-file"
+        style={{ paddingLeft: 12 + depth * 14 }}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(PROMPT_DRAG_MIME, JSON.stringify({ path: node.path, name: node.name }));
+          e.dataTransfer.effectAllowed = "copy";
+        }}
+        onClick={() => onOpenFile(node)}
+        title={`${node.path}（可拖入聊天输入框）`}
+      >
+        <Icon.File size={13} />
+        <span className="pw-tree-name">{node.name}</span>
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <button
+        className="pw-tree-row is-dir"
+        style={{ paddingLeft: 12 + depth * 14 }}
+        onClick={() => setCollapsed((v) => !v)}
+      >
+        <span className="chev" data-collapsed={collapsed}>
+          <Icon.Chevron size={11} />
+        </span>
+        <Icon.Folder size={13} />
+        <span className="pw-tree-name">{node.name}</span>
+        <span className="count">{node.children?.length ?? 0}</span>
+      </button>
+      {!collapsed
+        ? node.children?.map((child) => (
+            <TreeNode key={child.path} node={child} depth={depth + 1} onOpenFile={onOpenFile} />
+          ))
+        : null}
+    </>
+  );
+}
+
+export function PromptPanel({ onToast, bare = false }: { onToast: (text: string) => void; bare?: boolean }) {
+  const bridge = useDesktopBridge();
+  const promptRoot = usePersonalStore((s) => s.promptRoot);
+  const promptTree = usePersonalStore((s) => s.promptTree);
+  const setPromptRoot = usePersonalStore((s) => s.setPromptRoot);
+  const setPromptTree = usePersonalStore((s) => s.setPromptTree);
+  const [openFile, setOpenFile] = useState<{ path: string; name: string } | null>(null);
+
+  const pickRoot = async () => {
+    if (!bridge) return;
+    const root = await bridge.pickDirectory();
+    if (!root) return;
+    try {
+      const tree = await bridge.scanPromptTree(root);
+      setPromptRoot(root, tree);
+      setOpenFile(null);
+      onToast("Prompt 库已加载");
+    } catch (err) {
+      onToast(`加载失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const refresh = async () => {
+    if (!bridge || !promptRoot) return;
+    try {
+      setPromptTree(await bridge.scanPromptTree(promptRoot));
+      onToast("已刷新 Prompt 列表");
+    } catch {
+      onToast("刷新失败,目录可能已移动,请重新选择");
+    }
+  };
+
+  const inner = (
+    <>
+      <div className="pw-panel-h">
+        <Icon.File size={14} />
+        <span className="pw-panel-title">Prompt 库</span>
+        <div className="spacer" />
+        {promptRoot ? (
+          <>
+            <button className="pw-icon-btn" title="刷新" onClick={refresh}>
+              <Icon.Workflow size={13} />
+            </button>
+            <button className="pw-icon-btn" title="更换目录" onClick={pickRoot}>
+              <Icon.Folder size={13} />
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      {openFile ? (
+        <PromptEditor path={openFile.path} name={openFile.name} onBack={() => setOpenFile(null)} onToast={onToast} />
+      ) : !promptRoot ? (
+        <div className="pw-panel-empty">
+          <Icon.Folder size={22} />
+          <div>选择一个本地文件夹作为 Prompt 库,递归加载其中的 .md 文件</div>
+          <button className="btn primary" onClick={pickRoot} disabled={!bridge}>
+            <Icon.FolderPlus size={13} />
+            选择 Prompt 目录
+          </button>
+        </div>
+      ) : !promptTree ? (
+        <div className="pw-panel-empty">
+          <div>目录不可用,请重新选择</div>
+          <button className="btn primary" onClick={pickRoot}>
+            重新选择
+          </button>
+        </div>
+      ) : (
+        <div className="pw-tree">
+          <div className="pw-tree-root" title={promptRoot}>
+            {promptTree.name}
+          </div>
+          {promptTree.children && promptTree.children.length > 0 ? (
+            promptTree.children.map((child) => (
+              <TreeNode key={child.path} node={child} depth={0} onOpenFile={(n) => setOpenFile({ path: n.path, name: n.name })} />
+            ))
+          ) : (
+            <div className="pw-empty-hint">该目录下没有 .md 文件</div>
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  // bare: 作为 PersonalRightPanel 的子视图嵌入,不渲染自己的 aside 外壳。
+  if (bare) return <div className="pw-rp-view">{inner}</div>;
+  return <aside className="right pw-prompts">{inner}</aside>;
+}

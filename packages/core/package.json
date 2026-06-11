@@ -1,0 +1,45 @@
+{
+  "name": "@cortex-work/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": "./index.ts",
+    "./types": "./types/index.ts",
+    "./query-client": "./query-client.ts",
+    "./provider": "./provider.tsx",
+    "./api": "./api/client.ts",
+    "./api/types": "./api/types.ts",
+    "./live/queries": "./live/queries.ts",
+    "./mock/data": "./mock/data.ts",
+    "./mock/api": "./mock/api.ts",
+    "./cortex/queries": "./cortex/queries.ts",
+    "./cortex/mutations": "./cortex/mutations.ts",
+    "./store/ui": "./store/ui.ts",
+    "./store/personal": "./store/personal.ts",
+    "./desktop/types": "./desktop/types.ts",
+    "./desktop/bridge": "./desktop/bridge.ts",
+    "./personal/messages": "./personal/messages.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "catalog:",
+    "zustand": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@cortex-work/eslint-config": "workspace:*",
+    "@cortex-work/tsconfig": "workspace:*",
+    "@types/react": "catalog:",
+    "eslint": "^9.28.0",
+    "react": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

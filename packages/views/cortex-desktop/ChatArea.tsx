@@ -1,0 +1,606 @@
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Icon } from "@cortex-work/ui/icons";
+import { whoMeta, usePetStore } from "@cortex-work/core";
+import type { Contact, Conversation, Message } from "@cortex-work/core/types";
+import { renderRich } from "./rich";
+
+function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
+  const isShared = contact.group === "shared";
+  const isGroup = contact.group === "groups";
+  const isMe = contact.id === "me";
+
+  const dot = convo?.headerStatus?.dot;
+  const dotColor =
+    dot === "working" ? "var(--amber)" : dot === "review" ? "var(--blue)" : dot === "online" ? "var(--green)" : "#c5c2b8";
+
+  return (
+    <div className="chat-head">
+      <div className="ch-avatar" style={{ background: contact.avatar.bg }}>
+        {contact.avatar.initials}
+        <span
+          className={`agent-dot s-${contact.agentStatus}`}
+          style={{
+            position: "absolute",
+            bottom: -1,
+            right: -1,
+            width: 9,
+            height: 9,
+            borderRadius: "50%",
+            border: "2px solid rgba(255,255,255,0.95)",
+          }}
+        />
+      </div>
+      <div className="ch-meta">
+        <div className="ch-name">
+          {contact.name}
+          {!isGroup && !isMe ? <span className="agent-tag">Agent</span> : null}
+          {isShared ? (
+            <span className="agent-tag" style={{ color: "var(--violet)", background: "var(--violet-soft)" }}>
+              共享
+            </span>
+          ) : null}
+          {isGroup ? (
+            <span className="agent-tag" style={{ color: "var(--blue)", background: "var(--blue-soft)" }}>
+              群聊
+            </span>
+          ) : null}
+        </div>
+        <div className="ch-status">
+          <span className="dot" style={{ background: dotColor }} />
+          <span>{convo?.headerStatus?.text || contact.statusText}</span>
+        </div>
+      </div>
+      <div className="ch-spacer" />
+      <div className="ch-meta-row">
+        {convo?.metaRow?.map((kv, i) => (
+          <span className="kv" key={i}>
+            <span style={{ color: "var(--text-3)" }}>{kv.k}</span>
+            <b>{kv.v}</b>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 2, marginLeft: 8 }}>
+        <button className="icon-btn" title="在对话中搜索">
+          <Icon.Search size={15} />
+        </button>
+        <button className="icon-btn" title="提及">
+          <Icon.At size={15} />
+        </button>
+        <button className="icon-btn" title="更多">
+          <Icon.More size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MessageAvatar({ who }: { who: string }) {
+  const meta = whoMeta(who);
+  return (
+    <div className="m-avatar" style={{ background: meta.avatar.bg }}>
+      {meta.avatar.initials}
+    </div>
+  );
+}
+
+function MessageHeader({ who, time }: { who: string; time: string }) {
+  const meta = whoMeta(who);
+  const isAgent = who.endsWith("-agent");
+  return (
+    <div className="m-head">
+      <span className="who">{meta.name}</span>
+      {isAgent ? (
+        <span className={`agent-tag ${meta.agent === "shared" ? "shared" : meta.agent === "mine" ? "mine" : ""}`}>
+          {meta.agent === "shared" ? "共享 Agent" : "Agent"}
+        </span>
+      ) : null}
+      <span className="when">{time}</span>
+    </div>
+  );
+}
+
+function TextMessage({
+  m,
+  grouped,
+  markdown = false,
+}: {
+  m: Extract<Message, { kind: "text" }>;
+  grouped: boolean;
+  // 个人工作区:agent 输出按 Markdown 渲染(用户自己的消息保持纯文本)。
+  markdown?: boolean;
+}) {
+  const renderMd = markdown && m.who !== "me" && typeof m.text === "string";
+  return (
+    <div className={`msg ${grouped ? "is-grouped" : ""} ${m.who === "me" ? "is-me" : ""}`}>
+      <MessageAvatar who={m.who} />
+      <div className="m-body">
+        <MessageHeader who={m.who} time={m.time} />
+        {m.reply ? (
+          <div className="reply-quote">
+            <span className="rq-who">{whoMeta(m.reply.who).name}</span>
+            {m.reply.text}
+          </div>
+        ) : null}
+        {renderMd ? (
+          <div className="m-text md-body">
+            <Markdown remarkPlugins={[remarkGfm]}>{m.text as string}</Markdown>
+          </div>
+        ) : (
+          <div className="m-text">{renderRich(m.text)}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AgentLogMessage({
+  m,
+  grouped,
+  collapsible = false,
+}: {
+  m: Extract<Message, { kind: "agentLog" }>;
+  grouped: boolean;
+  // 个人工作区:运行中默认展开,结束后自动收起,点击标题可展开/收起。
+  collapsible?: boolean;
+}) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  // active 状态翻转(完成)时清掉用户手动状态 → 回到「完成即收起」默认。
+  useEffect(() => {
+    setUserOpen(null);
+  }, [m.active]);
+  const open = collapsible ? (userOpen ?? !!m.active) : true;
+
+  return (
+    <div className={`msg ${grouped ? "is-grouped" : ""}`}>
+      <MessageAvatar who={m.who} />
+      <div className="m-body">
+        <MessageHeader who={m.who} time={m.time} />
+        <div className="agent-log">
+          <div
+            className="al-h"
+            onClick={collapsible ? () => setUserOpen(!open) : undefined}
+            style={collapsible ? { cursor: "pointer", userSelect: "none" } : undefined}
+          >
+            {m.active ? (
+              <span className="spinner" />
+            ) : (
+              <span className="check">
+                <Icon.CheckCircle size={14} />
+              </span>
+            )}
+            <span style={{ color: "var(--text-1)", fontWeight: 500 }}>{m.title}</span>
+            <span style={{ marginLeft: 6, color: "var(--text-3)" }}>
+              · {m.active ? "运行中" : "已完成"}
+              {collapsible ? ` · ${m.items.length} 步` : ""}
+            </span>
+            {collapsible ? (
+              <span className="al-chev" data-open={open}>
+                <Icon.Chevron size={11} />
+              </span>
+            ) : null}
+          </div>
+          {!open ? null : (
+          <ul>
+            {m.items.map((it, i) => (
+              <li key={i} className={it.ic === "running" ? "is-active" : ""}>
+                <span className="ic">
+                  {it.ic === "check" ? (
+                    <Icon.Check size={13} />
+                  ) : it.ic === "running" ? (
+                    <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
+                  ) : it.ic === "pending" ? (
+                    <span
+                      style={{ width: 7, height: 7, border: "1.5px dashed currentColor", borderRadius: "50%" }}
+                    />
+                  ) : it.ic === "dot" ? (
+                    <span
+                      style={{
+                        width: 5,
+                        height: 5,
+                        background: "currentColor",
+                        borderRadius: "50%",
+                        display: "inline-block",
+                      }}
+                    />
+                  ) : null}
+                </span>
+                <span>{renderRich(it.text)}</span>
+              </li>
+            ))}
+          </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiffMessage({
+  m,
+  grouped,
+  onSelectFile,
+  activeFile,
+}: {
+  m: Extract<Message, { kind: "diff" }>;
+  grouped: boolean;
+  onSelectFile: (path: string) => void;
+  activeFile: string;
+}) {
+  const statusChip =
+    m.status === "applied"
+      ? { text: "已应用", cls: "ok" }
+      : m.status === "rejected"
+        ? { text: "已拒绝", cls: "no" }
+        : { text: "待审核", cls: "pending" };
+
+  return (
+    <div className={`msg ${grouped ? "is-grouped" : ""}`}>
+      <MessageAvatar who={m.who} />
+      <div className="m-body">
+        <MessageHeader who={m.who} time={m.time} />
+        <div
+          className={`diff-card ${m.status === "applied" ? "applied" : m.status === "rejected" ? "rejected" : ""}`}
+        >
+          <div className="dc-head">
+            <div className="dc-icon">
+              <Icon.Diff size={15} />
+            </div>
+            <div>
+              <div className="dc-title">{m.title}</div>
+              <div className="dc-sub">{m.sub}</div>
+            </div>
+            <span className={`dc-status-chip ${statusChip.cls}`}>{statusChip.text}</span>
+          </div>
+          <div className="dc-files">
+            {m.files.map((f, i) => (
+              <div
+                key={i}
+                className={`dc-file ${f.path === activeFile ? "is-active" : ""}`}
+                onClick={() => onSelectFile(f.path)}
+              >
+                <Icon.File size={13} />
+                <span className="path">{f.path}</span>
+                <span className="add">+{f.add}</span>
+                <span className="del">−{f.del}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ApproveMessage({
+  m,
+  grouped,
+  onApprove,
+}: {
+  m: Extract<Message, { kind: "approve" }>;
+  grouped: boolean;
+  onApprove: (uid: string, decision: "approve" | "reject") => void;
+}) {
+  return (
+    <div className={`msg ${grouped ? "is-grouped" : ""}`}>
+      <MessageAvatar who={m.who} />
+      <div className="m-body">
+        <MessageHeader who={m.who} time={m.time} />
+        <div className="approve-card">
+          <div className="ac-h">
+            <Icon.Sparkle size={14} />
+            <b>等待你的确认</b>
+            <span style={{ marginLeft: 6 }}>Agent 准备执行变更</span>
+          </div>
+          <div className="ac-body">{renderRich(m.body)}</div>
+          <div className="ac-foot">
+            <button className="btn danger-ghost" onClick={() => onApprove(m.uid!, "reject")}>
+              <Icon.X size={13} />
+              拒绝
+            </button>
+            <button className="btn primary" onClick={() => onApprove(m.uid!, "approve")}>
+              <Icon.Check size={13} />
+              批准并运行
+            </button>
+            <div className="spacer" />
+            <span className="hint">⌘↵ 批准</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TypingMessage({ m }: { m: Extract<Message, { kind: "typing" }> }) {
+  return (
+    <div className="msg">
+      <MessageAvatar who={m.who} />
+      <div className="m-body">
+        <div className="typing">
+          <span className="dots">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>{m.text}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DaySep({ label }: { label: string }) {
+  return (
+    <div className="day-sep">
+      <span>{label}</span>
+    </div>
+  );
+}
+
+// 个人工作区（PersonalChatArea）复用同一渲染管线，故导出。
+export function MessageStream({
+  contact,
+  convo,
+  onSelectFile,
+  activeFile,
+  onApprove,
+  markdownBodies = false,
+  collapsibleLogs = false,
+  leadingContent,
+}: {
+  contact: Contact;
+  convo: Conversation | null | undefined;
+  onSelectFile: (path: string) => void;
+  activeFile: string;
+  onApprove: (uid: string, decision: "approve" | "reject") => void;
+  // 个人工作区:agent 文本按 Markdown 渲染、工具日志可折叠。团队侧保持原样。
+  markdownBodies?: boolean;
+  collapsibleLogs?: boolean;
+  leadingContent?: ReactNode;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const msgCount = convo?.messages?.length || 0;
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [contact.id, msgCount]);
+
+  if (!convo) {
+    return (
+      <div className="msgs" ref={scrollRef}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100%",
+            color: "var(--text-3)",
+            fontSize: 13,
+            flexDirection: "column",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              background: contact.avatar.bg,
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontWeight: 600,
+              fontSize: 16,
+            }}
+          >
+            {contact.avatar.initials}
+          </div>
+          <div style={{ color: "var(--text-1)", fontSize: 14, fontWeight: 500 }}>{contact.name}</div>
+          <div>这里还没有对话内容,从下方输入框开始 →</div>
+        </div>
+      </div>
+    );
+  }
+
+  let lastWho: string | null = null;
+  return (
+    <div className="msgs" ref={scrollRef}>
+      {leadingContent}
+      {convo.messages.map((m, i) => {
+        const key = m.uid || i;
+        if (m.kind === "day") {
+          lastWho = null;
+          return <DaySep key={key} label={m.label} />;
+        }
+        const grouped = lastWho === m.who && m.kind !== "approve" && m.kind !== "diff" && m.kind !== "agentLog";
+        lastWho = m.who;
+        switch (m.kind) {
+          case "text":
+            return <TextMessage key={key} m={m} grouped={grouped} markdown={markdownBodies} />;
+          case "agentLog":
+            return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
+          case "diff":
+            return <DiffMessage key={key} m={m} grouped={grouped} onSelectFile={onSelectFile} activeFile={activeFile} />;
+          case "approve":
+            return <ApproveMessage key={key} m={m} grouped={grouped} onApprove={onApprove} />;
+          case "typing":
+            return <TypingMessage key={key} m={m} />;
+          default:
+            return null;
+        }
+      })}
+    </div>
+  );
+}
+
+interface Attachment {
+  id: string;
+  name: string;
+  kind: string;
+}
+
+function Composer({
+  contact,
+  onSend,
+  onToast,
+}: {
+  contact: Contact | undefined;
+  onSend: (text: string) => void;
+  onToast: (text: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([
+    { id: "a1", name: "sidebar-mockup.png", kind: "PNG" },
+    { id: "a2", name: "SidebarShell.tsx", kind: "TS" },
+  ]);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  const placeholder =
+    contact?.group === "groups"
+      ? `在 ${contact.name} 中发消息,@ 提及成员或他们的 Agent…`
+      : `给 ${contact?.name || "联系人"} 的 Agent 发消息…`;
+
+  const send = () => {
+    if (!text.trim()) return;
+    onSend(text);
+    setText("");
+    setAttachments([]);
+  };
+
+  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  useEffect(() => {
+    if (!taRef.current) return;
+    taRef.current.style.height = "auto";
+    taRef.current.style.height = Math.min(140, taRef.current.scrollHeight) + "px";
+  }, [text]);
+
+  const ping = (label: string) => () => onToast(label);
+
+  return (
+    <div className="composer-wrap">
+      <div className="composer">
+        {attachments.length > 0 ? (
+          <div className="attach-row">
+            {attachments.map((a) => (
+              <span key={a.id} className="attach-pill">
+                <span
+                  className="ap-thumb"
+                  style={a.kind === "TS" ? { background: "linear-gradient(135deg,#c96442,#a84e30)" } : undefined}
+                >
+                  {a.kind}
+                </span>
+                <span>{a.name}</span>
+                <button
+                  className="attach-x"
+                  onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                  title="移除"
+                >
+                  <Icon.X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <div className="input-area">
+          <textarea
+            ref={taRef}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              const pet = usePetStore.getState();
+              if (pet.state === "idle" || pet.state === "sleeping" || pet.state === "typing") pet.set("typing");
+            }}
+            onKeyDown={onKey}
+            placeholder={placeholder}
+            rows={1}
+          />
+        </div>
+        <div className="comp-foot">
+          <button className="pill" onClick={ping("更多动作")}>
+            <Icon.Plus size={13} />
+          </button>
+          <button className="pill" onClick={ping("提及 · 输入 @ 选择联系人")}>
+            <Icon.At size={13} />
+            提及
+          </button>
+          <button
+            className="pill"
+            onClick={() => {
+              setAttachments((prev) => [
+                ...prev,
+                { id: "a" + Math.random().toString(36).slice(2), name: "screenshot.png", kind: "PNG" },
+              ]);
+              onToast("已附加截图");
+            }}
+          >
+            <Icon.Paperclip size={13} />
+            附件
+          </button>
+          <button className="pill" onClick={ping("截图工具 · 按 ⌘⇧4")}>
+            <Icon.Image size={13} />
+            截图
+          </button>
+          <button className="pill" onClick={ping("文件树 · 选择项目文件")}>
+            <Icon.Folder size={13} />
+            文件树
+          </button>
+          <div className="spacer" />
+          <button className="pill" onClick={ping("模型选择 · 当前 Sonnet 4.5")}>
+            <span className="lightning">
+              <Icon.Lightning size={11} />
+            </span>
+            Sonnet 4.5 <Icon.Chevron size={10} />
+          </button>
+          <button className="pill" onClick={ping("语音输入 · 暂未实现")}>
+            <Icon.Mic size={13} />
+          </button>
+          <button
+            className={`send ${text.trim() ? "" : "muted"}`}
+            onClick={send}
+            disabled={!text.trim()}
+            title="发送 (Enter)"
+          >
+            <Icon.Send size={15} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export interface ChatAreaProps {
+  contact: Contact | undefined;
+  convo: Conversation | null | undefined;
+  onSelectFile: (path: string) => void;
+  activeFile: string;
+  onSend: (text: string) => void;
+  onApprove: (uid: string, decision: "approve" | "reject") => void;
+  onToast: (text: string) => void;
+}
+
+export function ChatArea({ contact, convo, onSelectFile, activeFile, onSend, onApprove, onToast }: ChatAreaProps) {
+  if (!contact) return <main className="chat" />;
+  return (
+    <main className="chat">
+      <ChatHeader contact={contact} convo={convo} />
+      <MessageStream
+        contact={contact}
+        convo={convo}
+        onSelectFile={onSelectFile}
+        activeFile={activeFile}
+        onApprove={onApprove}
+      />
+      <Composer contact={contact} onSend={onSend} onToast={onToast} />
+    </main>
+  );
+}

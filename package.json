@@ -1,0 +1,31 @@
+{
+  "name": "cortex-work",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:web": "turbo dev --filter=@cortex-work/web",
+    "dev:desktop": "turbo dev --filter=@cortex-work/desktop",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "clean": "turbo clean && rm -rf node_modules"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "electron",
+      "node-pty"
+    ],
+    "overrides": {
+      "@types/react": "catalog:",
+      "@types/react-dom": "catalog:"
+    }
+  },
+  "devDependencies": {
+    "turbo": "^2.5.4",
+    "typescript": "catalog:"
+  }
+}

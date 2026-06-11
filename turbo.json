@@ -1,0 +1,36 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "FRONTEND_PORT",
+    "DESKTOP_RENDERER_PORT",
+    "NEXT_PUBLIC_API_URL",
+    "NEXT_PUBLIC_CORTEX_API_URL",
+    "NEXT_PUBLIC_CORTEX_AUTH_TOKEN",
+    "NEXT_PUBLIC_CORTEX_WORKSPACE_ID",
+    "NEXT_PUBLIC_CORTEX_WORKSPACE_SLUG",
+    "CORTEX_API_URL",
+    "CORTEX_AUTH_TOKEN",
+    "CORTEX_WORKSPACE_ID",
+    "CORTEX_WORKSPACE_SLUG"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "app/**", "**/*.ts", "**/*.tsx", "**/*.css"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "out/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "test": {
+      "dependsOn": ["^typecheck"]
+    },
+    "lint": {
+      "dependsOn": ["^typecheck"]
+    }
+  }
+}

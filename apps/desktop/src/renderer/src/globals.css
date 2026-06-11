@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "@cortex-work/views/cortex-desktop/styles.css";
+
+@source "../../../../../packages/ui/**/*.tsx";
+@source "../../../../../packages/views/**/*.{ts,tsx}";

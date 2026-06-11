@@ -1,0 +1,46 @@
+{
+  "name": "@cortex-work/views",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "exports": {
+    "./cortex-desktop": "./cortex-desktop/index.ts",
+    "./cortex-desktop/styles.css": "./cortex-desktop/cortex-desktop.css"
+  },
+  "dependencies": {
+    "@cortex-work/core": "workspace:*",
+    "@cortex-work/ui": "workspace:*",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@cortex-work/eslint-config": "workspace:*",
+    "@cortex-work/tsconfig": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "eslint": "^9.28.0",
+    "jsdom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
