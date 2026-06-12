@@ -209,6 +209,8 @@ export interface PersistedState {
   timelineSettings?: TimelineSettings;
   pushSettings?: PushSettings;
   ttsSettings?: TtsSettings;
+  // 右侧面板自定义宽度（px）;未设置时按视图走 CSS 自动档位。
+  rightPanelWidth?: number;
 }
 
 export interface ReadFileResult {
@@ -370,3 +372,35 @@ export const DEFAULT_MODEL: Record<AgentKind, string> = {
   claude: "sonnet",
   codex: "gpt-5.5",
 };
+
+// ── 应用自动更新（与 apps/desktop/src/main/ipc/types.ts 镜像） ─────────────
+
+// 主进程 electron-updater 状态快照。phase 流转:
+// idle → checking → available → downloading → downloaded;失败进 error
+//（保留 version,UI 可提供「重试」）。
+export type UpdatePhase = "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+
+export interface UpdateState {
+  phase: UpdatePhase;
+  // available 及之后:待更新的新版本号
+  version?: string;
+  // downloading:下载进度 0-100
+  percent?: number;
+  // error:失败描述
+  error?: string;
+}
+
+// ── Tasks 面板:tasks/ 目录文件列表（与 apps/desktop/src/main/ipc/types.ts 镜像） ──
+
+export interface TaskFileInfo {
+  name: string;
+  path: string; // 绝对路径
+  mtimeMs: number;
+}
+
+export interface TaskFilesResult {
+  // tasks/ 顶层 .md（按 mtime 降序）
+  files: TaskFileInfo[];
+  // tasks/archive/ 顶层 .md（压缩归档产物）
+  archived: TaskFileInfo[];
+}

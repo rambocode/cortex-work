@@ -12,7 +12,8 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dist": "electron-vite build && electron-builder --mac"
   },
   "dependencies": {
     "@cortex-work/core": "workspace:*",
@@ -21,6 +22,7 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@tanstack/react-query": "catalog:",
+    "electron-updater": "^6.6.2",
     "node-pty": "^1.1.0",
     "nodemailer": "^8.0.11",
     "zustand": "catalog:"
@@ -36,6 +38,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "electron": "^39.2.6",
+    "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "eslint": "^9.28.0",
     "react": "catalog:",

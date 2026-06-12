@@ -1,23 +1,42 @@
-// 个人工作区 Todos：元数据存 personal-workspace.json，详情正文存项目 tasks/<id>.md。
+// 个人工作区 Tasks：元数据存 personal-workspace.json，详情正文存项目 tasks/<id>.md。
+// 项目模式下自动扫描项目 tasks/ 目录,未登记的 md 也列出;支持单文件删除与
+// 按周期（周/月/年）压缩归档（taskArchive.ts,总结用后台配置的模型）。
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  isValidElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactElement,
+} from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
-import type { ProjectMeta, TodoMeta } from "@cortex-work/core";
+import { remarkCallouts } from "./markdownCallouts";
+import {
+  ARCHIVE_GRANULARITIES,
+  archiveTaskFiles,
+  groupTaskFiles,
+  unregisteredTaskFiles,
+  type ArchiveGranularity,
+  type TaskFileGroup,
+} from "@cortex-work/core";
+import type { ProjectMeta, TaskFileInfo, TaskFilesResult, TodoMeta } from "@cortex-work/core";
 import { relTime } from "./PersonalSidebar";
 
 export const TODO_DRAG_MIME = "application/x-cortex-todo";
 
-function TodoStatusButton({ todo, editable }: { todo: TodoMeta; editable: boolean }) {
+function TodoStatusButton({ todo }: { todo: TodoMeta }) {
   const updateTodo = usePersonalStore((s) => s.updateTodo);
   const done = todo.status === "done";
   return (
     <button
       className={`pw-todo-check ${done ? "is-done" : ""}`}
-      title={editable ? (done ? "标记为未完成" : "标记完成") : "首页只读"}
-      disabled={!editable}
+      title={done ? "标记为未完成" : "标记完成"}
       onClick={() => updateTodo(todo.id, { status: done ? "open" : "done" })}
     >
       <Icon.Check size={12} />
@@ -25,9 +44,58 @@ function TodoStatusButton({ todo, editable }: { todo: TodoMeta; editable: boolea
   );
 }
 
-function TodoDetail({ todo, editable, onToast }: { todo: TodoMeta; editable: boolean; onToast: (text: string) => void }) {
+// 预览里的链接:点击改走系统浏览器（Electron 里 a 默认导航会替换整个窗口）。
+// 仅放行 http(s);旧壳没有 openExternal 时退回 window.open。
+function MdLink({ href, children, ...rest }: ComponentProps<"a">) {
   const bridge = useDesktopBridge();
-  const updateTodo = usePersonalStore((s) => s.updateTodo);
+  const external = /^https?:\/\//i.test(href ?? "");
+  return (
+    <a
+      {...rest}
+      href={href}
+      rel="noreferrer"
+      title={external ? href : rest.title}
+      onClick={(e) => {
+        e.preventDefault();
+        if (!external || !href) return;
+        if (bridge?.openExternal) void bridge.openExternal(href).catch(() => {});
+        else window.open(href, "_blank", "noreferrer");
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+// 代码块:从 <code className="language-x"> 提取语言,角标显示在卡片右上角。
+function MdPre({ children, ...rest }: ComponentProps<"pre">) {
+  const code = isValidElement(children) ? (children as ReactElement<{ className?: string }>) : null;
+  const lang = /language-([\w+-]+)/.exec(code?.props.className ?? "")?.[1];
+  return (
+    <pre {...rest} data-lang={lang}>
+      {children}
+    </pre>
+  );
+}
+
+const MD_COMPONENTS = { a: MdLink, pre: MdPre };
+const MD_PLUGINS = [remarkGfm, remarkCallouts];
+
+// Markdown 详情（todo 与普通 tasks 文件共用）:读 path 预览,可就地编辑保存。
+function MarkdownDetail({
+  path,
+  title,
+  editable,
+  onToast,
+  onSaved,
+}: {
+  path: string;
+  title: string;
+  editable: boolean;
+  onToast: (text: string) => void;
+  onSaved?: () => void;
+}) {
+  const bridge = useDesktopBridge();
   const [content, setContent] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   // 就地编辑（无浮层）：editing 时预览原位切换为透明背景的 textarea。
@@ -43,12 +111,12 @@ function TodoDetail({ todo, editable, onToast }: { todo: TodoMeta; editable: boo
     setContent(null);
     setError(null);
     setEditing(false);
-    if (!bridge || !todo.detailPath) {
+    if (!bridge || !path) {
       setContent("");
       return;
     }
     bridge
-      .readFile(todo.detailPath)
+      .readFile(path)
       .then((res) => {
         if (cancelled) return;
         setContent(res.content);
@@ -60,7 +128,7 @@ function TodoDetail({ todo, editable, onToast }: { todo: TodoMeta; editable: boo
     return () => {
       cancelled = true;
     };
-  }, [bridge, todo.detailPath]);
+  }, [bridge, path]);
 
   const canEdit = editable && content !== null && !truncated;
 
@@ -74,11 +142,11 @@ function TodoDetail({ todo, editable, onToast }: { todo: TodoMeta; editable: boo
     if (!bridge || truncated || saving) return;
     setSaving(true);
     try {
-      await bridge.writeFile(todo.detailPath, draft);
+      await bridge.writeFile(path, draft);
       setContent(draft);
       setEditing(false);
-      updateTodo(todo.id, {});
-      onToast(`已保存 ${todo.title}`);
+      onSaved?.();
+      onToast(`已保存 ${title}`);
     } catch (err) {
       onToast(`保存失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -89,7 +157,7 @@ function TodoDetail({ todo, editable, onToast }: { todo: TodoMeta; editable: boo
   return (
     <div className="pw-todo-detail">
       <div className="pw-todo-detail-h">
-        <span>{todo.detailPath ? "Markdown 详情" : "详情文件未创建"}</span>
+        <span>{path ? "Markdown 详情" : "详情文件未创建"}</span>
         <div className="spacer" />
         {truncated ? <span className="pw-readonly">文件过大 · 只读</span> : null}
         {editable ? (
@@ -141,7 +209,9 @@ function TodoDetail({ todo, editable, onToast }: { todo: TodoMeta; editable: boo
         </div>
       ) : content.trim() ? (
         <div className="pw-todo-md" onDoubleClick={startEdit} title={editable ? "双击编辑 Markdown" : "首页只读"}>
-          <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+          <Markdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>
+            {content}
+          </Markdown>
         </div>
       ) : (
         <div className="pw-empty-hint" onDoubleClick={startEdit}>
@@ -216,7 +286,11 @@ function TodoRow({
           e.dataTransfer.effectAllowed = "copy";
         }}
       >
-        <TodoStatusButton todo={todo} editable={editable} />
+        {editable ? (
+          <TodoStatusButton todo={todo} />
+        ) : (
+          <span className={`pw-todo-dot ${todo.status === "done" ? "is-done" : ""}`} aria-hidden="true" />
+        )}
         {renaming ? (
           <input
             className="pw-todo-title-input"
@@ -260,17 +334,192 @@ function TodoRow({
   );
 }
 
+// tasks/ 目录里未登记为 todo 的普通 md 文件行（含归档文件,单文件可删）。
+function FileRow({
+  file,
+  editable,
+  onOpen,
+  onToast,
+  onDeleted,
+}: {
+  file: TaskFileInfo;
+  editable: boolean;
+  onOpen: () => void;
+  onToast: (text: string) => void;
+  onDeleted: () => void;
+}) {
+  const bridge = useDesktopBridge();
+
+  const remove = async () => {
+    if (!bridge) return;
+    try {
+      await bridge.deleteFile(file.path);
+      onDeleted();
+      onToast(`已删除 ${file.name}`);
+    } catch (err) {
+      onToast(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  return (
+    <div className="pw-todo-row is-file">
+      <div className="pw-todo-row-main">
+        <span className="pw-todo-file-ic" aria-hidden="true">
+          <Icon.File size={13} />
+        </span>
+        <button className="pw-todo-title" onClick={onOpen} title="点击查看详情">
+          <span>{file.name.replace(/\.md$/i, "")}</span>
+          <small>{relTime(file.mtimeMs)}</small>
+        </button>
+        {editable ? (
+          <button className="pw-icon-btn" title="删除文件" onClick={() => void remove()}>
+            <Icon.X size={12} />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// 「清理」下拉:选周期粒度 → 列周期分组 → 点击执行压缩归档。
+function ArchiveMenu({
+  project,
+  files,
+  todos,
+  onToast,
+  onDone,
+}: {
+  project: ProjectMeta;
+  files: TaskFileInfo[];
+  todos: TodoMeta[];
+  onToast: (text: string) => void;
+  onDone: () => void;
+}) {
+  const bridge = useDesktopBridge();
+  const removeTodo = usePersonalStore((s) => s.removeTodo);
+  const [open, setOpen] = useState(false);
+  const [granularity, setGranularity] = useState<ArchiveGranularity | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const groups = useMemo(() => (granularity ? groupTaskFiles(files, granularity) : []), [files, granularity]);
+
+  const close = () => {
+    if (busyKey) return;
+    setOpen(false);
+    setGranularity(null);
+  };
+
+  // 点击菜单外部自动关闭（归档执行中保持打开,避免误关后看不到进度）。
+  useEffect(() => {
+    if (!open || busyKey) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setGranularity(null);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open, busyKey]);
+
+  const run = async (group: TaskFileGroup) => {
+    if (!bridge || busyKey) return;
+    setBusyKey(group.key);
+    try {
+      const result = await archiveTaskFiles({
+        bridge,
+        projectPath: project.path,
+        projectName: project.name,
+        group,
+        todos,
+      });
+      result.removedTodoIds.forEach(removeTodo);
+      onToast(
+        `已归档 ${result.archivedCount} 个文件 → archive/${group.key}.md` +
+          (result.skippedOpen ? `（跳过 ${result.skippedOpen} 个未完成）` : ""),
+      );
+      setOpen(false);
+      setGranularity(null);
+      onDone();
+    } catch (err) {
+      onToast(`归档失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  return (
+    <div className="pw-tb-menu-wrap pw-archive-menu" ref={wrapRef}>
+      <button
+        className={`pw-icon-btn ${open ? "is-on" : ""}`}
+        title="压缩清理（按周/月/年归档 tasks 文件）"
+        onClick={() => (open ? close() : setOpen(true))}
+      >
+        <Icon.Clock size={13} />
+        <Icon.Chevron size={9} />
+      </button>
+      {open ? (
+        <div className="pw-tb-menu" role="menu">
+          {granularity === null ? (
+            ARCHIVE_GRANULARITIES.map((g) => (
+              <button key={g.value} className="pw-tb-menu-item" role="menuitem" onClick={() => setGranularity(g.value)}>
+                <Icon.Clock size={14} />
+                <span>{g.label}压缩</span>
+              </button>
+            ))
+          ) : (
+            <>
+              <button className="pw-tb-menu-item" role="menuitem" onClick={() => setGranularity(null)} disabled={!!busyKey}>
+                <Icon.Back size={13} />
+                <span>返回</span>
+              </button>
+              <div className="pw-tb-menu-sep" />
+              {groups.length === 0 ? <div className="pw-archive-empty">没有可归档的文件</div> : null}
+              {groups.map((group) => (
+                <button
+                  key={group.key}
+                  className="pw-tb-menu-item"
+                  role="menuitem"
+                  disabled={!!busyKey}
+                  onClick={() => void run(group)}
+                  title={`把 ${group.files.length} 个文件总结为 archive/${group.key}.md 并删除原文件（未完成任务跳过）`}
+                >
+                  <Icon.Task size={14} />
+                  <span>{group.key}</span>
+                  <small className="pw-archive-count">
+                    {busyKey === group.key ? "归档中…" : `${group.files.length} 个文件`}
+                  </small>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type SelectedItem = { kind: "todo"; id: string } | { kind: "file"; path: string; name: string };
+
 function TodoGroup({
   project,
   todos,
   editable,
+  taskFiles,
   onOpenTodo,
+  onOpenFile,
+  onFilesChanged,
   onToast,
 }: {
   project: ProjectMeta;
   todos: TodoMeta[];
   editable: boolean;
+  // 当前项目才有:tasks/ 目录扫描结果（其余项目为 null,只显示登记的 todo）
+  taskFiles: TaskFilesResult | null;
   onOpenTodo: (todoId: string) => void;
+  onOpenFile: (file: TaskFileInfo) => void;
+  onFilesChanged: () => void;
   onToast: (text: string) => void;
 }) {
   const bridge = useDesktopBridge();
@@ -278,6 +527,7 @@ function TodoGroup({
   const updateTodo = usePersonalStore((s) => s.updateTodo);
   const removeTodo = usePersonalStore((s) => s.removeTodo);
   const [collapsed, setCollapsed] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const [draft, setDraft] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -290,6 +540,12 @@ function TodoGroup({
     [todos],
   );
   const openCount = todos.filter((x) => x.status === "open").length;
+  // tasks/ 目录里未登记为 todo 的普通 md（自动提取展示）。
+  const extraFiles = useMemo(
+    () => (taskFiles ? unregisteredTaskFiles(taskFiles.files, todos) : []),
+    [taskFiles, todos],
+  );
+  const archived = taskFiles?.archived ?? [];
 
   const create = async () => {
     const title = draft.trim();
@@ -304,7 +560,7 @@ function TodoGroup({
       onToast(`已创建 ${title}`);
     } catch (err) {
       removeTodo(todo.id);
-      onToast(`创建 Todo 失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(`创建 Task 失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setCreating(false);
     }
@@ -321,6 +577,9 @@ function TodoGroup({
           <span>{project.name}</span>
           <small>{openCount} open</small>
         </button>
+        {editable && taskFiles ? (
+          <ArchiveMenu project={project} files={taskFiles.files} todos={todos} onToast={onToast} onDone={onFilesChanged} />
+        ) : null}
       </header>
       {!collapsed ? (
         <>
@@ -332,10 +591,10 @@ function TodoGroup({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void create();
                 }}
-                placeholder="新建 Todo"
+                placeholder="新建 Task"
                 disabled={!bridge || creating}
               />
-              <button className="pw-icon-btn" title="新建 Todo" disabled={!draft.trim() || creating} onClick={() => void create()}>
+              <button className="pw-icon-btn" title="新建 Task" disabled={!draft.trim() || creating} onClick={() => void create()}>
                 <Icon.Plus size={13} />
               </button>
             </div>
@@ -351,8 +610,43 @@ function TodoGroup({
                 editable={editable}
               />
             ))}
-            {sorted.length === 0 ? <div className="pw-empty-hint">这个项目还没有 Todo</div> : null}
+            {extraFiles.map((file) => (
+              <FileRow
+                key={file.path}
+                file={file}
+                editable={editable}
+                onOpen={() => onOpenFile(file)}
+                onToast={onToast}
+                onDeleted={onFilesChanged}
+              />
+            ))}
+            {sorted.length === 0 && extraFiles.length === 0 ? (
+              <div className="pw-empty-hint">这个项目还没有 Task</div>
+            ) : null}
           </div>
+          {archived.length > 0 ? (
+            <div className="pw-archive-sec">
+              <button className="pw-todo-group-toggle pw-archive-toggle" onClick={() => setShowArchive((v) => !v)}>
+                <span className="chev" data-collapsed={!showArchive}>
+                  <Icon.Chevron size={10} />
+                </span>
+                <span>归档</span>
+                <small>{archived.length}</small>
+              </button>
+              {showArchive
+                ? archived.map((file) => (
+                    <FileRow
+                      key={file.path}
+                      file={file}
+                      editable={editable}
+                      onOpen={() => onOpenFile(file)}
+                      onToast={onToast}
+                      onDeleted={onFilesChanged}
+                    />
+                  ))
+                : null}
+            </div>
+          ) : null}
         </>
       ) : null}
     </section>
@@ -360,6 +654,7 @@ function TodoGroup({
 }
 
 export function TodosView({ onToast }: { onToast: (text: string) => void }) {
+  const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const todos = usePersonalStore((s) => s.todos);
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
@@ -368,7 +663,37 @@ export function TodosView({ onToast }: { onToast: (text: string) => void }) {
   const homeOpen = usePersonalStore((s) => s.homeOpen);
   const currentProjectId = activeSessionProjectId ?? activeProjectId;
   const projectMode = !homeOpen && !!currentProjectId;
-  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<SelectedItem | null>(null);
+
+  // 项目模式:扫描当前项目 tasks/ 目录（自动提取 md 文档）,watch 自动刷新。
+  const currentProject = projectMode ? projects.find((p) => p.id === currentProjectId) : undefined;
+  const currentProjectPath = currentProject?.path;
+  const [taskFiles, setTaskFiles] = useState<TaskFilesResult | null>(null);
+
+  const refreshFiles = useCallback(() => {
+    if (!bridge?.listTaskFiles || !currentProjectPath) {
+      setTaskFiles(null);
+      return;
+    }
+    bridge
+      .listTaskFiles(currentProjectPath)
+      .then(setTaskFiles)
+      .catch(() => setTaskFiles(null));
+  }, [bridge, currentProjectPath]);
+
+  useEffect(() => {
+    refreshFiles();
+    if (!bridge?.watchDir || !bridge.onDirChanged || !bridge.unwatchDir || !currentProjectPath || !currentProject) return;
+    const watchId = `tasks:${currentProject.id}`;
+    void bridge.watchDir(watchId, currentProjectPath).catch(() => {});
+    const off = bridge.onDirChanged((id) => {
+      if (id === watchId) refreshFiles();
+    });
+    return () => {
+      off();
+      bridge.unwatchDir?.(watchId);
+    };
+  }, [bridge, currentProject, currentProjectPath, refreshFiles]);
 
   const orderedProjects = useMemo(() => {
     const scopedProjects = projectMode ? projects.filter((project) => project.id === currentProjectId) : projects;
@@ -386,18 +711,43 @@ export function TodosView({ onToast }: { onToast: (text: string) => void }) {
   }, [projects, todos, homeOpen, currentProjectId, projectMode]);
 
   const visibleTodos = orderedProjects.flatMap((row) => row.todos);
-  const selectedTodo = selectedTodoId ? visibleTodos.find((todo) => todo.id === selectedTodoId) : undefined;
+  const selectedTodo = selected?.kind === "todo" ? visibleTodos.find((todo) => todo.id === selected.id) : undefined;
   const selectedProject = selectedTodo ? projects.find((project) => project.id === selectedTodo.projectId) : undefined;
 
+  // 选中目标失效（todo 被删 / 文件被删或归档）时自动退出详情。
   useEffect(() => {
-    if (selectedTodoId && !selectedTodo) setSelectedTodoId(null);
-  }, [selectedTodo, selectedTodoId]);
+    if (!selected) return;
+    if (selected.kind === "todo" && !selectedTodo) setSelected(null);
+    if (selected.kind === "file" && taskFiles) {
+      const exists = [...taskFiles.files, ...taskFiles.archived].some((f) => f.path === selected.path);
+      if (!exists) setSelected(null);
+    }
+  }, [selected, selectedTodo, taskFiles]);
+
+  if (selected?.kind === "file") {
+    const fileTitle = selected.name.replace(/\.md$/i, "");
+    return (
+      <div className="pw-rp-view pw-todos is-detail">
+        <div className="pw-panel-h">
+          <button className="pw-icon-btn" title="关闭详情" onClick={() => setSelected(null)}>
+            <Icon.Back size={14} />
+          </button>
+          <Icon.File size={14} />
+          <span className="pw-panel-title">{fileTitle}</span>
+          <div className="spacer" />
+          {!projectMode ? <span className="pw-readonly">首页只读</span> : null}
+          {currentProject ? <span className="pw-todo-total">{currentProject.name}</span> : null}
+        </div>
+        <MarkdownDetail path={selected.path} title={fileTitle} editable={projectMode} onToast={onToast} />
+      </div>
+    );
+  }
 
   if (selectedTodo && selectedProject) {
     return (
       <div className="pw-rp-view pw-todos is-detail">
         <div className="pw-panel-h">
-          <button className="pw-icon-btn" title="关闭详情" onClick={() => setSelectedTodoId(null)}>
+          <button className="pw-icon-btn" title="关闭详情" onClick={() => setSelected(null)}>
             <Icon.Back size={14} />
           </button>
           <Icon.Task size={14} />
@@ -406,7 +756,13 @@ export function TodosView({ onToast }: { onToast: (text: string) => void }) {
           {!projectMode ? <span className="pw-readonly">首页只读</span> : null}
           <span className="pw-todo-total">{selectedProject.name}</span>
         </div>
-        <TodoDetail todo={selectedTodo} editable={projectMode} onToast={onToast} />
+        <MarkdownDetail
+          path={selectedTodo.detailPath}
+          title={selectedTodo.title}
+          editable={projectMode}
+          onToast={onToast}
+          onSaved={() => usePersonalStore.getState().updateTodo(selectedTodo.id, {})}
+        />
       </div>
     );
   }
@@ -415,7 +771,7 @@ export function TodosView({ onToast }: { onToast: (text: string) => void }) {
     <div className="pw-rp-view pw-todos">
       <div className="pw-panel-h">
         <Icon.Task size={14} />
-        <span className="pw-panel-title">Todos</span>
+        <span className="pw-panel-title">Tasks</span>
         <div className="spacer" />
         {!projectMode ? <span className="pw-readonly">首页只读</span> : null}
         <span className="pw-todo-total">{visibleTodos.filter((x) => x.status === "open").length} open</span>
@@ -423,7 +779,7 @@ export function TodosView({ onToast }: { onToast: (text: string) => void }) {
       {projects.length === 0 ? (
         <div className="pw-panel-empty">
           <Icon.Folder size={22} />
-          <div>先添加项目，再为项目创建 Todo</div>
+          <div>先添加项目，再为项目创建 Task</div>
         </div>
       ) : (
         <div className="pw-todo-scroll">
@@ -433,7 +789,10 @@ export function TodosView({ onToast }: { onToast: (text: string) => void }) {
               project={project}
               todos={projectTodos}
               editable={projectMode}
-              onOpenTodo={setSelectedTodoId}
+              taskFiles={project.id === currentProjectId ? taskFiles : null}
+              onOpenTodo={(todoId) => setSelected({ kind: "todo", id: todoId })}
+              onOpenFile={(file) => setSelected({ kind: "file", path: file.path, name: file.name })}
+              onFilesChanged={refreshFiles}
               onToast={onToast}
             />
           ))}

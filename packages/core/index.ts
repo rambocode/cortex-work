@@ -68,6 +68,10 @@ export {
   type TtsSynthesizeRequest,
   type TtsListVoicesRequest,
   type TtsVoiceOption,
+  type UpdatePhase,
+  type UpdateState,
+  type TaskFileInfo,
+  type TaskFilesResult,
   DEFAULT_TIMELINE_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TTS_SETTINGS,
@@ -120,6 +124,20 @@ export {
   type WorkspaceProjectRow,
   type HomeProjectRow,
 } from "./personal/home";
+export {
+  ARCHIVE_GRANULARITIES,
+  groupTaskFiles,
+  unregisteredTaskFiles,
+  archiveTaskFiles,
+  taskFileTime,
+  isoWeek,
+  periodKey,
+  isArchiveFileName,
+  buildArchivePrompt,
+  type ArchiveGranularity,
+  type TaskFileGroup,
+  type ArchiveTaskFilesResult,
+} from "./personal/taskArchive";
 export {
   speakText,
   stopSpeaking,

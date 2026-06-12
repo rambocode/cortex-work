@@ -74,3 +74,73 @@ describe("personal todos", () => {
     expect(usePersonalStore.getState().todos.map((todo) => todo.id)).toEqual(["t2"]);
   });
 });
+
+describe("文件片段发送中转（终端 / composer）", () => {
+  it("sendToTerminal 暂存文本并打开终端面板,消费后清空", () => {
+    const s = usePersonalStore.getState();
+    if (s.terminalOpen) s.toggleTerminal();
+    usePersonalStore.getState().sendToTerminal("（来自 ~/a.go 的片段）");
+    expect(usePersonalStore.getState().terminalOpen).toBe(true);
+    expect(usePersonalStore.getState().pendingTerminalText).toBe("（来自 ~/a.go 的片段）");
+
+    expect(usePersonalStore.getState().consumePendingTerminalText()).toBe("（来自 ~/a.go 的片段）");
+    expect(usePersonalStore.getState().pendingTerminalText).toBeUndefined();
+    // 再次消费拿不到（原子,防双路触发重复写入）
+    expect(usePersonalStore.getState().consumePendingTerminalText()).toBeUndefined();
+  });
+
+  it("insertToComposer 每次递增 nonce（composer 据此去重）", () => {
+    usePersonalStore.getState().insertToComposer("片段A");
+    const first = usePersonalStore.getState().composerInsert;
+    expect(first?.text).toBe("片段A");
+
+    usePersonalStore.getState().insertToComposer("片段B");
+    const second = usePersonalStore.getState().composerInsert;
+    expect(second?.text).toBe("片段B");
+    expect(second!.nonce).toBe(first!.nonce + 1);
+  });
+});
+
+describe("openHome 右栏联动", () => {
+  it("回首页时右栏从 files 切回 todos（全部项目列表）", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setRightView("files");
+    usePersonalStore.setState({ homeOpen: false });
+
+    usePersonalStore.getState().openHome();
+    expect(usePersonalStore.getState().homeOpen).toBe(true);
+    expect(usePersonalStore.getState().rightView).toBe("todos");
+  });
+});
+
+describe("activateProject 项目引导态", () => {
+  it("激活项目并清除会话/时间线/首页状态", () => {
+    usePersonalStore.setState({
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: 1 }],
+      sessions: [],
+      activeProjectId: undefined,
+      activeSessionId: "stale-session",
+      timelineProjectId: "p1",
+      homeOpen: true,
+    });
+    usePersonalStore.getState().activateProject("p1");
+    const s = usePersonalStore.getState();
+    expect(s.activeProjectId).toBe("p1");
+    expect(s.activeSessionId).toBeUndefined();
+    expect(s.timelineProjectId).toBeUndefined();
+    expect(s.homeOpen).toBe(false);
+  });
+});
+
+describe("rightPanelWidth 持久化", () => {
+  it("hydrate 恢复,toPersistedState 带出,setRightPanelWidth(undefined) 重置", () => {
+    usePersonalStore.getState().hydrate({ ...base, rightPanelWidth: 420 });
+    expect(usePersonalStore.getState().rightPanelWidth).toBe(420);
+
+    usePersonalStore.getState().setRightPanelWidth(500);
+    expect(toPersistedState(usePersonalStore.getState()).rightPanelWidth).toBe(500);
+
+    usePersonalStore.getState().setRightPanelWidth(undefined);
+    expect(usePersonalStore.getState().rightPanelWidth).toBeUndefined();
+  });
+});

@@ -12,8 +12,10 @@ import type {
   ReadFileResult,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
+  TaskFilesResult,
   TtsStreamEvent,
   TtsVoiceOption,
+  UpdateState,
 } from "../main/ipc/types";
 
 interface AppInfo {
@@ -52,7 +54,21 @@ const personal = {
   deleteFile: (path: string): Promise<void> => ipcRenderer.invoke("fs:deleteFile", path),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
+  listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),
   validateDir: (path: string): Promise<boolean> => ipcRenderer.invoke("fs:validateDir", path),
+  // 目录实时监听（右栏「文件」视图自动刷新）
+  watchDir: (id: string, path: string): Promise<void> => ipcRenderer.invoke("fs:watchDir", { id, path }),
+  unwatchDir: (id: string): void => ipcRenderer.send("fs:unwatchDir", { id }),
+  onDirChanged: (cb: (id: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { id: string }) => cb(payload.id);
+    ipcRenderer.on("fs:dirChanged", listener);
+    return () => ipcRenderer.removeListener("fs:dirChanged", listener);
+  },
+  // 文件预览工具栏:系统打开 / 访达显示
+  openPath: (path: string): Promise<void> => ipcRenderer.invoke("shell:openPath", path),
+  revealInFolder: (path: string): Promise<void> => ipcRenderer.invoke("shell:revealInFolder", path),
+  // Markdown 预览链接:系统默认浏览器打开（主进程校验 http/https）
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
   loadChat: (sessionId: string): Promise<unknown[]> => ipcRenderer.invoke("chat:load", sessionId),
@@ -118,6 +134,15 @@ const personal = {
       cb(payload.id, payload.exitCode);
     ipcRenderer.on("pty:exit", listener);
     return () => ipcRenderer.removeListener("pty:exit", listener);
+  },
+  // 应用自动更新（标题栏「更新」按钮）
+  updateGetState: (): Promise<UpdateState> => ipcRenderer.invoke("update:getState"),
+  updateDownload: (): Promise<void> => ipcRenderer.invoke("update:download"),
+  updateInstall: (): Promise<void> => ipcRenderer.invoke("update:install"),
+  onUpdateState: (cb: (state: UpdateState) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, state: UpdateState) => cb(state);
+    ipcRenderer.on("update:state", listener);
+    return () => ipcRenderer.removeListener("update:state", listener);
   },
 };
 

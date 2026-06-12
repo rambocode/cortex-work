@@ -77,6 +77,8 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   const projects = usePersonalStore((s) => s.projects);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
+  const activeProjectId = usePersonalStore((s) => s.activeProjectId);
+  const createSession = usePersonalStore((s) => s.createSession);
   const runningBySession = usePersonalStore((s) => s.runningBySession);
   const updateSession = usePersonalStore((s) => s.updateSession);
   const ttsSettings = usePersonalStore((s) => s.ttsSettings);
@@ -108,6 +110,37 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   );
 
   if (projects.length === 0) return <EmptyState text="先在左侧添加一个项目" hint="项目是你电脑上的一个文件夹,Agent 将在该目录下工作" />;
+  // 已激活项目但未选会话（左栏点击项目名进入）:引导新建聊天,右栏此时已切到
+  // 该项目的 Tasks,可在标题栏菜单换成文件视图。
+  if (!session) {
+    const activeProject = projects.find((p) => p.id === activeProjectId);
+    if (activeProject) {
+      const hasSessions = sessions.some((x) => x.projectId === activeProject.id);
+      return (
+        <main className="chat">
+          <div className="pw-center">
+            <Icon.Folder size={26} />
+            <div className="pw-center-title">{activeProject.name}</div>
+            <div className="pw-center-hint">
+              {hasSessions
+                ? "在左侧选择一个 Session,或新建聊天继续与 Agent 协作"
+                : "这个项目还没有聊天。新建一个开始与 Agent 协作;右侧面板可查看项目 Tasks 与文件"}
+            </div>
+            <button
+              className="btn primary pw-center-cta"
+              onClick={() => {
+                createSession(activeProject.id, "claude");
+                onToast(`已在 ${activeProject.name} 新建 Session`);
+              }}
+            >
+              <Icon.Plus size={13} />
+              新建聊天
+            </button>
+          </div>
+        </main>
+      );
+    }
+  }
   if (!session || !project || !contact) return <EmptyState text="选择或新建一个 Session" hint="在左侧项目上点 + 新建" />;
 
   const running = !!runningBySession[session.id];

@@ -1,18 +1,32 @@
 // 右栏「文件」视图：当前项目目录的全部文件树,可切到「最近变更」
-// （git status;非 git 仓库回退按 mtime 的最近修改）。点击文件预览内容,
-// 变更文件优先显示 git diff（+/− 着色）。
+// （git status;非 git 仓库回退按 mtime 的最近修改）。
+// - 目录实时刷新:主进程 fs.watch 推送（噪声过滤+去抖）,收到信号重扫。
+// - 文件预览:Monaco 高亮 + 行号,默认只读,可进编辑态保存（⌘S）。
+// - 选中片段可发送到终端（bracketed paste）或插入会话输入框。
+// 变更文件优先显示 git diff（+/− 着色,仍走纯文本渲染）。
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { ChangedFile, GitChangesResult, PromptNode } from "@cortex-work/core";
+import { FileIcon, fileIconSpec, isBinaryLike } from "./fileIcons";
+import { langForName, wordWrapForName } from "./monacoLang";
+import { MonacoViewer, type SelectionAnchor } from "./MonacoViewer";
+import { buildContextSnippet, wrapBracketedPaste } from "./sendContext";
 
 type Mode = "all" | "changes";
 
 interface Preview {
   name: string;
+  path?: string; // 绝对路径（删除占位等无路径场景为空）
   content: string;
   isDiff: boolean;
+  truncated?: boolean;
+  binary?: boolean;
+}
+
+function TreeRowIcon({ name }: { name: string }) {
+  return fileIconSpec(name) ? <FileIcon name={name} size={13} /> : <Icon.File size={13} />;
 }
 
 function FileTreeNode({ node, depth, onOpen }: { node: PromptNode; depth: number; onOpen: (n: PromptNode) => void }) {
@@ -20,7 +34,7 @@ function FileTreeNode({ node, depth, onOpen }: { node: PromptNode; depth: number
   if (node.kind === "file") {
     return (
       <button className="pw-tree-row is-file" style={{ paddingLeft: 12 + depth * 14 }} onClick={() => onOpen(node)} title={node.path}>
-        <Icon.File size={13} />
+        <TreeRowIcon name={node.name} />
         <span className="pw-tree-name">{node.name}</span>
       </button>
     );
@@ -74,6 +88,11 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   const [tree, setTree] = useState<PromptNode | null>(null);
   const [changes, setChanges] = useState<GitChangesResult | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [selection, setSelection] = useState("");
+  const [selAnchor, setSelAnchor] = useState<SelectionAnchor | null>(null);
+  const draftRef = useRef("");
 
   const refresh = useCallback(async () => {
     if (!bridge || !project) return;
@@ -90,11 +109,43 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     void refresh();
   }, [refresh]);
 
+  // 目录实时刷新:主进程已做噪声过滤 + 250ms 去抖,这里收到信号直接重扫。
+  useEffect(() => {
+    if (!bridge?.watchDir || !project || mode !== "all") return;
+    const watchId = project.id;
+    void bridge.watchDir(watchId, project.path).catch(() => {
+      /* 监听失败（权限等）:保留手动刷新 */
+    });
+    const off = bridge.onDirChanged?.((id) => {
+      if (id === watchId) void refresh();
+    });
+    return () => {
+      off?.();
+      bridge.unwatchDir?.(watchId);
+    };
+  }, [bridge, project, mode, refresh]);
+
+  const closePreview = () => {
+    setPreview(null);
+    setEditMode(false);
+    setDirty(false);
+    setSelection("");
+    setSelAnchor(null);
+  };
+
   const openFile = async (path: string, name: string) => {
     if (!bridge) return;
+    setEditMode(false);
+    setDirty(false);
+    setSelection("");
+    if (isBinaryLike(name)) {
+      setPreview({ name, path, content: "", isDiff: false, binary: true });
+      return;
+    }
     try {
       const { content, truncated } = await bridge.readFile(path);
-      setPreview({ name, content: truncated ? content + "\n\n…（文件过大,已截断）" : content, isDiff: false });
+      draftRef.current = content;
+      setPreview({ name, path, content, isDiff: false, truncated });
     } catch (err) {
       onToast(`读取失败：${err instanceof Error ? err.message : String(err)}`);
     }
@@ -103,33 +154,185 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   const openChange = async (f: ChangedFile) => {
     if (!bridge || !project) return;
     if (f.status === "D") {
-      setPreview({ name: f.rel, content: "（文件已删除）", isDiff: false });
+      setEditMode(false);
+      setDirty(false);
+      setPreview({ name: f.rel, content: "（文件已删除）", isDiff: true });
       return;
     }
     if (f.status !== "??") {
       const diff = await bridge.gitDiff(project.path, f.rel).catch(() => "");
       if (diff.trim()) {
-        setPreview({ name: f.rel, content: diff, isDiff: true });
+        setEditMode(false);
+        setDirty(false);
+        setSelection("");
+        setPreview({ name: f.rel, path: f.path, content: diff, isDiff: true });
         return;
       }
     }
     await openFile(f.path, f.rel);
   };
 
+  const save = async () => {
+    if (!bridge || !preview?.path || !dirty) return;
+    try {
+      await bridge.writeFile(preview.path, draftRef.current);
+      setDirty(false);
+      setPreview((p) => (p ? { ...p, content: draftRef.current } : p));
+      onToast("已保存");
+    } catch (err) {
+      onToast(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const finishEdit = async () => {
+    if (dirty) await save();
+    setEditMode(false);
+  };
+
+  const copyText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      onToast(`${label}已复制`);
+    } catch {
+      onToast("复制失败");
+    }
+  };
+
+  const sendSelectionToTerminal = () => {
+    if (!selection) return;
+    const snippet = buildContextSnippet(preview?.path, selection);
+    usePersonalStore.getState().sendToTerminal(wrapBracketedPaste(snippet));
+    setSelAnchor(null);
+    onToast("已发送到终端,补一句要求再回车");
+  };
+
+  const sendSelectionToChat = () => {
+    if (!selection) return;
+    usePersonalStore.getState().insertToComposer(buildContextSnippet(preview?.path, selection));
+    setSelAnchor(null);
+    onToast("已插入会话输入框");
+  };
+
   if (!project) return <div className="pw-panel-empty">先在左侧选择一个项目</div>;
 
   if (preview) {
+    const canEdit = !preview.isDiff && !preview.binary && !preview.truncated && !!preview.path;
     return (
-      <div className="pw-rp-view">
-        <div className="pw-editor-h">
-          <button className="pw-icon-btn" title="返回" onClick={() => setPreview(null)}>
+      <div className="pw-rp-view is-fileopen">
+        <div className="pw-editor-h pw-file-toolbar">
+          <button className="pw-icon-btn" title="返回文件列表" onClick={closePreview}>
             <Icon.Back size={14} />
           </button>
-          <span className="pw-editor-name">{preview.name}</span>
+          <TreeRowIcon name={preview.name} />
+          <span className="pw-editor-name" title={preview.path}>
+            {preview.name}
+            {dirty ? <span className="pw-dirty">●</span> : null}
+          </span>
           <div className="spacer" />
           {preview.isDiff ? <span className="pw-readonly">diff</span> : null}
+          {preview.truncated ? <span className="pw-readonly">已截断 · 只读</span> : null}
+          {editMode ? (
+            <>
+              <button className="pw-ftb-btn is-primary" title="保存 (⌘S)" onClick={() => void save()} disabled={!dirty}>
+                <Icon.Check size={12} />
+                保存
+              </button>
+              <button className="pw-ftb-btn" title="保存并回到预览" onClick={() => void finishEdit()}>
+                完成
+              </button>
+            </>
+          ) : (
+            <>
+              {canEdit ? (
+                <button className="pw-ftb-btn" title="编辑文件" onClick={() => setEditMode(true)}>
+                  <Icon.Edit size={12} />
+                  编辑
+                </button>
+              ) : null}
+              {!preview.binary ? (
+                <button
+                  className="pw-ftb-btn"
+                  title="复制文件内容"
+                  onClick={() => void copyText(dirty ? draftRef.current : preview.content, "内容")}
+                >
+                  内容
+                </button>
+              ) : null}
+              {preview.path ? (
+                <button className="pw-ftb-btn" title="复制文件路径" onClick={() => void copyText(preview.path!, "路径")}>
+                  路径
+                </button>
+              ) : null}
+              {preview.path && bridge?.openPath ? (
+                <button
+                  className="pw-ftb-btn"
+                  title="用系统默认应用打开"
+                  onClick={() => void bridge.openPath!(preview.path!).catch((e: unknown) => onToast(`打开失败：${e instanceof Error ? e.message : String(e)}`))}
+                >
+                  打开
+                </button>
+              ) : null}
+              {preview.path && bridge?.revealInFolder ? (
+                <button
+                  className="pw-ftb-btn"
+                  title="在访达中显示"
+                  onClick={() => void bridge.revealInFolder!(preview.path!).catch(() => onToast("无法在访达中显示"))}
+                >
+                  访达
+                </button>
+              ) : null}
+              {preview.path && !preview.isDiff && !preview.binary ? (
+                <button className="pw-icon-btn" title="重新加载" onClick={() => void openFile(preview.path!, preview.name)}>
+                  <Icon.Workflow size={13} />
+                </button>
+              ) : null}
+            </>
+          )}
         </div>
-        {preview.isDiff ? <DiffText content={preview.content} /> : <pre className="pw-file-pre">{preview.content}</pre>}
+        {preview.isDiff ? (
+          <DiffText content={preview.content} />
+        ) : preview.binary ? (
+          <div className="pw-panel-empty">
+            <FileIcon name={preview.name} size={40} />
+            <span>二进制文件,不支持文本预览</span>
+          </div>
+        ) : (
+          <div className="pw-mona-wrap">
+            <MonacoViewer
+              key={preview.path ?? preview.name}
+              value={preview.content}
+              language={langForName(preview.name)}
+              wordWrap={wordWrapForName(preview.name)}
+              readOnly={!editMode}
+              onChange={(v) => {
+                draftRef.current = v;
+                if (editMode) setDirty(v !== preview.content);
+              }}
+              onSelectionText={(text, anchor) => {
+                setSelection(text);
+                setSelAnchor(anchor);
+              }}
+              onSave={() => void save()}
+            />
+            {/* 选区下方就地浮出发送弹窗（fanbox 同款）;onMouseDown preventDefault 防点击丢选区 */}
+            {!editMode && selection && selAnchor ? (
+              <div
+                className="pw-sel-pop"
+                style={{ left: selAnchor.left, top: selAnchor.top }}
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                <button className="pw-ftb-btn" onClick={sendSelectionToTerminal}>
+                  <Icon.Terminal size={12} />
+                  发送到终端
+                </button>
+                <button className="pw-ftb-btn" onClick={sendSelectionToChat}>
+                  <Icon.Send size={12} />
+                  发送到 Chat
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
     );
   }
@@ -180,6 +383,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                 <span className={`pw-change-badge s-${f.status === "??" ? "new" : f.status[0]}`}>
                   {STATUS_LABEL[f.status] ?? STATUS_LABEL[f.status?.[0] ?? "M"] ?? f.status}
                 </span>
+                <TreeRowIcon name={f.rel.split("/").pop() ?? f.rel} />
                 <span className="pw-tree-name">{f.rel}</span>
               </button>
             ))

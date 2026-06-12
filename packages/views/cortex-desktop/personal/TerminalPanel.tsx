@@ -26,6 +26,8 @@ interface TermTab {
   id: string;
   title: string;
   dead?: boolean;
+  // PTY 已成功 spawn（「发送到终端」只投递给就绪的终端,否则数据会被丢弃）。
+  ready?: boolean;
 }
 
 let tabSeq = 0;
@@ -67,6 +69,7 @@ function TermSession({
   bridge,
   onToast,
   onDead,
+  onReady,
 }: {
   id: string;
   active: boolean;
@@ -74,6 +77,7 @@ function TermSession({
   bridge: DesktopBridge;
   onToast: (text: string) => void;
   onDead: (id: string, dead: boolean) => void;
+  onReady: (id: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XtermLike | null>(null);
@@ -119,6 +123,10 @@ function TermSession({
           return;
         }
         bridge.ptyResize(id, xterm.cols, xterm.rows);
+        onReady(id);
+        // 文件预览「发送到终端」:终端刚被唤起时片段先暂存,PTY 就绪后投递。
+        const pending = usePersonalStore.getState().consumePendingTerminalText();
+        if (pending) bridge.ptyInput(id, pending);
       };
 
       xterm.onData((data) => {
@@ -208,6 +216,23 @@ export function TerminalPanel({ onToast }: { onToast: (text: string) => void }) 
   const markDead = (id: string, dead: boolean) => {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, dead } : t)));
   };
+
+  const markReady = (id: string) => {
+    setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, ready: true } : t)));
+  };
+
+  // 文件预览「发送到终端」:激活终端已就绪时直接投递（终端本就开着的场景;
+  // 刚唤起的场景由 TermSession spawn 完成后消费,consume 原子防双发）。
+  const pendingText = usePersonalStore((s) => s.pendingTerminalText);
+  useEffect(() => {
+    if (!bridge || !open || !pendingText || !activeId) return;
+    const tab = tabs.find((t) => t.id === activeId);
+    if (!tab?.ready || tab.dead) return; // 未就绪/已死:留给 spawn 路径投递
+    const text = usePersonalStore.getState().consumePendingTerminalText();
+    if (text) bridge.ptyInput(activeId, text);
+    // tabs 引用频繁变化,以 pendingText/activeId 为主信号即可。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bridge, open, pendingText, activeId]);
 
   // 标签名跟随 shell 实时目录（fanbox 风格）:面板可见时每 2.5s 查一次。
   useEffect(() => {
@@ -343,6 +368,7 @@ export function TerminalPanel({ onToast }: { onToast: (text: string) => void }) 
             bridge={bridge}
             onToast={onToast}
             onDead={markDead}
+            onReady={markReady}
           />
         ))}
       </div>

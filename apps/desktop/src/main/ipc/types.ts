@@ -55,6 +55,7 @@ export interface PersistedState {
   promptRoot?: string;
   sessions: SessionMeta[];
   todos?: TodoMeta[];
+  rightPanelWidth?: number;
 }
 
 export interface ReadFileResult {
@@ -179,4 +180,31 @@ export interface AsrTranscribeResponse {
   language?: string | null;
   duration?: number | null;
   segments?: Record<string, unknown>[] | null;
+}
+
+// ── 应用自动更新（与 core/desktop/types.ts 镜像） ────────────────────────
+
+export type UpdatePhase = "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+
+export interface UpdateState {
+  phase: UpdatePhase;
+  // available 及之后:待更新的新版本号
+  version?: string;
+  // downloading:下载进度 0-100
+  percent?: number;
+  // error:失败描述
+  error?: string;
+}
+
+// ── Tasks 面板:tasks/ 目录文件列表（与 core/desktop/types.ts 镜像） ──────
+
+export interface TaskFileInfo {
+  name: string;
+  path: string; // 绝对路径
+  mtimeMs: number;
+}
+
+export interface TaskFilesResult {
+  files: TaskFileInfo[];
+  archived: TaskFileInfo[];
 }

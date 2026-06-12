@@ -41,8 +41,16 @@ export interface PersonalState {
   runningBySession: Record<string, string | undefined>;
   // 底部终端面板（不持久化;收起时保留 PTY 进程）。
   terminalOpen: boolean;
+  // 待写入终端的文本（文件预览「发送到终端」中转;终端未开/PTY 未就绪时暂存,
+  // TerminalPanel 在激活终端可写时消费）。
+  pendingTerminalText?: string;
+  // 待插入 composer 输入框的文本（文件预览「发送到 Chat」中转;nonce 去重,
+  // 防 composer 重挂载时重复插入）。
+  composerInsert?: { text: string; nonce: number };
   // 右栏当前视图（顶栏下拉选择）。
   rightView: "files" | "skills" | "todos";
+  // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
+  rightPanelWidth?: number;
   // 主区时间线视图：非空时主区显示该项目的时间线（替代会话区）。
   timelineProjectId?: string;
   // 主区首页视图（热力图/项目检索/全局日总结）。启动默认落地首页;不持久化。
@@ -66,10 +74,19 @@ export interface PersonalState {
   updateTodo: (id: string, patch: Partial<Pick<TodoMeta, "title" | "status" | "detailPath">>) => void;
   removeTodo: (id: string) => void;
   setActiveSession: (sessionId: string) => void;
+  // 激活项目但不选会话（左栏点击项目名;项目无 session 时中间区显示新建聊天引导）。
+  activateProject: (projectId: string) => void;
   toggleProjectCollapse: (id: string) => void;
   setRunning: (sessionId: string, runId: string | undefined) => void;
   toggleTerminal: () => void;
+  // 发送文本到终端:暂存并确保终端面板打开,由 TerminalPanel 消费。
+  sendToTerminal: (text: string) => void;
+  // 原子消费待发送文本（TermSession spawn 完成 / 面板 effect 双路触发,先到先得）。
+  consumePendingTerminalText: () => string | undefined;
+  insertToComposer: (text: string) => void;
   setRightView: (view: "files" | "skills" | "todos") => void;
+  // 传 undefined 恢复自动宽度（双击拖拽条重置）。
+  setRightPanelWidth: (width: number | undefined) => void;
   openTimeline: (projectId: string) => void;
   closeTimeline: () => void;
   openHome: () => void;
@@ -110,6 +127,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         (s.timelineSettings as undefined | { push?: PushSettings })?.push ??
         DEFAULT_PUSH_SETTINGS,
       ttsSettings: s.ttsSettings ?? DEFAULT_TTS_SETTINGS,
+      rightPanelWidth: s.rightPanelWidth,
     }),
 
   addProject: (path) => {
@@ -203,6 +221,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       };
     }),
 
+  activateProject: (projectId) =>
+    set({ activeProjectId: projectId, activeSessionId: undefined, timelineProjectId: undefined, homeOpen: false }),
+
   toggleProjectCollapse: (id) =>
     set((s) => ({ collapsedProjects: { ...s.collapsedProjects, [id]: !s.collapsedProjects[id] } })),
 
@@ -211,12 +232,27 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   toggleTerminal: () => set((s) => ({ terminalOpen: !s.terminalOpen })),
 
+  sendToTerminal: (text) => set({ pendingTerminalText: text, terminalOpen: true }),
+
+  consumePendingTerminalText: () => {
+    const text = get().pendingTerminalText;
+    if (text !== undefined) set({ pendingTerminalText: undefined });
+    return text;
+  },
+
+  insertToComposer: (text) =>
+    set((s) => ({ composerInsert: { text, nonce: (s.composerInsert?.nonce ?? 0) + 1 } })),
+
   setRightView: (view) => set({ rightView: view }),
+
+  setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
 
   openTimeline: (projectId) => set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false }),
   closeTimeline: () => set({ timelineProjectId: undefined }),
 
-  openHome: () => set({ homeOpen: true, timelineProjectId: undefined }),
+  // 回首页时右栏同步切回 todos（全部项目列表）——项目内的文件/Skills 面板
+  // 是项目上下文,不应停留在首页。
+  openHome: () => set({ homeOpen: true, timelineProjectId: undefined, rightView: "todos" }),
 
   setTimelineSettings: (patch) =>
     set((s) => ({ timelineSettings: { ...s.timelineSettings, ...patch } })),
@@ -239,5 +275,6 @@ export function toPersistedState(s: PersonalState): PersistedState {
     timelineSettings: s.timelineSettings,
     pushSettings: s.pushSettings,
     ttsSettings: s.ttsSettings,
+    rightPanelWidth: s.rightPanelWidth,
   };
 }

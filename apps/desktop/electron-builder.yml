@@ -1,0 +1,33 @@
+# Cortex Desktop 打包 / 发布配置（electron-builder）。
+# 自动更新走 GitHub Releases:electron-updater 读取打包时生成的
+# app-update.yml（来自下方 publish 字段）,对比 release 里的 latest-mac.yml。
+#
+# ⚠️ 发布前必改:把 publish.owner 换成你的 GitHub 用户名/组织,并确保
+#   该 repo 存在。发版流程:更新 package.json version → pnpm dist →
+#   把 dist/ 里的 dmg、zip、latest-mac.yml 一起传到 GitHub Release（tag v<version>）。
+# ⚠️ macOS 自动更新要求应用正式签名(Developer ID);未签名时 electron-updater
+#   会在下载/校验阶段报错,只能手动替换安装。
+appId: ai.cortex.work
+productName: Cortex Desktop
+directories:
+  output: dist
+files:
+  - out/**
+  - assets/**
+  - package.json
+# node-pty 原生模块不能进 asar
+asarUnpack:
+  - "**/node_modules/node-pty/**"
+mac:
+  category: public.app-category.productivity
+  icon: assets/cortex-desktop-logo-minimal.png
+  target:
+    # 自动更新走 zip,人工分发用 dmg
+    - target: zip
+      arch: [arm64]
+    - target: dmg
+      arch: [arm64]
+publish:
+  provider: github
+  owner: OWNER_PLACEHOLDER # TODO: 改成真实 GitHub 用户名/组织
+  repo: cortex-work

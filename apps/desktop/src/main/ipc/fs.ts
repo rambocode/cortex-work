@@ -1,7 +1,7 @@
 // 个人工作区 fs IPC：目录选择、prompt 树扫描、md 读写。
 // 安全约束：read/write 仅允许落在已注册的 promptRoot 或某个 project.path 之内。
 
-import { dialog, ipcMain } from "electron";
+import { dialog, ipcMain, shell } from "electron";
 import { promises as fsp } from "fs";
 import { dirname, join, resolve, sep } from "path";
 import { execFile } from "child_process";
@@ -19,8 +19,8 @@ function isInside(parent: string, child: string): boolean {
   return c === p || c.startsWith(p + sep);
 }
 
-// 路径必须在 promptRoot 或某个项目目录内，否则拒绝。
-async function assertAllowed(path: string): Promise<void> {
+// 路径必须在 promptRoot 或某个项目目录内，否则拒绝。watch.ts 等共用。
+export async function assertAllowed(path: string): Promise<void> {
   const state = await getPersistedState();
   const roots = [state.promptRoot, ...state.projects.map((p) => p.path)].filter((r): r is string => !!r);
   if (!roots.some((root) => isInside(root, path))) {
@@ -211,11 +211,60 @@ export function registerFsHandlers(): void {
     return taskPath;
   });
 
+  // Tasks 面板:列出项目 tasks/ 与 tasks/archive/ 顶层 .md（带 mtime,
+  // 供面板展示与按周期分组归档）。目录不存在返回空列表。
+  ipcMain.handle("fs:listTaskFiles", async (_e, projectRoot: string) => {
+    await assertAllowed(projectRoot);
+    const listMd = async (dir: string) => {
+      let entries;
+      try {
+        entries = await fsp.readdir(dir, { withFileTypes: true });
+      } catch {
+        return [];
+      }
+      const files: { name: string; path: string; mtimeMs: number }[] = [];
+      for (const entry of entries) {
+        if (!entry.isFile() || entry.name.startsWith(".") || !entry.name.toLowerCase().endsWith(".md")) continue;
+        const full = join(dir, entry.name);
+        try {
+          files.push({ name: entry.name, path: full, mtimeMs: (await fsp.stat(full)).mtimeMs });
+        } catch {
+          /* 列举期间被删,跳过 */
+        }
+      }
+      files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+      return files;
+    };
+    const taskDir = join(projectRoot, "tasks");
+    return { files: await listMd(taskDir), archived: await listMd(join(taskDir, "archive")) };
+  });
+
   ipcMain.handle("fs:validateDir", async (_e, path: string) => {
     try {
       return (await fsp.stat(path)).isDirectory();
     } catch {
       return false;
     }
+  });
+
+  // 文件预览工具栏:用系统默认应用打开 / 在访达中显示。
+  ipcMain.handle("shell:openPath", async (_e, path: string) => {
+    await assertAllowed(path);
+    const err = await shell.openPath(path);
+    if (err) throw new Error(err);
+  });
+
+  ipcMain.handle("shell:revealInFolder", async (_e, path: string) => {
+    await assertAllowed(path);
+    shell.showItemInFolder(path);
+  });
+
+  // Markdown 预览链接:仅放行 http/https,避免 file:// 等协议被滥用。
+  ipcMain.handle("shell:openExternal", async (_e, url: string) => {
+    const protocol = new URL(url).protocol;
+    if (protocol !== "http:" && protocol !== "https:") {
+      throw new Error(`不支持的链接协议: ${protocol}`);
+    }
+    await shell.openExternal(url);
   });
 }

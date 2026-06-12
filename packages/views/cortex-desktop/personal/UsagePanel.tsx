@@ -50,7 +50,8 @@ function Bar({ label, win, reset }: { label: string; win: UsageWindow; reset?: s
 
 export function UsagePanel() {
   const bridge = useDesktopBridge();
-  const [open, setOpen] = useState(true);
+  // 默认收起,点击标题展开后才拉取并轮询用量。
+  const [open, setOpen] = useState(false);
   const [data, setData] = useState<AgentUsage | null>(null);
 
   useEffect(() => {

@@ -214,6 +214,19 @@ input, textarea { font: inherit; color: inherit; }
 
 .tb-divider { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
 
+/* 标题栏「更新」按钮:检测到新版本时出现在右上角（UpdateButton.tsx） */
+.tb-update {
+  display: inline-flex; align-items: center;
+  height: 24px; padding: 0 10px; margin-right: 2px;
+  border-radius: 12px;
+  font-size: 12px; font-weight: 500;
+  color: #fff; background: var(--green);
+  transition: filter 0.12s;
+  white-space: nowrap;
+}
+.tb-update:hover { filter: brightness(1.08); }
+.tb-update:disabled { opacity: 0.75; pointer-events: none; }
+
 /* ---------- Body ---------- */
 .body { flex: 1; display: flex; min-height: 0; }
 
@@ -2857,10 +2870,17 @@ button.sb-row {
   border-radius: 7px;
 }
 .pw-project-h:hover { background: var(--bg-hover); }
+.pw-project-h[data-active="true"] { background: var(--bg-active); }
+/* 折叠箭头独立按钮（项目名点击是激活项目,不再承担折叠） */
+.pw-project-chev {
+  display: inline-flex; align-items: center;
+  padding: 6px 0 6px 8px;
+  cursor: pointer;
+}
 .pw-project-toggle {
   flex: 1; min-width: 0;
   display: flex; align-items: center; gap: 6px;
-  padding: 6px 4px 6px 8px;
+  padding: 6px 4px 6px 2px;
   font-size: 13px; font-weight: 500;
   color: var(--text-1);
   cursor: pointer;
@@ -2895,12 +2915,32 @@ button.sb-row {
 }
 .pw-center-title { color: var(--text-1); font-size: 14px; font-weight: 500; }
 .pw-center-hint { font-size: 12.5px; color: var(--text-3); }
+/* 项目引导态（无 session）的「新建聊天」按钮 */
+.pw-center-cta { margin-top: 4px; display: inline-flex; align-items: center; gap: 5px; }
 
-/* Prompt 库右栏 */
-.pw-prompts { width: 320px; }
+/* Prompt 库右栏（列表态固定 320px,不可拖） */
+.pw-prompts { width: 320px; position: relative; }
+/* 左缘拖拽条:仅查看文件（详情/文件预览）时显示,双击恢复自动宽度 */
+.pw-rp-resizer {
+  position: absolute;
+  left: -3px; top: 0; bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 30;
+  display: none;
+}
+.pw-prompts:has(.pw-todos.is-detail) .pw-rp-resizer,
+.pw-prompts:has(.pw-rp-view.is-fileopen) .pw-rp-resizer { display: block; }
+/* 详情/文件预览态:--rp-custom-width（拖拽设置）优先,未设置走自动档位。
+   返回列表后回到上方固定 320px,自定义宽度不影响列表。 */
 .pw-prompts:has(.pw-todos.is-detail) {
-  width: 40vw;
-  min-width: 480px;
+  width: var(--rp-custom-width, 40vw);
+  min-width: var(--rp-custom-width, 480px);
+}
+/* 文件打开后:文件区占整个应用宽度的 3/7,关闭预览自动恢复 320px */
+.pw-prompts:has(.pw-rp-view.is-fileopen) {
+  width: var(--rp-custom-width, calc(100vw * 3 / 7));
+  min-width: var(--rp-custom-width, 480px);
 }
 .pw-panel-h {
   display: flex; align-items: center; gap: 8px;
@@ -3030,6 +3070,17 @@ button.sb-row {
   font-size: 11px;
   font-weight: 500;
 }
+
+/* Tasks 面板:目录扫描文件行 / 归档分组 / 压缩清理菜单 */
+.pw-todo-group-h { padding-right: 6px; }
+.pw-todo-group-h .pw-todo-group-toggle { width: auto; flex: 1; min-width: 0; }
+.pw-archive-menu .pw-icon-btn { display: inline-flex; align-items: center; gap: 2px; width: auto; padding: 0 5px; }
+.pw-todo-file-ic { display: inline-flex; color: var(--text-3); flex-shrink: 0; }
+.pw-todo-row.is-file .pw-todo-title > span { color: var(--text-2); }
+.pw-archive-sec { border-top: 1px dashed var(--border-soft); margin-top: 2px; }
+.pw-archive-sec .pw-todo-group-toggle { width: 100%; font-weight: 500; color: var(--text-2); }
+.pw-archive-empty { padding: 8px 10px; font-size: 12px; color: var(--text-3); }
+.pw-archive-count { margin-left: auto; color: var(--text-3); font-size: 11px; white-space: nowrap; }
 .pw-todo-new {
   display: flex;
   align-items: center;
@@ -3052,17 +3103,22 @@ button.sb-row {
 }
 .pw-todo-new input:focus,
 .pw-todo-title-input:focus { border-color: var(--accent); }
-.pw-todo-list { display: flex; flex-direction: column; }
-.pw-todo-row { border-bottom: 1px solid var(--border-soft); }
-.pw-todo-row:last-child { border-bottom: 0; }
-.pw-todo-row.is-done { opacity: 0.68; }
+.pw-todo-list { display: flex; flex-direction: column; padding: 3px; gap: 1px; }
+.pw-todo-row { border-radius: var(--radius-sm); }
+.pw-todo-row.is-done { opacity: 0.6; }
+.pw-todo-row.is-done .pw-todo-title span {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-4);
+}
 .pw-todo-row-main {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 8px;
+  padding: 6px 7px;
+  border-radius: var(--radius-sm);
   cursor: grab;
 }
+.pw-todo-row-main:hover { background: var(--bg-hover); }
 .pw-todo-row-main[data-editable="false"] { cursor: default; }
 .pw-todo-row-main:active { cursor: grabbing; }
 .pw-todo-row-main[data-editable="false"]:active { cursor: default; }
@@ -3083,6 +3139,16 @@ button.sb-row {
   border-color: var(--green);
   background: color-mix(in srgb, var(--green) 10%, transparent);
 }
+/* 只读模式（首页）的状态点：不渲染勾选框，只用颜色表示 open / done。 */
+.pw-todo-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  margin: 0 7px 0 6px;
+}
+.pw-todo-dot.is-done { background: var(--green); }
 .pw-todo-title {
   flex: 1;
   min-width: 0;
@@ -3134,11 +3200,11 @@ button.sb-row {
   font-size: 12.5px;
   line-height: 1.65;
 }
+/* 详情预览自适应面板宽度（宽度由右栏拖拽控制,不再固定 760px） */
 .pw-todos.is-detail .pw-todo-md {
   flex: 1;
   min-height: 0;
   max-height: none;
-  max-width: 760px;
   padding-right: 6px;
   font-size: 13px;
 }
@@ -3174,14 +3240,17 @@ button.sb-row {
   text-decoration: none;
   font-weight: 700;
 }
+/* 行内代码:浅底 + 细边框（背景过深会盖过正文,见 2026-06-12 反馈） */
 .pw-todo-md code {
   font-family: var(--mono);
   font-size: 11.5px;
-  background: var(--bg-hover);
+  background: var(--bg-card-2);
+  border: 1px solid var(--border-soft);
   border-radius: 4px;
   padding: 1px 5px;
 }
 .pw-todo-md pre {
+  position: relative;
   background: var(--bg-card-2);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
@@ -3189,7 +3258,19 @@ button.sb-row {
   margin: 8px 0;
   overflow-x: auto;
 }
-.pw-todo-md pre code { background: transparent; padding: 0; }
+.pw-todo-md pre code { background: transparent; border: 0; padding: 0; }
+/* 代码块语言角标（MdPre 从 language-x 提取写入 data-lang） */
+.pw-todo-md pre[data-lang]::after {
+  content: attr(data-lang);
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: var(--text-4);
+  text-transform: lowercase;
+  user-select: none;
+  pointer-events: none;
+}
 .pw-todo-md a { color: var(--link); }
 .pw-todo-md a:hover { text-decoration: underline; }
 .pw-todo-md strong { color: var(--text-1); }
@@ -3200,6 +3281,34 @@ button.sb-row {
   border-left: 3px solid var(--border-strong);
   color: var(--text-3);
 }
+/* Callout（> [!important] …,remarkCallouts 注入 class 与 data-callout）:
+   按类型上底色,::before 显示类型标签。 */
+.pw-todo-md blockquote.pw-md-callout {
+  padding: 8px 12px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--text-2);
+}
+.pw-todo-md .pw-md-callout::before {
+  content: attr(data-callout);
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.pw-todo-md .pw-md-callout > :first-of-type { margin-top: 0; }
+.pw-todo-md .pw-md-callout > :last-child { margin-bottom: 0; }
+.pw-md-callout.is-note { background: var(--blue-soft); border-left-color: var(--blue); }
+.pw-md-callout.is-note::before { color: var(--blue); }
+.pw-md-callout.is-tip { background: var(--green-soft); border-left-color: var(--green); }
+.pw-md-callout.is-tip::before { color: var(--green); }
+.pw-md-callout.is-important { background: var(--violet-soft); border-left-color: var(--violet); }
+.pw-md-callout.is-important::before { color: var(--violet); }
+.pw-md-callout.is-warning { background: var(--amber-soft); border-left-color: var(--amber); }
+.pw-md-callout.is-warning::before { color: var(--amber); }
+.pw-md-callout.is-caution { background: var(--red-soft); border-left-color: var(--red); }
+.pw-md-callout.is-caution::before { color: var(--red); }
 .pw-todo-md table { border-collapse: collapse; margin: 8px 0; }
 .pw-todo-md th,
 .pw-todo-md td { border: 1px solid var(--border-soft); padding: 4px 10px; font-size: 12px; }
@@ -3897,6 +4006,53 @@ button.sb-row {
 .pw-file-pre .diff-del { color: var(--red); background: rgba(181, 80, 47, 0.08); display: inline; }
 .pw-file-pre .diff-hunk { color: var(--blue); display: inline; }
 
+/* 文件预览:Monaco 容器（automaticLayout 需要可计算的弹性高度） */
+.pw-monaco-host { flex: 1; min-height: 0; }
+
+/* 文件预览工具栏按钮（编辑/保存/复制/打开/访达） */
+.pw-file-toolbar { flex-wrap: wrap; row-gap: 4px; }
+.pw-ftb-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pw-ftb-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-ftb-btn:disabled { opacity: 0.45; cursor: default; }
+.pw-ftb-btn.is-primary {
+  color: #fff;
+  background: var(--accent, #cc785c);
+  border-color: transparent;
+}
+.pw-ftb-btn.is-primary:hover { background: var(--accent, #cc785c); filter: brightness(1.06); }
+
+/* 预览态选区发送弹窗（发送到终端 / Chat）:跟随选区位置浮动,超出编辑器裁切 */
+.pw-mona-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.pw-sel-pop {
+  position: absolute;
+  z-index: 10;
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.pw-sel-pop .pw-ftb-btn { border-color: transparent; }
+
 /* 顶栏右侧面板下拉菜单 */
 .pw-tb-menu-wrap { position: relative; }
 .pw-tb-menu-wrap .icon-btn { display: inline-flex; align-items: center; gap: 2px; width: auto; padding: 0 6px; }
@@ -4536,12 +4692,13 @@ button.sb-row {
 .pw-home-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .pw-home-btn.is-active { background: var(--bg-active); color: var(--text-1); font-weight: 600; }
 
+/* 首页内容宽度自适应中间区域（不再固定 860px 居中） */
 .pw-home {
   flex: 1;
   overflow-y: auto;
   padding: 20px 28px 36px;
   display: flex; flex-direction: column; gap: 18px;
-  max-width: 860px; margin: 0 auto; width: 100%;
+  width: 100%;
 }
 .pw-home-section { display: flex; flex-direction: column; gap: 8px; }
 .pw-home-section > .pw-section-h { padding: 0; }
@@ -4560,20 +4717,31 @@ button.sb-row {
   padding-top: 18px; /* 对齐月份标签行高度 */
   font-size: 10px; color: var(--text-4);
 }
-.pw-hm-scroll { overflow-x: auto; flex: 1; }
+/* padding+负margin 外扩裁切边界:今天的 outline / 选中的 box-shadow
+   超出格子 2-3px,否则最右/边缘列被 overflow 裁掉一截 */
+.pw-hm-scroll { overflow-x: auto; flex: 1; padding: 3px; margin: -3px; }
 .pw-hm-months {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: 14px;
+  /* 自适应:格子宽 14-18px 封顶,多余空间摊到列间距（与下方格子网格一致,保持对齐） */
+  grid-auto-columns: minmax(14px, 22px);
   gap: 3px;
+  justify-content: space-between;
   height: 15px;
   font-size: 10px; color: var(--text-4);
   white-space: nowrap;
 }
-.pw-hm-grid { display: grid; grid-auto-flow: column; grid-auto-columns: 14px; gap: 3px; }
+.pw-hm-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(14px, 22px);
+  gap: 3px;
+  justify-content: space-between;
+}
 .pw-hm-col { display: flex; flex-direction: column; gap: 3px; }
 .pw-hm-cell {
-  width: 11px; height: 11px;
+  /* 方形格子随列宽缩放（14-22px）,避免拉成扁条 */
+  width: 100%; height: auto; aspect-ratio: 1;
   border-radius: 3px;
   background: var(--bg-app);
   border: 1px solid var(--border-soft);

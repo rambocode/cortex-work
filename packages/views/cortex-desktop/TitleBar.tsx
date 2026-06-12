@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import type { Contact } from "@cortex-work/core/types";
 import { usePersonalStore, type Section } from "@cortex-work/core";
+import { UpdateButton } from "./UpdateButton";
 
 export interface TitleBarProps {
   contact: Contact | undefined;
@@ -91,6 +92,7 @@ export function TitleBar({
       </div>
 
       <div className="tb-right">
+        <UpdateButton />
         {personal ? (
           <PersonalPanelControls
             rightOpen={rightOpen}
@@ -186,7 +188,7 @@ function PersonalPanelControls({
             </button>
             <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("todos")}>
               <Icon.Task size={14} />
-              <span>Todos</span>
+              <span>Tasks</span>
               {rightOpen && rightView === "todos" ? <Icon.Check size={13} /> : null}
             </button>
             <button

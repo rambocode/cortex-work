@@ -21,7 +21,8 @@ export function saveUrgency(s: PersonalState, prev: PersonalState): SaveUrgency 
     s.todos !== prev.todos ||
     s.timelineSettings !== prev.timelineSettings ||
     s.pushSettings !== prev.pushSettings ||
-    s.ttsSettings !== prev.ttsSettings
+    s.ttsSettings !== prev.ttsSettings ||
+    s.rightPanelWidth !== prev.rightPanelWidth
   )
     return "throttled";
   return "none";

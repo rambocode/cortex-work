@@ -502,7 +502,8 @@ export function buildDailyReportText(projectName: string, group: DayGroup): { su
 }
 
 // 按设置选择生成模型（集成 Agent 或 OpenAI 兼容端点）补全一段文本。
-async function completeWithSummaryModel(bridge: DesktopBridge, prompt: string): Promise<string> {
+// 日报与 Tasks 归档（taskArchive.ts）共用。
+export async function completeWithSummaryModel(bridge: DesktopBridge, prompt: string): Promise<string> {
   const cfg = usePersonalStore.getState().timelineSettings.summaryModel;
   return cfg.kind === "openai"
     ? bridge.openaiComplete({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, prompt })

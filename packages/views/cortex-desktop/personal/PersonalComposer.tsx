@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { AGENT_MODELS, useDesktopBridge, usePetStore } from "@cortex-work/core";
+import { AGENT_MODELS, useDesktopBridge, usePersonalStore, usePetStore } from "@cortex-work/core";
 import type { PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
@@ -85,6 +85,20 @@ export function PersonalComposer({
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  // 文件预览「发送到 Chat」:片段插入输入框（不直接发送,让用户补一句再回车）。
+  // nonce 去重:composer 随会话切换重挂载时,旧 insert 不能再次插入。
+  const composerInsert = usePersonalStore((s) => s.composerInsert);
+  const consumedNonceRef = useRef(composerInsert?.nonce ?? 0);
+  useEffect(() => {
+    if (!composerInsert || composerInsert.nonce === consumedNonceRef.current) return;
+    consumedNonceRef.current = composerInsert.nonce;
+    setText((prev) => {
+      if (!prev.trim()) return composerInsert.text;
+      return `${prev}${prev.endsWith("\n") ? "" : "\n"}${composerInsert.text}`;
+    });
+    requestAnimationFrame(() => taRef.current?.focus());
+  }, [composerInsert]);
 
   const appendTranscript = (transcript: string) => {
     setText((prev) => {

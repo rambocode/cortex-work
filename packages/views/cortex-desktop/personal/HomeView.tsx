@@ -142,7 +142,7 @@ function ProjectSearch({ onToast }: { onToast: (text: string) => void }) {
 
   return (
     <div className="pw-home-projects">
-      <div className="sb-search pw-home-search">
+      <div className="sb-row sb-search pw-home-search">
         <Icon.Search size={13} />
         <input
           className="sb-search-input"
@@ -223,10 +223,10 @@ function HomeTodos() {
   if (rows.length === 0) {
     return (
       <div className="pw-home-todos-empty">
-        <span>还没有 Todo</span>
+        <span>还没有 Task</span>
         <button className="pw-tl-gen" onClick={openTodos}>
           <Icon.Task size={12} />
-          打开 Todos
+          打开 Tasks
         </button>
       </div>
     );
@@ -376,7 +376,7 @@ export function HomeView({ onToast }: { onToast: (text: string) => void }) {
 
         <section className="pw-home-section">
           <div className="pw-section-h">
-            <span>Todos · 所有项目</span>
+            <span>Tasks · 所有项目</span>
           </div>
           <HomeTodos />
         </section>

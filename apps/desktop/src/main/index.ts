@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
-import { registerIpcHandlers, killAllCli, killAllPty } from "./ipc/register";
+import { registerIpcHandlers, killAllCli, killAllPty, closeAllWatchers } from "./ipc/register";
 
 const appIconPath = join(__dirname, "../../assets/cortex-desktop-logo-minimal.png");
 
@@ -66,10 +66,12 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   killAllCli();
   killAllPty();
+  closeAllWatchers();
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("before-quit", () => {
   killAllCli();
   killAllPty();
+  closeAllWatchers();
 });

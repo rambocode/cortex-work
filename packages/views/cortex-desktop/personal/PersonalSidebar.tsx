@@ -1,7 +1,7 @@
 // 个人工作区左栏：项目列表（本地文件夹），项目可折叠、下挂 session 列表。
 
 import { Icon } from "@cortex-work/ui/icons";
-import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
+import { useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { ProjectMeta, SessionMeta } from "@cortex-work/core";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { UsagePanel } from "./UsagePanel";
@@ -33,18 +33,40 @@ function ProjectBlock({ project, onToast }: { project: ProjectMeta; onToast: (te
   const toggle = usePersonalStore((s) => s.toggleProjectCollapse);
   const createSession = usePersonalStore((s) => s.createSession);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
+  const activateProject = usePersonalStore((s) => s.activateProject);
+  const setRightView = usePersonalStore((s) => s.setRightView);
+  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const openTimeline = usePersonalStore((s) => s.openTimeline);
   const timelineActive = usePersonalStore((s) => s.timelineProjectId === project.id);
+  // 项目引导态（已激活但未选会话）时高亮项目名。
+  const projectActive = usePersonalStore(
+    (s) => !s.homeOpen && !s.timelineProjectId && !s.activeSessionId && s.activeProjectId === project.id,
+  );
 
   const list = sessions.filter((x) => x.projectId === project.id).sort((a, b) => b.updatedAt - a.updatedAt);
 
+  // 点击项目名:有会话选最近一条;没有则激活项目（中间区显示新建聊天引导）,
+  // 右栏切到该项目的 Tasks 并展开。
+  const openProject = () => {
+    const latest = list[0];
+    if (latest) {
+      setActiveSession(latest.id);
+      return;
+    }
+    activateProject(project.id);
+    setRightView("todos");
+    setRightOpen(true);
+  };
+
   return (
     <div className="pw-project">
-      <div className="pw-project-h" data-collapsed={collapsed}>
-        <button className="pw-project-toggle" onClick={() => toggle(project.id)} title={project.path}>
+      <div className="pw-project-h" data-collapsed={collapsed} data-active={projectActive}>
+        <button className="pw-project-chev" onClick={() => toggle(project.id)} title={collapsed ? "展开" : "折叠"}>
           <span className="chev">
             <Icon.Chevron size={11} />
           </span>
+        </button>
+        <button className="pw-project-toggle" onClick={openProject} title={project.path}>
           <Icon.Folder size={14} />
           <span className="pw-project-name">{project.name}</span>
         </button>

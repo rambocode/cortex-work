@@ -10,9 +10,12 @@ import { registerLlmHandlers } from "./llm";
 import { registerPtyHandlers } from "./pty";
 import { registerUsageHandlers } from "./usage";
 import { registerAgentProjectsHandlers } from "./agent-projects";
+import { registerWatchHandlers } from "./watch";
+import { registerUpdateHandlers } from "./update";
 
 export function registerIpcHandlers(): void {
   registerFsHandlers();
+  registerWatchHandlers();
   registerStoreHandlers();
   registerCliHandlers();
   registerChatHandlers();
@@ -22,7 +25,9 @@ export function registerIpcHandlers(): void {
   registerPtyHandlers();
   registerUsageHandlers();
   registerAgentProjectsHandlers();
+  registerUpdateHandlers();
 }
 
 export { killAllCli } from "./cli";
 export { killAllPty } from "./pty";
+export { closeAllWatchers } from "./watch";

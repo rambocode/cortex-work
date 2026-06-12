@@ -23,8 +23,10 @@ import type {
   ReadFileResult,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
+  TaskFilesResult,
   TtsStreamEvent,
   TtsVoiceOption,
+  UpdateState,
 } from "./types";
 
 export interface DesktopBridge {
@@ -39,7 +41,20 @@ export interface DesktopBridge {
   writeFile(path: string, content: string): Promise<void>;
   deleteFile(path: string): Promise<void>;
   createTaskFile(projectRoot: string, todoId: string, title: string): Promise<string>;
+  // Tasks 面板:列出项目 tasks/ 与 tasks/archive/ 顶层 .md（带 mtime）。
+  // 可选（旧壳没有;无此能力时面板退化为只显示已登记 todo）。
+  listTaskFiles?(projectRoot: string): Promise<TaskFilesResult>;
   validateDir(path: string): Promise<boolean>;
+  // 目录实时监听:watchDir 后主进程经噪声过滤+去抖推 onDirChanged(id),
+  // renderer 收到后自行重扫。可选（旧壳/降级环境可能没有）。
+  watchDir?(id: string, path: string): Promise<void>;
+  unwatchDir?(id: string): void;
+  onDirChanged?(cb: (id: string) => void): () => void;
+  // 文件预览工具栏:用系统默认应用打开 / 在访达（文件管理器）中显示。
+  openPath?(path: string): Promise<void>;
+  revealInFolder?(path: string): Promise<void>;
+  // Markdown 预览里的链接:用系统默认浏览器打开（仅 http/https）。
+  openExternal?(url: string): Promise<void>;
   // 持久化
   loadState(): Promise<PersistedState>;
   saveState(state: PersistedState): Promise<void>;
@@ -85,4 +100,11 @@ export interface DesktopBridge {
   scanAgentProjects(): Promise<AgentProjectInfo[]>;
   onPtyData(cb: (id: string, data: string) => void): () => void;
   onPtyExit(cb: (id: string, exitCode: number) => void): () => void;
+  // 应用自动更新（electron-updater + GitHub Releases）:主进程检测后推
+  // onUpdateState,挂载时用 updateGetState 补拉;download 下载安装包,
+  // install 重启安装。可选（旧壳/web 端没有）。
+  updateGetState?(): Promise<UpdateState>;
+  updateDownload?(): Promise<void>;
+  updateInstall?(): Promise<void>;
+  onUpdateState?(cb: (state: UpdateState) => void): () => void;
 }

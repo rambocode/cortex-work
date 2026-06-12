@@ -2,16 +2,79 @@
 // （状态在 usePersonalStore.rightView）,面板内不再有 tab 行。
 //   文件   → FilesView（项目全部文件 + 最近变更/diff）
 //   Skills → PromptPanel（Prompt 库,可拖入聊天）
+// 仅查看文件（Tasks 详情 / 文件预览）时左缘可拖拽调宽（宽度经 --rp-custom-width
+// 注入,只作用于详情态的 CSS 档位,返回列表恢复固定 320px）;双击恢复自动宽度。
+// 拖拽条的显示时机由 CSS :has 控制（见 .pw-rp-resizer）。
 
+import { useCallback } from "react";
 import { usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
 import { PromptPanel } from "./PromptPanel";
 import { TodosView } from "./TodosView";
 
-export function PersonalRightPanel({ onToast }: { onToast: (text: string) => void }) {
+// 导出供测试引用,调参不破坏断言。
+export const RP_MIN_WIDTH = 280;
+// 拖宽上限:中间区域（与右栏同处 .pw-upper flex 容器）至少保留的宽度。
+export const RP_CENTER_RESERVED = 700;
+
+export function PersonalRightPanel({
+  onToast,
+}: {
+  onToast: (text: string) => void;
+}) {
   const view = usePersonalStore((s) => s.rightView);
+  const width = usePersonalStore((s) => s.rightPanelWidth);
+  const setWidth = usePersonalStore((s) => s.setRightPanelWidth);
+
+  const startResize = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const aside = e.currentTarget.parentElement;
+      const startX = e.clientX;
+      // || 兜底:未布局时 rect 宽为 0（如测试环境）。
+      const startWidth = aside?.getBoundingClientRect().width || RP_MIN_WIDTH;
+      const bound =
+        aside?.parentElement?.getBoundingClientRect().width ||
+        window.innerWidth;
+      const max = Math.max(RP_MIN_WIDTH, bound - RP_CENTER_RESERVED);
+      const onMove = (ev: MouseEvent) => {
+        // 面板在右侧:向左拖增宽。
+        const next = Math.round(
+          Math.min(
+            max,
+            Math.max(RP_MIN_WIDTH, startWidth + (startX - ev.clientX)),
+          ),
+        );
+        setWidth(next);
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.body.style.removeProperty("cursor");
+        document.body.style.removeProperty("user-select");
+      };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp, { once: true });
+    },
+    [setWidth],
+  );
+
   return (
-    <aside className="right pw-prompts">
+    <aside
+      className="right pw-prompts"
+      style={
+        width
+          ? ({ "--rp-custom-width": `${width}px` } as React.CSSProperties)
+          : undefined
+      }
+    >
+      <div
+        className="pw-rp-resizer"
+        title="拖动调整宽度,双击恢复自动"
+        onMouseDown={startResize}
+        onDoubleClick={() => setWidth(undefined)}
+      />
       {view === "files" ? (
         <FilesView onToast={onToast} />
       ) : view === "todos" ? (
