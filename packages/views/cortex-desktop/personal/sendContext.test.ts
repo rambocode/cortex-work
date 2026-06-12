@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildContextSnippet, guessHome, toTildePath, wrapBracketedPaste } from "./sendContext";
+import { buildContextSnippet, guessHome, shellQuotePath, toTildePath, wrapBracketedPaste } from "./sendContext";
 
 describe("guessHome / toTildePath", () => {
   it("macOS /Users/<u> 前缀替换为 ~", () => {
@@ -37,5 +37,24 @@ describe("buildContextSnippet", () => {
 describe("wrapBracketedPaste", () => {
   it("前后缀为 ESC[200~ / ESC[201~", () => {
     expect(wrapBracketedPaste("hi")).toBe("\x1b[200~hi\x1b[201~");
+  });
+});
+
+describe("shellQuotePath", () => {
+  it("纯安全字符的路径原样返回", () => {
+    expect(shellQuotePath("/Users/mike/a-b.c_d/file.ts")).toBe("/Users/mike/a-b.c_d/file.ts");
+    expect(shellQuotePath("~/x/y+z@v1.0%2,=")).toBe("~/x/y+z@v1.0%2,=");
+  });
+
+  it("含空格的路径整体单引号包裹", () => {
+    expect(shellQuotePath("/Users/mike/My Docs/a.txt")).toBe("'/Users/mike/My Docs/a.txt'");
+  });
+
+  it("含单引号的路径按 POSIX 规则转义", () => {
+    expect(shellQuotePath("/tmp/it's.txt")).toBe("'/tmp/it'\\''s.txt'");
+  });
+
+  it("含 $ 反引号等 shell 元字符也会包裹", () => {
+    expect(shellQuotePath("/tmp/$a`b.txt")).toBe("'/tmp/$a`b.txt'");
   });
 });

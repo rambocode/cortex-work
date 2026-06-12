@@ -37,6 +37,15 @@ describe("codexAdapter.buildArgs", () => {
     expect(args.at(-1)).toBe("hello");
   });
 
+  it("纯净启动:始终带 -c mcp_servers={} 清空 MCP", () => {
+    const first = codexAdapter.buildArgs(baseReq).args;
+    let i = first.indexOf("-c");
+    expect(first[i + 1]).toBe("mcp_servers={}");
+    const resume = codexAdapter.buildArgs({ ...baseReq, resumeSessionId: "t1" }).args;
+    i = resume.indexOf("-c");
+    expect(resume[i + 1]).toBe("mcp_servers={}");
+  });
+
   it("prompt 附件:拼入用户请求前置上下文", () => {
     const { args } = codexAdapter.buildArgs({
       ...baseReq,

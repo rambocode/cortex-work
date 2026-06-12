@@ -38,6 +38,8 @@ function extensionForMimeType(mimeType: string): string {
 export function PersonalComposer({
   session,
   running,
+  editing,
+  onCancelEdit,
   onSend,
   onStop,
   onChangeModel,
@@ -46,6 +48,9 @@ export function PersonalComposer({
 }: {
   session: SessionMeta;
   running: boolean;
+  /** 编辑重发:正在编辑的历史用户消息(原文填入输入框,顶部出提示条)。 */
+  editing?: { uid: string; text: string } | null;
+  onCancelEdit?: () => void;
   onSend: (text: string, attachments: PersonalAttachment[]) => void;
   onStop: () => void;
   onChangeModel: (model: string) => void;
@@ -64,7 +69,8 @@ export function PersonalComposer({
   const chunksRef = useRef<BlobPart[]>([]);
 
   const models = AGENT_MODELS[session.agent];
-  const useOwnSkills = session.useOwnSkills !== false;
+  // skills 默认禁用(纯净启动),显式打开才传给 CLI。
+  const useOwnSkills = session.useOwnSkills === true;
 
   useEffect(() => {
     if (!taRef.current) return;
@@ -77,6 +83,18 @@ export function PersonalComposer({
     onSend(text, attachments);
     setText("");
     setAttachments([]);
+  };
+
+  // 进入编辑重发:原文替换输入框内容并聚焦。
+  useEffect(() => {
+    if (!editing) return;
+    setText(editing.text);
+    requestAnimationFrame(() => taRef.current?.focus());
+  }, [editing]);
+
+  const cancelEdit = () => {
+    setText("");
+    onCancelEdit?.();
   };
 
   useEffect(() => {
@@ -304,6 +322,15 @@ export function PersonalComposer({
                 {slashMatches.length === 1 ? <kbd className="pw-slash-kbd">Tab 执行</kbd> : null}
               </button>
             ))}
+          </div>
+        ) : null}
+        {editing ? (
+          <div className="pw-edit-bar">
+            <Icon.Edit size={12} />
+            <span>编辑重发：发送后将清除这条消息之后的所有内容</span>
+            <button type="button" onClick={cancelEdit}>
+              取消
+            </button>
           </div>
         ) : null}
         <div className="input-area">

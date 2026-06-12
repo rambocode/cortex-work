@@ -17,6 +17,7 @@ import {
 import type { AgentKind, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Contact, Conversation } from "@cortex-work/core/types";
 import { MessageStream } from "../ChatArea";
+import { GitBar } from "./GitBar";
 import { PersonalComposer } from "./PersonalComposer";
 
 const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex" };
@@ -88,12 +89,15 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   const project: ProjectMeta | undefined = session && projects.find((p) => p.id === session.projectId);
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
-  const { send, stop: stopRun, clearView } = usePersonalActions();
+  const { send, stop: stopRun, editResend, clearView } = usePersonalActions();
   const [showHiddenHistory, setShowHiddenHistory] = useState(false);
   const [ttsPlayback, setTtsPlayback] = useState(getTtsPlaybackState);
+  // 编辑重发:正在编辑的历史用户消息(原文填入 composer,发送时截断其后所有消息)。
+  const [editing, setEditing] = useState<{ uid: string; text: string } | null>(null);
 
   useEffect(() => {
     setShowHiddenHistory(false);
+    setEditing(null);
   }, [session?.id, session?.hiddenHistory?.count, session?.hiddenHistory?.hiddenAt, session?.hiddenHistory?.throughUid]);
 
   useEffect(() => subscribeTtsPlayback(setTtsPlayback), []);
@@ -200,8 +204,27 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         onApprove={() => {}}
         markdownBodies
         collapsibleLogs
-        renderTextTail={(m) =>
-          m.who === "me" || typeof m.text !== "string" ? null : (
+        renderTextTail={(m) => {
+          if (typeof m.text !== "string") return null;
+          if (m.who === "me") {
+            // 用户消息:可编辑重发(运行中先停止;无 uid 的极老消息不支持)。
+            if (running || !m.uid) return null;
+            const msgUid = m.uid;
+            const msgText = m.text;
+            return (
+              <div className="m-tts-actions">
+                <button
+                  type="button"
+                  title="编辑这条消息并重新发送(将清除其后的所有消息)"
+                  onClick={() => setEditing({ uid: msgUid, text: msgText })}
+                >
+                  <Icon.Edit size={12} />
+                  编辑重发
+                </button>
+              </div>
+            );
+          }
+          return (
             <div className="m-tts-actions">
               <button type="button" onClick={() => void speakText(bridge, ttsSettings, m.text as string)} title="重新朗读这条回复">
                 <Icon.Run size={12} />
@@ -212,8 +235,8 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
                 停止
               </button>
             </div>
-          )
-        }
+          );
+        }}
         leadingContent={
           hiddenCount > 0 ? (
             <HiddenHistoryGate
@@ -225,10 +248,26 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         }
       />
 
+      <GitBar
+        project={project}
+        running={running}
+        onSend={(text) => void send(session, project.path, text, [])}
+        onToast={onToast}
+      />
+
       <PersonalComposer
         session={session}
         running={running}
+        editing={editing}
+        onCancelEdit={() => setEditing(null)}
         onSend={(text, attachments) => {
+          // 编辑重发:截断目标消息及其后内容,按新文本重发。
+          if (editing) {
+            const uid = editing.uid;
+            setEditing(null);
+            void editResend(session, project.path, uid, text, attachments);
+            return;
+          }
           // slash 命令:/clear 默认隐藏当前历史(磁盘历史保留,重启仍隐藏)。
           if (text.trim() === "/clear") {
             clearView(session.id);
@@ -240,7 +279,7 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         }}
         onStop={() => void stopRun(session.id)}
         onChangeModel={(model) => updateSession(session.id, { model })}
-        onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills === false })}
+        onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onToast={onToast}
       />
     </main>

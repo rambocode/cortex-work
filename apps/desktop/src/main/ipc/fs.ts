@@ -5,8 +5,9 @@ import { dialog, ipcMain, shell } from "electron";
 import { promises as fsp } from "fs";
 import { dirname, join, resolve, sep } from "path";
 import { execFile } from "child_process";
-import type { PromptNode } from "./types";
+import type { GitDiffAllResult, GitInfoResult, PromptNode } from "./types";
 import { getPersistedState } from "./store";
+import { countAddedLines, parseNumstat, parseUntracked, sumStats, synthUntrackedDiff } from "./git-info";
 
 const MAX_DEPTH = 8;
 const MAX_NODES = 5000;
@@ -69,6 +70,30 @@ async function scanTree(
   }
   return node;
 }
+
+function runGit(args: string[], cwd: string, maxBuffer = 4 * 1024 * 1024): Promise<{ ok: boolean; out: string }> {
+  return new Promise((resolve) => {
+    // maxBuffer 超限时 err 非空但 stdout 仍有已收集部分,调用方可按 truncated 处理。
+    execFile("git", args, { cwd, timeout: 5000, maxBuffer }, (err, stdout) => resolve({ ok: !err, out: stdout ?? "" }));
+  });
+}
+
+// 读 untracked 文件内容用于 ± 统计与合成 diff。
+// text=正常文本 / binary=二进制(计 0 行) / skipped=过大或读取失败(统计标记 truncated)。
+async function readUntracked(path: string): Promise<{ kind: "text"; content: string } | { kind: "binary" } | { kind: "skipped" }> {
+  try {
+    const stat = await fsp.stat(path);
+    if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return { kind: "skipped" };
+    const buf = await fsp.readFile(path);
+    if (buf.subarray(0, 8000).includes(0)) return { kind: "binary" };
+    return { kind: "text", content: buf.toString("utf8") };
+  } catch {
+    return { kind: "skipped" };
+  }
+}
+
+const UNTRACKED_LIMIT = 200; // 防未 ignore 的海量文件(如 node_modules)拖垮主进程
+const DIFF_ALL_SOFT_LIMIT = 1.5 * 1024 * 1024; // 拼接后总量软上限
 
 export function registerFsHandlers(): void {
   ipcMain.handle("fs:pickDirectory", async () => {
@@ -167,6 +192,66 @@ export function registerFsHandlers(): void {
         resolve(err ? "" : stdout),
       );
     });
+  });
+
+  // GitBar:分支 + 工作区 ± 行数统计(含 untracked,与 commit 后 git show --stat 一致)。
+  // 任一 git 命令失败(非仓库/超时)→ isRepo:false 静默降级,信息条隐藏。
+  ipcMain.handle("fs:gitInfo", async (_e, root: string): Promise<GitInfoResult> => {
+    await assertAllowed(root);
+    const branchRes = await runGit(["rev-parse", "--abbrev-ref", "HEAD"], root);
+    if (!branchRes.ok) return { isRepo: false, additions: 0, deletions: 0, dirty: false };
+    let branch = branchRes.out.trim();
+    if (branch === "HEAD") {
+      // detached HEAD:退回 short SHA 展示
+      const sha = await runGit(["rev-parse", "--short", "HEAD"], root);
+      if (sha.ok) branch = sha.out.trim();
+    }
+    const [numstatRes, statusRes] = await Promise.all([
+      runGit(["diff", "HEAD", "--numstat"], root),
+      // -uall:展开 untracked 目录为逐文件,否则整个新目录只算一条
+      runGit(["status", "--porcelain", "-uall"], root),
+    ]);
+    const tracked = numstatRes.ok ? parseNumstat(numstatRes.out) : [];
+    const untracked = statusRes.ok ? parseUntracked(statusRes.out) : [];
+    let truncated = !numstatRes.ok || !statusRes.ok || untracked.length > UNTRACKED_LIMIT;
+    const counts: number[] = [];
+    for (const rel of untracked.slice(0, UNTRACKED_LIMIT)) {
+      const file = await readUntracked(join(root, rel));
+      if (file.kind === "skipped") truncated = true;
+      counts.push(file.kind === "text" ? countAddedLines(file.content) : 0);
+    }
+    const { additions, deletions } = sumStats(tracked, counts);
+    const dirty = statusRes.ok && statusRes.out.trim().length > 0;
+    return { isRepo: true, branch, additions, deletions, dirty, truncated };
+  });
+
+  // GitBar「查看 diff」:整仓 diff(tracked 真实 git diff + untracked 合成片段)。
+  ipcMain.handle("fs:gitDiffAll", async (_e, root: string): Promise<GitDiffAllResult> => {
+    await assertAllowed(root);
+    const statusRes = await runGit(["status", "--porcelain", "-uall"], root);
+    if (!statusRes.ok) return { diff: "", truncated: false };
+    const trackedRes = await runGit(["diff", "HEAD"], root);
+    // ok=false 但有 stdout 多半是 maxBuffer 超限,用已收集部分并标记截断
+    let truncated = !trackedRes.ok && trackedRes.out.length > 0;
+    const parts: string[] = trackedRes.out ? [trackedRes.out] : [];
+    let total = trackedRes.out.length;
+    const untracked = parseUntracked(statusRes.out);
+    if (untracked.length > UNTRACKED_LIMIT) truncated = true;
+    for (const rel of untracked.slice(0, UNTRACKED_LIMIT)) {
+      if (total > DIFF_ALL_SOFT_LIMIT) {
+        truncated = true;
+        break;
+      }
+      const file = await readUntracked(join(root, rel));
+      if (file.kind === "skipped") {
+        truncated = true;
+        continue;
+      }
+      const synth = synthUntrackedDiff(rel, file.kind === "text" ? file.content : null);
+      parts.push(synth);
+      total += synth.length;
+    }
+    return { diff: parts.join(""), truncated };
   });
 
   ipcMain.handle("fs:readFile", async (_e, path: string) => {

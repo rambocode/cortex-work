@@ -23,3 +23,9 @@ export function buildContextSnippet(absPath: string | undefined, selection: stri
 export function wrapBracketedPaste(text: string): string {
   return "\x1b[200~" + text + "\x1b[201~";
 }
+
+// 路径插入终端用:纯安全字符直接返回,否则 POSIX 单引号转义（' → '\''）。
+export function shellQuotePath(path: string): string {
+  if (/^[A-Za-z0-9_\-./~+@%:,=]+$/.test(path)) return path;
+  return "'" + path.replaceAll("'", "'\\''") + "'";
+}

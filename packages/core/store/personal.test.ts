@@ -101,6 +101,26 @@ describe("文件片段发送中转（终端 / composer）", () => {
   });
 });
 
+describe("GitBar 整仓 diff 请求中转", () => {
+  it("requestGitDiff 记录请求并把右栏切到 files,消费后清空", () => {
+    usePersonalStore.setState({ gitDiffRequest: undefined, rightView: "todos" });
+    usePersonalStore.getState().requestGitDiff("p1");
+    expect(usePersonalStore.getState().gitDiffRequest).toEqual({ projectId: "p1" });
+    expect(usePersonalStore.getState().rightView).toBe("files");
+
+    expect(usePersonalStore.getState().consumeGitDiffRequest()).toEqual({ projectId: "p1" });
+    expect(usePersonalStore.getState().gitDiffRequest).toBeUndefined();
+    // 再次消费拿不到（防 FilesView 重挂载误触发）
+    expect(usePersonalStore.getState().consumeGitDiffRequest()).toBeUndefined();
+  });
+
+  it("gitDiffRequest 不进入持久化快照", () => {
+    usePersonalStore.getState().requestGitDiff("p1");
+    expect("gitDiffRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
+    usePersonalStore.getState().consumeGitDiffRequest();
+  });
+});
+
 describe("openHome 右栏联动", () => {
   it("回首页时右栏从 files 切回 todos（全部项目列表）", () => {
     usePersonalStore.getState().hydrate(base);

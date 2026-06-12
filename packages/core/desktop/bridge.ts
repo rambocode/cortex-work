@@ -13,6 +13,8 @@ import type {
   CliStreamEvent,
   GitChangesResult,
   GitCommit,
+  GitDiffAllResult,
+  GitInfoResult,
   OpenAiCompleteRequest,
   PersistedState,
   PromptNode,
@@ -37,6 +39,10 @@ export interface DesktopBridge {
   scanDirTree(root: string): Promise<PromptNode>;
   gitChanges(root: string): Promise<GitChangesResult>;
   gitDiff(root: string, rel: string): Promise<string>;
+  // GitBar:分支 + 工作区 ± 统计（含 untracked）/ 整仓 diff。可选（旧壳/web 没有,
+  // 无此能力时信息条不渲染）。
+  gitInfo?(root: string): Promise<GitInfoResult>;
+  gitDiffAll?(root: string): Promise<GitDiffAllResult>;
   readFile(path: string): Promise<ReadFileResult>;
   writeFile(path: string, content: string): Promise<void>;
   deleteFile(path: string): Promise<void>;

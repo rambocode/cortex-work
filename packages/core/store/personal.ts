@@ -47,6 +47,9 @@ export interface PersonalState {
   // 待插入 composer 输入框的文本（文件预览「发送到 Chat」中转;nonce 去重,
   // 防 composer 重挂载时重复插入）。
   composerInsert?: { text: string; nonce: number };
+  // GitBar「查看 diff」请求（FilesView 消费后即清,不持久化;不用 nonce——
+  // FilesView 可能在请求发出时未挂载,消费即清才能让挂载后的 effect 接到）。
+  gitDiffRequest?: { projectId: string };
   // 右栏当前视图（顶栏下拉选择）。
   rightView: "files" | "skills" | "todos";
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
@@ -84,6 +87,9 @@ export interface PersonalState {
   // 原子消费待发送文本（TermSession spawn 完成 / 面板 effect 双路触发,先到先得）。
   consumePendingTerminalText: () => string | undefined;
   insertToComposer: (text: string) => void;
+  // GitBar 点击 ± 徽章:右栏切到文件视图并请求整仓 diff 预览。
+  requestGitDiff: (projectId: string) => void;
+  consumeGitDiffRequest: () => { projectId: string } | undefined;
   setRightView: (view: "files" | "skills" | "todos") => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
@@ -242,6 +248,14 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   insertToComposer: (text) =>
     set((s) => ({ composerInsert: { text, nonce: (s.composerInsert?.nonce ?? 0) + 1 } })),
+
+  requestGitDiff: (projectId) => set({ gitDiffRequest: { projectId }, rightView: "files" }),
+
+  consumeGitDiffRequest: () => {
+    const req = get().gitDiffRequest;
+    if (req) set({ gitDiffRequest: undefined });
+    return req;
+  },
 
   setRightView: (view) => set({ rightView: view }),
 

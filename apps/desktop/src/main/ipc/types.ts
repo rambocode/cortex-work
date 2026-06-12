@@ -196,6 +196,22 @@ export interface UpdateState {
   error?: string;
 }
 
+// ── GitBar:工作区 git 信息（与 core/desktop/types.ts 镜像） ──────────────
+
+export interface GitInfoResult {
+  isRepo: boolean;
+  branch?: string; // detached HEAD 时为 short SHA
+  additions: number; // 含 untracked 文件行数
+  deletions: number;
+  dirty: boolean; // porcelain 有任意条目（纯重命名 ± 为 0 也算脏）
+  truncated?: boolean; // 统计因文件过多/过大可能不全
+}
+
+export interface GitDiffAllResult {
+  diff: string;
+  truncated: boolean;
+}
+
 // ── Tasks 面板:tasks/ 目录文件列表（与 core/desktop/types.ts 镜像） ──────
 
 export interface TaskFileInfo {

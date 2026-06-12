@@ -19,6 +19,7 @@ import {
   usePersonalStore,
   usePetStore,
   type PetKind,
+  type PetMode,
 } from "@cortex-work/core";
 import type {
   AgentKind,
@@ -40,6 +41,7 @@ import {
   PET_SIZE_MIN,
   petColorVars,
 } from "../pet/designs";
+import { savePetEnabled, savePetMode, savePetWalk } from "../pet/behavior";
 
 const PALETTES: PaletteOption[] = [
   { id: "clay", name: "Clay", colors: ["#c96442", "#f3e7df", "#1a1916"] },
@@ -63,13 +65,37 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 // 颜色预设(主色;深/浅两档由 petColorVars 自动派生)。
 const PET_COLOR_PRESETS = ["#ecb98a", "#e8a3b2", "#a3c4e8", "#9fc7a8", "#c9b6e8", "#9a958a"];
 
+// 行为模式 ↔ 设置页展示文案(SegmentedRadio 以展示值为选项)。
+const PET_MODE_LABEL: Record<PetMode, string> = { free: "自由放置", perch: "趴在输入框" };
+const PET_MODE_OPTIONS = (Object.keys(PET_MODE_LABEL) as PetMode[]).map((m) => PET_MODE_LABEL[m]);
+
 function PetSection() {
   const petKind = usePetStore((s) => s.kind);
   const setPetKind = usePetStore((s) => s.setKind);
+  const petMode = usePetStore((s) => s.mode);
+  const setPetMode = usePetStore((s) => s.setMode);
+  const petWalk = usePetStore((s) => s.walk);
+  const setPetWalk = usePetStore((s) => s.setWalk);
+  const petEnabled = usePetStore((s) => s.enabled);
+  const setPetEnabled = usePetStore((s) => s.setEnabled);
   const petSize = usePetStore((s) => s.size);
   const setPetSize = usePetStore((s) => s.setSize);
   const petColor = usePetStore((s) => s.color);
   const setPetColor = usePetStore((s) => s.setColor);
+  const pickMode = (label: string) => {
+    const m = (Object.keys(PET_MODE_LABEL) as PetMode[]).find((k) => PET_MODE_LABEL[k] === label);
+    if (!m) return;
+    setPetMode(m);
+    savePetMode(m);
+  };
+  const pickEnabled = (v: boolean) => {
+    setPetEnabled(v);
+    savePetEnabled(v);
+  };
+  const pickWalk = (v: boolean) => {
+    setPetWalk(v);
+    savePetWalk(v);
+  };
   const pick = (k: PetKind) => {
     setPetKind(k);
     try {
@@ -99,7 +125,23 @@ function PetSection() {
   return (
     <>
       <div className="pw-dlg-title">桌面宠物</div>
-      <div className="pw-dlg-desc">选择陪伴你工作的小伙伴,它会随输入、思考、执行工具等状态切换动画,可在界面上随意拖动。</div>
+      <div className="pw-dlg-desc">选择陪伴你工作的小伙伴,它会随输入、思考、执行工具等状态切换动画。</div>
+
+      <Toggle label="显示宠物" value={petEnabled} onChange={pickEnabled} />
+
+      <div className="twk-sect">行为 · Behavior</div>
+      <div className="pw-set-hint">
+        「自由放置」可随意拖动;「趴在输入框」只露头和前爪搭在聊天框上。悬停宠物时点 ✕ 也可快速隐藏。
+      </div>
+      <SegmentedRadio value={PET_MODE_LABEL[petMode]} options={PET_MODE_OPTIONS} onChange={pickMode} />
+      {petMode === "free" ? (
+        <>
+          <Toggle label="闲时底部走动" value={petWalk} onChange={pickWalk} />
+          <div className="pw-set-hint">开启后:10 分钟没有任何操作,宠物沿应用底边来回散步;一有动静就平滑回到最右侧待命。</div>
+        </>
+      ) : null}
+
+      <div className="twk-sect">造型 · Pet</div>
       <div className="pw-pet-grid" style={colorVars as React.CSSProperties | undefined}>
         {PET_KINDS.map((k) => {
           const d = PET_DESIGNS[k];

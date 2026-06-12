@@ -33,11 +33,17 @@ export const claudeAdapter: AgentAdapter = {
       // 个人工作区是本机交互场景，与用户终端使用习惯一致；
       // 否则 print 模式下工具调用会因无人审批而被拒。
       "--dangerously-skip-permissions",
+      // 纯净启动:清空 MCP 服务(strict 模式下只认这里传入的空配置),
+      // 启动更快、行为可预期;全局指令(~/.claude/CLAUDE.md)仍然生效。
+      "--strict-mcp-config",
+      "--mcp-config",
+      '{"mcpServers":{}}',
     ];
     if (req.model) args.push("--model", req.model);
     if (req.resumeSessionId) args.push("--resume", req.resumeSessionId);
     if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
-    if (req.useOwnSkills === false) args.push("--disable-slash-commands");
+    // skills 默认禁用,仅当用户在 composer 显式打开(useOwnSkills === true)时才加载。
+    if (req.useOwnSkills !== true) args.push("--disable-slash-commands");
     return { cmd: "claude", args };
   },
 

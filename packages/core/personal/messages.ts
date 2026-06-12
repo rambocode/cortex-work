@@ -79,6 +79,11 @@ interface RunState {
   logUid?: string; // 工具步骤 agentLog 消息
   buffer: string;
   gotResult: boolean;
+  // 启动状态机:starting(进程启动中)→ thinking(收到 init,等首个输出)。
+  phase: "starting" | "thinking";
+  // 最近一次收到事件的时间,看门狗据此判定卡死。
+  lastEventAt: number;
+  watchdog?: ReturnType<typeof setInterval>;
   // 时间线采集：prompt 首行 / 起始时间 / 项目路径 / 写类工具触碰的文件。
   promptText?: string;
   startedAt?: number;
@@ -87,6 +92,34 @@ interface RunState {
 }
 
 const runs = new Map<string, RunState>();
+
+// 看门狗阈值:启动阶段(一个事件都没收到)90 秒;运行中静默 300 秒
+// (工具可能长时间执行不产生事件,放宽避免误杀)。
+export const RUN_START_TIMEOUT_MS = 90_000;
+export const RUN_STALL_TIMEOUT_MS = 300_000;
+
+const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex" };
+
+// typing 占位文案:阶段 + 等待时长(5 秒以上才显示,避免一闪而过的数字)。
+export function typingText(agent: AgentKind, phase: "starting" | "thinking", waitedMs: number): string {
+  const base = phase === "starting" ? `正在启动 ${AGENT_NAME[agent]}…` : `${AGENT_NAME[agent]} 正在思考…`;
+  const secs = Math.floor(waitedMs / 1000);
+  return secs >= 5 ? `${base}已等待 ${secs} 秒` : base;
+}
+
+function stopWatchdog(run: RunState): void {
+  if (run.watchdog) {
+    clearInterval(run.watchdog);
+    run.watchdog = undefined;
+  }
+}
+
+// typing 是瞬态消息(sanitizeForSave 会丢弃),只改缓存不调度落盘,避免每秒空写。
+function updateTypingMsg(qc: QueryClient, sessionId: string, typingUid: string, text: string): void {
+  qc.setQueryData<Message[]>(personalChatKeys.detail(sessionId), (prev) =>
+    (prev ?? []).map((m) => (m.uid === typingUid && m.kind === "typing" ? { ...m, text } : m)),
+  );
+}
 
 export function sessionResumeId(session: SessionMeta): string | undefined {
   return session.agentSessionIds?.[session.agent] ?? (session.agent === "claude" ? session.claudeSessionId : undefined);
@@ -206,13 +239,19 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       typingUid: "recovered-no-typing",
       buffer: "",
       gotResult: false,
+      phase: "thinking",
+      lastEventAt: Date.now(),
     };
     runs.set(runId, run);
     usePersonalStore.getState().setRunning(sessionIdHint, runId);
   }
   const { sessionId } = run;
+  run.lastEventAt = Date.now();
 
   if (ev.type === "init") {
+    // 进程已起来:启动中 → 思考中。
+    run.phase = "thinking";
+    updateTypingMsg(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0));
     const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
     if (sess) usePersonalStore.getState().updateSession(sessionId, agentSessionPatch(sess, run.agent, ev.sessionId));
     return;
@@ -303,7 +342,7 @@ function handleCliExit(
 ): void {
   const run = runs.get(runId);
   if (!run) {
-    // 注册表丢失（重载）时按 sessionId 兜底清理,保证 UI 不卡死。
+    // 注册表丢失（重载/看门狗已超时清理）时按 sessionId 兜底,保证 UI 不卡死。
     if (sessionIdHint) {
       clearTransient(qc, sessionIdHint);
       const store = usePersonalStore.getState();
@@ -313,6 +352,7 @@ function handleCliExit(
     }
     return;
   }
+  stopWatchdog(run);
   runs.delete(runId);
   const { sessionId } = run;
   dropMsg(qc, sessionId, run.typingUid);
@@ -453,9 +493,24 @@ export function usePersonalChat(sessionId: string | undefined): PersonalChatSlic
   return splitPersonalMessages(all, hiddenHistory);
 }
 
+// 编辑重发:截断到目标消息之前(目标消息本身也移除,由重发的新消息替代)。
+// 找不到目标返回 null(调用方放弃操作)。
+export function truncateForEdit(messages: Message[], msgUid: string): Message[] | null {
+  const idx = messages.findIndex((m) => m.uid === msgUid);
+  return idx < 0 ? null : messages.slice(0, idx);
+}
+
 export interface PersonalActions {
   send: (session: SessionMeta, projectPath: string, text: string, attachments: PersonalAttachment[]) => Promise<void>;
   stop: (sessionId: string) => Promise<void>;
+  // 编辑重发:清除目标用户消息及其后的全部消息,以新文本重新发送。
+  editResend: (
+    session: SessionMeta,
+    projectPath: string,
+    msgUid: string,
+    text: string,
+    attachments: PersonalAttachment[],
+  ) => Promise<void>;
   // /clear:默认隐藏当前历史;磁盘历史保留,重启后仍从隐藏游标后显示。
   clearView: (sessionId: string) => void;
 }
@@ -477,20 +532,55 @@ export function usePersonalActions(): PersonalActions {
       appendMsg(qc, session.id, {
         kind: "typing",
         who: session.agent,
-        text: `${session.agent === "claude" ? "Claude Code" : "Codex"} 正在思考…`,
+        text: typingText(session.agent, "starting", 0),
         uid: typingUid,
       });
 
-      runs.set(runId, {
+      const run: RunState = {
         sessionId: session.id,
         agent: session.agent,
         typingUid,
         buffer: "",
         gotResult: false,
+        phase: "starting",
+        lastEventAt: Date.now(),
         promptText: text,
         startedAt: Date.now(),
         cwd: projectPath,
-      });
+      };
+      runs.set(runId, run);
+      // 看门狗:每秒刷新 typing 等待时长;启动/静默超时则杀进程并提示重试。
+      run.watchdog = setInterval(() => {
+        const cur = runs.get(runId);
+        if (!cur) return;
+        const silent = Date.now() - cur.lastEventAt;
+        const limit = cur.phase === "starting" ? RUN_START_TIMEOUT_MS : RUN_STALL_TIMEOUT_MS;
+        if (!cur.gotResult && silent >= limit) {
+          stopWatchdog(cur);
+          runs.delete(runId);
+          dropMsg(qc, cur.sessionId, cur.typingUid);
+          clearTransient(qc, cur.sessionId);
+          appendMsg(qc, cur.sessionId, {
+            kind: "text",
+            who: cur.agent,
+            time: realHHMM(),
+            text:
+              cur.phase === "starting"
+                ? `⚠️ 启动超时：${Math.round(limit / 1000)} 秒内没有收到 ${AGENT_NAME[cur.agent]} 的任何响应,已停止本次调用。请检查 CLI 是否正常,然后把鼠标移到刚才的消息上点「编辑重发」重试。`
+                : `⚠️ 响应超时：${Math.round(limit / 1000)} 秒没有新的输出,已停止本次调用。可把鼠标移到刚才的消息上点「编辑重发」重试。`,
+            uid: uid("err"),
+          });
+          usePersonalStore.getState().setRunning(cur.sessionId, undefined);
+          usePetStore.getState().set("idle");
+          flushChat(qc, cur.sessionId);
+          void bridgeRef?.killCli(runId);
+          return;
+        }
+        // 仍在等首个输出:typing 占位上滚动显示已等待时长。
+        if (!cur.textUid && !cur.logUid && !cur.gotResult && cur.startedAt) {
+          updateTypingMsg(qc, cur.sessionId, cur.typingUid, typingText(cur.agent, cur.phase, Date.now() - cur.startedAt));
+        }
+      }, 1000);
       usePersonalStore.getState().setRunning(session.id, runId);
       usePetStore.getState().set("thinking");
 
@@ -517,6 +607,22 @@ export function usePersonalActions(): PersonalActions {
     [bridge, qc],
   );
 
+  const editResend = useCallback<PersonalActions["editResend"]>(
+    async (session, projectPath, msgUid, text, attachments) => {
+      if (!bridge || !text.trim()) return;
+      // 运行中不允许编辑历史(先停止再说),避免与流式写入打架。
+      if (usePersonalStore.getState().runningBySession[session.id]) return;
+      await ensureChatLoaded(qc, bridge, session.id);
+      const prev = qc.getQueryData<Message[]>(personalChatKeys.detail(session.id)) ?? [];
+      const truncated = truncateForEdit(prev, msgUid);
+      if (truncated === null) return;
+      qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
+      flushChat(qc, session.id);
+      await send(session, projectPath, text, attachments);
+    },
+    [bridge, qc, send],
+  );
+
   const stop = useCallback<PersonalActions["stop"]>(
     async (sessionId) => {
       const runId = usePersonalStore.getState().runningBySession[sessionId];
@@ -527,7 +633,10 @@ export function usePersonalActions(): PersonalActions {
         const store = usePersonalStore.getState();
         if (store.runningBySession[sessionId] === runId) {
           runs.forEach((r, id) => {
-            if (r.sessionId === sessionId) runs.delete(id);
+            if (r.sessionId === sessionId) {
+              stopWatchdog(r);
+              runs.delete(id);
+            }
           });
           store.setRunning(sessionId, undefined);
           clearTransient(qc, sessionId);
@@ -546,5 +655,5 @@ export function usePersonalActions(): PersonalActions {
     [qc],
   );
 
-  return { send, stop, clearView };
+  return { send, stop, editResend, clearView };
 }

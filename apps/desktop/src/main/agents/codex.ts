@@ -30,6 +30,9 @@ export const codexAdapter: AgentAdapter = {
       "--json",
       "--skip-git-repo-check",
       "--dangerously-bypass-approvals-and-sandbox",
+      // 纯净启动:TOML 覆盖清空 MCP 服务,只保留全局指令(~/.codex/AGENTS.md)。
+      "-c",
+      "mcp_servers={}",
     ];
     if (req.model) common.push("--model", req.model);
 

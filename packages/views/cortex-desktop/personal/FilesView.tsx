@@ -5,14 +5,15 @@
 // - 选中片段可发送到终端（bracketed paste）或插入会话输入框。
 // 变更文件优先显示 git diff（+/− 着色,仍走纯文本渲染）。
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { ChangedFile, GitChangesResult, PromptNode } from "@cortex-work/core";
 import { FileIcon, fileIconSpec, isBinaryLike } from "./fileIcons";
 import { langForName, wordWrapForName } from "./monacoLang";
 import { MonacoViewer, type SelectionAnchor } from "./MonacoViewer";
-import { buildContextSnippet, wrapBracketedPaste } from "./sendContext";
+import { buildContextSnippet, shellQuotePath, toTildePath, wrapBracketedPaste } from "./sendContext";
+import { FileContextMenu, type FileCtxTarget } from "./FileContextMenu";
 
 type Mode = "all" | "changes";
 
@@ -29,11 +30,27 @@ function TreeRowIcon({ name }: { name: string }) {
   return fileIconSpec(name) ? <FileIcon name={name} size={13} /> : <Icon.File size={13} />;
 }
 
-function FileTreeNode({ node, depth, onOpen }: { node: PromptNode; depth: number; onOpen: (n: PromptNode) => void }) {
+function FileTreeNode({
+  node,
+  depth,
+  onOpen,
+  onCtx,
+}: {
+  node: PromptNode;
+  depth: number;
+  onOpen: (n: PromptNode) => void;
+  onCtx: (e: ReactMouseEvent, path: string, name: string) => void;
+}) {
   const [collapsed, setCollapsed] = useState(depth > 0);
   if (node.kind === "file") {
     return (
-      <button className="pw-tree-row is-file" style={{ paddingLeft: 12 + depth * 14 }} onClick={() => onOpen(node)} title={node.path}>
+      <button
+        className="pw-tree-row is-file"
+        style={{ paddingLeft: 12 + depth * 14 }}
+        onClick={() => onOpen(node)}
+        onContextMenu={(e) => onCtx(e, node.path, node.name)}
+        title={node.path}
+      >
         <TreeRowIcon name={node.name} />
         <span className="pw-tree-name">{node.name}</span>
       </button>
@@ -49,7 +66,7 @@ function FileTreeNode({ node, depth, onOpen }: { node: PromptNode; depth: number
         <span className="pw-tree-name">{node.name}</span>
         <span className="count">{node.children?.length ?? 0}</span>
       </button>
-      {!collapsed ? node.children?.map((c) => <FileTreeNode key={c.path} node={c} depth={depth + 1} onOpen={onOpen} />) : null}
+      {!collapsed ? node.children?.map((c) => <FileTreeNode key={c.path} node={c} depth={depth + 1} onOpen={onOpen} onCtx={onCtx} />) : null}
     </>
   );
 }
@@ -92,6 +109,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   const [dirty, setDirty] = useState(false);
   const [selection, setSelection] = useState("");
   const [selAnchor, setSelAnchor] = useState<SelectionAnchor | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<FileCtxTarget | null>(null);
   const draftRef = useRef("");
 
   const refresh = useCallback(async () => {
@@ -124,6 +142,29 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
       bridge.unwatchDir?.(watchId);
     };
   }, [bridge, project, mode, refresh]);
+
+  // GitBar「查看 diff」:消费整仓 diff 请求,打开聚合 diff 预览。消费即清,
+  // 防 FilesView 重挂载时误触发;项目不匹配则不消费(等切到对应项目)。
+  const gitDiffRequest = usePersonalStore((s) => s.gitDiffRequest);
+  const consumeGitDiffRequest = usePersonalStore((s) => s.consumeGitDiffRequest);
+  useEffect(() => {
+    if (!gitDiffRequest || !bridge?.gitDiffAll || !project) return;
+    if (gitDiffRequest.projectId !== project.id) return;
+    consumeGitDiffRequest();
+    void (async () => {
+      const res = await bridge.gitDiffAll!(project.path).catch(() => null);
+      if (!res) return;
+      setEditMode(false);
+      setDirty(false);
+      setSelection("");
+      setPreview({
+        name: "全部变更",
+        content: res.diff.trim() ? res.diff : "（没有变更）",
+        isDiff: true,
+        truncated: res.truncated || undefined,
+      });
+    })();
+  }, [gitDiffRequest, bridge, project, consumeGitDiffRequest]);
 
   const closePreview = () => {
     setPreview(null);
@@ -211,6 +252,38 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     usePersonalStore.getState().insertToComposer(buildContextSnippet(preview?.path, selection));
     setSelAnchor(null);
     onToast("已插入会话输入框");
+  };
+
+  // ---- 文件行右键菜单 ----
+  const openCtxMenu = (e: ReactMouseEvent, path: string, name: string) => {
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, path, name });
+  };
+
+  const ctxOpen = (t: FileCtxTarget) => {
+    void bridge?.openPath?.(t.path).catch((err: unknown) => onToast(`打开失败：${err instanceof Error ? err.message : String(err)}`));
+  };
+
+  const ctxInsertChat = (t: FileCtxTarget) => {
+    usePersonalStore.getState().insertToComposer("`" + toTildePath(t.path) + "` ");
+    onToast("路径已插入会话输入框");
+  };
+
+  const ctxInsertTerminal = (t: FileCtxTarget) => {
+    usePersonalStore.getState().sendToTerminal(wrapBracketedPaste(shellQuotePath(t.path)));
+    onToast("路径已插入终端");
+  };
+
+  const ctxDelete = async (t: FileCtxTarget) => {
+    if (!bridge) return;
+    try {
+      await bridge.deleteFile(t.path);
+      if (preview?.path === t.path) closePreview();
+      onToast(`已删除 ${t.name}`);
+      void refresh();
+    } catch (err) {
+      onToast(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   if (!project) return <div className="pw-panel-empty">先在左侧选择一个项目</div>;
@@ -363,7 +436,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
             </div>
             {tree.children?.length ? (
               tree.children.map((c) => (
-                <FileTreeNode key={c.path} node={c} depth={0} onOpen={(n) => void openFile(n.path, n.name)} />
+                <FileTreeNode key={c.path} node={c} depth={0} onOpen={(n) => void openFile(n.path, n.name)} onCtx={openCtxMenu} />
               ))
             ) : (
               <div className="pw-empty-hint">空目录</div>
@@ -379,7 +452,16 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
             <div className="pw-empty-hint">没有未提交的变更</div>
           ) : (
             changes.files.map((f) => (
-              <button key={f.path} className="pw-tree-row is-file" onClick={() => void openChange(f)} title={f.path}>
+              <button
+                key={f.path}
+                className="pw-tree-row is-file"
+                onClick={() => void openChange(f)}
+                onContextMenu={(e) => {
+                  // 已删除的文件磁盘上不存在,右键操作（打开/插入/删除）均无意义
+                  if (f.status !== "D") openCtxMenu(e, f.path, f.rel);
+                }}
+                title={f.path}
+              >
                 <span className={`pw-change-badge s-${f.status === "??" ? "new" : f.status[0]}`}>
                   {STATUS_LABEL[f.status] ?? STATUS_LABEL[f.status?.[0] ?? "M"] ?? f.status}
                 </span>
@@ -390,6 +472,17 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
           )}
         </div>
       )}
+      {ctxMenu ? (
+        <FileContextMenu
+          target={ctxMenu}
+          canOpen={!!bridge?.openPath}
+          onOpen={() => ctxOpen(ctxMenu)}
+          onInsertChat={() => ctxInsertChat(ctxMenu)}
+          onInsertTerminal={() => ctxInsertTerminal(ctxMenu)}
+          onDelete={() => void ctxDelete(ctxMenu)}
+          onClose={() => setCtxMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

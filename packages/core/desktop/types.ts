@@ -230,6 +230,22 @@ export interface GitChangesResult {
   files: ChangedFile[];
 }
 
+// GitBar:工作区 git 信息（分支 + ± 行数统计,含 untracked）。
+export interface GitInfoResult {
+  isRepo: boolean;
+  branch?: string; // detached HEAD 时为 short SHA
+  additions: number; // 含 untracked 文件行数
+  deletions: number;
+  dirty: boolean; // porcelain 有任意条目（纯重命名 ± 为 0 也算脏）
+  truncated?: boolean; // 统计因文件过多/过大可能不全
+}
+
+// GitBar「查看 diff」:整仓 diff（tracked 真实 diff + untracked 合成片段）。
+export interface GitDiffAllResult {
+  diff: string;
+  truncated: boolean;
+}
+
 // ── 项目时间线 ────────────────────────────────────────────────────────────
 
 // 时间线事件。存储的只有 run / summary.day 两类；session.created 由

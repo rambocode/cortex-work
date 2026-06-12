@@ -36,9 +36,18 @@ describe("claudeAdapter.buildArgs", () => {
     expect(args.join(" ")).toContain("--append-system-prompt skill content");
   });
 
-  it("useOwnSkills=false → --disable-slash-commands;缺省不带", () => {
+  it("skills 默认禁用:仅 useOwnSkills=true 时不带 --disable-slash-commands", () => {
+    expect(claudeAdapter.buildArgs(baseReq).args).toContain("--disable-slash-commands");
     expect(claudeAdapter.buildArgs({ ...baseReq, useOwnSkills: false }).args).toContain("--disable-slash-commands");
-    expect(claudeAdapter.buildArgs(baseReq).args).not.toContain("--disable-slash-commands");
+    expect(claudeAdapter.buildArgs({ ...baseReq, useOwnSkills: true }).args).not.toContain("--disable-slash-commands");
+  });
+
+  it("纯净启动:始终清空 MCP(strict-mcp-config + 空 mcp-config)", () => {
+    const { args } = claudeAdapter.buildArgs(baseReq);
+    expect(args).toContain("--strict-mcp-config");
+    const i = args.indexOf("--mcp-config");
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe('{"mcpServers":{}}');
   });
 });
 

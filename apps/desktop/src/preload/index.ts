@@ -7,6 +7,8 @@ import type {
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  GitDiffAllResult,
+  GitInfoResult,
   PersistedState,
   PromptNode,
   ReadFileResult,
@@ -49,6 +51,9 @@ const personal = {
   gitChanges: (root: string): Promise<{ isRepo: boolean; files: { path: string; rel: string; status: string }[] }> =>
     ipcRenderer.invoke("fs:gitChanges", root),
   gitDiff: (root: string, rel: string): Promise<string> => ipcRenderer.invoke("fs:gitDiff", root, rel),
+  // GitBar:分支 + ± 统计 / 整仓 diff
+  gitInfo: (root: string): Promise<GitInfoResult> => ipcRenderer.invoke("fs:gitInfo", root),
+  gitDiffAll: (root: string): Promise<GitDiffAllResult> => ipcRenderer.invoke("fs:gitDiffAll", root),
   readFile: (path: string): Promise<ReadFileResult> => ipcRenderer.invoke("fs:readFile", path),
   writeFile: (path: string, content: string): Promise<void> => ipcRenderer.invoke("fs:writeFile", path, content),
   deleteFile: (path: string): Promise<void> => ipcRenderer.invoke("fs:deleteFile", path),

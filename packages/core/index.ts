@@ -26,7 +26,7 @@ export {
   type WorkspaceKind,
 } from "./store/ui";
 export { usePersonalStore, toPersistedState, type PersonalState } from "./store/personal";
-export { usePetStore, type PetState, type PetKind, type PetStore } from "./store/pet";
+export { usePetStore, type PetState, type PetKind, type PetMode, type PetStore } from "./store/pet";
 export type { DesktopBridge } from "./desktop/bridge";
 export {
   AGENT_MODELS,
@@ -50,6 +50,8 @@ export {
   type ChangedFile,
   type GitChangesResult,
   type GitCommit,
+  type GitInfoResult,
+  type GitDiffAllResult,
   type TimelineEvent,
   type TimelineEventKind,
   type TimelineFileData,
@@ -77,12 +79,17 @@ export {
   DEFAULT_TTS_SETTINGS,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
+export { gitInfoKeys, useProjectGitInfo, useInvalidateGitInfo } from "./personal/git";
 export {
   personalChatKeys,
   buildAttachmentSystemPrompt,
   usePersonalChat,
   usePersonalActions,
   usePersonalCliEvents,
+  truncateForEdit,
+  typingText,
+  RUN_START_TIMEOUT_MS,
+  RUN_STALL_TIMEOUT_MS,
   type PersonalAttachment,
   type PromptAttachment,
   type TodoAttachment,
