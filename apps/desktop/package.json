@@ -13,7 +13,10 @@
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
     "lint": "eslint .",
     "test": "vitest run",
-    "dist": "electron-vite build && electron-builder --mac"
+    "dist": "electron-vite build && electron-builder --mac",
+    "dist:dir": "electron-vite build && electron-builder --mac --dir --publish never",
+    "dist:zip": "electron-vite build && electron-builder --mac zip --publish never",
+    "dist:dmg": "electron-vite build && electron-builder --mac dmg --publish never"
   },
   "dependencies": {
     "@cortex-work/core": "workspace:*",
