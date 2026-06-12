@@ -12,6 +12,7 @@ import type {
   ReadFileResult,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
+  TtsStreamEvent,
   TtsVoiceOption,
 } from "../main/ipc/types";
 
@@ -72,6 +73,18 @@ const personal = {
   pushReport: (target: unknown, payload: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("push:report", target, payload),
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),
+  ttsSynthesizeStream: async (req: TtsSynthesizeRequest, cb: (event: TtsStreamEvent) => void): Promise<void> => {
+    const streamId = crypto.randomUUID();
+    const listener = (_e: IpcRendererEvent, payload: { streamId: string; event: TtsStreamEvent }) => {
+      if (payload.streamId === streamId) cb(payload.event);
+    };
+    ipcRenderer.on("tts:stream", listener);
+    try {
+      await ipcRenderer.invoke("tts:synthesizeStream", { ...req, streamId });
+    } finally {
+      ipcRenderer.removeListener("tts:stream", listener);
+    }
+  },
   listTtsVoices: (req: TtsListVoicesRequest): Promise<TtsVoiceOption[]> => ipcRenderer.invoke("tts:listVoices", req),
   asrTranscribe: (req: AsrTranscribeRequest): Promise<AsrTranscribeResponse> => ipcRenderer.invoke("asr:transcribe", req),
   killCli: (runId: string): Promise<void> => ipcRenderer.invoke("cli:kill", runId),

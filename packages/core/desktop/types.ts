@@ -110,7 +110,17 @@ export const DEFAULT_PUSH_SETTINGS: PushSettings = {};
 // openai = OpenAI 兼容 /v1/audio/speech 端点（本地部署或云端均可）。
 export type TtsEngineConfig =
   | { kind: "system"; voice?: string; rate?: number }
-  | { kind: "openai"; baseUrl: string; apiKey?: string; model: string; voice: string; speed?: number; language?: string };
+  | {
+      kind: "openai";
+      baseUrl: string;
+      apiKey?: string;
+      model: string;
+      voice: string;
+      speed?: number;
+      language?: string;
+      stream?: boolean;
+      streamingInterval?: number;
+    };
 
 export interface TtsSettings {
   // 开启后 Agent 每轮回复落定时自动朗读。
@@ -130,8 +140,15 @@ export interface TtsSynthesizeRequest {
   voice: string;
   speed?: number;
   language?: string;
+  stream?: boolean;
+  streamingInterval?: number;
   text: string;
 }
+
+export type TtsStreamEvent =
+  | { type: "chunk"; chunk: ArrayBuffer; mimeType?: string }
+  | { type: "done" }
+  | { type: "error"; error: string };
 
 export interface TtsListVoicesRequest {
   baseUrl: string;

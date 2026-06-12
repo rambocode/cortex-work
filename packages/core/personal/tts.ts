@@ -7,6 +7,7 @@ import type { DesktopBridge } from "../desktop/bridge";
 import type { TtsSettings } from "../desktop/types";
 
 const MAX_SPEECH_CHARS = 600;
+const STREAM_TEXT_CHARS = 160;
 
 export interface TtsPlaybackState {
   isSpeaking: boolean;
@@ -30,8 +31,36 @@ export function clipSpeechText(text: string, max = MAX_SPEECH_CHARS): string {
   return clean.length > max ? clean.slice(0, max) + "……以下省略" : clean;
 }
 
+export function splitSpeechChunks(text: string, max = STREAM_TEXT_CHARS): string[] {
+  const clean = text.trim();
+  if (!clean) return [];
+  const units = clean.match(/[^。！？!?；;，,]+[。！？!?；;，,]?/g) ?? [clean];
+  const chunks: string[] = [];
+  let current = "";
+  const pushCurrent = () => {
+    const trimmed = current.trim();
+    if (trimmed) chunks.push(trimmed);
+    current = "";
+  };
+
+  for (const unit of units) {
+    const part = unit.trim();
+    if (!part) continue;
+    if (part.length > max) {
+      pushCurrent();
+      for (let i = 0; i < part.length; i += max) chunks.push(part.slice(i, i + max));
+      continue;
+    }
+    if (current && current.length + part.length > max) pushCurrent();
+    current += part;
+  }
+  pushCurrent();
+  return chunks;
+}
+
 // 当前播放句柄（打断用）。
 let currentAudio: HTMLAudioElement | null = null;
+let currentAudioContext: AudioContext | null = null;
 let currentUrl: string | null = null;
 let playbackSeq = 0;
 let isSpeaking = false;
@@ -73,6 +102,10 @@ export function stopSpeaking(): void {
     currentAudio.pause();
     currentAudio = null;
   }
+  if (currentAudioContext) {
+    void currentAudioContext.close().catch(() => {});
+    currentAudioContext = null;
+  }
   if (currentUrl) {
     URL.revokeObjectURL(currentUrl);
     currentUrl = null;
@@ -99,12 +132,198 @@ function speakWithSystem(seq: number, text: string, voice?: string, rate?: numbe
   synth.speak(utter);
 }
 
+interface StreamAudioPlayer {
+  append(chunk: ArrayBuffer): void;
+  finish(): void;
+}
+
+function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffer> {
+  const out: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(a.length + b.length));
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
+function bytesFromArrayBuffer(buffer: ArrayBuffer): Uint8Array<ArrayBuffer> {
+  const out: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(buffer.byteLength));
+  out.set(new Uint8Array(buffer));
+  return out;
+}
+
+function ascii(bytes: Uint8Array, start: number, length: number): string {
+  return String.fromCharCode(...bytes.subarray(start, start + length));
+}
+
+function findAscii(bytes: Uint8Array, target: string, start = 0): number {
+  for (let i = start; i <= bytes.length - target.length; i += 1) {
+    let ok = true;
+    for (let j = 0; j < target.length; j += 1) {
+      if (bytes[i + j] !== target.charCodeAt(j)) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return i;
+  }
+  return -1;
+}
+
+function isWavChunk(chunk: ArrayBuffer, mimeType?: string): boolean {
+  if (mimeType?.toLowerCase().includes("wav")) return true;
+  const bytes = new Uint8Array(chunk, 0, Math.min(chunk.byteLength, 12));
+  return bytes.length >= 12 && ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 4) === "WAVE";
+}
+
+function stripWavHeader(chunk: ArrayBuffer): Uint8Array<ArrayBuffer> {
+  const bytes = bytesFromArrayBuffer(chunk);
+  if (bytes.length < 44 || ascii(bytes, 0, 4) !== "RIFF" || ascii(bytes, 8, 4) !== "WAVE") return bytes;
+  const dataAt = findAscii(bytes, "data", 36);
+  if (dataAt < 0 || bytes.length < dataAt + 8) return bytes;
+  return bytes.slice(dataAt + 8);
+}
+
+function makeWavStreamPlayer(seq: number): StreamAudioPlayer {
+  const audioContextCtor = (globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext
+    ?? (globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!audioContextCtor) throw new Error("当前环境不支持 AudioContext 流式播放");
+
+  const ctx = new audioContextCtor();
+  currentAudioContext = ctx;
+  void ctx.resume().catch(() => {});
+
+  let pending = new Uint8Array(0);
+  let parsed: { channels: number; sampleRate: number; bytesPerSample: number; bytesPerFrame: number } | null = null;
+  let nextTime = 0;
+  let lastSource: AudioBufferSourceNode | null = null;
+
+  const schedulePcm = (bytes: Uint8Array) => {
+    if (!parsed || bytes.length < parsed.bytesPerFrame) return;
+    const usable = bytes.length - (bytes.length % parsed.bytesPerFrame);
+    const frames = usable / parsed.bytesPerFrame;
+    const audioBuffer = ctx.createBuffer(parsed.channels, frames, parsed.sampleRate);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, usable);
+    for (let frame = 0; frame < frames; frame += 1) {
+      for (let channel = 0; channel < parsed.channels; channel += 1) {
+        const offset = (frame * parsed.channels + channel) * parsed.bytesPerSample;
+        const sample = view.getInt16(offset, true) / 32768;
+        audioBuffer.getChannelData(channel)[frame] = sample;
+      }
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    const startAt = Math.max(ctx.currentTime + 0.03, nextTime);
+    source.start(startAt);
+    nextTime = startAt + audioBuffer.duration;
+    lastSource = source;
+  };
+
+  const consume = () => {
+    if (!parsed) {
+      if (pending.length < 44) return;
+      if (ascii(pending, 0, 4) !== "RIFF" || ascii(pending, 8, 4) !== "WAVE") {
+        throw new Error("TTS 返回的 wav 流头不合法");
+      }
+      const view = new DataView(pending.buffer, pending.byteOffset, pending.byteLength);
+      const channels = view.getUint16(22, true);
+      const sampleRate = view.getUint32(24, true);
+      const bitsPerSample = view.getUint16(34, true);
+      const dataAt = findAscii(pending, "data", 36);
+      if (dataAt < 0 || pending.length < dataAt + 8) return;
+      if (bitsPerSample !== 16) throw new Error(`暂不支持 ${bitsPerSample}-bit wav TTS 流`);
+      parsed = {
+        channels,
+        sampleRate,
+        bytesPerSample: bitsPerSample / 8,
+        bytesPerFrame: channels * (bitsPerSample / 8),
+      };
+      pending = pending.slice(dataAt + 8);
+    }
+
+    const usable = pending.length - (pending.length % parsed.bytesPerFrame);
+    if (usable <= 0) return;
+    const pcm = pending.slice(0, usable);
+    pending = pending.slice(usable);
+    schedulePcm(pcm);
+  };
+
+  return {
+    append(chunk) {
+      pending = concatBytes(pending, parsed ? stripWavHeader(chunk) : bytesFromArrayBuffer(chunk));
+      consume();
+    },
+    finish() {
+      consume();
+      if (lastSource) {
+        lastSource.onended = () => {
+          if (playbackSeq === seq) setSpeaking(false);
+        };
+      } else if (playbackSeq === seq) {
+        setSpeaking(false);
+      }
+    },
+  };
+}
+
+async function speakWithOpenaiStream(
+  seq: number,
+  bridge: DesktopBridge,
+  engine: Extract<TtsSettings["engine"], { kind: "openai" }>,
+  text: string,
+): Promise<boolean> {
+  if (engine.stream === false || !bridge.ttsSynthesizeStream) return false;
+
+  setSpeaking(true);
+
+  let streamError: string | null = null;
+  let player: StreamAudioPlayer | null = null;
+  for (const chunkText of splitSpeechChunks(text)) {
+    if (playbackSeq !== seq || streamError) break;
+    await bridge.ttsSynthesizeStream(
+      {
+        baseUrl: engine.baseUrl,
+        apiKey: engine.apiKey,
+        model: engine.model,
+        voice: engine.voice,
+        speed: engine.speed,
+        language: engine.language ?? "zh",
+        stream: true,
+        streamingInterval: engine.streamingInterval ?? 1.0,
+        text: chunkText,
+      },
+      (event) => {
+        if (playbackSeq !== seq) return;
+        if (event.type === "chunk") {
+          if (!player) {
+            if (!isWavChunk(event.chunk, event.mimeType)) {
+              streamError = `暂不支持 ${event.mimeType ?? "unknown"} TTS 流式播放`;
+              setSpeaking(false);
+              return;
+            }
+            player = makeWavStreamPlayer(seq);
+          }
+          player.append(event.chunk);
+        } else if (event.type === "error") {
+          streamError = event.error;
+          setSpeaking(false);
+        }
+      },
+    );
+  }
+  if (streamError) throw new Error(streamError);
+  const activePlayer = player as StreamAudioPlayer | null;
+  activePlayer?.finish();
+  return true;
+}
+
 async function speakWithOpenai(
   seq: number,
   bridge: DesktopBridge,
   engine: Extract<TtsSettings["engine"], { kind: "openai" }>,
   text: string,
 ): Promise<void> {
+  if (await speakWithOpenaiStream(seq, bridge, engine, text)) return;
   const buf = await bridge.ttsSynthesize({
     baseUrl: engine.baseUrl,
     apiKey: engine.apiKey,
@@ -112,6 +331,8 @@ async function speakWithOpenai(
     voice: engine.voice,
     speed: engine.speed,
     language: engine.language ?? "zh",
+    stream: engine.stream ?? true,
+    streamingInterval: engine.streamingInterval ?? 1.0,
     text,
   });
   if (playbackSeq !== seq) return;

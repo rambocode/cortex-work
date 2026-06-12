@@ -1,6 +1,13 @@
 import { createHmac } from "crypto";
 import { describe, expect, it } from "vitest";
-import { audioSpeechUrl, audioTranscriptionsUrl, audioVoiceUrls, chatCompletionsUrl, dingtalkSignedUrl } from "./push-sign";
+import {
+  audioSpeechPayload,
+  audioSpeechUrl,
+  audioTranscriptionsUrl,
+  audioVoiceUrls,
+  chatCompletionsUrl,
+  dingtalkSignedUrl,
+} from "./push-sign";
 
 describe("dingtalkSignedUrl", () => {
   it("追加 timestamp 与 URL 编码后的 HMAC-SHA256 签名", () => {
@@ -36,6 +43,29 @@ describe("audioSpeechUrl", () => {
   it("无版本段时补 /v1,已带版本段不重复", () => {
     expect(audioSpeechUrl("http://localhost:8880")).toBe("http://localhost:8880/v1/audio/speech");
     expect(audioSpeechUrl("https://api.example.com/v1/")).toBe("https://api.example.com/v1/audio/speech");
+  });
+});
+
+describe("audioSpeechPayload", () => {
+  it("透传 Qwen TTS 需要的 stream 参数", () => {
+    expect(
+      audioSpeechPayload({
+        baseUrl: "http://127.0.0.1:8000",
+        model: "Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+        voice: "vivian",
+        text: "你好，今天天气很好。",
+        language: "zh",
+        stream: true,
+        streamingInterval: 1.0,
+      }),
+    ).toEqual({
+      model: "Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+      input: "你好，今天天气很好。",
+      voice: "vivian",
+      language: "zh",
+      stream: true,
+      streaming_interval: 1.0,
+    });
   });
 });
 

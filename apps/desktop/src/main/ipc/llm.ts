@@ -9,10 +9,12 @@ import type {
   AsrTranscribeRequest,
   AsrTranscribeResponse,
   TtsListVoicesRequest,
+  TtsSynthesizeStreamRequest,
   TtsSynthesizeRequest,
+  TtsStreamEvent,
   TtsVoiceOption,
 } from "./types";
-import { audioSpeechUrl, audioTranscriptionsUrl, audioVoiceUrls, chatCompletionsUrl } from "./push-sign";
+import { audioSpeechPayload, audioSpeechUrl, audioTranscriptionsUrl, audioVoiceUrls, chatCompletionsUrl } from "./push-sign";
 
 interface OpenAiCompleteRequest {
   baseUrl: string;
@@ -22,6 +24,7 @@ interface OpenAiCompleteRequest {
 }
 
 const TIMEOUT_MS = 60_000;
+const TTS_STREAM_TIMEOUT_MS = 10 * 60_000;
 const ASR_TIMEOUT_MS = 180_000;
 const LOCAL_OMLX_BASE_URLS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
@@ -119,13 +122,7 @@ export function registerLlmHandlers(): void {
         "Content-Type": "application/json",
         ...(await authHeaders(req.baseUrl, req.apiKey)),
       },
-      body: JSON.stringify({
-        model: req.model,
-        input: req.text,
-        voice: req.voice,
-        ...(req.speed ? { speed: req.speed } : {}),
-        ...(req.language ? { language: req.language } : {}),
-      }),
+      body: JSON.stringify(audioSpeechPayload(req)),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!res.ok) {
@@ -133,6 +130,42 @@ export function registerLlmHandlers(): void {
       throw new Error(`TTS 接口 HTTP ${res.status}${body ? `:${body.slice(0, 200)}` : ""}`);
     }
     return await res.arrayBuffer();
+  });
+
+  ipcMain.handle("tts:synthesizeStream", async (event, req: TtsSynthesizeStreamRequest) => {
+    const sender = event.sender;
+    const send = (streamEvent: TtsStreamEvent) => {
+      if (!sender.isDestroyed()) sender.send("tts:stream", { streamId: req.streamId, event: streamEvent });
+    };
+
+    try {
+      const res = await fetch(audioSpeechUrl(req.baseUrl), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(await authHeaders(req.baseUrl, req.apiKey)),
+        },
+        body: JSON.stringify(audioSpeechPayload({ ...req, stream: true })),
+        signal: AbortSignal.timeout(TTS_STREAM_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`TTS 接口 HTTP ${res.status}${body ? `:${body.slice(0, 200)}` : ""}`);
+      }
+      if (!res.body) throw new Error("TTS 接口未返回可读取的音频流");
+
+      const mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() || "audio/mpeg";
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+        send({ type: "chunk", chunk, mimeType });
+      }
+      send({ type: "done" });
+    } catch (error) {
+      send({ type: "error", error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   ipcMain.handle("tts:listVoices", async (_e, req: TtsListVoicesRequest): Promise<TtsVoiceOption[]> => {

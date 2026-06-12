@@ -1,6 +1,7 @@
 // 推送相关纯函数（不依赖 electron,便于单测）。
 
 import { createHmac } from "crypto";
+import type { TtsSynthesizeRequest } from "./types";
 
 // 钉钉加签：timestamp + "\n" + secret 做 HMAC-SHA256,Base64 后 URL 编码。
 export function dingtalkSignedUrl(webhookUrl: string, secret: string, timestamp: number): string {
@@ -19,6 +20,18 @@ export function chatCompletionsUrl(baseUrl: string): string {
 export function audioSpeechUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return /\/v\d+$/.test(trimmed) ? `${trimmed}/audio/speech` : `${trimmed}/v1/audio/speech`;
+}
+
+export function audioSpeechPayload(req: TtsSynthesizeRequest): Record<string, unknown> {
+  return {
+    model: req.model,
+    input: req.text,
+    voice: req.voice,
+    ...(req.speed ? { speed: req.speed } : {}),
+    ...(req.language ? { language: req.language } : {}),
+    ...(typeof req.stream === "boolean" ? { stream: req.stream } : {}),
+    ...(req.streamingInterval ? { streaming_interval: req.streamingInterval } : {}),
+  };
 }
 
 // OpenAI 兼容 ASR：统一拼到 /audio/transcriptions。

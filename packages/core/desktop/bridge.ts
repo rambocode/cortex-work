@@ -23,6 +23,7 @@ import type {
   ReadFileResult,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
+  TtsStreamEvent,
   TtsVoiceOption,
 } from "./types";
 
@@ -62,6 +63,8 @@ export interface DesktopBridge {
   pushReport(target: PushTarget, payload: { subject: string; text: string }): Promise<PushResult>;
   // TTS：OpenAI 兼容 /v1/audio/speech 合成,返回音频字节（renderer 播放）
   ttsSynthesize(req: TtsSynthesizeRequest): Promise<ArrayBuffer>;
+  // TTS：流式合成,主进程边读响应边把音频块推给 renderer。
+  ttsSynthesizeStream?(req: TtsSynthesizeRequest, cb: (event: TtsStreamEvent) => void): Promise<void>;
   // TTS：按模型发现可选音色；端点不支持时返回空数组。
   listTtsVoices(req: TtsListVoicesRequest): Promise<TtsVoiceOption[]>;
   // ASR：OpenAI 兼容 /v1/audio/transcriptions 转写,返回文本。

@@ -136,8 +136,19 @@ export interface TtsSynthesizeRequest {
   voice: string;
   speed?: number;
   language?: string;
+  stream?: boolean;
+  streamingInterval?: number;
   text: string;
 }
+
+export interface TtsSynthesizeStreamRequest extends TtsSynthesizeRequest {
+  streamId: string;
+}
+
+export type TtsStreamEvent =
+  | { type: "chunk"; chunk: ArrayBuffer; mimeType?: string }
+  | { type: "done" }
+  | { type: "error"; error: string };
 
 export interface TtsListVoicesRequest {
   baseUrl: string;
