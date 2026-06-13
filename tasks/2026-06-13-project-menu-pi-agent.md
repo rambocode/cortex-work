@@ -61,3 +61,36 @@ deferred 项：
 6. 时间线菜单项 → 行为同原时钟按钮
 7. 设置 → Agent Tab：配置 Pi 的 provider/模型/API Key 后，会话切到 Pi 发消息可流式回复
 8. 模拟无 claude/codex（改 PATH 或新机器）→ 新建会话默认落 Pi；agent 下拉中未安装项显示「（未安装）」且禁用
+
+---
+
+## 迭代 2：Pi 多 LLM 通道可视化配置（2026-06-13）
+
+计划见 `/Users/mike/.claude/plans/synthetic-weaving-steele.md`（Pi 配置由单 provider 重构为多 OpenAI 兼容通道）。
+
+- [x] 数据模型：PiSettings → channels[]（PiChannel/PiModelOption/PI_CHANNEL_TEMPLATES）；SessionMeta 加 piChannelId；CliStartRequest 改 piChannel/piExtensionPath；两处 types 镜像同步
+- [x] Store：addPiChannel/updatePiChannel/removePiChannel/setPiDefaults；hydrate 旧单 provider 结构安全回退空通道；createSession pi 默认挂通道
+- [x] 主进程：pi-providers.ts（renderPiExtension/writePiExtension，apiKey 用 $CORTEX_PI_KEY 占位、不落明文）；cli.ts 生成 extension + 注入 CORTEX_PI_KEY；pi.ts buildArgs 加 -e/-a/--provider
+- [x] UI：SettingsMenu AgentSection 重构为通道列表（模板添加/编辑/删除/启用/默认通道+模型）；PersonalComposer pi 模型下拉「通道·模型」；PersonalChatArea switchAgent/默认 agent 走通道
+- [x] 测试：pi-providers.test.ts（renderPiExtension + JSON 转义安全）、pi.test.ts 补通道/-e/-a/--provider 用例、personal.test.ts 通道 CRUD + 旧结构回退
+- [x] 验证：typecheck 5/5；test 309 全过；本会话早段端到端实测 deepseek/qwen 通道（真实 extension 格式 → 阿里云/DeepSeek 401 路由正确）；--no-extensions+-e+-a 共存确认
+- [x] 打包：app.asar.unpacked 含 pi 全子树；打包 `--help` 经 ELECTRON_RUN_AS_NODE 正常
+- [x] 合并 main
+
+### 设计取舍
+- 统一「自定义 OpenAI 兼容通道」抽象：qwen/deepseek/kimi/智谱/硅基流动/本地/企业网关一套覆盖；pi 内置 provider 的元数据优势对本场景无关紧要，UI 自管模型列表更可控。
+- 用 pi extension（registerProvider）而非 `~/.pi/agent/models.json`：models.json 需 PI_CODING_AGENT_DIR 覆盖（实测引入自定义配置目录初始化挂起），且会触碰用户全局 pi 配置；extension 文件写在 app userData 真实路径，per-channel 隔离，apiKey 用 $CORTEX_PI_KEY 占位经 env 注入（文件不落明文）。
+- extension 文件在 userData（真实 fs，非 asar），jiti 从真实路径读取，无打包阻塞。
+
+### 验证环境说明（重要）
+本会话后段 pi 的实时 LLM 调用普遍超时。经排查为本机 **aTrust(Sangfor SDP) 零信任网络客户端**拦截 pi/undici 连接所致，非本次代码问题，证据：
+- curl 对 deepseek REST 直连/经代理均 401 正常（网络本身可用）；打包 `--help`（无网络路径）正常。
+- 同一条早段成功（deepseek 401）的命令后段原样复跑即挂起；dev/打包/baseline/自定义 provider 全部一致挂起——与代码路径无关，随时间一致劣化。
+- 故「实时发消息流式回复」需在不受 SDP 拦截的环境由用户手动复验（见下）。
+
+### 手动验证清单（迭代 2，待用户在正常网络环境执行）
+1. 设置 → Agent：从模板添加 DeepSeek/通义千问/Kimi 通道，填 API Key，启用；编辑/删除/设默认通道与默认模型
+2. 新建 Pi 会话 → 模型下拉出现「通道 · 模型」；发消息走对应端点流式回复
+3. 同会话切换模型下拉到另一通道，续聊正常（会话记住 piChannelId+model）
+4. 重启 app 后通道配置与默认保持
+5. 无通道时 Pi 会话发消息 → 友好提示「请在 设置 → Agent 添加 LLM 通道并填写 API Key」

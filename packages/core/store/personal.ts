@@ -6,6 +6,7 @@ import { create } from "zustand";
 import type {
   AgentKind,
   PersistedState,
+  PiChannel,
   PiSettings,
   ProjectMeta,
   PromptNode,
@@ -79,7 +80,12 @@ export interface PersonalState {
   // 归档项目:设 archivedAt、清 pinnedAt;若该项目正激活/在时间线则让出焦点。
   archiveProject: (id: string) => void;
   setAgentsAvailable: (avail: Partial<Record<AgentKind, boolean>>) => void;
+  // 兜底 Agent（pi）多 LLM 通道配置:整体 patch + 通道级增删改 + 设默认。
   setPiSettings: (patch: Partial<PiSettings>) => void;
+  addPiChannel: (channel: PiChannel) => void;
+  updatePiChannel: (id: string, patch: Partial<PiChannel>) => void;
+  removePiChannel: (id: string) => void;
+  setPiDefaults: (patch: { defaultChannelId?: string; defaultModel?: string }) => void;
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
   createSession: (projectId: string, agent: AgentKind, model?: string) => SessionMeta;
@@ -146,7 +152,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         (s.timelineSettings as undefined | { push?: PushSettings })?.push ??
         DEFAULT_PUSH_SETTINGS,
       ttsSettings: s.ttsSettings ?? DEFAULT_TTS_SETTINGS,
-      piSettings: s.piSettings ?? DEFAULT_PI_SETTINGS,
+      // 旧结构（单 provider,无 channels）按空通道重置;用户重新配置。
+      piSettings: Array.isArray(s.piSettings?.channels) ? s.piSettings : DEFAULT_PI_SETTINGS,
       rightPanelWidth: s.rightPanelWidth,
     }),
 
@@ -194,18 +201,48 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setPiSettings: (patch) => set((s) => ({ piSettings: { ...s.piSettings, ...patch } })),
 
+  addPiChannel: (channel) =>
+    set((s) => ({ piSettings: { ...s.piSettings, channels: [...s.piSettings.channels, channel] } })),
+
+  updatePiChannel: (id, patch) =>
+    set((s) => ({
+      piSettings: {
+        ...s.piSettings,
+        channels: s.piSettings.channels.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+      },
+    })),
+
+  removePiChannel: (id) =>
+    set((s) => {
+      const channels = s.piSettings.channels.filter((c) => c.id !== id);
+      // 删掉的通道若是默认通道,一并清掉默认指向。
+      const defaultChannelId = s.piSettings.defaultChannelId === id ? undefined : s.piSettings.defaultChannelId;
+      const defaultModel = s.piSettings.defaultChannelId === id ? undefined : s.piSettings.defaultModel;
+      return { piSettings: { ...s.piSettings, channels, defaultChannelId, defaultModel } };
+    }),
+
+  setPiDefaults: (patch) => set((s) => ({ piSettings: { ...s.piSettings, ...patch } })),
+
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),
   setPromptTree: (tree) => set({ promptTree: tree }),
 
   createSession: (projectId, agent, model) => {
     const now = Date.now();
     const count = get().sessions.filter((x) => x.projectId === projectId).length;
+    // pi:挂上默认 LLM 通道与模型（缺省取默认通道首个模型）,无通道则留空待配置。
+    const piSettings = get().piSettings;
+    const piChannel =
+      agent === "pi" ? piSettings.channels.find((c) => c.id === piSettings.defaultChannelId) : undefined;
     const sess: SessionMeta = {
       id: newId("sess"),
       projectId,
       title: `Session ${count + 1}`,
       agent,
-      model: model ?? DEFAULT_MODEL[agent],
+      model:
+        agent === "pi"
+          ? model ?? piSettings.defaultModel ?? piChannel?.models[0]?.id
+          : model ?? DEFAULT_MODEL[agent],
+      piChannelId: agent === "pi" ? piSettings.defaultChannelId : undefined,
       createdAt: now,
       updatedAt: now,
     };

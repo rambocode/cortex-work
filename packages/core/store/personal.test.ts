@@ -297,20 +297,54 @@ describe("defaultAgent 三态", () => {
   });
 });
 
-describe("piSettings 持久化", () => {
-  it("默认值,hydrate 恢复,setPiSettings 合并,toPersistedState 带出", () => {
-    usePersonalStore.getState().hydrate(base);
-    expect(usePersonalStore.getState().piSettings).toEqual({ provider: "anthropic" });
+describe("piSettings 多通道", () => {
+  const channel = (id: string, over: Partial<import("../desktop/types").PiChannel> = {}) => ({
+    id,
+    label: id,
+    baseUrl: `https://${id}.example/v1`,
+    models: [{ id: `${id}-m1` }, { id: `${id}-m2` }],
+    enabled: true,
+    ...over,
+  });
 
+  it("默认空通道;旧单 provider 结构 hydrate 时被重置为空", () => {
+    usePersonalStore.getState().hydrate(base);
+    expect(usePersonalStore.getState().piSettings).toEqual({ channels: [] });
+
+    // 旧结构（无 channels 数组）→ 安全回退到默认空通道。
     usePersonalStore.getState().hydrate({
       ...base,
-      piSettings: { provider: "openai", model: "openai/gpt-5.5", apiKey: "sk-x" },
+      piSettings: { provider: "openai", model: "x", apiKey: "sk" } as unknown as import("../desktop/types").PiSettings,
     });
-    expect(usePersonalStore.getState().piSettings.provider).toBe("openai");
+    expect(usePersonalStore.getState().piSettings).toEqual({ channels: [] });
+  });
 
-    usePersonalStore.getState().setPiSettings({ apiKey: "sk-new" });
+  it("addPiChannel / updatePiChannel / removePiChannel 与默认通道联动", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().addPiChannel(channel("deepseek"));
+    usePersonalStore.getState().addPiChannel(channel("qwen"));
+    expect(usePersonalStore.getState().piSettings.channels.map((c) => c.id)).toEqual(["deepseek", "qwen"]);
+
+    usePersonalStore.getState().updatePiChannel("deepseek", { apiKey: "sk-ds", enabled: false });
+    const ds = usePersonalStore.getState().piSettings.channels.find((c) => c.id === "deepseek")!;
+    expect(ds.apiKey).toBe("sk-ds");
+    expect(ds.enabled).toBe(false);
+    // 其他通道不受影响。
+    expect(usePersonalStore.getState().piSettings.channels.find((c) => c.id === "qwen")!.apiKey).toBeUndefined();
+
+    // 设默认通道后删除它 → 默认指向一并清空。
+    usePersonalStore.getState().setPiDefaults({ defaultChannelId: "deepseek", defaultModel: "deepseek-m1" });
+    usePersonalStore.getState().removePiChannel("deepseek");
     const s = usePersonalStore.getState();
-    expect(s.piSettings).toEqual({ provider: "openai", model: "openai/gpt-5.5", apiKey: "sk-new" });
+    expect(s.piSettings.channels.map((c) => c.id)).toEqual(["qwen"]);
+    expect(s.piSettings.defaultChannelId).toBeUndefined();
+    expect(s.piSettings.defaultModel).toBeUndefined();
+  });
+
+  it("piSettings 进入持久化快照", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().addPiChannel(channel("kimi"));
+    const s = usePersonalStore.getState();
     expect(toPersistedState(s).piSettings).toBe(s.piSettings);
   });
 });

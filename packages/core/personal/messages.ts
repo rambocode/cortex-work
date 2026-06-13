@@ -319,10 +319,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       );
     }
     if (!ev.ok) {
-      // pi 兜底 Agent 鉴权类错误:补一句去哪里配 API Key。
+      // pi 兜底 Agent 鉴权类错误:补一句去哪里配 LLM 通道 / API Key。
       const piAuthHint =
-        run.agent === "pi" && /api.?key|auth|credential|unauthorized|401/i.test(ev.error ?? "")
-          ? "（请在 设置 → Pi 兜底 Agent 配置 API Key）"
+        run.agent === "pi" && /api.?key|auth|credential|unauthorized|401|provider/i.test(ev.error ?? "")
+          ? "（请在 设置 → Agent 添加 LLM 通道并填写 API Key）"
           : "";
       appendMsg(qc, sessionId, {
         kind: "text",
@@ -591,10 +591,16 @@ export function usePersonalActions(): PersonalActions {
 
       const appendSystemPrompt = buildAttachmentSystemPrompt(attachments);
 
-      // pi 兜底 Agent:从 store 拍平注入 apiKey/provider;session 未设 model 时
-      // 用 piSettings.model 兜底（仍可能 undefined,由 pi 用自身默认模型）。
+      // pi 兜底 Agent:按会话选中的 LLM 通道（或默认通道）拍平传入主进程,
+      // 由主进程生成 extension + 注入 key env;model 取会话模型/默认模型/通道首模型。
       const piSettings = usePersonalStore.getState().piSettings;
       const isPi = session.agent === "pi";
+      const piChannel = isPi
+        ? piSettings.channels.find((c) => c.id === (session.piChannelId ?? piSettings.defaultChannelId))
+        : undefined;
+      const piModel = isPi
+        ? session.model ?? piSettings.defaultModel ?? piChannel?.models[0]?.id
+        : session.model;
 
       try {
         await bridge.startCli({
@@ -603,12 +609,13 @@ export function usePersonalActions(): PersonalActions {
           agent: session.agent,
           cwd: projectPath,
           prompt: text,
-          model: isPi ? session.model ?? piSettings.model : session.model,
+          model: piModel,
           resumeSessionId: sessionResumeId(session),
           appendSystemPrompt,
           useOwnSkills: session.useOwnSkills,
-          piApiKey: isPi ? piSettings.apiKey : undefined,
-          piProvider: isPi ? piSettings.provider : undefined,
+          piChannel: piChannel
+            ? { id: piChannel.id, baseUrl: piChannel.baseUrl, apiKey: piChannel.apiKey, models: piChannel.models }
+            : undefined,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
         autoTitle(bridge, session, text);

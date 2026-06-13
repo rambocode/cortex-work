@@ -42,8 +42,10 @@ export {
   type PromptNode,
   type ProjectMeta,
   type EditorInfo,
-  type PiProvider,
   type PiSettings,
+  type PiChannel,
+  type PiModelOption,
+  type PiChannelTemplate,
   type SessionMeta,
   type TodoMeta,
   type TodoStatus,
@@ -87,6 +89,7 @@ export {
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TTS_SETTINGS,
   DEFAULT_PI_SETTINGS,
+  PI_CHANNEL_TEMPLATES,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
 export { gitInfoKeys, useProjectGitInfo, useInvalidateGitInfo } from "./personal/git";

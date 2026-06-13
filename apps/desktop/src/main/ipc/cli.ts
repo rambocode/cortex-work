@@ -9,6 +9,7 @@ import { homedir, platform } from "os";
 import { existsSync, readdirSync } from "fs";
 import type { AgentKind, CliExitEvent, CliStartRequest, CliStreamEvent } from "./types";
 import { getAdapter } from "../agents";
+import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 
 const running = new Map<string, ChildProcess>();
 
@@ -41,23 +42,14 @@ export function buildEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: merged };
 }
 
-// provider → 对应 API key 环境变量名（pi 无自有登录态时按此注入）。
-const PI_API_KEY_ENV: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  google: "GEMINI_API_KEY",
-};
-
 // 按 agent 定制 spawn 环境：pi 以 ELECTRON_RUN_AS_NODE 当纯 Node 跑（命令是
-// process.execPath + cli.js），并按 provider 注入 API key；其余 agent 用基础 env。
-export function spawnEnvFor(req: { agent: string; piApiKey?: string; piProvider?: string }): NodeJS.ProcessEnv {
+// process.execPath + cli.js），并把选中通道的 API key 注入 CORTEX_PI_KEY（与生成的
+// extension 里 apiKey: "$CORTEX_PI_KEY" 占位对应）；其余 agent 用基础 env。
+export function spawnEnvFor(req: { agent: string; piChannel?: { apiKey?: string } }): NodeJS.ProcessEnv {
   const env = buildEnv();
   if (req.agent !== "pi") return env;
   env.ELECTRON_RUN_AS_NODE = "1";
-  if (req.piApiKey) {
-    const key = PI_API_KEY_ENV[req.piProvider ?? "anthropic"] ?? PI_API_KEY_ENV.anthropic;
-    env[key] = req.piApiKey;
-  }
+  if (req.piChannel?.apiKey) env[PI_KEY_ENV] = req.piChannel.apiKey;
   return env;
 }
 
@@ -83,6 +75,10 @@ export function registerCliHandlers(): void {
   ipcMain.handle("cli:start", (event, req: CliStartRequest) => {
     const sender = event.sender;
     const adapter = getAdapter(req.agent);
+    // pi 选中了自定义通道:先生成 extension 文件,把路径塞回 req 供 buildArgs 加 -e。
+    if (req.agent === "pi" && req.piChannel) {
+      req.piExtensionPath = writePiExtension(req.piChannel);
+    }
     const { cmd, args } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
     const child = spawn(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req), stdio: ["ignore", "pipe", "pipe"] });
@@ -152,10 +148,10 @@ export function registerCliHandlers(): void {
         cwd?: string;
         prompt: string;
         model?: string;
-        piApiKey?: string;
-        piProvider?: string;
       },
     ) => {
+      // oneshot（标题/日报）不挂自定义通道:默认 claude;若为 pi 则仅当作纯 Node 跑,
+      // 无通道则用 pi 自身默认 provider（标题生成场景已在 renderer 侧对 pi 走兜底）。
       const agent = req.agent ?? "claude";
       const adapter = getAdapter(agent);
       const { cmd, args } = adapter.buildArgs({
@@ -169,7 +165,7 @@ export function registerCliHandlers(): void {
       return new Promise<string>((resolve, reject) => {
         const child = spawn(cmd, args, {
           cwd: req.cwd ?? homedir(),
-          env: spawnEnvFor({ agent, piApiKey: req.piApiKey, piProvider: req.piProvider }),
+          env: spawnEnvFor({ agent }),
           stdio: ["ignore", "pipe", "pipe"],
         });
         let out = "";

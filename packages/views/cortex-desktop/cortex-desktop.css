@@ -4829,6 +4829,10 @@ button.sb-row {
 /* 设置 → 时间线 表单 */
 .pw-set-group { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 14px; }
 .pw-set-hint { font-size: 11.5px; color: var(--text-3); }
+/* Pi LLM 通道编辑卡片 */
+.pw-pi-channel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); }
+.pw-pi-channel textarea.pw-set-input { resize: vertical; min-height: 52px; line-height: 1.5; }
+.pw-pi-channel-del { align-self: flex-start; color: var(--red); }
 .pw-set-field { display: flex; flex-direction: column; gap: 4px; }
 .pw-set-lbl { font-size: 11.5px; color: var(--text-3); }
 .pw-set-input {

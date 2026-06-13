@@ -54,6 +54,27 @@ describe("piAdapter.buildArgs", () => {
     expect(args.join(" ")).toContain("--append-system-prompt Use concise Chinese.");
     expect(args.at(-1)).toBe("hello");
   });
+
+  it("自定义通道:piExtensionPath → -e/-a,piChannel.id → --provider", () => {
+    const { args } = piAdapter.buildArgs({
+      ...baseReq,
+      model: "deepseek-chat",
+      piExtensionPath: "/data/pi-providers/deepseek.js",
+      piChannel: { id: "deepseek", baseUrl: "https://api.deepseek.com/v1", models: [{ id: "deepseek-chat" }] },
+    });
+    expect(args.join(" ")).toContain("-e /data/pi-providers/deepseek.js");
+    expect(args).toContain("-a");
+    expect(args.join(" ")).toContain("--provider deepseek");
+    expect(args.join(" ")).toContain("--model deepseek-chat");
+    expect(args.at(-1)).toBe("hello");
+  });
+
+  it("无 piExtensionPath:不加 -e/-a/--provider（pi 用自身默认 provider）", () => {
+    const { args } = piAdapter.buildArgs(baseReq);
+    expect(args).not.toContain("-e");
+    expect(args).not.toContain("-a");
+    expect(args).not.toContain("--provider");
+  });
 });
 
 describe("piAdapter.parseLine", () => {

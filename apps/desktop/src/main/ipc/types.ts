@@ -3,9 +3,6 @@
 
 export type AgentKind = "claude" | "codex" | "pi";
 
-// pi 兜底 agent 的 provider（决定注入哪个 API key 环境变量）。
-export type PiProvider = "anthropic" | "openai" | "google";
-
 export interface PromptNode {
   name: string;
   path: string;
@@ -48,6 +45,7 @@ export interface SessionMeta {
   agentSessionIds?: Partial<Record<AgentKind, string>>;
   agent: AgentKind;
   model?: string;
+  piChannelId?: string;
   useOwnSkills?: boolean;
   hiddenHistory?: HiddenHistoryMeta;
   createdAt: number;
@@ -84,9 +82,16 @@ export interface CliStartRequest {
   resumeSessionId?: string;
   appendSystemPrompt?: string;
   useOwnSkills?: boolean;
-  // pi 专用:renderer 拍平传入,spawn 时按 provider 注入对应环境变量。
-  piApiKey?: string;
-  piProvider?: PiProvider;
+  // pi 专用:renderer 传入当前会话选中通道的完整配置,主进程据此生成 extension
+  // 并注入 key env。
+  piChannel?: {
+    id: string;
+    baseUrl: string;
+    apiKey?: string;
+    models: { id: string; name?: string }[];
+  };
+  // 主进程内部填充:生成的 extension 文件绝对路径（buildArgs 读取）。
+  piExtensionPath?: string;
 }
 
 export interface UsageBucket {
