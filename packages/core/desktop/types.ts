@@ -1,7 +1,7 @@
 // 个人工作区（桌面端）共享类型。与 apps/desktop/src/main/ipc/types.ts 保持
 // 镜像（core 不能依赖 app 包，desktop 侧用 `satisfies` 对齐形状）。
 
-export type AgentKind = "claude" | "codex";
+export type AgentKind = "claude" | "codex" | "pi";
 
 // Prompt 库目录树节点（递归扫描 .md 的结果）。
 export interface PromptNode {
@@ -16,6 +16,14 @@ export interface ProjectMeta {
   name: string;
   path: string; // 本地文件夹绝对路径
   addedAt: number;
+  pinnedAt?: number; // 置顶时间戳;缺省 = 未置顶
+  archivedAt?: number; // 归档时间戳;缺省 = 在主列表
+}
+
+// 系统已安装的代码编辑器（主进程探测,Open in 菜单用）。
+export interface EditorInfo {
+  id: string; // 稳定标识,如 "vscode"、"cursor"
+  name: string; // 展示名,如 "Visual Studio Code"
 }
 
 export type TodoStatus = "open" | "done";
@@ -133,6 +141,20 @@ export const DEFAULT_TTS_SETTINGS: TtsSettings = {
   engine: { kind: "system" },
 };
 
+// ── 兜底 Agent（内置 pi）配置 ────────────────────────────────────────────
+
+// pi 无自有登录态时需要 API key;provider 决定注入哪个环境变量。
+// model 直接喂 pi --model（支持 "sonnet"、"openai/gpt-5.5" 等模式串）。
+export type PiProvider = "anthropic" | "openai" | "google";
+
+export interface PiSettings {
+  provider: PiProvider;
+  model?: string; // 缺省走 DEFAULT_MODEL.pi
+  apiKey?: string;
+}
+
+export const DEFAULT_PI_SETTINGS: PiSettings = { provider: "anthropic" };
+
 export interface TtsSynthesizeRequest {
   baseUrl: string;
   apiKey?: string;
@@ -209,6 +231,7 @@ export interface PersistedState {
   timelineSettings?: TimelineSettings;
   pushSettings?: PushSettings;
   ttsSettings?: TtsSettings;
+  piSettings?: PiSettings;
   // 右侧面板自定义宽度（px）;未设置时按视图走 CSS 自动档位。
   rightPanelWidth?: number;
 }
@@ -296,6 +319,10 @@ export interface CliStartRequest {
   resumeSessionId?: string; // 多轮续接
   appendSystemPrompt?: string; // 拖入的 prompt md 内容（skill 注入）
   useOwnSkills?: boolean; // false → 禁用 agent 自身 skills
+  // pi 专用:renderer 把设置拍平传入,主进程按 provider 注入对应环境变量
+  //（与 llm.ts「主进程不读设置文件」的惯例一致）。
+  piApiKey?: string;
+  piProvider?: PiProvider;
 }
 
 // claude stream-json 行解析后的归一化事件（adapter 输出）。
@@ -382,11 +409,20 @@ export const AGENT_MODELS: Record<AgentKind, { label: string; value: string }[]>
     { label: "GPT-5.4 Mini", value: "gpt-5.4-mini" },
     { label: "GPT-5.3 Codex Spark", value: "gpt-5.3-codex-spark" },
   ],
+  // value 直接喂 pi --model（支持别名与 provider/model 模式串）。
+  pi: [
+    { label: "Claude Sonnet", value: "sonnet" },
+    { label: "Claude Opus", value: "opus" },
+    { label: "Claude Haiku", value: "haiku" },
+    { label: "GPT-5.5", value: "openai/gpt-5.5" },
+    { label: "Gemini 3.1 Pro", value: "google/gemini-3.1-pro" },
+  ],
 };
 
 export const DEFAULT_MODEL: Record<AgentKind, string> = {
   claude: "sonnet",
   codex: "gpt-5.5",
+  pi: "sonnet",
 };
 
 // ── 应用自动更新（与 apps/desktop/src/main/ipc/types.ts 镜像） ─────────────

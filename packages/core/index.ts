@@ -25,7 +25,13 @@ export {
   type Section,
   type WorkspaceKind,
 } from "./store/ui";
-export { usePersonalStore, toPersistedState, type PersonalState } from "./store/personal";
+export {
+  usePersonalStore,
+  toPersistedState,
+  partitionProjects,
+  defaultAgent,
+  type PersonalState,
+} from "./store/personal";
 export { usePetStore, type PetState, type PetKind, type PetMode, type PetStore } from "./store/pet";
 export type { DesktopBridge } from "./desktop/bridge";
 export {
@@ -35,6 +41,9 @@ export {
   type HiddenHistoryMeta,
   type PromptNode,
   type ProjectMeta,
+  type EditorInfo,
+  type PiProvider,
+  type PiSettings,
   type SessionMeta,
   type TodoMeta,
   type TodoStatus,
@@ -77,6 +86,7 @@ export {
   DEFAULT_TIMELINE_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TTS_SETTINGS,
+  DEFAULT_PI_SETTINGS,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
 export { gitInfoKeys, useProjectGitInfo, useInvalidateGitInfo } from "./personal/git";

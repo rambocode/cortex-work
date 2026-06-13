@@ -18,6 +18,13 @@ files:
 # node-pty 原生模块不能进 asar
 asarUnpack:
   - "**/node_modules/node-pty/**"
+  # pi（@earendil-works/pi-coding-agent）以 ELECTRON_RUN_AS_NODE 的纯 Node 子进程跑,
+  # 用 jiti 运行时加载源码、并依赖 photon wasm 资产;闷在 asar 里纯 Node 读不到,
+  # 必须 unpack 到 app.asar.unpacked（pi-locate.ts 同步切换路径）。
+  - "**/node_modules/@earendil-works/**"
+  - "**/node_modules/.pnpm/@earendil-works+**/**"
+  - "**/node_modules/.pnpm/@silvia-odwyer+**/**"
+  - "**/node_modules/.pnpm/@mariozechner+**/**"
 mac:
   category: public.app-category.productivity
   icon: assets/cortex-desktop-logo-minimal.png

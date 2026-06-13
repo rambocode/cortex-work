@@ -4,6 +4,7 @@
 import type { CliStartRequest, CliStreamEvent } from "../ipc/types";
 import { claudeAdapter } from "./claude";
 import { codexAdapter } from "./codex";
+import { piAdapter } from "./pi";
 
 export interface AgentAdapter {
   // 返回可执行名与参数。可执行名不带路径，由 cli.ts 结合 PATH 解析。
@@ -15,6 +16,7 @@ export interface AgentAdapter {
 const ADAPTERS: Record<string, AgentAdapter> = {
   claude: claudeAdapter,
   codex: codexAdapter,
+  pi: piAdapter,
 };
 
 export function getAdapter(agent: string): AgentAdapter {

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type {
+  AgentKind,
   AgentProjectInfo,
   AgentUsage,
   AsrTranscribeRequest,
@@ -7,6 +8,7 @@ import type {
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  EditorInfo,
   GitDiffAllResult,
   GitInfoResult,
   PersistedState,
@@ -74,6 +76,12 @@ const personal = {
   revealInFolder: (path: string): Promise<void> => ipcRenderer.invoke("shell:revealInFolder", path),
   // Markdown 预览链接:系统默认浏览器打开（主进程校验 http/https）
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
+  // 项目「Open in」:列出已装编辑器 / 用指定编辑器打开项目目录
+  listEditors: (): Promise<EditorInfo[]> => ipcRenderer.invoke("shell:listEditors"),
+  openInEditor: (path: string, editorId: string): Promise<void> =>
+    ipcRenderer.invoke("shell:openInEditor", path, editorId),
+  // 检测 PATH 中已安装的 agent CLI（pi 内置恒可用）
+  detectAgents: (): Promise<Record<AgentKind, boolean>> => ipcRenderer.invoke("agents:detect"),
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
   loadChat: (sessionId: string): Promise<unknown[]> => ipcRenderer.invoke("chat:load", sessionId),
@@ -87,7 +95,7 @@ const personal = {
     opts?: { sinceTs?: number; max?: number },
   ): Promise<{ ts: number; hash: string; subject: string }[]> => ipcRenderer.invoke("fs:gitLog", root, opts),
   startCli: (req: CliStartRequest): Promise<void> => ipcRenderer.invoke("cli:start", req),
-  oneshotCli: (req: { agent?: "claude" | "codex"; cwd?: string; prompt: string; model?: string }): Promise<string> =>
+  oneshotCli: (req: { agent?: AgentKind; cwd?: string; prompt: string; model?: string }): Promise<string> =>
     ipcRenderer.invoke("cli:oneshot", req),
   openaiComplete: (req: { baseUrl: string; apiKey?: string; model: string; prompt: string }): Promise<string> =>
     ipcRenderer.invoke("llm:openaiComplete", req),

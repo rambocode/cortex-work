@@ -2931,6 +2931,31 @@ button.sb-row {
 .pw-project-h .chev { display: inline-flex; color: var(--text-3); transition: transform 0.12s; }
 .pw-project-h[data-collapsed="true"] .chev { transform: rotate(-90deg); }
 .pw-project-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 置顶标识:常驻项目名旁,跟随名字一起被裁剪推挤时不收缩 */
+.pw-project-pin { color: var(--text-3); flex-shrink: 0; }
+/* 行内操作按钮组:平时透明隐藏,悬停项目行或菜单打开时浮现 */
+.pw-project-actions {
+  display: inline-flex; gap: 2px;
+  opacity: 0; transition: opacity 0.12s;
+  flex-shrink: 0;
+}
+.pw-project-h:hover .pw-project-actions,
+.pw-project-actions.is-menu-open { opacity: 1; }
+/* 已归档分组:头样式参照 .pw-section-h 缩小一号,chevron 折叠旋转 */
+.pw-archived-group { margin-top: 6px; }
+.pw-archived-h {
+  display: flex; align-items: center; gap: 4px;
+  width: 100%;
+  padding: 6px 14px 6px 14px;
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-4);
+  cursor: pointer;
+  text-align: left;
+}
+.pw-archived-h:hover { color: var(--text-3); }
+.pw-archived-h .chev { display: inline-flex; color: var(--text-4); transition: transform 0.12s; }
+.pw-archived-h[data-collapsed="true"] .chev { transform: rotate(-90deg); }
 .pw-session {
   display: flex; align-items: center; gap: 8px;
   width: calc(100% - 8px);

@@ -25,6 +25,7 @@ import type {
   AgentKind,
   DingtalkPushConfig,
   EmailPushConfig,
+  PiProvider,
   PromptNode,
   SummaryModelConfig,
   TtsEngineConfig,
@@ -52,11 +53,12 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
-type SettingsTab = "pet" | "appearance" | "timeline" | "push" | "voice";
+type SettingsTab = "pet" | "appearance" | "agent" | "timeline" | "push" | "voice";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
   { id: "appearance", label: "外观", icon: <Icon.Image size={14} /> },
+  { id: "agent", label: "Agent", icon: <Icon.Terminal size={14} /> },
   { id: "timeline", label: "时间线", icon: <Icon.Clock size={14} /> },
   { id: "push", label: "推送", icon: <Icon.Send size={14} /> },
   { id: "voice", label: "语音", icon: <Icon.Mic size={14} /> },
@@ -263,7 +265,7 @@ function Field({
 
 // 集成 Agent 列表（与会话创建可选的 agent 一致,来自 AGENT_MODELS 注册表;
 // 新增 agent 接入后此处自动出现）。
-const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex" };
+const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 const INTEGRATED_AGENTS = Object.keys(AGENT_MODELS) as AgentKind[];
 
 function Select({
@@ -359,6 +361,62 @@ function TimelineSection() {
           />
         </div>
       )}
+    </>
+  );
+}
+
+// ── Pi 兜底 Agent 设置 ──────────────────────────────────────────────────────
+
+// provider → 展示名（决定 pi 启动时注入哪个 API Key 环境变量）。
+const PI_PROVIDER_LABEL: Record<PiProvider, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  google: "Google",
+};
+const PI_PROVIDER_OPTIONS = (Object.keys(PI_PROVIDER_LABEL) as PiProvider[]).map((p) => ({
+  label: PI_PROVIDER_LABEL[p],
+  value: p,
+}));
+
+// 默认模型下拉:AGENT_MODELS.pi 各项 + 允许留空（跟随 pi 自身默认）。
+const PI_MODEL_OPTIONS = [{ label: "跟随 Pi 默认", value: "" }, ...AGENT_MODELS.pi];
+
+function AgentSection() {
+  const piSettings = usePersonalStore((s) => s.piSettings);
+  const setPiSettings = usePersonalStore((s) => s.setPiSettings);
+
+  return (
+    <>
+      <div className="pw-dlg-title">兜底 Agent · Pi</div>
+      <div className="pw-dlg-desc">
+        内置 Pi 在本机未安装 Claude / Codex CLI 时作为兜底使用。Pi 无自有登录态,需在此配置对应 Provider 的 API Key 才能运行。
+      </div>
+
+      <div className="twk-sect">Provider</div>
+      <div className="pw-set-group">
+        <div className="pw-set-hint">决定 Pi 运行时注入哪个厂商的 API Key 环境变量。</div>
+        <div className="pw-set-row2">
+          <Select
+            label="Provider"
+            value={piSettings.provider}
+            options={PI_PROVIDER_OPTIONS}
+            onChange={(v) => setPiSettings({ provider: v as PiProvider })}
+          />
+          <Select
+            label="默认模型"
+            value={piSettings.model ?? ""}
+            options={PI_MODEL_OPTIONS}
+            onChange={(v) => setPiSettings({ model: v || undefined })}
+          />
+        </div>
+        <Field
+          label="API Key"
+          value={piSettings.apiKey ?? ""}
+          type="password"
+          placeholder="对应 Provider 的 API Key"
+          onChange={(v) => setPiSettings({ apiKey: v || undefined })}
+        />
+      </div>
     </>
   );
 }
@@ -775,6 +833,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <PetSection />
           ) : tab === "appearance" ? (
             <AppearanceSection />
+          ) : tab === "agent" ? (
+            <AgentSection />
           ) : tab === "timeline" ? (
             <TimelineSection />
           ) : tab === "push" ? (

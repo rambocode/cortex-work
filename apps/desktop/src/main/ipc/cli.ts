@@ -4,10 +4,10 @@
 
 import { ipcMain, type WebContents } from "electron";
 import { spawn, type ChildProcess } from "child_process";
-import { delimiter } from "path";
-import { homedir } from "os";
+import { delimiter, join } from "path";
+import { homedir, platform } from "os";
 import { existsSync, readdirSync } from "fs";
-import type { CliExitEvent, CliStartRequest, CliStreamEvent } from "./types";
+import type { AgentKind, CliExitEvent, CliStartRequest, CliStreamEvent } from "./types";
 import { getAdapter } from "../agents";
 
 const running = new Map<string, ChildProcess>();
@@ -41,13 +41,51 @@ export function buildEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: merged };
 }
 
+// provider → 对应 API key 环境变量名（pi 无自有登录态时按此注入）。
+const PI_API_KEY_ENV: Record<string, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  google: "GEMINI_API_KEY",
+};
+
+// 按 agent 定制 spawn 环境：pi 以 ELECTRON_RUN_AS_NODE 当纯 Node 跑（命令是
+// process.execPath + cli.js），并按 provider 注入 API key；其余 agent 用基础 env。
+export function spawnEnvFor(req: { agent: string; piApiKey?: string; piProvider?: string }): NodeJS.ProcessEnv {
+  const env = buildEnv();
+  if (req.agent !== "pi") return env;
+  env.ELECTRON_RUN_AS_NODE = "1";
+  if (req.piApiKey) {
+    const key = PI_API_KEY_ENV[req.piProvider ?? "anthropic"] ?? PI_API_KEY_ENV.anthropic;
+    env[key] = req.piApiKey;
+  }
+  return env;
+}
+
+// 在 PATH 各目录用 existsSync 找可执行文件（不实际 spawn,够快够稳）。
+function hasOnPath(env: NodeJS.ProcessEnv, name: string): boolean {
+  const candidates =
+    platform() === "win32" ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name];
+  const dirs = (env.PATH ?? "").split(delimiter).filter(Boolean);
+  return dirs.some((dir) => candidates.some((c) => existsSync(join(dir, c))));
+}
+
+// 探测本机可用 agent。pi 内置打包,恒为 true；claude/codex 看 PATH 是否找得到。
+function detectAgents(): Record<AgentKind, boolean> {
+  const env = buildEnv();
+  return {
+    claude: hasOnPath(env, "claude"),
+    codex: hasOnPath(env, "codex"),
+    pi: true,
+  };
+}
+
 export function registerCliHandlers(): void {
   ipcMain.handle("cli:start", (event, req: CliStartRequest) => {
     const sender = event.sender;
     const adapter = getAdapter(req.agent);
     const { cmd, args } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
-    const child = spawn(cmd, args, { cwd: req.cwd, env: buildEnv(), stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req), stdio: ["ignore", "pipe", "pipe"] });
     running.set(req.runId, child);
 
     // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,
@@ -107,7 +145,17 @@ export function registerCliHandlers(): void {
   // 不传 cwd 时在用户主目录运行 —— 不加载项目上下文,更快更省。
   ipcMain.handle(
     "cli:oneshot",
-    (_e, req: { agent?: "claude" | "codex"; cwd?: string; prompt: string; model?: string }) => {
+    (
+      _e,
+      req: {
+        agent?: AgentKind;
+        cwd?: string;
+        prompt: string;
+        model?: string;
+        piApiKey?: string;
+        piProvider?: string;
+      },
+    ) => {
       const agent = req.agent ?? "claude";
       const adapter = getAdapter(agent);
       const { cmd, args } = adapter.buildArgs({
@@ -121,7 +169,7 @@ export function registerCliHandlers(): void {
       return new Promise<string>((resolve, reject) => {
         const child = spawn(cmd, args, {
           cwd: req.cwd ?? homedir(),
-          env: buildEnv(),
+          env: spawnEnvFor({ agent, piApiKey: req.piApiKey, piProvider: req.piProvider }),
           stdio: ["ignore", "pipe", "pipe"],
         });
         let out = "";
@@ -169,6 +217,8 @@ export function registerCliHandlers(): void {
       });
     },
   );
+
+  ipcMain.handle("agents:detect", () => detectAgents());
 
   ipcMain.handle("cli:kill", (_e, runId: string) => {
     const child = running.get(runId);

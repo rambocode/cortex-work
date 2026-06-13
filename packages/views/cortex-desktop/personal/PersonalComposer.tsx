@@ -4,7 +4,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { AGENT_MODELS, useDesktopBridge, usePersonalStore, usePetStore } from "@cortex-work/core";
-import type { PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import type { AgentKind, PersonalAttachment, SessionMeta } from "@cortex-work/core";
+
+// 输入框占位文案中的 agent 展示名。
+const AGENT_PLACEHOLDER_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
 
@@ -347,7 +350,7 @@ export function PersonalComposer({
             placeholder={
               running
                 ? "Agent 正在运行,可点击右侧停止…"
-                : `给 ${session.agent === "claude" ? "Claude Code" : "Codex"} 发消息,可从右侧拖入 Prompt 作为 skill…`
+                : `给 ${AGENT_PLACEHOLDER_NAME[session.agent]} 发消息,可从右侧拖入 Prompt 作为 skill…`
             }
             rows={1}
           />

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { PersistedState, PushSettings } from "../desktop/types";
-import { usePersonalStore, toPersistedState } from "./personal";
+import type { PersistedState, ProjectMeta, PushSettings } from "../desktop/types";
+import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } from "./personal";
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
+
+function proj(patch: Partial<ProjectMeta> & Pick<ProjectMeta, "id">): ProjectMeta {
+  return { name: patch.id, path: `/code/${patch.id}`, addedAt: 1, ...patch };
+}
 
 describe("hydrate 推送设置迁移", () => {
   it("旧数据（timelineSettings.push）迁移到全局 pushSettings", () => {
@@ -162,5 +166,159 @@ describe("rightPanelWidth 持久化", () => {
 
     usePersonalStore.getState().setRightPanelWidth(undefined);
     expect(usePersonalStore.getState().rightPanelWidth).toBeUndefined();
+  });
+});
+
+describe("updateProject 置顶/归档元数据", () => {
+  it("patch 只改目标项目,其他项目原样,数组引用被替换", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      projects: [proj({ id: "p1" }), proj({ id: "p2" })],
+    });
+    const before = usePersonalStore.getState().projects;
+
+    usePersonalStore.getState().updateProject("p1", { pinnedAt: 999 });
+
+    const after = usePersonalStore.getState().projects;
+    expect(after).not.toBe(before); // 数组引用替换
+    expect(after.find((p) => p.id === "p1")?.pinnedAt).toBe(999);
+    // 未命中的项目对象保持原引用,且未被污染
+    expect(after.find((p) => p.id === "p2")).toBe(before.find((p) => p.id === "p2"));
+    expect(after.find((p) => p.id === "p2")?.pinnedAt).toBeUndefined();
+  });
+});
+
+describe("archiveProject", () => {
+  it("设 archivedAt、清 pinnedAt,并让出激活/时间线焦点", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      projects: [proj({ id: "p1", pinnedAt: 5 }), proj({ id: "p2" })],
+      sessions: [
+        {
+          id: "s1",
+          projectId: "p1",
+          title: "Session 1",
+          agent: "claude",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    usePersonalStore.setState({
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      timelineProjectId: "p1",
+    });
+
+    usePersonalStore.getState().archiveProject("p1");
+
+    const s = usePersonalStore.getState();
+    const archived = s.projects.find((p) => p.id === "p1");
+    expect(archived?.archivedAt).toBeTypeOf("number");
+    expect(archived?.pinnedAt).toBeUndefined();
+    // 激活态全部让出
+    expect(s.activeProjectId).toBeUndefined();
+    expect(s.activeSessionId).toBeUndefined();
+    expect(s.timelineProjectId).toBeUndefined();
+    // 不影响其他项目
+    expect(s.projects.find((p) => p.id === "p2")?.archivedAt).toBeUndefined();
+  });
+
+  it("归档非激活项目时不动当前焦点", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      projects: [proj({ id: "p1" }), proj({ id: "p2" })],
+    });
+    usePersonalStore.setState({ activeProjectId: "p2", timelineProjectId: "p2" });
+
+    usePersonalStore.getState().archiveProject("p1");
+
+    const s = usePersonalStore.getState();
+    expect(s.activeProjectId).toBe("p2");
+    expect(s.timelineProjectId).toBe("p2");
+  });
+});
+
+describe("partitionProjects 纯函数", () => {
+  it("置顶在前按 pinnedAt 降序,未置顶维持原数组序", () => {
+    const projects = [
+      proj({ id: "a" }),
+      proj({ id: "b", pinnedAt: 100 }),
+      proj({ id: "c" }),
+      proj({ id: "d", pinnedAt: 200 }),
+    ];
+    const { visible } = partitionProjects(projects);
+    // 置顶 d(200) > b(100),其后是未置顶 a、c（原序）
+    expect(visible.map((p) => p.id)).toEqual(["d", "b", "a", "c"]);
+  });
+
+  it("归档项目从可见区过滤,归档区按 archivedAt 降序", () => {
+    const projects = [
+      proj({ id: "a" }),
+      proj({ id: "old", archivedAt: 10 }),
+      proj({ id: "b", pinnedAt: 50 }),
+      proj({ id: "new", archivedAt: 30 }),
+    ];
+    const { visible, archived } = partitionProjects(projects);
+    expect(visible.map((p) => p.id)).toEqual(["b", "a"]);
+    expect(archived.map((p) => p.id)).toEqual(["new", "old"]);
+  });
+
+  it("同 pinnedAt / 同 archivedAt 显式以原数组序兜底（不依赖 sort 稳定性）", () => {
+    const projects = [
+      proj({ id: "p1", pinnedAt: 100 }),
+      proj({ id: "p2", pinnedAt: 100 }),
+      proj({ id: "p3", pinnedAt: 100 }),
+      proj({ id: "ar1", archivedAt: 50 }),
+      proj({ id: "ar2", archivedAt: 50 }),
+      proj({ id: "ar3", archivedAt: 50 }),
+    ];
+    const { visible, archived } = partitionProjects(projects);
+    // 置顶项 pinnedAt 全相等 → 维持原数组序 p1、p2、p3
+    expect(visible.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+    // 归档项 archivedAt 全相等 → 维持原数组序 ar1、ar2、ar3
+    expect(archived.map((p) => p.id)).toEqual(["ar1", "ar2", "ar3"]);
+  });
+});
+
+describe("defaultAgent 三态", () => {
+  it("claude 可用优先 claude", () => {
+    expect(defaultAgent({ claude: true, codex: true })).toBe("claude");
+  });
+
+  it("claude 不可用、codex 可用回 codex", () => {
+    expect(defaultAgent({ claude: false, codex: true })).toBe("codex");
+  });
+
+  it("都不可用（或未探测）回内置 pi", () => {
+    expect(defaultAgent({ claude: false, codex: false })).toBe("pi");
+    expect(defaultAgent(undefined)).toBe("pi");
+    expect(defaultAgent({})).toBe("pi");
+  });
+});
+
+describe("piSettings 持久化", () => {
+  it("默认值,hydrate 恢复,setPiSettings 合并,toPersistedState 带出", () => {
+    usePersonalStore.getState().hydrate(base);
+    expect(usePersonalStore.getState().piSettings).toEqual({ provider: "anthropic" });
+
+    usePersonalStore.getState().hydrate({
+      ...base,
+      piSettings: { provider: "openai", model: "openai/gpt-5.5", apiKey: "sk-x" },
+    });
+    expect(usePersonalStore.getState().piSettings.provider).toBe("openai");
+
+    usePersonalStore.getState().setPiSettings({ apiKey: "sk-new" });
+    const s = usePersonalStore.getState();
+    expect(s.piSettings).toEqual({ provider: "openai", model: "openai/gpt-5.5", apiKey: "sk-new" });
+    expect(toPersistedState(s).piSettings).toBe(s.piSettings);
+  });
+});
+
+describe("setAgentsAvailable 不持久化", () => {
+  it("写入探测结果但不进 toPersistedState 快照", () => {
+    usePersonalStore.getState().setAgentsAvailable({ claude: true, codex: false });
+    expect(usePersonalStore.getState().agentsAvailable).toEqual({ claude: true, codex: false });
+    expect("agentsAvailable" in toPersistedState(usePersonalStore.getState())).toBe(false);
   });
 });

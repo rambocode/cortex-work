@@ -1,7 +1,10 @@
 // 个人工作区 IPC 类型（主进程侧）。与 packages/core/desktop/types.ts 镜像 ——
 // core 不能依赖 app 包，故两侧各持一份；preload 以 core 的 DesktopBridge 为准对齐。
 
-export type AgentKind = "claude" | "codex";
+export type AgentKind = "claude" | "codex" | "pi";
+
+// pi 兜底 agent 的 provider（决定注入哪个 API key 环境变量）。
+export type PiProvider = "anthropic" | "openai" | "google";
 
 export interface PromptNode {
   name: string;
@@ -15,6 +18,14 @@ export interface ProjectMeta {
   name: string;
   path: string;
   addedAt: number;
+  pinnedAt?: number; // 置顶时间戳;缺省 = 未置顶
+  archivedAt?: number; // 归档时间戳;缺省 = 在主列表
+}
+
+// 系统已安装的代码编辑器（editors.ts 探测结果）。
+export interface EditorInfo {
+  id: string;
+  name: string;
 }
 
 export type TodoStatus = "open" | "done";
@@ -73,6 +84,9 @@ export interface CliStartRequest {
   resumeSessionId?: string;
   appendSystemPrompt?: string;
   useOwnSkills?: boolean;
+  // pi 专用:renderer 拍平传入,spawn 时按 provider 注入对应环境变量。
+  piApiKey?: string;
+  piProvider?: PiProvider;
 }
 
 export interface UsageBucket {
