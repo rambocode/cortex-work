@@ -98,7 +98,7 @@ const runs = new Map<string, RunState>();
 export const RUN_START_TIMEOUT_MS = 90_000;
 export const RUN_STALL_TIMEOUT_MS = 300_000;
 
-const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex" };
+const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
 // typing 占位文案:阶段 + 等待时长(5 秒以上才显示,避免一闪而过的数字)。
 export function typingText(agent: AgentKind, phase: "starting" | "thinking", waitedMs: number): string {
@@ -319,11 +319,16 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       );
     }
     if (!ev.ok) {
+      // pi 兜底 Agent 鉴权类错误:补一句去哪里配 LLM 通道 / API Key。
+      const piAuthHint =
+        run.agent === "pi" && /api.?key|auth|credential|unauthorized|401|provider/i.test(ev.error ?? "")
+          ? "（请在 设置 → Agent 添加 LLM 通道并填写 API Key）"
+          : "";
       appendMsg(qc, sessionId, {
         kind: "text",
         who: run.agent,
         time: realHHMM(),
-        text: `⚠️ 执行出错：${ev.error || "未知错误"}`,
+        text: `⚠️ 执行出错：${ev.error || "未知错误"}${piAuthHint}`,
         uid: uid("err"),
       });
     } else if (!run.textUid && ev.text) {
@@ -594,6 +599,17 @@ export function usePersonalActions(): PersonalActions {
 
       const appendSystemPrompt = buildAttachmentSystemPrompt(attachments);
 
+      // pi 兜底 Agent:按会话选中的 LLM 通道（或默认通道）拍平传入主进程,
+      // 由主进程生成 extension + 注入 key env;model 取会话模型/默认模型/通道首模型。
+      const piSettings = usePersonalStore.getState().piSettings;
+      const isPi = session.agent === "pi";
+      const piChannel = isPi
+        ? piSettings.channels.find((c) => c.id === (session.piChannelId ?? piSettings.defaultChannelId))
+        : undefined;
+      const piModel = isPi
+        ? session.model ?? piSettings.defaultModel ?? piChannel?.models[0]?.id
+        : session.model;
+
       try {
         await bridge.startCli({
           runId,
@@ -601,10 +617,13 @@ export function usePersonalActions(): PersonalActions {
           agent: session.agent,
           cwd: projectPath,
           prompt: text,
-          model: session.model,
+          model: piModel,
           resumeSessionId: sessionResumeId(session),
           appendSystemPrompt,
           useOwnSkills: session.useOwnSkills,
+          piChannel: piChannel
+            ? { id: piChannel.id, baseUrl: piChannel.baseUrl, apiKey: piChannel.apiKey, models: piChannel.models }
+            : undefined,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
         autoTitle(bridge, session, text);

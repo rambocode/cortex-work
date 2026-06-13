@@ -22,6 +22,7 @@
     "@cortex-work/core": "workspace:*",
     "@cortex-work/ui": "workspace:*",
     "@cortex-work/views": "workspace:*",
+    "@earendil-works/pi-coding-agent": "0.79.2",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@tanstack/react-query": "catalog:",

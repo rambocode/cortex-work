@@ -14,9 +14,15 @@ import {
   usePushDailyReport,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { CalendarCell, DayGroup, ProjectMeta, TimelineEvent } from "@cortex-work/core";
+import type { AgentKind, CalendarCell, DayGroup, ProjectMeta, TimelineEvent } from "@cortex-work/core";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
+
+// run 事件的 agent 标签;未知值兜底 Claude。
+const TL_AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", pi: "Pi" };
+function tlAgentLabel(agent: AgentKind | undefined): string {
+  return (agent && TL_AGENT_LABEL[agent]) || "Claude";
+}
 
 function fmtDayLabel(day: string): string {
   const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
@@ -69,7 +75,7 @@ function EventCard({ event, onJump }: { event: TimelineEvent; onJump?: () => voi
     <div className="pw-tl-card" data-ok={event.meta?.ok !== false}>
       <div className="pw-tl-card-h">
         <span className="pw-tl-time">{event.meta?.backfilled ? "历史" : hhmm(event.ts)}</span>
-        <span className="pw-tl-agent">{event.meta?.agent === "codex" ? "Codex" : "Claude"}</span>
+        <span className="pw-tl-agent">{tlAgentLabel(event.meta?.agent)}</span>
         {event.meta?.ok === false ? <span className="pw-tl-fail">失败</span> : null}
         {onJump ? (
           <button className="pw-icon-btn" title="打开对应会话" onClick={onJump}>

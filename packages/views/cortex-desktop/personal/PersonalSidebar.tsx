@@ -1,11 +1,21 @@
 // 个人工作区左栏：项目列表（本地文件夹），项目可折叠、下挂 session 列表。
+// 项目行悬停浮现「⋯」菜单 + 「新建 Session」按钮;置顶项目名旁常驻 Pin 标识;
+// 已归档项目收进底部可折叠分组。
 
+import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
-import type { ProjectMeta, SessionMeta } from "@cortex-work/core";
+import {
+  defaultAgent,
+  partitionProjects,
+  useCortexUIStore,
+  useDesktopBridge,
+  usePersonalStore,
+} from "@cortex-work/core";
+import type { EditorInfo, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { UsagePanel } from "./UsagePanel";
 import { SettingsMenu } from "./SettingsMenu";
+import { ProjectMenu } from "./ProjectMenu";
 
 export function relTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -26,7 +36,17 @@ function SessionRow({ session, active, onSelect }: { session: SessionMeta; activ
   );
 }
 
-function ProjectBlock({ project, onToast }: { project: ProjectMeta; onToast: (text: string) => void }) {
+function ProjectBlock({
+  project,
+  archived,
+  editors,
+  onToast,
+}: {
+  project: ProjectMeta;
+  archived: boolean;
+  editors: EditorInfo[];
+  onToast: (text: string) => void;
+}) {
   const sessions = usePersonalStore((s) => s.sessions);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const collapsed = usePersonalStore((s) => !!s.collapsedProjects[project.id]);
@@ -36,12 +56,14 @@ function ProjectBlock({ project, onToast }: { project: ProjectMeta; onToast: (te
   const activateProject = usePersonalStore((s) => s.activateProject);
   const setRightView = usePersonalStore((s) => s.setRightView);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
-  const openTimeline = usePersonalStore((s) => s.openTimeline);
-  const timelineActive = usePersonalStore((s) => s.timelineProjectId === project.id);
+  const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   // 项目引导态（已激活但未选会话）时高亮项目名。
   const projectActive = usePersonalStore(
     (s) => !s.homeOpen && !s.timelineProjectId && !s.activeSessionId && s.activeProjectId === project.id,
   );
+
+  // ⋯ 菜单锚点（fixed,屏幕坐标）;null = 关闭。
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
 
   const list = sessions.filter((x) => x.projectId === project.id).sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -58,6 +80,11 @@ function ProjectBlock({ project, onToast }: { project: ProjectMeta; onToast: (te
     setRightOpen(true);
   };
 
+  const openMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMenuAnchor({ x: rect.right, y: rect.bottom + 4 });
+  };
+
   return (
     <div className="pw-project">
       <div className="pw-project-h" data-collapsed={collapsed} data-active={projectActive}>
@@ -69,24 +96,23 @@ function ProjectBlock({ project, onToast }: { project: ProjectMeta; onToast: (te
         <button className="pw-project-toggle" onClick={openProject} title={project.path}>
           <Icon.Folder size={14} />
           <span className="pw-project-name">{project.name}</span>
+          {project.pinnedAt ? <Icon.Pin size={11} className="pw-project-pin" /> : null}
         </button>
-        <button
-          className={`pw-icon-btn ${timelineActive ? "is-active" : ""}`}
-          title="项目时间线"
-          onClick={() => openTimeline(project.id)}
-        >
-          <Icon.Clock size={13} />
-        </button>
-        <button
-          className="pw-icon-btn"
-          title="新建 Session"
-          onClick={() => {
-            createSession(project.id, "claude");
-            onToast(`已在 ${project.name} 新建 Session`);
-          }}
-        >
-          <Icon.Plus size={13} />
-        </button>
+        <div className={`pw-project-actions ${menuAnchor ? "is-menu-open" : ""}`}>
+          <button className={`pw-icon-btn ${menuAnchor ? "is-active" : ""}`} title="更多" onClick={openMenu}>
+            <Icon.More size={13} />
+          </button>
+          <button
+            className="pw-icon-btn"
+            title="新建 Session"
+            onClick={() => {
+              createSession(project.id, defaultAgent(agentsAvailable));
+              onToast(`已在 ${project.name} 新建 Session`);
+            }}
+          >
+            <Icon.Plus size={13} />
+          </button>
+        </div>
       </div>
       {!collapsed
         ? list.map((sess) => (
@@ -99,6 +125,16 @@ function ProjectBlock({ project, onToast }: { project: ProjectMeta; onToast: (te
           ))
         : null}
       {!collapsed && list.length === 0 ? <div className="pw-empty-hint">点 + 新建 Session</div> : null}
+      {menuAnchor ? (
+        <ProjectMenu
+          project={project}
+          archived={archived}
+          editors={editors}
+          anchor={menuAnchor}
+          onClose={() => setMenuAnchor(null)}
+          onToast={onToast}
+        />
+      ) : null}
     </div>
   );
 }
@@ -109,6 +145,28 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
   const addProject = usePersonalStore((s) => s.addProject);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
   const openHome = usePersonalStore((s) => s.openHome);
+
+  // 系统已装编辑器（挂载时探测一次,传给所有 ProjectMenu）。
+  const [editors, setEditors] = useState<EditorInfo[]>([]);
+  // 「已归档」分组折叠态（本地,默认折叠）。
+  const [archivedOpen, setArchivedOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = (await bridge?.listEditors?.()) ?? [];
+        if (!cancelled) setEditors(list);
+      } catch {
+        if (!cancelled) setEditors([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge]);
+
+  const { visible, archived } = partitionProjects(projects);
 
   const pickProject = async () => {
     if (!bridge) return;
@@ -132,10 +190,10 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
         </button>
       </div>
       <div className="sb-list">
-        {projects.map((p) => (
-          <ProjectBlock key={p.id} project={p} onToast={onToast} />
+        {visible.map((p) => (
+          <ProjectBlock key={p.id} project={p} archived={false} editors={editors} onToast={onToast} />
         ))}
-        {projects.length === 0 ? (
+        {visible.length === 0 && archived.length === 0 ? (
           <div className="sb-empty">
             <Icon.Folder size={22} />
             <div>还没有项目</div>
@@ -143,6 +201,25 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
               <Icon.FolderPlus size={13} />
               选择文件夹
             </button>
+          </div>
+        ) : null}
+        {archived.length > 0 ? (
+          <div className="pw-archived-group">
+            <button
+              className="pw-archived-h"
+              data-collapsed={!archivedOpen}
+              onClick={() => setArchivedOpen((v) => !v)}
+            >
+              <span className="chev">
+                <Icon.Chevron size={10} />
+              </span>
+              <span>已归档 ({archived.length})</span>
+            </button>
+            {archivedOpen
+              ? archived.map((p) => (
+                  <ProjectBlock key={p.id} project={p} archived={true} editors={editors} onToast={onToast} />
+                ))
+              : null}
           </div>
         ) : null}
       </div>

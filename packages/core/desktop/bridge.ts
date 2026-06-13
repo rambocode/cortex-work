@@ -11,6 +11,7 @@ import type {
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  EditorInfo,
   GitChangesResult,
   GitCommit,
   GitDiffAllResult,
@@ -60,6 +61,13 @@ export interface DesktopBridge {
   // 文件预览工具栏:用系统默认应用打开 / 在访达（文件管理器）中显示。
   openPath?(path: string): Promise<void>;
   revealInFolder?(path: string): Promise<void>;
+  // 项目「Open in」菜单:列出系统已装代码编辑器 / 用指定编辑器打开项目目录。
+  // 可选（旧壳/web/非 macOS 没有或返回空列表,菜单降级为只剩访达）。
+  listEditors?(): Promise<EditorInfo[]>;
+  openInEditor?(path: string, editorId: string): Promise<void>;
+  // 检测 PATH 中已安装的 agent CLI（pi 内置恒可用）。可选,无此能力时
+  // renderer 按全不可用处理,新建会话兜底到 pi。
+  detectAgents?(): Promise<Record<AgentKind, boolean>>;
   // Markdown 预览里的链接:用系统默认浏览器打开（仅 http/https）。
   openExternal?(url: string): Promise<void>;
   // 持久化

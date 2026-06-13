@@ -4,7 +4,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { AGENT_MODELS, useDesktopBridge, usePersonalStore, usePetStore } from "@cortex-work/core";
-import type { PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import type { AgentKind, PersonalAttachment, SessionMeta } from "@cortex-work/core";
+
+// 输入框占位文案中的 agent 展示名。
+const AGENT_PLACEHOLDER_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
 
@@ -43,6 +46,7 @@ export function PersonalComposer({
   onSend,
   onStop,
   onChangeModel,
+  onChangePiModel,
   onToggleSkills,
   onToast,
 }: {
@@ -54,6 +58,8 @@ export function PersonalComposer({
   onSend: (text: string, attachments: PersonalAttachment[]) => void;
   onStop: () => void;
   onChangeModel: (model: string) => void;
+  // pi 多通道:同时切换通道与模型。
+  onChangePiModel: (channelId: string, model: string) => void;
   onToggleSkills: () => void;
   onToast: (text: string) => void;
 }) {
@@ -68,7 +74,18 @@ export function PersonalComposer({
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
 
+  const piSettings = usePersonalStore((s) => s.piSettings);
+  const isPi = session.agent === "pi";
   const models = AGENT_MODELS[session.agent];
+  // pi:模型下拉来自已启用通道,选项编码 `${channelId}::${modelId}`,展示「通道 · 模型」。
+  const piModelOptions = isPi
+    ? piSettings.channels
+        .filter((c) => c.enabled)
+        .flatMap((c) =>
+          c.models.map((m) => ({ value: `${c.id}::${m.id}`, label: `${c.label} · ${m.label ?? m.id}` })),
+        )
+    : [];
+  const piModelValue = `${session.piChannelId ?? ""}::${session.model ?? ""}`;
   // skills 默认禁用(纯净启动),显式打开才传给 CLI。
   const useOwnSkills = session.useOwnSkills === true;
 
@@ -347,7 +364,7 @@ export function PersonalComposer({
             placeholder={
               running
                 ? "Agent 正在运行,可点击右侧停止…"
-                : `给 ${session.agent === "claude" ? "Claude Code" : "Codex"} 发消息,可从右侧拖入 Prompt 作为 skill…`
+                : `给 ${AGENT_PLACEHOLDER_NAME[session.agent]} 发消息,可从右侧拖入 Prompt 作为 skill…`
             }
             rows={1}
           />
@@ -374,18 +391,40 @@ export function PersonalComposer({
             <span className="lightning">
               <Icon.Lightning size={11} />
             </span>
-            <select
-              className="pw-model-select"
-              value={session.model || models[0]?.value || ""}
-              onChange={(e) => onChangeModel(e.target.value)}
-              disabled={models.length === 0}
-            >
-              {models.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+            {isPi ? (
+              <select
+                className="pw-model-select"
+                value={piModelValue}
+                onChange={(e) => {
+                  const [channelId, model] = e.target.value.split("::");
+                  onChangePiModel(channelId ?? "", model ?? "");
+                }}
+                disabled={piModelOptions.length === 0}
+              >
+                {piModelOptions.length === 0 ? (
+                  <option value="::">未配置通道（去设置 → Agent）</option>
+                ) : (
+                  piModelOptions.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))
+                )}
+              </select>
+            ) : (
+              <select
+                className="pw-model-select"
+                value={session.model || models[0]?.value || ""}
+                onChange={(e) => onChangeModel(e.target.value)}
+                disabled={models.length === 0}
+              >
+                {models.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            )}
           </span>
           {running ? (
             <button className="send" onClick={onStop} title="停止">

@@ -6,6 +6,8 @@ import { create } from "zustand";
 import type {
   AgentKind,
   PersistedState,
+  PiChannel,
+  PiSettings,
   ProjectMeta,
   PromptNode,
   PushSettings,
@@ -16,6 +18,7 @@ import type {
 } from "../desktop/types";
 import {
   DEFAULT_MODEL,
+  DEFAULT_PI_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TIMELINE_SETTINGS,
   DEFAULT_TTS_SETTINGS,
@@ -65,9 +68,24 @@ export interface PersonalState {
   pushSettings: PushSettings;
   // TTS 设置（自动朗读 + 引擎,持久化）。
   ttsSettings: TtsSettings;
+  // 各 agent 是否可用（主进程探测,不持久化;启动时回填）。
+  agentsAvailable?: Partial<Record<AgentKind, boolean>>;
+  // 兜底 Agent（内置 pi）配置（持久化）。
+  piSettings: PiSettings;
   hydrate: (s: PersistedState) => void;
   addProject: (path: string) => ProjectMeta;
   removeProject: (id: string) => void;
+  // 更新项目置顶/归档元数据（patch 单项目,数组引用替换）。
+  updateProject: (id: string, patch: Partial<Pick<ProjectMeta, "pinnedAt" | "archivedAt">>) => void;
+  // 归档项目:设 archivedAt、清 pinnedAt;若该项目正激活/在时间线则让出焦点。
+  archiveProject: (id: string) => void;
+  setAgentsAvailable: (avail: Partial<Record<AgentKind, boolean>>) => void;
+  // 兜底 Agent（pi）多 LLM 通道配置:整体 patch + 通道级增删改 + 设默认。
+  setPiSettings: (patch: Partial<PiSettings>) => void;
+  addPiChannel: (channel: PiChannel) => void;
+  updatePiChannel: (id: string, patch: Partial<PiChannel>) => void;
+  removePiChannel: (id: string) => void;
+  setPiDefaults: (patch: { defaultChannelId?: string; defaultModel?: string }) => void;
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
   createSession: (projectId: string, agent: AgentKind, model?: string) => SessionMeta;
@@ -119,6 +137,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   timelineSettings: DEFAULT_TIMELINE_SETTINGS,
   pushSettings: DEFAULT_PUSH_SETTINGS,
   ttsSettings: DEFAULT_TTS_SETTINGS,
+  piSettings: DEFAULT_PI_SETTINGS,
   hydrate: (s) =>
     set({
       hydrated: true,
@@ -133,6 +152,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         (s.timelineSettings as undefined | { push?: PushSettings })?.push ??
         DEFAULT_PUSH_SETTINGS,
       ttsSettings: s.ttsSettings ?? DEFAULT_TTS_SETTINGS,
+      // 旧结构（单 provider,无 channels）按空通道重置;用户重新配置。
+      piSettings: Array.isArray(s.piSettings?.channels) ? s.piSettings : DEFAULT_PI_SETTINGS,
       rightPanelWidth: s.rightPanelWidth,
     }),
 
@@ -158,18 +179,70 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       timelineProjectId: s.timelineProjectId === id ? undefined : s.timelineProjectId,
     })),
 
+  updateProject: (id, patch) =>
+    set((s) => ({
+      projects: s.projects.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+    })),
+
+  archiveProject: (id) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === id ? { ...p, archivedAt: Date.now(), pinnedAt: undefined } : p,
+      ),
+      // 归档项目若正激活/在时间线,让出焦点（与 removeProject 一致:清相关字段,
+      // 但项目仍在列表,故不必回 homeOpen 态）。
+      activeProjectId: s.activeProjectId === id ? undefined : s.activeProjectId,
+      activeSessionId:
+        s.sessions.find((x) => x.id === s.activeSessionId)?.projectId === id ? undefined : s.activeSessionId,
+      timelineProjectId: s.timelineProjectId === id ? undefined : s.timelineProjectId,
+    })),
+
+  setAgentsAvailable: (avail) => set({ agentsAvailable: avail }),
+
+  setPiSettings: (patch) => set((s) => ({ piSettings: { ...s.piSettings, ...patch } })),
+
+  addPiChannel: (channel) =>
+    set((s) => ({ piSettings: { ...s.piSettings, channels: [...s.piSettings.channels, channel] } })),
+
+  updatePiChannel: (id, patch) =>
+    set((s) => ({
+      piSettings: {
+        ...s.piSettings,
+        channels: s.piSettings.channels.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+      },
+    })),
+
+  removePiChannel: (id) =>
+    set((s) => {
+      const channels = s.piSettings.channels.filter((c) => c.id !== id);
+      // 删掉的通道若是默认通道,一并清掉默认指向。
+      const defaultChannelId = s.piSettings.defaultChannelId === id ? undefined : s.piSettings.defaultChannelId;
+      const defaultModel = s.piSettings.defaultChannelId === id ? undefined : s.piSettings.defaultModel;
+      return { piSettings: { ...s.piSettings, channels, defaultChannelId, defaultModel } };
+    }),
+
+  setPiDefaults: (patch) => set((s) => ({ piSettings: { ...s.piSettings, ...patch } })),
+
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),
   setPromptTree: (tree) => set({ promptTree: tree }),
 
   createSession: (projectId, agent, model) => {
     const now = Date.now();
     const count = get().sessions.filter((x) => x.projectId === projectId).length;
+    // pi:挂上默认 LLM 通道与模型（缺省取默认通道首个模型）,无通道则留空待配置。
+    const piSettings = get().piSettings;
+    const piChannel =
+      agent === "pi" ? piSettings.channels.find((c) => c.id === piSettings.defaultChannelId) : undefined;
     const sess: SessionMeta = {
       id: newId("sess"),
       projectId,
       title: `Session ${count + 1}`,
       agent,
-      model: model ?? DEFAULT_MODEL[agent],
+      model:
+        agent === "pi"
+          ? model ?? piSettings.defaultModel ?? piChannel?.models[0]?.id
+          : model ?? DEFAULT_MODEL[agent],
+      piChannelId: agent === "pi" ? piSettings.defaultChannelId : undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -289,6 +362,38 @@ export function toPersistedState(s: PersonalState): PersistedState {
     timelineSettings: s.timelineSettings,
     pushSettings: s.pushSettings,
     ttsSettings: s.ttsSettings,
+    piSettings: s.piSettings,
     rightPanelWidth: s.rightPanelWidth,
   };
+}
+
+// 项目分区：可见区（置顶在前按 pinnedAt 降序,未置顶维持原数组序）与
+// 归档区（按 archivedAt 降序）。归档项目（有 archivedAt）只进归档区。
+// 同值（pinnedAt/archivedAt 相等）显式以原数组下标升序兜底,不依赖
+// Array.prototype.sort 的稳定性。
+export function partitionProjects(projects: ProjectMeta[]): {
+  visible: ProjectMeta[];
+  archived: ProjectMeta[];
+} {
+  // 记录原始下标作为稳定 tiebreak,避免依赖 sort 实现的稳定性。
+  const idx = new Map<ProjectMeta, number>();
+  projects.forEach((p, i) => idx.set(p, i));
+  const order = (a: ProjectMeta, b: ProjectMeta) => (idx.get(a) ?? 0) - (idx.get(b) ?? 0);
+
+  const visibleSrc = projects.filter((p) => p.archivedAt == null);
+  const pinned = visibleSrc
+    .filter((p) => p.pinnedAt != null)
+    .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) || order(a, b));
+  const unpinned = visibleSrc.filter((p) => p.pinnedAt == null);
+  const archived = projects
+    .filter((p) => p.archivedAt != null)
+    .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0) || order(a, b));
+  return { visible: [...pinned, ...unpinned], archived };
+}
+
+// 新建会话默认 agent：claude 可用→claude,否则 codex 可用→codex,否则内置 pi 兜底。
+export function defaultAgent(avail?: Partial<Record<AgentKind, boolean>>): AgentKind {
+  if (avail?.claude) return "claude";
+  if (avail?.codex) return "codex";
+  return "pi";
 }

@@ -1,7 +1,7 @@
 // 个人工作区（桌面端）共享类型。与 apps/desktop/src/main/ipc/types.ts 保持
 // 镜像（core 不能依赖 app 包，desktop 侧用 `satisfies` 对齐形状）。
 
-export type AgentKind = "claude" | "codex";
+export type AgentKind = "claude" | "codex" | "pi";
 
 // Prompt 库目录树节点（递归扫描 .md 的结果）。
 export interface PromptNode {
@@ -16,6 +16,14 @@ export interface ProjectMeta {
   name: string;
   path: string; // 本地文件夹绝对路径
   addedAt: number;
+  pinnedAt?: number; // 置顶时间戳;缺省 = 未置顶
+  archivedAt?: number; // 归档时间戳;缺省 = 在主列表
+}
+
+// 系统已安装的代码编辑器（主进程探测,Open in 菜单用）。
+export interface EditorInfo {
+  id: string; // 稳定标识,如 "vscode"、"cursor"
+  name: string; // 展示名,如 "Visual Studio Code"
 }
 
 export type TodoStatus = "open" | "done";
@@ -40,6 +48,8 @@ export interface SessionMeta {
   agentSessionIds?: Partial<Record<AgentKind, string>>;
   agent: AgentKind;
   model?: string;
+  // pi 会话选中的 LLM 通道 id（指向 PiSettings.channels）;model 存该通道下的模型 id。
+  piChannelId?: string;
   // 是否加载 agent 自身的 skills（claude: 关闭时传 --disable-slash-commands）。
   // 缺省视为 true。
   useOwnSkills?: boolean;
@@ -133,6 +143,103 @@ export const DEFAULT_TTS_SETTINGS: TtsSettings = {
   engine: { kind: "system" },
 };
 
+// ── 兜底 Agent（内置 pi）多 LLM 通道配置 ─────────────────────────────────
+
+// 一个 OpenAI 兼容 LLM 通道（qwen / deepseek / kimi / 本地 / 企业网关均走此抽象）。
+// 主进程把启用通道渲染成 pi extension（registerProvider）,channel.id 即 pi provider 名。
+export interface PiModelOption {
+  id: string; // 喂 pi --model 的模型 id
+  label?: string; // 展示名,缺省用 id
+}
+
+export interface PiChannel {
+  id: string; // slug,合法标识（无空格）,同时作为 pi provider 名
+  label: string; // 展示名:"DeepSeek"、"通义千问"
+  baseUrl: string; // OpenAI 兼容端点
+  apiKey?: string;
+  models: PiModelOption[];
+  enabled: boolean; // 关闭的通道不出现在会话模型下拉
+}
+
+export interface PiSettings {
+  channels: PiChannel[];
+  defaultChannelId?: string; // 新建 pi 会话/未指定时用
+  defaultModel?: string;
+}
+
+export const DEFAULT_PI_SETTINGS: PiSettings = { channels: [] };
+
+// 「添加通道」预置模板（快速填充,不自动写入；用户填 key 即用,也可改 baseUrl/模型）。
+export interface PiChannelTemplate {
+  templateKey: string; // 模板唯一键 + 默认 channel id 前缀
+  label: string;
+  baseUrl: string;
+  models: PiModelOption[];
+}
+
+export const PI_CHANNEL_TEMPLATES: PiChannelTemplate[] = [
+  {
+    templateKey: "deepseek",
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    models: [
+      { id: "deepseek-chat", label: "DeepSeek Chat" },
+      { id: "deepseek-reasoner", label: "DeepSeek Reasoner" },
+    ],
+  },
+  {
+    templateKey: "kimi",
+    label: "Kimi (Moonshot)",
+    baseUrl: "https://api.moonshot.cn/v1",
+    models: [
+      { id: "kimi-k2-0711-preview", label: "Kimi K2" },
+      { id: "moonshot-v1-128k", label: "Moonshot v1 128K" },
+      { id: "moonshot-v1-32k", label: "Moonshot v1 32K" },
+    ],
+  },
+  {
+    templateKey: "qwen",
+    label: "通义千问",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    models: [
+      { id: "qwen-max", label: "Qwen Max" },
+      { id: "qwen-plus", label: "Qwen Plus" },
+      { id: "qwen-turbo", label: "Qwen Turbo" },
+      { id: "qwen3-coder-plus", label: "Qwen3 Coder Plus" },
+    ],
+  },
+  {
+    templateKey: "zhipu",
+    label: "智谱 GLM",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    models: [
+      { id: "glm-4.6", label: "GLM-4.6" },
+      { id: "glm-4-plus", label: "GLM-4-Plus" },
+    ],
+  },
+  {
+    templateKey: "siliconflow",
+    label: "硅基流动",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    models: [{ id: "deepseek-ai/DeepSeek-V3", label: "DeepSeek-V3" }],
+  },
+  {
+    templateKey: "openai",
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    models: [
+      { id: "gpt-4o", label: "GPT-4o" },
+      { id: "gpt-4o-mini", label: "GPT-4o mini" },
+    ],
+  },
+  {
+    templateKey: "custom",
+    label: "自定义",
+    baseUrl: "",
+    models: [],
+  },
+];
+
 export interface TtsSynthesizeRequest {
   baseUrl: string;
   apiKey?: string;
@@ -209,6 +316,7 @@ export interface PersistedState {
   timelineSettings?: TimelineSettings;
   pushSettings?: PushSettings;
   ttsSettings?: TtsSettings;
+  piSettings?: PiSettings;
   // 右侧面板自定义宽度（px）;未设置时按视图走 CSS 自动档位。
   rightPanelWidth?: number;
 }
@@ -296,6 +404,16 @@ export interface CliStartRequest {
   resumeSessionId?: string; // 多轮续接
   appendSystemPrompt?: string; // 拖入的 prompt md 内容（skill 注入）
   useOwnSkills?: boolean; // false → 禁用 agent 自身 skills
+  // pi 专用:renderer 把当前会话选中的 LLM 通道完整配置拍平传入,主进程据此生成
+  // extension（registerProvider）+ 注入 key env（与 llm.ts「主进程不读设置文件」惯例一致）。
+  piChannel?: {
+    id: string;
+    baseUrl: string;
+    apiKey?: string;
+    models: { id: string; name?: string }[];
+  };
+  // 主进程内部填充:生成的 extension 文件绝对路径（renderer 不传,buildArgs 读取）。
+  piExtensionPath?: string;
 }
 
 // 编辑重发:截断 agent CLI 会话记忆文件的请求(尽力而为,失败退化为带旧记忆 resume)。
@@ -391,11 +509,20 @@ export const AGENT_MODELS: Record<AgentKind, { label: string; value: string }[]>
     { label: "GPT-5.4 Mini", value: "gpt-5.4-mini" },
     { label: "GPT-5.3 Codex Spark", value: "gpt-5.3-codex-spark" },
   ],
+  // value 直接喂 pi --model（支持别名与 provider/model 模式串）。
+  pi: [
+    { label: "Claude Sonnet", value: "sonnet" },
+    { label: "Claude Opus", value: "opus" },
+    { label: "Claude Haiku", value: "haiku" },
+    { label: "GPT-5.5", value: "openai/gpt-5.5" },
+    { label: "Gemini 3.1 Pro", value: "google/gemini-3.1-pro" },
+  ],
 };
 
 export const DEFAULT_MODEL: Record<AgentKind, string> = {
   claude: "sonnet",
   codex: "gpt-5.5",
+  pi: "sonnet",
 };
 
 // ── 应用自动更新（与 apps/desktop/src/main/ipc/types.ts 镜像） ─────────────

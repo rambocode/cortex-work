@@ -4,7 +4,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
+  AGENT_MODELS,
   DEFAULT_MODEL,
+  defaultAgent,
   getTtsPlaybackState,
   speakText,
   stopSpeaking,
@@ -20,7 +22,14 @@ import { MessageStream } from "../ChatArea";
 import { GitBar } from "./GitBar";
 import { PersonalComposer } from "./PersonalComposer";
 
-const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex" };
+const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
+
+// 各 agent 头像视觉（claude/codex 沿用原值,pi 用缩写 PI + 靛蓝底）。
+const AGENT_AVATAR: Record<AgentKind, { initials: string; bg: string }> = {
+  claude: { initials: "CC", bg: "#c96442" },
+  codex: { initials: "CX", bg: "#1a1916" },
+  pi: { initials: "PI", bg: "#4338ca" },
+};
 
 // MessageStream 需要 Contact/Conversation 形状,为 CLI agent 合成一份。
 function agentContact(agent: AgentKind): Contact {
@@ -28,7 +37,7 @@ function agentContact(agent: AgentKind): Contact {
     id: agent,
     name: AGENT_LABEL[agent],
     group: "shared",
-    avatar: agent === "claude" ? { initials: "CC", bg: "#c96442" } : { initials: "CX", bg: "#1a1916" },
+    avatar: AGENT_AVATAR[agent],
     agentStatus: "online",
     statusText: "",
     last: "",
@@ -83,6 +92,8 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   const runningBySession = usePersonalStore((s) => s.runningBySession);
   const updateSession = usePersonalStore((s) => s.updateSession);
   const ttsSettings = usePersonalStore((s) => s.ttsSettings);
+  const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const piSettings = usePersonalStore((s) => s.piSettings);
   const bridge = useDesktopBridge();
 
   const session: SessionMeta | undefined = sessions.find((x) => x.id === activeSessionId);
@@ -133,7 +144,7 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
             <button
               className="btn primary pw-center-cta"
               onClick={() => {
-                createSession(activeProject.id, "claude");
+                createSession(activeProject.id, defaultAgent(agentsAvailable));
                 onToast(`已在 ${activeProject.name} 新建 Session`);
               }}
             >
@@ -152,11 +163,17 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   const switchAgent = (agent: AgentKind) => {
     const agentSessionIds = { ...session.agentSessionIds };
     delete agentSessionIds[agent];
+    // pi:用默认通道 + 默认模型（或通道首模型）;其余 agent 用各自默认模型。
+    const piDefaultChannel = piSettings.channels.find((c) => c.id === piSettings.defaultChannelId);
     updateSession(session.id, {
       agent,
       agentSessionIds,
       claudeSessionId: agent === "claude" ? undefined : session.claudeSessionId,
-      model: DEFAULT_MODEL[agent],
+      piChannelId: agent === "pi" ? piSettings.defaultChannelId : undefined,
+      model:
+        agent === "pi"
+          ? piSettings.defaultModel ?? piDefaultChannel?.models[0]?.id
+          : DEFAULT_MODEL[agent],
     });
   };
 
@@ -190,8 +207,16 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
               switchAgent(agent);
             }}
           >
-            <option value="claude">Claude Code</option>
-            <option value="codex">Codex</option>
+            {(Object.keys(AGENT_MODELS) as AgentKind[]).map((a) => {
+              // pi 是内置兜底,永不禁用;其余 agent 未探测到安装时禁用并标注。
+              const unavailable = a !== "pi" && agentsAvailable?.[a] === false;
+              return (
+                <option key={a} value={a} disabled={unavailable}>
+                  {AGENT_LABEL[a]}
+                  {unavailable ? "（未安装）" : ""}
+                </option>
+              );
+            })}
           </select>
         </div>
       </div>
@@ -279,6 +304,7 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         }}
         onStop={() => void stopRun(session.id)}
         onChangeModel={(model) => updateSession(session.id, { model })}
+        onChangePiModel={(channelId, model) => updateSession(session.id, { piChannelId: channelId, model })}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onToast={onToast}
       />

@@ -18,6 +18,14 @@ files:
 # node-pty 原生模块不能进 asar
 asarUnpack:
   - "**/node_modules/node-pty/**"
+  # pi（@earendil-works/pi-coding-agent）由 ELECTRON_RUN_AS_NODE 子进程执行,
+  # 入口 cli.js 必须是真实文件路径（pi-locate.ts 在打包态切换到 app.asar.unpacked）。
+  # 其余依赖（undici/jiti/photon wasm 等）留在 asar 即可:Electron 的 Node 模式
+  # 自带 asar 感知的 fs/ESM 加载,已用打包产物实测完整 agent 回路通过。
+  # 注意:electron-builder 打包时会把 pnpm 的 node_modules 拍平,产物里没有 .pnpm
+  # 目录,glob 不要写 .pnpm 形式（匹配不到）。@mariozechner/clipboard 的 NAPI
+  # 原生模块由 electron-builder 自动 unpack,无需显式列出。
+  - "**/node_modules/@earendil-works/**"
 mac:
   category: public.app-category.productivity
   icon: assets/cortex-desktop-logo-minimal.png

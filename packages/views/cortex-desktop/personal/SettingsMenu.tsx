@@ -12,6 +12,7 @@ import {
   AGENT_MODELS,
   DEFAULT_MODEL,
   DEFAULT_PUSH_TEMPLATE,
+  PI_CHANNEL_TEMPLATES,
   speakText,
   stopSpeaking,
   useCortexUIStore,
@@ -25,6 +26,8 @@ import type {
   AgentKind,
   DingtalkPushConfig,
   EmailPushConfig,
+  PiChannel,
+  PiModelOption,
   PromptNode,
   SummaryModelConfig,
   TtsEngineConfig,
@@ -52,11 +55,12 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
-type SettingsTab = "pet" | "appearance" | "timeline" | "push" | "voice";
+type SettingsTab = "pet" | "appearance" | "agent" | "timeline" | "push" | "voice";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
   { id: "appearance", label: "外观", icon: <Icon.Image size={14} /> },
+  { id: "agent", label: "Agent", icon: <Icon.Terminal size={14} /> },
   { id: "timeline", label: "时间线", icon: <Icon.Clock size={14} /> },
   { id: "push", label: "推送", icon: <Icon.Send size={14} /> },
   { id: "voice", label: "语音", icon: <Icon.Mic size={14} /> },
@@ -263,7 +267,7 @@ function Field({
 
 // 集成 Agent 列表（与会话创建可选的 agent 一致,来自 AGENT_MODELS 注册表;
 // 新增 agent 接入后此处自动出现）。
-const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex" };
+const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 const INTEGRATED_AGENTS = Object.keys(AGENT_MODELS) as AgentKind[];
 
 function Select({
@@ -359,6 +363,166 @@ function TimelineSection() {
           />
         </div>
       )}
+    </>
+  );
+}
+
+// ── Pi 兜底 Agent · 多 LLM 通道设置 ─────────────────────────────────────────
+
+// 通道 id slug 化:作为 pi provider 名,仅允许字母数字与 - _。
+function slugify(s: string): string {
+  const out = s.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return out || "channel";
+}
+
+// 模型多行文本 ↔ PiModelOption[]:每行 "id" 或 "id|显示名"。
+function parseModels(text: string): PiModelOption[] {
+  const out: PiModelOption[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const parts = line.split("|");
+    const id = (parts[0] ?? "").trim();
+    const label = (parts[1] ?? "").trim();
+    if (!id) continue;
+    out.push(label ? { id, label } : { id });
+  }
+  return out;
+}
+function modelsToText(models: PiModelOption[]): string {
+  return models.map((m) => (m.label ? `${m.id}|${m.label}` : m.id)).join("\n");
+}
+
+// 单个通道编辑卡片。
+function ChannelCard({
+  channel,
+  onPatch,
+  onRemove,
+}: {
+  channel: PiChannel;
+  onPatch: (patch: Partial<PiChannel>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="pw-pi-channel">
+      <div className="pw-set-row2">
+        <Field label="名称" value={channel.label} onChange={(v) => onPatch({ label: v })} />
+        <Toggle label="启用" value={channel.enabled} onChange={(v) => onPatch({ enabled: v })} />
+      </div>
+      <Field
+        label="Base URL"
+        value={channel.baseUrl}
+        placeholder="https://api.deepseek.com/v1"
+        onChange={(v) => onPatch({ baseUrl: v })}
+      />
+      <Field
+        label="API Key"
+        type="password"
+        value={channel.apiKey ?? ""}
+        placeholder="该通道的 API Key"
+        onChange={(v) => onPatch({ apiKey: v || undefined })}
+      />
+      <label className="pw-set-field">
+        <span className="pw-set-lbl">模型（每行一个,可写 id|显示名）</span>
+        <textarea
+          className="pw-set-input"
+          rows={3}
+          value={modelsToText(channel.models)}
+          placeholder="deepseek-chat|DeepSeek Chat"
+          spellCheck={false}
+          onChange={(e) => onPatch({ models: parseModels(e.target.value) })}
+        />
+      </label>
+      <button className="btn pw-pi-channel-del" onClick={onRemove}>
+        删除通道
+      </button>
+    </div>
+  );
+}
+
+function AgentSection() {
+  const piSettings = usePersonalStore((s) => s.piSettings);
+  const addPiChannel = usePersonalStore((s) => s.addPiChannel);
+  const updatePiChannel = usePersonalStore((s) => s.updatePiChannel);
+  const removePiChannel = usePersonalStore((s) => s.removePiChannel);
+  const setPiDefaults = usePersonalStore((s) => s.setPiDefaults);
+  const [tmplKey, setTmplKey] = useState(PI_CHANNEL_TEMPLATES[0]?.templateKey ?? "deepseek");
+
+  const addFromTemplate = () => {
+    const t = PI_CHANNEL_TEMPLATES.find((x) => x.templateKey === tmplKey);
+    if (!t) return;
+    const base = slugify(t.templateKey);
+    const existing = new Set(piSettings.channels.map((c) => c.id));
+    let id = base;
+    let n = 1;
+    while (existing.has(id)) id = `${base}-${++n}`;
+    addPiChannel({ id, label: t.label, baseUrl: t.baseUrl, models: t.models, enabled: true });
+  };
+
+  const defaultChannel = piSettings.channels.find((c) => c.id === piSettings.defaultChannelId);
+
+  return (
+    <>
+      <div className="pw-dlg-title">兜底 Agent · Pi</div>
+      <div className="pw-dlg-desc">
+        内置 Pi 在本机未安装 Claude / Codex CLI 时兜底。在此添加任意 OpenAI 兼容 LLM
+        通道（DeepSeek / Kimi / 通义千问 / 智谱 / 本地模型等）,填入 API Key 即可在会话中选用。
+      </div>
+
+      <div className="twk-sect">LLM 通道</div>
+      <div className="pw-set-group">
+        <div className="pw-set-row2">
+          <Select
+            label="从模板添加"
+            value={tmplKey}
+            options={PI_CHANNEL_TEMPLATES.map((t) => ({ label: t.label, value: t.templateKey }))}
+            onChange={setTmplKey}
+          />
+          <button className="btn" onClick={addFromTemplate}>
+            添加通道
+          </button>
+        </div>
+        {piSettings.channels.length === 0 ? (
+          <div className="pw-set-hint">还没有通道。选择模板后点「添加通道」,填好 API Key 即可使用。</div>
+        ) : null}
+        {piSettings.channels.map((ch) => (
+          <ChannelCard
+            key={ch.id}
+            channel={ch}
+            onPatch={(patch) => updatePiChannel(ch.id, patch)}
+            onRemove={() => removePiChannel(ch.id)}
+          />
+        ))}
+      </div>
+
+      {piSettings.channels.length > 0 ? (
+        <>
+          <div className="twk-sect">默认通道</div>
+          <div className="pw-set-group">
+            <div className="pw-set-hint">新建 Pi 会话默认使用的通道与模型（会话内仍可单独切换）。</div>
+            <div className="pw-set-row2">
+              <Select
+                label="默认通道"
+                value={piSettings.defaultChannelId ?? ""}
+                options={[
+                  { label: "（未设置）", value: "" },
+                  ...piSettings.channels.map((c) => ({ label: c.label, value: c.id })),
+                ]}
+                onChange={(v) => setPiDefaults({ defaultChannelId: v || undefined, defaultModel: undefined })}
+              />
+              <Select
+                label="默认模型"
+                value={piSettings.defaultModel ?? ""}
+                options={[
+                  { label: "（通道首个模型）", value: "" },
+                  ...(defaultChannel?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id })),
+                ]}
+                onChange={(v) => setPiDefaults({ defaultModel: v || undefined })}
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
     </>
   );
 }
@@ -775,6 +939,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <PetSection />
           ) : tab === "appearance" ? (
             <AppearanceSection />
+          ) : tab === "agent" ? (
+            <AgentSection />
           ) : tab === "timeline" ? (
             <TimelineSection />
           ) : tab === "push" ? (

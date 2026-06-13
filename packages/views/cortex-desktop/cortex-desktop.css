@@ -2931,6 +2931,31 @@ button.sb-row {
 .pw-project-h .chev { display: inline-flex; color: var(--text-3); transition: transform 0.12s; }
 .pw-project-h[data-collapsed="true"] .chev { transform: rotate(-90deg); }
 .pw-project-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 置顶标识:常驻项目名旁,跟随名字一起被裁剪推挤时不收缩 */
+.pw-project-pin { color: var(--text-3); flex-shrink: 0; }
+/* 行内操作按钮组:平时透明隐藏,悬停项目行或菜单打开时浮现 */
+.pw-project-actions {
+  display: inline-flex; gap: 2px;
+  opacity: 0; transition: opacity 0.12s;
+  flex-shrink: 0;
+}
+.pw-project-h:hover .pw-project-actions,
+.pw-project-actions.is-menu-open { opacity: 1; }
+/* 已归档分组:头样式参照 .pw-section-h 缩小一号,chevron 折叠旋转 */
+.pw-archived-group { margin-top: 6px; }
+.pw-archived-h {
+  display: flex; align-items: center; gap: 4px;
+  width: 100%;
+  padding: 6px 14px 6px 14px;
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-4);
+  cursor: pointer;
+  text-align: left;
+}
+.pw-archived-h:hover { color: var(--text-3); }
+.pw-archived-h .chev { display: inline-flex; color: var(--text-4); transition: transform 0.12s; }
+.pw-archived-h[data-collapsed="true"] .chev { transform: rotate(-90deg); }
 .pw-session {
   display: flex; align-items: center; gap: 8px;
   width: calc(100% - 8px);
@@ -4823,6 +4848,10 @@ button.sb-row {
 /* 设置 → 时间线 表单 */
 .pw-set-group { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 14px; }
 .pw-set-hint { font-size: 11.5px; color: var(--text-3); }
+/* Pi LLM 通道编辑卡片 */
+.pw-pi-channel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); }
+.pw-pi-channel textarea.pw-set-input { resize: vertical; min-height: 52px; line-height: 1.5; }
+.pw-pi-channel-del { align-self: flex-start; color: var(--red); }
 .pw-set-field { display: flex; flex-direction: column; gap: 4px; }
 .pw-set-lbl { font-size: 11.5px; color: var(--text-3); }
 .pw-set-input {

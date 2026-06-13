@@ -12,6 +12,7 @@ import { registerUsageHandlers } from "./usage";
 import { registerAgentProjectsHandlers } from "./agent-projects";
 import { registerWatchHandlers } from "./watch";
 import { registerUpdateHandlers } from "./update";
+import { registerEditorHandlers } from "./editors";
 
 export function registerIpcHandlers(): void {
   registerFsHandlers();
@@ -26,6 +27,7 @@ export function registerIpcHandlers(): void {
   registerUsageHandlers();
   registerAgentProjectsHandlers();
   registerUpdateHandlers();
+  registerEditorHandlers();
 }
 
 export { killAllCli } from "./cli";
