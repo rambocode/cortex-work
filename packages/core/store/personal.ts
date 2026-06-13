@@ -92,6 +92,8 @@ export interface PersonalState {
   setPromptTree: (tree: PromptNode) => void;
   createSession: (projectId: string, agent: AgentKind, model?: string) => SessionMeta;
   updateSession: (id: string, patch: Partial<SessionMeta>) => void;
+  archiveSession: (id: string) => void;
+  unarchiveSession: (id: string) => void;
   removeSession: (id: string) => void;
   addTodo: (projectId: string, title: string, detailPath: string) => TodoMeta;
   updateTodo: (id: string, patch: Partial<Pick<TodoMeta, "title" | "status" | "detailPath">>) => void;
@@ -263,6 +265,19 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   updateSession: (id, patch) =>
     set((s) => ({
       sessions: s.sessions.map((x) => (x.id === id ? { ...x, ...patch, updatedAt: Date.now() } : x)),
+    })),
+
+  // 归档/取消归档:只动 archivedAt,不刷新 updatedAt（避免改变会话列表排序）。
+  // 归档当前会话时让出焦点（仿 archiveProject）。
+  archiveSession: (id) =>
+    set((s) => ({
+      sessions: s.sessions.map((x) => (x.id === id ? { ...x, archivedAt: Date.now() } : x)),
+      activeSessionId: s.activeSessionId === id ? undefined : s.activeSessionId,
+    })),
+
+  unarchiveSession: (id) =>
+    set((s) => ({
+      sessions: s.sessions.map((x) => (x.id === id ? { ...x, archivedAt: undefined } : x)),
     })),
 
   removeSession: (id) =>

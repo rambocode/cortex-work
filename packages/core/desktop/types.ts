@@ -55,6 +55,8 @@ export interface SessionMeta {
   useOwnSkills?: boolean;
   // /clear 后默认隐藏到此游标为止的历史消息；消息文件本身仍完整保留。
   hiddenHistory?: HiddenHistoryMeta;
+  // 归档时间戳;缺省 = 在会话列表。归档后默认从列表隐藏。
+  archivedAt?: number;
   createdAt: number;
   updatedAt: number;
 }

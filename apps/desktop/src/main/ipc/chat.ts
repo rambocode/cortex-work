@@ -49,4 +49,20 @@ export function registerChatHandlers(): void {
     writeQueues.set(sessionId, next);
     return next;
   });
+
+  ipcMain.handle("chat:delete", (_e, sessionId: string) => {
+    const path = chatPath(sessionId); // 复用 SAFE_ID 校验
+    // 排进同一写队列，避免与正在进行的 chat:save 交错。
+    const prev = writeQueues.get(sessionId) ?? Promise.resolve();
+    const next = prev
+      .then(async () => {
+        await ensureMigrated();
+        await fsp.rm(path, { force: true }); // 不存在不报错
+      })
+      .catch((err) => {
+        console.error("[personal-chats] delete failed:", err);
+      });
+    writeQueues.set(sessionId, next);
+    return next;
+  });
 }

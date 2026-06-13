@@ -2971,6 +2971,19 @@ button.sb-row {
 .pw-session.is-active { background: var(--bg-active); color: var(--text-1); font-weight: 500; }
 .pw-session-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pw-session-time { font-size: 11px; color: var(--text-4); flex-shrink: 0; }
+/* 会话行:相对定位容纳右侧悬浮的归档/删除操作;hover 时浮现并让位时间 */
+.pw-session-row { position: relative; }
+.pw-session-row[data-archived="true"] .pw-session { opacity: 0.55; }
+.pw-session-actions {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; gap: 2px;
+  opacity: 0; transition: opacity 0.12s;
+}
+.pw-session-row:hover .pw-session-actions { opacity: 1; }
+.pw-session-row:hover .pw-session-time { opacity: 0; }
+.pw-session-act { width: auto; padding: 3px; }
+.pw-session-act.is-danger, .pw-session-act.is-danger svg { color: var(--red); }
+.pw-session-act.is-danger:hover { background: var(--red-soft); }
 .pw-empty-hint { padding: 4px 8px 8px 34px; font-size: 11.5px; color: var(--text-4); }
 
 .pw-center {

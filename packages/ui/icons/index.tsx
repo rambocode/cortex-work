@@ -167,6 +167,23 @@ export const Icon = {
       <path d="M5 12h14" />
     </IconBase>
   ),
+  // 归档盒:顶盖 + 盒体 + 中间把手横线
+  Archive: (p: IconProps) => (
+    <IconBase {...p}>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
+    </IconBase>
+  ),
+  // 垃圾桶:盖 + 桶体 + 两道竖纹
+  Trash: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M4 7h16" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+      <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
+      <path d="M10 11v5M14 11v5" />
+    </IconBase>
+  ),
   Paperclip: (p: IconProps) => (
     <IconBase {...p}>
       <path d="M21 12.5l-8.5 8.5a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" />

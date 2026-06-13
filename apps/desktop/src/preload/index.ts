@@ -92,6 +92,7 @@ const personal = {
   loadChat: (sessionId: string): Promise<unknown[]> => ipcRenderer.invoke("chat:load", sessionId),
   saveChat: (sessionId: string, messages: unknown[]): Promise<void> =>
     ipcRenderer.invoke("chat:save", sessionId, messages),
+  deleteChat: (sessionId: string): Promise<void> => ipcRenderer.invoke("chat:delete", sessionId),
   loadTimeline: (projectId: string): Promise<unknown> => ipcRenderer.invoke("timeline:load", projectId),
   saveTimeline: (projectId: string, data: unknown): Promise<void> =>
     ipcRenderer.invoke("timeline:save", projectId, data),

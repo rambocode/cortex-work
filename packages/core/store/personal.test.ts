@@ -239,6 +239,71 @@ describe("archiveProject", () => {
   });
 });
 
+describe("会话归档 / 取消归档 / 删除", () => {
+  const hydrateWithSessions = () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      projects: [proj({ id: "p1" })],
+      sessions: [
+        { id: "s1", projectId: "p1", title: "Session 1", agent: "claude", createdAt: 1, updatedAt: 100 },
+        { id: "s2", projectId: "p1", title: "Session 2", agent: "claude", createdAt: 1, updatedAt: 200 },
+      ],
+    });
+  };
+
+  it("archiveSession 设 archivedAt 且不刷新 updatedAt", () => {
+    hydrateWithSessions();
+    usePersonalStore.getState().archiveSession("s1");
+
+    const s1 = usePersonalStore.getState().sessions.find((x) => x.id === "s1")!;
+    expect(s1.archivedAt).toBeTypeOf("number");
+    expect(s1.updatedAt).toBe(100); // 排序时间戳不被归档动作改动
+    // 不影响其他会话
+    expect(usePersonalStore.getState().sessions.find((x) => x.id === "s2")?.archivedAt).toBeUndefined();
+  });
+
+  it("归档当前激活会话时让出 activeSessionId", () => {
+    hydrateWithSessions();
+    usePersonalStore.setState({ activeSessionId: "s1" });
+    usePersonalStore.getState().archiveSession("s1");
+    expect(usePersonalStore.getState().activeSessionId).toBeUndefined();
+  });
+
+  it("归档非激活会话不动当前焦点", () => {
+    hydrateWithSessions();
+    usePersonalStore.setState({ activeSessionId: "s2" });
+    usePersonalStore.getState().archiveSession("s1");
+    expect(usePersonalStore.getState().activeSessionId).toBe("s2");
+  });
+
+  it("unarchiveSession 清 archivedAt 且不刷新 updatedAt", () => {
+    hydrateWithSessions();
+    usePersonalStore.getState().archiveSession("s1");
+    usePersonalStore.getState().unarchiveSession("s1");
+
+    const s1 = usePersonalStore.getState().sessions.find((x) => x.id === "s1")!;
+    expect(s1.archivedAt).toBeUndefined();
+    expect(s1.updatedAt).toBe(100);
+  });
+
+  it("removeSession 移除会话并清激活态", () => {
+    hydrateWithSessions();
+    usePersonalStore.setState({ activeSessionId: "s1" });
+    usePersonalStore.getState().removeSession("s1");
+
+    const s = usePersonalStore.getState();
+    expect(s.sessions.map((x) => x.id)).toEqual(["s2"]);
+    expect(s.activeSessionId).toBeUndefined();
+  });
+
+  it("archivedAt 进入持久化快照", () => {
+    hydrateWithSessions();
+    usePersonalStore.getState().archiveSession("s1");
+    const persisted = toPersistedState(usePersonalStore.getState());
+    expect(persisted.sessions.find((x) => x.id === "s1")?.archivedAt).toBeTypeOf("number");
+  });
+});
+
 describe("partitionProjects 纯函数", () => {
   it("置顶在前按 pinnedAt 降序,未置顶维持原数组序", () => {
     const projects = [

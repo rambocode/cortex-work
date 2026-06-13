@@ -81,6 +81,8 @@ export interface DesktopBridge {
   // 会话消息持久化（按 sessionId 一文件,内容对桥接层不透明）
   loadChat(sessionId: string): Promise<unknown[]>;
   saveChat(sessionId: string, messages: unknown[]): Promise<void>;
+  // 删除会话消息文件（物理删 chats/<id>.json;不存在不报错）
+  deleteChat(sessionId: string): Promise<void>;
   // 项目时间线持久化（按 projectId 一文件,内容对桥接层不透明;不存在返回 null）
   loadTimeline(projectId: string): Promise<unknown>;
   saveTimeline(projectId: string, data: unknown): Promise<void>;

@@ -48,6 +48,7 @@ export interface SessionMeta {
   piChannelId?: string;
   useOwnSkills?: boolean;
   hiddenHistory?: HiddenHistoryMeta;
+  archivedAt?: number;
   createdAt: number;
   updatedAt: number;
 }

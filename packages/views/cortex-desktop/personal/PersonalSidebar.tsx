@@ -27,12 +27,71 @@ export function relTime(ts: number): string {
   return `${Math.floor(hr / 24)} 天`;
 }
 
-function SessionRow({ session, active, onSelect }: { session: SessionMeta; active: boolean; onSelect: () => void }) {
+// 会话行:悬停在右侧浮现「归档/取消归档」+「删除」两个图标按钮。
+// 删除就地二次确认（首点变红+✓,再点真删;鼠标移开重置）,不弹菜单/对话框。
+function SessionRow({
+  session,
+  active,
+  onSelect,
+  onToast,
+}: {
+  session: SessionMeta;
+  active: boolean;
+  onSelect: () => void;
+  onToast: (text: string) => void;
+}) {
+  const bridge = useDesktopBridge();
+  const archiveSession = usePersonalStore((s) => s.archiveSession);
+  const unarchiveSession = usePersonalStore((s) => s.unarchiveSession);
+  const removeSession = usePersonalStore((s) => s.removeSession);
+  const [confirming, setConfirming] = useState(false);
+  const archived = session.archivedAt != null;
+
+  const onArchive = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (archived) {
+      unarchiveSession(session.id);
+      onToast(`已取消归档 ${session.title}`);
+    } else {
+      archiveSession(session.id);
+      onToast(`已归档 ${session.title}`);
+    }
+  };
+
+  const onDelete = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    removeSession(session.id); // 即时移除 UI
+    void bridge?.deleteChat?.(session.id); // 物理删磁盘消息文件
+    onToast(`已删除 ${session.title}`);
+  };
+
   return (
-    <button className={`pw-session ${active ? "is-active" : ""}`} onClick={onSelect}>
-      <span className="pw-session-title">{session.title}</span>
-      <span className="pw-session-time">{relTime(session.updatedAt)}</span>
-    </button>
+    <div className="pw-session-row" data-archived={archived} onMouseLeave={() => setConfirming(false)}>
+      <button className={`pw-session ${active ? "is-active" : ""}`} onClick={onSelect}>
+        <span className="pw-session-title">{session.title}</span>
+        <span className="pw-session-time">{relTime(session.updatedAt)}</span>
+      </button>
+      <div className="pw-session-actions">
+        <button
+          className="pw-icon-btn pw-session-act"
+          title={archived ? "取消归档" : "归档"}
+          onClick={onArchive}
+        >
+          {archived ? <Icon.Reply size={13} /> : <Icon.Archive size={13} />}
+        </button>
+        <button
+          className={`pw-icon-btn pw-session-act ${confirming ? "is-danger" : ""}`}
+          title={confirming ? "再点确认删除" : "删除"}
+          onClick={onDelete}
+        >
+          {confirming ? <Icon.Check size={13} /> : <Icon.Trash size={13} />}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -64,13 +123,19 @@ function ProjectBlock({
 
   // ⋯ 菜单锚点（fixed,屏幕坐标）;null = 关闭。
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
+  // 「显示归档」切换（本地,默认隐藏）。
+  const [showArchived, setShowArchived] = useState(false);
 
-  const list = sessions.filter((x) => x.projectId === project.id).sort((a, b) => b.updatedAt - a.updatedAt);
+  const all = sessions.filter((x) => x.projectId === project.id);
+  const liveList = all.filter((x) => x.archivedAt == null).sort((a, b) => b.updatedAt - a.updatedAt);
+  const archivedList = all
+    .filter((x) => x.archivedAt != null)
+    .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
 
   // 点击项目名:有会话选最近一条;没有则激活项目（中间区显示新建聊天引导）,
   // 右栏切到该项目的 Tasks 并展开。
   const openProject = () => {
-    const latest = list[0];
+    const latest = liveList[0];
     if (latest) {
       setActiveSession(latest.id);
       return;
@@ -98,7 +163,16 @@ function ProjectBlock({
           <span className="pw-project-name">{project.name}</span>
           {project.pinnedAt ? <Icon.Pin size={11} className="pw-project-pin" /> : null}
         </button>
-        <div className={`pw-project-actions ${menuAnchor ? "is-menu-open" : ""}`}>
+        <div className={`pw-project-actions ${menuAnchor || showArchived ? "is-menu-open" : ""}`}>
+          {archivedList.length > 0 ? (
+            <button
+              className={`pw-icon-btn ${showArchived ? "is-active" : ""}`}
+              title={showArchived ? "隐藏已归档会话" : `显示已归档会话 (${archivedList.length})`}
+              onClick={() => setShowArchived((v) => !v)}
+            >
+              <Icon.File size={13} />
+            </button>
+          ) : null}
           <button className={`pw-icon-btn ${menuAnchor ? "is-active" : ""}`} title="更多" onClick={openMenu}>
             <Icon.More size={13} />
           </button>
@@ -115,16 +189,30 @@ function ProjectBlock({
         </div>
       </div>
       {!collapsed
-        ? list.map((sess) => (
+        ? liveList.map((sess) => (
             <SessionRow
               key={sess.id}
               session={sess}
               active={sess.id === activeSessionId}
               onSelect={() => setActiveSession(sess.id)}
+              onToast={onToast}
             />
           ))
         : null}
-      {!collapsed && list.length === 0 ? <div className="pw-empty-hint">点 + 新建 Session</div> : null}
+      {!collapsed && showArchived
+        ? archivedList.map((sess) => (
+            <SessionRow
+              key={sess.id}
+              session={sess}
+              active={sess.id === activeSessionId}
+              onSelect={() => setActiveSession(sess.id)}
+              onToast={onToast}
+            />
+          ))
+        : null}
+      {!collapsed && liveList.length === 0 && archivedList.length === 0 ? (
+        <div className="pw-empty-hint">点 + 新建 Session</div>
+      ) : null}
       {menuAnchor ? (
         <ProjectMenu
           project={project}
