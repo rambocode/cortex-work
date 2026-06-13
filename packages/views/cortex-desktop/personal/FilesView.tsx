@@ -12,10 +12,13 @@ import type { ChangedFile, GitChangesResult, PromptNode } from "@cortex-work/cor
 import { FileIcon, fileIconSpec, isBinaryLike } from "./fileIcons";
 import { langForName, wordWrapForName } from "./monacoLang";
 import { MonacoViewer, type SelectionAnchor } from "./MonacoViewer";
+import { MarkdownView } from "./MarkdownView";
 import { buildContextSnippet, shellQuotePath, toTildePath, wrapBracketedPaste } from "./sendContext";
 import { FileContextMenu, type FileCtxTarget } from "./FileContextMenu";
 
 type Mode = "all" | "changes";
+
+const isMarkdownName = (name: string) => /\.(md|markdown|mdx)$/i.test(name);
 
 interface Preview {
   name: string;
@@ -368,6 +371,13 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
           <div className="pw-panel-empty">
             <FileIcon name={preview.name} size={40} />
             <span>二进制文件,不支持文本预览</span>
+          </div>
+        ) : isMarkdownName(preview.name) && !editMode ? (
+          // .md 预览:与 tasks 文档同款渲染（点「编辑」切回 Monaco 源码编辑）。
+          <div className="pw-file-md">
+            <div className="pw-todo-md">
+              <MarkdownView content={preview.content} />
+            </div>
           </div>
         ) : (
           <div className="pw-mona-wrap">

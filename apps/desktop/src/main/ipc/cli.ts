@@ -7,8 +7,9 @@ import { spawn, type ChildProcess } from "child_process";
 import { delimiter } from "path";
 import { homedir } from "os";
 import { existsSync, readdirSync } from "fs";
-import type { CliExitEvent, CliStartRequest, CliStreamEvent } from "./types";
+import type { CliExitEvent, CliStartRequest, CliStreamEvent, TrimSessionRequest } from "./types";
 import { getAdapter } from "../agents";
+import { trimAgentSession } from "./session-trim";
 
 const running = new Map<string, ChildProcess>();
 
@@ -169,6 +170,9 @@ export function registerCliHandlers(): void {
       });
     },
   );
+
+  // 编辑重发:截断 agent CLI 会话记忆文件(纯逻辑在 session-trim.ts)。
+  ipcMain.handle("cli:trimSession", (_e, req: TrimSessionRequest) => trimAgentSession(req));
 
   ipcMain.handle("cli:kill", (_e, runId: string) => {
     const child = running.get(runId);

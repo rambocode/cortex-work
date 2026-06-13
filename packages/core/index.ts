@@ -87,6 +87,7 @@ export {
   usePersonalActions,
   usePersonalCliEvents,
   truncateForEdit,
+  sameTextOrdinal,
   typingText,
   RUN_START_TIMEOUT_MS,
   RUN_STALL_TIMEOUT_MS,

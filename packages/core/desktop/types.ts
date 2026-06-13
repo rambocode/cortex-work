@@ -298,6 +298,15 @@ export interface CliStartRequest {
   useOwnSkills?: boolean; // false → 禁用 agent 自身 skills
 }
 
+// 编辑重发:截断 agent CLI 会话记忆文件的请求(尽力而为,失败退化为带旧记忆 resume)。
+export interface TrimSessionRequest {
+  agent: AgentKind;
+  agentSessionId: string;
+  promptText: string;
+  /** 同文序号:相同原文的用户消息里,被编辑的是第几条(0-based)。 */
+  occurrence: number;
+}
+
 // claude stream-json 行解析后的归一化事件（adapter 输出）。
 export type CliStreamEvent =
   | { type: "init"; sessionId: string }

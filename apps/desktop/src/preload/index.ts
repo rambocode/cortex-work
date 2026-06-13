@@ -109,6 +109,12 @@ const personal = {
   listTtsVoices: (req: TtsListVoicesRequest): Promise<TtsVoiceOption[]> => ipcRenderer.invoke("tts:listVoices", req),
   asrTranscribe: (req: AsrTranscribeRequest): Promise<AsrTranscribeResponse> => ipcRenderer.invoke("asr:transcribe", req),
   killCli: (runId: string): Promise<void> => ipcRenderer.invoke("cli:kill", runId),
+  trimAgentSession: (req: {
+    agent: "claude" | "codex";
+    agentSessionId: string;
+    promptText: string;
+    occurrence: number;
+  }): Promise<boolean> => ipcRenderer.invoke("cli:trimSession", req),
   onCliEvent: (cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, payload: { runId: string; sessionId?: string; event: CliStreamEvent }) =>
       cb(payload.runId, payload.event, payload.sessionId);

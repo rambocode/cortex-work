@@ -2,7 +2,7 @@ import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/re
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
-import { TodosView } from "./TodosView";
+import { TodosView, TODO_DRAG_MIME } from "./TodosView";
 
 const NOW = Date.now();
 const MD = "# 任务标题\n\n- [x] 已完成项\n- [ ] 待办项\n\n`inline-code`";
@@ -298,6 +298,48 @@ describe("Tasks 目录扫描与压缩归档", () => {
     // 菜单外 mousedown 自动关闭
     fireEvent.mouseDown(document.body);
     await waitFor(() => expect(screen.queryByText("按周压缩")).toBeNull());
+  });
+
+  it("清理菜单:鼠标移出区域自动收起,移入则取消收起", async () => {
+    renderTodos(richBridge({ "/code/alpha/tasks/2026-06-10-note.md": "# 随手记" }));
+
+    const btn = await screen.findByTitle("压缩清理（按周/月/年归档 tasks 文件）");
+    const wrap = btn.closest(".pw-tb-menu-wrap") as HTMLElement;
+
+    // 移出后短延迟自动收起
+    fireEvent.click(btn);
+    expect(screen.getByText("按周压缩")).toBeInTheDocument();
+    fireEvent.mouseLeave(wrap);
+    await waitFor(() => expect(screen.queryByText("按周压缩")).toBeNull());
+
+    // 再次展开,移出后立即移入 → 取消收起,菜单保持
+    fireEvent.click(btn);
+    fireEvent.mouseLeave(wrap);
+    fireEvent.mouseEnter(wrap);
+    await new Promise((r) => setTimeout(r, 320));
+    expect(screen.getByText("按周压缩")).toBeInTheDocument();
+  });
+
+  it("未登记文件行可拖拽:dragstart 写入 TODO_DRAG_MIME payload,detailPath 指向文件", async () => {
+    const { container } = renderTodos(
+      richBridge({ "/code/alpha/tasks/t1.md": MD, "/code/alpha/tasks/2026-06-10-note.md": "# 随手记" }),
+    );
+    await screen.findByText("2026-06-10-note");
+
+    const row = container.querySelector(".pw-todo-row.is-file .pw-todo-row-main")!;
+    expect(row.getAttribute("draggable")).toBe("true");
+
+    const setData = vi.fn();
+    fireEvent.dragStart(row, { dataTransfer: { setData, effectAllowed: "" } });
+    expect(setData).toHaveBeenCalledWith(TODO_DRAG_MIME, expect.any(String));
+    const payload = JSON.parse(setData.mock.calls[0]![1] as string);
+    expect(payload).toMatchObject({
+      id: "/code/alpha/tasks/2026-06-10-note.md",
+      title: "2026-06-10-note",
+      projectId: "p1",
+      projectName: "alpha",
+      detailPath: "/code/alpha/tasks/2026-06-10-note.md",
+    });
   });
 
   it("归档文件出现在「归档」折叠分组,展开可见", async () => {

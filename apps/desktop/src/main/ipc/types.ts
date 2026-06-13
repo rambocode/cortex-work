@@ -75,6 +75,17 @@ export interface CliStartRequest {
   useOwnSkills?: boolean;
 }
 
+// 编辑重发:截断 agent CLI 会话记忆文件的请求。
+export interface TrimSessionRequest {
+  agent: AgentKind;
+  /** agent 自己的 session/thread id(resume 用的那个)。 */
+  agentSessionId: string;
+  /** 被编辑那条用户消息的原文(用于在会话文件中定位该轮)。 */
+  promptText: string;
+  /** 同文序号:UI 中相同原文的用户消息里,被编辑的是第几条(0-based)。 */
+  occurrence: number;
+}
+
 export interface UsageBucket {
   total: number;
   input: number;

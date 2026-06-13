@@ -128,7 +128,7 @@ export function PersonalComposer({
   };
 
   const appendTodoInstruction = (title: string) => {
-    const instruction = `请根据拖入的 Todo「${title}」继续实现这个需求，先理解详情，再在当前项目中完成实现、验证并汇报结果。`;
+    const instruction = `请根据拖入的 Task「${title}」继续实现这个需求，先理解详情，再在当前项目中完成实现、验证并汇报结果。`;
     setText((prev) => {
       if (!prev.trim()) return instruction;
       if (prev.includes(instruction)) return prev;

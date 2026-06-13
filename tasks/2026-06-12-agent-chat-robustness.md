@@ -49,7 +49,18 @@
 - **编辑重发**：`truncateForEdit` 纯函数 + `editResend` action（运行中禁止;截断→落盘→重发）；
   用户消息 hover 出现「编辑重发」按钮（复用 .m-tts-actions 样式），原文填入 composer 并出
   提示条「发送后将清除这条消息之后的所有内容（取消）」。
-  已知取舍：CLI resume 上下文无法回滚，agent 仍记得被清掉的轮次（UI 与持久化已截断）。
+- **【追加】agent 记忆同步截断**（用户确认直接改 CLI 会话文件）：
+  - 新增 [session-trim.ts](../apps/desktop/src/main/ipc/session-trim.ts)（纯逻辑不 import electron，
+    IPC 注册挂在 cli.ts 的 `cli:trimSession`）：
+    - claude：扫 `~/.claude/projects/*/<session-id>.jsonl`，user 行按「原文 + 同文序号」
+      定位（实测验证 parentUuid 线性链 0 断链，尾部截断后链自洽）；
+    - codex：递归找 `~/.codex/sessions/**/rollout-*<thread-id>.jsonl`，匹配
+      `response_item/message/user` 的 input_text（兼容 `<user_request>` 附件包装）；
+    - 截断前写 `.bak` 备份；找不到/序号越界/解析失败一律返回 false。
+  - editResend：编辑第一条 → 丢弃 resume id 重开全新会话（记忆天然干净）；
+    其余 → 调 `bridge.trimAgentSession` 尽力截断，失败静默退化为带旧记忆 resume。
+  - 风险已知：CLI 会话文件是内部格式（行带 version 字段），CLI 大版本升级可能需适配；
+    有 .bak 兜底,且任何异常都不会阻塞重发。
 - 测试：claude/codex adapter 各 +1/+1 改 1，core messages +6（typingText/truncateForEdit）；
   全仓 268 用例、typecheck、lint 全绿。
 - UI 手感（typing 滚动计时、编辑条交互）留待用户手动验证。

@@ -3157,7 +3157,8 @@ button.sb-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 7px;
+  /* 垂直 padding 下放到 .pw-todo-title,让点击热区铺满整行高度（见下）。 */
+  padding: 0 7px;
   border-radius: var(--radius-sm);
   cursor: grab;
 }
@@ -3195,10 +3196,15 @@ button.sb-row {
 .pw-todo-title {
   flex: 1;
   min-width: 0;
+  /* 撑满整行高度 + 自带垂直 padding,使点击热区与 hover 高亮的整行一致,
+     消除标题上下的“能 hover 却点不动”死区（行高保持 36px 不变）。 */
+  align-self: stretch;
+  padding: 9px 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: baseline;
+  align-content: center;
   color: var(--text-1);
   text-align: left;
 }
@@ -4118,6 +4124,19 @@ button.sb-row {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 .pw-sel-pop .pw-ftb-btn { border-color: transparent; }
+
+/* 文件窗口的 .md 预览:复用 tasks 的 .pw-todo-md 排版,填满面板并自管滚动
+   （.pw-todo-md 默认 max-height:260px 仅适合详情卡片,这里放开让其撑满）。 */
+.pw-file-md {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 18px 18px;
+}
+.pw-file-md .pw-todo-md {
+  max-height: none;
+  overflow: visible;
+}
 
 /* 顶栏右侧面板下拉菜单 */
 .pw-tb-menu-wrap { position: relative; }

@@ -5,6 +5,7 @@ import {
   buildAttachmentSystemPrompt,
   createHiddenHistory,
   sessionResumeId,
+  sameTextOrdinal,
   splitPersonalMessages,
   truncateForEdit,
   typingText,
@@ -119,6 +120,25 @@ describe("truncateForEdit 编辑重发截断", () => {
   it("目标不存在返回 null,原数组不受影响", () => {
     expect(truncateForEdit(msgs, "nope")).toBeNull();
     expect(msgs).toHaveLength(5);
+  });
+});
+
+describe("sameTextOrdinal 同文序号", () => {
+  const msgs: Message[] = [
+    { kind: "text", who: "me", time: "10:00", text: "继续", uid: "u1" },
+    { kind: "text", who: "claude", time: "10:01", text: "继续", uid: "a1" }, // agent 同文不计入
+    { kind: "text", who: "me", time: "10:02", text: "换个问题", uid: "u2" },
+    { kind: "text", who: "me", time: "10:03", text: "继续", uid: "u3" },
+  ];
+
+  it("只统计用户消息中的同文,返回 0-based 序号", () => {
+    expect(sameTextOrdinal(msgs, "u1", "继续")).toBe(0);
+    expect(sameTextOrdinal(msgs, "u3", "继续")).toBe(1);
+    expect(sameTextOrdinal(msgs, "u2", "换个问题")).toBe(0);
+  });
+
+  it("目标不在同文集合中返回 -1", () => {
+    expect(sameTextOrdinal(msgs, "u2", "继续")).toBe(-1);
   });
 });
 

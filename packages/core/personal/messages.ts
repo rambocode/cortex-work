@@ -500,6 +500,14 @@ export function truncateForEdit(messages: Message[], msgUid: string): Message[] 
   return idx < 0 ? null : messages.slice(0, idx);
 }
 
+// 同文序号:相同原文的用户消息里,目标是第几条(0-based;未找到返回 -1)。
+// 用于在 CLI 会话文件中精确定位「重复发过同样内容」时要截断的那一轮。
+export function sameTextOrdinal(messages: Message[], msgUid: string, text: string): number {
+  return messages
+    .filter((m) => m.kind === "text" && m.who === "me" && m.text === text)
+    .findIndex((m) => m.uid === msgUid);
+}
+
 export interface PersonalActions {
   send: (session: SessionMeta, projectPath: string, text: string, attachments: PersonalAttachment[]) => Promise<void>;
   stop: (sessionId: string) => Promise<void>;
@@ -616,9 +624,36 @@ export function usePersonalActions(): PersonalActions {
       const prev = qc.getQueryData<Message[]>(personalChatKeys.detail(session.id)) ?? [];
       const truncated = truncateForEdit(prev, msgUid);
       if (truncated === null) return;
+
+      // 同步清理 agent 侧记忆,让它和 UI 一致:
+      // - 编辑的是第一条 → 直接丢弃 resume id,重开全新会话(记忆天然干净);
+      // - 否则尽力截断 CLI 会话文件中该轮及其后内容(.bak 备份;按原文+同文序号
+      //   严格匹配,失败则静默退化为带旧记忆 resume)。
+      let sendSession = session;
+      const original = prev.find((m) => m.uid === msgUid);
+      const originalText = original?.kind === "text" && typeof original.text === "string" ? original.text : undefined;
+      const resumeId = sessionResumeId(session);
+      if (truncated.length === 0) {
+        const agentSessionIds = { ...session.agentSessionIds };
+        delete agentSessionIds[session.agent];
+        const patch: Partial<SessionMeta> =
+          session.agent === "claude" ? { agentSessionIds, claudeSessionId: undefined } : { agentSessionIds };
+        usePersonalStore.getState().updateSession(session.id, patch);
+        sendSession = { ...session, ...patch };
+      } else if (resumeId && originalText && bridge.trimAgentSession) {
+        await bridge
+          .trimAgentSession({
+            agent: session.agent,
+            agentSessionId: resumeId,
+            promptText: originalText,
+            occurrence: sameTextOrdinal(prev, msgUid, originalText),
+          })
+          .catch(() => false);
+      }
+
       qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
       flushChat(qc, session.id);
-      await send(session, projectPath, text, attachments);
+      await send(sendSession, projectPath, text, attachments);
     },
     [bridge, qc, send],
   );

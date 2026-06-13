@@ -23,6 +23,7 @@ import type {
   PtySpawnRequest,
   PtySpawnResult,
   ReadFileResult,
+  TrimSessionRequest,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
   TaskFilesResult,
@@ -91,6 +92,8 @@ export interface DesktopBridge {
   // ASR：OpenAI 兼容 /v1/audio/transcriptions 转写,返回文本。
   asrTranscribe(req: AsrTranscribeRequest): Promise<AsrTranscribeResponse>;
   killCli(runId: string): Promise<void>;
+  // 编辑重发:截断 agent CLI 会话记忆(可选能力,旧壳无此方法时退化为带旧记忆 resume)。
+  trimAgentSession?(req: TrimSessionRequest): Promise<boolean>;
   onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;
   onCliExit(cb: (exit: CliExitEvent) => void): () => void;
   // 内嵌终端（xterm.js ↔ node-pty）

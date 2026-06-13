@@ -2,21 +2,10 @@
 // 项目模式下自动扫描项目 tasks/ 目录,未登记的 md 也列出;支持单文件删除与
 // 按周期（周/月/年）压缩归档（taskArchive.ts,总结用后台配置的模型）。
 
-import {
-  isValidElement,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentProps,
-  type ReactElement,
-} from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
-import { remarkCallouts } from "./markdownCallouts";
+import { MarkdownView } from "./MarkdownView";
 import {
   ARCHIVE_GRANULARITIES,
   archiveTaskFiles,
@@ -43,43 +32,6 @@ function TodoStatusButton({ todo }: { todo: TodoMeta }) {
     </button>
   );
 }
-
-// 预览里的链接:点击改走系统浏览器（Electron 里 a 默认导航会替换整个窗口）。
-// 仅放行 http(s);旧壳没有 openExternal 时退回 window.open。
-function MdLink({ href, children, ...rest }: ComponentProps<"a">) {
-  const bridge = useDesktopBridge();
-  const external = /^https?:\/\//i.test(href ?? "");
-  return (
-    <a
-      {...rest}
-      href={href}
-      rel="noreferrer"
-      title={external ? href : rest.title}
-      onClick={(e) => {
-        e.preventDefault();
-        if (!external || !href) return;
-        if (bridge?.openExternal) void bridge.openExternal(href).catch(() => {});
-        else window.open(href, "_blank", "noreferrer");
-      }}
-    >
-      {children}
-    </a>
-  );
-}
-
-// 代码块:从 <code className="language-x"> 提取语言,角标显示在卡片右上角。
-function MdPre({ children, ...rest }: ComponentProps<"pre">) {
-  const code = isValidElement(children) ? (children as ReactElement<{ className?: string }>) : null;
-  const lang = /language-([\w+-]+)/.exec(code?.props.className ?? "")?.[1];
-  return (
-    <pre {...rest} data-lang={lang}>
-      {children}
-    </pre>
-  );
-}
-
-const MD_COMPONENTS = { a: MdLink, pre: MdPre };
-const MD_PLUGINS = [remarkGfm, remarkCallouts];
 
 // Markdown 详情（todo 与普通 tasks 文件共用）:读 path 预览,可就地编辑保存。
 function MarkdownDetail({
@@ -209,9 +161,7 @@ function MarkdownDetail({
         </div>
       ) : content.trim() ? (
         <div className="pw-todo-md" onDoubleClick={startEdit} title={editable ? "双击编辑 Markdown" : "首页只读"}>
-          <Markdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>
-            {content}
-          </Markdown>
+          <MarkdownView content={content} />
         </div>
       ) : (
         <div className="pw-empty-hint" onDoubleClick={startEdit}>
@@ -337,12 +287,14 @@ function TodoRow({
 // tasks/ 目录里未登记为 todo 的普通 md 文件行（含归档文件,单文件可删）。
 function FileRow({
   file,
+  project,
   editable,
   onOpen,
   onToast,
   onDeleted,
 }: {
   file: TaskFileInfo;
+  project: ProjectMeta;
   editable: boolean;
   onOpen: () => void;
   onToast: (text: string) => void;
@@ -363,7 +315,29 @@ function FileRow({
 
   return (
     <div className="pw-todo-row is-file">
-      <div className="pw-todo-row-main">
+      <div
+        className="pw-todo-row-main"
+        data-editable={editable}
+        draggable={editable}
+        onDragStart={(e) => {
+          if (!editable) {
+            e.preventDefault();
+            return;
+          }
+          // 复用 todo 拖拽管线:composer 端按 detailPath 读文件、按 id 去重。
+          e.dataTransfer.setData(
+            TODO_DRAG_MIME,
+            JSON.stringify({
+              id: file.path,
+              title: file.name.replace(/\.md$/i, ""),
+              projectId: project.id,
+              projectName: project.name,
+              detailPath: file.path,
+            }),
+          );
+          e.dataTransfer.effectAllowed = "copy";
+        }}
+      >
         <span className="pw-todo-file-ic" aria-hidden="true">
           <Icon.File size={13} />
         </span>
@@ -401,6 +375,14 @@ function ArchiveMenu({
   const [granularity, setGranularity] = useState<ArchiveGranularity | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelCloseTimer = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
 
   const groups = useMemo(() => (granularity ? groupTaskFiles(files, granularity) : []), [files, granularity]);
 
@@ -422,6 +404,20 @@ function ArchiveMenu({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [open, busyKey]);
+
+  // 鼠标移出菜单区域后短暂延迟自动收起；重新移入则取消（归档执行中保持打开）。
+  useEffect(() => cancelCloseTimer, []);
+
+  const onMenuLeave = () => {
+    if (!open || busyKey) return;
+    cancelCloseTimer();
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
+      setOpen(false);
+      setGranularity(null);
+    }, 250);
+  };
+  const onMenuEnter = () => cancelCloseTimer();
 
   const run = async (group: TaskFileGroup) => {
     if (!bridge || busyKey) return;
@@ -450,7 +446,12 @@ function ArchiveMenu({
   };
 
   return (
-    <div className="pw-tb-menu-wrap pw-archive-menu" ref={wrapRef}>
+    <div
+      className="pw-tb-menu-wrap pw-archive-menu"
+      ref={wrapRef}
+      onMouseLeave={onMenuLeave}
+      onMouseEnter={onMenuEnter}
+    >
       <button
         className={`pw-icon-btn ${open ? "is-on" : ""}`}
         title="压缩清理（按周/月/年归档 tasks 文件）"
@@ -614,6 +615,7 @@ function TodoGroup({
               <FileRow
                 key={file.path}
                 file={file}
+                project={project}
                 editable={editable}
                 onOpen={() => onOpenFile(file)}
                 onToast={onToast}
@@ -638,6 +640,7 @@ function TodoGroup({
                     <FileRow
                       key={file.path}
                       file={file}
+                      project={project}
                       editable={editable}
                       onOpen={() => onOpenFile(file)}
                       onToast={onToast}
