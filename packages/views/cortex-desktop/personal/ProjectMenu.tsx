@@ -31,9 +31,27 @@ export function ProjectMenu({
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: anchor.x, top: anchor.y });
   const [confirming, setConfirming] = useState(false);
-  // Open in 二级菜单:点击展开,默认向右飞出;右侧放不下则向左。
+  // Open in 二级菜单:悬停即展开,默认向右飞出;右侧放不下则向左。
   const [openSub, setOpenSub] = useState(false);
   const [subSide, setSubSide] = useState<"right" | "left">("right");
+
+  // 悬停展开/收起:离开时短延时收起,桥接父项与子菜单间的 4px 间隙,避免闪烁。
+  const subCloseTimer = useRef<number | null>(null);
+  const cancelCloseSub = () => {
+    if (subCloseTimer.current != null) {
+      window.clearTimeout(subCloseTimer.current);
+      subCloseTimer.current = null;
+    }
+  };
+  const openSubNow = () => {
+    cancelCloseSub();
+    setOpenSub(true);
+  };
+  const scheduleCloseSub = () => {
+    cancelCloseSub();
+    subCloseTimer.current = window.setTimeout(() => setOpenSub(false), 140);
+  };
+  useEffect(() => () => cancelCloseSub(), []);
 
   // 防菜单溢出视口:渲染后按实际尺寸收敛,并据右侧余量决定子菜单飞出方向。
   useLayoutEffect(() => {
@@ -107,7 +125,7 @@ export function ProjectMenu({
 
   return (
     <div ref={ref} className="pw-ctx-menu" style={pos} role="menu" aria-label={`${project.name} 操作`}>
-      <div className="pw-ctx-haschild">
+      <div className="pw-ctx-haschild" onMouseEnter={openSubNow} onMouseLeave={scheduleCloseSub}>
         <button
           className="pw-tb-menu-item"
           role="menuitem"

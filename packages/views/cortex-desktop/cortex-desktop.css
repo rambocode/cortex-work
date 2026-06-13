@@ -4875,7 +4875,7 @@ button.sb-row {
 }
 .pw-pi-channel-del:hover { background: var(--red-soft); color: var(--red); }
 
-/* 右键/项目菜单的右侧二级菜单（Open in 点击展开） */
+/* 右键/项目菜单的右侧二级菜单（Open in 悬停展开） */
 .pw-ctx-haschild { position: relative; }
 .pw-ctx-sub {
   position: absolute;
