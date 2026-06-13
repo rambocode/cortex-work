@@ -4,6 +4,7 @@
 import { useEffect } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
+  useAutomationEvents,
   useCortexUIStore,
   useDesktopBridge,
   usePersonalCliEvents,
@@ -17,17 +18,21 @@ import { PersonalRightPanel } from "./PersonalRightPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { TimelineView } from "./TimelineView";
 import { HomeView } from "./HomeView";
+import { AutomationView } from "./AutomationView";
 
 export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void }) {
   const bridge = useDesktopBridge();
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
+  const automationOpen = usePersonalStore((s) => s.automationOpen);
   const timelineProject = usePersonalStore((s) =>
     s.timelineProjectId ? s.projects.find((p) => p.id === s.timelineProjectId) : undefined,
   );
   const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
   usePersonalPersistence();
   usePersonalCliEvents();
+  // 订阅自动化的 changed / run-event（驱动列表刷新 + 完成 toast）。bridge 不支持时内部空转。
+  useAutomationEvents();
 
   // 启动时探测本机已安装的 agent CLI（claude/codex…）,供新建会话默认值与
   // agent 下拉禁用态使用;探测失败静默,UI 退化为不标注未安装。
@@ -57,14 +62,16 @@ export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void
       <PersonalSidebar onToast={onToast} />
       <div className="pw-main">
         <div className="pw-upper">
-          {homeOpen ? (
+          {automationOpen ? (
+            <AutomationView onToast={onToast} />
+          ) : homeOpen ? (
             <HomeView onToast={onToast} />
           ) : timelineProject ? (
             <TimelineView project={timelineProject} onToast={onToast} />
           ) : (
             <PersonalChatArea onToast={onToast} />
           )}
-          {rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}
+          {!automationOpen && rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}
         </div>
         <TerminalPanel onToast={onToast} />
       </div>

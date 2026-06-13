@@ -8,9 +8,14 @@ import type {
   AgentUsage,
   AsrTranscribeRequest,
   AsrTranscribeResponse,
+  AutomationInput,
+  AutomationMeta,
+  AutomationRun,
+  AutomationRunEvent,
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  CronValidation,
   EditorInfo,
   GitChangesResult,
   GitCommit,
@@ -124,4 +129,20 @@ export interface DesktopBridge {
   updateDownload?(): Promise<void>;
   updateInstall?(): Promise<void>;
   onUpdateState?(cb: (state: UpdateState) => void): () => void;
+  // 自动化（定时任务）。main 是 owner:CRUD 经 IPC,main 持久化 + 常驻调度 + 推事件。
+  // 可选能力（旧壳/web 端没有,UI 据此降级隐藏自动化入口）。create/update/setEnabled
+  // 返回含 main 算好 nextRunAt 的完整 meta;runNow 立即触发并返回该次 run。
+  automationList?(): Promise<AutomationMeta[]>;
+  automationCreate?(input: AutomationInput): Promise<AutomationMeta>;
+  automationUpdate?(id: string, patch: Partial<AutomationInput>): Promise<AutomationMeta | null>;
+  automationDelete?(id: string): Promise<void>;
+  automationSetEnabled?(id: string, enabled: boolean): Promise<AutomationMeta | null>;
+  automationRunNow?(id: string): Promise<AutomationRun | null>;
+  automationListRuns?(id: string): Promise<AutomationRun[]>;
+  // cron 表达式校验 + nextRun 预览（ScheduleEditor 即时反馈,真相以 main 调度为准）。
+  automationValidateCron?(expression: string, timezone?: string): Promise<CronValidation>;
+  // 列表/元数据变化（任意 CRUD 或 lastRun 更新后推全量快照,renderer 直接替换）。
+  onAutomationChanged?(cb: (list: AutomationMeta[]) => void): () => void;
+  // 单次运行状态变化（start/end）,驱动详情刷新 + 完成 toast。
+  onAutomationRunEvent?(cb: (event: AutomationRunEvent) => void): () => void;
 }

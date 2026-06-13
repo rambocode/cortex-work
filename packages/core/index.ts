@@ -85,6 +85,14 @@ export {
   type UpdateState,
   type TaskFileInfo,
   type TaskFilesResult,
+  type ReasoningEffort,
+  type ScheduleSpec,
+  type AutomationRunStatus,
+  type AutomationMeta,
+  type AutomationInput,
+  type AutomationRun,
+  type CronValidation,
+  type AutomationRunEvent,
   DEFAULT_TIMELINE_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TTS_SETTINGS,
@@ -92,6 +100,18 @@ export {
   PI_CHANNEL_TEMPLATES,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
+export {
+  automationKeys,
+  useAutomations,
+  useAutomationRuns,
+  useAutomationsAvailable,
+  useCreateAutomation,
+  useUpdateAutomation,
+  useDeleteAutomation,
+  useSetAutomationEnabled,
+  useRunAutomationNow,
+  useAutomationEvents,
+} from "./personal/automation";
 export { gitInfoKeys, useProjectGitInfo, useInvalidateGitInfo } from "./personal/git";
 export {
   personalChatKeys,

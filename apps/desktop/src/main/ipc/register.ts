@@ -13,6 +13,7 @@ import { registerAgentProjectsHandlers } from "./agent-projects";
 import { registerWatchHandlers } from "./watch";
 import { registerUpdateHandlers } from "./update";
 import { registerEditorHandlers } from "./editors";
+import { registerAutomationHandlers } from "../automation/ipc";
 
 export function registerIpcHandlers(): void {
   registerFsHandlers();
@@ -28,8 +29,10 @@ export function registerIpcHandlers(): void {
   registerAgentProjectsHandlers();
   registerUpdateHandlers();
   registerEditorHandlers();
+  registerAutomationHandlers();
 }
 
 export { killAllCli } from "./cli";
 export { killAllPty } from "./pty";
 export { closeAllWatchers } from "./watch";
+export { killAllAutomations } from "../automation/runner";

@@ -28,7 +28,7 @@ asarUnpack:
   - "**/node_modules/@earendil-works/**"
 mac:
   category: public.app-category.productivity
-  icon: assets/cortex-desktop-logo-minimal.png
+  icon: assets/cortex-neuron-icon.png
   target:
     # 自动更新走 zip,人工分发用 dmg
     - target: zip

@@ -58,12 +58,37 @@ export interface HiddenHistoryMeta {
   hiddenAt: number;
 }
 
+// ── 兜底 Agent（内置 pi）多 LLM 通道（与 core/desktop/types.ts 镜像） ──────
+// 主进程仅需运行时解析:automation runner 据 piChannelId 从持久化的 piSettings
+// 取回完整通道（含 apiKey）→ 拍平进 CliStartRequest.piChannel。
+export interface PiModelOption {
+  id: string;
+  label?: string;
+}
+
+export interface PiChannel {
+  id: string;
+  label: string;
+  baseUrl: string;
+  apiKey?: string;
+  models: PiModelOption[];
+  enabled: boolean;
+}
+
+export interface PiSettings {
+  channels: PiChannel[];
+  defaultChannelId?: string;
+  defaultModel?: string;
+}
+
 export interface PersistedState {
   version: 1;
   projects: ProjectMeta[];
   promptRoot?: string;
   sessions: SessionMeta[];
   todos?: TodoMeta[];
+  // 持久化的 pi 通道配置（renderer 全量写入;主进程 automation runner 只读）。
+  piSettings?: PiSettings;
   rightPanelWidth?: number;
 }
 
@@ -82,6 +107,8 @@ export interface CliStartRequest {
   resumeSessionId?: string;
   appendSystemPrompt?: string;
   useOwnSkills?: boolean;
+  // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数;pi 忽略。
+  effort?: ReasoningEffort;
   // pi 专用:renderer 传入当前会话选中通道的完整配置,主进程据此生成 extension
   // 并注入 key env。
   piChannel?: {
@@ -253,4 +280,80 @@ export interface TaskFileInfo {
 export interface TaskFilesResult {
   files: TaskFileInfo[];
   archived: TaskFileInfo[];
+}
+
+// ── 自动化（定时任务,与 core/desktop/types.ts 镜像） ──────────────────────
+
+export type ReasoningEffort = "low" | "medium" | "high";
+
+// weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
+export type ScheduleSpec =
+  | { kind: "hourly"; minute: number }
+  | { kind: "daily"; hour: number; minute: number }
+  | { kind: "weekdays"; hour: number; minute: number }
+  | { kind: "weekly"; weekday: number; hour: number; minute: number }
+  | { kind: "cron"; expression: string };
+
+export type AutomationRunStatus = "running" | "ok" | "error" | "timeout" | "killed" | "skipped";
+
+export interface AutomationMeta {
+  id: string;
+  name: string;
+  enabled: boolean;
+  projectId?: string;
+  cwd?: string;
+  agent: AgentKind;
+  model?: string;
+  effort?: ReasoningEffort;
+  prompt: string;
+  useOwnSkills?: boolean;
+  piChannelId?: string;
+  schedule: ScheduleSpec;
+  timezone?: string;
+  createdAt: number;
+  updatedAt: number;
+  lastRunAt?: number;
+  lastStatus?: Exclude<AutomationRunStatus, "running">;
+  nextRunAt?: number;
+}
+
+export interface AutomationInput {
+  name: string;
+  enabled?: boolean;
+  projectId?: string;
+  cwd?: string;
+  agent: AgentKind;
+  model?: string;
+  effort?: ReasoningEffort;
+  prompt: string;
+  useOwnSkills?: boolean;
+  piChannelId?: string;
+  schedule: ScheduleSpec;
+  timezone?: string;
+}
+
+export interface AutomationRun {
+  id: string;
+  automationId: string;
+  startedAt: number;
+  endedAt?: number;
+  status: AutomationRunStatus;
+  trigger: "schedule" | "manual";
+  agent: AgentKind;
+  agentSessionId?: string;
+  prompt: string;
+  output: string;
+  error?: string;
+}
+
+export interface CronValidation {
+  ok: boolean;
+  nextRun?: number;
+  error?: string;
+}
+
+export interface AutomationRunEvent {
+  automationId: string;
+  run: AutomationRun;
+  phase: "start" | "end";
 }

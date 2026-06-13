@@ -75,6 +75,12 @@ describe("piAdapter.buildArgs", () => {
     expect(args).not.toContain("-a");
     expect(args).not.toContain("--provider");
   });
+
+  it("推理强度:pi 无对应 flag,effort 被忽略", () => {
+    const { args } = piAdapter.buildArgs({ ...baseReq, effort: "high" });
+    expect(args.join(" ")).not.toContain("effort");
+    expect(args.join(" ")).not.toContain("reasoning");
+  });
 });
 
 describe("piAdapter.parseLine", () => {

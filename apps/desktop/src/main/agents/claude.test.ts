@@ -49,6 +49,11 @@ describe("claudeAdapter.buildArgs", () => {
     expect(i).toBeGreaterThan(-1);
     expect(args[i + 1]).toBe('{"mcpServers":{}}');
   });
+
+  it("推理强度:effort → --effort,缺省不带", () => {
+    expect(claudeAdapter.buildArgs({ ...baseReq, effort: "high" }).args.join(" ")).toContain("--effort high");
+    expect(claudeAdapter.buildArgs(baseReq).args).not.toContain("--effort");
+  });
 });
 
 describe("claudeAdapter.parseLine", () => {

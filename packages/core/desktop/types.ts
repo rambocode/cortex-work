@@ -404,6 +404,9 @@ export interface CliStartRequest {
   resumeSessionId?: string; // 多轮续接
   appendSystemPrompt?: string; // 拖入的 prompt md 内容（skill 注入）
   useOwnSkills?: boolean; // false → 禁用 agent 自身 skills
+  // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数
+  //（claude --effort / codex model_reasoning_effort）;不支持的 agent（pi）忽略。
+  effort?: ReasoningEffort;
   // pi 专用:renderer 把当前会话选中的 LLM 通道完整配置拍平传入,主进程据此生成
   // extension（registerProvider）+ 注入 key env（与 llm.ts「主进程不读设置文件」惯例一致）。
   piChannel?: {
@@ -555,4 +558,91 @@ export interface TaskFilesResult {
   files: TaskFileInfo[];
   // tasks/archive/ 顶层 .md（压缩归档产物）
   archived: TaskFileInfo[];
+}
+
+// ── 自动化（定时任务,与 apps/desktop/src/main/ipc/types.ts 镜像） ─────────
+// 自动化是主进程拥有的状态域:配置 + 运行历史存于 ~/.cortex-desktop/automations.json
+// 与 automation-runs/<id>.json,由 main 常驻调度器(croner)按时无头调用 agent CLI 执行。
+// renderer 经 IPC 做 CRUD + 读历史,main 是唯一写者并通过事件推回最新快照。
+
+// 推理强度三档。各 agent adapter 尽力翻译:claude `--effort`、codex
+// `-c model_reasoning_effort=`;pi 无对应 flag,忽略。
+export type ReasoningEffort = "low" | "medium" | "high";
+
+// 定时规则。weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
+// minute 0-59,hour 0-23。cron 为 5 段标准表达式（分 时 日 月 周）。
+export type ScheduleSpec =
+  | { kind: "hourly"; minute: number }
+  | { kind: "daily"; hour: number; minute: number }
+  | { kind: "weekdays"; hour: number; minute: number } // 周一~周五
+  | { kind: "weekly"; weekday: number; hour: number; minute: number }
+  | { kind: "cron"; expression: string };
+
+// 一次执行的状态。skipped = 上轮还在跑、本轮到点被并发去重跳过;
+// killed = 应用退出/被终止时中断;timeout = 超过执行时限。
+export type AutomationRunStatus = "running" | "ok" | "error" | "timeout" | "killed" | "skipped";
+
+export interface AutomationMeta {
+  id: string; // "auto-..." 由 main 生成,SAFE_ID 安全
+  name: string; // 自动化标题
+  enabled: boolean; // false = 暂停,不调度
+  projectId?: string; // 关联项目;可空（空 = 中性目录,仿 oneshot 不传 cwd）
+  cwd?: string; // 创建时项目 path 快照（项目改名/删除后仍可执行）
+  agent: AgentKind; // 默认 agent
+  model?: string;
+  effort?: ReasoningEffort; // 推理强度
+  prompt: string; // 内容即提示词
+  useOwnSkills?: boolean;
+  piChannelId?: string; // pi 自定义通道:仅存 id,apiKey 运行时由 main 从 piSettings 解析
+  schedule: ScheduleSpec;
+  timezone?: string; // IANA 时区,缺省 = 创建时本机时区
+  createdAt: number;
+  updatedAt: number;
+  lastRunAt?: number; // 上次运行(开始)时间
+  lastStatus?: Exclude<AutomationRunStatus, "running">; // 上次执行结果
+  nextRunAt?: number; // 由 main 用 croner.nextRun() 计算后推给 UI
+}
+
+// 创建自动化的输入（id/时间戳/nextRunAt 由 main 生成）。
+export interface AutomationInput {
+  name: string;
+  enabled?: boolean; // 缺省 true
+  projectId?: string;
+  cwd?: string;
+  agent: AgentKind;
+  model?: string;
+  effort?: ReasoningEffort;
+  prompt: string;
+  useOwnSkills?: boolean;
+  piChannelId?: string;
+  schedule: ScheduleSpec;
+  timezone?: string;
+}
+
+export interface AutomationRun {
+  id: string; // run id（uuid）
+  automationId: string;
+  startedAt: number;
+  endedAt?: number;
+  status: AutomationRunStatus;
+  trigger: "schedule" | "manual"; // 定时触发 vs 快速执行
+  agent: AgentKind;
+  agentSessionId?: string; // 从 init 事件捕获,便于追溯
+  prompt: string; // 执行时的 prompt 快照
+  output: string; // 聚合文本(截断上限)
+  error?: string;
+}
+
+// cron 表达式校验结果（供 ScheduleEditor 即时预览;真相以 main 调度为准）。
+export interface CronValidation {
+  ok: boolean;
+  nextRun?: number; // 下次触发 epoch ms
+  error?: string;
+}
+
+// main → renderer 的运行事件:phase=start 标记开跑,end 标记收尾（带最终 run）。
+export interface AutomationRunEvent {
+  automationId: string;
+  run: AutomationRun;
+  phase: "start" | "end";
 }

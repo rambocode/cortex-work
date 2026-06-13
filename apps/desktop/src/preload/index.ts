@@ -5,9 +5,14 @@ import type {
   AgentUsage,
   AsrTranscribeRequest,
   AsrTranscribeResponse,
+  AutomationInput,
+  AutomationMeta,
+  AutomationRun,
+  AutomationRunEvent,
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  CronValidation,
   EditorInfo,
   GitDiffAllResult,
   GitInfoResult,
@@ -162,6 +167,31 @@ const personal = {
     const listener = (_e: IpcRendererEvent, state: UpdateState) => cb(state);
     ipcRenderer.on("update:state", listener);
     return () => ipcRenderer.removeListener("update:state", listener);
+  },
+  // 自动化（定时任务）。main 为 owner,这里只是 IPC 透传 + 事件订阅。
+  automationList: (): Promise<AutomationMeta[]> => ipcRenderer.invoke("automation:list"),
+  automationCreate: (input: AutomationInput): Promise<AutomationMeta> =>
+    ipcRenderer.invoke("automation:create", input),
+  automationUpdate: (id: string, patch: Partial<AutomationInput>): Promise<AutomationMeta | null> =>
+    ipcRenderer.invoke("automation:update", id, patch),
+  automationDelete: (id: string): Promise<void> => ipcRenderer.invoke("automation:delete", id),
+  automationSetEnabled: (id: string, enabled: boolean): Promise<AutomationMeta | null> =>
+    ipcRenderer.invoke("automation:setEnabled", id, enabled),
+  automationRunNow: (id: string): Promise<AutomationRun | null> =>
+    ipcRenderer.invoke("automation:runNow", id),
+  automationListRuns: (id: string): Promise<AutomationRun[]> =>
+    ipcRenderer.invoke("automation:listRuns", id),
+  automationValidateCron: (expression: string, timezone?: string): Promise<CronValidation> =>
+    ipcRenderer.invoke("automation:validateCron", expression, timezone),
+  onAutomationChanged: (cb: (list: AutomationMeta[]) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, list: AutomationMeta[]) => cb(list);
+    ipcRenderer.on("automation:changed", listener);
+    return () => ipcRenderer.removeListener("automation:changed", listener);
+  },
+  onAutomationRunEvent: (cb: (event: AutomationRunEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, event: AutomationRunEvent) => cb(event);
+    ipcRenderer.on("automation:run-event", listener);
+    return () => ipcRenderer.removeListener("automation:run-event", listener);
   },
 };
 

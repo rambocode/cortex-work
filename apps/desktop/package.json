@@ -26,6 +26,7 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@tanstack/react-query": "catalog:",
+    "croner": "^10.0.1",
     "electron-updater": "^6.6.2",
     "node-pty": "^1.1.0",
     "nodemailer": "^8.0.11",

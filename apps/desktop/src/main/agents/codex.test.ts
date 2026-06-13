@@ -55,6 +55,14 @@ describe("codexAdapter.buildArgs", () => {
     expect(prompt).toContain('<skill name="rule">Use concise Chinese.</skill>');
     expect(prompt).toContain("<user_request>\nhello\n</user_request>");
   });
+
+  it("推理强度:effort → -c model_reasoning_effort=,缺省不带", () => {
+    const { args } = codexAdapter.buildArgs({ ...baseReq, effort: "low" });
+    const i = args.indexOf("model_reasoning_effort=low");
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i - 1]).toBe("-c");
+    expect(codexAdapter.buildArgs(baseReq).args.join(" ")).not.toContain("model_reasoning_effort");
+  });
 });
 
 describe("codexAdapter.parseLine", () => {

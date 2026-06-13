@@ -35,6 +35,9 @@ export const codexAdapter: AgentAdapter = {
       "mcp_servers={}",
     ];
     if (req.model) common.push("--model", req.model);
+    // 推理强度:codex 用 -c model_reasoning_effort=<low|medium|high>（与上面的 -c 并列,
+    // resume 子命令同样兼容）。
+    if (req.effort) common.push("-c", `model_reasoning_effort=${req.effort}`);
 
     const args = req.resumeSessionId
       ? ["exec", "resume", ...common, req.resumeSessionId, prompt]

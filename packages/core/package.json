@@ -24,7 +24,8 @@
     "./store/personal": "./store/personal.ts",
     "./desktop/types": "./desktop/types.ts",
     "./desktop/bridge": "./desktop/bridge.ts",
-    "./personal/messages": "./personal/messages.ts"
+    "./personal/messages": "./personal/messages.ts",
+    "./personal/automation": "./personal/automation.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",

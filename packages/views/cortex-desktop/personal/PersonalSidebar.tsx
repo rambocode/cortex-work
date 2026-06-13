@@ -145,6 +145,8 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
   const addProject = usePersonalStore((s) => s.addProject);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
   const openHome = usePersonalStore((s) => s.openHome);
+  const automationOpen = usePersonalStore((s) => s.automationOpen);
+  const openAutomation = usePersonalStore((s) => s.openAutomation);
 
   // 系统已装编辑器（挂载时探测一次,传给所有 ProjectMenu）。
   const [editors, setEditors] = useState<EditorInfo[]>([]);
@@ -183,6 +185,16 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
         <Icon.Chart size={14} />
         <span>首页</span>
       </button>
+      {bridge?.automationList ? (
+        <button
+          className={`pw-home-btn ${automationOpen ? "is-active" : ""}`}
+          onClick={openAutomation}
+          title="自动化（定时任务）"
+        >
+          <Icon.Workflow size={14} />
+          <span>自动化</span>
+        </button>
+      ) : null}
       <div className="pw-section-h">
         <span>项目</span>
         <button className="pw-icon-btn" title="添加项目（选择本地文件夹）" onClick={pickProject} disabled={!bridge}>

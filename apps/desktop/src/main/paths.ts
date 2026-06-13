@@ -24,6 +24,16 @@ export function timelinesDir(): string {
   return join(cortexHome(), "timelines");
 }
 
+// 自动化（定时任务）配置：单文件全量。
+export function automationsStorePath(): string {
+  return join(cortexHome(), "automations.json");
+}
+
+// 自动化执行历史：按 automationId 一文件（automation-runs/<id>.json）。
+export function automationRunsDir(): string {
+  return join(cortexHome(), "automation-runs");
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await fsp.access(path);

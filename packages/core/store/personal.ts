@@ -60,8 +60,10 @@ export interface PersonalState {
   // 主区时间线视图：非空时主区显示该项目的时间线（替代会话区）。
   timelineProjectId?: string;
   // 主区首页视图（热力图/项目检索/全局日总结）。启动默认落地首页;不持久化。
-  // 渲染优先级：homeOpen > timelineProjectId > 会话区。
+  // 渲染优先级：automationOpen > homeOpen > timelineProjectId > 会话区。
   homeOpen: boolean;
+  // 主区自动化视图（定时任务列表/详情）。不持久化,优先级最高。
+  automationOpen: boolean;
   // 时间线日报设置（生成模型,持久化）。
   timelineSettings: TimelineSettings;
   // 全局推送渠道设置（独立持久化,所有推送场景共用）。
@@ -114,6 +116,7 @@ export interface PersonalState {
   openTimeline: (projectId: string) => void;
   closeTimeline: () => void;
   openHome: () => void;
+  openAutomation: () => void;
   setTimelineSettings: (patch: Partial<TimelineSettings>) => void;
   setPushSettings: (patch: Partial<PushSettings>) => void;
   setTtsSettings: (patch: Partial<TtsSettings>) => void;
@@ -134,6 +137,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   terminalOpen: false,
   rightView: "todos" as const,
   homeOpen: true,
+  automationOpen: false,
   timelineSettings: DEFAULT_TIMELINE_SETTINGS,
   pushSettings: DEFAULT_PUSH_SETTINGS,
   ttsSettings: DEFAULT_TTS_SETTINGS,
@@ -251,6 +255,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeProjectId: projectId,
       activeSessionId: sess.id,
       homeOpen: false,
+      automationOpen: false,
     }));
     return sess;
   },
@@ -297,11 +302,18 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         activeProjectId: sess?.projectId ?? s.activeProjectId,
         timelineProjectId: undefined,
         homeOpen: false,
+        automationOpen: false,
       };
     }),
 
   activateProject: (projectId) =>
-    set({ activeProjectId: projectId, activeSessionId: undefined, timelineProjectId: undefined, homeOpen: false }),
+    set({
+      activeProjectId: projectId,
+      activeSessionId: undefined,
+      timelineProjectId: undefined,
+      homeOpen: false,
+      automationOpen: false,
+    }),
 
   toggleProjectCollapse: (id) =>
     set((s) => ({ collapsedProjects: { ...s.collapsedProjects, [id]: !s.collapsedProjects[id] } })),
@@ -334,12 +346,17 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
 
-  openTimeline: (projectId) => set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false }),
+  openTimeline: (projectId) =>
+    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false }),
   closeTimeline: () => set({ timelineProjectId: undefined }),
 
   // 回首页时右栏同步切回 todos（全部项目列表）——项目内的文件/Skills 面板
   // 是项目上下文,不应停留在首页。
-  openHome: () => set({ homeOpen: true, timelineProjectId: undefined, rightView: "todos" }),
+  openHome: () => set({ homeOpen: true, automationOpen: false, timelineProjectId: undefined, rightView: "todos" }),
+
+  // 进入自动化主区视图（优先级最高,互斥清其它视图字段）。
+  openAutomation: () =>
+    set({ automationOpen: true, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined }),
 
   setTimelineSettings: (patch) =>
     set((s) => ({ timelineSettings: { ...s.timelineSettings, ...patch } })),
