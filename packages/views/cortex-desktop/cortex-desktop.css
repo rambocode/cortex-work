@@ -4433,10 +4433,13 @@ button.sb-row {
   justify-content: center;
 }
 .pw-dlg {
-  width: 640px;
-  max-width: calc(100vw - 64px);
-  height: 440px;
-  max-height: calc(100vh - 96px);
+  /* 应用视图上下左右各留 20% 边距 → 60vw × 60vh 居中（小窗口下用 min 兜底）。 */
+  width: 60vw;
+  height: 60vh;
+  min-width: 560px;
+  min-height: 440px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
   background: var(--bg-app);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -4829,10 +4832,47 @@ button.sb-row {
 /* 设置 → 时间线 表单 */
 .pw-set-group { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 14px; }
 .pw-set-hint { font-size: 11.5px; color: var(--text-3); }
+/* Pi LLM 通道：从模板添加（下拉撑满 + 按钮底对齐,不拉伸） */
+.pw-pi-add { display: flex; align-items: flex-end; gap: 8px; }
+.pw-pi-add > .pw-set-field { flex: 1; }
+.pw-pi-add-btn { flex-shrink: 0; height: 33px; white-space: nowrap; }
 /* Pi LLM 通道编辑卡片 */
-.pw-pi-channel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); }
-.pw-pi-channel textarea.pw-set-input { resize: vertical; min-height: 52px; line-height: 1.5; }
-.pw-pi-channel-del { align-self: flex-start; color: var(--red); }
+.pw-pi-channel { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-soft); }
+.pw-pi-channel textarea.pw-set-input { resize: vertical; min-height: 52px; line-height: 1.5; font-family: var(--mono, ui-monospace, monospace); }
+/* 卡片头：名称撑满 + 启用开关 + 删除图标,一行内垂直居中 */
+.pw-pi-channel-head { display: flex; align-items: center; gap: 12px; }
+.pw-pi-channel-head > .pw-set-input { flex: 1; min-width: 0; }
+.pw-pi-channel-head .twk-row { width: auto; flex-shrink: 0; gap: 8px; }
+.pw-pi-channel-del {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.pw-pi-channel-del:hover { background: var(--red-soft); color: var(--red); }
+
+/* 右键/项目菜单的右侧二级菜单（Open in 点击展开） */
+.pw-ctx-haschild { position: relative; }
+.pw-ctx-sub {
+  position: absolute;
+  left: calc(100% + 4px);
+  top: -4px;
+  min-width: 184px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  padding: 4px;
+  z-index: 1;
+}
+.pw-ctx-sub.to-left { left: auto; right: calc(100% + 4px); }
+/* 展开态：父项高亮 + 箭头转向 */
+.pw-ctx-haschild > .pw-tb-menu-item[aria-expanded="true"] { background: var(--bg-hover); }
 .pw-set-field { display: flex; flex-direction: column; gap: 4px; }
 .pw-set-lbl { font-size: 11.5px; color: var(--text-3); }
 .pw-set-input {

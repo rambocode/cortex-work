@@ -31,18 +31,19 @@ export function ProjectMenu({
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: anchor.x, top: anchor.y });
   const [confirming, setConfirming] = useState(false);
-  // 二级面板:"open" = Open in 编辑器列表;null = 一级菜单。
-  const [panel, setPanel] = useState<null | "open">(null);
+  // Open in 二级菜单:点击展开,默认向右飞出;右侧放不下则向左。
+  const [openSub, setOpenSub] = useState(false);
+  const [subSide, setSubSide] = useState<"right" | "left">("right");
 
-  // 防菜单溢出视口:渲染后（含二级面板切换导致尺寸变化）按实际尺寸收敛。
+  // 防菜单溢出视口:渲染后按实际尺寸收敛,并据右侧余量决定子菜单飞出方向。
   useLayoutEffect(() => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
-    setPos({
-      left: Math.max(8, Math.min(anchor.x, window.innerWidth - rect.width - 8)),
-      top: Math.max(8, Math.min(anchor.y, window.innerHeight - rect.height - 8)),
-    });
-  }, [anchor, panel]);
+    const left = Math.max(8, Math.min(anchor.x, window.innerWidth - rect.width - 8));
+    const top = Math.max(8, Math.min(anchor.y, window.innerHeight - rect.height - 8));
+    setPos({ left, top });
+    setSubSide(left + rect.width + 196 <= window.innerWidth ? "right" : "left");
+  }, [anchor]);
 
   // 点击菜单外/Escape/窗口失焦:关闭
   useEffect(() => {
@@ -106,64 +107,65 @@ export function ProjectMenu({
 
   return (
     <div ref={ref} className="pw-ctx-menu" style={pos} role="menu" aria-label={`${project.name} 操作`}>
-      {panel === "open" ? (
-        <>
-          <button className="pw-tb-menu-item" role="menuitem" onClick={() => setPanel(null)}>
-            <Icon.Back size={13} />
-            <span>返回</span>
-          </button>
-          <div className="pw-tb-menu-sep" />
-          {editors.map((ed) => (
-            <button key={ed.id} className="pw-tb-menu-item" role="menuitem" onClick={() => openInEditor(ed)}>
-              <Icon.Code size={13} />
-              <span>{ed.name}</span>
-            </button>
-          ))}
-          {editors.length > 0 ? <div className="pw-tb-menu-sep" /> : null}
-          <button className="pw-tb-menu-item" role="menuitem" onClick={reveal}>
-            <Icon.Folder size={13} />
-            <span>在访达中显示</span>
-          </button>
-        </>
-      ) : (
-        <>
-          <button className="pw-tb-menu-item" role="menuitem" onClick={() => setPanel("open")}>
-            <Icon.Share size={13} />
-            <span>Open in</span>
-            <Icon.Chevron size={11} />
-          </button>
-          <button className="pw-tb-menu-item" role="menuitem" onClick={act(() => openTimeline(project.id))}>
-            <Icon.Clock size={13} />
-            <span>时间线</span>
-          </button>
-          {!archived ? (
-            <button className="pw-tb-menu-item" role="menuitem" onClick={togglePin}>
-              <Icon.Pin size={13} />
-              <span>{project.pinnedAt ? "取消置顶" : "置顶"}</span>
-            </button>
-          ) : null}
-          {archived ? (
-            <button className="pw-tb-menu-item" role="menuitem" onClick={doUnarchive}>
+      <div className="pw-ctx-haschild">
+        <button
+          className="pw-tb-menu-item"
+          role="menuitem"
+          aria-haspopup="menu"
+          aria-expanded={openSub}
+          onClick={() => setOpenSub((v) => !v)}
+        >
+          <Icon.Share size={13} />
+          <span>Open in</span>
+          <Icon.ChevronRight size={12} />
+        </button>
+        {openSub ? (
+          <div className={`pw-ctx-sub ${subSide === "left" ? "to-left" : ""}`} role="menu">
+            {editors.map((ed) => (
+              <button key={ed.id} className="pw-tb-menu-item" role="menuitem" onClick={() => openInEditor(ed)}>
+                <Icon.Code size={13} />
+                <span>{ed.name}</span>
+              </button>
+            ))}
+            {editors.length > 0 ? <div className="pw-tb-menu-sep" /> : null}
+            <button className="pw-tb-menu-item" role="menuitem" onClick={reveal}>
               <Icon.Folder size={13} />
-              <span>取消归档</span>
+              <span>在访达中显示</span>
             </button>
-          ) : (
-            <button className="pw-tb-menu-item" role="menuitem" onClick={doArchive}>
-              <Icon.Fwd size={13} />
-              <span>归档</span>
-            </button>
-          )}
-          <div className="pw-tb-menu-sep" />
-          <button
-            className="pw-tb-menu-item is-danger"
-            role="menuitem"
-            onClick={confirming ? doRemove : () => setConfirming(true)}
-          >
-            <Icon.X size={13} />
-            <span>{confirming ? "确认删除？" : "删除"}</span>
-          </button>
-        </>
+            {editors.length === 0 ? <div className="pw-set-hint" style={{ padding: "2px 8px 4px" }}>未检测到编辑器</div> : null}
+          </div>
+        ) : null}
+      </div>
+      <button className="pw-tb-menu-item" role="menuitem" onClick={act(() => openTimeline(project.id))}>
+        <Icon.Clock size={13} />
+        <span>时间线</span>
+      </button>
+      {!archived ? (
+        <button className="pw-tb-menu-item" role="menuitem" onClick={togglePin}>
+          <Icon.Pin size={13} />
+          <span>{project.pinnedAt ? "取消置顶" : "置顶"}</span>
+        </button>
+      ) : null}
+      {archived ? (
+        <button className="pw-tb-menu-item" role="menuitem" onClick={doUnarchive}>
+          <Icon.Reply size={13} />
+          <span>取消归档</span>
+        </button>
+      ) : (
+        <button className="pw-tb-menu-item" role="menuitem" onClick={doArchive}>
+          <Icon.File size={13} />
+          <span>归档</span>
+        </button>
       )}
+      <div className="pw-tb-menu-sep" />
+      <button
+        className="pw-tb-menu-item is-danger"
+        role="menuitem"
+        onClick={confirming ? doRemove : () => setConfirming(true)}
+      >
+        <Icon.X size={13} />
+        <span>{confirming ? "确认删除？" : "删除"}</span>
+      </button>
     </div>
   );
 }
