@@ -2,7 +2,8 @@
 // 命令形态（实测 0.79.2,跑在 Electron 内置 Node v22.22.1 上）：
 //   <execPath> <dist/cli.js 绝对路径> --mode json -p --no-extensions
 //             [--no-skills] [--model m] [--session id] [--append-system-prompt s] <prompt>
-//   · execPath 与 ELECTRON_RUN_AS_NODE 由 cli.ts 注入；adapter 只产出 cmd/args。
+//   · adapter 只产出 cmd/args；cli.ts 对 pi 走 utilityProcess.fork,取 args[0]（cli.js）
+//     作 modulePath,cmd（process.execPath）仅为兼容 adapter 契约/测试保留。
 //   · -p 是非交互布尔 flag,prompt 不是它的值,而是命令行最后一个位置参数。
 //   · --no-extensions 纯净启动；--no-skills 默认禁用 skills（useOwnSkills=true 时省略,
 //     与 claude adapter 对齐）；pi 原生支持 --append-system-prompt。
@@ -69,7 +70,8 @@ export const piAdapter: AgentAdapter = {
     if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
     // prompt 是位置参数,必须在最后。
     args.push(req.prompt);
-    // cmd 是 Electron 自身可执行文件,由 spawn 时的 ELECTRON_RUN_AS_NODE 当纯 Node 用。
+    // cmd 保留为 process.execPath 兼容 adapter 契约/pi.test.ts；cli.ts 对 pi 实际走
+    // utilityProcess.fork(args[0]=cli.js),不使用此 cmd（Electron 内置 Node,不弹 Dock）。
     return { cmd: process.execPath, args };
   },
 

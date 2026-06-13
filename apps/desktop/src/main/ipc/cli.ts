@@ -2,7 +2,7 @@
 // → webContents.send 推给 renderer。每个 runId 一个子进程，支持 kill；
 // 应用退出前统一清理。
 
-import { ipcMain, type WebContents } from "electron";
+import { ipcMain, utilityProcess, type WebContents, type UtilityProcess } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import { delimiter, join } from "path";
 import { homedir, platform } from "os";
@@ -12,7 +12,129 @@ import { getAdapter } from "../agents";
 import { trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 
-const running = new Map<string, ChildProcess>();
+const running = new Map<string, AgentProcess>();
+
+// 统一封装两类子进程,屏蔽 child_process 与 Electron utilityProcess 的差异:
+// claude/codex 是外部 CLI,走 child_process.spawn；pi 走 utilityProcess.fork
+//（用 Electron 内置 Node、无 GUI、不在 macOS Dock 上闪现）。
+export interface AgentProcess {
+  readonly pid: number | undefined;
+  readonly stdout: NodeJS.ReadableStream | null;
+  readonly stderr: NodeJS.ReadableStream | null;
+  // 进程结束且 stdout 读完后回调一次（合并 child_process 的 close / utilityProcess 的 exit）。
+  onExit(cb: (code: number | null) => void): void;
+  // 仅 child_process 的 spawn 错误（ENOENT 等）；utilityProcess 启动失败经 exit code + stderr 体现。
+  onError(cb: (err: Error) => void): void;
+  // 优雅终止（SIGTERM）+ 3s 兜底强杀。
+  kill(): void;
+}
+
+// SIGTERM 先礼,3s 未退出再用 pid 强杀（kill() 退出后 pid 变 undefined,需判空）。
+function killWithTimeout(soft: () => void, pid: number | undefined): void {
+  soft();
+  setTimeout(() => {
+    if (pid !== undefined) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // 已退出
+      }
+    }
+  }, 3000);
+}
+
+function wrapChild(child: ChildProcess): AgentProcess {
+  return {
+    get pid() {
+      return child.pid;
+    },
+    stdout: child.stdout,
+    stderr: child.stderr,
+    // close 在进程退出且 stdio 流关闭后触发,已保证 stdout 读完。
+    onExit: (cb) => {
+      child.on("close", (code) => cb(code));
+    },
+    onError: (cb) => {
+      child.on("error", cb);
+    },
+    kill: () => killWithTimeout(() => child.kill("SIGTERM"), child.pid),
+  };
+}
+
+function wrapUtility(child: UtilityProcess): AgentProcess {
+  // utilityProcess 无 close 事件,且 exit 可能早于 stdout flush;以「进程 exit + stdout
+  // 流结束」双信号合并为一次 onExit,避免丢末行（pi 的最终结果/错误在末行 message_end 里）。
+  let exited = false;
+  let stdoutDone = false;
+  let exitCode: number | null = null;
+  let exitCb: ((code: number | null) => void) | null = null;
+  let fired = false;
+  const finalize = () => {
+    // 必须等回调注册后才触发:否则信号先于 onExit 到达时会提前置 fired,导致补发失效。
+    if (fired || !exited || !stdoutDone || !exitCb) return;
+    fired = true;
+    exitCb(exitCode);
+  };
+  child.on("exit", (code) => {
+    exited = true;
+    exitCode = code;
+    finalize();
+  });
+  const out = child.stdout;
+  if (out) {
+    out.on("end", () => {
+      stdoutDone = true;
+      finalize();
+    });
+    out.on("close", () => {
+      stdoutDone = true;
+      finalize();
+    });
+  } else {
+    stdoutDone = true;
+  }
+  return {
+    get pid() {
+      return child.pid;
+    },
+    stdout: child.stdout,
+    stderr: child.stderr,
+    onExit: (cb) => {
+      exitCb = cb;
+      finalize(); // 进程若已在设回调前结束,这里补发。
+    },
+    onError: () => {
+      // utilityProcess 无对应的 spawn 错误事件;启动失败 = 非 0 exit code + stderr。
+    },
+    kill: () => killWithTimeout(() => child.kill(), child.pid),
+  };
+}
+
+// 按 agent 分流启动子进程。pi 的 buildArgs 仍返回 cmd=process.execPath + args[0]=cli.js
+//（兼容 adapter 契约与 pi.test.ts）,这里取 args[0] 作 utilityProcess 的 modulePath。
+export function startAgentProcess(
+  agent: string,
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; env: NodeJS.ProcessEnv },
+): AgentProcess {
+  if (agent === "pi") {
+    const [modulePath, ...childArgs] = args;
+    const child = utilityProcess.fork(modulePath, childArgs, {
+      cwd: opts.cwd,
+      env: opts.env as Record<string, string>,
+      stdio: "pipe", // = ["ignore","pipe","pipe"]；stdin 只能 ignore。
+      serviceName: "pi-agent",
+    });
+    return wrapUtility(child);
+  }
+  const child = spawn(cmd, args, {
+    cwd: opts.cwd,
+    env: opts.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return wrapChild(child);
+}
 
 function nvmBinDirs(home: string): string[] {
   const root = `${home}/.nvm/versions/node`;
@@ -43,13 +165,14 @@ export function buildEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: merged };
 }
 
-// 按 agent 定制 spawn 环境：pi 以 ELECTRON_RUN_AS_NODE 当纯 Node 跑（命令是
-// process.execPath + cli.js），并把选中通道的 API key 注入 CORTEX_PI_KEY（与生成的
-// extension 里 apiKey: "$CORTEX_PI_KEY" 占位对应）；其余 agent 用基础 env。
+// 按 agent 定制子进程环境：pi 经 utilityProcess.fork 跑在 Electron 内置 Node 上,把选中
+// 通道的 API key 注入 CORTEX_PI_KEY（与生成的 extension 里 apiKey:"$CORTEX_PI_KEY" 占位
+// 对应）；其余 agent 用基础 env。
 export function spawnEnvFor(req: { agent: string; piChannel?: { apiKey?: string } }): NodeJS.ProcessEnv {
   const env = buildEnv();
   if (req.agent !== "pi") return env;
-  env.ELECTRON_RUN_AS_NODE = "1";
+  // utilityProcess 本身就是 Node 环境,不需要 ELECTRON_RUN_AS_NODE;防御性清除可能的残留。
+  delete env.ELECTRON_RUN_AS_NODE;
   if (req.piChannel?.apiKey) env[PI_KEY_ENV] = req.piChannel.apiKey;
   return env;
 }
@@ -82,8 +205,8 @@ export function registerCliHandlers(): void {
     }
     const { cmd, args } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
-    const child = spawn(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req), stdio: ["ignore", "pipe", "pipe"] });
-    running.set(req.runId, child);
+    const proc = startAgentProcess(req.agent, cmd, args, { cwd: req.cwd, env: spawnEnvFor(req) });
+    running.set(req.runId, proc);
 
     // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,
     // 仍能把事件归属到正确的 session 继续渲染/清理。
@@ -95,8 +218,8 @@ export function registerCliHandlers(): void {
     };
 
     let buffer = "";
-    child.stdout!.setEncoding("utf8");
-    child.stdout!.on("data", (chunk: string) => {
+    proc.stdout?.setEncoding("utf8");
+    proc.stdout?.on("data", (chunk: string) => {
       buffer += chunk;
       let nl: number;
       while ((nl = buffer.indexOf("\n")) >= 0) {
@@ -109,17 +232,17 @@ export function registerCliHandlers(): void {
     });
 
     let stderrTail = "";
-    child.stderr!.setEncoding("utf8");
-    child.stderr!.on("data", (chunk: string) => {
+    proc.stderr?.setEncoding("utf8");
+    proc.stderr?.on("data", (chunk: string) => {
       stderrTail = (stderrTail + chunk).slice(-2000);
     });
 
-    child.on("error", (err) => {
+    proc.onError((err) => {
       running.delete(req.runId);
       sendExit({ runId: req.runId, code: null, error: err.message });
     });
 
-    child.on("close", (code) => {
+    proc.onExit((code) => {
       // 冲刷残留的最后一行（无换行结尾时）。
       const line = buffer.trim();
       if (line) {
@@ -164,16 +287,15 @@ export function registerCliHandlers(): void {
         model: req.model,
       });
       return new Promise<string>((resolve, reject) => {
-        const child = spawn(cmd, args, {
+        const proc = startAgentProcess(agent, cmd, args, {
           cwd: req.cwd ?? homedir(),
           env: spawnEnvFor({ agent }),
-          stdio: ["ignore", "pipe", "pipe"],
         });
         let out = "";
         let resultText = "";
         let failed: string | null = null;
         const timer = setTimeout(() => {
-          child.kill("SIGKILL");
+          proc.kill();
           reject(new Error("oneshot 超时"));
         }, 60_000);
 
@@ -189,8 +311,8 @@ export function registerCliHandlers(): void {
         };
 
         let buffer = "";
-        child.stdout!.setEncoding("utf8");
-        child.stdout!.on("data", (chunk: string) => {
+        proc.stdout?.setEncoding("utf8");
+        proc.stdout?.on("data", (chunk: string) => {
           buffer += chunk;
           let nl: number;
           while ((nl = buffer.indexOf("\n")) >= 0) {
@@ -198,11 +320,11 @@ export function registerCliHandlers(): void {
             buffer = buffer.slice(nl + 1);
           }
         });
-        child.on("error", (err) => {
+        proc.onError((err) => {
           clearTimeout(timer);
           reject(err);
         });
-        child.on("close", (code) => {
+        proc.onExit((code) => {
           clearTimeout(timer);
           handleLine(buffer.trim()); // 冲刷无换行结尾的最后一行
           const text = (out || resultText).trim();
@@ -221,18 +343,13 @@ export function registerCliHandlers(): void {
   ipcMain.handle("agents:detect", () => detectAgents());
 
   ipcMain.handle("cli:kill", (_e, runId: string) => {
-    const child = running.get(runId);
-    if (!child) return;
-    child.kill("SIGTERM");
-    // 3 秒未退出则强杀（claude 偶尔会拖延收尾）。
-    setTimeout(() => {
-      if (running.has(runId)) child.kill("SIGKILL");
-    }, 3000);
+    // kill() 内置 SIGTERM + 3s 兜底强杀（claude 偶尔会拖延收尾）。
+    running.get(runId)?.kill();
   });
 }
 
 export function killAllCli(): void {
-  for (const child of running.values()) child.kill("SIGTERM");
+  for (const proc of running.values()) proc.kill();
   running.clear();
 }
 
