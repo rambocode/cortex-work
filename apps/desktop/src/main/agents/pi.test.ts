@@ -131,6 +131,14 @@ describe("piAdapter.parseLine", () => {
     expect(piAdapter.parseLine(line)).toEqual({ type: "result", ok: false, error: "WebSocket error" });
   });
 
+  it("message_end stopReason=aborted → ok=false(无错误信息时回退 stopReason 文本)", () => {
+    const line = JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", content: [], stopReason: "aborted" },
+    });
+    expect(piAdapter.parseLine(line)).toEqual({ type: "result", ok: false, error: "aborted" });
+  });
+
   it("message_end stopReason=toolUse → null(中间轮,不发 result)", () => {
     const line = JSON.stringify({
       type: "message_end",
