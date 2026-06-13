@@ -405,9 +405,18 @@ function ChannelCard({
 }) {
   return (
     <div className="pw-pi-channel">
-      <div className="pw-set-row2">
-        <Field label="名称" value={channel.label} onChange={(v) => onPatch({ label: v })} />
+      <div className="pw-pi-channel-head">
+        <input
+          className="pw-set-input"
+          value={channel.label}
+          placeholder="通道名称"
+          spellCheck={false}
+          onChange={(e) => onPatch({ label: e.target.value })}
+        />
         <Toggle label="启用" value={channel.enabled} onChange={(v) => onPatch({ enabled: v })} />
+        <button className="pw-pi-channel-del" title="删除通道" onClick={onRemove}>
+          <Icon.X size={14} />
+        </button>
       </div>
       <Field
         label="Base URL"
@@ -433,9 +442,6 @@ function ChannelCard({
           onChange={(e) => onPatch({ models: parseModels(e.target.value) })}
         />
       </label>
-      <button className="btn pw-pi-channel-del" onClick={onRemove}>
-        删除通道
-      </button>
     </div>
   );
 }
@@ -471,14 +477,14 @@ function AgentSection() {
 
       <div className="twk-sect">LLM 通道</div>
       <div className="pw-set-group">
-        <div className="pw-set-row2">
+        <div className="pw-pi-add">
           <Select
             label="从模板添加"
             value={tmplKey}
             options={PI_CHANNEL_TEMPLATES.map((t) => ({ label: t.label, value: t.templateKey }))}
             onChange={setTmplKey}
           />
-          <button className="btn" onClick={addFromTemplate}>
+          <button className="btn pw-pi-add-btn" onClick={addFromTemplate}>
             添加通道
           </button>
         </div>
