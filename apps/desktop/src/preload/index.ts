@@ -123,6 +123,12 @@ const personal = {
     endpointFormat: "chat_completions" | "responses" | "messages" | "custom";
   }): Promise<{ ok: boolean; models?: string[]; error?: string }> =>
     ipcRenderer.invoke("provider:probe", input),
+  setDesktopBehavior: (behavior: {
+    openAtLogin: boolean;
+    startMinimized: boolean;
+    closeToTray: boolean;
+  }): Promise<void> => ipcRenderer.invoke("desktop:setBehavior", behavior),
+  openLogsDir: (): Promise<void> => ipcRenderer.invoke("logs:open"),
   pushReport: (target: unknown, payload: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("push:report", target, payload),
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),

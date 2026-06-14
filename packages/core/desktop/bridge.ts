@@ -17,6 +17,7 @@ import type {
   CliStartRequest,
   CliStreamEvent,
   CronValidation,
+  DesktopBehavior,
   EditorInfo,
   GitBranchesResult,
   GitChangesResult,
@@ -113,6 +114,11 @@ export interface DesktopBridge {
   // 供应商连接测试：主进程按 endpointFormat 选鉴权头探测 {baseUrl}/models,返回可用模型。
   // 可选（web 端为 null;custom 协议返回不支持探测）。
   probeProvider?(input: ProviderProbeInput): Promise<ProviderProbeResult>;
+  // 桌面行为：renderer 切换开机自启/启动最小化/关闭到托盘时通知主进程立即应用
+  //（登录项是系统设置,须即时设置）。可选（web 端为 null）。
+  setDesktopBehavior?(behavior: DesktopBehavior): Promise<void>;
+  // 打开日志目录（系统文件管理器）。可选。
+  openLogsDir?(): Promise<void>;
   // 日报推送（企微/钉钉 webhook、SMTP 邮件;主进程发请求规避 CORS）
   pushReport(target: PushTarget, payload: { subject: string; text: string }): Promise<PushResult>;
   // TTS：OpenAI 兼容 /v1/audio/speech 合成,返回音频字节（renderer 播放）

@@ -24,6 +24,11 @@ export function timelinesDir(): string {
   return join(cortexHome(), "timelines");
 }
 
+// 主进程文件日志目录：~/.cortex-desktop/logs/
+export function logsDir(): string {
+  return join(cortexHome(), "logs");
+}
+
 // 不使用项目的会话归档根目录：用户「文稿」下的 cortex。
 export function documentsCortexDir(): string {
   return join(app.getPath("documents"), "cortex");

@@ -111,6 +111,35 @@ export interface ProviderProbeResult {
   error?: string;
 }
 
+// 通用设置（与 core/desktop/types.ts 镜像;主进程消费）。
+export interface DesktopBehavior {
+  openAtLogin: boolean;
+  startMinimized: boolean;
+  closeToTray: boolean;
+}
+
+export interface NotificationSettings {
+  turnComplete: boolean;
+}
+
+export interface LogSettings {
+  enabled: boolean;
+  retentionDays: number;
+}
+
+export interface GeneralSettings {
+  workspaceRoot?: string;
+  desktopBehavior: DesktopBehavior;
+  notifications: NotificationSettings;
+  log: LogSettings;
+}
+
+export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
+  desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
+  notifications: { turnComplete: true },
+  log: { enabled: true, retentionDays: 2 },
+};
+
 export interface PersistedState {
   version: 1;
   projects: ProjectMeta[];
@@ -119,6 +148,8 @@ export interface PersistedState {
   todos?: TodoMeta[];
   // 持久化的供应商配置（renderer 全量写入;主进程 automation runner 只读）。
   providerSettings?: ProviderSettings;
+  // 通用设置（renderer 全量写入;主进程读 workspaceRoot/desktopBehavior/log）。
+  generalSettings?: GeneralSettings;
   rightPanelWidth?: number;
   // 「最后一次使用」记忆（与 packages/core/desktop/types.ts 镜像;Spotlight/新会话默认沿用）。
   lastAgent?: AgentKind;

@@ -455,6 +455,39 @@ describe("providerSettings 多供应商", () => {
   });
 });
 
+describe("generalSettings 通用设置", () => {
+  type Persisted = import("../desktop/types").PersistedState;
+
+  it("默认值（closeToTray 默认 true 保留现有关窗隐藏行为）", () => {
+    usePersonalStore.getState().hydrate(base);
+    const g = usePersonalStore.getState().generalSettings;
+    expect(g.desktopBehavior.closeToTray).toBe(true);
+    expect(g.desktopBehavior.openAtLogin).toBe(false);
+    expect(g.notifications.turnComplete).toBe(true);
+    expect(g.log.retentionDays).toBe(2);
+  });
+
+  it("hydrate 旧档缺嵌套字段以默认逐层补全", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: { desktopBehavior: { openAtLogin: true } },
+    } as unknown as Persisted);
+    const g = usePersonalStore.getState().generalSettings;
+    expect(g.desktopBehavior.openAtLogin).toBe(true);
+    expect(g.desktopBehavior.closeToTray).toBe(true); // 缺字段补默认
+    expect(g.log.enabled).toBe(true);
+    expect(g.notifications.turnComplete).toBe(true);
+  });
+
+  it("setGeneralSettings 改 workspaceRoot 并进入持久化快照", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setGeneralSettings({ workspaceRoot: "/tmp/ws" });
+    const s = usePersonalStore.getState();
+    expect(s.generalSettings.workspaceRoot).toBe("/tmp/ws");
+    expect(toPersistedState(s).generalSettings).toBe(s.generalSettings);
+  });
+});
+
 describe("setAgentsAvailable 不持久化", () => {
   it("写入探测结果但不进 toPersistedState 快照", () => {
     usePersonalStore.getState().setAgentsAvailable({ claude: true, codex: false });

@@ -264,9 +264,24 @@ const FONT_SCALE_LABEL: Record<FontScale, string> = { small: "小", medium: "中
 
 // 通用设置：外观（密度/色调/侧栏）+ 主题与字号。
 // 桌面行为 / 默认工作目录 / 日志由后续单元追加分节（U9-U11）。
+const LOG_RETENTION_OPTIONS = [1, 2, 3, 5, 7].map((d) => ({ label: `${d} 天`, value: String(d) }));
+
 function GeneralSection() {
   const tweaks = useCortexUIStore((s) => s.tweaks);
   const setTweak = useCortexUIStore((s) => s.setTweak);
+  const general = usePersonalStore((s) => s.generalSettings);
+  const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
+  const bridge = useDesktopBridge();
+  const behavior = general.desktopBehavior;
+  const setBehavior = (patch: Partial<typeof behavior>) => {
+    const next = { ...behavior, ...patch };
+    setGeneral({ desktopBehavior: next });
+    void bridge?.setDesktopBehavior?.(next);
+  };
+  const pickWorkspace = async () => {
+    const dir = await bridge?.pickDirectory?.();
+    if (dir) setGeneral({ workspaceRoot: dir });
+  };
   const pickTheme = (label: string) => {
     const t = (Object.keys(THEME_LABEL) as ThemeMode[]).find((k) => THEME_LABEL[k] === label);
     if (t) setTweak("theme", t);
@@ -308,6 +323,85 @@ function GeneralSection() {
         options={["rich", "minimal", "activity"]}
         onChange={(v) => setTweak("sidebar", v as SidebarMode)}
       />
+
+      <div className="twk-sect">默认工作目录 · Workspace</div>
+      <div className="pw-set-group">
+        <div className="pw-set-hint">新建无项目会话 / 定时任务未指定项目时,agent 在此目录运行（留空则用主目录）。</div>
+        <div className="pw-pi-add">
+          <Field
+            label="目录"
+            value={general.workspaceRoot ?? ""}
+            placeholder="留空 = 用户主目录"
+            onChange={(v) => setGeneral({ workspaceRoot: v || undefined })}
+          />
+          <button className="btn pw-pi-add-btn" onClick={() => void pickWorkspace()}>
+            选择…
+          </button>
+          {general.workspaceRoot ? (
+            <button className="btn pw-pi-add-btn" onClick={() => setGeneral({ workspaceRoot: undefined })}>
+              清除
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="twk-sect">启动与窗口行为 · Desktop</div>
+      <div className="pw-set-group">
+        <Toggle
+          label="开机自启（macOS / Windows）"
+          value={behavior.openAtLogin}
+          onChange={(v) => setBehavior({ openAtLogin: v })}
+        />
+        {behavior.openAtLogin ? (
+          <Toggle
+            label="启动时最小化到后台"
+            value={behavior.startMinimized}
+            onChange={(v) => setBehavior({ startMinimized: v })}
+          />
+        ) : null}
+        <Toggle
+          label="关闭窗口时隐藏到托盘（而非退出）"
+          value={behavior.closeToTray}
+          onChange={(v) => setBehavior({ closeToTray: v })}
+        />
+      </div>
+
+      <div className="twk-sect">通知 · Notifications</div>
+      <div className="pw-set-group">
+        <Toggle
+          label="Agent 回合完成时系统通知"
+          value={general.notifications.turnComplete}
+          onChange={(v) => setGeneral({ notifications: { ...general.notifications, turnComplete: v } })}
+        />
+      </div>
+
+      <div className="twk-sect">日志 · Logs</div>
+      <div className="pw-set-group">
+        <Toggle
+          label="启用文件日志"
+          value={general.log.enabled}
+          onChange={(v) => setGeneral({ log: { ...general.log, enabled: v } })}
+        />
+        <div className="pw-set-row2">
+          <Select
+            label="保留天数"
+            value={String(general.log.retentionDays)}
+            options={LOG_RETENTION_OPTIONS}
+            onChange={(v) => setGeneral({ log: { ...general.log, retentionDays: Number(v) || 2 } })}
+          />
+          <div className="pw-set-field">
+            <span className="pw-set-lbl">日志目录</span>
+            <button
+              className="pw-tl-gen"
+              disabled={!bridge?.openLogsDir}
+              onClick={() => void bridge?.openLogsDir?.()}
+            >
+              <Icon.Folder size={12} />
+              打开日志目录
+            </button>
+          </div>
+        </div>
+      </div>
     </>
   );
 }

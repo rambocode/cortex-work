@@ -5,6 +5,7 @@
 import { create } from "zustand";
 import type {
   AgentKind,
+  GeneralSettings,
   PersistedState,
   PersonalProfile,
   ProviderProfile,
@@ -19,6 +20,7 @@ import type {
   TtsSettings,
 } from "../desktop/types";
 import {
+  DEFAULT_GENERAL_SETTINGS,
   DEFAULT_MODEL,
   DEFAULT_PROVIDER_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
@@ -82,6 +84,8 @@ export interface PersonalState {
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
   // 供应商（Provider）注册表（持久化;pi 会话/自动化据此选端点）。
   providerSettings: ProviderSettings;
+  // 通用设置（工作目录/桌面行为/通知/日志,持久化;主进程消费部分立即落盘）。
+  generalSettings: GeneralSettings;
   // 用户资料（昵称 + 内置头像 id,持久化）。会话中 who="me" 的气泡据此渲染。
   profile: PersonalProfile;
   // 「最后一次使用」记忆（持久化;Spotlight/新会话默认沿用）。
@@ -104,6 +108,8 @@ export interface PersonalState {
   updateProvider: (id: string, patch: Partial<ProviderProfile>) => void;
   removeProvider: (id: string) => void;
   setProviderDefaults: (patch: { defaultProviderId?: string; defaultModel?: string }) => void;
+  // 通用设置整体 patch（嵌套子对象由调用方 spread 现值）。
+  setGeneralSettings: (patch: Partial<GeneralSettings>) => void;
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
   // projectId 缺省 = 不使用项目（会话在 opts.noProjectDir 工作目录运行）。
@@ -187,6 +193,18 @@ function resolveProviderSettings(s: PersistedState): ProviderSettings {
   return DEFAULT_PROVIDER_SETTINGS;
 }
 
+// 通用设置 hydrate：嵌套子对象逐层以 DEFAULT_GENERAL_SETTINGS 补全（旧档可能缺字段）。
+function resolveGeneralSettings(s: PersistedState): GeneralSettings {
+  const g = s.generalSettings;
+  if (!g) return DEFAULT_GENERAL_SETTINGS;
+  return {
+    workspaceRoot: g.workspaceRoot,
+    desktopBehavior: { ...DEFAULT_GENERAL_SETTINGS.desktopBehavior, ...g.desktopBehavior },
+    notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
+    log: { ...DEFAULT_GENERAL_SETTINGS.log, ...g.log },
+  };
+}
+
 // 旧会话字段名 piChannelId → providerId（剥离旧名,避免死字段随快照回写）。
 function migrateSession(sess: SessionMeta): SessionMeta {
   const legacy = sess as SessionMeta & { piChannelId?: string };
@@ -210,6 +228,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   pushSettings: DEFAULT_PUSH_SETTINGS,
   ttsSettings: DEFAULT_TTS_SETTINGS,
   providerSettings: DEFAULT_PROVIDER_SETTINGS,
+  generalSettings: DEFAULT_GENERAL_SETTINGS,
   profile: {},
   hydrate: (s) =>
     set({
@@ -227,6 +246,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       ttsSettings: s.ttsSettings ?? DEFAULT_TTS_SETTINGS,
       // providerSettings：新档直接用；旧档 piSettings.channels 迁移；都没有则空。
       providerSettings: resolveProviderSettings(s),
+      // 通用设置：嵌套子对象逐层以默认值补全。
+      generalSettings: resolveGeneralSettings(s),
       // 旧存档无 profile 字段 → 回退空对象（会话渲染走默认昵称/头像）。
       profile: s.profile ?? {},
       rightPanelWidth: s.rightPanelWidth,
@@ -305,6 +326,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     }),
 
   setProviderDefaults: (patch) => set((s) => ({ providerSettings: { ...s.providerSettings, ...patch } })),
+
+  setGeneralSettings: (patch) => set((s) => ({ generalSettings: { ...s.generalSettings, ...patch } })),
 
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),
   setPromptTree: (tree) => set({ promptTree: tree }),
@@ -517,6 +540,7 @@ export function toPersistedState(s: PersonalState): PersistedState {
     pushSettings: s.pushSettings,
     ttsSettings: s.ttsSettings,
     providerSettings: s.providerSettings,
+    generalSettings: s.generalSettings,
     profile: s.profile,
     rightPanelWidth: s.rightPanelWidth,
     lastAgent: s.lastAgent,

@@ -50,6 +50,12 @@ export {
   type ProviderModelOption,
   type ProviderPreset,
   type EndpointFormat,
+  type ProviderProbeInput,
+  type ProviderProbeResult,
+  type GeneralSettings,
+  type DesktopBehavior,
+  type NotificationSettings,
+  type LogSettings,
   type SessionMeta,
   type SpotlightIntent,
   type TodoMeta,
@@ -108,6 +114,7 @@ export {
   DEFAULT_TTS_SETTINGS,
   DEFAULT_PROVIDER_SETTINGS,
   PROVIDER_PRESETS,
+  DEFAULT_GENERAL_SETTINGS,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
 export {

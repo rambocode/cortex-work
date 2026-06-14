@@ -414,10 +414,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       setMessages(qc, sessionId, (prev) => finalizeAgentLog(prev, logUid));
     }
     if (!ev.ok) {
-      // pi 兜底 Agent 鉴权类错误:补一句去哪里配 LLM 通道 / API Key。
+      // pi 兜底 Agent 鉴权类错误:补一句去哪里配供应商 / API Key。
       const piAuthHint =
         run.agent === "pi" && /api.?key|auth|credential|unauthorized|401|provider/i.test(ev.error ?? "")
-          ? "（请在 设置 → Agent 添加 LLM 通道并填写 API Key）"
+          ? "（请在 设置 → 供应商 添加供应商并填写 API Key）"
           : "";
       appendMsg(qc, sessionId, {
         kind: "text",
@@ -430,6 +430,22 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       // 没收到增量文本（极少数情况），用 result 的最终文本兜底。
       appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: ev.text, uid: uid("at") });
     }
+    notifyTurnComplete(ev.ok);
+  }
+}
+
+// 回合完成系统通知（通用设置开关 + 仅窗口失焦时打扰）。Notification 是标准 Web API,
+// 在 Electron renderer 与浏览器均可用;不可用/被拒时静默。
+function notifyTurnComplete(ok: boolean): void {
+  try {
+    if (!usePersonalStore.getState().generalSettings.notifications.turnComplete) return;
+    if (typeof document !== "undefined" && document.hasFocus()) return;
+    if (typeof Notification === "undefined" || Notification.permission === "denied") return;
+    const fire = () => new Notification("Cortex Desktop", { body: ok ? "Agent 回合完成" : "Agent 执行出错" });
+    if (Notification.permission === "granted") fire();
+    else void Notification.requestPermission().then((p) => (p === "granted" ? fire() : undefined));
+  } catch {
+    /* 通知不可用时静默 */
   }
 }
 

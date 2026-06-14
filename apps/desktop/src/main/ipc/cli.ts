@@ -11,6 +11,7 @@ import type { AgentKind, CliExitEvent, CliStartRequest, CliStreamEvent, TrimSess
 import { getAdapter } from "../agents";
 import { trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
+import { getWorkspaceRoot } from "./store";
 
 const running = new Map<string, AgentProcess>();
 
@@ -265,7 +266,7 @@ export function registerCliHandlers(): void {
   // 不传 cwd 时在用户主目录运行 —— 不加载项目上下文,更快更省。
   ipcMain.handle(
     "cli:oneshot",
-    (
+    async (
       _e,
       req: {
         agent?: AgentKind;
@@ -274,21 +275,23 @@ export function registerCliHandlers(): void {
         model?: string;
       },
     ) => {
-      // oneshot（标题/日报）不挂自定义通道:默认 claude;若为 pi 则仅当作纯 Node 跑,
-      // 无通道则用 pi 自身默认 provider（标题生成场景已在 renderer 侧对 pi 走兜底）。
+      // oneshot（标题/日报）不挂自定义供应商:默认 claude;若为 pi 则仅当作纯 Node 跑,
+      // 无供应商则用 pi 自身默认 provider（标题生成场景已在 renderer 侧对 pi 走兜底）。
       const agent = req.agent ?? "claude";
+      // 未显式传 cwd 时以默认工作目录（通用设置）兜底,再退回主目录。
+      const cwd = req.cwd ?? (await getWorkspaceRoot()) ?? homedir();
       const adapter = getAdapter(agent);
       const { cmd, args } = adapter.buildArgs({
         runId: "oneshot",
         sessionId: "oneshot",
         agent,
-        cwd: req.cwd ?? homedir(),
+        cwd,
         prompt: req.prompt,
         model: req.model,
       });
       return new Promise<string>((resolve, reject) => {
         const proc = startAgentProcess(agent, cmd, args, {
-          cwd: req.cwd ?? homedir(),
+          cwd,
           env: spawnEnvFor({ agent }),
         });
         let out = "";

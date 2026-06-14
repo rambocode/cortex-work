@@ -36,6 +36,13 @@ export async function getPersistedState(): Promise<PersistedState> {
   return EMPTY;
 }
 
+// 通用设置里的默认工作目录（agent 启动未显式传 cwd 时兜底）。读 in-memory 镜像
+//（generalSettings 立即落盘,反映 renderer 最新设置）。空串视为未设置。
+export async function getWorkspaceRoot(): Promise<string | undefined> {
+  const root = (await getPersistedState()).generalSettings?.workspaceRoot;
+  return root && root.trim() ? root : undefined;
+}
+
 async function savePersistedState(state: PersistedState): Promise<void> {
   await ensureMigrated();
   const path = storePath();

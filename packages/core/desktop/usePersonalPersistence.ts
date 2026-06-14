@@ -15,7 +15,14 @@ export type SaveUrgency = "none" | "immediate" | "throttled";
 // 其余切片高频变更,维持节流。
 export function saveUrgency(s: PersonalState, prev: PersonalState): SaveUrgency {
   if (!s.hydrated) return "none";
-  if (s.projects !== prev.projects || s.promptRoot !== prev.promptRoot) return "immediate";
+  // projects/promptRoot 是 fs 白名单数据源;generalSettings 被主进程消费
+  //（workspaceRoot 兜底 cwd、桌面行为）—— 均须立即落盘,避免主进程读到旧值。
+  if (
+    s.projects !== prev.projects ||
+    s.promptRoot !== prev.promptRoot ||
+    s.generalSettings !== prev.generalSettings
+  )
+    return "immediate";
   if (
     s.sessions !== prev.sessions ||
     s.todos !== prev.todos ||

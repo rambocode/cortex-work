@@ -344,6 +344,39 @@ export interface PersonalProfile {
   avatarId?: string;
 }
 
+// ── 通用设置（generalSettings：主进程消费 + 持久化） ───────────────────────
+
+// 桌面行为（主进程据此设登录项/关窗行为/启动状态）。
+export interface DesktopBehavior {
+  openAtLogin: boolean; // 开机自启（仅 win32/darwin 生效）
+  startMinimized: boolean; // 启动时最小化/不显示主窗口
+  closeToTray: boolean; // 关窗（X）隐藏到托盘而非退出
+}
+
+export interface NotificationSettings {
+  turnComplete: boolean; // agent 回合结束系统通知
+}
+
+export interface LogSettings {
+  enabled: boolean; // 主进程文件日志落盘开关
+  retentionDays: number; // 日志保留天数
+}
+
+// 通用设置容器（与外观项 Tweaks 分属两套存储：这里随 personal-workspace.json 落盘）。
+export interface GeneralSettings {
+  workspaceRoot?: string; // 默认工作目录（agent 启动未显式传 cwd 时兜底）
+  desktopBehavior: DesktopBehavior;
+  notifications: NotificationSettings;
+  log: LogSettings;
+}
+
+export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
+  // closeToTray 默认 true：保留现有「关窗隐藏到后台、托盘常驻」行为;关闭则关窗即退出。
+  desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
+  notifications: { turnComplete: true },
+  log: { enabled: true, retentionDays: 2 },
+};
+
 // 主进程 userData JSON 中持久化的全量状态。
 export interface PersistedState {
   version: 1;
@@ -355,6 +388,8 @@ export interface PersistedState {
   pushSettings?: PushSettings;
   ttsSettings?: TtsSettings;
   providerSettings?: ProviderSettings;
+  // 通用设置（工作目录/桌面行为/通知/日志;主进程消费）。
+  generalSettings?: GeneralSettings;
   // 用户资料（昵称 + 头像;会话中 who="me" 的气泡据此渲染）。
   profile?: PersonalProfile;
   // 右侧面板自定义宽度（px）;未设置时按视图走 CSS 自动档位。

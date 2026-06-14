@@ -13,7 +13,7 @@ import type { AgentProcess } from "../ipc/cli";
 import { spawnEnvFor, startAgentProcess } from "../ipc/cli";
 import { getAdapter } from "../agents";
 import { writePiExtension } from "../agents/pi-providers";
-import { getPersistedState } from "../ipc/store";
+import { getPersistedState, getWorkspaceRoot } from "../ipc/store";
 import type { AutomationMeta, AutomationRun, CliStartRequest } from "../ipc/types";
 import { broadcastChanged, broadcastRunEvent } from "./events";
 import { computeNextRun } from "./schedule-cron";
@@ -112,7 +112,8 @@ export async function runAutomation(
   await appendRun(run);
   broadcastRunEvent({ automationId: meta.id, run: { ...run }, phase: "start" });
 
-  const cwd = meta.cwd || homedir();
+  // 未指定项目 cwd 时以默认工作目录（通用设置）兜底,再退回主目录。
+  const cwd = meta.cwd || (await getWorkspaceRoot()) || homedir();
 
   // 整个启动序列（pi provider 解析/写 extension、buildArgs、spawn）都纳入 try:
   // writePiExtension 用同步 fs,磁盘满/权限错会抛 —— 必须经 finalize 解除 pending,
