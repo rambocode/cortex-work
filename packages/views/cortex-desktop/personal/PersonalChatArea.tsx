@@ -351,14 +351,6 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         }
       />
 
-      <GitBar
-        project={realProject}
-        projectValue={session.projectId}
-        running={running}
-        onSend={(text) => void send(session, project.path, text, [])}
-        onToast={onToast}
-      />
-
       <PersonalComposer
         session={session}
         running={running}
@@ -385,6 +377,14 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         onChangeModel={(model) => updateSession(session.id, { model })}
         onChangePiModel={(channelId, model) => updateSession(session.id, { piChannelId: channelId, model })}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
+        onToast={onToast}
+      />
+
+      <GitBar
+        project={realProject}
+        projectValue={session.projectId}
+        running={running}
+        onSend={(text) => void send(session, project.path, text, [])}
         onToast={onToast}
       />
     </main>

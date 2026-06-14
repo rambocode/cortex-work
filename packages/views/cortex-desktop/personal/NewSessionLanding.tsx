@@ -103,17 +103,6 @@ export function NewSessionLanding({ onToast }: { onToast: (text: string) => void
         <HomeBoard onToast={onToast} />
       </div>
 
-      <GitBar
-        project={selectedProject}
-        projectValue={selectedProjectId}
-        onChangeProject={(id) => {
-          setSelectedProjectId(id);
-          setHasChosen(true);
-        }}
-        running={false}
-        onToast={onToast}
-      />
-
       <ComposerShell
         agent={draft.agent}
         model={draft.model}
@@ -127,6 +116,17 @@ export function NewSessionLanding({ onToast }: { onToast: (text: string) => void
         onChangeModel={(model) => setDraft((d) => ({ ...d, model }))}
         onChangePiModel={(channelId, model) => setDraft((d) => ({ ...d, piChannelId: channelId, model }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
+        onToast={onToast}
+      />
+
+      <GitBar
+        project={selectedProject}
+        projectValue={selectedProjectId}
+        onChangeProject={(id) => {
+          setSelectedProjectId(id);
+          setHasChosen(true);
+        }}
+        running={false}
         onToast={onToast}
       />
     </main>
