@@ -2,10 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "@cortex-work/ui/icons";
-import { whoMeta, usePetStore, useDesktopBridge } from "@cortex-work/core";
+import { whoMeta, usePetStore, useDesktopBridge, usePersonalProfile } from "@cortex-work/core";
 import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { renderRich } from "./rich";
 import { chatMarkdownComponents } from "./personal/chatMarkdown";
+import { renderAvatar } from "./personal/avatars";
 
 function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
   const isShared = contact.group === "shared";
@@ -78,7 +79,13 @@ function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation 
 }
 
 function MessageAvatar({ who }: { who: string }) {
-  const meta = whoMeta(who);
+  // profile 仅影响 who="me";其余作者 whoMeta 忽略它（见 core/mock/data.ts）。
+  const profile = usePersonalProfile();
+  const meta = whoMeta(who, profile);
+  const svg = renderAvatar(meta.avatar.avatarId);
+  if (svg) {
+    return <div className="m-avatar has-img">{svg}</div>;
+  }
   return (
     <div className="m-avatar" style={{ background: meta.avatar.bg }}>
       {meta.avatar.initials}
@@ -87,7 +94,8 @@ function MessageAvatar({ who }: { who: string }) {
 }
 
 function MessageHeader({ who, time, hideTime = false }: { who: string; time: string; hideTime?: boolean }) {
-  const meta = whoMeta(who);
+  const profile = usePersonalProfile();
+  const meta = whoMeta(who, profile);
   const isAgent = who.endsWith("-agent");
   return (
     <div className="m-head">
@@ -123,6 +131,7 @@ function TextMessage({
   projectPath?: string;
 }) {
   const bridge = useDesktopBridge();
+  const profile = usePersonalProfile();
   const renderMd = markdown && m.who !== "me" && typeof m.text === "string";
   // 仅个人区(有 onOpenFile + projectPath)注入可点击文件链接 components;否则 undefined = 原渲染。
   const fileLinkComponents =
@@ -134,7 +143,7 @@ function TextMessage({
         <MessageHeader who={m.who} time={m.time} hideTime={hideTime} />
         {m.reply ? (
           <div className="reply-quote">
-            <span className="rq-who">{whoMeta(m.reply.who).name}</span>
+            <span className="rq-who">{whoMeta(m.reply.who, profile).name}</span>
             {m.reply.text}
           </div>
         ) : null}

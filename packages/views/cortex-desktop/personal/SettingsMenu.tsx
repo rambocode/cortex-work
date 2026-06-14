@@ -17,6 +17,7 @@ import {
   stopSpeaking,
   useCortexUIStore,
   useDesktopBridge,
+  usePersonalProfile,
   usePersonalStore,
   usePetStore,
   type PetKind,
@@ -45,6 +46,7 @@ import {
   petColorVars,
 } from "../pet/designs";
 import { savePetEnabled, savePetMode, savePetWalk } from "../pet/behavior";
+import { BUILTIN_AVATARS } from "./avatars";
 
 const PALETTES: PaletteOption[] = [
   { id: "clay", name: "Clay", colors: ["#c96442", "#f3e7df", "#1a1916"] },
@@ -55,9 +57,10 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
-type SettingsTab = "pet" | "appearance" | "agent" | "timeline" | "push" | "voice";
+type SettingsTab = "profile" | "pet" | "appearance" | "agent" | "timeline" | "push" | "voice";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
+  { id: "profile", label: "个人资料", icon: <Icon.Users size={14} /> },
   { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
   { id: "appearance", label: "外观", icon: <Icon.Image size={14} /> },
   { id: "agent", label: "Agent", icon: <Icon.Terminal size={14} /> },
@@ -72,6 +75,48 @@ const PET_COLOR_PRESETS = ["#ecb98a", "#e8a3b2", "#a3c4e8", "#9fc7a8", "#c9b6e8"
 // 行为模式 ↔ 设置页展示文案(SegmentedRadio 以展示值为选项)。
 const PET_MODE_LABEL: Record<PetMode, string> = { free: "自由放置", perch: "趴在输入框" };
 const PET_MODE_OPTIONS = (Object.keys(PET_MODE_LABEL) as PetMode[]).map((m) => PET_MODE_LABEL[m]);
+
+// 个人资料:昵称 + 内置头像（写入 personal store 的 profile 切片,随工作区落盘;
+// 会话中 who="me" 的气泡据此渲染,见 ChatArea MessageAvatar/MessageHeader）。
+function ProfileSection() {
+  const profile = usePersonalProfile();
+  const setProfile = usePersonalStore((s) => s.setProfile);
+  const nickname = profile.nickname ?? "";
+  return (
+    <>
+      <div className="pw-dlg-title">个人资料</div>
+      <div className="pw-dlg-desc">设置你的昵称和头像,会话中你发出的消息会用它们显示。</div>
+
+      <div className="twk-sect">昵称 · Nickname</div>
+      <Field
+        label="昵称"
+        value={nickname}
+        placeholder="我"
+        onChange={(v) => setProfile({ nickname: v })}
+      />
+
+      <div className="twk-sect">头像 · Avatar</div>
+      <div className="pw-pet-grid">
+        {BUILTIN_AVATARS.map((a) => {
+          const Svg = a.Svg;
+          return (
+            <button
+              key={a.id}
+              className={`pw-pet-card ${a.id === profile.avatarId ? "is-active" : ""}`}
+              onClick={() => setProfile({ avatarId: a.id })}
+              title={a.name}
+            >
+              <span className="pw-avatar-preview">
+                <Svg />
+              </span>
+              <span className="pw-pet-name">{a.name}</span>
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
 
 function PetSection() {
   const petKind = usePetStore((s) => s.kind);
@@ -911,7 +956,7 @@ function VoiceSection() {
 }
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<SettingsTab>("pet");
+  const [tab, setTab] = useState<SettingsTab>("profile");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -941,7 +986,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           <button className="pw-dlg-x" title="关闭" onClick={onClose}>
             <Icon.X size={15} />
           </button>
-          {tab === "pet" ? (
+          {tab === "profile" ? (
+            <ProfileSection />
+          ) : tab === "pet" ? (
             <PetSection />
           ) : tab === "appearance" ? (
             <AppearanceSection />

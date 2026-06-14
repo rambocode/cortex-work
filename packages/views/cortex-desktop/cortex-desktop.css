@@ -642,6 +642,9 @@ input, textarea { font: inherit; color: inherit; }
   font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0;
   margin-top: 2px;
 }
+/* 内置 SVG 头像:满幅填充并随 border-radius 裁成圆形（覆盖首字母底色/留白）。 */
+.msg .m-avatar.has-img { background: transparent; overflow: hidden; }
+.msg .m-avatar.has-img svg { display: block; width: 100%; height: 100%; }
 .msg.is-grouped .m-avatar { visibility: hidden; height: 0; margin-top: 0; }
 .msg.is-grouped .m-head { display: none; }
 .msg .m-body { flex: 1; min-width: 0; }
@@ -4641,6 +4644,16 @@ button.sb-row {
 .pw-pet-name { font-size: 12.5px; color: var(--text-1); font-weight: 600; margin-top: 4px; }
 .pw-pet-desc { font-size: 11px; color: var(--text-3); }
 .pw-pet-card.is-active .pw-pet-name { color: var(--accent); }
+
+/* 个人资料头像预览:内置 SVG 满幅,圆形裁切，与会话气泡圆头像观感一致。 */
+.pw-avatar-preview {
+  display: block;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.pw-avatar-preview svg { display: block; width: 100%; height: 100%; }
 
 /* 宠物尺寸滑杆 */
 .pw-pet-size { display: flex; align-items: center; gap: 10px; }

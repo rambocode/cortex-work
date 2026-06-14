@@ -27,6 +27,7 @@ export {
 } from "./store/ui";
 export {
   usePersonalStore,
+  usePersonalProfile,
   toPersistedState,
   partitionProjects,
   defaultAgent,
@@ -53,6 +54,7 @@ export {
   type TodoMeta,
   type TodoStatus,
   type PersistedState,
+  type PersonalProfile,
   type ReadFileResult,
   type CliStartRequest,
   type CliStreamEvent,
@@ -105,6 +107,12 @@ export {
   PI_CHANNEL_TEMPLATES,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
+export {
+  BUILTIN_AVATAR_IDS,
+  DEFAULT_AVATAR_ID,
+  isBuiltinAvatarId,
+  type BuiltinAvatarId,
+} from "./personal/avatars";
 export { useSpotlightIntentRouter, useSpotlightHandoff } from "./personal/spotlightHandoff";
 export {
   automationKeys,

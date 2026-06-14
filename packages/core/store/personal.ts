@@ -6,6 +6,7 @@ import { create } from "zustand";
 import type {
   AgentKind,
   PersistedState,
+  PersonalProfile,
   PiChannel,
   PiSettings,
   ProjectMeta,
@@ -80,6 +81,8 @@ export interface PersonalState {
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
   // 兜底 Agent（内置 pi）配置（持久化）。
   piSettings: PiSettings;
+  // 用户资料（昵称 + 内置头像 id,持久化）。会话中 who="me" 的气泡据此渲染。
+  profile: PersonalProfile;
   // 「最后一次使用」记忆（持久化;Spotlight/新会话默认沿用）。
   lastAgent?: AgentKind;
   lastModel?: string;
@@ -149,6 +152,8 @@ export interface PersonalState {
   setTimelineSettings: (patch: Partial<TimelineSettings>) => void;
   setPushSettings: (patch: Partial<PushSettings>) => void;
   setTtsSettings: (patch: Partial<TtsSettings>) => void;
+  // 用户资料 patch（浅合并;允许只改昵称或只改头像）。
+  setProfile: (patch: Partial<PersonalProfile>) => void;
 }
 
 function baseName(p: string): string {
@@ -171,6 +176,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   pushSettings: DEFAULT_PUSH_SETTINGS,
   ttsSettings: DEFAULT_TTS_SETTINGS,
   piSettings: DEFAULT_PI_SETTINGS,
+  profile: {},
   hydrate: (s) =>
     set({
       hydrated: true,
@@ -187,6 +193,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       ttsSettings: s.ttsSettings ?? DEFAULT_TTS_SETTINGS,
       // 旧结构（单 provider,无 channels）按空通道重置;用户重新配置。
       piSettings: Array.isArray(s.piSettings?.channels) ? s.piSettings : DEFAULT_PI_SETTINGS,
+      // 旧存档无 profile 字段 → 回退空对象（会话渲染走默认昵称/头像）。
+      profile: s.profile ?? {},
       rightPanelWidth: s.rightPanelWidth,
       lastAgent: s.lastAgent,
       lastModel: s.lastModel,
@@ -446,7 +454,15 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setTtsSettings: (patch) =>
     set((s) => ({ ttsSettings: { ...s.ttsSettings, ...patch } })),
+
+  setProfile: (patch) =>
+    set((s) => ({ profile: { ...s.profile, ...patch } })),
 }));
+
+// 用户资料 selector（会话渲染 / 设置页共用;窄订阅 profile 切片）。
+export function usePersonalProfile(): PersonalProfile {
+  return usePersonalStore((s) => s.profile);
+}
 
 // 持久化切片快照（usePersonalPersistence 用）。promptTree 不持久化，启动重扫。
 export function toPersistedState(s: PersonalState): PersistedState {
@@ -460,6 +476,7 @@ export function toPersistedState(s: PersonalState): PersistedState {
     pushSettings: s.pushSettings,
     ttsSettings: s.ttsSettings,
     piSettings: s.piSettings,
+    profile: s.profile,
     rightPanelWidth: s.rightPanelWidth,
     lastAgent: s.lastAgent,
     lastModel: s.lastModel,

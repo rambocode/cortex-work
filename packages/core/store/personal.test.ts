@@ -422,6 +422,37 @@ describe("setAgentsAvailable 不持久化", () => {
   });
 });
 
+describe("个人资料 profile (昵称 + 头像)", () => {
+  it("默认空对象;旧存档缺 profile 字段时回退空对象且不抛错", () => {
+    usePersonalStore.getState().hydrate(base);
+    expect(usePersonalStore.getState().profile).toEqual({});
+  });
+
+  it("setProfile 浅合并:只改昵称不影响已有头像,反之亦然", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setProfile({ nickname: "阿伟" });
+    expect(usePersonalStore.getState().profile).toEqual({ nickname: "阿伟" });
+
+    usePersonalStore.getState().setProfile({ avatarId: "fox" });
+    expect(usePersonalStore.getState().profile).toEqual({ nickname: "阿伟", avatarId: "fox" });
+
+    usePersonalStore.getState().setProfile({ nickname: "小明" });
+    expect(usePersonalStore.getState().profile).toEqual({ nickname: "小明", avatarId: "fox" });
+  });
+
+  it("hydrate 恢复 profile,toPersistedState round-trip 一致", () => {
+    usePersonalStore.getState().hydrate({ ...base, profile: { nickname: "测试", avatarId: "cat" } });
+    expect(usePersonalStore.getState().profile).toEqual({ nickname: "测试", avatarId: "cat" });
+
+    const persisted = toPersistedState(usePersonalStore.getState());
+    expect(persisted.profile).toEqual({ nickname: "测试", avatarId: "cat" });
+
+    // round-trip:把快照再 hydrate 回去,结果一致。
+    usePersonalStore.getState().hydrate({ version: 1, projects: [], sessions: [], profile: persisted.profile });
+    expect(usePersonalStore.getState().profile).toEqual({ nickname: "测试", avatarId: "cat" });
+  });
+});
+
 describe("filePreviewRequest 文件预览请求(消费即清)", () => {
   const req = { projectId: "p1", path: "/code/p1/src/a.ts", name: "a.ts" };
 
