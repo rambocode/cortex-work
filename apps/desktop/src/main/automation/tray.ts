@@ -1,6 +1,6 @@
 // 系统托盘:关窗后应用驻留后台时的入口。左键单击唤起菜单栏 Spotlight 浮动框,
 // 左键双击打开主窗口,右键弹出菜单（显示主窗口 / 退出）。让定时任务在窗口关闭后仍能触发。
-// 图标暂复用应用图标。
+// menu bar 使用独立的 template 图标,避免受 Dock/app icon 背景影响。
 
 import { Menu, Tray, nativeImage } from "electron";
 import { app } from "electron";
@@ -13,7 +13,7 @@ let clickTimer: ReturnType<typeof setTimeout> | null = null;
 const DOUBLE_CLICK_MS = 250;
 
 function trayIconPath(): string {
-  const name = "cortex-neuron-icon.png";
+  const name = "cortex-tray-iconTemplate.png";
   return app.isPackaged
     ? join(app.getAppPath(), "assets", name)
     : join(__dirname, "../../assets", name);
@@ -26,7 +26,10 @@ export function createTray(opts: {
 }): void {
   if (tray) return;
   let image = nativeImage.createFromPath(trayIconPath());
-  if (!image.isEmpty()) image = image.resize({ width: 18, height: 18 });
+  if (!image.isEmpty()) {
+    image = image.resize({ width: 16, height: 16 });
+    if (process.platform === "darwin") image.setTemplateImage(true);
+  }
   tray = new Tray(image);
   tray.setToolTip("Cortex Desktop");
   const menu = Menu.buildFromTemplate([
