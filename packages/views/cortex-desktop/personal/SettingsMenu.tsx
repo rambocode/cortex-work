@@ -26,6 +26,7 @@ import {
 } from "@cortex-work/core";
 import type {
   AgentKind,
+  DesktopBridge,
   DingtalkPushConfig,
   EmailPushConfig,
   EndpointFormat,
@@ -617,24 +618,6 @@ function slugify(s: string): string {
   return out || "provider";
 }
 
-// 模型多行文本 ↔ ProviderModelOption[]:每行 "id" 或 "id|显示名"。
-function parseModels(text: string): ProviderModelOption[] {
-  const out: ProviderModelOption[] = [];
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-    const parts = line.split("|");
-    const id = (parts[0] ?? "").trim();
-    const label = (parts[1] ?? "").trim();
-    if (!id) continue;
-    out.push(label ? { id, label } : { id });
-  }
-  return out;
-}
-function modelsToText(models: ProviderModelOption[]): string {
-  return models.map((m) => (m.label ? `${m.id}|${m.label}` : m.id)).join("\n");
-}
-
 const ENDPOINT_FORMAT_OPTIONS: { label: string; value: EndpointFormat }[] = [
   { label: "OpenAI 兼容 (chat/completions)", value: "chat_completions" },
   { label: "OpenAI Responses", value: "responses" },
@@ -697,6 +680,174 @@ type ProbeState =
   | { kind: "ok"; models: string[] }
   | { kind: "err"; error: string };
 
+// 单个模型的内联编辑行（添加/编辑共用）：id + 显示名 + 保存/取消。
+function ModelEditRow({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: ProviderModelOption;
+  onSave: (m: ProviderModelOption) => void;
+  onCancel: () => void;
+}) {
+  const [id, setId] = useState(initial.id);
+  const [label, setLabel] = useState(initial.label ?? "");
+  const save = () => {
+    const trimmed = id.trim();
+    if (!trimmed) return;
+    onSave(label.trim() ? { id: trimmed, label: label.trim() } : { id: trimmed });
+  };
+  return (
+    <div className="pw-ml-edit">
+      <input
+        className="pw-set-input"
+        value={id}
+        placeholder="模型 id（如 deepseek-chat）"
+        spellCheck={false}
+        autoFocus
+        onChange={(e) => setId(e.target.value)}
+        onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
+      />
+      <input
+        className="pw-set-input"
+        value={label}
+        placeholder="显示名（可选）"
+        spellCheck={false}
+        onChange={(e) => setLabel(e.target.value)}
+        onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
+      />
+      <button className="btn pw-pi-add-btn" disabled={!id.trim()} onClick={save}>
+        保存
+      </button>
+      <button className="pw-ml-cancel" onClick={onCancel}>
+        取消
+      </button>
+    </div>
+  );
+}
+
+// kun 风格模型列表：每个模型一张卡（id + 能力徽标 + 编辑/删除）,顶部「从 API 拉取」,底部「添加模型」。
+function ProviderModels({
+  models,
+  onChange,
+  bridge,
+  baseUrl,
+  apiKey,
+  endpointFormat,
+}: {
+  models: ProviderModelOption[];
+  onChange: (models: ProviderModelOption[]) => void;
+  bridge: DesktopBridge | null;
+  baseUrl: string;
+  apiKey?: string;
+  endpointFormat: EndpointFormat;
+}) {
+  // editIdx：正在编辑的下标;models.length 表示新增;null 表示无编辑。
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
+  useEffect(() => {
+    setProbe({ kind: "idle" });
+  }, [baseUrl, apiKey, endpointFormat]);
+
+  const canProbe = !!bridge?.probeProvider && endpointFormat !== "custom" && !!baseUrl.trim();
+
+  const runProbe = async () => {
+    if (!bridge?.probeProvider || probe.kind === "testing") return;
+    setProbe({ kind: "testing" });
+    try {
+      const res = await bridge.probeProvider({ baseUrl, apiKey, endpointFormat });
+      setProbe(res.ok ? { kind: "ok", models: res.models ?? [] } : { kind: "err", error: res.error ?? "连接失败" });
+    } catch (e) {
+      setProbe({ kind: "err", error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  // 拉取应用：保留已有显示名,按拉取结果重排（新 id 无显示名）。
+  const applyFetched = (ids: string[]) => {
+    const existing = new Map(models.map((m) => [m.id, m]));
+    onChange(ids.map((id) => existing.get(id) ?? { id }));
+    setProbe({ kind: "idle" });
+  };
+
+  const saveModel = (m: ProviderModelOption) => {
+    const next = [...models];
+    if (editIdx === models.length) next.push(m);
+    else if (editIdx !== null) next[editIdx] = m;
+    onChange(next);
+    setEditIdx(null);
+  };
+  const removeModel = (i: number) => {
+    onChange(models.filter((_, j) => j !== i));
+    if (editIdx === i) setEditIdx(null);
+  };
+
+  return (
+    <div className="pw-ml">
+      <div className="pw-ml-head">
+        <span className="pw-ml-title">模型列表 · {models.length}</span>
+        <button
+          className="pw-tl-gen"
+          disabled={!canProbe || probe.kind === "testing"}
+          onClick={() => void runProbe()}
+          title={endpointFormat === "custom" ? "自定义端点不支持探测,请手动添加" : undefined}
+        >
+          <Icon.Retry size={12} />
+          {probe.kind === "testing" ? "拉取中…" : "从 API 拉取"}
+        </button>
+      </div>
+      <div className="pw-set-hint">供应商发布新模型后可在这里手动添加或从 API 拉取。</div>
+
+      {probe.kind === "ok" ? (
+        <div className="pw-ml-probe pw-ml-probe-ok">
+          拉取到 {probe.models.length} 个模型
+          {probe.models.length > 0 ? (
+            <button className="pw-prov-probe-apply" onClick={() => applyFetched(probe.models)}>
+              应用
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {probe.kind === "err" ? <div className="pw-ml-probe pw-ml-probe-err">{probe.error}</div> : null}
+
+      {models.length === 0 && editIdx === null ? (
+        <div className="pw-set-hint">还没有模型。点「添加模型」或「从 API 拉取」。</div>
+      ) : null}
+
+      {models.map((m, i) =>
+        editIdx === i ? (
+          <ModelEditRow key={i} initial={m} onSave={saveModel} onCancel={() => setEditIdx(null)} />
+        ) : (
+          <div key={i} className="pw-ml-card">
+            <div className="pw-ml-card-main">
+              <span className="pw-ml-id">{m.id}</span>
+              <span className="pw-ml-badges">
+                <span className="pw-ml-badge">文本对话</span>
+                {m.label && m.label !== m.id ? <span className="pw-ml-badge is-name">{m.label}</span> : null}
+              </span>
+            </div>
+            <div className="pw-ml-actions">
+              <button title="编辑" onClick={() => setEditIdx(i)}>
+                <Icon.Edit size={14} />
+              </button>
+              <button title="删除" onClick={() => removeModel(i)}>
+                <Icon.Trash size={14} />
+              </button>
+            </div>
+          </div>
+        ),
+      )}
+
+      {editIdx === models.length ? (
+        <ModelEditRow initial={{ id: "" }} onSave={saveModel} onCancel={() => setEditIdx(null)} />
+      ) : (
+        <button className="pw-ml-add" onClick={() => setEditIdx(models.length)}>
+          <Icon.Plus size={13} />
+          添加模型
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ProviderDetail({
   provider,
   onPatch,
@@ -707,34 +858,6 @@ function ProviderDetail({
   onRemove: () => void;
 }) {
   const bridge = useDesktopBridge();
-  const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
-  // 改 baseUrl/协议/apiKey 后清探测结果,避免「填入模型」回填基于旧端点拉到的过时模型。
-  useEffect(() => {
-    setProbe({ kind: "idle" });
-  }, [provider.baseUrl, provider.endpointFormat, provider.apiKey]);
-  const canProbe =
-    !!bridge?.probeProvider && provider.endpointFormat !== "custom" && !!provider.baseUrl.trim();
-
-  const runProbe = async () => {
-    if (!bridge?.probeProvider || probe.kind === "testing") return;
-    setProbe({ kind: "testing" });
-    try {
-      const res = await bridge.probeProvider({
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        endpointFormat: provider.endpointFormat,
-      });
-      setProbe(res.ok ? { kind: "ok", models: res.models ?? [] } : { kind: "err", error: res.error ?? "连接失败" });
-    } catch (e) {
-      setProbe({ kind: "err", error: e instanceof Error ? e.message : String(e) });
-    }
-  };
-
-  const applyModels = (ids: string[]) => {
-    onPatch({ models: ids.map((id) => ({ id })) });
-    setProbe({ kind: "idle" });
-  };
-
   return (
     <div className="pw-prov-detail">
       <div className="pw-pi-channel-head">
@@ -766,40 +889,14 @@ function ProviderDetail({
         placeholder="该供应商的 API Key"
         onChange={(v) => onPatch({ apiKey: v || undefined })}
       />
-      <label className="pw-set-field">
-        <span className="pw-set-lbl">模型（每行一个,可写 id|显示名）</span>
-        <textarea
-          className="pw-set-input"
-          rows={4}
-          value={modelsToText(provider.models)}
-          placeholder="deepseek-chat|DeepSeek Chat"
-          spellCheck={false}
-          onChange={(e) => onPatch({ models: parseModels(e.target.value) })}
-        />
-      </label>
-
-      <div className="pw-prov-probe">
-        <button
-          className="pw-tl-gen"
-          disabled={!canProbe || probe.kind === "testing"}
-          onClick={() => void runProbe()}
-          title={provider.endpointFormat === "custom" ? "自定义端点不支持探测" : undefined}
-        >
-          <Icon.Globe size={12} />
-          {probe.kind === "testing" ? "测试中…" : "测试连接 / 拉取模型"}
-        </button>
-        {probe.kind === "ok" ? (
-          <span className="pw-prov-probe-ok">
-            连接成功,{probe.models.length} 个模型
-            {probe.models.length > 0 ? (
-              <button className="pw-prov-probe-apply" onClick={() => applyModels(probe.models)}>
-                填入模型
-              </button>
-            ) : null}
-          </span>
-        ) : null}
-        {probe.kind === "err" ? <span className="pw-prov-probe-err">{probe.error}</span> : null}
-      </div>
+      <ProviderModels
+        models={provider.models}
+        onChange={(models) => onPatch({ models })}
+        bridge={bridge}
+        baseUrl={provider.baseUrl}
+        apiKey={provider.apiKey}
+        endpointFormat={provider.endpointFormat}
+      />
     </div>
   );
 }
