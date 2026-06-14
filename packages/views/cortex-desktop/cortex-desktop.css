@@ -5039,6 +5039,120 @@ button.sb-row {
 .pw-home-section > .pw-section-h { padding: 0; }
 .pw-home-loading { font-size: 11px; color: var(--text-4); }
 
+/* ── 落地页 Hero（LandingHero：浏览器 mockup + 吉祥物 + 标题/副标题） ────────
+   借鉴 kun 的「迷你工作台」hero。纯展示,色调取 --accent 浅蓝调,与既有主题变量对齐。 */
+.pw-hero {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 18px;
+  padding: 28px 0 6px;
+  text-align: center;
+}
+.pw-hero-stage {
+  width: 100%;
+  max-width: 560px;
+  padding: 26px 30px 34px;
+  border-radius: 22px;
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
+    color-mix(in srgb, var(--accent) 4%, var(--bg-app));
+}
+/* 浏览器窗口外壳 */
+.pw-hero-shell {
+  position: relative;
+  border-radius: 14px;
+  background: var(--bg-app);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  box-shadow: 0 18px 44px -22px color-mix(in srgb, var(--accent) 40%, transparent);
+  overflow: hidden;
+}
+.pw-hero-titlebar {
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 8%, var(--border));
+}
+.pw-hero-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
+.pw-hero-dot.is-red { background: #ff5f57; }
+.pw-hero-dot.is-yellow { background: #febc2e; }
+.pw-hero-dot.is-green { background: #28c840; }
+.pw-hero-winicon {
+  margin-left: auto;
+  width: 14px; height: 11px;
+  border-radius: 3px;
+  border: 1.4px solid color-mix(in srgb, var(--text-4) 70%, transparent);
+}
+.pw-hero-body {
+  display: flex; gap: 14px;
+  padding: 16px;
+  min-height: 168px;
+}
+.pw-hero-nav {
+  display: flex; flex-direction: column; gap: 9px;
+  flex-shrink: 0; width: 92px;
+  padding-top: 4px;
+}
+.pw-hero-nav span {
+  height: 9px; border-radius: 5px;
+  background: color-mix(in srgb, var(--text-4) 22%, transparent);
+}
+.pw-hero-nav span:nth-child(2) { width: 78%; }
+.pw-hero-nav span:nth-child(3) { width: 90%; }
+.pw-hero-nav span:nth-child(4) { width: 64%; }
+.pw-hero-nav span.is-active { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.pw-hero-canvas {
+  position: relative; flex: 1;
+  display: flex; flex-direction: column; gap: 11px;
+  justify-content: center;
+  padding: 6px 4px;
+}
+.pw-hero-thread { height: 9px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.pw-hero-thread.is-one { width: 70%; }
+.pw-hero-thread.is-two { width: 40%; }
+.pw-hero-thread.is-three { width: 58%; margin-left: auto; }
+/* 居中吉祥物 + 同心环 */
+.pw-hero-core {
+  position: relative;
+  align-self: center;
+  display: grid; place-items: center;
+  width: 96px; height: 96px;
+  margin: 2px 0;
+}
+.pw-hero-ring {
+  position: absolute; inset: 0;
+  border-radius: 26px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-app));
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--accent) 7%, transparent),
+    0 0 0 13px color-mix(in srgb, var(--accent) 4%, transparent);
+}
+.pw-hero-mascot {
+  position: relative;
+  width: 62px; height: 62px;
+  object-fit: contain;
+  user-select: none; -webkit-user-drag: none;
+}
+.pw-hero-composer {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 16px 16px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-subtle, var(--bg-app)));
+  border: 1px solid color-mix(in srgb, var(--accent) 9%, var(--border));
+}
+.pw-hero-composer span { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--text-4) 20%, transparent); }
+.pw-hero-composer span:first-child { flex: 1; }
+.pw-hero-composer span:last-child { width: 46px; background: color-mix(in srgb, var(--accent) 38%, transparent); }
+.pw-hero-title {
+  margin: 0;
+  font-size: 26px; font-weight: 800; letter-spacing: 0.5px;
+  color: color-mix(in srgb, var(--accent) 32%, var(--text-1));
+}
+.pw-hero-sub {
+  margin: 0;
+  max-width: 460px;
+  font-size: 13.5px; line-height: 1.7;
+  color: var(--text-3);
+}
+
 /* 热力图：周列方格,横向滚动 */
 .pw-hm {
   background: var(--bg-card-2);
@@ -5270,7 +5384,8 @@ button.sb-row {
 }
 /* 看板封顶居中:滚动容器 .pw-home 保持整宽(滚动条贴窗口右缘),只对内部分区
    封顶居中,与 GitBar/输入框共用 --pw-landing-col 左右对齐。 */
-.pw-landing .pw-home > .pw-home-section {
+.pw-landing .pw-home > .pw-home-section,
+.pw-landing .pw-home > .pw-hero {
   width: 100%;
   max-width: var(--pw-landing-col);
   margin-inline: auto;
