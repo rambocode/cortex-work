@@ -3309,6 +3309,51 @@ button.sb-row {
   padding-right: 6px;
   font-size: 13px;
 }
+/* md 元数据(frontmatter)预览:默认仅显示折叠入口,点击展开 key-value 列表 */
+.pw-md-fm { margin: 2px 0 12px; }
+.pw-md-fm-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 7px;
+  background: var(--bg-card-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.pw-md-fm-toggle:hover { color: var(--text-1); border-color: var(--border); }
+.pw-md-fm-caret { flex: none; transition: transform 0.15s ease; }
+.pw-md-fm[data-open] .pw-md-fm-caret { transform: rotate(90deg); }
+.pw-md-fm-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 999px;
+  background: var(--bg-app);
+  color: var(--text-3);
+  font-size: 11px;
+}
+.pw-md-fm-body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: var(--bg-card-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pw-md-fm-row { display: contents; }
+.pw-md-fm-body dt { color: var(--text-3); font-weight: 600; white-space: nowrap; }
+.pw-md-fm-body dd { margin: 0; color: var(--text-1); word-break: break-word; }
+
 .pw-todo-md :is(h1,h2,h3,h4) { color: var(--text-1); font-weight: 700; }
 .pw-todo-md h1 { font-size: 18px; margin: 10px 0 8px; letter-spacing: 0.01em; }
 .pw-todo-md h2 { font-size: 15px; margin: 18px 0 6px; }
