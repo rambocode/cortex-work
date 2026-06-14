@@ -5347,51 +5347,6 @@ button.sb-row {
 .pw-home-summary-h { display: flex; align-items: center; gap: 8px; }
 .pw-home-summary-day { font-size: 13px; font-weight: 700; color: var(--text-1); font-family: var(--mono); }
 .pw-home-summary-projects { display: flex; flex-wrap: wrap; gap: 6px; }
-.pw-home-todos,
-.pw-home-todos-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.pw-home-todos-empty {
-  align-items: flex-start;
-  padding: 10px 12px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-card-2);
-  color: var(--text-3);
-  font-size: 12.5px;
-}
-.pw-home-todo-row {
-  display: grid;
-  /* 图标 · 标题(主,占满) · 项目名(弱化,内容宽) · 时间 */
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-card-2);
-  color: var(--text-2);
-  text-align: left;
-}
-.pw-home-todo-row:hover { background: var(--bg-hover); color: var(--text-1); border-color: var(--border-strong); }
-.pw-home-todo-project {
-  font-weight: 400;
-  font-size: 11px;
-  color: var(--text-4);
-  max-width: 140px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.pw-home-todo-title {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 12.5px;
-}
 
 /* ── ProjectPicker（项目选择下拉,会话页 chat-head / 落地页顶部条复用） ─────── */
 /* 触发器:行内一段,带 ▾ 箭头,可点态 */

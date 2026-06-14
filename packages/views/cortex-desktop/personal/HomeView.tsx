@@ -1,6 +1,5 @@
-// 个人工作区首页看板：跨项目活动热力图（GitHub 风格周列）+ 全局一日总结 +
-// 跨项目 Tasks。数据来自侧边栏可见项目的 timeline 聚合（useAllProjectsTimeline）
-// 与 tasks/ 文件聚合（useAllProjectsTasks）。
+// 个人工作区首页看板：落地页 Hero + 用量日历卡片（活动/token）+ 全局一日总结。
+// 数据来自侧边栏可见项目的 timeline 聚合（useAllProjectsTimeline）。
 // HomeBoard 供 NewSessionLanding 复用,HomeView 为兼容现有 import 的薄包装。
 
 import { useMemo, useState } from "react";
@@ -9,69 +8,14 @@ import {
   dayKey,
   groupEventsByDay,
   partitionProjects,
-  useAllProjectsTasks,
   useAllProjectsTimeline,
   useGenerateGlobalSummary,
   useGlobalSummaries,
-  useCortexUIStore,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { GlobalSummaryEntry, HomeTaskRow } from "@cortex-work/core";
-import { relTime } from "./PersonalSidebar";
+import type { GlobalSummaryEntry } from "@cortex-work/core";
 import { LandingHero } from "./LandingHero";
 import { UsageCalendarCard } from "./UsageCalendarCard";
-
-const HOME_TODOS_LIMIT = 5; // 首页 Tasks 区最多展示的条数(按 mtime 全局降序取前 N)
-
-// ── 跨项目 Tasks 汇总 ─────────────────────────────────────────────────────
-
-function HomeTodos() {
-  const requestTaskDetail = usePersonalStore((s) => s.requestTaskDetail);
-  const setRightView = usePersonalStore((s) => s.setRightView);
-  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
-  const { rows, loading } = useAllProjectsTasks();
-
-  const openTodos = () => {
-    setRightView("todos");
-    setRightOpen(true);
-  };
-
-  // 点 task:右栏直接打开该文件详情（不切走首页,只在右栏展示 markdown）。
-  const openTaskDetail = (row: HomeTaskRow) => {
-    requestTaskDetail({ projectId: row.projectId, path: row.file.path, name: row.file.name });
-    setRightOpen(true);
-  };
-
-  if (rows.length === 0) {
-    return (
-      <div className="pw-home-todos-empty">
-        <span>{loading ? "加载中…" : "还没有 Task"}</span>
-        <button className="pw-tl-gen" onClick={openTodos}>
-          <Icon.Task size={12} />
-          打开 Tasks
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="pw-home-todos">
-      {rows.slice(0, HOME_TODOS_LIMIT).map((row) => (
-        <button
-          key={row.file.path}
-          className="pw-home-todo-row"
-          onClick={() => openTaskDetail(row)}
-          title={row.file.path}
-        >
-          <Icon.Task size={14} />
-          <span className="pw-home-todo-title">{row.file.name.replace(/\.md$/i, "")}</span>
-          <span className="pw-home-todo-project">{row.projectName}</span>
-          <span className="pw-home-proj-meta">{relTime(row.file.mtimeMs)}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // ── 全局一日总结 ──────────────────────────────────────────────────────────
 
@@ -192,13 +136,6 @@ export function HomeBoard({ onToast }: { onToast: (text: string) => void }) {
           {loading ? <span className="pw-home-loading">加载中…</span> : null}
         </div>
         <GlobalSummary day={selectedDay} entries={entries} onToast={onToast} />
-      </section>
-
-      <section className="pw-home-section">
-        <div className="pw-section-h">
-          <span>Tasks · 所有项目</span>
-        </div>
-        <HomeTodos />
       </section>
     </div>
   );
