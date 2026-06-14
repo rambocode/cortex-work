@@ -5135,7 +5135,7 @@ button.sb-row {
   margin: 0 16px 16px;
   padding: 10px 12px;
   border-radius: 11px;
-  background: color-mix(in srgb, var(--accent) 6%, var(--bg-subtle, var(--bg-app)));
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-app));
   border: 1px solid color-mix(in srgb, var(--accent) 9%, var(--border));
 }
 .pw-hero-composer span { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--text-4) 20%, transparent); }
