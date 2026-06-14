@@ -5174,8 +5174,10 @@ button.sb-row {
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-/* 看板/输入框封顶居中:三块共用 --pw-landing-col，左右边缘对齐。 */
-.pw-landing .pw-home {
+/* 看板封顶居中:滚动容器 .pw-home 保持整宽(滚动条贴窗口右缘),只对内部分区
+   封顶居中,与 GitBar/输入框共用 --pw-landing-col 左右对齐。 */
+.pw-landing .pw-home > .pw-home-section {
+  width: 100%;
   max-width: var(--pw-landing-col);
   margin-inline: auto;
 }
