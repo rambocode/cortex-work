@@ -5188,12 +5188,15 @@ button.sb-row {
   max-width: var(--pw-landing-col);
   margin-inline: auto;
 }
-/* 底部输入框:对齐现有 composer-wrap 横向内边距 */
-.pw-landing-composer {
+/* 底部输入框:封顶居中,并清零 composer-wrap 的横向内边距,使输入框 .composer
+   撑满 --pw-landing-col、与上方看板/分区左右对齐。带 .pw-landing 前缀以压过
+   [data-density] .composer-wrap 的 padding 档位。 */
+.pw-landing .pw-landing-composer {
   flex-shrink: 0;
   width: 100%;
   max-width: var(--pw-landing-col);
   margin-inline: auto;
+  padding-inline: 0;
 }
 [data-density="compact"] .pw-landing-bar { padding: 10px 32px 6px; }
 [data-density="cozy"] .pw-landing-bar { padding: 14px 56px 10px; }
