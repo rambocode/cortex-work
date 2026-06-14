@@ -5055,8 +5055,13 @@ button.sb-row {
 .pw-ml-actions { flex: 0 0 auto; display: flex; gap: 2px; }
 .pw-ml-actions button { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; color: var(--text-3); }
 .pw-ml-actions button:hover { background: var(--bg-hover); color: var(--text-1); }
-.pw-ml-edit { display: flex; gap: 8px; align-items: center; padding: 8px; border: 1px dashed var(--border-strong); border-radius: 10px; }
-.pw-ml-edit > .pw-set-input { flex: 1 1 auto; min-width: 0; }
+.pw-ml-edit { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px dashed var(--border-strong); border-radius: 10px; }
+.pw-ml-edit-row { display: flex; gap: 8px; align-items: center; }
+.pw-ml-edit-row > .pw-set-input { flex: 1 1 auto; min-width: 0; }
+.pw-ml-edit-row > .pw-ml-ctx { flex: 0 1 200px; }
+.pw-ml-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-2); flex: 0 0 auto; cursor: pointer; }
+.pw-ml-check input { width: 14px; height: 14px; accent-color: var(--accent); }
+.pw-ml-edit-spacer { flex: 1 1 auto; }
 .pw-ml-cancel { font-size: 12px; color: var(--text-3); padding: 0 8px; flex: 0 0 auto; }
 .pw-ml-cancel:hover { color: var(--text-1); }
 .pw-ml-add { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 7px 12px; border: 1px dashed var(--border-strong); border-radius: 9px; color: var(--text-2); font-size: 12.5px; }
@@ -5081,6 +5086,10 @@ button.sb-row {
 .pw-ws-control { display: flex; gap: 8px; align-items: center; }
 .pw-ws-control > .pw-set-input { flex: 1 1 auto; min-width: 0; }
 .pw-ws-control > .btn { flex: 0 0 auto; }
+.pw-scard-empty { padding: 13px 2px; font-size: 12px; color: var(--text-3); line-height: 1.5; }
+.pw-sblock { padding: 13px 2px; border-top: 1px solid var(--border-soft); }
+.pw-scard-t + .pw-sblock { border-top: none; }
+.pw-sblock-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
 
 /* 带显隐切换的密钥输入 */
 .pw-secret-wrap { display: flex; gap: 6px; align-items: stretch; }

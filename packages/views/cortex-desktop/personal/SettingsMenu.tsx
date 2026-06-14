@@ -91,33 +91,37 @@ function ProfileSection() {
       <div className="pw-dlg-title">个人资料</div>
       <div className="pw-dlg-desc">设置你的昵称和头像,会话中你发出的消息会用它们显示。</div>
 
-      <div className="twk-sect">昵称 · Nickname</div>
-      <Field
-        label="昵称"
-        value={nickname}
-        placeholder="我"
-        onChange={(v) => setProfile({ nickname: v })}
-      />
-
-      <div className="twk-sect">头像 · Avatar</div>
-      <div className="pw-pet-grid">
-        {BUILTIN_AVATARS.map((a) => {
-          const Svg = a.Svg;
-          return (
-            <button
-              key={a.id}
-              className={`pw-pet-card ${a.id === profile.avatarId ? "is-active" : ""}`}
-              onClick={() => setProfile({ avatarId: a.id })}
-              title={a.name}
-            >
-              <span className="pw-avatar-preview">
-                <Svg />
-              </span>
-              <span className="pw-pet-name">{a.name}</span>
-            </button>
-          );
-        })}
-      </div>
+      <SettingCard title="昵称与头像">
+        <SRow label="昵称" desc="会话中你发出的消息显示的名字。">
+          <input
+            className="pw-set-input"
+            value={nickname}
+            placeholder="我"
+            spellCheck={false}
+            onChange={(e) => setProfile({ nickname: e.target.value })}
+          />
+        </SRow>
+        <SBlock label="头像">
+          <div className="pw-pet-grid">
+            {BUILTIN_AVATARS.map((a) => {
+              const Svg = a.Svg;
+              return (
+                <button
+                  key={a.id}
+                  className={`pw-pet-card ${a.id === profile.avatarId ? "is-active" : ""}`}
+                  onClick={() => setProfile({ avatarId: a.id })}
+                  title={a.name}
+                >
+                  <span className="pw-avatar-preview">
+                    <Svg />
+                  </span>
+                  <span className="pw-pet-name">{a.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </SBlock>
+      </SettingCard>
     </>
   );
 }
@@ -180,82 +184,85 @@ function PetSection() {
       <div className="pw-dlg-title">桌面宠物</div>
       <div className="pw-dlg-desc">选择陪伴你工作的小伙伴,它会随输入、思考、执行工具等状态切换动画。</div>
 
-      <Toggle label="显示宠物" value={petEnabled} onChange={pickEnabled} />
-
-      <div className="twk-sect">行为 · Behavior</div>
-      <div className="pw-set-hint">
-        「自由放置」可随意拖动;「趴在输入框」只露头和前爪搭在聊天框上。悬停宠物时点 ✕ 也可快速隐藏。
-      </div>
-      <SegmentedRadio value={PET_MODE_LABEL[petMode]} options={PET_MODE_OPTIONS} onChange={pickMode} />
-      {petMode === "free" ? (
-        <>
-          <Toggle label="闲时底部走动" value={petWalk} onChange={pickWalk} />
-          <div className="pw-set-hint">开启后:10 分钟没有任何操作,宠物沿应用底边来回散步;一有动静就平滑回到最右侧待命。</div>
-        </>
-      ) : null}
-
-      <div className="twk-sect">造型 · Pet</div>
-      <div className="pw-pet-grid" style={colorVars as React.CSSProperties | undefined}>
-        {PET_KINDS.map((k) => {
-          const d = PET_DESIGNS[k];
-          const Parts = d.Parts;
-          return (
-            <button key={k} className={`pw-pet-card ${k === petKind ? "is-active" : ""}`} onClick={() => pick(k)}>
-              <span className="pet-preview">
-                <svg viewBox="0 0 140 120" width="84" height="72" aria-hidden="true">
-                  <Parts />
-                </svg>
-              </span>
-              <span className="pw-pet-name">{d.name}</span>
-              <span className="pw-pet-desc">{d.desc}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="twk-sect">尺寸 · Size</div>
-      <div className="pw-pet-size">
-        <input
-          type="range"
-          min={PET_SIZE_MIN}
-          max={PET_SIZE_MAX}
-          step={0.05}
-          value={petSize}
-          onChange={(e) => pickSize(Number(e.target.value))}
-          aria-label="宠物尺寸"
-        />
-        <span className="pw-pet-size-val">{Math.round(petSize * 100)}%</span>
-        {petSize !== 1 ? (
-          <button className="pw-pet-reset" onClick={() => pickSize(1)}>
-            重置
-          </button>
-        ) : null}
-      </div>
-
-      <div className="twk-sect">颜色 · Color</div>
-      <div className="pw-set-hint">选择主色后,毛色深浅会自动派生;「默认」恢复各造型的原始配色。</div>
-      <div className="pw-pet-colors">
-        <button
-          className={`pw-pet-color-chip is-default ${petColor ? "" : "is-active"}`}
-          title="默认配色"
-          onClick={() => pickColor(null)}
-        >
-          默认
-        </button>
-        {PET_COLOR_PRESETS.map((c) => (
-          <button
-            key={c}
-            className={`pw-pet-color-chip ${petColor?.toLowerCase() === c ? "is-active" : ""}`}
-            style={{ background: c }}
-            title={c}
-            onClick={() => pickColor(c)}
+      <SettingCard title="宠物">
+        <SwitchRow label="显示宠物" value={petEnabled} onChange={pickEnabled} />
+        <SRow label="行为" desc="「自由放置」可随意拖动;「趴在输入框」只露头和前爪搭在聊天框上。">
+          <SegmentedRadio value={PET_MODE_LABEL[petMode]} options={PET_MODE_OPTIONS} onChange={pickMode} />
+        </SRow>
+        {petMode === "free" ? (
+          <SwitchRow
+            label="闲时底部走动"
+            desc="10 分钟无操作时沿应用底边散步,一有动静即回最右侧待命。"
+            value={petWalk}
+            onChange={pickWalk}
           />
-        ))}
-        <label className="pw-pet-color-chip is-custom" title="自定义颜色">
-          <input type="color" value={petColor ?? "#ecb98a"} onChange={(e) => pickColor(e.target.value)} />
-          <Icon.Plus size={12} />
-        </label>
-      </div>
+        ) : null}
+      </SettingCard>
+
+      <SettingCard title="造型与外观">
+        <SBlock label="造型">
+          <div className="pw-pet-grid" style={colorVars as React.CSSProperties | undefined}>
+            {PET_KINDS.map((k) => {
+              const d = PET_DESIGNS[k];
+              const Parts = d.Parts;
+              return (
+                <button key={k} className={`pw-pet-card ${k === petKind ? "is-active" : ""}`} onClick={() => pick(k)}>
+                  <span className="pet-preview">
+                    <svg viewBox="0 0 140 120" width="84" height="72" aria-hidden="true">
+                      <Parts />
+                    </svg>
+                  </span>
+                  <span className="pw-pet-name">{d.name}</span>
+                  <span className="pw-pet-desc">{d.desc}</span>
+                </button>
+              );
+            })}
+          </div>
+        </SBlock>
+        <SRow label="尺寸">
+          <div className="pw-pet-size">
+            <input
+              type="range"
+              min={PET_SIZE_MIN}
+              max={PET_SIZE_MAX}
+              step={0.05}
+              value={petSize}
+              onChange={(e) => pickSize(Number(e.target.value))}
+              aria-label="宠物尺寸"
+            />
+            <span className="pw-pet-size-val">{Math.round(petSize * 100)}%</span>
+            {petSize !== 1 ? (
+              <button className="pw-pet-reset" onClick={() => pickSize(1)}>
+                重置
+              </button>
+            ) : null}
+          </div>
+        </SRow>
+        <SBlock label="颜色" desc="选择主色后,毛色深浅会自动派生;「默认」恢复各造型的原始配色。">
+          <div className="pw-pet-colors">
+            <button
+              className={`pw-pet-color-chip is-default ${petColor ? "" : "is-active"}`}
+              title="默认配色"
+              onClick={() => pickColor(null)}
+            >
+              默认
+            </button>
+            {PET_COLOR_PRESETS.map((c) => (
+              <button
+                key={c}
+                className={`pw-pet-color-chip ${petColor?.toLowerCase() === c ? "is-active" : ""}`}
+                style={{ background: c }}
+                title={c}
+                onClick={() => pickColor(c)}
+              />
+            ))}
+            <label className="pw-pet-color-chip is-custom" title="自定义颜色">
+              <input type="color" value={petColor ?? "#ecb98a"} onChange={(e) => pickColor(e.target.value)} />
+              <Icon.Plus size={12} />
+            </label>
+          </div>
+        </SBlock>
+      </SettingCard>
     </>
   );
 }
@@ -273,6 +280,18 @@ function SettingCard({ title, children }: { title: string; children: React.React
   return (
     <div className="pw-scard">
       <div className="pw-scard-t">{title}</div>
+      {children}
+    </div>
+  );
+}
+// 标签在上、内容全宽的块（宽控件用：头像网格 / 宠物造型 / 多字段表单）。
+function SBlock({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
+  return (
+    <div className="pw-sblock">
+      <div className="pw-sblock-head">
+        <span className="pw-srow-lbl">{label}</span>
+        {desc ? <span className="pw-srow-desc">{desc}</span> : null}
+      </div>
       {children}
     </div>
   );
@@ -549,63 +568,68 @@ function TimelineSection() {
       <div className="pw-dlg-title">时间线</div>
       <div className="pw-dlg-desc">配置 AI 日报的生成模型。推送渠道在「推送」设置中统一管理。</div>
 
-      <div className="twk-sect">日报生成模型</div>
-      <SegmentedRadio
-        value={model.kind === "agent" ? "集成 Agent" : "自定义模型"}
-        options={["集成 Agent", "自定义模型"]}
-        onChange={(v) =>
-          setModel(
-            v === "集成 Agent"
-              ? { kind: "agent", agent: "claude", model: "haiku" }
-              : { kind: "openai", baseUrl: "http://localhost:11434", apiKey: "", model: "" },
-          )
-        }
-      />
-      {model.kind === "agent" ? (
-        <div className="pw-set-group">
-          <div className="pw-set-hint">从已集成的 Agent 中选择,按所选 Agent 提供对应的模型列表。</div>
-          <div className="pw-set-row2">
-            <Select
-              label="Agent"
-              value={model.agent}
-              options={INTEGRATED_AGENTS.map((a) => ({ label: AGENT_LABEL[a], value: a }))}
-              onChange={(v) => {
-                const agent = v as AgentKind;
-                // 切换 agent 时模型重置为该 agent 的默认值。
-                setModel({ kind: "agent", agent, model: DEFAULT_MODEL[agent] });
-              }}
-            />
-            <Select
-              label="模型"
-              value={model.model ?? DEFAULT_MODEL[model.agent]}
-              options={AGENT_MODELS[model.agent]}
-              onChange={(v) => setModel({ kind: "agent", agent: model.agent, model: v })}
-            />
-          </div>
-        </div>
-      ) : (
-        <div className="pw-set-group">
-          <div className="pw-set-hint">OpenAI 兼容接口（Ollama / LM Studio / vLLM 等本地模型均可）。</div>
-          <Field
-            label="Base URL"
-            value={model.baseUrl}
-            placeholder="http://localhost:11434"
-            onChange={(v) => setModel({ ...model, baseUrl: v })}
+      <SettingCard title="日报生成模型">
+        <SRow label="生成方式" desc="集成 Agent 用已装 CLI;自定义模型用 OpenAI 兼容端点。">
+          <SegmentedRadio
+            value={model.kind === "agent" ? "集成 Agent" : "自定义模型"}
+            options={["集成 Agent", "自定义模型"]}
+            onChange={(v) =>
+              setModel(
+                v === "集成 Agent"
+                  ? { kind: "agent", agent: "claude", model: "haiku" }
+                  : { kind: "openai", baseUrl: "http://localhost:11434", apiKey: "", model: "" },
+              )
+            }
           />
-          <Field
-            label="模型名"
-            value={model.model}
-            placeholder="qwen3:14b"
-            onChange={(v) => setModel({ ...model, model: v })}
-          />
-          <Field
-            label="API Key（可选）"
-            value={model.apiKey ?? ""}
-            type="password"
-            onChange={(v) => setModel({ ...model, apiKey: v })}
-          />
-        </div>
-      )}
+        </SRow>
+        {model.kind === "agent" ? (
+          <>
+            <SRow label="Agent">
+              <BareSelect
+                value={model.agent}
+                options={INTEGRATED_AGENTS.map((a) => ({ label: AGENT_LABEL[a], value: a }))}
+                onChange={(v) => setModel({ kind: "agent", agent: v as AgentKind, model: DEFAULT_MODEL[v as AgentKind] })}
+              />
+            </SRow>
+            <SRow label="模型">
+              <BareSelect
+                value={model.model ?? DEFAULT_MODEL[model.agent]}
+                options={AGENT_MODELS[model.agent]}
+                onChange={(v) => setModel({ kind: "agent", agent: model.agent, model: v })}
+              />
+            </SRow>
+          </>
+        ) : (
+          <>
+            <SRow label="Base URL" desc="OpenAI 兼容接口（Ollama / LM Studio / vLLM 均可）。">
+              <input
+                className="pw-set-input"
+                value={model.baseUrl}
+                placeholder="http://localhost:11434"
+                spellCheck={false}
+                onChange={(e) => setModel({ ...model, baseUrl: e.target.value })}
+              />
+            </SRow>
+            <SRow label="模型名">
+              <input
+                className="pw-set-input"
+                value={model.model}
+                placeholder="qwen3:14b"
+                spellCheck={false}
+                onChange={(e) => setModel({ ...model, model: e.target.value })}
+              />
+            </SRow>
+            <SRow label="API Key" desc="可选。">
+              <input
+                className="pw-set-input"
+                type="password"
+                value={model.apiKey ?? ""}
+                onChange={(e) => setModel({ ...model, apiKey: e.target.value })}
+              />
+            </SRow>
+          </>
+        )}
+      </SettingCard>
     </>
   );
 }
@@ -681,6 +705,22 @@ type ProbeState =
   | { kind: "err"; error: string };
 
 // 单个模型的内联编辑行（添加/编辑共用）：id + 显示名 + 保存/取消。
+// 上下文输入解析："128K" / "1M" / "128000" → token 数；非法 → undefined。
+function parseContextInput(s: string): number | undefined {
+  const m = s.trim().toUpperCase().match(/^(\d+(?:\.\d+)?)\s*([KM]?)$/);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  const mult = m[2] === "M" ? 1_000_000 : m[2] === "K" ? 1_000 : 1;
+  return Math.round(n * mult);
+}
+// token 数 → 紧凑展示："1M" / "128K" / "512"。
+function formatContext(tokens: number): string {
+  if (tokens >= 1_000_000) return `${+(tokens / 1_000_000).toFixed(tokens % 1_000_000 ? 1 : 0)}M`;
+  if (tokens >= 1_000) return `${+(tokens / 1_000).toFixed(tokens % 1_000 ? 1 : 0)}K`;
+  return String(tokens);
+}
+
 function ModelEditRow({
   initial,
   onSave,
@@ -692,36 +732,66 @@ function ModelEditRow({
 }) {
   const [id, setId] = useState(initial.id);
   const [label, setLabel] = useState(initial.label ?? "");
+  const [ctx, setCtx] = useState(initial.contextTokens ? formatContext(initial.contextTokens) : "");
+  const [reasoning, setReasoning] = useState(initial.reasoning ?? false);
+  const [vision, setVision] = useState(initial.vision ?? false);
   const save = () => {
     const trimmed = id.trim();
     if (!trimmed) return;
-    onSave(label.trim() ? { id: trimmed, label: label.trim() } : { id: trimmed });
+    const m: ProviderModelOption = { id: trimmed };
+    if (label.trim()) m.label = label.trim();
+    const ctxNum = parseContextInput(ctx);
+    if (ctxNum) m.contextTokens = ctxNum;
+    if (reasoning) m.reasoning = true;
+    if (vision) m.vision = true;
+    onSave(m);
   };
   return (
     <div className="pw-ml-edit">
-      <input
-        className="pw-set-input"
-        value={id}
-        placeholder="模型 id（如 deepseek-chat）"
-        spellCheck={false}
-        autoFocus
-        onChange={(e) => setId(e.target.value)}
-        onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
-      />
-      <input
-        className="pw-set-input"
-        value={label}
-        placeholder="显示名（可选）"
-        spellCheck={false}
-        onChange={(e) => setLabel(e.target.value)}
-        onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
-      />
-      <button className="btn pw-pi-add-btn" disabled={!id.trim()} onClick={save}>
-        保存
-      </button>
-      <button className="pw-ml-cancel" onClick={onCancel}>
-        取消
-      </button>
+      <div className="pw-ml-edit-row">
+        <input
+          className="pw-set-input"
+          value={id}
+          placeholder="模型 id（如 deepseek-chat）"
+          spellCheck={false}
+          autoFocus
+          onChange={(e) => setId(e.target.value)}
+          onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
+        />
+        <input
+          className="pw-set-input"
+          value={label}
+          placeholder="显示名（可选）"
+          spellCheck={false}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
+        />
+      </div>
+      <div className="pw-ml-edit-row">
+        <input
+          className="pw-set-input pw-ml-ctx"
+          value={ctx}
+          placeholder="上下文（如 128K / 1M）"
+          spellCheck={false}
+          onChange={(e) => setCtx(e.target.value)}
+          onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
+        />
+        <label className="pw-ml-check">
+          <input type="checkbox" checked={reasoning} onChange={(e) => setReasoning(e.target.checked)} />
+          推理
+        </label>
+        <label className="pw-ml-check">
+          <input type="checkbox" checked={vision} onChange={(e) => setVision(e.target.checked)} />
+          视觉
+        </label>
+        <span className="pw-ml-edit-spacer" />
+        <button className="btn pw-pi-add-btn" disabled={!id.trim()} onClick={save}>
+          保存
+        </button>
+        <button className="pw-ml-cancel" onClick={onCancel}>
+          取消
+        </button>
+      </div>
     </div>
   );
 }
@@ -821,6 +891,9 @@ function ProviderModels({
               <span className="pw-ml-id">{m.id}</span>
               <span className="pw-ml-badges">
                 <span className="pw-ml-badge">文本对话</span>
+                {m.contextTokens ? <span className="pw-ml-badge">{formatContext(m.contextTokens)} 上下文</span> : null}
+                {m.reasoning ? <span className="pw-ml-badge">推理</span> : null}
+                {m.vision ? <span className="pw-ml-badge">视觉</span> : null}
                 {m.label && m.label !== m.id ? <span className="pw-ml-badge is-name">{m.label}</span> : null}
               </span>
             </div>
@@ -1004,48 +1077,47 @@ function AgentSection() {
         时兜底,使用「供应商」中配置的 LLM 端点。
       </div>
 
-      <div className="twk-sect">可用性</div>
-      <div className="pw-set-group">
+      <SettingCard title="可用性">
         {INTEGRATED_AGENTS.map((a) => {
           const on = a === "pi" || !!agentsAvailable?.[a];
           return (
-            <div key={a} className="pw-agent-avail">
-              <span>{AGENT_LABEL[a]}</span>
+            <SRow key={a} label={AGENT_LABEL[a]} end>
               <span className={`pw-agent-dot ${on ? "is-on" : "is-off"}`}>
                 {a === "pi" ? "内置" : agentsAvailable?.[a] ? "已安装" : "未检测到 CLI"}
               </span>
-            </div>
+            </SRow>
           );
         })}
-      </div>
+      </SettingCard>
 
-      <div className="twk-sect">Pi 默认供应商</div>
-      <div className="pw-set-group">
+      <SettingCard title="Pi 默认供应商">
         {enabledProviders.length === 0 ? (
-          <div className="pw-set-hint">还没有启用的供应商。先在「供应商」设置中添加并启用,再回此处选默认。</div>
+          <div className="pw-scard-empty">还没有启用的供应商。先在「供应商」设置中添加并启用,再回此处选默认。</div>
         ) : (
-          <div className="pw-set-row2">
-            <Select
-              label="默认供应商"
-              value={defaultValue}
-              options={[
-                { label: "（未设置）", value: "" },
-                ...enabledProviders.map((p) => ({ label: p.name || p.id, value: p.id })),
-              ]}
-              onChange={(v) => setProviderDefaults({ defaultProviderId: v || undefined, defaultModel: undefined })}
-            />
-            <Select
-              label="默认模型"
-              value={providerSettings.defaultModel ?? ""}
-              options={[
-                { label: "（供应商首个模型）", value: "" },
-                ...(defaultProvider?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id })),
-              ]}
-              onChange={(v) => setProviderDefaults({ defaultModel: v || undefined })}
-            />
-          </div>
+          <>
+            <SRow label="默认供应商" desc="新建 Pi 会话默认使用的供应商。">
+              <BareSelect
+                value={defaultValue}
+                options={[
+                  { label: "（未设置）", value: "" },
+                  ...enabledProviders.map((p) => ({ label: p.name || p.id, value: p.id })),
+                ]}
+                onChange={(v) => setProviderDefaults({ defaultProviderId: v || undefined, defaultModel: undefined })}
+              />
+            </SRow>
+            <SRow label="默认模型">
+              <BareSelect
+                value={providerSettings.defaultModel ?? ""}
+                options={[
+                  { label: "（供应商首个模型）", value: "" },
+                  ...(defaultProvider?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id })),
+                ]}
+                onChange={(v) => setProviderDefaults({ defaultModel: v || undefined })}
+              />
+            </SRow>
+          </>
         )}
-      </div>
+      </SettingCard>
     </>
   );
 }
@@ -1121,85 +1193,118 @@ function PushSection() {
       <div className="pw-dlg-title">推送渠道</div>
       <div className="pw-dlg-desc">全局推送配置,启用后可在任何支持推送的功能中使用（如时间线日报）。</div>
 
-      <div className="twk-sect">推送格式 Skill</div>
-      <div className="pw-set-group">
-        <div className="pw-set-hint">
-          用 Prompt 库中的 .md 模板固化推送格式,渲染后的第一行作为推送标题。可用占位符:
-          {" {{project}} 项目名、{{date}} 日期、{{stats}} 统计、{{summary}} 日报正文、{{runs}} 交互列表、{{files}} 文件列表、{{commits}} 提交列表"}
+      <SettingCard title="推送格式 Skill">
+        <div className="pw-scard-empty">
+          用 Prompt 库中的 .md 模板固化推送格式,渲染后第一行作为推送标题。可用占位符:
+          {" {{project}}、{{date}}、{{stats}}、{{summary}}、{{runs}}、{{files}}、{{commits}}"}
           ;数据为空的占位符行会自动隐藏。
         </div>
-        <Select
-          label="格式模板"
-          value={push.formatSkillPath ?? ""}
-          options={skillOptions}
-          onChange={(v) => setPush({ formatSkillPath: v || undefined })}
-        />
-        <div>
+        <SRow label="格式模板">
+          <BareSelect
+            value={push.formatSkillPath ?? ""}
+            options={skillOptions}
+            onChange={(v) => setPush({ formatSkillPath: v || undefined })}
+          />
+        </SRow>
+        <SRow label="示例 Skill" desc={!promptRoot ? "需先在右栏 Prompt 库选择目录。" : undefined} end>
           <button className="pw-tl-gen" disabled={!bridge || !promptRoot} onClick={() => void createExampleSkill()}>
             <Icon.Plus size={12} />
-            在 Prompt 库创建示例 Skill
+            在 Prompt 库创建示例
           </button>
-          {!promptRoot ? <span className="pw-set-hint">（需先在右栏 Prompt 库选择目录）</span> : null}
-        </div>
-      </div>
+        </SRow>
+      </SettingCard>
 
-      <div className="twk-sect">渠道</div>
-      <div className="pw-set-group">
-        <Toggle label="企业微信机器人" value={!!wecom?.enabled} onChange={(v) => setWecom({ enabled: v })} />
+      <SettingCard title="渠道">
+        <SwitchRow label="企业微信机器人" value={!!wecom?.enabled} onChange={(v) => setWecom({ enabled: v })} />
         {wecom?.enabled ? (
-          <Field
-            label="Webhook 地址"
-            value={wecom.webhookUrl}
-            placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…"
-            onChange={(v) => setWecom({ webhookUrl: v })}
-          />
+          <SRow label="Webhook 地址">
+            <input
+              className="pw-set-input"
+              value={wecom.webhookUrl}
+              placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…"
+              spellCheck={false}
+              onChange={(e) => setWecom({ webhookUrl: e.target.value })}
+            />
+          </SRow>
         ) : null}
-      </div>
-      <div className="pw-set-group">
-        <Toggle label="钉钉机器人" value={!!dingtalk?.enabled} onChange={(v) => setDingtalk({ enabled: v })} />
+
+        <SwitchRow label="钉钉机器人" value={!!dingtalk?.enabled} onChange={(v) => setDingtalk({ enabled: v })} />
         {dingtalk?.enabled ? (
           <>
-            <Field
-              label="Webhook 地址"
-              value={dingtalk.webhookUrl}
-              placeholder="https://oapi.dingtalk.com/robot/send?access_token=…"
-              onChange={(v) => setDingtalk({ webhookUrl: v })}
-            />
-            <Field
-              label="加签密钥（可选）"
-              value={dingtalk.secret ?? ""}
-              type="password"
-              placeholder="SEC…（机器人安全设置为「加签」时填写）"
-              onChange={(v) => setDingtalk({ secret: v })}
-            />
+            <SRow label="Webhook 地址">
+              <input
+                className="pw-set-input"
+                value={dingtalk.webhookUrl}
+                placeholder="https://oapi.dingtalk.com/robot/send?access_token=…"
+                spellCheck={false}
+                onChange={(e) => setDingtalk({ webhookUrl: e.target.value })}
+              />
+            </SRow>
+            <SRow label="加签密钥" desc="可选,安全设置为「加签」时填写。">
+              <input
+                className="pw-set-input"
+                type="password"
+                value={dingtalk.secret ?? ""}
+                placeholder="SEC…"
+                onChange={(e) => setDingtalk({ secret: e.target.value })}
+              />
+            </SRow>
           </>
         ) : null}
-      </div>
-      <div className="pw-set-group">
-        <Toggle label="邮件（SMTP）" value={!!email?.enabled} onChange={(v) => setEmail({ enabled: v })} />
+
+        <SwitchRow label="邮件（SMTP）" value={!!email?.enabled} onChange={(v) => setEmail({ enabled: v })} />
         {email?.enabled ? (
           <>
-            <div className="pw-set-row2">
-              <Field label="SMTP 服务器" value={email.smtpHost} placeholder="smtp.qq.com" onChange={(v) => setEmail({ smtpHost: v })} />
-              <Field
-                label="端口"
+            <SRow label="SMTP 服务器">
+              <input
+                className="pw-set-input"
+                value={email.smtpHost}
+                placeholder="smtp.qq.com"
+                spellCheck={false}
+                onChange={(e) => setEmail({ smtpHost: e.target.value })}
+              />
+            </SRow>
+            <SRow label="端口">
+              <input
+                className="pw-set-input"
                 value={String(email.smtpPort || "")}
                 placeholder="465"
-                onChange={(v) => setEmail({ smtpPort: Number(v) || 0 })}
+                onChange={(e) => setEmail({ smtpPort: Number(e.target.value) || 0 })}
               />
-            </div>
-            <Toggle label="SSL（465 端口开启,587 关闭）" value={email.secure} onChange={(v) => setEmail({ secure: v })} />
-            <div className="pw-set-row2">
-              <Field label="账号" value={email.user} onChange={(v) => setEmail({ user: v })} />
-              <Field label="密码 / 授权码" value={email.pass} type="password" onChange={(v) => setEmail({ pass: v })} />
-            </div>
-            <div className="pw-set-row2">
-              <Field label="发件人" value={email.from} placeholder="留空使用账号" onChange={(v) => setEmail({ from: v })} />
-              <Field label="收件人" value={email.to} placeholder="多个用逗号分隔" onChange={(v) => setEmail({ to: v })} />
-            </div>
+            </SRow>
+            <SwitchRow
+              label="SSL"
+              desc="465 端口开启,587 关闭。"
+              value={email.secure}
+              onChange={(v) => setEmail({ secure: v })}
+            />
+            <SRow label="账号">
+              <input className="pw-set-input" value={email.user} spellCheck={false} onChange={(e) => setEmail({ user: e.target.value })} />
+            </SRow>
+            <SRow label="密码 / 授权码">
+              <input className="pw-set-input" type="password" value={email.pass} onChange={(e) => setEmail({ pass: e.target.value })} />
+            </SRow>
+            <SRow label="发件人">
+              <input
+                className="pw-set-input"
+                value={email.from}
+                placeholder="留空使用账号"
+                spellCheck={false}
+                onChange={(e) => setEmail({ from: e.target.value })}
+              />
+            </SRow>
+            <SRow label="收件人">
+              <input
+                className="pw-set-input"
+                value={email.to}
+                placeholder="多个用逗号分隔"
+                spellCheck={false}
+                onChange={(e) => setEmail({ to: e.target.value })}
+              />
+            </SRow>
           </>
         ) : null}
-      </div>
+      </SettingCard>
     </>
   );
 }
@@ -1322,107 +1427,120 @@ function VoiceSection() {
       <div className="pw-dlg-title">语音（TTS）</div>
       <div className="pw-dlg-desc">把 Agent / 大模型输出的内容转成语音。开启自动朗读后,每轮回复完成时朗读（代码块等会自动略过,新回复打断上一条）。</div>
 
-      <Toggle label="自动朗读 Agent 回复" value={tts.autoSpeak} onChange={(v) => setTts({ autoSpeak: v })} />
-
-      <div className="twk-sect">语音引擎</div>
-      <SegmentedRadio
-        value={engine.kind === "system" ? "系统语音" : "自定义模型"}
-        options={["系统语音", "自定义模型"]}
-        onChange={(v) =>
-          setEngine(
-            v === "系统语音"
-              ? { kind: "system" }
-              : { kind: "openai", baseUrl: "http://localhost:8880", apiKey: "", model: "tts-1", voice: "alloy", language: "zh" },
-          )
-        }
-      />
-      {engine.kind === "system" ? (
-        <div className="pw-set-group">
-          <div className="pw-set-hint">使用本机系统语音库,无需联网与配置。</div>
-          <div className="pw-set-row2">
-            <Select
+      <SettingCard title="朗读">
+        <SwitchRow
+          label="自动朗读 Agent 回复"
+          desc="每轮回复完成时朗读（代码块自动略过,新回复打断上一条）。"
+          value={tts.autoSpeak}
+          onChange={(v) => setTts({ autoSpeak: v })}
+        />
+        <SRow label="语音引擎">
+          <SegmentedRadio
+            value={engine.kind === "system" ? "系统语音" : "自定义模型"}
+            options={["系统语音", "自定义模型"]}
+            onChange={(v) =>
+              setEngine(
+                v === "系统语音"
+                  ? { kind: "system" }
+                  : { kind: "openai", baseUrl: "http://localhost:8880", apiKey: "", model: "tts-1", voice: "alloy", language: "zh" },
+              )
+            }
+          />
+        </SRow>
+        {engine.kind === "system" ? (
+          <>
+            <SRow label="音色" desc="使用本机系统语音库,无需联网与配置。">
+              <BareSelect
+                value={engine.voice ?? ""}
+                options={voiceOptions}
+                onChange={(v) => setEngine({ ...engine, voice: v || undefined })}
+              />
+            </SRow>
+            <SRow label="语速">
+              <BareSelect
+                value={String(engine.rate ?? 1)}
+                options={SPEECH_RATES}
+                onChange={(v) => setEngine({ ...engine, rate: Number(v) })}
+              />
+            </SRow>
+          </>
+        ) : (
+          <>
+            <SRow label="Base URL" desc="OpenAI 兼容 /v1/audio/speech（OpenAI TTS / LocalAI / Kokoro 等本地部署均可）。">
+              <input
+                className="pw-set-input"
+                value={engine.baseUrl}
+                placeholder="http://localhost:8880"
+                spellCheck={false}
+                onChange={(e) => setEngine({ ...engine, baseUrl: e.target.value })}
+              />
+            </SRow>
+            <SRow label="模型名">
+              <input
+                className="pw-set-input"
+                value={engine.model}
+                placeholder="tts-1"
+                spellCheck={false}
+                onChange={(e) => setEngine({ ...engine, model: e.target.value })}
+              />
+            </SRow>
+            <SRow
               label="音色"
-              value={engine.voice ?? ""}
-              options={voiceOptions}
-              onChange={(v) => setEngine({ ...engine, voice: v || undefined })}
-            />
-            <Select
-              label="语速"
-              value={String(engine.rate ?? 1)}
-              options={SPEECH_RATES}
-              onChange={(v) => setEngine({ ...engine, rate: Number(v) })}
-            />
-          </div>
-        </div>
-      ) : (
-        <div className="pw-set-group">
-          <div className="pw-set-hint">
-            OpenAI 兼容 /v1/audio/speech 接口（OpenAI TTS、LocalAI、Kokoro-FastAPI 等本地部署均可）。
-          </div>
-          <Field
-            label="Base URL"
-            value={engine.baseUrl}
-            placeholder="http://localhost:8880"
-            onChange={(v) => setEngine({ ...engine, baseUrl: v })}
-          />
-          <div className="pw-set-row2">
-            <Field label="模型名" value={engine.model} placeholder="tts-1" onChange={(v) => setEngine({ ...engine, model: v })} />
-            <Select
-              label={loadingVoices ? "音色 voice（加载中）" : customVoices.length > 0 ? "音色 voice（模型返回）" : "音色 voice（常用）"}
-              value={engine.voice}
-              options={customVoiceOptions}
-              onChange={(v) => setEngine({ ...engine, voice: v })}
-            />
-          </div>
-          <Field
-            label="自定义 voice"
-            value={engine.voice}
-            placeholder="alloy"
-            onChange={(v) => setEngine({ ...engine, voice: v })}
-          />
-          <div className="pw-set-row2">
-            <Field
-              label="API Key（可选）"
-              value={engine.apiKey ?? ""}
-              type="password"
-              onChange={(v) => setEngine({ ...engine, apiKey: v })}
-            />
-            <Select
-              label="语言 language"
-              value={engine.language ?? "zh"}
-              options={TTS_LANGUAGES}
-              onChange={(v) => setEngine({ ...engine, language: v })}
-            />
-          </div>
-          <div className="pw-set-row2">
-            <Field
-              label="自定义 language"
-              value={engine.language ?? "zh"}
-              placeholder="zh"
-              onChange={(v) => setEngine({ ...engine, language: v || undefined })}
-            />
-            <Select
-              label="语速"
-              value={String(engine.speed ?? 1)}
-              options={SPEECH_RATES}
-              onChange={(v) => setEngine({ ...engine, speed: Number(v) })}
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="pw-set-group">
-        <div>
-          <button className="pw-tl-gen" disabled={testing} onClick={() => void test()}>
-            <Icon.Mic size={12} />
-            {testing ? "播放中…" : "试听"}
-          </button>
-          <button className="pw-tl-gen" style={{ marginLeft: 8 }} onClick={() => stopSpeaking()}>
-            <Icon.Stop size={12} />
-            停止
-          </button>
-        </div>
-      </div>
+              desc={loadingVoices ? "加载中…" : customVoices.length > 0 ? "模型返回" : "常用音色"}
+            >
+              <BareSelect value={engine.voice} options={customVoiceOptions} onChange={(v) => setEngine({ ...engine, voice: v })} />
+            </SRow>
+            <SRow label="自定义 voice">
+              <input
+                className="pw-set-input"
+                value={engine.voice}
+                placeholder="alloy"
+                spellCheck={false}
+                onChange={(e) => setEngine({ ...engine, voice: e.target.value })}
+              />
+            </SRow>
+            <SRow label="API Key" desc="可选。">
+              <input
+                className="pw-set-input"
+                type="password"
+                value={engine.apiKey ?? ""}
+                onChange={(e) => setEngine({ ...engine, apiKey: e.target.value })}
+              />
+            </SRow>
+            <SRow label="语言">
+              <BareSelect value={engine.language ?? "zh"} options={TTS_LANGUAGES} onChange={(v) => setEngine({ ...engine, language: v })} />
+            </SRow>
+            <SRow label="自定义 language">
+              <input
+                className="pw-set-input"
+                value={engine.language ?? "zh"}
+                placeholder="zh"
+                spellCheck={false}
+                onChange={(e) => setEngine({ ...engine, language: e.target.value || undefined })}
+              />
+            </SRow>
+            <SRow label="语速">
+              <BareSelect
+                value={String(engine.speed ?? 1)}
+                options={SPEECH_RATES}
+                onChange={(v) => setEngine({ ...engine, speed: Number(v) })}
+              />
+            </SRow>
+          </>
+        )}
+        <SRow label="试听" end>
+          <span style={{ display: "flex", gap: 8 }}>
+            <button className="pw-tl-gen" disabled={testing} onClick={() => void test()}>
+              <Icon.Mic size={12} />
+              {testing ? "播放中…" : "试听"}
+            </button>
+            <button className="pw-tl-gen" onClick={() => stopSpeaking()}>
+              <Icon.Stop size={12} />
+              停止
+            </button>
+          </span>
+        </SRow>
+      </SettingCard>
     </>
   );
 }

@@ -80,6 +80,9 @@ export type EndpointFormat = "chat_completions" | "responses" | "messages" | "cu
 export interface ProviderModelOption {
   id: string;
   label?: string;
+  contextTokens?: number;
+  reasoning?: boolean;
+  vision?: boolean;
 }
 
 export interface ProviderProfile {

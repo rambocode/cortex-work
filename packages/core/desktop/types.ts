@@ -157,6 +157,10 @@ export type EndpointFormat = "chat_completions" | "responses" | "messages" | "cu
 export interface ProviderModelOption {
   id: string; // 喂 pi --model 的模型 id
   label?: string; // 展示名,缺省用 id
+  // 能力（可选,设置页能力徽标用;手动编辑填充,API 拉取一般只给 id）。
+  contextTokens?: number; // 上下文窗口（token）,如 128000 → "128K 上下文"
+  reasoning?: boolean; // 支持推理
+  vision?: boolean; // 支持图片输入
 }
 
 // 一个 LLM 供应商（qwen / deepseek / kimi / 本地 / 企业网关 / anthropic 兼容均走此抽象）。
