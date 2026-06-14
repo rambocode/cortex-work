@@ -24,6 +24,8 @@ describe("saveUrgency", () => {
   it("其余持久化切片变更走节流", () => {
     expect(saveUrgency({ ...base, sessions: [...base.sessions] }, base)).toBe("throttled");
     expect(saveUrgency({ ...base, ttsSettings: { ...base.ttsSettings } }, base)).toBe("throttled");
+    // profile（昵称/头像）属高频可节流切片。
+    expect(saveUrgency({ ...base, profile: { ...base.profile, nickname: "阿伟" } }, base)).toBe("throttled");
   });
 
   it("projects 与 sessions 同时变更时立即保存优先", () => {

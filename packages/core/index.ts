@@ -27,6 +27,7 @@ export {
 } from "./store/ui";
 export {
   usePersonalStore,
+  usePersonalProfile,
   toPersistedState,
   partitionProjects,
   defaultAgent,
@@ -53,6 +54,7 @@ export {
   type TodoMeta,
   type TodoStatus,
   type PersistedState,
+  type PersonalProfile,
   type ReadFileResult,
   type CliStartRequest,
   type CliStreamEvent,

@@ -311,6 +311,13 @@ export interface OpenAiCompleteRequest {
   prompt: string;
 }
 
+// 个人工作区用户资料（昵称 + 内置头像 id）。两字段均可选:
+// 未设置时会话渲染回退到默认昵称「我」+ 首字母头像。
+export interface PersonalProfile {
+  nickname?: string;
+  avatarId?: string;
+}
+
 // 主进程 userData JSON 中持久化的全量状态。
 export interface PersistedState {
   version: 1;
@@ -322,6 +329,8 @@ export interface PersistedState {
   pushSettings?: PushSettings;
   ttsSettings?: TtsSettings;
   piSettings?: PiSettings;
+  // 用户资料（昵称 + 头像;会话中 who="me" 的气泡据此渲染）。
+  profile?: PersonalProfile;
   // 右侧面板自定义宽度（px）;未设置时按视图走 CSS 自动档位。
   rightPanelWidth?: number;
   // 「最后一次使用」记忆（Spotlight/新会话默认沿用;读取回退见 initialAgent）。
