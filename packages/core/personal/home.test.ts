@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentProjectInfo, ProjectMeta, SessionMeta, TimelineEvent } from "../desktop/types";
 import { groupEventsByDay } from "./timeline";
-import { buildHeatmapWeeks, homeHeatLevel, mergeProjectRows, type WorkspaceProjectRow } from "./home";
+import { buildHeatmapWeeks, homeHeatLevel, latestActiveProjectId, mergeProjectRows, type WorkspaceProjectRow } from "./home";
 
 function ev(partial: Partial<TimelineEvent> & { ts: number }): TimelineEvent {
   return { id: `e-${partial.ts}`, projectId: "p1", kind: "run", title: "t", ...partial };
@@ -105,6 +105,31 @@ describe("mergeProjectRows", () => {
     const rows = mergeProjectRows([wsRow("/a/b", 100)], [scan("/a/b/", 200, ["claude"])]);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.lastActive).toBe(200);
+  });
+});
+
+describe("latestActiveProjectId", () => {
+  const sess = (id: string, projectId: string | undefined, updatedAt: number): SessionMeta => ({
+    id,
+    projectId,
+    title: "S",
+    agent: "claude",
+    createdAt: updatedAt,
+    updatedAt,
+  });
+
+  it("空数组返回 undefined", () => {
+    expect(latestActiveProjectId([])).toBeUndefined();
+  });
+
+  it("取 updatedAt 最大的会话的 projectId", () => {
+    const sessions = [sess("a", "p1", 100), sess("b", "p2", 300), sess("c", "p3", 200)];
+    expect(latestActiveProjectId(sessions)).toBe("p2");
+  });
+
+  it("最近会话为无项目会话时返回 undefined", () => {
+    const sessions = [sess("a", "p1", 100), sess("b", undefined, 300), sess("c", "p3", 200)];
+    expect(latestActiveProjectId(sessions)).toBeUndefined();
   });
 });
 

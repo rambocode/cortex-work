@@ -24,6 +24,16 @@ export function timelinesDir(): string {
   return join(cortexHome(), "timelines");
 }
 
+// 不使用项目的会话归档根目录：用户「文稿」下的 cortex。
+export function documentsCortexDir(): string {
+  return join(app.getPath("documents"), "cortex");
+}
+
+// 不使用项目的会话工作目录：documentsCortexDir/<YYYY-MM-DD>，按日期归档。
+export function noProjectSessionDir(dayKey: string): string {
+  return join(documentsCortexDir(), dayKey);
+}
+
 // 自动化（定时任务）配置：单文件全量。
 export function automationsStorePath(): string {
   return join(cortexHome(), "automations.json");

@@ -1,5 +1,11 @@
 # Lessons
 
+## 2026-06-14 新增/改组件后必须核对 className 与 CSS 选择器是否对得上
+
+**事故**：新会话页 UI 连续报 3 次「错乱/不显示」——项目名图标文字堆叠、下拉面板透明穿透。根因同一个：新建的 `ProjectPicker` 组件 className 用 `.pw-proj-picker-trigger` / `.pw-proj-picker-panel`，而 CSS 写的是 `.pw-proj-picker`（无后缀）/ `.pw-proj-picker-menu`——**类名整体对不上**，那套布局/背景/阴影规则全是死代码，从未生效；组件靠 button 默认样式凑合，简单场景（带 chevron 多元素）勉强能看，只读/纯面板场景就暴露成堆叠/透明。还连带一批死 CSS（`.pw-proj-picker-item/-sep/-empty`、整个 `.pw-branch-*`）。
+
+**规则**：写完或改完任一组件的 className 后，**立即 grep 反查每个 class 在 CSS 里有无对应定义**（`grep -rn "类名" *.css`），别假设"看起来有样式就对"。CSS 类是完整 token 匹配，`pw-x-trigger` ≠ `pw-x`。两条独立验证：(1) 组件每个 className → CSS 有定义或确认复用已有类；(2) 反向：一段 CSS 选择器 → grep 组件确认真有人用，没有就是死代码该删。尤其新组件复用「设想中的」CSS 命名时，最易出现整片静默失效。纯 CSS 视觉问题自动化测试覆盖不到，靠 grep 对账 + 用户手动验证。
+
 ## 2026-06-12 CSS 点击热区/布局 bug：先量再改，别先动 padding
 
 **事故**：用户报「列表项 hover 高亮整行却点不动 / 行间有点不到的空隙」。我凭读 CSS 直接断定是 `row-main` 垂直 padding 并改之——方向对但论证靠猜，且第一版改法（缩短 row-main padding）会改变行高。被用户纠正：先搞清楚多余垂直空间到底来自哪。

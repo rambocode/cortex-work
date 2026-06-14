@@ -5,8 +5,9 @@ import { dialog, ipcMain, shell } from "electron";
 import { promises as fsp } from "fs";
 import { dirname, join, resolve, sep } from "path";
 import { execFile } from "child_process";
-import type { GitDiffAllResult, GitInfoResult, PromptNode } from "./types";
+import type { GitBranchesResult, GitDiffAllResult, GitInfoResult, GitOpResult, PromptNode } from "./types";
 import { getPersistedState } from "./store";
+import { documentsCortexDir, noProjectSessionDir } from "../paths";
 import { countAddedLines, parseNumstat, parseUntracked, sumStats, synthUntrackedDiff } from "./git-info";
 
 const MAX_DEPTH = 8;
@@ -23,7 +24,10 @@ function isInside(parent: string, child: string): boolean {
 // 路径必须在 promptRoot 或某个项目目录内，否则拒绝。watch.ts 等共用。
 export async function assertAllowed(path: string): Promise<void> {
   const state = await getPersistedState();
-  const roots = [state.promptRoot, ...state.projects.map((p) => p.path)].filter((r): r is string => !!r);
+  // 无项目会话在 Documents/cortex/<日期> 下读写,故白名单含该根目录。
+  const roots = [state.promptRoot, documentsCortexDir(), ...state.projects.map((p) => p.path)].filter(
+    (r): r is string => !!r,
+  );
   if (!roots.some((root) => isInside(root, path))) {
     throw new Error(`路径不在允许范围内: ${path}`);
   }
@@ -71,12 +75,22 @@ async function scanTree(
   return node;
 }
 
-function runGit(args: string[], cwd: string, maxBuffer = 4 * 1024 * 1024): Promise<{ ok: boolean; out: string }> {
+function runGit(
+  args: string[],
+  cwd: string,
+  maxBuffer = 4 * 1024 * 1024,
+): Promise<{ ok: boolean; out: string; err: string }> {
   return new Promise((resolve) => {
     // maxBuffer 超限时 err 非空但 stdout 仍有已收集部分,调用方可按 truncated 处理。
-    execFile("git", args, { cwd, timeout: 5000, maxBuffer }, (err, stdout) => resolve({ ok: !err, out: stdout ?? "" }));
+    // 第三参 stderr 供分支操作把 git 报错透出给 UI。
+    execFile("git", args, { cwd, timeout: 5000, maxBuffer }, (e, stdout, stderr) =>
+      resolve({ ok: !e, out: stdout ?? "", err: stderr ?? "" }),
+    );
   });
 }
+
+// dayKey 形如 YYYY-MM-DD,严格校验防路径穿越（如 ../../etc）。
+const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // 读 untracked 文件内容用于 ± 统计与合成 diff。
 // text=正常文本 / binary=二进制(计 0 行) / skipped=过大或读取失败(统计标记 truncated)。
@@ -252,6 +266,48 @@ export function registerFsHandlers(): void {
       total += synth.length;
     }
     return { diff: parts.join(""), truncated };
+  });
+
+  // 无项目会话工作目录:确保 Documents/cortex/<YYYY-MM-DD> 存在,返回绝对路径。
+  // dayKey 经正则校验防路径穿越。
+  ipcMain.handle("fs:ensureNoProjectDir", async (_e, dayKey: string): Promise<string> => {
+    if (!DAY_KEY_RE.test(dayKey)) throw new Error(`非法日期键: ${dayKey}`);
+    const dir = noProjectSessionDir(dayKey);
+    await fsp.mkdir(dir, { recursive: true });
+    return dir;
+  });
+
+  // GitBar 分支选择:本地分支列表 + 当前分支。任一 git 命令失败 → isRepo:false。
+  ipcMain.handle("fs:gitBranches", async (_e, root: string): Promise<GitBranchesResult> => {
+    await assertAllowed(root);
+    const listRes = await runGit(["for-each-ref", "--format=%(refname:short)", "refs/heads"], root);
+    if (!listRes.ok) return { isRepo: false, branches: [], current: "" };
+    const branches = listRes.out.split("\n").map((l) => l.trim()).filter(Boolean);
+    const curRes = await runGit(["rev-parse", "--abbrev-ref", "HEAD"], root);
+    if (!curRes.ok) return { isRepo: false, branches: [], current: "" };
+    return { isRepo: true, branches, current: curRes.out.trim() };
+  });
+
+  // GitBar 新建分支:git switch -c <name>(同时切到新分支)。
+  ipcMain.handle("fs:gitCreateBranch", async (_e, root: string, name: string): Promise<GitOpResult> => {
+    await assertAllowed(root);
+    const trimmed = name.trim();
+    if (!trimmed) return { ok: false, message: "分支名不能为空" };
+    const res = await runGit(["switch", "-c", trimmed], root);
+    if (res.ok) return { ok: true };
+    return { ok: false, message: res.err.trim() || res.out.trim() || "创建分支失败" };
+  });
+
+  // GitBar 切换分支:工作区有未提交改动时禁止切换并提示先提交。
+  ipcMain.handle("fs:gitCheckout", async (_e, root: string, name: string): Promise<GitOpResult> => {
+    await assertAllowed(root);
+    const status = await runGit(["status", "--porcelain"], root);
+    if (status.ok && status.out.trim().length > 0) {
+      return { ok: false, message: "工作区有未提交改动，请先提交后再切换分支" };
+    }
+    const res = await runGit(["switch", name], root);
+    if (res.ok) return { ok: true };
+    return { ok: false, message: res.err.trim() || res.out.trim() || "切换分支失败" };
   });
 
   ipcMain.handle("fs:readFile", async (_e, path: string) => {

@@ -235,11 +235,16 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
   const openHome = usePersonalStore((s) => s.openHome);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
   const openAutomation = usePersonalStore((s) => s.openAutomation);
+  const sessions = usePersonalStore((s) => s.sessions);
+  const activeSessionId = usePersonalStore((s) => s.activeSessionId);
+  const setActiveSession = usePersonalStore((s) => s.setActiveSession);
 
   // 系统已装编辑器（挂载时探测一次,传给所有 ProjectMenu）。
   const [editors, setEditors] = useState<EditorInfo[]>([]);
   // 「已归档」分组折叠态（本地,默认折叠）。
   const [archivedOpen, setArchivedOpen] = useState(false);
+  // 「无项目」伪分组折叠态（本地,默认展开）。
+  const [noProjectOpen, setNoProjectOpen] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -258,6 +263,11 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
 
   const { visible, archived } = partitionProjects(projects);
 
+  // 「无项目」会话:无 projectId 且未归档,按 updatedAt 降序。
+  const noProjectSessions = sessions
+    .filter((s) => !s.projectId && s.archivedAt == null)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
   const pickProject = async () => {
     if (!bridge) return;
     const path = await bridge.pickDirectory();
@@ -269,9 +279,9 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
   return (
     <aside className="sidebar">
       <WorkspaceTabs />
-      <button className={`pw-home-btn ${homeOpen ? "is-active" : ""}`} onClick={openHome} title="首页（热力图 / 项目检索 / 全局日总结）">
-        <Icon.Chart size={14} />
-        <span>首页</span>
+      <button className={`pw-home-btn ${homeOpen ? "is-active" : ""}`} onClick={openHome} title="新会话（看板·选项目·开聊）">
+        <Icon.Plus size={14} />
+        <span>新会话</span>
       </button>
       {bridge?.automationList ? (
         <button
@@ -318,6 +328,31 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
             {archivedOpen
               ? archived.map((p) => (
                   <ProjectBlock key={p.id} project={p} archived={true} editors={editors} onToast={onToast} />
+                ))
+              : null}
+          </div>
+        ) : null}
+        {noProjectSessions.length > 0 ? (
+          <div className="pw-noproject-group">
+            <button
+              className="pw-archived-h"
+              data-collapsed={!noProjectOpen}
+              onClick={() => setNoProjectOpen((v) => !v)}
+            >
+              <span className="chev">
+                <Icon.Chevron size={10} />
+              </span>
+              <span>无项目 ({noProjectSessions.length})</span>
+            </button>
+            {noProjectOpen
+              ? noProjectSessions.map((sess) => (
+                  <SessionRow
+                    key={sess.id}
+                    session={sess}
+                    active={sess.id === activeSessionId}
+                    onSelect={() => setActiveSession(sess.id)}
+                    onToast={onToast}
+                  />
                 ))
               : null}
           </div>

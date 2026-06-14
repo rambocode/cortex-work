@@ -40,7 +40,10 @@ export interface TodoMeta {
 
 export interface SessionMeta {
   id: string; // 应用内 uuid
-  projectId: string;
+  // 关联项目;缺省 = 不使用项目（会话在 Documents/cortex/<日期> 工作）。
+  projectId?: string;
+  // 不使用项目时的工作目录（Documents/cortex/<YYYY-MM-DD>,创建时定下不漂移）。
+  noProjectDir?: string;
   title: string;
   // 旧字段兼容:claude -p 首轮 system.init 返回的 session_id。
   claudeSessionId?: string;
@@ -354,6 +357,19 @@ export interface GitInfoResult {
 export interface GitDiffAllResult {
   diff: string;
   truncated: boolean;
+}
+
+// GitBar 分支操作:本地分支列表 + 当前分支（非 git 仓库 isRepo:false）。
+export interface GitBranchesResult {
+  isRepo: boolean;
+  branches: string[]; // 本地分支名（refs/heads）
+  current: string; // 当前分支;detached HEAD 时为 short SHA 或空
+}
+
+// 创建/切换分支结果。失败时 message 携带 git stderr 供 UI 透出。
+export interface GitOpResult {
+  ok: boolean;
+  message?: string;
 }
 
 // ── 项目时间线 ────────────────────────────────────────────────────────────

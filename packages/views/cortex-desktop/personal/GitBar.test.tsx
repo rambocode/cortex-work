@@ -10,18 +10,21 @@ function makeProject(id: string): ProjectMeta {
   return { id, name: `proj-${id}`, path: `/code/${id}`, addedAt: NOW };
 }
 
+// GitBar 现在始终渲染(左侧 ProjectPicker),分支/统计段仅在 git 仓库时出现。
+// 项目名由内置 ProjectPicker 从 store.projects 查 value 显示,故把 project 放进 store
+// 并传 projectValue=project.id。
 function renderBar(
   info: GitInfoResult | null,
   opts: { project?: ProjectMeta; running?: boolean; onSend?: (t: string) => void; onToast?: (t: string) => void } = {},
 ) {
   const project = opts.project ?? makeProject("p1");
-  const bridge = (info
-    ? { gitInfo: async () => info }
-    : {}) as unknown as DesktopBridge;
+  usePersonalStore.setState({ projects: [project] });
+  const bridge = (info ? { gitInfo: async () => info } : {}) as unknown as DesktopBridge;
   return render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
       <GitBar
         project={project}
+        projectValue={project.id}
         running={opts.running ?? false}
         onSend={opts.onSend ?? (() => {})}
         onToast={opts.onToast ?? (() => {})}
@@ -30,25 +33,28 @@ function renderBar(
   );
 }
 
-describe("GitBar git 信息条", () => {
+describe("GitBar 项目·分支信息条", () => {
   afterEach(() => cleanup());
 
-  it("非 git 仓库不渲染", async () => {
+  it("非 git 仓库:仍显示项目选择器,但无分支段/统计", async () => {
     const { container } = renderBar(
       { isRepo: false, additions: 0, deletions: 0, dirty: false },
       { project: makeProject("norepo") },
     );
-    // 等一拍让 query 落定
     await Promise.resolve();
-    expect(container.querySelector(".pw-gitbar")).toBeNull();
+    // 整条始终在(含项目选择器),只是分支按钮/统计不出现。
+    expect(container.querySelector(".pw-gitbar")).not.toBeNull();
+    expect(container.querySelector(".pw-gitbar-branch")).toBeNull();
+    expect(screen.queryByTitle("查看 diff")).toBeNull();
   });
 
-  it("无 gitInfo 能力(旧壳/web)不渲染", () => {
+  it("无 gitInfo 能力(旧壳/web):仍显示项目选择器,无分支段", () => {
     const { container } = renderBar(null, { project: makeProject("nocap") });
-    expect(container.querySelector(".pw-gitbar")).toBeNull();
+    expect(container.querySelector(".pw-gitbar")).not.toBeNull();
+    expect(container.querySelector(".pw-gitbar-branch")).toBeNull();
   });
 
-  it("工作区干净:只显示项目名与分支,无统计徽章和 Commit 按钮", async () => {
+  it("工作区干净:显示项目名(ProjectPicker)与分支,无统计徽章和 Commit 按钮", async () => {
     renderBar(
       { isRepo: true, branch: "main", additions: 0, deletions: 0, dirty: false },
       { project: makeProject("clean") },
@@ -107,5 +113,40 @@ describe("GitBar git 信息条", () => {
       { project: makeProject("trunc") },
     );
     expect(await screen.findByText("≈")).toBeInTheDocument();
+  });
+
+  it("项目档只读:展示项目名但点击不弹出切换菜单(换项目走「新会话」)", () => {
+    renderBar({ isRepo: true, branch: "main", additions: 0, deletions: 0, dirty: false }, { project: makeProject("ro") });
+    const trigger = screen.getByText("proj-ro").closest("button")!;
+    expect(trigger).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(trigger);
+    // 只读:不出现可切换面板项（搜索框 / 添加新项目 / 不使用项目）。
+    expect(screen.queryByPlaceholderText(/检索项目/)).toBeNull();
+    expect(screen.queryByText("添加新项目")).toBeNull();
+    expect(screen.queryByText("不使用项目")).toBeNull();
+  });
+
+  it("新会话页用法(传 onChangeProject、不传 onSend):项目可切 + 分支显示 + 无 Commit", async () => {
+    const project = makeProject("new");
+    usePersonalStore.setState({ projects: [project] });
+    const bridge = {
+      gitInfo: async () => ({ isRepo: true, branch: "dev", additions: 5, deletions: 1, dirty: true }),
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+        <GitBar project={project} projectValue={project.id} onChangeProject={() => {}} running={false} onToast={() => {}} />
+      </CoreProvider>,
+    );
+    // 分支信息保留。
+    expect(await screen.findByText("dev")).toBeInTheDocument();
+    // 无 session:不显示 ± 统计 / Commit。
+    expect(screen.queryByRole("button", { name: "Commit changes" })).toBeNull();
+    expect(screen.queryByTitle("查看 diff")).toBeNull();
+    // 项目可切:trigger 非只读,点击弹出选择面板。
+    const trigger = screen.getByText("proj-new").closest("button")!;
+    expect(trigger).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(trigger);
+    expect(screen.getByPlaceholderText(/检索项目/)).toBeInTheDocument();
+    expect(screen.getByText("不使用项目")).toBeInTheDocument();
   });
 });

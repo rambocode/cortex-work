@@ -63,6 +63,8 @@ export {
   type GitCommit,
   type GitInfoResult,
   type GitDiffAllResult,
+  type GitBranchesResult,
+  type GitOpResult,
   type TimelineEvent,
   type TimelineEventKind,
   type TimelineFileData,
@@ -112,7 +114,14 @@ export {
   useRunAutomationNow,
   useAutomationEvents,
 } from "./personal/automation";
-export { gitInfoKeys, useProjectGitInfo, useInvalidateGitInfo } from "./personal/git";
+export {
+  gitInfoKeys,
+  gitBranchKeys,
+  useProjectGitInfo,
+  useInvalidateGitInfo,
+  useProjectBranches,
+  useGitBranchActions,
+} from "./personal/git";
 export {
   personalChatKeys,
   buildAttachmentSystemPrompt,
@@ -159,16 +168,20 @@ export {
   homeHeatLevel,
   useAgentProjects,
   mergeProjectRows,
+  latestActiveProjectId,
+  useAllProjectsTasks,
   type ProjectEvents,
   type HeatCell,
   type HeatWeek,
   type WorkspaceProjectRow,
   type HomeProjectRow,
+  type HomeTaskRow,
 } from "./personal/home";
 export {
   ARCHIVE_GRANULARITIES,
   groupTaskFiles,
   unregisteredTaskFiles,
+  staleTodoIds,
   archiveTaskFiles,
   taskFileTime,
   isoWeek,

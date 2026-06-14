@@ -10,6 +10,7 @@ import {
   ARCHIVE_GRANULARITIES,
   archiveTaskFiles,
   groupTaskFiles,
+  staleTodoIds,
   unregisteredTaskFiles,
   type ArchiveGranularity,
   type TaskFileGroup,
@@ -668,21 +669,37 @@ export function TodosView({ onToast }: { onToast: (text: string) => void }) {
   const projectMode = !homeOpen && !!currentProjectId;
   const [selected, setSelected] = useState<SelectedItem | null>(null);
 
+  // 首页点 Task:消费 store 请求,在右栏打开该文件详情（仿 gitDiffRequest;首页为只读模式）。
+  const taskDetailRequest = usePersonalStore((s) => s.taskDetailRequest);
+  const consumeTaskDetailRequest = usePersonalStore((s) => s.consumeTaskDetailRequest);
+  useEffect(() => {
+    if (!taskDetailRequest) return;
+    const req = consumeTaskDetailRequest();
+    if (req) setSelected({ kind: "file", path: req.path, name: req.name });
+  }, [taskDetailRequest, consumeTaskDetailRequest]);
+
   // 项目模式:扫描当前项目 tasks/ 目录（自动提取 md 文档）,watch 自动刷新。
   const currentProject = projectMode ? projects.find((p) => p.id === currentProjectId) : undefined;
   const currentProjectPath = currentProject?.path;
   const [taskFiles, setTaskFiles] = useState<TaskFilesResult | null>(null);
 
   const refreshFiles = useCallback(() => {
-    if (!bridge?.listTaskFiles || !currentProjectPath) {
+    if (!bridge?.listTaskFiles || !currentProjectPath || !currentProjectId) {
       setTaskFiles(null);
       return;
     }
+    const projectId = currentProjectId;
     bridge
       .listTaskFiles(currentProjectPath)
-      .then(setTaskFiles)
+      .then((result) => {
+        setTaskFiles(result);
+        // 对账:外部删除 tasks/*.md 后,清理 detailPath 已悬空的 todo 元数据
+        // （store 与磁盘是两套数据源,watch 只刷新文件扫描,不回收 todo）。
+        const { todos: allTodos, removeTodo } = usePersonalStore.getState();
+        for (const id of staleTodoIds(result, allTodos, projectId)) removeTodo(id);
+      })
       .catch(() => setTaskFiles(null));
-  }, [bridge, currentProjectPath]);
+  }, [bridge, currentProjectPath, currentProjectId]);
 
   useEffect(() => {
     refreshFiles();

@@ -390,8 +390,9 @@ function handleCliExit(
   }
 
   // 时间线：记录这一轮 run 事件（恢复型 run 无 prompt,用回复首行兜底）。
+  // 不使用项目的会话（无 projectId）不归入任何项目时间线,跳过。
   const session = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
-  if (session) {
+  if (session && session.projectId) {
     const title = run.promptText ? promptTitle(run.promptText) : promptTitle(run.buffer || "（恢复的轮次）");
     recordTimelineEvent(qc, bridgeRef, session.projectId, {
       id: `run-${runId}`,

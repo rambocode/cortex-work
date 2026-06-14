@@ -53,6 +53,8 @@ export interface PersonalState {
   // GitBar「查看 diff」请求（FilesView 消费后即清,不持久化;不用 nonce——
   // FilesView 可能在请求发出时未挂载,消费即清才能让挂载后的 effect 接到）。
   gitDiffRequest?: { projectId: string };
+  // 首页点 Task 请求:右栏 TodosView 消费后打开该 task 文件详情（消费即清,仿 gitDiffRequest）。
+  taskDetailRequest?: { projectId: string; path: string; name: string };
   // 右栏当前视图（顶栏下拉选择）。
   rightView: "files" | "skills" | "todos";
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
@@ -90,7 +92,13 @@ export interface PersonalState {
   setPiDefaults: (patch: { defaultChannelId?: string; defaultModel?: string }) => void;
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
-  createSession: (projectId: string, agent: AgentKind, model?: string) => SessionMeta;
+  // projectId 缺省 = 不使用项目（会话在 opts.noProjectDir 工作目录运行）。
+  createSession: (
+    projectId: string | undefined,
+    agent: AgentKind,
+    model?: string,
+    opts?: { noProjectDir?: string },
+  ) => SessionMeta;
   updateSession: (id: string, patch: Partial<SessionMeta>) => void;
   archiveSession: (id: string) => void;
   unarchiveSession: (id: string) => void;
@@ -112,6 +120,9 @@ export interface PersonalState {
   // GitBar 点击 ± 徽章:右栏切到文件视图并请求整仓 diff 预览。
   requestGitDiff: (projectId: string) => void;
   consumeGitDiffRequest: () => { projectId: string } | undefined;
+  // 首页点 Task:右栏切到 Tasks 视图并请求打开该 task 文件详情。
+  requestTaskDetail: (req: { projectId: string; path: string; name: string }) => void;
+  consumeTaskDetailRequest: () => { projectId: string; path: string; name: string } | undefined;
   setRightView: (view: "files" | "skills" | "todos") => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
@@ -232,8 +243,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),
   setPromptTree: (tree) => set({ promptTree: tree }),
 
-  createSession: (projectId, agent, model) => {
+  createSession: (projectId, agent, model, opts) => {
     const now = Date.now();
+    // count 仍按 projectId 分桶（undefined 自成「无项目」分桶,各自从 1 开始编号）。
     const count = get().sessions.filter((x) => x.projectId === projectId).length;
     // pi:挂上默认 LLM 通道与模型（缺省取默认通道首个模型）,无通道则留空待配置。
     const piSettings = get().piSettings;
@@ -242,6 +254,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     const sess: SessionMeta = {
       id: newId("sess"),
       projectId,
+      // 无项目会话记下创建时定下的工作目录（cli:start 直接用此 cwd,不漂移）。
+      noProjectDir: projectId ? undefined : opts?.noProjectDir,
       title: `Session ${count + 1}`,
       agent,
       model:
@@ -254,6 +268,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     };
     set((s) => ({
       sessions: [...s.sessions, sess],
+      // projectId 为 undefined 即清空 activeProjectId（无项目会话不归属任何项目）。
       activeProjectId: projectId,
       activeSessionId: sess.id,
       homeOpen: false,
@@ -354,6 +369,16 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   consumeGitDiffRequest: () => {
     const req = get().gitDiffRequest;
     if (req) set({ gitDiffRequest: undefined });
+    return req;
+  },
+
+  // 首页点 Task:切右栏到 Tasks 并存请求,TodosView 消费后打开该文件详情。
+  // 不动 homeOpen（保持落地页不切走）,只在右栏展示详情。
+  requestTaskDetail: (req) => set({ taskDetailRequest: req, rightView: "todos" }),
+
+  consumeTaskDetailRequest: () => {
+    const req = get().taskDetailRequest;
+    if (req) set({ taskDetailRequest: undefined });
     return req;
   },
 

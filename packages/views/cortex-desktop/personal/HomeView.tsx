@@ -1,5 +1,7 @@
-// 个人工作区首页：跨项目活动热力图（GitHub 风格周列）+ 项目快速检索 +
-// 全局一日总结。数据来自所有项目的 timeline 聚合（useAllProjectsTimeline）。
+// 个人工作区首页看板：跨项目活动热力图（GitHub 风格周列）+ 全局一日总结 +
+// 跨项目 Tasks。数据来自侧边栏可见项目的 timeline 聚合（useAllProjectsTimeline）
+// 与 tasks/ 文件聚合（useAllProjectsTasks）。
+// HomeBoard 供 NewSessionLanding 复用,HomeView 为兼容现有 import 的薄包装。
 
 import { useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
@@ -8,15 +10,15 @@ import {
   dayKey,
   groupEventsByDay,
   homeHeatLevel,
-  mergeProjectRows,
-  useAgentProjects,
+  partitionProjects,
+  useAllProjectsTasks,
   useAllProjectsTimeline,
   useGenerateGlobalSummary,
   useGlobalSummaries,
   useCortexUIStore,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { DayGroup, DayStats, GlobalSummaryEntry, HomeProjectRow, TodoMeta, WorkspaceProjectRow } from "@cortex-work/core";
+import type { DayGroup, DayStats, GlobalSummaryEntry, HomeTaskRow } from "@cortex-work/core";
 import { relTime } from "./PersonalSidebar";
 
 const HEAT_WEEKS = 26;
@@ -94,136 +96,29 @@ function Heatmap({
   );
 }
 
-// ── Agent 项目（工作区 ∪ 系统扫描） ──────────────────────────────────────
-
-function ProjectSearch({ onToast }: { onToast: (text: string) => void }) {
-  const projects = usePersonalStore((s) => s.projects);
-  const sessions = usePersonalStore((s) => s.sessions);
-  const setActiveSession = usePersonalStore((s) => s.setActiveSession);
-  const openTimeline = usePersonalStore((s) => s.openTimeline);
-  const addProject = usePersonalStore((s) => s.addProject);
-  const { projects: scanned } = useAgentProjects();
-  const [query, setQuery] = useState("");
-
-  const rows = useMemo(() => {
-    const workspace: WorkspaceProjectRow[] = projects.map((project) => {
-      const list = sessions.filter((x) => x.projectId === project.id);
-      const latest = list.reduce<(typeof list)[number] | undefined>(
-        (best, x) => (!best || x.updatedAt > best.updatedAt ? x : best),
-        undefined,
-      );
-      return {
-        project,
-        sessionCount: list.length,
-        latest,
-        lastActive: latest?.updatedAt ?? project.addedAt,
-        agents: [...new Set(list.map((x) => x.agent))],
-      };
-    });
-    const merged = mergeProjectRows(workspace, scanned);
-    const q = query.trim().toLowerCase();
-    return q ? merged.filter((r) => r.name.toLowerCase().includes(q) || r.path.toLowerCase().includes(q)) : merged;
-  }, [projects, sessions, scanned, query]);
-
-  const open = (row: HomeProjectRow) => {
-    if (!row.inWorkspace) {
-      // 系统扫描发现但未加入工作区的项目,点击即添加。
-      const proj = addProject(row.path);
-      onToast(`已添加项目 ${proj.name} 到工作区`);
-      return;
-    }
-    if (row.latest) {
-      setActiveSession(row.latest.id);
-    } else if (row.project) {
-      openTimeline(row.project.id);
-      onToast(`${row.name} 还没有 Session,已打开项目时间线`);
-    }
-  };
-
-  return (
-    <div className="pw-home-projects">
-      <div className="sb-row sb-search pw-home-search">
-        <Icon.Search size={13} />
-        <input
-          className="sb-search-input"
-          placeholder="检索项目（名称 / 路径）"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {query ? (
-          <button className="sb-clear" onClick={() => setQuery("")} title="清除">
-            ×
-          </button>
-        ) : null}
-      </div>
-      <div className="pw-home-proj-list">
-        {rows.map((row) => (
-          <button
-            key={row.path}
-            className="pw-home-proj-row"
-            onClick={() => open(row)}
-            title={row.inWorkspace ? row.path : `${row.path}\n点击添加到工作区`}
-          >
-            <Icon.Folder size={14} />
-            <span className="pw-home-proj-name">{row.name}</span>
-            <span className="pw-home-proj-path">{row.path}</span>
-            {!row.inWorkspace ? <span className="pw-home-proj-badge">未添加</span> : null}
-            <span className="pw-agent-dots" aria-hidden="true">
-              {row.agents.map((a) => (
-                <i key={a} className="pw-agent-dot" data-agent={a} title={a} />
-              ))}
-            </span>
-            <span className="pw-home-proj-meta">
-              {row.inWorkspace ? `${row.sessionCount} 个 Session · ` : ""}
-              {relTime(row.lastActive)}
-            </span>
-          </button>
-        ))}
-        {rows.length === 0 ? (
-          <div className="pw-empty-hint">
-            {query ? `没有匹配「${query}」的项目` : "还没有发现 agent 项目,在左侧添加一个文件夹开始"}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-// ── 全局 Todo 汇总 ───────────────────────────────────────────────────────
+// ── 跨项目 Tasks 汇总 ─────────────────────────────────────────────────────
 
 function HomeTodos() {
-  const projects = usePersonalStore((s) => s.projects);
-  const todos = usePersonalStore((s) => s.todos);
+  const requestTaskDetail = usePersonalStore((s) => s.requestTaskDetail);
   const setRightView = usePersonalStore((s) => s.setRightView);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
+  const { rows, loading } = useAllProjectsTasks();
 
   const openTodos = () => {
     setRightView("todos");
     setRightOpen(true);
   };
 
-  const rows = useMemo(
-    () =>
-      projects
-        .map((project) => {
-          const list = todos
-            .filter((todo) => todo.projectId === project.id)
-            .sort((a, b) => {
-              if (a.status !== b.status) return a.status === "open" ? -1 : 1;
-              return b.updatedAt - a.updatedAt;
-            });
-          const open = list.filter((todo) => todo.status === "open");
-          return { project, list, open, latest: list[0] as TodoMeta | undefined };
-        })
-        .filter((row) => row.list.length > 0)
-        .sort((a, b) => (b.latest?.updatedAt ?? 0) - (a.latest?.updatedAt ?? 0)),
-    [projects, todos],
-  );
+  // 点 task:右栏直接打开该文件详情（不切走首页,只在右栏展示 markdown）。
+  const openTaskDetail = (row: HomeTaskRow) => {
+    requestTaskDetail({ projectId: row.projectId, path: row.file.path, name: row.file.name });
+    setRightOpen(true);
+  };
 
   if (rows.length === 0) {
     return (
       <div className="pw-home-todos-empty">
-        <span>还没有 Task</span>
+        <span>{loading ? "加载中…" : "还没有 Task"}</span>
         <button className="pw-tl-gen" onClick={openTodos}>
           <Icon.Task size={12} />
           打开 Tasks
@@ -234,14 +129,17 @@ function HomeTodos() {
 
   return (
     <div className="pw-home-todos">
-      {rows.map(({ project, open, latest }) => (
-        <button key={project.id} className="pw-home-todo-row" onClick={openTodos} title={project.path}>
+      {rows.map((row) => (
+        <button
+          key={row.file.path}
+          className="pw-home-todo-row"
+          onClick={() => openTaskDetail(row)}
+          title={row.file.path}
+        >
           <Icon.Task size={14} />
-          <span className="pw-home-todo-project">{project.name}</span>
-          <span className="pw-home-todo-title">{latest?.title ?? "无标题"}</span>
-          <span className="pw-home-proj-meta">
-            {open.length} open · {latest ? relTime(latest.updatedAt) : ""}
-          </span>
+          <span className="pw-home-todo-project">{row.projectName}</span>
+          <span className="pw-home-todo-title">{row.file.name.replace(/\.md$/i, "")}</span>
+          <span className="pw-home-proj-meta">{relTime(row.file.mtimeMs)}</span>
         </button>
       ))}
     </div>
@@ -333,11 +231,13 @@ function GlobalSummary({
   );
 }
 
-// ── 首页容器 ──────────────────────────────────────────────────────────────
+// ── 首页看板（供 NewSessionLanding 复用） ─────────────────────────────────
 
-export function HomeView({ onToast }: { onToast: (text: string) => void }) {
+export function HomeBoard({ onToast }: { onToast: (text: string) => void }) {
   const projects = usePersonalStore((s) => s.projects);
-  const { eventsByProject, allEvents, loading } = useAllProjectsTimeline(projects);
+  // 热力图/总结统计侧边栏可见项目（与新版侧边栏一致,排除归档项目）。
+  const visible = useMemo(() => partitionProjects(projects).visible, [projects]);
+  const { eventsByProject, allEvents, loading } = useAllProjectsTimeline(visible);
   const [selectedDay, setSelectedDay] = useState(() => dayKey(Date.now()));
 
   const groups = useMemo(() => groupEventsByDay(allEvents), [allEvents]);
@@ -353,41 +253,39 @@ export function HomeView({ onToast }: { onToast: (text: string) => void }) {
     [eventsByProject, selectedDay],
   );
 
-  // 注:工作区为空时不再整页空态——「Agent 项目」区块会列出系统扫描发现的
-  // 项目供一键添加,热力图/总结区块自然为空。
+  return (
+    <div className="pw-home">
+      <section className="pw-home-section">
+        <div className="pw-section-h">
+          <span>活动热力图</span>
+          {loading ? <span className="pw-home-loading">加载中…</span> : null}
+        </div>
+        <Heatmap groups={groups} selectedDay={selectedDay} onPickDay={setSelectedDay} />
+      </section>
 
+      <section className="pw-home-section">
+        <div className="pw-section-h">
+          <span>一日总结 · 所有项目</span>
+        </div>
+        <GlobalSummary day={selectedDay} entries={entries} onToast={onToast} />
+      </section>
+
+      <section className="pw-home-section">
+        <div className="pw-section-h">
+          <span>Tasks · 所有项目</span>
+        </div>
+        <HomeTodos />
+      </section>
+    </div>
+  );
+}
+
+// ── 首页容器（兼容 PersonalWorkspace 现有 import） ─────────────────────────
+
+export function HomeView({ onToast }: { onToast: (text: string) => void }) {
   return (
     <main className="chat">
-      <div className="pw-home">
-        <section className="pw-home-section">
-          <div className="pw-section-h">
-            <span>活动热力图</span>
-            {loading ? <span className="pw-home-loading">加载中…</span> : null}
-          </div>
-          <Heatmap groups={groups} selectedDay={selectedDay} onPickDay={setSelectedDay} />
-        </section>
-
-        <section className="pw-home-section">
-          <div className="pw-section-h">
-            <span>一日总结 · 所有项目</span>
-          </div>
-          <GlobalSummary day={selectedDay} entries={entries} onToast={onToast} />
-        </section>
-
-        <section className="pw-home-section">
-          <div className="pw-section-h">
-            <span>Tasks · 所有项目</span>
-          </div>
-          <HomeTodos />
-        </section>
-
-        <section className="pw-home-section">
-          <div className="pw-section-h">
-            <span>Agent 项目</span>
-          </div>
-          <ProjectSearch onToast={onToast} />
-        </section>
-      </div>
+      <HomeBoard onToast={onToast} />
     </main>
   );
 }

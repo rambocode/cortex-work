@@ -8,11 +8,13 @@ import type {
   AgentProjectInfo,
   ProjectMeta,
   SessionMeta,
+  TaskFileInfo,
+  TaskFilesResult,
   TimelineEvent,
   TimelineFileData,
 } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
-import { usePersonalStore } from "../store/personal";
+import { partitionProjects, usePersonalStore } from "../store/personal";
 import {
   dayKey,
   loadTimelineData,
@@ -184,4 +186,52 @@ export function mergeProjectRows(workspace: WorkspaceProjectRow[], scanned: Agen
     }
   }
   return [...rows.values()].sort((a, b) => b.lastActive - a.lastActive);
+}
+
+// ── 新会话落地页:最近活跃项目 + 跨项目 Tasks ──────────────────────────────
+
+// 取 updatedAt 最大的会话的 projectId（新会话 ProjectPicker 默认选中）。
+// 无会话 / 最近会话为无项目会话 → undefined。
+export function latestActiveProjectId(sessions: SessionMeta[]): string | undefined {
+  let latest: SessionMeta | undefined;
+  for (const s of sessions) {
+    if (!latest || s.updatedAt > latest.updatedAt) latest = s;
+  }
+  return latest?.projectId;
+}
+
+// 跨项目 Tasks 行：一个 md 文件 + 其所属项目（首页 Tasks·所有项目）。
+export interface HomeTaskRow {
+  file: TaskFileInfo;
+  projectId: string;
+  projectName: string;
+}
+
+// 列出所有可见项目的 tasks/ md 文件,按 mtime 全局降序取前 limit（仅 files,不含 archived）。
+// 仿 useAllProjectsTimeline 的 useQueries 写法,各项目并行拉取、独立缓存。
+export function useAllProjectsTasks(limit = 10): { rows: HomeTaskRow[]; loading: boolean } {
+  const bridge = useDesktopBridge();
+  const projects = usePersonalStore((s) => s.projects);
+  const visible = partitionProjects(projects).visible;
+
+  const results = useQueries({
+    queries: visible.map((p) => ({
+      queryKey: ["personal", "tasks", p.id],
+      enabled: !!bridge?.listTaskFiles,
+      staleTime: 30_000,
+      queryFn: () =>
+        bridge?.listTaskFiles
+          ? bridge.listTaskFiles(p.path).catch(() => ({ files: [], archived: [] }) as TaskFilesResult)
+          : Promise.resolve({ files: [], archived: [] } as TaskFilesResult),
+    })),
+  });
+
+  const rows: HomeTaskRow[] = [];
+  visible.forEach((p, i) => {
+    for (const file of results[i]?.data?.files ?? []) {
+      rows.push({ file, projectId: p.id, projectName: p.name });
+    }
+  });
+  rows.sort((a, b) => b.file.mtimeMs - a.file.mtimeMs);
+  return { rows: rows.slice(0, limit), loading: results.some((r) => r.isLoading) };
 }

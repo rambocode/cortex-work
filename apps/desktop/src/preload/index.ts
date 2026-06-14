@@ -14,14 +14,17 @@ import type {
   CliStreamEvent,
   CronValidation,
   EditorInfo,
+  GitBranchesResult,
   GitDiffAllResult,
   GitInfoResult,
+  GitOpResult,
   PersistedState,
   PromptNode,
   ReadFileResult,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
   TaskFilesResult,
+  TrimSessionRequest,
   TtsStreamEvent,
   TtsVoiceOption,
   UpdateState,
@@ -61,6 +64,13 @@ const personal = {
   // GitBar:分支 + ± 统计 / 整仓 diff
   gitInfo: (root: string): Promise<GitInfoResult> => ipcRenderer.invoke("fs:gitInfo", root),
   gitDiffAll: (root: string): Promise<GitDiffAllResult> => ipcRenderer.invoke("fs:gitDiffAll", root),
+  // 无项目会话工作目录:确保 Documents/cortex/<日期> 存在,返回绝对路径
+  ensureNoProjectDir: (dayKey: string): Promise<string> => ipcRenderer.invoke("fs:ensureNoProjectDir", dayKey),
+  // GitBar 分支:列表 / 新建 / 切换
+  gitBranches: (root: string): Promise<GitBranchesResult> => ipcRenderer.invoke("fs:gitBranches", root),
+  gitCreateBranch: (root: string, name: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke("fs:gitCreateBranch", root, name),
+  gitCheckout: (root: string, name: string): Promise<GitOpResult> => ipcRenderer.invoke("fs:gitCheckout", root, name),
   readFile: (path: string): Promise<ReadFileResult> => ipcRenderer.invoke("fs:readFile", path),
   writeFile: (path: string, content: string): Promise<void> => ipcRenderer.invoke("fs:writeFile", path, content),
   deleteFile: (path: string): Promise<void> => ipcRenderer.invoke("fs:deleteFile", path),
@@ -123,12 +133,7 @@ const personal = {
   listTtsVoices: (req: TtsListVoicesRequest): Promise<TtsVoiceOption[]> => ipcRenderer.invoke("tts:listVoices", req),
   asrTranscribe: (req: AsrTranscribeRequest): Promise<AsrTranscribeResponse> => ipcRenderer.invoke("asr:transcribe", req),
   killCli: (runId: string): Promise<void> => ipcRenderer.invoke("cli:kill", runId),
-  trimAgentSession: (req: {
-    agent: "claude" | "codex";
-    agentSessionId: string;
-    promptText: string;
-    occurrence: number;
-  }): Promise<boolean> => ipcRenderer.invoke("cli:trimSession", req),
+  trimAgentSession: (req: TrimSessionRequest): Promise<boolean> => ipcRenderer.invoke("cli:trimSession", req),
   onCliEvent: (cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, payload: { runId: string; sessionId?: string; event: CliStreamEvent }) =>
       cb(payload.runId, payload.event, payload.sessionId);

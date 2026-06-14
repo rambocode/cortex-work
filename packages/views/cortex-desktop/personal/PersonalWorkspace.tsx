@@ -17,7 +17,7 @@ import { PersonalChatArea } from "./PersonalChatArea";
 import { PersonalRightPanel } from "./PersonalRightPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { TimelineView } from "./TimelineView";
-import { HomeView } from "./HomeView";
+import { NewSessionLanding } from "./NewSessionLanding";
 import { AutomationView } from "./AutomationView";
 
 export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void }) {
@@ -65,7 +65,7 @@ export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void
           {automationOpen ? (
             <AutomationView onToast={onToast} />
           ) : homeOpen ? (
-            <HomeView onToast={onToast} />
+            <NewSessionLanding onToast={onToast} />
           ) : timelineProject ? (
             <TimelineView project={timelineProject} onToast={onToast} />
           ) : (

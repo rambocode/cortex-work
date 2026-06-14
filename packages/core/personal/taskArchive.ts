@@ -4,7 +4,7 @@
 // 安全约束:未完成（open）任务文件跳过;总结失败/为空则中止,不删任何文件。
 
 import type { DesktopBridge } from "../desktop/bridge";
-import type { TaskFileInfo, TodoMeta } from "../desktop/types";
+import type { TaskFileInfo, TaskFilesResult, TodoMeta } from "../desktop/types";
 import { completeWithSummaryModel } from "./timeline";
 
 export type ArchiveGranularity = "week" | "month" | "year";
@@ -81,6 +81,18 @@ export function groupTaskFiles(files: TaskFileInfo[], granularity: ArchiveGranul
 export function unregisteredTaskFiles(files: TaskFileInfo[], todos: TodoMeta[]): TaskFileInfo[] {
   const known = new Set(todos.map((t) => t.detailPath));
   return files.filter((f) => !known.has(f.path) && !isArchiveFileName(f.name));
+}
+
+// 对账:detailPath 指向的文件已不在磁盘（被外部删除）的 todo —— 应连同元数据清理,
+// 否则列表残留悬空条目,点击 readFile 触发 ENOENT。返回应 removeTodo 的 id。
+// 仅判定:① 指定项目的 todo;② detailPath 非空（新建瞬间为空串、老数据为空时跳过）。
+// detailPath 由 createTaskFile 生成,必为 tasks/<id>.md,文件存在即出现在扫描结果
+// (files 顶层或 archived 归档)中,故「不在扫描结果」即文件已被删除。
+export function staleTodoIds(scan: TaskFilesResult, todos: TodoMeta[], projectId: string): string[] {
+  const known = new Set([...scan.files, ...scan.archived].map((f) => f.path));
+  return todos
+    .filter((t) => t.projectId === projectId && t.detailPath && !known.has(t.detailPath))
+    .map((t) => t.id);
 }
 
 export function buildArchivePrompt(projectName: string, key: string, docs: { name: string; content: string }[]): string {

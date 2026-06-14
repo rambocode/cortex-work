@@ -6,11 +6,12 @@ import {
   isArchiveFileName,
   isoWeek,
   periodKey,
+  staleTodoIds,
   taskFileTime,
   unregisteredTaskFiles,
 } from "./taskArchive";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { TaskFileInfo, TodoMeta } from "../desktop/types";
+import type { TaskFileInfo, TaskFilesResult, TodoMeta } from "../desktop/types";
 
 function file(name: string, mtimeMs = 0): TaskFileInfo {
   return { name, path: `/proj/tasks/${name}`, mtimeMs };
@@ -94,6 +95,42 @@ describe("unregisteredTaskFiles", () => {
     const files = [file("t1.md"), file("free.md"), file("2026-W20.md")];
     const todos = [todo({ detailPath: "/proj/tasks/t1.md" })];
     expect(unregisteredTaskFiles(files, todos).map((f) => f.name)).toEqual(["free.md"]);
+  });
+});
+
+describe("staleTodoIds", () => {
+  function scan(files: TaskFileInfo[], archived: TaskFileInfo[] = []): TaskFilesResult {
+    return { files, archived };
+  }
+
+  it("detailPath 文件已不在扫描结果时判为失效", () => {
+    const result = scan([file("t1.md")]); // 仅 t1 还在磁盘
+    const todos = [
+      todo({ id: "a", detailPath: "/proj/tasks/t1.md" }), // 存在 → 保留
+      todo({ id: "b", detailPath: "/proj/tasks/gone.md" }), // 被外部删 → 失效
+    ];
+    expect(staleTodoIds(result, todos, "p1")).toEqual(["b"]);
+  });
+
+  it("detailPath 命中归档目录文件时仍视为存在", () => {
+    const result = scan([], [file("2026-W24.md")]);
+    const todos = [todo({ id: "a", detailPath: "/proj/tasks/2026-W24.md" })];
+    expect(staleTodoIds(result, todos, "p1")).toEqual([]);
+  });
+
+  it("只判定指定项目,其它项目 todo 不受影响", () => {
+    const result = scan([]); // 当前项目 tasks 全空
+    const todos = [
+      todo({ id: "mine", detailPath: "/proj/tasks/gone.md", projectId: "p1" }),
+      todo({ id: "other", detailPath: "/other/tasks/x.md", projectId: "p2" }),
+    ];
+    expect(staleTodoIds(result, todos, "p1")).toEqual(["mine"]);
+  });
+
+  it("detailPath 为空的 todo 不判定(新建瞬间 / 老数据)", () => {
+    const result = scan([]);
+    const todos = [todo({ id: "fresh", detailPath: "", projectId: "p1" })];
+    expect(staleTodoIds(result, todos, "p1")).toEqual([]);
   });
 });
 

@@ -17,10 +17,12 @@ import type {
   CliStreamEvent,
   CronValidation,
   EditorInfo,
+  GitBranchesResult,
   GitChangesResult,
   GitCommit,
   GitDiffAllResult,
   GitInfoResult,
+  GitOpResult,
   OpenAiCompleteRequest,
   PersistedState,
   PromptNode,
@@ -50,6 +52,14 @@ export interface DesktopBridge {
   // 无此能力时信息条不渲染）。
   gitInfo?(root: string): Promise<GitInfoResult>;
   gitDiffAll?(root: string): Promise<GitDiffAllResult>;
+  // 无项目会话工作目录:确保 Documents/cortex/<dayKey> 存在,返回绝对路径。
+  // 可选（web 端为 null;旧壳无此能力时不可创建无项目会话）。
+  ensureNoProjectDir?(dayKey: string): Promise<string>;
+  // GitBar 分支:列表 / 新建(switch -c) / 切换(dirty 时主进程禁止并回 message)。
+  // 可选（旧壳/web 没有,无此能力时分支切换 UI 不渲染）。
+  gitBranches?(root: string): Promise<GitBranchesResult>;
+  gitCreateBranch?(root: string, name: string): Promise<GitOpResult>;
+  gitCheckout?(root: string, name: string): Promise<GitOpResult>;
   readFile(path: string): Promise<ReadFileResult>;
   writeFile(path: string, content: string): Promise<void>;
   deleteFile(path: string): Promise<void>;

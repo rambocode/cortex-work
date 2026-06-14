@@ -97,7 +97,21 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   const bridge = useDesktopBridge();
 
   const session: SessionMeta | undefined = sessions.find((x) => x.id === activeSessionId);
-  const project: ProjectMeta | undefined = session && projects.find((p) => p.id === session.projectId);
+  const realProject: ProjectMeta | undefined =
+    session && session.projectId ? projects.find((p) => p.id === session.projectId) : undefined;
+  // 无项目会话:合成一个项目对象,使下游(send / EmptyState 守卫)无需特判;
+  // path 用会话创建时定下的 noProjectDir(不漂移)。GitBar 仍只对真实项目渲染。
+  const syntheticNoProject = useMemo<ProjectMeta | undefined>(() => {
+    if (!session || session.projectId) return undefined;
+    return {
+      id: "__noproject__",
+      name: "无项目",
+      path: session.noProjectDir ?? "",
+      addedAt: 0,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id, session?.noProjectDir]);
+  const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
   const { send, stop: stopRun, editResend, clearView } = usePersonalActions();
@@ -124,7 +138,10 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
     [displayMessages, hiddenCount],
   );
 
-  if (projects.length === 0) return <EmptyState text="先在左侧添加一个项目" hint="项目是你电脑上的一个文件夹,Agent 将在该目录下工作" />;
+  // 既无可用会话又无项目时才提示添加项目;有无项目会话(session 存在)则放行,
+  // 让下面的会话渲染路径接管,避免无项目会话被早退拦截。
+  if (projects.length === 0 && !session)
+    return <EmptyState text="先在左侧添加一个项目" hint="项目是你电脑上的一个文件夹,Agent 将在该目录下工作" />;
   // 已激活项目但未选会话（左栏点击项目名进入）:引导新建聊天,右栏此时已切到
   // 该项目的 Tasks,可在标题栏菜单换成文件视图。
   if (!session) {
@@ -191,7 +208,7 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
           <div className="ch-status">
             <span className="dot" style={{ background: running ? "var(--amber)" : "var(--green)" }} />
             <span className="pw-head-path" title={project.path}>
-              {project.name} · {project.path}
+              {realProject ? `${project.name} · ${project.path}` : project.name}
             </span>
           </div>
         </div>
@@ -274,7 +291,8 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
       />
 
       <GitBar
-        project={project}
+        project={realProject}
+        projectValue={session.projectId}
         running={running}
         onSend={(text) => void send(session, project.path, text, [])}
         onToast={onToast}
