@@ -4,6 +4,7 @@ import { usePersonalStore } from "../store/personal";
 import type { CliStreamEvent, SessionMeta } from "../desktop/types";
 import {
   RESULT_EXIT_GRACE_MS,
+  __ensureChatLoadedForTest,
   __handleCliEventForTest,
   __handleCliExitForTest,
   __resetPersonalMessageRunsForTest,
@@ -352,6 +353,46 @@ describe("流式交错折叠 foldCliEvent", () => {
     expect(log.completed).toBe(true);
     expect(log.title).toBe("Agent 执行完成");
     expect(log.items.every((it) => it.ic === "check")).toBe(true);
+  });
+});
+
+describe("ensureChatLoaded 即建即发不丢首条消息", () => {
+  // 复现:Spotlight / 新会话落地页创建会话后同一 tick 立刻发送。新会话的 usePersonalChat
+  // useQuery 已发起在途 loadChat,若 ensureChatLoaded 再自起一个 loadChat,晚到的那个会
+  // 把已写入的首条用户消息覆盖成空历史。修复后两者去重为同一请求,首条消息得以保留。
+  it("并发历史加载去重,首条用户消息不被空历史覆盖", async () => {
+    const qc = new QueryClient();
+    const key = personalChatKeys.detail("snew");
+    const releases: Array<(v: Message[]) => void> = [];
+    const loadChat = vi.fn(
+      () => new Promise<Message[]>((resolve) => releases.push(resolve)),
+    );
+    const bridge = { loadChat } as unknown as Parameters<typeof __ensureChatLoadedForTest>[1];
+
+    // (1) 模拟 usePersonalChat 的 useQuery 在新会话挂载时发起的在途历史加载。
+    const observerFetch = qc.fetchQuery({
+      queryKey: key,
+      queryFn: () => loadChat(),
+      staleTime: Infinity,
+    });
+    // (2) send 内部的 ensureChatLoaded —— 修复后应复用上面的在途 fetch,而非另起一个。
+    const ensure = __ensureChatLoadedForTest(qc, bridge, "snew");
+
+    // 放行历史加载(空历史)。去重后只有一个待 resolve 的请求。
+    releases.forEach((r) => r([]));
+    await Promise.all([observerFetch, ensure]);
+
+    // (3) 历史落定后追加首条用户消息(模拟 send 的 appendMsg)。
+    qc.setQueryData<Message[]>(key, (prev) => [...(prev ?? []), msg("u1", "明天什么天气")]);
+    // 给可能晚到的覆盖一个机会(旧实现里第二个 loadChat 会在此后 resolve 并覆盖)。
+    await Promise.resolve();
+
+    // 去重:整个过程 loadChat 只被调用一次。
+    expect(loadChat).toHaveBeenCalledTimes(1);
+    // 首条用户消息保留,未被空历史覆盖。
+    const final = qc.getQueryData<Message[]>(key) ?? [];
+    expect(final).toHaveLength(1);
+    expect(asText(final[0]!).text).toBe("明天什么天气");
   });
 });
 

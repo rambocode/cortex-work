@@ -675,14 +675,27 @@ export function usePersonalCliEvents(): void {
   }, [bridge, qc]);
 }
 
-// 确保某 session 的消息缓存已从磁盘加载（发送前调用，防止历史被覆盖）。
+// 确保某 session 的消息缓存已从磁盘加载（发送前调用，防止首条写入被覆盖）。
+//
+// 用 ensureQueryData 而非自起一次 loadChat:与 usePersonalChat 的 useQuery 共享同一在途
+// 请求（React Query 按 queryKey 去重）。否则「即建即发」场景（Spotlight 接力、新会话落地页
+// NewSessionLanding —— 均 createSession 后同一 tick 立刻 send）会有两个并发的 loadChat:
+// ensureChatLoaded 自己的先 resolve、追加首条用户消息后,useQuery 那个晚到的 loadChat 才
+// resolve 空历史,把刚写入的用户消息覆盖成空——表现为主窗体会话里看不到用户发出的那条消息。
 async function ensureChatLoaded(qc: QueryClient, bridge: DesktopBridge, sessionId: string): Promise<void> {
-  const key = personalChatKeys.detail(sessionId);
-  if (qc.getQueryData(key) !== undefined) return;
   // 历史加载也做瞬态清理（双保险:崩溃时可能存了未收尾状态）。
-  const history = sanitizeForSave((await bridge.loadChat(sessionId)) as Message[]);
-  // 加载期间可能已有写入,以已有缓存优先。
-  qc.setQueryData<Message[]>(key, (prev) => prev ?? history);
+  await qc.ensureQueryData<Message[]>({
+    queryKey: personalChatKeys.detail(sessionId),
+    queryFn: async () => sanitizeForSave((await bridge.loadChat(sessionId)) as Message[]),
+  });
+}
+
+export function __ensureChatLoadedForTest(
+  qc: QueryClient,
+  bridge: DesktopBridge,
+  sessionId: string,
+): Promise<void> {
+  return ensureChatLoaded(qc, bridge, sessionId);
 }
 
 export function usePersonalChat(sessionId: string | undefined): PersonalChatSlice {
