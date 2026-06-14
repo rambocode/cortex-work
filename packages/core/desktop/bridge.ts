@@ -26,6 +26,8 @@ import type {
   GitOpResult,
   OpenAiCompleteRequest,
   PersistedState,
+  ProviderProbeInput,
+  ProviderProbeResult,
   PromptNode,
   PushResult,
   PushTarget,
@@ -108,6 +110,9 @@ export interface DesktopBridge {
   oneshotCli(req: { agent?: AgentKind; cwd?: string; prompt: string; model?: string }): Promise<string>;
   // OpenAI 兼容端点一次性补全（自定义日报模型;主进程发请求,密钥不出 main）
   openaiComplete(req: OpenAiCompleteRequest): Promise<string>;
+  // 供应商连接测试：主进程按 endpointFormat 选鉴权头探测 {baseUrl}/models,返回可用模型。
+  // 可选（web 端为 null;custom 协议返回不支持探测）。
+  probeProvider?(input: ProviderProbeInput): Promise<ProviderProbeResult>;
   // 日报推送（企微/钉钉 webhook、SMTP 邮件;主进程发请求规避 CORS）
   pushReport(target: PushTarget, payload: { subject: string; text: string }): Promise<PushResult>;
   // TTS：OpenAI 兼容 /v1/audio/speech 合成,返回音频字节（renderer 播放）

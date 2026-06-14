@@ -179,6 +179,19 @@ export interface ProviderSettings {
 
 export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = { providers: [] };
 
+// 供应商连接测试（renderer 拍平 baseUrl/apiKey/endpointFormat 传入,主进程发探测请求）。
+export interface ProviderProbeInput {
+  baseUrl: string;
+  apiKey?: string;
+  endpointFormat: EndpointFormat;
+}
+
+export interface ProviderProbeResult {
+  ok: boolean;
+  models?: string[]; // 探测到的模型 id 列表（成功时）
+  error?: string;
+}
+
 // 「添加供应商」预置模板（快速填充,不自动写入；用户填 key 即用,也可改 baseUrl/模型）。
 export interface ProviderPreset {
   templateKey: string; // 模板唯一键 + 默认 provider id 前缀

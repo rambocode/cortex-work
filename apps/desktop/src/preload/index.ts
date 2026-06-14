@@ -117,6 +117,12 @@ const personal = {
     ipcRenderer.invoke("cli:oneshot", req),
   openaiComplete: (req: { baseUrl: string; apiKey?: string; model: string; prompt: string }): Promise<string> =>
     ipcRenderer.invoke("llm:openaiComplete", req),
+  probeProvider: (input: {
+    baseUrl: string;
+    apiKey?: string;
+    endpointFormat: "chat_completions" | "responses" | "messages" | "custom";
+  }): Promise<{ ok: boolean; models?: string[]; error?: string }> =>
+    ipcRenderer.invoke("provider:probe", input),
   pushReport: (target: unknown, payload: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("push:report", target, payload),
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),

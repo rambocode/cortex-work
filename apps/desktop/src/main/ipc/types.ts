@@ -98,6 +98,19 @@ export interface ProviderSettings {
   defaultModel?: string;
 }
 
+// 供应商连接测试（与 core/desktop/types.ts 镜像）。
+export interface ProviderProbeInput {
+  baseUrl: string;
+  apiKey?: string;
+  endpointFormat: EndpointFormat;
+}
+
+export interface ProviderProbeResult {
+  ok: boolean;
+  models?: string[];
+  error?: string;
+}
+
 export interface PersistedState {
   version: 1;
   projects: ProjectMeta[];

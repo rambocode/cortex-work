@@ -496,7 +496,13 @@ function ConfirmDelete({ onConfirm, title }: { onConfirm: () => void; title?: st
   );
 }
 
-// 供应商详情表单（右栏）。U4 会在此加「测试连接」。
+// 供应商详情表单（右栏），含连接测试四态（idle / 测试中 / 成功+回填 / 失败）。
+type ProbeState =
+  | { kind: "idle" }
+  | { kind: "testing" }
+  | { kind: "ok"; models: string[] }
+  | { kind: "err"; error: string };
+
 function ProviderDetail({
   provider,
   onPatch,
@@ -506,6 +512,31 @@ function ProviderDetail({
   onPatch: (patch: Partial<ProviderProfile>) => void;
   onRemove: () => void;
 }) {
+  const bridge = useDesktopBridge();
+  const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
+  const canProbe =
+    !!bridge?.probeProvider && provider.endpointFormat !== "custom" && !!provider.baseUrl.trim();
+
+  const runProbe = async () => {
+    if (!bridge?.probeProvider || probe.kind === "testing") return;
+    setProbe({ kind: "testing" });
+    try {
+      const res = await bridge.probeProvider({
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        endpointFormat: provider.endpointFormat,
+      });
+      setProbe(res.ok ? { kind: "ok", models: res.models ?? [] } : { kind: "err", error: res.error ?? "连接失败" });
+    } catch (e) {
+      setProbe({ kind: "err", error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  const applyModels = (ids: string[]) => {
+    onPatch({ models: ids.map((id) => ({ id })) });
+    setProbe({ kind: "idle" });
+  };
+
   return (
     <div className="pw-prov-detail">
       <div className="pw-pi-channel-head">
@@ -548,6 +579,29 @@ function ProviderDetail({
           onChange={(e) => onPatch({ models: parseModels(e.target.value) })}
         />
       </label>
+
+      <div className="pw-prov-probe">
+        <button
+          className="pw-tl-gen"
+          disabled={!canProbe || probe.kind === "testing"}
+          onClick={() => void runProbe()}
+          title={provider.endpointFormat === "custom" ? "自定义端点不支持探测" : undefined}
+        >
+          <Icon.Globe size={12} />
+          {probe.kind === "testing" ? "测试中…" : "测试连接 / 拉取模型"}
+        </button>
+        {probe.kind === "ok" ? (
+          <span className="pw-prov-probe-ok">
+            连接成功,{probe.models.length} 个模型
+            {probe.models.length > 0 ? (
+              <button className="pw-prov-probe-apply" onClick={() => applyModels(probe.models)}>
+                填入模型
+              </button>
+            ) : null}
+          </span>
+        ) : null}
+        {probe.kind === "err" ? <span className="pw-prov-probe-err">{probe.error}</span> : null}
+      </div>
     </div>
   );
 }
