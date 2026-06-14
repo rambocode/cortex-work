@@ -3561,6 +3561,19 @@ button.sb-row {
   padding: 1px 5px;
   border-radius: 4px;
 }
+/* 会话消息里可点击的项目内文件路径(chatMarkdown.tsx 的 inline code)。命中区=整段文本。 */
+.md-body code.file-link {
+  cursor: pointer;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.md-body code.file-link:hover {
+  text-decoration: underline;
+}
+.md-body code.file-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .md-body pre {
   margin: 8px 0;
   padding: 10px 12px;

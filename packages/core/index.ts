@@ -143,6 +143,7 @@ export {
   type TodoAttachment,
   type PersonalActions,
 } from "./personal/messages";
+export { isLikelyFilePath, resolveProjectFileRef } from "./personal/filePaths";
 export {
   timelineKeys,
   dayKey,

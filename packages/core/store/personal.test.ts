@@ -421,3 +421,30 @@ describe("setAgentsAvailable 不持久化", () => {
     expect("agentsAvailable" in toPersistedState(usePersonalStore.getState())).toBe(false);
   });
 });
+
+describe("filePreviewRequest 文件预览请求(消费即清)", () => {
+  const req = { projectId: "p1", path: "/code/p1/src/a.ts", name: "a.ts" };
+
+  it("requestFilePreview 存入请求并切右栏到 files", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().requestFilePreview(req);
+    const s = usePersonalStore.getState();
+    expect(s.filePreviewRequest).toEqual(req);
+    expect(s.rightView).toBe("files");
+  });
+
+  it("consumeFilePreviewRequest 首次返回请求,之后清空", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().requestFilePreview(req);
+    expect(usePersonalStore.getState().consumeFilePreviewRequest()).toEqual(req);
+    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+    // 二次消费返回 undefined（消费即清不重复触发）。
+    expect(usePersonalStore.getState().consumeFilePreviewRequest()).toBeUndefined();
+  });
+
+  it("瞬态:不进 toPersistedState 快照", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().requestFilePreview(req);
+    expect("filePreviewRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  });
+});

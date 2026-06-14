@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "@cortex-work/ui/icons";
-import { whoMeta, usePetStore } from "@cortex-work/core";
+import { whoMeta, usePetStore, useDesktopBridge } from "@cortex-work/core";
 import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { renderRich } from "./rich";
+import { chatMarkdownComponents } from "./personal/chatMarkdown";
 
 function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
   const isShared = contact.group === "shared";
@@ -107,6 +108,8 @@ function TextMessage({
   markdown = false,
   tail,
   hideTime = false,
+  onOpenFile,
+  projectPath,
 }: {
   m: Extract<Message, { kind: "text" }>;
   grouped: boolean;
@@ -115,8 +118,15 @@ function TextMessage({
   tail?: ReactNode;
   // 个人工作区:头部不显示时间(时间改放到底部操作行)。
   hideTime?: boolean;
+  // 个人工作区:文件路径点击 → 右栏预览。团队侧不传 → 走原有纯渲染,零回归。
+  onOpenFile?: (ref: string) => void;
+  projectPath?: string;
 }) {
+  const bridge = useDesktopBridge();
   const renderMd = markdown && m.who !== "me" && typeof m.text === "string";
+  // 仅个人区(有 onOpenFile + projectPath)注入可点击文件链接 components;否则 undefined = 原渲染。
+  const fileLinkComponents =
+    onOpenFile && projectPath ? chatMarkdownComponents({ onOpenFile, projectPath, bridge }) : undefined;
   return (
     <div className={`msg ${grouped ? "is-grouped" : ""} ${m.who === "me" ? "is-me" : ""}`}>
       <MessageAvatar who={m.who} />
@@ -130,7 +140,9 @@ function TextMessage({
         ) : null}
         {renderMd ? (
           <div className="m-text md-body">
-            <Markdown remarkPlugins={[remarkGfm]}>{m.text as string}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]} components={fileLinkComponents}>
+              {m.text as string}
+            </Markdown>
           </div>
         ) : (
           <div className="m-text">{renderRich(m.text)}</div>
@@ -356,6 +368,8 @@ export function MessageStream({
   leadingContent,
   renderTextTail,
   hideTextTime = false,
+  onOpenFile,
+  projectPath,
 }: {
   contact: Contact;
   convo: Conversation | null | undefined;
@@ -369,6 +383,9 @@ export function MessageStream({
   renderTextTail?: (message: Extract<Message, { kind: "text" }>) => ReactNode;
   // 个人工作区:文本消息头部不显示时间(时间改放到底部操作行)。
   hideTextTime?: boolean;
+  // 个人工作区:文件路径点击 → 右栏预览(向下穿透给 TextMessage)。团队侧不传 → 零回归。
+  onOpenFile?: (ref: string) => void;
+  projectPath?: string;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const msgCount = convo?.messages?.length || 0;
@@ -431,7 +448,18 @@ export function MessageStream({
         lastWho = m.who;
         switch (m.kind) {
           case "text":
-            return <TextMessage key={key} m={m} grouped={grouped} markdown={markdownBodies} tail={renderTextTail?.(m)} hideTime={hideTextTime} />;
+            return (
+              <TextMessage
+                key={key}
+                m={m}
+                grouped={grouped}
+                markdown={markdownBodies}
+                tail={renderTextTail?.(m)}
+                hideTime={hideTextTime}
+                onOpenFile={onOpenFile}
+                projectPath={projectPath}
+              />
+            );
           case "agentLog":
             return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
           case "diff":
