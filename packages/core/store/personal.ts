@@ -56,6 +56,9 @@ export interface PersonalState {
   gitDiffRequest?: { projectId: string };
   // 首页点 Task 请求:右栏 TodosView 消费后打开该 task 文件详情（消费即清,仿 gitDiffRequest）。
   taskDetailRequest?: { projectId: string; path: string; name: string };
+  // 会话消息文件链接点击请求:右栏 FilesView 消费后 openFile 预览（消费即清,仿 gitDiffRequest）。
+  // path 为已解析的绝对路径;瞬态,不进 toPersistedState。
+  filePreviewRequest?: { projectId: string; path: string; name: string };
   // 右栏当前视图（顶栏下拉选择）。
   rightView: "files" | "skills" | "todos";
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
@@ -133,6 +136,9 @@ export interface PersonalState {
   // 首页点 Task:右栏切到 Tasks 视图并请求打开该 task 文件详情。
   requestTaskDetail: (req: { projectId: string; path: string; name: string }) => void;
   consumeTaskDetailRequest: () => { projectId: string; path: string; name: string } | undefined;
+  // 会话消息文件链接点击:右栏切到文件视图并请求预览该文件（path 为绝对路径）。
+  requestFilePreview: (req: { projectId: string; path: string; name: string }) => void;
+  consumeFilePreviewRequest: () => { projectId: string; path: string; name: string } | undefined;
   setRightView: (view: "files" | "skills" | "todos") => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
@@ -403,6 +409,16 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   consumeTaskDetailRequest: () => {
     const req = get().taskDetailRequest;
     if (req) set({ taskDetailRequest: undefined });
+    return req;
+  },
+
+  // 会话消息点文件链接:切右栏到文件视图并存请求,FilesView 消费后 openFile 预览。
+  // 右栏开关(rightOpen,属 useCortexUIStore)由调用方补,与 requestGitDiff/TaskDetail 一致。
+  requestFilePreview: (req) => set({ filePreviewRequest: req, rightView: "files" }),
+
+  consumeFilePreviewRequest: () => {
+    const req = get().filePreviewRequest;
+    if (req) set({ filePreviewRequest: undefined });
     return req;
   },
 

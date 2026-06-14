@@ -8,9 +8,11 @@ import {
   DEFAULT_MODEL,
   defaultAgent,
   getTtsPlaybackState,
+  resolveProjectFileRef,
   speakText,
   stopSpeaking,
   subscribeTtsPlayback,
+  useCortexUIStore,
   useDesktopBridge,
   usePersonalActions,
   usePersonalChat,
@@ -94,6 +96,8 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   const ttsSettings = usePersonalStore((s) => s.ttsSettings);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const piSettings = usePersonalStore((s) => s.piSettings);
+  const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
+  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
 
   const session: SessionMeta | undefined = sessions.find((x) => x.id === activeSessionId);
@@ -177,6 +181,16 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
 
   const running = !!runningBySession[session.id];
 
+  // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为绝对路径,请求右栏预览并展开右栏。
+  // 无项目会话(无 realProject)与解析爬出项目(within=false)一律短路,不派发。
+  const handleOpenFile = (ref: string) => {
+    if (!realProject) return;
+    const { abs, name, within } = resolveProjectFileRef(realProject.path, ref);
+    if (!within) return;
+    requestFilePreview({ projectId: realProject.id, path: abs, name });
+    setRightOpen(true);
+  };
+
   const switchAgent = (agent: AgentKind) => {
     const agentSessionIds = { ...session.agentSessionIds };
     delete agentSessionIds[agent];
@@ -241,11 +255,13 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
       <MessageStream
         contact={contact}
         convo={convo}
-        onSelectFile={() => {}}
+        onSelectFile={handleOpenFile}
         activeFile=""
         onApprove={() => {}}
         markdownBodies
         collapsibleLogs
+        onOpenFile={handleOpenFile}
+        projectPath={realProject ? realProject.path : undefined}
         renderTextTail={(m) => {
           if (typeof m.text !== "string") return null;
           if (m.who === "me") {

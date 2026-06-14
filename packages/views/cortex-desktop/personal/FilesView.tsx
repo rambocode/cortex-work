@@ -195,6 +195,19 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     }
   };
 
+  // 会话消息点文件链接:消费预览请求,复用 openFile 渲染(Monaco/Markdown/二进制占位按类型)。
+  // 消费即清(防重挂载误触发);项目不匹配则不消费(等切到对应项目,与 gitDiff effect 一致)。
+  const filePreviewRequest = usePersonalStore((s) => s.filePreviewRequest);
+  const consumeFilePreviewRequest = usePersonalStore((s) => s.consumeFilePreviewRequest);
+  useEffect(() => {
+    if (!filePreviewRequest || !bridge || !project) return;
+    if (filePreviewRequest.projectId !== project.id) return;
+    consumeFilePreviewRequest();
+    void openFile(filePreviewRequest.path, filePreviewRequest.name);
+    // openFile 故意不入 deps(每次渲染新建,由 request 门控执行;入 deps 会每渲染重跑)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filePreviewRequest, bridge, project, consumeFilePreviewRequest]);
+
   const openChange = async (f: ChangedFile) => {
     if (!bridge || !project) return;
     if (f.status === "D") {
