@@ -47,6 +47,42 @@
   --mono: "SF Mono", "JetBrains Mono", "Menlo", ui-monospace, "Cascadia Mono", monospace;
 }
 
+/* 明暗主题基础 token（通用设置 主题 → documentElement[data-theme]）。覆盖中性色,
+   品牌主色保留；逐组件 light/dark 视觉打磨为迭代项。与 [data-palette] 正交叠加。 */
+[data-theme="dark"] {
+  --bg-app: #1a1916;
+  --bg-sidebar: #1f1e1a;
+  --bg-right: #1c1b18;
+  --bg-card: #242320;
+  --bg-card-2: #1f1e1a;
+  --bg-hover: #2b2a26;
+  --bg-active: #34332e;
+  --bg-input: #242320;
+  --bg-chip: #2b2a26;
+
+  --border: #34332e;
+  --border-soft: #2b2a26;
+  --border-strong: #45433c;
+
+  --text-1: #ece9e1;
+  --text-2: #b6b3aa;
+  --text-3: #8a877f;
+  --text-4: #66635c;
+
+  --accent-soft: #3a2a22;
+  --green-soft: #16271f;
+  --amber-soft: #2c2310;
+  --red-soft: #2e1a1a;
+  --blue-soft: #1a2238;
+  --violet-soft: #251a38;
+
+  --code-add-bg: #16271f;
+  --code-del-bg: #2e1a1a;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 0 rgba(0, 0, 0, 0.2);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -76,6 +112,8 @@ html, body {
   overflow: hidden;
   background: var(--bg-app);
   position: relative;
+  /* 全局字号/UI 缩放（通用设置 字号 → --font-scale，挂 documentElement）。 */
+  zoom: var(--font-scale, 1);
 }
 
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }

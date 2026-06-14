@@ -37,7 +37,7 @@ import type {
   TtsVoiceOption,
   WecomPushConfig,
 } from "@cortex-work/core";
-import type { Density, Palette, SidebarMode } from "@cortex-work/core/types";
+import type { Density, FontScale, Palette, SidebarMode, ThemeMode } from "@cortex-work/core/types";
 import {
   PET_COLOR_KEY,
   PET_DESIGNS,
@@ -59,14 +59,14 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
-type SettingsTab = "profile" | "pet" | "appearance" | "providers" | "agent" | "timeline" | "push" | "voice";
+type SettingsTab = "profile" | "general" | "providers" | "agent" | "pet" | "timeline" | "push" | "voice";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "profile", label: "个人资料", icon: <Icon.Users size={14} /> },
-  { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
-  { id: "appearance", label: "外观", icon: <Icon.Image size={14} /> },
+  { id: "general", label: "通用", icon: <Icon.Settings size={14} /> },
   { id: "providers", label: "供应商", icon: <Icon.Globe size={14} /> },
   { id: "agent", label: "Agent", icon: <Icon.Terminal size={14} /> },
+  { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
   { id: "timeline", label: "时间线", icon: <Icon.Clock size={14} /> },
   { id: "push", label: "推送", icon: <Icon.Send size={14} /> },
   { id: "voice", label: "语音", icon: <Icon.Mic size={14} /> },
@@ -259,12 +259,41 @@ function PetSection() {
   );
 }
 
-function AppearanceSection() {
+const THEME_LABEL: Record<ThemeMode, string> = { system: "跟随系统", light: "浅色", dark: "深色" };
+const FONT_SCALE_LABEL: Record<FontScale, string> = { small: "小", medium: "中", large: "大" };
+
+// 通用设置：外观（密度/色调/侧栏）+ 主题与字号。
+// 桌面行为 / 默认工作目录 / 日志由后续单元追加分节（U9-U11）。
+function GeneralSection() {
   const tweaks = useCortexUIStore((s) => s.tweaks);
   const setTweak = useCortexUIStore((s) => s.setTweak);
+  const pickTheme = (label: string) => {
+    const t = (Object.keys(THEME_LABEL) as ThemeMode[]).find((k) => THEME_LABEL[k] === label);
+    if (t) setTweak("theme", t);
+  };
+  const pickFontScale = (label: string) => {
+    const f = (Object.keys(FONT_SCALE_LABEL) as FontScale[]).find((k) => FONT_SCALE_LABEL[k] === label);
+    if (f) setTweak("fontScale", f);
+  };
   return (
     <>
-      <div className="pw-dlg-title">外观</div>
+      <div className="pw-dlg-title">通用</div>
+
+      <div className="twk-sect">主题 · Theme</div>
+      <div className="pw-set-hint">「跟随系统」随 macOS 明暗自动切换。</div>
+      <SegmentedRadio
+        value={THEME_LABEL[tweaks.theme]}
+        options={(Object.keys(THEME_LABEL) as ThemeMode[]).map((t) => THEME_LABEL[t])}
+        onChange={pickTheme}
+      />
+
+      <div className="twk-sect">字号 · Font Size</div>
+      <SegmentedRadio
+        value={FONT_SCALE_LABEL[tweaks.fontScale]}
+        options={(Object.keys(FONT_SCALE_LABEL) as FontScale[]).map((f) => FONT_SCALE_LABEL[f])}
+        onChange={pickFontScale}
+      />
+
       <div className="twk-sect">布局密度 · Density</div>
       <SegmentedRadio
         value={tweaks.density}
@@ -1165,14 +1194,14 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           </button>
           {tab === "profile" ? (
             <ProfileSection />
-          ) : tab === "pet" ? (
-            <PetSection />
-          ) : tab === "appearance" ? (
-            <AppearanceSection />
+          ) : tab === "general" ? (
+            <GeneralSection />
           ) : tab === "providers" ? (
             <ProvidersSection />
           ) : tab === "agent" ? (
             <AgentSection />
+          ) : tab === "pet" ? (
+            <PetSection />
           ) : tab === "timeline" ? (
             <TimelineSection />
           ) : tab === "push" ? (
