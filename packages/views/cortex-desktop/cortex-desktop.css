@@ -5157,6 +5157,9 @@ button.sb-row {
   flex: 1; min-height: 0;
   display: flex; flex-direction: column;
   overflow: hidden;
+  /* 中间内容定宽:看板/项目条/输入框共用同一封顶居中列。窄于此值自适应铺满，
+     宽屏封顶并两侧留白。仅作用于落地页，会话页不受影响。 */
+  --pw-landing-col: 820px;
 }
 /* 顶部项目条:与 chat-head 风格一致,横向一行,左对齐 ProjectPicker */
 .pw-landing-bar {
@@ -5171,8 +5174,23 @@ button.sb-row {
   display: flex; flex-direction: column;
   overflow: hidden;
 }
+/* 看板/输入框封顶居中:三块共用 --pw-landing-col，左右边缘对齐。 */
+.pw-landing .pw-home {
+  max-width: var(--pw-landing-col);
+  margin-inline: auto;
+}
+.pw-landing .pw-gitbar {
+  width: 100%;
+  max-width: var(--pw-landing-col);
+  margin-inline: auto;
+}
 /* 底部输入框:对齐现有 composer-wrap 横向内边距 */
-.pw-landing-composer { flex-shrink: 0; }
+.pw-landing-composer {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: var(--pw-landing-col);
+  margin-inline: auto;
+}
 [data-density="compact"] .pw-landing-bar { padding: 10px 32px 6px; }
 [data-density="cozy"] .pw-landing-bar { padding: 14px 56px 10px; }
 
