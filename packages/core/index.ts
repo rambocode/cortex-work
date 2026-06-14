@@ -107,6 +107,12 @@ export {
   PI_CHANNEL_TEMPLATES,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
+export {
+  BUILTIN_AVATAR_IDS,
+  DEFAULT_AVATAR_ID,
+  isBuiltinAvatarId,
+  type BuiltinAvatarId,
+} from "./personal/avatars";
 export { useSpotlightIntentRouter, useSpotlightHandoff } from "./personal/spotlightHandoff";
 export {
   automationKeys,
