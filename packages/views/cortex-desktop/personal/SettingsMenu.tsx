@@ -12,7 +12,8 @@ import {
   AGENT_MODELS,
   DEFAULT_MODEL,
   DEFAULT_PUSH_TEMPLATE,
-  PI_CHANNEL_TEMPLATES,
+  PROVIDER_PRESETS,
+  providerFromPreset,
   speakText,
   stopSpeaking,
   useCortexUIStore,
@@ -27,8 +28,9 @@ import type {
   AgentKind,
   DingtalkPushConfig,
   EmailPushConfig,
-  PiChannel,
-  PiModelOption,
+  EndpointFormat,
+  ProviderModelOption,
+  ProviderProfile,
   PromptNode,
   SummaryModelConfig,
   TtsEngineConfig,
@@ -57,12 +59,13 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
-type SettingsTab = "profile" | "pet" | "appearance" | "agent" | "timeline" | "push" | "voice";
+type SettingsTab = "profile" | "pet" | "appearance" | "providers" | "agent" | "timeline" | "push" | "voice";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "profile", label: "个人资料", icon: <Icon.Users size={14} /> },
   { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
   { id: "appearance", label: "外观", icon: <Icon.Image size={14} /> },
+  { id: "providers", label: "供应商", icon: <Icon.Globe size={14} /> },
   { id: "agent", label: "Agent", icon: <Icon.Terminal size={14} /> },
   { id: "timeline", label: "时间线", icon: <Icon.Clock size={14} /> },
   { id: "push", label: "推送", icon: <Icon.Send size={14} /> },
@@ -412,17 +415,17 @@ function TimelineSection() {
   );
 }
 
-// ── Pi 兜底 Agent · 多 LLM 通道设置 ─────────────────────────────────────────
+// ── 供应商（Provider）设置 ──────────────────────────────────────────────────
 
-// 通道 id slug 化:作为 pi provider 名,仅允许字母数字与 - _。
+// provider id slug 化:作为 pi provider 名,仅允许字母数字与 - _。
 function slugify(s: string): string {
   const out = s.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  return out || "channel";
+  return out || "provider";
 }
 
-// 模型多行文本 ↔ PiModelOption[]:每行 "id" 或 "id|显示名"。
-function parseModels(text: string): PiModelOption[] {
-  const out: PiModelOption[] = [];
+// 模型多行文本 ↔ ProviderModelOption[]:每行 "id" 或 "id|显示名"。
+function parseModels(text: string): ProviderModelOption[] {
+  const out: ProviderModelOption[] = [];
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
@@ -434,54 +437,112 @@ function parseModels(text: string): PiModelOption[] {
   }
   return out;
 }
-function modelsToText(models: PiModelOption[]): string {
+function modelsToText(models: ProviderModelOption[]): string {
   return models.map((m) => (m.label ? `${m.id}|${m.label}` : m.id)).join("\n");
 }
 
-// 单个通道编辑卡片。
-function ChannelCard({
-  channel,
+const ENDPOINT_FORMAT_OPTIONS: { label: string; value: EndpointFormat }[] = [
+  { label: "OpenAI 兼容 (chat/completions)", value: "chat_completions" },
+  { label: "OpenAI Responses", value: "responses" },
+  { label: "Anthropic Messages", value: "messages" },
+  { label: "自定义端点（不可探测）", value: "custom" },
+];
+
+// 带显隐切换的密钥输入（本仓原无 SecretInput,此处新增）。
+function SecretField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <label className="pw-set-field">
+      <span className="pw-set-lbl">{label}</span>
+      <span className="pw-secret-wrap">
+        <input
+          className="pw-set-input"
+          type={show ? "text" : "password"}
+          value={value}
+          placeholder={placeholder}
+          spellCheck={false}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <button type="button" className="pw-secret-toggle" onClick={() => setShow((s) => !s)}>
+          {show ? "隐藏" : "显示"}
+        </button>
+      </span>
+    </label>
+  );
+}
+
+// 两段式删除确认（仿 ProjectMenu:首次点击进入确认态,再次点击执行,失焦撤销）。
+function ConfirmDelete({ onConfirm, title }: { onConfirm: () => void; title?: string }) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <button
+      className={`pw-pi-channel-del ${confirming ? "is-confirming" : ""}`}
+      title={title}
+      onClick={() => (confirming ? onConfirm() : setConfirming(true))}
+      onBlur={() => setConfirming(false)}
+    >
+      {confirming ? "确认删除？" : <Icon.Trash size={14} />}
+    </button>
+  );
+}
+
+// 供应商详情表单（右栏）。U4 会在此加「测试连接」。
+function ProviderDetail({
+  provider,
   onPatch,
   onRemove,
 }: {
-  channel: PiChannel;
-  onPatch: (patch: Partial<PiChannel>) => void;
+  provider: ProviderProfile;
+  onPatch: (patch: Partial<ProviderProfile>) => void;
   onRemove: () => void;
 }) {
   return (
-    <div className="pw-pi-channel">
+    <div className="pw-prov-detail">
       <div className="pw-pi-channel-head">
         <input
           className="pw-set-input"
-          value={channel.label}
-          placeholder="通道名称"
+          value={provider.name}
+          placeholder="供应商名称"
           spellCheck={false}
-          onChange={(e) => onPatch({ label: e.target.value })}
+          onChange={(e) => onPatch({ name: e.target.value })}
         />
-        <Toggle label="启用" value={channel.enabled} onChange={(v) => onPatch({ enabled: v })} />
-        <button className="pw-pi-channel-del" title="删除通道" onClick={onRemove}>
-          <Icon.X size={14} />
-        </button>
+        <Toggle label="启用" value={provider.enabled} onChange={(v) => onPatch({ enabled: v })} />
+        <ConfirmDelete onConfirm={onRemove} title="删除供应商" />
       </div>
+      <Select
+        label="协议类型"
+        value={provider.endpointFormat}
+        options={ENDPOINT_FORMAT_OPTIONS}
+        onChange={(v) => onPatch({ endpointFormat: v as EndpointFormat })}
+      />
       <Field
         label="Base URL"
-        value={channel.baseUrl}
+        value={provider.baseUrl}
         placeholder="https://api.deepseek.com/v1"
         onChange={(v) => onPatch({ baseUrl: v })}
       />
-      <Field
+      <SecretField
         label="API Key"
-        type="password"
-        value={channel.apiKey ?? ""}
-        placeholder="该通道的 API Key"
+        value={provider.apiKey ?? ""}
+        placeholder="该供应商的 API Key"
         onChange={(v) => onPatch({ apiKey: v || undefined })}
       />
       <label className="pw-set-field">
         <span className="pw-set-lbl">模型（每行一个,可写 id|显示名）</span>
         <textarea
           className="pw-set-input"
-          rows={3}
-          value={modelsToText(channel.models)}
+          rows={4}
+          value={modelsToText(provider.models)}
           placeholder="deepseek-chat|DeepSeek Chat"
           spellCheck={false}
           onChange={(e) => onPatch({ models: parseModels(e.target.value) })}
@@ -491,89 +552,151 @@ function ChannelCard({
   );
 }
 
-function AgentSection() {
-  const piSettings = usePersonalStore((s) => s.piSettings);
-  const addPiChannel = usePersonalStore((s) => s.addPiChannel);
-  const updatePiChannel = usePersonalStore((s) => s.updatePiChannel);
-  const removePiChannel = usePersonalStore((s) => s.removePiChannel);
-  const setPiDefaults = usePersonalStore((s) => s.setPiDefaults);
-  const [tmplKey, setTmplKey] = useState(PI_CHANNEL_TEMPLATES[0]?.templateKey ?? "deepseek");
+function ProvidersSection() {
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const addProvider = usePersonalStore((s) => s.addProvider);
+  const updateProvider = usePersonalStore((s) => s.updateProvider);
+  const removeProvider = usePersonalStore((s) => s.removeProvider);
+  const providers = providerSettings.providers;
+  const [selectedId, setSelectedId] = useState<string | undefined>(providers[0]?.id);
+  const [tmplKey, setTmplKey] = useState(PROVIDER_PRESETS[0]?.templateKey ?? "deepseek");
+
+  const selected = providers.find((p) => p.id === selectedId) ?? providers[0];
 
   const addFromTemplate = () => {
-    const t = PI_CHANNEL_TEMPLATES.find((x) => x.templateKey === tmplKey);
+    const t = PROVIDER_PRESETS.find((x) => x.templateKey === tmplKey);
     if (!t) return;
-    const base = slugify(t.templateKey);
-    const existing = new Set(piSettings.channels.map((c) => c.id));
+    const base = slugify(t.templateKey === "custom" ? "custom-provider" : t.templateKey);
+    const existing = new Set(providers.map((p) => p.id));
     let id = base;
     let n = 1;
     while (existing.has(id)) id = `${base}-${++n}`;
-    addPiChannel({ id, label: t.label, baseUrl: t.baseUrl, models: t.models, enabled: true });
+    addProvider(providerFromPreset(t, id));
+    setSelectedId(id);
   };
-
-  const defaultChannel = piSettings.channels.find((c) => c.id === piSettings.defaultChannelId);
 
   return (
     <>
-      <div className="pw-dlg-title">兜底 Agent · Pi</div>
+      <div className="pw-dlg-title">供应商</div>
       <div className="pw-dlg-desc">
-        内置 Pi 在本机未安装 Claude / Codex CLI 时兜底。在此添加任意 OpenAI 兼容 LLM
-        通道（DeepSeek / Kimi / 通义千问 / 智谱 / 本地模型等）,填入 API Key 即可在会话中选用。
+        配置 LLM 供应商（OpenAI 兼容 / Anthropic 兼容端点）。Pi 兜底 Agent 在「Agent」设置中选用这里的供应商;API
+        Key 仅本机保存。
       </div>
 
-      <div className="twk-sect">LLM 通道</div>
-      <div className="pw-set-group">
-        <div className="pw-pi-add">
-          <Select
-            label="从模板添加"
-            value={tmplKey}
-            options={PI_CHANNEL_TEMPLATES.map((t) => ({ label: t.label, value: t.templateKey }))}
-            onChange={setTmplKey}
-          />
-          <button className="btn pw-pi-add-btn" onClick={addFromTemplate}>
-            添加通道
-          </button>
+      <div className="pw-pi-add">
+        <Select
+          label="从模板添加"
+          value={tmplKey}
+          options={PROVIDER_PRESETS.map((t) => ({ label: t.name, value: t.templateKey }))}
+          onChange={setTmplKey}
+        />
+        <button className="btn pw-pi-add-btn" onClick={addFromTemplate}>
+          添加供应商
+        </button>
+      </div>
+
+      {providers.length === 0 ? (
+        <div className="pw-set-hint">
+          还没有供应商。选择模板（或「自定义」）后点「添加供应商」,填好 API Key 即可在会话中选用。
         </div>
-        {piSettings.channels.length === 0 ? (
-          <div className="pw-set-hint">还没有通道。选择模板后点「添加通道」,填好 API Key 即可使用。</div>
-        ) : null}
-        {piSettings.channels.map((ch) => (
-          <ChannelCard
-            key={ch.id}
-            channel={ch}
-            onPatch={(patch) => updatePiChannel(ch.id, patch)}
-            onRemove={() => removePiChannel(ch.id)}
-          />
-        ))}
+      ) : (
+        <div className="pw-prov-split">
+          <div className="pw-prov-list">
+            {providers.map((p) => (
+              <button
+                key={p.id}
+                className={`pw-prov-item ${p.id === selected?.id ? "is-active" : ""}`}
+                onClick={() => setSelectedId(p.id)}
+              >
+                <span className="pw-prov-item-name">{p.name || p.id}</span>
+                <span className="pw-prov-item-meta">
+                  {providerSettings.defaultProviderId === p.id ? (
+                    <span className="pw-prov-badge is-default">默认</span>
+                  ) : null}
+                  {p.enabled ? null : <span className="pw-prov-badge">已停用</span>}
+                  <span className="pw-prov-badge">{p.models.length} 模型</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          {selected ? (
+            <ProviderDetail
+              key={selected.id}
+              provider={selected}
+              onPatch={(patch) => updateProvider(selected.id, patch)}
+              onRemove={() => {
+                removeProvider(selected.id);
+                setSelectedId(undefined);
+              }}
+            />
+          ) : null}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Agent 设置（引用供应商）─────────────────────────────────────────────────
+
+function AgentSection() {
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const setProviderDefaults = usePersonalStore((s) => s.setProviderDefaults);
+  const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const enabledProviders = providerSettings.providers.filter((p) => p.enabled);
+  // defaultProviderId 可能指向已删除/已停用的 provider → 下拉回退「（未设置）」。
+  const defaultProvider = enabledProviders.find((p) => p.id === providerSettings.defaultProviderId);
+  const defaultValue = defaultProvider ? defaultProvider.id : "";
+
+  return (
+    <>
+      <div className="pw-dlg-title">Agent</div>
+      <div className="pw-dlg-desc">
+        Cortex 支持 Claude Code、Codex、内置 Pi 三种 Agent。Claude / Codex 用各自 CLI 自带鉴权;Pi 在未装 CLI
+        时兜底,使用「供应商」中配置的 LLM 端点。
       </div>
 
-      {piSettings.channels.length > 0 ? (
-        <>
-          <div className="twk-sect">默认通道</div>
-          <div className="pw-set-group">
-            <div className="pw-set-hint">新建 Pi 会话默认使用的通道与模型（会话内仍可单独切换）。</div>
-            <div className="pw-set-row2">
-              <Select
-                label="默认通道"
-                value={piSettings.defaultChannelId ?? ""}
-                options={[
-                  { label: "（未设置）", value: "" },
-                  ...piSettings.channels.map((c) => ({ label: c.label, value: c.id })),
-                ]}
-                onChange={(v) => setPiDefaults({ defaultChannelId: v || undefined, defaultModel: undefined })}
-              />
-              <Select
-                label="默认模型"
-                value={piSettings.defaultModel ?? ""}
-                options={[
-                  { label: "（通道首个模型）", value: "" },
-                  ...(defaultChannel?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id })),
-                ]}
-                onChange={(v) => setPiDefaults({ defaultModel: v || undefined })}
-              />
+      <div className="twk-sect">可用性</div>
+      <div className="pw-set-group">
+        {INTEGRATED_AGENTS.map((a) => {
+          const on = a === "pi" || !!agentsAvailable?.[a];
+          return (
+            <div key={a} className="pw-agent-avail">
+              <span>{AGENT_LABEL[a]}</span>
+              <span className={`pw-agent-dot ${on ? "is-on" : "is-off"}`}>
+                {a === "pi" ? "内置" : agentsAvailable?.[a] ? "已安装" : "未检测到 CLI"}
+              </span>
             </div>
+          );
+        })}
+      </div>
+
+      <div className="twk-sect">Pi 默认供应商</div>
+      <div className="pw-set-group">
+        {enabledProviders.length === 0 ? (
+          <div className="pw-set-hint">还没有启用的供应商。先在「供应商」设置中添加并启用,再回此处选默认。</div>
+        ) : (
+          <div className="pw-set-row2">
+            <Select
+              label="默认供应商"
+              value={defaultValue}
+              options={[
+                { label: "（未设置）", value: "" },
+                ...enabledProviders.map((p) => ({ label: p.name || p.id, value: p.id })),
+              ]}
+              onChange={(v) => setProviderDefaults({ defaultProviderId: v || undefined, defaultModel: undefined })}
+            />
+            <Select
+              label="默认模型"
+              value={providerSettings.defaultModel ?? ""}
+              options={[
+                { label: "（供应商首个模型）", value: "" },
+                ...(defaultProvider?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id })),
+              ]}
+              onChange={(v) => setProviderDefaults({ defaultModel: v || undefined })}
+            />
           </div>
-        </>
-      ) : null}
+        )}
+      </div>
     </>
   );
 }
@@ -992,6 +1115,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <PetSection />
           ) : tab === "appearance" ? (
             <AppearanceSection />
+          ) : tab === "providers" ? (
+            <ProvidersSection />
           ) : tab === "agent" ? (
             <AgentSection />
           ) : tab === "timeline" ? (

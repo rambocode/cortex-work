@@ -46,7 +46,7 @@ export function registerAutomationHandlers(): void {
       effort: input.effort,
       prompt: input.prompt,
       useOwnSkills: input.useOwnSkills,
-      piChannelId: input.piChannelId,
+      providerId: input.providerId,
       schedule: input.schedule,
       timezone,
       createdAt: now,

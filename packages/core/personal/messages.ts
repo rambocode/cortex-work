@@ -705,15 +705,15 @@ export function usePersonalActions(): PersonalActions {
       // 项目信息（Spotlight 注入）在前、附件 skills/todos 在后;两者皆空仍传 undefined。
       const appendSystemPrompt = [extraSystemPrompt, attachmentPrompt].filter(Boolean).join("\n\n") || undefined;
 
-      // pi 兜底 Agent:按会话选中的 LLM 通道（或默认通道）拍平传入主进程,
-      // 由主进程生成 extension + 注入 key env;model 取会话模型/默认模型/通道首模型。
-      const piSettings = usePersonalStore.getState().piSettings;
+      // pi 兜底 Agent:按会话选中的供应商（或默认 provider）拍平传入主进程,
+      // 由主进程生成 extension + 注入 key env;model 取会话模型/默认模型/provider 首模型。
+      const providerSettings = usePersonalStore.getState().providerSettings;
       const isPi = session.agent === "pi";
-      const piChannel = isPi
-        ? piSettings.channels.find((c) => c.id === (session.piChannelId ?? piSettings.defaultChannelId))
+      const provider = isPi
+        ? providerSettings.providers.find((p) => p.id === (session.providerId ?? providerSettings.defaultProviderId))
         : undefined;
       const piModel = isPi
-        ? session.model ?? piSettings.defaultModel ?? piChannel?.models[0]?.id
+        ? session.model ?? providerSettings.defaultModel ?? provider?.models[0]?.id
         : session.model;
 
       try {
@@ -727,8 +727,8 @@ export function usePersonalActions(): PersonalActions {
           resumeSessionId: sessionResumeId(session),
           appendSystemPrompt,
           useOwnSkills: session.useOwnSkills,
-          piChannel: piChannel
-            ? { id: piChannel.id, baseUrl: piChannel.baseUrl, apiKey: piChannel.apiKey, models: piChannel.models }
+          provider: provider
+            ? { id: provider.id, baseUrl: provider.baseUrl, apiKey: provider.apiKey, models: provider.models }
             : undefined,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。

@@ -55,12 +55,12 @@ describe("piAdapter.buildArgs", () => {
     expect(args.at(-1)).toBe("hello");
   });
 
-  it("自定义通道:piExtensionPath → -e/-a,piChannel.id → --provider", () => {
+  it("自定义供应商:piExtensionPath → -e/-a,provider.id → --provider", () => {
     const { args } = piAdapter.buildArgs({
       ...baseReq,
       model: "deepseek-chat",
       piExtensionPath: "/data/pi-providers/deepseek.js",
-      piChannel: { id: "deepseek", baseUrl: "https://api.deepseek.com/v1", models: [{ id: "deepseek-chat" }] },
+      provider: { id: "deepseek", baseUrl: "https://api.deepseek.com/v1", models: [{ id: "deepseek-chat" }] },
     });
     expect(args.join(" ")).toContain("-e /data/pi-providers/deepseek.js");
     expect(args).toContain("-a");

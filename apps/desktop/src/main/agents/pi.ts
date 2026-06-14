@@ -59,11 +59,11 @@ export const piAdapter: AgentAdapter = {
     ];
     // skills 默认禁用,仅当用户显式打开(useOwnSkills === true)时才加载。
     if (req.useOwnSkills !== true) args.push("--no-skills");
-    // 自定义 LLM 通道:cli.ts 已生成 extension 文件,这里用 -e 显式加载 + -a 信任
-    //（实测 --no-extensions 与显式 -e 可共存）；通道 id 即 pi provider 名。
+    // 自定义供应商:cli.ts 已生成 extension 文件,这里用 -e 显式加载 + -a 信任
+    //（实测 --no-extensions 与显式 -e 可共存）；provider id 即 pi provider 名。
     if (req.piExtensionPath) {
       args.push("-e", req.piExtensionPath, "-a");
-      if (req.piChannel) args.push("--provider", req.piChannel.id);
+      if (req.provider) args.push("--provider", req.provider.id);
     }
     if (req.model) args.push("--model", req.model);
     if (req.resumeSessionId) args.push("--session", req.resumeSessionId);

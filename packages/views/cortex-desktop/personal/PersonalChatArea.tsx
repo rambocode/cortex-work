@@ -95,7 +95,7 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   const updateSession = usePersonalStore((s) => s.updateSession);
   const ttsSettings = usePersonalStore((s) => s.ttsSettings);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
-  const piSettings = usePersonalStore((s) => s.piSettings);
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
   const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
@@ -194,16 +194,16 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
   const switchAgent = (agent: AgentKind) => {
     const agentSessionIds = { ...session.agentSessionIds };
     delete agentSessionIds[agent];
-    // pi:用默认通道 + 默认模型（或通道首模型）;其余 agent 用各自默认模型。
-    const piDefaultChannel = piSettings.channels.find((c) => c.id === piSettings.defaultChannelId);
+    // pi:用默认 provider + 默认模型（或 provider 首模型）;其余 agent 用各自默认模型。
+    const piDefaultProvider = providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId);
     updateSession(session.id, {
       agent,
       agentSessionIds,
       claudeSessionId: agent === "claude" ? undefined : session.claudeSessionId,
-      piChannelId: agent === "pi" ? piSettings.defaultChannelId : undefined,
+      providerId: agent === "pi" ? providerSettings.defaultProviderId : undefined,
       model:
         agent === "pi"
-          ? piSettings.defaultModel ?? piDefaultChannel?.models[0]?.id
+          ? providerSettings.defaultModel ?? piDefaultProvider?.models[0]?.id
           : DEFAULT_MODEL[agent],
     });
   };
@@ -375,7 +375,7 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         }}
         onStop={() => void stopRun(session.id)}
         onChangeModel={(model) => updateSession(session.id, { model })}
-        onChangePiModel={(channelId, model) => updateSession(session.id, { piChannelId: channelId, model })}
+        onChangePiModel={(providerId, model) => updateSession(session.id, { providerId, model })}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onToast={onToast}
       />

@@ -163,12 +163,12 @@ function foldAll(events: CliStreamEvent[]) {
   return { messages, cursor };
 }
 
-function asLog(m: Message): Extract<Message, { kind: "agentLog" }> {
-  if (m.kind !== "agentLog") throw new Error(`expected agentLog, got ${m.kind}`);
+function asLog(m: Message | undefined): Extract<Message, { kind: "agentLog" }> {
+  if (!m || m.kind !== "agentLog") throw new Error(`expected agentLog, got ${m?.kind}`);
   return m;
 }
-function asText(m: Message): Extract<Message, { kind: "text" }> {
-  if (m.kind !== "text") throw new Error(`expected text, got ${m.kind}`);
+function asText(m: Message | undefined): Extract<Message, { kind: "text" }> {
+  if (!m || m.kind !== "text") throw new Error(`expected text, got ${m?.kind}`);
   return m;
 }
 
@@ -221,7 +221,7 @@ describe("流式交错折叠 foldCliEvent", () => {
     const { messages } = foldAll([txt("A"), tool("t1"), tool("t2"), txt("B"), tool("t3")]);
     expect(messages.map((m) => m.kind)).toEqual(["text", "agentLog", "text", "agentLog"]);
     expect(asLog(messages[1]).active).toBe(false); // 第一组被打断收尾
-    const last = asLog(messages[3]);
+    const last = asLog(messages[3]!);
     expect(last.active).toBe(true); // 末组仍运行中
     expect(last.items).toEqual([{ ic: "running", text: "t3" }]);
   });
@@ -229,25 +229,25 @@ describe("流式交错折叠 foldCliEvent", () => {
   it("以工具起手：首块为 agentLog,无前置空 text 块", () => {
     const { messages } = foldAll([tool("t1"), txt("A")]);
     expect(messages.map((m) => m.kind)).toEqual(["agentLog", "text"]);
-    expect(asLog(messages[0]).items).toEqual([{ ic: "check", text: "t1" }]);
-    expect(asText(messages[1]).text).toBe("A");
+    expect(asLog(messages[0]!).items).toEqual([{ ic: "check", text: "t1" }]);
+    expect(asText(messages[1]!).text).toBe("A");
   });
 
   it("codex 连续整段 agent_message（无工具间隔）合并为单块（既定行为）", () => {
     const { messages } = foldAll([txt("段一"), txt("段二")]);
     expect(messages.map((m) => m.kind)).toEqual(["text"]);
-    expect(asText(messages[0]).text).toBe("段一段二");
+    expect(asText(messages[0]!).text).toBe("段一段二");
   });
 
   it("工具 detail 拼进步骤文案：name · detail", () => {
     const { messages } = foldAll([tool("Edit", "src/a.ts")]);
-    expect(asLog(messages[0]).items).toEqual([{ ic: "running", text: "Edit · src/a.ts" }]);
+    expect(asLog(messages[0]!).items).toEqual([{ ic: "running", text: "Edit · src/a.ts" }]);
   });
 
   it("finalizeAgentLog：全部 items 翻 check 并标记完成", () => {
     const { messages, cursor } = foldAll([tool("t1"), tool("t2")]);
     const out = finalizeAgentLog(messages, cursor.logUid!);
-    const log = asLog(out[0]);
+    const log = asLog(out[0]!);
     expect(log.active).toBe(false);
     expect(log.completed).toBe(true);
     expect(log.title).toBe("Agent 执行完成");

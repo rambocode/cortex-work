@@ -45,10 +45,11 @@ export {
   type PromptNode,
   type ProjectMeta,
   type EditorInfo,
-  type PiSettings,
-  type PiChannel,
-  type PiModelOption,
-  type PiChannelTemplate,
+  type ProviderSettings,
+  type ProviderProfile,
+  type ProviderModelOption,
+  type ProviderPreset,
+  type EndpointFormat,
   type SessionMeta,
   type SpotlightIntent,
   type TodoMeta,
@@ -105,10 +106,16 @@ export {
   DEFAULT_TIMELINE_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TTS_SETTINGS,
-  DEFAULT_PI_SETTINGS,
-  PI_CHANNEL_TEMPLATES,
+  DEFAULT_PROVIDER_SETTINGS,
+  PROVIDER_PRESETS,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
+export {
+  normalizeProviderProfile,
+  migratePiChannelToProvider,
+  migratePiSettings,
+  providerFromPreset,
+} from "./desktop/providers";
 export {
   BUILTIN_AVATAR_IDS,
   DEFAULT_AVATAR_ID,

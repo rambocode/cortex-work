@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { initialAgent, initialModelDraft } from "./personal";
-import { DEFAULT_PI_SETTINGS } from "../desktop/types";
+import { DEFAULT_PROVIDER_SETTINGS } from "../desktop/types";
 
 describe("initialAgent", () => {
   it("无记忆时按安装情况派生（claude 可用 → claude）", () => {
@@ -18,25 +18,25 @@ describe("initialAgent", () => {
 });
 
 describe("initialModelDraft", () => {
-  const base = { agentsAvailable: { claude: true, codex: true }, piSettings: DEFAULT_PI_SETTINGS };
+  const base = { agentsAvailable: { claude: true, codex: true }, providerSettings: DEFAULT_PROVIDER_SETTINGS };
   it("无记忆 → 该 agent 默认模型", () => {
-    const d = initialModelDraft({ ...base, lastAgent: undefined, lastModel: undefined, lastPiChannelId: undefined });
+    const d = initialModelDraft({ ...base, lastAgent: undefined, lastModel: undefined, lastProviderId: undefined });
     expect(d.agent).toBe("claude");
     expect(d.model).toBe("sonnet");
-    expect(d.piChannelId).toBeUndefined();
+    expect(d.providerId).toBeUndefined();
   });
   it("记忆 agent+model 一致则沿用 lastModel", () => {
-    const d = initialModelDraft({ ...base, lastAgent: "codex", lastModel: "gpt-5.4", lastPiChannelId: undefined });
+    const d = initialModelDraft({ ...base, lastAgent: "codex", lastModel: "gpt-5.4", lastProviderId: undefined });
     expect(d.agent).toBe("codex");
     expect(d.model).toBe("gpt-5.4");
   });
   it("记忆 agent 不可用回退后不沿用旧 model（取新 agent 默认）", () => {
     const d = initialModelDraft({
       agentsAvailable: { claude: true, codex: false },
-      piSettings: DEFAULT_PI_SETTINGS,
+      providerSettings: DEFAULT_PROVIDER_SETTINGS,
       lastAgent: "codex",
       lastModel: "gpt-5.4",
-      lastPiChannelId: undefined,
+      lastProviderId: undefined,
     });
     expect(d.agent).toBe("claude");
     expect(d.model).toBe("sonnet");

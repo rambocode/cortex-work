@@ -4,7 +4,7 @@
 // 这样 window-all-closed 的 killAllCli() 不会误杀正在跑的定时任务。
 //
 // 与 cli:oneshot 同构（行缓冲 + text/result 聚合 + 末行 flush），但:
-//   · 支持 pi 自定义通道（从持久化的 piSettings 解析,关窗后仍可用）;
+//   · 支持 pi 自定义供应商（从持久化的 providerSettings 解析,关窗后仍可用）;
 //   · 长超时（默认 10min,agent 任务远超 oneshot 的 60s）;
 //   · 启动后即返回 running run（不阻塞到执行完）,完成时经事件推送。
 
@@ -39,16 +39,23 @@ export function killAllAutomations(): void {
   pending.clear();
 }
 
-// 据 channelId 从持久化的 piSettings 取回完整通道,拍平成 CliStartRequest.piChannel。
-async function resolvePiChannel(channelId: string): Promise<CliStartRequest["piChannel"] | null> {
+// 据 providerId 从持久化的 providerSettings 取回完整 provider,拍平成 CliStartRequest.provider。
+// 兼容旧档：providerSettings.providers（新）优先,回退 piSettings.channels（旧）。
+async function resolveProvider(providerId: string): Promise<CliStartRequest["provider"] | null> {
   const state = await getPersistedState();
-  const ch = state.piSettings?.channels.find((c) => c.id === channelId && c.enabled);
-  if (!ch) return null;
+  const legacy = state as typeof state & {
+    piSettings?: {
+      channels?: { id: string; baseUrl: string; apiKey?: string; enabled: boolean; models: { id: string; label?: string }[] }[];
+    };
+  };
+  const list = state.providerSettings?.providers ?? legacy.piSettings?.channels ?? [];
+  const p = list.find((c) => c.id === providerId && c.enabled);
+  if (!p) return null;
   return {
-    id: ch.id,
-    baseUrl: ch.baseUrl,
-    apiKey: ch.apiKey,
-    models: ch.models.map((m) => ({ id: m.id, name: m.label })),
+    id: p.id,
+    baseUrl: p.baseUrl,
+    apiKey: p.apiKey,
+    models: p.models.map((m) => ({ id: m.id, name: m.label })),
   };
 }
 
@@ -107,17 +114,19 @@ export async function runAutomation(
 
   const cwd = meta.cwd || homedir();
 
-  // 整个启动序列（pi 通道解析/写 extension、buildArgs、spawn）都纳入 try:
+  // 整个启动序列（pi provider 解析/写 extension、buildArgs、spawn）都纳入 try:
   // writePiExtension 用同步 fs,磁盘满/权限错会抛 —— 必须经 finalize 解除 pending,
   // 否则该 automation 会永久卡在「运行中」假象,此后所有触发都被记 skipped。
   let proc: AgentProcess;
   try {
-    let piChannel: CliStartRequest["piChannel"];
+    let provider: CliStartRequest["provider"];
     let piExtensionPath: string | undefined;
-    if (meta.agent === "pi" && meta.piChannelId) {
-      const resolved = await resolvePiChannel(meta.piChannelId);
-      if (!resolved) throw new Error(`pi 通道「${meta.piChannelId}」未配置或已禁用`);
-      piChannel = resolved;
+    // 兼容旧自动化档：providerId（新）回退 piChannelId（旧）。
+    const automationProviderId = meta.providerId ?? (meta as { piChannelId?: string }).piChannelId;
+    if (meta.agent === "pi" && automationProviderId) {
+      const resolved = await resolveProvider(automationProviderId);
+      if (!resolved) throw new Error(`pi 供应商「${automationProviderId}」未配置或已禁用`);
+      provider = resolved;
       piExtensionPath = writePiExtension({
         id: resolved.id,
         baseUrl: resolved.baseUrl,
@@ -134,7 +143,7 @@ export async function runAutomation(
       model: meta.model,
       effort: meta.effort,
       useOwnSkills: meta.useOwnSkills,
-      piChannel,
+      provider,
       piExtensionPath,
     };
     const adapter = getAdapter(meta.agent);

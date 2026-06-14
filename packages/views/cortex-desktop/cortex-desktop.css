@@ -4980,6 +4980,36 @@ button.sb-row {
   cursor: pointer;
 }
 .pw-pi-channel-del:hover { background: var(--red-soft); color: var(--red); }
+.pw-pi-channel-del.is-confirming { width: auto; padding: 0 10px; background: var(--red-soft); color: var(--red); font-size: 12px; font-weight: 600; }
+
+/* 供应商设置：左列表 + 右详情（kun 风格） */
+.pw-prov-split { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; margin-top: 8px; align-items: start; }
+.pw-prov-list { display: flex; flex-direction: column; gap: 4px; }
+.pw-prov-item {
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg-soft); cursor: pointer; text-align: left; width: 100%;
+}
+.pw-prov-item:hover { border-color: var(--text-3); }
+.pw-prov-item.is-active { border-color: var(--accent, #c96442); background: var(--bg-app); }
+.pw-prov-item-name { font-size: 13px; font-weight: 600; color: var(--text-1, #1a1916); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.pw-prov-item-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+.pw-prov-badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: var(--border); color: var(--text-3); }
+.pw-prov-badge.is-default { background: var(--accent, #c96442); color: #fff; }
+.pw-prov-detail { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-soft); }
+.pw-prov-detail textarea.pw-set-input { resize: vertical; min-height: 52px; line-height: 1.5; font-family: var(--mono, ui-monospace, monospace); }
+
+/* 带显隐切换的密钥输入 */
+.pw-secret-wrap { display: flex; gap: 6px; align-items: stretch; }
+.pw-secret-wrap > .pw-set-input { flex: 1; min-width: 0; }
+.pw-secret-toggle { flex-shrink: 0; padding: 0 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-3); cursor: pointer; background: transparent; }
+.pw-secret-toggle:hover { border-color: var(--text-3); color: var(--text-1, #1a1916); }
+
+/* Agent 可用性行 */
+.pw-agent-avail { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+.pw-agent-dot { font-size: 11px; padding: 1px 8px; border-radius: 6px; }
+.pw-agent-dot.is-on { background: var(--green-soft, #d4ebe8); color: var(--green, #0d9488); }
+.pw-agent-dot.is-off { background: var(--border); color: var(--text-3); }
 
 /* 右键/项目菜单的右侧二级菜单（Open in 悬停展开） */
 .pw-ctx-haschild { position: relative; }

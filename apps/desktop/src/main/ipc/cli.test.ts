@@ -136,12 +136,12 @@ describe("wrapUtility 收尾协调（防丢末行）", () => {
 
 describe("spawnEnvFor", () => {
   it("pi:不注入 ELECTRON_RUN_AS_NODE,注入 PI key", () => {
-    const env = spawnEnvFor({ agent: "pi", piChannel: { apiKey: "sk-test" } });
+    const env = spawnEnvFor({ agent: "pi", provider: { apiKey: "sk-test" } });
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
     expect(env[PI_KEY_ENV]).toBe("sk-test");
   });
 
-  it("pi 无通道:无 PI key,也无 ELECTRON_RUN_AS_NODE", () => {
+  it("pi 无供应商:无 PI key,也无 ELECTRON_RUN_AS_NODE", () => {
     const env = spawnEnvFor({ agent: "pi" });
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
     expect(env[PI_KEY_ENV]).toBeUndefined();

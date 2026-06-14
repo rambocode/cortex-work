@@ -51,7 +51,7 @@ export function useSpotlightHandoff(): void {
       }
       if (!cwd) return; // 无 no-project 目录能力,放弃
       const sess = st.createSession(intent.projectId, intent.agent, intent.model, proj ? undefined : { noProjectDir: cwd });
-      if (intent.agent === "pi" && intent.piChannelId) st.updateSession(sess.id, { piChannelId: intent.piChannelId });
+      if (intent.agent === "pi" && intent.providerId) st.updateSession(sess.id, { providerId: intent.providerId });
       const sysPrompt = buildProjectSystemPrompt(st.projects);
       await send(sess, cwd, intent.prompt, [], sysPrompt);
     })();

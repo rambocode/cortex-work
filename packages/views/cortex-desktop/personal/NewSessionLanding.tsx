@@ -23,7 +23,7 @@ export function NewSessionLanding({ onToast }: { onToast: (text: string) => void
   const projects = usePersonalStore((s) => s.projects);
   const sessions = usePersonalStore((s) => s.sessions);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
-  const piSettings = usePersonalStore((s) => s.piSettings);
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
   const createSession = usePersonalStore((s) => s.createSession);
   const updateSession = usePersonalStore((s) => s.updateSession);
   const { send } = usePersonalActions();
@@ -34,23 +34,23 @@ export function NewSessionLanding({ onToast }: { onToast: (text: string) => void
   );
   const [hasChosen, setHasChosen] = useState(false);
 
-  // 会话尚未创建,草稿态承载输入框控件(默认 agent + 默认 model/通道),发送时落进 createSession。
+  // 会话尚未创建,草稿态承载输入框控件(默认 agent + 默认 model/provider),发送时落进 createSession。
   const [draft, setDraft] = useState(() => {
     const agent = defaultAgent(agentsAvailable);
-    const piChannel = piSettings.channels.find((c) => c.id === piSettings.defaultChannelId);
+    const provider = providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId);
     return {
       agent,
-      model: agent === "pi" ? piSettings.defaultModel ?? piChannel?.models[0]?.id : DEFAULT_MODEL[agent],
-      piChannelId: agent === "pi" ? piSettings.defaultChannelId : undefined,
+      model: agent === "pi" ? providerSettings.defaultModel ?? provider?.models[0]?.id : DEFAULT_MODEL[agent],
+      providerId: agent === "pi" ? providerSettings.defaultProviderId : undefined,
       useOwnSkills: false,
     };
   });
 
-  // 把草稿态里 createSession 不直接支持的字段(piChannelId/useOwnSkills)补到新建会话上。
+  // 把草稿态里 createSession 不直接支持的字段(providerId/useOwnSkills)补到新建会话上。
   const applyDraftPatch = (sess: SessionMeta) => {
     const patch: Partial<SessionMeta> = {};
     if (draft.useOwnSkills) patch.useOwnSkills = true;
-    if (draft.agent === "pi" && draft.piChannelId) patch.piChannelId = draft.piChannelId;
+    if (draft.agent === "pi" && draft.providerId) patch.providerId = draft.providerId;
     if (Object.keys(patch).length) updateSession(sess.id, patch);
   };
 
@@ -106,7 +106,7 @@ export function NewSessionLanding({ onToast }: { onToast: (text: string) => void
       <ComposerShell
         agent={draft.agent}
         model={draft.model}
-        piChannelId={draft.piChannelId}
+        providerId={draft.providerId}
         useOwnSkills={draft.useOwnSkills}
         running={false}
         slashCommands={[]}
@@ -114,7 +114,7 @@ export function NewSessionLanding({ onToast }: { onToast: (text: string) => void
         placeholder="输入消息开启新会话,Enter 发送 · Shift+Enter 换行"
         onSend={onSubmit}
         onChangeModel={(model) => setDraft((d) => ({ ...d, model }))}
-        onChangePiModel={(channelId, model) => setDraft((d) => ({ ...d, piChannelId: channelId, model }))}
+        onChangePiModel={(providerId, model) => setDraft((d) => ({ ...d, providerId, model }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
         onToast={onToast}
       />

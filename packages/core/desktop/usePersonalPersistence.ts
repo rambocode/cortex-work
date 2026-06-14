@@ -22,11 +22,12 @@ export function saveUrgency(s: PersonalState, prev: PersonalState): SaveUrgency 
     s.timelineSettings !== prev.timelineSettings ||
     s.pushSettings !== prev.pushSettings ||
     s.ttsSettings !== prev.ttsSettings ||
+    s.providerSettings !== prev.providerSettings ||
     s.profile !== prev.profile ||
     s.rightPanelWidth !== prev.rightPanelWidth ||
     s.lastAgent !== prev.lastAgent ||
     s.lastModel !== prev.lastModel ||
-    s.lastPiChannelId !== prev.lastPiChannelId
+    s.lastProviderId !== prev.lastProviderId
   )
     return "throttled";
   return "none";
