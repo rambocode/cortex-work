@@ -85,7 +85,7 @@ function MessageAvatar({ who }: { who: string }) {
   );
 }
 
-function MessageHeader({ who, time }: { who: string; time: string }) {
+function MessageHeader({ who, time, hideTime = false }: { who: string; time: string; hideTime?: boolean }) {
   const meta = whoMeta(who);
   const isAgent = who.endsWith("-agent");
   return (
@@ -96,7 +96,7 @@ function MessageHeader({ who, time }: { who: string; time: string }) {
           {meta.agent === "shared" ? "共享 Agent" : "Agent"}
         </span>
       ) : null}
-      <span className="when">{time}</span>
+      {hideTime ? null : <span className="when">{time}</span>}
     </div>
   );
 }
@@ -106,19 +106,22 @@ function TextMessage({
   grouped,
   markdown = false,
   tail,
+  hideTime = false,
 }: {
   m: Extract<Message, { kind: "text" }>;
   grouped: boolean;
   // 个人工作区:agent 输出按 Markdown 渲染(用户自己的消息保持纯文本)。
   markdown?: boolean;
   tail?: ReactNode;
+  // 个人工作区:头部不显示时间(时间改放到底部操作行)。
+  hideTime?: boolean;
 }) {
   const renderMd = markdown && m.who !== "me" && typeof m.text === "string";
   return (
     <div className={`msg ${grouped ? "is-grouped" : ""} ${m.who === "me" ? "is-me" : ""}`}>
       <MessageAvatar who={m.who} />
       <div className="m-body">
-        <MessageHeader who={m.who} time={m.time} />
+        <MessageHeader who={m.who} time={m.time} hideTime={hideTime} />
         {m.reply ? (
           <div className="reply-quote">
             <span className="rq-who">{whoMeta(m.reply.who).name}</span>
@@ -352,6 +355,7 @@ export function MessageStream({
   collapsibleLogs = false,
   leadingContent,
   renderTextTail,
+  hideTextTime = false,
 }: {
   contact: Contact;
   convo: Conversation | null | undefined;
@@ -363,6 +367,8 @@ export function MessageStream({
   collapsibleLogs?: boolean;
   leadingContent?: ReactNode;
   renderTextTail?: (message: Extract<Message, { kind: "text" }>) => ReactNode;
+  // 个人工作区:文本消息头部不显示时间(时间改放到底部操作行)。
+  hideTextTime?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const msgCount = convo?.messages?.length || 0;
@@ -425,7 +431,7 @@ export function MessageStream({
         lastWho = m.who;
         switch (m.kind) {
           case "text":
-            return <TextMessage key={key} m={m} grouped={grouped} markdown={markdownBodies} tail={renderTextTail?.(m)} />;
+            return <TextMessage key={key} m={m} grouped={grouped} markdown={markdownBodies} tail={renderTextTail?.(m)} hideTime={hideTextTime} />;
           case "agentLog":
             return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
           case "diff":

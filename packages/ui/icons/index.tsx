@@ -82,6 +82,18 @@ export const Icon = {
       <path d="M14 6l4 4" />
     </IconBase>
   ),
+  Retry: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 4v5h-5" />
+    </IconBase>
+  ),
+  Copy: (p: IconProps) => (
+    <IconBase {...p}>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2" />
+    </IconBase>
+  ),
   Search: (p: IconProps) => (
     <IconBase {...p}>
       <circle cx="11" cy="11" r="6" />

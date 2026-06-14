@@ -246,36 +246,81 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         onApprove={() => {}}
         markdownBodies
         collapsibleLogs
+        hideTextTime
         renderTextTail={(m) => {
           if (typeof m.text !== "string") return null;
+          // 底部行:时间常驻(撑起固定高度,避免悬停露出图标时页面抖动)+ 悬停淡入的操作。
+          const msgText = m.text;
           if (m.who === "me") {
-            // 用户消息:可编辑重发(运行中先停止;无 uid 的极老消息不支持)。
-            if (running || !m.uid) return null;
+            // 用户消息:重发 / 编辑重发 / 复制。运行中或无 uid(极老消息)时只显示时间。
+            const editable = !running && !!m.uid;
             const msgUid = m.uid;
-            const msgText = m.text;
             return (
-              <div className="m-tts-actions">
-                <button
-                  type="button"
-                  title="编辑这条消息并重新发送(将清除其后的所有消息)"
-                  onClick={() => setEditing({ uid: msgUid, text: msgText })}
-                >
-                  <Icon.Edit size={12} />
-                  编辑重发
-                </button>
+              <div className="m-msg-actions">
+                <span className="m-msg-time">{m.time}</span>
+                {editable && msgUid ? (
+                  <div className="m-act-row">
+                    <button
+                      type="button"
+                      className="m-act-btn"
+                      title="按原文重新发送(将清除其后的所有消息)"
+                      onClick={() => void editResend(session, project.path, msgUid, msgText, [])}
+                    >
+                      <Icon.Retry size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="m-act-btn"
+                      title="编辑后重新发送(将清除其后的所有消息)"
+                      onClick={() => setEditing({ uid: msgUid, text: msgText })}
+                    >
+                      <Icon.Edit size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="m-act-btn"
+                      title="复制消息内容"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(msgText);
+                        onToast("已复制");
+                      }}
+                    >
+                      <Icon.Copy size={15} />
+                    </button>
+                  </div>
+                ) : null}
               </div>
             );
           }
+          // agent 回复:复制 +(仅在开启「实时朗读」时)朗读开关。重听/停止合并为单个
+          // 开关,正在朗读时常驻显示(便于随时停止),否则悬停才露出。
+          const speaking = ttsPlayback.isSpeaking;
           return (
-            <div className="m-tts-actions">
-              <button type="button" onClick={() => void speakText(bridge, ttsSettings, m.text as string)} title="重新朗读这条回复">
-                <Icon.Run size={12} />
-                重听
-              </button>
-              <button type="button" disabled={!ttsPlayback.isSpeaking} onClick={stopSpeaking} title="停止当前朗读">
-                <Icon.Stop size={12} />
-                停止
-              </button>
+            <div className="m-msg-actions">
+              <span className="m-msg-time">{m.time}</span>
+              <div className={`m-act-row ${speaking ? "is-active" : ""}`}>
+                <button
+                  type="button"
+                  className="m-act-btn"
+                  title="复制回复内容"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(msgText);
+                    onToast("已复制");
+                  }}
+                >
+                  <Icon.Copy size={15} />
+                </button>
+                {ttsSettings.autoSpeak ? (
+                  <button
+                    type="button"
+                    className="m-act-btn"
+                    title={speaking ? "停止朗读" : "朗读这条回复"}
+                    onClick={() => (speaking ? stopSpeaking() : void speakText(bridge, ttsSettings, msgText))}
+                  >
+                    {speaking ? <Icon.Stop size={15} /> : <Icon.Run size={15} />}
+                  </button>
+                ) : null}
+              </div>
             </div>
           );
         }}
