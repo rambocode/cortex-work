@@ -146,6 +146,16 @@ export function agentSessionPatch(session: SessionMeta, agent: AgentKind, id: st
   return agent === "claude" ? { agentSessionIds, claudeSessionId: id } : { agentSessionIds };
 }
 
+export function clearAgentSessionPatch(session: SessionMeta, agent: AgentKind): Partial<SessionMeta> {
+  const agentSessionIds = { ...session.agentSessionIds };
+  delete agentSessionIds[agent];
+  return agent === "claude" ? { agentSessionIds, claudeSessionId: undefined } : { agentSessionIds };
+}
+
+export function isMissingAgentSessionError(error?: string): boolean {
+  return /thread\/resume failed|no rollout found for thread id/i.test(error ?? "");
+}
+
 export interface PersonalChatSlice {
   allMessages: Message[];
   hiddenMessages: Message[];
@@ -353,6 +363,12 @@ function foldIntoCache(qc: QueryClient, sessionId: string, run: RunState, ev: Cl
   run.cursor = nextCursor;
 }
 
+function clearStoredAgentSessionId(sessionId: string, agent: AgentKind): void {
+  const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
+  if (!sess) return;
+  usePersonalStore.getState().updateSession(sessionId, clearAgentSessionPatch(sess, agent));
+}
+
 function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sessionIdHint?: string): void {
   let run = runs.get(runId);
   if (!run) {
@@ -414,6 +430,17 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       setMessages(qc, sessionId, (prev) => finalizeAgentLog(prev, logUid));
     }
     if (!ev.ok) {
+      if (run.agent === "codex" && isMissingAgentSessionError(ev.error)) {
+        clearStoredAgentSessionId(sessionId, run.agent);
+        appendMsg(qc, sessionId, {
+          kind: "text",
+          who: run.agent,
+          time: realHHMM(),
+          text: "⚠️ Codex 本地会话历史已丢失，已断开旧 thread id。下次发送会创建新的 Codex 线程。",
+          uid: uid("err"),
+        });
+        return;
+      }
       // pi 兜底 Agent 鉴权类错误:补一句去哪里配 LLM 通道 / API Key。
       const piAuthHint =
         run.agent === "pi" && /api.?key|auth|credential|unauthorized|401|provider/i.test(ev.error ?? "")
@@ -459,8 +486,11 @@ function handleCliExit(
   usePersonalStore.getState().setRunning(sessionId, undefined);
 
   if (!run.gotResult && (error || (code !== null && code !== 0))) {
-    const friendly =
-      error && /ENOENT/.test(error)
+    const missingCodexSession = run.agent === "codex" && isMissingAgentSessionError(error);
+    if (missingCodexSession) clearStoredAgentSessionId(sessionId, run.agent);
+    const friendly = missingCodexSession
+      ? "Codex 本地会话历史已丢失，已断开旧 thread id。下次发送会创建新的 Codex 线程。"
+      : error && /ENOENT/.test(error)
         ? "未检测到 CLI，请确认已安装并在 PATH 中（如 npm install -g @anthropic-ai/claude-code）"
         : error || `进程退出码 ${code}`;
     appendMsg(qc, sessionId, {
@@ -717,22 +747,34 @@ export function usePersonalActions(): PersonalActions {
         : session.model;
 
       try {
+        let resumeSessionId = sessionResumeId(session);
+        let sendSession = session;
+        if (resumeSessionId && session.agent !== "pi" && bridge.agentSessionExists) {
+          const exists = await bridge.agentSessionExists({ agent: session.agent, agentSessionId: resumeSessionId });
+          if (!exists) {
+            const patch = clearAgentSessionPatch(session, session.agent);
+            usePersonalStore.getState().updateSession(session.id, patch);
+            sendSession = { ...session, ...patch };
+            resumeSessionId = undefined;
+          }
+        }
+
         await bridge.startCli({
           runId,
-          sessionId: session.id,
-          agent: session.agent,
+          sessionId: sendSession.id,
+          agent: sendSession.agent,
           cwd: projectPath,
           prompt: text,
           model: piModel,
-          resumeSessionId: sessionResumeId(session),
+          resumeSessionId,
           appendSystemPrompt,
-          useOwnSkills: session.useOwnSkills,
+          useOwnSkills: sendSession.useOwnSkills,
           piChannel: piChannel
             ? { id: piChannel.id, baseUrl: piChannel.baseUrl, apiKey: piChannel.apiKey, models: piChannel.models }
             : undefined,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
-        autoTitle(bridge, session, text);
+        autoTitle(bridge, sendSession, text);
       } catch (err) {
         handleCliExit(qc, runId, null, err instanceof Error ? err.message : String(err));
       }
@@ -759,10 +801,7 @@ export function usePersonalActions(): PersonalActions {
       const originalText = original?.kind === "text" && typeof original.text === "string" ? original.text : undefined;
       const resumeId = sessionResumeId(session);
       if (truncated.length === 0) {
-        const agentSessionIds = { ...session.agentSessionIds };
-        delete agentSessionIds[session.agent];
-        const patch: Partial<SessionMeta> =
-          session.agent === "claude" ? { agentSessionIds, claudeSessionId: undefined } : { agentSessionIds };
+        const patch = clearAgentSessionPatch(session, session.agent);
         usePersonalStore.getState().updateSession(session.id, patch);
         sendSession = { ...session, ...patch };
       } else if (resumeId && originalText && bridge.trimAgentSession) {

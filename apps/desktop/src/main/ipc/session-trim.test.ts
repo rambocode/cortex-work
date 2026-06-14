@@ -1,9 +1,9 @@
 // 会话记忆截断单测:行定位(claude/codex 真实行形状)+ 文件截断与备份。
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { claudeTrimIndex, codexTrimIndex, trimSessionFile } from "./session-trim";
+import { agentSessionExists, claudeTrimIndex, codexTrimIndex, trimSessionFile } from "./session-trim";
 
 // ── claude:~/.claude/projects/<dir>/<session>.jsonl 的行形状 ──────────────
 function claudeUser(text: string, extra: Record<string, unknown> = {}): string {
@@ -91,5 +91,33 @@ describe("trimSessionFile", () => {
     expect(kept).toContain("第一答");
     expect(kept).not.toContain("第二答");
     expect(readFileSync(path + ".bak", "utf8")).toBe(raw);
+  });
+});
+
+describe("agentSessionExists", () => {
+  it("Codex:递归匹配 rollout 文件名末尾的 thread id", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-session-"));
+    const id = "019ec100-3abf-7ab3-8ee8-cb1bce4fa851";
+    const dir = join(home, ".codex", "sessions", "2026", "06", "14");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `rollout-2026-06-14T20-56-00-${id}.jsonl`), "\n", "utf8");
+
+    expect(agentSessionExists({ agent: "codex", agentSessionId: id }, home)).toBe(true);
+    expect(agentSessionExists({ agent: "codex", agentSessionId: "missing" }, home)).toBe(false);
+  });
+
+  it("Claude:匹配 projects 下的 session jsonl 文件", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-session-"));
+    const dir = join(home, ".claude", "projects", "-tmp-proj");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "claude-session.jsonl"), "\n", "utf8");
+
+    expect(agentSessionExists({ agent: "claude", agentSessionId: "claude-session" }, home)).toBe(true);
+    expect(agentSessionExists({ agent: "claude", agentSessionId: "missing" }, home)).toBe(false);
+  });
+
+  it("Pi:没有外部会话文件,恒视为存在", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-session-"));
+    expect(agentSessionExists({ agent: "pi", agentSessionId: "pi-session" }, home)).toBe(true);
   });
 });

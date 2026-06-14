@@ -139,6 +139,12 @@ export interface CliStartRequest {
   piExtensionPath?: string;
 }
 
+// agent 自己的 session/thread id(resume 用的那个)。
+export interface AgentSessionRequest {
+  agent: AgentKind;
+  agentSessionId: string;
+}
+
 // 编辑重发:截断 agent CLI 会话记忆文件的请求。
 export interface TrimSessionRequest {
   agent: AgentKind;

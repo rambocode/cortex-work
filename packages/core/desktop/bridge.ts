@@ -4,6 +4,7 @@
 
 import type {
   AgentKind,
+  AgentSessionRequest,
   AgentProjectInfo,
   AgentUsage,
   DailyUsage,
@@ -119,6 +120,8 @@ export interface DesktopBridge {
   // ASR：OpenAI 兼容 /v1/audio/transcriptions 转写,返回文本。
   asrTranscribe(req: AsrTranscribeRequest): Promise<AsrTranscribeResponse>;
   killCli(runId: string): Promise<void>;
+  // 发送前校验外部 agent 的 resume 会话文件是否仍在本机。可选能力;旧壳缺失时保持原行为。
+  agentSessionExists?(req: AgentSessionRequest): Promise<boolean>;
   // 编辑重发:截断 agent CLI 会话记忆(可选能力,旧壳无此方法时退化为带旧记忆 resume)。
   trimAgentSession?(req: TrimSessionRequest): Promise<boolean>;
   onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;

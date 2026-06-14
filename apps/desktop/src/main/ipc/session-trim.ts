@@ -11,7 +11,7 @@
 import { promises as fsp, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import type { TrimSessionRequest } from "./types";
+import type { AgentSessionRequest, TrimSessionRequest } from "./types";
 
 function safeParse(line: string): Record<string, unknown> | null {
   try {
@@ -75,8 +75,8 @@ export function codexTrimIndex(lines: string[], promptText: string, occurrence: 
   return matchIndexes(lines, promptText, codexUserText, (t) => t.endsWith(needle))[occurrence] ?? -1;
 }
 
-function findClaudeSessionFile(sessionId: string): string | null {
-  const root = join(homedir(), ".claude", "projects");
+function findClaudeSessionFile(sessionId: string, home = homedir()): string | null {
+  const root = join(home, ".claude", "projects");
   try {
     for (const dir of readdirSync(root)) {
       const p = join(root, dir, `${sessionId}.jsonl`);
@@ -88,8 +88,8 @@ function findClaudeSessionFile(sessionId: string): string | null {
   return null;
 }
 
-function findCodexSessionFile(threadId: string): string | null {
-  const root = join(homedir(), ".codex", "sessions");
+function findCodexSessionFile(threadId: string, home = homedir()): string | null {
+  const root = join(home, ".codex", "sessions");
   const stack = [root];
   while (stack.length) {
     const dir = stack.pop()!;
@@ -106,6 +106,16 @@ function findCodexSessionFile(threadId: string): string | null {
     }
   }
   return null;
+}
+
+/** 只读校验 agent CLI 会话文件是否还在本机;pi 没有外部会话文件,恒返回 true。 */
+export function agentSessionExists(req: AgentSessionRequest, home = homedir()): boolean {
+  if (req.agent === "pi") return true;
+  const path =
+    req.agent === "claude"
+      ? findClaudeSessionFile(req.agentSessionId, home)
+      : findCodexSessionFile(req.agentSessionId, home);
+  return path !== null;
 }
 
 /** 截断会话文件到 fromLine 之前(写 .bak 备份)。供测试直接调用。 */

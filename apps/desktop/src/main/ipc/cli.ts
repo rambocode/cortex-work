@@ -7,9 +7,9 @@ import { spawn, type ChildProcess } from "child_process";
 import { delimiter, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, readdirSync } from "fs";
-import type { AgentKind, CliExitEvent, CliStartRequest, CliStreamEvent, TrimSessionRequest } from "./types";
+import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, TrimSessionRequest } from "./types";
 import { getAdapter } from "../agents";
-import { trimAgentSession } from "./session-trim";
+import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 
 const running = new Map<string, AgentProcess>();
@@ -338,6 +338,7 @@ export function registerCliHandlers(): void {
   );
 
   // 编辑重发:截断 agent CLI 会话记忆文件(纯逻辑在 session-trim.ts)。
+  ipcMain.handle("cli:agentSessionExists", (_e, req: AgentSessionRequest) => agentSessionExists(req));
   ipcMain.handle("cli:trimSession", (_e, req: TrimSessionRequest) => trimAgentSession(req));
 
   ipcMain.handle("agents:detect", () => detectAgents());

@@ -3,10 +3,12 @@ import type { CliStreamEvent, SessionMeta } from "../desktop/types";
 import {
   agentSessionPatch,
   buildAttachmentSystemPrompt,
+  clearAgentSessionPatch,
   createHiddenHistory,
   emptyFoldCursor,
   finalizeAgentLog,
   foldCliEvent,
+  isMissingAgentSessionError,
   sessionResumeId,
   sameTextOrdinal,
   splitPersonalMessages,
@@ -51,6 +53,41 @@ describe("personal message agent session helpers", () => {
     expect(agentSessionPatch({ ...baseSession, claudeSessionId: "claude-old" }, "codex", "codex-thread")).toEqual({
       agentSessionIds: { codex: "codex-thread" },
     });
+  });
+
+  it("清理当前 agent 的 resume id 时保留其它 agent id", () => {
+    expect(
+      clearAgentSessionPatch(
+        {
+          ...baseSession,
+          agent: "codex",
+          agentSessionIds: { claude: "claude-new", codex: "codex-thread", pi: "pi-session" },
+        },
+        "codex",
+      ),
+    ).toEqual({ agentSessionIds: { claude: "claude-new", pi: "pi-session" } });
+  });
+
+  it("清理 Claude resume id 时同步清理旧兼容字段", () => {
+    expect(
+      clearAgentSessionPatch(
+        {
+          ...baseSession,
+          claudeSessionId: "claude-old",
+          agentSessionIds: { claude: "claude-new", codex: "codex-thread" },
+        },
+        "claude",
+      ),
+    ).toEqual({ agentSessionIds: { codex: "codex-thread" }, claudeSessionId: undefined });
+  });
+
+  it("识别 Codex 本地 rollout 缺失导致的 resume 错误", () => {
+    expect(
+      isMissingAgentSessionError(
+        "Error: thread/resume: thread/resume failed: no rollout found for thread id 019ec100",
+      ),
+    ).toBe(true);
+    expect(isMissingAgentSessionError("provider failed")).toBe(false);
   });
 });
 
@@ -176,10 +213,10 @@ describe("流式交错折叠 foldCliEvent", () => {
   it("文本→工具→文本：按到达顺序交替成三块", () => {
     const { messages } = foldAll([txt("A"), tool("t1"), txt("B")]);
     expect(messages.map((m) => m.kind)).toEqual(["text", "agentLog", "text"]);
-    expect(asText(messages[0]).text).toBe("A");
-    expect(asText(messages[2]).text).toBe("B");
+    expect(asText(messages[0]!).text).toBe("A");
+    expect(asText(messages[2]!).text).toBe("B");
     // 被文本打断的 agentLog 已收尾,不遗留 running。
-    const log = asLog(messages[1]);
+    const log = asLog(messages[1]!);
     expect(log.active).toBe(false);
     expect(log.completed).toBe(true);
     expect(log.items).toEqual([{ ic: "check", text: "t1" }]);
@@ -188,13 +225,13 @@ describe("流式交错折叠 foldCliEvent", () => {
   it("连续文本增量合并进同一个 text 块", () => {
     const { messages } = foldAll([txt("Hel"), txt("lo")]);
     expect(messages.map((m) => m.kind)).toEqual(["text"]);
-    expect(asText(messages[0]).text).toBe("Hello");
+    expect(asText(messages[0]!).text).toBe("Hello");
   });
 
   it("连续工具合并进同一张 agentLog 卡片,末项 running、前项 check", () => {
     const { messages } = foldAll([tool("t1"), tool("t2"), tool("t3")]);
     expect(messages.map((m) => m.kind)).toEqual(["agentLog"]);
-    const log = asLog(messages[0]);
+    const log = asLog(messages[0]!);
     expect(log.active).toBe(true); // 未被打断、未 result,仍运行中
     expect(log.items).toEqual([
       { ic: "check", text: "t1" },
@@ -206,7 +243,7 @@ describe("流式交错折叠 foldCliEvent", () => {
   it("工具组被文本打断：开新文本块,旧卡片收尾", () => {
     const { messages } = foldAll([txt("A"), tool("t1"), tool("t2"), txt("B")]);
     expect(messages.map((m) => m.kind)).toEqual(["text", "agentLog", "text"]);
-    const log = asLog(messages[1]);
+    const log = asLog(messages[1]!);
     expect(log.active).toBe(false);
     expect(log.completed).toBe(true);
     expect(log.title).toBe("Agent 执行完成");
@@ -214,14 +251,14 @@ describe("流式交错折叠 foldCliEvent", () => {
       { ic: "check", text: "t1" },
       { ic: "check", text: "t2" },
     ]);
-    expect(asText(messages[2]).text).toBe("B");
+    expect(asText(messages[2]!).text).toBe("B");
   });
 
   it("多轮交错 text/tool/tool/text/tool → 四块", () => {
     const { messages } = foldAll([txt("A"), tool("t1"), tool("t2"), txt("B"), tool("t3")]);
     expect(messages.map((m) => m.kind)).toEqual(["text", "agentLog", "text", "agentLog"]);
-    expect(asLog(messages[1]).active).toBe(false); // 第一组被打断收尾
-    const last = asLog(messages[3]);
+    expect(asLog(messages[1]!).active).toBe(false); // 第一组被打断收尾
+    const last = asLog(messages[3]!);
     expect(last.active).toBe(true); // 末组仍运行中
     expect(last.items).toEqual([{ ic: "running", text: "t3" }]);
   });
@@ -229,25 +266,25 @@ describe("流式交错折叠 foldCliEvent", () => {
   it("以工具起手：首块为 agentLog,无前置空 text 块", () => {
     const { messages } = foldAll([tool("t1"), txt("A")]);
     expect(messages.map((m) => m.kind)).toEqual(["agentLog", "text"]);
-    expect(asLog(messages[0]).items).toEqual([{ ic: "check", text: "t1" }]);
-    expect(asText(messages[1]).text).toBe("A");
+    expect(asLog(messages[0]!).items).toEqual([{ ic: "check", text: "t1" }]);
+    expect(asText(messages[1]!).text).toBe("A");
   });
 
   it("codex 连续整段 agent_message（无工具间隔）合并为单块（既定行为）", () => {
     const { messages } = foldAll([txt("段一"), txt("段二")]);
     expect(messages.map((m) => m.kind)).toEqual(["text"]);
-    expect(asText(messages[0]).text).toBe("段一段二");
+    expect(asText(messages[0]!).text).toBe("段一段二");
   });
 
   it("工具 detail 拼进步骤文案：name · detail", () => {
     const { messages } = foldAll([tool("Edit", "src/a.ts")]);
-    expect(asLog(messages[0]).items).toEqual([{ ic: "running", text: "Edit · src/a.ts" }]);
+    expect(asLog(messages[0]!).items).toEqual([{ ic: "running", text: "Edit · src/a.ts" }]);
   });
 
   it("finalizeAgentLog：全部 items 翻 check 并标记完成", () => {
     const { messages, cursor } = foldAll([tool("t1"), tool("t2")]);
     const out = finalizeAgentLog(messages, cursor.logUid!);
-    const log = asLog(out[0]);
+    const log = asLog(out[0]!);
     expect(log.active).toBe(false);
     expect(log.completed).toBe(true);
     expect(log.title).toBe("Agent 执行完成");
