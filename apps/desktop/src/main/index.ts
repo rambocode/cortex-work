@@ -11,6 +11,8 @@ import {
 import { ensureMigrated } from "./paths";
 import { initScheduler, rescheduleAll, stopScheduler } from "./automation/scheduler";
 import { createTray, destroyTray } from "./automation/tray";
+import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
+import { registerSpotlightHandlers } from "./ipc/spotlight";
 
 const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 
@@ -98,6 +100,7 @@ if (!app.requestSingleInstanceLock()) {
 
     await ensureMigrated();
     registerIpcHandlers();
+    registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });
     // 先建托盘:即使建窗失败也保留后台入口与调度。
     createTray({
       onShow: showMainWindow,
@@ -105,12 +108,15 @@ if (!app.requestSingleInstanceLock()) {
         isQuitting = true;
         app.quit();
       },
+      onToggleSpotlight: toggleSpotlight,
     });
     await initScheduler();
     createWindow();
 
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      // 排除 Spotlight 浮动窗口:避免「主窗口已关、只剩 Spotlight」时点 Dock 不重建主窗口。
+      const real = BrowserWindow.getAllWindows().filter((w) => w !== getSpotlightWindow());
+      if (real.length === 0) createWindow();
       else showMainWindow();
     });
 
@@ -138,5 +144,6 @@ if (!app.requestSingleInstanceLock()) {
     killAllPty();
     closeAllWatchers();
     destroyTray();
+    destroySpotlight();
   });
 }

@@ -6,7 +6,7 @@
 import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { Message } from "../types";
-import type { AgentKind, CliStreamEvent, HiddenHistoryMeta, SessionMeta } from "../desktop/types";
+import type { AgentKind, CliStreamEvent, HiddenHistoryMeta, ProjectMeta, SessionMeta } from "../desktop/types";
 import type { DesktopBridge } from "../desktop/bridge";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
@@ -56,6 +56,22 @@ export function buildAttachmentSystemPrompt(attachments: PersonalAttachment[]): 
           ].join("\n"),
     )
     .join("\n\n");
+}
+
+// 个人工作区项目清单 → system prompt 块（让 agent 知道用户有哪些本地项目及绝对路径）。
+// 排除归档项目;无可用项目返回 undefined。Spotlight 默认「不使用项目」时 cwd 是 no-project
+// 目录,但此块仍列出项目,便于 agent 按需进入某项目。
+export function buildProjectSystemPrompt(projects: ProjectMeta[]): string | undefined {
+  const active = projects.filter((p) => p.archivedAt == null);
+  if (active.length === 0) return undefined;
+  const lines = active.map((p) => `- ${p.name}: ${p.path}`).join("\n");
+  return [
+    "<personal_workspace_projects>",
+    "以下是用户「个人工作区」中登记的本地项目(名称: 绝对路径)。",
+    "当前会话默认不在任何项目目录下工作;如需操作某项目,请使用其绝对路径。",
+    lines,
+    "</personal_workspace_projects>",
+  ].join("\n");
 }
 
 function realHHMM(): string {
@@ -515,7 +531,13 @@ export function sameTextOrdinal(messages: Message[], msgUid: string, text: strin
 }
 
 export interface PersonalActions {
-  send: (session: SessionMeta, projectPath: string, text: string, attachments: PersonalAttachment[]) => Promise<void>;
+  send: (
+    session: SessionMeta,
+    projectPath: string,
+    text: string,
+    attachments: PersonalAttachment[],
+    extraSystemPrompt?: string,
+  ) => Promise<void>;
   stop: (sessionId: string) => Promise<void>;
   // 编辑重发:清除目标用户消息及其后的全部消息,以新文本重新发送。
   editResend: (
@@ -534,7 +556,7 @@ export function usePersonalActions(): PersonalActions {
   const qc = useQueryClient();
 
   const send = useCallback<PersonalActions["send"]>(
-    async (session, projectPath, text, attachments) => {
+    async (session, projectPath, text, attachments, extraSystemPrompt) => {
       if (!bridge || !text.trim()) return;
       const runId = uid("run");
       const typingUid = uid("typing");
@@ -598,7 +620,9 @@ export function usePersonalActions(): PersonalActions {
       usePersonalStore.getState().setRunning(session.id, runId);
       usePetStore.getState().set("thinking");
 
-      const appendSystemPrompt = buildAttachmentSystemPrompt(attachments);
+      const attachmentPrompt = buildAttachmentSystemPrompt(attachments);
+      // 项目信息（Spotlight 注入）在前、附件 skills/todos 在后;两者皆空仍传 undefined。
+      const appendSystemPrompt = [extraSystemPrompt, attachmentPrompt].filter(Boolean).join("\n\n") || undefined;
 
       // pi 兜底 Agent:按会话选中的 LLM 通道（或默认通道）拍平传入主进程,
       // 由主进程生成 extension + 注入 key env;model 取会话模型/默认模型/通道首模型。

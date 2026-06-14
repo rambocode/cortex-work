@@ -10,6 +10,7 @@ import {
   usePersonalCliEvents,
   usePersonalPersistence,
   usePersonalStore,
+  useSpotlightHandoff,
 } from "@cortex-work/core";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { PersonalSidebar } from "./PersonalSidebar";
@@ -31,6 +32,8 @@ export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void
   const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
   usePersonalPersistence();
   usePersonalCliEvents();
+  // 与 CLI 事件同处挂载:hydrate 后消费 Spotlight 意图,新建会话并发首条消息。
+  useSpotlightHandoff();
   // 订阅自动化的 changed / run-event（驱动列表刷新 + 完成 toast）。bridge 不支持时内部空转。
   useAutomationEvents();
 

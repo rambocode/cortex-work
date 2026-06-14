@@ -1,0 +1,128 @@
+/* Spotlight 浮动框:透明窗口 + 底部圆角白卡。app 层私有,不污染 views 共享样式。 */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+#root {
+  height: 100%;
+}
+
+.spot-root {
+  box-sizing: border-box;
+  padding: 8px 12px;
+}
+
+.spot-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+  padding: 14px 16px;
+}
+
+.spot-logo {
+  display: inline-flex;
+  color: #e0623a;
+  flex: 0 0 auto;
+}
+
+.spot-input {
+  flex: 1 1 auto;
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 20px;
+  line-height: 1.4;
+  color: #1d1d1f;
+  background: transparent;
+  max-height: 120px;
+}
+
+.spot-input::placeholder {
+  color: #9a9a9e;
+}
+
+.spot-menu-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: #6b6b70;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.spot-menu-btn:hover {
+  background: #f1f1f3;
+}
+
+.spot-send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 12px;
+  background: #e0623a;
+  color: #fff;
+  cursor: pointer;
+}
+
+.spot-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.spot-menu {
+  margin-top: 8px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: #4a4a4f;
+}
+
+.spot-row select {
+  flex: 0 0 auto;
+  min-width: 180px;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid #e2e2e6;
+  background: #fafafa;
+}
+
+.spot-menu-foot {
+  font-size: 12px;
+  color: #9a9a9e;
+  padding-top: 2px;
+}

@@ -12,6 +12,7 @@ import type {
   PromptNode,
   PushSettings,
   SessionMeta,
+  SpotlightIntent,
   TimelineSettings,
   TodoMeta,
   TtsSettings,
@@ -76,6 +77,12 @@ export interface PersonalState {
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
   // 兜底 Agent（内置 pi）配置（持久化）。
   piSettings: PiSettings;
+  // 「最后一次使用」记忆（持久化;Spotlight/新会话默认沿用）。
+  lastAgent?: AgentKind;
+  lastModel?: string;
+  lastPiChannelId?: string;
+  // Spotlight 接力:待主窗口个人工作区消费的发起意图（不持久化）。
+  pendingSpotlightIntent?: SpotlightIntent;
   hydrate: (s: PersistedState) => void;
   addProject: (path: string) => ProjectMeta;
   removeProject: (id: string) => void;
@@ -107,6 +114,9 @@ export interface PersonalState {
   updateTodo: (id: string, patch: Partial<Pick<TodoMeta, "title" | "status" | "detailPath">>) => void;
   removeTodo: (id: string) => void;
   setActiveSession: (sessionId: string) => void;
+  // Spotlight 接力:暂存 / 原子消费发起意图。
+  setPendingSpotlightIntent: (intent: SpotlightIntent) => void;
+  consumePendingSpotlightIntent: () => SpotlightIntent | undefined;
   // 激活项目但不选会话（左栏点击项目名;项目无 session 时中间区显示新建聊天引导）。
   activateProject: (projectId: string) => void;
   toggleProjectCollapse: (id: string) => void;
@@ -172,6 +182,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 旧结构（单 provider,无 channels）按空通道重置;用户重新配置。
       piSettings: Array.isArray(s.piSettings?.channels) ? s.piSettings : DEFAULT_PI_SETTINGS,
       rightPanelWidth: s.rightPanelWidth,
+      lastAgent: s.lastAgent,
+      lastModel: s.lastModel,
+      lastPiChannelId: s.lastPiChannelId,
     }),
 
   addProject: (path) => {
@@ -273,6 +286,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeSessionId: sess.id,
       homeOpen: false,
       automationOpen: false,
+      // 记忆本次选择（下次 Spotlight/新会话默认沿用;用 sess.* 取已 resolve 的值）。
+      lastAgent: agent,
+      lastModel: sess.model,
+      lastPiChannelId: sess.piChannelId,
     }));
     return sess;
   },
@@ -322,6 +339,13 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     })),
 
   removeTodo: (id) => set((s) => ({ todos: s.todos.filter((x) => x.id !== id) })),
+
+  setPendingSpotlightIntent: (intent) => set({ pendingSpotlightIntent: intent }),
+  consumePendingSpotlightIntent: () => {
+    const cur = get().pendingSpotlightIntent;
+    if (cur) set({ pendingSpotlightIntent: undefined });
+    return cur;
+  },
 
   setActiveSession: (sessionId) =>
     set((s) => {
@@ -421,6 +445,9 @@ export function toPersistedState(s: PersonalState): PersistedState {
     ttsSettings: s.ttsSettings,
     piSettings: s.piSettings,
     rightPanelWidth: s.rightPanelWidth,
+    lastAgent: s.lastAgent,
+    lastModel: s.lastModel,
+    lastPiChannelId: s.lastPiChannelId,
   };
 }
 
@@ -453,4 +480,29 @@ export function defaultAgent(avail?: Partial<Record<AgentKind, boolean>>): Agent
   if (avail?.claude) return "claude";
   if (avail?.codex) return "codex";
   return "pi";
+}
+
+// Spotlight/新会话发起的初始 agent:优先记忆,回退按安装情况派生（记忆 agent 不可用则回退）。
+export function initialAgent(s: Pick<PersonalState, "lastAgent" | "agentsAvailable">): AgentKind {
+  if (s.lastAgent && (s.lastAgent === "pi" || s.agentsAvailable?.[s.lastAgent])) return s.lastAgent;
+  return defaultAgent(s.agentsAvailable);
+}
+
+// 与 initialAgent 配对的初始模型/通道（pi 走通道;其余 lastModel 仅同 agent 时沿用,否则取该 agent 默认）。
+export function initialModelDraft(
+  s: Pick<PersonalState, "lastAgent" | "lastModel" | "lastPiChannelId" | "agentsAvailable" | "piSettings">,
+): { agent: AgentKind; model: string | undefined; piChannelId: string | undefined } {
+  const agent = initialAgent(s);
+  const sameAgent = agent === s.lastAgent;
+  if (agent === "pi") {
+    const ch =
+      s.piSettings.channels.find((c) => c.id === (s.lastPiChannelId ?? s.piSettings.defaultChannelId)) ??
+      s.piSettings.channels[0];
+    return {
+      agent,
+      model: (sameAgent ? s.lastModel : undefined) ?? s.piSettings.defaultModel ?? ch?.models[0]?.id,
+      piChannelId: ch?.id,
+    };
+  }
+  return { agent, model: (sameAgent ? s.lastModel : undefined) ?? DEFAULT_MODEL[agent], piChannelId: undefined };
 }

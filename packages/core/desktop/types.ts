@@ -324,6 +324,10 @@ export interface PersistedState {
   piSettings?: PiSettings;
   // 右侧面板自定义宽度（px）;未设置时按视图走 CSS 自动档位。
   rightPanelWidth?: number;
+  // 「最后一次使用」记忆（Spotlight/新会话默认沿用;读取回退见 initialAgent）。
+  lastAgent?: AgentKind;
+  lastModel?: string;
+  lastPiChannelId?: string;
 }
 
 export interface ReadFileResult {
@@ -458,6 +462,16 @@ export interface CliExitEvent {
   sessionId?: string; // 回显,供 renderer 重载后兜底清理
   code: number | null;
   error?: string; // spawn 失败（如 ENOENT）等
+}
+
+// 菜单栏 Spotlight 浮动框提交的发起意图（bar → 主进程 → 主窗口接力新建会话）。
+export interface SpotlightIntent {
+  id: string; // 去重用唯一 id
+  prompt: string;
+  agent: AgentKind;
+  model?: string;
+  piChannelId?: string; // pi 选中通道
+  projectId?: string; // 缺省 = 不使用项目
 }
 
 // ── 内嵌终端（PTY） ───────────────────────────────────────────────────────

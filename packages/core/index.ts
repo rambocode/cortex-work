@@ -30,6 +30,8 @@ export {
   toPersistedState,
   partitionProjects,
   defaultAgent,
+  initialAgent,
+  initialModelDraft,
   type PersonalState,
 } from "./store/personal";
 export { usePetStore, type PetState, type PetKind, type PetMode, type PetStore } from "./store/pet";
@@ -47,6 +49,7 @@ export {
   type PiModelOption,
   type PiChannelTemplate,
   type SessionMeta,
+  type SpotlightIntent,
   type TodoMeta,
   type TodoStatus,
   type PersistedState,
@@ -102,6 +105,7 @@ export {
   PI_CHANNEL_TEMPLATES,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
+export { useSpotlightIntentRouter, useSpotlightHandoff } from "./personal/spotlightHandoff";
 export {
   automationKeys,
   useAutomations,
@@ -125,6 +129,7 @@ export {
 export {
   personalChatKeys,
   buildAttachmentSystemPrompt,
+  buildProjectSystemPrompt,
   usePersonalChat,
   usePersonalActions,
   usePersonalCliEvents,
