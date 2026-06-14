@@ -109,6 +109,25 @@ describe("HomeView", () => {
     expect(rows[1]?.textContent).toContain("alpha");
   });
 
+  it("Tasks 区最多展示 5 条(按 mtime 降序取前 5)", async () => {
+    // 单项目放 7 个 task,mtime 递减;期望只渲染最新的 5 个、最旧两个被截断。
+    const files = Array.from({ length: 7 }, (_, i) => ({
+      name: `task-${i}.md`,
+      path: `/code/alpha/tasks/task-${i}.md`,
+      mtimeMs: NOW - i * 1_000,
+    }));
+    renderHome(
+      fakeBridge({}, { "/code/alpha": { files, archived: [] } }),
+    );
+    await screen.findByText("task-0");
+    const rows = document.querySelectorAll(".pw-home-todo-row");
+    expect(rows).toHaveLength(5);
+    // 最新的 task-0 在,被截断的最旧 task-5 / task-6 不在。
+    expect(screen.getByText("task-4")).toBeInTheDocument();
+    expect(screen.queryByText("task-5")).toBeNull();
+    expect(screen.queryByText("task-6")).toBeNull();
+  });
+
   it("只取活跃 tasks/（不含 archived）", async () => {
     renderHome(
       fakeBridge(

@@ -23,6 +23,7 @@ import { relTime } from "./PersonalSidebar";
 
 const HEAT_WEEKS = 26;
 const WEEKDAY_ROWS = ["一", "三", "五", "日"]; // 仅标注部分行,GitHub 风格
+const HOME_TODOS_LIMIT = 5; // 首页 Tasks 区最多展示的条数(按 mtime 全局降序取前 N)
 
 function statsTitle(day: string, stats?: DayStats): string {
   if (!stats) return `${day} · 无活动`;
@@ -129,7 +130,7 @@ function HomeTodos() {
 
   return (
     <div className="pw-home-todos">
-      {rows.map((row) => (
+      {rows.slice(0, HOME_TODOS_LIMIT).map((row) => (
         <button
           key={row.file.path}
           className="pw-home-todo-row"
@@ -137,8 +138,8 @@ function HomeTodos() {
           title={row.file.path}
         >
           <Icon.Task size={14} />
-          <span className="pw-home-todo-project">{row.projectName}</span>
           <span className="pw-home-todo-title">{row.file.name.replace(/\.md$/i, "")}</span>
+          <span className="pw-home-todo-project">{row.projectName}</span>
           <span className="pw-home-proj-meta">{relTime(row.file.mtimeMs)}</span>
         </button>
       ))}

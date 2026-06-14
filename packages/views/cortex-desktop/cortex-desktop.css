@@ -5073,7 +5073,8 @@ button.sb-row {
 }
 .pw-home-todo-row {
   display: grid;
-  grid-template-columns: auto minmax(80px, 150px) minmax(0, 1fr) auto;
+  /* 图标 · 标题(主,占满) · 项目名(弱化,内容宽) · 时间 */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
@@ -5085,9 +5086,10 @@ button.sb-row {
 }
 .pw-home-todo-row:hover { background: var(--bg-hover); color: var(--text-1); border-color: var(--border-strong); }
 .pw-home-todo-project {
-  font-weight: 500;
+  font-weight: 400;
   font-size: 11px;
-  color: var(--text-3);
+  color: var(--text-4);
+  max-width: 140px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -5159,7 +5161,7 @@ button.sb-row {
   overflow: hidden;
   /* 中间内容定宽:看板/项目条/输入框共用同一封顶居中列。窄于此值自适应铺满，
      宽屏封顶并两侧留白。仅作用于落地页，会话页不受影响。 */
-  --pw-landing-col: 820px;
+  --pw-landing-col: 750px;
 }
 /* 顶部项目条:与 chat-head 风格一致,横向一行,左对齐 ProjectPicker */
 .pw-landing-bar {
