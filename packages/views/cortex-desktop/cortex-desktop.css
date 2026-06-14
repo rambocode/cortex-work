@@ -642,6 +642,9 @@ input, textarea { font: inherit; color: inherit; }
   font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0;
   margin-top: 2px;
 }
+/* 内置 SVG 头像:满幅填充并随 border-radius 裁成圆形（覆盖首字母底色/留白）。 */
+.msg .m-avatar.has-img { background: transparent; overflow: hidden; }
+.msg .m-avatar.has-img svg { display: block; width: 100%; height: 100%; }
 .msg.is-grouped .m-avatar { visibility: hidden; height: 0; margin-top: 0; }
 .msg.is-grouped .m-head { display: none; }
 .msg .m-body { flex: 1; min-width: 0; }
