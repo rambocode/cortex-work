@@ -68,11 +68,36 @@ describe("probeProvider", () => {
     expect(out.ok).toBe(false);
   });
 
-  it("HTTP 401 → ok:false 带状态,不抛", async () => {
-    mockFetch(() => jsonResponse({}, { ok: false, status: 401, statusText: "Unauthorized" }));
-    const out = await probeProvider({ baseUrl: "https://x.com", apiKey: "bad", endpointFormat: "chat_completions" });
+  it("HTTP 401 → ok:false 带状态,不抛（401 不重试）", async () => {
+    const fn = mockFetch(() => jsonResponse({}, { ok: false, status: 401, statusText: "Unauthorized" }));
+    const out = await probeProvider({ baseUrl: "https://x.com/v1", apiKey: "bad", endpointFormat: "chat_completions" });
     expect(out.ok).toBe(false);
     expect(out.error).toContain("401");
+    expect(fn).toHaveBeenCalledTimes(1); // 401 直接返回,不试候选
+  });
+
+  it("/v1/models 404 时回退去掉版本前缀重试（DeepSeek 类）", async () => {
+    const fn = mockFetch((url) =>
+      url.includes("/v1/models")
+        ? jsonResponse({}, { ok: false, status: 404, statusText: "Not Found" })
+        : jsonResponse({ data: [{ id: "deepseek-chat" }] }),
+    );
+    const out = await probeProvider({
+      baseUrl: "https://api.deepseek.com/v1",
+      apiKey: "sk",
+      endpointFormat: "chat_completions",
+    });
+    expect(out).toEqual({ ok: true, models: ["deepseek-chat"] });
+    expect(fn.mock.calls[0]?.[0]).toBe("https://api.deepseek.com/v1/models");
+    expect(fn.mock.calls[1]?.[0]).toBe("https://api.deepseek.com/models");
+  });
+
+  it("无版本前缀的 404 → 直接返回错误提示", async () => {
+    const fn = mockFetch(() => jsonResponse({}, { ok: false, status: 404, statusText: "Not Found" }));
+    const out = await probeProvider({ baseUrl: "https://x.com", endpointFormat: "chat_completions" });
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("404");
+    expect(fn).toHaveBeenCalledTimes(1); // 无候选可试
   });
 
   it("超时（AbortError）→ ok:false 不挂起", async () => {

@@ -19,10 +19,6 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function modelsUrl(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, "")}/models`;
-}
-
 // 解析 OpenAI 兼容 {data:[{id}]} 或 Anthropic {data:[{id}]} / 裸数组 为模型 id 列表（去重排序）。
 function parseModelIds(data: unknown): string[] {
   const list = Array.isArray(data)
@@ -47,6 +43,30 @@ function parseModelIds(data: unknown): string[] {
   return ids.sort((a, b) => a.localeCompare(b));
 }
 
+// 候选模型列表 URL：先试 {base}/models;若 base 带版本前缀（/v1 等）,补一个去掉前缀的
+// 候选（部分供应商如 DeepSeek 的 /models 在版本前缀之外,/v1/models 会 404）。
+function modelsUrlCandidates(baseUrl: string): string[] {
+  const base = baseUrl.replace(/\/+$/, "");
+  const urls = [`${base}/models`];
+  const stripped = base.replace(/\/v\d+$/i, "");
+  if (stripped !== base) urls.push(`${stripped}/models`);
+  return urls;
+}
+
+async function fetchOnce(
+  url: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; statusText: string; ok: boolean; json?: unknown }> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { headers, signal: ctrl.signal });
+    return { status: res.status, statusText: res.statusText, ok: res.ok, json: res.ok ? await res.json() : undefined };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function probeProvider(input: ProviderProbeInput): Promise<ProviderProbeResult> {
   const baseUrl = input.baseUrl?.trim();
   if (!baseUrl) return { ok: false, error: "请填写 Base URL" };
@@ -64,22 +84,20 @@ export async function probeProvider(input: ProviderProbeInput): Promise<Provider
         ? { Authorization: `Bearer ${key}` }
         : {};
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
-  try {
-    const res = await fetch(modelsUrl(baseUrl), { headers, signal: ctrl.signal });
-    if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}` };
+  let lastErr = "";
+  for (const url of modelsUrlCandidates(baseUrl)) {
+    try {
+      const res = await fetchOnce(url, headers);
+      if (res.ok) return { ok: true, models: parseModelIds(res.json) };
+      lastErr = `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`;
+      // 仅 404 才尝试下一个候选 URL；401/403/5xx 等直接返回（重试无意义）。
+      if (res.status !== 404) return { ok: false, error: lastErr };
+    } catch (err) {
+      const msg = err instanceof Error ? (err.name === "AbortError" ? "连接超时" : err.message) : String(err);
+      return { ok: false, error: msg };
     }
-    const json = (await res.json()) as unknown;
-    return { ok: true, models: parseModelIds(json) };
-  } catch (err) {
-    const msg =
-      err instanceof Error ? (err.name === "AbortError" ? "连接超时" : err.message) : String(err);
-    return { ok: false, error: msg };
-  } finally {
-    clearTimeout(timer);
   }
+  return { ok: false, error: `${lastErr}（未找到 /models 接口,请检查 Base URL）` };
 }
 
 export function registerProviderHandlers(): void {
