@@ -91,8 +91,8 @@ interface RunState {
   sessionId: string;
   agent: AgentKind; // 消息 who
   typingUid: string;
-  textUid?: string; // 流式 text 消息
-  logUid?: string; // 工具步骤 agentLog 消息
+  cursor: FoldCursor; // 流式块折叠游标（按到达顺序交替分块，取代单例 textUid/logUid）
+  sawText: boolean; // 本轮是否产出过文本（result 文本兜底判断）
   buffer: string;
   gotResult: boolean;
   // 启动状态机:starting(进程启动中)→ thinking(收到 init,等首个输出)。
@@ -242,6 +242,117 @@ function clearTransient(qc: QueryClient, sessionId: string): void {
   );
 }
 
+// ── 流式块折叠（按到达顺序的尾部折叠） ─────────────────────────────────────
+// text 块与 agentLog 块按事件到达顺序交替成多个独立块：同类事件并入当前打开块,
+// 异类则收尾旧块、开新块（语义对齐 open-design 的 buildBlocks——只与紧邻上一块同类合并）。
+// 连续工具仍并入同一张 agentLog 卡片;连续文本增量仍并入同一个 text 块。
+export interface FoldCursor {
+  lastKind?: "text" | "tool"; // 当前打开块的类型
+  textUid?: string; // 当前打开的 text 块 uid（lastKind==="text" 时有效）
+  logUid?: string; // 当前打开的 agentLog 块 uid（lastKind==="tool" 时有效）
+  segmentText: string; // 当前打开 text 块已累加文本
+}
+
+export interface FoldCtx {
+  agent: AgentKind;
+  time: string;
+  newUid: (prefix: string) => string;
+}
+
+export function emptyFoldCursor(): FoldCursor {
+  return { segmentText: "" };
+}
+
+// 收尾一个 agentLog 块:全部 items 翻 check 并标记完成（停 spinner）。
+export function finalizeAgentLog(messages: Message[], logUid: string): Message[] {
+  return messages.map((m) =>
+    m.uid === logUid && m.kind === "agentLog"
+      ? {
+          ...m,
+          active: false,
+          completed: true,
+          title: "Agent 执行完成",
+          items: m.items.map((it) => ({ ...it, ic: "check" as const })),
+        }
+      : m,
+  );
+}
+
+// 折叠单个 text/tool 事件到消息数组尾部,返回新数组 + 新游标（纯函数,便于单测）。
+// 仅处理 text / tool;init/result/error 由 handleCliEvent 处理。
+export function foldCliEvent(
+  messages: Message[],
+  ev: CliStreamEvent,
+  cursor: FoldCursor,
+  ctx: FoldCtx,
+): { messages: Message[]; cursor: FoldCursor } {
+  if (ev.type === "text") {
+    // 续写当前 text 块。
+    if (cursor.lastKind === "text" && cursor.textUid) {
+      const segmentText = cursor.segmentText + ev.delta;
+      const next = messages.map((m) =>
+        m.uid === cursor.textUid && m.kind === "text" ? { ...m, text: segmentText } : m,
+      );
+      return { messages: next, cursor: { ...cursor, segmentText } };
+    }
+    // 异类切换:收尾上一个打开的 agentLog（若有）,开新 text 块。
+    const base = cursor.lastKind === "tool" && cursor.logUid ? finalizeAgentLog(messages, cursor.logUid) : messages;
+    const textUid = ctx.newUid("at");
+    const textMsg: Message = { kind: "text", who: ctx.agent, time: ctx.time, text: ev.delta, uid: textUid };
+    return {
+      messages: [...base, textMsg],
+      cursor: { lastKind: "text", textUid, logUid: undefined, segmentText: ev.delta },
+    };
+  }
+
+  if (ev.type === "tool") {
+    const itemText = ev.detail ? `${ev.name} · ${ev.detail}` : ev.name;
+    // 并入当前 agentLog 卡片:既有 items 翻 check,追加新 running 项。
+    if (cursor.lastKind === "tool" && cursor.logUid) {
+      const next = messages.map((m) =>
+        m.uid === cursor.logUid && m.kind === "agentLog"
+          ? {
+              ...m,
+              items: [
+                ...m.items.map((it) => ({ ...it, ic: "check" as const })),
+                { ic: "running" as const, text: itemText },
+              ],
+            }
+          : m,
+      );
+      return { messages: next, cursor };
+    }
+    // 异类切换（或起手）:开新 agentLog 卡片。前一个 text 块无需收尾。
+    const logUid = ctx.newUid("log");
+    const logMsg: Message = {
+      kind: "agentLog",
+      who: ctx.agent,
+      time: ctx.time,
+      title: "Agent 正在执行",
+      active: true,
+      uid: logUid,
+      items: [{ ic: "running", text: itemText }],
+    };
+    return {
+      messages: [...messages, logMsg],
+      cursor: { lastKind: "tool", logUid, textUid: undefined, segmentText: "" },
+    };
+  }
+
+  return { messages, cursor };
+}
+
+// 把一个 text/tool 事件折叠进消息缓存,并回写 run 的折叠游标。
+function foldIntoCache(qc: QueryClient, sessionId: string, run: RunState, ev: CliStreamEvent): void {
+  let nextCursor = run.cursor;
+  setMessages(qc, sessionId, (prev) => {
+    const folded = foldCliEvent(prev, ev, run.cursor, { agent: run.agent, time: realHHMM(), newUid: uid });
+    nextCursor = folded.cursor;
+    return folded.messages;
+  });
+  run.cursor = nextCursor;
+}
+
 function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sessionIdHint?: string): void {
   let run = runs.get(runId);
   if (!run) {
@@ -253,6 +364,8 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       sessionId: sessionIdHint,
       agent: sess?.agent ?? "claude",
       typingUid: "recovered-no-typing",
+      cursor: emptyFoldCursor(),
+      sawText: false,
       buffer: "",
       gotResult: false,
       phase: "thinking",
@@ -279,60 +392,26 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 时间线：写类工具的 file_path 记为变更文件。
     const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
     if (changed) (run.changedFiles ??= new Set()).add(changed);
-    const itemText = ev.detail ? `${ev.name} · ${ev.detail}` : ev.name;
-    if (!run.logUid) {
-      run.logUid = uid("log");
-      appendMsg(qc, sessionId, {
-        kind: "agentLog",
-        who: run.agent,
-        time: realHHMM(),
-        title: "Agent 正在执行",
-        active: true,
-        uid: run.logUid,
-        items: [{ ic: "running", text: itemText }],
-      });
-    } else {
-      setMessages(qc, sessionId, (prev) =>
-        prev.map((m) =>
-          m.uid === run.logUid && m.kind === "agentLog"
-            ? {
-                ...m,
-                items: [...m.items.map((it) => ({ ...it, ic: "check" as const })), { ic: "running", text: itemText }],
-              }
-            : m,
-        ),
-      );
-    }
+    foldIntoCache(qc, sessionId, run, ev);
     return;
   }
 
   if (ev.type === "text") {
     usePetStore.getState().set("replying");
     dropMsg(qc, sessionId, run.typingUid);
-    run.buffer += ev.delta;
-    if (!run.textUid) {
-      run.textUid = uid("at");
-      appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: run.buffer, uid: run.textUid });
-    } else {
-      setMessages(qc, sessionId, (prev) =>
-        prev.map((m) => (m.uid === run.textUid && m.kind === "text" ? { ...m, text: run.buffer } : m)),
-      );
-    }
+    run.buffer += ev.delta; // 全轮文本累加（供 TTS / 时间线 summary），独立于块拆分
+    run.sawText = true;
+    foldIntoCache(qc, sessionId, run, ev);
     return;
   }
 
   if (ev.type === "result") {
     run.gotResult = true;
     dropMsg(qc, sessionId, run.typingUid);
-    // 收尾 agentLog：全部步骤打勾。
-    if (run.logUid) {
-      setMessages(qc, sessionId, (prev) =>
-        prev.map((m) =>
-          m.uid === run.logUid && m.kind === "agentLog"
-            ? { ...m, active: false, completed: true, title: "Agent 执行完成", items: m.items.map((it) => ({ ...it, ic: "check" as const })) }
-            : m,
-        ),
-      );
+    // 收尾当前打开的 agentLog：全部步骤打勾（被文本打断的旧卡片已在折叠时收尾）。
+    if (run.cursor.lastKind === "tool" && run.cursor.logUid) {
+      const logUid = run.cursor.logUid;
+      setMessages(qc, sessionId, (prev) => finalizeAgentLog(prev, logUid));
     }
     if (!ev.ok) {
       // pi 兜底 Agent 鉴权类错误:补一句去哪里配 LLM 通道 / API Key。
@@ -347,7 +426,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
         text: `⚠️ 执行出错：${ev.error || "未知错误"}${piAuthHint}`,
         uid: uid("err"),
       });
-    } else if (!run.textUid && ev.text) {
+    } else if (!run.sawText && ev.text) {
       // 没收到增量文本（极少数情况），用 result 的最终文本兜底。
       appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: ev.text, uid: uid("at") });
     }
@@ -576,6 +655,8 @@ export function usePersonalActions(): PersonalActions {
         sessionId: session.id,
         agent: session.agent,
         typingUid,
+        cursor: emptyFoldCursor(),
+        sawText: false,
         buffer: "",
         gotResult: false,
         phase: "starting",
@@ -613,7 +694,7 @@ export function usePersonalActions(): PersonalActions {
           return;
         }
         // 仍在等首个输出:typing 占位上滚动显示已等待时长。
-        if (!cur.textUid && !cur.logUid && !cur.gotResult && cur.startedAt) {
+        if (!cur.cursor.lastKind && !cur.gotResult && cur.startedAt) {
           updateTypingMsg(qc, cur.sessionId, cur.typingUid, typingText(cur.agent, cur.phase, Date.now() - cur.startedAt));
         }
       }, 1000);
