@@ -19,6 +19,16 @@ export interface ProjectMeta {
   archivedAt?: number; // 归档时间戳;缺省 = 在主列表
 }
 
+// 菜单栏 Spotlight 浮动框发起意图（与 packages/core/desktop/types.ts 镜像）。
+export interface SpotlightIntent {
+  id: string;
+  prompt: string;
+  agent: AgentKind;
+  model?: string;
+  piChannelId?: string;
+  projectId?: string;
+}
+
 // 系统已安装的代码编辑器（editors.ts 探测结果）。
 export interface EditorInfo {
   id: string;
@@ -94,6 +104,10 @@ export interface PersistedState {
   // 持久化的 pi 通道配置（renderer 全量写入;主进程 automation runner 只读）。
   piSettings?: PiSettings;
   rightPanelWidth?: number;
+  // 「最后一次使用」记忆（与 packages/core/desktop/types.ts 镜像;Spotlight/新会话默认沿用）。
+  lastAgent?: AgentKind;
+  lastModel?: string;
+  lastPiChannelId?: string;
 }
 
 export interface ReadFileResult {

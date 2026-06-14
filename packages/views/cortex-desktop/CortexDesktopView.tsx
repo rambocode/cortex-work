@@ -11,6 +11,7 @@ import {
   useCortexActions,
   useCortexUIStore,
   usePersonalStore,
+  useSpotlightIntentRouter,
   useWorkspaceId,
 } from "@cortex-work/core";
 import type { Contact } from "@cortex-work/core/types";
@@ -35,6 +36,8 @@ export function CortexDesktopView({ nativeTitlebar = false }: CortexDesktopViewP
   const wsId = useWorkspaceId();
   const { apiClient } = useCoreContext();
   const qc = useQueryClient();
+  // 始终挂载:接收菜单栏 Spotlight 发起意图,切到个人工作区并暂存待 handoff 消费。
+  useSpotlightIntentRouter();
 
   const {
     workspace,

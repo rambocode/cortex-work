@@ -28,6 +28,7 @@ import type {
   PromptNode,
   PushResult,
   PushTarget,
+  SpotlightIntent,
   PtySpawnRequest,
   PtySpawnResult,
   ReadFileResult,
@@ -157,4 +158,8 @@ export interface DesktopBridge {
   onAutomationChanged?(cb: (list: AutomationMeta[]) => void): () => void;
   // 单次运行状态变化（start/end）,驱动详情刷新 + 完成 toast。
   onAutomationRunEvent?(cb: (event: AutomationRunEvent) => void): () => void;
+  // 菜单栏 Spotlight 浮动框 → 主窗口接力:订阅发起意图 + 冷启动兜底拉取。
+  // 可选能力（旧壳/web 端没有）。
+  onSpotlightIntent?(cb: (intent: SpotlightIntent) => void): () => void;
+  consumeSpotlightIntent?(): Promise<SpotlightIntent | null>;
 }

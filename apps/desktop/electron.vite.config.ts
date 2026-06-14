@@ -24,5 +24,13 @@ export default defineConfig({
       },
       dedupe: ["react", "react-dom"],
     },
+    build: {
+      rollupOptions: {
+        input: {
+          main: resolve("src/renderer/index.html"),
+          spotlight: resolve("src/renderer/spotlight.html"),
+        },
+      },
+    },
   },
 });

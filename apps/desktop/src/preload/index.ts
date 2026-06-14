@@ -21,6 +21,7 @@ import type {
   PersistedState,
   PromptNode,
   ReadFileResult,
+  SpotlightIntent,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
   TaskFilesResult,
@@ -199,6 +200,20 @@ const personal = {
     ipcRenderer.on("automation:run-event", listener);
     return () => ipcRenderer.removeListener("automation:run-event", listener);
   },
+  // Spotlight 浮动框 → 主窗口接力:主窗口订阅发起意图 + mount 时 consume 冷启动 pending。
+  onSpotlightIntent: (cb: (intent: SpotlightIntent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, intent: SpotlightIntent) => cb(intent);
+    ipcRenderer.on("spotlight:intent", listener);
+    return () => ipcRenderer.removeListener("spotlight:intent", listener);
+  },
+  consumeSpotlightIntent: (): Promise<SpotlightIntent | null> => ipcRenderer.invoke("spotlight:consumePending"),
+};
+
+// 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。
+const spotlight = {
+  submit: (intent: SpotlightIntent): Promise<void> => ipcRenderer.invoke("spotlight:submit", intent),
+  resize: (height: number): void => ipcRenderer.send("spotlight:resize", height),
+  hide: (): void => ipcRenderer.send("spotlight:hide"),
 };
 
 const desktopAPI = {
@@ -210,6 +225,7 @@ const desktopAPI = {
     workspaceSlug: process.env.CORTEX_WORKSPACE_SLUG,
   } satisfies RuntimeConfig,
   personal,
+  spotlight,
 };
 
 try {
