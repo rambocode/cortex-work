@@ -259,12 +259,89 @@ function PetSection() {
   );
 }
 
-const THEME_LABEL: Record<ThemeMode, string> = { system: "跟随系统", light: "浅色", dark: "深色" };
+const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
+  { label: "跟随系统", value: "system" },
+  { label: "浅色", value: "light" },
+  { label: "深色", value: "dark" },
+];
 const FONT_SCALE_LABEL: Record<FontScale, string> = { small: "小", medium: "中", large: "大" };
-
-// 通用设置：外观（密度/色调/侧栏）+ 主题与字号。
-// 桌面行为 / 默认工作目录 / 日志由后续单元追加分节（U9-U11）。
 const LOG_RETENTION_OPTIONS = [1, 2, 3, 5, 7].map((d) => ({ label: `${d} 天`, value: String(d) }));
+
+// kun 风格设置卡片 + 行（标签/说明在左,控件在右,行间分隔线）。
+function SettingCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="pw-scard">
+      <div className="pw-scard-t">{title}</div>
+      {children}
+    </div>
+  );
+}
+function SRow({
+  label,
+  desc,
+  children,
+  end,
+}: {
+  label: string;
+  desc?: string;
+  children: React.ReactNode;
+  end?: boolean;
+}) {
+  return (
+    <div className="pw-srow">
+      <div className="pw-srow-l">
+        <span className="pw-srow-lbl">{label}</span>
+        {desc ? <span className="pw-srow-desc">{desc}</span> : null}
+      </div>
+      <div className={`pw-srow-c ${end ? "pw-srow-c-end" : ""}`}>{children}</div>
+    </div>
+  );
+}
+function SwitchRow({
+  label,
+  desc,
+  value,
+  onChange,
+}: {
+  label: string;
+  desc?: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <SRow label={label} desc={desc} end>
+      <button
+        type="button"
+        className="twk-toggle"
+        data-on={value ? "1" : "0"}
+        role="switch"
+        aria-checked={value}
+        onClick={() => onChange(!value)}
+      >
+        <i />
+      </button>
+    </SRow>
+  );
+}
+function BareSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { label: string; value: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <select className="pw-set-input" value={value} onChange={(e) => onChange(e.target.value)}>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 function GeneralSection() {
   const tweaks = useCortexUIStore((s) => s.tweaks);
@@ -282,129 +359,120 @@ function GeneralSection() {
     const dir = await bridge?.pickDirectory?.();
     if (dir) setGeneral({ workspaceRoot: dir });
   };
-  const pickTheme = (label: string) => {
-    const t = (Object.keys(THEME_LABEL) as ThemeMode[]).find((k) => THEME_LABEL[k] === label);
-    if (t) setTweak("theme", t);
-  };
-  const pickFontScale = (label: string) => {
+  const setFontScale = (label: string) => {
     const f = (Object.keys(FONT_SCALE_LABEL) as FontScale[]).find((k) => FONT_SCALE_LABEL[k] === label);
     if (f) setTweak("fontScale", f);
   };
   return (
     <>
       <div className="pw-dlg-title">通用</div>
+      <div className="pw-dlg-desc">管理界面偏好、默认工作目录与桌面行为。</div>
 
-      <div className="twk-sect">主题 · Theme</div>
-      <div className="pw-set-hint">「跟随系统」随 macOS 明暗自动切换。</div>
-      <SegmentedRadio
-        value={THEME_LABEL[tweaks.theme]}
-        options={(Object.keys(THEME_LABEL) as ThemeMode[]).map((t) => THEME_LABEL[t])}
-        onChange={pickTheme}
-      />
-
-      <div className="twk-sect">字号 · Font Size</div>
-      <SegmentedRadio
-        value={FONT_SCALE_LABEL[tweaks.fontScale]}
-        options={(Object.keys(FONT_SCALE_LABEL) as FontScale[]).map((f) => FONT_SCALE_LABEL[f])}
-        onChange={pickFontScale}
-      />
-
-      <div className="twk-sect">布局密度 · Density</div>
-      <SegmentedRadio
-        value={tweaks.density}
-        options={["compact", "regular", "cozy"]}
-        onChange={(v) => setTweak("density", v as Density)}
-      />
-      <div className="twk-sect">品牌色调 · Palette</div>
-      <PaletteChips value={tweaks.palette} options={PALETTES} onChange={(v) => setTweak("palette", v as Palette)} />
-      <div className="twk-sect">侧栏样式 · Sidebar</div>
-      <SegmentedRadio
-        value={tweaks.sidebar}
-        options={["rich", "minimal", "activity"]}
-        onChange={(v) => setTweak("sidebar", v as SidebarMode)}
-      />
-
-      <div className="twk-sect">默认工作目录 · Workspace</div>
-      <div className="pw-set-group">
-        <div className="pw-set-hint">新建无项目会话 / 定时任务未指定项目时,agent 在此目录运行（留空则用主目录）。</div>
-        <div className="pw-pi-add">
-          <Field
-            label="目录"
-            value={general.workspaceRoot ?? ""}
-            placeholder="留空 = 用户主目录"
-            onChange={(v) => setGeneral({ workspaceRoot: v || undefined })}
+      <SettingCard title="基础设置">
+        <SRow label="主题" desc="浅色、深色或跟随系统。">
+          <BareSelect value={tweaks.theme} options={THEME_OPTIONS} onChange={(v) => setTweak("theme", v as ThemeMode)} />
+        </SRow>
+        <SRow label="字号" desc="调整整体界面的文字尺寸。">
+          <SegmentedRadio
+            value={FONT_SCALE_LABEL[tweaks.fontScale]}
+            options={(Object.keys(FONT_SCALE_LABEL) as FontScale[]).map((f) => FONT_SCALE_LABEL[f])}
+            onChange={setFontScale}
           />
-          <button className="btn pw-pi-add-btn" onClick={() => void pickWorkspace()}>
-            选择…
-          </button>
-          {general.workspaceRoot ? (
-            <button className="btn pw-pi-add-btn" onClick={() => setGeneral({ workspaceRoot: undefined })}>
-              清除
+        </SRow>
+        <SRow label="布局密度">
+          <SegmentedRadio
+            value={tweaks.density}
+            options={["compact", "regular", "cozy"]}
+            onChange={(v) => setTweak("density", v as Density)}
+          />
+        </SRow>
+        <SRow label="品牌色调">
+          <PaletteChips value={tweaks.palette} options={PALETTES} onChange={(v) => setTweak("palette", v as Palette)} />
+        </SRow>
+        <SRow label="侧栏样式">
+          <SegmentedRadio
+            value={tweaks.sidebar}
+            options={["rich", "minimal", "activity"]}
+            onChange={(v) => setTweak("sidebar", v as SidebarMode)}
+          />
+        </SRow>
+        <SRow label="默认工作目录" desc="新建无项目会话 / 定时任务未指定项目时,agent 在此目录运行（留空则用主目录）。">
+          <div className="pw-ws-control">
+            <input
+              className="pw-set-input"
+              value={general.workspaceRoot ?? ""}
+              placeholder="留空 = 用户主目录"
+              spellCheck={false}
+              onChange={(e) => setGeneral({ workspaceRoot: e.target.value || undefined })}
+            />
+            <button className="btn pw-pi-add-btn" onClick={() => void pickWorkspace()}>
+              选择…
             </button>
-          ) : null}
-        </div>
-      </div>
+            {general.workspaceRoot ? (
+              <button className="btn pw-pi-add-btn" onClick={() => setGeneral({ workspaceRoot: undefined })}>
+                清除
+              </button>
+            ) : null}
+          </div>
+        </SRow>
+      </SettingCard>
 
-      <div className="twk-sect">启动与窗口行为 · Desktop</div>
-      <div className="pw-set-group">
-        <Toggle
-          label="开机自启（macOS / Windows）"
+      <SettingCard title="桌面行为">
+        <SwitchRow
+          label="开机自启"
+          desc="登录系统后自动启动 Cortex（macOS / Windows）。"
           value={behavior.openAtLogin}
           onChange={(v) => setBehavior({ openAtLogin: v })}
         />
         {behavior.openAtLogin ? (
-          <Toggle
-            label="启动时最小化到后台"
+          <SwitchRow
+            label="启动时最小化"
+            desc="启动后最小化到后台（主要用于 Windows）。"
             value={behavior.startMinimized}
             onChange={(v) => setBehavior({ startMinimized: v })}
           />
         ) : null}
-        <Toggle
-          label="关闭窗口时隐藏到托盘（而非退出）"
+        <SwitchRow
+          label="关闭时隐藏到托盘"
+          desc="关闭窗口时隐藏到系统托盘,而非退出应用。"
           value={behavior.closeToTray}
           onChange={(v) => setBehavior({ closeToTray: v })}
         />
-      </div>
+      </SettingCard>
 
-      <div className="twk-sect">通知 · Notifications</div>
-      <div className="pw-set-group">
-        <Toggle
-          label="Agent 回合完成时系统通知"
+      <SettingCard title="通知">
+        <SwitchRow
+          label="回合完成通知"
+          desc="Agent 回合结束且窗口失焦时显示系统通知。"
           value={general.notifications.turnComplete}
           onChange={(v) => setGeneral({ notifications: { ...general.notifications, turnComplete: v } })}
         />
-      </div>
+      </SettingCard>
 
-      <div className="twk-sect">日志 · Logs</div>
-      <div className="pw-set-group">
-        <Toggle
+      <SettingCard title="日志">
+        <SwitchRow
           label="启用文件日志"
+          desc="把主进程日志写入本地文件,便于排查问题。"
           value={general.log.enabled}
           onChange={(v) => {
             setGeneral({ log: { ...general.log, enabled: v } });
             void bridge?.setLogEnabled?.(v);
           }}
         />
-        <div className="pw-set-row2">
-          <Select
-            label="保留天数"
+        <SRow label="保留天数" desc="超过天数的旧日志启动时自动清理。">
+          <BareSelect
             value={String(general.log.retentionDays)}
             options={LOG_RETENTION_OPTIONS}
             onChange={(v) => setGeneral({ log: { ...general.log, retentionDays: Number(v) || 2 } })}
           />
-          <div className="pw-set-field">
-            <span className="pw-set-lbl">日志目录</span>
-            <button
-              className="pw-tl-gen"
-              disabled={!bridge?.openLogsDir}
-              onClick={() => void bridge?.openLogsDir?.()}
-            >
-              <Icon.Folder size={12} />
-              打开日志目录
-            </button>
-          </div>
-        </div>
-      </div>
+        </SRow>
+        <SRow label="日志目录" end>
+          <button className="pw-tl-gen" disabled={!bridge?.openLogsDir} onClick={() => void bridge?.openLogsDir?.()}>
+            <Icon.Folder size={12} />
+            打开日志目录
+          </button>
+        </SRow>
+      </SettingCard>
     </>
   );
 }
