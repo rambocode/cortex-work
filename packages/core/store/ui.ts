@@ -42,6 +42,8 @@ export const DEFAULT_TWEAKS: Tweaks = {
   density: "regular" as Density,
   palette: "clay" as Palette,
   sidebar: "rich" as SidebarMode,
+  fontScale: "medium",
+  theme: "system",
 };
 
 let toastSeq = 0;

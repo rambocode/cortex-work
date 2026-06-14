@@ -74,7 +74,7 @@ export function AutomationDialog({
 }) {
   const editing = !!meta;
   const projects = usePersonalStore((s) => s.projects);
-  const piSettings = usePersonalStore((s) => s.piSettings);
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const create = useCreateAutomation();
   const update = useUpdateAutomation();
@@ -89,7 +89,9 @@ export function AutomationDialog({
   const [prompt, setPrompt] = useState(meta?.prompt ?? "");
   const [agent, setAgent] = useState<AgentKind>(initialAgent);
   const [model, setModel] = useState(meta?.agent !== "pi" ? meta?.model ?? DEFAULT_MODEL[initialAgent] : DEFAULT_MODEL[initialAgent]);
-  const [piChannelId, setPiChannelId] = useState(meta?.agent === "pi" ? meta?.piChannelId ?? "" : "");
+  const [providerId, setProviderId] = useState(
+    meta?.agent === "pi" ? meta?.providerId ?? (meta as { piChannelId?: string }).piChannelId ?? "" : "",
+  );
   const [piModel, setPiModel] = useState(meta?.agent === "pi" ? meta?.model ?? "" : "");
   const [effort, setEffort] = useState<ReasoningEffort>(meta?.effort ?? "medium");
   const [projectId, setProjectId] = useState(meta?.projectId ?? "");
@@ -104,10 +106,10 @@ export function AutomationDialog({
   }, [onClose]);
 
   const isPi = agent === "pi";
-  const piModelOptions = piSettings.channels
-    .filter((c) => c.enabled)
-    .flatMap((c) => c.models.map((m) => ({ value: `${c.id}::${m.id}`, label: `${c.label} · ${m.label ?? m.id}` })));
-  const piModelValue = `${piChannelId}::${piModel}`;
+  const piModelOptions = providerSettings.providers
+    .filter((p) => p.enabled)
+    .flatMap((p) => p.models.map((m) => ({ value: `${p.id}::${m.id}`, label: `${p.name} · ${m.label ?? m.id}` })));
+  const piModelValue = `${providerId}::${piModel}`;
 
   const changeAgent = (a: AgentKind) => {
     setAgent(a);
@@ -115,12 +117,12 @@ export function AutomationDialog({
   };
 
   const changePiModel = (encoded: string) => {
-    const [cid, ...rest] = encoded.split("::");
-    setPiChannelId(cid ?? "");
+    const [pid, ...rest] = encoded.split("::");
+    setProviderId(pid ?? "");
     setPiModel(rest.join("::"));
   };
 
-  const piReady = !isPi || (!!piChannelId && !!piModel);
+  const piReady = !isPi || (!!providerId && !!piModel);
   const canSubmit = !!name.trim() && !!prompt.trim() && piReady && !saving;
 
   const submit = async () => {
@@ -130,7 +132,7 @@ export function AutomationDialog({
       prompt: prompt.trim(),
       agent,
       model: isPi ? piModel : model || DEFAULT_MODEL[agent],
-      piChannelId: isPi ? piChannelId : undefined,
+      providerId: isPi ? providerId : undefined,
       projectId: projectId || undefined,
       cwd: projectId ? projects.find((p) => p.id === projectId)?.path : undefined,
       effort,
@@ -195,7 +197,7 @@ export function AutomationDialog({
                 options={piModelOptions.length ? piModelOptions : [{ value: "::", label: "无可用通道" }]}
                 onChange={changePiModel}
                 disabled={!piModelOptions.length}
-                hint={piModelOptions.length ? undefined : "请先在设置中配置 Pi 的 LLM 通道"}
+                hint={piModelOptions.length ? undefined : "请先在「设置 → 供应商」配置 Pi 可用的供应商"}
               />
             ) : (
               <Select

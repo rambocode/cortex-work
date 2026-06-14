@@ -168,12 +168,12 @@ export function buildEnv(): NodeJS.ProcessEnv {
 // 按 agent 定制子进程环境：pi 经 utilityProcess.fork 跑在 Electron 内置 Node 上,把选中
 // 通道的 API key 注入 CORTEX_PI_KEY（与生成的 extension 里 apiKey:"$CORTEX_PI_KEY" 占位
 // 对应）；其余 agent 用基础 env。
-export function spawnEnvFor(req: { agent: string; piChannel?: { apiKey?: string } }): NodeJS.ProcessEnv {
+export function spawnEnvFor(req: { agent: string; provider?: { apiKey?: string } }): NodeJS.ProcessEnv {
   const env = buildEnv();
   if (req.agent !== "pi") return env;
   // utilityProcess 本身就是 Node 环境,不需要 ELECTRON_RUN_AS_NODE;防御性清除可能的残留。
   delete env.ELECTRON_RUN_AS_NODE;
-  if (req.piChannel?.apiKey) env[PI_KEY_ENV] = req.piChannel.apiKey;
+  if (req.provider?.apiKey) env[PI_KEY_ENV] = req.provider.apiKey;
   return env;
 }
 
@@ -199,9 +199,9 @@ export function registerCliHandlers(): void {
   ipcMain.handle("cli:start", (event, req: CliStartRequest) => {
     const sender = event.sender;
     const adapter = getAdapter(req.agent);
-    // pi 选中了自定义通道:先生成 extension 文件,把路径塞回 req 供 buildArgs 加 -e。
-    if (req.agent === "pi" && req.piChannel) {
-      req.piExtensionPath = writePiExtension(req.piChannel);
+    // pi 选中了自定义供应商:先生成 extension 文件,把路径塞回 req 供 buildArgs 加 -e。
+    if (req.agent === "pi" && req.provider) {
+      req.piExtensionPath = writePiExtension(req.provider);
     }
     const { cmd, args } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
@@ -274,21 +274,24 @@ export function registerCliHandlers(): void {
         model?: string;
       },
     ) => {
-      // oneshot（标题/日报）不挂自定义通道:默认 claude;若为 pi 则仅当作纯 Node 跑,
-      // 无通道则用 pi 自身默认 provider（标题生成场景已在 renderer 侧对 pi 走兜底）。
+      // oneshot（标题/日报）不挂自定义供应商:默认 claude;若为 pi 则仅当作纯 Node 跑,
+      // 无供应商则用 pi 自身默认 provider（标题生成场景已在 renderer 侧对 pi 走兜底）。
       const agent = req.agent ?? "claude";
+      // 不传 cwd 时在用户主目录运行 —— 不加载项目上下文,更快更省（不叠加 workspaceRoot,
+      // 那是交互会话/自动化的默认目录语义,oneshot 是轻量任务）。
+      const cwd = req.cwd ?? homedir();
       const adapter = getAdapter(agent);
       const { cmd, args } = adapter.buildArgs({
         runId: "oneshot",
         sessionId: "oneshot",
         agent,
-        cwd: req.cwd ?? homedir(),
+        cwd,
         prompt: req.prompt,
         model: req.model,
       });
       return new Promise<string>((resolve, reject) => {
         const proc = startAgentProcess(agent, cmd, args, {
-          cwd: req.cwd ?? homedir(),
+          cwd,
           env: spawnEnvFor({ agent }),
         });
         let out = "";

@@ -4,10 +4,11 @@ import { Icon } from "@cortex-work/ui/icons";
 import {
   AGENT_MODELS,
   DEFAULT_MODEL,
-  DEFAULT_PI_SETTINGS,
+  DEFAULT_PROVIDER_SETTINGS,
   initialModelDraft,
+  migratePiSettings,
   type AgentKind,
-  type PiSettings,
+  type ProviderSettings,
   type ProjectMeta,
   type SpotlightIntent,
 } from "@cortex-work/core";
@@ -15,7 +16,7 @@ import {
 interface Draft {
   agent: AgentKind;
   model: string | undefined;
-  piChannelId: string | undefined;
+  providerId: string | undefined;
   projectId: string | undefined; // undefined = 不使用项目
 }
 
@@ -31,9 +32,9 @@ export function SpotlightBar(): React.ReactElement {
   const api = typeof window !== "undefined" ? window.desktopAPI : undefined;
   const [prompt, setPrompt] = useState("");
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
-  const [piSettings, setPiSettings] = useState<PiSettings>(DEFAULT_PI_SETTINGS);
+  const [providerSettings, setProviderSettings] = useState<ProviderSettings>(DEFAULT_PROVIDER_SETTINGS);
   const [avail, setAvail] = useState<Partial<Record<AgentKind, boolean>>>({});
-  const [draft, setDraft] = useState<Draft>({ agent: "claude", model: "sonnet", piChannelId: undefined, projectId: undefined });
+  const [draft, setDraft] = useState<Draft>({ agent: "claude", model: "sonnet", providerId: undefined, projectId: undefined });
   const [menuOpen, setMenuOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -44,18 +45,23 @@ export function SpotlightBar(): React.ReactElement {
     try {
       const ps = await api.personal.loadState();
       const availability = await api.personal.detectAgents().catch(() => ({}) as Partial<Record<AgentKind, boolean>>);
-      const pi = (ps.piSettings && Array.isArray(ps.piSettings.channels) ? ps.piSettings : DEFAULT_PI_SETTINGS) as PiSettings;
+      // 跨迁移边界：新档 providerSettings 优先,旧档 piSettings 迁移,都没有则空。
+      const legacy = ps as typeof ps & {
+        piSettings?: Parameters<typeof migratePiSettings>[0];
+        lastPiChannelId?: string;
+      };
+      const provider = ps.providerSettings ?? (legacy.piSettings ? migratePiSettings(legacy.piSettings) : DEFAULT_PROVIDER_SETTINGS);
       setProjects(ps.projects ?? []);
-      setPiSettings(pi);
+      setProviderSettings(provider);
       setAvail(availability);
       const d = initialModelDraft({
         lastAgent: ps.lastAgent,
         lastModel: ps.lastModel,
-        lastPiChannelId: ps.lastPiChannelId,
+        lastProviderId: ps.lastProviderId ?? legacy.lastPiChannelId,
         agentsAvailable: availability,
-        piSettings: pi,
+        providerSettings: provider,
       });
-      setDraft({ agent: d.agent, model: d.model, piChannelId: d.piChannelId, projectId: undefined });
+      setDraft({ agent: d.agent, model: d.model, providerId: d.providerId, projectId: undefined });
     } catch {
       // 读取失败保持默认 draft。
     }
@@ -85,7 +91,7 @@ export function SpotlightBar(): React.ReactElement {
 
   const modelOptions =
     draft.agent === "pi"
-      ? (piSettings.channels.find((c) => c.id === draft.piChannelId)?.models ?? []).map((m) => ({
+      ? (providerSettings.providers.find((p) => p.id === draft.providerId)?.models ?? []).map((m) => ({
           label: m.label ?? m.id,
           value: m.id,
         }))
@@ -93,10 +99,13 @@ export function SpotlightBar(): React.ReactElement {
 
   function pickAgent(agent: AgentKind): void {
     if (agent === "pi") {
-      const ch = piSettings.channels.find((c) => c.id === (piSettings.defaultChannelId ?? piSettings.channels[0]?.id)) ?? piSettings.channels[0];
-      setDraft((d) => ({ ...d, agent, piChannelId: ch?.id, model: piSettings.defaultModel ?? ch?.models[0]?.id }));
+      const p =
+        providerSettings.providers.find(
+          (x) => x.id === (providerSettings.defaultProviderId ?? providerSettings.providers[0]?.id),
+        ) ?? providerSettings.providers[0];
+      setDraft((d) => ({ ...d, agent, providerId: p?.id, model: providerSettings.defaultModel ?? p?.models[0]?.id }));
     } else {
-      setDraft((d) => ({ ...d, agent, piChannelId: undefined, model: DEFAULT_MODEL[agent] }));
+      setDraft((d) => ({ ...d, agent, providerId: undefined, model: DEFAULT_MODEL[agent] }));
     }
   }
 
@@ -114,7 +123,7 @@ export function SpotlightBar(): React.ReactElement {
       prompt: text,
       agent: draft.agent,
       model: draft.model,
-      piChannelId: draft.agent === "pi" ? draft.piChannelId : undefined,
+      providerId: draft.agent === "pi" ? draft.providerId : undefined,
       projectId: draft.projectId,
     };
     void api.spotlight.submit(intent);

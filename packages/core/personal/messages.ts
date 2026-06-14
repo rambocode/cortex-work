@@ -441,10 +441,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
         });
         return;
       }
-      // pi 兜底 Agent 鉴权类错误:补一句去哪里配 LLM 通道 / API Key。
+      // pi 兜底 Agent 鉴权类错误:补一句去哪里配供应商 / API Key。
       const piAuthHint =
         run.agent === "pi" && /api.?key|auth|credential|unauthorized|401|provider/i.test(ev.error ?? "")
-          ? "（请在 设置 → Agent 添加 LLM 通道并填写 API Key）"
+          ? "（请在 设置 → 供应商 添加供应商并填写 API Key）"
           : "";
       appendMsg(qc, sessionId, {
         kind: "text",
@@ -457,6 +457,22 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       // 没收到增量文本（极少数情况），用 result 的最终文本兜底。
       appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: ev.text, uid: uid("at") });
     }
+    notifyTurnComplete(ev.ok);
+  }
+}
+
+// 回合完成系统通知（通用设置开关 + 仅窗口失焦时打扰）。Notification 是标准 Web API,
+// 在 Electron renderer 与浏览器均可用;不可用/被拒时静默。
+function notifyTurnComplete(ok: boolean): void {
+  try {
+    if (!usePersonalStore.getState().generalSettings.notifications.turnComplete) return;
+    if (typeof document !== "undefined" && document.hasFocus()) return;
+    if (typeof Notification === "undefined" || Notification.permission === "denied") return;
+    const fire = () => new Notification("Cortex Desktop", { body: ok ? "Agent 回合完成" : "Agent 执行出错" });
+    if (Notification.permission === "granted") fire();
+    else void Notification.requestPermission().then((p) => (p === "granted" ? fire() : undefined));
+  } catch {
+    /* 通知不可用时静默 */
   }
 }
 
@@ -735,15 +751,19 @@ export function usePersonalActions(): PersonalActions {
       // 项目信息（Spotlight 注入）在前、附件 skills/todos 在后;两者皆空仍传 undefined。
       const appendSystemPrompt = [extraSystemPrompt, attachmentPrompt].filter(Boolean).join("\n\n") || undefined;
 
-      // pi 兜底 Agent:按会话选中的 LLM 通道（或默认通道）拍平传入主进程,
-      // 由主进程生成 extension + 注入 key env;model 取会话模型/默认模型/通道首模型。
-      const piSettings = usePersonalStore.getState().piSettings;
+      // pi 兜底 Agent:按会话选中的供应商（或默认 provider）拍平传入主进程,
+      // 由主进程生成 extension + 注入 key env;model 取会话模型/默认模型/provider 首模型。
+      const providerSettings = usePersonalStore.getState().providerSettings;
       const isPi = session.agent === "pi";
-      const piChannel = isPi
-        ? piSettings.channels.find((c) => c.id === (session.piChannelId ?? piSettings.defaultChannelId))
+      // 只解析「已启用」的 provider（与 UI 下拉、automation runner 一致）;停用/失效则
+      // 落空,pi 走自身内置默认 provider,不会用停用凭据运行。
+      const provider = isPi
+        ? providerSettings.providers.find(
+            (p) => p.id === (session.providerId ?? providerSettings.defaultProviderId) && p.enabled,
+          )
         : undefined;
       const piModel = isPi
-        ? session.model ?? piSettings.defaultModel ?? piChannel?.models[0]?.id
+        ? session.model ?? providerSettings.defaultModel ?? provider?.models[0]?.id
         : session.model;
 
       try {
@@ -769,8 +789,8 @@ export function usePersonalActions(): PersonalActions {
           resumeSessionId,
           appendSystemPrompt,
           useOwnSkills: sendSession.useOwnSkills,
-          piChannel: piChannel
-            ? { id: piChannel.id, baseUrl: piChannel.baseUrl, apiKey: piChannel.apiKey, models: piChannel.models }
+          provider: provider
+            ? { id: provider.id, baseUrl: provider.baseUrl, apiKey: provider.apiKey, models: provider.models }
             : undefined,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。

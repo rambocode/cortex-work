@@ -25,7 +25,7 @@ export interface SpotlightIntent {
   prompt: string;
   agent: AgentKind;
   model?: string;
-  piChannelId?: string;
+  providerId?: string;
   projectId?: string;
 }
 
@@ -58,7 +58,7 @@ export interface SessionMeta {
   agentSessionIds?: Partial<Record<AgentKind, string>>;
   agent: AgentKind;
   model?: string;
-  piChannelId?: string;
+  providerId?: string;
   useOwnSkills?: boolean;
   hiddenHistory?: HiddenHistoryMeta;
   archivedAt?: number;
@@ -72,28 +72,73 @@ export interface HiddenHistoryMeta {
   hiddenAt: number;
 }
 
-// ── 兜底 Agent（内置 pi）多 LLM 通道（与 core/desktop/types.ts 镜像） ──────
-// 主进程仅需运行时解析:automation runner 据 piChannelId 从持久化的 piSettings
-// 取回完整通道（含 apiKey）→ 拍平进 CliStartRequest.piChannel。
-export interface PiModelOption {
+// ── 供应商（Provider）配置（与 core/desktop/types.ts 镜像） ────────────────
+// 主进程仅需运行时解析:automation runner 据 providerId 从持久化的 providerSettings
+// 取回完整 provider（含 apiKey）→ 拍平进 CliStartRequest.provider。
+export type EndpointFormat = "chat_completions" | "responses" | "messages" | "custom";
+
+export interface ProviderModelOption {
   id: string;
   label?: string;
 }
 
-export interface PiChannel {
+export interface ProviderProfile {
   id: string;
-  label: string;
+  name: string;
   baseUrl: string;
   apiKey?: string;
-  models: PiModelOption[];
+  endpointFormat: EndpointFormat;
+  models: ProviderModelOption[];
   enabled: boolean;
 }
 
-export interface PiSettings {
-  channels: PiChannel[];
-  defaultChannelId?: string;
+export interface ProviderSettings {
+  providers: ProviderProfile[];
+  defaultProviderId?: string;
   defaultModel?: string;
 }
+
+// 供应商连接测试（与 core/desktop/types.ts 镜像）。
+export interface ProviderProbeInput {
+  baseUrl: string;
+  apiKey?: string;
+  endpointFormat: EndpointFormat;
+}
+
+export interface ProviderProbeResult {
+  ok: boolean;
+  models?: string[];
+  error?: string;
+}
+
+// 通用设置（与 core/desktop/types.ts 镜像;主进程消费）。
+export interface DesktopBehavior {
+  openAtLogin: boolean;
+  startMinimized: boolean;
+  closeToTray: boolean;
+}
+
+export interface NotificationSettings {
+  turnComplete: boolean;
+}
+
+export interface LogSettings {
+  enabled: boolean;
+  retentionDays: number;
+}
+
+export interface GeneralSettings {
+  workspaceRoot?: string;
+  desktopBehavior: DesktopBehavior;
+  notifications: NotificationSettings;
+  log: LogSettings;
+}
+
+export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
+  desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
+  notifications: { turnComplete: true },
+  log: { enabled: true, retentionDays: 2 },
+};
 
 export interface PersistedState {
   version: 1;
@@ -101,13 +146,15 @@ export interface PersistedState {
   promptRoot?: string;
   sessions: SessionMeta[];
   todos?: TodoMeta[];
-  // 持久化的 pi 通道配置（renderer 全量写入;主进程 automation runner 只读）。
-  piSettings?: PiSettings;
+  // 持久化的供应商配置（renderer 全量写入;主进程 automation runner 只读）。
+  providerSettings?: ProviderSettings;
+  // 通用设置（renderer 全量写入;主进程读 workspaceRoot/desktopBehavior/log）。
+  generalSettings?: GeneralSettings;
   rightPanelWidth?: number;
   // 「最后一次使用」记忆（与 packages/core/desktop/types.ts 镜像;Spotlight/新会话默认沿用）。
   lastAgent?: AgentKind;
   lastModel?: string;
-  lastPiChannelId?: string;
+  lastProviderId?: string;
 }
 
 export interface ReadFileResult {
@@ -127,9 +174,9 @@ export interface CliStartRequest {
   useOwnSkills?: boolean;
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数;pi 忽略。
   effort?: ReasoningEffort;
-  // pi 专用:renderer 传入当前会话选中通道的完整配置,主进程据此生成 extension
+  // pi 专用:renderer 传入当前会话选中供应商的完整配置,主进程据此生成 extension
   // 并注入 key env。
-  piChannel?: {
+  provider?: {
     id: string;
     baseUrl: string;
     apiKey?: string;
@@ -358,7 +405,7 @@ export interface AutomationMeta {
   effort?: ReasoningEffort;
   prompt: string;
   useOwnSkills?: boolean;
-  piChannelId?: string;
+  providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;
   createdAt: number;
@@ -378,7 +425,7 @@ export interface AutomationInput {
   effort?: ReasoningEffort;
   prompt: string;
   useOwnSkills?: boolean;
-  piChannelId?: string;
+  providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;
 }

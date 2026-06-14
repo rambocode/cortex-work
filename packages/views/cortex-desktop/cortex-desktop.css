@@ -47,6 +47,42 @@
   --mono: "SF Mono", "JetBrains Mono", "Menlo", ui-monospace, "Cascadia Mono", monospace;
 }
 
+/* 明暗主题基础 token（通用设置 主题 → documentElement[data-theme]）。覆盖中性色,
+   品牌主色保留；逐组件 light/dark 视觉打磨为迭代项。与 [data-palette] 正交叠加。 */
+[data-theme="dark"] {
+  --bg-app: #1a1916;
+  --bg-sidebar: #1f1e1a;
+  --bg-right: #1c1b18;
+  --bg-card: #242320;
+  --bg-card-2: #1f1e1a;
+  --bg-hover: #2b2a26;
+  --bg-active: #34332e;
+  --bg-input: #242320;
+  --bg-chip: #2b2a26;
+
+  --border: #34332e;
+  --border-soft: #2b2a26;
+  --border-strong: #45433c;
+
+  --text-1: #ece9e1;
+  --text-2: #b6b3aa;
+  --text-3: #8a877f;
+  --text-4: #66635c;
+
+  --accent-soft: #3a2a22;
+  --green-soft: #16271f;
+  --amber-soft: #2c2310;
+  --red-soft: #2e1a1a;
+  --blue-soft: #1a2238;
+  --violet-soft: #251a38;
+
+  --code-add-bg: #16271f;
+  --code-del-bg: #2e1a1a;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 0 rgba(0, 0, 0, 0.2);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -76,6 +112,8 @@ html, body {
   overflow: hidden;
   background: var(--bg-app);
   position: relative;
+  /* 全局字号/UI 缩放（通用设置 字号 → --font-scale，挂 documentElement）。 */
+  zoom: var(--font-scale, 1);
 }
 
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
@@ -4980,6 +5018,81 @@ button.sb-row {
   cursor: pointer;
 }
 .pw-pi-channel-del:hover { background: var(--red-soft); color: var(--red); }
+.pw-pi-channel-del.is-confirming { width: auto; padding: 0 10px; background: var(--red-soft); color: var(--red); font-size: 12px; font-weight: 600; }
+
+/* 供应商设置：左列表 + 右详情（kun 风格） */
+.pw-prov-split { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; margin-top: 8px; align-items: start; }
+.pw-prov-list { display: flex; flex-direction: column; gap: 4px; }
+.pw-prov-item {
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg-soft); cursor: pointer; text-align: left; width: 100%;
+}
+.pw-prov-item:hover { border-color: var(--text-3); }
+.pw-prov-item.is-active { border-color: var(--accent, #c96442); background: var(--bg-app); }
+.pw-prov-item-name { font-size: 13px; font-weight: 600; color: var(--text-1, #1a1916); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.pw-prov-item-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+.pw-prov-badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: var(--border); color: var(--text-3); }
+.pw-prov-badge.is-default { background: var(--accent, #c96442); color: #fff; }
+.pw-prov-detail { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-soft); }
+.pw-prov-detail textarea.pw-set-input { resize: vertical; min-height: 52px; line-height: 1.5; font-family: var(--mono, ui-monospace, monospace); }
+.pw-prov-probe { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.pw-prov-probe-ok { font-size: 12px; color: var(--green, #0d9488); display: inline-flex; align-items: center; gap: 8px; }
+.pw-prov-probe-err { font-size: 12px; color: var(--red, #c0392b); }
+.pw-prov-probe-apply { font-size: 11px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--green, #0d9488); color: var(--green, #0d9488); cursor: pointer; background: transparent; }
+.pw-prov-probe-apply:hover { background: var(--green-soft, #d4ebe8); }
+
+/* 供应商模型列表（kun 风格卡片：id + 能力徽标 + 编辑/删除） */
+.pw-ml { display: flex; flex-direction: column; gap: 8px; }
+.pw-ml-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pw-ml-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.pw-ml-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-app); }
+.pw-ml-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.pw-ml-id { font-family: var(--mono, ui-monospace, monospace); font-size: 13px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-ml-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.pw-ml-badge { font-size: 11px; padding: 1px 9px; border-radius: 999px; background: var(--bg-chip); color: var(--text-2); }
+.pw-ml-badge.is-name { background: var(--accent-soft); color: var(--accent); }
+.pw-ml-actions { flex: 0 0 auto; display: flex; gap: 2px; }
+.pw-ml-actions button { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; color: var(--text-3); }
+.pw-ml-actions button:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-ml-edit { display: flex; gap: 8px; align-items: center; padding: 8px; border: 1px dashed var(--border-strong); border-radius: 10px; }
+.pw-ml-edit > .pw-set-input { flex: 1 1 auto; min-width: 0; }
+.pw-ml-cancel { font-size: 12px; color: var(--text-3); padding: 0 8px; flex: 0 0 auto; }
+.pw-ml-cancel:hover { color: var(--text-1); }
+.pw-ml-add { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 7px 12px; border: 1px dashed var(--border-strong); border-radius: 9px; color: var(--text-2); font-size: 12.5px; }
+.pw-ml-add:hover { border-color: var(--accent); color: var(--accent); }
+.pw-ml-probe { font-size: 12px; display: flex; align-items: center; gap: 8px; }
+.pw-ml-probe-ok { color: var(--green, #16a34a); }
+.pw-ml-probe-err { color: var(--red, #dc2626); }
+
+/* 通用设置：kun 风格卡片 + 行（标签/说明左,控件右） */
+.pw-scard { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card-2, var(--bg-soft)); padding: 0 16px; margin-top: 16px; }
+.pw-scard-t { font-size: 13.5px; font-weight: 600; color: var(--text-1); padding: 15px 2px 3px; }
+.pw-srow { display: flex; align-items: center; gap: 20px; padding: 13px 2px; border-top: 1px solid var(--border-soft); }
+.pw-scard-t + .pw-srow { border-top: none; }
+.pw-srow-l { flex: 0 0 38%; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pw-srow-lbl { font-size: 13px; font-weight: 500; color: var(--text-1); }
+.pw-srow-desc { font-size: 12px; color: var(--text-3); line-height: 1.45; }
+.pw-srow-c { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
+.pw-srow-c > * { flex: 1 1 auto; min-width: 0; }
+.pw-srow-c .twk-seg { width: 100%; }
+.pw-srow-c-end { justify-content: flex-end; }
+.pw-srow-c-end > * { flex: 0 0 auto; }
+.pw-ws-control { display: flex; gap: 8px; align-items: center; }
+.pw-ws-control > .pw-set-input { flex: 1 1 auto; min-width: 0; }
+.pw-ws-control > .btn { flex: 0 0 auto; }
+
+/* 带显隐切换的密钥输入 */
+.pw-secret-wrap { display: flex; gap: 6px; align-items: stretch; }
+.pw-secret-wrap > .pw-set-input { flex: 1; min-width: 0; }
+.pw-secret-toggle { flex-shrink: 0; padding: 0 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-3); cursor: pointer; background: transparent; }
+.pw-secret-toggle:hover { border-color: var(--text-3); color: var(--text-1, #1a1916); }
+
+/* Agent 可用性行 */
+.pw-agent-avail { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+.pw-agent-dot { font-size: 11px; padding: 1px 8px; border-radius: 6px; }
+.pw-agent-dot.is-on { background: var(--green-soft, #d4ebe8); color: var(--green, #0d9488); }
+.pw-agent-dot.is-off { background: var(--border); color: var(--text-3); }
 
 /* 右键/项目菜单的右侧二级菜单（Open in 悬停展开） */
 .pw-ctx-haschild { position: relative; }

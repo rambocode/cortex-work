@@ -159,9 +159,15 @@ export interface Toast {
 export type Density = "compact" | "regular" | "cozy";
 export type Palette = "clay" | "twilight" | "forest" | "ink";
 export type SidebarMode = "rich" | "minimal" | "activity";
+export type ThemeMode = "system" | "light" | "dark";
+export type FontScale = "small" | "medium" | "large";
 
 export interface Tweaks {
   density: Density;
   palette: Palette;
   sidebar: SidebarMode;
+  // 全局字号缩放（small/medium/large → --font-scale）。
+  fontScale: FontScale;
+  // 明暗主题（system 跟随系统）。
+  theme: ThemeMode;
 }

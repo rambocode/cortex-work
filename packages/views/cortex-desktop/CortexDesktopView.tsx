@@ -23,6 +23,7 @@ import { ToastStack } from "./ToastStack";
 import { SectionPage } from "./Sections";
 import { PersonalWorkspace } from "./personal/PersonalWorkspace";
 import { Pet } from "./pet/Pet";
+import { useTweaksPersistence } from "./useTweaksPersistence";
 
 const SECTION_TITLE: Partial<Record<string, string>> = { tasks: "任务", agents: "智能体", usage: "用量", settings: "设置" };
 
@@ -38,6 +39,8 @@ export function CortexDesktopView({ nativeTitlebar = false }: CortexDesktopViewP
   const qc = useQueryClient();
   // 始终挂载:接收菜单栏 Spotlight 发起意图,切到个人工作区并暂存待 handoff 消费。
   useSpotlightIntentRouter();
+  // 外观项（主题/字号/密度/色调/侧栏）持久化 + 应用到根节点。
+  useTweaksPersistence();
 
   const {
     workspace,

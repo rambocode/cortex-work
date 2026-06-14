@@ -38,7 +38,7 @@ function extensionForMimeType(mimeType: string): string {
 export function ComposerShell({
   agent,
   model,
-  piChannelId,
+  providerId,
   useOwnSkills,
   running,
   editing,
@@ -56,7 +56,7 @@ export function ComposerShell({
 }: {
   agent: AgentKind;
   model: string | undefined;
-  piChannelId: string | undefined;
+  providerId: string | undefined;
   useOwnSkills: boolean;
   running: boolean;
   /** 编辑重发:正在编辑的历史用户消息(原文填入输入框,顶部出提示条)。 */
@@ -72,8 +72,8 @@ export function ComposerShell({
   onSend: (text: string, attachments: PersonalAttachment[]) => void;
   onStop?: () => void;
   onChangeModel: (model: string) => void;
-  // pi 多通道:同时切换通道与模型。
-  onChangePiModel: (channelId: string, model: string) => void;
+  // pi 多供应商:同时切换 provider 与模型。
+  onChangePiModel: (providerId: string, model: string) => void;
   onToggleSkills: () => void;
   onCancelEdit?: () => void;
   onToast: (text: string) => void;
@@ -89,18 +89,18 @@ export function ComposerShell({
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
 
-  const piSettings = usePersonalStore((s) => s.piSettings);
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
   const isPi = agent === "pi";
   const models = AGENT_MODELS[agent];
-  // pi:模型下拉来自已启用通道,选项编码 `${channelId}::${modelId}`,展示「通道 · 模型」。
+  // pi:模型下拉来自已启用 provider,选项编码 `${providerId}::${modelId}`,展示「供应商 · 模型」。
   const piModelOptions = isPi
-    ? piSettings.channels
-        .filter((c) => c.enabled)
-        .flatMap((c) =>
-          c.models.map((m) => ({ value: `${c.id}::${m.id}`, label: `${c.label} · ${m.label ?? m.id}` })),
+    ? providerSettings.providers
+        .filter((p) => p.enabled)
+        .flatMap((p) =>
+          p.models.map((m) => ({ value: `${p.id}::${m.id}`, label: `${p.name} · ${m.label ?? m.id}` })),
         )
     : [];
-  const piModelValue = `${piChannelId ?? ""}::${model ?? ""}`;
+  const piModelValue = `${providerId ?? ""}::${model ?? ""}`;
 
   useEffect(() => {
     if (!taRef.current) return;
@@ -411,13 +411,13 @@ export function ComposerShell({
                 className="pw-model-select"
                 value={piModelValue}
                 onChange={(e) => {
-                  const [channelId, model] = e.target.value.split("::");
-                  onChangePiModel(channelId ?? "", model ?? "");
+                  const [providerId, model] = e.target.value.split("::");
+                  onChangePiModel(providerId ?? "", model ?? "");
                 }}
                 disabled={piModelOptions.length === 0}
               >
                 {piModelOptions.length === 0 ? (
-                  <option value="::">未配置通道（去设置 → Agent）</option>
+                  <option value="::">未配置供应商（去设置 → 供应商）</option>
                 ) : (
                   piModelOptions.map((m) => (
                     <option key={m.value} value={m.value}>

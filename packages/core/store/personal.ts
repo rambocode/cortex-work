@@ -5,10 +5,11 @@
 import { create } from "zustand";
 import type {
   AgentKind,
+  GeneralSettings,
   PersistedState,
   PersonalProfile,
-  PiChannel,
-  PiSettings,
+  ProviderProfile,
+  ProviderSettings,
   ProjectMeta,
   PromptNode,
   PushSettings,
@@ -19,12 +20,14 @@ import type {
   TtsSettings,
 } from "../desktop/types";
 import {
+  DEFAULT_GENERAL_SETTINGS,
   DEFAULT_MODEL,
-  DEFAULT_PI_SETTINGS,
+  DEFAULT_PROVIDER_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TIMELINE_SETTINGS,
   DEFAULT_TTS_SETTINGS,
 } from "../desktop/types";
+import { migratePiSettings, normalizeProviderProfile } from "../desktop/providers";
 
 let seq = 0;
 function newId(prefix: string): string {
@@ -79,14 +82,16 @@ export interface PersonalState {
   ttsSettings: TtsSettings;
   // 各 agent 是否可用（主进程探测,不持久化;启动时回填）。
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
-  // 兜底 Agent（内置 pi）配置（持久化）。
-  piSettings: PiSettings;
+  // 供应商（Provider）注册表（持久化;pi 会话/自动化据此选端点）。
+  providerSettings: ProviderSettings;
+  // 通用设置（工作目录/桌面行为/通知/日志,持久化;主进程消费部分立即落盘）。
+  generalSettings: GeneralSettings;
   // 用户资料（昵称 + 内置头像 id,持久化）。会话中 who="me" 的气泡据此渲染。
   profile: PersonalProfile;
   // 「最后一次使用」记忆（持久化;Spotlight/新会话默认沿用）。
   lastAgent?: AgentKind;
   lastModel?: string;
-  lastPiChannelId?: string;
+  lastProviderId?: string;
   // Spotlight 接力:待主窗口个人工作区消费的发起意图（不持久化）。
   pendingSpotlightIntent?: SpotlightIntent;
   hydrate: (s: PersistedState) => void;
@@ -97,12 +102,14 @@ export interface PersonalState {
   // 归档项目:设 archivedAt、清 pinnedAt;若该项目正激活/在时间线则让出焦点。
   archiveProject: (id: string) => void;
   setAgentsAvailable: (avail: Partial<Record<AgentKind, boolean>>) => void;
-  // 兜底 Agent（pi）多 LLM 通道配置:整体 patch + 通道级增删改 + 设默认。
-  setPiSettings: (patch: Partial<PiSettings>) => void;
-  addPiChannel: (channel: PiChannel) => void;
-  updatePiChannel: (id: string, patch: Partial<PiChannel>) => void;
-  removePiChannel: (id: string) => void;
-  setPiDefaults: (patch: { defaultChannelId?: string; defaultModel?: string }) => void;
+  // 供应商注册表:整体 patch + provider 级增删改 + 设默认。
+  setProviderSettings: (patch: Partial<ProviderSettings>) => void;
+  addProvider: (provider: ProviderProfile) => void;
+  updateProvider: (id: string, patch: Partial<ProviderProfile>) => void;
+  removeProvider: (id: string) => void;
+  setProviderDefaults: (patch: { defaultProviderId?: string; defaultModel?: string }) => void;
+  // 通用设置整体 patch（嵌套子对象由调用方 spread 现值）。
+  setGeneralSettings: (patch: Partial<GeneralSettings>) => void;
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
   // projectId 缺省 = 不使用项目（会话在 opts.noProjectDir 工作目录运行）。
@@ -161,6 +168,51 @@ function baseName(p: string): string {
   return parts[parts.length - 1] || p;
 }
 
+// 旧版本持久化字段（仅 hydrate 向后兼容迁移用,新代码不写这些名字）。
+type LegacyPersisted = PersistedState & {
+  piSettings?: {
+    channels?: { id: string; label?: string; baseUrl?: string; apiKey?: string; models?: { id: string; label?: string }[]; enabled?: boolean }[];
+    defaultChannelId?: string;
+    defaultModel?: string;
+  };
+  lastPiChannelId?: string;
+};
+
+// providerSettings 解析：新档直接用（逐个 normalize 兜底）；旧档 piSettings.channels
+// 迁移为 providers；两者都无则空注册表。
+function resolveProviderSettings(s: PersistedState): ProviderSettings {
+  if (s.providerSettings?.providers) {
+    return {
+      providers: s.providerSettings.providers.map(normalizeProviderProfile),
+      defaultProviderId: s.providerSettings.defaultProviderId,
+      defaultModel: s.providerSettings.defaultModel,
+    };
+  }
+  const legacy = s as LegacyPersisted;
+  if (legacy.piSettings?.channels) return migratePiSettings(legacy.piSettings);
+  return DEFAULT_PROVIDER_SETTINGS;
+}
+
+// 通用设置 hydrate：嵌套子对象逐层以 DEFAULT_GENERAL_SETTINGS 补全（旧档可能缺字段）。
+function resolveGeneralSettings(s: PersistedState): GeneralSettings {
+  const g = s.generalSettings;
+  if (!g) return DEFAULT_GENERAL_SETTINGS;
+  return {
+    workspaceRoot: g.workspaceRoot,
+    desktopBehavior: { ...DEFAULT_GENERAL_SETTINGS.desktopBehavior, ...g.desktopBehavior },
+    notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
+    log: { ...DEFAULT_GENERAL_SETTINGS.log, ...g.log },
+  };
+}
+
+// 旧会话字段名 piChannelId → providerId（剥离旧名,避免死字段随快照回写）。
+function migrateSession(sess: SessionMeta): SessionMeta {
+  const legacy = sess as SessionMeta & { piChannelId?: string };
+  if (legacy.piChannelId === undefined) return sess;
+  const { piChannelId, ...rest } = legacy;
+  return { ...rest, providerId: rest.providerId ?? piChannelId };
+}
+
 export const usePersonalStore = create<PersonalState>((set, get) => ({
   hydrated: false,
   projects: [],
@@ -175,14 +227,15 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   timelineSettings: DEFAULT_TIMELINE_SETTINGS,
   pushSettings: DEFAULT_PUSH_SETTINGS,
   ttsSettings: DEFAULT_TTS_SETTINGS,
-  piSettings: DEFAULT_PI_SETTINGS,
+  providerSettings: DEFAULT_PROVIDER_SETTINGS,
+  generalSettings: DEFAULT_GENERAL_SETTINGS,
   profile: {},
   hydrate: (s) =>
     set({
       hydrated: true,
       projects: s.projects,
       promptRoot: s.promptRoot,
-      sessions: s.sessions,
+      sessions: s.sessions.map(migrateSession),
       todos: s.todos ?? [],
       timelineSettings: s.timelineSettings ?? DEFAULT_TIMELINE_SETTINGS,
       // 兼容迁移:旧版本推送渠道存在 timelineSettings.push 下。
@@ -191,14 +244,17 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         (s.timelineSettings as undefined | { push?: PushSettings })?.push ??
         DEFAULT_PUSH_SETTINGS,
       ttsSettings: s.ttsSettings ?? DEFAULT_TTS_SETTINGS,
-      // 旧结构（单 provider,无 channels）按空通道重置;用户重新配置。
-      piSettings: Array.isArray(s.piSettings?.channels) ? s.piSettings : DEFAULT_PI_SETTINGS,
+      // providerSettings：新档直接用；旧档 piSettings.channels 迁移；都没有则空。
+      providerSettings: resolveProviderSettings(s),
+      // 通用设置：嵌套子对象逐层以默认值补全。
+      generalSettings: resolveGeneralSettings(s),
       // 旧存档无 profile 字段 → 回退空对象（会话渲染走默认昵称/头像）。
       profile: s.profile ?? {},
       rightPanelWidth: s.rightPanelWidth,
       lastAgent: s.lastAgent,
       lastModel: s.lastModel,
-      lastPiChannelId: s.lastPiChannelId,
+      // 旧档字段名 lastPiChannelId → lastProviderId。
+      lastProviderId: s.lastProviderId ?? (s as LegacyPersisted).lastPiChannelId,
     }),
 
   addProject: (path) => {
@@ -243,29 +299,43 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setAgentsAvailable: (avail) => set({ agentsAvailable: avail }),
 
-  setPiSettings: (patch) => set((s) => ({ piSettings: { ...s.piSettings, ...patch } })),
+  setProviderSettings: (patch) => set((s) => ({ providerSettings: { ...s.providerSettings, ...patch } })),
 
-  addPiChannel: (channel) =>
-    set((s) => ({ piSettings: { ...s.piSettings, channels: [...s.piSettings.channels, channel] } })),
-
-  updatePiChannel: (id, patch) =>
+  addProvider: (provider) =>
     set((s) => ({
-      piSettings: {
-        ...s.piSettings,
-        channels: s.piSettings.channels.map((c) => (c.id === id ? { ...c, ...patch } : c)),
-      },
+      providerSettings: { ...s.providerSettings, providers: [...s.providerSettings.providers, provider] },
     })),
 
-  removePiChannel: (id) =>
+  updateProvider: (id, patch) =>
     set((s) => {
-      const channels = s.piSettings.channels.filter((c) => c.id !== id);
-      // 删掉的通道若是默认通道,一并清掉默认指向。
-      const defaultChannelId = s.piSettings.defaultChannelId === id ? undefined : s.piSettings.defaultChannelId;
-      const defaultModel = s.piSettings.defaultChannelId === id ? undefined : s.piSettings.defaultModel;
-      return { piSettings: { ...s.piSettings, channels, defaultChannelId, defaultModel } };
+      const providers = s.providerSettings.providers.map((p) => (p.id === id ? { ...p, ...patch } : p));
+      // 停用当前默认 provider 时,清掉默认指向（避免新会话/下拉默认挂到停用项,
+      // 与运行时 enabled 过滤保持单一真值）。
+      const disablingDefault = patch.enabled === false && s.providerSettings.defaultProviderId === id;
+      return {
+        providerSettings: {
+          ...s.providerSettings,
+          providers,
+          defaultProviderId: disablingDefault ? undefined : s.providerSettings.defaultProviderId,
+          defaultModel: disablingDefault ? undefined : s.providerSettings.defaultModel,
+        },
+      };
     }),
 
-  setPiDefaults: (patch) => set((s) => ({ piSettings: { ...s.piSettings, ...patch } })),
+  removeProvider: (id) =>
+    set((s) => {
+      const providers = s.providerSettings.providers.filter((p) => p.id !== id);
+      // 删掉的 provider 若是默认,一并清掉默认指向。
+      const defaultProviderId =
+        s.providerSettings.defaultProviderId === id ? undefined : s.providerSettings.defaultProviderId;
+      const defaultModel =
+        s.providerSettings.defaultProviderId === id ? undefined : s.providerSettings.defaultModel;
+      return { providerSettings: { ...s.providerSettings, providers, defaultProviderId, defaultModel } };
+    }),
+
+  setProviderDefaults: (patch) => set((s) => ({ providerSettings: { ...s.providerSettings, ...patch } })),
+
+  setGeneralSettings: (patch) => set((s) => ({ generalSettings: { ...s.generalSettings, ...patch } })),
 
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),
   setPromptTree: (tree) => set({ promptTree: tree }),
@@ -274,10 +344,12 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     const now = Date.now();
     // count 仍按 projectId 分桶（undefined 自成「无项目」分桶,各自从 1 开始编号）。
     const count = get().sessions.filter((x) => x.projectId === projectId).length;
-    // pi:挂上默认 LLM 通道与模型（缺省取默认通道首个模型）,无通道则留空待配置。
-    const piSettings = get().piSettings;
-    const piChannel =
-      agent === "pi" ? piSettings.channels.find((c) => c.id === piSettings.defaultChannelId) : undefined;
+    // pi:挂上默认 provider 与模型（缺省取默认 provider 首个模型）,无 provider 则留空待配置。
+    const providerSettings = get().providerSettings;
+    const provider =
+      agent === "pi"
+        ? providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId && p.enabled)
+        : undefined;
     const sess: SessionMeta = {
       id: newId("sess"),
       projectId,
@@ -287,9 +359,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       agent,
       model:
         agent === "pi"
-          ? model ?? piSettings.defaultModel ?? piChannel?.models[0]?.id
+          ? model ?? providerSettings.defaultModel ?? provider?.models[0]?.id
           : model ?? DEFAULT_MODEL[agent],
-      piChannelId: agent === "pi" ? piSettings.defaultChannelId : undefined,
+      // 只挂启用的默认 provider（provider 已按 enabled 过滤;停用/无则留空走 pi 内置）。
+      providerId: agent === "pi" ? provider?.id : undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -303,7 +376,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 记忆本次选择（下次 Spotlight/新会话默认沿用;用 sess.* 取已 resolve 的值）。
       lastAgent: agent,
       lastModel: sess.model,
-      lastPiChannelId: sess.piChannelId,
+      lastProviderId: sess.providerId,
     }));
     return sess;
   },
@@ -475,12 +548,13 @@ export function toPersistedState(s: PersonalState): PersistedState {
     timelineSettings: s.timelineSettings,
     pushSettings: s.pushSettings,
     ttsSettings: s.ttsSettings,
-    piSettings: s.piSettings,
+    providerSettings: s.providerSettings,
+    generalSettings: s.generalSettings,
     profile: s.profile,
     rightPanelWidth: s.rightPanelWidth,
     lastAgent: s.lastAgent,
     lastModel: s.lastModel,
-    lastPiChannelId: s.lastPiChannelId,
+    lastProviderId: s.lastProviderId,
   };
 }
 
@@ -521,21 +595,22 @@ export function initialAgent(s: Pick<PersonalState, "lastAgent" | "agentsAvailab
   return defaultAgent(s.agentsAvailable);
 }
 
-// 与 initialAgent 配对的初始模型/通道（pi 走通道;其余 lastModel 仅同 agent 时沿用,否则取该 agent 默认）。
+// 与 initialAgent 配对的初始模型/供应商（pi 走 provider;其余 lastModel 仅同 agent 时沿用,否则取该 agent 默认）。
 export function initialModelDraft(
-  s: Pick<PersonalState, "lastAgent" | "lastModel" | "lastPiChannelId" | "agentsAvailable" | "piSettings">,
-): { agent: AgentKind; model: string | undefined; piChannelId: string | undefined } {
+  s: Pick<PersonalState, "lastAgent" | "lastModel" | "lastProviderId" | "agentsAvailable" | "providerSettings">,
+): { agent: AgentKind; model: string | undefined; providerId: string | undefined } {
   const agent = initialAgent(s);
   const sameAgent = agent === s.lastAgent;
   if (agent === "pi") {
-    const ch =
-      s.piSettings.channels.find((c) => c.id === (s.lastPiChannelId ?? s.piSettings.defaultChannelId)) ??
-      s.piSettings.channels[0];
+    // 仅在启用的 provider 中选默认（停用项不挂到新会话/草稿）。
+    const enabled = s.providerSettings.providers.filter((p) => p.enabled);
+    const provider =
+      enabled.find((p) => p.id === (s.lastProviderId ?? s.providerSettings.defaultProviderId)) ?? enabled[0];
     return {
       agent,
-      model: (sameAgent ? s.lastModel : undefined) ?? s.piSettings.defaultModel ?? ch?.models[0]?.id,
-      piChannelId: ch?.id,
+      model: (sameAgent ? s.lastModel : undefined) ?? s.providerSettings.defaultModel ?? provider?.models[0]?.id,
+      providerId: provider?.id,
     };
   }
-  return { agent, model: (sameAgent ? s.lastModel : undefined) ?? DEFAULT_MODEL[agent], piChannelId: undefined };
+  return { agent, model: (sameAgent ? s.lastModel : undefined) ?? DEFAULT_MODEL[agent], providerId: undefined };
 }

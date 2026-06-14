@@ -362,55 +362,139 @@ describe("defaultAgent 三态", () => {
   });
 });
 
-describe("piSettings 多通道", () => {
-  const channel = (id: string, over: Partial<import("../desktop/types").PiChannel> = {}) => ({
+describe("providerSettings 多供应商", () => {
+  type Persisted = import("../desktop/types").PersistedState;
+  const provider = (
+    id: string,
+    over: Partial<import("../desktop/types").ProviderProfile> = {},
+  ): import("../desktop/types").ProviderProfile => ({
     id,
-    label: id,
+    name: id,
     baseUrl: `https://${id}.example/v1`,
+    endpointFormat: "chat_completions",
     models: [{ id: `${id}-m1` }, { id: `${id}-m2` }],
     enabled: true,
     ...over,
   });
 
-  it("默认空通道;旧单 provider 结构 hydrate 时被重置为空", () => {
+  it("默认空 provider 注册表", () => {
     usePersonalStore.getState().hydrate(base);
-    expect(usePersonalStore.getState().piSettings).toEqual({ channels: [] });
+    expect(usePersonalStore.getState().providerSettings).toEqual({ providers: [] });
+  });
 
-    // 旧结构（无 channels 数组）→ 安全回退到默认空通道。
+  it("hydrate 旧档 piSettings.channels → providerSettings.providers（含 default / lastProviderId 迁移）", () => {
     usePersonalStore.getState().hydrate({
       ...base,
-      piSettings: { provider: "openai", model: "x", apiKey: "sk" } as unknown as import("../desktop/types").PiSettings,
-    });
-    expect(usePersonalStore.getState().piSettings).toEqual({ channels: [] });
+      piSettings: {
+        channels: [
+          { id: "deepseek", label: "DeepSeek", baseUrl: "u1", models: [{ id: "ds-m1" }], enabled: true },
+          { id: "qwen", label: "通义千问", baseUrl: "u2", models: [], enabled: false },
+        ],
+        defaultChannelId: "deepseek",
+        defaultModel: "ds-m1",
+      },
+      lastPiChannelId: "deepseek",
+    } as unknown as Persisted);
+    const s = usePersonalStore.getState();
+    expect(s.providerSettings.providers.map((p) => p.id)).toEqual(["deepseek", "qwen"]);
+    // label→name,补默认 endpointFormat。
+    expect(s.providerSettings.providers[0]).toMatchObject({ name: "DeepSeek", endpointFormat: "chat_completions" });
+    expect(s.providerSettings.providers[1]?.enabled).toBe(false);
+    expect(s.providerSettings.defaultProviderId).toBe("deepseek");
+    expect(s.providerSettings.defaultModel).toBe("ds-m1");
+    expect(s.lastProviderId).toBe("deepseek");
   });
 
-  it("addPiChannel / updatePiChannel / removePiChannel 与默认通道联动", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().addPiChannel(channel("deepseek"));
-    usePersonalStore.getState().addPiChannel(channel("qwen"));
-    expect(usePersonalStore.getState().piSettings.channels.map((c) => c.id)).toEqual(["deepseek", "qwen"]);
+  it("hydrate 旧会话 piChannelId → providerId（剥离旧名）", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      sessions: [{ id: "s1", title: "T", agent: "pi", piChannelId: "qwen", createdAt: 1, updatedAt: 1 }],
+    } as unknown as Persisted);
+    const sess = usePersonalStore.getState().sessions[0]!;
+    expect(sess.providerId).toBe("qwen");
+    expect((sess as unknown as Record<string, unknown>).piChannelId).toBeUndefined();
+  });
 
-    usePersonalStore.getState().updatePiChannel("deepseek", { apiKey: "sk-ds", enabled: false });
-    const ds = usePersonalStore.getState().piSettings.channels.find((c) => c.id === "deepseek")!;
+  it("hydrate 旧单 provider 结构（无 channels）→ 空注册表", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      piSettings: { provider: "openai", model: "x", apiKey: "sk" },
+    } as unknown as Persisted);
+    expect(usePersonalStore.getState().providerSettings).toEqual({ providers: [] });
+  });
+
+  it("addProvider / updateProvider / removeProvider 与默认 provider 联动", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().addProvider(provider("deepseek"));
+    usePersonalStore.getState().addProvider(provider("qwen"));
+    expect(usePersonalStore.getState().providerSettings.providers.map((p) => p.id)).toEqual(["deepseek", "qwen"]);
+
+    usePersonalStore.getState().updateProvider("deepseek", { apiKey: "sk-ds", enabled: false });
+    const ds = usePersonalStore.getState().providerSettings.providers.find((p) => p.id === "deepseek")!;
     expect(ds.apiKey).toBe("sk-ds");
     expect(ds.enabled).toBe(false);
-    // 其他通道不受影响。
-    expect(usePersonalStore.getState().piSettings.channels.find((c) => c.id === "qwen")!.apiKey).toBeUndefined();
+    // 其他 provider 不受影响。
+    expect(
+      usePersonalStore.getState().providerSettings.providers.find((p) => p.id === "qwen")!.apiKey,
+    ).toBeUndefined();
 
-    // 设默认通道后删除它 → 默认指向一并清空。
-    usePersonalStore.getState().setPiDefaults({ defaultChannelId: "deepseek", defaultModel: "deepseek-m1" });
-    usePersonalStore.getState().removePiChannel("deepseek");
+    // 设默认 provider 后删除它 → 默认指向一并清空。
+    usePersonalStore.getState().setProviderDefaults({ defaultProviderId: "deepseek", defaultModel: "deepseek-m1" });
+    usePersonalStore.getState().removeProvider("deepseek");
     const s = usePersonalStore.getState();
-    expect(s.piSettings.channels.map((c) => c.id)).toEqual(["qwen"]);
-    expect(s.piSettings.defaultChannelId).toBeUndefined();
-    expect(s.piSettings.defaultModel).toBeUndefined();
+    expect(s.providerSettings.providers.map((p) => p.id)).toEqual(["qwen"]);
+    expect(s.providerSettings.defaultProviderId).toBeUndefined();
+    expect(s.providerSettings.defaultModel).toBeUndefined();
   });
 
-  it("piSettings 进入持久化快照", () => {
+  it("providerSettings 进入持久化快照", () => {
     usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().addPiChannel(channel("kimi"));
+    usePersonalStore.getState().addProvider(provider("kimi"));
     const s = usePersonalStore.getState();
-    expect(toPersistedState(s).piSettings).toBe(s.piSettings);
+    expect(toPersistedState(s).providerSettings).toBe(s.providerSettings);
+  });
+
+  it("停用当前默认 provider 时清掉默认指向（与运行时 enabled 过滤一致）", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().addProvider(provider("deepseek"));
+    usePersonalStore.getState().setProviderDefaults({ defaultProviderId: "deepseek", defaultModel: "deepseek-m1" });
+    usePersonalStore.getState().updateProvider("deepseek", { enabled: false });
+    const s = usePersonalStore.getState();
+    expect(s.providerSettings.defaultProviderId).toBeUndefined();
+    expect(s.providerSettings.defaultModel).toBeUndefined();
+  });
+});
+
+describe("generalSettings 通用设置", () => {
+  type Persisted = import("../desktop/types").PersistedState;
+
+  it("默认值（closeToTray 默认 true 保留现有关窗隐藏行为）", () => {
+    usePersonalStore.getState().hydrate(base);
+    const g = usePersonalStore.getState().generalSettings;
+    expect(g.desktopBehavior.closeToTray).toBe(true);
+    expect(g.desktopBehavior.openAtLogin).toBe(false);
+    expect(g.notifications.turnComplete).toBe(true);
+    expect(g.log.retentionDays).toBe(2);
+  });
+
+  it("hydrate 旧档缺嵌套字段以默认逐层补全", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: { desktopBehavior: { openAtLogin: true } },
+    } as unknown as Persisted);
+    const g = usePersonalStore.getState().generalSettings;
+    expect(g.desktopBehavior.openAtLogin).toBe(true);
+    expect(g.desktopBehavior.closeToTray).toBe(true); // 缺字段补默认
+    expect(g.log.enabled).toBe(true);
+    expect(g.notifications.turnComplete).toBe(true);
+  });
+
+  it("setGeneralSettings 改 workspaceRoot 并进入持久化快照", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setGeneralSettings({ workspaceRoot: "/tmp/ws" });
+    const s = usePersonalStore.getState();
+    expect(s.generalSettings.workspaceRoot).toBe("/tmp/ws");
+    expect(toPersistedState(s).generalSettings).toBe(s.generalSettings);
   });
 });
 

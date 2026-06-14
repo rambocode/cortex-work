@@ -7,6 +7,7 @@ import { registerChatHandlers } from "./chat";
 import { registerTimelineHandlers } from "./timeline";
 import { registerPushHandlers } from "./push";
 import { registerLlmHandlers } from "./llm";
+import { registerProviderHandlers } from "./provider";
 import { registerPtyHandlers } from "./pty";
 import { registerUsageHandlers } from "./usage";
 import { registerAgentProjectsHandlers } from "./agent-projects";
@@ -24,6 +25,7 @@ export function registerIpcHandlers(): void {
   registerTimelineHandlers();
   registerPushHandlers();
   registerLlmHandlers();
+  registerProviderHandlers();
   registerPtyHandlers();
   registerUsageHandlers();
   registerAgentProjectsHandlers();

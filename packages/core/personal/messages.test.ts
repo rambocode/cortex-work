@@ -200,12 +200,12 @@ function foldAll(events: CliStreamEvent[]) {
   return { messages, cursor };
 }
 
-function asLog(m: Message): Extract<Message, { kind: "agentLog" }> {
-  if (m.kind !== "agentLog") throw new Error(`expected agentLog, got ${m.kind}`);
+function asLog(m: Message | undefined): Extract<Message, { kind: "agentLog" }> {
+  if (!m || m.kind !== "agentLog") throw new Error(`expected agentLog, got ${m?.kind}`);
   return m;
 }
-function asText(m: Message): Extract<Message, { kind: "text" }> {
-  if (m.kind !== "text") throw new Error(`expected text, got ${m.kind}`);
+function asText(m: Message | undefined): Extract<Message, { kind: "text" }> {
+  if (!m || m.kind !== "text") throw new Error(`expected text, got ${m?.kind}`);
   return m;
 }
 

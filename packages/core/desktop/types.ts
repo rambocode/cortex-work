@@ -51,8 +51,8 @@ export interface SessionMeta {
   agentSessionIds?: Partial<Record<AgentKind, string>>;
   agent: AgentKind;
   model?: string;
-  // pi 会话选中的 LLM 通道 id（指向 PiSettings.channels）;model 存该通道下的模型 id。
-  piChannelId?: string;
+  // pi 会话选中的供应商 id（指向 ProviderSettings.providers）;model 存该 provider 下的模型 id。
+  providerId?: string;
   // 是否加载 agent 自身的 skills（claude: 关闭时传 --disable-slash-commands）。
   // 缺省视为 true。
   useOwnSkills?: boolean;
@@ -148,45 +148,65 @@ export const DEFAULT_TTS_SETTINGS: TtsSettings = {
   engine: { kind: "system" },
 };
 
-// ── 兜底 Agent（内置 pi）多 LLM 通道配置 ─────────────────────────────────
+// ── 供应商（Provider）配置：顶层 LLM 端点抽象（kun 风格） ─────────────────
 
-// 一个 OpenAI 兼容 LLM 通道（qwen / deepseek / kimi / 本地 / 企业网关均走此抽象）。
-// 主进程把启用通道渲染成 pi extension（registerProvider）,channel.id 即 pi provider 名。
-export interface PiModelOption {
+// 协议类型（对齐 kun 的 endpointFormat）。运行期当前仅落地 chat_completions
+//（OpenAI 兼容）；responses/messages/custom 数据模型与 UI 先就位，运行期接入延后。
+export type EndpointFormat = "chat_completions" | "responses" | "messages" | "custom";
+
+export interface ProviderModelOption {
   id: string; // 喂 pi --model 的模型 id
   label?: string; // 展示名,缺省用 id
 }
 
-export interface PiChannel {
+// 一个 LLM 供应商（qwen / deepseek / kimi / 本地 / 企业网关 / anthropic 兼容均走此抽象）。
+// 主进程把启用的 provider 渲染成 pi extension（registerProvider）,provider.id 即 pi provider 名。
+export interface ProviderProfile {
   id: string; // slug,合法标识（无空格）,同时作为 pi provider 名
-  label: string; // 展示名:"DeepSeek"、"通义千问"
-  baseUrl: string; // OpenAI 兼容端点
+  name: string; // 展示名:"DeepSeek"、"通义千问"
+  baseUrl: string; // API 根地址（OpenAI 兼容等）
   apiKey?: string;
-  models: PiModelOption[];
-  enabled: boolean; // 关闭的通道不出现在会话模型下拉
+  endpointFormat: EndpointFormat; // 协议类型,默认 chat_completions
+  models: ProviderModelOption[];
+  enabled: boolean; // 关闭的 provider 不出现在会话/自动化模型下拉
 }
 
-export interface PiSettings {
-  channels: PiChannel[];
-  defaultChannelId?: string; // 新建 pi 会话/未指定时用
+export interface ProviderSettings {
+  providers: ProviderProfile[];
+  defaultProviderId?: string; // 新建 pi 会话/未指定时用
   defaultModel?: string;
 }
 
-export const DEFAULT_PI_SETTINGS: PiSettings = { channels: [] };
+export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = { providers: [] };
 
-// 「添加通道」预置模板（快速填充,不自动写入；用户填 key 即用,也可改 baseUrl/模型）。
-export interface PiChannelTemplate {
-  templateKey: string; // 模板唯一键 + 默认 channel id 前缀
-  label: string;
+// 供应商连接测试（renderer 拍平 baseUrl/apiKey/endpointFormat 传入,主进程发探测请求）。
+export interface ProviderProbeInput {
   baseUrl: string;
-  models: PiModelOption[];
+  apiKey?: string;
+  endpointFormat: EndpointFormat;
 }
 
-export const PI_CHANNEL_TEMPLATES: PiChannelTemplate[] = [
+export interface ProviderProbeResult {
+  ok: boolean;
+  models?: string[]; // 探测到的模型 id 列表（成功时）
+  error?: string;
+}
+
+// 「添加供应商」预置模板（快速填充,不自动写入；用户填 key 即用,也可改 baseUrl/模型）。
+export interface ProviderPreset {
+  templateKey: string; // 模板唯一键 + 默认 provider id 前缀
+  name: string;
+  baseUrl: string;
+  endpointFormat: EndpointFormat;
+  models: ProviderModelOption[];
+}
+
+export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     templateKey: "deepseek",
-    label: "DeepSeek",
+    name: "DeepSeek",
     baseUrl: "https://api.deepseek.com/v1",
+    endpointFormat: "chat_completions",
     models: [
       { id: "deepseek-chat", label: "DeepSeek Chat" },
       { id: "deepseek-reasoner", label: "DeepSeek Reasoner" },
@@ -194,8 +214,9 @@ export const PI_CHANNEL_TEMPLATES: PiChannelTemplate[] = [
   },
   {
     templateKey: "kimi",
-    label: "Kimi (Moonshot)",
+    name: "Kimi (Moonshot)",
     baseUrl: "https://api.moonshot.cn/v1",
+    endpointFormat: "chat_completions",
     models: [
       { id: "kimi-k2-0711-preview", label: "Kimi K2" },
       { id: "moonshot-v1-128k", label: "Moonshot v1 128K" },
@@ -204,8 +225,9 @@ export const PI_CHANNEL_TEMPLATES: PiChannelTemplate[] = [
   },
   {
     templateKey: "qwen",
-    label: "通义千问",
+    name: "通义千问",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    endpointFormat: "chat_completions",
     models: [
       { id: "qwen-max", label: "Qwen Max" },
       { id: "qwen-plus", label: "Qwen Plus" },
@@ -215,8 +237,9 @@ export const PI_CHANNEL_TEMPLATES: PiChannelTemplate[] = [
   },
   {
     templateKey: "zhipu",
-    label: "智谱 GLM",
+    name: "智谱 GLM",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    endpointFormat: "chat_completions",
     models: [
       { id: "glm-4.6", label: "GLM-4.6" },
       { id: "glm-4-plus", label: "GLM-4-Plus" },
@@ -224,14 +247,16 @@ export const PI_CHANNEL_TEMPLATES: PiChannelTemplate[] = [
   },
   {
     templateKey: "siliconflow",
-    label: "硅基流动",
+    name: "硅基流动",
     baseUrl: "https://api.siliconflow.cn/v1",
+    endpointFormat: "chat_completions",
     models: [{ id: "deepseek-ai/DeepSeek-V3", label: "DeepSeek-V3" }],
   },
   {
     templateKey: "openai",
-    label: "OpenAI",
+    name: "OpenAI",
     baseUrl: "https://api.openai.com/v1",
+    endpointFormat: "chat_completions",
     models: [
       { id: "gpt-4o", label: "GPT-4o" },
       { id: "gpt-4o-mini", label: "GPT-4o mini" },
@@ -239,8 +264,9 @@ export const PI_CHANNEL_TEMPLATES: PiChannelTemplate[] = [
   },
   {
     templateKey: "custom",
-    label: "自定义",
+    name: "自定义",
     baseUrl: "",
+    endpointFormat: "chat_completions",
     models: [],
   },
 ];
@@ -318,6 +344,39 @@ export interface PersonalProfile {
   avatarId?: string;
 }
 
+// ── 通用设置（generalSettings：主进程消费 + 持久化） ───────────────────────
+
+// 桌面行为（主进程据此设登录项/关窗行为/启动状态）。
+export interface DesktopBehavior {
+  openAtLogin: boolean; // 开机自启（仅 win32/darwin 生效）
+  startMinimized: boolean; // 启动时最小化/不显示主窗口
+  closeToTray: boolean; // 关窗（X）隐藏到托盘而非退出
+}
+
+export interface NotificationSettings {
+  turnComplete: boolean; // agent 回合结束系统通知
+}
+
+export interface LogSettings {
+  enabled: boolean; // 主进程文件日志落盘开关
+  retentionDays: number; // 日志保留天数
+}
+
+// 通用设置容器（与外观项 Tweaks 分属两套存储：这里随 personal-workspace.json 落盘）。
+export interface GeneralSettings {
+  workspaceRoot?: string; // 默认工作目录（agent 启动未显式传 cwd 时兜底）
+  desktopBehavior: DesktopBehavior;
+  notifications: NotificationSettings;
+  log: LogSettings;
+}
+
+export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
+  // closeToTray 默认 true：保留现有「关窗隐藏到后台、托盘常驻」行为;关闭则关窗即退出。
+  desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
+  notifications: { turnComplete: true },
+  log: { enabled: true, retentionDays: 2 },
+};
+
 // 主进程 userData JSON 中持久化的全量状态。
 export interface PersistedState {
   version: 1;
@@ -328,7 +387,9 @@ export interface PersistedState {
   timelineSettings?: TimelineSettings;
   pushSettings?: PushSettings;
   ttsSettings?: TtsSettings;
-  piSettings?: PiSettings;
+  providerSettings?: ProviderSettings;
+  // 通用设置（工作目录/桌面行为/通知/日志;主进程消费）。
+  generalSettings?: GeneralSettings;
   // 用户资料（昵称 + 头像;会话中 who="me" 的气泡据此渲染）。
   profile?: PersonalProfile;
   // 右侧面板自定义宽度（px）;未设置时按视图走 CSS 自动档位。
@@ -336,7 +397,7 @@ export interface PersistedState {
   // 「最后一次使用」记忆（Spotlight/新会话默认沿用;读取回退见 initialAgent）。
   lastAgent?: AgentKind;
   lastModel?: string;
-  lastPiChannelId?: string;
+  lastProviderId?: string;
 }
 
 export interface ReadFileResult {
@@ -438,9 +499,9 @@ export interface CliStartRequest {
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数
   //（claude --effort / codex model_reasoning_effort）;不支持的 agent（pi）忽略。
   effort?: ReasoningEffort;
-  // pi 专用:renderer 把当前会话选中的 LLM 通道完整配置拍平传入,主进程据此生成
+  // pi 专用:renderer 把当前会话选中的供应商完整配置拍平传入,主进程据此生成
   // extension（registerProvider）+ 注入 key env（与 llm.ts「主进程不读设置文件」惯例一致）。
-  piChannel?: {
+  provider?: {
     id: string;
     baseUrl: string;
     apiKey?: string;
@@ -484,7 +545,7 @@ export interface SpotlightIntent {
   prompt: string;
   agent: AgentKind;
   model?: string;
-  piChannelId?: string; // pi 选中通道
+  providerId?: string; // pi 选中供应商
   projectId?: string; // 缺省 = 不使用项目
 }
 
@@ -651,7 +712,7 @@ export interface AutomationMeta {
   effort?: ReasoningEffort; // 推理强度
   prompt: string; // 内容即提示词
   useOwnSkills?: boolean;
-  piChannelId?: string; // pi 自定义通道:仅存 id,apiKey 运行时由 main 从 piSettings 解析
+  providerId?: string; // pi 自定义供应商:仅存 id,apiKey 运行时由 main 从 providerSettings 解析
   schedule: ScheduleSpec;
   timezone?: string; // IANA 时区,缺省 = 创建时本机时区
   createdAt: number;
@@ -672,7 +733,7 @@ export interface AutomationInput {
   effort?: ReasoningEffort;
   prompt: string;
   useOwnSkills?: boolean;
-  piChannelId?: string;
+  providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;
 }

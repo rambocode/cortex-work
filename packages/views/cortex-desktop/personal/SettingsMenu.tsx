@@ -12,7 +12,8 @@ import {
   AGENT_MODELS,
   DEFAULT_MODEL,
   DEFAULT_PUSH_TEMPLATE,
-  PI_CHANNEL_TEMPLATES,
+  PROVIDER_PRESETS,
+  providerFromPreset,
   speakText,
   stopSpeaking,
   useCortexUIStore,
@@ -25,17 +26,19 @@ import {
 } from "@cortex-work/core";
 import type {
   AgentKind,
+  DesktopBridge,
   DingtalkPushConfig,
   EmailPushConfig,
-  PiChannel,
-  PiModelOption,
+  EndpointFormat,
+  ProviderModelOption,
+  ProviderProfile,
   PromptNode,
   SummaryModelConfig,
   TtsEngineConfig,
   TtsVoiceOption,
   WecomPushConfig,
 } from "@cortex-work/core";
-import type { Density, Palette, SidebarMode } from "@cortex-work/core/types";
+import type { Density, FontScale, Palette, SidebarMode, ThemeMode } from "@cortex-work/core/types";
 import {
   PET_COLOR_KEY,
   PET_DESIGNS,
@@ -57,13 +60,14 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
-type SettingsTab = "profile" | "pet" | "appearance" | "agent" | "timeline" | "push" | "voice";
+type SettingsTab = "profile" | "general" | "providers" | "agent" | "pet" | "timeline" | "push" | "voice";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "profile", label: "个人资料", icon: <Icon.Users size={14} /> },
-  { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
-  { id: "appearance", label: "外观", icon: <Icon.Image size={14} /> },
+  { id: "general", label: "通用", icon: <Icon.Settings size={14} /> },
+  { id: "providers", label: "供应商", icon: <Icon.Globe size={14} /> },
   { id: "agent", label: "Agent", icon: <Icon.Terminal size={14} /> },
+  { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
   { id: "timeline", label: "时间线", icon: <Icon.Clock size={14} /> },
   { id: "push", label: "推送", icon: <Icon.Send size={14} /> },
   { id: "voice", label: "语音", icon: <Icon.Mic size={14} /> },
@@ -256,26 +260,220 @@ function PetSection() {
   );
 }
 
-function AppearanceSection() {
+const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
+  { label: "跟随系统", value: "system" },
+  { label: "浅色", value: "light" },
+  { label: "深色", value: "dark" },
+];
+const FONT_SCALE_LABEL: Record<FontScale, string> = { small: "小", medium: "中", large: "大" };
+const LOG_RETENTION_OPTIONS = [1, 2, 3, 5, 7].map((d) => ({ label: `${d} 天`, value: String(d) }));
+
+// kun 风格设置卡片 + 行（标签/说明在左,控件在右,行间分隔线）。
+function SettingCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="pw-scard">
+      <div className="pw-scard-t">{title}</div>
+      {children}
+    </div>
+  );
+}
+function SRow({
+  label,
+  desc,
+  children,
+  end,
+}: {
+  label: string;
+  desc?: string;
+  children: React.ReactNode;
+  end?: boolean;
+}) {
+  return (
+    <div className="pw-srow">
+      <div className="pw-srow-l">
+        <span className="pw-srow-lbl">{label}</span>
+        {desc ? <span className="pw-srow-desc">{desc}</span> : null}
+      </div>
+      <div className={`pw-srow-c ${end ? "pw-srow-c-end" : ""}`}>{children}</div>
+    </div>
+  );
+}
+function SwitchRow({
+  label,
+  desc,
+  value,
+  onChange,
+}: {
+  label: string;
+  desc?: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <SRow label={label} desc={desc} end>
+      <button
+        type="button"
+        className="twk-toggle"
+        data-on={value ? "1" : "0"}
+        role="switch"
+        aria-checked={value}
+        onClick={() => onChange(!value)}
+      >
+        <i />
+      </button>
+    </SRow>
+  );
+}
+function BareSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { label: string; value: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <select className="pw-set-input" value={value} onChange={(e) => onChange(e.target.value)}>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function GeneralSection() {
   const tweaks = useCortexUIStore((s) => s.tweaks);
   const setTweak = useCortexUIStore((s) => s.setTweak);
+  const general = usePersonalStore((s) => s.generalSettings);
+  const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
+  const bridge = useDesktopBridge();
+  const behavior = general.desktopBehavior;
+  const setBehavior = (patch: Partial<typeof behavior>) => {
+    const next = { ...behavior, ...patch };
+    setGeneral({ desktopBehavior: next });
+    void bridge?.setDesktopBehavior?.(next);
+  };
+  const pickWorkspace = async () => {
+    const dir = await bridge?.pickDirectory?.();
+    if (dir) setGeneral({ workspaceRoot: dir });
+  };
+  const setFontScale = (label: string) => {
+    const f = (Object.keys(FONT_SCALE_LABEL) as FontScale[]).find((k) => FONT_SCALE_LABEL[k] === label);
+    if (f) setTweak("fontScale", f);
+  };
   return (
     <>
-      <div className="pw-dlg-title">外观</div>
-      <div className="twk-sect">布局密度 · Density</div>
-      <SegmentedRadio
-        value={tweaks.density}
-        options={["compact", "regular", "cozy"]}
-        onChange={(v) => setTweak("density", v as Density)}
-      />
-      <div className="twk-sect">品牌色调 · Palette</div>
-      <PaletteChips value={tweaks.palette} options={PALETTES} onChange={(v) => setTweak("palette", v as Palette)} />
-      <div className="twk-sect">侧栏样式 · Sidebar</div>
-      <SegmentedRadio
-        value={tweaks.sidebar}
-        options={["rich", "minimal", "activity"]}
-        onChange={(v) => setTweak("sidebar", v as SidebarMode)}
-      />
+      <div className="pw-dlg-title">通用</div>
+      <div className="pw-dlg-desc">管理界面偏好、默认工作目录与桌面行为。</div>
+
+      <SettingCard title="基础设置">
+        <SRow label="主题" desc="浅色、深色或跟随系统。">
+          <BareSelect value={tweaks.theme} options={THEME_OPTIONS} onChange={(v) => setTweak("theme", v as ThemeMode)} />
+        </SRow>
+        <SRow label="字号" desc="调整整体界面的文字尺寸。">
+          <SegmentedRadio
+            value={FONT_SCALE_LABEL[tweaks.fontScale]}
+            options={(Object.keys(FONT_SCALE_LABEL) as FontScale[]).map((f) => FONT_SCALE_LABEL[f])}
+            onChange={setFontScale}
+          />
+        </SRow>
+        <SRow label="布局密度">
+          <SegmentedRadio
+            value={tweaks.density}
+            options={["compact", "regular", "cozy"]}
+            onChange={(v) => setTweak("density", v as Density)}
+          />
+        </SRow>
+        <SRow label="品牌色调">
+          <PaletteChips value={tweaks.palette} options={PALETTES} onChange={(v) => setTweak("palette", v as Palette)} />
+        </SRow>
+        <SRow label="侧栏样式">
+          <SegmentedRadio
+            value={tweaks.sidebar}
+            options={["rich", "minimal", "activity"]}
+            onChange={(v) => setTweak("sidebar", v as SidebarMode)}
+          />
+        </SRow>
+        <SRow label="默认工作目录" desc="新建无项目会话 / 定时任务未指定项目时,agent 在此目录运行（留空则用主目录）。">
+          <div className="pw-ws-control">
+            <input
+              className="pw-set-input"
+              value={general.workspaceRoot ?? ""}
+              placeholder="留空 = 用户主目录"
+              spellCheck={false}
+              onChange={(e) => setGeneral({ workspaceRoot: e.target.value || undefined })}
+            />
+            <button className="btn pw-pi-add-btn" onClick={() => void pickWorkspace()}>
+              选择…
+            </button>
+            {general.workspaceRoot ? (
+              <button className="btn pw-pi-add-btn" onClick={() => setGeneral({ workspaceRoot: undefined })}>
+                清除
+              </button>
+            ) : null}
+          </div>
+        </SRow>
+      </SettingCard>
+
+      <SettingCard title="桌面行为">
+        <SwitchRow
+          label="开机自启"
+          desc="登录系统后自动启动 Cortex（macOS / Windows）。"
+          value={behavior.openAtLogin}
+          onChange={(v) => setBehavior({ openAtLogin: v })}
+        />
+        {behavior.openAtLogin ? (
+          <SwitchRow
+            label="启动时最小化"
+            desc="启动后最小化到后台（主要用于 Windows）。"
+            value={behavior.startMinimized}
+            onChange={(v) => setBehavior({ startMinimized: v })}
+          />
+        ) : null}
+        <SwitchRow
+          label="关闭时隐藏到托盘"
+          desc="关闭窗口时隐藏到系统托盘,而非退出应用。"
+          value={behavior.closeToTray}
+          onChange={(v) => setBehavior({ closeToTray: v })}
+        />
+      </SettingCard>
+
+      <SettingCard title="通知">
+        <SwitchRow
+          label="回合完成通知"
+          desc="Agent 回合结束且窗口失焦时显示系统通知。"
+          value={general.notifications.turnComplete}
+          onChange={(v) => setGeneral({ notifications: { ...general.notifications, turnComplete: v } })}
+        />
+      </SettingCard>
+
+      <SettingCard title="日志">
+        <SwitchRow
+          label="启用文件日志"
+          desc="把主进程日志写入本地文件,便于排查问题。"
+          value={general.log.enabled}
+          onChange={(v) => {
+            setGeneral({ log: { ...general.log, enabled: v } });
+            void bridge?.setLogEnabled?.(v);
+          }}
+        />
+        <SRow label="保留天数" desc="超过天数的旧日志启动时自动清理。">
+          <BareSelect
+            value={String(general.log.retentionDays)}
+            options={LOG_RETENTION_OPTIONS}
+            onChange={(v) => setGeneral({ log: { ...general.log, retentionDays: Number(v) || 2 } })}
+          />
+        </SRow>
+        <SRow label="日志目录" end>
+          <button className="pw-tl-gen" disabled={!bridge?.openLogsDir} onClick={() => void bridge?.openLogsDir?.()}>
+            <Icon.Folder size={12} />
+            打开日志目录
+          </button>
+        </SRow>
+      </SettingCard>
     </>
   );
 }
@@ -412,168 +610,442 @@ function TimelineSection() {
   );
 }
 
-// ── Pi 兜底 Agent · 多 LLM 通道设置 ─────────────────────────────────────────
+// ── 供应商（Provider）设置 ──────────────────────────────────────────────────
 
-// 通道 id slug 化:作为 pi provider 名,仅允许字母数字与 - _。
+// provider id slug 化:作为 pi provider 名,仅允许字母数字与 - _。
 function slugify(s: string): string {
   const out = s.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  return out || "channel";
+  return out || "provider";
 }
 
-// 模型多行文本 ↔ PiModelOption[]:每行 "id" 或 "id|显示名"。
-function parseModels(text: string): PiModelOption[] {
-  const out: PiModelOption[] = [];
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-    const parts = line.split("|");
-    const id = (parts[0] ?? "").trim();
-    const label = (parts[1] ?? "").trim();
-    if (!id) continue;
-    out.push(label ? { id, label } : { id });
-  }
-  return out;
-}
-function modelsToText(models: PiModelOption[]): string {
-  return models.map((m) => (m.label ? `${m.id}|${m.label}` : m.id)).join("\n");
-}
+const ENDPOINT_FORMAT_OPTIONS: { label: string; value: EndpointFormat }[] = [
+  { label: "OpenAI 兼容 (chat/completions)", value: "chat_completions" },
+  { label: "OpenAI Responses", value: "responses" },
+  { label: "Anthropic Messages", value: "messages" },
+  { label: "自定义端点（不可探测）", value: "custom" },
+];
 
-// 单个通道编辑卡片。
-function ChannelCard({
-  channel,
-  onPatch,
-  onRemove,
+// 带显隐切换的密钥输入（本仓原无 SecretInput,此处新增）。
+function SecretField({
+  label,
+  value,
+  onChange,
+  placeholder,
 }: {
-  channel: PiChannel;
-  onPatch: (patch: Partial<PiChannel>) => void;
-  onRemove: () => void;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
 }) {
+  const [show, setShow] = useState(false);
   return (
-    <div className="pw-pi-channel">
-      <div className="pw-pi-channel-head">
+    <label className="pw-set-field">
+      <span className="pw-set-lbl">{label}</span>
+      <span className="pw-secret-wrap">
         <input
           className="pw-set-input"
-          value={channel.label}
-          placeholder="通道名称"
+          type={show ? "text" : "password"}
+          value={value}
+          placeholder={placeholder}
           spellCheck={false}
-          onChange={(e) => onPatch({ label: e.target.value })}
+          onChange={(e) => onChange(e.target.value)}
         />
-        <Toggle label="启用" value={channel.enabled} onChange={(v) => onPatch({ enabled: v })} />
-        <button className="pw-pi-channel-del" title="删除通道" onClick={onRemove}>
-          <Icon.X size={14} />
+        <button type="button" className="pw-secret-toggle" onClick={() => setShow((s) => !s)}>
+          {show ? "隐藏" : "显示"}
         </button>
-      </div>
-      <Field
-        label="Base URL"
-        value={channel.baseUrl}
-        placeholder="https://api.deepseek.com/v1"
-        onChange={(v) => onPatch({ baseUrl: v })}
+      </span>
+    </label>
+  );
+}
+
+// 两段式删除确认（仿 ProjectMenu:首次点击进入确认态,再次点击执行,失焦撤销）。
+function ConfirmDelete({ onConfirm, title }: { onConfirm: () => void; title?: string }) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <button
+      className={`pw-pi-channel-del ${confirming ? "is-confirming" : ""}`}
+      title={title}
+      onClick={() => (confirming ? onConfirm() : setConfirming(true))}
+      onBlur={() => setConfirming(false)}
+    >
+      {confirming ? "确认删除？" : <Icon.Trash size={14} />}
+    </button>
+  );
+}
+
+// 供应商详情表单（右栏），含连接测试四态（idle / 测试中 / 成功+回填 / 失败）。
+type ProbeState =
+  | { kind: "idle" }
+  | { kind: "testing" }
+  | { kind: "ok"; models: string[] }
+  | { kind: "err"; error: string };
+
+// 单个模型的内联编辑行（添加/编辑共用）：id + 显示名 + 保存/取消。
+function ModelEditRow({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: ProviderModelOption;
+  onSave: (m: ProviderModelOption) => void;
+  onCancel: () => void;
+}) {
+  const [id, setId] = useState(initial.id);
+  const [label, setLabel] = useState(initial.label ?? "");
+  const save = () => {
+    const trimmed = id.trim();
+    if (!trimmed) return;
+    onSave(label.trim() ? { id: trimmed, label: label.trim() } : { id: trimmed });
+  };
+  return (
+    <div className="pw-ml-edit">
+      <input
+        className="pw-set-input"
+        value={id}
+        placeholder="模型 id（如 deepseek-chat）"
+        spellCheck={false}
+        autoFocus
+        onChange={(e) => setId(e.target.value)}
+        onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
       />
-      <Field
-        label="API Key"
-        type="password"
-        value={channel.apiKey ?? ""}
-        placeholder="该通道的 API Key"
-        onChange={(v) => onPatch({ apiKey: v || undefined })}
+      <input
+        className="pw-set-input"
+        value={label}
+        placeholder="显示名（可选）"
+        spellCheck={false}
+        onChange={(e) => setLabel(e.target.value)}
+        onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
       />
-      <label className="pw-set-field">
-        <span className="pw-set-lbl">模型（每行一个,可写 id|显示名）</span>
-        <textarea
-          className="pw-set-input"
-          rows={3}
-          value={modelsToText(channel.models)}
-          placeholder="deepseek-chat|DeepSeek Chat"
-          spellCheck={false}
-          onChange={(e) => onPatch({ models: parseModels(e.target.value) })}
-        />
-      </label>
+      <button className="btn pw-pi-add-btn" disabled={!id.trim()} onClick={save}>
+        保存
+      </button>
+      <button className="pw-ml-cancel" onClick={onCancel}>
+        取消
+      </button>
     </div>
   );
 }
 
-function AgentSection() {
-  const piSettings = usePersonalStore((s) => s.piSettings);
-  const addPiChannel = usePersonalStore((s) => s.addPiChannel);
-  const updatePiChannel = usePersonalStore((s) => s.updatePiChannel);
-  const removePiChannel = usePersonalStore((s) => s.removePiChannel);
-  const setPiDefaults = usePersonalStore((s) => s.setPiDefaults);
-  const [tmplKey, setTmplKey] = useState(PI_CHANNEL_TEMPLATES[0]?.templateKey ?? "deepseek");
+// kun 风格模型列表：每个模型一张卡（id + 能力徽标 + 编辑/删除）,顶部「从 API 拉取」,底部「添加模型」。
+function ProviderModels({
+  models,
+  onChange,
+  bridge,
+  baseUrl,
+  apiKey,
+  endpointFormat,
+}: {
+  models: ProviderModelOption[];
+  onChange: (models: ProviderModelOption[]) => void;
+  bridge: DesktopBridge | null;
+  baseUrl: string;
+  apiKey?: string;
+  endpointFormat: EndpointFormat;
+}) {
+  // editIdx：正在编辑的下标;models.length 表示新增;null 表示无编辑。
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
+  useEffect(() => {
+    setProbe({ kind: "idle" });
+  }, [baseUrl, apiKey, endpointFormat]);
+
+  const canProbe = !!bridge?.probeProvider && endpointFormat !== "custom" && !!baseUrl.trim();
+
+  const runProbe = async () => {
+    if (!bridge?.probeProvider || probe.kind === "testing") return;
+    setProbe({ kind: "testing" });
+    try {
+      const res = await bridge.probeProvider({ baseUrl, apiKey, endpointFormat });
+      setProbe(res.ok ? { kind: "ok", models: res.models ?? [] } : { kind: "err", error: res.error ?? "连接失败" });
+    } catch (e) {
+      setProbe({ kind: "err", error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  // 拉取应用：保留已有显示名,按拉取结果重排（新 id 无显示名）。
+  const applyFetched = (ids: string[]) => {
+    const existing = new Map(models.map((m) => [m.id, m]));
+    onChange(ids.map((id) => existing.get(id) ?? { id }));
+    setProbe({ kind: "idle" });
+  };
+
+  const saveModel = (m: ProviderModelOption) => {
+    const next = [...models];
+    if (editIdx === models.length) next.push(m);
+    else if (editIdx !== null) next[editIdx] = m;
+    onChange(next);
+    setEditIdx(null);
+  };
+  const removeModel = (i: number) => {
+    onChange(models.filter((_, j) => j !== i));
+    if (editIdx === i) setEditIdx(null);
+  };
+
+  return (
+    <div className="pw-ml">
+      <div className="pw-ml-head">
+        <span className="pw-ml-title">模型列表 · {models.length}</span>
+        <button
+          className="pw-tl-gen"
+          disabled={!canProbe || probe.kind === "testing"}
+          onClick={() => void runProbe()}
+          title={endpointFormat === "custom" ? "自定义端点不支持探测,请手动添加" : undefined}
+        >
+          <Icon.Retry size={12} />
+          {probe.kind === "testing" ? "拉取中…" : "从 API 拉取"}
+        </button>
+      </div>
+      <div className="pw-set-hint">供应商发布新模型后可在这里手动添加或从 API 拉取。</div>
+
+      {probe.kind === "ok" ? (
+        <div className="pw-ml-probe pw-ml-probe-ok">
+          拉取到 {probe.models.length} 个模型
+          {probe.models.length > 0 ? (
+            <button className="pw-prov-probe-apply" onClick={() => applyFetched(probe.models)}>
+              应用
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {probe.kind === "err" ? <div className="pw-ml-probe pw-ml-probe-err">{probe.error}</div> : null}
+
+      {models.length === 0 && editIdx === null ? (
+        <div className="pw-set-hint">还没有模型。点「添加模型」或「从 API 拉取」。</div>
+      ) : null}
+
+      {models.map((m, i) =>
+        editIdx === i ? (
+          <ModelEditRow key={i} initial={m} onSave={saveModel} onCancel={() => setEditIdx(null)} />
+        ) : (
+          <div key={i} className="pw-ml-card">
+            <div className="pw-ml-card-main">
+              <span className="pw-ml-id">{m.id}</span>
+              <span className="pw-ml-badges">
+                <span className="pw-ml-badge">文本对话</span>
+                {m.label && m.label !== m.id ? <span className="pw-ml-badge is-name">{m.label}</span> : null}
+              </span>
+            </div>
+            <div className="pw-ml-actions">
+              <button title="编辑" onClick={() => setEditIdx(i)}>
+                <Icon.Edit size={14} />
+              </button>
+              <button title="删除" onClick={() => removeModel(i)}>
+                <Icon.Trash size={14} />
+              </button>
+            </div>
+          </div>
+        ),
+      )}
+
+      {editIdx === models.length ? (
+        <ModelEditRow initial={{ id: "" }} onSave={saveModel} onCancel={() => setEditIdx(null)} />
+      ) : (
+        <button className="pw-ml-add" onClick={() => setEditIdx(models.length)}>
+          <Icon.Plus size={13} />
+          添加模型
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ProviderDetail({
+  provider,
+  onPatch,
+  onRemove,
+}: {
+  provider: ProviderProfile;
+  onPatch: (patch: Partial<ProviderProfile>) => void;
+  onRemove: () => void;
+}) {
+  const bridge = useDesktopBridge();
+  return (
+    <div className="pw-prov-detail">
+      <div className="pw-pi-channel-head">
+        <input
+          className="pw-set-input"
+          value={provider.name}
+          placeholder="供应商名称"
+          spellCheck={false}
+          onChange={(e) => onPatch({ name: e.target.value })}
+        />
+        <Toggle label="启用" value={provider.enabled} onChange={(v) => onPatch({ enabled: v })} />
+        <ConfirmDelete onConfirm={onRemove} title="删除供应商" />
+      </div>
+      <Select
+        label="协议类型"
+        value={provider.endpointFormat}
+        options={ENDPOINT_FORMAT_OPTIONS}
+        onChange={(v) => onPatch({ endpointFormat: v as EndpointFormat })}
+      />
+      <Field
+        label="Base URL"
+        value={provider.baseUrl}
+        placeholder="https://api.deepseek.com/v1"
+        onChange={(v) => onPatch({ baseUrl: v })}
+      />
+      <SecretField
+        label="API Key"
+        value={provider.apiKey ?? ""}
+        placeholder="该供应商的 API Key"
+        onChange={(v) => onPatch({ apiKey: v || undefined })}
+      />
+      <ProviderModels
+        models={provider.models}
+        onChange={(models) => onPatch({ models })}
+        bridge={bridge}
+        baseUrl={provider.baseUrl}
+        apiKey={provider.apiKey}
+        endpointFormat={provider.endpointFormat}
+      />
+    </div>
+  );
+}
+
+function ProvidersSection() {
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const addProvider = usePersonalStore((s) => s.addProvider);
+  const updateProvider = usePersonalStore((s) => s.updateProvider);
+  const removeProvider = usePersonalStore((s) => s.removeProvider);
+  const providers = providerSettings.providers;
+  const [selectedId, setSelectedId] = useState<string | undefined>(providers[0]?.id);
+  const [tmplKey, setTmplKey] = useState(PROVIDER_PRESETS[0]?.templateKey ?? "deepseek");
+
+  const selected = providers.find((p) => p.id === selectedId) ?? providers[0];
 
   const addFromTemplate = () => {
-    const t = PI_CHANNEL_TEMPLATES.find((x) => x.templateKey === tmplKey);
+    const t = PROVIDER_PRESETS.find((x) => x.templateKey === tmplKey);
     if (!t) return;
-    const base = slugify(t.templateKey);
-    const existing = new Set(piSettings.channels.map((c) => c.id));
+    const base = slugify(t.templateKey === "custom" ? "custom-provider" : t.templateKey);
+    const existing = new Set(providers.map((p) => p.id));
     let id = base;
     let n = 1;
     while (existing.has(id)) id = `${base}-${++n}`;
-    addPiChannel({ id, label: t.label, baseUrl: t.baseUrl, models: t.models, enabled: true });
+    addProvider(providerFromPreset(t, id));
+    setSelectedId(id);
   };
-
-  const defaultChannel = piSettings.channels.find((c) => c.id === piSettings.defaultChannelId);
 
   return (
     <>
-      <div className="pw-dlg-title">兜底 Agent · Pi</div>
+      <div className="pw-dlg-title">供应商</div>
       <div className="pw-dlg-desc">
-        内置 Pi 在本机未安装 Claude / Codex CLI 时兜底。在此添加任意 OpenAI 兼容 LLM
-        通道（DeepSeek / Kimi / 通义千问 / 智谱 / 本地模型等）,填入 API Key 即可在会话中选用。
+        配置 LLM 供应商（OpenAI 兼容 / Anthropic 兼容端点）。Pi 兜底 Agent 在「Agent」设置中选用这里的供应商;API
+        Key 仅本机保存。
       </div>
 
-      <div className="twk-sect">LLM 通道</div>
-      <div className="pw-set-group">
-        <div className="pw-pi-add">
-          <Select
-            label="从模板添加"
-            value={tmplKey}
-            options={PI_CHANNEL_TEMPLATES.map((t) => ({ label: t.label, value: t.templateKey }))}
-            onChange={setTmplKey}
-          />
-          <button className="btn pw-pi-add-btn" onClick={addFromTemplate}>
-            添加通道
-          </button>
+      <div className="pw-pi-add">
+        <Select
+          label="从模板添加"
+          value={tmplKey}
+          options={PROVIDER_PRESETS.map((t) => ({ label: t.name, value: t.templateKey }))}
+          onChange={setTmplKey}
+        />
+        <button className="btn pw-pi-add-btn" onClick={addFromTemplate}>
+          添加供应商
+        </button>
+      </div>
+
+      {providers.length === 0 ? (
+        <div className="pw-set-hint">
+          还没有供应商。选择模板（或「自定义」）后点「添加供应商」,填好 API Key 即可在会话中选用。
         </div>
-        {piSettings.channels.length === 0 ? (
-          <div className="pw-set-hint">还没有通道。选择模板后点「添加通道」,填好 API Key 即可使用。</div>
-        ) : null}
-        {piSettings.channels.map((ch) => (
-          <ChannelCard
-            key={ch.id}
-            channel={ch}
-            onPatch={(patch) => updatePiChannel(ch.id, patch)}
-            onRemove={() => removePiChannel(ch.id)}
-          />
-        ))}
+      ) : (
+        <div className="pw-prov-split">
+          <div className="pw-prov-list">
+            {providers.map((p) => (
+              <button
+                key={p.id}
+                className={`pw-prov-item ${p.id === selected?.id ? "is-active" : ""}`}
+                onClick={() => setSelectedId(p.id)}
+              >
+                <span className="pw-prov-item-name">{p.name || p.id}</span>
+                <span className="pw-prov-item-meta">
+                  {providerSettings.defaultProviderId === p.id ? (
+                    <span className="pw-prov-badge is-default">默认</span>
+                  ) : null}
+                  {p.enabled ? null : <span className="pw-prov-badge">已停用</span>}
+                  <span className="pw-prov-badge">{p.models.length} 模型</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          {selected ? (
+            <ProviderDetail
+              key={selected.id}
+              provider={selected}
+              onPatch={(patch) => updateProvider(selected.id, patch)}
+              onRemove={() => {
+                removeProvider(selected.id);
+                setSelectedId(undefined);
+              }}
+            />
+          ) : null}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Agent 设置（引用供应商）─────────────────────────────────────────────────
+
+function AgentSection() {
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const setProviderDefaults = usePersonalStore((s) => s.setProviderDefaults);
+  const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const enabledProviders = providerSettings.providers.filter((p) => p.enabled);
+  // defaultProviderId 可能指向已删除/已停用的 provider → 下拉回退「（未设置）」。
+  const defaultProvider = enabledProviders.find((p) => p.id === providerSettings.defaultProviderId);
+  const defaultValue = defaultProvider ? defaultProvider.id : "";
+
+  return (
+    <>
+      <div className="pw-dlg-title">Agent</div>
+      <div className="pw-dlg-desc">
+        Cortex 支持 Claude Code、Codex、内置 Pi 三种 Agent。Claude / Codex 用各自 CLI 自带鉴权;Pi 在未装 CLI
+        时兜底,使用「供应商」中配置的 LLM 端点。
       </div>
 
-      {piSettings.channels.length > 0 ? (
-        <>
-          <div className="twk-sect">默认通道</div>
-          <div className="pw-set-group">
-            <div className="pw-set-hint">新建 Pi 会话默认使用的通道与模型（会话内仍可单独切换）。</div>
-            <div className="pw-set-row2">
-              <Select
-                label="默认通道"
-                value={piSettings.defaultChannelId ?? ""}
-                options={[
-                  { label: "（未设置）", value: "" },
-                  ...piSettings.channels.map((c) => ({ label: c.label, value: c.id })),
-                ]}
-                onChange={(v) => setPiDefaults({ defaultChannelId: v || undefined, defaultModel: undefined })}
-              />
-              <Select
-                label="默认模型"
-                value={piSettings.defaultModel ?? ""}
-                options={[
-                  { label: "（通道首个模型）", value: "" },
-                  ...(defaultChannel?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id })),
-                ]}
-                onChange={(v) => setPiDefaults({ defaultModel: v || undefined })}
-              />
+      <div className="twk-sect">可用性</div>
+      <div className="pw-set-group">
+        {INTEGRATED_AGENTS.map((a) => {
+          const on = a === "pi" || !!agentsAvailable?.[a];
+          return (
+            <div key={a} className="pw-agent-avail">
+              <span>{AGENT_LABEL[a]}</span>
+              <span className={`pw-agent-dot ${on ? "is-on" : "is-off"}`}>
+                {a === "pi" ? "内置" : agentsAvailable?.[a] ? "已安装" : "未检测到 CLI"}
+              </span>
             </div>
+          );
+        })}
+      </div>
+
+      <div className="twk-sect">Pi 默认供应商</div>
+      <div className="pw-set-group">
+        {enabledProviders.length === 0 ? (
+          <div className="pw-set-hint">还没有启用的供应商。先在「供应商」设置中添加并启用,再回此处选默认。</div>
+        ) : (
+          <div className="pw-set-row2">
+            <Select
+              label="默认供应商"
+              value={defaultValue}
+              options={[
+                { label: "（未设置）", value: "" },
+                ...enabledProviders.map((p) => ({ label: p.name || p.id, value: p.id })),
+              ]}
+              onChange={(v) => setProviderDefaults({ defaultProviderId: v || undefined, defaultModel: undefined })}
+            />
+            <Select
+              label="默认模型"
+              value={providerSettings.defaultModel ?? ""}
+              options={[
+                { label: "（供应商首个模型）", value: "" },
+                ...(defaultProvider?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id })),
+              ]}
+              onChange={(v) => setProviderDefaults({ defaultModel: v || undefined })}
+            />
           </div>
-        </>
-      ) : null}
+        )}
+      </div>
     </>
   );
 }
@@ -988,12 +1460,14 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           </button>
           {tab === "profile" ? (
             <ProfileSection />
-          ) : tab === "pet" ? (
-            <PetSection />
-          ) : tab === "appearance" ? (
-            <AppearanceSection />
+          ) : tab === "general" ? (
+            <GeneralSection />
+          ) : tab === "providers" ? (
+            <ProvidersSection />
           ) : tab === "agent" ? (
             <AgentSection />
+          ) : tab === "pet" ? (
+            <PetSection />
           ) : tab === "timeline" ? (
             <TimelineSection />
           ) : tab === "push" ? (

@@ -1,5 +1,5 @@
 // 个人工作区会话页输入框：ComposerShell 内核的会话绑定薄封装。把 session 派生量
-// (agent/model/piChannelId/useOwnSkills) 摊平后转交内核,并启用 slash 命令与文件预览
+// (agent/model/providerId/useOwnSkills) 摊平后转交内核,并启用 slash 命令与文件预览
 // 「发送到 Chat」插入。
 
 import type { PersonalAttachment, SessionMeta } from "@cortex-work/core";
@@ -39,7 +39,7 @@ export function PersonalComposer({
     <ComposerShell
       agent={session.agent}
       model={session.model}
-      piChannelId={session.piChannelId}
+      providerId={session.providerId}
       useOwnSkills={session.useOwnSkills === true}
       running={running}
       editing={editing}

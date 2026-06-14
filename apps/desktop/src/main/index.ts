@@ -13,6 +13,8 @@ import { initScheduler, rescheduleAll, stopScheduler } from "./automation/schedu
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
+import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
+import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 
 const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 
@@ -51,13 +53,21 @@ function createWindow(): void {
     },
   });
 
-  mainWindow.on("ready-to-show", () => mainWindow?.show());
+  // 启动最小化：不显示主窗口（仅托盘常驻）;否则就绪即显示。
+  mainWindow.on("ready-to-show", () => {
+    if (!getDesktopBehavior().startMinimized) mainWindow?.show();
+  });
 
-  // 关窗 = 隐藏到后台（托盘常驻,定时任务继续触发）;真正退出走 before-quit。
+  // 关窗：closeToTray 开 → 隐藏到后台（托盘常驻,定时任务继续触发）;关 → 关窗即退出。
+  // 真正退出（托盘退出 / before-quit）置 isQuitting,直接放行。
   mainWindow.on("close", (e) => {
-    if (!isQuitting) {
+    if (isQuitting) return;
+    if (getDesktopBehavior().closeToTray) {
       e.preventDefault();
       mainWindow?.hide();
+    } else {
+      isQuitting = true;
+      app.quit();
     }
   });
   mainWindow.on("closed", () => {
@@ -98,9 +108,17 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform === "darwin" && app.dock) app.dock.setIcon(appIconPath);
     app.on("browser-window-created", (_, window) => optimizer.watchWindowShortcuts(window));
 
+    // 最前接管 console（幂等,默认启用）,捕获 ensureMigrated 等启动期错误入文件日志;
+    // initLogger 稍后读设置再调整开关 + 清理过期。
+    patchConsole();
     await ensureMigrated();
     registerIpcHandlers();
+    registerDesktopHandlers();
+    registerLogHandlers();
     registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });
+    // 启动恢复桌面行为（登录项 + 供 ready-to-show 读 startMinimized）,须在建窗前。
+    await initDesktopBehavior();
+    await initLogger();
     // 先建托盘:即使建窗失败也保留后台入口与调度。
     createTray({
       onShow: showMainWindow,
