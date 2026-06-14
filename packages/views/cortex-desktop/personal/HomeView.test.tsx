@@ -55,9 +55,13 @@ describe("HomeView", () => {
     useCortexUIStore.setState({ rightOpen: false });
   });
 
-  it("渲染三个区块,不再有「Agent 项目」检索", async () => {
+  it("渲染 Hero + 用量日历卡片 + 一日总结 + Tasks,不再有独立「活动热力图」section 与「Agent 项目」检索", async () => {
     renderHome(fakeBridge({}));
-    expect(screen.getByText("活动热力图")).toBeInTheDocument();
+    // 顶部 Hero
+    expect(screen.getByText("开始你的智能体节奏")).toBeInTheDocument();
+    // 用量日历卡片（替换了原「活动热力图」section）
+    expect(screen.getByRole("tab", { name: "活动" })).toBeInTheDocument();
+    expect(screen.queryByText("活动热力图")).toBeNull();
     expect(screen.getByText("一日总结 · 所有项目")).toBeInTheDocument();
     expect(screen.getByText("Tasks · 所有项目")).toBeInTheDocument();
     // 「Agent 项目」检索区已移除。
@@ -172,10 +176,11 @@ describe("HomeView", () => {
     expect(await screen.findByText("还没有 Task")).toBeInTheDocument();
   });
 
-  it("工作区为空时仍渲染三个区块", async () => {
+  it("工作区为空时仍渲染 Hero + 用量日历卡片 + Tasks", async () => {
     usePersonalStore.setState({ projects: [], sessions: [] });
     renderHome(fakeBridge({}));
-    expect(screen.getByText("活动热力图")).toBeInTheDocument();
+    expect(screen.getByText("开始你的智能体节奏")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "活动" })).toBeInTheDocument();
     expect(screen.getByText("Tasks · 所有项目")).toBeInTheDocument();
     await screen.findByText("还没有 Task");
   });

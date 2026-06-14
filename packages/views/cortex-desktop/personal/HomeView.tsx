@@ -6,10 +6,8 @@
 import { useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
-  buildHeatmapWeeks,
   dayKey,
   groupEventsByDay,
-  homeHeatLevel,
   partitionProjects,
   useAllProjectsTasks,
   useAllProjectsTimeline,
@@ -18,84 +16,12 @@ import {
   useCortexUIStore,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { DayGroup, DayStats, GlobalSummaryEntry, HomeTaskRow } from "@cortex-work/core";
+import type { GlobalSummaryEntry, HomeTaskRow } from "@cortex-work/core";
 import { relTime } from "./PersonalSidebar";
+import { LandingHero } from "./LandingHero";
+import { UsageCalendarCard } from "./UsageCalendarCard";
 
-const HEAT_WEEKS = 26;
-const WEEKDAY_ROWS = ["一", "三", "五", "日"]; // 仅标注部分行,GitHub 风格
 const HOME_TODOS_LIMIT = 5; // 首页 Tasks 区最多展示的条数(按 mtime 全局降序取前 N)
-
-function statsTitle(day: string, stats?: DayStats): string {
-  if (!stats) return `${day} · 无活动`;
-  const parts: string[] = [];
-  if (stats.runs) parts.push(`${stats.runs} 轮交互`);
-  if (stats.sessions) parts.push(`${stats.sessions} 个新会话`);
-  if (stats.files) parts.push(`${stats.files} 个文件变更`);
-  return parts.length ? `${day} · ${parts.join(" · ")}` : `${day} · 无活动`;
-}
-
-// ── 热力图 ────────────────────────────────────────────────────────────────
-
-function Heatmap({
-  groups,
-  selectedDay,
-  onPickDay,
-}: {
-  groups: DayGroup[];
-  selectedDay: string;
-  onPickDay: (day: string) => void;
-}) {
-  const weeks = useMemo(() => buildHeatmapWeeks(HEAT_WEEKS, groups), [groups]);
-  const today = dayKey(Date.now());
-
-  return (
-    <div className="pw-hm">
-      <div className="pw-hm-body">
-        <div className="pw-hm-wd" aria-hidden="true">
-          {WEEKDAY_ROWS.map((w) => (
-            <span key={w}>{w}</span>
-          ))}
-        </div>
-        <div className="pw-hm-scroll">
-          <div className="pw-hm-months">
-            {weeks.map((w, i) => (
-              <span key={i}>{w.monthLabel ?? ""}</span>
-            ))}
-          </div>
-          <div className="pw-hm-grid">
-            {weeks.map((w, i) => (
-              <div key={i} className="pw-hm-col">
-                {w.cells.map((c) => (
-                  <button
-                    key={c.day}
-                    className="pw-hm-cell"
-                    data-heat={homeHeatLevel(c.stats)}
-                    data-today={c.day === today}
-                    data-selected={c.day === selectedDay}
-                    disabled={c.inFuture}
-                    onClick={() => onPickDay(c.day)}
-                    title={c.inFuture ? undefined : statsTitle(c.day, c.stats)}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="pw-hm-legend">
-        <span className="pw-tl-cal-legend-heat">
-          少
-          {[1, 2, 3, 4].map((h) => (
-            <i key={h} data-heat={h} />
-          ))}
-          多
-        </span>
-        <span className="pw-tl-day-sp" />
-        <span>近 {HEAT_WEEKS} 周所有项目的活动 · 点击日期查看当天总结</span>
-      </div>
-    </div>
-  );
-}
 
 // ── 跨项目 Tasks 汇总 ─────────────────────────────────────────────────────
 
@@ -256,17 +182,14 @@ export function HomeBoard({ onToast }: { onToast: (text: string) => void }) {
 
   return (
     <div className="pw-home">
-      <section className="pw-home-section">
-        <div className="pw-section-h">
-          <span>活动热力图</span>
-          {loading ? <span className="pw-home-loading">加载中…</span> : null}
-        </div>
-        <Heatmap groups={groups} selectedDay={selectedDay} onPickDay={setSelectedDay} />
-      </section>
+      <LandingHero />
+
+      <UsageCalendarCard groups={groups} selectedDay={selectedDay} onPickDay={setSelectedDay} />
 
       <section className="pw-home-section">
         <div className="pw-section-h">
           <span>一日总结 · 所有项目</span>
+          {loading ? <span className="pw-home-loading">加载中…</span> : null}
         </div>
         <GlobalSummary day={selectedDay} entries={entries} onToast={onToast} />
       </section>
