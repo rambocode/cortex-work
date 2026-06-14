@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { usePersonalStore } from "../store/personal";
 import type { CliStreamEvent, SessionMeta } from "../desktop/types";
 import {
+  RESULT_EXIT_GRACE_MS,
+  __handleCliEventForTest,
+  __handleCliExitForTest,
+  __resetPersonalMessageRunsForTest,
   agentSessionPatch,
   buildAttachmentSystemPrompt,
   clearAgentSessionPatch,
@@ -9,6 +15,7 @@ import {
   finalizeAgentLog,
   foldCliEvent,
   isMissingAgentSessionError,
+  personalChatKeys,
   sessionResumeId,
   sameTextOrdinal,
   splitPersonalMessages,
@@ -25,6 +32,21 @@ const baseSession: SessionMeta = {
   createdAt: 1,
   updatedAt: 1,
 };
+
+beforeEach(() => {
+  vi.useRealTimers();
+  __resetPersonalMessageRunsForTest();
+  usePersonalStore.setState({
+    sessions: [],
+    projects: [],
+    runningBySession: {},
+  });
+});
+
+afterEach(() => {
+  __resetPersonalMessageRunsForTest();
+  vi.useRealTimers();
+});
 
 describe("personal message agent session helpers", () => {
   it("Claude 旧字段可作为 resume id 回退", () => {
@@ -136,6 +158,47 @@ describe("typingText 启动状态文案", () => {
     expect(typingText("claude", "starting", 4900)).toBe("正在启动 Claude Code…");
     expect(typingText("claude", "starting", 12_300)).toBe("正在启动 Claude Code…已等待 12 秒");
     expect(typingText("codex", "thinking", 65_000)).toBe("Codex 正在思考…已等待 65 秒");
+  });
+});
+
+describe("CLI result 收尾兜底", () => {
+  function setupRecoveredRun(qc: QueryClient, runId = "run-1") {
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+    });
+    __handleCliEventForTest(qc, runId, { type: "init", sessionId: "pi-session" }, "s1");
+    expect(usePersonalStore.getState().runningBySession.s1).toBe(runId);
+  }
+
+  it("收到 result 后即使 cli:exit 丢失,也会在短延迟后清掉 runningBySession", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupRecoveredRun(qc);
+
+    __handleCliEventForTest(qc, "run-1", { type: "result", ok: true, text: "DONE" }, "s1");
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("run-1");
+
+    await vi.advanceTimersByTimeAsync(RESULT_EXIT_GRACE_MS);
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    const messages = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+    expect(messages.filter((m) => m.kind === "text" && m.who === "pi")).toHaveLength(1);
+  });
+
+  it("正常 cli:exit 先到时取消 result 兜底,不会重复追加消息", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupRecoveredRun(qc);
+
+    __handleCliEventForTest(qc, "run-1", { type: "result", ok: true, text: "DONE" }, "s1");
+    const beforeExit = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+
+    __handleCliExitForTest(qc, "run-1", 0, undefined, "s1");
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(RESULT_EXIT_GRACE_MS);
+    const afterTimers = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+    expect(afterTimers).toHaveLength(beforeExit.length);
   });
 });
 

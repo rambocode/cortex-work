@@ -95,6 +95,7 @@ interface RunState {
   sawText: boolean; // 本轮是否产出过文本（result 文本兜底判断）
   buffer: string;
   gotResult: boolean;
+  resultOk?: boolean;
   // 启动状态机:starting(进程启动中)→ thinking(收到 init,等首个输出)。
   phase: "starting" | "thinking";
   // 最近一次收到事件的时间,看门狗据此判定卡死。
@@ -105,6 +106,7 @@ interface RunState {
   startedAt?: number;
   cwd?: string;
   changedFiles?: Set<string>;
+  resultExitFallback?: ReturnType<typeof setTimeout>;
 }
 
 const runs = new Map<string, RunState>();
@@ -113,6 +115,7 @@ const runs = new Map<string, RunState>();
 // (工具可能长时间执行不产生事件,放宽避免误杀)。
 export const RUN_START_TIMEOUT_MS = 90_000;
 export const RUN_STALL_TIMEOUT_MS = 300_000;
+export const RESULT_EXIT_GRACE_MS = 1_000;
 
 const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
@@ -128,6 +131,18 @@ function stopWatchdog(run: RunState): void {
     clearInterval(run.watchdog);
     run.watchdog = undefined;
   }
+}
+
+function stopResultExitFallback(run: RunState): void {
+  if (run.resultExitFallback) {
+    clearTimeout(run.resultExitFallback);
+    run.resultExitFallback = undefined;
+  }
+}
+
+function stopRunTimers(run: RunState): void {
+  stopWatchdog(run);
+  stopResultExitFallback(run);
 }
 
 // typing 是瞬态消息(sanitizeForSave 会丢弃),只改缓存不调度落盘,避免每秒空写。
@@ -423,6 +438,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
 
   if (ev.type === "result") {
     run.gotResult = true;
+    run.resultOk = ev.ok;
     dropMsg(qc, sessionId, run.typingUid);
     // 收尾当前打开的 agentLog：全部步骤打勾（被文本打断的旧卡片已在折叠时收尾）。
     if (run.cursor.lastKind === "tool" && run.cursor.logUid) {
@@ -439,6 +455,8 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
           text: "⚠️ Codex 本地会话历史已丢失，已断开旧 thread id。下次发送会创建新的 Codex 线程。",
           uid: uid("err"),
         });
+        notifyTurnComplete(false);
+        scheduleResultExitFallback(qc, runId, sessionId);
         return;
       }
       // pi 兜底 Agent 鉴权类错误:补一句去哪里配供应商 / API Key。
@@ -458,6 +476,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: ev.text, uid: uid("at") });
     }
     notifyTurnComplete(ev.ok);
+    scheduleResultExitFallback(qc, runId, sessionId);
   }
 }
 
@@ -476,7 +495,16 @@ function notifyTurnComplete(ok: boolean): void {
   }
 }
 
-function handleCliExit(
+function scheduleResultExitFallback(qc: QueryClient, runId: string, sessionId: string): void {
+  const run = runs.get(runId);
+  if (!run) return;
+  stopResultExitFallback(run);
+  run.resultExitFallback = setTimeout(() => {
+    finalizeRun(qc, runId, 0, undefined, sessionId);
+  }, RESULT_EXIT_GRACE_MS);
+}
+
+function finalizeRun(
   qc: QueryClient,
   runId: string,
   code: number | null,
@@ -495,7 +523,7 @@ function handleCliExit(
     }
     return;
   }
-  stopWatchdog(run);
+  stopRunTimers(run);
   runs.delete(runId);
   const { sessionId } = run;
   dropMsg(qc, sessionId, run.typingUid);
@@ -520,7 +548,7 @@ function handleCliExit(
   // 一轮结束立即冲刷落盘，不等节流窗口。
   flushChat(qc, sessionId);
   // 成功收尾 → 开心一下;失败/中断 → 回闲置。
-  usePetStore.getState().set(run.gotResult ? "happy" : "idle");
+  usePetStore.getState().set(run.gotResult && run.resultOk !== false ? "happy" : "idle");
 
   // TTS：开启自动朗读时,把这一轮的回复读出来（失败静默,不影响会话）。
   const tts = usePersonalStore.getState().ttsSettings;
@@ -546,11 +574,46 @@ function handleCliExit(
       files: run.changedFiles?.size ? [...run.changedFiles] : undefined,
       meta: {
         agent: run.agent,
-        ok: run.gotResult && !error && (code === null || code === 0),
+        ok: run.gotResult && run.resultOk !== false && !error && (code === null || code === 0),
         durationMs: run.startedAt ? Date.now() - run.startedAt : undefined,
       },
     });
   }
+}
+
+function handleCliExit(
+  qc: QueryClient,
+  runId: string,
+  code: number | null,
+  error?: string,
+  sessionIdHint?: string,
+): void {
+  finalizeRun(qc, runId, code, error, sessionIdHint);
+}
+
+export function __handleCliEventForTest(
+  qc: QueryClient,
+  runId: string,
+  ev: CliStreamEvent,
+  sessionIdHint?: string,
+): void {
+  handleCliEvent(qc, runId, ev, sessionIdHint);
+}
+
+export function __handleCliExitForTest(
+  qc: QueryClient,
+  runId: string,
+  code: number | null,
+  error?: string,
+  sessionIdHint?: string,
+): void {
+  handleCliExit(qc, runId, code, error, sessionIdHint);
+}
+
+export function __resetPersonalMessageRunsForTest(): void {
+  for (const run of runs.values()) stopRunTimers(run);
+  runs.clear();
+  bridgeRef = null;
 }
 
 // ── session 标题自动生成 ──────────────────────────────────────────────────
