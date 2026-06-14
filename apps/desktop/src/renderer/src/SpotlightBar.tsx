@@ -75,10 +75,11 @@ export function SpotlightBar(): React.ReactElement {
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
-  // 弹层开合时上报所需高度,主进程把窗口向上长高/收回（底边固定）。
+  // 窗口高度按内容实测上报（折叠/展开同理）,主进程把窗口向上长高/收回（底边固定）。
+  // 用实测高度而非写死,避免窗口短于「白卡 + 投影」时,投影被窗口下边缘硬切成半透明带。
   useLayoutEffect(() => {
     if (!api?.spotlight) return;
-    const h = menuOpen ? (rootRef.current?.scrollHeight ?? 0) + 24 : 96;
+    const h = (rootRef.current?.scrollHeight ?? 0) + 4;
     api.spotlight.resize(h);
   }, [menuOpen, api]);
 
@@ -97,6 +98,12 @@ export function SpotlightBar(): React.ReactElement {
     } else {
       setDraft((d) => ({ ...d, agent, piChannelId: undefined, model: DEFAULT_MODEL[agent] }));
     }
+  }
+
+  // 收起弹层并把光标交还输入框（点 New Chat 收起 / Esc / 选完配置回到打字）。
+  function closeMenu(): void {
+    setMenuOpen(false);
+    requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   function submit(): void {
@@ -121,7 +128,7 @@ export function SpotlightBar(): React.ReactElement {
       submit();
     } else if (e.key === "Escape") {
       e.preventDefault();
-      if (menuOpen) setMenuOpen(false);
+      if (menuOpen) closeMenu();
       else api?.spotlight?.hide();
     }
   }
@@ -142,8 +149,13 @@ export function SpotlightBar(): React.ReactElement {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={onKeyDown}
+          onFocus={() => setMenuOpen(false)}
         />
-        <button className="spot-menu-btn" onClick={() => setMenuOpen((v) => !v)} type="button">
+        <button
+          className={`spot-menu-btn${menuOpen ? " is-open" : ""}`}
+          onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
+          type="button"
+        >
           New Chat <Icon.Chevron size={14} />
         </button>
         <button className="spot-send" onClick={submit} disabled={!prompt.trim()} type="button" aria-label="发送">

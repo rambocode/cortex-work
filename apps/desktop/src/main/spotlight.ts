@@ -7,9 +7,9 @@ import { join } from "path";
 import { existsSync } from "fs";
 import { is } from "@electron-toolkit/utils";
 
-const BAR_WIDTH = 720;
-const BAR_HEIGHT = 96; // 折叠态(单行输入条 + 内边距)
-const MAX_HEIGHT = 460; // New Chat 弹层展开上限
+const BAR_WIDTH = 780;
+const BAR_HEIGHT = 124; // 折叠态(单行输入条 + 内边距 + 投影留白);实际高度由 renderer 按内容实测上报
+const MAX_HEIGHT = 560; // New Chat 弹层展开上限
 const BOTTOM_MARGIN = 120; // 离屏幕底部留白
 
 let win: BrowserWindow | null = null;

@@ -15,7 +15,8 @@ body {
 
 .spot-root {
   box-sizing: border-box;
-  padding: 8px 12px;
+  /* 透明窗口里给白卡留足边距,让投影在窗口边缘内自然淡出,避免被硬切成半透明带。 */
+  padding: 22px 34px 40px;
 }
 
 .spot-bar {
@@ -25,8 +26,8 @@ body {
   background: #ffffff;
   border-radius: 16px;
   box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.22),
-    0 2px 8px rgba(0, 0, 0, 0.12);
+    0 10px 30px rgba(0, 0, 0, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.1);
   padding: 14px 16px;
 }
 
@@ -56,18 +57,31 @@ body {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   border: none;
   background: transparent;
   color: #6b6b70;
   font-size: 14px;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
-.spot-menu-btn:hover {
+.spot-menu-btn:hover,
+.spot-menu-btn.is-open {
   background: #f1f1f3;
+  color: #1d1d1f;
+}
+
+.spot-menu-btn svg {
+  transition: transform 0.18s ease;
+}
+
+.spot-menu-btn.is-open svg {
+  transform: rotate(180deg);
 }
 
 .spot-send {
@@ -82,6 +96,17 @@ body {
   background: #e0623a;
   color: #fff;
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.spot-send:hover:not(:disabled) {
+  background: #d2562f;
+}
+
+.spot-send:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 .spot-send:disabled {
@@ -89,40 +114,92 @@ body {
   cursor: default;
 }
 
+/* ── New Chat 弹层 ─────────────────────────────────────────── */
 .spot-menu {
-  margin-top: 8px;
+  margin-top: 10px;
   background: #ffffff;
-  border-radius: 14px;
+  border-radius: 16px;
   box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.22),
-    0 2px 8px rgba(0, 0, 0, 0.12);
-  padding: 10px 14px;
+    0 10px 30px rgba(0, 0, 0, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.1);
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
+  transform-origin: top center;
+  animation: spot-menu-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes spot-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .spot-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
+  gap: 16px;
+  font-size: 14px;
+  color: #3a3a3f;
+  padding: 8px 10px;
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+
+.spot-row:hover {
+  background: #f7f7f8;
+}
+
+.spot-row > span {
+  font-weight: 500;
   color: #4a4a4f;
 }
 
 .spot-row select {
   flex: 0 0 auto;
-  min-width: 180px;
-  font-size: 13px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  border: 1px solid #e2e2e6;
-  background: #fafafa;
+  min-width: 240px;
+  font-size: 14px;
+  color: #1d1d1f;
+  padding: 9px 34px 9px 12px;
+  border-radius: 10px;
+  border: 1px solid #e4e4e8;
+  background-color: #fbfbfc;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239a9a9e' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.spot-row select:hover {
+  border-color: #cfcfd6;
+  background-color: #ffffff;
+}
+
+.spot-row select:focus {
+  outline: none;
+  border-color: #e0623a;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(224, 98, 58, 0.15);
 }
 
 .spot-menu-foot {
   font-size: 12px;
   color: #9a9a9e;
-  padding-top: 2px;
+  padding: 8px 10px 4px;
+  margin-top: 2px;
+  border-top: 1px solid #f0f0f2;
 }
