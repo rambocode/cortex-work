@@ -3,6 +3,7 @@
 // spans are converted to plain data structures so this stays react-dom-free.
 
 import type {
+  Avatar,
   CodeToken,
   Contact,
   Conversation,
@@ -535,9 +536,16 @@ export function findContact(id: string): Contact | undefined {
 }
 
 // Resolve a message author id ("wangyutong", "wangyutong-agent", "me-agent")
-// to display metadata.
-export function whoMeta(who: string): WhoMeta {
-  if (who === "me") return { name: "我", avatar: { initials: "我", bg: "#1a1916" }, agent: null, isMe: true };
+// to display metadata. 传入 profile 时仅影响 who="me"（用户本人）的昵称与头像;
+// 其余作者（agent / me-agent / 联系人）不受影响。
+export function whoMeta(who: string, profile?: { nickname?: string; avatarId?: string }): WhoMeta {
+  if (who === "me") {
+    const name = profile?.nickname?.trim() || "我";
+    const avatar: Avatar = profile?.avatarId
+      ? { initials: "我", bg: "#1a1916", avatarId: profile.avatarId }
+      : { initials: "我", bg: "#1a1916" };
+    return { name, avatar, agent: null, isMe: true };
+  }
   // 个人工作区的 CLI agent 作者。
   if (who === "claude") return { name: "Claude Code", avatar: { initials: "CC", bg: "#c96442" }, agent: "agent" };
   if (who === "codex") return { name: "Codex", avatar: { initials: "CX", bg: "#1a1916" }, agent: "agent" };
