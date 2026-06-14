@@ -1082,7 +1082,7 @@ function AgentSection() {
           const on = a === "pi" || !!agentsAvailable?.[a];
           return (
             <SRow key={a} label={AGENT_LABEL[a]} end>
-              <span className={`pw-agent-dot ${on ? "is-on" : "is-off"}`}>
+              <span className={`pw-agent-status ${on ? "is-on" : "is-off"}`}>
                 {a === "pi" ? "内置" : agentsAvailable?.[a] ? "已安装" : "未检测到 CLI"}
               </span>
             </SRow>

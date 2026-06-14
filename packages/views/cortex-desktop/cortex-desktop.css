@@ -5098,10 +5098,10 @@ button.sb-row {
 .pw-secret-toggle:hover { border-color: var(--text-3); color: var(--text-1, #1a1916); }
 
 /* Agent 可用性行 */
-.pw-agent-avail { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; font-size: 13px; }
-.pw-agent-dot { font-size: 11px; padding: 1px 8px; border-radius: 6px; }
-.pw-agent-dot.is-on { background: var(--green-soft, #d4ebe8); color: var(--green, #0d9488); }
-.pw-agent-dot.is-off { background: var(--border); color: var(--text-3); }
+/* Agent 可用性状态徽标（不要用 .pw-agent-dot——与别处的 8px 圆点指示器撞名）。 */
+.pw-agent-status { font-size: 11px; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.pw-agent-status.is-on { background: var(--green-soft, #d4ebe8); color: var(--green, #0d9488); }
+.pw-agent-status.is-off { background: var(--border); color: var(--text-3); }
 
 /* 右键/项目菜单的右侧二级菜单（Open in 悬停展开） */
 .pw-ctx-haschild { position: relative; }
