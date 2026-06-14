@@ -24,8 +24,12 @@ function normalizeModels(models: unknown): ProviderModelOption[] {
   for (const m of models) {
     const id = typeof m?.id === "string" ? m.id.trim() : "";
     if (!id || byId.has(id)) continue;
-    const label = typeof m?.label === "string" && m.label.trim() ? m.label : undefined;
-    byId.set(id, label ? { id, label } : { id });
+    const opt: ProviderModelOption = { id };
+    if (typeof m?.label === "string" && m.label.trim()) opt.label = m.label;
+    if (typeof m?.contextTokens === "number" && m.contextTokens > 0) opt.contextTokens = m.contextTokens;
+    if (m?.reasoning === true) opt.reasoning = true;
+    if (m?.vision === true) opt.vision = true;
+    byId.set(id, opt);
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
