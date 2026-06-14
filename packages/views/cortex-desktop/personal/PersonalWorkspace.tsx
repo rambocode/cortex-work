@@ -20,6 +20,17 @@ import { TimelineView } from "./TimelineView";
 import { NewSessionLanding } from "./NewSessionLanding";
 import { AutomationView } from "./AutomationView";
 
+// 进入落地页(homeOpen 转真,含首屏挂载)即收起右栏:无项目时默认不显示,选项目
+// 不自动弹出。依赖只含 homeOpen,故 rightOpen 在落地页内被显式置真(点 Task / 顶栏
+// 开关)不会触发 effect 复跑,面板保持打开;离开落地页(homeOpen 转假)不强制开关,
+// 交还原有门控。setRightOpen 为 zustand 稳定引用,不引起多余重跑。
+export function useCloseRightPanelOnHome(homeOpen: boolean) {
+  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
+  useEffect(() => {
+    if (homeOpen) setRightOpen(false);
+  }, [homeOpen, setRightOpen]);
+}
+
 export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void }) {
   const bridge = useDesktopBridge();
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
@@ -33,6 +44,8 @@ export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void
   usePersonalCliEvents();
   // 订阅自动化的 changed / run-event（驱动列表刷新 + 完成 toast）。bridge 不支持时内部空转。
   useAutomationEvents();
+  // 进入落地页默认收起右栏（无项目不显示、选项目不自动弹出）。
+  useCloseRightPanelOnHome(homeOpen);
 
   // 启动时探测本机已安装的 agent CLI（claude/codex…）,供新建会话默认值与
   // agent 下拉禁用态使用;探测失败静默,UI 退化为不标注未安装。
