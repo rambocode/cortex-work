@@ -14,7 +14,7 @@ import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
 import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
-import { initLogger, registerLogHandlers } from "./logger";
+import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 
 const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 
@@ -108,6 +108,9 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform === "darwin" && app.dock) app.dock.setIcon(appIconPath);
     app.on("browser-window-created", (_, window) => optimizer.watchWindowShortcuts(window));
 
+    // 最前接管 console（幂等,默认启用）,捕获 ensureMigrated 等启动期错误入文件日志;
+    // initLogger 稍后读设置再调整开关 + 清理过期。
+    patchConsole();
     await ensureMigrated();
     registerIpcHandlers();
     registerDesktopHandlers();

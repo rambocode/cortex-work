@@ -2,7 +2,7 @@
 // renderer 侧节流后调 store:save 覆盖；主进程串行化写入避免交错。
 
 import { ipcMain } from "electron";
-import { promises as fsp } from "fs";
+import { existsSync, promises as fsp } from "fs";
 import { dirname } from "path";
 import type { PersistedState } from "./types";
 import { ensureMigrated, workspaceStorePath } from "../paths";
@@ -37,10 +37,12 @@ export async function getPersistedState(): Promise<PersistedState> {
 }
 
 // 通用设置里的默认工作目录（agent 启动未显式传 cwd 时兜底）。读 in-memory 镜像
-//（generalSettings 立即落盘,反映 renderer 最新设置）。空串视为未设置。
+//（generalSettings 立即落盘,反映 renderer 最新设置）。空串/失效目录视为未设置,
+// 让调用方回退主目录,避免把失效路径交给 spawn 触发 ENOENT。
 export async function getWorkspaceRoot(): Promise<string | undefined> {
   const root = (await getPersistedState()).generalSettings?.workspaceRoot;
-  return root && root.trim() ? root : undefined;
+  if (!root || !root.trim()) return undefined;
+  return existsSync(root) ? root : undefined;
 }
 
 async function savePersistedState(state: PersistedState): Promise<void> {

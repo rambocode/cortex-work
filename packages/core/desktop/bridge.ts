@@ -119,6 +119,8 @@ export interface DesktopBridge {
   setDesktopBehavior?(behavior: DesktopBehavior): Promise<void>;
   // 打开日志目录（系统文件管理器）。可选。
   openLogsDir?(): Promise<void>;
+  // 即时下发文件日志开关（本次运行内生效,无需重启）。可选。
+  setLogEnabled?(enabled: boolean): Promise<void>;
   // 日报推送（企微/钉钉 webhook、SMTP 邮件;主进程发请求规避 CORS）
   pushReport(target: PushTarget, payload: { subject: string; text: string }): Promise<PushResult>;
   // TTS：OpenAI 兼容 /v1/audio/speech 合成,返回音频字节（renderer 播放）

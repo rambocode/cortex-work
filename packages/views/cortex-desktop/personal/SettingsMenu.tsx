@@ -380,7 +380,10 @@ function GeneralSection() {
         <Toggle
           label="启用文件日志"
           value={general.log.enabled}
-          onChange={(v) => setGeneral({ log: { ...general.log, enabled: v } })}
+          onChange={(v) => {
+            setGeneral({ log: { ...general.log, enabled: v } });
+            void bridge?.setLogEnabled?.(v);
+          }}
         />
         <div className="pw-set-row2">
           <Select
@@ -637,6 +640,10 @@ function ProviderDetail({
 }) {
   const bridge = useDesktopBridge();
   const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
+  // 改 baseUrl/协议/apiKey 后清探测结果,避免「填入模型」回填基于旧端点拉到的过时模型。
+  useEffect(() => {
+    setProbe({ kind: "idle" });
+  }, [provider.baseUrl, provider.endpointFormat, provider.apiKey]);
   const canProbe =
     !!bridge?.probeProvider && provider.endpointFormat !== "custom" && !!provider.baseUrl.trim();
 

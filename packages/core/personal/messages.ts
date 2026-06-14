@@ -725,8 +725,12 @@ export function usePersonalActions(): PersonalActions {
       // 由主进程生成 extension + 注入 key env;model 取会话模型/默认模型/provider 首模型。
       const providerSettings = usePersonalStore.getState().providerSettings;
       const isPi = session.agent === "pi";
+      // 只解析「已启用」的 provider（与 UI 下拉、automation runner 一致）;停用/失效则
+      // 落空,pi 走自身内置默认 provider,不会用停用凭据运行。
       const provider = isPi
-        ? providerSettings.providers.find((p) => p.id === (session.providerId ?? providerSettings.defaultProviderId))
+        ? providerSettings.providers.find(
+            (p) => p.id === (session.providerId ?? providerSettings.defaultProviderId) && p.enabled,
+          )
         : undefined;
       const piModel = isPi
         ? session.model ?? providerSettings.defaultModel ?? provider?.models[0]?.id

@@ -27,12 +27,20 @@ export function newRunId(): string {
 let cache: AutomationMeta[] | null = null;
 let writeChain: Promise<void> = Promise.resolve();
 
+// 旧档字段名 piChannelId → providerId（剥离旧名,与 personal store 的 session 迁移一致）。
+function migrateAutomation(meta: AutomationMeta): AutomationMeta {
+  const legacy = meta as AutomationMeta & { piChannelId?: string };
+  if (legacy.piChannelId === undefined) return meta;
+  const { piChannelId, ...rest } = legacy;
+  return { ...rest, providerId: rest.providerId ?? piChannelId };
+}
+
 export async function loadAutomations(): Promise<AutomationMeta[]> {
   if (cache) return cache;
   try {
     const raw = await fsp.readFile(automationsStorePath(), "utf8");
     const parsed = JSON.parse(raw) as { version?: number; automations?: AutomationMeta[] };
-    cache = Array.isArray(parsed?.automations) ? parsed.automations : [];
+    cache = Array.isArray(parsed?.automations) ? parsed.automations.map(migrateAutomation) : [];
   } catch {
     cache = []; // 首次或损坏
   }

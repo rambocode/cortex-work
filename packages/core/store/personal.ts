@@ -307,12 +307,20 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     })),
 
   updateProvider: (id, patch) =>
-    set((s) => ({
-      providerSettings: {
-        ...s.providerSettings,
-        providers: s.providerSettings.providers.map((p) => (p.id === id ? { ...p, ...patch } : p)),
-      },
-    })),
+    set((s) => {
+      const providers = s.providerSettings.providers.map((p) => (p.id === id ? { ...p, ...patch } : p));
+      // 停用当前默认 provider 时,清掉默认指向（避免新会话/下拉默认挂到停用项,
+      // 与运行时 enabled 过滤保持单一真值）。
+      const disablingDefault = patch.enabled === false && s.providerSettings.defaultProviderId === id;
+      return {
+        providerSettings: {
+          ...s.providerSettings,
+          providers,
+          defaultProviderId: disablingDefault ? undefined : s.providerSettings.defaultProviderId,
+          defaultModel: disablingDefault ? undefined : s.providerSettings.defaultModel,
+        },
+      };
+    }),
 
   removeProvider: (id) =>
     set((s) => {
@@ -340,7 +348,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     const providerSettings = get().providerSettings;
     const provider =
       agent === "pi"
-        ? providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId)
+        ? providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId && p.enabled)
         : undefined;
     const sess: SessionMeta = {
       id: newId("sess"),
@@ -353,7 +361,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         agent === "pi"
           ? model ?? providerSettings.defaultModel ?? provider?.models[0]?.id
           : model ?? DEFAULT_MODEL[agent],
-      providerId: agent === "pi" ? providerSettings.defaultProviderId : undefined,
+      // 只挂启用的默认 provider（provider 已按 enabled 过滤;停用/无则留空走 pi 内置）。
+      providerId: agent === "pi" ? provider?.id : undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -593,10 +602,10 @@ export function initialModelDraft(
   const agent = initialAgent(s);
   const sameAgent = agent === s.lastAgent;
   if (agent === "pi") {
+    // 仅在启用的 provider 中选默认（停用项不挂到新会话/草稿）。
+    const enabled = s.providerSettings.providers.filter((p) => p.enabled);
     const provider =
-      s.providerSettings.providers.find(
-        (p) => p.id === (s.lastProviderId ?? s.providerSettings.defaultProviderId),
-      ) ?? s.providerSettings.providers[0];
+      enabled.find((p) => p.id === (s.lastProviderId ?? s.providerSettings.defaultProviderId)) ?? enabled[0];
     return {
       agent,
       model: (sameAgent ? s.lastModel : undefined) ?? s.providerSettings.defaultModel ?? provider?.models[0]?.id,

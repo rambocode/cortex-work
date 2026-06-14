@@ -8,6 +8,12 @@ import { logsDir } from "./paths";
 import { getPersistedState } from "./ipc/store";
 
 let enabled = true;
+let patched = false;
+
+// 即时更新落盘开关（renderer 切换「启用文件日志」时经 IPC 下发,本次运行内生效）。
+export function setLogEnabled(on: boolean): void {
+  enabled = on;
+}
 
 // 敏感字段脱敏（apiKey/token/secret/authorization 形态的值用 *** 代替）。
 export function redactSensitive(line: string): string {
@@ -57,8 +63,11 @@ export function logLine(level: string, message: string): void {
   appendLog(logsDir(), enabled, level, message, new Date());
 }
 
-// 接管主进程 console.error/warn → 同步落盘（保留控制台输出）。
-function patchConsole(): void {
+// 接管主进程 console.error/warn → 同步落盘（保留控制台输出）。幂等：重复调用 no-op,
+// 避免嵌套包裹导致重复落盘。可在 whenReady 最前调用以捕获启动期错误（默认 enabled=true）。
+export function patchConsole(): void {
+  if (patched) return;
+  patched = true;
   const origError = console.error.bind(console);
   const origWarn = console.warn.bind(console);
   console.error = (...args: unknown[]) => {
@@ -71,12 +80,13 @@ function patchConsole(): void {
   };
 }
 
-// 启动时读设置：恢复 enabled、清理过期、接管 console。main 在 whenReady 后调用。
+// 启动时读设置：恢复 enabled、清理过期。console 接管由 patchConsole 负责（幂等,
+// 通常 main 已在 whenReady 最前调用以捕获迁移等早期错误）。
 export async function initLogger(): Promise<void> {
+  patchConsole();
   const log = (await getPersistedState()).generalSettings?.log;
   enabled = log?.enabled !== false;
   cleanupOldLogs(logsDir(), log?.retentionDays ?? 2, Date.now());
-  patchConsole();
   logLine("info", "Cortex Desktop 启动");
 }
 
@@ -85,4 +95,5 @@ export function registerLogHandlers(): void {
     mkdirSync(logsDir(), { recursive: true });
     await shell.openPath(logsDir());
   });
+  ipcMain.handle("logs:setEnabled", (_e, on: boolean) => setLogEnabled(on));
 }

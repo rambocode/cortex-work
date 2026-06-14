@@ -453,6 +453,16 @@ describe("providerSettings 多供应商", () => {
     const s = usePersonalStore.getState();
     expect(toPersistedState(s).providerSettings).toBe(s.providerSettings);
   });
+
+  it("停用当前默认 provider 时清掉默认指向（与运行时 enabled 过滤一致）", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().addProvider(provider("deepseek"));
+    usePersonalStore.getState().setProviderDefaults({ defaultProviderId: "deepseek", defaultModel: "deepseek-m1" });
+    usePersonalStore.getState().updateProvider("deepseek", { enabled: false });
+    const s = usePersonalStore.getState();
+    expect(s.providerSettings.defaultProviderId).toBeUndefined();
+    expect(s.providerSettings.defaultModel).toBeUndefined();
+  });
 });
 
 describe("generalSettings 通用设置", () => {

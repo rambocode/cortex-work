@@ -129,6 +129,7 @@ const personal = {
     closeToTray: boolean;
   }): Promise<void> => ipcRenderer.invoke("desktop:setBehavior", behavior),
   openLogsDir: (): Promise<void> => ipcRenderer.invoke("logs:open"),
+  setLogEnabled: (on: boolean): Promise<void> => ipcRenderer.invoke("logs:setEnabled", on),
   pushReport: (target: unknown, payload: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("push:report", target, payload),
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),
