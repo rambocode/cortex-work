@@ -908,13 +908,14 @@ input, textarea { font: inherit; color: inherit; }
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px;
   margin: 0 40px;
-  padding: 5px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-card-2);
+  padding: 2px 10px;
+  border: 0;
+  background: transparent;
   flex-shrink: 0;
   font-size: 12px;
 }
+/* GitBar 紧贴输入框底部:上移吃掉 .composer-wrap 的底部内边距,贴近 composer 框。 */
+.composer-wrap + .pw-gitbar { margin-top: -10px; }
 .pw-gitbar-left { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-3); }
 .pw-gitbar-name { font-weight: 600; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pw-gitbar-branch { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
@@ -943,8 +944,8 @@ input, textarea { font: inherit; color: inherit; }
 }
 .pw-gitbar-commit:hover { background: var(--bg-hover); }
 .pw-gitbar-commit:disabled { opacity: 0.45; cursor: default; }
-[data-density="compact"] .pw-gitbar { margin: 0 32px; }
-[data-density="cozy"] .pw-gitbar { margin: 0 56px; }
+[data-density="compact"] .pw-gitbar { margin-inline: 32px; }
+[data-density="cozy"] .pw-gitbar { margin-inline: 56px; }
 
 /* Composer */
 .composer-wrap {
@@ -5039,6 +5040,205 @@ button.sb-row {
 .pw-home-section > .pw-section-h { padding: 0; }
 .pw-home-loading { font-size: 11px; color: var(--text-4); }
 
+/* ── 落地页 Hero（LandingHero：浏览器 mockup + 吉祥物 + 标题/副标题） ────────
+   借鉴 kun 的「迷你工作台」hero。纯展示,色调取 --accent 浅蓝调,与既有主题变量对齐。 */
+.pw-hero {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 18px;
+  padding: 28px 0 6px;
+  text-align: center;
+}
+.pw-hero-stage {
+  width: 100%;
+  max-width: 560px;
+  padding: 26px 30px 34px;
+  border-radius: 22px;
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
+    color-mix(in srgb, var(--accent) 4%, var(--bg-app));
+}
+/* 浏览器窗口外壳 */
+.pw-hero-shell {
+  position: relative;
+  border-radius: 14px;
+  background: var(--bg-app);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  box-shadow: 0 18px 44px -22px color-mix(in srgb, var(--accent) 40%, transparent);
+  overflow: hidden;
+}
+.pw-hero-titlebar {
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 8%, var(--border));
+}
+.pw-hero-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
+.pw-hero-dot.is-red { background: #ff5f57; }
+.pw-hero-dot.is-yellow { background: #febc2e; }
+.pw-hero-dot.is-green { background: #28c840; }
+.pw-hero-winicon {
+  margin-left: auto;
+  width: 14px; height: 11px;
+  border-radius: 3px;
+  border: 1.4px solid color-mix(in srgb, var(--text-4) 70%, transparent);
+}
+.pw-hero-body {
+  display: flex; gap: 14px;
+  padding: 16px;
+  min-height: 168px;
+}
+.pw-hero-nav {
+  display: flex; flex-direction: column; gap: 9px;
+  flex-shrink: 0; width: 92px;
+  padding-top: 4px;
+}
+.pw-hero-nav span {
+  height: 9px; border-radius: 5px;
+  background: color-mix(in srgb, var(--text-4) 22%, transparent);
+}
+.pw-hero-nav span:nth-child(2) { width: 78%; }
+.pw-hero-nav span:nth-child(3) { width: 90%; }
+.pw-hero-nav span:nth-child(4) { width: 64%; }
+.pw-hero-nav span.is-active { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.pw-hero-canvas {
+  position: relative; flex: 1;
+  display: flex; flex-direction: column; gap: 11px;
+  justify-content: center;
+  padding: 6px 4px;
+}
+.pw-hero-thread { height: 9px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.pw-hero-thread.is-one { width: 70%; }
+.pw-hero-thread.is-two { width: 40%; }
+.pw-hero-thread.is-three { width: 58%; margin-left: auto; }
+/* 居中吉祥物 + 同心环 */
+.pw-hero-core {
+  position: relative;
+  align-self: center;
+  display: grid; place-items: center;
+  width: 96px; height: 96px;
+  margin: 2px 0;
+}
+.pw-hero-ring {
+  position: absolute; inset: 0;
+  border-radius: 26px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-app));
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--accent) 7%, transparent),
+    0 0 0 13px color-mix(in srgb, var(--accent) 4%, transparent);
+}
+.pw-hero-mascot {
+  position: relative;
+  width: 62px; height: 62px;
+  object-fit: contain;
+  user-select: none; -webkit-user-drag: none;
+}
+.pw-hero-composer {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 16px 16px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-app));
+  border: 1px solid color-mix(in srgb, var(--accent) 9%, var(--border));
+}
+.pw-hero-composer span { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--text-4) 20%, transparent); }
+.pw-hero-composer span:first-child { flex: 1; }
+.pw-hero-composer span:last-child { width: 46px; background: color-mix(in srgb, var(--accent) 38%, transparent); }
+.pw-hero-title {
+  margin: 0;
+  font-size: 26px; font-weight: 800; letter-spacing: 0.5px;
+  color: color-mix(in srgb, var(--accent) 32%, var(--text-1));
+}
+.pw-hero-sub {
+  margin: 0;
+  max-width: 460px;
+  font-size: 13.5px; line-height: 1.7;
+  color: var(--text-3);
+}
+
+/* ── 落地页用量日历卡片（UsageCalendarCard：活动/token 切换 + 刷新/折叠 + 空态） ── */
+.pw-usagecal {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-app);
+}
+.pw-usagecal[data-collapsed="true"] { gap: 0; }
+.pw-usagecal-head { display: flex; align-items: center; gap: 8px; }
+.pw-usagecal-sp { flex: 1; }
+/* segmented：活动 / token 用量 */
+.pw-usagecal-modes {
+  display: inline-flex; gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--text-4) 12%, transparent);
+}
+.pw-usagecal-modes button {
+  appearance: none; border: 0; cursor: pointer;
+  padding: 4px 11px;
+  border-radius: 7px;
+  font-size: 12px; color: var(--text-3);
+  background: transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-usagecal-modes button:hover { color: var(--text-1); }
+.pw-usagecal-modes button[data-active="true"] {
+  background: var(--bg-app);
+  color: var(--text-1); font-weight: 600;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-1) 12%, transparent);
+}
+.pw-usagecal-refresh {
+  display: inline-flex; align-items: center; gap: 5px;
+  appearance: none; cursor: pointer;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px; color: var(--text-2);
+  background: var(--bg-app);
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.pw-usagecal-refresh:hover { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-1); }
+.pw-usagecal-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  appearance: none; cursor: pointer;
+  width: 28px; height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-3);
+  background: var(--bg-app);
+  transition: background 0.12s, color 0.12s;
+}
+.pw-usagecal-toggle:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-usagecal-toggle .chev { display: inline-flex; transition: transform 0.16s; }
+.pw-usagecal-toggle .chev[data-open="true"] { transform: rotate(180deg); }
+.pw-usagecal-loading { padding: 18px 4px; font-size: 12px; color: var(--text-4); }
+/* warmup 空态：左占位网格 + 右文案 */
+.pw-usagecal-warmup {
+  display: flex; gap: 22px; align-items: center;
+  padding: 6px 2px 4px;
+}
+.pw-usagecal-preview { flex: 1; min-width: 0; opacity: 0.6; pointer-events: none; }
+.pw-usagecal-warmup-text {
+  flex-shrink: 0; width: 232px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding-left: 22px;
+  border-left: 1px solid var(--border);
+}
+.pw-usagecal-warmup-text strong { font-size: 14.5px; color: var(--text-1); }
+.pw-usagecal-warmup-text p { margin: 0; font-size: 12.5px; line-height: 1.65; color: var(--text-3); }
+.pw-usagecal-badge {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px; font-weight: 600;
+  color: color-mix(in srgb, var(--accent) 30%, var(--text-1));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+@media (max-width: 640px) {
+  .pw-usagecal-warmup { flex-direction: column; align-items: stretch; gap: 14px; }
+  .pw-usagecal-warmup-text { width: auto; padding-left: 0; border-left: 0; }
+}
+
 /* 热力图：周列方格,横向滚动 */
 .pw-hm {
   background: var(--bg-card-2);
@@ -5148,51 +5348,6 @@ button.sb-row {
 .pw-home-summary-h { display: flex; align-items: center; gap: 8px; }
 .pw-home-summary-day { font-size: 13px; font-weight: 700; color: var(--text-1); font-family: var(--mono); }
 .pw-home-summary-projects { display: flex; flex-wrap: wrap; gap: 6px; }
-.pw-home-todos,
-.pw-home-todos-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.pw-home-todos-empty {
-  align-items: flex-start;
-  padding: 10px 12px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-card-2);
-  color: var(--text-3);
-  font-size: 12.5px;
-}
-.pw-home-todo-row {
-  display: grid;
-  /* 图标 · 标题(主,占满) · 项目名(弱化,内容宽) · 时间 */
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-card-2);
-  color: var(--text-2);
-  text-align: left;
-}
-.pw-home-todo-row:hover { background: var(--bg-hover); color: var(--text-1); border-color: var(--border-strong); }
-.pw-home-todo-project {
-  font-weight: 400;
-  font-size: 11px;
-  color: var(--text-4);
-  max-width: 140px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.pw-home-todo-title {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 12.5px;
-}
 
 /* ── ProjectPicker（项目选择下拉,会话页 chat-head / 落地页顶部条复用） ─────── */
 /* 触发器:行内一段,带 ▾ 箭头,可点态 */
@@ -5270,7 +5425,9 @@ button.sb-row {
 }
 /* 看板封顶居中:滚动容器 .pw-home 保持整宽(滚动条贴窗口右缘),只对内部分区
    封顶居中,与 GitBar/输入框共用 --pw-landing-col 左右对齐。 */
-.pw-landing .pw-home > .pw-home-section {
+.pw-landing .pw-home > .pw-home-section,
+.pw-landing .pw-home > .pw-hero,
+.pw-landing .pw-home > .pw-usagecal {
   width: 100%;
   max-width: var(--pw-landing-col);
   margin-inline: auto;

@@ -1,151 +1,21 @@
-// 个人工作区首页看板：跨项目活动热力图（GitHub 风格周列）+ 全局一日总结 +
-// 跨项目 Tasks。数据来自侧边栏可见项目的 timeline 聚合（useAllProjectsTimeline）
-// 与 tasks/ 文件聚合（useAllProjectsTasks）。
+// 个人工作区首页看板：落地页 Hero + 用量日历卡片（活动/token）+ 全局一日总结。
+// 数据来自侧边栏可见项目的 timeline 聚合（useAllProjectsTimeline）。
 // HomeBoard 供 NewSessionLanding 复用,HomeView 为兼容现有 import 的薄包装。
 
 import { useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
-  buildHeatmapWeeks,
   dayKey,
   groupEventsByDay,
-  homeHeatLevel,
   partitionProjects,
-  useAllProjectsTasks,
   useAllProjectsTimeline,
   useGenerateGlobalSummary,
   useGlobalSummaries,
-  useCortexUIStore,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { DayGroup, DayStats, GlobalSummaryEntry, HomeTaskRow } from "@cortex-work/core";
-import { relTime } from "./PersonalSidebar";
-
-const HEAT_WEEKS = 26;
-const WEEKDAY_ROWS = ["一", "三", "五", "日"]; // 仅标注部分行,GitHub 风格
-const HOME_TODOS_LIMIT = 5; // 首页 Tasks 区最多展示的条数(按 mtime 全局降序取前 N)
-
-function statsTitle(day: string, stats?: DayStats): string {
-  if (!stats) return `${day} · 无活动`;
-  const parts: string[] = [];
-  if (stats.runs) parts.push(`${stats.runs} 轮交互`);
-  if (stats.sessions) parts.push(`${stats.sessions} 个新会话`);
-  if (stats.files) parts.push(`${stats.files} 个文件变更`);
-  return parts.length ? `${day} · ${parts.join(" · ")}` : `${day} · 无活动`;
-}
-
-// ── 热力图 ────────────────────────────────────────────────────────────────
-
-function Heatmap({
-  groups,
-  selectedDay,
-  onPickDay,
-}: {
-  groups: DayGroup[];
-  selectedDay: string;
-  onPickDay: (day: string) => void;
-}) {
-  const weeks = useMemo(() => buildHeatmapWeeks(HEAT_WEEKS, groups), [groups]);
-  const today = dayKey(Date.now());
-
-  return (
-    <div className="pw-hm">
-      <div className="pw-hm-body">
-        <div className="pw-hm-wd" aria-hidden="true">
-          {WEEKDAY_ROWS.map((w) => (
-            <span key={w}>{w}</span>
-          ))}
-        </div>
-        <div className="pw-hm-scroll">
-          <div className="pw-hm-months">
-            {weeks.map((w, i) => (
-              <span key={i}>{w.monthLabel ?? ""}</span>
-            ))}
-          </div>
-          <div className="pw-hm-grid">
-            {weeks.map((w, i) => (
-              <div key={i} className="pw-hm-col">
-                {w.cells.map((c) => (
-                  <button
-                    key={c.day}
-                    className="pw-hm-cell"
-                    data-heat={homeHeatLevel(c.stats)}
-                    data-today={c.day === today}
-                    data-selected={c.day === selectedDay}
-                    disabled={c.inFuture}
-                    onClick={() => onPickDay(c.day)}
-                    title={c.inFuture ? undefined : statsTitle(c.day, c.stats)}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="pw-hm-legend">
-        <span className="pw-tl-cal-legend-heat">
-          少
-          {[1, 2, 3, 4].map((h) => (
-            <i key={h} data-heat={h} />
-          ))}
-          多
-        </span>
-        <span className="pw-tl-day-sp" />
-        <span>近 {HEAT_WEEKS} 周所有项目的活动 · 点击日期查看当天总结</span>
-      </div>
-    </div>
-  );
-}
-
-// ── 跨项目 Tasks 汇总 ─────────────────────────────────────────────────────
-
-function HomeTodos() {
-  const requestTaskDetail = usePersonalStore((s) => s.requestTaskDetail);
-  const setRightView = usePersonalStore((s) => s.setRightView);
-  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
-  const { rows, loading } = useAllProjectsTasks();
-
-  const openTodos = () => {
-    setRightView("todos");
-    setRightOpen(true);
-  };
-
-  // 点 task:右栏直接打开该文件详情（不切走首页,只在右栏展示 markdown）。
-  const openTaskDetail = (row: HomeTaskRow) => {
-    requestTaskDetail({ projectId: row.projectId, path: row.file.path, name: row.file.name });
-    setRightOpen(true);
-  };
-
-  if (rows.length === 0) {
-    return (
-      <div className="pw-home-todos-empty">
-        <span>{loading ? "加载中…" : "还没有 Task"}</span>
-        <button className="pw-tl-gen" onClick={openTodos}>
-          <Icon.Task size={12} />
-          打开 Tasks
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="pw-home-todos">
-      {rows.slice(0, HOME_TODOS_LIMIT).map((row) => (
-        <button
-          key={row.file.path}
-          className="pw-home-todo-row"
-          onClick={() => openTaskDetail(row)}
-          title={row.file.path}
-        >
-          <Icon.Task size={14} />
-          <span className="pw-home-todo-title">{row.file.name.replace(/\.md$/i, "")}</span>
-          <span className="pw-home-todo-project">{row.projectName}</span>
-          <span className="pw-home-proj-meta">{relTime(row.file.mtimeMs)}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
+import type { GlobalSummaryEntry } from "@cortex-work/core";
+import { LandingHero } from "./LandingHero";
+import { UsageCalendarCard } from "./UsageCalendarCard";
 
 // ── 全局一日总结 ──────────────────────────────────────────────────────────
 
@@ -256,26 +126,16 @@ export function HomeBoard({ onToast }: { onToast: (text: string) => void }) {
 
   return (
     <div className="pw-home">
-      <section className="pw-home-section">
-        <div className="pw-section-h">
-          <span>活动热力图</span>
-          {loading ? <span className="pw-home-loading">加载中…</span> : null}
-        </div>
-        <Heatmap groups={groups} selectedDay={selectedDay} onPickDay={setSelectedDay} />
-      </section>
+      <LandingHero />
+
+      <UsageCalendarCard groups={groups} selectedDay={selectedDay} onPickDay={setSelectedDay} />
 
       <section className="pw-home-section">
         <div className="pw-section-h">
           <span>一日总结 · 所有项目</span>
+          {loading ? <span className="pw-home-loading">加载中…</span> : null}
         </div>
         <GlobalSummary day={selectedDay} entries={entries} onToast={onToast} />
-      </section>
-
-      <section className="pw-home-section">
-        <div className="pw-section-h">
-          <span>Tasks · 所有项目</span>
-        </div>
-        <HomeTodos />
       </section>
     </div>
   );

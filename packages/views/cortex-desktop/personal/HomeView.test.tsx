@@ -1,18 +1,14 @@
-import { cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { CoreProvider, usePersonalStore, useCortexUIStore } from "@cortex-work/core";
-import type { DesktopBridge, TaskFilesResult, TimelineEvent } from "@cortex-work/core";
+import type { DesktopBridge, TimelineEvent } from "@cortex-work/core";
 import { HomeView } from "./HomeView";
 
 const NOW = Date.now();
 
-// 只实现 HomeBoard 数据路径用到的桥方法。
-// - loadTimeline：热力图/一日总结聚合（backfilledAt 已置位 → 不触发历史回填）。
-// - listTaskFiles：跨项目 Tasks 聚合（useAllProjectsTasks 按 project.path 并行拉取）。
-function fakeBridge(
-  eventsByProject: Record<string, TimelineEvent[]>,
-  tasksByPath: Record<string, TaskFilesResult> = {},
-): DesktopBridge {
+// 只实现 HomeBoard 数据路径用到的桥方法：loadTimeline（热力图/一日总结聚合，
+// backfilledAt 已置位 → 不触发历史回填）。
+function fakeBridge(eventsByProject: Record<string, TimelineEvent[]> = {}): DesktopBridge {
   return {
     loadTimeline: async (projectId: string) => ({
       version: 1,
@@ -21,7 +17,6 @@ function fakeBridge(
     }),
     saveTimeline: async () => {},
     loadChat: async () => [],
-    listTaskFiles: async (root: string) => tasksByPath[root] ?? { files: [], archived: [] },
   } as unknown as DesktopBridge;
 }
 
@@ -55,19 +50,23 @@ describe("HomeView", () => {
     useCortexUIStore.setState({ rightOpen: false });
   });
 
-  it("渲染三个区块,不再有「Agent 项目」检索", async () => {
-    renderHome(fakeBridge({}));
-    expect(screen.getByText("活动热力图")).toBeInTheDocument();
+  it("渲染 Hero + 用量日历卡片 + 一日总结,不再有 Tasks 区与「Agent 项目」检索", () => {
+    renderHome(fakeBridge());
+    // 顶部 Hero
+    expect(screen.getByText("开始你的智能体节奏")).toBeInTheDocument();
+    // 用量日历卡片
+    expect(screen.getByRole("tab", { name: "活动" })).toBeInTheDocument();
+    expect(screen.queryByText("活动热力图")).toBeNull();
+    // 保留一日总结
     expect(screen.getByText("一日总结 · 所有项目")).toBeInTheDocument();
-    expect(screen.getByText("Tasks · 所有项目")).toBeInTheDocument();
-    // 「Agent 项目」检索区已移除。
+    // Tasks 区已从落地页移除
+    expect(screen.queryByText("Tasks · 所有项目")).toBeNull();
+    // 「Agent 项目」检索区已移除
     expect(screen.queryByText("Agent 项目")).toBeNull();
     expect(screen.queryByPlaceholderText(/检索项目/)).toBeNull();
-    // flush 跨项目 tasks 的异步 query。
-    await screen.findByText("还没有 Task");
   });
 
-  it("热力图/一日总结聚合所有可见项目当天统计", async () => {
+  it("一日总结聚合所有可见项目当天统计", async () => {
     renderHome(
       fakeBridge({
         p1: [{ id: "e1", projectId: "p1", ts: NOW, kind: "run", title: "修复登录" }],
@@ -79,104 +78,11 @@ describe("HomeView", () => {
     expect(screen.getByText("2 轮交互")).toBeInTheDocument();
   });
 
-  it("Tasks 区列出跨项目 md 文件,按 mtime 全局降序", async () => {
-    renderHome(
-      fakeBridge(
-        {},
-        {
-          "/code/alpha": {
-            files: [{ name: "older.md", path: "/code/alpha/tasks/older.md", mtimeMs: NOW - 10_000 }],
-            archived: [],
-          },
-          "/code/beta": {
-            files: [{ name: "newest.md", path: "/code/beta/tasks/newest.md", mtimeMs: NOW }],
-            archived: [],
-          },
-        },
-      ),
-    );
-    // 两个文件都出现（去掉 .md 后缀）。
-    expect(await screen.findByText("newest")).toBeInTheDocument();
-    expect(screen.getByText("older")).toBeInTheDocument();
-    // 在 Tasks 区内按行断言文件名 + 所属项目名（弱化展示）;不用 getByText 查项目名,
-    // 因「一日总结」的项目 chips 也含项目名会歧义。全局按 mtime 降序：
-    // newest（beta, NOW）排在 older（alpha, NOW-10s）之前。
-    const rows = document.querySelectorAll(".pw-home-todo-row");
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.textContent).toContain("newest");
-    expect(rows[0]?.textContent).toContain("beta");
-    expect(rows[1]?.textContent).toContain("older");
-    expect(rows[1]?.textContent).toContain("alpha");
-  });
-
-  it("Tasks 区最多展示 5 条(按 mtime 降序取前 5)", async () => {
-    // 单项目放 7 个 task,mtime 递减;期望只渲染最新的 5 个、最旧两个被截断。
-    const files = Array.from({ length: 7 }, (_, i) => ({
-      name: `task-${i}.md`,
-      path: `/code/alpha/tasks/task-${i}.md`,
-      mtimeMs: NOW - i * 1_000,
-    }));
-    renderHome(
-      fakeBridge({}, { "/code/alpha": { files, archived: [] } }),
-    );
-    await screen.findByText("task-0");
-    const rows = document.querySelectorAll(".pw-home-todo-row");
-    expect(rows).toHaveLength(5);
-    // 最新的 task-0 在,被截断的最旧 task-5 / task-6 不在。
-    expect(screen.getByText("task-4")).toBeInTheDocument();
-    expect(screen.queryByText("task-5")).toBeNull();
-    expect(screen.queryByText("task-6")).toBeNull();
-  });
-
-  it("只取活跃 tasks/（不含 archived）", async () => {
-    renderHome(
-      fakeBridge(
-        {},
-        {
-          "/code/alpha": {
-            files: [{ name: "live.md", path: "/code/alpha/tasks/live.md", mtimeMs: NOW }],
-            archived: [{ name: "gone.md", path: "/code/alpha/tasks/archive/gone.md", mtimeMs: NOW }],
-          },
-        },
-      ),
-    );
-    expect(await screen.findByText("live")).toBeInTheDocument();
-    expect(screen.queryByText("gone")).toBeNull();
-  });
-
-  it("点击 Task 行请求在右栏打开该 task 详情", async () => {
-    renderHome(
-      fakeBridge(
-        {},
-        {
-          "/code/beta": {
-            files: [{ name: "task-x.md", path: "/code/beta/tasks/task-x.md", mtimeMs: NOW }],
-            archived: [],
-          },
-        },
-      ),
-    );
-    fireEvent.click(await screen.findByText("task-x"));
-    // 点击不切走首页(不 activateProject),而是请求右栏打开该 task 文件详情。
-    expect(usePersonalStore.getState().taskDetailRequest).toEqual({
-      projectId: "p2",
-      path: "/code/beta/tasks/task-x.md",
-      name: "task-x.md",
-    });
-    expect(usePersonalStore.getState().rightView).toBe("todos");
-    expect(useCortexUIStore.getState().rightOpen).toBe(true);
-  });
-
-  it("无 Task 时展示空态", async () => {
-    renderHome(fakeBridge({}));
-    expect(await screen.findByText("还没有 Task")).toBeInTheDocument();
-  });
-
-  it("工作区为空时仍渲染三个区块", async () => {
+  it("工作区为空时仍渲染 Hero + 用量日历卡片 + 一日总结", () => {
     usePersonalStore.setState({ projects: [], sessions: [] });
-    renderHome(fakeBridge({}));
-    expect(screen.getByText("活动热力图")).toBeInTheDocument();
-    expect(screen.getByText("Tasks · 所有项目")).toBeInTheDocument();
-    await screen.findByText("还没有 Task");
+    renderHome(fakeBridge());
+    expect(screen.getByText("开始你的智能体节奏")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "活动" })).toBeInTheDocument();
+    expect(screen.getByText("一日总结 · 所有项目")).toBeInTheDocument();
   });
 });

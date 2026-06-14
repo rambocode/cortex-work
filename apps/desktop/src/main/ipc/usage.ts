@@ -9,18 +9,12 @@ import { promises as fsp } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { execFile } from "child_process";
+import type { DailyUsage } from "./types";
+import { type UsageEvent, bucketEventsByDay } from "./usage-daily";
 
 const HOME = homedir();
 const CLAUDE_PROJ = join(HOME, ".claude", "projects");
 const CODEX_SESS = join(HOME, ".codex", "sessions");
-
-interface UsageEvent {
-  t: number;
-  in: number;
-  out: number;
-  cc: number;
-  cr: number;
-}
 
 interface FileCache {
   offset: number;
@@ -28,14 +22,22 @@ interface FileCache {
   events: UsageEvent[];
 }
 
+// 时间窗用量（usage:agent）与按天用量（usage:daily）各持一份文件级增量缓存：
+// 两者扫描窗口不同（8 天 vs ~26 周），共用一份会因 live 集合不同互相驱逐缓存。
 const claudeFileCache = new Map<string, FileCache>();
+const dailyFileCache = new Map<string, FileCache>();
 let resultCache: { at: number; data: unknown } = { at: 0, data: null };
+const dailyResultCache = new Map<number, { at: number; data: DailyUsage }>();
 
-async function parseClaudeFile(file: string, stat: { size: number; mtimeMs: number }): Promise<UsageEvent[]> {
-  let c = claudeFileCache.get(file);
+async function parseClaudeFile(
+  file: string,
+  stat: { size: number; mtimeMs: number },
+  cache: Map<string, FileCache>,
+): Promise<UsageEvent[]> {
+  let c = cache.get(file);
   if (!c) {
     c = { offset: 0, lastMsgId: "", events: [] };
-    claudeFileCache.set(file, c);
+    cache.set(file, c);
   }
   if (stat.size < c.offset) {
     c.offset = 0;
@@ -88,8 +90,10 @@ function mkBucket() {
   return { total: 0, input: 0, output: 0, cacheRead: 0, cacheCreate: 0, msgs: 0 };
 }
 
-async function claudeTokenBuckets() {
-  const cutoff = Date.now() - 8 * 86400000;
+// 扫描 ~/.claude/projects/**/*.jsonl（mtime ≥ cutoff），增量解析为 usage 事件。
+// cache 由调用方传入：不同扫描窗口各用各的缓存，避免 live 集合不同互相驱逐。
+// Claude Code 没装/没用过 → 返回 null。
+async function scanClaudeEvents(cutoff: number, cache: Map<string, FileCache>): Promise<UsageEvent[] | null> {
   const files: { fp: string; st: { size: number; mtimeMs: number } }[] = [];
   let dirs: string[];
   try {
@@ -121,16 +125,29 @@ async function claudeTokenBuckets() {
     }),
   );
   const live = new Set(files.map((f) => f.fp));
-  for (const k of claudeFileCache.keys()) if (!live.has(k)) claudeFileCache.delete(k);
+  for (const k of cache.keys()) if (!live.has(k)) cache.delete(k);
 
   const all: UsageEvent[] = [];
   for (const { fp, st } of files) {
     try {
-      all.push(...(await parseClaudeFile(fp, st)));
+      all.push(...(await parseClaudeFile(fp, st, cache)));
     } catch {
       /* 单文件坏不挡整体 */
     }
   }
+  return all;
+}
+
+// usage:daily 数据源：扫描窗口放宽到 weeks*7+1 天，按天聚合 Claude Code token。
+async function dailyClaudeUsage(weeks: number): Promise<DailyUsage> {
+  const now = Date.now();
+  const all = await scanClaudeEvents(now - (weeks * 7 + 1) * 86400000, dailyFileCache);
+  return { at: now, days: all ? bucketEventsByDay(all, weeks, now) : [] };
+}
+
+async function claudeTokenBuckets() {
+  const all = await scanClaudeEvents(Date.now() - 8 * 86400000, claudeFileCache);
+  if (all === null) return null; // 没装/没用过 Claude Code
   const now = Date.now();
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
@@ -324,6 +341,16 @@ export function registerUsageHandlers(): void {
       codex,
     };
     resultCache = { at: Date.now(), data };
+    return data;
+  });
+
+  // 按天 token 用量（落地页用量日历 token 模式）：weeks 默认 26，结果按 weeks 缓存 30s。
+  ipcMain.handle("usage:daily", async (_e, weeks?: number) => {
+    const w = Math.max(1, Math.min(53, Math.floor(weeks || 26)));
+    const cached = dailyResultCache.get(w);
+    if (cached && Date.now() - cached.at < 30_000) return cached.data;
+    const data = await dailyClaudeUsage(w).catch(() => ({ at: Date.now(), days: [] }) as DailyUsage);
+    dailyResultCache.set(w, { at: Date.now(), data });
     return data;
   });
 }
