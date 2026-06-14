@@ -24,3 +24,12 @@
 2. 影响主进程决策的 store 切片（如 `projects`/`promptRoot`）变更要**立即**落盘，绕过节流；同源 IPC 按序处理可保证先 save 后用。
 
 排查入口：`apps/desktop/src/main/ipc/fs.ts` 的 `assertAllowed`、`packages/core/desktop/usePersonalPersistence.ts` 的 `saveUrgency`。
+
+## 2026-06-14 worktree 里改代码，必须在 worktree 里跑验证（别在主仓跑）
+
+**事故**：用 `git worktree` 在 `.worktrees/<branch>/` 写完整个 feature 后，习惯性 `cd <主仓根>` 跑 `pnpm test/typecheck`。主仓在 `master`、不含我的改动，于是「全绿」其实是**基线**结果，我的新文件根本没被验证。直到 typecheck 报错路径前缀是主仓而非 worktree 才发觉。
+
+**规则**：
+1. **改在哪、验在哪**：所有 `pnpm test/typecheck/lint` 必须 `cd` 进 `.worktrees/<branch>/` 执行；用输出里的绝对路径前缀核对是不是 worktree。
+2. **worktree 不自带 `node_modules`**：`git worktree add` 只建工作树，pnpm 依赖要在 worktree 内先 `pnpm install`（命中全局 store，很快）；否则 `tsc/eslint: command not found`。
+3. 验证某报错是否自己引入：`git stash && tsc --noEmit; git stash pop` 比对基线——基线已有的错别背锅，也别去“修”。
