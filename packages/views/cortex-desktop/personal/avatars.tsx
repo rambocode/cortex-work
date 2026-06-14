@@ -19,7 +19,17 @@ function Frame({ bg, children }: { bg: string; children: ReactNode }) {
 }
 
 // 一对眼睛 + 可选高光（多数动物共用）。
-function Eyes({ cx1 = 26, cx2 = 38, cy = 34, r = 3.2 }: { cx1?: number; cx2?: number; cy?: number; r?: number }) {
+function Eyes({
+  cx1 = 26,
+  cx2 = 38,
+  cy = 34,
+  r = 3.2,
+}: {
+  cx1?: number | string;
+  cx2?: number | string;
+  cy?: number | string;
+  r?: number | string;
+}) {
   return (
     <g fill={OUTLINE}>
       <circle cx={cx1} cy={cy} r={r} />

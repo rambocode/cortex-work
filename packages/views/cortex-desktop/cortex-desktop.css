@@ -4642,6 +4642,16 @@ button.sb-row {
 .pw-pet-desc { font-size: 11px; color: var(--text-3); }
 .pw-pet-card.is-active .pw-pet-name { color: var(--accent); }
 
+/* 个人资料头像预览:内置 SVG 满幅,圆形裁切，与会话气泡圆头像观感一致。 */
+.pw-avatar-preview {
+  display: block;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.pw-avatar-preview svg { display: block; width: 100%; height: 100%; }
+
 /* 宠物尺寸滑杆 */
 .pw-pet-size { display: flex; align-items: center; gap: 10px; }
 .pw-pet-size input[type="range"] { flex: 1; max-width: 260px; accent-color: var(--accent); }
