@@ -13,8 +13,14 @@ export function getDesktopBehavior(): DesktopBehavior {
 }
 
 function applyLoginItem(b: DesktopBehavior): void {
-  if (process.platform === "darwin" || process.platform === "win32") {
+  if (process.platform !== "darwin" && process.platform !== "win32") return;
+  try {
+    // 已是「都不自启」则跳过,避免每次启动无谓调用 + dev/未签名构建报权限错。
+    const cur = app.getLoginItemSettings();
+    if (!b.openAtLogin && !cur.openAtLogin) return;
     app.setLoginItemSettings({ openAtLogin: b.openAtLogin, openAsHidden: b.startMinimized });
+  } catch {
+    // dev/未签名构建可能 "Operation not permitted",忽略（签名发布版生效）。
   }
 }
 
