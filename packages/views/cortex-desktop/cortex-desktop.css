@@ -5153,6 +5153,91 @@ button.sb-row {
   color: var(--text-3);
 }
 
+/* ── 落地页用量日历卡片（UsageCalendarCard：活动/token 切换 + 刷新/折叠 + 空态） ── */
+.pw-usagecal {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-app);
+}
+.pw-usagecal[data-collapsed="true"] { gap: 0; }
+.pw-usagecal-head { display: flex; align-items: center; gap: 8px; }
+.pw-usagecal-sp { flex: 1; }
+/* segmented：活动 / token 用量 */
+.pw-usagecal-modes {
+  display: inline-flex; gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--text-4) 12%, transparent);
+}
+.pw-usagecal-modes button {
+  appearance: none; border: 0; cursor: pointer;
+  padding: 4px 11px;
+  border-radius: 7px;
+  font-size: 12px; color: var(--text-3);
+  background: transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-usagecal-modes button:hover { color: var(--text-1); }
+.pw-usagecal-modes button[data-active="true"] {
+  background: var(--bg-app);
+  color: var(--text-1); font-weight: 600;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-1) 12%, transparent);
+}
+.pw-usagecal-refresh {
+  display: inline-flex; align-items: center; gap: 5px;
+  appearance: none; cursor: pointer;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px; color: var(--text-2);
+  background: var(--bg-app);
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.pw-usagecal-refresh:hover { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-1); }
+.pw-usagecal-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  appearance: none; cursor: pointer;
+  width: 28px; height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-3);
+  background: var(--bg-app);
+  transition: background 0.12s, color 0.12s;
+}
+.pw-usagecal-toggle:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-usagecal-toggle .chev { display: inline-flex; transition: transform 0.16s; }
+.pw-usagecal-toggle .chev[data-open="true"] { transform: rotate(180deg); }
+.pw-usagecal-loading { padding: 18px 4px; font-size: 12px; color: var(--text-4); }
+/* warmup 空态：左占位网格 + 右文案 */
+.pw-usagecal-warmup {
+  display: flex; gap: 22px; align-items: center;
+  padding: 6px 2px 4px;
+}
+.pw-usagecal-preview { flex: 1; min-width: 0; opacity: 0.6; pointer-events: none; }
+.pw-usagecal-warmup-text {
+  flex-shrink: 0; width: 232px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding-left: 22px;
+  border-left: 1px solid var(--border);
+}
+.pw-usagecal-warmup-text strong { font-size: 14.5px; color: var(--text-1); }
+.pw-usagecal-warmup-text p { margin: 0; font-size: 12.5px; line-height: 1.65; color: var(--text-3); }
+.pw-usagecal-badge {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px; font-weight: 600;
+  color: color-mix(in srgb, var(--accent) 30%, var(--text-1));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+@media (max-width: 640px) {
+  .pw-usagecal-warmup { flex-direction: column; align-items: stretch; gap: 14px; }
+  .pw-usagecal-warmup-text { width: auto; padding-left: 0; border-left: 0; }
+}
+
 /* 热力图：周列方格,横向滚动 */
 .pw-hm {
   background: var(--bg-card-2);
