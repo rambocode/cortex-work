@@ -10,12 +10,12 @@
 - 控件收进「New Chat ▼」弹层（agent / 模型 / 项目）。
 
 ## 阶段清单
-- [ ] Scaffold：core 契约 + 逻辑（types/bridge/store/persistence/messages/spotlightHandoff/index + 单测）
-- [ ] Modules：A 主进程&preload&config / B 渲染层 bar / C views 挂 hook
-- [ ] Build：typecheck(node+web) + electron-vite build 至通过
-- [ ] Verify：契约对账 + 产物核对(out/renderer/spotlight.html) + 单测
-- [ ] Review：按 Verify 修根因
-- [ ] Ship：worktree 内中文 Conventional Commit
+- [x] Scaffold：core 契约 + 逻辑（types/bridge/store/persistence/messages/spotlightHandoff/index + 单测）
+- [x] Modules：A 主进程&preload&config / B 渲染层 bar / C views 挂 hook
+- [x] Build：typecheck(node+web) + electron-vite build 至通过
+- [x] Verify：契约对账 + 产物核对(out/renderer/spotlight.html) + 单测
+- [x] Review：跳过（Build 与 Verify 均通过）
+- [x] Ship：commit `30c0a08` feat(desktop): 菜单栏 Spotlight 浮动聊天框
 
 ## 关键约束（写进实现，避免 Verify 兜底）
 - bar 只读不写状态：仅 `loadState()` 读 + `spotlight.submit` 提交 intent；主窗口是唯一 store writer。
@@ -26,4 +26,22 @@
 - `app.activate` 重建判断排除 spotlight 窗口。
 
 ## 执行结果
-（实施后回填：变更文件、测试、遗留问题）
+
+实施于 worktree `cortex-work-spotlight`（分支 `feat/spotlight-bar`），用分阶段 Workflow（9 agents）完成，主提交 `30c0a08`。
+
+**变更文件**（23 个源码 + 2 文档）：
+- 主进程：新增 `main/spotlight.ts`、`main/ipc/spotlight.ts`；改 `main/index.ts`、`main/automation/tray.ts`、`electron.vite.config.ts`、`preload/index.ts`、`main/ipc/types.ts`。
+- core：改 `desktop/types.ts`、`desktop/bridge.ts`、`store/personal.ts`、`desktop/usePersonalPersistence.ts`、`personal/messages.ts`、`index.ts`；新增 `personal/spotlightHandoff.ts` + 2 测试。
+- 渲染层：新增 `renderer/spotlight.html`、`renderer/src/spotlight.tsx`、`SpotlightBar.tsx`、`spotlight.css`。
+- views：改 `CortexDesktopView.tsx`、`personal/PersonalWorkspace.tsx`。
+
+**验证（自动）**：typecheck(node+web) ✓、`electron-vite build` ✓（产出 `out/renderer/spotlight.html`）、lint ✓、全量 `pnpm test` ✓（7 包；core 128 含新增 10，views 124）。
+
+**Build 阶段自修 2 处**：① `ipc/types.ts` 的 PersistedState 镜像补 `lastAgent/lastModel/lastPiChannelId`（preload `loadState()` 解析到该镜像，bar 要读）；② `SpotlightBar` 返回类型 `JSX.Element`→`React.ReactElement`（React 19 无全局 JSX 命名空间）。
+
+**待用户手动验证（UI）**：左键托盘弹框 / New Chat 弹层选 agent·模型·项目 / 回车转主窗口流式回复 / 系统提示词含 `<personal_workspace_projects>` / 失焦·Esc 隐藏 / 关主窗口后冷投递。
+
+**运行期 watch points**（自动化测不到，手验时留意）：
+- 透明 panel 窗口在 macOS 可能 show 后立即 blur 自隐——若闪退，调 `spotlight.ts` 的 blur 处理或 `showInactive/focus` 时序。
+- `type:"panel"` + `screen-saver` 置顶在不同 macOS 版本盖全屏应用表现可能有差异。
+- 再次唤起靠 `window 'focus'` 事件刷新 last-used；若某次未刷新，看该事件是否触发。
