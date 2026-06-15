@@ -33,7 +33,14 @@ export function useCloseRightPanelOnHome(homeOpen: boolean) {
   }, [homeOpen, setRightOpen]);
 }
 
-export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void }) {
+export function PersonalWorkspace({
+  onToast,
+  onOpenFlashNote,
+}: {
+  onToast: (text: string) => void;
+  // 闪记浮层入口(壳注入,透传给 composer 图标;web/旧壳缺省 → 隐藏)。
+  onOpenFlashNote?: () => void;
+}) {
   const bridge = useDesktopBridge();
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
@@ -84,11 +91,11 @@ export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void
             {automationOpen ? (
               <AutomationView onToast={onToast} />
             ) : homeOpen ? (
-              <NewSessionLanding onToast={onToast} />
+              <NewSessionLanding onToast={onToast} onOpenFlashNote={onOpenFlashNote} />
             ) : timelineProject ? (
               <TimelineView project={timelineProject} onToast={onToast} />
             ) : (
-              <PersonalChatArea onToast={onToast} />
+              <PersonalChatArea onToast={onToast} onOpenFlashNote={onOpenFlashNote} />
             )}
           </div>
           {!automationOpen && rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}

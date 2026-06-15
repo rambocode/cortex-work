@@ -394,6 +394,41 @@ describe("ensureChatLoaded 即建即发不丢首条消息", () => {
     expect(final).toHaveLength(1);
     expect(asText(final[0]!).text).toBe("明天什么天气");
   });
+
+  // 深化（U8）即建即发的基线:深化新会话与收件箱共享同一 queryKey
+  // personalChatKeys.detail(sessionId),其首条用户消息同样不能被空历史覆盖（对照 1e0f2e7）。
+  // 这里直接复刻深化路径的硬时序:createSession 返回新 id → 共享 key 上 useQuery 已在途
+  // → ensureChatLoaded 去重 → 追加首条。
+  it("深化即建即发:共享 queryKey + ensureChatLoaded,深化首条不被空历史覆盖", async () => {
+    const qc = new QueryClient();
+    // 深化新会话 id（createSession 返回值;深化路径用它拼 queryKey 与 docDir）。
+    const deepenSessionId = "sess-deepen";
+    const key = personalChatKeys.detail(deepenSessionId);
+    const releases: Array<(v: Message[]) => void> = [];
+    const loadChat = vi.fn(() => new Promise<Message[]>((resolve) => releases.push(resolve)));
+    const bridge = { loadChat } as unknown as Parameters<typeof __ensureChatLoadedForTest>[1];
+
+    // (1) NotesView/会话区挂载新会话时 useQuery 发起的在途历史加载。
+    const observerFetch = qc.fetchQuery({
+      queryKey: key,
+      queryFn: () => loadChat(),
+      staleTime: Infinity,
+    });
+    // (2) 深化编排里 send 调用的 ensureChatLoaded —— 必须复用上面的在途 fetch。
+    const ensure = __ensureChatLoadedForTest(qc, bridge, deepenSessionId);
+
+    releases.forEach((r) => r([]));
+    await Promise.all([observerFetch, ensure]);
+
+    // (3) send 的 appendMsg 写入种子首条用户消息。
+    qc.setQueryData<Message[]>(key, (prev) => [...(prev ?? []), msg("u1", "深化这批闪记")]);
+    await Promise.resolve();
+
+    expect(loadChat).toHaveBeenCalledTimes(1);
+    const final = qc.getQueryData<Message[]>(key) ?? [];
+    expect(final).toHaveLength(1);
+    expect(asText(final[0]!).text).toBe("深化这批闪记");
+  });
 });
 
 describe("personal attachment system prompt", () => {

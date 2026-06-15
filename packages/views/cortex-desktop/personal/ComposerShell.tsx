@@ -75,6 +75,7 @@ export function ComposerShell({
   onChangeModel,
   onChangePiModel,
   onToggleSkills,
+  onOpenFlashNote,
   onCancelEdit,
   onToast,
 }: {
@@ -99,6 +100,8 @@ export function ComposerShell({
   // pi 多供应商:同时切换 provider 与模型。
   onChangePiModel: (providerId: string, model: string) => void;
   onToggleSkills: () => void;
+  /** 闪记图标入口:唤起闪记浮层(桌面端由壳注入,web 端缺省 → 隐藏入口)。 */
+  onOpenFlashNote?: () => void;
   onCancelEdit?: () => void;
   onToast: (text: string) => void;
 }) {
@@ -426,6 +429,11 @@ export function ComposerShell({
           >
             {transcribing ? <Icon.Clock size={13} /> : <Icon.Mic size={13} />}
           </button>
+          {onOpenFlashNote ? (
+            <button className="pill" onClick={onOpenFlashNote} title="闪记">
+              <Icon.Pin size={13} />
+            </button>
+          ) : null}
           <div className="spacer" />
           <span className="pill pw-model-pill">
             <span className="lightning">

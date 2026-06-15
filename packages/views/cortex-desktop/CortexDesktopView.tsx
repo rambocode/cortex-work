@@ -30,9 +30,12 @@ export interface CortexDesktopViewProps {
   // Reserve space at the titlebar's left for native macOS traffic lights
   // (desktop with a frameless window). Web / non-mac leaves it false.
   nativeTitlebar?: boolean;
+  // 闪记浮层入口(桌面端由壳注入 window.desktopAPI.notesOverlay.show;web 端缺省 → 隐藏入口)。
+  // 由壳就近注入,views 不直接触碰 window.desktopAPI(遵 core/views 硬边界)。
+  onOpenFlashNote?: () => void;
 }
 
-export function CortexDesktopView({ nativeTitlebar = false }: CortexDesktopViewProps) {
+export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote }: CortexDesktopViewProps) {
   const wsId = useWorkspaceId();
   const { apiClient } = useCoreContext();
   const qc = useQueryClient();
@@ -103,7 +106,7 @@ export function CortexDesktopView({ nativeTitlebar = false }: CortexDesktopViewP
           {personal ? (
             // 个人工作区:取消贯穿全宽的标题栏,三栏各自顶天、各有自己的顶部头。
             <div className="body">
-              <PersonalWorkspace onToast={pushToast} />
+              <PersonalWorkspace onToast={pushToast} onOpenFlashNote={onOpenFlashNote} />
             </div>
           ) : (
           <>

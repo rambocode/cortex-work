@@ -71,7 +71,7 @@ function PersonalPanelControls() {
   };
   const onMenuEnter = () => cancelCloseTimer();
 
-  const pick = (view: "files" | "skills" | "todos") => {
+  const pick = (view: "files" | "skills" | "todos" | "notes") => {
     setRightView(view);
     if (!rightOpen) setRightOpen(true);
     setMenuOpen(false);
@@ -117,6 +117,11 @@ function PersonalPanelControls() {
               <Icon.Task size={14} />
               <span>Tasks</span>
               {rightOpen && rightView === "todos" ? <Icon.Check size={13} /> : null}
+            </button>
+            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("notes")}>
+              <Icon.Pin size={14} />
+              <span>闪记</span>
+              {rightOpen && rightView === "notes" ? <Icon.Check size={13} /> : null}
             </button>
             <button
               className="pw-tb-menu-item"

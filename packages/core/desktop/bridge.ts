@@ -27,6 +27,9 @@ import type {
   GitDiffAllResult,
   GitInfoResult,
   GitOpResult,
+  NoteInput,
+  NoteMeta,
+  NoteStatus,
   OpenAiCompleteRequest,
   PersistedState,
   ProviderProbeInput,
@@ -189,4 +192,10 @@ export interface DesktopBridge {
   // 可选能力（旧壳/web 端没有）。
   onSpotlightIntent?(cb: (intent: SpotlightIntent) => void): () => void;
   consumeSpotlightIntent?(): Promise<SpotlightIntent | null>;
+  // 闪记（个人工作区）：可选能力,web 端无此桥、旧壳无此方法时收件箱/浮层入口降级隐藏。
+  notesList?(projectId?: string): Promise<NoteMeta[]>;
+  notesAdd?(input: NoteInput): Promise<NoteMeta>;
+  notesUpdate?(id: string, patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] }): Promise<NoteMeta | null>;
+  notesDelete?(id: string): Promise<void>;
+  onNotesChanged?(cb: (list: NoteMeta[]) => void): () => void;
 }

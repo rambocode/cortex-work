@@ -402,6 +402,8 @@ export interface PersistedState {
   lastAgent?: AgentKind;
   lastModel?: string;
   lastProviderId?: string;
+  // 最近活跃项目（浮层默认归属推导用；归档/删除该项目时清空）。
+  lastActiveProjectId?: string;
 }
 
 export interface ReadFileResult {
@@ -473,8 +475,9 @@ export interface GitOpResult {
 // ── 项目时间线 ────────────────────────────────────────────────────────────
 
 // 时间线事件。存储的只有 run / summary.day 两类；session.created 由
-// SessionMeta（createdAt）在读取时合成,git commit 由 gitLog 按需合入,均不落盘。
-export type TimelineEventKind = "run" | "summary.day" | "session.created" | "git.commit";
+// SessionMeta（createdAt）在读取时合成,git commit 由 gitLog 按需合入,note 由
+// notes.json 在读取时合成（KTD6,不落盘）,均不写入 timeline/<projectId>.json。
+export type TimelineEventKind = "run" | "summary.day" | "session.created" | "git.commit" | "note";
 
 export interface TimelineEvent {
   id: string;
@@ -492,6 +495,8 @@ export interface TimelineEvent {
     day?: string; // summary.day 归属的天（YYYY-MM-DD）
     hash?: string; // git.commit
     backfilled?: boolean; // 历史回填事件（时间归到 session 最后活跃日）
+    noteId?: string; // note 合成事件回链的闪记 id（卡片点击跳详情用）
+    noteStatus?: NoteStatus; // note 合成事件的闪记状态（草稿/深化中/已深化）
   };
 }
 
@@ -788,4 +793,39 @@ export interface AutomationRunEvent {
   automationId: string;
   run: AutomationRun;
   phase: "start" | "end";
+}
+
+// ── 闪记（Flash Notes）──────────────────────────────────────────────────────
+// 以下四个类型与 apps/desktop/src/main/ipc/types.ts 逐字镜像（两侧必须完全一致,
+// 否则 preload 编译通过但运行期字段错位）。
+
+// 闪记状态机：草稿 → 深化中 → 已深化（失败/放弃回落草稿）。
+export type NoteStatus = "draft" | "deepening" | "deepened";
+
+// 闪记单条记录：元数据 + 正文内联（单文件 notes.json,v1 不分文件）。
+export interface NoteMeta {
+  id: string;
+  projectId?: string; // 缺省 = 未归类（事后可归档到项目）
+  status: NoteStatus; // 默认 "draft"
+  content: string; // 正文（markdown 文本,内联）
+  tags?: string[];
+  sourceSessionId?: string; // 捕捉时若在某会话内唤起则记下该会话
+  conversationIds?: string[]; // 深化新开的会话 id（支持再深化,追加不覆盖）
+  docPaths?: string[]; // 深化产出文档路径（追加不覆盖,再深化累加）
+  createdAt: number; // epoch ms（main 生成）
+  updatedAt: number; // epoch ms（main 每次写刷新）
+}
+
+// 渲染端创建闪记的入参（id/status/createdAt/updatedAt 由 main 生成,不传）。
+export interface NoteInput {
+  projectId?: string;
+  content: string;
+  tags?: string[];
+  sourceSessionId?: string;
+}
+
+// notes.json 文件结构（对桥接层不透明,主进程独占写）。
+export interface NotesFileData {
+  version: 1;
+  notes: NoteMeta[];
 }

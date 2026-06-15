@@ -29,6 +29,7 @@ export default defineConfig({
         input: {
           main: resolve("src/renderer/index.html"),
           spotlight: resolve("src/renderer/spotlight.html"),
+          notes: resolve("src/renderer/notes.html"),
         },
       },
     },

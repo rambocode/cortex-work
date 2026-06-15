@@ -20,7 +20,8 @@ export function saveUrgency(s: PersonalState, prev: PersonalState): SaveUrgency 
   if (
     s.projects !== prev.projects ||
     s.promptRoot !== prev.promptRoot ||
-    s.generalSettings !== prev.generalSettings
+    s.generalSettings !== prev.generalSettings ||
+    s.lastActiveProjectId !== prev.lastActiveProjectId // 浮层经主进程 cached 读它,必须立即落盘绕过 500ms 节流
   )
     return "immediate";
   if (

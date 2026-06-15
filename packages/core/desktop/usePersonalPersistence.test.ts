@@ -21,6 +21,10 @@ describe("saveUrgency", () => {
     expect(saveUrgency({ ...base, promptRoot: "/new/root" }, base)).toBe("immediate");
   });
 
+  it("lastActiveProjectId 变更立即保存（浮层经主进程 cached 读默认归属，绕 500ms 节流）", () => {
+    expect(saveUrgency({ ...base, lastActiveProjectId: "p1" }, base)).toBe("immediate");
+  });
+
   it("其余持久化切片变更走节流", () => {
     expect(saveUrgency({ ...base, sessions: [...base.sessions] }, base)).toBe("throttled");
     expect(saveUrgency({ ...base, ttsSettings: { ...base.ttsSettings } }, base)).toBe("throttled");

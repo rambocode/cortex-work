@@ -18,7 +18,14 @@ import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
 import { GitBar } from "./GitBar";
 
-export function NewSessionLanding({ onToast }: { onToast: (text: string) => void }) {
+export function NewSessionLanding({
+  onToast,
+  onOpenFlashNote,
+}: {
+  onToast: (text: string) => void;
+  // 闪记浮层入口(壳注入,透传给 composer 图标;web/旧壳缺省 → 隐藏)。
+  onOpenFlashNote?: () => void;
+}) {
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const sessions = usePersonalStore((s) => s.sessions);
@@ -116,6 +123,7 @@ export function NewSessionLanding({ onToast }: { onToast: (text: string) => void
         onChangeModel={(model) => setDraft((d) => ({ ...d, model }))}
         onChangePiModel={(providerId, model) => setDraft((d) => ({ ...d, providerId, model }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
+        onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}
       />
 

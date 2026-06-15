@@ -14,7 +14,7 @@ import {
   usePushDailyReport,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { AgentKind, CalendarCell, DayGroup, ProjectMeta, TimelineEvent } from "@cortex-work/core";
+import type { AgentKind, CalendarCell, DayGroup, NoteStatus, ProjectMeta, TimelineEvent } from "@cortex-work/core";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -38,13 +38,21 @@ function statChips(stats: DayGroup["stats"]): string[] {
   if (stats.sessions) chips.push(`${stats.sessions} 个新会话`);
   if (stats.files) chips.push(`${stats.files} 个文件变更`);
   if (stats.commits) chips.push(`${stats.commits} 次提交`);
+  if (stats.notes) chips.push(`${stats.notes} 条闪记`);
   return chips.length ? chips : ["无活动"];
 }
+
+// 闪记状态 → 卡片徽标文案（草稿不显示徽标,只深化中/已深化露出）。
+const NOTE_STATUS_LABEL: Partial<Record<NoteStatus, string>> = {
+  deepening: "深化中",
+  deepened: "已深化",
+};
 
 // ── 事件卡片 ──────────────────────────────────────────────────────────────
 
 function EventCard({ event, onJump }: { event: TimelineEvent; onJump?: () => void }) {
   const [expanded, setExpanded] = useState(false);
+  const requestNoteDetail = usePersonalStore((s) => s.requestNoteDetail);
   const files = event.files ?? [];
 
   if (event.kind === "session.created") {
@@ -67,6 +75,25 @@ function EventCard({ event, onJump }: { event: TimelineEvent; onJump?: () => voi
         <span className="pw-tl-commit-hash">{event.meta?.hash?.slice(0, 7)}</span>
         <span className="pw-tl-commit-subject">{event.title}</span>
       </div>
+    );
+  }
+
+  // 闪记事件卡片（整卡可点 → 跳收件箱详情）。务必在 run 默认分支之前,否则掉进 run 富卡片错渲。
+  if (event.kind === "note") {
+    const noteId = event.meta?.noteId;
+    const badge = event.meta?.noteStatus ? NOTE_STATUS_LABEL[event.meta.noteStatus] : undefined;
+    return (
+      <button
+        type="button"
+        className="pw-tl-note"
+        onClick={() => noteId && requestNoteDetail({ noteId })}
+        title="打开闪记详情"
+      >
+        <span className="pw-tl-time">{hhmm(event.ts)}</span>
+        <Icon.Pin size={12} />
+        <span className="pw-tl-note-title">{event.title}</span>
+        {badge ? <span className="pw-tl-note-badge">{badge}</span> : null}
+      </button>
     );
   }
 
@@ -342,9 +369,15 @@ function CalendarGrid({
 
 export function TimelineView({ project, onToast }: { project: ProjectMeta; onToast: (text: string) => void }) {
   const [view, setView] = useState<"timeline" | "calendar">("timeline");
+  const [onlyNotes, setOnlyNotes] = useState(false);
   const closeTimeline = usePersonalStore((s) => s.closeTimeline);
   const { events, loading } = useProjectTimeline(project);
+  // 日历/热力图永远用全量 groups（口径不变）;「只看闪记」只过滤时间线子视图的事件流。
   const groups = useMemo(() => groupEventsByDay(events), [events]);
+  const timelineGroups = useMemo(
+    () => (onlyNotes ? groupEventsByDay(events.filter((ev) => ev.kind === "note")) : groups),
+    [onlyNotes, events, groups],
+  );
 
   const pickDay = (day: string) => {
     setView("timeline");
@@ -368,6 +401,17 @@ export function TimelineView({ project, onToast }: { project: ProjectMeta; onToa
             日历
           </button>
         </div>
+        {view === "timeline" ? (
+          <button
+            className="pw-tl-only-notes"
+            data-active={onlyNotes}
+            onClick={() => setOnlyNotes((v) => !v)}
+            title={onlyNotes ? "显示全部时间线事件" : "只看闪记"}
+          >
+            <Icon.Pin size={12} />
+            只看闪记
+          </button>
+        ) : null}
         <button className="pw-icon-btn" title="返回会话" onClick={closeTimeline}>
           <Icon.XCircle size={15} />
         </button>
@@ -378,7 +422,7 @@ export function TimelineView({ project, onToast }: { project: ProjectMeta; onToa
             <div className="pw-center-hint">正在加载时间线（首次会回填历史会话）…</div>
           </div>
         ) : view === "timeline" ? (
-          <TimelineList project={project} groups={groups} onToast={onToast} />
+          <TimelineList project={project} groups={timelineGroups} onToast={onToast} />
         ) : (
           <CalendarGrid groups={groups} onPickDay={pickDay} />
         )}

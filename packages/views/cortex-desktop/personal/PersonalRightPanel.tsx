@@ -12,12 +12,14 @@ import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
 import { PromptPanel } from "./PromptPanel";
 import { TodosView } from "./TodosView";
+import { NotesView } from "./NotesView";
 
 // 右栏视图 → 顶部头标题（内容沿用现有视图名）。
 const RIGHT_VIEW_TITLE: Record<string, string> = {
   files: "文件",
   skills: "Skills",
   todos: "Tasks",
+  notes: "闪记",
 };
 
 // 导出供测试引用,调参不破坏断言。
@@ -95,6 +97,8 @@ export function PersonalRightPanel({
         <FilesView onToast={onToast} />
       ) : view === "todos" ? (
         <TodosView onToast={onToast} />
+      ) : view === "notes" ? (
+        <NotesView onToast={onToast} />
       ) : (
         <PromptPanel onToast={onToast} bare />
       )}
