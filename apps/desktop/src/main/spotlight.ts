@@ -51,7 +51,10 @@ function create(): BrowserWindow {
   });
   win.setAlwaysOnTop(true, "screen-saver");
   if (process.platform === "darwin") {
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // skipTransformProcessType:true —— visibleOnFullScreen 默认会把进程类型在 accessory/regular
+    // 间切换(副作用:隐藏 Dock 图标)。本 app 是常驻 Dock+托盘应用,须保持 regular,故跳过切换,
+    // 让 Dock 图标始终保留(浮全屏能力由 type:"panel" + alwaysOnTop screen-saver 提供)。
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   }
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     void win.loadURL(`${process.env["ELECTRON_RENDERER_URL"]}/spotlight.html`);
@@ -68,7 +71,8 @@ function create(): BrowserWindow {
 export function showSpotlight(): void {
   const w = win && !win.isDestroyed() ? win : create();
   position(w, BAR_HEIGHT);
-  if (process.platform === "darwin") w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (process.platform === "darwin")
+    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   w.showInactive();
   w.focus();
 }

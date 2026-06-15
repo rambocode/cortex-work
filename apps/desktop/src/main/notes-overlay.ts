@@ -53,7 +53,9 @@ function create(): BrowserWindow {
   });
   win.setAlwaysOnTop(true, "screen-saver");
   if (process.platform === "darwin") {
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // skipTransformProcessType:true —— 同 spotlight.ts:避免 visibleOnFullScreen 把进程切成
+    // accessory 而隐藏 Dock 图标,保持本 app 的 Dock 常驻。
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   }
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     void win.loadURL(`${process.env["ELECTRON_RENDERER_URL"]}/notes.html`);
@@ -70,7 +72,8 @@ function create(): BrowserWindow {
 export function showNotesOverlay(): void {
   const w = win && !win.isDestroyed() ? win : create();
   position(w, NOTES_HEIGHT);
-  if (process.platform === "darwin") w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (process.platform === "darwin")
+    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   w.showInactive();
   w.focus();
 }
