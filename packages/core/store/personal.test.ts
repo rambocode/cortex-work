@@ -537,6 +537,83 @@ describe("个人资料 profile (昵称 + 头像)", () => {
   });
 });
 
+describe("lastActiveProjectId 最近活跃项目持久化（浮层默认归属）", () => {
+  const hydrateWithProjectsAndSessions = () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      projects: [proj({ id: "A" }), proj({ id: "B" })],
+      sessions: [
+        { id: "sA", projectId: "A", title: "Session A", agent: "claude", createdAt: 1, updatedAt: 1 },
+        // 无项目会话（projectId 缺省）。
+        { id: "sNo", title: "Session NoProj", agent: "claude", createdAt: 1, updatedAt: 1 },
+      ],
+    });
+  };
+
+  it("setActiveSession 到项目 A 的会话 → lastActiveProjectId=A 并进 toPersistedState", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().setActiveSession("sA");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+    expect(toPersistedState(usePersonalStore.getState()).lastActiveProjectId).toBe("A");
+  });
+
+  it("切到无项目会话不覆盖为 undefined（保留上一个有效项目 A）", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().setActiveSession("sA");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+    usePersonalStore.getState().setActiveSession("sNo");
+    // 无项目会话不应清空 lastActiveProjectId。
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+  });
+
+  it("activateProject 写入 lastActiveProjectId", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().activateProject("B");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("B");
+  });
+
+  it("removeProject(A) 后 lastActiveProjectId 不再是 A", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().setActiveSession("sA");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+    usePersonalStore.getState().removeProject("A");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBeUndefined();
+  });
+
+  it("removeProject(其它项目) 不清空 lastActiveProjectId", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().activateProject("A");
+    usePersonalStore.getState().removeProject("B");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+  });
+
+  it("archiveProject(A) 后 lastActiveProjectId 不再是 A", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().setActiveSession("sA");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+    usePersonalStore.getState().archiveProject("A");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBeUndefined();
+  });
+
+  it("archiveProject(其它项目) 不清空 lastActiveProjectId", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().activateProject("A");
+    usePersonalStore.getState().archiveProject("B");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+  });
+
+  it("hydrate(toPersistedState(state)) 往返保留 lastActiveProjectId", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().activateProject("A");
+    const persisted = toPersistedState(usePersonalStore.getState());
+    expect(persisted.lastActiveProjectId).toBe("A");
+
+    // round-trip：把快照再 hydrate 回去，结果一致。
+    usePersonalStore.getState().hydrate({ ...persisted });
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+  });
+});
+
 describe("filePreviewRequest 文件预览请求(消费即清)", () => {
   const req = { projectId: "p1", path: "/code/p1/src/a.ts", name: "a.ts" };
 

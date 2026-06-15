@@ -1,6 +1,7 @@
 // 个人工作区数据目录：~/.cortex-desktop/
 //   personal-workspace.json  项目/session 元数据
 //   chats/<sessionId>.json   会话消息历史
+//   notes.json               闪记元数据 + 正文
 // 旧版本数据存于 Electron userData，启动后首次访问时自动迁移。
 
 import { app } from "electron";
@@ -42,6 +43,11 @@ export function noProjectSessionDir(dayKey: string): string {
 // 自动化（定时任务）配置：单文件全量。
 export function automationsStorePath(): string {
   return join(cortexHome(), "automations.json");
+}
+
+// 闪记：单文件全量（元数据 + 正文内联）。
+export function notesStorePath(): string {
+  return join(cortexHome(), "notes.json");
 }
 
 // 自动化执行历史：按 automationId 一文件（automation-runs/<id>.json）。

@@ -20,6 +20,9 @@ import type {
   GitDiffAllResult,
   GitInfoResult,
   GitOpResult,
+  NoteInput,
+  NoteMeta,
+  NoteStatus,
   PersistedState,
   PromptNode,
   ReadFileResult,
@@ -225,6 +228,20 @@ const personal = {
     return () => ipcRenderer.removeListener("spotlight:intent", listener);
   },
   consumeSpotlightIntent: (): Promise<SpotlightIntent | null> => ipcRenderer.invoke("spotlight:consumePending"),
+  // 闪记（个人工作区）。main 为 owner,这里只是 IPC 透传 + 变更事件订阅。
+  // 形状与 DesktopBridge 的可选 notes* 方法逐字对齐（手工比对,无 satisfies）。
+  notesList: (projectId?: string): Promise<NoteMeta[]> => ipcRenderer.invoke("notes:list", projectId),
+  notesAdd: (input: NoteInput): Promise<NoteMeta> => ipcRenderer.invoke("notes:add", input),
+  notesUpdate: (
+    id: string,
+    patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] },
+  ): Promise<NoteMeta | null> => ipcRenderer.invoke("notes:update", id, patch),
+  notesDelete: (id: string): Promise<void> => ipcRenderer.invoke("notes:delete", id),
+  onNotesChanged: (cb: (list: NoteMeta[]) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, list: NoteMeta[]) => cb(list);
+    ipcRenderer.on("notes:changed", listener);
+    return () => ipcRenderer.removeListener("notes:changed", listener);
+  },
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

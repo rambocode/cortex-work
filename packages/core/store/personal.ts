@@ -92,6 +92,8 @@ export interface PersonalState {
   lastAgent?: AgentKind;
   lastModel?: string;
   lastProviderId?: string;
+  // 最近活跃项目（持久化;浮层默认归属推导用,归档/删除该项目时清空）。
+  lastActiveProjectId?: string;
   // Spotlight 接力:待主窗口个人工作区消费的发起意图（不持久化）。
   pendingSpotlightIntent?: SpotlightIntent;
   hydrate: (s: PersistedState) => void;
@@ -255,6 +257,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       lastModel: s.lastModel,
       // 旧档字段名 lastPiChannelId → lastProviderId。
       lastProviderId: s.lastProviderId ?? (s as LegacyPersisted).lastPiChannelId,
+      lastActiveProjectId: s.lastActiveProjectId,
     }),
 
   addProject: (path) => {
@@ -277,6 +280,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeSessionId:
         s.sessions.find((x) => x.id === s.activeSessionId)?.projectId === id ? undefined : s.activeSessionId,
       timelineProjectId: s.timelineProjectId === id ? undefined : s.timelineProjectId,
+      lastActiveProjectId: s.lastActiveProjectId === id ? undefined : s.lastActiveProjectId,
     })),
 
   updateProject: (id, patch) =>
@@ -295,6 +299,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeSessionId:
         s.sessions.find((x) => x.id === s.activeSessionId)?.projectId === id ? undefined : s.activeSessionId,
       timelineProjectId: s.timelineProjectId === id ? undefined : s.timelineProjectId,
+      // 归档项目不应再作默认归属拉起。
+      lastActiveProjectId: s.lastActiveProjectId === id ? undefined : s.lastActiveProjectId,
     })),
 
   setAgentsAvailable: (avail) => set({ agentsAvailable: avail }),
@@ -441,6 +447,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       return {
         activeSessionId: sessionId,
         activeProjectId: sess?.projectId ?? s.activeProjectId,
+        // 无项目会话不覆盖（保留上一个有效项目作浮层默认归属）。
+        lastActiveProjectId: sess?.projectId ?? s.lastActiveProjectId,
         timelineProjectId: undefined,
         homeOpen: false,
         automationOpen: false,
@@ -450,6 +458,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   activateProject: (projectId) =>
     set({
       activeProjectId: projectId,
+      lastActiveProjectId: projectId,
       activeSessionId: undefined,
       timelineProjectId: undefined,
       homeOpen: false,
@@ -555,6 +564,7 @@ export function toPersistedState(s: PersonalState): PersistedState {
     lastAgent: s.lastAgent,
     lastModel: s.lastModel,
     lastProviderId: s.lastProviderId,
+    lastActiveProjectId: s.lastActiveProjectId,
   };
 }
 
