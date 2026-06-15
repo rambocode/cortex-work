@@ -227,6 +227,19 @@ function NoteDetail({
     }
   };
 
+  // 放弃深化(R17 不留僵尸闪记):若深化会话在 mid-deepen 重载/崩溃后只命中 finalizeRun
+  // 「run 已丢失」回退分支,applyDeepenFinalize 不触发,闪记会永久卡 deepening 且被
+  // prepareDeepenNotes 硬拦无法重试。提供用户可控回落出口:置回 draft 后可重新深化。
+  // 刻意不做自动回落,以免误丢已产出的文档链接(docPaths/conversationIds 全部保留)。
+  const abandonDeepen = async () => {
+    try {
+      await updateNote.mutateAsync({ id: note.id, patch: { status: "draft" } });
+      onToast("已放弃深化,闪记回到草稿");
+    } catch (err) {
+      onToast(`放弃深化失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   const statusLabel = STATUS_LABEL[note.status];
   const docPaths = note.docPaths ?? [];
   // 深化(来源)会话 = conversationIds(深化新会话);可逐段跳回(契约 U10#2)。
@@ -278,6 +291,17 @@ function NoteDetail({
             </>
           ) : (
             <>
+              {note.status === "deepening" ? (
+                <button
+                  className="pw-tl-gen"
+                  title="放弃深化,把闪记回落为草稿后可重新深化"
+                  onClick={() => void abandonDeepen()}
+                  disabled={updateNote.isPending}
+                >
+                  <Icon.Back size={12} />
+                  放弃深化
+                </button>
+              ) : null}
               <button className="pw-icon-btn" title="编辑" onClick={startEdit}>
                 <Icon.Edit size={13} />
               </button>
@@ -585,6 +609,9 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   // 多选(限同项目内):selectedProjectKey 锁定当前选择所在项目(undefined=未归类组)。
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | undefined>(undefined);
+  // 深化触发在途态(仿 NoteDetail 的 planning/saving):onDeepen 进行中禁用按钮,
+  // 堵住「触发后到 notesUpdate(deepening) 落库前」的极窄窗口被极快二次点击绕过 already-deepening 拦截。
+  const [deepening, setDeepening] = useState(false);
 
   // 跨栏跳转:消费 store 请求,在右栏打开该闪记详情(消费即清,仿 TodosView)。
   const noteDetailRequest = usePersonalStore((s) => s.noteDetailRequest);
@@ -662,7 +689,8 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   // 成功后清空多选(深化中的闪记禁止再次触发);失败/阻止由编排内 onToast 提示,选择保留。
   const onDeepen = async () => {
     const ids = [...selectedIds];
-    if (ids.length === 0) return;
+    if (ids.length === 0 || deepening) return;
+    setDeepening(true);
     try {
       await deepenNotes(ids, onToast);
       // 成功触发后清空多选并退出列表多选态（已切到新会话）。
@@ -670,6 +698,8 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
       setSelectedProjectKey(undefined);
     } catch (err) {
       onToast(`深化失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDeepening(false);
     }
   };
 
@@ -720,12 +750,16 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
         <div className="pw-note-bar">
           <span>已选 {selectedIds.size} 条</span>
           <div className="spacer" />
-          <button className="pw-tl-gen" onClick={() => { setSelectedIds(new Set()); setSelectedProjectKey(undefined); }}>
+          <button
+            className="pw-tl-gen"
+            onClick={() => { setSelectedIds(new Set()); setSelectedProjectKey(undefined); }}
+            disabled={deepening}
+          >
             取消
           </button>
-          <button className="pw-tl-gen" onClick={() => void onDeepen()}>
+          <button className="pw-tl-gen" onClick={() => void onDeepen()} disabled={deepening}>
             <Icon.Sparkle size={12} />
-            深化 {selectedIds.size} 条
+            {deepening ? "深化中…" : `深化 ${selectedIds.size} 条`}
           </button>
         </div>
       ) : null}

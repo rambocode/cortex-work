@@ -466,3 +466,95 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
     expect(screen.queryByRole("button", { name: /生成 plan/ })).toBeNull();
   });
 });
+
+// 对抗 review 健壮性修复：不留僵尸闪记（R17）+ 深化触发在途防抖。
+describe("NotesView 深化健壮性", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      activeProjectId: undefined,
+      activeSessionId: undefined,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [],
+      noteDetailRequest: undefined,
+    });
+  });
+
+  // 修复 1（R17）：deepening 闪记卡死出口 —— 详情提供「放弃深化」回落草稿。
+  it("deepening 闪记详情显示「放弃深化」,点击调 notesUpdate(id,{status:draft})", async () => {
+    const { bridge, calls, store } = fakeNotesBridge([
+      note({ id: "n1", projectId: "p1", content: "卡住的深化", status: "deepening", conversationIds: ["c1"] }),
+    ]);
+    renderNotes(bridge);
+
+    fireEvent.click(await screen.findByText("卡住的深化"));
+    const giveUp = await screen.findByRole("button", { name: /放弃深化/ });
+    fireEvent.click(giveUp);
+
+    await waitFor(() => expect(calls.update.length).toBeGreaterThan(0));
+    expect(calls.update[0]).toMatchObject({ id: "n1", patch: { status: "draft" } });
+    expect(store.get("n1")?.status).toBe("draft");
+  });
+
+  it("draft 闪记详情不显示「放弃深化」", async () => {
+    const { bridge } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "草稿想法" })]);
+    renderNotes(bridge);
+    fireEvent.click(await screen.findByText("草稿想法"));
+    await screen.findByTitle("编辑");
+    expect(screen.queryByRole("button", { name: /放弃深化/ })).toBeNull();
+  });
+
+  it("deepened 闪记详情不显示「放弃深化」", async () => {
+    const doc = "/code/alpha/docs/flash-notes/c1/brainstorm.md";
+    const { bridge } = fakeNotesBridge(
+      [
+        note({
+          id: "n1",
+          projectId: "p1",
+          content: "已深化想法",
+          status: "deepened",
+          conversationIds: ["c1"],
+          docPaths: [doc],
+        }),
+      ],
+      { [doc]: "# 产物" },
+    );
+    renderNotes(bridge);
+    fireEvent.click(await screen.findByText("已深化想法"));
+    await screen.findByTitle("编辑");
+    expect(screen.queryByRole("button", { name: /放弃深化/ })).toBeNull();
+  });
+
+  // 修复 2：深化触发在途时按钮 disabled,完成后恢复（防极快二次点击建重复会话）。
+  it("深化触发在途时「深化」按钮 disabled,完成后恢复", async () => {
+    // 用一个挂起的 startCli 制造在途窗口（send 内 await startCli → onDeepen 卡在 await）。
+    let releaseCli: (() => void) | null = null;
+    const { bridge } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "待深化" })]);
+    (bridge as unknown as { startCli: (opts: { prompt: string; cwd: string }) => Promise<void> }).startCli =
+      () =>
+        new Promise<void>((resolve) => {
+          releaseCli = resolve;
+        });
+    renderNotes(bridge);
+
+    fireEvent.click(await screen.findByTitle("选择「待深化」"));
+    const deepenBtn = await screen.findByRole("button", { name: /深化 1 条/ });
+    expect(deepenBtn).not.toBeDisabled();
+
+    fireEvent.click(deepenBtn);
+
+    // 在途:按钮 disabled（文案切换为「深化中…」）。
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /深化中…/ })).toBeDisabled();
+    });
+
+    // 放行挂起的 CLI → onDeepen 完成 → 清空多选,底栏隐藏（恢复可点初态:在途按钮消失）。
+    releaseCli!();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /深化中…/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /深化 \d+ 条/ })).toBeNull();
+    });
+  });
+});
