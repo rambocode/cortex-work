@@ -6039,3 +6039,43 @@ button.sb-row {
 .cm-write-md-table { border-collapse: collapse; margin: 0.5em 0; cursor: text; font-size: 0.92em; }
 .cm-write-md-table th, .cm-write-md-table td { border: 1px solid var(--border); padding: 5px 10px; text-align: left; }
 .cm-write-md-table th { background: var(--bg-chip); font-weight: 650; }
+
+/* ============ 闪记写作面 · 容器 / 头部 / 三档切换 ============ */
+.pw-note-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
+.pw-note-editor.is-empty { align-items: center; justify-content: center; }
+
+.pw-note-editor-h {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pw-note-editor-title {
+  font-size: 13px; font-weight: 600; color: var(--text-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38vw;
+}
+
+/* 三档切换分段按钮 */
+.pw-note-mode { display: inline-flex; background: var(--bg-chip); border-radius: 8px; padding: 2px; gap: 2px; }
+.pw-note-mode-btn {
+  border: none; background: transparent; color: var(--text-2); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; transition: background 0.12s, color 0.12s;
+}
+.pw-note-mode-btn:hover { color: var(--text-1); }
+.pw-note-mode-btn.is-on { background: var(--bg-app); color: var(--text-1); box-shadow: var(--pw-float-shadow); }
+
+/* 保存状态指示 */
+.pw-note-save { font-size: 11px; color: var(--text-3); min-width: 3.6em; text-align: right; }
+.pw-note-save[data-status="dirty"] { color: var(--text-2); }
+.pw-note-save[data-status="saving"] { color: var(--text-2); }
+.pw-note-save[data-status="saved"] { color: var(--text-3); }
+.pw-note-save[data-status="error"] { color: var(--red); }
+
+/* 正文区:编辑器 / 仅预览,占满剩余高度并居中收窄(写作版心) */
+.pw-note-editor-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.pw-note-editor-body > .pw-note-cm-host { flex: 1; }
+.pw-note-editor-preview { flex: 1; overflow: auto; padding: clamp(28px, 5vh, 56px) 24px 120px; }
+.pw-note-editor-preview > .pw-todo-md, .pw-note-editor-preview { max-width: 760px; margin: 0 auto; width: 100%; }
+
+/* 深化产物 / 来源会话 footer(迁移自 NoteDetail) */
+.pw-note-editor-links { flex-shrink: 0; border-top: 1px solid var(--border-soft); padding: 10px 14px; }
+.pw-note-editor-links-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.pw-note-editor-time { display: block; margin-top: 6px; color: var(--text-3); }
