@@ -455,8 +455,9 @@ export interface GitOpResult {
 // ── 项目时间线 ────────────────────────────────────────────────────────────
 
 // 时间线事件。存储的只有 run / summary.day 两类；session.created 由
-// SessionMeta（createdAt）在读取时合成,git commit 由 gitLog 按需合入,均不落盘。
-export type TimelineEventKind = "run" | "summary.day" | "session.created" | "git.commit";
+// SessionMeta（createdAt）在读取时合成,git commit 由 gitLog 按需合入,note 由
+// notes.json 在读取时合成（KTD6,不落盘）,均不写入 timeline/<projectId>.json。
+export type TimelineEventKind = "run" | "summary.day" | "session.created" | "git.commit" | "note";
 
 export interface TimelineEvent {
   id: string;
@@ -474,6 +475,8 @@ export interface TimelineEvent {
     day?: string; // summary.day 归属的天（YYYY-MM-DD）
     hash?: string; // git.commit
     backfilled?: boolean; // 历史回填事件（时间归到 session 最后活跃日）
+    noteId?: string; // note 合成事件回链的闪记 id（卡片点击跳详情用）
+    noteStatus?: NoteStatus; // note 合成事件的闪记状态（草稿/深化中/已深化）
   };
 }
 

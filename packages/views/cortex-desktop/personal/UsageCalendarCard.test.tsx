@@ -13,7 +13,7 @@ function bridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
 }
 
 function activityGroups(): DayGroup[] {
-  return [{ day: TODAY, events: [], stats: { sessions: 1, runs: 4, files: 0, commits: 0 } }];
+  return [{ day: TODAY, events: [], stats: { sessions: 1, runs: 4, files: 0, commits: 0, notes: 0 } }];
 }
 
 function renderCard(opts: { groups?: DayGroup[]; bridge?: DesktopBridge; onPick?: (d: string) => void } = {}) {

@@ -134,7 +134,7 @@ describe("latestActiveProjectId", () => {
 });
 
 describe("homeHeatLevel", () => {
-  const stats = (runs: number, sessions: number) => ({ runs, sessions, files: 0, commits: 0 });
+  const stats = (runs: number, sessions: number) => ({ runs, sessions, files: 0, commits: 0, notes: 0 });
 
   it("score = runs + sessions,与时间线日历同档位", () => {
     expect(homeHeatLevel(undefined)).toBe(0);

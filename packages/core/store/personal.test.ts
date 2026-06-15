@@ -640,3 +640,37 @@ describe("filePreviewRequest 文件预览请求(消费即清)", () => {
     expect("filePreviewRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
   });
 });
+
+describe("noteDetailRequest 闪记详情请求(消费即清)", () => {
+  const req = { noteId: "note-1" };
+
+  it("requestNoteDetail 存入请求并切右栏到 notes", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.setState({ rightView: "todos", noteDetailRequest: undefined });
+    usePersonalStore.getState().requestNoteDetail(req);
+    const s = usePersonalStore.getState();
+    expect(s.noteDetailRequest).toEqual(req);
+    expect(s.rightView).toBe("notes");
+  });
+
+  it("consumeNoteDetailRequest 首次返回请求,之后清空", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().requestNoteDetail(req);
+    expect(usePersonalStore.getState().consumeNoteDetailRequest()).toEqual(req);
+    expect(usePersonalStore.getState().noteDetailRequest).toBeUndefined();
+    // 二次消费返回 undefined（消费即清不重复触发）。
+    expect(usePersonalStore.getState().consumeNoteDetailRequest()).toBeUndefined();
+  });
+
+  it("瞬态:不进 toPersistedState 快照", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().requestNoteDetail(req);
+    expect("noteDetailRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  });
+
+  it("setRightView 可切到 notes", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setRightView("notes");
+    expect(usePersonalStore.getState().rightView).toBe("notes");
+  });
+});

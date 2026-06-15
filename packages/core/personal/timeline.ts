@@ -11,6 +11,7 @@ import type { Message } from "../types";
 import type { DesktopBridge } from "../desktop/bridge";
 import type {
   GitCommit,
+  NoteMeta,
   ProjectMeta,
   PushSettings,
   PushTarget,
@@ -20,6 +21,7 @@ import type {
 } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
+import { notesKeys } from "./notes";
 
 export const timelineKeys = {
   detail: (projectId: string) => ["personal", "timeline", projectId] as const,
@@ -52,6 +54,7 @@ export interface DayStats {
   runs: number; // 交互轮次
   files: number; // 去重后的变更文件数
   commits: number;
+  notes: number; // 闪记条数（读取期合成,不算编码活动,不纳入热力图）
 }
 
 // 按天分组并倒序（最近的天在前）；summary.day 提到天头部,不进事件流。
@@ -60,7 +63,7 @@ export function groupEventsByDay(events: TimelineEvent[]): DayGroup[] {
   const ensure = (day: string): DayGroup => {
     let g = byDay.get(day);
     if (!g) {
-      g = { day, events: [], stats: { sessions: 0, runs: 0, files: 0, commits: 0 } };
+      g = { day, events: [], stats: { sessions: 0, runs: 0, files: 0, commits: 0, notes: 0 } };
       byDay.set(day, g);
     }
     return g;
@@ -82,6 +85,7 @@ export function groupEventsByDay(events: TimelineEvent[]): DayGroup[] {
       if (ev.kind === "run") g.stats.runs += 1;
       if (ev.kind === "session.created") g.stats.sessions += 1;
       if (ev.kind === "git.commit") g.stats.commits += 1;
+      if (ev.kind === "note") g.stats.notes += 1;
       for (const f of ev.files ?? []) files.add(f);
     }
     g.stats.files = files.size;
@@ -170,6 +174,35 @@ export function commitEvents(commits: GitCommit[], projectId: string): TimelineE
     kind: "git.commit" as const,
     title: c.subject,
     meta: { hash: c.hash },
+  }));
+}
+
+// 软上限：单项目合成的 note 事件上限（超出仅取最近 N 条,no silent cap）。
+export const NOTE_EVENTS_SOFT_CAP = 500;
+
+// 从 notes 合成 note 事件（读取期合成,不落盘,KTD6）。闪记是真相,编辑/删除
+// 自动反映到时间线（单一来源）。v1 合成全部；超软上限仅取最近 500 并 console.warn。
+export function noteEvents(notes: NoteMeta[], projectId: string): TimelineEvent[] {
+  let scoped = notes.filter((n) => n.projectId === projectId);
+  if (scoped.length > NOTE_EVENTS_SOFT_CAP) {
+    console.warn(
+      `[personal-timeline] 项目 ${projectId} 闪记 ${scoped.length} 条超过软上限 ${NOTE_EVENTS_SOFT_CAP},仅合成最近 ${NOTE_EVENTS_SOFT_CAP} 条到时间线（分页后置）`,
+    );
+    // 按 createdAt 降序取最近 N 条,再升序还原（保持与其它事件同一时间方向）。
+    scoped = [...scoped]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, NOTE_EVENTS_SOFT_CAP)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+  return scoped.map((n) => ({
+    id: `note-${n.id}`, // 稳定前缀,避免与落盘 run 事件 id 碰撞
+    projectId,
+    sessionId: n.sourceSessionId, // 有来源会话则可 onJump 跳源会话
+    ts: n.createdAt,
+    kind: "note" as const,
+    title: clipSummary(n.content) ?? "（空闪记）", // 首行/截断标题（复用既有 clipSummary）
+    summary: n.content,
+    meta: { noteId: n.id, noteStatus: n.status },
   }));
 }
 
@@ -317,11 +350,23 @@ export function useProjectTimeline(project: ProjectMeta | undefined): {
     queryFn: () => (bridge && project ? bridge.gitLog(project.path, { max: 300 }) : Promise.resolve([])),
   });
 
+  // 闪记按项目拉取并读取期合成 note 事件（KTD6,不落盘）。闪记是异步主进程态,
+  // 不像 sessions 同步在 Zustand,必须订阅 query 而非 getState 同步拿;与
+  // useProjectNotes 同 queryKey 共享缓存。
+  const { data: notesData } = useQuery<NoteMeta[]>({
+    queryKey: notesKeys.byProject(projectId ?? "no-project"),
+    enabled: !!bridge && !!projectId && !!bridge.notesList,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    queryFn: () => (bridge?.notesList ? bridge.notesList(projectId) : Promise.resolve([])),
+  });
+
   if (!projectId) return { events: [], loading: false };
   const stored = data?.events ?? [];
   const synthesized = sessionCreatedEvents(sessions, projectId);
   const git = commitEvents(commits ?? [], projectId);
-  return { events: [...stored, ...synthesized, ...git], loading: isLoading };
+  const notes = noteEvents(notesData ?? [], projectId); // v1 合成全部,软上限见 noteEvents
+  return { events: [...stored, ...synthesized, ...git, ...notes], loading: isLoading };
 }
 
 // 日报 prompt（生成路径共用）。

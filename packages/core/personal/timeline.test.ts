@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../types";
-import type { SessionMeta, TimelineEvent } from "../desktop/types";
+import type { NoteMeta, SessionMeta, TimelineEvent } from "../desktop/types";
 import {
   buildCalendarWeeks,
   buildDailyReportText,
@@ -12,6 +12,8 @@ import {
   enabledPushTargets,
   extractChangedFile,
   groupEventsByDay,
+  noteEvents,
+  NOTE_EVENTS_SOFT_CAP,
   promptTitle,
   renderPushReport,
   sessionCreatedEvents,
@@ -19,6 +21,16 @@ import {
 
 function ev(partial: Partial<TimelineEvent> & { ts: number }): TimelineEvent {
   return { id: `e-${partial.ts}`, projectId: "p1", kind: "run", title: "t", ...partial };
+}
+
+function note(partial: Partial<NoteMeta> & { id: string; createdAt: number }): NoteMeta {
+  return {
+    projectId: "p1",
+    status: "draft",
+    content: `内容 ${partial.id}`,
+    updatedAt: partial.createdAt,
+    ...partial,
+  };
 }
 
 const T0 = new Date(2026, 5, 10, 9, 0, 0).getTime(); // 2026-06-10 09:00 本地时间
@@ -39,8 +51,18 @@ describe("groupEventsByDay", () => {
     ]);
     expect(groups.map((g) => g.day)).toEqual(["2026-06-10", "2026-06-09"]);
     expect(groups[0]?.events.map((e) => e.ts)).toEqual([T0, T0 + 3600_000]);
-    expect(groups[0]?.stats).toEqual({ sessions: 0, runs: 2, files: 2, commits: 0 });
+    expect(groups[0]?.stats).toEqual({ sessions: 0, runs: 2, files: 2, commits: 0, notes: 0 });
     expect(groups[1]?.stats.sessions).toBe(1);
+  });
+
+  it("note 事件计入 notes 统计且进事件流,与 run 等其它 kind 共处一天", () => {
+    const groups = groupEventsByDay([
+      ev({ ts: T0, kind: "run" }),
+      ev({ ts: T0 + 1000, id: "note-x", kind: "note", title: "闪记", meta: { noteId: "x", noteStatus: "draft" } }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.stats).toMatchObject({ runs: 1, notes: 1 });
+    expect(groups[0]?.events).toHaveLength(2); // note 进事件流,计入当日事件数
   });
 
   it("summary.day 按 meta.day 归位且不进事件流,重复时保留最新", () => {
@@ -105,6 +127,82 @@ describe("sessionCreatedEvents", () => {
     const events = sessionCreatedEvents(sessions, "p1");
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ kind: "session.created", sessionId: "s1", title: "A" });
+  });
+});
+
+describe("noteEvents", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("只合成本项目的闪记,字段映射正确", () => {
+    const notes: NoteMeta[] = [
+      note({ id: "n1", createdAt: T0, content: "想法一", sourceSessionId: "s1", status: "deepened" }),
+      note({ id: "n2", createdAt: T0 + 1000, content: "想法二" }),
+      note({ id: "x1", createdAt: T0, projectId: "p2", content: "别的项目" }),
+    ];
+    const events = noteEvents(notes, "p1");
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      id: "note-n1",
+      kind: "note",
+      projectId: "p1",
+      sessionId: "s1",
+      ts: T0,
+      title: "想法一",
+      summary: "想法一",
+      meta: { noteId: "n1", noteStatus: "deepened" },
+    });
+    expect(events[1]).toMatchObject({ id: "note-n2", meta: { noteId: "n2", noteStatus: "draft" } });
+  });
+
+  it("3 条闪记按天分组,groupEventsByDay 含 notes 计数且计入当日事件数", () => {
+    const notes: NoteMeta[] = [
+      note({ id: "a", createdAt: T0 }),
+      note({ id: "b", createdAt: T0 + 3600_000 }),
+      note({ id: "c", createdAt: T0 - 86400_000 }),
+    ];
+    const groups = groupEventsByDay(noteEvents(notes, "p1"));
+    expect(groups.map((g) => g.day)).toEqual(["2026-06-10", "2026-06-09"]);
+    expect(groups[0]?.stats.notes).toBe(2);
+    expect(groups[1]?.stats.notes).toBe(1);
+    // note 计入「当日事件数」（进 g.events,与其它 kind 口径一致）。
+    expect(groups[0]?.events).toHaveLength(2);
+  });
+
+  it("编辑闪记内容后合成事件的标题/正文更新（单一来源,不双写）", () => {
+    const before = noteEvents([note({ id: "n1", createdAt: T0, content: "旧内容" })], "p1");
+    expect(before[0]?.title).toBe("旧内容");
+    expect(before[0]?.summary).toBe("旧内容");
+    const after = noteEvents([note({ id: "n1", createdAt: T0, content: "新内容" })], "p1");
+    expect(after[0]?.id).toBe("note-n1"); // id 稳定
+    expect(after[0]?.title).toBe("新内容");
+    expect(after[0]?.summary).toBe("新内容");
+  });
+
+  it("删除闪记后该 note 事件消失（无落盘双写）", () => {
+    const full = noteEvents([note({ id: "n1", createdAt: T0 }), note({ id: "n2", createdAt: T0 + 1 })], "p1");
+    expect(full.map((e) => e.id)).toEqual(["note-n1", "note-n2"]);
+    const afterDelete = noteEvents([note({ id: "n2", createdAt: T0 + 1 })], "p1");
+    expect(afterDelete.map((e) => e.id)).toEqual(["note-n2"]);
+  });
+
+  it("超软上限仅合成最近 500 条并 console.warn,升序还原", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const total = NOTE_EVENTS_SOFT_CAP + 5;
+    // createdAt 递增：i=0 最旧,i=total-1 最新。
+    const notes: NoteMeta[] = Array.from({ length: total }, (_, i) => note({ id: `n${i}`, createdAt: T0 + i }));
+    const events = noteEvents(notes, "p1");
+    expect(events).toHaveLength(NOTE_EVENTS_SOFT_CAP);
+    expect(warn).toHaveBeenCalledOnce();
+    // 取最近 500（最旧被丢）：首条应为 n5（ts=T0+5）,末条为 n{total-1}。
+    expect(events[0]?.id).toBe("note-n5");
+    expect(events.at(-1)?.id).toBe(`note-n${total - 1}`);
+    // 升序还原：ts 单调递增。
+    expect(events.every((e, i) => i === 0 || e.ts >= events[i - 1]!.ts)).toBe(true);
+  });
+
+  it("空正文闪记标题兜底为占位文案", () => {
+    const events = noteEvents([note({ id: "n1", createdAt: T0, content: "   " })], "p1");
+    expect(events[0]?.title).toBe("（空闪记）");
   });
 });
 

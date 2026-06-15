@@ -35,6 +35,9 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${seq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// 右栏当前视图（顶栏下拉选择）。后续新增视图只需扩此联合,不必逐处改字面量。
+export type RightView = "files" | "skills" | "todos" | "notes";
+
 export interface PersonalState {
   hydrated: boolean;
   projects: ProjectMeta[];
@@ -63,8 +66,10 @@ export interface PersonalState {
   // 会话消息文件链接点击请求:右栏 FilesView 消费后 openFile 预览（消费即清,仿 gitDiffRequest）。
   // path 为已解析的绝对路径;瞬态,不进 toPersistedState。
   filePreviewRequest?: { projectId: string; path: string; name: string };
+  // 点击收件箱/时间线某条闪记 → 跨栏打开详情;消费即清,瞬态,不进 toPersistedState。
+  noteDetailRequest?: { noteId: string };
   // 右栏当前视图（顶栏下拉选择）。
-  rightView: "files" | "skills" | "todos";
+  rightView: RightView;
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
   rightPanelWidth?: number;
   // 主区时间线视图：非空时主区显示该项目的时间线（替代会话区）。
@@ -151,7 +156,10 @@ export interface PersonalState {
   // 会话消息文件链接点击:右栏切到文件视图并请求预览该文件（path 为绝对路径）。
   requestFilePreview: (req: { projectId: string; path: string; name: string }) => void;
   consumeFilePreviewRequest: () => { projectId: string; path: string; name: string } | undefined;
-  setRightView: (view: "files" | "skills" | "todos") => void;
+  // 收件箱/时间线点闪记:右栏切到 notes 视图并请求打开该闪记详情（消费即清,仿 filePreview）。
+  requestNoteDetail: (req: { noteId: string }) => void;
+  consumeNoteDetailRequest: () => { noteId: string } | undefined;
+  setRightView: (view: RightView) => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
   openTimeline: (projectId: string) => void;
@@ -509,6 +517,16 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   consumeFilePreviewRequest: () => {
     const req = get().filePreviewRequest;
     if (req) set({ filePreviewRequest: undefined });
+    return req;
+  },
+
+  // 收件箱/时间线点闪记:切右栏到 notes 视图并存请求,NotesView 消费后打开详情。
+  // 消费即清而非 nonce:NotesView 可能在请求发出时未挂载,取出即清才能让挂载后 effect 接到。
+  requestNoteDetail: (req) => set({ noteDetailRequest: req, rightView: "notes" }),
+
+  consumeNoteDetailRequest: () => {
+    const req = get().noteDetailRequest;
+    if (req) set({ noteDetailRequest: undefined });
     return req;
   },
 
