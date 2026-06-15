@@ -170,7 +170,15 @@ export function FlashNoteEditor({
             {editorLoadFailed ? (
               <div className="pw-empty-hint">编辑器加载失败,当前仅可预览。可返回后重试。</div>
             ) : null}
-            {draft.trim() ? <MarkdownView content={draft} /> : <div className="pw-empty-hint">空白闪记</div>}
+            {draft.trim() ? (
+              // .pw-todo-md 承载 cortex 的 markdown 元素样式(标题字号/列表符号/间距/代码块),
+              // MarkdownView 自身不加根 class,必须由此父级提供(对齐 NoteDetail)。
+              <div className="pw-todo-md pw-note-md">
+                <MarkdownView content={draft} />
+              </div>
+            ) : (
+              <div className="pw-empty-hint">空白闪记</div>
+            )}
           </div>
         ) : (
           <NoteCodeMirrorEditor

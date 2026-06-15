@@ -6102,7 +6102,9 @@ button.sb-row {
 .pw-note-editor-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .pw-note-editor-body > .pw-note-cm-host { flex: 1; }
 .pw-note-editor-preview { flex: 1; overflow: auto; padding: clamp(28px, 5vh, 56px) 24px 120px; }
-.pw-note-editor-preview > .pw-todo-md, .pw-note-editor-preview { max-width: 760px; margin: 0 auto; width: 100%; }
+/* 仅预览正文居中收窄(与 live 档 816px 版心呼应);.pw-todo-md 承载 markdown 元素样式 */
+.pw-note-editor-preview > .pw-todo-md { max-width: 768px; margin: 0 auto; }
+.pw-note-editor-preview > .pw-empty-hint { max-width: 768px; margin: 0 auto; }
 
 /* 深化产物 / 来源会话 footer(迁移自 NoteDetail) */
 .pw-note-editor-links { flex-shrink: 0; border-top: 1px solid var(--border-soft); padding: 10px 14px; }
