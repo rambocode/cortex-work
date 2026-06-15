@@ -81,7 +81,6 @@ export function NoteCodeMirrorEditor({
         mods = { state, view, commands, langMarkdown, languageData, language, livePreview };
       } catch (err) {
         // 装载失败(弱网/损坏分包/CSP):保留诊断并上抛,让 FlashNoteEditor 降级(切「仅预览」+ 提示)。
-        // eslint-disable-next-line no-console
         console.error("[notes] CodeMirror 动态装载失败", err);
         if (!disposed) onLoadErrorRef.current?.(err);
         return;
