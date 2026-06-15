@@ -1,7 +1,6 @@
-import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import type { Contact } from "@cortex-work/core/types";
-import { usePersonalStore, type Section } from "@cortex-work/core";
+import { type Section } from "@cortex-work/core";
 import { UpdateButton } from "./UpdateButton";
 
 export interface TitleBarProps {
@@ -14,10 +13,9 @@ export interface TitleBarProps {
   // When set, the titlebar shows a top-level section title instead of the
   // active contact, and chat-only tools (run / model / review toggle) hide.
   sectionTitle?: string;
-  // 个人工作区:隐藏 Projects/Issues/Autopilot 导航,右侧换成终端 + 折叠右栏。
+  // 个人工作区:隐藏 Projects/Issues/Autopilot 导航（个人区不再渲染本组件,仅保留
+  // 该开关以缩小改动面）。
   personal?: boolean;
-  terminalOpen?: boolean;
-  onToggleTerminal?: () => void;
 }
 
 export function TitleBar({
@@ -29,8 +27,6 @@ export function TitleBar({
   onNavigate,
   sectionTitle,
   personal = false,
-  terminalOpen = false,
-  onToggleTerminal,
 }: TitleBarProps) {
   const isGroup = contact?.group === "groups";
   const isShared = contact?.group === "shared";
@@ -93,14 +89,7 @@ export function TitleBar({
 
       <div className="tb-right">
         <UpdateButton />
-        {personal ? (
-          <PersonalPanelControls
-            rightOpen={rightOpen}
-            onToggleRight={onToggleRight}
-            terminalOpen={terminalOpen}
-            onToggleTerminal={onToggleTerminal}
-          />
-        ) : sectionTitle ? null : (
+        {sectionTitle ? null : (
           <>
             <button className="icon-btn" title="运行" onClick={click("已发送至 Agent · 执行中")}>
               <Icon.Run size={15} />
@@ -130,95 +119,6 @@ export function TitleBar({
         )}
       </div>
     </div>
-  );
-}
-
-// 个人工作区顶栏右侧:终端开关 + 右栏面板下拉（选择 文件/Skills 视图,或收起面板）。
-function PersonalPanelControls({
-  rightOpen,
-  onToggleRight,
-  terminalOpen,
-  onToggleTerminal,
-}: {
-  rightOpen: boolean;
-  onToggleRight: () => void;
-  terminalOpen: boolean;
-  onToggleTerminal?: () => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const rightView = usePersonalStore((s) => s.rightView);
-  const setRightView = usePersonalStore((s) => s.setRightView);
-
-  const pick = (view: "files" | "skills" | "todos") => {
-    setRightView(view);
-    if (!rightOpen) onToggleRight();
-    setMenuOpen(false);
-  };
-
-  return (
-    <>
-      <button
-        className={`icon-btn ${terminalOpen ? "is-on" : ""}`}
-        title={terminalOpen ? "收起终端" : "打开终端"}
-        onClick={onToggleTerminal}
-      >
-        <Icon.Terminal />
-      </button>
-      <div className="tb-divider" />
-      <div className="pw-tb-menu-wrap">
-        <button
-          className={`icon-btn ${rightOpen ? "is-on" : ""}`}
-          title="右侧面板"
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          <Icon.Sidebar />
-          <Icon.Chevron size={9} />
-        </button>
-        {menuOpen ? (
-          <div className="pw-tb-menu" role="menu">
-            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("files")}>
-              <Icon.Folder size={14} />
-              <span>文件</span>
-              {rightOpen && rightView === "files" ? <Icon.Check size={13} /> : null}
-            </button>
-            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("skills")}>
-              <Icon.Sparkle size={14} />
-              <span>Skills</span>
-              {rightOpen && rightView === "skills" ? <Icon.Check size={13} /> : null}
-            </button>
-            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("todos")}>
-              <Icon.Task size={14} />
-              <span>Tasks</span>
-              {rightOpen && rightView === "todos" ? <Icon.Check size={13} /> : null}
-            </button>
-            <button
-              className="pw-tb-menu-item"
-              role="menuitem"
-              onClick={() => {
-                onToggleTerminal?.();
-                setMenuOpen(false);
-              }}
-            >
-              <Icon.Terminal size={14} />
-              <span>终端</span>
-              {terminalOpen ? <Icon.Check size={13} /> : null}
-            </button>
-            <div className="pw-tb-menu-sep" />
-            <button
-              className="pw-tb-menu-item"
-              role="menuitem"
-              onClick={() => {
-                onToggleRight();
-                setMenuOpen(false);
-              }}
-            >
-              <Icon.Sidebar size={14} />
-              <span>{rightOpen ? "收起右侧面板" : "展开右侧面板"}</span>
-            </button>
-          </div>
-        ) : null}
-      </div>
-    </>
   );
 }
 

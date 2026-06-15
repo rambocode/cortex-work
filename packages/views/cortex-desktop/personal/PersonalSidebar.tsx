@@ -278,6 +278,8 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
 
   return (
     <aside className="sidebar">
+      {/* 左栏顶部头:三栏各自顶天后承担窗口拖拽区,并为 macOS 红绿灯预留左侧空间。 */}
+      <div className="pw-col-head pw-sidebar-head" />
       <WorkspaceTabs />
       <button className={`pw-home-btn ${homeOpen ? "is-active" : ""}`} onClick={openHome} title="新会话（看板·选项目·开聊）">
         <Icon.Plus size={14} />

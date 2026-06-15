@@ -153,6 +153,29 @@ input, textarea { font: inherit; color: inherit; }
    lights (rendered by the OS via titleBarStyle: hiddenInset). */
 .app-frame[data-native-titlebar="mac"] .titlebar { padding-left: 84px; }
 
+/* ---------- 个人工作区:三栏各自顶天的列头 ----------
+   取消贯穿全宽的 .titlebar 后,左/中/右三栏各自在顶端有一条 44px 的列头,
+   与原标题栏同高、同样承担窗口拖拽区(交互子元素 no-drag)。 */
+.pw-col-head {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-app-region: drag;
+}
+.pw-col-head button,
+.pw-col-head input,
+.pw-col-head .tb-pill,
+.pw-col-head .pw-tb-menu-wrap { -webkit-app-region: no-drag; }
+.pw-col-head .spacer { flex: 1; }
+.pw-col-head-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
+/* 左栏头:为 macOS 红绿灯预留左侧空间(原由 .titlebar 承担)。 */
+.app-frame[data-native-titlebar="mac"] .pw-sidebar-head { padding-left: 84px; }
+
 .tb-left, .tb-right { display: flex; align-items: center; gap: 4px; }
 .tb-center {
   flex: 1;
@@ -3699,6 +3722,9 @@ button.sb-row {
 .pw-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .pw-upper { flex: 1; display: flex; min-height: 0; min-width: 0; }
 .pw-upper > .chat { flex: 1; min-height: 0; }
+/* 中栏列:顶部头(.pw-col-head)固定,其下的当前视图填满剩余高度。 */
+.pw-center-col { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.pw-center-col > :not(.pw-col-head) { flex: 1; min-height: 0; min-width: 0; }
 .pw-term {
   flex-shrink: 0;
   display: flex;

@@ -16,6 +16,7 @@ import { WorkspaceTabs } from "./WorkspaceTabs";
 import { PersonalSidebar } from "./PersonalSidebar";
 import { PersonalChatArea } from "./PersonalChatArea";
 import { PersonalRightPanel } from "./PersonalRightPanel";
+import { PersonalCenterHeader } from "./PersonalTopBar";
 import { TerminalPanel } from "./TerminalPanel";
 import { TimelineView } from "./TimelineView";
 import { NewSessionLanding } from "./NewSessionLanding";
@@ -78,15 +79,18 @@ export function PersonalWorkspace({ onToast }: { onToast: (text: string) => void
       <PersonalSidebar onToast={onToast} />
       <div className="pw-main">
         <div className="pw-upper">
-          {automationOpen ? (
-            <AutomationView onToast={onToast} />
-          ) : homeOpen ? (
-            <NewSessionLanding onToast={onToast} />
-          ) : timelineProject ? (
-            <TimelineView project={timelineProject} onToast={onToast} />
-          ) : (
-            <PersonalChatArea onToast={onToast} />
-          )}
+          <div className="pw-center-col">
+            <PersonalCenterHeader />
+            {automationOpen ? (
+              <AutomationView onToast={onToast} />
+            ) : homeOpen ? (
+              <NewSessionLanding onToast={onToast} />
+            ) : timelineProject ? (
+              <TimelineView project={timelineProject} onToast={onToast} />
+            ) : (
+              <PersonalChatArea onToast={onToast} />
+            )}
+          </div>
           {!automationOpen && rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}
         </div>
         <TerminalPanel onToast={onToast} />

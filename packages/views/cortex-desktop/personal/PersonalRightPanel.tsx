@@ -7,10 +7,18 @@
 // 拖拽条的显示时机由 CSS :has 控制（见 .pw-rp-resizer）。
 
 import { useCallback } from "react";
-import { usePersonalStore } from "@cortex-work/core";
+import { Icon } from "@cortex-work/ui/icons";
+import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
 import { PromptPanel } from "./PromptPanel";
 import { TodosView } from "./TodosView";
+
+// 右栏视图 → 顶部头标题（内容沿用现有视图名）。
+const RIGHT_VIEW_TITLE: Record<string, string> = {
+  files: "文件",
+  skills: "Skills",
+  todos: "Tasks",
+};
 
 // 导出供测试引用,调参不破坏断言。
 export const RP_MIN_WIDTH = 280;
@@ -25,6 +33,7 @@ export function PersonalRightPanel({
   const view = usePersonalStore((s) => s.rightView);
   const width = usePersonalStore((s) => s.rightPanelWidth);
   const setWidth = usePersonalStore((s) => s.setRightPanelWidth);
+  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
 
   const startResize = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -75,6 +84,13 @@ export function PersonalRightPanel({
         onMouseDown={startResize}
         onDoubleClick={() => setWidth(undefined)}
       />
+      <div className="pw-col-head pw-rp-head">
+        <span className="pw-col-head-title">{RIGHT_VIEW_TITLE[view] ?? "面板"}</span>
+        <div className="spacer" />
+        <button className="pw-icon-btn" title="关闭面板" onClick={() => setRightOpen(false)}>
+          <Icon.X size={14} />
+        </button>
+      </div>
       {view === "files" ? (
         <FilesView onToast={onToast} />
       ) : view === "todos" ? (

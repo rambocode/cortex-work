@@ -10,7 +10,6 @@ import {
   useCoreContext,
   useCortexActions,
   useCortexUIStore,
-  usePersonalStore,
   useSpotlightIntentRouter,
   useWorkspaceId,
 } from "@cortex-work/core";
@@ -71,8 +70,6 @@ export function CortexDesktopView({ nativeTitlebar = false }: CortexDesktopViewP
 
   const contact: Contact | undefined = contacts.find((c) => c.id === activeContactId);
   const personal = workspace === "personal";
-  const terminalOpen = usePersonalStore((s) => s.terminalOpen);
-  const toggleTerminal = usePersonalStore((s) => s.toggleTerminal);
 
   // Mark the opened conversation as read — an optimistic write to the contacts
   // cache (server state), not a copy into Zustand.
@@ -103,6 +100,13 @@ export function CortexDesktopView({ nativeTitlebar = false }: CortexDesktopViewP
         data-native-titlebar={nativeTitlebar ? "mac" : undefined}
       >
         <div className="app">
+          {personal ? (
+            // 个人工作区:取消贯穿全宽的标题栏,三栏各自顶天、各有自己的顶部头。
+            <div className="body">
+              <PersonalWorkspace onToast={pushToast} />
+            </div>
+          ) : (
+          <>
           <TitleBar
             contact={contact}
             rightOpen={rightOpen}
@@ -110,18 +114,8 @@ export function CortexDesktopView({ nativeTitlebar = false }: CortexDesktopViewP
             onToast={pushToast}
             activeSection={activeSection}
             onNavigate={setSection}
-            sectionTitle={
-              workspace === "personal" ? "个人工作区" : activeSection === "chat" ? undefined : SECTION_TITLE[activeSection]
-            }
-            personal={personal}
-            terminalOpen={terminalOpen}
-            onToggleTerminal={toggleTerminal}
+            sectionTitle={activeSection === "chat" ? undefined : SECTION_TITLE[activeSection]}
           />
-          {workspace === "personal" ? (
-            <div className="body">
-              <PersonalWorkspace onToast={pushToast} />
-            </div>
-          ) : (
           <div className="body">
             <Sidebar
               contacts={contacts}
@@ -166,6 +160,7 @@ export function CortexDesktopView({ nativeTitlebar = false }: CortexDesktopViewP
               <SectionPage section={activeSection} />
             )}
           </div>
+          </>
           )}
           <ToastStack items={toasts} />
           <Pet />

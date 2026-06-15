@@ -1,6 +1,6 @@
-import { cleanup, render, fireEvent } from "@testing-library/react";
+import { cleanup, render, fireEvent, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { CoreProvider, usePersonalStore } from "@cortex-work/core";
+import { CoreProvider, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 import { PersonalRightPanel, RP_CENTER_RESERVED, RP_MIN_WIDTH } from "./PersonalRightPanel";
 
@@ -73,5 +73,12 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     const { container } = renderPanel();
     fireEvent.doubleClick(container.querySelector(".pw-rp-resizer")!);
     expect(usePersonalStore.getState().rightPanelWidth).toBeUndefined();
+  });
+
+  it("顶部头 × 收起面板:调用 setRightOpen(false)", () => {
+    useCortexUIStore.setState({ rightOpen: true });
+    renderPanel();
+    fireEvent.click(screen.getByTitle("关闭面板"));
+    expect(useCortexUIStore.getState().rightOpen).toBe(false);
   });
 });
