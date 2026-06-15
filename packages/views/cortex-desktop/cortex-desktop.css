@@ -5981,27 +5981,56 @@ button.sb-row {
 .pw-note-cm-host > .cm-editor { height: 100%; width: 100%; }
 .pw-note-cm-host > .cm-editor.cm-focused { outline: none; }
 
-/* 非光标行隐藏 markdown 标记 */
-.cm-write-live-preview .cm-write-md-hidden-mark { display: none; }
+/* live 档:正文居中版心(对齐 Kun 的 816px measure;source 档保持全宽等宽) */
+.cm-write-live-preview .cm-content {
+  max-width: 816px;
+  margin: 0 auto;
+  padding-left: clamp(24px, 5vw, 48px);
+  padding-right: clamp(24px, 5vw, 48px);
+}
+.cm-write-live-preview .cm-line { color: var(--text-1); }
 
-/* 分割线 widget */
-.cm-write-md-hr {
-  display: block; height: 0; margin: 0.55em auto; width: 100%;
-  border-top: 2px solid var(--border-strong); cursor: text;
+/* 非光标行隐藏 markdown 标记:零宽收起(保持光标定位稳定,不用 display:none 引起回流) */
+.cm-write-live-preview .cm-write-md-hidden-mark {
+  display: inline-block; width: 0; overflow: hidden;
+  color: transparent !important; font-size: 0; letter-spacing: 0; line-height: 0;
+  pointer-events: none;
 }
 
-/* 列表项目符号 widget */
-.cm-write-md-list-bullet { display: inline-block; cursor: text; color: var(--text-2); }
-.cm-write-md-list-bullet::before { content: "•"; }
+/* 分割线 widget:细线 */
+.cm-write-md-hr {
+  display: block; width: 100%; height: 1px; margin: 1.6rem auto; border: 0;
+  background: color-mix(in srgb, var(--text-1) 14%, transparent); cursor: text;
+}
+
+/* 列表项目符号 widget:精确圆点(非 • 字形,尺寸/基线稳定) */
+.cm-write-md-list-bullet {
+  display: inline-block; width: 0.42em; height: 0.42em;
+  margin-right: 0.66em; margin-left: 0.18em;
+  transform: translateY(-0.08em);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-2) 82%, transparent);
+  cursor: text;
+}
 
 /* 任务勾选框 */
-.cm-write-md-task { display: inline-flex; align-items: center; cursor: pointer; }
-.cm-write-md-task input { margin: 0 0.4em 0 0; cursor: pointer; accent-color: var(--accent); }
+.cm-write-md-task {
+  display: inline-flex; width: 1.42em; margin-right: 0.22em; vertical-align: -0.12em; cursor: pointer;
+}
+.cm-write-md-task input { width: 1.02em; height: 1.02em; accent-color: var(--accent); cursor: pointer; }
 
-/* 图片 */
-.cm-write-md-image-wrap { display: inline-block; cursor: text; max-width: 100%; }
-.cm-write-md-image { max-width: 100%; border-radius: 8px; vertical-align: bottom; }
-.cm-write-md-image-error { color: var(--text-3); font-size: 0.86em; }
+/* 图片:块级 + 限高 + 边框 */
+.cm-write-md-image-wrap { display: block; margin: 0.85rem 0; cursor: text; }
+.cm-write-md-image {
+  display: block; max-width: 100%; max-height: 520px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); object-fit: contain;
+}
+.cm-write-md-image-error {
+  display: inline-flex; max-width: 100%; align-items: center;
+  border: 1px solid color-mix(in srgb, var(--red) 38%, var(--border));
+  border-radius: 8px; background: color-mix(in srgb, var(--red) 8%, var(--bg-card));
+  padding: 0.28rem 0.55rem; color: var(--red); font-size: 0.82em; line-height: 1.4;
+}
 .cm-write-md-image-error .cm-write-md-image { display: none; }
 .cm-write-md-image-error::after { content: "图片无法加载"; }
 
