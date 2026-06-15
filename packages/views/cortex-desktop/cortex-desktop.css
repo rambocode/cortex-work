@@ -3634,7 +3634,11 @@ button.sb-row {
   white-space: pre; overflow: auto;
 }
 .pw-note-links { margin-top: 12px; border-top: 1px dashed var(--border-soft); padding-top: 8px; }
-.pw-note-links-h { font-size: 11.5px; color: var(--text-3); margin-bottom: 4px; }
+.pw-note-links-h {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11.5px; color: var(--text-3); margin-bottom: 4px;
+}
+.pw-note-links-h .spacer { flex: 1; }
 .pw-note-links-list { list-style: none; margin: 0; padding: 0; }
 .pw-note-links-list li { padding: 1px 0; }
 .pw-note-link {
@@ -3644,6 +3648,42 @@ button.sb-row {
   padding: 2px 0;
 }
 .pw-note-link:hover { text-decoration: underline; }
+.pw-note-link:disabled { color: var(--text-4); cursor: not-allowed; text-decoration: none; }
+/* 深化(来源)会话跳回:多段竖排 */
+.pw-note-links-sessions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+/* 单条产物行:文件名链接 + 「在文件视图打开」副入口 */
+.pw-note-doc-row { display: flex; align-items: center; gap: 4px; }
+.pw-note-doc-row .pw-note-link { flex: 1; min-width: 0; }
+.pw-note-doc-row .pw-note-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-note-doc-row.is-open .pw-note-link { color: var(--text-1); font-weight: 600; }
+/* 内联产物文档查看/编辑(磁盘 .md) */
+.pw-note-doc {
+  margin: 4px 0 8px; padding: 6px 8px;
+  border: 1px solid var(--border-soft); border-radius: 8px;
+  background: var(--bg-app);
+}
+.pw-note-doc-h {
+  display: flex; align-items: center; gap: 6px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border-soft);
+  font-size: 11.5px; color: var(--text-3);
+}
+.pw-note-doc-h .spacer { flex: 1; }
+.pw-note-doc-name { color: var(--text-2); }
+.pw-note-doc-edit { display: flex; gap: 0; min-height: 160px; min-width: 0; padding-top: 6px; }
+.pw-note-doc-gutter {
+  flex: none; min-width: 3ch; overflow: hidden;
+  display: flex; flex-direction: column; text-align: right;
+  padding: 2px 10px 18px 0;
+  color: var(--text-4); font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
+  user-select: none;
+}
+.pw-note-doc-ta {
+  flex: 1; width: 100%; min-width: 0;
+  resize: none; border: 0; outline: none; background: transparent;
+  color: var(--text-1); font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
+  padding: 2px 0 18px;
+  white-space: pre; overflow: auto;
+}
 /* 底部多选操作条 */
 .pw-note-bar {
   display: flex; align-items: center; gap: 8px;

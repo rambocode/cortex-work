@@ -13,8 +13,10 @@ import {
   useAllNotes,
   useUpdateNote,
   useDeleteNote,
+  useDeepenNotes,
+  useGeneratePlan,
 } from "@cortex-work/core";
-import type { NoteMeta, ProjectMeta } from "@cortex-work/core";
+import type { DesktopBridge, NoteMeta, ProjectMeta } from "@cortex-work/core";
 import { MarkdownView } from "./MarkdownView";
 import { relTime } from "./PersonalSidebar";
 
@@ -31,6 +33,139 @@ const STATUS_LABEL: Record<NoteMeta["status"], string | null> = {
   deepened: "已深化",
 };
 
+// 深化产物文档(磁盘 .md)内联查看/编辑:readFile 预览 + textarea 编辑 + writeFile 写回
+// (白名单内,经 fs.assertAllowed 放行)。读盘失败 → 友好降级提示,不崩(链接悬挂降级:
+// 某文档被外部删除时其余仍可达,缺失项给提示)。仿 TodosView.MarkdownDetail。
+function NoteDocView({
+  path,
+  bridge,
+  onToast,
+}: {
+  path: string;
+  bridge: DesktopBridge | null;
+  onToast: (text: string) => void;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const gutterRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setContent(null);
+    setError(null);
+    setEditing(false);
+    if (!bridge) {
+      setError("当前环境不支持打开文档");
+      return;
+    }
+    bridge
+      .readFile(path)
+      .then((res) => {
+        if (cancelled) return;
+        setContent(res.content);
+        setTruncated(res.truncated);
+      })
+      .catch(() => {
+        // 链接悬挂降级:文档被外部删除/不可读 → 友好提示,不崩,其余产物仍可达。
+        if (!cancelled) setError("文档不可用（可能已被移动或删除）");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge, path]);
+
+  const canEdit = !!bridge && content !== null && !truncated;
+
+  const startEdit = () => {
+    if (!canEdit) return;
+    setDraft(content ?? "");
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!bridge || truncated || saving) return;
+    setSaving(true);
+    try {
+      await bridge.writeFile(path, draft);
+      setContent(draft);
+      setEditing(false);
+      onToast("已保存文档");
+    } catch (err) {
+      onToast(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="pw-note-doc">
+      <div className="pw-note-doc-h">
+        <Icon.File size={12} />
+        <span className="pw-note-doc-name">{path.slice(path.lastIndexOf("/") + 1)}</span>
+        <div className="spacer" />
+        {truncated ? <span className="pw-readonly">文件过大 · 只读</span> : null}
+        {error ? null : editing ? (
+          <>
+            <button className="pw-tl-gen" onClick={() => setEditing(false)} disabled={saving}>
+              取消
+            </button>
+            <button className="pw-tl-gen" onClick={() => void save()} disabled={saving}>
+              <Icon.Check size={12} />
+              {saving ? "保存中…" : "保存"}
+            </button>
+          </>
+        ) : (
+          <button className="pw-icon-btn" title="编辑文档" onClick={startEdit} disabled={!canEdit}>
+            <Icon.Edit size={13} />
+          </button>
+        )}
+      </div>
+      {error ? (
+        <div className="pw-empty-hint">{error}</div>
+      ) : content === null ? (
+        <div className="pw-editor-loading">加载中…</div>
+      ) : editing ? (
+        <div className="pw-note-doc-edit">
+          <div className="pw-note-doc-gutter" ref={gutterRef} aria-hidden="true">
+            {Array.from({ length: draft.split("\n").length }, (_, i) => (
+              <span key={i}>{i + 1}</span>
+            ))}
+          </div>
+          <textarea
+            className="pw-note-doc-ta"
+            wrap="off"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onScroll={(e) => {
+              if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setEditing(false);
+              if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+                e.preventDefault();
+                void save();
+              }
+            }}
+            autoFocus
+          />
+        </div>
+      ) : content.trim() ? (
+        <div className="pw-todo-md pw-note-md" onDoubleClick={startEdit} title={canEdit ? "双击编辑文档" : undefined}>
+          <MarkdownView content={content} />
+        </div>
+      ) : (
+        <div className="pw-empty-hint" onDoubleClick={startEdit}>
+          空文档{canEdit ? "，双击开始编辑" : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 闪记详情:textarea 受控编辑 + 预览,Cmd/Ctrl+S 存、Esc 取消;删除仅删自身。
 function NoteDetail({
   note,
@@ -43,17 +178,23 @@ function NoteDetail({
   onBack: () => void;
   onToast: (text: string) => void;
 }) {
+  const bridge = useDesktopBridge();
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
+  const generatePlan = useGeneratePlan();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note.content);
   const [saving, setSaving] = useState(false);
+  const [planning, setPlanning] = useState(false);
+  // 内联打开的深化产物文档(磁盘 .md);null = 未展开任何产物。
+  const [openDoc, setOpenDoc] = useState<string | null>(null);
   const gutterRef = useRef<HTMLDivElement | null>(null);
 
-  // 切换闪记时复位编辑态(避免上一条草稿串场)。
+  // 切换闪记时复位编辑态 + 收起内联产物(避免上一条状态串场)。
   useEffect(() => {
     setEditing(false);
     setDraft(note.content);
+    setOpenDoc(null);
   }, [note.id, note.content]);
 
   const startEdit = () => {
@@ -88,8 +229,26 @@ function NoteDetail({
 
   const statusLabel = STATUS_LABEL[note.status];
   const docPaths = note.docPaths ?? [];
+  // 深化(来源)会话 = conversationIds(深化新会话);可逐段跳回(契约 U10#2)。
+  const conversationIds = note.conversationIds ?? [];
   const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
+  const sessions = usePersonalStore((s) => s.sessions);
+
+  // 生成 plan(契约 5.7,显式触发):brainstorm 已产出(deepened)才提供;复用编排再开一段
+  // (同 conversationId 目录写 plan.md),plan.md 追加进 docPaths、不改 status、不做链式自动。
+  const canGeneratePlan = note.status === "deepened" && conversationIds.length > 0;
+  const onGeneratePlan = async () => {
+    if (planning) return;
+    setPlanning(true);
+    try {
+      await generatePlan(note.id, onToast);
+    } catch (err) {
+      onToast(`生成 plan 失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setPlanning(false);
+    }
+  };
 
   return (
     <div className="pw-rp-view pw-notes is-detail">
@@ -162,29 +321,51 @@ function NoteDetail({
             空白闪记,双击开始编辑
           </div>
         )}
-        {/* 已深化产物入口(U10 复用):docPaths 跳右栏文件预览,来源会话跳回会话。
-            深化产物 U9 后才有数据,缺失友好降级。 */}
-        {note.status === "deepened" || docPaths.length > 0 ? (
+        {/* 已深化产物入口(U10):docPaths 内联查看/编辑(磁盘 .md,走 fs 写,白名单内),
+            另提供「在文件视图打开」副入口;深化(来源)会话经 conversationIds 跳回。
+            「生成 plan」对已 brainstorm 的闪记显式触发(同会话目录写 plan.md)。
+            产物文档某项被外部删除时其余仍可达,缺失项给友好提示(NoteDocView 内降级)。 */}
+        {note.status === "deepened" || docPaths.length > 0 || conversationIds.length > 0 ? (
           <div className="pw-note-links">
-            <div className="pw-note-links-h">深化产物</div>
+            <div className="pw-note-links-h">
+              <span>深化产物</span>
+              <div className="spacer" />
+              {canGeneratePlan ? (
+                <button className="pw-tl-gen" onClick={() => void onGeneratePlan()} disabled={planning}>
+                  <Icon.Sparkle size={12} />
+                  {planning ? "生成中…" : "生成 plan"}
+                </button>
+              ) : null}
+            </div>
             {docPaths.length > 0 ? (
               <ul className="pw-note-links-list">
                 {docPaths.map((p) => {
                   const name = p.slice(p.lastIndexOf("/") + 1);
+                  const isOpen = openDoc === p;
                   return (
                     <li key={p}>
-                      <button
-                        className="pw-note-link"
-                        title={p}
-                        onClick={() =>
-                          note.projectId
-                            ? requestFilePreview({ projectId: note.projectId, path: p, name })
-                            : onToast("该闪记无项目,无法打开产物文档")
-                        }
-                      >
-                        <Icon.File size={12} />
-                        <span>{name}</span>
-                      </button>
+                      <div className={`pw-note-doc-row ${isOpen ? "is-open" : ""}`}>
+                        <button
+                          className="pw-note-link"
+                          title={p}
+                          onClick={() => setOpenDoc(isOpen ? null : p)}
+                        >
+                          <Icon.File size={12} />
+                          <span>{name}</span>
+                        </button>
+                        <button
+                          className="pw-icon-btn"
+                          title={`在文件视图打开 ${name}`}
+                          onClick={() =>
+                            note.projectId
+                              ? requestFilePreview({ projectId: note.projectId, path: p, name })
+                              : onToast("该闪记无项目,无法在文件视图打开产物文档")
+                          }
+                        >
+                          <Icon.Reply size={12} />
+                        </button>
+                      </div>
+                      {isOpen ? <NoteDocView path={p} bridge={bridge} onToast={onToast} /> : null}
                     </li>
                   );
                 })}
@@ -192,6 +373,28 @@ function NoteDetail({
             ) : (
               <div className="pw-empty-hint">产物文档暂不可用</div>
             )}
+            {conversationIds.length > 0 ? (
+              <div className="pw-note-links-sessions">
+                {conversationIds.map((cid, i) => {
+                  const sess = sessions.find((s) => s.id === cid);
+                  return (
+                    <button
+                      key={cid}
+                      className="pw-note-link"
+                      title={sess ? `回到深化会话「${sess.title}」` : "深化会话(已不存在)"}
+                      disabled={!sess}
+                      onClick={() => setActiveSession(cid)}
+                    >
+                      <Icon.Reply size={12} />
+                      <span>
+                        {conversationIds.length > 1 ? `深化会话 ${i + 1}` : "深化会话"}
+                        {sess ? "" : "（已删除）"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             {note.sourceSessionId ? (
               <button
                 className="pw-note-link"
@@ -375,6 +578,7 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   const projects = usePersonalStore((s) => s.projects);
   const { data: notes = [], isLoading } = useAllNotes();
   const updateNote = useUpdateNote();
+  const deepenNotes = useDeepenNotes();
 
   // 双态:null → 列表;否则详情。
   const [selected, setSelected] = useState<{ kind: "note"; id: string } | null>(null);
@@ -454,9 +658,19 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
     }
   };
 
-  // 占位深化(本单元):U8 接管时替换为真实深化编排。
-  const onDeepen = () => {
-    onToast(`深化将在下一步接入（已选 ${selectedIds.size} 条）`);
+  // 深化(U8):拼种子 → 建会话即发(首条防丢) → 切到新会话 → 源闪记置「深化中」。
+  // 成功后清空多选(深化中的闪记禁止再次触发);失败/阻止由编排内 onToast 提示,选择保留。
+  const onDeepen = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    try {
+      await deepenNotes(ids, onToast);
+      // 成功触发后清空多选并退出列表多选态（已切到新会话）。
+      setSelectedIds(new Set());
+      setSelectedProjectKey(undefined);
+    } catch (err) {
+      onToast(`深化失败：${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   if (selectedNote) {
@@ -509,7 +723,7 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
           <button className="pw-tl-gen" onClick={() => { setSelectedIds(new Set()); setSelectedProjectKey(undefined); }}>
             取消
           </button>
-          <button className="pw-tl-gen" onClick={onDeepen}>
+          <button className="pw-tl-gen" onClick={() => void onDeepen()}>
             <Icon.Sparkle size={12} />
             深化 {selectedIds.size} 条
           </button>

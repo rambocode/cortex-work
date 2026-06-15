@@ -7,9 +7,18 @@ import { NotesView } from "./NotesView";
 const NOW = Date.now();
 
 // 内存闪记存储:notesList / notesUpdate / notesDelete 往返(只删自身,不碰文档/会话)。
-function fakeNotesBridge(initial: NoteMeta[]) {
+// 附带深化(U8)所需的最小桥:loadChat（空历史）+ startCli（记录调用,不真起进程）,
+// 让「建会话即发」走到首条防丢 + deepening 标记 + setActiveSession,且不抛错。
+// U10 追加:readFile/writeFile（深化产物 .md 磁盘读写,docFiles 缺失即模拟外部删除）。
+function fakeNotesBridge(initial: NoteMeta[], docFiles: Record<string, string> = {}) {
   const store = new Map<string, NoteMeta>(initial.map((n) => [n.id, n]));
-  const calls = { delete: [] as string[], update: [] as { id: string; patch: Record<string, unknown> }[] };
+  const files = new Map<string, string>(Object.entries(docFiles));
+  const calls = {
+    delete: [] as string[],
+    update: [] as { id: string; patch: Record<string, unknown> }[],
+    startCli: [] as { prompt: string; cwd: string; appendSystemPrompt?: string }[],
+    writeFile: [] as { path: string; content: string }[],
+  };
   const bridge = {
     notesList: async (projectId?: string) => {
       const all = [...store.values()];
@@ -27,8 +36,23 @@ function fakeNotesBridge(initial: NoteMeta[]) {
       calls.delete.push(id);
       store.delete(id);
     },
+    // 深化（send）依赖:历史加载（空）+ spawn（记录）。
+    loadChat: async () => [],
+    saveChat: async () => {},
+    startCli: async (opts: { prompt: string; cwd: string; appendSystemPrompt?: string }) => {
+      calls.startCli.push({ prompt: opts.prompt, cwd: opts.cwd, appendSystemPrompt: opts.appendSystemPrompt });
+    },
+    // 深化产物 .md 磁盘读写:文件不存在 → reject（模拟外部删除,触发缺失友好降级）。
+    readFile: async (path: string) => {
+      if (!files.has(path)) throw new Error("ENOENT");
+      return { content: files.get(path)!, truncated: false };
+    },
+    writeFile: async (path: string, content: string) => {
+      calls.writeFile.push({ path, content });
+      files.set(path, content);
+    },
   } as unknown as DesktopBridge;
-  return { bridge, store, calls };
+  return { bridge, store, calls, files };
 }
 
 function renderNotes(bridge: DesktopBridge) {
@@ -155,11 +179,11 @@ describe("NotesView 列表/详情", () => {
     expect(await screen.findByText("已深化")).toBeInTheDocument();
   });
 
-  it("同项目内多选 + 出现「深化 N 条」按钮;占位深化提示「下一步接入」", async () => {
+  it("同项目内多选 + 点「深化 N 条」触发深化:源闪记置 deepening + 链新会话 + 切到新会话 + 即建即发", async () => {
     const onToast = vi.fn();
-    const { bridge } = fakeNotesBridge([
-      note({ id: "n1", projectId: "p1", content: "想法甲" }),
-      note({ id: "n2", projectId: "p1", content: "想法乙" }),
+    const { bridge, store, calls } = fakeNotesBridge([
+      note({ id: "n1", projectId: "p1", content: "想法甲", createdAt: NOW + 1 }),
+      note({ id: "n2", projectId: "p1", content: "想法乙", createdAt: NOW }),
     ]);
     render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
@@ -174,7 +198,30 @@ describe("NotesView 列表/详情", () => {
 
     const deepenBtn = await screen.findByRole("button", { name: /深化 2 条/ });
     fireEvent.click(deepenBtn);
-    expect(onToast).toHaveBeenCalledWith(expect.stringContaining("下一步"));
+
+    // 建会话即发:新会话创建并被设为活跃(自动切到新会话)。
+    await waitFor(() => expect(usePersonalStore.getState().activeSessionId).toBeTruthy());
+    const newSessionId = usePersonalStore.getState().activeSessionId!;
+    const newSession = usePersonalStore.getState().sessions.find((s) => s.id === newSessionId);
+    expect(newSession?.projectId).toBe("p1");
+
+    // 源闪记被置「深化中」并把新会话 id 追加进 conversationIds（完整数组传给 notesUpdate）。
+    await waitFor(() => {
+      expect(store.get("n1")?.status).toBe("deepening");
+      expect(store.get("n2")?.status).toBe("deepening");
+    });
+    expect(store.get("n1")?.conversationIds).toContain(newSessionId);
+    expect(store.get("n2")?.conversationIds).toContain(newSessionId);
+
+    // 首条防丢链路:在新会话 cwd(项目路径)下发起 CLI,种子 system prompt 含确定性产出路径。
+    await waitFor(() => expect(calls.startCli.length).toBe(1));
+    expect(calls.startCli[0]!.cwd).toBe("/code/alpha");
+    expect(calls.startCli[0]!.appendSystemPrompt).toContain(
+      `/code/alpha/docs/flash-notes/${newSessionId}/brainstorm.md`,
+    );
+    // 种子按 createdAt 升序:想法乙(更早)在想法甲之前。
+    const sp = calls.startCli[0]!.appendSystemPrompt ?? "";
+    expect(sp.indexOf("想法乙")).toBeLessThan(sp.indexOf("想法甲"));
   });
 
   it("跨项目选择互斥:选中 p2 的项后只保留 p2(p1 取消)", async () => {
@@ -227,5 +274,195 @@ describe("NotesView 列表/详情", () => {
 
     // 删除后详情退出,回到列表空态
     await waitFor(() => expect(screen.queryByTitle("编辑")).toBeNull());
+  });
+});
+
+// U10：深化产物的查看/轻量编辑 + 生成 plan 入口（契约 5.7 / 6.1 已深化徽标段）。
+describe("NotesView U10 深化产物查看与生成 plan", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      activeProjectId: undefined,
+      activeSessionId: undefined,
+      projects: [
+        { id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW },
+        { id: "p2", name: "beta", path: "/code/beta", addedAt: NOW },
+      ],
+      sessions: [],
+      noteDetailRequest: undefined,
+    });
+  });
+
+  // AE3：点已深化闪记 → 显示「已深化」+ 可跳转产出文档与来源(深化)会话。
+  it("已深化详情:列出全部 docPaths 且可跳转(requestFilePreview),并经 conversationIds 跳回深化会话", async () => {
+    const docA = "/code/alpha/docs/flash-notes/c1/brainstorm.md";
+    const docB = "/code/alpha/docs/flash-notes/c2/plan.md";
+    const { bridge } = fakeNotesBridge(
+      [
+        note({
+          id: "n1",
+          projectId: "p1",
+          content: "已孵化想法",
+          status: "deepened",
+          conversationIds: ["c1", "c2"],
+          docPaths: [docA, docB],
+        }),
+      ],
+      { [docA]: "# 头脑风暴", [docB]: "# 计划" },
+    );
+    // 两段深化会话仍在(支持逐段跳回)。
+    usePersonalStore.setState((s) => ({
+      sessions: [
+        ...s.sessions,
+        { id: "c1", projectId: "p1", title: "深化一", agent: "claude" as const, model: "sonnet", createdAt: NOW, updatedAt: NOW },
+        { id: "c2", projectId: "p1", title: "深化二", agent: "claude" as const, model: "sonnet", createdAt: NOW, updatedAt: NOW },
+      ],
+    }));
+    renderNotes(bridge);
+
+    fireEvent.click(await screen.findByText("已孵化想法"));
+    // 已深化徽标在详情头出现。
+    expect(await screen.findAllByText("已深化")).not.toHaveLength(0);
+    // 多份产物全部列出。
+    expect(screen.getByText("brainstorm.md")).toBeInTheDocument();
+    expect(screen.getByText("plan.md")).toBeInTheDocument();
+
+    // 「在文件视图打开」副入口 → requestFilePreview 切右栏文件视图(经 store 断言)。
+    fireEvent.click(screen.getByTitle(`在文件视图打开 brainstorm.md`));
+    await waitFor(() => {
+      const st = usePersonalStore.getState();
+      expect(st.filePreviewRequest?.path).toBe(docA);
+      expect(st.rightView).toBe("files");
+    });
+
+    // 来源(深化)会话经 conversationIds → setActiveSession 跳回(点最近一段 c2)。
+    fireEvent.click(screen.getByText("深化会话 2"));
+    await waitFor(() => expect(usePersonalStore.getState().activeSessionId).toBe("c2"));
+  });
+
+  // 链接悬挂降级:某文档被外部删除 → 其余仍可达,缺失项给友好提示(不崩)。
+  it("某产物被外部删除时其余仍可达、缺失项给友好提示", async () => {
+    const docOk = "/code/alpha/docs/flash-notes/c1/brainstorm.md";
+    const docGone = "/code/alpha/docs/flash-notes/c1/plan.md";
+    const { bridge } = fakeNotesBridge(
+      [
+        note({
+          id: "n1",
+          projectId: "p1",
+          content: "半残产物",
+          status: "deepened",
+          conversationIds: ["c1"],
+          docPaths: [docOk, docGone],
+        }),
+      ],
+      { [docOk]: "# 存在" }, // 故意只给 docOk;docGone 读时 reject(模拟外删)
+    );
+    renderNotes(bridge);
+
+    fireEvent.click(await screen.findByText("半残产物"));
+    // 两份都列出(缺失项不从列表消失,仍可点)。
+    expect(await screen.findByText("brainstorm.md")).toBeInTheDocument();
+    expect(screen.getByText("plan.md")).toBeInTheDocument();
+
+    // 打开缺失文档内联编辑 → 读盘失败 → 友好降级提示,不崩。
+    fireEvent.click(screen.getByText("plan.md"));
+    expect(await screen.findByText(/文档不可用|读取失败|不存在/)).toBeInTheDocument();
+
+    // 切回存在的文档 → 正常加载预览。
+    fireEvent.click(screen.getByText("brainstorm.md"));
+    await waitFor(() => expect(screen.getByText("存在")).toBeInTheDocument());
+  });
+
+  // 内联编辑磁盘 md:textarea + Cmd/Ctrl+S 经 bridge.writeFile 写回。
+  it("内联编辑产物文档 Cmd+S 经 writeFile 写回磁盘", async () => {
+    const doc = "/code/alpha/docs/flash-notes/c1/brainstorm.md";
+    const { bridge, calls } = fakeNotesBridge(
+      [
+        note({
+          id: "n1",
+          projectId: "p1",
+          content: "可编辑产物",
+          status: "deepened",
+          conversationIds: ["c1"],
+          docPaths: [doc],
+        }),
+      ],
+      { [doc]: "旧产物正文" },
+    );
+    const { container } = renderNotes(bridge);
+
+    fireEvent.click(await screen.findByText("可编辑产物"));
+    fireEvent.click(await screen.findByText("brainstorm.md"));
+    // 内联文档编辑入口。
+    fireEvent.click(await screen.findByTitle("编辑文档"));
+    const ta = container.querySelector<HTMLTextAreaElement>(".pw-note-doc-ta")!;
+    await waitFor(() => expect(ta.value).toBe("旧产物正文"));
+    fireEvent.change(ta, { target: { value: "改写后的产物" } });
+    fireEvent.keyDown(ta, { key: "s", metaKey: true });
+
+    await waitFor(() => expect(calls.writeFile).toEqual([{ path: doc, content: "改写后的产物" }]));
+  });
+
+  // 生成 plan 入口(契约 5.7):已产出 brainstorm 的闪记详情提供「生成 plan」按钮,
+  // 触发深化编排再开一段(同 conversationId 目录写 plan.md,经 send → startCli)。
+  it("「生成 plan」按钮存在且触发深化编排(同会话目录写 plan.md)", async () => {
+    const brainstorm = "/code/alpha/docs/flash-notes/c1/brainstorm.md";
+    const { bridge, calls, store } = fakeNotesBridge(
+      [
+        note({
+          id: "n1",
+          projectId: "p1",
+          content: "待生成计划",
+          status: "deepened",
+          conversationIds: ["c1"],
+          docPaths: [brainstorm],
+        }),
+      ],
+      { [brainstorm]: "# 头脑风暴产物" },
+    );
+    // 深化会话 c1 仍在(生成 plan 复用同一会话目录)。
+    usePersonalStore.setState((s) => ({
+      sessions: [
+        ...s.sessions,
+        {
+          id: "c1",
+          projectId: "p1",
+          title: "深化会话",
+          agent: "claude" as const,
+          model: "sonnet",
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      ],
+    }));
+    renderNotes(bridge);
+
+    fireEvent.click(await screen.findByText("待生成计划"));
+    const planBtn = await screen.findByRole("button", { name: /生成 plan/ });
+    fireEvent.click(planBtn);
+
+    // 经 send → startCli 发到同一深化会话目录,要求写 plan.md。
+    await waitFor(() => expect(calls.startCli.length).toBe(1));
+    expect(calls.startCli[0]!.cwd).toBe("/code/alpha");
+    expect(calls.startCli[0]!.appendSystemPrompt).toContain(
+      "/code/alpha/docs/flash-notes/c1/plan.md",
+    );
+    // plan.md 追加进 docPaths(不改 status:仍 deepened)。
+    await waitFor(() => {
+      expect(store.get("n1")?.docPaths).toContain("/code/alpha/docs/flash-notes/c1/plan.md");
+      expect(store.get("n1")?.status).toBe("deepened");
+    });
+    // 切回该深化会话(继续观察 plan 产出)。
+    expect(usePersonalStore.getState().activeSessionId).toBe("c1");
+  });
+
+  it("草稿态闪记详情不显示「生成 plan」入口", async () => {
+    const { bridge } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "纯草稿" })]);
+    renderNotes(bridge);
+    fireEvent.click(await screen.findByText("纯草稿"));
+    await screen.findByTitle("编辑");
+    expect(screen.queryByRole("button", { name: /生成 plan/ })).toBeNull();
   });
 });
