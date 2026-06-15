@@ -12,10 +12,10 @@ import type { UpdateState } from "./types";
 const FIRST_CHECK_DELAY_MS = 6_000;
 const CHECK_INTERVAL_MS = 2 * 3600_000;
 
-// 更新源是否已真正配置。electron-builder.yml 的 publish.owner 仍是占位符
-// OWNER_PLACEHOLDER 时,checkForUpdates 会对 releases.atom 反复 404,污染日志。
-// 配好真实 GitHub owner / repo 后,把这里改成 true 即可恢复自动更新。
-const UPDATE_FEED_CONFIGURED = false;
+// 更新源是否已真正配置。electron-builder.yml 的 publish.owner 是占位符时,
+// checkForUpdates 会对 releases.atom 反复 404,污染日志,故未配置时跳过检查。
+// 当前已配真实源 rambocode/cortex-work,启用自动更新(需远端建好 release 才能检到)。
+const UPDATE_FEED_CONFIGURED = true;
 
 let state: UpdateState = { phase: "idle" };
 

@@ -42,5 +42,5 @@ mac:
       arch: [arm64]
 publish:
   provider: github
-  owner: OWNER_PLACEHOLDER # TODO: 改成真实 GitHub 用户名/组织;改后把 src/main/ipc/update.ts 的 UPDATE_FEED_CONFIGURED 置 true
+  owner: rambocode
   repo: cortex-work
