@@ -9,3 +9,6 @@ out/
 .env.local
 coverage/
 .worktrees
+
+# pi 的 bun 编译产物(二进制 + 旁置资产),由 apps/desktop/scripts/build-pi-binary.mjs 生成
+apps/desktop/resources/pi/

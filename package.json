@@ -30,7 +30,8 @@
     ],
     "overrides": {
       "@types/react": "catalog:",
-      "@types/react-dom": "catalog:"
+      "@types/react-dom": "catalog:",
+      "minimatch": "10.2.5"
     }
   },
   "devDependencies": {

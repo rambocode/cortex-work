@@ -1,17 +1,18 @@
-// pi CLI 入口定位。pi 经 Electron utilityProcess.fork 跑（见 cli.ts startAgentProcess），
-// 这里给出的 cli.js 绝对路径即 fork 的 modulePath（utilityProcess 用 Electron 内置 Node，
-// 不创建 GUI、不在 macOS Dock 上闪现）。
+// pi CLI 定位。pi 已用 bun 编译成自包含单二进制（见 apps/desktop/scripts/build-pi-binary.mjs）,
+// 由 cli.ts 经 child_process.spawn 直接执行。二进制把整个依赖闭包 inline,不依赖 node_modules
+// 解析,从根上免疫 minimatch/typebox/undici 这类「依赖在 asar 里解析不到」的问题。
 //
-// ⚠️ 不能用 require.resolve("@earendil-works/pi-coding-agent")：该包 package.json 的
-//    exports 只声明了 import 条件（ESM），主进程是 CJS 上下文，CJS resolve 会抛
-//    ERR_PACKAGE_PATH_NOT_EXPORTED。故直接按目录结构 join 到 dist/cli.js。
+// 二进制 + 旁置资产（theme/assets/export-html/wasm）产出在 apps/desktop/resources/pi/,
+// 打包时经 electron-builder 的 extraResources 落到 <App>/Contents/Resources/pi/。
 
 import { app } from "electron";
 import { join } from "path";
 
-export function resolvePiCliEntry(): string {
-  const entry = join(app.getAppPath(), "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
-  // 打包后 utilityProcess 的 modulePath 须是磁盘真实文件,electron-builder.yml 已把
-  // 该包 asarUnpack 到 app.asar.unpacked,这里把路径同步切过去。
-  return app.isPackaged ? entry.replace("app.asar", "app.asar.unpacked") : entry;
+export function resolvePiBinary(): string {
+  // 打包态:extraResources 把 resources/pi 落到 Contents/Resources/pi。
+  if (app.isPackaged) {
+    return join(process.resourcesPath, "pi", "pi");
+  }
+  // dev 态:electron-vite 的 app.getAppPath() = apps/desktop,二进制由 build-pi-binary.mjs 生成。
+  return join(app.getAppPath(), "resources", "pi", "pi");
 }

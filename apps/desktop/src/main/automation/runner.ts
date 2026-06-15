@@ -149,7 +149,7 @@ export async function runAutomation(
     };
     const adapter = getAdapter(meta.agent);
     const { cmd, args } = adapter.buildArgs(req);
-    proc = startAgentProcess(meta.agent, cmd, args, { cwd, env: spawnEnvFor(req) });
+    proc = startAgentProcess(cmd, args, { cwd, env: spawnEnvFor(req) });
   } catch (err) {
     run.status = "error";
     run.error = err instanceof Error ? err.message : String(err);

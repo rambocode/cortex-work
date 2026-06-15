@@ -2,7 +2,7 @@
 // → webContents.send 推给 renderer。每个 runId 一个子进程，支持 kill；
 // 应用退出前统一清理。
 
-import { ipcMain, utilityProcess, type WebContents, type UtilityProcess } from "electron";
+import { ipcMain, type WebContents } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import { delimiter, join } from "path";
 import { homedir, platform } from "os";
@@ -14,16 +14,15 @@ import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 
 const running = new Map<string, AgentProcess>();
 
-// 统一封装两类子进程,屏蔽 child_process 与 Electron utilityProcess 的差异:
-// claude/codex 是外部 CLI,走 child_process.spawn；pi 走 utilityProcess.fork
-//（用 Electron 内置 Node、无 GUI、不在 macOS Dock 上闪现）。
+// 封装子进程为统一接口。三种 agent 都走 child_process.spawn:claude/codex 是 PATH 上的
+// 外部 CLI,pi 是 bun 编译的自包含二进制(见 pi-locate.ts,不依赖 node_modules 解析)。
 export interface AgentProcess {
   readonly pid: number | undefined;
   readonly stdout: NodeJS.ReadableStream | null;
   readonly stderr: NodeJS.ReadableStream | null;
-  // 进程结束且 stdout 读完后回调一次（合并 child_process 的 close / utilityProcess 的 exit）。
+  // 进程结束且 stdout 读完后回调一次（child_process 的 close,已保证 stdout flush）。
   onExit(cb: (code: number | null) => void): void;
-  // 仅 child_process 的 spawn 错误（ENOENT 等）；utilityProcess 启动失败经 exit code + stderr 体现。
+  // spawn 错误（ENOENT 等,如二进制缺失）。
   onError(cb: (err: Error) => void): void;
   // 优雅终止（SIGTERM）+ 3s 兜底强杀。
   kill(): void;
@@ -61,73 +60,13 @@ function wrapChild(child: ChildProcess): AgentProcess {
   };
 }
 
-function wrapUtility(child: UtilityProcess): AgentProcess {
-  // utilityProcess 无 close 事件,且 exit 可能早于 stdout flush;以「进程 exit + stdout
-  // 流结束」双信号合并为一次 onExit,避免丢末行（pi 的最终结果/错误在末行 message_end 里）。
-  let exited = false;
-  let stdoutDone = false;
-  let exitCode: number | null = null;
-  let exitCb: ((code: number | null) => void) | null = null;
-  let fired = false;
-  const finalize = () => {
-    // 必须等回调注册后才触发:否则信号先于 onExit 到达时会提前置 fired,导致补发失效。
-    if (fired || !exited || !stdoutDone || !exitCb) return;
-    fired = true;
-    exitCb(exitCode);
-  };
-  child.on("exit", (code) => {
-    exited = true;
-    exitCode = code;
-    finalize();
-  });
-  const out = child.stdout;
-  if (out) {
-    out.on("end", () => {
-      stdoutDone = true;
-      finalize();
-    });
-    out.on("close", () => {
-      stdoutDone = true;
-      finalize();
-    });
-  } else {
-    stdoutDone = true;
-  }
-  return {
-    get pid() {
-      return child.pid;
-    },
-    stdout: child.stdout,
-    stderr: child.stderr,
-    onExit: (cb) => {
-      exitCb = cb;
-      finalize(); // 进程若已在设回调前结束,这里补发。
-    },
-    onError: () => {
-      // utilityProcess 无对应的 spawn 错误事件;启动失败 = 非 0 exit code + stderr。
-    },
-    kill: () => killWithTimeout(() => child.kill(), child.pid),
-  };
-}
-
-// 按 agent 分流启动子进程。pi 的 buildArgs 仍返回 cmd=process.execPath + args[0]=cli.js
-//（兼容 adapter 契约与 pi.test.ts）,这里取 args[0] 作 utilityProcess 的 modulePath。
+// 启动 agent 子进程。三种 agent 统一走 child_process.spawn(cmd=可执行文件路径, args)。
+// pi 的 cmd 是 bun 编译的二进制(pi-locate.resolvePiBinary),claude/codex 是 PATH 上的命令。
 export function startAgentProcess(
-  agent: string,
   cmd: string,
   args: string[],
   opts: { cwd?: string; env: NodeJS.ProcessEnv },
 ): AgentProcess {
-  if (agent === "pi") {
-    const [modulePath, ...childArgs] = args;
-    const child = utilityProcess.fork(modulePath, childArgs, {
-      cwd: opts.cwd,
-      env: opts.env as Record<string, string>,
-      stdio: "pipe", // = ["ignore","pipe","pipe"]；stdin 只能 ignore。
-      serviceName: "pi-agent",
-    });
-    return wrapUtility(child);
-  }
   const child = spawn(cmd, args, {
     cwd: opts.cwd,
     env: opts.env,
@@ -165,13 +104,12 @@ export function buildEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: merged };
 }
 
-// 按 agent 定制子进程环境：pi 经 utilityProcess.fork 跑在 Electron 内置 Node 上,把选中
-// 通道的 API key 注入 CORTEX_PI_KEY（与生成的 extension 里 apiKey:"$CORTEX_PI_KEY" 占位
-// 对应）；其余 agent 用基础 env。
+// 按 agent 定制子进程环境：pi 把选中通道的 API key 注入 CORTEX_PI_KEY（与生成的 extension
+// 里 apiKey:"$CORTEX_PI_KEY" 占位对应）；其余 agent 用基础 env。
 export function spawnEnvFor(req: { agent: string; provider?: { apiKey?: string } }): NodeJS.ProcessEnv {
   const env = buildEnv();
   if (req.agent !== "pi") return env;
-  // utilityProcess 本身就是 Node 环境,不需要 ELECTRON_RUN_AS_NODE;防御性清除可能的残留。
+  // 防御性清除可能残留的 ELECTRON_RUN_AS_NODE(pi 是独立二进制,不该带 Electron 标记)。
   delete env.ELECTRON_RUN_AS_NODE;
   if (req.provider?.apiKey) env[PI_KEY_ENV] = req.provider.apiKey;
   return env;
@@ -205,7 +143,7 @@ export function registerCliHandlers(): void {
     }
     const { cmd, args } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
-    const proc = startAgentProcess(req.agent, cmd, args, { cwd: req.cwd, env: spawnEnvFor(req) });
+    const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req) });
     running.set(req.runId, proc);
 
     // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,
@@ -290,7 +228,7 @@ export function registerCliHandlers(): void {
         model: req.model,
       });
       return new Promise<string>((resolve, reject) => {
-        const proc = startAgentProcess(agent, cmd, args, {
+        const proc = startAgentProcess(cmd, args, {
           cwd,
           env: spawnEnvFor({ agent }),
         });

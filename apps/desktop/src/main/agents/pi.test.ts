@@ -5,13 +5,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./pi-locate", () => ({
-  resolvePiCliEntry: () => "/fake/node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+  resolvePiBinary: () => "/fake/resources/pi/pi",
 }));
 
 import { piAdapter } from "./pi";
 import type { CliStartRequest } from "../ipc/types";
 
-const CLI = "/fake/node_modules/@earendil-works/pi-coding-agent/dist/cli.js";
+const BIN = "/fake/resources/pi/pi";
 
 const baseReq: CliStartRequest = {
   runId: "r1",
@@ -22,10 +22,10 @@ const baseReq: CliStartRequest = {
 };
 
 describe("piAdapter.buildArgs", () => {
-  it("首轮:cli.js + --mode json + -p + --no-extensions + --no-skills,prompt 在末位", () => {
+  it("首轮:二进制 cmd + --mode json + -p + --no-extensions + --no-skills,prompt 在末位", () => {
     const { cmd, args } = piAdapter.buildArgs(baseReq);
-    expect(cmd).toBe(process.execPath);
-    expect(args[0]).toBe(CLI);
+    expect(cmd).toBe(BIN);
+    expect(args[0]).toBe("--mode");
     expect(args.join(" ")).toContain("--mode json");
     expect(args).toContain("-p");
     expect(args).toContain("--no-extensions");

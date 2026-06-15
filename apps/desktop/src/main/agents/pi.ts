@@ -1,9 +1,8 @@
 // pi（@earendil-works/pi-coding-agent）内置兜底 agent 的 CLI adapter。
-// 命令形态（实测 0.79.2,跑在 Electron 内置 Node v22.22.1 上）：
-//   <execPath> <dist/cli.js 绝对路径> --mode json -p --no-extensions
+// 命令形态（实测 0.79.2,pi 已 bun 编译成自包含二进制,由 cli.ts 经 spawn 执行）：
+//   <pi 二进制> --mode json -p --no-extensions
 //             [--no-skills] [--model m] [--session id] [--append-system-prompt s] <prompt>
-//   · adapter 只产出 cmd/args；cli.ts 对 pi 走 utilityProcess.fork,取 args[0]（cli.js）
-//     作 modulePath,cmd（process.execPath）仅为兼容 adapter 契约/测试保留。
+//   · adapter 产出 cmd=pi 二进制路径（resolvePiBinary）+ args；cli.ts 对三种 agent 统一 spawn。
 //   · -p 是非交互布尔 flag,prompt 不是它的值,而是命令行最后一个位置参数。
 //   · --no-extensions 纯净启动；--no-skills 默认禁用 skills（useOwnSkills=true 时省略,
 //     与 claude adapter 对齐）；pi 原生支持 --append-system-prompt。
@@ -17,7 +16,7 @@
 //    + errorMessage/diagnostics 上。故 result 由最后一条 assistant message_end 发出,
 //    agent_end 不发,避免覆盖掉这条错误结果。
 
-import { resolvePiCliEntry } from "./pi-locate";
+import { resolvePiBinary } from "./pi-locate";
 import type { CliStartRequest, CliStreamEvent } from "../ipc/types";
 import type { AgentAdapter } from "./index";
 
@@ -51,7 +50,6 @@ function diagnosticsError(diagnostics: unknown): string | undefined {
 export const piAdapter: AgentAdapter = {
   buildArgs(req: CliStartRequest): { cmd: string; args: string[] } {
     const args = [
-      resolvePiCliEntry(),
       "--mode",
       "json",
       "-p",
@@ -70,9 +68,8 @@ export const piAdapter: AgentAdapter = {
     if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
     // prompt 是位置参数,必须在最后。
     args.push(req.prompt);
-    // cmd 保留为 process.execPath 兼容 adapter 契约/pi.test.ts；cli.ts 对 pi 实际走
-    // utilityProcess.fork(args[0]=cli.js),不使用此 cmd（Electron 内置 Node,不弹 Dock）。
-    return { cmd: process.execPath, args };
+    // cmd 是 pi 二进制路径,cli.ts 直接 spawn 它（独立 CLI 进程,不弹 macOS Dock）。
+    return { cmd: resolvePiBinary(), args };
   },
 
   parseLine(line: string): CliStreamEvent | null {
