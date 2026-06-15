@@ -1,0 +1,88 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  macos-dmg:
+    name: Build signed macOS DMG
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      CSC_NAME: "Jiangwei Lan (HQ537XMLJY)"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.28.2 --activate
+
+      - name: Verify release secrets
+        run: |
+          missing=()
+          for name in APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing required GitHub secrets: ${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check packaging environment
+        run: scripts/dist-dmg.sh --check
+
+      - name: Build, sign and notarize DMG
+        run: scripts/dist-dmg.sh
+
+      - name: Verify signed app
+        run: |
+          APP_PATH="apps/desktop/dist/mac-arm64/Cortex Desktop.app"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          codesign -dv --verbose=4 "$APP_PATH"
+          spctl --assess --type execute --verbose "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+
+      - name: Verify DMG
+        run: |
+          DMG_PATH="$(ls -1 apps/desktop/dist/Cortex\ Desktop-*-arm64.dmg | head -n 1)"
+          test -f "$DMG_PATH"
+          spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH" || echo "DMG has no stapled ticket; app ticket validation passed."
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-desktop-macos-arm64
+          if-no-files-found: error
+          path: |
+            apps/desktop/dist/Cortex Desktop-*-arm64.dmg
+            apps/desktop/dist/Cortex Desktop-*-arm64.dmg.blockmap
+            apps/desktop/dist/Cortex Desktop-*-arm64-mac.zip
+            apps/desktop/dist/Cortex Desktop-*-arm64-mac.zip.blockmap
+            apps/desktop/dist/latest-mac.yml

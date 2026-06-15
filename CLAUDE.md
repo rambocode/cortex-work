@@ -8,6 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 包管理器固定为 `pnpm@10.28.2`，根 `package.json` 为 `"type": "module"`（用 ESM，不要 `require()`）。
 
+阶段执行规范：
+ - [ ] 阶段 1: 实现 `@cortex-work/apps/desktop` 的功能完善，在你不明确工作任务时，可以先实现 desktop 的功能完善。
+ 
 ## 常用命令
 
 ```bash
@@ -71,13 +74,6 @@ cd server && go test ./...                     # Go 后端测试
 
 `apps/desktop/src/main/agents/` 是多 agent（`claude` / `codex` / `pi`）适配注册表。每个 adapter 提供两个纯函数：`buildArgs`（构造命令行）和 `parseLine`（解析一行 stdout 为归一化 `CliStreamEvent`）。`ipc/cli.ts` 的 spawn / 流式管线对所有 agent 通用。`pi` 经 `@earendil-works/pi-coding-agent` 用 `utilityProcess.fork` 启动（避免 macOS Dock 闪现）。
 
-### 定时自动化（托盘常驻 + 无头执行）
-
-`apps/desktop/src/main/automation/` 实现定时任务：`scheduler.ts` 用 **croner** 在主进程常驻调度，`runner.ts` 无头执行 agent，`tray.ts` 提供托盘入口。关键行为（见 `main/index.ts`）：
-- 关窗（X）= 隐藏到后台，托盘常驻、定时任务继续触发；**真正退出**只走托盘「退出」/ `before-quit`（置 `isQuitting`）。
-- 单实例锁防止多开导致调度器重复触发。
-- `powerMonitor.resume` 后 `rescheduleAll()` 补漏并重建定时器（休眠期间内存定时器会漂移/错过，croner 不自动补触发）。
-- 并发去重靠 runner 的 `pending` + `runningAutomations`，**不能**靠 croner 的 `protect`（fire-and-forget 同步返回使其失效）。
 
 ## 提交规范
 
