@@ -1,0 +1,23 @@
+{
+  "name": "@cortex-work/site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "sh -c 'next dev --port \"${SITE_PORT:-3100}\"'",
+    "build": "next build",
+    "start": "sh -c 'next start --port \"${SITE_PORT:-3100}\"'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^16.2.5",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "typescript": "catalog:"
+  }
+}

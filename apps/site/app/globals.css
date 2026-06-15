@@ -1,0 +1,705 @@
+/* =========================================================================
+   Cortex Desktop · 官网设计系统（design DNA）
+   视觉论点：暖纸感「思考工作台」× 深海生物荧光。米白纸张作为日间工作面，
+   品牌水母的蓝紫荧光作为「智能在思考」的发光时刻。冷暖对撞、安静而有生命感。
+   - 暖色 = 动作与品牌（陶土橙 clay，承自产品 UI）
+   - 荧光 = 氛围与智能（蓝紫 bioluminescent，承自品牌水母 logo）
+   所有区块组件只消费这里定义的 token / 工具类 / 动效，禁止另起体系。
+   ========================================================================= */
+
+:root {
+  /* —— 暖纸画布（承自 cortex-desktop.css 的 clay/paper 体系）—— */
+  --paper: #faf8f4;
+  --paper-raise: #ffffff;
+  --paper-sink: #f3f1ec;
+  --paper-chip: #efede8;
+
+  --ink: #1a1916;
+  --ink-2: #5e5c56;
+  --ink-3: #8c897f;
+
+  --line: #e6e4dd;
+  --line-soft: #efede7;
+  --line-strong: #d8d4cb;
+
+  /* 品牌动作色：陶土橙 */
+  --clay: #c96442;
+  --clay-deep: #b04f30;
+  --clay-soft: #f3e7df;
+  --clay-ink: #ffffff;
+
+  /* —— 生物荧光（承自蓝紫水母 logo）—— */
+  --glow-cyan: #36c8dc;
+  --glow-blue: #5b8cff;
+  --glow-violet: #8b5cf6;
+  --glow-pink: #c084fc;
+  --jelly-top: #8fd2ff;
+  --jelly-mid: #6a8bff;
+  --jelly-low: #9a6bff;
+  --jelly-deep: #b46bff;
+
+  /* —— 状态色（diff / 审阅，亮暗各一套；脱离硬编码绿红）—— */
+  --ok: #1f8f5b;
+  --ok-soft: rgba(31, 143, 91, 0.12);
+  --danger: #c0453f;
+  --danger-soft: rgba(192, 69, 63, 0.12);
+  /* 蓝紫的「可读墨」变体：达 AA 正文对比用（如 mock 分支名） */
+  --violet-ink: #6d3fd4;
+
+  --grad-jelly: linear-gradient(165deg, #8fd2ff 0%, #6a8bff 42%, #9a6bff 78%, #b46bff 100%);
+  --grad-glow: radial-gradient(closest-side, rgba(91, 140, 255, 0.55), rgba(139, 92, 246, 0.22), transparent 76%);
+  --grad-aurora: radial-gradient(60% 80% at 70% 20%, rgba(91, 140, 255, 0.18), transparent 60%),
+    radial-gradient(50% 60% at 20% 30%, rgba(139, 92, 246, 0.14), transparent 60%);
+  --grad-text: linear-gradient(100deg, #6a8bff, #9a6bff 52%, #c084fc);
+
+  /* —— 阴影：暖褐色调（rgba 20,18,12），非纯黑 —— */
+  --shadow-xs: 0 1px 2px rgba(20, 18, 12, 0.05);
+  --shadow-card: 0 1px 2px rgba(20, 18, 12, 0.05), 0 10px 28px -16px rgba(20, 18, 12, 0.14);
+  --shadow-raise: 0 4px 16px rgba(20, 18, 12, 0.1), 0 1px 3px rgba(20, 18, 12, 0.06);
+  --shadow-pop: 0 22px 60px -20px rgba(20, 18, 12, 0.24), 0 4px 14px rgba(20, 18, 12, 0.08);
+  --shadow-glow: 0 0 70px -12px rgba(91, 140, 255, 0.45);
+
+  /* —— 圆角 —— */
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+
+  /* —— 版式 —— */
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+    "Songti SC", STSong, "Noto Serif SC", Georgia, serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", Menlo, ui-monospace, "Cascadia Mono", monospace;
+
+  --fs-display: clamp(2.55rem, 1.5rem + 4.5vw, 4.9rem);
+  --fs-h1: clamp(2rem, 1.35rem + 2.5vw, 3.1rem);
+  --fs-h2: clamp(1.6rem, 1.2rem + 1.7vw, 2.35rem);
+  --fs-h3: clamp(1.16rem, 1.02rem + 0.5vw, 1.42rem);
+  --fs-lead: clamp(1.06rem, 0.98rem + 0.45vw, 1.3rem);
+  --fs-body: 1rem;
+  --fs-sm: 0.875rem;
+  --fs-eyebrow: 0.76rem;
+
+  /* —— 布局 —— */
+  --maxw: 1140px;
+  --maxw-narrow: 760px;
+  --gutter: clamp(20px, 5vw, 48px);
+  --section-y: clamp(68px, 9vw, 136px);
+
+  /* —— 动效 —— */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --paper: #14130f;
+  --paper-raise: #1d1c17;
+  --paper-sink: #1a1915;
+  --paper-chip: #242217;
+
+  --ink: #f0ede4;
+  --ink-2: #b6b3aa;
+  --ink-3: #8a877f;
+
+  --line: #2e2c26;
+  --line-soft: #26241f;
+  --line-strong: #423f37;
+
+  --clay: #cf6a48;
+  --clay-deep: #b9522f;
+  --clay-soft: #3a2a22;
+
+  /* 状态色：暗色下提亮以保持对比 */
+  --ok: #4cc28a;
+  --ok-soft: rgba(76, 194, 138, 0.16);
+  --danger: #e0726b;
+  --danger-soft: rgba(224, 114, 107, 0.16);
+  --violet-ink: #b9a3f5;
+
+  --grad-glow: radial-gradient(closest-side, rgba(91, 140, 255, 0.7), rgba(139, 92, 246, 0.3), transparent 76%);
+  --grad-aurora: radial-gradient(60% 80% at 72% 16%, rgba(91, 140, 255, 0.26), transparent 62%),
+    radial-gradient(52% 62% at 18% 28%, rgba(139, 92, 246, 0.2), transparent 62%);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 30px -16px rgba(0, 0, 0, 0.6);
+  --shadow-raise: 0 6px 20px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 24px 64px -20px rgba(0, 0, 0, 0.7), 0 4px 14px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 80px -10px rgba(91, 140, 255, 0.6);
+
+  color-scheme: dark;
+}
+
+/* ===================== 基础 reset（可滚动文档流）===================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  /* 锚点跳转时为 sticky 顶栏让位，避免目标标题被玻璃栏遮住 */
+  scroll-padding-top: clamp(80px, 12vw, 104px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  transition: background 0.4s var(--ease), color 0.4s var(--ease);
+}
+
+h1, h2, h3, h4, p, figure, blockquote {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img, svg {
+  display: block;
+  max-width: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+::selection {
+  background: var(--clay-soft);
+  color: var(--clay-deep);
+}
+
+:focus-visible {
+  outline: 2px solid var(--glow-blue);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* 跳到主内容：视觉隐藏，键盘聚焦时滑入显形 */
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  padding: 10px 16px;
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  box-shadow: var(--shadow-pop);
+  transform: translateY(-160%);
+  transition: transform 0.2s var(--ease);
+}
+.skip-link:focus {
+  transform: none;
+}
+
+/* 细滚动条 */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 3px solid var(--paper);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-3);
+}
+
+/* ===================== 版式工具类 ===================== */
+.display {
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+.h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  line-height: 1.1;
+  letter-spacing: -0.018em;
+  font-weight: 600;
+}
+.h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  line-height: 1.14;
+  letter-spacing: -0.015em;
+  font-weight: 600;
+}
+.h3 {
+  font-size: var(--fs-h3);
+  line-height: 1.32;
+  letter-spacing: -0.01em;
+  font-weight: 650;
+}
+.lead {
+  font-size: var(--fs-lead);
+  line-height: 1.56;
+  color: var(--ink-2);
+}
+.muted {
+  color: var(--ink-2);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--clay-deep);
+}
+.eyebrow::before {
+  content: "";
+  width: 22px;
+  height: 1.5px;
+  background: linear-gradient(90deg, var(--clay), transparent);
+}
+
+/* 荧光渐变文字（节制使用，仅用于点睛词） */
+.glow-text {
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ===================== 布局 ===================== */
+.container {
+  width: 100%;
+  max-width: var(--maxw);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+.container-narrow {
+  max-width: var(--maxw-narrow);
+}
+.section {
+  position: relative;
+  padding-block: var(--section-y);
+}
+.section-sm {
+  padding-block: clamp(44px, 6vw, 84px);
+}
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--line), transparent);
+  border: none;
+}
+
+/* ===================== 按钮 ===================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 11px 20px;
+  border-radius: var(--r-pill);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition: transform 0.18s var(--ease), box-shadow 0.25s var(--ease),
+    background 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease);
+}
+.btn:active {
+  transform: translateY(1px) scale(0.99);
+}
+.btn--primary {
+  background: var(--clay);
+  color: var(--clay-ink);
+  box-shadow: 0 1px 2px rgba(20, 18, 12, 0.18), 0 10px 22px -10px rgba(201, 100, 66, 0.6);
+}
+.btn--primary:hover {
+  background: var(--clay-deep);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(20, 18, 12, 0.2), 0 16px 30px -12px rgba(201, 100, 66, 0.7);
+}
+.btn--ghost {
+  background: var(--paper-raise);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-xs);
+}
+.btn--ghost:hover {
+  border-color: var(--ink-3);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card);
+}
+.btn--quiet {
+  padding: 9px 12px;
+  color: var(--ink-2);
+}
+.btn--quiet:hover {
+  color: var(--ink);
+  background: var(--paper-sink);
+}
+.btn--lg {
+  padding: 14px 26px;
+  font-size: 1rem;
+}
+.btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ===================== 标签 / chip ===================== */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  background: var(--paper-raise);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  box-shadow: var(--shadow-xs);
+}
+.pill--glow {
+  border-color: transparent;
+  background: linear-gradient(var(--paper-raise), var(--paper-raise)) padding-box,
+    var(--grad-jelly) border-box;
+  border: 1px solid transparent;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--glow-blue);
+  box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.18);
+}
+
+/* ===================== 卡片 / 玻璃面 ===================== */
+.card {
+  position: relative;
+  background: var(--paper-raise);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+}
+.card--pad {
+  padding: clamp(20px, 2.4vw, 30px);
+}
+.card--hover {
+  transition: transform 0.28s var(--ease), box-shadow 0.3s var(--ease), border-color 0.3s var(--ease);
+}
+.card--hover:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-pop);
+  border-color: var(--line-strong);
+}
+.glass {
+  background: color-mix(in oklab, var(--paper-raise) 72%, transparent);
+  backdrop-filter: saturate(1.4) blur(14px);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px);
+  border: 1px solid color-mix(in oklab, var(--line) 80%, transparent);
+}
+
+/* ===================== 生物荧光氛围 ===================== */
+.halo {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--grad-glow);
+  filter: blur(8px);
+  pointer-events: none;
+  z-index: 0;
+}
+.aurora {
+  position: absolute;
+  inset: 0;
+  background: var(--grad-aurora);
+  pointer-events: none;
+  z-index: 0;
+}
+/* 神经元星点底纹（细密发光点，呼应水母伞盖上的光点） */
+.neuron-field {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: radial-gradient(rgba(91, 140, 255, 0.5) 1px, transparent 1.4px);
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(70% 60% at 50% 40%, #000, transparent 72%);
+  mask-image: radial-gradient(70% 60% at 50% 40%, #000, transparent 72%);
+  opacity: 0.5;
+}
+.content {
+  position: relative;
+  z-index: 1;
+}
+
+/* ===================== 动效 ===================== */
+@keyframes drift {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-18px) rotate(0.6deg); }
+}
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes haloBreathe {
+  0%, 100% { transform: scale(1); opacity: 0.72; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+@keyframes sway {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(2deg); }
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes shimmer {
+  to { background-position: 200% center; }
+}
+
+.anim-drift { animation: drift 9s var(--ease) infinite; }
+.anim-floaty { animation: floaty 6s var(--ease) infinite; }
+.anim-halo { animation: haloBreathe 7s var(--ease) infinite; }
+
+/* 滚动进入显隐（由 <Reveal> 组件切换 .is-visible） */
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.7s var(--ease-out), transform 0.7s var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 70ms);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* 无脚本兜底：JS 不可用时 Reveal 不再依赖 IntersectionObserver，内容直接可见 */
+@media (scripting: none) {
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-drift,
+  .anim-floaty,
+  .anim-halo {
+    animation: none !important;
+  }
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+/* ===================== 网格辅助 ===================== */
+.grid {
+  display: grid;
+  gap: clamp(14px, 1.6vw, 22px);
+}
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+@media (max-width: 900px) {
+  .grid-3, .grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+}
+
+/* ===================== Automation 区块（由 components/sections/Automation.tsx 使用）=====================
+   server 组件无法用内联 <style>，按契约把其 scoped 样式集中在此。命名前缀 .auto- 避免冲突。 */
+.auto-head {
+  max-width: var(--maxw-narrow);
+}
+.auto-head .h2 {
+  margin-top: 14px;
+}
+/* 两列：标题区与卡片间留白，列间距略放大 */
+.auto-grid {
+  margin-top: clamp(36px, 5vw, 60px);
+  gap: clamp(28px, 4vw, 56px);
+  align-items: start;
+}
+/* 左栏在桌面端纵向居中于卡片，移动端自然顶对齐 */
+.auto-col {
+  min-width: 0;
+}
+.auto-desc {
+  margin-top: 12px;
+  max-width: 46ch;
+}
+/* 要点列表：荧光勾 + 文案 */
+.auto-bullets {
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.auto-bullets li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: var(--fs-body);
+  color: var(--ink);
+}
+/* 荧光勾：放在小号渐变底圆里，勾本身用白色（在渐变上更亮） */
+.auto-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border-radius: var(--r-pill);
+  background: var(--grad-jelly);
+  box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.14);
+  color: #fff;
+}
+.auto-check svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* —— 右栏 mock 用量卡 —— */
+.auto-usage {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(18px, 2.4vw, 26px);
+}
+.auto-usage-desc {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+}
+/* 7 列发光强度小格日历 */
+.auto-cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.auto-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
+  /* 内描边稳住网格感，避免低不透明度格子糊成一团 */
+  box-shadow: inset 0 0 0 1px rgba(91, 140, 255, 0.08);
+}
+/* 两个统计：并排，大号 mono 数值 + 小标签 */
+.auto-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding-top: clamp(14px, 2vw, 20px);
+  border-top: 1px solid var(--line);
+}
+.auto-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.auto-stat-value {
+  font-size: clamp(1.7rem, 1.3rem + 1.4vw, 2.3rem);
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.auto-stat-label {
+  font-size: var(--fs-sm);
+}
+
+/* 移动端（≤760px）：左栏要点上移、卡片自然撑满，列已由 .grid-2 在 ≤600 折叠为单列 */
+@media (max-width: 760px) {
+  .auto-desc,
+  .auto-usage-desc {
+    max-width: none;
+  }
+}
+
+/* ===================== Features 区块（由 components/sections/Features.tsx 使用）=====================
+   server 组件无法用内联 <style>，按契约把其 scoped 样式集中在此。命名前缀 .feat- 避免冲突。 */
+.feat-head {
+  max-width: var(--maxw-narrow);
+}
+.feat-head .h2 {
+  margin-top: 14px;
+  /* 中英文标题都避免末行孤字破版 */
+  text-wrap: balance;
+}
+.feat-head .lead {
+  margin-top: 14px;
+}
+/* 6 项轻卡与标题区间留白 */
+.feat-grid {
+  margin-top: clamp(32px, 4vw, 52px);
+}
+/* 卡片撑满网格行高，使同一行卡片等高（一组并列单元） */
+.feat-card {
+  height: 100%;
+}
+/* 图标底圆：小号荧光径向底 + 极淡纸面，亮/暗主题都有体积感 */
+.feat-medallion {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r);
+  background:
+    radial-gradient(120% 120% at 30% 25%, rgba(91, 140, 255, 0.22), rgba(139, 92, 246, 0.12) 60%, transparent 78%),
+    var(--paper-sink);
+  border: 1px solid var(--line);
+  /* 图标线条随 currentColor 走荧光蓝 */
+  color: var(--glow-blue);
+}
+.feat-medallion svg {
+  width: 24px;
+  height: 24px;
+}
+.feat-title {
+  margin-top: 18px;
+}
+.feat-desc {
+  margin-top: 8px;
+}
