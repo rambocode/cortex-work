@@ -212,6 +212,8 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     desktopBehavior: { ...DEFAULT_GENERAL_SETTINGS.desktopBehavior, ...g.desktopBehavior },
     notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
     log: { ...DEFAULT_GENERAL_SETTINGS.log, ...g.log },
+    // 旧档无此字段保持 undefined（主进程回退默认常量）;新档原样保留。
+    notesHotkey: g.notesHotkey,
   };
 }
 

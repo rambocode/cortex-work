@@ -372,6 +372,8 @@ export interface GeneralSettings {
   desktopBehavior: DesktopBehavior;
   notifications: NotificationSettings;
   log: LogSettings;
+  // 闪记全局热键（Electron accelerator）;缺省 = 主进程用默认 NOTES_HOTKEY_ACCELERATOR。
+  notesHotkey?: string;
 }
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {

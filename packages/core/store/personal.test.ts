@@ -496,6 +496,35 @@ describe("generalSettings 通用设置", () => {
     expect(s.generalSettings.workspaceRoot).toBe("/tmp/ws");
     expect(toPersistedState(s).generalSettings).toBe(s.generalSettings);
   });
+
+  it("默认 notesHotkey 缺省(undefined),由主进程回退默认常量", () => {
+    usePersonalStore.getState().hydrate(base);
+    expect(usePersonalStore.getState().generalSettings.notesHotkey).toBeUndefined();
+  });
+
+  it("setGeneralSettings({notesHotkey}) 生效并进入持久化快照", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setGeneralSettings({ notesHotkey: "Cmd+Alt+Space" });
+    const s = usePersonalStore.getState();
+    expect(s.generalSettings.notesHotkey).toBe("Cmd+Alt+Space");
+    expect(toPersistedState(s).generalSettings?.notesHotkey).toBe("Cmd+Alt+Space");
+  });
+
+  it("hydrate 往返保留 notesHotkey;旧档缺嵌套字段补全时不丢 notesHotkey", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: { desktopBehavior: { openAtLogin: true }, notesHotkey: "Control+Shift+F5" },
+    } as unknown as Persisted);
+    const g = usePersonalStore.getState().generalSettings;
+    expect(g.notesHotkey).toBe("Control+Shift+F5");
+    // 缺字段仍以默认补全。
+    expect(g.desktopBehavior.closeToTray).toBe(true);
+
+    // round-trip:把快照再 hydrate 回去,notesHotkey 一致。
+    const persisted = toPersistedState(usePersonalStore.getState());
+    usePersonalStore.getState().hydrate({ ...persisted });
+    expect(usePersonalStore.getState().generalSettings.notesHotkey).toBe("Control+Shift+F5");
+  });
 });
 
 describe("setAgentsAvailable 不持久化", () => {

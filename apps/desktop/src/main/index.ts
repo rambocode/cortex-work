@@ -15,7 +15,16 @@ import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlig
 import { registerSpotlightHandlers } from "./ipc/spotlight";
 import { toggleNotesOverlay, destroyNotesOverlay, getNotesOverlayWindow } from "./notes-overlay";
 import { registerNotesOverlayHandlers } from "./ipc/notes-overlay";
-import { resolveHotkeyRegistration, NOTES_HOTKEY_ACCELERATOR } from "./hotkey";
+import {
+  resolveHotkeyRegistration,
+  rebindCandidates,
+  resolveRebindChain,
+  isValidAccelerator,
+  NOTES_HOTKEY_ACCELERATOR,
+  NOTES_HOTKEY_INVALID_TOAST,
+  type HotkeyRegistration,
+} from "./hotkey";
+import { getPersistedState } from "./ipc/store";
 import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 
@@ -26,6 +35,31 @@ let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 // 闪记全局热键被占用时的降级提示文案(register 早于建窗,暂存待主窗口就绪后 best-effort 推送)。
 let notesHotkeyToast: string | null = null;
+// 当前已注册的闪记热键 accelerator(精确 unregister 用,避免 unregisterAll 误伤其它全局键)。
+// 空串 = 当前无任何已注册绑定。
+let currentNotesAccelerator = "";
+
+// 精确解绑当前已注册的闪记热键(若有),并清空 currentNotesAccelerator。
+// 仅解绑自己注册的那一个,不调 unregisterAll(避免误伤其它全局键)。
+function unregisterNotesHotkey(): void {
+  if (!currentNotesAccelerator) return;
+  try {
+    globalShortcut.unregister(currentNotesAccelerator);
+  } catch {
+    // 解绑失败忽略(可能本就未注册)。
+  }
+  currentNotesAccelerator = "";
+}
+
+// 注册闪记热键:先精确解绑当前已注册的旧键,再注册新键。仅在 register 成功时
+// 更新 currentNotesAccelerator。返回 resolveHotkeyRegistration 归一化结果。
+// 注意:不做格式校验(调用方保证 accelerator 合法),也不调 unregisterAll。
+function registerNotesHotkey(accelerator: string): HotkeyRegistration {
+  unregisterNotesHotkey();
+  const ok = globalShortcut.register(accelerator, toggleNotesOverlay);
+  if (ok) currentNotesAccelerator = accelerator;
+  return resolveHotkeyRegistration(ok);
+}
 
 function normalizedOS(): "macos" | "windows" | "linux" | "unknown" {
   switch (process.platform) {
@@ -70,6 +104,9 @@ function createWindow(): void {
     if (getDesktopBehavior().closeToTray) {
       e.preventDefault();
       mainWindow?.hide();
+      // macOS 兜底:万一进程类型仍残留在 accessory(曾切过),hide 到托盘后 Dock 图标会消失。
+      // 显式 dock.show() 拉回 regular,保证「关窗隐藏到托盘、Dock 图标继续保留、可从程序坞点回」。
+      if (process.platform === "darwin") void app.dock?.show();
     } else {
       isQuitting = true;
       app.quit();
@@ -116,6 +153,30 @@ if (!app.requestSingleInstanceLock()) {
     return t;
   });
 
+  // 渲染端在设置里改闪记热键 → 主进程即时重注册(仿 desktop:setBehavior 的即时通路)。
+  // 流程:格式校验 → 构造三级兜底候选链(新键 → 旧键 → 默认键,去重)→ 先精确解绑当前键 →
+  // 逐个 register,首个成功即停 → resolveRebindChain 决策。三级全失败则无可用绑定、明确降级。
+  // 返回 HotkeyRegistration(preload 适配成 bridge 契约 { ok, toast })。
+  ipcMain.handle("notes:setHotkey", (_e, acc: string): HotkeyRegistration => {
+    if (!isValidAccelerator(acc)) {
+      return { registered: false, degraded: true, toast: NOTES_HOTKEY_INVALID_TOAST };
+    }
+    const oldAcc = currentNotesAccelerator;
+    const candidates = rebindCandidates(acc, oldAcc);
+    // 先解绑当前键,再逐个尝试候选;首个 register 成功即停,记录其下标。
+    unregisterNotesHotkey();
+    let successIdx = -1;
+    for (let i = 0; i < candidates.length; i += 1) {
+      if (globalShortcut.register(candidates[i]!, toggleNotesOverlay)) {
+        currentNotesAccelerator = candidates[i]!;
+        successIdx = i;
+        break;
+      }
+    }
+    const decision = resolveRebindChain(oldAcc, acc, candidates, successIdx);
+    return { registered: decision.registered, degraded: decision.degraded, toast: decision.toast };
+  });
+
   app.whenReady().then(async () => {
     electronApp.setAppUserModelId("ai.cortex.work");
     if (process.platform === "darwin" && app.dock) app.dock.setIcon(appIconPath);
@@ -130,11 +191,13 @@ if (!app.requestSingleInstanceLock()) {
     registerLogHandlers();
     registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });
     registerNotesOverlayHandlers();
-    // 全局热键唤起闪记浮层(全仓首次用 globalShortcut)。register 返回 false = 被占用 →
+    // 全局热键唤起闪记浮层(全仓首次用 globalShortcut)。读用户配置的 notesHotkey,
+    // 无效或缺失则回退默认 NOTES_HOTKEY_ACCELERATOR。register 返回 false = 被占用 →
     // 不抛错,降级到仅窗口图标入口,并把提示文案在主窗口就绪后 best-effort 推给渲染端 toast。
-    const hotkey = resolveHotkeyRegistration(
-      globalShortcut.register(NOTES_HOTKEY_ACCELERATOR, toggleNotesOverlay),
-    );
+    const configuredHotkey = (await getPersistedState()).generalSettings?.notesHotkey;
+    const startupAccelerator =
+      configuredHotkey && isValidAccelerator(configuredHotkey) ? configuredHotkey : NOTES_HOTKEY_ACCELERATOR;
+    const hotkey = registerNotesHotkey(startupAccelerator);
     if (hotkey.degraded && hotkey.toast) {
       console.warn(`[notes] 全局热键注册失败: ${hotkey.toast}`);
       notesHotkeyToast = hotkey.toast;

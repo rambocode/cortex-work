@@ -141,6 +141,16 @@ const personal = {
   }): Promise<void> => ipcRenderer.invoke("desktop:setBehavior", behavior),
   openLogsDir: (): Promise<void> => ipcRenderer.invoke("logs:open"),
   setLogEnabled: (on: boolean): Promise<void> => ipcRenderer.invoke("logs:setEnabled", on),
+  // 改闪记全局热键:把主进程返回的 HotkeyRegistration 适配成 bridge 契约的 { ok, toast }。
+  // ok = registered && !degraded(注册成功且未降级才算生效)。
+  setNotesHotkey: async (acc: string): Promise<{ ok: boolean; toast?: string }> => {
+    const r = (await ipcRenderer.invoke("notes:setHotkey", acc)) as {
+      registered: boolean;
+      degraded: boolean;
+      toast?: string;
+    };
+    return { ok: r.registered && !r.degraded, toast: r.toast };
+  },
   pushReport: (target: unknown, payload: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("push:report", target, payload),
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),

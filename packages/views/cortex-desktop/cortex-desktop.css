@@ -2962,6 +2962,16 @@ button.sb-row {
 .twk-chip > span { position: absolute; top: 0; bottom: 0; right: 0; width: 34%; display: flex; flex-direction: column; box-shadow: -1px 0 0 rgba(0, 0, 0, 0.1); }
 .twk-chip > span > i { flex: 1; box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.1); }
 .twk-chip > span > i:first-child { box-shadow: none; }
+/* 录制式快捷键控件(HotkeyCapture):常态显示键位 + 「点击修改」,录制态高亮提示。 */
+.twk-hotkey { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 10px; border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 8px; background: rgba(255, 255, 255, 0.9); color: inherit; font: inherit; cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; }
+.twk-hotkey:hover { border-color: rgba(0, 0, 0, 0.28); }
+.twk-hotkey.is-recording { border-color: var(--accent, #c96442); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #c96442) 22%, transparent); }
+.twk-hotkey-val { font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.twk-hotkey.is-recording .twk-hotkey-val { font-weight: 500; color: rgba(41, 38, 27, 0.6); }
+/* 录制态按到无法识别的键:红色闪边框 + 提示文字,短暂后由组件恢复常态。 */
+.twk-hotkey.is-invalid { border-color: #d9534f; box-shadow: 0 0 0 2px color-mix(in srgb, #d9534f 24%, transparent); }
+.twk-hotkey.is-invalid .twk-hotkey-val { color: #d9534f; }
+.twk-hotkey-hint { font-size: 11px; color: rgba(41, 38, 27, 0.45); }
 
 /* ---------- Workspace tabs (团队 / 个人) ---------- */
 .ws-tabs {
@@ -5382,6 +5392,7 @@ button.sb-row {
 .pw-ws-control { display: flex; gap: 8px; align-items: center; }
 .pw-ws-control > .pw-set-input { flex: 1 1 auto; min-width: 0; }
 .pw-ws-control > .btn { flex: 0 0 auto; }
+.pw-hotkey-control { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
 .pw-scard-empty { padding: 13px 2px; font-size: 12px; color: var(--text-3); line-height: 1.5; }
 .pw-sblock { padding: 13px 2px; border-top: 1px solid var(--border-soft); }
 .pw-scard-t + .pw-sblock { border-top: none; }
