@@ -12,7 +12,7 @@
 import { useCallback, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { NoteInput, NoteMeta, NoteStatus } from "../desktop/types";
+import type { NoteInput, NoteMeta, NoteStatus, SkillMeta } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 import { initialModelDraft, usePersonalStore } from "../store/personal";
 import { buildProjectSystemPrompt, usePersonalActions } from "./messages";
@@ -114,86 +114,76 @@ export function prepareDeepenNotes(notes: NoteMeta[]): DeepenPrepResult {
   return { ok: true, notes: prepared, truncatedCount };
 }
 
-// 确定性产出文档目录 = <projectDir>/docs/flash-notes/<conversationId>（剥项目目录尾斜杠）。
-// conversationId = 本轮深化新会话 id（天然支持再深化:新会话=新目录,不覆盖旧产出）。
-export function deepenDocDir(projectDir: string, conversationId: string): string {
-  const root = projectDir.replace(/[/\\]+$/, "");
-  return `${root}/docs/flash-notes/${conversationId}`;
+// 深化产出确定路径 = <cwd 去尾斜杠>/docs/ideation/<sessionId>-deepen.md。含 sessionId 隔离
+// 会话（再深化新开会话=新文件,不覆盖旧产出）。run 收尾用 fs.exists 探测此确定路径判「已产出」
+// ——不靠 changedFiles（claude 工具参数超 80 字会被截断成 …、extractChangedFile 丢弃,深化
+// 产出的长绝对路径几乎必丢）。注入文案把此绝对路径给死 agent,绕开 ce-ideate 自由命名。
+export function deepenDocPath(cwd: string, sessionId: string): string {
+  const root = cwd.replace(/[/\\]+$/, "");
+  return `${root}/docs/ideation/${sessionId}-deepen.md`;
 }
 
-// 拼深化种子 system prompt:首条前加引导语,每条一个 <note id created> 块,
-// 把确定性产出路径 <docDir>/brainstorm.md 喂给 agent（复用 buildAttachmentSystemPrompt 的
-// XML 包裹风格）。注意:传入的 notes 应已经过 prepareDeepenNotes 截断,这里只做包裹。
-export function buildDeepenSystemPrompt(notes: NoteMeta[], docDir: string): string {
+// 生成 plan 产出确定路径 = <cwd 去尾斜杠>/docs/plans/<sessionId>-plan.md（与深化同机制）。
+export function planDocPath(cwd: string, sessionId: string): string {
+  const root = cwd.replace(/[/\\]+$/, "");
+  return `${root}/docs/plans/${sessionId}-plan.md`;
+}
+
+// 拼深化 system prompt:只注入 ce-ideate 的元数据（源数据）+ SKILL.md 绝对路径,引导 agent
+// 自己 Read 并按其方法论深化;在 headless claude -p 一次性流水线下**降格执行**（单 agent、禁
+// 子 agent/Task、禁阻塞提问）,并把产出落点给死为确定绝对路径 outPath。每条闪记一个 <note> 块。
+// 注意:传入的 notes 应已经过 prepareDeepenNotes 截断,这里只做包裹。
+export function buildDeepenSystemPrompt(
+  notes: NoteMeta[],
+  opts: { skill: SkillMeta; outPath: string },
+): string {
   const blocks = notes
     .map(
       (n) =>
         `<note id="${n.id}" created="${new Date(n.createdAt).toISOString()}">\n${n.content}\n</note>`,
     )
     .join("\n\n");
+  const hint = opts.skill.argumentHint ? `\n参数提示: ${opts.skill.argumentHint}` : "";
   return [
-    "以下是用户记录的同一批闪记（想法种子）。请先提出关键澄清问题,再把它们孵化成 brainstorm 文档。",
-    `产出文档请写到:${docDir}/brainstorm.md（如后续生成 plan,写到同目录 plan.md）。`,
+    `请用内置 skill「${opts.skill.name}」深化下面这批闪记（想法种子）。`,
+    `skill 元数据 ——\n名称: ${opts.skill.name}\n说明: ${opts.skill.description}${hint}`,
+    `第一步:用 Read 工具读取 SKILL.md 全文并按其方法论执行: ${opts.skill.skillMdPath}`,
+    `该 SKILL.md 内引用的所有 references/X 文件位于目录 ${opts.skill.dir}/references/ 下,需要时用该绝对前缀 Read（不要按当前工作目录解析相对路径）。`,
+    [
+      "执行约束（这是 headless 自动深化,无人交互,务必遵守）:",
+      "- 禁止 dispatch 任何子 agent、禁止使用 Task 工具,全部工作在本上下文内完成;",
+      "- 禁止使用 AskUserQuestion 或任何阻塞式提问,遇到需要决策处一律用合理默认继续;",
+      "- 把下面的闪记正文当作已确定的主题,不要反问澄清;",
+      `- 产出一份 markdown 深化文档,直接写到绝对路径: ${opts.outPath}（Write 工具会自动创建父目录,不要写 /tmp、不要自行决定文件名或目录）。`,
+    ].join("\n"),
     blocks,
   ].join("\n\n");
 }
 
-// 生成 plan 的种子 prompt（U10,契约 5.7 显式触发,不做 agent 链式自动）:
-// 在已产出 brainstorm 的同一深化会话目录里,要求 agent 把 brainstorm 推进成 plan.md。
-export function buildPlanSystemPrompt(docDir: string): string {
+// 拼生成 plan 的 system prompt:对称注入内置 ce-plan 元数据 + SKILL.md 路径,同款降格执行,
+// 产出落点给死为 outPath。基于本会话已有的深化产出推进成 plan。
+export function buildPlanSystemPrompt(opts: { skill: SkillMeta; outPath: string }): string {
+  const hint = opts.skill.argumentHint ? `\n参数提示: ${opts.skill.argumentHint}` : "";
   return [
-    `请基于已产出的 ${docDir}/brainstorm.md,把它推进成一份可执行的 plan 文档。`,
-    `产出文档请写到:${docDir}/plan.md（与 brainstorm 同目录）。`,
+    `请用内置 skill「${opts.skill.name}」,基于本会话已产出的深化文档,生成一份可执行的 plan。`,
+    `skill 元数据 ——\n名称: ${opts.skill.name}\n说明: ${opts.skill.description}${hint}`,
+    `第一步:用 Read 工具读取 SKILL.md 全文并按其方法论执行: ${opts.skill.skillMdPath}`,
+    `该 SKILL.md 内引用的所有 references/X 文件位于目录 ${opts.skill.dir}/references/ 下,需要时用该绝对前缀 Read。`,
+    [
+      "执行约束（headless 自动生成,无人交互,务必遵守）:",
+      "- 禁止 dispatch 任何子 agent、禁止使用 Task 工具;",
+      "- 禁止使用 AskUserQuestion 或任何阻塞式提问,遇到需要决策处一律用合理默认继续;",
+      `- 产出一份 markdown plan 文档,直接写到绝对路径: ${opts.outPath}（Write 工具会自动创建父目录,不要写 /tmp、不要自行决定文件名或目录）。`,
+    ].join("\n"),
   ].join("\n\n");
 }
 
-// ── 深化状态推进 / 失败回落（U9,纯函数,供 finalizeRun 副作用与测试复用）──────
+// ── 深化状态推进 / 失败回落（纯函数,供 finalizeRun 副作用与测试复用）──────────
 //
-// 「已深化」判定以「本轮 run 的 changedFiles 含约定产出路径」为准（KTD5）,不能靠
-// 「文件存在」单独判（防再深化/放弃时旧同名文件误判）。路径归一化:约定路径与采集
-// 路径都规约成「相对 cwd」再 includes 比对。
-
-// 约定产出文档名（plan 同目录 plan.md;判已深化只认 brainstorm.md）。
-export const DEEPEN_BRAINSTORM_FILE = "brainstorm.md";
-// 生成 plan 的产出文件名（同 conversationId 目录;不计入「已深化」判定,只追加 docPaths）。
-export const DEEPEN_PLAN_FILE = "plan.md";
-
-// plan 产出文档的绝对路径（与 brainstorm 同目录,追加进 docPaths;不改 status）。
-export function deepenPlanPath(cwd: string, conversationId: string): string {
-  return `${deepenDocDir(cwd, conversationId)}/${DEEPEN_PLAN_FILE}`;
-}
-
-// 把一个路径规约成「相对 cwd」:绝对路径剥 cwd 前缀,已是相对则原样;统一正斜杠、
-// 去首尾斜杠,便于跨平台/绝对相对混写时严格 includes 比对。extractChangedFile 截断
-// 返回 undefined 的路径不会进 changedFiles,这里只处理已落地的字符串。
-export function relForCompare(path: string, cwd: string): string {
-  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
-  const root = norm(cwd);
-  let p = norm(path);
-  if (root && (p === root || p.startsWith(root + "/"))) p = p.slice(root.length);
-  return p.replace(/^\/+/, "");
-}
-
-// 本轮 run 的 changedFiles 是否含约定产出路径 <cwd>/docs/flash-notes/<sessionId>/brainstorm.md。
-// changedFiles 里可能是相对 cwd（extractChangedFile 已剥前缀）或绝对（agent 写绝对路径）,
-// 都规约成相对 cwd 再比对;约定路径同样规约。命中 → 本轮确有产出,可置已深化。
-export function runProducedDeepenDoc(
-  changedFiles: Iterable<string>,
-  conversationId: string,
-  cwd: string,
-): boolean {
-  const docDir = deepenDocDir(cwd, conversationId);
-  const target = relForCompare(`${docDir}/${DEEPEN_BRAINSTORM_FILE}`, cwd);
-  for (const f of changedFiles) {
-    if (relForCompare(f, cwd) === target) return true;
-  }
-  return false;
-}
-
-// 约定产出文档的绝对路径（命中后写入 docPaths;追加不覆盖,再深化累加）。
-export function deepenDocPath(cwd: string, conversationId: string): string {
-  return `${deepenDocDir(cwd, conversationId)}/${DEEPEN_BRAINSTORM_FILE}`;
-}
+// 「已产出」判定改为「run 收尾用 fs.exists 探测确定路径」（deepenDocPath / planDocPath,
+// 均含 sessionId）。不靠 changedFiles:claude 工具参数超 80 字会被截断成 …、extractChangedFile
+// 丢弃,深化产出的长绝对路径几乎必丢。探测在 applyDeepenFinalize（async + bridge）做,纯函数
+// deepenStateTransition 只收 produced 布尔,保持可测。
 
 // 追加不覆盖（去重）:再深化时 docPaths/conversationIds 累加同一数组,避免重复。
 export function appendUnique(arr: string[] | undefined, item: string): string[] {
@@ -201,52 +191,65 @@ export function appendUnique(arr: string[] | undefined, item: string): string[] 
   return base.includes(item) ? base : [...base, item];
 }
 
-// 这条闪记是否「正被本会话深化」:status==='deepening' 且 conversationIds 含该 sessionId。
-// finalizeRun / 失败回落的副作用必须按此 gate —— 普通(非深化)会话完全 no-op,绝不误伤。
+// 这条闪记是否「关联本会话」:conversationIds 含该 sessionId（不限状态）。深化（deepening）与
+// 生成 plan（deepened）都复用同一深化会话 id,故 finalize 候选按此 gate;非关联会话完全 no-op。
+export function isLinkedToSession(note: NoteMeta, sessionId: string): boolean {
+  return !!note.conversationIds?.includes(sessionId);
+}
+
+// 仍被本会话深化中（status==='deepening' 且 conversationIds 含 sessionId）。保留供测试/外部用。
 export function isDeepeningForSession(note: NoteMeta, sessionId: string): boolean {
-  return note.status === "deepening" && !!note.conversationIds?.includes(sessionId);
+  return note.status === "deepening" && isLinkedToSession(note, sessionId);
 }
 
-// 从全量闪记里筛出「正被本会话深化」的（finalizeRun 副作用入口用）。
-export function notesDeepeningForSession(notes: NoteMeta[], sessionId: string): NoteMeta[] {
-  return notes.filter((n) => isDeepeningForSession(n, sessionId));
+// 从全量闪记筛出「关联本会话」的（deepening 深化 或 deepened 生成 plan）——finalize 候选。
+export function notesLinkedToSession(notes: NoteMeta[], sessionId: string): NoteMeta[] {
+  return notes.filter((n) => isLinkedToSession(n, sessionId));
 }
 
-// 单条深化闪记在一轮 run 收尾后应得到的状态迁移（纯函数,完全可测）:
-// - terminalFailure（spawn 失败/鉴权失败/超时/用户放弃且无产出）→ 回落 draft,
-//   不置已深化、不追加 docPaths（conversationIds 保留断链历史）;
-// - 本轮 changedFiles 含约定产出路径 → 置 deepened + 追加该路径到 docPaths（追加不覆盖）;
-// - 普通澄清轮（无产出、无终态失败）→ 返回 null（保持 deepening,不回落、不已深化）。
+// 单条闪记在一轮 run 收尾后应得到的状态迁移（纯函数,完全可测）。按 note.status 分流:
+// - deepening（深化 run）:terminalFailure → 回落 draft;produced（fs.exists 命中 deepenDocPath）
+//   → deepened + 追加 docPath;否则 null（澄清轮,保持 deepening）。
+// - deepened（生成 plan run）:terminalFailure → null（绝不回落,保护已深化成果）;
+//   produced（命中 planDocPath）→ 仅追加 docPath,不改 status;否则 null。
+// - 其它状态 → null（不触碰）。
 export function deepenStateTransition(args: {
   note: NoteMeta;
-  conversationId: string;
   cwd: string;
-  changedFiles: Iterable<string>;
+  sessionId: string;
+  produced: boolean;
   terminalFailure: boolean;
 }): NotePatch | null {
-  if (args.terminalFailure) {
-    return { status: "draft" };
+  if (args.note.status === "deepening") {
+    if (args.terminalFailure) return { status: "draft" };
+    if (args.produced) {
+      return {
+        status: "deepened",
+        docPaths: appendUnique(args.note.docPaths, deepenDocPath(args.cwd, args.sessionId)),
+      };
+    }
+    return null;
   }
-  if (runProducedDeepenDoc(args.changedFiles, args.conversationId, args.cwd)) {
-    return {
-      status: "deepened",
-      docPaths: appendUnique(args.note.docPaths, deepenDocPath(args.cwd, args.conversationId)),
-    };
+  if (args.note.status === "deepened") {
+    if (args.terminalFailure) return null; // plan run 失败不抹掉已深化态
+    if (args.produced) {
+      return { docPaths: appendUnique(args.note.docPaths, planDocPath(args.cwd, args.sessionId)) };
+    }
+    return null;
   }
-  // 无产出且非终态失败:深化进行中（agent 先提澄清问题）。保持 deepening,什么都不动。
   return null;
 }
 
 // finalizeRun / 失败回落挂的深化副作用入口（messages.ts 调用,async）。严格 gate:
-// 仅对「该 session 有 status==='deepening' 且 conversationIds 含 sessionId」的闪记动作,
-// 对普通会话完全 no-op（拉不到任何 deepening 闪记即直接返回,不触碰其它会话/闪记）。
+// 仅对「conversationIds 含 sessionId」的闪记动作（深化中 deepening 或 生成 plan 的 deepened）,
+// 对普通会话完全 no-op（拉不到任何关联闪记即直接返回,不触碰其它会话/闪记）。产出判定用
+// bridge.fileExists 探测确定路径（deepenDocPath/planDocPath）,绕开 changedFiles 截断。
 // bridge 缺方法（web/旧壳）安全降级。
 export async function applyDeepenFinalize(
   bridge: DesktopBridge | null,
   args: {
     sessionId: string;
     cwd: string | undefined;
-    changedFiles: Iterable<string>;
     terminalFailure: boolean;
   },
 ): Promise<void> {
@@ -257,17 +260,27 @@ export async function applyDeepenFinalize(
   } catch {
     return; // 拉取失败静默,不影响会话收尾
   }
-  const linked = notesDeepeningForSession(all, args.sessionId);
-  if (linked.length === 0) return; // 普通会话:无深化闪记 → 完全 no-op
-  // cwd 缺失时无法判定产出路径:终态失败仍回落,否则保持 deepening。
+  const linked = notesLinkedToSession(all, args.sessionId);
+  if (linked.length === 0) return; // 普通会话:无关联闪记 → 完全 no-op
+  // cwd 缺失时无法判定产出路径:终态失败仍按状态机处理,否则保持原状。
   const cwd = args.cwd ?? "";
   await Promise.all(
     linked.map(async (note) => {
+      // 探测本条对应的确定产出路径是否已生成（deepening→深化文档;deepened→plan 文档）。
+      // 终态失败 / 无 cwd 时不探测（produced=false,交状态机按 status 处理）。
+      let produced = false;
+      if (!args.terminalFailure && cwd) {
+        const path =
+          note.status === "deepening"
+            ? deepenDocPath(cwd, args.sessionId)
+            : planDocPath(cwd, args.sessionId);
+        produced = (await bridge.fileExists?.(path)) ?? false;
+      }
       const patch = deepenStateTransition({
         note,
-        conversationId: args.sessionId,
         cwd,
-        changedFiles: args.changedFiles,
+        sessionId: args.sessionId,
+        produced,
         terminalFailure: args.terminalFailure,
       });
       if (patch) await bridge.notesUpdate!(note.id, patch);
@@ -360,8 +373,8 @@ export function useNotesChangeSubscription(): void {
 // usePersonalActions().send（KTD4:首条走共享 queryKey personalChatKeys.detail(sessionId)
 // + ensureChatLoaded,绝不绕过 send 直接 appendMsg/setQueryData）。
 //
-// 顺序硬约束:createSession 拿到新会话 id → 用 id 拼 docDir/systemPrompt → send。docDir
-// 依赖 conversationId(= 新会话 id),故必须先建会话。
+// 顺序硬约束:createSession 拿到新会话 id → 用 id 拼 outPath/systemPrompt → send。outPath
+// 依赖会话 id(= 新会话 id),故必须先建会话。
 //
 // 本单元只做「触发即置 deepening + 链会话 + 自动切到新会话」（契约 5.5 第一句）;状态
 // 推进到「已深化」/ 失败回落留 U9。
@@ -413,14 +426,22 @@ export function useDeepenNotes(): (noteIds: string[], onToast: (text: string) =>
       // agent/model 走「记忆 + 默认」标准派生（与新会话一致）。
       const draft = initialModelDraft(st);
 
-      // 建会话 → 拿新会话 id（= conversationId,docDir 依赖它,故顺序在 send 之前）。
+      // 取内置 ce-ideate skill 元数据（缺失 → 降级早退,不建会话、不置 deepening）。
+      const skill = await bridge.skillGet?.("ce-ideate");
+      if (!skill) {
+        onToast("当前环境缺少内置 ce-ideate skill,无法深化。");
+        return;
+      }
+
+      // 建会话 → 拿新会话 id（outPath 依赖它,故顺序在 send 之前）。
       const sess = st.createSession(projectId, draft.agent, draft.model, proj ? undefined : { noProjectDir: cwd });
       // pi 专属:补 providerId（createSession 已尽力挂默认,这里对齐草稿选择）。
       if (draft.agent === "pi" && draft.providerId) st.updateSession(sess.id, { providerId: draft.providerId });
 
-      const docDir = deepenDocDir(cwd, sess.id);
-      // 种子 system prompt + 项目信息块共存（项目块在前、种子在后,与 spotlight 合并风格一致）。
-      const seedPrompt = buildDeepenSystemPrompt(prep.notes, docDir);
+      // 深化产出确定路径（含会话 id,run 收尾 fs.exists 探测此路径判已深化）。
+      const outPath = deepenDocPath(cwd, sess.id);
+      // 注入 ce-ideate 元数据 + SKILL.md 路径（降格执行,产出落点给死 outPath）+ 项目信息块共存。
+      const seedPrompt = buildDeepenSystemPrompt(prep.notes, { skill, outPath });
       const projectPrompt = buildProjectSystemPrompt(st.projects);
       const extraSystemPrompt = [projectPrompt, seedPrompt].filter(Boolean).join("\n\n") || undefined;
 
@@ -450,17 +471,14 @@ export function useDeepenNotes(): (noteIds: string[], onToast: (text: string) =>
   );
 }
 
-// ── 生成 plan 编排（U10:契约 5.7 显式触发,再开一段深化写 plan.md）─────────────
+// ── 生成 plan 编排（契约 5.7 显式触发,复用深化会话注入 ce-plan）───────────────
 // 与 useDeepenNotes 同走 send（首条防丢 KTD4）,但**复用闪记最近一段深化会话**(取
-// conversationIds 末项),在同一 conversationId 目录写 plan.md（5.6 路径约定:新会话=新目录,
-// 这里刻意不新建会话,沿用 brainstorm 所在会话目录,让 plan 与 brainstorm 同处)。
+// conversationIds 末项,沿用其工作目录),注入内置 ce-plan skill 元数据+路径,产出落点给死
+// 为 planDocPath（docs/plans/<sessionId>-plan.md）。
 //
-// 与 brainstorm 不同:plan.md **不改 status、不计入「已深化」判定**(U9 交接约定),只把
-// plan.md 路径追加进 docPaths（appendUnique 去重）。因该闪记已是 deepened（非 deepening）,
-// finalizeRun 的 applyDeepenFinalize 对它完全 no-op（isDeepeningForSession 要求 deepening）,
-// 故 docPaths 在此 UI 触发时即时追加,不依赖 run 收尾副作用。
-//
-// 不做 agent 链式自动:只在用户显式点「生成 plan」时触发一次。
+// plan **不改 status**(仍 deepened),只把 planDocPath 追加进 docPaths。追加改靠 run 收尾
+// applyDeepenFinalize 探测 planDocPath（deepened 分流,见上）——不在此即时追加,产出未真正
+// 落地则不追加,比即时追加更准。不做 agent 链式自动:只在用户显式点「生成 plan」时触发一次。
 export function useGeneratePlan(): (noteId: string, onToast: (text: string) => void) => Promise<void> {
   const bridge = useDesktopBridge();
   const qc = useQueryClient();
@@ -478,9 +496,9 @@ export function useGeneratePlan(): (noteId: string, onToast: (text: string) => v
         onToast("找不到该闪记。");
         return;
       }
-      // 生成 plan 以 brainstorm 已产出为前提（deepened）。
+      // 生成 plan 以深化已产出为前提（deepened）。
       if (note.status !== "deepened") {
-        onToast("请先深化产出 brainstorm,再生成 plan。");
+        onToast("请先完成深化,再生成 plan。");
         return;
       }
       // 取最近一段深化会话（conversationIds 末项;plan 写进它的目录,与 brainstorm 同处）。
@@ -504,24 +522,26 @@ export function useGeneratePlan(): (noteId: string, onToast: (text: string) => v
         return;
       }
 
-      const docDir = deepenDocDir(cwd, conversationId);
-      const planPrompt = buildPlanSystemPrompt(docDir);
+      // 取内置 ce-plan skill 元数据（缺失 → 降级早退）。
+      const skill = await bridge.skillGet?.("ce-plan");
+      if (!skill) {
+        onToast("当前环境缺少内置 ce-plan skill,无法生成 plan。");
+        return;
+      }
+
+      // plan 产出确定路径（复用深化会话 id;run 收尾 fs.exists 探测此路径追加 docPaths）。
+      const outPath = planDocPath(cwd, conversationId);
+      const planPrompt = buildPlanSystemPrompt({ skill, outPath });
       const projectPrompt = buildProjectSystemPrompt(st.projects);
       const extraSystemPrompt = [projectPrompt, planPrompt].filter(Boolean).join("\n\n") || undefined;
-
-      // plan.md 即时追加进 docPaths（不改 status,仍 deepened;追加不覆盖,再生成幂等）。
-      if (bridge.notesUpdate) {
-        await bridge.notesUpdate(note.id, {
-          docPaths: appendUnique(note.docPaths, deepenPlanPath(cwd, conversationId)),
-        });
-        qc.invalidateQueries({ queryKey: notesKeys.all });
-      }
+      // 注意:plan 路径不在此即时追加 docPaths,改靠 run 收尾 applyDeepenFinalize 探测 planDocPath
+      // 后追加（deepened 分流,不改 status）——产出未真正落地则不追加,语义更准。
 
       // 切回该深化会话（继续观察 plan 产出,与深化一致）。
       st.setActiveSession(conversationId);
 
       // 首条防丢（KTD4）:复用 send,空历史不会覆盖追加的指令。
-      await send(sess, cwd, "请基于已有 brainstorm 生成 plan 文档。", [], extraSystemPrompt);
+      await send(sess, cwd, "请基于已有深化文档生成 plan 文档。", [], extraSystemPrompt);
     },
     [bridge, qc, send],
   );

@@ -831,3 +831,15 @@ export interface NotesFileData {
   version: 1;
   notes: NoteMeta[];
 }
+
+// ── 内置 skill 元数据 ────────────────────────────────────────────────────────
+// 与 apps/desktop/src/main/ipc/types.ts 逐字镜像（两侧必须完全一致）。深化注入
+// ce-ideate / 生成 plan 注入 ce-plan：只把 skill 的 frontmatter 源数据 + 文件路径
+// 喂给 agent（不内联全文,让 agent 自己 Read）。
+export interface SkillMeta {
+  name: string; // frontmatter name（== 目录名）
+  description: string; // frontmatter description
+  argumentHint?: string; // frontmatter argument-hint
+  skillMdPath: string; // SKILL.md 绝对路径（喂给 agent Read）
+  dir: string; // skill 根目录绝对路径（references 相对路径的绝对前缀基准）
+}

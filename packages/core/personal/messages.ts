@@ -581,18 +581,17 @@ function finalizeRun(
     });
   }
 
-  // 深化（U9）副作用:仅当该 session 有 deepening 闪记时才动作（普通会话完全 no-op,
-  // applyDeepenFinalize 内部 gate）。终态失败（spawn/鉴权/超时/放弃且无产出）→ 回落 draft;
-  // 本轮 changedFiles 含约定产出路径 → 置已深化 + 追加 docPaths;普通澄清轮 → 保持 deepening。
-  // 鉴权失败走 result(ok:false)（gotResult=true、resultOk=false）;spawn/超时/非零退出走
-  // (!gotResult && (error||非零 code))。
+  // 深化副作用:仅当该 session 有关联闪记（深化中 deepening / 生成 plan 的 deepened）时才动作
+  //（普通会话完全 no-op,applyDeepenFinalize 内部 gate）。终态失败（spawn/鉴权/超时/放弃）→
+  // 回落 draft（plan run 的 deepened 不回落）;否则 fs.exists 探测确定产出路径 → 置已深化/追加
+  // docPaths;普通澄清轮 → 保持原状态。鉴权失败走 result(ok:false)（gotResult=true、resultOk=false）;
+  // spawn/超时/非零退出走 (!gotResult && (error||非零 code))。
   const terminalFailure =
     (!run.gotResult && (!!error || (code !== null && code !== 0))) ||
     (run.gotResult && run.resultOk === false);
   void applyDeepenFinalize(bridgeRef, {
     sessionId,
     cwd: run.cwd,
-    changedFiles: run.changedFiles ?? [],
     terminalFailure,
   });
 }
@@ -840,7 +839,6 @@ export function usePersonalActions(): PersonalActions {
           void applyDeepenFinalize(bridgeRef, {
             sessionId: cur.sessionId,
             cwd: cur.cwd,
-            changedFiles: cur.changedFiles ?? [],
             terminalFailure: true,
           });
           void bridgeRef?.killCli(runId);

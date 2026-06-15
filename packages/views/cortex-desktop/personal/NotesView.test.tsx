@@ -51,6 +51,16 @@ function fakeNotesBridge(initial: NoteMeta[], docFiles: Record<string, string> =
       calls.writeFile.push({ path, content });
       files.set(path, content);
     },
+    // 深化/生成 plan 注入用:按 name 返回内置 skill 元数据（降格执行,只给路径+源数据）。
+    skillGet: async (name: string) => ({
+      name,
+      description: `${name} 说明`,
+      argumentHint: undefined,
+      skillMdPath: `/abs/skills/${name}/SKILL.md`,
+      dir: `/abs/skills/${name}`,
+    }),
+    // run 收尾产出探测:集成测试不真跑 CLI（startCli 只记录,不触发 cli:exit → finalize）,默认 false。
+    fileExists: async () => false,
   } as unknown as DesktopBridge;
   return { bridge, store, calls, files };
 }
@@ -230,12 +240,14 @@ describe("NotesView 列表/详情", () => {
     expect(store.get("n1")?.conversationIds).toContain(newSessionId);
     expect(store.get("n2")?.conversationIds).toContain(newSessionId);
 
-    // 首条防丢链路:在新会话 cwd(项目路径)下发起 CLI,种子 system prompt 含确定性产出路径。
+    // 首条防丢链路:在新会话 cwd(项目路径)下发起 CLI,system prompt 注入 ce-ideate 路径 + 确定产出路径。
     await waitFor(() => expect(calls.startCli.length).toBe(1));
     expect(calls.startCli[0]!.cwd).toBe("/code/alpha");
     expect(calls.startCli[0]!.appendSystemPrompt).toContain(
-      `/code/alpha/docs/flash-notes/${newSessionId}/brainstorm.md`,
+      `/code/alpha/docs/ideation/${newSessionId}-deepen.md`,
     );
+    // 注入内置 ce-ideate skill 路径（让 agent 自己 Read,不内联全文）。
+    expect(calls.startCli[0]!.appendSystemPrompt).toContain("/abs/skills/ce-ideate/SKILL.md");
     // 种子按 createdAt 升序:想法乙(更早)在想法甲之前。
     const sp = calls.startCli[0]!.appendSystemPrompt ?? "";
     expect(sp.indexOf("想法乙")).toBeLessThan(sp.indexOf("想法甲"));
@@ -461,17 +473,15 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
     const planBtn = await screen.findByRole("button", { name: /生成 plan/ });
     fireEvent.click(planBtn);
 
-    // 经 send → startCli 发到同一深化会话目录,要求写 plan.md。
+    // 经 send → startCli 发到同一深化会话目录,注入 ce-plan + 确定 plan 产出路径。
     await waitFor(() => expect(calls.startCli.length).toBe(1));
     expect(calls.startCli[0]!.cwd).toBe("/code/alpha");
     expect(calls.startCli[0]!.appendSystemPrompt).toContain(
-      "/code/alpha/docs/flash-notes/c1/plan.md",
+      "/code/alpha/docs/plans/c1-plan.md",
     );
-    // plan.md 追加进 docPaths(不改 status:仍 deepened)。
-    await waitFor(() => {
-      expect(store.get("n1")?.docPaths).toContain("/code/alpha/docs/flash-notes/c1/plan.md");
-      expect(store.get("n1")?.status).toBe("deepened");
-    });
+    expect(calls.startCli[0]!.appendSystemPrompt).toContain("/abs/skills/ce-plan/SKILL.md");
+    // status 仍 deepened（plan 不改 status;plan 路径靠 run 收尾 finalize 探测追加,集成测试不触发）。
+    expect(store.get("n1")?.status).toBe("deepened");
     // 切回该深化会话(继续观察 plan 产出)。
     expect(usePersonalStore.getState().activeSessionId).toBe("c1");
   });

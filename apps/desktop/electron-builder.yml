@@ -22,6 +22,10 @@ extraResources:
   # 生成；落到 <App>/Contents/Resources/pi/,pi-locate.resolvePiBinary 打包态指向这里。
   - from: resources/pi
     to: pi
+  # 内置 skills（compound-engineering vendoring，纯文本）,落到 <App>/Contents/Resources/skills/,
+  # skills/locate.builtinSkillsRoot 打包态指向这里；第二阶段下载的官方库走 userData/skills 优先覆盖。
+  - from: resources/skills
+    to: skills
 # pi 现在走 resources/pi 下的 bun 自包含二进制（extraResources,不进 asar）,依赖全 inline,
 # 故无需再为 pi 依赖 unpack 任何 node_modules。这里只留必须落地的原生模块:node-pty。
 #（@mariozechner/clipboard 的 NAPI 由 electron-builder 自动 unpack,无需显式列出。）

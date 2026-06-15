@@ -155,11 +155,8 @@ export {
   prepareDeepenNotes,
   buildDeepenSystemPrompt,
   buildPlanSystemPrompt,
-  deepenDocDir,
-  deepenPlanPath,
   DEEPEN_MAX_NOTES,
   DEEPEN_NOTE_BODY_MAX,
-  DEEPEN_PLAN_FILE,
   type NotePatch,
   type DeepenPrepResult,
 } from "./personal/notes";
