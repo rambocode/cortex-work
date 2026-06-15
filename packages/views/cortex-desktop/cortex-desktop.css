@@ -44,6 +44,11 @@
   --radius: 10px;
   --radius-lg: 14px;
 
+  /* 个人工作区三栏「浮起」效果:中栏铺底,左右栏作为悬浮卡片(外边距透出中栏同色底)。 */
+  --pw-float-gap: 8px;
+  --pw-float-radius: 12px;
+  --pw-float-shadow: 0 4px 16px rgba(20, 18, 12, 0.10), 0 1px 3px rgba(20, 18, 12, 0.06);
+
   --mono: "SF Mono", "JetBrains Mono", "Menlo", ui-monospace, "Cascadia Mono", monospace;
 }
 
@@ -81,6 +86,8 @@
 
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 0 rgba(0, 0, 0, 0.2);
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+
+  --pw-float-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 * { box-sizing: border-box; }
@@ -290,6 +297,17 @@ input, textarea { font: inherit; color: inherit; }
 
 /* ---------- Body ---------- */
 .body { flex: 1; display: flex; min-height: 0; }
+
+/* 个人工作区(独有 .pw-main):中栏铺满做底,左右栏浮起为卡片。
+   .body 底色 = --bg-app(中栏同色),卡片外边距透出此底,即「中栏铺底、左右浮其上」。 */
+.body:has(.pw-main) { background: var(--bg-app); }
+.body:has(.pw-main) > .sidebar {
+  border-right: none;
+  margin: var(--pw-float-gap);
+  border-radius: var(--pw-float-radius);
+  box-shadow: var(--pw-float-shadow);
+  overflow: hidden;
+}
 
 /* ---------- Sidebar ---------- */
 .sidebar {
@@ -3080,6 +3098,19 @@ button.sb-row {
 
 /* Prompt 库右栏（列表态固定 320px,不可拖） */
 .pw-prompts { width: 320px; position: relative; }
+/* 右栏浮起卡片:去分隔线,加圆角/阴影,左侧间隙改由中栏透出(margin-left:0)。
+   不用 overflow:hidden(否则裁掉左缘拖拽条 .pw-rp-resizer),改给顶部头加圆角。 */
+.body:has(.pw-main) .pw-upper > .right {
+  border-left: none;
+  margin: var(--pw-float-gap);
+  margin-left: 0;
+  border-radius: var(--pw-float-radius);
+  box-shadow: var(--pw-float-shadow);
+}
+.body:has(.pw-main) .pw-upper > .right .pw-rp-head {
+  border-top-left-radius: var(--pw-float-radius);
+  border-top-right-radius: var(--pw-float-radius);
+}
 /* 左缘拖拽条:仅查看文件（详情/文件预览）时显示,双击恢复自动宽度 */
 .pw-rp-resizer {
   position: absolute;
