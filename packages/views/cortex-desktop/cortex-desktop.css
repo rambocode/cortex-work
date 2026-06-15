@@ -6073,8 +6073,12 @@ button.sb-row {
 /* ============ 闪记写作面 · 容器 / 头部 / 三档切换 ============ */
 /* 撑满中心列剩余高度:.pw-center-col > :not(.pw-col-head) 已给 flex:1,这里用 flex 链而非
    height:100%,确保 body/preview 一路 flex:1 撑到底(预览高度到底)。 */
-.pw-note-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.pw-note-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; background: #fff; }
 .pw-note-editor.is-empty { align-items: center; justify-content: center; }
+/* 三档统一纯白底:CM(源码/实时预览)的 &/.cm-scroller 为 transparent、仅预览也透明,
+   均透出 .pw-note-editor 的白;再消去 CM 光标行的浅灰 tint,保持整片白。 */
+.pw-note-editor .cm-editor .cm-activeLine,
+.pw-note-editor .cm-editor.cm-focused .cm-activeLine { background-color: transparent; }
 
 .pw-note-editor-h {
   display: flex; align-items: center; gap: 8px; padding: 8px 14px; flex-shrink: 0;
