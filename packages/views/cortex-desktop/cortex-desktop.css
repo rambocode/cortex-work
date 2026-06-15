@@ -5975,3 +5975,67 @@ button.sb-row {
 .pw-auto-sched-row { display: flex; gap: 10px; align-items: flex-end; }
 .pw-auto-inline { flex: 1; min-width: 0; }
 .pw-set-hint.is-danger { color: var(--red); }
+
+/* ============ 闪记写作面 · CodeMirror 实时预览(移植自 Kun,cortex 配色) ============ */
+.pw-note-cm-host { flex: 1; min-height: 0; min-width: 0; display: flex; }
+.pw-note-cm-host > .cm-editor { height: 100%; width: 100%; }
+.pw-note-cm-host > .cm-editor.cm-focused { outline: none; }
+
+/* 非光标行隐藏 markdown 标记 */
+.cm-write-live-preview .cm-write-md-hidden-mark { display: none; }
+
+/* 分割线 widget */
+.cm-write-md-hr {
+  display: block; height: 0; margin: 0.55em auto; width: 100%;
+  border-top: 2px solid var(--border-strong); cursor: text;
+}
+
+/* 列表项目符号 widget */
+.cm-write-md-list-bullet { display: inline-block; cursor: text; color: var(--text-2); }
+.cm-write-md-list-bullet::before { content: "•"; }
+
+/* 任务勾选框 */
+.cm-write-md-task { display: inline-flex; align-items: center; cursor: pointer; }
+.cm-write-md-task input { margin: 0 0.4em 0 0; cursor: pointer; accent-color: var(--accent); }
+
+/* 图片 */
+.cm-write-md-image-wrap { display: inline-block; cursor: text; max-width: 100%; }
+.cm-write-md-image { max-width: 100%; border-radius: 8px; vertical-align: bottom; }
+.cm-write-md-image-error { color: var(--text-3); font-size: 0.86em; }
+.cm-write-md-image-error .cm-write-md-image { display: none; }
+.cm-write-md-image-error::after { content: "图片无法加载"; }
+
+/* 代码块(光标行展开时的工具条/行底) */
+.cm-write-live-preview .cm-write-md-codeblock-line { background: color-mix(in srgb, var(--text-1) 4%, transparent); }
+.cm-write-live-preview .cm-write-md-codeblock-toolbar {
+  display: inline-flex; gap: 8px; align-items: center; float: right; font-size: 0.78em; color: var(--text-3);
+}
+.cm-write-live-preview .cm-write-md-codeblock-lang { text-transform: uppercase; letter-spacing: 0.04em; }
+.cm-write-live-preview .cm-write-md-codeblock-copy {
+  border: none; background: transparent; color: var(--text-3); cursor: pointer;
+  font: inherit; padding: 0 4px; border-radius: 4px;
+}
+.cm-write-live-preview .cm-write-md-codeblock-copy:hover,
+.cm-write-live-preview .cm-write-md-codeblock-copy:focus-visible { color: var(--text-1); background: var(--bg-hover); }
+.cm-write-live-preview .cm-write-md-codeblock-copy[data-copied='true'] { color: var(--accent); }
+
+/* 代码块(渲染态 widget,无 shiki:纯文本 + 等宽) */
+.cm-write-md-code-block {
+  position: relative; margin: 0.5em 0; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg-card); overflow: hidden; cursor: text;
+}
+.cm-write-md-code-lang {
+  position: absolute; top: 6px; right: 10px; font-size: 0.72em; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-3);
+}
+.cm-write-md-code-block-body { padding: 12px 14px; overflow-x: auto; }
+.cm-write-md-code-block-html > pre {
+  margin: 0; font-family: var(--mono, ui-monospace, monospace); font-size: 0.86em; line-height: 1.6;
+  color: var(--text-1); white-space: pre;
+}
+.cm-write-md-code-block-html .line { display: block; min-height: 1.6em; }
+
+/* 表格 widget */
+.cm-write-md-table { border-collapse: collapse; margin: 0.5em 0; cursor: text; font-size: 0.92em; }
+.cm-write-md-table th, .cm-write-md-table td { border: 1px solid var(--border); padding: 5px 10px; text-align: left; }
+.cm-write-md-table th { background: var(--bg-chip); font-weight: 650; }
