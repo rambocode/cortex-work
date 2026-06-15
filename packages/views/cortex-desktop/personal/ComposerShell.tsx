@@ -35,6 +35,30 @@ function extensionForMimeType(mimeType: string): string {
   return "wav";
 }
 
+// 从 skill 文件提取展示名,让用户明确知道拖入的是哪个 skill:
+// 1) 优先 frontmatter 的 name 字段;
+// 2) 文件名是通用 SKILL.md 时,退用所在目录名(skill 目录约定);
+// 3) 否则用去扩展名的文件名。
+function deriveSkillName(path: string, fileName: string, content: string): string {
+  const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const frontmatter = fm?.[1];
+  if (frontmatter) {
+    const m = frontmatter.match(/^\s*name\s*:\s*(.+?)\s*$/m);
+    const raw = m?.[1];
+    if (raw) {
+      const v = raw.replace(/^['"]|['"]$/g, "").trim();
+      if (v) return v;
+    }
+  }
+  const base = fileName.replace(/\.md$/i, "");
+  if (base.toLowerCase() === "skill") {
+    const parts = path.split(/[/\\]/).filter(Boolean);
+    const dir = parts[parts.length - 2];
+    if (dir) return dir;
+  }
+  return base;
+}
+
 export function ComposerShell({
   agent,
   model,
@@ -292,7 +316,8 @@ export function ComposerShell({
       const { content, truncated } = await bridge.readFile(path);
       if (truncated) onToast(`${name} 过大,已截断注入`);
       attachSeq += 1;
-      setAttachments((prev) => [...prev, { id: `pa-${attachSeq}`, name, path, kind: "prompt", content }]);
+      const skillName = deriveSkillName(path, name, content);
+      setAttachments((prev) => [...prev, { id: `pa-${attachSeq}`, name: skillName, path, kind: "prompt", content }]);
     } catch (err) {
       onToast(`读取附件失败：${err instanceof Error ? err.message : String(err)}`);
     }

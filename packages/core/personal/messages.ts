@@ -765,7 +765,15 @@ export function usePersonalActions(): PersonalActions {
       // 历史尚未加载时先加载,避免首条写入把磁盘历史盖掉。
       await ensureChatLoaded(qc, bridge, session.id);
 
-      appendMsg(qc, session.id, { kind: "text", who: "me", time: realHHMM(), text, uid: uid("u") });
+      appendMsg(qc, session.id, {
+        kind: "text",
+        who: "me",
+        time: realHHMM(),
+        text,
+        // 拖入的 skill/todo 仅注入 system prompt;这里同步把引用元数据存进消息,让会话气泡能回显。
+        attachments: attachments.length ? attachments.map((a) => ({ name: a.name, kind: a.kind })) : undefined,
+        uid: uid("u"),
+      });
       appendMsg(qc, session.id, {
         kind: "typing",
         who: session.agent,

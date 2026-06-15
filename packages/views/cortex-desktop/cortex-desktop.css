@@ -1114,6 +1114,11 @@ input, textarea { font: inherit; color: inherit; }
   display: inline-flex; align-items: center; justify-content: center;
   color: #fff; font-size: 9px; font-weight: 600;
 }
+/* 会话气泡内的引用 chip 行(拖入的 skill/todo 回显) */
+.msg-attach-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 6px;
+}
 
 /* ---------- Right panel ---------- */
 .right {
