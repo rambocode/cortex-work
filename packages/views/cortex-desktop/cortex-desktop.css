@@ -6105,8 +6105,10 @@ button.sb-row {
 .pw-note-editor-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .pw-note-editor-body > .pw-note-cm-host { flex: 1; }
 .pw-note-editor-preview { flex: 1; overflow: auto; padding: clamp(28px, 5vh, 56px) 24px 120px; }
-/* 仅预览正文 960px 靠右(与 live 档一致,非居中);.pw-todo-md 承载 markdown 元素样式 */
-.pw-note-editor-preview > .pw-todo-md { max-width: 960px; margin-left: auto; margin-right: 0; }
+/* 仅预览正文 960px 靠右(与 live 档一致,非居中);.pw-todo-md 承载 markdown 元素样式。
+   解除 .pw-todo-md 默认 max-height:260px(那是详情卡片用的),让其撑满写作面、滚动交给
+   外层 .pw-note-editor-preview(仿 .pw-file-md .pw-todo-md 先例)——这是「预览高度没到底」的真因。 */
+.pw-note-editor-preview > .pw-todo-md { max-width: 960px; margin-left: auto; margin-right: 0; max-height: none; overflow: visible; }
 .pw-note-editor-preview > .pw-empty-hint { max-width: 960px; margin-left: auto; margin-right: 0; }
 
 /* 深化产物 / 来源会话 footer(迁移自 NoteDetail) */
