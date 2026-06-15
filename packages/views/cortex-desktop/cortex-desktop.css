@@ -6115,6 +6115,61 @@ button.sb-row {
 .pw-note-editor-preview > .pw-todo-md { max-width: 960px; margin-left: auto; margin-right: 0; max-height: none; overflow: visible; }
 .pw-note-editor-preview > .pw-empty-hint { max-width: 960px; margin-left: auto; margin-right: 0; }
 
+/* 仅预览 markdown 排版对齐 Kun 的 .write-markdown-preview(移植自 Kun write-editor.css,
+   映射 cortex 变量;布局沿用上面的 960/靠右)。作用域多一层 .pw-note-editor-preview
+   以盖过 .pw-todo-md 默认值。 */
+.pw-note-editor-preview .pw-todo-md {
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--text-1);
+}
+.pw-note-editor-preview .pw-todo-md > :first-child { margin-top: 0; }
+.pw-note-editor-preview .pw-todo-md > :last-child { margin-bottom: 0; }
+.pw-note-editor-preview .pw-todo-md p,
+.pw-note-editor-preview .pw-todo-md ul,
+.pw-note-editor-preview .pw-todo-md ol,
+.pw-note-editor-preview .pw-todo-md blockquote,
+.pw-note-editor-preview .pw-todo-md pre,
+.pw-note-editor-preview .pw-todo-md table { margin: 0 0 1rem; }
+.pw-note-editor-preview .pw-todo-md h1,
+.pw-note-editor-preview .pw-todo-md h2,
+.pw-note-editor-preview .pw-todo-md h3,
+.pw-note-editor-preview .pw-todo-md h4,
+.pw-note-editor-preview .pw-todo-md h5,
+.pw-note-editor-preview .pw-todo-md h6 {
+  margin: 1.6em 0 0.6em; color: var(--text-1); font-weight: 650; letter-spacing: 0; line-height: 1.24;
+}
+.pw-note-editor-preview .pw-todo-md h1 { margin-top: 0; font-size: 2rem; letter-spacing: -0.02em; line-height: 1.25; }
+.pw-note-editor-preview .pw-todo-md h2 { font-size: 1.5rem; letter-spacing: -0.015em; }
+.pw-note-editor-preview .pw-todo-md h3 { font-size: 1.25rem; }
+.pw-note-editor-preview .pw-todo-md h4,
+.pw-note-editor-preview .pw-todo-md h5,
+.pw-note-editor-preview .pw-todo-md h6 { font-size: 1.05rem; }
+.pw-note-editor-preview .pw-todo-md ul,
+.pw-note-editor-preview .pw-todo-md ol { padding-left: 1.45rem; }
+.pw-note-editor-preview .pw-todo-md li { padding-left: 0.15rem; margin: 0; }
+.pw-note-editor-preview .pw-todo-md li + li { margin-top: 0.28rem; }
+.pw-note-editor-preview .pw-todo-md li > p { margin: 0.2rem 0; }
+.pw-note-editor-preview .pw-todo-md li > ul,
+.pw-note-editor-preview .pw-todo-md li > ol { margin-top: 0.35rem; margin-bottom: 0.35rem; }
+.pw-note-editor-preview .pw-todo-md blockquote {
+  margin: 1.25rem 0; border-left: 3px solid color-mix(in srgb, var(--text-1) 78%, transparent);
+  padding: 0.1rem 0 0.1rem 1rem; color: var(--text-1);
+}
+.pw-note-editor-preview .pw-todo-md code { border-radius: 5px; padding: 0.12em 0.34em; font-size: 0.88em; }
+.pw-note-editor-preview .pw-todo-md :not(pre) > code { color: #d44a4a; }
+.pw-note-editor-preview .pw-todo-md pre {
+  margin: 1.1rem 0 1.25rem; border: 1px solid var(--border); border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-card) 86%, var(--bg-app)); padding: 0.9rem 1rem;
+}
+.pw-note-editor-preview .pw-todo-md pre code { display: block; font-size: 0.86rem; line-height: 1.65; white-space: pre; }
+.pw-note-editor-preview .pw-todo-md hr { margin: 2rem 0; border: 0; border-top: 1px solid var(--border); }
+.pw-note-editor-preview .pw-todo-md table { display: block; overflow-x: auto; border-radius: 8px; }
+.pw-note-editor-preview .pw-todo-md th,
+.pw-note-editor-preview .pw-todo-md td { padding: 0.68rem 0.85rem; vertical-align: top; }
+.pw-note-editor-preview .pw-todo-md img { display: block; max-width: 100%; height: auto; margin: 1.2rem auto; border-radius: 8px; }
+[data-theme="dark"] .pw-note-editor-preview .pw-todo-md :not(pre) > code { color: #f47067; }
+
 /* 深化产物 / 来源会话 footer(迁移自 NoteDetail) */
 .pw-note-editor-links { flex-shrink: 0; border-top: 1px solid var(--border-soft); padding: 10px 14px; }
 .pw-note-editor-links-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
