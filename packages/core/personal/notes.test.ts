@@ -1,31 +1,33 @@
 // 闪记 core 封装的纯逻辑单测：
 //   resolveDefaultNoteProject 归属推导（当前会话 > active > lastActive > undefined,
 //     且失效项目回落 undefined）;
-//   notesAvailable 在 bridge 为 null / 旧壳缺方法时安全降级。
-// React Query hook 本身（useProjectNotes 等）走 useDesktopBridge + useQuery,需
-// Provider 包裹,沿用本仓核心层「只测纯函数」惯例,由集成/人工验证覆盖。
+//   notesAvailable 在 bridge 为 null / 旧壳缺方法时安全降级;
+//   深化注入（buildDeepenSystemPrompt / buildPlanSystemPrompt 注入 ce-ideate/ce-plan 元数据+路径,降格执行）;
+//   产出确定路径（deepenDocPath / planDocPath 含 sessionId）;
+//   状态机（deepenStateTransition 按 status 分流 + applyDeepenFinalize fs.exists 探测 + gate 扩展）。
+// React Query hook 本身（useProjectNotes 等）走 useDesktopBridge + useQuery,需 Provider 包裹,
+// 沿用本仓核心层「只测纯函数」惯例,由集成/人工验证覆盖。
 
 import { describe, expect, it, vi } from "vitest";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { NoteMeta } from "../desktop/types";
+import type { NoteMeta, SkillMeta } from "../desktop/types";
 import {
-  DEEPEN_BRAINSTORM_FILE,
   DEEPEN_MAX_NOTES,
   DEEPEN_NOTE_BODY_MAX,
   appendUnique,
   applyDeepenFinalize,
   buildDeepenSystemPrompt,
-  deepenDocDir,
+  buildPlanSystemPrompt,
   deepenDocPath,
   deepenStateTransition,
   isDeepeningForSession,
+  isLinkedToSession,
   noteContentToSubmit,
   notesAvailable,
-  notesDeepeningForSession,
+  notesLinkedToSession,
+  planDocPath,
   prepareDeepenNotes,
-  relForCompare,
   resolveDefaultNoteProject,
-  runProducedDeepenDoc,
 } from "./notes";
 
 describe("resolveDefaultNoteProject", () => {
@@ -126,7 +128,7 @@ describe("notesAvailable（缺桥/旧壳安全降级）", () => {
   });
 });
 
-// ── 深化种子拼装（U8）──────────────────────────────────────────────────────
+// ── 深化种子拼装 ───────────────────────────────────────────────────────────
 
 function note(partial: Partial<NoteMeta> & Pick<NoteMeta, "id" | "createdAt">): NoteMeta {
   return {
@@ -137,6 +139,21 @@ function note(partial: Partial<NoteMeta> & Pick<NoteMeta, "id" | "createdAt">): 
     ...partial,
   };
 }
+
+const ideateSkill: SkillMeta = {
+  name: "ce-ideate",
+  description: "Generate and critically evaluate grounded ideas",
+  argumentHint: "[focus] [output:md]",
+  skillMdPath: "/abs/skills/ce-ideate/SKILL.md",
+  dir: "/abs/skills/ce-ideate",
+};
+
+const planSkill: SkillMeta = {
+  name: "ce-plan",
+  description: "Create structured plans for multi-step tasks",
+  skillMdPath: "/abs/skills/ce-plan/SKILL.md",
+  dir: "/abs/skills/ce-plan",
+};
 
 describe("prepareDeepenNotes（升序 / 上限 / 正文截断）", () => {
   it("按 createdAt 升序排列（不依赖入参顺序）", () => {
@@ -158,7 +175,6 @@ describe("prepareDeepenNotes（升序 / 上限 / 正文截断）", () => {
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.reason).toBe("too-many");
-    // 提示文案含上限值,便于 UI 直接展示。
     expect(out.message).toContain(String(DEEPEN_MAX_NOTES));
   });
 
@@ -182,7 +198,6 @@ describe("prepareDeepenNotes（升序 / 上限 / 正文截断）", () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.notes[0]!.content.length).toBe(DEEPEN_NOTE_BODY_MAX);
-    // 正文级截断（不是 clipSummary 的 200）。
     expect(DEEPEN_NOTE_BODY_MAX).toBe(4000);
     expect(out.truncatedCount).toBe(1);
   });
@@ -195,51 +210,6 @@ describe("prepareDeepenNotes（升序 / 上限 / 正文截断）", () => {
     expect(out.truncatedCount).toBe(0);
   });
 });
-
-describe("deepenDocDir（确定性产出路径含 conversationId）", () => {
-  it("路径 = <projectDir>/docs/flash-notes/<conversationId>", () => {
-    expect(deepenDocDir("/home/me/proj", "sess-abc")).toBe(
-      "/home/me/proj/docs/flash-notes/sess-abc",
-    );
-  });
-
-  it("剥除项目目录尾部斜杠", () => {
-    expect(deepenDocDir("/home/me/proj/", "sess-abc")).toBe(
-      "/home/me/proj/docs/flash-notes/sess-abc",
-    );
-  });
-});
-
-describe("buildDeepenSystemPrompt（<note> 块结构 + brainstorm 落点）", () => {
-  const notes: NoteMeta[] = [
-    note({ id: "n1", createdAt: 1700000000000, content: "想法甲" }),
-    note({ id: "n2", createdAt: 1700000100000, content: "想法乙" }),
-  ];
-  const docDir = "/home/me/proj/docs/flash-notes/sess-abc";
-  const prompt = buildDeepenSystemPrompt(notes, docDir);
-
-  it("每条一个 <note id created> 块,正文内联", () => {
-    expect(prompt).toContain(
-      `<note id="n1" created="${new Date(1700000000000).toISOString()}">`,
-    );
-    expect(prompt).toContain("想法甲");
-    expect(prompt).toContain("</note>");
-    expect(prompt).toContain(`<note id="n2" created="${new Date(1700000100000).toISOString()}">`);
-    expect(prompt).toContain("想法乙");
-  });
-
-  it("把确定性产出路径 <docDir>/brainstorm.md 喂给 agent", () => {
-    expect(prompt).toContain(`${docDir}/brainstorm.md`);
-  });
-
-  it("首条前有引导语（让 agent 先提澄清问题、再孵化）", () => {
-    expect(prompt.indexOf("澄清问题")).toBeGreaterThanOrEqual(0);
-    // 引导语在第一个 <note> 块之前。
-    expect(prompt.indexOf("澄清问题")).toBeLessThan(prompt.indexOf("<note"));
-  });
-});
-
-// ── 深化状态推进 / 失败回落（U9）─────────────────────────────────────────────
 
 describe("prepareDeepenNotes 防重复触发（deepening 拦截）", () => {
   it("选中含 deepening 闪记 → already-deepening 阻止", () => {
@@ -254,63 +224,83 @@ describe("prepareDeepenNotes 防重复触发（deepening 拦截）", () => {
 
   it("已深化（deepened）闪记可再深化（不拦截）", () => {
     const out = prepareDeepenNotes([
-      note({ id: "n1", createdAt: 1, status: "deepened", docPaths: ["/p/docs/flash-notes/old/brainstorm.md"] }),
+      note({ id: "n1", createdAt: 1, status: "deepened", docPaths: ["/p/docs/ideation/old-deepen.md"] }),
     ]);
     expect(out.ok).toBe(true);
   });
 });
 
-describe("relForCompare 路径归一化（绝对/相对混写）", () => {
-  it("绝对路径剥 cwd 前缀 → 相对", () => {
-    expect(relForCompare("/home/me/proj/docs/flash-notes/s1/brainstorm.md", "/home/me/proj")).toBe(
-      "docs/flash-notes/s1/brainstorm.md",
+describe("deepenDocPath / planDocPath（确定路径含 sessionId）", () => {
+  it("deepenDocPath = <cwd>/docs/ideation/<sid>-deepen.md", () => {
+    expect(deepenDocPath("/home/me/proj", "sess-abc")).toBe(
+      "/home/me/proj/docs/ideation/sess-abc-deepen.md",
     );
   });
 
-  it("已是相对路径 → 原样（去首尾斜杠）", () => {
-    expect(relForCompare("docs/flash-notes/s1/brainstorm.md", "/home/me/proj")).toBe(
-      "docs/flash-notes/s1/brainstorm.md",
+  it("planDocPath = <cwd>/docs/plans/<sid>-plan.md", () => {
+    expect(planDocPath("/home/me/proj", "sess-abc")).toBe(
+      "/home/me/proj/docs/plans/sess-abc-plan.md",
     );
   });
 
-  it("cwd 带尾斜杠 / 反斜杠混写也能归一", () => {
-    expect(relForCompare("/home/me/proj/docs/x.md", "/home/me/proj/")).toBe("docs/x.md");
-    expect(relForCompare("C:\\proj\\docs\\x.md", "C:\\proj")).toBe("docs/x.md");
+  it("剥除 cwd 尾部斜杠", () => {
+    expect(deepenDocPath("/home/me/proj/", "s1")).toBe("/home/me/proj/docs/ideation/s1-deepen.md");
+    expect(planDocPath("/home/me/proj/", "s1")).toBe("/home/me/proj/docs/plans/s1-plan.md");
   });
 });
 
-describe("runProducedDeepenDoc（本轮 changedFiles 含约定路径才命中）", () => {
-  const cwd = "/home/me/proj";
-  const sid = "sess-1";
+describe("buildDeepenSystemPrompt（注入 ce-ideate 元数据+路径,降格执行）", () => {
+  const notes: NoteMeta[] = [
+    note({ id: "n1", createdAt: 1700000000000, content: "想法甲" }),
+    note({ id: "n2", createdAt: 1700000100000, content: "想法乙" }),
+  ];
+  const outPath = "/home/me/proj/docs/ideation/sess-abc-deepen.md";
+  const prompt = buildDeepenSystemPrompt(notes, { skill: ideateSkill, outPath });
 
-  it("相对路径命中约定 brainstorm.md", () => {
-    expect(runProducedDeepenDoc([`docs/flash-notes/${sid}/${DEEPEN_BRAINSTORM_FILE}`], sid, cwd)).toBe(true);
+  it("注入 skill 名称与说明（frontmatter 源数据）", () => {
+    expect(prompt).toContain("ce-ideate");
+    expect(prompt).toContain("Generate and critically evaluate grounded ideas");
   });
 
-  it("agent 写绝对路径也能命中（归一化后比对）", () => {
-    expect(
-      runProducedDeepenDoc([`${cwd}/docs/flash-notes/${sid}/${DEEPEN_BRAINSTORM_FILE}`], sid, cwd),
-    ).toBe(true);
+  it("引导 agent Read SKILL.md 绝对路径（不内联全文）", () => {
+    expect(prompt).toContain("/abs/skills/ce-ideate/SKILL.md");
   });
 
-  it("只写了 plan.md / 其它文件 → 不命中（判已深化只认 brainstorm.md）", () => {
-    expect(runProducedDeepenDoc([`docs/flash-notes/${sid}/plan.md`, "src/a.ts"], sid, cwd)).toBe(false);
+  it("给出 references 绝对前缀（避免相对 cwd 断链）", () => {
+    expect(prompt).toContain("/abs/skills/ce-ideate/references/");
   });
 
-  it("写到别的会话目录 → 不命中（会话 id 不同）", () => {
-    expect(
-      runProducedDeepenDoc([`docs/flash-notes/other/${DEEPEN_BRAINSTORM_FILE}`], sid, cwd),
-    ).toBe(false);
+  it("降格指令:禁子 agent(Task) / 禁阻塞提问(AskUserQuestion)", () => {
+    expect(prompt).toContain("Task");
+    expect(prompt).toContain("AskUserQuestion");
   });
 
-  it("空 changedFiles → 不命中（普通澄清轮）", () => {
-    expect(runProducedDeepenDoc([], sid, cwd)).toBe(false);
+  it("产出落点给死为确定 outPath", () => {
+    expect(prompt).toContain(outPath);
   });
 
-  it("截断路径（… 结尾,extractChangedFile 本应返回 undefined）即便混入也不误命中", () => {
-    // 实际上截断路径不会进 changedFiles（extractChangedFile 截断返回 undefined）,
-    // 这里做防御断言:即便混入,也因不等于完整约定路径而不命中。
-    expect(runProducedDeepenDoc([`docs/flash-notes/${sid}/brainst…`], sid, cwd)).toBe(false);
+  it("每条一个 <note id created> 块,正文内联", () => {
+    expect(prompt).toContain(`<note id="n1" created="${new Date(1700000000000).toISOString()}">`);
+    expect(prompt).toContain("想法甲");
+    expect(prompt).toContain(`<note id="n2" created="${new Date(1700000100000).toISOString()}">`);
+    expect(prompt).toContain("想法乙");
+  });
+});
+
+describe("buildPlanSystemPrompt（注入 ce-plan 元数据+路径,降格执行）", () => {
+  const outPath = "/home/me/proj/docs/plans/sess-abc-plan.md";
+  const prompt = buildPlanSystemPrompt({ skill: planSkill, outPath });
+
+  it("注入 ce-plan 名称/说明/SKILL.md 路径", () => {
+    expect(prompt).toContain("ce-plan");
+    expect(prompt).toContain("Create structured plans");
+    expect(prompt).toContain("/abs/skills/ce-plan/SKILL.md");
+  });
+
+  it("产出落点给死为确定 outPath + references 绝对前缀 + 降格", () => {
+    expect(prompt).toContain(outPath);
+    expect(prompt).toContain("/abs/skills/ce-plan/references/");
+    expect(prompt).toContain("Task");
   });
 });
 
@@ -326,110 +316,141 @@ describe("appendUnique（追加不覆盖、去重）", () => {
   });
 });
 
-describe("isDeepeningForSession / notesDeepeningForSession（gate）", () => {
-  it("deepening 且 conversationIds 含 sessionId → true", () => {
+describe("isLinkedToSession / isDeepeningForSession / notesLinkedToSession（gate）", () => {
+  it("isLinkedToSession:conversationIds 含 sessionId（不限状态）", () => {
+    expect(
+      isLinkedToSession(note({ id: "n1", createdAt: 1, status: "deepened", conversationIds: ["s1"] }), "s1"),
+    ).toBe(true);
+    expect(
+      isLinkedToSession(note({ id: "n1", createdAt: 1, status: "draft", conversationIds: ["s1"] }), "s1"),
+    ).toBe(true);
+    expect(
+      isLinkedToSession(note({ id: "n1", createdAt: 1, conversationIds: ["other"] }), "s1"),
+    ).toBe(false);
+  });
+
+  it("isDeepeningForSession:仅 deepening 且含 sessionId", () => {
     expect(
       isDeepeningForSession(note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: ["s1"] }), "s1"),
     ).toBe(true);
-  });
-  it("deepening 但 conversationIds 不含 sessionId → false（其它会话不误伤）", () => {
+    expect(
+      isDeepeningForSession(note({ id: "n1", createdAt: 1, status: "deepened", conversationIds: ["s1"] }), "s1"),
+    ).toBe(false);
     expect(
       isDeepeningForSession(note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: ["other"] }), "s1"),
     ).toBe(false);
   });
-  it("draft / deepened 即使含 sessionId → false（仅 deepening 态参与）", () => {
-    expect(
-      isDeepeningForSession(note({ id: "n1", createdAt: 1, status: "draft", conversationIds: ["s1"] }), "s1"),
-    ).toBe(false);
-    expect(
-      isDeepeningForSession(note({ id: "n1", createdAt: 1, status: "deepened", conversationIds: ["s1"] }), "s1"),
-    ).toBe(false);
-  });
-  it("筛选只取本会话的 deepening 闪记", () => {
+
+  it("notesLinkedToSession 筛出关联本会话的（deepening 或 deepened,不含其它会话/draft）", () => {
     const all = [
       note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: ["s1"] }),
-      note({ id: "n2", createdAt: 2, status: "deepening", conversationIds: ["s2"] }),
-      note({ id: "n3", createdAt: 3, status: "draft" }),
+      note({ id: "n2", createdAt: 2, status: "deepened", conversationIds: ["s1"] }),
+      note({ id: "n3", createdAt: 3, status: "deepening", conversationIds: ["s2"] }),
+      note({ id: "n4", createdAt: 4, status: "draft" }),
     ];
-    expect(notesDeepeningForSession(all, "s1").map((n) => n.id)).toEqual(["n1"]);
+    expect(notesLinkedToSession(all, "s1").map((n) => n.id).sort()).toEqual(["n1", "n2"]);
   });
 });
 
-describe("deepenStateTransition（状态迁移决策,纯函数）", () => {
+describe("deepenStateTransition（produced 布尔 + status 分流,纯函数）", () => {
   const cwd = "/home/me/proj";
   const sid = "sess-1";
-  const docPath = deepenDocPath(cwd, sid);
 
-  it("本轮含约定路径 → deepened + docPaths 追加该路径", () => {
+  // ── deepening（深化 run）分流 ──
+  it("deepening + produced → deepened + 追加 deepenDocPath", () => {
     const patch = deepenStateTransition({
       note: note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
-      conversationId: sid,
       cwd,
-      changedFiles: [`docs/flash-notes/${sid}/${DEEPEN_BRAINSTORM_FILE}`],
+      sessionId: sid,
+      produced: true,
       terminalFailure: false,
     });
-    expect(patch).toEqual({ status: "deepened", docPaths: [docPath] });
+    expect(patch).toEqual({ status: "deepened", docPaths: [deepenDocPath(cwd, sid)] });
   });
 
-  it("再深化:已有 docPaths 追加不覆盖", () => {
-    const old = "/home/me/proj/docs/flash-notes/old/brainstorm.md";
+  it("deepening + 再深化:已有 docPaths 追加不覆盖", () => {
+    const old = "/home/me/proj/docs/ideation/old-deepen.md";
     const patch = deepenStateTransition({
       note: note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: ["old", sid], docPaths: [old] }),
-      conversationId: sid,
       cwd,
-      changedFiles: [`${cwd}/docs/flash-notes/${sid}/${DEEPEN_BRAINSTORM_FILE}`],
+      sessionId: sid,
+      produced: true,
       terminalFailure: false,
     });
-    expect(patch).toEqual({ status: "deepened", docPaths: [old, docPath] });
+    expect(patch).toEqual({ status: "deepened", docPaths: [old, deepenDocPath(cwd, sid)] });
   });
 
-  it("目标路径已存在但本轮未写入（changedFiles 不含）→ 不置已深化（返回 null,保持 deepening）", () => {
+  it("deepening + 无产出非失败（澄清轮）→ null（保持 deepening）", () => {
     const patch = deepenStateTransition({
       note: note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
-      conversationId: sid,
       cwd,
-      changedFiles: ["src/a.ts"], // 本轮没碰约定路径,文件存在不能单独判已深化
-      terminalFailure: false,
-    });
-    expect(patch).toBeNull();
-  });
-
-  it("普通澄清轮（无产出、非终态失败）→ null（保持 deepening,不回落不已深化）", () => {
-    const patch = deepenStateTransition({
-      note: note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
-      conversationId: sid,
-      cwd,
-      changedFiles: [],
+      sessionId: sid,
+      produced: false,
       terminalFailure: false,
     });
     expect(patch).toBeNull();
   });
 
-  it("终态失败 → 回落 draft,不置已深化、不追加 docPaths", () => {
+  it("deepening + terminalFailure → 回落 draft（优先于产出）", () => {
     const patch = deepenStateTransition({
       note: note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
-      conversationId: sid,
       cwd,
-      changedFiles: [],
+      sessionId: sid,
+      produced: true,
       terminalFailure: true,
     });
     expect(patch).toEqual({ status: "draft" });
   });
 
-  it("终态失败优先于产出判定（即使本轮写了文件也回落,不残留已深化）", () => {
+  // ── deepened（生成 plan run）分流 ──
+  it("deepened + produced → 仅追加 planDocPath,不改 status", () => {
     const patch = deepenStateTransition({
-      note: note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
-      conversationId: sid,
+      note: note({ id: "n1", createdAt: 1, status: "deepened", conversationIds: [sid], docPaths: [deepenDocPath(cwd, sid)] }),
       cwd,
-      changedFiles: [`docs/flash-notes/${sid}/${DEEPEN_BRAINSTORM_FILE}`],
+      sessionId: sid,
+      produced: true,
+      terminalFailure: false,
+    });
+    expect(patch).toEqual({ docPaths: [deepenDocPath(cwd, sid), planDocPath(cwd, sid)] });
+  });
+
+  it("deepened + terminalFailure → null（绝不回落,保护已深化成果）", () => {
+    const patch = deepenStateTransition({
+      note: note({ id: "n1", createdAt: 1, status: "deepened", conversationIds: [sid] }),
+      cwd,
+      sessionId: sid,
+      produced: false,
       terminalFailure: true,
     });
-    expect(patch).toEqual({ status: "draft" });
+    expect(patch).toBeNull();
+  });
+
+  it("deepened + 无产出 → null", () => {
+    const patch = deepenStateTransition({
+      note: note({ id: "n1", createdAt: 1, status: "deepened", conversationIds: [sid] }),
+      cwd,
+      sessionId: sid,
+      produced: false,
+      terminalFailure: false,
+    });
+    expect(patch).toBeNull();
+  });
+
+  // ── draft 不触碰 ──
+  it("draft → null（不触碰,即使 produced）", () => {
+    const patch = deepenStateTransition({
+      note: note({ id: "n1", createdAt: 1, status: "draft", conversationIds: [sid] }),
+      cwd,
+      sessionId: sid,
+      produced: true,
+      terminalFailure: false,
+    });
+    expect(patch).toBeNull();
   });
 });
 
-describe("applyDeepenFinalize（finalizeRun 副作用入口,严格 gate）", () => {
-  function makeBridge(notes: NoteMeta[]) {
+describe("applyDeepenFinalize（fs.exists 探测 + gate 扩展 deepening/deepened,严格降级）", () => {
+  function makeBridge(notes: NoteMeta[], existing: Set<string> = new Set()) {
     const updates: { id: string; patch: unknown }[] = [];
     const bridge = {
       notesList: vi.fn(async () => notes),
@@ -437,6 +458,7 @@ describe("applyDeepenFinalize（finalizeRun 副作用入口,严格 gate）", () 
         updates.push({ id, patch });
         return notes.find((n) => n.id === id) ?? null;
       }),
+      fileExists: vi.fn(async (path: string) => existing.has(path)),
     } as unknown as DesktopBridge;
     return { bridge, updates };
   }
@@ -444,57 +466,69 @@ describe("applyDeepenFinalize（finalizeRun 副作用入口,严格 gate）", () 
   const cwd = "/home/me/proj";
   const sid = "sess-1";
 
-  it("普通（非深化）会话 finalizeRun → 不读写任何闪记（完全 no-op,不误伤）", async () => {
-    // 本 session 没有任何 deepening 闪记（全是别的会话/draft）。
+  it("普通会话（无关联闪记）→ 完全 no-op,不读写", async () => {
     const { bridge, updates } = makeBridge([
       note({ id: "n1", createdAt: 1, status: "draft" }),
       note({ id: "n2", createdAt: 2, status: "deepening", conversationIds: ["other-sess"] }),
     ]);
-    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, changedFiles: ["src/a.ts"], terminalFailure: false });
+    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, terminalFailure: false });
     expect(updates).toEqual([]);
     expect((bridge.notesUpdate as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
-  it("本轮 changedFiles 含约定路径 → 该 session 的 deepening 闪记置 deepened + docPaths", async () => {
-    const { bridge, updates } = makeBridge([
-      note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
-    ]);
-    await applyDeepenFinalize(bridge, {
-      sessionId: sid,
-      cwd,
-      changedFiles: [`docs/flash-notes/${sid}/${DEEPEN_BRAINSTORM_FILE}`],
-      terminalFailure: false,
-    });
+  it("deepening + 探测到 deepenDocPath → 置 deepened + docPaths", async () => {
+    const { bridge, updates } = makeBridge(
+      [note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] })],
+      new Set([deepenDocPath(cwd, sid)]),
+    );
+    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, terminalFailure: false });
     expect(updates).toEqual([{ id: "n1", patch: { status: "deepened", docPaths: [deepenDocPath(cwd, sid)] } }]);
   });
 
-  it("普通澄清轮（无产出）→ 不写任何闪记（保持 deepening）", async () => {
+  it("deepening + 未探测到产出（澄清轮）→ 不写,保持 deepening", async () => {
     const { bridge, updates } = makeBridge([
       note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
     ]);
-    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, changedFiles: [], terminalFailure: false });
+    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, terminalFailure: false });
     expect(updates).toEqual([]);
   });
 
-  it("终态失败（spawn/auth/超时/放弃）→ 回落 draft,无悬挂 docPaths（Covers AE7/AE8）", async () => {
+  it("deepening + terminalFailure → 回落 draft（不探测）", async () => {
     const { bridge, updates } = makeBridge([
       note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
     ]);
-    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, changedFiles: [], terminalFailure: true });
+    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, terminalFailure: true });
     expect(updates).toEqual([{ id: "n1", patch: { status: "draft" } }]);
   });
 
-  it("多条同会话深化闪记 → 全部按同一规则迁移", async () => {
-    const { bridge, updates } = makeBridge([
-      note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
-      note({ id: "n2", createdAt: 2, status: "deepening", conversationIds: [sid] }),
+  it("deepened（plan run）+ 探测到 planDocPath → 仅追加 docPaths,不改 status", async () => {
+    const { bridge, updates } = makeBridge(
+      [note({ id: "n1", createdAt: 1, status: "deepened", conversationIds: [sid], docPaths: [deepenDocPath(cwd, sid)] })],
+      new Set([planDocPath(cwd, sid)]),
+    );
+    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, terminalFailure: false });
+    expect(updates).toEqual([
+      { id: "n1", patch: { docPaths: [deepenDocPath(cwd, sid), planDocPath(cwd, sid)] } },
     ]);
-    await applyDeepenFinalize(bridge, {
-      sessionId: sid,
-      cwd,
-      changedFiles: [`${cwd}/docs/flash-notes/${sid}/${DEEPEN_BRAINSTORM_FILE}`],
-      terminalFailure: false,
-    });
+  });
+
+  it("deepened（plan run）+ terminalFailure → 不回落、不写（保护已深化成果）", async () => {
+    const { bridge, updates } = makeBridge([
+      note({ id: "n1", createdAt: 1, status: "deepened", conversationIds: [sid] }),
+    ]);
+    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, terminalFailure: true });
+    expect(updates).toEqual([]);
+  });
+
+  it("多条同会话 deepening → 全部按同一规则迁移", async () => {
+    const { bridge, updates } = makeBridge(
+      [
+        note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] }),
+        note({ id: "n2", createdAt: 2, status: "deepening", conversationIds: [sid] }),
+      ],
+      new Set([deepenDocPath(cwd, sid)]),
+    );
+    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, terminalFailure: false });
     expect(updates.map((u) => u.id).sort()).toEqual(["n1", "n2"]);
     for (const u of updates) {
       expect(u.patch).toEqual({ status: "deepened", docPaths: [deepenDocPath(cwd, sid)] });
@@ -502,10 +536,26 @@ describe("applyDeepenFinalize（finalizeRun 副作用入口,严格 gate）", () 
   });
 
   it("bridge 缺 notesList/notesUpdate（web/旧壳）→ 安全降级,不抛", async () => {
-    await expect(applyDeepenFinalize(null, { sessionId: sid, cwd, changedFiles: [], terminalFailure: false })).resolves.toBeUndefined();
     await expect(
-      applyDeepenFinalize({} as DesktopBridge, { sessionId: sid, cwd, changedFiles: [], terminalFailure: false }),
+      applyDeepenFinalize(null, { sessionId: sid, cwd, terminalFailure: false }),
     ).resolves.toBeUndefined();
+    await expect(
+      applyDeepenFinalize({} as DesktopBridge, { sessionId: sid, cwd, terminalFailure: false }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("缺 fileExists（旧壳）→ 探测降级 false,不误判已深化（保持 deepening）", async () => {
+    const updates: { id: string; patch: unknown }[] = [];
+    const bridge = {
+      notesList: vi.fn(async () => [note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] })]),
+      notesUpdate: vi.fn(async (id: string, patch: unknown) => {
+        updates.push({ id, patch });
+        return null;
+      }),
+      // 无 fileExists
+    } as unknown as DesktopBridge;
+    await applyDeepenFinalize(bridge, { sessionId: sid, cwd, terminalFailure: false });
+    expect(updates).toEqual([]);
   });
 
   it("notesList 拉取失败 → 静默,不抛、不调用 notesUpdate", async () => {
@@ -516,18 +566,18 @@ describe("applyDeepenFinalize（finalizeRun 副作用入口,严格 gate）", () 
       notesUpdate: vi.fn(),
     } as unknown as DesktopBridge;
     await expect(
-      applyDeepenFinalize(bridge, { sessionId: sid, cwd, changedFiles: [], terminalFailure: false }),
+      applyDeepenFinalize(bridge, { sessionId: sid, cwd, terminalFailure: false }),
     ).resolves.toBeUndefined();
     expect((bridge.notesUpdate as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
-  it("cwd 缺失（无项目目录无法解析）：终态失败仍回落,非失败保持 deepening", async () => {
+  it("cwd 缺失:终态失败仍回落 deepening,非失败保持原状", async () => {
     const failing = makeBridge([note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] })]);
-    await applyDeepenFinalize(failing.bridge, { sessionId: sid, cwd: undefined, changedFiles: [], terminalFailure: true });
+    await applyDeepenFinalize(failing.bridge, { sessionId: sid, cwd: undefined, terminalFailure: true });
     expect(failing.updates).toEqual([{ id: "n1", patch: { status: "draft" } }]);
 
     const ok = makeBridge([note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [sid] })]);
-    await applyDeepenFinalize(ok.bridge, { sessionId: sid, cwd: undefined, changedFiles: [], terminalFailure: false });
+    await applyDeepenFinalize(ok.bridge, { sessionId: sid, cwd: undefined, terminalFailure: false });
     expect(ok.updates).toEqual([]);
   });
 });

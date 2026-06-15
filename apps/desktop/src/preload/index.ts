@@ -27,6 +27,7 @@ import type {
   PersistedState,
   PromptNode,
   ReadFileResult,
+  SkillMeta,
   SpotlightIntent,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
@@ -91,6 +92,7 @@ const personal = {
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),
   validateDir: (path: string): Promise<boolean> => ipcRenderer.invoke("fs:validateDir", path),
+  fileExists: (path: string): Promise<boolean> => ipcRenderer.invoke("fs:exists", path),
   // 目录实时监听（右栏「文件」视图自动刷新）
   watchDir: (id: string, path: string): Promise<void> => ipcRenderer.invoke("fs:watchDir", { id, path }),
   unwatchDir: (id: string): void => ipcRenderer.send("fs:unwatchDir", { id }),
@@ -259,6 +261,10 @@ const personal = {
     ipcRenderer.on("notes:changed", listener);
     return () => ipcRenderer.removeListener("notes:changed", listener);
   },
+  // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。形状与 DesktopBridge
+  // 的可选 skillGet/skillsList 逐字对齐（手工比对,无 satisfies）。
+  skillGet: (name: string): Promise<SkillMeta | null> => ipcRenderer.invoke("skills:get", name),
+  skillsList: (): Promise<SkillMeta[]> => ipcRenderer.invoke("skills:list"),
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

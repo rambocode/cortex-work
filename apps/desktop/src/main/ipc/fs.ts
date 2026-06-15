@@ -538,6 +538,16 @@ export function registerFsHandlers(): void {
     }
   });
 
+  // 文件存在性探测（深化/生成 plan run 收尾判产出用:确定路径,绕开 changedFiles 截断）。
+  // 仿 validateDir:stat + try/catch 返回布尔,不抛、不读内容。
+  ipcMain.handle("fs:exists", async (_e, path: string) => {
+    try {
+      return (await fsp.stat(path)).isFile();
+    } catch {
+      return false;
+    }
+  });
+
   // 文件预览工具栏:用系统默认应用打开 / 在访达中显示。
   ipcMain.handle("shell:openPath", async (_e, path: string) => {
     await assertAllowed(path);

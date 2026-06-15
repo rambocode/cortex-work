@@ -3,6 +3,7 @@
 import { registerFsHandlers } from "./fs";
 import { registerStoreHandlers } from "./store";
 import { registerNotesHandlers } from "./notes";
+import { registerSkillsHandlers } from "./skills";
 import { registerCliHandlers } from "./cli";
 import { registerChatHandlers } from "./chat";
 import { registerTimelineHandlers } from "./timeline";
@@ -22,6 +23,7 @@ export function registerIpcHandlers(): void {
   registerWatchHandlers();
   registerStoreHandlers();
   registerNotesHandlers();
+  registerSkillsHandlers();
   registerCliHandlers();
   registerChatHandlers();
   registerTimelineHandlers();
