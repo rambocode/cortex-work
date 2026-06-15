@@ -1,4 +1,4 @@
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge, NoteMeta } from "@cortex-work/core";
@@ -73,6 +73,15 @@ function note(patch: Partial<NoteMeta> & Pick<NoteMeta, "id">): NoteMeta {
   };
 }
 
+// 列表行点击现改为「进入中心区写作面」(openNoteEditor),右栏内 NoteDetail 仅经
+// 跨栏 requestNoteDetail 速览打开。详情类断言统一经此辅助打开右栏详情。
+async function openDetailViaRequest(noteId: string, waitText: string) {
+  await screen.findByText(waitText); // 确保列表已渲染
+  act(() => {
+    usePersonalStore.getState().requestNoteDetail({ noteId });
+  });
+}
+
 describe("NotesView 列表/详情", () => {
   afterEach(() => cleanup());
 
@@ -123,13 +132,20 @@ describe("NotesView 列表/详情", () => {
     expect(screen.getByText("散记")).toBeInTheDocument();
   });
 
-  it("点击闪记进入详情,编辑 textarea 保存后经 notesUpdate 写回 content", async () => {
+  it("列表点击闪记 → 进入中心区写作面(openNoteEditor)", async () => {
+    const { bridge } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "进编辑器" })]);
+    renderNotes(bridge);
+    fireEvent.click(await screen.findByText("进编辑器"));
+    expect(usePersonalStore.getState().noteEditorId).toBe("n1");
+  });
+
+  it("跨栏速览详情,编辑 textarea 保存后经 notesUpdate 写回 content", async () => {
     const { bridge, calls, store } = fakeNotesBridge([
       note({ id: "n1", projectId: "p1", content: "原始想法" }),
     ]);
     const { container } = renderNotes(bridge);
 
-    fireEvent.click(await screen.findByText("原始想法"));
+    await openDetailViaRequest("n1", "原始想法");
     // 详情态:编辑入口
     fireEvent.click(await screen.findByTitle("编辑"));
     const ta = container.querySelector<HTMLTextAreaElement>(".pw-note-edit-ta")!;
@@ -147,7 +163,7 @@ describe("NotesView 列表/详情", () => {
     const { bridge, calls } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "保持原样" })]);
     const { container } = renderNotes(bridge);
 
-    fireEvent.click(await screen.findByText("保持原样"));
+    await openDetailViaRequest("n1", "保持原样");
     fireEvent.click(await screen.findByTitle("编辑"));
     const ta = container.querySelector<HTMLTextAreaElement>(".pw-note-edit-ta")!;
     fireEvent.change(ta, { target: { value: "改了不保存" } });
@@ -163,7 +179,7 @@ describe("NotesView 列表/详情", () => {
     (bridge as unknown as { deleteFile: typeof deleteFile }).deleteFile = deleteFile;
     renderNotes(bridge);
 
-    fireEvent.click(await screen.findByText("待删"));
+    await openDetailViaRequest("n1", "待删");
     fireEvent.click(await screen.findByTitle("删除"));
 
     await waitFor(() => expect(calls.delete).toEqual(["n1"]));
@@ -268,7 +284,7 @@ describe("NotesView 列表/详情", () => {
     const { bridge } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "短命想法" })]);
     renderNotes(bridge);
 
-    fireEvent.click(await screen.findByText("短命想法"));
+    await openDetailViaRequest("n1", "短命想法");
     await screen.findByTitle("删除");
     fireEvent.click(screen.getByTitle("删除"));
 
@@ -322,7 +338,7 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
     }));
     renderNotes(bridge);
 
-    fireEvent.click(await screen.findByText("已孵化想法"));
+    await openDetailViaRequest("n1", "已孵化想法");
     // 已深化徽标在详情头出现。
     expect(await screen.findAllByText("已深化")).not.toHaveLength(0);
     // 多份产物全部列出。
@@ -361,7 +377,7 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
     );
     renderNotes(bridge);
 
-    fireEvent.click(await screen.findByText("半残产物"));
+    await openDetailViaRequest("n1", "半残产物");
     // 两份都列出(缺失项不从列表消失,仍可点)。
     expect(await screen.findByText("brainstorm.md")).toBeInTheDocument();
     expect(screen.getByText("plan.md")).toBeInTheDocument();
@@ -393,7 +409,7 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
     );
     const { container } = renderNotes(bridge);
 
-    fireEvent.click(await screen.findByText("可编辑产物"));
+    await openDetailViaRequest("n1", "可编辑产物");
     fireEvent.click(await screen.findByText("brainstorm.md"));
     // 内联文档编辑入口。
     fireEvent.click(await screen.findByTitle("编辑文档"));
@@ -439,7 +455,7 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
     }));
     renderNotes(bridge);
 
-    fireEvent.click(await screen.findByText("待生成计划"));
+    await openDetailViaRequest("n1", "待生成计划");
     const planBtn = await screen.findByRole("button", { name: /生成 plan/ });
     fireEvent.click(planBtn);
 
@@ -461,7 +477,7 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
   it("草稿态闪记详情不显示「生成 plan」入口", async () => {
     const { bridge } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "纯草稿" })]);
     renderNotes(bridge);
-    fireEvent.click(await screen.findByText("纯草稿"));
+    await openDetailViaRequest("n1", "纯草稿");
     await screen.findByTitle("编辑");
     expect(screen.queryByRole("button", { name: /生成 plan/ })).toBeNull();
   });
@@ -489,7 +505,7 @@ describe("NotesView 深化健壮性", () => {
     ]);
     renderNotes(bridge);
 
-    fireEvent.click(await screen.findByText("卡住的深化"));
+    await openDetailViaRequest("n1", "卡住的深化");
     const giveUp = await screen.findByRole("button", { name: /放弃深化/ });
     fireEvent.click(giveUp);
 
@@ -501,7 +517,7 @@ describe("NotesView 深化健壮性", () => {
   it("draft 闪记详情不显示「放弃深化」", async () => {
     const { bridge } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "草稿想法" })]);
     renderNotes(bridge);
-    fireEvent.click(await screen.findByText("草稿想法"));
+    await openDetailViaRequest("n1", "草稿想法");
     await screen.findByTitle("编辑");
     expect(screen.queryByRole("button", { name: /放弃深化/ })).toBeNull();
   });
@@ -522,7 +538,7 @@ describe("NotesView 深化健壮性", () => {
       { [doc]: "# 产物" },
     );
     renderNotes(bridge);
-    fireEvent.click(await screen.findByText("已深化想法"));
+    await openDetailViaRequest("n1", "已深化想法");
     await screen.findByTitle("编辑");
     expect(screen.queryByRole("button", { name: /放弃深化/ })).toBeNull();
   });

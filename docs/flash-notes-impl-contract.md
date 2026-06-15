@@ -435,6 +435,12 @@ function buildDeepenSystemPrompt(notes: NoteMeta[], docDir: string): string {
 
 ## 6. 回看（NotesView + 右栏接入 + 时间线合成）
 
+> **2026-06-15 更新（计划 `docs/plans/2026-06-15-002-feat-flash-note-live-editor-plan.md`，已落地）：编辑面升级为中心区宽写作面。**
+> 闪记的**编辑入口已从右栏窄详情迁到主内容区**:
+> - 列表行点击 → `usePersonalStore.openNoteEditor(noteId)`,在 `.pw-center-col` 打开 `FlashNoteEditor`（向左延伸覆盖聊天区），提供「源码 / 实时预览 / 仅预览」三档（CodeMirror 6 移植自 Kun,`personal/editor/`）+ 去抖自动保存（`useNoteAutosave`）。`noteEditorId` 为新增中心视图态(瞬态,与 homeOpen/automationOpen/timelineProjectId 互斥)。
+> - 右栏 NotesView 的 `selected`/NoteDetail **保留**,但仅供跨栏 `requestNoteDetail` 速览(时间线卡片跳转,不抢占中心区);**列表点击不再开右栏详情**。下文 6.1 描述的 textarea 详情编辑仍是右栏速览路径的实现,新中心写作面是其超集。
+> - 删除/状态徽标/深化产物/放弃深化/生成 plan 等入口在 FlashNoteEditor 头部/底部复刻(行为不变;产物文档经 `requestFilePreview` 在右栏文件视图打开,不与中心编辑器争夺)。
+
 ### 6.1 NotesView（packages/views/cortex-desktop/personal/NotesView.tsx，新建，照抄 TodosView）
 
 - 顶层 `export function NotesView({ onToast }: { onToast: (text: string) => void })`（仿 TodosView.tsx:660）。

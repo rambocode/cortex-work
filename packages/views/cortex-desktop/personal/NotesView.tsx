@@ -603,6 +603,9 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   const { data: notes = [], isLoading } = useAllNotes();
   const updateNote = useUpdateNote();
   const deepenNotes = useDeepenNotes();
+  // 点击列表某条闪记 → 进入中心区宽写作面(占据 .pw-center-col);
+  // 右栏内 NoteDetail 仅保留给跨栏 requestNoteDetail 速览(时间线卡片跳转,不抢占中心区)。
+  const openNoteEditor = usePersonalStore((s) => s.openNoteEditor);
 
   // 双态:null → 列表;否则详情。
   const [selected, setSelected] = useState<{ kind: "note"; id: string } | null>(null);
@@ -740,7 +743,7 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
               selectedIds={selectedIds}
               selectable={!!bridge?.notesUpdate}
               onToggleSelect={toggleSelect}
-              onOpen={(noteId) => setSelected({ kind: "note", id: noteId })}
+              onOpen={(noteId) => openNoteEditor(noteId)}
               onMoveTo={(noteId, projectId) => void moveTo(noteId, projectId)}
             />
           ))}

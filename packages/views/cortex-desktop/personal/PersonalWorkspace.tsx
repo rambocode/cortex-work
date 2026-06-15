@@ -21,6 +21,7 @@ import { TerminalPanel } from "./TerminalPanel";
 import { TimelineView } from "./TimelineView";
 import { NewSessionLanding } from "./NewSessionLanding";
 import { AutomationView } from "./AutomationView";
+import { FlashNoteEditor } from "./FlashNoteEditor";
 
 // 进入落地页(homeOpen 转真,含首屏挂载)即收起右栏:无项目时默认不显示,选项目
 // 不自动弹出。依赖只含 homeOpen,故 rightOpen 在落地页内被显式置真(点 Task / 顶栏
@@ -45,6 +46,8 @@ export function PersonalWorkspace({
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
+  const noteEditorId = usePersonalStore((s) => s.noteEditorId);
+  const closeNoteEditor = usePersonalStore((s) => s.closeNoteEditor);
   const timelineProject = usePersonalStore((s) =>
     s.timelineProjectId ? s.projects.find((p) => p.id === s.timelineProjectId) : undefined,
   );
@@ -90,6 +93,8 @@ export function PersonalWorkspace({
             <PersonalCenterHeader />
             {automationOpen ? (
               <AutomationView onToast={onToast} />
+            ) : noteEditorId ? (
+              <FlashNoteEditor noteId={noteEditorId} onClose={closeNoteEditor} onToast={onToast} />
             ) : homeOpen ? (
               <NewSessionLanding onToast={onToast} onOpenFlashNote={onOpenFlashNote} />
             ) : timelineProject ? (
