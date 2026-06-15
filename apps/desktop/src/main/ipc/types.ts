@@ -355,6 +355,25 @@ export interface GitDiffAllResult {
   truncated: boolean;
 }
 
+// ── 右侧「文件」视图内容搜索（与 core/desktop/types.ts 镜像） ──────────────
+
+export interface ContentMatchLine {
+  line: number; // 1-based 行号
+  text: string; // 整行文本（已 trimEnd，可能截断超长行）
+}
+
+export interface ContentMatchFile {
+  path: string; // 绝对路径
+  rel: string; // 相对项目根
+  name: string; // basename
+  lines: ContentMatchLine[];
+}
+
+export interface ContentSearchResult {
+  files: ContentMatchFile[];
+  truncated: boolean;
+}
+
 // ── GitBar 分支操作（与 core/desktop/types.ts 镜像） ──────────────────────
 
 // 本地分支列表 + 当前分支（非 git 仓库 isRepo:false）。

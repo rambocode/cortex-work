@@ -17,6 +17,7 @@ import type {
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  ContentSearchResult,
   CronValidation,
   DesktopBehavior,
   EditorInfo,
@@ -52,6 +53,9 @@ export interface DesktopBridge {
   scanPromptTree(root: string): Promise<PromptNode>;
   // 项目目录全量文件树 / git 变更 / 单文件 diff（右侧「文件」视图）
   scanDirTree(root: string): Promise<PromptNode>;
+  // 项目内文件内容搜索（右侧「文件」视图 ? 前缀）:逐行子串匹配,返回命中文件 + 命中行。
+  // 可选（web/旧壳没有 → UI 不提供内容搜索）。
+  searchContent?(root: string, query: string): Promise<ContentSearchResult>;
   gitChanges(root: string): Promise<GitChangesResult>;
   gitDiff(root: string, rel: string): Promise<string>;
   // GitBar:分支 + 工作区 ± 统计（含 untracked）/ 整仓 diff。可选（旧壳/web 没有,

@@ -5,7 +5,16 @@ import { dialog, ipcMain, shell } from "electron";
 import { promises as fsp } from "fs";
 import { dirname, join, resolve, sep } from "path";
 import { execFile } from "child_process";
-import type { GitBranchesResult, GitDiffAllResult, GitInfoResult, GitOpResult, PromptNode } from "./types";
+import type {
+  ContentMatchFile,
+  ContentMatchLine,
+  ContentSearchResult,
+  GitBranchesResult,
+  GitDiffAllResult,
+  GitInfoResult,
+  GitOpResult,
+  PromptNode,
+} from "./types";
 import { getPersistedState } from "./store";
 import { documentsCortexDir, noProjectSessionDir } from "../paths";
 import { countAddedLines, parseNumstat, parseUntracked, sumStats, synthUntrackedDiff } from "./git-info";
@@ -144,6 +153,27 @@ async function buildFileIndex(root: string): Promise<Map<string, string[]>> {
   return index;
 }
 
+// 内容搜索（右侧「文件」视图 ? 前缀）限额：命中文件 / 每文件命中行 / 单行展示字符。
+const SEARCH_MAX_FILES = 200;
+const SEARCH_MAX_LINES_PER_FILE = 5;
+const MATCH_LINE_MAX_CHARS = 400;
+
+// 逐行大小写不敏感子串匹配（非正则,避免 ReDoS）。导出供单测。
+export function matchLines(content: string, query: string, maxLines: number): ContentMatchLine[] {
+  const q = query.toLowerCase();
+  if (!q) return [];
+  const out: ContentMatchLine[] = [];
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (out.length >= maxLines) break;
+    const raw = lines[i];
+    if (raw.toLowerCase().includes(q)) {
+      out.push({ line: i + 1, text: raw.trimEnd().slice(0, MATCH_LINE_MAX_CHARS) });
+    }
+  }
+  return out;
+}
+
 async function getFileIndex(root: string, now: number): Promise<Map<string, string[]>> {
   const hit = fileIndexCache.get(root);
   if (hit && now - hit.at < FILE_INDEX_TTL_MS) return hit.index;
@@ -173,6 +203,59 @@ export function registerFsHandlers(): void {
     if (!stat.isDirectory()) throw new Error(`不是目录: ${root}`);
     const parts = root.replace(/[/\\]+$/, "").split(/[/\\]/);
     return scanTree(root, parts[parts.length - 1] || root, 0, { left: MAX_NODES }, false);
+  });
+
+  // 项目内文件内容搜索（右侧「文件」视图 ? 前缀）。遍历同 scanTree 约束
+  //（跳过 SKIP_DIRS / 隐藏文件,受 MAX_DEPTH / MAX_FILE_BYTES 限制）,逐行子串匹配。
+  // 命中文件数 / 遍历文件总数达上限时置 truncated。
+  ipcMain.handle("fs:searchContent", async (_e, root: string, query: string): Promise<ContentSearchResult> => {
+    await assertAllowed(root);
+    const q = query.trim();
+    if (!q) return { files: [], truncated: false };
+    const files: ContentMatchFile[] = [];
+    const budget = { left: MAX_NODES };
+    let truncated = false;
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (depth > MAX_DEPTH || budget.left <= 0 || files.length >= SEARCH_MAX_FILES) return;
+      let entries;
+      try {
+        entries = await fsp.readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        if (budget.left <= 0) {
+          truncated = true;
+          break;
+        }
+        if (files.length >= SEARCH_MAX_FILES) {
+          truncated = true;
+          break;
+        }
+        if (e.name.startsWith(".")) continue;
+        const full = join(dir, e.name);
+        if (e.isDirectory()) {
+          if (SKIP_DIRS.has(e.name)) continue;
+          await walk(full, depth + 1);
+        } else if (e.isFile()) {
+          budget.left -= 1;
+          try {
+            const stat = await fsp.stat(full);
+            if (!stat.isFile() || stat.size > MAX_FILE_BYTES) continue;
+            const buf = await fsp.readFile(full);
+            if (buf.subarray(0, 8000).includes(0)) continue; // 二进制:跳过
+            const lines = matchLines(buf.toString("utf8"), q, SEARCH_MAX_LINES_PER_FILE);
+            if (lines.length > 0) {
+              files.push({ path: full, rel: full.slice(root.length + 1), name: e.name, lines });
+            }
+          } catch {
+            /* 读取失败:跳过该文件 */
+          }
+        }
+      }
+    };
+    await walk(root, 0);
+    return { files, truncated };
   });
 
   // git 变更列表（最近变更视图）。非 git 仓库时回退按 mtime 的最近修改文件。

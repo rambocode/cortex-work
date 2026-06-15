@@ -3177,6 +3177,54 @@ button.sb-row {
 .pw-tree-row .count { margin-left: auto; font-size: 11px; color: var(--text-4); }
 .pw-tree-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* 右栏「文件」搜索框（文件名过滤 / ? 内容搜索） */
+.pw-rp-search {
+  display: flex; align-items: center; gap: 6px;
+  margin: 8px 10px 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-1);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.pw-rp-search:focus-within { border-color: var(--accent); }
+.pw-rp-search input {
+  flex: 1; min-width: 0;
+  border: none; background: transparent; outline: none;
+  font-size: 12.5px; color: var(--text-1);
+}
+.pw-rp-search input::placeholder { color: var(--text-4); }
+.pw-rp-search-clear {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-4); cursor: pointer; padding: 0;
+}
+.pw-rp-search-clear:hover { color: var(--text-1); }
+
+/* ? 内容搜索命中结果 */
+.pw-search-results { padding-top: 8px; }
+.pw-search-hit {
+  display: flex; flex-direction: column; gap: 2px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 7px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-2);
+}
+.pw-search-hit:hover { background: var(--bg-hover); }
+.pw-search-hit-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pw-search-hit-head .pw-tree-name { font-size: 12.5px; color: var(--text-1); }
+.pw-search-line {
+  display: flex; gap: 8px;
+  padding-left: 19px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.pw-search-lineno { flex-shrink: 0; min-width: 30px; text-align: right; color: var(--text-4); }
+.pw-search-linetext { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* Prompt 编辑器 */
 .pw-editor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .pw-editor-h {

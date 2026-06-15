@@ -14,6 +14,7 @@ import type {
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  ContentSearchResult,
   CronValidation,
   EditorInfo,
   GitBranchesResult,
@@ -61,6 +62,9 @@ const personal = {
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("fs:pickDirectory"),
   scanPromptTree: (root: string): Promise<PromptNode> => ipcRenderer.invoke("fs:scanPromptTree", root),
   scanDirTree: (root: string): Promise<PromptNode> => ipcRenderer.invoke("fs:scanDirTree", root),
+  // 内容搜索（右侧「文件」视图 ? 前缀）:逐行子串匹配,返回命中文件 + 命中行。
+  searchContent: (root: string, query: string): Promise<ContentSearchResult> =>
+    ipcRenderer.invoke("fs:searchContent", root, query),
   gitChanges: (root: string): Promise<{ isRepo: boolean; files: { path: string; rel: string; status: string }[] }> =>
     ipcRenderer.invoke("fs:gitChanges", root),
   gitDiff: (root: string, rel: string): Promise<string> => ipcRenderer.invoke("fs:gitDiff", root, rel),

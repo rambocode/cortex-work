@@ -421,6 +421,26 @@ export interface GitChangesResult {
   files: ChangedFile[];
 }
 
+// 右侧「文件」视图内容搜索（? 前缀）：一条命中行（行号 + 整行文本）。
+export interface ContentMatchLine {
+  line: number; // 1-based 行号
+  text: string; // 整行文本（已 trimEnd，可能截断超长行）
+}
+
+// 一个命中文件及其前若干条命中行。
+export interface ContentMatchFile {
+  path: string; // 绝对路径
+  rel: string; // 相对项目根
+  name: string; // basename
+  lines: ContentMatchLine[];
+}
+
+// 内容搜索结果：命中文件列表 + 是否因限额截断。
+export interface ContentSearchResult {
+  files: ContentMatchFile[];
+  truncated: boolean;
+}
+
 // GitBar:工作区 git 信息（分支 + ± 行数统计,含 untracked）。
 export interface GitInfoResult {
   isRepo: boolean;
