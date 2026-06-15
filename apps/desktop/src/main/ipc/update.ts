@@ -12,6 +12,11 @@ import type { UpdateState } from "./types";
 const FIRST_CHECK_DELAY_MS = 6_000;
 const CHECK_INTERVAL_MS = 2 * 3600_000;
 
+// 更新源是否已真正配置。electron-builder.yml 的 publish.owner 仍是占位符
+// OWNER_PLACEHOLDER 时,checkForUpdates 会对 releases.atom 反复 404,污染日志。
+// 配好真实 GitHub owner / repo 后,把这里改成 true 即可恢复自动更新。
+const UPDATE_FEED_CONFIGURED = false;
+
 let state: UpdateState = { phase: "idle" };
 
 function dispatch(event: UpdaterEvent): void {
@@ -24,6 +29,7 @@ function dispatch(event: UpdaterEvent): void {
 }
 
 async function safeCheck(): Promise<void> {
+  if (!UPDATE_FEED_CONFIGURED) return; // 更新源未配置,跳过以免反复 404
   try {
     await autoUpdater.checkForUpdates();
   } catch {
@@ -55,7 +61,8 @@ export function registerUpdateHandlers(): void {
   ipcMain.handle("update:install", () => autoUpdater.quitAndInstall());
 
   // dev（未打包）没有 app-update.yml,electron-updater 无法工作;不自动检查。
-  if (!app.isPackaged) return;
+  // 更新源未配置时同样跳过定时检查,避免空转与 releases.atom 反复 404。
+  if (!app.isPackaged || !UPDATE_FEED_CONFIGURED) return;
   setTimeout(() => void safeCheck(), FIRST_CHECK_DELAY_MS);
   setInterval(() => void safeCheck(), CHECK_INTERVAL_MS);
 }

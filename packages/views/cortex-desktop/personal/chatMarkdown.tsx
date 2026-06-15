@@ -3,8 +3,10 @@
 // - 仅个人区(传入 onOpenFile + projectPath)启用;团队侧不传 → 不使用本工厂,零回归。
 // - inline 判定:无 language-* className 的 code(块级 fenced 带语言或含换行,isLikelyFilePath 天然拒绝)。
 // - 外链行为复用 MarkdownView.MdLink 思路:http(s) → bridge.openExternal;相对文件路径 → onOpenFile。
+// - 失效标注:渲染期经 bridge.resolveProjectFile 在项目内定位 ref(支持只给文件名、真实文件在子目录),
+//   定位不到(真已删除)→ 删除线灰显且不可点击;定位得到则可点击。探测无能力/出错时乐观放行。
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Components } from "react-markdown";
 import { isLikelyFilePath, resolveProjectFileRef } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
@@ -15,6 +17,105 @@ function textOf(children: ReactNode): string {
   if (typeof children === "number") return String(children);
   if (Array.isArray(children)) return children.map(textOf).join("");
   return "";
+}
+
+// 渲染期在项目内定位文件。"checking" 期间乐观当作可点击,仅确认定位不到才标 missing,
+// 避免存在的文件出现「先划线再恢复」的闪烁。无探测能力 / 探测出错 → 一律乐观放行。
+type ResolveState = "checking" | "ok" | "missing";
+function useResolvedFile(bridge: DesktopBridge | null, projectPath: string, ref: string): ResolveState {
+  const [state, setState] = useState<ResolveState>("checking");
+  useEffect(() => {
+    const probe = bridge?.resolveProjectFile;
+    if (!probe) {
+      setState("ok");
+      return;
+    }
+    let alive = true;
+    setState("checking");
+    probe(projectPath, ref).then(
+      (abs) => alive && setState(abs ? "ok" : "missing"),
+      () => alive && setState("ok"), // 探测失败不误判删除
+    );
+    return () => {
+      alive = false;
+    };
+  }, [bridge, projectPath, ref]);
+  return state;
+}
+
+interface FileRefProps {
+  ref_: string; // 原始 ref(传给 onOpenFile,与既有契约一致)
+  projectPath: string;
+  bridge: DesktopBridge | null;
+  onOpenFile: (ref: string) => void;
+  children: ReactNode;
+}
+
+// inline code 形态的文件链接。
+function FileCode({
+  ref_,
+  projectPath,
+  bridge,
+  onOpenFile,
+  className,
+  children,
+  ...rest
+}: FileRefProps & { className?: string } & Record<string, unknown>) {
+  const missing = useResolvedFile(bridge, projectPath, ref_) === "missing";
+  const open = () => onOpenFile(ref_);
+  const cls = [className, "file-link", missing ? "file-link-missing" : ""].filter(Boolean).join(" ");
+  return (
+    <code
+      {...rest}
+      className={cls}
+      role="button"
+      tabIndex={missing ? -1 : 0}
+      aria-disabled={missing || undefined}
+      title={missing ? `文件不存在或已删除：${ref_}` : ref_}
+      onClick={missing ? undefined : open}
+      onKeyDown={
+        missing
+          ? undefined
+          : (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                open();
+              }
+            }
+      }
+    >
+      {children}
+    </code>
+  );
+}
+
+// markdown 相对链接形态的文件链接。
+function FileAnchor({
+  ref_,
+  projectPath,
+  bridge,
+  onOpenFile,
+  href,
+  children,
+  ...rest
+}: FileRefProps & { href?: string } & Record<string, unknown>) {
+  const missing = useResolvedFile(bridge, projectPath, ref_) === "missing";
+  return (
+    <a
+      {...rest}
+      href={href}
+      rel="noreferrer"
+      className={["file-link", missing ? "file-link-missing" : ""].filter(Boolean).join(" ")}
+      aria-disabled={missing || undefined}
+      title={missing ? `文件不存在或已删除：${ref_}` : ref_}
+      onClick={(e) => {
+        e.preventDefault(); // Electron 里 a 默认导航会替换整个窗口
+        if (!missing) onOpenFile(ref_);
+      }}
+    >
+      {children}
+    </a>
+  );
 }
 
 export interface ChatMarkdownOptions {
@@ -32,24 +133,17 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
       const text = textOf(children);
       const isBlock = /language-/.test(className ?? "");
       if (!isBlock && isProjectFile(text)) {
-        const open = () => onOpenFile(text);
         return (
-          <code
+          <FileCode
             {...rest}
-            className={className ? `${className} file-link` : "file-link"}
-            role="button"
-            tabIndex={0}
-            title={text}
-            onClick={open}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                open();
-              }
-            }}
+            ref_={text}
+            projectPath={projectPath}
+            bridge={bridge}
+            onOpenFile={onOpenFile}
+            className={className}
           >
             {children}
-          </code>
+          </FileCode>
         );
       }
       return (
@@ -60,6 +154,20 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
     },
     a({ node: _node, href, children, ...rest }) {
       const external = /^https?:\/\//i.test(href ?? "");
+      if (!external && href && isProjectFile(href)) {
+        return (
+          <FileAnchor
+            {...rest}
+            ref_={href}
+            href={href}
+            projectPath={projectPath}
+            bridge={bridge}
+            onOpenFile={onOpenFile}
+          >
+            {children}
+          </FileAnchor>
+        );
+      }
       return (
         <a
           {...rest}
@@ -74,7 +182,6 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
               else window.open(href, "_blank", "noreferrer");
               return;
             }
-            if (href && isProjectFile(href)) onOpenFile(href);
             // 其余(锚点/项目外/非路径)阻止导航,不做处理。
           }}
         >

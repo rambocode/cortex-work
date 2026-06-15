@@ -183,12 +183,25 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
 
   // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为绝对路径,请求右栏预览并展开右栏。
   // 无项目会话(无 realProject)与解析爬出项目(within=false)一律短路,不派发。
+  // 有 resolveProjectFile 能力时:在项目内定位真实路径(支持 ref 只给文件名、文件在子目录,
+  // 见 yuque 导出表格),定位不到则提示;无能力(旧壳/web)退化为精确路径同步派发。
+  const open = (abs: string, ref: string) => {
+    const name = abs.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? ref;
+    requestFilePreview({ projectId: realProject!.id, path: abs, name });
+    setRightOpen(true);
+  };
   const handleOpenFile = (ref: string) => {
     if (!realProject) return;
-    const { abs, name, within } = resolveProjectFileRef(realProject.path, ref);
-    if (!within) return;
-    requestFilePreview({ projectId: realProject.id, path: abs, name });
-    setRightOpen(true);
+    const probe = bridge?.resolveProjectFile;
+    if (!probe) {
+      const { abs, within } = resolveProjectFileRef(realProject.path, ref);
+      if (within) open(abs, ref);
+      return;
+    }
+    void probe(realProject.path, ref).then((abs) => {
+      if (abs) open(abs, ref);
+      else onToast(`未找到文件：${ref}`);
+    });
   };
 
   const switchAgent = (agent: AgentKind) => {

@@ -109,6 +109,49 @@ async function readUntracked(path: string): Promise<{ kind: "text"; content: str
 const UNTRACKED_LIMIT = 200; // 防未 ignore 的海量文件(如 node_modules)拖垮主进程
 const DIFF_ALL_SOFT_LIMIT = 1.5 * 1024 * 1024; // 拼接后总量软上限
 
+// 会话文件链接定位:basename → 绝对路径列表 的项目级索引,带短 TTL。
+// 一次消息渲染会对几十个文件链接批量探测,缓存让全项目只扫一次(见 fs:resolveProjectFile)。
+const FILE_INDEX_TTL_MS = 15_000;
+const fileIndexCache = new Map<string, { at: number; index: Map<string, string[]> }>();
+
+async function buildFileIndex(root: string): Promise<Map<string, string[]>> {
+  const index = new Map<string, string[]>();
+  const budget = { left: MAX_NODES };
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth > MAX_DEPTH || budget.left <= 0) return;
+    let entries;
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (budget.left <= 0) break;
+      if (e.name.startsWith(".")) continue;
+      const full = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (SKIP_DIRS.has(e.name)) continue;
+        await walk(full, depth + 1);
+      } else if (e.isFile()) {
+        const arr = index.get(e.name);
+        if (arr) arr.push(full);
+        else index.set(e.name, [full]);
+        budget.left -= 1;
+      }
+    }
+  }
+  await walk(root, 0);
+  return index;
+}
+
+async function getFileIndex(root: string, now: number): Promise<Map<string, string[]>> {
+  const hit = fileIndexCache.get(root);
+  if (hit && now - hit.at < FILE_INDEX_TTL_MS) return hit.index;
+  const index = await buildFileIndex(root);
+  fileIndexCache.set(root, { at: now, index });
+  return index;
+}
+
 export function registerFsHandlers(): void {
   ipcMain.handle("fs:pickDirectory", async () => {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
@@ -324,6 +367,30 @@ export function registerFsHandlers(): void {
       }
     }
     return { content: await fsp.readFile(path, "utf8"), truncated: false };
+  });
+
+  // 会话消息里文件链接的「项目内」定位:把 ref(相对路径或裸文件名)解析为真实绝对路径。
+  // 1) 先试精确路径(ref 在 root 内且为文件) → 直接用;
+  // 2) 否则按 basename 在项目内查找(yuque 导出等表格只列文件名,真实文件在子目录) → 取首个匹配;
+  // 3) 仍找不到 → null。越权 / 出错一律 null,不抛错(避免污染主进程日志,见 chatMarkdown.tsx)。
+  ipcMain.handle("fs:resolveProjectFile", async (_e, root: string, ref: string): Promise<string | null> => {
+    try {
+      await assertAllowed(root);
+      const exact = ref.startsWith("/") ? ref : join(root, ref);
+      if (isInside(root, exact)) {
+        try {
+          if ((await fsp.stat(exact)).isFile()) return exact;
+        } catch {
+          /* 落到 basename 搜索 */
+        }
+      }
+      const base = exact.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? ref;
+      const index = await getFileIndex(root, Date.now());
+      const hits = index.get(base);
+      return hits && hits.length > 0 ? hits[0] : null;
+    } catch {
+      return null;
+    }
   });
 
   ipcMain.handle("fs:writeFile", async (_e, path: string, content: string) => {

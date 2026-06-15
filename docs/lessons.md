@@ -78,3 +78,17 @@ ELECTRON_RUN_AS_NODE=1 "/tmp/Test.app/Contents/MacOS/<App>" \
 **收益**:minimatch/typebox/undici/任何依赖解析问题一次性消失;asar 恢复正常;用 pi 官方一等支持的 bun 二进制形态最稳。**代价**:构建依赖 bun(CI 需装);pi 升级要重 compile(脚本按 `.pi-version` 幂等)。
 
 **验证同样必须仓库外**:`Test.app/Contents/Resources/pi/pi --mode json -p -e <ext> --provider <id> "hi"`,确认完整 JSON 事件流 + 扩展加载 + 到 LLM 调用(假 key 401 即通)。
+
+---
+
+## ENOENT ≠ 文件缺失:先核对「报错路径」是否等于「真实文件路径」,别急着按缺失处理
+
+**现象**:用户反馈会话里点 Agent 输出的文件链接,「第一次能打开,后面都打不开」,toast 报 `fs:readFile ... ENOENT ... '/Users/jingjing/Documents/Ops/002-…机制澄清.md'`。我第一轮看到 ENOENT **直接假设文件不存在**,做了「渲染期探测存在性 → 删除线标注 + 禁用点击」——**方向完全做反**:文件其实存在,这套改动反而把存在的文件标成已删除、彻底点不开。
+
+**根因**:文件**真实存在,但在子目录**(`outputs/yuque-kb/docs/002-…md`)。LLM 输出的表格第一列是 **inline code 裸文件名**(无目录前缀,公共前缀写在表格标题里)。`resolveProjectFileRef(root, "002-…md")` 把裸名直接拼到**项目根** → `root/002-…md`,丢了中间目录 → 路径错 → ENOENT。「第一次能打开」是因为那个文件恰在根目录(拼根正确);子目录的文件全错。即:**ENOENT 来自错误构造的路径,不是文件缺失。**
+
+**教训 / 排查套路**:
+1. 看到 ENOENT,先问「**报错里的那个绝对路径,真的就是文件该在的位置吗?**」——把报错路径拿去 `ls`/对照真实树,而不是默认「文件没了」。
+2. 反查 `ref → 绝对路径` 的**构造链路**(本例 `resolveProjectFileRef` 简单拼根)。裸文件名 / 相对名落到错误基准目录,是 ENOENT 的常见伪装。
+3. **让用户的复现描述纠偏假设**:「第一次能、后面不能」本质是「根目录文件能、子目录文件不能」,这个非对称性直接指向「路径基准错」而非「文件缺失」。
+4. 修法是**让 ref 能定位到真实文件**(项目内按 basename 查找,见 `fs:resolveProjectFile`),而非把定位不到的标成「已删除」。仅当项目内确实搜不到才按缺失处理。

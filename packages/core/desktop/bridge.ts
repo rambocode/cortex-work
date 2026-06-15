@@ -67,6 +67,10 @@ export interface DesktopBridge {
   gitCreateBranch?(root: string, name: string): Promise<GitOpResult>;
   gitCheckout?(root: string, name: string): Promise<GitOpResult>;
   readFile(path: string): Promise<ReadFileResult>;
+  // 会话消息里文件链接的项目内定位:ref(相对路径或裸文件名)→ 真实绝对路径,找不到 → null。
+  // 支持 ref 缺目录、真实文件在子目录的情况(yuque 导出表格只列文件名)。
+  // 可选（web/旧壳没有 → chatMarkdown 退化为乐观可点击、handleOpenFile 走精确路径)。
+  resolveProjectFile?(root: string, ref: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
   deleteFile(path: string): Promise<void>;
   createTaskFile(projectRoot: string, todoId: string, title: string): Promise<string>;

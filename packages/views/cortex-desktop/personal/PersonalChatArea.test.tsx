@@ -1,4 +1,4 @@
-import { cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore, useCortexUIStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
@@ -150,6 +150,31 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     usePersonalStore.setState({ filePreviewRequest: undefined });
     fireEvent.click(screen.getByText("/etc/passwd"));
     expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+  });
+
+  it("ref 缺目录但项目内能定位 → 用真实绝对路径派发(本次反馈核心 bug)", async () => {
+    // yuque 表格只列裸文件名,真实文件在子目录;resolveProjectFile 命中子目录路径。
+    const b = {
+      loadChat: async () => [
+        { kind: "text", who: "claude", time: "12:00", uid: "m9", text: "见 `002.md` 文件" },
+      ],
+      saveChat: async () => {},
+      resolveProjectFile: async (_root: string, _ref: string) => "/code/alpha/outputs/yuque-kb/docs/002.md",
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    fireEvent.click(await screen.findByText("002.md"));
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "p1",
+        path: "/code/alpha/outputs/yuque-kb/docs/002.md",
+        name: "002.md",
+      }),
+    );
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
   });
 
   it("无项目会话:projectPath 缺失,文本路径不可点(无 .file-link)", async () => {

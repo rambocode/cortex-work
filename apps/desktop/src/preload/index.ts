@@ -75,6 +75,9 @@ const personal = {
     ipcRenderer.invoke("fs:gitCreateBranch", root, name),
   gitCheckout: (root: string, name: string): Promise<GitOpResult> => ipcRenderer.invoke("fs:gitCheckout", root, name),
   readFile: (path: string): Promise<ReadFileResult> => ipcRenderer.invoke("fs:readFile", path),
+  // 会话文件链接定位:ref(相对/裸文件名)→ 项目内真实绝对路径,找不到/越权 → null（不抛错）。
+  resolveProjectFile: (root: string, ref: string): Promise<string | null> =>
+    ipcRenderer.invoke("fs:resolveProjectFile", root, ref),
   writeFile: (path: string, content: string): Promise<void> => ipcRenderer.invoke("fs:writeFile", path, content),
   deleteFile: (path: string): Promise<void> => ipcRenderer.invoke("fs:deleteFile", path),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
