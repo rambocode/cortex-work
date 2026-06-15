@@ -27,6 +27,7 @@ export function useNoteAutosave({
   draft: string;
   setDraft: (next: string) => void;
   save: () => Promise<void>;
+  cancel: () => void;
   status: NoteSaveStatus;
 } {
   const [draft, setDraftState] = useState(content);
@@ -91,13 +92,22 @@ export function useNoteAutosave({
     await runSave(pending.content, pending.save);
   }, [runSave]);
 
+  // 取消挂起的去抖保存(不落盘)。删除闪记前调用,避免卸载 flush 写回已删 id。
+  const cancel = useCallback(() => {
+    clearTimer();
+    pendingRef.current = null;
+  }, []);
+
   // 离开当前 note(切走 / 卸载):flush 挂起的保存,用捕获的旧 onSave,fire-and-forget。
+  // 卸载后无法 setState,故失败仅经 onError 上抛(若有),并吞掉未处理 rejection。
   useEffect(() => {
     return () => {
       clearTimer();
       const pending = pendingRef.current;
       pendingRef.current = null;
-      if (pending) void pending.save(pending.content);
+      if (pending) {
+        void pending.save(pending.content).catch((err) => onErrorRef.current?.(err));
+      }
     };
   }, [noteId]);
 
@@ -122,5 +132,5 @@ export function useNoteAutosave({
     }
   }, [content]);
 
-  return { draft, setDraft, save, status };
+  return { draft, setDraft, save, cancel, status };
 }

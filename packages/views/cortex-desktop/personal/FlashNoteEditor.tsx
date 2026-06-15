@@ -13,10 +13,10 @@ import {
   useUpdateNote,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { NoteMeta } from "@cortex-work/core";
 import { MarkdownView } from "./MarkdownView";
 import { NoteCodeMirrorEditor, type NoteEditorAppearance } from "./editor/NoteCodeMirrorEditor";
 import { useNoteAutosave } from "./useNoteAutosave";
+import { noteTitle, STATUS_LABEL } from "./noteDisplay";
 import { relTime } from "./PersonalSidebar";
 
 type Mode = "source" | "live" | "preview";
@@ -27,18 +27,6 @@ const MODE_LABEL: Record<Mode, string> = {
   source: "源码",
 };
 const MODE_ORDER: Mode[] = ["live", "preview", "source"];
-
-const STATUS_LABEL: Record<NoteMeta["status"], string | null> = {
-  draft: null,
-  deepening: "深化中",
-  deepened: "已深化",
-};
-
-function noteTitle(content: string): string {
-  const line = content.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
-  if (!line) return "（空白闪记）";
-  return line.length > 80 ? line.slice(0, 80) + "…" : line;
-}
 
 const SAVE_HINT: Record<ReturnType<typeof useNoteAutosave>["status"], string> = {
   idle: "已保存",
@@ -57,7 +45,7 @@ export function FlashNoteEditor({
   onClose: () => void;
   onToast: (text: string) => void;
 }) {
-  const { data: notes = [] } = useAllNotes();
+  const { data: notes = [], isError } = useAllNotes();
   const note = useMemo(() => notes.find((n) => n.id === noteId), [notes, noteId]);
   const projects = usePersonalStore((s) => s.projects);
   const project = note?.projectId ? projects.find((p) => p.id === note.projectId) : undefined;
@@ -70,9 +58,12 @@ export function FlashNoteEditor({
 
   const [mode, setMode] = useState<Mode>("live");
   const [planning, setPlanning] = useState(false);
+  // CodeMirror 动态装载失败 → 强制只读「仅预览」(复用 MarkdownView,不依赖 CM),并提示。
+  const [editorLoadFailed, setEditorLoadFailed] = useState(false);
+  const effectiveMode: Mode = editorLoadFailed ? "preview" : mode;
 
   // 去抖自动保存(U5):draft 管理 + flush + 防回灌(仅按 note.id 复位,不被 note.content 回灌)。
-  const { draft, setDraft, save, status } = useNoteAutosave({
+  const { draft, setDraft, save, cancel, status } = useNoteAutosave({
     noteId,
     content: note?.content ?? "",
     onSave: async (content) => {
@@ -81,13 +72,14 @@ export function FlashNoteEditor({
     onError: (err) => onToast(`保存失败：${err instanceof Error ? err.message : String(err)}`),
   });
 
-  // 选中目标失效(被删/归档)时退出。
+  // 选中目标失效(被删/归档)时退出;查询失败也退出列表(避免永久卡「加载中」)。
   useEffect(() => {
-    if (notes.length > 0 && !note) onClose();
-  }, [notes.length, note, onClose]);
+    if (isError || (notes.length > 0 && !note)) onClose();
+  }, [isError, notes.length, note, onClose]);
 
   const remove = async () => {
     try {
+      cancel(); // 删除前取消挂起的去抖保存,避免卸载 flush 写回已删 id。
       await deleteNote.mutateAsync(noteId); // 仅删闪记自身,不波及深化产物文档/会话。
       onToast("已删除闪记");
       onClose();
@@ -149,13 +141,15 @@ export function FlashNoteEditor({
           <span className="pw-readonly">未归类</span>
         )}
         <div className="spacer" />
-        {/* 三档切换(分段按钮,radio 语义) */}
+        {/* 三档切换(分段按钮,radio 语义)。编辑器装载失败时,源码/实时预览禁用(强制仅预览)。 */}
         <div className="pw-note-mode" role="group" aria-label="编辑模式">
           {MODE_ORDER.map((m) => (
             <button
               key={m}
-              className={`pw-note-mode-btn ${mode === m ? "is-on" : ""}`}
-              aria-pressed={mode === m}
+              className={`pw-note-mode-btn ${effectiveMode === m ? "is-on" : ""}`}
+              aria-pressed={effectiveMode === m}
+              disabled={editorLoadFailed && m !== "preview"}
+              title={editorLoadFailed && m !== "preview" ? "编辑器加载失败,暂仅可预览" : undefined}
               onClick={() => setMode(m)}
             >
               {MODE_LABEL[m]}
@@ -171,17 +165,24 @@ export function FlashNoteEditor({
       </header>
 
       <div className="pw-note-editor-body">
-        {mode === "preview" ? (
+        {effectiveMode === "preview" ? (
           <div className="pw-note-editor-preview">
+            {editorLoadFailed ? (
+              <div className="pw-empty-hint">编辑器加载失败,当前仅可预览。可返回后重试。</div>
+            ) : null}
             {draft.trim() ? <MarkdownView content={draft} /> : <div className="pw-empty-hint">空白闪记</div>}
           </div>
         ) : (
           <NoteCodeMirrorEditor
             key={noteId}
             value={draft}
-            appearance={mode as NoteEditorAppearance}
+            appearance={effectiveMode as NoteEditorAppearance}
             onChange={setDraft}
             onSave={() => void save()}
+            onLoadError={() => {
+              setEditorLoadFailed(true);
+              onToast("编辑器加载失败,已切换到仅预览");
+            }}
           />
         )}
       </div>

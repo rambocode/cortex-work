@@ -111,4 +111,52 @@ describe("useNoteAutosave", () => {
     expect(onSave).not.toHaveBeenCalled();
     expect(result.current.status).toBe("idle");
   });
+
+  it("cancel() 取消挂起去抖,卸载时不再 flush(删除前调用避免写回已删 id)", () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn(async () => {});
+    const { result, unmount } = renderHook(() =>
+      useNoteAutosave({ noteId: "n1", content: "", onSave, debounceMs: 500 }),
+    );
+    act(() => result.current.setDraft("待删内容"));
+    act(() => result.current.cancel());
+    unmount();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("pristine 采纳:未编辑时 content 外部到达(异步加载)→ draft 采纳新内容", () => {
+    const onSave = vi.fn(async () => {});
+    const { result, rerender } = renderHook(
+      ({ content }) => useNoteAutosave({ noteId: "n1", content, onSave, debounceMs: 500 }),
+      { initialProps: { content: "" } },
+    );
+    // 首渲染 content 为空(note 未加载);随后真实内容到达,draft 仍干净 → 采纳。
+    rerender({ content: "异步加载到的正文" });
+    expect(result.current.draft).toBe("异步加载到的正文");
+  });
+
+  it("保存在途时继续输入 → status 保持 dirty,不误置 saved", async () => {
+    vi.useFakeTimers();
+    let release: (() => void) | null = null;
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const { result } = renderHook(() =>
+      useNoteAutosave({ noteId: "n1", content: "", onSave, debounceMs: 500 }),
+    );
+    act(() => result.current.setDraft("第一段"));
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+    }); // 触发保存(挂起未 resolve)
+    expect(result.current.status).toBe("saving");
+    act(() => result.current.setDraft("第一段加更多")); // 保存在途继续输入
+    await act(async () => {
+      release!();
+      await Promise.resolve();
+    });
+    expect(result.current.status).toBe("dirty"); // 落库的是旧值,draft 已变 → 维持 dirty
+  });
 });

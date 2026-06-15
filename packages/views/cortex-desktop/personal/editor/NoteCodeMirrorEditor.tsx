@@ -7,7 +7,7 @@
 // 类型用 `import type`(运行期擦除,不进打包图)。
 
 import { useEffect, useRef } from "react";
-import type { AnnotationType, Compartment } from "@codemirror/state";
+import type { AnnotationType, Compartment, Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
 type EditorSelectionFactory = typeof import("@codemirror/state").EditorSelection;
@@ -20,6 +20,8 @@ type Props = {
   readOnly?: boolean;
   onChange: (value: string) => void;
   onSave: () => void;
+  // CodeMirror 动态装载失败时回调(弱网/损坏分包等)。调用方据此降级(如切到仅预览 + 提示)。
+  onLoadError?: (err: unknown) => void;
 };
 
 export function NoteCodeMirrorEditor({
@@ -28,6 +30,7 @@ export function NoteCodeMirrorEditor({
   readOnly = false,
   onChange,
   onSave,
+  onLoadError,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -35,9 +38,9 @@ export function NoteCodeMirrorEditor({
   const livePreviewCompartmentRef = useRef<Compartment | null>(null);
   const editableCompartmentRef = useRef<Compartment | null>(null);
   // live-preview 扩展工厂与外部同步 annotation 在异步装载后才可用,经 ref 暴露给后续 effect。
-  const buildLiveExtensionsRef = useRef<(() => unknown[]) | null>(null);
-  const buildEditableExtensionsRef = useRef<((readOnly: boolean, appearance: NoteEditorAppearance) => unknown[]) | null>(null);
-  const buildThemeRef = useRef<((appearance: NoteEditorAppearance) => unknown) | null>(null);
+  const buildLiveExtensionsRef = useRef<(() => Extension[]) | null>(null);
+  const buildEditableExtensionsRef = useRef<((readOnly: boolean, appearance: NoteEditorAppearance) => Extension[]) | null>(null);
+  const buildThemeRef = useRef<((appearance: NoteEditorAppearance) => Extension) | null>(null);
   const externalSyncAnnotationRef = useRef<AnnotationType<boolean> | null>(null);
   // EditorSelection 工厂(外部 value 同步保选区用),挂载时填入。
   const editorSelectionRef = useRef<EditorSelectionFactory | null>(null);
@@ -49,11 +52,13 @@ export function NoteCodeMirrorEditor({
   const readOnlyRef = useRef(readOnly);
   const valueRef = useRef(value);
   const lastEmittedValueRef = useRef<string | null>(null);
+  const onLoadErrorRef = useRef(onLoadError);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   appearanceRef.current = appearance;
   readOnlyRef.current = readOnly;
   valueRef.current = value;
+  onLoadErrorRef.current = onLoadError;
 
   // 挂载一次:动态装载 CodeMirror + 本地扩展,建编辑器实例。
   useEffect(() => {
@@ -74,8 +79,12 @@ export function NoteCodeMirrorEditor({
           import("./markdownLivePreview"),
         ]);
         mods = { state, view, commands, langMarkdown, languageData, language, livePreview };
-      } catch {
-        return; // 装载失败:保持空白,由 FlashNoteEditor 兜底(可切到「仅预览」或源码 textarea fallback)
+      } catch (err) {
+        // 装载失败(弱网/损坏分包/CSP):保留诊断并上抛,让 FlashNoteEditor 降级(切「仅预览」+ 提示)。
+        // eslint-disable-next-line no-console
+        console.error("[notes] CodeMirror 动态装载失败", err);
+        if (!disposed) onLoadErrorRef.current?.(err);
+        return;
       }
       if (disposed || !hostRef.current) return;
 
@@ -137,9 +146,9 @@ export function NoteCodeMirrorEditor({
 
       const buildLive = () => writeMarkdownLivePreviewExtensions();
 
-      buildThemeRef.current = buildTheme as (a: NoteEditorAppearance) => unknown;
-      buildEditableExtensionsRef.current = buildEditable as (ro: boolean, a: NoteEditorAppearance) => unknown[];
-      buildLiveExtensionsRef.current = buildLive as () => unknown[];
+      buildThemeRef.current = buildTheme;
+      buildEditableExtensionsRef.current = buildEditable;
+      buildLiveExtensionsRef.current = buildLive;
 
       const initialAppearance = appearanceRef.current;
       const state = EditorState.create({
@@ -211,9 +220,9 @@ export function NoteCodeMirrorEditor({
     if (!buildTheme || !buildEditable || !buildLive) return;
     view.dispatch({
       effects: [
-        themeCompartment.reconfigure(buildTheme(appearance) as never),
-        livePreviewCompartment.reconfigure((appearance === "live" ? buildLive() : []) as never),
-        editableCompartment.reconfigure(buildEditable(readOnly, appearance) as never),
+        themeCompartment.reconfigure(buildTheme(appearance)),
+        livePreviewCompartment.reconfigure(appearance === "live" ? buildLive() : []),
+        editableCompartment.reconfigure(buildEditable(readOnly, appearance)),
       ],
     });
   }, [appearance, readOnly]);

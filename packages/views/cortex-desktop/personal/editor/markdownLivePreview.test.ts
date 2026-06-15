@@ -1,6 +1,18 @@
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import { markdownLivePreviewTestInternals } from "./markdownLivePreview";
+import { renderFallbackCodeHtml } from "./markdownLiveWidgets";
+
+// 信任边界回归(code-review:security):代码块渲染前必须转义,防止 note 正文注入 HTML/脚本。
+describe("renderFallbackCodeHtml 转义", () => {
+  it("转义 < > & 防止注入,不产生真实标签", () => {
+    const html = renderFallbackCodeHtml('</code><img src=x onerror=alert(1)><script>bad()</script>');
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;img");
+    expect(html).toContain("&lt;script&gt;");
+  });
+});
 
 describe("markdown live preview", () => {
   it("keeps markdown concealment stable while text is selected", () => {

@@ -18,20 +18,8 @@ import {
 } from "@cortex-work/core";
 import type { DesktopBridge, NoteMeta, ProjectMeta } from "@cortex-work/core";
 import { MarkdownView } from "./MarkdownView";
+import { noteTitle, STATUS_LABEL } from "./noteDisplay";
 import { relTime } from "./PersonalSidebar";
-
-// 闪记标题 = 正文首个非空行截断(列表行/分组展示用)。
-function noteTitle(content: string): string {
-  const line = content.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
-  if (!line) return "（空白闪记）";
-  return line.length > 80 ? line.slice(0, 80) + "…" : line;
-}
-
-const STATUS_LABEL: Record<NoteMeta["status"], string | null> = {
-  draft: null,
-  deepening: "深化中",
-  deepened: "已深化",
-};
 
 // 深化产物文档(磁盘 .md)内联查看/编辑:readFile 预览 + textarea 编辑 + writeFile 写回
 // (白名单内,经 fs.assertAllowed 放行)。读盘失败 → 友好降级提示,不崩(链接悬挂降级:
@@ -619,11 +607,14 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   // 跨栏跳转:消费 store 请求,在右栏打开该闪记详情(消费即清,仿 TodosView)。
   const noteDetailRequest = usePersonalStore((s) => s.noteDetailRequest);
   const consumeNoteDetailRequest = usePersonalStore((s) => s.consumeNoteDetailRequest);
+  const noteEditorId = usePersonalStore((s) => s.noteEditorId);
   useEffect(() => {
     if (!noteDetailRequest) return;
     const req = consumeNoteDetailRequest();
-    if (req) setSelected({ kind: "note", id: req.noteId });
-  }, [noteDetailRequest, consumeNoteDetailRequest]);
+    // 若中心区写作面正在编辑同一条闪记,不再在右栏开一份并行详情,避免两面同编互相覆盖
+    // (code-review:adversarial)。其他闪记仍照常右栏速览。
+    if (req && req.noteId !== noteEditorId) setSelected({ kind: "note", id: req.noteId });
+  }, [noteDetailRequest, consumeNoteDetailRequest, noteEditorId]);
 
   // 仅活跃(未归档)项目可作归档目标。
   const liveProjects = useMemo(() => projects.filter((p) => p.archivedAt == null), [projects]);

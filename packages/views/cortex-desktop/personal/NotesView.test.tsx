@@ -96,6 +96,7 @@ describe("NotesView 列表/详情", () => {
       ],
       sessions: [],
       noteDetailRequest: undefined,
+      noteEditorId: undefined,
     });
   });
 
@@ -308,6 +309,7 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
       ],
       sessions: [],
       noteDetailRequest: undefined,
+      noteEditorId: undefined,
     });
   });
 
@@ -495,6 +497,7 @@ describe("NotesView 深化健壮性", () => {
       projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
       sessions: [],
       noteDetailRequest: undefined,
+      noteEditorId: undefined,
     });
   });
 

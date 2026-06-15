@@ -93,6 +93,17 @@ describe("FlashNoteEditor 三档写作面", () => {
     });
   });
 
+  it("深化中闪记显示「放弃深化」,点击调 notesUpdate(status:draft)", async () => {
+    const { bridge, calls } = fakeBridge([
+      note({ id: "n1", projectId: "p1", status: "deepening", content: "卡住的深化", conversationIds: ["c1"] }),
+    ]);
+    renderEditor(bridge, "n1");
+    fireEvent.click(await screen.findByRole("button", { name: /放弃深化/ }));
+    await waitFor(() => {
+      expect(calls.update.some((u) => u.id === "n1" && u.patch.status === "draft")).toBe(true);
+    });
+  });
+
   it("已深化闪记展示深化产物链接与生成 plan 入口", async () => {
     const { bridge } = fakeBridge([
       note({
