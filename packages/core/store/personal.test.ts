@@ -703,3 +703,55 @@ describe("noteDetailRequest 闪记详情请求(消费即清)", () => {
     expect(usePersonalStore.getState().rightView).toBe("notes");
   });
 });
+
+describe("闪记中心区写作面视图态(noteEditorId)", () => {
+  it("openNoteEditor 置 noteEditorId 并互斥清其它中心视图", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.setState({ homeOpen: true, automationOpen: true, timelineProjectId: "p1" });
+    usePersonalStore.getState().openNoteEditor("n1");
+    const s = usePersonalStore.getState();
+    expect(s.noteEditorId).toBe("n1");
+    expect(s.homeOpen).toBe(false);
+    expect(s.automationOpen).toBe(false);
+    expect(s.timelineProjectId).toBeUndefined();
+  });
+
+  it("closeNoteEditor 清空 noteEditorId", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openNoteEditor("n1");
+    usePersonalStore.getState().closeNoteEditor();
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+  });
+
+  it("切到会话/时间线/首页/自动化时清空 noteEditorId(让位)", () => {
+    const seed = () => {
+      usePersonalStore.getState().hydrate({
+        ...base,
+        sessions: [{ id: "c1", title: "会话", agent: "claude", createdAt: 1, updatedAt: 1 }],
+        projects: [proj({ id: "p1" })],
+      });
+      usePersonalStore.getState().openNoteEditor("n1");
+    };
+    seed();
+    usePersonalStore.getState().setActiveSession("c1");
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+
+    seed();
+    usePersonalStore.getState().openTimeline("p1");
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+
+    seed();
+    usePersonalStore.getState().openHome();
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+
+    seed();
+    usePersonalStore.getState().openAutomation();
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+  });
+
+  it("noteEditorId 不进 toPersistedState(瞬态,重启不残留)", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openNoteEditor("n1");
+    expect("noteEditorId" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  });
+});
