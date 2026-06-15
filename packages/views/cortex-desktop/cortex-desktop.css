@@ -5981,9 +5981,9 @@ button.sb-row {
 .pw-note-cm-host > .cm-editor { height: 100%; width: 100%; }
 .pw-note-cm-host > .cm-editor.cm-focused { outline: none; }
 
-/* live 档:正文居中版心(对齐 Kun 的 816px measure;source 档保持全宽等宽) */
+/* live 档:正文居中版心(加宽到 ~960px,减少两侧留白;source 档保持全宽等宽) */
 .cm-write-live-preview .cm-content {
-  max-width: 816px;
+  max-width: 960px;
   margin: 0 auto;
   padding-left: clamp(24px, 5vw, 48px);
   padding-right: clamp(24px, 5vw, 48px);
@@ -6070,7 +6070,9 @@ button.sb-row {
 .cm-write-md-table th { background: var(--bg-chip); font-weight: 650; }
 
 /* ============ 闪记写作面 · 容器 / 头部 / 三档切换 ============ */
-.pw-note-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
+/* 撑满中心列剩余高度:.pw-center-col > :not(.pw-col-head) 已给 flex:1,这里用 flex 链而非
+   height:100%,确保 body/preview 一路 flex:1 撑到底(预览高度到底)。 */
+.pw-note-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .pw-note-editor.is-empty { align-items: center; justify-content: center; }
 
 .pw-note-editor-h {
@@ -6102,9 +6104,9 @@ button.sb-row {
 .pw-note-editor-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .pw-note-editor-body > .pw-note-cm-host { flex: 1; }
 .pw-note-editor-preview { flex: 1; overflow: auto; padding: clamp(28px, 5vh, 56px) 24px 120px; }
-/* 仅预览正文居中收窄(与 live 档 816px 版心呼应);.pw-todo-md 承载 markdown 元素样式 */
-.pw-note-editor-preview > .pw-todo-md { max-width: 768px; margin: 0 auto; }
-.pw-note-editor-preview > .pw-empty-hint { max-width: 768px; margin: 0 auto; }
+/* 仅预览正文居中收窄(与 live 档 960px 版心一致,减少两侧留白);.pw-todo-md 承载 markdown 元素样式 */
+.pw-note-editor-preview > .pw-todo-md { max-width: 960px; margin: 0 auto; }
+.pw-note-editor-preview > .pw-empty-hint { max-width: 960px; margin: 0 auto; }
 
 /* 深化产物 / 来源会话 footer(迁移自 NoteDetail) */
 .pw-note-editor-links { flex-shrink: 0; border-top: 1px solid var(--border-soft); padding: 10px 14px; }
