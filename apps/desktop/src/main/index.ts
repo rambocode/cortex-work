@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, powerMonitor } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, powerMonitor } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import {
@@ -13,6 +13,9 @@ import { initScheduler, rescheduleAll, stopScheduler } from "./automation/schedu
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
+import { toggleNotesOverlay, destroyNotesOverlay, getNotesOverlayWindow } from "./notes-overlay";
+import { registerNotesOverlayHandlers } from "./ipc/notes-overlay";
+import { resolveHotkeyRegistration, NOTES_HOTKEY_ACCELERATOR } from "./hotkey";
 import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 
@@ -21,6 +24,8 @@ const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 let mainWindow: BrowserWindow | null = null;
 // 真正退出标志:仅托盘「退出」/ before-quit 时置 true。关窗(X)默认只隐藏到后台。
 let isQuitting = false;
+// 闪记全局热键被占用时的降级提示文案(register 早于建窗,暂存待主窗口就绪后 best-effort 推送)。
+let notesHotkeyToast: string | null = null;
 
 function normalizedOS(): "macos" | "windows" | "linux" | "unknown" {
   switch (process.platform) {
@@ -103,6 +108,14 @@ if (!app.requestSingleInstanceLock()) {
     event.returnValue = { version: app.getVersion(), os: normalizedOS() };
   });
 
+  // 闪记热键降级提示:渲染端 mount 后拉取一次性消费(consume-pending,仿 spotlight,
+  // 避免 push 早于 listener 注册而丢提示);无降级返回 null。
+  ipcMain.handle("notes:consumeHotkeyDegraded", () => {
+    const t = notesHotkeyToast;
+    notesHotkeyToast = null;
+    return t;
+  });
+
   app.whenReady().then(async () => {
     electronApp.setAppUserModelId("ai.cortex.work");
     if (process.platform === "darwin" && app.dock) app.dock.setIcon(appIconPath);
@@ -116,6 +129,16 @@ if (!app.requestSingleInstanceLock()) {
     registerDesktopHandlers();
     registerLogHandlers();
     registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });
+    registerNotesOverlayHandlers();
+    // 全局热键唤起闪记浮层(全仓首次用 globalShortcut)。register 返回 false = 被占用 →
+    // 不抛错,降级到仅窗口图标入口,并把提示文案在主窗口就绪后 best-effort 推给渲染端 toast。
+    const hotkey = resolveHotkeyRegistration(
+      globalShortcut.register(NOTES_HOTKEY_ACCELERATOR, toggleNotesOverlay),
+    );
+    if (hotkey.degraded && hotkey.toast) {
+      console.warn(`[notes] 全局热键注册失败: ${hotkey.toast}`);
+      notesHotkeyToast = hotkey.toast;
+    }
     // 启动恢复桌面行为（登录项 + 供 ready-to-show 读 startMinimized）,须在建窗前。
     await initDesktopBehavior();
     await initLogger();
@@ -132,8 +155,10 @@ if (!app.requestSingleInstanceLock()) {
     createWindow();
 
     app.on("activate", () => {
-      // 排除 Spotlight 浮动窗口:避免「主窗口已关、只剩 Spotlight」时点 Dock 不重建主窗口。
-      const real = BrowserWindow.getAllWindows().filter((w) => w !== getSpotlightWindow());
+      // 排除 Spotlight / 闪记浮层:避免「主窗口已关、只剩浮窗」时点 Dock 不重建主窗口。
+      const real = BrowserWindow.getAllWindows().filter(
+        (w) => w !== getSpotlightWindow() && w !== getNotesOverlayWindow(),
+      );
       if (real.length === 0) createWindow();
       else showMainWindow();
     });
@@ -163,5 +188,7 @@ if (!app.requestSingleInstanceLock()) {
     closeAllWatchers();
     destroyTray();
     destroySpotlight();
+    destroyNotesOverlay();
+    globalShortcut.unregisterAll();
   });
 }

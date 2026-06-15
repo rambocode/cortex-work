@@ -251,6 +251,20 @@ const spotlight = {
   hide: (): void => ipcRenderer.send("spotlight:hide"),
 };
 
+// 闪记浮层窗口专用桥（overlay renderer 直接调用,不属于 DesktopBridge）。
+// resize/hide 给浮层 renderer 用;show 给主窗口 composer 图标入口用(降级后仍可用,不依赖热键)。
+// 闪记提交直接走 personal.notesAdd 落盘,不经主窗口接力,故无 submit/consumePending。
+const notesOverlay = {
+  resize: (height: number): void => ipcRenderer.send("notes-overlay:resize", height),
+  hide: (): void => ipcRenderer.send("notes-overlay:hide"),
+  show: (): void => ipcRenderer.send("notes-overlay:show"),
+};
+
+// 闪记全局热键被占用时的一次性降级提示:桌面壳 App.tsx mount 后拉取一次 → pushToast。
+// consume-pending(仿 spotlight),避免 push 早于 listener 注册丢提示;无降级返回 null。不属于 DesktopBridge。
+const consumeNotesHotkeyDegraded = (): Promise<string | null> =>
+  ipcRenderer.invoke("notes:consumeHotkeyDegraded");
+
 const desktopAPI = {
   appInfo: fetchAppInfo(),
   runtimeConfig: {
@@ -261,6 +275,8 @@ const desktopAPI = {
   } satisfies RuntimeConfig,
   personal,
   spotlight,
+  notesOverlay,
+  consumeNotesHotkeyDegraded,
 };
 
 try {

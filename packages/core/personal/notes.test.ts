@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { DesktopBridge } from "../desktop/bridge";
-import { notesAvailable, resolveDefaultNoteProject } from "./notes";
+import { noteContentToSubmit, notesAvailable, resolveDefaultNoteProject } from "./notes";
 
 describe("resolveDefaultNoteProject", () => {
   const projects = [{ id: "a" }, { id: "b" }, { id: "c" }];
@@ -72,6 +72,23 @@ describe("resolveDefaultNoteProject", () => {
     expect(
       resolveDefaultNoteProject({ activeProjectId: "a", projects: [] }),
     ).toBeUndefined();
+  });
+});
+
+describe("noteContentToSubmit（浮层空内容守卫）", () => {
+  it("纯空白 → null（不创建,浮层保持打开）", () => {
+    expect(noteContentToSubmit("")).toBeNull();
+    expect(noteContentToSubmit("   ")).toBeNull();
+    expect(noteContentToSubmit("\n\t  \n")).toBeNull();
+  });
+
+  it("有内容 → 去掉首尾空白后的文本", () => {
+    expect(noteContentToSubmit("  hello  ")).toBe("hello");
+    expect(noteContentToSubmit("foo\nbar")).toBe("foo\nbar");
+  });
+
+  it("内部空白保留,仅修剪首尾", () => {
+    expect(noteContentToSubmit("\n  记一笔  \n")).toBe("记一笔");
   });
 });
 

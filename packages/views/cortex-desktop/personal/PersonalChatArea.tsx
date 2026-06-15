@@ -85,7 +85,14 @@ function HiddenHistoryGate({
   );
 }
 
-export function PersonalChatArea({ onToast }: { onToast: (text: string) => void }) {
+export function PersonalChatArea({
+  onToast,
+  onOpenFlashNote,
+}: {
+  onToast: (text: string) => void;
+  // 闪记浮层入口(壳注入,透传给 composer 图标;web/旧壳缺省 → 隐藏)。
+  onOpenFlashNote?: () => void;
+}) {
   const projects = usePersonalStore((s) => s.projects);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
@@ -377,6 +384,7 @@ export function PersonalChatArea({ onToast }: { onToast: (text: string) => void 
         onChangeModel={(model) => updateSession(session.id, { model })}
         onChangePiModel={(providerId, model) => updateSession(session.id, { providerId, model })}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
+        onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}
       />
 

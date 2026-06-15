@@ -158,6 +158,8 @@ export interface PersistedState {
   lastAgent?: AgentKind;
   lastModel?: string;
   lastProviderId?: string;
+  // 最近活跃项目（闪记浮层默认归属推导用;归档/删除该项目时清空）。与 core 镜像逐字一致。
+  lastActiveProjectId?: string;
 }
 
 export interface ReadFileResult {

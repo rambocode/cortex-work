@@ -38,6 +38,13 @@ export function notesAvailable(bridge: DesktopBridge | null): boolean {
   return !!bridge?.notesList;
 }
 
+// 浮层空内容守卫：去掉首尾空白后为空 → 返回 null（调用方据此不创建、浮层保持打开,
+// 仿 SpotlightBar.submit）;否则返回修剪后的正文（内部空白保留,仅修剪首尾）。
+export function noteContentToSubmit(raw: string): string | null {
+  const text = raw.trim();
+  return text ? text : null;
+}
+
 // 默认归属推导：当前会话.projectId ?? activeProjectId ?? lastActiveProjectId；
 // 都没有 → undefined（未归类）。取「第一个有值」的来源后校验该 projectId 仍在
 // projects 中,失效则回落 undefined（不继续往下找,避免归到无关项目）。
