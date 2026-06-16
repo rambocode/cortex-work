@@ -6,13 +6,21 @@
 import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { Message } from "../types";
-import type { AgentKind, CliStreamEvent, HiddenHistoryMeta, ProjectMeta, SessionMeta } from "../desktop/types";
+import type {
+  AgentKind,
+  CliStreamEvent,
+  HiddenHistoryMeta,
+  PiSessionEvent,
+  ProjectMeta,
+  SessionMeta,
+} from "../desktop/types";
 import type { DesktopBridge } from "../desktop/bridge";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
 import { applyDeepenFinalize } from "./notes";
+import { markPiSessionGone } from "./pi-session";
 import { speakText } from "./tts";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
@@ -108,6 +116,11 @@ interface RunState {
   cwd?: string;
   changedFiles?: Set<string>;
   resultExitFallback?: ReturnType<typeof setTimeout>;
+  // 传输通道:cli=单发 startCli（claude/codex）;pi=RPC 长驻会话。pi 的看门狗绝不杀进程。
+  transport?: "cli" | "pi";
+  // pi 思考流（reasoning）的折叠块（独立于 text/tool 游标:思考通常先于正文,累进同一块）。
+  reasoningUid?: string;
+  reasoningText?: string;
 }
 
 const runs = new Map<string, RunState>();
@@ -631,6 +644,234 @@ export function __resetPersonalMessageRunsForTest(): void {
   bridgeRef = null;
 }
 
+// ── pi RPC 会话（pi --mode rpc）的事件折叠 + 轮生命周期 ─────────────────────
+// 复用上面单发的 runs / RunState / foldIntoCache / finalizeRun:pi 与单发语义重叠的
+// text/tool/result 走同一折叠管线;pi 专属 reasoning/compaction/retry/queue/thinking-level/
+// crashed 单独处理。关键发散:pi 进程长驻,看门狗只刷新 typing 等待时长、绝不 killCli;一轮
+// 由 result 事件（agent_end）收尾,不等 exit。
+
+/**
+ * 开启一个 pi 轮:创建 RunState（transport:"pi"）+ 只刷新等待时长的看门狗 + setRunning。
+ * runId/typingUid 由调用方（send）生成;调用方负责已 appendMsg 用户消息 + typing 占位。
+ */
+export function beginPiRun(
+  qc: QueryClient,
+  opts: {
+    runId: string;
+    sessionId: string;
+    typingUid: string;
+    cwd?: string;
+    promptText?: string;
+    phase?: "starting" | "thinking";
+  },
+): void {
+  const run: RunState = {
+    sessionId: opts.sessionId,
+    agent: "pi",
+    typingUid: opts.typingUid,
+    cursor: emptyFoldCursor(),
+    sawText: false,
+    buffer: "",
+    gotResult: false,
+    phase: opts.phase ?? "starting",
+    lastEventAt: Date.now(),
+    promptText: opts.promptText,
+    startedAt: Date.now(),
+    cwd: opts.cwd,
+    transport: "pi",
+  };
+  runs.set(opts.runId, run);
+  // pi 看门狗:只滚动显示等待时长,绝不杀进程（长驻;一轮靠 result/abort 收尾,无静默超时杀）。
+  run.watchdog = setInterval(() => {
+    const cur = runs.get(opts.runId);
+    if (!cur) return;
+    if (!cur.cursor.lastKind && !cur.reasoningUid && !cur.gotResult && cur.startedAt) {
+      updateTypingMsg(qc, cur.sessionId, cur.typingUid, typingText("pi", cur.phase, Date.now() - cur.startedAt));
+    }
+  }, 1000);
+  usePersonalStore.getState().setRunning(opts.sessionId, opts.runId);
+  usePetStore.getState().set("thinking");
+}
+
+// 冷启动会话:piOpen 完成后从「启动中」翻到「思考中」（复用会话则一开始即 thinking）。
+export function flipPiRunToThinking(qc: QueryClient, runId: string): void {
+  const run = runs.get(runId);
+  if (!run || run.phase === "thinking") return;
+  run.phase = "thinking";
+  updateTypingMsg(qc, run.sessionId, run.typingUid, typingText("pi", "thinking", 0));
+}
+
+// 思考流折叠:首个 reasoning delta 开块,后续累进同一 reasoning 块。
+function foldReasoning(qc: QueryClient, run: RunState, delta: string): void {
+  const { sessionId } = run;
+  if (run.reasoningUid) {
+    const text = (run.reasoningText ?? "") + delta;
+    run.reasoningText = text;
+    const ruid = run.reasoningUid;
+    setMessages(qc, sessionId, (prev) =>
+      prev.map((m) => (m.uid === ruid && m.kind === "reasoning" ? { ...m, text } : m)),
+    );
+    return;
+  }
+  const ruid = uid("re");
+  run.reasoningUid = ruid;
+  run.reasoningText = delta;
+  appendMsg(qc, sessionId, { kind: "reasoning", who: run.agent, time: realHHMM(), text: delta, uid: ruid });
+}
+
+// tool-end:把当前 agentLog 卡片里最后一个 running 项翻 check;出错则文本前缀 ⚠️。
+// 顺序工具精确;并发工具（罕见）best-effort 翻最后一个,不影响整体可读性。
+function finalizeLastToolItem(qc: QueryClient, run: RunState, isError: boolean): void {
+  if (run.cursor.lastKind !== "tool" || !run.cursor.logUid) return;
+  const logUid = run.cursor.logUid;
+  setMessages(qc, run.sessionId, (prev) =>
+    prev.map((m) => {
+      if (m.uid !== logUid || m.kind !== "agentLog") return m;
+      const items = [...m.items];
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        if (it && it.ic === "running") {
+          const text = isError && typeof it.text === "string" ? `⚠️ ${it.text}` : it.text;
+          items[i] = { ...it, ic: "check", text };
+          break;
+        }
+      }
+      return { ...m, items };
+    }),
+  );
+}
+
+function appendPiError(qc: QueryClient, run: RunState, error: string): void {
+  // 鉴权类错误补一句去哪配供应商（与单发 result 错误分支同款）。
+  const piAuthHint = /api.?key|auth|credential|unauthorized|401|provider/i.test(error)
+    ? "（请在 设置 → 供应商 添加供应商并填写 API Key）"
+    : "";
+  appendMsg(qc, run.sessionId, {
+    kind: "text",
+    who: run.agent,
+    time: realHHMM(),
+    text: `⚠️ 执行出错：${error || "未知错误"}${piAuthHint}`,
+    uid: uid("err"),
+  });
+}
+
+// 取某会话当前活跃的 pi run（一个会话同时至多一轮）。
+function piRunFor(sessionId: string): { runId: string; run: RunState } | undefined {
+  const runId = usePersonalStore.getState().runningBySession[sessionId];
+  if (!runId) return undefined;
+  const run = runs.get(runId);
+  return run ? { runId, run } : undefined;
+}
+
+// pi 归一化事件 → 消息缓存。无活跃 run 也要处理的状态/瞬态事件先分流;其余折叠进当前轮。
+function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent): void {
+  const store = usePersonalStore.getState();
+  switch (ev.type) {
+    case "queue":
+      store.setPiRuntime(sessionId, { steering: ev.steering, followUp: ev.followUp });
+      return;
+    case "compaction":
+      store.setPiRuntime(sessionId, { compacting: ev.phase === "start" });
+      return;
+    case "retry":
+      store.setPiRuntime(sessionId, { retry: { attempt: ev.attempt, max: ev.maxAttempts } });
+      return;
+    case "thinking-level":
+      store.setPiRuntime(sessionId, { thinkingLevel: ev.level });
+      return;
+    case "session-info":
+      return; // 预留:暂不据此改标题（避免覆盖用户改名）。
+    case "crashed": {
+      markPiSessionGone(sessionId);
+      const active = piRunFor(sessionId);
+      if (active) {
+        stopRunTimers(active.run);
+        runs.delete(active.runId);
+      }
+      clearTransient(qc, sessionId);
+      appendMsg(qc, sessionId, {
+        kind: "text",
+        who: "pi",
+        time: realHHMM(),
+        text: `⚠️ pi 会话已退出${ev.error ? `：${ev.error}` : ""}。下次发送会重新启动。`,
+        uid: uid("err"),
+      });
+      store.setRunning(sessionId, undefined);
+      store.setPiRuntime(sessionId, undefined);
+      flushChat(qc, sessionId);
+      usePetStore.getState().set("idle");
+      return;
+    }
+  }
+
+  const active = piRunFor(sessionId);
+  if (!active) return; // 轮已结束/未开始,丢弃残余流（与停止后丢弃 stdout 对称）。
+  const { runId, run } = active;
+  run.lastEventAt = Date.now();
+  if (run.phase === "starting") run.phase = "thinking";
+
+  switch (ev.type) {
+    case "reasoning":
+      usePetStore.getState().set("thinking");
+      dropMsg(qc, sessionId, run.typingUid);
+      foldReasoning(qc, run, ev.delta);
+      return;
+    case "text":
+      usePetStore.getState().set("replying");
+      dropMsg(qc, sessionId, run.typingUid);
+      run.buffer += ev.delta;
+      run.sawText = true;
+      foldIntoCache(qc, sessionId, run, { type: "text", delta: ev.delta });
+      return;
+    case "tool-start": {
+      usePetStore.getState().set("working");
+      dropMsg(qc, sessionId, run.typingUid);
+      const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
+      if (changed) (run.changedFiles ??= new Set()).add(changed);
+      foldIntoCache(qc, sessionId, run, { type: "tool", name: ev.name, detail: ev.detail });
+      return;
+    }
+    case "tool-end":
+      finalizeLastToolItem(qc, run, ev.isError);
+      return;
+    case "turn-end":
+      if (run.cursor.lastKind === "tool" && run.cursor.logUid) {
+        const logUid = run.cursor.logUid;
+        setMessages(qc, sessionId, (prev) => finalizeAgentLog(prev, logUid));
+      }
+      return;
+    case "error":
+      run.resultOk = false;
+      dropMsg(qc, sessionId, run.typingUid);
+      if (/^aborted$/i.test(ev.error)) {
+        appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: "⏹ 已中断本轮。", uid: uid("err") });
+      } else {
+        appendPiError(qc, run, ev.error);
+      }
+      return;
+    case "result":
+      if (ev.willRetry) {
+        // 自动重试:保留 run 等下一轮事件,不收尾（retry 事件已驱动状态指示）。
+        run.gotResult = false;
+        return;
+      }
+      run.gotResult = true;
+      if (run.resultOk === undefined) run.resultOk = true;
+      if (run.cursor.lastKind === "tool" && run.cursor.logUid) {
+        const logUid = run.cursor.logUid;
+        setMessages(qc, sessionId, (prev) => finalizeAgentLog(prev, logUid));
+      }
+      store.setPiRuntime(sessionId, undefined);
+      notifyTurnComplete(run.resultOk !== false);
+      finalizeRun(qc, runId, 0, undefined, sessionId);
+      return;
+  }
+}
+
+export function __handlePiEventForTest(qc: QueryClient, sessionId: string, ev: PiSessionEvent): void {
+  handlePiEvent(qc, sessionId, ev);
+}
+
 // ── session 标题自动生成 ──────────────────────────────────────────────────
 const DEFAULT_TITLE = /^Session \d+$/;
 
@@ -687,6 +928,21 @@ export function usePersonalCliEvents(): void {
       offEvent();
       offExit();
     };
+  }, [bridge, qc]);
+}
+
+// 全局只挂一次（PersonalWorkspace 根部，与 usePersonalCliEvents 并列）：订阅 pi RPC 事件流。
+// 单订阅按 uiSessionId 分派到 handlePiEvent（多会话隔离）。bridge 无 onPiEvent（web/旧壳）时
+// 整体 no-op，pi 退回单发或隐藏运行时控制。
+export function usePersonalPiEvents(): void {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!bridge?.onPiEvent) return;
+    // bridgeRef 通常已由 usePersonalCliEvents 设置;此处兜底确保 handlePiEvent 的落盘可用。
+    bridgeRef = bridge;
+    const off = bridge.onPiEvent((sessionId, ev) => handlePiEvent(qc, sessionId, ev));
+    return () => off();
   }, [bridge, qc]);
 }
 

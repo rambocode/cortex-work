@@ -7,7 +7,9 @@ import {
   __ensureChatLoadedForTest,
   __handleCliEventForTest,
   __handleCliExitForTest,
+  __handlePiEventForTest,
   __resetPersonalMessageRunsForTest,
+  beginPiRun,
   agentSessionPatch,
   buildAttachmentSystemPrompt,
   clearAgentSessionPatch,
@@ -41,6 +43,7 @@ beforeEach(() => {
     sessions: [],
     projects: [],
     runningBySession: {},
+    piRuntimeBySession: {},
   });
 });
 
@@ -458,5 +461,149 @@ describe("personal attachment system prompt", () => {
         "</todo>",
       ].join("\n"),
     );
+  });
+});
+
+describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
+  const piSession: SessionMeta = { ...baseSession, agent: "pi", agentSessionIds: {} };
+
+  function setupPiRun(qc: QueryClient, sessionId = "s1", runId = "prun-1"): string {
+    usePersonalStore.setState({
+      sessions: [{ ...piSession, id: sessionId }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId, sessionId, typingUid: `typ-${sessionId}`, cwd: "/proj", promptText: "hi" });
+    expect(usePersonalStore.getState().runningBySession[sessionId]).toBe(runId);
+    return runId;
+  }
+
+  function cacheOf(qc: QueryClient, sessionId = "s1"): Message[] {
+    return qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
+  }
+
+  it("text 增量折叠进单一文本块", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "你好" });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "世界" });
+    const texts = cacheOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toMatchObject({ text: "你好世界" });
+  });
+
+  it("reasoning 增量累进单一思考块,不与正文混", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "先想想" });
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "再想想" });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "答案" });
+    const msgs = cacheOf(qc);
+    const reasoning = msgs.filter((m) => m.kind === "reasoning");
+    const texts = msgs.filter((m) => m.kind === "text" && m.who === "pi");
+    expect(reasoning).toHaveLength(1);
+    expect(reasoning[0]).toMatchObject({ text: "先想想再想想" });
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toMatchObject({ text: "答案" });
+  });
+
+  it("tool-start + tool-end(同 toolCallId) 折叠为一张卡片并翻 check", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    const logs = cacheOf(qc).filter((m) => m.kind === "agentLog");
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ items: [{ ic: "check", text: "Bash · ls" }] });
+  });
+
+  it("tool-end 出错时项文本前缀 ⚠️", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "rm -rf" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: true });
+    const log = cacheOf(qc).find((m) => m.kind === "agentLog");
+    expect(log?.kind === "agentLog" && log.items[0]).toMatchObject({ ic: "check", text: "⚠️ Bash · rm -rf" });
+  });
+
+  it("result(willRetry:false) 收尾本轮:清 running + 落定", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "完成" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("result(willRetry:true) 不收尾,running 保持", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true });
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1");
+  });
+
+  it("error 事件 → ⚠️ 气泡;aborted → 中断轻提示", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc, "s1");
+    __handlePiEventForTest(qc, "s1", { type: "error", error: "401 unauthorized" });
+    const err = cacheOf(qc).find((m) => m.kind === "text" && typeof m.text === "string" && m.text.startsWith("⚠️"));
+    expect(err?.kind === "text" && err.text).toContain("执行出错");
+    expect(err?.kind === "text" && err.text).toContain("供应商");
+
+    const qc2 = new QueryClient();
+    setupPiRun(qc2, "s2", "prun-2");
+    __handlePiEventForTest(qc2, "s2", { type: "error", error: "aborted" });
+    const abortMsg = cacheOf(qc2, "s2").find((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("已中断"));
+    expect(abortMsg).toBeTruthy();
+  });
+
+  it("crashed → ⚠️ + 清 running/runtime", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    usePersonalStore.getState().setPiRuntime("s1", { steering: 2 });
+    __handlePiEventForTest(qc, "s1", { type: "crashed", error: "退出码 1" });
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    expect(usePersonalStore.getState().piRuntimeBySession.s1).toBeUndefined();
+    const crash = cacheOf(qc).find((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("已退出"));
+    expect(crash).toBeTruthy();
+  });
+
+  it("queue/compaction/retry/thinking-level 写入 piRuntimeBySession", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "queue", steering: 3, followUp: 1 });
+    __handlePiEventForTest(qc, "s1", { type: "compaction", phase: "start" });
+    __handlePiEventForTest(qc, "s1", { type: "retry", attempt: 2, maxAttempts: 3 });
+    __handlePiEventForTest(qc, "s1", { type: "thinking-level", level: "high" });
+    const rt = usePersonalStore.getState().piRuntimeBySession.s1;
+    expect(rt).toMatchObject({ steering: 3, followUp: 1, compacting: true, retry: { attempt: 2, max: 3 }, thinkingLevel: "high" });
+  });
+
+  it("事件按 uiSessionId 分派,A 会话不串进 B", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      sessions: [
+        { ...piSession, id: "s1" },
+        { ...piSession, id: "s2" },
+      ],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId: "r1", sessionId: "s1", typingUid: "t1" });
+    beginPiRun(qc, { runId: "r2", sessionId: "s2", typingUid: "t2" });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "给A" });
+    expect(cacheOf(qc, "s1").some((m) => m.kind === "text" && m.text === "给A")).toBe(true);
+    expect(cacheOf(qc, "s2").some((m) => m.kind === "text")).toBe(false);
+  });
+
+  it("看门狗只刷新等待时长,绝不收尾本轮（长驻进程）", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    // 推进远超单发静默阈值（300s）;pi 轮仍在跑,不被自动收尾。
+    await vi.advanceTimersByTimeAsync(400_000);
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1");
+    vi.useRealTimers();
   });
 });

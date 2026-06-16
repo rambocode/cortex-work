@@ -38,6 +38,15 @@ function newId(prefix: string): string {
 // 右栏当前视图（顶栏下拉选择）。后续新增视图只需扩此联合,不必逐处改字面量。
 export type RightView = "files" | "skills" | "todos" | "notes";
 
+// pi RPC 会话的运行时状态（瞬态展示用,不进 toPersistedState）。
+export interface PiRuntimeStatus {
+  steering?: number; // 待注入的 steer 条数
+  followUp?: number; // 待执行的 follow-up 条数
+  compacting?: boolean; // 正在压缩上下文
+  retry?: { attempt: number; max?: number }; // 自动重试中
+  thinkingLevel?: string; // 当前思考强度
+}
+
 export interface PersonalState {
   hydrated: boolean;
   projects: ProjectMeta[];
@@ -50,6 +59,9 @@ export interface PersonalState {
   collapsedProjects: Record<string, boolean>;
   // 每个 session 是否有正在运行的 CLI 轮次（runId），用于 UI 禁用发送等。
   runningBySession: Record<string, string | undefined>;
+  // pi RPC 会话运行时状态（瞬态,不持久化;由 handlePiEvent 写,头部/composer 读）:
+  // 待注入队列计数 / 压缩中 / 自动重试 / 思考强度。
+  piRuntimeBySession: Record<string, PiRuntimeStatus | undefined>;
   // 底部终端面板（不持久化;收起时保留 PTY 进程）。
   terminalOpen: boolean;
   // 待写入终端的文本（文件预览「发送到终端」中转;终端未开/PTY 未就绪时暂存,
@@ -144,6 +156,8 @@ export interface PersonalState {
   activateProject: (projectId: string) => void;
   toggleProjectCollapse: (id: string) => void;
   setRunning: (sessionId: string, runId: string | undefined) => void;
+  // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
+  setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
   toggleTerminal: () => void;
   // 发送文本到终端:暂存并确保终端面板打开,由 TerminalPanel 消费。
   sendToTerminal: (text: string) => void;
@@ -238,6 +252,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   todos: [],
   collapsedProjects: {},
   runningBySession: {},
+  piRuntimeBySession: {},
   terminalOpen: false,
   rightView: "todos" as const,
   homeOpen: true,
@@ -488,6 +503,14 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setRunning: (sessionId, runId) =>
     set((s) => ({ runningBySession: { ...s.runningBySession, [sessionId]: runId } })),
+
+  setPiRuntime: (sessionId, patch) =>
+    set((s) => ({
+      piRuntimeBySession: {
+        ...s.piRuntimeBySession,
+        [sessionId]: patch === undefined ? undefined : { ...s.piRuntimeBySession[sessionId], ...patch },
+      },
+    })),
 
   toggleTerminal: () => set((s) => ({ terminalOpen: !s.terminalOpen })),
 

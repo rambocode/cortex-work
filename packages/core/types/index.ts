@@ -95,6 +95,14 @@ export type Message =
       uid?: string;
     }
   | {
+      // pi RPC 思考流（thinking_delta）:可折叠的思考块,区别于正文 text。仅 reasoning 模型产出。
+      kind: "reasoning";
+      who: string;
+      time: string;
+      text: RichText;
+      uid?: string;
+    }
+  | {
       kind: "agentLog";
       who: string;
       time: string;
