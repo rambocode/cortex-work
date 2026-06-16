@@ -333,6 +333,11 @@ flowchart TD
 ### Deferred for later（origin 已划归后续阶段）
 - **阶段 3（深度定制）**：extension 工具确认 UI 闭环（`extension_ui_request`→确认弹窗→`extension_ui_response`）、自定义工具样例、`registerCommand` 斜杠命令、`compact`/`setThinking` 主动控制入口（本阶段只渲染其事件，不提供触发按钮）。
 - **阶段 4（健壮性）**：崩溃自动重启 + `switchSession(sessionFile)` 文件态上下文恢复、空闲回收（N 分钟无活动 stop + 惰性重启）、多会话进程上限、`followUp` 模式。
+- **阶段 4（健壮性，对抗式评审追加——依赖 pi 运行时时序/协议行为，需真实环境复现后处理）**：
+  - **事件代际校验**：`handlePiEvent` 折叠类事件（text/tool/result）完全信任 `piRunFor(sessionId)` 取到的当前 run，事件本身不携带轮次/进程身份。`crashed` 后立即重开 + 旧进程迟到 `result`、或并发 `editResend` 重入时，旧轮/旧进程的迟到事件可能落入新 run。建议事件入口做一次「本进程本轮」代际校验。本阶段已用同步发送锁 + crashed 清理 + 残余事件丢弃覆盖常见路径，深层乱序留阶段 4。
+  - **`setPiModel` 轮中途漂移**：会话正跑一轮时切模型，`updateSession` 先行写入（UI/持久化立即变），`setModelPi` 失败被静默吞 → UI 模型与 pi 进程实际模型漂移、用户无反馈。需明确「轮中切模型」契约（拒绝/下轮生效/回滚）。
+  - **`editResend` fork 失败可观测性**：`piFork` reject / `getForkMessages` 空时静默退化为「带旧记忆重发」，用户无感知记忆未截断。应提示。
+  - **后缀匹配误命中**：`piEntryMatchesText` 的 `endsWith` 在某原文恰为另一 entry 文本后缀、且 steer 注入消息扰乱 `sameTextOrdinal` 计数时，可能 fork 到错误分支点。需更稳的 entryId 映射（理想由主进程回带消息↔entryId 映射）。
 
 ### Deferred to Follow-Up Work（本阶段实现顺带发现，非本阶段目标）
 - 单发 pi 代码（`apps/desktop/src/main/agents/pi.ts` 的 `parseLine` 单发分支 + messages.ts isPi 单发拍平的死代码）删除——保留作兜底，RPC 路径稳定后单独 PR 清理。
