@@ -2,13 +2,34 @@
 // 保证两处渲染方式完全一致（react-markdown + remark-gfm + 自定义 callout / 链接 / 代码块）。
 // 外层容器仍由调用方套 .pw-todo-md（排版样式挂在该 class 上）。
 
-import { isValidElement, useState, type ComponentProps, type ReactElement } from "react";
+import {
+  isValidElement,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactElement,
+} from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import mermaid from "mermaid";
 import { useDesktopBridge } from "@cortex-work/core";
 import { Icon } from "@cortex-work/ui/icons";
 import { remarkCallouts } from "./markdownCallouts";
 import { splitFrontmatter, type FrontmatterEntry } from "./markdownFrontmatter";
+
+// 接入高亮后 <code> 的子节点会变成嵌套 <span>,直接拼 children 字符串不可靠;
+// react-markdown 传入的 hast node 是稳定的文本来源,递归收集其 value 子节点即原文。
+type HastNode = { value?: string; children?: HastNode[] };
+function nodeText(node: unknown): string {
+  const n = node as HastNode | undefined;
+  if (!n) return "";
+  if (typeof n.value === "string") return n.value;
+  if (Array.isArray(n.children)) return n.children.map(nodeText).join("");
+  return "";
+}
 
 // 预览里的链接:点击改走系统浏览器（Electron 里 a 默认导航会替换整个窗口）。
 // 仅放行 http(s);旧壳没有 openExternal 时退回 window.open。
@@ -33,19 +54,116 @@ function MdLink({ href, children, ...rest }: ComponentProps<"a">) {
   );
 }
 
-// 代码块:从 <code className="language-x"> 提取语言,角标显示在卡片右上角。
-function MdPre({ children, ...rest }: ComponentProps<"pre">) {
+// 代码块右上角复制按钮:hover 浮现,点击把原文写入剪贴板并短暂反馈。
+// navigator.clipboard 在浏览器与 Electron renderer(安全上下文)均可用;不可用时静默忽略。
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  return (
+    <button
+      type="button"
+      className="pw-md-copy"
+      data-copied={copied ? "true" : undefined}
+      aria-label={copied ? "已复制" : "复制代码"}
+      title={copied ? "已复制" : "复制"}
+      onClick={() => {
+        if (!navigator.clipboard?.writeText) return;
+        void navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true);
+            if (timer.current) clearTimeout(timer.current);
+            timer.current = setTimeout(() => setCopied(false), 1500);
+          })
+          .catch(() => {});
+      }}
+    >
+      {copied ? <Icon.Check size={13} /> : <Icon.Copy size={13} />}
+    </button>
+  );
+}
+
+// mermaid 渲染:仅客户端(useEffect 内)调用,模块级单例 initialize 只跑一次,
+// 静态 import 不在 import 期触碰 document;渲染失败时降级为显示原始源码。
+let mermaidReady = false;
+function ensureMermaidInit() {
+  if (mermaidReady) return;
+  mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default" });
+  mermaidReady = true;
+}
+
+function MermaidBlock({ src }: { src: string }) {
+  // useId 含冒号,作为 mermaid/DOM id 不合法,清洗为安全字符。
+  const renderId = `mmd-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
+  const [svg, setSvg] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    setSvg(null);
+    setError(false);
+    try {
+      ensureMermaidInit();
+    } catch {
+      if (mounted) setError(true);
+      return;
+    }
+    mermaid
+      .render(renderId, src)
+      .then(({ svg }) => {
+        if (mounted) setSvg(svg);
+      })
+      .catch(() => {
+        if (mounted) setError(true);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [src, renderId]);
+
+  if (error) {
+    return (
+      <pre className="pw-md-mermaid-error" data-lang="mermaid">
+        {src}
+      </pre>
+    );
+  }
+  if (svg) {
+    // svg 已由 mermaid 在 securityLevel:'strict' 下经内置 DOMPurify 消毒,可安全注入。
+    return <div className="pw-md-mermaid" role="img" dangerouslySetInnerHTML={{ __html: svg }} />;
+  }
+  return <div className="pw-md-mermaid" data-loading="" aria-busy="true" />;
+}
+
+// 代码块:从 <code className="language-x"> 提取语言。mermaid 块改走 MermaidBlock(不套高亮/复制壳),
+// 其余块套带复制按钮的外壳,高亮 span 由 rehype-highlight 注入。
+function MdPre({ children, node, ...rest }: ComponentProps<"pre"> & { node?: unknown }) {
   const code = isValidElement(children) ? (children as ReactElement<{ className?: string }>) : null;
   const lang = /language-([\w+-]+)/.exec(code?.props.className ?? "")?.[1];
+  if (lang === "mermaid") {
+    return <MermaidBlock src={nodeText(node).replace(/\n$/, "")} />;
+  }
   return (
-    <pre {...rest} data-lang={lang}>
-      {children}
-    </pre>
+    <div className="pw-md-codeblock">
+      <CopyButton text={nodeText(node).replace(/\n$/, "")} />
+      <pre {...rest} data-lang={lang}>
+        {children}
+      </pre>
+    </div>
   );
 }
 
 const MD_COMPONENTS = { a: MdLink, pre: MdPre };
 const MD_PLUGINS = [remarkGfm, remarkCallouts];
+// ignoreMissing:未注册语言(含 mermaid)原样保留,不报错、不吞内容。
+const MD_REHYPE_PLUGINS: import("react-markdown").Options["rehypePlugins"] = [
+  [rehypeHighlight, { ignoreMissing: true }],
+];
 
 // 文档头部的 YAML 元数据:默认折叠,只露一个入口,点击展开 key-value 列表。
 function Frontmatter({ meta }: { meta: FrontmatterEntry[] }) {
@@ -81,7 +199,11 @@ export function MarkdownView({ content }: { content: string }) {
   return (
     <>
       {meta ? <Frontmatter meta={meta} /> : null}
-      <Markdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>
+      <Markdown
+        remarkPlugins={MD_PLUGINS}
+        rehypePlugins={MD_REHYPE_PLUGINS}
+        components={MD_COMPONENTS}
+      >
         {body}
       </Markdown>
     </>

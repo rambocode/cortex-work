@@ -3576,6 +3576,79 @@ button.sb-row {
   user-select: none;
   pointer-events: none;
 }
+/* 代码块外壳:容纳右上角复制按钮（MdPre 包 .pw-md-codeblock > CopyButton + pre） */
+.pw-todo-md .pw-md-codeblock { position: relative; }
+.pw-todo-md .pw-md-copy {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card-2);
+  color: var(--text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.pw-todo-md .pw-md-codeblock:hover .pw-md-copy,
+.pw-todo-md .pw-md-copy:focus-visible { opacity: 1; }
+.pw-todo-md .pw-md-copy:hover { color: var(--text-1); background: var(--bg-hover); }
+.pw-todo-md .pw-md-copy[data-copied="true"] { color: var(--accent); opacity: 1; }
+/* 复制按钮存在时语言角标左移避让 */
+.pw-todo-md .pw-md-codeblock pre[data-lang]::after { right: 38px; }
+
+/* 语法高亮 token（rehype-highlight/highlight.js 注入 .hljs-*）:配色映射到主题语义色,
+   明暗主题自动适配;不引入库自带主题 CSS（见计划 KTD2）。 */
+.pw-todo-md .hljs-comment,
+.pw-todo-md .hljs-quote { color: var(--text-3); font-style: italic; }
+.pw-todo-md .hljs-keyword,
+.pw-todo-md .hljs-selector-tag,
+.pw-todo-md .hljs-built_in,
+.pw-todo-md .hljs-type { color: var(--violet); }
+.pw-todo-md .hljs-string,
+.pw-todo-md .hljs-regexp,
+.pw-todo-md .hljs-char,
+.pw-todo-md .hljs-meta .hljs-string { color: var(--green); }
+.pw-todo-md .hljs-number,
+.pw-todo-md .hljs-literal { color: var(--amber); }
+.pw-todo-md .hljs-title,
+.pw-todo-md .hljs-title.function_,
+.pw-todo-md .hljs-title.class_,
+.pw-todo-md .hljs-section,
+.pw-todo-md .hljs-name { color: var(--blue); }
+.pw-todo-md .hljs-attr,
+.pw-todo-md .hljs-attribute,
+.pw-todo-md .hljs-property,
+.pw-todo-md .hljs-variable,
+.pw-todo-md .hljs-template-variable { color: var(--accent); }
+.pw-todo-md .hljs-symbol,
+.pw-todo-md .hljs-bullet,
+.pw-todo-md .hljs-link,
+.pw-todo-md .hljs-meta { color: var(--link); }
+.pw-todo-md .hljs-deletion { color: var(--red); }
+.pw-todo-md .hljs-addition { color: var(--green); }
+.pw-todo-md .hljs-emphasis { font-style: italic; }
+.pw-todo-md .hljs-strong { font-weight: 700; }
+
+/* mermaid 渲染容器（MermaidBlock 注入消毒后的 svg；失败时降级为 .pw-md-mermaid-error pre） */
+.pw-todo-md .pw-md-mermaid {
+  margin: 10px 0;
+  text-align: center;
+  overflow-x: auto;
+}
+.pw-todo-md .pw-md-mermaid svg { max-width: 100%; height: auto; }
+.pw-todo-md .pw-md-mermaid[data-loading] {
+  min-height: 32px;
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--radius);
+}
 .pw-todo-md a { color: var(--link); }
 .pw-todo-md a:hover { text-decoration: underline; }
 .pw-todo-md strong { color: var(--text-1); }
