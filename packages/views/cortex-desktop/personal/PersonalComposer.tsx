@@ -17,6 +17,7 @@ export function PersonalComposer({
   onCancelEdit,
   onSend,
   onStop,
+  onSteer,
   onChangeModel,
   onChangePiModel,
   onToggleSkills,
@@ -30,6 +31,8 @@ export function PersonalComposer({
   onCancelEdit?: () => void;
   onSend: (text: string, attachments: PersonalAttachment[]) => void;
   onStop: () => void;
+  /** pi 运行中插话:注入当前轮（仅 pi 会话传入;ComposerShell 内部再按 isPi+running 门控）。 */
+  onSteer?: (text: string) => void;
   onChangeModel: (model: string) => void;
   // pi 多通道:同时切换通道与模型。
   onChangePiModel: (channelId: string, model: string) => void;
@@ -50,6 +53,7 @@ export function PersonalComposer({
       acceptComposerInsert
       onSend={onSend}
       onStop={onStop}
+      onSteer={onSteer}
       onChangeModel={onChangeModel}
       onChangePiModel={onChangePiModel}
       onToggleSkills={onToggleSkills}

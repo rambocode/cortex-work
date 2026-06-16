@@ -30,9 +30,11 @@ function makeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
     oneshotCli: vi.fn(async () => ""),
     piOpen: vi.fn(async (req: { uiSessionId: string }) => ({ uiSessionId: req.uiSessionId, sessionId: "pi-1" })),
     piPrompt: vi.fn(async () => undefined),
+    piSteer: vi.fn(async () => undefined),
     piAbort: vi.fn(async () => undefined),
     piFork: vi.fn(async () => undefined),
     piGetForkMessages: vi.fn(async () => ({ messages: [{ entryId: "e1", text: "原问题" }] })),
+    piSetModel: vi.fn(async () => undefined),
     onPiEvent: vi.fn(() => () => undefined),
     ...over,
   } as unknown as DesktopBridge;
@@ -209,5 +211,63 @@ describe("editResend 分叉", () => {
     expect(bridge.piFork).not.toHaveBeenCalled();
     expect(bridge.piOpen).not.toHaveBeenCalled();
     expect(bridge.startCli).toHaveBeenCalledTimes(2); // 原轮 + 重发
+  });
+});
+
+describe("steer / setPiModel（U6）", () => {
+  it("pi steer:回显用户气泡 + 调 piSteer", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "原问题", []);
+    });
+    await act(async () => {
+      await result.current.steer(piSession.id, "往左走");
+    });
+    expect(bridge.piSteer).toHaveBeenCalledWith("s-pi", "往左走");
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(piSession.id)) ?? [];
+    expect(msgs.some((m) => m.kind === "text" && m.who === "me" && m.text === "往左走")).toBe(true);
+  });
+
+  it("claude steer no-op:不调 piSteer", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.steer(claudeSession.id, "x");
+    });
+    expect(bridge.piSteer).not.toHaveBeenCalled();
+  });
+
+  it("setPiModel:会话已开 → updateSession + 实时 piSetModel", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "hi", []);
+    });
+    await act(async () => {
+      result.current.setPiModel(piSession, "deepseek", "deepseek-chat");
+    });
+    expect(bridge.piSetModel).toHaveBeenCalledWith("s-pi", "deepseek", "deepseek-chat");
+    expect(usePersonalStore.getState().sessions.find((s) => s.id === "s-pi")).toMatchObject({
+      providerId: "deepseek",
+      model: "deepseek-chat",
+    });
+  });
+
+  it("setPiModel:会话未开 → 仅 updateSession,不 piSetModel", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      result.current.setPiModel(piSession, "deepseek", "m1");
+    });
+    expect(bridge.piSetModel).not.toHaveBeenCalled();
+    expect(usePersonalStore.getState().sessions.find((s) => s.id === "s-pi")).toMatchObject({
+      providerId: "deepseek",
+      model: "m1",
+    });
   });
 });

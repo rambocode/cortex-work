@@ -28,6 +28,8 @@ import {
   isPiSessionOpen,
   markPiSessionGone,
   promptPi,
+  setModelPi,
+  steerPi,
 } from "./pi-session";
 import { speakText } from "./tts";
 
@@ -1129,6 +1131,10 @@ export interface PersonalActions {
     extraSystemPrompt?: string,
   ) => Promise<void>;
   stop: (sessionId: string) => Promise<void>;
+  // pi 运行中插话:把引导注入当前轮（仅 pi 会话有效;非 pi/未运行 no-op）。
+  steer: (sessionId: string, text: string) => Promise<void>;
+  // pi 运行时切模型:更新会话记忆 + 会话已开则实时下发（未开仅记忆,下次 open 生效）。
+  setPiModel: (session: SessionMeta, providerId: string, model: string) => void;
   // 编辑重发:清除目标用户消息及其后的全部消息,以新文本重新发送。
   editResend: (
     session: SessionMeta,
@@ -1355,6 +1361,33 @@ export function usePersonalActions(): PersonalActions {
     [bridge, qc],
   );
 
+  const steer = useCallback<PersonalActions["steer"]>(
+    async (sessionId, text) => {
+      if (!bridge || !text.trim()) return;
+      const session = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
+      if (session?.agent !== "pi") return;
+      // 把插话作为用户消息回显（让会话能看到注入了什么）,再注入当前轮;队列计数由 queue 事件回显。
+      appendMsg(qc, sessionId, { kind: "text", who: "me", time: realHHMM(), text, uid: uid("u") });
+      try {
+        await steerPi(bridge, sessionId, text);
+      } catch {
+        /* 会话未就绪/已退出:忽略 */
+      }
+    },
+    [bridge, qc],
+  );
+
+  const setPiModel = useCallback<PersonalActions["setPiModel"]>(
+    (session, providerId, model) => {
+      usePersonalStore.getState().updateSession(session.id, { providerId, model });
+      // 会话已开 → 实时切换（pi 长驻进程无需重启）;未开仅记忆,下次 open 即用新模型。
+      if (session.agent === "pi" && bridge && isPiSessionOpen(session.id)) {
+        void setModelPi(bridge, session.id, providerId, model).catch(() => undefined);
+      }
+    },
+    [bridge],
+  );
+
   const clearView = useCallback<PersonalActions["clearView"]>(
     (sessionId) => {
       const messages = qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
@@ -1363,5 +1396,5 @@ export function usePersonalActions(): PersonalActions {
     [qc],
   );
 
-  return { send, stop, editResend, clearView };
+  return { send, stop, steer, setPiModel, editResend, clearView };
 }

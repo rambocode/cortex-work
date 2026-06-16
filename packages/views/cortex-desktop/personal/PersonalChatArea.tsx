@@ -126,7 +126,7 @@ export function PersonalChatArea({
   const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
-  const { send, stop: stopRun, editResend, clearView } = usePersonalActions();
+  const { send, stop: stopRun, steer, setPiModel, editResend, clearView } = usePersonalActions();
   const [showHiddenHistory, setShowHiddenHistory] = useState(false);
   const [ttsPlayback, setTtsPlayback] = useState(getTtsPlaybackState);
   // 编辑重发:正在编辑的历史用户消息(原文填入 composer,发送时截断其后所有消息)。
@@ -408,8 +408,9 @@ export function PersonalChatArea({
           void send(session, project.path, text, attachments);
         }}
         onStop={() => void stopRun(session.id)}
+        onSteer={session.agent === "pi" ? (text) => void steer(session.id, text) : undefined}
         onChangeModel={(model) => updateSession(session.id, { model })}
-        onChangePiModel={(providerId, model) => updateSession(session.id, { providerId, model })}
+        onChangePiModel={(providerId, model) => setPiModel(session, providerId, model)}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}

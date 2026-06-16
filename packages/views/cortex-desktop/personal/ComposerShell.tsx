@@ -72,6 +72,7 @@ export function ComposerShell({
   placeholder,
   onSend,
   onStop,
+  onSteer,
   onChangeModel,
   onChangePiModel,
   onToggleSkills,
@@ -96,6 +97,8 @@ export function ComposerShell({
   placeholder?: string;
   onSend: (text: string, attachments: PersonalAttachment[]) => void;
   onStop?: () => void;
+  /** pi 运行中插话:把引导注入当前轮（仅 pi + 提供时启用;非 pi/单发不传 → 运行中只能停止）。 */
+  onSteer?: (text: string) => void;
   onChangeModel: (model: string) => void;
   // pi 多供应商:同时切换 provider 与模型。
   onChangePiModel: (providerId: string, model: string) => void;
@@ -135,12 +138,24 @@ export function ComposerShell({
     taRef.current.style.height = Math.min(140, taRef.current.scrollHeight) + "px";
   }, [text]);
 
+  // pi 运行中可插话（steer）:把引导注入当前轮。仅 pi + 提供 onSteer 时启用。
+  const canSteer = !!onSteer && isPi && running;
+
   const send = () => {
     if (!text.trim() || running) return;
     onSend(text, attachments);
     setText("");
     setAttachments([]);
   };
+
+  const steer = () => {
+    if (!text.trim() || !onSteer) return;
+    onSteer(text);
+    setText("");
+  };
+
+  // Enter:运行中可插话则 steer,否则 send（send 内部对 running 短路）。
+  const submit = () => (canSteer ? steer() : send());
 
   // 进入编辑重发:原文替换输入框内容并聚焦。
   useEffect(() => {
@@ -286,7 +301,7 @@ export function ComposerShell({
     }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      send();
+      submit();
     }
   };
 
@@ -405,7 +420,9 @@ export function ComposerShell({
             }}
             onKeyDown={onKey}
             placeholder={
-              running
+              canSteer
+                ? "插话:输入引导回车注入当前轮,或点击右侧停止…"
+                : running
                 ? "Agent 正在运行,可点击右侧停止…"
                 : placeholder ?? `给 ${AGENT_PLACEHOLDER_NAME[agent]} 发消息,可从右侧拖入 Prompt 作为 skill…`
             }
@@ -475,9 +492,21 @@ export function ComposerShell({
             )}
           </span>
           {running ? (
-            <button className="send" onClick={onStop} title="停止">
-              <Icon.Stop size={15} />
-            </button>
+            <>
+              {canSteer ? (
+                <button
+                  className={`send ${text.trim() ? "" : "muted"}`}
+                  onClick={steer}
+                  disabled={!text.trim()}
+                  title="插话:注入当前轮 (Enter)"
+                >
+                  <Icon.Send size={15} />
+                </button>
+              ) : null}
+              <button className="send pw-stop-btn" onClick={onStop} title="停止">
+                <Icon.Stop size={15} />
+              </button>
+            </>
           ) : (
             <button
               className={`send ${text.trim() ? "" : "muted"}`}
