@@ -25,6 +25,9 @@ import type {
   NoteMeta,
   NoteStatus,
   PersistedState,
+  PiOpenRequest,
+  PiOpenResult,
+  PiSessionEvent,
   PromptNode,
   ReadFileResult,
   SkillMeta,
@@ -184,6 +187,35 @@ const personal = {
     const listener = (_e: IpcRendererEvent, exit: CliExitEvent) => cb(exit);
     ipcRenderer.on("cli:exit", listener);
     return () => ipcRenderer.removeListener("cli:exit", listener);
+  },
+  // ── pi RPC 长驻会话（pi --mode rpc）。claude/codex 仍走上面的 cli 单发通道。 ────────
+  // 一个 UI 会话 = 一个长驻 pi 子进程;命令经 invoke,事件流经 onPiEvent。
+  piOpen: (req: PiOpenRequest): Promise<PiOpenResult> => ipcRenderer.invoke("pi:open", req),
+  piPrompt: (uiSessionId: string, message: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:prompt", uiSessionId, message),
+  piSteer: (uiSessionId: string, message: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:steer", uiSessionId, message),
+  piFollowUp: (uiSessionId: string, message: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:followUp", uiSessionId, message),
+  piAbort: (uiSessionId: string): Promise<unknown> => ipcRenderer.invoke("pi:abort", uiSessionId),
+  piFork: (uiSessionId: string, entryId: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:fork", uiSessionId, entryId),
+  piGetForkMessages: (uiSessionId: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:getForkMessages", uiSessionId),
+  piSetModel: (uiSessionId: string, provider: string, modelId: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:setModel", uiSessionId, provider, modelId),
+  piSetThinking: (uiSessionId: string, level: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:setThinking", uiSessionId, level),
+  piCompact: (uiSessionId: string, customInstructions?: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:compact", uiSessionId, customInstructions),
+  piGetState: (uiSessionId: string): Promise<unknown> => ipcRenderer.invoke("pi:getState", uiSessionId),
+  piGetStats: (uiSessionId: string): Promise<unknown> => ipcRenderer.invoke("pi:getStats", uiSessionId),
+  piClose: (uiSessionId: string): Promise<void> => ipcRenderer.invoke("pi:close", uiSessionId),
+  onPiEvent: (cb: (uiSessionId: string, event: PiSessionEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { uiSessionId: string; event: PiSessionEvent }) =>
+      cb(payload.uiSessionId, payload.event);
+    ipcRenderer.on("pi:event", listener);
+    return () => ipcRenderer.removeListener("pi:event", listener);
   },
   // 内嵌终端（xterm ↔ node-pty）
   ptySpawn: (req: { id: string; cwd?: string; cols: number; rows: number }): Promise<{ ok: boolean; cwd?: string; error?: string }> =>

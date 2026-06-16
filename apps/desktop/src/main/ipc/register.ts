@@ -5,6 +5,7 @@ import { registerStoreHandlers } from "./store";
 import { registerNotesHandlers } from "./notes";
 import { registerSkillsHandlers } from "./skills";
 import { registerCliHandlers } from "./cli";
+import { registerPiSessionHandlers } from "./pi-session";
 import { registerChatHandlers } from "./chat";
 import { registerTimelineHandlers } from "./timeline";
 import { registerPushHandlers } from "./push";
@@ -25,6 +26,7 @@ export function registerIpcHandlers(): void {
   registerNotesHandlers();
   registerSkillsHandlers();
   registerCliHandlers();
+  registerPiSessionHandlers();
   registerChatHandlers();
   registerTimelineHandlers();
   registerPushHandlers();
@@ -39,6 +41,7 @@ export function registerIpcHandlers(): void {
 }
 
 export { killAllCli } from "./cli";
+export { killAllPiSessions } from "./pi-session";
 export { killAllPty } from "./pty";
 export { closeAllWatchers } from "./watch";
 export { killAllAutomations } from "../automation/runner";

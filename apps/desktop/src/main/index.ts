@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import {
   registerIpcHandlers,
   killAllCli,
+  killAllPiSessions,
   killAllPty,
   closeAllWatchers,
   killAllAutomations,
@@ -237,6 +238,7 @@ if (!app.requestSingleInstanceLock()) {
   // 不调用 app.quit()。
   app.on("window-all-closed", () => {
     killAllCli();
+    killAllPiSessions();
     killAllPty();
     closeAllWatchers();
   });
@@ -247,6 +249,7 @@ if (!app.requestSingleInstanceLock()) {
     stopScheduler();
     killAllAutomations();
     killAllCli();
+    killAllPiSessions();
     killAllPty();
     closeAllWatchers();
     destroyTray();

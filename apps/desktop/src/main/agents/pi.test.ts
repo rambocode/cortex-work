@@ -7,6 +7,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("./pi-locate", () => ({
   resolvePiBinary: () => "/fake/resources/pi/pi",
 }));
+// pi.ts 经 ./pi-providers 引入 safeId,后者顶层 import electron app —— mock 掉避免加载真 electron。
+vi.mock("electron", () => ({ app: {} }));
 
 import { piAdapter } from "./pi";
 import type { CliStartRequest } from "../ipc/types";

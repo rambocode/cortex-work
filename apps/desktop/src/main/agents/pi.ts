@@ -17,6 +17,7 @@
 //    agent_end 不发,避免覆盖掉这条错误结果。
 
 import { resolvePiBinary } from "./pi-locate";
+import { safeId } from "./pi-providers";
 import type { CliStartRequest, CliStreamEvent } from "../ipc/types";
 import type { AgentAdapter } from "./index";
 
@@ -61,7 +62,8 @@ export const piAdapter: AgentAdapter = {
     //（实测 --no-extensions 与显式 -e 可共存）；provider id 即 pi provider 名。
     if (req.piExtensionPath) {
       args.push("-e", req.piExtensionPath, "-a");
-      if (req.provider) args.push("--provider", req.provider.id);
+      // provider 名必须用 safeId（与 pi-providers.registerProvider 注册名同源,id 含空格/大写时才选得中）。
+      if (req.provider) args.push("--provider", safeId(req.provider.id));
     }
     if (req.model) args.push("--model", req.model);
     if (req.resumeSessionId) args.push("--session", req.resumeSessionId);

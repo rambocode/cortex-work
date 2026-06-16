@@ -19,7 +19,9 @@ export interface ProviderInput {
 export const PI_KEY_ENV = "CORTEX_PI_KEY";
 
 // 文件名/ provider 名安全化:仅保留字母数字与 - _,其余替换为 -。
-function safeId(id: string): string {
+// 导出供 buildArgs/buildRpcArgs 复用:`--provider` 必须与 registerProvider 的注册名同源,
+// 否则 id 含空格/大写时选不中。
+export function safeId(id: string): string {
   const s = id.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
   return s || "provider";
 }
