@@ -570,6 +570,52 @@ export interface CliExitEvent {
   error?: string; // spawn 失败（如 ENOENT）等
 }
 
+// ── pi RPC 长驻会话（--mode rpc） ────────────────────────────────────────
+// 与 apps/desktop/src/main/ipc/types.ts 的 Pi* 类型镜像（core 不能依赖 app 包）。
+// pi 走 RPC 会话通道（可 steer/abort/fork/运行时切模型）；claude/codex 仍走单发
+// startCli 管线。事件契约（已实测）见 docs/plans/2026-06-16-003-feat-pi-rpc-session-plan.md。
+
+// pi RPC 会话启动参数（renderer → 主进程 pi:open）。
+export interface PiOpenRequest {
+  uiSessionId: string; // 渲染层会话标识（一个 UI 会话 = 一个长驻 pi 进程）;复用个人会话 id。
+  cwd: string;
+  model?: string;
+  useOwnSkills?: boolean;
+  // 自定义供应商:与 CliStartRequest.provider 同形;主进程据此生成 extension 并注入 key。
+  provider?: {
+    id: string;
+    baseUrl: string;
+    apiKey?: string;
+    models: { id: string; name?: string }[];
+  };
+  // 主进程内部填充:生成的 extension 文件绝对路径（renderer 不传,buildRpcArgs 读取）。
+  piExtensionPath?: string;
+}
+
+// pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。
+export interface PiOpenResult {
+  uiSessionId: string;
+  sessionId: string;
+}
+
+// pi RPC 会话的归一化事件（主进程 → 渲染层 pi:event），由 AgentSessionEvent 映射而来
+// （mapPiEvent）。比单发 CliStreamEvent 更细:区分 reasoning / 工具起止 / 轮结束 / 压缩 /
+// 重试 / 队列,并以 result.willRetry 表达自动重试。
+export type PiSessionEvent =
+  | { type: "text"; delta: string } // assistant 正文增量
+  | { type: "reasoning"; delta: string } // 思考增量（仅 reasoning 模型）
+  | { type: "tool-start"; name: string; toolCallId: string; detail?: string }
+  | { type: "tool-end"; name: string; toolCallId: string; isError: boolean }
+  | { type: "turn-end" } // 一轮（含工具）结束
+  | { type: "error"; error: string } // assistant stopReason=error/aborted
+  | { type: "result"; willRetry: boolean } // 一次 run 结束（agent_end）
+  | { type: "compaction"; phase: "start" | "end"; reason?: string }
+  | { type: "retry"; attempt: number; maxAttempts?: number; error?: string }
+  | { type: "queue"; steering: number; followUp: number }
+  | { type: "session-info"; name?: string }
+  | { type: "thinking-level"; level: string }
+  | { type: "crashed"; error?: string }; // 进程非正常退出（session 注入,非 RPC 事件）
+
 // 菜单栏 Spotlight 浮动框提交的发起意图（bar → 主进程 → 主窗口接力新建会话）。
 export interface SpotlightIntent {
   id: string; // 去重用唯一 id

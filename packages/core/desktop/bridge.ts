@@ -32,6 +32,9 @@ import type {
   NoteStatus,
   OpenAiCompleteRequest,
   PersistedState,
+  PiOpenRequest,
+  PiOpenResult,
+  PiSessionEvent,
   ProviderProbeInput,
   ProviderProbeResult,
   PromptNode,
@@ -157,6 +160,29 @@ export interface DesktopBridge {
   trimAgentSession?(req: TrimSessionRequest): Promise<boolean>;
   onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;
   onCliExit(cb: (exit: CliExitEvent) => void): () => void;
+  // ── pi RPC 长驻会话（pi --mode rpc）。claude/codex 仍走上面单发 startCli/killCli/onCliEvent。 ──
+  // 一个 UI 会话 = 一个长驻 pi 子进程;命令经 invoke,事件流经 onPiEvent。全部可选（web/旧壳
+  // 缺失时为 undefined → UI 退回单发或隐藏运行时控制）。uiSessionId 复用个人会话 id。
+  piOpen?(req: PiOpenRequest): Promise<PiOpenResult>;
+  piPrompt?(uiSessionId: string, message: string): Promise<unknown>;
+  // 运行中插话（注入当前轮的引导）/ 排队追问。
+  piSteer?(uiSessionId: string, message: string): Promise<unknown>;
+  piFollowUp?(uiSessionId: string, message: string): Promise<unknown>;
+  // 优雅打断当前轮（不杀长驻进程,进程存活待下一轮）。
+  piAbort?(uiSessionId: string): Promise<unknown>;
+  // 编辑重发:在 entryId 处分支（替代单发的 trimAgentSession 截断会话文件）。
+  piFork?(uiSessionId: string, entryId: string): Promise<unknown>;
+  piGetForkMessages?(uiSessionId: string): Promise<unknown>;
+  // 运行时切模型 / 思考强度 / 压缩上下文。
+  piSetModel?(uiSessionId: string, provider: string, modelId: string): Promise<unknown>;
+  piSetThinking?(uiSessionId: string, level: string): Promise<unknown>;
+  piCompact?(uiSessionId: string, customInstructions?: string): Promise<unknown>;
+  piGetState?(uiSessionId: string): Promise<unknown>;
+  piGetStats?(uiSessionId: string): Promise<unknown>;
+  // 显式关闭会话（终止子进程,幂等）。
+  piClose?(uiSessionId: string): Promise<void>;
+  // 归一化事件流（仿 onCliEvent:回调 + 返回退订）。按 uiSessionId 分派。
+  onPiEvent?(cb: (uiSessionId: string, event: PiSessionEvent) => void): () => void;
   // 内嵌终端（xterm.js ↔ node-pty）
   ptySpawn(req: PtySpawnRequest): Promise<PtySpawnResult>;
   ptyInput(id: string, data: string): void;
