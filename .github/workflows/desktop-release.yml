@@ -161,8 +161,12 @@ jobs:
           dmg="$(ls -1 "$src"/Cortex\ Desktop-*-arm64.dmg | head -n 1)"
           cp "$dmg" "$work/"
           dmg_copy="$work/$(basename "$dmg")"
-          spctl --assess --type open --context context:primary-signature --verbose "$dmg_copy"
-          xcrun stapler validate "$dmg_copy" || echo "DMG 无 stapled ticket;app ticket 校验已通过。"
+          # dmg 为人工分发容器:app 已签名+公证+staple(上面是硬门)。dmg 本身是否独立签名/公证取决于
+          # electron-builder(它公证的是 app),故下面两条仅信息性报告,不因 dmg 无独立签名/票据而 fail 构建。
+          spctl --assess --type open --context context:primary-signature --verbose "$dmg_copy" \
+            || echo "DMG 无独立代码签名/公证 — 可接受(挂载后 app 已公证,Gatekeeper 认 app)。"
+          xcrun stapler validate "$dmg_copy" \
+            || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
 
       # 构建产物 artifact:build 档取回产物的通道(也确认产物确实生成);publish 档作冗余备份。
       - name: Upload artifacts
