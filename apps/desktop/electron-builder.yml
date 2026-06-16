@@ -23,6 +23,52 @@ files:
   - "!**/*.map"
   # pi 改用 resources/pi 下的 bun 自包含二进制（extraResources）,npm 包不必进 asar,排除省体积。
   - "!**/node_modules/@earendil-works/**"
+  # —— 以下 node_modules 仅 renderer 使用。renderer 未启用 externalizeDepsPlugin,electron-vite
+  # 已把它们 bundle 进 out/，asar 里这份完整源码纯属冗余（monaco 一家就 93.5MB）。
+  # main/preload 走 externalizeDepsPlugin,只 external 其实际 require 的
+  # electron-updater/nodemailer/node-pty/croner/@electron-toolkit,故排除下列纯前端依赖
+  # 不影响运行时解析。验证:打包后启动应用,控制台无 "Cannot find module"。
+  - "!**/node_modules/monaco-editor/**"        # 93.5MB 代码编辑器
+  - "!**/node_modules/@xterm/**"               # 5.6MB  终端 UI
+  - "!**/node_modules/@codemirror/**"          # 2.8MB  编辑器组件
+  - "!**/node_modules/highlight.js/**"         # 1.6MB  代码高亮
+  - "!**/node_modules/marked/**"               # markdown 渲染
+  - "!**/node_modules/tailwind-merge/**"
+  # LLM SDK 及其传递依赖（core 引入,全部随 renderer bundle）:
+  - "!**/node_modules/@google/genai/**"        # 11.8MB
+  - "!**/node_modules/web-streams-polyfill/**" # 8.5MB
+  - "!**/node_modules/@mistralai/**"           # 6.5MB
+  - "!**/node_modules/openai/**"               # 5.6MB
+  - "!**/node_modules/@anthropic-ai/**"        # 3.1MB
+  - "!**/node_modules/protobufjs/**"           # 2.8MB
+  - "!**/node_modules/@smithy/**"
+  - "!**/node_modules/fast-xml-parser/**"
+  - "!**/node_modules/gaxios/**"
+  - "!**/node_modules/@silvia-odwyer/**"       # 2.1MB photon 图像（pi 二进制自带,asar 这份冗余）
+  - "!**/node_modules/zod/**"                  # 4.0MB schema 校验
+  # mermaid 图表渲染闭包（notes md 预览引入,纯 renderer,已 bundle 进 out/）。
+  # mermaid 一家连同 cytoscape 图布局 / katex 公式 / d3 ≈ 107MB,是当前 asar 最大冗余。
+  - "!**/node_modules/mermaid/**"              # 72.3MB
+  - "!**/node_modules/@mermaid-js/**"          # 10.6MB 解析器
+  - "!**/node_modules/cytoscape/**"            # 5.1MB
+  - "!**/node_modules/cytoscape-*/**"          # 8.9MB fcose 等布局插件
+  - "!**/node_modules/cose-base/**"
+  - "!**/node_modules/layout-base/**"
+  - "!**/node_modules/@dagrejs/**"
+  - "!**/node_modules/dagre-d3-es/**"
+  - "!**/node_modules/katex/**"                # 3.8MB 数学公式
+  - "!**/node_modules/dompurify/**"            # 1.6MB SVG 消毒
+  - "!**/node_modules/d3/**"                   # 1.0MB
+  - "!**/node_modules/d3-*/**"                 # d3 微包闭包(scale/shape/...)
+  - "!**/node_modules/langium/**"              # mermaid 新解析器依赖
+  - "!**/node_modules/chevrotain/**"
+  - "!**/node_modules/@chevrotain/**"
+  - "!**/node_modules/khroma/**"
+  - "!**/node_modules/stylis/**"
+  # 其他纯 renderer 工具库:
+  - "!**/node_modules/es-toolkit/**"           # 2.4MB
+  - "!**/node_modules/lodash-es/**"            # 0.6MB
+  - "!**/node_modules/@lezer/**"               # codemirror 语法定义
 extraResources:
   # pi 的 bun 二进制 + 旁置资产（theme/assets/export-html/wasm）,由 scripts/build-pi-binary.mjs
   # 生成；落到 <App>/Contents/Resources/pi/,pi-locate.resolvePiBinary 打包态指向这里。
