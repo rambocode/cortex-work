@@ -20,7 +20,15 @@ import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
 import { applyDeepenFinalize } from "./notes";
-import { markPiSessionGone } from "./pi-session";
+import {
+  abortPi,
+  ensurePiSession,
+  forkPi,
+  getForkMessagesPi,
+  isPiSessionOpen,
+  markPiSessionGone,
+  promptPi,
+} from "./pi-session";
 import { speakText } from "./tts";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
@@ -872,6 +880,116 @@ export function __handlePiEventForTest(qc: QueryClient, sessionId: string, ev: P
   handlePiEvent(qc, sessionId, ev);
 }
 
+// pi:prompt 只收 message 字符串,无 appendSystemPrompt 通道（与单发 startCli 不同）。
+// 故把项目/skills/todos 注入内联到消息前（阶段2 取舍:pi 把它当消息一部分;后续可给
+// pi:prompt 加系统提示通道）。run.promptText 仍存纯文本（标题/时间线用）。
+function buildPiPromptMessage(text: string, appendSystemPrompt?: string): string {
+  return appendSystemPrompt ? `${appendSystemPrompt}\n\n${text}` : text;
+}
+
+// pi 轮启动/受理失败:收尾本轮（drop typing + ⚠️ + 清 running）。
+function failPiTurn(qc: QueryClient, sessionId: string, runId: string, err: unknown): void {
+  const run = runs.get(runId);
+  if (run) {
+    stopRunTimers(run);
+    runs.delete(runId);
+    dropMsg(qc, sessionId, run.typingUid);
+  }
+  clearTransient(qc, sessionId);
+  const msg = err instanceof Error ? err.message : String(err);
+  appendMsg(qc, sessionId, {
+    kind: "text",
+    who: "pi",
+    time: realHHMM(),
+    text: `⚠️ pi 会话启动失败：${msg}`,
+    uid: uid("err"),
+  });
+  usePersonalStore.getState().setRunning(sessionId, undefined);
+  usePersonalStore.getState().setPiRuntime(sessionId, undefined);
+  usePetStore.getState().set("idle");
+  flushChat(qc, sessionId);
+}
+
+// 发起一轮 pi RPC:beginPiRun（典型不杀进程的看门狗）+ 惰性 ensurePiSession（冷启就绪后翻
+// 「思考中」）+ promptPi。失败 → failPiTurn。调用方已 appendMsg 用户消息 + typing 占位。
+async function sendPiTurn(
+  qc: QueryClient,
+  bridge: DesktopBridge,
+  session: SessionMeta,
+  projectPath: string,
+  text: string,
+  appendSystemPrompt: string | undefined,
+  ids: { runId: string; typingUid: string },
+): Promise<void> {
+  const { runId, typingUid } = ids;
+  const reuse = isPiSessionOpen(session.id); // 复用已开会话:一开即「思考中」;冷启显「启动中」。
+  beginPiRun(qc, {
+    runId,
+    sessionId: session.id,
+    typingUid,
+    cwd: projectPath,
+    promptText: text,
+    phase: reuse ? "thinking" : "starting",
+  });
+
+  // provider/model 解析:复用单发 isPi 分支策略（只取已启用 provider;停用/失效落空走 pi 内置默认）。
+  const providerSettings = usePersonalStore.getState().providerSettings;
+  const provider = providerSettings.providers.find(
+    (p) => p.id === (session.providerId ?? providerSettings.defaultProviderId) && p.enabled,
+  );
+  const model = session.model ?? providerSettings.defaultModel ?? provider?.models[0]?.id;
+
+  try {
+    await ensurePiSession(bridge, {
+      uiSessionId: session.id,
+      cwd: projectPath,
+      model,
+      useOwnSkills: session.useOwnSkills,
+      provider: provider
+        ? { id: provider.id, baseUrl: provider.baseUrl, apiKey: provider.apiKey, models: provider.models }
+        : undefined,
+    });
+    flipPiRunToThinking(qc, runId); // 冷启就绪 → typing 翻「思考中」。
+    await promptPi(bridge, session.id, buildPiPromptMessage(text, appendSystemPrompt));
+    autoTitle(bridge, session, text); // pi 走 fallback 截断标题（autoTitle 内部仅 claude 跑 haiku）。
+  } catch (err) {
+    failPiTurn(qc, session.id, runId, err);
+  }
+}
+
+// 编辑重发的 pi 分支:经 getForkMessages 定位编辑轮在 pi 侧的 entryId 并 fork（替代单发的
+// trimAgentSession 截断会话文件）。pi 侧 entry.text 可能含内联系统提示前缀,故按「后缀匹配」+
+// 同文序号定位。映射失败/会话未开 → 返回 false（调用方退化为只截断 UI + 重发,不 fork）。
+function piEntryMatchesText(entryText: string, originalText: string): boolean {
+  const a = entryText.trim();
+  const b = originalText.trim();
+  return a === b || a.endsWith(b);
+}
+
+async function forkPiAtEditedMessage(
+  bridge: DesktopBridge,
+  sessionId: string,
+  prevMessages: Message[],
+  msgUid: string,
+): Promise<boolean> {
+  if (!isPiSessionOpen(sessionId) || !bridge.piGetForkMessages) return false;
+  const original = prevMessages.find((m) => m.uid === msgUid);
+  const originalText = original?.kind === "text" && typeof original.text === "string" ? original.text : undefined;
+  if (!originalText) return false;
+  const data = (await getForkMessagesPi(bridge, sessionId)) as
+    | { messages?: Array<{ entryId: string; text: string }> }
+    | undefined;
+  const entries = data?.messages ?? [];
+  const matches = entries.filter((e) => piEntryMatchesText(e.text, originalText));
+  if (matches.length === 0) return false;
+  // 同文序号:UI 里相同原文的第几条 → fork 列表里相同原文的第几条（越界回退到末条）。
+  const ordinal = sameTextOrdinal(prevMessages, msgUid, originalText);
+  const target = matches[ordinal >= 0 && ordinal < matches.length ? ordinal : matches.length - 1];
+  if (!target) return false;
+  await forkPi(bridge, sessionId, target.entryId);
+  return true;
+}
+
 // ── session 标题自动生成 ──────────────────────────────────────────────────
 const DEFAULT_TITLE = /^Session \d+$/;
 
@@ -1052,6 +1170,16 @@ export function usePersonalActions(): PersonalActions {
         uid: typingUid,
       });
 
+      const attachmentPrompt = buildAttachmentSystemPrompt(attachments);
+      // 项目信息（Spotlight 注入）在前、附件 skills/todos 在后;两者皆空仍传 undefined。
+      const appendSystemPrompt = [extraSystemPrompt, attachmentPrompt].filter(Boolean).join("\n\n") || undefined;
+
+      // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。
+      if (session.agent === "pi") {
+        await sendPiTurn(qc, bridge, session, projectPath, text, appendSystemPrompt, { runId, typingUid });
+        return;
+      }
+
       const run: RunState = {
         sessionId: session.id,
         agent: session.agent,
@@ -1108,29 +1236,10 @@ export function usePersonalActions(): PersonalActions {
       usePersonalStore.getState().setRunning(session.id, runId);
       usePetStore.getState().set("thinking");
 
-      const attachmentPrompt = buildAttachmentSystemPrompt(attachments);
-      // 项目信息（Spotlight 注入）在前、附件 skills/todos 在后;两者皆空仍传 undefined。
-      const appendSystemPrompt = [extraSystemPrompt, attachmentPrompt].filter(Boolean).join("\n\n") || undefined;
-
-      // pi 兜底 Agent:按会话选中的供应商（或默认 provider）拍平传入主进程,
-      // 由主进程生成 extension + 注入 key env;model 取会话模型/默认模型/provider 首模型。
-      const providerSettings = usePersonalStore.getState().providerSettings;
-      const isPi = session.agent === "pi";
-      // 只解析「已启用」的 provider（与 UI 下拉、automation runner 一致）;停用/失效则
-      // 落空,pi 走自身内置默认 provider,不会用停用凭据运行。
-      const provider = isPi
-        ? providerSettings.providers.find(
-            (p) => p.id === (session.providerId ?? providerSettings.defaultProviderId) && p.enabled,
-          )
-        : undefined;
-      const piModel = isPi
-        ? session.model ?? providerSettings.defaultModel ?? provider?.models[0]?.id
-        : session.model;
-
       try {
         let resumeSessionId = sessionResumeId(session);
         let sendSession = session;
-        if (resumeSessionId && session.agent !== "pi" && bridge.agentSessionExists) {
+        if (resumeSessionId && bridge.agentSessionExists) {
           const exists = await bridge.agentSessionExists({ agent: session.agent, agentSessionId: resumeSessionId });
           if (!exists) {
             const patch = clearAgentSessionPatch(session, session.agent);
@@ -1146,13 +1255,10 @@ export function usePersonalActions(): PersonalActions {
           agent: sendSession.agent,
           cwd: projectPath,
           prompt: text,
-          model: piModel,
+          model: sendSession.model,
           resumeSessionId,
           appendSystemPrompt,
           useOwnSkills: sendSession.useOwnSkills,
-          provider: provider
-            ? { id: provider.id, baseUrl: provider.baseUrl, apiKey: provider.apiKey, models: provider.models }
-            : undefined,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
         autoTitle(bridge, sendSession, text);
@@ -1172,6 +1278,16 @@ export function usePersonalActions(): PersonalActions {
       const prev = qc.getQueryData<Message[]>(personalChatKeys.detail(session.id)) ?? [];
       const truncated = truncateForEdit(prev, msgUid);
       if (truncated === null) return;
+
+      // pi:在 pi 侧 fork 到分支点（替代 trimAgentSession 截断会话文件）,再以新文本重发。
+      // 映射失败/会话未开 → best-effort 退化:只截断 UI + 重发（pi 仍带旧记忆,阶段2 取舍）。
+      if (session.agent === "pi") {
+        await forkPiAtEditedMessage(bridge, session.id, prev, msgUid).catch(() => false);
+        qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
+        flushChat(qc, session.id);
+        await send(session, projectPath, text, attachments);
+        return;
+      }
 
       // 同步清理 agent 侧记忆,让它和 UI 一致:
       // - 编辑的是第一条 → 直接丢弃 resume id,重开全新会话(记忆天然干净);
@@ -1205,10 +1321,22 @@ export function usePersonalActions(): PersonalActions {
 
   const stop = useCallback<PersonalActions["stop"]>(
     async (sessionId) => {
-      const runId = usePersonalStore.getState().runningBySession[sessionId];
+      const store = usePersonalStore.getState();
+      const runId = store.runningBySession[sessionId];
       if (!bridge || !runId) return;
-      await bridge.killCli(runId);
-      // 兜底:若 4 秒内没收到 exit 事件（进程早已不在/事件丢失）,强制复位 UI。
+      const session = store.sessions.find((x) => x.id === sessionId);
+      if (session?.agent === "pi") {
+        // pi:优雅打断当前轮（不杀长驻进程;收尾由 error/result 事件驱动,下面 4 秒兜底复位）。
+        // try/catch 兼顾同步抛（会话未就绪）与异步拒（会话已退出）,均靠兜底复位 UI。
+        try {
+          await abortPi(bridge, sessionId);
+        } catch {
+          /* 会话未就绪/已退出,忽略,靠下面兜底 */
+        }
+      } else {
+        await bridge.killCli(runId);
+      }
+      // 兜底:若 4 秒内没收到收尾事件（进程早已不在/事件丢失）,强制复位 UI。
       setTimeout(() => {
         const store = usePersonalStore.getState();
         if (store.runningBySession[sessionId] === runId) {

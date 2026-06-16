@@ -190,16 +190,25 @@ export {
   usePersonalChat,
   usePersonalActions,
   usePersonalCliEvents,
+  usePersonalPiEvents,
   truncateForEdit,
   sameTextOrdinal,
   typingText,
   RUN_START_TIMEOUT_MS,
   RUN_STALL_TIMEOUT_MS,
+  __resetPersonalMessageRunsForTest,
   type PersonalAttachment,
   type PromptAttachment,
   type TodoAttachment,
   type PersonalActions,
 } from "./personal/messages";
+export {
+  closePiSession,
+  closeAllPiSessions,
+  isPiSessionOpen,
+  piRpcAvailable,
+  __resetPiSessionsForTest,
+} from "./personal/pi-session";
 export { isLikelyFilePath, resolveProjectFileRef } from "./personal/filePaths";
 export {
   timelineKeys,

@@ -105,6 +105,9 @@ describe("NotesView 列表/详情", () => {
         { id: "p2", name: "beta", path: "/code/beta", addedAt: NOW },
       ],
       sessions: [],
+      // 深化新会话默认 agent 走 defaultAgent;钉 claude 让深化编排走单发 startCli 路径
+      // （否则回退 pi → RPC piOpen,与本测试关注的 cwd/outPath/systemPrompt 注入无关）。
+      agentsAvailable: { claude: true },
       noteDetailRequest: undefined,
       noteEditorId: undefined,
     });
@@ -320,6 +323,9 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
         { id: "p2", name: "beta", path: "/code/beta", addedAt: NOW },
       ],
       sessions: [],
+      // 深化新会话默认 agent 走 defaultAgent;钉 claude 让深化编排走单发 startCli 路径
+      // （否则回退 pi → RPC piOpen,与本测试关注的 cwd/outPath/systemPrompt 注入无关）。
+      agentsAvailable: { claude: true },
       noteDetailRequest: undefined,
       noteEditorId: undefined,
     });
@@ -506,6 +512,9 @@ describe("NotesView 深化健壮性", () => {
       activeSessionId: undefined,
       projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
       sessions: [],
+      // 深化新会话默认 agent 走 defaultAgent;钉 claude 让深化编排走单发 startCli 路径
+      // （否则回退 pi → RPC piOpen,与本测试关注的 cwd/outPath/systemPrompt 注入无关）。
+      agentsAvailable: { claude: true },
       noteDetailRequest: undefined,
       noteEditorId: undefined,
     });
