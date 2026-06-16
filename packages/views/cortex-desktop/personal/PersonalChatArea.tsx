@@ -99,6 +99,7 @@ export function PersonalChatArea({
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
   const createSession = usePersonalStore((s) => s.createSession);
   const runningBySession = usePersonalStore((s) => s.runningBySession);
+  const piRuntimeBySession = usePersonalStore((s) => s.piRuntimeBySession);
   const updateSession = usePersonalStore((s) => s.updateSession);
   const ttsSettings = usePersonalStore((s) => s.ttsSettings);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
@@ -187,6 +188,8 @@ export function PersonalChatArea({
   if (!session || !project || !contact) return <EmptyState text="选择或新建一个 Session" hint="在左侧项目上点 + 新建" />;
 
   const running = !!runningBySession[session.id];
+  // pi RPC 会话运行时状态（压缩/重试/待注入队列/思考强度）;非 pi 会话恒 undefined。
+  const piRuntime = session.agent === "pi" ? piRuntimeBySession[session.id] : undefined;
 
   // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为绝对路径,请求右栏预览并展开右栏。
   // 无项目会话(无 realProject)与解析爬出项目(within=false)一律短路,不派发。
@@ -244,6 +247,17 @@ export function PersonalChatArea({
             <span className="pw-head-path" title={project.path}>
               {realProject ? `${project.name} · ${project.path}` : project.name}
             </span>
+            {piRuntime?.compacting ? <span className="pw-pi-chip">压缩上下文…</span> : null}
+            {piRuntime?.retry ? (
+              <span className="pw-pi-chip pw-pi-warn">
+                重试中 {piRuntime.retry.attempt}
+                {piRuntime.retry.max ? `/${piRuntime.retry.max}` : ""}
+              </span>
+            ) : null}
+            {piRuntime?.steering ? <span className="pw-pi-chip">{piRuntime.steering} 条待注入</span> : null}
+            {piRuntime?.thinkingLevel ? (
+              <span className="pw-pi-chip">思考 {piRuntime.thinkingLevel}</span>
+            ) : null}
           </div>
         </div>
         <div className="ch-spacer" />

@@ -182,6 +182,33 @@ function TextMessage({
   );
 }
 
+// pi 思考流（reasoning）:可折叠的「思考过程」块,弱化样式区别于正文。默认展开,可点击收起。
+function ReasoningMessage({ m, grouped }: { m: Extract<Message, { kind: "reasoning" }>; grouped: boolean }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className={`msg ${grouped ? "is-grouped" : ""}`}>
+      <MessageAvatar who={m.who} />
+      <div className="m-body">
+        <MessageHeader who={m.who} time={m.time} />
+        <div className="reasoning-block">
+          <div
+            className="rb-h"
+            onClick={() => setOpen(!open)}
+            style={{ cursor: "pointer", userSelect: "none" }}
+          >
+            <Icon.Sparkle size={12} />
+            <span>思考过程</span>
+            <span className="al-chev" data-open={open}>
+              <Icon.Chevron size={11} />
+            </span>
+          </div>
+          {open ? <div className="rb-body">{renderRich(m.text)}</div> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AgentLogMessage({
   m,
   grouped,
@@ -473,7 +500,12 @@ export function MessageStream({
           lastWho = null;
           return <DaySep key={key} label={m.label} />;
         }
-        const grouped = lastWho === m.who && m.kind !== "approve" && m.kind !== "diff" && m.kind !== "agentLog";
+        const grouped =
+          lastWho === m.who &&
+          m.kind !== "approve" &&
+          m.kind !== "diff" &&
+          m.kind !== "agentLog" &&
+          m.kind !== "reasoning";
         lastWho = m.who;
         switch (m.kind) {
           case "text":
@@ -489,6 +521,8 @@ export function MessageStream({
                 projectPath={projectPath}
               />
             );
+          case "reasoning":
+            return <ReasoningMessage key={key} m={m} grouped={grouped} />;
           case "agentLog":
             return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
           case "diff":
