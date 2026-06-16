@@ -44,6 +44,8 @@ export async function ensurePiSession(bridge: DesktopBridge, req: PiOpenRequest)
   const opening = bridge
     .piOpen(req)
     .then((res) => {
+      // 空/假 sessionId 视作未就绪失败:否则 ready 判定（看 piSessionId）会反复穿透重复 spawn。
+      if (!res.sessionId) throw new Error("pi 会话未返回 sessionId");
       handle.ready = true;
       handle.piSessionId = res.sessionId;
       handle.opening = undefined;

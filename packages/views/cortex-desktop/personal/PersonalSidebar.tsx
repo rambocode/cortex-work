@@ -4,10 +4,12 @@
 
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   closePiSession,
   defaultAgent,
   partitionProjects,
+  reapSessionRun,
   useCortexUIStore,
   useDesktopBridge,
   usePersonalStore,
@@ -45,6 +47,7 @@ function SessionRow({
   const archiveSession = usePersonalStore((s) => s.archiveSession);
   const unarchiveSession = usePersonalStore((s) => s.unarchiveSession);
   const removeSession = usePersonalStore((s) => s.removeSession);
+  const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const archived = session.archivedAt != null;
 
@@ -65,6 +68,7 @@ function SessionRow({
       setConfirming(true);
       return;
     }
+    reapSessionRun(qc, session.id); // 先回收 renderer run(停看门狗/清 running),防孤儿 interval
     removeSession(session.id); // 即时移除 UI
     void bridge?.deleteChat?.(session.id); // 物理删磁盘消息文件
     void closePiSession(bridge, session.id); // 终止该会话的 pi 长驻进程（非 pi 会话 no-op）

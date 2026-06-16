@@ -196,6 +196,7 @@ export {
   typingText,
   RUN_START_TIMEOUT_MS,
   RUN_STALL_TIMEOUT_MS,
+  reapSessionRun,
   __resetPersonalMessageRunsForTest,
   type PersonalAttachment,
   type PromptAttachment,

@@ -135,6 +135,10 @@ interface RunState {
 
 const runs = new Map<string, RunState>();
 
+// pi 同会话「发送在途」同步锁:覆盖 running 置位前的异步窗口（ensureChatLoaded 等 await）,
+// 防并发/抖动 send 同会话造孤儿 run + 永不自杀的看门狗。beginPiRun 置 running 后即交棒释放。
+const piSendStarting = new Set<string>();
+
 // 看门狗阈值:启动阶段(一个事件都没收到)90 秒;运行中静默 300 秒
 // (工具可能长时间执行不产生事件,放宽避免误杀)。
 export const RUN_START_TIMEOUT_MS = 90_000;
@@ -651,6 +655,7 @@ export function __handleCliExitForTest(
 export function __resetPersonalMessageRunsForTest(): void {
   for (const run of runs.values()) stopRunTimers(run);
   runs.clear();
+  piSendStarting.clear();
   bridgeRef = null;
 }
 
@@ -773,9 +778,17 @@ function piRunFor(sessionId: string): { runId: string; run: RunState } | undefin
   return run ? { runId, run } : undefined;
 }
 
+// pi 硬失败（坏 key/限流/provider 挂）时,单发 pi 适配器实测:进程 exit 0、错误只在
+// message_end{stopReason:error},agent_end 可能不发（见 apps/desktop/src/main/agents/pi.ts:15）。
+// RPC 用 agent_end 作终结符,故 error 后给一段宽限:无 result/retry 跟进则自行收尾,防永久卡 running。
+const PI_ERROR_FINALIZE_GRACE_MS = 4_000;
+
 // pi 归一化事件 → 消息缓存。无活跃 run 也要处理的状态/瞬态事件先分流;其余折叠进当前轮。
 function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent): void {
   const store = usePersonalStore.getState();
+  // 任何新事件都说明本轮仍活跃 → 取消下面 error 分支挂的「防卡死」兜底收尾。
+  const activeAny = piRunFor(sessionId);
+  if (activeAny) stopResultExitFallback(activeAny.run);
   switch (ev.type) {
     case "queue":
       store.setPiRuntime(sessionId, { steering: ev.steering, followUp: ev.followUp });
@@ -858,11 +871,23 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent): 
       } else {
         appendPiError(qc, run, ev.error);
       }
+      // 防卡死:挂宽限兜底,若 pi 不发后续 agent_end/retry 则自行收尾（下个事件会取消它）。
+      run.resultExitFallback = setTimeout(
+        () => finalizeRun(qc, runId, 0, undefined, sessionId),
+        PI_ERROR_FINALIZE_GRACE_MS,
+      );
       return;
     case "result":
       if (ev.willRetry) {
         // 自动重试:保留 run 等下一轮事件,不收尾（retry 事件已驱动状态指示）。
+        // 复位上一尝试的失败态 + 折叠游标 + buffer,避免成功的重试被误判失败或文本续错块。
         run.gotResult = false;
+        run.resultOk = undefined;
+        run.cursor = emptyFoldCursor();
+        run.reasoningUid = undefined;
+        run.reasoningText = undefined;
+        run.buffer = "";
+        run.sawText = false;
         return;
       }
       run.gotResult = true;
@@ -880,6 +905,22 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent): 
 
 export function __handlePiEventForTest(qc: QueryClient, sessionId: string, ev: PiSessionEvent): void {
   handlePiEvent(qc, sessionId, ev);
+}
+
+// 强制回收某会话的 renderer run:停看门狗/兜底 + 删 run + 清 running/runtime + 收瞬态。
+// 用于「删除/关闭一个仍在跑的 pi 会话」——pi 看门狗无超时自杀,不回收会永久空转 interval
+// 并向已删会话缓存写 typing（见 closePiSession 调用点）。对无活跃 run 的会话幂等 no-op。
+export function reapSessionRun(qc: QueryClient, sessionId: string): void {
+  for (const [id, r] of runs) {
+    if (r.sessionId === sessionId) {
+      stopRunTimers(r);
+      runs.delete(id);
+    }
+  }
+  const store = usePersonalStore.getState();
+  store.setRunning(sessionId, undefined);
+  store.setPiRuntime(sessionId, undefined);
+  clearTransient(qc, sessionId);
 }
 
 // pi:prompt 只收 message 字符串,无 appendSystemPrompt 通道（与单发 startCli 不同）。
@@ -933,6 +974,7 @@ async function sendPiTurn(
     promptText: text,
     phase: reuse ? "thinking" : "starting",
   });
+  piSendStarting.delete(session.id); // running 已置位,发送在途锁交棒（之后并发 send 被 running 挡）。
 
   // provider/model 解析:复用单发 isPi 分支策略（只取已启用 provider;停用/失效落空走 pi 内置默认）。
   const providerSettings = usePersonalStore.getState().providerSettings;
@@ -1154,6 +1196,12 @@ export function usePersonalActions(): PersonalActions {
   const send = useCallback<PersonalActions["send"]>(
     async (session, projectPath, text, attachments, extraSystemPrompt) => {
       if (!bridge || !text.trim()) return;
+      // pi 长驻会话:同会话已有在跑的一轮、或一轮正在启动(同步锁)时不再起新轮（pi 冷启 ~790ms
+      // 窗口里 Enter 抖动/并发 send 会造孤儿 run + 永不自杀的看门狗;运行中 UI 也只应能停止/插话）。
+      if (session.agent === "pi") {
+        if (usePersonalStore.getState().runningBySession[session.id] || piSendStarting.has(session.id)) return;
+        piSendStarting.add(session.id);
+      }
       const runId = uid("run");
       const typingUid = uid("typing");
 
@@ -1343,16 +1391,18 @@ export function usePersonalActions(): PersonalActions {
         await bridge.killCli(runId);
       }
       // 兜底:若 4 秒内没收到收尾事件（进程早已不在/事件丢失）,强制复位 UI。
+      // 仅当本次捕获的 runId 仍是当前轮才清,且只删该 runId（不扫该会话全部 run,避免误掐
+      // 期间已开的新一轮）。
       setTimeout(() => {
         const store = usePersonalStore.getState();
         if (store.runningBySession[sessionId] === runId) {
-          runs.forEach((r, id) => {
-            if (r.sessionId === sessionId) {
-              stopWatchdog(r);
-              runs.delete(id);
-            }
-          });
+          const r = runs.get(runId);
+          if (r) {
+            stopRunTimers(r);
+            runs.delete(runId);
+          }
           store.setRunning(sessionId, undefined);
+          store.setPiRuntime(sessionId, undefined);
           clearTransient(qc, sessionId);
           flushChat(qc, sessionId);
         }
@@ -1366,12 +1416,14 @@ export function usePersonalActions(): PersonalActions {
       if (!bridge || !text.trim()) return;
       const session = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
       if (session?.agent !== "pi") return;
+      // 会话尚未就绪（冷启 ~790ms 窗口）时不回显也不注入:否则会留一条 pi 永不响应的孤立气泡。
+      if (!isPiSessionOpen(sessionId)) return;
       // 把插话作为用户消息回显（让会话能看到注入了什么）,再注入当前轮;队列计数由 queue 事件回显。
       appendMsg(qc, sessionId, { kind: "text", who: "me", time: realHHMM(), text, uid: uid("u") });
       try {
         await steerPi(bridge, sessionId, text);
       } catch {
-        /* 会话未就绪/已退出:忽略 */
+        /* 会话已退出:忽略 */
       }
     },
     [bridge, qc],

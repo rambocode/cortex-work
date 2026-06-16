@@ -98,6 +98,20 @@ describe("send 分叉", () => {
     expect(bridge.startCli).not.toHaveBeenCalled();
   });
 
+  it("同会话并发两次 send:同步锁挡掉第二次,只起一轮", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await Promise.all([
+        result.current.send(piSession, "/proj", "一", []),
+        result.current.send(piSession, "/proj", "二", []),
+      ]);
+    });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piPrompt).toHaveBeenCalledTimes(1); // 第二次被发送在途锁/ running 挡掉
+  });
+
   it("pi 复用已开会话:第二轮不再 piOpen", async () => {
     const bridge = makeBridge();
     const qc = new QueryClient();
@@ -238,6 +252,19 @@ describe("steer / setPiModel（U6）", () => {
       await result.current.steer(claudeSession.id, "x");
     });
     expect(bridge.piSteer).not.toHaveBeenCalled();
+  });
+
+  it("会话未就绪（冷启窗口）steer:不回显气泡也不 steerPi（避免孤立气泡）", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    // 未先 send 开会话 → isPiSessionOpen 为假。
+    await act(async () => {
+      await result.current.steer(piSession.id, "插话");
+    });
+    expect(bridge.piSteer).not.toHaveBeenCalled();
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(piSession.id)) ?? [];
+    expect(msgs.some((m) => m.kind === "text" && m.text === "插话")).toBe(false);
   });
 
   it("setPiModel:会话已开 → updateSession + 实时 piSetModel", async () => {

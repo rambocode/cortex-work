@@ -10,6 +10,7 @@ import {
   __handlePiEventForTest,
   __resetPersonalMessageRunsForTest,
   beginPiRun,
+  reapSessionRun,
   agentSessionPatch,
   buildAttachmentSystemPrompt,
   clearAgentSessionPatch,
@@ -605,5 +606,56 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     await vi.advanceTimersByTimeAsync(400_000);
     expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1");
     vi.useRealTimers();
+  });
+
+  it("error 后无 result:宽限到期自行收尾清 running（防 pi 不发 agent_end 卡死）", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "error", error: "401 unauthorized" });
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1"); // 暂不收尾,等宽限
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("error 紧跟 result:下个事件取消宽限,不重复收尾", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "error", error: "boom" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    const before = (qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? []).length;
+    await vi.advanceTimersByTimeAsync(6_000); // 宽限已被取消,不应再动消息
+    const after = (qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? []).length;
+    expect(after).toBe(before);
+    vi.useRealTimers();
+  });
+
+  it("error→willRetry:true→text→result:重试文本进新块,不续在错误后", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "首答" });
+    __handlePiEventForTest(qc, "s1", { type: "error", error: "transient" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true }); // 复位游标
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "重试答案" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    const texts = cacheOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
+    // 首答与重试答案各自成块（游标已在 willRetry 复位,不并入同一块）。
+    expect(texts.some((m) => m.kind === "text" && m.text === "重试答案")).toBe(true);
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+  });
+
+  it("reapSessionRun:停看门狗 + 删 run + 清 running/runtime（删运行中会话用）", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    usePersonalStore.getState().setPiRuntime("s1", { steering: 2 });
+    reapSessionRun(qc, "s1");
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    expect(usePersonalStore.getState().piRuntimeBySession.s1).toBeUndefined();
+    // 残余事件到来已无活跃 run,被安全丢弃（不抛、不写）。
+    expect(() => __handlePiEventForTest(qc, "s1", { type: "text", delta: "晚到" })).not.toThrow();
+    expect(cacheOf(qc).some((m) => m.kind === "text" && m.text === "晚到")).toBe(false);
   });
 });
