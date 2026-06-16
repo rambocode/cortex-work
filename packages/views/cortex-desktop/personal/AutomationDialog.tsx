@@ -1,4 +1,4 @@
-// 创建/编辑自动化弹窗。复用 SettingsDialog 外壳风格（pw-dlg-overlay/pw-dlg/
+// 创建/编辑自动化弹窗。复用居中模态外壳样式（pw-dlg-overlay/pw-dlg/
 // pw-dlg-x）+ pw-set-field 表单原语 + SegmentedRadio。agent↔model 联动:切 agent
 // 重置 model;pi 走 `${channelId}::${modelId}` 编码（复刻 PersonalComposer）,无可用
 // 通道时禁用提交。推理强度三档（pi 不支持,附提示,执行时由 main 忽略）。

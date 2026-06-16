@@ -1,9 +1,10 @@
-// 个人工作区左栏底部「设置」入口 + 弹出层设置对话框。
-// 对话框:左侧 Tab 菜单(宠物 / 外观),右侧详细内容;ESC / 遮罩 / ✕ 关闭。
-//   宠物  → 4 个造型卡片(实时预览,点击切换)
-//   外观  → 原右下角 Tweaks 迁移:布局密度 / 品牌色调 / 侧栏样式
+// 个人工作区左栏底部「设置」入口 + 全屏整页设置视图（PersonalSettingsView）。
+// 入口：点击调用 store.openSettings()（settingsOpen 瞬态标志,见 store/personal.ts）。
+// 整页：全屏不透明覆盖层（.pw-settings-page）接管整窗、隐藏侧栏;底层工作区不卸载以
+//   保活终端。左栏菜单（8 分区:个人资料/通用/供应商/Agent/宠物/时间线/推送/语音）
+//   + 顶部「返回应用」,右栏按 active tab 渲染对应 Section;ESC 返回（录制/输入态豁免）。
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
 import { Toggle } from "@cortex-work/ui/controls/Toggle";
@@ -1584,37 +1585,60 @@ function VoiceSection() {
   );
 }
 
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<SettingsTab>("profile");
+// ESC 守卫：录制态（HotkeyCapture 的 .is-recording 按钮）或可编辑控件聚焦时,ESC 有其
+// 局部语义（取消录制 / 不丢输入）,不应连带关闭整页设置——故这些焦点下 ESC 不触发返回。
+function isTypingTarget(el: Element | null): boolean {
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if ((el as HTMLElement).isContentEditable) return true;
+  if (el.classList.contains("is-recording")) return true;
+  return false;
+}
 
+export function PersonalSettingsView() {
+  const closeSettings = usePersonalStore((s) => s.closeSettings);
+  const [tab, setTab] = useState<SettingsTab>("profile");
+  const backRef = useRef<HTMLButtonElement>(null);
+
+  // 挂载时把焦点移入覆盖层（返回按钮）,避免键盘焦点停在被遮挡但仍在 DOM 的底层控件上。
+  useEffect(() => {
+    backRef.current?.focus();
+  }, []);
+
+  // ESC 返回;录制/输入态豁免（见 isTypingTarget）。监听 window:HotkeyCapture 的合成事件
+  // stopPropagation 拦不住原生 window 监听,故只能靠 activeElement 守卫避免误关。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (isTypingTarget(document.activeElement)) return;
+      closeSettings();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [closeSettings]);
 
   return (
-    <div className="pw-dlg-overlay" onClick={onClose}>
-      <div className="pw-dlg" role="dialog" aria-label="设置" onClick={(e) => e.stopPropagation()}>
-        <nav className="pw-dlg-nav">
-          <div className="pw-dlg-nav-h">设置</div>
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              className={`pw-dlg-nav-item ${tab === t.id ? "is-active" : ""}`}
-              onClick={() => setTab(t.id)}
-            >
-              {t.icon}
-              {t.label}
-            </button>
-          ))}
-        </nav>
-        <div className="pw-dlg-body">
-          <button className="pw-dlg-x" title="关闭" onClick={onClose}>
-            <Icon.X size={15} />
+    <div className="pw-settings-page" role="dialog" aria-modal="true" aria-label="设置">
+      <nav className="pw-dlg-nav" aria-label="设置菜单">
+        <button ref={backRef} className="pw-settings-back" onClick={closeSettings}>
+          <Icon.Back size={15} />
+          返回应用
+        </button>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            className={`pw-dlg-nav-item ${tab === t.id ? "is-active" : ""}`}
+            aria-current={tab === t.id ? "page" : undefined}
+            onClick={() => setTab(t.id)}
+          >
+            {t.icon}
+            {t.label}
           </button>
+        ))}
+      </nav>
+      <div className="pw-dlg-body">
+        <div className="pw-settings-content">
           {tab === "profile" ? (
             <ProfileSection />
           ) : tab === "general" ? (
@@ -1639,14 +1663,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 }
 
 export function SettingsMenu() {
-  const [open, setOpen] = useState(false);
+  const openSettings = usePersonalStore((s) => s.openSettings);
   return (
     <div className="sb-foot">
-      <button className={`sb-row is-mute ${open ? "is-active" : ""}`} onClick={() => setOpen(true)}>
+      <button className="sb-row is-mute" onClick={openSettings}>
         <Icon.Settings size={15} />
         <span className="label">设置</span>
       </button>
-      {open ? <SettingsDialog onClose={() => setOpen(false)} /> : null}
     </div>
   );
 }
