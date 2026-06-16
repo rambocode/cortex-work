@@ -9,6 +9,7 @@ import {
   useDesktopBridge,
   usePersonalCliEvents,
   usePersonalPersistence,
+  usePersonalPiEvents,
   usePersonalStore,
   useSpotlightHandoff,
 } from "@cortex-work/core";
@@ -54,6 +55,8 @@ export function PersonalWorkspace({
   const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
   usePersonalPersistence();
   usePersonalCliEvents();
+  // pi RPC 会话事件流（与 CLI 事件并列挂载一次）；bridge 无 onPiEvent 时内部空转。
+  usePersonalPiEvents();
   // 与 CLI 事件同处挂载:hydrate 后消费 Spotlight 意图,新建会话并发首条消息。
   useSpotlightHandoff();
   // 订阅自动化的 changed / run-event（驱动列表刷新 + 完成 toast）。bridge 不支持时内部空转。

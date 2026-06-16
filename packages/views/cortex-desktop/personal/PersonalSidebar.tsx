@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
+  closePiSession,
   defaultAgent,
   partitionProjects,
   useCortexUIStore,
@@ -66,6 +67,7 @@ function SessionRow({
     }
     removeSession(session.id); // 即时移除 UI
     void bridge?.deleteChat?.(session.id); // 物理删磁盘消息文件
+    void closePiSession(bridge, session.id); // 终止该会话的 pi 长驻进程（非 pi 会话 no-op）
     onToast(`已删除 ${session.title}`);
   };
 

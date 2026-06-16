@@ -10,6 +10,7 @@ import {
   CoreProvider,
   personalChatKeys,
   usePersonalActions,
+  usePersonalPiEvents,
   usePersonalStore,
   __resetPersonalMessageRunsForTest,
   __resetPiSessionsForTest,
@@ -151,6 +152,25 @@ describe("stop 分叉", () => {
     });
     expect(bridge.killCli).toHaveBeenCalledWith("run-y");
     expect(bridge.piAbort).not.toHaveBeenCalled();
+  });
+});
+
+describe("usePersonalPiEvents 订阅生命周期（U4）", () => {
+  it("挂载订阅一次 onPiEvent,卸载退订", () => {
+    const off = vi.fn();
+    const onPiEvent = vi.fn(() => off);
+    const bridge = makeBridge({ onPiEvent });
+    const qc = new QueryClient();
+    const { unmount } = renderHook(() => usePersonalPiEvents(), { wrapper: wrapper(bridge, qc) });
+    expect(onPiEvent).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(off).toHaveBeenCalledTimes(1);
+  });
+
+  it("bridge 无 onPiEvent（web/旧壳）时空转,不抛错", () => {
+    const bridge = makeBridge({ onPiEvent: undefined });
+    const qc = new QueryClient();
+    expect(() => renderHook(() => usePersonalPiEvents(), { wrapper: wrapper(bridge, qc) })).not.toThrow();
   });
 });
 
