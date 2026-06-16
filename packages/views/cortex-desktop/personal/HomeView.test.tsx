@@ -54,8 +54,9 @@ describe("HomeView", () => {
     renderHome(fakeBridge());
     // 顶部 Hero
     expect(screen.getByText("开始你的智能体节奏")).toBeInTheDocument();
-    // 用量日历卡片
-    expect(screen.getByRole("tab", { name: "活动" })).toBeInTheDocument();
+    // 用量日历卡片：默认折叠,只露出展开按钮
+    expect(screen.getByLabelText("展开用量日历")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "活动" })).toBeNull();
     expect(screen.queryByText("活动热力图")).toBeNull();
     // 保留一日总结
     expect(screen.getByText("一日总结 · 所有项目")).toBeInTheDocument();
@@ -82,7 +83,7 @@ describe("HomeView", () => {
     usePersonalStore.setState({ projects: [], sessions: [] });
     renderHome(fakeBridge());
     expect(screen.getByText("开始你的智能体节奏")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "活动" })).toBeInTheDocument();
+    expect(screen.getByLabelText("展开用量日历")).toBeInTheDocument();
     expect(screen.getByText("一日总结 · 所有项目")).toBeInTheDocument();
   });
 });

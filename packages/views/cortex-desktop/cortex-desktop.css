@@ -5664,7 +5664,31 @@ button.sb-row {
   border-radius: 14px;
   background: var(--bg-app);
 }
-.pw-usagecal[data-collapsed="true"] { gap: 0; }
+/* 折叠态：去掉卡片边框/底色,只居中一个圆形展开按钮（效果图 1） */
+.pw-usagecal--collapsed {
+  gap: 0;
+  align-items: center;
+  padding: 6px 0;
+  border-color: transparent;
+  background: transparent;
+}
+.pw-usagecal-expand {
+  display: inline-flex; align-items: center; justify-content: center;
+  appearance: none; cursor: pointer;
+  width: 40px; height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--accent);
+  background: var(--bg-app);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--text-1) 9%, transparent);
+  transition: background 0.14s, color 0.14s, box-shadow 0.14s, transform 0.14s;
+}
+.pw-usagecal-expand:hover {
+  background: var(--bg-hover);
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--text-1) 13%, transparent);
+  transform: translateY(1px);
+}
+.pw-usagecal-expand:active { transform: translateY(2px); }
 .pw-usagecal-head { display: flex; align-items: center; gap: 8px; }
 .pw-usagecal-sp { flex: 1; }
 /* segmented：活动 / token 用量 */
@@ -5841,7 +5865,7 @@ button.sb-row {
 
 /* 全局一日总结 */
 .pw-home-summary {
-  background: var(--bg-card-2);
+  background: transparent;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   padding: 10px 14px 12px;

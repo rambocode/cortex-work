@@ -109,7 +109,8 @@ export function UsageCalendarCard({
   onPickDay: (day: string) => void;
 }) {
   const [mode, setMode] = useState<Mode>("activity");
-  const [collapsed, setCollapsed] = useState(false);
+  // 默认收起：落地页只露出一个展开按钮（见效果图），点击后再显示活动 / token 面板。
+  const [collapsed, setCollapsed] = useState(true);
   const queryClient = useQueryClient();
   const { days, loading, refresh: refreshTokens } = useDailyUsage(HEAT_WEEKS);
 
@@ -132,8 +133,25 @@ export function UsageCalendarCard({
     else void queryClient.invalidateQueries({ queryKey: ["personal", "timeline"] });
   };
 
+  // 折叠态（默认）：只渲染一个居中的圆形展开按钮，不带卡片边框 / tab 头部（见效果图 1）。
+  if (collapsed) {
+    return (
+      <section className="pw-usagecal pw-usagecal--collapsed" data-collapsed="true">
+        <button
+          type="button"
+          className="pw-usagecal-expand"
+          aria-label="展开用量日历"
+          title="展开活动 / token 用量"
+          onClick={() => setCollapsed(false)}
+        >
+          <Icon.Chevron size={16} />
+        </button>
+      </section>
+    );
+  }
+
   return (
-    <section className="pw-usagecal" data-collapsed={collapsed}>
+    <section className="pw-usagecal" data-collapsed="false">
       <header className="pw-usagecal-head">
         <div className="pw-usagecal-modes" role="tablist">
           <button
@@ -172,7 +190,7 @@ export function UsageCalendarCard({
         </button>
       </header>
 
-      {collapsed ? null : tokensLoading ? (
+      {tokensLoading ? (
         <div className="pw-usagecal-loading">统计中…</div>
       ) : isEmpty ? (
         <div className="pw-usagecal-warmup">
