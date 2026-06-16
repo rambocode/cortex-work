@@ -4,7 +4,7 @@ name: Desktop Release
 #  - build-only(默认 dispatch):只构建 + Developer ID 签名 + Apple 公证 + 仓库外校验 + 传 artifact,
 #    不发布、不需要 PAT/公开库。用于先验证闭源库的自动构建链(bun/pnpm/electron-vite/签名公证)。
 #  - publish-draft / publish-release(dispatch)与 tag push:用 electron-builder --publish always
-#    跨库发到公开库 Cortex/cortex-desktop(见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
+#    跨库发到公开库 rambocode/cortex-desktop(见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
 #    publish 路径依赖 U1(建公开库 + PAT + Environment),完成后再用。
 # 设计见 docs/plans/2026-06-16-002-feat-desktop-release-automation-plan.md。
 
