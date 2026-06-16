@@ -79,6 +79,10 @@ export interface PersonalState {
   homeOpen: boolean;
   // 主区自动化视图（定时任务列表/详情）。不持久化,优先级最高。
   automationOpen: boolean;
+  // 设置整页视图（全屏覆盖层接管整窗、隐藏侧栏;底层工作区不卸载以保活终端）。
+  // 瞬态,不持久化;与其它主区视图互斥（其它 open 入口清它,它不清底层视图标志,
+  // 故 closeSettings 后回到打开设置前的视图）。
+  settingsOpen: boolean;
   // 主区闪记写作面：非空时主区显示该闪记的宽编辑器（占据 .pw-center-col,替代会话区）。
   // 瞬态,不持久化;与 homeOpen/automationOpen/timelineProjectId 互斥。
   noteEditorId?: string;
@@ -169,6 +173,9 @@ export interface PersonalState {
   closeTimeline: () => void;
   openHome: () => void;
   openAutomation: () => void;
+  // 打开/关闭设置整页（settingsOpen 瞬态;openSettings 不清底层视图标志,见实现注释）。
+  openSettings: () => void;
+  closeSettings: () => void;
   // 点击某条闪记进入中心区宽写作面;互斥清理其他中心视图。closeNoteEditor 返回列表态。
   openNoteEditor: (noteId: string) => void;
   closeNoteEditor: () => void;
@@ -242,6 +249,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   rightView: "todos" as const,
   homeOpen: true,
   automationOpen: false,
+  settingsOpen: false,
   timelineSettings: DEFAULT_TIMELINE_SETTINGS,
   pushSettings: DEFAULT_PUSH_SETTINGS,
   ttsSettings: DEFAULT_TTS_SETTINGS,
@@ -395,6 +403,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeSessionId: sess.id,
       homeOpen: false,
       automationOpen: false,
+      settingsOpen: false,
       // 记忆本次选择（下次 Spotlight/新会话默认沿用;用 sess.* 取已 resolve 的值）。
       lastAgent: agent,
       lastModel: sess.model,
@@ -469,6 +478,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         homeOpen: false,
         automationOpen: false,
         noteEditorId: undefined,
+        settingsOpen: false,
       };
     }),
 
@@ -481,6 +491,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       homeOpen: false,
       automationOpen: false,
       noteEditorId: undefined,
+      settingsOpen: false,
     }),
 
   toggleProjectCollapse: (id) =>
@@ -545,21 +556,26 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
 
   openTimeline: (projectId) =>
-    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, noteEditorId: undefined }),
+    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, noteEditorId: undefined, settingsOpen: false }),
   closeTimeline: () => set({ timelineProjectId: undefined }),
 
   // 回首页时右栏同步切回 todos（全部项目列表）——项目内的文件/Skills 面板
   // 是项目上下文,不应停留在首页。
-  openHome: () => set({ homeOpen: true, automationOpen: false, timelineProjectId: undefined, noteEditorId: undefined, rightView: "todos" }),
+  openHome: () => set({ homeOpen: true, automationOpen: false, timelineProjectId: undefined, noteEditorId: undefined, settingsOpen: false, rightView: "todos" }),
 
   // 进入自动化主区视图（优先级最高,互斥清其它视图字段）。
   openAutomation: () =>
-    set({ automationOpen: true, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined }),
+    set({ automationOpen: true, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
 
   // 点击闪记进入中心区写作面：互斥清其它中心视图;noteEditorId 瞬态,不进 toPersistedState。
   openNoteEditor: (noteId) =>
-    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, timelineProjectId: undefined }),
+    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, timelineProjectId: undefined, settingsOpen: false }),
   closeNoteEditor: () => set({ noteEditorId: undefined }),
+
+  // 设置整页：openSettings 仅置 settingsOpen（不清 homeOpen/timelineProjectId 等底层标志,
+  // 故 closeSettings 后自然回到打开设置前的视图）;互斥由各 open 入口清 settingsOpen 保证。
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
 
   setTimelineSettings: (patch) =>
     set((s) => ({ timelineSettings: { ...s.timelineSettings, ...patch } })),

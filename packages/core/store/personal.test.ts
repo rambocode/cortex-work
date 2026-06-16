@@ -755,3 +755,67 @@ describe("闪记中心区写作面视图态(noteEditorId)", () => {
     expect("noteEditorId" in toPersistedState(usePersonalStore.getState())).toBe(false);
   });
 });
+
+describe("设置整页视图态(settingsOpen)", () => {
+  it("openSettings 置 settingsOpen 且不清底层视图标志(覆盖层叠加,closeSettings 后回原视图)", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.setState({ homeOpen: false, automationOpen: false, timelineProjectId: "p1", noteEditorId: "n1" });
+    usePersonalStore.getState().openSettings();
+    const s = usePersonalStore.getState();
+    expect(s.settingsOpen).toBe(true);
+    // KTD2a：openSettings 不清底层标志,故关闭设置后回到原视图。
+    expect(s.timelineProjectId).toBe("p1");
+    expect(s.noteEditorId).toBe("n1");
+  });
+
+  it("closeSettings 清空 settingsOpen", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openSettings();
+    usePersonalStore.getState().closeSettings();
+    expect(usePersonalStore.getState().settingsOpen).toBe(false);
+  });
+
+  it("切到会话/项目/时间线/首页/自动化/闪记或新建会话时清空 settingsOpen(让位)", () => {
+    const seed = () => {
+      usePersonalStore.getState().hydrate({
+        ...base,
+        sessions: [{ id: "c1", title: "会话", agent: "claude", createdAt: 1, updatedAt: 1 }],
+        projects: [proj({ id: "p1" })],
+      });
+      usePersonalStore.setState({ settingsOpen: true });
+    };
+    seed();
+    usePersonalStore.getState().setActiveSession("c1");
+    expect(usePersonalStore.getState().settingsOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().activateProject("p1");
+    expect(usePersonalStore.getState().settingsOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openTimeline("p1");
+    expect(usePersonalStore.getState().settingsOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openHome();
+    expect(usePersonalStore.getState().settingsOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openAutomation();
+    expect(usePersonalStore.getState().settingsOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openNoteEditor("n1");
+    expect(usePersonalStore.getState().settingsOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().createSession(undefined, "claude");
+    expect(usePersonalStore.getState().settingsOpen).toBe(false);
+  });
+
+  it("settingsOpen 不进 toPersistedState(瞬态,重启不残留)", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openSettings();
+    expect("settingsOpen" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  });
+});
