@@ -14,10 +14,13 @@
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
     "lint": "eslint .",
     "test": "vitest run",
-    "dist": "pnpm run build:pi && electron-vite build && electron-builder --mac",
-    "dist:dir": "pnpm run build:pi && electron-vite build && electron-builder --mac --dir --publish never",
-    "dist:zip": "pnpm run build:pi && electron-vite build && electron-builder --mac zip --publish never",
-    "dist:dmg": "pnpm run build:pi && electron-vite build && electron-builder --mac dmg --publish never"
+    "dist": "pnpm run build:pi && electron-vite build && electron-builder --mac -c.mac.identity=null -c.mac.notarize=false",
+    "dist:dir": "pnpm run build:pi && electron-vite build && electron-builder --mac --dir --publish never -c.mac.identity=null -c.mac.notarize=false",
+    "dist:zip": "pnpm run build:pi && electron-vite build && electron-builder --mac zip --publish never -c.mac.identity=null -c.mac.notarize=false",
+    "dist:dmg": "pnpm run build:pi && electron-vite build && electron-builder --mac dmg --publish never -c.mac.identity=null -c.mac.notarize=false",
+    "prepackage:mac": "pnpm run build:pi && electron-vite build",
+    "build:mac": "electron-builder --mac --publish never",
+    "release:mac": "electron-builder --mac --publish always"
   },
   "dependencies": {
     "@cortex-work/core": "workspace:*",

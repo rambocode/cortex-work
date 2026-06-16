@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
-import type { ChangedFile, GitChangesResult, PromptNode } from "@cortex-work/core";
+import type { ChangedFile, ContentSearchResult, GitChangesResult, PromptNode } from "@cortex-work/core";
 import { FileIcon, fileIconSpec, isBinaryLike } from "./fileIcons";
 import { langForName, wordWrapForName } from "./monacoLang";
 import { MonacoViewer, type SelectionAnchor } from "./MonacoViewer";
@@ -38,13 +38,17 @@ function FileTreeNode({
   depth,
   onOpen,
   onCtx,
+  forceExpand,
 }: {
   node: PromptNode;
   depth: number;
   onOpen: (n: PromptNode) => void;
   onCtx: (e: ReactMouseEvent, path: string, name: string) => void;
+  // 过滤激活时强制展开,让命中的深层文件可见（覆盖本地折叠态）。
+  forceExpand?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(depth > 0);
+  const isCollapsed = forceExpand ? false : collapsed;
   if (node.kind === "file") {
     return (
       <button
@@ -62,16 +66,31 @@ function FileTreeNode({
   return (
     <>
       <button className="pw-tree-row is-dir" style={{ paddingLeft: 12 + depth * 14 }} onClick={() => setCollapsed((v) => !v)}>
-        <span className="chev" data-collapsed={collapsed}>
+        <span className="chev" data-collapsed={isCollapsed}>
           <Icon.Chevron size={11} />
         </span>
         <Icon.Folder size={13} />
         <span className="pw-tree-name">{node.name}</span>
         <span className="count">{node.children?.length ?? 0}</span>
       </button>
-      {!collapsed ? node.children?.map((c) => <FileTreeNode key={c.path} node={c} depth={depth + 1} onOpen={onOpen} onCtx={onCtx} />) : null}
+      {!isCollapsed
+        ? node.children?.map((c) => (
+            <FileTreeNode key={c.path} node={c} depth={depth + 1} onOpen={onOpen} onCtx={onCtx} forceExpand={forceExpand} />
+          ))
+        : null}
     </>
   );
+}
+
+// 文件名过滤:文件按 name 子串匹配;目录保留任意匹配后代,或目录名自身匹配则整目录保留。
+// 无匹配返回 null。q 已小写。
+function filterTree(node: PromptNode, q: string): PromptNode | null {
+  if (node.kind === "file") {
+    return node.name.toLowerCase().includes(q) ? node : null;
+  }
+  if (node.name.toLowerCase().includes(q)) return node; // 目录名命中:整目录保留
+  const kids = (node.children ?? []).map((c) => filterTree(c, q)).filter((c): c is PromptNode => c !== null);
+  return kids.length > 0 ? { ...node, children: kids } : null;
 }
 
 function DiffText({ content }: { content: string }) {
@@ -115,6 +134,15 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   const [ctxMenu, setCtxMenu] = useState<FileCtxTarget | null>(null);
   const draftRef = useRef("");
 
+  // 搜索框:默认按文件名过滤;? 前缀切到内容搜索（grep）。
+  const [query, setQuery] = useState("");
+  const [contentResult, setContentResult] = useState<ContentSearchResult | null>(null);
+  const [searching, setSearching] = useState(false);
+  const trimmedQuery = query.trim();
+  const isContentMode = trimmedQuery.startsWith("?");
+  const contentKeyword = isContentMode ? trimmedQuery.slice(1).trim() : "";
+  const nameFilter = isContentMode ? "" : trimmedQuery.toLowerCase();
+
   const refresh = useCallback(async () => {
     if (!bridge || !project) return;
     try {
@@ -129,6 +157,40 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     setPreview(null);
     void refresh();
   }, [refresh]);
+
+  // 切换模式 / 项目:清空搜索态,避免残留过滤或上个项目的搜索结果。
+  useEffect(() => {
+    setQuery("");
+    setContentResult(null);
+  }, [mode, project?.id]);
+
+  // 内容搜索（? 前缀）:debounce 250ms 调 bridge.searchContent;关键词为空或非内容模式则清空。
+  useEffect(() => {
+    if (mode !== "all" || !isContentMode || !contentKeyword || !bridge?.searchContent || !project) {
+      setContentResult(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void bridge
+        .searchContent!(project.path, contentKeyword)
+        .then((res) => {
+          if (!cancelled) setContentResult(res);
+        })
+        .catch(() => {
+          if (!cancelled) setContentResult({ files: [], truncated: false });
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [bridge, project, mode, isContentMode, contentKeyword]);
 
   // 目录实时刷新:主进程已做噪声过滤 + 250ms 去抖,这里收到信号直接重扫。
   useEffect(() => {
@@ -433,6 +495,12 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     );
   }
 
+  // 文件名过滤后的顶层子节点（内容搜索模式下不用）。
+  const allChildren = tree?.children ?? [];
+  const filteredChildren = nameFilter
+    ? allChildren.map((c) => filterTree(c, nameFilter)).filter((c): c is PromptNode => c !== null)
+    : allChildren;
+
   return (
     <div className="pw-rp-view">
       <div className="pw-panel-h">
@@ -450,19 +518,76 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
         </button>
       </div>
       {mode === "all" ? (
-        !tree ? (
+        <div className="pw-rp-search">
+          <Icon.Search size={13} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter files… (?text to search contents)"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+          {query ? (
+            <button className="pw-rp-search-clear" title="清空" onClick={() => setQuery("")}>
+              <Icon.X size={12} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {mode === "all" ? (
+        isContentMode ? (
+          !contentKeyword ? (
+            <div className="pw-empty-hint">输入要搜索的内容…</div>
+          ) : searching && !contentResult ? (
+            <div className="pw-panel-empty">搜索中…</div>
+          ) : !contentResult || contentResult.files.length === 0 ? (
+            <div className="pw-empty-hint">没有匹配「{contentKeyword}」的内容</div>
+          ) : (
+            <div className="pw-tree pw-search-results">
+              {contentResult.files.map((f) => (
+                <button
+                  key={f.path}
+                  className="pw-search-hit"
+                  onClick={() => void openFile(f.path, f.name)}
+                  onContextMenu={(e) => openCtxMenu(e, f.path, f.name)}
+                  title={f.path}
+                >
+                  <span className="pw-search-hit-head">
+                    <TreeRowIcon name={f.name} />
+                    <span className="pw-tree-name">{f.rel}</span>
+                  </span>
+                  {f.lines.map((ln) => (
+                    <span key={ln.line} className="pw-search-line">
+                      <span className="pw-search-lineno">{ln.line}</span>
+                      <span className="pw-search-linetext">{ln.text}</span>
+                    </span>
+                  ))}
+                </button>
+              ))}
+              {contentResult.truncated ? <div className="pw-empty-hint">结果较多，仅显示部分</div> : null}
+            </div>
+          )
+        ) : !tree ? (
           <div className="pw-panel-empty">加载中…</div>
         ) : (
           <div className="pw-tree">
             <div className="pw-tree-root" title={project.path}>
               {tree.name}
             </div>
-            {tree.children?.length ? (
-              tree.children.map((c) => (
-                <FileTreeNode key={c.path} node={c} depth={0} onOpen={(n) => void openFile(n.path, n.name)} onCtx={openCtxMenu} />
+            {filteredChildren.length ? (
+              filteredChildren.map((c) => (
+                <FileTreeNode
+                  key={c.path}
+                  node={c}
+                  depth={0}
+                  onOpen={(n) => void openFile(n.path, n.name)}
+                  onCtx={openCtxMenu}
+                  forceExpand={!!nameFilter}
+                />
               ))
             ) : (
-              <div className="pw-empty-hint">空目录</div>
+              <div className="pw-empty-hint">{nameFilter ? "没有匹配的文件" : "空目录"}</div>
             )}
           </div>
         )

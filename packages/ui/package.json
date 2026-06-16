@@ -10,6 +10,7 @@
   },
   "exports": {
     "./icons": "./icons/index.tsx",
+    "./controls/hotkeyAccelerator": "./controls/hotkeyAccelerator.ts",
     "./controls/*": "./controls/*.tsx",
     "./lib/utils": "./lib/utils.ts"
   },

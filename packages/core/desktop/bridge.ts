@@ -17,6 +17,7 @@ import type {
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  ContentSearchResult,
   CronValidation,
   DesktopBehavior,
   EditorInfo,
@@ -26,6 +27,9 @@ import type {
   GitDiffAllResult,
   GitInfoResult,
   GitOpResult,
+  NoteInput,
+  NoteMeta,
+  NoteStatus,
   OpenAiCompleteRequest,
   PersistedState,
   ProviderProbeInput,
@@ -33,6 +37,7 @@ import type {
   PromptNode,
   PushResult,
   PushTarget,
+  SkillMeta,
   SpotlightIntent,
   PtySpawnRequest,
   PtySpawnResult,
@@ -52,6 +57,9 @@ export interface DesktopBridge {
   scanPromptTree(root: string): Promise<PromptNode>;
   // 项目目录全量文件树 / git 变更 / 单文件 diff（右侧「文件」视图）
   scanDirTree(root: string): Promise<PromptNode>;
+  // 项目内文件内容搜索（右侧「文件」视图 ? 前缀）:逐行子串匹配,返回命中文件 + 命中行。
+  // 可选（web/旧壳没有 → UI 不提供内容搜索）。
+  searchContent?(root: string, query: string): Promise<ContentSearchResult>;
   gitChanges(root: string): Promise<GitChangesResult>;
   gitDiff(root: string, rel: string): Promise<string>;
   // GitBar:分支 + 工作区 ± 统计（含 untracked）/ 整仓 diff。可选（旧壳/web 没有,
@@ -78,6 +86,9 @@ export interface DesktopBridge {
   // 可选（旧壳没有;无此能力时面板退化为只显示已登记 todo）。
   listTaskFiles?(projectRoot: string): Promise<TaskFilesResult>;
   validateDir(path: string): Promise<boolean>;
+  // 文件存在性探测（深化 / 生成 plan run 收尾判产出用:确定路径,绕开 changedFiles 截断）。
+  // 可选:旧壳缺失时探测降级为 false（闪记保持原状态,不误判已深化）。
+  fileExists?(path: string): Promise<boolean>;
   // 目录实时监听:watchDir 后主进程经噪声过滤+去抖推 onDirChanged(id),
   // renderer 收到后自行重扫。可选（旧壳/降级环境可能没有）。
   watchDir?(id: string, path: string): Promise<void>;
@@ -126,6 +137,9 @@ export interface DesktopBridge {
   openLogsDir?(): Promise<void>;
   // 即时下发文件日志开关（本次运行内生效,无需重启）。可选。
   setLogEnabled?(enabled: boolean): Promise<void>;
+  // 渲染端改闪记全局热键 → 主进程即时校验 + 重注册（仿 setDesktopBehavior 的即时通路）。
+  // ok=true 表示新键已生效;ok=false 表示格式无效或被占用（已回退旧键,toast 含原因）。可选。
+  setNotesHotkey?(accelerator: string): Promise<{ ok: boolean; toast?: string }>;
   // 日报推送（企微/钉钉 webhook、SMTP 邮件;主进程发请求规避 CORS）
   pushReport(target: PushTarget, payload: { subject: string; text: string }): Promise<PushResult>;
   // TTS：OpenAI 兼容 /v1/audio/speech 合成,返回音频字节（renderer 播放）
@@ -185,4 +199,14 @@ export interface DesktopBridge {
   // 可选能力（旧壳/web 端没有）。
   onSpotlightIntent?(cb: (intent: SpotlightIntent) => void): () => void;
   consumeSpotlightIntent?(): Promise<SpotlightIntent | null>;
+  // 闪记（个人工作区）：可选能力,web 端无此桥、旧壳无此方法时收件箱/浮层入口降级隐藏。
+  notesList?(projectId?: string): Promise<NoteMeta[]>;
+  notesAdd?(input: NoteInput): Promise<NoteMeta>;
+  notesUpdate?(id: string, patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] }): Promise<NoteMeta | null>;
+  notesDelete?(id: string): Promise<void>;
+  onNotesChanged?(cb: (list: NoteMeta[]) => void): () => void;
+  // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。可选:web/旧壳无此
+  // 能力 → 深化入口降级 toast。第一阶段读内置 resources/skills,第二阶段叠加 userData/skills。
+  skillGet?(name: string): Promise<SkillMeta | null>;
+  skillsList?(): Promise<SkillMeta[]>;
 }

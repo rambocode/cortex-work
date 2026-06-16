@@ -34,6 +34,7 @@ export {
   initialAgent,
   initialModelDraft,
   type PersonalState,
+  type RightView,
 } from "./store/personal";
 export { usePetStore, type PetState, type PetKind, type PetMode, type PetStore } from "./store/pet";
 export type { DesktopBridge } from "./desktop/bridge";
@@ -60,6 +61,10 @@ export {
   type SpotlightIntent,
   type TodoMeta,
   type TodoStatus,
+  type NoteMeta,
+  type NoteInput,
+  type NoteStatus,
+  type NotesFileData,
   type PersistedState,
   type PersonalProfile,
   type ReadFileResult,
@@ -74,6 +79,9 @@ export {
   type UsageWindow,
   type ChangedFile,
   type GitChangesResult,
+  type ContentMatchLine,
+  type ContentMatchFile,
+  type ContentSearchResult,
   type GitCommit,
   type GitInfoResult,
   type GitDiffAllResult,
@@ -130,6 +138,28 @@ export {
   type BuiltinAvatarId,
 } from "./personal/avatars";
 export { useSpotlightIntentRouter, useSpotlightHandoff } from "./personal/spotlightHandoff";
+export {
+  notesKeys,
+  notesAvailable,
+  noteContentToSubmit,
+  resolveDefaultNoteProject,
+  useProjectNotes,
+  useAllNotes,
+  useNotesAvailable,
+  useAddNote,
+  useUpdateNote,
+  useDeleteNote,
+  useNotesChangeSubscription,
+  useDeepenNotes,
+  useGeneratePlan,
+  prepareDeepenNotes,
+  buildDeepenSystemPrompt,
+  buildPlanSystemPrompt,
+  DEEPEN_MAX_NOTES,
+  DEEPEN_NOTE_BODY_MAX,
+  type NotePatch,
+  type DeepenPrepResult,
+} from "./personal/notes";
 export {
   automationKeys,
   useAutomations,

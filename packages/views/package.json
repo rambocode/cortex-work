@@ -13,12 +13,21 @@
     "./cortex-desktop/styles.css": "./cortex-desktop/cortex-desktop.css"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.43.0",
     "@cortex-work/core": "workspace:*",
     "@cortex-work/ui": "workspace:*",
+    "@lezer/highlight": "^1.2.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "mermaid": "^11.15.0",
     "monaco-editor": "^0.52.2",
     "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1"
   },
   "peerDependencies": {

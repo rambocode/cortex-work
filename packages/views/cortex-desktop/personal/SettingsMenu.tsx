@@ -8,6 +8,8 @@ import { Icon } from "@cortex-work/ui/icons";
 import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
 import { Toggle } from "@cortex-work/ui/controls/Toggle";
 import { PaletteChips, type PaletteOption } from "@cortex-work/ui/controls/PaletteChips";
+import { HotkeyCapture } from "@cortex-work/ui/controls/HotkeyCapture";
+import { formatAccelerator } from "@cortex-work/ui/controls/hotkeyAccelerator";
 import {
   AGENT_MODELS,
   DEFAULT_MODEL,
@@ -275,6 +277,15 @@ const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
 const FONT_SCALE_LABEL: Record<FontScale, string> = { small: "小", medium: "中", large: "大" };
 const LOG_RETENTION_OPTIONS = [1, 2, 3, 5, 7].map((d) => ({ label: `${d} 天`, value: String(d) }));
 
+// 闪记默认全局热键(与主进程 NOTES_HOTKEY_ACCELERATOR 同步;notesHotkey 留空即走此默认）。
+const DEFAULT_NOTES_HOTKEY = "CommandOrControl+Shift+N";
+
+// 显示用 isMac:views 不直接读 window,经 navigator 即时探测(ComposerShell / FilesView 等亦如此)。
+function detectIsMac(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
+}
+
 // kun 风格设置卡片 + 行（标签/说明在左,控件在右,行间分隔线）。
 function SettingCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -369,11 +380,29 @@ function GeneralSection() {
   const general = usePersonalStore((s) => s.generalSettings);
   const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
   const bridge = useDesktopBridge();
+  const pushToast = useCortexUIStore((s) => s.pushToast);
+  const isMac = useMemo(() => detectIsMac(), []);
+  const notesHotkey = general.notesHotkey ?? DEFAULT_NOTES_HOTKEY;
   const behavior = general.desktopBehavior;
   const setBehavior = (patch: Partial<typeof behavior>) => {
     const next = { ...behavior, ...patch };
     setGeneral({ desktopBehavior: next });
     void bridge?.setDesktopBehavior?.(next);
+  };
+  // 闪记热键双写:乐观持久化 + 即时通知主进程重注册;被拒(占用/无效)时回滚到旧键,
+  // 保证「UI 显示 = 主进程实际绑定」,避免重启再降级。web 端 / 旧壳无桥则仅乐观持久化。
+  const applyNotesHotkey = async (acc: string) => {
+    const oldAcc = notesHotkey; // 当前实际生效键(已含默认兜底)。
+    setGeneral({ notesHotkey: acc }); // 乐观持久化:控件随 notesHotkey 立即显示新键。
+    const r = await bridge?.setNotesHotkey?.(acc); // 即时重注册。
+    if (!r) return; // r === undefined:web 端 / 旧壳无此能力,保留乐观持久化,不反馈。
+    if (r.ok) {
+      pushToast(`闪记快捷键已更新为 ${formatAccelerator(acc, isMac)}`, { kind: "success" });
+    } else {
+      // 被拒(占用/无效/三级兜底落空):回滚显示与持久化到旧键,保持显示=实际。
+      setGeneral({ notesHotkey: oldAcc });
+      pushToast(r.toast ?? "快捷键设置失败,已保留原快捷键", { kind: "error" });
+    }
   };
   const pickWorkspace = async () => {
     const dir = await bridge?.pickDirectory?.();
@@ -458,6 +487,16 @@ function GeneralSection() {
           value={behavior.closeToTray}
           onChange={(v) => setBehavior({ closeToTray: v })}
         />
+        <SRow label="闪记快捷键" desc="全局唤起闪记的快捷键。点击后按下新组合即可录制;被占用时会提示并保留原键。">
+          <div className="pw-hotkey-control">
+            <HotkeyCapture value={notesHotkey} isMac={isMac} onChange={(acc) => void applyNotesHotkey(acc)} />
+            {notesHotkey !== DEFAULT_NOTES_HOTKEY ? (
+              <button className="btn pw-pi-add-btn" onClick={() => void applyNotesHotkey(DEFAULT_NOTES_HOTKEY)}>
+                恢复默认
+              </button>
+            ) : null}
+          </div>
+        </SRow>
       </SettingCard>
 
       <SettingCard title="通知">

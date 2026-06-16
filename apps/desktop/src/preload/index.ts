@@ -14,15 +14,20 @@ import type {
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  ContentSearchResult,
   CronValidation,
   EditorInfo,
   GitBranchesResult,
   GitDiffAllResult,
   GitInfoResult,
   GitOpResult,
+  NoteInput,
+  NoteMeta,
+  NoteStatus,
   PersistedState,
   PromptNode,
   ReadFileResult,
+  SkillMeta,
   SpotlightIntent,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
@@ -61,6 +66,9 @@ const personal = {
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("fs:pickDirectory"),
   scanPromptTree: (root: string): Promise<PromptNode> => ipcRenderer.invoke("fs:scanPromptTree", root),
   scanDirTree: (root: string): Promise<PromptNode> => ipcRenderer.invoke("fs:scanDirTree", root),
+  // 内容搜索（右侧「文件」视图 ? 前缀）:逐行子串匹配,返回命中文件 + 命中行。
+  searchContent: (root: string, query: string): Promise<ContentSearchResult> =>
+    ipcRenderer.invoke("fs:searchContent", root, query),
   gitChanges: (root: string): Promise<{ isRepo: boolean; files: { path: string; rel: string; status: string }[] }> =>
     ipcRenderer.invoke("fs:gitChanges", root),
   gitDiff: (root: string, rel: string): Promise<string> => ipcRenderer.invoke("fs:gitDiff", root, rel),
@@ -84,6 +92,7 @@ const personal = {
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),
   validateDir: (path: string): Promise<boolean> => ipcRenderer.invoke("fs:validateDir", path),
+  fileExists: (path: string): Promise<boolean> => ipcRenderer.invoke("fs:exists", path),
   // 目录实时监听（右栏「文件」视图自动刷新）
   watchDir: (id: string, path: string): Promise<void> => ipcRenderer.invoke("fs:watchDir", { id, path }),
   unwatchDir: (id: string): void => ipcRenderer.send("fs:unwatchDir", { id }),
@@ -134,6 +143,16 @@ const personal = {
   }): Promise<void> => ipcRenderer.invoke("desktop:setBehavior", behavior),
   openLogsDir: (): Promise<void> => ipcRenderer.invoke("logs:open"),
   setLogEnabled: (on: boolean): Promise<void> => ipcRenderer.invoke("logs:setEnabled", on),
+  // 改闪记全局热键:把主进程返回的 HotkeyRegistration 适配成 bridge 契约的 { ok, toast }。
+  // ok = registered && !degraded(注册成功且未降级才算生效)。
+  setNotesHotkey: async (acc: string): Promise<{ ok: boolean; toast?: string }> => {
+    const r = (await ipcRenderer.invoke("notes:setHotkey", acc)) as {
+      registered: boolean;
+      degraded: boolean;
+      toast?: string;
+    };
+    return { ok: r.registered && !r.degraded, toast: r.toast };
+  },
   pushReport: (target: unknown, payload: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("push:report", target, payload),
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),
@@ -228,6 +247,24 @@ const personal = {
     return () => ipcRenderer.removeListener("spotlight:intent", listener);
   },
   consumeSpotlightIntent: (): Promise<SpotlightIntent | null> => ipcRenderer.invoke("spotlight:consumePending"),
+  // 闪记（个人工作区）。main 为 owner,这里只是 IPC 透传 + 变更事件订阅。
+  // 形状与 DesktopBridge 的可选 notes* 方法逐字对齐（手工比对,无 satisfies）。
+  notesList: (projectId?: string): Promise<NoteMeta[]> => ipcRenderer.invoke("notes:list", projectId),
+  notesAdd: (input: NoteInput): Promise<NoteMeta> => ipcRenderer.invoke("notes:add", input),
+  notesUpdate: (
+    id: string,
+    patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] },
+  ): Promise<NoteMeta | null> => ipcRenderer.invoke("notes:update", id, patch),
+  notesDelete: (id: string): Promise<void> => ipcRenderer.invoke("notes:delete", id),
+  onNotesChanged: (cb: (list: NoteMeta[]) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, list: NoteMeta[]) => cb(list);
+    ipcRenderer.on("notes:changed", listener);
+    return () => ipcRenderer.removeListener("notes:changed", listener);
+  },
+  // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。形状与 DesktopBridge
+  // 的可选 skillGet/skillsList 逐字对齐（手工比对,无 satisfies）。
+  skillGet: (name: string): Promise<SkillMeta | null> => ipcRenderer.invoke("skills:get", name),
+  skillsList: (): Promise<SkillMeta[]> => ipcRenderer.invoke("skills:list"),
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。
@@ -236,6 +273,20 @@ const spotlight = {
   resize: (height: number): void => ipcRenderer.send("spotlight:resize", height),
   hide: (): void => ipcRenderer.send("spotlight:hide"),
 };
+
+// 闪记浮层窗口专用桥（overlay renderer 直接调用,不属于 DesktopBridge）。
+// resize/hide 给浮层 renderer 用;show 给主窗口 composer 图标入口用(降级后仍可用,不依赖热键)。
+// 闪记提交直接走 personal.notesAdd 落盘,不经主窗口接力,故无 submit/consumePending。
+const notesOverlay = {
+  resize: (height: number): void => ipcRenderer.send("notes-overlay:resize", height),
+  hide: (): void => ipcRenderer.send("notes-overlay:hide"),
+  show: (): void => ipcRenderer.send("notes-overlay:show"),
+};
+
+// 闪记全局热键被占用时的一次性降级提示:桌面壳 App.tsx mount 后拉取一次 → pushToast。
+// consume-pending(仿 spotlight),避免 push 早于 listener 注册丢提示;无降级返回 null。不属于 DesktopBridge。
+const consumeNotesHotkeyDegraded = (): Promise<string | null> =>
+  ipcRenderer.invoke("notes:consumeHotkeyDegraded");
 
 const desktopAPI = {
   appInfo: fetchAppInfo(),
@@ -247,6 +298,8 @@ const desktopAPI = {
   } satisfies RuntimeConfig,
   personal,
   spotlight,
+  notesOverlay,
+  consumeNotesHotkeyDegraded,
 };
 
 try {

@@ -77,9 +77,23 @@ export interface ReplyRef {
   text: string;
 }
 
+// 用户消息携带的引用(拖入聊天框的 skill / todo),仅用于会话气泡里回显「引用了什么」。
+export interface MessageAttachmentRef {
+  name: string;
+  kind: "prompt" | "todo";
+}
+
 export type Message =
   | { kind: "day"; label: string; uid?: string }
-  | { kind: "text"; who: string; time: string; text: RichText; reply?: ReplyRef; uid?: string }
+  | {
+      kind: "text";
+      who: string;
+      time: string;
+      text: RichText;
+      reply?: ReplyRef;
+      attachments?: MessageAttachmentRef[];
+      uid?: string;
+    }
   | {
       kind: "agentLog";
       who: string;

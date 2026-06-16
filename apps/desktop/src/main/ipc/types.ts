@@ -135,6 +135,8 @@ export interface GeneralSettings {
   desktopBehavior: DesktopBehavior;
   notifications: NotificationSettings;
   log: LogSettings;
+  // 闪记全局热键（Electron accelerator）;缺省 = 主进程用默认 NOTES_HOTKEY_ACCELERATOR。
+  notesHotkey?: string;
 }
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
@@ -158,6 +160,8 @@ export interface PersistedState {
   lastAgent?: AgentKind;
   lastModel?: string;
   lastProviderId?: string;
+  // 最近活跃项目（闪记浮层默认归属推导用;归档/删除该项目时清空）。与 core 镜像逐字一致。
+  lastActiveProjectId?: string;
 }
 
 export interface ReadFileResult {
@@ -355,6 +359,25 @@ export interface GitDiffAllResult {
   truncated: boolean;
 }
 
+// ── 右侧「文件」视图内容搜索（与 core/desktop/types.ts 镜像） ──────────────
+
+export interface ContentMatchLine {
+  line: number; // 1-based 行号
+  text: string; // 整行文本（已 trimEnd，可能截断超长行）
+}
+
+export interface ContentMatchFile {
+  path: string; // 绝对路径
+  rel: string; // 相对项目根
+  name: string; // basename
+  lines: ContentMatchLine[];
+}
+
+export interface ContentSearchResult {
+  files: ContentMatchFile[];
+  truncated: boolean;
+}
+
 // ── GitBar 分支操作（与 core/desktop/types.ts 镜像） ──────────────────────
 
 // 本地分支列表 + 当前分支（非 git 仓库 isRepo:false）。
@@ -457,4 +480,51 @@ export interface AutomationRunEvent {
   automationId: string;
   run: AutomationRun;
   phase: "start" | "end";
+}
+
+// ── 闪记（Flash Notes）──────────────────────────────────────────────────────
+// 以下四个类型与 packages/core/desktop/types.ts 逐字镜像（两侧必须完全一致,
+// 否则 preload 编译通过但运行期字段错位）。
+
+// 闪记状态机：草稿 → 深化中 → 已深化（失败/放弃回落草稿）。
+export type NoteStatus = "draft" | "deepening" | "deepened";
+
+// 闪记单条记录：元数据 + 正文内联（单文件 notes.json,v1 不分文件）。
+export interface NoteMeta {
+  id: string;
+  projectId?: string; // 缺省 = 未归类（事后可归档到项目）
+  status: NoteStatus; // 默认 "draft"
+  content: string; // 正文（markdown 文本,内联）
+  tags?: string[];
+  sourceSessionId?: string; // 捕捉时若在某会话内唤起则记下该会话
+  conversationIds?: string[]; // 深化新开的会话 id（支持再深化,追加不覆盖）
+  docPaths?: string[]; // 深化产出文档路径（追加不覆盖,再深化累加）
+  createdAt: number; // epoch ms（main 生成）
+  updatedAt: number; // epoch ms（main 每次写刷新）
+}
+
+// 渲染端创建闪记的入参（id/status/createdAt/updatedAt 由 main 生成,不传）。
+export interface NoteInput {
+  projectId?: string;
+  content: string;
+  tags?: string[];
+  sourceSessionId?: string;
+}
+
+// notes.json 文件结构（对桥接层不透明,主进程独占写）。
+export interface NotesFileData {
+  version: 1;
+  notes: NoteMeta[];
+}
+
+// ── 内置 skill 元数据 ────────────────────────────────────────────────────────
+// 与 packages/core/desktop/types.ts 逐字镜像（两侧必须完全一致）。深化注入
+// ce-ideate / 生成 plan 注入 ce-plan：只把 skill 的 frontmatter 源数据 + 文件路径
+// 喂给 agent（不内联全文,让 agent 自己 Read）。
+export interface SkillMeta {
+  name: string; // frontmatter name（== 目录名）
+  description: string; // frontmatter description
+  argumentHint?: string; // frontmatter argument-hint
+  skillMdPath: string; // SKILL.md 绝对路径（喂给 agent Read）
+  dir: string; // skill 根目录绝对路径（references 相对路径的绝对前缀基准）
 }

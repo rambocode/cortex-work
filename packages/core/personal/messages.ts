@@ -12,6 +12,7 @@ import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
+import { applyDeepenFinalize } from "./notes";
 import { speakText } from "./tts";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
@@ -579,6 +580,20 @@ function finalizeRun(
       },
     });
   }
+
+  // 深化副作用:仅当该 session 有关联闪记（深化中 deepening / 生成 plan 的 deepened）时才动作
+  //（普通会话完全 no-op,applyDeepenFinalize 内部 gate）。终态失败（spawn/鉴权/超时/放弃）→
+  // 回落 draft（plan run 的 deepened 不回落）;否则 fs.exists 探测确定产出路径 → 置已深化/追加
+  // docPaths;普通澄清轮 → 保持原状态。鉴权失败走 result(ok:false)（gotResult=true、resultOk=false）;
+  // spawn/超时/非零退出走 (!gotResult && (error||非零 code))。
+  const terminalFailure =
+    (!run.gotResult && (!!error || (code !== null && code !== 0))) ||
+    (run.gotResult && run.resultOk === false);
+  void applyDeepenFinalize(bridgeRef, {
+    sessionId,
+    cwd: run.cwd,
+    terminalFailure,
+  });
 }
 
 function handleCliExit(
@@ -765,7 +780,15 @@ export function usePersonalActions(): PersonalActions {
       // 历史尚未加载时先加载,避免首条写入把磁盘历史盖掉。
       await ensureChatLoaded(qc, bridge, session.id);
 
-      appendMsg(qc, session.id, { kind: "text", who: "me", time: realHHMM(), text, uid: uid("u") });
+      appendMsg(qc, session.id, {
+        kind: "text",
+        who: "me",
+        time: realHHMM(),
+        text,
+        // 拖入的 skill/todo 仅注入 system prompt;这里同步把引用元数据存进消息,让会话气泡能回显。
+        attachments: attachments.length ? attachments.map((a) => ({ name: a.name, kind: a.kind })) : undefined,
+        uid: uid("u"),
+      });
       appendMsg(qc, session.id, {
         kind: "typing",
         who: session.agent,
@@ -812,6 +835,12 @@ export function usePersonalActions(): PersonalActions {
           usePersonalStore.getState().setRunning(cur.sessionId, undefined);
           usePetStore.getState().set("idle");
           flushChat(qc, cur.sessionId);
+          // 深化:启动/静默超时属终态失败,回落该 session 的 deepening 闪记（普通会话 no-op）。
+          void applyDeepenFinalize(bridgeRef, {
+            sessionId: cur.sessionId,
+            cwd: cur.cwd,
+            terminalFailure: true,
+          });
           void bridgeRef?.killCli(runId);
           return;
         }

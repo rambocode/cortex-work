@@ -496,6 +496,35 @@ describe("generalSettings 通用设置", () => {
     expect(s.generalSettings.workspaceRoot).toBe("/tmp/ws");
     expect(toPersistedState(s).generalSettings).toBe(s.generalSettings);
   });
+
+  it("默认 notesHotkey 缺省(undefined),由主进程回退默认常量", () => {
+    usePersonalStore.getState().hydrate(base);
+    expect(usePersonalStore.getState().generalSettings.notesHotkey).toBeUndefined();
+  });
+
+  it("setGeneralSettings({notesHotkey}) 生效并进入持久化快照", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setGeneralSettings({ notesHotkey: "Cmd+Alt+Space" });
+    const s = usePersonalStore.getState();
+    expect(s.generalSettings.notesHotkey).toBe("Cmd+Alt+Space");
+    expect(toPersistedState(s).generalSettings?.notesHotkey).toBe("Cmd+Alt+Space");
+  });
+
+  it("hydrate 往返保留 notesHotkey;旧档缺嵌套字段补全时不丢 notesHotkey", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: { desktopBehavior: { openAtLogin: true }, notesHotkey: "Control+Shift+F5" },
+    } as unknown as Persisted);
+    const g = usePersonalStore.getState().generalSettings;
+    expect(g.notesHotkey).toBe("Control+Shift+F5");
+    // 缺字段仍以默认补全。
+    expect(g.desktopBehavior.closeToTray).toBe(true);
+
+    // round-trip:把快照再 hydrate 回去,notesHotkey 一致。
+    const persisted = toPersistedState(usePersonalStore.getState());
+    usePersonalStore.getState().hydrate({ ...persisted });
+    expect(usePersonalStore.getState().generalSettings.notesHotkey).toBe("Control+Shift+F5");
+  });
 });
 
 describe("setAgentsAvailable 不持久化", () => {
@@ -537,6 +566,83 @@ describe("个人资料 profile (昵称 + 头像)", () => {
   });
 });
 
+describe("lastActiveProjectId 最近活跃项目持久化（浮层默认归属）", () => {
+  const hydrateWithProjectsAndSessions = () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      projects: [proj({ id: "A" }), proj({ id: "B" })],
+      sessions: [
+        { id: "sA", projectId: "A", title: "Session A", agent: "claude", createdAt: 1, updatedAt: 1 },
+        // 无项目会话（projectId 缺省）。
+        { id: "sNo", title: "Session NoProj", agent: "claude", createdAt: 1, updatedAt: 1 },
+      ],
+    });
+  };
+
+  it("setActiveSession 到项目 A 的会话 → lastActiveProjectId=A 并进 toPersistedState", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().setActiveSession("sA");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+    expect(toPersistedState(usePersonalStore.getState()).lastActiveProjectId).toBe("A");
+  });
+
+  it("切到无项目会话不覆盖为 undefined（保留上一个有效项目 A）", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().setActiveSession("sA");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+    usePersonalStore.getState().setActiveSession("sNo");
+    // 无项目会话不应清空 lastActiveProjectId。
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+  });
+
+  it("activateProject 写入 lastActiveProjectId", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().activateProject("B");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("B");
+  });
+
+  it("removeProject(A) 后 lastActiveProjectId 不再是 A", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().setActiveSession("sA");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+    usePersonalStore.getState().removeProject("A");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBeUndefined();
+  });
+
+  it("removeProject(其它项目) 不清空 lastActiveProjectId", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().activateProject("A");
+    usePersonalStore.getState().removeProject("B");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+  });
+
+  it("archiveProject(A) 后 lastActiveProjectId 不再是 A", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().setActiveSession("sA");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+    usePersonalStore.getState().archiveProject("A");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBeUndefined();
+  });
+
+  it("archiveProject(其它项目) 不清空 lastActiveProjectId", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().activateProject("A");
+    usePersonalStore.getState().archiveProject("B");
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+  });
+
+  it("hydrate(toPersistedState(state)) 往返保留 lastActiveProjectId", () => {
+    hydrateWithProjectsAndSessions();
+    usePersonalStore.getState().activateProject("A");
+    const persisted = toPersistedState(usePersonalStore.getState());
+    expect(persisted.lastActiveProjectId).toBe("A");
+
+    // round-trip：把快照再 hydrate 回去，结果一致。
+    usePersonalStore.getState().hydrate({ ...persisted });
+    expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
+  });
+});
+
 describe("filePreviewRequest 文件预览请求(消费即清)", () => {
   const req = { projectId: "p1", path: "/code/p1/src/a.ts", name: "a.ts" };
 
@@ -561,5 +667,91 @@ describe("filePreviewRequest 文件预览请求(消费即清)", () => {
     usePersonalStore.getState().hydrate(base);
     usePersonalStore.getState().requestFilePreview(req);
     expect("filePreviewRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  });
+});
+
+describe("noteDetailRequest 闪记详情请求(消费即清)", () => {
+  const req = { noteId: "note-1" };
+
+  it("requestNoteDetail 存入请求并切右栏到 notes", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.setState({ rightView: "todos", noteDetailRequest: undefined });
+    usePersonalStore.getState().requestNoteDetail(req);
+    const s = usePersonalStore.getState();
+    expect(s.noteDetailRequest).toEqual(req);
+    expect(s.rightView).toBe("notes");
+  });
+
+  it("consumeNoteDetailRequest 首次返回请求,之后清空", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().requestNoteDetail(req);
+    expect(usePersonalStore.getState().consumeNoteDetailRequest()).toEqual(req);
+    expect(usePersonalStore.getState().noteDetailRequest).toBeUndefined();
+    // 二次消费返回 undefined（消费即清不重复触发）。
+    expect(usePersonalStore.getState().consumeNoteDetailRequest()).toBeUndefined();
+  });
+
+  it("瞬态:不进 toPersistedState 快照", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().requestNoteDetail(req);
+    expect("noteDetailRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  });
+
+  it("setRightView 可切到 notes", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setRightView("notes");
+    expect(usePersonalStore.getState().rightView).toBe("notes");
+  });
+});
+
+describe("闪记中心区写作面视图态(noteEditorId)", () => {
+  it("openNoteEditor 置 noteEditorId 并互斥清其它中心视图", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.setState({ homeOpen: true, automationOpen: true, timelineProjectId: "p1" });
+    usePersonalStore.getState().openNoteEditor("n1");
+    const s = usePersonalStore.getState();
+    expect(s.noteEditorId).toBe("n1");
+    expect(s.homeOpen).toBe(false);
+    expect(s.automationOpen).toBe(false);
+    expect(s.timelineProjectId).toBeUndefined();
+  });
+
+  it("closeNoteEditor 清空 noteEditorId", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openNoteEditor("n1");
+    usePersonalStore.getState().closeNoteEditor();
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+  });
+
+  it("切到会话/时间线/首页/自动化时清空 noteEditorId(让位)", () => {
+    const seed = () => {
+      usePersonalStore.getState().hydrate({
+        ...base,
+        sessions: [{ id: "c1", title: "会话", agent: "claude", createdAt: 1, updatedAt: 1 }],
+        projects: [proj({ id: "p1" })],
+      });
+      usePersonalStore.getState().openNoteEditor("n1");
+    };
+    seed();
+    usePersonalStore.getState().setActiveSession("c1");
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+
+    seed();
+    usePersonalStore.getState().openTimeline("p1");
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+
+    seed();
+    usePersonalStore.getState().openHome();
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+
+    seed();
+    usePersonalStore.getState().openAutomation();
+    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
+  });
+
+  it("noteEditorId 不进 toPersistedState(瞬态,重启不残留)", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openNoteEditor("n1");
+    expect("noteEditorId" in toPersistedState(usePersonalStore.getState())).toBe(false);
   });
 });

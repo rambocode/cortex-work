@@ -20,6 +20,7 @@ export function PersonalComposer({
   onChangeModel,
   onChangePiModel,
   onToggleSkills,
+  onOpenFlashNote,
   onToast,
 }: {
   session: SessionMeta;
@@ -33,6 +34,8 @@ export function PersonalComposer({
   // pi 多通道:同时切换通道与模型。
   onChangePiModel: (channelId: string, model: string) => void;
   onToggleSkills: () => void;
+  /** 闪记图标入口:唤起闪记浮层(由壳注入,web 端缺省 → 隐藏)。 */
+  onOpenFlashNote?: () => void;
   onToast: (text: string) => void;
 }) {
   return (
@@ -50,6 +53,7 @@ export function PersonalComposer({
       onChangeModel={onChangeModel}
       onChangePiModel={onChangePiModel}
       onToggleSkills={onToggleSkills}
+      onOpenFlashNote={onOpenFlashNote}
       onCancelEdit={onCancelEdit}
       onToast={onToast}
     />

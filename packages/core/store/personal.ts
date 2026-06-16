@@ -35,6 +35,9 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${seq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// 右栏当前视图（顶栏下拉选择）。后续新增视图只需扩此联合,不必逐处改字面量。
+export type RightView = "files" | "skills" | "todos" | "notes";
+
 export interface PersonalState {
   hydrated: boolean;
   projects: ProjectMeta[];
@@ -63,8 +66,10 @@ export interface PersonalState {
   // 会话消息文件链接点击请求:右栏 FilesView 消费后 openFile 预览（消费即清,仿 gitDiffRequest）。
   // path 为已解析的绝对路径;瞬态,不进 toPersistedState。
   filePreviewRequest?: { projectId: string; path: string; name: string };
+  // 点击收件箱/时间线某条闪记 → 跨栏打开详情;消费即清,瞬态,不进 toPersistedState。
+  noteDetailRequest?: { noteId: string };
   // 右栏当前视图（顶栏下拉选择）。
-  rightView: "files" | "skills" | "todos";
+  rightView: RightView;
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
   rightPanelWidth?: number;
   // 主区时间线视图：非空时主区显示该项目的时间线（替代会话区）。
@@ -74,6 +79,9 @@ export interface PersonalState {
   homeOpen: boolean;
   // 主区自动化视图（定时任务列表/详情）。不持久化,优先级最高。
   automationOpen: boolean;
+  // 主区闪记写作面：非空时主区显示该闪记的宽编辑器（占据 .pw-center-col,替代会话区）。
+  // 瞬态,不持久化;与 homeOpen/automationOpen/timelineProjectId 互斥。
+  noteEditorId?: string;
   // 时间线日报设置（生成模型,持久化）。
   timelineSettings: TimelineSettings;
   // 全局推送渠道设置（独立持久化,所有推送场景共用）。
@@ -92,6 +100,8 @@ export interface PersonalState {
   lastAgent?: AgentKind;
   lastModel?: string;
   lastProviderId?: string;
+  // 最近活跃项目（持久化;浮层默认归属推导用,归档/删除该项目时清空）。
+  lastActiveProjectId?: string;
   // Spotlight 接力:待主窗口个人工作区消费的发起意图（不持久化）。
   pendingSpotlightIntent?: SpotlightIntent;
   hydrate: (s: PersistedState) => void;
@@ -149,13 +159,19 @@ export interface PersonalState {
   // 会话消息文件链接点击:右栏切到文件视图并请求预览该文件（path 为绝对路径）。
   requestFilePreview: (req: { projectId: string; path: string; name: string }) => void;
   consumeFilePreviewRequest: () => { projectId: string; path: string; name: string } | undefined;
-  setRightView: (view: "files" | "skills" | "todos") => void;
+  // 收件箱/时间线点闪记:右栏切到 notes 视图并请求打开该闪记详情（消费即清,仿 filePreview）。
+  requestNoteDetail: (req: { noteId: string }) => void;
+  consumeNoteDetailRequest: () => { noteId: string } | undefined;
+  setRightView: (view: RightView) => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
   openTimeline: (projectId: string) => void;
   closeTimeline: () => void;
   openHome: () => void;
   openAutomation: () => void;
+  // 点击某条闪记进入中心区宽写作面;互斥清理其他中心视图。closeNoteEditor 返回列表态。
+  openNoteEditor: (noteId: string) => void;
+  closeNoteEditor: () => void;
   setTimelineSettings: (patch: Partial<TimelineSettings>) => void;
   setPushSettings: (patch: Partial<PushSettings>) => void;
   setTtsSettings: (patch: Partial<TtsSettings>) => void;
@@ -202,6 +218,8 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     desktopBehavior: { ...DEFAULT_GENERAL_SETTINGS.desktopBehavior, ...g.desktopBehavior },
     notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
     log: { ...DEFAULT_GENERAL_SETTINGS.log, ...g.log },
+    // 旧档无此字段保持 undefined（主进程回退默认常量）;新档原样保留。
+    notesHotkey: g.notesHotkey,
   };
 }
 
@@ -255,6 +273,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       lastModel: s.lastModel,
       // 旧档字段名 lastPiChannelId → lastProviderId。
       lastProviderId: s.lastProviderId ?? (s as LegacyPersisted).lastPiChannelId,
+      lastActiveProjectId: s.lastActiveProjectId,
     }),
 
   addProject: (path) => {
@@ -277,6 +296,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeSessionId:
         s.sessions.find((x) => x.id === s.activeSessionId)?.projectId === id ? undefined : s.activeSessionId,
       timelineProjectId: s.timelineProjectId === id ? undefined : s.timelineProjectId,
+      lastActiveProjectId: s.lastActiveProjectId === id ? undefined : s.lastActiveProjectId,
     })),
 
   updateProject: (id, patch) =>
@@ -295,6 +315,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeSessionId:
         s.sessions.find((x) => x.id === s.activeSessionId)?.projectId === id ? undefined : s.activeSessionId,
       timelineProjectId: s.timelineProjectId === id ? undefined : s.timelineProjectId,
+      // 归档项目不应再作默认归属拉起。
+      lastActiveProjectId: s.lastActiveProjectId === id ? undefined : s.lastActiveProjectId,
     })),
 
   setAgentsAvailable: (avail) => set({ agentsAvailable: avail }),
@@ -441,19 +463,24 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       return {
         activeSessionId: sessionId,
         activeProjectId: sess?.projectId ?? s.activeProjectId,
+        // 无项目会话不覆盖（保留上一个有效项目作浮层默认归属）。
+        lastActiveProjectId: sess?.projectId ?? s.lastActiveProjectId,
         timelineProjectId: undefined,
         homeOpen: false,
         automationOpen: false,
+        noteEditorId: undefined,
       };
     }),
 
   activateProject: (projectId) =>
     set({
       activeProjectId: projectId,
+      lastActiveProjectId: projectId,
       activeSessionId: undefined,
       timelineProjectId: undefined,
       homeOpen: false,
       automationOpen: false,
+      noteEditorId: undefined,
     }),
 
   toggleProjectCollapse: (id) =>
@@ -503,21 +530,36 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     return req;
   },
 
+  // 收件箱/时间线点闪记:切右栏到 notes 视图并存请求,NotesView 消费后打开详情。
+  // 消费即清而非 nonce:NotesView 可能在请求发出时未挂载,取出即清才能让挂载后 effect 接到。
+  requestNoteDetail: (req) => set({ noteDetailRequest: req, rightView: "notes" }),
+
+  consumeNoteDetailRequest: () => {
+    const req = get().noteDetailRequest;
+    if (req) set({ noteDetailRequest: undefined });
+    return req;
+  },
+
   setRightView: (view) => set({ rightView: view }),
 
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
 
   openTimeline: (projectId) =>
-    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false }),
+    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, noteEditorId: undefined }),
   closeTimeline: () => set({ timelineProjectId: undefined }),
 
   // 回首页时右栏同步切回 todos（全部项目列表）——项目内的文件/Skills 面板
   // 是项目上下文,不应停留在首页。
-  openHome: () => set({ homeOpen: true, automationOpen: false, timelineProjectId: undefined, rightView: "todos" }),
+  openHome: () => set({ homeOpen: true, automationOpen: false, timelineProjectId: undefined, noteEditorId: undefined, rightView: "todos" }),
 
   // 进入自动化主区视图（优先级最高,互斥清其它视图字段）。
   openAutomation: () =>
-    set({ automationOpen: true, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined }),
+    set({ automationOpen: true, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined }),
+
+  // 点击闪记进入中心区写作面：互斥清其它中心视图;noteEditorId 瞬态,不进 toPersistedState。
+  openNoteEditor: (noteId) =>
+    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, timelineProjectId: undefined }),
+  closeNoteEditor: () => set({ noteEditorId: undefined }),
 
   setTimelineSettings: (patch) =>
     set((s) => ({ timelineSettings: { ...s.timelineSettings, ...patch } })),
@@ -555,6 +597,7 @@ export function toPersistedState(s: PersonalState): PersistedState {
     lastAgent: s.lastAgent,
     lastModel: s.lastModel,
     lastProviderId: s.lastProviderId,
+    lastActiveProjectId: s.lastActiveProjectId,
   };
 }
 
