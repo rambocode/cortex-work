@@ -1,24 +1,26 @@
 name: Desktop Release
 
-# 私有库(闭源)的 macOS 构建/发布流水线。分两档:
-#  - build-only(默认 dispatch):只构建 + Developer ID 签名 + Apple 公证 + 仓库外校验 + 传 artifact,
-#    不发布、不需要 PAT/公开库。用于先验证闭源库的自动构建链(bun/pnpm/electron-vite/签名公证)。
-#  - publish-draft / publish-release(dispatch)与 tag push:用 electron-builder --publish always
-#    跨库发到公开库 rambocode/cortex-desktop(见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
-#    publish 路径依赖 U1(建公开库 + PAT + Environment),完成后再用。
+# 私有库(闭源)的 macOS 构建/发布流水线。按 mode 分四档,门槛递增:
+#  - build-unsigned(默认 dispatch):只构建未签名包(bun/pnpm/electron-vite/electron-builder 打包),
+#    **不需要任何 secret**。用于先验证闭源库的自动构建链能否在 CI 跑通。
+#  - build-signed:构建 + Developer ID 签名 + Apple 公证 + 仓库外校验,不发布。需 5 个签名 secret。
+#  - publish-draft / publish-release(dispatch)与 tag push:electron-builder --publish always 跨库发到
+#    公开库 rambocode/cortex-desktop(见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
+#    依赖 U1(建公开库 + PAT + Environment),完成后再用。
 # 设计见 docs/plans/2026-06-16-002-feat-desktop-release-automation-plan.md。
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "build-only=只构建+签名+校验(不发布,无需 PAT);publish-draft/publish-release=跨库发到公开库(需 U1 的 PAT)"
+        description: "build-unsigned=只验证构建(无需 secret);build-signed=+签名公证(需签名 secret);publish-*=跨库发布(需 U1 的 PAT)"
         type: choice
         options:
-          - build-only
+          - build-unsigned
+          - build-signed
           - publish-draft
           - publish-release
-        default: build-only
+        default: build-unsigned
   push:
     tags:
       - "v*"
@@ -29,15 +31,15 @@ permissions:
 
 jobs:
   build-macos-arm64:
-    name: Build, sign, notarize (publish when mode requires) — macOS arm64
+    name: Build (sign/publish per mode) — macOS arm64
     # 必须 GitHub-hosted(一次性 VM);禁 self-hosted,否则证书/keychain 跨 job 残留。
     runs-on: macos-15
     timeout-minutes: 60
     # 签名/公证 secret 与 PAT 放在受保护 Environment(配 tag 进入策略;多维护者时再加 required reviewers)。
     environment: production-release
     env:
-      # tag push 一律走正式发布;dispatch 取所选 mode,默认 build-only。MODE 是受限取值,非密钥。
-      MODE: ${{ (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-only' }}
+      # tag push 一律走正式发布;dispatch 取所选 mode,默认 build-unsigned。MODE 是受限取值,非密钥。
+      MODE: ${{ (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-unsigned' }}
 
     steps:
       - name: Checkout
@@ -62,8 +64,8 @@ jobs:
         with:
           bun-version: "1.3.11"
 
-      # 任何拉取/执行第三方代码的步骤之前先校验 secret(本步只读非空、不外泄)。
-      # PAT 仅 publish 档需要;build-only 只需签名/公证 secret。
+      # 在拉取/执行第三方代码之前先校验 secret(本步只读非空、不外泄)。
+      # build-unsigned 无需任何 secret;build-signed 需 5 个签名 secret;publish-* 另需 PAT。
       - name: Verify secrets
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -73,9 +75,14 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
-          required="APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD"
-          if [[ "$MODE" != "build-only" ]]; then
-            required="$required RELEASE_GH_TOKEN"
+          case "$MODE" in
+            build-unsigned) required="" ;;
+            build-signed)   required="APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD" ;;
+            *)              required="APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD RELEASE_GH_TOKEN" ;;
+          esac
+          if [[ -z "$required" ]]; then
+            echo "mode=$MODE:无需 secret"
+            exit 0
           fi
           missing=()
           for name in $required; do
@@ -109,9 +116,9 @@ jobs:
       - name: Prepackage (build pi binary + renderer/main)
         run: pnpm --filter @cortex-work/desktop run prepackage:mac
 
-      # —— 密钥步:仅此步注入签名/公证凭据(及 publish 档的 PAT)。electron-builder 从已构建的 out/ 打包,
-      # npmRebuild: false 使其不在本步跑 node-gyp 原生编译,故凭据不接触第三方编译。
-      - name: Build, sign, notarize (and publish when mode requires)
+      # —— 打包步:按 mode 决定是否签名/发布。electron-builder 从已构建的 out/ 打包,
+      # npmRebuild: false 使其不在本步跑 node-gyp 原生编译。签名/PAT 凭据仅此步注入。
+      - name: Build (and sign/publish per mode)
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -119,23 +126,30 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # build-only 时 PAT 为空且 build:mac 用 --publish never,不会发布。
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
-          if [[ "$MODE" == "build-only" ]]; then
-            echo "build-only:构建 + 签名 + 公证,不发布(验证闭源库自动构建)"
-            pnpm --filter @cortex-work/desktop run build:mac
-          else
-            rt="release"
-            if [[ "$MODE" == "publish-draft" ]]; then
-              rt="draft"
-            fi
-            echo "publish(mode=$MODE):releaseType=$rt,跨库发到公开库"
-            pnpm --filter @cortex-work/desktop run release:mac -- -c.publish.releaseType="$rt"
-          fi
+          case "$MODE" in
+            build-unsigned)
+              echo "build-unsigned:构建未签名包(验证构建链,无需 secret)"
+              pnpm --filter @cortex-work/desktop run build:mac -- -c.mac.identity=null -c.mac.notarize=false
+              ;;
+            build-signed)
+              echo "build-signed:构建 + 签名 + 公证(不发布)"
+              pnpm --filter @cortex-work/desktop run build:mac
+              ;;
+            *)
+              rt="release"
+              if [[ "$MODE" == "publish-draft" ]]; then
+                rt="draft"
+              fi
+              echo "publish(mode=$MODE):releaseType=$rt,跨库发到公开库"
+              pnpm --filter @cortex-work/desktop run release:mac -- -c.publish.releaseType="$rt"
+              ;;
+          esac
 
-      # 在仓库外副本上校验签名/公证,规避仓库 node_modules 兜底造成的假通过(docs/lessons.md)。
+      # 仅签名档校验签名/公证(未签名包跑 codesign 必失败);在仓库外副本上做,规避仓库 node_modules 假通过。
       - name: Verify signed app and dmg (outside repo)
+        if: ${{ env.MODE != 'build-unsigned' }}
         run: |
           src="apps/desktop/dist"
           work="$(mktemp -d)"
@@ -150,7 +164,7 @@ jobs:
           spctl --assess --type open --context context:primary-signature --verbose "$dmg_copy"
           xcrun stapler validate "$dmg_copy" || echo "DMG 无 stapled ticket;app ticket 校验已通过。"
 
-      # 构建产物 artifact:build-only 档这是取回产物的唯一通道;publish 档作冗余备份。
+      # 构建产物 artifact:build 档取回产物的通道(也确认产物确实生成);publish 档作冗余备份。
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
