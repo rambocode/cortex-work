@@ -193,6 +193,8 @@ export {
   usePersonalActions,
   usePersonalCliEvents,
   usePersonalPiEvents,
+  usePersonalPiUi,
+  respondPiUi,
   truncateForEdit,
   sameTextOrdinal,
   typingText,

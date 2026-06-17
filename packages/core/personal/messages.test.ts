@@ -11,6 +11,7 @@ import {
   __resetPersonalMessageRunsForTest,
   beginPiRun,
   reapSessionRun,
+  respondPiUi,
   agentSessionPatch,
   buildAttachmentSystemPrompt,
   clearAgentSessionPatch,
@@ -657,5 +658,50 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     // 残余事件到来已无活跃 run,被安全丢弃（不抛、不写）。
     expect(() => __handlePiEventForTest(qc, "s1", { type: "text", delta: "晚到" })).not.toThrow();
     expect(cacheOf(qc).some((m) => m.kind === "text" && m.text === "晚到")).toBe(false);
+  });
+});
+
+describe("pi extension UI 待确认队列（阶段3 U5）", () => {
+  const req = (id: string) =>
+    ({ type: "extension_ui_request", id, method: "confirm", title: "T", message: "M" }) as const;
+
+  beforeEach(() => usePersonalStore.setState({ piUiPending: [], sessions: [], runningBySession: {} }));
+
+  it("push/resolve/clearForSession store 队列", () => {
+    const st = usePersonalStore.getState();
+    st.pushPiUiRequest({ uiSessionId: "sA", request: req("1") });
+    st.pushPiUiRequest({ uiSessionId: "sB", request: req("2") });
+    expect(usePersonalStore.getState().piUiPending).toHaveLength(2);
+    st.resolvePiUiRequest("1");
+    expect(usePersonalStore.getState().piUiPending.map((p) => p.request.id)).toEqual(["2"]);
+    usePersonalStore.getState().pushPiUiRequest({ uiSessionId: "sB", request: req("3") });
+    usePersonalStore.getState().clearPiUiForSession("sB");
+    expect(usePersonalStore.getState().piUiPending).toHaveLength(0);
+  });
+
+  it("respondPiUi:回写 piUiResponse + 出队", () => {
+    const piUiResponse = vi.fn(async () => undefined);
+    usePersonalStore.getState().pushPiUiRequest({ uiSessionId: "sA", request: req("7") });
+    respondPiUi({ piUiResponse } as unknown as Parameters<typeof respondPiUi>[0], "sA", "7", { confirmed: true });
+    expect(piUiResponse).toHaveBeenCalledWith("sA", "7", { confirmed: true });
+    expect(usePersonalStore.getState().piUiPending).toHaveLength(0);
+  });
+
+  it("respondPiUi:bridge 无 piUiResponse（web）时只出队,不抛", () => {
+    usePersonalStore.getState().pushPiUiRequest({ uiSessionId: "sA", request: req("8") });
+    expect(() => respondPiUi(null, "sA", "8", { cancelled: true })).not.toThrow();
+    expect(usePersonalStore.getState().piUiPending).toHaveLength(0);
+  });
+
+  it("crashed 事件清掉该会话悬挂的确认弹窗", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "pi" }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+      piUiPending: [{ uiSessionId: "s1", request: req("9") }],
+    });
+    __handlePiEventForTest(qc, "s1", { type: "crashed", error: "退出码 1" });
+    expect(usePersonalStore.getState().piUiPending).toHaveLength(0);
   });
 });

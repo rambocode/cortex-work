@@ -8,6 +8,7 @@ import type {
   GeneralSettings,
   PersistedState,
   PersonalProfile,
+  PiUiRequest,
   ProviderProfile,
   ProviderSettings,
   ProjectMeta,
@@ -62,6 +63,9 @@ export interface PersonalState {
   // pi RPC 会话运行时状态（瞬态,不持久化;由 handlePiEvent 写,头部/composer 读）:
   // 待注入队列计数 / 压缩中 / 自动重试 / 思考强度。
   piRuntimeBySession: Record<string, PiRuntimeStatus | undefined>;
+  // pi extension UI 待确认请求队列（瞬态,不持久化;阶段3 工具确认弹窗）。RPC 串行 → 通常 ≤1,
+  // 跨会话才可能 >1;FIFO,弹窗只显队首。
+  piUiPending: { uiSessionId: string; request: PiUiRequest }[];
   // 底部终端面板（不持久化;收起时保留 PTY 进程）。
   terminalOpen: boolean;
   // 待写入终端的文本（文件预览「发送到终端」中转;终端未开/PTY 未就绪时暂存,
@@ -158,6 +162,10 @@ export interface PersonalState {
   setRunning: (sessionId: string, runId: string | undefined) => void;
   // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
+  // pi extension UI 待确认请求:入队 / 按请求 id 出队 / 清某会话全部（会话退出/删除时）。
+  pushPiUiRequest: (item: { uiSessionId: string; request: PiUiRequest }) => void;
+  resolvePiUiRequest: (id: string) => void;
+  clearPiUiForSession: (uiSessionId: string) => void;
   toggleTerminal: () => void;
   // 发送文本到终端:暂存并确保终端面板打开,由 TerminalPanel 消费。
   sendToTerminal: (text: string) => void;
@@ -253,6 +261,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   collapsedProjects: {},
   runningBySession: {},
   piRuntimeBySession: {},
+  piUiPending: [],
   terminalOpen: false,
   rightView: "todos" as const,
   homeOpen: true,
@@ -511,6 +520,12 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         [sessionId]: patch === undefined ? undefined : { ...s.piRuntimeBySession[sessionId], ...patch },
       },
     })),
+
+  pushPiUiRequest: (item) => set((s) => ({ piUiPending: [...s.piUiPending, item] })),
+  resolvePiUiRequest: (id) =>
+    set((s) => ({ piUiPending: s.piUiPending.filter((p) => p.request.id !== id) })),
+  clearPiUiForSession: (uiSessionId) =>
+    set((s) => ({ piUiPending: s.piUiPending.filter((p) => p.uiSessionId !== uiSessionId) })),
 
   toggleTerminal: () => set((s) => ({ terminalOpen: !s.terminalOpen })),
 

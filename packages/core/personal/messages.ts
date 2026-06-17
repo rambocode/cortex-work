@@ -11,6 +11,7 @@ import type {
   CliStreamEvent,
   HiddenHistoryMeta,
   PiSessionEvent,
+  PiUiResponsePayload,
   ProjectMeta,
   SessionMeta,
 } from "../desktop/types";
@@ -821,6 +822,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent): 
       });
       store.setRunning(sessionId, undefined);
       store.setPiRuntime(sessionId, undefined);
+      store.clearPiUiForSession(sessionId); // 清该会话悬挂的确认弹窗（进程已死,回写无意义）。
       flushChat(qc, sessionId);
       usePetStore.getState().set("idle");
       return;
@@ -920,6 +922,7 @@ export function reapSessionRun(qc: QueryClient, sessionId: string): void {
   const store = usePersonalStore.getState();
   store.setRunning(sessionId, undefined);
   store.setPiRuntime(sessionId, undefined);
+  store.clearPiUiForSession(sessionId); // 删/关会话时清其悬挂确认弹窗。
   clearTransient(qc, sessionId);
 }
 
@@ -1106,6 +1109,30 @@ export function usePersonalPiEvents(): void {
     const off = bridge.onPiEvent((sessionId, ev) => handlePiEvent(qc, sessionId, ev));
     return () => off();
   }, [bridge, qc]);
+}
+
+// 全局只挂一次（PersonalWorkspace 根部）：订阅 pi extension UI 请求 → 入队 store，由确认弹窗消费。
+// bridge 无 onPiUiRequest（web/旧壳）时整体 no-op（pi extension 的 confirm 走 pi 侧 timeout 默认）。
+export function usePersonalPiUi(): void {
+  const bridge = useDesktopBridge();
+  useEffect(() => {
+    if (!bridge?.onPiUiRequest) return;
+    const off = bridge.onPiUiRequest((uiSessionId, request) =>
+      usePersonalStore.getState().pushPiUiRequest({ uiSessionId, request }),
+    );
+    return () => off();
+  }, [bridge]);
+}
+
+// 回应一条 pi extension UI 请求:回写给 pi（confirm/value/cancelled）+ 出队。失败静默（会话已退则作废）。
+export function respondPiUi(
+  bridge: DesktopBridge | null,
+  uiSessionId: string,
+  id: string,
+  payload: PiUiResponsePayload,
+): void {
+  usePersonalStore.getState().resolvePiUiRequest(id);
+  void bridge?.piUiResponse?.(uiSessionId, id, payload).catch(() => undefined);
 }
 
 // 确保某 session 的消息缓存已从磁盘加载（发送前调用，防止首条写入被覆盖）。

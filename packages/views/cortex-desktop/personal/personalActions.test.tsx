@@ -11,6 +11,7 @@ import {
   personalChatKeys,
   usePersonalActions,
   usePersonalPiEvents,
+  usePersonalPiUi,
   usePersonalStore,
   __resetPersonalMessageRunsForTest,
   __resetPiSessionsForTest,
@@ -36,6 +37,8 @@ function makeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
     piGetForkMessages: vi.fn(async () => ({ messages: [{ entryId: "e1", text: "原问题" }] })),
     piSetModel: vi.fn(async () => undefined),
     onPiEvent: vi.fn(() => () => undefined),
+    onPiUiRequest: vi.fn(() => () => undefined),
+    piUiResponse: vi.fn(async () => undefined),
     ...over,
   } as unknown as DesktopBridge;
 }
@@ -187,6 +190,25 @@ describe("usePersonalPiEvents 订阅生命周期（U4）", () => {
     const bridge = makeBridge({ onPiEvent: undefined });
     const qc = new QueryClient();
     expect(() => renderHook(() => usePersonalPiEvents(), { wrapper: wrapper(bridge, qc) })).not.toThrow();
+  });
+
+  it("usePersonalPiUi 挂载订阅 onPiUiRequest,回调入队 store + 卸载退订", () => {
+    let emit: ((uiSessionId: string, request: unknown) => void) | undefined;
+    const off = vi.fn();
+    const onPiUiRequest = vi.fn((cb: (uiSessionId: string, request: unknown) => void) => {
+      emit = cb;
+      return off;
+    });
+    const bridge = makeBridge({ onPiUiRequest });
+    const qc = new QueryClient();
+    usePersonalStore.setState({ piUiPending: [] });
+    const { unmount } = renderHook(() => usePersonalPiUi(), { wrapper: wrapper(bridge, qc) });
+    expect(onPiUiRequest).toHaveBeenCalledTimes(1);
+    emit!("s-pi", { type: "extension_ui_request", id: "z1", method: "confirm", title: "T", message: "M" });
+    expect(usePersonalStore.getState().piUiPending).toHaveLength(1);
+    expect(usePersonalStore.getState().piUiPending[0]).toMatchObject({ uiSessionId: "s-pi" });
+    unmount();
+    expect(off).toHaveBeenCalledTimes(1);
   });
 });
 
