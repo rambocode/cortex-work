@@ -37,8 +37,8 @@ afterEach(() => cleanup());
 describe("PluginManager", () => {
   it("渲染全局 skill 列表 + 统计", async () => {
     renderWith(fakeBridge([sk("code-review", "global", "/g/cr"), sk("bug-hunt", "global", "/g/bh")]));
-    expect(await screen.findByText("code-review")).toBeTruthy();
-    expect(screen.getByText("bug-hunt")).toBeTruthy();
+    expect(await screen.findByText("Code Review")).toBeTruthy(); // 展示名 title-case
+    expect(screen.getByText("Bug Hunt")).toBeTruthy();
     expect(screen.getByText(/已扫描 2 个/)).toBeTruthy();
     expect(screen.getByText(/2 个启用/)).toBeTruthy();
   });
@@ -53,10 +53,10 @@ describe("PluginManager", () => {
 
   it("搜索过滤", async () => {
     renderWith(fakeBridge([sk("code-review", "global", "/g/cr"), sk("bug-hunt", "global", "/g/bh")]));
-    await screen.findByText("code-review");
+    await screen.findByText("Code Review");
     fireEvent.change(screen.getByLabelText("搜索 Skill"), { target: { value: "bug" } });
-    expect(screen.queryByText("code-review")).toBeNull();
-    expect(screen.getByText("bug-hunt")).toBeTruthy();
+    expect(screen.queryByText("Code Review")).toBeNull();
+    expect(screen.getByText("Bug Hunt")).toBeTruthy();
   });
 
   it("工作区未授信 skill → 显示「信任并启用」,点击写 trustedWorkspaceSkillDirs", async () => {

@@ -276,11 +276,22 @@ function SkillGroup({
   return (
     <div className="pw-plugins-group">
       <div className="pw-plugins-group-title">{title}</div>
-      {skills.map((s) => (
-        <SkillCard key={`${s.scope}:${s.dir}`} skill={s} onToggle={onToggle} onTrust={onTrust} />
-      ))}
+      <div className="pw-plugins-grid">
+        {skills.map((s) => (
+          <SkillCard key={`${s.scope}:${s.dir}`} skill={s} onToggle={onToggle} onTrust={onTrust} />
+        ))}
+      </div>
     </div>
   );
+}
+
+// frontmatter name（kebab/小写）→ 展示用标题大小写（如 agent-browser → Agent Browser）。
+function titleCase(name: string): string {
+  return name
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 function SkillCard({
@@ -297,21 +308,21 @@ function SkillCard({
     <div className={`pw-plugins-card ${skill.shadowedBy ? "is-shadowed" : ""}`}>
       <div className="pw-plugins-card-main">
         <div className="pw-plugins-card-title">
-          {skill.name}
-          {skill.scope === "workspace" ? <span className="pw-tag">工作区</span> : null}
+          <span className="pw-plugins-card-name">{titleCase(skill.name)}</span>
+          <span className="pw-tag">{skill.scope === "workspace" ? "工作区" : "全局"}</span>
           {skill.shadowedBy ? <span className="pw-tag">已被全局同名覆盖</span> : null}
           {untrustedWorkspace ? <span className="pw-tag">未信任</span> : null}
         </div>
         <div className="pw-plugins-card-desc">{skill.description}</div>
       </div>
       {untrustedWorkspace ? (
-        <button type="button" className="pw-btn-sm" onClick={() => onTrust(skill.dir, true)}>
+        <button type="button" className="pw-pill" onClick={() => onTrust(skill.dir, true)}>
           信任并启用
         </button>
       ) : (
         <button
           type="button"
-          className="pw-toggle-btn"
+          className="pw-pill"
           role="switch"
           aria-checked={skill.enabled}
           aria-label={`${skill.name} ${skill.enabled ? "已启用" : "已禁用"}`}
