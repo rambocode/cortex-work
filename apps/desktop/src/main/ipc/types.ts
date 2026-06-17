@@ -140,7 +140,11 @@ export interface GeneralSettings {
   notesHotkey?: string;
   // pi 深度定制（阶段3,与 core/desktop/types.ts 镜像）。主进程仅持久化,不直接读;
   // renderer 据此把 enable* 开关塞进 PiOpenRequest。
-  piCustomization?: { toolApproval: boolean; sampleTools: boolean; sampleCommands: boolean };
+  piCustomization?: { toolApproval: boolean; sampleTools: boolean; sampleCommands: boolean; approvalTools?: string[] };
+  // pi 持久 system prompt（阶段4,与 core 镜像,string 一致）。主进程仅持久化,不直接读。
+  // 注:piThinkingDefault 是 ThinkingLevel enum、主进程不读,不在此镜像（避免 string/enum 跨包
+  // 在 bridge 边界 bivariant 不兼容;core 侧 optional 字段缺失对结构子类型无碍）。
+  piSystemPrompt?: string;
 }
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
@@ -289,12 +293,15 @@ export interface PiOpenRequest {
   cwd: string;
   model?: string;
   useOwnSkills?: boolean;
-  // 自定义供应商:与 CliStartRequest.provider 同形;主进程据此生成 extension 并注入 key。
+  // 自定义供应商:比 CliStartRequest.provider 多带 endpointFormat + per-model 能力标记
+  // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置;主进程据此生成
+  // extension 并注入 key。单发路径不需要高级配置,故 CliStartRequest.provider 不扩展。
   provider?: {
     id: string;
     baseUrl: string;
     apiKey?: string;
-    models: { id: string; name?: string }[];
+    endpointFormat?: EndpointFormat;
+    models: { id: string; name?: string; reasoning?: boolean; vision?: boolean; contextTokens?: number }[];
   };
   // 主进程内部填充:生成的 provider extension 文件绝对路径（buildRpcArgs 读取）。
   piExtensionPath?: string;
@@ -305,6 +312,10 @@ export interface PiOpenRequest {
   enableSampleCommands?: boolean;
   // 主进程内部填充:除 provider 外追加的 extension 路径（审批/样例工具/命令），各加一个 -e。
   extraExtensionPaths?: string[];
+  // pi 持久追加 system prompt（阶段4）:renderer 传,buildRpcArgs → --append-system-prompt。
+  appendSystemPrompt?: string;
+  // pi 思考强度初值（阶段5）:renderer 传,buildRpcArgs → --thinking（冷启设初值）。
+  thinkingLevel?: string;
 }
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。

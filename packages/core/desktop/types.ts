@@ -51,6 +51,9 @@ export interface SessionMeta {
   agentSessionIds?: Partial<Record<AgentKind, string>>;
   agent: AgentKind;
   model?: string;
+  // pi 思考强度（阶段5）:运行时可切(set_thinking_level),冷启经 --thinking 设初值;缺省回退
+  // generalSettings.piThinkingDefault,再缺省 = 不传 = pi 内置默认。
+  thinkingLevel?: ThinkingLevel;
   // pi 会话选中的供应商 id（指向 ProviderSettings.providers）;model 存该 provider 下的模型 id。
   providerId?: string;
   // pi 侧会话磁盘 JSONL 路径（阶段4）。会话开启时由 get_state 取得并持久;崩溃/空闲/LRU/app 重启
@@ -379,6 +382,11 @@ export interface GeneralSettings {
   notesHotkey?: string;
   // pi 深度定制（阶段3）:经 extension 加载,会话开启时生效;缺省 = 全关。
   piCustomization?: PiCustomizationSettings;
+  // pi 持久追加 system prompt（阶段4）:会话开启时经 --append-system-prompt 注入(系统级,不污染每轮
+  // prompt);改动需重开会话才生效(pi RPC 无运行时改 system prompt 的命令)。缺省 = 不传 = pi 默认。
+  piSystemPrompt?: string;
+  // pi 新会话默认思考强度（阶段5）:会话级 SessionMeta.thinkingLevel 缺省时回退此值。
+  piThinkingDefault?: ThinkingLevel;
 }
 
 // pi 深度定制开关（阶段3）。改动在下次 pi 会话开启时生效（extension 在 open 时加载）。
@@ -386,7 +394,27 @@ export interface PiCustomizationSettings {
   toolApproval: boolean; // 工具执行审批弹窗（拦 bash/write/edit 等,经弹窗确认）
   sampleTools: boolean; // 自定义工具样例 echo_upper
   sampleCommands: boolean; // 斜杠命令样例 /greet
+  // toolApproval 开时需审批的工具集。undefined=默认三件(bash/write/edit);空数组=不审批任何工具。
+  approvalTools?: string[];
 }
+
+// 审批工具:默认需审批的高风险工具 + UI 可勾选的工具全集。与 pi-extensions.ts 的
+// DEFAULT_APPROVAL_TOOLS 同源（pi 工具名小写 bash/read/edit/write/grep/find/ls）。
+export const DEFAULT_PI_APPROVAL_TOOLS = ["bash", "write", "edit"];
+export const PI_APPROVAL_TOOL_OPTIONS = ["bash", "write", "edit", "read", "grep", "find", "ls"];
+
+// pi 思考强度（阶段5）。与 pi-agent-core 的 ThinkingLevel 对齐（升级 pi 时复核 args.js 校验值）。
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export const PI_THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+// 档位中文展示名（设置页 / Composer 下拉复用）。
+export const PI_THINKING_LABELS: Record<ThinkingLevel, string> = {
+  off: "关闭",
+  minimal: "极简",
+  low: "低",
+  medium: "中",
+  high: "高",
+  xhigh: "极高",
+};
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   // closeToTray 默认 true：保留现有「关窗隐藏到后台、托盘常驻」行为;关闭则关窗即退出。
@@ -593,12 +621,15 @@ export interface PiOpenRequest {
   cwd: string;
   model?: string;
   useOwnSkills?: boolean;
-  // 自定义供应商:与 CliStartRequest.provider 同形;主进程据此生成 extension 并注入 key。
+  // 自定义供应商:比 CliStartRequest.provider 多带 endpointFormat + per-model 能力标记
+  // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置;主进程据此生成
+  // extension 并注入 key。单发路径不需要高级配置,故 CliStartRequest.provider 不扩展。
   provider?: {
     id: string;
     baseUrl: string;
     apiKey?: string;
-    models: { id: string; name?: string }[];
+    endpointFormat?: EndpointFormat;
+    models: { id: string; name?: string; reasoning?: boolean; vision?: boolean; contextTokens?: number }[];
   };
   // 主进程内部填充:生成的 provider extension 文件绝对路径（renderer 不传,buildRpcArgs 读取）。
   piExtensionPath?: string;
@@ -609,6 +640,12 @@ export interface PiOpenRequest {
   enableSampleCommands?: boolean;
   // 主进程内部填充:除 provider 外追加的 extension 路径。
   extraExtensionPaths?: string[];
+  // pi 持久追加 system prompt（阶段4）:renderer 传,buildRpcArgs → --append-system-prompt。
+  appendSystemPrompt?: string;
+  // pi 思考强度初值（阶段5）:renderer 传,buildRpcArgs → --thinking（冷启设初值;已开会话切档走运行时
+  // pi:setThinking）。用 string 与 ipc 镜像一致(DTO 不强类型;UI 侧 SessionMeta.thinkingLevel /
+  // GeneralSettings.piThinkingDefault 仍是 ThinkingLevel)。
+  thinkingLevel?: string;
 }
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。

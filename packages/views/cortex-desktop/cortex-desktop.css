@@ -5629,6 +5629,23 @@ button.sb-row {
 }
 .pw-set-input:focus { border-color: var(--accent); }
 .pw-set-input::placeholder { color: var(--text-4); }
+.pw-ta {
+  font-size: 12.5px;
+  color: var(--text-1);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 9px;
+  outline: none;
+  width: 100%;
+  resize: vertical;
+  min-height: 92px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+.pw-ta:focus { border-color: var(--accent); }
+.pw-ta::placeholder { color: var(--text-4); }
+.pw-ta-count { margin-top: 5px; font-size: 11px; color: var(--text-4); text-align: right; }
 .pw-set-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .pw-icon-btn.is-active { background: var(--bg-active); color: var(--text-1); }
 

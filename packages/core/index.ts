@@ -128,6 +128,12 @@ export {
   DEFAULT_PROVIDER_SETTINGS,
   PROVIDER_PRESETS,
   DEFAULT_GENERAL_SETTINGS,
+  DEFAULT_PI_APPROVAL_TOOLS,
+  PI_APPROVAL_TOOL_OPTIONS,
+  PI_THINKING_LEVELS,
+  PI_THINKING_LABELS,
+  type PiCustomizationSettings,
+  type ThinkingLevel,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
 export {
@@ -212,6 +218,8 @@ export {
   closeAllPiSessions,
   isPiSessionOpen,
   piRpcAvailable,
+  piRpcMissingCapabilities,
+  piRpcUnavailableMessage,
   __resetPiSessionsForTest,
 } from "./personal/pi-session";
 export { isLikelyFilePath, resolveProjectFileRef } from "./personal/filePaths";

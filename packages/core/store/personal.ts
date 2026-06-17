@@ -238,17 +238,19 @@ function resolveProviderSettings(s: PersistedState): ProviderSettings {
   return DEFAULT_PROVIDER_SETTINGS;
 }
 
-// 通用设置 hydrate：嵌套子对象逐层以 DEFAULT_GENERAL_SETTINGS 补全（旧档可能缺字段）。
+// 通用设置 hydrate：完整透传顶层字段（workspaceRoot / notesHotkey / piCustomization /
+// piThinkingDefault / piSystemPrompt 等），再以 DEFAULT_GENERAL_SETTINGS 逐层补全嵌套子对象。
+// 注意：务必整体 spread `...g` 而非逐字段重建——后者会静默丢掉任何未显式列出的字段（可选字段连
+// typecheck 都不报），曾导致 piCustomization 重启即失效。新增顶层设置字段无需再改本函数。
 function resolveGeneralSettings(s: PersistedState): GeneralSettings {
   const g = s.generalSettings;
   if (!g) return DEFAULT_GENERAL_SETTINGS;
   return {
-    workspaceRoot: g.workspaceRoot,
+    ...DEFAULT_GENERAL_SETTINGS,
+    ...g,
     desktopBehavior: { ...DEFAULT_GENERAL_SETTINGS.desktopBehavior, ...g.desktopBehavior },
     notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
     log: { ...DEFAULT_GENERAL_SETTINGS.log, ...g.log },
-    // 旧档无此字段保持 undefined（主进程回退默认常量）;新档原样保留。
-    notesHotkey: g.notesHotkey,
   };
 }
 

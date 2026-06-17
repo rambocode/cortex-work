@@ -34,6 +34,77 @@ describe("hydrate 推送设置迁移", () => {
   });
 });
 
+describe("hydrate 通用设置（generalSettings 完整透传）", () => {
+  it("保留 piCustomization（防 resolveGeneralSettings 逐字段重建丢字段回归）", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: {
+        desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
+        notifications: { turnComplete: true },
+        log: { enabled: true, retentionDays: 2 },
+        piCustomization: { toolApproval: true, sampleTools: false, sampleCommands: false },
+      },
+    });
+    expect(usePersonalStore.getState().generalSettings.piCustomization).toEqual({
+      toolApproval: true,
+      sampleTools: false,
+      sampleCommands: false,
+    });
+  });
+
+  it("保留 piCustomization.approvalTools 审批清单（阶段3）", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: {
+        desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
+        notifications: { turnComplete: true },
+        log: { enabled: true, retentionDays: 2 },
+        piCustomization: { toolApproval: true, sampleTools: false, sampleCommands: false, approvalTools: ["bash", "read"] },
+      },
+    });
+    expect(usePersonalStore.getState().generalSettings.piCustomization?.approvalTools).toEqual(["bash", "read"]);
+  });
+
+  it("保留 piThinkingDefault / piSystemPrompt 顶层新字段（阶段4/5）", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: {
+        desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
+        notifications: { turnComplete: true },
+        log: { enabled: true, retentionDays: 2 },
+        piThinkingDefault: "high",
+        piSystemPrompt: "你是助手",
+      },
+    });
+    const g = usePersonalStore.getState().generalSettings;
+    expect(g.piThinkingDefault).toBe("high");
+    expect(g.piSystemPrompt).toBe("你是助手");
+  });
+
+  it("旧档无 generalSettings 时回退默认（piCustomization undefined）", () => {
+    usePersonalStore.getState().hydrate(base);
+    expect(usePersonalStore.getState().generalSettings.piCustomization).toBeUndefined();
+  });
+
+  it("保留顶层自定义字段并以默认补全嵌套子对象", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: {
+        workspaceRoot: "/tmp/ws",
+        desktopBehavior: { openAtLogin: true, startMinimized: false, closeToTray: false },
+        notifications: { turnComplete: false },
+        log: { enabled: false, retentionDays: 5 },
+        notesHotkey: "CommandOrControl+Shift+K",
+      },
+    });
+    const g = usePersonalStore.getState().generalSettings;
+    expect(g.workspaceRoot).toBe("/tmp/ws");
+    expect(g.notesHotkey).toBe("CommandOrControl+Shift+K");
+    expect(g.desktopBehavior.openAtLogin).toBe(true);
+    expect(g.log.retentionDays).toBe(5);
+  });
+});
+
 describe("personal todos", () => {
   it("旧数据缺少 todos 时默认空列表并持久化", () => {
     usePersonalStore.getState().hydrate(base);

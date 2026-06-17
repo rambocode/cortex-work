@@ -79,13 +79,32 @@ function evictLruIfFull(bridge: DesktopBridge): void {
   void closePiSession(bridge, victim.sessionId);
 }
 
-// 影响 extension 加载的开关指纹（审批工具集 / 样例工具 / 样例命令）。同设置→同指纹(字段定序稳定)。
+// 影响 extension 加载的指纹（审批工具集 / 样例工具 / 样例命令 / 自定义供应商配置）。同设置→同
+// 指纹(字段定序稳定)。provider 的 baseUrl/apiKey/endpointFormat/per-model 能力变化都会重渲
+// extension,故纳入指纹 → 改配置后温会话重开,新 extension 经 -e 真正加载（否则改了端点格式/模型
+// 能力却不生效）。注意:运行时态(thinkingLevel/model 实时切换)绝不进此指纹。
 function extensionFingerprint(req: PiOpenRequest): string {
   return JSON.stringify({
     toolApproval: !!req.enableToolApproval,
     approvalTools: req.approvalTools ?? null,
     sampleTools: !!req.enableSampleTools,
     sampleCommands: !!req.enableSampleCommands,
+    // 持久 system prompt（阶段4）:经 --append-system-prompt 冷启注入,无运行时命令,改值必须重开。
+    appendSystemPrompt: req.appendSystemPrompt ?? null,
+    provider: req.provider
+      ? {
+          id: req.provider.id,
+          baseUrl: req.provider.baseUrl,
+          apiKey: req.provider.apiKey ?? null,
+          endpointFormat: req.provider.endpointFormat ?? null,
+          models: req.provider.models.map((m) => ({
+            id: m.id,
+            reasoning: m.reasoning ?? null,
+            vision: m.vision ?? null,
+            contextTokens: m.contextTokens ?? null,
+          })),
+        }
+      : null,
   });
 }
 
@@ -97,6 +116,23 @@ export function isPiSessionOpen(sessionId: string): boolean {
 /** 当前环境是否提供 pi RPC 能力（web/旧壳无 → 退回单发或隐藏运行时控制）。 */
 export function piRpcAvailable(bridge: DesktopBridge | null | undefined): boolean {
   return !!bridge?.piOpen && !!bridge?.piPrompt && !!bridge?.onPiEvent;
+}
+
+/** pi RPC 缺失能力列表,用于旧 preload / web 环境给出可诊断提示。 */
+export function piRpcMissingCapabilities(bridge: DesktopBridge | null | undefined): string[] {
+  if (!bridge) return ["desktopBridge"];
+  const missing: string[] = [];
+  if (!bridge.piOpen) missing.push("piOpen");
+  if (!bridge.piPrompt) missing.push("piPrompt");
+  if (!bridge.onPiEvent) missing.push("onPiEvent");
+  return missing;
+}
+
+/** 面向用户的 pi RPC 不可用说明。返回 null 表示能力完整。 */
+export function piRpcUnavailableMessage(bridge: DesktopBridge | null | undefined): string | null {
+  const missing = piRpcMissingCapabilities(bridge);
+  if (missing.length === 0) return null;
+  return `当前 Desktop 桥缺少 pi RPC 能力（缺少 ${missing.join(", ")}）。请完整重启 Cortex Desktop 以加载最新 preload；如果当前是在浏览器 Web 页面中使用，请切换到 Desktop 应用。`;
 }
 
 /**
@@ -225,6 +261,12 @@ export function setModelPi(
 ): Promise<unknown> {
   requireReady(sessionId);
   return requireCap(bridge.piSetModel, "pi setModel")(sessionId, provider, modelId);
+}
+
+/** 运行时切思考强度（会话已开启时实时生效;set_thinking_level 是运行时命令,不进指纹、不重开）。 */
+export function setThinkingLevelPi(bridge: DesktopBridge, sessionId: string, level: string): Promise<unknown> {
+  requireReady(sessionId);
+  return requireCap(bridge.piSetThinking, "pi setThinking")(sessionId, level);
 }
 
 /** 显式关闭会话:摘除登记 + 终止子进程（幂等,piClose 缺失时只清本地登记）。 */

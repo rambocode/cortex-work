@@ -14,8 +14,11 @@ import {
   isPiSessionOpen,
   markPiSessionGone,
   piRpcAvailable,
+  piRpcMissingCapabilities,
+  piRpcUnavailableMessage,
   promptPi,
   setModelPi,
+  setThinkingLevelPi,
   setPiLifecycleHooks,
   steerPi,
   touchPiSession,
@@ -56,6 +59,14 @@ describe("piRpcAvailable", () => {
     expect(piRpcAvailable(null)).toBe(false);
     expect(piRpcAvailable(fakeBridge({ piOpen: undefined }))).toBe(false);
     expect(piRpcAvailable(fakeBridge({ onPiEvent: undefined }))).toBe(false);
+  });
+
+  it("返回缺失能力列表和可操作提示", () => {
+    const bridge = fakeBridge({ piOpen: undefined, onPiEvent: undefined });
+    expect(piRpcMissingCapabilities(bridge)).toEqual(["piOpen", "onPiEvent"]);
+    expect(piRpcUnavailableMessage(bridge)).toContain("缺少 piOpen, onPiEvent");
+    expect(piRpcUnavailableMessage(bridge)).toContain("完整重启 Cortex Desktop");
+    expect(piRpcUnavailableMessage(fakeBridge())).toBeNull();
   });
 });
 
@@ -134,6 +145,72 @@ describe("ensurePiSession", () => {
     await ensurePiSession(bridge, { ...req(), enableToolApproval: true });
     expect(bridge.piOpen).toHaveBeenCalledTimes(1);
     expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
+  it("provider 配置变化（endpointFormat）→ 指纹漂移关旧重开,新 extension 生效", async () => {
+    const bridge = fakeBridge();
+    const p = (endpointFormat: "chat_completions" | "messages"): PiOpenRequest => ({
+      ...req(),
+      provider: { id: "ds", baseUrl: "https://x/v1", endpointFormat, models: [{ id: "m" }] },
+    });
+    await ensurePiSession(bridge, p("chat_completions"));
+    await ensurePiSession(bridge, p("messages")); // 改端点格式
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("provider 配置不变 → 指纹一致复用不重开", async () => {
+    const bridge = fakeBridge();
+    const p: PiOpenRequest = {
+      ...req(),
+      provider: { id: "ds", baseUrl: "https://x/v1", endpointFormat: "messages", models: [{ id: "m", reasoning: true }] },
+    };
+    await ensurePiSession(bridge, { ...p });
+    await ensurePiSession(bridge, { ...p });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
+  it("appendSystemPrompt 变化 → 指纹漂移关旧重开（阶段4 持久 system prompt）", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), appendSystemPrompt: "你是 A" });
+    await ensurePiSession(bridge, { ...req(), appendSystemPrompt: "你是 B" });
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("appendSystemPrompt 不变 → 复用不重开", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), appendSystemPrompt: "你是 A" });
+    await ensurePiSession(bridge, { ...req(), appendSystemPrompt: "你是 A" });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
+  it("thinkingLevel 仅运行时态 → 不进指纹,切档复用温会话不重开（阶段5）", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), thinkingLevel: "low" });
+    await ensurePiSession(bridge, { ...req(), thinkingLevel: "high" });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
+  it("setThinkingLevelPi 未就绪 → 抛错（requireReady）", () => {
+    expect(() => setThinkingLevelPi(fakeBridge(), "s1", "high")).toThrow();
+  });
+
+  it("setThinkingLevelPi 缺 piSetThinking 能力 → 抛错（requireCap）", async () => {
+    const bridge = fakeBridge({ piSetThinking: undefined });
+    await ensurePiSession(bridge, req());
+    expect(() => setThinkingLevelPi(bridge, "s1", "high")).toThrow();
+  });
+
+  it("setThinkingLevelPi 就绪 → 以 (sessionId, level) 下发", async () => {
+    const setThinking = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ piSetThinking: setThinking });
+    await ensurePiSession(bridge, req());
+    await setThinkingLevelPi(bridge, "s1", "high");
+    expect(setThinking).toHaveBeenCalledWith("s1", "high");
   });
 
   it("开启失败摘除登记,下次 ensure 可重试", async () => {

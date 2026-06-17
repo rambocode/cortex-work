@@ -1,6 +1,6 @@
 // pi-providers 渲染单测：只测纯函数 renderPiExtension（不碰 electron/fs）。
 import { describe, expect, it } from "vitest";
-import { renderPiExtension, PI_KEY_ENV } from "./pi-providers";
+import { renderPiExtension, endpointFormatToApi, PI_KEY_ENV } from "./pi-providers";
 
 describe("renderPiExtension", () => {
   const channel = {
@@ -54,5 +54,51 @@ describe("renderPiExtension", () => {
     expect(src).not.toContain('v1"; pwned');
     expect(src).toContain(JSON.stringify('https://e/v1"; pwned()//'));
     expect(src).toContain(JSON.stringify('m"]; hack()//'));
+  });
+});
+
+describe("endpointFormatToApi 映射", () => {
+  it("四种 endpointFormat 映射到 pi 合法 api 值", () => {
+    expect(endpointFormatToApi("chat_completions")).toBe("openai-completions");
+    expect(endpointFormatToApi("responses")).toBe("openai-responses");
+    expect(endpointFormatToApi("messages")).toBe("anthropic-messages");
+    // custom 暂按 OpenAI 兼容兜底（pi 无 custom api 值）。
+    expect(endpointFormatToApi("custom")).toBe("openai-completions");
+  });
+
+  it("缺省（undefined）回退 openai-completions", () => {
+    expect(endpointFormatToApi(undefined)).toBe("openai-completions");
+  });
+});
+
+describe("renderPiExtension 高级配置消费", () => {
+  it("endpointFormat=messages → api=anthropic-messages（不再写死 openai-completions）", () => {
+    const src = renderPiExtension({
+      id: "x",
+      baseUrl: "https://x/v1",
+      endpointFormat: "messages",
+      models: [{ id: "m" }],
+    });
+    expect(src).toContain('"anthropic-messages"');
+    expect(src).not.toContain('"openai-completions"');
+  });
+
+  it("per-model reasoning/vision/contextTokens 真正写入 extension", () => {
+    const src = renderPiExtension({
+      id: "x",
+      baseUrl: "https://x/v1",
+      models: [{ id: "m", name: "M", reasoning: true, vision: true, contextTokens: 200000 }],
+    });
+    expect(src).toContain('"reasoning": true');
+    expect(src).toContain('"image"'); // vision → input 含 image
+    expect(src).toContain('"contextWindow": 200000');
+  });
+
+  it("模型缺省字段 → 兜底（reasoning:false / 纯文本输入 / 131072 / 8192）不回归", () => {
+    const src = renderPiExtension({ id: "x", baseUrl: "https://x/v1", models: [{ id: "m" }] });
+    expect(src).toContain('"reasoning": false');
+    expect(src).not.toContain('"image"');
+    expect(src).toContain('"contextWindow": 131072');
+    expect(src).toContain('"maxTokens": 8192');
   });
 });

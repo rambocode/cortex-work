@@ -29,6 +29,16 @@ describe("renderApprovalExtension（阶段3 U7）", () => {
     expect(src).toContain('const NEEDS = new Set(["bash"]);');
   });
 
+  it("空数组 → 空 NEEDS 集（不审批任何工具,而非兜回默认三件）", () => {
+    const src = renderApprovalExtension([]);
+    expect(src).toContain("const NEEDS = new Set([]);");
+  });
+
+  it("无参（undefined）→ 默认三件 bash/write/edit", () => {
+    const src = renderApprovalExtension();
+    expect(src).toContain(`const NEEDS = new Set(${JSON.stringify(DEFAULT_APPROVAL_TOOLS)});`);
+  });
+
   it("写文件:落 userData/pi-extensions/approval.js,mode 0600", () => {
     const path = writeApprovalExtension();
     expect(path).toContain("pi-extensions");

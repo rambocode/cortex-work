@@ -107,6 +107,22 @@ describe("send 分叉", () => {
     expect(bridge.startCli).not.toHaveBeenCalled();
   });
 
+  it("pi RPC 能力缺失时直接提示,不调用 piOpen/piPrompt", async () => {
+    const bridge = makeBridge({ piOpen: undefined, piPrompt: vi.fn(async () => undefined) });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "你好", []);
+    });
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail("s-pi")) ?? [];
+    expect(bridge.piOpen).toBeUndefined();
+    expect(bridge.piPrompt).not.toHaveBeenCalled();
+    expect(bridge.startCli).not.toHaveBeenCalled();
+    expect(usePersonalStore.getState().runningBySession["s-pi"]).toBeUndefined();
+    expect(msgs.map((m) => (m.kind === "text" ? m.text : "")).join("\n")).toContain("缺少 piOpen");
+    expect(msgs.map((m) => (m.kind === "text" ? m.text : "")).join("\n")).toContain("完整重启 Cortex Desktop");
+  });
+
   it("同会话并发两次 send:同步锁挡掉第二次,只起一轮", async () => {
     const bridge = makeBridge();
     const qc = new QueryClient();

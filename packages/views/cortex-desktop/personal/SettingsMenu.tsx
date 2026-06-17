@@ -14,6 +14,10 @@ import { formatAccelerator } from "@cortex-work/ui/controls/hotkeyAccelerator";
 import {
   AGENT_MODELS,
   DEFAULT_MODEL,
+  DEFAULT_PI_APPROVAL_TOOLS,
+  PI_APPROVAL_TOOL_OPTIONS,
+  PI_THINKING_LEVELS,
+  PI_THINKING_LABELS,
   DEFAULT_PUSH_TEMPLATE,
   PROVIDER_PRESETS,
   providerFromPreset,
@@ -37,6 +41,7 @@ import type {
   ProviderProfile,
   PromptNode,
   SummaryModelConfig,
+  ThinkingLevel,
   TtsEngineConfig,
   TtsVoiceOption,
   WecomPushConfig,
@@ -63,13 +68,14 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
-type SettingsTab = "profile" | "general" | "providers" | "agent" | "pet" | "timeline" | "push" | "voice";
+type SettingsTab = "profile" | "general" | "providers" | "agent" | "pi" | "pet" | "timeline" | "push" | "voice";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "profile", label: "个人资料", icon: <Icon.Users size={14} /> },
   { id: "general", label: "通用", icon: <Icon.Settings size={14} /> },
   { id: "providers", label: "供应商", icon: <Icon.Globe size={14} /> },
   { id: "agent", label: "Agent", icon: <Icon.Terminal size={14} /> },
+  { id: "pi", label: "Pi", icon: <Icon.Bot size={14} /> },
   { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
   { id: "timeline", label: "时间线", icon: <Icon.Clock size={14} /> },
   { id: "push", label: "推送", icon: <Icon.Send size={14} /> },
@@ -506,27 +512,6 @@ function GeneralSection() {
           desc="Agent 回合结束且窗口失焦时显示系统通知。"
           value={general.notifications.turnComplete}
           onChange={(v) => setGeneral({ notifications: { ...general.notifications, turnComplete: v } })}
-        />
-      </SettingCard>
-
-      <SettingCard title="pi 深度定制">
-        <SwitchRow
-          label="工具执行审批"
-          desc="pi 调用 bash/write/edit 等高风险工具前弹窗确认,拒绝则阻断。改动在下次发送消息时生效(会重启当前 pi 会话,丢失其内存上下文)。"
-          value={general.piCustomization?.toolApproval ?? false}
-          onChange={(v) => setGeneral({ piCustomization: { sampleTools: false, sampleCommands: false, ...general.piCustomization, toolApproval: v } })}
-        />
-        <SwitchRow
-          label="自定义工具样例"
-          desc="加载示例工具 echo_upper（把文本转大写）,演示 pi 自定义工具能力。改动下次发送时生效(重启会话)。"
-          value={general.piCustomization?.sampleTools ?? false}
-          onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleCommands: false, ...general.piCustomization, sampleTools: v } })}
-        />
-        <SwitchRow
-          label="自定义斜杠命令样例"
-          desc="加载示例命令 /greet,演示 pi 自定义斜杠命令能力。改动下次发送时生效(重启会话)。"
-          value={general.piCustomization?.sampleCommands ?? false}
-          onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleTools: false, ...general.piCustomization, sampleCommands: v } })}
         />
       </SettingCard>
 
@@ -1122,20 +1107,14 @@ function ProvidersSection() {
 // ── Agent 设置（引用供应商）─────────────────────────────────────────────────
 
 function AgentSection() {
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
-  const setProviderDefaults = usePersonalStore((s) => s.setProviderDefaults);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
-  const enabledProviders = providerSettings.providers.filter((p) => p.enabled);
-  // defaultProviderId 可能指向已删除/已停用的 provider → 下拉回退「（未设置）」。
-  const defaultProvider = enabledProviders.find((p) => p.id === providerSettings.defaultProviderId);
-  const defaultValue = defaultProvider ? defaultProvider.id : "";
 
   return (
     <>
       <div className="pw-dlg-title">Agent</div>
       <div className="pw-dlg-desc">
         Cortex 支持 Claude Code、Codex、内置 Pi 三种 Agent。Claude / Codex 用各自 CLI 自带鉴权;Pi 在未装 CLI
-        时兜底,使用「供应商」中配置的 LLM 端点。
+        时兜底,使用「供应商」中配置的 LLM 端点。Pi 的专属设置见「Pi」分区。
       </div>
 
       <SettingCard title="可用性">
@@ -1150,8 +1129,32 @@ function AgentSection() {
           );
         })}
       </SettingCard>
+    </>
+  );
+}
 
-      <SettingCard title="Pi 默认供应商">
+// 「Pi」设置分区:聚合 pi 专属设置(默认供应商/模型、工具审批、高级定制),并承载后续新增的
+// 会话级能力。卡片锚点顺序:默认供应商 → Thinking → System Prompt → 工具审批 → 高级定制 →
+// 供应商高级说明(后续阶段按此顺序插入,减少改动冲突)。
+function PiSection() {
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const setProviderDefaults = usePersonalStore((s) => s.setProviderDefaults);
+  const general = usePersonalStore((s) => s.generalSettings);
+  const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
+  const enabledProviders = providerSettings.providers.filter((p) => p.enabled);
+  // defaultProviderId 可能指向已删除/已停用的 provider → 下拉回退「（未设置）」。
+  const defaultProvider = enabledProviders.find((p) => p.id === providerSettings.defaultProviderId);
+  const defaultValue = defaultProvider ? defaultProvider.id : "";
+
+  return (
+    <>
+      <div className="pw-dlg-title">Pi</div>
+      <div className="pw-dlg-desc">
+        Pi 是内置 Agent,以长驻会话运行。下列设置在新建会话或下次发送时生效;其中工具审批等
+        extension 类设置改动会重启当前 pi 会话(丢失内存上下文,自动从磁盘历史恢复)。
+      </div>
+
+      <SettingCard title="默认供应商">
         {enabledProviders.length === 0 ? (
           <div className="pw-scard-empty">还没有启用的供应商。先在「供应商」设置中添加并启用,再回此处选默认。</div>
         ) : (
@@ -1178,6 +1181,86 @@ function AgentSection() {
             </SRow>
           </>
         )}
+      </SettingCard>
+
+      <SettingCard title="思考强度">
+        <SRow label="默认思考强度" desc="新建 Pi 会话的默认思考强度;单会话可在输入框旁单独切换,即时生效不重启。">
+          <BareSelect
+            value={general.piThinkingDefault ?? "off"}
+            options={PI_THINKING_LEVELS.map((lv) => ({ label: PI_THINKING_LABELS[lv], value: lv }))}
+            onChange={(v) => setGeneral({ piThinkingDefault: v as ThinkingLevel })}
+          />
+        </SRow>
+      </SettingCard>
+
+      <SettingCard title="System Prompt">
+        <SBlock label="持久系统提示词" desc="追加到 pi 系统提示词尾部,定制人设/规则。改动在下次发送时生效(会重启当前 pi 会话)。">
+          <textarea
+            className="pw-ta"
+            rows={6}
+            maxLength={4000}
+            placeholder="例如:你是资深 TypeScript 工程师,回答简洁、优先给可运行代码。"
+            value={general.piSystemPrompt ?? ""}
+            spellCheck={false}
+            onChange={(e) => setGeneral({ piSystemPrompt: e.target.value || undefined })}
+          />
+          <div className="pw-ta-count">{(general.piSystemPrompt ?? "").length}/4000</div>
+        </SBlock>
+      </SettingCard>
+
+      <SettingCard title="工具审批">
+        <SwitchRow
+          label="工具执行审批"
+          desc="pi 调用高风险工具前弹窗确认,拒绝则阻断。改动在下次发送消息时生效(会重启当前 pi 会话,丢失其内存上下文)。"
+          value={general.piCustomization?.toolApproval ?? false}
+          onChange={(v) => setGeneral({ piCustomization: { sampleTools: false, sampleCommands: false, approvalTools: DEFAULT_PI_APPROVAL_TOOLS, ...general.piCustomization, toolApproval: v } })}
+        />
+        {general.piCustomization?.toolApproval ? (
+          <SBlock label="需审批的工具" desc="仅勾选的工具会触发确认弹窗;全部取消勾选 = 不审批任何工具(等同关闭)。">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 18px" }}>
+              {PI_APPROVAL_TOOL_OPTIONS.map((tool) => {
+                const selected = general.piCustomization?.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS;
+                const checked = selected.includes(tool);
+                return (
+                  <label key={tool} className="pw-ml-check">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = e.target.checked ? [...selected, tool] : selected.filter((t) => t !== tool);
+                        setGeneral({
+                          piCustomization: {
+                            sampleTools: false,
+                            sampleCommands: false,
+                            ...general.piCustomization,
+                            toolApproval: true,
+                            approvalTools: next,
+                          },
+                        });
+                      }}
+                    />
+                    {tool}
+                  </label>
+                );
+              })}
+            </div>
+          </SBlock>
+        ) : null}
+      </SettingCard>
+
+      <SettingCard title="高级定制">
+        <SwitchRow
+          label="自定义工具样例"
+          desc="加载示例工具 echo_upper（把文本转大写）,演示 pi 自定义工具能力。改动下次发送时生效(重启会话)。"
+          value={general.piCustomization?.sampleTools ?? false}
+          onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleCommands: false, ...general.piCustomization, sampleTools: v } })}
+        />
+        <SwitchRow
+          label="自定义斜杠命令样例"
+          desc="加载示例命令 /greet,演示 pi 自定义斜杠命令能力。改动下次发送时生效(重启会话)。"
+          value={general.piCustomization?.sampleCommands ?? false}
+          onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleTools: false, ...general.piCustomization, sampleCommands: v } })}
+        />
       </SettingCard>
     </>
   );
@@ -1668,6 +1751,8 @@ export function PersonalSettingsView() {
             <ProvidersSection />
           ) : tab === "agent" ? (
             <AgentSection />
+          ) : tab === "pi" ? (
+            <PiSection />
           ) : tab === "pet" ? (
             <PetSection />
           ) : tab === "timeline" ? (

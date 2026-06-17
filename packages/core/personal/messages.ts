@@ -14,6 +14,7 @@ import type {
   PiUiResponsePayload,
   ProjectMeta,
   SessionMeta,
+  ThinkingLevel,
 } from "../desktop/types";
 import type { DesktopBridge } from "../desktop/bridge";
 import { useDesktopBridge } from "../provider";
@@ -28,8 +29,11 @@ import {
   getForkMessagesPi,
   isPiSessionOpen,
   markPiSessionGone,
+  piRpcAvailable,
+  piRpcUnavailableMessage,
   promptPi,
   setModelPi,
+  setThinkingLevelPi,
   setPiLifecycleHooks,
   steerPi,
   touchPiSession,
@@ -942,6 +946,23 @@ function buildPiPromptMessage(text: string, appendSystemPrompt?: string): string
   return appendSystemPrompt ? `${appendSystemPrompt}\n\n${text}` : text;
 }
 
+function appendUserMessage(
+  qc: QueryClient,
+  sessionId: string,
+  text: string,
+  attachments: PersonalAttachment[],
+): void {
+  appendMsg(qc, sessionId, {
+    kind: "text",
+    who: "me",
+    time: realHHMM(),
+    text,
+    // 拖入的 skill/todo 仅注入 system prompt;这里同步把引用元数据存进消息,让会话气泡能回显。
+    attachments: attachments.length ? attachments.map((a) => ({ name: a.name, kind: a.kind })) : undefined,
+    uid: uid("u"),
+  });
+}
+
 // pi 轮启动/受理失败:收尾本轮（drop typing + ⚠️ + 清 running）。
 function failPiTurn(qc: QueryClient, sessionId: string, runId: string, err: unknown): void {
   const run = runs.get(runId);
@@ -999,6 +1020,11 @@ async function sendPiTurn(
     // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
     // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
     const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
+    // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
+    // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
+    const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;
+    // 思考强度初值（阶段5）:会话级优先,缺省回退全局默认;再缺省 = 不传 --thinking = pi 内置默认。
+    const thinkingLevel = session.thinkingLevel ?? usePersonalStore.getState().generalSettings.piThinkingDefault;
     const opened = await ensurePiSession(
       bridge,
       {
@@ -1007,11 +1033,30 @@ async function sendPiTurn(
         model,
         useOwnSkills: session.useOwnSkills,
         provider: provider
-          ? { id: provider.id, baseUrl: provider.baseUrl, apiKey: provider.apiKey, models: provider.models }
+          ? {
+              id: provider.id,
+              baseUrl: provider.baseUrl,
+              apiKey: provider.apiKey,
+              endpointFormat: provider.endpointFormat,
+              // ProviderModelOption 用 label,pi 端用 name → 此处映射;并带上 per-model 能力标记
+              // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置。
+              models: provider.models.map((m) => ({
+                id: m.id,
+                name: m.label,
+                reasoning: m.reasoning,
+                vision: m.vision,
+                contextTokens: m.contextTokens,
+              })),
+            }
           : undefined,
         enableToolApproval: piCustom?.toolApproval || undefined,
+        // 审批清单:仅总开关开时下发。空数组 [] 原样穿透(=不审批任何工具),禁用 ?? DEFAULT
+        // 兜回默认——undefined→默认三件 是 renderApprovalExtension 默认参的职责,不在此抢。
+        approvalTools: piCustom?.toolApproval ? piCustom.approvalTools : undefined,
         enableSampleTools: piCustom?.sampleTools || undefined,
         enableSampleCommands: piCustom?.sampleCommands || undefined,
+        appendSystemPrompt: piSystemPrompt || undefined,
+        thinkingLevel,
       },
       // 阶段4 恢复:此前持久化过 sessionFile（崩溃/空闲/LRU/app 重启后会话内存态没了）→
       // 重开后 switchSession 从磁盘 JSONL 恢复上下文（best-effort）。首轮全新会话无 file → 不恢复。
@@ -1248,6 +1293,8 @@ export interface PersonalActions {
   steer: (sessionId: string, text: string) => Promise<void>;
   // pi 运行时切模型:更新会话记忆 + 会话已开则实时下发（未开仅记忆,下次 open 生效）。
   setPiModel: (session: SessionMeta, providerId: string, model: string) => void;
+  // pi 运行时切思考强度:更新会话记忆 + 会话已开则实时下发（不重开;未开仅记忆,下次 open 经 --thinking 生效）。
+  setPiThinking: (session: SessionMeta, level: ThinkingLevel) => void;
   // 编辑重发:清除目标用户消息及其后的全部消息,以新文本重新发送。
   editResend: (
     session: SessionMeta,
@@ -1267,6 +1314,19 @@ export function usePersonalActions(): PersonalActions {
   const send = useCallback<PersonalActions["send"]>(
     async (session, projectPath, text, attachments, extraSystemPrompt) => {
       if (!bridge || !text.trim()) return;
+      if (session.agent === "pi" && !piRpcAvailable(bridge)) {
+        await ensureChatLoaded(qc, bridge, session.id);
+        appendUserMessage(qc, session.id, text, attachments);
+        appendMsg(qc, session.id, {
+          kind: "text",
+          who: "pi",
+          time: realHHMM(),
+          text: `⚠️ pi 会话启动失败：${piRpcUnavailableMessage(bridge)}`,
+          uid: uid("err"),
+        });
+        flushChat(qc, session.id);
+        return;
+      }
       // pi 长驻会话:同会话已有在跑的一轮、或一轮正在启动(同步锁)时不再起新轮（pi 冷启 ~790ms
       // 窗口里 Enter 抖动/并发 send 会造孤儿 run + 永不自杀的看门狗;运行中 UI 也只应能停止/插话）。
       if (session.agent === "pi") {
@@ -1279,15 +1339,7 @@ export function usePersonalActions(): PersonalActions {
       // 历史尚未加载时先加载,避免首条写入把磁盘历史盖掉。
       await ensureChatLoaded(qc, bridge, session.id);
 
-      appendMsg(qc, session.id, {
-        kind: "text",
-        who: "me",
-        time: realHHMM(),
-        text,
-        // 拖入的 skill/todo 仅注入 system prompt;这里同步把引用元数据存进消息,让会话气泡能回显。
-        attachments: attachments.length ? attachments.map((a) => ({ name: a.name, kind: a.kind })) : undefined,
-        uid: uid("u"),
-      });
+      appendUserMessage(qc, session.id, text, attachments);
       appendMsg(qc, session.id, {
         kind: "typing",
         who: session.agent,
@@ -1533,6 +1585,28 @@ export function usePersonalActions(): PersonalActions {
     [bridge, qc],
   );
 
+  const setPiThinking = useCallback<PersonalActions["setPiThinking"]>(
+    (session, level) => {
+      const prev = { thinkingLevel: session.thinkingLevel };
+      usePersonalStore.getState().updateSession(session.id, { thinkingLevel: level });
+      // 会话已开 → 运行时切档（不重启,不进指纹）;未开仅记忆,下次 open 经 --thinking 生效。
+      // 下发失败回滚 + 提示,避免「UI 显新档、pi 实际仍旧档」漂移。
+      if (session.agent === "pi" && bridge && isPiSessionOpen(session.id)) {
+        void setThinkingLevelPi(bridge, session.id, level).catch(() => {
+          usePersonalStore.getState().updateSession(session.id, prev);
+          appendMsg(qc, session.id, {
+            kind: "text",
+            who: "pi",
+            time: realHHMM(),
+            text: "⚠️ 切换思考强度失败,已回滚。",
+            uid: uid("err"),
+          });
+        });
+      }
+    },
+    [bridge, qc],
+  );
+
   const clearView = useCallback<PersonalActions["clearView"]>(
     (sessionId) => {
       const messages = qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
@@ -1541,5 +1615,5 @@ export function usePersonalActions(): PersonalActions {
     [qc],
   );
 
-  return { send, stop, steer, setPiModel, editResend, clearView };
+  return { send, stop, steer, setPiModel, setPiThinking, editResend, clearView };
 }

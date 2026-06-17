@@ -5,8 +5,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { AGENT_MODELS, useDesktopBridge, usePersonalStore, usePetStore } from "@cortex-work/core";
-import type { AgentKind, PersonalAttachment } from "@cortex-work/core";
+import {
+  AGENT_MODELS,
+  PI_THINKING_LEVELS,
+  PI_THINKING_LABELS,
+  useDesktopBridge,
+  usePersonalStore,
+  usePetStore,
+} from "@cortex-work/core";
+import type { AgentKind, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
 
@@ -75,6 +82,8 @@ export function ComposerShell({
   onSteer,
   onChangeModel,
   onChangePiModel,
+  thinkingLevel,
+  onChangePiThinking,
   onToggleSkills,
   onOpenFlashNote,
   onCancelEdit,
@@ -102,6 +111,9 @@ export function ComposerShell({
   onChangeModel: (model: string) => void;
   // pi 多供应商:同时切换 provider 与模型。
   onChangePiModel: (providerId: string, model: string) => void;
+  // pi 思考强度:会话级切换（运行时即时生效;非 pi / 未提供 → 隐藏入口）。
+  thinkingLevel?: ThinkingLevel;
+  onChangePiThinking?: (level: ThinkingLevel) => void;
   onToggleSkills: () => void;
   /** 闪记图标入口:唤起闪记浮层(桌面端由壳注入,web 端缺省 → 隐藏入口)。 */
   onOpenFlashNote?: () => void;
@@ -120,6 +132,8 @@ export function ComposerShell({
   const chunksRef = useRef<BlobPart[]>([]);
 
   const providerSettings = usePersonalStore((s) => s.providerSettings);
+  // 会话未单独设 thinkingLevel 时,下拉回退全局默认（与 sendPiTurn 的实际生效值一致,避免「显关闭、实际用默认」）。
+  const piThinkingDefault = usePersonalStore((s) => s.generalSettings.piThinkingDefault);
   const isPi = agent === "pi";
   const models = AGENT_MODELS[agent];
   // pi:模型下拉来自已启用 provider,选项编码 `${providerId}::${modelId}`,展示「供应商 · 模型」。
@@ -491,6 +505,21 @@ export function ComposerShell({
               </select>
             )}
           </span>
+          {isPi && onChangePiThinking ? (
+            <span className="pill pw-model-pill" title="思考强度">
+              <select
+                className="pw-model-select"
+                value={thinkingLevel ?? piThinkingDefault ?? "off"}
+                onChange={(e) => onChangePiThinking(e.target.value as ThinkingLevel)}
+              >
+                {PI_THINKING_LEVELS.map((lv) => (
+                  <option key={lv} value={lv}>
+                    思考·{PI_THINKING_LABELS[lv]}
+                  </option>
+                ))}
+              </select>
+            </span>
+          ) : null}
           {running ? (
             <>
               {canSteer ? (

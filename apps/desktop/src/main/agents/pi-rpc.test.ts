@@ -532,6 +532,28 @@ describe("buildRpcArgs", () => {
     expect(args).toContain("-a");
     expect(args).not.toContain("--provider");
   });
+
+  it("appendSystemPrompt → --append-system-prompt 透传（阶段4 持久 system prompt）", () => {
+    const args = buildRpcArgs({ ...base, appendSystemPrompt: "你是资深工程师" });
+    const i = args.indexOf("--append-system-prompt");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe("你是资深工程师");
+  });
+
+  it("无 appendSystemPrompt → 不加 --append-system-prompt", () => {
+    expect(buildRpcArgs(base)).not.toContain("--append-system-prompt");
+  });
+
+  it("thinkingLevel → --thinking 透传（阶段5 思考强度初值）", () => {
+    const args = buildRpcArgs({ ...base, thinkingLevel: "high" });
+    const i = args.indexOf("--thinking");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe("high");
+  });
+
+  it("无 thinkingLevel → 不加 --thinking", () => {
+    expect(buildRpcArgs(base)).not.toContain("--thinking");
+  });
 });
 
 describe("spawnPiRpc", () => {

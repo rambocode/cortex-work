@@ -155,6 +155,11 @@ export function buildRpcArgs(req: PiOpenRequest): string[] {
     if (req.provider) args.push("--provider", safeId(req.provider.id));
   }
   if (req.model) args.push("--model", req.model);
+  // 持久 system prompt（阶段4）:系统级注入,与单发 pi.ts 同款 --append-system-prompt。
+  // pi RPC 无运行时改 system prompt 的命令,故只能冷启注入,改值靠 extensionFingerprint 重开会话。
+  if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
+  // 思考强度初值（阶段5）:冷启经 --thinking 设档;已开会话切档走运行时 set_thinking_level(不重开)。
+  if (req.thinkingLevel) args.push("--thinking", req.thinkingLevel);
   return args;
 }
 

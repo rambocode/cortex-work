@@ -7,16 +7,36 @@ import { app } from "electron";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
-// CliStartRequest.provider 的形状（主进程侧,避免依赖 core 包）。
+import type { EndpointFormat } from "../ipc/types";
+
+// CliStartRequest.provider / PiOpenRequest.provider 的形状（主进程侧,避免依赖 core 包）。
+// models 携带 per-model 能力标记（reasoning/vision/contextTokens）,renderPiExtension 据此渲染。
 export interface ProviderInput {
   id: string;
   baseUrl: string;
   apiKey?: string;
-  models: { id: string; name?: string }[];
+  endpointFormat?: EndpointFormat;
+  models: { id: string; name?: string; reasoning?: boolean; vision?: boolean; contextTokens?: number }[];
 }
 
 // spawn 时注入的环境变量名,与渲染出的 extension 中 apiKey 占位一致。
 export const PI_KEY_ENV = "CORTEX_PI_KEY";
+
+// 把设置页的 endpointFormat 映射到 pi provider extension 的 `api` 字段（pi 合法值见 pi-ai
+// types：openai-completions / openai-responses / anthropic-messages / google-generative-ai）。
+// custom 暂按 OpenAI 兼容兜底（pi 无对应 api 值,UI 上 custom 语义是「不可探测」而非「非 OpenAI 协议」）。
+export function endpointFormatToApi(fmt?: EndpointFormat): string {
+  switch (fmt) {
+    case "responses":
+      return "openai-responses";
+    case "messages":
+      return "anthropic-messages";
+    case "chat_completions":
+    case "custom":
+    default:
+      return "openai-completions";
+  }
+}
 
 // 文件名/ provider 名安全化:仅保留字母数字与 - _,其余替换为 -。
 // 导出供 buildArgs/buildRpcArgs 复用:`--provider` 必须与 registerProvider 的注册名同源,
@@ -26,17 +46,19 @@ export function safeId(id: string): string {
   return s || "provider";
 }
 
-// 渲染 extension 源码（纯函数,便于单测）。OpenAI 兼容默认值:
-// reasoning 关、纯文本输入、cost 全 0（本地不做计费）、给宽松的上下文/输出上限。
+// 渲染 extension 源码（纯函数,便于单测）。消费 UI 采集的高级配置:provider.endpointFormat→api、
+// per-model reasoning/vision(→input)/contextTokens(→contextWindow)。字段缺省时兜底为
+// 原写死值(reasoning 关、纯文本输入、contextWindow 131072、maxTokens 8192),旧 provider 行为不变。
+// cost 全 0（本地不做计费）。
 export function renderPiExtension(provider: ProviderInput): string {
   const id = safeId(provider.id);
   const models = provider.models.map((m) => ({
     id: m.id,
     name: m.name ?? m.id,
-    reasoning: false,
-    input: ["text"],
+    reasoning: m.reasoning ?? false,
+    input: m.vision ? ["text", "image"] : ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
+    contextWindow: m.contextTokens ?? 131072,
     maxTokens: 8192,
   }));
   return [
@@ -46,7 +68,7 @@ export function renderPiExtension(provider: ProviderInput): string {
     `    name: ${JSON.stringify(provider.id)},`,
     `    baseUrl: ${JSON.stringify(provider.baseUrl)},`,
     `    apiKey: ${JSON.stringify("$" + PI_KEY_ENV)},`,
-    `    api: "openai-completions",`,
+    `    api: ${JSON.stringify(endpointFormatToApi(provider.endpointFormat))},`,
     `    models: ${JSON.stringify(models, null, 2).replace(/\n/g, "\n    ")},`,
     "  });",
     "}",
