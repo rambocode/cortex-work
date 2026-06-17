@@ -7,7 +7,7 @@ import { ipcMain, type WebContents } from "electron";
 import { buildRpcArgs, spawnPiRpc, PiRpcSession, type RpcResponse } from "../agents/pi-rpc";
 import { writePiExtension } from "../agents/pi-providers";
 import { spawnEnvFor } from "./cli";
-import type { PiOpenRequest, PiOpenResult, PiSessionEvent } from "./types";
+import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 
 interface SessionEntry {
   session: PiRpcSession;
@@ -22,6 +22,15 @@ function emitEvent(uiSessionId: string, ev: PiSessionEvent): void {
   if (ev.type === "crashed") sessions.delete(uiSessionId);
   if (entry && !entry.sender.isDestroyed()) {
     entry.sender.send("pi:event", { uiSessionId, event: ev });
+  }
+}
+
+// 推一条 extension UI 请求给 renderer（独立于事件流;阶段3 工具确认）。不摘注册表——
+// UI 请求不终止会话,会话继续等用户经 pi:uiResponse 回写。
+function emitUiRequest(uiSessionId: string, request: PiUiRequest): void {
+  const entry = sessions.get(uiSessionId);
+  if (entry && !entry.sender.isDestroyed()) {
+    entry.sender.send("pi:uiRequest", { uiSessionId, request });
   }
 }
 
@@ -56,7 +65,11 @@ export function registerPiSessionHandlers(): void {
       cwd: req.cwd,
       env: spawnEnvFor({ agent: "pi", provider: req.provider }),
     });
-    const session = new PiRpcSession(transport, (ev) => emitEvent(req.uiSessionId, ev));
+    const session = new PiRpcSession(
+      transport,
+      (ev) => emitEvent(req.uiSessionId, ev),
+      (request) => emitUiRequest(req.uiSessionId, request),
+    );
     sessions.set(req.uiSessionId, { session, sender: event.sender });
 
     try {
@@ -101,6 +114,12 @@ export function registerPiSessionHandlers(): void {
   ipcMain.handle("pi:getStats", (_e, uiSessionId: string) =>
     command(uiSessionId, (s) => s.getSessionStats()),
   );
+
+  // extension UI 应答:回写到 pi stdin（fire-and-forget,不走 command 等 response）。
+  // async 包一层:getSession 的同步抛（会话不存在）转成 rejection,与 renderer invoke 语义一致。
+  ipcMain.handle("pi:uiResponse", async (_e, uiSessionId: string, id: string, payload: PiUiResponsePayload) => {
+    getSession(uiSessionId).respondUi(id, payload);
+  });
 
   // 显式关闭:停进程 + 摘除注册表（幂等,不存在则静默）。
   ipcMain.handle("pi:close", (_e, uiSessionId: string) => {

@@ -22,16 +22,23 @@ const h = vi.hoisted(() => {
     getState: vi.fn().mockResolvedValue({ success: true, data: { sessionId: "sess-x" } }),
     getSessionStats: vi.fn().mockResolvedValue({ success: true, data: { messageCount: 3 } }),
     stop: vi.fn(),
+    respondUi: vi.fn(),
     onEvent: (_ev: unknown) => {}, // 构造时由 PiRpcSession mock 覆盖为真实回调（按实例存,支持多会话路由验证）
+    onUiRequest: (_req: unknown) => {}, // 同上,UI 请求路由用例据此 fire
   });
   const handlers = new Map<string, (...a: unknown[]) => unknown>();
   const onEventRef: { current: ((ev: unknown) => void) | null } = { current: null };
   const instances: ReturnType<typeof makeSession>[] = [];
   // 必须用普通 function(可 new),箭头函数不可作构造器。
-  const PiRpcSession = vi.fn(function (_transport: unknown, onEvent: (ev: unknown) => void) {
+  const PiRpcSession = vi.fn(function (
+    _transport: unknown,
+    onEvent: (ev: unknown) => void,
+    onUiRequest?: (req: unknown) => void,
+  ) {
     onEventRef.current = onEvent; // 末个会话的回调（单会话用例用）
     const inst = makeSession();
     inst.onEvent = onEvent; // 按实例存,多会话路由用例据此分别 fire
+    if (onUiRequest) inst.onUiRequest = onUiRequest;
     instances.push(inst);
     return inst;
   });
@@ -267,5 +274,37 @@ describe("事件回推与生命周期", () => {
     killAllPiSessions();
     insts.forEach((i) => expect(i.stop).toHaveBeenCalled());
     expect(piSessionCount()).toBe(0);
+  });
+});
+
+describe("extension UI channel（阶段3 U2）", () => {
+  it("会话吐 UI 请求 → pi:uiRequest 推给该会话的 sender", async () => {
+    const { event } = await open({ uiSessionId: "u1" });
+    const inst = h.instances[h.instances.length - 1]!;
+    const req = { type: "extension_ui_request", id: "x1", method: "confirm", title: "T", message: "M" };
+    inst.onUiRequest(req);
+    expect(event.sender.send).toHaveBeenCalledWith("pi:uiRequest", { uiSessionId: "u1", request: req });
+  });
+
+  it("pi:uiResponse → 对应会话 respondUi(id,payload)", async () => {
+    await open({ uiSessionId: "u1" });
+    const inst = h.instances[h.instances.length - 1]!;
+    await h.handlers.get("pi:uiResponse")!({}, "u1", "x1", { confirmed: true });
+    expect(inst.respondUi).toHaveBeenCalledWith("x1", { confirmed: true });
+  });
+
+  it("多会话:A 的 UI 请求只推给 A 的 sender", async () => {
+    const { event: eA } = await open({ uiSessionId: "uA" });
+    const instA = h.instances[h.instances.length - 1]!;
+    const { event: eB } = await open({ uiSessionId: "uB" });
+    instA.onUiRequest({ type: "extension_ui_request", id: "a1", method: "confirm", title: "T", message: "M" });
+    expect(eA.sender.send).toHaveBeenCalledWith("pi:uiRequest", expect.objectContaining({ uiSessionId: "uA" }));
+    expect(eB.sender.send).not.toHaveBeenCalledWith("pi:uiRequest", expect.anything());
+  });
+
+  it("会话已销毁后 pi:uiResponse → 抛「会话不存在」(不崩)", async () => {
+    await open({ uiSessionId: "u1" });
+    await h.handlers.get("pi:close")!({}, "u1");
+    await expect(h.handlers.get("pi:uiResponse")!({}, "u1", "x", { cancelled: true })).rejects.toThrow(/不存在/);
   });
 });
