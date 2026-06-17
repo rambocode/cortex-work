@@ -159,7 +159,7 @@ export function sanitizeAskQuestionEnvelope(parsed: unknown): AskQuestionEnvelop
     const allowCustom = !!g.allowCustom;
     if (options.length === 0 && !allowCustom) return null; // 组不可作答 → 拒绝
     const group: AskQuestionGroup = {
-      id: typeof g.id === "string" ? g.id : `g${i}`,
+      id: `g${i}`, // host 不信任入站 id:始终按位置重写,杜绝重复 id 导致的渲染 key 冲突 / 跨组答案污染
       question: typeof g.question === "string" ? g.question.slice(0, ASKQ_MAX_STR) : "",
       options,
       allowCustom,

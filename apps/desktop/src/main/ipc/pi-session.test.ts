@@ -368,6 +368,19 @@ describe("阶段3 extension 装配（pi:open 按开关注入）", () => {
   });
 });
 
+describe("emitUiRequest 渲染端销毁兜底（U6 加固）", () => {
+  it("sender 已销毁 → respondUi{cancelled} 解锁 pi,不 send pi:uiRequest", async () => {
+    const event = fakeEvent();
+    await h.handlers.get("pi:open")!(event, { uiSessionId: "u1", cwd: "/p" });
+    const inst = h.instances[0];
+    (event.sender.isDestroyed as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    // 模拟 pi 经 onUiRequest 发来一条待答请求(窗口此刻已销毁)。
+    inst.onUiRequest({ type: "extension_ui_request", id: "aq1", method: "askquestion", envelope: { groups: [] } });
+    expect(inst.respondUi).toHaveBeenCalledWith("aq1", { cancelled: true });
+    expect(event.sender.send).not.toHaveBeenCalledWith("pi:uiRequest", expect.anything());
+  });
+});
+
 describe("阶段4 恢复:pi:switchSession + ready sessionFile", () => {
   it("pi:open 回带 ready 取得的 sessionFile", async () => {
     const sess = h.makeSession();

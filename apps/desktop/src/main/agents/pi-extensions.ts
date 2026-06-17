@@ -134,6 +134,9 @@ export function renderAskQuestionExtension(sentinel: string): string {
     "    async execute(toolCallId, params, signal, onUpdate, ctx) {",
     "      const raw = params && Array.isArray(params.groups) ? params.groups : [];",
     '      if (!raw.length) return { content: [{ type: "text", text: "askquestion 调用未提供任何问题组。" }], isError: true };',
+    // 与 host sanitizeAskQuestionEnvelope 的 ASKQ_MAX_GROUPS 对称:超限直接给 LLM 可纠偏的 isError 反馈,
+    // 而非交给 host 拒绝后退化成笼统的「用户取消」(agent 据此可能重试同样过大的调用)。
+    '      if (raw.length > 12) return { content: [{ type: "text", text: "问题组过多(最多 12 组),请精简后重试。" }], isError: true };',
     "      const groups = buildGroups(raw);",
     "      let value;",
     "      try { value = await ctx.ui.input(SENTINEL + JSON.stringify({ groups: groups })); }",

@@ -778,4 +778,13 @@ describe("sanitizeAskQuestionEnvelope（入站校验）", () => {
     const env = sanitizeAskQuestionEnvelope({ groups: [{ question: "q", options: [{ label: "a" }], recommended: 5 }] });
     expect(env!.groups[0]!.recommended).toBeUndefined();
   });
+  it("入站 id 不被信任:重复/自定义 id 一律按位置重写为 g{i}(防渲染 key 冲突/串组)", () => {
+    const env = sanitizeAskQuestionEnvelope({
+      groups: [
+        { id: "dup", question: "Q0", options: [{ label: "a" }] },
+        { id: "dup", question: "Q1", options: [{ label: "b" }] },
+      ],
+    });
+    expect(env!.groups.map((g) => g.id)).toEqual(["g0", "g1"]);
+  });
 });

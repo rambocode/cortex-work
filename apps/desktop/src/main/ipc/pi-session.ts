@@ -38,9 +38,14 @@ function emitEvent(uiSessionId: string, ev: PiSessionEvent, runId?: string): voi
 // UI 请求不终止会话,会话继续等用户经 pi:uiResponse 回写。
 function emitUiRequest(uiSessionId: string, request: PiUiRequest): void {
   const entry = sessions.get(uiSessionId);
-  if (entry && !entry.sender.isDestroyed()) {
-    entry.sender.send("pi:uiRequest", { uiSessionId, request });
+  if (!entry) return;
+  // 渲染端已销毁(窗口关/reload 且未重开会话)→ 无人能回写;立即回 {cancelled} 解锁 pi 的 ctx.ui await
+  // (ctx.ui 未传 signal,abort 不会 reject;不解锁则 pi 的 execute 永久挂起)。confirm/askquestion 共用此兜底。
+  if (entry.sender.isDestroyed()) {
+    entry.session.respondUi(request.id, { cancelled: true });
+    return;
   }
+  entry.sender.send("pi:uiRequest", { uiSessionId, request });
 }
 
 // 取会话;不存在即抛错（renderer 的 invoke 会收到 rejection）。

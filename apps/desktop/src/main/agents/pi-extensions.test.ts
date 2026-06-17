@@ -97,6 +97,12 @@ describe("renderAskQuestionExtension（askquestion 工具）", () => {
     expect(src).toContain('"问: "');
   });
 
+  it("组数超上限 → execute 给 isError 反馈(而非交给 host 退化成静默取消)", () => {
+    const src = renderAskQuestionExtension("@@SENT@@");
+    expect(src).toContain("raw.length > 12");
+    expect(src).toContain("问题组过多");
+  });
+
   it("写文件:落 userData/pi-extensions/askquestion.js,mode 0600", () => {
     const path = writeAskQuestionExtension("@@SENT@@");
     expect(path.endsWith("askquestion.js")).toBe(true);
