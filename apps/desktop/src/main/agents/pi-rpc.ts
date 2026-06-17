@@ -12,7 +12,7 @@ import { spawn } from "child_process";
 
 import { resolvePiBinary } from "./pi-locate";
 import { safeId } from "./pi-providers";
-import type { PiOpenRequest, PiSessionEvent } from "../ipc/types";
+import type { PiOpenRequest, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "../ipc/types";
 
 // 从工具入参里取一段可读 detail（命令 / 路径 / 模式 / URL），过长截断。与 pi.ts 对齐。
 function toolDetail(args: unknown): string | undefined {
@@ -242,6 +242,8 @@ export class PiRpcSession {
   constructor(
     private readonly transport: RpcTransport,
     private readonly onEvent: (ev: PiSessionEvent) => void,
+    // extension 经 ctx.ui.* 发起的 UI 请求（独立于事件流;阶段3 用于工具确认弹窗）。
+    private readonly onUiRequest?: (req: PiUiRequest) => void,
   ) {
     transport.onStdout((chunk) => this.feed(chunk));
     transport.onExit((code, stderrTail) => this.handleExit(code, stderrTail));
@@ -268,7 +270,7 @@ export class PiRpcSession {
     } catch {
       return;
     }
-    // 命中 pending 的 response → resolve 对应请求;否则当事件映射。
+    // 命中 pending 的 response → resolve 对应请求。
     if (obj?.type === "response" && typeof obj.id === "string" && this.pending.has(obj.id)) {
       const p = this.pending.get(obj.id)!;
       this.pending.delete(obj.id);
@@ -276,8 +278,24 @@ export class PiRpcSession {
       p.resolve(obj as unknown as RpcResponse);
       return;
     }
+    // extension UI 请求（pi → host，需 host 回写）：在 mapPiEvent 前专门分流——mapPiEvent 丢 id
+    // 且 default→null 会吞掉。只对带 id 的请求上抛。
+    if (obj?.type === "extension_ui_request" && typeof obj.id === "string") {
+      this.onUiRequest?.(obj as unknown as PiUiRequest);
+      return;
+    }
     const ev = mapPiEvent(obj);
     if (ev) this.onEvent(ev);
+  }
+
+  /**
+   * 回写 extension UI 应答到 pi stdin。**绕过 send/pending**:用 pi 给的原始 id（非自增 req_N）,
+   * 且 pi 对回写不发 response（fire-and-forget），故直写、不登记 pending、不等应答。
+   * stopped/exited 后静默丢弃（与 feed 一致;且写已死管道由 spawnPiRpc 的可写性守卫兜底）。
+   */
+  respondUi(id: string, payload: PiUiResponsePayload): void {
+    if (this.stopped || this.exited) return;
+    this.transport.write(JSON.stringify({ type: "extension_ui_response", id, ...payload }) + "\n");
   }
 
   /** 发一条命令,等带相同 id 的 response。超时或进程已退出则 reject。 */

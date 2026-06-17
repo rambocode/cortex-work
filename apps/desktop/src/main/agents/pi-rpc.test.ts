@@ -575,3 +575,70 @@ describe("spawnPiRpc", () => {
     expect(() => child.stdin.emit("error", new Error("EPIPE"))).not.toThrow();
   });
 });
+
+describe("extension UI 请求路由 + respondUi 回写（阶段3 U1）", () => {
+  it("extension_ui_request{confirm} 行 → onUiRequest 收到,不污染事件流", () => {
+    const f = fakeTransport();
+    const onEvent = vi.fn();
+    const onUiRequest = vi.fn();
+    new PiRpcSession(f.transport, onEvent, onUiRequest);
+    f.emit(
+      JSON.stringify({
+        type: "extension_ui_request",
+        id: "u-1",
+        method: "confirm",
+        title: "允许执行 bash?",
+        message: "rm -rf /tmp/x",
+      }) + "\n",
+    );
+    expect(onUiRequest).toHaveBeenCalledTimes(1);
+    expect(onUiRequest.mock.calls[0]?.[0]).toMatchObject({
+      id: "u-1",
+      method: "confirm",
+      title: "允许执行 bash?",
+      message: "rm -rf /tmp/x",
+    });
+    expect(onEvent).not.toHaveBeenCalled(); // 不走事件流
+  });
+
+  it("respondUi 直写精确 JSONL（原始 id,绕 send/不带 req_N）", () => {
+    const f = fakeTransport();
+    const s = new PiRpcSession(f.transport, vi.fn(), vi.fn());
+    s.respondUi("u-7", { confirmed: true });
+    expect(f.writes).toHaveLength(1);
+    expect(f.writes[0]).toBe('{"type":"extension_ui_response","id":"u-7","confirmed":true}\n');
+    s.respondUi("u-8", { cancelled: true });
+    expect(JSON.parse(f.writes[1]!.trim())).toEqual({ type: "extension_ui_response", id: "u-8", cancelled: true });
+  });
+
+  it("respondUi 在 stopped 后静默不写", () => {
+    const f = fakeTransport();
+    const s = new PiRpcSession(f.transport, vi.fn(), vi.fn());
+    s.stop();
+    s.respondUi("u-9", { confirmed: false });
+    expect(f.writes.filter((w) => w.includes("extension_ui_response"))).toHaveLength(0);
+  });
+
+  it("UI 请求与命令 response、普通事件三路互不串", () => {
+    const f = fakeTransport();
+    const onEvent = vi.fn();
+    const onUiRequest = vi.fn();
+    new PiRpcSession(f.transport, onEvent, onUiRequest);
+    // 普通事件仍走 onEvent
+    f.emit(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hi" } }) + "\n");
+    expect(onEvent).toHaveBeenCalledWith({ type: "text", delta: "hi" });
+    expect(onUiRequest).not.toHaveBeenCalled();
+    // UI 请求只走 onUiRequest
+    f.emit(JSON.stringify({ type: "extension_ui_request", id: "x", method: "confirm", title: "t", message: "m" }) + "\n");
+    expect(onUiRequest).toHaveBeenCalledTimes(1);
+    expect(onEvent).toHaveBeenCalledTimes(1); // 未再增
+  });
+
+  it("无 onUiRequest 回调（阶段1/2 用法）时 UI 请求被安全忽略,不抛", () => {
+    const f = fakeTransport();
+    new PiRpcSession(f.transport, vi.fn()); // 不传 onUiRequest
+    expect(() =>
+      f.emit(JSON.stringify({ type: "extension_ui_request", id: "x", method: "confirm", title: "t", message: "m" }) + "\n"),
+    ).not.toThrow();
+  });
+});

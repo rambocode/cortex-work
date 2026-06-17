@@ -320,6 +320,28 @@ export type PiSessionEvent =
   | { type: "thinking-level"; level: string }
   | { type: "crashed"; error?: string }; // 进程非正常退出（session 注入,非 RPC 事件）
 
+// pi extension 经 ctx.ui.* 发起的「需用户输入」请求（pi → host，独立于单向 PiSessionEvent 流）。
+// 镜像 pi 0.79.2 rpc-types.d.ts 的 RpcExtensionUIRequest（已 spike 实测 confirm envelope）。
+// 9 个 method 中需回写的仅 confirm/select/input/editor;其余 5 个 fire-and-forget。`id` 是 pi 侧
+// crypto.randomUUID()，回写必须原样带回（见 PiUiResponsePayload）。
+export type PiUiRequest =
+  | { type: "extension_ui_request"; id: string; method: "confirm"; title: string; message: string; timeout?: number }
+  | { type: "extension_ui_request"; id: string; method: "select"; title: string; options: string[]; timeout?: number }
+  | { type: "extension_ui_request"; id: string; method: "input"; title: string; placeholder?: string; timeout?: number }
+  | { type: "extension_ui_request"; id: string; method: "editor"; title: string; prefill?: string }
+  | { type: "extension_ui_request"; id: string; method: "notify"; message: string; notifyType?: "info" | "warning" | "error" }
+  | { type: "extension_ui_request"; id: string; method: "setStatus"; statusKey: string; statusText: string | undefined }
+  | { type: "extension_ui_request"; id: string; method: "setWidget"; widgetKey: string; widgetLines: string[] | undefined; widgetPlacement?: "aboveEditor" | "belowEditor" }
+  | { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
+  | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
+
+// 回写给 pi 的应答（host → pi stdin）。三态:confirm 用 confirmed;select/input/editor 用 value;
+// 取消/关闭(任意 method)用 cancelled。镜像 RpcExtensionUIResponse。
+export type PiUiResponsePayload =
+  | { confirmed: boolean }
+  | { value: string }
+  | { cancelled: true };
+
 // ── TTS（与 core/desktop/types.ts 镜像） ─────────────────────────────────
 
 export interface TtsSynthesizeRequest {
