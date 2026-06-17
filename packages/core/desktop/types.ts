@@ -469,6 +469,11 @@ export interface InstalledExtension {
   missing: boolean; // store.installed 有但 pi list 无
 }
 
+// pi-ext:install 结果（与 apps/desktop/src/main/ipc/types.ts 镜像）。成功带落盘 path + 溯源。
+export type PiExtInstallResult =
+  | { ok: true; ref: string; sourceRef: string; origin: string; version?: string; path: string }
+  | { ok: false; error: string };
+
 // pi 深度定制开关（阶段3）。改动在下次 pi 会话开启时生效（extension 在 open 时加载）。
 export interface PiCustomizationSettings {
   toolApproval: boolean; // 工具执行审批弹窗（拦 bash/write/edit 等,经弹窗确认）

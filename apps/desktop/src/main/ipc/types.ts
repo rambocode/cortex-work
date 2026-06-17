@@ -191,6 +191,11 @@ export interface InstalledExtension {
   missing: boolean;
 }
 
+// pi-ext:install 结果（与 core 镜像）。成功带解析到的落盘 path + 溯源;失败带可读 error。
+export type PiExtInstallResult =
+  | { ok: true; ref: string; sourceRef: string; origin: string; version?: string; path: string }
+  | { ok: false; error: string };
+
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
   notifications: { turnComplete: true },

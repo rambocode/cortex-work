@@ -4,6 +4,7 @@ import { registerFsHandlers } from "./fs";
 import { registerStoreHandlers } from "./store";
 import { registerNotesHandlers } from "./notes";
 import { registerSkillsHandlers } from "./skills";
+import { registerPiExtensionMarketHandlers } from "./pi-extensions-market";
 import { registerCliHandlers } from "./cli";
 import { registerPiSessionHandlers } from "./pi-session";
 import { registerChatHandlers } from "./chat";
@@ -25,6 +26,7 @@ export function registerIpcHandlers(): void {
   registerStoreHandlers();
   registerNotesHandlers();
   registerSkillsHandlers();
+  registerPiExtensionMarketHandlers();
   registerCliHandlers();
   registerPiSessionHandlers();
   registerChatHandlers();
