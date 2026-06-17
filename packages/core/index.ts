@@ -140,13 +140,26 @@ export {
   PI_THINKING_LEVELS,
   PI_THINKING_LABELS,
   DEFAULT_PI_SKILLS,
+  DEFAULT_PI_EXTENSIONS,
   type PiCustomizationSettings,
   type PiSkillSettings,
+  type PiExtensionSettings,
+  type InstalledExtensionRecord,
+  type InstalledExtension,
+  type PiExtInstallResult,
   type PluginSkill,
   type SkillScope,
   type ThinkingLevel,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
+export {
+  decorateExtensions,
+  listExtensions,
+  installExtension,
+  uninstallExtension,
+  enableExtension,
+  disableExtension,
+} from "./personal/extensions";
 export {
   normalizeProviderProfile,
   migratePiChannelToProvider,

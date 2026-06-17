@@ -27,7 +27,8 @@
     "./personal/messages": "./personal/messages.ts",
     "./personal/automation": "./personal/automation.ts",
     "./personal/filePaths": "./personal/filePaths.ts",
-    "./personal/notes": "./personal/notes.ts"
+    "./personal/notes": "./personal/notes.ts",
+    "./personal/extensions": "./personal/extensions.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",
