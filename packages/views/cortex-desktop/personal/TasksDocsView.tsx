@@ -180,10 +180,20 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
   };
 
   if (!docTasksAvailable(bridge)) {
-    return <div className="pw-empty-hint">当前环境不支持文档面板（缺少桌面能力）。</div>;
+    return (
+      <div className="pw-rp-view pw-todos">
+        <div className="pw-empty-hint">当前环境不支持文档面板（缺少桌面能力）。</div>
+      </div>
+    );
   }
+  // 详情态：根节点带 .pw-todos.is-detail —— 复用既有 CSS 档位（右栏向左展宽 + 左缘拖拽条
+  // 出现 + 详情高度自适应填满），返回列表后移除该类自动还原 320px。
   if (selected) {
-    return <DocDetail doc={selected} onBack={() => setSelected(null)} />;
+    return (
+      <div className="pw-rp-view pw-todos is-detail">
+        <DocDetail doc={selected} onBack={() => setSelected(null)} />
+      </div>
+    );
   }
 
   const filtered = docs.filter(passes);
@@ -199,7 +209,7 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
   const orphans = (data?.orphans ?? []).filter(passes);
 
   return (
-    <div className="pw-doc-view">
+    <div className="pw-rp-view pw-todos pw-doc-view">
       <div className="pw-doc-toolbar">
         <button
           className={`pw-doc-mode ${lineageMode ? "is-on" : ""}`}
