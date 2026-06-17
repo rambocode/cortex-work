@@ -6453,18 +6453,26 @@ button.sb-row {
 
 .pw-note-editor-h {
   display: flex; align-items: center; gap: 8px; padding: 8px 14px; flex-shrink: 0;
-  border-bottom: 1px solid var(--border-soft);
+  flex-wrap: nowrap; border-bottom: 1px solid var(--border-soft);
+}
+/* 头部除标题外的元素一律不收缩、不换行——CJK 文本 min-content 是单字,被挤压会逐字
+   换行(实时预览→实时/预览、cortex-work→cortex-/work),令工具栏错乱。标题作为唯一
+   可收缩项(已有 ellipsis)优先让位。 */
+.pw-note-editor-h > :not(.pw-note-editor-title):not(.spacer) {
+  flex-shrink: 0; white-space: nowrap;
 }
 .pw-note-editor-title {
   font-size: 13px; font-weight: 600; color: var(--text-1);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38vw;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 0 1 auto; min-width: 2.5em; max-width: 38vw;
 }
 
 /* 三档切换分段按钮 */
 .pw-note-mode { display: inline-flex; background: var(--bg-chip); border-radius: 8px; padding: 2px; gap: 2px; }
 .pw-note-mode-btn {
   border: none; background: transparent; color: var(--text-2); cursor: pointer;
-  font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; transition: background 0.12s, color 0.12s;
+  font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
 }
 .pw-note-mode-btn:hover { color: var(--text-1); }
 .pw-note-mode-btn.is-on { background: var(--bg-app); color: var(--text-1); box-shadow: var(--pw-float-shadow); }
