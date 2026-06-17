@@ -718,13 +718,43 @@ export type PiUiRequest =
   | { type: "extension_ui_request"; id: string; method: "setStatus"; statusKey: string; statusText: string | undefined }
   | { type: "extension_ui_request"; id: string; method: "setWidget"; widgetKey: string; widgetLines: string[] | undefined; widgetPlacement?: "aboveEditor" | "belowEditor" }
   | { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
-  | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
+  | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string }
+  // cortex 内部判别式（**非** pi 协议 method）：pi 实发 method:"input"，title 携带本会话 sentinel + JSON 信封;
+  // 主进程 handleLine 检出 sentinel 后归一为本变体（见 askquestion 工具）。回写仍走 {value}（答案 JSON）。
+  | { type: "extension_ui_request"; id: string; method: "askquestion"; envelope: AskQuestionEnvelope };
 
 // 回写给 pi 的 UI 应答（host → pi）。confirm→confirmed;select/input/editor→value;取消→cancelled。
+// askquestion 复用 {value}（答案 JSON）。
 export type PiUiResponsePayload =
   | { confirmed: boolean }
   | { value: string }
   | { cancelled: true };
+
+// askquestion 自定义工具的「多组提问」信封（与 apps/desktop/src/main/ipc/types.ts 镜像）。每组 options ≤ 3。
+export interface AskQuestionOption {
+  label: string;
+  description?: string;
+}
+export interface AskQuestionGroup {
+  id: string;
+  header?: string;
+  question: string;
+  options: AskQuestionOption[];
+  recommended?: number; // options 下标;越界由渲染侧降级为无推荐
+  allowCustom?: boolean;
+}
+export interface AskQuestionEnvelope {
+  groups: AskQuestionGroup[];
+}
+// 用户作答聚合,经 {value} 回写 pi（JSON.stringify）。每组互斥:value 取自选项 label 或自定义文本。
+export interface AskQuestionAnswer {
+  groupId: string;
+  value: string;
+  isCustom: boolean;
+}
+export interface AskQuestionAnswers {
+  answers: AskQuestionAnswer[];
+}
 
 // 菜单栏 Spotlight 浮动框提交的发起意图（bar → 主进程 → 主窗口接力新建会话）。
 export interface SpotlightIntent {

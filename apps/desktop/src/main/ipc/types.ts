@@ -374,14 +374,44 @@ export type PiUiRequest =
   | { type: "extension_ui_request"; id: string; method: "setStatus"; statusKey: string; statusText: string | undefined }
   | { type: "extension_ui_request"; id: string; method: "setWidget"; widgetKey: string; widgetLines: string[] | undefined; widgetPlacement?: "aboveEditor" | "belowEditor" }
   | { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
-  | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
+  | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string }
+  // cortex 内部判别式（**非** pi 协议 method）：pi 实发的是 method:"input"，title 携带本会话 sentinel + JSON
+  // 信封;handleLine 检出 sentinel 后解析归一为本变体（见 askquestion 工具）。回写仍走 {value}（答案 JSON）。
+  | { type: "extension_ui_request"; id: string; method: "askquestion"; envelope: AskQuestionEnvelope };
 
 // 回写给 pi 的应答（host → pi stdin）。三态:confirm 用 confirmed;select/input/editor 用 value;
-// 取消/关闭(任意 method)用 cancelled。镜像 RpcExtensionUIResponse。
+// 取消/关闭(任意 method)用 cancelled。镜像 RpcExtensionUIResponse。askquestion 复用 {value}（答案 JSON）。
 export type PiUiResponsePayload =
   | { confirmed: boolean }
   | { value: string }
   | { cancelled: true };
+
+// askquestion 自定义工具的「多组提问」信封。extension 经 ctx.ui.input 的 title 借 sentinel+JSON 承载,
+// handleLine 解析后归一为 PiUiRequest{method:"askquestion"}。渲染侧约束每组 options ≤ 3。
+export interface AskQuestionOption {
+  label: string;
+  description?: string;
+}
+export interface AskQuestionGroup {
+  id: string;
+  header?: string;
+  question: string;
+  options: AskQuestionOption[];
+  recommended?: number; // options 下标;越界由渲染侧降级为无推荐
+  allowCustom?: boolean;
+}
+export interface AskQuestionEnvelope {
+  groups: AskQuestionGroup[];
+}
+// 用户作答聚合,经 {value} 回写 pi（JSON.stringify）。每组互斥:value 取自选项 label 或自定义文本。
+export interface AskQuestionAnswer {
+  groupId: string;
+  value: string;
+  isCustom: boolean;
+}
+export interface AskQuestionAnswers {
+  answers: AskQuestionAnswer[];
+}
 
 // ── TTS（与 core/desktop/types.ts 镜像） ─────────────────────────────────
 
