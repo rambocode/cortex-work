@@ -449,6 +449,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
   notifications: { turnComplete: true },
   log: { enabled: true, retentionDays: 2 },
+  piSkills: DEFAULT_PI_SKILLS,
 };
 
 // 主进程 userData JSON 中持久化的全量状态。

@@ -8,6 +8,7 @@ import type {
   GeneralSettings,
   PersistedState,
   PersonalProfile,
+  PiSkillSettings,
   PiUiRequest,
   ProviderProfile,
   ProviderSettings,
@@ -23,6 +24,7 @@ import type {
 import {
   DEFAULT_GENERAL_SETTINGS,
   DEFAULT_MODEL,
+  DEFAULT_PI_SKILLS,
   DEFAULT_PROVIDER_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TIMELINE_SETTINGS,
@@ -140,6 +142,11 @@ export interface PersonalState {
   setProviderDefaults: (patch: { defaultProviderId?: string; defaultModel?: string }) => void;
   // 通用设置整体 patch（嵌套子对象由调用方 spread 现值）。
   setGeneralSettings: (patch: Partial<GeneralSettings>) => void;
+  // 插件 Skill 配置 setter（U6）:逐项启用/禁用（scope:name 复合键）、工作区授信、全局根增删。
+  togglePiSkill: (scope: string, name: string, enabled: boolean) => void;
+  trustWorkspaceSkill: (dir: string, trusted: boolean) => void;
+  addGlobalSkillRoot: (path: string) => void;
+  removeGlobalSkillRoot: (path: string) => void;
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
   // projectId 缺省 = 不使用项目（会话在 opts.noProjectDir 工作目录运行）。
@@ -251,6 +258,8 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     desktopBehavior: { ...DEFAULT_GENERAL_SETTINGS.desktopBehavior, ...g.desktopBehavior },
     notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
     log: { ...DEFAULT_GENERAL_SETTINGS.log, ...g.log },
+    // 插件 Skill 配置:旧档无 piSkills 或缺子字段时,逐字段兜 DEFAULT_PI_SKILLS（U6）。
+    piSkills: { ...DEFAULT_PI_SKILLS, ...g.piSkills },
   };
 }
 
@@ -392,6 +401,58 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setProviderDefaults: (patch) => set((s) => ({ providerSettings: { ...s.providerSettings, ...patch } })),
 
   setGeneralSettings: (patch) => set((s) => ({ generalSettings: { ...s.generalSettings, ...patch } })),
+
+  // ── 插件 Skill 配置 setter（U6）──────────────────────────────────────────────
+  // 现值兜底 DEFAULT_PI_SKILLS（旧档/缺字段安全）；整体写回 generalSettings.piSkills。
+  togglePiSkill: (scope, name, enabled) =>
+    set((s) => {
+      const cur: PiSkillSettings = { ...DEFAULT_PI_SKILLS, ...s.generalSettings.piSkills };
+      const key = `${scope}:${name}`;
+      const disabledSkills = enabled
+        ? cur.disabledSkills.filter((k) => k !== key)
+        : cur.disabledSkills.includes(key)
+          ? cur.disabledSkills
+          : [...cur.disabledSkills, key];
+      return { generalSettings: { ...s.generalSettings, piSkills: { ...cur, disabledSkills } } };
+    }),
+
+  trustWorkspaceSkill: (dir, trusted) =>
+    set((s) => {
+      const cur: PiSkillSettings = { ...DEFAULT_PI_SKILLS, ...s.generalSettings.piSkills };
+      const trustedWorkspaceSkillDirs = trusted
+        ? cur.trustedWorkspaceSkillDirs.includes(dir)
+          ? cur.trustedWorkspaceSkillDirs
+          : [...cur.trustedWorkspaceSkillDirs, dir]
+        : cur.trustedWorkspaceSkillDirs.filter((d) => d !== dir);
+      return { generalSettings: { ...s.generalSettings, piSkills: { ...cur, trustedWorkspaceSkillDirs } } };
+    }),
+
+  addGlobalSkillRoot: (path) =>
+    set((s) => {
+      const cur: PiSkillSettings = { ...DEFAULT_PI_SKILLS, ...s.generalSettings.piSkills };
+      const trimmed = path.trim();
+      // 已是内置默认根或已加过 → 不重复。
+      if (!trimmed || cur.globalRoots.includes(trimmed) || cur.userGlobalRoots.includes(trimmed)) return {};
+      return {
+        generalSettings: {
+          ...s.generalSettings,
+          piSkills: { ...cur, userGlobalRoots: [...cur.userGlobalRoots, trimmed] },
+        },
+      };
+    }),
+
+  removeGlobalSkillRoot: (path) =>
+    set((s) => {
+      const cur: PiSkillSettings = { ...DEFAULT_PI_SKILLS, ...s.generalSettings.piSkills };
+      // 仅允许删用户自增根;内置默认根不可删。
+      if (!cur.userGlobalRoots.includes(path)) return {};
+      return {
+        generalSettings: {
+          ...s.generalSettings,
+          piSkills: { ...cur, userGlobalRoots: cur.userGlobalRoots.filter((r) => r !== path) },
+        },
+      };
+    }),
 
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),
   setPromptTree: (tree) => set({ promptTree: tree }),

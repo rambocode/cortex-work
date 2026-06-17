@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PersistedState, ProjectMeta, PushSettings } from "../desktop/types";
+import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS } from "../desktop/types";
 import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } from "./personal";
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
@@ -888,5 +889,68 @@ describe("设置整页视图态(settingsOpen)", () => {
     usePersonalStore.getState().hydrate(base);
     usePersonalStore.getState().openSettings();
     expect("settingsOpen" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  });
+});
+
+describe("插件 Skill 配置（piSkills）", () => {
+  it("旧档无 piSkills → hydrate 后兜 DEFAULT_PI_SKILLS", () => {
+    usePersonalStore.getState().hydrate(base);
+    expect(usePersonalStore.getState().generalSettings.piSkills).toEqual(DEFAULT_PI_SKILLS);
+  });
+
+  it("旧档缺子字段 → 该子字段兜默认", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        piSkills: { disabledSkills: ["global:x"] } as never, // 故意缺其它子字段
+      },
+    });
+    const pi = usePersonalStore.getState().generalSettings.piSkills!;
+    expect(pi.disabledSkills).toEqual(["global:x"]);
+    expect(pi.globalRoots).toEqual(DEFAULT_PI_SKILLS.globalRoots);
+    expect(pi.workspaceEnabled).toBe(true);
+  });
+
+  it("togglePiSkill:禁用增复合键、再启用移除", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().togglePiSkill("global", "code-review", false);
+    expect(usePersonalStore.getState().generalSettings.piSkills!.disabledSkills).toContain("global:code-review");
+    usePersonalStore.getState().togglePiSkill("global", "code-review", true);
+    expect(usePersonalStore.getState().generalSettings.piSkills!.disabledSkills).not.toContain("global:code-review");
+  });
+
+  it("trustWorkspaceSkill:增删授信目录", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().trustWorkspaceSkill("/proj/.cortex-desktop/skills/x", true);
+    expect(usePersonalStore.getState().generalSettings.piSkills!.trustedWorkspaceSkillDirs).toContain(
+      "/proj/.cortex-desktop/skills/x",
+    );
+    usePersonalStore.getState().trustWorkspaceSkill("/proj/.cortex-desktop/skills/x", false);
+    expect(usePersonalStore.getState().generalSettings.piSkills!.trustedWorkspaceSkillDirs).toHaveLength(0);
+  });
+
+  it("addGlobalSkillRoot 追加 userGlobalRoots；内置根不可加/不可删", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().addGlobalSkillRoot("~/my/skills");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/my/skills");
+    // 加内置默认根 → 无效（不重复）
+    usePersonalStore.getState().addGlobalSkillRoot("~/.agent/skills");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).not.toContain("~/.agent/skills");
+    // 删内置根 → 无效（仅删 userGlobalRoots）
+    usePersonalStore.getState().removeGlobalSkillRoot("~/.agent/skills");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.globalRoots).toEqual(DEFAULT_PI_SKILLS.globalRoots);
+    // 删用户根 → 生效
+    usePersonalStore.getState().removeGlobalSkillRoot("~/my/skills");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).not.toContain("~/my/skills");
+  });
+
+  it("toPersistedState 往返保留 piSkills 子字段", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().togglePiSkill("global", "x", false);
+    usePersonalStore.getState().addGlobalSkillRoot("~/extra");
+    const persisted = toPersistedState(usePersonalStore.getState());
+    expect(persisted.generalSettings!.piSkills!.disabledSkills).toContain("global:x");
+    expect(persisted.generalSettings!.piSkills!.userGlobalRoots).toContain("~/extra");
   });
 });
