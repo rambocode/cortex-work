@@ -292,8 +292,15 @@ export interface PiOpenRequest {
     apiKey?: string;
     models: { id: string; name?: string }[];
   };
-  // 主进程内部填充:生成的 extension 文件绝对路径（buildRpcArgs 读取）。
+  // 主进程内部填充:生成的 provider extension 文件绝对路径（buildRpcArgs 读取）。
   piExtensionPath?: string;
+  // 阶段3 深度定制开关（renderer 传）:启用「工具执行审批」/「自定义工具样例」/「斜杠命令样例」。
+  enableToolApproval?: boolean;
+  approvalTools?: string[]; // 需审批的工具集（缺省 DEFAULT_APPROVAL_TOOLS）
+  enableSampleTools?: boolean;
+  enableSampleCommands?: boolean;
+  // 主进程内部填充:除 provider 外追加的 extension 路径（审批/样例工具/命令），各加一个 -e。
+  extraExtensionPaths?: string[];
 }
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。

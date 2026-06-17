@@ -588,8 +588,15 @@ export interface PiOpenRequest {
     apiKey?: string;
     models: { id: string; name?: string }[];
   };
-  // 主进程内部填充:生成的 extension 文件绝对路径（renderer 不传,buildRpcArgs 读取）。
+  // 主进程内部填充:生成的 provider extension 文件绝对路径（renderer 不传,buildRpcArgs 读取）。
   piExtensionPath?: string;
+  // 阶段3 深度定制开关（renderer 传）。
+  enableToolApproval?: boolean;
+  approvalTools?: string[];
+  enableSampleTools?: boolean;
+  enableSampleCommands?: boolean;
+  // 主进程内部填充:除 provider 外追加的 extension 路径。
+  extraExtensionPaths?: string[];
 }
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。

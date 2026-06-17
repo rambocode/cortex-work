@@ -51,6 +51,9 @@ const h = vi.hoisted(() => {
     buildRpcArgs: vi.fn(() => ["--mode", "rpc"]),
     spawnPiRpc: vi.fn(() => ({})),
     writePiExtension: vi.fn(() => "/ext/deepseek.js"),
+    writeApprovalExtension: vi.fn(() => "/ext/approval.js"),
+    writeCustomToolExtension: vi.fn(() => "/ext/sample-tools.js"),
+    writeSlashCommandExtension: vi.fn(() => "/ext/sample-commands.js"),
     spawnEnvFor: vi.fn(() => ({})),
   };
 });
@@ -64,6 +67,11 @@ vi.mock("../agents/pi-rpc", () => ({
   PiRpcSession: h.PiRpcSession,
 }));
 vi.mock("../agents/pi-providers", () => ({ writePiExtension: h.writePiExtension }));
+vi.mock("../agents/pi-extensions", () => ({
+  writeApprovalExtension: h.writeApprovalExtension,
+  writeCustomToolExtension: h.writeCustomToolExtension,
+  writeSlashCommandExtension: h.writeSlashCommandExtension,
+}));
 vi.mock("./cli", () => ({ spawnEnvFor: h.spawnEnvFor }));
 
 import { registerPiSessionHandlers, killAllPiSessions, piSessionCount } from "./pi-session";
@@ -90,6 +98,9 @@ beforeEach(() => {
   h.buildRpcArgs.mockClear();
   h.spawnPiRpc.mockClear();
   h.writePiExtension.mockClear();
+  h.writeApprovalExtension.mockClear();
+  h.writeCustomToolExtension.mockClear();
+  h.writeSlashCommandExtension.mockClear();
   h.spawnEnvFor.mockClear();
   registerPiSessionHandlers();
 });
@@ -306,5 +317,42 @@ describe("extension UI channel（阶段3 U2）", () => {
     await open({ uiSessionId: "u1" });
     await h.handlers.get("pi:close")!({}, "u1");
     await expect(h.handlers.get("pi:uiResponse")!({}, "u1", "x", { cancelled: true })).rejects.toThrow(/不存在/);
+  });
+});
+
+describe("阶段3 extension 装配（pi:open 按开关注入）", () => {
+  it("enableToolApproval → writeApprovalExtension + extraExtensionPaths 含其路径", async () => {
+    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p", enableToolApproval: true, approvalTools: ["bash"] };
+    await h.handlers.get("pi:open")!(fakeEvent(), req);
+    expect(h.writeApprovalExtension).toHaveBeenCalledWith(["bash"]);
+    expect(req.extraExtensionPaths).toContain("/ext/approval.js");
+  });
+
+  it("三开关全开 → 三个样例都生成,extraExtensionPaths 三条", async () => {
+    const req: PiOpenRequest = {
+      uiSessionId: "u1",
+      cwd: "/p",
+      enableToolApproval: true,
+      enableSampleTools: true,
+      enableSampleCommands: true,
+    };
+    await h.handlers.get("pi:open")!(fakeEvent(), req);
+    expect(req.extraExtensionPaths).toEqual(["/ext/approval.js", "/ext/sample-tools.js", "/ext/sample-commands.js"]);
+  });
+
+  it("无开关 → 不生成样例 extension,extraExtensionPaths 未设", async () => {
+    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
+    await h.handlers.get("pi:open")!(fakeEvent(), req);
+    expect(h.writeApprovalExtension).not.toHaveBeenCalled();
+    expect(req.extraExtensionPaths).toBeUndefined();
+  });
+
+  it("provider + 审批共存:provider extension 与审批 extension 都生成,互不影响", async () => {
+    const provider = { id: "deepseek", baseUrl: "https://api.deepseek.com", apiKey: "k", models: [] };
+    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p", provider, enableToolApproval: true };
+    await h.handlers.get("pi:open")!(fakeEvent(), req);
+    expect(h.writePiExtension).toHaveBeenCalledWith(provider); // provider 注入不动
+    expect(req.piExtensionPath).toBe("/ext/deepseek.js");
+    expect(req.extraExtensionPaths).toEqual(["/ext/approval.js"]);
   });
 });

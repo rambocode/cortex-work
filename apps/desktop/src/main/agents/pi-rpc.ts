@@ -145,10 +145,13 @@ export function buildRpcArgs(req: PiOpenRequest): string[] {
   const args = ["--mode", "rpc", "--no-extensions"];
   // skills 默认禁用,仅 useOwnSkills===true 时加载（与 pi 单发 / claude adapter 对齐）。
   if (req.useOwnSkills !== true) args.push("--no-skills");
-  // 自定义供应商:pi-session 已生成 extension 文件并塞进 piExtensionPath,这里 -e 显式加载
-  // + -a 信任 + --provider 选中。provider 名必须用 safeId（与 registerProvider 注册名同源）。
-  if (req.piExtensionPath) {
-    args.push("-e", req.piExtensionPath, "-a");
+  // extension:provider（piExtensionPath）+ 阶段3 审批/样例（extraExtensionPaths）多 `-e` 共存
+  // （spike 已证 --no-extensions 与多个显式 -e 共存、hook 注册）。各加一个 -e,`-a` 信任只加一次。
+  const exts = [req.piExtensionPath, ...(req.extraExtensionPaths ?? [])].filter((p): p is string => !!p);
+  if (exts.length) {
+    for (const p of exts) args.push("-e", p);
+    args.push("-a");
+    // provider 名必须用 safeId（与 registerProvider 注册名同源）;仅自定义供应商时选中。
     if (req.provider) args.push("--provider", safeId(req.provider.id));
   }
   if (req.model) args.push("--model", req.model);

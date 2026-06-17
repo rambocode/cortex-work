@@ -509,6 +509,29 @@ describe("buildRpcArgs", () => {
     expect(args).not.toContain("-a");
     expect(args).not.toContain("--provider");
   });
+
+  it("多 -e 共存（阶段3）:provider + 追加 extension 各一个 -e,-a 仅一次,--provider 仍在", () => {
+    const args = buildRpcArgs({
+      ...base,
+      piExtensionPath: "/d/deepseek.js",
+      extraExtensionPaths: ["/d/approval.js", "/d/sample-tools.js"],
+      provider: { id: "deepseek", baseUrl: "https://api.deepseek.com", models: [] },
+    });
+    const eIdx = args.reduce<number[]>((acc, a, i) => (a === "-e" ? [...acc, i] : acc), []);
+    expect(eIdx).toHaveLength(3); // provider + 2 追加
+    expect(args[eIdx[0]! + 1]).toBe("/d/deepseek.js");
+    expect(args).toContain("/d/approval.js");
+    expect(args).toContain("/d/sample-tools.js");
+    expect(args.filter((a) => a === "-a")).toHaveLength(1); // 信任只加一次
+    expect(args.join(" ")).toContain("--provider deepseek"); // provider 注入不变
+  });
+
+  it("仅追加 extension（无 provider）:加 -e/-a,不加 --provider", () => {
+    const args = buildRpcArgs({ ...base, extraExtensionPaths: ["/d/approval.js"] });
+    expect(args.join(" ")).toContain("-e /d/approval.js");
+    expect(args).toContain("-a");
+    expect(args).not.toContain("--provider");
+  });
 });
 
 describe("spawnPiRpc", () => {

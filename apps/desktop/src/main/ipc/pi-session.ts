@@ -6,6 +6,7 @@ import { ipcMain, type WebContents } from "electron";
 
 import { buildRpcArgs, spawnPiRpc, PiRpcSession, type RpcResponse } from "../agents/pi-rpc";
 import { writePiExtension } from "../agents/pi-providers";
+import { writeApprovalExtension, writeCustomToolExtension, writeSlashCommandExtension } from "../agents/pi-extensions";
 import { spawnEnvFor } from "./cli";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 
@@ -59,6 +60,13 @@ export function registerPiSessionHandlers(): void {
 
     // 自定义供应商:先生成 extension 文件,把路径塞回 req 供 buildRpcArgs 加 -e（与 cli.ts 同策略）。
     if (req.provider) req.piExtensionPath = writePiExtension(req.provider);
+    // 阶段3 深度定制:审批 / 自定义工具 / 斜杠命令样例各生成独立 extension,追加各一个 -e
+    // （与 provider extension 共存,provider 注入不动）。
+    const extra: string[] = [];
+    if (req.enableToolApproval) extra.push(writeApprovalExtension(req.approvalTools));
+    if (req.enableSampleTools) extra.push(writeCustomToolExtension());
+    if (req.enableSampleCommands) extra.push(writeSlashCommandExtension());
+    if (extra.length) req.extraExtensionPaths = extra;
 
     const args = buildRpcArgs(req);
     const transport = spawnPiRpc(args, {
