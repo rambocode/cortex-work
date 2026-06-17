@@ -6352,13 +6352,14 @@ button.sb-row {
 .pw-note-cm-host > .cm-editor { height: 100%; width: 100%; }
 .pw-note-cm-host > .cm-editor.cm-focused { outline: none; }
 
-/* live 档:正文 ~960px 靠右(margin-left:auto;非居中);source 档保持全宽等宽 */
-.cm-write-live-preview .cm-content {
+/* 三档统一版心:源码 / 实时预览(CM)正文 960px 靠右(margin-left:auto;非居中),
+   与「仅预览」同列宽、同位置(避免 source 全宽靠左的不一致)。
+   注意:内边距由 CM 的 EditorView.theme(.cm-content)统一拥有(见 NoteCodeMirrorEditor),
+   此处只管 max-width/margin——二者同特异性,padding 留给主题避免 shorthand 互相覆盖。 */
+.pw-note-cm-host .cm-content {
   max-width: 960px;
   margin-left: auto;
   margin-right: 0;
-  padding-left: clamp(24px, 5vw, 48px);
-  padding-right: clamp(24px, 5vw, 48px);
 }
 .cm-write-live-preview .cm-line { color: var(--text-1); }
 
@@ -6487,12 +6488,21 @@ button.sb-row {
 /* 正文区:编辑器 / 仅预览,占满剩余高度并居中收窄(写作版心) */
 .pw-note-editor-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .pw-note-editor-body > .pw-note-cm-host { flex: 1; }
-.pw-note-editor-preview { flex: 1; overflow: auto; padding: clamp(28px, 5vh, 56px) 24px 120px; }
+/* 横向内边距下放到内层 box(与 CM 的 .cm-content 同 clamp),容器只留纵向内边距,
+   使「仅预览」文本列 = 960 − 2×clamp,与源码/实时预览同列宽同位置。 */
+.pw-note-editor-preview { flex: 1; overflow: auto; padding: clamp(28px, 5vh, 56px) 0 120px; }
 /* 仅预览正文 960px 靠右(与 live 档一致,非居中);.pw-todo-md 承载 markdown 元素样式。
    解除 .pw-todo-md 默认 max-height:260px(那是详情卡片用的),让其撑满写作面、滚动交给
    外层 .pw-note-editor-preview(仿 .pw-file-md .pw-todo-md 先例)——这是「预览高度没到底」的真因。 */
-.pw-note-editor-preview > .pw-todo-md { max-width: 960px; margin-left: auto; margin-right: 0; max-height: none; overflow: visible; }
-.pw-note-editor-preview > .pw-empty-hint { max-width: 960px; margin-left: auto; margin-right: 0; }
+.pw-note-editor-preview > .pw-todo-md {
+  max-width: 960px; margin-left: auto; margin-right: 0; max-height: none; overflow: visible;
+  /* 纵向交给容器(clamp 顶 / 120 底),横向 clamp 对齐 CM,覆盖 .pw-note-md 的 2px/8px */
+  padding: 0 clamp(24px, 5vw, 48px);
+}
+.pw-note-editor-preview > .pw-empty-hint {
+  max-width: 960px; margin-left: auto; margin-right: 0;
+  padding: 0 clamp(24px, 5vw, 48px);
+}
 
 /* 仅预览 markdown 排版对齐 Kun 的 .write-markdown-preview(移植自 Kun write-editor.css,
    映射 cortex 变量;布局沿用上面的 960/靠右)。作用域多一层 .pw-note-editor-preview

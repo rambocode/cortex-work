@@ -121,7 +121,9 @@ export function NoteCodeMirrorEditor({
           ".cm-scroller": { overflow: "auto", lineHeight: "1.75", backgroundColor: "transparent" },
           ".cm-content": {
             minHeight: "100%",
-            padding: sourceMode ? "20px 24px 56px" : "clamp(28px, 5vh, 56px) 24px 120px",
+            // 三档统一版心:纵向/横向内边距对 source 与 live 一致(横向 clamp 与「仅预览」
+            // 的 .pw-todo-md 对齐);max-width/margin 由 CSS .pw-note-cm-host .cm-content 提供。
+            padding: "clamp(28px, 5vh, 56px) clamp(24px, 5vw, 48px) 120px",
             caretColor: "var(--accent)",
           },
           ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)" },
