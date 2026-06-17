@@ -353,4 +353,64 @@ describe("steer / setPiModel（U6）", () => {
       model: "m1",
     });
   });
+
+  it("setPiModel 实时下发失败 → 回滚会话记忆 + ⚠️ 提示（阶段4 U8）", async () => {
+    const bridge = makeBridge({ piSetModel: vi.fn(async () => Promise.reject(new Error("不支持轮中切"))) });
+    const qc = new QueryClient();
+    // 会话已有 model，open 后切换失败应回滚到原值。
+    usePersonalStore.setState({
+      sessions: [{ ...piSession, providerId: "p0", model: "m0" }],
+    });
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send({ ...piSession, providerId: "p0", model: "m0" }, "/proj", "hi", []);
+    });
+    await act(async () => {
+      result.current.setPiModel({ ...piSession, providerId: "p0", model: "m0" }, "p1", "m1");
+      await Promise.resolve();
+    });
+    expect(usePersonalStore.getState().sessions.find((s) => s.id === "s-pi")).toMatchObject({
+      providerId: "p0",
+      model: "m0",
+    }); // 回滚
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail("s-pi")) ?? [];
+    expect(msgs.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("切换模型失败"))).toBe(true);
+  });
+});
+
+describe("editResend fork 可观测 + 后缀匹配（阶段4 U9/U10）", () => {
+  it("fork 定位失败（无匹配 entry）→ ⚠️ 提示仍重发（U9）", async () => {
+    const bridge = makeBridge({ piGetForkMessages: vi.fn(async () => ({ messages: [{ entryId: "e9", text: "别的问题" }] })) });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "原问题", []);
+    });
+    usePersonalStore.getState().setRunning(piSession.id, undefined);
+    const uid = userMsgUid(qc, piSession.id, "原问题");
+    await act(async () => {
+      await result.current.editResend(piSession, "/proj", uid, "改后", []);
+    });
+    expect(bridge.piFork).not.toHaveBeenCalled(); // 无匹配 → 不 fork
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(piSession.id)) ?? [];
+    expect(msgs.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("未能在 pi 侧定位编辑点"))).toBe(true);
+    expect(bridge.piPrompt).toHaveBeenCalledTimes(2); // 仍重发
+  });
+
+  it("fork 匹配含内联系统提示前缀的 entry（U10 收紧不误判）", async () => {
+    const bridge = makeBridge({
+      piGetForkMessages: vi.fn(async () => ({ messages: [{ entryId: "epfx", text: "<project>...</project>\n\n原问题" }] })),
+    });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "原问题", []);
+    });
+    usePersonalStore.getState().setRunning(piSession.id, undefined);
+    const uid = userMsgUid(qc, piSession.id, "原问题");
+    await act(async () => {
+      await result.current.editResend(piSession, "/proj", uid, "改后", []);
+    });
+    expect(bridge.piFork).toHaveBeenCalledWith("s-pi", "epfx"); // \n\n 前缀剥离后匹配
+  });
 });

@@ -1016,7 +1016,11 @@ async function sendPiTurn(
 function piEntryMatchesText(entryText: string, originalText: string): boolean {
   const a = entryText.trim();
   const b = originalText.trim();
-  return a === b || a.endsWith(b);
+  if (a === b) return true;
+  // pi 侧 entry 可能含 buildPiPromptMessage 内联的系统提示前缀（`${appendSystemPrompt}\n\n${text}`）。
+  // 收紧:要求「\n\n + 原文」结尾（前缀块与原文以 \n\n 分隔），比裸 endsWith 稳——避免误命中
+  // 「尾串恰好等于原文但中间无分隔」的别条。
+  return a.endsWith(`\n\n${b}`);
 }
 
 async function forkPiAtEditedMessage(
@@ -1376,8 +1380,18 @@ export function usePersonalActions(): PersonalActions {
       // pi:在 pi 侧 fork 到分支点（替代 trimAgentSession 截断会话文件）,再以新文本重发。
       // 映射失败/会话未开 → best-effort 退化:只截断 UI + 重发（pi 仍带旧记忆,阶段2 取舍）。
       if (session.agent === "pi") {
-        await forkPiAtEditedMessage(bridge, session.id, prev, msgUid).catch(() => false);
+        const forked = await forkPiAtEditedMessage(bridge, session.id, prev, msgUid).catch(() => false);
         qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
+        // fork 退化（会话未开/定位失败）→ pi 仍带旧记忆,给用户可见提示,避免「以为截断了实则没」。
+        if (!forked) {
+          appendMsg(qc, session.id, {
+            kind: "text",
+            who: "pi",
+            time: realHHMM(),
+            text: "⚠️ 未能在 pi 侧定位编辑点,已带原有上下文重发（pi 仍记得被编辑前的内容）。",
+            uid: uid("err"),
+          });
+        }
         flushChat(qc, session.id);
         await send(session, projectPath, text, attachments);
         return;
@@ -1471,13 +1485,24 @@ export function usePersonalActions(): PersonalActions {
 
   const setPiModel = useCallback<PersonalActions["setPiModel"]>(
     (session, providerId, model) => {
+      const prev = { providerId: session.providerId, model: session.model };
       usePersonalStore.getState().updateSession(session.id, { providerId, model });
       // 会话已开 → 实时切换（pi 长驻进程无需重启）;未开仅记忆,下次 open 即用新模型。
+      // 实时下发失败不再静默吞:回滚会话记忆 + 提示,避免「UI 显新模型、pi 实际仍旧模型」漂移。
       if (session.agent === "pi" && bridge && isPiSessionOpen(session.id)) {
-        void setModelPi(bridge, session.id, providerId, model).catch(() => undefined);
+        void setModelPi(bridge, session.id, providerId, model).catch(() => {
+          usePersonalStore.getState().updateSession(session.id, prev);
+          appendMsg(qc, session.id, {
+            kind: "text",
+            who: "pi",
+            time: realHHMM(),
+            text: "⚠️ 切换模型失败,已回滚到原模型。",
+            uid: uid("err"),
+          });
+        });
       }
     },
-    [bridge],
+    [bridge, qc],
   );
 
   const clearView = useCallback<PersonalActions["clearView"]>(
