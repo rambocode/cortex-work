@@ -62,8 +62,11 @@ export function AskQuestionCard({ sessionId }: { sessionId: string }) {
   const optionPicked = activeSel?.optionIndex != null;
   const customFilled = activeCustom.trim().length > 0;
 
-  // 互斥:选选项清自定义,反之亦然(KTD-5)。
-  const pickOption = (gid: string, idx: number) => setSelections((s) => ({ ...s, [gid]: { optionIndex: idx } }));
+  // 互斥(last-action wins):选选项清自定义、输入自定义清选项,任一时刻每组只有唯一作答来源(KTD-5)。
+  const pickOption = (gid: string, idx: number) => {
+    setSelections((s) => ({ ...s, [gid]: { optionIndex: idx } }));
+    setActiveIdx((i) => Math.min(i + 1, groups.length - 1)); // 选完当前组自动跳下一组(末组则停留)
+  };
   const setCustom = (gid: string, text: string) => setSelections((s) => ({ ...s, [gid]: { custom: text } }));
 
   const submit = () => {
@@ -125,11 +128,10 @@ export function AskQuestionCard({ sessionId }: { sessionId: string }) {
         </div>
         {active.allowCustom ? (
           <input
-            className="pw-askq-custom"
+            className={`pw-askq-custom${optionPicked ? " dimmed" : ""}`}
             type="text"
             placeholder="或自定义回答…"
             value={activeCustom}
-            disabled={optionPicked}
             aria-label={`${active.question} 自定义回答`}
             onChange={(e) => setCustom(active.id, e.target.value)}
           />

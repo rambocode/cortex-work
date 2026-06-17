@@ -158,16 +158,25 @@ export function sanitizeAskQuestionEnvelope(parsed: unknown): AskQuestionEnvelop
     });
     const allowCustom = !!g.allowCustom;
     if (options.length === 0 && !allowCustom) return null; // 组不可作答 → 拒绝
+    // 推荐项排到第一个:把 recommended 选项移到 options[0]、recommended 归一为 0(展示时推荐始终最前;
+    // 答案回写的是 label 而非下标,重排不影响回传 pi 的语义)。
+    let recommended =
+      typeof g.recommended === "number" && g.recommended >= 0 && g.recommended < options.length
+        ? g.recommended
+        : undefined;
+    let finalOptions = options;
+    if (recommended != null && recommended > 0) {
+      finalOptions = [options[recommended]!, ...options.filter((_, k) => k !== recommended)];
+      recommended = 0;
+    }
     const group: AskQuestionGroup = {
       id: `g${i}`, // host 不信任入站 id:始终按位置重写,杜绝重复 id 导致的渲染 key 冲突 / 跨组答案污染
       question: typeof g.question === "string" ? g.question.slice(0, ASKQ_MAX_STR) : "",
-      options,
+      options: finalOptions,
       allowCustom,
     };
     if (typeof g.header === "string") group.header = g.header.slice(0, ASKQ_MAX_STR);
-    if (typeof g.recommended === "number" && g.recommended >= 0 && g.recommended < options.length) {
-      group.recommended = g.recommended;
-    }
+    if (recommended != null) group.recommended = recommended;
     groups.push(group);
   }
   return { groups };

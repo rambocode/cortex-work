@@ -756,9 +756,17 @@ describe("sanitizeAskQuestionEnvelope（入站校验）", () => {
       groups: [{ question: "Q", options: [{ label: "1" }, { label: "2" }, { label: "3" }, { label: "4" }], recommended: 1 }],
     });
     expect(env).not.toBeNull();
-    expect(env!.groups[0]!.options).toHaveLength(3); // clamp
+    expect(env!.groups[0]!.options).toHaveLength(3); // clamp 到 3
     expect(env!.groups[0]!.id).toBe("g0");
-    expect(env!.groups[0]!.recommended).toBe(1);
+    expect(env!.groups[0]!.recommended).toBe(0); // 推荐项已排到第一
+    expect(env!.groups[0]!.options[0]!.label).toBe("2"); // 原 recommended(index1)移到首位
+  });
+  it("推荐项排到第一个:recommended 选项移到 options[0],recommended 归一为 0", () => {
+    const env = sanitizeAskQuestionEnvelope({
+      groups: [{ question: "q", options: [{ label: "A" }, { label: "B" }, { label: "C" }], recommended: 2 }],
+    });
+    expect(env!.groups[0]!.options.map((o) => o.label)).toEqual(["C", "A", "B"]);
+    expect(env!.groups[0]!.recommended).toBe(0);
   });
   it("空 groups / 非对象 → null", () => {
     expect(sanitizeAskQuestionEnvelope({ groups: [] })).toBeNull();

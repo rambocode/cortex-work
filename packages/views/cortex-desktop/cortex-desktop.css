@@ -5133,9 +5133,8 @@ button.sb-row {
   font-size: 13px;
   color: var(--text-1);
 }
-.pw-askq-custom:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.pw-askq-custom.dimmed {
+  opacity: 0.6;
 }
 .pw-askq-foot {
   display: flex;

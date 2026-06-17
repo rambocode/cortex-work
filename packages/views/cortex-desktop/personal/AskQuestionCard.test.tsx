@@ -84,7 +84,7 @@ describe("AskQuestionCard（U5）", () => {
     });
   });
 
-  it("多组:顶部 tab 切换,未全部作答时提交禁用,tab 显 ✓,补齐后聚合提交", () => {
+  it("多组:选完当前组自动跳下一组,tab 显 ✓,补齐后聚合提交", () => {
     const bridge = makeBridge();
     const twoGroups = {
       groups: [
@@ -94,18 +94,17 @@ describe("AskQuestionCard（U5）", () => {
     };
     usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-pi", request: askReq("a1", twoGroups) }] });
     renderCard(bridge);
-    // 初始只显第一组(tab 切换),第二组问题在另一 tab 后不可见。
+    // 初始只显第一组,第二组问题不可见。
     expect(screen.getByText("Q0")).toBeInTheDocument();
     expect(screen.queryByText("Q1")).toBeNull();
     expect(screen.getByRole("button", { name: "提交" })).toBeDisabled();
     expect(screen.getByText("还有 2 组未作答")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("A")); // 答第一组
+    fireEvent.click(screen.getByText("A")); // 答第一组 → 自动跳到第二组
+    expect(screen.getByText("Q1")).toBeInTheDocument(); // 已自动跳转,无需点 tab
+    expect(screen.queryByText("Q0")).toBeNull();
     expect(screen.getByRole("button", { name: "提交" })).toBeDisabled(); // 仍缺第二组
     expect(screen.getByRole("tab", { name: /问题 1/ })).toHaveTextContent("✓"); // 已答 tab 标 ✓
-    // 切到第二组 tab → 第二组问题与选项可见
-    fireEvent.click(screen.getByRole("tab", { name: /问题 2/ }));
-    expect(screen.getByText("Q1")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Y"));
+    fireEvent.click(screen.getByText("Y")); // 答第二组(当前组)
     expect(screen.getByRole("button", { name: "提交" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "提交" }));
     expect(JSON.parse((lastResp(bridge)![2] as { value: string }).value)).toEqual({
@@ -113,6 +112,20 @@ describe("AskQuestionCard（U5）", () => {
         { groupId: "g0", value: "A", isCustom: false },
         { groupId: "g1", value: "Y", isCustom: false },
       ],
+    });
+  });
+
+  it("自定义输入始终可用:选了选项后仍能改填自定义(last-action 互斥)", () => {
+    const bridge = makeBridge();
+    usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-pi", request: askReq("a1", oneGroup) }] });
+    renderCard(bridge);
+    fireEvent.click(screen.getByText("选项A")); // 先选选项
+    const input = screen.getByPlaceholderText("或自定义回答…");
+    expect(input).toBeEnabled(); // 不再 disabled
+    fireEvent.change(input, { target: { value: "改成自定义" } }); // 切到自定义 → 清选项
+    fireEvent.click(screen.getByRole("button", { name: "提交" }));
+    expect(JSON.parse((lastResp(bridge)![2] as { value: string }).value)).toEqual({
+      answers: [{ groupId: "g0", value: "改成自定义", isCustom: true }],
     });
   });
 
