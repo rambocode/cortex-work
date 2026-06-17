@@ -178,12 +178,15 @@ jobs:
         run: |
           src="apps/desktop/dist"
           work="$(mktemp -d)"
-          ditto "$src/mac-arm64/Cortex Desktop.app" "$work/Cortex Desktop.app"
-          codesign --verify --deep --strict --verbose=2 "$work/Cortex Desktop.app"
-          codesign -dv --verbose=4 "$work/Cortex Desktop.app"
-          spctl --assess --type execute --verbose "$work/Cortex Desktop.app"
-          xcrun stapler validate "$work/Cortex Desktop.app"
-          dmg="$(ls -1 "$src"/Cortex\ Desktop-*-arm64.dmg | head -n 1)"
+          product_name="$(node -p "require('./apps/desktop/package.json').productName")"
+          app="$src/mac-arm64/${product_name}.app"
+          app_copy="$work/${product_name}.app"
+          ditto "$app" "$app_copy"
+          codesign --verify --deep --strict --verbose=2 "$app_copy"
+          codesign -dv --verbose=4 "$app_copy"
+          spctl --assess --type execute --verbose "$app_copy"
+          xcrun stapler validate "$app_copy"
+          dmg="$(ls -1 "$src"/*-arm64.dmg | head -n 1)"
           cp "$dmg" "$work/"
           dmg_copy="$work/$(basename "$dmg")"
           # dmg 为人工分发容器:app 已签名+公证+staple(上面是硬门)。dmg 本身是否独立签名/公证取决于
@@ -200,8 +203,8 @@ jobs:
           name: cortex-desktop-${{ env.BUILD_TAG }}-macos-arm64
           if-no-files-found: error
           path: |
-            apps/desktop/dist/Cortex Desktop-*-arm64.dmg
-            apps/desktop/dist/Cortex Desktop-*-arm64.dmg.blockmap
-            apps/desktop/dist/Cortex Desktop-*-arm64-mac.zip
-            apps/desktop/dist/Cortex Desktop-*-arm64-mac.zip.blockmap
+            apps/desktop/dist/*-arm64.dmg
+            apps/desktop/dist/*-arm64.dmg.blockmap
+            apps/desktop/dist/*-arm64-mac.zip
+            apps/desktop/dist/*-arm64-mac.zip.blockmap
             apps/desktop/dist/latest-mac.yml
