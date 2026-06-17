@@ -1117,9 +1117,13 @@ export function usePersonalPiUi(): void {
   const bridge = useDesktopBridge();
   useEffect(() => {
     if (!bridge?.onPiUiRequest) return;
-    const off = bridge.onPiUiRequest((uiSessionId, request) =>
-      usePersonalStore.getState().pushPiUiRequest({ uiSessionId, request }),
-    );
+    const off = bridge.onPiUiRequest((uiSessionId, request) => {
+      // 阶段3 只渲染 confirm 模态。其余 method:select/input/editor（需回写,UI 留后续）与
+      // notify/setStatus/setWidget/...（fire-and-forget,无需回写）暂不入队,避免堵塞 confirm 队列。
+      if (request.method === "confirm") {
+        usePersonalStore.getState().pushPiUiRequest({ uiSessionId, request });
+      }
+    });
     return () => off();
   }, [bridge]);
 }

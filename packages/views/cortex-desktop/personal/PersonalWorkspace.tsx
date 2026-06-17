@@ -10,6 +10,7 @@ import {
   usePersonalCliEvents,
   usePersonalPersistence,
   usePersonalPiEvents,
+  usePersonalPiUi,
   usePersonalStore,
   useSpotlightHandoff,
 } from "@cortex-work/core";
@@ -23,6 +24,7 @@ import { TimelineView } from "./TimelineView";
 import { NewSessionLanding } from "./NewSessionLanding";
 import { AutomationView } from "./AutomationView";
 import { FlashNoteEditor } from "./FlashNoteEditor";
+import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
 
 // 进入落地页(homeOpen 转真,含首屏挂载)即收起右栏:无项目时默认不显示,选项目
 // 不自动弹出。依赖只含 homeOpen,故 rightOpen 在落地页内被显式置真(点 Task / 顶栏
@@ -57,6 +59,8 @@ export function PersonalWorkspace({
   usePersonalCliEvents();
   // pi RPC 会话事件流（与 CLI 事件并列挂载一次）；bridge 无 onPiEvent 时内部空转。
   usePersonalPiEvents();
+  // pi extension UI 请求（工具确认弹窗）订阅;bridge 无 onPiUiRequest 时空转。
+  usePersonalPiUi();
   // 与 CLI 事件同处挂载:hydrate 后消费 Spotlight 意图,新建会话并发首条消息。
   useSpotlightHandoff();
   // 订阅自动化的 changed / run-event（驱动列表刷新 + 完成 toast）。bridge 不支持时内部空转。
@@ -110,6 +114,7 @@ export function PersonalWorkspace({
         </div>
         <TerminalPanel onToast={onToast} />
       </div>
+      <PiToolConfirmDialog />
     </>
   );
 }
