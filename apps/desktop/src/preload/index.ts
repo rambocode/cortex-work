@@ -30,6 +30,7 @@ import type {
   PiSessionEvent,
   PiUiRequest,
   PiUiResponsePayload,
+  PluginSkill,
   PromptNode,
   ReadFileResult,
   SkillMeta,
@@ -310,6 +311,15 @@ const personal = {
   // 的可选 skillGet/skillsList 逐字对齐（手工比对,无 satisfies）。
   skillGet: (name: string): Promise<SkillMeta | null> => ipcRenderer.invoke("skills:get", name),
   skillsList: (): Promise<SkillMeta[]> => ipcRenderer.invoke("skills:list"),
+  // 插件管理（U3）:扫描多根 / 打开范围根。形状与 DesktopBridge 的可选方法逐字对齐。
+  piSkillsList: (args: {
+    globalRoots: string[];
+    userGlobalRoots?: string[];
+    workspaceEnabled: boolean;
+    workspaceDir?: string;
+  }): Promise<PluginSkill[]> => ipcRenderer.invoke("pi-skills:list", args),
+  openSkillDir: (args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("pi-skills:open-dir", args),
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

@@ -39,6 +39,7 @@ import type {
   PiUiResponsePayload,
   ProviderProbeInput,
   ProviderProbeResult,
+  PluginSkill,
   PromptNode,
   PushResult,
   PushTarget,
@@ -243,4 +244,13 @@ export interface DesktopBridge {
   // 能力 → 深化入口降级 toast。第一阶段读内置 resources/skills,第二阶段叠加 userData/skills。
   skillGet?(name: string): Promise<SkillMeta | null>;
   skillsList?(): Promise<SkillMeta[]>;
+  // 插件管理（U3）:按 piSkills 配置扫描多根 → PluginSkill[];打开/创建范围根（白名单校验）。
+  // 可选:web/旧壳无此能力 → 插件管理器降级空态。
+  piSkillsList?(args: {
+    globalRoots: string[];
+    userGlobalRoots?: string[];
+    workspaceEnabled: boolean;
+    workspaceDir?: string;
+  }): Promise<PluginSkill[]>;
+  openSkillDir?(args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }>;
 }
