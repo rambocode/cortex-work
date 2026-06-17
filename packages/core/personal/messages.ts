@@ -16,6 +16,7 @@ import type {
   SessionMeta,
   ThinkingLevel,
 } from "../desktop/types";
+import { DEFAULT_PI_SKILLS } from "../desktop/types";
 import type { DesktopBridge } from "../desktop/bridge";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
@@ -946,6 +947,43 @@ function buildPiPromptMessage(text: string, appendSystemPrompt?: string): string
   return appendSystemPrompt ? `${appendSystemPrompt}\n\n${text}` : text;
 }
 
+// 插件 Skill（U5）:据 piSkills 配置 + 工作区路径,解析出注入 pi 的 --skill 目录集合。
+// 流程:bridge 扫描多根 → 过滤禁用(scope:name) + 工作区未授信 → 按 name 去重(全局覆盖工作区,
+// 高可信优先,防恶意工作区同名劫持) → 排序。useOwnSkills===false = 会话级一键关 → []。
+// bridge 无 piSkillsList（web/旧壳）或扫描失败 → []（降级,不阻断发送）。RPC 与单发两路共用。
+export async function resolveEnabledSkillPaths(
+  bridge: DesktopBridge,
+  projectPath: string,
+  useOwnSkills: boolean | undefined,
+): Promise<string[]> {
+  if (useOwnSkills === false) return [];
+  if (!bridge.piSkillsList) return [];
+  const cfg = { ...DEFAULT_PI_SKILLS, ...usePersonalStore.getState().generalSettings.piSkills };
+  let skills;
+  try {
+    skills = await bridge.piSkillsList({
+      globalRoots: cfg.globalRoots,
+      userGlobalRoots: cfg.userGlobalRoots,
+      workspaceEnabled: cfg.workspaceEnabled,
+      workspaceDir: projectPath,
+    });
+  } catch {
+    return [];
+  }
+  const disabled = new Set(cfg.disabledSkills);
+  const trusted = new Set(cfg.trustedWorkspaceSkillDirs);
+  const enabled = skills.filter((s) => {
+    if (disabled.has(`${s.scope}:${s.name}`)) return false; // 已禁用
+    if (s.scope === "workspace" && !trusted.has(s.dir)) return false; // 工作区未授信不注入
+    return true;
+  });
+  // name 去重:先放工作区、后放全局覆盖 → 同名时全局胜出。
+  const byName = new Map<string, string>();
+  for (const s of enabled) if (s.scope === "workspace") byName.set(s.name, s.dir);
+  for (const s of enabled) if (s.scope === "global") byName.set(s.name, s.dir);
+  return [...byName.values()].sort();
+}
+
 function appendUserMessage(
   qc: QueryClient,
   sessionId: string,
@@ -1025,6 +1063,9 @@ async function sendPiTurn(
     const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;
     // 思考强度初值（阶段5）:会话级优先,缺省回退全局默认;再缺省 = 不传 --thinking = pi 内置默认。
     const thinkingLevel = session.thinkingLevel ?? usePersonalStore.getState().generalSettings.piThinkingDefault;
+    // 插件 Skill（U5）:解析已启用 + 授信 + 去重的 skill 目录,经 --skill 注入;集合变化经
+    // extensionFingerprint 触发会话重开。useOwnSkills===false → 会话级一键关 → []。
+    const skillPaths = await resolveEnabledSkillPaths(bridge, projectPath, session.useOwnSkills);
     const opened = await ensurePiSession(
       bridge,
       {
@@ -1032,6 +1073,7 @@ async function sendPiTurn(
         cwd: projectPath,
         model,
         useOwnSkills: session.useOwnSkills,
+        skillPaths,
         provider: provider
           ? {
               id: provider.id,
@@ -1426,6 +1468,12 @@ export function usePersonalActions(): PersonalActions {
           }
         }
 
+        // 插件 Skill（U5）:仅 pi 单发路径解析注入 skillPaths（claude/codex adapter 忽略,
+        // 且不必为它们空扫目录）。RPC 路径在 sendPiTurn 另行注入。
+        const skillPaths =
+          sendSession.agent === "pi"
+            ? await resolveEnabledSkillPaths(bridge, projectPath, sendSession.useOwnSkills)
+            : undefined;
         await bridge.startCli({
           runId,
           sessionId: sendSession.id,
@@ -1436,6 +1484,7 @@ export function usePersonalActions(): PersonalActions {
           resumeSessionId,
           appendSystemPrompt,
           useOwnSkills: sendSession.useOwnSkills,
+          skillPaths,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
         autoTitle(bridge, sendSession, text);

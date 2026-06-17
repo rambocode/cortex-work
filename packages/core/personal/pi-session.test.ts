@@ -187,6 +187,22 @@ describe("ensurePiSession", () => {
     expect(bridge.piClose).not.toHaveBeenCalled();
   });
 
+  it("skillPaths 变化（U5 插件 Skill）→ 指纹漂移关旧重开", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), skillPaths: ["/a/code-review"] });
+    await ensurePiSession(bridge, { ...req(), skillPaths: ["/a/code-review", "/b/bug-hunt"] });
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("skillPaths 内容相同顺序不同 → 排序后指纹一致,复用不重开", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), skillPaths: ["/a", "/b"] });
+    await ensurePiSession(bridge, { ...req(), skillPaths: ["/b", "/a"] });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
   it("thinkingLevel 仅运行时态 → 不进指纹,切档复用温会话不重开（阶段5）", async () => {
     const bridge = fakeBridge();
     await ensurePiSession(bridge, { ...req(), thinkingLevel: "low" });

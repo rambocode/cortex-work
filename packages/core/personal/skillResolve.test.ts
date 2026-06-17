@@ -1,0 +1,69 @@
+// resolveEnabledSkillPaths（U5）单测:过滤禁用/未授信、name 去重(全局覆盖工作区)、
+// useOwnSkills 一键关、bridge 缺失降级。
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DesktopBridge } from "../desktop/bridge";
+import type { PersistedState, PiSkillSettings, PluginSkill } from "../desktop/types";
+import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS } from "../desktop/types";
+import { usePersonalStore } from "../store/personal";
+import { resolveEnabledSkillPaths } from "./messages";
+
+const base: PersistedState = { version: 1, projects: [], sessions: [] };
+
+function setPiSkills(patch: Partial<PiSkillSettings>): void {
+  usePersonalStore.getState().hydrate({
+    ...base,
+    generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: { ...DEFAULT_PI_SKILLS, ...patch } },
+  });
+}
+
+function skill(name: string, scope: "global" | "workspace", dir: string): PluginSkill {
+  return { name, description: "", dir, rootPath: "/root", scope, enabled: true, trusted: scope === "global" };
+}
+
+function bridgeWith(skills: PluginSkill[]): DesktopBridge {
+  return { piSkillsList: vi.fn(async () => skills) } as unknown as DesktopBridge;
+}
+
+beforeEach(() => setPiSkills({}));
+
+describe("resolveEnabledSkillPaths", () => {
+  it("全局全启用 → 返回排序后的 dir", async () => {
+    const bridge = bridgeWith([skill("b", "global", "/g/b"), skill("a", "global", "/g/a")]);
+    expect(await resolveEnabledSkillPaths(bridge, "/proj", undefined)).toEqual(["/g/a", "/g/b"]);
+  });
+
+  it("禁用集(scope:name)排除对应项", async () => {
+    setPiSkills({ disabledSkills: ["global:a"] });
+    const bridge = bridgeWith([skill("a", "global", "/g/a"), skill("b", "global", "/g/b")]);
+    expect(await resolveEnabledSkillPaths(bridge, "/proj", undefined)).toEqual(["/g/b"]);
+  });
+
+  it("工作区 skill 未授信不注入；授信后注入", async () => {
+    const ws = skill("w", "workspace", "/proj/.cortex-desktop/skills/w");
+    const bridge = bridgeWith([ws]);
+    expect(await resolveEnabledSkillPaths(bridge, "/proj", undefined)).toEqual([]);
+    setPiSkills({ trustedWorkspaceSkillDirs: [ws.dir] });
+    expect(await resolveEnabledSkillPaths(bridge, "/proj", undefined)).toEqual([ws.dir]);
+  });
+
+  it("同名全局+工作区(已授信) → 仅全局 dir(全局覆盖工作区)", async () => {
+    const ws = skill("dup", "workspace", "/proj/.cortex-desktop/skills/dup");
+    setPiSkills({ trustedWorkspaceSkillDirs: [ws.dir] });
+    const bridge = bridgeWith([ws, skill("dup", "global", "/g/dup")]);
+    expect(await resolveEnabledSkillPaths(bridge, "/proj", undefined)).toEqual(["/g/dup"]);
+  });
+
+  it("useOwnSkills===false → 会话级一键关,返回 []", async () => {
+    const bridge = bridgeWith([skill("a", "global", "/g/a")]);
+    expect(await resolveEnabledSkillPaths(bridge, "/proj", false)).toEqual([]);
+  });
+
+  it("bridge 无 piSkillsList(web/旧壳) → 降级 []", async () => {
+    expect(await resolveEnabledSkillPaths({} as DesktopBridge, "/proj", undefined)).toEqual([]);
+  });
+
+  it("piSkillsList 抛错 → 降级 [] 不阻断", async () => {
+    const bridge = { piSkillsList: vi.fn(async () => { throw new Error("boom"); }) } as unknown as DesktopBridge;
+    expect(await resolveEnabledSkillPaths(bridge, "/proj", undefined)).toEqual([]);
+  });
+});

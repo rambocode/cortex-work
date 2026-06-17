@@ -91,6 +91,9 @@ function extensionFingerprint(req: PiOpenRequest): string {
     sampleCommands: !!req.enableSampleCommands,
     // 持久 system prompt（阶段4）:经 --append-system-prompt 冷启注入,无运行时命令,改值必须重开。
     appendSystemPrompt: req.appendSystemPrompt ?? null,
+    // 插件 Skill（U5）:启用集经 --skill 冷启注入,无运行时命令,改值必须重开。已在装配层排序,
+    // 此处再排序一次确保顺序无关（内容相同顺序不同不误重开）。
+    skillPaths: [...(req.skillPaths ?? [])].sort(),
     provider: req.provider
       ? {
           id: req.provider.id,
