@@ -511,19 +511,19 @@ function GeneralSection() {
       <SettingCard title="pi 深度定制">
         <SwitchRow
           label="工具执行审批"
-          desc="pi 调用 bash/write/edit 等高风险工具前弹窗确认,拒绝则阻断。改动在下次开启 pi 会话时生效。"
+          desc="pi 调用 bash/write/edit 等高风险工具前弹窗确认,拒绝则阻断。改动在下次发送消息时生效(会重启当前 pi 会话,丢失其内存上下文)。"
           value={general.piCustomization?.toolApproval ?? false}
           onChange={(v) => setGeneral({ piCustomization: { sampleTools: false, sampleCommands: false, ...general.piCustomization, toolApproval: v } })}
         />
         <SwitchRow
           label="自定义工具样例"
-          desc="加载示例工具 echo_upper（把文本转大写）,演示 pi 自定义工具能力。"
+          desc="加载示例工具 echo_upper（把文本转大写）,演示 pi 自定义工具能力。改动下次发送时生效(重启会话)。"
           value={general.piCustomization?.sampleTools ?? false}
           onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleCommands: false, ...general.piCustomization, sampleTools: v } })}
         />
         <SwitchRow
           label="自定义斜杠命令样例"
-          desc="加载示例命令 /greet,演示 pi 自定义斜杠命令能力。"
+          desc="加载示例命令 /greet,演示 pi 自定义斜杠命令能力。改动下次发送时生效(重启会话)。"
           value={general.piCustomization?.sampleCommands ?? false}
           onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleTools: false, ...general.piCustomization, sampleCommands: v } })}
         />

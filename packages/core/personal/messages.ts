@@ -1124,10 +1124,13 @@ export function usePersonalPiUi(): void {
   useEffect(() => {
     if (!bridge?.onPiUiRequest) return;
     const off = bridge.onPiUiRequest((uiSessionId, request) => {
-      // 阶段3 只渲染 confirm 模态。其余 method:select/input/editor（需回写,UI 留后续）与
-      // notify/setStatus/setWidget/...（fire-and-forget,无需回写）暂不入队,避免堵塞 confirm 队列。
+      // 阶段3 只渲染 confirm 模态。
       if (request.method === "confirm") {
         usePersonalStore.getState().pushPiUiRequest({ uiSessionId, request });
+      } else if (request.method === "select" || request.method === "input" || request.method === "editor") {
+        // 同属阻断式(pi await 应答)但本阶段未渲染 UI → 立即回 cancelled 解除 pi 侧 await,
+        // 否则该轮永久卡死。fire-and-forget 类(notify/setStatus/setWidget/...)无需回写,忽略。
+        respondPiUi(bridge, uiSessionId, request.id, { cancelled: true });
       }
     });
     return () => off();

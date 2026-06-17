@@ -65,11 +65,28 @@ describe("ensurePiSession", () => {
     expect(bridge.piOpen).toHaveBeenCalledTimes(1);
   });
 
-  it("已就绪再 ensure 不重复 spawn", async () => {
+  it("已就绪再 ensure 不重复 spawn（同深度定制指纹）", async () => {
     const bridge = fakeBridge();
     await ensurePiSession(bridge, req());
     await ensurePiSession(bridge, req());
     expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("深度定制开关变了（指纹漂移）→ 关旧重开,让新 extension 加载（防裸奔）", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req() }); // 无审批
+    await ensurePiSession(bridge, { ...req(), enableToolApproval: true }); // 中途开审批
+    expect(bridge.piClose).toHaveBeenCalledWith("s1"); // 关旧
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2); // 重开
+    expect(isPiSessionOpen("s1")).toBe(true);
+  });
+
+  it("同审批设置再 ensure 仍复用（指纹一致不重开）", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), enableToolApproval: true });
+    await ensurePiSession(bridge, { ...req(), enableToolApproval: true });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
   });
 
   it("开启失败摘除登记,下次 ensure 可重试", async () => {

@@ -228,6 +228,22 @@ describe("usePersonalPiEvents 订阅生命周期（U4）", () => {
     unmount();
     expect(off).toHaveBeenCalledTimes(1);
   });
+
+  it("usePersonalPiUi:select/input/editor 不入队,立即回 cancelled（避免 pi 永久卡死）", () => {
+    let emit: ((uiSessionId: string, request: unknown) => void) | undefined;
+    const onPiUiRequest = vi.fn((cb: (uiSessionId: string, request: unknown) => void) => {
+      emit = cb;
+      return () => undefined;
+    });
+    const piUiResponse = vi.fn(async () => undefined);
+    const bridge = makeBridge({ onPiUiRequest, piUiResponse });
+    const qc = new QueryClient();
+    usePersonalStore.setState({ piUiPending: [] });
+    renderHook(() => usePersonalPiUi(), { wrapper: wrapper(bridge, qc) });
+    emit!("s-pi", { type: "extension_ui_request", id: "sel1", method: "select", title: "T", options: ["a", "b"] });
+    expect(usePersonalStore.getState().piUiPending).toHaveLength(0); // 不入队
+    expect(piUiResponse).toHaveBeenCalledWith("s-pi", "sel1", { cancelled: true }); // 立即取消
+  });
 });
 
 describe("editResend 分叉", () => {

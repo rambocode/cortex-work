@@ -14,9 +14,22 @@ interface PiSessionHandle {
   piSessionId?: string; // pi 侧 sessionId（get_state 探测得到,诊断/恢复用）
   opening?: Promise<PiOpenResult>; // 开启中的在途 Promise,去重并发 ensure（防重复 spawn）
   ready: boolean;
+  // 开会话时所用「extension 加载相关」开关的指纹。深度定制开关(审批/样例)只在冷启经 -e 加载,
+  // 温会话改开关不生效——指纹漂移即关旧重开,使新 extension 真正加载（否则用户开了审批却裸奔）。
+  fingerprint: string;
 }
 
 const piSessions = new Map<string, PiSessionHandle>();
+
+// 影响 extension 加载的开关指纹（审批工具集 / 样例工具 / 样例命令）。同设置→同指纹(字段定序稳定)。
+function extensionFingerprint(req: PiOpenRequest): string {
+  return JSON.stringify({
+    toolApproval: !!req.enableToolApproval,
+    approvalTools: req.approvalTools ?? null,
+    sampleTools: !!req.enableSampleTools,
+    sampleCommands: !!req.enableSampleCommands,
+  });
+}
 
 /** 该会话的 pi 进程是否已就绪（U3 据此决定 setModel 是否实时下发）。 */
 export function isPiSessionOpen(sessionId: string): boolean {
@@ -33,14 +46,19 @@ export function piRpcAvailable(bridge: DesktopBridge | null | undefined): boolea
  * 防重复 spawn）；开启失败摘除登记,下次 send 可重试。
  */
 export async function ensurePiSession(bridge: DesktopBridge, req: PiOpenRequest): Promise<PiOpenResult> {
+  const fp = extensionFingerprint(req);
   const existing = piSessions.get(req.uiSessionId);
   if (existing?.ready && existing.piSessionId) {
-    return { uiSessionId: req.uiSessionId, sessionId: existing.piSessionId };
+    // 深度定制开关(审批/样例)未变 → 复用温会话。
+    if (existing.fingerprint === fp) return { uiSessionId: req.uiSessionId, sessionId: existing.piSessionId };
+    // 开关变了(如中途打开「工具执行审批」)→ 关旧重开,让新 extension 经 -e 真正加载（否则裸奔）。
+    await closePiSession(bridge, req.uiSessionId);
+  } else if (existing?.opening) {
+    return existing.opening; // 开启中复用(指纹漂移的并发极少,忽略)
   }
-  if (existing?.opening) return existing.opening;
   if (!bridge.piOpen) throw new Error("当前环境不支持 pi RPC 会话");
 
-  const handle: PiSessionHandle = { sessionId: req.uiSessionId, ready: false };
+  const handle: PiSessionHandle = { sessionId: req.uiSessionId, ready: false, fingerprint: fp };
   const opening = bridge
     .piOpen(req)
     .then((res) => {

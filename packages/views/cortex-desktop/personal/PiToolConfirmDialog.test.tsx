@@ -46,6 +46,16 @@ describe("PiToolConfirmDialog（阶段3 U6）", () => {
     expect(screen.getByText("rm -rf /tmp/x")).toBeInTheDocument();
   });
 
+  it("显示来源会话/项目归属（多会话防误批）", () => {
+    usePersonalStore.setState({
+      sessions: [{ id: "s-pi", projectId: "p1", title: "会话甲", agent: "pi", createdAt: 1, updatedAt: 1 }],
+      projects: [{ id: "p1", name: "alpha", path: "/a", addedAt: 1 }],
+      piUiPending: [{ uiSessionId: "s-pi", request: confirmReq("c1") }],
+    });
+    renderDialog(makeBridge());
+    expect(screen.getByText("alpha · 会话甲")).toBeInTheDocument();
+  });
+
   it("点「允许」→ piUiResponse{confirmed:true} + 出队", () => {
     const bridge = makeBridge();
     usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-pi", request: confirmReq("c1") }] });

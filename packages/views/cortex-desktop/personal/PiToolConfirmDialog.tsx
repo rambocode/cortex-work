@@ -14,6 +14,13 @@ export function PiToolConfirmDialog() {
   const active = pending && pending.request.method === "confirm" ? pending : undefined;
   const id = active?.request.id;
   const uiSessionId = active?.uiSessionId;
+  // 会话归属:多会话并发时,后台会话的 confirm 也会弹;显示来源会话/项目,避免误批他会话的高危操作。
+  const origin = usePersonalStore((s) => {
+    const sess = uiSessionId ? s.sessions.find((x) => x.id === uiSessionId) : undefined;
+    if (!sess) return undefined;
+    const proj = sess.projectId ? s.projects.find((p) => p.id === sess.projectId) : undefined;
+    return proj?.name ? `${proj.name} · ${sess.title}` : sess.title;
+  });
 
   // ESC = 取消（cancelled,pi 侧等价拒绝）。依赖 id 变化重绑,确保关闭的是当前请求。
   useEffect(() => {
@@ -40,6 +47,7 @@ export function PiToolConfirmDialog() {
         aria-label="工具执行确认"
         onClick={(e) => e.stopPropagation()}
       >
+        {origin ? <div className="pw-confirm-origin">{origin}</div> : null}
         <div className="pw-confirm-head">{title}</div>
         {message ? <div className="pw-confirm-body">{message}</div> : null}
         <div className="pw-confirm-foot">
