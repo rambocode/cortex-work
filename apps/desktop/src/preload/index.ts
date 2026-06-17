@@ -212,6 +212,8 @@ const personal = {
     ipcRenderer.invoke("pi:compact", uiSessionId, customInstructions),
   piGetState: (uiSessionId: string): Promise<unknown> => ipcRenderer.invoke("pi:getState", uiSessionId),
   piGetStats: (uiSessionId: string): Promise<unknown> => ipcRenderer.invoke("pi:getStats", uiSessionId),
+  piSwitchSession: (uiSessionId: string, sessionPath: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:switchSession", uiSessionId, sessionPath),
   piClose: (uiSessionId: string): Promise<void> => ipcRenderer.invoke("pi:close", uiSessionId),
   onPiEvent: (cb: (uiSessionId: string, event: PiSessionEvent) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, payload: { uiSessionId: string; event: PiSessionEvent }) =>

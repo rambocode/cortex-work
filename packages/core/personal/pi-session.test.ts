@@ -21,7 +21,11 @@ afterEach(() => __resetPiSessionsForTest());
 // 仅实现 pi 方法的 fake bridge（其余 DesktopBridge 方法用不到,cast 即可）。
 function fakeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
   const open = vi.fn(
-    async (req: PiOpenRequest): Promise<PiOpenResult> => ({ uiSessionId: req.uiSessionId, sessionId: "pi-abc" }),
+    async (req: PiOpenRequest): Promise<PiOpenResult> => ({
+      uiSessionId: req.uiSessionId,
+      sessionId: "pi-abc",
+      sessionFile: "/sessions/new.jsonl",
+    }),
   );
   return {
     piOpen: open,
@@ -31,6 +35,8 @@ function fakeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
     piFork: vi.fn(async () => undefined),
     piGetForkMessages: vi.fn(async () => []),
     piSetModel: vi.fn(async () => undefined),
+    piSwitchSession: vi.fn(async () => ({ cancelled: false })),
+    piGetState: vi.fn(async () => ({ sessionId: "pi-restored", sessionFile: "/sessions/old.jsonl", messageCount: 5 })),
     piClose: vi.fn(async () => undefined),
     onPiEvent: vi.fn(() => () => undefined),
     ...over,
@@ -49,12 +55,40 @@ describe("piRpcAvailable", () => {
 });
 
 describe("ensurePiSession", () => {
-  it("首开 spawn 一次并标记就绪", async () => {
+  it("首开 spawn 一次并标记就绪,回带 sessionFile", async () => {
     const bridge = fakeBridge();
     const res = await ensurePiSession(bridge, req());
     expect(res.sessionId).toBe("pi-abc");
+    expect(res.sessionFile).toBe("/sessions/new.jsonl"); // 阶段4 U1:贯通 sessionFile
     expect(bridge.piOpen).toHaveBeenCalledTimes(1);
     expect(isPiSessionOpen("s1")).toBe(true);
+  });
+
+  it("带 resumeFrom 重开 → piOpen + piSwitchSession + 校准 sessionFile（阶段4 U2 恢复）", async () => {
+    const bridge = fakeBridge();
+    const res = await ensurePiSession(bridge, req(), { resumeFrom: "/sessions/old.jsonl" });
+    expect(bridge.piSwitchSession).toHaveBeenCalledWith("s1", "/sessions/old.jsonl");
+    expect(res.sessionId).toBe("pi-restored"); // get_state 校准为恢复会话
+    expect(res.sessionFile).toBe("/sessions/old.jsonl");
+  });
+
+  it("无 resumeFrom → 不 switchSession（全新会话）", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, req());
+    expect(bridge.piSwitchSession).not.toHaveBeenCalled();
+  });
+
+  it("switchSession 硬错(cwd 缺失 reject)→ best-effort 保持新会话仍可用", async () => {
+    const bridge = fakeBridge({ piSwitchSession: vi.fn(async () => Promise.reject(new Error("MissingSessionCwd"))) });
+    const res = await ensurePiSession(bridge, req(), { resumeFrom: "/sessions/old.jsonl" });
+    expect(res.sessionId).toBe("pi-abc"); // 回退新会话
+    expect(isPiSessionOpen("s1")).toBe(true); // 仍就绪可用,不抛
+  });
+
+  it("resumeFrom 等于新会话自身 file → 不重复 switchSession", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, req(), { resumeFrom: "/sessions/new.jsonl" });
+    expect(bridge.piSwitchSession).not.toHaveBeenCalled();
   });
 
   it("并发 ensure 复用同一在途 Promise,只 spawn 一次", async () => {

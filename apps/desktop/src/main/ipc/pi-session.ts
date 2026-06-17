@@ -81,9 +81,9 @@ export function registerPiSessionHandlers(): void {
     sessions.set(req.uiSessionId, { session, sender: event.sender });
 
     try {
-      // 就绪靠 get_state 轮询（冷启动 ~790ms,不能用固定 sleep）。
-      const { sessionId } = await session.ready();
-      return { uiSessionId: req.uiSessionId, sessionId };
+      // 就绪靠 get_state 轮询（冷启动 ~790ms,不能用固定 sleep）;顺带取 sessionFile 供恢复。
+      const { sessionId, sessionFile } = await session.ready();
+      return { uiSessionId: req.uiSessionId, sessionId, sessionFile };
     } catch (e) {
       session.stop();
       sessions.delete(req.uiSessionId);
@@ -117,6 +117,11 @@ export function registerPiSessionHandlers(): void {
   );
   ipcMain.handle("pi:compact", (_e, uiSessionId: string, customInstructions?: string) =>
     command(uiSessionId, (s) => s.compact(customInstructions)),
+  );
+  // 阶段4 恢复:从磁盘 JSONL switchSession（独立长超时;best-effort,坏文件 pi 静默起空会话回 success,
+  // cwd 缺失走 success:false 被 command 捕获）。
+  ipcMain.handle("pi:switchSession", (_e, uiSessionId: string, sessionPath: string) =>
+    command(uiSessionId, (s) => s.switchSession(sessionPath)),
   );
   ipcMain.handle("pi:getState", (_e, uiSessionId: string) => command(uiSessionId, (s) => s.getState()));
   ipcMain.handle("pi:getStats", (_e, uiSessionId: string) =>

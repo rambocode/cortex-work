@@ -817,7 +817,8 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent): 
         kind: "text",
         who: "pi",
         time: realHHMM(),
-        text: `⚠️ pi 会话已退出${ev.error ? `：${ev.error}` : ""}。下次发送会重新启动。`,
+        // 阶段4:崩溃后会话内存态丢,但 sessionFile 已持久 → 下次发送惰性重开 + switchSession 恢复上下文。
+        text: `⚠️ pi 会话已退出${ev.error ? `：${ev.error}` : ""}。下次发送将自动重启并恢复上下文。`,
         uid: uid("err"),
       });
       store.setRunning(sessionId, undefined);
@@ -990,18 +991,28 @@ async function sendPiTurn(
     // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
     // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
     const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
-    await ensurePiSession(bridge, {
-      uiSessionId: session.id,
-      cwd: projectPath,
-      model,
-      useOwnSkills: session.useOwnSkills,
-      provider: provider
-        ? { id: provider.id, baseUrl: provider.baseUrl, apiKey: provider.apiKey, models: provider.models }
-        : undefined,
-      enableToolApproval: piCustom?.toolApproval || undefined,
-      enableSampleTools: piCustom?.sampleTools || undefined,
-      enableSampleCommands: piCustom?.sampleCommands || undefined,
-    });
+    const opened = await ensurePiSession(
+      bridge,
+      {
+        uiSessionId: session.id,
+        cwd: projectPath,
+        model,
+        useOwnSkills: session.useOwnSkills,
+        provider: provider
+          ? { id: provider.id, baseUrl: provider.baseUrl, apiKey: provider.apiKey, models: provider.models }
+          : undefined,
+        enableToolApproval: piCustom?.toolApproval || undefined,
+        enableSampleTools: piCustom?.sampleTools || undefined,
+        enableSampleCommands: piCustom?.sampleCommands || undefined,
+      },
+      // 阶段4 恢复:此前持久化过 sessionFile（崩溃/空闲/LRU/app 重启后会话内存态没了）→
+      // 重开后 switchSession 从磁盘 JSONL 恢复上下文（best-effort）。首轮全新会话无 file → 不恢复。
+      { resumeFrom: session.piSessionFile },
+    );
+    // 持久 sessionFile 到 SessionMeta,供后续任何重开恢复。
+    if (opened.sessionFile && opened.sessionFile !== session.piSessionFile) {
+      usePersonalStore.getState().updateSession(session.id, { piSessionFile: opened.sessionFile });
+    }
     flipPiRunToThinking(qc, runId); // 冷启就绪 → typing 翻「思考中」。
     await promptPi(bridge, session.id, buildPiPromptMessage(text, appendSystemPrompt));
     autoTitle(bridge, session, text); // pi 走 fallback 截断标题（autoTitle 内部仅 claude 跑 haiku）。

@@ -59,6 +59,7 @@ export interface SessionMeta {
   agent: AgentKind;
   model?: string;
   providerId?: string;
+  piSessionFile?: string; // 阶段4 pi 会话恢复用磁盘 JSONL 路径（与 core 镜像）
   useOwnSkills?: boolean;
   hiddenHistory?: HiddenHistoryMeta;
   archivedAt?: number;
@@ -310,6 +311,8 @@ export interface PiOpenRequest {
 export interface PiOpenResult {
   uiSessionId: string;
   sessionId: string;
+  // 磁盘 JSONL 路径（阶段4 崩溃/空闲/LRU 恢复用;renderer 持久到 SessionMeta.piSessionFile）。
+  sessionFile?: string;
 }
 
 // pi RPC 会话的归一化事件（主进程 → 渲染层 pi:event）,由 AgentSessionEvent 映射而来

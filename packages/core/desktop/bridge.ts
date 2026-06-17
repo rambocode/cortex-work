@@ -181,6 +181,8 @@ export interface DesktopBridge {
   piCompact?(uiSessionId: string, customInstructions?: string): Promise<unknown>;
   piGetState?(uiSessionId: string): Promise<unknown>;
   piGetStats?(uiSessionId: string): Promise<unknown>;
+  // 阶段4 恢复:从磁盘 JSONL switchSession 恢复上下文（崩溃/空闲/LRU/重启后重开时调）。
+  piSwitchSession?(uiSessionId: string, sessionPath: string): Promise<unknown>;
   // 显式关闭会话（终止子进程,幂等）。
   piClose?(uiSessionId: string): Promise<void>;
   // 归一化事件流（仿 onCliEvent:回调 + 返回退订）。按 uiSessionId 分派。

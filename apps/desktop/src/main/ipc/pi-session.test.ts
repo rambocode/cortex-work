@@ -19,6 +19,7 @@ const h = vi.hoisted(() => {
     setModel: vi.fn().mockResolvedValue({ success: true }),
     setThinkingLevel: vi.fn().mockResolvedValue({ success: true }),
     compact: vi.fn().mockResolvedValue({ success: true }),
+    switchSession: vi.fn().mockResolvedValue({ success: true, data: { cancelled: false } }),
     getState: vi.fn().mockResolvedValue({ success: true, data: { sessionId: "sess-x" } }),
     getSessionStats: vi.fn().mockResolvedValue({ success: true, data: { messageCount: 3 } }),
     stop: vi.fn(),
@@ -354,5 +355,27 @@ describe("阶段3 extension 装配（pi:open 按开关注入）", () => {
     expect(h.writePiExtension).toHaveBeenCalledWith(provider); // provider 注入不动
     expect(req.piExtensionPath).toBe("/ext/deepseek.js");
     expect(req.extraExtensionPaths).toEqual(["/ext/approval.js"]);
+  });
+});
+
+describe("阶段4 恢复:pi:switchSession + ready sessionFile", () => {
+  it("pi:open 回带 ready 取得的 sessionFile", async () => {
+    const sess = h.makeSession();
+    sess.ready = vi.fn().mockResolvedValue({ sessionId: "s1", sessionFile: "/sessions/a.jsonl" });
+    h.PiRpcSession.mockImplementationOnce(function (_t: unknown, onEvent: (ev: unknown) => void) {
+      h.instances.push(sess);
+      return sess;
+    });
+    const result = (await h.handlers.get("pi:open")!(fakeEvent(), { uiSessionId: "u1", cwd: "/p" })) as {
+      sessionFile?: string;
+    };
+    expect(result.sessionFile).toBe("/sessions/a.jsonl");
+  });
+
+  it("pi:switchSession → 转发到 session.switchSession(path)", async () => {
+    await open({ uiSessionId: "u1" });
+    const inst = h.instances[h.instances.length - 1]!;
+    await h.handlers.get("pi:switchSession")!({}, "u1", "/sessions/old.jsonl");
+    expect(inst.switchSession).toHaveBeenCalledWith("/sessions/old.jsonl");
   });
 });

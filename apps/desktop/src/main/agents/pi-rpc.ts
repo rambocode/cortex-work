@@ -321,16 +321,19 @@ export class PiRpcSession {
     });
   }
 
-  /** 就绪探测:轮询 get_state 直到拿到 sessionId（冷启动 ~790ms,故不用固定 sleep）。 */
-  async ready(opts: { tries?: number; intervalMs?: number } = {}): Promise<{ sessionId: string }> {
+  /**
+   * 就绪探测:轮询 get_state 直到拿到 sessionId（冷启动 ~790ms,故不用固定 sleep）。
+   * 顺带返回 sessionFile（磁盘 JSONL 路径,阶段4 崩溃/空闲恢复用;in-memory 会话可能无）。
+   */
+  async ready(opts: { tries?: number; intervalMs?: number } = {}): Promise<{ sessionId: string; sessionFile?: string }> {
     const tries = opts.tries ?? 60;
     const intervalMs = opts.intervalMs ?? 250;
     for (let i = 0; i < tries; i++) {
       if (this.exited) throw new Error("pi 进程在就绪前退出");
       try {
         const resp = await this.send({ type: "get_state" }, intervalMs);
-        const data = resp.success ? (resp.data as { sessionId?: string } | undefined) : undefined;
-        if (data?.sessionId) return { sessionId: data.sessionId };
+        const data = resp.success ? (resp.data as { sessionId?: string; sessionFile?: string } | undefined) : undefined;
+        if (data?.sessionId) return { sessionId: data.sessionId, sessionFile: data.sessionFile };
         // 已应答但暂无 sessionId:小睡一轮再试,避免无间隔忙轮询烧光 tries。
         await new Promise((r) => setTimeout(r, intervalMs));
       } catch {
@@ -377,14 +380,13 @@ export class PiRpcSession {
   getSessionStats(): Promise<RpcResponse> {
     return this.send({ type: "get_session_stats" });
   }
-  // 以下为后续阶段预留的脚手架（阶段1 无调用方,先落地协议方法）:
-  // newSession/switchSession 用于阶段4 崩溃恢复（switchSession 从 JSONL 恢复上下文）;
-  // getLastAssistantText 用于阶段2 取 agent_end 最终文本兜底。
   newSession(parentSession?: string): Promise<RpcResponse> {
     return this.send({ type: "new_session", parentSession });
   }
+  // 阶段4 崩溃/空闲/LRU/重启恢复:从 JSONL 重建上下文。大会话 loadEntriesFromFile+buildSessionContext
+  // 可能逼近默认 30s,给独立长超时（参 compact）。坏文件 pi 静默起空会话仍回 success。
   switchSession(sessionPath: string): Promise<RpcResponse> {
-    return this.send({ type: "switch_session", sessionPath });
+    return this.send({ type: "switch_session", sessionPath }, COMPACT_TIMEOUT_MS);
   }
   getLastAssistantText(): Promise<RpcResponse> {
     return this.send({ type: "get_last_assistant_text" });

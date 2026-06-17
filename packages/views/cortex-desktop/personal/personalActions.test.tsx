@@ -29,13 +29,19 @@ function makeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
     agentSessionExists: vi.fn(async () => true),
     trimAgentSession: vi.fn(async () => true),
     oneshotCli: vi.fn(async () => ""),
-    piOpen: vi.fn(async (req: { uiSessionId: string }) => ({ uiSessionId: req.uiSessionId, sessionId: "pi-1" })),
+    piOpen: vi.fn(async (req: { uiSessionId: string }) => ({
+      uiSessionId: req.uiSessionId,
+      sessionId: "pi-1",
+      sessionFile: "/sessions/s.jsonl",
+    })),
     piPrompt: vi.fn(async () => undefined),
     piSteer: vi.fn(async () => undefined),
     piAbort: vi.fn(async () => undefined),
     piFork: vi.fn(async () => undefined),
     piGetForkMessages: vi.fn(async () => ({ messages: [{ entryId: "e1", text: "原问题" }] })),
     piSetModel: vi.fn(async () => undefined),
+    piSwitchSession: vi.fn(async () => ({ cancelled: false })),
+    piGetState: vi.fn(async () => ({ sessionId: "pi-1", sessionFile: "/sessions/s.jsonl" })),
     onPiEvent: vi.fn(() => () => undefined),
     onPiUiRequest: vi.fn(() => () => undefined),
     piUiResponse: vi.fn(async () => undefined),
@@ -113,6 +119,27 @@ describe("send 分叉", () => {
     });
     expect(bridge.piOpen).toHaveBeenCalledTimes(1);
     expect(bridge.piPrompt).toHaveBeenCalledTimes(1); // 第二次被发送在途锁/ running 挡掉
+  });
+
+  it("send 后把 sessionFile 持久到 SessionMeta.piSessionFile（阶段4 U1）", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "你好", []);
+    });
+    expect(usePersonalStore.getState().sessions.find((s) => s.id === "s-pi")?.piSessionFile).toBe("/sessions/s.jsonl");
+  });
+
+  it("会话有 piSessionFile（崩溃后）→ send 传 resumeFrom 触发 switchSession 恢复（阶段4 U3）", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    usePersonalStore.setState({ sessions: [{ ...piSession, piSessionFile: "/sessions/old.jsonl" }] });
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send({ ...piSession, piSessionFile: "/sessions/old.jsonl" }, "/proj", "续上", []);
+    });
+    expect(bridge.piSwitchSession).toHaveBeenCalledWith("s-pi", "/sessions/old.jsonl");
   });
 
   it("pi 复用已开会话:第二轮不再 piOpen", async () => {

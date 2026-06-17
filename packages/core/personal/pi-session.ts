@@ -12,6 +12,7 @@ import type { PiOpenRequest, PiOpenResult } from "../desktop/types";
 interface PiSessionHandle {
   sessionId: string; // = uiSessionId = 个人会话 id
   piSessionId?: string; // pi 侧 sessionId（get_state 探测得到,诊断/恢复用）
+  sessionFile?: string; // pi 侧磁盘 JSONL 路径（阶段4 恢复用;调用方据此持久到 SessionMeta）
   opening?: Promise<PiOpenResult>; // 开启中的在途 Promise,去重并发 ensure（防重复 spawn）
   ready: boolean;
   // 开会话时所用「extension 加载相关」开关的指纹。深度定制开关(审批/样例)只在冷启经 -e 加载,
@@ -45,12 +46,19 @@ export function piRpcAvailable(bridge: DesktopBridge | null | undefined): boolea
  * 惰性开启 pi 会话:已就绪直接返回缓存的 sessionId;开启中复用同一 Promise（去重并发 send,
  * 防重复 spawn）；开启失败摘除登记,下次 send 可重试。
  */
-export async function ensurePiSession(bridge: DesktopBridge, req: PiOpenRequest): Promise<PiOpenResult> {
+export async function ensurePiSession(
+  bridge: DesktopBridge,
+  req: PiOpenRequest,
+  // 阶段4 恢复:重开后从该 sessionFile switchSession 恢复上下文（best-effort）。仅冷启新进程时生效;
+  // 复用温会话不恢复（上下文还在内存）。
+  opts?: { resumeFrom?: string },
+): Promise<PiOpenResult> {
   const fp = extensionFingerprint(req);
   const existing = piSessions.get(req.uiSessionId);
   if (existing?.ready && existing.piSessionId) {
-    // 深度定制开关(审批/样例)未变 → 复用温会话。
-    if (existing.fingerprint === fp) return { uiSessionId: req.uiSessionId, sessionId: existing.piSessionId };
+    // 深度定制开关(审批/样例)未变 → 复用温会话（不恢复,内存态在）。
+    if (existing.fingerprint === fp)
+      return { uiSessionId: req.uiSessionId, sessionId: existing.piSessionId, sessionFile: existing.sessionFile };
     // 开关变了(如中途打开「工具执行审批」)→ 关旧重开,让新 extension 经 -e 真正加载（否则裸奔）。
     await closePiSession(bridge, req.uiSessionId);
   } else if (existing?.opening) {
@@ -61,13 +69,32 @@ export async function ensurePiSession(bridge: DesktopBridge, req: PiOpenRequest)
   const handle: PiSessionHandle = { sessionId: req.uiSessionId, ready: false, fingerprint: fp };
   const opening = bridge
     .piOpen(req)
-    .then((res) => {
+    .then(async (res) => {
       // 空/假 sessionId 视作未就绪失败:否则 ready 判定（看 piSessionId）会反复穿透重复 spawn。
       if (!res.sessionId) throw new Error("pi 会话未返回 sessionId");
+      // 恢复:重开后切到旧 sessionFile（best-effort,坏文件→pi 静默起空会话仍可用;cwd 缺→reject 忽略）。
+      // switchSession 后 sessionFile/sessionId 变成恢复会话的值,再取一次 get_state 校准。
+      let restored = res;
+      if (opts?.resumeFrom && opts.resumeFrom !== res.sessionFile && bridge.piSwitchSession) {
+        try {
+          await bridge.piSwitchSession(req.uiSessionId, opts.resumeFrom);
+          const state = bridge.piGetState
+            ? ((await bridge.piGetState(req.uiSessionId)) as { sessionId?: string; sessionFile?: string } | undefined)
+            : undefined;
+          restored = {
+            uiSessionId: req.uiSessionId,
+            sessionId: state?.sessionId ?? res.sessionId,
+            sessionFile: state?.sessionFile ?? opts.resumeFrom,
+          };
+        } catch {
+          // cwd 缺失等硬错:保持新会话（已可用,UI 历史不受影响）。
+        }
+      }
       handle.ready = true;
-      handle.piSessionId = res.sessionId;
+      handle.piSessionId = restored.sessionId;
+      handle.sessionFile = restored.sessionFile; // 阶段4 恢复用,调用方持久到 SessionMeta
       handle.opening = undefined;
-      return res;
+      return restored;
     })
     .catch((e) => {
       piSessions.delete(req.uiSessionId);

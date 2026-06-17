@@ -53,6 +53,9 @@ export interface SessionMeta {
   model?: string;
   // pi 会话选中的供应商 id（指向 ProviderSettings.providers）;model 存该 provider 下的模型 id。
   providerId?: string;
+  // pi 侧会话磁盘 JSONL 路径（阶段4）。会话开启时由 get_state 取得并持久;崩溃/空闲/LRU/app 重启
+  // 后重开时据此 switchSession 恢复上下文。持久化（随 SessionMeta 落盘）。
+  piSessionFile?: string;
   // 是否加载 agent 自身的 skills（claude: 关闭时传 --disable-slash-commands）。
   // 缺省视为 true。
   useOwnSkills?: boolean;
@@ -612,6 +615,8 @@ export interface PiOpenRequest {
 export interface PiOpenResult {
   uiSessionId: string;
   sessionId: string;
+  // 磁盘 JSONL 路径（阶段4 崩溃/空闲/LRU/重启恢复用;renderer 持久到 SessionMeta.piSessionFile）。
+  sessionFile?: string;
 }
 
 // pi RPC 会话的归一化事件（主进程 → 渲染层 pi:event），由 AgentSessionEvent 映射而来
