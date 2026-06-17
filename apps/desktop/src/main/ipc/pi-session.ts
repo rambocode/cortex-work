@@ -3,6 +3,8 @@
 // claude/codex 仍走 cli.ts 单发管线,与本通道互不影响。
 
 import { randomUUID } from "crypto";
+import { existsSync } from "fs";
+import { isAbsolute } from "path";
 
 import { ipcMain, type WebContents } from "electron";
 
@@ -62,6 +64,18 @@ async function command(uiSessionId: string, fn: (s: PiRpcSession) => Promise<Rpc
   return resp.data;
 }
 
+// U7 坏 -e 隔离:实测 pi 对坏 -e fail-hard——一个失效路径会拖垮整会话。注入前剔除不存在/非绝对路径
+// （被篡改的 settings 或 pi list 可能指向坏/越界路径;C3 已承认 settings 可被外部改）。UI 侧已据
+// pi list 标失踪,此处是注入层的最后安全网。返回可加载子集,跳过的打 warn。
+export function filterLoadableExtensionPaths(paths: string[] | undefined): string[] {
+  if (!paths?.length) return [];
+  return paths.filter((p) => {
+    const ok = isAbsolute(p) && existsSync(p);
+    if (!ok) console.warn(`[pi-ext] 注入前跳过失效扩展 -e 路径: ${p}`);
+    return ok;
+  });
+}
+
 export function registerPiSessionHandlers(): void {
   ipcMain.handle("pi:open", async (event, req: PiOpenRequest): Promise<PiOpenResult> => {
     // 同 uiSessionId 重开（renderer 重挂载）:先停旧会话,避免泄漏一个孤儿子进程。
@@ -84,6 +98,8 @@ export function registerPiSessionHandlers(): void {
     const askQuestionSentinel = `@@CORTEX_ASKQ:${randomUUID()}@@`;
     extra.push(writeAskQuestionExtension(askQuestionSentinel));
     req.extraExtensionPaths = extra;
+    // U7:市场扩展 -e 注入前剔除失效路径,避免单个坏路径让 pi fail-hard 拖垮整会话。
+    req.extensionPaths = filterLoadableExtensionPaths(req.extensionPaths);
 
     const args = buildRpcArgs(req);
     const transport = spawnPiRpc(args, {

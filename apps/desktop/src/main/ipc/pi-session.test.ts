@@ -77,7 +77,7 @@ vi.mock("../agents/pi-extensions", () => ({
 }));
 vi.mock("./cli", () => ({ spawnEnvFor: h.spawnEnvFor }));
 
-import { registerPiSessionHandlers, killAllPiSessions, piSessionCount } from "./pi-session";
+import { registerPiSessionHandlers, killAllPiSessions, piSessionCount, filterLoadableExtensionPaths } from "./pi-session";
 
 // renderer 替身:可控的 isDestroyed + 记录 send。
 function fakeEvent() {
@@ -400,5 +400,18 @@ describe("阶段4 恢复:pi:switchSession + ready sessionFile", () => {
     const inst = h.instances[h.instances.length - 1]!;
     await h.handlers.get("pi:switchSession")!({}, "u1", "/sessions/old.jsonl");
     expect(inst.switchSession).toHaveBeenCalledWith("/sessions/old.jsonl");
+  });
+});
+
+describe("filterLoadableExtensionPaths（U7 坏 -e 隔离）", () => {
+  it("仅保留存在的绝对路径,剔除不存在/相对路径（防 fail-hard 拖垮会话）", () => {
+    // process.execPath 必为存在的绝对路径;另两个失效。
+    expect(filterLoadableExtensionPaths([process.execPath, "/nope/missing-ext.js", "rel/x.js"])).toEqual([
+      process.execPath,
+    ]);
+  });
+  it("空 / undefined → []", () => {
+    expect(filterLoadableExtensionPaths(undefined)).toEqual([]);
+    expect(filterLoadableExtensionPaths([])).toEqual([]);
   });
 });
