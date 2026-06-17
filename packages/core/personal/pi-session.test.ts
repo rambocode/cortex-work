@@ -16,6 +16,7 @@ import {
   piRpcAvailable,
   promptPi,
   setModelPi,
+  setPiLifecycleHooks,
   steerPi,
   touchPiSession,
 } from "./pi-session";
@@ -89,6 +90,14 @@ describe("ensurePiSession", () => {
     expect(isPiSessionOpen("s1")).toBe(true); // 仍就绪可用,不抛
   });
 
+  it("switchSession 成功但 get_state 抛错 → sessionFile 仍为旧文件,不退回新空文件（评审 #1）", async () => {
+    // pi 进程已切到旧上下文,只是 getState 偶发失败;决不能持久回新空 file 丢历史指针。
+    const bridge = fakeBridge({ piGetState: vi.fn(async () => Promise.reject(new Error("getState 超时"))) });
+    const res = await ensurePiSession(bridge, req(), { resumeFrom: "/sessions/old.jsonl" });
+    expect(res.sessionFile).toBe("/sessions/old.jsonl"); // 兜底旧文件,非 "/sessions/new.jsonl"
+    expect(res.sessionId).toBe("pi-abc"); // 沿用 live pi id（温会话复用守卫需真值）
+  });
+
   it("resumeFrom 等于新会话自身 file → 不重复 switchSession", async () => {
     const bridge = fakeBridge();
     await ensurePiSession(bridge, req(), { resumeFrom: "/sessions/new.jsonl" });
@@ -154,7 +163,7 @@ describe("命令包装", () => {
     await abortPi(bridge, "s1");
     await forkPi(bridge, "s1", "entry-7");
     await setModelPi(bridge, "s1", "deepseek", "deepseek-chat");
-    expect(bridge.piPrompt).toHaveBeenCalledWith("s1", "hi");
+    expect(bridge.piPrompt).toHaveBeenCalledWith("s1", "hi", undefined);
     expect(bridge.piSteer).toHaveBeenCalledWith("s1", "go left");
     expect(bridge.piAbort).toHaveBeenCalledWith("s1");
     expect(bridge.piFork).toHaveBeenCalledWith("s1", "entry-7");
@@ -214,6 +223,56 @@ describe("空闲回收 + LRU 上限（阶段4 U5/U6）", () => {
     expect(bridge.piClose).toHaveBeenCalledWith("s1"); // 再无活动 → 到期回收
     expect(isPiSessionOpen("s1")).toBe(false);
     vi.useRealTimers();
+  });
+
+  it("有活跃 run 的会话空闲到期不被回收（长工具静默期续命,评审 #2 HIGH）", async () => {
+    vi.useFakeTimers();
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, req("s1"));
+    setPiLifecycleHooks({ isBusy: (id) => id === "s1" }); // s1 一直在跑（长工具静默）
+    touchPiSession(bridge, "s1");
+    await vi.advanceTimersByTimeAsync(IDLE_RECLAIM_MS * 3); // 远超空闲阈值
+    expect(bridge.piClose).not.toHaveBeenCalled(); // 繁忙 → 不杀
+    expect(isPiSessionOpen("s1")).toBe(true);
+    // run 结束后再空闲 → 正常回收。
+    setPiLifecycleHooks({ isBusy: () => false });
+    touchPiSession(bridge, "s1");
+    await vi.advanceTimersByTimeAsync(IDLE_RECLAIM_MS + 1000);
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    vi.useRealTimers();
+  });
+
+  it("LRU 跳过繁忙会话,优先逐出无活跃 run 的最久未用（评审 #4 HIGH）", async () => {
+    let t = 1000;
+    __setPiNowForTest(() => t);
+    const bridge = fakeBridge();
+    for (let i = 0; i < MAX_PI_SESSIONS; i++) {
+      t = 1000 + i * 100;
+      await ensurePiSession(bridge, req(`s${i}`));
+    }
+    // s0 最旧但「在跑」;s1 次旧且空闲 → 应逐 s1 而非 s0。
+    setPiLifecycleHooks({ isBusy: (id) => id === "s0" });
+    t = 9999;
+    await ensurePiSession(bridge, req("sNew"));
+    expect(bridge.piClose).toHaveBeenCalledWith("s1"); // 跳过繁忙 s0,逐次旧空闲 s1
+    expect(bridge.piClose).not.toHaveBeenCalledWith("s0");
+    expect(isPiSessionOpen("s0")).toBe(true);
+  });
+
+  it("全忙时被迫逐出 → onReclaim 先收尾 renderer run（防 run 永挂,评审 #3）", async () => {
+    let t = 1000;
+    __setPiNowForTest(() => t);
+    const reaped: string[] = [];
+    const bridge = fakeBridge();
+    for (let i = 0; i < MAX_PI_SESSIONS; i++) {
+      t = 1000 + i * 100;
+      await ensurePiSession(bridge, req(`s${i}`));
+    }
+    setPiLifecycleHooks({ isBusy: () => true, onReclaim: (id) => reaped.push(id) }); // 全忙
+    t = 9999;
+    await ensurePiSession(bridge, req("sNew"));
+    expect(reaped).toContain("s0"); // 被迫逐出最旧 s0 前 reap 其 run
+    expect(bridge.piClose).toHaveBeenCalledWith("s0");
   });
 
   it("达上限 → spawn 新会话前逐出 lastActiveAt 最小的（LRU）", async () => {

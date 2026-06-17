@@ -35,6 +35,20 @@ export function __setPiNowForTest(fn: () => number): void {
   nowFn = fn;
 }
 
+// 「该会话是否有活跃轮」谓词,由 messages.ts 注入（查 runningBySession;pi-session 进程层不能反向
+// 依赖 store/QueryClient）。空闲回收/LRU 据此跳过繁忙会话——避免长工具静默期误杀正在跑的会话。
+let isSessionBusy: (sessionId: string) => boolean = () => false;
+// 回收前回调,由 messages.ts 注入（reapSessionRun:停看门狗/删 run/清 running）。万一回收到仍有 run
+// 的会话（全忙时被迫逐出）→ 经此收尾 renderer 残余,避免 run 永挂 + 看门狗 interval 泄漏。
+let onPiReclaim: (sessionId: string) => void = () => undefined;
+export function setPiLifecycleHooks(hooks: {
+  isBusy?: (sessionId: string) => boolean;
+  onReclaim?: (sessionId: string) => void;
+}): void {
+  if (hooks.isBusy) isSessionBusy = hooks.isBusy;
+  if (hooks.onReclaim) onPiReclaim = hooks.onReclaim;
+}
+
 // 活动刷新:更新 lastActiveAt + 重置空闲计时器。messages.ts 在 prompt/steer/每条事件/轮收尾时调。
 // 活动持续 → 计时器不断重置不触发;活动停 IDLE_RECLAIM_MS 后 → closePiSession（空闲=无活跃 run,
 // 故只关进程,无需 reapSessionRun;sessionFile 已在 SessionMeta,下次 send 恢复）。
@@ -44,16 +58,24 @@ export function touchPiSession(bridge: DesktopBridge | null, sessionId: string):
   handle.lastActiveAt = nowFn();
   if (handle.idleTimer) clearTimeout(handle.idleTimer);
   handle.idleTimer = setTimeout(() => {
+    // 到期时仍有活跃轮（长工具静默期无事件,但 run 在跑）→ 不回收,顺延一个周期,直到 run 结束。
+    if (isSessionBusy(sessionId)) {
+      touchPiSession(bridge, sessionId);
+      return;
+    }
     void closePiSession(bridge, sessionId);
   }, IDLE_RECLAIM_MS);
 }
 
-// LRU 逐出:已就绪会话数达上限时,关掉 lastActiveAt 最小的（最久未用;它若在跑会有近活跃时间,
-// 自然不会被选中）。在 ensurePiSession spawn 新会话前调。
+// LRU 逐出:已就绪会话数达上限时,关掉最久未用的。优先只在「无活跃 run」的会话里选 victim,避免
+// 逐出正在跑的会话;全忙时才被迫逐出最久未用,并先 onPiReclaim 收尾 renderer run（防 run 永挂）。
 function evictLruIfFull(bridge: DesktopBridge): void {
   const ready = [...piSessions.values()].filter((h) => h.ready);
   if (ready.length < MAX_PI_SESSIONS) return;
-  const victim = ready.reduce((a, b) => (a.lastActiveAt <= b.lastActiveAt ? a : b));
+  const idle = ready.filter((h) => !isSessionBusy(h.sessionId));
+  const pool = idle.length ? idle : ready;
+  const victim = pool.reduce((a, b) => (a.lastActiveAt <= b.lastActiveAt ? a : b));
+  if (isSessionBusy(victim.sessionId)) onPiReclaim(victim.sessionId); // 全忙被迫逐出 → 收尾 renderer run
   void closePiSession(bridge, victim.sessionId);
 }
 
@@ -114,21 +136,28 @@ export async function ensurePiSession(
       // 空/假 sessionId 视作未就绪失败:否则 ready 判定（看 piSessionId）会反复穿透重复 spawn。
       if (!res.sessionId) throw new Error("pi 会话未返回 sessionId");
       // 恢复:重开后切到旧 sessionFile（best-effort,坏文件→pi 静默起空会话仍可用;cwd 缺→reject 忽略）。
-      // switchSession 后 sessionFile/sessionId 变成恢复会话的值,再取一次 get_state 校准。
       let restored = res;
       if (opts?.resumeFrom && opts.resumeFrom !== res.sessionFile && bridge.piSwitchSession) {
         try {
           await bridge.piSwitchSession(req.uiSessionId, opts.resumeFrom);
-          const state = bridge.piGetState
-            ? ((await bridge.piGetState(req.uiSessionId)) as { sessionId?: string; sessionFile?: string } | undefined)
-            : undefined;
-          restored = {
-            uiSessionId: req.uiSessionId,
-            sessionId: state?.sessionId ?? res.sessionId,
-            sessionFile: state?.sessionFile ?? opts.resumeFrom,
-          };
+          // switchSession 成功 = pi 已切到旧上下文。sessionFile 至少兜底为 resumeFrom（旧文件）,
+          // 决不退回 res 的新空文件;sessionId 沿用 piOpen 的 live id（温会话复用守卫需真值）。
+          // get_state 仅用于「校准」,**单独 try**:它失败（大会话刚重建上下文,30s getState 偶发超时）
+          // 不能让整轮回退成新空会话——否则空文件被持久回 SessionMeta,旧历史指针永久丢失。
+          let restoredSessionId = res.sessionId;
+          let restoredFile = opts.resumeFrom;
+          try {
+            const state = bridge.piGetState
+              ? ((await bridge.piGetState(req.uiSessionId)) as { sessionId?: string; sessionFile?: string } | undefined)
+              : undefined;
+            restoredSessionId = state?.sessionId ?? restoredSessionId;
+            restoredFile = state?.sessionFile ?? restoredFile;
+          } catch {
+            // get_state 超时/瞬错:不影响恢复结论,沿用 resumeFrom 作 sessionFile、live id 作 sessionId。
+          }
+          restored = { uiSessionId: req.uiSessionId, sessionId: restoredSessionId, sessionFile: restoredFile };
         } catch {
-          // cwd 缺失等硬错:保持新会话（已可用,UI 历史不受影响）。
+          // 仅 switchSession 本身硬错（cwd 缺失等）才保持新会话（已可用,UI 历史不受影响）。
         }
       }
       handle.ready = true;
@@ -226,4 +255,6 @@ export function __resetPiSessionsForTest(): void {
   for (const h of piSessions.values()) if (h.idleTimer) clearTimeout(h.idleTimer);
   piSessions.clear();
   nowFn = () => Date.now();
+  isSessionBusy = () => false;
+  onPiReclaim = () => undefined;
 }

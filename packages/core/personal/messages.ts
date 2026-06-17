@@ -30,6 +30,7 @@ import {
   markPiSessionGone,
   promptPi,
   setModelPi,
+  setPiLifecycleHooks,
   steerPi,
   touchPiSession,
 } from "./pi-session";
@@ -1136,6 +1137,12 @@ export function usePersonalPiEvents(): void {
     if (!bridge?.onPiEvent) return;
     // bridgeRef 通常已由 usePersonalCliEvents 设置;此处兜底确保 handlePiEvent 的落盘可用。
     bridgeRef = bridge;
+    // 阶段4:给 pi-session 进程层注入「是否有活跃轮」谓词 + 回收收尾回调（进程层不能反向依赖 store/qc）。
+    // 空闲回收/LRU 据此跳过繁忙会话,被迫逐出时经 reapSessionRun 收尾 renderer run。
+    setPiLifecycleHooks({
+      isBusy: (sessionId) => !!usePersonalStore.getState().runningBySession[sessionId],
+      onReclaim: (sessionId) => reapSessionRun(qc, sessionId),
+    });
     const off = bridge.onPiEvent((sessionId, ev, runId) => handlePiEvent(qc, sessionId, ev, runId));
     return () => off();
   }, [bridge, qc]);
