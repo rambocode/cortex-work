@@ -9,8 +9,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { DEFAULT_PI_SKILLS, useDesktopBridge, usePersonalStore, type PluginSkill } from "@cortex-work/core";
+import { ExtensionPanel } from "./ExtensionPanel";
 
-type Tab = "mcp" | "skill";
+type Tab = "mcp" | "skill" | "extension";
 type StatusFilter = "all" | "enabled" | "disabled";
 type LoadState =
   | { kind: "loading" }
@@ -51,9 +52,24 @@ export function PluginManager() {
         >
           Skill
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "extension"}
+          className={`pw-seg ${tab === "extension" ? "is-on" : ""}`}
+          onClick={() => setTab("extension")}
+        >
+          扩展
+        </button>
       </div>
 
-      {tab === "mcp" ? <McpPlaceholder /> : <SkillPanel bridge={bridge} />}
+      {tab === "mcp" ? (
+        <McpPlaceholder />
+      ) : tab === "extension" ? (
+        <ExtensionPanel bridge={bridge} />
+      ) : (
+        <SkillPanel bridge={bridge} />
+      )}
     </div>
   );
 }
