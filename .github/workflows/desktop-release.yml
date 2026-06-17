@@ -1,9 +1,12 @@
 name: Desktop Release
 
-# 私有库(闭源)的 macOS 构建/发布流水线。按 mode 分四档,门槛递增:
+# 私有库(闭源)的 macOS 构建/发布流水线。按 mode 分档,门槛递增:
 #  - build-unsigned(默认 dispatch):只构建未签名包(bun/pnpm/electron-vite/electron-builder 打包),
 #    **不需要任何 secret**。用于先验证闭源库的自动构建链能否在 CI 跑通。
 #  - build-signed:构建 + Developer ID 签名 + Apple 公证 + 仓库外校验,不发布。需 5 个签名 secret。
+#  - publish-self(dispatch):构建 + 签名 + 公证 + 发到**本仓库** rambocode/cortex-work 的 Release。
+#    用默认 GITHUB_TOKEN(同仓库写,需 permissions: contents: write),无需 PAT;只需 5 个签名 secret。
+#    本仓库为私有库,Release 仅维护者可下载——自取后转发分发(如官网/网盘)。
 #  - publish-draft / publish-release(dispatch)与 tag push:electron-builder --publish always 跨库发到
 #    公开库 rambocode/cortex-desktop(见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
 #    依赖 U1(建公开库 + PAT + Environment),完成后再用。
@@ -13,11 +16,12 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "build-unsigned=只验证构建(无需 secret);build-signed=+签名公证(需签名 secret);publish-*=跨库发布(需 U1 的 PAT)"
+        description: "build-unsigned=只验证构建(无需 secret);build-signed=+签名公证(需签名 secret);publish-self=签名公证+发到本仓库 Release(需签名 secret,用默认 token);publish-*=跨库发布(需 U1 的 PAT)"
         type: choice
         options:
           - build-unsigned
           - build-signed
+          - publish-self
           - publish-draft
           - publish-release
         default: build-unsigned
@@ -25,9 +29,10 @@ on:
     tags:
       - "v*"
 
-# 默认 token 维持最小;跨库写公开库完全靠 RELEASE_GH_TOKEN(PAT),不提权默认 GITHUB_TOKEN。
+# publish-self 用默认 GITHUB_TOKEN 写本仓库 Release,故需 contents: write。
+# 跨库写公开库仍完全靠 RELEASE_GH_TOKEN(PAT),与此默认 token 无关(默认 token 无跨库权限)。
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-macos-arm64:
@@ -43,7 +48,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # 先启用 pnpm,后面 setup-node 的 cache: pnpm 才能解析(pnpm 须先在 PATH)。
       - name: Enable pnpm
@@ -52,7 +57,7 @@ jobs:
           corepack prepare pnpm@10.28.2 --activate
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: pnpm
@@ -76,9 +81,10 @@ jobs:
           RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
           case "$MODE" in
-            build-unsigned) required="" ;;
-            build-signed)   required="APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD" ;;
-            *)              required="APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD RELEASE_GH_TOKEN" ;;
+            build-unsigned)            required="" ;;
+            # publish-self 发本仓库用默认 GITHUB_TOKEN,只需 5 个签名 secret,不需要 PAT。
+            build-signed|publish-self) required="APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD" ;;
+            *)                         required="APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD RELEASE_GH_TOKEN" ;;
           esac
           if [[ -z "$required" ]]; then
             echo "mode=$MODE:无需 secret"
@@ -126,7 +132,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          # 两类发布 token 都注入,运行时按 mode 选用:publish-self 用默认 GITHUB_TOKEN(本仓库);
+          # publish-draft/release 用 PAT(跨库公开库)。GH_TOKEN 是 electron-builder 读取的固定变量名,
+          # 故不在此处静态赋值,改在脚本内按 mode export,避免把错的 token 喂给跨库发布。
+          SELF_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
           case "$MODE" in
             build-unsigned)
@@ -137,7 +147,18 @@ jobs:
               echo "build-signed:构建 + 签名 + 公证(不发布)"
               pnpm --filter @cortex-work/desktop run build:mac
               ;;
+            publish-self)
+              echo "publish-self:构建 + 签名 + 公证,发到本仓库 rambocode/cortex-work 的 Release(默认 token)"
+              export GH_TOKEN="$SELF_GH_TOKEN"
+              # 覆盖 electron-builder.yml 的跨库 publish 目标,改发本仓库(同仓库,默认 token 即可写)。
+              pnpm --filter @cortex-work/desktop run release:mac -- \
+                -c.publish.provider=github \
+                -c.publish.owner=rambocode \
+                -c.publish.repo=cortex-work \
+                -c.publish.releaseType=release
+              ;;
             *)
+              export GH_TOKEN="$RELEASE_GH_TOKEN"
               rt="release"
               if [[ "$MODE" == "publish-draft" ]]; then
                 rt="draft"
@@ -170,7 +191,7 @@ jobs:
 
       # 构建产物 artifact:build 档取回产物的通道(也确认产物确实生成);publish 档作冗余备份。
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cortex-desktop-macos-arm64
           if-no-files-found: error

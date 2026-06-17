@@ -25,6 +25,7 @@ import { NewSessionLanding } from "./NewSessionLanding";
 import { AutomationView } from "./AutomationView";
 import { FlashNoteEditor } from "./FlashNoteEditor";
 import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
+import { PersonalSettingsView } from "./SettingsMenu";
 
 // 进入落地页(homeOpen 转真,含首屏挂载)即收起右栏:无项目时默认不显示,选项目
 // 不自动弹出。依赖只含 homeOpen,故 rightOpen 在落地页内被显式置真(点 Task / 顶栏
@@ -49,6 +50,8 @@ export function PersonalWorkspace({
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
+  // 设置整页：全屏覆盖层叠加在工作区之上（不卸载 pw-main → 终端 PTY 存活）。
+  const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
   const closeNoteEditor = usePersonalStore((s) => s.closeNoteEditor);
   const timelineProject = usePersonalStore((s) =>
@@ -114,6 +117,7 @@ export function PersonalWorkspace({
         </div>
         <TerminalPanel onToast={onToast} />
       </div>
+      {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
     </>
   );

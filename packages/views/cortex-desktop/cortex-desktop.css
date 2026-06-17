@@ -5069,6 +5069,49 @@ button.sb-row {
   color: var(--text-3);
   padding-top: 8px;
 }
+
+/* 个人设置整页：全屏不透明覆盖层（fixed/inset:0/z-index:200,与 .pw-dlg-overlay 同层）。
+   底层工作区不卸载、仅被遮挡 → 侧栏隐藏、终端 PTY 存活。两栏复用 token 化的
+   .pw-dlg-nav / .pw-dlg-body;右栏内容限宽居中,避免整窗下表单横向拉伸。 */
+.pw-settings-page {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: row;
+  background: var(--bg-app);
+}
+.pw-settings-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  text-align: left;
+}
+.pw-settings-back:hover { background: var(--bg-hover); color: var(--text-1); }
+/* 右栏内容限宽居中（镜像团队 .settings-panel 860px 手感）：.pw-dlg-body 为 flex 列,
+   margin:0 auto 在交叉轴居中,max-width 防止 .pw-srow-l(flex:0 0 38%) 在整窗下拉伸变形。 */
+.pw-settings-content {
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* macOS 无边框窗口：整页覆盖层盖住了原列头让位区,左栏顶部预留红绿灯高度,
+   让「返回应用」按钮与交通灯保持距离、不被遮挡（trafficLightPosition y≈13,
+   见 apps/desktop/src/main/index.ts;同 .pw-sidebar-head 的让位约定）。 */
+.app-frame[data-native-titlebar="mac"] .pw-settings-page .pw-dlg-nav {
+  padding-top: 40px;
+}
+
 .pw-pet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .pw-pet-card {
   display: flex;
