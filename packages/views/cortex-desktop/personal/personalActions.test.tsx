@@ -130,6 +130,24 @@ describe("send 分叉", () => {
     expect(bridge.piPrompt).toHaveBeenCalledTimes(2);
   });
 
+  it("piCustomization 设置经 send 塞进 piOpen（深度定制开关接通,阶段3 U10）", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      generalSettings: {
+        ...usePersonalStore.getState().generalSettings,
+        piCustomization: { toolApproval: true, sampleTools: true, sampleCommands: false },
+      },
+    });
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "你好", []);
+    });
+    const req = (bridge.piOpen as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(req).toMatchObject({ enableToolApproval: true, enableSampleTools: true });
+    expect(req.enableSampleCommands).toBeUndefined(); // false → undefined（不传,不生成）
+  });
+
   it("claude 仍走 startCli,不碰任何 pi 方法（R10）", async () => {
     const bridge = makeBridge();
     const qc = new QueryClient();

@@ -987,6 +987,9 @@ async function sendPiTurn(
   const model = session.model ?? providerSettings.defaultModel ?? provider?.models[0]?.id;
 
   try {
+    // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
+    // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
+    const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
     await ensurePiSession(bridge, {
       uiSessionId: session.id,
       cwd: projectPath,
@@ -995,6 +998,9 @@ async function sendPiTurn(
       provider: provider
         ? { id: provider.id, baseUrl: provider.baseUrl, apiKey: provider.apiKey, models: provider.models }
         : undefined,
+      enableToolApproval: piCustom?.toolApproval || undefined,
+      enableSampleTools: piCustom?.sampleTools || undefined,
+      enableSampleCommands: piCustom?.sampleCommands || undefined,
     });
     flipPiRunToThinking(qc, runId); // 冷启就绪 → typing 翻「思考中」。
     await promptPi(bridge, session.id, buildPiPromptMessage(text, appendSystemPrompt));

@@ -137,6 +137,9 @@ export interface GeneralSettings {
   log: LogSettings;
   // 闪记全局热键（Electron accelerator）;缺省 = 主进程用默认 NOTES_HOTKEY_ACCELERATOR。
   notesHotkey?: string;
+  // pi 深度定制（阶段3,与 core/desktop/types.ts 镜像）。主进程仅持久化,不直接读;
+  // renderer 据此把 enable* 开关塞进 PiOpenRequest。
+  piCustomization?: { toolApproval: boolean; sampleTools: boolean; sampleCommands: boolean };
 }
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {

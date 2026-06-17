@@ -374,6 +374,15 @@ export interface GeneralSettings {
   log: LogSettings;
   // 闪记全局热键（Electron accelerator）;缺省 = 主进程用默认 NOTES_HOTKEY_ACCELERATOR。
   notesHotkey?: string;
+  // pi 深度定制（阶段3）:经 extension 加载,会话开启时生效;缺省 = 全关。
+  piCustomization?: PiCustomizationSettings;
+}
+
+// pi 深度定制开关（阶段3）。改动在下次 pi 会话开启时生效（extension 在 open 时加载）。
+export interface PiCustomizationSettings {
+  toolApproval: boolean; // 工具执行审批弹窗（拦 bash/write/edit 等,经弹窗确认）
+  sampleTools: boolean; // 自定义工具样例 echo_upper
+  sampleCommands: boolean; // 斜杠命令样例 /greet
 }
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {

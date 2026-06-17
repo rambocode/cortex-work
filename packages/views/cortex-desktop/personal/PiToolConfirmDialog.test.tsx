@@ -73,10 +73,17 @@ describe("PiToolConfirmDialog（阶段3 U6）", () => {
 
   it("多请求:应答队首后显示下一个", () => {
     const bridge = makeBridge();
+    const named = (id: string, title: string): PiUiRequest => ({
+      type: "extension_ui_request",
+      id,
+      method: "confirm",
+      title,
+      message: "M",
+    });
     usePersonalStore.setState({
       piUiPending: [
-        { uiSessionId: "sA", request: { ...confirmReq("c1"), title: "请求A" } },
-        { uiSessionId: "sB", request: { ...confirmReq("c2"), title: "请求B" } },
+        { uiSessionId: "sA", request: named("c1", "请求A") },
+        { uiSessionId: "sB", request: named("c2", "请求B") },
       ],
     });
     renderDialog(bridge);
