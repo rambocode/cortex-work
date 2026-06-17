@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePetStore } from "@cortex-work/core";
@@ -20,6 +21,7 @@ function resetStore() {
 
 // jsdom 视口 1024 宽,巡逻道最右侧 = innerWidth - PET_W(110) - 18
 const RIGHT_X = 1024 - 110 - 18;
+const petCss = readFileSync("cortex-desktop/cortex-desktop.css", "utf8");
 
 describe("Pet 行为模式", () => {
   beforeEach(() => {
@@ -88,6 +90,29 @@ describe("Pet 行为模式", () => {
     });
     expect(pet.classList.contains("is-walking")).toBe(false);
     expect(pet.querySelector(".pet-shadow")).not.toBeNull();
+  });
+
+  it("纯自由拖拽时根节点坐标更新,地面阴影跟随同一个拖拽根节点", () => {
+    localStorage.setItem(PET_WALK_KEY, "0");
+    const { container } = render(<Pet />);
+    const pet = container.querySelector(".pet") as HTMLElement;
+    pet.getBoundingClientRect = () =>
+      ({ left: 100, top: 200, width: 110, height: 100, right: 210, bottom: 300, x: 100, y: 200, toJSON: () => ({}) }) as DOMRect;
+
+    fireEvent.pointerDown(pet, { clientX: 110, clientY: 220, pointerId: 1 });
+    fireEvent.pointerMove(pet, { clientX: 170, clientY: 260, pointerId: 1 });
+    fireEvent.pointerUp(pet, { clientX: 170, clientY: 260, pointerId: 1 });
+
+    expect(parseFloat(pet.style.left)).toBe(160);
+    expect(parseFloat(pet.style.top)).toBe(240);
+    expect(JSON.parse(localStorage.getItem("cortex_pet_pos")!)).toEqual({ x: 160, y: 240 });
+    expect(pet.querySelector(".pet-shadow")?.parentElement).toBe(pet);
+  });
+
+  it("宠物根节点有稳定视觉盒,避免阴影按过宽块级盒居中偏移", () => {
+    expect(petCss).toMatch(/\.pet\s*\{[^}]*width:\s*calc\(110px \* var\(--pet-scale, 1\)\)/s);
+    expect(petCss).toMatch(/\.pet\s*\{[^}]*height:\s*calc\(100px \* var\(--pet-scale, 1\)\)/s);
+    expect(petCss).toMatch(/\.pet-3d\s*\{[^}]*width:\s*100%/s);
   });
 
   it("点击 ✕ 隐藏宠物并持久化", () => {

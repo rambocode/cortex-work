@@ -361,8 +361,8 @@ export function Pet() {
         <svg viewBox="0 0 140 120" width={Math.round(SVG_W * size)} height={Math.round(SVG_H * size)} aria-hidden="true">
           <Parts />
         </svg>
-        <div className="pet-shadow" />
       </div>
+      <div className="pet-shadow" />
     </div>
   );
 }
