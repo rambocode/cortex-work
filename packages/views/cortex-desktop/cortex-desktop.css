@@ -3184,6 +3184,20 @@ button.sb-row {
   width: var(--rp-custom-width, calc(100vw * 3 / 7));
   min-width: var(--rp-custom-width, 480px);
 }
+/* 展宽态(详情/文件预览):顶部贴齐标题栏——去掉顶部 8px 浮起缝隙与顶角圆角,
+   否则浮起卡片左上圆角+阴影会在缝隙里露出一个静态小凸角(窄态在最右不显眼,
+   展宽后挪到中部就被注意到)。用与浮起规则同级的选择器确保覆盖其 margin/圆角。 */
+.body:has(.pw-main) .pw-upper > .right:has(.pw-todos.is-detail),
+.body:has(.pw-main) .pw-upper > .right:has(.pw-rp-view.is-fileopen) {
+  margin-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.body:has(.pw-main) .pw-upper > .right:has(.pw-todos.is-detail) .pw-rp-head,
+.body:has(.pw-main) .pw-upper > .right:has(.pw-rp-view.is-fileopen) .pw-rp-head {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
 .pw-panel-h {
   display: flex; align-items: center; gap: 8px;
   padding: 12px 14px;
