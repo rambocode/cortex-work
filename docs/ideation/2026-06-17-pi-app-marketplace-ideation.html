@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ideation: pi 应用市场 — 用户经市场安装工具</title>
+<style>
+  :root{
+    --bg:#faf8f4; --surface:#ffffff; --ink:#23201b; --muted:#6b655c;
+    --line:#e7e1d6; --accent:#9a5b2e; --accent-soft:#f6ece2; --accent-text:#7a4622;
+    --info-soft:#e8eef3; --info-text:#355168; --warn-soft:#f7ede0; --warn-text:#8a5a1c;
+    --ok-soft:#e6efe6; --ok-text:#3c6140; --radius:10px;
+    --mono:"SFMono-Regular",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{font-size:16px}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.65;
+    -webkit-font-smoothing:antialiased}
+  .page{max-width:920px;margin-inline:auto;padding:48px 24px 80px}
+  header.doc{border-bottom:2px solid var(--line);padding-bottom:22px;margin-bottom:8px}
+  .eyebrow{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-text);font-weight:700}
+  h1{font-size:2rem;line-height:1.2;margin:.3em 0 .35em;font-weight:800;letter-spacing:-.01em}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .meta .pill{font-size:.76rem;background:var(--surface);border:1px solid var(--line);
+    border-radius:999px;padding:3px 11px;color:var(--muted)}
+  .meta .pill b{color:var(--ink);font-weight:650}
+  .stats{display:flex;flex-wrap:wrap;gap:12px;margin:26px 0 8px}
+  .stat{flex:1;min-width:120px;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);padding:14px 16px}
+  .stat .n{font-size:1.5rem;font-weight:800;letter-spacing:-.02em}
+  .stat .l{font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  h2{font-size:1.32rem;margin:44px 0 14px;padding-bottom:7px;border-bottom:1px solid var(--line);font-weight:750}
+  h3{font-size:1.08rem;margin:0 0 6px;font-weight:700}
+  p{margin:.55em 0}
+  section{margin-top:8px}
+  .ground p{max-width:72ch}
+  .ground h4{font-size:.96rem;margin:18px 0 4px;color:var(--accent-text)}
+  code{font-family:var(--mono);font-size:.85em;background:#f1ece3;padding:1px 5px;border-radius:5px}
+  a{color:var(--accent-text);text-decoration:none;border-bottom:1px solid #d8c3ad}
+  a:hover{border-bottom-color:var(--accent)}
+  ul.axes{list-style:none;padding:0;margin:10px 0;counter-reset:ax}
+  ul.axes li{counter-increment:ax;background:var(--surface);border:1px solid var(--line);
+    border-radius:8px;padding:9px 14px 9px 44px;margin:7px 0;position:relative}
+  ul.axes li::before{content:counter(ax);position:absolute;left:12px;top:50%;transform:translateY(-50%);
+    width:22px;height:22px;background:var(--accent-soft);color:var(--accent-text);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:700}
+  ul.axes li b{font-weight:700}
+  nav.jump{background:var(--accent-soft);border:1px solid #ecd9c5;border-radius:var(--radius);
+    padding:14px 18px;margin:14px 0 26px}
+  nav.jump .t{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-text);
+    font-weight:700;margin-bottom:8px}
+  nav.jump ol{margin:0;padding-left:20px}
+  nav.jump li{margin:3px 0}
+  nav.jump a{border-bottom:none}
+  nav.jump a:hover{border-bottom:1px solid var(--accent)}
+  article.idea{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px 24px;margin:18px 0;scroll-margin-top:16px}
+  article.idea .top{display:flex;align-items:flex-start;gap:12px;margin-bottom:4px}
+  .rank{flex:none;width:30px;height:30px;background:var(--ink);color:#fff;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.95rem}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 4px}
+  .chip{font-size:.73rem;border-radius:999px;padding:3px 11px;font-weight:650;border:1px solid transparent}
+  .chip.axis{background:var(--info-soft);color:var(--info-text);border-color:#d3e0ea}
+  .chip.conf{background:var(--ok-soft);color:var(--ok-text);border-color:#cfe0d0}
+  .chip.cx{background:var(--warn-soft);color:var(--warn-text);border-color:#ecdcc4}
+  dl.fields{margin:14px 0 0;display:grid;grid-template-columns:max-content 1fr;gap:7px 16px}
+  dl.fields dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    font-weight:700;padding-top:2px}
+  dl.fields dd{margin:0}
+  dl.fields dd.basis code, dd.basis{font-size:.94rem}
+  .tag{font-family:var(--mono);font-size:.72rem;font-weight:700;padding:1px 6px;border-radius:4px;margin-right:4px}
+  .tag.direct{background:var(--ok-soft);color:var(--ok-text)}
+  .tag.external{background:var(--info-soft);color:var(--info-text)}
+  .tag.reasoned{background:var(--warn-soft);color:var(--warn-text)}
+  figure{margin:18px 0 4px;padding:16px;background:#fcfaf6;border:1px dashed var(--line);border-radius:8px}
+  figure svg{display:block;max-width:100%;height:auto;margin:0 auto}
+  figcaption{font-size:.78rem;color:var(--muted);text-align:center;margin-top:10px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.92rem}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  td.idx{font-weight:700;color:var(--accent-text);white-space:nowrap}
+  footer.composition-signal{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);
+    font-size:.78rem;color:var(--muted)}
+  .lead{font-size:1.05rem;color:var(--ink)}
+  .callout{background:var(--warn-soft);border:1px solid #ecdcc4;border-radius:8px;padding:14px 18px;margin:16px 0}
+  .callout .e{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--warn-text);font-weight:700}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="doc">
+  <div class="eyebrow">Compound Engineering · Ideation</div>
+  <h1>pi 应用市场：让用户经市场安装工具</h1>
+  <div class="meta">
+    <span class="pill"><b>日期</b> <time datetime="2026-06-17">2026-06-17</time></span>
+    <span class="pill"><b>主题</b> pi-app-marketplace</span>
+    <span class="pill"><b>焦点</b> 为 pi 实现应用市场，用户可通过市场安装工具/扩展</span>
+    <span class="pill"><b>模式</b> repo-grounded</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="n">7</div><div class="l">幸存方向</div></div>
+    <div class="stat"><div class="n">41</div><div class="l">原始候选</div></div>
+    <div class="stat"><div class="n">7</div><div class="l">已剔除</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">主题轴覆盖</div></div>
+  </div>
+</header>
+
+<section class="ground">
+  <h2>Grounding Context</h2>
+  <p class="lead">一个贯穿全文的关键判断：<b>用户说的「装工具」，pi 的「工具」其实是 extension（<code>registerTool</code>），而扩展当前完全没有分发通道</b>——它是壳里本地代码生成的 0600 JS（固定文件名每次 <code>pi:open</code> 覆写）。只有 skill（<code>&lt;name&gt;/SKILL.md</code> 目录）有分发雏形。只做「skill 市场」会答错题。</p>
+
+  <h4>Codebase Context</h4>
+  <p>cortex-work 是 Electron + React 的 pnpm/Turbo monorepo（含 Go 后端）。pi 经 bun 编译为自包含二进制启动；<code>buildArgs</code> / <code>buildRpcArgs</code> 恒以 <code>--no-extensions --no-skills</code> 为基线，再用 <code>--skill</code> / <code>-e</code> 显式注入启用集，<code>-a</code> 一次性信任全部。UI 是启用集的唯一真相源。</p>
+  <p><b>分发与安装现状：</b>skill 的下载入口 <a href="https://github.com/rambocode/cortex-work/blob/main/apps/desktop/src/main/skills/download.ts"><code>apps/desktop/src/main/skills/download.ts</code></a> 是一个 <code>throw "第二阶段实现"</code> 的存根，蓝本是 Go 端 importer <a href="https://github.com/rambocode/cortex-work/blob/main/server/internal/handler/skill.go"><code>server/internal/handler/skill.go</code></a>（多源 clawhub.ai / skills.sh / github、配额 1MiB/file·8MiB/bundle·128 files、binary-skip、<code>validateFilePath</code> 路径安全、clawhub 带 <code>origin</code> 溯源与版本化索引）。扩展/provider 则完全没有 registry / manifest / 分发单元。</p>
+  <p><b>UI 与状态现状：</b><a href="https://github.com/rambocode/cortex-work/blob/main/packages/views/cortex-desktop/personal/PluginManager.tsx"><code>PluginManager.tsx</code></a> 只有 <code>MCP</code>（纯「敬请期待」占位）与 <code>Skill</code> 两个顶 tab；Skill tab 功能完整但只管理本地（扫描/启停/scope/工作区信任/根增删/开目录/创建 SKILL.md），没有任何「发现 / 可安装」界面。<code>PluginSkill</code> 行只有 name/description/dir/scope/enabled/trusted/shadowedBy——<b>无 version / author / source / installedAt / updateAvailable</b>。无 uninstall / update / delete IPC（卸载=手删目录后重扫）。</p>
+  <p><b>激活模型：</b>skill/扩展/provider 都是冷启动 flag，不能会话中途生效；改变经 <code>extensionFingerprint</code> 漂移触发 close-and-reopen（<code>switchSession</code> 恢复上下文）——这是当前唯一的「版本应用」机制。app 自身更新 <code>update.ts</code>（electron-updater + GitHub Releases，用户门控、分阶段状态机）是可借鉴的更新范式。</p>
+
+  <h4>External Context（先例与陷阱）</h4>
+  <p>pi <em>官方</em>支持 <code>pi install npm:/git:</code> + <code>settings.json</code> 的 <code>packages[]</code>（本仓库团队选择不用，改本地代码生成——值得调和）。<a href="https://code.claude.com/docs/en/plugin-marketplaces">Claude Code 插件</a>：git-repo-as-registry、<code>plugin.json</code> + <code>marketplace.json</code>、SHA pinning、官方/社区双层策展。<a href="https://www.gentoro.com/blog/what-is-anthropics-new-mcp-registry/">MCP Registry</a>：canonical/discovery/governance 三层分离（DNS root 类比）。<a href="https://developer.microsoft.com/blog/security-and-trust-in-visual-studio-marketplace">VS Code</a>：repository+publisher 双签名、首装信任对话框、密钥扫描。<a href="https://obsidian.md/blog/future-of-plugins/">Obsidian</a>：Restricted Mode 默认开 + 自动逐版本扫描 + 公开安全评分卡。反复出现的陷阱：别先建中央服务器、reviewed≠safe、钉到 SHA、可发现性是承重墙、无法沙箱就用显式同意面。</p>
+
+  <h4>Past Learnings</h4>
+  <p>本仓库的 pi 系列 plan（<a href="https://github.com/rambocode/cortex-work/blob/main/docs/plans/2026-06-17-003-feat-pi-skill-plugin-manager-plan.md">skill plugin manager</a> 等）已把 PluginManager 作为前身建好；市场本质是「把延迟项做实」。复用既有安装基底、默认不信任、IPC 四层联动（main handler → <code>ipc/types.ts</code> → preload → <code>core/desktop</code> 镜像）、改变须喂 <code>extensionFingerprint</code>、下载落盘要在 <code>/tmp</code> 隔离副本验证、提交前先 spike——均为已沉淀经验。</p>
+</section>
+
+<section>
+  <h2>Topic Axes</h2>
+  <ul class="axes">
+    <li><b>索引与分发</b> — registry/index 格式、分发单元（Skill / pi-extension 包 / MCP）</li>
+    <li><b>安装与激活机制</b> — 下载落盘、userData、<code>pi install</code> vs 文件投放、<code>extensionFingerprint</code> 会话重开</li>
+    <li><b>浏览与发现 UI</b> — MCP 占位 tab、目录、搜索、分类、安装按钮、已装状态</li>
+    <li><b>信任与安全</b> — 默认不信任、权限同意、签名、供应链、同名劫持</li>
+    <li><b>生命周期管理</b> — 版本固定、更新、卸载、来源溯源</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Ranked Ideas</h2>
+  <nav class="jump">
+    <div class="t">跳转</div>
+    <ol>
+      <li><a href="#idea1">统一工件描述符 + 多扩展共存布局</a> · 索引与分发</li>
+      <li><a href="#idea2">调和 pi 原生 <code>pi install</code> 而非另起炉灶</a> · 安装与激活</li>
+      <li><a href="#idea3">分发后端二选一：Go importer vs git-repo-as-registry</a> · 索引与分发</li>
+      <li><a href="#idea4">安装账本 + 事务化可回滚更新</a> · 生命周期管理</li>
+      <li><a href="#idea5">安装信任体系 + 修「默认信任」计划漏洞</a> · 信任与安全</li>
+      <li><a href="#idea6">工作区内联市场（zero-remote MVP）</a> · 浏览与发现</li>
+      <li><a href="#idea7">agent-native 自助安装</a> · 安装与激活</li>
+    </ol>
+  </nav>
+
+  <!-- IDEA 1 -->
+  <article class="idea" id="idea1">
+    <div class="top"><div class="rank">1</div><h3>统一工件描述符 + 多扩展共存布局——让「工具」真正成为可分发单元</h3></div>
+    <div class="chips">
+      <span class="chip axis">轴1 · 索引与分发</span>
+      <span class="chip conf">Confidence 88%</span>
+      <span class="chip cx">Complexity Low–Med</span>
+    </div>
+    <figure>
+      <svg viewBox="0 0 760 250" role="img" aria-label="现状与目标对比：固定文件名覆写的扩展，对比 kind-tagged 描述符 + per-instance 目录">
+        <style>
+          .ttl{font:700 13px var(--sans,sans-serif);fill:#23201b}
+          .lbl{font:12px var(--sans,sans-serif);fill:#23201b}
+          .sm{font:11px var(--sans,sans-serif);fill:#6b655c}
+        </style>
+        <text x="20" y="22" class="ttl">现状 · 固定槽位</text>
+        <rect x="20" y="36" width="180" height="34" rx="6" fill="#f7ede0" stroke="#ecdcc4"/>
+        <text x="30" y="57" class="lbl">sample-tools.js（写死 echo）</text>
+        <rect x="20" y="78" width="180" height="34" rx="6" fill="#f7ede0" stroke="#ecdcc4"/>
+        <text x="30" y="99" class="lbl">askquestion.js（固定名）</text>
+        <text x="20" y="140" class="sm">每次 pi:open 覆写 ·</text>
+        <text x="20" y="156" class="sm">第二个第三方工具会顶掉第一个</text>
+        <!-- arrow -->
+        <line x1="225" y1="95" x2="295" y2="95" stroke="#9a5b2e" stroke-width="2"/>
+        <polygon points="295,90 308,95 295,100" fill="#9a5b2e"/>
+        <text x="218" y="82" class="sm">统一描述符</text>
+        <!-- target -->
+        <text x="330" y="22" class="ttl">目标 · kind-tagged manifest + per-instance 目录</text>
+        <rect x="330" y="36" width="410" height="40" rx="6" fill="#e8eef3" stroke="#d3e0ea"/>
+        <text x="342" y="61" class="lbl">manifest: { kind: skill | extension | provider | mcp, name, version, source }</text>
+        <rect x="330" y="92" width="128" height="34" rx="6" fill="#fff" stroke="#c9bba6"/>
+        <text x="342" y="113" class="sm">pi-extensions/&lt;id-a&gt;/</text>
+        <rect x="470" y="92" width="128" height="34" rx="6" fill="#fff" stroke="#c9bba6"/>
+        <text x="482" y="113" class="sm">pi-extensions/&lt;id-b&gt;/</text>
+        <rect x="610" y="92" width="128" height="34" rx="6" fill="#fff" stroke="#c9bba6"/>
+        <text x="622" y="113" class="sm">skills/&lt;name&gt;/</text>
+        <text x="330" y="150" class="sm">同一下载/校验/信任/版本管线服务四类工具 · 多 -e 动态收集即可共存</text>
+      </svg>
+      <figcaption>插图（方向性，非规格）：把「工具」从壳内固定文件常量，提升为可被市场分发、可共存的 per-instance 工件。</figcaption>
+    </figure>
+    <dl class="fields">
+      <dt>Description</dt>
+      <dd>定义一个 kind-tagged 工件描述符（<code>{kind: skill|extension|provider|mcp, name, version, source, checksum, origin}</code>），让市场的索引、下载、信任、版本逻辑只写一遍并同时服务四类工具；同时把扩展的物理布局从「<code>userData/pi-extensions/&lt;固定名&gt;.js</code> 每次覆写」改为 per-instance 目录，<code>buildRpcArgs</code> 动态收集多个 <code>-e</code>，使多个第三方工具可共存。</dd>
+      <dt>Basis</dt>
+      <dd class="basis"><span class="tag direct">direct</span><a href="https://github.com/rambocode/cortex-work/blob/main/apps/desktop/src/main/agents/pi-extensions.ts"><code>pi-extensions.ts:36-52,160-167</code></a> 扩展是写死模板的固定文件名、每次 open 覆写、无 per-instance 状态；<code>evidence-index-distribution.md</code> 确认「扩展今天完全没有 download/marketplace path」。<code>pi-rpc.ts:208-213</code> 多 <code>-e</code> 已支持，仅缺 per-instance 槽位。</dd>
+      <dt>Rationale</dt>
+      <dd>这是整个市场的地基与最高杠杆点：不先让扩展成为可分发、可共存的单元，市场就只能装 skill（提示词），装不了用户真正想要的 tool——直接违背诉求。一个 kind 标签让后续 version/uninstall/update/provenance 一次覆盖四类。</dd>
+      <dt>Downsides</dt>
+      <dd>触及 IPC 四层镜像与 <code>extensionFingerprint</code> 组装；per-instance 布局迁移需兼容现有内置扩展；描述符是新契约，定错会拖累后续所有方向（建议先 spike 锁形状）。</dd>
+    </dl>
+  </article>
+
+  <!-- IDEA 2 -->
+  <article class="idea" id="idea2">
+    <div class="top"><div class="rank">2</div><h3>调和 pi 原生 <code>pi install</code> / <code>packages[]</code>，而非另起一套安装运行时</h3></div>
+    <div class="chips">
+      <span class="chip axis">轴2 · 安装与激活机制</span>
+      <span class="chip conf">Confidence 82%</span>
+      <span class="chip cx">Complexity Med（多为 spike/调研）</span>
+    </div>
+    <dl class="fields">
+      <dt>Description</dt>
+      <dd>pi 本身已提供 <code>pi install npm:@foo/bar</code> / <code>pi install git:...@v1</code> 与 <code>settings.json</code> 的 <code>packages[]</code> 清单。市场不必自建下载/依赖/解析栈，而可<b>把 pi 二进制当安装运行时</b>：UI 写 <code>packages[]</code>、安装经 <code>spawn(pi, ["install", ref])</code> 走 pi 自己的解析器，我们只做策展、信任与 UI 层。这是决定整体架构的战略岔路，应先于其他实现项用一个 spike 拍板。</dd>
+    </dl>
+
+    <h4 style="font-size:.98rem;margin:18px 0 6px;color:var(--accent-text)">调和分析：团队当初的「绕开」是否真的禁止借力？</h4>
+    <p style="max-width:74ch">两个被混为一谈的「绕开」其实是不同决策，需要拆开：</p>
+    <ul style="max-width:74ch">
+      <li><b>绕开 pi 自动发现</b>（<code>--no-extensions --no-skills</code> 基线，<code>pi.ts:57-62</code> / <code>pi-rpc.ts:201-204</code>）——理由是「UI 为启用集唯一真相源」，与<em>是否用 pi 下载</em>无关：用 <code>pi install</code> 下载后，仍可继续用 <code>--no-skills</code> + 显式 <code>--skill</code>/<code>-e</code> 注入，两者不冲突。</li>
+      <li><b>绕开 pi 的 in-process SDK</b>（plan 记录：避免把 pi 的 ESM 闭包 minimatch/typebox/undici 引入 Electron 主进程，正是 bun-binary 决策的同源动机）——但这条<b>只针对「在主进程里 import pi」</b>。</li>
+    </ul>
+    <div class="callout" style="background:var(--ok-soft);border-color:#cfe0d0">
+      <div class="e" style="color:var(--ok-text)">✓ 关键支点（本次核对所得）</div>
+      pi 是 bun 编译的自包含二进制，<b>把整个依赖闭包 inline、不依赖 node_modules</b>，经 <code>child_process.spawn</code> 执行（<code>pi-locate.ts:2</code>）。因此 <code>spawn(pi, ["install", …])</code> 在<b>pi 自己的进程</b>里完成解析，与现有的 <code>--mode json/rpc</code> spawn 模型一样进程隔离——主进程从不 import pi 的 ESM。<b>「ESM 依赖地狱」这条理由不适用于 shell 出 <code>pi install</code>。</b>这把 idea 的可行性从「存疑」推向「大概率可借力」。
+    </div>
+
+    <h4 style="font-size:.98rem;margin:18px 0 6px;color:var(--accent-text)">Spike 设计（bun 本地跑，无需真实 key）</h4>
+    <ol style="max-width:74ch">
+      <li>在 <code>/tmp</code> 隔离目录用 bun 跑 pi 二进制：<code>pi install npm:&lt;一个小公开扩展包&gt;</code> 与 <code>pi install git:github.com/…@&lt;sha&gt;</code>，确认落盘位置、是否写 <code>settings.json packages[]</code>、退出码与错误形态。</li>
+      <li>验证<b>共存</b>：装完后以 <code>--no-extensions --no-skills</code> 启动并显式注入，确认 pi 装的包与我们注入的 <code>-e</code>/<code>--skill</code> 不互相覆盖、不触发自动发现。</li>
+      <li>验证<b>离线/失败</b>：断网执行 <code>pi install</code> 的降级行为；npm/git 鉴权失败时的可恢复性。</li>
+      <li>定位 pi 读取 <code>settings.json</code> 的路径与我们 <code>spawnEnvFor</code> 注入的 env（<code>HOME</code>/工作目录）是否一致——决定 packages[] 落在哪、是否被多 workspace 串场。</li>
+    </ol>
+
+    <h4 style="font-size:.98rem;margin:18px 0 6px;color:var(--accent-text)">决策标准（spike 后二选一）</h4>
+    <ul style="max-width:74ch">
+      <li><b>借力 pi（首选，若 spike 通过）</b>：<code>pi install</code> 可控、落盘可定位、可与显式注入共存、离线失败可恢复 → 市场只写 <code>packages[]</code> + 策展/信任层，省掉整套 importer。</li>
+      <li><b>自建（回退）</b>：若 <code>pi install</code> 强制自动发现、把 <code>settings.json</code> 变成与 UI 打架的第二真相源、或离线行为不可接受 → 退回 idea 3 的 Go importer / git-repo 路线。</li>
+    </ul>
+
+    <dl class="fields">
+      <dt>Basis</dt>
+      <dd class="basis"><span class="tag external">external</span> pi 官方 <code>docs/extensions.md</code>：npm/git 包安装 + <code>package.json</code> 的 <code>pi.extensions</code> 字段 + <code>settings.json packages[]</code>。<span class="tag direct">direct</span><a href="https://github.com/rambocode/cortex-work/blob/main/apps/desktop/src/main/agents/pi-locate.ts"><code>pi-locate.ts:2</code></a> 二进制 inline 依赖闭包、spawn 执行；<code>pi.ts:57-62</code> / <code>pi-rpc.ts:201-204</code> 基线 flag 是「UI 真相源」而非禁下载；<code>pi-rpc.ts:241</code> env 经 <code>spawnEnvFor</code> 注入。</dd>
+      <dt>Rationale</dt>
+      <dd>复用上游成熟解析器省掉整套下载/依赖/校验栈，未来 pi 升级 <code>packages</code> 能力可白嫖，正是「别先建中央服务器」陷阱的最优解。深化后的核心结论：团队绕开的是「in-process import」与「自动发现」，二者都不禁止 shell 出 <code>pi install</code>——这个岔路因此值得在写任何 importer 代码<em>之前</em>用半天 spike 解决，避免重复造一套 pi 已有的轮子。</dd>
+      <dt>Downsides</dt>
+      <dd><code>pi install</code> 用全系统权限执行任意代码，信任问题不因借力消失（仍须走 idea 5 同意门）；<code>packages[]</code> 是 pi 的 lockfile，与「UI 单一真相源」存在张力——若 pi 装的包也参与自动发现，会形成第二真相源（spike 步骤 2 专门验此）；绑定 pi 的 install 实现细节，pi 版本升级可能改变行为（已 pin 0.79.2 缓解）。</dd>
+    </dl>
+  </article>
+
+  <!-- IDEA 3 -->
+  <article class="idea" id="idea3">
+    <div class="top"><div class="rank">3</div><h3>分发后端二选一：复用 Go importer（clawhub/github）vs git-repo-as-registry</h3></div>
+    <div class="chips">
+      <span class="chip axis">轴1 · 索引与分发</span>
+      <span class="chip conf">Confidence 82%</span>
+      <span class="chip cx">Complexity Med</span>
+    </div>
+    <dl class="fields">
+      <dt>Description</dt>
+      <dd>市场的「源」有两条已验证路线，应明确选型（或分阶段并存）：<b>A) 复用 Go importer</b>——<code>download.ts</code> 存根直接接线到 <code>skill.go</code> 已实现的多源解析（clawhub.ai / skills.sh / github）、配额、binary-skip、路径安全，desktop 经 <code>skills:download</code> IPC 调用，安全逻辑写在 Go 一处、desktop/web/团队侧共享。<b>B) git-repo-as-registry</b>——团队私有源就是一个含 <code>marketplace.json</code> + 各工件目录的 git 仓库，clone/pull 同步、SHA 即版本钉、PR 即策展，零中央服务（沿用 <code>userGlobalRoots</code> 已有的「订阅多个全局根」雏形）。</dd>
+      <dt>Basis</dt>
+      <dd class="basis"><span class="tag direct">direct</span><a href="https://github.com/rambocode/cortex-work/blob/main/apps/desktop/src/main/skills/download.ts"><code>download.ts:1-15</code></a> 桩注释已列全蓝本（多源/配额/二进制/路径安全/frontmatter 复用）；<code>skill.go</code> 的 <code>detectImportSource</code> 已支持 <code>github.com</code> 源并处理限流。<span class="tag external">external</span> Claude Code 的 git-repo-as-registry + <code>marketplace.json</code> + SHA pin + 双层策展是成熟范式。</dd>
+      <dt>Rationale</dt>
+      <dd>两条路都已被各自的先例验证过，区别在运维与策展模型：A 复用既有 Go 校验、即接即用、适合官方策展集；B 零后端、天然带版本/审计/PR 评审、适合团队私有源。明确表态（而非含糊地两者都做一半）能让后续所有安装/信任/更新逻辑对齐到一个 source 模型。</dd>
+      <dt>Downsides</dt>
+      <dd>A 绑定 clawhub/skills.sh 的可用性与格式；B 要求每个用户能访问该 git 源（私有仓库的鉴权）、且大仓库 clone 成本高。二者在「钉 SHA」上一致，但索引刷新与离线行为差异大。</dd>
+    </dl>
+  </article>
+
+  <!-- IDEA 4 -->
+  <article class="idea" id="idea4">
+    <div class="top"><div class="rank">4</div><h3>InstalledArtifact 安装账本 + 事务化可回滚更新</h3></div>
+    <div class="chips">
+      <span class="chip axis">轴5 · 生命周期管理</span>
+      <span class="chip conf">Confidence 85%</span>
+      <span class="chip cx">Complexity Med</span>
+    </div>
+    <dl class="fields">
+      <dt>Description</dt>
+      <dd>在 <code>PiSkillSettings</code> 旁新增一张持久的 <code>installedArtifacts: {id, kind, name, version, sourceUrl, checksum, installedAt, origin}[]</code>。它把今天「只有 enable/disable + trust + root」的薄状态补成真正的安装账本，回答「我装了什么、哪个版本、哪来的、改过没」。在此之上把安装/更新/卸载建模为<b>事务化代际切换</b>：生成新 install-set → <code>extensionFingerprint</code> 漂移触发冷重开切换 → 保留上一代以便一键回滚，更新借 <code>update.ts</code> 的用户门控状态机，<code>checksum</code> 做篡改检测、SHA 做版本钉。</dd>
+      <dt>Basis</dt>
+      <dd class="basis"><span class="tag direct">direct</span><code>evidence-lifecycle.md</code>：<code>PiSkillSettings</code>/<code>PluginSkill</code> 无 version/installedAt/source/checksum，无 delete/update IPC（卸载=手删）；<code>pi-session.ts:18-20,152-162</code> 指纹漂移即关旧重开本质上已是「代际切换」；<a href="https://github.com/rambocode/cortex-work/blob/main/server/internal/handler/skill.go"><code>skill.go:1634-1638</code></a> server 已建模 <code>origin{type,source_url,slug}</code> + version。<span class="tag external">external</span> Claude Code SHA pin；NixOS / Android A-B 的原子升级+回滚。</dd>
+      <dt>Rationale</dt>
+      <dd>没有安装账本，市场只是一次性下载器：无法管理、更新、溯源，供应链事故时连「哪些机器装了恶意版本」都查不出。复用 server 已验证的 origin/version 模型 + pi 已有的冷重开机制，一次补齐整个生命周期轴，而非散落补一堆 IPC。</dd>
+      <dt>Downsides</dt>
+      <dd>保留「上一代」需要额外磁盘与目录管理；checksum 校验要在重开前介入注入门；与 idea 1 的描述符强耦合（version/checksum 字段须先在描述符里存在）。</dd>
+    </dl>
+  </article>
+
+  <!-- IDEA 5 -->
+  <article class="idea" id="idea5">
+    <div class="top"><div class="rank">5</div><h3>安装信任体系：同意面 + origin 分层授信 + 落「默认管制专区」（并修一个计划漏洞）</h3></div>
+    <div class="chips">
+      <span class="chip axis">轴4 · 信任与安全</span>
+      <span class="chip conf">Confidence 84%</span>
+      <span class="chip cx">Complexity Med</span>
+    </div>
+    <div class="callout">
+      <div class="e">⚑ 顺带捕获的计划漏洞</div>
+      现行 <code>download.ts</code> 计划把市场内容落到 <code>userSkillsRoot()</code>，而该根在 <code>skillsRoots()</code> 里被当作<b>默认信任的 global 源</b>（<code>types.ts:412-418</code>）——按此规划，「从互联网装的代码会自动可信」，绕过了已声明的命名威胁模型。市场上线前必须纠正落地分区。
+    </div>
+    <figure>
+      <svg viewBox="0 0 720 210" role="img" aria-label="信任分区：默认信任的 global 根 vs 市场专用的默认管制区">
+        <style>
+          .ttl{font:700 13px var(--sans,sans-serif);fill:#23201b}
+          .lbl{font:12px var(--sans,sans-serif);fill:#23201b}
+          .sm{font:11px var(--sans,sans-serif);fill:#6b655c}
+        </style>
+        <rect x="20" y="30" width="200" height="150" rx="8" fill="#e6efe6" stroke="#cfe0d0"/>
+        <text x="40" y="54" class="ttl">用户自有 global 根</text>
+        <text x="40" y="74" class="sm">~/.cortex-desktop/skills</text>
+        <text x="40" y="92" class="lbl">默认信任 ✓</text>
+        <rect x="260" y="30" width="200" height="150" rx="8" fill="#f7ede0" stroke="#ecdcc4"/>
+        <text x="280" y="54" class="ttl">市场专用「管制区」</text>
+        <text x="280" y="74" class="sm">userData/market/&lt;origin&gt;/</text>
+        <text x="280" y="92" class="lbl">默认不信任 ⚠</text>
+        <text x="280" y="112" class="sm">首装弹同意面 →</text>
+        <text x="280" y="128" class="sm">记住该 origin</text>
+        <rect x="500" y="30" width="200" height="150" rx="8" fill="#e8eef3" stroke="#d3e0ea"/>
+        <text x="520" y="54" class="ttl">origin 分层授信</text>
+        <text x="520" y="76" class="sm">内置/官方策展 → 自动信任</text>
+        <text x="520" y="96" class="sm">陌生 github → 弹一次</text>
+        <text x="520" y="116" class="sm">workspace → 默认禁用</text>
+        <line x1="225" y1="105" x2="255" y2="105" stroke="#8a5a1c" stroke-width="2"/>
+        <polygon points="255,100 268,105 255,110" fill="#8a5a1c"/>
+        <text x="200" y="200" class="sm">修正前：市场内容误落左侧自动信任区 → 修正后：落中间管制区，按右侧 origin 分层决策</text>
+      </svg>
+      <figcaption>插图（方向性，非规格）：把信任从一键 <code>-a</code> 全有全无，改为按落地分区 + origin 来源分层的显式决策。</figcaption>
+    </figure>
+    <dl class="fields">
+      <dt>Description</dt>
+      <dd>三件互锁的事：(1) <b>安装即同意面</b>——点安装不静默落盘，先弹一张卡展示 origin / source_url / checksum / 声明的工具权限，确认后才写盘并加入启用集（VS Code/Obsidian 范式）。(2) <b>origin 分层自动授信</b>——内置与官方策展源自动信任，陌生 github / workspace 默认不信任、首装弹一次并记住该来源，把「逐 skill 手点」降为「按来源一次决策」。(3) <b>落默认管制专区</b>——纠正上面的漏洞，市场内容落一个默认不信任的专用根而非自动信任的 global 根。可选叠加：新装工具首启先在抛弃式「影子会话」跑探针，行为干净再正式加入信任集。</dd>
+      <dt>Basis</dt>
+      <dd class="basis"><span class="tag direct">direct</span><code>types.ts:394-396</code> 命名威胁「恶意仓库经 <code>.cortex-desktop/skills</code> + <code>-a</code> 任意代码执行」；<code>pi.ts:67</code> / <code>pi-rpc.ts:209-213</code> 一个 <code>-a</code> 一次信任全部；<code>types.ts:412-418</code> global 根恒 trusted、<code>download.ts:28</code> 落 <code>userSkillsRoot()</code>（即漏洞）。<span class="tag external">external</span> VS Code 首装信任对话框、Obsidian Restricted Mode 默认开。</dd>
+      <dt>Rationale</dt>
+      <dd>市场把「任意第三方可执行 JS 默认信任」常态化，是把现有 workspace-skill 威胁放大到全网。无法真正沙箱时，显式同意面 + 按来源分层 + 正确的落地分区是唯一现实防线；reviewed≠safe，所以信任决策必须在安装这一刻被人显式做出。</dd>
+      <dt>Downsides</dt>
+      <dd>同意面会增加安装摩擦（需在「零摩擦」与「安全」间调参，分层授信正是为此）；影子会话探针是额外构建且只能抓显式越权、抓不住潜伏逻辑；分区纠正需改动 <code>skillsRoots()</code> 的信任派生，影响面需回归测试。</dd>
+    </dl>
+  </article>
+
+  <!-- IDEA 6 -->
+  <article class="idea" id="idea6">
+    <div class="top"><div class="rank">6</div><h3>工作区内联市场——zero-remote MVP，信任即安装</h3></div>
+    <div class="chips">
+      <span class="chip axis">轴3 · 浏览与发现 UI</span>
+      <span class="chip conf">Confidence 78%</span>
+      <span class="chip cx">Complexity Low</span>
+    </div>
+    <dl class="fields">
+      <dt>Description</dt>
+      <dd>「安装=从远程下载」是个假设。一个 git 仓库里的 <code>.cortex-desktop/skills</code> 已经是一组随项目分发的工具，只是默认不可信。把它升格为「项目内联市场」：PluginManager 给工作区 skill 一个明确的「评审并信任」流——展示 frontmatter / 文件清单 diff，信任即安装。零下载、零远程目录、零新后端，却已经让团队成员互相分发工具。可作为市场的第一个可发布形态，用来在不引入远程分发风险的前提下打通发现→信任→激活的端到端链路。</dd>
+      <dt>Basis</dt>
+      <dd class="basis"><span class="tag direct">direct</span><code>types.ts:394-396</code> 工作区 skill 默认禁用需显式授信（威胁模型已就位）；<a href="https://github.com/rambocode/cortex-work/blob/main/packages/views/cortex-desktop/personal/PluginManager.tsx"><code>PluginManager.tsx:447-486</code></a> 工作区卡已有「信任并启用」动作，只缺一个让人敢按下的评审界面。</dd>
+      <dt>Rationale</dt>
+      <dd>团队协作的核心场景里工具天然随 repo 走。把既有威胁面反转成分发渠道，无需任何远程基础设施即可上线一个真实可用的市场雏形，并正面回应「reviewed≠safe」——评审入口就在信任之前。是验证整套信任/激活机制的最低风险切入点。</dd>
+      <dt>Downsides</dt>
+      <dd>仅覆盖「项目内已有」的工具，不解决跨项目发现；评审界面要呈现足够信息让用户判断（否则又退回盲信）；与远程市场（idea 3）最终需统一到同一安装/信任管线，避免两套实现。</dd>
+    </dl>
+  </article>
+
+  <!-- IDEA 7 -->
+  <article class="idea" id="idea7">
+    <div class="top"><div class="rank">7</div><h3>agent-native 自助安装——pi 缺能力时经同意面主动请求装工具</h3></div>
+    <div class="chips">
+      <span class="chip axis">轴2/3 · 安装激活 + 发现</span>
+      <span class="chip conf">Confidence 72%</span>
+      <span class="chip cx">Complexity Med</span>
+    </div>
+    <dl class="fields">
+      <dt>Description</dt>
+      <dd>反转发现方向：不让用户去逛货架，而把市场暴露为 pi 能调用的能力。当 pi 在一轮里发现缺某能力（反复声明做不到、或命中不存在的工具名），经现成的 <code>askquestion</code> 同意通道向用户请求：「市场里有 X 可以做这个，装吗？」用户一键批准 → 后台下载落地 → <code>extensionFingerprint</code> 漂移自动重开 → 下轮即生效。安装恰好发生在需要的时刻，可发现性从用户负担转为 agent 职责。</dd>
+      <dt>Basis</dt>
+      <dd class="basis"><span class="tag direct">direct</span><a href="https://github.com/rambocode/cortex-work/blob/main/apps/desktop/src/main/agents/pi-extensions.ts"><code>pi-extensions.ts:41-48,183</code></a> 生成扩展即 <code>pi.registerTool</code>，<code>askquestion</code> 是已落地的同意通道；<code>messages.ts:961-986</code> 注入门是单点，可挂「能力缺口探针」。<span class="tag reasoned">reasoned</span> 缺口探测逻辑需新增，但激活与同意两环已现成。</dd>
+      <dt>Rationale</dt>
+      <dd>这是最贴合本产品 agent-native 理念（CLAUDE.md 强调「用户能做的 agent 也能做」）的方向，且复用团队刚做完的 askquestion 同意面。把「可发现性承重墙」从一个需要建造的浏览 UI，部分转移到 agent 推理上——零浏览成本的安装。</dd>
+      <dt>Downsides</dt>
+      <dd>缺口探测易误报/滥推荐，需要克制的触发阈值与「不再提示」开关；让 agent 触发安装放大了信任面，必须严格走 idea 5 的同意门；依赖目录与下载链路（idea 1/3）先就位才有意义。</dd>
+    </dl>
+  </article>
+</section>
+
+<section>
+  <h2>Rejection Summary</h2>
+  <table>
+    <thead><tr><th>#</th><th>候选</th><th>剔除理由</th></tr></thead>
+    <tbody>
+      <tr><td class="idx">R1</td><td>独立「发现」第三 tab（远程目录 UI）</td><td>重复——合并入 #3/#6，它只是安装后端的 UI 面，无独立决策价值</td></tr>
+      <tr><td class="idx">R2</td><td>创作-发布闭环（闪记深化/ce-skill → 发布到市场）</td><td>过早——是反向（分发而非消费）流，须等目录分发先存在</td></tr>
+      <tr><td class="idx">R3</td><td>per-tool 沙箱 fork + 能力白名单</td><td>过度工程——pi flag 模型无沙箱接缝，纯 reasoned、成本高，不适合 v1（影子会话试运行思想并入 #5）</td></tr>
+      <tr><td class="idx">R4</td><td>群落信任评分卡（跨用户累积信号）</td><td>basis 被反驳——需要单机+本地扫描架构里不存在的中央信号服务，Obsidian 类比跨不过缺失的后端</td></tr>
+      <tr><td class="idx">R5</td><td>离线优先：内置策展集 extraResources + 本地镜像</td><td>过早——是部署细节，骑在 #1/#3 的分发模型上，非独立市场决策</td></tr>
+      <tr><td class="idx">R6</td><td>能力意图索引（按需求匹配，保留 clawhub tags）</td><td>过早——basis 真实（tags 确被解析层丢弃）但远超「先得有目录」的阶段</td></tr>
+      <tr><td class="idx">R7</td><td>零安装 / 渐进挂载（占位目录先注入后台补全）</td><td>机制不成立——与冷启动-only 激活模型矛盾，pi 不支持会话中途挂载</td></tr>
+    </tbody>
+  </table>
+  <p class="sm" style="color:var(--muted);font-size:.85rem">轴覆盖：五个轴均有幸存者（轴1×2、轴2×2、轴3×1+1、轴4×1、轴5×1），无空轴。</p>
+</section>
+
+<footer class="composition-signal">
+  Composed 2026-06-17 by ce-ideate · 来源：用户提示「pi 工具想要实现应用市场的方式，用户可以通过应用市场安装工具」· repo-grounded（5 份证据 dossier + web 调研）
+</footer>
+
+</div>
+</body>
+</html>
