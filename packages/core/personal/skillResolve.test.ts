@@ -3,9 +3,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopBridge } from "../desktop/bridge";
 import type { PersistedState, PiSkillSettings, PluginSkill } from "../desktop/types";
-import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS } from "../desktop/types";
+import type { PiExtensionSettings, InstalledExtensionRecord } from "../desktop/types";
+import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS, DEFAULT_PI_EXTENSIONS } from "../desktop/types";
 import { usePersonalStore } from "../store/personal";
-import { resolveEnabledSkillPaths } from "./messages";
+import { resolveEnabledSkillPaths, resolveEnabledExtensionPaths } from "./messages";
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
 
@@ -65,5 +66,48 @@ describe("resolveEnabledSkillPaths", () => {
   it("piSkillsList 抛错 → 降级 [] 不阻断", async () => {
     const bridge = { piSkillsList: vi.fn(async () => { throw new Error("boom"); }) } as unknown as DesktopBridge;
     expect(await resolveEnabledSkillPaths(bridge, "/proj", undefined)).toEqual([]);
+  });
+});
+
+// resolveEnabledExtensionPaths（U3）:仅 enabled∩trusted 的 global 已装扩展注入 -e;装≠启用、信任门。
+function setPiExt(patch: Partial<PiExtensionSettings>): void {
+  usePersonalStore.getState().hydrate({
+    ...base,
+    generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piExtensions: { ...DEFAULT_PI_EXTENSIONS, ...patch } },
+  });
+}
+function extRec(ref: string, path: string): InstalledExtensionRecord {
+  return { ref, scope: "global", sourceRef: ref, origin: ref.split(":")[0] ?? "npm", installedAt: 1, path };
+}
+
+describe("resolveEnabledExtensionPaths", () => {
+  it("仅 enabled 且 trusted 的扩展注入路径", () => {
+    setPiExt({
+      installed: [extRec("npm:a", "/e/a"), extRec("npm:b", "/e/b")],
+      enabled: ["global:npm:a", "global:npm:b"],
+      trusted: ["global:npm:a"], // b 未过信任门
+    });
+    expect(resolveEnabledExtensionPaths("/proj")).toEqual(["/e/a"]);
+  });
+
+  it("已装未启用 → 不注入（装≠启用）", () => {
+    setPiExt({ installed: [extRec("npm:a", "/e/a")], enabled: [], trusted: ["global:npm:a"] });
+    expect(resolveEnabledExtensionPaths("/proj")).toEqual([]);
+  });
+
+  it("禁用先前启用项 → 路径消失（防裸奔的解析侧）", () => {
+    setPiExt({ installed: [extRec("npm:a", "/e/a")], enabled: ["global:npm:a"], trusted: ["global:npm:a"] });
+    expect(resolveEnabledExtensionPaths("/proj")).toEqual(["/e/a"]);
+    setPiExt({ installed: [extRec("npm:a", "/e/a")], enabled: [], trusted: ["global:npm:a"] });
+    expect(resolveEnabledExtensionPaths("/proj")).toEqual([]);
+  });
+
+  it("多项排序去重", () => {
+    setPiExt({
+      installed: [extRec("npm:b", "/e/b"), extRec("npm:a", "/e/a")],
+      enabled: ["global:npm:a", "global:npm:b"],
+      trusted: ["global:npm:a", "global:npm:b"],
+    });
+    expect(resolveEnabledExtensionPaths("/proj")).toEqual(["/e/a", "/e/b"]);
   });
 });

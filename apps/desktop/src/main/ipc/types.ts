@@ -170,6 +170,7 @@ export interface InstalledExtensionRecord {
   origin: string;
   version?: string;
   installedAt: number;
+  path: string;
 }
 export interface PiExtensionSettings {
   installed: InstalledExtensionRecord[];

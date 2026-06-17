@@ -10,15 +10,16 @@ describe("pi 扩展市场 store（U2）", () => {
     ref,
     scope,
     sourceRef: ref,
-    origin: ref.split(":")[0],
+    origin: ref.split(":")[0] ?? "npm",
     version: "1.0.0",
     installedAt: 1,
+    path: `/ext/${ref.replace(/[:/@]/g, "_")}`,
   });
 
   it("hydrate 在 generalSettings 存在但缺 piExtensions 时兜 DEFAULT_PI_EXTENSIONS", () => {
     usePersonalStore.getState().hydrate({
       ...base,
-      generalSettings: { notifications: { turnComplete: true } },
+      generalSettings: { ...DEFAULT_GENERAL_SETTINGS },
     });
     expect(usePersonalStore.getState().generalSettings.piExtensions).toEqual({
       installed: [],
@@ -33,7 +34,7 @@ describe("pi 扩展市场 store（U2）", () => {
     usePersonalStore.getState().recordInstalledExtension({ ...rec("npm:foo"), version: "2.0.0" });
     const ext = usePersonalStore.getState().generalSettings.piExtensions!;
     expect(ext.installed).toHaveLength(1);
-    expect(ext.installed[0].version).toBe("2.0.0");
+    expect(ext.installed[0]?.version).toBe("2.0.0");
   });
 
   it("toggleExtension 默认禁用、opt-in 启用，按 ${scope}:${ref} 键", () => {

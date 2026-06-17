@@ -435,6 +435,8 @@ export interface InstalledExtensionRecord {
   origin: string; // 来源类型:npm | git | https | local
   version?: string; // 安装时解析到的版本（若可得）
   installedAt: number; // 安装时间戳（epoch ms）
+  // 安装时解析到的本地 -e 路径（pi list 给出;注入需要,故随记录持久化）。pi list 不再含此路径 = missing。
+  path: string;
 }
 
 export interface PiExtensionSettings {

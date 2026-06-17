@@ -542,6 +542,28 @@ describe("buildRpcArgs", () => {
     expect(args).not.toContain("--provider");
   });
 
+  it("扩展市场（U3）:extensionPaths 折入 -e 批次,与 provider/追加扩展共存,-a 仅一次", () => {
+    const args = buildRpcArgs({
+      ...base,
+      piExtensionPath: "/d/provider.js",
+      extraExtensionPaths: ["/d/approval.js"],
+      extensionPaths: ["/e/market-a.js", "/e/market-b.js"],
+      provider: { id: "deepseek", baseUrl: "https://api.deepseek.com", models: [] },
+    });
+    const eIdx = args.reduce<number[]>((acc, a, i) => (a === "-e" ? [...acc, i] : acc), []);
+    expect(eIdx).toHaveLength(4); // provider + 1 追加 + 2 市场
+    expect(args).toContain("/e/market-a.js");
+    expect(args).toContain("/e/market-b.js");
+    expect(args.filter((a) => a === "-a")).toHaveLength(1); // 整批信任只一次
+  });
+
+  it("扩展市场（U3）:仅 extensionPaths（无 provider/追加）也加 -e/-a,不加 --provider", () => {
+    const args = buildRpcArgs({ ...base, extensionPaths: ["/e/market-a.js"] });
+    expect(args.join(" ")).toContain("-e /e/market-a.js");
+    expect(args).toContain("-a");
+    expect(args).not.toContain("--provider");
+  });
+
   it("appendSystemPrompt → --append-system-prompt 透传（阶段4 持久 system prompt）", () => {
     const args = buildRpcArgs({ ...base, appendSystemPrompt: "你是资深工程师" });
     const i = args.indexOf("--append-system-prompt");
