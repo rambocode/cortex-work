@@ -8,9 +8,11 @@ vi.mock("fs", () => ({ writeFileSync: h.writeFileSync, mkdirSync: h.mkdirSync })
 import {
   DEFAULT_APPROVAL_TOOLS,
   renderApprovalExtension,
+  renderAskQuestionExtension,
   renderCustomToolExtension,
   renderSlashCommandExtension,
   writeApprovalExtension,
+  writeAskQuestionExtension,
 } from "./pi-extensions";
 
 describe("renderApprovalExtension（阶段3 U7）", () => {
@@ -67,5 +69,39 @@ describe("renderSlashCommandExtension（阶段3 U9）", () => {
     expect(src).toContain('pi.registerCommand("greet"');
     expect(src).toContain("handler:");
     expect(src).toContain("ctx.ui.notify");
+  });
+});
+
+describe("renderAskQuestionExtension（askquestion 工具）", () => {
+  it("registerTool askquestion + execute + 借 ctx.ui.input(sentinel),无 import/typebox", () => {
+    const src = renderAskQuestionExtension("@@SENT@@");
+    expect(src).toContain("pi.registerTool");
+    expect(src).toContain('name: "askquestion"');
+    expect(src).toContain("async execute(");
+    expect(src).toContain("ctx.ui.input(SENTINEL +");
+    expect(src).toContain('const SENTINEL = "@@SENT@@";');
+    expect(src).toContain("parameters: PARAMS");
+    expect(src).not.toContain("import");
+    expect(src).not.toContain("typebox");
+  });
+
+  it("execute 处理取消:value === undefined → 合法 result(不崩)", () => {
+    const src = renderAskQuestionExtension("@@SENT@@");
+    expect(src).toContain("value === undefined");
+    expect(src).toContain("用户取消了提问");
+  });
+
+  it("答案汇总逐组携带问题原文(问/答),非仅 value", () => {
+    const src = renderAskQuestionExtension("@@SENT@@");
+    expect(src).toContain("qById[g.id] = g.question");
+    expect(src).toContain('"问: "');
+  });
+
+  it("写文件:落 userData/pi-extensions/askquestion.js,mode 0600", () => {
+    const path = writeAskQuestionExtension("@@SENT@@");
+    expect(path.endsWith("askquestion.js")).toBe(true);
+    expect(h.writeFileSync).toHaveBeenCalledWith(expect.stringContaining("askquestion.js"), expect.any(String), {
+      mode: 0o600,
+    });
   });
 });

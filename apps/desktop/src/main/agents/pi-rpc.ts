@@ -12,7 +12,15 @@ import { spawn } from "child_process";
 
 import { resolvePiBinary } from "./pi-locate";
 import { safeId } from "./pi-providers";
-import type { PiOpenRequest, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "../ipc/types";
+import type {
+  AskQuestionEnvelope,
+  AskQuestionGroup,
+  AskQuestionOption,
+  PiOpenRequest,
+  PiSessionEvent,
+  PiUiRequest,
+  PiUiResponsePayload,
+} from "../ipc/types";
 
 // 从工具入参里取一段可读 detail（命令 / 路径 / 模式 / URL），过长截断。与 pi.ts 对齐。
 function toolDetail(args: unknown): string | undefined {
@@ -124,6 +132,45 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
     default:
       return null;
   }
+}
+
+// 入站信封校验（安全边界）:对 pi stdout 携带的 askquestion 信封做结构 + 尺寸/数量上限校验(与给
+// LLM 的 outbound schema 对称),越界/畸形返回 null（调用方退化为裸 input 透传 + 诊断,防超大/恶意入站)。
+const ASKQ_MAX_GROUPS = 12;
+const ASKQ_MAX_OPTIONS = 3;
+const ASKQ_MAX_STR = 4000;
+export function sanitizeAskQuestionEnvelope(parsed: unknown): AskQuestionEnvelope | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const groupsRaw = (parsed as { groups?: unknown }).groups;
+  if (!Array.isArray(groupsRaw) || groupsRaw.length === 0 || groupsRaw.length > ASKQ_MAX_GROUPS) return null;
+  const groups: AskQuestionGroup[] = [];
+  for (let i = 0; i < groupsRaw.length; i++) {
+    const g = groupsRaw[i] as Record<string, unknown> | null;
+    if (!g || typeof g !== "object") return null;
+    const optionsRaw = Array.isArray(g.options) ? g.options.slice(0, ASKQ_MAX_OPTIONS) : [];
+    const options: AskQuestionOption[] = optionsRaw.map((o) => {
+      const oo = (o ?? {}) as Record<string, unknown>;
+      const opt: AskQuestionOption = {
+        label: typeof oo.label === "string" ? oo.label.slice(0, ASKQ_MAX_STR) : String(oo.label ?? ""),
+      };
+      if (typeof oo.description === "string") opt.description = oo.description.slice(0, ASKQ_MAX_STR);
+      return opt;
+    });
+    const allowCustom = !!g.allowCustom;
+    if (options.length === 0 && !allowCustom) return null; // 组不可作答 → 拒绝
+    const group: AskQuestionGroup = {
+      id: typeof g.id === "string" ? g.id : `g${i}`,
+      question: typeof g.question === "string" ? g.question.slice(0, ASKQ_MAX_STR) : "",
+      options,
+      allowCustom,
+    };
+    if (typeof g.header === "string") group.header = g.header.slice(0, ASKQ_MAX_STR);
+    if (typeof g.recommended === "number" && g.recommended >= 0 && g.recommended < options.length) {
+      group.recommended = g.recommended;
+    }
+    groups.push(group);
+  }
+  return { groups };
 }
 
 // 子进程传输抽象。生产用 child_process（spawnPiRpc），测试注入 fake。
@@ -257,6 +304,8 @@ export class PiRpcSession {
     private readonly onEvent: (ev: PiSessionEvent, runId?: string) => void,
     // extension 经 ctx.ui.* 发起的 UI 请求（独立于事件流;阶段3 用于工具确认弹窗）。
     private readonly onUiRequest?: (req: PiUiRequest) => void,
+    // askquestion 借道:每会话高熵 sentinel。handleLine 检出 input.title 命中它 → 归一为 method:"askquestion"。
+    private readonly askQuestionSentinel?: string,
   ) {
     transport.onStdout((chunk) => this.feed(chunk));
     transport.onExit((code, stderrTail) => this.handleExit(code, stderrTail));
@@ -294,7 +343,7 @@ export class PiRpcSession {
     // extension UI 请求（pi → host，需 host 回写）：在 mapPiEvent 前专门分流——mapPiEvent 丢 id
     // 且 default→null 会吞掉。只对带 id 的请求上抛。
     if (obj?.type === "extension_ui_request" && typeof obj.id === "string") {
-      this.onUiRequest?.(obj as unknown as PiUiRequest);
+      this.onUiRequest?.(this.normalizeUiRequest(obj));
       return;
     }
     const ev = mapPiEvent(obj);
@@ -309,6 +358,26 @@ export class PiRpcSession {
   respondUi(id: string, payload: PiUiResponsePayload): void {
     if (this.stopped || this.exited) return;
     this.transport.write(JSON.stringify({ type: "extension_ui_response", id, ...payload }) + "\n");
+  }
+
+  // 把「带本会话 sentinel 的 input 请求」归一为 askquestion 富信封;否则原样返回（裸 method 不变,
+  // 既有 confirm/select/input 行为不回归）。sentinel 为每会话高熵 token,LLM 无法在裸 input 的 title
+  // 里伪造;解析/越界失败 → 可观测诊断 + 透传（由 renderer 的 cancelled 兜底),不静默吞,便于 pi 版本漂移定位。
+  private normalizeUiRequest(obj: Record<string, unknown>): PiUiRequest {
+    const sentinel = this.askQuestionSentinel;
+    if (sentinel && obj.method === "input" && typeof obj.title === "string" && obj.title.startsWith(sentinel)) {
+      const json = obj.title.slice(sentinel.length);
+      try {
+        const envelope = sanitizeAskQuestionEnvelope(JSON.parse(json));
+        if (envelope) {
+          return { type: "extension_ui_request", id: obj.id as string, method: "askquestion", envelope };
+        }
+        console.warn("[pi-askquestion] 信封校验失败(空/越界/不可作答),透传为裸 input");
+      } catch {
+        console.warn("[pi-askquestion] 信封 JSON 解析失败,透传为裸 input");
+      }
+    }
+    return obj as unknown as PiUiRequest;
   }
 
   /** 发一条命令,等带相同 id 的 response。超时或进程已退出则 reject。 */

@@ -2,11 +2,18 @@
 // pi:open 建、pi:close 销;命令转发到会话方法,归一化事件经 pi:event 推回 renderer。
 // claude/codex 仍走 cli.ts 单发管线,与本通道互不影响。
 
+import { randomUUID } from "crypto";
+
 import { ipcMain, type WebContents } from "electron";
 
 import { buildRpcArgs, spawnPiRpc, PiRpcSession, type RpcResponse } from "../agents/pi-rpc";
 import { writePiExtension } from "../agents/pi-providers";
-import { writeApprovalExtension, writeCustomToolExtension, writeSlashCommandExtension } from "../agents/pi-extensions";
+import {
+  writeApprovalExtension,
+  writeAskQuestionExtension,
+  writeCustomToolExtension,
+  writeSlashCommandExtension,
+} from "../agents/pi-extensions";
 import { spawnEnvFor } from "./cli";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 
@@ -67,7 +74,11 @@ export function registerPiSessionHandlers(): void {
     if (req.enableToolApproval) extra.push(writeApprovalExtension(req.approvalTools));
     if (req.enableSampleTools) extra.push(writeCustomToolExtension());
     if (req.enableSampleCommands) extra.push(writeSlashCommandExtension());
-    if (extra.length) req.extraExtensionPaths = extra;
+    // askquestion 常驻注入(KTD-4,无开关):每会话高熵 sentinel——extension 经它把信封塞进 input.title,
+    // PiRpcSession.handleLine 据同一 sentinel 归一为 method:"askquestion"（防 LLM 在裸 input 的 title 伪造）。
+    const askQuestionSentinel = `@@CORTEX_ASKQ:${randomUUID()}@@`;
+    extra.push(writeAskQuestionExtension(askQuestionSentinel));
+    req.extraExtensionPaths = extra;
 
     const args = buildRpcArgs(req);
     const transport = spawnPiRpc(args, {
@@ -78,6 +89,7 @@ export function registerPiSessionHandlers(): void {
       transport,
       (ev, runId) => emitEvent(req.uiSessionId, ev, runId),
       (request) => emitUiRequest(req.uiSessionId, request),
+      askQuestionSentinel,
     );
     sessions.set(req.uiSessionId, { session, sender: event.sender });
 

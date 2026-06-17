@@ -11,7 +11,7 @@ vi.mock("child_process", () => ({ spawn: (...args: unknown[]) => spawnMock(...ar
 // pi-rpc 经 ./pi-providers 引入 safeId,后者顶层 import electron app —— mock 掉避免加载真 electron。
 vi.mock("electron", () => ({ app: {} }));
 
-import { mapPiEvent, PiRpcSession, buildRpcArgs, spawnPiRpc, type RpcTransport } from "./pi-rpc";
+import { mapPiEvent, PiRpcSession, buildRpcArgs, spawnPiRpc, sanitizeAskQuestionEnvelope, type RpcTransport } from "./pi-rpc";
 import type { PiSessionEvent, PiOpenRequest } from "../ipc/types";
 
 // child_process.spawn 返回值的最小替身:child 本体是 EventEmitter（close/error 可真实 emit）,
@@ -694,5 +694,88 @@ describe("extension UI 请求路由 + respondUi 回写（阶段3 U1）", () => {
     expect(() =>
       f.emit(JSON.stringify({ type: "extension_ui_request", id: "x", method: "confirm", title: "t", message: "m" }) + "\n"),
     ).not.toThrow();
+  });
+});
+
+describe("askquestion 信封归一（U3）", () => {
+  const SENT = "@@CORTEX_ASKQ:test@@";
+  const envelope = {
+    groups: [{ question: "Q", options: [{ label: "A" }, { label: "B" }], recommended: 0, allowCustom: true }],
+  };
+
+  it("带本会话 sentinel 的 input → 归一 method:askquestion + 解析 envelope,不走事件流", () => {
+    const f = fakeTransport();
+    const onEvent = vi.fn();
+    const onUiRequest = vi.fn();
+    new PiRpcSession(f.transport, onEvent, onUiRequest, SENT);
+    f.emit(
+      JSON.stringify({ type: "extension_ui_request", id: "a1", method: "input", title: SENT + JSON.stringify(envelope) }) + "\n",
+    );
+    expect(onUiRequest).toHaveBeenCalledTimes(1);
+    const req = onUiRequest.mock.calls[0]?.[0] as { method: string; id: string; envelope: { groups: Array<Record<string, unknown>> } };
+    expect(req.method).toBe("askquestion");
+    expect(req.id).toBe("a1");
+    expect(req.envelope.groups[0]!.question).toBe("Q");
+    expect(req.envelope.groups[0]!.id).toBe("g0"); // 缺 id 补 g{i}
+    expect(req.envelope.groups[0]!.recommended).toBe(0);
+    expect(onEvent).not.toHaveBeenCalled();
+  });
+
+  it("裸 input(无 sentinel) → 仍以 method:input 上抛(既有兜底不回归)", () => {
+    const f = fakeTransport();
+    const onUiRequest = vi.fn();
+    new PiRpcSession(f.transport, vi.fn(), onUiRequest, SENT);
+    f.emit(JSON.stringify({ type: "extension_ui_request", id: "b1", method: "input", title: "普通输入" }) + "\n");
+    expect((onUiRequest.mock.calls[0]?.[0] as { method: string }).method).toBe("input");
+  });
+
+  it("伪造 sentinel / 畸形 JSON → 不改判 askquestion,透传裸 input", () => {
+    const f = fakeTransport();
+    const onUiRequest = vi.fn();
+    new PiRpcSession(f.transport, vi.fn(), onUiRequest, SENT);
+    f.emit(JSON.stringify({ type: "extension_ui_request", id: "c1", method: "input", title: SENT + "{坏 json" }) + "\n");
+    expect((onUiRequest.mock.calls[0]?.[0] as { method: string }).method).toBe("input");
+    f.emit(
+      JSON.stringify({ type: "extension_ui_request", id: "c2", method: "input", title: "@@OTHER@@" + JSON.stringify(envelope) }) + "\n",
+    );
+    expect((onUiRequest.mock.calls[1]?.[0] as { method: string }).method).toBe("input");
+  });
+
+  it("未配置 sentinel(阶段3 confirm 用法)时 confirm 不受影响", () => {
+    const f = fakeTransport();
+    const onUiRequest = vi.fn();
+    new PiRpcSession(f.transport, vi.fn(), onUiRequest); // 不传 sentinel
+    f.emit(JSON.stringify({ type: "extension_ui_request", id: "d1", method: "confirm", title: "t", message: "m" }) + "\n");
+    expect((onUiRequest.mock.calls[0]?.[0] as { method: string }).method).toBe("confirm");
+  });
+});
+
+describe("sanitizeAskQuestionEnvelope（入站校验）", () => {
+  it("正常信封 → 通过,补 id,clamp options≤3,保留 recommended", () => {
+    const env = sanitizeAskQuestionEnvelope({
+      groups: [{ question: "Q", options: [{ label: "1" }, { label: "2" }, { label: "3" }, { label: "4" }], recommended: 1 }],
+    });
+    expect(env).not.toBeNull();
+    expect(env!.groups[0]!.options).toHaveLength(3); // clamp
+    expect(env!.groups[0]!.id).toBe("g0");
+    expect(env!.groups[0]!.recommended).toBe(1);
+  });
+  it("空 groups / 非对象 → null", () => {
+    expect(sanitizeAskQuestionEnvelope({ groups: [] })).toBeNull();
+    expect(sanitizeAskQuestionEnvelope({})).toBeNull();
+    expect(sanitizeAskQuestionEnvelope(null)).toBeNull();
+  });
+  it("组数超上限 → null", () => {
+    const groups = Array.from({ length: 13 }, () => ({ question: "q", options: [{ label: "a" }] }));
+    expect(sanitizeAskQuestionEnvelope({ groups })).toBeNull();
+  });
+  it("组无选项且不允许自定义 → null(不可作答);允许自定义 → 通过", () => {
+    expect(sanitizeAskQuestionEnvelope({ groups: [{ question: "q", options: [] }] })).toBeNull();
+    const env = sanitizeAskQuestionEnvelope({ groups: [{ question: "q", options: [], allowCustom: true }] });
+    expect(env!.groups[0]!.allowCustom).toBe(true);
+  });
+  it("recommended 越界 → 丢弃(无推荐)", () => {
+    const env = sanitizeAskQuestionEnvelope({ groups: [{ question: "q", options: [{ label: "a" }], recommended: 5 }] });
+    expect(env!.groups[0]!.recommended).toBeUndefined();
   });
 });
