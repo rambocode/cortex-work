@@ -1531,6 +1531,9 @@ export function usePersonalActions(): PersonalActions {
       // pi:在 pi 侧 fork 到分支点（替代 trimAgentSession 截断会话文件）,再以新文本重发。
       // 映射失败/会话未开 → best-effort 退化:只截断 UI + 重发（pi 仍带旧记忆,阶段2 取舍）。
       if (session.agent === "pi") {
+        // 防御性:editResend 因 :1525 running 守卫在待答期不可达,但万一卡已 resolve 仍有残留,fork 前清掉,
+        // 避免旧轮卡串入新轮（覆盖「卡已 resolve、新一轮未起」的窗口）。
+        usePersonalStore.getState().clearPiUiForSession(session.id);
         const forked = await forkPiAtEditedMessage(bridge, session.id, prev, msgUid).catch(() => false);
         qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
         // fork 退化（会话未开/定位失败）→ pi 仍带旧记忆,给用户可见提示,避免「以为截断了实则没」。
@@ -1585,6 +1588,12 @@ export function usePersonalActions(): PersonalActions {
       if (!bridge || !runId) return;
       const session = store.sessions.find((x) => x.id === sessionId);
       if (session?.agent === "pi") {
+        // 待答的 askquestion/confirm 卡:abort **不会** reject pi 端 ctx.ui 的 await（rpc-mode 仅在传 signal
+        // 时挂 abort 监听）,故停止前必须对该会话每张待答卡显式回 {cancelled} 解锁 pi 的 execute 并出队,
+        // 否则残卡 + pi 永久 await。待答期 stop 是唯一可达的中断路径（editResend 被 running 守卫挡住）。
+        for (const p of store.piUiPending.filter((x) => x.uiSessionId === sessionId)) {
+          respondPiUi(bridge, sessionId, p.request.id, { cancelled: true });
+        }
         // pi:优雅打断当前轮（不杀长驻进程;收尾由 error/result 事件驱动,下面 4 秒兜底复位）。
         // try/catch 兼顾同步抛（会话未就绪）与异步拒（会话已退出）,均靠兜底复位 UI。
         try {

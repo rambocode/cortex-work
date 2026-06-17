@@ -13,6 +13,7 @@ import {
   usePersonalPiEvents,
   usePersonalPiUi,
   usePersonalStore,
+  type PiUiRequest,
   __resetPersonalMessageRunsForTest,
   __resetPiSessionsForTest,
   type DesktopBridge,
@@ -220,6 +221,29 @@ describe("stop 分叉", () => {
     });
     expect(bridge.piAbort).toHaveBeenCalledWith("s-pi");
     expect(bridge.killCli).not.toHaveBeenCalled();
+  });
+
+  it("pi stop:待答 askquestion 卡回 cancelled 解锁 pi + 出队,他会话卡不动（U6）", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "你好", []);
+    });
+    const aq = (id: string): PiUiRequest =>
+      ({ type: "extension_ui_request", id, method: "askquestion", envelope: { groups: [] } }) as unknown as PiUiRequest;
+    usePersonalStore.setState({
+      piUiPending: [
+        { uiSessionId: piSession.id, request: aq("aq1") },
+        { uiSessionId: "s-other", request: aq("aq2") },
+      ],
+    });
+    await act(async () => {
+      await result.current.stop(piSession.id);
+    });
+    expect(bridge.piUiResponse).toHaveBeenCalledWith("s-pi", "aq1", { cancelled: true });
+    // 本会话待答卡出队;后台会话 s-other 的卡保留(隔离)。
+    expect(usePersonalStore.getState().piUiPending.map((p) => p.request.id)).toEqual(["aq2"]);
   });
 
   it("claude running 中 stop → killCli,不 piAbort（R10）", async () => {
