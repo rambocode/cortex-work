@@ -27,6 +27,13 @@ describe("whoMeta — 用户本人 profile 注入", () => {
     expect(meta.avatar.avatarId).toBe("cat");
   });
 
+  it("pi agent 头像与顶部一致(PI / #4338ca / Pi),不回退成灰色 ?", () => {
+    const meta = whoMeta("pi");
+    expect(meta.name).toBe("Pi");
+    expect(meta.avatar).toEqual({ initials: "PI", bg: "#4338ca" });
+    expect(meta.agent).toBe("agent");
+  });
+
   it("profile 不影响非本人作者（agent / me-agent / 未知）", () => {
     const profile = { nickname: "阿伟", avatarId: "fox" };
     // CLI agent:与不传 profile 完全一致。

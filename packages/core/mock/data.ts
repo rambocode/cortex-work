@@ -549,6 +549,9 @@ export function whoMeta(who: string, profile?: { nickname?: string; avatarId?: s
   // 个人工作区的 CLI agent 作者。
   if (who === "claude") return { name: "Claude Code", avatar: { initials: "CC", bg: "#c96442" }, agent: "agent" };
   if (who === "codex") return { name: "Codex", avatar: { initials: "CX", bg: "#1a1916" }, agent: "agent" };
+  // pi:与顶部 PersonalChatArea 的 AGENT_AVATAR/AGENT_LABEL 一致(PI / #4338ca / "Pi"),
+  // 否则消息流头像回退成灰色「?」、与页面顶部 agent 头像不一致。
+  if (who === "pi") return { name: "Pi", avatar: { initials: "PI", bg: "#4338ca" }, agent: "agent" };
   if (who === "me-agent") return { name: "我的 Agent", avatar: { initials: "我", bg: "#1a1916" }, agent: "mine", isMe: true };
   const base = who.replace(/-agent$/, "");
   const c = findContact(base);
