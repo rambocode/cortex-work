@@ -23,6 +23,7 @@ export const COMMIT_PROMPT = "Commit the working tree changes with a sensible me
 export function GitBar({
   project,
   projectValue,
+  noProjectChosen,
   onChangeProject,
   running,
   onSend,
@@ -32,6 +33,8 @@ export function GitBar({
   project: ProjectMeta | undefined;
   // 当前 projectId（ProjectPicker 据此显示项目名;undefined = 不使用项目）。
   projectValue: string | undefined;
+  // projectValue=undefined 时:true → 选择器显示「不使用项目」,false → 显示「选择项目」占位。
+  noProjectChosen?: boolean;
   // 提供 = 项目可切换（新会话页）;不提供 = 只读项目名（会话页）。
   onChangeProject?: (id: string | undefined) => void;
   running: boolean;
@@ -158,6 +161,7 @@ export function GitBar({
           value={projectValue}
           onChange={onChangeProject ?? (() => {})}
           allowNoProject
+          noProjectChosen={noProjectChosen}
           readOnly={!onChangeProject}
           disabled={running}
           onToast={onToast}

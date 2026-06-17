@@ -29,6 +29,8 @@ function fakeBridge(extra: Partial<DesktopBridge> = {}): DesktopBridge {
     saveTimeline: async () => {},
     loadChat: async () => [],
     listTaskFiles: async () => ({ files: [], archived: [] }),
+    // 默认即「不使用项目」,发送走 ensureNoProjectDir 落到当天无项目目录。
+    ensureNoProjectDir: async () => "/docs/cortex/2026-06-17",
     ...extra,
   } as unknown as DesktopBridge;
 }
@@ -68,8 +70,33 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     expect(container.querySelector(".pw-landing-composer")).not.toBeNull();
   });
 
-  it("选中项目 + 输入 + 发送:用草稿默认 model 新建会话并 send(带空附件)", async () => {
-    renderLanding(fakeBridge());
+  it("默认不使用项目:发送走 ensureNoProjectDir 建无项目会话", async () => {
+    const ensureNoProjectDir = vi.fn(async () => "/docs/cortex/2026-06-17");
+    renderLanding(fakeBridge({ ensureNoProjectDir }));
+    fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "hello world" } });
+    fireEvent.click(screen.getByTitle("发送 (Enter)"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ensureNoProjectDir).toHaveBeenCalled();
+    const created = usePersonalStore.getState().sessions.find((s) => s.id !== "s1")!;
+    expect(created.projectId).toBeUndefined();
+    expect(created.noProjectDir).toBe("/docs/cortex/2026-06-17");
+    expect(created.agent).toBe("claude");
+    expect(created.model).toBe("sonnet");
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: created.id }),
+      "/docs/cortex/2026-06-17",
+      "hello world",
+      [],
+    );
+  });
+
+  it("显式选中项目 + 发送:在项目目录下新建会话并 send(带空附件)", async () => {
+    const { container } = renderLanding(fakeBridge());
+    // 默认「不使用项目」,先经选择器点选 alpha 项目。
+    fireEvent.click(container.querySelector(".pw-proj-picker-trigger")!);
+    fireEvent.click(screen.getByText("alpha"));
     fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "hello world" } });
     fireEvent.click(screen.getByTitle("发送 (Enter)"));
     await Promise.resolve();
@@ -99,17 +126,16 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     expect(created.model).toBe("opus");
   });
 
-  it("有项目但未选:提示先选择,不建会话不 send", async () => {
-    // 无任何会话 → latestActiveProjectId 返回 undefined,落地页默认未选项目。
-    usePersonalStore.setState({ sessions: [] });
+  it("不支持 ensureNoProjectDir 的环境:提示且不建会话不 send", async () => {
     const onToast = vi.fn();
-    renderLanding(fakeBridge(), onToast);
+    // 默认「不使用项目」但桥缺 ensureNoProjectDir(web/旧壳)→ 拒绝并提示。
+    renderLanding(fakeBridge({ ensureNoProjectDir: undefined }), onToast);
     fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "hi" } });
     fireEvent.click(screen.getByTitle("发送 (Enter)"));
     await Promise.resolve();
 
-    expect(onToast).toHaveBeenCalledWith(expect.stringContaining("请先选择项目"));
-    expect(usePersonalStore.getState().sessions).toHaveLength(0);
+    expect(onToast).toHaveBeenCalledWith(expect.stringContaining("不支持「不使用项目」"));
+    expect(usePersonalStore.getState().sessions.filter((s) => s.id !== "s1")).toHaveLength(0);
     expect(sendSpy).not.toHaveBeenCalled();
   });
 

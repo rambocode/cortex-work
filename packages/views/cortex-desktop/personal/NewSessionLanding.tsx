@@ -8,7 +8,6 @@ import {
   DEFAULT_MODEL,
   dayKey,
   defaultAgent,
-  latestActiveProjectId,
   useDesktopBridge,
   usePersonalActions,
   usePersonalStore,
@@ -28,18 +27,14 @@ export function NewSessionLanding({
 }) {
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
-  const sessions = usePersonalStore((s) => s.sessions);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const createSession = usePersonalStore((s) => s.createSession);
   const updateSession = usePersonalStore((s) => s.updateSession);
   const { send } = usePersonalActions();
 
-  // 默认选最近活跃会话所属项目;hasChosen 区分「未选」与「显式选了不使用项目」。
-  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() =>
-    latestActiveProjectId(sessions),
-  );
-  const [hasChosen, setHasChosen] = useState(false);
+  // 新会话默认「不使用项目」(selectedProjectId=undefined),可随时在 GitBar 切到具体项目。
+  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(undefined);
 
   // 会话尚未创建,草稿态承载输入框控件(默认 agent + 默认 model/provider),发送时落进 createSession。
   const [draft, setDraft] = useState(() => {
@@ -80,20 +75,15 @@ export function NewSessionLanding({
           await send(sess, selectedProject.path, trimmed, attachments);
           return;
         }
-        // selectedProjectId 为 undefined:仅当用户显式选了「不使用项目」或工作区为空时才放行。
-        if (hasChosen || projects.length === 0) {
-          if (!bridge?.ensureNoProjectDir) {
-            onToast("当前环境不支持「不使用项目」会话");
-            return;
-          }
-          const dir = await bridge.ensureNoProjectDir(dayKey(Date.now()));
-          const sess = createSession(undefined, draft.agent, draft.model, { noProjectDir: dir });
-          applyDraftPatch(sess);
-          await send(sess, dir, trimmed, attachments);
+        // selectedProjectId 为 undefined = 不使用项目:在当天的无项目工作目录下新建会话。
+        if (!bridge?.ensureNoProjectDir) {
+          onToast("当前环境不支持「不使用项目」会话");
           return;
         }
-        // 有项目但未选:提示用户先选择。
-        onToast("请先选择项目，或选「不使用项目」");
+        const dir = await bridge.ensureNoProjectDir(dayKey(Date.now()));
+        const sess = createSession(undefined, draft.agent, draft.model, { noProjectDir: dir });
+        applyDraftPatch(sess);
+        await send(sess, dir, trimmed, attachments);
       } catch (err) {
         onToast(`发送失败：${err instanceof Error ? err.message : String(err)}`);
       }
@@ -130,10 +120,8 @@ export function NewSessionLanding({
       <GitBar
         project={selectedProject}
         projectValue={selectedProjectId}
-        onChangeProject={(id) => {
-          setSelectedProjectId(id);
-          setHasChosen(true);
-        }}
+        noProjectChosen
+        onChangeProject={(id) => setSelectedProjectId(id)}
         running={false}
         onToast={onToast}
       />

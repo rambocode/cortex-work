@@ -11,6 +11,7 @@ export function ProjectPicker({
   value,
   onChange,
   allowNoProject,
+  noProjectChosen,
   disabled,
   readOnly,
   onToast,
@@ -18,6 +19,8 @@ export function ProjectPicker({
   value?: string;
   onChange: (projectId: string | undefined) => void;
   allowNoProject?: boolean;
+  // value=undefined 时:true 显示「不使用项目」(已显式选/默认),false 显示「选择项目」占位。
+  noProjectChosen?: boolean;
   disabled?: boolean;
   // 只读:仅展示当前项目名(会话页 GitBar——会话已绑定项目,不在此切换;换项目走「新会话」)。
   readOnly?: boolean;
@@ -33,12 +36,10 @@ export function ProjectPicker({
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState({ left: 0, top: 0 });
 
-  // value=undefined 时:用户已主动选「不使用项目」(noProjectPicked) 显示「不使用项目」,
-  // 否则显示「选择项目」。选了具体项目则显示项目名。
-  const [noProjectPicked, setNoProjectPicked] = useState(false);
-
+  // 选了具体项目显示项目名;value=undefined 时由 noProjectChosen 决定显示
+  // 「不使用项目」还是「选择项目」(占位)。该状态由父组件持有(与会话创建路径一致)。
   const current = useMemo(() => projects.find((p) => p.id === value), [projects, value]);
-  const label = current ? current.name : noProjectPicked ? "不使用项目" : "选择项目";
+  const label = current ? current.name : noProjectChosen ? "不使用项目" : "选择项目";
 
   const visible = useMemo(() => partitionProjects(projects).visible, [projects]);
   const list = useMemo(() => {
@@ -83,8 +84,7 @@ export function ProjectPicker({
     };
   }, [open]);
 
-  const pick = (projectId: string | undefined, picked: boolean) => {
-    setNoProjectPicked(picked);
+  const pick = (projectId: string | undefined) => {
     onChange(projectId);
     setOpen(false);
     setQuery("");
@@ -97,7 +97,7 @@ export function ProjectPicker({
         if (!path) return;
         const proj = addProject(path);
         onToast(`已添加项目 ${proj.name}`);
-        pick(proj.id, false);
+        pick(proj.id);
       } catch (err) {
         onToast(`添加失败：${err instanceof Error ? err.message : String(err)}`);
       }
@@ -163,7 +163,7 @@ export function ProjectPicker({
                 key={p.id}
                 className="pw-tb-menu-item"
                 role="menuitem"
-                onClick={() => pick(p.id, false)}
+                onClick={() => pick(p.id)}
                 title={p.path}
               >
                 <Icon.Folder size={13} />
@@ -183,10 +183,10 @@ export function ProjectPicker({
             <span>添加新项目</span>
           </button>
           {allowNoProject ? (
-            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick(undefined, true)}>
+            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick(undefined)}>
               <Icon.X size={13} />
               <span>不使用项目</span>
-              {value === undefined && noProjectPicked ? <Icon.Check size={13} /> : null}
+              {value === undefined && noProjectChosen ? <Icon.Check size={13} /> : null}
             </button>
           ) : null}
         </div>
