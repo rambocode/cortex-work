@@ -143,8 +143,10 @@ export interface RpcTransport {
  */
 export function buildRpcArgs(req: PiOpenRequest): string[] {
   const args = ["--mode", "rpc", "--no-extensions"];
-  // skills 默认禁用,仅 useOwnSkills===true 时加载（与 pi 单发 / claude adapter 对齐）。
-  if (req.useOwnSkills !== true) args.push("--no-skills");
+  // 插件管理（U4）:恒带 --no-skills 关掉 pi 自动发现,UI 为唯一真相源;已启用的 skill 由装配层
+  // 解析为 skillPaths,逐个 --skill 注入（与单发 pi.ts 同策略;实测 --no-skills 与显式 --skill 共存）。
+  args.push("--no-skills");
+  for (const p of req.skillPaths ?? []) args.push("--skill", p);
   // extension:provider（piExtensionPath）+ 阶段3 审批/样例（extraExtensionPaths）多 `-e` 共存
   // （spike 已证 --no-extensions 与多个显式 -e 共存、hook 注册）。各加一个 -e,`-a` 信任只加一次。
   const exts = [req.piExtensionPath, ...(req.extraExtensionPaths ?? [])].filter((p): p is string => !!p);

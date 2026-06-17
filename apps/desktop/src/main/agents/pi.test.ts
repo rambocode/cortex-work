@@ -38,10 +38,19 @@ describe("piAdapter.buildArgs", () => {
     expect(args).not.toContain("--append-system-prompt");
   });
 
-  it("skills:仅 useOwnSkills=true 时省略 --no-skills", () => {
+  it("插件 Skill:恒带 --no-skills（不再随 useOwnSkills 省略,UI 唯一真相源）", () => {
     expect(piAdapter.buildArgs(baseReq).args).toContain("--no-skills");
     expect(piAdapter.buildArgs({ ...baseReq, useOwnSkills: false }).args).toContain("--no-skills");
-    expect(piAdapter.buildArgs({ ...baseReq, useOwnSkills: true }).args).not.toContain("--no-skills");
+    expect(piAdapter.buildArgs({ ...baseReq, useOwnSkills: true }).args).toContain("--no-skills");
+  });
+
+  it("插件 Skill:skillPaths 逐个 --skill 注入；缺省仅 --no-skills", () => {
+    expect(piAdapter.buildArgs(baseReq).args).not.toContain("--skill");
+    const { args } = piAdapter.buildArgs({ ...baseReq, skillPaths: ["/a/code-review", "/b/bug-hunt"] });
+    expect(args).toContain("--no-skills");
+    const joined = args.join(" ");
+    expect(joined).toContain("--skill /a/code-review");
+    expect(joined).toContain("--skill /b/bug-hunt");
   });
 
   it("多轮:model / resumeSessionId / appendSystemPrompt 各自透传,prompt 仍在末位", () => {

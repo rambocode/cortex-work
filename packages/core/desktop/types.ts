@@ -594,7 +594,9 @@ export interface CliStartRequest {
   model?: string;
   resumeSessionId?: string; // 多轮续接
   appendSystemPrompt?: string; // 拖入的 prompt md 内容（skill 注入）
-  useOwnSkills?: boolean; // false → 禁用 agent 自身 skills
+  useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
+  // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildArgs 逐个 --skill 注入。
+  skillPaths?: string[];
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数
   //（claude --effort / codex model_reasoning_effort）;不支持的 agent（pi）忽略。
   effort?: ReasoningEffort;
@@ -648,7 +650,9 @@ export interface PiOpenRequest {
   uiSessionId: string; // 渲染层会话标识（一个 UI 会话 = 一个长驻 pi 进程）;复用个人会话 id。
   cwd: string;
   model?: string;
-  useOwnSkills?: boolean;
+  useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
+  // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildRpcArgs 逐个 --skill 注入。
+  skillPaths?: string[];
   // 自定义供应商:比 CliStartRequest.provider 多带 endpointFormat + per-model 能力标记
   // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置;主进程据此生成
   // extension 并注入 key。单发路径不需要高级配置,故 CliStartRequest.provider 不扩展。

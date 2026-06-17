@@ -485,9 +485,18 @@ describe("buildRpcArgs", () => {
     expect(args).not.toContain("--session");
   });
 
-  it("useOwnSkills=true 省略 --no-skills（false/缺省则保留）", () => {
-    expect(buildRpcArgs({ ...base, useOwnSkills: true })).not.toContain("--no-skills");
+  it("插件 Skill:恒带 --no-skills（不再随 useOwnSkills 省略,UI 唯一真相源）", () => {
+    expect(buildRpcArgs({ ...base, useOwnSkills: true })).toContain("--no-skills");
     expect(buildRpcArgs({ ...base, useOwnSkills: false })).toContain("--no-skills");
+  });
+
+  it("插件 Skill:skillPaths 逐个 --skill 注入；缺省仅 --no-skills", () => {
+    expect(buildRpcArgs(base)).not.toContain("--skill");
+    const args = buildRpcArgs({ ...base, skillPaths: ["/a/code-review", "/b/bug-hunt"] });
+    expect(args).toContain("--no-skills");
+    const joined = args.join(" ");
+    expect(joined).toContain("--skill /a/code-review");
+    expect(joined).toContain("--skill /b/bug-hunt");
   });
 
   it("自定义供应商:-e/-a/--provider + --model 透传", () => {

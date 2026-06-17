@@ -56,8 +56,11 @@ export const piAdapter: AgentAdapter = {
       "-p",
       "--no-extensions",
     ];
-    // skills 默认禁用,仅当用户显式打开(useOwnSkills === true)时才加载。
-    if (req.useOwnSkills !== true) args.push("--no-skills");
+    // 插件管理（U4）:恒带 --no-skills 关掉 pi 自动发现,UI 为唯一真相源;已启用的 skill
+    // 由装配层解析为 skillPaths,逐个 --skill 注入（实测 --no-skills 与显式 --skill 共存,
+    // resource-loader.js noSkills 仍 merge cliEnabledSkills/additionalSkillPaths）。
+    args.push("--no-skills");
+    for (const p of req.skillPaths ?? []) args.push("--skill", p);
     // 自定义供应商:cli.ts 已生成 extension 文件,这里用 -e 显式加载 + -a 信任
     //（实测 --no-extensions 与显式 -e 可共存）；provider id 即 pi provider 名。
     if (req.piExtensionPath) {
