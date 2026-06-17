@@ -159,4 +159,11 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     fireEvent.change(select, { target: { value: "high" } });
     expect(usePersonalStore.getState().generalSettings.piThinkingDefault).toBe("high");
   });
+
+  it("切到「插件」标签渲染插件管理器(MCP/Skill 分段)", () => {
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "插件" }));
+    expect(screen.getByRole("tab", { name: "Skill" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "MCP" })).toBeTruthy();
+  });
 });

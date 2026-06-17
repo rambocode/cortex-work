@@ -58,6 +58,7 @@ import {
 } from "../pet/designs";
 import { savePetEnabled, savePetMode, savePetWalk } from "../pet/behavior";
 import { BUILTIN_AVATARS } from "./avatars";
+import { PluginManager } from "./PluginManager";
 
 const PALETTES: PaletteOption[] = [
   { id: "clay", name: "Clay", colors: ["#c96442", "#f3e7df", "#1a1916"] },
@@ -68,7 +69,7 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
-type SettingsTab = "profile" | "general" | "providers" | "agent" | "pi" | "pet" | "timeline" | "push" | "voice";
+type SettingsTab = "profile" | "general" | "providers" | "agent" | "pi" | "plugins" | "pet" | "timeline" | "push" | "voice";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "profile", label: "个人资料", icon: <Icon.Users size={14} /> },
@@ -76,6 +77,7 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "providers", label: "供应商", icon: <Icon.Globe size={14} /> },
   { id: "agent", label: "Agent", icon: <Icon.Terminal size={14} /> },
   { id: "pi", label: "Pi", icon: <Icon.Bot size={14} /> },
+  { id: "plugins", label: "插件", icon: <Icon.Workflow size={14} /> },
   { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
   { id: "timeline", label: "时间线", icon: <Icon.Clock size={14} /> },
   { id: "push", label: "推送", icon: <Icon.Send size={14} /> },
@@ -1759,6 +1761,8 @@ export function PersonalSettingsView() {
             <TimelineSection />
           ) : tab === "push" ? (
             <PushSection />
+          ) : tab === "plugins" ? (
+            <PluginManager />
           ) : (
             <VoiceSection />
           )}
