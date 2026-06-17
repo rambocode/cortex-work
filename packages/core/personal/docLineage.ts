@@ -5,9 +5,9 @@
 
 import type { DocKind, ParsedDocMeta } from "./docMeta";
 
-export interface Lineage {
-  pipelines: ParsedDocMeta[][];
-  orphans: ParsedDocMeta[];
+export interface Lineage<T extends ParsedDocMeta = ParsedDocMeta> {
+  pipelines: T[][];
+  orphans: T[];
 }
 
 const KIND_RANK: Record<DocKind, number> = { ideation: 0, brainstorm: 1, plan: 2 };
@@ -26,7 +26,7 @@ export function extractOriginBasenames(origin: string[]): string[] {
   return out;
 }
 
-export function buildLineage(docs: ParsedDocMeta[]): Lineage {
+export function buildLineage<T extends ParsedDocMeta>(docs: T[]): Lineage<T> {
   const byBasename = new Map<string, number>(); // basename → index
   docs.forEach((d, i) => byBasename.set(d.name, i));
 
@@ -44,8 +44,8 @@ export function buildLineage(docs: ParsedDocMeta[]): Lineage {
 
   // 连通分量
   const seen = new Set<number>();
-  const pipelines: ParsedDocMeta[][] = [];
-  const orphans: ParsedDocMeta[] = [];
+  const pipelines: T[][] = [];
+  const orphans: T[] = [];
 
   for (let i = 0; i < docs.length; i++) {
     if (seen.has(i)) continue;

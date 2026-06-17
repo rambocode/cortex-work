@@ -181,6 +181,37 @@ export {
   type DeepenPrepResult,
 } from "./personal/notes";
 export {
+  docTasksKeys,
+  docTasksAvailable,
+  assembleDocTasks,
+  useDocTasks,
+  useDocTasksWatch,
+  useContinueDoc,
+  nextSkillForKind,
+  brainstormDocPath,
+  buildContinueSystemPrompt,
+  type DocMetaView,
+  type DocTasksResult,
+  type NextSkill,
+} from "./personal/docTasks";
+export {
+  parseDocMeta,
+  type DocKind,
+  type DocType,
+  type ParsedDocMeta,
+} from "./personal/docMeta";
+export {
+  normalizeStatus,
+  defaultStatusForKind,
+  stripStatusAnnotation,
+  TASK_STATUS_ORDER,
+  TASK_STATUS_LABEL,
+  STATUS_SYNONYMS,
+  type TaskStatus,
+} from "./personal/docStatus";
+export { deriveTags, topicOf, type Tag, type TagDim } from "./personal/docTags";
+export { buildLineage, extractOriginBasenames, type Lineage } from "./personal/docLineage";
+export {
   automationKeys,
   useAutomations,
   useAutomationRuns,
