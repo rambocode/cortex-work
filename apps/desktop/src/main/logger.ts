@@ -87,7 +87,7 @@ export async function initLogger(): Promise<void> {
   const log = (await getPersistedState()).generalSettings?.log;
   enabled = log?.enabled !== false;
   cleanupOldLogs(logsDir(), log?.retentionDays ?? 2, Date.now());
-  logLine("info", "Cortex Desktop 启动");
+  logLine("info", "Cortex 启动");
 }
 
 export function registerLogHandlers(): void {

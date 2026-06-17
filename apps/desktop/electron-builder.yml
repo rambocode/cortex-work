@@ -9,7 +9,7 @@
 # ⚠️ macOS 自动更新要求应用正式签名(Developer ID);未签名时 electron-updater
 #   会在下载/校验阶段报错,只能手动替换安装。
 appId: ai.cortex.work
-productName: Cortex Desktop
+productName: Cortex
 # node-pty 已由 pnpm 安装步按 onlyBuiltDependencies 重建;关掉 electron-builder 的原生重建,
 # 让签名+发布步不在持有 PAT/证书时再跑 node-gyp 原生编译(密钥按步隔离,见计划 KTD8)。
 npmRebuild: false

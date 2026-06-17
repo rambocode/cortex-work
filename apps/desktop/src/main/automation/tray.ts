@@ -31,7 +31,7 @@ export function createTray(opts: {
     if (process.platform === "darwin") image.setTemplateImage(true);
   }
   tray = new Tray(image);
-  tray.setToolTip("Cortex Desktop");
+  tray.setToolTip("Cortex");
   const menu = Menu.buildFromTemplate([
     { label: "显示主窗口", click: () => opts.onShow() },
     { type: "separator" },
