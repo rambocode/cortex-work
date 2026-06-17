@@ -119,6 +119,8 @@ export {
   type UpdateState,
   type TaskFileInfo,
   type TaskFilesResult,
+  type DocFileRaw,
+  type DocFileKind,
   type ReasoningEffort,
   type ScheduleSpec,
   type AutomationRunStatus,

@@ -11,7 +11,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
 import { PromptPanel } from "./PromptPanel";
-import { TodosView } from "./TodosView";
+import { TasksDocsView } from "./TasksDocsView";
 import { NotesView } from "./NotesView";
 
 // 右栏视图 → 顶部头标题（内容沿用现有视图名）。
@@ -96,7 +96,7 @@ export function PersonalRightPanel({
       {view === "files" ? (
         <FilesView onToast={onToast} />
       ) : view === "todos" ? (
-        <TodosView onToast={onToast} />
+        <TasksDocsView onToast={onToast} />
       ) : view === "notes" ? (
         <NotesView onToast={onToast} />
       ) : (

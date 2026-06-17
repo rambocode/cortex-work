@@ -27,6 +27,7 @@ const NO_PROJECT = "no-project";
 export interface DocMetaView extends ParsedDocMeta {
   status: TaskStatus;
   tags: Tag[];
+  mtimeMs: number; // 来自 listDocs（用于排序/相对时间显示）
 }
 
 export interface DocTasksResult {
@@ -44,7 +45,12 @@ export const docTasksKeys = {
 export function assembleDocTasks(raw: DocFileRaw[]): DocTasksResult {
   const docs: DocMetaView[] = raw.map((r) => {
     const parsed = parseDocMeta(r.head, r.path, r.kind);
-    return { ...parsed, status: normalizeStatus(parsed.statusRaw, parsed.kind), tags: deriveTags(parsed) };
+    return {
+      ...parsed,
+      mtimeMs: r.mtimeMs,
+      status: normalizeStatus(parsed.statusRaw, parsed.kind),
+      tags: deriveTags(parsed),
+    };
   });
   const { pipelines, orphans } = buildLineage(docs);
   return { docs, pipelines, orphans };
