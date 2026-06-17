@@ -8,6 +8,8 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import type { Message } from "../types";
 import type {
   AgentKind,
+  AskQuestionAnswers,
+  AskQuestionEnvelope,
   CliStreamEvent,
   HiddenHistoryMeta,
   PiSessionEvent,
@@ -1242,8 +1244,8 @@ export function usePersonalPiUi(): void {
   useEffect(() => {
     if (!bridge?.onPiUiRequest) return;
     const off = bridge.onPiUiRequest((uiSessionId, request) => {
-      // 阶段3 只渲染 confirm 模态。
-      if (request.method === "confirm") {
+      // confirm（阶段3 模态）与 askquestion（输入框上方富卡片）入队渲染。
+      if (request.method === "confirm" || request.method === "askquestion") {
         usePersonalStore.getState().pushPiUiRequest({ uiSessionId, request });
       } else if (request.method === "select" || request.method === "input" || request.method === "editor") {
         // 同属阻断式(pi await 应答)但本阶段未渲染 UI → 立即回 cancelled 解除 pi 侧 await,
@@ -1264,6 +1266,27 @@ export function respondPiUi(
 ): void {
   usePersonalStore.getState().resolvePiUiRequest(id);
   void bridge?.piUiResponse?.(uiSessionId, id, payload).catch(() => undefined);
+}
+
+// 把 AskQuestionCard 每组的选择（选项下标 或 自定义文本）按 KTD-5 互斥规则归一成 AskQuestionAnswers
+// JSON 串,经 {value} 回写 pi。custom 非空优先（自定义=「其他」);否则取选项 label。纯函数:无
+// react-dom/localStorage/process.env 依赖,可独立单测（喂结构断言结构）。
+export function serializeAskQuestionAnswers(
+  envelope: AskQuestionEnvelope,
+  selections: Record<string, { optionIndex?: number; custom?: string }>,
+): string {
+  const answers: AskQuestionAnswers["answers"] = [];
+  for (const group of envelope.groups) {
+    const sel = selections[group.id];
+    if (!sel) continue;
+    const custom = typeof sel.custom === "string" ? sel.custom.trim() : "";
+    if (custom) {
+      answers.push({ groupId: group.id, value: custom, isCustom: true });
+    } else if (sel.optionIndex != null && sel.optionIndex >= 0 && sel.optionIndex < group.options.length) {
+      answers.push({ groupId: group.id, value: group.options[sel.optionIndex]!.label, isCustom: false });
+    }
+  }
+  return JSON.stringify({ answers });
 }
 
 // 确保某 session 的消息缓存已从磁盘加载（发送前调用，防止首条写入被覆盖）。

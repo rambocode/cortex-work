@@ -12,6 +12,7 @@ import {
   beginPiRun,
   reapSessionRun,
   respondPiUi,
+  serializeAskQuestionAnswers,
   agentSessionPatch,
   buildAttachmentSystemPrompt,
   clearAgentSessionPatch,
@@ -722,5 +723,35 @@ describe("pi extension UI 待确认队列（阶段3 U5）", () => {
     });
     __handlePiEventForTest(qc, "s1", { type: "crashed", error: "退出码 1" });
     expect(usePersonalStore.getState().piUiPending).toHaveLength(0);
+  });
+});
+
+describe("serializeAskQuestionAnswers（答案聚合纯函数,U4）", () => {
+  const env = {
+    groups: [
+      { id: "g0", question: "Q0", options: [{ label: "A" }, { label: "B" }], recommended: 0, allowCustom: true },
+      { id: "g1", question: "Q1", options: [{ label: "X" }], allowCustom: true },
+    ],
+  };
+
+  it("选项作答 → value=label,isCustom=false", () => {
+    const out = JSON.parse(serializeAskQuestionAnswers(env, { g0: { optionIndex: 1 }, g1: { optionIndex: 0 } }));
+    expect(out.answers).toEqual([
+      { groupId: "g0", value: "B", isCustom: false },
+      { groupId: "g1", value: "X", isCustom: false },
+    ]);
+  });
+
+  it("自定义非空 → 覆盖选项(互斥),isCustom=true,trim", () => {
+    const out = JSON.parse(
+      serializeAskQuestionAnswers(env, { g0: { optionIndex: 0, custom: "  我的答案  " }, g1: { optionIndex: 0 } }),
+    );
+    expect(out.answers[0]).toEqual({ groupId: "g0", value: "我的答案", isCustom: true });
+    expect(out.answers[1]).toEqual({ groupId: "g1", value: "X", isCustom: false });
+  });
+
+  it("自定义空串 → 回落选项;选项越界且无自定义 → 跳过该组", () => {
+    const out = JSON.parse(serializeAskQuestionAnswers(env, { g0: { optionIndex: 0, custom: "   " }, g1: { optionIndex: 9 } }));
+    expect(out.answers).toEqual([{ groupId: "g0", value: "A", isCustom: false }]);
   });
 });

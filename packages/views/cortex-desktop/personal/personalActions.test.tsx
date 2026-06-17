@@ -287,6 +287,31 @@ describe("usePersonalPiEvents 订阅生命周期（U4）", () => {
     expect(usePersonalStore.getState().piUiPending).toHaveLength(0); // 不入队
     expect(piUiResponse).toHaveBeenCalledWith("s-pi", "sel1", { cancelled: true }); // 立即取消
   });
+
+  it("usePersonalPiUi:askquestion 入队渲染(不立即取消)", () => {
+    let emit: ((uiSessionId: string, request: unknown) => void) | undefined;
+    const onPiUiRequest = vi.fn((cb: (uiSessionId: string, request: unknown) => void) => {
+      emit = cb;
+      return () => undefined;
+    });
+    const piUiResponse = vi.fn(async () => undefined);
+    const bridge = makeBridge({ onPiUiRequest, piUiResponse });
+    const qc = new QueryClient();
+    usePersonalStore.setState({ piUiPending: [] });
+    renderHook(() => usePersonalPiUi(), { wrapper: wrapper(bridge, qc) });
+    emit!("s-pi", {
+      type: "extension_ui_request",
+      id: "aq1",
+      method: "askquestion",
+      envelope: { groups: [{ id: "g0", question: "Q", options: [{ label: "A" }], allowCustom: false }] },
+    });
+    expect(usePersonalStore.getState().piUiPending).toHaveLength(1);
+    expect(usePersonalStore.getState().piUiPending[0]).toMatchObject({
+      uiSessionId: "s-pi",
+      request: { method: "askquestion" },
+    });
+    expect(piUiResponse).not.toHaveBeenCalled(); // 不立即取消
+  });
 });
 
 describe("editResend 分叉", () => {
