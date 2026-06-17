@@ -18,10 +18,11 @@ function renderWith(bridge: DesktopBridge | null, ui: ReactElement = <PluginMana
   );
 }
 
-function fakeBridge(skills: PluginSkill[]): DesktopBridge {
+function fakeBridge(skills: PluginSkill[], createSkill?: DesktopBridge["createSkill"]): DesktopBridge {
   return {
     piSkillsList: vi.fn(async () => skills),
     openSkillDir: vi.fn(async () => ({ ok: true })),
+    createSkill: createSkill ?? vi.fn(async () => ({ ok: true })),
   } as unknown as DesktopBridge;
 }
 
@@ -96,12 +97,49 @@ describe("PluginManager", () => {
     expect(screen.getByText("MCP 管理敬请期待")).toBeTruthy();
   });
 
-  it("添加全局目录 → 写 userGlobalRoots", async () => {
+  it("管理面板:添加全局目录 → 写 userGlobalRoots", async () => {
     renderWith(fakeBridge([]));
     await screen.findByText("未发现 Skill");
+    fireEvent.click(screen.getByRole("button", { name: /管理/ })); // 展开管理面板
     fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/my/skills" } });
     fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
     expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/my/skills");
+  });
+
+  it("创建:点「创建」展开表单,填写后「添加自定义」调 createSkill", async () => {
+    const createSkill = vi.fn(async () => ({ ok: true }));
+    renderWith(fakeBridge([], createSkill));
+    await screen.findByText("未发现 Skill");
+    fireEvent.click(screen.getByRole("button", { name: /创建/ }));
+    fireEvent.change(screen.getByLabelText("Skill 名称"), { target: { value: "my-plugin" } });
+    fireEvent.change(screen.getByLabelText("基础描述"), { target: { value: "我的插件" } });
+    fireEvent.change(screen.getByLabelText("Skill 指令"), { target: { value: "你是助手" } });
+    fireEvent.click(screen.getByRole("button", { name: /添加自定义/ }));
+    await waitFor(() =>
+      expect(createSkill).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "my-plugin", description: "我的插件", body: "你是助手" }),
+      ),
+    );
+  });
+
+  it("目录选择器:选具体目录 → 统计按该目录计", async () => {
+    usePersonalStore.setState({
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        piSkills: { ...DEFAULT_PI_SKILLS, globalRoots: ["~/.agents/skills", "~/other"] },
+      },
+      projects: [],
+      activeProjectId: undefined,
+    });
+    // 两个 skill,rootPath 落在不同根。
+    const a: PluginSkill = { ...sk("a", "global", "/g/a"), rootPath: "/home/u/.agents/skills" };
+    const b: PluginSkill = { ...sk("b", "global", "/o/b"), rootPath: "/home/u/other" };
+    renderWith(fakeBridge([a, b]));
+    await screen.findByText("A");
+    expect(screen.getByText(/已扫描 2 个/)).toBeTruthy();
+    // 选 ~/.agents/skills → 只数尾段匹配的那 1 个。
+    fireEvent.change(screen.getByLabelText("选择 Skill 目录"), { target: { value: "~/.agents/skills" } });
+    expect(screen.getByText(/已扫描 1 个/)).toBeTruthy();
   });
 
   it("bridge=null（web/旧壳）→ 降级空态", () => {

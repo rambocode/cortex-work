@@ -1,7 +1,7 @@
 // pi-skills:list / pi-skills:open-dir IPC handler 单测。electron(ipcMain/shell/app) mock,
 // fs 用真实临时目录。重点验证 open-dir 的白名单路径校验（杜绝路径遍历）。
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { PluginSkill } from "./types";
@@ -43,6 +43,8 @@ afterAll(() => rmSync(base, { recursive: true, force: true }));
 const list = (args: unknown) => h.handlers.get("pi-skills:list")!({}, args) as Promise<PluginSkill[]>;
 const openDir = (args: unknown) =>
   h.handlers.get("pi-skills:open-dir")!({}, args) as Promise<{ ok: boolean; error?: string }>;
+const create = (args: unknown) =>
+  h.handlers.get("pi-skills:create")!({}, args) as { ok: boolean; error?: string; dir?: string };
 
 describe("pi-skills:list", () => {
   it("扫描全局根 → 返回带 scope 的 PluginSkill", async () => {
@@ -84,5 +86,46 @@ describe("pi-skills:open-dir 白名单校验", () => {
   it("打开白名单根自身 → ok", async () => {
     const res = await openDir({ dir: globalRoot, allowedRoots: [globalRoot] });
     expect(res.ok).toBe(true);
+  });
+});
+
+describe("pi-skills:create", () => {
+  it("合法入参 → 写 <dir>/<name>/SKILL.md（frontmatter + 正文）", () => {
+    const res = create({
+      dir: globalRoot,
+      name: "my-plugin",
+      description: "我的插件",
+      body: "你是一个助手。",
+      allowedRoots: [globalRoot],
+    });
+    expect(res.ok).toBe(true);
+    const md = readFileSync(join(globalRoot, "my-plugin", "SKILL.md"), "utf8");
+    expect(md).toContain("name: my-plugin");
+    expect(md).toContain("description: 我的插件");
+    expect(md).toContain("你是一个助手。");
+  });
+
+  it("非法名称 → 拒绝", () => {
+    const res = create({ dir: globalRoot, name: "Bad Name", description: "d", body: "b", allowedRoots: [globalRoot] });
+    expect(res.ok).toBe(false);
+    expect(existsSync(join(globalRoot, "Bad Name"))).toBe(false);
+  });
+
+  it("缺描述/正文 → 拒绝", () => {
+    expect(create({ dir: globalRoot, name: "x1", description: "", body: "b", allowedRoots: [globalRoot] }).ok).toBe(false);
+    expect(create({ dir: globalRoot, name: "x2", description: "d", body: "", allowedRoots: [globalRoot] }).ok).toBe(false);
+  });
+
+  it("同名已存在 → 拒绝（不覆盖）", () => {
+    create({ dir: globalRoot, name: "dup-skill", description: "d", body: "b", allowedRoots: [globalRoot] });
+    const res = create({ dir: globalRoot, name: "dup-skill", description: "d2", body: "b2", allowedRoots: [globalRoot] });
+    expect(res.ok).toBe(false);
+  });
+
+  it("白名单外目标 → 拒绝（路径遍历防护）", () => {
+    const evil = join(base, "evil-root");
+    const res = create({ dir: evil, name: "x", description: "d", body: "b", allowedRoots: [globalRoot] });
+    expect(res.ok).toBe(false);
+    expect(existsSync(join(evil, "x"))).toBe(false);
   });
 });

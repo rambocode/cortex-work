@@ -253,4 +253,12 @@ export interface DesktopBridge {
     workspaceDir?: string;
   }): Promise<PluginSkill[]>;
   openSkillDir?(args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }>;
+  // 在选定根下新建 skill（写 <dir>/<name>/SKILL.md）。白名单 + 名称校验,返回结果。
+  createSkill?(args: {
+    dir: string;
+    name: string;
+    description: string;
+    body: string;
+    allowedRoots: string[];
+  }): Promise<{ ok: boolean; error?: string; dir?: string }>;
 }

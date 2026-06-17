@@ -7,8 +7,8 @@
 // open-dir 自带白名单校验:目标必须落在已配置的某个根内（expand+resolve 后比对）,杜绝路径遍历。
 
 import { ipcMain, shell } from "electron";
-import { mkdirSync } from "fs";
-import { resolve, sep } from "path";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { join, resolve, sep } from "path";
 import { getSkill, listSkills, scanSkillRoots } from "../skills/registry";
 import { expandTilde, pluginSkillRoots } from "../skills/locate";
 import type { PluginSkill, SkillMeta } from "./types";
@@ -27,10 +27,31 @@ interface OpenSkillDirArgs {
   allowedRoots: string[];
 }
 
+// pi-skills:create 入参:在 dir 根下新建 <name>/SKILL.md。allowedRoots 白名单校验。
+interface CreateSkillArgs {
+  dir: string;
+  name: string;
+  description: string;
+  body: string;
+  allowedRoots: string[];
+}
+
 function isInside(parent: string, child: string): boolean {
   const p = resolve(parent);
   const c = resolve(child);
   return c === p || c.startsWith(p + sep);
+}
+
+// pi skill 名约束（与 pi loadSkills 校验对齐）:小写字母数字 + 单连字符,首尾非连字符。
+function isValidSkillName(name: string): boolean {
+  return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name);
+}
+
+// 转义 frontmatter 标量值（含冒号/引号时加引号）。
+function yamlScalar(v: string): string {
+  const s = v.replace(/\r?\n/g, " ").trim();
+  if (s === "" || /[:#"']/.test(s)) return JSON.stringify(s);
+  return s;
 }
 
 export function registerSkillsHandlers(): void {
@@ -61,4 +82,28 @@ export function registerSkillsHandlers(): void {
       }
     },
   );
+
+  // 插件管理:在选定根下新建 skill。白名单校验 + 名称合法性 + 不覆盖已存在。
+  ipcMain.handle("pi-skills:create", (_e, args: CreateSkillArgs): { ok: boolean; error?: string; dir?: string } => {
+    const name = args.name.trim();
+    if (!isValidSkillName(name)) {
+      return { ok: false, error: "名称只能用小写字母、数字和连字符（如 my-plugin）" };
+    }
+    if (!args.description.trim()) return { ok: false, error: "请填写基础描述" };
+    if (!args.body.trim()) return { ok: false, error: "请填写 Skill 指令" };
+    const root = resolve(expandTilde(args.dir));
+    const allowed = (args.allowedRoots ?? []).map((r) => expandTilde(r));
+    if (!allowed.some((r) => isInside(r, root))) return { ok: false, error: "目标目录不在允许范围内" };
+    const skillDir = join(root, name);
+    const skillMd = join(skillDir, "SKILL.md");
+    if (existsSync(skillMd)) return { ok: false, error: `已存在同名 skill：${name}` };
+    try {
+      mkdirSync(skillDir, { recursive: true });
+      const content = `---\nname: ${yamlScalar(name)}\ndescription: ${yamlScalar(args.description)}\n---\n\n${args.body.trim()}\n`;
+      writeFileSync(skillMd, content, "utf8");
+      return { ok: true, dir: skillDir };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
 }

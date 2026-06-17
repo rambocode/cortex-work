@@ -6443,3 +6443,17 @@ button.sb-row {
 .pw-plugins-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 16px; text-align: center; color: var(--text-3); }
 .pw-plugins-empty-title { font-size: 14px; font-weight: 600; color: var(--text-2); }
 .pw-plugins-empty-desc { font-size: 12.5px; color: var(--text-3); line-height: 1.5; max-width: 360px; }
+
+/* 插件管理器 U7+：顶部操作、创建表单、目录选择器 */
+.pw-plugins-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.pw-btn.is-on { background: var(--bg-active); color: var(--text-1); }
+.pw-btn-primary { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: transparent; color: var(--accent); }
+.pw-btn-primary:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.pw-dir-select { flex: 0 0 auto; max-width: 360px; }
+.pw-plugins-create { border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card-2, var(--bg-soft)); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.pw-plugins-create-row { display: flex; gap: 12px; }
+.pw-plugins-create-row > .pw-input { flex: 1 1 50%; }
+.pw-plugins-create-body { width: 100%; box-sizing: border-box; resize: vertical; }
+.pw-plugins-create-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pw-plugins-ok { font-size: 12.5px; color: var(--green, #16a34a); }
+.pw-plugins-err { font-size: 12.5px; color: var(--red, #dc2626); }

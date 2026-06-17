@@ -320,6 +320,13 @@ const personal = {
   }): Promise<PluginSkill[]> => ipcRenderer.invoke("pi-skills:list", args),
   openSkillDir: (args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("pi-skills:open-dir", args),
+  createSkill: (args: {
+    dir: string;
+    name: string;
+    description: string;
+    body: string;
+    allowedRoots: string[];
+  }): Promise<{ ok: boolean; error?: string; dir?: string }> => ipcRenderer.invoke("pi-skills:create", args),
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。
