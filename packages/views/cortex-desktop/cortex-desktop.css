@@ -6405,21 +6405,27 @@ button.sb-row {
 .pw-note-editor-time { display: block; margin-top: 6px; color: var(--text-3); }
 
 /* ── 插件管理器（U7：MCP/Skill 分段 + Skill 列表）──────────────────────────── */
-.pw-plugins { display: flex; flex-direction: column; gap: 14px; }
-.pw-plugins-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--bg-soft); align-self: flex-start; }
-.pw-seg { padding: 5px 16px; border: none; background: transparent; border-radius: 8px; font-size: 13px; color: var(--text-2); cursor: pointer; }
-.pw-seg.is-on { background: var(--bg-app); color: var(--text-1); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
-.pw-plugins-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.pw-input { flex: 1 1 200px; min-width: 0; padding: 7px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-app); color: var(--text-1); font-size: 13px; }
-.pw-input:focus { border-color: var(--accent); outline: none; }
+.pw-plugins { display: flex; flex-direction: column; gap: 16px; }
+.pw-plugins-skill { display: flex; flex-direction: column; gap: 14px; }
+.pw-plugins-tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--bg-soft); align-self: flex-start; }
+.pw-seg { padding: 7px 20px; border: none; background: transparent; border-radius: 9px; font-size: 14px; font-weight: 500; color: var(--text-2); cursor: pointer; }
+.pw-seg.is-on { background: var(--bg-app); color: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.pw-plugins-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* 输入/选择/按钮统一走「大号圆角」基线,贴合参考的通透留白。 */
+.pw-input { flex: 1 1 200px; min-width: 0; padding: 12px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-app); color: var(--text-1); font-size: 14px; }
+.pw-input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
 .pw-input::placeholder { color: var(--text-4); }
-.pw-select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-app); color: var(--text-1); font-size: 13px; }
-.pw-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-app); color: var(--text-1); font-size: 13px; cursor: pointer; }
+.pw-search { position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
+.pw-search > svg { position: absolute; left: 16px; color: var(--text-3); pointer-events: none; }
+.pw-search-input { width: 100%; padding-left: 44px; }
+.pw-select { padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-app); color: var(--text-1); font-size: 14px; cursor: pointer; }
+.pw-select-lg { flex: 0 0 auto; min-width: 120px; }
+.pw-btn { display: inline-flex; align-items: center; gap: 7px; padding: 11px 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-app); color: var(--text-1); font-size: 14px; font-weight: 500; cursor: pointer; }
 .pw-btn:hover { background: var(--bg-hover); }
 .pw-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.pw-btn-sm { padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-app); color: var(--text-2); font-size: 12px; cursor: pointer; }
+.pw-btn-sm { padding: 6px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-app); color: var(--text-2); font-size: 13px; cursor: pointer; }
 .pw-btn-sm:hover { background: var(--bg-hover); color: var(--text-1); }
-.pw-plugins-stat { font-size: 12px; color: var(--text-3); margin-left: auto; }
+.pw-plugins-stat { font-size: 13px; color: var(--text-3); margin-left: auto; }
 .pw-plugins-roots { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card-2, var(--bg-soft)); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .pw-plugins-roots-title { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
 .pw-plugins-root-row { display: flex; align-items: center; gap: 8px; }

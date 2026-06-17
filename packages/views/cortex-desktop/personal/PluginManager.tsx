@@ -220,17 +220,20 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
       </div>
 
       {/* 搜索 + 状态筛选。 */}
-      <div className="pw-plugins-toolbar">
-        <input
-          className="pw-input"
-          placeholder="搜索 Skill"
-          aria-label="搜索 Skill"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          spellCheck={false}
-        />
+      <div className="pw-plugins-toolbar pw-plugins-toolbar-search">
+        <div className="pw-search">
+          <Icon.Search size={16} />
+          <input
+            className="pw-input pw-search-input"
+            placeholder="搜索 Skill"
+            aria-label="搜索 Skill"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            spellCheck={false}
+          />
+        </div>
         <select
-          className="pw-select"
+          className="pw-select pw-select-lg"
           aria-label="状态筛选"
           value={status}
           onChange={(e) => setStatus(e.target.value as StatusFilter)}
