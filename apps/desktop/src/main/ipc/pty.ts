@@ -24,16 +24,36 @@ type PtyModule = {
 
 let ptyModule: PtyModule | null | undefined; // undefined=未尝试, null=加载失败
 
-// pnpm 安装 node-pty 预编译产物时会丢失 spawn-helper 的执行权限,
+// pnpm 安装 / asar 解包 node-pty 预编译产物时会丢失 spawn-helper 的执行权限,
 // 导致 spawn 报 "posix_spawnp failed" —— 加载时自愈。
+// 注意 node-pty 原生模块加载顺序是 build/Release > build/Debug > prebuilds/<plat>-<arch>,
+// spawn-helper 与命中的那份 .node 同目录,故三处都要补权限(旧版只 chmod prebuilds,
+// 而打包产物运行时实际命中的恰是 build/Release,自愈漏掉真正在用的那份)。
 function fixSpawnHelperPerms(): void {
   try {
     const pkgRoot = dirname(require.resolve("node-pty/package.json"));
-    const helper = join(pkgRoot, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper");
-    if (existsSync(helper)) chmodSync(helper, 0o755);
+    const candidates = [
+      join(pkgRoot, "build", "Release", "spawn-helper"),
+      join(pkgRoot, "build", "Debug", "spawn-helper"),
+      join(pkgRoot, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
+    ];
+    for (const helper of candidates) {
+      if (existsSync(helper)) chmodSync(helper, 0o755);
+    }
   } catch {
     // 平台无 helper（win32）或权限不足,忽略
   }
+}
+
+// 解析可用的登录 shell：GUI 启动可能继承到失效/被卸载的 SHELL,直接喂给 spawn 会
+// posix_spawnp failed。逐级校验存在性后回落,确保 spawn 的 file 一定可执行。
+function resolveShell(): string {
+  if (process.platform === "win32") return process.env.SHELL || "powershell.exe";
+  const candidates = [process.env.SHELL, "/bin/zsh", "/bin/bash", "/bin/sh"];
+  for (const sh of candidates) {
+    if (sh && existsSync(sh)) return sh;
+  }
+  return "/bin/sh";
 }
 
 function loadPty(): PtyModule | null {
@@ -60,32 +80,45 @@ export function registerPtyHandlers(): void {
     if (terminals.has(req.id)) return { ok: true, cwd: req.cwd };
 
     const sender = event.sender;
-    const shell = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
+    const shell = resolveShell();
     const cwd = req.cwd && existsSync(req.cwd) ? req.cwd : homedir();
     const env = { ...buildEnv(), TERM: "xterm-256color" } as Record<string, string>;
     // GUI 启动不继承 shell locale,中文路径会乱码,兜底 UTF-8。
     if (!/UTF-8/i.test(env.LC_ALL || env.LC_CTYPE || env.LANG || "")) env.LANG = "zh_CN.UTF-8";
 
-    try {
-      const proc = pty.spawn(shell, [], {
+    const spawnWith = (file: string): PtyProcess =>
+      pty.spawn(file, [], {
         name: "xterm-256color",
         cols: req.cols || 80,
         rows: req.rows || 24,
         cwd,
         env,
       });
-      terminals.set(req.id, proc);
-      proc.onData((data) => {
-        if (!sender.isDestroyed()) sender.send("pty:data", { id: req.id, data });
-      });
-      proc.onExit(({ exitCode }) => {
-        terminals.delete(req.id);
-        if (!sender.isDestroyed()) sender.send("pty:exit", { id: req.id, exitCode });
-      });
-      return { ok: true, cwd };
+
+    let proc: PtyProcess;
+    try {
+      proc = spawnWith(shell);
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      // posix_spawnp failed 等首发失败:换最小可用 shell 再试一次(shell 损坏/不可执行兜底)。
+      if (shell !== "/bin/sh" && existsSync("/bin/sh")) {
+        try {
+          proc = spawnWith("/bin/sh");
+        } catch (err2) {
+          return { ok: false, error: err2 instanceof Error ? err2.message : String(err2) };
+        }
+      } else {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
     }
+    terminals.set(req.id, proc);
+    proc.onData((data) => {
+      if (!sender.isDestroyed()) sender.send("pty:data", { id: req.id, data });
+    });
+    proc.onExit(({ exitCode }) => {
+      terminals.delete(req.id);
+      if (!sender.isDestroyed()) sender.send("pty:exit", { id: req.id, exitCode });
+    });
+    return { ok: true, cwd };
   });
 
   ipcMain.on("pty:input", (_e, { id, data }: { id: string; data: string }) => {
