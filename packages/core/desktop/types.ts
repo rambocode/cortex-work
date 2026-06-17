@@ -410,7 +410,7 @@ export interface PiSkillSettings {
 export type SkillScope = "global" | "workspace";
 
 export const DEFAULT_PI_SKILLS: PiSkillSettings = {
-  globalRoots: ["~/.agent/skills", "~/.cortex-desktop/skills"],
+  globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills"],
   userGlobalRoots: [],
   disabledSkills: [],
   trustedWorkspaceSkillDirs: [],

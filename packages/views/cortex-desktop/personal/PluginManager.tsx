@@ -239,7 +239,7 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
         <div className="pw-plugins-empty" role="status">
           <div className="pw-plugins-empty-title">未发现 Skill</div>
           <div className="pw-plugins-empty-desc">
-            把含 SKILL.md 的目录放入 ~/.agent/skills，或点上方「打开目录」后放入并刷新。
+            把含 SKILL.md 的目录放入 ~/.agents/skills，或点上方「打开目录」后放入并刷新。
           </div>
         </div>
       ) : filtered.length === 0 ? (

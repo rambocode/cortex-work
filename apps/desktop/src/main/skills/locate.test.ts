@@ -10,7 +10,7 @@ import { expandTilde, pluginSkillRoots } from "./locate";
 describe("expandTilde", () => {
   it("展开 ~ 与 ~/...", () => {
     expect(expandTilde("~")).toBe(homedir());
-    expect(expandTilde("~/.agent/skills")).toBe(join(homedir(), ".agent/skills"));
+    expect(expandTilde("~/.agents/skills")).toBe(join(homedir(), ".agents/skills"));
   });
   it("非 ~ 路径原样返回", () => {
     expect(expandTilde("/abs/path")).toBe("/abs/path");
@@ -19,12 +19,12 @@ describe("expandTilde", () => {
 });
 
 describe("pluginSkillRoots", () => {
-  const cfg = { globalRoots: ["~/.agent/skills", "~/.cortex-desktop/skills"], userGlobalRoots: ["~/extra"], workspaceEnabled: true };
+  const cfg = { globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills"], userGlobalRoots: ["~/extra"], workspaceEnabled: true };
 
   it("全局根 expand 标 scope=global,含用户自增根", () => {
     const roots = pluginSkillRoots({ ...cfg, workspaceEnabled: false });
     expect(roots).toEqual([
-      { path: join(homedir(), ".agent/skills"), scope: "global" },
+      { path: join(homedir(), ".agents/skills"), scope: "global" },
       { path: join(homedir(), ".cortex-desktop/skills"), scope: "global" },
       { path: join(homedir(), "extra"), scope: "global" },
     ]);

@@ -935,10 +935,10 @@ describe("插件 Skill 配置（piSkills）", () => {
     usePersonalStore.getState().addGlobalSkillRoot("~/my/skills");
     expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/my/skills");
     // 加内置默认根 → 无效（不重复）
-    usePersonalStore.getState().addGlobalSkillRoot("~/.agent/skills");
-    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).not.toContain("~/.agent/skills");
+    usePersonalStore.getState().addGlobalSkillRoot("~/.agents/skills");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).not.toContain("~/.agents/skills");
     // 删内置根 → 无效（仅删 userGlobalRoots）
-    usePersonalStore.getState().removeGlobalSkillRoot("~/.agent/skills");
+    usePersonalStore.getState().removeGlobalSkillRoot("~/.agents/skills");
     expect(usePersonalStore.getState().generalSettings.piSkills!.globalRoots).toEqual(DEFAULT_PI_SKILLS.globalRoots);
     // 删用户根 → 生效
     usePersonalStore.getState().removeGlobalSkillRoot("~/my/skills");
