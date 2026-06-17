@@ -636,8 +636,13 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
     const rows: { project: ProjectMeta | undefined; notes: NoteMeta[] }[] = [];
     for (const project of projects) {
       const group = byProject.get(project.id);
-      if (group && group.length > 0) rows.push({ project, notes: [...group].sort(sortByCreated) });
+      if (group && group.length > 0) {
+        rows.push({ project, notes: [...group].sort(sortByCreated) });
+        byProject.delete(project.id); // 标记已消费,剩余即「孤儿」(projectId 不在 projects)
+      }
     }
+    // 孤儿笔记(项目被删 / projects 尚未加载完)并入未归类兜底,绝不静默消失。
+    for (const group of byProject.values()) unassigned.push(...group);
     // 未归类组无内容时整组省略(隐藏标题)。
     if (unassigned.length > 0) rows.push({ project: undefined, notes: [...unassigned].sort(sortByCreated) });
     return rows;

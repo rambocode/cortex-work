@@ -146,6 +146,19 @@ describe("NotesView 列表/详情", () => {
     expect(screen.getByText("散记")).toBeInTheDocument();
   });
 
+  it("projectId 不在 projects 的孤儿闪记并入「未归类」,不静默消失", async () => {
+    // 笔记的 projectId 指向一个已不在 projects store 的项目(项目被删 / store 未加载完)。
+    const { bridge } = fakeNotesBridge([
+      note({ id: "n1", projectId: "ghost", content: "孤儿闪记甲" }),
+      note({ id: "n2", projectId: "ghost", content: "孤儿闪记乙" }),
+    ]);
+    renderNotes(bridge);
+    // 落到「未归类」兜底分组,两条都可见。
+    expect(await screen.findByText("未归类")).toBeInTheDocument();
+    expect(screen.getByText("孤儿闪记甲")).toBeInTheDocument();
+    expect(screen.getByText("孤儿闪记乙")).toBeInTheDocument();
+  });
+
   it("列表点击闪记 → 进入中心区写作面(openNoteEditor)", async () => {
     const { bridge } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "进编辑器" })]);
     renderNotes(bridge);
