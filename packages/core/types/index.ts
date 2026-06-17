@@ -100,6 +100,8 @@ export type Message =
       who: string;
       time: string;
       text: RichText;
+      active?: boolean;
+      completed?: boolean;
       uid?: string;
     }
   | {

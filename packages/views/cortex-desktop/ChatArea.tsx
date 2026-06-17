@@ -182,9 +182,22 @@ function TextMessage({
   );
 }
 
-// pi 思考流（reasoning）:可折叠的「思考过程」块,弱化样式区别于正文。默认展开,可点击收起。
-function ReasoningMessage({ m, grouped }: { m: Extract<Message, { kind: "reasoning" }>; grouped: boolean }) {
-  const [open, setOpen] = useState(true);
+// pi 思考流（reasoning）:可折叠的「思考过程」块,弱化样式区别于正文。
+function ReasoningMessage({
+  m,
+  grouped,
+  collapsible = false,
+}: {
+  m: Extract<Message, { kind: "reasoning" }>;
+  grouped: boolean;
+  // 个人工作区:运行中默认展开,结束/历史默认收起,点击标题可展开/收起。
+  collapsible?: boolean;
+}) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    setUserOpen(null);
+  }, [collapsible, m.uid, m.active]);
+  const open = userOpen ?? (collapsible ? m.active === true : true);
   return (
     <div className={`msg ${grouped ? "is-grouped" : ""}`}>
       <MessageAvatar who={m.who} />
@@ -193,7 +206,7 @@ function ReasoningMessage({ m, grouped }: { m: Extract<Message, { kind: "reasoni
         <div className="reasoning-block">
           <div
             className="rb-h"
-            onClick={() => setOpen(!open)}
+            onClick={() => setUserOpen(!open)}
             style={{ cursor: "pointer", userSelect: "none" }}
           >
             <Icon.Sparkle size={12} />
@@ -421,6 +434,7 @@ export function MessageStream({
   onApprove,
   markdownBodies = false,
   collapsibleLogs = false,
+  collapsibleReasoning = false,
   leadingContent,
   renderTextTail,
   hideTextTime = false,
@@ -435,6 +449,7 @@ export function MessageStream({
   // 个人工作区:agent 文本按 Markdown 渲染、工具日志可折叠。团队侧保持原样。
   markdownBodies?: boolean;
   collapsibleLogs?: boolean;
+  collapsibleReasoning?: boolean;
   leadingContent?: ReactNode;
   renderTextTail?: (message: Extract<Message, { kind: "text" }>) => ReactNode;
   // 个人工作区:文本消息头部不显示时间(时间改放到底部操作行)。
@@ -522,7 +537,7 @@ export function MessageStream({
               />
             );
           case "reasoning":
-            return <ReasoningMessage key={key} m={m} grouped={grouped} />;
+            return <ReasoningMessage key={key} m={m} grouped={grouped} collapsible={collapsibleReasoning} />;
           case "agentLog":
             return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
           case "diff":

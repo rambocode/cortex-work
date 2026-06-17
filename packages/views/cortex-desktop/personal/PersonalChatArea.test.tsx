@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore, useCortexUIStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
+import { MessageStream } from "../ChatArea";
 import { PersonalChatArea } from "./PersonalChatArea";
 
 const NOW = Date.now();
@@ -26,6 +27,31 @@ function renderAreaWithChat(messages: Message[]) {
   return render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
       <PersonalChatArea onToast={() => {}} />
+    </CoreProvider>,
+  );
+}
+
+function renderMessageStream(messages: Message[]) {
+  return render(
+    <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+      <MessageStream
+        contact={{
+          id: "pi",
+          name: "Pi",
+          group: "shared",
+          avatar: { initials: "PI", bg: "#4338ca" },
+          agentStatus: "online",
+          statusText: "",
+          last: "",
+          time: "",
+          unread: 0,
+        }}
+        convo={{ headerStatus: { dot: "online", text: "" }, metaRow: [], messages }}
+        onSelectFile={() => {}}
+        activeFile=""
+        onApprove={() => {}}
+        collapsibleReasoning
+      />
     </CoreProvider>,
   );
 }
@@ -211,15 +237,23 @@ describe("PersonalChatArea pi 渲染：reasoning 块 + 运行时状态（U5）",
     });
   });
 
-  it("reasoning 消息渲染为「思考过程」块,展示思考文本", async () => {
+  it("运行中的 reasoning 消息默认展开,展示思考文本", () => {
+    renderMessageStream([{ kind: "reasoning", who: "pi", time: "12:00", uid: "r1", text: "让我想想这个问题", active: true }]);
+    expect(screen.getByText("思考过程")).toBeInTheDocument();
+    expect(screen.getByText("让我想想这个问题")).toBeInTheDocument();
+  });
+
+  it("历史 reasoning 消息默认收起,点击后展开思考正文", async () => {
     renderAreaWithChat([{ kind: "reasoning", who: "pi", time: "12:00", uid: "r1", text: "让我想想这个问题" }]);
-    expect(await screen.findByText("思考过程")).toBeInTheDocument();
+    const head = await screen.findByText("思考过程");
+    expect(screen.queryByText("让我想想这个问题")).toBeNull();
+    fireEvent.click(head);
     expect(screen.getByText("让我想想这个问题")).toBeInTheDocument();
   });
 
   it("点「思考过程」头部可折叠隐藏思考正文", async () => {
-    renderAreaWithChat([{ kind: "reasoning", who: "pi", time: "12:00", uid: "r1", text: "思考内容X" }]);
-    const head = await screen.findByText("思考过程");
+    renderMessageStream([{ kind: "reasoning", who: "pi", time: "12:00", uid: "r1", text: "思考内容X", active: true }]);
+    const head = screen.getByText("思考过程");
     expect(screen.getByText("思考内容X")).toBeInTheDocument();
     fireEvent.click(head);
     expect(screen.queryByText("思考内容X")).toBeNull();

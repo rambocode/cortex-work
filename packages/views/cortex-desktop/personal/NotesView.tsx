@@ -14,6 +14,7 @@ import {
   useUpdateNote,
   useDeleteNote,
   useDeepenNotes,
+  useCancelDeepen,
   useGeneratePlan,
 } from "@cortex-work/core";
 import type { DesktopBridge, NoteMeta, ProjectMeta } from "@cortex-work/core";
@@ -170,10 +171,12 @@ function NoteDetail({
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
   const generatePlan = useGeneratePlan();
+  const cancelDeepen = useCancelDeepen();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note.content);
   const [saving, setSaving] = useState(false);
   const [planning, setPlanning] = useState(false);
+  const [abandoning, setAbandoning] = useState(false);
   // 内联打开的深化产物文档(磁盘 .md);null = 未展开任何产物。
   const [openDoc, setOpenDoc] = useState<string | null>(null);
   const gutterRef = useRef<HTMLDivElement | null>(null);
@@ -220,11 +223,16 @@ function NoteDetail({
   // prepareDeepenNotes 硬拦无法重试。提供用户可控回落出口:置回 draft 后可重新深化。
   // 刻意不做自动回落,以免误丢已产出的文档链接(docPaths/conversationIds 全部保留)。
   const abandonDeepen = async () => {
+    if (abandoning) return;
+    setAbandoning(true);
     try {
-      await updateNote.mutateAsync({ id: note.id, patch: { status: "draft" } });
+      // 复用 cancelDeepen:同时终止底层深化 run(僵尸 codex)并回落 draft,不只改状态。
+      await cancelDeepen([note.id]);
       onToast("已放弃深化,闪记回到草稿");
     } catch (err) {
       onToast(`放弃深化失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAbandoning(false);
     }
   };
 
@@ -284,7 +292,7 @@ function NoteDetail({
                   className="pw-tl-gen"
                   title="放弃深化,把闪记回落为草稿后可重新深化"
                   onClick={() => void abandonDeepen()}
-                  disabled={updateNote.isPending}
+                  disabled={abandoning}
                 >
                   <Icon.Back size={12} />
                   放弃深化
@@ -591,6 +599,7 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   const { data: notes = [], isLoading } = useAllNotes();
   const updateNote = useUpdateNote();
   const deepenNotes = useDeepenNotes();
+  const cancelDeepen = useCancelDeepen();
   // 点击列表某条闪记 → 进入中心区宽写作面(占据 .pw-center-col);
   // 右栏内 NoteDetail 仅保留给跨栏 requestNoteDetail 速览(时间线卡片跳转,不抢占中心区)。
   const openNoteEditor = usePersonalStore((s) => s.openNoteEditor);
@@ -603,6 +612,9 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   // 深化触发在途态(仿 NoteDetail 的 planning/saving):onDeepen 进行中禁用按钮,
   // 堵住「触发后到 notesUpdate(deepening) 落库前」的极窄窗口被极快二次点击绕过 already-deepening 拦截。
   const [deepening, setDeepening] = useState(false);
+  // 「取消并重新深化」两段式确认态(仿 ConfirmDelete):所选含「深化中」(上次可能卡住)时,
+  // 首次点击只切到确认态,再次点击才取消旧深化并重发。失焦/清空选择即撤销。
+  const [confirmReDeepen, setConfirmReDeepen] = useState(false);
 
   // 跨栏跳转:消费 store 请求,在右栏打开该闪记详情(消费即清,仿 TodosView)。
   const noteDetailRequest = usePersonalStore((s) => s.noteDetailRequest);
@@ -689,8 +701,18 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   const onDeepen = async () => {
     const ids = [...selectedIds];
     if (ids.length === 0 || deepening) return;
+    // 所选里「深化中」的(上次深化可能卡住 / renderer 重载后孤儿态):需先取消旧深化再重发。
+    const stuckIds = ids.filter((id) => notes.find((n) => n.id === id)?.status === "deepening");
+    // 两段式确认:首次点击只进入「取消并重新深化？」确认态,不立即动作。
+    if (stuckIds.length > 0 && !confirmReDeepen) {
+      setConfirmReDeepen(true);
+      return;
+    }
+    setConfirmReDeepen(false);
     setDeepening(true);
     try {
+      // 先终止僵尸深化 run 并把卡住闪记回落 draft(killCli 对已丢失 runId 安全 no-op),再重发。
+      if (stuckIds.length > 0) await cancelDeepen(stuckIds);
       await deepenNotes(ids, onToast);
       // 成功触发后清空多选并退出列表多选态（已切到新会话）。
       setSelectedIds(new Set());
@@ -751,14 +773,20 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
           <div className="spacer" />
           <button
             className="pw-tl-gen"
-            onClick={() => { setSelectedIds(new Set()); setSelectedProjectKey(undefined); }}
+            onClick={() => { setSelectedIds(new Set()); setSelectedProjectKey(undefined); setConfirmReDeepen(false); }}
             disabled={deepening}
           >
             取消
           </button>
-          <button className="pw-tl-gen" onClick={() => void onDeepen()} disabled={deepening}>
+          <button
+            className={`pw-tl-gen ${confirmReDeepen ? "is-confirming" : ""}`}
+            title={confirmReDeepen ? "取消正在进行的深化并用当前 agent 重新深化" : undefined}
+            onClick={() => void onDeepen()}
+            onBlur={() => setConfirmReDeepen(false)}
+            disabled={deepening}
+          >
             <Icon.Sparkle size={12} />
-            {deepening ? "深化中…" : `深化 ${selectedIds.size} 条`}
+            {deepening ? "深化中…" : confirmReDeepen ? "取消并重新深化？" : `深化 ${selectedIds.size} 条`}
           </button>
         </div>
       ) : null}

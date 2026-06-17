@@ -55,7 +55,7 @@ export const useCortexUIStore = create<CortexUIState>((set) => ({
   activeContactId: "wangyutong",
   activeFile: "desktop/src/sidebar/ContactList.tsx",
   search: "",
-  rightOpen: true,
+  rightOpen: false,
   openTabs: ["desktop/src/sidebar/ContactList.tsx"],
   tweaks: { ...DEFAULT_TWEAKS },
   toasts: [],

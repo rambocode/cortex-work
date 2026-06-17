@@ -7,6 +7,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { useCortexUIStore } from "@cortex-work/core";
 import { useCloseRightPanelOnHome } from "./PersonalWorkspace";
 
+describe("个人工作区右栏默认状态", () => {
+  it("默认不展开右栏,避免启动后挤压新会话页", () => {
+    expect(useCortexUIStore.getInitialState().rightOpen).toBe(false);
+  });
+});
+
 describe("useCloseRightPanelOnHome 进入落地页收起右栏", () => {
   beforeEach(() => {
     // 每例从「右栏打开」起步,验证 hook 是否按预期关闭。

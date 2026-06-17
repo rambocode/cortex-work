@@ -505,9 +505,28 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     const reasoning = msgs.filter((m) => m.kind === "reasoning");
     const texts = msgs.filter((m) => m.kind === "text" && m.who === "pi");
     expect(reasoning).toHaveLength(1);
-    expect(reasoning[0]).toMatchObject({ text: "先想想再想想" });
+    expect(reasoning[0]).toMatchObject({ text: "先想想再想想", active: false, completed: true });
     expect(texts).toHaveLength(1);
     expect(texts[0]).toMatchObject({ text: "答案" });
+  });
+
+  it("reasoning 未结束前保持 active,供 UI 默认展开", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "先想想" });
+    const reasoning = cacheOf(qc).find((m) => m.kind === "reasoning");
+    expect(reasoning).toMatchObject({ text: "先想想", active: true });
+  });
+
+  it("tool-start 会收尾当前 reasoning,再追加工具卡片", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "先想工具" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    const reasoning = cacheOf(qc).find((m) => m.kind === "reasoning");
+    const log = cacheOf(qc).find((m) => m.kind === "agentLog");
+    expect(reasoning).toMatchObject({ active: false, completed: true });
+    expect(log).toMatchObject({ kind: "agentLog", active: true });
   });
 
   it("tool-start + tool-end(同 toolCallId) 折叠为一张卡片并翻 check", () => {
@@ -546,13 +565,29 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1");
   });
 
+  it("result(willRetry:true) 会收尾本次 reasoning,下一次 reasoning 开新块", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "第一次" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true });
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "第二次" });
+    const reasoning = cacheOf(qc).filter((m) => m.kind === "reasoning");
+    expect(reasoning).toHaveLength(2);
+    expect(reasoning[0]).toMatchObject({ text: "第一次", active: false, completed: true });
+    expect(reasoning[1]).toMatchObject({ text: "第二次", active: true });
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1");
+  });
+
   it("error 事件 → ⚠️ 气泡;aborted → 中断轻提示", () => {
     const qc = new QueryClient();
     setupPiRun(qc, "s1");
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "出错前思考" });
     __handlePiEventForTest(qc, "s1", { type: "error", error: "401 unauthorized" });
     const err = cacheOf(qc).find((m) => m.kind === "text" && typeof m.text === "string" && m.text.startsWith("⚠️"));
     expect(err?.kind === "text" && err.text).toContain("执行出错");
     expect(err?.kind === "text" && err.text).toContain("供应商");
+    const reasoning = cacheOf(qc).find((m) => m.kind === "reasoning");
+    expect(reasoning).toMatchObject({ active: false, completed: true });
 
     const qc2 = new QueryClient();
     setupPiRun(qc2, "s2", "prun-2");
@@ -565,9 +600,12 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     usePersonalStore.getState().setPiRuntime("s1", { steering: 2 });
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "崩溃前思考" });
     __handlePiEventForTest(qc, "s1", { type: "crashed", error: "退出码 1" });
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
     expect(usePersonalStore.getState().piRuntimeBySession.s1).toBeUndefined();
+    const reasoning = cacheOf(qc).find((m) => m.kind === "reasoning");
+    expect(reasoning).toMatchObject({ active: false, completed: true });
     const crash = cacheOf(qc).find((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("已退出"));
     expect(crash).toBeTruthy();
   });

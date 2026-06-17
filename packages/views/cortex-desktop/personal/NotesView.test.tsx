@@ -61,6 +61,8 @@ function fakeNotesBridge(initial: NoteMeta[], docFiles: Record<string, string> =
     }),
     // run 收尾产出探测:集成测试不真跑 CLI（startCli 只记录,不触发 cli:exit → finalize）,默认 false。
     fileExists: async () => false,
+    // 取消深化(cancelDeepen)会对仍有 runId 的深化会话 killCli;集成测试只记录不真杀。
+    killCli: vi.fn(async () => {}),
   } as unknown as DesktopBridge;
   return { bridge, store, calls, files };
 }
@@ -267,6 +269,43 @@ describe("NotesView 列表/详情", () => {
     // 种子按 createdAt 升序:想法乙(更早)在想法甲之前。
     const sp = calls.startCli[0]!.appendSystemPrompt ?? "";
     expect(sp.indexOf("想法乙")).toBeLessThan(sp.indexOf("想法甲"));
+  });
+
+  it("选中含「深化中」闪记点深化:两段式确认 → 取消旧深化(killCli+回落 draft)后用当前 agent 重发", async () => {
+    // 上次 codex 深化卡住:n1 仍 deepening,关联会话 cStuck 仍有活跃 run。
+    const { bridge, store, calls } = fakeNotesBridge([
+      note({ id: "n1", projectId: "p1", content: "卡住的想法", status: "deepening", conversationIds: ["cStuck"] }),
+    ]);
+    usePersonalStore.setState((s) => ({
+      sessions: [
+        ...s.sessions,
+        { id: "cStuck", projectId: "p1", title: "卡住深化", agent: "codex" as const, model: "", createdAt: NOW, updatedAt: NOW },
+      ],
+      runningBySession: { cStuck: "run-stuck" }, // 模拟僵尸 codex run
+    }));
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+        <NotesView onToast={() => {}} />
+      </CoreProvider>,
+    );
+
+    fireEvent.click(await screen.findByTitle("选择「卡住的想法」"));
+    // 第一次点击:进入「取消并重新深化？」确认态,不立即动作。
+    const deepenBtn = await screen.findByRole("button", { name: /深化 1 条/ });
+    fireEvent.click(deepenBtn);
+    const confirmBtn = await screen.findByRole("button", { name: /取消并重新深化/ });
+    expect(calls.startCli.length).toBe(0); // 仅确认态,尚未重发
+
+    // 第二次点击:取消旧深化(killCli 终止僵尸 run)→ 回落 draft → 用当前 agent 重新深化。
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => expect((bridge.killCli as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("run-stuck"));
+    expect(usePersonalStore.getState().runningBySession.cStuck).toBeUndefined();
+    // 重发:新建会话并发起 CLI(说明锁已解除、未被 already-deepening 拦死)。
+    await waitFor(() => expect(calls.startCli.length).toBe(1));
+    const newSessionId = usePersonalStore.getState().activeSessionId!;
+    expect(newSessionId).not.toBe("cStuck");
+    expect(store.get("n1")?.conversationIds).toContain(newSessionId);
   });
 
   it("跨项目选择互斥:选中 p2 的项后只保留 p2(p1 取消)", async () => {
@@ -530,6 +569,8 @@ describe("NotesView 深化健壮性", () => {
       agentsAvailable: { claude: true },
       noteDetailRequest: undefined,
       noteEditorId: undefined,
+      // 清空跨测试残留的 running 映射(前序深化集成测试 setRunning 会留痕,影响 cancelDeepen)。
+      runningBySession: {},
     });
   });
 

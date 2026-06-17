@@ -157,11 +157,20 @@ export const RESULT_EXIT_GRACE_MS = 1_000;
 
 const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
-// typing 占位文案:阶段 + 等待时长(5 秒以上才显示,避免一闪而过的数字)。
+// 启动阶段等待超此阈值仍无任何响应 → 在 typing 文案追加可操作提示(避免用户对着干等的
+// 秒数无所适从)。codex 首响应可能很慢,90s 才超时,这里更早给出「放弃/换 agent」出口提示。
+export const RUN_START_HINT_MS = 30_000;
+
+// typing 占位文案:阶段 + 等待时长(5 秒以上才显示,避免一闪而过的数字)。启动阶段久等
+// 追加可操作提示(深化卡住时引导用户去详情「放弃深化」后重试或换 agent)。
 export function typingText(agent: AgentKind, phase: "starting" | "thinking", waitedMs: number): string {
   const base = phase === "starting" ? `正在启动 ${AGENT_NAME[agent]}…` : `${AGENT_NAME[agent]} 正在思考…`;
   const secs = Math.floor(waitedMs / 1000);
-  return secs >= 5 ? `${base}已等待 ${secs} 秒` : base;
+  const text = secs >= 5 ? `${base}已等待 ${secs} 秒` : base;
+  if (phase === "starting" && waitedMs >= RUN_START_HINT_MS) {
+    return `${text}（启动较慢,若长时间无响应可在闪记详情点「放弃深化」后重试,或切换其它 agent）`;
+  }
+  return text;
 }
 
 function stopWatchdog(run: RunState): void {
@@ -254,11 +263,15 @@ export function createHiddenHistory(messages: Message[], now = Date.now()): Hidd
 const SAVE_THROTTLE_MS = 600;
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-// 落盘前清理瞬态:typing 丢弃,运行中的 agentLog 标记完成（重启后不会有悬挂 spinner）。
+// 落盘前清理瞬态:typing 丢弃,运行中的 agentLog/reasoning 标记完成（重启后不会有悬挂展开态）。
 function sanitizeForSave(messages: Message[]): Message[] {
   return messages
     .filter((m) => m.kind !== "typing")
-    .map((m) => (m.kind === "agentLog" && m.active ? { ...m, active: false, completed: true } : m));
+    .map((m) => {
+      if (m.kind === "agentLog" && m.active) return { ...m, active: false, completed: true };
+      if (m.kind === "reasoning" && m.active) return { ...m, active: false, completed: true };
+      return m;
+    });
 }
 
 function flushChat(qc: QueryClient, sessionId: string): void {
@@ -294,14 +307,20 @@ function dropMsg(qc: QueryClient, sessionId: string, msgUid: string): void {
   setMessages(qc, sessionId, (prev) => prev.filter((m) => m.uid !== msgUid));
 }
 
-// 清掉某 session 的全部 typing 占位 + 把仍在运行的 agentLog 收尾。
+// 清掉某 session 的全部 typing 占位 + 把仍在运行的 agentLog/reasoning 收尾。
 function clearTransient(qc: QueryClient, sessionId: string): void {
   setMessages(qc, sessionId, (prev) =>
     prev
       .filter((m) => m.kind !== "typing")
-      .map((m) =>
-        m.kind === "agentLog" && m.active ? { ...m, active: false, completed: true, title: "Agent 执行完成" } : m,
-      ),
+      .map((m) => {
+        if (m.kind === "agentLog" && m.active) {
+          return { ...m, active: false, completed: true, title: "Agent 执行完成" };
+        }
+        if (m.kind === "reasoning" && m.active) {
+          return { ...m, active: false, completed: true };
+        }
+        return m;
+      }),
   );
 }
 
@@ -339,6 +358,14 @@ export function finalizeAgentLog(messages: Message[], logUid: string): Message[]
         }
       : m,
   );
+}
+
+function finalizeReasoning(messages: Message[], reasoningUid?: string): Message[] {
+  return messages.map((m) => {
+    if (m.kind !== "reasoning") return m;
+    if (reasoningUid ? m.uid !== reasoningUid : !m.active) return m;
+    return { ...m, active: false, completed: true };
+  });
 }
 
 // 折叠单个 text/tool 事件到消息数组尾部,返回新数组 + 新游标（纯函数,便于单测）。
@@ -734,14 +761,29 @@ function foldReasoning(qc: QueryClient, run: RunState, delta: string): void {
     run.reasoningText = text;
     const ruid = run.reasoningUid;
     setMessages(qc, sessionId, (prev) =>
-      prev.map((m) => (m.uid === ruid && m.kind === "reasoning" ? { ...m, text } : m)),
+      prev.map((m) => (m.uid === ruid && m.kind === "reasoning" ? { ...m, text, active: true } : m)),
     );
     return;
   }
   const ruid = uid("re");
   run.reasoningUid = ruid;
   run.reasoningText = delta;
-  appendMsg(qc, sessionId, { kind: "reasoning", who: run.agent, time: realHHMM(), text: delta, uid: ruid });
+  appendMsg(qc, sessionId, {
+    kind: "reasoning",
+    who: run.agent,
+    time: realHHMM(),
+    text: delta,
+    active: true,
+    uid: ruid,
+  });
+}
+
+function finalizeRunReasoning(qc: QueryClient, run: RunState): void {
+  if (!run.reasoningUid) return;
+  const reasoningUid = run.reasoningUid;
+  setMessages(qc, run.sessionId, (prev) => finalizeReasoning(prev, reasoningUid));
+  run.reasoningUid = undefined;
+  run.reasoningText = undefined;
 }
 
 // tool-end:把当前 agentLog 卡片里最后一个 running 项翻 check;出错则文本前缀 ⚠️。
@@ -860,6 +902,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
     case "text":
       usePetStore.getState().set("replying");
       dropMsg(qc, sessionId, run.typingUid);
+      finalizeRunReasoning(qc, run);
       run.buffer += ev.delta;
       run.sawText = true;
       foldIntoCache(qc, sessionId, run, { type: "text", delta: ev.delta });
@@ -867,6 +910,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
     case "tool-start": {
       usePetStore.getState().set("working");
       dropMsg(qc, sessionId, run.typingUid);
+      finalizeRunReasoning(qc, run);
       const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
       if (changed) (run.changedFiles ??= new Set()).add(changed);
       foldIntoCache(qc, sessionId, run, { type: "tool", name: ev.name, detail: ev.detail });
@@ -884,6 +928,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
     case "error":
       run.resultOk = false;
       dropMsg(qc, sessionId, run.typingUid);
+      finalizeRunReasoning(qc, run);
       if (/^aborted$/i.test(ev.error)) {
         appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: "⏹ 已中断本轮。", uid: uid("err") });
       } else {
@@ -899,15 +944,15 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       if (ev.willRetry) {
         // 自动重试:保留 run 等下一轮事件,不收尾（retry 事件已驱动状态指示）。
         // 复位上一尝试的失败态 + 折叠游标 + buffer,避免成功的重试被误判失败或文本续错块。
+        finalizeRunReasoning(qc, run);
         run.gotResult = false;
         run.resultOk = undefined;
         run.cursor = emptyFoldCursor();
-        run.reasoningUid = undefined;
-        run.reasoningText = undefined;
         run.buffer = "";
         run.sawText = false;
         return;
       }
+      finalizeRunReasoning(qc, run);
       run.gotResult = true;
       if (run.resultOk === undefined) run.resultOk = true;
       if (run.cursor.lastKind === "tool" && run.cursor.logUid) {

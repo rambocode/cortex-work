@@ -288,6 +288,19 @@ export async function applyDeepenFinalize(
   );
 }
 
+// 取消深化（纯函数,可测）:计算单条闪记的取消副作用。仅对深化中（deepening）闪记动作,
+// 返回「待终止的深化会话 id（conversationIds 末项 = 当前活跃深化会话;重载后断链则 undefined）」
+// 与「回落 draft 的 patch」。docPaths/conversationIds 全部保留（不丢已产出链接,仿 abandonDeepen）。
+// 非 deepening → null（不触碰,与 deepenStateTransition 风格一致）。
+export function cancelDeepenPlan(
+  note: NoteMeta,
+): { sessionId: string | undefined; patch: NotePatch } | null {
+  if (note.status !== "deepening") return null;
+  const ids = note.conversationIds;
+  const sessionId = ids && ids.length > 0 ? ids[ids.length - 1] : undefined;
+  return { sessionId, patch: { status: "draft" } };
+}
+
 // ── 查询（主窗口）─────────────────────────────────────────────────────────
 
 // 单项目闪记列表（收件箱按项目分组 / 时间线合成用）。
@@ -468,6 +481,50 @@ export function useDeepenNotes(): (noteIds: string[], onToast: (text: string) =>
       await send(sess, cwd, kickoff, [], extraSystemPrompt);
     },
     [bridge, qc, send],
+  );
+}
+
+// ── 取消深化（终止僵尸 run + 回落 draft）──────────────────────────────────────
+// 统一的「取消深化」入口,供列表入口（卡住后取消重发）与详情视图（放弃深化）共用:
+// 1) 对每个待取消深化会话,从 runningBySession 取 runId → killCli 终止僵尸 codex 进程,并清
+//    running 标记;runId 丢失（renderer 重载后 runningBySession 不持久化、必为空）则跳过——
+//    killCli 无目标安全 no-op,此时仅回落状态即可。
+// 2) 总是把闪记回落 draft（保留 docPaths/conversationIds,不丢已产出链接）。
+// 3) invalidate 让 UI 解除「深化中」锁,可重新深化（届时 initialModelDraft 取到的 lastAgent
+//    已是用户切换后的 agent,新会话即用新 agent）。
+export function useCancelDeepen(): (noteIds: string[]) => Promise<void> {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+
+  return useCallback(
+    async (noteIds) => {
+      if (!bridge?.notesUpdate) return;
+      const all = qc.getQueryData<NoteMeta[]>(notesKeys.all) ?? [];
+      const idSet = new Set(noteIds);
+      const plans = all
+        .filter((n) => idSet.has(n.id))
+        .map((note) => ({ note, plan: cancelDeepenPlan(note) }))
+        .filter((x): x is { note: NoteMeta; plan: NonNullable<ReturnType<typeof cancelDeepenPlan>> } => !!x.plan);
+      if (plans.length === 0) return; // 无可取消（皆非 deepening）→ no-op
+
+      const st = usePersonalStore.getState();
+      // 去重待杀会话（多选同会话深化时仅杀一次）。
+      const sessionIds = [...new Set(plans.map((p) => p.plan.sessionId).filter((s): s is string => !!s))];
+      await Promise.all(
+        sessionIds.map(async (sid) => {
+          const runId = st.runningBySession[sid];
+          if (!runId) return; // 重载后 runId 丢失 → 仅回落状态,不杀进程
+          // killCli 缺失(web/旧壳)安全降级:仍清 running 标记,不阻断回落。
+          if (bridge.killCli) await bridge.killCli(runId).catch(() => {}); // 进程已退出等失败不阻断
+          st.setRunning(sid, undefined);
+        }),
+      );
+      await Promise.all(plans.map((p) => bridge.notesUpdate!(p.note.id, p.plan.patch)));
+      // await 刷新:确保 notes 缓存回落到 draft 后再返回,否则紧接着的重新深化会读到 stale
+      // deepening 缓存、被 prepareDeepenNotes 的 already-deepening 再次拦死(取消重发链路依赖此)。
+      await qc.invalidateQueries({ queryKey: notesKeys.all });
+    },
+    [bridge, qc],
   );
 }
 

@@ -295,6 +295,7 @@ export function PersonalChatArea({
         onApprove={() => {}}
         markdownBodies
         collapsibleLogs
+        collapsibleReasoning
         hideTextTime
         onOpenFile={handleOpenFile}
         projectPath={realProject ? realProject.path : undefined}

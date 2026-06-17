@@ -43,6 +43,17 @@ afterEach(() => {
 });
 
 describe("ComposerShell steer 门控（U6）", () => {
+  it("底部工具条保留窄宽布局所需的稳定结构", () => {
+    const { container } = renderShell({ agent: "codex", running: false });
+    const foot = container.querySelector(".composer .comp-foot");
+    const modelPill = container.querySelector(".composer .comp-foot .pw-model-pill");
+    const send = container.querySelector(".composer .comp-foot .send");
+
+    expect(foot).toBeInTheDocument();
+    expect(modelPill).toBeInTheDocument();
+    expect(send).toBeInTheDocument();
+  });
+
   it("pi + running:输入回车 → onSteer(注入当前轮),不影响停止", () => {
     const onSteer = vi.fn();
     const onStop = vi.fn();

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   useAllNotes,
+  useCancelDeepen,
   useDeleteNote,
   useGeneratePlan,
   useUpdateNote,
@@ -52,12 +53,14 @@ export function FlashNoteEditor({
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
   const generatePlan = useGeneratePlan();
+  const cancelDeepen = useCancelDeepen();
   const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
   const sessions = usePersonalStore((s) => s.sessions);
 
   const [mode, setMode] = useState<Mode>("live");
   const [planning, setPlanning] = useState(false);
+  const [abandoning, setAbandoning] = useState(false);
   // CodeMirror 动态装载失败 → 强制只读「仅预览」(复用 MarkdownView,不依赖 CM),并提示。
   const [editorLoadFailed, setEditorLoadFailed] = useState(false);
   const effectiveMode: Mode = editorLoadFailed ? "preview" : mode;
@@ -89,11 +92,16 @@ export function FlashNoteEditor({
   };
 
   const abandonDeepen = async () => {
+    if (abandoning) return;
+    setAbandoning(true);
     try {
-      await updateNote.mutateAsync({ id: noteId, patch: { status: "draft" } });
+      // 复用 cancelDeepen:同时终止底层深化 run(僵尸 codex)并回落 draft,不只改状态。
+      await cancelDeepen([noteId]);
       onToast("已放弃深化,闪记回到草稿");
     } catch (err) {
       onToast(`放弃深化失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAbandoning(false);
     }
   };
 
@@ -203,7 +211,7 @@ export function FlashNoteEditor({
             <span>深化产物</span>
             <div className="spacer" />
             {note.status === "deepening" ? (
-              <button className="pw-tl-gen" onClick={() => void abandonDeepen()} disabled={updateNote.isPending}>
+              <button className="pw-tl-gen" onClick={() => void abandonDeepen()} disabled={abandoning}>
                 <Icon.Back size={12} />
                 放弃深化
               </button>

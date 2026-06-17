@@ -18,6 +18,7 @@ import {
   applyDeepenFinalize,
   buildDeepenSystemPrompt,
   buildPlanSystemPrompt,
+  cancelDeepenPlan,
   deepenDocPath,
   deepenStateTransition,
   isDeepeningForSession,
@@ -349,6 +350,48 @@ describe("isLinkedToSession / isDeepeningForSession / notesLinkedToSession（gat
       note({ id: "n4", createdAt: 4, status: "draft" }),
     ];
     expect(notesLinkedToSession(all, "s1").map((n) => n.id).sort()).toEqual(["n1", "n2"]);
+  });
+});
+
+describe("cancelDeepenPlan（取消深化:待杀会话 + 回落 draft,纯函数）", () => {
+  it("deepening + 有 conversationIds → 待杀会话取末项,patch 回落 draft", () => {
+    const plan = cancelDeepenPlan(
+      note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: ["sOld", "sCur"] }),
+    );
+    expect(plan).toEqual({ sessionId: "sCur", patch: { status: "draft" } });
+  });
+
+  it("deepening + 无 conversationIds（重载后孤儿态/断链）→ sessionId undefined,仍回落 draft", () => {
+    expect(cancelDeepenPlan(note({ id: "n1", createdAt: 1, status: "deepening" }))).toEqual({
+      sessionId: undefined,
+      patch: { status: "draft" },
+    });
+    expect(
+      cancelDeepenPlan(note({ id: "n1", createdAt: 1, status: "deepening", conversationIds: [] })),
+    ).toEqual({ sessionId: undefined, patch: { status: "draft" } });
+  });
+
+  it("非 deepening（draft / deepened）→ null,不触碰", () => {
+    expect(cancelDeepenPlan(note({ id: "n1", createdAt: 1, status: "draft" }))).toBeNull();
+    expect(
+      cancelDeepenPlan(note({ id: "n1", createdAt: 1, status: "deepened", conversationIds: ["s1"] })),
+    ).toBeNull();
+  });
+
+  it("patch 只含 status:draft → 保留 docPaths/conversationIds（编排层全数组写回不丢已产出链接）", () => {
+    const plan = cancelDeepenPlan(
+      note({
+        id: "n1",
+        createdAt: 1,
+        status: "deepening",
+        conversationIds: ["s1"],
+        docPaths: ["/docs/ideation/s1-deepen.md"],
+      }),
+    );
+    // 纯函数不动 docPaths/conversationIds（patch 不含它们 → notesUpdate 不覆盖）。
+    expect(plan?.patch).toEqual({ status: "draft" });
+    expect(plan?.patch).not.toHaveProperty("docPaths");
+    expect(plan?.patch).not.toHaveProperty("conversationIds");
   });
 });
 
