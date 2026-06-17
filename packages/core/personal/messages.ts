@@ -31,6 +31,7 @@ import {
   promptPi,
   setModelPi,
   steerPi,
+  touchPiSession,
 } from "./pi-session";
 import { speakText } from "./tts";
 
@@ -787,6 +788,8 @@ const PI_ERROR_FINALIZE_GRACE_MS = 4_000;
 // pi 归一化事件 → 消息缓存。无活跃 run 也要处理的状态/瞬态事件先分流;其余折叠进当前轮。
 function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent): void {
   const store = usePersonalStore.getState();
+  // 阶段4:任何事件 = 活跃,刷新空闲回收计时器（避免运行中被误回收）。
+  touchPiSession(bridgeRef, sessionId);
   // 任何新事件都说明本轮仍活跃 → 取消下面 error 分支挂的「防卡死」兜底收尾。
   const activeAny = piRunFor(sessionId);
   if (activeAny) stopResultExitFallback(activeAny.run);
@@ -1014,6 +1017,7 @@ async function sendPiTurn(
       usePersonalStore.getState().updateSession(session.id, { piSessionFile: opened.sessionFile });
     }
     flipPiRunToThinking(qc, runId); // 冷启就绪 → typing 翻「思考中」。
+    touchPiSession(bridge, session.id); // 阶段4:发起一轮 = 活跃,启动/重置空闲计时。
     await promptPi(bridge, session.id, buildPiPromptMessage(text, appendSystemPrompt));
     autoTitle(bridge, session, text); // pi 走 fallback 截断标题（autoTitle 内部仅 claude 跑 haiku）。
   } catch (err) {
@@ -1485,6 +1489,7 @@ export function usePersonalActions(): PersonalActions {
       if (!isPiSessionOpen(sessionId)) return;
       // 把插话作为用户消息回显（让会话能看到注入了什么）,再注入当前轮;队列计数由 queue 事件回显。
       appendMsg(qc, sessionId, { kind: "text", who: "me", time: realHHMM(), text, uid: uid("u") });
+      touchPiSession(bridge, sessionId); // 阶段4:插话 = 活跃。
       try {
         await steerPi(bridge, sessionId, text);
       } catch {

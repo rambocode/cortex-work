@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopBridge } from "../desktop/bridge";
 import type { PiOpenRequest, PiOpenResult } from "../desktop/types";
 import {
+  IDLE_RECLAIM_MS,
+  MAX_PI_SESSIONS,
   __resetPiSessionsForTest,
+  __setPiNowForTest,
   abortPi,
   closeAllPiSessions,
   closePiSession,
@@ -14,6 +17,7 @@ import {
   promptPi,
   setModelPi,
   steerPi,
+  touchPiSession,
 } from "./pi-session";
 
 afterEach(() => __resetPiSessionsForTest());
@@ -193,5 +197,49 @@ describe("关闭与崩溃", () => {
     await ensurePiSession(bridge, req());
     expect(bridge.piOpen).toHaveBeenCalledTimes(2);
     expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("空闲回收 + LRU 上限（阶段4 U5/U6）", () => {
+  it("空闲 IDLE_RECLAIM_MS 后 → closePiSession;活动刷新会重置计时", async () => {
+    vi.useFakeTimers();
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, req("s1"));
+    touchPiSession(bridge, "s1"); // 启动空闲计时
+    await vi.advanceTimersByTimeAsync(IDLE_RECLAIM_MS - 1000);
+    touchPiSession(bridge, "s1"); // 活动 → 重置
+    await vi.advanceTimersByTimeAsync(IDLE_RECLAIM_MS - 1000);
+    expect(isPiSessionOpen("s1")).toBe(true); // 因重置过,尚未到期
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(bridge.piClose).toHaveBeenCalledWith("s1"); // 再无活动 → 到期回收
+    expect(isPiSessionOpen("s1")).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("达上限 → spawn 新会话前逐出 lastActiveAt 最小的（LRU）", async () => {
+    let t = 1000;
+    __setPiNowForTest(() => t);
+    const bridge = fakeBridge();
+    // 开满 MAX 个，各自 lastActiveAt 递增（s1 最旧）。
+    for (let i = 0; i < MAX_PI_SESSIONS; i++) {
+      t = 1000 + i * 100;
+      await ensurePiSession(bridge, req(`s${i}`));
+    }
+    expect(isPiSessionOpen("s0")).toBe(true);
+    // 再开一个 → 触发 LRU 逐出最旧的 s0。
+    t = 9999;
+    await ensurePiSession(bridge, req("sNew"));
+    expect(bridge.piClose).toHaveBeenCalledWith("s0"); // 逐出最久未用
+    expect(isPiSessionOpen("sNew")).toBe(true);
+  });
+
+  it("逐出/回收后 sessionFile 已在 SessionMeta（调用方持久),下次 ensure resumeFrom 恢复", async () => {
+    // 本单元只验进程层逐出不丢恢复能力:逐出走 closePiSession,handle 删除;恢复靠 SessionMeta（renderer 层,
+    // 见 personalActions.test）。此处确认逐出后再 ensure(resumeFrom) 会 switchSession。
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, req("s1"));
+    await closePiSession(bridge, "s1"); // 模拟空闲/LRU 回收
+    await ensurePiSession(bridge, req("s1"), { resumeFrom: "/sessions/old.jsonl" });
+    expect(bridge.piSwitchSession).toHaveBeenCalledWith("s1", "/sessions/old.jsonl");
   });
 });

@@ -18,9 +18,44 @@ interface PiSessionHandle {
   // 开会话时所用「extension 加载相关」开关的指纹。深度定制开关(审批/样例)只在冷启经 -e 加载,
   // 温会话改开关不生效——指纹漂移即关旧重开,使新 extension 真正加载（否则用户开了审批却裸奔）。
   fingerprint: string;
+  // 阶段4 资源管理:最后活跃时间 + 空闲回收计时器（活动期不断重置→不触发,空闲后倒计时→关进程）。
+  lastActiveAt: number;
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
 
 const piSessions = new Map<string, PiSessionHandle>();
+
+// 阶段4:会话级空闲回收阈值 + 多会话进程上限（LRU）。回收/逐出后下次 send 经 resumeFrom 恢复。
+export const IDLE_RECLAIM_MS = 10 * 60_000; // 10min 无活动 → 关进程省内存
+export const MAX_PI_SESSIONS = 5; // 长驻 pi 子进程上限,超则逐出最久未用
+
+// 当前时间（可注入,便于测试 LRU 顺序;运行时用 Date.now）。
+let nowFn: () => number = () => Date.now();
+export function __setPiNowForTest(fn: () => number): void {
+  nowFn = fn;
+}
+
+// 活动刷新:更新 lastActiveAt + 重置空闲计时器。messages.ts 在 prompt/steer/每条事件/轮收尾时调。
+// 活动持续 → 计时器不断重置不触发;活动停 IDLE_RECLAIM_MS 后 → closePiSession（空闲=无活跃 run,
+// 故只关进程,无需 reapSessionRun;sessionFile 已在 SessionMeta,下次 send 恢复）。
+export function touchPiSession(bridge: DesktopBridge | null, sessionId: string): void {
+  const handle = piSessions.get(sessionId);
+  if (!handle) return;
+  handle.lastActiveAt = nowFn();
+  if (handle.idleTimer) clearTimeout(handle.idleTimer);
+  handle.idleTimer = setTimeout(() => {
+    void closePiSession(bridge, sessionId);
+  }, IDLE_RECLAIM_MS);
+}
+
+// LRU 逐出:已就绪会话数达上限时,关掉 lastActiveAt 最小的（最久未用;它若在跑会有近活跃时间,
+// 自然不会被选中）。在 ensurePiSession spawn 新会话前调。
+function evictLruIfFull(bridge: DesktopBridge): void {
+  const ready = [...piSessions.values()].filter((h) => h.ready);
+  if (ready.length < MAX_PI_SESSIONS) return;
+  const victim = ready.reduce((a, b) => (a.lastActiveAt <= b.lastActiveAt ? a : b));
+  void closePiSession(bridge, victim.sessionId);
+}
 
 // 影响 extension 加载的开关指纹（审批工具集 / 样例工具 / 样例命令）。同设置→同指纹(字段定序稳定)。
 function extensionFingerprint(req: PiOpenRequest): string {
@@ -65,8 +100,14 @@ export async function ensurePiSession(
     return existing.opening; // 开启中复用(指纹漂移的并发极少,忽略)
   }
   if (!bridge.piOpen) throw new Error("当前环境不支持 pi RPC 会话");
+  evictLruIfFull(bridge); // 阶段4 上限:spawn 新会话前若达上限,逐出最久未用。
 
-  const handle: PiSessionHandle = { sessionId: req.uiSessionId, ready: false, fingerprint: fp };
+  const handle: PiSessionHandle = {
+    sessionId: req.uiSessionId,
+    ready: false,
+    fingerprint: fp,
+    lastActiveAt: nowFn(),
+  };
   const opening = bridge
     .piOpen(req)
     .then(async (res) => {
@@ -161,6 +202,7 @@ export function setModelPi(
 export async function closePiSession(bridge: DesktopBridge | null, sessionId: string): Promise<void> {
   const handle = piSessions.get(sessionId);
   if (!handle) return;
+  if (handle.idleTimer) clearTimeout(handle.idleTimer);
   piSessions.delete(sessionId);
   if (bridge?.piClose) await bridge.piClose(sessionId).catch(() => undefined);
 }
@@ -168,15 +210,20 @@ export async function closePiSession(bridge: DesktopBridge | null, sessionId: st
 /** 关闭全部 pi 会话（视图卸载兜底;app 退出另有主进程 killAllPiSessions）。 */
 export async function closeAllPiSessions(bridge: DesktopBridge | null): Promise<void> {
   const ids = [...piSessions.keys()];
+  for (const h of piSessions.values()) if (h.idleTimer) clearTimeout(h.idleTimer);
   piSessions.clear();
   if (bridge?.piClose) await Promise.all(ids.map((id) => bridge.piClose!(id).catch(() => undefined)));
 }
 
 /** 崩溃事件 → 摘除登记（不发 piClose:进程已死;下次 send 触发重开）。由 handlePiEvent 调。 */
 export function markPiSessionGone(sessionId: string): void {
+  const handle = piSessions.get(sessionId);
+  if (handle?.idleTimer) clearTimeout(handle.idleTimer);
   piSessions.delete(sessionId);
 }
 
 export function __resetPiSessionsForTest(): void {
+  for (const h of piSessions.values()) if (h.idleTimer) clearTimeout(h.idleTimer);
   piSessions.clear();
+  nowFn = () => Date.now();
 }
