@@ -21,6 +21,7 @@ import {
 import type { AgentKind, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Contact, Conversation } from "@cortex-work/core/types";
 import { MessageStream } from "../ChatArea";
+import { AskQuestionCard } from "./AskQuestionCard";
 import { GitBar } from "./GitBar";
 import { PersonalComposer } from "./PersonalComposer";
 
@@ -384,6 +385,9 @@ export function PersonalChatArea({
           ) : undefined
         }
       />
+
+      {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
+      <AskQuestionCard sessionId={session.id} />
 
       <PersonalComposer
         session={session}
