@@ -52,6 +52,7 @@ import type {
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
   TaskFilesResult,
+  DocFileRaw,
   TtsStreamEvent,
   TtsVoiceOption,
   UpdateState,
@@ -91,6 +92,9 @@ export interface DesktopBridge {
   // Tasks 面板:列出项目 tasks/ 与 tasks/archive/ 顶层 .md（带 mtime）。
   // 可选（旧壳没有;无此能力时面板退化为只显示已登记 todo）。
   listTaskFiles?(projectRoot: string): Promise<TaskFilesResult>;
+  // Tasks 面板:列出 docs/{ideation,brainstorms,plans} 顶层 .md（kind/mtime/头部文本）。
+  // 可选（web/旧壳没有 → 文档面板退化为空态）。语义解析在 core 纯函数，本方法只回传 dumb 列表。
+  listDocs?(projectRoot: string): Promise<DocFileRaw[]>;
   validateDir(path: string): Promise<boolean>;
   // 文件存在性探测（深化 / 生成 plan run 收尾判产出用:确定路径,绕开 changedFiles 截断）。
   // 可选:旧壳缺失时探测降级为 false（闪记保持原状态,不误判已深化）。
