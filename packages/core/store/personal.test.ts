@@ -912,6 +912,27 @@ describe("插件 Skill 配置（piSkills）", () => {
     expect(pi.workspaceEnabled).toBe(true);
   });
 
+  it("持久化的过期 globalRoots 被代码默认覆盖(内置根用户不可编辑)", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        // 模拟老档:旧默认根 + 用户自增根 + 一个禁用项。
+        piSkills: {
+          globalRoots: ["~/.agent/skills", "~/.cortex-desktop/skills"],
+          userGlobalRoots: ["~/mine"],
+          disabledSkills: ["global:foo"],
+          trustedWorkspaceSkillDirs: [],
+          workspaceEnabled: true,
+        },
+      },
+    });
+    const pi = usePersonalStore.getState().generalSettings.piSkills!;
+    expect(pi.globalRoots).toEqual(DEFAULT_PI_SKILLS.globalRoots); // 强制为新默认 ~/.agents/skills
+    expect(pi.userGlobalRoots).toEqual(["~/mine"]); // 用户根仍保留
+    expect(pi.disabledSkills).toEqual(["global:foo"]); // 其它持久字段不动
+  });
+
   it("togglePiSkill:禁用增复合键、再启用移除", () => {
     usePersonalStore.getState().hydrate(base);
     usePersonalStore.getState().togglePiSkill("global", "code-review", false);

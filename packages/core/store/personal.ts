@@ -259,7 +259,9 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
     log: { ...DEFAULT_GENERAL_SETTINGS.log, ...g.log },
     // 插件 Skill 配置:旧档无 piSkills 或缺子字段时,逐字段兜 DEFAULT_PI_SKILLS（U6）。
-    piSkills: { ...DEFAULT_PI_SKILLS, ...g.piSkills },
+    // globalRoots 是「内置默认根」、用户不可编辑（setter 只动 userGlobalRoots）,故恒由代码
+    // 拥有——强制覆盖持久化值,使默认根变更（如 ~/.agent → ~/.agents）对老档即时生效。
+    piSkills: { ...DEFAULT_PI_SKILLS, ...g.piSkills, globalRoots: DEFAULT_PI_SKILLS.globalRoots },
   };
 }
 
