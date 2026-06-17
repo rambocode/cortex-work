@@ -147,6 +147,8 @@ export interface GeneralSettings {
   piSystemPrompt?: string;
   // pi 插件 Skill 配置（与 core 镜像,纯 string/boolean/array,无 enum）。主进程仅持久化。
   piSkills?: PiSkillSettings;
+  // pi 扩展市场配置（与 core 镜像）。主进程仅持久化。
+  piExtensions?: PiExtensionSettings;
 }
 
 // pi 插件 Skill 配置（与 packages/core/desktop/types.ts 逐字镜像）。
@@ -159,6 +161,34 @@ export interface PiSkillSettings {
 }
 
 export type SkillScope = "global" | "workspace";
+
+// pi 扩展市场配置（与 packages/core/desktop/types.ts 逐字镜像）。
+export interface InstalledExtensionRecord {
+  ref: string;
+  scope: SkillScope;
+  sourceRef: string;
+  origin: string;
+  version?: string;
+  installedAt: number;
+}
+export interface PiExtensionSettings {
+  installed: InstalledExtensionRecord[];
+  enabled: string[];
+  trusted: string[];
+}
+// 渲染端富扩展项（与 core 镜像）。pi-ext:list 产出存在性,enabled/trusted/missing 由渲染端叠加。
+export interface InstalledExtension {
+  ref: string;
+  path?: string;
+  scope: SkillScope;
+  sourceRef: string;
+  origin: string;
+  version?: string;
+  installedAt: number;
+  enabled: boolean;
+  trusted: boolean;
+  missing: boolean;
+}
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
@@ -310,6 +340,8 @@ export interface PiOpenRequest {
   useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildRpcArgs 逐个 --skill 注入。
   skillPaths?: string[];
+  // pi 扩展市场（U3）:已启用+已授信的扩展 -e 路径,core 解析后传入,buildRpcArgs 折入 -e 批次。
+  extensionPaths?: string[];
   // 自定义供应商:比 CliStartRequest.provider 多带 endpointFormat + per-model 能力标记
   // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置;主进程据此生成
   // extension 并注入 key。单发路径不需要高级配置,故 CliStartRequest.provider 不扩展。

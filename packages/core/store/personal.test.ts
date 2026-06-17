@@ -5,6 +5,67 @@ import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } f
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
 
+describe("pi 扩展市场 store（U2）", () => {
+  const rec = (ref: string, scope: "global" | "workspace" = "global") => ({
+    ref,
+    scope,
+    sourceRef: ref,
+    origin: ref.split(":")[0],
+    version: "1.0.0",
+    installedAt: 1,
+  });
+
+  it("hydrate 在 generalSettings 存在但缺 piExtensions 时兜 DEFAULT_PI_EXTENSIONS", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: { notifications: { turnComplete: true } },
+    });
+    expect(usePersonalStore.getState().generalSettings.piExtensions).toEqual({
+      installed: [],
+      enabled: [],
+      trusted: [],
+    });
+  });
+
+  it("recordInstalledExtension 持久溯源 + 同 scope:ref upsert", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().recordInstalledExtension(rec("npm:foo"));
+    usePersonalStore.getState().recordInstalledExtension({ ...rec("npm:foo"), version: "2.0.0" });
+    const ext = usePersonalStore.getState().generalSettings.piExtensions!;
+    expect(ext.installed).toHaveLength(1);
+    expect(ext.installed[0].version).toBe("2.0.0");
+  });
+
+  it("toggleExtension 默认禁用、opt-in 启用，按 ${scope}:${ref} 键", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().toggleExtension("global", "npm:foo", true);
+    expect(usePersonalStore.getState().generalSettings.piExtensions!.enabled).toEqual(["global:npm:foo"]);
+    usePersonalStore.getState().toggleExtension("global", "npm:foo", false);
+    expect(usePersonalStore.getState().generalSettings.piExtensions!.enabled).toEqual([]);
+  });
+
+  it("复合键隔离：npm:foo 与 git:foo 互不影响", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().toggleExtension("global", "npm:foo", true);
+    usePersonalStore.getState().trustExtension("global", "git:foo", true);
+    const ext = usePersonalStore.getState().generalSettings.piExtensions!;
+    expect(ext.enabled).toEqual(["global:npm:foo"]);
+    expect(ext.trusted).toEqual(["global:git:foo"]);
+  });
+
+  it("removeInstalledExtension 级联清溯源 + 启用 + 信任", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().recordInstalledExtension(rec("npm:foo"));
+    usePersonalStore.getState().toggleExtension("global", "npm:foo", true);
+    usePersonalStore.getState().trustExtension("global", "npm:foo", true);
+    usePersonalStore.getState().removeInstalledExtension("global", "npm:foo");
+    const ext = usePersonalStore.getState().generalSettings.piExtensions!;
+    expect(ext.installed).toEqual([]);
+    expect(ext.enabled).toEqual([]);
+    expect(ext.trusted).toEqual([]);
+  });
+});
+
 function proj(patch: Partial<ProjectMeta> & Pick<ProjectMeta, "id">): ProjectMeta {
   return { name: patch.id, path: `/code/${patch.id}`, addedAt: 1, ...patch };
 }

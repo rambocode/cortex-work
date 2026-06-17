@@ -9,6 +9,8 @@ import type {
   PersistedState,
   PersonalProfile,
   PiSkillSettings,
+  PiExtensionSettings,
+  InstalledExtensionRecord,
   PiUiRequest,
   ProviderProfile,
   ProviderSettings,
@@ -25,6 +27,7 @@ import {
   DEFAULT_GENERAL_SETTINGS,
   DEFAULT_MODEL,
   DEFAULT_PI_SKILLS,
+  DEFAULT_PI_EXTENSIONS,
   DEFAULT_PROVIDER_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TIMELINE_SETTINGS,
@@ -147,6 +150,11 @@ export interface PersonalState {
   trustWorkspaceSkill: (dir: string, trusted: boolean) => void;
   addGlobalSkillRoot: (path: string) => void;
   removeGlobalSkillRoot: (path: string) => void;
+  // pi 扩展市场 setter（U2）:装≠启用——enabled/trusted 默认空,opt-in;溯源安装时持久化。复合键 `${scope}:${ref}`。
+  recordInstalledExtension: (record: InstalledExtensionRecord) => void; // 安装成功后 upsert 溯源
+  removeInstalledExtension: (scope: string, ref: string) => void; // 卸载:清溯源 + 启用 + 信任
+  toggleExtension: (scope: string, ref: string, enabled: boolean) => void; // 启用/禁用
+  trustExtension: (scope: string, ref: string, trusted: boolean) => void; // 过/撤信任门
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
   // projectId 缺省 = 不使用项目（会话在 opts.noProjectDir 工作目录运行）。
@@ -262,6 +270,8 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     // globalRoots 是「内置默认根」、用户不可编辑（setter 只动 userGlobalRoots）,故恒由代码
     // 拥有——强制覆盖持久化值,使默认根变更（如 ~/.agent → ~/.agents）对老档即时生效。
     piSkills: { ...DEFAULT_PI_SKILLS, ...g.piSkills, globalRoots: DEFAULT_PI_SKILLS.globalRoots },
+    // pi 扩展市场:旧档无 piExtensions 或缺子字段时兜 DEFAULT_PI_EXTENSIONS（U2）。
+    piExtensions: { ...DEFAULT_PI_EXTENSIONS, ...g.piExtensions },
   };
 }
 
@@ -454,6 +464,62 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
           piSkills: { ...cur, userGlobalRoots: cur.userGlobalRoots.filter((r) => r !== path) },
         },
       };
+    }),
+
+  // ── pi 扩展市场 setter（U2）─────────────────────────────────────────────────
+  // 现值兜底 DEFAULT_PI_EXTENSIONS；整体写回 generalSettings.piExtensions。复合键 `${scope}:${ref}`。
+  recordInstalledExtension: (record) =>
+    set((s) => {
+      const cur: PiExtensionSettings = { ...DEFAULT_PI_EXTENSIONS, ...s.generalSettings.piExtensions };
+      // upsert:同 scope:ref 覆盖（重装/更新刷新溯源），否则追加。
+      const others = cur.installed.filter((r) => !(r.scope === record.scope && r.ref === record.ref));
+      return {
+        generalSettings: {
+          ...s.generalSettings,
+          piExtensions: { ...cur, installed: [...others, record] },
+        },
+      };
+    }),
+
+  removeInstalledExtension: (scope, ref) =>
+    set((s) => {
+      const cur: PiExtensionSettings = { ...DEFAULT_PI_EXTENSIONS, ...s.generalSettings.piExtensions };
+      const key = `${scope}:${ref}`;
+      return {
+        generalSettings: {
+          ...s.generalSettings,
+          piExtensions: {
+            ...cur,
+            installed: cur.installed.filter((r) => !(r.scope === scope && r.ref === ref)),
+            enabled: cur.enabled.filter((k) => k !== key),
+            trusted: cur.trusted.filter((k) => k !== key),
+          },
+        },
+      };
+    }),
+
+  toggleExtension: (scope, ref, enabled) =>
+    set((s) => {
+      const cur: PiExtensionSettings = { ...DEFAULT_PI_EXTENSIONS, ...s.generalSettings.piExtensions };
+      const key = `${scope}:${ref}`;
+      const next = enabled
+        ? cur.enabled.includes(key)
+          ? cur.enabled
+          : [...cur.enabled, key]
+        : cur.enabled.filter((k) => k !== key);
+      return { generalSettings: { ...s.generalSettings, piExtensions: { ...cur, enabled: next } } };
+    }),
+
+  trustExtension: (scope, ref, trusted) =>
+    set((s) => {
+      const cur: PiExtensionSettings = { ...DEFAULT_PI_EXTENSIONS, ...s.generalSettings.piExtensions };
+      const key = `${scope}:${ref}`;
+      const next = trusted
+        ? cur.trusted.includes(key)
+          ? cur.trusted
+          : [...cur.trusted, key]
+        : cur.trusted.filter((k) => k !== key);
+      return { generalSettings: { ...s.generalSettings, piExtensions: { ...cur, trusted: next } } };
     }),
 
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),

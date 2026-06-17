@@ -389,6 +389,8 @@ export interface GeneralSettings {
   piThinkingDefault?: ThinkingLevel;
   // pi 插件——Skill 管理（多目录扫描 + 逐项启用 + 工作区信任）。缺省 = DEFAULT_PI_SKILLS。
   piSkills?: PiSkillSettings;
+  // pi 扩展市场——已装扩展溯源 + 启用集 + 信任集。缺省 = DEFAULT_PI_EXTENSIONS。
+  piExtensions?: PiExtensionSettings;
 }
 
 // pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。
@@ -416,6 +418,54 @@ export const DEFAULT_PI_SKILLS: PiSkillSettings = {
   trustedWorkspaceSkillDirs: [],
   workspaceEnabled: true,
 };
+
+// ── pi 扩展市场（U2）─────────────────────────────────────────────────────────
+// 用 pi 原生 `pi install` 作扩展（npm/git 包）的安装运行时。与 Skill 的「默认启用 + 禁用列表」
+// 相反:扩展是「装≠启用」——默认禁用,经 enabled allowlist 显式启用;trusted allowlist 记过信任门。
+// 安全模型(实测 pi 0.79.2):`--no-extensions` 抑制已装包自动发现,故仅显式 -e 注入的才加载;
+// `-a` 整批信任,UI 信任门是唯一逐扩展强制点。v1 仅用户级(global);scope/ref 复合键为后续项目级
+// (默认不授信)留路。唯一键 ref = 源类型+标识(npm:@foo/bar 与 git:... 视为两项)。
+// 溯源(version/origin/installedAt)是安装时数据——`pi list` 仅给路径、不含这些,故安装时持久化于此。
+
+// 已装扩展的溯源记录（安装成功时持久化;库存「存在性」由 pi list 重建,溯源字段由此提供）。
+export interface InstalledExtensionRecord {
+  ref: string; // 唯一键 = 源类型+标识,如 "npm:@foo/bar" / "git:github.com/u/r"
+  scope: SkillScope; // global | workspace（v1 仅 global）
+  sourceRef: string; // 原始安装 ref 字符串（用户在确认门输入的原值）
+  origin: string; // 来源类型:npm | git | https | local
+  version?: string; // 安装时解析到的版本（若可得）
+  installedAt: number; // 安装时间戳（epoch ms）
+}
+
+export interface PiExtensionSettings {
+  // 安装溯源记录（安装时写、卸载时删）。
+  installed: InstalledExtensionRecord[];
+  // 已启用扩展的复合键集合,键 = `${scope}:${ref}`（默认禁用,opt-in 启用）。
+  enabled: string[];
+  // 已授信（过信任门）扩展的复合键集合,键 = `${scope}:${ref}`。
+  trusted: string[];
+}
+
+export const DEFAULT_PI_EXTENSIONS: PiExtensionSettings = {
+  installed: [],
+  enabled: [],
+  trusted: [],
+};
+
+// 渲染端富扩展项:pi list 的存在性 + store 的溯源/启用/信任叠加后计算（bridge piExtList 返回 +
+// store 派生）。missing = 在 store.installed 但 pi list 已不含（外部删除/损坏）→ UI 标失踪。
+export interface InstalledExtension {
+  ref: string;
+  path?: string; // pi list 给出的本地 -e 路径（失踪时缺）
+  scope: SkillScope;
+  sourceRef: string;
+  origin: string;
+  version?: string;
+  installedAt: number;
+  enabled: boolean; // store.enabled 含 `${scope}:${ref}`
+  trusted: boolean; // store.trusted 含 `${scope}:${ref}`
+  missing: boolean; // store.installed 有但 pi list 无
+}
 
 // pi 深度定制开关（阶段3）。改动在下次 pi 会话开启时生效（extension 在 open 时加载）。
 export interface PiCustomizationSettings {
@@ -654,6 +704,10 @@ export interface PiOpenRequest {
   useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildRpcArgs 逐个 --skill 注入。
   skillPaths?: string[];
+  // pi 扩展市场（U3）:已启用 + 已授信的扩展 -e 路径,由 core resolveEnabledExtensionPaths 解析后传入,
+  // buildRpcArgs 折入 -e 批次。与 skillPaths 同为「core 解析、装配单点」。仅长驻 RPC 会话注入;
+  // 单发 headless（pi.ts buildArgs,用于闪记深化/plan 生成）有意不加载市场扩展。
+  extensionPaths?: string[];
   // 自定义供应商:比 CliStartRequest.provider 多带 endpointFormat + per-model 能力标记
   // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置;主进程据此生成
   // extension 并注入 key。单发路径不需要高级配置,故 CliStartRequest.provider 不扩展。
