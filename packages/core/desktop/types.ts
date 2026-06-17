@@ -387,7 +387,35 @@ export interface GeneralSettings {
   piSystemPrompt?: string;
   // pi 新会话默认思考强度（阶段5）:会话级 SessionMeta.thinkingLevel 缺省时回退此值。
   piThinkingDefault?: ThinkingLevel;
+  // pi 插件——Skill 管理（多目录扫描 + 逐项启用 + 工作区信任）。缺省 = DEFAULT_PI_SKILLS。
+  piSkills?: PiSkillSettings;
 }
+
+// pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。
+// 安全模型:全局根 skill 默认启用（用户自有目录,可信）;工作区根 skill 默认禁用,需显式授信
+// （避免恶意仓库经 <项目>/.cortex-desktop/skills + -a 任意代码执行）。
+export interface PiSkillSettings {
+  // 内置默认全局根（含 ~,主进程 expand）。不可删,作为「可信」来源。
+  globalRoots: string[];
+  // 用户自增的全局根（需一次信任确认;可删）。与 globalRoots 区分以支持信任与删除策略。
+  userGlobalRoots: string[];
+  // 已禁用 skill 的复合键集合,键 = `${scope}:${name}`（非绝对目录,目录移动后禁用态仍生效）。
+  disabledSkills: string[];
+  // 已授信的工作区 skill 绝对目录集合（仅其中的工作区 skill 才进入注入集）。
+  trustedWorkspaceSkillDirs: string[];
+  // 是否扫描 / 注入工作区根 <项目>/.cortex-desktop/skills。
+  workspaceEnabled: boolean;
+}
+
+export type SkillScope = "global" | "workspace";
+
+export const DEFAULT_PI_SKILLS: PiSkillSettings = {
+  globalRoots: ["~/.agent/skills", "~/.cortex-desktop/skills"],
+  userGlobalRoots: [],
+  disabledSkills: [],
+  trustedWorkspaceSkillDirs: [],
+  workspaceEnabled: true,
+};
 
 // pi 深度定制开关（阶段3）。改动在下次 pi 会话开启时生效（extension 在 open 时加载）。
 export interface PiCustomizationSettings {
@@ -965,4 +993,20 @@ export interface SkillMeta {
   argumentHint?: string; // frontmatter argument-hint
   skillMdPath: string; // SKILL.md 绝对路径（喂给 agent Read）
   dir: string; // skill 根目录绝对路径（references 相对路径的绝对前缀基准）
+}
+
+// ── 插件管理：富 skill 项 ─────────────────────────────────────────────────────
+// 与 apps/desktop/src/main/ipc/types.ts 逐字镜像。pi-skills:list 扫描多根产出;
+// enabled/trusted/shadowedBy 由渲染端叠加配置后计算（主进程扫描时 enabled=true、
+// trusted 仅 workspace 有意义、shadowedBy 由 UI 计算）。
+export interface PluginSkill {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  dir: string; // skill 根目录绝对路径（即 --skill 注入值）
+  rootPath: string; // 来源根（已 expand 的绝对路径）
+  scope: SkillScope; // global | workspace
+  enabled: boolean; // 是否启用（渲染端据 disabledSkills 叠加）
+  trusted: boolean; // 工作区 skill 是否已授信（global 恒 true）
+  shadowedBy?: string; // 被同名覆盖时的覆盖来源 scope（UI 标注用）
 }

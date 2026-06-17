@@ -145,7 +145,20 @@ export interface GeneralSettings {
   // 注:piThinkingDefault 是 ThinkingLevel enum、主进程不读,不在此镜像（避免 string/enum 跨包
   // 在 bridge 边界 bivariant 不兼容;core 侧 optional 字段缺失对结构子类型无碍）。
   piSystemPrompt?: string;
+  // pi 插件 Skill 配置（与 core 镜像,纯 string/boolean/array,无 enum）。主进程仅持久化。
+  piSkills?: PiSkillSettings;
 }
+
+// pi 插件 Skill 配置（与 packages/core/desktop/types.ts 逐字镜像）。
+export interface PiSkillSettings {
+  globalRoots: string[];
+  userGlobalRoots: string[];
+  disabledSkills: string[];
+  trustedWorkspaceSkillDirs: string[];
+  workspaceEnabled: boolean;
+}
+
+export type SkillScope = "global" | "workspace";
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
@@ -618,4 +631,17 @@ export interface SkillMeta {
   argumentHint?: string; // frontmatter argument-hint
   skillMdPath: string; // SKILL.md 绝对路径（喂给 agent Read）
   dir: string; // skill 根目录绝对路径（references 相对路径的绝对前缀基准）
+}
+
+// ── 插件管理：富 skill 项（与 packages/core/desktop/types.ts 逐字镜像）─────────────
+export interface PluginSkill {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  dir: string; // skill 根目录绝对路径（即 --skill 注入值）
+  rootPath: string; // 来源根（已 expand 的绝对路径）
+  scope: SkillScope; // global | workspace
+  enabled: boolean;
+  trusted: boolean;
+  shadowedBy?: string;
 }
