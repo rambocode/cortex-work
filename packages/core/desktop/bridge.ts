@@ -166,7 +166,8 @@ export interface DesktopBridge {
   // 一个 UI 会话 = 一个长驻 pi 子进程;命令经 invoke,事件流经 onPiEvent。全部可选（web/旧壳
   // 缺失时为 undefined → UI 退回单发或隐藏运行时控制）。uiSessionId 复用个人会话 id。
   piOpen?(req: PiOpenRequest): Promise<PiOpenResult>;
-  piPrompt?(uiSessionId: string, message: string): Promise<unknown>;
+  // runId（阶段4 代际）:renderer 自造每轮唯一 id,经事件回带供守卫。
+  piPrompt?(uiSessionId: string, message: string, runId?: string): Promise<unknown>;
   // 运行中插话（注入当前轮的引导）/ 排队追问。
   piSteer?(uiSessionId: string, message: string): Promise<unknown>;
   piFollowUp?(uiSessionId: string, message: string): Promise<unknown>;
@@ -185,8 +186,8 @@ export interface DesktopBridge {
   piSwitchSession?(uiSessionId: string, sessionPath: string): Promise<unknown>;
   // 显式关闭会话（终止子进程,幂等）。
   piClose?(uiSessionId: string): Promise<void>;
-  // 归一化事件流（仿 onCliEvent:回调 + 返回退订）。按 uiSessionId 分派。
-  onPiEvent?(cb: (uiSessionId: string, event: PiSessionEvent) => void): () => void;
+  // 归一化事件流（仿 onCliEvent:回调 + 返回退订）。按 uiSessionId 分派;runId 供阶段4 代际守卫。
+  onPiEvent?(cb: (uiSessionId: string, event: PiSessionEvent, runId?: string) => void): () => void;
   // extension UI 请求（pi → host,阶段3 工具确认弹窗等）。订阅 + 回写应答。全可选（web/旧壳缺失）。
   onPiUiRequest?(cb: (uiSessionId: string, request: PiUiRequest) => void): () => void;
   piUiResponse?(uiSessionId: string, id: string, payload: PiUiResponsePayload): Promise<void>;

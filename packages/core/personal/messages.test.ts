@@ -599,6 +599,25 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(cacheOf(qc, "s2").some((m) => m.kind === "text")).toBe(false);
   });
 
+  it("代际守卫:带旧 runId 的事件被丢弃,不折叠进当前轮（阶段4 U7）", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc); // runningBySession.s1 = "prun-1"
+    // 当前轮事件（runId 匹配）→ 正常折叠。
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "本轮" }, "prun-1");
+    // 旧轮串台事件（runId 不符）→ 丢弃。
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "旧轮串台" }, "prun-OLD");
+    const texts = cacheOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
+    expect(texts.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("本轮"))).toBe(true);
+    expect(texts.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("串台"))).toBe(false);
+  });
+
+  it("无 runId 的事件（旧契约/状态事件）放行,不被守卫拦", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "无 runId" }); // 不传 runId
+    expect(cacheOf(qc).some((m) => m.kind === "text" && m.text === "无 runId")).toBe(true);
+  });
+
   it("看门狗只刷新等待时长,绝不收尾本轮（长驻进程）", async () => {
     vi.useFakeTimers();
     const qc = new QueryClient();

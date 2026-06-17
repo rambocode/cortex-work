@@ -241,10 +241,13 @@ export class PiRpcSession {
   private reqId = 0;
   private exited = false;
   private stopped = false;
+  // 阶段4 代际:当前轮的 runId（Cortex 自造,prompt 时绑定）。事件回带它,renderer 据此守卫
+  // 丢弃迟到/串台事件（崩溃重开/editResend 重入时旧轮事件落入新轮）。
+  private currentRunId?: string;
 
   constructor(
     private readonly transport: RpcTransport,
-    private readonly onEvent: (ev: PiSessionEvent) => void,
+    private readonly onEvent: (ev: PiSessionEvent, runId?: string) => void,
     // extension 经 ctx.ui.* 发起的 UI 请求（独立于事件流;阶段3 用于工具确认弹窗）。
     private readonly onUiRequest?: (req: PiUiRequest) => void,
   ) {
@@ -288,7 +291,7 @@ export class PiRpcSession {
       return;
     }
     const ev = mapPiEvent(obj);
-    if (ev) this.onEvent(ev);
+    if (ev) this.onEvent(ev, this.currentRunId);
   }
 
   /**
@@ -347,7 +350,10 @@ export class PiRpcSession {
   // 注:prompt 的 response 是 preflight 受理后的即时 ack（毫秒级，非任务完成）;一轮 run 的
   // 结束由 agent_end 事件（映射为 {type:"result"}）经事件流单独表达。故 prompt 用默认短超时
   // 即可（与官方 RpcClient 一致），只覆盖「受理」这一步。compact 的 response 才是 await 压缩完成。
-  prompt(message: string): Promise<RpcResponse> {
+  // runId（Cortex 自造）在写 stdin prompt 时同步绑定,确保首条 agent_start 事件已带新 runId
+  // （pi 不参与;steer/abort 不换 runId,其事件仍归属当前轮）。
+  prompt(message: string, runId?: string): Promise<RpcResponse> {
+    if (runId !== undefined) this.currentRunId = runId;
     return this.send({ type: "prompt", message });
   }
   steer(message: string): Promise<RpcResponse> {

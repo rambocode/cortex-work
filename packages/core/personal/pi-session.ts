@@ -157,10 +157,10 @@ function requireCap<T>(fn: T | undefined, name: string): T {
   return fn;
 }
 
-/** 发起一轮 prompt（response 是 preflight 即时 ack,任务结束由 result 事件表达）。 */
-export function promptPi(bridge: DesktopBridge, sessionId: string, message: string): Promise<unknown> {
+/** 发起一轮 prompt（response 是 preflight 即时 ack,任务结束由 result 事件表达）。runId 阶段4 代际。 */
+export function promptPi(bridge: DesktopBridge, sessionId: string, message: string, runId?: string): Promise<unknown> {
   requireReady(sessionId);
-  return requireCap(bridge.piPrompt, "pi prompt")(sessionId, message);
+  return requireCap(bridge.piPrompt, "pi prompt")(sessionId, message, runId);
 }
 
 /** 运行中插话:把引导注入当前轮。 */

@@ -786,10 +786,14 @@ function piRunFor(sessionId: string): { runId: string; run: RunState } | undefin
 const PI_ERROR_FINALIZE_GRACE_MS = 4_000;
 
 // pi 归一化事件 → 消息缓存。无活跃 run 也要处理的状态/瞬态事件先分流;其余折叠进当前轮。
-function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent): void {
+function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, evRunId?: string): void {
   const store = usePersonalStore.getState();
   // 阶段4:任何事件 = 活跃,刷新空闲回收计时器（避免运行中被误回收）。
   touchPiSession(bridgeRef, sessionId);
+  // 阶段4 代际守卫:事件带 runId 且与当前活跃轮不符 → 迟到/串台事件（崩溃重开/editResend 重入的
+  // 旧轮事件），丢弃,不折叠进新轮。状态/瞬态事件（queue/compaction/crashed 等不折叠进 run）放行。
+  const activeRunId = store.runningBySession[sessionId];
+  if (evRunId && activeRunId && evRunId !== activeRunId && ev.type !== "crashed") return;
   // 任何新事件都说明本轮仍活跃 → 取消下面 error 分支挂的「防卡死」兜底收尾。
   const activeAny = piRunFor(sessionId);
   if (activeAny) stopResultExitFallback(activeAny.run);
@@ -909,8 +913,8 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent): 
   }
 }
 
-export function __handlePiEventForTest(qc: QueryClient, sessionId: string, ev: PiSessionEvent): void {
-  handlePiEvent(qc, sessionId, ev);
+export function __handlePiEventForTest(qc: QueryClient, sessionId: string, ev: PiSessionEvent, runId?: string): void {
+  handlePiEvent(qc, sessionId, ev, runId);
 }
 
 // 强制回收某会话的 renderer run:停看门狗/兜底 + 删 run + 清 running/runtime + 收瞬态。
@@ -1018,7 +1022,8 @@ async function sendPiTurn(
     }
     flipPiRunToThinking(qc, runId); // 冷启就绪 → typing 翻「思考中」。
     touchPiSession(bridge, session.id); // 阶段4:发起一轮 = 活跃,启动/重置空闲计时。
-    await promptPi(bridge, session.id, buildPiPromptMessage(text, appendSystemPrompt));
+    // 传 runId（阶段4 代际）:主进程绑定到本轮,事件回带,renderer 守卫丢弃旧轮串台事件。
+    await promptPi(bridge, session.id, buildPiPromptMessage(text, appendSystemPrompt), runId);
     autoTitle(bridge, session, text); // pi 走 fallback 截断标题（autoTitle 内部仅 claude 跑 haiku）。
   } catch (err) {
     failPiTurn(qc, session.id, runId, err);
@@ -1131,7 +1136,7 @@ export function usePersonalPiEvents(): void {
     if (!bridge?.onPiEvent) return;
     // bridgeRef 通常已由 usePersonalCliEvents 设置;此处兜底确保 handlePiEvent 的落盘可用。
     bridgeRef = bridge;
-    const off = bridge.onPiEvent((sessionId, ev) => handlePiEvent(qc, sessionId, ev));
+    const off = bridge.onPiEvent((sessionId, ev, runId) => handlePiEvent(qc, sessionId, ev, runId));
     return () => off();
   }, [bridge, qc]);
 }

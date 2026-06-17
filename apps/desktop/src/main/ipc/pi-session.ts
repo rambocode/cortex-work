@@ -18,11 +18,12 @@ interface SessionEntry {
 const sessions = new Map<string, SessionEntry>();
 
 // 推一条归一化事件给 renderer。crashed 顺带摘除注册表条目（进程已死,避免悬挂）。
-function emitEvent(uiSessionId: string, ev: PiSessionEvent): void {
+// 带 runId（阶段4 代际）:renderer 据此守卫丢弃迟到/串台事件。
+function emitEvent(uiSessionId: string, ev: PiSessionEvent, runId?: string): void {
   const entry = sessions.get(uiSessionId);
   if (ev.type === "crashed") sessions.delete(uiSessionId);
   if (entry && !entry.sender.isDestroyed()) {
-    entry.sender.send("pi:event", { uiSessionId, event: ev });
+    entry.sender.send("pi:event", { uiSessionId, runId, event: ev });
   }
 }
 
@@ -75,7 +76,7 @@ export function registerPiSessionHandlers(): void {
     });
     const session = new PiRpcSession(
       transport,
-      (ev) => emitEvent(req.uiSessionId, ev),
+      (ev, runId) => emitEvent(req.uiSessionId, ev, runId),
       (request) => emitUiRequest(req.uiSessionId, request),
     );
     sessions.set(req.uiSessionId, { session, sender: event.sender });
@@ -92,8 +93,8 @@ export function registerPiSessionHandlers(): void {
   });
 
   // ── 运行时命令（均转发到对应 PiRpcSession 方法）──────────────────────────
-  ipcMain.handle("pi:prompt", (_e, uiSessionId: string, message: string) =>
-    command(uiSessionId, (s) => s.prompt(message)),
+  ipcMain.handle("pi:prompt", (_e, uiSessionId: string, message: string, runId?: string) =>
+    command(uiSessionId, (s) => s.prompt(message, runId)),
   );
   ipcMain.handle("pi:steer", (_e, uiSessionId: string, message: string) =>
     command(uiSessionId, (s) => s.steer(message)),

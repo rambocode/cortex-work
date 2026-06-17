@@ -327,7 +327,7 @@ describe("PiRpcSession", () => {
     const f = fakeTransport();
     new PiRpcSession(f.transport, onEvent);
     f.emit(JSON.stringify({ type: "agent_end", messages: [], willRetry: false }) + "\n");
-    expect(onEvent).toHaveBeenCalledWith({ type: "result", willRetry: false });
+    expect(onEvent).toHaveBeenCalledWith({ type: "result", willRetry: false }, undefined);
   });
 
   it("ready: get_state 返回 sessionId 即就绪", async () => {
@@ -649,7 +649,7 @@ describe("extension UI 请求路由 + respondUi 回写（阶段3 U1）", () => {
     new PiRpcSession(f.transport, onEvent, onUiRequest);
     // 普通事件仍走 onEvent
     f.emit(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hi" } }) + "\n");
-    expect(onEvent).toHaveBeenCalledWith({ type: "text", delta: "hi" });
+    expect(onEvent).toHaveBeenCalledWith({ type: "text", delta: "hi" }, undefined);
     expect(onUiRequest).not.toHaveBeenCalled();
     // UI 请求只走 onUiRequest
     f.emit(JSON.stringify({ type: "extension_ui_request", id: "x", method: "confirm", title: "t", message: "m" }) + "\n");

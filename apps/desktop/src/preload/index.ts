@@ -193,8 +193,8 @@ const personal = {
   // ── pi RPC 长驻会话（pi --mode rpc）。claude/codex 仍走上面的 cli 单发通道。 ────────
   // 一个 UI 会话 = 一个长驻 pi 子进程;命令经 invoke,事件流经 onPiEvent。
   piOpen: (req: PiOpenRequest): Promise<PiOpenResult> => ipcRenderer.invoke("pi:open", req),
-  piPrompt: (uiSessionId: string, message: string): Promise<unknown> =>
-    ipcRenderer.invoke("pi:prompt", uiSessionId, message),
+  piPrompt: (uiSessionId: string, message: string, runId?: string): Promise<unknown> =>
+    ipcRenderer.invoke("pi:prompt", uiSessionId, message, runId),
   piSteer: (uiSessionId: string, message: string): Promise<unknown> =>
     ipcRenderer.invoke("pi:steer", uiSessionId, message),
   piFollowUp: (uiSessionId: string, message: string): Promise<unknown> =>
@@ -215,9 +215,9 @@ const personal = {
   piSwitchSession: (uiSessionId: string, sessionPath: string): Promise<unknown> =>
     ipcRenderer.invoke("pi:switchSession", uiSessionId, sessionPath),
   piClose: (uiSessionId: string): Promise<void> => ipcRenderer.invoke("pi:close", uiSessionId),
-  onPiEvent: (cb: (uiSessionId: string, event: PiSessionEvent) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, payload: { uiSessionId: string; event: PiSessionEvent }) =>
-      cb(payload.uiSessionId, payload.event);
+  onPiEvent: (cb: (uiSessionId: string, event: PiSessionEvent, runId?: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { uiSessionId: string; event: PiSessionEvent; runId?: string }) =>
+      cb(payload.uiSessionId, payload.event, payload.runId);
     ipcRenderer.on("pi:event", listener);
     return () => ipcRenderer.removeListener("pi:event", listener);
   },

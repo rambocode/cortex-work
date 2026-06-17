@@ -174,8 +174,8 @@ describe("pi:open", () => {
 describe("命令转发", () => {
   it("pi:prompt 转发到 session.prompt 并回 data", async () => {
     await open();
-    const data = await h.handlers.get("pi:prompt")!({}, "u1", "你好");
-    expect(h.instances[0].prompt).toHaveBeenCalledWith("你好");
+    const data = await h.handlers.get("pi:prompt")!({}, "u1", "你好", "run-1");
+    expect(h.instances[0].prompt).toHaveBeenCalledWith("你好", "run-1");
     expect(data).toEqual({ accepted: true });
   });
 
@@ -362,7 +362,7 @@ describe("阶段4 恢复:pi:switchSession + ready sessionFile", () => {
   it("pi:open 回带 ready 取得的 sessionFile", async () => {
     const sess = h.makeSession();
     sess.ready = vi.fn().mockResolvedValue({ sessionId: "s1", sessionFile: "/sessions/a.jsonl" });
-    h.PiRpcSession.mockImplementationOnce(function (_t: unknown, onEvent: (ev: unknown) => void) {
+    h.PiRpcSession.mockImplementationOnce(function (_t: unknown, _onEvent: (ev: unknown) => void) {
       h.instances.push(sess);
       return sess;
     });
