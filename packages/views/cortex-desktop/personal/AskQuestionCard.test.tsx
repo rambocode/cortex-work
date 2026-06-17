@@ -84,7 +84,7 @@ describe("AskQuestionCard（U5）", () => {
     });
   });
 
-  it("多组:未全部作答时提交禁用,补齐后可提交并聚合", () => {
+  it("多组:顶部 tab 切换,未全部作答时提交禁用,tab 显 ✓,补齐后聚合提交", () => {
     const bridge = makeBridge();
     const twoGroups = {
       groups: [
@@ -94,10 +94,17 @@ describe("AskQuestionCard（U5）", () => {
     };
     usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-pi", request: askReq("a1", twoGroups) }] });
     renderCard(bridge);
-    expect(screen.getByRole("button", { name: "提交" })).toBeDisabled(); // 一组未答
+    // 初始只显第一组(tab 切换),第二组问题在另一 tab 后不可见。
+    expect(screen.getByText("Q0")).toBeInTheDocument();
+    expect(screen.queryByText("Q1")).toBeNull();
+    expect(screen.getByRole("button", { name: "提交" })).toBeDisabled();
     expect(screen.getByText("还有 2 组未作答")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("A"));
-    expect(screen.getByRole("button", { name: "提交" })).toBeDisabled(); // 仍缺一组
+    fireEvent.click(screen.getByText("A")); // 答第一组
+    expect(screen.getByRole("button", { name: "提交" })).toBeDisabled(); // 仍缺第二组
+    expect(screen.getByRole("tab", { name: /问题 1/ })).toHaveTextContent("✓"); // 已答 tab 标 ✓
+    // 切到第二组 tab → 第二组问题与选项可见
+    fireEvent.click(screen.getByRole("tab", { name: /问题 2/ }));
+    expect(screen.getByText("Q1")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Y"));
     expect(screen.getByRole("button", { name: "提交" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "提交" }));
@@ -107,6 +114,12 @@ describe("AskQuestionCard（U5）", () => {
         { groupId: "g1", value: "Y", isCustom: false },
       ],
     });
+  });
+
+  it("单组:不渲染 tab 栏", () => {
+    usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-pi", request: askReq("a1", oneGroup) }] });
+    renderCard(makeBridge());
+    expect(screen.queryByRole("tablist")).toBeNull();
   });
 
   it("取消按钮 → piUiResponse{cancelled}", () => {

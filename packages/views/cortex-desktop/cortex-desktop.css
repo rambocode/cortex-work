@@ -5011,35 +5011,65 @@ button.sb-row {
   margin-top: 4px;
 }
 
-/* askquestion 富卡片（输入框上方,非模态）。多组提问 + 推荐项 + 自定义输入 + 整卡一次提交。 */
+/* askquestion 富卡片（输入框上方,非模态）。多组顶部 tab 切换 + 推荐项 + 自定义输入 + 整卡一次提交。
+   宽度对齐输入框（与 .composer-wrap 同 40px 侧距,不超过输入框）,背景纯白,tab active 用主题色。 */
 .pw-askq {
-  margin: 6px 12px 0;
+  margin: 6px 40px 0;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
-  background: var(--bg-card-2);
+  background: var(--bg-app);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.pw-askq-scroll {
-  max-height: 40vh;
+.pw-askq-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 8px 0;
+  border-bottom: 1px solid var(--border-soft);
+  overflow-x: auto;
+}
+.pw-askq-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 180px;
+  padding: 7px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.pw-askq-tab:hover {
+  color: var(--text-1);
+}
+.pw-askq-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.pw-askq-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pw-askq-tab-check {
+  color: var(--green);
+  font-size: 11px;
+}
+.pw-askq-tab.active .pw-askq-tab-check {
+  color: var(--accent);
+}
+.pw-askq-body {
+  max-height: 38vh;
   overflow-y: auto;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-.pw-askq-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.pw-askq-header {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  gap: 8px;
 }
 .pw-askq-question {
   font-size: 13.5px;
@@ -5064,7 +5094,7 @@ button.sb-row {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--bg-input);
+  background: var(--bg-app);
   cursor: pointer;
   font-size: 13px;
   color: var(--text-1);
@@ -5099,7 +5129,7 @@ button.sb-row {
   padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--bg-input);
+  background: var(--bg-app);
   font-size: 13px;
   color: var(--text-1);
 }
@@ -5114,7 +5144,6 @@ button.sb-row {
   gap: 8px;
   padding: 10px 14px;
   border-top: 1px solid var(--border-soft);
-  background: var(--bg-card);
 }
 .pw-askq-hint {
   margin-right: auto;
