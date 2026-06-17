@@ -35,6 +35,8 @@ import type {
   PiOpenRequest,
   PiOpenResult,
   PiSessionEvent,
+  PiUiRequest,
+  PiUiResponsePayload,
   ProviderProbeInput,
   ProviderProbeResult,
   PromptNode,
@@ -183,6 +185,9 @@ export interface DesktopBridge {
   piClose?(uiSessionId: string): Promise<void>;
   // 归一化事件流（仿 onCliEvent:回调 + 返回退订）。按 uiSessionId 分派。
   onPiEvent?(cb: (uiSessionId: string, event: PiSessionEvent) => void): () => void;
+  // extension UI 请求（pi → host,阶段3 工具确认弹窗等）。订阅 + 回写应答。全可选（web/旧壳缺失）。
+  onPiUiRequest?(cb: (uiSessionId: string, request: PiUiRequest) => void): () => void;
+  piUiResponse?(uiSessionId: string, id: string, payload: PiUiResponsePayload): Promise<void>;
   // 内嵌终端（xterm.js ↔ node-pty）
   ptySpawn(req: PtySpawnRequest): Promise<PtySpawnResult>;
   ptyInput(id: string, data: string): void;

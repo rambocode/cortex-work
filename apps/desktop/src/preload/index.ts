@@ -28,6 +28,8 @@ import type {
   PiOpenRequest,
   PiOpenResult,
   PiSessionEvent,
+  PiUiRequest,
+  PiUiResponsePayload,
   PromptNode,
   ReadFileResult,
   SkillMeta,
@@ -217,6 +219,15 @@ const personal = {
     ipcRenderer.on("pi:event", listener);
     return () => ipcRenderer.removeListener("pi:event", listener);
   },
+  // extension UI 请求（pi → host,工具确认弹窗等）。订阅 + 回写应答。
+  onPiUiRequest: (cb: (uiSessionId: string, request: PiUiRequest) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { uiSessionId: string; request: PiUiRequest }) =>
+      cb(payload.uiSessionId, payload.request);
+    ipcRenderer.on("pi:uiRequest", listener);
+    return () => ipcRenderer.removeListener("pi:uiRequest", listener);
+  },
+  piUiResponse: (uiSessionId: string, id: string, payload: PiUiResponsePayload): Promise<void> =>
+    ipcRenderer.invoke("pi:uiResponse", uiSessionId, id, payload),
   // 内嵌终端（xterm ↔ node-pty）
   ptySpawn: (req: { id: string; cwd?: string; cols: number; rows: number }): Promise<{ ok: boolean; cwd?: string; error?: string }> =>
     ipcRenderer.invoke("pty:spawn", req),

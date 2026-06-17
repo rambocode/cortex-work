@@ -616,6 +616,25 @@ export type PiSessionEvent =
   | { type: "thinking-level"; level: string }
   | { type: "crashed"; error?: string }; // 进程非正常退出（session 注入,非 RPC 事件）
 
+// pi extension 经 ctx.ui.* 发起的「需用户输入」请求（与 apps/desktop/src/main/ipc/types.ts 镜像）。
+// 独立于单向 PiSessionEvent 流;阶段3 工具确认弹窗用 method:"confirm"。`id` 由 pi 生成,回写原样带回。
+export type PiUiRequest =
+  | { type: "extension_ui_request"; id: string; method: "confirm"; title: string; message: string; timeout?: number }
+  | { type: "extension_ui_request"; id: string; method: "select"; title: string; options: string[]; timeout?: number }
+  | { type: "extension_ui_request"; id: string; method: "input"; title: string; placeholder?: string; timeout?: number }
+  | { type: "extension_ui_request"; id: string; method: "editor"; title: string; prefill?: string }
+  | { type: "extension_ui_request"; id: string; method: "notify"; message: string; notifyType?: "info" | "warning" | "error" }
+  | { type: "extension_ui_request"; id: string; method: "setStatus"; statusKey: string; statusText: string | undefined }
+  | { type: "extension_ui_request"; id: string; method: "setWidget"; widgetKey: string; widgetLines: string[] | undefined; widgetPlacement?: "aboveEditor" | "belowEditor" }
+  | { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
+  | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
+
+// 回写给 pi 的 UI 应答（host → pi）。confirm→confirmed;select/input/editor→value;取消→cancelled。
+export type PiUiResponsePayload =
+  | { confirmed: boolean }
+  | { value: string }
+  | { cancelled: true };
+
 // 菜单栏 Spotlight 浮动框提交的发起意图（bar → 主进程 → 主窗口接力新建会话）。
 export interface SpotlightIntent {
   id: string; // 去重用唯一 id

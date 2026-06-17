@@ -74,6 +74,8 @@ export {
   type PiOpenRequest,
   type PiOpenResult,
   type PiSessionEvent,
+  type PiUiRequest,
+  type PiUiResponsePayload,
   type AgentUsage,
   type DailyUsage,
   type DailyUsagePoint,
