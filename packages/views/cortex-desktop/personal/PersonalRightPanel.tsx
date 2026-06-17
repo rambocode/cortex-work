@@ -25,7 +25,9 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
 // 导出供测试引用,调参不破坏断言。
 export const RP_MIN_WIDTH = 280;
 // 拖宽上限:中间区域（与右栏同处 .pw-upper flex 容器）至少保留的宽度。
-export const RP_CENTER_RESERVED = 700;
+// 取 360（够中栏会话基本可读）——原 700 在常见笔记本窗口下会把拖宽上限压到
+// 比详情默认 40vw 还小,导致向左拖（变宽）被钳死甚至回弹变窄,表现为「不能拖」。
+export const RP_CENTER_RESERVED = 360;
 
 export function PersonalRightPanel({
   onToast,
