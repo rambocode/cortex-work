@@ -132,7 +132,11 @@ export {
   PI_APPROVAL_TOOL_OPTIONS,
   PI_THINKING_LEVELS,
   PI_THINKING_LABELS,
+  DEFAULT_PI_SKILLS,
   type PiCustomizationSettings,
+  type PiSkillSettings,
+  type PluginSkill,
+  type SkillScope,
   type ThinkingLevel,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";

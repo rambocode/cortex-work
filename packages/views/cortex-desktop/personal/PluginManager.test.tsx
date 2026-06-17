@@ -1,0 +1,111 @@
+// 插件管理器（U7）渲染与交互测试。CoreProvider 注入 fake bridge;usePersonalStore 真实。
+import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactElement } from "react";
+import { CoreProvider, usePersonalStore, DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS } from "@cortex-work/core";
+import type { DesktopBridge, PluginSkill } from "@cortex-work/core";
+import { PluginManager } from "./PluginManager";
+
+function sk(name: string, scope: "global" | "workspace", dir: string): PluginSkill {
+  return { name, description: `${name} 描述`, dir, rootPath: "/root", scope, enabled: true, trusted: scope === "global" };
+}
+
+function renderWith(bridge: DesktopBridge | null, ui: ReactElement = <PluginManager />) {
+  return render(
+    <CoreProvider wsId="ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+      {ui}
+    </CoreProvider>,
+  );
+}
+
+function fakeBridge(skills: PluginSkill[]): DesktopBridge {
+  return {
+    piSkillsList: vi.fn(async () => skills),
+    openSkillDir: vi.fn(async () => ({ ok: true })),
+  } as unknown as DesktopBridge;
+}
+
+beforeEach(() => {
+  usePersonalStore.setState({
+    generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: { ...DEFAULT_PI_SKILLS } },
+    projects: [],
+    activeProjectId: undefined,
+  });
+});
+afterEach(() => cleanup());
+
+describe("PluginManager", () => {
+  it("渲染全局 skill 列表 + 统计", async () => {
+    renderWith(fakeBridge([sk("code-review", "global", "/g/cr"), sk("bug-hunt", "global", "/g/bh")]));
+    expect(await screen.findByText("code-review")).toBeTruthy();
+    expect(screen.getByText("bug-hunt")).toBeTruthy();
+    expect(screen.getByText(/已扫描 2 个/)).toBeTruthy();
+    expect(screen.getByText(/2 个启用/)).toBeTruthy();
+  });
+
+  it("点禁用 → 写 disabledSkills,统计减一", async () => {
+    renderWith(fakeBridge([sk("code-review", "global", "/g/cr"), sk("bug-hunt", "global", "/g/bh")]));
+    const toggle = await screen.findByRole("switch", { name: /code-review/ });
+    fireEvent.click(toggle);
+    expect(usePersonalStore.getState().generalSettings.piSkills!.disabledSkills).toContain("global:code-review");
+    await waitFor(() => expect(screen.getByText(/1 个启用/)).toBeTruthy());
+  });
+
+  it("搜索过滤", async () => {
+    renderWith(fakeBridge([sk("code-review", "global", "/g/cr"), sk("bug-hunt", "global", "/g/bh")]));
+    await screen.findByText("code-review");
+    fireEvent.change(screen.getByLabelText("搜索 Skill"), { target: { value: "bug" } });
+    expect(screen.queryByText("code-review")).toBeNull();
+    expect(screen.getByText("bug-hunt")).toBeTruthy();
+  });
+
+  it("工作区未授信 skill → 显示「信任并启用」,点击写 trustedWorkspaceSkillDirs", async () => {
+    usePersonalStore.setState({
+      generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: { ...DEFAULT_PI_SKILLS } },
+      projects: [{ id: "p1", name: "p", path: "/proj", addedAt: 1 }],
+      activeProjectId: "p1",
+    });
+    renderWith(fakeBridge([sk("ws-skill", "workspace", "/proj/.cortex-desktop/skills/ws-skill")]));
+    const trustBtn = await screen.findByRole("button", { name: "信任并启用" });
+    fireEvent.click(trustBtn);
+    expect(usePersonalStore.getState().generalSettings.piSkills!.trustedWorkspaceSkillDirs).toContain(
+      "/proj/.cortex-desktop/skills/ws-skill",
+    );
+  });
+
+  it("同名全局+工作区 → 工作区卡标「已被全局同名覆盖」", async () => {
+    usePersonalStore.setState({
+      generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: { ...DEFAULT_PI_SKILLS } },
+      projects: [{ id: "p1", name: "p", path: "/proj", addedAt: 1 }],
+      activeProjectId: "p1",
+    });
+    renderWith(
+      fakeBridge([sk("dup", "global", "/g/dup"), sk("dup", "workspace", "/proj/.cortex-desktop/skills/dup")]),
+    );
+    expect(await screen.findByText("已被全局同名覆盖")).toBeTruthy();
+  });
+
+  it("空结果 → 引导空态", async () => {
+    renderWith(fakeBridge([]));
+    expect(await screen.findByText("未发现 Skill")).toBeTruthy();
+  });
+
+  it("切到 MCP 标签 → 敬请期待占位", async () => {
+    renderWith(fakeBridge([sk("a", "global", "/g/a")]));
+    fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
+    expect(screen.getByText("MCP 管理敬请期待")).toBeTruthy();
+  });
+
+  it("添加全局目录 → 写 userGlobalRoots", async () => {
+    renderWith(fakeBridge([]));
+    await screen.findByText("未发现 Skill");
+    fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/my/skills" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
+    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/my/skills");
+  });
+
+  it("bridge=null（web/旧壳）→ 降级空态", () => {
+    renderWith(null);
+    expect(screen.getByText(/当前环境不支持 Skill 扫描/)).toBeTruthy();
+  });
+});
