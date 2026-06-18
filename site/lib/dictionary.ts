@@ -25,7 +25,7 @@ export interface FeatureItem {
 export interface Dict {
   meta: { title: string; description: string; ogAlt: string };
   brand: { name: string; tagline: string };
-  nav: { skills: string; notes: string; features: string; agents: string; github: string; download: string };
+  nav: { skills: string; accounting: string; notes: string; terminal: string; features: string; agents: string; github: string; download: string };
   links: { github: string; releases: string; webApp: string };
   hero: {
     eyebrow: string;
@@ -43,6 +43,24 @@ export interface Dict {
     sub: string;
     items: AgentItem[];
     extra: { title: string; providers: string[] };
+  };
+  /** Hero 交互式演示:拖/选 skill → 输入 → 模拟输出(client） */
+  heroDemo: {
+    drag: string;
+    send: string;
+    hint: string;
+    tryLabel: string;
+    thinking: string;
+    skills: { key: "review" | "ledger"; name: string; placeholder: string; example: string }[];
+    reviewLines: string[];
+    ledger: {
+      cols: string[];
+      account: string;
+      date: string;
+      done: string;
+      cats: { match: string[]; label: string }[];
+      fallback: string;
+    };
   };
   /** Skill 按需注入 · 省 token（差异化核心，showcase） */
   skills: {
@@ -62,6 +80,21 @@ export interface Dict {
       contextNote: string;
     };
   };
+  /** 会计录入 · 拖入的自定义 skill 示例（showcase，id="accounting"） */
+  accounting: {
+    eyebrow: string;
+    title: string;
+    sub: string;
+    points: string[];
+    mock: {
+      skill: string;
+      placeholder: string;
+      send: string;
+      cols: string[];
+      rows: { date: string; cat: string; amount: string; account: string }[];
+      done: string;
+    };
+  };
   /** 闪记 / Flash Notes（showcase） */
   notes: {
     eyebrow: string;
@@ -79,6 +112,22 @@ export interface Dict {
       stage3: string;
       output: string;
       plan: string;
+    };
+  };
+  /** 终端 · 文件/代码点击即引用进 Agent 输入框(showcase，id="terminal"，client） */
+  terminal: {
+    eyebrow: string;
+    title: string;
+    sub: string;
+    points: string[];
+    mock: {
+      agents: { key: "claude" | "codex"; name: string }[];
+      files: { name: string; lines: string[] }[];
+      insertFile: string;
+      placeholder: string;
+      empty: string;
+      send: string;
+      sent: string;
     };
   };
   features: { eyebrow: string; title: string; sub: string; items: FeatureItem[] };
@@ -104,7 +153,8 @@ export interface Dict {
   a11y: { primaryNav: string; footerNav: string; skipToContent: string };
 }
 
-const GITHUB = "https://github.com/rambocode/cortex-work";
+// 发布与源码统一指向公开的 release 仓库（下载、发布版本、查看 GitHub 全部跟随）。
+const GITHUB = "https://github.com/rambocode/cortex-work-release";
 
 const zh: Dict = {
   meta: {
@@ -114,13 +164,13 @@ const zh: Dict = {
     ogAlt: "Cortex Desktop — 本地优先的 Agent 工作台",
   },
   brand: { name: "Cortex Desktop", tagline: "本地优先的 Agent 工作台" },
-  nav: { skills: "Skills", notes: "闪记", features: "功能", agents: "Agent", github: "GitHub", download: "下载" },
+  nav: { skills: "Skills", accounting: "记账", notes: "闪记", terminal: "终端", features: "功能", agents: "Agent", github: "GitHub", download: "下载" },
   links: { github: GITHUB, releases: `${GITHUB}/releases`, webApp: "#" },
   hero: {
     eyebrow: "本地优先的 Agent 工作台",
-    title: "把所有编码 Agent，请进",
-    titleAccent: "同一个工作区",
-    sub: "Cortex Desktop 是本地优先的桌面工作台：Claude Code、Codex、Pi 在你的项目里接活、汇报，每步改动都等你过审。",
+    title: "写代码、记一笔账，",
+    titleAccent: "拖个 skill 就上手",
+    sub: "本地优先的桌面工作台：默认不膨胀，需要哪个 skill 就拖哪个进来，这一轮照它干。写代码、记灵感、记一笔账，都是同一套动作。",
     primary: "下载桌面端",
     secondary: "在浏览器试用",
     trust: "已支持 Claude · Codex · Pi，可接入更多模型通道",
@@ -136,6 +186,45 @@ const zh: Dict = {
       { key: "pi", name: "Pi", tag: "开放通道", desc: "经 Pi 接入 GLM、Kimi、DeepSeek 等更多模型。" },
     ],
     extra: { title: "还能接入你自己的模型通道", providers: ["GLM", "Kimi", "DeepSeek", "自定义"] },
+  },
+  heroDemo: {
+    drag: "拖一个 skill 进来,或点一下切换",
+    send: "运行",
+    hint: "Enter 运行 · Shift+Enter 换行",
+    tryLabel: "试试:",
+    thinking: "Agent 正在处理…",
+    skills: [
+      {
+        key: "review",
+        name: "code-review",
+        placeholder: "贴段代码,或说要审什么…",
+        example: "审一下登录函数:user 可能为 null 吗?",
+      },
+      {
+        key: "ledger",
+        name: "会计录入",
+        placeholder: "记一笔账…(午饭 25,打车 38)",
+        example: "午饭 25,打车 38,买咖啡 19",
+      },
+    ],
+    reviewLines: [
+      "读完了,结构清晰。两点建议:",
+      "• 取 user.id 前先判空,避免空指针。",
+      "• 异常别吞掉,至少记一条日志。",
+      "其余没问题,可以合。",
+    ],
+    ledger: {
+      cols: ["日期", "分类", "金额", "账户"],
+      account: "现金",
+      date: "06-18",
+      done: "已记账",
+      cats: [
+        { match: ["饭", "餐", "午", "晚", "早", "咖啡", "奶茶", "吃", "外卖"], label: "餐饮" },
+        { match: ["车", "打车", "地铁", "公交", "油", "停车", "高铁"], label: "交通" },
+        { match: ["买", "购", "衣", "超市", "话费"], label: "购物" },
+      ],
+      fallback: "其他",
+    },
   },
   skills: {
     eyebrow: "更省 token",
@@ -158,6 +247,27 @@ const zh: Dict = {
       contextNote: "默认精简",
     },
   },
+  accounting: {
+    eyebrow: "拖入即用 · 不止编码",
+    title: "拖个会计 skill，输入框就成了账本",
+    sub: "同一个输入框，拖进你自己的「会计录入」skill，用大白话记一笔，Agent 把它拆成结构化条目——这一轮专心记账，不必新开工具。",
+    points: [
+      "自然语言一句拆多条：「午饭 25，打车 38」自动分成两笔。",
+      "拖入的是你自己的 skill，只这一轮生效、发完即清，不常驻上下文。",
+      "产出结构化条目（日期 / 分类 / 金额 / 账户），可导出对账。",
+    ],
+    mock: {
+      skill: "会计录入",
+      placeholder: "记一笔账…（午饭 25，打车 38）",
+      send: "记一笔",
+      cols: ["日期", "分类", "金额", "账户"],
+      rows: [
+        { date: "06-18", cat: "餐饮", amount: "¥25", account: "现金" },
+        { date: "06-18", cat: "交通", amount: "¥38", account: "现金" },
+      ],
+      done: "已记账",
+    },
+  },
   notes: {
     eyebrow: "闪记 · Flash Notes",
     title: "灵感随手接住，不打断当前会话",
@@ -178,6 +288,47 @@ const zh: Dict = {
       stage3: "已深化",
       output: "brainstorm.md",
       plan: "plan.md",
+    },
+  },
+  terminal: {
+    eyebrow: "终端 · 点击即引用",
+    title: "看到哪行有问题,点一下就丢给 Agent",
+    sub: "内置终端与文件预览,代码、diff 一眼可见。可疑的文件或某一行,点一下直接插进 Claude Code 或 Codex 的输入框——带着精确上下文,快速处理。",
+    points: [
+      "终端、文件、diff 都在工作台里,不用切出去翻。",
+      "点文件名或某一行,引用就落进 Claude Code / Codex 的输入框。",
+      "带着精确的文件/行号发问,Agent 少猜、改得准。",
+    ],
+    mock: {
+      agents: [
+        { key: "claude", name: "Claude Code" },
+        { key: "codex", name: "Codex" },
+      ],
+      files: [
+        {
+          name: "auth.ts",
+          lines: [
+            "export function getUser(req) {",
+            "  const token = req.headers.token",
+            "  return db.users.find(token)",
+            "}  // token 为空时会抛错",
+          ],
+        },
+        {
+          name: "payment.ts",
+          lines: [
+            "async function charge(order) {",
+            "  const r = await api.pay(order)",
+            "  return r.ok",
+            "}  // 失败没有重试",
+          ],
+        },
+      ],
+      insertFile: "插入整个文件",
+      placeholder: "描述要处理的问题…",
+      empty: "点左侧文件或某一行,引用会出现在这里",
+      send: "交给 Agent",
+      sent: "已交给",
     },
   },
   features: {
@@ -222,7 +373,9 @@ const zh: Dict = {
         title: "产品",
         links: [
           { label: "Skills 省 token", href: "#skills" },
+          { label: "会计录入", href: "#accounting" },
           { label: "闪记", href: "#notes" },
+          { label: "终端", href: "#terminal" },
           { label: "功能", href: "#features" },
           { label: "Agent 生态", href: "#agents" },
           { label: "下载", href: "#download" },
@@ -250,13 +403,13 @@ const en: Dict = {
     ogAlt: "Cortex Desktop — the local-first agent workspace",
   },
   brand: { name: "Cortex Desktop", tagline: "The local-first agent workspace" },
-  nav: { skills: "Skills", notes: "Notes", features: "Features", agents: "Agents", github: "GitHub", download: "Download" },
+  nav: { skills: "Skills", accounting: "Ledger", notes: "Notes", terminal: "Terminal", features: "Features", agents: "Agents", github: "GitHub", download: "Download" },
   links: { github: GITHUB, releases: `${GITHUB}/releases`, webApp: "#" },
   hero: {
     eyebrow: "The local-first agent workspace",
-    title: "One workspace for every",
-    titleAccent: "coding agent",
-    sub: "Cortex Desktop is a local-first desktop workspace where Claude Code, Codex and Pi pick up work on your projects, report back, and wait for your review on every change.",
+    title: "Write code, log an expense —",
+    titleAccent: "just drag in a skill",
+    sub: "A local-first desktop workspace. Context stays lean by default; drag in the skill you need and this turn runs on it. Coding, notes, bookkeeping — one gesture.",
     primary: "Download for macOS",
     secondary: "Open the web app",
     trust: "Works with Claude · Codex · Pi — and more model channels",
@@ -272,6 +425,45 @@ const en: Dict = {
       { key: "pi", name: "Pi", tag: "Open channel", desc: "Bring GLM, Kimi, DeepSeek and more through Pi." },
     ],
     extra: { title: "...or plug in your own model channel", providers: ["GLM", "Kimi", "DeepSeek", "Custom"] },
+  },
+  heroDemo: {
+    drag: "Drag a skill in, or tap to switch",
+    send: "Run",
+    hint: "Enter to run · Shift+Enter for newline",
+    tryLabel: "Try:",
+    thinking: "Agent is working…",
+    skills: [
+      {
+        key: "review",
+        name: "code-review",
+        placeholder: "Paste code, or say what to review…",
+        example: "Review the login fn — can user be null?",
+      },
+      {
+        key: "ledger",
+        name: "bookkeeping",
+        placeholder: "Log an expense… (lunch 25, cab 38)",
+        example: "lunch 25, cab 38, coffee 19",
+      },
+    ],
+    reviewLines: [
+      "Read it through — structure's clean. Two notes:",
+      "• Guard user before reading .id to avoid a null deref.",
+      "• Don't swallow the error; at least log it.",
+      "Otherwise good to merge.",
+    ],
+    ledger: {
+      cols: ["Date", "Category", "Amount", "Account"],
+      account: "Cash",
+      date: "06-18",
+      done: "Logged",
+      cats: [
+        { match: ["lunch", "dinner", "breakfast", "coffee", "tea", "food", "meal", "eat", "snack"], label: "Dining" },
+        { match: ["cab", "taxi", "bus", "metro", "subway", "gas", "fuel", "parking", "train", "car"], label: "Transit" },
+        { match: ["buy", "shop", "store", "grocery", "clothes", "phone"], label: "Shopping" },
+      ],
+      fallback: "Other",
+    },
   },
   skills: {
     eyebrow: "Lean on tokens",
@@ -294,6 +486,27 @@ const en: Dict = {
       contextNote: "Lean by default",
     },
   },
+  accounting: {
+    eyebrow: "Drag-in, not just code",
+    title: "Drop in a bookkeeping skill — the composer becomes a ledger",
+    sub: "Same composer: drag in your own \"bookkeeping\" skill, jot a line in plain words, and the agent splits it into structured entries — this turn stays on the books, no new tool needed.",
+    points: [
+      "Plain language, multiple lines: \"lunch 25, cab 38\" splits into two entries.",
+      "It's your own skill, applied to this turn only — it clears after sending, never sits in context.",
+      "Structured entries (date / category / amount / account) you can export to reconcile.",
+    ],
+    mock: {
+      skill: "bookkeeping",
+      placeholder: "Log an expense… (lunch 25, cab 38)",
+      send: "Log it",
+      cols: ["Date", "Category", "Amount", "Account"],
+      rows: [
+        { date: "06-18", cat: "Dining", amount: "$25", account: "Cash" },
+        { date: "06-18", cat: "Transit", amount: "$38", account: "Cash" },
+      ],
+      done: "Logged",
+    },
+  },
   notes: {
     eyebrow: "Flash Notes",
     title: "Catch an idea without breaking your flow",
@@ -314,6 +527,47 @@ const en: Dict = {
       stage3: "Deepened",
       output: "brainstorm.md",
       plan: "plan.md",
+    },
+  },
+  terminal: {
+    eyebrow: "Terminal · click to reference",
+    title: "See the bad line, click to hand it to the agent",
+    sub: "A built-in terminal and file preview keep code and diffs in view. Click a suspect file or line to drop it straight into the Claude Code or Codex composer — exact context, handled fast.",
+    points: [
+      "Terminal, files and diffs live in the workbench — no switching out.",
+      "Click a filename or a single line — it lands in the Claude Code / Codex composer.",
+      "Ask with exact file/line context, so the agent guesses less and edits right.",
+    ],
+    mock: {
+      agents: [
+        { key: "claude", name: "Claude Code" },
+        { key: "codex", name: "Codex" },
+      ],
+      files: [
+        {
+          name: "auth.ts",
+          lines: [
+            "export function getUser(req) {",
+            "  const token = req.headers.token",
+            "  return db.users.find(token)",
+            "}  // throws when token is empty",
+          ],
+        },
+        {
+          name: "payment.ts",
+          lines: [
+            "async function charge(order) {",
+            "  const r = await api.pay(order)",
+            "  return r.ok",
+            "}  // no retry on failure",
+          ],
+        },
+      ],
+      insertFile: "Insert whole file",
+      placeholder: "Describe what to handle…",
+      empty: "Click a file or a line — references show up here",
+      send: "Hand to agent",
+      sent: "Sent to",
     },
   },
   features: {
@@ -358,7 +612,9 @@ const en: Dict = {
         title: "Product",
         links: [
           { label: "Skills & tokens", href: "#skills" },
+          { label: "Ledger entry", href: "#accounting" },
           { label: "Flash Notes", href: "#notes" },
+          { label: "Terminal", href: "#terminal" },
           { label: "Features", href: "#features" },
           { label: "Agents", href: "#agents" },
           { label: "Download", href: "#download" },

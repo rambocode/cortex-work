@@ -29,7 +29,9 @@ export default function Nav({ d, locale }: { d: Dict; locale: Locale }) {
   // 中部锚点链接（文案全部取自 d.nav，href 带 locale 前缀保证语言不丢）。
   const anchors = [
     { label: d.nav.skills, href: `/${locale}#skills` },
+    { label: d.nav.accounting, href: `/${locale}#accounting` },
     { label: d.nav.notes, href: `/${locale}#notes` },
+    { label: d.nav.terminal, href: `/${locale}#terminal` },
     { label: d.nav.features, href: `/${locale}#features` },
     { label: d.nav.agents, href: `/${locale}#agents` },
   ];

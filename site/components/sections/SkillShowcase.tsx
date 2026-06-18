@@ -178,7 +178,13 @@ export default function SkillShowcase({ d }: { d: Dict; locale: Locale }) {
           border: 1px dashed color-mix(in oklab, var(--clay) 55%, transparent);
           border-radius: var(--r-pill); padding: 5px 11px 5px 6px;
           box-shadow: var(--shadow-raise);
+          /* 循环「拖向 composer」的手势:轻微下沉再回弹,暗示被拖入下方输入框 */
           transform: translateY(-2px) rotate(-3deg);
+          animation: skChipDrag 3.6s var(--ease) infinite;
+        }
+        @keyframes skChipDrag {
+          0%, 100% { transform: translateY(-2px) rotate(-3deg); box-shadow: var(--shadow-raise); }
+          42%, 58% { transform: translateY(7px) rotate(-1deg); box-shadow: var(--shadow-pop); }
         }
         .sk-drag__hint {
           font-size: var(--fs-sm); color: var(--ink-3);
@@ -278,6 +284,11 @@ export default function SkillShowcase({ d }: { d: Dict; locale: Locale }) {
         @media (max-width: 480px) {
           .sk-composer__bar { gap: 10px; }
           .sk-ctx__track { width: 48px; }
+        }
+
+        /* reduced-motion:停在静态终态 */
+        @media (prefers-reduced-motion: reduce) {
+          .sk-drag__chip { animation: none; }
         }
       `}</style>
     </section>

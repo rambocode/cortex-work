@@ -11,11 +11,12 @@
 
 import { IconArrowRight, IconDownload } from "@/components/icons";
 import Jellyfish from "@/components/Jellyfish";
+import HeroDemo from "@/components/HeroDemo";
 import { Reveal } from "@/components/ui";
 import type { Dict } from "@/lib/dictionary";
 import type { Locale } from "@/lib/i18n";
 
-export default function Hero({ d }: { d: Dict; locale: Locale }) {
+export default function Hero({ d, locale }: { d: Dict; locale: Locale }) {
   return (
     <section className="section hero">
       {/* —— 底层氛围：极光 + 神经元星点，绝对定位铺底（z-index:0）—— */}
@@ -68,12 +69,18 @@ export default function Hero({ d }: { d: Dict; locale: Locale }) {
           </Reveal>
         </div>
 
-        {/* 右列：发光水母主视觉 + 其后柔和光晕。
-            水母是首屏强锚 —— 立即可见，不走「滚动揭示」（仅做一次性入场淡入）。 */}
+        {/* 右列：发光水母主视觉(品牌锚,在后发光供能) + 前置交互式演示卡。
+            演示卡是真交互:拖/点切换 skill → 输入 → 回车模拟 Agent 输出,
+            直观表达「拖个 skill,任意任务都能交给 Agent」。 */}
         <div className="hero__art">
-          {/* halo 在水母之后做呼吸光晕；水母随水流缓慢漂浮 */}
+          {/* halo 呼吸光晕；水母随水流缓慢漂浮(均为氛围,置于卡后) */}
           <span className="halo anim-halo hero__halo" aria-hidden="true" />
           <Jellyfish className="anim-drift hero__jelly" />
+
+          {/* 交互式演示卡 */}
+          <div className="hero__demo">
+            <HeroDemo d={d} locale={locale} />
+          </div>
         </div>
       </div>
 
@@ -130,7 +137,7 @@ export default function Hero({ d }: { d: Dict; locale: Locale }) {
           display: flex;
           align-items: center;
           justify-content: center;
-          min-height: clamp(320px, 42vw, 520px);
+          min-height: clamp(360px, 44vw, 540px);
           animation: heroArtIn 0.9s var(--ease-out) both;
         }
         @keyframes heroArtIn {
@@ -142,12 +149,31 @@ export default function Hero({ d }: { d: Dict; locale: Locale }) {
           z-index: 1;
           width: clamp(280px, 34vw, 440px);
           height: auto;
+          /* 水母是卡后氛围:不拦截卡片的拖/点/输入,略降存在感 */
+          pointer-events: none;
+          opacity: 0.94;
         }
         /* 光晕落在水母之后、向四周柔和扩散 */
         .hero__halo {
           width: clamp(360px, 46vw, 560px);
           height: clamp(360px, 46vw, 560px);
           z-index: 0;
+        }
+
+        /* —— 交互式演示卡:底部锚定,压在水母触手上;伞盖在上方完整露出 ——
+           (居中会盖住伞盖头部;改为贴底,默认态露出水母主体) */
+        .hero__demo {
+          position: absolute;
+          z-index: 2;
+          left: 50%;
+          bottom: clamp(0px, 2vw, 20px);
+          transform: translateX(-50%);
+          width: clamp(300px, 33vw, 384px);
+          animation: heroDemoIn 0.9s var(--ease-out) 0.25s both;
+        }
+        @keyframes heroDemoIn {
+          from { opacity: 0; transform: translate(-50%, 14px); }
+          to   { opacity: 1; transform: translate(-50%, 0); }
         }
 
         /* —— 移动端（≤760px）：单列、文在上、水母在下并弱化 —— */
@@ -158,15 +184,32 @@ export default function Hero({ d }: { d: Dict; locale: Locale }) {
           }
           .hero__copy { align-items: flex-start; }
           .hero__actions { width: 100%; }
+          /* 移动端:卡片进入正常流(定义高度),水母绝对定位、淡出于卡后 */
           .hero__art {
             order: 2;
             min-height: auto;
-            opacity: 0.92;
+            display: block;
+            position: relative;
           }
-          .hero__jelly { width: clamp(220px, 62vw, 320px); }
+          .hero__jelly {
+            position: absolute;
+            top: -8px; left: 50%;
+            transform: translateX(-50%);
+            width: clamp(220px, 60vw, 300px);
+            opacity: 0.5;
+          }
           .hero__halo {
             width: clamp(280px, 78vw, 380px);
             height: clamp(280px, 78vw, 380px);
+            top: 0; left: 50%; transform: translateX(-50%);
+          }
+          .hero__demo {
+            position: relative;
+            top: auto; left: auto;
+            transform: none;
+            margin: clamp(48px, 16vw, 96px) auto 0;
+            width: 100%; max-width: 380px;
+            animation: none;
           }
         }
 
@@ -174,6 +217,7 @@ export default function Hero({ d }: { d: Dict; locale: Locale }) {
            媒体查询静默；本区块新增的 heroArtIn 一次性入场需在此单独屏蔽。 */
         @media (prefers-reduced-motion: reduce) {
           .hero__art { animation: none; }
+          .hero__demo { animation: none; }
         }
       `}</style>
     </section>

@@ -46,7 +46,7 @@ export default function NotesShowcase({ d }: { d: Dict; locale: Locale }) {
               <span className="nt-overlay__title">{m.title}</span>
               <span className="nt-kbd mono">{m.shortcut}</span>
             </div>
-            <p className="nt-overlay__ph">{m.placeholder}</p>
+            <p className="nt-overlay__ph">{m.placeholder}<span className="nt-caret" /></p>
             <div className="nt-overlay__foot">
               <span className="pill nt-proj">
                 <span className="dot" />
@@ -130,6 +130,17 @@ export default function NotesShowcase({ d }: { d: Dict; locale: Locale }) {
           padding: 14px 2px 16px;
           border-bottom: 1px dashed var(--line);
           margin-bottom: 12px;
+          display: flex; align-items: center;
+        }
+        /* 输入光标:闪烁,呼应「随手记一笔」 */
+        .nt-caret {
+          display: inline-block; width: 1.5px; height: 1.05em;
+          margin-left: 2px; background: var(--clay);
+          animation: ntCaret 1.1s steps(1) infinite;
+        }
+        @keyframes ntCaret {
+          0%, 50% { opacity: 1; }
+          50.01%, 100% { opacity: 0; }
         }
         .nt-overlay__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
         .nt-proj { font-size: 0.74rem; padding: 4px 11px 4px 9px; }
@@ -178,10 +189,34 @@ export default function NotesShowcase({ d }: { d: Dict; locale: Locale }) {
           content: "›_"; color: var(--glow-blue); margin-right: 7px; opacity: 0.7;
         }
 
+        /* —— 动画 —— */
+        /* 「深化中」状态轻脉冲,暗示 agent 正在孵化 */
+        .nt-stage--active { animation: ntStagePulse 2.4s var(--ease) infinite; }
+        @keyframes ntStagePulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(91, 140, 255, 0); }
+          50% { box-shadow: 0 0 0 4px rgba(91, 140, 255, 0.14); }
+        }
+        /* 产出文档 chip:滚动进入视口(.is-visible)后顺序淡入 */
+        .nt-file {
+          opacity: 0; transform: translateY(5px);
+          animation: ntFileIn 0.5s var(--ease-out) forwards paused;
+        }
+        .nt-file:nth-child(1) { animation-delay: 0.2s; }
+        .nt-file:nth-child(2) { animation-delay: 0.42s; }
+        .reveal.is-visible .nt-file { animation-play-state: running; }
+        @keyframes ntFileIn { to { opacity: 1; transform: none; } }
+
         /* —— 移动端：单列，文案在上、mock 在下 —— */
         @media (max-width: 860px) {
           .nt-grid { grid-template-columns: 1fr; gap: 32px; }
           .nt-visual { order: 2; }
+        }
+
+        /* reduced-motion:停在静态终态 */
+        @media (prefers-reduced-motion: reduce) {
+          .nt-caret { animation: none; opacity: 1; }
+          .nt-stage--active { animation: none; }
+          .nt-file { opacity: 1 !important; transform: none !important; animation: none !important; }
         }
       `}</style>
     </section>

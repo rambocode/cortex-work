@@ -180,6 +180,19 @@ export function IconCheck({ className }: { className?: string }) {
   );
 }
 
+/** 账本：带横账行的票据本 + 底部金额勾，意指「结构化记账条目」。 */
+export function IconLedger({ className }: { className?: string }) {
+  return (
+    <svg className={className} {...base}>
+      <rect x="4.5" y="3.5" width="15" height="17" rx="2.2" />
+      <path d="M8 8h5M8 11.5h5M8 15h3" />
+      <circle cx="16" cy="8" r="0.9" />
+      <circle cx="16" cy="11.5" r="0.9" />
+      <path d="M14.6 15.4l1.2 1.2 2.2-2.4" />
+    </svg>
+  );
+}
+
 /** 火花：智能 / 点睛点缀（四角星 + 一小星）。 */
 export function IconSparkle({ className }: { className?: string }) {
   return (
