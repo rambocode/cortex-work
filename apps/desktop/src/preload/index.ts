@@ -15,6 +15,9 @@ import type {
   ContentSearchResult,
   CronValidation,
   EditorInfo,
+  ImageReadResult,
+  ImageSaveRequest,
+  ImageSaveResult,
   GitBranchesResult,
   GitDiffAllResult,
   GitInfoResult,
@@ -125,6 +128,9 @@ const personal = {
   saveChat: (sessionId: string, messages: unknown[]): Promise<void> =>
     ipcRenderer.invoke("chat:save", sessionId, messages),
   deleteChat: (sessionId: string): Promise<void> => ipcRenderer.invoke("chat:delete", sessionId),
+  // 聊天图片上传:落盘(二进制 ArrayBuffer 直传)/ 回读为 dataURL(缩略图)。
+  imageSave: (req: ImageSaveRequest): Promise<ImageSaveResult> => ipcRenderer.invoke("image:save", req),
+  imageRead: (path: string): Promise<ImageReadResult> => ipcRenderer.invoke("image:read", path),
   loadTimeline: (projectId: string): Promise<unknown> => ipcRenderer.invoke("timeline:load", projectId),
   saveTimeline: (projectId: string, data: unknown): Promise<void> =>
     ipcRenderer.invoke("timeline:save", projectId, data),

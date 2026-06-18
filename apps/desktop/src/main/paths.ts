@@ -21,6 +21,20 @@ export function chatsDir(): string {
   return join(cortexHome(), "chats");
 }
 
+// 聊天图片落盘根:~/.cortex-desktop/chat-images/（per-session 子目录,随会话删除清理）。
+export function chatImagesRoot(): string {
+  return join(cortexHome(), "chat-images");
+}
+
+const SAFE_SESSION_ID = /^[\w-]+$/;
+
+// 单会话图片目录:chat-images/<sessionId>/。sessionId 经 SAFE_ID 校验防路径穿越
+//（image:save / chat:delete 的 recursive 删除都依赖该校验）。
+export function chatImagesDir(sessionId: string): string {
+  if (!SAFE_SESSION_ID.test(sessionId)) throw new Error(`非法 session id: ${sessionId}`);
+  return join(chatImagesRoot(), sessionId);
+}
+
 export function timelinesDir(): string {
   return join(cortexHome(), "timelines");
 }

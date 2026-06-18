@@ -25,6 +25,9 @@ import type {
   GitDiffAllResult,
   GitInfoResult,
   GitOpResult,
+  ImageReadResult,
+  ImageSaveRequest,
+  ImageSaveResult,
   NoteInput,
   NoteMeta,
   NoteStatus,
@@ -124,6 +127,10 @@ export interface DesktopBridge {
   saveChat(sessionId: string, messages: unknown[]): Promise<void>;
   // 删除会话消息文件（物理删 chats/<id>.json;不存在不报错）
   deleteChat(sessionId: string): Promise<void>;
+  // 聊天图片上传:落盘返回绝对路径 / 按路径回读为 dataURL（缩略图）。
+  // 可选（web/旧壳无 → composer 图片上传入口降级隐藏）。
+  imageSave?(req: ImageSaveRequest): Promise<ImageSaveResult>;
+  imageRead?(path: string): Promise<ImageReadResult>;
   // 项目时间线持久化（按 projectId 一文件,内容对桥接层不透明;不存在返回 null）
   loadTimeline(projectId: string): Promise<unknown>;
   saveTimeline(projectId: string, data: unknown): Promise<void>;

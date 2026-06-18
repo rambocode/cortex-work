@@ -4,7 +4,8 @@
 import { ipcMain } from "electron";
 import { promises as fsp } from "fs";
 import { join } from "path";
-import { chatsDir, ensureMigrated } from "../paths";
+import { chatImagesDir, chatsDir, ensureMigrated } from "../paths";
+import { enqueue } from "./sessionWriteQueue";
 
 const SAFE_ID = /^[\w-]+$/;
 
@@ -16,9 +17,6 @@ function chatPath(sessionId: string): string {
   if (!SAFE_ID.test(sessionId)) throw new Error(`非法 session id: ${sessionId}`);
   return join(chatDir(), `${sessionId}.json`);
 }
-
-// 按 session 串行化写入，避免同一文件交错。
-const writeQueues = new Map<string, Promise<void>>();
 
 export function registerChatHandlers(): void {
   ipcMain.handle("chat:load", async (_e, sessionId: string) => {
@@ -34,43 +32,32 @@ export function registerChatHandlers(): void {
 
   ipcMain.handle("chat:save", (_e, sessionId: string, messages: unknown[]) => {
     const path = chatPath(sessionId);
-    const prev = writeQueues.get(sessionId) ?? Promise.resolve();
-    const next = prev
-      .then(async () => {
+    // 经共享 sessionWriteQueue 串行（与 chat:delete / image:save 同会话互斥）。
+    // 写失败吞掉并记日志，保持既有「保存尽力而为、不向 renderer 抛」的行为。
+    return enqueue(sessionId, async () => {
+      try {
         await ensureMigrated();
         await fsp.mkdir(chatDir(), { recursive: true });
         const tmp = path + ".tmp";
         await fsp.writeFile(tmp, JSON.stringify(messages), "utf8");
         await fsp.rename(tmp, path);
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error("[personal-chats] save failed:", err);
-      })
-      // 队列 settle 后,若该 key 仍指向本 Promise 则删除,避免每个出现过的 sessionId 永久驻留（防泄漏）。
-      .finally(() => {
-        if (writeQueues.get(sessionId) === next) writeQueues.delete(sessionId);
-      });
-    writeQueues.set(sessionId, next);
-    return next;
+      }
+    });
   });
 
   ipcMain.handle("chat:delete", (_e, sessionId: string) => {
     const path = chatPath(sessionId); // 复用 SAFE_ID 校验
-    // 排进同一写队列，避免与正在进行的 chat:save 交错。
-    const prev = writeQueues.get(sessionId) ?? Promise.resolve();
-    const next = prev
-      .then(async () => {
+    // 同队列串行：删消息文件 + 该会话图片目录（避免与在途 save / image:save 交错留孤儿）。
+    return enqueue(sessionId, async () => {
+      try {
         await ensureMigrated();
         await fsp.rm(path, { force: true }); // 不存在不报错
-      })
-      .catch((err) => {
+        await fsp.rm(chatImagesDir(sessionId), { recursive: true, force: true });
+      } catch (err) {
         console.error("[personal-chats] delete failed:", err);
-      })
-      // 队列 settle 后清理条目（删除会话尤其不应留常驻条目）（防泄漏）。
-      .finally(() => {
-        if (writeQueues.get(sessionId) === next) writeQueues.delete(sessionId);
-      });
-    writeQueues.set(sessionId, next);
-    return next;
+      }
+    });
   });
 }

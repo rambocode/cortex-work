@@ -7,6 +7,7 @@ import { registerSkillsHandlers } from "./skills";
 import { registerCliHandlers } from "./cli";
 import { registerPiSessionHandlers } from "./pi-session";
 import { registerChatHandlers } from "./chat";
+import { registerImageHandlers } from "./image";
 import { registerTimelineHandlers } from "./timeline";
 import { registerPushHandlers } from "./push";
 import { registerLlmHandlers } from "./llm";
@@ -27,6 +28,7 @@ export function registerIpcHandlers(): void {
   registerCliHandlers();
   registerPiSessionHandlers();
   registerChatHandlers();
+  registerImageHandlers();
   registerTimelineHandlers();
   registerPushHandlers();
   registerLlmHandlers();
