@@ -245,7 +245,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   // 真正退出（托盘退出 / 系统关机）:停调度 + 终止所有自动化进程 + 常规清理。
-  app.on("before-quit", () => {
+  const onRealQuit = () => {
     isQuitting = true;
     stopScheduler();
     killAllAutomations();
@@ -257,5 +257,12 @@ if (!app.requestSingleInstanceLock()) {
     destroySpotlight();
     destroyNotesOverlay();
     globalShortcut.unregisterAll();
-  });
+  };
+  app.on("before-quit", onRealQuit);
+  // 自动更新「重启更新」(autoUpdater.quitAndInstall):macOS 原生 Squirrel 路径退出前
+  // 发的是 before-quit-for-update 而非 before-quit。若不在此置 isQuitting,关窗会被
+  // close 处理器拦成「隐藏到托盘」,导致更新装不上(表现为点击无反应)。
+  // 事件名做编译期断言:before-quit-for-update 是 Electron 运行时事件,
+  // 部分版本类型定义未声明,断言不改变运行时字符串。
+  app.on("before-quit-for-update" as "before-quit", onRealQuit);
 }
