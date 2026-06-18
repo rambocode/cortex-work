@@ -1,6 +1,7 @@
 import type React from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
+import { useTranslation } from "@cortex-work/core/i18n";
 import {
   AGENT_MODELS,
   DEFAULT_MODEL,
@@ -29,6 +30,7 @@ function makeId(): string {
 const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", pi: "Pi" };
 
 export function SpotlightBar(): React.ReactElement {
+  const { t } = useTranslation("spotlight");
   const api = typeof window !== "undefined" ? window.desktopAPI : undefined;
   const [prompt, setPrompt] = useState("");
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
@@ -142,7 +144,7 @@ export function SpotlightBar(): React.ReactElement {
     }
   }
 
-  const projectLabel = draft.projectId ? projects.find((p) => p.id === draft.projectId)?.name ?? "项目" : "不使用项目";
+  const projectName = draft.projectId ? projects.find((p) => p.id === draft.projectId)?.name ?? t("projectLabel") : undefined;
 
   return (
     <div className="spot-root" ref={rootRef}>
@@ -154,7 +156,7 @@ export function SpotlightBar(): React.ReactElement {
           ref={inputRef}
           className="spot-input"
           rows={1}
-          placeholder="What can I help you with today?"
+          placeholder={t("placeholder")}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={onKeyDown}
@@ -165,16 +167,16 @@ export function SpotlightBar(): React.ReactElement {
           onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
           type="button"
         >
-          New Chat <Icon.Chevron size={14} />
+          {t("newChat")} <Icon.Chevron size={14} />
         </button>
-        <button className="spot-send" onClick={submit} disabled={!prompt.trim()} type="button" aria-label="发送">
+        <button className="spot-send" onClick={submit} disabled={!prompt.trim()} type="button" aria-label={t("send")}>
           <Icon.Send size={16} />
         </button>
       </div>
       {menuOpen ? (
         <div className="spot-menu">
           <label className="spot-row">
-            <span>Agent</span>
+            <span>{t("agent")}</span>
             <select
               value={draft.agent}
               onChange={(e) => pickAgent(e.target.value as AgentKind)}
@@ -182,18 +184,18 @@ export function SpotlightBar(): React.ReactElement {
               {(Object.keys(AGENT_MODELS) as AgentKind[]).map((a) => (
                 <option key={a} value={a} disabled={a !== "pi" && avail[a] === false}>
                   {AGENT_LABEL[a]}
-                  {a !== "pi" && avail[a] === false ? "（未安装）" : ""}
+                  {a !== "pi" && avail[a] === false ? t("notInstalled") : ""}
                 </option>
               ))}
             </select>
           </label>
           <label className="spot-row">
-            <span>模型</span>
+            <span>{t("model")}</span>
             <select
               value={draft.model ?? ""}
               onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value || undefined }))}
             >
-              {modelOptions.length === 0 ? <option value="">（无可用模型）</option> : null}
+              {modelOptions.length === 0 ? <option value="">{t("noModel")}</option> : null}
               {modelOptions.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
@@ -202,12 +204,12 @@ export function SpotlightBar(): React.ReactElement {
             </select>
           </label>
           <label className="spot-row">
-            <span>项目</span>
+            <span>{t("project")}</span>
             <select
               value={draft.projectId ?? ""}
               onChange={(e) => setDraft((d) => ({ ...d, projectId: e.target.value || undefined }))}
             >
-              <option value="">不使用项目</option>
+              <option value="">{t("noProject")}</option>
               {projects
                 .filter((p) => p.archivedAt == null)
                 .map((p) => (
@@ -217,7 +219,7 @@ export function SpotlightBar(): React.ReactElement {
                 ))}
             </select>
           </label>
-          <div className="spot-menu-foot">{projectLabel === "不使用项目" ? "将在 Documents/cortex 下新建临时会话" : `将在项目「${projectLabel}」目录工作`}</div>
+          <div className="spot-menu-foot">{projectName === undefined ? t("footNoProject") : t("footProject", { name: projectName })}</div>
         </div>
       ) : null}
     </div>

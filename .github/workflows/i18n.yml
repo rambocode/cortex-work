@@ -1,0 +1,37 @@
+name: i18n
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  i18n-check:
+    runs-on: ubuntu-latest
+    # 迁移期非阻断(warning);U13 收口时移除 continue-on-error 转阻断闸门。
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.28.2 --activate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # 提取漂移:代码里有 key 但未提取到 JSON 则非零退出(迁移期非阻断)。
+      - name: i18n extract drift
+        run: pnpm i18n:extract --ci
+
+      # 英文覆盖:en 有缺失/空值则非零退出(迁移期非阻断)。
+      - name: i18n en coverage
+        run: pnpm i18n:status

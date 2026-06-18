@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@cortex-work/ui/icons";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { organizationListOptions, useCortexUIStore } from "@cortex-work/core";
 
 // Organization switcher pinned at the top of the sidebar. Org list is server
 // state (React Query mock); the current org is client state (Zustand). The
 // dropdown switches org or signs out.
 export function OrgSwitcher() {
+  const { t } = useTranslation();
   const { data: orgs = [] } = useQuery(organizationListOptions());
   const currentOrgId = useCortexUIStore((s) => s.currentOrgId);
   const setCurrentOrg = useCortexUIStore((s) => s.setCurrentOrg);
@@ -29,14 +31,14 @@ export function OrgSwitcher() {
   const selectOrg = (id: string, name: string) => {
     setCurrentOrg(id);
     setOpen(false);
-    pushToast(`已切换到 ${name}`);
+    pushToast(t("orgSwitcher.switchedTo", { name }));
   };
 
   return (
     <div className="org-switcher-wrap" ref={ref}>
       <button className="org-switcher" data-open={open} onClick={() => setOpen((v) => !v)}>
         <span className="org-avatar">{current?.initials ?? "·"}</span>
-        <span className="org-name">{current?.name ?? "组织"}</span>
+        <span className="org-name">{current?.name ?? t("orgSwitcher.org")}</span>
         <span className="org-chev">
           <Icon.Chevron size={14} />
         </span>
@@ -44,7 +46,7 @@ export function OrgSwitcher() {
 
       {open ? (
         <div className="org-menu" role="menu">
-          <div className="org-menu-label">切换组织</div>
+          <div className="org-menu-label">{t("orgSwitcher.switchOrg")}</div>
           {orgs.map((o) => (
             <button key={o.id} className="org-menu-item" role="menuitem" onClick={() => selectOrg(o.id, o.name)}>
               <span className="org-avatar sm">{o.initials}</span>
@@ -62,26 +64,26 @@ export function OrgSwitcher() {
             role="menuitem"
             onClick={() => {
               setOpen(false);
-              pushToast("组织设置 · 暂未实现");
+              pushToast(t("orgSwitcher.orgSettingsToast"));
             }}
           >
             <span className="org-menu-ic">
               <Icon.Settings size={14} />
             </span>
-            <span className="org-menu-name">组织设置</span>
+            <span className="org-menu-name">{t("orgSwitcher.orgSettings")}</span>
           </button>
           <button
             className="org-menu-item danger"
             role="menuitem"
             onClick={() => {
               setOpen(false);
-              pushToast("退出登录 · 暂未实现");
+              pushToast(t("orgSwitcher.logoutToast"));
             }}
           >
             <span className="org-menu-ic">
               <Icon.X size={14} />
             </span>
-            <span className="org-menu-name">退出登录</span>
+            <span className="org-menu-name">{t("orgSwitcher.logout")}</span>
           </button>
         </div>
       ) : null}

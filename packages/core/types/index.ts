@@ -1,5 +1,7 @@
 // Domain types for Cortex Desktop — ported from the design prototype's data shapes.
 
+import type { Locale } from "../i18n/locales";
+
 export type AgentStatus = "idle" | "working" | "review" | "online" | "offline";
 export type GroupId = "pinned" | "team" | "shared" | "groups";
 
@@ -206,4 +208,6 @@ export interface Tweaks {
   fontScale: FontScale;
   // 明暗主题（system 跟随系统）。
   theme: ThemeMode;
+  // 界面语言（zh-Hans / en）—— 与 theme 同走 localStorage 持久化（KTD3）。
+  language: Locale;
 }

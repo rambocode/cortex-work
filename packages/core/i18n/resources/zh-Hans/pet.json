@@ -1,0 +1,31 @@
+{
+  "state": {
+    "idle": "{{name}}在待命",
+    "typing": "{{name}}在看你打字",
+    "thinking": "{{name}}在思考…",
+    "working": "{{name}}在埋头干活",
+    "replying": "{{name}}在回话",
+    "sleeping": "{{name}}睡着了,点我叫醒",
+    "happy": "{{name}}很开心!"
+  },
+  "hideTitle": "隐藏宠物(可在设置 → 宠物中重新打开)",
+  "hideAria": "隐藏宠物",
+  "kind": {
+    "cat": {
+      "name": "小柯",
+      "desc": "橘猫"
+    },
+    "shiba": {
+      "name": "阿柴",
+      "desc": "柴犬"
+    },
+    "bunny": {
+      "name": "团子",
+      "desc": "兔子"
+    },
+    "robot": {
+      "name": "比特",
+      "desc": "机器人"
+    }
+  }
+}

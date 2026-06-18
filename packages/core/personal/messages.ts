@@ -26,6 +26,7 @@ import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
 import { applyDeepenFinalize } from "./notes";
+import { t } from "../i18n";
 import {
   abortPi,
   ensurePiSession,
@@ -176,7 +177,7 @@ export const PURE_TOOL_TURN_PLACEHOLDER = "✓ 已完成本轮操作。";
 const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
 function externalAgentUnavailableMessage(agent: Exclude<AgentKind, "pi">): string {
-  return `⚠️ ${AGENT_NAME[agent]} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Pi 后重试。`;
+  return t("chat:core.externalUnavailable", { name: AGENT_NAME[agent] });
 }
 
 // 启动阶段等待超此阈值仍无任何响应 → 在 typing 文案追加可操作提示(避免用户对着干等的
@@ -186,11 +187,14 @@ export const RUN_START_HINT_MS = 30_000;
 // typing 占位文案:阶段 + 等待时长(5 秒以上才显示,避免一闪而过的数字)。启动阶段久等
 // 追加可操作提示(深化卡住时引导用户去详情「放弃深化」后重试或换 agent)。
 export function typingText(agent: AgentKind, phase: "starting" | "thinking", waitedMs: number): string {
-  const base = phase === "starting" ? `正在启动 ${AGENT_NAME[agent]}…` : `${AGENT_NAME[agent]} 正在思考…`;
+  const base =
+    phase === "starting"
+      ? t("chat:core.typing.starting", { name: AGENT_NAME[agent] })
+      : t("chat:core.typing.thinking", { name: AGENT_NAME[agent] });
   const secs = Math.floor(waitedMs / 1000);
-  const text = secs >= 5 ? `${base}已等待 ${secs} 秒` : base;
+  const text = secs >= 5 ? `${base}${t("chat:core.typing.waited", { secs })}` : base;
   if (phase === "starting" && waitedMs >= RUN_START_HINT_MS) {
-    return `${text}（启动较慢,若长时间无响应可在闪记详情点「放弃深化」后重试,或切换其它 agent）`;
+    return `${text}${t("chat:core.typing.startHint")}`;
   }
   return text;
 }
@@ -441,7 +445,7 @@ function clearTransient(qc: QueryClient, sessionId: string): void {
       .filter((m) => m.kind !== "typing")
       .map((m) => {
         if (m.kind === "agentLog" && m.active) {
-          return { ...m, active: false, completed: true, title: "Agent 执行完成" };
+          return { ...m, active: false, completed: true, title: t("chat:core.agentLogDone") };
         }
         if (m.kind === "reasoning" && m.active) {
           return { ...m, active: false, completed: true };
@@ -489,7 +493,7 @@ export function finalizeAgentLog(messages: Message[], logUid: string): Message[]
           ...m,
           active: false,
           completed: true,
-          title: "Agent 执行完成",
+          title: t("chat:core.agentLogDone"),
           items: m.items.map((it) => ({ ...it, ic: "check" as const })),
         }
       : m,
@@ -555,7 +559,7 @@ export function foldCliEvent(
       kind: "agentLog",
       who: ctx.agent,
       time: ctx.time,
-      title: "Agent 正在执行",
+      title: t("chat:core.agentLogExecuting"),
       active: true,
       uid: logUid,
       items: [{ ic: "running", text: itemText }],
@@ -684,7 +688,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
           kind: "text",
           who: run.agent,
           time: realHHMM(),
-          text: "⚠️ Codex 本地会话历史已丢失，已断开旧 thread id。下次发送会创建新的 Codex 线程。",
+          text: t("chat:core.codexSessionLost"),
           uid: uid("err"),
         });
         notifyTurnComplete(false);
@@ -694,13 +698,13 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       // pi 兜底 Agent 鉴权类错误:补一句去哪里配供应商 / API Key。
       const piAuthHint =
         run.agent === "pi" && /api.?key|auth|credential|unauthorized|401|provider/i.test(ev.error ?? "")
-          ? "（请在 设置 → 供应商 添加供应商并填写 API Key）"
+          ? t("chat:core.piAuthHint")
           : "";
       appendMsg(qc, sessionId, {
         kind: "text",
         who: run.agent,
         time: realHHMM(),
-        text: `⚠️ 执行出错：${ev.error || "未知错误"}${piAuthHint}`,
+        text: t("chat:core.execError", { error: ev.error || t("chat:core.unknownError"), authHint: piAuthHint }),
         uid: uid("err"),
       });
     } else if (!run.sawText && ev.text) {
@@ -729,7 +733,10 @@ function notifyTurnComplete(ok: boolean): void {
     if (!usePersonalStore.getState().generalSettings.notifications.turnComplete) return;
     if (typeof document !== "undefined" && document.hasFocus()) return;
     if (typeof Notification === "undefined" || Notification.permission === "denied") return;
-    const fire = () => new Notification("Cortex Desktop", { body: ok ? "Agent 回合完成" : "Agent 执行出错" });
+    const fire = () =>
+      new Notification(t("chat:core.notify.title"), {
+        body: ok ? t("chat:core.notify.turnComplete") : t("chat:core.notify.turnError"),
+      });
     if (Notification.permission === "granted") fire();
     else void Notification.requestPermission().then((p) => (p === "granted" ? fire() : undefined));
   } catch {
@@ -776,15 +783,15 @@ function finalizeRun(
     const missingCodexSession = run.agent === "codex" && isMissingAgentSessionError(error);
     if (missingCodexSession) clearStoredAgentSessionId(sessionId, run.agent);
     const friendly = missingCodexSession
-      ? "Codex 本地会话历史已丢失，已断开旧 thread id。下次发送会创建新的 Codex 线程。"
+      ? t("chat:core.codexSessionLostBody")
       : error && /ENOENT/.test(error)
-        ? "未检测到 CLI，请确认已安装并在 PATH 中（如 npm install -g @anthropic-ai/claude-code）"
-        : error || `进程退出码 ${code}`;
+        ? t("chat:core.cliMissing")
+        : error || t("chat:core.processExit", { code: code ?? "?" });
     appendMsg(qc, sessionId, {
       kind: "text",
       who: run.agent,
       time: realHHMM(),
-      text: `⚠️ ${friendly}`,
+      text: t("chat:core.errorPrefix", { message: friendly }),
       uid: uid("err"),
     });
   }
@@ -810,7 +817,7 @@ function finalizeRun(
   // 不使用项目的会话（无 projectId）不归入任何项目时间线,跳过。
   const session = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
   if (session && session.projectId) {
-    const title = run.promptText ? promptTitle(run.promptText) : promptTitle(run.buffer || "（恢复的轮次）");
+    const title = run.promptText ? promptTitle(run.promptText) : promptTitle(run.buffer || t("chat:core.recoveredTurn"));
     recordTimelineEvent(qc, bridgeRef, session.projectId, {
       id: `run-${runId}`,
       projectId: session.projectId,
@@ -1046,13 +1053,13 @@ function finalizeLastToolItem(qc: QueryClient, run: RunState, isError: boolean):
 function appendPiError(qc: QueryClient, run: RunState, error: string): void {
   // 鉴权类错误补一句去哪配供应商（与单发 result 错误分支同款）。
   const piAuthHint = /api.?key|auth|credential|unauthorized|401|provider/i.test(error)
-    ? "（请在 设置 → 供应商 添加供应商并填写 API Key）"
+    ? t("chat:core.piAuthHint")
     : "";
   appendMsg(qc, run.sessionId, {
     kind: "text",
     who: run.agent,
     time: realHHMM(),
-    text: `⚠️ 执行出错：${error || "未知错误"}${piAuthHint}`,
+    text: t("chat:core.execError", { error: error || t("chat:core.unknownError"), authHint: piAuthHint }),
     uid: uid("err"),
   });
 }
@@ -1111,7 +1118,9 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         who: "pi",
         time: realHHMM(),
         // 阶段4:崩溃后会话内存态丢,但 sessionFile 已持久 → 下次发送惰性重开 + switchSession 恢复上下文。
-        text: `⚠️ pi 会话已退出${ev.error ? `：${ev.error}` : ""}。下次发送将自动重启并恢复上下文。`,
+        text: t("chat:core.piExited", {
+          detail: ev.error ? t("chat:core.piExitedDetail", { error: ev.error }) : "",
+        }),
         uid: uid("err"),
       });
       store.setRunning(sessionId, undefined);
@@ -1165,7 +1174,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       dropMsg(qc, sessionId, run.typingUid);
       finalizeRunReasoning(qc, run);
       if (/^aborted$/i.test(ev.error)) {
-        appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: "⏹ 已中断本轮。", uid: uid("err") });
+        appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: t("chat:core.aborted"), uid: uid("err") });
       } else {
         appendPiError(qc, run, ev.error);
       }
@@ -1314,7 +1323,7 @@ function failPiTurn(qc: QueryClient, sessionId: string, runId: string, err: unkn
     kind: "text",
     who: "pi",
     time: realHHMM(),
-    text: `⚠️ pi 会话启动失败：${msg}`,
+    text: t("chat:core.piStartFailed", { message: msg }),
     uid: uid("err"),
   });
   usePersonalStore.getState().setRunning(sessionId, undefined);
@@ -1460,7 +1469,7 @@ const DEFAULT_TITLE = /^Session \d+$/;
 
 function fallbackTitle(text: string): string {
   const clean = text.replace(/\s+/g, " ").trim();
-  return clean.length > 16 ? clean.slice(0, 16) + "…" : clean || "新会话";
+  return clean.length > 16 ? clean.slice(0, 16) + "…" : clean || t("chat:core.newSession");
 }
 
 function sanitizeTitle(raw: string): string {
@@ -1479,7 +1488,7 @@ function autoTitle(bridge: DesktopBridge, session: SessionMeta, text: string): v
   void bridge
     .oneshotCli({
       // 不传 cwd:在中性目录运行,不加载项目上下文,不与正式会话抢资源。
-      prompt: `为下面这个用户请求生成一个简短的中文标题,不超过12个字,只输出标题本身,不要任何引号、标点或解释:\n\n${text.slice(0, 500)}`,
+      prompt: t("chat:core.autoTitlePrompt", { text: text.slice(0, 500) }),
       model: "haiku",
     })
     .then((raw) => {
@@ -1829,7 +1838,7 @@ export function usePersonalActions(): PersonalActions {
           kind: "text",
           who: "pi",
           time: realHHMM(),
-          text: `⚠️ pi 会话启动失败：${piRpcUnavailableMessage(bridge)}`,
+          text: t("chat:core.piStartFailed", { message: piRpcUnavailableMessage(bridge) ?? "" }),
           uid: uid("err"),
         });
         flushChat(qc, session.id);
@@ -1854,7 +1863,7 @@ export function usePersonalActions(): PersonalActions {
             kind: "text",
             who: session.agent,
             time: realHHMM(),
-            text: "⚠️ 当前环境不支持图片上传。",
+            text: t("chat:core.imageUnsupported"),
             uid: uid("err"),
           });
           flushChat(qc, session.id);
@@ -1877,7 +1886,7 @@ export function usePersonalActions(): PersonalActions {
             kind: "text",
             who: session.agent,
             time: realHHMM(),
-            text: `⚠️ 图片保存失败：${err instanceof Error ? err.message : String(err)}`,
+            text: t("chat:core.imageSaveFailed", { error: err instanceof Error ? err.message : String(err) }),
             uid: uid("err"),
           });
           flushChat(qc, session.id);
@@ -1950,8 +1959,8 @@ export function usePersonalActions(): PersonalActions {
             time: realHHMM(),
             text:
               cur.phase === "starting"
-                ? `⚠️ 启动超时：${Math.round(limit / 1000)} 秒内没有收到 ${AGENT_NAME[cur.agent]} 的任何响应,已停止本次调用。请检查 CLI 是否正常,然后把鼠标移到刚才的消息上点「编辑重发」重试。`
-                : `⚠️ 响应超时：${Math.round(limit / 1000)} 秒没有新的输出,已停止本次调用。可把鼠标移到刚才的消息上点「编辑重发」重试。`,
+                ? t("chat:core.startTimeout", { secs: Math.round(limit / 1000), name: AGENT_NAME[cur.agent] })
+                : t("chat:core.stallTimeout", { secs: Math.round(limit / 1000) }),
             uid: uid("err"),
           });
           usePersonalStore.getState().setRunning(cur.sessionId, undefined);
@@ -2051,7 +2060,7 @@ export function usePersonalActions(): PersonalActions {
             kind: "text",
             who: "pi",
             time: realHHMM(),
-            text: "⚠️ 未能在 pi 侧定位编辑点,已带原有上下文重发（pi 仍记得被编辑前的内容）。",
+            text: t("chat:core.piForkFailed"),
             uid: uid("err"),
           });
         }
@@ -2167,7 +2176,7 @@ export function usePersonalActions(): PersonalActions {
             kind: "text",
             who: "pi",
             time: realHHMM(),
-            text: "⚠️ 切换模型失败,已回滚到原模型。",
+            text: t("chat:core.switchModelFailed"),
             uid: uid("err"),
           });
         });
@@ -2189,7 +2198,7 @@ export function usePersonalActions(): PersonalActions {
             kind: "text",
             who: "pi",
             time: realHHMM(),
-            text: "⚠️ 切换思考强度失败,已回滚。",
+            text: t("chat:core.switchThinkingFailed"),
             uid: uid("err"),
           });
         });

@@ -207,7 +207,9 @@ export interface ProviderProbeResult {
 // 「添加供应商」预置模板（快速填充,不自动写入；用户填 key 即用,也可改 baseUrl/模型）。
 export interface ProviderPreset {
   templateKey: string; // 模板唯一键 + 默认 provider id 前缀
-  name: string;
+  // i18n key（settings 命名空间）用于下拉展示;实例化时由 providerFromPreset 解析为具体本地化串
+  // 再写入 ProviderProfile.name —— 绝不把翻译 key 持久化。
+  nameKey: string;
   baseUrl: string;
   endpointFormat: EndpointFormat;
   models: ProviderModelOption[];
@@ -216,7 +218,7 @@ export interface ProviderPreset {
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     templateKey: "deepseek",
-    name: "DeepSeek",
+    nameKey: "providers.preset.deepseek",
     baseUrl: "https://api.deepseek.com/v1",
     endpointFormat: "chat_completions",
     models: [
@@ -226,7 +228,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     templateKey: "kimi",
-    name: "Kimi (Moonshot)",
+    nameKey: "providers.preset.kimi",
     baseUrl: "https://api.moonshot.cn/v1",
     endpointFormat: "chat_completions",
     models: [
@@ -237,7 +239,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     templateKey: "qwen",
-    name: "通义千问",
+    nameKey: "providers.preset.qwen",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     endpointFormat: "chat_completions",
     models: [
@@ -249,7 +251,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     templateKey: "zhipu",
-    name: "智谱 GLM",
+    nameKey: "providers.preset.zhipu",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     endpointFormat: "chat_completions",
     models: [
@@ -259,14 +261,14 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     templateKey: "siliconflow",
-    name: "硅基流动",
+    nameKey: "providers.preset.siliconflow",
     baseUrl: "https://api.siliconflow.cn/v1",
     endpointFormat: "chat_completions",
     models: [{ id: "deepseek-ai/DeepSeek-V3", label: "DeepSeek-V3" }],
   },
   {
     templateKey: "openai",
-    name: "OpenAI",
+    nameKey: "providers.preset.openai",
     baseUrl: "https://api.openai.com/v1",
     endpointFormat: "chat_completions",
     models: [
@@ -276,7 +278,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     templateKey: "custom",
-    name: "自定义",
+    nameKey: "providers.preset.custom",
     baseUrl: "",
     endpointFormat: "chat_completions",
     models: [],
@@ -475,7 +477,8 @@ export const PI_APPROVAL_TOOL_OPTIONS = ["bash", "write", "edit", "read", "grep"
 // pi 思考强度（阶段5）。与 pi-agent-core 的 ThinkingLevel 对齐（升级 pi 时复核 args.js 校验值）。
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export const PI_THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
-// 档位中文展示名（设置页 / Composer 下拉复用）。
+// 档位中文展示名。
+// @deprecated 展示文案改走 i18n（settings:thinkingLevel.* / 各消费方就近 t(...)）。此常量已无组件消费，仅保留导出兼容。
 export const PI_THINKING_LABELS: Record<ThinkingLevel, string> = {
   off: "关闭",
   minimal: "极简",
@@ -655,6 +658,30 @@ export interface CliStartRequest {
   };
   // 主进程内部填充:生成的 extension 文件绝对路径（renderer 不传,buildArgs 读取）。
   piExtensionPath?: string;
+}
+
+// 历史消息追问的临时流式应答请求（与 apps/desktop/src/main/ipc/types.ts 镜像）。
+// CliStartRequest 的不落盘子集:无 sessionId/resumeSessionId/runId（主进程内部用 askId 充当）,
+// 不写 chats/、不进 run 注册表。askId 每轮唯一,既作子进程登记 key,也回带做代际守卫。
+export interface AskFollowupRequest {
+  askId: string;
+  agent: AgentKind;
+  // 工作目录（真实项目 path,或无项目会话的 Documents/cortex/<date>）。
+  cwd: string;
+  prompt: string;
+  model?: string;
+  appendSystemPrompt?: string;
+  effort?: ReasoningEffort;
+  // true = 无项目会话:主进程剥离 claude/codex 的跳审批/bypass 标志,回退默认审批/沙箱（R9/KTD8）。
+  // 显式标志,不靠主进程猜 cwd（真实无项目 cwd 非 homedir,猜法会失效）。
+  tightenTools?: boolean;
+  // pi 自定义供应商:形状同 CliStartRequest.provider,主进程据此生成 extension + 注入 key。
+  provider?: {
+    id: string;
+    baseUrl: string;
+    apiKey?: string;
+    models: { id: string; name?: string }[];
+  };
 }
 
 export interface AgentSessionRequest {

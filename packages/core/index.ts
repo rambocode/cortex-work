@@ -263,6 +263,28 @@ export {
   type PersonalActions,
 } from "./personal/messages";
 export {
+  useFollowupAsk,
+  buildFollowupSystemPrompt,
+  buildFollowupPrompt,
+  applyFollowupEvent,
+  settleTurn,
+  finalizeTurnLog,
+  markTurnDone,
+  markTurnError,
+  markTurnCancelled,
+  FOLLOWUP_SEED_MAX,
+  FOLLOWUP_HARD_TIMEOUT_MS,
+  FOLLOWUP_HISTORY_MAX,
+  type FollowupSeed,
+  type FollowupSessionCtx,
+  type FollowupState,
+  type FollowupCursors,
+  type FollowupApplyCtx,
+  type Turn,
+  type TurnStatus,
+  type UseFollowupAsk,
+} from "./personal/followup";
+export {
   closePiSession,
   closeAllPiSessions,
   isPiSessionOpen,
@@ -368,3 +390,17 @@ export {
   type CortexActions,
 } from "./cortex/mutations";
 export { CONTACTS, GROUPS, CONVOS, FILE_DIFFS, ORGS, findContact, whoMeta } from "./mock/data";
+export {
+  i18n,
+  i18nReady,
+  t,
+  changeLanguage,
+  useTranslation,
+  Trans,
+  I18nextProvider,
+  LOCALES,
+  DEFAULT_LOCALE,
+  DEFAULT_NS,
+  isLocale,
+  type Locale,
+} from "./i18n";

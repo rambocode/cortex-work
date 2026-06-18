@@ -6,6 +6,7 @@
 // 不波及深化产物文档/会话(R18)。已深化徽标 + 跳转入口骨架由本组件统一拥有(U10 复用)。
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   useDesktopBridge,
@@ -34,6 +35,7 @@ function NoteDocView({
   bridge: DesktopBridge | null;
   onToast: (text: string) => void;
 }) {
+  const { t } = useTranslation("notes");
   const [content, setContent] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +50,7 @@ function NoteDocView({
     setError(null);
     setEditing(false);
     if (!bridge) {
-      setError("当前环境不支持打开文档");
+      setError(t("doc.unsupportedOpen"));
       return;
     }
     bridge
@@ -60,7 +62,7 @@ function NoteDocView({
       })
       .catch(() => {
         // 链接悬挂降级:文档被外部删除/不可读 → 友好提示,不崩,其余产物仍可达。
-        if (!cancelled) setError("文档不可用（可能已被移动或删除）");
+        if (!cancelled) setError(t("doc.unavailable"));
       });
     return () => {
       cancelled = true;
@@ -82,9 +84,9 @@ function NoteDocView({
       await bridge.writeFile(path, draft);
       setContent(draft);
       setEditing(false);
-      onToast("已保存文档");
+      onToast(t("toast.docSaved"));
     } catch (err) {
-      onToast(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("toast.docSaveFailed", { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setSaving(false);
     }
@@ -96,19 +98,19 @@ function NoteDocView({
         <Icon.File size={12} />
         <span className="pw-note-doc-name">{path.slice(path.lastIndexOf("/") + 1)}</span>
         <div className="spacer" />
-        {truncated ? <span className="pw-readonly">文件过大 · 只读</span> : null}
+        {truncated ? <span className="pw-readonly">{t("doc.readonly")}</span> : null}
         {error ? null : editing ? (
           <>
             <button className="pw-tl-gen" onClick={() => setEditing(false)} disabled={saving}>
-              取消
+              {t("doc.cancel")}
             </button>
             <button className="pw-tl-gen" onClick={() => void save()} disabled={saving}>
               <Icon.Check size={12} />
-              {saving ? "保存中…" : "保存"}
+              {saving ? t("doc.saving") : t("doc.save")}
             </button>
           </>
         ) : (
-          <button className="pw-icon-btn" title="编辑文档" onClick={startEdit} disabled={!canEdit}>
+          <button className="pw-icon-btn" title={t("doc.editDoc")} onClick={startEdit} disabled={!canEdit}>
             <Icon.Edit size={13} />
           </button>
         )}
@@ -116,7 +118,7 @@ function NoteDocView({
       {error ? (
         <div className="pw-empty-hint">{error}</div>
       ) : content === null ? (
-        <div className="pw-editor-loading">加载中…</div>
+        <div className="pw-editor-loading">{t("doc.loading")}</div>
       ) : editing ? (
         <div className="pw-note-doc-edit">
           <div className="pw-note-doc-gutter" ref={gutterRef} aria-hidden="true">
@@ -143,12 +145,12 @@ function NoteDocView({
           />
         </div>
       ) : content.trim() ? (
-        <div className="pw-todo-md pw-note-md" onDoubleClick={startEdit} title={canEdit ? "双击编辑文档" : undefined}>
+        <div className="pw-todo-md pw-note-md" onDoubleClick={startEdit} title={canEdit ? t("doc.editDoubleClick") : undefined}>
           <MarkdownView content={content} />
         </div>
       ) : (
         <div className="pw-empty-hint" onDoubleClick={startEdit}>
-          空文档{canEdit ? "，双击开始编辑" : ""}
+          {t("doc.empty")}{canEdit ? t("doc.emptyEditHint") : ""}
         </div>
       )}
     </div>
@@ -167,6 +169,7 @@ function NoteDetail({
   onBack: () => void;
   onToast: (text: string) => void;
 }) {
+  const { t } = useTranslation("notes");
   const bridge = useDesktopBridge();
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
@@ -199,9 +202,9 @@ function NoteDetail({
     try {
       await updateNote.mutateAsync({ id: note.id, patch: { content: draft } });
       setEditing(false);
-      onToast("已保存闪记");
+      onToast(t("toast.noteSaved"));
     } catch (err) {
-      onToast(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("toast.noteSaveFailed", { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setSaving(false);
     }
@@ -211,10 +214,10 @@ function NoteDetail({
     try {
       // 仅删闪记自身,不触碰深化产物文档/会话(R18)。
       await deleteNote.mutateAsync(note.id);
-      onToast("已删除闪记");
+      onToast(t("toast.noteDeleted"));
       onBack();
     } catch (err) {
-      onToast(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("toast.noteDeleteFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -228,9 +231,9 @@ function NoteDetail({
     try {
       // 复用 cancelDeepen:同时终止底层深化 run(僵尸 codex)并回落 draft,不只改状态。
       await cancelDeepen([note.id]);
-      onToast("已放弃深化,闪记回到草稿");
+      onToast(t("toast.deepenAbandoned"));
     } catch (err) {
-      onToast(`放弃深化失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("toast.abandonDeepenFailed", { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setAbandoning(false);
     }
@@ -253,7 +256,7 @@ function NoteDetail({
     try {
       await generatePlan(note.id, onToast);
     } catch (err) {
-      onToast(`生成 plan 失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("toast.generatePlanFailed", { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setPlanning(false);
     }
@@ -262,14 +265,14 @@ function NoteDetail({
   return (
     <div className="pw-rp-view pw-notes is-detail">
       <div className="pw-panel-h">
-        <button className="pw-icon-btn" title="关闭详情" onClick={onBack}>
+        <button className="pw-icon-btn" title={t("detail.closeDetail")} onClick={onBack}>
           <Icon.Back size={14} />
         </button>
         <Icon.Pin size={14} />
         <span className="pw-panel-title">{noteTitle(note.content)}</span>
         <div className="spacer" />
         {statusLabel ? <span className="pw-note-badge" data-status={note.status}>{statusLabel}</span> : null}
-        {project ? <span className="pw-todo-total">{project.name}</span> : <span className="pw-readonly">未归类</span>}
+        {project ? <span className="pw-todo-total">{project.name}</span> : <span className="pw-readonly">{t("detail.unassigned")}</span>}
       </div>
       <div className="pw-note-detail">
         <div className="pw-note-detail-h">
@@ -278,11 +281,11 @@ function NoteDetail({
           {editing ? (
             <>
               <button className="pw-tl-gen" onClick={() => setEditing(false)} disabled={saving}>
-                取消
+                {t("detail.cancel")}
               </button>
               <button className="pw-tl-gen" onClick={() => void save()} disabled={saving}>
                 <Icon.Check size={12} />
-                {saving ? "保存中…" : "保存"}
+                {saving ? t("detail.saving") : t("detail.save")}
               </button>
             </>
           ) : (
@@ -290,18 +293,18 @@ function NoteDetail({
               {note.status === "deepening" ? (
                 <button
                   className="pw-tl-gen"
-                  title="放弃深化,把闪记回落为草稿后可重新深化"
+                  title={t("detail.abandonDeepenTitle")}
                   onClick={() => void abandonDeepen()}
                   disabled={abandoning}
                 >
                   <Icon.Back size={12} />
-                  放弃深化
+                  {t("detail.abandonDeepen")}
                 </button>
               ) : null}
-              <button className="pw-icon-btn" title="编辑" onClick={startEdit}>
+              <button className="pw-icon-btn" title={t("detail.edit")} onClick={startEdit}>
                 <Icon.Edit size={13} />
               </button>
-              <button className="pw-icon-btn" title="删除" onClick={() => void remove()}>
+              <button className="pw-icon-btn" title={t("detail.delete")} onClick={() => void remove()}>
                 <Icon.Trash size={13} />
               </button>
             </>
@@ -333,12 +336,12 @@ function NoteDetail({
             />
           </div>
         ) : note.content.trim() ? (
-          <div className="pw-todo-md pw-note-md" onDoubleClick={startEdit} title="双击编辑">
+          <div className="pw-todo-md pw-note-md" onDoubleClick={startEdit} title={t("detail.editDoubleClick")}>
             <MarkdownView content={note.content} />
           </div>
         ) : (
           <div className="pw-empty-hint" onDoubleClick={startEdit}>
-            空白闪记,双击开始编辑
+            {t("detail.emptyNote")}
           </div>
         )}
         {/* 已深化产物入口(U10):docPaths 内联查看/编辑(磁盘 .md,走 fs 写,白名单内),
@@ -348,12 +351,12 @@ function NoteDetail({
         {note.status === "deepened" || docPaths.length > 0 || conversationIds.length > 0 ? (
           <div className="pw-note-links">
             <div className="pw-note-links-h">
-              <span>深化产物</span>
+              <span>{t("detail.deepenOutputs")}</span>
               <div className="spacer" />
               {canGeneratePlan ? (
                 <button className="pw-tl-gen" onClick={() => void onGeneratePlan()} disabled={planning}>
                   <Icon.Sparkle size={12} />
-                  {planning ? "生成中…" : "生成 plan"}
+                  {planning ? t("detail.generating") : t("detail.generatePlan")}
                 </button>
               ) : null}
             </div>
@@ -375,11 +378,11 @@ function NoteDetail({
                         </button>
                         <button
                           className="pw-icon-btn"
-                          title={`在文件视图打开 ${name}`}
+                          title={t("detail.openInFileView", { name })}
                           onClick={() =>
                             note.projectId
                               ? requestFilePreview({ projectId: note.projectId, path: p, name })
-                              : onToast("该闪记无项目,无法在文件视图打开产物文档")
+                              : onToast(t("detail.noProjectForFileView"))
                           }
                         >
                           <Icon.Reply size={12} />
@@ -391,7 +394,7 @@ function NoteDetail({
                 })}
               </ul>
             ) : (
-              <div className="pw-empty-hint">产物文档暂不可用</div>
+              <div className="pw-empty-hint">{t("detail.docsUnavailable")}</div>
             )}
             {conversationIds.length > 0 ? (
               <div className="pw-note-links-sessions">
@@ -401,14 +404,14 @@ function NoteDetail({
                     <button
                       key={cid}
                       className="pw-note-link"
-                      title={sess ? `回到深化会话「${sess.title}」` : "深化会话(已不存在)"}
+                      title={sess ? t("detail.backToDeepenSession", { title: sess.title }) : t("detail.deepenSessionGone")}
                       disabled={!sess}
                       onClick={() => setActiveSession(cid)}
                     >
                       <Icon.Reply size={12} />
                       <span>
-                        {conversationIds.length > 1 ? `深化会话 ${i + 1}` : "深化会话"}
-                        {sess ? "" : "（已删除）"}
+                        {conversationIds.length > 1 ? t("detail.deepenSessionN", { index: i + 1 }) : t("detail.deepenSession")}
+                        {sess ? "" : t("detail.deletedSuffix")}
                       </span>
                     </button>
                   );
@@ -418,11 +421,11 @@ function NoteDetail({
             {note.sourceSessionId ? (
               <button
                 className="pw-note-link"
-                title="回到来源会话"
+                title={t("detail.backToSourceSession")}
                 onClick={() => setActiveSession(note.sourceSessionId!)}
               >
                 <Icon.Reply size={12} />
-                <span>来源会话</span>
+                <span>{t("detail.sourceSession")}</span>
               </button>
             ) : null}
           </div>
@@ -444,6 +447,7 @@ function NoteRow({
   onToggleSelect: () => void;
   onOpen: () => void;
 }) {
+  const { t } = useTranslation("notes");
   const statusLabel = STATUS_LABEL[note.status];
   const title = noteTitle(note.content);
   return (
@@ -451,13 +455,13 @@ function NoteRow({
       <div className="pw-note-row-main">
         <button
           className={`pw-note-check ${selected ? "is-on" : ""}`}
-          title={`选择「${title}」`}
+          title={t("row.select", { title })}
           aria-pressed={selected}
           onClick={onToggleSelect}
         >
           <Icon.Check size={11} />
         </button>
-        <button className="pw-note-title" onClick={onOpen} title="点击查看详情">
+        <button className="pw-note-title" onClick={onOpen} title={t("row.openDetail")}>
           <span>{title}</span>
           <small>{relTime(note.updatedAt)}</small>
         </button>
@@ -475,6 +479,7 @@ function MoveToProjectMenu({
   projects: ProjectMeta[];
   onPick: (projectId: string) => void;
 }) {
+  const { t } = useTranslation("notes");
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -507,14 +512,14 @@ function MoveToProjectMenu({
 
   return (
     <div className="pw-tb-menu-wrap" ref={wrapRef} onMouseLeave={onMenuLeave} onMouseEnter={onMenuEnter}>
-      <button className={`pw-icon-btn ${open ? "is-on" : ""}`} title="移到项目" onClick={() => setOpen((v) => !v)}>
+      <button className={`pw-icon-btn ${open ? "is-on" : ""}`} title={t("group.moveToProject")} onClick={() => setOpen((v) => !v)}>
         <Icon.Folder size={13} />
         <Icon.Chevron size={9} />
       </button>
       {open ? (
         <div className="pw-tb-menu" role="menu">
           {projects.length === 0 ? (
-            <div className="pw-archive-empty">没有可归档的项目</div>
+            <div className="pw-archive-empty">{t("group.noArchivableProject")}</div>
           ) : (
             projects.map((p) => (
               <button
@@ -558,6 +563,7 @@ function NoteGroup({
   onOpen: (noteId: string) => void;
   onMoveTo: (noteId: string, projectId: string) => void;
 }) {
+  const { t } = useTranslation("notes");
   const [collapsed, setCollapsed] = useState(false);
   return (
     <section className="pw-todo-group pw-note-group">
@@ -567,7 +573,7 @@ function NoteGroup({
             <Icon.Chevron size={11} />
           </span>
           {group ? <Icon.Folder size={13} /> : <Icon.Pin size={13} />}
-          <span>{group ? group.name : "未归类"}</span>
+          <span>{group ? group.name : t("group.unassigned")}</span>
           <small>{notes.length}</small>
         </button>
         {/* 未归类闪记单条「移到项目」入口(选中条数为 1 时不展示,统一逐条归档)。 */}
@@ -594,6 +600,7 @@ function NoteGroup({
 }
 
 export function NotesView({ onToast }: { onToast: (text: string) => void }) {
+  const { t } = useTranslation("notes");
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const { data: notes = [], isLoading } = useAllNotes();
@@ -690,9 +697,9 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   const moveTo = async (noteId: string, projectId: string) => {
     try {
       await updateNote.mutateAsync({ id: noteId, patch: { projectId } });
-      onToast("已移到项目");
+      onToast(t("toast.moved"));
     } catch (err) {
-      onToast(`移动失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("toast.moveFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -718,7 +725,7 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
       setSelectedIds(new Set());
       setSelectedProjectKey(undefined);
     } catch (err) {
-      onToast(`深化失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("toast.deepenFailed", { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setDeepening(false);
     }
@@ -739,16 +746,16 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
     <div className="pw-rp-view pw-notes">
       <div className="pw-panel-h">
         <Icon.Pin size={14} />
-        <span className="pw-panel-title">闪记</span>
+        <span className="pw-panel-title">{t("panel.title")}</span>
         <div className="spacer" />
-        <span className="pw-todo-total">{notes.length} 条</span>
+        <span className="pw-todo-total">{t("panel.count", { count: notes.length })}</span>
       </div>
       {isLoading ? (
-        <div className="pw-editor-loading">加载中…</div>
+        <div className="pw-editor-loading">{t("panel.loading")}</div>
       ) : notes.length === 0 ? (
         <div className="pw-panel-empty">
           <Icon.Pin size={22} />
-          <div>还没有闪记</div>
+          <div>{t("panel.empty")}</div>
         </div>
       ) : (
         <div className="pw-todo-scroll">
@@ -769,24 +776,24 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
       )}
       {selectedIds.size > 0 ? (
         <div className="pw-note-bar">
-          <span>已选 {selectedIds.size} 条</span>
+          <span>{t("selectionBar.selected", { count: selectedIds.size })}</span>
           <div className="spacer" />
           <button
             className="pw-tl-gen"
             onClick={() => { setSelectedIds(new Set()); setSelectedProjectKey(undefined); setConfirmReDeepen(false); }}
             disabled={deepening}
           >
-            取消
+            {t("selectionBar.cancel")}
           </button>
           <button
             className={`pw-tl-gen ${confirmReDeepen ? "is-confirming" : ""}`}
-            title={confirmReDeepen ? "取消正在进行的深化并用当前 agent 重新深化" : undefined}
+            title={confirmReDeepen ? t("selectionBar.reDeepenTitle") : undefined}
             onClick={() => void onDeepen()}
             onBlur={() => setConfirmReDeepen(false)}
             disabled={deepening}
           >
             <Icon.Sparkle size={12} />
-            {deepening ? "深化中…" : confirmReDeepen ? "取消并重新深化？" : `深化 ${selectedIds.size} 条`}
+            {deepening ? t("selectionBar.deepening") : confirmReDeepen ? t("selectionBar.confirmReDeepen") : t("selectionBar.deepen", { count: selectedIds.size })}
           </button>
         </div>
       ) : null}

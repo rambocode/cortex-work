@@ -7,8 +7,9 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // lang 默认 zh-Hans;运行时由 applyTweaksToDom 客户端更新 documentElement.lang。
   return (
-    <html lang="zh">
+    <html lang="zh-Hans">
       <body>{children}</body>
     </html>
   );

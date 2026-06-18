@@ -8,11 +8,11 @@ import { Icon } from "@cortex-work/ui/icons";
 import {
   AGENT_MODELS,
   PI_THINKING_LEVELS,
-  PI_THINKING_LABELS,
   useDesktopBridge,
   usePersonalStore,
   usePetStore,
 } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import type { AgentKind, PendingImage, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
@@ -133,6 +133,7 @@ export function ComposerShell({
   onCancelEdit?: () => void;
   onToast: (text: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const bridge = useDesktopBridge();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<PersonalAttachment[]>([]);
@@ -200,7 +201,7 @@ export function ComposerShell({
     try {
       pending = await Promise.all(accepted.map((f) => fileToPendingImage(f)));
     } catch (err) {
-      onToast(`读取图片失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("composer.readImageFailed", { error: err instanceof Error ? err.message : String(err) }));
       return;
     }
     let overflow = false;
@@ -219,7 +220,7 @@ export function ComposerShell({
       }
       return merged;
     });
-    if (overflow) onToast(`最多 ${MAX_IMAGES_PER_MESSAGE} 张图片,已忽略多余`);
+    if (overflow) onToast(t("composer.maxImages", { count: MAX_IMAGES_PER_MESSAGE }));
   };
 
   // 粘贴:剪贴板含图片 → 加入待发(并拦截默认粘贴);纯文本走原行为(不拦截)。
@@ -293,7 +294,7 @@ export function ComposerShell({
   };
 
   const appendTodoInstruction = (title: string) => {
-    const instruction = `请根据拖入的 Task「${title}」继续实现这个需求，先理解详情，再在当前项目中完成实现、验证并汇报结果。`;
+    const instruction = t("composer.todoInstruction", { title });
     setText((prev) => {
       if (!prev.trim()) return instruction;
       if (prev.includes(instruction)) return prev;
@@ -308,11 +309,11 @@ export function ComposerShell({
 
   const startRecording = async () => {
     if (!bridge) {
-      onToast("当前环境不支持本地 ASR");
+      onToast(t("composer.noLocalAsr"));
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      onToast("当前浏览器不支持录音");
+      onToast(t("composer.noRecording"));
       return;
     }
     try {
@@ -335,7 +336,7 @@ export function ComposerShell({
         const blob = new Blob(chunksRef.current, { type });
         chunksRef.current = [];
         if (blob.size === 0) {
-          onToast("没有录到音频");
+          onToast(t("composer.noAudio"));
           return;
         }
         setTranscribing(true);
@@ -353,7 +354,7 @@ export function ComposerShell({
             appendTranscript(result.text);
           })
           .catch((err) => {
-            onToast(`转写失败：${err instanceof Error ? err.message : String(err)}`);
+            onToast(t("composer.transcribeFailed", { error: err instanceof Error ? err.message : String(err) }));
           })
           .finally(() => setTranscribing(false));
       };
@@ -364,7 +365,7 @@ export function ComposerShell({
       streamRef.current = null;
       recorderRef.current = null;
       setRecording(false);
-      onToast(`录音失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("composer.recordFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -422,7 +423,7 @@ export function ComposerShell({
           return;
         }
         const { content, truncated } = await bridge.readFile(detailPath);
-        if (truncated) onToast(`${title} 过大,已截断注入`);
+        if (truncated) onToast(t("composer.todoTruncated", { title }));
         setAttachments((prev) => [...prev, { id, name: title, path: detailPath, kind: "todo", projectName, content }]);
         appendTodoInstruction(title);
         return;
@@ -430,12 +431,12 @@ export function ComposerShell({
       const { path, name } = JSON.parse(rawPrompt) as { path: string; name: string };
       if (attachments.some((a) => a.path === path)) return;
       const { content, truncated } = await bridge.readFile(path);
-      if (truncated) onToast(`${name} 过大,已截断注入`);
+      if (truncated) onToast(t("composer.skillTruncated", { name }));
       attachSeq += 1;
       const skillName = deriveSkillName(path, name, content);
       setAttachments((prev) => [...prev, { id: `pa-${attachSeq}`, name: skillName, path, kind: "prompt", content }]);
     } catch (err) {
-      onToast(`读取附件失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("composer.readAttachmentFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -475,7 +476,7 @@ export function ComposerShell({
                 <button
                   className="attach-x"
                   onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                  title="移除"
+                  title={t("composer.remove")}
                 >
                   <Icon.X size={11} />
                 </button>
@@ -491,15 +492,15 @@ export function ComposerShell({
                 <button
                   type="button"
                   className="img-attach-x"
-                  aria-label={`移除 ${img.name}`}
-                  title="移除"
+                  aria-label={t("composer.removeImage", { name: img.name })}
+                  title={t("composer.remove")}
                   onClick={() => setImages((prev) => prev.filter((x) => x.id !== img.id))}
                 >
                   <Icon.X size={11} />
                 </button>
               </span>
             ))}
-            {running ? <span className="img-attach-hint">将随下条消息发送</span> : null}
+            {running ? <span className="img-attach-hint">{t("composer.imagesHint")}</span> : null}
           </div>
         ) : null}
         {/* slash 命令匹配提示:唯一匹配 Tab 直接执行,点击亦可执行 */}
@@ -516,7 +517,7 @@ export function ComposerShell({
               >
                 <code>{c.cmd}</code>
                 <span>{c.desc}</span>
-                {slashMatches.length === 1 ? <kbd className="pw-slash-kbd">Tab 执行</kbd> : null}
+                {slashMatches.length === 1 ? <kbd className="pw-slash-kbd">{t("composer.slashRun")}</kbd> : null}
               </button>
             ))}
           </div>
@@ -524,9 +525,9 @@ export function ComposerShell({
         {editing ? (
           <div className="pw-edit-bar">
             <Icon.Edit size={12} />
-            <span>编辑重发：发送后将清除这条消息之后的所有内容</span>
+            <span>{t("composer.editBar")}</span>
             <button type="button" onClick={cancelEdit}>
-              取消
+              {t("composer.cancel")}
             </button>
           </div>
         ) : null}
@@ -544,10 +545,10 @@ export function ComposerShell({
             onPaste={onPaste}
             placeholder={
               canSteer
-                ? "插话:输入引导回车注入当前轮,或点击右侧停止…"
+                ? t("composer.steerPlaceholder")
                 : running
-                ? "Agent 正在运行,可点击右侧停止…"
-                : placeholder ?? `给 ${AGENT_PLACEHOLDER_NAME[agent]} 发消息,可从右侧拖入 Prompt 作为 skill…`
+                ? t("composer.runningPlaceholder")
+                : placeholder ?? t("composer.defaultPlaceholder", { name: AGENT_PLACEHOLDER_NAME[agent] })
             }
             rows={1}
           />
@@ -556,21 +557,21 @@ export function ComposerShell({
           <button
             className={`pill ${useOwnSkills ? "is-on" : ""}`}
             onClick={onToggleSkills}
-            title={useOwnSkills ? "已加载 agent 自身 skills,点击禁用" : "已禁用 agent 自身 skills,点击启用"}
+            title={useOwnSkills ? t("composer.skillsOnTitle") : t("composer.skillsOffTitle")}
           >
             <Icon.Sparkle size={13} />
-            Skills {useOwnSkills ? "开" : "关"}
+            {t("composer.skills")} {useOwnSkills ? t("composer.skillsOn") : t("composer.skillsOff")}
           </button>
           <button
             className={`pill pw-mic-btn ${recording ? "is-recording" : ""} ${transcribing ? "is-busy" : ""}`}
             onClick={toggleRecording}
             disabled={running || transcribing}
-            title={recording ? "停止录音并转写" : transcribing ? "正在转写" : "语音输入"}
+            title={recording ? t("composer.micStopTitle") : transcribing ? t("composer.micBusyTitle") : t("composer.micTitle")}
           >
             {transcribing ? <Icon.Clock size={13} /> : <Icon.Mic size={13} />}
           </button>
           {onOpenFlashNote ? (
-            <button className="pill" onClick={onOpenFlashNote} title="闪记">
+            <button className="pill" onClick={onOpenFlashNote} title={t("composer.flashNote")}>
               <Icon.Pin size={13} />
             </button>
           ) : null}
@@ -578,8 +579,8 @@ export function ComposerShell({
             className="pill"
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            title="上传图片"
-            aria-label="上传图片"
+            title={t("composer.uploadImage")}
+            aria-label={t("composer.uploadImage")}
           >
             <Icon.Image size={13} />
           </button>
@@ -607,7 +608,7 @@ export function ComposerShell({
                 disabled={piModelOptions.length === 0}
               >
                 {piModelOptions.length === 0 ? (
-                  <option value="::">未配置供应商（去设置 → 供应商）</option>
+                  <option value="::">{t("composer.noProvider")}</option>
                 ) : (
                   piModelOptions.map((m) => (
                     <option key={m.value} value={m.value}>
@@ -632,7 +633,7 @@ export function ComposerShell({
             )}
           </span>
           {isPi && onChangePiThinking ? (
-            <span className="pill pw-model-pill" title="思考强度">
+            <span className="pill pw-model-pill" title={t("composer.thinkingStrength")}>
               <select
                 className="pw-model-select"
                 value={thinkingLevel ?? piThinkingDefault ?? "off"}
@@ -640,7 +641,7 @@ export function ComposerShell({
               >
                 {PI_THINKING_LEVELS.map((lv) => (
                   <option key={lv} value={lv}>
-                    思考·{PI_THINKING_LABELS[lv]}
+                    {t(`composer.thinkingLevel.${lv}`)}
                   </option>
                 ))}
               </select>
@@ -653,12 +654,12 @@ export function ComposerShell({
                   className={`send ${text.trim() ? "" : "muted"}`}
                   onClick={steer}
                   disabled={!text.trim()}
-                  title="插话:注入当前轮 (Enter)"
+                  title={t("composer.steerSend")}
                 >
                   <Icon.Send size={15} />
                 </button>
               ) : null}
-              <button className="send pw-stop-btn" onClick={onStop} title="停止">
+              <button className="send pw-stop-btn" onClick={onStop} title={t("composer.stop")}>
                 <Icon.Stop size={15} />
               </button>
             </>
@@ -667,7 +668,7 @@ export function ComposerShell({
               className={`send ${text.trim() || images.length ? "" : "muted"}`}
               onClick={() => void send()}
               disabled={(!text.trim() && images.length === 0) || sending}
-              title="发送 (Enter)"
+              title={t("composer.send")}
             >
               <Icon.Send size={15} />
             </button>

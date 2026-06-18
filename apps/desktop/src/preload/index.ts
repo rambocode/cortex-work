@@ -3,6 +3,7 @@ import type {
   AgentKind,
   AgentSessionRequest,
   AgentProjectInfo,
+  AskFollowupRequest,
   AsrTranscribeRequest,
   AsrTranscribeResponse,
   AutomationInput,
@@ -45,6 +46,7 @@ import type {
   TtsVoiceOption,
   UpdateState,
 } from "../main/ipc/types";
+import type { Locale } from "@cortex-work/core/i18n/native";
 
 interface AppInfo {
   version: string;
@@ -159,6 +161,14 @@ const personal = {
     startMinimized: boolean;
     closeToTray: boolean;
   }): Promise<void> => ipcRenderer.invoke("desktop:setBehavior", behavior),
+  // 渲染端切语言 → 主进程广播 + 重建托盘菜单（原生 chrome 镜像主窗口 i18next）。
+  setLocale: (locale: Locale): Promise<void> => ipcRenderer.invoke("app:setLocale", locale),
+  // 订阅主进程 locale 广播（次级窗口据此同步语言）。
+  onLocaleChange: (cb: (locale: Locale) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, locale: Locale) => cb(locale);
+    ipcRenderer.on("app:locale", listener);
+    return () => ipcRenderer.removeListener("app:locale", listener);
+  },
   openLogsDir: (): Promise<void> => ipcRenderer.invoke("logs:open"),
   setLogEnabled: (on: boolean): Promise<void> => ipcRenderer.invoke("logs:setEnabled", on),
   // 改闪记全局热键:把主进程返回的 HotkeyRegistration 适配成 bridge 契约的 { ok, toast }。
@@ -203,6 +213,15 @@ const personal = {
     ipcRenderer.on("cli:exit", listener);
     return () => ipcRenderer.removeListener("cli:exit", listener);
   },
+  // ── 历史消息追问的临时流式应答（ask:*）。不落盘/不进 run 注册表,关闭浮层即弃。 ────────
+  askFollowupStream: (req: AskFollowupRequest): Promise<void> => ipcRenderer.invoke("ask:start", req),
+  onAskFollowupEvent: (cb: (askId: string, event: CliStreamEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { askId: string; event: CliStreamEvent }) =>
+      cb(payload.askId, payload.event);
+    ipcRenderer.on("ask:event", listener);
+    return () => ipcRenderer.removeListener("ask:event", listener);
+  },
+  cancelFollowup: (askId: string): Promise<void> => ipcRenderer.invoke("ask:cancel", askId),
   // ── pi RPC 长驻会话（pi --mode rpc）。claude/codex 仍走上面的 cli 单发通道。 ────────
   // 一个 UI 会话 = 一个长驻 pi 子进程;命令经 invoke,事件流经 onPiEvent。
   piOpen: (req: PiOpenRequest): Promise<PiOpenResult> => ipcRenderer.invoke("pi:open", req),

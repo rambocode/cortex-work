@@ -6,6 +6,7 @@ import type {
   AgentKind,
   AgentSessionRequest,
   AgentProjectInfo,
+  AskFollowupRequest,
   AsrTranscribeRequest,
   AsrTranscribeResponse,
   AutomationInput,
@@ -59,6 +60,7 @@ import type {
   AppInfo,
   UpdateState,
 } from "./types";
+import type { Locale } from "../i18n/locales";
 
 export interface DesktopBridge {
   appInfo?: AppInfo;
@@ -157,6 +159,11 @@ export interface DesktopBridge {
   // 桌面行为：renderer 切换开机自启/启动最小化/关闭到托盘时通知主进程立即应用
   //（登录项是系统设置,须即时设置）。可选（web 端为 null）。
   setDesktopBehavior?(behavior: DesktopBehavior): Promise<void>;
+  // 渲染端(主窗口 i18next 为权威源)切语言时下发主进程,主进程据此广播给所有窗口 +
+  // 重建托盘菜单（原生 chrome 无法用 react-i18next,只能镜像）。可选（web 端为 null）。
+  setLocale?(locale: Locale): Promise<void>;
+  // 订阅主进程 locale 广播（次级窗口据此与主窗口语言保持一致）。可选;返回退订函数。
+  onLocaleChange?(cb: (locale: Locale) => void): () => void;
   // 打开日志目录（系统文件管理器）。可选。
   openLogsDir?(): Promise<void>;
   // 即时下发文件日志开关（本次运行内生效,无需重启）。可选。
@@ -181,6 +188,14 @@ export interface DesktopBridge {
   trimAgentSession?(req: TrimSessionRequest): Promise<boolean>;
   onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;
   onCliExit(cb: (exit: CliExitEvent) => void): () => void;
+  // ── 历史消息追问的临时流式应答（ask:*）。复用 CliStreamEvent,但不落盘/不进 run 注册表; ──
+  // 关闭浮层即弃。全部可选（web 端 bridge 为 null、旧壳无此方法时 UI 降级隐藏追问入口）。
+  // 一轮一个 askId:既作 invoke 入参的登记 key,也经 onAskFollowupEvent 回带做代际守卫。
+  askFollowupStream?(req: AskFollowupRequest): Promise<void>;
+  // 订阅追问事件流（仿 onCliEvent:回调 + 返回退订）。回调参数 (askId, event)。
+  onAskFollowupEvent?(cb: (askId: string, event: CliStreamEvent) => void): () => void;
+  // 取消在途追问（幂等;askId 不存在或已退出时静默）。
+  cancelFollowup?(askId: string): Promise<void>;
   // ── pi RPC 长驻会话（pi --mode rpc）。claude/codex 仍走上面单发 startCli/killCli/onCliEvent。 ──
   // 一个 UI 会话 = 一个长驻 pi 子进程;命令经 invoke,事件流经 onPiEvent。全部可选（web/旧壳
   // 缺失时为 undefined → UI 退回单发或隐藏运行时控制）。uiSessionId 复用个人会话 id。

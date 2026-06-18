@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { MarkdownView } from "./MarkdownView";
 import {
@@ -186,11 +187,14 @@ function TodoRow({
   onToast: (text: string) => void;
   editable: boolean;
 }) {
+  const { t } = useTranslation();
   const bridge = useDesktopBridge();
   const updateTodo = usePersonalStore((s) => s.updateTodo);
   const removeTodo = usePersonalStore((s) => s.removeTodo);
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState(todo.title);
+  // 空标题在渲染时用 i18n 兜底（存档里仍是空串,避免冻语言）。
+  const displayTitle = todo.title || t("todoUntitled");
 
   useEffect(() => setTitleDraft(todo.title), [todo.title]);
 
@@ -266,7 +270,7 @@ function TodoRow({
             }}
             title={editable ? "点击查看详情，双击改名" : "点击查看详情"}
           >
-            <span>{todo.title}</span>
+            <span>{displayTitle}</span>
             <small>{relTime(todo.updatedAt)}</small>
           </button>
         )}
@@ -658,6 +662,7 @@ function TodoGroup({
 }
 
 export function TodosView({ onToast }: { onToast: (text: string) => void }) {
+  const { t } = useTranslation();
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const todos = usePersonalStore((s) => s.todos);
@@ -771,14 +776,14 @@ export function TodosView({ onToast }: { onToast: (text: string) => void }) {
             <Icon.Back size={14} />
           </button>
           <Icon.Task size={14} />
-          <span className="pw-panel-title">{selectedTodo.title}</span>
+          <span className="pw-panel-title">{selectedTodo.title || t("todoUntitled")}</span>
           <div className="spacer" />
           {!projectMode ? <span className="pw-readonly">首页只读</span> : null}
           <span className="pw-todo-total">{selectedProject.name}</span>
         </div>
         <MarkdownDetail
           path={selectedTodo.detailPath}
-          title={selectedTodo.title}
+          title={selectedTodo.title || t("todoUntitled")}
           editable={projectMode}
           onToast={onToast}
           onSaved={() => usePersonalStore.getState().updateTodo(selectedTodo.id, {})}

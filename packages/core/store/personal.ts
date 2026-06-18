@@ -530,7 +530,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     const todo: TodoMeta = {
       id: newId("todo"),
       projectId,
-      title: title.trim() || "未命名 Todo",
+      // 空标题持久化为空串,渲染时再用 t("common:todoUntitled") 兜底,避免把语言冻进存档。
+      title: title.trim(),
       status: "open",
       detailPath,
       createdAt: now,

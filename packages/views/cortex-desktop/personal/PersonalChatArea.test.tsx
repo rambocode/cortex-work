@@ -585,3 +585,311 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
     expect((b.startCli as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
   });
 });
+
+// U5:assistant 消息「追问」按钮 + 浮层挂载 + Web/能力门控。
+describe("PersonalChatArea 追问入口（U5）", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      timelineProjectId: undefined,
+      runningBySession: {},
+      providerSettings: { providers: [] },
+    });
+  });
+
+  // 带 askFollowupStream 能力的桥（桌面端）。
+  function bridgeWithAsk(messages: Message[]): DesktopBridge {
+    return {
+      loadChat: async () => messages,
+      saveChat: async () => {},
+      askFollowupStream: async () => {},
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+  }
+
+  function renderWith(b: DesktopBridge) {
+    return render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+  }
+
+  it("assistant 文本消息出现「追问」按钮,排在复制/朗读之后", async () => {
+    renderWith(bridgeWithAsk([{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "答案正文" }]));
+    await screen.findByText("答案正文");
+    const followBtn = screen.getByRole("button", { name: "追问" });
+    expect(followBtn).toBeInTheDocument();
+    // 同一操作行内:复制在追问之前(顺序固定)。
+    const row = followBtn.closest(".m-act-row");
+    const btns = row ? Array.from(row.querySelectorAll<HTMLButtonElement>("button")) : [];
+    const copyIdx = btns.findIndex((b) => b.getAttribute("title") === "复制回复内容");
+    const followIdx = btns.findIndex((b) => b === followBtn);
+    expect(copyIdx).toBeGreaterThanOrEqual(0);
+    expect(followIdx).toBeGreaterThan(copyIdx);
+  });
+
+  it("me（用户）消息不出现「追问」按钮", async () => {
+    renderWith(bridgeWithAsk([{ kind: "text", who: "me", time: "12:00", uid: "m1", text: "我的问题" }]));
+    await screen.findByText("我的问题");
+    expect(screen.queryByRole("button", { name: "追问" })).toBeNull();
+  });
+
+  it("无 askFollowupStream 能力（Web/旧壳）→ 不渲染「追问」按钮", async () => {
+    const webBridge = { loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "答案正文" }], saveChat: async () => {} } as unknown as DesktopBridge;
+    renderWith(webBridge);
+    await screen.findByText("答案正文");
+    expect(screen.queryByRole("button", { name: "追问" })).toBeNull();
+  });
+
+  it("点击「追问」→ 打开浮层,种子为该条正文(R2)", async () => {
+    renderWith(bridgeWithAsk([{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "可被追问的回复" }]));
+    await screen.findByText("可被追问的回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    // 浮层就绪:dialog + 种子正文(浮层内再次出现该文本)。
+    const dialog = await screen.findByRole("dialog", { name: "追问" });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText("就这条回复追问")).toBeInTheDocument();
+    // 浮层内出现种子正文(顶部种子区)。
+    expect(screen.getAllByText("可被追问的回复").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("关闭浮层 → 焦点归还触发按钮", async () => {
+    renderWith(bridgeWithAsk([{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "回复正文Z" }]));
+    await screen.findByText("回复正文Z");
+    const trigger = screen.getByRole("button", { name: "追问" });
+    fireEvent.click(trigger);
+    await screen.findByRole("dialog", { name: "追问" });
+    // 点关闭(浮层右上角 X)。
+    fireEvent.click(screen.getByTitle("关闭"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "追问" })).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("pi 自定义供应商:sessionCtx.provider 经 askFollowupStream 解析传入", async () => {
+    usePersonalStore.setState({
+      sessions: [
+        { id: "s1", projectId: "p1", title: "S1", agent: "pi", createdAt: NOW, updatedAt: NOW, providerId: "deepseek", model: "ds-chat" },
+      ],
+      providerSettings: {
+        providers: [
+          {
+            id: "deepseek",
+            name: "DeepSeek",
+            baseUrl: "https://api.deepseek.com",
+            apiKey: "sk-x",
+            endpointFormat: "chat_completions",
+            enabled: true,
+            models: [{ id: "ds-chat", label: "DeepSeek Chat" }],
+          },
+        ],
+        defaultProviderId: "deepseek",
+      },
+    });
+    const askSpy = vi.fn(async (_req: { agent: string; model?: string; cwd: string; provider?: { id: string; baseUrl: string; apiKey?: string } }) => {});
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "pi", time: "12:00", uid: "a1", text: "pi 的回复" }],
+      saveChat: async () => {},
+      askFollowupStream: askSpy,
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+    renderWith(b);
+    await screen.findByText("pi 的回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    await screen.findByRole("dialog", { name: "追问" });
+    // 在浮层里发一问,验证传入的 sessionCtx(agent/model/cwd/provider)。
+    const ta = screen.getByPlaceholderText(/继续追问/);
+    fireEvent.change(ta, { target: { value: "为什么?" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(askSpy).toHaveBeenCalled());
+    const req = askSpy.mock.calls[0]![0];
+    expect(req.agent).toBe("pi");
+    expect(req.model).toBe("ds-chat");
+    expect(req.cwd).toBe("/code/alpha");
+    expect(req.provider).toMatchObject({ id: "deepseek", baseUrl: "https://api.deepseek.com", apiKey: "sk-x" });
+  });
+
+  it("无项目会话:cwd 取 noProjectDir,仍可发起追问(R9 由主进程兜底)", async () => {
+    usePersonalStore.setState({
+      sessions: [
+        { id: "s2", title: "S2", agent: "claude", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/noproj" },
+      ],
+      activeProjectId: undefined,
+      activeSessionId: "s2",
+    });
+    const askSpy = vi.fn(async (_req: { agent: string; model?: string; cwd: string; provider?: { id: string; baseUrl: string; apiKey?: string } }) => {});
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "无项目回复" }],
+      saveChat: async () => {},
+      askFollowupStream: askSpy,
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+    renderWith(b);
+    await screen.findByText("无项目回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    await screen.findByRole("dialog", { name: "追问" });
+    const ta = screen.getByPlaceholderText(/继续追问/);
+    fireEvent.change(ta, { target: { value: "追问内容" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(askSpy).toHaveBeenCalled());
+    expect(askSpy.mock.calls[0]![0].cwd).toBe("/tmp/noproj");
+    // 无真实项目 → tightenTools=true(FIX-3,主进程据此剥离跳审批标志)。
+    expect((askSpy.mock.calls[0]![0] as { tightenTools?: boolean }).tightenTools).toBe(true);
+  });
+
+  it("真实项目会话:tightenTools=false(FIX-3)", async () => {
+    const askSpy = vi.fn(async (_req: { tightenTools?: boolean }) => {});
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "有项目回复" }],
+      saveChat: async () => {},
+      askFollowupStream: askSpy,
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+    renderWith(b);
+    await screen.findByText("有项目回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    await screen.findByRole("dialog", { name: "追问" });
+    const ta = screen.getByPlaceholderText(/继续追问/);
+    fireEvent.change(ta, { target: { value: "问" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(askSpy).toHaveBeenCalled());
+    expect((askSpy.mock.calls[0]![0] as { tightenTools?: boolean }).tightenTools).toBe(false);
+  });
+
+  it("仅 askFollowupStream、缺 onAskFollowupEvent/cancelFollowup → 不渲染「追问」按钮(FIX-2)", async () => {
+    const partial = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "部分桥回复" }],
+      saveChat: async () => {},
+      askFollowupStream: async () => {},
+      // onAskFollowupEvent / cancelFollowup 缺失(旧壳)。
+    } as unknown as DesktopBridge;
+    renderWith(partial);
+    await screen.findByText("部分桥回复");
+    expect(screen.queryByRole("button", { name: "追问" })).toBeNull();
+  });
+});
+
+// FIX-1 / FIX-6:经真实 useFollowupAsk(浮层挂载)验证收尾语义与重试替换。
+describe("PersonalChatArea 追问收尾语义(FIX-1 / FIX-6)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      timelineProjectId: undefined,
+      runningBySession: {},
+      providerSettings: { providers: [] },
+    });
+  });
+
+  // 捕获事件回调的桥:emit(askId, event) 可主动注入 ask:event。
+  function makeEventBridge() {
+    let cb: ((askId: string, ev: unknown) => void) | null = null;
+    const askSpy = vi.fn(async (_req: { askId: string }) => {});
+    const cancelSpy = vi.fn(async (_askId: string) => {});
+    const bridge = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "种子回复" }],
+      saveChat: async () => {},
+      askFollowupStream: askSpy,
+      onAskFollowupEvent: (fn: (askId: string, ev: unknown) => void) => {
+        cb = fn;
+        return () => {
+          cb = null;
+        };
+      },
+      cancelFollowup: cancelSpy,
+    } as unknown as DesktopBridge;
+    return {
+      bridge,
+      askSpy,
+      cancelSpy,
+      emit: (ev: unknown) => {
+        const askId = askSpy.mock.calls[askSpy.mock.calls.length - 1]![0].askId;
+        act(() => {
+          cb?.(askId, ev);
+        });
+      },
+    };
+  }
+
+  function renderWith(b: DesktopBridge) {
+    return render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+  }
+
+  async function openOverlayAndAsk(h: ReturnType<typeof makeEventBridge>, question: string) {
+    renderWith(h.bridge);
+    await screen.findByText("种子回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    await screen.findByRole("dialog", { name: "追问" });
+    const ta = screen.getByPlaceholderText(/继续追问/);
+    fireEvent.change(ta, { target: { value: question } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(h.askSpy).toHaveBeenCalled());
+  }
+
+  it("init→(长间隔静默)→text→result:不被提前收尾,answer 正常渲染(FIX-1)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const h = makeEventBridge();
+    await openOverlayAndAsk(h, "为什么?");
+
+    // init 后推进 30s(远超旧的 1.5s grace),期间无新事件。
+    h.emit({ type: "init", sessionId: "x" });
+    vi.advanceTimersByTime(30_000);
+    // 此时仍应在 running(未被提前判 done):停止按钮在,输入禁用。
+    expect(screen.getByRole("button", { name: /停止/ })).toBeInTheDocument();
+
+    // 真实 text 到达 → 必须被渲染(activeRef 仍在,未被代际守卫丢弃)。
+    h.emit({ type: "text", delta: "因为如此" });
+    expect(await screen.findByText("因为如此")).toBeInTheDocument();
+
+    // result 才正常收尾 → running 关闭,回到「发送」按钮。
+    h.emit({ type: "result", ok: true });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /停止/ })).toBeNull());
+  });
+
+  it("仅 text 无 result:不再因 1.5s 不活动提前收尾(FIX-1,删除旧 grace 语义)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const h = makeEventBridge();
+    await openOverlayAndAsk(h, "问");
+    h.emit({ type: "text", delta: "片段" });
+    vi.advanceTimersByTime(10_000); // 远超旧 1.5s
+    // 没有 result → 仍在 running(旧实现此刻已误关)。
+    expect(screen.getByRole("button", { name: /停止/ })).toBeInTheDocument();
+  });
+
+  it("error 轮重试:原位替换该轮而非并存(FIX-6)", async () => {
+    const h = makeEventBridge();
+    await openOverlayAndAsk(h, "会失败的问");
+    // 失败收尾。
+    h.emit({ type: "result", ok: false, error: "炸了" });
+    expect(await screen.findByText("炸了")).toBeInTheDocument();
+
+    // 点重试 → 应调 ask(question, retryOf);新轮替换旧 error 轮(turns 仍只 1 轮)。
+    fireEvent.click(screen.getByRole("button", { name: /重试/ }));
+    await waitFor(() => expect(h.askSpy).toHaveBeenCalledTimes(2));
+    // 旧 error 文案消失(被替换),问题文本仍只出现一次。
+    await waitFor(() => expect(screen.queryByText("炸了")).toBeNull());
+    expect(screen.getAllByText("会失败的问")).toHaveLength(1);
+  });
+});

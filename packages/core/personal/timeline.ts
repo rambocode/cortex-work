@@ -22,6 +22,7 @@ import type {
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { notesKeys } from "./notes";
+import { t } from "../i18n";
 
 export const timelineKeys = {
   detail: (projectId: string) => ["personal", "timeline", projectId] as const,
@@ -559,10 +560,12 @@ export const DEFAULT_PUSH_TEMPLATE = `【{{project}}】{{date}} 工作日报
 `;
 
 // 日报分享文本（一键复制 / 推送共用）：未配置格式 Skill 时的默认渲染。
+// 运行期模板走 i18n（随当前语言）；DEFAULT_PUSH_TEMPLATE 常量保留为内容快照,
+// 供「创建示例 Skill」一次性写盘与 SettingsMenu 展示,不在此路径冻结语言。
 export function buildDailyReportText(projectName: string, group: DayGroup): { subject: string; text: string } {
   const data = buildPushReportData(projectName, group);
   // 无 AI 日报时退化为事项列表,有日报时正文已含概括,默认模板两者都带。
-  return renderPushReport(DEFAULT_PUSH_TEMPLATE, data);
+  return renderPushReport(t("timeline:defaultPushTemplate"), data);
 }
 
 // 按设置选择生成模型（集成 Agent 或 OpenAI 兼容端点）补全一段文本。
@@ -662,7 +665,7 @@ export function usePushDailyReport(project: ProjectMeta | undefined): {
     async (group: DayGroup): Promise<string[]> => {
       if (!bridge || !project) return [];
       const list = enabledPushTargets(usePersonalStore.getState().pushSettings);
-      if (list.length === 0) return ["未启用任何推送渠道,请先在 设置 → 推送 中配置"];
+      if (list.length === 0) return [t("timeline:noChannelEnabled")];
       setPushing(true);
       try {
         // 配置了推送格式 Skill 则按模板渲染;读取失败回退默认格式。
@@ -680,9 +683,11 @@ export function usePushDailyReport(project: ProjectMeta | undefined): {
           list.map(async ({ label, target }) => {
             try {
               const res = await bridge.pushReport(target, payload);
-              return res.ok ? `${label} 推送成功` : `${label} 推送失败:${res.error ?? "未知错误"}`;
+              return res.ok
+                ? t("timeline:pushSuccess", { label })
+                : t("timeline:pushFailed", { label, error: res.error ?? t("timeline:unknownError") });
             } catch (err) {
-              return `${label} 推送失败:${err instanceof Error ? err.message : String(err)}`;
+              return t("timeline:pushFailed", { label, error: err instanceof Error ? err.message : String(err) });
             }
           }),
         );

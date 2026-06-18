@@ -4,7 +4,8 @@
 // （core 不得直接用 localStorage,故持久化逻辑放 views 层。）
 
 import { useEffect } from "react";
-import { DEFAULT_TWEAKS, useCortexUIStore } from "@cortex-work/core";
+import { DEFAULT_TWEAKS, useCortexUIStore, useDesktopBridge } from "@cortex-work/core";
+import { changeLanguage } from "@cortex-work/core/i18n";
 import type { FontScale, ThemeMode, Tweaks } from "@cortex-work/core/types";
 
 const STORAGE_KEY = "cortex.tweaks";
@@ -54,9 +55,12 @@ export function applyTweaksToDom(t: Tweaks): void {
   const root = document.documentElement;
   root.dataset.theme = resolveTheme(t.theme);
   root.style.setProperty("--font-scale", fontScaleRatio(t.fontScale));
+  // <html lang> 随活动语言更新(无障碍 + 覆盖 layout.tsx 的服务端默认值）。
+  root.lang = t.language;
 }
 
 export function useTweaksPersistence(): void {
+  const bridge = useDesktopBridge();
   useEffect(() => {
     // 1. 启动恢复：存档合并进 store（仅差异项写入,避免无谓 re-render）。
     const stored = loadStoredTweaks();
@@ -65,12 +69,23 @@ export function useTweaksPersistence(): void {
       if (cur.tweaks[k] !== stored[k]) cur.setTweak(k, stored[k]);
     });
     applyTweaksToDom(useCortexUIStore.getState().tweaks);
+    // 启动时把已存语言喂给 i18next(异步,fire-and-forget,同 theme 范式不 await）。
+    const startupLang = useCortexUIStore.getState().tweaks.language;
+    void changeLanguage(startupLang);
+    // 桌面端:把启动语言下发主进程,初始化托盘菜单 + 次级窗口镜像（best-effort,web 端 bridge=null）。
+    void bridge?.setLocale?.(startupLang);
 
     // 2. 变更即写盘 + 重应用。
     const unsub = useCortexUIStore.subscribe((s, prev) => {
       if (s.tweaks !== prev.tweaks) {
         storeTweaks(s.tweaks);
         applyTweaksToDom(s.tweaks);
+        // 仅语言变化时切 i18next(idempotent,但省去无谓 changeLanguage)。
+        if (s.tweaks.language !== prev.tweaks.language) {
+          void changeLanguage(s.tweaks.language);
+          // 同步下发主进程,重建托盘菜单 + 广播给次级窗口（best-effort）。
+          void bridge?.setLocale?.(s.tweaks.language);
+        }
       }
     });
 
@@ -90,5 +105,6 @@ export function useTweaksPersistence(): void {
       unsub();
       mq?.removeEventListener?.("change", onSystem);
     };
-  }, []);
+    // bridge 由宿主壳一次性注入、引用稳定（同 usePersonalPersistence 范式）。
+  }, [bridge]);
 }

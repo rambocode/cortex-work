@@ -3,6 +3,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "@cortex-work/ui/icons";
 import { whoMeta, usePetStore, useDesktopBridge, usePersonalProfile } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { renderRich } from "./rich";
 import { chatMarkdownComponents } from "./personal/chatMarkdown";
@@ -10,6 +11,7 @@ import { ChatImages } from "./personal/ChatImages";
 import { renderAvatar } from "./personal/avatars";
 
 function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
+  const { t } = useTranslation("chat");
   const isShared = contact.group === "shared";
   const isGroup = contact.group === "groups";
   const isMe = contact.id === "me";
@@ -41,12 +43,12 @@ function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation 
           {!isGroup && !isMe ? <span className="agent-tag">Agent</span> : null}
           {isShared ? (
             <span className="agent-tag" style={{ color: "var(--violet)", background: "var(--violet-soft)" }}>
-              共享
+              {t("chatHead.shared")}
             </span>
           ) : null}
           {isGroup ? (
             <span className="agent-tag" style={{ color: "var(--blue)", background: "var(--blue-soft)" }}>
-              群聊
+              {t("chatHead.group")}
             </span>
           ) : null}
         </div>
@@ -65,13 +67,13 @@ function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation 
         ))}
       </div>
       <div style={{ display: "flex", gap: 2, marginLeft: 8 }}>
-        <button className="icon-btn" title="在对话中搜索">
+        <button className="icon-btn" title={t("chatHead.searchInConversation")}>
           <Icon.Search size={15} />
         </button>
-        <button className="icon-btn" title="提及">
+        <button className="icon-btn" title={t("chatHead.mention")}>
           <Icon.At size={15} />
         </button>
-        <button className="icon-btn" title="更多">
+        <button className="icon-btn" title={t("chatHead.more")}>
           <Icon.More size={15} />
         </button>
       </div>
@@ -95,6 +97,7 @@ function MessageAvatar({ who }: { who: string }) {
 }
 
 function MessageHeader({ who, time, hideTime = false }: { who: string; time: string; hideTime?: boolean }) {
+  const { t } = useTranslation("chat");
   const profile = usePersonalProfile();
   const meta = whoMeta(who, profile);
   const isAgent = who.endsWith("-agent");
@@ -103,7 +106,7 @@ function MessageHeader({ who, time, hideTime = false }: { who: string; time: str
       <span className="who">{meta.name}</span>
       {isAgent ? (
         <span className={`agent-tag ${meta.agent === "shared" ? "shared" : meta.agent === "mine" ? "mine" : ""}`}>
-          {meta.agent === "shared" ? "共享 Agent" : "Agent"}
+          {meta.agent === "shared" ? t("messageHeader.sharedAgent") : t("messageHeader.agent")}
         </span>
       ) : null}
       {hideTime ? null : <span className="when">{time}</span>}
@@ -198,6 +201,7 @@ const ReasoningMessage = memo(function ReasoningMessage({
   // 个人工作区:运行中默认展开,结束/历史默认收起,点击标题可展开/收起。
   collapsible?: boolean;
 }) {
+  const { t } = useTranslation("chat");
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   useEffect(() => {
     setUserOpen(null);
@@ -215,7 +219,7 @@ const ReasoningMessage = memo(function ReasoningMessage({
             style={{ cursor: "pointer", userSelect: "none" }}
           >
             <Icon.Sparkle size={12} />
-            <span>思考过程</span>
+            <span>{t("reasoning.title")}</span>
             <span className="al-chev" data-open={open}>
               <Icon.Chevron size={11} />
             </span>
@@ -237,6 +241,7 @@ const AgentLogMessage = memo(function AgentLogMessage({
   // 个人工作区:运行中默认展开,结束后自动收起,点击标题可展开/收起。
   collapsible?: boolean;
 }) {
+  const { t } = useTranslation("chat");
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   // active 状态翻转(完成)时清掉用户手动状态 → 回到「完成即收起」默认。
   useEffect(() => {
@@ -264,8 +269,8 @@ const AgentLogMessage = memo(function AgentLogMessage({
             )}
             <span style={{ color: "var(--text-1)", fontWeight: 500 }}>{m.title}</span>
             <span style={{ marginLeft: 6, color: "var(--text-3)" }}>
-              · {m.active ? "运行中" : "已完成"}
-              {collapsible ? ` · ${m.items.length} 步` : ""}
+              · {m.active ? t("agentLog.running") : t("agentLog.done")}
+              {collapsible ? ` · ${t("agentLog.steps", { count: m.items.length })}` : ""}
             </span>
             {collapsible ? (
               <span className="al-chev" data-open={open}>
@@ -320,12 +325,13 @@ const DiffMessage = memo(function DiffMessage({
   onSelectFile: (path: string) => void;
   activeFile: string;
 }) {
+  const { t } = useTranslation("chat");
   const statusChip =
     m.status === "applied"
-      ? { text: "已应用", cls: "ok" }
+      ? { text: t("diff.applied"), cls: "ok" }
       : m.status === "rejected"
-        ? { text: "已拒绝", cls: "no" }
-        : { text: "待审核", cls: "pending" };
+        ? { text: t("diff.rejected"), cls: "no" }
+        : { text: t("diff.pending"), cls: "pending" };
 
   return (
     <div className={`msg ${grouped ? "is-grouped" : ""}`}>
@@ -374,6 +380,7 @@ const ApproveMessage = memo(function ApproveMessage({
   grouped: boolean;
   onApprove: (uid: string, decision: "approve" | "reject") => void;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <div className={`msg ${grouped ? "is-grouped" : ""}`}>
       <MessageAvatar who={m.who} />
@@ -382,21 +389,21 @@ const ApproveMessage = memo(function ApproveMessage({
         <div className="approve-card">
           <div className="ac-h">
             <Icon.Sparkle size={14} />
-            <b>等待你的确认</b>
-            <span style={{ marginLeft: 6 }}>Agent 准备执行变更</span>
+            <b>{t("approve.title")}</b>
+            <span style={{ marginLeft: 6 }}>{t("approve.subtitle")}</span>
           </div>
           <div className="ac-body">{renderRich(m.body)}</div>
           <div className="ac-foot">
             <button className="btn danger-ghost" onClick={() => onApprove(m.uid!, "reject")}>
               <Icon.X size={13} />
-              拒绝
+              {t("approve.reject")}
             </button>
             <button className="btn primary" onClick={() => onApprove(m.uid!, "approve")}>
               <Icon.Check size={13} />
-              批准并运行
+              {t("approve.approveRun")}
             </button>
             <div className="spacer" />
-            <span className="hint">⌘↵ 批准</span>
+            <span className="hint">{t("approve.shortcutHint")}</span>
           </div>
         </div>
       </div>
@@ -470,6 +477,7 @@ export function MessageStream({
   stickToBottomKey?: unknown;
   preserveAnchorKey?: unknown;
 }) {
+  const { t } = useTranslation("chat");
   const scrollRef = useRef<HTMLDivElement>(null);
   const msgCount = convo?.messages?.length || 0;
   const atBottomRef = useRef(true); // 初始视为在底部(挂载即贴底看最新)
@@ -537,7 +545,7 @@ export function MessageStream({
             {contact.avatar.initials}
           </div>
           <div style={{ color: "var(--text-1)", fontSize: 14, fontWeight: 500 }}>{contact.name}</div>
-          <div>这里还没有对话内容,从下方输入框开始 →</div>
+          <div>{t("stream.empty")}</div>
         </div>
       </div>
     );
@@ -607,6 +615,7 @@ function Composer({
   onSend: (text: string) => void;
   onToast: (text: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([
     { id: "a1", name: "sidebar-mockup.png", kind: "PNG" },
@@ -616,8 +625,8 @@ function Composer({
 
   const placeholder =
     contact?.group === "groups"
-      ? `在 ${contact.name} 中发消息,@ 提及成员或他们的 Agent…`
-      : `给 ${contact?.name || "联系人"} 的 Agent 发消息…`;
+      ? t("composer.groupPlaceholder", { name: contact.name })
+      : t("composer.contactPlaceholder", { name: contact?.name || t("composer.contactFallback") });
 
   const send = () => {
     if (!text.trim()) return;
@@ -658,7 +667,7 @@ function Composer({
                 <button
                   className="attach-x"
                   onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                  title="移除"
+                  title={t("composer.remove")}
                 >
                   <Icon.X size={11} />
                 </button>
@@ -681,12 +690,12 @@ function Composer({
           />
         </div>
         <div className="comp-foot">
-          <button className="pill" onClick={ping("更多动作")}>
+          <button className="pill" onClick={ping(t("composer.moreActions"))}>
             <Icon.Plus size={13} />
           </button>
-          <button className="pill" onClick={ping("提及 · 输入 @ 选择联系人")}>
+          <button className="pill" onClick={ping(t("composer.mentionToast"))}>
             <Icon.At size={13} />
-            提及
+            {t("composer.mention")}
           </button>
           <button
             className="pill"
@@ -695,35 +704,35 @@ function Composer({
                 ...prev,
                 { id: "a" + Math.random().toString(36).slice(2), name: "screenshot.png", kind: "PNG" },
               ]);
-              onToast("已附加截图");
+              onToast(t("composer.attachmentToast"));
             }}
           >
             <Icon.Paperclip size={13} />
-            附件
+            {t("composer.attachment")}
           </button>
-          <button className="pill" onClick={ping("截图工具 · 按 ⌘⇧4")}>
+          <button className="pill" onClick={ping(t("composer.screenshotToast"))}>
             <Icon.Image size={13} />
-            截图
+            {t("composer.screenshot")}
           </button>
-          <button className="pill" onClick={ping("文件树 · 选择项目文件")}>
+          <button className="pill" onClick={ping(t("composer.fileTreeToast"))}>
             <Icon.Folder size={13} />
-            文件树
+            {t("composer.fileTree")}
           </button>
           <div className="spacer" />
-          <button className="pill" onClick={ping("模型选择 · 当前 Sonnet 4.5")}>
+          <button className="pill" onClick={ping(t("composer.modelToast"))}>
             <span className="lightning">
               <Icon.Lightning size={11} />
             </span>
             Sonnet 4.5 <Icon.Chevron size={10} />
           </button>
-          <button className="pill" onClick={ping("语音输入 · 暂未实现")}>
+          <button className="pill" onClick={ping(t("composer.voiceToast"))}>
             <Icon.Mic size={13} />
           </button>
           <button
             className={`send ${text.trim() ? "" : "muted"}`}
             onClick={send}
             disabled={!text.trim()}
-            title="发送 (Enter)"
+            title={t("composer.send")}
           >
             <Icon.Send size={15} />
           </button>

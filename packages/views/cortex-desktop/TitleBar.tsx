@@ -1,4 +1,5 @@
 import { Icon } from "@cortex-work/ui/icons";
+import { useTranslation } from "@cortex-work/core/i18n";
 import type { Contact } from "@cortex-work/core/types";
 import { type Section } from "@cortex-work/core";
 import { UpdateButton } from "./UpdateButton";
@@ -28,6 +29,7 @@ export function TitleBar({
   sectionTitle,
   personal = false,
 }: TitleBarProps) {
+  const { t } = useTranslation();
   const isGroup = contact?.group === "groups";
   const isShared = contact?.group === "shared";
   const isMe = contact?.id === "me";
@@ -48,13 +50,13 @@ export function TitleBar({
   return (
     <div className="titlebar">
       <div className="tb-left">
-        <button className="icon-btn" title="侧栏" onClick={click("已展开/收起侧栏")}>
+        <button className="icon-btn" title={t("titleBar.sidebar")} onClick={click(t("titleBar.sidebarToggled"))}>
           <Icon.Sidebar />
         </button>
-        <button className="icon-btn" disabled title="后退">
+        <button className="icon-btn" disabled title={t("titleBar.back")}>
           <Icon.Back />
         </button>
-        <button className="icon-btn" disabled title="前进">
+        <button className="icon-btn" disabled title={t("titleBar.forward")}>
           <Icon.Fwd />
         </button>
       </div>
@@ -71,11 +73,11 @@ export function TitleBar({
                   <Icon.Hashtag size={14} />
                 </span>
               ) : null}
-              <span>{contact?.name || "对话"}</span>
-              {!isGroup && !isMe ? <span className="sub">· Agent</span> : null}
+              <span>{contact?.name || t("titleBar.conversation")}</span>
+              {!isGroup && !isMe ? <span className="sub">{t("titleBar.agent")}</span> : null}
               {isShared ? (
                 <span className="sub" style={{ color: "var(--violet)" }}>
-                  共享
+                  {t("titleBar.shared")}
                 </span>
               ) : null}
               <span className="dot" style={{ background: dotColor }} />
@@ -91,26 +93,26 @@ export function TitleBar({
         <UpdateButton />
         {sectionTitle ? null : (
           <>
-            <button className="icon-btn" title="运行" onClick={click("已发送至 Agent · 执行中")}>
+            <button className="icon-btn" title={t("titleBar.run")} onClick={click(t("titleBar.runToast"))}>
               <Icon.Run size={15} />
             </button>
-            <div className="tb-pill" onClick={click("模型选择 · 已是 Sonnet 4.5")} style={{ cursor: "pointer" }}>
+            <div className="tb-pill" onClick={click(t("titleBar.modelToast"))} style={{ cursor: "pointer" }}>
               <span className="lightning">
                 <Icon.Lightning size={12} />
               </span>
               <span>Sonnet 4.5</span>
               <Icon.Chevron size={11} />
             </div>
-            <button className="icon-btn" title="终端" onClick={click("终端 · 暂未实现")}>
+            <button className="icon-btn" title={t("titleBar.terminal")} onClick={click(t("titleBar.terminalToast"))}>
               <Icon.Terminal />
             </button>
-            <button className="icon-btn" title="详情" onClick={click("会话详情 · 暂未实现")}>
+            <button className="icon-btn" title={t("titleBar.detail")} onClick={click(t("titleBar.detailToast"))}>
               <Icon.Info />
             </button>
             <div className="tb-divider" />
             <button
               className={`icon-btn ${rightOpen ? "is-on" : ""}`}
-              title={rightOpen ? "关闭审查面板" : "打开审查面板"}
+              title={rightOpen ? t("titleBar.closeReviewPanel") : t("titleBar.openReviewPanel")}
               onClick={onToggleRight}
             >
               <Icon.Sidebar />
@@ -131,8 +133,9 @@ function DesktopTabs({
   onNavigate: (section: Section) => void;
   onToast: (text: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <div className="desktop-tabs" role="tablist" aria-label="桌面导航标签">
+    <div className="desktop-tabs" role="tablist" aria-label={t("titleBar.tabsAriaLabel")}>
       <button
         className={`desktop-tab ${activeSection === "chat" ? "is-active" : ""}`}
         role="tab"
@@ -159,7 +162,7 @@ function DesktopTabs({
         <Icon.Bot size={13} />
         <span>Autopilot</span>
       </button>
-      <button className="desktop-tab-add" aria-label="新建标签" onClick={() => onToast("新建标签 · 暂未实现")}>
+      <button className="desktop-tab-add" aria-label={t("titleBar.addTab")} onClick={() => onToast(t("titleBar.addTabToast"))}>
         <Icon.Plus size={14} />
       </button>
     </div>

@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import type { ChangedFile, ContentSearchResult, GitChangesResult, PromptNode } from "@cortex-work/core";
 import { FileIcon, fileIconSpec, isBinaryLike } from "./fileIcons";
 import { langForName, wordWrapForName } from "./monacoLang";
@@ -115,9 +116,15 @@ function DiffText({ content }: { content: string }) {
   );
 }
 
-const STATUS_LABEL: Record<string, string> = { "??": "新增", A: "新增", M: "修改", D: "删除", R: "重命名" };
-
 export function FilesView({ onToast }: { onToast: (text: string) => void }) {
+  const { t } = useTranslation("files");
+  const STATUS_LABEL: Record<string, string> = {
+    "??": t("status.new"),
+    A: t("status.new"),
+    M: t("status.modified"),
+    D: t("status.deleted"),
+    R: t("status.renamed"),
+  };
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
@@ -149,7 +156,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
       if (mode === "all") setTree(await bridge.scanDirTree(project.path));
       else setChanges(await bridge.gitChanges(project.path));
     } catch (err) {
-      onToast(`加载失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("loadFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
   }, [bridge, project, mode, onToast]);
 
@@ -223,8 +230,8 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
       setDirty(false);
       setSelection("");
       setPreview({
-        name: "全部变更",
-        content: res.diff.trim() ? res.diff : "（没有变更）",
+        name: t("allChanges"),
+        content: res.diff.trim() ? res.diff : t("noChanges"),
         isDiff: true,
         truncated: res.truncated || undefined,
       });
@@ -253,7 +260,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
       draftRef.current = content;
       setPreview({ name, path, content, isDiff: false, truncated });
     } catch (err) {
-      onToast(`读取失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("readFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -275,7 +282,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     if (f.status === "D") {
       setEditMode(false);
       setDirty(false);
-      setPreview({ name: f.rel, content: "（文件已删除）", isDiff: true });
+      setPreview({ name: f.rel, content: t("fileDeleted"), isDiff: true });
       return;
     }
     if (f.status !== "??") {
@@ -297,9 +304,9 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
       await bridge.writeFile(preview.path, draftRef.current);
       setDirty(false);
       setPreview((p) => (p ? { ...p, content: draftRef.current } : p));
-      onToast("已保存");
+      onToast(t("saved"));
     } catch (err) {
-      onToast(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("saveFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -311,9 +318,9 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   const copyText = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      onToast(`${label}已复制`);
+      onToast(t("copied", { label }));
     } catch {
-      onToast("复制失败");
+      onToast(t("copyFailed"));
     }
   };
 
@@ -322,14 +329,14 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     const snippet = buildContextSnippet(preview?.path, selection);
     usePersonalStore.getState().sendToTerminal(wrapBracketedPaste(snippet));
     setSelAnchor(null);
-    onToast("已发送到终端,补一句要求再回车");
+    onToast(t("sentToTerminal"));
   };
 
   const sendSelectionToChat = () => {
     if (!selection) return;
     usePersonalStore.getState().insertToComposer(buildContextSnippet(preview?.path, selection));
     setSelAnchor(null);
-    onToast("已插入会话输入框");
+    onToast(t("insertedToComposer"));
   };
 
   // ---- 文件行右键菜单 ----
@@ -338,40 +345,40 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     setCtxMenu({ x: e.clientX, y: e.clientY, path, name });
   };
 
-  const ctxOpen = (t: FileCtxTarget) => {
-    void bridge?.openPath?.(t.path).catch((err: unknown) => onToast(`打开失败：${err instanceof Error ? err.message : String(err)}`));
+  const ctxOpen = (target: FileCtxTarget) => {
+    void bridge?.openPath?.(target.path).catch((err: unknown) => onToast(t("openFailed", { error: err instanceof Error ? err.message : String(err) })));
   };
 
-  const ctxInsertChat = (t: FileCtxTarget) => {
-    usePersonalStore.getState().insertToComposer("`" + toTildePath(t.path) + "` ");
-    onToast("路径已插入会话输入框");
+  const ctxInsertChat = (target: FileCtxTarget) => {
+    usePersonalStore.getState().insertToComposer("`" + toTildePath(target.path) + "` ");
+    onToast(t("pathInsertedToComposer"));
   };
 
-  const ctxInsertTerminal = (t: FileCtxTarget) => {
-    usePersonalStore.getState().sendToTerminal(wrapBracketedPaste(shellQuotePath(t.path)));
-    onToast("路径已插入终端");
+  const ctxInsertTerminal = (target: FileCtxTarget) => {
+    usePersonalStore.getState().sendToTerminal(wrapBracketedPaste(shellQuotePath(target.path)));
+    onToast(t("pathInsertedToTerminal"));
   };
 
-  const ctxDelete = async (t: FileCtxTarget) => {
+  const ctxDelete = async (target: FileCtxTarget) => {
     if (!bridge) return;
     try {
-      await bridge.deleteFile(t.path);
-      if (preview?.path === t.path) closePreview();
-      onToast(`已删除 ${t.name}`);
+      await bridge.deleteFile(target.path);
+      if (preview?.path === target.path) closePreview();
+      onToast(t("deleted", { name: target.name }));
       void refresh();
     } catch (err) {
-      onToast(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+      onToast(t("deleteFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
-  if (!project) return <div className="pw-panel-empty">先在左侧选择一个项目</div>;
+  if (!project) return <div className="pw-panel-empty">{t("selectProject")}</div>;
 
   if (preview) {
     const canEdit = !preview.isDiff && !preview.binary && !preview.truncated && !!preview.path;
     return (
       <div className="pw-rp-view is-fileopen">
         <div className="pw-editor-h pw-file-toolbar">
-          <button className="pw-icon-btn" title="返回文件列表" onClick={closePreview}>
+          <button className="pw-icon-btn" title={t("toolbar.backToList")} onClick={closePreview}>
             <Icon.Back size={14} />
           </button>
           <TreeRowIcon name={preview.name} />
@@ -380,60 +387,60 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
             {dirty ? <span className="pw-dirty">●</span> : null}
           </span>
           <div className="spacer" />
-          {preview.isDiff ? <span className="pw-readonly">diff</span> : null}
-          {preview.truncated ? <span className="pw-readonly">已截断 · 只读</span> : null}
+          {preview.isDiff ? <span className="pw-readonly">{t("toolbar.diff")}</span> : null}
+          {preview.truncated ? <span className="pw-readonly">{t("toolbar.truncatedReadonly")}</span> : null}
           {editMode ? (
             <>
-              <button className="pw-ftb-btn is-primary" title="保存 (⌘S)" onClick={() => void save()} disabled={!dirty}>
+              <button className="pw-ftb-btn is-primary" title={t("toolbar.saveTitle")} onClick={() => void save()} disabled={!dirty}>
                 <Icon.Check size={12} />
-                保存
+                {t("toolbar.save")}
               </button>
-              <button className="pw-ftb-btn" title="保存并回到预览" onClick={() => void finishEdit()}>
-                完成
+              <button className="pw-ftb-btn" title={t("toolbar.finishTitle")} onClick={() => void finishEdit()}>
+                {t("toolbar.finish")}
               </button>
             </>
           ) : (
             <>
               {canEdit ? (
-                <button className="pw-ftb-btn" title="编辑文件" onClick={() => setEditMode(true)}>
+                <button className="pw-ftb-btn" title={t("toolbar.editTitle")} onClick={() => setEditMode(true)}>
                   <Icon.Edit size={12} />
-                  编辑
+                  {t("toolbar.edit")}
                 </button>
               ) : null}
               {!preview.binary ? (
                 <button
                   className="pw-ftb-btn"
-                  title="复制文件内容"
-                  onClick={() => void copyText(dirty ? draftRef.current : preview.content, "内容")}
+                  title={t("toolbar.copyContentTitle")}
+                  onClick={() => void copyText(dirty ? draftRef.current : preview.content, t("content"))}
                 >
-                  内容
+                  {t("content")}
                 </button>
               ) : null}
               {preview.path ? (
-                <button className="pw-ftb-btn" title="复制文件路径" onClick={() => void copyText(preview.path!, "路径")}>
-                  路径
+                <button className="pw-ftb-btn" title={t("toolbar.copyPathTitle")} onClick={() => void copyText(preview.path!, t("path"))}>
+                  {t("path")}
                 </button>
               ) : null}
               {preview.path && bridge?.openPath ? (
                 <button
                   className="pw-ftb-btn"
-                  title="用系统默认应用打开"
-                  onClick={() => void bridge.openPath!(preview.path!).catch((e: unknown) => onToast(`打开失败：${e instanceof Error ? e.message : String(e)}`))}
+                  title={t("toolbar.openTitle")}
+                  onClick={() => void bridge.openPath!(preview.path!).catch((e: unknown) => onToast(t("openFailed", { error: e instanceof Error ? e.message : String(e) })))}
                 >
-                  打开
+                  {t("toolbar.open")}
                 </button>
               ) : null}
               {preview.path && bridge?.revealInFolder ? (
                 <button
                   className="pw-ftb-btn"
-                  title="在访达中显示"
-                  onClick={() => void bridge.revealInFolder!(preview.path!).catch(() => onToast("无法在访达中显示"))}
+                  title={t("toolbar.revealTitle")}
+                  onClick={() => void bridge.revealInFolder!(preview.path!).catch(() => onToast(t("revealFailed")))}
                 >
-                  访达
+                  {t("toolbar.reveal")}
                 </button>
               ) : null}
               {preview.path && !preview.isDiff && !preview.binary ? (
-                <button className="pw-icon-btn" title="重新加载" onClick={() => void openFile(preview.path!, preview.name)}>
+                <button className="pw-icon-btn" title={t("toolbar.reload")} onClick={() => void openFile(preview.path!, preview.name)}>
                   <Icon.Workflow size={13} />
                 </button>
               ) : null}
@@ -445,7 +452,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
         ) : preview.binary ? (
           <div className="pw-panel-empty">
             <FileIcon name={preview.name} size={40} />
-            <span>二进制文件,不支持文本预览</span>
+            <span>{t("binaryNotice")}</span>
           </div>
         ) : isMarkdownName(preview.name) && !editMode ? (
           // .md 预览:与 tasks 文档同款渲染（点「编辑」切回 Monaco 源码编辑）。
@@ -481,11 +488,11 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
               >
                 <button className="pw-ftb-btn" onClick={sendSelectionToTerminal}>
                   <Icon.Terminal size={12} />
-                  发送到终端
+                  {t("sendToTerminalBtn")}
                 </button>
                 <button className="pw-ftb-btn" onClick={sendSelectionToChat}>
                   <Icon.Send size={12} />
-                  发送到 Chat
+                  {t("sendToChatBtn")}
                 </button>
               </div>
             ) : null}
@@ -506,14 +513,14 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
       <div className="pw-panel-h">
         <div className="pw-rp-seg">
           <button className={mode === "all" ? "is-active" : ""} onClick={() => setMode("all")}>
-            全部文件
+            {t("segAll")}
           </button>
           <button className={mode === "changes" ? "is-active" : ""} onClick={() => setMode("changes")}>
-            最近变更
+            {t("segChanges")}
           </button>
         </div>
         <div className="spacer" />
-        <button className="pw-icon-btn" title="刷新" onClick={() => void refresh()}>
+        <button className="pw-icon-btn" title={t("refresh")} onClick={() => void refresh()}>
           <Icon.Workflow size={13} />
         </button>
       </div>
@@ -523,13 +530,13 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter files… (?text to search contents)"
+            placeholder={t("searchPlaceholder")}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
           />
           {query ? (
-            <button className="pw-rp-search-clear" title="清空" onClick={() => setQuery("")}>
+            <button className="pw-rp-search-clear" title={t("clear")} onClick={() => setQuery("")}>
               <Icon.X size={12} />
             </button>
           ) : null}
@@ -538,11 +545,11 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
       {mode === "all" ? (
         isContentMode ? (
           !contentKeyword ? (
-            <div className="pw-empty-hint">输入要搜索的内容…</div>
+            <div className="pw-empty-hint">{t("searchContentHint")}</div>
           ) : searching && !contentResult ? (
-            <div className="pw-panel-empty">搜索中…</div>
+            <div className="pw-panel-empty">{t("searching")}</div>
           ) : !contentResult || contentResult.files.length === 0 ? (
-            <div className="pw-empty-hint">没有匹配「{contentKeyword}」的内容</div>
+            <div className="pw-empty-hint">{t("noContentMatch", { keyword: contentKeyword })}</div>
           ) : (
             <div className="pw-tree pw-search-results">
               {contentResult.files.map((f) => (
@@ -565,11 +572,11 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                   ))}
                 </button>
               ))}
-              {contentResult.truncated ? <div className="pw-empty-hint">结果较多，仅显示部分</div> : null}
+              {contentResult.truncated ? <div className="pw-empty-hint">{t("resultsTruncated")}</div> : null}
             </div>
           )
         ) : !tree ? (
-          <div className="pw-panel-empty">加载中…</div>
+          <div className="pw-panel-empty">{t("loading")}</div>
         ) : (
           <div className="pw-tree">
             <div className="pw-tree-root" title={project.path}>
@@ -587,17 +594,17 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                 />
               ))
             ) : (
-              <div className="pw-empty-hint">{nameFilter ? "没有匹配的文件" : "空目录"}</div>
+              <div className="pw-empty-hint">{nameFilter ? t("noMatchingFiles") : t("emptyDir")}</div>
             )}
           </div>
         )
       ) : !changes ? (
-        <div className="pw-panel-empty">加载中…</div>
+        <div className="pw-panel-empty">{t("loading")}</div>
       ) : (
         <div className="pw-tree">
-          {!changes.isRepo ? <div className="pw-empty-hint">非 git 仓库 · 按修改时间显示</div> : null}
+          {!changes.isRepo ? <div className="pw-empty-hint">{t("notGitRepo")}</div> : null}
           {changes.files.length === 0 ? (
-            <div className="pw-empty-hint">没有未提交的变更</div>
+            <div className="pw-empty-hint">{t("noUncommitted")}</div>
           ) : (
             changes.files.map((f) => (
               <button
