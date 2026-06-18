@@ -6,8 +6,6 @@ import type {
   AgentKind,
   AgentSessionRequest,
   AgentProjectInfo,
-  AgentUsage,
-  DailyUsage,
   AsrTranscribeRequest,
   AsrTranscribeResponse,
   AutomationInput,
@@ -203,10 +201,6 @@ export interface DesktopBridge {
   ptyKill(id: string): void;
   // shell 当前真实目录（跟随 cd）,不可用时返回 null
   ptyCwd(id: string): Promise<string | null>;
-  // Agent 用量统计（Claude/Codex 本地会话日志 + Claude 官方限额接口）
-  agentUsage(): Promise<AgentUsage>;
-  // 按天 token 用量序列（落地页用量日历 token 模式；Claude Code 本地日志按天聚合）。可选（旧壳/web 端没有）。
-  dailyUsage?(weeks?: number): Promise<DailyUsage>;
   // 扫描本机 agent 会话日志,聚合系统上所有 agent 项目（首页「Agent 项目」）
   scanAgentProjects(): Promise<AgentProjectInfo[]>;
   onPtyData(cb: (id: string, data: string) => void): () => void;

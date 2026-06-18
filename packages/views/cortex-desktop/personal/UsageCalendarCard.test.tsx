@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, dayKey } from "@cortex-work/core";
 import type { DayGroup, DesktopBridge } from "@cortex-work/core";
@@ -26,7 +26,7 @@ function renderCard(opts: { groups?: DayGroup[]; bridge?: DesktopBridge; onPick?
   return { ...utils, onPick };
 }
 
-// 默认折叠：先点展开按钮，露出 tab 头部与网格，便于后续断言。
+// 默认折叠：先点展开按钮，露出头部与网格，便于后续断言。
 function expand() {
   fireEvent.click(screen.getByLabelText("展开用量日历"));
 }
@@ -48,28 +48,18 @@ describe("UsageCalendarCard", () => {
     expect(screen.getByLabelText("展开用量日历")).toBeTruthy();
   });
 
-  it("切到 token 模式时改用 useDailyUsage 数据源并按 token 上色", async () => {
-    const dailyUsage = vi.fn().mockResolvedValue({
-      at: Date.now(),
-      days: [{ day: TODAY, tokens: 300_000, msgs: 5 }],
-    });
-    const { container } = renderCard({ groups: [], bridge: bridge({ dailyUsage }) });
+  it("有活动时按活动计数上色", () => {
+    const { container } = renderCard();
     expand();
-    fireEvent.click(screen.getByRole("tab", { name: "token 用量" }));
-    await waitFor(() => expect(dailyUsage).toHaveBeenCalled());
-    await waitFor(() => {
-      const cell = container.querySelector(`.pw-hm-cell[data-today="true"]`);
-      // 300k tokens → tokenHeatLevel 档位 3
-      expect(cell?.getAttribute("data-heat")).toBe("3");
-    });
+    const cell = container.querySelector(`.pw-hm-cell[data-today="true"]`);
+    // 4 轮交互 + 1 新会话 → homeHeatLevel 非 0
+    expect(Number(cell?.getAttribute("data-heat"))).toBeGreaterThan(0);
   });
 
-  it("token 模式无数据 → warmup 空态", async () => {
-    const dailyUsage = vi.fn().mockResolvedValue({ at: Date.now(), days: [] });
-    renderCard({ groups: [], bridge: bridge({ dailyUsage }) });
+  it("无活动 → warmup 空态", () => {
+    renderCard({ groups: [] });
     expand();
-    fireEvent.click(screen.getByRole("tab", { name: "token 用量" }));
-    expect(await screen.findByText("还没有记录到用量")).toBeTruthy();
+    expect(screen.getByText("还没有记录到活动")).toBeTruthy();
     expect(screen.getByText("智能体用量")).toBeTruthy();
   });
 
@@ -80,28 +70,5 @@ describe("UsageCalendarCard", () => {
     const cell = container.querySelector(`.pw-hm-cell[data-today="true"]`) as HTMLButtonElement;
     fireEvent.click(cell);
     expect(onPick).toHaveBeenCalledWith(TODAY);
-  });
-
-  it("token 模式点刷新触发重新拉取", async () => {
-    const dailyUsage = vi.fn().mockResolvedValue({
-      at: Date.now(),
-      days: [{ day: TODAY, tokens: 1000, msgs: 1 }],
-    });
-    renderCard({ groups: [], bridge: bridge({ dailyUsage }) });
-    expand();
-    fireEvent.click(screen.getByRole("tab", { name: "token 用量" }));
-    await waitFor(() => expect(dailyUsage).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByText("刷新"));
-    await waitFor(() => expect(dailyUsage).toHaveBeenCalledTimes(2));
-  });
-
-  it("折叠再展开保留 token 模式", () => {
-    renderCard({ bridge: bridge({ dailyUsage: vi.fn().mockResolvedValue({ at: 0, days: [] }) }) });
-    expand();
-    fireEvent.click(screen.getByRole("tab", { name: "token 用量" }));
-    fireEvent.click(screen.getByLabelText("折叠用量日历"));
-    expand();
-    // 重新展开后仍是 token 模式：该 tab 处于 active 态
-    expect(screen.getByRole("tab", { name: "token 用量" }).getAttribute("data-active")).toBe("true");
   });
 });

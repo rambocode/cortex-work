@@ -12,7 +12,6 @@ import { registerPushHandlers } from "./push";
 import { registerLlmHandlers } from "./llm";
 import { registerProviderHandlers } from "./provider";
 import { registerPtyHandlers } from "./pty";
-import { registerUsageHandlers } from "./usage";
 import { registerAgentProjectsHandlers } from "./agent-projects";
 import { registerWatchHandlers } from "./watch";
 import { registerUpdateHandlers } from "./update";
@@ -33,7 +32,6 @@ export function registerIpcHandlers(): void {
   registerLlmHandlers();
   registerProviderHandlers();
   registerPtyHandlers();
-  registerUsageHandlers();
   registerAgentProjectsHandlers();
   registerUpdateHandlers();
   registerEditorHandlers();

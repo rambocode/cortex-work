@@ -68,8 +68,7 @@ export interface HeatCell {
   day: string; // YYYY-MM-DD
   date: number; // 几号
   inFuture: boolean; // 晚于今天（无活动,渲染为占位）
-  stats?: DayStats; // 活动模式：当天聚合统计
-  tokens?: number; // token 模式：当天 token 总量（见 personal/usage-calendar.ts buildTokenWeeks）
+  stats?: DayStats; // 当天聚合统计
 }
 
 export interface HeatWeek {

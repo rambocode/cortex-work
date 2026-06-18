@@ -81,12 +81,7 @@ export {
   type AskQuestionOption,
   type AskQuestionAnswers,
   type AskQuestionAnswer,
-  type AgentUsage,
-  type DailyUsage,
-  type DailyUsagePoint,
   type AgentProjectInfo,
-  type UsageBucket,
-  type UsageWindow,
   type ChangedFile,
   type GitChangesResult,
   type ContentMatchLine,
@@ -307,7 +302,6 @@ export {
   type HomeProjectRow,
   type HomeTaskRow,
 } from "./personal/home";
-export { useDailyUsage, tokenHeatLevel, buildTokenWeeks } from "./personal/usage-calendar";
 export {
   ARCHIVE_GRANULARITIES,
   groupTaskFiles,

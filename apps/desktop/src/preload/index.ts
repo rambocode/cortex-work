@@ -3,8 +3,6 @@ import type {
   AgentKind,
   AgentSessionRequest,
   AgentProjectInfo,
-  AgentUsage,
-  DailyUsage,
   AsrTranscribeRequest,
   AsrTranscribeResponse,
   AutomationInput,
@@ -240,8 +238,6 @@ const personal = {
   ptyResize: (id: string, cols: number, rows: number): void => ipcRenderer.send("pty:resize", { id, cols, rows }),
   ptyKill: (id: string): void => ipcRenderer.send("pty:kill", { id }),
   ptyCwd: (id: string): Promise<string | null> => ipcRenderer.invoke("pty:cwd", { id }),
-  agentUsage: (): Promise<AgentUsage> => ipcRenderer.invoke("usage:agent"),
-  dailyUsage: (weeks?: number): Promise<DailyUsage> => ipcRenderer.invoke("usage:daily", weeks),
   scanAgentProjects: (): Promise<AgentProjectInfo[]> => ipcRenderer.invoke("agents:scanProjects"),
   onPtyData: (cb: (id: string, data: string) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, payload: { id: string; data: string }) => cb(payload.id, payload.data);

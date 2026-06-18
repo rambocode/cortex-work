@@ -16,7 +16,6 @@ import {
 } from "@cortex-work/core";
 import type { EditorInfo, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import { WorkspaceTabs } from "./WorkspaceTabs";
-import { UsagePanel } from "./UsagePanel";
 import { SettingsMenu } from "./SettingsMenu";
 import { ProjectMenu } from "./ProjectMenu";
 
@@ -366,7 +365,6 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
           </div>
         ) : null}
       </div>
-      <UsagePanel />
       <SettingsMenu />
     </aside>
   );

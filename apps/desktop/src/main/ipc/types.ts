@@ -233,50 +233,6 @@ export interface TrimSessionRequest {
   occurrence: number;
 }
 
-export interface UsageBucket {
-  total: number;
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheCreate: number;
-  msgs: number;
-}
-
-export interface UsageWindow {
-  usedPercent: number;
-  resetsAt: number;
-  windowMinutes?: number;
-  stale?: boolean;
-}
-
-export interface AgentUsage {
-  at: number;
-  claude: {
-    last5h: UsageBucket;
-    today: UsageBucket;
-    week: UsageBucket;
-    official: { fiveHour: UsageWindow | null; sevenDay: UsageWindow | null } | null;
-  } | null;
-  codex: {
-    planType: string;
-    capturedAt: number;
-    primary: UsageWindow | null;
-    secondary: UsageWindow | null;
-  } | null;
-}
-
-// 按天 token 用量（usage:daily，落地页用量日历 token 模式；与 core/desktop/types.ts 镜像）。
-export interface DailyUsagePoint {
-  day: string; // YYYY-MM-DD（本地时区，与 core/personal/timeline.ts 的 dayKey 同语义）
-  tokens: number; // 当天 in+output+cacheCreate+cacheRead 之和
-  msgs: number; // 当天计入的 assistant 消息数
-}
-
-export interface DailyUsage {
-  at: number;
-  days: DailyUsagePoint[]; // 按 day 升序；无活动的天省略（前端补零）
-}
-
 // 系统扫描发现的 agent 项目（来自 ~/.claude/projects 与 ~/.codex/sessions 的会话日志）。
 export interface AgentProjectInfo {
   path: string; // 项目真实绝对路径（从会话日志 cwd 反解）
