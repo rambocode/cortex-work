@@ -349,7 +349,7 @@ export function PersonalChatArea({
         </div>
         <div className="ch-meta pw-head-meta">
           <div className="ch-name">
-            {session.title}
+            <span className="ch-title-text">{session.title}</span>
             <span className="agent-tag">{AGENT_LABEL[session.agent]}</span>
           </div>
           <div className="ch-status">
