@@ -1,15 +1,15 @@
 {
-  "save": "保存",
   "cancel": "取消",
   "close": "关闭",
   "confirm": "确认",
   "delete": "删除",
   "edit": "编辑",
-  "loading": "加载中…",
   "language": {
-    "label": "语言",
     "desc": "切换界面显示语言。",
-    "zh-Hans": "中文",
-    "en": "English"
-  }
+    "en": "English",
+    "label": "语言",
+    "zh-Hans": "中文"
+  },
+  "loading": "加载中…",
+  "save": "保存"
 }

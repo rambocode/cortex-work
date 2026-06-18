@@ -15,7 +15,7 @@ import { i18nInitOptions } from "./config";
 import type { Locale } from "./locales";
 
 // 初始化就绪 Promise —— 测试 / 需要等待资源的消费方可 await。
-// common 已同步打入 resources,故 t('common.*') 在 init resolve 后即可用。
+// common 命名空间已同步打入 resources,init resolve 后其 key 即可用。
 export const i18nReady: Promise<unknown> = i18next.isInitialized
   ? Promise.resolve()
   : i18next

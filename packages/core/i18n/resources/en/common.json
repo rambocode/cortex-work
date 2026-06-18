@@ -1,14 +1,14 @@
 {
-  "save": "Save",
   "cancel": "Cancel",
   "confirm": "Confirm",
   "delete": "Delete",
   "edit": "Edit",
-  "loading": "Loading…",
   "language": {
-    "label": "Language",
     "desc": "Switch the interface display language.",
-    "zh-Hans": "中文",
-    "en": "English"
-  }
+    "en": "English",
+    "label": "Language",
+    "zh-Hans": "中文"
+  },
+  "loading": "Loading…",
+  "save": "Save"
 }
