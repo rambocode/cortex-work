@@ -52,6 +52,13 @@ export const personalChatKeys = {
   detail: (sessionId: string) => ["personal", "convo", sessionId] as const,
 };
 
+// 瞬态「执行过程流」query key:tool→agentLog 折叠与 reasoning 思考流落在这条独立通道,
+// 与持久消息流 personalChatKeys.detail 分离,**永不落盘**（无 saveChat 通道）。命名空间仿
+// personalChatKeys,按 sessionId 隔离。
+export const personalProcessKeys = {
+  detail: (sessionId: string) => ["personal", "process", sessionId] as const,
+};
+
 export interface PromptAttachment {
   id: string;
   name: string;
@@ -121,7 +128,12 @@ interface RunState {
   sessionId: string;
   agent: AgentKind; // 消息 who
   typingUid: string;
-  cursor: FoldCursor; // 流式块折叠游标（按到达顺序交替分块，取代单例 textUid/logUid）
+  // 持久消息流（personalChatKeys.detail）的文本折叠游标。lastKind 仍跟踪「整体到达顺序」
+  // （text/tool 交替），用于判定「text 到达且上块是 tool」时对过程流收尾 agentLog。
+  // logUid 已迁出到 processCursor —— 单游标不再隐式承载两条流（KTD6）。
+  cursor: FoldCursor;
+  // 瞬态过程流（personalProcessKeys.detail）的 agentLog 折叠游标:只持当前打开的 agentLog 块。
+  processCursor: ProcessCursor;
   sawText: boolean; // 本轮是否产出过文本（result 文本兜底判断）
   buffer: string;
   gotResult: boolean;
@@ -155,6 +167,11 @@ const piSendStarting = new Set<string>();
 export const RUN_START_TIMEOUT_MS = 90_000;
 export const RUN_STALL_TIMEOUT_MS = 300_000;
 export const RESULT_EXIT_GRACE_MS = 1_000;
+
+// 纯工具轮（本轮成功收尾但 agent 始终无任何文本输出）在中栏补的终态占位,
+// 避免「问了没回」的观感（R3/KTD5/C1）。过程流里的工具步骤照常落右侧过程区,
+// 中栏只补这一条结果文本。CLI 与 pi 两条分支各自判定后共用此文案。
+export const PURE_TOOL_TURN_PLACEHOLDER = "✓ 已完成本轮操作。";
 
 const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
@@ -268,29 +285,76 @@ export function windowTailMessages(
   return { rendered: start > 0 ? source.slice(start) : source, collapsedEarlier: start };
 }
 
+// 落盘会被 sanitizeForSave 丢弃的瞬态/过程消息（typing/reasoning/agentLog）——隐藏游标的 count
+// 必须以「落盘后存活」的消息为基准计数,否则下次加载（agentLog 已剥离、数组变短）后按旧 count
+// 切分会偏移可见/隐藏边界（R11 的 count 兜底路径）。
+function survivesSanitize(m: Message): boolean {
+  return m.kind !== "typing" && m.kind !== "reasoning" && m.kind !== "agentLog";
+}
+
 export function createHiddenHistory(messages: Message[], now = Date.now()): HiddenHistoryMeta {
   const last = messages[messages.length - 1];
-  const hiddenHistory: HiddenHistoryMeta = { count: messages.length, hiddenAt: now };
+  // count 以「落盘后存活」的消息计:与重启后从磁盘加载的（已剥离 agentLog/reasoning）数组同空间,
+  // 保证 throughUid 失配时 count 兜底切分仍落在用户语义一致的边界。
+  const count = messages.reduce((n, m) => (survivesSanitize(m) ? n + 1 : n), 0);
+  const hiddenHistory: HiddenHistoryMeta = { count, hiddenAt: now };
   if (last?.uid) hiddenHistory.throughUid = last.uid;
   return hiddenHistory;
+}
+
+// 旧档迁移:把「记录于剥离前数组空间」的 hiddenHistory.count 回算到「剥离后数组空间」,
+// 保证清洗掉 agentLog 后按 count 兜底切分的隐藏/可见边界对用户语义不变（R11，count 兜底路径）。
+// 仅在缺 throughUid（throughUid 命中路径本就位置无关、无损）时需要;throughUid 在则原样返回。
+export function adjustHiddenHistoryForSanitize(
+  original: Message[],
+  hiddenHistory?: HiddenHistoryMeta,
+): HiddenHistoryMeta | undefined {
+  if (!hiddenHistory) return hiddenHistory;
+  if (hiddenHistory.throughUid && original.some((m) => m.uid === hiddenHistory.throughUid)) {
+    return hiddenHistory; // throughUid 命中:位置无关,无需回算。
+  }
+  // count 落在剥离前数组的 [0, count) 区间;回算为该区间内「落盘后存活」的条数。
+  const boundary = clampIndex(hiddenHistory.count, original.length);
+  let adjusted = 0;
+  for (let i = 0; i < boundary; i++) {
+    if (survivesSanitize(original[i]!)) adjusted += 1;
+  }
+  return { ...hiddenHistory, count: adjusted };
+}
+
+// 加载某会话原始（未剥离）历史时,若其 hiddenHistory.count 因 agentLog 剥离会偏移则回算并写回 store。
+// 幂等:throughUid 命中、或原数组本就无可剥离条目时,adjusted === 原 count,不触发 updateSession。
+function maybeMigrateHiddenHistory(sessionId: string, original: Message[]): void {
+  const store = usePersonalStore.getState();
+  const session = store.sessions.find((x) => x.id === sessionId);
+  const hh = session?.hiddenHistory;
+  if (!hh) return;
+  const adjusted = adjustHiddenHistoryForSanitize(original, hh);
+  if (adjusted && adjusted.count !== hh.count) {
+    store.updateSession(sessionId, { hiddenHistory: adjusted });
+  }
 }
 
 // ── 消息持久化（节流落盘） ────────────────────────────────────────────────
 const SAVE_THROTTLE_MS = 600;
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// 过程流延迟清理 timer 句柄:**独立于 RunState**（finalizeRun 已 runs.delete,挂 run 上则清理出口
+// 无从 clearTimeout，KTD4/KTD8）。仿 saveTimers 的独立 Map 范式。当前实现里 finalizeRun 成功路径
+// 选择「保留至切走/下一轮」而非倒计时销毁,故默认不排 timer;但保留此 Map + clearTimeout 出口,
+// 杜绝「会话已删、游离 timer 触发把数据写回已删会话 process key」的复活（任一立即清空出口先
+// clearTimeout 再清 process key）。
+const processCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 // 落盘前清理瞬态:
 //  - typing 丢弃(瞬态占位);
 //  - reasoning 丢弃——模型思考只显示本次,不作为长期记录(也避免 pi 长思考流撑大 chat JSON);
-//  - 运行中的 agentLog 标记完成(重启后不会有悬挂展开态)。
-// 加载历史时同样过此函数,故旧数据里遗留的 reasoning 会被顺带清掉。
+//  - agentLog 丢弃——agent 中间执行过程（工具步骤）改走右侧瞬态过程流、**永不落盘**;此过滤
+//    既保证新会话过程不入档,也作为「破坏性旧档迁移」:旧档被加载后任意一次 flushChat 即把
+//    chat JSON 原地重写为不含 agentLog 的版本（无 .bak、不可逆，KTD2）。
+// 加载历史时同样过此函数,故旧数据里遗留的 reasoning/agentLog 会被顺带清掉。
 export function sanitizeForSave(messages: Message[]): Message[] {
-  return messages
-    .filter((m) => m.kind !== "typing" && m.kind !== "reasoning")
-    .map((m) => {
-      if (m.kind === "agentLog" && m.active) return { ...m, active: false, completed: true };
-      return m;
-    });
+  return messages.filter((m) => m.kind !== "typing" && m.kind !== "reasoning" && m.kind !== "agentLog");
 }
 
 function flushChat(qc: QueryClient, sessionId: string): void {
@@ -316,6 +380,50 @@ function scheduleChatSave(qc: QueryClient, sessionId: string): void {
 function setMessages(qc: QueryClient, sessionId: string, updater: (prev: Message[]) => Message[]): void {
   qc.setQueryData<Message[]>(personalChatKeys.detail(sessionId), (prev) => updater(prev ?? []));
   scheduleChatSave(qc, sessionId);
+}
+
+// 免落盘 setter:只写瞬态过程流 query key,**绝不**调 scheduleChatSave/任何 bridge.save*。
+// 过程流（tool→agentLog、reasoning）经此落地,与硬绑 personalChatKeys.detail + scheduleChatSave
+// 的 setMessages 彻底分离——这是「过程永不落盘」的结构保证（KTD1/R10）。
+function setProcessMessages(qc: QueryClient, sessionId: string, updater: (prev: Message[]) => Message[]): void {
+  qc.setQueryData<Message[]>(personalProcessKeys.detail(sessionId), (prev) => updater(prev ?? []));
+}
+
+// 立即清空某会话的过程流（异常终态/会话删除/editResend 截断出口用，KTD8）。先取消该 session 任何
+// 游离的延迟清理 timer（杜绝 timer 复活已删/已清会话的 process key），再整条移除 process query
+// （removeQueries 而非写空数组:彻底回收,不留 inactive 空缓存;活跃 observer 会读回 EMPTY_MESSAGES）。
+function clearProcess(qc: QueryClient, sessionId: string): void {
+  const timer = processCleanupTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    processCleanupTimers.delete(sessionId);
+  }
+  qc.removeQueries({ queryKey: personalProcessKeys.detail(sessionId), exact: true });
+}
+
+// finalizeRun 成功路径:把过程流里仍 active 的 agentLog/reasoning 收尾打勾（completed），**保留不清**。
+// 大多数情况收尾已在 result/turn-end 分支由 finalizeProcessAgentLog/finalizeRunReasoning 完成,
+// 此处兜底任何残留 active 块（如无 result 直接 exit 收尾的恢复型 run），使收起入口里步骤呈完成态。
+function finalizeProcessForRetain(qc: QueryClient, sessionId: string): void {
+  const prev = qc.getQueryData<Message[]>(personalProcessKeys.detail(sessionId));
+  if (!prev || prev.length === 0) return; // 无过程（纯文本轮）→ 不创建空缓存。
+  setProcessMessages(qc, sessionId, (cur) =>
+    cur.map((m) => {
+      if (m.kind === "agentLog" && m.active) {
+        return {
+          ...m,
+          active: false,
+          completed: true,
+          title: "Agent 执行完成",
+          items: m.items.map((it) => (it.ic === "running" ? { ...it, ic: "check" as const } : it)),
+        };
+      }
+      if (m.kind === "reasoning" && m.active) {
+        return { ...m, active: false, completed: true };
+      }
+      return m;
+    }),
+  );
 }
 
 function appendMsg(qc: QueryClient, sessionId: string, msg: Message): void {
@@ -364,6 +472,15 @@ export function emptyFoldCursor(): FoldCursor {
   return { segmentText: "" };
 }
 
+// 过程流（agentLog）折叠游标。只持当前打开的 agentLog 块。复用 FoldCursor 的 tool 分支折叠语义:
+// lastKind 在过程流里只会是 "tool"（text 不入过程流）;logUid 指向当前打开的 agentLog。
+// text 到达跨流收尾后由调用方重置为空（lastKind/logUid 清空），下一个 tool 开新卡片。
+export type ProcessCursor = FoldCursor;
+
+export function emptyProcessCursor(): ProcessCursor {
+  return { segmentText: "" };
+}
+
 // 收尾一个 agentLog 块:全部 items 翻 check 并标记完成（停 spinner）。
 export function finalizeAgentLog(messages: Message[], logUid: string): Message[] {
   return messages.map((m) =>
@@ -404,12 +521,13 @@ export function foldCliEvent(
       );
       return { messages: next, cursor: { ...cursor, segmentText } };
     }
-    // 异类切换:收尾上一个打开的 agentLog（若有）,开新 text 块。
-    const base = cursor.lastKind === "tool" && cursor.logUid ? finalizeAgentLog(messages, cursor.logUid) : messages;
+    // 异类切换:开新 text 块。**不在此处收尾 agentLog**——B1 下 agentLog 在独立的过程流数组里,
+    // 这里的 messages 不含该 logUid,旧的同数组收尾会成为静默 no-op（KTD6）。跨流收尾由调用方
+    // （handleCliEvent/handlePiEvent）对 process key 单独执行。
     const textUid = ctx.newUid("at");
     const textMsg: Message = { kind: "text", who: ctx.agent, time: ctx.time, text: ev.delta, uid: textUid };
     return {
-      messages: [...base, textMsg],
+      messages: [...messages, textMsg],
       cursor: { lastKind: "text", textUid, logUid: undefined, segmentText: ev.delta },
     };
   }
@@ -451,15 +569,45 @@ export function foldCliEvent(
   return { messages, cursor };
 }
 
-// 把一个 text/tool 事件折叠进消息缓存,并回写 run 的折叠游标。
-function foldIntoCache(qc: QueryClient, sessionId: string, run: RunState, ev: CliStreamEvent): void {
+// 把一个 text 事件折叠进**持久消息流**,并回写 run.cursor。tool 不再走这条（改走过程流）。
+// run.cursor.lastKind 仍跟踪整体到达顺序:tool 事件会把它翻到 "tool"（见 markCursorTool）,
+// 故下一个 text 在 foldCliEvent 里被判为异类切换、开新文本块（语义与原交错折叠一致）。
+function foldTextIntoCache(qc: QueryClient, sessionId: string, run: RunState, delta: string): void {
   let nextCursor = run.cursor;
   setMessages(qc, sessionId, (prev) => {
-    const folded = foldCliEvent(prev, ev, run.cursor, { agent: run.agent, time: realHHMM(), newUid: uid });
+    const folded = foldCliEvent(prev, { type: "text", delta }, run.cursor, {
+      agent: run.agent,
+      time: realHHMM(),
+      newUid: uid,
+    });
     nextCursor = folded.cursor;
     return folded.messages;
   });
   run.cursor = nextCursor;
+}
+
+// 把一个 tool 事件折叠进**瞬态过程流**（agentLog 卡片）,回写 run.processCursor。复用 foldCliEvent
+// 的 tool 折叠分支（连续 tool 并入同卡、起手开新卡）。同时把消息流游标翻到 "tool",保证下一个
+// text 在持久流里开新块。
+function foldToolIntoProcess(qc: QueryClient, sessionId: string, run: RunState, ev: CliStreamEvent): void {
+  let nextCursor = run.processCursor;
+  setProcessMessages(qc, sessionId, (prev) => {
+    const folded = foldCliEvent(prev, ev, run.processCursor, { agent: run.agent, time: realHHMM(), newUid: uid });
+    nextCursor = folded.cursor;
+    return folded.messages;
+  });
+  run.processCursor = nextCursor;
+  // 持久流游标:工具打断文本——下一个 text 开新块（textUid 清空、lastKind 翻 tool）。
+  run.cursor = { ...run.cursor, lastKind: "tool", textUid: undefined, segmentText: "" };
+}
+
+// 跨流收尾:text 到达且过程流当前有打开的 agentLog 时,对 **process key** 收尾该卡片并清 logUid
+//（KTD6——纯函数只做同流折叠,跨流收尾在调用方）。返回是否执行了收尾。
+function finalizeProcessAgentLog(qc: QueryClient, sessionId: string, run: RunState): void {
+  if (run.processCursor.lastKind !== "tool" || !run.processCursor.logUid) return;
+  const logUid = run.processCursor.logUid;
+  setProcessMessages(qc, sessionId, (prev) => finalizeAgentLog(prev, logUid));
+  run.processCursor = emptyProcessCursor();
 }
 
 function clearStoredAgentSessionId(sessionId: string, agent: AgentKind): void {
@@ -480,6 +628,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       agent: sess?.agent ?? "claude",
       typingUid: "recovered-no-typing",
       cursor: emptyFoldCursor(),
+      processCursor: emptyProcessCursor(),
       sawText: false,
       buffer: "",
       gotResult: false,
@@ -507,7 +656,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 时间线：写类工具的 file_path 记为变更文件。
     const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
     if (changed) (run.changedFiles ??= new Set()).add(changed);
-    foldIntoCache(qc, sessionId, run, ev);
+    foldToolIntoProcess(qc, sessionId, run, ev);
     return;
   }
 
@@ -516,7 +665,9 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     dropMsg(qc, sessionId, run.typingUid);
     run.buffer += ev.delta; // 全轮文本累加（供 TTS / 时间线 summary），独立于块拆分
     run.sawText = true;
-    foldIntoCache(qc, sessionId, run, ev);
+    // 跨流收尾:上块是 tool 时,对 process key 收尾打开的 agentLog 并清 logUid（KTD6）。
+    finalizeProcessAgentLog(qc, sessionId, run);
+    foldTextIntoCache(qc, sessionId, run, ev.delta);
     return;
   }
 
@@ -524,11 +675,8 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     run.gotResult = true;
     run.resultOk = ev.ok;
     dropMsg(qc, sessionId, run.typingUid);
-    // 收尾当前打开的 agentLog：全部步骤打勾（被文本打断的旧卡片已在折叠时收尾）。
-    if (run.cursor.lastKind === "tool" && run.cursor.logUid) {
-      const logUid = run.cursor.logUid;
-      setMessages(qc, sessionId, (prev) => finalizeAgentLog(prev, logUid));
-    }
+    // 收尾过程流当前打开的 agentLog：全部步骤打勾（被文本打断的旧卡片已在折叠时收尾）。
+    finalizeProcessAgentLog(qc, sessionId, run);
     if (!ev.ok) {
       if (run.agent === "codex" && isMissingAgentSessionError(ev.error)) {
         clearStoredAgentSessionId(sessionId, run.agent);
@@ -558,6 +706,16 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     } else if (!run.sawText && ev.text) {
       // 没收到增量文本（极少数情况），用 result 的最终文本兜底。
       appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: ev.text, uid: uid("at") });
+    } else if (ev.ok && !run.sawText && !ev.text) {
+      // 纯工具轮（成功收尾、全程无 agent 文本、result 也无最终文本）:中栏补终态占位,
+      // 避免「问了没回」（R3/KTD5/C1）。工具步骤照常在右侧过程区。
+      appendMsg(qc, sessionId, {
+        kind: "text",
+        who: run.agent,
+        time: realHHMM(),
+        text: PURE_TOOL_TURN_PLACEHOLDER,
+        uid: uid("at"),
+      });
     }
     notifyTurnComplete(ev.ok);
     scheduleResultExitFallback(qc, runId, sessionId);
@@ -600,6 +758,7 @@ function finalizeRun(
     // 注册表丢失（重载/看门狗已超时清理）时按 sessionId 兜底,保证 UI 不卡死。
     if (sessionIdHint) {
       clearTransient(qc, sessionIdHint);
+      clearProcess(qc, sessionIdHint); // 立即清空出口（run-not-found 兜底，KTD8）。
       const store = usePersonalStore.getState();
       if (store.runningBySession[sessionIdHint] === runId) store.setRunning(sessionIdHint, undefined);
       flushChat(qc, sessionIdHint);
@@ -629,6 +788,11 @@ function finalizeRun(
       uid: uid("err"),
     });
   }
+  // 过程流终态处理（KTD4/KTD8）:成功轮收尾打勾后**保留**（收起为可重开入口,数据在内存,不落盘,
+  // 切走/下一轮才清,见 clearProcess 各出口）;失败/异常退出轮立即清空（错误文案已走 text 进消息流）。
+  const runOk = run.gotResult && run.resultOk !== false && !error && (code === null || code === 0);
+  if (runOk) finalizeProcessForRetain(qc, sessionId);
+  else clearProcess(qc, sessionId);
   // 一轮结束立即冲刷落盘，不等节流窗口。
   flushChat(qc, sessionId);
   // 成功收尾 → 开心一下;失败/中断 → 回闲置。
@@ -708,11 +872,58 @@ export function __handleCliExitForTest(
   handleCliExit(qc, runId, code, error, sessionIdHint);
 }
 
+// 立即清空某会话过程流（测试驱动 editResend/新一轮清理语义的轻量入口）。
+export function __clearProcessForTest(qc: QueryClient, sessionId: string): void {
+  clearProcess(qc, sessionId);
+}
+
+// 测试模拟「会话已结束后挂的游离延迟清理 timer」:排一个会把数据写回 process key 的 timer 进
+// processCleanupTimers。用于断言「立即清空出口（clearProcess/reapSessionRun）先 clearTimeout,
+// 推进 fake timer 后过程流不被复活写回」（KTD8 复活防护）。
+export function __scheduleStrayProcessTimerForTest(qc: QueryClient, sessionId: string, delayMs: number): void {
+  const prev = processCleanupTimers.get(sessionId);
+  if (prev) clearTimeout(prev);
+  processCleanupTimers.set(
+    sessionId,
+    setTimeout(() => {
+      // 若未被取消即触发,会把一条「复活」过程行写回——正确实现里应被出口的 clearTimeout 拦截。
+      setProcessMessages(qc, sessionId, (prev2) => [
+        ...prev2,
+        { kind: "reasoning", who: "pi", time: realHHMM(), text: "复活", active: false, completed: true, uid: uid("revive") },
+      ]);
+      processCleanupTimers.delete(sessionId);
+    }, delayMs),
+  );
+}
+
+// 当前挂着延迟清理 timer 的会话数（测试断言 timer 被取消）。
+export function __processCleanupTimerCountForTest(): number {
+  return processCleanupTimers.size;
+}
+
 export function __resetPersonalMessageRunsForTest(): void {
   for (const run of runs.values()) stopRunTimers(run);
   runs.clear();
   piSendStarting.clear();
+  // 过程流延迟清理 timer:全部取消并清表（杜绝跨用例游离 timer 复活已清会话 process key）。
+  // 过程流数据本身随每个用例新建的 QueryClient 自然丢弃。
+  for (const timer of processCleanupTimers.values()) clearTimeout(timer);
+  processCleanupTimers.clear();
+  // 落盘节流 timer 同理清掉,避免跨用例触发已替换桥的 saveChat。
+  for (const timer of saveTimers.values()) clearTimeout(timer);
+  saveTimers.clear();
   bridgeRef = null;
+}
+
+// 测试注入全局桥引用:用于断言「过程流落地从不触发 bridge.save*」「旧档加载后 flushChat 原地清洗」。
+// 生产经 usePersonalCliEvents/usePersonalPiEvents 设置;测试无法挂 hook,故提供显式 setter。
+export function __setBridgeForTest(bridge: DesktopBridge | null): void {
+  bridgeRef = bridge;
+}
+
+// 测试触发一次节流落盘冲刷（同步把当前消息流经 sanitizeForSave 写给 bridge.saveChat）。
+export function __flushChatForTest(qc: QueryClient, sessionId: string): void {
+  flushChat(qc, sessionId);
 }
 
 // ── pi RPC 会话（pi --mode rpc）的事件折叠 + 轮生命周期 ─────────────────────
@@ -741,6 +952,7 @@ export function beginPiRun(
     agent: "pi",
     typingUid: opts.typingUid,
     cursor: emptyFoldCursor(),
+    processCursor: emptyProcessCursor(),
     sawText: false,
     buffer: "",
     gotResult: false,
@@ -772,14 +984,14 @@ export function flipPiRunToThinking(qc: QueryClient, runId: string): void {
   updateTypingMsg(qc, run.sessionId, run.typingUid, typingText("pi", "thinking", 0));
 }
 
-// 思考流折叠:首个 reasoning delta 开块,后续累进同一 reasoning 块。
+// 思考流折叠:首个 reasoning delta 开块,后续累进同一 reasoning 块。落在**过程流**（不落盘）。
 function foldReasoning(qc: QueryClient, run: RunState, delta: string): void {
   const { sessionId } = run;
   if (run.reasoningUid) {
     const text = (run.reasoningText ?? "") + delta;
     run.reasoningText = text;
     const ruid = run.reasoningUid;
-    setMessages(qc, sessionId, (prev) =>
+    setProcessMessages(qc, sessionId, (prev) =>
       prev.map((m) => (m.uid === ruid && m.kind === "reasoning" ? { ...m, text, active: true } : m)),
     );
     return;
@@ -787,30 +999,34 @@ function foldReasoning(qc: QueryClient, run: RunState, delta: string): void {
   const ruid = uid("re");
   run.reasoningUid = ruid;
   run.reasoningText = delta;
-  appendMsg(qc, sessionId, {
-    kind: "reasoning",
-    who: run.agent,
-    time: realHHMM(),
-    text: delta,
-    active: true,
-    uid: ruid,
-  });
+  setProcessMessages(qc, sessionId, (prev) => [
+    ...prev,
+    {
+      kind: "reasoning",
+      who: run.agent,
+      time: realHHMM(),
+      text: delta,
+      active: true,
+      uid: ruid,
+    },
+  ]);
 }
 
+// reasoning 收尾:翻完成态。改写**过程流**（KTD6——reasoning 收尾的 setMessages 目标改到 process key）。
 function finalizeRunReasoning(qc: QueryClient, run: RunState): void {
   if (!run.reasoningUid) return;
   const reasoningUid = run.reasoningUid;
-  setMessages(qc, run.sessionId, (prev) => finalizeReasoning(prev, reasoningUid));
+  setProcessMessages(qc, run.sessionId, (prev) => finalizeReasoning(prev, reasoningUid));
   run.reasoningUid = undefined;
   run.reasoningText = undefined;
 }
 
-// tool-end:把当前 agentLog 卡片里最后一个 running 项翻 check;出错则文本前缀 ⚠️。
+// tool-end:把当前 agentLog 卡片里最后一个 running 项翻 check;出错则文本前缀 ⚠️。落在**过程流**。
 // 顺序工具精确;并发工具（罕见）best-effort 翻最后一个,不影响整体可读性。
 function finalizeLastToolItem(qc: QueryClient, run: RunState, isError: boolean): void {
-  if (run.cursor.lastKind !== "tool" || !run.cursor.logUid) return;
-  const logUid = run.cursor.logUid;
-  setMessages(qc, run.sessionId, (prev) =>
+  if (run.processCursor.lastKind !== "tool" || !run.processCursor.logUid) return;
+  const logUid = run.processCursor.logUid;
+  setProcessMessages(qc, run.sessionId, (prev) =>
     prev.map((m) => {
       if (m.uid !== logUid || m.kind !== "agentLog") return m;
       const items = [...m.items];
@@ -889,6 +1105,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         runs.delete(active.runId);
       }
       clearTransient(qc, sessionId);
+      clearProcess(qc, sessionId); // 立即清空出口（pi crashed，KTD8）。
       appendMsg(qc, sessionId, {
         kind: "text",
         who: "pi",
@@ -924,7 +1141,9 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       finalizeRunReasoning(qc, run);
       run.buffer += ev.delta;
       run.sawText = true;
-      foldIntoCache(qc, sessionId, run, { type: "text", delta: ev.delta });
+      // 跨流收尾:上块是 tool 时,对 process key 收尾打开的 agentLog（KTD6）。
+      finalizeProcessAgentLog(qc, sessionId, run);
+      foldTextIntoCache(qc, sessionId, run, ev.delta);
       return;
     case "tool-start": {
       usePetStore.getState().set("working");
@@ -932,17 +1151,14 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       finalizeRunReasoning(qc, run);
       const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
       if (changed) (run.changedFiles ??= new Set()).add(changed);
-      foldIntoCache(qc, sessionId, run, { type: "tool", name: ev.name, detail: ev.detail });
+      foldToolIntoProcess(qc, sessionId, run, { type: "tool", name: ev.name, detail: ev.detail });
       return;
     }
     case "tool-end":
       finalizeLastToolItem(qc, run, ev.isError);
       return;
     case "turn-end":
-      if (run.cursor.lastKind === "tool" && run.cursor.logUid) {
-        const logUid = run.cursor.logUid;
-        setMessages(qc, sessionId, (prev) => finalizeAgentLog(prev, logUid));
-      }
+      finalizeProcessAgentLog(qc, sessionId, run);
       return;
     case "error":
       run.resultOk = false;
@@ -967,6 +1183,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         run.gotResult = false;
         run.resultOk = undefined;
         run.cursor = emptyFoldCursor();
+        run.processCursor = emptyProcessCursor();
         run.buffer = "";
         run.sawText = false;
         return;
@@ -974,9 +1191,19 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       finalizeRunReasoning(qc, run);
       run.gotResult = true;
       if (run.resultOk === undefined) run.resultOk = true;
-      if (run.cursor.lastKind === "tool" && run.cursor.logUid) {
-        const logUid = run.cursor.logUid;
-        setMessages(qc, sessionId, (prev) => finalizeAgentLog(prev, logUid));
+      // 过程流当前打开的 agentLog 收尾打勾。
+      finalizeProcessAgentLog(qc, sessionId, run);
+      // 纯工具轮占位（R3/KTD5/C1）:pi 的 result 是 {willRetry},无 ok/text 字段,故按
+      // resultOk!==false（非失败）+ !sawText（全程无 agent 文本）判定,且须在本 case 内、
+      // finalizeRun 之前执行——finalizeRun 会 runs.delete,之后 run 状态不可再读。
+      if (run.resultOk !== false && !run.sawText) {
+        appendMsg(qc, sessionId, {
+          kind: "text",
+          who: run.agent,
+          time: realHHMM(),
+          text: PURE_TOOL_TURN_PLACEHOLDER,
+          uid: uid("at"),
+        });
       }
       store.setPiRuntime(sessionId, undefined);
       notifyTurnComplete(run.resultOk !== false);
@@ -1004,6 +1231,8 @@ export function reapSessionRun(qc: QueryClient, sessionId: string): void {
   store.setPiRuntime(sessionId, undefined);
   store.clearPiUiForSession(sessionId); // 删/关会话时清其悬挂确认弹窗。
   clearTransient(qc, sessionId);
+  // 删会话立即清空过程流并取消任何游离的延迟清理 timer（杜绝 timer 复活已删会话 process key，KTD8）。
+  clearProcess(qc, sessionId);
 }
 
 // pi:prompt 只收 message 字符串,无 appendSystemPrompt 通道（与单发 startCli 不同）。
@@ -1079,6 +1308,7 @@ function failPiTurn(qc: QueryClient, sessionId: string, runId: string, err: unkn
     dropMsg(qc, sessionId, run.typingUid);
   }
   clearTransient(qc, sessionId);
+  clearProcess(qc, sessionId); // 立即清空出口（failPiTurn，KTD8）。
   const msg = err instanceof Error ? err.message : String(err);
   appendMsg(qc, sessionId, {
     kind: "text",
@@ -1420,8 +1650,14 @@ export function usePersonalChat(sessionId: string | undefined): PersonalChatSlic
   const { data } = useQuery<Message[]>({
     queryKey: personalChatKeys.detail(sessionId ?? "none"),
     // 历史消息从磁盘加载（web 端无桥,恒为空）;加载时清理瞬态状态。
-    queryFn: async () =>
-      bridge && sessionId ? sanitizeForSave((await bridge.loadChat(sessionId)) as Message[]) : [],
+    queryFn: async () => {
+      if (!bridge || !sessionId) return [];
+      const original = (await bridge.loadChat(sessionId)) as Message[];
+      // 旧档迁移:剥离 agentLog 前先按原数组回算隐藏游标 count（throughUid 命中则无需，
+      // 缺 throughUid 的 count 兜底路径会因数组变短而偏移）。一次性写回，幂等。
+      maybeMigrateHiddenHistory(sessionId, original);
+      return sanitizeForSave(original);
+    },
     enabled: !!sessionId,
     staleTime: Infinity,
     // gcTime 继承全局默认(10min):切走的会话消息可被回收,不再永久驻留(磁盘是真相,
@@ -1430,6 +1666,27 @@ export function usePersonalChat(sessionId: string | undefined): PersonalChatSlic
   const all = data ?? EMPTY_MESSAGES;
   const shown = useThrottledValue(all, CHAT_RENDER_THROTTLE_MS);
   return useMemo(() => splitPersonalMessages(shown, hiddenHistory), [shown, hiddenHistory]);
+}
+
+// 瞬态执行过程流（agentLog 步骤 + reasoning 思考）。读 personalProcessKeys.detail(sessionId),
+// 套用与消息流同款渲染节流（CHAT_RENDER_THROTTLE_MS）避免高频 tool/reasoning 每 token 触发右区
+// 全量重渲（KTD7）。**不落盘、不从磁盘加载**:无 queryFn、staleTime Infinity——只被流式 setQueryData
+// 写入,空集复用稳定引用。U2 接管 gcTime/保活;U4 消费此 hook 渲染右侧过程区。
+export function usePersonalProcess(sessionId: string | undefined): Message[] {
+  const { data } = useQuery<Message[]>({
+    queryKey: personalProcessKeys.detail(sessionId ?? "none"),
+    // 过程流只活在内存:不从磁盘加载（恒初始为空数组,等流式写入）。
+    queryFn: () => EMPTY_MESSAGES,
+    enabled: !!sessionId,
+    staleTime: Infinity,
+    // gcTime 显式设 Infinity,覆盖全局 10min 默认（R7/KTD8）:后台长轮会话切走后其 process query
+    // 变 inactive,若沿用 10min 默认会在 pi 看门狗无上限的长轮中途被回收,切回时过程无从重现。
+    // 过程流的真正回收由各清理出口的 clearProcess(removeQueries) 负责（异常终态/会话删除/切走+下一轮）,
+    // 不依赖 gc——故这里设 Infinity 不会泄漏:有出口闭环兜底。
+    gcTime: Infinity,
+  });
+  const all = data ?? EMPTY_MESSAGES;
+  return useThrottledValue(all, CHAT_RENDER_THROTTLE_MS);
 }
 
 // 渲染窗口默认尺寸与每次「展开更多」步长。
@@ -1637,6 +1894,10 @@ export function usePersonalActions(): PersonalActions {
       // 历史尚未加载时先加载,避免首条写入把磁盘历史盖掉。
       await ensureChatLoaded(qc, bridge, session.id);
 
+      // 开始新一轮即清上一轮保留的过程流（R8/KTD4 的「下一轮即清」保留边界;CLI 与 pi 同此入口）,
+      // 否则新轮的 tool/reasoning 会追加在旧轮已收起的步骤之后。
+      clearProcess(qc, session.id);
+
       appendUserMessage(qc, session.id, text, attachments, refs);
       appendMsg(qc, session.id, {
         kind: "typing",
@@ -1660,6 +1921,7 @@ export function usePersonalActions(): PersonalActions {
         agent: session.agent,
         typingUid,
         cursor: emptyFoldCursor(),
+        processCursor: emptyProcessCursor(),
         sawText: false,
         buffer: "",
         gotResult: false,
@@ -1681,6 +1943,7 @@ export function usePersonalActions(): PersonalActions {
           runs.delete(runId);
           dropMsg(qc, cur.sessionId, cur.typingUid);
           clearTransient(qc, cur.sessionId);
+          clearProcess(qc, cur.sessionId); // 立即清空出口（watchdog 超时，KTD8）。
           appendMsg(qc, cur.sessionId, {
             kind: "text",
             who: cur.agent,
@@ -1760,8 +2023,16 @@ export function usePersonalActions(): PersonalActions {
       if (usePersonalStore.getState().runningBySession[session.id]) return;
       await ensureChatLoaded(qc, bridge, session.id);
       const prev = qc.getQueryData<Message[]>(personalChatKeys.detail(session.id)) ?? [];
-      const truncated = truncateForEdit(prev, msgUid);
-      if (truncated === null) return;
+      const truncatedRaw = truncateForEdit(prev, msgUid);
+      if (truncatedRaw === null) return;
+      // 截断写回缓存前先 sanitize:旧档残留的 agentLog/reasoning 若随 truncated 写回会在中栏「闪回」
+      // 工具步骤(过程已外移右侧浮层、且不落盘,中栏不应再现)。sanitize 后中栏只剩问答正文。
+      // 注:trimAgentSession 的「编辑首条 → 清空」判定仍用清洗后的 truncated 长度——清洗只剥离瞬态/过程
+      // 块,不改变「编辑点前是否有真实问答」的语义。
+      const truncated = sanitizeForSave(truncatedRaw);
+      // editResend **不走** clearTransient（KTD8 单独处理）:它被 running 守卫(:1951),不存在「运行中
+      // 过程残留」,故截断前显式清掉上一轮收起的残留过程入口（避免旧轮过程入口在新一轮前误闪现）。
+      clearProcess(qc, session.id);
       // 复用被编辑消息自身的已落盘图片引用(不重新落盘、不删旧文件),随重发带回 agent。
       const editedMsg = prev.find((m) => m.uid === msgUid);
       const originalImages = editedMsg?.kind === "text" ? editedMsg.images : undefined;
@@ -1856,6 +2127,7 @@ export function usePersonalActions(): PersonalActions {
           store.setRunning(sessionId, undefined);
           store.setPiRuntime(sessionId, undefined);
           clearTransient(qc, sessionId);
+          clearProcess(qc, sessionId); // 立即清空出口（stop 4s 兜底，KTD8）。
           flushChat(qc, sessionId);
         }
       }, 4000);

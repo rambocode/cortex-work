@@ -851,6 +851,194 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--amber);
   border-color: var(--amber);
 }
+
+/* 中栏运行中提示:渲染在消息流容器之外、独立于 convo 是否为空（R2/KTD5）。轻量单行,
+   贴在消息流与 askquestion 卡片/输入框之间。右侧过程浮层不可见时由其回填步数/最近一步。 */
+.pw-running-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 16px 0;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--bg-card-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pw-running-hint-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.pw-running-hint-dots {
+  display: inline-flex;
+  gap: 3px;
+  flex: none;
+}
+.pw-running-hint-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--amber);
+  animation: pw-running-dot 1.1s ease-in-out infinite;
+}
+.pw-running-hint-dots i:nth-child(2) { animation-delay: 0.18s; }
+.pw-running-hint-dots i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes pw-running-dot {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-1.4px); }
+}
+/* 无障碍:减少动态偏好下静默闪动（R9）。 */
+@media (prefers-reduced-motion: reduce) {
+  .pw-running-hint-dots i { animation: none; opacity: 0.7; }
+}
+
+/* —— 右侧执行过程区（PersonalProcessPanel, U4）—— */
+/* 浮起 overlay:position:absolute 脱离 .pw-center-col 的 flex:1 规则,锚到 .pw-center-col 的 relative,
+   贴会话区右上角。**不**参与 .pw-upper 行 flex、不抢 PersonalRightPanel 宽度（KTD3）。 */
+.pw-process {
+  position: absolute;
+  top: 56px;
+  right: 16px;
+  z-index: 40;
+  width: 340px;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 120px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
+  font-size: 12.5px;
+  overflow: hidden;
+  animation: pw-process-in 0.18s ease-out;
+}
+.pw-process.is-collapsed {
+  width: auto;
+  max-width: calc(100% - 32px);
+}
+/* 窄窗退化:中栏可用宽度低于阈值 → 改底部贴附 + 单行摘要,不覆盖正文与输入框（R9/窄窗场景）。 */
+.pw-process.is-narrow {
+  top: auto;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  width: auto;
+  max-width: none;
+}
+.pw-process-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.pw-process-head-title { font-weight: 600; color: var(--text-1); }
+.pw-process-head-meta { font-size: 11px; color: var(--text-3); }
+.pw-process-collapse {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.pw-process-collapse:hover { background: var(--bg-card-2); color: var(--text-1); }
+.pw-process-body {
+  padding: 8px 12px 10px;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pw-process-step-h {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11.5px; color: var(--text-2);
+  margin-bottom: 5px;
+}
+.pw-process-step-title { color: var(--text-1); font-weight: 500; }
+.pw-process-step-meta { color: var(--text-3); }
+.pw-process-step-h .spinner {
+  width: 11px; height: 11px;
+  border: 1.5px solid var(--border-strong);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.pw-process-check { color: var(--green); display: inline-flex; }
+.pw-process-items { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.pw-process-items li {
+  display: flex; align-items: flex-start; gap: 7px;
+  font-size: 12px; color: var(--text-2);
+}
+.pw-process-items li .ic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  margin-top: 2px;
+  color: var(--text-3);
+}
+.pw-process-items li.is-active { color: var(--text-1); }
+.pw-process-item-text { min-width: 0; word-break: break-word; }
+.pw-process-reasoning-body {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  font-style: italic;
+  border-left: 2px solid var(--border-strong);
+  padding-left: 8px;
+}
+/* 收起入口:紧凑、可重开、键盘可聚焦（role=button + tabindex）。 */
+.pw-process-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  cursor: pointer;
+  color: var(--text-2);
+  outline: none;
+}
+.pw-process-entry:hover { background: var(--bg-card-2); }
+.pw-process-entry:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); border-radius: 12px; }
+.pw-process-entry .spinner {
+  width: 11px; height: 11px;
+  border: 1.5px solid var(--border-strong);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex: none;
+}
+.pw-process-entry-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.pw-process-entry-chev { display: inline-flex; color: var(--text-3); flex: none; }
+@keyframes pw-process-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* 无障碍:减少动态偏好下出入场/收起动画与步骤 spinner 静默（R9）。 */
+@media (prefers-reduced-motion: reduce) {
+  .pw-process { animation: none; }
+  .pw-process .spinner { animation: none; }
+}
+
 .agent-log ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .agent-log li {
   display: flex; align-items: flex-start; gap: 8px;
@@ -4158,9 +4346,12 @@ button.sb-row {
 .pw-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .pw-upper { flex: 1; display: flex; min-height: 0; min-width: 0; }
 .pw-upper > .chat { flex: 1; min-height: 0; }
-/* 中栏列:顶部头(.pw-col-head)固定,其下的当前视图填满剩余高度。 */
-.pw-center-col { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.pw-center-col > :not(.pw-col-head) { flex: 1; min-height: 0; min-width: 0; }
+/* 中栏列:顶部头(.pw-col-head)固定,其下的当前视图填满剩余高度。
+   position:relative 作浮起执行过程区(.pw-process)的定位锚点——否则过程浮层会锚到更外层。 */
+.pw-center-col { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+/* 过程浮层(.pw-process)是 position:absolute 脱流的直接子元素,须排除在 flex:1 拉伸规则之外
+   （否则被拉伸成等高、压垮布局）。 */
+.pw-center-col > :not(.pw-col-head):not(.pw-process) { flex: 1; min-height: 0; min-width: 0; }
 .pw-term {
   flex-shrink: 0;
   display: flex;

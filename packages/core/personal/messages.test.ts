@@ -3,12 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePersonalStore } from "../store/personal";
 import type { CliStreamEvent, SessionMeta } from "../desktop/types";
 import {
+  PURE_TOOL_TURN_PLACEHOLDER,
   RESULT_EXIT_GRACE_MS,
   __ensureChatLoadedForTest,
   __handleCliEventForTest,
   __handleCliExitForTest,
   __handlePiEventForTest,
   __resetPersonalMessageRunsForTest,
+  __setBridgeForTest,
+  __flushChatForTest,
+  __clearProcessForTest,
+  __scheduleStrayProcessTimerForTest,
+  __processCleanupTimerCountForTest,
+  adjustHiddenHistoryForSanitize,
   beginPiRun,
   reapSessionRun,
   respondPiUi,
@@ -22,6 +29,7 @@ import {
   foldCliEvent,
   isMissingAgentSessionError,
   personalChatKeys,
+  personalProcessKeys,
   sanitizeForSave,
   sessionResumeId,
   sameTextOrdinal,
@@ -309,19 +317,10 @@ function asText(m: Message | undefined): Extract<Message, { kind: "text" }> {
   return m;
 }
 
-describe("流式交错折叠 foldCliEvent", () => {
-  it("文本→工具→文本：按到达顺序交替成三块", () => {
-    const { messages } = foldAll([txt("A"), tool("t1"), txt("B")]);
-    expect(messages.map((m) => m.kind)).toEqual(["text", "agentLog", "text"]);
-    expect(asText(messages[0]!).text).toBe("A");
-    expect(asText(messages[2]!).text).toBe("B");
-    // 被文本打断的 agentLog 已收尾,不遗留 running。
-    const log = asLog(messages[1]!);
-    expect(log.active).toBe(false);
-    expect(log.completed).toBe(true);
-    expect(log.items).toEqual([{ ic: "check", text: "t1" }]);
-  });
-
+// B1 重校准:foldCliEvent 退化为「纯同流折叠」——text 与 tool 分别落在两条独立数组（消息流 /
+// 过程流）,不再在同一数组里交错收尾。这里只测同流折叠语义;跨流收尾（text 到达收尾 process 流
+// agentLog）由下方 __handleCliEventForTest 集成断言覆盖（KTD6）。
+describe("同流折叠 foldCliEvent(纯函数)", () => {
   it("连续文本增量合并进同一个 text 块", () => {
     const { messages } = foldAll([txt("Hel"), txt("lo")]);
     expect(messages.map((m) => m.kind)).toEqual(["text"]);
@@ -340,33 +339,14 @@ describe("流式交错折叠 foldCliEvent", () => {
     ]);
   });
 
-  it("工具组被文本打断：开新文本块,旧卡片收尾", () => {
-    const { messages } = foldAll([txt("A"), tool("t1"), tool("t2"), txt("B")]);
-    expect(messages.map((m) => m.kind)).toEqual(["text", "agentLog", "text"]);
-    const log = asLog(messages[1]!);
-    expect(log.active).toBe(false);
-    expect(log.completed).toBe(true);
-    expect(log.title).toBe("Agent 执行完成");
-    expect(log.items).toEqual([
-      { ic: "check", text: "t1" },
-      { ic: "check", text: "t2" },
-    ]);
-    expect(asText(messages[2]!).text).toBe("B");
-  });
-
-  it("多轮交错 text/tool/tool/text/tool → 四块", () => {
-    const { messages } = foldAll([txt("A"), tool("t1"), tool("t2"), txt("B"), tool("t3")]);
-    expect(messages.map((m) => m.kind)).toEqual(["text", "agentLog", "text", "agentLog"]);
-    expect(asLog(messages[1]!).active).toBe(false); // 第一组被打断收尾
-    const last = asLog(messages[3]!);
-    expect(last.active).toBe(true); // 末组仍运行中
-    expect(last.items).toEqual([{ ic: "running", text: "t3" }]);
-  });
-
-  it("以工具起手：首块为 agentLog,无前置空 text 块", () => {
+  it("text 分支不再收尾上一块 agentLog（跨流收尾移交调用方）", () => {
+    // 同一数组喂 tool→text:text 分支只开新文本块,不动 agentLog（其 active 仍为 true）——
+    // 该「同数组收尾」在 B1 下成为静默 no-op,被移除（KTD6）。
     const { messages } = foldAll([tool("t1"), txt("A")]);
     expect(messages.map((m) => m.kind)).toEqual(["agentLog", "text"]);
-    expect(asLog(messages[0]!).items).toEqual([{ ic: "check", text: "t1" }]);
+    const log = asLog(messages[0]!);
+    expect(log.active).toBe(true); // 不再被 text 收尾
+    expect(log.items).toEqual([{ ic: "running", text: "t1" }]);
     expect(asText(messages[1]!).text).toBe("A");
   });
 
@@ -392,8 +372,8 @@ describe("流式交错折叠 foldCliEvent", () => {
   });
 });
 
-describe("sanitizeForSave 落盘清理(思考不作为长期记录)", () => {
-  it("丢弃 typing 与 reasoning,运行中的 agentLog 收尾", () => {
+describe("sanitizeForSave 落盘清理(过程不落盘:思考与工具步骤皆丢弃)", () => {
+  it("丢弃 typing / reasoning / agentLog,只保留问答正文", () => {
     const input: Message[] = [
       { kind: "text", who: "me", time: "10:00", text: "问", uid: "u1" },
       { kind: "reasoning", who: "pi", time: "10:00", text: "思考中", active: true, uid: "r1" },
@@ -410,15 +390,25 @@ describe("sanitizeForSave 落盘清理(思考不作为长期记录)", () => {
       { kind: "text", who: "pi", time: "10:01", text: "答", uid: "a1" },
     ];
     const out = sanitizeForSave(input);
-    // reasoning / typing 不落盘:只保留正文与工具卡片。
-    expect(out.map((m) => m.kind)).toEqual(["text", "agentLog", "text"]);
+    // 过程移出落盘契约:agentLog（工具步骤）与 reasoning（思考）、typing 都不落盘,只剩问答。
+    expect(out.map((m) => m.kind)).toEqual(["text", "text"]);
     expect(out.some((m) => m.kind === "reasoning")).toBe(false);
-    expect(out.find((m) => m.kind === "agentLog")).toMatchObject({ active: false, completed: true });
+    expect(out.some((m) => m.kind === "agentLog")).toBe(false);
   });
 
-  it("已完成的 reasoning(历史遗留)也被清掉,加载即顺带迁移", () => {
+  it("已完成的 reasoning / agentLog(历史遗留)也被清掉,加载即顺带破坏性迁移", () => {
     const input: Message[] = [
       { kind: "reasoning", who: "pi", time: "10:00", text: "旧思考", active: false, completed: true, uid: "r0" },
+      {
+        kind: "agentLog",
+        who: "claude",
+        time: "10:00",
+        title: "旧执行",
+        active: false,
+        completed: true,
+        items: [{ ic: "check", text: "Edit" }],
+        uid: "log0",
+      },
       { kind: "text", who: "pi", time: "10:00", text: "正文", uid: "a1" },
     ];
     expect(sanitizeForSave(input).map((m) => m.kind)).toEqual(["text"]);
@@ -548,6 +538,11 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     return qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
   }
 
+  // 瞬态过程流缓存读取:agentLog（工具步骤）与 reasoning（思考）现落在 process key,不再进消息流。
+  function processCacheOf(qc: QueryClient, sessionId = "s1"): Message[] {
+    return qc.getQueryData<Message[]>(personalProcessKeys.detail(sessionId)) ?? [];
+  }
+
   it("text 增量折叠进单一文本块", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
@@ -558,17 +553,18 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(texts[0]).toMatchObject({ text: "你好世界" });
   });
 
-  it("reasoning 增量累进单一思考块,不与正文混", () => {
+  it("reasoning 增量累进单一思考块(进过程流),不与正文混", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "先想想" });
     __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "再想想" });
     __handlePiEventForTest(qc, "s1", { type: "text", delta: "答案" });
-    const msgs = cacheOf(qc);
-    const reasoning = msgs.filter((m) => m.kind === "reasoning");
-    const texts = msgs.filter((m) => m.kind === "text" && m.who === "pi");
+    // reasoning 落过程流(不落盘);正文落消息流。
+    const reasoning = processCacheOf(qc).filter((m) => m.kind === "reasoning");
+    const texts = cacheOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
     expect(reasoning).toHaveLength(1);
     expect(reasoning[0]).toMatchObject({ text: "先想想再想想", active: false, completed: true });
+    expect(cacheOf(qc).some((m) => m.kind === "reasoning")).toBe(false); // 消息流无 reasoning
     expect(texts).toHaveLength(1);
     expect(texts[0]).toMatchObject({ text: "答案" });
   });
@@ -577,37 +573,41 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "先想想" });
-    const reasoning = cacheOf(qc).find((m) => m.kind === "reasoning");
+    const reasoning = processCacheOf(qc).find((m) => m.kind === "reasoning");
     expect(reasoning).toMatchObject({ text: "先想想", active: true });
   });
 
-  it("tool-start 会收尾当前 reasoning,再追加工具卡片", () => {
+  it("tool-start 会收尾当前 reasoning,再在过程流追加工具卡片", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "先想工具" });
     __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
-    const reasoning = cacheOf(qc).find((m) => m.kind === "reasoning");
-    const log = cacheOf(qc).find((m) => m.kind === "agentLog");
+    const reasoning = processCacheOf(qc).find((m) => m.kind === "reasoning");
+    const log = processCacheOf(qc).find((m) => m.kind === "agentLog");
     expect(reasoning).toMatchObject({ active: false, completed: true });
     expect(log).toMatchObject({ kind: "agentLog", active: true });
+    // 工具卡片不进消息流。
+    expect(cacheOf(qc).some((m) => m.kind === "agentLog")).toBe(false);
   });
 
-  it("tool-start + tool-end(同 toolCallId) 折叠为一张卡片并翻 check", () => {
+  it("tool-start + tool-end(同 toolCallId) 在过程流折叠为一张卡片并翻 check", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
     __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
-    const logs = cacheOf(qc).filter((m) => m.kind === "agentLog");
+    const logs = processCacheOf(qc).filter((m) => m.kind === "agentLog");
     expect(logs).toHaveLength(1);
     expect(logs[0]).toMatchObject({ items: [{ ic: "check", text: "Bash · ls" }] });
+    // 验证 finalizeLastToolItem 作用于 process key 而非持久流。
+    expect(cacheOf(qc).some((m) => m.kind === "agentLog")).toBe(false);
   });
 
-  it("tool-end 出错时项文本前缀 ⚠️", () => {
+  it("tool-end 出错时项文本前缀 ⚠️(过程流)", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "rm -rf" });
     __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: true });
-    const log = cacheOf(qc).find((m) => m.kind === "agentLog");
+    const log = processCacheOf(qc).find((m) => m.kind === "agentLog");
     expect(log?.kind === "agentLog" && log.items[0]).toMatchObject({ ic: "check", text: "⚠️ Bash · rm -rf" });
   });
 
@@ -634,7 +634,7 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "第一次" });
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true });
     __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "第二次" });
-    const reasoning = cacheOf(qc).filter((m) => m.kind === "reasoning");
+    const reasoning = processCacheOf(qc).filter((m) => m.kind === "reasoning");
     expect(reasoning).toHaveLength(2);
     expect(reasoning[0]).toMatchObject({ text: "第一次", active: false, completed: true });
     expect(reasoning[1]).toMatchObject({ text: "第二次", active: true });
@@ -649,7 +649,8 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     const err = cacheOf(qc).find((m) => m.kind === "text" && typeof m.text === "string" && m.text.startsWith("⚠️"));
     expect(err?.kind === "text" && err.text).toContain("执行出错");
     expect(err?.kind === "text" && err.text).toContain("供应商");
-    const reasoning = cacheOf(qc).find((m) => m.kind === "reasoning");
+    // error 分支显式收尾过程流 reasoning。
+    const reasoning = processCacheOf(qc).find((m) => m.kind === "reasoning");
     expect(reasoning).toMatchObject({ active: false, completed: true });
 
     const qc2 = new QueryClient();
@@ -659,7 +660,7 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(abortMsg).toBeTruthy();
   });
 
-  it("crashed → ⚠️ + 清 running/runtime", () => {
+  it("crashed → ⚠️ + 清 running/runtime;过程 reasoning 不入消息流", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     usePersonalStore.getState().setPiRuntime("s1", { steering: 2 });
@@ -667,8 +668,8 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     __handlePiEventForTest(qc, "s1", { type: "crashed", error: "退出码 1" });
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
     expect(usePersonalStore.getState().piRuntimeBySession.s1).toBeUndefined();
-    const reasoning = cacheOf(qc).find((m) => m.kind === "reasoning");
-    expect(reasoning).toMatchObject({ active: false, completed: true });
+    // reasoning 落在过程流、绝不进消息流（崩溃文案才进消息流并落盘）。过程流的清空/收尾归 U2。
+    expect(cacheOf(qc).some((m) => m.kind === "reasoning")).toBe(false);
     const crash = cacheOf(qc).find((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("已退出"));
     expect(crash).toBeTruthy();
   });
@@ -782,6 +783,286 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
   });
 });
 
+// ── U1：过程流独立通道 + 不落盘 + 旧档迁移 ──────────────────────────────────
+describe("U1 过程流独立通道（CLI）", () => {
+  const chatOf = (qc: QueryClient, sessionId = "s1"): Message[] =>
+    qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
+  const procOf = (qc: QueryClient, sessionId = "s1"): Message[] =>
+    qc.getQueryData<Message[]>(personalProcessKeys.detail(sessionId)) ?? [];
+
+  // 用 init 事件触发 HMR 兜底重建一个 claude run（runs 注册表里有该 runId）。
+  function setupCliRun(qc: QueryClient, sessionId = "s1", runId = "run-c1"): void {
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: sessionId, agent: "claude", agentSessionIds: {} }],
+      runningBySession: {},
+    });
+    __handleCliEventForTest(qc, runId, { type: "init", sessionId: "claude-sess" }, sessionId);
+    expect(usePersonalStore.getState().runningBySession[sessionId]).toBe(runId);
+  }
+
+  it("一轮 text 事件:消息流含 text,过程流为空", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "你好结果" }, "s1");
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
+    expect(texts).toHaveLength(1);
+    expect(asText(texts[0]!).text).toBe("你好结果");
+    expect(procOf(qc)).toHaveLength(0);
+  });
+
+  it("一轮 tool 事件:过程流含 running 的 agentLog,消息流不新增 agentLog", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Edit", detail: "a.ts" }, "s1");
+    const logs = procOf(qc).filter((m) => m.kind === "agentLog");
+    expect(logs).toHaveLength(1);
+    expect(asLog(logs[0]!)).toMatchObject({ active: true, items: [{ ic: "running", text: "Edit · a.ts" }] });
+    expect(chatOf(qc).some((m) => m.kind === "agentLog")).toBe(false);
+  });
+
+  it("tool,tool,text:text 到达对 process key 收尾 agentLog(两步全 check),消息流只一条 text", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Read", detail: "x" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Edit", detail: "y" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "完成了" }, "s1");
+    // 跨流收尾:process 流的 agentLog 两步全部 check 且完成（非 :408 同数组 no-op）。
+    const log = procOf(qc).find((m) => m.kind === "agentLog");
+    expect(asLog(log!)).toMatchObject({ active: false, completed: true });
+    expect(asLog(log!).items.every((it) => it.ic === "check")).toBe(true);
+    // 消息流只有一条 agent text,无 agentLog。
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
+    expect(texts).toHaveLength(1);
+    expect(asText(texts[0]!).text).toBe("完成了");
+    expect(chatOf(qc).some((m) => m.kind === "agentLog")).toBe(false);
+  });
+
+  it("text 后接 tool:消息流新文本块在 tool 之后开新块（tool 打断文本，process/message 各自折叠）", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "段一" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Bash" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "段二" }, "s1");
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
+    // tool 打断:段一、段二各自成块(不并入同一文本块)。
+    expect(texts.map((m) => asText(m).text)).toEqual(["段一", "段二"]);
+    expect(procOf(qc).filter((m) => m.kind === "agentLog")).toHaveLength(1);
+  });
+
+  it("result 收尾过程流当前 agentLog（非消息流）", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Edit", detail: "z" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "result", ok: true, text: "" }, "s1");
+    const log = procOf(qc).find((m) => m.kind === "agentLog");
+    expect(asLog(log!)).toMatchObject({ active: false, completed: true });
+    expect(asLog(log!).items.every((it) => it.ic === "check")).toBe(true);
+  });
+});
+
+describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () => {
+  const chatOf = (qc: QueryClient, sessionId = "s1"): Message[] =>
+    qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
+
+  // claude run（HMR 兜底重建,runs 注册表里有该 runId）。
+  function setupCliRun(qc: QueryClient, sessionId = "s1", runId = "run-c1"): void {
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: sessionId, agent: "claude", agentSessionIds: {} }],
+      runningBySession: {},
+    });
+    __handleCliEventForTest(qc, runId, { type: "init", sessionId: "claude-sess" }, sessionId);
+  }
+
+  function setupPiRun(qc: QueryClient, sessionId = "s1", runId = "prun-1"): void {
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: sessionId, agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId, sessionId, typingUid: `typ-${sessionId}`, cwd: "/proj", promptText: "hi" });
+  }
+
+  it("CLI 纯工具轮(ev.ok、!sawText、!ev.text):中栏补一条占位 text(agent)", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Bash", detail: "ls" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "result", ok: true, text: "" }, "s1");
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
+    expect(texts).toHaveLength(1);
+    expect(asText(texts[0]!).text).toBe(PURE_TOOL_TURN_PLACEHOLDER);
+  });
+
+  it("CLI 有文本的正常轮:不追加占位(不重复)", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "真正回复" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "result", ok: true, text: "" }, "s1");
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
+    expect(texts).toHaveLength(1);
+    expect(asText(texts[0]!).text).toBe("真正回复");
+    expect(chatOf(qc).some((m) => m.kind === "text" && asText(m).text === PURE_TOOL_TURN_PLACEHOLDER)).toBe(false);
+  });
+
+  it("CLI result 带最终文本(ev.text)时用其兜底,不补占位", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Read", detail: "x" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "result", ok: true, text: "最终结果" }, "s1");
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
+    expect(texts).toHaveLength(1);
+    expect(asText(texts[0]!).text).toBe("最终结果");
+  });
+
+  it("Covers R4. CLI result.ok=false:进消息流的是 ⚠️ 错误文案,而非占位", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Bash", detail: "boom" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "result", ok: false, error: "炸了" }, "s1");
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
+    expect(texts).toHaveLength(1);
+    expect(asText(texts[0]!).text).toContain("⚠️");
+    expect(chatOf(qc).some((m) => m.kind === "text" && asText(m).text === PURE_TOOL_TURN_PLACEHOLDER)).toBe(false);
+  });
+
+  it("pi 纯工具轮(result 仅 willRetry:false、!sawText):中栏补占位 text(agent)", () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
+    expect(texts).toHaveLength(1);
+    expect(asText(texts[0]!).text).toBe(PURE_TOOL_TURN_PLACEHOLDER);
+    vi.useRealTimers();
+  });
+
+  it("pi 有文本的正常轮:不追加占位(不重复)", () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "完成" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
+    expect(texts).toHaveLength(1);
+    expect(asText(texts[0]!).text).toBe("完成");
+    expect(chatOf(qc).some((m) => m.kind === "text" && asText(m).text === PURE_TOOL_TURN_PLACEHOLDER)).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("pi result(willRetry:true) 不收尾、不补占位（仅等下一轮）", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true });
+    expect(chatOf(qc).some((m) => m.kind === "text" && asText(m).text === PURE_TOOL_TURN_PLACEHOLDER)).toBe(false);
+  });
+
+  it("pi 失败轮(resultOk=false,error 先到)不补占位:仅 ⚠️ 错误文案进消息流", () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "error", error: "401 unauthorized" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
+    expect(texts.some((m) => typeof asText(m).text === "string" && (asText(m).text as string).startsWith("⚠️"))).toBe(
+      true,
+    );
+    expect(texts.some((m) => asText(m).text === PURE_TOOL_TURN_PLACEHOLDER)).toBe(false);
+    vi.useRealTimers();
+  });
+});
+
+describe("U1 过程流永不落盘（saveChat spy）", () => {
+  it("一轮 text+tool+reasoning:saveChat 只收到 text;process key 写入从不触发 bridge.save*", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    const saveChat = vi.fn<(sessionId: string, messages: Message[]) => Promise<void>>(async () => undefined);
+    __setBridgeForTest({ saveChat } as unknown as Parameters<typeof __setBridgeForTest>[0]);
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId: "prun-s", sessionId: "s1", typingUid: "typ", cwd: "/p", promptText: "hi" });
+    saveChat.mockClear(); // 忽略 beginPiRun 前可能的写入,只看流式阶段。
+
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "思考" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "答案" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    await vi.advanceTimersByTimeAsync(2_000); // 推进任何节流/兜底 timer。
+
+    // saveChat 被调用过(text/result 驱动),但每次入参都不含 agentLog/reasoning。
+    expect(saveChat).toHaveBeenCalled();
+    for (const [, saved] of saveChat.mock.calls) {
+      expect(saved.every((m) => m.kind !== "agentLog" && m.kind !== "reasoning" && m.kind !== "typing")).toBe(true);
+    }
+    // 最后一次落盘内容只含 text。
+    const lastSaved = saveChat.mock.calls[saveChat.mock.calls.length - 1]![1];
+    expect(lastSaved.every((m) => m.kind === "text")).toBe(true);
+    vi.useRealTimers();
+  });
+});
+
+describe("U1 旧档破坏性迁移与隐藏游标无损（R11）", () => {
+  const t = (uid: string, text = uid, who = "me"): Message =>
+    ({ kind: "text", who, time: "10:00", text, uid }) as Message;
+  const log = (uid: string): Message =>
+    ({ kind: "agentLog", who: "claude", time: "10:00", title: "执行", active: false, completed: true, items: [{ ic: "check", text: "Edit" }], uid }) as Message;
+
+  it("加载含历史 agentLog 的旧档 → 触发一次 flushChat → saveChat 入参已不含 agentLog", () => {
+    const qc = new QueryClient();
+    const saveChat = vi.fn<(sessionId: string, messages: Message[]) => Promise<void>>(async () => undefined);
+    __setBridgeForTest({ saveChat } as unknown as Parameters<typeof __setBridgeForTest>[0]);
+    // 模拟加载后的缓存（loadChat 已过 sanitize 则本就无 agentLog;但若缓存里混入 agentLog，
+    // flushChat 也必须原地清洗——这里直接喂含 agentLog 的缓存固化破坏性契约）。
+    qc.setQueryData<Message[]>(personalChatKeys.detail("s1"), [t("u1", "问"), log("g1"), t("a1", "答", "claude")]);
+    __flushChatForTest(qc, "s1");
+    expect(saveChat).toHaveBeenCalledTimes(1);
+    const saved = saveChat.mock.calls[0]![1];
+    expect(saved.some((m) => m.kind === "agentLog")).toBe(false);
+    expect(saved.map((m) => m.kind)).toEqual(["text", "text"]);
+  });
+
+  it("throughUid 命中路径:剥离 agentLog 后可见/隐藏切分对用户语义不变", () => {
+    // 旧档:text-agentLog-text 交错 + 带 throughUid 的隐藏游标。
+    const original = [t("u1", "旧问"), log("g1"), t("a1", "旧答", "claude"), t("u2", "新问"), t("a2", "新答", "claude")];
+    const hh = { count: 3, throughUid: "a1", hiddenAt: 1 }; // 隐藏到「旧答」为止。
+    // 清洗后数组（agentLog 剥离）。
+    const stripped = sanitizeForSave(original);
+    // throughUid 命中:adjust 原样返回（位置无关）。
+    const adjusted = adjustHiddenHistoryForSanitize(original, hh);
+    expect(adjusted).toEqual(hh);
+    const before = splitPersonalMessages(original, hh);
+    const after = splitPersonalMessages(stripped, adjusted);
+    // 可见集（剔除 agentLog 后）对用户语义一致。
+    const userVisible = (s: typeof before) => s.visibleMessages.filter((m) => m.kind === "text").map((m) => m.uid);
+    expect(userVisible(after)).toEqual(userVisible(before));
+    expect(userVisible(after)).toEqual(["u2", "a2"]);
+  });
+
+  it("count 兜底路径（无 throughUid）:回算 count 后隐藏/可见边界对用户语义不变", () => {
+    // 旧档:text-agentLog-text 交错,隐藏游标仅 count（隐藏到「旧答」为止 = 原数组前 3 条）。
+    const original = [t("u1", "旧问"), log("g1"), t("a1", "旧答", "claude"), t("u2", "新问"), t("a2", "新答", "claude")];
+    const hh = { count: 3, hiddenAt: 1 }; // 无 throughUid。
+    const stripped = sanitizeForSave(original);
+    const adjusted = adjustHiddenHistoryForSanitize(original, hh)!;
+    // 原前 3 条里有 1 条 agentLog 被剥离 → count 回算为 2。
+    expect(adjusted.count).toBe(2);
+    const before = splitPersonalMessages(original, hh);
+    const after = splitPersonalMessages(stripped, adjusted);
+    const userVisible = (s: typeof before) => s.visibleMessages.filter((m) => m.kind === "text").map((m) => m.uid);
+    expect(userVisible(after)).toEqual(userVisible(before));
+    expect(userVisible(after)).toEqual(["u2", "a2"]);
+  });
+
+  it("createHiddenHistory 用「落盘后存活」计数(忽略 agentLog/reasoning)", () => {
+    const msgs = [t("u1"), log("g1"), t("a1", "答", "claude")];
+    expect(createHiddenHistory(msgs, 9)).toEqual({ count: 2, throughUid: "a1", hiddenAt: 9 });
+  });
+});
+
 describe("pi extension UI 待确认队列（阶段3 U5）", () => {
   const req = (id: string) =>
     ({ type: "extension_ui_request", id, method: "confirm", title: "T", message: "M" }) as const;
@@ -854,5 +1135,437 @@ describe("serializeAskQuestionAnswers（答案聚合纯函数,U4）", () => {
   it("自定义空串 → 回落选项;选项越界且无自定义 → 跳过该组", () => {
     const out = JSON.parse(serializeAskQuestionAnswers(env, { g0: { optionIndex: 0, custom: "   " }, g1: { optionIndex: 9 } }));
     expect(out.answers).toEqual([{ groupId: "g0", value: "A", isCustom: false }]);
+  });
+});
+
+// ── U2：过程流生命周期与按语义分类的清理出口 ────────────────────────────────
+describe("U2 过程流生命周期与清理出口", () => {
+  const chatOf = (qc: QueryClient, sessionId = "s1"): Message[] =>
+    qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
+  const procOf = (qc: QueryClient, sessionId = "s1"): Message[] =>
+    qc.getQueryData<Message[]>(personalProcessKeys.detail(sessionId)) ?? [];
+
+  // 经 init 触发 HMR 兜底重建一个 claude run（runs 注册表里有该 runId）。
+  function setupCliRun(qc: QueryClient, sessionId = "s1", runId = "run-u2"): void {
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: sessionId, agent: "claude", agentSessionIds: {} }],
+      runningBySession: {},
+    });
+    __handleCliEventForTest(qc, runId, { type: "init", sessionId: "claude-sess" }, sessionId);
+  }
+
+  const piSession: SessionMeta = { ...baseSession, agent: "pi", agentSessionIds: {} };
+  function setupPiRun(qc: QueryClient, sessionId = "s1", runId = "prun-u2"): string {
+    usePersonalStore.setState({
+      sessions: [{ ...piSession, id: sessionId }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId, sessionId, typingUid: `typ-${sessionId}`, cwd: "/proj", promptText: "hi" });
+    return runId;
+  }
+
+  it("finalizeRun 成功后过程流步骤全部完成且保留可读（不立即清空）", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-u2", { type: "tool", name: "Edit", detail: "a.ts" }, "s1");
+    __handleCliEventForTest(qc, "run-u2", { type: "result", ok: true, text: "" }, "s1");
+    // result 收尾过程流当前 agentLog;此时过程流仍在（未清）。
+    await vi.advanceTimersByTimeAsync(RESULT_EXIT_GRACE_MS); // 触发 finalizeRun（成功路径）。
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    const logs = procOf(qc).filter((m) => m.kind === "agentLog");
+    expect(logs).toHaveLength(1); // 保留可读,未被清空。
+    expect(logs[0]).toMatchObject({ active: false, completed: true });
+    expect((logs[0] as Extract<Message, { kind: "agentLog" }>).items.every((it) => it.ic === "check")).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("pi result(成功) 收尾本轮:过程流 reasoning+agentLog 全部完成且保留", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "想想" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "答案" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false }); // 同步收尾 finalizeRun 成功路径。
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    // 过程流保留可读且全部完成态。
+    const log = procOf(qc).find((m) => m.kind === "agentLog");
+    const reasoning = procOf(qc).find((m) => m.kind === "reasoning");
+    expect(log).toMatchObject({ active: false, completed: true });
+    expect((log as Extract<Message, { kind: "agentLog" }>).items.every((it) => it.ic === "check")).toBe(true);
+    expect(reasoning).toMatchObject({ active: false, completed: true });
+  });
+
+  it("finalizeProcessForRetain 兜底:成功收尾把残留 active 过程块翻完成并保留", () => {
+    // 构造一个「success（gotResult+resultOk 不为 false）但过程流仍有 active agentLog 未被收尾」的边界
+    // （正常 result/turn-end 已收尾,这里直接喂状态固化兜底契约）。经 setupPiRun 起 run 后,先放一个
+    // tool-start（过程流 active agentLog），再喂 result 之外的 turn-end？turn-end 也会收尾——故改为直接
+    // 在 process key 注入一个 active agentLog,再触发成功 finalizeRun（result）验证兜底翻完成 + 保留。
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    qc.setQueryData<Message[]>(personalProcessKeys.detail("s1"), [
+      { kind: "agentLog", who: "pi", time: "10:00", title: "执行", active: true, items: [{ ic: "running", text: "Bash" }], uid: "stale-log" },
+    ]);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "done" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    const log = procOf(qc).find((m) => m.uid === "stale-log");
+    expect(log).toMatchObject({ active: false, completed: true });
+    expect((log as Extract<Message, { kind: "agentLog" }>).items.every((it) => it.ic === "check")).toBe(true);
+  });
+
+  it("纯文本轮（无过程）finalizeRun 成功不创建空过程缓存", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-u2", { type: "text", delta: "你好" }, "s1");
+    __handleCliEventForTest(qc, "run-u2", { type: "result", ok: true, text: "" }, "s1");
+    await vi.advanceTimersByTimeAsync(RESULT_EXIT_GRACE_MS);
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("切到他会话:A 过程流不被清,切回仍可重现（按 key 隔离保留）", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc, "sA", "run-A");
+    __handleCliEventForTest(qc, "run-A", { type: "tool", name: "Edit", detail: "a.ts" }, "sA");
+    // 「切到他会话」在 core 层不触发任何清理;A 的 process key 原样保留,供切回重现。
+    expect(procOf(qc, "sA").filter((m) => m.kind === "agentLog")).toHaveLength(1);
+  });
+
+  it("开始新一轮即清:clearProcess 清掉上一轮保留过程", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-u2", { type: "tool", name: "Edit", detail: "a.ts" }, "s1");
+    expect(procOf(qc).filter((m) => m.kind === "agentLog")).toHaveLength(1);
+    // 新一轮入口（send 起手）会 clearProcess（此处用测试入口模拟该清理语义）。
+    __clearProcessForTest(qc, "s1");
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+  });
+
+  it("运行中 stop（reapSessionRun/4s 兜底语义）:过程流被清,无错误文本误入消息流", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    expect(procOf(qc).filter((m) => m.kind === "agentLog")).toHaveLength(1);
+    // reapSessionRun 是 stop/删会话共用的立即清空出口。
+    reapSessionRun(qc, "s1");
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+    // 不应有 ⚠️ 误入消息流（stop 收尾不追加错误文案）。
+    expect(chatOf(qc).some((m) => m.kind === "text" && typeof m.text === "string" && m.text.startsWith("⚠️"))).toBe(false);
+  });
+
+  it("会话删除（reapSessionRun）在挂了游离清理 timer 后:推进 fake timer 不复活过程流", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    // 模拟「会话结束后挂的游离延迟清理 timer」（若不取消会把数据写回 process key）。
+    __scheduleStrayProcessTimerForTest(qc, "s1", 5_000);
+    expect(__processCleanupTimerCountForTest()).toBe(1);
+    // 删会话:reapSessionRun → clearProcess 先 clearTimeout 再 removeQueries。
+    reapSessionRun(qc, "s1");
+    expect(__processCleanupTimerCountForTest()).toBe(0); // 游离 timer 已取消。
+    await vi.advanceTimersByTimeAsync(10_000); // 推进远超 timer 延迟。
+    // 过程流未被复活写回。
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("clearProcess 先 clearTimeout:游离 timer 不在清空后复活 process key", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-u2", { type: "tool", name: "Edit" }, "s1");
+    __scheduleStrayProcessTimerForTest(qc, "s1", 3_000);
+    __clearProcessForTest(qc, "s1");
+    expect(__processCleanupTimerCountForTest()).toBe(0);
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("pi crashed:过程流被清,游离 timer 被取消", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "崩溃前" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    __scheduleStrayProcessTimerForTest(qc, "s1", 5_000);
+    __handlePiEventForTest(qc, "s1", { type: "crashed", error: "退出码 1" });
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+    expect(__processCleanupTimerCountForTest()).toBe(0);
+    // 崩溃文案进消息流（C2 守护:错误文本仍落消息流）。
+    expect(chatOf(qc).some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("已退出"))).toBe(true);
+  });
+
+  it("pi error 宽限到期 finalizeRun（失败路径）:过程流被清", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    __handlePiEventForTest(qc, "s1", { type: "error", error: "401 unauthorized" });
+    expect(procOf(qc).filter((m) => m.kind === "agentLog")).toHaveLength(1); // error 后未清,等宽限。
+    await vi.advanceTimersByTimeAsync(4_000); // 宽限到期 → finalizeRun（resultOk=false 失败路径）→ clearProcess。
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("finalizeRun run-not-found 兜底（stop 4s / watchdog 等出口的共享清空结构）:过程流被清且取消游离 timer", async () => {
+    // watchdog 超时与 stop 4s 兜底都先删 run 再 clearTransient+clearProcess;其「run 已不在注册表」
+    // 后对 sessionId 立即清空过程流的结构,与 finalizeRun 的 run-not-found 兜底分支同源。此处驱动该
+    // 兜底分支：run 不在注册表 + 已有过程流 + 已挂游离 timer → 断言过程流被清、timer 被取消、不复活。
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupCliRun(qc, "s1", "run-stop");
+    __handleCliEventForTest(qc, "run-stop", { type: "tool", name: "Edit" }, "s1");
+    expect(procOf(qc).filter((m) => m.kind === "agentLog")).toHaveLength(1);
+    __scheduleStrayProcessTimerForTest(qc, "s1", 2_000);
+    // runId 不在注册表 → finalizeRun 走 run-not-found 兜底分支 → clearTransient + clearProcess。
+    __handleCliExitForTest(qc, "phantom-run", 0, undefined, "s1");
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+    expect(__processCleanupTimerCountForTest()).toBe(0);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("__resetPersonalMessageRunsForTest 清空全部延迟清理 timer", () => {
+    const qc = new QueryClient();
+    __scheduleStrayProcessTimerForTest(qc, "sA", 5_000);
+    __scheduleStrayProcessTimerForTest(qc, "sB", 5_000);
+    expect(__processCleanupTimerCountForTest()).toBe(2);
+    __resetPersonalMessageRunsForTest();
+    expect(__processCleanupTimerCountForTest()).toBe(0);
+  });
+
+  it("editResend 截断:目标会话上一轮残留过程入口被清（clearProcess 语义）", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-u2", { type: "tool", name: "Edit", detail: "a.ts" }, "s1");
+    __handleCliEventForTest(qc, "run-u2", { type: "result", ok: true, text: "" }, "s1");
+    expect(procOf(qc).filter((m) => m.kind === "agentLog")).toHaveLength(1); // 上一轮保留入口。
+    // editResend 截断前显式 clearProcess（此处用测试入口模拟）。
+    __clearProcessForTest(qc, "s1");
+    expect(qc.getQueryData(personalProcessKeys.detail("s1"))).toBeUndefined();
+  });
+
+  it("后台长轮 process query 不被全局 10min gcTime 回收（显式 gcTime Infinity）", () => {
+    // gcTime 由 usePersonalProcess 在 useQuery 上声明（Infinity）;此处以行为契约断言:
+    // clearProcess 之外的「时间流逝」不应清空 process key——即过程流的回收**仅**由 clearProcess 出口负责。
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-u2", { type: "tool", name: "Edit" }, "s1");
+    // 不调任何清理出口,直接断言数据仍在（核心层无定时回收;真正 gc 由 React Query observer 生命周期 +
+    // 显式 gcTime 控制,设 Infinity 后即便切走变 inactive 也不在窗口内被回收）。
+    expect(procOf(qc).filter((m) => m.kind === "agentLog")).toHaveLength(1);
+  });
+});
+
+// ── U5：集成与回归（跨场景 + 不落盘强保证 + HMR 续流） ──────────────────────────
+describe("U5 集成：多会话并发 / 切换重现 / HMR 续流", () => {
+  const chatOf = (qc: QueryClient, sessionId: string): Message[] =>
+    qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
+  const procOf = (qc: QueryClient, sessionId: string): Message[] =>
+    qc.getQueryData<Message[]>(personalProcessKeys.detail(sessionId)) ?? [];
+
+  // 经 init 触发 HMR 兜底重建一个 claude run（registry 里没有该 runId → 用 sessionIdHint 重建）。
+  function startCliRunViaInit(qc: QueryClient, sessionId: string, runId: string): void {
+    __handleCliEventForTest(qc, runId, { type: "init", sessionId: `claude-${sessionId}` }, sessionId);
+    expect(usePersonalStore.getState().runningBySession[sessionId]).toBe(runId);
+  }
+
+  it("多会话并发：A、B 同时运行,过程流各自累积,互不串台", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      sessions: [
+        { ...baseSession, id: "A", agent: "claude", agentSessionIds: {} },
+        { ...baseSession, id: "B", agent: "claude", agentSessionIds: {} },
+      ],
+      runningBySession: {},
+    });
+    startCliRunViaInit(qc, "A", "run-A");
+    startCliRunViaInit(qc, "B", "run-B");
+    // A 跑两个工具,B 跑一个工具 + 一段文本。
+    __handleCliEventForTest(qc, "run-A", { type: "tool", name: "Read", detail: "a1" }, "A");
+    __handleCliEventForTest(qc, "run-A", { type: "tool", name: "Edit", detail: "a2" }, "A");
+    __handleCliEventForTest(qc, "run-B", { type: "tool", name: "Bash", detail: "b1" }, "B");
+    __handleCliEventForTest(qc, "run-B", { type: "text", delta: "B 的结果" }, "B");
+
+    // 过程流各自累积:A 的 agentLog 含两步,B 的含一步且已被 text 跨流收尾。
+    const logA = procOf(qc, "A").find((m) => m.kind === "agentLog");
+    const logB = procOf(qc, "B").find((m) => m.kind === "agentLog");
+    expect(asLog(logA!).items.map((it) => it.text)).toEqual(["Read · a1", "Edit · a2"]);
+    expect(asLog(logA!).active).toBe(true); // A 仍运行中,未收尾。
+    expect(asLog(logB!).active).toBe(false); // B 被 text 收尾。
+    expect(asLog(logB!).items[0]).toMatchObject({ ic: "check", text: "Bash · b1" });
+    // 消息流也不串台:A 无 agent text,B 有「B 的结果」。
+    expect(chatOf(qc, "A").some((m) => m.kind === "text" && m.who === "claude")).toBe(false);
+    expect(chatOf(qc, "B").filter((m) => m.kind === "text" && m.who === "claude").map((m) => asText(m).text)).toEqual([
+      "B 的结果",
+    ]);
+  });
+
+  it("切换重现：A 运行中(过程已累积)切到 B 再切回 A,A 过程续流可继续接收事件", () => {
+    // core 层无「当前会话」概念,切换是 view 层的 activeSessionId;过程按 key 隔离保留。
+    // 这里验证:A 的过程流在「切走期间」不被任何 core 出口清掉,切回后仍能续接新事件。
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      sessions: [
+        { ...baseSession, id: "A", agent: "claude", agentSessionIds: {} },
+        { ...baseSession, id: "B", agent: "claude", agentSessionIds: {} },
+      ],
+      runningBySession: {},
+    });
+    startCliRunViaInit(qc, "A", "run-A");
+    __handleCliEventForTest(qc, "run-A", { type: "tool", name: "Read", detail: "a1" }, "A");
+    expect(asLog(procOf(qc, "A").find((m) => m.kind === "agentLog")!).items).toHaveLength(1);
+
+    // 「切到 B」:B 起一轮(不触碰 A 的 key)。
+    startCliRunViaInit(qc, "B", "run-B");
+    __handleCliEventForTest(qc, "run-B", { type: "tool", name: "Bash", detail: "b1" }, "B");
+    // A 过程流仍在(切走不清)。
+    expect(asLog(procOf(qc, "A").find((m) => m.kind === "agentLog")!).items).toHaveLength(1);
+
+    // 「切回 A」:A 仍运行中,续接新工具事件 → 过程流追加第二步。
+    __handleCliEventForTest(qc, "run-A", { type: "tool", name: "Edit", detail: "a2" }, "A");
+    expect(asLog(procOf(qc, "A").find((m) => m.kind === "agentLog")!).items.map((it) => it.text)).toEqual([
+      "Read · a1",
+      "Edit · a2",
+    ]);
+  });
+
+  it("HMR 重建 run（sessionIdHint 路径）后过程流仍能继续接收过程事件", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "claude", agentSessionIds: {} }],
+      runningBySession: {},
+    });
+    // 第一轮:init 重建 run + 一个工具进过程流。
+    startCliRunViaInit(qc, "s1", "run-1");
+    __handleCliEventForTest(qc, "run-1", { type: "tool", name: "Read", detail: "x" }, "s1");
+    expect(procOf(qc, "s1").filter((m) => m.kind === "agentLog")).toHaveLength(1);
+
+    // 模拟 HMR:renderer 重载、内存 registry 丢失（用 reset 清掉 runs,但保留 store/缓存场景由下方
+    // 新 runId 的 init 兜底重建覆盖）。这里直接用一个「registry 里不存在的新 runId」喂事件——
+    // 它会经 sessionIdHint 兜底重建 run,使仍在跑的流继续渲染。
+    __resetPersonalMessageRunsForTest(); // 清 runs + 过程缓存（模拟重载后内存清空）。
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "claude", agentSessionIds: {} }],
+      runningBySession: {},
+    });
+    // 主进程回显的后续事件带新 runId（renderer 重载后主进程仍持原流）。
+    __handleCliEventForTest(qc, "run-hmr", { type: "init", sessionId: "claude-s1" }, "s1");
+    __handleCliEventForTest(qc, "run-hmr", { type: "tool", name: "Edit", detail: "y" }, "s1");
+    // 续流:重建的 run 有全新过程游标,新工具事件被接住并落进过程流（新开一张 agentLog 卡片,
+    // 旧轮的 Read · x 缓存仍残留——这正是 HMR 后「续流不卡死」的可观察证据)。
+    const steps = procOf(qc, "s1")
+      .filter((m) => m.kind === "agentLog")
+      .flatMap((m) => asLog(m).items.map((it) => it.text));
+    expect(steps).toContain("Edit · y"); // 续流事件已被新建 run 接住、落进过程流。
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("run-hmr"); // 运行态恢复,不再卡「运行中」。
+  });
+});
+
+describe("U5 端到端不落盘强保证（R10:结构上无落盘通道）", () => {
+  it("含工具+思考+结果的一轮:saveChat 只由 text/result 触发、只含 text;process key 写入从不触发 bridge.save*", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    const saveChat = vi.fn<(sessionId: string, messages: Message[]) => Promise<void>>(async () => undefined);
+    __setBridgeForTest({ saveChat } as unknown as Parameters<typeof __setBridgeForTest>[0]);
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId: "prun-e2e", sessionId: "s1", typingUid: "typ", cwd: "/p", promptText: "hi" });
+    saveChat.mockClear();
+
+    // 一整轮:思考 → 工具 → 工具收尾 → 正文 → 收尾。
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "想想" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "最终答案" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // (1) saveChat 被触发过（text/result 驱动落盘）。
+    expect(saveChat).toHaveBeenCalled();
+    // (2) 每一次落盘入参都只含 text,绝不含过程块（agentLog/reasoning/typing）。
+    for (const [, saved] of saveChat.mock.calls) {
+      expect(saved.every((m) => m.kind === "text")).toBe(true);
+    }
+    // (3) 过程流确有数据（思考+工具都进了 process key,只是不落盘）。
+    const proc = qc.getQueryData<Message[]>(personalProcessKeys.detail("s1")) ?? [];
+    expect(proc.some((m) => m.kind === "agentLog")).toBe(true);
+    expect(proc.some((m) => m.kind === "reasoning")).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("直接写 process key（setProcessMessages 链路）:绝不触发任何 bridge.save*（R10 结构闭环）", async () => {
+    // __scheduleStrayProcessTimerForTest 经 setProcessMessages 直接往 process key 注入 agentLog,
+    // 不碰消息流、不调 scheduleChatSave——以此精确证明「过程流写入无落盘通道」（区别于 tool 事件会
+    // 顺带 dropMsg 触动消息流 typing）。
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    const saveChat = vi.fn<(sessionId: string, messages: Message[]) => Promise<void>>(async () => undefined);
+    __setBridgeForTest({ saveChat } as unknown as Parameters<typeof __setBridgeForTest>[0]);
+    __scheduleStrayProcessTimerForTest(qc, "s1", 1_000);
+    await vi.advanceTimersByTimeAsync(2_000); // timer 触发 → setProcessMessages 写入 process key（一条 reasoning）。
+    // process key 已写入,但 bridge.saveChat 从未被调用。
+    expect((qc.getQueryData<Message[]>(personalProcessKeys.detail("s1")) ?? []).length).toBeGreaterThan(0);
+    expect(saveChat).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("纯工具事件:消息流落盘入参从不含过程块(agentLog/reasoning/typing)——落盘只见问答", async () => {
+    // tool 事件会 dropMsg 触动消息流(故 saveChat 可能被调),但任何一次落盘入参都不得含过程块。
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    const saveChat = vi.fn<(sessionId: string, messages: Message[]) => Promise<void>>(async () => undefined);
+    __setBridgeForTest({ saveChat } as unknown as Parameters<typeof __setBridgeForTest>[0]);
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "claude", agentSessionIds: {} }],
+      runningBySession: {},
+    });
+    __handleCliEventForTest(qc, "run-p", { type: "init", sessionId: "claude-s1" }, "s1");
+    __handleCliEventForTest(qc, "run-p", { type: "tool", name: "Read", detail: "a" }, "s1");
+    __handleCliEventForTest(qc, "run-p", { type: "tool", name: "Edit", detail: "b" }, "s1");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect((qc.getQueryData<Message[]>(personalProcessKeys.detail("s1")) ?? []).some((m) => m.kind === "agentLog")).toBe(
+      true,
+    );
+    for (const [, saved] of saveChat.mock.calls) {
+      expect(saved.every((m) => m.kind !== "agentLog" && m.kind !== "reasoning" && m.kind !== "typing")).toBe(true);
+    }
+    vi.useRealTimers();
+  });
+});
+
+describe("U5 editResend 截断含旧 agentLog 的会话:落盘与中栏均无 agentLog", () => {
+  const t = (uid: string, text = uid, who = "me"): Message =>
+    ({ kind: "text", who, time: "10:00", text, uid }) as Message;
+  const log = (uid: string): Message =>
+    ({
+      kind: "agentLog",
+      who: "claude",
+      time: "10:00",
+      title: "执行",
+      active: false,
+      completed: true,
+      items: [{ ic: "check", text: "Edit" }],
+      uid,
+    }) as Message;
+
+  it("truncateForEdit 截断点之前残留 agentLog,sanitize 后写回缓存的截断内容不含 agentLog", () => {
+    // 模拟旧档缓存:u1 → agentLog → a1 → u2(待编辑) → a2。截断到 u2 之前 → [u1, agentLog, a1]。
+    const stale = [t("u1", "旧问"), log("g1"), t("a1", "旧答", "claude"), t("u2", "新问"), t("a2", "新答", "claude")];
+    const truncatedRaw = truncateForEdit(stale, "u2");
+    expect(truncatedRaw?.map((m) => m.kind)).toEqual(["text", "agentLog", "text"]); // 纯截断仍含 agentLog
+    // editResend 写回前过一遍 sanitizeForSave → 中栏缓存不再含 agentLog（避免闪回工具步骤）。
+    const forCache = sanitizeForSave(truncatedRaw!);
+    expect(forCache.map((m) => m.kind)).toEqual(["text", "text"]);
+    expect(forCache.some((m) => m.kind === "agentLog")).toBe(false);
   });
 });

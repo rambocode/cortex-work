@@ -17,6 +17,7 @@ import {
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { PersonalSidebar } from "./PersonalSidebar";
 import { PersonalChatArea } from "./PersonalChatArea";
+import { PersonalProcessPanel } from "./PersonalProcessPanel";
 import { PersonalRightPanel } from "./PersonalRightPanel";
 import { PersonalCenterHeader } from "./PersonalTopBar";
 import { TerminalPanel } from "./TerminalPanel";
@@ -112,6 +113,10 @@ export function PersonalWorkspace({
             ) : (
               <PersonalChatArea onToast={onToast} onOpenFlashNote={onOpenFlashNote} />
             )}
+            {/* 右侧执行过程区（浮起 overlay，position:absolute 脱离 .pw-center-col 的 flex:1 规则，
+                锚到 .pw-center-col 的 relative）。独立门控：与上面的视图切换、rightOpen/rightView 解耦，
+                由组件自身依据「中栏显示会话区 + 当前会话有过程」判定是否渲染。 */}
+            <PersonalProcessPanel />
           </div>
           {!automationOpen && rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}
         </div>

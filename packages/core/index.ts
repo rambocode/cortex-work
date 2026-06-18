@@ -237,9 +237,11 @@ export {
 } from "./personal/git";
 export {
   personalChatKeys,
+  personalProcessKeys,
   buildAttachmentSystemPrompt,
   buildProjectSystemPrompt,
   usePersonalChat,
+  usePersonalProcess,
   useRenderWindow,
   windowTailMessages,
   usePersonalActions,
