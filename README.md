@@ -14,8 +14,9 @@ packages/
   views/     业务视图：CortexDesktopView 及全部子组件 + 设计稿样式
   tsconfig/  共享 TS 配置
   eslint-config/  共享 ESLint 配置
-server/      Go 后端（既有）
 ```
+
+> Go 后端 `server/` 与营销站 `site/` 已移出本仓库，现位于上级目录 `../server`、`../site`，各自独立维护。
 
 边界硬规则：`core` 不碰 react-dom/localStorage/process.env；`ui` 不依赖 `core`；`views` 不引 next/* 或 react-router-dom；Zustand 只在 `core`；服务端态走 React Query（query key 含 wsId），客户端态走 Zustand。
 

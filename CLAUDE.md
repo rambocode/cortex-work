@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 仓库概览
 
-`cortex-work` 是「Cortex Desktop」团队 Agent 应用的 monorepo：pnpm + Turbo 管理的前端（Web + Electron），加一个既有的 Go 后端（`server/`）。前端核心层（业务逻辑、类型、状态、数据）在 `packages/` 中跨 Web/Desktop 复用，两个 `apps/` 只放各自的平台外壳。
+`cortex-work` 是「Cortex Desktop」团队 Agent 应用的前端 monorepo：pnpm + Turbo 管理的 Web + Electron 两端。核心层（业务逻辑、类型、状态、数据）在 `packages/` 中跨 Web/Desktop 复用，两个 `apps/`（`desktop`、`web`）只放各自的平台外壳。
+
+> **目录变更（重要）**：Go 后端 `server/` 与营销站 `site/` 已从本仓库移出，现位于上级目录 `../server`、`../site`，各自独立维护。本仓库只剩前端两端 + 共享包。若 `pnpm-workspace.yaml`、根 `package.json` 仍残留 `site`（`dev:site` / `build:site` / `start:site`）或 `server` 引用，应视为待清理的悬空配置。
 
 包管理器固定为 `pnpm@10.28.2`，根 `package.json` 为 `"type": "module"`（用 ESM，不要 `require()`）。
 
@@ -30,10 +32,9 @@ pnpm dist:desktop     # 打包 macOS（electron-builder，另有 :dir/:zip/:dmg�
 pnpm --filter @cortex-work/core test          # 单个包全部单测
 pnpm --filter @cortex-work/core test -- run packages/core/personal/messages.test.ts  # 单个文件
 pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两套 tsconfig
-cd server && go test ./...                     # Go 后端测试
 ```
 
-测试就近放在被测代码旁，命名 `*.test.ts(x)`（前端，Vitest + Testing Library + jsdom）或 `*_test.go`（后端，优先表驱动）。Go 代码用 `gofmt` 格式化。
+测试就近放在被测代码旁，命名 `*.test.ts(x)`（Vitest + Testing Library + jsdom）。Go 后端测试在 `../server`（`go test ./...`），不在本仓库范围。
 
 ## 架构
 
@@ -44,7 +45,8 @@ cd server && go test ./...                     # Go 后端测试
 - `packages/views/` — 共享业务视图（`CortexDesktopView` 及全部子组件），Web/Desktop 复用。**不得引入 `next/*` 或 `react-router-dom`**（路由通过 NavigationAdapter）。
 - `apps/web/` — Next.js App Router 外壳，Next 专属代码只放这里（`apps/web/platform/`）。
 - `apps/desktop/` — Electron 外壳：主进程 / 预加载 / 桌面适配。
-- `server/` — Go：API server、CLI、daemon runtime、DB、业务 service。
+- `packages/tsconfig/`、`packages/eslint-config/` — 共享 TS / ESLint 配置。
+- _(Go 后端 `server/`、营销站 `site/` 已移至上级目录 `../server`、`../site`，不在本仓库。)_
 
 包之间通过 `exports` 字段（见各 `package.json`）做子路径导入，例如 `@cortex-work/core/store/ui`、`@cortex-work/views/cortex-desktop`。新增对外模块要同步更新 `exports`。
 

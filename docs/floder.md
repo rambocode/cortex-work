@@ -1,12 +1,12 @@
   1. 目录职责
 
-  - server/：Go 后端，包含 API server、CLI、daemon runtime、数据库访问、业务 service。
   - apps/web/：Next.js Web 应用，只放 Web 平台外壳和 Next 专属代码。
   - apps/desktop/：Electron 桌面端，只放桌面平台外壳、主进程、预加载、桌面适配。
   - packages/core/：共享业务核心层，放 API client、React Query hooks、Zustand stores、平台桥接。
   - packages/ui/：纯 UI 基础组件，不放业务逻辑。
   - packages/views/：共享业务页面和业务组件，供 Web/Desktop 复用。
   - packages/tsconfig/：共享 TypeScript 配置。
+  - 注：Go 后端 server/ 与营销站 site/ 已移出本仓库，现位于上级目录 ../server、../site。
 
   2. 包边界硬规则
 

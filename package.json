@@ -6,13 +6,10 @@
   "scripts": {
     "dev:web": "turbo dev --filter=@cortex-work/web",
     "dev:desktop": "turbo dev --filter=@cortex-work/desktop",
-    "dev:site": "turbo dev --filter=@cortex-work/site",
     "build": "turbo build",
     "build:web": "turbo build --filter=@cortex-work/web",
     "build:desktop": "turbo build --filter=@cortex-work/desktop",
-    "build:site": "turbo build --filter=@cortex-work/site",
     "start:web": "pnpm --filter @cortex-work/web start",
-    "start:site": "pnpm --filter @cortex-work/site start",
     "preview:desktop": "pnpm --filter @cortex-work/desktop preview",
     "dist": "pnpm dist:desktop",
     "dist:desktop": "pnpm --filter @cortex-work/desktop dist",
