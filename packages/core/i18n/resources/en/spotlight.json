@@ -1,0 +1,14 @@
+{
+  "placeholder": "What can I help you with today?",
+  "newChat": "New Chat",
+  "send": "Send",
+  "agent": "Agent",
+  "notInstalled": " (not installed)",
+  "model": "Model",
+  "noModel": "(no available models)",
+  "project": "Project",
+  "projectLabel": "Project",
+  "noProject": "No project",
+  "footNoProject": "Will create a temporary session under Documents/cortex",
+  "footProject": "Will work in the \"{{name}}\" project directory"
+}

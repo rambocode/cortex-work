@@ -89,7 +89,7 @@ describe("PROVIDER_PRESETS", () => {
     for (const preset of PROVIDER_PRESETS) {
       expect(valid.has(preset.endpointFormat)).toBe(true);
       expect(preset.templateKey).toBeTruthy();
-      expect(typeof preset.name).toBe("string");
+      expect(typeof preset.nameKey).toBe("string");
     }
   });
 
@@ -100,5 +100,25 @@ describe("PROVIDER_PRESETS", () => {
     expect(out.name).toBe("DeepSeek");
     expect(out.endpointFormat).toBe("chat_completions");
     expect(out.enabled).toBe(true);
+  });
+
+  // 持久化防护:preset.nameKey 必须在实例化时被解析为具体本地化串写入 ProviderProfile.name,
+  // 绝不能让翻译 key（如 "providers.preset.qwen"）落进持久态。默认语言 zh-Hans → 「通义千问」。
+  it("providerFromPreset resolves nameKey to a concrete localized name, never a raw key", () => {
+    const preset = PROVIDER_PRESETS.find((p) => p.templateKey === "qwen")!;
+    const out = providerFromPreset(preset, "qwen-1");
+    // 不是 key 本身。
+    expect(out.name).not.toBe(preset.nameKey);
+    expect(out.name).not.toContain("providers.preset.");
+    // 默认 zh 源串。
+    expect(out.name).toBe("通义千问");
+  });
+
+  it("providerFromPreset persists a concrete name for every preset (no leaked keys)", () => {
+    for (const preset of PROVIDER_PRESETS) {
+      const out = providerFromPreset(preset, `${preset.templateKey}-x`);
+      expect(out.name).not.toContain("providers.preset.");
+      expect(out.name.trim().length).toBeGreaterThan(0);
+    }
   });
 });

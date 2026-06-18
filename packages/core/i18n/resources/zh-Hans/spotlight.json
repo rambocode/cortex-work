@@ -1,0 +1,14 @@
+{
+  "placeholder": "What can I help you with today?",
+  "newChat": "New Chat",
+  "send": "发送",
+  "agent": "Agent",
+  "notInstalled": "（未安装）",
+  "model": "模型",
+  "noModel": "（无可用模型）",
+  "project": "项目",
+  "projectLabel": "项目",
+  "noProject": "不使用项目",
+  "footNoProject": "将在 Documents/cortex 下新建临时会话",
+  "footProject": "将在项目「{{name}}」目录工作"
+}

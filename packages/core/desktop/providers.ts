@@ -1,6 +1,7 @@
 // Provider 数据模型的纯函数 helper：规范化、旧 PiChannel→Provider 迁移、预置实例化。
 // store hydrate（向后兼容迁移）与设置 UI（新增/规范化）共用，保持 types.ts 为纯类型。
 
+import { t } from "../i18n";
 import type {
   EndpointFormat,
   ProviderModelOption,
@@ -86,9 +87,12 @@ export function migratePiSettings(old: {
 
 // 由预置模板实例化一个新 provider（用户点「添加」时）。id 由调用方分配唯一值。
 export function providerFromPreset(preset: ProviderPreset, id: string): ProviderProfile {
+  // 关键：把 nameKey 在「实例化时」解析为具体本地化串（如「通义千问」/「Qwen」）写入持久态，
+  // 绝不让翻译 key 落进 ProviderProfile.name（该 name 会随 personal-workspace.json 落盘）。
   return normalizeProviderProfile({
     id,
-    name: preset.name,
+    // nameKey 是动态 settings key,绕过强类型 key 检查(运行时确为有效 key)。
+    name: (t as (key: string, opts?: { ns: string }) => string)(preset.nameKey, { ns: "settings" }),
     baseUrl: preset.baseUrl,
     endpointFormat: preset.endpointFormat,
     models: preset.models,

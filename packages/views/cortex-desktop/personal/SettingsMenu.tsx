@@ -17,7 +17,6 @@ import {
   DEFAULT_PI_APPROVAL_TOOLS,
   PI_APPROVAL_TOOL_OPTIONS,
   PI_THINKING_LEVELS,
-  PI_THINKING_LABELS,
   DEFAULT_PUSH_TEMPLATE,
   PROVIDER_PRESETS,
   providerFromPreset,
@@ -71,50 +70,55 @@ const PALETTES: PaletteOption[] = [
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
+// 译函数最小签名（与 TimelineView 一致,避免引入 react-i18next 的 TFunction 泛型）。
+type TFunction = (key: string, opts?: Record<string, unknown>) => string;
+
 type SettingsTab = "profile" | "general" | "providers" | "agent" | "pi" | "plugins" | "pet" | "timeline" | "push" | "voice";
 
-const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-  { id: "profile", label: "个人资料", icon: <Icon.Users size={14} /> },
-  { id: "general", label: "通用", icon: <Icon.Settings size={14} /> },
-  { id: "providers", label: "供应商", icon: <Icon.Globe size={14} /> },
-  { id: "agent", label: "Agent", icon: <Icon.Terminal size={14} /> },
-  { id: "pi", label: "Pi", icon: <Icon.Bot size={14} /> },
-  { id: "plugins", label: "插件", icon: <Icon.Workflow size={14} /> },
-  { id: "pet", label: "宠物", icon: <Icon.Sparkle size={14} /> },
-  { id: "timeline", label: "时间线", icon: <Icon.Clock size={14} /> },
-  { id: "push", label: "推送", icon: <Icon.Send size={14} /> },
-  { id: "voice", label: "语音", icon: <Icon.Mic size={14} /> },
+// label 走 i18n（settings:tabs.*）,故此处只存 tabKey,渲染时即时翻译。
+const TABS: { id: SettingsTab; tabKey: string; icon: React.ReactNode }[] = [
+  { id: "profile", tabKey: "tabs.profile", icon: <Icon.Users size={14} /> },
+  { id: "general", tabKey: "tabs.general", icon: <Icon.Settings size={14} /> },
+  { id: "providers", tabKey: "tabs.providers", icon: <Icon.Globe size={14} /> },
+  { id: "agent", tabKey: "tabs.agent", icon: <Icon.Terminal size={14} /> },
+  { id: "pi", tabKey: "tabs.pi", icon: <Icon.Bot size={14} /> },
+  { id: "plugins", tabKey: "tabs.plugins", icon: <Icon.Workflow size={14} /> },
+  { id: "pet", tabKey: "tabs.pet", icon: <Icon.Sparkle size={14} /> },
+  { id: "timeline", tabKey: "tabs.timeline", icon: <Icon.Clock size={14} /> },
+  { id: "push", tabKey: "tabs.push", icon: <Icon.Send size={14} /> },
+  { id: "voice", tabKey: "tabs.voice", icon: <Icon.Mic size={14} /> },
 ];
 
 // 颜色预设(主色;深/浅两档由 petColorVars 自动派生)。
 const PET_COLOR_PRESETS = ["#ecb98a", "#e8a3b2", "#a3c4e8", "#9fc7a8", "#c9b6e8", "#9a958a"];
 
-// 行为模式 ↔ 设置页展示文案(SegmentedRadio 以展示值为选项)。
-const PET_MODE_LABEL: Record<PetMode, string> = { free: "自由放置", perch: "趴在输入框" };
-const PET_MODE_OPTIONS = (Object.keys(PET_MODE_LABEL) as PetMode[]).map((m) => PET_MODE_LABEL[m]);
+// 行为模式 ↔ 设置页展示文案 key(SegmentedRadio 以展示值为选项,即时翻译)。
+const PET_MODES: PetMode[] = ["free", "perch"];
+const PET_MODE_KEY: Record<PetMode, string> = { free: "pet.modeFree", perch: "pet.modePerch" };
 
 // 个人资料:昵称 + 内置头像（写入 personal store 的 profile 切片,随工作区落盘;
 // 会话中 who="me" 的气泡据此渲染,见 ChatArea MessageAvatar/MessageHeader）。
 function ProfileSection() {
+  const { t } = useTranslation("settings");
   const profile = usePersonalProfile();
   const setProfile = usePersonalStore((s) => s.setProfile);
   const nickname = profile.nickname ?? "";
   return (
     <>
-      <div className="pw-dlg-title">个人资料</div>
-      <div className="pw-dlg-desc">设置你的昵称和头像,会话中你发出的消息会用它们显示。</div>
+      <div className="pw-dlg-title">{t("profile.title")}</div>
+      <div className="pw-dlg-desc">{t("profile.desc")}</div>
 
-      <SettingCard title="昵称与头像">
-        <SRow label="昵称" desc="会话中你发出的消息显示的名字。">
+      <SettingCard title={t("profile.cardTitle")}>
+        <SRow label={t("profile.nickname")} desc={t("profile.nicknameDesc")}>
           <input
             className="pw-set-input"
             value={nickname}
-            placeholder="我"
+            placeholder={t("profile.nicknamePlaceholder")}
             spellCheck={false}
             onChange={(e) => setProfile({ nickname: e.target.value })}
           />
         </SRow>
-        <SBlock label="头像">
+        <SBlock label={t("profile.avatar")}>
           <div className="pw-pet-grid">
             {BUILTIN_AVATARS.map((a) => {
               const Svg = a.Svg;
@@ -140,6 +144,8 @@ function ProfileSection() {
 }
 
 function PetSection() {
+  const { t } = useTranslation("settings");
+  const { t: tPet } = useTranslation("pet");
   const petKind = usePetStore((s) => s.kind);
   const setPetKind = usePetStore((s) => s.setKind);
   const petMode = usePetStore((s) => s.mode);
@@ -153,7 +159,7 @@ function PetSection() {
   const petColor = usePetStore((s) => s.color);
   const setPetColor = usePetStore((s) => s.setColor);
   const pickMode = (label: string) => {
-    const m = (Object.keys(PET_MODE_LABEL) as PetMode[]).find((k) => PET_MODE_LABEL[k] === label);
+    const m = PET_MODES.find((k) => t(PET_MODE_KEY[k]) === label);
     if (!m) return;
     setPetMode(m);
     savePetMode(m);
@@ -194,26 +200,30 @@ function PetSection() {
   const colorVars = petColor ? petColorVars(petColor) : null;
   return (
     <>
-      <div className="pw-dlg-title">桌面宠物</div>
-      <div className="pw-dlg-desc">选择陪伴你工作的小伙伴,它会随输入、思考、执行工具等状态切换动画。</div>
+      <div className="pw-dlg-title">{t("pet.title")}</div>
+      <div className="pw-dlg-desc">{t("pet.desc")}</div>
 
-      <SettingCard title="宠物">
-        <SwitchRow label="显示宠物" value={petEnabled} onChange={pickEnabled} />
-        <SRow label="行为" desc="「自由放置」可随意拖动;「趴在输入框」只露头和前爪搭在聊天框上。">
-          <SegmentedRadio value={PET_MODE_LABEL[petMode]} options={PET_MODE_OPTIONS} onChange={pickMode} />
+      <SettingCard title={t("pet.cardTitle")}>
+        <SwitchRow label={t("pet.showPet")} value={petEnabled} onChange={pickEnabled} />
+        <SRow label={t("pet.behavior")} desc={t("pet.behaviorDesc")}>
+          <SegmentedRadio
+            value={t(PET_MODE_KEY[petMode])}
+            options={PET_MODES.map((m) => t(PET_MODE_KEY[m]))}
+            onChange={pickMode}
+          />
         </SRow>
         {petMode === "free" ? (
           <SwitchRow
-            label="闲时底部走动"
-            desc="10 分钟无操作时沿应用底边散步,一有动静即回最右侧待命。"
+            label={t("pet.walk")}
+            desc={t("pet.walkDesc")}
             value={petWalk}
             onChange={pickWalk}
           />
         ) : null}
       </SettingCard>
 
-      <SettingCard title="造型与外观">
-        <SBlock label="造型">
+      <SettingCard title={t("pet.appearanceCard")}>
+        <SBlock label={t("pet.design")}>
           <div className="pw-pet-grid" style={colorVars as React.CSSProperties | undefined}>
             {PET_KINDS.map((k) => {
               const d = PET_DESIGNS[k];
@@ -225,14 +235,14 @@ function PetSection() {
                       <Parts />
                     </svg>
                   </span>
-                  <span className="pw-pet-name">{d.name}</span>
-                  <span className="pw-pet-desc">{d.desc}</span>
+                  <span className="pw-pet-name">{tPet(`kind.${k}.name`)}</span>
+                  <span className="pw-pet-desc">{tPet(`kind.${k}.desc`)}</span>
                 </button>
               );
             })}
           </div>
         </SBlock>
-        <SRow label="尺寸">
+        <SRow label={t("pet.size")}>
           <div className="pw-pet-size">
             <input
               type="range"
@@ -241,24 +251,24 @@ function PetSection() {
               step={0.05}
               value={petSize}
               onChange={(e) => pickSize(Number(e.target.value))}
-              aria-label="宠物尺寸"
+              aria-label={t("pet.sizeAria")}
             />
             <span className="pw-pet-size-val">{Math.round(petSize * 100)}%</span>
             {petSize !== 1 ? (
               <button className="pw-pet-reset" onClick={() => pickSize(1)}>
-                重置
+                {t("pet.reset")}
               </button>
             ) : null}
           </div>
         </SRow>
-        <SBlock label="颜色" desc="选择主色后,毛色深浅会自动派生;「默认」恢复各造型的原始配色。">
+        <SBlock label={t("pet.color")} desc={t("pet.colorDesc")}>
           <div className="pw-pet-colors">
             <button
               className={`pw-pet-color-chip is-default ${petColor ? "" : "is-active"}`}
-              title="默认配色"
+              title={t("pet.colorDefaultTitle")}
               onClick={() => pickColor(null)}
             >
-              默认
+              {t("pet.colorDefault")}
             </button>
             {PET_COLOR_PRESETS.map((c) => (
               <button
@@ -269,7 +279,7 @@ function PetSection() {
                 onClick={() => pickColor(c)}
               />
             ))}
-            <label className="pw-pet-color-chip is-custom" title="自定义颜色">
+            <label className="pw-pet-color-chip is-custom" title={t("pet.colorCustomTitle")}>
               <input type="color" value={petColor ?? "#ecb98a"} onChange={(e) => pickColor(e.target.value)} />
               <Icon.Plus size={12} />
             </label>
@@ -280,28 +290,35 @@ function PetSection() {
   );
 }
 
-const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
-  { label: "跟随系统", value: "system" },
-  { label: "浅色", value: "light" },
-  { label: "深色", value: "dark" },
+// label 走 i18n（settings:general.theme*）,故 value→themeKey 映射,渲染时翻译。
+const THEME_OPTIONS: { themeKey: string; value: ThemeMode }[] = [
+  { themeKey: "general.themeSystem", value: "system" },
+  { themeKey: "general.themeLight", value: "light" },
+  { themeKey: "general.themeDark", value: "dark" },
 ];
-const FONT_SCALE_LABEL: Record<FontScale, string> = { small: "小", medium: "中", large: "大" };
-const LOG_RETENTION_OPTIONS = [1, 2, 3, 5, 7].map((d) => ({ label: `${d} 天`, value: String(d) }));
+const FONT_SCALE_KEY: Record<FontScale, string> = {
+  small: "general.fontSmall",
+  medium: "general.fontMedium",
+  large: "general.fontLarge",
+};
+const LOG_RETENTION_DAYS = [1, 2, 3, 5, 7];
 
-function updateStatusText(state: UpdateState): string {
+function updateStatusText(state: UpdateState, t: TFunction): string {
   switch (state.phase) {
     case "checking":
-      return "正在检查新版本";
+      return t("updateStatus.checking");
     case "available":
-      return `发现新版本 ${state.version ?? ""}`.trim();
+      return t("updateStatus.available", { version: state.version ?? "" }).trim();
     case "downloading":
-      return `正在下载 ${Math.max(0, Math.min(100, Math.round(state.percent ?? 0)))}%`;
+      return t("updateStatus.downloading", {
+        percent: Math.max(0, Math.min(100, Math.round(state.percent ?? 0))),
+      });
     case "downloaded":
-      return `新版本 ${state.version ?? ""} 已就绪`.trim();
+      return t("updateStatus.downloaded", { version: state.version ?? "" }).trim();
     case "error":
-      return state.version ? "更新下载失败" : "检查失败";
+      return state.version ? t("updateStatus.errorDownload") : t("updateStatus.errorCheck");
     default:
-      return "未发现新版本";
+      return t("updateStatus.idle");
   }
 }
 
@@ -403,7 +420,9 @@ function BareSelect({
 }
 
 function GeneralSection() {
-  const { t } = useTranslation();
+  // tc: common 命名空间(语言切换器复用 common.language.*,U3);t: settings 命名空间(本区其余文案)。
+  const { t: tc } = useTranslation();
+  const { t } = useTranslation("settings");
   const tweaks = useCortexUIStore((s) => s.tweaks);
   const setTweak = useCortexUIStore((s) => s.setTweak);
   const general = usePersonalStore((s) => s.generalSettings);
@@ -455,126 +474,131 @@ function GeneralSection() {
     const r = await bridge?.setNotesHotkey?.(acc); // 即时重注册。
     if (!r) return; // r === undefined:web 端 / 旧壳无此能力,保留乐观持久化,不反馈。
     if (r.ok) {
-      pushToast(`闪记快捷键已更新为 ${formatAccelerator(acc, isMac)}`, { kind: "success" });
+      pushToast(t("general.notesHotkeyUpdated", { accelerator: formatAccelerator(acc, isMac) }), { kind: "success" });
     } else {
       // 被拒(占用/无效/三级兜底落空):回滚显示与持久化到旧键,保持显示=实际。
       setGeneral({ notesHotkey: oldAcc });
-      pushToast(r.toast ?? "快捷键设置失败,已保留原快捷键", { kind: "error" });
+      pushToast(r.toast ?? t("general.notesHotkeyFailed"), { kind: "error" });
     }
   };
   const pickWorkspace = async () => {
     const dir = await bridge?.pickDirectory?.();
     if (dir) setGeneral({ workspaceRoot: dir });
   };
+  const fontScales = Object.keys(FONT_SCALE_KEY) as FontScale[];
   const setFontScale = (label: string) => {
-    const f = (Object.keys(FONT_SCALE_LABEL) as FontScale[]).find((k) => FONT_SCALE_LABEL[k] === label);
+    const f = fontScales.find((k) => t(FONT_SCALE_KEY[k]) === label);
     if (f) setTweak("fontScale", f);
   };
   return (
     <>
-      <div className="pw-dlg-title">通用</div>
-      <div className="pw-dlg-desc">管理界面偏好、默认工作目录与桌面行为。</div>
+      <div className="pw-dlg-title">{t("general.title")}</div>
+      <div className="pw-dlg-desc">{t("general.desc")}</div>
 
-      <SettingCard title="基础设置">
-        <SRow label={t("language.label")} desc={t("language.desc")}>
+      <SettingCard title={t("general.baseCard")}>
+        <SRow label={tc("language.label")} desc={tc("language.desc")}>
           <SegmentedRadio
-            value={tweaks.language === "en" ? t("language.en") : t("language.zh-Hans")}
-            options={[t("language.zh-Hans"), t("language.en")]}
-            onChange={(v) => setTweak("language", (v === t("language.en") ? "en" : "zh-Hans") satisfies Locale)}
+            value={tweaks.language === "en" ? tc("language.en") : tc("language.zh-Hans")}
+            options={[tc("language.zh-Hans"), tc("language.en")]}
+            onChange={(v) => setTweak("language", (v === tc("language.en") ? "en" : "zh-Hans") satisfies Locale)}
           />
         </SRow>
-        <SRow label="主题" desc="浅色、深色或跟随系统。">
-          <BareSelect value={tweaks.theme} options={THEME_OPTIONS} onChange={(v) => setTweak("theme", v as ThemeMode)} />
+        <SRow label={t("general.theme")} desc={t("general.themeDesc")}>
+          <BareSelect
+            value={tweaks.theme}
+            options={THEME_OPTIONS.map((o) => ({ label: t(o.themeKey), value: o.value }))}
+            onChange={(v) => setTweak("theme", v as ThemeMode)}
+          />
         </SRow>
-        <SRow label="字号" desc="调整整体界面的文字尺寸。">
+        <SRow label={t("general.fontSize")} desc={t("general.fontSizeDesc")}>
           <SegmentedRadio
-            value={FONT_SCALE_LABEL[tweaks.fontScale]}
-            options={(Object.keys(FONT_SCALE_LABEL) as FontScale[]).map((f) => FONT_SCALE_LABEL[f])}
+            value={t(FONT_SCALE_KEY[tweaks.fontScale])}
+            options={fontScales.map((f) => t(FONT_SCALE_KEY[f]))}
             onChange={setFontScale}
           />
         </SRow>
-        <SRow label="布局密度">
+        <SRow label={t("general.density")}>
           <SegmentedRadio
             value={tweaks.density}
             options={["compact", "regular", "cozy"]}
             onChange={(v) => setTweak("density", v as Density)}
           />
         </SRow>
-        <SRow label="品牌色调">
+        <SRow label={t("general.palette")}>
           <PaletteChips value={tweaks.palette} options={PALETTES} onChange={(v) => setTweak("palette", v as Palette)} />
         </SRow>
-        <SRow label="侧栏样式">
+        <SRow label={t("general.sidebar")}>
           <SegmentedRadio
             value={tweaks.sidebar}
             options={["rich", "minimal", "activity"]}
             onChange={(v) => setTweak("sidebar", v as SidebarMode)}
           />
         </SRow>
-        <SRow label="默认工作目录" desc="新建无项目会话 / 定时任务未指定项目时,agent 在此目录运行（留空则用主目录）。">
+        <SRow label={t("general.workspaceRoot")} desc={t("general.workspaceRootDesc")}>
           <div className="pw-ws-control">
             <input
               className="pw-set-input"
               value={general.workspaceRoot ?? ""}
-              placeholder="留空 = 用户主目录"
+              placeholder={t("general.workspaceRootPlaceholder")}
               spellCheck={false}
               onChange={(e) => setGeneral({ workspaceRoot: e.target.value || undefined })}
             />
             <button className="btn pw-pi-add-btn" onClick={() => void pickWorkspace()}>
-              选择…
+              {t("general.choose")}
             </button>
             {general.workspaceRoot ? (
               <button className="btn pw-pi-add-btn" onClick={() => setGeneral({ workspaceRoot: undefined })}>
-                清除
+                {t("general.clear")}
               </button>
             ) : null}
           </div>
         </SRow>
       </SettingCard>
 
-      <SettingCard title="桌面行为">
+      <SettingCard title={t("general.behaviorCard")}>
         <SwitchRow
-          label="开机自启"
-          desc="登录系统后自动启动 Cortex（macOS / Windows）。"
+          label={t("general.openAtLogin")}
+          desc={t("general.openAtLoginDesc")}
           value={behavior.openAtLogin}
           onChange={(v) => setBehavior({ openAtLogin: v })}
         />
         {behavior.openAtLogin ? (
           <SwitchRow
-            label="启动时最小化"
-            desc="启动后最小化到后台（主要用于 Windows）。"
+            label={t("general.startMinimized")}
+            desc={t("general.startMinimizedDesc")}
             value={behavior.startMinimized}
             onChange={(v) => setBehavior({ startMinimized: v })}
           />
         ) : null}
         <SwitchRow
-          label="关闭时隐藏到托盘"
-          desc="关闭窗口时隐藏到系统托盘,而非退出应用。"
+          label={t("general.closeToTray")}
+          desc={t("general.closeToTrayDesc")}
           value={behavior.closeToTray}
           onChange={(v) => setBehavior({ closeToTray: v })}
         />
-        <SRow label="闪记快捷键" desc="全局唤起闪记的快捷键。点击后按下新组合即可录制;被占用时会提示并保留原键。">
+        <SRow label={t("general.notesHotkey")} desc={t("general.notesHotkeyDesc")}>
           <div className="pw-hotkey-control">
             <HotkeyCapture value={notesHotkey} isMac={isMac} onChange={(acc) => void applyNotesHotkey(acc)} />
             {notesHotkey !== DEFAULT_NOTES_HOTKEY ? (
               <button className="btn pw-pi-add-btn" onClick={() => void applyNotesHotkey(DEFAULT_NOTES_HOTKEY)}>
-                恢复默认
+                {t("general.restoreDefault")}
               </button>
             ) : null}
           </div>
         </SRow>
       </SettingCard>
 
-      <SettingCard title="通知">
+      <SettingCard title={t("general.notificationsCard")}>
         <SwitchRow
-          label="回合完成通知"
-          desc="Agent 回合结束且窗口失焦时显示系统通知。"
+          label={t("general.turnComplete")}
+          desc={t("general.turnCompleteDesc")}
           value={general.notifications.turnComplete}
           onChange={(v) => setGeneral({ notifications: { ...general.notifications, turnComplete: v } })}
         />
       </SettingCard>
 
-      <SettingCard title="版本更新">
-        <SRow label="当前版本" desc="检查 GitHub Releases 中可用的新版本。">
+      <SettingCard title={t("general.updateCard")}>
+        <SRow label={t("general.currentVersion")} desc={t("general.currentVersionDesc")}>
           <div className="pw-update-control">
             <span className="pw-update-version">v{bridge?.appInfo?.version ?? "0.0.0"}</span>
             <button
@@ -583,52 +607,52 @@ function GeneralSection() {
               onClick={() => void checkUpdate()}
             >
               <Icon.Retry size={12} />
-              {updateState.phase === "checking" ? "检查中" : "检查新版本"}
+              {updateState.phase === "checking" ? t("general.checking") : t("general.checkUpdate")}
             </button>
           </div>
         </SRow>
-        <SRow label="更新状态" desc={updateState.phase === "error" ? updateState.error : undefined}>
-          <div className={`pw-update-status is-${updateState.phase}`}>{updateStatusText(updateState)}</div>
+        <SRow label={t("general.updateStatus")} desc={updateState.phase === "error" ? updateState.error : undefined}>
+          <div className={`pw-update-status is-${updateState.phase}`}>{updateStatusText(updateState, t)}</div>
         </SRow>
         {updateState.phase === "available" || (updateState.phase === "error" && updateState.version) ? (
-          <SRow label="操作" end>
+          <SRow label={t("general.action")} end>
             <button className="pw-tl-gen" disabled={!bridge?.updateDownload} onClick={() => void bridge?.updateDownload?.()}>
               <Icon.Retry size={12} />
-              下载更新
+              {t("general.downloadUpdate")}
             </button>
           </SRow>
         ) : null}
         {updateState.phase === "downloaded" ? (
-          <SRow label="操作" end>
+          <SRow label={t("general.action")} end>
             <button className="pw-tl-gen" disabled={!bridge?.updateInstall} onClick={() => void bridge?.updateInstall?.()}>
               <Icon.Retry size={12} />
-              重启更新
+              {t("general.restartUpdate")}
             </button>
           </SRow>
         ) : null}
       </SettingCard>
 
-      <SettingCard title="日志">
+      <SettingCard title={t("general.logCard")}>
         <SwitchRow
-          label="启用文件日志"
-          desc="把主进程日志写入本地文件,便于排查问题。"
+          label={t("general.logEnabled")}
+          desc={t("general.logEnabledDesc")}
           value={general.log.enabled}
           onChange={(v) => {
             setGeneral({ log: { ...general.log, enabled: v } });
             void bridge?.setLogEnabled?.(v);
           }}
         />
-        <SRow label="保留天数" desc="超过天数的旧日志启动时自动清理。">
+        <SRow label={t("general.logRetention")} desc={t("general.logRetentionDesc")}>
           <BareSelect
             value={String(general.log.retentionDays)}
-            options={LOG_RETENTION_OPTIONS}
+            options={LOG_RETENTION_DAYS.map((d) => ({ label: t("general.logRetentionDays", { count: d }), value: String(d) }))}
             onChange={(v) => setGeneral({ log: { ...general.log, retentionDays: Number(v) || 2 } })}
           />
         </SRow>
-        <SRow label="日志目录" end>
+        <SRow label={t("general.logDir")} end>
           <button className="pw-tl-gen" disabled={!bridge?.openLogsDir} onClick={() => void bridge?.openLogsDir?.()}>
             <Icon.Folder size={12} />
-            打开日志目录
+            {t("general.openLogDir")}
           </button>
         </SRow>
       </SettingCard>
@@ -697,6 +721,7 @@ function Select({
 }
 
 function TimelineSection() {
+  const { t } = useTranslation("settings");
   const settings = usePersonalStore((s) => s.timelineSettings);
   const setSettings = usePersonalStore((s) => s.setTimelineSettings);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
@@ -712,17 +737,17 @@ function TimelineSection() {
 
   return (
     <>
-      <div className="pw-dlg-title">时间线</div>
-      <div className="pw-dlg-desc">配置 AI 日报的生成模型。推送渠道在「推送」设置中统一管理。</div>
+      <div className="pw-dlg-title">{t("timeline.title")}</div>
+      <div className="pw-dlg-desc">{t("timeline.desc")}</div>
 
-      <SettingCard title="日报生成模型">
-        <SRow label="生成方式" desc="集成 Agent 用已装 CLI;自定义模型用 OpenAI 兼容端点。">
+      <SettingCard title={t("timeline.modelCard")}>
+        <SRow label={t("timeline.generateMode")} desc={t("timeline.generateModeDesc")}>
           <SegmentedRadio
-            value={model.kind === "agent" ? "集成 Agent" : "自定义模型"}
-            options={["集成 Agent", "自定义模型"]}
+            value={model.kind === "agent" ? t("timeline.integratedAgent") : t("timeline.customModel")}
+            options={[t("timeline.integratedAgent"), t("timeline.customModel")]}
             onChange={(v) =>
               setModel(
-                v === "集成 Agent"
+                v === t("timeline.integratedAgent")
                   ? { kind: "agent", agent: "claude", model: "haiku" }
                   : { kind: "openai", baseUrl: "http://localhost:11434", apiKey: "", model: "" },
               )
@@ -731,7 +756,7 @@ function TimelineSection() {
         </SRow>
         {model.kind === "agent" ? (
           <>
-            <SRow label="Agent">
+            <SRow label={t("timeline.agent")}>
               <BareSelect
                 value={model.agent}
                 options={INTEGRATED_AGENTS.map((a) => ({ label: AGENT_LABEL[a], value: a }))}
@@ -755,12 +780,10 @@ function TimelineSection() {
             </SRow>
             {model.agent === "pi" ? (
               enabledProviders.length === 0 ? (
-                <div className="pw-scard-empty">
-                  还没有启用的供应商。先在「供应商」设置中添加并启用,Pi 才能用于生成日报。
-                </div>
+                <div className="pw-scard-empty">{t("timeline.piNoProvider")}</div>
               ) : (
                 <>
-                  <SRow label="供应商" desc="日报由该供应商运行（与新建 Pi 会话同源）。">
+                  <SRow label={t("timeline.provider")} desc={t("timeline.providerDesc")}>
                     <BareSelect
                       value={piProviderId ?? ""}
                       options={enabledProviders.map((p) => ({ label: p.name || p.id, value: p.id }))}
@@ -770,7 +793,7 @@ function TimelineSection() {
                       }}
                     />
                   </SRow>
-                  <SRow label="模型">
+                  <SRow label={t("timeline.model")}>
                     <BareSelect
                       value={model.model ?? ""}
                       options={(piProvider?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id }))}
@@ -780,7 +803,7 @@ function TimelineSection() {
                 </>
               )
             ) : (
-              <SRow label="模型">
+              <SRow label={t("timeline.model")}>
                 <BareSelect
                   value={model.model ?? DEFAULT_MODEL[model.agent]}
                   options={AGENT_MODELS[model.agent]}
@@ -791,7 +814,7 @@ function TimelineSection() {
           </>
         ) : (
           <>
-            <SRow label="Base URL" desc="OpenAI 兼容接口（Ollama / LM Studio / vLLM 均可）。">
+            <SRow label={t("timeline.baseUrl")} desc={t("timeline.baseUrlDesc")}>
               <input
                 className="pw-set-input"
                 value={model.baseUrl}
@@ -800,7 +823,7 @@ function TimelineSection() {
                 onChange={(e) => setModel({ ...model, baseUrl: e.target.value })}
               />
             </SRow>
-            <SRow label="模型名">
+            <SRow label={t("timeline.modelName")}>
               <input
                 className="pw-set-input"
                 value={model.model}
@@ -809,7 +832,7 @@ function TimelineSection() {
                 onChange={(e) => setModel({ ...model, model: e.target.value })}
               />
             </SRow>
-            <SRow label="API Key" desc="可选。">
+            <SRow label={t("timeline.apiKey")} desc={t("timeline.apiKeyOptional")}>
               <input
                 className="pw-set-input"
                 type="password"
@@ -832,11 +855,12 @@ function slugify(s: string): string {
   return out || "provider";
 }
 
-const ENDPOINT_FORMAT_OPTIONS: { label: string; value: EndpointFormat }[] = [
-  { label: "OpenAI 兼容 (chat/completions)", value: "chat_completions" },
-  { label: "OpenAI Responses", value: "responses" },
-  { label: "Anthropic Messages", value: "messages" },
-  { label: "自定义端点（不可探测）", value: "custom" },
+// label 走 i18n（settings:providers.endpointFormat.*）,故 value→formatKey,渲染时翻译。
+const ENDPOINT_FORMAT_OPTIONS: { formatKey: string; value: EndpointFormat }[] = [
+  { formatKey: "providers.endpointFormat.chatCompletions", value: "chat_completions" },
+  { formatKey: "providers.endpointFormat.responses", value: "responses" },
+  { formatKey: "providers.endpointFormat.messages", value: "messages" },
+  { formatKey: "providers.endpointFormat.custom", value: "custom" },
 ];
 
 // 带显隐切换的密钥输入（本仓原无 SecretInput,此处新增）。
@@ -851,6 +875,7 @@ function SecretField({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const { t } = useTranslation("settings");
   const [show, setShow] = useState(false);
   return (
     <label className="pw-set-field">
@@ -865,7 +890,7 @@ function SecretField({
           onChange={(e) => onChange(e.target.value)}
         />
         <button type="button" className="pw-secret-toggle" onClick={() => setShow((s) => !s)}>
-          {show ? "隐藏" : "显示"}
+          {show ? t("providers.secretHide") : t("providers.secretShow")}
         </button>
       </span>
     </label>
@@ -874,6 +899,7 @@ function SecretField({
 
 // 两段式删除确认（仿 ProjectMenu:首次点击进入确认态,再次点击执行,失焦撤销）。
 function ConfirmDelete({ onConfirm, title }: { onConfirm: () => void; title?: string }) {
+  const { t } = useTranslation("settings");
   const [confirming, setConfirming] = useState(false);
   return (
     <button
@@ -882,7 +908,7 @@ function ConfirmDelete({ onConfirm, title }: { onConfirm: () => void; title?: st
       onClick={() => (confirming ? onConfirm() : setConfirming(true))}
       onBlur={() => setConfirming(false)}
     >
-      {confirming ? "确认删除？" : <Icon.Trash size={14} />}
+      {confirming ? t("providers.confirmDelete") : <Icon.Trash size={14} />}
     </button>
   );
 }
@@ -920,6 +946,7 @@ function ModelEditRow({
   onSave: (m: ProviderModelOption) => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation("settings");
   const [id, setId] = useState(initial.id);
   const [label, setLabel] = useState(initial.label ?? "");
   const [ctx, setCtx] = useState(initial.contextTokens ? formatContext(initial.contextTokens) : "");
@@ -942,7 +969,7 @@ function ModelEditRow({
         <input
           className="pw-set-input"
           value={id}
-          placeholder="模型 id（如 deepseek-chat）"
+          placeholder={t("providers.models.idPlaceholder")}
           spellCheck={false}
           autoFocus
           onChange={(e) => setId(e.target.value)}
@@ -951,7 +978,7 @@ function ModelEditRow({
         <input
           className="pw-set-input"
           value={label}
-          placeholder="显示名（可选）"
+          placeholder={t("providers.models.labelPlaceholder")}
           spellCheck={false}
           onChange={(e) => setLabel(e.target.value)}
           onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
@@ -961,25 +988,25 @@ function ModelEditRow({
         <input
           className="pw-set-input pw-ml-ctx"
           value={ctx}
-          placeholder="上下文（如 128K / 1M）"
+          placeholder={t("providers.models.contextPlaceholder")}
           spellCheck={false}
           onChange={(e) => setCtx(e.target.value)}
           onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
         />
         <label className="pw-ml-check">
           <input type="checkbox" checked={reasoning} onChange={(e) => setReasoning(e.target.checked)} />
-          推理
+          {t("providers.models.reasoning")}
         </label>
         <label className="pw-ml-check">
           <input type="checkbox" checked={vision} onChange={(e) => setVision(e.target.checked)} />
-          视觉
+          {t("providers.models.vision")}
         </label>
         <span className="pw-ml-edit-spacer" />
         <button className="btn pw-pi-add-btn" disabled={!id.trim()} onClick={save}>
-          保存
+          {t("providers.models.save")}
         </button>
         <button className="pw-ml-cancel" onClick={onCancel}>
-          取消
+          {t("providers.models.cancel")}
         </button>
       </div>
     </div>
@@ -1002,6 +1029,7 @@ function ProviderModels({
   apiKey?: string;
   endpointFormat: EndpointFormat;
 }) {
+  const { t } = useTranslation("settings");
   // editIdx：正在编辑的下标;models.length 表示新增;null 表示无编辑。
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
@@ -1016,7 +1044,7 @@ function ProviderModels({
     setProbe({ kind: "testing" });
     try {
       const res = await bridge.probeProvider({ baseUrl, apiKey, endpointFormat });
-      setProbe(res.ok ? { kind: "ok", models: res.models ?? [] } : { kind: "err", error: res.error ?? "连接失败" });
+      setProbe(res.ok ? { kind: "ok", models: res.models ?? [] } : { kind: "err", error: res.error ?? t("providers.models.connectFailed") });
     } catch (e) {
       setProbe({ kind: "err", error: e instanceof Error ? e.message : String(e) });
     }
@@ -1043,25 +1071,25 @@ function ProviderModels({
   return (
     <div className="pw-ml">
       <div className="pw-ml-head">
-        <span className="pw-ml-title">模型列表 · {models.length}</span>
+        <span className="pw-ml-title">{t("providers.models.listTitle", { count: models.length })}</span>
         <button
           className="pw-tl-gen"
           disabled={!canProbe || probe.kind === "testing"}
           onClick={() => void runProbe()}
-          title={endpointFormat === "custom" ? "自定义端点不支持探测,请手动添加" : undefined}
+          title={endpointFormat === "custom" ? t("providers.models.customNoProbe") : undefined}
         >
           <Icon.Retry size={12} />
-          {probe.kind === "testing" ? "拉取中…" : "从 API 拉取"}
+          {probe.kind === "testing" ? t("providers.models.fetchProbing") : t("providers.models.fetch")}
         </button>
       </div>
-      <div className="pw-set-hint">供应商发布新模型后可在这里手动添加或从 API 拉取。</div>
+      <div className="pw-set-hint">{t("providers.models.hint")}</div>
 
       {probe.kind === "ok" ? (
         <div className="pw-ml-probe pw-ml-probe-ok">
-          拉取到 {probe.models.length} 个模型
+          {t("providers.models.probeOk", { count: probe.models.length })}
           {probe.models.length > 0 ? (
             <button className="pw-prov-probe-apply" onClick={() => applyFetched(probe.models)}>
-              应用
+              {t("providers.models.apply")}
             </button>
           ) : null}
         </div>
@@ -1069,7 +1097,7 @@ function ProviderModels({
       {probe.kind === "err" ? <div className="pw-ml-probe pw-ml-probe-err">{probe.error}</div> : null}
 
       {models.length === 0 && editIdx === null ? (
-        <div className="pw-set-hint">还没有模型。点「添加模型」或「从 API 拉取」。</div>
+        <div className="pw-set-hint">{t("providers.models.emptyHint")}</div>
       ) : null}
 
       {models.map((m, i) =>
@@ -1080,18 +1108,18 @@ function ProviderModels({
             <div className="pw-ml-card-main">
               <span className="pw-ml-id">{m.id}</span>
               <span className="pw-ml-badges">
-                <span className="pw-ml-badge">文本对话</span>
-                {m.contextTokens ? <span className="pw-ml-badge">{formatContext(m.contextTokens)} 上下文</span> : null}
-                {m.reasoning ? <span className="pw-ml-badge">推理</span> : null}
-                {m.vision ? <span className="pw-ml-badge">视觉</span> : null}
+                <span className="pw-ml-badge">{t("providers.models.badgeText")}</span>
+                {m.contextTokens ? <span className="pw-ml-badge">{t("providers.models.badgeContext", { value: formatContext(m.contextTokens) })}</span> : null}
+                {m.reasoning ? <span className="pw-ml-badge">{t("providers.models.badgeReasoning")}</span> : null}
+                {m.vision ? <span className="pw-ml-badge">{t("providers.models.badgeVision")}</span> : null}
                 {m.label && m.label !== m.id ? <span className="pw-ml-badge is-name">{m.label}</span> : null}
               </span>
             </div>
             <div className="pw-ml-actions">
-              <button title="编辑" onClick={() => setEditIdx(i)}>
+              <button title={t("providers.models.edit")} onClick={() => setEditIdx(i)}>
                 <Icon.Edit size={14} />
               </button>
-              <button title="删除" onClick={() => removeModel(i)}>
+              <button title={t("providers.models.delete")} onClick={() => removeModel(i)}>
                 <Icon.Trash size={14} />
               </button>
             </div>
@@ -1104,7 +1132,7 @@ function ProviderModels({
       ) : (
         <button className="pw-ml-add" onClick={() => setEditIdx(models.length)}>
           <Icon.Plus size={13} />
-          添加模型
+          {t("providers.models.addModel")}
         </button>
       )}
     </div>
@@ -1120,6 +1148,7 @@ function ProviderDetail({
   onPatch: (patch: Partial<ProviderProfile>) => void;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation("settings");
   const bridge = useDesktopBridge();
   return (
     <div className="pw-prov-detail">
@@ -1127,29 +1156,29 @@ function ProviderDetail({
         <input
           className="pw-set-input"
           value={provider.name}
-          placeholder="供应商名称"
+          placeholder={t("providers.namePlaceholder")}
           spellCheck={false}
           onChange={(e) => onPatch({ name: e.target.value })}
         />
-        <Toggle label="启用" value={provider.enabled} onChange={(v) => onPatch({ enabled: v })} />
-        <ConfirmDelete onConfirm={onRemove} title="删除供应商" />
+        <Toggle label={t("providers.enable")} value={provider.enabled} onChange={(v) => onPatch({ enabled: v })} />
+        <ConfirmDelete onConfirm={onRemove} title={t("providers.deleteProvider")} />
       </div>
       <Select
-        label="协议类型"
+        label={t("providers.protocolType")}
         value={provider.endpointFormat}
-        options={ENDPOINT_FORMAT_OPTIONS}
+        options={ENDPOINT_FORMAT_OPTIONS.map((o) => ({ label: t(o.formatKey), value: o.value }))}
         onChange={(v) => onPatch({ endpointFormat: v as EndpointFormat })}
       />
       <Field
-        label="Base URL"
+        label={t("providers.baseUrl")}
         value={provider.baseUrl}
-        placeholder="https://api.deepseek.com/v1"
+        placeholder={t("providers.baseUrlPlaceholder")}
         onChange={(v) => onPatch({ baseUrl: v })}
       />
       <SecretField
-        label="API Key"
+        label={t("providers.apiKey")}
         value={provider.apiKey ?? ""}
-        placeholder="该供应商的 API Key"
+        placeholder={t("providers.apiKeyPlaceholder")}
         onChange={(v) => onPatch({ apiKey: v || undefined })}
       />
       <ProviderModels
@@ -1165,6 +1194,7 @@ function ProviderDetail({
 }
 
 function ProvidersSection() {
+  const { t } = useTranslation("settings");
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const addProvider = usePersonalStore((s) => s.addProvider);
   const updateProvider = usePersonalStore((s) => s.updateProvider);
@@ -1176,41 +1206,36 @@ function ProvidersSection() {
   const selected = providers.find((p) => p.id === selectedId) ?? providers[0];
 
   const addFromTemplate = () => {
-    const t = PROVIDER_PRESETS.find((x) => x.templateKey === tmplKey);
-    if (!t) return;
-    const base = slugify(t.templateKey === "custom" ? "custom-provider" : t.templateKey);
+    const preset = PROVIDER_PRESETS.find((x) => x.templateKey === tmplKey);
+    if (!preset) return;
+    const base = slugify(preset.templateKey === "custom" ? "custom-provider" : preset.templateKey);
     const existing = new Set(providers.map((p) => p.id));
     let id = base;
     let n = 1;
     while (existing.has(id)) id = `${base}-${++n}`;
-    addProvider(providerFromPreset(t, id));
+    addProvider(providerFromPreset(preset, id));
     setSelectedId(id);
   };
 
   return (
     <>
-      <div className="pw-dlg-title">供应商</div>
-      <div className="pw-dlg-desc">
-        配置 LLM 供应商（OpenAI 兼容 / Anthropic 兼容端点）。Pi 兜底 Agent 在「Agent」设置中选用这里的供应商;API
-        Key 仅本机保存。
-      </div>
+      <div className="pw-dlg-title">{t("providers.title")}</div>
+      <div className="pw-dlg-desc">{t("providers.desc")}</div>
 
       <div className="pw-pi-add">
         <Select
-          label="从模板添加"
+          label={t("providers.addFromTemplate")}
           value={tmplKey}
-          options={PROVIDER_PRESETS.map((t) => ({ label: t.name, value: t.templateKey }))}
+          options={PROVIDER_PRESETS.map((preset) => ({ label: t(preset.nameKey), value: preset.templateKey }))}
           onChange={setTmplKey}
         />
         <button className="btn pw-pi-add-btn" onClick={addFromTemplate}>
-          添加供应商
+          {t("providers.addProvider")}
         </button>
       </div>
 
       {providers.length === 0 ? (
-        <div className="pw-set-hint">
-          还没有供应商。选择模板（或「自定义」）后点「添加供应商」,填好 API Key 即可在会话中选用。
-        </div>
+        <div className="pw-set-hint">{t("providers.empty")}</div>
       ) : (
         <div className="pw-prov-split">
           <div className="pw-prov-list">
@@ -1223,10 +1248,10 @@ function ProvidersSection() {
                 <span className="pw-prov-item-name">{p.name || p.id}</span>
                 <span className="pw-prov-item-meta">
                   {providerSettings.defaultProviderId === p.id ? (
-                    <span className="pw-prov-badge is-default">默认</span>
+                    <span className="pw-prov-badge is-default">{t("providers.badgeDefault")}</span>
                   ) : null}
-                  {p.enabled ? null : <span className="pw-prov-badge">已停用</span>}
-                  <span className="pw-prov-badge">{p.models.length} 模型</span>
+                  {p.enabled ? null : <span className="pw-prov-badge">{t("providers.badgeDisabled")}</span>}
+                  <span className="pw-prov-badge">{t("providers.badgeModels", { count: p.models.length })}</span>
                 </span>
               </button>
             ))}
@@ -1251,23 +1276,21 @@ function ProvidersSection() {
 // ── Agent 设置（引用供应商）─────────────────────────────────────────────────
 
 function AgentSection() {
+  const { t } = useTranslation("settings");
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
 
   return (
     <>
-      <div className="pw-dlg-title">Agent</div>
-      <div className="pw-dlg-desc">
-        Cortex 支持 Claude Code、Codex、内置 Pi 三种 Agent。Claude / Codex 用各自 CLI 自带鉴权;Pi 在未装 CLI
-        时兜底,使用「供应商」中配置的 LLM 端点。Pi 的专属设置见「Pi」分区。
-      </div>
+      <div className="pw-dlg-title">{t("agent.title")}</div>
+      <div className="pw-dlg-desc">{t("agent.desc")}</div>
 
-      <SettingCard title="可用性">
+      <SettingCard title={t("agent.availabilityCard")}>
         {INTEGRATED_AGENTS.map((a) => {
           const on = a === "pi" || !!agentsAvailable?.[a];
           return (
             <SRow key={a} label={AGENT_LABEL[a]} end>
               <span className={`pw-agent-status ${on ? "is-on" : "is-off"}`}>
-                {a === "pi" ? "内置" : agentsAvailable?.[a] ? "已安装" : "未检测到 CLI"}
+                {a === "pi" ? t("agent.builtin") : agentsAvailable?.[a] ? t("agent.installed") : t("agent.notDetected")}
               </span>
             </SRow>
           );
@@ -1281,6 +1304,7 @@ function AgentSection() {
 // 会话级能力。卡片锚点顺序:默认供应商 → Thinking → System Prompt → 工具审批 → 高级定制 →
 // 供应商高级说明(后续阶段按此顺序插入,减少改动冲突)。
 function PiSection() {
+  const { t } = useTranslation("settings");
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const setProviderDefaults = usePersonalStore((s) => s.setProviderDefaults);
   const general = usePersonalStore((s) => s.generalSettings);
@@ -1292,32 +1316,29 @@ function PiSection() {
 
   return (
     <>
-      <div className="pw-dlg-title">Pi</div>
-      <div className="pw-dlg-desc">
-        Pi 是内置 Agent,以长驻会话运行。下列设置在新建会话或下次发送时生效;其中工具审批等
-        extension 类设置改动会重启当前 pi 会话(丢失内存上下文,自动从磁盘历史恢复)。
-      </div>
+      <div className="pw-dlg-title">{t("pi.title")}</div>
+      <div className="pw-dlg-desc">{t("pi.desc")}</div>
 
-      <SettingCard title="默认供应商">
+      <SettingCard title={t("pi.defaultProviderCard")}>
         {enabledProviders.length === 0 ? (
-          <div className="pw-scard-empty">还没有启用的供应商。先在「供应商」设置中添加并启用,再回此处选默认。</div>
+          <div className="pw-scard-empty">{t("pi.noProvider")}</div>
         ) : (
           <>
-            <SRow label="默认供应商" desc="新建 Pi 会话默认使用的供应商。">
+            <SRow label={t("pi.defaultProvider")} desc={t("pi.defaultProviderDesc")}>
               <BareSelect
                 value={defaultValue}
                 options={[
-                  { label: "（未设置）", value: "" },
+                  { label: t("pi.providerUnset"), value: "" },
                   ...enabledProviders.map((p) => ({ label: p.name || p.id, value: p.id })),
                 ]}
                 onChange={(v) => setProviderDefaults({ defaultProviderId: v || undefined, defaultModel: undefined })}
               />
             </SRow>
-            <SRow label="默认模型">
+            <SRow label={t("pi.defaultModel")}>
               <BareSelect
                 value={providerSettings.defaultModel ?? ""}
                 options={[
-                  { label: "（供应商首个模型）", value: "" },
+                  { label: t("pi.modelFirst"), value: "" },
                   ...(defaultProvider?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id })),
                 ]}
                 onChange={(v) => setProviderDefaults({ defaultModel: v || undefined })}
@@ -1327,23 +1348,23 @@ function PiSection() {
         )}
       </SettingCard>
 
-      <SettingCard title="思考强度">
-        <SRow label="默认思考强度" desc="新建 Pi 会话的默认思考强度;单会话可在输入框旁单独切换,即时生效不重启。">
+      <SettingCard title={t("pi.thinkingCard")}>
+        <SRow label={t("pi.thinkingDefault")} desc={t("pi.thinkingDefaultDesc")}>
           <BareSelect
             value={general.piThinkingDefault ?? "off"}
-            options={PI_THINKING_LEVELS.map((lv) => ({ label: PI_THINKING_LABELS[lv], value: lv }))}
+            options={PI_THINKING_LEVELS.map((lv) => ({ label: t(`thinkingLevel.${lv}`), value: lv }))}
             onChange={(v) => setGeneral({ piThinkingDefault: v as ThinkingLevel })}
           />
         </SRow>
       </SettingCard>
 
-      <SettingCard title="System Prompt">
-        <SBlock label="持久系统提示词" desc="追加到 pi 系统提示词尾部,定制人设/规则。改动在下次发送时生效(会重启当前 pi 会话)。">
+      <SettingCard title={t("pi.systemPromptCard")}>
+        <SBlock label={t("pi.systemPrompt")} desc={t("pi.systemPromptDesc")}>
           <textarea
             className="pw-ta"
             rows={6}
             maxLength={4000}
-            placeholder="例如:你是资深 TypeScript 工程师,回答简洁、优先给可运行代码。"
+            placeholder={t("pi.systemPromptPlaceholder")}
             value={general.piSystemPrompt ?? ""}
             spellCheck={false}
             onChange={(e) => setGeneral({ piSystemPrompt: e.target.value || undefined })}
@@ -1352,15 +1373,15 @@ function PiSection() {
         </SBlock>
       </SettingCard>
 
-      <SettingCard title="工具审批">
+      <SettingCard title={t("pi.toolApprovalCard")}>
         <SwitchRow
-          label="工具执行审批"
-          desc="pi 调用高风险工具前弹窗确认,拒绝则阻断。改动在下次发送消息时生效(会重启当前 pi 会话,丢失其内存上下文)。"
+          label={t("pi.toolApproval")}
+          desc={t("pi.toolApprovalDesc")}
           value={general.piCustomization?.toolApproval ?? false}
           onChange={(v) => setGeneral({ piCustomization: { sampleTools: false, sampleCommands: false, approvalTools: DEFAULT_PI_APPROVAL_TOOLS, ...general.piCustomization, toolApproval: v } })}
         />
         {general.piCustomization?.toolApproval ? (
-          <SBlock label="需审批的工具" desc="仅勾选的工具会触发确认弹窗;全部取消勾选 = 不审批任何工具(等同关闭)。">
+          <SBlock label={t("pi.approvalTools")} desc={t("pi.approvalToolsDesc")}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 18px" }}>
               {PI_APPROVAL_TOOL_OPTIONS.map((tool) => {
                 const selected = general.piCustomization?.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS;
@@ -1371,7 +1392,7 @@ function PiSection() {
                       type="checkbox"
                       checked={checked}
                       onChange={(e) => {
-                        const next = e.target.checked ? [...selected, tool] : selected.filter((t) => t !== tool);
+                        const next = e.target.checked ? [...selected, tool] : selected.filter((x) => x !== tool);
                         setGeneral({
                           piCustomization: {
                             sampleTools: false,
@@ -1392,16 +1413,16 @@ function PiSection() {
         ) : null}
       </SettingCard>
 
-      <SettingCard title="高级定制">
+      <SettingCard title={t("pi.advancedCard")}>
         <SwitchRow
-          label="自定义工具样例"
-          desc="加载示例工具 echo_upper（把文本转大写）,演示 pi 自定义工具能力。改动下次发送时生效(重启会话)。"
+          label={t("pi.sampleTools")}
+          desc={t("pi.sampleToolsDesc")}
           value={general.piCustomization?.sampleTools ?? false}
           onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleCommands: false, ...general.piCustomization, sampleTools: v } })}
         />
         <SwitchRow
-          label="自定义斜杠命令样例"
-          desc="加载示例命令 /greet,演示 pi 自定义斜杠命令能力。改动下次发送时生效(重启会话)。"
+          label={t("pi.sampleCommands")}
+          desc={t("pi.sampleCommandsDesc")}
           value={general.piCustomization?.sampleCommands ?? false}
           onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleTools: false, ...general.piCustomization, sampleCommands: v } })}
         />
@@ -1426,6 +1447,7 @@ const EXAMPLE_SKILL_NAME = "推送格式-日报.md";
 
 // 全局推送渠道：所有需要推送的场景（当前为时间线日报,未来任务通知等）共用。
 function PushSection() {
+  const { t } = useTranslation("settings");
   const bridge = useDesktopBridge();
   const push = usePersonalStore((s) => s.pushSettings);
   const setPush = usePersonalStore((s) => s.setPushSettings);
@@ -1437,10 +1459,10 @@ function PushSection() {
   const skillFiles = flattenPromptFiles(promptTree);
   // 已配置的 skill 不在 Prompt 库里（被移动/删除）时仍显示,便于用户察觉。
   const skillOptions = [
-    { label: "默认格式（内置）", value: "" },
+    { label: t("push.formatDefault"), value: "" },
     ...skillFiles.map((f) => ({ label: f.name, value: f.path })),
     ...(push.formatSkillPath && !skillFiles.some((f) => f.path === push.formatSkillPath)
-      ? [{ label: `${push.formatSkillPath}（已失效）`, value: push.formatSkillPath }]
+      ? [{ label: t("push.formatInvalid", { path: push.formatSkillPath }), value: push.formatSkillPath }]
       : []),
   ];
 
@@ -1478,34 +1500,34 @@ function PushSection() {
 
   return (
     <>
-      <div className="pw-dlg-title">推送渠道</div>
-      <div className="pw-dlg-desc">全局推送配置,启用后可在任何支持推送的功能中使用（如时间线日报）。</div>
+      <div className="pw-dlg-title">{t("push.title")}</div>
+      <div className="pw-dlg-desc">{t("push.desc")}</div>
 
-      <SettingCard title="推送格式 Skill">
+      <SettingCard title={t("push.formatCard")}>
         <div className="pw-scard-empty">
-          用 Prompt 库中的 .md 模板固化推送格式,渲染后第一行作为推送标题。可用占位符:
-          {" {{project}}、{{date}}、{{stats}}、{{summary}}、{{runs}}、{{files}}、{{commits}}"}
-          ;数据为空的占位符行会自动隐藏。
+          {t("push.formatHint", {
+            placeholders: " {{project}}、{{date}}、{{stats}}、{{summary}}、{{runs}}、{{files}}、{{commits}}",
+          })}
         </div>
-        <SRow label="格式模板">
+        <SRow label={t("push.formatTemplate")}>
           <BareSelect
             value={push.formatSkillPath ?? ""}
             options={skillOptions}
             onChange={(v) => setPush({ formatSkillPath: v || undefined })}
           />
         </SRow>
-        <SRow label="示例 Skill" desc={!promptRoot ? "需先在右栏 Prompt 库选择目录。" : undefined} end>
+        <SRow label={t("push.exampleSkill")} desc={!promptRoot ? t("push.exampleSkillDesc") : undefined} end>
           <button className="pw-tl-gen" disabled={!bridge || !promptRoot} onClick={() => void createExampleSkill()}>
             <Icon.Plus size={12} />
-            在 Prompt 库创建示例
+            {t("push.createExample")}
           </button>
         </SRow>
       </SettingCard>
 
-      <SettingCard title="渠道">
-        <SwitchRow label="企业微信机器人" value={!!wecom?.enabled} onChange={(v) => setWecom({ enabled: v })} />
+      <SettingCard title={t("push.channelCard")}>
+        <SwitchRow label={t("push.wecom")} value={!!wecom?.enabled} onChange={(v) => setWecom({ enabled: v })} />
         {wecom?.enabled ? (
-          <SRow label="Webhook 地址">
+          <SRow label={t("push.webhookUrl")}>
             <input
               className="pw-set-input"
               value={wecom.webhookUrl}
@@ -1516,10 +1538,10 @@ function PushSection() {
           </SRow>
         ) : null}
 
-        <SwitchRow label="钉钉机器人" value={!!dingtalk?.enabled} onChange={(v) => setDingtalk({ enabled: v })} />
+        <SwitchRow label={t("push.dingtalk")} value={!!dingtalk?.enabled} onChange={(v) => setDingtalk({ enabled: v })} />
         {dingtalk?.enabled ? (
           <>
-            <SRow label="Webhook 地址">
+            <SRow label={t("push.webhookUrl")}>
               <input
                 className="pw-set-input"
                 value={dingtalk.webhookUrl}
@@ -1528,7 +1550,7 @@ function PushSection() {
                 onChange={(e) => setDingtalk({ webhookUrl: e.target.value })}
               />
             </SRow>
-            <SRow label="加签密钥" desc="可选,安全设置为「加签」时填写。">
+            <SRow label={t("push.dingtalkSecret")} desc={t("push.dingtalkSecretDesc")}>
               <input
                 className="pw-set-input"
                 type="password"
@@ -1540,10 +1562,10 @@ function PushSection() {
           </>
         ) : null}
 
-        <SwitchRow label="邮件（SMTP）" value={!!email?.enabled} onChange={(v) => setEmail({ enabled: v })} />
+        <SwitchRow label={t("push.email")} value={!!email?.enabled} onChange={(v) => setEmail({ enabled: v })} />
         {email?.enabled ? (
           <>
-            <SRow label="SMTP 服务器">
+            <SRow label={t("push.smtpHost")}>
               <input
                 className="pw-set-input"
                 value={email.smtpHost}
@@ -1552,7 +1574,7 @@ function PushSection() {
                 onChange={(e) => setEmail({ smtpHost: e.target.value })}
               />
             </SRow>
-            <SRow label="端口">
+            <SRow label={t("push.smtpPort")}>
               <input
                 className="pw-set-input"
                 value={String(email.smtpPort || "")}
@@ -1561,31 +1583,31 @@ function PushSection() {
               />
             </SRow>
             <SwitchRow
-              label="SSL"
-              desc="465 端口开启,587 关闭。"
+              label={t("push.ssl")}
+              desc={t("push.sslDesc")}
               value={email.secure}
               onChange={(v) => setEmail({ secure: v })}
             />
-            <SRow label="账号">
+            <SRow label={t("push.account")}>
               <input className="pw-set-input" value={email.user} spellCheck={false} onChange={(e) => setEmail({ user: e.target.value })} />
             </SRow>
-            <SRow label="密码 / 授权码">
+            <SRow label={t("push.password")}>
               <input className="pw-set-input" type="password" value={email.pass} onChange={(e) => setEmail({ pass: e.target.value })} />
             </SRow>
-            <SRow label="发件人">
+            <SRow label={t("push.from")}>
               <input
                 className="pw-set-input"
                 value={email.from}
-                placeholder="留空使用账号"
+                placeholder={t("push.fromPlaceholder")}
                 spellCheck={false}
                 onChange={(e) => setEmail({ from: e.target.value })}
               />
             </SRow>
-            <SRow label="收件人">
+            <SRow label={t("push.to")}>
               <input
                 className="pw-set-input"
                 value={email.to}
-                placeholder="多个用逗号分隔"
+                placeholder={t("push.toPlaceholder")}
                 spellCheck={false}
                 onChange={(e) => setEmail({ to: e.target.value })}
               />
@@ -1599,12 +1621,8 @@ function PushSection() {
 
 // ── 语音 TTS ──────────────────────────────────────────────────────────────
 
-const SPEECH_RATES = [
-  { label: "0.8×", value: "0.8" },
-  { label: "1×（默认）", value: "1" },
-  { label: "1.2×", value: "1.2" },
-  { label: "1.5×", value: "1.5" },
-];
+// 1× 档展示带「默认」后缀,走 i18n（settings:voice.speechRateDefault）,其余纯符号无需翻译。
+const SPEECH_RATE_VALUES = ["0.8", "1", "1.2", "1.5"];
 
 const FALLBACK_TTS_VOICES: TtsVoiceOption[] = [
   { id: "alloy" },
@@ -1619,6 +1637,7 @@ const FALLBACK_TTS_VOICES: TtsVoiceOption[] = [
   { id: "shimmer" },
 ];
 
+// 语言项标签是「原生语言名 + BCP47 码」,各语言通用,无需随界面语言翻译。
 const TTS_LANGUAGES = [
   { label: "中文 zh", value: "zh" },
   { label: "中文 zh-CN", value: "zh-CN" },
@@ -1628,6 +1647,7 @@ const TTS_LANGUAGES = [
 ];
 
 function VoiceSection() {
+  const { t } = useTranslation("settings");
   const bridge = useDesktopBridge();
   const tts = usePersonalStore((s) => s.ttsSettings);
   const setTts = usePersonalStore((s) => s.setTtsSettings);
@@ -1653,10 +1673,10 @@ function VoiceSection() {
   }, []);
   const voiceOptions = useMemo(
     () => [
-      { label: "系统默认", value: "" },
+      { label: t("voice.voiceSystemDefault"), value: "" },
       ...voices.map((v) => ({ label: `${v.name}（${v.lang}）`, value: v.name })),
     ],
-    [voices],
+    [voices, t],
   );
 
   useEffect(() => {
@@ -1694,15 +1714,15 @@ function VoiceSection() {
       const suffix = v.locale ? ` · ${v.locale}` : "";
       options.push({ value: v.id, label: `${v.label ?? v.id}${suffix}` });
     }
-    if (engine.voice && !seen.has(engine.voice)) options.unshift({ value: engine.voice, label: `${engine.voice}（当前）` });
+    if (engine.voice && !seen.has(engine.voice)) options.unshift({ value: engine.voice, label: t("voice.voiceCurrent", { voice: engine.voice }) });
     return options;
-  }, [customVoices, engine]);
+  }, [customVoices, engine, t]);
 
   const test = async () => {
     if (testing) return;
     setTesting(true);
     try {
-      await speakText(bridge, tts, "你好,这是 Cortex Desktop 的语音测试。");
+      await speakText(bridge, tts, t("voice.testText"));
     } catch {
       // 端点不可用等,静默（按钮恢复即提示完成）
     } finally {
@@ -1712,23 +1732,23 @@ function VoiceSection() {
 
   return (
     <>
-      <div className="pw-dlg-title">语音（TTS）</div>
-      <div className="pw-dlg-desc">把 Agent / 大模型输出的内容转成语音。开启自动朗读后,每轮回复完成时朗读（代码块等会自动略过,新回复打断上一条）。</div>
+      <div className="pw-dlg-title">{t("voice.title")}</div>
+      <div className="pw-dlg-desc">{t("voice.desc")}</div>
 
-      <SettingCard title="朗读">
+      <SettingCard title={t("voice.readCard")}>
         <SwitchRow
-          label="自动朗读 Agent 回复"
-          desc="每轮回复完成时朗读（代码块自动略过,新回复打断上一条）。"
+          label={t("voice.autoSpeak")}
+          desc={t("voice.autoSpeakDesc")}
           value={tts.autoSpeak}
           onChange={(v) => setTts({ autoSpeak: v })}
         />
-        <SRow label="语音引擎">
+        <SRow label={t("voice.engine")}>
           <SegmentedRadio
-            value={engine.kind === "system" ? "系统语音" : "自定义模型"}
-            options={["系统语音", "自定义模型"]}
+            value={engine.kind === "system" ? t("voice.engineSystem") : t("voice.engineCustom")}
+            options={[t("voice.engineSystem"), t("voice.engineCustom")]}
             onChange={(v) =>
               setEngine(
-                v === "系统语音"
+                v === t("voice.engineSystem")
                   ? { kind: "system" }
                   : { kind: "openai", baseUrl: "http://localhost:8880", apiKey: "", model: "tts-1", voice: "alloy", language: "zh" },
               )
@@ -1737,24 +1757,24 @@ function VoiceSection() {
         </SRow>
         {engine.kind === "system" ? (
           <>
-            <SRow label="音色" desc="使用本机系统语音库,无需联网与配置。">
+            <SRow label={t("voice.voiceLabel")} desc={t("voice.voiceSystemDesc")}>
               <BareSelect
                 value={engine.voice ?? ""}
                 options={voiceOptions}
                 onChange={(v) => setEngine({ ...engine, voice: v || undefined })}
               />
             </SRow>
-            <SRow label="语速">
+            <SRow label={t("voice.rate")}>
               <BareSelect
                 value={String(engine.rate ?? 1)}
-                options={SPEECH_RATES}
+                options={SPEECH_RATE_VALUES.map((v) => ({ label: v === "1" ? t("voice.speechRateDefault") : `${v}×`, value: v }))}
                 onChange={(v) => setEngine({ ...engine, rate: Number(v) })}
               />
             </SRow>
           </>
         ) : (
           <>
-            <SRow label="Base URL" desc="OpenAI 兼容 /v1/audio/speech（OpenAI TTS / LocalAI / Kokoro 等本地部署均可）。">
+            <SRow label={t("voice.baseUrl")} desc={t("voice.baseUrlDesc")}>
               <input
                 className="pw-set-input"
                 value={engine.baseUrl}
@@ -1763,7 +1783,7 @@ function VoiceSection() {
                 onChange={(e) => setEngine({ ...engine, baseUrl: e.target.value })}
               />
             </SRow>
-            <SRow label="模型名">
+            <SRow label={t("voice.modelName")}>
               <input
                 className="pw-set-input"
                 value={engine.model}
@@ -1773,12 +1793,12 @@ function VoiceSection() {
               />
             </SRow>
             <SRow
-              label="音色"
-              desc={loadingVoices ? "加载中…" : customVoices.length > 0 ? "模型返回" : "常用音色"}
+              label={t("voice.voiceLabel")}
+              desc={loadingVoices ? t("voice.voiceLoading") : customVoices.length > 0 ? t("voice.voiceFromModel") : t("voice.voiceCommon")}
             >
               <BareSelect value={engine.voice} options={customVoiceOptions} onChange={(v) => setEngine({ ...engine, voice: v })} />
             </SRow>
-            <SRow label="自定义 voice">
+            <SRow label={t("voice.customVoice")}>
               <input
                 className="pw-set-input"
                 value={engine.voice}
@@ -1787,7 +1807,7 @@ function VoiceSection() {
                 onChange={(e) => setEngine({ ...engine, voice: e.target.value })}
               />
             </SRow>
-            <SRow label="API Key" desc="可选。">
+            <SRow label={t("voice.apiKey")} desc={t("voice.apiKeyOptional")}>
               <input
                 className="pw-set-input"
                 type="password"
@@ -1795,10 +1815,10 @@ function VoiceSection() {
                 onChange={(e) => setEngine({ ...engine, apiKey: e.target.value })}
               />
             </SRow>
-            <SRow label="语言">
+            <SRow label={t("voice.language")}>
               <BareSelect value={engine.language ?? "zh"} options={TTS_LANGUAGES} onChange={(v) => setEngine({ ...engine, language: v })} />
             </SRow>
-            <SRow label="自定义 language">
+            <SRow label={t("voice.customLanguage")}>
               <input
                 className="pw-set-input"
                 value={engine.language ?? "zh"}
@@ -1807,24 +1827,24 @@ function VoiceSection() {
                 onChange={(e) => setEngine({ ...engine, language: e.target.value || undefined })}
               />
             </SRow>
-            <SRow label="语速">
+            <SRow label={t("voice.rate")}>
               <BareSelect
                 value={String(engine.speed ?? 1)}
-                options={SPEECH_RATES}
+                options={SPEECH_RATE_VALUES.map((v) => ({ label: v === "1" ? t("voice.speechRateDefault") : `${v}×`, value: v }))}
                 onChange={(v) => setEngine({ ...engine, speed: Number(v) })}
               />
             </SRow>
           </>
         )}
-        <SRow label="试听" end>
+        <SRow label={t("voice.test")} end>
           <span style={{ display: "flex", gap: 8 }}>
             <button className="pw-tl-gen" disabled={testing} onClick={() => void test()}>
               <Icon.Mic size={12} />
-              {testing ? "播放中…" : "试听"}
+              {testing ? t("voice.testPlaying") : t("voice.test")}
             </button>
             <button className="pw-tl-gen" onClick={() => stopSpeaking()}>
               <Icon.Stop size={12} />
-              停止
+              {t("voice.stop")}
             </button>
           </span>
         </SRow>
@@ -1845,6 +1865,7 @@ function isTypingTarget(el: Element | null): boolean {
 }
 
 export function PersonalSettingsView() {
+  const { t } = useTranslation("settings");
   const closeSettings = usePersonalStore((s) => s.closeSettings);
   const [tab, setTab] = useState<SettingsTab>("profile");
   const backRef = useRef<HTMLButtonElement>(null);
@@ -1867,21 +1888,21 @@ export function PersonalSettingsView() {
   }, [closeSettings]);
 
   return (
-    <div className="pw-settings-page" role="dialog" aria-modal="true" aria-label="设置">
-      <nav className="pw-dlg-nav" aria-label="设置菜单">
+    <div className="pw-settings-page" role="dialog" aria-modal="true" aria-label={t("page.ariaLabel")}>
+      <nav className="pw-dlg-nav" aria-label={t("page.navAriaLabel")}>
         <button ref={backRef} className="pw-settings-back" onClick={closeSettings}>
           <Icon.Back size={15} />
-          返回应用
+          {t("page.back")}
         </button>
-        {TABS.map((t) => (
+        {TABS.map((tab2) => (
           <button
-            key={t.id}
-            className={`pw-dlg-nav-item ${tab === t.id ? "is-active" : ""}`}
-            aria-current={tab === t.id ? "page" : undefined}
-            onClick={() => setTab(t.id)}
+            key={tab2.id}
+            className={`pw-dlg-nav-item ${tab === tab2.id ? "is-active" : ""}`}
+            aria-current={tab === tab2.id ? "page" : undefined}
+            onClick={() => setTab(tab2.id)}
           >
-            {t.icon}
-            {t.label}
+            {tab2.icon}
+            {t(tab2.tabKey)}
           </button>
         ))}
       </nav>
@@ -1915,12 +1936,13 @@ export function PersonalSettingsView() {
 }
 
 export function SettingsMenu() {
+  const { t } = useTranslation();
   const openSettings = usePersonalStore((s) => s.openSettings);
   return (
     <div className="sb-foot">
       <button className="sb-row is-mute" onClick={openSettings}>
         <Icon.Settings size={15} />
-        <span className="label">设置</span>
+        <span className="label">{t("sidebar.settings")}</span>
       </button>
     </div>
   );
