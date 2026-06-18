@@ -158,6 +158,10 @@ export const RESULT_EXIT_GRACE_MS = 1_000;
 
 const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
+function externalAgentUnavailableMessage(agent: Exclude<AgentKind, "pi">): string {
+  return `⚠️ ${AGENT_NAME[agent]} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Pi 后重试。`;
+}
+
 // 启动阶段等待超此阈值仍无任何响应 → 在 typing 文案追加可操作提示(避免用户对着干等的
 // 秒数无所适从)。codex 首响应可能很慢,90s 才超时,这里更早给出「放弃/换 agent」出口提示。
 export const RUN_START_HINT_MS = 30_000;
@@ -1546,6 +1550,19 @@ export function usePersonalActions(): PersonalActions {
       if (!bridge) return false;
       const hasImages = !!(images?.length || presavedImages?.length);
       if (!text.trim() && !hasImages) return false; // 纯图(无文本)允许发送;两者皆空才拒
+      if (session.agent !== "pi" && usePersonalStore.getState().agentsAvailable?.[session.agent] === false) {
+        await ensureChatLoaded(qc, bridge, session.id);
+        appendUserMessage(qc, session.id, text, attachments, presavedImages?.length ? presavedImages : undefined);
+        appendMsg(qc, session.id, {
+          kind: "text",
+          who: session.agent,
+          time: realHHMM(),
+          text: externalAgentUnavailableMessage(session.agent),
+          uid: uid("err"),
+        });
+        flushChat(qc, session.id);
+        return false;
+      }
       if (session.agent === "pi" && !piRpcAvailable(bridge)) {
         await ensureChatLoaded(qc, bridge, session.id);
         // editResend 复用的已落盘图(presavedImages)仍回显,避免兜底分支静默丢图;

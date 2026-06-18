@@ -4,7 +4,7 @@
 
 import { ipcMain, type WebContents } from "electron";
 import { spawn, type ChildProcess } from "child_process";
-import { delimiter, join } from "path";
+import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, readdirSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, TrimSessionRequest } from "./types";
@@ -13,6 +13,8 @@ import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 
 const running = new Map<string, AgentProcess>();
+const VERIFY_TIMEOUT_MS = 3000;
+let detectedAgents: Promise<Record<AgentKind, boolean>> | null = null;
 
 // 封装子进程为统一接口。三种 agent 都走 child_process.spawn:claude/codex 是 PATH 上的
 // 外部 CLI,pi 是 bun 编译的自包含二进制(见 pi-locate.ts,不依赖 node_modules 解析)。
@@ -75,9 +77,10 @@ export function startAgentProcess(
   args: string[],
   opts: { cwd?: string; env: NodeJS.ProcessEnv },
 ): AgentProcess {
+  const env = envForCommand(cmd, opts.env);
   const child = spawn(cmd, args, {
     cwd: opts.cwd,
-    env: opts.env,
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   return wrapChild(child);
@@ -92,6 +95,35 @@ function nvmBinDirs(home: string): string[] {
   } catch {
     return [];
   }
+}
+
+function pathWithLeadingDir(pathValue: string | undefined, dir: string): string {
+  const dirs = (pathValue ?? "").split(delimiter).filter(Boolean);
+  return [dir, ...dirs.filter((d) => d !== dir)].join(delimiter);
+}
+
+function resolveOnPath(env: NodeJS.ProcessEnv, name: string): string | null {
+  const candidates =
+    platform() === "win32" ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name];
+  const dirs = (env.PATH ?? "").split(delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const candidate of candidates) {
+      const full = join(dir, candidate);
+      if (existsSync(full)) return full;
+    }
+  }
+  return null;
+}
+
+export function envForCommand(cmd: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const resolved =
+    isAbsolute(cmd) && existsSync(cmd)
+      ? cmd
+      : cmd.includes("/") || cmd.includes("\\")
+        ? null
+        : resolveOnPath(env, cmd);
+  if (!resolved) return env;
+  return { ...env, PATH: pathWithLeadingDir(env.PATH, dirname(resolved)) };
 }
 
 // GUI 进程的 PATH 通常缺少用户 shell 的安装目录（macOS 尤甚），补齐常见位置。
@@ -123,26 +155,74 @@ export function spawnEnvFor(req: { agent: string; provider?: { apiKey?: string }
   return env;
 }
 
-// 在 PATH 各目录用 existsSync 找可执行文件（不实际 spawn,够快够稳）。
-function hasOnPath(env: NodeJS.ProcessEnv, name: string): boolean {
-  const candidates =
-    platform() === "win32" ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name];
-  const dirs = (env.PATH ?? "").split(delimiter).filter(Boolean);
-  return dirs.some((dir) => candidates.some((c) => existsSync(join(dir, c))));
+function verifyAgentCli(agent: Exclude<AgentKind, "pi">, env: NodeJS.ProcessEnv): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let stderrTail = "";
+    const proc = startAgentProcess(agent, ["--version"], { env });
+    const done = (ok: boolean, reason?: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      proc.stdout?.removeAllListeners();
+      proc.stderr?.removeAllListeners();
+      if (!ok) console.warn(`[agents:detect] ${agent} unavailable: ${reason ?? "verification failed"}`);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => {
+      proc.kill();
+      done(false, `verification timed out after ${VERIFY_TIMEOUT_MS}ms`);
+    }, VERIFY_TIMEOUT_MS);
+
+    proc.stderr?.setEncoding("utf8");
+    proc.stderr?.on("data", (chunk: string) => {
+      stderrTail = (stderrTail + chunk).slice(-2000);
+    });
+    proc.onError((err) => done(false, err.message));
+    proc.onExit((code) => {
+      done(code === 0, code === 0 ? undefined : stderrTail.trim() || `exit code ${code}`);
+    });
+  });
 }
 
-// 探测本机可用 agent。pi 内置打包,恒为 true；claude/codex 看 PATH 是否找得到。
-function detectAgents(): Record<AgentKind, boolean> {
+// 启动期验证本机可用 agent。pi 内置打包,恒为 true；claude/codex 需能实际启动。
+export async function detectAgents(): Promise<Record<AgentKind, boolean>> {
+  detectedAgents ??= detectAgentsOnce();
+  return detectedAgents;
+}
+
+async function detectAgentsOnce(): Promise<Record<AgentKind, boolean>> {
   const env = buildEnv();
-  return {
-    claude: hasOnPath(env, "claude"),
-    codex: hasOnPath(env, "codex"),
+  const [claude, codex] = await Promise.all([
+    verifyAgentCli("claude", env),
+    verifyAgentCli("codex", env),
+  ]);
+  const result = {
+    claude,
+    codex,
     pi: true,
   };
+  console.info(`[agents:detect] claude=${result.claude} codex=${result.codex} pi=true`);
+  return result;
+}
+
+export function resetAgentDetectionForTest(): void {
+  detectedAgents = null;
+}
+
+function agentUnavailableMessage(agent: Exclude<AgentKind, "pi">): string {
+  return `${agent === "claude" ? "Claude Code" : "Codex"} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Pi。`;
+}
+
+async function assertAgentAvailable(agent: AgentKind): Promise<void> {
+  if (agent === "pi") return;
+  const available = await detectAgents();
+  if (available[agent] === false) throw new Error(agentUnavailableMessage(agent));
 }
 
 export function registerCliHandlers(): void {
-  ipcMain.handle("cli:start", (event, req: CliStartRequest) => {
+  ipcMain.handle("cli:start", async (event, req: CliStartRequest) => {
+    await assertAgentAvailable(req.agent);
     const sender = event.sender;
     const adapter = getAdapter(req.agent);
     // pi 选中了自定义供应商:先生成 extension 文件,把路径塞回 req 供 buildArgs 加 -e。
@@ -186,6 +266,7 @@ export function registerCliHandlers(): void {
     });
 
     proc.onError((err) => {
+      console.error(`[cli] ${req.agent} spawn failed: ${err.message}`);
       // 显式摘除 data 监听:闭包捕获 sender/buffer/adapter,避免进程对象延迟回收时驻留（防泄漏）。
       proc.stdout?.removeAllListeners();
       proc.stderr?.removeAllListeners();
@@ -204,11 +285,13 @@ export function registerCliHandlers(): void {
       proc.stdout?.removeAllListeners();
       proc.stderr?.removeAllListeners();
       running.delete(req.runId);
+      const error = code !== 0 && code !== null ? stderrTail.trim() || undefined : undefined;
+      if (error) console.error(`[cli] ${req.agent} exited with code ${code}: ${error}`);
       sendExit({
         runId: req.runId,
         sessionId: req.sessionId,
         code,
-        error: code !== 0 && code !== null ? stderrTail.trim() || undefined : undefined,
+        error,
       });
     });
   });
@@ -219,7 +302,7 @@ export function registerCliHandlers(): void {
   // 不传 cwd 时在用户主目录运行 —— 不加载项目上下文,更快更省。
   ipcMain.handle(
     "cli:oneshot",
-    (
+    async (
       _e,
       req: {
         agent?: AgentKind;
@@ -236,6 +319,7 @@ export function registerCliHandlers(): void {
       // 不传 cwd 时在用户主目录运行 —— 不加载项目上下文,更快更省（不叠加 workspaceRoot,
       // 那是交互会话/自动化的默认目录语义,oneshot 是轻量任务）。
       const cwd = req.cwd ?? homedir();
+      await assertAgentAvailable(agent);
       const adapter = getAdapter(agent);
       const provider = agent === "pi" ? req.provider : undefined;
       const piExtensionPath = provider ? writePiExtension(provider) : undefined;
@@ -257,6 +341,7 @@ export function registerCliHandlers(): void {
         let out = "";
         let resultText = "";
         let failed: string | null = null;
+        let stderrTail = "";
         const timer = setTimeout(() => {
           proc.kill();
           reject(new Error("oneshot 超时"));
@@ -283,8 +368,13 @@ export function registerCliHandlers(): void {
             buffer = buffer.slice(nl + 1);
           }
         });
+        proc.stderr?.setEncoding("utf8");
+        proc.stderr?.on("data", (chunk: string) => {
+          stderrTail = (stderrTail + chunk).slice(-2000);
+        });
         proc.onError((err) => {
           clearTimeout(timer);
+          console.error(`[cli:oneshot] ${agent} spawn failed: ${err.message}`);
           reject(err);
         });
         proc.onExit((code) => {
@@ -294,7 +384,11 @@ export function registerCliHandlers(): void {
           if (failed) reject(new Error(failed));
           else if (code === 0 && text) resolve(text);
           else if (code === 0) reject(new Error("oneshot 无输出"));
-          else reject(new Error(`oneshot 退出码 ${code}`));
+          else {
+            const error = stderrTail.trim() || `oneshot 退出码 ${code}`;
+            console.error(`[cli:oneshot] ${agent} exited with code ${code}: ${error}`);
+            reject(new Error(error));
+          }
         });
       });
     },

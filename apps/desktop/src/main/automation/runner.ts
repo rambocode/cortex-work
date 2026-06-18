@@ -10,7 +10,7 @@
 
 import { homedir } from "os";
 import type { AgentProcess } from "../ipc/cli";
-import { spawnEnvFor, startAgentProcess } from "../ipc/cli";
+import { detectAgents, spawnEnvFor, startAgentProcess } from "../ipc/cli";
 import { getAdapter } from "../agents";
 import { writePiExtension } from "../agents/pi-providers";
 import { getPersistedState, getWorkspaceRoot } from "../ipc/store";
@@ -115,6 +115,16 @@ export async function runAutomation(
   // 未指定项目 cwd 时以默认工作目录（通用设置）兜底,再退回主目录。
   const cwd = meta.cwd || (await getWorkspaceRoot()) || homedir();
 
+  const agentsAvailable = await detectAgents();
+  if (meta.agent !== "pi" && agentsAvailable[meta.agent] === false) {
+    run.status = "error";
+    run.error = `${meta.agent === "claude" ? "Claude Code" : "Codex"} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Pi。`;
+    run.endedAt = Date.now();
+    console.error(`[automation-runner] ${meta.agent} unavailable for ${meta.id}: ${run.error}`);
+    await finalize(meta, run);
+    return run;
+  }
+
   // 整个启动序列（pi provider 解析/写 extension、buildArgs、spawn）都纳入 try:
   // writePiExtension 用同步 fs,磁盘满/权限错会抛 —— 必须经 finalize 解除 pending,
   // 否则该 automation 会永久卡在「运行中」假象,此后所有触发都被记 skipped。
@@ -153,6 +163,7 @@ export async function runAutomation(
   } catch (err) {
     run.status = "error";
     run.error = err instanceof Error ? err.message : String(err);
+    console.error(`[automation-runner] ${meta.agent} launch failed for ${meta.id}: ${run.error}`);
     run.endedAt = Date.now();
     await finalize(meta, run);
     return run;
@@ -218,6 +229,7 @@ export async function runAutomation(
     settle(() => {
       run.status = "error";
       run.error = err.message;
+      console.error(`[automation-runner] ${meta.agent} spawn failed for ${meta.id}: ${err.message}`);
     });
   });
 
@@ -230,11 +242,13 @@ export async function runAutomation(
       } else if (failed) {
         run.status = "error";
         run.error = failed;
+        console.error(`[automation-runner] ${meta.agent} failed for ${meta.id}: ${failed}`);
       } else if (code === 0) {
         run.status = "ok";
       } else {
         run.status = "error";
         run.error = stderrTail.trim() || `退出码 ${code}`;
+        console.error(`[automation-runner] ${meta.agent} exited with code ${code} for ${meta.id}: ${run.error}`);
       }
     });
   });

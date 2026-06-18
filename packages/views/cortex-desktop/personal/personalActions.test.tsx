@@ -100,6 +100,7 @@ beforeEach(() => {
   usePersonalStore.setState({
     sessions: [claudeSession, piSession],
     projects: [],
+    agentsAvailable: { claude: true, codex: true, pi: true },
     runningBySession: {},
     piRuntimeBySession: {},
   });
@@ -139,6 +140,22 @@ describe("send 分叉", () => {
     expect(usePersonalStore.getState().runningBySession["s-pi"]).toBeUndefined();
     expect(msgs.map((m) => (m.kind === "text" ? m.text : "")).join("\n")).toContain("缺少 piOpen");
     expect(msgs.map((m) => (m.kind === "text" ? m.text : "")).join("\n")).toContain("完整重启 Cortex Desktop");
+  });
+
+  it("claude 未安装时直接提示,不调用 startCli", async () => {
+    usePersonalStore.getState().setAgentsAvailable({ claude: false, codex: true });
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    let consumed = true;
+    await act(async () => {
+      consumed = await result.current.send(claudeSession, "/proj", "你好", []);
+    });
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail("s-claude")) ?? [];
+    expect(consumed).toBe(false);
+    expect(bridge.startCli).not.toHaveBeenCalled();
+    expect(usePersonalStore.getState().runningBySession["s-claude"]).toBeUndefined();
+    expect(msgs.map((m) => (m.kind === "text" ? m.text : "")).join("\n")).toContain("Claude Code 未安装或不可用");
   });
 
   it("同会话并发两次 send:同步锁挡掉第二次,只起一轮", async () => {
