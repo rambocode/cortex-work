@@ -1194,6 +1194,27 @@ input, textarea { font: inherit; color: inherit; }
 .composer .img-attach-x:hover { background: rgba(0, 0, 0, 0.78); }
 .composer .img-attach-hint { font-size: 11.5px; color: var(--text-3); }
 
+/* 会话气泡内的图片缩略图(用户上传,经 image:read 回读;本期不可点) */
+.msg-img-row {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 6px;
+}
+.msg-img {
+  width: 140px; height: 140px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  display: block;
+}
+.msg-img-missing {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 8px; text-align: center;
+  color: var(--text-3); font-size: 11.5px;
+}
+.msg-img-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-img-label { color: var(--text-3); }
+
 /* ---------- Right panel ---------- */
 .right {
   width: 480px;
