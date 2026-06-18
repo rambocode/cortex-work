@@ -153,7 +153,7 @@ jobs:
               echo "publish-self:构建 + 签名 + 公证,发到本仓库 rambocode/cortex-work 的 Release(默认 token)"
               export GH_TOKEN="$SELF_GH_TOKEN"
               # 覆盖 electron-builder.yml 的跨库 publish 目标,改发本仓库(同仓库,默认 token 即可写)。
-              pnpm --filter @cortex-work/desktop run release:mac -- \
+              pnpm --filter @cortex-work/desktop exec electron-builder --mac --publish always \
                 -c.publish.provider=github \
                 -c.publish.owner=rambocode \
                 -c.publish.repo=cortex-work \
@@ -166,7 +166,7 @@ jobs:
                 rt="draft"
               fi
               echo "publish(mode=$MODE):releaseType=$rt,跨库发到公开 release 仓库"
-              pnpm --filter @cortex-work/desktop run release:mac -- -c.publish.releaseType="$rt"
+              pnpm --filter @cortex-work/desktop exec electron-builder --mac --publish always -c.publish.releaseType="$rt"
               ;;
           esac
 
