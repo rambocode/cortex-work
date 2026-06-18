@@ -1,0 +1,138 @@
+{
+  "chatHead": {
+    "shared": "共享",
+    "group": "群聊",
+    "searchInConversation": "在对话中搜索",
+    "mention": "提及",
+    "more": "更多"
+  },
+  "messageHeader": {
+    "sharedAgent": "共享 Agent",
+    "agent": "Agent"
+  },
+  "reasoning": {
+    "title": "思考过程"
+  },
+  "agentLog": {
+    "running": "运行中",
+    "done": "已完成",
+    "steps": "{{count}} 步"
+  },
+  "diff": {
+    "applied": "已应用",
+    "rejected": "已拒绝",
+    "pending": "待审核"
+  },
+  "approve": {
+    "title": "等待你的确认",
+    "subtitle": "Agent 准备执行变更",
+    "reject": "拒绝",
+    "approveRun": "批准并运行",
+    "shortcutHint": "⌘↵ 批准"
+  },
+  "stream": {
+    "empty": "这里还没有对话内容,从下方输入框开始 →"
+  },
+  "composer": {
+    "groupPlaceholder": "在 {{name}} 中发消息,@ 提及成员或他们的 Agent…",
+    "contactPlaceholder": "给 {{name}} 的 Agent 发消息…",
+    "contactFallback": "联系人",
+    "remove": "移除",
+    "removeImage": "移除 {{name}}",
+    "moreActions": "更多动作",
+    "mentionToast": "提及 · 输入 @ 选择联系人",
+    "mention": "提及",
+    "attachmentToast": "已附加截图",
+    "attachment": "附件",
+    "screenshotToast": "截图工具 · 按 ⌘⇧4",
+    "screenshot": "截图",
+    "fileTreeToast": "文件树 · 选择项目文件",
+    "fileTree": "文件树",
+    "modelToast": "模型选择 · 当前 Sonnet 4.5",
+    "voiceToast": "语音输入 · 暂未实现",
+    "send": "发送 (Enter)",
+    "steerPlaceholder": "插话:输入引导回车注入当前轮,或点击右侧停止…",
+    "runningPlaceholder": "Agent 正在运行,可点击右侧停止…",
+    "defaultPlaceholder": "给 {{name}} 发消息,可从右侧拖入 Prompt 作为 skill…",
+    "skillsOnTitle": "已加载 agent 自身 skills,点击禁用",
+    "skillsOffTitle": "已禁用 agent 自身 skills,点击启用",
+    "skills": "Skills",
+    "skillsOn": "开",
+    "skillsOff": "关",
+    "micStopTitle": "停止录音并转写",
+    "micBusyTitle": "正在转写",
+    "micTitle": "语音输入",
+    "flashNote": "闪记",
+    "uploadImage": "上传图片",
+    "noProvider": "未配置供应商（去设置 → 供应商）",
+    "thinkingStrength": "思考强度",
+    "thinkingLevel": {
+      "off": "思考·关闭",
+      "minimal": "思考·极简",
+      "low": "思考·低",
+      "medium": "思考·中",
+      "high": "思考·高",
+      "xhigh": "思考·极高"
+    },
+    "steerSend": "插话:注入当前轮 (Enter)",
+    "stop": "停止",
+    "imagesHint": "将随下条消息发送",
+    "slashRun": "Tab 执行",
+    "editBar": "编辑重发：发送后将清除这条消息之后的所有内容",
+    "cancel": "取消",
+    "noLocalAsr": "当前环境不支持本地 ASR",
+    "noRecording": "当前浏览器不支持录音",
+    "noAudio": "没有录到音频",
+    "transcribeFailed": "转写失败：{{error}}",
+    "recordFailed": "录音失败：{{error}}",
+    "readImageFailed": "读取图片失败：{{error}}",
+    "maxImages": "最多 {{count}} 张图片,已忽略多余",
+    "todoInstruction": "请根据拖入的 Task「{{title}}」继续实现这个需求，先理解详情，再在当前项目中完成实现、验证并汇报结果。",
+    "todoTruncated": "{{title}} 过大,已截断注入",
+    "skillTruncated": "{{name}} 过大,已截断注入",
+    "readAttachmentFailed": "读取附件失败：{{error}}"
+  },
+  "agentName": {
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "pi": "Pi"
+  },
+  "core": {
+    "externalUnavailable": "⚠️ {{name}} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Pi 后重试。",
+    "typing": {
+      "starting": "正在启动 {{name}}…",
+      "thinking": "{{name}} 正在思考…",
+      "waited": "已等待 {{secs}} 秒",
+      "startHint": "（启动较慢,若长时间无响应可在闪记详情点「放弃深化」后重试,或切换其它 agent）"
+    },
+    "agentLogExecuting": "Agent 正在执行",
+    "agentLogDone": "Agent 执行完成",
+    "codexSessionLost": "⚠️ Codex 本地会话历史已丢失，已断开旧 thread id。下次发送会创建新的 Codex 线程。",
+    "codexSessionLostBody": "Codex 本地会话历史已丢失，已断开旧 thread id。下次发送会创建新的 Codex 线程。",
+    "piAuthHint": "（请在 设置 → 供应商 添加供应商并填写 API Key）",
+    "execError": "⚠️ 执行出错：{{error}}{{authHint}}",
+    "unknownError": "未知错误",
+    "notify": {
+      "title": "Cortex Desktop",
+      "turnComplete": "Agent 回合完成",
+      "turnError": "Agent 执行出错"
+    },
+    "cliMissing": "未检测到 CLI，请确认已安装并在 PATH 中（如 npm install -g @anthropic-ai/claude-code）",
+    "processExit": "进程退出码 {{code}}",
+    "errorPrefix": "⚠️ {{message}}",
+    "newSession": "新会话",
+    "recoveredTurn": "（恢复的轮次）",
+    "autoTitlePrompt": "为下面这个用户请求生成一个简短的中文标题,不超过12个字,只输出标题本身,不要任何引号、标点或解释:\n\n{{text}}",
+    "piExited": "⚠️ pi 会话已退出{{detail}}。下次发送将自动重启并恢复上下文。",
+    "piExitedDetail": "：{{error}}",
+    "aborted": "⏹ 已中断本轮。",
+    "piStartFailed": "⚠️ pi 会话启动失败：{{message}}",
+    "imageUnsupported": "⚠️ 当前环境不支持图片上传。",
+    "imageSaveFailed": "⚠️ 图片保存失败：{{error}}",
+    "startTimeout": "⚠️ 启动超时：{{secs}} 秒内没有收到 {{name}} 的任何响应,已停止本次调用。请检查 CLI 是否正常,然后把鼠标移到刚才的消息上点「编辑重发」重试。",
+    "stallTimeout": "⚠️ 响应超时：{{secs}} 秒没有新的输出,已停止本次调用。可把鼠标移到刚才的消息上点「编辑重发」重试。",
+    "piForkFailed": "⚠️ 未能在 pi 侧定位编辑点,已带原有上下文重发（pi 仍记得被编辑前的内容）。",
+    "switchModelFailed": "⚠️ 切换模型失败,已回滚到原模型。",
+    "switchThinkingFailed": "⚠️ 切换思考强度失败,已回滚。"
+  }
+}

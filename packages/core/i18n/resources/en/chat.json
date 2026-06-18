@@ -1,0 +1,138 @@
+{
+  "chatHead": {
+    "shared": "Shared",
+    "group": "Group",
+    "searchInConversation": "Search in conversation",
+    "mention": "Mention",
+    "more": "More"
+  },
+  "messageHeader": {
+    "sharedAgent": "Shared Agent",
+    "agent": "Agent"
+  },
+  "reasoning": {
+    "title": "Thinking process"
+  },
+  "agentLog": {
+    "running": "Running",
+    "done": "Done",
+    "steps": "{{count}} steps"
+  },
+  "diff": {
+    "applied": "Applied",
+    "rejected": "Rejected",
+    "pending": "Pending review"
+  },
+  "approve": {
+    "title": "Waiting for your confirmation",
+    "subtitle": "Agent is ready to apply changes",
+    "reject": "Reject",
+    "approveRun": "Approve and run",
+    "shortcutHint": "⌘↵ to approve"
+  },
+  "stream": {
+    "empty": "No messages yet. Start from the input box below →"
+  },
+  "composer": {
+    "groupPlaceholder": "Message {{name}}, @ to mention members or their Agents…",
+    "contactPlaceholder": "Message {{name}}'s Agent…",
+    "contactFallback": "contact",
+    "remove": "Remove",
+    "removeImage": "Remove {{name}}",
+    "moreActions": "More actions",
+    "mentionToast": "Mention · type @ to pick a contact",
+    "mention": "Mention",
+    "attachmentToast": "Screenshot attached",
+    "attachment": "Attach",
+    "screenshotToast": "Screenshot tool · press ⌘⇧4",
+    "screenshot": "Screenshot",
+    "fileTreeToast": "File tree · pick project files",
+    "fileTree": "File tree",
+    "modelToast": "Model selection · currently Sonnet 4.5",
+    "voiceToast": "Voice input · not yet implemented",
+    "send": "Send (Enter)",
+    "steerPlaceholder": "Steer: type guidance and press Enter to inject into the current turn, or click stop on the right…",
+    "runningPlaceholder": "Agent is running, click stop on the right…",
+    "defaultPlaceholder": "Message {{name}}, drag a Prompt from the right to use as a skill…",
+    "skillsOnTitle": "Agent's own skills loaded, click to disable",
+    "skillsOffTitle": "Agent's own skills disabled, click to enable",
+    "skills": "Skills",
+    "skillsOn": "On",
+    "skillsOff": "Off",
+    "micStopTitle": "Stop recording and transcribe",
+    "micBusyTitle": "Transcribing",
+    "micTitle": "Voice input",
+    "flashNote": "Flash note",
+    "uploadImage": "Upload image",
+    "noProvider": "No provider configured (go to Settings → Providers)",
+    "thinkingStrength": "Thinking strength",
+    "thinkingLevel": {
+      "off": "Thinking · Off",
+      "minimal": "Thinking · Minimal",
+      "low": "Thinking · Low",
+      "medium": "Thinking · Medium",
+      "high": "Thinking · High",
+      "xhigh": "Thinking · Extra high"
+    },
+    "steerSend": "Steer: inject into the current turn (Enter)",
+    "stop": "Stop",
+    "imagesHint": "Will be sent with the next message",
+    "slashRun": "Tab to run",
+    "editBar": "Edit and resend: sending will clear everything after this message",
+    "cancel": "Cancel",
+    "noLocalAsr": "Local ASR is not supported in this environment",
+    "noRecording": "This browser does not support recording",
+    "noAudio": "No audio captured",
+    "transcribeFailed": "Transcription failed: {{error}}",
+    "recordFailed": "Recording failed: {{error}}",
+    "readImageFailed": "Failed to read image: {{error}}",
+    "maxImages": "Up to {{count}} images, extras ignored",
+    "todoInstruction": "Please continue implementing this requirement based on the dragged-in Task \"{{title}}\". First understand the details, then complete the implementation, verify it, and report the results in the current project.",
+    "todoTruncated": "{{title}} is too large, injected truncated",
+    "skillTruncated": "{{name}} is too large, injected truncated",
+    "readAttachmentFailed": "Failed to read attachment: {{error}}"
+  },
+  "agentName": {
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "pi": "Pi"
+  },
+  "core": {
+    "externalUnavailable": "⚠️ {{name}} is not installed or unavailable. Please install it and restart Cortex Desktop, or switch to Pi and retry.",
+    "typing": {
+      "starting": "Starting {{name}}…",
+      "thinking": "{{name}} is thinking…",
+      "waited": " · waited {{secs}}s",
+      "startHint": " (startup is slow; if there is no response for a while, you can click \"Abort deepening\" in the flash note detail and retry, or switch to another agent)"
+    },
+    "agentLogExecuting": "Agent is running",
+    "agentLogDone": "Agent run complete",
+    "codexSessionLost": "⚠️ Codex local session history is lost; the old thread id has been disconnected. The next message will create a new Codex thread.",
+    "codexSessionLostBody": "Codex local session history is lost; the old thread id has been disconnected. The next message will create a new Codex thread.",
+    "piAuthHint": " (add a provider and fill in the API Key under Settings → Providers)",
+    "execError": "⚠️ Execution error: {{error}}{{authHint}}",
+    "unknownError": "Unknown error",
+    "notify": {
+      "title": "Cortex Desktop",
+      "turnComplete": "Agent turn complete",
+      "turnError": "Agent execution error"
+    },
+    "cliMissing": "CLI not detected; please make sure it is installed and on PATH (e.g. npm install -g @anthropic-ai/claude-code)",
+    "processExit": "Process exit code {{code}}",
+    "errorPrefix": "⚠️ {{message}}",
+    "newSession": "New session",
+    "recoveredTurn": "(recovered turn)",
+    "autoTitlePrompt": "Generate a short Chinese title for the following user request, no more than 12 characters. Output only the title itself, without any quotes, punctuation, or explanation:\n\n{{text}}",
+    "piExited": "⚠️ The pi session has exited{{detail}}. The next message will automatically restart and restore context.",
+    "piExitedDetail": ": {{error}}",
+    "aborted": "⏹ This turn was aborted.",
+    "piStartFailed": "⚠️ Failed to start the pi session: {{message}}",
+    "imageUnsupported": "⚠️ Image upload is not supported in this environment.",
+    "imageSaveFailed": "⚠️ Failed to save image: {{error}}",
+    "startTimeout": "⚠️ Startup timed out: no response from {{name}} within {{secs}}s, this call has been stopped. Please check whether the CLI is working, then hover over the previous message and click \"Edit and resend\" to retry.",
+    "stallTimeout": "⚠️ Response timed out: no new output for {{secs}}s, this call has been stopped. You can hover over the previous message and click \"Edit and resend\" to retry.",
+    "piForkFailed": "⚠️ Could not locate the edit point on the pi side; resent with the original context (pi still remembers the content before the edit).",
+    "switchModelFailed": "⚠️ Failed to switch model, rolled back to the original model.",
+    "switchThinkingFailed": "⚠️ Failed to switch thinking strength, rolled back."
+  }
+}

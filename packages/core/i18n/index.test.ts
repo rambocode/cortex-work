@@ -25,10 +25,12 @@ describe("i18n 单例", () => {
 
   it("en 缺失的 key 回退到 zh 源串,绝不渲染裸 key(R3)", async () => {
     // 自带探针:zh 有、en 无的 key,断言 fallbackLng 回退到 zh 源串(不依赖真实词典缺漏)。
+    // key 为运行时注入,绕过强类型 key 检查。
+    const probe = i18n.t.bind(i18n) as (k: string) => string;
     i18n.addResourceBundle("zh-Hans", "common", { __fallbackProbe: "回退中文串" }, true, true);
     await changeLanguage("en");
-    expect(t("__fallbackProbe")).toBe("回退中文串");
-    expect(t("__fallbackProbe")).not.toBe("__fallbackProbe");
+    expect(probe("__fallbackProbe")).toBe("回退中文串");
+    expect(probe("__fallbackProbe")).not.toBe("__fallbackProbe");
   });
 
   it("是同一全局单例(多处 import 引用相等)", () => {

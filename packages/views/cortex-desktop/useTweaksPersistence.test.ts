@@ -5,7 +5,7 @@ import { CoreProvider } from "@cortex-work/core";
 
 // 持久化 hook 现经 useDesktopBridge 读 bridge,需 CoreProvider 上下文(web 端 bridge=null)。
 const coreWrapper = ({ children }: { children: ReactNode }) =>
-  createElement(CoreProvider, { wsId: "test-ws", identity: { userId: "me", name: "我" }, desktopBridge: null }, children);
+  createElement(CoreProvider, { wsId: "test-ws", identity: { userId: "me", name: "我" }, desktopBridge: null, children });
 import {
   applyTweaksToDom,
   fontScaleRatio,
