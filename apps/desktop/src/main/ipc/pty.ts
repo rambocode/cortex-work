@@ -24,20 +24,29 @@ type PtyModule = {
 
 let ptyModule: PtyModule | null | undefined; // undefined=未尝试, null=加载失败
 
+export function nodePtyDiskRoot(pkgRoot: string): string {
+  return pkgRoot.replace(/([/\\])app\.asar([/\\])/, "$1app.asar.unpacked$2");
+}
+
+export function nodePtySpawnHelperCandidates(pkgRoot: string, platform = process.platform, arch = process.arch): string[] {
+  const diskRoot = nodePtyDiskRoot(pkgRoot);
+  return [
+    join(diskRoot, "build", "Release", "spawn-helper"),
+    join(diskRoot, "build", "Debug", "spawn-helper"),
+    join(diskRoot, "prebuilds", `${platform}-${arch}`, "spawn-helper"),
+  ];
+}
+
 // pnpm 安装 / asar 解包 node-pty 预编译产物时会丢失 spawn-helper 的执行权限,
 // 导致 spawn 报 "posix_spawnp failed" —— 加载时自愈。
 // 注意 node-pty 原生模块加载顺序是 build/Release > build/Debug > prebuilds/<plat>-<arch>,
 // spawn-helper 与命中的那份 .node 同目录,故三处都要补权限(旧版只 chmod prebuilds,
 // 而打包产物运行时实际命中的恰是 build/Release,自愈漏掉真正在用的那份)。
+// 打包态 require.resolve 返回 app.asar 虚拟路径;chmod 必须落到 app.asar.unpacked 真实文件。
 function fixSpawnHelperPerms(): void {
   try {
     const pkgRoot = dirname(require.resolve("node-pty/package.json"));
-    const candidates = [
-      join(pkgRoot, "build", "Release", "spawn-helper"),
-      join(pkgRoot, "build", "Debug", "spawn-helper"),
-      join(pkgRoot, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
-    ];
-    for (const helper of candidates) {
+    for (const helper of nodePtySpawnHelperCandidates(pkgRoot)) {
       if (existsSync(helper)) chmodSync(helper, 0o755);
     }
   } catch {
