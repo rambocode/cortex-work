@@ -35,7 +35,6 @@
   "dependencies": {
     "@tanstack/react-query": "catalog:",
     "i18next": "catalog:",
-    "i18next-resources-to-backend": "catalog:",
     "zustand": "catalog:"
   },
   "peerDependencies": {

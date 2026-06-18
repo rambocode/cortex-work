@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { changeLanguage, i18n, i18nReady, t } from "./index";
 import * as i18nReimport from "./index";
+import { NAMESPACES, initialResources } from "./config";
 
 beforeAll(async () => {
   await i18nReady;
@@ -39,5 +40,17 @@ describe("i18n 单例", () => {
 
   it("changeLanguage 返回 Promise", () => {
     expect(changeLanguage("zh-Hans")).toBeInstanceOf(Promise);
+  });
+
+  // 防懒加载回归:真实应用无 test setup 的 loadAllResourcesForTest,故全部命名空间必须由
+  // config 静态打包同步存在,否则非 common 命名空间(如 settings)在运行期渲染裸 key。
+  it("config 静态打包全部命名空间,settings 等非 common 命名空间同步可解析", () => {
+    for (const ns of NAMESPACES) {
+      expect(initialResources["zh-Hans"]).toHaveProperty(ns);
+      expect(initialResources["en"]).toHaveProperty(ns);
+    }
+    expect(Object.keys(initialResources["zh-Hans"] as object)).toContain("settings");
+    // 直接从打包资源取(不经 t 的命名空间推断),证明 config 即提供 settings。
+    expect(i18n.getResource("zh-Hans", "settings", "tabs.profile")).toBe("个人资料");
   });
 });

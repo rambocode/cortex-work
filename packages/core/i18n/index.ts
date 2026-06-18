@@ -10,23 +10,15 @@
 
 import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
-import resourcesToBackend from "i18next-resources-to-backend";
 import { i18nInitOptions } from "./config";
 import type { Locale } from "./locales";
 
 // 初始化就绪 Promise —— 测试 / 需要等待资源的消费方可 await。
-// common 命名空间已同步打入 resources,init resolve 后其 key 即可用。
+// 全部命名空间已静态同步打入 resources(见 config.ts),init resolve 后所有 key 即可用,
+// 无懒加载异步、无裸 key。
 export const i18nReady: Promise<unknown> = i18next.isInitialized
   ? Promise.resolve()
-  : i18next
-      // 非默认命名空间懒加载:字符串字面量 import(打包器要求字面量)。
-      .use(
-        resourcesToBackend(
-          (language: string, namespace: string) => import(`./resources/${language}/${namespace}.json`),
-        ),
-      )
-      .use(initReactI18next)
-      .init(i18nInitOptions);
+  : i18next.use(initReactI18next).init(i18nInitOptions);
 
 export const i18n = i18next;
 

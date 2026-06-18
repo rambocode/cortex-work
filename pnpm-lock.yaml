@@ -36,9 +36,6 @@ catalogs:
     i18next:
       specifier: ^26.3.1
       version: 26.3.1
-    i18next-resources-to-backend:
-      specifier: ^1.2.1
-      version: 1.2.1
     jsdom:
       specifier: ^29.0.1
       version: 29.1.1
@@ -240,9 +237,6 @@ importers:
       i18next:
         specifier: 'catalog:'
         version: 26.3.1(typescript@5.9.3)
-      i18next-resources-to-backend:
-        specifier: 'catalog:'
-        version: 1.2.1
       zustand:
         specifier: 'catalog:'
         version: 5.0.14(@types/react@19.2.15)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
@@ -3574,9 +3568,6 @@ packages:
   i18next-resources-for-ts@2.1.0:
     resolution: {integrity: sha512-n5UexwEVt0OoIAhG2MWpSnAVJW1U8mQrQTmXyxc5DMAx+NLhcLZhSMJo/FnUsA5JQ3obTYqTgB7YIuZKWpDgow==}
     hasBin: true
-
-  i18next-resources-to-backend@1.2.1:
-    resolution: {integrity: sha512-okHbVA+HZ7n1/76MsfhPqDou0fptl2dAlhRDu2ideXloRRduzHsqDOznJBef+R3DFZnbvWoBW+KxJ7fnFjd6Yw==}
 
   i18next@26.3.1:
     resolution: {integrity: sha512-txQqd5EULsqEh9OJqRH15aCaOuy/nLJyhw5EHCSKLKJE1aBbb3Zve2+uQIxgWhPm1QqUQoWyQBm2kfmmIrzkcQ==}
@@ -9158,10 +9149,6 @@ snapshots:
       yaml: 2.9.0
     transitivePeerDependencies:
       - '@swc/helpers'
-
-  i18next-resources-to-backend@1.2.1:
-    dependencies:
-      '@babel/runtime': 7.29.7
 
   i18next@26.3.1(typescript@5.9.3):
     optionalDependencies:
