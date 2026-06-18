@@ -223,8 +223,9 @@ export function FollowupOverlay({ seed, sessionCtx, onClose }: FollowupOverlayPr
   };
 
   const seedText = seed.text;
+  // 引用正文整段交给 Markdown 渲染;折叠用 CSS max-height(避免字符串截断破坏 md 语法)。
   const seedLong = seedText.length > SEED_COLLAPSE_THRESHOLD;
-  const seedShown = seedLong && !seedExpanded ? seedText.slice(0, SEED_COLLAPSE_THRESHOLD) + "…" : seedText;
+  const seedClamped = seedLong && !seedExpanded;
 
   return (
     <div className="pw-dlg-overlay" onClick={close}>
@@ -246,7 +247,9 @@ export function FollowupOverlay({ seed, sessionCtx, onClose }: FollowupOverlayPr
             <Icon.Reply size={13} />
             <span>就这条回复追问</span>
           </div>
-          <div className={`pw-fu-seed-body ${seedLong && !seedExpanded ? "is-clamped" : ""}`}>{seedShown}</div>
+          <div className={`pw-fu-seed-body pw-fu-md md-body ${seedClamped ? "is-clamped" : ""}`}>
+            <Markdown remarkPlugins={[remarkGfm]}>{seedText}</Markdown>
+          </div>
           {seedLong ? (
             <button type="button" className="pw-fu-seed-toggle" onClick={() => setSeedExpanded((v) => !v)}>
               {seedExpanded ? "收起" : "展开"}
@@ -275,36 +278,38 @@ export function FollowupOverlay({ seed, sessionCtx, onClose }: FollowupOverlayPr
           )}
         </div>
 
-        {/* 底部:输入 + 发送/停止。 */}
+        {/* 底部:输入 + 发送/停止(composer 式容器,focus-within 柔光环,对齐主聊天输入框)。 */}
         <div className="pw-fu-foot">
-          <textarea
-            ref={taRef}
-            className="pw-fu-input"
-            value={draft}
-            placeholder={running ? "应答生成中…" : "继续追问…（Enter 发送，Shift+Enter 换行）"}
-            rows={1}
-            disabled={running}
-            spellCheck={false}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={onKey}
-          />
-          {running ? (
-            <button type="button" className="btn pw-fu-stop" onClick={cancel} title="停止生成">
-              <Icon.Stop size={14} />
-              停止
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn primary pw-fu-send"
-              onClick={submit}
-              disabled={!draft.trim()}
-              title="发送 (Enter)"
-            >
-              <Icon.Send size={14} />
-              发送
-            </button>
-          )}
+          <div className="pw-fu-composer">
+            <textarea
+              ref={taRef}
+              className="pw-fu-input"
+              value={draft}
+              placeholder={running ? "应答生成中…" : "继续追问…（Enter 发送，Shift+Enter 换行）"}
+              rows={1}
+              disabled={running}
+              spellCheck={false}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onKey}
+            />
+            {running ? (
+              <button type="button" className="btn pw-fu-stop" onClick={cancel} title="停止生成">
+                <Icon.Stop size={14} />
+                停止
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn primary pw-fu-send"
+                onClick={submit}
+                disabled={!draft.trim()}
+                title="发送 (Enter)"
+              >
+                <Icon.Send size={14} />
+                发送
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
