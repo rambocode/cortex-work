@@ -366,3 +366,17 @@ export {
   type CortexActions,
 } from "./cortex/mutations";
 export { CONTACTS, GROUPS, CONVOS, FILE_DIFFS, ORGS, findContact, whoMeta } from "./mock/data";
+export {
+  i18n,
+  i18nReady,
+  t,
+  changeLanguage,
+  useTranslation,
+  Trans,
+  I18nextProvider,
+  LOCALES,
+  DEFAULT_LOCALE,
+  DEFAULT_NS,
+  isLocale,
+  type Locale,
+} from "./i18n";

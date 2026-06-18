@@ -1,0 +1,13 @@
+{
+  "save": "Save",
+  "cancel": "Cancel",
+  "confirm": "Confirm",
+  "delete": "Delete",
+  "edit": "Edit",
+  "loading": "Loading…",
+  "language": {
+    "label": "Language",
+    "zh-Hans": "中文",
+    "en": "English"
+  }
+}

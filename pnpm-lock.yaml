@@ -33,6 +33,12 @@ catalogs:
     clsx:
       specifier: ^2.1.1
       version: 2.1.1
+    i18next:
+      specifier: ^26.3.1
+      version: 26.3.1
+    i18next-resources-to-backend:
+      specifier: ^1.2.1
+      version: 1.2.1
     jsdom:
       specifier: ^29.0.1
       version: 29.1.1
@@ -42,6 +48,9 @@ catalogs:
     react-dom:
       specifier: 19.2.3
       version: 19.2.3
+    react-i18next:
+      specifier: ^17.0.8
+      version: 17.0.8
     tailwind-merge:
       specifier: ^3.4.0
       version: 3.6.0
@@ -111,7 +120,7 @@ importers:
         version: 8.0.11
       zustand:
         specifier: 'catalog:'
-        version: 5.0.14(@types/react@19.2.15)(react@19.2.3)
+        version: 5.0.14(@types/react@19.2.15)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
     devDependencies:
       '@cortex-work/eslint-config':
         specifier: workspace:*
@@ -193,7 +202,7 @@ importers:
         version: 19.2.3(react@19.2.3)
       zustand:
         specifier: 'catalog:'
-        version: 5.0.14(@types/react@19.2.15)(react@19.2.3)
+        version: 5.0.14(@types/react@19.2.15)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
     devDependencies:
       '@cortex-work/eslint-config':
         specifier: workspace:*
@@ -225,9 +234,15 @@ importers:
       '@tanstack/react-query':
         specifier: 'catalog:'
         version: 5.100.14(react@19.2.3)
+      i18next:
+        specifier: 'catalog:'
+        version: 26.3.1(typescript@5.9.3)
+      i18next-resources-to-backend:
+        specifier: 'catalog:'
+        version: 1.2.1
       zustand:
         specifier: 'catalog:'
-        version: 5.0.14(@types/react@19.2.15)(react@19.2.3)
+        version: 5.0.14(@types/react@19.2.15)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
     devDependencies:
       '@cortex-work/eslint-config':
         specifier: workspace:*
@@ -244,6 +259,9 @@ importers:
       react:
         specifier: 'catalog:'
         version: 19.2.3
+      react-i18next:
+        specifier: 'catalog:'
+        version: 17.0.8(i18next@26.3.1(typescript@5.9.3))(react@19.2.3)(typescript@5.9.3)
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -375,7 +393,7 @@ importers:
         version: 4.0.1
       zustand:
         specifier: 'catalog:'
-        version: 5.0.14(@types/react@19.2.15)(react@19.2.3)
+        version: 5.0.14(@types/react@19.2.15)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
     devDependencies:
       '@cortex-work/eslint-config':
         specifier: workspace:*
@@ -3222,6 +3240,9 @@ packages:
     resolution: {integrity: sha512-CV9TW3Y3f8/wT0BRFc1/KAVQ3TUHiXmaAb6VW9vtiMFf7SLoMd1PdAc4W3KFOFETBJUb90KatHqlsZMWV+R9Gg==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
 
+  html-parse-stringify@3.0.1:
+    resolution: {integrity: sha512-KknJ50kTInJ7qIScF3jeaFRpMpE8/lfiTdzf/twXyPBLAGrLRTmkz3AdTnKeh40X8k9L2fdYwEp/42WGXIRGcg==}
+
   html-url-attributes@3.0.1:
     resolution: {integrity: sha512-ol6UPyBWqsrO6EJySPz2O7ZSr856WDrEzM5zMqp+FJJLGMW35cLYmmZnl0vztAZxRUoNZJFTCohfjuIJ8I4QBQ==}
 
@@ -3239,6 +3260,17 @@ packages:
   https-proxy-agent@7.0.6:
     resolution: {integrity: sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==}
     engines: {node: '>= 14'}
+
+  i18next-resources-to-backend@1.2.1:
+    resolution: {integrity: sha512-okHbVA+HZ7n1/76MsfhPqDou0fptl2dAlhRDu2ideXloRRduzHsqDOznJBef+R3DFZnbvWoBW+KxJ7fnFjd6Yw==}
+
+  i18next@26.3.1:
+    resolution: {integrity: sha512-txQqd5EULsqEh9OJqRH15aCaOuy/nLJyhw5EHCSKLKJE1aBbb3Zve2+uQIxgWhPm1QqUQoWyQBm2kfmmIrzkcQ==}
+    peerDependencies:
+      typescript: ^5 || ^6
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   iconv-lite@0.6.3:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
@@ -4185,6 +4217,22 @@ packages:
     peerDependencies:
       react: ^19.2.3
 
+  react-i18next@17.0.8:
+    resolution: {integrity: sha512-0ooKbGLU8JXhe1zwpQUWIeXSgLPOfwJmgheWRIUpcoA0CpyabpGhayjdG+/eA5esC1AQ8h2jWpXjJfzQzeDOCw==}
+    peerDependencies:
+      i18next: '>= 26.2.0'
+      react: '>= 16.8.0'
+      react-dom: '*'
+      react-native: '*'
+      typescript: ^5 || ^6
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+      react-native:
+        optional: true
+      typescript:
+        optional: true
+
   react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
 
@@ -4721,6 +4769,11 @@ packages:
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
 
+  use-sync-external-store@1.6.0:
+    resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   utf8-byte-length@1.0.5:
     resolution: {integrity: sha512-Xn0w3MtiQ6zoz2vFyUVruaCL53O/DwUvkEeOvj+uulMm0BkUGYWmBYVyElqZaSLhY6ZD0ulfU3aBra2aVT4xfA==}
 
@@ -4820,6 +4873,10 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  void-elements@3.1.0:
+    resolution: {integrity: sha512-Dhxzh5HZuiHQhbvTW9AMetFfBHDMYpo23Uo9btPXgdYP+3T5S+p+jgNy7spra+veYhBP2dCSgxR/i2Y02h5/6w==}
+    engines: {node: '>=0.10.0'}
 
   w3c-keyname@2.2.8:
     resolution: {integrity: sha512-dpojBhNsCNN7T82Tm7k26A6G9ML3NkhDsnw9n/eoxSRlVBB4CEtIQ/KTCLI2Fwf3ataSXRhYFkQi3SlnFwPvPQ==}
@@ -8364,6 +8421,10 @@ snapshots:
     transitivePeerDependencies:
       - '@noble/hashes'
 
+  html-parse-stringify@3.0.1:
+    dependencies:
+      void-elements: 3.1.0
+
   html-url-attributes@3.0.1: {}
 
   http-cache-semantics@4.2.0: {}
@@ -8386,6 +8447,14 @@ snapshots:
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
+
+  i18next-resources-to-backend@1.2.1:
+    dependencies:
+      '@babel/runtime': 7.29.7
+
+  i18next@26.3.1(typescript@5.9.3):
+    optionalDependencies:
+      typescript: 5.9.3
 
   iconv-lite@0.6.3:
     dependencies:
@@ -9525,6 +9594,16 @@ snapshots:
       react: 19.2.3
       scheduler: 0.27.0
 
+  react-i18next@17.0.8(i18next@26.3.1(typescript@5.9.3))(react@19.2.3)(typescript@5.9.3):
+    dependencies:
+      '@babel/runtime': 7.29.7
+      html-parse-stringify: 3.0.1
+      i18next: 26.3.1(typescript@5.9.3)
+      react: 19.2.3
+      use-sync-external-store: 1.6.0(react@19.2.3)
+    optionalDependencies:
+      typescript: 5.9.3
+
   react-is@16.13.1: {}
 
   react-is@17.0.2: {}
@@ -10213,6 +10292,10 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
+  use-sync-external-store@1.6.0(react@19.2.3):
+    dependencies:
+      react: 19.2.3
+
   utf8-byte-length@1.0.5: {}
 
   util-deprecate@1.0.2: {}
@@ -10269,6 +10352,8 @@ snapshots:
       jsdom: 29.1.1(@noble/hashes@2.2.0)
     transitivePeerDependencies:
       - msw
+
+  void-elements@3.1.0: {}
 
   w3c-keyname@2.2.8: {}
 
@@ -10411,9 +10496,10 @@ snapshots:
 
   zod@4.4.3: {}
 
-  zustand@5.0.14(@types/react@19.2.15)(react@19.2.3):
+  zustand@5.0.14(@types/react@19.2.15)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3)):
     optionalDependencies:
       '@types/react': 19.2.15
       react: 19.2.3
+      use-sync-external-store: 1.6.0(react@19.2.3)
 
   zwitch@2.0.4: {}

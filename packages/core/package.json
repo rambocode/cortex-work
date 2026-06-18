@@ -24,6 +24,8 @@
     "./store/personal": "./store/personal.ts",
     "./desktop/types": "./desktop/types.ts",
     "./desktop/bridge": "./desktop/bridge.ts",
+    "./i18n": "./i18n/index.ts",
+    "./i18n/native": "./i18n/native.ts",
     "./personal/messages": "./personal/messages.ts",
     "./personal/automation": "./personal/automation.ts",
     "./personal/filePaths": "./personal/filePaths.ts",
@@ -31,10 +33,13 @@
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",
+    "i18next": "catalog:",
+    "i18next-resources-to-backend": "catalog:",
     "zustand": "catalog:"
   },
   "peerDependencies": {
-    "react": "catalog:"
+    "react": "catalog:",
+    "react-i18next": "catalog:"
   },
   "devDependencies": {
     "@cortex-work/eslint-config": "workspace:*",
@@ -42,6 +47,7 @@
     "@types/react": "catalog:",
     "eslint": "^9.28.0",
     "react": "catalog:",
+    "react-i18next": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
