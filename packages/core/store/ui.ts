@@ -3,6 +3,7 @@
 
 import { create } from "zustand";
 import type { Density, Palette, SidebarMode, Toast, ToastKind, Tweaks } from "../types";
+import { DEFAULT_LOCALE } from "../i18n/locales";
 
 // Which page fills the main content area. "chat" is the default IM view; the
 // others are top-level sections reached from the sidebar nav.
@@ -44,6 +45,7 @@ export const DEFAULT_TWEAKS: Tweaks = {
   sidebar: "rich" as SidebarMode,
   fontScale: "medium",
   theme: "system",
+  language: DEFAULT_LOCALE,
 };
 
 let toastSeq = 0;

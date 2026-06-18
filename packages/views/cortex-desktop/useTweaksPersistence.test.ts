@@ -1,11 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   applyTweaksToDom,
   fontScaleRatio,
   loadStoredTweaks,
   resolveTheme,
+  useTweaksPersistence,
 } from "./useTweaksPersistence";
-import { DEFAULT_TWEAKS } from "@cortex-work/core";
+import { DEFAULT_TWEAKS, useCortexUIStore } from "@cortex-work/core";
+import { changeLanguage, i18n, i18nReady } from "@cortex-work/core/i18n";
 
 function mockMatchMedia(dark: boolean) {
   vi.stubGlobal(
@@ -19,11 +23,18 @@ function mockMatchMedia(dark: boolean) {
   );
 }
 
-afterEach(() => {
+beforeAll(async () => {
+  await i18nReady;
+});
+
+afterEach(async () => {
   vi.unstubAllGlobals();
   localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("lang");
   document.documentElement.style.removeProperty("--font-scale");
+  useCortexUIStore.setState({ tweaks: { ...DEFAULT_TWEAKS } });
+  await changeLanguage("zh-Hans");
 });
 
 describe("fontScaleRatio", () => {
@@ -75,5 +86,51 @@ describe("applyTweaksToDom", () => {
     mockMatchMedia(true);
     applyTweaksToDom({ ...DEFAULT_TWEAKS, theme: "system" });
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+  it("写 documentElement.lang 为活动语言（U2 / R6）", () => {
+    mockMatchMedia(false);
+    applyTweaksToDom({ ...DEFAULT_TWEAKS, language: "en" });
+    expect(document.documentElement.lang).toBe("en");
+    applyTweaksToDom({ ...DEFAULT_TWEAKS, language: "zh-Hans" });
+    expect(document.documentElement.lang).toBe("zh-Hans");
+  });
+});
+
+describe("language 持久化（U2）", () => {
+  it("DEFAULT_TWEAKS 默认语言为 zh-Hans", () => {
+    expect(DEFAULT_TWEAKS.language).toBe("zh-Hans");
+    expect(loadStoredTweaks().language).toBe("zh-Hans");
+  });
+  it("缺 language 字段（旧档）回退 zh-Hans", () => {
+    localStorage.setItem("cortex.tweaks", JSON.stringify({ density: "compact" }));
+    expect(loadStoredTweaks().language).toBe("zh-Hans");
+  });
+  it("读回已存 language", () => {
+    localStorage.setItem("cortex.tweaks", JSON.stringify({ language: "en" }));
+    expect(loadStoredTweaks().language).toBe("en");
+  });
+
+  it("切 store.language → i18next 切换 + documentElement.lang 更新 + 写盘（R6）", async () => {
+    mockMatchMedia(false);
+    renderHook(() => useTweaksPersistence());
+    await act(async () => {
+      useCortexUIStore.getState().setTweak("language", "en");
+    });
+    await waitFor(() => expect(i18n.language).toBe("en"));
+    expect(document.documentElement.lang).toBe("en");
+    expect(JSON.parse(localStorage.getItem("cortex.tweaks")!).language).toBe("en");
+  });
+
+  it("localStorage 写入抛错（隐私模式）不崩溃", async () => {
+    mockMatchMedia(false);
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    renderHook(() => useTweaksPersistence());
+    await act(async () => {
+      useCortexUIStore.getState().setTweak("language", "en");
+    });
+    await waitFor(() => expect(i18n.language).toBe("en"));
+    setItem.mockRestore();
   });
 });

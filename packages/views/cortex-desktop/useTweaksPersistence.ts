@@ -5,6 +5,7 @@
 
 import { useEffect } from "react";
 import { DEFAULT_TWEAKS, useCortexUIStore } from "@cortex-work/core";
+import { changeLanguage } from "@cortex-work/core/i18n";
 import type { FontScale, ThemeMode, Tweaks } from "@cortex-work/core/types";
 
 const STORAGE_KEY = "cortex.tweaks";
@@ -54,6 +55,8 @@ export function applyTweaksToDom(t: Tweaks): void {
   const root = document.documentElement;
   root.dataset.theme = resolveTheme(t.theme);
   root.style.setProperty("--font-scale", fontScaleRatio(t.fontScale));
+  // <html lang> 随活动语言更新(无障碍 + 覆盖 layout.tsx 的服务端默认值）。
+  root.lang = t.language;
 }
 
 export function useTweaksPersistence(): void {
@@ -65,12 +68,16 @@ export function useTweaksPersistence(): void {
       if (cur.tweaks[k] !== stored[k]) cur.setTweak(k, stored[k]);
     });
     applyTweaksToDom(useCortexUIStore.getState().tweaks);
+    // 启动时把已存语言喂给 i18next(异步,fire-and-forget,同 theme 范式不 await）。
+    void changeLanguage(useCortexUIStore.getState().tweaks.language);
 
     // 2. 变更即写盘 + 重应用。
     const unsub = useCortexUIStore.subscribe((s, prev) => {
       if (s.tweaks !== prev.tweaks) {
         storeTweaks(s.tweaks);
         applyTweaksToDom(s.tweaks);
+        // 仅语言变化时切 i18next(idempotent,但省去无谓 changeLanguage)。
+        if (s.tweaks.language !== prev.tweaks.language) void changeLanguage(s.tweaks.language);
       }
     });
 
