@@ -1,11 +1,13 @@
 // 设置入口 + 整页设置视图（PersonalSettingsView）的最小渲染测试。
 // 仅依赖 store（openSettings/closeSettings）与默认 profile/通用分区,不需真实 bridge。
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import type { ReactElement } from "react";
-import { CoreProvider, usePersonalStore } from "@cortex-work/core";
+import { CoreProvider, DEFAULT_TWEAKS, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
+import { changeLanguage, i18n, i18nReady } from "@cortex-work/core/i18n";
 import type { DesktopBridge, UpdateState } from "@cortex-work/core";
 import { SettingsMenu, PersonalSettingsView } from "./SettingsMenu";
+import { useTweaksPersistence } from "../useTweaksPersistence";
 
 function renderUI(ui: ReactElement, bridge: DesktopBridge | null = null) {
   return render(
@@ -117,6 +119,52 @@ describe("设置入口与整页设置视图", () => {
     usePersonalStore.setState({ settingsOpen: true });
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(usePersonalStore.getState().settingsOpen).toBe(true);
+  });
+});
+
+describe("语言切换器(U3)", () => {
+  // 挂载持久化 hook,使切换器 setTweak → changeLanguage 全链生效(同真实 CortexDesktopView)。
+  function SettingsWithPersistence() {
+    useTweaksPersistence();
+    return <PersonalSettingsView />;
+  }
+
+  beforeAll(async () => {
+    await i18nReady;
+  });
+  beforeEach(() => {
+    usePersonalStore.setState({ settingsOpen: true, profile: {} });
+    useCortexUIStore.setState({ tweaks: { ...DEFAULT_TWEAKS } });
+    localStorage.clear();
+  });
+  afterEach(async () => {
+    cleanup();
+    useCortexUIStore.setState({ tweaks: { ...DEFAULT_TWEAKS } });
+    await changeLanguage("zh-Hans");
+  });
+
+  it("通用分区渲染语言切换器(默认中文,选项含 English)", () => {
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "通用" }));
+    expect(screen.getByText("语言")).toBeTruthy(); // 行标题(zh 源串)
+    expect(screen.getByText("English")).toBeTruthy(); // 选项(语言名以本族文字显示)
+    expect(screen.getByText("中文")).toBeTruthy();
+  });
+
+  it("点 English → tweaks.language=en", () => {
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "通用" }));
+    fireEvent.click(screen.getByText("English"));
+    expect(useCortexUIStore.getState().tweaks.language).toBe("en");
+  });
+
+  it("切到 English 经持久化全链 → i18n 切换且行标题变英文(Covers R7)", async () => {
+    renderUI(<SettingsWithPersistence />);
+    fireEvent.click(screen.getByRole("button", { name: "通用" }));
+    fireEvent.click(screen.getByText("English"));
+    await waitFor(() => expect(i18n.language).toBe("en"));
+    expect(useCortexUIStore.getState().tweaks.language).toBe("en");
+    expect(screen.getByText("Language")).toBeTruthy(); // 行标题切英文
   });
 });
 

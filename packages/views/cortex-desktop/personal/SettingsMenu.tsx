@@ -48,6 +48,7 @@ import type {
   WecomPushConfig,
 } from "@cortex-work/core";
 import type { Density, FontScale, Palette, SidebarMode, ThemeMode } from "@cortex-work/core/types";
+import { useTranslation, type Locale } from "@cortex-work/core/i18n";
 import {
   PET_COLOR_KEY,
   PET_DESIGNS,
@@ -402,6 +403,7 @@ function BareSelect({
 }
 
 function GeneralSection() {
+  const { t } = useTranslation();
   const tweaks = useCortexUIStore((s) => s.tweaks);
   const setTweak = useCortexUIStore((s) => s.setTweak);
   const general = usePersonalStore((s) => s.generalSettings);
@@ -474,6 +476,13 @@ function GeneralSection() {
       <div className="pw-dlg-desc">管理界面偏好、默认工作目录与桌面行为。</div>
 
       <SettingCard title="基础设置">
+        <SRow label={t("language.label")} desc={t("language.desc")}>
+          <SegmentedRadio
+            value={tweaks.language === "en" ? t("language.en") : t("language.zh-Hans")}
+            options={[t("language.zh-Hans"), t("language.en")]}
+            onChange={(v) => setTweak("language", (v === t("language.en") ? "en" : "zh-Hans") satisfies Locale)}
+          />
+        </SRow>
         <SRow label="主题" desc="浅色、深色或跟随系统。">
           <BareSelect value={tweaks.theme} options={THEME_OPTIONS} onChange={(v) => setTweak("theme", v as ThemeMode)} />
         </SRow>
