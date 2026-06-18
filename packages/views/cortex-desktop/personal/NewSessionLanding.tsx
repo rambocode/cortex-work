@@ -12,7 +12,7 @@ import {
   usePersonalActions,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import type { PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
 import { GitBar } from "./GitBar";
@@ -59,33 +59,35 @@ export function NewSessionLanding({
   // GitBar 据此查 git/显示分支;undefined（未选 / 不使用项目）只显示项目选择器。
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
 
-  const onSubmit = (value: string, attachments: PersonalAttachment[]) => {
+  // 先 createSession 拿到 sessionId,再 await send(图片落盘在 send 内、以新 sessionId 为目录键)。
+  // 纯图(无文本)允许发送。返回 send 的「已消费」结果供 composer 决定清空待发图。
+  const onSubmit = (value: string, attachments: PersonalAttachment[], images?: PendingImage[]) => {
     const trimmed = value.trim();
-    if (!trimmed) return;
-    void (async () => {
+    if (!trimmed && !images?.length) return false;
+    return (async () => {
       try {
         if (selectedProjectId) {
           // 选了具体项目:在项目目录下新建会话并发送。
           if (!selectedProject) {
             onToast("项目不存在,请重新选择");
-            return;
+            return false;
           }
           const sess = createSession(selectedProjectId, draft.agent, draft.model);
           applyDraftPatch(sess);
-          await send(sess, selectedProject.path, trimmed, attachments);
-          return;
+          return await send(sess, selectedProject.path, trimmed, attachments, undefined, images);
         }
         // selectedProjectId 为 undefined = 不使用项目:在当天的无项目工作目录下新建会话。
         if (!bridge?.ensureNoProjectDir) {
           onToast("当前环境不支持「不使用项目」会话");
-          return;
+          return false;
         }
         const dir = await bridge.ensureNoProjectDir(dayKey(Date.now()));
         const sess = createSession(undefined, draft.agent, draft.model, { noProjectDir: dir });
         applyDraftPatch(sess);
-        await send(sess, dir, trimmed, attachments);
+        return await send(sess, dir, trimmed, attachments, undefined, images);
       } catch (err) {
         onToast(`发送失败：${err instanceof Error ? err.message : String(err)}`);
+        return false;
       }
     })();
   };

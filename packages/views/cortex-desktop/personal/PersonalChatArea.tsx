@@ -431,22 +431,24 @@ export function PersonalChatArea({
         running={running}
         editing={editing}
         onCancelEdit={() => setEditing(null)}
-        onSend={(text, attachments) => {
-          // 编辑重发:截断目标消息及其后内容,按新文本重发。
+        onSend={(text, attachments, images) => {
+          // 编辑重发:截断目标消息及其后内容,按新文本重发(复用原消息已落盘图,见 editResend)。
+          // 本期编辑态不增删图,composer 的待发 images 忽略;返回 true 让 composer 清空。
           if (editing) {
             const uid = editing.uid;
             setEditing(null);
             void editResend(session, project.path, uid, text, attachments);
-            return;
+            return true;
           }
           // slash 命令:/clear 默认隐藏当前历史(磁盘历史保留,重启仍隐藏)。
+          // 返回 false → 不消费待发图(AE11:/clear 不清待发图)。
           if (text.trim() === "/clear") {
             clearView(session.id);
             setShowHiddenHistory(false);
             onToast("已隐藏当前历史 · 可随时展开查看");
-            return;
+            return false;
           }
-          void send(session, project.path, text, attachments);
+          return send(session, project.path, text, attachments, undefined, images);
         }}
         onStop={() => void stopRun(session.id)}
         onSteer={session.agent === "pi" ? (text) => void steer(session.id, text) : undefined}

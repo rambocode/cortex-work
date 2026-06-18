@@ -13,9 +13,16 @@ import {
   usePersonalStore,
   usePetStore,
 } from "@cortex-work/core";
-import type { AgentKind, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
+import type { AgentKind, PendingImage, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
+import {
+  MAX_IMAGES_PER_MESSAGE,
+  checkImageFile,
+  fileToPendingImage,
+  imageDedupeKey,
+  rejectReasonText,
+} from "./imageIntake";
 
 // 输入框占位文案中的 agent 展示名。
 const AGENT_PLACEHOLDER_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
@@ -104,7 +111,13 @@ export function ComposerShell({
   className?: string;
   /** 覆盖非运行态占位文案;缺省用「给 {agent名} 发消息…」。 */
   placeholder?: string;
-  onSend: (text: string, attachments: PersonalAttachment[]) => void;
+  // 返回是否「已消费」(真正发出):composer 据此决定清空待发图(未消费则保留供重试,KTD9)。
+  // /clear 返回 false（保留待发图）;真正 send 返回 core send 的 Promise<boolean>。
+  onSend: (
+    text: string,
+    attachments: PersonalAttachment[],
+    images?: PendingImage[],
+  ) => void | boolean | Promise<void | boolean>;
   onStop?: () => void;
   /** pi 运行中插话:把引导注入当前轮（仅 pi + 提供时启用;非 pi/单发不传 → 运行中只能停止）。 */
   onSteer?: (text: string) => void;
@@ -123,10 +136,13 @@ export function ComposerShell({
   const bridge = useDesktopBridge();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<PersonalAttachment[]>([]);
+  const [images, setImages] = useState<PendingImage[]>([]);
+  const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -155,11 +171,68 @@ export function ComposerShell({
   // pi 运行中可插话（steer）:把引导注入当前轮。仅 pi + 提供 onSteer 时启用。
   const canSteer = !!onSteer && isPi && running;
 
-  const send = () => {
-    if (!text.trim() || running) return;
-    onSend(text, attachments);
-    setText("");
-    setAttachments([]);
+  const send = async () => {
+    if ((!text.trim() && images.length === 0) || running || sending) return; // 纯图(无文本)允许发送
+    setSending(true);
+    try {
+      // onSend 返回「是否已消费」(真正发出);未消费(/clear、pi 不可用、落盘失败)则保留待发图供重试。
+      const consumed = await onSend(text, attachments, images.length ? images : undefined);
+      setText("");
+      setAttachments([]);
+      if (consumed) setImages([]); // KTD9:仅真正消费才清待发图
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // 采集图片:格式/大小校验 + 同批与已有去重(name+size) + 张数上限,逐个读成 PendingImage。
+  const addImageFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    const seen = new Set(images.map((i) => imageDedupeKey(i.name, i.data.byteLength)));
+    const accepted: File[] = [];
+    for (const f of files) {
+      const reason = checkImageFile(f);
+      if (reason) {
+        onToast(rejectReasonText(reason, f.name));
+        continue;
+      }
+      const key = imageDedupeKey(f.name, f.size);
+      if (seen.has(key)) continue; // 已有同名同尺寸,跳过
+      seen.add(key);
+      accepted.push(f);
+    }
+    if (accepted.length === 0) return;
+    const room = MAX_IMAGES_PER_MESSAGE - images.length;
+    if (room <= 0) {
+      onToast(`最多 ${MAX_IMAGES_PER_MESSAGE} 张图片`);
+      return;
+    }
+    const take = accepted.slice(0, room);
+    if (accepted.length > room) onToast(`最多 ${MAX_IMAGES_PER_MESSAGE} 张图片,已忽略多余`);
+    try {
+      const pending = await Promise.all(take.map((f) => fileToPendingImage(f)));
+      setImages((prev) => [...prev, ...pending]);
+    } catch (err) {
+      onToast(`读取图片失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  // 粘贴:剪贴板含图片 → 加入待发(并拦截默认粘贴);纯文本走原行为(不拦截)。
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => !!f);
+    if (files.length === 0) return;
+    e.preventDefault();
+    void addImageFiles(files);
+  };
+
+  // 文件选择:选完即清空 input.value,允许重复选同一文件。
+  const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    void addImageFiles(files);
   };
 
   const steer = () => {
@@ -324,7 +397,13 @@ export function ComposerShell({
     setDragOver(false);
     const rawPrompt = e.dataTransfer.getData(PROMPT_DRAG_MIME);
     const rawTodo = e.dataTransfer.getData(TODO_DRAG_MIME);
-    if ((!rawPrompt && !rawTodo) || !bridge) return;
+    // 应用内 MIME(skill/todo)优先;否则当作系统图片文件拖入(图片无需 bridge,走 FileReader)。
+    if (!rawPrompt && !rawTodo) {
+      const files = Array.from(e.dataTransfer.files ?? []).filter((f) => f.type.startsWith("image/"));
+      if (files.length) void addImageFiles(files);
+      return;
+    }
+    if (!bridge) return;
     try {
       if (rawTodo) {
         const { id, detailPath, title, projectName } = JSON.parse(rawTodo) as {
@@ -360,7 +439,12 @@ export function ComposerShell({
       <div
         className={`composer ${dragOver ? "pw-drop-target" : ""}`}
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes(PROMPT_DRAG_MIME) || e.dataTransfer.types.includes(TODO_DRAG_MIME)) {
+          // 应用内 skill/todo 或系统文件(图片)拖入都给高亮反馈。
+          if (
+            e.dataTransfer.types.includes(PROMPT_DRAG_MIME) ||
+            e.dataTransfer.types.includes(TODO_DRAG_MIME) ||
+            e.dataTransfer.types.includes("Files")
+          ) {
             e.preventDefault();
             e.dataTransfer.dropEffect = "copy";
             setDragOver(true);
@@ -392,6 +476,25 @@ export function ComposerShell({
                 </button>
               </span>
             ))}
+          </div>
+        ) : null}
+        {images.length > 0 ? (
+          <div className="img-attach-row">
+            {images.map((img) => (
+              <span key={img.id} className="img-attach">
+                <img src={img.dataUrl} alt={img.name} className="img-attach-thumb" />
+                <button
+                  type="button"
+                  className="img-attach-x"
+                  aria-label={`移除 ${img.name}`}
+                  title="移除"
+                  onClick={() => setImages((prev) => prev.filter((x) => x.id !== img.id))}
+                >
+                  <Icon.X size={11} />
+                </button>
+              </span>
+            ))}
+            {running ? <span className="img-attach-hint">将随下条消息发送</span> : null}
           </div>
         ) : null}
         {/* slash 命令匹配提示:唯一匹配 Tab 直接执行,点击亦可执行 */}
@@ -433,6 +536,7 @@ export function ComposerShell({
               if (pet.state === "idle" || pet.state === "sleeping" || pet.state === "typing") pet.set("typing");
             }}
             onKeyDown={onKey}
+            onPaste={onPaste}
             placeholder={
               canSteer
                 ? "插话:输入引导回车注入当前轮,或点击右侧停止…"
@@ -465,6 +569,23 @@ export function ComposerShell({
               <Icon.Pin size={13} />
             </button>
           ) : null}
+          <button
+            className="pill"
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            title="上传图片"
+            aria-label="上传图片"
+          >
+            <Icon.Image size={13} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            style={{ display: "none" }}
+            onChange={onPickFiles}
+          />
           <div className="spacer" />
           <span className="pill pw-model-pill">
             <span className="lightning">
@@ -538,9 +659,9 @@ export function ComposerShell({
             </>
           ) : (
             <button
-              className={`send ${text.trim() ? "" : "muted"}`}
-              onClick={send}
-              disabled={!text.trim()}
+              className={`send ${text.trim() || images.length ? "" : "muted"}`}
+              onClick={() => void send()}
+              disabled={(!text.trim() && images.length === 0) || sending}
               title="发送 (Enter)"
             >
               <Icon.Send size={15} />

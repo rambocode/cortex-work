@@ -2,7 +2,7 @@
 // (agent/model/providerId/useOwnSkills) 摊平后转交内核,并启用 slash 命令与文件预览
 // 「发送到 Chat」插入。
 
-import type { PersonalAttachment, SessionMeta, ThinkingLevel } from "@cortex-work/core";
+import type { PendingImage, PersonalAttachment, SessionMeta, ThinkingLevel } from "@cortex-work/core";
 import { ComposerShell } from "./ComposerShell";
 
 // slash 命令注册表（发送拦截在 PersonalChatArea.onSend）。
@@ -30,7 +30,11 @@ export function PersonalComposer({
   /** 编辑重发:正在编辑的历史用户消息(原文填入输入框,顶部出提示条)。 */
   editing?: { uid: string; text: string } | null;
   onCancelEdit?: () => void;
-  onSend: (text: string, attachments: PersonalAttachment[]) => void;
+  onSend: (
+    text: string,
+    attachments: PersonalAttachment[],
+    images?: PendingImage[],
+  ) => void | boolean | Promise<void | boolean>;
   onStop: () => void;
   /** pi 运行中插话:注入当前轮（仅 pi 会话传入;ComposerShell 内部再按 isPi+running 门控）。 */
   onSteer?: (text: string) => void;

@@ -2,9 +2,9 @@
 // 运行中输入框可发插话(Enter/按钮 → onSteer);claude 运行中只剩停止按钮。
 
 import type { ReactNode } from "react";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CoreProvider, usePersonalStore, type AgentKind, type DesktopBridge } from "@cortex-work/core";
+import { CoreProvider, usePersonalStore, type AgentKind, type DesktopBridge, type PendingImage, type PersonalAttachment } from "@cortex-work/core";
 import { ComposerShell } from "./ComposerShell";
 
 const bridge = { loadChat: async () => [], saveChat: async () => {} } as unknown as DesktopBridge;
@@ -95,5 +95,111 @@ describe("ComposerShell steer 门控（U6）", () => {
     fireEvent.keyDown(ta, { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("新问题");
     expect(onSteer).not.toHaveBeenCalled();
+  });
+});
+
+// 图片采集（U3）。用隐藏文件 input(可靠)为主、一条粘贴用例。
+function renderFull(
+  onSend: (t: string, a: PersonalAttachment[], imgs?: PendingImage[]) => void | boolean | Promise<void | boolean>,
+  running = false,
+) {
+  return render(
+    <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
+      <ComposerShell
+        agent="claude"
+        model={undefined}
+        providerId={undefined}
+        useOwnSkills={false}
+        running={running}
+        onSend={onSend}
+        onChangeModel={() => {}}
+        onChangePiModel={() => {}}
+        onToggleSkills={() => {}}
+        onToast={() => {}}
+      />
+    </CoreProvider>,
+  );
+}
+
+function pngFile(name: string, type = "image/png"): File {
+  return new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], name, { type });
+}
+
+function pickImage(container: HTMLElement, file: File) {
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [file] } });
+}
+
+describe("ComposerShell 图片采集（U3）", () => {
+  it("上传按钮存在(aria-label 可达)", () => {
+    renderFull(() => true);
+    expect(screen.getByLabelText("上传图片")).toBeInTheDocument();
+  });
+
+  it("选择图片 → 出现缩略图(alt + 移除按钮)", async () => {
+    const { container } = renderFull(() => true);
+    pickImage(container, pngFile("shot.png"));
+    await waitFor(() => expect(container.querySelector(".img-attach-thumb")).toBeTruthy());
+    expect((container.querySelector(".img-attach-thumb") as HTMLImageElement).alt).toBe("shot.png");
+    expect(screen.getByLabelText("移除 shot.png")).toBeInTheDocument();
+  });
+
+  it("粘贴图片 → 出现缩略图", async () => {
+    const { container } = renderFull(() => true);
+    const ta = screen.getByRole("textbox");
+    fireEvent.paste(ta, {
+      clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => pngFile("p.png") }] },
+    });
+    await waitFor(() => expect(container.querySelector(".img-attach-thumb")).toBeTruthy());
+  });
+
+  it("不支持格式被拒(不进缩略图)", async () => {
+    const { container } = renderFull(() => true);
+    pickImage(container, pngFile("a.svg", "image/svg+xml"));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(container.querySelector(".img-attach")).toBeNull();
+  });
+
+  it("纯图(无文本)可发:send 携带 images;consumed=true 后清空缩略图", async () => {
+    const onSend = vi.fn<(t: string, a: PersonalAttachment[], imgs?: PendingImage[]) => boolean>(() => true);
+    const { container } = renderFull(onSend);
+    pickImage(container, pngFile("a.png"));
+    await waitFor(() => expect(container.querySelector(".img-attach-thumb")).toBeTruthy());
+    fireEvent.click(screen.getByTitle("发送 (Enter)"));
+    await waitFor(() => expect(onSend).toHaveBeenCalled());
+    const imgs = onSend.mock.calls[0]?.[2] as PendingImage[] | undefined;
+    expect(imgs?.length).toBe(1);
+    await waitFor(() => expect(container.querySelector(".img-attach")).toBeNull());
+  });
+
+  it("未消费(onSend 返回 false)→ 待发图保留(KTD9)", async () => {
+    const onSend = vi.fn(() => false);
+    const { container } = renderFull(onSend);
+    const ta = screen.getByRole("textbox");
+    fireEvent.change(ta, { target: { value: "x" } });
+    pickImage(container, pngFile("a.png"));
+    await waitFor(() => expect(container.querySelector(".img-attach-thumb")).toBeTruthy());
+    fireEvent.click(screen.getByTitle("发送 (Enter)"));
+    await waitFor(() => expect(onSend).toHaveBeenCalled());
+    expect(container.querySelector(".img-attach")).toBeTruthy(); // 未消费 → 保留
+  });
+
+  it("移除缩略图", async () => {
+    const { container } = renderFull(() => true);
+    pickImage(container, pngFile("a.png"));
+    await waitFor(() => expect(container.querySelector(".img-attach-thumb")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("移除 a.png"));
+    expect(container.querySelector(".img-attach")).toBeNull();
+  });
+
+  it("同名同尺寸去重(选两次同一文件只留一张)", async () => {
+    const { container } = renderFull(() => true);
+    pickImage(container, pngFile("dup.png"));
+    await waitFor(() => expect(container.querySelectorAll(".img-attach").length).toBe(1));
+    pickImage(container, pngFile("dup.png"));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(container.querySelectorAll(".img-attach").length).toBe(1);
   });
 });
