@@ -3,7 +3,7 @@
 //   typing 占位 → 首个事件后替换为流式 text / agentLog → result/exit 落定。
 // 多轮：init 捕获 agent session id 写回 SessionMeta，下一轮 resume。
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { Message } from "../types";
 import type {
@@ -252,6 +252,17 @@ export function splitPersonalMessages(messages: Message[], hiddenHistory?: Hidde
   };
 }
 
+// 渲染窗口:对消息集取尾部 limit 条,返回切片 + 仍被折叠的更早条数。纯函数,无副作用。
+// 配合 useRenderWindow,让历史会话默认只渲染最新 limit 条(其余「展开更多」逐步加载),
+// 把首屏渲染量从 O(全部) 降到 O(limit),规避长会话一次性全量渲染导致的卡顿/闪退。
+export function windowTailMessages(
+  source: Message[],
+  limit: number,
+): { rendered: Message[]; collapsedEarlier: number } {
+  const start = Math.min(source.length, Math.max(0, source.length - limit));
+  return { rendered: start > 0 ? source.slice(start) : source, collapsedEarlier: start };
+}
+
 export function createHiddenHistory(messages: Message[], now = Date.now()): HiddenHistoryMeta {
   const last = messages[messages.length - 1];
   const hiddenHistory: HiddenHistoryMeta = { count: messages.length, hiddenAt: now };
@@ -263,13 +274,16 @@ export function createHiddenHistory(messages: Message[], now = Date.now()): Hidd
 const SAVE_THROTTLE_MS = 600;
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-// 落盘前清理瞬态:typing 丢弃,运行中的 agentLog/reasoning 标记完成（重启后不会有悬挂展开态）。
-function sanitizeForSave(messages: Message[]): Message[] {
+// 落盘前清理瞬态:
+//  - typing 丢弃(瞬态占位);
+//  - reasoning 丢弃——模型思考只显示本次,不作为长期记录(也避免 pi 长思考流撑大 chat JSON);
+//  - 运行中的 agentLog 标记完成(重启后不会有悬挂展开态)。
+// 加载历史时同样过此函数,故旧数据里遗留的 reasoning 会被顺带清掉。
+export function sanitizeForSave(messages: Message[]): Message[] {
   return messages
-    .filter((m) => m.kind !== "typing")
+    .filter((m) => m.kind !== "typing" && m.kind !== "reasoning")
     .map((m) => {
       if (m.kind === "agentLog" && m.active) return { ...m, active: false, completed: true };
-      if (m.kind === "reasoning" && m.active) return { ...m, active: false, completed: true };
       return m;
     });
 }
@@ -1357,6 +1371,38 @@ export function __ensureChatLoadedForTest(
   return ensureChatLoaded(qc, bridge, sessionId);
 }
 
+// 流式期间每个 token 都 setQueryData 触发本 hook 重渲染;节流到一帧 ~80ms,把长会话
+// 每秒数十次的列表 reconcile 降到约 12 次(终态由 trailing 帧保证与 cache 完全一致)。
+// 内存关键:配合消息组件 React.memo,长会话不再每 token 全列表重渲染 + markdown 全量重解析。
+const CHAT_RENDER_THROTTLE_MS = 80;
+
+// 稳定空数组:data 为空时复用同一引用,避免每次 render 新建 [] 触发下游 memo 失效。
+const EMPTY_MESSAGES: Message[] = [];
+
+// 通用「值节流」:value 引用变化时,距上次提交满 delay 立即提交,否则排一帧 trailing。
+function useThrottledValue<T>(value: T, delay: number): T {
+  const [shown, setShown] = useState(value);
+  const lastRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const commit = () => {
+      lastRef.current = Date.now();
+      setShown(value);
+    };
+    const since = Date.now() - lastRef.current;
+    if (since >= delay) {
+      commit();
+    } else {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(commit, delay - since);
+    }
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [value, delay]);
+  return shown;
+}
+
 export function usePersonalChat(sessionId: string | undefined): PersonalChatSlice {
   const bridge = useDesktopBridge();
   const hiddenHistory = usePersonalStore(
@@ -1369,10 +1415,74 @@ export function usePersonalChat(sessionId: string | undefined): PersonalChatSlic
       bridge && sessionId ? sanitizeForSave((await bridge.loadChat(sessionId)) as Message[]) : [],
     enabled: !!sessionId,
     staleTime: Infinity,
-    gcTime: Infinity,
+    // gcTime 继承全局默认(10min):切走的会话消息可被回收,不再永久驻留(磁盘是真相,
+    // 切回时重新 loadChat)。长会话 + 多会话场景下这是内存只增不减的主因之一。
   });
-  const all = data ?? [];
-  return splitPersonalMessages(all, hiddenHistory);
+  const all = data ?? EMPTY_MESSAGES;
+  const shown = useThrottledValue(all, CHAT_RENDER_THROTTLE_MS);
+  return useMemo(() => splitPersonalMessages(shown, hiddenHistory), [shown, hiddenHistory]);
+}
+
+// 渲染窗口默认尺寸与每次「展开更多」步长。
+export const RENDER_WINDOW_INITIAL = 20;
+export const RENDER_WINDOW_STEP = 20;
+
+export interface RenderWindow {
+  rendered: Message[];
+  collapsedEarlier: number;
+  canExpandMore: boolean;
+  expandMore: () => void;
+  expandNonce: number;
+  stickKey: string;
+}
+
+// 历史会话分页渲染窗口:默认只渲染 source 尾部 RENDER_WINDOW_INITIAL 条,「展开更多」每次 +STEP。
+//  - resetKey 变(切会话 / /clear 游标变)→ 窗口回到尾部默认值、锚点计数归零;
+//  - source 尾部追加(流式新消息)→ 窗口同步增长,避免已渲染内容被新消息挤出顶部;
+//  - expandMore 递增窗口并 bump expandNonce,供 MessageStream 区分「头部插入(保锚点)」与「尾部追加(贴底)」。
+// 纯视图裁剪:不改持久化与 AI 上下文,只削减 DOM 渲染与 markdown 解析量。
+export function useRenderWindow(resetKey: string, source: Message[]): RenderWindow {
+  const [visibleCount, setVisibleCount] = useState(RENDER_WINDOW_INITIAL);
+  const [expandNonce, setExpandNonce] = useState(0);
+  const prevLen = useRef(source.length);
+  // 是否已收到该 resetKey 下的首批数据:首批到达(loadChat 0→N)只建基线、不当作流式追加跟随,
+  // 否则异步落地的整段历史会被误判为「追加」,把窗口撑到 20+N、裁剪失效。
+  const baselineReady = useRef(false);
+
+  useEffect(() => {
+    setVisibleCount(RENDER_WINDOW_INITIAL);
+    setExpandNonce(0);
+    baselineReady.current = false;
+    prevLen.current = source.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+
+  useEffect(() => {
+    const len = source.length;
+    if (!baselineReady.current) {
+      if (len > 0) baselineReady.current = true; // 首批数据落定,建立跟随基线
+      prevLen.current = len;
+      return;
+    }
+    if (len > prevLen.current) setVisibleCount((c) => c + (len - prevLen.current));
+    prevLen.current = len;
+  }, [source.length]);
+
+  const { rendered, collapsedEarlier } = useMemo(
+    () => windowTailMessages(source, visibleCount),
+    [source, visibleCount],
+  );
+
+  const expandMore = useCallback(() => {
+    setVisibleCount((c) => c + RENDER_WINDOW_STEP);
+    setExpandNonce((n) => n + 1);
+  }, []);
+
+  // 贴底信号:source 总长 + 尾部 uid。新消息追加 → 变化 → 贴底;「展开更多」只改 visibleCount(尾部不动)→ 不变。
+  const tail = rendered[rendered.length - 1];
+  const stickKey = `${source.length}:${tail?.uid ?? source.length}`;
+
+  return { rendered, collapsedEarlier, canExpandMore: collapsedEarlier > 0, expandMore, expandNonce, stickKey };
 }
 
 // 编辑重发:截断到目标消息之前(目标消息本身也移除,由重发的新消息替代)。

@@ -127,6 +127,19 @@ export function registerPtyHandlers(): void {
       terminals.delete(req.id);
       if (!sender.isDestroyed()) sender.send("pty:exit", { id: req.id, exitCode });
     });
+    // renderer 只 reload 不关窗时,旧 WebContents 销毁但 Map 条目连同 sender 常驻——监听
+    // destroyed 主动回收:杀 PTY 子进程 + 摘条目。幂等:仅当条目仍是本 proc 时才清,避免与
+    // onExit/pty:kill 的清理重复（防泄漏）。
+    sender.once("destroyed", () => {
+      if (terminals.get(req.id) === proc) {
+        try {
+          proc.kill();
+        } catch {
+          // 已退出
+        }
+        terminals.delete(req.id);
+      }
+    });
     return { ok: true, cwd };
   });
 

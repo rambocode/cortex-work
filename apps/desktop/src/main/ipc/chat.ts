@@ -45,6 +45,10 @@ export function registerChatHandlers(): void {
       })
       .catch((err) => {
         console.error("[personal-chats] save failed:", err);
+      })
+      // 队列 settle 后,若该 key 仍指向本 Promise 则删除,避免每个出现过的 sessionId 永久驻留（防泄漏）。
+      .finally(() => {
+        if (writeQueues.get(sessionId) === next) writeQueues.delete(sessionId);
       });
     writeQueues.set(sessionId, next);
     return next;
@@ -61,6 +65,10 @@ export function registerChatHandlers(): void {
       })
       .catch((err) => {
         console.error("[personal-chats] delete failed:", err);
+      })
+      // 队列 settle 后清理条目（删除会话尤其不应留常驻条目）（防泄漏）。
+      .finally(() => {
+        if (writeQueues.get(sessionId) === next) writeQueues.delete(sessionId);
       });
     writeQueues.set(sessionId, next);
     return next;

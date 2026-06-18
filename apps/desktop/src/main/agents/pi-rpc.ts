@@ -223,9 +223,10 @@ export function buildRpcArgs(req: PiOpenRequest): string[] {
 
 // SIGTERM 先礼,3s 未退出再用 pid 强杀。与 cli.ts 同策略,此处自持一份:pi-rpc 不引入
 // cli.ts 的 electron 依赖,纯 node 即可单测。
-function killWithTimeout(soft: () => void, pid: number | undefined): void {
+// 返回强杀 timer 供进程正常退出后 clearTimeout,避免每次 kill 都空等 3s 占用（防泄漏）。
+function killWithTimeout(soft: () => void, pid: number | undefined): ReturnType<typeof setTimeout> {
   soft();
-  setTimeout(() => {
+  return setTimeout(() => {
     if (pid !== undefined) {
       try {
         process.kill(pid, "SIGKILL");
@@ -256,6 +257,11 @@ export function spawnPiRpc(args: string[], opts: { cwd?: string; env: NodeJS.Pro
   child.stderr?.on("data", (chunk: string) => {
     stderrTail = (stderrTail + chunk).slice(-2000);
   });
+  // 兜底强杀 timer:进程正常 close 后清掉,避免空等 3s 占用（防泄漏）。
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+  child.on("close", () => {
+    if (killTimer) clearTimeout(killTimer);
+  });
   return {
     write: (line) => {
       if (child.stdin && child.stdin.writable) child.stdin.write(line);
@@ -269,7 +275,9 @@ export function spawnPiRpc(args: string[], opts: { cwd?: string; env: NodeJS.Pro
     onError: (cb) => {
       child.on("error", cb);
     },
-    kill: () => killWithTimeout(() => child.kill("SIGTERM"), child.pid),
+    kill: () => {
+      killTimer = killWithTimeout(() => child.kill("SIGTERM"), child.pid);
+    },
   };
 }
 
@@ -332,6 +340,8 @@ export class PiRpcSession {
       this.buf = this.buf.slice(nl + 1);
       if (line.trim()) this.handleLine(line);
     }
+    // 单行长度上限保护:异常超长单行（无换行）会无限撑大 buf,超阈值丢弃溢出部分（防泄漏）。
+    if (this.buf.length > 1_000_000) this.buf = this.buf.slice(-1_000_000);
   }
 
   private handleLine(line: string): void {

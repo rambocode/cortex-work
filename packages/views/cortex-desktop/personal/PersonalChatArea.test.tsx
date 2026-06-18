@@ -243,12 +243,15 @@ describe("PersonalChatArea pi 渲染：reasoning 块 + 运行时状态（U5）",
     expect(screen.getByText("让我想想这个问题")).toBeInTheDocument();
   });
 
-  it("历史 reasoning 消息默认收起,点击后展开思考正文", async () => {
-    renderAreaWithChat([{ kind: "reasoning", who: "pi", time: "12:00", uid: "r1", text: "让我想想这个问题" }]);
-    const head = await screen.findByText("思考过程");
+  it("历史 reasoning 经加载被 sanitize 清理,不再渲染思考块", async () => {
+    renderAreaWithChat([
+      { kind: "reasoning", who: "pi", time: "12:00", uid: "r1", text: "让我想想这个问题" },
+      { kind: "text", who: "pi", time: "12:01", uid: "a1", text: "这是答案" },
+    ]);
+    // 历史思考(reasoning)不作为长期记录,加载时已被剔除;正文照常渲染。
+    expect(await screen.findByText("这是答案")).toBeInTheDocument();
+    expect(screen.queryByText("思考过程")).toBeNull();
     expect(screen.queryByText("让我想想这个问题")).toBeNull();
-    fireEvent.click(head);
-    expect(screen.getByText("让我想想这个问题")).toBeInTheDocument();
   });
 
   it("点「思考过程」头部可折叠隐藏思考正文", async () => {
@@ -281,5 +284,112 @@ describe("PersonalChatArea pi 渲染：reasoning 块 + 运行时状态（U5）",
     renderAreaWithChat([]);
     await screen.findAllByText(/alpha/);
     expect(screen.queryByText("压缩上下文…")).toBeNull();
+  });
+});
+
+describe("PersonalChatArea 历史会话分页渲染窗口", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      timelineProjectId: undefined,
+      runningBySession: {},
+    });
+  });
+
+  // n 条用户文本消息(走 renderRich 纯文本,findByText 稳定)。
+  const many = (n: number, prefix = "消息"): Message[] =>
+    Array.from({ length: n }, (_, i) => ({
+      kind: "text" as const,
+      who: "me",
+      time: "10:00",
+      text: `${prefix}${i + 1}`,
+      uid: `m${i + 1}`,
+    }));
+
+  it("默认只渲染尾部 20 条,更早的折叠", async () => {
+    renderAreaWithChat(many(30));
+    expect(await screen.findByText("消息30")).toBeInTheDocument();
+    expect(screen.getByText("消息11")).toBeInTheDocument(); // 尾部第 20 条
+    expect(screen.queryByText("消息10")).toBeNull(); // 第 21 条往前折叠
+    expect(screen.queryByText("消息1")).toBeNull();
+  });
+
+  it("折叠时显示「展开更多」入口并标注剩余条数", async () => {
+    renderAreaWithChat(many(30));
+    await screen.findByText("消息30");
+    expect(screen.getByText(/还有 10 条更早消息/)).toBeInTheDocument();
+    expect(screen.getByText("展开更多")).toBeInTheDocument();
+  });
+
+  it("点「展开更多」多渲染一页,覆盖全部后入口消失", async () => {
+    renderAreaWithChat(many(30));
+    await screen.findByText("消息30");
+    fireEvent.click(screen.getByText("展开更多"));
+    expect(await screen.findByText("消息1")).toBeInTheDocument(); // 20→40 覆盖 30 条
+    expect(screen.getByText("消息10")).toBeInTheDocument();
+    expect(screen.queryByText("展开更多")).toBeNull();
+  });
+
+  it("消息不足 20 条:不显示入口,全部渲染", async () => {
+    renderAreaWithChat(many(12));
+    expect(await screen.findByText("消息12")).toBeInTheDocument();
+    expect(screen.getByText("消息1")).toBeInTheDocument();
+    expect(screen.queryByText("展开更多")).toBeNull();
+  });
+
+  it("切换会话后窗口重置为尾部 20 条", async () => {
+    const b = {
+      loadChat: async (sid: string) => (sid === "s1" ? many(30) : many(25, "B")),
+      saveChat: async () => {},
+    } as unknown as DesktopBridge;
+    usePersonalStore.setState({
+      sessions: [
+        { id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW },
+        { id: "s2", projectId: "p1", title: "S2", agent: "claude", createdAt: NOW, updatedAt: NOW },
+      ],
+    });
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    await screen.findByText("消息30");
+    fireEvent.click(screen.getByText("展开更多"));
+    await screen.findByText("消息1"); // s1 全展开
+
+    usePersonalStore.getState().setActiveSession("s2");
+    expect(await screen.findByText("B25")).toBeInTheDocument();
+    expect(screen.getByText("B6")).toBeInTheDocument(); // 尾部 20(25-20+1=6)
+    expect(screen.queryByText("B5")).toBeNull(); // 窗口已重置,更早折叠
+  });
+
+  it("/clear 后:窗口优先,展完可见集才出现「显示隐藏」入口", async () => {
+    usePersonalStore.setState({
+      sessions: [
+        {
+          id: "s1",
+          projectId: "p1",
+          title: "S1",
+          agent: "claude",
+          createdAt: NOW,
+          updatedAt: NOW,
+          hiddenHistory: { count: 5, throughUid: "m5", hiddenAt: NOW },
+        },
+      ],
+    });
+    renderAreaWithChat(many(30)); // 隐藏 m1..m5 → 可见 m6..m30(25 条)
+    await screen.findByText("消息30");
+    expect(screen.getByText(/还有 5 条更早消息/)).toBeInTheDocument(); // 25-20=5
+    expect(screen.queryByText(/已隐藏/)).toBeNull(); // 窗口未展完,不显示隐藏 gate
+    fireEvent.click(screen.getByText("展开更多")); // +20 → 覆盖可见 25 条
+    expect(await screen.findByText("消息6")).toBeInTheDocument(); // 可见集顶部
+    expect(screen.queryByText("消息5")).toBeNull(); // 仍属 /clear 隐藏区
+    expect(screen.getByText(/已隐藏 5 条历史记录/)).toBeInTheDocument(); // 现在出现隐藏 gate
   });
 });

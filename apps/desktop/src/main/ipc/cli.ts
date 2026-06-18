@@ -29,9 +29,10 @@ export interface AgentProcess {
 }
 
 // SIGTERM 先礼,3s 未退出再用 pid 强杀（kill() 退出后 pid 变 undefined,需判空）。
-function killWithTimeout(soft: () => void, pid: number | undefined): void {
+// 返回强杀 timer 供进程正常退出后 clearTimeout,避免每次 kill 都空等 3s 占用（防泄漏）。
+function killWithTimeout(soft: () => void, pid: number | undefined): ReturnType<typeof setTimeout> {
   soft();
-  setTimeout(() => {
+  return setTimeout(() => {
     if (pid !== undefined) {
       try {
         process.kill(pid, "SIGKILL");
@@ -43,6 +44,11 @@ function killWithTimeout(soft: () => void, pid: number | undefined): void {
 }
 
 function wrapChild(child: ChildProcess): AgentProcess {
+  // 兜底强杀 timer:进程正常 close 后清掉,避免空等 3s 占用（防泄漏）。
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+  child.on("close", () => {
+    if (killTimer) clearTimeout(killTimer);
+  });
   return {
     get pid() {
       return child.pid;
@@ -56,7 +62,9 @@ function wrapChild(child: ChildProcess): AgentProcess {
     onError: (cb) => {
       child.on("error", cb);
     },
-    kill: () => killWithTimeout(() => child.kill("SIGTERM"), child.pid),
+    kill: () => {
+      killTimer = killWithTimeout(() => child.kill("SIGTERM"), child.pid);
+    },
   };
 }
 
@@ -167,6 +175,8 @@ export function registerCliHandlers(): void {
         const ev = adapter.parseLine(line);
         if (ev) sendEvent(ev);
       }
+      // 单行长度上限保护:异常超长单行（无换行）会无限撑大 buffer,超阈值丢弃溢出部分（防泄漏）。
+      if (buffer.length > 1_000_000) buffer = buffer.slice(-1_000_000);
     });
 
     let stderrTail = "";
@@ -176,6 +186,9 @@ export function registerCliHandlers(): void {
     });
 
     proc.onError((err) => {
+      // 显式摘除 data 监听:闭包捕获 sender/buffer/adapter,避免进程对象延迟回收时驻留（防泄漏）。
+      proc.stdout?.removeAllListeners();
+      proc.stderr?.removeAllListeners();
       running.delete(req.runId);
       sendExit({ runId: req.runId, code: null, error: err.message });
     });
@@ -187,6 +200,9 @@ export function registerCliHandlers(): void {
         const ev = adapter.parseLine(line);
         if (ev) sendEvent(ev);
       }
+      // 显式摘除 data 监听:闭包捕获 sender/buffer/adapter,避免进程对象延迟回收时驻留（防泄漏）。
+      proc.stdout?.removeAllListeners();
+      proc.stderr?.removeAllListeners();
       running.delete(req.runId);
       sendExit({
         runId: req.runId,

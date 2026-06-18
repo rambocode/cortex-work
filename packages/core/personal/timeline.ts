@@ -285,6 +285,22 @@ function mutateTimeline(
   return next;
 }
 
+// 软上限：单项目落盘的 run 事件上限。run 事件每轮 append 且永不清理,长期使用同一项目
+// 会无界增长(每次 mutateTimeline 还全量 JSON 落盘)。超限时保留全部非 run 事件(日报等
+// 珍贵且数量有限)+ 最近 N 条 run,no silent cap(console.warn 记录丢弃数)。
+export const TIMELINE_RUN_EVENTS_SOFT_CAP = 2000;
+
+export function capTimelineEvents(events: TimelineEvent[]): TimelineEvent[] {
+  const runs = events.filter((e) => e.kind === "run");
+  if (runs.length <= TIMELINE_RUN_EVENTS_SOFT_CAP) return events;
+  // events 按 append 顺序(尾部最新),取最近 N 条 run 的 id 集合;非 run 全保留。
+  const keepIds = new Set(runs.slice(-TIMELINE_RUN_EVENTS_SOFT_CAP).map((e) => e.id));
+  console.warn(
+    `[personal-timeline] run 事件 ${runs.length} 条超过软上限 ${TIMELINE_RUN_EVENTS_SOFT_CAP},丢弃最早 ${runs.length - TIMELINE_RUN_EVENTS_SOFT_CAP} 条`,
+  );
+  return events.filter((e) => e.kind !== "run" || keepIds.has(e.id));
+}
+
 // 供 messages.ts 在一轮 CLI 结束时记录 run 事件（bridge 缺失时静默跳过）。
 export function recordTimelineEvent(
   qc: QueryClient,
@@ -293,7 +309,10 @@ export function recordTimelineEvent(
   event: TimelineEvent,
 ): void {
   if (!bridge) return;
-  void mutateTimeline(qc, bridge, projectId, (data) => ({ ...data, events: [...data.events, event] }));
+  void mutateTimeline(qc, bridge, projectId, (data) => ({
+    ...data,
+    events: capTimelineEvents([...data.events, event]),
+  }));
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────────────
@@ -338,7 +357,7 @@ export function useProjectTimeline(project: ProjectMeta | undefined): {
     queryKey: timelineKeys.detail(projectId ?? "none"),
     enabled: !!bridge && !!projectId,
     staleTime: Infinity,
-    gcTime: Infinity,
+    // gcTime 继承默认(10min):切走的项目时间线缓存可回收,不永久驻留。
     queryFn: () => (bridge && projectId ? loadTimelineData(bridge, projectId) : Promise.resolve(emptyFile())),
   });
 
@@ -357,7 +376,7 @@ export function useProjectTimeline(project: ProjectMeta | undefined): {
     queryKey: notesKeys.byProject(projectId ?? "no-project"),
     enabled: !!bridge && !!projectId && !!bridge.notesList,
     staleTime: Infinity,
-    gcTime: Infinity,
+    // gcTime 继承默认(10min):切走的项目时间线缓存可回收,不永久驻留。
     queryFn: () => (bridge?.notesList ? bridge.notesList(projectId) : Promise.resolve([])),
   });
 
@@ -418,7 +437,7 @@ export function useGlobalSummaries(): Record<string, TimelineEvent> {
     queryKey: timelineKeys.detail(GLOBAL_TIMELINE_ID),
     enabled: !!bridge,
     staleTime: Infinity,
-    gcTime: Infinity,
+    // gcTime 继承默认(10min):切走的项目时间线缓存可回收,不永久驻留。
     queryFn: async () =>
       bridge ? (parseFile(await bridge.loadTimeline(GLOBAL_TIMELINE_ID)) ?? emptyFile()) : emptyFile(),
   });

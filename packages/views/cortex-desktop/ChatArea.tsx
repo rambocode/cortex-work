@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "@cortex-work/ui/icons";
@@ -110,11 +110,14 @@ function MessageHeader({ who, time, hideTime = false }: { who: string; time: str
   );
 }
 
-function TextMessage({
+// React.memo:长会话流式时,foldCliEvent 对未变消息保留原引用,故只有正在输出的那一条
+// 重渲染并重解析 markdown,其余全部短路。前提是 props 引用稳定——tail 改为接收 renderTail
+// 函数(由父级 useCallback 稳定)在内部调用,避免父级每渲染预生成新的 tail ReactNode 破坏 memo。
+const TextMessage = memo(function TextMessage({
   m,
   grouped,
   markdown = false,
-  tail,
+  renderTail,
   hideTime = false,
   onOpenFile,
   projectPath,
@@ -123,7 +126,7 @@ function TextMessage({
   grouped: boolean;
   // 个人工作区:agent 输出按 Markdown 渲染(用户自己的消息保持纯文本)。
   markdown?: boolean;
-  tail?: ReactNode;
+  renderTail?: (message: Extract<Message, { kind: "text" }>) => ReactNode;
   // 个人工作区:头部不显示时间(时间改放到底部操作行)。
   hideTime?: boolean;
   // 个人工作区:文件路径点击 → 右栏预览。团队侧不传 → 走原有纯渲染,零回归。
@@ -176,14 +179,14 @@ function TextMessage({
             ))}
           </div>
         ) : null}
-        {tail}
+        {renderTail?.(m)}
       </div>
     </div>
   );
-}
+});
 
 // pi 思考流（reasoning）:可折叠的「思考过程」块,弱化样式区别于正文。
-function ReasoningMessage({
+const ReasoningMessage = memo(function ReasoningMessage({
   m,
   grouped,
   collapsible = false,
@@ -220,9 +223,9 @@ function ReasoningMessage({
       </div>
     </div>
   );
-}
+});
 
-function AgentLogMessage({
+const AgentLogMessage = memo(function AgentLogMessage({
   m,
   grouped,
   collapsible = false,
@@ -302,9 +305,9 @@ function AgentLogMessage({
       </div>
     </div>
   );
-}
+});
 
-function DiffMessage({
+const DiffMessage = memo(function DiffMessage({
   m,
   grouped,
   onSelectFile,
@@ -358,9 +361,9 @@ function DiffMessage({
       </div>
     </div>
   );
-}
+});
 
-function ApproveMessage({
+const ApproveMessage = memo(function ApproveMessage({
   m,
   grouped,
   onApprove,
@@ -397,9 +400,9 @@ function ApproveMessage({
       </div>
     </div>
   );
-}
+});
 
-function TypingMessage({ m }: { m: Extract<Message, { kind: "typing" }> }) {
+const TypingMessage = memo(function TypingMessage({ m }: { m: Extract<Message, { kind: "typing" }> }) {
   return (
     <div className="msg">
       <MessageAvatar who={m.who} />
@@ -415,7 +418,7 @@ function TypingMessage({ m }: { m: Extract<Message, { kind: "typing" }> }) {
       </div>
     </div>
   );
-}
+});
 
 function DaySep({ label }: { label: string }) {
   return (
@@ -440,6 +443,8 @@ export function MessageStream({
   hideTextTime = false,
   onOpenFile,
   projectPath,
+  stickToBottomKey,
+  preserveAnchorKey,
 }: {
   contact: Contact;
   convo: Conversation | null | undefined;
@@ -457,15 +462,46 @@ export function MessageStream({
   // 个人工作区:文件路径点击 → 右栏预览(向下穿透给 TextMessage)。团队侧不传 → 零回归。
   onOpenFile?: (ref: string) => void;
   projectPath?: string;
+  // 个人工作区:滚动语义由调用方声明式控制。
+  //  - stickToBottomKey 变 → 贴底(打开会话 / 新消息);团队侧不传 → 回退原 msgCount 无条件贴底,零回归。
+  //  - preserveAnchorKey 变 → 头部插入了更早历史,保持视觉锚点(补偿新增高度)而非贴底。
+  stickToBottomKey?: unknown;
+  preserveAnchorKey?: unknown;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const msgCount = convo?.messages?.length || 0;
+  const atBottomRef = useRef(true); // 初始视为在底部(挂载即贴底看最新)
+  const anchorRef = useRef<{ h: number; top: number } | null>(null);
+  const prevAnchorKey = useRef(preserveAnchorKey);
+  const personalMode = stickToBottomKey !== undefined;
+  const stickDep = personalMode ? stickToBottomKey : msgCount;
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  // 渲染体内同步快照:preserveAnchorKey 即将变化(=点了「展开更多」)时,趁 commit 前抓旧 DOM 几何;
+  // 否则进 useLayoutEffect 时头部历史已插入、scrollHeight 已是新值,高度补偿就失效了。
+  if (personalMode && preserveAnchorKey !== prevAnchorKey.current && scrollRef.current) {
+    anchorRef.current = { h: scrollRef.current.scrollHeight, top: scrollRef.current.scrollTop };
+  }
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // 展开更早历史:头部插入后保持视觉锚点(补偿新增高度),绝不贴底。
+    if (personalMode && preserveAnchorKey !== prevAnchorKey.current) {
+      prevAnchorKey.current = preserveAnchorKey;
+      const snap = anchorRef.current;
+      anchorRef.current = null;
+      if (snap) el.scrollTop = snap.top + (el.scrollHeight - snap.h);
+      return;
     }
-  }, [contact.id, msgCount]);
+    // 贴底:团队侧无条件(原行为);个人工作区仅当用户已在底部(上滑看历史时流式不打断)。
+    if (!personalMode || atBottomRef.current) el.scrollTop = el.scrollHeight;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contact.id, stickDep, preserveAnchorKey]);
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32; // 32px 容差
+  };
 
   if (!convo) {
     return (
@@ -507,7 +543,7 @@ export function MessageStream({
 
   let lastWho: string | null = null;
   return (
-    <div className="msgs" ref={scrollRef}>
+    <div className="msgs" ref={scrollRef} onScroll={onScroll}>
       {leadingContent}
       {convo.messages.map((m, i) => {
         const key = m.uid || i;
@@ -530,7 +566,7 @@ export function MessageStream({
                 m={m}
                 grouped={grouped}
                 markdown={markdownBodies}
-                tail={renderTextTail?.(m)}
+                renderTail={renderTextTail}
                 hideTime={hideTextTime}
                 onOpenFile={onOpenFile}
                 projectPath={projectPath}

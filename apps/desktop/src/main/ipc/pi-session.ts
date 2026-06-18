@@ -98,6 +98,16 @@ export function registerPiSessionHandlers(): void {
     );
     sessions.set(req.uiSessionId, { session, sender: event.sender });
 
+    // renderer 只 reload 不关窗时,旧 WebContents 销毁但 Map 条目连同 sender 常驻——监听
+    // destroyed 主动回收:停子进程 + 摘条目。幂等:仅当条目仍是本会话时才清,避免与 crashed/
+    // 重开（pi:open 顶部已 stop 旧会话）的清理重复（防泄漏）。
+    event.sender.once("destroyed", () => {
+      if (sessions.get(req.uiSessionId)?.session === session) {
+        session.stop();
+        sessions.delete(req.uiSessionId);
+      }
+    });
+
     try {
       // 就绪靠 get_state 轮询（冷启动 ~790ms,不能用固定 sleep）;顺带取 sessionFile 供恢复。
       const { sessionId, sessionFile } = await session.ready();

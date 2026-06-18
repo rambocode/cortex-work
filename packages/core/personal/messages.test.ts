@@ -22,11 +22,13 @@ import {
   foldCliEvent,
   isMissingAgentSessionError,
   personalChatKeys,
+  sanitizeForSave,
   sessionResumeId,
   sameTextOrdinal,
   splitPersonalMessages,
   truncateForEdit,
   typingText,
+  windowTailMessages,
 } from "./messages";
 import type { Message } from "../types";
 
@@ -151,6 +153,34 @@ describe("personal hidden history helpers", () => {
 
   it("创建隐藏游标时记录当前完整消息尾部", () => {
     expect(createHiddenHistory(messages, 1234)).toEqual({ count: 4, throughUid: "m4", hiddenAt: 1234 });
+  });
+});
+
+describe("windowTailMessages 渲染窗口尾部切片", () => {
+  const five = [msg("m1"), msg("m2"), msg("m3"), msg("m4"), msg("m5")];
+
+  it("limit ≥ 总数:返回全量,无折叠", () => {
+    expect(windowTailMessages(five, 5)).toEqual({ rendered: five, collapsedEarlier: 0 });
+    expect(windowTailMessages(five, 99)).toEqual({ rendered: five, collapsedEarlier: 0 });
+  });
+
+  it("limit < 总数:返回尾部 limit 条,折叠数为差值", () => {
+    const r = windowTailMessages(five, 2);
+    expect(r.rendered.map((m) => m.uid)).toEqual(["m4", "m5"]);
+    expect(r.collapsedEarlier).toBe(3);
+  });
+
+  it("limit 递增:切片头部前移", () => {
+    expect(windowTailMessages(five, 4).rendered.map((m) => m.uid)).toEqual(["m2", "m3", "m4", "m5"]);
+  });
+
+  it("limit ≤ 0:折叠全部(防御,不抛、不越界)", () => {
+    expect(windowTailMessages(five, 0)).toEqual({ rendered: [], collapsedEarlier: 5 });
+    expect(windowTailMessages(five, -3)).toEqual({ rendered: [], collapsedEarlier: 5 });
+  });
+
+  it("空消息:返回空,无折叠", () => {
+    expect(windowTailMessages([], 20)).toEqual({ rendered: [], collapsedEarlier: 0 });
   });
 });
 
@@ -359,6 +389,39 @@ describe("流式交错折叠 foldCliEvent", () => {
     expect(log.completed).toBe(true);
     expect(log.title).toBe("Agent 执行完成");
     expect(log.items.every((it) => it.ic === "check")).toBe(true);
+  });
+});
+
+describe("sanitizeForSave 落盘清理(思考不作为长期记录)", () => {
+  it("丢弃 typing 与 reasoning,运行中的 agentLog 收尾", () => {
+    const input: Message[] = [
+      { kind: "text", who: "me", time: "10:00", text: "问", uid: "u1" },
+      { kind: "reasoning", who: "pi", time: "10:00", text: "思考中", active: true, uid: "r1" },
+      { kind: "typing", who: "pi", text: "...", uid: "t1" },
+      {
+        kind: "agentLog",
+        who: "pi",
+        time: "10:00",
+        title: "执行",
+        active: true,
+        items: [{ ic: "running", text: "x" }],
+        uid: "log1",
+      },
+      { kind: "text", who: "pi", time: "10:01", text: "答", uid: "a1" },
+    ];
+    const out = sanitizeForSave(input);
+    // reasoning / typing 不落盘:只保留正文与工具卡片。
+    expect(out.map((m) => m.kind)).toEqual(["text", "agentLog", "text"]);
+    expect(out.some((m) => m.kind === "reasoning")).toBe(false);
+    expect(out.find((m) => m.kind === "agentLog")).toMatchObject({ active: false, completed: true });
+  });
+
+  it("已完成的 reasoning(历史遗留)也被清掉,加载即顺带迁移", () => {
+    const input: Message[] = [
+      { kind: "reasoning", who: "pi", time: "10:00", text: "旧思考", active: false, completed: true, uid: "r0" },
+      { kind: "text", who: "pi", time: "10:00", text: "正文", uid: "a1" },
+    ];
+    expect(sanitizeForSave(input).map((m) => m.kind)).toEqual(["text"]);
   });
 });
 

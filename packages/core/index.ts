@@ -235,6 +235,8 @@ export {
   buildAttachmentSystemPrompt,
   buildProjectSystemPrompt,
   usePersonalChat,
+  useRenderWindow,
+  windowTailMessages,
   usePersonalActions,
   usePersonalCliEvents,
   usePersonalPiEvents,

@@ -1,7 +1,7 @@
 // 个人工作区中间内容区：session 头部（agent/项目信息）+ 消息流（复用团队侧
 // MessageStream 渲染管线）+ PersonalComposer。消息数据来自 personal query cache。
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   AGENT_MODELS,
@@ -17,15 +17,19 @@ import {
   usePersonalActions,
   usePersonalChat,
   usePersonalStore,
+  useRenderWindow,
 } from "@cortex-work/core";
 import type { AgentKind, ProjectMeta, SessionMeta } from "@cortex-work/core";
-import type { Contact, Conversation } from "@cortex-work/core/types";
+import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { MessageStream } from "../ChatArea";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { GitBar } from "./GitBar";
 import { PersonalComposer } from "./PersonalComposer";
 
 const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
+
+// 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
+const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
 
 // 各 agent 头像视觉（claude/codex 沿用原值,pi 用缩写 PI + 靛蓝底）。
 const AGENT_AVATAR: Record<AgentKind, { initials: string; bg: string }> = {
@@ -80,6 +84,21 @@ function HiddenHistoryGate({
         <span className="pw-history-chev" data-open={expanded}>
           <Icon.Chevron size={11} />
         </span>
+      </button>
+      <div className="pw-history-gate-line" />
+    </div>
+  );
+}
+
+// 「展开更多」入口:历史会话默认折叠更早消息,点击逐步多渲染一页(复用 .pw-history-gate 视觉)。
+function MoreHistoryGate({ count, onExpand }: { count: number; onExpand: () => void }) {
+  return (
+    <div className="pw-history-gate">
+      <div className="pw-history-gate-line" />
+      <button className="pw-history-gate-btn" onClick={onExpand} type="button">
+        <Icon.Chevron size={11} />
+        <span>还有 {count} 条更早消息</span>
+        <b>展开更多</b>
       </button>
       <div className="pw-history-gate-line" />
     </div>
@@ -142,13 +161,127 @@ export function PersonalChatArea({
 
   const agent = session?.agent;
   const contact = useMemo(() => (agent ? agentContact(agent) : null), [agent]);
-  const displayMessages = showHiddenHistory ? allMessages : messages;
+  // 渲染窗口:历史会话默认只渲染最新 20 条,「展开更多」逐步加载更早的。窗口作用在 messages
+  //(即 /clear 后的可见集)之上;resetKey 含 hiddenHistory 游标,切会话 / /clear 后窗口重置。
+  const resetKey = `${session?.id ?? ""}:${session?.hiddenHistory?.count ?? 0}:${session?.hiddenHistory?.hiddenAt ?? 0}`;
+  const win = useRenderWindow(resetKey, messages);
+  // 用户主动「显示隐藏历史」(showHiddenHistory,仅 /clear 过的会话)走全量 allMessages;否则用窗口尾部切片。
+  const rendered = showHiddenHistory ? allMessages : win.rendered;
   const convo: Conversation | null = useMemo(
     () =>
-      displayMessages.length > 0 || hiddenCount > 0
-        ? { headerStatus: { dot: "online", text: "" }, metaRow: [], messages: displayMessages }
+      rendered.length > 0 || hiddenCount > 0
+        ? { headerStatus: { dot: "online", text: "" }, metaRow: [], messages: rendered }
         : null,
-    [displayMessages, hiddenCount],
+    [rendered, hiddenCount],
+  );
+
+  // 下面的回调用 useCallback 稳定引用,使 ChatArea 的消息组件 React.memo 在流式逐字更新时
+  // 只重渲染正在输出的那一条(否则父级每渲染新建的回调会让全部消息行 memo 失效)。须在任何
+  // 早退之前调用(hooks 规则);session/project 可空时回调内部短路(此时消息流根本不渲染)。
+  const running = session ? !!runningBySession[session.id] : false;
+
+  // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为绝对路径,请求右栏预览并展开右栏。
+  // 无项目会话(无 realProject)与解析爬出项目(within=false)一律短路,不派发。
+  const handleOpenFile = useCallback(
+    (ref: string) => {
+      if (!realProject) return;
+      const openPreview = (abs: string) => {
+        const name = abs.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? ref;
+        requestFilePreview({ projectId: realProject.id, path: abs, name });
+        setRightOpen(true);
+      };
+      const probe = bridge?.resolveProjectFile;
+      if (!probe) {
+        const { abs, within } = resolveProjectFileRef(realProject.path, ref);
+        if (within) openPreview(abs);
+        return;
+      }
+      void probe(realProject.path, ref).then((abs) => {
+        if (abs) openPreview(abs);
+        else onToast(`未找到文件：${ref}`);
+      });
+    },
+    [realProject, bridge, requestFilePreview, setRightOpen, onToast],
+  );
+
+  // 消息底部行:时间常驻(撑起固定高度,避免悬停露出图标时抖动)+ 悬停淡入的操作。
+  const renderTextTail = useCallback(
+    (m: Extract<Message, { kind: "text" }>) => {
+      if (typeof m.text !== "string" || !session || !project) return null;
+      const msgText = m.text;
+      if (m.who === "me") {
+        // 用户消息:重发 / 编辑重发 / 复制。运行中或无 uid(极老消息)时只显示时间。
+        const editable = !running && !!m.uid;
+        const msgUid = m.uid;
+        return (
+          <div className="m-msg-actions">
+            <span className="m-msg-time">{m.time}</span>
+            {editable && msgUid ? (
+              <div className="m-act-row">
+                <button
+                  type="button"
+                  className="m-act-btn"
+                  title="按原文重新发送(将清除其后的所有消息)"
+                  onClick={() => void editResend(session, project.path, msgUid, msgText, [])}
+                >
+                  <Icon.Retry size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="m-act-btn"
+                  title="编辑后重新发送(将清除其后的所有消息)"
+                  onClick={() => setEditing({ uid: msgUid, text: msgText })}
+                >
+                  <Icon.Edit size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="m-act-btn"
+                  title="复制消息内容"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(msgText);
+                    onToast("已复制");
+                  }}
+                >
+                  <Icon.Copy size={15} />
+                </button>
+              </div>
+            ) : null}
+          </div>
+        );
+      }
+      // agent 回复:复制 +(仅在开启「实时朗读」时)朗读开关。正在朗读时常驻显示便于停止。
+      const speaking = ttsPlayback.isSpeaking;
+      return (
+        <div className="m-msg-actions">
+          <span className="m-msg-time">{m.time}</span>
+          <div className={`m-act-row ${speaking ? "is-active" : ""}`}>
+            <button
+              type="button"
+              className="m-act-btn"
+              title="复制回复内容"
+              onClick={() => {
+                void navigator.clipboard.writeText(msgText);
+                onToast("已复制");
+              }}
+            >
+              <Icon.Copy size={15} />
+            </button>
+            {ttsSettings.autoSpeak ? (
+              <button
+                type="button"
+                className="m-act-btn"
+                title={speaking ? "停止朗读" : "朗读这条回复"}
+                onClick={() => (speaking ? stopSpeaking() : void speakText(bridge, ttsSettings, msgText))}
+              >
+                {speaking ? <Icon.Stop size={15} /> : <Icon.Run size={15} />}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      );
+    },
+    [session, project, running, editResend, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast],
   );
 
   // 既无可用会话又无项目时才提示添加项目;有无项目会话(session 存在)则放行,
@@ -188,32 +321,8 @@ export function PersonalChatArea({
   }
   if (!session || !project || !contact) return <EmptyState text="选择或新建一个 Session" hint="在左侧项目上点 + 新建" />;
 
-  const running = !!runningBySession[session.id];
   // pi RPC 会话运行时状态（压缩/重试/待注入队列/思考强度）;非 pi 会话恒 undefined。
   const piRuntime = session.agent === "pi" ? piRuntimeBySession[session.id] : undefined;
-
-  // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为绝对路径,请求右栏预览并展开右栏。
-  // 无项目会话(无 realProject)与解析爬出项目(within=false)一律短路,不派发。
-  // 有 resolveProjectFile 能力时:在项目内定位真实路径(支持 ref 只给文件名、文件在子目录,
-  // 见 yuque 导出表格),定位不到则提示;无能力(旧壳/web)退化为精确路径同步派发。
-  const open = (abs: string, ref: string) => {
-    const name = abs.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? ref;
-    requestFilePreview({ projectId: realProject!.id, path: abs, name });
-    setRightOpen(true);
-  };
-  const handleOpenFile = (ref: string) => {
-    if (!realProject) return;
-    const probe = bridge?.resolveProjectFile;
-    if (!probe) {
-      const { abs, within } = resolveProjectFileRef(realProject.path, ref);
-      if (within) open(abs, ref);
-      return;
-    }
-    void probe(realProject.path, ref).then((abs) => {
-      if (abs) open(abs, ref);
-      else onToast(`未找到文件：${ref}`);
-    });
-  };
 
   const switchAgent = (agent: AgentKind) => {
     const agentSessionIds = { ...session.agentSessionIds };
@@ -288,101 +397,28 @@ export function PersonalChatArea({
       </div>
 
       <MessageStream
+        key={session.id}
         contact={contact}
         convo={convo}
         onSelectFile={handleOpenFile}
         activeFile=""
-        onApprove={() => {}}
+        onApprove={NOOP_APPROVE}
         markdownBodies
         collapsibleLogs
         collapsibleReasoning
         hideTextTime
         onOpenFile={handleOpenFile}
         projectPath={realProject ? realProject.path : undefined}
-        renderTextTail={(m) => {
-          if (typeof m.text !== "string") return null;
-          // 底部行:时间常驻(撑起固定高度,避免悬停露出图标时页面抖动)+ 悬停淡入的操作。
-          const msgText = m.text;
-          if (m.who === "me") {
-            // 用户消息:重发 / 编辑重发 / 复制。运行中或无 uid(极老消息)时只显示时间。
-            const editable = !running && !!m.uid;
-            const msgUid = m.uid;
-            return (
-              <div className="m-msg-actions">
-                <span className="m-msg-time">{m.time}</span>
-                {editable && msgUid ? (
-                  <div className="m-act-row">
-                    <button
-                      type="button"
-                      className="m-act-btn"
-                      title="按原文重新发送(将清除其后的所有消息)"
-                      onClick={() => void editResend(session, project.path, msgUid, msgText, [])}
-                    >
-                      <Icon.Retry size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      className="m-act-btn"
-                      title="编辑后重新发送(将清除其后的所有消息)"
-                      onClick={() => setEditing({ uid: msgUid, text: msgText })}
-                    >
-                      <Icon.Edit size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      className="m-act-btn"
-                      title="复制消息内容"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(msgText);
-                        onToast("已复制");
-                      }}
-                    >
-                      <Icon.Copy size={15} />
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            );
-          }
-          // agent 回复:复制 +(仅在开启「实时朗读」时)朗读开关。重听/停止合并为单个
-          // 开关,正在朗读时常驻显示(便于随时停止),否则悬停才露出。
-          const speaking = ttsPlayback.isSpeaking;
-          return (
-            <div className="m-msg-actions">
-              <span className="m-msg-time">{m.time}</span>
-              <div className={`m-act-row ${speaking ? "is-active" : ""}`}>
-                <button
-                  type="button"
-                  className="m-act-btn"
-                  title="复制回复内容"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(msgText);
-                    onToast("已复制");
-                  }}
-                >
-                  <Icon.Copy size={15} />
-                </button>
-                {ttsSettings.autoSpeak ? (
-                  <button
-                    type="button"
-                    className="m-act-btn"
-                    title={speaking ? "停止朗读" : "朗读这条回复"}
-                    onClick={() => (speaking ? stopSpeaking() : void speakText(bridge, ttsSettings, msgText))}
-                  >
-                    {speaking ? <Icon.Stop size={15} /> : <Icon.Run size={15} />}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          );
-        }}
+        renderTextTail={renderTextTail}
+        stickToBottomKey={showHiddenHistory ? `all:${allMessages.length}` : win.stickKey}
+        preserveAnchorKey={win.expandNonce}
         leadingContent={
-          hiddenCount > 0 ? (
-            <HiddenHistoryGate
-              count={hiddenCount}
-              expanded={showHiddenHistory}
-              onToggle={() => setShowHiddenHistory((open) => !open)}
-            />
+          showHiddenHistory ? (
+            <HiddenHistoryGate count={hiddenCount} expanded onToggle={() => setShowHiddenHistory(false)} />
+          ) : win.canExpandMore ? (
+            <MoreHistoryGate count={win.collapsedEarlier} onExpand={win.expandMore} />
+          ) : hiddenCount > 0 ? (
+            <HiddenHistoryGate count={hiddenCount} expanded={false} onToggle={() => setShowHiddenHistory(true)} />
           ) : undefined
         }
       />

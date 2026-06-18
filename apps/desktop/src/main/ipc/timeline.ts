@@ -38,6 +38,10 @@ export function registerTimelineHandlers(): void {
       })
       .catch((err) => {
         console.error("[personal-timeline] save failed:", err);
+      })
+      // 队列 settle 后,若该 key 仍指向本 Promise 则删除,避免每个出现过的 projectId 永久驻留（防泄漏）。
+      .finally(() => {
+        if (writeQueues.get(projectId) === next) writeQueues.delete(projectId);
       });
     writeQueues.set(projectId, next);
     return next;
