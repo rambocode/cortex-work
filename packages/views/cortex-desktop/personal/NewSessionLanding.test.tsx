@@ -89,6 +89,8 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
       "/docs/cortex/2026-06-17",
       "hello world",
       [],
+      undefined,
+      undefined,
     );
   });
 
@@ -112,6 +114,8 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
       "/code/alpha",
       "hello world",
       [],
+      undefined,
+      undefined,
     );
   });
 
@@ -157,6 +161,8 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
       "/docs/cortex/2026-06-14",
       "scratch",
       [],
+      undefined,
+      undefined,
     );
   });
 });

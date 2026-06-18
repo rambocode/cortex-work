@@ -1214,6 +1214,7 @@ input, textarea { font: inherit; color: inherit; }
 }
 .msg-img-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-img-label { color: var(--text-3); }
+.msg-img-loading { opacity: 0.55; } /* 回读中的占位空框(尺寸由 .msg-img 给) */
 
 /* ---------- Right panel ---------- */
 .right {
