@@ -256,11 +256,18 @@ describe("命令包装", () => {
     await abortPi(bridge, "s1");
     await forkPi(bridge, "s1", "entry-7");
     await setModelPi(bridge, "s1", "deepseek", "deepseek-chat");
-    expect(bridge.piPrompt).toHaveBeenCalledWith("s1", "hi", undefined);
+    expect(bridge.piPrompt).toHaveBeenCalledWith("s1", "hi", undefined, undefined);
     expect(bridge.piSteer).toHaveBeenCalledWith("s1", "go left");
     expect(bridge.piAbort).toHaveBeenCalledWith("s1");
     expect(bridge.piFork).toHaveBeenCalledWith("s1", "entry-7");
     expect(bridge.piSetModel).toHaveBeenCalledWith("s1", "deepseek", "deepseek-chat");
+  });
+
+  it("promptPi 透传 runId + imagePaths 给 bridge.piPrompt", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, req());
+    await promptPi(bridge, "s1", "看图", "run-1", ["/img/a.png", "/img/b.png"]);
+    expect(bridge.piPrompt).toHaveBeenCalledWith("s1", "看图", "run-1", ["/img/a.png", "/img/b.png"]);
   });
 
   it("会话未就绪时命令抛错（不静默吞）", () => {

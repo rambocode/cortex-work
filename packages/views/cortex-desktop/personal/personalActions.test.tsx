@@ -18,6 +18,7 @@ import {
   __resetPiSessionsForTest,
   type DesktopBridge,
   type Message,
+  type PendingImage,
   type SessionMeta,
 } from "@cortex-work/core";
 
@@ -70,6 +71,22 @@ const claudeSession: SessionMeta = {
   updatedAt: 1,
 };
 const piSession: SessionMeta = { id: "s-pi", projectId: "p1", title: "Session 2", agent: "pi", createdAt: 1, updatedAt: 1 };
+
+// 构造一张待发图片(data 是任意字节;测试里 imageSave 被 mock,不嗅探)。
+function pendingImg(name: string): PendingImage {
+  return {
+    id: `p-${name}`,
+    name,
+    mimeType: "image/png",
+    dataUrl: "data:image/png;base64,AAAA",
+    data: new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer,
+  };
+}
+
+// imageSave mock:按 fileName 回一个确定路径,便于断言保序。
+function imageSaveMock() {
+  return vi.fn(async (req: { fileName: string }) => ({ path: `/img/${req.fileName}` }));
+}
 
 function userMsgUid(qc: QueryClient, sessionId: string, text: string): string {
   const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
@@ -467,6 +484,97 @@ describe("steer / setPiModel（U6）", () => {
     }); // 回滚
     const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail("s-pi")) ?? [];
     expect(msgs.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("切换模型失败"))).toBe(true);
+  });
+});
+
+describe("send 图片路由（U4）", () => {
+  it("claude:逐张 imageSave + startCli.images 保序;用户消息带 images refs;返回已消费", async () => {
+    const save = imageSaveMock();
+    const bridge = makeBridge({ imageSave: save });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    let consumed: boolean | undefined;
+    await act(async () => {
+      consumed = await result.current.send(claudeSession, "/proj", "看图", [], undefined, [pendingImg("a.png"), pendingImg("b.png")]);
+    });
+    expect(consumed).toBe(true);
+    expect(save).toHaveBeenCalledTimes(2);
+    const req = (bridge.startCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(req.images).toEqual([
+      { path: "/img/a.png", mimeType: "image/png" },
+      { path: "/img/b.png", mimeType: "image/png" },
+    ]);
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(claudeSession.id)) ?? [];
+    const userMsg = msgs.find((m) => m.kind === "text" && m.who === "me");
+    expect(userMsg?.kind === "text" ? userMsg.images?.map((i) => i.path) : null).toEqual(["/img/a.png", "/img/b.png"]);
+  });
+
+  it("pi:imageSave + piPrompt 第4参 imagePaths(绝对路径,保序)", async () => {
+    const save = imageSaveMock();
+    const bridge = makeBridge({ imageSave: save });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "看图", [], undefined, [pendingImg("x.png")]);
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect((bridge.piPrompt as ReturnType<typeof vi.fn>).mock.calls[0]?.[3]).toEqual(["/img/x.png"]);
+  });
+
+  it("纯图无文本:允许发送(startCli 被调用)", async () => {
+    const bridge = makeBridge({ imageSave: imageSaveMock() });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    let consumed: boolean | undefined;
+    await act(async () => {
+      consumed = await result.current.send(claudeSession, "/proj", "", [], undefined, [pendingImg("a.png")]);
+    });
+    expect(consumed).toBe(true);
+    expect(bridge.startCli).toHaveBeenCalledTimes(1);
+  });
+
+  it("imageSave 失败:整轮中止(不 startCli)、返回未消费、提示保存失败(AE10)", async () => {
+    const bridge = makeBridge({ imageSave: vi.fn(async () => Promise.reject(new Error("磁盘满"))) });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    let consumed: boolean | undefined;
+    await act(async () => {
+      consumed = await result.current.send(claudeSession, "/proj", "看图", [], undefined, [pendingImg("a.png")]);
+    });
+    expect(consumed).toBe(false);
+    expect(bridge.startCli).not.toHaveBeenCalled();
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(claudeSession.id)) ?? [];
+    expect(msgs.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("图片保存失败"))).toBe(true);
+  });
+
+  it("纯文本(无图):imageSave 不被调用,startCli.images 为 undefined(R16 回归)", async () => {
+    const save = imageSaveMock();
+    const bridge = makeBridge({ imageSave: save });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(claudeSession, "/proj", "纯文本", []);
+    });
+    expect(save).not.toHaveBeenCalled();
+    expect((bridge.startCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].images).toBeUndefined();
+  });
+
+  it("editResend:复用原消息已落盘图(不重新 imageSave),随重发带回 startCli.images(AE8)", async () => {
+    const save = imageSaveMock();
+    const bridge = makeBridge({ imageSave: save });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(claudeSession, "/proj", "原问题", [], undefined, [pendingImg("a.png")]);
+    });
+    usePersonalStore.getState().setRunning(claudeSession.id, undefined);
+    const uid = userMsgUid(qc, claudeSession.id, "原问题");
+    await act(async () => {
+      await result.current.editResend(claudeSession, "/proj", uid, "改后", []);
+    });
+    expect(save).toHaveBeenCalledTimes(1); // 仅原发一次,editResend 复用不重存
+    const lastReq = (bridge.startCli as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
+    expect(lastReq.images).toEqual([{ path: "/img/a.png", mimeType: "image/png" }]);
   });
 });
 

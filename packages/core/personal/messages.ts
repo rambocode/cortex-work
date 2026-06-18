@@ -5,13 +5,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { Message } from "../types";
+import type { ChatImageRef, Message } from "../types";
 import type {
   AgentKind,
   AskQuestionAnswers,
   AskQuestionEnvelope,
   CliStreamEvent,
   HiddenHistoryMeta,
+  PendingImage,
   PiSessionEvent,
   PiUiResponsePayload,
   ProjectMeta,
@@ -1050,6 +1051,7 @@ function appendUserMessage(
   sessionId: string,
   text: string,
   attachments: PersonalAttachment[],
+  images?: ChatImageRef[],
 ): void {
   appendMsg(qc, sessionId, {
     kind: "text",
@@ -1058,6 +1060,8 @@ function appendUserMessage(
     text,
     // 拖入的 skill/todo 仅注入 system prompt;这里同步把引用元数据存进消息,让会话气泡能回显。
     attachments: attachments.length ? attachments.map((a) => ({ name: a.name, kind: a.kind })) : undefined,
+    // 已落盘的图片引用(path/name/mime/宽高;不含 dataUrl),气泡缩略图据此经 image:read 回读渲染。
+    images: images?.length ? images : undefined,
     uid: uid("u"),
   });
 }
@@ -1095,6 +1099,7 @@ async function sendPiTurn(
   text: string,
   appendSystemPrompt: string | undefined,
   ids: { runId: string; typingUid: string },
+  imagePaths?: string[],
 ): Promise<void> {
   const { runId, typingUid } = ids;
   const reuse = isPiSessionOpen(session.id); // 复用已开会话:一开即「思考中」;冷启显「启动中」。
@@ -1172,7 +1177,7 @@ async function sendPiTurn(
     flipPiRunToThinking(qc, runId); // 冷启就绪 → typing 翻「思考中」。
     touchPiSession(bridge, session.id); // 阶段4:发起一轮 = 活跃,启动/重置空闲计时。
     // 传 runId（阶段4 代际）:主进程绑定到本轮,事件回带,renderer 守卫丢弃旧轮串台事件。
-    await promptPi(bridge, session.id, buildPiPromptMessage(text, appendSystemPrompt), runId);
+    await promptPi(bridge, session.id, buildPiPromptMessage(text, appendSystemPrompt), runId, imagePaths);
     autoTitle(bridge, session, text); // pi 走 fallback 截断标题（autoTitle 内部仅 claude 跑 haiku）。
   } catch (err) {
     failPiTurn(qc, session.id, runId, err);
@@ -1507,7 +1512,12 @@ export interface PersonalActions {
     text: string,
     attachments: PersonalAttachment[],
     extraSystemPrompt?: string,
-  ) => Promise<void>;
+    // 待发图片(粘贴/拖拽/选择;send 内逐张落盘)。
+    images?: PendingImage[],
+    // 已落盘图片引用(编辑重发复用原消息的图,不重新落盘)。
+    presavedImages?: ChatImageRef[],
+    // 返回是否「已消费」(真正发出/已落定):composer 据此决定是否清空待发图(未消费则保留供重试)。
+  ) => Promise<boolean>;
   stop: (sessionId: string) => Promise<void>;
   // pi 运行中插话:把引导注入当前轮（仅 pi 会话有效;非 pi/未运行 no-op）。
   steer: (sessionId: string, text: string) => Promise<void>;
@@ -1532,8 +1542,10 @@ export function usePersonalActions(): PersonalActions {
   const qc = useQueryClient();
 
   const send = useCallback<PersonalActions["send"]>(
-    async (session, projectPath, text, attachments, extraSystemPrompt) => {
-      if (!bridge || !text.trim()) return;
+    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages) => {
+      if (!bridge) return false;
+      const hasImages = !!(images?.length || presavedImages?.length);
+      if (!text.trim() && !hasImages) return false; // 纯图(无文本)允许发送;两者皆空才拒
       if (session.agent === "pi" && !piRpcAvailable(bridge)) {
         await ensureChatLoaded(qc, bridge, session.id);
         appendUserMessage(qc, session.id, text, attachments);
@@ -1545,21 +1557,68 @@ export function usePersonalActions(): PersonalActions {
           uid: uid("err"),
         });
         flushChat(qc, session.id);
-        return;
+        return false; // 未发出 → composer 保留待发图片供重试
       }
       // pi 长驻会话:同会话已有在跑的一轮、或一轮正在启动(同步锁)时不再起新轮（pi 冷启 ~790ms
       // 窗口里 Enter 抖动/并发 send 会造孤儿 run + 永不自杀的看门狗;运行中 UI 也只应能停止/插话）。
       if (session.agent === "pi") {
-        if (usePersonalStore.getState().runningBySession[session.id] || piSendStarting.has(session.id)) return;
+        if (usePersonalStore.getState().runningBySession[session.id] || piSendStarting.has(session.id)) return false;
         piSendStarting.add(session.id);
       }
+
+      // 图片落盘必须在 appendUserMessage / spawn 之前:逐张串行(保序)拿绝对路径组装单一真相
+      // ChatImageRef[]。任一张失败 → 整轮中止(不 append、不 spawn),已落盘的前几张作孤儿随会话删除清理。
+      // presavedImages(编辑重发复用的已存盘图)直接并入,不重新落盘。
+      const imageRefs: ChatImageRef[] = presavedImages ? [...presavedImages] : [];
+      if (images?.length) {
+        if (!bridge.imageSave) {
+          if (session.agent === "pi") piSendStarting.delete(session.id);
+          await ensureChatLoaded(qc, bridge, session.id);
+          appendMsg(qc, session.id, {
+            kind: "text",
+            who: session.agent,
+            time: realHHMM(),
+            text: "⚠️ 当前环境不支持图片上传。",
+            uid: uid("err"),
+          });
+          flushChat(qc, session.id);
+          return false;
+        }
+        try {
+          for (const img of images) {
+            const { path } = await bridge.imageSave({
+              sessionId: session.id,
+              fileName: img.name,
+              mimeType: img.mimeType,
+              data: img.data,
+            });
+            imageRefs.push({ path, name: img.name, mimeType: img.mimeType, width: img.width, height: img.height });
+          }
+        } catch (err) {
+          if (session.agent === "pi") piSendStarting.delete(session.id);
+          await ensureChatLoaded(qc, bridge, session.id);
+          appendMsg(qc, session.id, {
+            kind: "text",
+            who: session.agent,
+            time: realHHMM(),
+            text: `⚠️ 图片保存失败：${err instanceof Error ? err.message : String(err)}`,
+            uid: uid("err"),
+          });
+          flushChat(qc, session.id);
+          return false;
+        }
+      }
+      const refs = imageRefs.length ? imageRefs : undefined;
+      const cliImages = refs?.map((r) => ({ path: r.path, mimeType: r.mimeType }));
+      const imagePaths = refs?.map((r) => r.path);
+
       const runId = uid("run");
       const typingUid = uid("typing");
 
       // 历史尚未加载时先加载,避免首条写入把磁盘历史盖掉。
       await ensureChatLoaded(qc, bridge, session.id);
 
-      appendUserMessage(qc, session.id, text, attachments);
+      appendUserMessage(qc, session.id, text, attachments, refs);
       appendMsg(qc, session.id, {
         kind: "typing",
         who: session.agent,
@@ -1573,8 +1632,8 @@ export function usePersonalActions(): PersonalActions {
 
       // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。
       if (session.agent === "pi") {
-        await sendPiTurn(qc, bridge, session, projectPath, text, appendSystemPrompt, { runId, typingUid });
-        return;
+        await sendPiTurn(qc, bridge, session, projectPath, text, appendSystemPrompt, { runId, typingUid }, imagePaths);
+        return true;
       }
 
       const run: RunState = {
@@ -1663,12 +1722,14 @@ export function usePersonalActions(): PersonalActions {
           appendSystemPrompt,
           useOwnSkills: sendSession.useOwnSkills,
           skillPaths,
+          images: cliImages,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
         autoTitle(bridge, sendSession, text);
       } catch (err) {
         handleCliExit(qc, runId, null, err instanceof Error ? err.message : String(err));
       }
+      return true; // 用户消息 + 图片已落定(spawn 失败也已提示),视为已消费 → composer 清空待发图
     },
     [bridge, qc],
   );
@@ -1682,6 +1743,9 @@ export function usePersonalActions(): PersonalActions {
       const prev = qc.getQueryData<Message[]>(personalChatKeys.detail(session.id)) ?? [];
       const truncated = truncateForEdit(prev, msgUid);
       if (truncated === null) return;
+      // 复用被编辑消息自身的已落盘图片引用(不重新落盘、不删旧文件),随重发带回 agent。
+      const editedMsg = prev.find((m) => m.uid === msgUid);
+      const originalImages = editedMsg?.kind === "text" ? editedMsg.images : undefined;
 
       // pi:在 pi 侧 fork 到分支点（替代 trimAgentSession 截断会话文件）,再以新文本重发。
       // 映射失败/会话未开 → best-effort 退化:只截断 UI + 重发（pi 仍带旧记忆,阶段2 取舍）。
@@ -1702,7 +1766,7 @@ export function usePersonalActions(): PersonalActions {
           });
         }
         flushChat(qc, session.id);
-        await send(session, projectPath, text, attachments);
+        await send(session, projectPath, text, attachments, undefined, undefined, originalImages);
         return;
       }
 
@@ -1731,7 +1795,7 @@ export function usePersonalActions(): PersonalActions {
 
       qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
       flushChat(qc, session.id);
-      await send(sendSession, projectPath, text, attachments);
+      await send(sendSession, projectPath, text, attachments, undefined, undefined, originalImages);
     },
     [bridge, qc, send],
   );
