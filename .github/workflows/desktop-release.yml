@@ -124,9 +124,10 @@ jobs:
       - name: Prepackage (build pi binary + renderer/main)
         run: pnpm --filter @cortex-work/desktop run prepackage:mac
 
-      # —— 打包步:按 mode 决定是否签名/发布。electron-builder 从已构建的 out/ 打包,
-      # npmRebuild: false 使其不在本步跑 node-gyp 原生编译。签名/PAT 凭据仅此步注入。
-      - name: Build (and sign/publish per mode)
+      # —— 打包步:按 mode 决定是否签名。electron-builder 从已构建的 out/ 打包,
+      # npmRebuild: false 使其不在本步跑 node-gyp 原生编译。签名凭据仅此步注入。
+      # GitHub Release 由后续 gh release 步统一发布,避免 zip/dmg 两个 publisher 并发创建 release。
+      - name: Build (and sign per mode)
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -150,23 +151,16 @@ jobs:
               pnpm --filter @cortex-work/desktop run build:mac
               ;;
             publish-self)
-              echo "publish-self:构建 + 签名 + 公证,发到本仓库 rambocode/cortex-work 的 Release(默认 token)"
-              export GH_TOKEN="$SELF_GH_TOKEN"
-              # 覆盖 electron-builder.yml 的跨库 publish 目标,改发本仓库(同仓库,默认 token 即可写)。
-              pnpm --filter @cortex-work/desktop exec electron-builder --mac --publish always \
-                -c.publish.provider=github \
-                -c.publish.owner=rambocode \
-                -c.publish.repo=cortex-work \
-                -c.publish.releaseType=release
+              echo "publish-self:构建 + 签名 + 公证,后续发到本仓库 rambocode/cortex-work 的 Release"
+              pnpm --filter @cortex-work/desktop run build:mac
               ;;
             *)
-              export GH_TOKEN="$RELEASE_GH_TOKEN"
               rt="release"
               if [[ "$MODE" == "publish-draft" ]]; then
                 rt="draft"
               fi
-              echo "publish(mode=$MODE):releaseType=$rt,跨库发到公开 release 仓库"
-              pnpm --filter @cortex-work/desktop exec electron-builder --mac --publish always -c.publish.releaseType="$rt"
+              echo "publish(mode=$MODE):releaseType=$rt,构建 + 签名 + 公证,后续发到公开 release 仓库"
+              pnpm --filter @cortex-work/desktop run build:mac
               ;;
           esac
 
@@ -193,6 +187,65 @@ jobs:
             || echo "DMG 无独立代码签名/公证 — 可接受(挂载后 app 已公证,Gatekeeper 认 app)。"
           xcrun stapler validate "$dmg_copy" \
             || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
+
+      - name: Publish GitHub release
+        if: ${{ env.MODE == 'publish-self' || env.MODE == 'publish-draft' || env.MODE == 'publish-release' }}
+        env:
+          SELF_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          repo="rambocode/cortex-work-release"
+          token="$RELEASE_GH_TOKEN"
+          draft_flag=()
+
+          if [[ "$MODE" == "publish-self" ]]; then
+            repo="rambocode/cortex-work"
+            token="$SELF_GH_TOKEN"
+          elif [[ "$MODE" == "publish-draft" ]]; then
+            draft_flag=(--draft)
+          fi
+
+          export GH_TOKEN="$token"
+
+          # 跨库 release 仓库只承载产物,tag 指向 release 仓库默认分支即可;
+          # GitHub 发布正式 release 时要求 tag 在目标仓库有效存在。
+          if [[ "$repo" == "rambocode/cortex-work-release" ]]; then
+            default_branch="$(gh repo view "$repo" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+            target_sha="$(gh api "repos/$repo/commits/$default_branch" --jq '.sha')"
+            if ! gh api "repos/$repo/git/ref/tags/$BUILD_TAG" >/dev/null 2>&1; then
+              gh api --method POST "repos/$repo/git/refs" \
+                -f ref="refs/tags/$BUILD_TAG" \
+                -f sha="$target_sha" >/dev/null
+            fi
+          fi
+
+          src="apps/desktop/dist"
+          files=(
+            "$src"/*-arm64.dmg
+            "$src"/*-arm64.dmg.blockmap
+            "$src"/*-arm64-mac.zip
+            "$src"/*-arm64-mac.zip.blockmap
+            "$src/latest-mac.yml"
+          )
+
+          for file in "${files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "Missing release asset: $file" >&2
+              exit 1
+            fi
+          done
+
+          if ! gh release view "$BUILD_TAG" --repo "$repo" >/dev/null 2>&1; then
+            gh release create "$BUILD_TAG" \
+              --repo "$repo" \
+              --title "${BUILD_TAG#v}" \
+              --notes "Cortex Desktop ${BUILD_TAG#v}" \
+              "${draft_flag[@]}"
+          fi
+
+          gh release upload "$BUILD_TAG" --repo "$repo" --clobber "${files[@]}"
 
       # 构建产物 artifact:build 档取回产物的通道(也确认产物确实生成);publish 档作冗余备份。
       - name: Upload artifacts
