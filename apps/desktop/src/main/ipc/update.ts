@@ -3,18 +3,18 @@
 // renderer 挂载后用 "update:getState" 补拉,避免错过早期推送。
 // 更新源在 electron-builder.yml 的 publish 字段配置。
 
-import { app, ipcMain, BrowserWindow } from "electron";
+import { app, ipcMain, BrowserWindow, powerMonitor } from "electron";
 import { autoUpdater } from "electron-updater";
 import { reduceUpdate, type UpdaterEvent } from "./update-state";
 import type { UpdateState } from "./types";
 
-// 与 fanbox 相同的检查节奏:启动 6s 后首查,长开会话每 2 小时复查。
+// 近实时更新:启动 6s 后首查,长开会话每 5 分钟复查;激活/唤醒再补查。
 const FIRST_CHECK_DELAY_MS = 6_000;
-const CHECK_INTERVAL_MS = 2 * 3600_000;
+const CHECK_INTERVAL_MS = 5 * 60_000;
 
 // 更新源是否已真正配置。electron-builder.yml 的 publish.owner 是占位符时,
 // checkForUpdates 会对 releases.atom 反复 404,污染日志,故未配置时跳过检查。
-// 当前已配真实源 rambocode/cortex-desktop（公开 release 库）,启用自动更新(需远端建好 release 才能检到)。
+// 当前已配真实源 rambocode/cortex-work-release（公开 release 库）,启用自动更新(需远端建好 release 才能检到)。
 const UPDATE_FEED_CONFIGURED = true;
 
 let state: UpdateState = { phase: "idle" };
@@ -38,7 +38,7 @@ async function safeCheck(): Promise<void> {
 }
 
 export function registerUpdateHandlers(): void {
-  autoUpdater.autoDownload = false;
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on("checking-for-update", () => dispatch({ type: "checking" }));
@@ -65,4 +65,6 @@ export function registerUpdateHandlers(): void {
   if (!app.isPackaged || !UPDATE_FEED_CONFIGURED) return;
   setTimeout(() => void safeCheck(), FIRST_CHECK_DELAY_MS);
   setInterval(() => void safeCheck(), CHECK_INTERVAL_MS);
+  app.on("activate", () => void safeCheck());
+  powerMonitor.on("resume", () => void safeCheck());
 }

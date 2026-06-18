@@ -9,9 +9,8 @@ run-name: Desktop Release ${{ github.ref_name }}
 #    用默认 GITHUB_TOKEN(同仓库写,需 permissions: contents: write),无需 PAT;只需 5 个签名 secret。
 #    本仓库为私有库,Release 仅维护者可下载——自取后转发分发(如官网/网盘)。
 #  - publish-draft / publish-release(dispatch):electron-builder --publish always 跨库发到
-#    公开库 rambocode/cortex-desktop(见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
-#  - tag push:自动构建签名产物并上传 artifact;不跨库发布,避免没有 RELEASE_GH_TOKEN 时阻断构建。
-#    依赖 U1(建公开库 + PAT + Environment),完成后再用。
+#    公开库 rambocode/cortex-work-release(见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
+#  - tag push:自动构建、签名、公证,并发布到 rambocode/cortex-work-release。
 # 设计见 docs/plans/2026-06-16-002-feat-desktop-release-automation-plan.md。
 
 on:
@@ -45,9 +44,8 @@ jobs:
     # 签名/公证 secret 与 PAT 放在受保护 Environment(配 tag 进入策略;多维护者时再加 required reviewers)。
     environment: production-release
     env:
-      # tag push 一律走签名构建;dispatch 取所选 mode,默认 build-unsigned。MODE 是受限取值,非密钥。
-      # 跨库 publish-release 仅在 workflow_dispatch 显式选择时使用,避免缺 RELEASE_GH_TOKEN 阻断 tag 构建。
-      MODE: ${{ (github.event_name == 'push' && 'build-signed') || github.event.inputs.mode || 'build-unsigned' }}
+      # tag push 一律走正式发布;dispatch 取所选 mode,默认 build-unsigned。MODE 是受限取值,非密钥。
+      MODE: ${{ (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-unsigned' }}
       BUILD_TAG: ${{ github.ref_name }}
 
     steps:
@@ -137,7 +135,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # 两类发布 token 都注入,运行时按 mode 选用:publish-self 用默认 GITHUB_TOKEN(本仓库);
-          # publish-draft/release 用 PAT(跨库公开库)。GH_TOKEN 是 electron-builder 读取的固定变量名,
+          # publish-draft/release 用 PAT(跨库公开 release 仓库)。GH_TOKEN 是 electron-builder 读取的固定变量名,
           # 故不在此处静态赋值,改在脚本内按 mode export,避免把错的 token 喂给跨库发布。
           SELF_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
@@ -167,7 +165,7 @@ jobs:
               if [[ "$MODE" == "publish-draft" ]]; then
                 rt="draft"
               fi
-              echo "publish(mode=$MODE):releaseType=$rt,跨库发到公开库"
+              echo "publish(mode=$MODE):releaseType=$rt,跨库发到公开 release 仓库"
               pnpm --filter @cortex-work/desktop run release:mac -- -c.publish.releaseType="$rt"
               ;;
           esac

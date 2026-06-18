@@ -4,7 +4,7 @@
 #
 # 发布已自动化:打 v<version> tag 触发 .github/workflows/desktop-release.yml,
 #   CI 构建+签名+公证后,electron-builder --publish always 跨库发到公开库
-#   publish.owner/repo（rambocode/cortex-desktop）。发版:bump 本 package.json version →
+#   publish.owner/repo（rambocode/cortex-work-release）。发版:bump 本 package.json version →
 #   commit → 打同名 v<version> tag → push（tag 须与 version 一致）。
 # ⚠️ macOS 自动更新要求应用正式签名(Developer ID);未签名时 electron-updater
 #   会在下载/校验阶段报错,只能手动替换安装。
@@ -99,6 +99,6 @@ mac:
 publish:
   provider: github
   owner: rambocode
-  repo: cortex-desktop
-  # 直接出正式 release（electron-builder 默认建 draft）。首批软门控走 workflow_dispatch 的 draft 选项,见计划 KTD1。
+  repo: cortex-work-release
+  # 直接出正式 release（electron-builder 默认建 draft）。Release 仓库只承载产物与更新清单。
   releaseType: release
