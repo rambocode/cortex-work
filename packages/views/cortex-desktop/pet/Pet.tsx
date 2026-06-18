@@ -16,6 +16,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePetStore } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { PERCH_EDGE_Y, PET_DESIGNS, loadPetColor, loadPetKind, loadPetSize, petColorVars } from "./designs";
 import {
   WALK_IDLE_DELAY_MS,
@@ -27,15 +28,7 @@ import {
   type WalkPos,
 } from "./behavior";
 
-const STATE_LABEL: Record<string, (name: string) => string> = {
-  idle: (n) => `${n}在待命`,
-  typing: (n) => `${n}在看你打字`,
-  thinking: (n) => `${n}在思考…`,
-  working: (n) => `${n}在埋头干活`,
-  replying: (n) => `${n}在回话`,
-  sleeping: (n) => `${n}睡着了,点我叫醒`,
-  happy: (n) => `${n}很开心!`,
-};
+const PET_STATES = ["idle", "typing", "thinking", "working", "replying", "sleeping", "happy"] as const;
 
 const POS_KEY = "cortex_pet_pos";
 const PET_W = 110;
@@ -67,6 +60,7 @@ function clampPos(p: { x: number; y: number }, size: number): { x: number; y: nu
 }
 
 export function Pet() {
+  const { t } = useTranslation("pet");
   const state = usePetStore((s) => s.state);
   const kind = usePetStore((s) => s.kind);
   const mode = usePetStore((s) => s.mode);
@@ -277,6 +271,11 @@ export function Pet() {
 
   const design = PET_DESIGNS[kind];
   const Parts = design.Parts;
+  // 宠物名 + 状态提示走 pet 命名空间;PET_DESIGNS.name 仍作为兜底(设置页等仍直读数据)。
+  const petName = t(`kind.${kind}.name`, design.name);
+  const stateLabel = (PET_STATES as readonly string[]).includes(state)
+    ? t(`state.${state}`, { name: petName })
+    : undefined;
   // 自定义配色变量(未自定义时为空,SVG 回落到造型默认色);--pet-scale 供阴影等 CSS 跟随。
   const styleVars = {
     "--pet-scale": size,
@@ -297,8 +296,8 @@ export function Pet() {
   const closeBtn = (
     <button
       className="pet-x"
-      title="隐藏宠物(可在设置 → 宠物中重新打开)"
-      aria-label="隐藏宠物"
+      title={t("hideTitle")}
+      aria-label={t("hideAria")}
       onPointerDown={(e) => e.stopPropagation()}
       onPointerUp={(e) => e.stopPropagation()}
       onClick={(e) => {
@@ -318,7 +317,7 @@ export function Pet() {
         className="pet is-perched"
         data-state={state}
         data-mode="perch"
-        title={STATE_LABEL[state]?.(design.name)}
+        title={stateLabel}
         style={{ ...styleVars, ...posStyle }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -346,7 +345,7 @@ export function Pet() {
       className={`pet ${dragRef.current?.moved ? "is-dragging" : ""} ${walking ? "is-walking" : ""} ${lane && !walking ? "is-gliding" : ""}`}
       data-state={state}
       data-mode={mode}
-      title={STATE_LABEL[state]?.(design.name)}
+      title={stateLabel}
       style={{ ...styleVars, ...posStyle }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

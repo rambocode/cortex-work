@@ -12,6 +12,7 @@
   },
   "loading": "Loading…",
   "save": "Save",
+  "todoUntitled": "Untitled Todo",
   "titleBar": {
     "sidebar": "Sidebar",
     "sidebarToggled": "Sidebar expanded/collapsed",

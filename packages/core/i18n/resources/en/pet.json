@@ -1,0 +1,31 @@
+{
+  "state": {
+    "idle": "{{name}} is standing by",
+    "typing": "{{name}} is watching you type",
+    "thinking": "{{name}} is thinking…",
+    "working": "{{name}} is hard at work",
+    "replying": "{{name}} is replying",
+    "sleeping": "{{name}} fell asleep, click to wake up",
+    "happy": "{{name}} is happy!"
+  },
+  "hideTitle": "Hide pet (reopen it in Settings → Pet)",
+  "hideAria": "Hide pet",
+  "kind": {
+    "cat": {
+      "name": "Coco",
+      "desc": "Orange cat"
+    },
+    "shiba": {
+      "name": "Shiba",
+      "desc": "Shiba Inu"
+    },
+    "bunny": {
+      "name": "Dango",
+      "desc": "Bunny"
+    },
+    "robot": {
+      "name": "Bit",
+      "desc": "Robot"
+    }
+  }
+}

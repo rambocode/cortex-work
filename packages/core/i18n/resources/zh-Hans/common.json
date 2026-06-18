@@ -12,6 +12,7 @@
   },
   "loading": "加载中…",
   "save": "保存",
+  "todoUntitled": "未命名 Todo",
   "titleBar": {
     "sidebar": "侧栏",
     "sidebarToggled": "已展开/收起侧栏",
