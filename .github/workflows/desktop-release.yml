@@ -198,13 +198,10 @@ jobs:
 
           repo="rambocode/cortex-work-release"
           token="$RELEASE_GH_TOKEN"
-          draft_flag=()
 
           if [[ "$MODE" == "publish-self" ]]; then
             repo="rambocode/cortex-work"
             token="$SELF_GH_TOKEN"
-          elif [[ "$MODE" == "publish-draft" ]]; then
-            draft_flag=(--draft)
           fi
 
           export GH_TOKEN="$token"
@@ -238,11 +235,18 @@ jobs:
           done
 
           if ! gh release view "$BUILD_TAG" --repo "$repo" >/dev/null 2>&1; then
-            gh release create "$BUILD_TAG" \
-              --repo "$repo" \
-              --title "${BUILD_TAG#v}" \
-              --notes "Cortex Desktop ${BUILD_TAG#v}" \
-              "${draft_flag[@]}"
+            if [[ "$MODE" == "publish-draft" ]]; then
+              gh release create "$BUILD_TAG" \
+                --repo "$repo" \
+                --title "${BUILD_TAG#v}" \
+                --notes "Cortex Desktop ${BUILD_TAG#v}" \
+                --draft
+            else
+              gh release create "$BUILD_TAG" \
+                --repo "$repo" \
+                --title "${BUILD_TAG#v}" \
+                --notes "Cortex Desktop ${BUILD_TAG#v}"
+            fi
           fi
 
           gh release upload "$BUILD_TAG" --repo "$repo" --clobber "${files[@]}"
