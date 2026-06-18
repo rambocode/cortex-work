@@ -45,6 +45,7 @@ import type {
   TtsVoiceOption,
   UpdateState,
 } from "../main/ipc/types";
+import type { Locale } from "@cortex-work/core/i18n/native";
 
 interface AppInfo {
   version: string;
@@ -159,6 +160,14 @@ const personal = {
     startMinimized: boolean;
     closeToTray: boolean;
   }): Promise<void> => ipcRenderer.invoke("desktop:setBehavior", behavior),
+  // 渲染端切语言 → 主进程广播 + 重建托盘菜单（原生 chrome 镜像主窗口 i18next）。
+  setLocale: (locale: Locale): Promise<void> => ipcRenderer.invoke("app:setLocale", locale),
+  // 订阅主进程 locale 广播（次级窗口据此同步语言）。
+  onLocaleChange: (cb: (locale: Locale) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, locale: Locale) => cb(locale);
+    ipcRenderer.on("app:locale", listener);
+    return () => ipcRenderer.removeListener("app:locale", listener);
+  },
   openLogsDir: (): Promise<void> => ipcRenderer.invoke("logs:open"),
   setLogEnabled: (on: boolean): Promise<void> => ipcRenderer.invoke("logs:setEnabled", on),
   // 改闪记全局热键:把主进程返回的 HotkeyRegistration 适配成 bridge 契约的 { ok, toast }。

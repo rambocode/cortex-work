@@ -7,7 +7,9 @@ const configuredRendererPort = Number(process.env.DESKTOP_RENDERER_PORT);
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // @cortex-work/core 以原生 .ts 发布,Node 无法直接执行 → 须打包进 main chunk
+    //（仅用到零 react 的 i18n/native:托盘/locale 扇出文案）。
+    plugins: [externalizeDepsPlugin({ exclude: ["@cortex-work/core"] })],
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

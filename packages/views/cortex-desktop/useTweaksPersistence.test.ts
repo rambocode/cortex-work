@@ -1,6 +1,11 @@
 import { renderHook, waitFor } from "@testing-library/react";
-import { act } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { CoreProvider } from "@cortex-work/core";
+
+// 持久化 hook 现经 useDesktopBridge 读 bridge,需 CoreProvider 上下文(web 端 bridge=null)。
+const coreWrapper = ({ children }: { children: ReactNode }) =>
+  createElement(CoreProvider, { wsId: "test-ws", identity: { userId: "me", name: "我" }, desktopBridge: null }, children);
 import {
   applyTweaksToDom,
   fontScaleRatio,
@@ -112,7 +117,7 @@ describe("language 持久化（U2）", () => {
 
   it("切 store.language → i18next 切换 + documentElement.lang 更新 + 写盘（R6）", async () => {
     mockMatchMedia(false);
-    renderHook(() => useTweaksPersistence());
+    renderHook(() => useTweaksPersistence(), { wrapper: coreWrapper });
     await act(async () => {
       useCortexUIStore.getState().setTweak("language", "en");
     });
@@ -126,7 +131,7 @@ describe("language 持久化（U2）", () => {
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("quota");
     });
-    renderHook(() => useTweaksPersistence());
+    renderHook(() => useTweaksPersistence(), { wrapper: coreWrapper });
     await act(async () => {
       useCortexUIStore.getState().setTweak("language", "en");
     });

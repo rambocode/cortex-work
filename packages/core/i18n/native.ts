@@ -7,6 +7,11 @@
 
 import { DEFAULT_LOCALE, type Locale } from "./locales";
 
+// 主进程 / preload 经本入口取 Locale 类型与归一化工具,避免依赖未导出的 ./locales
+// 子路径(本文件仍是纯类型/常量,零 react)。
+export { DEFAULT_LOCALE, isLocale } from "./locales";
+export type { Locale } from "./locales";
+
 export interface NativeTrayStrings {
   showMainWindow: string;
   quit: string;

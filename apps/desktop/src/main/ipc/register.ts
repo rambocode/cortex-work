@@ -17,6 +17,7 @@ import { registerAgentProjectsHandlers } from "./agent-projects";
 import { registerWatchHandlers } from "./watch";
 import { registerUpdateHandlers, type RegisterUpdateHandlersOptions } from "./update";
 import { registerEditorHandlers } from "./editors";
+import { registerAppHandlers } from "./app";
 import { registerAutomationHandlers } from "../automation/ipc";
 
 interface RegisterIpcHandlersOptions {
@@ -41,6 +42,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerAgentProjectsHandlers();
   registerUpdateHandlers(options.update);
   registerEditorHandlers();
+  registerAppHandlers();
   registerAutomationHandlers();
 }
 

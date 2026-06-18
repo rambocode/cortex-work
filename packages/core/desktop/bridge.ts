@@ -59,6 +59,7 @@ import type {
   AppInfo,
   UpdateState,
 } from "./types";
+import type { Locale } from "../i18n/locales";
 
 export interface DesktopBridge {
   appInfo?: AppInfo;
@@ -157,6 +158,11 @@ export interface DesktopBridge {
   // 桌面行为：renderer 切换开机自启/启动最小化/关闭到托盘时通知主进程立即应用
   //（登录项是系统设置,须即时设置）。可选（web 端为 null）。
   setDesktopBehavior?(behavior: DesktopBehavior): Promise<void>;
+  // 渲染端(主窗口 i18next 为权威源)切语言时下发主进程,主进程据此广播给所有窗口 +
+  // 重建托盘菜单（原生 chrome 无法用 react-i18next,只能镜像）。可选（web 端为 null）。
+  setLocale?(locale: Locale): Promise<void>;
+  // 订阅主进程 locale 广播（次级窗口据此与主窗口语言保持一致）。可选;返回退订函数。
+  onLocaleChange?(cb: (locale: Locale) => void): () => void;
   // 打开日志目录（系统文件管理器）。可选。
   openLogsDir?(): Promise<void>;
   // 即时下发文件日志开关（本次运行内生效,无需重启）。可选。
