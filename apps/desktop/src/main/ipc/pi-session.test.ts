@@ -57,6 +57,7 @@ const h = vi.hoisted(() => {
     writeSlashCommandExtension: vi.fn(() => "/ext/sample-commands.js"),
     writeAskQuestionExtension: vi.fn(() => "/ext/askquestion.js"),
     spawnEnvFor: vi.fn(() => ({})),
+    readImageBytes: vi.fn(async () => ({ mimeType: "image/png", base64: "AAAA" })),
   };
 });
 
@@ -76,12 +77,13 @@ vi.mock("../agents/pi-extensions", () => ({
   writeAskQuestionExtension: h.writeAskQuestionExtension,
 }));
 vi.mock("./cli", () => ({ spawnEnvFor: h.spawnEnvFor }));
+vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
 
 import { registerPiSessionHandlers, killAllPiSessions, piSessionCount } from "./pi-session";
 
-// renderer 替身:可控的 isDestroyed + 记录 send。
+// renderer 替身:可控的 isDestroyed + 记录 send + once(pi:open 监听 sender 'destroyed' 回收会话)。
 function fakeEvent() {
-  return { sender: { isDestroyed: vi.fn(() => false), send: vi.fn() } };
+  return { sender: { isDestroyed: vi.fn(() => false), send: vi.fn(), once: vi.fn() } };
 }
 
 // 调 pi:open handler,返回 { event, result }。
@@ -106,6 +108,7 @@ beforeEach(() => {
   h.writeSlashCommandExtension.mockClear();
   h.writeAskQuestionExtension.mockClear();
   h.spawnEnvFor.mockClear();
+  h.readImageBytes.mockClear();
   registerPiSessionHandlers();
 });
 
@@ -181,6 +184,22 @@ describe("命令转发", () => {
     const data = await h.handlers.get("pi:prompt")!({}, "u1", "你好", "run-1");
     expect(h.instances[0].prompt).toHaveBeenCalledWith("你好", "run-1");
     expect(data).toEqual({ accepted: true });
+  });
+
+  it("pi:prompt 带 imagePaths → 读盘转 base64 注入 images,转发 s.prompt(message,runId,images)", async () => {
+    await open();
+    await h.handlers.get("pi:prompt")!({}, "u1", "看图", "run-2", ["/img/a.png", "/img/b.png"]);
+    expect(h.readImageBytes).toHaveBeenCalledTimes(2);
+    expect(h.instances[0].prompt).toHaveBeenCalledWith("看图", "run-2", [
+      { type: "image", data: "AAAA", mimeType: "image/png" },
+      { type: "image", data: "AAAA", mimeType: "image/png" },
+    ]);
+  });
+
+  it("pi:prompt 某张图读失败 → 整轮 reject(不静默丢图)", async () => {
+    await open();
+    h.readImageBytes.mockRejectedValueOnce(new Error("路径不在允许范围内"));
+    await expect(h.handlers.get("pi:prompt")!({}, "u1", "看图", "r", ["/img/x.png"])).rejects.toThrow(/允许范围/);
   });
 
   it("各命令路由到对应方法,参数透传", async () => {

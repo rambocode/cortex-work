@@ -99,9 +99,10 @@ export async function saveImageInto(
   return { path };
 }
 
-// 回读:读侧唯一闸门。realpath + lstat 拒符号链接 + 根边界 + 扩展名 allowlist;读校验后的真实
-// 路径(非原始入参)消除 TOCTOU;只 base64 搬运,绝不解码。
-export async function readImageFrom(root: string, requested: string): Promise<ImageReadResult> {
+// 读侧唯一闸门(返回 base64 + mime)。realpath + lstat 拒符号链接 + 根边界 + 扩展名 allowlist;
+// 读校验后的真实路径(非原始入参)消除 TOCTOU;只 base64 搬运,绝不解码。
+// 缩略图(image:read → dataUrl)与 pi RPC images(base64 注入)共用此闸门。
+export async function readImageBytes(root: string, requested: string): Promise<{ mimeType: string; base64: string }> {
   let realRoot: string;
   try {
     realRoot = await fsp.realpath(root); // 根不存在 = 无任何图片可读
@@ -122,7 +123,13 @@ export async function readImageFrom(root: string, requested: string): Promise<Im
   const ext = extToImageExt(extname(realTarget));
   if (!ext) throw new Error(`不支持的图片扩展名: ${requested}`); // 读侧也只放行位图,绝不返回 svg
   const buf = await fsp.readFile(realTarget); // 读已校验的真实路径,消除 TOCTOU
-  return { dataUrl: `data:${EXT_MIME[ext]};base64,${buf.toString("base64")}` };
+  return { mimeType: EXT_MIME[ext], base64: buf.toString("base64") };
+}
+
+// 缩略图回读:包装成 data: URL。
+export async function readImageFrom(root: string, requested: string): Promise<ImageReadResult> {
+  const { mimeType, base64 } = await readImageBytes(root, requested);
+  return { dataUrl: `data:${mimeType};base64,${base64}` };
 }
 
 export function registerImageHandlers(): void {

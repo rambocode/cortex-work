@@ -186,7 +186,8 @@ export interface DesktopBridge {
   // 缺失时为 undefined → UI 退回单发或隐藏运行时控制）。uiSessionId 复用个人会话 id。
   piOpen?(req: PiOpenRequest): Promise<PiOpenResult>;
   // runId（阶段4 代际）:renderer 自造每轮唯一 id,经事件回带供守卫。
-  piPrompt?(uiSessionId: string, message: string, runId?: string): Promise<unknown>;
+  // imagePaths:本轮上传图片的绝对路径,主进程读盘转 base64 注入 RPC prompt.images。
+  piPrompt?(uiSessionId: string, message: string, runId?: string, imagePaths?: string[]): Promise<unknown>;
   // 运行中插话（注入当前轮的引导）/ 排队追问。
   piSteer?(uiSessionId: string, message: string): Promise<unknown>;
   piFollowUp?(uiSessionId: string, message: string): Promise<unknown>;

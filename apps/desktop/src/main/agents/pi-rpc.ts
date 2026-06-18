@@ -281,6 +281,13 @@ export function spawnPiRpc(args: string[], opts: { cwd?: string; env: NodeJS.Pro
   };
 }
 
+// pi RPC prompt 命令的图片内容块（多模态:base64 + mime,协议内置 images 字段)。
+export interface PiImageContent {
+  type: "image";
+  data: string; // base64
+  mimeType: string;
+}
+
 // RPC 命令的应答行（{type:"response", id, command, success, data|error}）。
 export interface RpcResponse {
   type: "response";
@@ -447,9 +454,10 @@ export class PiRpcSession {
   // 即可（与官方 RpcClient 一致），只覆盖「受理」这一步。compact 的 response 才是 await 压缩完成。
   // runId（Cortex 自造）在写 stdin prompt 时同步绑定,确保首条 agent_start 事件已带新 runId
   // （pi 不参与;steer/abort 不换 runId,其事件仍归属当前轮）。
-  prompt(message: string, runId?: string): Promise<RpcResponse> {
+  prompt(message: string, runId?: string, images?: PiImageContent[]): Promise<RpcResponse> {
     if (runId !== undefined) this.currentRunId = runId;
-    return this.send({ type: "prompt", message });
+    // 多模态:图片走 prompt 命令的协议内置 images 字段(base64),非塞进 message 字符串。
+    return this.send({ type: "prompt", message, ...(images?.length ? { images } : {}) });
   }
   steer(message: string): Promise<RpcResponse> {
     return this.send({ type: "steer", message });

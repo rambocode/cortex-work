@@ -6,7 +6,9 @@ import { randomUUID } from "crypto";
 
 import { ipcMain, type WebContents } from "electron";
 
-import { buildRpcArgs, spawnPiRpc, PiRpcSession, type RpcResponse } from "../agents/pi-rpc";
+import { buildRpcArgs, spawnPiRpc, PiRpcSession, type PiImageContent, type RpcResponse } from "../agents/pi-rpc";
+import { readImageBytes } from "./image";
+import { chatImagesRoot } from "../paths";
 import { writePiExtension } from "../agents/pi-providers";
 import {
   writeApprovalExtension,
@@ -46,6 +48,19 @@ function emitUiRequest(uiSessionId: string, request: PiUiRequest): void {
     return;
   }
   entry.sender.send("pi:uiRequest", { uiSessionId, request });
+}
+
+// 把图片绝对路径读为 pi RPC 的 images content（base64 + mime;经 image.ts 同款根边界/realpath
+// /lstat 安全闸门）。任一张读失败 → 抛(整轮 reject,由 sendPiTurn catch 走 failPiTurn,不静默丢图)。
+async function buildPiImages(imagePaths: string[] | undefined): Promise<PiImageContent[] | undefined> {
+  if (!imagePaths?.length) return undefined;
+  const root = chatImagesRoot();
+  const images: PiImageContent[] = [];
+  for (const p of imagePaths) {
+    const { mimeType, base64 } = await readImageBytes(root, p);
+    images.push({ type: "image", data: base64, mimeType });
+  }
+  return images;
 }
 
 // 取会话;不存在即抛错（renderer 的 invoke 会收到 rejection）。
@@ -120,8 +135,12 @@ export function registerPiSessionHandlers(): void {
   });
 
   // ── 运行时命令（均转发到对应 PiRpcSession 方法）──────────────────────────
-  ipcMain.handle("pi:prompt", (_e, uiSessionId: string, message: string, runId?: string) =>
-    command(uiSessionId, (s) => s.prompt(message, runId)),
+  ipcMain.handle("pi:prompt", (_e, uiSessionId: string, message: string, runId?: string, imagePaths?: string[]) =>
+    command(uiSessionId, async (s) => {
+      const images = await buildPiImages(imagePaths);
+      // 无图沿用两参调用,保持既有行为/契约不变。
+      return images ? s.prompt(message, runId, images) : s.prompt(message, runId);
+    }),
   );
   ipcMain.handle("pi:steer", (_e, uiSessionId: string, message: string) =>
     command(uiSessionId, (s) => s.steer(message)),

@@ -272,6 +272,20 @@ describe("PiRpcSession", () => {
     await expect(p).resolves.toMatchObject({ success: true });
   });
 
+  it("prompt 带 images:payload 含协议内置 images 字段;无图不含 images 键(回归)", () => {
+    const f = fakeTransport();
+    const s = new PiRpcSession(f.transport, vi.fn());
+    void s.prompt("看图", "run-2", [{ type: "image", data: "AAAA", mimeType: "image/png" }]).catch(() => {});
+    expect(f.lastCmd()).toMatchObject({
+      type: "prompt",
+      message: "看图",
+      images: [{ type: "image", data: "AAAA", mimeType: "image/png" }],
+    });
+    void s.prompt("纯文本").catch(() => {});
+    expect(f.lastCmd()).not.toHaveProperty("images");
+    s.stop();
+  });
+
   it("compact 用较长有界超时:60s 内不超时（远超默认 30s）,越过 5min 才超时", async () => {
     vi.useFakeTimers();
     try {
