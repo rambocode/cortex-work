@@ -83,6 +83,17 @@ export interface MessageAttachmentRef {
   kind: "prompt" | "todo";
 }
 
+// 用户消息携带的图片引用(粘贴/拖拽/选择上传)。落盘后的绝对路径 + 显示名 + MIME + 宽高,
+// 随会话 JSON 持久化。**不含** base64/dataUrl —— 那只活在内存与 image:read 回读返回;
+// 写进消息会撑爆 chat JSON(同 reasoning 当初被 sanitize 丢弃的前车之鉴)。
+export interface ChatImageRef {
+  path: string; // 绝对路径(主进程 image:save 落盘后返回)
+  name: string; // 显示用原始文件名(仅 alt / 展示,不参与路径构造)
+  mimeType: string;
+  width?: number;
+  height?: number;
+}
+
 export type Message =
   | { kind: "day"; label: string; uid?: string }
   | {
@@ -92,6 +103,7 @@ export type Message =
       text: RichText;
       reply?: ReplyRef;
       attachments?: MessageAttachmentRef[];
+      images?: ChatImageRef[];
       uid?: string;
     }
   | {

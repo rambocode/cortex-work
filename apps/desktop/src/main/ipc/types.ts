@@ -202,6 +202,8 @@ export interface CliStartRequest {
   useOwnSkills?: boolean;
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildArgs 逐个 --skill 注入。
   skillPaths?: string[];
+  // 用户上传的图片（仅 claude/codex 消费;pi 走 piPrompt 独立参数）。与 core 镜像。
+  images?: CliImageRef[];
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数;pi 忽略。
   effort?: ReasoningEffort;
   // pi 专用:renderer 传入当前会话选中供应商的完整配置,主进程据此生成 extension
@@ -421,6 +423,27 @@ export interface AsrTranscribeResponse {
   language?: string | null;
   duration?: number | null;
   segments?: Record<string, unknown>[] | null;
+}
+
+// ── 聊天图片上传（与 core/desktop/types.ts 镜像;PendingImage 不镜像,主进程只见 ImageSaveRequest） ──
+export interface CliImageRef {
+  path: string;
+  mimeType: string;
+}
+
+export interface ImageSaveRequest {
+  sessionId: string;
+  fileName: string;
+  mimeType: string;
+  data: ArrayBuffer;
+}
+
+export interface ImageSaveResult {
+  path: string;
+}
+
+export interface ImageReadResult {
+  dataUrl: string;
 }
 
 // ── 应用自动更新（与 core/desktop/types.ts 镜像） ────────────────────────

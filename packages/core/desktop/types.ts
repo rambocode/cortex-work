@@ -331,6 +331,45 @@ export interface AsrTranscribeResponse {
   segments?: Record<string, unknown>[] | null;
 }
 
+// ── 聊天图片上传 ──────────────────────────────────────────────────────────
+// 与 apps/desktop/src/main/ipc/types.ts 镜像（PendingImage 是 composer 内存态,
+// 不镜像到 main——主进程只见 ImageSaveRequest）。统一「落盘拿绝对路径」骨架,各
+// agent 走原生通道:claude 路径进 prompt、codex -i flag、pi RPC images base64。
+
+// composer 待发图片（renderer 内存态;dataUrl 供即时预览,data 供落盘）。
+// id/name 是客户端值,**不得用于主进程路径构造**(文件名由主进程 randomUUID 生成)。
+export interface PendingImage {
+  id: string; // 客户端临时 id（列表 key / 同批去重辅助）
+  name: string; // 原始文件名（仅显示）
+  mimeType: string;
+  dataUrl: string; // 即时预览用 data: URL（不落盘、不持久化）
+  data: ArrayBuffer; // 落盘原始字节（结构化克隆跨 IPC,照抄 AsrTranscribeRequest.audio）
+  width?: number;
+  height?: number;
+}
+
+// 传给 claude/codex adapter 的精简图片引用（仅 claude/codex 消费;pi 走 piPrompt 独立参数）。
+export interface CliImageRef {
+  path: string; // 绝对路径
+  mimeType: string;
+}
+
+// image:save 入参（renderer → 主进程;二进制经 ArrayBuffer 直传,照抄 AsrTranscribeRequest.audio）。
+export interface ImageSaveRequest {
+  sessionId: string; // 落盘目录键（主进程 SAFE_ID 校验）
+  fileName: string; // 原始名（仅回带显示,不参与路径）
+  mimeType: string; // 声明 MIME（主进程 magic-bytes 嗅探复核,错配拒绝）
+  data: ArrayBuffer;
+}
+
+export interface ImageSaveResult {
+  path: string; // 落盘后的绝对路径（randomUUID + 嗅探扩展名）
+}
+
+export interface ImageReadResult {
+  dataUrl: string; // data:<mime>;base64,...（缩略图回读用）
+}
+
 // 推送目标（renderer 把设置拍平后传给主进程,主进程不读设置文件）。
 export type PushTarget =
   | { kind: "wecom"; webhookUrl: string }
@@ -600,6 +639,9 @@ export interface CliStartRequest {
   useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildArgs 逐个 --skill 注入。
   skillPaths?: string[];
+  // 用户上传的图片（**仅 claude/codex 消费**:claude 把绝对路径 + 读取指令前置进 prompt,
+  // codex 每张作 -i 参数;pi 不读此字段,图片走 piPrompt 独立参数）。
+  images?: CliImageRef[];
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数
   //（claude --effort / codex model_reasoning_effort）;不支持的 agent（pi）忽略。
   effort?: ReasoningEffort;
