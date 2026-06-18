@@ -3,6 +3,7 @@ import type {
   AgentKind,
   AgentSessionRequest,
   AgentProjectInfo,
+  AskFollowupRequest,
   AsrTranscribeRequest,
   AsrTranscribeResponse,
   AutomationInput,
@@ -203,6 +204,15 @@ const personal = {
     ipcRenderer.on("cli:exit", listener);
     return () => ipcRenderer.removeListener("cli:exit", listener);
   },
+  // ── 历史消息追问的临时流式应答（ask:*）。不落盘/不进 run 注册表,关闭浮层即弃。 ────────
+  askFollowupStream: (req: AskFollowupRequest): Promise<void> => ipcRenderer.invoke("ask:start", req),
+  onAskFollowupEvent: (cb: (askId: string, event: CliStreamEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { askId: string; event: CliStreamEvent }) =>
+      cb(payload.askId, payload.event);
+    ipcRenderer.on("ask:event", listener);
+    return () => ipcRenderer.removeListener("ask:event", listener);
+  },
+  cancelFollowup: (askId: string): Promise<void> => ipcRenderer.invoke("ask:cancel", askId),
   // ── pi RPC 长驻会话（pi --mode rpc）。claude/codex 仍走上面的 cli 单发通道。 ────────
   // 一个 UI 会话 = 一个长驻 pi 子进程;命令经 invoke,事件流经 onPiEvent。
   piOpen: (req: PiOpenRequest): Promise<PiOpenResult> => ipcRenderer.invoke("pi:open", req),

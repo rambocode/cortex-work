@@ -6,6 +6,7 @@ import type {
   AgentKind,
   AgentSessionRequest,
   AgentProjectInfo,
+  AskFollowupRequest,
   AsrTranscribeRequest,
   AsrTranscribeResponse,
   AutomationInput,
@@ -181,6 +182,14 @@ export interface DesktopBridge {
   trimAgentSession?(req: TrimSessionRequest): Promise<boolean>;
   onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;
   onCliExit(cb: (exit: CliExitEvent) => void): () => void;
+  // ── 历史消息追问的临时流式应答（ask:*）。复用 CliStreamEvent,但不落盘/不进 run 注册表; ──
+  // 关闭浮层即弃。全部可选（web 端 bridge 为 null、旧壳无此方法时 UI 降级隐藏追问入口）。
+  // 一轮一个 askId:既作 invoke 入参的登记 key,也经 onAskFollowupEvent 回带做代际守卫。
+  askFollowupStream?(req: AskFollowupRequest): Promise<void>;
+  // 订阅追问事件流（仿 onCliEvent:回调 + 返回退订）。回调参数 (askId, event)。
+  onAskFollowupEvent?(cb: (askId: string, event: CliStreamEvent) => void): () => void;
+  // 取消在途追问（幂等;askId 不存在或已退出时静默）。
+  cancelFollowup?(askId: string): Promise<void>;
   // ── pi RPC 长驻会话（pi --mode rpc）。claude/codex 仍走上面单发 startCli/killCli/onCliEvent。 ──
   // 一个 UI 会话 = 一个长驻 pi 子进程;命令经 invoke,事件流经 onPiEvent。全部可选（web/旧壳
   // 缺失时为 undefined → UI 退回单发或隐藏运行时控制）。uiSessionId 复用个人会话 id。
