@@ -1548,7 +1548,9 @@ export function usePersonalActions(): PersonalActions {
       if (!text.trim() && !hasImages) return false; // 纯图(无文本)允许发送;两者皆空才拒
       if (session.agent === "pi" && !piRpcAvailable(bridge)) {
         await ensureChatLoaded(qc, bridge, session.id);
-        appendUserMessage(qc, session.id, text, attachments);
+        // editResend 复用的已落盘图(presavedImages)仍回显,避免兜底分支静默丢图;
+        // 新待发图此刻尚未落盘(imageSave 在下方),留在 composer(return false 保留)。
+        appendUserMessage(qc, session.id, text, attachments, presavedImages?.length ? presavedImages : undefined);
         appendMsg(qc, session.id, {
           kind: "text",
           who: "pi",

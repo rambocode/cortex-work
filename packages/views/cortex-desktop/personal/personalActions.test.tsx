@@ -559,6 +559,19 @@ describe("send 图片路由（U4）", () => {
     expect((bridge.startCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].images).toBeUndefined();
   });
 
+  it("pi 不可用兜底 + presavedImages(editResend 复用):回显仍带图,不静默丢图", async () => {
+    const bridge = makeBridge({ piOpen: undefined }); // pi RPC 不可用
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    const refs = [{ path: "/img/a.png", name: "a.png", mimeType: "image/png" }];
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "改后", [], undefined, undefined, refs);
+    });
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail("s-pi")) ?? [];
+    const userMsg = msgs.find((m) => m.kind === "text" && m.who === "me");
+    expect(userMsg?.kind === "text" ? userMsg.images?.map((i) => i.path) : null).toEqual(["/img/a.png"]);
+  });
+
   it("editResend:复用原消息已落盘图(不重新 imageSave),随重发带回 startCli.images(AE8)", async () => {
     const save = imageSaveMock();
     const bridge = makeBridge({ imageSave: save });

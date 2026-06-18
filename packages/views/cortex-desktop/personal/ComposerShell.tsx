@@ -185,36 +185,41 @@ export function ComposerShell({
     }
   };
 
-  // 采集图片:格式/大小校验 + 同批与已有去重(name+size) + 张数上限,逐个读成 PendingImage。
+  // 采集图片:格式/大小校验(toast 原因)→ 读成 PendingImage → 去重 + 张数上限以 prev 为准
+  // (放进 setImages 函数式更新,避免快速连续采集时过期闭包 images 导致越限/漏去重)。
   const addImageFiles = async (files: File[]) => {
     if (files.length === 0) return;
-    const seen = new Set(images.map((i) => imageDedupeKey(i.name, i.data.byteLength)));
     const accepted: File[] = [];
     for (const f of files) {
       const reason = checkImageFile(f);
-      if (reason) {
-        onToast(rejectReasonText(reason, f.name));
-        continue;
-      }
-      const key = imageDedupeKey(f.name, f.size);
-      if (seen.has(key)) continue; // 已有同名同尺寸,跳过
-      seen.add(key);
-      accepted.push(f);
+      if (reason) onToast(rejectReasonText(reason, f.name));
+      else accepted.push(f);
     }
     if (accepted.length === 0) return;
-    const room = MAX_IMAGES_PER_MESSAGE - images.length;
-    if (room <= 0) {
-      onToast(`最多 ${MAX_IMAGES_PER_MESSAGE} 张图片`);
-      return;
-    }
-    const take = accepted.slice(0, room);
-    if (accepted.length > room) onToast(`最多 ${MAX_IMAGES_PER_MESSAGE} 张图片,已忽略多余`);
+    let pending: PendingImage[];
     try {
-      const pending = await Promise.all(take.map((f) => fileToPendingImage(f)));
-      setImages((prev) => [...prev, ...pending]);
+      pending = await Promise.all(accepted.map((f) => fileToPendingImage(f)));
     } catch (err) {
       onToast(`读取图片失败：${err instanceof Error ? err.message : String(err)}`);
+      return;
     }
+    let overflow = false;
+    setImages((prev) => {
+      const seen = new Set(prev.map((i) => imageDedupeKey(i.name, i.data.byteLength)));
+      const merged = [...prev];
+      for (const img of pending) {
+        const key = imageDedupeKey(img.name, img.data.byteLength);
+        if (seen.has(key)) continue; // 同名同尺寸去重
+        if (merged.length >= MAX_IMAGES_PER_MESSAGE) {
+          overflow = true;
+          continue;
+        }
+        seen.add(key);
+        merged.push(img);
+      }
+      return merged;
+    });
+    if (overflow) onToast(`最多 ${MAX_IMAGES_PER_MESSAGE} 张图片,已忽略多余`);
   };
 
   // 粘贴:剪贴板含图片 → 加入待发(并拦截默认粘贴);纯文本走原行为(不拦截)。
