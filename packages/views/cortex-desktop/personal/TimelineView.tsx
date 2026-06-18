@@ -13,44 +13,61 @@ import {
   useProjectTimeline,
   usePushDailyReport,
   usePersonalStore,
+  GLOBAL_TIMELINE_ID,
 } from "@cortex-work/core";
 import type { AgentKind, CalendarCell, DayGroup, NoteStatus, ProjectMeta, TimelineEvent } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 
+// 译函数的最小签名（避免引入 react-i18next 的 TFunction 泛型,只需 key + 插值即可）。
+type TFunction = (key: string, opts?: Record<string, unknown>) => string;
+
+// 周几表头（日历用）。中文星期单字属展示数据,直接渲染;dayLabel 的 weekday 插值同理。
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 
 // run 事件的 agent 标签;未知值兜底 Claude。
 const TL_AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", pi: "Pi" };
-function tlAgentLabel(agent: AgentKind | undefined): string {
-  return (agent && TL_AGENT_LABEL[agent]) || "Claude";
+function tlAgentLabel(agent: AgentKind | undefined, t: TFunction): string {
+  return (agent && TL_AGENT_LABEL[agent]) || t("agentDefault");
 }
 
-function fmtDayLabel(day: string): string {
+function fmtDayLabel(day: string, t: TFunction): string {
   const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   const today = dayKey(Date.now());
-  if (day === today) return "今天";
+  if (day === today) return t("today");
   const weekday = "日一二三四五六"[new Date(y, m - 1, d).getDay()];
-  return `${m} 月 ${d} 日 · 周${weekday}`;
+  return t("dayLabel", { month: m, day: d, weekday });
 }
 
-function statChips(stats: DayGroup["stats"]): string[] {
+function statChips(stats: DayGroup["stats"], t: TFunction): string[] {
   const chips: string[] = [];
-  if (stats.runs) chips.push(`${stats.runs} 轮交互`);
-  if (stats.sessions) chips.push(`${stats.sessions} 个新会话`);
-  if (stats.files) chips.push(`${stats.files} 个文件变更`);
-  if (stats.commits) chips.push(`${stats.commits} 次提交`);
-  if (stats.notes) chips.push(`${stats.notes} 条闪记`);
-  return chips.length ? chips : ["无活动"];
+  if (stats.runs) chips.push(t("stats.runs", { count: stats.runs }));
+  if (stats.sessions) chips.push(t("stats.sessions", { count: stats.sessions }));
+  if (stats.files) chips.push(t("stats.files", { count: stats.files }));
+  if (stats.commits) chips.push(t("stats.commits", { count: stats.commits }));
+  if (stats.notes) chips.push(t("stats.notes", { count: stats.notes }));
+  return chips.length ? chips : [t("stats.noActivity")];
 }
 
-// 闪记状态 → 卡片徽标文案（草稿不显示徽标,只深化中/已深化露出）。
-const NOTE_STATUS_LABEL: Partial<Record<NoteStatus, string>> = {
-  deepening: "深化中",
-  deepened: "已深化",
+// 闪记状态 → 卡片徽标文案键（草稿不显示徽标,只深化中/已深化露出）。
+const NOTE_STATUS_KEY: Partial<Record<NoteStatus, string>> = {
+  deepening: "noteStatus.deepening",
+  deepened: "noteStatus.deepened",
 };
 
 // ── 事件卡片 ──────────────────────────────────────────────────────────────
 
+// summary.day 事件的标题在「渲染期」派生（落盘 title 仍是中文字面量,见 timeline.ts 的
+// useGenerateDaySummary/useGenerateGlobalSummary 持久化路径,绝不在写入时翻译——否则语言被
+// 冻结进磁盘）。全局日报由 projectId === GLOBAL_TIMELINE_ID 区分,其余 summary.day 为单项目 AI 日报。
+function displayEventTitle(event: TimelineEvent, t: TFunction): string {
+  if (event.kind === "summary.day") {
+    return event.projectId === GLOBAL_TIMELINE_ID ? t("globalReport") : t("dailyReport");
+  }
+  return event.title;
+}
+
 function EventCard({ event, onJump }: { event: TimelineEvent; onJump?: () => void }) {
+  const { t } = useTranslation("timeline");
   const [expanded, setExpanded] = useState(false);
   const requestNoteDetail = usePersonalStore((s) => s.requestNoteDetail);
   const files = event.files ?? [];
@@ -61,7 +78,7 @@ function EventCard({ event, onJump }: { event: TimelineEvent; onJump?: () => voi
         <span className="pw-tl-time">{hhmm(event.ts)}</span>
         <Icon.Plus size={12} />
         <span>
-          新建会话 <button className="pw-tl-link" onClick={onJump}>{event.title}</button>
+          {t("card.newSession")} <button className="pw-tl-link" onClick={onJump}>{event.title}</button>
         </span>
       </div>
     );
@@ -81,13 +98,14 @@ function EventCard({ event, onJump }: { event: TimelineEvent; onJump?: () => voi
   // 闪记事件卡片（整卡可点 → 跳收件箱详情）。务必在 run 默认分支之前,否则掉进 run 富卡片错渲。
   if (event.kind === "note") {
     const noteId = event.meta?.noteId;
-    const badge = event.meta?.noteStatus ? NOTE_STATUS_LABEL[event.meta.noteStatus] : undefined;
+    const badgeKey = event.meta?.noteStatus ? NOTE_STATUS_KEY[event.meta.noteStatus] : undefined;
+    const badge = badgeKey ? t(badgeKey) : undefined;
     return (
       <button
         type="button"
         className="pw-tl-note"
         onClick={() => noteId && requestNoteDetail({ noteId })}
-        title="打开闪记详情"
+        title={t("noteCardTitle")}
       >
         <span className="pw-tl-time">{hhmm(event.ts)}</span>
         <Icon.Pin size={12} />
@@ -101,22 +119,22 @@ function EventCard({ event, onJump }: { event: TimelineEvent; onJump?: () => voi
   return (
     <div className="pw-tl-card" data-ok={event.meta?.ok !== false}>
       <div className="pw-tl-card-h">
-        <span className="pw-tl-time">{event.meta?.backfilled ? "历史" : hhmm(event.ts)}</span>
-        <span className="pw-tl-agent">{tlAgentLabel(event.meta?.agent)}</span>
-        {event.meta?.ok === false ? <span className="pw-tl-fail">失败</span> : null}
+        <span className="pw-tl-time">{event.meta?.backfilled ? t("card.history") : hhmm(event.ts)}</span>
+        <span className="pw-tl-agent">{tlAgentLabel(event.meta?.agent, t)}</span>
+        {event.meta?.ok === false ? <span className="pw-tl-fail">{t("card.fail")}</span> : null}
         {onJump ? (
-          <button className="pw-icon-btn" title="打开对应会话" onClick={onJump}>
+          <button className="pw-icon-btn" title={t("card.openSession")} onClick={onJump}>
             <Icon.Reply size={12} />
           </button>
         ) : null}
       </div>
-      <div className="pw-tl-card-title">{event.title}</div>
+      <div className="pw-tl-card-title">{displayEventTitle(event, t)}</div>
       {event.summary ? <div className="pw-tl-card-summary">{event.summary}</div> : null}
       {files.length > 0 ? (
         <div className="pw-tl-files">
           <button className="pw-tl-files-toggle" onClick={() => setExpanded((v) => !v)} data-open={expanded}>
             <Icon.Chevron size={10} />
-            {files.length} 个文件变更
+            {t("card.filesChanged", { count: files.length })}
           </button>
           {expanded ? (
             <ul className="pw-tl-files-list">
@@ -142,6 +160,7 @@ function TimelineList({
   groups: DayGroup[];
   onToast: (text: string) => void;
 }) {
+  const { t } = useTranslation("timeline");
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
   const sessions = usePersonalStore((s) => s.sessions);
   const { generate, generatingDay } = useGenerateDaySummary(project);
@@ -151,9 +170,9 @@ function TimelineList({
     const { text } = buildDailyReportText(project.name, g);
     try {
       await navigator.clipboard.writeText(text);
-      onToast("日报已复制到剪贴板");
+      onToast(t("list.reportCopied"));
     } catch {
-      onToast("复制失败");
+      onToast(t("list.copyFailed"));
     }
   };
 
@@ -164,7 +183,7 @@ function TimelineList({
   const jump = (sessionId: string | undefined) => {
     if (!sessionId) return;
     if (!sessions.some((x) => x.id === sessionId)) {
-      onToast("该会话已被删除");
+      onToast(t("list.sessionDeleted"));
       return;
     }
     setActiveSession(sessionId);
@@ -174,8 +193,8 @@ function TimelineList({
     return (
       <div className="pw-center">
         <Icon.Clock size={26} />
-        <div className="pw-center-title">还没有时间线记录</div>
-        <div className="pw-center-hint">在该项目下与 Agent 交互后,这里会按天记录做了什么</div>
+        <div className="pw-center-title">{t("list.empty")}</div>
+        <div className="pw-center-hint">{t("list.emptyHint")}</div>
       </div>
     );
   }
@@ -185,9 +204,9 @@ function TimelineList({
       {groups.map((g) => (
         <section key={g.day} id={`tl-day-${g.day}`} className="pw-tl-day">
           <header className="pw-tl-day-h">
-            <span className="pw-tl-day-label">{fmtDayLabel(g.day)}</span>
+            <span className="pw-tl-day-label">{fmtDayLabel(g.day, t)}</span>
             <span className="pw-tl-day-date">{g.day}</span>
-            {statChips(g.stats).map((c) => (
+            {statChips(g.stats, t).map((c) => (
               <span key={c} className="pw-tl-chip">
                 {c}
               </span>
@@ -198,18 +217,18 @@ function TimelineList({
               disabled={generatingDay !== null}
               onClick={() => {
                 void generate(g).then(
-                  () => onToast(`${g.day} 日报已生成`),
-                  () => onToast("日报生成失败,请检查 设置 → 时间线 的模型配置"),
+                  () => onToast(t("list.reportGenerated", { day: g.day })),
+                  () => onToast(t("list.reportGenerateFailed")),
                 );
               }}
-              title="用 AI 生成这一天的工作日报（模型可在设置中配置）"
+              title={t("list.genTitle")}
             >
               <Icon.Sparkle size={12} />
-              {generatingDay === g.day ? "生成中…" : g.summary ? "重新生成" : "生成日报"}
+              {generatingDay === g.day ? t("list.generating") : g.summary ? t("list.regenerate") : t("list.generate")}
             </button>
-            <button className="pw-tl-gen" onClick={() => void copyReport(g)} title="复制日报文本">
+            <button className="pw-tl-gen" onClick={() => void copyReport(g)} title={t("list.copyTitle")}>
               <Icon.File size={12} />
-              复制
+              {t("list.copy")}
             </button>
             <button
               className="pw-tl-gen"
@@ -217,12 +236,12 @@ function TimelineList({
               onClick={() => pushReport(g)}
               title={
                 channelCount > 0
-                  ? `推送到 ${channelCount} 个已启用渠道（企业微信 / 钉钉 / 邮件）`
-                  : "推送渠道未配置,在 设置 → 时间线 中启用"
+                  ? t("list.pushTitleEnabled", { count: channelCount })
+                  : t("list.pushTitleDisabled")
               }
             >
               <Icon.Send size={12} />
-              {pushing ? "推送中…" : "推送"}
+              {pushing ? t("list.pushing") : t("list.push")}
             </button>
           </header>
           {g.summary?.summary ? <div className="pw-tl-daily">{g.summary.summary}</div> : null}
@@ -256,6 +275,7 @@ function CalendarGrid({
   groups: DayGroup[];
   onPickDay: (day: string) => void;
 }) {
+  const { t } = useTranslation("timeline");
   const now = new Date();
   const [ym, setYm] = useState<{ y: number; m: number }>({ y: now.getFullYear(), m: now.getMonth() });
   const weeks = useMemo(() => buildCalendarWeeks(ym.y, ym.m, groups), [ym, groups]);
@@ -287,26 +307,26 @@ function CalendarGrid({
     <div className="pw-tl-cal">
       <div className="pw-tl-cal-nav">
         <span className="pw-tl-cal-title">
-          {ym.y} 年 {ym.m + 1} 月
+          {t("calendar.monthLabel", { year: ym.y, month: ym.m + 1 })}
         </span>
         <span className="pw-tl-cal-month-sum">
           {monthTotal.days > 0
-            ? `活跃 ${monthTotal.days} 天 · ${monthTotal.runs} 轮交互` +
-              (monthTotal.files ? ` · ${monthTotal.files} 个文件` : "") +
-              (monthTotal.commits ? ` · ${monthTotal.commits} 次提交` : "")
-            : "本月暂无活动"}
+            ? t("calendar.monthSummary", { days: monthTotal.days, runs: monthTotal.runs }) +
+              (monthTotal.files ? t("calendar.monthSummaryFiles", { count: monthTotal.files }) : "") +
+              (monthTotal.commits ? t("calendar.monthSummaryCommits", { count: monthTotal.commits }) : "")
+            : t("calendar.noActivity")}
         </span>
         <span className="pw-tl-day-sp" />
-        <button className="pw-icon-btn" onClick={() => shift(-1)} title="上个月">
+        <button className="pw-icon-btn" onClick={() => shift(-1)} title={t("calendar.prevMonth")}>
           <Icon.Back size={13} />
         </button>
         <button
           className="pw-tl-today"
           onClick={() => setYm({ y: now.getFullYear(), m: now.getMonth() })}
         >
-          今天
+          {t("calendar.today")}
         </button>
-        <button className="pw-icon-btn" onClick={() => shift(1)} title="下个月">
+        <button className="pw-icon-btn" onClick={() => shift(1)} title={t("calendar.nextMonth")}>
           <Icon.Fwd size={13} />
         </button>
       </div>
@@ -328,13 +348,13 @@ function CalendarGrid({
               data-weekend={idx % 7 >= 5}
               disabled={!active}
               onClick={() => onPickDay(cell.day)}
-              title={active ? `${cell.day} · ${statChips(cell.stats!).join(" · ")}` : undefined}
+              title={active ? `${cell.day} · ${statChips(cell.stats!, t).join(" · ")}` : undefined}
             >
               <span className="pw-tl-cal-date">{cell.date}</span>
               {active ? (
                 <>
                   <span className="pw-tl-cal-badge">
-                    {cell.stats!.runs > 0 ? `${cell.stats!.runs} 轮` : `${cell.stats!.commits} 提交`}
+                    {cell.stats!.runs > 0 ? t("calendar.cellRuns", { count: cell.stats!.runs }) : t("calendar.cellCommits", { count: cell.stats!.commits })}
                   </span>
                   <span className="pw-tl-cal-dots" aria-hidden="true">
                     {cell.stats!.files > 0 ? <i className="is-files" /> : null}
@@ -349,17 +369,17 @@ function CalendarGrid({
       </div>
       <div className="pw-tl-cal-legend">
         <span className="pw-tl-cal-legend-heat">
-          少
+          {t("calendar.legendLess")}
           {[1, 2, 3, 4].map((h) => (
             <i key={h} data-heat={h} />
           ))}
-          多
+          {t("calendar.legendMore")}
         </span>
-        <span className="pw-tl-cal-legend-item"><i className="is-files" /> 文件变更</span>
-        <span className="pw-tl-cal-legend-item"><i className="is-commits" /> 提交</span>
-        <span className="pw-tl-cal-legend-item"><i className="is-sessions" /> 新会话</span>
+        <span className="pw-tl-cal-legend-item"><i className="is-files" /> {t("calendar.legendFiles")}</span>
+        <span className="pw-tl-cal-legend-item"><i className="is-commits" /> {t("calendar.legendCommits")}</span>
+        <span className="pw-tl-cal-legend-item"><i className="is-sessions" /> {t("calendar.legendSessions")}</span>
         <span className="pw-tl-day-sp" />
-        <span>点击日期跳转到时间线对应的天</span>
+        <span>{t("calendar.legendHint")}</span>
       </div>
     </div>
   );
@@ -368,6 +388,7 @@ function CalendarGrid({
 // ── 容器 ──────────────────────────────────────────────────────────────────
 
 export function TimelineView({ project, onToast }: { project: ProjectMeta; onToast: (text: string) => void }) {
+  const { t } = useTranslation("timeline");
   const [view, setView] = useState<"timeline" | "calendar">("timeline");
   const [onlyNotes, setOnlyNotes] = useState(false);
   const closeTimeline = usePersonalStore((s) => s.closeTimeline);
@@ -392,13 +413,13 @@ export function TimelineView({ project, onToast }: { project: ProjectMeta; onToa
       <header className="pw-tl-h">
         <Icon.Clock size={15} />
         <span className="pw-tl-h-name">{project.name}</span>
-        <span className="pw-tl-h-sub">项目时间线</span>
+        <span className="pw-tl-h-sub">{t("header.subtitle")}</span>
         <div className="pw-tl-switch" role="tablist">
           <button role="tab" aria-selected={view === "timeline"} data-active={view === "timeline"} onClick={() => setView("timeline")}>
-            时间线
+            {t("header.timeline")}
           </button>
           <button role="tab" aria-selected={view === "calendar"} data-active={view === "calendar"} onClick={() => setView("calendar")}>
-            日历
+            {t("header.calendar")}
           </button>
         </div>
         {view === "timeline" ? (
@@ -406,20 +427,20 @@ export function TimelineView({ project, onToast }: { project: ProjectMeta; onToa
             className="pw-tl-only-notes"
             data-active={onlyNotes}
             onClick={() => setOnlyNotes((v) => !v)}
-            title={onlyNotes ? "显示全部时间线事件" : "只看闪记"}
+            title={onlyNotes ? t("header.showAll") : t("header.onlyNotes")}
           >
             <Icon.Pin size={12} />
-            只看闪记
+            {t("header.onlyNotes")}
           </button>
         ) : null}
-        <button className="pw-icon-btn" title="返回会话" onClick={closeTimeline}>
+        <button className="pw-icon-btn" title={t("header.back")} onClick={closeTimeline}>
           <Icon.XCircle size={15} />
         </button>
       </header>
       <div className="pw-tl-body">
         {loading ? (
           <div className="pw-center">
-            <div className="pw-center-hint">正在加载时间线（首次会回填历史会话）…</div>
+            <div className="pw-center-hint">{t("loadingTimeline")}</div>
           </div>
         ) : view === "timeline" ? (
           <TimelineList project={project} groups={timelineGroups} onToast={onToast} />

@@ -14,6 +14,7 @@ import {
   usePersonalStore,
 } from "@cortex-work/core";
 import type { GlobalSummaryEntry } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { LandingHero } from "./LandingHero";
 import { UsageCalendarCard } from "./UsageCalendarCard";
 
@@ -28,6 +29,7 @@ function GlobalSummary({
   entries: GlobalSummaryEntry[];
   onToast: (text: string) => void;
 }) {
+  const { t } = useTranslation("timeline");
   const summaries = useGlobalSummaries();
   const { generate, generatingDay } = useGenerateGlobalSummary();
   const summary = summaries[day]?.summary;
@@ -41,16 +43,16 @@ function GlobalSummary({
     { runs: 0, sessions: 0, files: 0 },
   );
   const statChips = [
-    entries.length ? `${entries.length} 个项目` : "",
-    totals.runs ? `${totals.runs} 轮交互` : "",
-    totals.sessions ? `${totals.sessions} 个新会话` : "",
-    totals.files ? `${totals.files} 个文件变更` : "",
+    entries.length ? t("home.projects", { count: entries.length }) : "",
+    totals.runs ? t("stats.runs", { count: totals.runs }) : "",
+    totals.sessions ? t("stats.sessions", { count: totals.sessions }) : "",
+    totals.files ? t("stats.files", { count: totals.files }) : "",
   ].filter(Boolean);
 
   const copy = async () => {
     if (!summary) return;
-    await navigator.clipboard.writeText(`${day} 工作日报\n\n${summary}`);
-    onToast("已复制全局日报");
+    await navigator.clipboard.writeText(`${t("home.dailyReportTitle", { day })}\n\n${summary}`);
+    onToast(t("home.reportCopied"));
   };
 
   return (
@@ -68,31 +70,31 @@ function GlobalSummary({
           disabled={generatingDay !== null || entries.length === 0}
           onClick={() => {
             void generate(day, entries).then(
-              () => onToast(`${day} 全局日报已生成`),
-              () => onToast("日报生成失败,请检查 设置 → 时间线 的模型配置"),
+              () => onToast(t("home.reportGenerated", { day })),
+              () => onToast(t("home.reportGenerateFailed")),
             );
           }}
-          title={entries.length === 0 ? "当天没有任何项目活动" : "用 AI 汇总当天所有项目的工作（模型可在设置中配置）"}
+          title={entries.length === 0 ? t("home.genTitleEmpty") : t("home.genTitle")}
         >
           <Icon.Sparkle size={12} />
-          {generatingDay === day ? "生成中…" : summary ? "重新生成" : "生成总结"}
+          {generatingDay === day ? t("home.generating") : summary ? t("home.regenerate") : t("home.generate")}
         </button>
-        <button className="pw-tl-gen" disabled={!summary} onClick={() => void copy()} title="复制日报文本">
+        <button className="pw-tl-gen" disabled={!summary} onClick={() => void copy()} title={t("home.copyTitle")}>
           <Icon.File size={12} />
-          复制
+          {t("home.copy")}
         </button>
       </header>
       {summary ? (
         <div className="pw-tl-daily">{summary}</div>
       ) : (
         <div className="pw-empty-hint">
-          {entries.length === 0 ? "这一天没有项目活动" : "点「生成总结」,AI 将汇总当天所有项目的工作"}
+          {entries.length === 0 ? t("home.noActivity") : t("home.generateHint")}
         </div>
       )}
       {entries.length > 0 ? (
         <div className="pw-home-summary-projects">
           {entries.map(({ projectName, group }) => (
-            <span key={projectName} className="pw-tl-chip" title={`${group.stats.runs} 轮交互`}>
+            <span key={projectName} className="pw-tl-chip" title={t("home.projectChipTitle", { count: group.stats.runs })}>
               {projectName}
             </span>
           ))}
@@ -105,6 +107,7 @@ function GlobalSummary({
 // ── 首页看板（供 NewSessionLanding 复用） ─────────────────────────────────
 
 export function HomeBoard({ onToast }: { onToast: (text: string) => void }) {
+  const { t } = useTranslation("timeline");
   const projects = usePersonalStore((s) => s.projects);
   // 热力图/总结统计侧边栏可见项目（与新版侧边栏一致,排除归档项目）。
   const visible = useMemo(() => partitionProjects(projects).visible, [projects]);
@@ -132,8 +135,8 @@ export function HomeBoard({ onToast }: { onToast: (text: string) => void }) {
 
       <section className="pw-home-section">
         <div className="pw-section-h">
-          <span>一日总结 · 所有项目</span>
-          {loading ? <span className="pw-home-loading">加载中…</span> : null}
+          <span>{t("home.sectionTitle")}</span>
+          {loading ? <span className="pw-home-loading">{t("home.loading")}</span> : null}
         </div>
         <GlobalSummary day={selectedDay} entries={entries} onToast={onToast} />
       </section>
