@@ -19,10 +19,11 @@ import {
   usePersonalStore,
   useRenderWindow,
 } from "@cortex-work/core";
-import type { AgentKind, ProjectMeta, SessionMeta } from "@cortex-work/core";
+import type { AgentKind, FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { MessageStream } from "../ChatArea";
 import { AskQuestionCard } from "./AskQuestionCard";
+import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
 import { PersonalComposer } from "./PersonalComposer";
 
@@ -151,6 +152,9 @@ export function PersonalChatArea({
   const [ttsPlayback, setTtsPlayback] = useState(getTtsPlaybackState);
   // 编辑重发:正在编辑的历史用户消息(原文填入 composer,发送时截断其后所有消息)。
   const [editing, setEditing] = useState<{ uid: string; text: string } | null>(null);
+  // 追问浮层(U5):以某条 assistant 正文为种子的临时多轮问答,关闭即弃。单实例;
+  // returnFocusEl 记录触发按钮,关闭后焦点归还(无障碍)。
+  const [followup, setFollowup] = useState<{ seedText: string; returnFocusEl?: HTMLElement | null } | null>(null);
 
   useEffect(() => {
     setShowHiddenHistory(false);
@@ -277,12 +281,60 @@ export function PersonalChatArea({
                 {speaking ? <Icon.Stop size={15} /> : <Icon.Run size={15} />}
               </button>
             ) : null}
+            {/* 追问入口(U5):仅桌面端(bridge.askFollowupStream 存在)渲染,Web/旧壳自动降级(R1)。
+                排在复制/朗读之后,形成固定次序。无 cwd(homedir 退化)的 tool 安全由主进程
+                按 cwd 收紧(R9/KTD8),此处不额外禁用——cwd 为空主进程退 homedir 且收紧 tool。 */}
+            {bridge?.askFollowupStream ? (
+              <button
+                type="button"
+                className="m-act-btn"
+                title="追问"
+                aria-label="追问"
+                onClick={(e) => setFollowup({ seedText: msgText, returnFocusEl: e.currentTarget })}
+              >
+                <Icon.Reply size={15} />
+              </button>
+            ) : null}
           </div>
         </div>
       );
     },
     [session, project, running, editResend, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast],
   );
+
+  // 追问浮层的会话上下文(R6:复用当前会话 agent/model/cwd/provider,不新建会话)。
+  // cwd 合成口径同上方 syntheticNoProject:realProject.path ?? noProjectDir(空则主进程退 homedir)。
+  // provider 仅 pi 自定义供应商需要,解析逻辑照搬 sendPiTurn(messages.ts):
+  // session.providerId ?? defaultProviderId → providerSettings.providers 找已启用项 → 拍平字段。
+  const followupSessionCtx = useMemo<FollowupSessionCtx | null>(() => {
+    if (!session) return null;
+    const cwd = realProject?.path ?? session.noProjectDir ?? "";
+    let provider: FollowupSessionCtx["provider"];
+    if (session.agent === "pi") {
+      const p = providerSettings.providers.find(
+        (x) => x.id === (session.providerId ?? providerSettings.defaultProviderId) && x.enabled,
+      );
+      if (p) {
+        provider = {
+          id: p.id,
+          baseUrl: p.baseUrl,
+          apiKey: p.apiKey,
+          models: p.models.map((m) => ({ id: m.id, name: m.label })),
+        };
+      }
+    }
+    return { agent: session.agent, model: session.model, cwd, provider };
+    // 用 session 的细粒度字段做依赖(而非整对象),保引用稳定避免无谓重渲染(同 syntheticNoProject)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    session?.id,
+    session?.agent,
+    session?.model,
+    session?.providerId,
+    session?.noProjectDir,
+    realProject?.path,
+    providerSettings,
+  ]);
 
   // 既无可用会话又无项目时才提示添加项目;有无项目会话(session 存在)则放行,
   // 让下面的会话渲染路径接管,避免无项目会话被早退拦截。
@@ -467,6 +519,20 @@ export function PersonalChatArea({
         onSend={(text) => void send(session, project.path, text, [])}
         onToast={onToast}
       />
+
+      {/* 追问浮层(U5):单实例,条件挂载。onClose 关状态 + 焦点归还触发按钮(浮层内部
+          已在关闭时 cancel() 清在途子进程)。followupSessionCtx 在此恒非空(session 存在)。 */}
+      {followup && followupSessionCtx ? (
+        <FollowupOverlay
+          seed={{ text: followup.seedText }}
+          sessionCtx={followupSessionCtx}
+          onClose={() => {
+            const el = followup.returnFocusEl;
+            setFollowup(null);
+            el?.focus();
+          }}
+        />
+      ) : null}
     </main>
   );
 }

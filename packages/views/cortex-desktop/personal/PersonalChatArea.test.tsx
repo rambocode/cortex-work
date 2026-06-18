@@ -393,3 +393,162 @@ describe("PersonalChatArea 历史会话分页渲染窗口", () => {
     expect(screen.getByText(/已隐藏 5 条历史记录/)).toBeInTheDocument(); // 现在出现隐藏 gate
   });
 });
+
+// U5:assistant 消息「追问」按钮 + 浮层挂载 + Web/能力门控。
+describe("PersonalChatArea 追问入口（U5）", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      timelineProjectId: undefined,
+      runningBySession: {},
+      providerSettings: { providers: [] },
+    });
+  });
+
+  // 带 askFollowupStream 能力的桥（桌面端）。
+  function bridgeWithAsk(messages: Message[]): DesktopBridge {
+    return {
+      loadChat: async () => messages,
+      saveChat: async () => {},
+      askFollowupStream: async () => {},
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+  }
+
+  function renderWith(b: DesktopBridge) {
+    return render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+  }
+
+  it("assistant 文本消息出现「追问」按钮,排在复制/朗读之后", async () => {
+    renderWith(bridgeWithAsk([{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "答案正文" }]));
+    await screen.findByText("答案正文");
+    const followBtn = screen.getByRole("button", { name: "追问" });
+    expect(followBtn).toBeInTheDocument();
+    // 同一操作行内:复制在追问之前(顺序固定)。
+    const row = followBtn.closest(".m-act-row");
+    const btns = row ? Array.from(row.querySelectorAll<HTMLButtonElement>("button")) : [];
+    const copyIdx = btns.findIndex((b) => b.getAttribute("title") === "复制回复内容");
+    const followIdx = btns.findIndex((b) => b === followBtn);
+    expect(copyIdx).toBeGreaterThanOrEqual(0);
+    expect(followIdx).toBeGreaterThan(copyIdx);
+  });
+
+  it("me（用户）消息不出现「追问」按钮", async () => {
+    renderWith(bridgeWithAsk([{ kind: "text", who: "me", time: "12:00", uid: "m1", text: "我的问题" }]));
+    await screen.findByText("我的问题");
+    expect(screen.queryByRole("button", { name: "追问" })).toBeNull();
+  });
+
+  it("无 askFollowupStream 能力（Web/旧壳）→ 不渲染「追问」按钮", async () => {
+    const webBridge = { loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "答案正文" }], saveChat: async () => {} } as unknown as DesktopBridge;
+    renderWith(webBridge);
+    await screen.findByText("答案正文");
+    expect(screen.queryByRole("button", { name: "追问" })).toBeNull();
+  });
+
+  it("点击「追问」→ 打开浮层,种子为该条正文(R2)", async () => {
+    renderWith(bridgeWithAsk([{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "可被追问的回复" }]));
+    await screen.findByText("可被追问的回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    // 浮层就绪:dialog + 种子正文(浮层内再次出现该文本)。
+    const dialog = await screen.findByRole("dialog", { name: "追问" });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText("就这条回复追问")).toBeInTheDocument();
+    // 浮层内出现种子正文(顶部种子区)。
+    expect(screen.getAllByText("可被追问的回复").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("关闭浮层 → 焦点归还触发按钮", async () => {
+    renderWith(bridgeWithAsk([{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "回复正文Z" }]));
+    await screen.findByText("回复正文Z");
+    const trigger = screen.getByRole("button", { name: "追问" });
+    fireEvent.click(trigger);
+    await screen.findByRole("dialog", { name: "追问" });
+    // 点关闭(浮层右上角 X)。
+    fireEvent.click(screen.getByTitle("关闭"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "追问" })).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("pi 自定义供应商:sessionCtx.provider 经 askFollowupStream 解析传入", async () => {
+    usePersonalStore.setState({
+      sessions: [
+        { id: "s1", projectId: "p1", title: "S1", agent: "pi", createdAt: NOW, updatedAt: NOW, providerId: "deepseek", model: "ds-chat" },
+      ],
+      providerSettings: {
+        providers: [
+          {
+            id: "deepseek",
+            name: "DeepSeek",
+            baseUrl: "https://api.deepseek.com",
+            apiKey: "sk-x",
+            endpointFormat: "chat_completions",
+            enabled: true,
+            models: [{ id: "ds-chat", label: "DeepSeek Chat" }],
+          },
+        ],
+        defaultProviderId: "deepseek",
+      },
+    });
+    const askSpy = vi.fn(async (_req: { agent: string; model?: string; cwd: string; provider?: { id: string; baseUrl: string; apiKey?: string } }) => {});
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "pi", time: "12:00", uid: "a1", text: "pi 的回复" }],
+      saveChat: async () => {},
+      askFollowupStream: askSpy,
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+    renderWith(b);
+    await screen.findByText("pi 的回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    await screen.findByRole("dialog", { name: "追问" });
+    // 在浮层里发一问,验证传入的 sessionCtx(agent/model/cwd/provider)。
+    const ta = screen.getByPlaceholderText(/继续追问/);
+    fireEvent.change(ta, { target: { value: "为什么?" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(askSpy).toHaveBeenCalled());
+    const req = askSpy.mock.calls[0]![0];
+    expect(req.agent).toBe("pi");
+    expect(req.model).toBe("ds-chat");
+    expect(req.cwd).toBe("/code/alpha");
+    expect(req.provider).toMatchObject({ id: "deepseek", baseUrl: "https://api.deepseek.com", apiKey: "sk-x" });
+  });
+
+  it("无项目会话:cwd 取 noProjectDir,仍可发起追问(R9 由主进程兜底)", async () => {
+    usePersonalStore.setState({
+      sessions: [
+        { id: "s2", title: "S2", agent: "claude", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/noproj" },
+      ],
+      activeProjectId: undefined,
+      activeSessionId: "s2",
+    });
+    const askSpy = vi.fn(async (_req: { agent: string; model?: string; cwd: string; provider?: { id: string; baseUrl: string; apiKey?: string } }) => {});
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "无项目回复" }],
+      saveChat: async () => {},
+      askFollowupStream: askSpy,
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+    renderWith(b);
+    await screen.findByText("无项目回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    await screen.findByRole("dialog", { name: "追问" });
+    const ta = screen.getByPlaceholderText(/继续追问/);
+    fireEvent.change(ta, { target: { value: "追问内容" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(askSpy).toHaveBeenCalled());
+    expect(askSpy.mock.calls[0]![0].cwd).toBe("/tmp/noproj");
+  });
+});
