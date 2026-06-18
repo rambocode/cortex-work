@@ -38,6 +38,10 @@ export const codexAdapter: AgentAdapter = {
     // 推理强度:codex 用 -c model_reasoning_effort=<low|medium|high>（与上面的 -c 并列,
     // resume 子命令同样兼容）。
     if (req.effort) common.push("-c", `model_reasoning_effort=${req.effort}`);
+    // 图片:codex agent 有 consent 边界,拒绝把 prompt 里的路径转成视觉输入 → 必须走原生
+    // --image flag(收文件路径)。放进 common → 落在所有位置参数(--cd/cwd / resumeSessionId /
+    // prompt)之前,exec 与 exec resume 两分支通用。每轮新 spawn,故 -i 附到当轮消息成立。
+    for (const img of req.images ?? []) common.push("--image", img.path);
 
     const args = req.resumeSessionId
       ? ["exec", "resume", ...common, req.resumeSessionId, prompt]

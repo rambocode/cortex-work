@@ -63,6 +63,39 @@ describe("codexAdapter.buildArgs", () => {
     expect(args[i - 1]).toBe("-c");
     expect(codexAdapter.buildArgs(baseReq).args.join(" ")).not.toContain("model_reasoning_effort");
   });
+
+  it("图片:每张 --image 绝对路径,在位置参数前;prompt 仍是末位且不含路径", () => {
+    const { args } = codexAdapter.buildArgs({
+      ...baseReq,
+      images: [
+        { path: "/abs/a.png", mimeType: "image/png" },
+        { path: "/abs/b.webp", mimeType: "image/webp" },
+      ],
+    });
+    const imgPos = args.reduce<number[]>((acc, a, idx) => (a === "--image" ? [...acc, idx] : acc), []);
+    expect(imgPos.length).toBe(2);
+    expect(args[imgPos[0] + 1]).toBe("/abs/a.png");
+    expect(args[imgPos[1] + 1]).toBe("/abs/b.webp"); // 顺序保持
+    expect(args.at(-1)).toBe("hello"); // prompt 仍是末位位置参数
+    expect(args.at(-1)).not.toContain("/abs/"); // prompt 不含图片路径(避开 consent 拦截)
+    expect(Math.max(...imgPos)).toBeLessThan(args.length - 1); // --image 在 prompt 之前
+  });
+
+  it("图片:resume 分支 --image 在位置参数(threadId/prompt)之前", () => {
+    const { args } = codexAdapter.buildArgs({
+      ...baseReq,
+      resumeSessionId: "tid-1",
+      images: [{ path: "/abs/a.png", mimeType: "image/png" }],
+    });
+    const imgIdx = args.indexOf("--image");
+    expect(imgIdx).toBeGreaterThan(-1);
+    expect(imgIdx).toBeLessThan(args.indexOf("tid-1")); // --image 在 threadId 之前
+    expect(args.at(-1)).toBe("hello");
+  });
+
+  it("无图:args 不含 --image(回归)", () => {
+    expect(codexAdapter.buildArgs(baseReq).args).not.toContain("--image");
+  });
 });
 
 describe("codexAdapter.parseLine", () => {

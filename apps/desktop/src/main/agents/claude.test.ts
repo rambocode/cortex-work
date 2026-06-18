@@ -54,6 +54,25 @@ describe("claudeAdapter.buildArgs", () => {
     expect(claudeAdapter.buildArgs({ ...baseReq, effort: "high" }).args.join(" ")).toContain("--effort high");
     expect(claudeAdapter.buildArgs(baseReq).args).not.toContain("--effort");
   });
+
+  it("图片:绝对路径 + 读取指令前置进 -p,在用户文本之前;缺省 -p 值=原 prompt", () => {
+    const { args } = claudeAdapter.buildArgs({
+      ...baseReq,
+      images: [
+        { path: "/abs/a.png", mimeType: "image/png" },
+        { path: "/abs/b.jpg", mimeType: "image/jpeg" },
+      ],
+    });
+    const prompt = args[args.indexOf("-p") + 1];
+    expect(prompt).toContain("/abs/a.png");
+    expect(prompt).toContain("/abs/b.jpg");
+    // 图片引用在用户文本(hello)之前,且顺序保持
+    expect(prompt.indexOf("/abs/a.png")).toBeLessThan(prompt.indexOf("/abs/b.jpg"));
+    expect(prompt.indexOf("/abs/b.jpg")).toBeLessThan(prompt.indexOf("hello"));
+    // 无图:逐字符回归
+    const plain = claudeAdapter.buildArgs(baseReq).args;
+    expect(plain[plain.indexOf("-p") + 1]).toBe("hello");
+  });
 });
 
 describe("claudeAdapter.parseLine", () => {

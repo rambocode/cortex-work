@@ -21,11 +21,19 @@ function toolDetail(input: unknown): string | undefined {
   return candidate.length > 80 ? candidate.slice(0, 80) + "…" : candidate;
 }
 
+// 图片:claude Read 工具原生支持看图(--dangerously-skip-permissions 下可读任意绝对路径)。
+// 官方推荐「绝对路径 + 显式读取指令」;图片引用置于用户文本之前(视觉效果更好,降低误读)。
+function buildClaudePrompt(req: CliStartRequest): string {
+  if (!req.images?.length) return req.prompt;
+  const paths = req.images.map((i) => i.path).join("\n");
+  return `用户上传了以下图片,请先用 Read 工具逐一查看,再回应:\n${paths}\n\n${req.prompt}`;
+}
+
 export const claudeAdapter: AgentAdapter = {
   buildArgs(req: CliStartRequest) {
     const args = [
       "-p",
-      req.prompt,
+      buildClaudePrompt(req),
       "--output-format",
       "stream-json",
       "--verbose",
