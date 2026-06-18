@@ -53,10 +53,12 @@ import type {
   DocFileRaw,
   TtsStreamEvent,
   TtsVoiceOption,
+  AppInfo,
   UpdateState,
 } from "./types";
 
 export interface DesktopBridge {
+  appInfo?: AppInfo;
   // fs
   pickDirectory(): Promise<string | null>;
   scanPromptTree(root: string): Promise<PromptNode>;
@@ -209,6 +211,7 @@ export interface DesktopBridge {
   // onUpdateState,挂载时用 updateGetState 补拉;download 下载安装包,
   // install 重启安装。可选（旧壳/web 端没有）。
   updateGetState?(): Promise<UpdateState>;
+  updateCheck?(): Promise<UpdateState>;
   updateDownload?(): Promise<void>;
   updateInstall?(): Promise<void>;
   onUpdateState?(cb: (state: UpdateState) => void): () => void;

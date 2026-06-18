@@ -68,6 +68,7 @@ function fetchAppInfo(): AppInfo {
 // 个人工作区能力桥。形状与 packages/core/desktop/bridge.ts 的 DesktopBridge
 // 一一对应（renderer 侧直接作为 bridge 注入 CoreProvider）。
 const personal = {
+  appInfo: fetchAppInfo(),
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("fs:pickDirectory"),
   scanPromptTree: (root: string): Promise<PromptNode> => ipcRenderer.invoke("fs:scanPromptTree", root),
   scanDirTree: (root: string): Promise<PromptNode> => ipcRenderer.invoke("fs:scanDirTree", root),
@@ -252,6 +253,7 @@ const personal = {
   },
   // 应用自动更新（标题栏「更新」按钮）
   updateGetState: (): Promise<UpdateState> => ipcRenderer.invoke("update:getState"),
+  updateCheck: (): Promise<UpdateState> => ipcRenderer.invoke("update:check"),
   updateDownload: (): Promise<void> => ipcRenderer.invoke("update:download"),
   updateInstall: (): Promise<void> => ipcRenderer.invoke("update:install"),
   onUpdateState: (cb: (state: UpdateState) => void): (() => void) => {

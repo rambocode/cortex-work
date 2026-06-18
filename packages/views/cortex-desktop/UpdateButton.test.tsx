@@ -48,7 +48,7 @@ describe("UpdateButton", () => {
   it("挂载补拉到 available:显示「更新」,点击触发下载", async () => {
     const { bridge, updateDownload } = fakeUpdateBridge({ phase: "available", version: "0.2.0" });
     renderButton(bridge);
-    const btn = await screen.findByRole("button", { name: "更新" });
+    const btn = await screen.findByRole("button", { name: "更新 0.2.0" });
     fireEvent.click(btn);
     expect(updateDownload).toHaveBeenCalledTimes(1);
   });
@@ -58,7 +58,7 @@ describe("UpdateButton", () => {
     renderButton(bridge);
 
     push({ phase: "available", version: "0.2.0" });
-    await screen.findByRole("button", { name: "更新" });
+    await screen.findByRole("button", { name: "更新 0.2.0" });
 
     push({ phase: "downloading", version: "0.2.0", percent: 41.6 });
     const downloading = await screen.findByRole("button", { name: "更新 42%" });

@@ -58,10 +58,12 @@ export function registerUpdateHandlers(): void {
       /* 失败已由 error 事件驱动状态机 */
     });
   });
-  ipcMain.handle("update:install", () => autoUpdater.quitAndInstall());
+  ipcMain.handle("update:install", () => {
+    autoUpdater.quitAndInstall();
+  });
 
-  // dev（未打包）没有 app-update.yml,electron-updater 无法工作;不自动检查。
-  // 更新源未配置时同样跳过定时检查,避免空转与 releases.atom 反复 404。
+  // dev（未打包）默认没有 app-update.yml,electron-updater 无法工作,跳过定时检查。
+  // 更新源未配置时同样跳过,避免空转与 releases.atom 反复 404。
   if (!app.isPackaged || !UPDATE_FEED_CONFIGURED) return;
   setTimeout(() => void safeCheck(), FIRST_CHECK_DELAY_MS);
   setInterval(() => void safeCheck(), CHECK_INTERVAL_MS);

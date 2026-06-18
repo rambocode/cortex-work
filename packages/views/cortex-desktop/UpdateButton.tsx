@@ -17,7 +17,7 @@ export function updateButtonUi(state: UpdateState): UpdateButtonUi | null {
   switch (state.phase) {
     case "available":
       return {
-        label: "更新",
+        label: `更新 ${state.version ?? ""}`.trim(),
         title: `发现新版本 v${state.version ?? ""},点击下载`,
         action: "download",
       };

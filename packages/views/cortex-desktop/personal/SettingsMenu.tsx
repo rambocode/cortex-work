@@ -44,6 +44,7 @@ import type {
   ThinkingLevel,
   TtsEngineConfig,
   TtsVoiceOption,
+  UpdateState,
   WecomPushConfig,
 } from "@cortex-work/core";
 import type { Density, FontScale, Palette, SidebarMode, ThemeMode } from "@cortex-work/core/types";
@@ -286,6 +287,23 @@ const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
 const FONT_SCALE_LABEL: Record<FontScale, string> = { small: "小", medium: "中", large: "大" };
 const LOG_RETENTION_OPTIONS = [1, 2, 3, 5, 7].map((d) => ({ label: `${d} 天`, value: String(d) }));
 
+function updateStatusText(state: UpdateState): string {
+  switch (state.phase) {
+    case "checking":
+      return "正在检查新版本";
+    case "available":
+      return `发现新版本 ${state.version ?? ""}`.trim();
+    case "downloading":
+      return `正在下载 ${Math.max(0, Math.min(100, Math.round(state.percent ?? 0)))}%`;
+    case "downloaded":
+      return `新版本 ${state.version ?? ""} 已就绪`.trim();
+    case "error":
+      return state.version ? "更新下载失败" : "检查失败";
+    default:
+      return "未发现新版本";
+  }
+}
+
 // 闪记默认全局热键(与主进程 NOTES_HOTKEY_ACCELERATOR 同步;notesHotkey 留空即走此默认）。
 const DEFAULT_NOTES_HOTKEY = "CommandOrControl+Shift+N";
 
@@ -390,6 +408,7 @@ function GeneralSection() {
   const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
   const bridge = useDesktopBridge();
   const pushToast = useCortexUIStore((s) => s.pushToast);
+  const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
   const isMac = useMemo(() => detectIsMac(), []);
   const notesHotkey = general.notesHotkey ?? DEFAULT_NOTES_HOTKEY;
   const behavior = general.desktopBehavior;
@@ -397,6 +416,34 @@ function GeneralSection() {
     const next = { ...behavior, ...patch };
     setGeneral({ desktopBehavior: next });
     void bridge?.setDesktopBehavior?.(next);
+  };
+  useEffect(() => {
+    if (!bridge?.updateGetState || !bridge.onUpdateState) return;
+    let alive = true;
+    let pushed = false;
+    const off = bridge.onUpdateState((s) => {
+      pushed = true;
+      setUpdateState(s);
+    });
+    bridge
+      .updateGetState()
+      .then((s) => {
+        if (alive && !pushed) setUpdateState(s);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [bridge]);
+  const checkUpdate = async () => {
+    if (!bridge?.updateCheck) return;
+    setUpdateState({ phase: "checking" });
+    try {
+      setUpdateState(await bridge.updateCheck());
+    } catch (e) {
+      setUpdateState({ phase: "error", error: e instanceof Error ? e.message : String(e) });
+    }
   };
   // 闪记热键双写:乐观持久化 + 即时通知主进程重注册;被拒(占用/无效)时回滚到旧键,
   // 保证「UI 显示 = 主进程实际绑定」,避免重启再降级。web 端 / 旧壳无桥则仅乐观持久化。
@@ -515,6 +562,41 @@ function GeneralSection() {
           value={general.notifications.turnComplete}
           onChange={(v) => setGeneral({ notifications: { ...general.notifications, turnComplete: v } })}
         />
+      </SettingCard>
+
+      <SettingCard title="版本更新">
+        <SRow label="当前版本" desc="检查 GitHub Releases 中可用的新版本。">
+          <div className="pw-update-control">
+            <span className="pw-update-version">v{bridge?.appInfo?.version ?? "0.0.0"}</span>
+            <button
+              className="pw-tl-gen"
+              disabled={!bridge?.updateCheck || updateState.phase === "checking"}
+              onClick={() => void checkUpdate()}
+            >
+              <Icon.Retry size={12} />
+              {updateState.phase === "checking" ? "检查中" : "检查新版本"}
+            </button>
+          </div>
+        </SRow>
+        <SRow label="更新状态" desc={updateState.phase === "error" ? updateState.error : undefined}>
+          <div className={`pw-update-status is-${updateState.phase}`}>{updateStatusText(updateState)}</div>
+        </SRow>
+        {updateState.phase === "available" || (updateState.phase === "error" && updateState.version) ? (
+          <SRow label="操作" end>
+            <button className="pw-tl-gen" disabled={!bridge?.updateDownload} onClick={() => void bridge?.updateDownload?.()}>
+              <Icon.Retry size={12} />
+              下载更新
+            </button>
+          </SRow>
+        ) : null}
+        {updateState.phase === "downloaded" ? (
+          <SRow label="操作" end>
+            <button className="pw-tl-gen" disabled={!bridge?.updateInstall} onClick={() => void bridge?.updateInstall?.()}>
+              <Icon.Retry size={12} />
+              重启更新
+            </button>
+          </SRow>
+        ) : null}
       </SettingCard>
 
       <SettingCard title="日志">

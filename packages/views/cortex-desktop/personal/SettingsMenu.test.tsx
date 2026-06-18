@@ -1,17 +1,37 @@
 // 设置入口 + 整页设置视图（PersonalSettingsView）的最小渲染测试。
 // 仅依赖 store（openSettings/closeSettings）与默认 profile/通用分区,不需真实 bridge。
-import { cleanup, render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { ReactElement } from "react";
 import { CoreProvider, usePersonalStore } from "@cortex-work/core";
+import type { DesktopBridge, UpdateState } from "@cortex-work/core";
 import { SettingsMenu, PersonalSettingsView } from "./SettingsMenu";
 
-function renderUI(ui: ReactElement) {
+function renderUI(ui: ReactElement, bridge: DesktopBridge | null = null) {
   return render(
-    <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={null}>
+    <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
       {ui}
     </CoreProvider>,
   );
+}
+
+function fakeUpdateBridge(initial: UpdateState, checked: UpdateState) {
+  let listener: ((s: UpdateState) => void) | null = null;
+  const updateCheck = vi.fn(async () => checked);
+  const bridge = {
+    appInfo: { version: "0.1.1", os: "macos" },
+    updateGetState: async () => initial,
+    updateCheck,
+    updateDownload: vi.fn(async () => {}),
+    updateInstall: vi.fn(async () => {}),
+    onUpdateState: (cb: (s: UpdateState) => void) => {
+      listener = cb;
+      return () => {
+        listener = null;
+      };
+    },
+  } as unknown as DesktopBridge;
+  return { bridge, updateCheck, push: (s: UpdateState) => listener?.(s) };
 }
 
 describe("设置入口与整页设置视图", () => {
@@ -70,6 +90,24 @@ describe("设置入口与整页设置视图", () => {
     const active = screen.getByRole("button", { name: "通用" });
     expect(active.className).toContain("is-active");
     expect(active.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("通用分区显示版本更新,可手动检查并展示失败", async () => {
+    usePersonalStore.setState({ settingsOpen: true });
+    const { bridge, updateCheck } = fakeUpdateBridge(
+      { phase: "idle" },
+      { phase: "error", error: "No published versions on GitHub" },
+    );
+    renderUI(<PersonalSettingsView />, bridge);
+    fireEvent.click(screen.getByRole("button", { name: "通用" }));
+
+    expect(screen.getByText("版本更新")).toBeTruthy();
+    expect(screen.getByText("v0.1.1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "检查新版本" }));
+
+    await waitFor(() => expect(updateCheck).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("检查失败")).toBeTruthy();
+    expect(screen.getByText("No published versions on GitHub")).toBeTruthy();
   });
 
   it("卸载后 window keydown 监听解绑(ESC 不再返回)", () => {

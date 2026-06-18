@@ -291,6 +291,10 @@ input, textarea { font: inherit; color: inherit; }
   color: #fff; background: var(--green);
   transition: filter 0.12s;
   white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-app-region: no-drag;
 }
 .tb-update:hover { filter: brightness(1.08); }
 .tb-update:disabled { opacity: 0.75; pointer-events: none; }
@@ -5664,6 +5668,12 @@ button.sb-row {
 .pw-ws-control > .pw-set-input { flex: 1 1 auto; min-width: 0; }
 .pw-ws-control > .btn { flex: 0 0 auto; }
 .pw-hotkey-control { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+.pw-update-control { display: flex; gap: 8px; align-items: center; justify-content: flex-end; width: 100%; }
+.pw-update-version { flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-update-status { width: 100%; font-size: 12px; color: var(--text-2); text-align: right; overflow-wrap: anywhere; }
+.pw-update-status.is-available,
+.pw-update-status.is-downloaded { color: var(--green); font-weight: 600; }
+.pw-update-status.is-error { color: var(--red, #dc2626); }
 .pw-scard-empty { padding: 13px 2px; font-size: 12px; color: var(--text-3); line-height: 1.5; }
 .pw-sblock { padding: 13px 2px; border-top: 1px solid var(--border-soft); }
 .pw-scard-t + .pw-sblock { border-top: none; }

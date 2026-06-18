@@ -28,6 +28,7 @@ import {
 import { getPersistedState } from "./ipc/store";
 import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
+import { getRuntimeAppVersion } from "./app-version";
 
 const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 
@@ -143,7 +144,7 @@ if (!app.requestSingleInstanceLock()) {
 
   // 同步 app 信息给 preload 桥。
   ipcMain.on("app:get-info", (event) => {
-    event.returnValue = { version: app.getVersion(), os: normalizedOS() };
+    event.returnValue = { version: getRuntimeAppVersion(), os: normalizedOS() };
   });
 
   // 闪记热键降级提示:渲染端 mount 后拉取一次性消费(consume-pending,仿 spotlight,

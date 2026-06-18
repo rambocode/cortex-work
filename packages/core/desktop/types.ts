@@ -835,6 +835,11 @@ export interface UpdateState {
   error?: string;
 }
 
+export interface AppInfo {
+  version: string;
+  os: "macos" | "windows" | "linux" | "unknown";
+}
+
 // ── Tasks 面板:tasks/ 目录文件列表（与 apps/desktop/src/main/ipc/types.ts 镜像） ──
 
 export interface TaskFileInfo {
