@@ -690,8 +690,16 @@ function Select({
 function TimelineSection() {
   const settings = usePersonalStore((s) => s.timelineSettings);
   const setSettings = usePersonalStore((s) => s.setTimelineSettings);
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const enabledProviders = providerSettings.providers.filter((p) => p.enabled);
   const model = settings.summaryModel;
   const setModel = (m: SummaryModelConfig) => setSettings({ summaryModel: m });
+  // pi 日报模型来自配置的供应商（与新建 Pi 会话/Pi 设置一致）:选中供应商缺省回退全局默认。
+  const piProviderId =
+    model.kind === "agent" && model.agent === "pi"
+      ? model.providerId ?? providerSettings.defaultProviderId
+      : undefined;
+  const piProvider = enabledProviders.find((p) => p.id === piProviderId);
 
   return (
     <>
@@ -718,16 +726,59 @@ function TimelineSection() {
               <BareSelect
                 value={model.agent}
                 options={INTEGRATED_AGENTS.map((a) => ({ label: AGENT_LABEL[a], value: a }))}
-                onChange={(v) => setModel({ kind: "agent", agent: v as AgentKind, model: DEFAULT_MODEL[v as AgentKind] })}
+                onChange={(v) => {
+                  const next = v as AgentKind;
+                  if (next === "pi") {
+                    // 切到 pi:默认供应商 + 其默认/首个模型,沿用 providerSettings 配置。
+                    const pid = providerSettings.defaultProviderId;
+                    const p = enabledProviders.find((x) => x.id === pid);
+                    setModel({
+                      kind: "agent",
+                      agent: "pi",
+                      providerId: pid,
+                      model: providerSettings.defaultModel ?? p?.models[0]?.id,
+                    });
+                  } else {
+                    setModel({ kind: "agent", agent: next, model: DEFAULT_MODEL[next] });
+                  }
+                }}
               />
             </SRow>
-            <SRow label="模型">
-              <BareSelect
-                value={model.model ?? DEFAULT_MODEL[model.agent]}
-                options={AGENT_MODELS[model.agent]}
-                onChange={(v) => setModel({ kind: "agent", agent: model.agent, model: v })}
-              />
-            </SRow>
+            {model.agent === "pi" ? (
+              enabledProviders.length === 0 ? (
+                <div className="pw-scard-empty">
+                  还没有启用的供应商。先在「供应商」设置中添加并启用,Pi 才能用于生成日报。
+                </div>
+              ) : (
+                <>
+                  <SRow label="供应商" desc="日报由该供应商运行（与新建 Pi 会话同源）。">
+                    <BareSelect
+                      value={piProviderId ?? ""}
+                      options={enabledProviders.map((p) => ({ label: p.name || p.id, value: p.id }))}
+                      onChange={(v) => {
+                        const p = enabledProviders.find((x) => x.id === v);
+                        setModel({ kind: "agent", agent: "pi", providerId: v, model: p?.models[0]?.id });
+                      }}
+                    />
+                  </SRow>
+                  <SRow label="模型">
+                    <BareSelect
+                      value={model.model ?? ""}
+                      options={(piProvider?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id }))}
+                      onChange={(v) => setModel({ kind: "agent", agent: "pi", providerId: piProviderId, model: v })}
+                    />
+                  </SRow>
+                </>
+              )
+            ) : (
+              <SRow label="模型">
+                <BareSelect
+                  value={model.model ?? DEFAULT_MODEL[model.agent]}
+                  options={AGENT_MODELS[model.agent]}
+                  onChange={(v) => setModel({ kind: "agent", agent: model.agent, model: v })}
+                />
+              </SRow>
+            )}
           </>
         ) : (
           <>

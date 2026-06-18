@@ -210,15 +210,19 @@ export function registerCliHandlers(): void {
         cwd?: string;
         prompt: string;
         model?: string;
+        provider?: { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] };
       },
     ) => {
-      // oneshot（标题/日报）不挂自定义供应商:默认 claude;若为 pi 则仅当作纯 Node 跑,
-      // 无供应商则用 pi 自身默认 provider（标题生成场景已在 renderer 侧对 pi 走兜底）。
+      // oneshot（标题/日报）默认 claude。pi 选中了自定义供应商（日报选 Pi）时挂载之:
+      // 生成 extension + --provider + 注入 key,与会话路径一致;未传 provider 则裸 pi
+      // 跑（用 pi 自身默认 provider,如标题生成兜底）。claude/codex 不挂供应商。
       const agent = req.agent ?? "claude";
       // 不传 cwd 时在用户主目录运行 —— 不加载项目上下文,更快更省（不叠加 workspaceRoot,
       // 那是交互会话/自动化的默认目录语义,oneshot 是轻量任务）。
       const cwd = req.cwd ?? homedir();
       const adapter = getAdapter(agent);
+      const provider = agent === "pi" ? req.provider : undefined;
+      const piExtensionPath = provider ? writePiExtension(provider) : undefined;
       const { cmd, args } = adapter.buildArgs({
         runId: "oneshot",
         sessionId: "oneshot",
@@ -226,11 +230,13 @@ export function registerCliHandlers(): void {
         cwd,
         prompt: req.prompt,
         model: req.model,
+        provider,
+        piExtensionPath,
       });
       return new Promise<string>((resolve, reject) => {
         const proc = startAgentProcess(cmd, args, {
           cwd,
-          env: spawnEnvFor({ agent }),
+          env: spawnEnvFor({ agent, provider }),
         });
         let out = "";
         let resultText = "";

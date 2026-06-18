@@ -134,7 +134,14 @@ export interface DesktopBridge {
   // 一次性短任务（生成 session 标题/日报等）,返回纯文本输出。
   // agent 缺省 claude;走各 agent 的 adapter,新接入的 agent 自动支持。
   // 不传 cwd 在中性目录运行,不加载项目上下文。
-  oneshotCli(req: { agent?: AgentKind; cwd?: string; prompt: string; model?: string }): Promise<string>;
+  // provider 仅 pi 用:挂载选中供应商（生成 extension + 注入 key），日报选 pi 时据此运行。
+  oneshotCli(req: {
+    agent?: AgentKind;
+    cwd?: string;
+    prompt: string;
+    model?: string;
+    provider?: { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] };
+  }): Promise<string>;
   // OpenAI 兼容端点一次性补全（自定义日报模型;主进程发请求,密钥不出 main）
   openaiComplete(req: OpenAiCompleteRequest): Promise<string>;
   // 供应商连接测试：主进程按 endpointFormat 选鉴权头探测 {baseUrl}/models,返回可用模型。

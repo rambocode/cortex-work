@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../types";
-import type { NoteMeta, SessionMeta, TimelineEvent } from "../desktop/types";
+import type { DesktopBridge } from "../desktop/bridge";
+import type { NoteMeta, ProviderProfile, SessionMeta, TimelineEvent } from "../desktop/types";
+import { usePersonalStore } from "../store/personal";
 import {
   buildCalendarWeeks,
   buildDailyReportText,
   buildGlobalSummaryPrompt,
   buildPushReportData,
+  completeWithSummaryModel,
   dayKey,
   DEFAULT_PUSH_TEMPLATE,
   deriveBackfillEvents,
@@ -336,6 +339,85 @@ describe("buildGlobalSummaryPrompt", () => {
       Array.from({ length: 200 }, (_, i) => ({ projectName: `p${i}`, group: big })),
     );
     expect(long.length).toBeLessThan(6500);
+  });
+});
+
+describe("completeWithSummaryModel", () => {
+  afterEach(() => {
+    usePersonalStore.setState({ providerSettings: { providers: [] } });
+  });
+
+  const fakeBridge = () =>
+    ({
+      oneshotCli: vi.fn().mockResolvedValue("结果"),
+      openaiComplete: vi.fn().mockResolvedValue("结果"),
+    }) as unknown as DesktopBridge;
+
+  const ds: ProviderProfile = {
+    id: "ds",
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    apiKey: "sk-x",
+    endpointFormat: "chat_completions",
+    enabled: true,
+    models: [
+      { id: "deepseek-chat", label: "DeepSeek Chat" },
+      { id: "deepseek-reasoner", label: "DeepSeek R1" },
+    ],
+  };
+
+  it("pi:按 providerId 解析启用供应商并拍平下传", async () => {
+    const bridge = fakeBridge();
+    usePersonalStore.setState({
+      timelineSettings: { summaryModel: { kind: "agent", agent: "pi", providerId: "ds", model: "deepseek-reasoner" } },
+      providerSettings: { providers: [ds], defaultProviderId: "ds" },
+    });
+    await completeWithSummaryModel(bridge, "p");
+    expect(bridge.oneshotCli).toHaveBeenCalledWith({
+      prompt: "p",
+      agent: "pi",
+      model: "deepseek-reasoner",
+      provider: {
+        id: "ds",
+        baseUrl: "https://api.deepseek.com/v1",
+        apiKey: "sk-x",
+        models: [
+          { id: "deepseek-chat", name: "DeepSeek Chat" },
+          { id: "deepseek-reasoner", name: "DeepSeek R1" },
+        ],
+      },
+    });
+  });
+
+  it("pi:无 providerId 时回退 defaultProviderId", async () => {
+    const bridge = fakeBridge();
+    usePersonalStore.setState({
+      timelineSettings: { summaryModel: { kind: "agent", agent: "pi", model: "deepseek-chat" } },
+      providerSettings: { providers: [ds], defaultProviderId: "ds" },
+    });
+    await completeWithSummaryModel(bridge, "p");
+    const arg = (bridge.oneshotCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(arg?.provider?.id).toBe("ds");
+  });
+
+  it("pi:无可用供应商时 provider 为 undefined（裸 pi 兜底）", async () => {
+    const bridge = fakeBridge();
+    usePersonalStore.setState({
+      timelineSettings: { summaryModel: { kind: "agent", agent: "pi", providerId: "missing", model: "x" } },
+      providerSettings: { providers: [{ ...ds, enabled: false }], defaultProviderId: "ds" },
+    });
+    await completeWithSummaryModel(bridge, "p");
+    expect(bridge.oneshotCli).toHaveBeenCalledWith({ prompt: "p", agent: "pi", model: "x", provider: undefined });
+  });
+
+  it("claude:不带 provider 字段", async () => {
+    const bridge = fakeBridge();
+    usePersonalStore.setState({
+      timelineSettings: { summaryModel: { kind: "agent", agent: "claude", model: "haiku" } },
+      providerSettings: { providers: [ds], defaultProviderId: "ds" },
+    });
+    await completeWithSummaryModel(bridge, "p");
+    expect(bridge.oneshotCli).toHaveBeenCalledWith({ prompt: "p", agent: "claude", model: "haiku" });
   });
 });
 

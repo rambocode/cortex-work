@@ -133,8 +133,13 @@ const personal = {
     opts?: { sinceTs?: number; max?: number },
   ): Promise<{ ts: number; hash: string; subject: string }[]> => ipcRenderer.invoke("fs:gitLog", root, opts),
   startCli: (req: CliStartRequest): Promise<void> => ipcRenderer.invoke("cli:start", req),
-  oneshotCli: (req: { agent?: AgentKind; cwd?: string; prompt: string; model?: string }): Promise<string> =>
-    ipcRenderer.invoke("cli:oneshot", req),
+  oneshotCli: (req: {
+    agent?: AgentKind;
+    cwd?: string;
+    prompt: string;
+    model?: string;
+    provider?: { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] };
+  }): Promise<string> => ipcRenderer.invoke("cli:oneshot", req),
   openaiComplete: (req: { baseUrl: string; apiKey?: string; model: string; prompt: string }): Promise<string> =>
     ipcRenderer.invoke("llm:openaiComplete", req),
   probeProvider: (input: {

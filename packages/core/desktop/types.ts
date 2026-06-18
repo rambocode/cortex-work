@@ -80,7 +80,9 @@ export interface HiddenHistoryMeta {
 
 // 日报生成模型：现有集成 Agent,或自定义 OpenAI 兼容端点（Ollama/LM Studio 等）。
 export type SummaryModelConfig =
-  | { kind: "agent"; agent: AgentKind; model?: string }
+  // providerId 仅对 agent === "pi" 有意义:指向 providerSettings 里选中的供应商;
+  // 缺省时回退 providerSettings.defaultProviderId。其余 agent 忽略该字段。
+  | { kind: "agent"; agent: AgentKind; model?: string; providerId?: string }
   | { kind: "openai"; baseUrl: string; apiKey?: string; model: string };
 
 export interface WecomPushConfig {

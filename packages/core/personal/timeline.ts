@@ -549,10 +549,21 @@ export function buildDailyReportText(projectName: string, group: DayGroup): { su
 // 按设置选择生成模型（集成 Agent 或 OpenAI 兼容端点）补全一段文本。
 // 日报与 Tasks 归档（taskArchive.ts）共用。
 export async function completeWithSummaryModel(bridge: DesktopBridge, prompt: string): Promise<string> {
-  const cfg = usePersonalStore.getState().timelineSettings.summaryModel;
-  return cfg.kind === "openai"
-    ? bridge.openaiComplete({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, prompt })
-    : bridge.oneshotCli({ prompt, agent: cfg.agent, model: cfg.model });
+  const state = usePersonalStore.getState();
+  const cfg = state.timelineSettings.summaryModel;
+  if (cfg.kind === "openai")
+    return bridge.openaiComplete({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, prompt });
+  // pi:与 Pi 会话一致,模型来自配置的供应商。解析选中（或默认）启用供应商,拍平后下传;
+  // 无可用供应商时 provider=undefined → 回退「裸 pi」行为（pi 自身默认 provider）。
+  if (cfg.agent === "pi") {
+    const ps = state.providerSettings;
+    const p = ps.providers.find((x) => x.enabled && x.id === (cfg.providerId ?? ps.defaultProviderId));
+    const provider = p
+      ? { id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey, models: p.models.map((m) => ({ id: m.id, name: m.label })) }
+      : undefined;
+    return bridge.oneshotCli({ prompt, agent: "pi", model: cfg.model, provider });
+  }
+  return bridge.oneshotCli({ prompt, agent: cfg.agent, model: cfg.model });
 }
 
 // AI 日报：按设置选择生成模型,落盘为 summary.day 事件。
