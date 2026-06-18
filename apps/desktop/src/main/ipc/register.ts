@@ -15,11 +15,15 @@ import { registerProviderHandlers } from "./provider";
 import { registerPtyHandlers } from "./pty";
 import { registerAgentProjectsHandlers } from "./agent-projects";
 import { registerWatchHandlers } from "./watch";
-import { registerUpdateHandlers } from "./update";
+import { registerUpdateHandlers, type RegisterUpdateHandlersOptions } from "./update";
 import { registerEditorHandlers } from "./editors";
 import { registerAutomationHandlers } from "../automation/ipc";
 
-export function registerIpcHandlers(): void {
+interface RegisterIpcHandlersOptions {
+  update?: RegisterUpdateHandlersOptions;
+}
+
+export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
   registerFsHandlers();
   registerWatchHandlers();
   registerStoreHandlers();
@@ -35,7 +39,7 @@ export function registerIpcHandlers(): void {
   registerProviderHandlers();
   registerPtyHandlers();
   registerAgentProjectsHandlers();
-  registerUpdateHandlers();
+  registerUpdateHandlers(options.update);
   registerEditorHandlers();
   registerAutomationHandlers();
 }

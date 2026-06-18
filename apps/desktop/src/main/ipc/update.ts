@@ -19,6 +19,10 @@ const UPDATE_FEED_CONFIGURED = true;
 
 let state: UpdateState = { phase: "idle" };
 
+export interface RegisterUpdateHandlersOptions {
+  beforeInstall?: () => void;
+}
+
 function dispatch(event: UpdaterEvent): void {
   const next = reduceUpdate(state, event);
   if (next === state) return;
@@ -37,7 +41,7 @@ async function safeCheck(): Promise<void> {
   }
 }
 
-export function registerUpdateHandlers(): void {
+export function registerUpdateHandlers(options: RegisterUpdateHandlersOptions = {}): void {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
@@ -59,6 +63,7 @@ export function registerUpdateHandlers(): void {
     });
   });
   ipcMain.handle("update:install", () => {
+    options.beforeInstall?.();
     autoUpdater.quitAndInstall();
   });
 

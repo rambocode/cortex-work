@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, powerMonitor } from "electron";
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, globalShortcut, ipcMain, powerMonitor } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import {
@@ -35,6 +35,7 @@ const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 let mainWindow: BrowserWindow | null = null;
 // 真正退出标志:仅托盘「退出」/ before-quit 时置 true。关窗(X)默认只隐藏到后台。
 let isQuitting = false;
+let realQuitCleanupStarted = false;
 // 闪记全局热键被占用时的降级提示文案(register 早于建窗,暂存待主窗口就绪后 best-effort 推送)。
 let notesHotkeyToast: string | null = null;
 // 当前已注册的闪记热键 accelerator(精确 unregister 用,避免 unregisterAll 误伤其它全局键)。
@@ -110,7 +111,7 @@ function createWindow(): void {
       // 显式 dock.show() 拉回 regular,保证「关窗隐藏到托盘、Dock 图标继续保留、可从程序坞点回」。
       if (process.platform === "darwin") void app.dock?.show();
     } else {
-      isQuitting = true;
+      markRealQuit();
       app.quit();
     }
   });
@@ -123,6 +124,10 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
+}
+
+function markRealQuit(): void {
+  isQuitting = true;
 }
 
 // 显示主窗口（隐藏则恢复,已销毁则重建）。托盘点击 / 第二实例 / activate 共用。
@@ -188,7 +193,7 @@ if (!app.requestSingleInstanceLock()) {
     // initLogger 稍后读设置再调整开关 + 清理过期。
     patchConsole();
     await ensureMigrated();
-    registerIpcHandlers();
+    registerIpcHandlers({ update: { beforeInstall: markRealQuit } });
     registerDesktopHandlers();
     registerLogHandlers();
     registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });
@@ -211,7 +216,7 @@ if (!app.requestSingleInstanceLock()) {
     createTray({
       onShow: showMainWindow,
       onQuit: () => {
-        isQuitting = true;
+        markRealQuit();
         app.quit();
       },
       onToggleSpotlight: toggleSpotlight,
@@ -246,7 +251,9 @@ if (!app.requestSingleInstanceLock()) {
 
   // 真正退出（托盘退出 / 系统关机）:停调度 + 终止所有自动化进程 + 常规清理。
   const onRealQuit = () => {
-    isQuitting = true;
+    if (realQuitCleanupStarted) return;
+    realQuitCleanupStarted = true;
+    markRealQuit();
     stopScheduler();
     killAllAutomations();
     killAllCli();
@@ -259,10 +266,8 @@ if (!app.requestSingleInstanceLock()) {
     globalShortcut.unregisterAll();
   };
   app.on("before-quit", onRealQuit);
-  // 自动更新「重启更新」(autoUpdater.quitAndInstall):macOS 原生 Squirrel 路径退出前
-  // 发的是 before-quit-for-update 而非 before-quit。若不在此置 isQuitting,关窗会被
-  // close 处理器拦成「隐藏到托盘」,导致更新装不上(表现为点击无反应)。
-  // 事件名做编译期断言:before-quit-for-update 是 Electron 运行时事件,
-  // 部分版本类型定义未声明,断言不改变运行时字符串。
-  app.on("before-quit-for-update" as "before-quit", onRealQuit);
+  // 自动更新「重启更新」(autoUpdater.quitAndInstall)会先关窗口再正常退出;
+  // 若不提前进入真实退出态,closeToTray 会把窗口关动作拦成 hide,导致安装流程卡住。
+  // before-quit-for-update 是 Electron 原生 autoUpdater 事件,不是 app 事件。
+  electronAutoUpdater.on("before-quit-for-update", onRealQuit);
 }
