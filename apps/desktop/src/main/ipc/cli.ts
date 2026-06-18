@@ -70,6 +70,34 @@ function wrapChild(child: ChildProcess): AgentProcess {
   };
 }
 
+// stdout 按行缓冲 + 冲刷的可复用循环。cli:start 与 ask.ts(临时追问通道)共用,
+// 避免「1MB 溢出保护 + 无换行末行冲刷」两处维护漂移。
+// · onLine 收到的是已 trim 的非空行;空行被跳过。
+// · 返回 flush():进程退出时调用一次,冲刷残留的最后一行(无换行结尾时)。
+export function pipeStdoutLines(
+  stdout: NodeJS.ReadableStream | null,
+  onLine: (line: string) => void,
+): () => void {
+  let buffer = "";
+  stdout?.setEncoding("utf8");
+  stdout?.on("data", (chunk: string) => {
+    buffer += chunk;
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) onLine(line);
+    }
+    // 单行长度上限保护:异常超长单行（无换行）会无限撑大 buffer,超阈值丢弃溢出部分（防泄漏）。
+    if (buffer.length > 1_000_000) buffer = buffer.slice(-1_000_000);
+  });
+  return () => {
+    const line = buffer.trim();
+    if (line) onLine(line);
+    buffer = "";
+  };
+}
+
 // 启动 agent 子进程。三种 agent 统一走 child_process.spawn(cmd=可执行文件路径, args)。
 // pi 的 cmd 是 bun 编译的二进制(pi-locate.resolvePiBinary),claude/codex 是 PATH 上的命令。
 export function startAgentProcess(
@@ -243,20 +271,9 @@ export function registerCliHandlers(): void {
       if (!sender.isDestroyed()) sender.send("cli:exit", exit);
     };
 
-    let buffer = "";
-    proc.stdout?.setEncoding("utf8");
-    proc.stdout?.on("data", (chunk: string) => {
-      buffer += chunk;
-      let nl: number;
-      while ((nl = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        if (!line) continue;
-        const ev = adapter.parseLine(line);
-        if (ev) sendEvent(ev);
-      }
-      // 单行长度上限保护:异常超长单行（无换行）会无限撑大 buffer,超阈值丢弃溢出部分（防泄漏）。
-      if (buffer.length > 1_000_000) buffer = buffer.slice(-1_000_000);
+    const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
+      const ev = adapter.parseLine(line);
+      if (ev) sendEvent(ev);
     });
 
     let stderrTail = "";
@@ -276,11 +293,7 @@ export function registerCliHandlers(): void {
 
     proc.onExit((code) => {
       // 冲刷残留的最后一行（无换行结尾时）。
-      const line = buffer.trim();
-      if (line) {
-        const ev = adapter.parseLine(line);
-        if (ev) sendEvent(ev);
-      }
+      flushStdout();
       // 显式摘除 data 监听:闭包捕获 sender/buffer/adapter,避免进程对象延迟回收时驻留（防泄漏）。
       proc.stdout?.removeAllListeners();
       proc.stderr?.removeAllListeners();

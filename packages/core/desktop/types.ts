@@ -660,6 +660,30 @@ export interface CliStartRequest {
   piExtensionPath?: string;
 }
 
+// 历史消息追问的临时流式应答请求（与 apps/desktop/src/main/ipc/types.ts 镜像）。
+// CliStartRequest 的不落盘子集:无 sessionId/resumeSessionId/runId（主进程内部用 askId 充当）,
+// 不写 chats/、不进 run 注册表。askId 每轮唯一,既作子进程登记 key,也回带做代际守卫。
+export interface AskFollowupRequest {
+  askId: string;
+  agent: AgentKind;
+  // 工作目录（真实项目 path,或无项目会话的 Documents/cortex/<date>）。
+  cwd: string;
+  prompt: string;
+  model?: string;
+  appendSystemPrompt?: string;
+  effort?: ReasoningEffort;
+  // true = 无项目会话:主进程剥离 claude/codex 的跳审批/bypass 标志,回退默认审批/沙箱（R9/KTD8）。
+  // 显式标志,不靠主进程猜 cwd（真实无项目 cwd 非 homedir,猜法会失效）。
+  tightenTools?: boolean;
+  // pi 自定义供应商:形状同 CliStartRequest.provider,主进程据此生成 extension + 注入 key。
+  provider?: {
+    id: string;
+    baseUrl: string;
+    apiKey?: string;
+    models: { id: string; name?: string }[];
+  };
+}
+
 export interface AgentSessionRequest {
   agent: AgentKind;
   agentSessionId: string;

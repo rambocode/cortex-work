@@ -261,6 +261,28 @@ export {
   type PersonalActions,
 } from "./personal/messages";
 export {
+  useFollowupAsk,
+  buildFollowupSystemPrompt,
+  buildFollowupPrompt,
+  applyFollowupEvent,
+  settleTurn,
+  finalizeTurnLog,
+  markTurnDone,
+  markTurnError,
+  markTurnCancelled,
+  FOLLOWUP_SEED_MAX,
+  FOLLOWUP_HARD_TIMEOUT_MS,
+  FOLLOWUP_HISTORY_MAX,
+  type FollowupSeed,
+  type FollowupSessionCtx,
+  type FollowupState,
+  type FollowupCursors,
+  type FollowupApplyCtx,
+  type Turn,
+  type TurnStatus,
+  type UseFollowupAsk,
+} from "./personal/followup";
+export {
   closePiSession,
   closeAllPiSessions,
   isPiSessionOpen,

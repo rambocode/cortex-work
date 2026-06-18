@@ -5,6 +5,7 @@ import { registerStoreHandlers } from "./store";
 import { registerNotesHandlers } from "./notes";
 import { registerSkillsHandlers } from "./skills";
 import { registerCliHandlers } from "./cli";
+import { registerAskHandlers } from "./ask";
 import { registerPiSessionHandlers } from "./pi-session";
 import { registerChatHandlers } from "./chat";
 import { registerImageHandlers } from "./image";
@@ -31,6 +32,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerNotesHandlers();
   registerSkillsHandlers();
   registerCliHandlers();
+  registerAskHandlers();
   registerPiSessionHandlers();
   registerChatHandlers();
   registerImageHandlers();
@@ -47,6 +49,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 }
 
 export { killAllCli } from "./cli";
+export { killAllAsk } from "./ask";
 export { killAllPiSessions } from "./pi-session";
 export { killAllPty } from "./pty";
 export { closeAllWatchers } from "./watch";

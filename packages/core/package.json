@@ -28,6 +28,7 @@
     "./i18n/native": "./i18n/native.ts",
     "./i18n/testing": "./i18n/testing.ts",
     "./personal/messages": "./personal/messages.ts",
+    "./personal/followup": "./personal/followup.ts",
     "./personal/automation": "./personal/automation.ts",
     "./personal/filePaths": "./personal/filePaths.ts",
     "./personal/notes": "./personal/notes.ts"
