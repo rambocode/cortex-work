@@ -663,12 +663,15 @@ export interface CliStartRequest {
 export interface AskFollowupRequest {
   askId: string;
   agent: AgentKind;
-  // 工作目录;无项目会话时调用方传 homedir(),主进程据此收紧 tool 能力（R9/KTD8）。
+  // 工作目录（真实项目 path,或无项目会话的 Documents/cortex/<date>）。
   cwd: string;
   prompt: string;
   model?: string;
   appendSystemPrompt?: string;
   effort?: ReasoningEffort;
+  // true = 无项目会话:主进程剥离 claude/codex 的跳审批/bypass 标志,回退默认审批/沙箱（R9/KTD8）。
+  // 显式标志,不靠主进程猜 cwd（真实无项目 cwd 非 homedir,猜法会失效）。
+  tightenTools?: boolean;
   // pi 自定义供应商:形状同 CliStartRequest.provider,主进程据此生成 extension + 注入 key。
   provider?: {
     id: string;

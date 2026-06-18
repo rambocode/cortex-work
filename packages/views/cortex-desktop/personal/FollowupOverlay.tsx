@@ -88,7 +88,8 @@ function TurnView({
   turn: Turn;
   running: boolean;
   isCodex: boolean;
-  onRetry: (question: string) => void;
+  // 重试:传被重试轮的 id,hook 据此原位替换该 error 轮而非追加(FIX-6)。
+  onRetry: (question: string, retryOf: string) => void;
 }) {
   const hasContent = turn.messages.some((m) => textOf(m).length > 0 || m.kind === "agentLog");
   const streaming = turn.status === "streaming";
@@ -118,7 +119,7 @@ function TurnView({
         {turn.status === "error" ? (
           <div className="pw-fu-error">
             <span className="pw-fu-error-text">{turn.error || "执行出错"}</span>
-            <button type="button" className="btn pw-fu-retry" onClick={() => onRetry(turn.question)}>
+            <button type="button" className="btn pw-fu-retry" onClick={() => onRetry(turn.question, turn.id)}>
               <Icon.Retry size={13} />
               重试
             </button>
@@ -264,10 +265,10 @@ export function FollowupOverlay({ seed, sessionCtx, onClose }: FollowupOverlayPr
                 turn={t}
                 running={running}
                 isCodex={isCodex}
-                onRetry={(question) => {
+                onRetry={(question, retryOf) => {
                   if (running) return;
                   atBottomRef.current = true;
-                  ask(question);
+                  ask(question, retryOf); // 原位替换该 error 轮(FIX-6)
                 }}
               />
             ))

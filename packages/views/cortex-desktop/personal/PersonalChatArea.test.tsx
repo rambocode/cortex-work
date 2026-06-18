@@ -1,4 +1,4 @@
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore, useCortexUIStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
@@ -550,5 +550,154 @@ describe("PersonalChatArea 追问入口（U5）", () => {
     fireEvent.keyDown(ta, { key: "Enter" });
     await waitFor(() => expect(askSpy).toHaveBeenCalled());
     expect(askSpy.mock.calls[0]![0].cwd).toBe("/tmp/noproj");
+    // 无真实项目 → tightenTools=true(FIX-3,主进程据此剥离跳审批标志)。
+    expect((askSpy.mock.calls[0]![0] as { tightenTools?: boolean }).tightenTools).toBe(true);
+  });
+
+  it("真实项目会话:tightenTools=false(FIX-3)", async () => {
+    const askSpy = vi.fn(async (_req: { tightenTools?: boolean }) => {});
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "有项目回复" }],
+      saveChat: async () => {},
+      askFollowupStream: askSpy,
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+    renderWith(b);
+    await screen.findByText("有项目回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    await screen.findByRole("dialog", { name: "追问" });
+    const ta = screen.getByPlaceholderText(/继续追问/);
+    fireEvent.change(ta, { target: { value: "问" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(askSpy).toHaveBeenCalled());
+    expect((askSpy.mock.calls[0]![0] as { tightenTools?: boolean }).tightenTools).toBe(false);
+  });
+
+  it("仅 askFollowupStream、缺 onAskFollowupEvent/cancelFollowup → 不渲染「追问」按钮(FIX-2)", async () => {
+    const partial = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "部分桥回复" }],
+      saveChat: async () => {},
+      askFollowupStream: async () => {},
+      // onAskFollowupEvent / cancelFollowup 缺失(旧壳)。
+    } as unknown as DesktopBridge;
+    renderWith(partial);
+    await screen.findByText("部分桥回复");
+    expect(screen.queryByRole("button", { name: "追问" })).toBeNull();
+  });
+});
+
+// FIX-1 / FIX-6:经真实 useFollowupAsk(浮层挂载)验证收尾语义与重试替换。
+describe("PersonalChatArea 追问收尾语义(FIX-1 / FIX-6)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      timelineProjectId: undefined,
+      runningBySession: {},
+      providerSettings: { providers: [] },
+    });
+  });
+
+  // 捕获事件回调的桥:emit(askId, event) 可主动注入 ask:event。
+  function makeEventBridge() {
+    let cb: ((askId: string, ev: unknown) => void) | null = null;
+    const askSpy = vi.fn(async (_req: { askId: string }) => {});
+    const cancelSpy = vi.fn(async (_askId: string) => {});
+    const bridge = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "种子回复" }],
+      saveChat: async () => {},
+      askFollowupStream: askSpy,
+      onAskFollowupEvent: (fn: (askId: string, ev: unknown) => void) => {
+        cb = fn;
+        return () => {
+          cb = null;
+        };
+      },
+      cancelFollowup: cancelSpy,
+    } as unknown as DesktopBridge;
+    return {
+      bridge,
+      askSpy,
+      cancelSpy,
+      emit: (ev: unknown) => {
+        const askId = askSpy.mock.calls[askSpy.mock.calls.length - 1]![0].askId;
+        act(() => {
+          cb?.(askId, ev);
+        });
+      },
+    };
+  }
+
+  function renderWith(b: DesktopBridge) {
+    return render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+  }
+
+  async function openOverlayAndAsk(h: ReturnType<typeof makeEventBridge>, question: string) {
+    renderWith(h.bridge);
+    await screen.findByText("种子回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    await screen.findByRole("dialog", { name: "追问" });
+    const ta = screen.getByPlaceholderText(/继续追问/);
+    fireEvent.change(ta, { target: { value: question } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(h.askSpy).toHaveBeenCalled());
+  }
+
+  it("init→(长间隔静默)→text→result:不被提前收尾,answer 正常渲染(FIX-1)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const h = makeEventBridge();
+    await openOverlayAndAsk(h, "为什么?");
+
+    // init 后推进 30s(远超旧的 1.5s grace),期间无新事件。
+    h.emit({ type: "init", sessionId: "x" });
+    vi.advanceTimersByTime(30_000);
+    // 此时仍应在 running(未被提前判 done):停止按钮在,输入禁用。
+    expect(screen.getByRole("button", { name: /停止/ })).toBeInTheDocument();
+
+    // 真实 text 到达 → 必须被渲染(activeRef 仍在,未被代际守卫丢弃)。
+    h.emit({ type: "text", delta: "因为如此" });
+    expect(await screen.findByText("因为如此")).toBeInTheDocument();
+
+    // result 才正常收尾 → running 关闭,回到「发送」按钮。
+    h.emit({ type: "result", ok: true });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /停止/ })).toBeNull());
+  });
+
+  it("仅 text 无 result:不再因 1.5s 不活动提前收尾(FIX-1,删除旧 grace 语义)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const h = makeEventBridge();
+    await openOverlayAndAsk(h, "问");
+    h.emit({ type: "text", delta: "片段" });
+    vi.advanceTimersByTime(10_000); // 远超旧 1.5s
+    // 没有 result → 仍在 running(旧实现此刻已误关)。
+    expect(screen.getByRole("button", { name: /停止/ })).toBeInTheDocument();
+  });
+
+  it("error 轮重试:原位替换该轮而非并存(FIX-6)", async () => {
+    const h = makeEventBridge();
+    await openOverlayAndAsk(h, "会失败的问");
+    // 失败收尾。
+    h.emit({ type: "result", ok: false, error: "炸了" });
+    expect(await screen.findByText("炸了")).toBeInTheDocument();
+
+    // 点重试 → 应调 ask(question, retryOf);新轮替换旧 error 轮(turns 仍只 1 轮)。
+    fireEvent.click(screen.getByRole("button", { name: /重试/ }));
+    await waitFor(() => expect(h.askSpy).toHaveBeenCalledTimes(2));
+    // 旧 error 文案消失(被替换),问题文本仍只出现一次。
+    await waitFor(() => expect(screen.queryByText("炸了")).toBeNull());
+    expect(screen.getAllByText("会失败的问")).toHaveLength(1);
   });
 });

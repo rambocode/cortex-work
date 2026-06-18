@@ -2,13 +2,16 @@
 // (getAdapter / startAgentProcess / spawnEnvFor / pipeStdoutLines),但用一次性 askId:
 //   · 不写 chats/、不进 React Query 缓存、不入个人 run 注册表 —— 关闭即弃(R5)。
 //   · 流式逐行 parseLine → e.sender.send("ask:event", {askId, event})(R3)。
-//   · 终止信号 = 复用 {type:"result"} + 子进程 close 双保险,不新增 ask:exit(渲染端据此关 running)。
+//   · 终止信号 = {type:"result"}：adapter 可能自发(parseLine 解析出 result),也可能不发；
+//     进程「正常结束」(code===0/非0,非被信号 kill)时主进程**保证补发**一个终止 result,
+//     使渲染端的收尾只认 result(进程真实结束才收尾,语义对齐主会话)。被信号 kill
+//     (code===null,即 cancel/killAll 路径)**不补发**——避免取消后污染新一轮(FIX-1)。
 //   · 失败/非零退出发携带 error 的 {type:"result", ok:false} 终止事件,不抛未捕获异常(R8)。
 //   · Map<askId, child> 支持 ask:cancel(幂等) 与 killAllAsk()(退出/托盘三路清理,R7)。
-//   · 无 cwd(homedir 退化)时对 claude/codex 收紧 tool 能力(去掉跳审批/bypass 标志,R9/KTD8)。
+//   · 调用方传 tightenTools=true(无项目会话)时,对 claude/codex 收紧 tool 能力
+//     (去掉跳审批/bypass 标志,R9/KTD8)——显式标志,不靠主进程猜 cwd(FIX-3)。
 
 import { ipcMain, type WebContents } from "electron";
-import { homedir } from "os";
 import type { AgentKind, AskFollowupRequest, CliStreamEvent } from "./types";
 import { getAdapter } from "../agents";
 import { writePiExtension } from "../agents/pi-providers";
@@ -16,10 +19,11 @@ import { type AgentProcess, pipeStdoutLines, spawnEnvFor, startAgentProcess } fr
 
 const running = new Map<string, AgentProcess>();
 
-// 无项目工作目录(cwd 退化到 homedir)时,跳审批的 tool 会在用户主目录真实执行,有误伤风险。
+// 无项目会话时,跳审批的 tool 会在用户文档/主目录真实执行,有误伤风险。
 // 此处对 claude/codex 去掉「跳审批/bypass 沙箱」标志,让其回退到默认审批/沙箱;
 // print 模式下无人审批 ⇒ 有副作用的 tool 会被拒(只读应答仍可用),满足 R9。
-// pi 不在此列(无对应的全局跳审批标志)。
+// pi 不在此列(无对应的全局跳审批标志)。是否收紧由调用方显式 req.tightenTools 决定,
+// 不靠主进程猜 cwd——真实无项目 cwd 是 Documents/cortex/<date>,非 homedir(FIX-3)。
 const TIGHTEN_FLAGS: Record<string, string[]> = {
   claude: ["--dangerously-skip-permissions"],
   codex: ["--dangerously-bypass-approvals-and-sandbox"],
@@ -29,11 +33,6 @@ function tightenArgs(agent: AgentKind, args: string[]): string[] {
   const drop = TIGHTEN_FLAGS[agent];
   if (!drop) return args;
   return args.filter((a) => !drop.includes(a));
-}
-
-// cwd 缺失或退化到用户主目录 = 无项目会话,需收紧 tool。
-function isNoProjectCwd(cwd: string | undefined): boolean {
-  return !cwd || cwd === homedir();
 }
 
 export function registerAskHandlers(): void {
@@ -57,7 +56,7 @@ export function registerAskHandlers(): void {
       provider: req.provider,
       piExtensionPath,
     });
-    const args = isNoProjectCwd(req.cwd) ? tightenArgs(req.agent, built.args) : built.args;
+    const args = req.tightenTools ? tightenArgs(req.agent, built.args) : built.args;
 
     const proc = startAgentProcess(built.cmd, args, {
       cwd: req.cwd,
@@ -65,7 +64,11 @@ export function registerAskHandlers(): void {
     });
     running.set(req.askId, proc);
 
+    // 本轮是否已发过终止 result(adapter 自发 或 主进程补发)。onExit/onError 据此避免重复终止信号,
+    // 也保证「进程正常结束」一定有一个 result 到达渲染端(FIX-1)。
+    let resultSent = false;
     const sendEvent = (ev: CliStreamEvent) => {
+      if (ev.type === "result") resultSent = true;
       if (!sender.isDestroyed()) sender.send("ask:event", { askId: req.askId, event: ev });
     };
 
@@ -95,10 +98,16 @@ export function registerAskHandlers(): void {
     });
 
     proc.onExit((code) => {
-      flushStdout(); // 冲刷无换行结尾的最后一行
+      flushStdout(); // 冲刷无换行结尾的最后一行(可能含 adapter 自发的 result)
       cleanup();
-      // 非零退出且 adapter 未自发 result(如进程被外部杀)→ 补发携带 stderr 的失败终止信号。
-      if (code !== 0 && code !== null) {
+      // code===null = 被信号 kill(cancel/killAll 路径)→ 不补发,避免取消后污染新一轮(FIX-1)。
+      if (code === null) return;
+      // 进程正常结束(无论 code 是否为 0):若 adapter 未自发 result,主进程补发明确终止信号,
+      // 保证渲染端「只认 result 收尾」一定能收到一个(防长思考/冷启动间隔被误判 done)。
+      if (resultSent) return;
+      if (code === 0) {
+        sendEvent({ type: "result", ok: true });
+      } else {
         const error = stderrTail.trim() || `退出码 ${code}`;
         console.error(`[ask] ${req.agent} exited with code ${code}: ${error}`);
         sendEvent({ type: "result", ok: false, error });

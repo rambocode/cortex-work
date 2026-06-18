@@ -281,10 +281,10 @@ export function PersonalChatArea({
                 {speaking ? <Icon.Stop size={15} /> : <Icon.Run size={15} />}
               </button>
             ) : null}
-            {/* 追问入口(U5):仅桌面端(bridge.askFollowupStream 存在)渲染,Web/旧壳自动降级(R1)。
-                排在复制/朗读之后,形成固定次序。无 cwd(homedir 退化)的 tool 安全由主进程
-                按 cwd 收紧(R9/KTD8),此处不额外禁用——cwd 为空主进程退 homedir 且收紧 tool。 */}
-            {bridge?.askFollowupStream ? (
+            {/* 追问入口(U5):需桌面端三方法齐备才渲染(FIX-2)——askFollowupStream 发起、
+                onAskFollowupEvent 订阅事件、cancelFollowup 取消;任一缺失(Web/旧壳)则降级隐藏,
+                避免「按钮可点但事件订阅早退/cancel no-op 留孤儿」(R1)。排在复制/朗读之后,固定次序。 */}
+            {bridge?.askFollowupStream && bridge?.onAskFollowupEvent && bridge?.cancelFollowup ? (
               <button
                 type="button"
                 className="m-act-btn"
@@ -323,7 +323,8 @@ export function PersonalChatArea({
         };
       }
     }
-    return { agent: session.agent, model: session.model, cwd, provider };
+    // 无真实项目 = 无项目会话 → 收紧 tool(FIX-3,显式标志,主进程据此剥离跳审批/bypass)。
+    return { agent: session.agent, model: session.model, cwd, tightenTools: !realProject, provider };
     // 用 session 的细粒度字段做依赖(而非整对象),保引用稳定避免无谓重渲染(同 syntheticNoProject)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -333,6 +334,7 @@ export function PersonalChatArea({
     session?.providerId,
     session?.noProjectDir,
     realProject?.path,
+    realProject,
     providerSettings,
   ]);
 

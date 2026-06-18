@@ -3,12 +3,11 @@
 //   · ask:cancel kill + 删表 + 幂等;killAllAsk 全清;
 //   · 非零退出发携带 error 的 result 终止事件,不抛;
 //   · pi + provider:buildArgs 含 -e <extension> 且注入 PI key;无 provider 不加;
-//   · 无 cwd(homedir 退化):claude/codex 去掉跳审批/bypass 标志(R9);
-//   · 终止后迟到 stdout 行不再发事件。
+//   · tightenTools=true:claude/codex 去掉跳审批/bypass 标志(R9,显式标志);
+//   · 正常结束补发 result(FIX-1);终止后迟到 stdout 行不再发事件。
 // electron / child_process / fs 在测试环境整体 mock(仿 cli.test.ts)。
 
 import { EventEmitter } from "node:events";
-import { homedir } from "node:os";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const spawnMock = vi.fn();
@@ -176,6 +175,39 @@ describe("失败态(R8)", () => {
   });
 });
 
+describe("正常结束的终止信号补发(FIX-1)", () => {
+  it("code===0 且 adapter 未自发 result → 补发 {type:result, ok:true}", () => {
+    const { sent, child } = startAsk(baseReq);
+    // 只发一段未含 result 的 text,然后进程正常退出。
+    child.stdout.emit(
+      "data",
+      JSON.stringify({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "答" } } }) + "\n",
+    );
+    child.emit("close", 0);
+    const evs = askEvents(sent);
+    expect(evs).toContainEqual({ type: "text", delta: "答" });
+    expect(evs).toContainEqual({ type: "result", ok: true });
+  });
+
+  it("code===0 且 adapter 已自发 result → 不重复补发(只一个 result)", () => {
+    const { sent, child } = startAsk(baseReq);
+    // adapter 自发 result(claude 的 type:result 行),退出时不应再补发。
+    child.stdout.emit("data", JSON.stringify({ type: "result", subtype: "success", result: "完成" }) + "\n");
+    child.emit("close", 0);
+    const results = askEvents(sent).filter((e) => (e as { type: string }).type === "result");
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual({ type: "result", ok: true, text: "完成" });
+  });
+
+  it("code===null(被 kill/cancel) → 不补发任何 result", () => {
+    const { sent, child } = startAsk(baseReq);
+    void handlers.get("ask:cancel")!(null, "ask-1");
+    child.emit("close", null);
+    const results = askEvents(sent).filter((e) => (e as { type: string }).type === "result");
+    expect(results).toHaveLength(0);
+  });
+});
+
 describe("pi 自定义供应商装配(KTD6)", () => {
   const provider = { id: "qwen", baseUrl: "https://x", apiKey: "sk-pi", models: [{ id: "m1" }] };
 
@@ -197,21 +229,33 @@ describe("pi 自定义供应商装配(KTD6)", () => {
   });
 });
 
-describe("无 cwd tool 收紧(R9/KTD8)", () => {
-  it("claude:cwd=homedir 去掉 --dangerously-skip-permissions", () => {
-    startAsk({ ...baseReq, askId: "ask-h", cwd: homedir() });
+describe("tightenTools 显式收紧(R9/KTD8,FIX-3)", () => {
+  it("tightenTools=true:claude 去掉 --dangerously-skip-permissions", () => {
+    startAsk({ ...baseReq, askId: "ask-h", tightenTools: true });
     const [, args] = spawnMock.mock.calls[0]!;
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
-  it("codex:cwd=homedir 去掉 --dangerously-bypass-approvals-and-sandbox", () => {
-    startAsk({ ...baseReq, askId: "ask-h2", agent: "codex", cwd: homedir() });
+  it("tightenTools=true:codex 去掉 --dangerously-bypass-approvals-and-sandbox", () => {
+    startAsk({ ...baseReq, askId: "ask-h2", agent: "codex", tightenTools: true });
     const [, args] = spawnMock.mock.calls[0]!;
     expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
-  it("有项目 cwd:claude 保留 --dangerously-skip-permissions", () => {
+  it("tightenTools=false(默认):claude 保留 --dangerously-skip-permissions", () => {
     startAsk({ ...baseReq, askId: "ask-p" });
+    const [, args] = spawnMock.mock.calls[0]!;
+    expect(args).toContain("--dangerously-skip-permissions");
+  });
+
+  it("tightenTools=false:codex 保留 --dangerously-bypass-approvals-and-sandbox", () => {
+    startAsk({ ...baseReq, askId: "ask-p2", agent: "codex", tightenTools: false });
+    const [, args] = spawnMock.mock.calls[0]!;
+    expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  it("真实无项目 cwd(Documents/cortex/<date>)但未传 tightenTools → 不再误判,保留标志", () => {
+    startAsk({ ...baseReq, askId: "ask-np", cwd: "/Users/x/Documents/cortex/2026-06-18" });
     const [, args] = spawnMock.mock.calls[0]!;
     expect(args).toContain("--dangerously-skip-permissions");
   });

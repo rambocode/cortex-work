@@ -93,7 +93,8 @@ describe("FollowupOverlay（U4）", () => {
     render(<FollowupOverlay seed={seed} sessionCtx={ctxClaude} onClose={() => {}} />);
     expect(screen.getByText("执行出错: boom")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /重试/ }));
-    expect(askSpy).toHaveBeenCalledWith("重试我");
+    // 重试传 (question, retryOf=turn.id),hook 据此原位替换该轮(FIX-6)。
+    expect(askSpy).toHaveBeenCalledWith("重试我", "a1");
     // 输入恢复可用(非 running)。
     expect(screen.getByRole("textbox")).not.toBeDisabled();
   });
