@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
 import { PaletteChips, type PaletteOption } from "@cortex-work/ui/controls/PaletteChips";
 import type { Density, Palette, SidebarMode, Tweaks } from "@cortex-work/core/types";
@@ -16,6 +17,7 @@ export interface TweaksPanelProps {
 }
 
 export function TweaksPanel({ tweaks, onSetTweak }: TweaksPanelProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   if (!open) {
@@ -30,22 +32,22 @@ export function TweaksPanel({ tweaks, onSetTweak }: TweaksPanelProps) {
     <div className="twk-panel">
       <div className="twk-hd">
         <b>Tweaks</b>
-        <button className="twk-x" aria-label="关闭" onClick={() => setOpen(false)}>
+        <button className="twk-x" aria-label={t("tweaks.close")} onClick={() => setOpen(false)}>
           ✕
         </button>
       </div>
       <div className="twk-body">
-        <div className="twk-sect">布局密度 · Density</div>
+        <div className="twk-sect">{t("tweaks.density")}</div>
         <SegmentedRadio
           value={tweaks.density}
           options={["compact", "regular", "cozy"]}
           onChange={(v) => onSetTweak("density", v as Density)}
         />
 
-        <div className="twk-sect">品牌色调 · Palette</div>
+        <div className="twk-sect">{t("tweaks.palette")}</div>
         <PaletteChips value={tweaks.palette} options={PALETTES} onChange={(v) => onSetTweak("palette", v as Palette)} />
 
-        <div className="twk-sect">侧栏样式 · Sidebar</div>
+        <div className="twk-sect">{t("tweaks.sidebar")}</div>
         <SegmentedRadio
           value={tweaks.sidebar}
           options={["rich", "minimal", "activity"]}

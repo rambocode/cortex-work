@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { GROUPS, type Section } from "@cortex-work/core";
 import type { Contact, Group, SidebarMode } from "@cortex-work/core/types";
 import { OrgSwitcher } from "./OrgSwitcher";
@@ -20,56 +21,57 @@ function SidebarTop({
   onNavigate: (section: Section) => void;
   sectionCounts?: Partial<Record<"tasks" | "agents" | "usage", number | string>>;
 }) {
+  const { t } = useTranslation();
   const click = (label: string) => () => onToast(label);
   const nav = (section: Section) => () => onNavigate(section);
   return (
     <div className="sb-top">
-      <button className="sb-row" onClick={click("新消息 · 选择一个联系人开始")}>
+      <button className="sb-row" onClick={click(t("sidebar.newMessageToast"))}>
         <Icon.Edit size={15} />
-        <span className="label">新消息</span>
+        <span className="label">{t("sidebar.newMessage")}</span>
         <span className="kbd">⌘N</span>
       </button>
       <div className="sb-row sb-search">
         <Icon.Search size={15} />
         <input
           className="sb-search-input"
-          placeholder="搜索联系人 / 对话"
+          placeholder={t("sidebar.searchPlaceholder")}
           value={search}
           onChange={(e) => onSearch(e.target.value)}
         />
         {search ? (
-          <button className="sb-clear" onClick={() => onSearch("")} title="清除">
+          <button className="sb-clear" onClick={() => onSearch("")} title={t("sidebar.clear")}>
             <Icon.X size={12} />
           </button>
         ) : (
           <span className="kbd">⌘K</span>
         )}
       </div>
-      <button className="sb-row" onClick={click("已查看提及与提醒")}>
+      <button className="sb-row" onClick={click(t("sidebar.mentionsToast"))}>
         <Icon.At size={15} />
-        <span className="label">提及与提醒</span>
+        <span className="label">{t("sidebar.mentions")}</span>
         <span className="kbd" style={{ color: "var(--accent)", fontWeight: 500 }}>
           3
         </span>
       </button>
-      <button className="sb-row" onClick={click("自动化 · 2 条已启用")}>
+      <button className="sb-row" onClick={click(t("sidebar.automationToast"))}>
         <Icon.Workflow size={15} />
-        <span className="label">自动化</span>
+        <span className="label">{t("sidebar.automation")}</span>
         <span className="kbd">2</span>
       </button>
       <button className={`sb-row ${activeSection === "tasks" ? "is-active" : ""}`} onClick={nav("tasks")}>
         <Icon.Task size={15} />
-        <span className="label">任务</span>
+        <span className="label">{t("sidebar.tasks")}</span>
         <span className="kbd">{sectionCounts?.tasks ?? 5}</span>
       </button>
       <button className={`sb-row ${activeSection === "agents" ? "is-active" : ""}`} onClick={nav("agents")}>
         <Icon.Bot size={15} />
-        <span className="label">智能体</span>
+        <span className="label">{t("sidebar.agents")}</span>
         <span className="kbd">{sectionCounts?.agents ?? 8}</span>
       </button>
       <button className={`sb-row ${activeSection === "usage" ? "is-active" : ""}`} onClick={nav("usage")}>
         <Icon.Chart size={15} />
-        <span className="label">用量</span>
+        <span className="label">{t("sidebar.usage")}</span>
         {sectionCounts?.usage !== undefined ? <span className="kbd">{sectionCounts.usage}</span> : null}
       </button>
     </div>
@@ -77,16 +79,17 @@ function SidebarTop({
 }
 
 function LastMessage({ item, mode }: { item: Contact; mode: SidebarMode }) {
+  const { t } = useTranslation();
   if (mode === "minimal") return null;
 
   if (mode === "activity") {
     const status = item.agentStatus;
     const map: Record<string, { c: string; text: string }> = {
-      working: { c: "var(--amber)", text: item.statusText || "Agent 正在工作" },
-      review: { c: "var(--blue)", text: item.statusText || "有产出待审" },
-      online: { c: "var(--green)", text: item.statusText || "在线" },
-      idle: { c: "var(--text-3)", text: item.statusText || "空闲" },
-      offline: { c: "var(--text-4)", text: item.statusText || "离线" },
+      working: { c: "var(--amber)", text: item.statusText || t("sidebar.agentWorking") },
+      review: { c: "var(--blue)", text: item.statusText || t("sidebar.hasReview") },
+      online: { c: "var(--green)", text: item.statusText || t("sidebar.online") },
+      idle: { c: "var(--text-3)", text: item.statusText || t("sidebar.idle") },
+      offline: { c: "var(--text-4)", text: item.statusText || t("sidebar.offline") },
     };
     const s = map[status] || map.idle!;
     return (
@@ -133,7 +136,7 @@ function LastMessage({ item, mode }: { item: Contact; mode: SidebarMode }) {
   if (last.kind === "mention") {
     return (
       <div className="last" style={{ color: "var(--text-1)", fontWeight: 500 }}>
-        <span className="mention">@你</span>
+        <span className="mention">{t("sidebar.mentionYou")}</span>
         {last.text.replace("@你", "")}
       </div>
     );
@@ -247,6 +250,7 @@ export function Sidebar({
   onNavigate,
   sectionCounts,
 }: SidebarProps) {
+  const { t } = useTranslation();
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const totalMatches = search ? contacts.filter((c) => matches(c, search)).length : null;
   // In a non-chat section no contact is "active".
@@ -283,7 +287,7 @@ export function Sidebar({
         {search && totalMatches === 0 ? (
           <div className="sb-empty">
             <Icon.Search size={22} />
-            <div>未找到匹配 “{search}” 的联系人</div>
+            <div>{t("sidebar.noMatch", { query: search })}</div>
           </div>
         ) : null}
       </div>
@@ -292,23 +296,23 @@ export function Sidebar({
           {settingsMenuOpen ? (
             <div className="settings-popover" role="menu">
               <button className="settings-popover-item" role="menuitem" onClick={openSettings}>
-                <span className="settings-popover-icon">我</span>
-                <span>个人资料</span>
+                <span className="settings-popover-icon">{t("sidebar.meInitial")}</span>
+                <span>{t("sidebar.profile")}</span>
               </button>
               <button className="settings-popover-item" role="menuitem" onClick={openSettings}>
                 <Icon.Settings size={14} />
-                <span>设置</span>
+                <span>{t("sidebar.settings")}</span>
               </button>
               <button
                 className="settings-popover-item danger"
                 role="menuitem"
                 onClick={() => {
                   setSettingsMenuOpen(false);
-                  onToast("退出登录 · Demo");
+                  onToast(t("sidebar.logoutToast"));
                 }}
               >
                 <Icon.X size={14} />
-                <span>退出</span>
+                <span>{t("sidebar.logout")}</span>
               </button>
             </div>
           ) : null}
@@ -317,7 +321,7 @@ export function Sidebar({
             onClick={() => setSettingsMenuOpen((open) => !open)}
           >
             <Icon.Settings size={15} />
-            <span className="label">设置</span>
+            <span className="label">{t("sidebar.settings")}</span>
             <span className="kbd">⌘,</span>
           </button>
         </div>

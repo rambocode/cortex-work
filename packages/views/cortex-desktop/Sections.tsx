@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@cortex-work/ui/icons";
+import { useTranslation } from "@cortex-work/core/i18n";
 import {
   agentActivity30dOptions,
   agentListOptions,
@@ -42,22 +43,23 @@ function InlineState({ title, detail }: { title: string; detail?: string }) {
   );
 }
 
-const ISSUE_STATUS: { id: IssueStatus; label: string; cls: string }[] = [
-  { id: "backlog", label: "待规划", cls: "s-gray" },
-  { id: "todo", label: "待办", cls: "s-blue" },
-  { id: "in_progress", label: "进行中", cls: "s-amber" },
-  { id: "in_review", label: "审核中", cls: "s-green" },
+const ISSUE_STATUS: { id: IssueStatus; labelKey: string; cls: string }[] = [
+  { id: "backlog", labelKey: "sections.issueStatus.backlog", cls: "s-gray" },
+  { id: "todo", labelKey: "sections.issueStatus.todo", cls: "s-blue" },
+  { id: "in_progress", labelKey: "sections.issueStatus.inProgress", cls: "s-amber" },
+  { id: "in_review", labelKey: "sections.issueStatus.inReview", cls: "s-green" },
 ];
 
-const PRIORITY_LABEL: Record<IssuePriority, string> = {
-  urgent: "紧急",
-  high: "高",
-  medium: "中",
-  low: "低",
-  none: "无",
+const PRIORITY_LABEL_KEY: Record<IssuePriority, string> = {
+  urgent: "sections.priority.urgent",
+  high: "sections.priority.high",
+  medium: "sections.priority.medium",
+  low: "sections.priority.low",
+  none: "sections.priority.none",
 };
 
 function TasksPage() {
+  const { t } = useTranslation();
   const wsId = useWorkspaceId();
   const { apiClient, liveDataEnabled } = useCoreContext();
   const query = useQuery(issueListOptions(wsId, apiClient));
@@ -68,12 +70,12 @@ function TasksPage() {
 
   return (
     <MulticaPageShell className="issue-page">
-      <IssuePageHeader total={issues.length} open={open} detail={query.isLoading ? "正在读取 issue" : "内的全部 issue"} />
+      <IssuePageHeader total={issues.length} open={open} detail={query.isLoading ? t("sections.loadingIssue") : t("sections.allIssues")} />
       <div className="section-body mc-section-body">
         {query.isError ? (
-          <InlineState title="任务加载失败" detail={query.error instanceof Error ? query.error.message : "请检查 API token 和 workspace 配置"} />
+          <InlineState title={t("sections.taskLoadFailed")} detail={query.error instanceof Error ? query.error.message : t("sections.taskLoadFailedDetail")} />
         ) : query.isLoading ? (
-          <InlineState title="正在加载任务" />
+          <InlineState title={t("sections.loadingTasks")} />
         ) : (
           <IssueBoard issues={issues} />
         )}
@@ -83,6 +85,7 @@ function TasksPage() {
 }
 
 function IssuePageHeader({ total, open, detail }: { total: number; open: number; detail: string }) {
+  const { t } = useTranslation();
   return (
     <>
       <div className="issue-breadcrumb">
@@ -93,18 +96,18 @@ function IssuePageHeader({ total, open, detail }: { total: number; open: number;
       </div>
       <div className="issue-filterbar">
         <div className="mc-chip-group">
-          <button className="mc-chip is-active">全部</button>
-          <button className="mc-chip">成员</button>
-          <button className="mc-chip">智能体</button>
+          <button className="mc-chip is-active">{t("sections.all")}</button>
+          <button className="mc-chip">{t("sections.members")}</button>
+          <button className="mc-chip">{t("sections.agents")}</button>
         </div>
         <div className="mc-spacer" />
-        <button className="mc-icon-btn" aria-label="筛选">
+        <button className="mc-icon-btn" aria-label={t("sections.filter")}>
           <Icon.Search size={14} />
         </button>
-        <button className="mc-icon-btn" aria-label="排序">
+        <button className="mc-icon-btn" aria-label={t("sections.sort")}>
           <Icon.Settings size={14} />
         </button>
-        <button className="mc-icon-btn" aria-label="列设置">
+        <button className="mc-icon-btn" aria-label={t("sections.columnSettings")}>
           <Icon.Sidebar size={14} />
         </button>
       </div>
@@ -117,25 +120,27 @@ function IssuePageHeader({ total, open, detail }: { total: number; open: number;
 }
 
 function IssueBoard({ issues }: { issues: Issue[] }) {
+  const { t } = useTranslation();
   return (
     <div className="issue-board multica-issue-board">
       {ISSUE_STATUS.map((status) => {
         const list = issues.filter((i) => i.status === status.id);
+        const statusLabel = t(status.labelKey);
         return (
           <div key={status.id} className={`issue-col issue-col-${status.id}`}>
             <div className="issue-col-h">
               <span className={`issue-status-dot ${status.cls}`} />
-              <span className="issue-col-title">{status.label}</span>
+              <span className="issue-col-title">{statusLabel}</span>
               <span className="issue-count">{list.length}</span>
-              <button className="mc-icon-btn issue-col-action" aria-label={`${status.label} 更多`}>
+              <button className="mc-icon-btn issue-col-action" aria-label={t("sections.moreAria", { name: statusLabel })}>
                 <Icon.More size={13} />
               </button>
-              <button className="mc-icon-btn issue-col-action" aria-label={`${status.label} 新建`}>
+              <button className="mc-icon-btn issue-col-action" aria-label={t("sections.newAria", { name: statusLabel })}>
                 <Icon.Plus size={13} />
               </button>
             </div>
             <div className="issue-cards">
-              {list.length === 0 ? <div className="issue-empty">无 issue</div> : null}
+              {list.length === 0 ? <div className="issue-empty">{t("sections.noIssue")}</div> : null}
               {list.slice(0, 12).map((issue) => <IssueCard key={issue.id} issue={issue} />)}
             </div>
           </div>
@@ -146,6 +151,7 @@ function IssueBoard({ issues }: { issues: Issue[] }) {
 }
 
 function IssueCard({ issue }: { issue: Issue }) {
+  const { t } = useTranslation();
   return (
     <div className="issue-card">
       <div className="issue-card-top">
@@ -157,9 +163,9 @@ function IssueCard({ issue }: { issue: Issue }) {
         <span className="agent-avatar-mini">C</span>
         <span className={`issue-priority p-${issue.priority}`}>
           <Icon.Chart size={11} />
-          {PRIORITY_LABEL[issue.priority]}
+          {t(PRIORITY_LABEL_KEY[issue.priority])}
         </span>
-        {issue.due_date ? <span className="issue-due">截止 {shortDate(issue.due_date)}</span> : null}
+        {issue.due_date ? <span className="issue-due">{t("sections.due", { date: shortDate(issue.due_date) })}</span> : null}
       </div>
       {issue.labels?.length ? (
         <div className="issue-labels">
@@ -175,10 +181,11 @@ function IssueCard({ issue }: { issue: Issue }) {
 }
 
 function DemoTasksPage() {
+  const { t } = useTranslation();
   const open = MOCK_ISSUES.filter((i) => !["done", "cancelled"].includes(i.status)).length;
   return (
     <MulticaPageShell className="issue-page">
-      <IssuePageHeader total={MOCK_ISSUES.length} open={open} detail="内的全部 issue" />
+      <IssuePageHeader total={MOCK_ISSUES.length} open={open} detail={t("sections.allIssues")} />
       <div className="section-body mc-section-body">
         <IssueBoard issues={MOCK_ISSUES} />
       </div>
@@ -212,6 +219,7 @@ const MOCK_ISSUES: Issue[] = [
 ];
 
 function AgentsPage() {
+  const { t } = useTranslation();
   const wsId = useWorkspaceId();
   const { apiClient, liveDataEnabled } = useCoreContext();
   const agentsQuery = useQuery(agentListOptions(wsId, apiClient));
@@ -225,18 +233,18 @@ function AgentsPage() {
   const tasks = tasksQuery.data ?? [];
   const runs = runsQuery.data ?? [];
   const activity = activityQuery.data ?? [];
-  const rows = agents.map((agent) => liveAgentRow(agent, tasks, runs, activity));
+  const rows = agents.map((agent) => liveAgentRow(agent, tasks, runs, activity, t));
 
   return (
     <MulticaPageShell className="agents-page">
       <AgentsHeader count={agents.length} />
       <div className="section-body mc-section-body">
         {agentsQuery.isError ? (
-          <InlineState title="智能体加载失败" detail={agentsQuery.error instanceof Error ? agentsQuery.error.message : "请检查 API 配置"} />
+          <InlineState title={t("sections.agentLoadFailed")} detail={agentsQuery.error instanceof Error ? agentsQuery.error.message : t("sections.agentLoadFailedDetail")} />
         ) : agentsQuery.isLoading ? (
-          <InlineState title="正在加载智能体" />
+          <InlineState title={t("sections.loadingAgents")} />
         ) : rows.length === 0 ? (
-          <InlineState title="暂无智能体" />
+          <InlineState title={t("sections.noAgents")} />
         ) : (
           <AgentTable rows={rows} />
         )}
@@ -261,12 +269,14 @@ type AgentTableRow = {
   isSelf?: boolean;
 };
 
-function liveAgentRow(agent: LiveAgent, tasks: AgentTask[], runs: AgentRunCount[], activity: AgentActivityBucket[]): AgentTableRow {
-  const activeTasks = tasks.filter((t) => t.agent_id === agent.id && ["queued", "dispatched", "running"].includes(t.status));
-  const latestTask = tasks.find((t) => t.agent_id === agent.id);
+type Translate = (key: string, opts?: Record<string, unknown>) => string;
+
+function liveAgentRow(agent: LiveAgent, tasks: AgentTask[], runs: AgentRunCount[], activity: AgentActivityBucket[], t: Translate): AgentTableRow {
+  const activeTasks = tasks.filter((task) => task.agent_id === agent.id && ["queued", "dispatched", "running"].includes(task.status));
+  const latestTask = tasks.find((task) => task.agent_id === agent.id);
   const runCount = runs.find((r) => r.agent_id === agent.id)?.run_count ?? 0;
   const activityCount = activity.filter((a) => a.agent_id === agent.id).reduce((sum, row) => sum + row.task_count, 0);
-  const tone = agentTone(agent, activeTasks);
+  const tone = agentTone(agent, activeTasks, t);
   return {
     id: agent.id,
     name: agent.name,
@@ -274,9 +284,9 @@ function liveAgentRow(agent: LiveAgent, tasks: AgentTask[], runs: AgentRunCount[
     statusLabel: tone.label,
     statusClass: tone.cls,
     statusDot: tone.dot,
-    workload: activeTasks.length > 0 ? `${activeTasks.length} 个活跃任务` : "空闲",
+    workload: activeTasks.length > 0 ? t("sections.activeTasks", { count: activeTasks.length }) : t("sections.idle"),
     runtime: agent.runtime_mode || agent.model || "Codex",
-    activityLabel: latestTask ? taskTitle(latestTask) : "过去 7 天无新活动",
+    activityLabel: latestTask ? taskTitle(latestTask) : t("sections.noRecentActivity"),
     runs: runCount || activityCount,
     avatarText: initials(agent.name),
     avatarBg: avatarColor(agent.id),
@@ -284,69 +294,73 @@ function liveAgentRow(agent: LiveAgent, tasks: AgentTask[], runs: AgentRunCount[
 }
 
 function DemoAgentsPage() {
+  const { t } = useTranslation();
+  const rows = mockAgentRows(t);
   return (
     <MulticaPageShell className="agents-page">
-      <AgentsHeader count={MOCK_AGENT_ROWS.length} />
+      <AgentsHeader count={rows.length} />
       <div className="section-body mc-section-body">
-        <AgentTable rows={MOCK_AGENT_ROWS} />
+        <AgentTable rows={rows} />
       </div>
     </MulticaPageShell>
   );
 }
 
 function AgentsHeader({ count }: { count: number }) {
+  const { t } = useTranslation();
   return (
     <>
       <div className="mc-topbar agent-topbar">
         <div className="mc-heading">
           <div className="mc-title-row">
             <Icon.Bot size={15} />
-            <span className="mc-title">智能体</span>
+            <span className="mc-title">{t("sections.agentsTitle")}</span>
             <span className="mc-count">{count}</span>
-            <span className="mc-subtitle-inline">能领取 issue、留下评论、推进状态的 AI 队友。了解更多 →</span>
+            <span className="mc-subtitle-inline">{t("sections.agentsSubtitle")}</span>
           </div>
         </div>
         <button className="mc-primary-btn">
           <Icon.Plus size={14} />
-          新建智能体
+          {t("sections.newAgent")}
         </button>
       </div>
       <div className="agent-toolbar">
         <label className="mc-searchbox">
           <Icon.Search size={14} />
-          <input placeholder="搜索智能体..." readOnly />
+          <input placeholder={t("sections.searchAgents")} readOnly />
         </label>
         <div className="mc-chip-group">
-          <button className="mc-chip is-active">我的 <span>{count}</span></button>
-          <button className="mc-chip">全部 <span>{count}</span></button>
+          <button className="mc-chip is-active">{t("sections.mine")} <span>{count}</span></button>
+          <button className="mc-chip">{t("sections.all")} <span>{count}</span></button>
         </div>
         <div className="mc-spacer" />
-        <span className="agent-pager">1 / 1</span>
+        <span className="agent-pager">{t("sections.pager")}</span>
         <button className="mc-ghost-btn">
           <Icon.Share size={14} />
-          最近活跃
+          {t("sections.recentlyActive")}
         </button>
       </div>
       <div className="agent-status-filters">
-        <button className="mc-chip is-active">全部 {count}</button>
-        <button className="mc-chip"><span className="mini-dot green" />在线 {count}</button>
-        <button className="mc-chip"><span className="mini-dot amber" />不稳定 0</button>
-        <button className="mc-chip"><span className="mini-dot gray" />离线 0</button>
+        <button className="mc-chip is-active">{t("sections.all")} {count}</button>
+        <button className="mc-chip"><span className="mini-dot green" />{t("sections.statusOnline")} {count}</button>
+        <button className="mc-chip"><span className="mini-dot amber" />{t("sections.statusUnstable")} 0</button>
+        <button className="mc-chip"><span className="mini-dot gray" />{t("sections.statusOffline")} 0</button>
       </div>
     </>
   );
 }
 
 function AgentTable({ rows }: { rows: AgentTableRow[] }) {
+  const { t } = useTranslation();
   return (
     <div className="agent-table-shell">
       <div className="agent-table-head">
-        <span>智能体</span>
-        <span>状态</span>
-        <span>工作负载</span>
-        <span>运行时</span>
-        <span>活动（7 天）</span>
-        <span>运行次数</span>
+        <span>{t("sections.colAgent")}</span>
+        <span>{t("sections.colStatus")}</span>
+        <span>{t("sections.colWorkload")}</span>
+        <span>{t("sections.colRuntime")}</span>
+        <span>{t("sections.colActivity")}</span>
+        <span>{t("sections.colRuns")}</span>
         <span />
       </div>
       {rows.map((row) => (
@@ -359,7 +373,7 @@ function AgentTable({ rows }: { rows: AgentTableRow[] }) {
             <span className="agent-name-stack">
               <span className="agent-row-name">
                 {row.name}
-                {row.isSelf ? <em>你</em> : null}
+                {row.isSelf ? <em>{t("sections.self")}</em> : null}
               </span>
               <span className="agent-row-desc">{row.description}</span>
             </span>
@@ -369,7 +383,7 @@ function AgentTable({ rows }: { rows: AgentTableRow[] }) {
           <span className="agent-runtime"><Icon.Terminal size={13} />{row.runtime}</span>
           <span className="agent-activity-line">{row.activityLabel}</span>
           <span className="agent-run-count">{row.runs}</span>
-          <button className="mc-icon-btn" aria-label={`${row.name} 更多`}>
+          <button className="mc-icon-btn" aria-label={t("sections.rowMoreAria", { name: row.name })}>
             <Icon.More size={14} />
           </button>
         </div>
@@ -378,25 +392,28 @@ function AgentTable({ rows }: { rows: AgentTableRow[] }) {
   );
 }
 
-const MOCK_AGENT_ROWS: AgentTableRow[] = [
-  {
-    id: "multica-helper",
-    name: "Multica Helper",
-    description: "Default guide for your first Multica workspace...",
-    statusLabel: "在线",
-    statusClass: "s-green",
-    statusDot: "s-online",
-    workload: "空闲",
-    runtime: "Codex (MacBook-Pro.local)",
-    activityLabel: "",
-    runs: 2,
-    avatarText: "C",
-    avatarBg: "#061b1b",
-    isSelf: true,
-  },
-];
+function mockAgentRows(t: Translate): AgentTableRow[] {
+  return [
+    {
+      id: "multica-helper",
+      name: "Multica Helper",
+      description: "Default guide for your first Multica workspace...",
+      statusLabel: t("sections.statusOnline"),
+      statusClass: "s-green",
+      statusDot: "s-online",
+      workload: t("sections.idle"),
+      runtime: "Codex (MacBook-Pro.local)",
+      activityLabel: "",
+      runs: 2,
+      avatarText: "C",
+      avatarBg: "#061b1b",
+      isSelf: true,
+    },
+  ];
+}
 
 function UsagePage() {
+  const { t } = useTranslation();
   const wsId = useWorkspaceId();
   const { apiClient, liveDataEnabled } = useCoreContext();
   const days = 30;
@@ -413,7 +430,7 @@ function UsagePage() {
   const agentTime = agentTimeQuery.data ?? [];
   const runtimeDaily = runtimeDailyQuery.data ?? [];
   const agents = agentsQuery.data ?? [];
-  const stats = usageStats(daily, byAgent, agentTime, runtimeDaily);
+  const stats = usageStats(daily, byAgent, agentTime, runtimeDaily, t);
   const trend = usageTrend(daily, runtimeDaily);
   const top = topAgents(byAgent, agentTime, agents);
 
@@ -422,11 +439,11 @@ function UsagePage() {
       <UsageHeader />
       <div className="section-body mc-section-body">
         {dailyQuery.isError || byAgentQuery.isError ? (
-          <InlineState title="用量加载失败" detail="请检查 API token、workspace 和 dashboard rollup 接口。" />
+          <InlineState title={t("sections.usageLoadFailed")} detail={t("sections.usageLoadFailedDetail")} />
         ) : dailyQuery.isLoading ? (
-          <InlineState title="正在加载用量" />
+          <InlineState title={t("sections.loadingUsage")} />
         ) : daily.length === 0 && runtimeDaily.length === 0 ? (
-          <InlineState title="暂无用量数据" />
+          <InlineState title={t("sections.noUsageData")} />
         ) : (
           <UsageDashboard stats={stats} trend={trend} top={top} agentCount={agents.length} />
         )}
@@ -436,22 +453,25 @@ function UsagePage() {
 }
 
 function DemoUsagePage() {
+  const { t } = useTranslation();
   return (
     <MulticaPageShell className="usage-page">
       <UsageHeader />
       <div className="section-body mc-section-body">
-        <UsageDashboard stats={DEMO_STATS} trend={DEMO_TREND} top={DEMO_TOP_AGENTS} agentCount={1} />
+        <UsageDashboard stats={demoStats(t)} trend={DEMO_TREND} top={DEMO_TOP_AGENTS} agentCount={1} />
       </div>
     </MulticaPageShell>
   );
 }
 
-const DEMO_STATS = [
-  { label: "费用 · 30天", value: "$4.68", detail: "" },
-  { label: "TOKEN · 30天", value: "1.5M", detail: "输入 800.4K · 输出 10.9K" },
-  { label: "运行时长 · 30天", value: "3m 30s", detail: "共 2 个任务" },
-  { label: "任务数 · 30天", value: "2", detail: "失败 0 个" },
-];
+function demoStats(t: Translate) {
+  return [
+    { label: t("sections.demoCost"), value: "$4.68", detail: "" },
+    { label: t("sections.demoToken"), value: "1.5M", detail: t("sections.demoTokenDetail") },
+    { label: t("sections.demoRuntime"), value: "3m 30s", detail: t("sections.demoRuntimeDetail") },
+    { label: t("sections.demoTasks"), value: "2", detail: t("sections.demoTasksDetail") },
+  ];
+}
 
 const DEMO_TREND = [
   { label: "5/20", value: 1_500_000 },
@@ -462,24 +482,25 @@ const DEMO_TOP_AGENTS = [
 ];
 
 function UsageHeader() {
+  const { t } = useTranslation();
   return (
     <div className="mc-topbar usage-topbar">
       <div className="mc-heading">
         <div className="mc-title-row">
           <Icon.Chart size={15} />
-          <span className="mc-title">用量</span>
+          <span className="mc-title">{t("sections.usageTitle")}</span>
         </div>
-        <div className="mc-subtitle">查看当前 Workspace 的 token 消耗和智能体运行情况。</div>
+        <div className="mc-subtitle">{t("sections.usageSubtitle")}</div>
       </div>
       <div className="usage-controls">
         <button className="mc-select-btn">
           <Icon.Folder size={14} />
-          全部项目
+          {t("sections.allProjects")}
           <Icon.Chevron size={13} />
         </button>
         <div className="mc-segment">
-          <button className="is-active">按天</button>
-          <button>按周</button>
+          <button className="is-active">{t("sections.byDay")}</button>
+          <button>{t("sections.byWeek")}</button>
         </div>
         <div className="mc-segment">
           <button>1d</button>
@@ -503,6 +524,7 @@ function UsageDashboard({
   top: { id: string; name: string; pct: number; token?: string; cost?: string; runtime?: string; tasks?: number }[];
   agentCount: number;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <div className="usage-kpis">
@@ -517,12 +539,12 @@ function UsageDashboard({
 
       <div className="usage-card usage-chart-card">
         <div className="usage-card-head">
-          <h3>每日 Token</h3>
+          <h3>{t("sections.dailyToken")}</h3>
           <div className="mc-segment">
             <button className="is-active">Token</button>
-            <button>费用</button>
-            <button>运行时长</button>
-            <button>任务数</button>
+            <button>{t("sections.cost")}</button>
+            <button>{t("sections.runtimeDuration")}</button>
+            <button>{t("sections.taskCount")}</button>
           </div>
         </div>
         <UsageStackChart rows={trend} />
@@ -530,23 +552,23 @@ function UsageDashboard({
 
       <div className="usage-card">
         <div className="usage-card-head">
-          <h3>排行榜</h3>
+          <h3>{t("sections.leaderboard")}</h3>
           <div className="usage-card-actions">
             <div className="mc-segment">
               <button className="is-active">Token</button>
-              <button>费用</button>
-              <button>运行时长</button>
-              <button>任务数</button>
+              <button>{t("sections.cost")}</button>
+              <button>{t("sections.runtimeDuration")}</button>
+              <button>{t("sections.taskCount")}</button>
             </div>
-            <span>{agentCount} 个智能体</span>
+            <span>{t("sections.agentCount", { count: agentCount })}</span>
           </div>
         </div>
         <div className="usage-rank-head">
-          <span>智能体</span>
+          <span>{t("sections.colAgent")}</span>
           <span>Token</span>
-          <span>费用</span>
-          <span>运行时长</span>
-          <span>任务数</span>
+          <span>{t("sections.cost")}</span>
+          <span>{t("sections.runtimeDuration")}</span>
+          <span>{t("sections.taskCount")}</span>
         </div>
         <div className="usage-rank-list">
           {top.map((row) => (
@@ -603,16 +625,17 @@ function usageStats(
   byAgent: DashboardUsageByAgent[],
   agentTime: DashboardAgentRunTime[],
   runtimeDaily: DashboardRunTimeDaily[],
+  t: Translate,
 ) {
   const tokens = daily.reduce((sum, row) => sum + tokenTotal(row), 0);
   const tasks = runtimeDaily.reduce((sum, row) => sum + row.task_count, 0) || daily.reduce((sum, row) => sum + row.task_count, 0);
   const seconds = agentTime.reduce((sum, row) => sum + row.total_seconds, 0);
   const agentCount = new Set(byAgent.map((row) => row.agent_id)).size;
   return [
-    { label: "Token", value: compact(tokens), detail: `${daily.length} 个日期桶` },
-    { label: "任务数", value: compact(tasks), detail: `${agentCount} 个智能体产生用量` },
-    { label: "总时长", value: duration(seconds), detail: "终态任务运行时间" },
-    { label: "失败任务", value: compact(runtimeDaily.reduce((sum, row) => sum + row.failed_count, 0)), detail: "包含失败终态" },
+    { label: "Token", value: compact(tokens), detail: t("sections.statBucket", { count: daily.length }) },
+    { label: t("sections.taskCount"), value: compact(tasks), detail: t("sections.statAgentsUsage", { count: agentCount }) },
+    { label: t("sections.statTotalDuration"), value: duration(seconds), detail: t("sections.statTotalDurationDetail") },
+    { label: t("sections.statFailedTasks"), value: compact(runtimeDaily.reduce((sum, row) => sum + row.failed_count, 0)), detail: t("sections.statFailedTasksDetail") },
   ];
 }
 
@@ -669,12 +692,12 @@ function avatarColor(id: string): string {
   return colors[hash]!;
 }
 
-function agentTone(agent: LiveAgent, activeTasks: AgentTask[]) {
-  if (activeTasks.some((t) => t.status === "running")) return { cls: "s-amber", label: "运行中", dot: "s-working" };
-  if (activeTasks.length > 0) return { cls: "s-blue", label: "排队中", dot: "s-review" };
-  if (agent.status === "offline") return { cls: "s-gray", label: "离线", dot: "s-offline" };
-  if (agent.status === "error" || agent.status === "blocked") return { cls: "s-red", label: "异常", dot: "s-offline" };
-  return { cls: "s-green", label: "可用", dot: "s-online" };
+function agentTone(agent: LiveAgent, activeTasks: AgentTask[], t: Translate) {
+  if (activeTasks.some((task) => task.status === "running")) return { cls: "s-amber", label: t("sections.statusRunning"), dot: "s-working" };
+  if (activeTasks.length > 0) return { cls: "s-blue", label: t("sections.statusQueued"), dot: "s-review" };
+  if (agent.status === "offline") return { cls: "s-gray", label: t("sections.statusOfflineLabel"), dot: "s-offline" };
+  if (agent.status === "error" || agent.status === "blocked") return { cls: "s-red", label: t("sections.statusError"), dot: "s-offline" };
+  return { cls: "s-green", label: t("sections.statusAvailable"), dot: "s-online" };
 }
 
 function taskTitle(task: AgentTask): string {
@@ -683,27 +706,28 @@ function taskTitle(task: AgentTask): string {
 
 type SettingsTab = "profile" | "config" | "runtime" | "skill";
 
-const SETTINGS_TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
-  { id: "profile", label: "个人资料", icon: <Icon.Users size={15} /> },
-  { id: "config", label: "配置", icon: <Icon.Settings size={15} /> },
-  { id: "runtime", label: "运行时", icon: <Icon.Terminal size={15} /> },
-  { id: "skill", label: "skill", icon: <Icon.Code size={15} /> },
+const SETTINGS_TABS: { id: SettingsTab; labelKey: string; icon: ReactNode }[] = [
+  { id: "profile", labelKey: "sections.settingsTabProfile", icon: <Icon.Users size={15} /> },
+  { id: "config", labelKey: "sections.settingsTabConfig", icon: <Icon.Settings size={15} /> },
+  { id: "runtime", labelKey: "sections.settingsTabRuntime", icon: <Icon.Terminal size={15} /> },
+  { id: "skill", labelKey: "sections.settingsTabSkill", icon: <Icon.Code size={15} /> },
 ];
 
 function SettingsPage() {
+  const { t } = useTranslation();
   const [active, setActive] = useState<SettingsTab>("profile");
   return (
     <MulticaPageShell className="settings-page">
       <div className="settings-sidebar">
         <button className="settings-back" onClick={() => useCortexUIStore.getState().setSection("chat")}>
           <Icon.Back size={15} />
-          返回应用
+          {t("sections.settingsBack")}
         </button>
-        <nav className="settings-nav" aria-label="设置菜单">
+        <nav className="settings-nav" aria-label={t("sections.settingsMenuAria")}>
           {SETTINGS_TABS.map((tab) => (
             <button key={tab.id} className={`settings-nav-item ${active === tab.id ? "is-active" : ""}`} onClick={() => setActive(tab.id)}>
               {tab.icon}
-              <span>{tab.label}</span>
+              <span>{t(tab.labelKey)}</span>
             </button>
           ))}
         </nav>
@@ -731,21 +755,22 @@ function SettingsPanel({ title, description, children }: { title: string; descri
 }
 
 function ProfileSettings() {
+  const { t } = useTranslation();
   return (
-    <SettingsPanel title="个人资料" description="管理显示名称、头像和 AI 队友看到的个人说明。">
+    <SettingsPanel title={t("sections.profileTitle")} description={t("sections.profileDesc")}>
       <div className="settings-card profile-card">
-        <button className="profile-avatar">我</button>
+        <button className="profile-avatar">{t("sections.meInitial")}</button>
         <div className="profile-fields">
           <label className="settings-field">
-            <span>名称</span>
+            <span>{t("sections.profileName")}</span>
             <input value="Mike" readOnly />
           </label>
           <label className="settings-field">
             <span>Profile description</span>
-            <textarea value="负责 Cortex Desktop 和本地 Agent 工作流。" readOnly rows={5} />
+            <textarea value={t("sections.profileDescriptionValue")} readOnly rows={5} />
           </label>
           <div className="settings-actions">
-            <button className="mc-primary-btn">更新 Profile</button>
+            <button className="mc-primary-btn">{t("sections.updateProfile")}</button>
           </div>
         </div>
       </div>

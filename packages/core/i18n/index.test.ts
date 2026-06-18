@@ -24,10 +24,11 @@ describe("i18n 单例", () => {
   });
 
   it("en 缺失的 key 回退到 zh 源串,绝不渲染裸 key(R3)", async () => {
+    // 自带探针:zh 有、en 无的 key,断言 fallbackLng 回退到 zh 源串(不依赖真实词典缺漏)。
+    i18n.addResourceBundle("zh-Hans", "common", { __fallbackProbe: "回退中文串" }, true, true);
     await changeLanguage("en");
-    // en/common.json 故意省略 "close" —— 应回退中文。
-    expect(t("close")).toBe("关闭");
-    expect(t("close")).not.toBe("close");
+    expect(t("__fallbackProbe")).toBe("回退中文串");
+    expect(t("__fallbackProbe")).not.toBe("__fallbackProbe");
   });
 
   it("是同一全局单例(多处 import 引用相等)", () => {

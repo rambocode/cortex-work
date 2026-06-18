@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@cortex-work/ui/icons";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { fileDiffOptions, FILE_DIFFS, useWorkspaceId } from "@cortex-work/core";
 import type { Contact } from "@cortex-work/core/types";
 
@@ -23,6 +24,7 @@ export function RightPanel({
   onClose,
   onToast,
 }: RightPanelProps) {
+  const { t } = useTranslation();
   const wsId = useWorkspaceId();
   const hasDiff = contact?.id === "wangyutong";
 
@@ -38,16 +40,16 @@ export function RightPanel({
         <div className="r-tabs">
           <div className="r-tab is-active">
             <Icon.File size={13} />
-            审查
+            {t("rightPanel.review")}
           </div>
-          <button className="r-tab-add" onClick={click("打开文件 · 暂未实现")}>
+          <button className="r-tab-add" onClick={click(t("rightPanel.openFileToast"))}>
             <Icon.Plus size={13} />
           </button>
           <div className="spacer" />
-          <button className="ic-btn" onClick={click("放大面板")}>
+          <button className="ic-btn" onClick={click(t("rightPanel.enlargePanel"))}>
             <Icon.Expand size={13} />
           </button>
-          <button className="ic-btn" onClick={onClose} title="关闭面板">
+          <button className="ic-btn" onClick={onClose} title={t("rightPanel.closePanel")}>
             <Icon.X size={13} />
           </button>
         </div>
@@ -66,11 +68,11 @@ export function RightPanel({
           }}
         >
           <Icon.File size={28} />
-          <div>暂无待审查的产出</div>
+          <div>{t("rightPanel.noReviewOutput")}</div>
           <div style={{ fontSize: 11.5, color: "var(--text-4)" }}>
-            当 {contact?.name || "联系人"} 的 Agent 有文件、代码或操作结果
+            {t("rightPanel.outputHint", { name: contact?.name || t("rightPanel.contact") })}
             <br />
-            产出时,会在这里实时显示。
+            {t("rightPanel.outputHintLine2")}
           </div>
         </div>
       </aside>
@@ -82,9 +84,9 @@ export function RightPanel({
   return (
     <aside className="right">
       <div className="r-tabs">
-        <div className="r-tab" onClick={click("已切换到审查列表")} style={{ cursor: "pointer" }}>
+        <div className="r-tab" onClick={click(t("rightPanel.switchedToReviewList"))} style={{ cursor: "pointer" }}>
           <Icon.Diff size={13} />
-          <span>审查</span>
+          <span>{t("rightPanel.review")}</span>
           <span
             style={{
               fontSize: 10,
@@ -118,7 +120,7 @@ export function RightPanel({
                 onClick={(e) => {
                   e.stopPropagation();
                   onCloseTab(path);
-                  onToast("已关闭: " + name);
+                  onToast(t("rightPanel.closedTab", { name }));
                 }}
               >
                 <Icon.X size={12} />
@@ -126,29 +128,29 @@ export function RightPanel({
             </div>
           );
         })}
-        <button className="r-tab-add" onClick={click("打开新文件 · 选择文件树中的文件")}>
+        <button className="r-tab-add" onClick={click(t("rightPanel.openNewFileToast"))}>
           <Icon.Plus size={13} />
         </button>
         <div className="spacer" />
-        <button className="ic-btn" title="在编辑器中打开" onClick={click("已在 VS Code 中打开")}>
+        <button className="ic-btn" title={t("rightPanel.openInEditor")} onClick={click(t("rightPanel.openedInVsCode"))}>
           <Icon.Share size={13} />
         </button>
         <button
           className="ic-btn"
-          title="复制路径"
+          title={t("rightPanel.copyPath")}
           onClick={() => {
             if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
               navigator.clipboard.writeText(currentFile).catch(() => {});
             }
-            onToast("已复制路径");
+            onToast(t("rightPanel.copiedPath"));
           }}
         >
           <Icon.Code size={13} />
         </button>
-        <button className="ic-btn" title="放大" onClick={click("已放大")}>
+        <button className="ic-btn" title={t("rightPanel.enlarge")} onClick={click(t("rightPanel.enlarged"))}>
           <Icon.Expand size={13} />
         </button>
-        <button className="ic-btn" title="关闭面板" onClick={onClose}>
+        <button className="ic-btn" title={t("rightPanel.closePanel")} onClick={onClose}>
           <Icon.X size={13} />
         </button>
       </div>

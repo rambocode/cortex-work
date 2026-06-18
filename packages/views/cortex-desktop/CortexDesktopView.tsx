@@ -14,6 +14,7 @@ import {
   useWorkspaceId,
 } from "@cortex-work/core";
 import type { Contact } from "@cortex-work/core/types";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { TitleBar } from "./TitleBar";
 import { Sidebar } from "./Sidebar";
 import { ChatArea } from "./ChatArea";
@@ -24,7 +25,12 @@ import { PersonalWorkspace } from "./personal/PersonalWorkspace";
 import { Pet } from "./pet/Pet";
 import { useTweaksPersistence } from "./useTweaksPersistence";
 
-const SECTION_TITLE: Partial<Record<string, string>> = { tasks: "任务", agents: "智能体", usage: "用量", settings: "设置" };
+const SECTION_TITLE_KEY: Partial<Record<string, string>> = {
+  tasks: "sectionTitle.tasks",
+  agents: "sectionTitle.agents",
+  usage: "sectionTitle.usage",
+  settings: "sectionTitle.settings",
+};
 
 export interface CortexDesktopViewProps {
   // Reserve space at the titlebar's left for native macOS traffic lights
@@ -36,6 +42,7 @@ export interface CortexDesktopViewProps {
 }
 
 export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote }: CortexDesktopViewProps) {
+  const { t } = useTranslation();
   const wsId = useWorkspaceId();
   const { apiClient } = useCoreContext();
   const qc = useQueryClient();
@@ -117,7 +124,11 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote }: C
             onToast={pushToast}
             activeSection={activeSection}
             onNavigate={setSection}
-            sectionTitle={activeSection === "chat" ? undefined : SECTION_TITLE[activeSection]}
+            sectionTitle={
+              activeSection === "chat" || !SECTION_TITLE_KEY[activeSection]
+                ? undefined
+                : t(SECTION_TITLE_KEY[activeSection]!)
+            }
           />
           <div className="body">
             <Sidebar
