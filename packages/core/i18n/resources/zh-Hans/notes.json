@@ -1,0 +1,90 @@
+{
+  "panel": {
+    "title": "闪记",
+    "count": "{{count}} 条",
+    "loading": "加载中…",
+    "empty": "还没有闪记"
+  },
+  "group": {
+    "unassigned": "未归类",
+    "noArchivableProject": "没有可归档的项目",
+    "moveToProject": "移到项目"
+  },
+  "row": {
+    "select": "选择「{{title}}」",
+    "openDetail": "点击查看详情"
+  },
+  "selectionBar": {
+    "selected": "已选 {{count}} 条",
+    "cancel": "取消",
+    "reDeepenTitle": "取消正在进行的深化并用当前 agent 重新深化",
+    "deepening": "深化中…",
+    "confirmReDeepen": "取消并重新深化？",
+    "deepen": "深化 {{count}} 条"
+  },
+  "detail": {
+    "closeDetail": "关闭详情",
+    "unassigned": "未归类",
+    "cancel": "取消",
+    "saving": "保存中…",
+    "save": "保存",
+    "abandonDeepenTitle": "放弃深化,把闪记回落为草稿后可重新深化",
+    "abandonDeepen": "放弃深化",
+    "edit": "编辑",
+    "delete": "删除",
+    "editDoubleClick": "双击编辑",
+    "emptyNote": "空白闪记,双击开始编辑",
+    "deepenOutputs": "深化产物",
+    "generating": "生成中…",
+    "generatePlan": "生成 plan",
+    "openInFileView": "在文件视图打开 {{name}}",
+    "noProjectForFileView": "该闪记无项目,无法在文件视图打开产物文档",
+    "docsUnavailable": "产物文档暂不可用",
+    "backToDeepenSession": "回到深化会话「{{title}}」",
+    "deepenSessionGone": "深化会话(已不存在)",
+    "deepenSessionN": "深化会话 {{index}}",
+    "deepenSession": "深化会话",
+    "deletedSuffix": "（已删除）",
+    "backToSourceSession": "回到来源会话",
+    "sourceSession": "来源会话"
+  },
+  "doc": {
+    "unsupportedOpen": "当前环境不支持打开文档",
+    "unavailable": "文档不可用（可能已被移动或删除）",
+    "readonly": "文件过大 · 只读",
+    "cancel": "取消",
+    "saving": "保存中…",
+    "save": "保存",
+    "editDoc": "编辑文档",
+    "loading": "加载中…",
+    "editDoubleClick": "双击编辑文档",
+    "empty": "空文档",
+    "emptyEditHint": "，双击开始编辑"
+  },
+  "toast": {
+    "docSaved": "已保存文档",
+    "docSaveFailed": "保存失败：{{error}}",
+    "noteSaved": "已保存闪记",
+    "noteSaveFailed": "保存失败：{{error}}",
+    "noteDeleted": "已删除闪记",
+    "noteDeleteFailed": "删除失败：{{error}}",
+    "deepenAbandoned": "已放弃深化,闪记回到草稿",
+    "abandonDeepenFailed": "放弃深化失败：{{error}}",
+    "generatePlanFailed": "生成 plan 失败：{{error}}",
+    "moved": "已移到项目",
+    "moveFailed": "移动失败：{{error}}",
+    "deepenFailed": "深化失败：{{error}}"
+  },
+  "overlay": {
+    "placeholder": "记点什么…（Enter 保存,Shift+Enter 换行）",
+    "unassigned": "未归类",
+    "saveFailed": "保存失败,请重试",
+    "saveAria": "保存闪记"
+  },
+  "prepare": {
+    "empty": "请先选择要深化的闪记。"
+  },
+  "deepen": {
+    "truncated": "有 {{count}} 条正文超过 {{max}} 字,已截断后作为种子。"
+  }
+}

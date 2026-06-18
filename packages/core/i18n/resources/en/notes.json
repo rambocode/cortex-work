@@ -1,0 +1,90 @@
+{
+  "panel": {
+    "title": "Flash Notes",
+    "count": "{{count}} notes",
+    "loading": "Loading…",
+    "empty": "No flash notes yet"
+  },
+  "group": {
+    "unassigned": "Unsorted",
+    "noArchivableProject": "No project to archive into",
+    "moveToProject": "Move to project"
+  },
+  "row": {
+    "select": "Select \"{{title}}\"",
+    "openDetail": "Click to view details"
+  },
+  "selectionBar": {
+    "selected": "{{count}} selected",
+    "cancel": "Cancel",
+    "reDeepenTitle": "Cancel the in-progress deepening and re-deepen with the current agent",
+    "deepening": "Deepening…",
+    "confirmReDeepen": "Cancel and re-deepen?",
+    "deepen": "Deepen {{count}} notes"
+  },
+  "detail": {
+    "closeDetail": "Close details",
+    "unassigned": "Unsorted",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "save": "Save",
+    "abandonDeepenTitle": "Abandon deepening; the note falls back to draft and can be re-deepened",
+    "abandonDeepen": "Abandon deepening",
+    "edit": "Edit",
+    "delete": "Delete",
+    "editDoubleClick": "Double-click to edit",
+    "emptyNote": "Empty note, double-click to start editing",
+    "deepenOutputs": "Deepening outputs",
+    "generating": "Generating…",
+    "generatePlan": "Generate plan",
+    "openInFileView": "Open {{name}} in file view",
+    "noProjectForFileView": "This note has no project, so the output document cannot be opened in file view",
+    "docsUnavailable": "Output document unavailable",
+    "backToDeepenSession": "Back to deepening session \"{{title}}\"",
+    "deepenSessionGone": "Deepening session (no longer exists)",
+    "deepenSessionN": "Deepening session {{index}}",
+    "deepenSession": "Deepening session",
+    "deletedSuffix": " (deleted)",
+    "backToSourceSession": "Back to source session",
+    "sourceSession": "Source session"
+  },
+  "doc": {
+    "unsupportedOpen": "The current environment does not support opening documents",
+    "unavailable": "Document unavailable (it may have been moved or deleted)",
+    "readonly": "File too large · read-only",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "save": "Save",
+    "editDoc": "Edit document",
+    "loading": "Loading…",
+    "editDoubleClick": "Double-click to edit document",
+    "empty": "Empty document",
+    "emptyEditHint": ", double-click to start editing"
+  },
+  "toast": {
+    "docSaved": "Document saved",
+    "docSaveFailed": "Save failed: {{error}}",
+    "noteSaved": "Note saved",
+    "noteSaveFailed": "Save failed: {{error}}",
+    "noteDeleted": "Note deleted",
+    "noteDeleteFailed": "Delete failed: {{error}}",
+    "deepenAbandoned": "Deepening abandoned; note returned to draft",
+    "abandonDeepenFailed": "Failed to abandon deepening: {{error}}",
+    "generatePlanFailed": "Failed to generate plan: {{error}}",
+    "moved": "Moved to project",
+    "moveFailed": "Move failed: {{error}}",
+    "deepenFailed": "Deepening failed: {{error}}"
+  },
+  "overlay": {
+    "placeholder": "Jot something down… (Enter to save, Shift+Enter for newline)",
+    "unassigned": "Unsorted",
+    "saveFailed": "Save failed, please try again",
+    "saveAria": "Save note"
+  },
+  "prepare": {
+    "empty": "Please select the flash notes to deepen first."
+  },
+  "deepen": {
+    "truncated": "{{count}} notes exceed {{max}} characters and were truncated before being used as seeds."
+  }
+}

@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { t } from "../i18n";
 import type { DesktopBridge } from "../desktop/bridge";
 import type { NoteInput, NoteMeta, NoteStatus, SkillMeta } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
@@ -84,7 +85,7 @@ export type DeepenPrepResult =
 //   返回 truncatedCount 供调用方 toast 提示。
 export function prepareDeepenNotes(notes: NoteMeta[]): DeepenPrepResult {
   if (notes.length === 0) {
-    return { ok: false, reason: "empty", message: "请先选择要深化的闪记。" };
+    return { ok: false, reason: "empty", message: t("notes:prepare.empty") };
   }
   // 防重复触发:已深化中的闪记不允许再次发起（避免一条闪记并行多次深化）。已深化（deepened）
   // 可再深化（新开会话,链接追加）,故只拦 deepening。
@@ -416,7 +417,7 @@ export function useDeepenNotes(): (noteIds: string[], onToast: (text: string) =>
       }
       if (prep.truncatedCount > 0) {
         onToast(
-          `有 ${prep.truncatedCount} 条正文超过 ${DEEPEN_NOTE_BODY_MAX} 字,已截断后作为种子。`,
+          t("notes:deepen.truncated", { count: prep.truncatedCount, max: DEEPEN_NOTE_BODY_MAX }),
         );
       }
 

@@ -11,12 +11,16 @@ import ReactDOM from "react-dom/client";
 import { Icon } from "@cortex-work/ui/icons";
 import type { ProjectMeta } from "@cortex-work/core";
 import { noteContentToSubmit, resolveDefaultNoteProject } from "@cortex-work/core/personal/notes";
+// i18next 单例:本浮层是独立渲染进程(裸 React root,无 CoreProvider),import 即 init
+// 本进程默认 zh 单例,使 useTranslation 可解析;跨进程语言一致由主进程 app:locale 广播驱动。
+import { changeLanguage, useTranslation } from "@cortex-work/core/i18n";
 import "./notes-overlay.css";
 
 // 「未归类」option 的稳定占位 value(空串无法区分「未选」与「显式未归类」,故用专用 sentinel)。
 const UNASSIGNED = "__unassigned__";
 
 function NotesOverlay(): React.ReactElement {
+  const { t } = useTranslation("notes");
   const api = typeof window !== "undefined" ? window.desktopAPI : undefined;
   const [text, setText] = useState("");
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
@@ -60,8 +64,13 @@ function NotesOverlay(): React.ReactElement {
     void refresh();
     window.addEventListener("focus", onFocus);
     requestAnimationFrame(() => inputRef.current?.focus());
-    return () => window.removeEventListener("focus", onFocus);
-  }, [refresh]);
+    // 订阅主进程 locale 广播:用户在主窗口切语言时本浮层(独立 i18next 单例)随之重译。
+    const offLocale = api?.personal?.onLocaleChange?.((locale) => void changeLanguage(locale));
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      offLocale?.();
+    };
+  }, [refresh, api]);
 
   // 窗口高度按内容实测上报,主进程夹取后向上长高/收回(底边固定)。仿 SpotlightBar 实测上报,
   // 避免窗口短于「白卡 + 投影」时投影被窗口下边缘硬切成半透明带。
@@ -86,11 +95,11 @@ function NotesOverlay(): React.ReactElement {
       api.notesOverlay?.hide();
     } catch {
       // 失败浮层不关、保留草稿、就地报错可重试。
-      setError("保存失败,请重试");
+      setError(t("overlay.saveFailed"));
     } finally {
       setSaving(false);
     }
-  }, [api, saving, text, projectId]);
+  }, [api, saving, text, projectId, t]);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -112,7 +121,7 @@ function NotesOverlay(): React.ReactElement {
           ref={inputRef}
           className="note-input"
           rows={3}
-          placeholder="记点什么…（Enter 保存,Shift+Enter 换行）"
+          placeholder={t("overlay.placeholder")}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
@@ -126,7 +135,7 @@ function NotesOverlay(): React.ReactElement {
             value={projectId ?? UNASSIGNED}
             onChange={(e) => setProjectId(e.target.value === UNASSIGNED ? undefined : e.target.value)}
           >
-            <option value={UNASSIGNED}>未归类</option>
+            <option value={UNASSIGNED}>{t("overlay.unassigned")}</option>
             {visibleProjects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -140,7 +149,7 @@ function NotesOverlay(): React.ReactElement {
             onClick={() => void submit()}
             disabled={!text.trim() || saving}
             type="button"
-            aria-label="保存闪记"
+            aria-label={t("overlay.saveAria")}
           >
             <Icon.Send size={15} />
           </button>
