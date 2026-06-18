@@ -11,6 +11,8 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const spawnMock = vi.fn();
+// cwd 兜底测试:默认 existsSync 返回 true(让 baseReq 的 /proj 直通);兜底用例里改返回 false。
+const existsSyncMock = vi.fn((_p: string) => true);
 // ipcMain.handle 捕获:channel → handler。
 const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
@@ -29,6 +31,16 @@ vi.mock("electron", () => ({
 
 vi.mock("child_process", () => ({
   spawn: (...args: unknown[]) => spawnMock(...args),
+}));
+
+// cwd 兜底依赖 fs.existsSync + os.homedir;保留真实导出(cli.ts 等还要用其它 fs/os 函数),只覆盖这两个。
+vi.mock("fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("fs")>()),
+  existsSync: (p: string) => existsSyncMock(p),
+}));
+vi.mock("os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("os")>()),
+  homedir: () => "/home/test",
 }));
 
 // writePiExtension 会写盘:mock 成纯路径返回,断言只看「是否被装配 + 路径进了 args」。
@@ -81,6 +93,8 @@ beforeEach(() => {
   handlers.clear();
   spawnMock.mockReset();
   spawnMock.mockImplementation(() => fakeChild());
+  existsSyncMock.mockReset();
+  existsSyncMock.mockImplementation(() => true);
   writePiExtensionMock.mockClear();
   vi.spyOn(console, "error").mockImplementation(() => undefined);
   registerAskHandlers();
@@ -258,6 +272,28 @@ describe("tightenTools 显式收紧(R9/KTD8,FIX-3)", () => {
     startAsk({ ...baseReq, askId: "ask-np", cwd: "/Users/x/Documents/cortex/2026-06-18" });
     const [, args] = spawnMock.mock.calls[0]!;
     expect(args).toContain("--dangerously-skip-permissions");
+  });
+});
+
+describe("cwd 兜底(防 spawn ENOENT)", () => {
+  it("cwd 不存在 → 退化到 homedir(避免 spawn <cmd> ENOENT)", () => {
+    existsSyncMock.mockImplementation(() => false);
+    startAsk({ ...baseReq, askId: "ask-cwd1", cwd: "/Users/x/已删除项目" });
+    const [, , opts] = spawnMock.mock.calls[0]!;
+    expect((opts as { cwd: string }).cwd).toBe("/home/test");
+  });
+
+  it("cwd 为空串 → 退化到 homedir", () => {
+    startAsk({ ...baseReq, askId: "ask-cwd2", cwd: "" });
+    const [, , opts] = spawnMock.mock.calls[0]!;
+    expect((opts as { cwd: string }).cwd).toBe("/home/test");
+  });
+
+  it("cwd 存在 → 原样直通,不兜底", () => {
+    existsSyncMock.mockImplementation(() => true);
+    startAsk({ ...baseReq, askId: "ask-cwd3", cwd: "/proj" });
+    const [, , opts] = spawnMock.mock.calls[0]!;
+    expect((opts as { cwd: string }).cwd).toBe("/proj");
   });
 });
 

@@ -12,6 +12,8 @@
 //     (去掉跳审批/bypass 标志,R9/KTD8)——显式标志,不靠主进程猜 cwd(FIX-3)。
 
 import { ipcMain, type WebContents } from "electron";
+import { existsSync } from "fs";
+import { homedir } from "os";
 import type { AgentKind, AskFollowupRequest, CliStreamEvent } from "./types";
 import { getAdapter } from "../agents";
 import { writePiExtension } from "../agents/pi-providers";
@@ -40,6 +42,12 @@ export function registerAskHandlers(): void {
     const sender = event.sender;
     const adapter = getAdapter(req.agent);
 
+    // cwd 兜底:空串或磁盘上不存在的目录会让 child_process.spawn 抛 `spawn <cmd> ENOENT`
+    // (Node 把「cwd 不存在」误报成 cmd 不存在)。无项目会话(cwd=noProjectDir 可能尚未创建)
+    // 或项目已删时会踩中,故退化到 homedir(),保证 spawn 不因 cwd 失败。buildArgs 与 spawn
+    // 用同一 cwd(codex 的 --cd 等据此)。无项目场景的 tool 安全由调用方 tightenTools 兜底(R9)。
+    const cwd = req.cwd && existsSync(req.cwd) ? req.cwd : homedir();
+
     // pi 自定义供应商:先生成 extension 文件,把路径塞进 buildArgs 入参供加 -e(复用 cli:start 逻辑)。
     const piExtensionPath = req.agent === "pi" && req.provider ? writePiExtension(req.provider) : undefined;
 
@@ -48,7 +56,7 @@ export function registerAskHandlers(): void {
       runId: req.askId,
       sessionId: req.askId,
       agent: req.agent,
-      cwd: req.cwd,
+      cwd,
       prompt: req.prompt,
       model: req.model,
       appendSystemPrompt: req.appendSystemPrompt,
@@ -59,7 +67,7 @@ export function registerAskHandlers(): void {
     const args = req.tightenTools ? tightenArgs(req.agent, built.args) : built.args;
 
     const proc = startAgentProcess(built.cmd, args, {
-      cwd: req.cwd,
+      cwd,
       env: spawnEnvFor({ agent: req.agent, provider: req.provider }),
     });
     running.set(req.askId, proc);
