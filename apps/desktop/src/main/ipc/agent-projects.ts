@@ -10,12 +10,17 @@ import { homedir } from "os";
 import { basename, join } from "path";
 import { extractCwd } from "./agent-projects-parse";
 import type { AgentKind, AgentProjectInfo } from "./types";
+import { mapLimit } from "./scan-limit";
 
 const HOME = homedir();
 const CLAUDE_PROJ = join(HOME, ".claude", "projects");
 const CODEX_SESS = join(HOME, ".codex", "sessions");
 const CUTOFF_MS = 30 * 86400_000; // 只看近 30 天的会话
 const CODEX_MAX_FILES = 40; // 只解析最新 N 个 rollout,控制 IO
+const CODEX_MAX_DISCOVERED = 1200; // 发现阶段硬上限,避免历史会话极多时压垮主进程
+const CLAUDE_MAX_PROJECT_DIRS = 500;
+const CLAUDE_MAX_FILES_PER_DIR = 300;
+const FS_SCAN_CONCURRENCY = 8;
 const MAX_PROJECTS = 50;
 const CACHE_TTL = 60_000;
 
@@ -46,12 +51,14 @@ async function scanAgentProjects(): Promise<AgentProjectInfo[]> {
 
   // Claude Code：每个项目目录只 stat 出最新 jsonl,读它一个的头（64KB）。
   try {
-    const dirs = await fsp.readdir(CLAUDE_PROJ);
-    await Promise.all(
-      dirs.map(async (dir) => {
+    const dirs = (await fsp.readdir(CLAUDE_PROJ)).slice(0, CLAUDE_MAX_PROJECT_DIRS);
+    await mapLimit(
+      dirs,
+      FS_SCAN_CONCURRENCY,
+      async (dir) => {
         try {
           const dirPath = join(CLAUDE_PROJ, dir);
-          const files = (await fsp.readdir(dirPath)).filter((f) => f.endsWith(".jsonl"));
+          const files = (await fsp.readdir(dirPath)).filter((f) => f.endsWith(".jsonl")).slice(0, CLAUDE_MAX_FILES_PER_DIR);
           let newest: { file: string; mtime: number } | null = null;
           for (const f of files) {
             const st = await fsp.stat(join(dirPath, f));
@@ -62,7 +69,7 @@ async function scanAgentProjects(): Promise<AgentProjectInfo[]> {
         } catch {
           // 单项目目录损坏/不可读,跳过
         }
-      }),
+      },
     );
   } catch {
     // 未装 Claude Code
@@ -74,15 +81,16 @@ async function scanAgentProjects(): Promise<AgentProjectInfo[]> {
     const walk = async (dir: string, depth: number): Promise<void> => {
       if (depth > 3) return;
       const entries = await fsp.readdir(dir, { withFileTypes: true });
-      await Promise.all(
-        entries.map(async (ent) => {
-          const p = join(dir, ent.name);
-          if (ent.isDirectory()) return walk(p, depth + 1);
-          if (!ent.name.startsWith("rollout-") || !ent.name.endsWith(".jsonl")) return;
+      for (const ent of entries) {
+        if (rollouts.length >= CODEX_MAX_DISCOVERED) break;
+        const p = join(dir, ent.name);
+        if (ent.isDirectory()) {
+          await walk(p, depth + 1);
+        } else if (ent.name.startsWith("rollout-") && ent.name.endsWith(".jsonl")) {
           const st = await fsp.stat(p);
           if (st.mtimeMs >= cutoff) rollouts.push({ file: p, mtime: st.mtimeMs });
-        }),
-      );
+        }
+      }
     };
     await walk(CODEX_SESS, 0);
     rollouts.sort((a, b) => b.mtime - a.mtime);

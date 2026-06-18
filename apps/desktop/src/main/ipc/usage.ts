@@ -11,10 +11,15 @@ import { join } from "path";
 import { execFile } from "child_process";
 import type { DailyUsage } from "./types";
 import { type UsageEvent, bucketEventsByDay } from "./usage-daily";
+import { mapLimit } from "./scan-limit";
 
 const HOME = homedir();
 const CLAUDE_PROJ = join(HOME, ".claude", "projects");
 const CODEX_SESS = join(HOME, ".codex", "sessions");
+const FS_SCAN_CONCURRENCY = 8;
+const CLAUDE_MAX_PROJECT_DIRS = 500;
+const CLAUDE_MAX_FILES = 2500;
+const CODEX_MAX_FILES = 1200;
 
 interface FileCache {
   offset: number;
@@ -97,32 +102,36 @@ async function scanClaudeEvents(cutoff: number, cache: Map<string, FileCache>): 
   const files: { fp: string; st: { size: number; mtimeMs: number } }[] = [];
   let dirs: string[];
   try {
-    dirs = await fsp.readdir(CLAUDE_PROJ);
+    dirs = (await fsp.readdir(CLAUDE_PROJ)).slice(0, CLAUDE_MAX_PROJECT_DIRS);
   } catch {
     return null; // 没装/没用过 Claude Code
   }
-  await Promise.all(
-    dirs.map(async (d) => {
+  await mapLimit(
+    dirs,
+    FS_SCAN_CONCURRENCY,
+    async (d) => {
+      if (files.length >= CLAUDE_MAX_FILES) return;
       let names: string[];
       try {
         names = await fsp.readdir(join(CLAUDE_PROJ, d));
       } catch {
         return;
       }
-      await Promise.all(
-        names
-          .filter((n) => n.endsWith(".jsonl"))
-          .map(async (n) => {
-            const fp = join(CLAUDE_PROJ, d, n);
-            try {
-              const st = await fsp.stat(fp);
-              if (st.mtimeMs >= cutoff) files.push({ fp, st });
-            } catch {
-              /* skip */
-            }
-          }),
+      await mapLimit(
+        names.filter((n) => n.endsWith(".jsonl")),
+        FS_SCAN_CONCURRENCY,
+        async (n) => {
+          if (files.length >= CLAUDE_MAX_FILES) return;
+          const fp = join(CLAUDE_PROJ, d, n);
+          try {
+            const st = await fsp.stat(fp);
+            if (st.mtimeMs >= cutoff) files.push({ fp, st });
+          } catch {
+            /* skip */
+          }
+        },
       );
-    }),
+    },
   );
   const live = new Set(files.map((f) => f.fp));
   for (const k of cache.keys()) if (!live.has(k)) cache.delete(k);
@@ -179,6 +188,7 @@ async function claudeTokenBuckets() {
 async function codexUsage() {
   const files: { fp: string; mtimeMs: number; size: number }[] = [];
   const walk = async (dir: string, depth: number) => {
+    if (files.length >= CODEX_MAX_FILES) return;
     let names;
     try {
       names = await fsp.readdir(dir, { withFileTypes: true });
@@ -186,6 +196,7 @@ async function codexUsage() {
       return;
     }
     for (const n of names) {
+      if (files.length >= CODEX_MAX_FILES) break;
       const fp = join(dir, n.name);
       if (n.isDirectory() && depth < 3) await walk(fp, depth + 1);
       else if (n.isFile() && n.name.endsWith(".jsonl")) {
