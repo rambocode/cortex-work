@@ -96,4 +96,6 @@ export function registerLogHandlers(): void {
     await shell.openPath(logsDir());
   });
   ipcMain.handle("logs:setEnabled", (_e, on: boolean) => setLogEnabled(on));
+  // 渲染端写一行日志（不落盘的 agent 报错/失败信息）。复用 logLine：尊重 enabled 开关 + 脱敏。
+  ipcMain.handle("logs:write", (_e, level: string, message: string) => logLine(level, message));
 }

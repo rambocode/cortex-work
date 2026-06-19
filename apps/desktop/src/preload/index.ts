@@ -171,6 +171,9 @@ const personal = {
   },
   openLogsDir: (): Promise<void> => ipcRenderer.invoke("logs:open"),
   setLogEnabled: (on: boolean): Promise<void> => ipcRenderer.invoke("logs:setEnabled", on),
+  // 渲染端把不落盘的 agent 报错写入主进程文件日志（脱敏由主进程负责）。
+  logMessage: (level: "warn" | "error", message: string): Promise<void> =>
+    ipcRenderer.invoke("logs:write", level, message),
   // 改闪记全局热键:把主进程返回的 HotkeyRegistration 适配成 bridge 契约的 { ok, toast }。
   // ok = registered && !degraded(注册成功且未降级才算生效)。
   setNotesHotkey: async (acc: string): Promise<{ ok: boolean; toast?: string }> => {

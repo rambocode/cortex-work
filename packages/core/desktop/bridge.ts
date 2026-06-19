@@ -168,6 +168,9 @@ export interface DesktopBridge {
   openLogsDir?(): Promise<void>;
   // 即时下发文件日志开关（本次运行内生效,无需重启）。可选。
   setLogEnabled?(enabled: boolean): Promise<void>;
+  // 渲染端把会话内不落盘的 agent 报错/失败信息写入主进程文件日志（脱敏由主进程负责）,保留可排查性。
+  // fire-and-forget,可选（web 端为 null）。
+  logMessage?(level: "warn" | "error", message: string): Promise<void>;
   // 渲染端改闪记全局热键 → 主进程即时校验 + 重注册（仿 setDesktopBehavior 的即时通路）。
   // ok=true 表示新键已生效;ok=false 表示格式无效或被占用（已回退旧键,toast 含原因）。可选。
   setNotesHotkey?(accelerator: string): Promise<{ ok: boolean; toast?: string }>;

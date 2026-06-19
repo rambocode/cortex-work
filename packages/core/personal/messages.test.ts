@@ -413,6 +413,30 @@ describe("sanitizeForSave 落盘清理(过程不落盘:思考与工具步骤皆�
     ];
     expect(sanitizeForSave(input).map((m) => m.kind)).toEqual(["text"]);
   });
+
+  it("丢弃 agent 报错/提示(uid('err-') 命名空间),保留用户与 agent 正文", () => {
+    const input: Message[] = [
+      { kind: "text", who: "me", time: "10:00", text: "问", uid: "u-1-aaa" },
+      { kind: "text", who: "pi", time: "10:01", text: "⚠️ 执行失败: boom", uid: "err-2-bbb" },
+      { kind: "text", who: "pi", time: "10:02", text: "答", uid: "at-3-ccc" },
+      // 无 uid 的正文不属报错命名空间,保留。
+      { kind: "text", who: "pi", time: "10:03", text: "无 uid 正文" },
+    ];
+    const out = sanitizeForSave(input);
+    expect(out.map((m) => m.uid)).toEqual(["u-1-aaa", "at-3-ccc", undefined]);
+    expect(out.some((m) => typeof m.uid === "string" && m.uid.startsWith("err-"))).toBe(false);
+  });
+
+  it("survivesSanitize 与 sanitizeForSave 一致:报错不计入隐藏游标 count", () => {
+    const msgs: Message[] = [
+      { kind: "text", who: "me", time: "10:00", text: "问", uid: "u-1-a" },
+      { kind: "text", who: "pi", time: "10:01", text: "⚠️ 失败", uid: "err-2-b" },
+      { kind: "text", who: "pi", time: "10:02", text: "答", uid: "at-3-c" },
+    ];
+    // count 以「落盘后存活」计:报错被剥离不计入,须与 sanitizeForSave 后长度一致(否则游标偏移)。
+    expect(createHiddenHistory(msgs, 1).count).toBe(sanitizeForSave(msgs).length);
+    expect(createHiddenHistory(msgs, 1).count).toBe(2);
+  });
 });
 
 describe("ensureChatLoaded 即建即发不丢首条消息", () => {

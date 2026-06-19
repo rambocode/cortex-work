@@ -505,6 +505,37 @@ describe("steer / setPiModel（U6）", () => {
   });
 });
 
+describe("agent 报错:当场可见但不落盘 + 失败信息写日志", () => {
+  it("agent 不可用:报错进缓存可见,saveChat 落盘已剥离,logMessage 记录失败", async () => {
+    const saveChat = vi.fn(async () => undefined);
+    const logMessage = vi.fn(async () => undefined);
+    const bridge = makeBridge({ saveChat, logMessage });
+    const qc = new QueryClient();
+    usePersonalStore.setState({ agentsAvailable: { claude: false, codex: true, pi: true } });
+    // usePersonalPiEvents 挂载即把 bridgeRef 指向本 bridge（生产中由 PersonalWorkspace 根部挂载），
+    // 使 flushChat 落盘与 appendMsg 写日志可用。
+    const { result } = renderHook(
+      () => {
+        usePersonalPiEvents();
+        return usePersonalActions();
+      },
+      { wrapper: wrapper(bridge, qc) },
+    );
+    await act(async () => {
+      await result.current.send(claudeSession, "/proj", "hi", []);
+    });
+    // 报错当场可见(中栏缓存里有 who:"claude" 的提示)。
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail("s-claude")) ?? [];
+    expect(msgs.some((m) => m.kind === "text" && m.who === "claude")).toBe(true);
+    // 不落盘:flushChat 存 sanitize 后的,报错被剥离;用户消息仍在。
+    const lastSaved = (saveChat as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[1] as Message[];
+    expect(lastSaved.some((m) => m.kind === "text" && m.who === "claude")).toBe(false);
+    expect(lastSaved.some((m) => m.kind === "text" && m.who === "me")).toBe(true);
+    // 失败信息写主进程日志(含 session id)。
+    expect(logMessage).toHaveBeenCalledWith("error", expect.stringContaining("session=s-claude"));
+  });
+});
+
 describe("send 图片路由（U4）", () => {
   it("claude:逐张 imageSave + startCli.images 保序;用户消息带 images refs;返回已消费", async () => {
     const save = imageSaveMock();

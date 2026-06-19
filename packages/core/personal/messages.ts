@@ -125,6 +125,14 @@ function uid(prefix: string): string {
   return `${prefix}-${seq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// agent 报错/提示消息统一用此命名空间（uid("err")）：只作当场可见反馈，**永不落盘**——
+// sanitizeForSave 在落盘/加载两侧据此剥离（同时迁移旧档里已记录的报错）。失败信息不丢，
+// 改投主进程文件日志（见 appendMsg），保留可排查性。
+const ERR_UID_PREFIX = "err";
+function isTransientErrorMessage(m: Message): m is Extract<Message, { kind: "text" }> {
+  return m.kind === "text" && typeof m.uid === "string" && m.uid.startsWith(`${ERR_UID_PREFIX}-`);
+}
+
 // ── run 注册表（runId → 流式渲染状态） ────────────────────────────────────
 interface RunState {
   sessionId: string;
@@ -301,11 +309,13 @@ export function windowTailMessages(
   return { rendered: start > 0 ? source.slice(start) : source, collapsedEarlier: start };
 }
 
-// 落盘会被 sanitizeForSave 丢弃的瞬态/过程消息（typing/reasoning/agentLog）——隐藏游标的 count
-// 必须以「落盘后存活」的消息为基准计数,否则下次加载（agentLog 已剥离、数组变短）后按旧 count
+// 落盘会被 sanitizeForSave 丢弃的瞬态/过程消息（typing/reasoning/agentLog/报错提示）——隐藏游标的
+// count 必须以「落盘后存活」的消息为基准计数,否则下次加载（这些已剥离、数组变短）后按旧 count
 // 切分会偏移可见/隐藏边界（R11 的 count 兜底路径）。
 function survivesSanitize(m: Message): boolean {
-  return m.kind !== "typing" && m.kind !== "reasoning" && m.kind !== "agentLog";
+  return (
+    m.kind !== "typing" && m.kind !== "reasoning" && m.kind !== "agentLog" && !isTransientErrorMessage(m)
+  );
 }
 
 export function createHiddenHistory(messages: Message[], now = Date.now()): HiddenHistoryMeta {
@@ -362,20 +372,17 @@ const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // clearTimeout 再清 process key）。
 const processCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-// 落盘前清理瞬态:
+// 落盘前清理瞬态(与 survivesSanitize 同一判定,复用以杜绝两者漂移):
 //  - typing 丢弃(瞬态占位);
 //  - reasoning 丢弃——模型思考只显示本次,不作为长期记录(也避免 pi 长思考流撑大 chat JSON);
-//  - agentLog 丢弃——agent 中间执行过程（工具步骤）改走右侧瞬态过程流、**永不落盘**;此过滤
-//    既保证新会话过程不入档,也作为「破坏性旧档迁移」:旧档被加载后任意一次 flushChat 即把
-//    chat JSON 原地重写为不含 agentLog 的版本（无 .bak、不可逆，KTD2）。
-// 加载历史时同样过此函数,故旧数据里遗留的 reasoning/agentLog 会被顺带清掉。
+//  - agentLog 丢弃——agent 中间执行过程（工具步骤）改走右侧瞬态过程流、**永不落盘**;
+//  - 报错/提示（uid("err")）丢弃——agent 报错只作当场可见反馈,不入会话记录(避免污染),失败信息
+//    改投主进程日志(见 appendMsg)。
+// 此过滤既保证新会话过程/报错不入档,也作为「破坏性旧档迁移」:旧档被加载后任意一次 flushChat 即把
+// chat JSON 原地重写为不含 agentLog/报错的版本（无 .bak、不可逆，KTD2）。
+// 加载历史时同样过此函数,故旧数据里遗留的 reasoning/agentLog/报错会被顺带清掉。
 export function sanitizeForSave(messages: Message[]): Message[] {
-  return messages.filter((m) => m.kind !== "typing" && m.kind !== "reasoning" && m.kind !== "agentLog");
-}
-
-function dropPiForkFailedMessages(messages: Message[]): Message[] {
-  const text = t("chat:core.piForkFailed");
-  return messages.filter((m) => !(m.kind === "text" && m.who === "pi" && m.text === text));
+  return messages.filter(survivesSanitize);
 }
 
 function flushChat(qc: QueryClient, sessionId: string): void {
@@ -449,6 +456,12 @@ function finalizeProcessForRetain(qc: QueryClient, sessionId: string): void {
 
 function appendMsg(qc: QueryClient, sessionId: string, msg: Message): void {
   setMessages(qc, sessionId, (prev) => [...prev, msg]);
+  // agent 报错/提示不落盘（sanitizeForSave 剥离），但失败信息写主进程文件日志（脱敏由主进程负责），
+  // 保留可排查性。每条报错只 append 一次 → 只记一行。fire-and-forget，web 端 bridgeRef 为 null 即跳过。
+  if (isTransientErrorMessage(msg)) {
+    const detail = typeof msg.text === "string" ? msg.text : "";
+    void bridgeRef?.logMessage?.("error", `[personal:${msg.who}] session=${sessionId} ${detail}`);
+  }
 }
 
 function dropMsg(qc: QueryClient, sessionId: string, msgUid: string): void {
@@ -2059,8 +2072,8 @@ export function usePersonalActions(): PersonalActions {
         // 避免旧轮卡串入新轮（覆盖「卡已 resolve、新一轮未起」的窗口）。
         usePersonalStore.getState().clearPiUiForSession(session.id);
         const forked = await forkPiAtEditedMessage(bridge, session.id, prev, msgUid).catch(() => false);
-        const cleanTruncated = dropPiForkFailedMessages(truncated);
-        qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), cleanTruncated);
+        // truncated 已过 sanitizeForSave，旧的报错提示（含历史 piForkFailed）已被剥离，无需再单独清理。
+        qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
         flushChat(qc, session.id);
         let sendSession = session;
         if (!forked) {

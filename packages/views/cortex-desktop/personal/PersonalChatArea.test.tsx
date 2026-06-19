@@ -560,9 +560,10 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       updatedAt: NOW,
     };
     const warning = "⚠️ 未能在 pi 侧定位编辑点,已带原有上下文重发（pi 仍记得被编辑前的内容）。";
+    // 报错提示在生产中恒由 uid("err") 创建（→ "err-…"）；sanitizeForSave 按该命名空间剥离。
     const stale: Message[] = [
-      { kind: "text", who: "pi", time: "09:18", uid: "w1", text: warning },
-      { kind: "text", who: "pi", time: "09:36", uid: "w2", text: warning },
+      { kind: "text", who: "pi", time: "09:18", uid: "err-1-w1", text: warning },
+      { kind: "text", who: "pi", time: "09:36", uid: "err-2-w2", text: warning },
       { kind: "text", who: "me", time: "09:49", uid: "u2", text: "总结提交" },
       { kind: "text", who: "pi", time: "09:50", uid: "a2", text: "旧回答" },
     ];
@@ -599,7 +600,7 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
 
     const cached = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
     expect(cached.filter((m) => m.kind === "text" && m.who === "pi" && m.text === warning)).toHaveLength(0);
-    expect(cached.some((m) => m.kind === "text" && m.who === "pi" && m.uid === "w1")).toBe(false);
+    expect(cached.some((m) => m.kind === "text" && m.who === "pi" && m.uid === "err-1-w1")).toBe(false);
     usePersonalStore.getState().setRunning("s1", undefined);
   });
 });
