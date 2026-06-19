@@ -18,6 +18,7 @@ import type { EditorInfo, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { SettingsMenu } from "./SettingsMenu";
 import { ProjectMenu } from "./ProjectMenu";
+import { SidebarLeftControls } from "./SidebarControls";
 
 export function relTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -283,12 +284,16 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
 
   return (
     <aside className="sidebar">
-      {/* 左栏顶部头:三栏各自顶天后承担窗口拖拽区,并为 macOS 红绿灯预留左侧空间。 */}
-      <div className="pw-col-head pw-sidebar-head" />
+      {/* 左栏顶部头:三栏各自顶天后承担窗口拖拽区,并为 macOS 红绿灯预留左侧空间。
+          红绿灯右侧放「折叠侧栏 / 搜索会话」控制。 */}
+      <div className="pw-col-head pw-sidebar-head">
+        <SidebarLeftControls />
+      </div>
       <WorkspaceTabs />
-      <button className={`pw-home-btn ${homeOpen ? "is-active" : ""}`} onClick={openHome} title="新会话（看板·选项目·开聊）">
-        <Icon.Plus size={14} />
+      <button className={`pw-home-btn pw-home-btn--primary ${homeOpen ? "is-active" : ""}`} onClick={openHome} title="新会话（看板·选项目·开聊）">
+        <Icon.Plus size={15} />
         <span>新会话</span>
+        <span className="pw-home-btn__kbd">⌘N</span>
       </button>
       {bridge?.automationList ? (
         <button

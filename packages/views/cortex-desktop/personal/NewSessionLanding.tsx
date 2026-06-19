@@ -1,4 +1,4 @@
-// 新会话落地页:顶部「新会话」标签 + 中部 HomeBoard 看板 + 底部「项目·分支」条(可切项目,
+// 新会话落地页:中部 HomeBoard 看板 + 底部「项目·分支」条(可切项目,
 // 复用 GitBar)+ 输入框(复用 ComposerShell,与会话页同一套输入能力:模型/语音/Skills/拖入)。
 // 默认选最近活跃项目。选项目(或不使用项目) + 输入 → createSession(带草稿 model/skills) →
 // send → 自动跳会话页。createSession 已置 homeOpen:false + activeSessionId,渲染自动切会话页。
@@ -7,7 +7,7 @@ import { useState } from "react";
 import {
   DEFAULT_MODEL,
   dayKey,
-  defaultAgent,
+  resolveDefaultAgent,
   useDesktopBridge,
   usePersonalActions,
   usePersonalStore,
@@ -28,6 +28,7 @@ export function NewSessionLanding({
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const generalSettings = usePersonalStore((s) => s.generalSettings);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const createSession = usePersonalStore((s) => s.createSession);
   const updateSession = usePersonalStore((s) => s.updateSession);
@@ -38,7 +39,7 @@ export function NewSessionLanding({
 
   // 会话尚未创建,草稿态承载输入框控件(默认 agent + 默认 model/provider),发送时落进 createSession。
   const [draft, setDraft] = useState(() => {
-    const agent = defaultAgent(agentsAvailable);
+    const agent = resolveDefaultAgent({ generalSettings, agentsAvailable });
     const provider = providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId);
     return {
       agent,
@@ -94,10 +95,6 @@ export function NewSessionLanding({
 
   return (
     <main className="chat pw-landing">
-      <header className="pw-landing-bar">
-        <span className="pw-landing-bar-label">新会话</span>
-      </header>
-
       <div className="pw-landing-board">
         <HomeBoard onToast={onToast} />
       </div>

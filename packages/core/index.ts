@@ -31,6 +31,7 @@ export {
   toPersistedState,
   partitionProjects,
   defaultAgent,
+  resolveDefaultAgent,
   initialAgent,
   initialModelDraft,
   type PersonalState,
@@ -54,6 +55,7 @@ export {
   type ProviderProbeInput,
   type ProviderProbeResult,
   type GeneralSettings,
+  type DailyEncouragement,
   type DesktopBehavior,
   type NotificationSettings,
   type LogSettings,
@@ -318,6 +320,13 @@ export {
   type DayStats,
   type CalendarCell,
 } from "./personal/timeline";
+export {
+  useDailyEncouragement,
+  completeWithDefaultAgent,
+  buildEncouragePrompt,
+  parseEncouragement,
+  encourageKeys,
+} from "./personal/encourage";
 export {
   useAllProjectsTimeline,
   buildHeatmapWeeks,

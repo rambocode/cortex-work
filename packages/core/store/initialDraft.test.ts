@@ -1,6 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { initialAgent, initialModelDraft } from "./personal";
-import { DEFAULT_PROVIDER_SETTINGS } from "../desktop/types";
+import { initialAgent, initialModelDraft, resolveDefaultAgent } from "./personal";
+import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PROVIDER_SETTINGS, type GeneralSettings } from "../desktop/types";
+
+const general = (patch: Partial<GeneralSettings>): GeneralSettings => ({ ...DEFAULT_GENERAL_SETTINGS, ...patch });
+
+describe("resolveDefaultAgent", () => {
+  it("未设置时按安装情况派生（claude 可用 → claude）", () => {
+    expect(resolveDefaultAgent({ generalSettings: general({}), agentsAvailable: { claude: true } })).toBe("claude");
+  });
+  it("用户设置且可用则沿用", () => {
+    expect(
+      resolveDefaultAgent({ generalSettings: general({ defaultAgent: "codex" }), agentsAvailable: { claude: true, codex: true } }),
+    ).toBe("codex");
+  });
+  it("用户设置但不可用则回退派生", () => {
+    expect(
+      resolveDefaultAgent({ generalSettings: general({ defaultAgent: "codex" }), agentsAvailable: { claude: true, codex: false } }),
+    ).toBe("claude");
+  });
+  it("pi 恒可用", () => {
+    expect(resolveDefaultAgent({ generalSettings: general({ defaultAgent: "pi" }), agentsAvailable: {} })).toBe("pi");
+  });
+});
 
 describe("initialAgent", () => {
   it("无记忆时按安装情况派生（claude 可用 → claude）", () => {

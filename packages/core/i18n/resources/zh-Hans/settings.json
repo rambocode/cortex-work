@@ -194,6 +194,10 @@
   "agent": {
     "title": "Agent",
     "desc": "Cortex 支持 Claude Code、Codex、内置 Pi 三种 Agent。Claude / Codex 用各自 CLI 自带鉴权;Pi 在未装 CLI 时兜底,使用「供应商」中配置的 LLM 端点。Pi 的专属设置见「Pi」分区。",
+    "defaultCard": "默认 Agent",
+    "defaultLabel": "新会话默认 Agent",
+    "defaultDesc": "作为新会话的默认 Agent,并用于生成首页问候语。所选 Agent 不可用时自动回退。",
+    "labelNotInstalled": "{{name}}（未安装）",
     "availabilityCard": "可用性",
     "builtin": "内置",
     "installed": "已安装",

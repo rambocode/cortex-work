@@ -270,29 +270,8 @@ describe("PersonalChatArea pi 渲染：reasoning 块 + 运行时状态（U5）",
     expect(screen.queryByText("思考内容X")).toBeNull();
   });
 
-  it("pi 运行时状态徽标:压缩 / 重试 / 待注入 / 思考强度", async () => {
-    usePersonalStore.getState().setPiRuntime("s1", {
-      compacting: true,
-      retry: { attempt: 2, max: 3 },
-      steering: 1,
-      thinkingLevel: "high",
-    });
-    renderAreaWithChat([]);
-    expect(await screen.findByText("压缩上下文…")).toBeInTheDocument();
-    expect(screen.getByText(/重试中 2\/3/)).toBeInTheDocument();
-    expect(screen.getByText(/1 条待注入/)).toBeInTheDocument();
-    expect(screen.getByText(/思考 high/)).toBeInTheDocument();
-  });
-
-  it("claude 会话不显示 pi 运行时徽标（即便误置 runtime）", async () => {
-    usePersonalStore.setState({
-      sessions: [{ id: "s1", projectId: "p1", title: "S", agent: "claude", createdAt: NOW, updatedAt: NOW }],
-    });
-    usePersonalStore.getState().setPiRuntime("s1", { compacting: true });
-    renderAreaWithChat([]);
-    await screen.findAllByText(/alpha/);
-    expect(screen.queryByText("压缩上下文…")).toBeNull();
-  });
+  // pi 运行时徽标（压缩/重试/待注入/思考强度）已随会话标题上移到中栏顶栏,
+  // 相关断言移至 PersonalTopBar.test.tsx（PersonalSessionHeader）。
 });
 
 describe("PersonalChatArea 历史会话分页渲染窗口", () => {

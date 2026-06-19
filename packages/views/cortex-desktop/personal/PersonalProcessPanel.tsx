@@ -18,8 +18,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { usePersonalChat, usePersonalProcess, usePersonalStore } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
 import { renderRich } from "../rich";
-
-const AGENT_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
+import { AGENT_LABEL, useChatViewActive } from "./agentMeta";
 
 // 过程流里是否仍有运行中的步骤（agentLog/reasoning 的 active）。
 function isProcessActive(process: Message[]): boolean {
@@ -27,20 +26,6 @@ function isProcessActive(process: Message[]): boolean {
     if ((m.kind === "agentLog" || m.kind === "reasoning") && m.active === true) return true;
   }
   return false;
-}
-
-// 过程流摘要：总步数（所有 agentLog 卡片 items 之和）+ 最近一步文本。供收起入口单行摘要显示。
-function summarize(process: Message[]): { steps: number; lastStep: string | null } {
-  let steps = 0;
-  let lastStep: string | null = null;
-  for (const m of process) {
-    if (m.kind !== "agentLog") continue;
-    for (const it of m.items) {
-      steps += 1;
-      if (typeof it.text === "string") lastStep = it.text;
-    }
-  }
-  return { steps, lastStep };
 }
 
 // 精简过程步骤渲染件（KTD9，不复用 ChatArea 私有件）。只渲染 agentLog（工具步骤列表）与
@@ -126,19 +111,6 @@ function StatusStep({ text, active }: { text: string; active: boolean }) {
   );
 }
 
-// 中栏是否正显示会话区（非 automation/home/timeline/noteEditor/settings）。与现有挂载门控
-//（PersonalWorkspace 的视图优先级）对齐：渲染优先级 automation > noteEditor > home > timeline > 会话区。
-function useChatViewActive(): boolean {
-  const homeOpen = usePersonalStore((s) => s.homeOpen);
-  const automationOpen = usePersonalStore((s) => s.automationOpen);
-  const settingsOpen = usePersonalStore((s) => s.settingsOpen);
-  const noteEditorId = usePersonalStore((s) => s.noteEditorId);
-  const timelineProject = usePersonalStore((s) =>
-    s.timelineProjectId ? s.projects.find((p) => p.id === s.timelineProjectId) : undefined,
-  );
-  return !homeOpen && !automationOpen && !settingsOpen && !noteEditorId && !timelineProject;
-}
-
 export function PersonalProcessPanel() {
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const activeSession = usePersonalStore((s) => s.sessions.find((x) => x.id === s.activeSessionId));
@@ -155,7 +127,6 @@ export function PersonalProcessPanel() {
     return `${name} 正在响应...`;
   }, [activeSession?.agent, allMessages, runId]);
   const active = useMemo(() => isProcessActive(process) || !!runId, [process, runId]);
-  const summary = useMemo(() => summarize(process), [process]);
   const processResetKey = `${activeSessionId ?? ""}:${runId ?? ""}:${process[0]?.uid ?? ""}`;
 
   // 展开/收起：每轮新过程默认展开；用户手动折叠/展开覆盖默认，同一轮流式增量和完成态不重置。
@@ -168,60 +139,43 @@ export function PersonalProcessPanel() {
   // 门控：中栏非会话区 / 当前会话既无过程也无回复状态 → 不渲染。
   if (!chatViewActive || (process.length === 0 && !statusText)) return null;
 
-  // 收起入口：紧凑、可重开。过程区是右侧占位列,不覆盖正文或输入框。
-  const collapsed = !expanded;
-
-  if (collapsed) {
-    const label = summary.steps > 0
-      ? `执行过程 · ${summary.steps} 步${summary.lastStep ? ` · ${summary.lastStep}` : ""}`
-      : "执行过程";
-    return (
-      <div className="pw-process is-collapsed" data-active={active}>
-        <div
-          className="pw-process-entry"
-          role="button"
-          tabIndex={0}
-          aria-expanded={false}
-          aria-label="展开执行过程"
-          onClick={() => setUserOpen(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setUserOpen(true);
-            }
-          }}
-        >
-          {active ? <span className="spinner" /> : <Icon.CheckCircle size={13} />}
-          <span className="pw-process-entry-label">{label}</span>
-          <span className="pw-process-entry-chev" aria-hidden="true">
-            <Icon.Chevron size={11} />
-          </span>
-        </div>
-      </div>
-    );
-  }
+  // 头部即折叠开关：点击 / Enter / Space 切换 body 显隐（设计稿 togglePanel）。头部常驻,
+  // body 仅展开时渲染。收起时整卡只剩头部一行（可重开入口）。
+  const toggle = () => setUserOpen((v) => !(v ?? true));
 
   return (
-    <div className="pw-process is-expanded" data-active={active}>
-      <div className="pw-process-head">
+    <div className={`pw-process ${expanded ? "is-expanded" : "is-collapsed"}`} data-active={active}>
+      <div
+        className="pw-process-head"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={expanded ? "收起执行过程" : "展开执行过程"}
+        onClick={toggle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggle();
+          }
+        }}
+      >
         <span className="pw-process-head-title">执行过程</span>
-        <span className="pw-process-head-meta">{active ? "运行中" : "已完成"}</span>
-        <button
-          type="button"
-          className="pw-process-collapse"
-          aria-label="收起执行过程"
-          onClick={() => setUserOpen(false)}
-        >
-          <Icon.Chevron size={12} />
-        </button>
+        <span className={`pw-process-badge ${active ? "is-active" : "is-done"}`}>
+          {active ? "运行中" : "已完成"}
+        </span>
+        <span className={`pw-process-chev ${expanded ? "is-open" : ""}`} aria-hidden="true">
+          <Icon.Chevron size={14} />
+        </span>
       </div>
       {/* 流式步骤容器：aria-live=polite 让辅助技术可感知增量步骤（R9）。 */}
-      <div className="pw-process-body" aria-live="polite">
-        {statusText ? <StatusStep text={statusText} active={!!runId} /> : null}
-        {process.map((m, i) => (
-          <ProcessStep key={m.uid ?? i} m={m} />
-        ))}
-      </div>
+      {expanded ? (
+        <div className="pw-process-body" aria-live="polite">
+          {statusText ? <StatusStep text={statusText} active={!!runId} /> : null}
+          {process.map((m, i) => (
+            <ProcessStep key={m.uid ?? i} m={m} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -58,6 +58,7 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote }: C
     activeFile,
     search,
     rightOpen,
+    leftCollapsed,
     openTabs,
     tweaks,
     toasts,
@@ -107,6 +108,7 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote }: C
         data-palette={tweaks.palette}
         data-sidebar={tweaks.sidebar}
         data-right={rightOpen ? "on" : "off"}
+        data-left-collapsed={leftCollapsed ? "on" : undefined}
         data-native-titlebar={nativeTitlebar ? "mac" : undefined}
       >
         <div className="app">

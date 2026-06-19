@@ -194,6 +194,10 @@
   "agent": {
     "title": "Agent",
     "desc": "Cortex supports three agents: Claude Code, Codex and the built-in Pi. Claude / Codex use their own CLI auth; Pi serves as a fallback when no CLI is installed, using the LLM endpoint configured in Providers. Pi's dedicated settings are in the Pi section.",
+    "defaultCard": "Default agent",
+    "defaultLabel": "Default agent for new sessions",
+    "defaultDesc": "Used as the default for new sessions, and to generate the home greeting. Falls back automatically when the chosen agent is unavailable.",
+    "labelNotInstalled": "{{name}} (not installed)",
     "availabilityCard": "Availability",
     "builtin": "Built-in",
     "installed": "Installed",

@@ -164,7 +164,9 @@ input, textarea { font: inherit; color: inherit; }
    取消贯穿全宽的 .titlebar 后,左/中/右三栏各自在顶端有一条 44px 的列头,
    与原标题栏同高、同样承担窗口拖拽区(交互子元素 no-drag)。 */
 .pw-col-head {
-  height: 44px;
+  /* 38px：与 macOS 红绿灯（trafficLightPosition y:13、约 12px 直径 → 垂直中心约 19px）对齐——
+     居中的控制图标中心落在 19px。 */
+  height: 38px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -182,6 +184,85 @@ input, textarea { font: inherit; color: inherit; }
 .pw-col-head-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
 /* 左栏头:为 macOS 红绿灯预留左侧空间(原由 .titlebar 承担)。 */
 .app-frame[data-native-titlebar="mac"] .pw-sidebar-head { padding-left: 84px; }
+/* 左栏折叠后,侧栏隐藏 → 折叠/搜索控制移到中栏顶栏,这里为红绿灯预留同样的左侧空间。 */
+.app-frame[data-native-titlebar="mac"][data-left-collapsed="on"] .pw-center-head,
+.app-frame[data-native-titlebar="mac"][data-left-collapsed="on"] .pw-col-head.pw-sh { padding-left: 84px; }
+/* 折叠/搜索控制组（侧栏头 / 折叠态顶栏共用）。固定 38px 高 + 居中,使图标中心落在红绿灯中心(≈19px)。
+   非浮起的中栏头顶在窗口 y=0,38px 居中即对齐红绿灯。 */
+.pw-sb-ctrls { display: flex; align-items: center; gap: 2px; flex: none; height: 38px; }
+/* 折叠态落在更高的会话顶栏(.pw-sh)时,控制组顶端贴齐窗口顶,图标中心仍对齐红绿灯。
+   .pw-sh 有 14px 上内边距,align-self:flex-start 只能贴到内容盒顶(=14px),故用等量负上边距
+   抵消,把控制组拉回窗口 y=0 → 图标中心回到 ≈19px,与红绿灯及 .pw-center-head 折叠态一致。 */
+.pw-sh .pw-sb-ctrls { align-self: flex-start; margin-top: -14px; }
+/* 展开态的侧栏是浮起卡片(顶部 margin = --pw-float-gap),头顶被下推该距离 → 控制组上移同样距离,
+   让图标中心回到绝对坐标 ≈19px,与 OS 红绿灯(trafficLightPosition y:13)及折叠态对齐。仅 macOS 原生标题栏。 */
+.app-frame[data-native-titlebar="mac"] .pw-sidebar-head .pw-sb-ctrls {
+  transform: translateY(calc(-1 * var(--pw-float-gap)));
+}
+
+/* ---------- 会话视图中栏顶栏:会话标题块 + Agent 选择器（标题上移自旧 chat-head,见设计稿） ----------
+   覆盖 .pw-col-head 的固定 44px 高度/内边距:高度随内容(含项目路径行)自适应。 */
+.pw-col-head.pw-sh {
+  height: auto;
+  min-height: 44px;
+  padding: 14px 20px 12px;
+  gap: 18px;
+  align-items: center;
+  border-bottom: none;
+}
+.pw-sh-titleblock { flex: 1; min-width: 0; }
+.pw-sh-titlerow { display: flex; align-items: center; gap: 10px; }
+.pw-sh-avatar {
+  width: 28px; height: 28px; border-radius: 8px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+}
+.pw-sh-title {
+  font-size: 16px; font-weight: 700; color: var(--text-1); letter-spacing: -0.01em;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pw-sh-tag {
+  flex: none;
+  font-size: 11.5px; font-weight: 600;
+  color: var(--accent); background: var(--accent-soft);
+  padding: 2px 9px; border-radius: 6px;
+}
+.pw-sh-pathbtn {
+  width: 24px; height: 24px; flex: none; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: var(--bg-card);
+  border-radius: 7px; cursor: pointer; color: var(--text-3);
+}
+.pw-sh-pathbtn:hover { border-color: var(--border-strong); background: var(--bg-card-2); }
+.pw-sh-chev { display: inline-flex; align-items: center; transition: transform 0.18s; }
+.pw-sh-chev.is-open { transform: rotate(180deg); }
+.pw-sh-path {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 6px; padding-left: 38px; min-width: 0;
+  font-size: 12.5px;
+}
+.pw-sh-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.pw-sh-pname { font-weight: 600; color: var(--text-2); flex: none; }
+.pw-sh-sep { color: var(--border-strong); flex: none; }
+.pw-sh-ppath {
+  font-family: var(--mono); font-size: 12px; color: var(--text-3);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Agent 选择器（自定义下拉,按钮内含 agent 小头像）。 */
+.pw-sh-agent { display: flex; align-items: center; gap: 9px; flex: none; }
+.pw-sh-agent-label { font-size: 13px; color: var(--text-3); }
+.pw-sh-agent-btn {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px;
+  padding: 6px 10px 6px 8px; cursor: pointer; color: var(--text-1); font-family: inherit;
+}
+.pw-sh-agent-btn:hover { border-color: var(--border-strong); }
+.pw-sh-agent-name { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.pw-sh-agent-avatar {
+  width: 18px; height: 18px; border-radius: 5px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 9px; font-weight: 700; letter-spacing: 0.02em;
+}
 
 .tb-left, .tb-right { display: flex; align-items: center; gap: 4px; }
 .tb-center {
@@ -856,70 +937,82 @@ input, textarea { font: inherit; color: inherit; }
 }
 
 /* —— 右侧执行过程区（PersonalProcessPanel, U4）—— */
-/* 中栏内右侧占位列:参与 .pw-center-col grid 布局,让主会话区自然变窄,不覆盖消息或输入框。 */
+/* 执行过程区（设计稿）：贯穿整列高度的右侧浮卡,头部贴顶与顶栏齐平。grid 第二列占位,
+   会话区自然变窄,不覆盖消息或输入框。 */
 .pw-process {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1 / -1;
   align-self: stretch;
   position: relative;
   z-index: 40;
-  width: clamp(280px, 27vw, 340px);
-  max-width: 34vw;
+  width: clamp(320px, 30vw, 418px);
+  max-width: 38vw;
   min-height: 0;
-  margin: 8px 12px 12px 0;
+  margin: 14px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-card);
+  background: var(--bg-card-2);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px -16px rgba(45, 38, 26, 0.26), 0 6px 16px -8px rgba(45, 38, 26, 0.12);
   font-size: 12.5px;
   overflow: hidden;
   animation: pw-process-in 0.18s ease-out;
 }
+/* 收起态：整卡只剩头部一行（可重开入口），不再撑满整列高度。 */
 .pw-process.is-collapsed {
   align-self: start;
-  width: min(320px, 34vw);
 }
 .pw-process-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
+  gap: 11px;
+  padding: 16px 22px;
   border-bottom: 1px solid var(--border);
   flex: none;
+  cursor: pointer;
+  outline: none;
 }
-.pw-process-head-title { font-weight: 600; color: var(--text-1); }
-.pw-process-head-meta { font-size: 11px; color: var(--text-3); }
-.pw-process-collapse {
+.pw-process-head:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); }
+.pw-process.is-collapsed .pw-process-head { border-bottom: none; }
+.pw-process-head-title { font-size: 14.5px; font-weight: 700; color: var(--text-1); }
+/* 状态徽标：已完成 → 绿药丸；运行中 → 琥珀药丸。 */
+.pw-process-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 6px;
+}
+.pw-process-badge.is-done { color: var(--green); background: var(--green-soft); }
+.pw-process-badge.is-active { color: var(--amber); background: var(--amber-soft); }
+.pw-process-chev {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  border-radius: 6px;
   color: var(--text-3);
-  cursor: pointer;
+  transition: transform 0.18s;
+  transform: rotate(-90deg);
 }
-.pw-process-collapse:hover { background: var(--bg-card-2); color: var(--text-1); }
+.pw-process-chev.is-open { transform: rotate(0deg); }
 .pw-process-body {
-  padding: 8px 12px 10px;
+  padding: 18px 22px 28px;
   overflow-y: auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
 }
 .pw-process-step-h {
-  display: flex; align-items: center; gap: 7px;
-  font-size: 11.5px; color: var(--text-2);
-  margin-bottom: 5px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--text-2);
+  margin-bottom: 8px;
 }
-.pw-process-step-title { color: var(--text-1); font-weight: 500; }
-.pw-process-step-meta { color: var(--text-3); }
+.pw-process-step-title { color: var(--text-1); font-weight: 700; }
+.pw-process-step-meta { color: var(--text-3); font-weight: 400; }
+/* 思考过程：✦ 暖橙,标题灰；正文斜体 + 左边框（设计稿）。 */
+.pw-process-reasoning .pw-process-step-h { color: var(--text-2); }
+.pw-process-reasoning .pw-process-step-h > svg:first-child { color: var(--accent); }
+.pw-process-reasoning .pw-process-step-title { color: var(--text-2); font-weight: 600; }
 .pw-process-step-h .spinner {
   width: 11px; height: 11px;
   border: 1.5px solid var(--border-strong);
@@ -945,47 +1038,21 @@ input, textarea { font: inherit; color: inherit; }
 .pw-process-items li.is-active { color: var(--text-1); }
 .pw-process-item-text { min-width: 0; word-break: break-word; }
 .pw-process-reasoning-body {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-3);
-  line-height: 1.5;
+  line-height: 1.75;
   white-space: pre-wrap;
   font-style: italic;
-  border-left: 2px solid var(--border-strong);
-  padding-left: 8px;
+  border-left: 2px solid var(--border-soft);
+  padding-left: 12px;
+  margin-left: 6px;
 }
 .pw-process-status-body {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-2);
-  line-height: 1.5;
+  line-height: 1.6;
   white-space: pre-wrap;
 }
-/* 收起入口:紧凑、可重开、键盘可聚焦（role=button + tabindex）。 */
-.pw-process-entry {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 11px;
-  cursor: pointer;
-  color: var(--text-2);
-  outline: none;
-}
-.pw-process-entry:hover { background: var(--bg-card-2); }
-.pw-process-entry:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); border-radius: 12px; }
-.pw-process-entry .spinner {
-  width: 11px; height: 11px;
-  border: 1.5px solid var(--border-strong);
-  border-top-color: var(--amber);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  flex: none;
-}
-.pw-process-entry-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.pw-process-entry-chev { display: inline-flex; color: var(--text-3); flex: none; }
 @keyframes pw-process-in {
   from { opacity: 0; transform: translateX(6px); }
   to { opacity: 1; transform: translateX(0); }
@@ -1264,11 +1331,13 @@ input, textarea { font: inherit; color: inherit; }
   width: 32px; height: 32px;
   flex: 0 0 32px;
   border-radius: 8px;
-  background: var(--text-1); color: #fff;
+  background: #7c5cff; color: #fff;
   display: flex; align-items: center; justify-content: center;
 }
-.composer .send:hover { background: #000; }
-.composer .send.muted { background: var(--bg-active); color: var(--text-3); }
+.composer .send:hover { background: #6a48f0; }
+/* 空输入态：保留品牌底色但淡化，与左侧「新会话」按钮协调 */
+.composer .send.muted { background: #b9abff; color: #fff; }
+.composer .send.muted:hover { background: #b9abff; }
 
 .pill {
   display: inline-flex; align-items: center; gap: 4px;
@@ -4312,7 +4381,9 @@ button.sb-row {
   min-width: 0;
   min-height: 0;
 }
-.pw-center-col > .pw-col-head { grid-column: 1 / -1; grid-row: 1; }
+/* 顶栏只盖左列（会话区上方）；执行过程区贯穿整列高度，头部贴顶与顶栏齐平（设计稿）。
+   非会话视图过程区被门控不渲染，第二列 auto 自然塌成 0，顶栏铺满整行 → 布局不变。 */
+.pw-center-col > .pw-col-head { grid-column: 1; grid-row: 1; }
 .pw-center-col > :not(.pw-col-head):not(.pw-process) {
   grid-column: 1;
   grid-row: 2;
@@ -5167,6 +5238,76 @@ button.sb-row {
   gap: 8px;
   margin-top: 4px;
 }
+
+/* ── 会话搜索弹窗:复用 .pw-dlg-overlay,命令面板式置顶居中小窗。 ── */
+.pw-search-dlg {
+  width: 560px;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: calc(100vw - 48px);
+  max-height: 64vh;
+  flex-direction: column;
+  align-self: flex-start;
+  margin-top: 12vh;
+}
+.pw-search-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-3);
+  flex: none;
+}
+.pw-search-input input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  color: var(--text-1);
+  font-family: inherit;
+}
+.pw-search-input input::placeholder { color: var(--text-3); }
+.pw-search-list {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.pw-search-hint { font-size: 11px; color: var(--text-3); padding: 8px 10px 4px; }
+.pw-search-empty { font-size: 13px; color: var(--text-3); padding: 28px; text-align: center; }
+.pw-search-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+}
+.pw-search-row.is-active { background: var(--bg-hover); }
+.pw-search-row-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-1);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-search-row-meta { display: flex; align-items: center; gap: 10px; flex: none; }
+.pw-search-row-proj { font-size: 11.5px; color: var(--text-3); }
+.pw-search-row-time { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
 
 /* ── 历史消息「追问」浮层（U4）。复用 .pw-dlg-overlay/.pw-dlg,覆盖尺寸为紧凑居中小窗,
    三段式纵向布局:种子(固定) + turns(独立滚动) + 输入(固定)。 ── */
@@ -6245,6 +6386,25 @@ button.sb-row {
 .pw-home-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .pw-home-btn.is-active { background: var(--bg-active); color: var(--text-1); font-weight: 600; }
 
+/* 「新会话」主按钮：紫色强调，区别于「自动化」等普通导航项 */
+.pw-home-btn--primary {
+  gap: 9px;
+  padding: 10px 12px;
+  font-size: 13.5px; font-weight: 600;
+  color: #fff;
+  background: #7c5cff;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(124, 92, 255, 0.35);
+}
+.pw-home-btn--primary:hover { background: #6a48f0; color: #fff; }
+.pw-home-btn--primary.is-active { background: #6a48f0; color: #fff; }
+.pw-home-btn__kbd {
+  margin-left: auto;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
 /* 首页内容宽度自适应中间区域（不再固定 860px 居中） */
 .pw-home {
   flex: 1;
@@ -6513,8 +6673,8 @@ button.sb-row {
   border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
-  font-size: 12.5px; font-weight: 600;
-  color: var(--text-1);
+  font-size: 12px; font-weight: 500;
+  color: var(--text-3);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -6565,13 +6725,6 @@ button.sb-row {
      宽屏封顶并两侧留白。仅作用于落地页，会话页不受影响。 */
   --pw-landing-col: 750px;
 }
-/* 顶部项目条:与 chat-head 风格一致,横向一行,左对齐 ProjectPicker */
-.pw-landing-bar {
-  display: flex; align-items: center; gap: 8px;
-  flex-shrink: 0;
-  padding: 12px 28px 8px;
-}
-.pw-landing-bar-label { font-size: 11.5px; color: var(--text-3); }
 /* 中部看板:占满剩余高度,可滚动（内部 pw-home 自带 overflow,这里仅作 flex 容器） */
 .pw-landing-board {
   flex: 1; min-height: 0;
@@ -6602,9 +6755,6 @@ button.sb-row {
   margin-inline: auto;
   padding-inline: 0;
 }
-[data-density="compact"] .pw-landing-bar { padding: 10px 32px 6px; }
-[data-density="cozy"] .pw-landing-bar { padding: 14px 56px 10px; }
-
 /* ── GitBar 分支:可点态 + 分支下拉菜单 ──────────────────────────────────── */
 /* 分支段从只读改为可点（建/切分支入口） */
 .pw-gitbar-branch.is-clickable {

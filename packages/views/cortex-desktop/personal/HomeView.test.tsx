@@ -51,9 +51,9 @@ describe("HomeView", () => {
   });
 
   it("渲染 Hero + 用量日历卡片 + 一日总结,不再有 Tasks 区与「Agent 项目」检索", () => {
-    renderHome(fakeBridge());
-    // 顶部 Hero
-    expect(screen.getByText(/开始你的智能体节奏/)).toBeInTheDocument();
+    const { container } = renderHome(fakeBridge());
+    // 顶部 Hero：文案为激励问候语（静态池兜底,动态,只断言结构与非空）。
+    expect(container.querySelector(".pw-hero-title")?.textContent).toBeTruthy();
     // 用量日历卡片：默认折叠,只露出展开按钮
     expect(screen.getByLabelText("展开用量日历")).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "活动" })).toBeNull();
@@ -81,8 +81,8 @@ describe("HomeView", () => {
 
   it("工作区为空时仍渲染 Hero + 用量日历卡片 + 一日总结", () => {
     usePersonalStore.setState({ projects: [], sessions: [] });
-    renderHome(fakeBridge());
-    expect(screen.getByText(/开始你的智能体节奏/)).toBeInTheDocument();
+    const { container } = renderHome(fakeBridge());
+    expect(container.querySelector(".pw-hero-title")?.textContent).toBeTruthy();
     expect(screen.getByLabelText("展开用量日历")).toBeInTheDocument();
     expect(screen.getByText("一日总结 · 所有项目")).toBeInTheDocument();
   });

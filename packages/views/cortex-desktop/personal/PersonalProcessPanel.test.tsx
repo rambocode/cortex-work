@@ -163,16 +163,21 @@ describe("PersonalProcessPanel 流式更新 / 默认展开 / 用户折叠", () =
       process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],
     });
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
-    fireEvent.click(view.container.querySelector(".pw-process-collapse") as HTMLElement);
-    await waitFor(() => expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument());
+    // 点击头部即折叠：body 收起,只剩头部一行。
+    fireEvent.click(view.container.querySelector(".pw-process-head") as HTMLElement);
+    await waitFor(() => {
+      expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument();
+      expect(view.container.querySelector(".pw-process-body")).toBeNull();
+    });
     act(() => {
       qc.setQueryData(personalProcessKeys.detail(sessionId), [
         logMsg({ uid: "l1", active: true, items: [{ ic: "check", text: "Bash · ls" }, { ic: "running", text: "Edit · b.ts" }] }),
       ]);
     });
+    // 同一轮新增步骤不强制重新展开：仍折叠（body 不渲染,故不显示步骤文本）。
     await waitFor(() => {
       expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument();
-      expect(view.container.textContent).toContain("Edit · b.ts");
+      expect(view.container.querySelector(".pw-process-body")).toBeNull();
     });
   });
 
@@ -181,7 +186,7 @@ describe("PersonalProcessPanel 流式更新 / 默认展开 / 用户折叠", () =
       process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],
     });
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
-    fireEvent.click(view.container.querySelector(".pw-process-collapse") as HTMLElement);
+    fireEvent.click(view.container.querySelector(".pw-process-head") as HTMLElement);
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument());
     act(() => {
       qc.setQueryData(personalProcessKeys.detail(sessionId), [
@@ -343,20 +348,20 @@ describe("PersonalProcessPanel 键盘可达 / 不抢焦点", () => {
   afterEach(() => cleanup());
   beforeEach(() => usePersonalStore.setState({ homeOpen: false, automationOpen: false, settingsOpen: false, noteEditorId: undefined, timelineProjectId: undefined }));
 
-  it("用户折叠后的入口键盘可聚焦并可激活（role=button + tabindex），Enter/Space 展开", async () => {
+  it("头部即折叠开关，键盘可聚焦并可激活（role=button + tabindex），Enter 切换展开/收起", async () => {
     const process = [logMsg({ uid: "l1", active: false, items: [{ ic: "check", text: "Bash · ls" }] })];
     const { view } = renderPanel({ process });
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
-    fireEvent.click(view.container.querySelector(".pw-process-collapse") as HTMLElement);
-    const entry = await waitFor(() => {
-      const el = view.container.querySelector('.pw-process-entry[role="button"]') as HTMLElement | null;
-      if (!el) throw new Error("entry 未出现");
-      return el;
-    });
-    expect(entry.getAttribute("tabindex")).toBe("0");
-    entry.focus();
-    expect(document.activeElement).toBe(entry);
-    fireEvent.keyDown(entry, { key: "Enter" });
+    const head = view.container.querySelector('.pw-process-head[role="button"]') as HTMLElement;
+    expect(head).not.toBeNull();
+    expect(head.getAttribute("tabindex")).toBe("0");
+    head.focus();
+    expect(document.activeElement).toBe(head);
+    // Enter 收起。
+    fireEvent.keyDown(head, { key: "Enter" });
+    await waitFor(() => expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument());
+    // Enter 再次展开。
+    fireEvent.keyDown(head, { key: "Enter" });
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
   });
 

@@ -418,6 +418,9 @@ export interface LogSettings {
 // 通用设置容器（与外观项 Tweaks 分属两套存储：这里随 personal-workspace.json 落盘）。
 export interface GeneralSettings {
   workspaceRoot?: string; // 默认工作目录（agent 启动未显式传 cwd 时兜底）
+  // 新会话默认 agent;缺省 = 按安装情况派生（resolveDefaultAgent / defaultAgent）。
+  // 落地页激励文案的每日 LLM 增强也基于此 agent 生成。
+  defaultAgent?: AgentKind;
   desktopBehavior: DesktopBehavior;
   notifications: NotificationSettings;
   log: LogSettings;
@@ -519,6 +522,15 @@ export interface PersistedState {
   lastProviderId?: string;
   // 最近活跃项目（浮层默认归属推导用；归档/删除该项目时清空）。
   lastActiveProjectId?: string;
+  // 落地页激励问候语的「按天」LLM 增强缓存（day=YYYY-MM-DD;跨重启复用,跨天失效）。
+  dailyEncouragement?: DailyEncouragement;
+}
+
+// 落地页激励问候语的每日 LLM 生成快照（按天缓存）。
+export interface DailyEncouragement {
+  day: string; // dayKey(ts) = YYYY-MM-DD
+  title: string;
+  sub: string;
 }
 
 export interface ReadFileResult {

@@ -4,8 +4,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
-  AGENT_MODELS,
-  DEFAULT_MODEL,
   defaultAgent,
   getTtsPlaybackState,
   resolveProjectFileRef,
@@ -19,40 +17,17 @@ import {
   usePersonalStore,
   useRenderWindow,
 } from "@cortex-work/core";
-import type { AgentKind, FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
-import type { Contact, Conversation, Message } from "@cortex-work/core/types";
+import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
+import type { Conversation, Message } from "@cortex-work/core/types";
 import { MessageStream } from "../ChatArea";
+import { agentContact } from "./agentMeta";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
 import { PersonalComposer } from "./PersonalComposer";
 
-const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
-
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
 const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
-
-// 各 agent 头像视觉（claude/codex 沿用原值,pi 用缩写 PI + 靛蓝底）。
-const AGENT_AVATAR: Record<AgentKind, { initials: string; bg: string }> = {
-  claude: { initials: "CC", bg: "#c96442" },
-  codex: { initials: "CX", bg: "#1a1916" },
-  pi: { initials: "PI", bg: "#4338ca" },
-};
-
-// MessageStream 需要 Contact/Conversation 形状,为 CLI agent 合成一份。
-function agentContact(agent: AgentKind): Contact {
-  return {
-    id: agent,
-    name: AGENT_LABEL[agent],
-    group: "shared",
-    avatar: AGENT_AVATAR[agent],
-    agentStatus: "online",
-    statusText: "",
-    last: "",
-    time: "",
-    unread: 0,
-  };
-}
 
 function EmptyState({ text, hint }: { text: string; hint?: string }) {
   return (
@@ -138,7 +113,6 @@ export function PersonalChatArea({
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
   const createSession = usePersonalStore((s) => s.createSession);
   const runningBySession = usePersonalStore((s) => s.runningBySession);
-  const piRuntimeBySession = usePersonalStore((s) => s.piRuntimeBySession);
   const updateSession = usePersonalStore((s) => s.updateSession);
   const ttsSettings = usePersonalStore((s) => s.ttsSettings);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
@@ -396,81 +370,10 @@ export function PersonalChatArea({
   }
   if (!session || !project || !contact) return <EmptyState text="选择或新建一个 Session" hint="在左侧项目上点 + 新建" />;
 
-  // pi RPC 会话运行时状态（压缩/重试/待注入队列/思考强度）;非 pi 会话恒 undefined。
-  const piRuntime = session.agent === "pi" ? piRuntimeBySession[session.id] : undefined;
-
-  const switchAgent = (agent: AgentKind) => {
-    const agentSessionIds = { ...session.agentSessionIds };
-    delete agentSessionIds[agent];
-    // pi:用默认 provider + 默认模型（或 provider 首模型）;其余 agent 用各自默认模型。
-    const piDefaultProvider = providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId);
-    updateSession(session.id, {
-      agent,
-      agentSessionIds,
-      claudeSessionId: agent === "claude" ? undefined : session.claudeSessionId,
-      providerId: agent === "pi" ? providerSettings.defaultProviderId : undefined,
-      model:
-        agent === "pi"
-          ? providerSettings.defaultModel ?? piDefaultProvider?.models[0]?.id
-          : DEFAULT_MODEL[agent],
-    });
-  };
-
+  // 会话标题 / agent 标签 / 项目路径 / agent 切换已上移到中栏顶栏（见 PersonalSessionHeader），
+  // 会话区不再渲染 chat-head，直接以消息流开头。
   return (
     <main className="chat">
-      <div className="chat-head">
-        <div className="ch-avatar" style={{ background: contact.avatar.bg }}>
-          {contact.avatar.initials}
-        </div>
-        <div className="ch-meta pw-head-meta">
-          <div className="ch-name">
-            <span className="ch-title-text">{session.title}</span>
-            <span className="agent-tag">{AGENT_LABEL[session.agent]}</span>
-          </div>
-          <div className="ch-status">
-            <span className="dot" style={{ background: running ? "var(--amber)" : "var(--green)" }} />
-            <span className="pw-head-path" title={project.path}>
-              {realProject ? `${project.name} · ${project.path}` : project.name}
-            </span>
-            {piRuntime?.compacting ? <span className="pw-pi-chip">压缩上下文…</span> : null}
-            {piRuntime?.retry ? (
-              <span className="pw-pi-chip pw-pi-warn">
-                重试中 {piRuntime.retry.attempt}
-                {piRuntime.retry.max ? `/${piRuntime.retry.max}` : ""}
-              </span>
-            ) : null}
-            {piRuntime?.steering ? <span className="pw-pi-chip">{piRuntime.steering} 条待注入</span> : null}
-            {piRuntime?.thinkingLevel ? (
-              <span className="pw-pi-chip">思考 {piRuntime.thinkingLevel}</span>
-            ) : null}
-          </div>
-        </div>
-        <div className="ch-spacer" />
-        <div className="pw-head-controls">
-          <span className="pw-head-label">Agent</span>
-          <select
-            className="pw-agent-select"
-            value={session.agent}
-            onChange={(e) => {
-              const agent = e.target.value as AgentKind;
-              // 换 agent 即换上下文,清掉旧 resume id。
-              switchAgent(agent);
-            }}
-          >
-            {(Object.keys(AGENT_MODELS) as AgentKind[]).map((a) => {
-              // pi 是内置兜底,永不禁用;其余 agent 未探测到安装时禁用并标注。
-              const unavailable = a !== "pi" && agentsAvailable?.[a] === false;
-              return (
-                <option key={a} value={a} disabled={unavailable}>
-                  {AGENT_LABEL[a]}
-                  {unavailable ? "（未安装）" : ""}
-                </option>
-              );
-            })}
-          </select>
-        </div>
-      </div>
-
       <MessageStream
         key={session.id}
         contact={contact}

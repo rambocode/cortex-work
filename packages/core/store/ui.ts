@@ -20,6 +20,10 @@ export interface CortexUIState {
   activeFile: string;
   search: string;
   rightOpen: boolean;
+  // 个人工作区左栏折叠态（隐藏项目/会话菜单,给中栏让位）。
+  leftCollapsed: boolean;
+  // 会话搜索弹窗开关。
+  sessionSearchOpen: boolean;
   openTabs: string[];
   tweaks: Tweaks;
   toasts: Toast[];
@@ -32,6 +36,9 @@ export interface CortexUIState {
   setSearch: (q: string) => void;
   setRightOpen: (open: boolean) => void;
   toggleRight: () => void;
+  setLeftCollapsed: (collapsed: boolean) => void;
+  toggleLeftCollapsed: () => void;
+  setSessionSearchOpen: (open: boolean) => void;
   openFileTab: (path: string) => void;
   closeFileTab: (path: string) => void;
   setTweak: <K extends keyof Tweaks>(key: K, value: Tweaks[K]) => void;
@@ -58,6 +65,8 @@ export const useCortexUIStore = create<CortexUIState>((set) => ({
   activeFile: "desktop/src/sidebar/ContactList.tsx",
   search: "",
   rightOpen: false,
+  leftCollapsed: false,
+  sessionSearchOpen: false,
   openTabs: ["desktop/src/sidebar/ContactList.tsx"],
   tweaks: { ...DEFAULT_TWEAKS },
   toasts: [],
@@ -71,6 +80,9 @@ export const useCortexUIStore = create<CortexUIState>((set) => ({
   setSearch: (q) => set({ search: q }),
   setRightOpen: (open) => set({ rightOpen: open }),
   toggleRight: () => set((s) => ({ rightOpen: !s.rightOpen })),
+  setLeftCollapsed: (collapsed) => set({ leftCollapsed: collapsed }),
+  toggleLeftCollapsed: () => set((s) => ({ leftCollapsed: !s.leftCollapsed })),
+  setSessionSearchOpen: (open) => set({ sessionSearchOpen: open }),
 
   openFileTab: (path) =>
     set((s) => (s.openTabs.includes(path) ? { activeFile: path } : { openTabs: [...s.openTabs, path], activeFile: path })),

@@ -5,6 +5,7 @@
 import { create } from "zustand";
 import type {
   AgentKind,
+  DailyEncouragement,
   GeneralSettings,
   PersistedState,
   PersonalProfile,
@@ -124,6 +125,8 @@ export interface PersonalState {
   lastProviderId?: string;
   // 最近活跃项目（持久化;浮层默认归属推导用,归档/删除该项目时清空）。
   lastActiveProjectId?: string;
+  // 落地页激励问候语的「按天」LLM 增强缓存（持久化;跨天失效,失败不写）。
+  dailyEncouragement?: DailyEncouragement;
   // Spotlight 接力:待主窗口个人工作区消费的发起意图（不持久化）。
   pendingSpotlightIntent?: SpotlightIntent;
   hydrate: (s: PersistedState) => void;
@@ -142,6 +145,8 @@ export interface PersonalState {
   setProviderDefaults: (patch: { defaultProviderId?: string; defaultModel?: string }) => void;
   // 通用设置整体 patch（嵌套子对象由调用方 spread 现值）。
   setGeneralSettings: (patch: Partial<GeneralSettings>) => void;
+  // 落地页每日激励文案 LLM 缓存:生成成功后按天写入（失败不写,保持静态兜底）。
+  setDailyEncouragement: (value: DailyEncouragement) => void;
   // 插件 Skill 配置 setter（U6）:逐项启用/禁用（scope:name 复合键）、工作区授信、全局根增删。
   togglePiSkill: (scope: string, name: string, enabled: boolean) => void;
   trustWorkspaceSkill: (dir: string, trusted: boolean) => void;
@@ -319,6 +324,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 旧档字段名 lastPiChannelId → lastProviderId。
       lastProviderId: s.lastProviderId ?? (s as LegacyPersisted).lastPiChannelId,
       lastActiveProjectId: s.lastActiveProjectId,
+      dailyEncouragement: s.dailyEncouragement,
     }),
 
   addProject: (path) => {
@@ -403,6 +409,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setProviderDefaults: (patch) => set((s) => ({ providerSettings: { ...s.providerSettings, ...patch } })),
 
   setGeneralSettings: (patch) => set((s) => ({ generalSettings: { ...s.generalSettings, ...patch } })),
+  setDailyEncouragement: (value) => set({ dailyEncouragement: value }),
 
   // ── 插件 Skill 配置 setter（U6）──────────────────────────────────────────────
   // 现值兜底 DEFAULT_PI_SKILLS（旧档/缺字段安全）；整体写回 generalSettings.piSkills。
@@ -718,6 +725,7 @@ export function toPersistedState(s: PersonalState): PersistedState {
     lastModel: s.lastModel,
     lastProviderId: s.lastProviderId,
     lastActiveProjectId: s.lastActiveProjectId,
+    dailyEncouragement: s.dailyEncouragement,
   };
 }
 
@@ -750,6 +758,17 @@ export function defaultAgent(avail?: Partial<Record<AgentKind, boolean>>): Agent
   if (avail?.claude) return "claude";
   if (avail?.codex) return "codex";
   return "pi";
+}
+
+// 解析「新会话默认 agent」：优先用户在设置里指定的 generalSettings.defaultAgent
+// （pi 恒可用,其余须已安装）;未设置或所选不可用则回退按安装情况派生（claude>codex>pi）。
+// 校验范式与 initialAgent 一致。落地页激励文案的每日 LLM 增强也用它选 agent。
+export function resolveDefaultAgent(
+  s: Pick<PersonalState, "generalSettings" | "agentsAvailable">,
+): AgentKind {
+  const pref = s.generalSettings.defaultAgent;
+  if (pref && (pref === "pi" || s.agentsAvailable?.[pref])) return pref;
+  return defaultAgent(s.agentsAvailable);
 }
 
 // Spotlight/新会话发起的初始 agent:优先记忆,回退按安装情况派生（记忆 agent 不可用则回退）。

@@ -559,7 +559,7 @@ export function ComposerShell({
             onClick={onToggleSkills}
             title={useOwnSkills ? t("composer.skillsOnTitle") : t("composer.skillsOffTitle")}
           >
-            <Icon.Sparkle size={13} />
+            <Icon.Sparkle size={13} color="#7c5cff" />
             {t("composer.skills")} {useOwnSkills ? t("composer.skillsOn") : t("composer.skillsOff")}
           </button>
           <button
@@ -572,7 +572,7 @@ export function ComposerShell({
           </button>
           {onOpenFlashNote ? (
             <button className="pill" onClick={onOpenFlashNote} title={t("composer.flashNote")}>
-              <Icon.Pin size={13} />
+              <Icon.Pin size={13} color="#7c5cff" />
             </button>
           ) : null}
           <button

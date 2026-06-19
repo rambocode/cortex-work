@@ -20,6 +20,7 @@ import {
   DEFAULT_PUSH_TEMPLATE,
   PROVIDER_PRESETS,
   providerFromPreset,
+  resolveDefaultAgent,
   speakText,
   stopSpeaking,
   useCortexUIStore,
@@ -1278,11 +1279,28 @@ function ProvidersSection() {
 function AgentSection() {
   const { t } = useTranslation("settings");
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const generalSettings = usePersonalStore((s) => s.generalSettings);
+  const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
+  // 当前生效值:用户显式设置优先,否则展示运行时派生的兜底 agent。
+  const effectiveDefault = resolveDefaultAgent({ generalSettings, agentsAvailable });
 
   return (
     <>
       <div className="pw-dlg-title">{t("agent.title")}</div>
       <div className="pw-dlg-desc">{t("agent.desc")}</div>
+
+      <SettingCard title={t("agent.defaultCard")}>
+        <SRow label={t("agent.defaultLabel")} desc={t("agent.defaultDesc")} end>
+          <BareSelect
+            value={effectiveDefault}
+            options={INTEGRATED_AGENTS.map((a) => ({
+              label: a === "pi" || agentsAvailable?.[a] ? AGENT_LABEL[a] : t("agent.labelNotInstalled", { name: AGENT_LABEL[a] }),
+              value: a,
+            }))}
+            onChange={(v) => setGeneral({ defaultAgent: v as AgentKind })}
+          />
+        </SRow>
+      </SettingCard>
 
       <SettingCard title={t("agent.availabilityCard")}>
         {INTEGRATED_AGENTS.map((a) => {
