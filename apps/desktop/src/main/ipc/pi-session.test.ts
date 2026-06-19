@@ -56,6 +56,7 @@ const h = vi.hoisted(() => {
     writeCustomToolExtension: vi.fn(() => "/ext/sample-tools.js"),
     writeSlashCommandExtension: vi.fn(() => "/ext/sample-commands.js"),
     writeAskQuestionExtension: vi.fn(() => "/ext/askquestion.js"),
+    assertSpawnCwd: vi.fn(),
     spawnEnvFor: vi.fn(() => ({})),
     readImageBytes: vi.fn(async () => ({ mimeType: "image/png", base64: "AAAA" })),
   };
@@ -76,7 +77,7 @@ vi.mock("../agents/pi-extensions", () => ({
   writeSlashCommandExtension: h.writeSlashCommandExtension,
   writeAskQuestionExtension: h.writeAskQuestionExtension,
 }));
-vi.mock("./cli", () => ({ spawnEnvFor: h.spawnEnvFor }));
+vi.mock("./cli", () => ({ assertSpawnCwd: h.assertSpawnCwd, spawnEnvFor: h.spawnEnvFor }));
 vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
 
 import { registerPiSessionHandlers, killAllPiSessions, piSessionCount } from "./pi-session";

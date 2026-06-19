@@ -10,7 +10,7 @@
 
 import { homedir } from "os";
 import type { AgentProcess } from "../ipc/cli";
-import { detectAgents, spawnEnvFor, startAgentProcess } from "../ipc/cli";
+import { assertSpawnCwd, detectAgents, spawnEnvFor, startAgentProcess } from "../ipc/cli";
 import { getAdapter } from "../agents";
 import { writePiExtension } from "../agents/pi-providers";
 import { getPersistedState, getWorkspaceRoot } from "../ipc/store";
@@ -159,6 +159,7 @@ export async function runAutomation(
     };
     const adapter = getAdapter(meta.agent);
     const { cmd, args } = adapter.buildArgs(req);
+    assertSpawnCwd(cwd);
     proc = startAgentProcess(cmd, args, { cwd, env: spawnEnvFor(req) });
   } catch (err) {
     run.status = "error";

@@ -820,6 +820,18 @@ describe("U1 过程流独立通道（CLI）", () => {
     expect(chatOf(qc).some((m) => m.kind === "agentLog")).toBe(false);
   });
 
+  it("tool 事件更新消息流里的 transient typing 占位,但不落盘", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    qc.setQueryData<Message[]>(personalChatKeys.detail("s1"), [
+      { kind: "typing", who: "claude", uid: "recovered-no-typing", text: "启动中" },
+    ]);
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Edit", detail: "a.ts" }, "s1");
+    const typing = chatOf(qc).find((m) => m.kind === "typing");
+    expect(typing).toMatchObject({ kind: "typing", text: "Claude Code 正在执行 Edit · a.ts" });
+    expect(sanitizeForSave(chatOf(qc)).some((m) => m.kind === "typing")).toBe(false);
+  });
+
   it("tool,tool,text:text 到达对 process key 收尾 agentLog(两步全 check),消息流只一条 text", () => {
     const qc = new QueryClient();
     setupCliRun(qc);
@@ -882,14 +894,13 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
     beginPiRun(qc, { runId, sessionId, typingUid: `typ-${sessionId}`, cwd: "/proj", promptText: "hi" });
   }
 
-  it("CLI 纯工具轮(ev.ok、!sawText、!ev.text):中栏补一条占位 text(agent)", () => {
+  it("CLI 纯工具轮(ev.ok、!sawText、!ev.text):不追加持久 text 占位", () => {
     const qc = new QueryClient();
     setupCliRun(qc);
     __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Bash", detail: "ls" }, "s1");
     __handleCliEventForTest(qc, "run-c1", { type: "result", ok: true, text: "" }, "s1");
     const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
-    expect(texts).toHaveLength(1);
-    expect(asText(texts[0]!).text).toBe(PURE_TOOL_TURN_PLACEHOLDER);
+    expect(texts).toHaveLength(0);
   });
 
   it("CLI 有文本的正常轮:不追加占位(不重复)", () => {
@@ -924,7 +935,7 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
     expect(chatOf(qc).some((m) => m.kind === "text" && asText(m).text === PURE_TOOL_TURN_PLACEHOLDER)).toBe(false);
   });
 
-  it("pi 纯工具轮(result 仅 willRetry:false、!sawText):中栏补占位 text(agent)", () => {
+  it("pi 纯工具轮(result 仅 willRetry:false、!sawText):不追加持久 text 占位", () => {
     vi.useFakeTimers();
     const qc = new QueryClient();
     setupPiRun(qc);
@@ -932,8 +943,27 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
     __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
     const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
-    expect(texts).toHaveLength(1);
-    expect(asText(texts[0]!).text).toBe(PURE_TOOL_TURN_PLACEHOLDER);
+    expect(texts).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it("pi tool-start/tool-end 更新消息流里的 transient typing 占位", () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    qc.setQueryData<Message[]>(personalChatKeys.detail("s1"), [
+      { kind: "typing", who: "pi", uid: "typ-s1", text: "启动中" },
+    ]);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    expect(chatOf(qc).find((m) => m.kind === "typing")).toMatchObject({
+      kind: "typing",
+      text: "Pi 正在执行 Bash · ls",
+    });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    expect(chatOf(qc).find((m) => m.kind === "typing")).toMatchObject({
+      kind: "typing",
+      text: "Pi 已完成 Bash",
+    });
     vi.useRealTimers();
   });
 

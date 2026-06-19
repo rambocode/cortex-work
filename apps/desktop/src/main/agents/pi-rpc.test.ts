@@ -229,6 +229,24 @@ describe("mapPiEvent", () => {
   });
 });
 
+describe("PiRpcSession ready", () => {
+  it("pi 就绪前退出时抛出带 stderr tail 的退出原因", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakeTransport();
+      const session = new PiRpcSession(f.transport, vi.fn());
+      const assertion = expect(session.ready({ tries: 3, intervalMs: 10 })).rejects.toThrow("退出码 1: missing config");
+
+      f.exit(1, "missing config");
+      await vi.runAllTimersAsync();
+
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("PiRpcSession", () => {
   it("send 写出带 id 的命令行,收到同 id 的 response 即 resolve", async () => {
     const f = fakeTransport();

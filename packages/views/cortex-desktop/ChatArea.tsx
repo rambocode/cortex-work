@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "@cortex-work/ui/icons";
@@ -479,6 +479,7 @@ export function MessageStream({
 }) {
   const { t } = useTranslation("chat");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
   const msgCount = convo?.messages?.length || 0;
   const atBottomRef = useRef(true); // 初始视为在底部(挂载即贴底看最新)
   const anchorRef = useRef<{ h: number; top: number } | null>(null);
@@ -492,6 +493,14 @@ export function MessageStream({
     anchorRef.current = { h: scrollRef.current.scrollHeight, top: scrollRef.current.scrollTop };
   }
 
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return false;
+    el.scrollTop = el.scrollHeight;
+    atBottomRef.current = true;
+    return true;
+  }, []);
+
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -504,9 +513,19 @@ export function MessageStream({
       return;
     }
     // 贴底:团队侧无条件(原行为);个人工作区仅当用户已在底部(上滑看历史时流式不打断)。
-    if (!personalMode || atBottomRef.current) el.scrollTop = el.scrollHeight;
+    if (!personalMode || atBottomRef.current) scrollToBottom();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contact.id, stickDep, preserveAnchorKey]);
+
+  useLayoutEffect(() => {
+    const target = innerRef.current;
+    if (!target || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (!personalMode || atBottomRef.current) scrollToBottom();
+    });
+    ro.observe(target);
+    return () => ro.disconnect();
+  }, [personalMode, scrollToBottom]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -554,48 +573,50 @@ export function MessageStream({
   let lastWho: string | null = null;
   return (
     <div className="msgs" ref={scrollRef} onScroll={onScroll}>
-      {leadingContent}
-      {convo.messages.map((m, i) => {
-        const key = m.uid || i;
-        if (m.kind === "day") {
-          lastWho = null;
-          return <DaySep key={key} label={m.label} />;
-        }
-        const grouped =
-          lastWho === m.who &&
-          m.kind !== "approve" &&
-          m.kind !== "diff" &&
-          m.kind !== "agentLog" &&
-          m.kind !== "reasoning";
-        lastWho = m.who;
-        switch (m.kind) {
-          case "text":
-            return (
-              <TextMessage
-                key={key}
-                m={m}
-                grouped={grouped}
-                markdown={markdownBodies}
-                renderTail={renderTextTail}
-                hideTime={hideTextTime}
-                onOpenFile={onOpenFile}
-                projectPath={projectPath}
-              />
-            );
-          case "reasoning":
-            return <ReasoningMessage key={key} m={m} grouped={grouped} collapsible={collapsibleReasoning} />;
-          case "agentLog":
-            return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
-          case "diff":
-            return <DiffMessage key={key} m={m} grouped={grouped} onSelectFile={onSelectFile} activeFile={activeFile} />;
-          case "approve":
-            return <ApproveMessage key={key} m={m} grouped={grouped} onApprove={onApprove} />;
-          case "typing":
-            return <TypingMessage key={key} m={m} />;
-          default:
-            return null;
-        }
-      })}
+      <div className="msgs-inner" ref={innerRef}>
+        {leadingContent}
+        {convo.messages.map((m, i) => {
+          const key = m.uid || i;
+          if (m.kind === "day") {
+            lastWho = null;
+            return <DaySep key={key} label={m.label} />;
+          }
+          const grouped =
+            lastWho === m.who &&
+            m.kind !== "approve" &&
+            m.kind !== "diff" &&
+            m.kind !== "agentLog" &&
+            m.kind !== "reasoning";
+          lastWho = m.who;
+          switch (m.kind) {
+            case "text":
+              return (
+                <TextMessage
+                  key={key}
+                  m={m}
+                  grouped={grouped}
+                  markdown={markdownBodies}
+                  renderTail={renderTextTail}
+                  hideTime={hideTextTime}
+                  onOpenFile={onOpenFile}
+                  projectPath={projectPath}
+                />
+              );
+            case "reasoning":
+              return <ReasoningMessage key={key} m={m} grouped={grouped} collapsible={collapsibleReasoning} />;
+            case "agentLog":
+              return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
+            case "diff":
+              return <DiffMessage key={key} m={m} grouped={grouped} onSelectFile={onSelectFile} activeFile={activeFile} />;
+            case "approve":
+              return <ApproveMessage key={key} m={m} grouped={grouped} onApprove={onApprove} />;
+            case "typing":
+              return <TypingMessage key={key} m={m} />;
+            default:
+              return null;
+          }
+        })}
+      </div>
     </div>
   );
 }

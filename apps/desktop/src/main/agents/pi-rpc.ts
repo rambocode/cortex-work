@@ -318,6 +318,7 @@ export class PiRpcSession {
   private readonly pending = new Map<string, PendingRequest>();
   private reqId = 0;
   private exited = false;
+  private exitError?: Error;
   private stopped = false;
   // 阶段4 代际:当前轮的 runId（Cortex 自造,prompt 时绑定）。事件回带它,renderer 据此守卫
   // 丢弃迟到/串台事件（崩溃重开/editResend 重入时旧轮事件落入新轮）。
@@ -433,8 +434,10 @@ export class PiRpcSession {
   async ready(opts: { tries?: number; intervalMs?: number } = {}): Promise<{ sessionId: string; sessionFile?: string }> {
     const tries = opts.tries ?? 60;
     const intervalMs = opts.intervalMs ?? 250;
+    const readyExitError = () =>
+      this.exitError ? new Error(`pi 进程在就绪前退出: ${this.exitError.message}`) : new Error("pi 进程在就绪前退出");
     for (let i = 0; i < tries; i++) {
-      if (this.exited) throw new Error("pi 进程在就绪前退出");
+      if (this.exited) throw readyExitError();
       try {
         const resp = await this.send({ type: "get_state" }, intervalMs);
         const data = resp.success ? (resp.data as { sessionId?: string; sessionFile?: string } | undefined) : undefined;
@@ -442,6 +445,7 @@ export class PiRpcSession {
         // 已应答但暂无 sessionId:小睡一轮再试,避免无间隔忙轮询烧光 tries。
         await new Promise((r) => setTimeout(r, intervalMs));
       } catch {
+        if (this.exited) throw readyExitError();
         // get_state 超时（≈intervalMs）= 进程未就绪,直接重试（超时本身已构成间隔）。
       }
     }
@@ -514,10 +518,11 @@ export class PiRpcSession {
   private handleExit(code: number | null, stderrTail?: string): void {
     if (this.exited) return;
     this.exited = true;
-    this.rejectAllPending(new Error(`pi 进程退出 (code=${code})`));
+    const detail =
+      code === 0 || code === null ? undefined : stderrTail ? `退出码 ${code}: ${stderrTail}` : `退出码 ${code}`;
+    this.exitError = new Error(detail ?? `code=${code}`);
+    this.rejectAllPending(this.exitError);
     if (!this.stopped) {
-      const detail =
-        code === 0 || code === null ? undefined : stderrTail ? `退出码 ${code}: ${stderrTail}` : `退出码 ${code}`;
       this.onEvent({ type: "crashed", error: detail });
     }
   }
@@ -525,6 +530,7 @@ export class PiRpcSession {
   private handleError(err: Error): void {
     if (this.exited) return;
     this.exited = true;
+    this.exitError = err;
     this.rejectAllPending(err);
     if (!this.stopped) this.onEvent({ type: "crashed", error: err.message });
   }

@@ -16,7 +16,7 @@ import {
   writeCustomToolExtension,
   writeSlashCommandExtension,
 } from "../agents/pi-extensions";
-import { spawnEnvFor } from "./cli";
+import { assertSpawnCwd, spawnEnvFor } from "./cli";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 
 interface SessionEntry {
@@ -101,6 +101,7 @@ export function registerPiSessionHandlers(): void {
     req.extraExtensionPaths = extra;
 
     const args = buildRpcArgs(req);
+    assertSpawnCwd(req.cwd);
     const transport = spawnPiRpc(args, {
       cwd: req.cwd,
       env: spawnEnvFor({ agent: "pi", provider: req.provider }),

@@ -1,17 +1,17 @@
 // 右侧执行过程区（U4）测试：渲染/空集 null、流式更新、会话隔离、不改 PersonalRightPanel 宽度、
-// reduced-motion、门控、窄窗退化、键盘可达。
+// 门控、默认展开、用户折叠、键盘可达。
 
 import { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, render, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { CoreProvider, personalProcessKeys, usePersonalStore } from "@cortex-work/core";
+import { CoreProvider, personalChatKeys, personalProcessKeys, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
 import { PersonalProcessPanel } from "./PersonalProcessPanel";
 
 const bridge = { loadChat: async () => [], saveChat: async () => {} } as unknown as DesktopBridge;
 
-// agentLog 过程步骤工厂。active=true 表示运行中（默认展开、不可收起）。
+// agentLog 过程步骤工厂。active=true 表示运行中。
 function logMsg(opts: { uid: string; active?: boolean; items: { ic: "check" | "running" | "pending" | "dot"; text: string }[]; title?: string }): Message {
   return {
     kind: "agentLog",
@@ -24,20 +24,20 @@ function logMsg(opts: { uid: string; active?: boolean; items: { ic: "check" | "r
   };
 }
 
-// 把过程浮层挂进一个可控宽度的容器（模拟 .pw-center-col 实际可用宽度）。
-// jsdom clientWidth 恒为 0,会被当成窄窗 → 这里给容器实例定义 clientWidth getter。
+// 把过程区挂进一个可控容器（模拟 .pw-center-col）。
 function renderPanel(opts: {
   process?: Message[];
+  messages?: Message[];
   sessionId?: string;
   activeSessionId?: string;
-  // 中栏可用宽度;默认宽窗（>阈值 480）。设 < 480 触发窄窗退化。
-  colWidth?: number;
+  running?: boolean;
   view?: Partial<{ homeOpen: boolean; automationOpen: boolean; settingsOpen: boolean; noteEditorId: string; timelineProjectId: string }>;
 }) {
   const sessionId = opts.sessionId ?? "s1";
   const activeSessionId = opts.activeSessionId ?? sessionId;
   const qc = new QueryClient();
   if (opts.process) qc.setQueryData(personalProcessKeys.detail(sessionId), opts.process);
+  if (opts.messages) qc.setQueryData(personalChatKeys.detail(sessionId), opts.messages);
   usePersonalStore.setState({
     homeOpen: false,
     automationOpen: false,
@@ -48,11 +48,11 @@ function renderPanel(opts: {
     sessions: [{ id: sessionId, projectId: "p1", title: "S1", agent: "claude", createdAt: 0, updatedAt: 0 }],
     activeProjectId: "p1",
     activeSessionId,
+    runningBySession: opts.running ? { [activeSessionId]: "run-1" } : {},
     ...opts.view,
   });
-  // 模拟 .pw-center-col：浮层的直接父元素，clientWidth 决定窄窗退化。
+  // 模拟 .pw-center-col：过程区的直接父元素。
   const col = document.createElement("div");
-  Object.defineProperty(col, "clientWidth", { configurable: true, value: opts.colWidth ?? 900 });
   document.body.appendChild(col);
   const view = render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
@@ -74,7 +74,7 @@ describe("PersonalProcessPanel 渲染 / 空集", () => {
     expect(view.container.textContent).toContain("Bash · ls");
   });
 
-  it("过程流为空时 return null（不渲染浮层）", async () => {
+  it("过程流为空时 return null（不渲染过程区）", async () => {
     const { view } = renderPanel({ process: [] });
     await waitFor(() => expect(view.container.querySelector(".chat")).toBeNull());
     expect(view.container.querySelector(".pw-process")).toBeNull();
@@ -85,9 +85,43 @@ describe("PersonalProcessPanel 渲染 / 空集", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(view.container.querySelector(".pw-process")).toBeNull();
   });
+
+  it("挂载时无过程但当前会话运行中,立即显示右侧回复状态", async () => {
+    const { view, qc, sessionId } = renderPanel({ running: true });
+    await waitFor(() => {
+      expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument();
+      expect(view.container.textContent).toContain("Claude Code 正在响应");
+    });
+    act(() => {
+      qc.setQueryData(personalProcessKeys.detail(sessionId), [
+        logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · first" }] }),
+      ]);
+    });
+    await waitFor(() => {
+      expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument();
+      expect(view.container.textContent).toContain("Bash · first");
+    });
+  });
+
+  it("无过程但 typing 状态变化时,右侧回复状态同步更新", async () => {
+    const { view, qc, sessionId } = renderPanel({
+      running: true,
+      messages: [{ kind: "typing", who: "claude", uid: "typing-1", text: "Claude Code 正在启动..." }],
+    });
+    await waitFor(() => expect(view.container.textContent).toContain("Claude Code 正在启动"));
+    act(() => {
+      qc.setQueryData<Message[]>(personalChatKeys.detail(sessionId), [
+        { kind: "typing", who: "claude", uid: "typing-1", text: "Claude Code 正在执行工具 Bash · git status" },
+      ]);
+    });
+    await waitFor(() => {
+      expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument();
+      expect(view.container.textContent).toContain("Claude Code 正在执行工具 Bash · git status");
+    });
+  });
 });
 
-describe("PersonalProcessPanel 流式更新 / 结束收起可重开", () => {
+describe("PersonalProcessPanel 流式更新 / 默认展开 / 用户折叠", () => {
   afterEach(() => cleanup());
   beforeEach(() => usePersonalStore.setState({ homeOpen: false, automationOpen: false, settingsOpen: false, noteEditorId: undefined, timelineProjectId: undefined }));
 
@@ -104,7 +138,7 @@ describe("PersonalProcessPanel 流式更新 / 结束收起可重开", () => {
     await waitFor(() => expect(view.container.textContent).toContain("Edit · b.ts"));
   });
 
-  it("finalizeRun 后（active 全 false）收起为可重开入口，再点开仍显示该轮过程", async () => {
+  it("finalizeRun 后（active 全 false）仍保持展开,保留最近一次过程", async () => {
     const { view, qc, sessionId } = renderPanel({
       process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],
     });
@@ -116,18 +150,47 @@ describe("PersonalProcessPanel 流式更新 / 结束收起可重开", () => {
         logMsg({ uid: "l1", active: false, items: [{ ic: "check", text: "Bash · ls" }] }),
       ]);
     });
-    // 收起为可重开入口（role=button），不再展开 body。
-    const entry = await waitFor(() => {
-      const el = view.container.querySelector('.pw-process .pw-process-entry[role="button"]');
-      if (!el) throw new Error("collapsed entry 未出现");
-      return el as HTMLElement;
-    });
-    expect(entry.getAttribute("aria-expanded")).toBe("false");
-    // 点开 → 重新展开，仍显示该轮过程（数据保留）。
-    fireEvent.click(entry);
     await waitFor(() => {
       expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument();
+      expect(view.container.querySelector(".pw-process-body")).toBeInTheDocument();
       expect(view.container.textContent).toContain("Bash · ls");
+    });
+    expect(view.container.querySelector(".pw-process-entry")).toBeNull();
+  });
+
+  it("运行中也允许用户折叠;同一轮新增步骤不强制重新展开", async () => {
+    const { view, qc, sessionId } = renderPanel({
+      process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],
+    });
+    await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
+    fireEvent.click(view.container.querySelector(".pw-process-collapse") as HTMLElement);
+    await waitFor(() => expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument());
+    act(() => {
+      qc.setQueryData(personalProcessKeys.detail(sessionId), [
+        logMsg({ uid: "l1", active: true, items: [{ ic: "check", text: "Bash · ls" }, { ic: "running", text: "Edit · b.ts" }] }),
+      ]);
+    });
+    await waitFor(() => {
+      expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument();
+      expect(view.container.textContent).toContain("Edit · b.ts");
+    });
+  });
+
+  it("下一轮过程流替换后恢复默认展开", async () => {
+    const { view, qc, sessionId } = renderPanel({
+      process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],
+    });
+    await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
+    fireEvent.click(view.container.querySelector(".pw-process-collapse") as HTMLElement);
+    await waitFor(() => expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument());
+    act(() => {
+      qc.setQueryData(personalProcessKeys.detail(sessionId), [
+        logMsg({ uid: "l2", active: true, items: [{ ic: "running", text: "Bash · pwd" }] }),
+      ]);
+    });
+    await waitFor(() => {
+      expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument();
+      expect(view.container.textContent).toContain("Bash · pwd");
     });
   });
 });
@@ -153,7 +216,6 @@ describe("PersonalProcessPanel 会话隔离（R7）", () => {
       activeSessionId: "B",
     });
     const col = document.createElement("div");
-    Object.defineProperty(col, "clientWidth", { configurable: true, value: 900 });
     document.body.appendChild(col);
     const view = render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
@@ -161,7 +223,7 @@ describe("PersonalProcessPanel 会话隔离（R7）", () => {
       </CoreProvider>,
       { container: col },
     );
-    // B 无过程 → 浮层不渲染（A 的过程不冒到 B）。
+    // B 无过程 → 过程区不渲染（A 的过程不冒到 B）。
     await new Promise((r) => setTimeout(r, 0));
     expect(view.container.querySelector(".pw-process")).toBeNull();
     // 切回 A → A 过程重现。
@@ -201,7 +263,6 @@ describe("PersonalProcessPanel 多会话并发（U5）：只渲染 activeSession
       activeSessionId: "A",
     });
     const col = document.createElement("div");
-    Object.defineProperty(col, "clientWidth", { configurable: true, value: 900 });
     document.body.appendChild(col);
     const view = render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
@@ -225,12 +286,12 @@ describe("PersonalProcessPanel 不改右栏（R6）", () => {
   afterEach(() => cleanup());
   beforeEach(() => usePersonalStore.setState({ homeOpen: false, automationOpen: false, settingsOpen: false, noteEditorId: undefined, timelineProjectId: undefined }));
 
-  it("浮层不渲染进 PersonalRightPanel（无 .pw-rp-* 结构）、不改 rightView", async () => {
+  it("过程区不渲染进 PersonalRightPanel（无 .pw-rp-* 结构）、不改 rightView", async () => {
     const { view } = renderPanel({
       process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],
     });
     await waitFor(() => expect(view.container.querySelector(".pw-process")).toBeInTheDocument());
-    // 过程区是独立浮层，不含右栏视图链的任何节点。
+    // 过程区独立于右栏视图链。
     expect(view.container.querySelector(".pw-rp-view")).toBeNull();
     expect(view.container.querySelector(".right")).toBeNull();
   });
@@ -253,35 +314,28 @@ describe("PersonalProcessPanel 门控（中栏非会话区不渲染）", () => {
     await new Promise((res) => setTimeout(res, 0));
     expect(r.view.container.querySelector(".pw-process")).toBeNull();
   });
+
+  it("timelineProjectId 残留但项目不存在时仍按会话区渲染过程", async () => {
+    const r = renderPanel({ process, view: { timelineProjectId: "missing-project" } });
+    await waitFor(() => {
+      expect(r.view.container.querySelector(".pw-process")).toBeInTheDocument();
+      expect(r.view.container.textContent).toContain("Bash · ls");
+    });
+  });
 });
 
-describe("PersonalProcessPanel 窄窗退化", () => {
+describe("PersonalProcessPanel 默认展开", () => {
   afterEach(() => cleanup());
   beforeEach(() => usePersonalStore.setState({ homeOpen: false, automationOpen: false, settingsOpen: false, noteEditorId: undefined, timelineProjectId: undefined }));
 
-  it("中栏宽度 < 阈值时退化为底部贴附/单行摘要（is-narrow + is-collapsed），不展开 body", async () => {
-    const process = [logMsg({ uid: "l1", active: true, items: [{ ic: "check", text: "Bash · ls" }, { ic: "running", text: "Edit · b.ts" }] })];
-    // colWidth=400 < 480 → 窄窗。
-    const { view } = renderPanel({ process, colWidth: 400 });
-    const panel = await waitFor(() => {
-      const el = view.container.querySelector(".pw-process");
-      if (!el) throw new Error("panel 未出现");
-      return el;
-    });
-    expect(panel.classList.contains("is-narrow")).toBe(true);
-    expect(panel.classList.contains("is-collapsed")).toBe(true);
-    // 退化为单行摘要：不展开步骤 body，仅入口标签（含步数）。
-    expect(view.container.querySelector(".pw-process-body")).toBeNull();
-    expect(view.container.textContent).toContain("2 步");
-  });
-
-  it("宽窗（>阈值）运行中时正常展开 body", async () => {
+  it("运行中正常展开 body,不使用窄窗底部贴附形态", async () => {
     const process = [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })];
-    const { view } = renderPanel({ process, colWidth: 900 });
+    const { view } = renderPanel({ process });
     await waitFor(() => {
       expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument();
       expect(view.container.querySelector(".pw-process-body")).toBeInTheDocument();
     });
+    expect(view.container.querySelector(".pw-process.is-narrow")).toBeNull();
   });
 });
 
@@ -289,10 +343,11 @@ describe("PersonalProcessPanel 键盘可达 / 不抢焦点", () => {
   afterEach(() => cleanup());
   beforeEach(() => usePersonalStore.setState({ homeOpen: false, automationOpen: false, settingsOpen: false, noteEditorId: undefined, timelineProjectId: undefined }));
 
-  it("收起入口键盘可聚焦并可激活（role=button + tabindex），Enter/Space 展开", async () => {
-    // 完成态 → 默认收起为入口。
+  it("用户折叠后的入口键盘可聚焦并可激活（role=button + tabindex），Enter/Space 展开", async () => {
     const process = [logMsg({ uid: "l1", active: false, items: [{ ic: "check", text: "Bash · ls" }] })];
     const { view } = renderPanel({ process });
+    await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
+    fireEvent.click(view.container.querySelector(".pw-process-collapse") as HTMLElement);
     const entry = await waitFor(() => {
       const el = view.container.querySelector('.pw-process-entry[role="button"]') as HTMLElement | null;
       if (!el) throw new Error("entry 未出现");
@@ -305,8 +360,8 @@ describe("PersonalProcessPanel 键盘可达 / 不抢焦点", () => {
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
   });
 
-  it("浮层出现不抢当前焦点（无 autoFocus）", async () => {
-    // 预先聚焦一个外部输入,浮层挂载后焦点不应被夺走。
+  it("过程区出现不抢当前焦点（无 autoFocus）", async () => {
+    // 预先聚焦一个外部输入,过程区挂载后焦点不应被夺走。
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();

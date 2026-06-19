@@ -39,6 +39,7 @@ function makeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
     piPrompt: vi.fn(async () => undefined),
     piSteer: vi.fn(async () => undefined),
     piAbort: vi.fn(async () => undefined),
+    piClose: vi.fn(async () => undefined),
     piFork: vi.fn(async () => undefined),
     piGetForkMessages: vi.fn(async () => ({ messages: [{ entryId: "e1", text: "原问题" }] })),
     piSetModel: vi.fn(async () => undefined),
@@ -609,7 +610,7 @@ describe("send 图片路由（U4）", () => {
 });
 
 describe("editResend fork 可观测 + 后缀匹配（阶段4 U9/U10）", () => {
-  it("fork 定位失败（无匹配 entry）→ ⚠️ 提示仍重发（U9）", async () => {
+  it("fork 定位失败（无匹配 entry）→ 关闭旧 Pi 上下文,不恢复旧 sessionFile,不显示定位告警但仍重发（U9）", async () => {
     const bridge = makeBridge({ piGetForkMessages: vi.fn(async () => ({ messages: [{ entryId: "e9", text: "别的问题" }] })) });
     const qc = new QueryClient();
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
@@ -617,13 +618,19 @@ describe("editResend fork 可观测 + 后缀匹配（阶段4 U9/U10）", () => {
       await result.current.send(piSession, "/proj", "原问题", []);
     });
     usePersonalStore.getState().setRunning(piSession.id, undefined);
+    const livePiSession = usePersonalStore.getState().sessions.find((s) => s.id === piSession.id)!;
+    expect(livePiSession.piSessionFile).toBe("/sessions/s.jsonl");
     const uid = userMsgUid(qc, piSession.id, "原问题");
     await act(async () => {
-      await result.current.editResend(piSession, "/proj", uid, "改后", []);
+      await result.current.editResend(livePiSession, "/proj", uid, "改后", []);
     });
     expect(bridge.piFork).not.toHaveBeenCalled(); // 无匹配 → 不 fork
+    expect(bridge.piClose).toHaveBeenCalledWith("s-pi");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2); // close 后重开干净 Pi 会话
+    expect(bridge.piSwitchSession).not.toHaveBeenCalled(); // 不从旧 JSONL 恢复被编辑前上下文
+    expect(usePersonalStore.getState().sessions.find((s) => s.id === piSession.id)?.piSessionFile).toBe("/sessions/s.jsonl");
     const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(piSession.id)) ?? [];
-    expect(msgs.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("未能在 pi 侧定位编辑点"))).toBe(true);
+    expect(msgs.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("未能在 pi 侧定位编辑点"))).toBe(false);
     expect(bridge.piPrompt).toHaveBeenCalledTimes(2); // 仍重发
   });
 

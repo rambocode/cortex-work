@@ -6,7 +6,7 @@ import { ipcMain, type WebContents } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
-import { existsSync, readdirSync } from "fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, TrimSessionRequest } from "./types";
 import { getAdapter } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
@@ -106,7 +106,8 @@ export function startAgentProcess(
   opts: { cwd?: string; env: NodeJS.ProcessEnv },
 ): AgentProcess {
   const env = envForCommand(cmd, opts.env);
-  const child = spawn(cmd, args, {
+  const invocation = resolveInvocationForSpawn(cmd, args, env);
+  const child = spawn(invocation.cmd, invocation.args, {
     cwd: opts.cwd,
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -114,15 +115,35 @@ export function startAgentProcess(
   return wrapChild(child);
 }
 
-function nvmBinDirs(home: string): string[] {
+function compareNodeVersionDesc(a: string, b: string): number {
+  const parse = (name: string) => {
+    const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(name);
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 0];
+  };
+  const av = parse(a);
+  const bv = parse(b);
+  for (let i = 0; i < 3; i++) {
+    const diff = (bv[i] ?? 0) - (av[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return b.localeCompare(a);
+}
+
+export function nvmBinDirs(home: string): string[] {
   const root = `${home}/.nvm/versions/node`;
   try {
     return readdirSync(root)
+      .sort(compareNodeVersionDesc)
       .map((name) => `${root}/${name}/bin`)
       .filter((dir) => existsSync(dir));
   } catch {
     return [];
   }
+}
+
+export function mergePathWithPreferredDirs(pathValue: string | undefined, preferredDirs: string[]): string {
+  const dirs = [...preferredDirs, ...(pathValue ?? "").split(delimiter).filter(Boolean)];
+  return [...new Set(dirs)].join(delimiter);
 }
 
 function pathWithLeadingDir(pathValue: string | undefined, dir: string): string {
@@ -141,6 +162,41 @@ function resolveOnPath(env: NodeJS.ProcessEnv, name: string): string | null {
     }
   }
   return null;
+}
+
+export function resolveCommandForSpawn(cmd: string, env: NodeJS.ProcessEnv): string {
+  if (isAbsolute(cmd) || cmd.includes("/") || cmd.includes("\\")) return cmd;
+  return resolveOnPath(env, cmd) ?? cmd;
+}
+
+export function resolveInvocationForSpawn(
+  cmd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): { cmd: string; args: string[] } {
+  const resolvedCmd = resolveCommandForSpawn(cmd, env);
+  if (platform() === "win32" || !existsSync(resolvedCmd)) return { cmd: resolvedCmd, args };
+  let real: string;
+  try {
+    real = realpathSync(resolvedCmd);
+  } catch {
+    return { cmd: resolvedCmd, args };
+  }
+  if (!real.endsWith(".js")) return { cmd: real, args };
+  const node = join(dirname(resolvedCmd), platform() === "win32" ? "node.exe" : "node");
+  if (!existsSync(node)) return { cmd: real, args };
+  return { cmd: node, args: [real, ...args] };
+}
+
+export function assertSpawnCwd(cwd: string | undefined): void {
+  if (!cwd) return;
+  let stat;
+  try {
+    stat = statSync(cwd);
+  } catch {
+    throw new Error(`工作目录不存在: ${cwd}`);
+  }
+  if (!stat.isDirectory()) throw new Error(`工作目录不是目录: ${cwd}`);
 }
 
 export function envForCommand(cmd: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -168,7 +224,9 @@ export function buildEnv(): NodeJS.ProcessEnv {
     `${home}/.cargo/bin`,
   ].filter((dir) => existsSync(dir));
   const current = process.env.PATH ?? "";
-  const merged = [...new Set([...current.split(delimiter).filter(Boolean), ...extras])].join(delimiter);
+  // GUI 启动的 PATH 可能带着旧 nvm 版本里的残留 CLI wrapper；优先使用我们补齐的
+  // 用户安装目录，并让 nvm 版本按新到旧排序。
+  const merged = mergePathWithPreferredDirs(current, extras);
   return { ...process.env, PATH: merged };
 }
 
@@ -259,6 +317,7 @@ export function registerCliHandlers(): void {
     }
     const { cmd, args } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
+    assertSpawnCwd(req.cwd);
     const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req) });
     running.set(req.runId, proc);
 
@@ -346,6 +405,7 @@ export function registerCliHandlers(): void {
         provider,
         piExtensionPath,
       });
+      assertSpawnCwd(cwd);
       return new Promise<string>((resolve, reject) => {
         const proc = startAgentProcess(cmd, args, {
           cwd,

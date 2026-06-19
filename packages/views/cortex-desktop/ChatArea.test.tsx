@@ -3,7 +3,7 @@
 // 个人区把过程外移右侧浮层是经新建 ProcessStep + process key 实现,绝不触碰团队侧渲染件与导出面（KTD9）。
 
 import { QueryClient } from "@tanstack/react-query";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { CoreProvider } from "@cortex-work/core";
 import type { Contact, DesktopBridge, Message } from "@cortex-work/core";
@@ -101,6 +101,81 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
     const { container } = renderTeamStream(messages);
     expect(container.querySelector(".reasoning-block")).toBeInTheDocument();
     expect(container.querySelector(".agent-log")).toBeInTheDocument();
+  });
+});
+
+describe("MessageStream 自动贴底", () => {
+  afterEach(() => cleanup());
+
+  function renderPersonalStream(message: Message, stickToBottomKey: string) {
+    const qc = new QueryClient();
+    return render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <MessageStream
+          contact={teamContact}
+          convo={{ headerStatus: { dot: "online", text: "" }, metaRow: [], messages: [message] }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          stickToBottomKey={stickToBottomKey}
+        />
+      </CoreProvider>,
+    );
+  }
+
+  function setScrollBox(el: Element, opts: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
+    Object.defineProperty(el, "scrollHeight", { configurable: true, value: opts.scrollHeight });
+    Object.defineProperty(el, "clientHeight", { configurable: true, value: opts.clientHeight });
+    Object.defineProperty(el, "scrollTop", { configurable: true, writable: true, value: opts.scrollTop });
+  }
+
+  it("个人区贴近底部时,同一条 agent 回复变长会继续滚到最后", () => {
+    const first: Message = { kind: "text", who: "pi", time: "10:00", uid: "a1", text: "短回复" };
+    const view = renderPersonalStream(first, "a1:3");
+    const scroller = view.container.querySelector(".msgs")!;
+    setScrollBox(scroller, { scrollHeight: 1000, clientHeight: 240, scrollTop: 760 });
+
+    const next: Message = { ...first, text: "短回复\n".repeat(80) };
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1800 });
+    view.rerender(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={new QueryClient()}>
+        <MessageStream
+          contact={teamContact}
+          convo={{ headerStatus: { dot: "online", text: "" }, metaRow: [], messages: [next] }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          stickToBottomKey="a1:320"
+        />
+      </CoreProvider>,
+    );
+
+    expect((scroller as HTMLElement).scrollTop).toBe(1800);
+  });
+
+  it("用户已经上翻时,agent 流式增长不强制打断阅读位置", () => {
+    const first: Message = { kind: "text", who: "pi", time: "10:00", uid: "a1", text: "短回复" };
+    const view = renderPersonalStream(first, "a1:3");
+    const scroller = view.container.querySelector(".msgs")!;
+    setScrollBox(scroller, { scrollHeight: 1000, clientHeight: 240, scrollTop: 120 });
+    fireEvent.scroll(scroller);
+
+    const next: Message = { ...first, text: "短回复\n".repeat(80) };
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1800 });
+    view.rerender(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={new QueryClient()}>
+        <MessageStream
+          contact={teamContact}
+          convo={{ headerStatus: { dot: "online", text: "" }, metaRow: [], messages: [next] }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          stickToBottomKey="a1:320"
+        />
+      </CoreProvider>,
+    );
+
+    expect((scroller as HTMLElement).scrollTop).toBe(120);
   });
 });
 

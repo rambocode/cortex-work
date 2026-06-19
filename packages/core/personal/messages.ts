@@ -29,6 +29,7 @@ import { applyDeepenFinalize } from "./notes";
 import { t } from "../i18n";
 import {
   abortPi,
+  closePiSession,
   ensurePiSession,
   forkPi,
   getForkMessagesPi,
@@ -199,6 +200,17 @@ export function typingText(agent: AgentKind, phase: "starting" | "thinking", wai
   return text;
 }
 
+function typingToolText(agent: AgentKind, tool: string, detail?: string): string {
+  const name = AGENT_NAME[agent];
+  return detail
+    ? t("chat:core.typing.workingDetail", { name, tool, detail })
+    : t("chat:core.typing.working", { name, tool });
+}
+
+function typingToolDoneText(agent: AgentKind, tool: string): string {
+  return t("chat:core.typing.toolDone", { name: AGENT_NAME[agent], tool });
+}
+
 function stopWatchdog(run: RunState): void {
   if (run.watchdog) {
     clearInterval(run.watchdog);
@@ -359,6 +371,11 @@ const processCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // 加载历史时同样过此函数,故旧数据里遗留的 reasoning/agentLog 会被顺带清掉。
 export function sanitizeForSave(messages: Message[]): Message[] {
   return messages.filter((m) => m.kind !== "typing" && m.kind !== "reasoning" && m.kind !== "agentLog");
+}
+
+function dropPiForkFailedMessages(messages: Message[]): Message[] {
+  const text = t("chat:core.piForkFailed");
+  return messages.filter((m) => !(m.kind === "text" && m.who === "pi" && m.text === text));
 }
 
 function flushChat(qc: QueryClient, sessionId: string): void {
@@ -656,7 +673,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
 
   if (ev.type === "tool") {
     usePetStore.getState().set("working");
-    dropMsg(qc, sessionId, run.typingUid);
+    updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
     // 时间线：写类工具的 file_path 记为变更文件。
     const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
     if (changed) (run.changedFiles ??= new Set()).add(changed);
@@ -678,10 +695,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   if (ev.type === "result") {
     run.gotResult = true;
     run.resultOk = ev.ok;
-    dropMsg(qc, sessionId, run.typingUid);
     // 收尾过程流当前打开的 agentLog：全部步骤打勾（被文本打断的旧卡片已在折叠时收尾）。
     finalizeProcessAgentLog(qc, sessionId, run);
     if (!ev.ok) {
+      dropMsg(qc, sessionId, run.typingUid);
       if (run.agent === "codex" && isMissingAgentSessionError(ev.error)) {
         clearStoredAgentSessionId(sessionId, run.agent);
         appendMsg(qc, sessionId, {
@@ -709,17 +726,11 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       });
     } else if (!run.sawText && ev.text) {
       // 没收到增量文本（极少数情况），用 result 的最终文本兜底。
+      dropMsg(qc, sessionId, run.typingUid);
       appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: ev.text, uid: uid("at") });
     } else if (ev.ok && !run.sawText && !ev.text) {
-      // 纯工具轮（成功收尾、全程无 agent 文本、result 也无最终文本）:中栏补终态占位,
-      // 避免「问了没回」（R3/KTD5/C1）。工具步骤照常在右侧过程区。
-      appendMsg(qc, sessionId, {
-        kind: "text",
-        who: run.agent,
-        time: realHHMM(),
-        text: PURE_TOOL_TURN_PLACEHOLDER,
-        uid: uid("at"),
-      });
+      // 纯工具轮成功:只更新瞬态 typing 占位,不追加持久 text。finalizeRun/exit 会清掉 typing。
+      updateTypingMsg(qc, sessionId, run.typingUid, PURE_TOOL_TURN_PLACEHOLDER);
     }
     notifyTurnComplete(ev.ok);
     scheduleResultExitFallback(qc, runId, sessionId);
@@ -1141,7 +1152,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
   switch (ev.type) {
     case "reasoning":
       usePetStore.getState().set("thinking");
-      dropMsg(qc, sessionId, run.typingUid);
+      updateTypingMsg(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0));
       foldReasoning(qc, run, ev.delta);
       return;
     case "text":
@@ -1156,7 +1167,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       return;
     case "tool-start": {
       usePetStore.getState().set("working");
-      dropMsg(qc, sessionId, run.typingUid);
+      updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
       finalizeRunReasoning(qc, run);
       const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
       if (changed) (run.changedFiles ??= new Set()).add(changed);
@@ -1164,6 +1175,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       return;
     }
     case "tool-end":
+      updateTypingMsg(qc, sessionId, run.typingUid, typingToolDoneText(run.agent, ev.name));
       finalizeLastToolItem(qc, run, ev.isError);
       return;
     case "turn-end":
@@ -1206,13 +1218,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       // resultOk!==false（非失败）+ !sawText（全程无 agent 文本）判定,且须在本 case 内、
       // finalizeRun 之前执行——finalizeRun 会 runs.delete,之后 run 状态不可再读。
       if (run.resultOk !== false && !run.sawText) {
-        appendMsg(qc, sessionId, {
-          kind: "text",
-          who: run.agent,
-          time: realHHMM(),
-          text: PURE_TOOL_TURN_PLACEHOLDER,
-          uid: uid("at"),
-        });
+        updateTypingMsg(qc, sessionId, run.typingUid, PURE_TOOL_TURN_PLACEHOLDER);
       }
       store.setPiRuntime(sessionId, undefined);
       notifyTurnComplete(run.resultOk !== false);
@@ -2047,25 +2053,23 @@ export function usePersonalActions(): PersonalActions {
       const originalImages = editedMsg?.kind === "text" ? editedMsg.images : undefined;
 
       // pi:在 pi 侧 fork 到分支点（替代 trimAgentSession 截断会话文件）,再以新文本重发。
-      // 映射失败/会话未开 → best-effort 退化:只截断 UI + 重发（pi 仍带旧记忆,阶段2 取舍）。
+      // 映射失败/会话未开 → best-effort 退化:只截断 UI + 重发;不再把降级细节写进聊天正文。
       if (session.agent === "pi") {
         // 防御性:editResend 因 :1525 running 守卫在待答期不可达,但万一卡已 resolve 仍有残留,fork 前清掉,
         // 避免旧轮卡串入新轮（覆盖「卡已 resolve、新一轮未起」的窗口）。
         usePersonalStore.getState().clearPiUiForSession(session.id);
         const forked = await forkPiAtEditedMessage(bridge, session.id, prev, msgUid).catch(() => false);
-        qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
-        // fork 退化（会话未开/定位失败）→ pi 仍带旧记忆,给用户可见提示,避免「以为截断了实则没」。
-        if (!forked) {
-          appendMsg(qc, session.id, {
-            kind: "text",
-            who: "pi",
-            time: realHHMM(),
-            text: t("chat:core.piForkFailed"),
-            uid: uid("err"),
-          });
-        }
+        const cleanTruncated = dropPiForkFailedMessages(truncated);
+        qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), cleanTruncated);
         flushChat(qc, session.id);
-        await send(session, projectPath, text, attachments, undefined, undefined, originalImages);
+        let sendSession = session;
+        if (!forked) {
+          await closePiSession(bridge, session.id);
+          usePersonalStore.getState().setPiRuntime(session.id, undefined);
+          usePersonalStore.getState().updateSession(session.id, { piSessionFile: undefined });
+          sendSession = { ...session, piSessionFile: undefined };
+        }
+        await send(sendSession, projectPath, text, attachments, undefined, undefined, originalImages);
         return;
       }
 

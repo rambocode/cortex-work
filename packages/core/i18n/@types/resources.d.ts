@@ -118,7 +118,10 @@ export default interface Resources {
         "startHint": "（启动较慢,若长时间无响应可在闪记详情点「放弃深化」后重试,或切换其它 agent）",
         "starting": "正在启动 {{name}}…",
         "thinking": "{{name}} 正在思考…",
-        "waited": "已等待 {{secs}} 秒"
+        "toolDone": "{{name}} 已完成 {{tool}}",
+        "waited": "已等待 {{secs}} 秒",
+        "working": "{{name}} 正在执行 {{tool}}…",
+        "workingDetail": "{{name}} 正在执行 {{tool}} · {{detail}}"
       },
       "unknownError": "未知错误"
     },

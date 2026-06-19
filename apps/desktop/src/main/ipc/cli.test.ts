@@ -3,7 +3,7 @@
 // electron / child_process 在测试环境整体 mock。
 
 import { EventEmitter } from "node:events";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
@@ -19,7 +19,15 @@ vi.mock("child_process", () => ({
   spawn: (...args: unknown[]) => spawnMock(...args),
 }));
 
-import { detectAgents, envForCommand, resetAgentDetectionForTest, startAgentProcess, spawnEnvFor } from "./cli";
+import {
+  detectAgents,
+  envForCommand,
+  mergePathWithPreferredDirs,
+  nvmBinDirs,
+  resetAgentDetectionForTest,
+  startAgentProcess,
+  spawnEnvFor,
+} from "./cli";
 import { PI_KEY_ENV } from "../agents/pi-providers";
 
 // child_process.spawn 返回值的最小替身。
@@ -116,6 +124,76 @@ describe("startAgentProcess", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("PATH 上命中的 CLI 用绝对路径 spawn,避免 GUI 环境再次搜索失败", () => {
+    const root = mkdtempSync(join(tmpdir(), "cortex-cli-resolve-"));
+    try {
+      const codexBin = join(root, "node-bin");
+      mkdirSync(codexBin);
+      const codex = join(codexBin, "codex");
+      writeFileSync(codex, "");
+
+      startAgentProcess("codex", ["--version"], {
+        cwd: "/proj",
+        env: { PATH: codexBin } as NodeJS.ProcessEnv,
+      });
+
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock.mock.calls[0]?.[0]).toBe(realpathSync(codex));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("nvm 安装的 Node 脚本 CLI 用同目录 node 执行,避开 shebang ENOENT", () => {
+    const root = mkdtempSync(join(tmpdir(), "cortex-cli-node-script-"));
+    try {
+      const bin = join(root, "bin");
+      const lib = join(root, "lib");
+      mkdirSync(bin);
+      mkdirSync(lib);
+      const node = join(bin, "node");
+      const script = join(lib, "codex.js");
+      writeFileSync(node, "");
+      writeFileSync(script, "#!/usr/bin/env node\nconsole.log('codex')\n");
+      symlinkSync("../lib/codex.js", join(bin, "codex"));
+
+      startAgentProcess("codex", ["--version"], {
+        cwd: "/proj",
+        env: { PATH: bin } as NodeJS.ProcessEnv,
+      });
+
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock.mock.calls[0]?.[0]).toBe(node);
+      expect(spawnMock.mock.calls[0]?.[1]).toEqual([realpathSync(script), "--version"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("symlink 到原生二进制的 CLI 用 realpath spawn", () => {
+    const root = mkdtempSync(join(tmpdir(), "cortex-cli-realpath-"));
+    try {
+      const bin = join(root, "bin");
+      const versions = join(root, "versions");
+      mkdirSync(bin);
+      mkdirSync(versions);
+      const realClaude = join(versions, "claude-2.1");
+      writeFileSync(realClaude, "");
+      symlinkSync("../versions/claude-2.1", join(bin, "claude"));
+
+      startAgentProcess("claude", ["--version"], {
+        cwd: "/proj",
+        env: { PATH: bin } as NodeJS.ProcessEnv,
+      });
+
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock.mock.calls[0]?.[0]).toBe(realpathSync(realClaude));
+      expect(spawnMock.mock.calls[0]?.[1]).toEqual(["--version"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("spawnEnvFor", () => {
@@ -137,6 +215,35 @@ describe("spawnEnvFor", () => {
   });
 });
 
+describe("buildEnv helpers", () => {
+  it("nvm bin 目录按版本从新到旧排序,避免旧 CLI wrapper 抢先", () => {
+    const root = mkdtempSync(join(tmpdir(), "cortex-nvm-sort-"));
+    try {
+      mkdirSync(join(root, ".nvm", "versions", "node", "v20.19.4", "bin"), { recursive: true });
+      mkdirSync(join(root, ".nvm", "versions", "node", "v20.19.5", "bin"), { recursive: true });
+      mkdirSync(join(root, ".nvm", "versions", "node", "v24.15.0", "bin"), { recursive: true });
+
+      expect(nvmBinDirs(root).map((dir) => dir.replace(`${root}/.nvm/versions/node/`, ""))).toEqual([
+        "v24.15.0/bin",
+        "v20.19.5/bin",
+        "v20.19.4/bin",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("PATH 合并时优先使用补齐的用户安装目录", () => {
+    const merged = mergePathWithPreferredDirs("/stale-node/bin:/usr/bin", [
+      "/Users/me/.local/bin",
+      "/fresh-node/bin",
+      "/usr/bin",
+    ]);
+
+    expect(merged.split(delimiter)).toEqual(["/Users/me/.local/bin", "/fresh-node/bin", "/usr/bin", "/stale-node/bin"]);
+  });
+});
+
 describe("detectAgents", () => {
   it("claude/codex 都能 --version 退出 0 时标记可用,pi 恒可用", async () => {
     const claude = fakeChild();
@@ -149,10 +256,9 @@ describe("detectAgents", () => {
 
     await expect(resultPromise).resolves.toEqual({ claude: true, codex: true, pi: true });
     expect(spawnMock).toHaveBeenCalledTimes(2);
-    expect(spawnMock.mock.calls[0]?.[0]).toBe("claude");
     expect(spawnMock.mock.calls[0]?.[1]).toEqual(["--version"]);
-    expect(spawnMock.mock.calls[1]?.[0]).toBe("codex");
-    expect(spawnMock.mock.calls[1]?.[1]).toEqual(["--version"]);
+    expect(String(spawnMock.mock.calls[1]?.[0])).toMatch(/(^|[/\\])(codex|node)(\.cmd|\.exe|\.bat)?$/);
+    expect(spawnMock.mock.calls[1]?.[1]).toContain("--version");
   });
 
   it("非 0 退出或 spawn error 时标记不可用", async () => {

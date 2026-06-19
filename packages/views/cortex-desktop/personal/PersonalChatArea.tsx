@@ -16,7 +16,6 @@ import {
   useDesktopBridge,
   usePersonalActions,
   usePersonalChat,
-  usePersonalProcess,
   usePersonalStore,
   useRenderWindow,
 } from "@cortex-work/core";
@@ -107,39 +106,22 @@ function MoreHistoryGate({ count, onExpand }: { count: number; onExpand: () => v
   );
 }
 
-// 过程流派生:总步数（所有 agentLog 卡片的 items 之和）+ 最近一步文本。这是 B1「过程与
-// 中栏分流」的一处有意例外——中栏运行中提示在右侧浮层不可见时仍要让进度可见（R2），故从
-// process key 读派生计数。仅取 string 文本（工具步骤文本恒为 "Tool · detail" 这类纯串;rich
-// 兜底为空,由 R2 提示退化为「运行中」而不报错）。不进 store、不进消息流。
-function deriveProcessProgress(process: Message[]): { steps: number; lastStep: string | null } {
-  let steps = 0;
-  let lastStep: string | null = null;
-  for (const m of process) {
-    if (m.kind !== "agentLog") continue;
-    for (const it of m.items) {
-      steps += 1;
-      if (typeof it.text === "string") lastStep = it.text;
-    }
-  }
-  return { steps, lastStep };
+function richLength(text: Extract<Message, { kind: "text" }>["text"]): number {
+  if (typeof text === "string") return text.length;
+  return text.parts.reduce((n, p) => n + p.v.length, 0);
 }
 
-// 中栏运行中提示:渲染在 MessageStream 容器之外、独立于 convo 是否为 null（读 store 运行态）,
-// 保证「首轮纯工具、消息流尚空（convo===null）」时提示仍可见（R2/KTD5）。本身不进 convo/消息流
-// （否则会被落盘或被首个事件 dropMsg 删除）。右侧浮层不可见时,回填步数/最近一步（来自 process
-// 流派生计数,B1 的有意例外）使进度可见性不依赖浮层是否渲染。aria-live=polite 让辅助技术可感知。
-function RunningHint({ steps, lastStep }: { steps: number; lastStep: string | null }) {
-  const detail = steps > 0 ? `已执行 ${steps} 步${lastStep ? ` · ${lastStep}` : ""}` : "思考中…";
-  return (
-    <div className="pw-running-hint" role="status" aria-live="polite">
-      <span className="pw-running-hint-dots" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </span>
-      <span className="pw-running-hint-text">运行中 · {detail}</span>
-    </div>
-  );
+function messageScrollSignature(messages: Message[]): string {
+  const tail = messages[messages.length - 1];
+  if (!tail) return "empty";
+  if (tail.kind === "text") return `text:${tail.uid ?? ""}:${richLength(tail.text)}`;
+  if (tail.kind === "typing") return `typing:${tail.uid ?? ""}:${tail.text.length}`;
+  if (tail.kind === "reasoning") return `reasoning:${tail.uid ?? ""}:${richLength(tail.text)}:${tail.active ? 1 : 0}`;
+  if (tail.kind === "agentLog") {
+    const last = tail.items[tail.items.length - 1];
+    return `agentLog:${tail.uid ?? ""}:${tail.items.length}:${last?.ic ?? ""}:${last ? richLength(last.text) : 0}:${tail.active ? 1 : 0}`;
+  }
+  return `${tail.kind}:${tail.uid ?? messages.length}`;
 }
 
 export function PersonalChatArea({
@@ -183,8 +165,6 @@ export function PersonalChatArea({
   const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
-  // 瞬态过程流(右侧浮层数据源):此处只取其派生进度回填中栏运行中提示（R2）,不渲染过程行。
-  const process = usePersonalProcess(session?.id);
   const { send, stop: stopRun, steer, setPiModel, setPiThinking, editResend, clearView } = usePersonalActions();
   const [showHiddenHistory, setShowHiddenHistory] = useState(false);
   const [ttsPlayback, setTtsPlayback] = useState(getTtsPlaybackState);
@@ -209,6 +189,9 @@ export function PersonalChatArea({
   const win = useRenderWindow(resetKey, messages);
   // 用户主动「显示隐藏历史」(showHiddenHistory,仅 /clear 过的会话)走全量 allMessages;否则用窗口尾部切片。
   const rendered = showHiddenHistory ? allMessages : win.rendered;
+  const scrollStickKey = showHiddenHistory
+    ? `all:${messageScrollSignature(allMessages)}`
+    : `${win.stickKey}:${messageScrollSignature(rendered)}`;
   const convo: Conversation | null = useMemo(
     () =>
       rendered.length > 0 || hiddenCount > 0
@@ -221,8 +204,6 @@ export function PersonalChatArea({
   // 只重渲染正在输出的那一条(否则父级每渲染新建的回调会让全部消息行 memo 失效)。须在任何
   // 早退之前调用(hooks 规则);session/project 可空时回调内部短路(此时消息流根本不渲染)。
   const running = session ? !!runningBySession[session.id] : false;
-  // 运行中提示的回填进度:从过程流派生总步数 + 最近一步（R2,B1 有意例外）。仅在运行中读取。
-  const runProgress = useMemo(() => deriveProcessProgress(process), [process]);
 
   // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为绝对路径,请求右栏预览并展开右栏。
   // 无项目会话(无 realProject)与解析爬出项目(within=false)一律短路,不派发。
@@ -504,7 +485,7 @@ export function PersonalChatArea({
         onOpenFile={handleOpenFile}
         projectPath={realProject ? realProject.path : undefined}
         renderTextTail={renderTextTail}
-        stickToBottomKey={showHiddenHistory ? `all:${allMessages.length}` : win.stickKey}
+        stickToBottomKey={scrollStickKey}
         preserveAnchorKey={win.expandNonce}
         leadingContent={
           showHiddenHistory ? (
@@ -516,10 +497,6 @@ export function PersonalChatArea({
           ) : undefined
         }
       />
-
-      {/* 运行中提示:渲染在 MessageStream 容器之外、独立于 convo 是否为 null（R2/KTD5）。首轮纯工具、
-          消息流尚空（convo===null）时仍可见;不进 convo/消息流。一轮结束 running 翻 false 即消失。 */}
-      {running ? <RunningHint steps={runProgress.steps} lastStep={runProgress.lastStep} /> : null}
 
       {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
       <AskQuestionCard sessionId={session.id} />

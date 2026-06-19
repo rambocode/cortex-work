@@ -102,6 +102,9 @@
     "typing": {
       "starting": "Starting {{name}}…",
       "thinking": "{{name}} is thinking…",
+      "working": "{{name}} is running {{tool}}…",
+      "workingDetail": "{{name}} is running {{tool}} · {{detail}}",
+      "toolDone": "{{name}} finished {{tool}}",
       "waited": " · waited {{secs}}s",
       "startHint": " (startup is slow; if there is no response for a while, you can click \"Abort deepening\" in the flash note detail and retry, or switch to another agent)"
     },

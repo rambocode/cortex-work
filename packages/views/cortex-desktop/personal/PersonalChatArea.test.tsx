@@ -402,10 +402,9 @@ describe("PersonalChatArea 历史会话分页渲染窗口", () => {
   });
 });
 
-describe("PersonalChatArea 中栏运行中提示（U3·R2）", () => {
+describe("PersonalChatArea 运行态占位位置", () => {
   afterEach(() => cleanup());
 
-  // 用受控 QueryClient 注入,以便在渲染前写入过程流 query 并断言中栏提示回填进度。
   function renderRunning(opts: {
     messages?: Message[];
     process?: Message[];
@@ -434,35 +433,13 @@ describe("PersonalChatArea 中栏运行中提示（U3·R2）", () => {
     return { qc, view, sessionId };
   }
 
-  it("Covers R2. 消息流为空但 running=true（convo===null）时中栏存在 .pw-running-hint", async () => {
+  it("running=true 时不在消息流外渲染 .pw-running-hint", async () => {
     const { view } = renderRunning({ messages: [], running: true });
-    // 首轮纯工具:消息流为空（convo===null,MessageStream 不渲染内容）,提示仍独立可见。
-    const hint = await waitFor(() => {
-      const el = view.container.querySelector(".pw-running-hint");
-      if (!el) throw new Error("running hint 未出现");
-      return el;
-    });
-    expect(hint).toBeInTheDocument();
-  });
-
-  it("Covers R2. 非运行态:不渲染 .pw-running-hint", async () => {
-    const { view } = renderRunning({ messages: [], running: false });
     await waitFor(() => expect(view.container.querySelector(".chat")).toBeInTheDocument());
     expect(view.container.querySelector(".pw-running-hint")).toBeNull();
   });
 
-  it("Covers R2. finalizeRun 后（running 翻 false）提示消失", async () => {
-    const { view, sessionId } = renderRunning({ messages: [], running: true });
-    await waitFor(() => expect(view.container.querySelector(".pw-running-hint")).toBeInTheDocument());
-    // 模拟一轮结束:store 运行态清空（finalizeRun 的对外可观察效果）。
-    act(() => {
-      usePersonalStore.getState().setRunning(sessionId, undefined);
-    });
-    await waitFor(() => expect(view.container.querySelector(".pw-running-hint")).toBeNull());
-  });
-
-  it("Covers R2. 浮层不可见且运行中:提示回填步数/最近一步（取自 process 流派生计数）", async () => {
-    // 过程流挂两个工具步骤,最近一步文本为「Edit · b.ts」。中栏提示须回填该进度。
+  it("即便有过程流,也不在输入框上方渲染外部运行提示", async () => {
     const process: Message[] = [
       {
         kind: "agentLog",
@@ -478,21 +455,8 @@ describe("PersonalChatArea 中栏运行中提示（U3·R2）", () => {
       },
     ];
     const { view } = renderRunning({ messages: [], process, running: true });
-    await waitFor(() => {
-      const el = view.container.querySelector(".pw-running-hint-text");
-      if (!el) throw new Error("hint text 未出现");
-      expect(el.textContent).toContain("已执行 2 步");
-      expect(el.textContent).toContain("Edit · b.ts");
-    });
-  });
-
-  it("过程流为空但运行中:提示回退为「思考中…」,不报错", async () => {
-    const { view } = renderRunning({ messages: [], process: [], running: true });
-    await waitFor(() => {
-      const el = view.container.querySelector(".pw-running-hint-text");
-      if (!el) throw new Error("hint text 未出现");
-      expect(el.textContent).toContain("思考中");
-    });
+    await waitFor(() => expect(view.container.querySelector(".chat")).toBeInTheDocument());
+    expect(view.container.querySelector(".pw-running-hint")).toBeNull();
   });
 });
 
@@ -583,6 +547,60 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
     await waitFor(() => expect(view.container.querySelector(".agent-log")).toBeNull());
     // 重发经 startCli（claude 链路,R10 零回归）。
     expect((b.startCli as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+  });
+
+  it("Pi 编辑重发 fork 失败时不再显示定位告警,并清理旧告警", async () => {
+    const qc = new QueryClient();
+    const piSession: SessionMeta = {
+      id: "s1",
+      projectId: "p1",
+      title: "S1",
+      agent: "pi",
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    const warning = "⚠️ 未能在 pi 侧定位编辑点,已带原有上下文重发（pi 仍记得被编辑前的内容）。";
+    const stale: Message[] = [
+      { kind: "text", who: "pi", time: "09:18", uid: "w1", text: warning },
+      { kind: "text", who: "pi", time: "09:36", uid: "w2", text: warning },
+      { kind: "text", who: "me", time: "09:49", uid: "u2", text: "总结提交" },
+      { kind: "text", who: "pi", time: "09:50", uid: "a2", text: "旧回答" },
+    ];
+    qc.setQueryData(personalChatKeys.detail("s1"), stale);
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [piSession],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      agentsAvailable: { claude: true, codex: true, pi: true },
+      runningBySession: {},
+      timelineProjectId: undefined,
+    });
+    const b = {
+      loadChat: async () => stale,
+      saveChat: vi.fn(async () => undefined),
+      piOpen: vi.fn(async () => ({ uiSessionId: "s1", sessionId: "pi-live", sessionFile: "/tmp/pi.jsonl" })),
+      piPrompt: vi.fn(async () => undefined),
+    } as unknown as DesktopBridge;
+
+    let editResendFn: ReturnType<typeof usePersonalActions>["editResend"] | undefined;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b} queryClient={qc}>
+        <PersonalChatArea onToast={() => {}} />
+        <EditResendProbe onReady={(fn) => (editResendFn = fn)} />
+      </CoreProvider>,
+    );
+    await screen.findByText("旧回答");
+
+    await act(async () => {
+      await editResendFn!(piSession, "/code/alpha", "u2", "重新总结", []);
+    });
+
+    const cached = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+    expect(cached.filter((m) => m.kind === "text" && m.who === "pi" && m.text === warning)).toHaveLength(0);
+    expect(cached.some((m) => m.kind === "text" && m.who === "pi" && m.uid === "w1")).toBe(false);
+    usePersonalStore.getState().setRunning("s1", undefined);
   });
 });
 
