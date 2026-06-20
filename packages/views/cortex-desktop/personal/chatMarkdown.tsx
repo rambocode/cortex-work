@@ -161,7 +161,10 @@ export interface ChatMarkdownOptions {
 
 export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: ChatMarkdownOptions): Components {
   // 渲染期静态判定:像文件路径 且 解析后落在项目根内（white-list 代理,见 KTD2）。
-  const isProjectFile = (ref: string) => isLikelyFilePath(ref) && resolveProjectFileRef(projectPath, ref).within;
+  // 无项目会话(projectPath 空)没有可解析的项目根 → 一律不当项目文件链接(否则空根会把任意
+  // 相对路径误判为 within);但 pre 的本地 HTML 预览不依赖 isProjectFile,仍对无项目会话生效。
+  const isProjectFile = (ref: string) =>
+    !!projectPath && isLikelyFilePath(ref) && resolveProjectFileRef(projectPath, ref).within;
 
   return {
     // fenced 代码块:若块内含绝对 .html 路径(如 `open /Users/.../foo.html`),在代码块正下方

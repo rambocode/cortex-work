@@ -136,4 +136,27 @@ describe("chatMarkdownComponents", () => {
     const { container } = renderMd(md);
     expect(container.querySelector("button.pw-html-preview-btn")).toBeNull();
   });
+
+  it("无项目会话(projectPath 空):预览按钮仍渲染,但内联裸路径不当项目文件链接", () => {
+    const browserResolveLocalHtml = vi
+      .fn<(p: string) => Promise<string | null>>()
+      .mockResolvedValue("file:///Users/mike/Documents/cortex/2026-06-20/shanghai-weather-night.html");
+    const onOpenFile = vi.fn<(ref: string) => void>();
+    const bridge = { browserResolveLocalHtml } as unknown as DesktopBridge;
+    const md = [
+      "见 `shanghai-weather-night.html`",
+      "```",
+      "open /Users/mike/Documents/cortex/2026-06-20/shanghai-weather-night.html",
+      "```",
+    ].join("\n");
+    const { container } = render(
+      <Markdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents({ onOpenFile, projectPath: "", bridge })}>
+        {md}
+      </Markdown>,
+    );
+    // 预览按钮渲染(不依赖 projectPath)。
+    expect(container.querySelector("button.pw-html-preview-btn")).not.toBeNull();
+    // 空 projectPath 下内联裸文件名不被当作可点项目文件链接(防空根误判 within)。
+    expect(container.querySelector("code.file-link")).toBeNull();
+  });
 });

@@ -140,9 +140,12 @@ const TextMessage = memo(function TextMessage({
   const bridge = useDesktopBridge();
   const profile = usePersonalProfile();
   const renderMd = markdown && m.who !== "me" && typeof m.text === "string";
-  // 仅个人区(有 onOpenFile + projectPath)注入可点击文件链接 components;否则 undefined = 原渲染。
-  const fileLinkComponents =
-    onOpenFile && projectPath ? chatMarkdownComponents({ onOpenFile, projectPath, bridge }) : undefined;
+  // 个人区(有 onOpenFile)即注入自定义 components:文件链接需 projectPath 才可点(无项目会话
+  // projectPath 为空,chatMarkdown 内已对空根短路);本地 HTML 预览(pre 渲染)不依赖项目,故
+  // 无项目会话与历史会话同样生效。团队侧不传 onOpenFile → undefined = 原渲染,零回归。
+  const fileLinkComponents = onOpenFile
+    ? chatMarkdownComponents({ onOpenFile, projectPath: projectPath ?? "", bridge })
+    : undefined;
   return (
     <div className={`msg ${grouped ? "is-grouped" : ""} ${m.who === "me" ? "is-me" : ""}`}>
       <MessageAvatar who={m.who} />
