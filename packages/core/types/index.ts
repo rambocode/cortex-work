@@ -190,8 +190,21 @@ export type ToastKind = "info" | "success" | "error";
 
 export interface Toast {
   id: string;
+  // 兼容主体:无 title 时 text 作为卡片主行;有 title 时可为空。
   text: string;
   kind: ToastKind;
+  // ── 富样式可选字段(全局通用提醒)──────────────────────────────
+  // 加粗标题;存在时 text 退为可省略。
+  title?: string;
+  // 标题下的次级说明行。
+  description?: string;
+  // 图标名(对应 @cortex-work/ui 的 Icon.*)。core 不依赖 ui,故用 string,
+  // 在视图层用 IconName 收窄;缺省时由 kind 推导默认图标。
+  iconName?: string;
+  // 是否显示关闭按钮(默认 true)。
+  dismissible?: boolean;
+  // 自动消失时长(ms);0 表示常驻直到手动关闭。
+  duration?: number;
 }
 
 export type Density = "compact" | "regular" | "cozy";

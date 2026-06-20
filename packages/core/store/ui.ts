@@ -42,9 +42,28 @@ export interface CortexUIState {
   openFileTab: (path: string) => void;
   closeFileTab: (path: string) => void;
   setTweak: <K extends keyof Tweaks>(key: K, value: Tweaks[K]) => void;
-  pushToast: (text: string, opts?: { kind?: ToastKind; duration?: number }) => void;
+  // 全局通用提醒:text-only 旧签名向后兼容;opts 可携带富内容字段。
+  // duration 默认 2400ms,duration:0 表示常驻直到手动关闭。
+  pushToast: (
+    text: string,
+    opts?: {
+      kind?: ToastKind;
+      duration?: number;
+      title?: string;
+      description?: string;
+      icon?: string;
+      dismissible?: boolean;
+    },
+  ) => void;
   dismissToast: (id: string) => void;
 }
+
+// kind → 默认图标名(对应 @cortex-work/ui 的 Icon.*)。调用方可用 opts.icon 覆盖。
+const KIND_ICON: Record<ToastKind, string> = {
+  info: "Info",
+  success: "CheckCircle",
+  error: "XCircle",
+};
 
 export const DEFAULT_TWEAKS: Tweaks = {
   density: "regular" as Density,
@@ -93,11 +112,26 @@ export const useCortexUIStore = create<CortexUIState>((set) => ({
   pushToast: (text, opts = {}) => {
     toastSeq += 1;
     const id = `toast-${toastSeq}`;
-    const toast: Toast = { id, text, kind: opts.kind ?? "info" };
+    const kind = opts.kind ?? "info";
+    const toast: Toast = {
+      id,
+      text,
+      kind,
+      title: opts.title,
+      description: opts.description,
+      iconName: opts.icon ?? KIND_ICON[kind],
+      // 默认显示关闭按钮,贴合图中卡片;调用方可显式关闭。
+      dismissible: opts.dismissible ?? true,
+      duration: opts.duration,
+    };
     set((s) => ({ toasts: [...s.toasts, toast] }));
-    setTimeout(() => {
-      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
-    }, opts.duration ?? 2400);
+    // duration:0 表示常驻(需用户手动关闭),不注册自动移除定时器。
+    const duration = opts.duration ?? 2400;
+    if (duration > 0) {
+      setTimeout(() => {
+        set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+      }, duration);
+    }
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
