@@ -201,3 +201,58 @@ export function formatDevPreviewUrlLabel(url: string): string {
     return url;
   }
 }
+
+// ── 本地 HTML 文件预览探测 ──────────────────────────────────────────────────
+// agent 常把产物写成本地 .html(如 `open /Users/.../foo.html`)并提示「用浏览器打开」。探测其中
+// 的**绝对**本地 .html 路径,供「预览网页」卡片用 file:// 内嵌打开(路径授权与 file:// 放行在
+// 主进程,见 apps/desktop/src/main/browser/localHtml.ts)。
+
+// 绝对路径(/ 或 ~/ 开头)结尾 .html/.htm。不匹配裸文件名(无路径无法授权解析)。
+const LOCAL_HTML_PATH_RE = /(?:~|\.{0,2})\/[^\s'"<>()\][`]+\.html?\b/gi;
+
+function isAbsoluteOrHomePath(p: string): boolean {
+  return p.startsWith("/") || p.startsWith("~/");
+}
+
+// 从一段纯文本里抽绝对/家目录的 .html 路径(去重)。供 markdown 内联预览(chatMarkdown 的
+// fenced 代码块)与下方按消息探测复用。
+export function findLocalHtmlPathsInText(text: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const match of text.matchAll(LOCAL_HTML_PATH_RE)) {
+    const raw = match[0].replace(/[`),.;]+$/g, "");
+    // 只收绝对/家目录路径;相对路径(./、../)无法可靠解析授权,跳过。
+    if (!isAbsoluteOrHomePath(raw) || seen.has(raw)) continue;
+    seen.add(raw);
+    paths.push(raw);
+  }
+  return paths;
+}
+
+export function extractDetectedLocalHtmlPaths(messages: Message[]): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]!;
+    const text = textFromMessage(message);
+    if (!text) continue;
+    for (const raw of findLocalHtmlPathsInText(text)) {
+      if (seen.has(raw)) continue;
+      seen.add(raw);
+      paths.push(raw);
+      if (paths.length >= MAX_DETECTED_URLS) return paths;
+    }
+  }
+  return paths;
+}
+
+export function extractLatestTurnLocalHtmlPaths(messages: Message[]): string[] {
+  return extractDetectedLocalHtmlPaths(sliceLatestTurn(messages));
+}
+
+// 本地 HTML 路径标签:取文件名(basename)。
+export function formatLocalHtmlLabel(path: string): string {
+  const clean = path.split(/[?#]/)[0] ?? path;
+  const parts = clean.split("/");
+  return parts[parts.length - 1] || path;
+}

@@ -14,21 +14,15 @@ import {
   useDesktopBridge,
   usePersonalActions,
   usePersonalChat,
-  usePersonalProcess,
   usePersonalStore,
   useRenderWindow,
 } from "@cortex-work/core";
 import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Conversation, Message } from "@cortex-work/core/types";
-import {
-  extractDetectedDevPreviewUrls,
-  extractLatestTurnDevPreviewUrls,
-  extractLatestTurnAutoOpenDevPreviewUrls,
-} from "@cortex-work/core/personal/devPreviewDetection";
+import { extractLatestTurnAutoOpenDevPreviewUrls } from "@cortex-work/core/personal/devPreviewDetection";
 import { MessageStream } from "../ChatArea";
 import { agentContact } from "./agentMeta";
 import { AskQuestionCard } from "./AskQuestionCard";
-import { DevPreviewCard } from "./DevPreviewCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
 import { ModeBlockBanner } from "./ModeBlockBanner";
@@ -151,23 +145,11 @@ export function PersonalChatArea({
   const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
-  // 瞬态执行过程流(agentLog 步骤);dev 预览探测的次信号来源(allMessages 已剥离 agentLog)。
-  const processMessages = usePersonalProcess(session?.id);
   const { send, stop: stopRun, steer, compact, setPiModel, setPiThinking, editResend, clearView } =
     usePersonalActions();
 
-  // 探测 agent 输出里的本地 dev 预览 URL(计划 U5/KTD3)。数据源现实:assistant 正文在
-  // allMessages(主信号),工具步骤 agentLog 活在 process query(次信号),合并两源探测。
-  const cardPreviewUrls = useMemo(() => {
-    const merged = [
-      ...extractLatestTurnDevPreviewUrls(allMessages),
-      ...extractDetectedDevPreviewUrls(processMessages),
-    ];
-    return Array.from(new Set(merged)).slice(0, 4);
-  }, [allMessages, processMessages]);
   // auto_open(仅环回,SSRF 收紧):**只信主信号**(最近一轮 assistant 正文)。process 流
-  // (agentLog)无 user 消息、无法按轮次切片,从后往前扫可能取到上一轮旧 URL → 误自动打开,
-  // 故 auto_open 不用 process 流(card 模式才用,见上;正确性评审)。
+  // (agentLog)无 user 消息、无法按轮次切片,从后往前扫可能取到上一轮旧 URL → 误自动打开。
   const autoOpenPreviewUrl = useMemo(
     () => extractLatestTurnAutoOpenDevPreviewUrls(allMessages)[0] ?? null,
     [allMessages],
@@ -302,6 +284,8 @@ export function PersonalChatArea({
       }
       // agent 回复:复制 +(仅在开启「实时朗读」时)朗读开关。正在朗读时常驻显示便于停止。
       const speaking = ttsPlayback.isSpeaking;
+      // 本地 HTML / dev URL 的预览入口已内联到消息正文里(见 chatMarkdown 的 pre 渲染:代码块
+      // 含 .html 路径时正下方给「预览网页」按钮),此处消息底部不再重复。
       return (
         <div className="m-msg-actions">
           <span className="m-msg-time">{m.time}</span>
@@ -461,9 +445,6 @@ export function PersonalChatArea({
           ) : undefined
         }
       />
-
-      {/* dev 预览卡片:探测到本地 dev URL 时,在消息流与输入框间提供「打开预览」入口。 */}
-      <DevPreviewCard urls={cardPreviewUrls} onOpen={openPreview} />
 
       {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
       <AskQuestionCard sessionId={session.id} />

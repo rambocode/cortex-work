@@ -15,6 +15,7 @@
 import { app, shell } from "electron";
 import type { WebContents } from "electron";
 import { isAllowedDevPreviewHostname } from "@cortex-work/core/personal/devPreviewUrl";
+import { isAuthorizedFileUrl } from "./localHtml";
 
 // 内嵌浏览器专用会话分区(跨进程契约:渲染端 <webview partition> 与本常量必须一致)。
 // persist: 前缀 = 持久化第三方登录态,配套「清除浏览数据」入口(见 partition.ts)。
@@ -66,7 +67,14 @@ export function evaluateNavigation({ targetUrl, currentOrigin }: NavigationConte
     return true;
   }
 
-  // deny-by-default:javascript: / data: / blob: / about: / file: / 自定义协议一律拒。
+  if (url.protocol === "file:") {
+    // file:// 仅放行**已授权**的本地 HTML(经 browser:resolveLocalHtml 校验在允许根内、
+    // .html、realpath),其余 file:// 一律拒;公网页更不得跳 file://(SSRF/本地文件读取)。
+    if (fromPublic) return false;
+    return isAuthorizedFileUrl(url.toString());
+  }
+
+  // deny-by-default:javascript: / data: / blob: / about: / 自定义协议一律拒。
   return false;
 }
 

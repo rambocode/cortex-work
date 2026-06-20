@@ -3,8 +3,10 @@ import type { Message } from "../types";
 import {
   extractAutoOpenDevPreviewUrls,
   extractDetectedDevPreviewUrls,
+  extractDetectedLocalHtmlPaths,
   extractLatestTurnAutoOpenDevPreviewUrls,
   formatDevPreviewUrlLabel,
+  formatLocalHtmlLabel,
 } from "./devPreviewDetection";
 
 function txt(text: string, who = "claude"): Message {
@@ -117,5 +119,52 @@ describe("extractLatestTurnAutoOpenDevPreviewUrls", () => {
 describe("formatDevPreviewUrlLabel", () => {
   it("取 host", () => {
     expect(formatDevPreviewUrlLabel("http://127.0.0.1:5173/")).toBe("127.0.0.1:5173");
+  });
+});
+
+describe("extractDetectedLocalHtmlPaths", () => {
+  it("探测 open 命令里的绝对 .html 路径", () => {
+    expect(
+      extractDetectedLocalHtmlPaths([
+        txt("用浏览器打开即可:\nopen /Users/mike/Documents/cortex/2026-06-20/hangzhou-weather-today.html"),
+      ]),
+    ).toEqual(["/Users/mike/Documents/cortex/2026-06-20/hangzhou-weather-today.html"]);
+  });
+
+  it("支持 ~ 家目录路径与 .htm", () => {
+    expect(extractDetectedLocalHtmlPaths([txt("见 ~/docs/report.htm")])).toEqual([
+      "~/docs/report.htm",
+    ]);
+  });
+
+  it("裸文件名(无路径)不匹配——无法授权解析", () => {
+    expect(extractDetectedLocalHtmlPaths([txt("已生成 hangzhou-weather-today.html")])).toEqual([]);
+  });
+
+  it("非 .html 路径不匹配", () => {
+    expect(extractDetectedLocalHtmlPaths([txt("写了 /Users/mike/foo.md 和 /Users/mike/a.js")])).toEqual(
+      [],
+    );
+  });
+
+  it("去重 + 从 agentLog 文本扫描", () => {
+    const msg: Message = {
+      kind: "agentLog",
+      who: "claude",
+      time: "10:00",
+      title: "写文件",
+      items: [{ ic: "check", text: "Wrote /tmp/site/index.html" }],
+    };
+    expect(extractDetectedLocalHtmlPaths([msg, txt("再看 /tmp/site/index.html")])).toEqual([
+      "/tmp/site/index.html",
+    ]);
+  });
+});
+
+describe("formatLocalHtmlLabel", () => {
+  it("取文件名", () => {
+    expect(formatLocalHtmlLabel("/Users/mike/Documents/cortex/2026-06-20/hangzhou-weather-today.html")).toBe(
+      "hangzhou-weather-today.html",
+    );
   });
 });

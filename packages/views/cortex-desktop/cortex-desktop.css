@@ -3233,16 +3233,18 @@ button.sb-row {
 .diff-card.rejected .dc-files { text-decoration: line-through; opacity: 0.7; }
 
 /* ──────── Toast stack(全局通用提醒)──────── */
-/* 右上角堆叠,让位 TitleBar(top);容器不挡交互,仅卡片/关闭按钮可点。 */
+/* 右上角堆叠,让位 TitleBar(top);容器不挡交互,仅卡片/关闭按钮可点。
+   用 fixed 锚定视口右上角,使提醒在任意视图/覆盖层之上都可见;z-index 高于
+   全屏设置页(.pw-settings-page=200)及常规弹窗,全局通用提醒需始终浮于最上。 */
 .toast-stack {
-  position: absolute;
+  position: fixed;
   top: 56px;
   right: 16px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
-  z-index: 100;
+  z-index: 1000;
   pointer-events: none;
 }
 /* macOS 风格毛玻璃浅卡片:图标方块 + 正文 + 关闭。深色由 [data-theme] 覆盖。 */
@@ -3573,7 +3575,14 @@ button.sb-row {
   display: none;
 }
 .pw-prompts:has(.pw-todos.is-detail) .pw-rp-resizer,
-.pw-prompts:has(.pw-rp-view.is-fileopen) .pw-rp-resizer { display: block; }
+.pw-prompts:has(.pw-rp-view.is-fileopen) .pw-rp-resizer,
+.pw-prompts:has(.pw-browser) .pw-rp-resizer { display: block; }
+/* 内嵌浏览器:默认宽度占应用 3/7(向左延展),可拖拽调宽(--rp-custom-width 优先),
+   关闭浏览器视图回到 320px。 */
+.pw-prompts:has(.pw-browser) {
+  width: var(--rp-custom-width, calc(100vw * 3 / 7));
+  min-width: var(--rp-custom-width, 480px);
+}
 /* 详情/文件预览态:--rp-custom-width（拖拽设置）优先,未设置走自动档位。
    返回列表后回到上方固定 320px,自定义宽度不影响列表。 */
 .pw-prompts:has(.pw-todos.is-detail) {
@@ -3589,13 +3598,15 @@ button.sb-row {
    否则浮起卡片左上圆角+阴影会在缝隙里露出一个静态小凸角(窄态在最右不显眼,
    展宽后挪到中部就被注意到)。用与浮起规则同级的选择器确保覆盖其 margin/圆角。 */
 .body:has(.pw-main) .pw-upper > .right:has(.pw-todos.is-detail),
-.body:has(.pw-main) .pw-upper > .right:has(.pw-rp-view.is-fileopen) {
+.body:has(.pw-main) .pw-upper > .right:has(.pw-rp-view.is-fileopen),
+.body:has(.pw-main) .pw-upper > .right:has(.pw-browser) {
   margin-top: 0;
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
 .body:has(.pw-main) .pw-upper > .right:has(.pw-todos.is-detail) .pw-rp-head,
-.body:has(.pw-main) .pw-upper > .right:has(.pw-rp-view.is-fileopen) .pw-rp-head {
+.body:has(.pw-main) .pw-upper > .right:has(.pw-rp-view.is-fileopen) .pw-rp-head,
+.body:has(.pw-main) .pw-upper > .right:has(.pw-browser) .pw-rp-head {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
@@ -7641,7 +7652,9 @@ button.sb-row {
   color: #9a3412; background: #fff7ed; border-bottom: 1px solid #fed7aa;
 }
 .pw-browser-stage { position: relative; flex: 1; min-height: 0; background: var(--bg-1, #fff); }
-.pw-browser-frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+/* 绝对铺满 stage:<webview> 的固有尺寸/flex 行为不可靠(会塌成小高度导致内容被截断),
+   用 inset:0 强制填满整个 stage(iframe 同理),内容随面板高度自适应。 */
+.pw-browser-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
 .pw-browser-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   height: 100%; padding: 0 32px; text-align: center; color: var(--text-3);
@@ -7650,11 +7663,12 @@ button.sb-row {
 .pw-browser-empty-sub { margin-top: 8px; font-size: 12px; color: var(--text-3); line-height: 1.5; }
 .pw-icon-btn.is-loading { color: var(--accent); }
 
-/* ── dev 预览卡片（消息流与输入框之间，见 DevPreviewCard.tsx）───────────── */
+/* ── 内联预览入口（渲染在每条 agent 回复正文下方，见 DevPreviewCard.tsx）──────
+   不再是浮在输入框上的卡片;改为消息内联,故用 inline-flex 贴合内容宽度、低调样式。 */
 .pw-devpreview-card {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin: 4px 12px 0; padding: 7px 12px; border: 1px solid var(--border);
-  border-radius: 10px; background: var(--bg-hover); color: var(--text-2); font-size: 12px;
+  display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  margin: 2px 0 6px; padding: 4px 10px; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--bg-hover); color: var(--text-2); font-size: 11.5px;
 }
 .pw-devpreview-label { font-weight: 600; color: var(--text-2); }
 .pw-devpreview-urls { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -7664,3 +7678,14 @@ button.sb-row {
   cursor: pointer; transition: border-color .12s, color .12s;
 }
 .pw-devpreview-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 内联「预览网页」按钮:渲染在含本地 .html 路径的代码块正下方(见 chatMarkdown.tsx pre 渲染)。 */
+.pw-html-preview-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin: 6px 0 2px; padding: 4px 11px;
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  background: var(--bg-hover); color: var(--text-1);
+  font-size: 11.5px; font-weight: 500; cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.pw-html-preview-btn:hover { border-color: var(--accent); color: var(--accent); }

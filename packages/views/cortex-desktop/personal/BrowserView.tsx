@@ -60,10 +60,12 @@ function formatAddressInput(url: string): string {
 }
 
 // 地址栏输入归一化:本地输入走 dev 预览归一化(localhost:5173 → http://...);否则当公网,
-// 缺 scheme 补 https://。
+// 缺 scheme 补 https://。file:// 直接透传(本地 HTML 预览),实际是否放行由主进程授权闸门把关
+// (webviewGuards 只放行已授权的 file://),故此处透传安全。
 function normalizeAddressInput(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
+  if (/^file:\/\//i.test(trimmed)) return trimmed;
   const local = normalizeDevPreviewUrlInput(trimmed);
   if (local) return local;
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
@@ -88,7 +90,10 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
 
   const webviewRef = useRef<WebviewTag | null>(null);
   const iframeLoadedUrlRef = useRef<string | null>(null);
-  const lastRequestNonceRef = useRef<number>(browserUrlRequest?.nonce ?? 0);
+  // 从 0 起,而非挂载时的 nonce:面板常是被本次请求打开的(挂载时 browserUrlRequest.nonce 已是
+  // 新值),若用它初始化会把「触发打开的那次请求」误判为已消费 → 首次点击空白、需再点一次。
+  // 从 0 起则挂载即消费当前 pending 请求(修首次点击空白)。
+  const lastRequestNonceRef = useRef<number>(0);
 
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [draftUrl, setDraftUrl] = useState("");
