@@ -3578,11 +3578,16 @@ button.sb-row {
 .pw-prompts:has(.pw-rp-view.is-fileopen) .pw-rp-resizer,
 .pw-prompts:has(.pw-browser) .pw-rp-resizer { display: block; }
 /* 内嵌浏览器:默认宽度占应用 3/7(向左延展),可拖拽调宽(--rp-custom-width 优先),
-   关闭浏览器视图回到 320px。 */
+   关闭浏览器视图回到 320px。
+   默认宽度限制在视口内;一旦拖拽写入 --rp-custom-width,不再用 CSS max-width 二次夹小,
+   避免 TS 已按当前几何算出的宽度被 CSS 再夹一次,造成第一帧向右跳。 */
 .pw-prompts:has(.pw-browser) {
-  width: var(--rp-custom-width, calc(100vw * 3 / 7));
-  min-width: var(--rp-custom-width, 480px);
+  width: var(--rp-custom-width, min(calc(100vw * 3 / 7), max(280px, calc(100vw - 250px))));
+  min-width: min(360px, max(280px, calc(100vw - 250px)));
 }
+/* 拖拽调宽期间:禁用内嵌浏览器帧(webview/iframe)的指针事件,使 mouseup/mousemove
+   能落到 document,避免「松手无效、宽度一直跟随鼠标」。 */
+.pw-rp-resizing .pw-browser-frame { pointer-events: none; }
 /* 详情/文件预览态:--rp-custom-width（拖拽设置）优先,未设置走自动档位。
    返回列表后回到上方固定 320px,自定义宽度不影响列表。 */
 .pw-prompts:has(.pw-todos.is-detail) {

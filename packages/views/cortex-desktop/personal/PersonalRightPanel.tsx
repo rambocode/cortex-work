@@ -26,10 +26,9 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
 
 // 导出供测试引用,调参不破坏断言。
 export const RP_MIN_WIDTH = 280;
-// 拖宽上限:中间区域（与右栏同处 .pw-upper flex 容器）至少保留的宽度。
-// 取 360（够中栏会话基本可读）——原 700 在常见笔记本窗口下会把拖宽上限压到
-// 比详情默认 40vw 还小,导致向左拖（变宽）被钳死甚至回弹变窄,表现为「不能拖」。
-export const RP_CENTER_RESERVED = 360;
+// 左侧内容(中栏)至少保留的宽度。拖拽上限至少保留拖拽开始时已经渲染出来的宽度,
+// 避免第一帧把面板夹小造成可见边界向右跳。
+export const RP_LEFT_RESERVED = 250;
 
 export function PersonalRightPanel({
   onToast,
@@ -45,30 +44,45 @@ export function PersonalRightPanel({
     (e: React.MouseEvent<HTMLDivElement>) => {
       e.preventDefault();
       const aside = e.currentTarget.parentElement;
+      if (!aside) return;
+      const rect = aside.getBoundingClientRect();
       const startX = e.clientX;
-      // || 兜底:未布局时 rect 宽为 0（如测试环境）。
-      const startWidth = aside?.getBoundingClientRect().width || RP_MIN_WIDTH;
-      const bound =
-        aside?.parentElement?.getBoundingClientRect().width ||
-        window.innerWidth;
-      const max = Math.max(RP_MIN_WIDTH, bound - RP_CENTER_RESERVED);
+      const parentRect = aside.parentElement?.getBoundingClientRect();
+      const parentWidth = parentRect?.width || window.innerWidth;
+      const startWidth = rect.width || RP_MIN_WIDTH;
+      // 用位移增量算宽度,不依赖 rect.left/right 是否等于视觉拖拽条位置。正常状态给
+      // 左侧保留空间;若起始布局已经超过这个保留区,本次拖拽允许到父容器宽度,不能反向夹小。
+      const reservedMax = Math.max(RP_MIN_WIDTH, parentWidth - RP_LEFT_RESERVED);
+      const max = startWidth > reservedMax
+        ? Math.max(RP_MIN_WIDTH, startWidth, parentWidth)
+        : reservedMax;
+      // || 兜底:未布局时 rect 宽为 0（如测试环境）。只有实际水平移动后才会提交。
+      let nextWidth = startWidth;
+      let moved = false;
       const onMove = (ev: MouseEvent) => {
-        // 面板在右侧:向左拖增宽。
-        const next = Math.round(
-          Math.min(
-            max,
-            Math.max(RP_MIN_WIDTH, startWidth + (startX - ev.clientX)),
-          ),
+        if (ev.clientX === startX && !moved) return;
+        moved = true;
+        nextWidth = Math.round(
+          Math.min(max, Math.max(RP_MIN_WIDTH, startWidth + (startX - ev.clientX))),
         );
-        setWidth(next);
+        // 拖拽中直接写 DOM 的 CSS 变量,绕过 React 重渲染 —— 否则每帧都 setWidth 会
+        // 重渲染整棵右栏(含 BrowserView/webview),造成拖动抖动。松手才提交一次 store。
+        aside.style.setProperty("--rp-custom-width", `${nextWidth}px`);
       };
       const onUp = () => {
         document.removeEventListener("mousemove", onMove);
         document.body.style.removeProperty("cursor");
         document.body.style.removeProperty("user-select");
+        // 拖拽结束:恢复内嵌浏览器(webview/iframe)的指针事件。
+        document.body.classList.remove("pw-rp-resizing");
+        // 提交最终宽度:持久化 + 让后续渲染沿用(与拖拽中直写的 DOM 变量值一致,无跳变)。
+        if (moved) setWidth(nextWidth);
       };
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
+      // 拖拽期间禁用内嵌浏览器帧的指针事件,否则鼠标移到 webview/iframe 上时
+      // 事件被其捕获,document 收不到 mouseup —— 表现为「松手无效、宽度一直跟随鼠标」。
+      document.body.classList.add("pw-rp-resizing");
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp, { once: true });
     },
