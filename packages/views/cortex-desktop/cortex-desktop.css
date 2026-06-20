@@ -959,10 +959,27 @@ input, textarea { font: inherit; color: inherit; }
   overflow: hidden;
   animation: pw-process-in 0.18s ease-out;
 }
-/* 收起态：整卡只剩头部一行（可重开入口），不再撑满整列高度。 */
+/* 收起态：整卡塌成一个圆形 icon 按钮（可重开入口），覆盖 .pw-process 的 width clamp，
+   使 grid 第二列塌窄、会话区变宽。 */
 .pw-process.is-collapsed {
   align-self: start;
+  width: 40px;
+  height: 40px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
 }
+.pw-process.is-collapsed:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); }
+.pw-process-fab-ic { display: inline-flex; align-items: center; justify-content: center; }
+.pw-process.is-collapsed[data-active="true"] .pw-process-fab-ic { color: var(--amber); }
+.pw-process.is-collapsed[data-active="false"] .pw-process-fab-ic { color: var(--green); }
 .pw-process-head {
   display: flex;
   align-items: center;
@@ -974,7 +991,6 @@ input, textarea { font: inherit; color: inherit; }
   outline: none;
 }
 .pw-process-head:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); }
-.pw-process.is-collapsed .pw-process-head { border-bottom: none; }
 .pw-process-head-title { font-size: 14.5px; font-weight: 700; color: var(--text-1); }
 /* 状态徽标：已完成 → 绿药丸；运行中 → 琥珀药丸。 */
 .pw-process-badge {

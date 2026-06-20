@@ -155,24 +155,25 @@ describe("PersonalProcessPanel 流式更新 / 默认展开 / 用户折叠", () =
     await waitFor(() => expect(view.container.textContent).toContain("Edit · b.ts"));
   });
 
-  it("finalizeRun 后（active 全 false）仍保持展开,保留最近一次过程", async () => {
+  it("finalizeRun 后（active 全 false）自动收起为 icon", async () => {
     const { view, qc, sessionId } = renderPanel({
       process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],
     });
     // 运行中默认展开：有 head（含「执行过程」标题），body 内可见步骤。
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
-    // 模拟收尾：active 翻 false（步骤打勾）。
+    // 模拟收尾：active 翻 false（步骤打勾）→ 自动收起为 icon。
     act(() => {
       qc.setQueryData(personalProcessKeys.detail(sessionId), [
         logMsg({ uid: "l1", active: false, items: [{ ic: "check", text: "Bash · ls" }] }),
       ]);
     });
     await waitFor(() => {
-      expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument();
-      expect(view.container.querySelector(".pw-process-body")).toBeInTheDocument();
-      expect(view.container.textContent).toContain("Bash · ls");
+      // 收起态：整卡塌成一个 icon 按钮，body 不再渲染。
+      expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument();
+      expect(view.container.querySelector(".pw-process-body")).toBeNull();
+      expect(view.container.querySelector(".pw-process-fab-ic")).toBeInTheDocument();
+      expect(view.container.querySelector('.pw-process.is-collapsed[aria-label="展开执行过程"]')).toBeInTheDocument();
     });
-    expect(view.container.querySelector(".pw-process-entry")).toBeNull();
   });
 
   it("运行中也允许用户折叠;同一轮新增步骤不强制重新展开", async () => {
@@ -365,8 +366,9 @@ describe("PersonalProcessPanel 键盘可达 / 不抢焦点", () => {
   afterEach(() => cleanup());
   beforeEach(() => usePersonalStore.setState({ homeOpen: false, automationOpen: false, settingsOpen: false, noteEditorId: undefined, timelineProjectId: undefined }));
 
-  it("头部即折叠开关，键盘可聚焦并可激活（role=button + tabindex），Enter 切换展开/收起", async () => {
-    const process = [logMsg({ uid: "l1", active: false, items: [{ ic: "check", text: "Bash · ls" }] })];
+  it("头部即折叠开关，键盘可聚焦并可激活；收起后 icon 按钮可点击重新展开", async () => {
+    // 运行中（active=true）默认展开，确保起始为展开态。
+    const process = [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })];
     const { view } = renderPanel({ process });
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
     const head = view.container.querySelector('.pw-process-head[role="button"]') as HTMLElement;
@@ -374,11 +376,13 @@ describe("PersonalProcessPanel 键盘可达 / 不抢焦点", () => {
     expect(head.getAttribute("tabindex")).toBe("0");
     head.focus();
     expect(document.activeElement).toBe(head);
-    // Enter 收起。
+    // Enter 收起为 icon。
     fireEvent.keyDown(head, { key: "Enter" });
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument());
-    // Enter 再次展开。
-    fireEvent.keyDown(head, { key: "Enter" });
+    // 收起态是原生 <button>，点击重新展开。
+    const fab = view.container.querySelector(".pw-process.is-collapsed") as HTMLElement;
+    expect(fab.tagName).toBe("BUTTON");
+    fireEvent.click(fab);
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
   });
 
