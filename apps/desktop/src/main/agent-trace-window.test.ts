@@ -36,6 +36,7 @@ vi.mock("@electron-toolkit/utils", () => ({
   is: { dev: true },
 }));
 
+import { BrowserWindow } from "electron";
 import { destroyAgentTraceWindow, registerAgentTraceWindowHandlers } from "./agent-trace-window";
 
 beforeEach(() => {
@@ -60,6 +61,18 @@ describe("registerAgentTraceWindowHandlers", () => {
 
     expect(h.show).toHaveBeenCalledTimes(1);
     expect(h.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("使用系统默认标题栏,避免内容覆盖 macOS 交通灯并保留原生拖拽", () => {
+    registerAgentTraceWindowHandlers({ devMode: true });
+
+    h.handlers.get("agent-trace-window:show")?.({});
+
+    const options = vi.mocked(BrowserWindow).mock.calls[0]?.[0] as
+      | { titleBarStyle?: string; trafficLightPosition?: unknown }
+      | undefined;
+    expect(options?.titleBarStyle).toBe("default");
+    expect(options).not.toHaveProperty("trafficLightPosition");
   });
 
   it("非 dev 环境拒绝打开 trace 窗口", () => {
