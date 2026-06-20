@@ -988,6 +988,8 @@ export interface UpdateState {
   percent?: number;
   // error:失败描述
   error?: string;
+  // available 及之后:本次更新的 markdown 说明,来自打包写入清单的 release notes
+  releaseNotes?: string;
 }
 
 export interface AppInfo {

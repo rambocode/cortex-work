@@ -1,16 +1,35 @@
 // 应用更新状态机:把 electron-updater 的事件归约为 UpdateState（纯函数,
 // 便于单测）。约束:downloaded 不被复查的 checking/not-available 回退;
-// 下载失败保留 version,UI 据此提供「重试」。
+// 下载失败保留 version,UI 据此提供「重试」;available/downloaded 携带的
+// releaseNotes 在 downloading/error 阶段保留,使更新内容弹窗全程可展示。
 
 import type { UpdateState } from "./types";
 
 export type UpdaterEvent =
   | { type: "checking" }
-  | { type: "available"; version: string }
+  | { type: "available"; version: string; releaseNotes?: string }
   | { type: "not-available" }
   | { type: "progress"; percent: number }
-  | { type: "downloaded"; version: string }
+  | { type: "downloaded"; version: string; releaseNotes?: string }
   | { type: "error"; message: string };
+
+// electron-updater 的 info.releaseNotes 形如 string | ReleaseNoteInfo[] | null。
+// 归一化为 string | undefined:本项目 fullChangelog=false 且由发布侧以字符串
+// 写入清单,数组分支无现实消费者,仅作类型完备兜底(此分支不可达)。
+export function normalizeReleaseNotes(
+  notes: string | Array<{ note?: string | null }> | null | undefined,
+): string | undefined {
+  if (notes == null) return undefined;
+  if (typeof notes === "string") {
+    const trimmed = notes.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  const joined = notes
+    .map((n) => n.note ?? "")
+    .join("\n\n")
+    .trim();
+  return joined.length > 0 ? joined : undefined;
+}
 
 export function reduceUpdate(state: UpdateState, event: UpdaterEvent): UpdateState {
   switch (event.type) {
@@ -20,14 +39,22 @@ export function reduceUpdate(state: UpdateState, event: UpdaterEvent): UpdateSta
     case "available":
       // 同版本已下载完成时保持 downloaded（周期复查会再次发出 available）。
       if (state.phase === "downloaded" && state.version === event.version) return state;
-      return { phase: "available", version: event.version };
+      return { phase: "available", version: event.version, releaseNotes: event.releaseNotes };
     case "not-available":
       return state.phase === "idle" || state.phase === "checking" ? { phase: "idle" } : state;
     case "progress":
-      return { phase: "downloading", version: state.version, percent: event.percent };
+      // 下载中保留已发现的 version 与 releaseNotes,弹窗在下载过程中仍能展示更新内容。
+      return {
+        phase: "downloading",
+        version: state.version,
+        percent: event.percent,
+        releaseNotes: state.releaseNotes,
+      };
     case "downloaded":
-      return { phase: "downloaded", version: event.version };
+      // downloaded 事件自带 releaseNotes;为稳妥,缺省时回退到此前保留的值。
+      return { phase: "downloaded", version: event.version, releaseNotes: event.releaseNotes ?? state.releaseNotes };
     case "error":
-      return { phase: "error", version: state.version, error: event.message };
+      // 失败保留 version 与 releaseNotes,UI 据此提供「重试下载」并仍展示更新内容。
+      return { phase: "error", version: state.version, error: event.message, releaseNotes: state.releaseNotes };
   }
 }
