@@ -234,16 +234,6 @@ input, textarea { font: inherit; color: inherit; }
   border-radius: 7px; cursor: pointer; color: var(--text-3);
 }
 .pw-sh-pathbtn:hover { border-color: var(--border-strong); background: var(--bg-card-2); }
-/* 会话操作溢出菜单（⋯）触发按钮:与 pathbtn 同款方形图标钮,下拉复用 .pw-tb-menu。 */
-.pw-sh-more { flex: none; }
-.pw-sh-more-btn {
-  width: 24px; height: 24px; flex: none; padding: 0;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); background: var(--bg-card);
-  border-radius: 7px; cursor: pointer; color: var(--text-3);
-}
-.pw-sh-more-btn:hover { border-color: var(--border-strong); background: var(--bg-card-2); }
-.pw-sh-more .pw-tb-menu-item span { display: inline-flex; align-items: center; gap: 7px; }
 .pw-sh-chev { display: inline-flex; align-items: center; transition: transform 0.18s; }
 .pw-sh-chev.is-open { transform: rotate(180deg); }
 .pw-sh-path {

@@ -5,9 +5,12 @@
 import type { PendingImage, PersonalAttachment, SessionMeta, ThinkingLevel } from "@cortex-work/core";
 import { ComposerShell } from "./ComposerShell";
 
-// slash 命令注册表（发送拦截在 PersonalChatArea.onSend）。
+// slash 命令注册表（发送拦截在 PersonalChatArea.onSend）。/compact 仅 pi 会话有（压缩走 pi RPC）。
 const SLASH_COMMANDS: { cmd: string; desc: string }[] = [
   { cmd: "/clear", desc: "隐藏当前历史记录（可展开）" },
+];
+const PI_SLASH_COMMANDS: { cmd: string; desc: string }[] = [
+  { cmd: "/compact", desc: "压缩当前会话上下文" },
 ];
 
 export function PersonalComposer({
@@ -56,7 +59,7 @@ export function PersonalComposer({
       useOwnSkills={session.useOwnSkills === true}
       running={running}
       editing={editing}
-      slashCommands={SLASH_COMMANDS}
+      slashCommands={session.agent === "pi" ? [...SLASH_COMMANDS, ...PI_SLASH_COMMANDS] : SLASH_COMMANDS}
       acceptComposerInsert
       onSend={onSend}
       onStop={onStop}

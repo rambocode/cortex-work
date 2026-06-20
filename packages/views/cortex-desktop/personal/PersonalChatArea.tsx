@@ -140,7 +140,8 @@ export function PersonalChatArea({
   const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
-  const { send, stop: stopRun, steer, setPiModel, setPiThinking, editResend, clearView } = usePersonalActions();
+  const { send, stop: stopRun, steer, compact, setPiModel, setPiThinking, editResend, clearView } =
+    usePersonalActions();
   const [showHiddenHistory, setShowHiddenHistory] = useState(false);
   const [ttsPlayback, setTtsPlayback] = useState(getTtsPlaybackState);
   // 编辑重发:正在编辑的历史用户消息(原文填入 composer,发送时截断其后所有消息)。
@@ -437,6 +438,12 @@ export function PersonalChatArea({
             clearView(session.id);
             setShowHiddenHistory(false);
             onToast("已隐藏当前历史 · 可随时展开查看");
+            return false;
+          }
+          // /compact（仅 pi）:手动压缩上下文。反馈走 compact action（压缩中 chip + 完成/失败消息）,
+          // 不作为消息发给 agent。返回 false → 不消费待发图。
+          if (session.agent === "pi" && text.trim() === "/compact") {
+            void compact(session.id);
             return false;
           }
           return send(session, project.path, text, attachments, undefined, images);

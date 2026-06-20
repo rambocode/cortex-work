@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { AGENT_MODELS, isPiSessionOpen, useCortexUIStore, usePersonalActions, usePersonalStore } from "@cortex-work/core";
+import { AGENT_MODELS, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import type { AgentKind, SessionMeta } from "@cortex-work/core";
 import { UpdateButton } from "../UpdateButton";
 import { AGENT_AVATAR, AGENT_LABEL, buildAgentSwitchPatch, useChatViewActive } from "./agentMeta";
@@ -125,10 +125,6 @@ function PersonalSessionHeader() {
         agentsAvailable={agentsAvailable}
         onSwitch={(a) => updateSession(session.id, buildAgentSwitchPatch(session, a, providerSettings))}
       />
-      {/* 会话级低频动作溢出菜单:仅 pi 会话有运行时命令（当前为「压缩上下文」,后续可扩展）。 */}
-      {agent === "pi" ? (
-        <PersonalSessionMenu session={session} running={running} compacting={!!piRuntime?.compacting} />
-      ) : null}
       <UpdateButton />
       <PersonalPanelControls />
     </div>
@@ -206,73 +202,6 @@ function PersonalAgentSelect({
   );
 }
 
-// 会话级动作溢出菜单（⋯）:承载低频运行时命令。当前唯一项「压缩上下文」——pi 自动压缩（上下文满）
-// 之外的手动入口（compaction 事件回显早已就绪,此前缺触发点）。仅在会话已开、空闲、未在压缩时可用：
-// 运行中压缩会与当前轮抢上下文,未开则无上下文可压。点击后 compaction start/end 事件会点亮标题行
-// 已有的「压缩上下文…」chip,故此处不另维护进度态。
-function PersonalSessionMenu({
-  session,
-  running,
-  compacting,
-}: {
-  session: SessionMeta;
-  running: boolean;
-  compacting: boolean;
-}) {
-  const menu = useDismissableMenu();
-  const actions = usePersonalActions();
-  // isPiSessionOpen 读进程层登记（非响应式）;父级订阅 running/piRuntime 变化即重渲染,取值足够新。
-  const canCompact = isPiSessionOpen(session.id) && !running && !compacting;
-
-  return (
-    <div
-      className="pw-tb-menu-wrap pw-sh-more"
-      ref={menu.wrapRef}
-      onMouseLeave={menu.onMouseLeave}
-      onMouseEnter={menu.onMouseEnter}
-    >
-      <button
-        type="button"
-        className="pw-sh-more-btn"
-        aria-haspopup="menu"
-        aria-expanded={menu.open}
-        aria-label="会话操作"
-        title="会话操作"
-        onClick={() => menu.setOpen((v) => !v)}
-      >
-        <Icon.More size={16} />
-      </button>
-      {menu.open ? (
-        <div className="pw-tb-menu" role="menu">
-          <button
-            type="button"
-            className="pw-tb-menu-item"
-            role="menuitem"
-            disabled={!canCompact}
-            title={
-              compacting
-                ? "正在压缩…"
-                : running
-                  ? "运行中无法压缩，请等当前轮结束"
-                  : !isPiSessionOpen(session.id)
-                    ? "会话未激活，先发送一条消息再压缩"
-                    : "压缩当前会话上下文以释放窗口"
-            }
-            onClick={() => {
-              if (!canCompact) return;
-              void actions.compact(session.id);
-              menu.setOpen(false);
-            }}
-          >
-            <span>
-              <Icon.Archive size={13} /> 压缩上下文
-            </span>
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 // 下拉菜单关闭范式（与项目内其它菜单约定一致,见 ProjectMenu / TodosView 的 ArchiveMenu）：
 // 点击外部 / Esc / 窗口失焦关闭;鼠标移出菜单区域短延迟自动收起,重新移入取消。
