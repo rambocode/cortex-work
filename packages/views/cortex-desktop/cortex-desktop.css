@@ -3232,36 +3232,106 @@ button.sb-row {
 .diff-card.rejected { opacity: 0.85; }
 .diff-card.rejected .dc-files { text-decoration: line-through; opacity: 0.7; }
 
-/* ──────── Toast stack ──────── */
+/* ──────── Toast stack(全局通用提醒)──────── */
+/* 右上角堆叠,让位 TitleBar(top);容器不挡交互,仅卡片/关闭按钮可点。 */
 .toast-stack {
   position: absolute;
-  bottom: 88px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 56px;
+  right: 16px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 10px;
   z-index: 100;
   pointer-events: none;
 }
+/* macOS 风格毛玻璃浅卡片:图标方块 + 正文 + 关闭。深色由 [data-theme] 覆盖。 */
 .toast {
-  background: rgba(26, 25, 22, 0.92);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  padding: 12px;
+  background: rgba(250, 248, 244, 0.86);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
+  backdrop-filter: blur(18px) saturate(1.4);
+  animation: toastIn 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: auto;
+}
+[data-theme="dark"] .toast {
+  background: rgba(38, 37, 34, 0.82);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+/* kind 着色图标方块,复用调色板变量(随 palette/主题变化)。 */
+.toast-icon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: #fff;
-  padding: 8px 14px;
-  border-radius: 8px;
+  background: var(--accent);
+}
+.toast.t-success .toast-icon { background: var(--green); }
+.toast.t-error .toast-icon { background: var(--red); }
+.toast.t-info .toast-icon { background: var(--accent); }
+.toast-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 1px;
+}
+.toast-title {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--text-1);
+}
+.toast-desc {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+.toast-text {
   font-size: 12.5px;
   font-weight: 500;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.08);
-  animation: toastIn 0.22s ease-out;
-  backdrop-filter: blur(12px);
+  line-height: 1.35;
+  color: var(--text-1);
+  /* 兼容旧的单行文本提醒(无 title 时)。 */
+  padding-top: 5px;
 }
-.toast.t-success { background: rgba(22, 163, 74, 0.95); }
-.toast.t-info { background: rgba(26, 25, 22, 0.92); }
-.toast.t-error { background: rgba(220, 38, 38, 0.95); }
+.toast-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.toast-close:hover { background: var(--bg-hover); color: var(--text-1); }
+.toast-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 自右侧滑入 + 淡入(贴合右上角进入)。 */
 @keyframes toastIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateX(16px) scale(0.98); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
 }
 
 /* ──────── Right panel tab close button ──────── */

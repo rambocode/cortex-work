@@ -84,8 +84,8 @@ export default interface Resources {
       "skillsOffTitle": "已禁用 agent 自身 skills,点击启用",
       "skillsOn": "开",
       "skillsOnTitle": "已加载 agent 自身 skills,点击禁用",
-      "slashRun": "Tab 执行",
       "slashInsert": "Tab 插入",
+      "slashRun": "Tab 执行",
       "steerPlaceholder": "插话:输入引导回车注入当前轮,或点击右侧停止…",
       "steerSend": "插话:注入当前轮 (Enter)",
       "stop": "停止",
@@ -354,6 +354,16 @@ export default interface Resources {
       "tabsAriaLabel": "桌面导航标签",
       "terminal": "终端",
       "terminalToast": "终端 · 暂未实现"
+    },
+    "toast": {
+      "closeLabel": "关闭提醒",
+      "demo": {
+        "quotaDesc": "Codex 可以继续使用",
+        "quotaTitle": "5h 配额已重置"
+      },
+      "previewAction": "预览通知",
+      "previewDesc": "弹出一条示例提醒,预览全局通知样式。",
+      "previewTitle": "通知预览"
     },
     "todoUntitled": "未命名 Todo",
     "updateButton": {
