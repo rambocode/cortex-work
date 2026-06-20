@@ -94,6 +94,12 @@ export function PromptPanel({ onToast, bare = false }: { onToast: (text: string)
     }
   };
 
+  // 在系统文件管理器(访达)中打开当前 Prompt 库目录。
+  const openInFinder = () => {
+    if (!bridge?.openPath || !promptRoot) return;
+    void bridge.openPath(promptRoot).catch(() => onToast("打开目录失败"));
+  };
+
   const inner = (
     <>
       <div className="pw-panel-h">
@@ -102,8 +108,11 @@ export function PromptPanel({ onToast, bare = false }: { onToast: (text: string)
         <div className="spacer" />
         {promptRoot ? (
           <>
+            <button className="pw-icon-btn" title="在访达中打开 Prompt 目录" onClick={openInFinder}>
+              <Icon.Expand size={13} />
+            </button>
             <button className="pw-icon-btn" title="刷新" onClick={refresh}>
-              <Icon.Workflow size={13} />
+              <Icon.Retry size={13} />
             </button>
             <button className="pw-icon-btn" title="更换目录" onClick={pickRoot}>
               <Icon.Folder size={13} />
