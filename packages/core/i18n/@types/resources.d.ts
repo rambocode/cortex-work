@@ -361,7 +361,7 @@ export default interface Resources {
       "restartUpdate": "重启更新",
       "retryUpdate": "重试更新",
       "update": "更新 {{version}}",
-      "updateAvailableTitle": "发现新版本 v{{version}},点击下载"
+      "updateAvailableTitle": "发现新版本 v{{version}},点击查看更新内容"
     },
     "updateDialog": {
       "close": "关闭",

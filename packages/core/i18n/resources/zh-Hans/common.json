@@ -189,7 +189,7 @@
   },
   "updateButton": {
     "update": "更新 {{version}}",
-    "updateAvailableTitle": "发现新版本 v{{version}},点击下载",
+    "updateAvailableTitle": "发现新版本 v{{version}},点击查看更新内容",
     "downloading": "更新 {{percent}}%",
     "downloadingTitle": "正在下载 v{{version}}…",
     "restartUpdate": "重启更新",

@@ -45,38 +45,47 @@ describe("UpdateButton", () => {
     await waitFor(() => expect(container.querySelector(".tb-update")).toBeNull());
   });
 
-  it("挂载补拉到 available:显示「更新」,点击触发下载", async () => {
+  it("挂载补拉到 available:显示「更新」,点击打开弹窗,弹窗内下载触发 updateDownload", async () => {
     const { bridge, updateDownload } = fakeUpdateBridge({ phase: "available", version: "0.2.0" });
     renderButton(bridge);
     const btn = await screen.findByRole("button", { name: "更新 0.2.0" });
     fireEvent.click(btn);
+    // 点击不再直接下载,而是打开弹窗;弹窗内「下载更新」才触发下载。
+    expect(updateDownload).not.toHaveBeenCalled();
+    const download = await screen.findByRole("button", { name: "下载更新" });
+    fireEvent.click(download);
     expect(updateDownload).toHaveBeenCalledTimes(1);
   });
 
-  it("主进程推送驱动:available → 下载进度 → 重启更新(触发安装)", async () => {
+  it("主进程推送驱动:available → 下载进度(按钮可点) → 弹窗内重启触发安装", async () => {
     const { bridge, updateInstall, push } = fakeUpdateBridge({ phase: "idle" });
     renderButton(bridge);
 
     push({ phase: "available", version: "0.2.0" });
-    await screen.findByRole("button", { name: "更新 0.2.0" });
+    const availBtn = await screen.findByRole("button", { name: "更新 0.2.0" });
 
+    // 打开弹窗后下载推进;下载中标题栏按钮内联显示进度且可点。
+    fireEvent.click(availBtn);
     push({ phase: "downloading", version: "0.2.0", percent: 41.6 });
     const downloading = await screen.findByRole("button", { name: "更新 42%" });
-    expect(downloading).toBeDisabled();
+    expect(downloading).not.toBeDisabled();
 
+    // 下载完成:标题栏与弹窗底部均出现「重启更新」,点弹窗内的触发安装。
     push({ phase: "downloaded", version: "0.2.0" });
-    const install = await screen.findByRole("button", { name: "重启更新" });
-    fireEvent.click(install);
+    const installs = await screen.findAllByRole("button", { name: "重启更新" });
+    fireEvent.click(installs[installs.length - 1]);
     expect(updateInstall).toHaveBeenCalledTimes(1);
   });
 
-  it("下载失败显示「重试更新」,点击重新下载", async () => {
+  it("下载失败:按钮显示「重试更新」,弹窗内「重试下载」触发重新下载", async () => {
     const { bridge, updateDownload, push } = fakeUpdateBridge({ phase: "idle" });
     renderButton(bridge);
     push({ phase: "error", version: "0.2.0", error: "网络中断" });
     const retry = await screen.findByRole("button", { name: "重试更新" });
     expect(retry).toHaveAttribute("title", "网络中断");
     fireEvent.click(retry);
+    const retryInDialog = await screen.findByRole("button", { name: "重试下载" });
+    fireEvent.click(retryInDialog);
     expect(updateDownload).toHaveBeenCalledTimes(1);
   });
 });

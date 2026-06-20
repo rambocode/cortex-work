@@ -189,7 +189,7 @@
   },
   "updateButton": {
     "update": "Update {{version}}",
-    "updateAvailableTitle": "New version v{{version}} found, click to download",
+    "updateAvailableTitle": "New version v{{version}} found, click to view release notes",
     "downloading": "Update {{percent}}%",
     "downloadingTitle": "Downloading v{{version}}…",
     "restartUpdate": "Restart to update",
