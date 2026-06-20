@@ -5,7 +5,7 @@
 
 import { app, ipcMain, BrowserWindow, powerMonitor } from "electron";
 import { autoUpdater } from "electron-updater";
-import { reduceUpdate, type UpdaterEvent } from "./update-state";
+import { reduceUpdate, normalizeReleaseNotes, type UpdaterEvent } from "./update-state";
 import type { UpdateState } from "./types";
 
 // 近实时更新:启动 6s 后首查,长开会话每 5 分钟复查;激活/唤醒再补查。
@@ -42,14 +42,21 @@ async function safeCheck(): Promise<void> {
 }
 
 export function registerUpdateHandlers(options: RegisterUpdateHandlersOptions = {}): void {
-  autoUpdater.autoDownload = true;
+  // 用户主导:仅「下载」改为手动(用户在更新弹窗点「下载更新」才 downloadUpdate)。
+  // autoInstallOnAppQuit 保留——下载完成后既可点「重启更新」,也会在下次正常退出时静默安装。
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on("checking-for-update", () => dispatch({ type: "checking" }));
-  autoUpdater.on("update-available", (info) => dispatch({ type: "available", version: info.version }));
+  // 采集 info.releaseNotes(来自打包写入清单的 markdown)并归一化,供更新弹窗展示。
+  autoUpdater.on("update-available", (info) =>
+    dispatch({ type: "available", version: info.version, releaseNotes: normalizeReleaseNotes(info.releaseNotes) }),
+  );
   autoUpdater.on("update-not-available", () => dispatch({ type: "not-available" }));
   autoUpdater.on("download-progress", (p) => dispatch({ type: "progress", percent: p.percent }));
-  autoUpdater.on("update-downloaded", (info) => dispatch({ type: "downloaded", version: info.version }));
+  autoUpdater.on("update-downloaded", (info) =>
+    dispatch({ type: "downloaded", version: info.version, releaseNotes: normalizeReleaseNotes(info.releaseNotes) }),
+  );
   autoUpdater.on("error", (err) => dispatch({ type: "error", message: err?.message ?? String(err) }));
 
   ipcMain.handle("update:getState", () => state);

@@ -90,3 +90,11 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 ## 提交规范
 
 使用 Conventional Commits（中文描述），如 `feat(automation): 新增定时任务自动化`、`fix(ui): 修复设置弹窗尺寸`。提交信息与代码注释优先用 `zh-Hans`。
+
+## 发版规范（务必遵守）
+
+发版（bump `apps/desktop/package.json` 的 `version` → commit → 打 `v<version>` tag → push）前，**必须**在 `apps/desktop/CHANGELOG.md` 顶部新增对应版本段，否则正式发布会失败。
+
+- 版本段标题须匹配格式契约 `^## \[?<version>\]?`（`<version>` 为裸版本号、无 `v` 前缀），如 `## [0.1.9]`、`## 0.1.9`、`## [0.1.9] - 2026-07-01`。
+- 该段正文是应用内「更新内容」与 GitHub Release body 的唯一来源：打包时 `scripts/extract-release-notes.mjs` 按 `version` 提取它 → 写入 `latest-mac.yml` 的 `releaseNotes`，运行时更新弹窗展示。
+- 缺段时：本地/非正式构建写安全占位、不阻断；CI `publish-release`（`CORTEX_NOTES_STRICT=1`）则**非零退出使发布失败**，刻意防止「忘写版本段 → 静默丢更新说明」。tag 仍须与 `package.json` 的 `version` 一致（CI 有强校验）。

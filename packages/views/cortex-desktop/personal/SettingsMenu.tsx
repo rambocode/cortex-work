@@ -28,9 +28,11 @@ import {
   usePersonalProfile,
   usePersonalStore,
   usePetStore,
+  useUpdateState,
   type PetKind,
   type PetMode,
 } from "@cortex-work/core";
+import { UpdateDialog } from "../UpdateDialog";
 import type {
   AgentKind,
   DesktopBridge,
@@ -430,7 +432,12 @@ function GeneralSection() {
   const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
   const bridge = useDesktopBridge();
   const pushToast = useCortexUIStore((s) => s.pushToast);
-  const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
+  // 更新状态走共享 useUpdateState（主进程为 owner,广播驱动）,与标题栏 UpdateButton 同源。
+  const updateState = useUpdateState();
+  // 「检查更新」点击到 main 广播 checking 之间的即时反馈（dev 未打包不会广播,亦靠此显示）。
+  const [checking, setChecking] = useState(false);
+  // 更新内容弹窗开关:点「查看更新内容」打开,复用标题栏同款 UpdateDialog。
+  const [showNotes, setShowNotes] = useState(false);
   const isMac = useMemo(() => detectIsMac(), []);
   const notesHotkey = general.notesHotkey ?? DEFAULT_NOTES_HOTKEY;
   const behavior = general.desktopBehavior;
@@ -439,34 +446,19 @@ function GeneralSection() {
     setGeneral({ desktopBehavior: next });
     void bridge?.setDesktopBehavior?.(next);
   };
-  useEffect(() => {
-    if (!bridge?.updateGetState || !bridge.onUpdateState) return;
-    let alive = true;
-    let pushed = false;
-    const off = bridge.onUpdateState((s) => {
-      pushed = true;
-      setUpdateState(s);
-    });
-    bridge
-      .updateGetState()
-      .then((s) => {
-        if (alive && !pushed) setUpdateState(s);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-      off();
-    };
-  }, [bridge]);
   const checkUpdate = async () => {
     if (!bridge?.updateCheck) return;
-    setUpdateState({ phase: "checking" });
+    setChecking(true);
     try {
-      setUpdateState(await bridge.updateCheck());
+      // 结果经 main 广播驱动 useUpdateState;此处不本地写状态,避免双数据源。
+      await bridge.updateCheck();
     } catch (e) {
-      setUpdateState({ phase: "error", error: e instanceof Error ? e.message : String(e) });
+      pushToast(`检查更新失败：${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
+    } finally {
+      setChecking(false);
     }
   };
+  const isChecking = checking || updateState.phase === "checking";
   // 闪记热键双写:乐观持久化 + 即时通知主进程重注册;被拒(占用/无效)时回滚到旧键,
   // 保证「UI 显示 = 主进程实际绑定」,避免重启再降级。web 端 / 旧壳无桥则仅乐观持久化。
   const applyNotesHotkey = async (acc: string) => {
@@ -604,11 +596,11 @@ function GeneralSection() {
             <span className="pw-update-version">v{bridge?.appInfo?.version ?? "0.0.0"}</span>
             <button
               className="pw-tl-gen"
-              disabled={!bridge?.updateCheck || updateState.phase === "checking"}
+              disabled={!bridge?.updateCheck || isChecking}
               onClick={() => void checkUpdate()}
             >
               <Icon.Retry size={12} />
-              {updateState.phase === "checking" ? t("general.checking") : t("general.checkUpdate")}
+              {isChecking ? t("general.checking") : t("general.checkUpdate")}
             </button>
           </div>
         </SRow>
@@ -617,10 +609,15 @@ function GeneralSection() {
         </SRow>
         {updateState.phase === "available" || (updateState.phase === "error" && updateState.version) ? (
           <SRow label={t("general.action")} end>
-            <button className="pw-tl-gen" disabled={!bridge?.updateDownload} onClick={() => void bridge?.updateDownload?.()}>
-              <Icon.Retry size={12} />
-              {t("general.downloadUpdate")}
-            </button>
+            <div className="pw-update-control">
+              <button className="pw-tl-gen" onClick={() => setShowNotes(true)}>
+                {t("general.viewReleaseNotes")}
+              </button>
+              <button className="pw-tl-gen" disabled={!bridge?.updateDownload} onClick={() => void bridge?.updateDownload?.()}>
+                <Icon.Retry size={12} />
+                {t("general.downloadUpdate")}
+              </button>
+            </div>
           </SRow>
         ) : null}
         {updateState.phase === "downloaded" ? (
@@ -632,6 +629,14 @@ function GeneralSection() {
           </SRow>
         ) : null}
       </SettingCard>
+      {showNotes ? (
+        <UpdateDialog
+          state={updateState}
+          onDownload={() => void bridge?.updateDownload?.()}
+          onInstall={() => void bridge?.updateInstall?.()}
+          onClose={() => setShowNotes(false)}
+        />
+      ) : null}
 
       <SettingCard title={t("general.logCard")}>
         <SwitchRow

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reduceUpdate, type UpdaterEvent } from "./update-state";
+import { reduceUpdate, normalizeReleaseNotes, type UpdaterEvent } from "./update-state";
 import type { UpdateState } from "./types";
 
 const idle: UpdateState = { phase: "idle" };
@@ -59,6 +59,53 @@ describe("reduceUpdate 状态机", () => {
 
   it("纯检查失败（无 version）进入 error 且不带 version", () => {
     const s = run([{ type: "checking" }, { type: "error", message: "HttpError: 404" }]);
-    expect(s).toEqual({ phase: "error", version: undefined, error: "HttpError: 404" });
+    expect(s).toEqual({ phase: "error", version: undefined, error: "HttpError: 404", releaseNotes: undefined });
+  });
+
+  it("available 携带 releaseNotes,并在 downloading/error 全程保留", () => {
+    let s = run([{ type: "available", version: "0.2.0", releaseNotes: "## 0.2.0\n- 修复 A" }]);
+    expect(s).toEqual({ phase: "available", version: "0.2.0", releaseNotes: "## 0.2.0\n- 修复 A" });
+    // 下载中保留 releaseNotes,弹窗仍可展示
+    s = run([{ type: "progress", percent: 30 }], s);
+    expect(s.releaseNotes).toBe("## 0.2.0\n- 修复 A");
+    // 失败保留 releaseNotes
+    s = run([{ type: "error", message: "net::ERR" }], s);
+    expect(s).toEqual({ phase: "error", version: "0.2.0", error: "net::ERR", releaseNotes: "## 0.2.0\n- 修复 A" });
+  });
+
+  it("downloaded 自带 releaseNotes;缺省时回退到此前保留的值", () => {
+    // 自带 notes
+    const withNotes = reduceUpdate(
+      { phase: "downloading", version: "0.2.0", percent: 99, releaseNotes: "旧" },
+      { type: "downloaded", version: "0.2.0", releaseNotes: "新" },
+    );
+    expect(withNotes.releaseNotes).toBe("新");
+    // 缺省回退
+    const fallback = reduceUpdate(
+      { phase: "downloading", version: "0.2.0", percent: 99, releaseNotes: "旧" },
+      { type: "downloaded", version: "0.2.0" },
+    );
+    expect(fallback.releaseNotes).toBe("旧");
+  });
+});
+
+describe("normalizeReleaseNotes", () => {
+  it("null / undefined → undefined", () => {
+    expect(normalizeReleaseNotes(null)).toBeUndefined();
+    expect(normalizeReleaseNotes(undefined)).toBeUndefined();
+  });
+
+  it("空串 / 纯空白 → undefined", () => {
+    expect(normalizeReleaseNotes("")).toBeUndefined();
+    expect(normalizeReleaseNotes("   \n  ")).toBeUndefined();
+  });
+
+  it("普通字符串 → 原样 trim", () => {
+    expect(normalizeReleaseNotes("  ## 0.2.0\n- A  ")).toBe("## 0.2.0\n- A");
+  });
+
+  it("数组兜底分支 → 取各 note 拼接（不可达,仅类型完备）", () => {
+    expect(normalizeReleaseNotes([{ note: "a" }, { note: "b" }])).toBe("a\n\nb");
+    expect(normalizeReleaseNotes([{ note: null }, {}])).toBeUndefined();
   });
 });

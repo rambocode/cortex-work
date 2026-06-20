@@ -189,13 +189,24 @@
   },
   "updateButton": {
     "update": "更新 {{version}}",
-    "updateAvailableTitle": "发现新版本 v{{version}},点击下载",
+    "updateAvailableTitle": "发现新版本 v{{version}},点击查看更新内容",
     "downloading": "更新 {{percent}}%",
     "downloadingTitle": "正在下载 v{{version}}…",
     "restartUpdate": "重启更新",
     "downloadedTitle": "v{{version}} 已就绪,点击重启安装",
     "retryUpdate": "重试更新",
     "errorTitle": "更新失败"
+  },
+  "updateDialog": {
+    "title": "发现新版本 v{{version}}",
+    "noNotes": "本次更新暂无详细说明。",
+    "download": "下载更新",
+    "downloading": "下载中 {{percent}}%",
+    "restart": "重启更新",
+    "retry": "重试下载",
+    "later": "稍后",
+    "close": "关闭",
+    "errorPrefix": "下载失败："
   },
   "sectionTitle": {
     "tasks": "任务",

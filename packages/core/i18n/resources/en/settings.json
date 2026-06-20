@@ -91,6 +91,7 @@
     "checkUpdate": "Check for updates",
     "updateStatus": "Update status",
     "action": "Action",
+    "viewReleaseNotes": "View release notes",
     "downloadUpdate": "Download update",
     "restartUpdate": "Restart to update",
     "logCard": "Logs",

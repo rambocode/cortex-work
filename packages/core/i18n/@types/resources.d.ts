@@ -362,7 +362,18 @@ export default interface Resources {
       "restartUpdate": "重启更新",
       "retryUpdate": "重试更新",
       "update": "更新 {{version}}",
-      "updateAvailableTitle": "发现新版本 v{{version}},点击下载"
+      "updateAvailableTitle": "发现新版本 v{{version}},点击查看更新内容"
+    },
+    "updateDialog": {
+      "close": "关闭",
+      "download": "下载更新",
+      "downloading": "下载中 {{percent}}%",
+      "errorPrefix": "下载失败：",
+      "later": "稍后",
+      "noNotes": "本次更新暂无详细说明。",
+      "restart": "重启更新",
+      "retry": "重试下载",
+      "title": "发现新版本 v{{version}}"
     }
   },
   "files": {
@@ -613,6 +624,7 @@ export default interface Resources {
       "turnCompleteDesc": "Agent 回合结束且窗口失焦时显示系统通知。",
       "updateCard": "版本更新",
       "updateStatus": "更新状态",
+      "viewReleaseNotes": "查看更新内容",
       "workspaceRoot": "默认工作目录",
       "workspaceRootDesc": "新建无项目会话 / 定时任务未指定项目时,agent 在此目录运行（留空则用主目录）。",
       "workspaceRootPlaceholder": "留空 = 用户主目录"

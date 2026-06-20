@@ -19,7 +19,12 @@ function renderUI(ui: ReactElement, bridge: DesktopBridge | null = null) {
 
 function fakeUpdateBridge(initial: UpdateState, checked: UpdateState) {
   let listener: ((s: UpdateState) => void) | null = null;
-  const updateCheck = vi.fn(async () => checked);
+  // 真实主进程:update:check 触发 electron-updater 事件 → 广播 update:state。
+  // 故 fake 在被调时经 listener 广播结果（单一来源,UI 经 useUpdateState 反映）。
+  const updateCheck = vi.fn(async () => {
+    listener?.(checked);
+    return checked;
+  });
   const bridge = {
     appInfo: { version: "0.1.1", os: "macos" },
     updateGetState: async () => initial,

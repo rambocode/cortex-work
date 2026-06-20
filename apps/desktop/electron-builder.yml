@@ -15,6 +15,12 @@ productName: Cortex
 npmRebuild: false
 directories:
   output: dist
+# 应用内更新内容:由 scripts/extract-release-notes.mjs 在打包前生成 build/release-notes.md
+# （从 CHANGELOG.md 提取当前版本段）。electron-builder 把它写进 latest-mac.yml 的 releaseNotes,
+# 运行时 electron-updater 的 update-available/downloaded 事件 info.releaseNotes 即为该 markdown。
+# releaseNotesFile 相对 buildResources（默认 build/）解析,故值为 release-notes.md。
+releaseInfo:
+  releaseNotesFile: release-notes.md
 files:
   - out/**
   - assets/**

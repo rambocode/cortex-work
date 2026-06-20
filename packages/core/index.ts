@@ -159,6 +159,7 @@ export {
   type ThinkingLevel,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
+export { useUpdateState } from "./desktop/useUpdateState";
 export {
   decorateExtensions,
   listExtensions,

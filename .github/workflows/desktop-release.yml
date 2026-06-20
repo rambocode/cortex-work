@@ -121,7 +121,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # prepackage 链含 prebuild:notes:从 CHANGELOG 提取当前版本段 → build/release-notes.md,
+      # 供后续 electron-builder（写入 latest-mac.yml）与 gh release（--notes-file）共用。
+      # 仅 publish-release 严格:CHANGELOG 无当前版本段时让脚本非零退出、中止发布,避免静默丢 notes。
       - name: Prepackage (build pi binary + renderer/main)
+        env:
+          CORTEX_NOTES_STRICT: ${{ env.MODE == 'publish-release' && '1' || '' }}
         run: pnpm --filter @cortex-work/desktop run prepackage:mac
 
       # —— 打包步:按 mode 决定是否签名。electron-builder 从已构建的 out/ 打包,
@@ -234,18 +239,25 @@ jobs:
             fi
           done
 
+          # Release body 与应用内更新弹窗同源:用 prepackage 生成的 build/release-notes.md。
+          notes_file="apps/desktop/build/release-notes.md"
+          if [[ ! -f "$notes_file" ]]; then
+            echo "Missing release notes file: $notes_file" >&2
+            exit 1
+          fi
+
           if ! gh release view "$BUILD_TAG" --repo "$repo" >/dev/null 2>&1; then
             if [[ "$MODE" == "publish-draft" ]]; then
               gh release create "$BUILD_TAG" \
                 --repo "$repo" \
                 --title "${BUILD_TAG#v}" \
-                --notes "Cortex Desktop ${BUILD_TAG#v}" \
+                --notes-file "$notes_file" \
                 --draft
             else
               gh release create "$BUILD_TAG" \
                 --repo "$repo" \
                 --title "${BUILD_TAG#v}" \
-                --notes "Cortex Desktop ${BUILD_TAG#v}"
+                --notes-file "$notes_file"
             fi
           fi
 
