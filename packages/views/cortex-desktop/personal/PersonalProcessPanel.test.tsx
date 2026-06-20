@@ -31,6 +31,7 @@ function renderPanel(opts: {
   sessionId?: string;
   activeSessionId?: string;
   running?: boolean;
+  extensionCommand?: boolean;
   view?: Partial<{ homeOpen: boolean; automationOpen: boolean; settingsOpen: boolean; noteEditorId: string; timelineProjectId: string }>;
 }) {
   const sessionId = opts.sessionId ?? "s1";
@@ -49,6 +50,7 @@ function renderPanel(opts: {
     activeProjectId: "p1",
     activeSessionId,
     runningBySession: opts.running ? { [activeSessionId]: "run-1" } : {},
+    piRuntimeBySession: opts.extensionCommand ? { [activeSessionId]: { extensionCommand: true } } : {},
     ...opts.view,
   });
   // 模拟 .pw-center-col：过程区的直接父元素。
@@ -84,6 +86,21 @@ describe("PersonalProcessPanel 渲染 / 空集", () => {
     const { view } = renderPanel({});
     await new Promise((r) => setTimeout(r, 0));
     expect(view.container.querySelector(".pw-process")).toBeNull();
+  });
+
+  it("扩展命令轮(运行中但无过程步骤)→ 不渲染过程区(避免空态闪现)", async () => {
+    const { view } = renderPanel({ running: true, extensionCommand: true });
+    // 即便 running,扩展命令无过程步骤时也不渲染（命令输出在消息流）。
+    expect(view.container.querySelector(".pw-process")).toBeNull();
+  });
+
+  it("扩展命令轮但有过程步骤 → 仍渲染(不误伤真有步骤的轮)", async () => {
+    const { view } = renderPanel({
+      running: true,
+      extensionCommand: true,
+      process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "step" }] })],
+    });
+    await waitFor(() => expect(view.container.querySelector(".pw-process")).toBeInTheDocument());
   });
 
   it("挂载时无过程但当前会话运行中,立即显示右侧回复状态", async () => {

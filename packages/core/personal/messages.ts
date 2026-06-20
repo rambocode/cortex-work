@@ -1187,6 +1187,8 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
     case "notify": {
       // 扩展命令（如 /memory-index-sessions）经 ctx.ui.notify 的输出——不走 agent 文本流,直接作为
       // 一条 pi 消息呈现。置 sawText 以免随后的（补发）result 收尾再加「纯工具轮」占位。
+      // 同时标记本轮为扩展命令 → 抑制右侧「执行过程」面板的空态「运行中」闪现（无过程步骤可展示）。
+      store.setPiRuntime(sessionId, { extensionCommand: true });
       if (ev.message.trim()) {
         appendMsg(qc, sessionId, { kind: "text", who: "pi", time: realHHMM(), text: ev.message, uid: uid("pi") });
         const a = piRunFor(sessionId);

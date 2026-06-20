@@ -64,6 +64,9 @@ export interface PiRuntimeStatus {
   compacting?: boolean; // 正在压缩上下文
   retry?: { attempt: number; max?: number }; // 自动重试中
   thinkingLevel?: string; // 当前思考强度
+  // 本轮是扩展命令(/cmd):pi 即时执行、不跑 agent、无过程步骤。据此抑制右侧「执行过程」面板的
+  // 空态「运行中」闪现（命令输出走消息流,过程面板无内容可展示）。
+  extensionCommand?: boolean;
 }
 
 export interface PersonalState {

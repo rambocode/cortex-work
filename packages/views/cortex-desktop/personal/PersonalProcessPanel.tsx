@@ -115,6 +115,11 @@ export function PersonalProcessPanel() {
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const activeSession = usePersonalStore((s) => s.sessions.find((x) => x.id === s.activeSessionId));
   const runId = usePersonalStore((s) => (s.activeSessionId ? s.runningBySession[s.activeSessionId] : undefined));
+  // 扩展命令(/cmd)轮:pi 即时执行、无过程步骤,命令输出走消息流。无内容时不渲染本面板,
+  // 避免空态「运行中」一闪而过。
+  const isExtensionCommand = usePersonalStore((s) =>
+    s.activeSessionId ? !!s.piRuntimeBySession[s.activeSessionId]?.extensionCommand : false,
+  );
   const chatViewActive = useChatViewActive();
   const { allMessages } = usePersonalChat(activeSessionId);
   // 过程流按 activeSessionId 隔离：只取当前会话的过程（后台会话过程不在当前屏显示，R7）。
@@ -137,7 +142,9 @@ export function PersonalProcessPanel() {
   const expanded = userOpen ?? true;
 
   // 门控：中栏非会话区 / 当前会话既无过程也无回复状态 → 不渲染。
+  // 扩展命令轮且无过程步骤 → 不渲染（命令输出在消息流,过程面板无内容,避免空态闪现）。
   if (!chatViewActive || (process.length === 0 && !statusText)) return null;
+  if (isExtensionCommand && process.length === 0) return null;
 
   // 头部即折叠开关：点击 / Enter / Space 切换 body 显隐（设计稿 togglePanel）。头部常驻,
   // body 仅展开时渲染。收起时整卡只剩头部一行（可重开入口）。
