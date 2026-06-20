@@ -104,4 +104,36 @@ describe("chatMarkdownComponents", () => {
     fireEvent.click(container.querySelector("a")!);
     expect(onOpenFile).not.toHaveBeenCalled();
   });
+
+  it("fenced 代码块含本地 .html 路径 → 代码块下方渲染「预览网页」按钮,点击授权", async () => {
+    const browserResolveLocalHtml = vi
+      .fn<(p: string) => Promise<string | null>>()
+      .mockResolvedValue("file:///Users/mike/Documents/cortex/2026-06-20/hangzhou-weather-today.html");
+    const onOpenFile = vi.fn<(ref: string) => void>();
+    const bridge = { browserResolveLocalHtml } as unknown as DesktopBridge;
+    // 两行 open 命令的 fenced 代码块(复现用户场景)。
+    const md = [
+      "```",
+      "open /Users/mike/Documents/cortex/2026-06-20/hangzhou-weather-today.html",
+      "open /Users/mike/Documents/cortex/2026-06-20/shanghai-weather-today.html",
+      "```",
+    ].join("\n");
+    const { container } = render(
+      <Markdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents({ onOpenFile, projectPath: "/proj", bridge })}>
+        {md}
+      </Markdown>,
+    );
+    const btn = container.querySelector("button.pw-html-preview-btn");
+    expect(btn).not.toBeNull();
+    fireEvent.click(btn!);
+    expect(browserResolveLocalHtml).toHaveBeenCalledWith(
+      "/Users/mike/Documents/cortex/2026-06-20/hangzhou-weather-today.html",
+    );
+  });
+
+  it("fenced 代码块无本地 .html 路径 → 不渲染预览按钮", () => {
+    const md = ["```bash", "npm run build", "```"].join("\n");
+    const { container } = renderMd(md);
+    expect(container.querySelector("button.pw-html-preview-btn")).toBeNull();
+  });
 });

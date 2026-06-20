@@ -18,11 +18,16 @@ import type { DesktopBridge } from "@cortex-work/core";
 import { findLocalHtmlPathsInText } from "@cortex-work/core/personal/devPreviewDetection";
 import { Icon } from "@cortex-work/ui/icons";
 
-// 递归取 react 子节点的纯文本（inline code 子节点通常是字符串,偶尔是数组）。
+// 递归取 react 子节点的纯文本。inline code 子节点通常是字符串/数组;但 fenced 代码块的
+// <pre> 子节点是一个 <code> React 元素,需递归进其 props.children 才能拿到文本(否则 pre
+// 渲染里 findLocalHtmlPathsInText 会拿到空串、匹配不到路径)。
 function textOf(children: ReactNode): string {
   if (typeof children === "string") return children;
   if (typeof children === "number") return String(children);
   if (Array.isArray(children)) return children.map(textOf).join("");
+  if (children && typeof children === "object" && "props" in children) {
+    return textOf((children as { props?: { children?: ReactNode } }).props?.children);
+  }
   return "";
 }
 
