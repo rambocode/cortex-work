@@ -666,6 +666,7 @@ export interface AutomationMeta {
   effort?: ReasoningEffort;
   prompt: string;
   useOwnSkills?: boolean;
+  notify?: boolean;
   providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;
@@ -686,6 +687,7 @@ export interface AutomationInput {
   effort?: ReasoningEffort;
   prompt: string;
   useOwnSkills?: boolean;
+  notify?: boolean;
   providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;
