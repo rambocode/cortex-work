@@ -261,7 +261,7 @@ function PersonalPanelControls() {
 
   const menu = useDismissableMenu();
 
-  const pick = (view: "files" | "skills" | "todos" | "notes") => {
+  const pick = (view: "files" | "skills" | "todos" | "notes" | "browser") => {
     setRightView(view);
     if (!rightOpen) setRightOpen(true);
     menu.setOpen(false);
@@ -312,6 +312,11 @@ function PersonalPanelControls() {
               <Icon.Pin size={14} />
               <span>闪记</span>
               {rightOpen && rightView === "notes" ? <Icon.Check size={13} /> : null}
+            </button>
+            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("browser")}>
+              <Icon.Globe size={14} />
+              <span>浏览器</span>
+              {rightOpen && rightView === "browser" ? <Icon.Check size={13} /> : null}
             </button>
             <button
               className="pw-tb-menu-item"
