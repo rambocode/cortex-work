@@ -18,7 +18,7 @@ function setPiSkills(patch: Partial<PiSkillSettings>): void {
 }
 
 function skill(name: string, scope: "global" | "workspace", dir: string): PluginSkill {
-  return { name, description: "", dir, rootPath: "/root", scope, enabled: true, trusted: scope === "global" };
+  return { name, description: "", dir, rootPath: "/root", scope, enabled: true, trusted: scope === "global", docs: [] };
 }
 
 function bridgeWith(skills: PluginSkill[]): DesktopBridge {

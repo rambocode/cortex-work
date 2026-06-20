@@ -4,10 +4,13 @@
 
 import { promises as fsp } from "fs";
 import type { Dirent } from "fs";
-import { basename, join } from "path";
-import type { PluginSkill, SkillMeta, SkillScope } from "../ipc/types";
+import { basename, extname, join } from "path";
+import type { PluginSkill, SkillDoc, SkillMeta, SkillScope } from "../ipc/types";
 import { parseFrontmatter } from "./frontmatter";
 import { skillsRoots } from "./locate";
+
+// 配套文档白名单后缀（U5）:仅列文档型文件,排除二进制/图片等噪声。SKILL.md 单独排除。
+const DOC_EXTS = new Set([".md", ".markdown", ".txt", ".json", ".yaml", ".yml"]);
 
 // 单 root 浅扫一层目录 → 读各 SKILL.md → 原始 skill 记录。root 不存在 / 读取失败一律
 // 跳过,不抛（userData / 用户配置根不存在是常态）。scanRoot 与 scanSkillRoots 共用。
@@ -17,6 +20,24 @@ interface RawSkill {
   argumentHint?: string;
   dir: string;
   skillMdPath: string;
+  docs: SkillDoc[]; // 同目录配套文档（U5,仅展示;不影响注入集合）
+}
+
+// 浅层枚举 skill 目录内的配套文档（除 SKILL.md 外的白名单后缀文件,按名排序）。
+// 读失败 → 空数组（不影响 skill 本身收录）。不递归子目录（深目录延后）。
+async function readSkillDocs(dir: string): Promise<SkillDoc[]> {
+  let entries: Dirent[];
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter(
+      (e) => e.isFile() && e.name !== "SKILL.md" && DOC_EXTS.has(extname(e.name).toLowerCase()),
+    )
+    .map((e) => ({ name: e.name, path: join(dir, e.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // 读单个 skill 目录的 SKILL.md → RawSkill;无 SKILL.md / 读失败 → null（目录里没有 SKILL.md
@@ -36,6 +57,7 @@ async function readSkillDir(dir: string, fallbackName: string): Promise<RawSkill
     argumentHint: fm.argumentHint,
     dir,
     skillMdPath,
+    docs: await readSkillDocs(dir),
   };
 }
 
@@ -95,6 +117,7 @@ export async function scanSkillRoots(
         scope,
         enabled: true,
         trusted: scope === "global",
+        docs: s.docs,
       });
     }
   }

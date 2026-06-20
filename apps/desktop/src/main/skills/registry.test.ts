@@ -116,3 +116,41 @@ describe("readRoot 自适应单 skill 根（U2 修复）", () => {
     expect(skills[0]!.name).toBe("outer");
   });
 });
+
+// U5:skill 目录内除 SKILL.md 外的白名单配套文档(.md/.txt/.json/.yaml…)挂到 docs[]，仅展示不影响注入。
+describe("配套文档枚举 docs[]（U5）", () => {
+  let root: string;
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "skill-docs-"));
+    const withDocs = join(root, "with-docs");
+    mkdirSync(withDocs, { recursive: true });
+    writeFileSync(join(withDocs, "SKILL.md"), ["---", "name: with-docs", "---"].join("\n"));
+    writeFileSync(join(withDocs, "reference.md"), "# 参考");
+    writeFileSync(join(withDocs, "config.json"), "{}");
+    writeFileSync(join(withDocs, "notes.txt"), "笔记");
+    writeFileSync(join(withDocs, "diagram.png"), "binary"); // 非白名单后缀 → 排除
+    // 仅 SKILL.md 的 skill：docs 应为空。
+    makeSkill(root, "bare", { name: "bare", description: "无配套" });
+  });
+
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  it("列出白名单配套文档(排除 SKILL.md 与非白名单后缀),按名排序", async () => {
+    const skills = await scanSkillRoots([{ path: root, scope: "global" }]);
+    const wd = skills.find((s) => s.name === "with-docs")!;
+    expect(wd.docs.map((d) => d.name)).toEqual(["config.json", "notes.txt", "reference.md"]);
+    expect(wd.docs.every((d) => d.path.startsWith(join(root, "with-docs")))).toBe(true);
+  });
+
+  it("仅含 SKILL.md → docs 为空数组", async () => {
+    const skills = await scanSkillRoots([{ path: root, scope: "global" }]);
+    const bare = skills.find((s) => s.name === "bare")!;
+    expect(bare.docs).toEqual([]);
+  });
+
+  it("docs[] 不影响 skill 收录数量(注入集合不变)", async () => {
+    const skills = await scanSkillRoots([{ path: root, scope: "global" }]);
+    expect(skills).toHaveLength(2); // with-docs + bare,配套文档不增减 skill 数
+  });
+});

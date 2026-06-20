@@ -1196,6 +1196,12 @@ export interface SkillMeta {
   dir: string; // skill 根目录绝对路径（references 相对路径的绝对前缀基准）
 }
 
+// skill 目录内的配套文档（除 SKILL.md 外的 .md/.txt/.json/.yaml 等,仅展示用,不影响注入）。
+export interface SkillDoc {
+  name: string; // 文件名（含后缀）
+  path: string; // 绝对路径（点击经 bridge.openPath 打开）
+}
+
 // ── 插件管理：富 skill 项 ─────────────────────────────────────────────────────
 // 与 apps/desktop/src/main/ipc/types.ts 逐字镜像。pi-skills:list 扫描多根产出;
 // enabled/trusted/shadowedBy 由渲染端叠加配置后计算（主进程扫描时 enabled=true、
@@ -1210,4 +1216,5 @@ export interface PluginSkill {
   enabled: boolean; // 是否启用（渲染端据 disabledSkills 叠加）
   trusted: boolean; // 工作区 skill 是否已授信（global 恒 true）
   shadowedBy?: string; // 被同名覆盖时的覆盖来源 scope（UI 标注用）
+  docs: SkillDoc[]; // 配套文档清单（浅层枚举,不含 SKILL.md;空数组表示无）
 }
