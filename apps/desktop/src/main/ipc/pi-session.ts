@@ -20,7 +20,7 @@ import {
 } from "../agents/pi-extensions";
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
-import { recordAgentTrace } from "./agent-trace";
+import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 
 interface SessionEntry {
   session: PiRpcSession;
@@ -32,15 +32,28 @@ const sessions = new Map<string, SessionEntry>();
 // 推一条归一化事件给 renderer。crashed 顺带摘除注册表条目（进程已死,避免悬挂）。
 // 带 runId（阶段4 代际）:renderer 据此守卫丢弃迟到/串台事件。
 function emitEvent(uiSessionId: string, ev: PiSessionEvent, runId?: string): void {
-  recordAgentTrace({
-    scope: "pi",
-    phase: "event",
-    summary: `pi ${ev.type}`,
-    runId,
-    sessionId: uiSessionId,
-    agent: "pi",
-    data: { event: ev },
-  });
+  // text / reasoning 是高频流式增量,交记录端合并为各自的一条生长段(text 与 reasoning 互不合并);
+  // 其它事件(tool/turn-end/result/error/crashed 等)走普通 trace,并触发同 run/session 打开段收尾。
+  if (ev.type === "text" || ev.type === "reasoning") {
+    recordStreamDelta({
+      scope: "pi",
+      segmentType: ev.type,
+      delta: ev.delta,
+      runId,
+      sessionId: uiSessionId,
+      agent: "pi",
+    });
+  } else {
+    recordAgentTrace({
+      scope: "pi",
+      phase: "event",
+      summary: `pi ${ev.type}`,
+      runId,
+      sessionId: uiSessionId,
+      agent: "pi",
+      data: { event: ev },
+    });
+  }
   const entry = sessions.get(uiSessionId);
   if (ev.type === "crashed") sessions.delete(uiSessionId);
   if (entry && !entry.sender.isDestroyed()) {

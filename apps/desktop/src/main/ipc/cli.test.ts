@@ -10,6 +10,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const spawnMock = vi.fn();
 const traceMock = vi.hoisted(() => vi.fn());
+const streamDeltaMock = vi.hoisted(() => vi.fn());
 const ipcHandlers = vi.hoisted(() => new Map<string, (...args: unknown[]) => unknown>());
 
 vi.mock("electron", () => ({
@@ -27,6 +28,7 @@ vi.mock("child_process", () => ({
 
 vi.mock("./agent-trace", () => ({
   recordAgentTrace: (...args: unknown[]) => traceMock(...args),
+  recordStreamDelta: (...args: unknown[]) => streamDeltaMock(...args),
 }));
 
 import {
@@ -55,6 +57,7 @@ beforeEach(() => {
   resetAgentDetectionForTest();
   ipcHandlers.clear();
   traceMock.mockReset();
+  streamDeltaMock.mockReset();
   spawnMock.mockReset();
   spawnMock.mockImplementation(() => fakeChild());
   vi.spyOn(console, "info").mockImplementation(() => undefined);
@@ -98,8 +101,12 @@ describe("cli:start trace", () => {
     expect(traceMock).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "cli", phase: "start", runId: "run-1", sessionId: "session-1", agent: "pi" }),
     );
+    // session → init 仍走普通 trace(phase:event);text 增量改走合并段(recordStreamDelta)。
     expect(traceMock).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "cli", phase: "event", runId: "run-1", sessionId: "session-1", agent: "pi" }),
+    );
+    expect(streamDeltaMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "cli", segmentType: "text", delta: "hi", runId: "run-1", agent: "pi" }),
     );
     expect(traceMock).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "cli", phase: "stderr", data: expect.objectContaining({ chunk: "warn line\n" }) }),
@@ -146,8 +153,9 @@ describe("cli:oneshot trace", () => {
     expect(traceMock).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "oneshot", phase: "start", sessionId: "oneshot", agent: "pi" }),
     );
-    expect(traceMock).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: "oneshot", phase: "event", sessionId: "oneshot", agent: "pi" }),
+    // text 增量改走合并段(recordStreamDelta),不再每增量一条普通 trace。
+    expect(streamDeltaMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "oneshot", segmentType: "text", delta: "标题", sessionId: "oneshot", agent: "pi" }),
     );
     expect(traceMock).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "oneshot", phase: "stderr", data: expect.objectContaining({ chunk: "warn\n" }) }),
