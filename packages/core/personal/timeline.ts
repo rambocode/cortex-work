@@ -13,8 +13,6 @@ import type {
   GitCommit,
   NoteMeta,
   ProjectMeta,
-  PushSettings,
-  PushTarget,
   SessionMeta,
   TimelineEvent,
   TimelineFileData,
@@ -23,6 +21,9 @@ import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { notesKeys } from "./notes";
 import { t } from "../i18n";
+import { enabledPushTargets } from "./push";
+// enabledPushTargets 已下沉到 React-free 的 ./push(主进程亦复用);此处 re-export 保持既有 import 路径不变。
+export { enabledPushTargets } from "./push";
 
 export const timelineKeys = {
   detail: (projectId: string) => ["personal", "timeline", projectId] as const,
@@ -628,26 +629,6 @@ export function useGenerateDaySummary(project: ProjectMeta | undefined): {
   );
 
   return { generate, generatingDay };
-}
-
-// 全局推送设置 → 已启用的推送目标列表（纯函数,便于测试）。
-export function enabledPushTargets(push: PushSettings): { label: string; target: PushTarget }[] {
-  const out: { label: string; target: PushTarget }[] = [];
-  const { wecom, dingtalk, email } = push;
-  if (wecom?.enabled && wecom.webhookUrl) {
-    out.push({ label: "企业微信", target: { kind: "wecom", webhookUrl: wecom.webhookUrl } });
-  }
-  if (dingtalk?.enabled && dingtalk.webhookUrl) {
-    out.push({
-      label: "钉钉",
-      target: { kind: "dingtalk", webhookUrl: dingtalk.webhookUrl, secret: dingtalk.secret || undefined },
-    });
-  }
-  if (email?.enabled && email.smtpHost && email.to) {
-    const { enabled: _enabled, ...smtp } = email;
-    out.push({ label: "邮件", target: { kind: "email", smtp } });
-  }
-  return out;
 }
 
 // 推送日报到所有启用渠道,返回每个渠道的结果文案（成功/失败）。

@@ -38,6 +38,8 @@ import type {
   DesktopBridge,
   DingtalkPushConfig,
   EmailPushConfig,
+  FeishuPushConfig,
+  InternalNotifyConfig,
   EndpointFormat,
   ProviderModelOption,
   ProviderProfile,
@@ -1528,7 +1530,7 @@ function PushSection() {
   const promptRoot = usePersonalStore((s) => s.promptRoot);
   const promptTree = usePersonalStore((s) => s.promptTree);
   const setPromptTree = usePersonalStore((s) => s.setPromptTree);
-  const { wecom, dingtalk, email } = push;
+  const { wecom, dingtalk, feishu, internal, email } = push;
 
   const skillFiles = flattenPromptFiles(promptTree);
   // 已配置的 skill 不在 Prompt 库里（被移动/删除）时仍显示,便于用户察觉。
@@ -1556,6 +1558,10 @@ function PushSection() {
     setPush({ wecom: { enabled: false, webhookUrl: "", ...wecom, ...patch } });
   const setDingtalk = (patch: Partial<DingtalkPushConfig>) =>
     setPush({ dingtalk: { enabled: false, webhookUrl: "", ...dingtalk, ...patch } });
+  const setFeishu = (patch: Partial<FeishuPushConfig>) =>
+    setPush({ feishu: { enabled: false, webhookUrl: "", ...feishu, ...patch } });
+  const setInternal = (patch: Partial<InternalNotifyConfig>) =>
+    setPush({ internal: { enabled: false, ...internal, ...patch } });
   const setEmail = (patch: Partial<EmailPushConfig>) =>
     setPush({
       email: {
@@ -1635,6 +1641,37 @@ function PushSection() {
             </SRow>
           </>
         ) : null}
+
+        <SwitchRow label={t("push.feishu")} value={!!feishu?.enabled} onChange={(v) => setFeishu({ enabled: v })} />
+        {feishu?.enabled ? (
+          <>
+            <SRow label={t("push.webhookUrl")}>
+              <input
+                className="pw-set-input"
+                value={feishu.webhookUrl}
+                placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…"
+                spellCheck={false}
+                onChange={(e) => setFeishu({ webhookUrl: e.target.value })}
+              />
+            </SRow>
+            <SRow label={t("push.feishuSecret")} desc={t("push.feishuSecretDesc")}>
+              <input
+                className="pw-set-input"
+                type="password"
+                value={feishu.secret ?? ""}
+                placeholder="…"
+                onChange={(e) => setFeishu({ secret: e.target.value })}
+              />
+            </SRow>
+          </>
+        ) : null}
+
+        <SwitchRow
+          label={t("push.internal")}
+          desc={t("push.internalDesc")}
+          value={!!internal?.enabled}
+          onChange={(v) => setInternal({ enabled: v })}
+        />
 
         <SwitchRow label={t("push.email")} value={!!email?.enabled} onChange={(v) => setEmail({ enabled: v })} />
         {email?.enabled ? (

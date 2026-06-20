@@ -99,6 +99,18 @@ export interface DingtalkPushConfig {
   secret?: string; // 加签密钥（可选,机器人安全设置为「加签」时必填）
 }
 
+export interface FeishuPushConfig {
+  enabled: boolean;
+  webhookUrl: string; // 自定义机器人 webhook,host 须为 open.feishu.cn 或 open.larksuite.com
+  secret?: string; // 加签密钥（可选,机器人安全设置为「加签」时必填;算法见 push-sign.ts feishuSign）
+}
+
+// 内部通知渠道:主进程 Electron 原生系统通知(无头/关窗也能收到),独立于 chat 的
+// notifications.turnComplete。无 webhookUrl,仅一个启用开关。
+export interface InternalNotifyConfig {
+  enabled: boolean;
+}
+
 export interface EmailPushConfig {
   enabled: boolean;
   smtpHost: string;
@@ -122,6 +134,8 @@ export const DEFAULT_TIMELINE_SETTINGS: TimelineSettings = {
 export interface PushSettings {
   wecom?: WecomPushConfig;
   dingtalk?: DingtalkPushConfig;
+  feishu?: FeishuPushConfig;
+  internal?: InternalNotifyConfig;
   email?: EmailPushConfig;
   // 推送格式 Skill：Prompt 库中 .md 模板的绝对路径（占位符替换,首行为推送标题）;
   // 未设置时使用内置默认格式。
@@ -376,9 +390,13 @@ export interface ImageReadResult {
 }
 
 // 推送目标（renderer 把设置拍平后传给主进程,主进程不读设置文件）。
+// 注意:本类型在 apps/desktop/src/main/ipc/push.ts 有一份本地镜像,两侧须同步。
 export type PushTarget =
   | { kind: "wecom"; webhookUrl: string }
   | { kind: "dingtalk"; webhookUrl: string; secret?: string }
+  // 飞书自定义机器人:secret 为「加签」安全模式的密钥(可选)。加签算法与钉钉相反
+  // (key=`${timestampSec}\n${secret}`、data 空、秒级、放请求体),见 push-sign.ts feishuSign。
+  | { kind: "feishu"; webhookUrl: string; secret?: string }
   | { kind: "email"; smtp: Omit<EmailPushConfig, "enabled"> };
 
 export interface PushResult {
@@ -1106,6 +1124,7 @@ export interface AutomationMeta {
   effort?: ReasoningEffort; // 推理强度
   prompt: string; // 内容即提示词
   useOwnSkills?: boolean;
+  notify?: boolean; // 完成后推送:开启则在终态推送到全局启用的渠道(默认关闭)
   providerId?: string; // pi 自定义供应商:仅存 id,apiKey 运行时由 main 从 providerSettings 解析
   schedule: ScheduleSpec;
   timezone?: string; // IANA 时区,缺省 = 创建时本机时区
@@ -1127,6 +1146,7 @@ export interface AutomationInput {
   effort?: ReasoningEffort;
   prompt: string;
   useOwnSkills?: boolean;
+  notify?: boolean;
   providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;
