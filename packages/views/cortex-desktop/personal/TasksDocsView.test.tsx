@@ -94,4 +94,17 @@ describe("TasksDocsView", () => {
     fireEvent.click(back);
     expect(screen.getByText(/待执行 \(2\)/)).toBeTruthy(); // 回到列表
   });
+
+  it("列表卡片显示文件名（basename）", () => {
+    render(<TasksDocsView onToast={() => {}} />);
+    // 计划B 卡片应展示其源文件名，便于区分同标题/同日期文档
+    expect(screen.getByText("2026-06-17-002-feat-plan-b-plan.md")).toBeTruthy();
+  });
+
+  it("进入详情显示文件完整路径", () => {
+    render(<TasksDocsView onToast={() => {}} />);
+    fireEvent.click(screen.getByText("计划B"));
+    // 详情态展示仓库相对全路径（raw() 里 path = /repo/docs/{kind}/{name}）
+    expect(screen.getByText("/repo/docs/plan/2026-06-17-002-feat-plan-b-plan.md")).toBeTruthy();
+  });
 });

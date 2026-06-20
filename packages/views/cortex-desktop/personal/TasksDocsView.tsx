@@ -45,6 +45,11 @@ function DocCard({
         <span className="pw-doc-time">{doc.date || relTime(doc.mtimeMs)}</span>
       </div>
       <div className="pw-doc-card-title">{doc.title}</div>
+      {/* 文件名（basename）：让用户在列表里就能区分同标题/同日期的不同文档，hover 显示仓库相对全路径。 */}
+      <div className="pw-doc-card-file" title={doc.path}>
+        <Icon.File size={10} />
+        <span>{doc.name}</span>
+      </div>
       <div className="pw-doc-card-foot">
         <span className={`pw-doc-status pw-doc-status-${doc.status}`}>
           {TASK_STATUS_LABEL[doc.status]}
@@ -109,6 +114,8 @@ function DocDetail({ doc, onBack }: { doc: DocMetaView; onBack: () => void }) {
           </button>
         ) : null}
       </div>
+      {/* 文件详细路径（仓库相对）：详情态下完整展示，便于定位/复制源文档位置。 */}
+      <div className="pw-doc-detail-path" title={doc.path}>{doc.path}</div>
       {error ? (
         <div className="pw-editor-error">{error}</div>
       ) : content === null ? (
