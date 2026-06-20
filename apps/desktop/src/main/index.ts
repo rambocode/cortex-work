@@ -19,6 +19,8 @@ import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlig
 import { registerSpotlightHandlers } from "./ipc/spotlight";
 import { toggleNotesOverlay, destroyNotesOverlay, getNotesOverlayWindow } from "./notes-overlay";
 import { registerNotesOverlayHandlers } from "./ipc/notes-overlay";
+import { destroyNotificationWindow, clearNotifications } from "./notification-window";
+import { registerNotificationWindowHandlers } from "./ipc/notification-window";
 import {
   destroyAgentTraceWindow,
   getAgentTraceWindow,
@@ -129,6 +131,8 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+  // 主窗重获焦点 → 清空独立通知窗体(回到应用即不再用外部窗体打扰;应用内 toast 接管)。
+  mainWindow.on("focus", () => clearNotifications());
 
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
@@ -220,6 +224,7 @@ if (!app.requestSingleInstanceLock()) {
     registerLogHandlers();
     registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });
     registerNotesOverlayHandlers();
+    registerNotificationWindowHandlers();
     // 全局热键唤起闪记浮层(全仓首次用 globalShortcut)。读用户配置的 notesHotkey,
     // 无效或缺失则回退默认 NOTES_HOTKEY_ACCELERATOR。register 返回 false = 被占用 →
     // 不抛错,降级到仅窗口图标入口,并把提示文案在主窗口就绪后 best-effort 推给渲染端 toast。
@@ -288,6 +293,7 @@ if (!app.requestSingleInstanceLock()) {
     destroySpotlight();
     destroyNotesOverlay();
     destroyAgentTraceWindow();
+    destroyNotificationWindow();
     globalShortcut.unregisterAll();
   };
   app.on("before-quit", onRealQuit);

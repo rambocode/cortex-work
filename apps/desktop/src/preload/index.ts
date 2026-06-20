@@ -47,6 +47,7 @@ import type {
   TtsStreamEvent,
   TtsVoiceOption,
   UpdateState,
+  NotificationPayload,
 } from "../main/ipc/types";
 import type { Locale } from "@cortex-work/core/i18n/native";
 
@@ -408,6 +409,26 @@ const notesOverlay = {
 const consumeNotesHotkeyDegraded = (): Promise<string | null> =>
   ipcRenderer.invoke("notes:consumeHotkeyDegraded");
 
+// 独立通知窗体桥:
+//  - 主窗渲染端用 push/clear(主窗失焦时转发提醒、回前台时清空);
+//  - 通知窗体渲染端用 onPush/onClear 接收,resize 上报实测高度。
+//  不属于 DesktopBridge(与 notesOverlay/spotlight 同为 desktopAPI 顶层能力)。
+const notification = {
+  push: (payload: NotificationPayload): void => ipcRenderer.send("notification:push", payload),
+  clear: (): void => ipcRenderer.send("notification:clear"),
+  resize: (height: number): void => ipcRenderer.send("notification:resize", height),
+  onPush: (cb: (payload: NotificationPayload) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: NotificationPayload) => cb(payload);
+    ipcRenderer.on("notification:push", listener);
+    return () => ipcRenderer.removeListener("notification:push", listener);
+  },
+  onClear: (cb: () => void): (() => void) => {
+    const listener = (): void => cb();
+    ipcRenderer.on("notification:clear", listener);
+    return () => ipcRenderer.removeListener("notification:clear", listener);
+  },
+};
+
 const desktopAPI = {
   appInfo: fetchAppInfo(),
   runtimeConfig: {
@@ -419,6 +440,7 @@ const desktopAPI = {
   personal,
   spotlight,
   notesOverlay,
+  notification,
   consumeNotesHotkeyDegraded,
 };
 

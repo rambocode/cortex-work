@@ -29,6 +29,19 @@ export interface SpotlightIntent {
   projectId?: string;
 }
 
+// 独立通知窗体的提醒载荷(主窗渲染端 → 主进程 → 通知窗体)。镜像 core 的 Toast 子集,
+// 但跨进程经 IPC 传输,故只含可序列化的纯数据(无函数/图标组件,iconName 为名字字符串)。
+export interface NotificationPayload {
+  id: string;
+  kind: "info" | "success" | "error";
+  text: string;
+  title?: string;
+  description?: string;
+  iconName?: string;
+  // 自动消失时长(ms);0/缺省由窗体侧按默认处理。
+  duration?: number;
+}
+
 // 系统已安装的代码编辑器（editors.ts 探测结果）。
 export interface EditorInfo {
   id: string;
