@@ -6,6 +6,7 @@
 import { useState } from "react";
 import {
   DEFAULT_MODEL,
+  DEFAULT_NEW_SESSION_PERMISSION_MODE,
   DEFAULT_PERMISSION_MODE,
   dayKey,
   resolveDefaultAgent,
@@ -47,7 +48,7 @@ export function NewSessionLanding({
       model: agent === "pi" ? providerSettings.defaultModel ?? provider?.models[0]?.id : DEFAULT_MODEL[agent],
       providerId: agent === "pi" ? providerSettings.defaultProviderId : undefined,
       useOwnSkills: false,
-      permissionMode: DEFAULT_PERMISSION_MODE as PermissionMode,
+      permissionMode: DEFAULT_NEW_SESSION_PERMISSION_MODE as PermissionMode,
     };
   });
 
@@ -115,8 +116,6 @@ export function NewSessionLanding({
         onSend={onSubmit}
         onChangeModel={(model) => setDraft((d) => ({ ...d, model }))}
         onChangePiModel={(providerId, model) => setDraft((d) => ({ ...d, providerId, model }))}
-        permissionMode={draft.permissionMode}
-        onChangeMode={(mode) => setDraft((d) => ({ ...d, permissionMode: mode }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
         onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}
@@ -127,6 +126,8 @@ export function NewSessionLanding({
         projectValue={selectedProjectId}
         noProjectChosen
         onChangeProject={(id) => setSelectedProjectId(id)}
+        permissionMode={draft.permissionMode}
+        onChangeMode={(mode) => setDraft((d) => ({ ...d, permissionMode: mode }))}
         running={false}
         onToast={onToast}
       />

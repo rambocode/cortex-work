@@ -1254,6 +1254,9 @@ input, textarea { font: inherit; color: inherit; }
 .pw-gitbar-left { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-3); }
 .pw-gitbar-name { font-weight: 600; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pw-gitbar-branch { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+/* 运行模式选择器:在 gitbar 行内紧凑展示(复用 pw-model-pill 底色,缩小内边距贴合信息条)。 */
+.pw-gitbar-mode { flex: 0 0 auto; padding: 2px 4px 2px 7px; }
+.pw-gitbar-mode .pw-model-select { font-size: 12px; }
 .pw-gitbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .pw-gitbar-stats {
   display: inline-flex; align-items: center; gap: 6px;

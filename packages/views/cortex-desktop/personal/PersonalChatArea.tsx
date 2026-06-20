@@ -442,7 +442,6 @@ export function PersonalChatArea({
         onChangeModel={(model) => updateSession(session.id, { model })}
         onChangePiModel={(providerId, model) => setPiModel(session, providerId, model)}
         onChangePiThinking={(level) => setPiThinking(session, level)}
-        onChangeMode={(mode) => updateSession(session.id, { permissionMode: mode })}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}
@@ -451,6 +450,8 @@ export function PersonalChatArea({
       <GitBar
         project={realProject}
         projectValue={session.projectId}
+        permissionMode={session.permissionMode}
+        onChangeMode={(mode) => updateSession(session.id, { permissionMode: mode })}
         running={running}
         onSend={(text) => void send(session, project.path, text, [])}
         onToast={onToast}

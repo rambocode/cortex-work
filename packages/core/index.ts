@@ -144,6 +144,7 @@ export {
   DEFAULT_PI_SKILLS,
   PERMISSION_MODES,
   DEFAULT_PERMISSION_MODE,
+  DEFAULT_NEW_SESSION_PERMISSION_MODE,
   type PermissionMode,
   type PiCustomizationSettings,
   type PiSkillSettings,

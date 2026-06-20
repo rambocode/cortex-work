@@ -980,8 +980,12 @@ export type ReasoningEffort = "low" | "medium" | "high";
 export type PermissionMode = "plan" | "accept-edits" | "full-auto";
 // 选择器展示顺序（从严到松）。
 export const PERMISSION_MODES: PermissionMode[] = ["plan", "accept-edits", "full-auto"];
-// 缺省回退:旧会话无 permissionMode 字段时按此处理,与历史「全自动」行为一致。
+// 缺省回退:旧会话无 permissionMode 字段时按此处理,与历史「全自动」行为一致(adapter 同款兜底,
+// 不改它以免存量会话被静默收紧为只读)。
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "full-auto";
+// 新建会话的默认档位:从只读 plan 起步,用户确认后再放权(更安全的默认)。仅落地页草稿用,
+// 与上面的「存量回退」解耦:新会话显式持久化 plan,旧会话仍回退 full-auto。
+export const DEFAULT_NEW_SESSION_PERMISSION_MODE: PermissionMode = "plan";
 // pi plan 档只读工具白名单(pi 官方钦定的 read-only 配方,物理上无 write/edit/bash)。
 export const PI_PLAN_TOOL_WHITELIST = ["read", "grep", "find", "ls"];
 
