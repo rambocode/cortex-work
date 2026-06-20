@@ -21,9 +21,11 @@ function TreeNode({
   const [collapsed, setCollapsed] = useState(depth > 1);
 
   if (node.kind === "file") {
+    // SKILL.md 是 skill 定义文件,单独用 skill 图标(Sparkle)+ 强调色高亮,与普通 .md 区分。
+    const isSkill = /^skill\.md$/i.test(node.name);
     return (
       <button
-        className="pw-tree-row is-file"
+        className={`pw-tree-row is-file ${isSkill ? "is-skill" : ""}`}
         style={{ paddingLeft: 12 + depth * 14 }}
         draggable
         onDragStart={(e) => {
@@ -33,7 +35,7 @@ function TreeNode({
         onClick={() => onOpenFile(node)}
         title={`${node.path}（可拖入聊天输入框）`}
       >
-        <Icon.File size={13} />
+        {isSkill ? <Icon.Sparkle size={13} /> : <Icon.File size={13} />}
         <span className="pw-tree-name">{node.name}</span>
       </button>
     );

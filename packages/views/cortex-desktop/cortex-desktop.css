@@ -3653,10 +3653,10 @@ button.sb-row {
 .pw-tree-row .chev[data-collapsed="true"] { transform: rotate(-90deg); }
 .pw-tree-row .count { margin-left: auto; font-size: 11px; color: var(--text-4); }
 .pw-tree-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Prompt 库 .md(skill)文件:图标 + 文件名用强调色,与目录(灰)区分,更易扫读。
-   文件名显式着色 → hover 行变色时仍保持强调色;目录行不受影响。 */
-.pw-tree-row.is-file > svg { color: var(--accent); }
-.pw-tree-row.is-file .pw-tree-name { color: var(--accent); }
+/* Prompt 库 SKILL.md(skill 定义文件):skill 图标 + 文件名用强调色,与普通 .md / 目录区分。
+   文件名显式着色 → hover 行变色时仍保持强调色;普通文件与目录行不受影响。 */
+.pw-tree-row.is-skill > svg { color: var(--accent); }
+.pw-tree-row.is-skill .pw-tree-name { color: var(--accent); }
 
 /* 右栏「文件」搜索框（文件名过滤 / ? 内容搜索） */
 .pw-rp-search {
