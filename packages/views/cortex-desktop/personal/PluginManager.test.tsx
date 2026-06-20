@@ -106,6 +106,31 @@ describe("PluginManager", () => {
     expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/my/skills");
   });
 
+  it("添加全局目录:validateDir 返回 false → 报错且不写入", async () => {
+    const bridge = fakeBridge([]);
+    (bridge as unknown as { validateDir: () => Promise<boolean> }).validateDir = vi.fn(async () => false);
+    renderWith(bridge);
+    await screen.findByText("未发现 Skill");
+    fireEvent.click(screen.getByRole("button", { name: /管理/ }));
+    fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/not/exist" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
+    await screen.findByRole("alert");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).not.toContain("~/not/exist");
+  });
+
+  it("添加全局目录:validateDir 返回 true → 写入 userGlobalRoots", async () => {
+    const bridge = fakeBridge([]);
+    (bridge as unknown as { validateDir: () => Promise<boolean> }).validateDir = vi.fn(async () => true);
+    renderWith(bridge);
+    await screen.findByText("未发现 Skill");
+    fireEvent.click(screen.getByRole("button", { name: /管理/ }));
+    fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/real/skills" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
+    await waitFor(() =>
+      expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/real/skills"),
+    );
+  });
+
   it("创建:点「创建」展开表单,填写后「添加自定义」调 createSkill", async () => {
     const createSkill = vi.fn(async () => ({ ok: true }));
     renderWith(fakeBridge([], createSkill));

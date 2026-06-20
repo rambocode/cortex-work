@@ -98,6 +98,7 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
   const [status, setStatus] = useState<StatusFilter>("all");
   const [activeDir, setActiveDir] = useState<string>("all"); // 当前活动目录（创建/打开/统计焦点）
   const [newRoot, setNewRoot] = useState("");
+  const [newRootErr, setNewRootErr] = useState<string | null>(null); // 手填根的存在性校验反馈
   const [showCreate, setShowCreate] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", body: "" });
@@ -191,6 +192,24 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
     },
     [bridge, allowedRoots],
   );
+
+  // 新增全局根:手填路径可拼错/不存在,加进去后扫描静默返回空,用户得不到反馈。
+  // 故落库前用 bridge.validateDir 做存在性校验（主进程已展开 ~,与扫描口径一致）。
+  // bridge/validateDir 缺失（旧壳）→ 跳过校验直接加,保持降级可用。
+  const addRoot = useCallback(async () => {
+    const root = newRoot.trim();
+    if (!root) return;
+    if (bridge?.validateDir) {
+      const ok = await bridge.validateDir(root);
+      if (!ok) {
+        setNewRootErr("目录不存在或无法访问，请检查路径");
+        return;
+      }
+    }
+    addGlobalSkillRoot(root);
+    setNewRoot("");
+    setNewRootErr(null);
+  }, [bridge, newRoot, addGlobalSkillRoot]);
 
   const submitCreate = useCallback(async () => {
     if (!bridge?.createSkill || !targetDir) return;
@@ -365,21 +384,26 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
               placeholder="新增全局目录，如 ~/my/skills"
               aria-label="新增全局目录"
               value={newRoot}
-              onChange={(e) => setNewRoot(e.target.value)}
+              onChange={(e) => {
+                setNewRoot(e.target.value);
+                if (newRootErr) setNewRootErr(null); // 编辑即清旧错
+              }}
               spellCheck={false}
             />
             <button
               type="button"
               className="pw-btn-sm"
-              onClick={() => {
-                if (!newRoot.trim()) return;
-                addGlobalSkillRoot(newRoot);
-                setNewRoot("");
-              }}
+              disabled={noBridge}
+              onClick={() => void addRoot()}
             >
               添加目录
             </button>
           </div>
+          {newRootErr ? (
+            <div className="pw-plugins-root-err" role="alert">
+              {newRootErr}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

@@ -16,6 +16,7 @@ import type {
   PromptNode,
 } from "./types";
 import { getPersistedState } from "./store";
+import { expandTilde } from "../skills/locate";
 import { documentsCortexDir, noProjectSessionDir } from "../paths";
 import { countAddedLines, parseNumstat, parseUntracked, sumStats, synthUntrackedDiff } from "./git-info";
 
@@ -573,9 +574,11 @@ export function registerFsHandlers(): void {
     return out;
   });
 
+  // 校验目录存在性。须与 skill 根解析一致地展开 `~`（pluginSkillRoots 走 expandTilde),
+  // 否则手填 `~/my/skills` 校验恒 false 而扫描却能命中,渲染端校验会误报。
   ipcMain.handle("fs:validateDir", async (_e, path: string) => {
     try {
-      return (await fsp.stat(path)).isDirectory();
+      return (await fsp.stat(expandTilde(path))).isDirectory();
     } catch {
       return false;
     }
