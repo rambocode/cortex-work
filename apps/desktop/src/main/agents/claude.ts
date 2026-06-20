@@ -1,6 +1,7 @@
 // claude code CLI adapter。
 // 命令形态（实测 claude 2.1.x）：
 //   claude -p <prompt> --output-format stream-json --verbose --include-partial-messages
+//          [--permission-mode plan|acceptEdits | --dangerously-skip-permissions]
 //          [--model m] [--resume sessionId] [--append-system-prompt s]
 // stream-json 每行一个 JSON：
 //   {type:"system",subtype:"init",session_id}                          → init
@@ -38,15 +39,21 @@ export const claudeAdapter: AgentAdapter = {
       "stream-json",
       "--verbose",
       "--include-partial-messages",
-      // 个人工作区是本机交互场景，与用户终端使用习惯一致；
-      // 否则 print 模式下工具调用会因无人审批而被拒。
-      "--dangerously-skip-permissions",
       // 纯净启动:清空 MCP 服务(strict 模式下只认这里传入的空配置),
       // 启动更快、行为可预期;全局指令(~/.claude/CLAUDE.md)仍然生效。
       "--strict-mcp-config",
       "--mcp-config",
       '{"mcpServers":{}}',
     ];
+    // 运行模式 → 权限标志。print(-p)模式无人审批回路,靠启动标志事前约束工具能力:
+    //   plan        → --permission-mode plan（只读+出计划,-p 下不 hang;尝试写操作会被拒而非挂起）
+    //   accept-edits → --permission-mode acceptEdits（自动批准工作目录内编辑;非编辑 Bash 受限即中止）
+    //   full-auto/缺省 → --dangerously-skip-permissions（≡ bypassPermissions;本机交互场景,
+    //                  与用户终端使用习惯一致,保留现用标志最小化回归）
+    const mode = req.permissionMode ?? "full-auto";
+    if (mode === "plan") args.push("--permission-mode", "plan");
+    else if (mode === "accept-edits") args.push("--permission-mode", "acceptEdits");
+    else args.push("--dangerously-skip-permissions");
     if (req.model) args.push("--model", req.model);
     // 推理强度（claude 2.1.x 支持 --effort low|medium|high,-p 模式生效;不支持的
     // 模型自身回退）。

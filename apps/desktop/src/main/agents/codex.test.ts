@@ -56,6 +56,38 @@ describe("codexAdapter.buildArgs", () => {
     expect(prompt).toContain("<user_request>\nhello\n</user_request>");
   });
 
+  it("运行模式:plan → -s read-only + approval_policy=never,无 bypass", () => {
+    const { args } = codexAdapter.buildArgs({ ...baseReq, permissionMode: "plan" });
+    expect(args.join(" ")).toContain("-s read-only");
+    expect(args).toContain("approval_policy=never");
+    expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  it("运行模式:accept-edits → -s workspace-write + approval_policy=never", () => {
+    const { args } = codexAdapter.buildArgs({ ...baseReq, permissionMode: "accept-edits" });
+    expect(args.join(" ")).toContain("-s workspace-write");
+    expect(args).toContain("approval_policy=never");
+    expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  it("运行模式:full-auto 与缺省均回退 bypass(回归);任何档位都不出现 --ask-for-approval/--full-auto", () => {
+    expect(codexAdapter.buildArgs({ ...baseReq, permissionMode: "full-auto" }).args).toContain(
+      "--dangerously-bypass-approvals-and-sandbox",
+    );
+    expect(codexAdapter.buildArgs(baseReq).args).toContain("--dangerously-bypass-approvals-and-sandbox");
+    for (const m of ["plan", "accept-edits", "full-auto"] as const) {
+      const { args } = codexAdapter.buildArgs({ ...baseReq, permissionMode: m });
+      expect(args).not.toContain("--ask-for-approval");
+      expect(args).not.toContain("--full-auto");
+    }
+  });
+
+  it("运行模式:resume 分支模式标志在 threadId/prompt 之前", () => {
+    const { args } = codexAdapter.buildArgs({ ...baseReq, permissionMode: "plan", resumeSessionId: "tid-1" });
+    expect(args.indexOf("read-only")).toBeLessThan(args.indexOf("tid-1"));
+    expect(args.at(-1)).toBe("hello");
+  });
+
   it("推理强度:effort → -c model_reasoning_effort=,缺省不带", () => {
     const { args } = codexAdapter.buildArgs({ ...baseReq, effort: "low" });
     const i = args.indexOf("model_reasoning_effort=low");

@@ -50,6 +50,27 @@ describe("claudeAdapter.buildArgs", () => {
     expect(args[i + 1]).toBe('{"mcpServers":{}}');
   });
 
+  it("运行模式:plan → --permission-mode plan,不带跳审批标志", () => {
+    const { args } = claudeAdapter.buildArgs({ ...baseReq, permissionMode: "plan" });
+    expect(args.join(" ")).toContain("--permission-mode plan");
+    expect(args).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("运行模式:accept-edits → --permission-mode acceptEdits", () => {
+    const { args } = claudeAdapter.buildArgs({ ...baseReq, permissionMode: "accept-edits" });
+    expect(args.join(" ")).toContain("--permission-mode acceptEdits");
+    expect(args).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("运行模式:full-auto 与缺省均回退 --dangerously-skip-permissions(回归)", () => {
+    expect(claudeAdapter.buildArgs({ ...baseReq, permissionMode: "full-auto" }).args).toContain(
+      "--dangerously-skip-permissions",
+    );
+    const def = claudeAdapter.buildArgs(baseReq).args;
+    expect(def).toContain("--dangerously-skip-permissions");
+    expect(def.join(" ")).not.toContain("--permission-mode");
+  });
+
   it("推理强度:effort → --effort,缺省不带", () => {
     expect(claudeAdapter.buildArgs({ ...baseReq, effort: "high" }).args.join(" ")).toContain("--effort high");
     expect(claudeAdapter.buildArgs(baseReq).args).not.toContain("--effort");
