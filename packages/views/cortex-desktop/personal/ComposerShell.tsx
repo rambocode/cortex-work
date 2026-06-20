@@ -16,6 +16,7 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import type { AgentKind, PendingImage, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
+import { FILE_DRAG_MIME } from "./FilesView";
 import {
   MAX_IMAGES_PER_MESSAGE,
   checkImageFile,
@@ -423,14 +424,26 @@ export function ComposerShell({
     setDragOver(false);
     const rawPrompt = e.dataTransfer.getData(PROMPT_DRAG_MIME);
     const rawTodo = e.dataTransfer.getData(TODO_DRAG_MIME);
-    // 应用内 MIME(skill/todo)优先;否则当作系统图片文件拖入(图片无需 bridge,走 FileReader)。
-    if (!rawPrompt && !rawTodo) {
+    const rawFile = e.dataTransfer.getData(FILE_DRAG_MIME);
+    // 应用内 MIME(skill/todo/file)优先;否则当作系统图片文件拖入(图片无需 bridge,走 FileReader)。
+    if (!rawPrompt && !rawTodo && !rawFile) {
       const files = Array.from(e.dataTransfer.files ?? []).filter((f) => f.type.startsWith("image/"));
       if (files.length) void addImageFiles(files);
       return;
     }
     if (!bridge) return;
     try {
+      // 文件预览拖入(U6):复用 kind:"prompt" 附件通道,但直接用文件名(不跑 deriveSkillName,
+      // 避免含 name: frontmatter 的普通文件被改成无关 skill 名)。同路径已存在则去重 no-op。
+      if (rawFile) {
+        const { path, name } = JSON.parse(rawFile) as { path: string; name: string };
+        if (attachments.some((a) => a.path === path)) return;
+        const { content, truncated } = await bridge.readFile(path);
+        if (truncated) onToast(t("composer.fileTruncated", { name }));
+        attachSeq += 1;
+        setAttachments((prev) => [...prev, { id: `pa-${attachSeq}`, name, path, kind: "prompt", content }]);
+        return;
+      }
       if (rawTodo) {
         const { id, detailPath, title, projectName } = JSON.parse(rawTodo) as {
           id: string;
@@ -469,6 +482,7 @@ export function ComposerShell({
           if (
             e.dataTransfer.types.includes(PROMPT_DRAG_MIME) ||
             e.dataTransfer.types.includes(TODO_DRAG_MIME) ||
+            e.dataTransfer.types.includes(FILE_DRAG_MIME) ||
             e.dataTransfer.types.includes("Files")
           ) {
             e.preventDefault();

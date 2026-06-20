@@ -108,6 +108,7 @@
     "todoInstruction": "请根据拖入的 Task「{{title}}」继续实现这个需求，先理解详情，再在当前项目中完成实现、验证并汇报结果。",
     "todoTruncated": "{{title}} 过大,已截断注入",
     "skillTruncated": "{{name}} 过大,已截断注入",
+    "fileTruncated": "{{name}} 过大,已截断注入",
     "readAttachmentFailed": "读取附件失败：{{error}}"
   },
   "agentName": {

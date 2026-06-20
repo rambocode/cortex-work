@@ -35,6 +35,7 @@ export default interface Resources {
       "editBar": "编辑重发：发送后将清除这条消息之后的所有内容",
       "fileTree": "文件树",
       "fileTreeToast": "文件树 · 选择项目文件",
+      "fileTruncated": "{{name}} 过大,已截断注入",
       "flashNote": "闪记",
       "groupPlaceholder": "在 {{name}} 中发消息,@ 提及成员或他们的 Agent…",
       "imagesHint": "将随下条消息发送",

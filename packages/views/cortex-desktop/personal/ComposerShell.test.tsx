@@ -6,6 +6,7 @@ import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePersonalStore, type AgentKind, type DesktopBridge, type PendingImage, type PersonalAttachment } from "@cortex-work/core";
 import { ComposerShell } from "./ComposerShell";
+import { FILE_DRAG_MIME } from "./FilesView";
 
 const bridge = { loadChat: async () => [], saveChat: async () => {} } as unknown as DesktopBridge;
 
@@ -253,5 +254,65 @@ describe("ComposerShell 图片采集（U3）", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(container.querySelectorAll(".img-attach").length).toBe(1);
+  });
+});
+
+describe("ComposerShell 文件预览拖入会话（U6）", () => {
+  function fileBridge(readFile: (p: string) => Promise<{ content: string; truncated: boolean }>): DesktopBridge {
+    return { loadChat: async () => [], saveChat: async () => {}, readFile: vi.fn(readFile) } as unknown as DesktopBridge;
+  }
+
+  function renderWithBridge(b: DesktopBridge) {
+    return render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={b}>
+        <ComposerShell
+          agent="claude"
+          model={undefined}
+          providerId={undefined}
+          useOwnSkills={false}
+          running={false}
+          onSend={() => true}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onToggleSkills={() => {}}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+  }
+
+  function dropFile(container: HTMLElement, payload: { path: string; name: string }) {
+    const composer = container.querySelector(".composer")!;
+    const data: Record<string, string> = { [FILE_DRAG_MIME]: JSON.stringify(payload) };
+    fireEvent.drop(composer, {
+      dataTransfer: { getData: (type: string) => data[type] ?? "", types: [FILE_DRAG_MIME], files: [] },
+    });
+  }
+
+  it("拖入文件 → readFile 并出现附件 pill(显示文件名)", async () => {
+    const b = fileBridge(async () => ({ content: "# 文件内容", truncated: false }));
+    const { container } = renderWithBridge(b);
+    dropFile(container, { path: "/p/notes.md", name: "notes.md" });
+    await waitFor(() => expect(screen.getByText("notes.md")).toBeInTheDocument());
+    expect(b.readFile as ReturnType<typeof vi.fn>).toHaveBeenCalledWith("/p/notes.md");
+  });
+
+  it("含 name: frontmatter 的普通文件名不被 deriveSkillName 改写", async () => {
+    const b = fileBridge(async () => ({ content: "---\nname: 无关技能名\n---\n", truncated: false }));
+    const { container } = renderWithBridge(b);
+    dropFile(container, { path: "/p/config.md", name: "config.md" });
+    await waitFor(() => expect(screen.getByText("config.md")).toBeInTheDocument());
+    expect(screen.queryByText("无关技能名")).toBeNull(); // 文件名保持,未被 frontmatter name 污染
+  });
+
+  it("同路径重复拖入 → 去重 no-op,不新增第二枚 pill", async () => {
+    const b = fileBridge(async () => ({ content: "x", truncated: false }));
+    const { container } = renderWithBridge(b);
+    dropFile(container, { path: "/p/a.md", name: "a.md" });
+    await waitFor(() => expect(container.querySelectorAll(".attach-pill").length).toBe(1));
+    dropFile(container, { path: "/p/a.md", name: "a.md" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(container.querySelectorAll(".attach-pill").length).toBe(1);
   });
 });
