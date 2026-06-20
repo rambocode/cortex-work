@@ -6057,10 +6057,20 @@ button.sb-row {
 .pw-slash-item:hover,
 .pw-slash-item.is-active { background: var(--bg-hover); color: var(--text-1); }
 .pw-slash-item code {
+  flex-shrink: 0;
+  white-space: nowrap; /* 命令名不换行(如 /skill:agent-browser 整体一行) */
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 600;
   color: var(--accent);
+}
+/* 描述占据剩余宽度并单行省略;min-width:0 让 flex 子项可收缩到省略号生效。 */
+.pw-slash-desc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pw-slash-item .pw-slash-kbd {

@@ -563,7 +563,8 @@ export function ComposerShell({
                 >
                   <code>{c.cmd}</code>
                   {c.argHint ? <span className="pw-slash-arg">{c.argHint}</span> : null}
-                  <span>{c.desc}</span>
+                  {/* 描述单行省略:skill 的 SKILL.md 描述可能很长,全显会撑爆菜单(title 给悬停全文)。 */}
+                  <span className="pw-slash-desc" title={c.desc}>{c.desc}</span>
                   {/* 动作提示按 kind 区分(KTD4):skill 为「插入」(选中填参),内建为「运行」(立即执行)。 */}
                   {active ? (
                     <kbd className="pw-slash-kbd">
