@@ -110,6 +110,9 @@ export interface PersonalState {
   // 在内嵌浏览器打开某 URL 的请求(卡片点击 / auto_open)。BrowserView 监听 nonce 变化
   // 后加载;nonce 让「同 URL 再次请求」也能触发重载。瞬态,不进 toPersistedState。
   browserUrlRequest?: { url: string; nonce: number };
+  // 最近一次 auto_open 已自动打开的「会话:URL」键。防探测结果在重渲染中反复自动弹面板
+  // (同键不再触发)。瞬态,不进 toPersistedState。
+  autoOpenedPreviewKey?: string;
   // 右栏当前视图（顶栏下拉选择）。
   rightView: RightView;
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
@@ -232,6 +235,8 @@ export interface PersonalState {
   consumeNoteDetailRequest: () => { noteId: string } | undefined;
   // 在内嵌浏览器打开 URL:右栏切到 browser 视图并请求加载(右栏开关由调用方补,同 requestGitDiff)。
   requestBrowserUrl: (url: string) => void;
+  // auto_open 去重:记录已自动打开的「会话:URL」键。
+  markAutoOpenedPreview: (key: string) => void;
   setRightView: (view: RightView) => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
@@ -761,6 +766,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       browserUrlRequest: { url, nonce: (s.browserUrlRequest?.nonce ?? 0) + 1 },
       rightView: "browser",
     })),
+  markAutoOpenedPreview: (key) => set({ autoOpenedPreviewKey: key }),
   setRightView: (view) => set({ rightView: view }),
 
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),

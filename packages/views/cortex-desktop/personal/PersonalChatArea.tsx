@@ -14,14 +14,22 @@ import {
   useDesktopBridge,
   usePersonalActions,
   usePersonalChat,
+  usePersonalProcess,
   usePersonalStore,
   useRenderWindow,
 } from "@cortex-work/core";
 import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Conversation, Message } from "@cortex-work/core/types";
+import {
+  extractDetectedDevPreviewUrls,
+  extractAutoOpenDevPreviewUrls,
+  extractLatestTurnDevPreviewUrls,
+  extractLatestTurnAutoOpenDevPreviewUrls,
+} from "@cortex-work/core/personal/devPreviewDetection";
 import { MessageStream } from "../ChatArea";
 import { agentContact } from "./agentMeta";
 import { AskQuestionCard } from "./AskQuestionCard";
+import { DevPreviewCard } from "./DevPreviewCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
 import { ModeBlockBanner } from "./ModeBlockBanner";
@@ -120,6 +128,9 @@ export function PersonalChatArea({
   const generalSettings = usePersonalStore((s) => s.generalSettings);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
+  const requestBrowserUrl = usePersonalStore((s) => s.requestBrowserUrl);
+  const autoOpenedPreviewKey = usePersonalStore((s) => s.autoOpenedPreviewKey);
+  const markAutoOpenedPreview = usePersonalStore((s) => s.markAutoOpenedPreview);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
 
@@ -141,8 +152,45 @@ export function PersonalChatArea({
   const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
+  // 瞬态执行过程流(agentLog 步骤);dev 预览探测的次信号来源(allMessages 已剥离 agentLog)。
+  const processMessages = usePersonalProcess(session?.id);
   const { send, stop: stopRun, steer, compact, setPiModel, setPiThinking, editResend, clearView } =
     usePersonalActions();
+
+  // 探测 agent 输出里的本地 dev 预览 URL(计划 U5/KTD3)。数据源现实:assistant 正文在
+  // allMessages(主信号),工具步骤 agentLog 活在 process query(次信号),合并两源探测。
+  const cardPreviewUrls = useMemo(() => {
+    const merged = [
+      ...extractLatestTurnDevPreviewUrls(allMessages),
+      ...extractDetectedDevPreviewUrls(processMessages),
+    ];
+    return Array.from(new Set(merged)).slice(0, 4);
+  }, [allMessages, processMessages]);
+  // auto_open(仅环回,SSRF 收紧):取最近一轮 / 过程流里第一个自动打开候选。
+  const autoOpenPreviewUrl = useMemo(() => {
+    const fromChat = extractLatestTurnAutoOpenDevPreviewUrls(allMessages);
+    const fromProcess = extractAutoOpenDevPreviewUrls(processMessages);
+    return fromChat[0] ?? fromProcess[0] ?? null;
+  }, [allMessages, processMessages]);
+
+  const openPreview = useCallback(
+    (url: string) => {
+      requestBrowserUrl(url);
+      setRightOpen(true);
+    },
+    [requestBrowserUrl, setRightOpen],
+  );
+
+  // auto_open:输出明确像 dev server 且为环回时自动打开内嵌浏览器,按「会话:URL」去重,
+  // 防重渲染反复弹(计划 U5)。
+  useEffect(() => {
+    if (!autoOpenPreviewUrl || !session) return;
+    const key = `${session.id}:${autoOpenPreviewUrl}`;
+    if (key === autoOpenedPreviewKey) return;
+    markAutoOpenedPreview(key);
+    openPreview(autoOpenPreviewUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenPreviewUrl, session?.id, autoOpenedPreviewKey]);
   const [showHiddenHistory, setShowHiddenHistory] = useState(false);
   const [ttsPlayback, setTtsPlayback] = useState(getTtsPlaybackState);
   // 编辑重发:正在编辑的历史用户消息(原文填入 composer,发送时截断其后所有消息)。
@@ -413,6 +461,9 @@ export function PersonalChatArea({
           ) : undefined
         }
       />
+
+      {/* dev 预览卡片:探测到本地 dev URL 时,在消息流与输入框间提供「打开预览」入口。 */}
+      <DevPreviewCard urls={cardPreviewUrls} onOpen={openPreview} />
 
       {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
       <AskQuestionCard sessionId={session.id} />
