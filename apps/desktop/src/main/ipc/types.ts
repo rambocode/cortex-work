@@ -61,6 +61,7 @@ export interface SessionMeta {
   providerId?: string;
   piSessionFile?: string; // 阶段4 pi 会话恢复用磁盘 JSONL 路径（与 core 镜像）
   useOwnSkills?: boolean;
+  permissionMode?: PermissionMode; // 运行模式（与 core 镜像;主进程仅 round-trip 持久化,不按字段消费）
   hiddenHistory?: HiddenHistoryMeta;
   archivedAt?: number;
   createdAt: number;
@@ -571,6 +572,9 @@ export type ReasoningEffort = "low" | "medium" | "high";
 
 // 运行模式（权限松紧）三档,与 core/desktop/types.ts 镜像。adapter 翻译成各 CLI 原生标志。
 export type PermissionMode = "plan" | "accept-edits" | "full-auto";
+// pi plan 档只读工具白名单,与 core/desktop/types.ts 的 PI_PLAN_TOOL_WHITELIST 镜像。
+// 主进程 pi.ts 单发路径无法 import core barrel,故此处镜像一份供 adapter 引用(避免硬编码漂移)。
+export const PI_PLAN_TOOL_WHITELIST = ["read", "grep", "find", "ls"];
 
 // weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
 export type ScheduleSpec =

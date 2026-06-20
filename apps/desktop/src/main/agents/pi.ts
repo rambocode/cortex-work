@@ -19,7 +19,7 @@
 
 import { resolvePiBinary } from "./pi-locate";
 import { safeId } from "./pi-providers";
-import type { CliStartRequest, CliStreamEvent } from "../ipc/types";
+import { PI_PLAN_TOOL_WHITELIST, type CliStartRequest, type CliStreamEvent } from "../ipc/types";
 import type { AgentAdapter } from "./index";
 
 function toolDetail(args: unknown): string | undefined {
@@ -65,7 +65,7 @@ export const piAdapter: AgentAdapter = {
     // 运行模式 plan 档:只读工具白名单（pi 官方钦定 read-only 配方,物理上无 write/edit/bash）。
     // json 单发(ask 追问/oneshot)无 UI,审批 hook 失效,故只有 plan 的工具白名单有意义;
     // accept-edits/full-auto 在单发模式等价(不收窄工具)。RPC 长驻路径走 buildRpcArgs 的 toolWhitelist。
-    if (req.permissionMode === "plan") args.push("--tools", "read,grep,find,ls");
+    if (req.permissionMode === "plan") args.push("--tools", PI_PLAN_TOOL_WHITELIST.join(","));
     // 自定义供应商:cli.ts 已生成 extension 文件,这里用 -e 显式加载 + -a 信任
     //（实测 --no-extensions 与显式 -e 可共存）；provider id 即 pi provider 名。
     if (req.piExtensionPath) {

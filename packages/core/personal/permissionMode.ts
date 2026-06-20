@@ -38,7 +38,11 @@ export function derivePiCapabilities(
   if (m === "accept-edits") {
     // 从审批集剔除 write/edit(自动放行编辑),保留 bash 等执行类仍走审批。
     const base = prefs?.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS;
-    const approvalTools = base.filter((t) => t !== "write" && t !== "edit");
+    const filtered = base.filter((t) => t !== "write" && t !== "edit");
+    // 安全底线:剔除后必须保留 bash 审批。否则用户自定义审批集恰为 ["write","edit"] 时
+    // filtered=[],经 pi-extensions 的 NEEDS=Set([]) 会放行全部工具 → bash 零审批穿透,
+    // 与「自动改文件但 bash 仍受限」的承诺相悖。强制并入 bash 兜住执行类硬底。
+    const approvalTools = filtered.includes("bash") ? filtered : [...filtered, "bash"];
     return { toolWhitelist: undefined, enableToolApproval: true, approvalTools };
   }
   // full-auto:不收窄工具,审批沿用用户设置(toolApproval 关→无审批 extension,= 历史默认)。

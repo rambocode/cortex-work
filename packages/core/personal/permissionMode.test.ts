@@ -26,6 +26,16 @@ describe("derivePiCapabilities", () => {
     expect(caps.approvalTools).toEqual(["bash", "read"]);
   });
 
+  it("accept-edits:自定义审批集恰为 write/edit 时,bash 仍兜底进审批(不退化为零审批)", () => {
+    const caps = derivePiCapabilities("accept-edits", {
+      toolApproval: true,
+      approvalTools: ["write", "edit"],
+    });
+    // 剔除 write/edit 后本应为空 → 必须强制保留 bash,避免 NEEDS=Set([]) 放行全部工具。
+    expect(caps.approvalTools).toEqual(["bash"]);
+    expect(caps.enableToolApproval).toBe(true);
+  });
+
   it("full-auto:沿用用户 piCustom 审批设置(回归);关闭则无审批", () => {
     expect(derivePiCapabilities("full-auto")).toEqual({
       toolWhitelist: undefined,
