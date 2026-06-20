@@ -531,6 +531,17 @@ describe("buildRpcArgs", () => {
     expect(joined).toContain("--skill /b/bug-hunt");
   });
 
+  it("运行模式 plan:toolWhitelist → --tools 逗号拼接,与 --skill 共存", () => {
+    expect(buildRpcArgs(base)).not.toContain("--tools"); // 缺省(accept-edits/full-auto)不收窄
+    const args = buildRpcArgs({
+      ...base,
+      toolWhitelist: ["read", "grep", "find", "ls"],
+      skillPaths: ["/a/code-review"],
+    });
+    expect(args.join(" ")).toContain("--tools read,grep,find,ls");
+    expect(args.join(" ")).toContain("--skill /a/code-review"); // 不互斥
+  });
+
   it("自定义供应商:-e/-a/--provider + --model 透传", () => {
     const args = buildRpcArgs({
       ...base,

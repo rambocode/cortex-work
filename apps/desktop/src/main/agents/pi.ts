@@ -1,7 +1,8 @@
 // pi（@earendil-works/pi-coding-agent）内置兜底 agent 的 CLI adapter。
 // 命令形态（实测 0.79.2,pi 已 bun 编译成自包含二进制,由 cli.ts 经 spawn 执行）：
 //   <pi 二进制> --mode json -p --no-extensions
-//             [--no-skills] [--model m] [--session id] [--append-system-prompt s] <prompt>
+//             [--no-skills] [--skill p] [--tools read,grep,find,ls (plan 只读)]
+//             [--model m] [--session id] [--append-system-prompt s] <prompt>
 //   · adapter 产出 cmd=pi 二进制路径（resolvePiBinary）+ args；cli.ts 对三种 agent 统一 spawn。
 //   · -p 是非交互布尔 flag,prompt 不是它的值,而是命令行最后一个位置参数。
 //   · --no-extensions 纯净启动；--no-skills 默认禁用 skills（useOwnSkills=true 时省略,
@@ -61,6 +62,10 @@ export const piAdapter: AgentAdapter = {
     // resource-loader.js noSkills 仍 merge cliEnabledSkills/additionalSkillPaths）。
     args.push("--no-skills");
     for (const p of req.skillPaths ?? []) args.push("--skill", p);
+    // 运行模式 plan 档:只读工具白名单（pi 官方钦定 read-only 配方,物理上无 write/edit/bash）。
+    // json 单发(ask 追问/oneshot)无 UI,审批 hook 失效,故只有 plan 的工具白名单有意义;
+    // accept-edits/full-auto 在单发模式等价(不收窄工具)。RPC 长驻路径走 buildRpcArgs 的 toolWhitelist。
+    if (req.permissionMode === "plan") args.push("--tools", "read,grep,find,ls");
     // 自定义供应商:cli.ts 已生成 extension 文件,这里用 -e 显式加载 + -a 信任
     //（实测 --no-extensions 与显式 -e 可共存）；provider id 即 pi provider 名。
     if (req.piExtensionPath) {
