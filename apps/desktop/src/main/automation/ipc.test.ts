@@ -41,34 +41,34 @@ beforeEach(() => {
   registerAutomationHandlers();
 });
 
-describe("automation:create notify 透传(回归:逐字段构造勿漏)", () => {
-  it("create 把 input.notify 落入持久化 meta", async () => {
+describe("automation:create notifyChannels 透传(回归:逐字段构造勿漏)", () => {
+  it("create 把 input.notifyChannels 落入持久化 meta", async () => {
     const create = h.handlers.get("automation:create")!;
-    await create({}, { ...baseInput, notify: true });
+    await create({}, { ...baseInput, notifyChannels: ["feishu", "internal"] });
     expect(h.upsert).toHaveBeenCalledTimes(1);
-    expect((h.upsert.mock.calls[0][0] as AutomationMeta).notify).toBe(true);
+    expect((h.upsert.mock.calls[0][0] as AutomationMeta).notifyChannels).toEqual(["feishu", "internal"]);
   });
 
-  it("create 未传 notify 时为 undefined(默认不推送)", async () => {
+  it("create 未传 notifyChannels 时为 undefined(默认不通知)", async () => {
     const create = h.handlers.get("automation:create")!;
     await create({}, { ...baseInput });
-    expect((h.upsert.mock.calls[0][0] as AutomationMeta).notify).toBeUndefined();
+    expect((h.upsert.mock.calls[0][0] as AutomationMeta).notifyChannels).toBeUndefined();
   });
 });
 
-describe("automation:update notify 透传", () => {
-  it("update patch notify 经 ...patch 落盘", async () => {
+describe("automation:update notifyChannels 透传", () => {
+  it("update patch notifyChannels 经 ...patch 落盘", async () => {
     h.getAutomation.mockResolvedValue({
       ...baseInput,
       id: "auto-1",
       enabled: true,
-      notify: false,
+      notifyChannels: [],
       timezone: "UTC",
       createdAt: 0,
       updatedAt: 0,
     } as AutomationMeta);
     const update = h.handlers.get("automation:update")!;
-    await update({}, "auto-1", { notify: true });
-    expect((h.upsert.mock.calls[0][0] as AutomationMeta).notify).toBe(true);
+    await update({}, "auto-1", { notifyChannels: ["dingtalk"] });
+    expect((h.upsert.mock.calls[0][0] as AutomationMeta).notifyChannels).toEqual(["dingtalk"]);
   });
 });

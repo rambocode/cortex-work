@@ -47,7 +47,7 @@ export function registerAutomationHandlers(): void {
       effort: input.effort,
       prompt: input.prompt,
       useOwnSkills: input.useOwnSkills,
-      notify: input.notify, // 逐字段构造,务必显式透传(update 走 ...patch 自动透传,create 不补则丢失)
+      notifyChannels: input.notifyChannels, // 逐字段构造,务必显式透传(update 走 ...patch 自动透传,create 不补则丢失)
       providerId: input.providerId,
       schedule: input.schedule,
       timezone,

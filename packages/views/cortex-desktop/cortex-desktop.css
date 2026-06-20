@@ -7190,6 +7190,10 @@ button.sb-row {
 .pw-auto-dlg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
 .pw-auto-dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 13px 24px; border-top: 1px solid var(--border); flex-shrink: 0; }
 .pw-auto-ta { resize: vertical; min-height: 92px; line-height: 1.55; font-family: var(--mono, ui-monospace, monospace); }
+/* 完成后通知:已配置渠道的多选复选框组 */
+.pw-auto-notify-chs { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 2px 0 4px; }
+.pw-auto-notify-ch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-1); cursor: pointer; }
+.pw-auto-notify-ch input { cursor: pointer; }
 
 /* 定时编辑器 */
 .pw-auto-sched { display: flex; flex-direction: column; gap: 10px; }

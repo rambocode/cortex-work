@@ -253,6 +253,9 @@ export interface PushSettings {
   formatSkillPath?: string;
 }
 
+// 推送渠道标识(与 core/desktop/types.ts 镜像)。自动化「完成后通知」按此选择渠道。
+export type PushChannelKind = "wecom" | "dingtalk" | "feishu" | "email" | "internal";
+
 export interface PersistedState {
   version: 1;
   projects: ProjectMeta[];
@@ -705,7 +708,7 @@ export interface AutomationMeta {
   effort?: ReasoningEffort;
   prompt: string;
   useOwnSkills?: boolean;
-  notify?: boolean;
+  notifyChannels?: PushChannelKind[];
   providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;
@@ -726,7 +729,7 @@ export interface AutomationInput {
   effort?: ReasoningEffort;
   prompt: string;
   useOwnSkills?: boolean;
-  notify?: boolean;
+  notifyChannels?: PushChannelKind[];
   providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;

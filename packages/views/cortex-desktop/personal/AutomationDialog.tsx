@@ -6,7 +6,6 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
-import { Toggle } from "@cortex-work/ui/controls/Toggle";
 import {
   AGENT_MODELS,
   DEFAULT_MODEL,
@@ -14,10 +13,12 @@ import {
   useUpdateAutomation,
   usePersonalStore,
 } from "@cortex-work/core";
+import { enabledPushTargets } from "@cortex-work/core/personal/push";
 import type {
   AgentKind,
   AutomationInput,
   AutomationMeta,
+  PushChannelKind,
   ReasoningEffort,
   ScheduleSpec,
 } from "@cortex-work/core";
@@ -80,6 +81,7 @@ export function AutomationDialog({
   const editing = !!meta;
   const projects = usePersonalStore((s) => s.projects);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const pushSettings = usePersonalStore((s) => s.pushSettings);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const create = useCreateAutomation();
   const update = useUpdateAutomation();
@@ -101,8 +103,10 @@ export function AutomationDialog({
   const [effort, setEffort] = useState<ReasoningEffort>(meta?.effort ?? initial?.effort ?? "medium");
   const [projectId, setProjectId] = useState(meta?.projectId ?? initial?.projectId ?? "");
   const [schedule, setSchedule] = useState<ScheduleSpec>(meta?.schedule ?? initial?.schedule ?? { kind: "daily", hour: 9, minute: 0 });
-  // 完成后推送(opt-in,默认关闭):开启后推送到「设置 → 通知」已启用的渠道。
-  const [notify, setNotify] = useState(meta?.notify ?? initial?.notify ?? false);
+  // 完成后通知(opt-in):从「设置 → 通知」已配置的渠道里选要推送到哪几个;空 = 不通知。
+  const [notifyChannels, setNotifyChannels] = useState<PushChannelKind[]>(
+    meta?.notifyChannels ?? initial?.notifyChannels ?? [],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -129,6 +133,14 @@ export function AutomationDialog({
     setPiModel(rest.join("::"));
   };
 
+  // 完成后通知:可选渠道 = 「设置 → 通知」里已配置(启用且填好 webhook)的外部渠道 + 已启用的内部通知。
+  const availableChannels: { kind: PushChannelKind; label: string }[] = [
+    ...enabledPushTargets(pushSettings).map((tg) => ({ kind: tg.target.kind as PushChannelKind, label: tg.label })),
+    ...(pushSettings.internal?.enabled ? [{ kind: "internal" as PushChannelKind, label: "桌面通知（系统）" }] : []),
+  ];
+  const toggleChannel = (kind: PushChannelKind) =>
+    setNotifyChannels((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
+
   const piReady = !isPi || (!!providerId && !!piModel);
   const canSubmit = !!name.trim() && !!prompt.trim() && piReady && !saving;
 
@@ -143,7 +155,7 @@ export function AutomationDialog({
       projectId: projectId || undefined,
       cwd: projectId ? projects.find((p) => p.id === projectId)?.path : undefined,
       effort,
-      notify,
+      notifyChannels,
       schedule,
     };
     try {
@@ -241,10 +253,26 @@ export function AutomationDialog({
           <ScheduleEditor value={schedule} onChange={setSchedule} />
 
           <div className="pw-set-field">
-            <Toggle label="完成后推送" value={notify} onChange={setNotify} />
-            <span className="pw-set-hint">
-              执行完成后把结果推送到「设置 → 通知」中已启用的渠道(企业微信 / 钉钉 / 飞书 / 邮件 / 内部通知)。未启用任何渠道则不会有通知。
-            </span>
+            <span className="pw-set-lbl">完成后通知</span>
+            {availableChannels.length ? (
+              <>
+                <div className="pw-auto-notify-chs">
+                  {availableChannels.map((ch) => (
+                    <label key={ch.kind} className="pw-auto-notify-ch">
+                      <input
+                        type="checkbox"
+                        checked={notifyChannels.includes(ch.kind)}
+                        onChange={() => toggleChannel(ch.kind)}
+                      />
+                      <span>{ch.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <span className="pw-set-hint">执行完成后把结果推送到选中的渠道;不选则不通知。</span>
+              </>
+            ) : (
+              <span className="pw-set-hint">请先在「设置 → 通知」配置推送渠道,再回到这里选择。</span>
+            )}
           </div>
         </div>
         <div className="pw-auto-dlg-foot">

@@ -113,6 +113,7 @@ export {
   type InternalNotifyConfig,
   type EmailPushConfig,
   type PushTarget,
+  type PushChannelKind,
   type PushResult,
   type AsrTranscribeRequest,
   type AsrTranscribeResponse,

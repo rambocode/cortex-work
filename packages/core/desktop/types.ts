@@ -399,6 +399,9 @@ export type PushTarget =
   | { kind: "feishu"; webhookUrl: string; secret?: string }
   | { kind: "email"; smtp: Omit<EmailPushConfig, "enabled"> };
 
+// 推送渠道标识(外部 webhook/邮件 + 内部原生通知)。自动化按此选择「完成后通知到哪些渠道」。
+export type PushChannelKind = "wecom" | "dingtalk" | "feishu" | "email" | "internal";
+
 export interface PushResult {
   ok: boolean;
   error?: string;
@@ -1124,7 +1127,7 @@ export interface AutomationMeta {
   effort?: ReasoningEffort; // 推理强度
   prompt: string; // 内容即提示词
   useOwnSkills?: boolean;
-  notify?: boolean; // 完成后推送:开启则在终态推送到全局启用的渠道(默认关闭)
+  notifyChannels?: PushChannelKind[]; // 完成后通知:终态时推送到所选(且已配置)的渠道;空/缺省=不通知
   providerId?: string; // pi 自定义供应商:仅存 id,apiKey 运行时由 main 从 providerSettings 解析
   schedule: ScheduleSpec;
   timezone?: string; // IANA 时区,缺省 = 创建时本机时区
@@ -1146,7 +1149,7 @@ export interface AutomationInput {
   effort?: ReasoningEffort;
   prompt: string;
   useOwnSkills?: boolean;
-  notify?: boolean;
+  notifyChannels?: PushChannelKind[];
   providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;
