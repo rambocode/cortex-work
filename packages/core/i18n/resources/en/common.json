@@ -13,6 +13,13 @@
   "loading": "Loading…",
   "save": "Save",
   "todoUntitled": "Untitled Todo",
+  "toast": {
+    "closeLabel": "Dismiss notification",
+    "demo": {
+      "quotaTitle": "5h quota has reset",
+      "quotaDesc": "Codex is ready to use again"
+    }
+  },
   "titleBar": {
     "sidebar": "Sidebar",
     "sidebarToggled": "Sidebar expanded/collapsed",
