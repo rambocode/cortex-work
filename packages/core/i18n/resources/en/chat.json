@@ -96,6 +96,7 @@
     "stop": "Stop",
     "imagesHint": "Will be sent with the next message",
     "slashRun": "Tab to run",
+    "slashInsert": "Tab to insert",
     "editBar": "Edit and resend: sending will clear everything after this message",
     "cancel": "Cancel",
     "noLocalAsr": "Local ASR is not supported in this environment",

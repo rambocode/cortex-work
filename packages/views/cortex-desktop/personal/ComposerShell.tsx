@@ -73,6 +73,14 @@ function deriveSkillName(path: string, fileName: string, content: string): strin
   return base;
 }
 
+/**
+ * slash 命令项。kind 决定选中语义(KTD4):
+ *  - "builtin"(默认):选中即执行(onSend(cmd)),如 /clear、/compact。
+ *  - "skill":选中插入 `cmd ` 到输入框、保留焦点、不发送,供用户填 argHint 参数后再发。
+ * argHint 为 pi skill frontmatter 的 argument-hint(如 `<url>` / `[branch]`),展示在命令名后。
+ */
+export type SlashCommand = { cmd: string; desc: string; argHint?: string; kind?: "builtin" | "skill" };
+
 export function ComposerShell({
   agent,
   model,
@@ -104,7 +112,7 @@ export function ComposerShell({
   /** 编辑重发:正在编辑的历史用户消息(原文填入输入框,顶部出提示条)。 */
   editing?: { uid: string; text: string } | null;
   /** slash 命令注册表;留空则不启用 slash 提示(如新会话落地页)。 */
-  slashCommands?: { cmd: string; desc: string }[];
+  slashCommands?: SlashCommand[];
   /** 是否订阅全局 composerInsert(文件预览「发送到 Chat」),仅会话页启用。 */
   acceptComposerInsert?: boolean;
   /** 注入根 .composer-wrap 的附加类名(如落地页 pw-landing-composer)。 */
@@ -379,8 +387,15 @@ export function ComposerShell({
   };
 
   // slash 命令:输入 "/" 前缀即时匹配;↑/↓ 选择、Enter/Tab 执行高亮项、Esc 收起。
+  // 触发收紧(KTD7):仅当文本以 "/" 开头且**尚无空格**(还在键入命令 token)时打开。
+  // 否则 skill 项插入 "/skill:name " 后,菜单会立刻重开覆盖输入、Enter 又被拦为重执行——
+  // 有空格即视为「已选定命令、正在填参数」,菜单关闭,Enter 正常发送。
+  // afterSlash 保留尾随空格(不做 trimEnd):插入 "/skill:name " 后它含空格 → 视为「已选定、填参中」→ slashQuery=null → 菜单关闭。
+  const afterSlash = text.trimStart();
   const slashQuery =
-    slashCommands.length > 0 && text.trimStart().startsWith("/") && !text.includes("\n") ? text.trim() : null;
+    slashCommands.length > 0 && afterSlash.startsWith("/") && !afterSlash.includes(" ") && !afterSlash.includes("\n")
+      ? afterSlash
+      : null;
   const slashMatches = slashQuery ? slashCommands.filter((c) => c.cmd.startsWith(slashQuery)) : [];
   const slashOpen = !!slashQuery && slashMatches.length > 0 && !slashDismissed;
   // 查询变化（输入/删除字符）→ 高亮回到首项并撤销 Esc 收起;纯方向键导航不改 query,选择得以保持。
@@ -389,8 +404,14 @@ export function ComposerShell({
     setSlashDismissed(false);
   }, [slashQuery]);
 
-  const runCommand = (cmd: string) => {
-    onSend(cmd, []);
+  // 选中命令:内建立即执行;skill 插入 `cmd ` 并保留焦点供填参(KTD4)。
+  const runCommand = (c: SlashCommand) => {
+    if (c.kind === "skill") {
+      setText(`${c.cmd} `);
+      taRef.current?.focus();
+      return;
+    }
+    onSend(c.cmd, []);
     setText("");
   };
 
@@ -409,7 +430,7 @@ export function ComposerShell({
     // Tab / Enter:执行当前高亮的命令（高亮项可能因过滤变化越界,故 clamp）。
     if (slashOpen && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing))) {
       e.preventDefault();
-      runCommand(slashMatches[Math.min(slashSel, slashMatches.length - 1)]!.cmd);
+      runCommand(slashMatches[Math.min(slashSel, slashMatches.length - 1)]!);
       return;
     }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -537,12 +558,18 @@ export function ComposerShell({
                   onMouseEnter={() => setSlashSel(i)}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    runCommand(c.cmd);
+                    runCommand(c);
                   }}
                 >
                   <code>{c.cmd}</code>
+                  {c.argHint ? <span className="pw-slash-arg">{c.argHint}</span> : null}
                   <span>{c.desc}</span>
-                  {active ? <kbd className="pw-slash-kbd">{t("composer.slashRun")}</kbd> : null}
+                  {/* 动作提示按 kind 区分(KTD4):skill 为「插入」(选中填参),内建为「运行」(立即执行)。 */}
+                  {active ? (
+                    <kbd className="pw-slash-kbd">
+                      {c.kind === "skill" ? t("composer.slashInsert") : t("composer.slashRun")}
+                    </kbd>
+                  ) : null}
                 </button>
               );
             })}

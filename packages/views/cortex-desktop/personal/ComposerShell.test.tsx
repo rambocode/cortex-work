@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePersonalStore, type AgentKind, type DesktopBridge, type PendingImage, type PersonalAttachment } from "@cortex-work/core";
-import { ComposerShell } from "./ComposerShell";
+import { ComposerShell, type SlashCommand } from "./ComposerShell";
 
 const bridge = { loadChat: async () => [], saveChat: async () => {} } as unknown as DesktopBridge;
 
@@ -15,7 +15,7 @@ function renderShell(props: {
   onSteer?: (text: string) => void;
   onStop?: () => void;
   onSend?: (text: string) => void;
-  slashCommands?: { cmd: string; desc: string }[];
+  slashCommands?: SlashCommand[];
 }) {
   const node: ReactNode = (
     <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
@@ -91,6 +91,46 @@ describe("ComposerShell slash 键盘导航", () => {
     expect(container.querySelector(".pw-slash-item")).toBeNull(); // 已收起
     fireEvent.keyDown(ta, { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("/clear"); // 走正常发送(交给 onSend 拦截层)
+  });
+});
+
+describe("ComposerShell slash skill 项(argHint + 插入模式 + KTD7)", () => {
+  const SKILL_CMDS: SlashCommand[] = [
+    { cmd: "/clear", desc: "清屏", kind: "builtin" },
+    { cmd: "/skill:agent-browser", desc: "浏览器自动化", argHint: "<url>", kind: "skill" },
+  ];
+
+  it("R4:skill 项渲染 argHint;内建项不渲染 argHint", () => {
+    const { container } = renderShell({ agent: "pi", running: false, slashCommands: SKILL_CMDS });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/" } });
+    const args = container.querySelectorAll(".pw-slash-arg");
+    expect(args).toHaveLength(1);
+    expect(args[0]?.textContent).toBe("<url>");
+  });
+
+  it("R5:选 skill 项 → 插入 '/skill:name '、不发送、菜单关闭(KTD7),随后 Enter 发送", () => {
+    const onSend = vi.fn();
+    const { container } = renderShell({ agent: "pi", running: false, onSend, slashCommands: SKILL_CMDS });
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "/skill" } });
+    fireEvent.keyDown(ta, { key: "Enter" }); // 选中高亮的 skill 项
+    expect(onSend).not.toHaveBeenCalled(); // skill 不立即发送
+    expect(ta.value).toBe("/skill:agent-browser "); // 插入带尾随空格
+    expect(container.querySelector(".pw-slash-item")).toBeNull(); // 有空格 → 菜单关闭
+    // 模拟填参后回车发送。
+    fireEvent.change(ta, { target: { value: "/skill:agent-browser https://x.com" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("/skill:agent-browser https://x.com");
+  });
+
+  it("KTD4:高亮 skill 项动作提示为「插入」,内建为「执行/运行」", () => {
+    const { container } = renderShell({ agent: "pi", running: false, slashCommands: SKILL_CMDS });
+    const ta = screen.getByRole("textbox");
+    fireEvent.change(ta, { target: { value: "/" } });
+    // 首项 /clear(内建)高亮 → 运行提示。
+    expect(container.querySelector(".pw-slash-item.is-active .pw-slash-kbd")?.textContent).toMatch(/执行|运行|run/i);
+    fireEvent.keyDown(ta, { key: "ArrowDown" }); // 高亮 skill 项
+    expect(container.querySelector(".pw-slash-item.is-active .pw-slash-kbd")?.textContent).toMatch(/插入|insert/i);
   });
 });
 

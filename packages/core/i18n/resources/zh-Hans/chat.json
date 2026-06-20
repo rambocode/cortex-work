@@ -96,6 +96,7 @@
     "stop": "停止",
     "imagesHint": "将随下条消息发送",
     "slashRun": "Tab 执行",
+    "slashInsert": "Tab 插入",
     "editBar": "编辑重发：发送后将清除这条消息之后的所有内容",
     "cancel": "取消",
     "noLocalAsr": "当前环境不支持本地 ASR",

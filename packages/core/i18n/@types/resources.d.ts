@@ -84,6 +84,7 @@ export default interface Resources {
       "skillsOn": "开",
       "skillsOnTitle": "已加载 agent 自身 skills,点击禁用",
       "slashRun": "Tab 执行",
+      "slashInsert": "Tab 插入",
       "steerPlaceholder": "插话:输入引导回车注入当前轮,或点击右侧停止…",
       "steerSend": "插话:注入当前轮 (Enter)",
       "stop": "停止",

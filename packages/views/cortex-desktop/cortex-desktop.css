@@ -6032,7 +6032,16 @@ button.sb-row {
   border: 1px solid var(--border-soft);
   border-radius: 9px;
   background: var(--bg-right);
-  overflow: hidden;
+  /* skill 数可达 10-30,限高 + 滚动避免下拉溢出 composer(U2)。 */
+  max-height: 240px;
+  overflow-y: auto;
+}
+/* argument-hint(如 <url> / [branch]):介于命令名与描述之间,等宽弱化展示。 */
+.pw-slash-arg {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
 }
 .pw-slash-item {
   display: flex;
