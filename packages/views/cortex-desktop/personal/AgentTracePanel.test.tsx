@@ -81,4 +81,50 @@ describe("AgentTracePanel", () => {
 
     expect(await screen.findByText(/"reason": "boom"/)).toBeTruthy();
   });
+
+  it("同 id 段事件原地更新为一行、内容实时生长(R4)", async () => {
+    const listeners: Array<(event: AgentTraceEvent) => void> = [];
+    const bridge = {
+      agentTraceList: vi.fn(async () => []),
+      onAgentTrace: vi.fn((cb: (event: AgentTraceEvent) => void) => {
+        listeners[0] = cb;
+        return () => undefined;
+      }),
+    } as unknown as DesktopBridge;
+
+    render(<AgentTracePanel bridge={bridge} />);
+    await waitFor(() => expect(bridge.onAgentTrace).toHaveBeenCalled());
+
+    const seg = (over: Partial<AgentTraceEvent>): AgentTraceEvent =>
+      trace({ id: "seg-1", scope: "pi", phase: "event", summary: "pi text", segmentType: "text", streaming: true, ...over });
+
+    listeners[0]?.(seg({ ts: 1, deltaCount: 1, data: { text: "你好" } }));
+    listeners[0]?.(seg({ ts: 2, deltaCount: 2, data: { text: "你好，世界" } }));
+
+    // 只有一行(同 id upsert,未追加新行)。
+    const rows = await screen.findAllByRole("listitem", { name: /pi text/ });
+    expect(rows).toHaveLength(1);
+    // 展开看到的是最新累积内容。
+    fireEvent.click(rows[0]!);
+    expect(await screen.findByText(/你好，世界/)).toBeTruthy();
+  });
+
+  it("reasoning 与 text 段渲染为可区分的独立行(R6)", async () => {
+    const bridge = {
+      agentTraceList: vi.fn(async () => [
+        trace({ id: "seg-r", scope: "pi", phase: "event", summary: "pi reasoning", segmentType: "reasoning", streaming: false, deltaCount: 3 }),
+        trace({ id: "seg-t", scope: "pi", phase: "event", summary: "pi text", segmentType: "text", streaming: false, deltaCount: 5 }),
+      ]),
+      onAgentTrace: vi.fn(() => () => undefined),
+    } as unknown as DesktopBridge;
+
+    render(<AgentTracePanel bridge={bridge} />);
+
+    const reasoningRow = await screen.findByRole("listitem", { name: /pi reasoning/ });
+    const textRow = await screen.findByRole("listitem", { name: /pi text/ });
+    expect(reasoningRow.textContent).toContain("[REASONING]");
+    expect(textRow.textContent).toContain("[TEXT]");
+    expect(reasoningRow.querySelector('[data-phase="reasoning"]')).toBeTruthy();
+    expect(textRow.querySelector('[data-phase="text"]')).toBeTruthy();
+  });
 });

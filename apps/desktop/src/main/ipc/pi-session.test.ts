@@ -60,6 +60,7 @@ const h = vi.hoisted(() => {
     spawnEnvFor: vi.fn(() => ({})),
     readImageBytes: vi.fn(async () => ({ mimeType: "image/png", base64: "AAAA" })),
     recordAgentTrace: vi.fn(),
+    recordStreamDelta: vi.fn(),
   };
 });
 
@@ -80,7 +81,7 @@ vi.mock("../agents/pi-extensions", () => ({
 }));
 vi.mock("./cli", () => ({ assertSpawnCwd: h.assertSpawnCwd, spawnEnvFor: h.spawnEnvFor }));
 vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
-vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace }));
+vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace, recordStreamDelta: h.recordStreamDelta }));
 
 import { registerPiSessionHandlers, killAllPiSessions, piSessionCount, filterLoadableExtensionPaths } from "./pi-session";
 
@@ -113,6 +114,7 @@ beforeEach(() => {
   h.spawnEnvFor.mockClear();
   h.readImageBytes.mockClear();
   h.recordAgentTrace.mockClear();
+  h.recordStreamDelta.mockClear();
   registerPiSessionHandlers();
 });
 
@@ -139,10 +141,12 @@ describe("registerPiSessionHandlers", () => {
 });
 
 describe("pi:open", () => {
-  it("记录 pi open/prompt/event trace", async () => {
+  it("记录 pi open/prompt trace;text/reasoning 增量走合并段,其它事件走普通 trace", async () => {
     await open();
     await h.handlers.get("pi:prompt")!({}, "u1", "你好", "run-1");
+    h.onEventRef.current?.({ type: "reasoning", delta: "想" });
     h.onEventRef.current?.({ type: "text", delta: "hi" });
+    h.onEventRef.current?.({ type: "turn-end" });
 
     expect(h.recordAgentTrace).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "pi", phase: "open", sessionId: "u1", agent: "pi" }),
@@ -150,8 +154,16 @@ describe("pi:open", () => {
     expect(h.recordAgentTrace).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "pi", phase: "command", runId: "run-1", sessionId: "u1", agent: "pi" }),
     );
+    // text 与 reasoning 各自走合并段(R6),互不混合。
+    expect(h.recordStreamDelta).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "pi", segmentType: "reasoning", delta: "想", sessionId: "u1", agent: "pi" }),
+    );
+    expect(h.recordStreamDelta).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "pi", segmentType: "text", delta: "hi", sessionId: "u1", agent: "pi" }),
+    );
+    // 非增量事件(turn-end)仍走普通 trace。
     expect(h.recordAgentTrace).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: "pi", phase: "event", sessionId: "u1", agent: "pi" }),
+      expect.objectContaining({ scope: "pi", phase: "event", summary: "pi turn-end", sessionId: "u1", agent: "pi" }),
     );
   });
 

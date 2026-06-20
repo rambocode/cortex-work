@@ -1005,6 +1005,10 @@ export interface AppInfo {
   devMode?: boolean;
 }
 
+// 与 apps/desktop/src/main/ipc/agent-trace.ts 镜像。segmentType/streaming/deltaCount
+// 为流式合并段专用字段:连续同类增量(text / reasoning)在记录端合并为实时生长的一条段。
+export type TraceSegmentType = "text" | "reasoning";
+
 export interface AgentTraceEvent {
   id: string;
   ts: number;
@@ -1015,6 +1019,9 @@ export interface AgentTraceEvent {
   sessionId?: string;
   agent?: string;
   data?: unknown;
+  segmentType?: TraceSegmentType; // 段类型(仅合并段带)
+  streaming?: boolean; // true=生长中,false=已收尾
+  deltaCount?: number; // 累积增量个数
 }
 
 // ── Tasks 面板:tasks/ 目录文件列表（与 apps/desktop/src/main/ipc/types.ts 镜像） ──

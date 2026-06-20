@@ -11,7 +11,7 @@ import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, Cli
 import { getAdapter } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
-import { recordAgentTrace } from "./agent-trace";
+import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 
 const running = new Map<string, AgentProcess>();
 const VERIFY_TIMEOUT_MS = 3000;
@@ -348,15 +348,27 @@ export function registerCliHandlers(): void {
     const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
       const ev = adapter.parseLine(line);
       if (ev) {
-        recordAgentTrace({
-          scope: "cli",
-          phase: "event",
-          summary: `${req.agent} ${ev.type}`,
-          runId: req.runId,
-          sessionId: req.sessionId,
-          agent: req.agent,
-          data: { parsedEvent: ev },
-        });
+        // text 增量交记录端合并为一条生长段;其它事件(init/tool/result)走普通 trace(并触发段收尾)。
+        if (ev.type === "text") {
+          recordStreamDelta({
+            scope: "cli",
+            segmentType: "text",
+            delta: ev.delta,
+            runId: req.runId,
+            sessionId: req.sessionId,
+            agent: req.agent,
+          });
+        } else {
+          recordAgentTrace({
+            scope: "cli",
+            phase: "event",
+            summary: `${req.agent} ${ev.type}`,
+            runId: req.runId,
+            sessionId: req.sessionId,
+            agent: req.agent,
+            data: { parsedEvent: ev },
+          });
+        }
         sendEvent(ev);
       }
     });
@@ -485,14 +497,25 @@ export function registerCliHandlers(): void {
           if (!line) return;
           const ev = adapter.parseLine(line);
           if (!ev) return;
-          recordAgentTrace({
-            scope: "oneshot",
-            phase: "event",
-            summary: `${agent} oneshot ${ev.type}`,
-            sessionId: "oneshot",
-            agent,
-            data: { parsedEvent: ev },
-          });
+          // text 增量合并为段;其它事件走普通 trace。
+          if (ev.type === "text") {
+            recordStreamDelta({
+              scope: "oneshot",
+              segmentType: "text",
+              delta: ev.delta,
+              sessionId: "oneshot",
+              agent,
+            });
+          } else {
+            recordAgentTrace({
+              scope: "oneshot",
+              phase: "event",
+              summary: `${agent} oneshot ${ev.type}`,
+              sessionId: "oneshot",
+              agent,
+              data: { parsedEvent: ev },
+            });
+          }
           if (ev.type === "text" && out.length < 20_000) out += ev.delta;
           if (ev.type === "result") {
             if (!ev.ok) failed = ev.error ?? "执行失败";

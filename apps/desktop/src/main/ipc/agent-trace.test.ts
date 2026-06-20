@@ -19,6 +19,7 @@ import {
   agentTraceClear,
   agentTraceList,
   recordAgentTrace,
+  recordStreamDelta,
   registerAgentTraceHandlers,
   sanitizeTraceData,
 } from "./agent-trace";
@@ -71,6 +72,117 @@ describe("agent trace buffer", () => {
     agentTraceClear();
 
     expect(agentTraceList()).toHaveLength(0);
+  });
+});
+
+describe("流式增量合并为段", () => {
+  const textContent = (e: { data?: unknown }) => (e.data as { text?: string })?.text;
+  const reasoningContent = (e: { data?: unknown }) => (e.data as { reasoning?: string })?.reasoning;
+
+  it("连续同类 text 增量合并为一条、累积完整内容(Covers AE1)", () => {
+    recordStreamDelta({ scope: "pi", segmentType: "text", delta: "你好", runId: "run-1", agent: "pi" });
+    recordStreamDelta({ scope: "pi", segmentType: "text", delta: "，", runId: "run-1", agent: "pi" });
+    recordStreamDelta({ scope: "pi", segmentType: "text", delta: "世界", runId: "run-1", agent: "pi" });
+
+    const events = agentTraceList();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.segmentType).toBe("text");
+    expect(events[0]?.deltaCount).toBe(3);
+    expect(events[0]?.streaming).toBe(true);
+    expect(textContent(events[0]!)).toBe("你好，世界");
+  });
+
+  it("reasoning 与 text 各自成段、互不合并(Covers AE1/R6)", () => {
+    for (let i = 0; i < 48; i += 1)
+      recordStreamDelta({ scope: "pi", segmentType: "reasoning", delta: "r", runId: "run-1", agent: "pi" });
+    for (let i = 0; i < 31; i += 1)
+      recordStreamDelta({ scope: "pi", segmentType: "text", delta: "t", runId: "run-1", agent: "pi" });
+
+    const events = agentTraceList();
+    expect(events).toHaveLength(2);
+    expect(events[0]?.segmentType).toBe("reasoning");
+    expect(events[0]?.deltaCount).toBe(48);
+    expect(reasoningContent(events[0]!)).toHaveLength(48);
+    expect(events[1]?.segmentType).toBe("text");
+    expect(events[1]?.deltaCount).toBe(31);
+    // reasoning 段在 text 开始时已收尾
+    expect(events[0]?.streaming).toBe(false);
+    expect(events[1]?.streaming).toBe(true);
+  });
+
+  it("普通事件(tool)收尾打开段,之后 text 另起新段(Covers AE2)", () => {
+    recordStreamDelta({ scope: "pi", segmentType: "text", delta: "前", runId: "run-1", agent: "pi" });
+    recordAgentTrace({ scope: "pi", phase: "event", summary: "pi tool", runId: "run-1", agent: "pi" });
+    recordStreamDelta({ scope: "pi", segmentType: "text", delta: "后", runId: "run-1", agent: "pi" });
+
+    const events = agentTraceList();
+    expect(events).toHaveLength(3);
+    expect(events[0]?.segmentType).toBe("text");
+    expect(events[0]?.streaming).toBe(false); // 被 tool 收尾
+    expect(textContent(events[0]!)).toBe("前");
+    expect(events[1]?.segmentType).toBeUndefined(); // 普通 tool 事件
+    expect(events[2]?.segmentType).toBe("text");
+    expect(textContent(events[2]!)).toBe("后");
+  });
+
+  it("不同 run 的增量互不串场(Covers AE3)", () => {
+    recordStreamDelta({ scope: "pi", segmentType: "text", delta: "A1", runId: "run-A", agent: "pi" });
+    recordStreamDelta({ scope: "pi", segmentType: "text", delta: "B1", runId: "run-B", agent: "pi" });
+    recordStreamDelta({ scope: "pi", segmentType: "text", delta: "A2", runId: "run-A", agent: "pi" });
+    recordStreamDelta({ scope: "pi", segmentType: "text", delta: "B2", runId: "run-B", agent: "pi" });
+
+    const events = agentTraceList();
+    expect(events).toHaveLength(2);
+    const runA = events.find((e) => e.runId === "run-A");
+    const runB = events.find((e) => e.runId === "run-B");
+    expect(textContent(runA!)).toBe("A1A2");
+    expect(textContent(runB!)).toBe("B1B2");
+  });
+
+  it("缓冲占用与增量数无关、仅与段数相关,先前事件不被挤出(Covers AE4/R8)", () => {
+    recordAgentTrace({ scope: "pi", phase: "start", summary: "pi start", runId: "run-1", agent: "pi" });
+    for (let i = 0; i < 2000; i += 1)
+      recordStreamDelta({ scope: "pi", segmentType: "reasoning", delta: "x", runId: "run-1", agent: "pi" });
+    for (let i = 0; i < 2000; i += 1)
+      recordStreamDelta({ scope: "pi", segmentType: "text", delta: "y", runId: "run-1", agent: "pi" });
+
+    const events = agentTraceList();
+    // start(1) + reasoning 段(1) + text 段(1) = 3 条,而非 4001 条
+    expect(events).toHaveLength(3);
+    expect(events[0]?.phase).toBe("start"); // start 仍在缓冲内,未被挤出
+  });
+
+  it("非增量事件维持一事件一条(R7)", () => {
+    recordAgentTrace({ scope: "cli", phase: "start", summary: "start" });
+    recordAgentTrace({ scope: "cli", phase: "exit", summary: "exit" });
+    expect(agentTraceList()).toHaveLength(2);
+  });
+
+  it("stderr 是旁路噪声,不收尾打开的 text 段(同段继续累积)", () => {
+    recordStreamDelta({ scope: "cli", segmentType: "text", delta: "前", runId: "run-1", agent: "claude" });
+    // 交错的 stderr 不应把 text 段切碎。
+    recordAgentTrace({ scope: "cli", phase: "stderr", summary: "claude stderr", runId: "run-1", agent: "claude", data: { chunk: "warn" } });
+    recordStreamDelta({ scope: "cli", segmentType: "text", delta: "后", runId: "run-1", agent: "claude" });
+
+    const events = agentTraceList();
+    // text 段(1,仍连续) + stderr(1) = 2 条;text 未被切成两段。
+    const textSegs = events.filter((e) => e.segmentType === "text");
+    expect(textSegs).toHaveLength(1);
+    expect(textSegs[0]?.deltaCount).toBe(2);
+    expect(textSegs[0]?.streaming).toBe(true);
+    expect(textContent(textSegs[0]!)).toBe("前后");
+  });
+
+  it("clear 清空打开段,清空后续增量不复活旧段(另起新段)", () => {
+    const first = recordStreamDelta({ scope: "pi", segmentType: "text", delta: "旧", runId: "run-1", agent: "pi" });
+    agentTraceClear();
+    expect(agentTraceList()).toHaveLength(0);
+
+    const second = recordStreamDelta({ scope: "pi", segmentType: "text", delta: "新", runId: "run-1", agent: "pi" });
+    const events = agentTraceList();
+    expect(events).toHaveLength(1);
+    expect(second.id).not.toBe(first.id); // 新段、新 id,非复活旧段
+    expect(textContent(events[0]!)).toBe("新"); // 不从清空前的「旧」继续累积
   });
 });
 

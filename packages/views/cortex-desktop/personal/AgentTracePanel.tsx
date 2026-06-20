@@ -31,7 +31,18 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
       if (alive) setEvents(list);
     });
     const off = bridge.onAgentTrace?.((event) => {
-      setEvents((prev) => (pausedRef.current ? prev : [...prev, event].slice(-500)));
+      setEvents((prev) => {
+        if (pausedRef.current) return prev;
+        // 合并段在生长/收尾时以相同 id 重复广播:命中则原地替换该条(保留位置),实现「同一行实时生长」;
+        // 否则作为新条目追加。普通事件 id 唯一,恒走追加分支。
+        const idx = prev.findIndex((e) => e.id === event.id);
+        if (idx >= 0) {
+          const next = prev.slice();
+          next[idx] = event;
+          return next;
+        }
+        return [...prev, event].slice(-500);
+      });
     });
     return () => {
       alive = false;
@@ -49,11 +60,16 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
     );
   }, [events, query]);
 
+  // 自动滚动需在「段生长」时也触发:upsert 后 filtered.length 不变,故依赖末条的 id + deltaCount,
+  // 段每次累积增量 deltaCount 递增 → 重新滚到底跟随生长;新条目则 id 变化触发。
+  const lastSig = filtered.length
+    ? `${filtered[filtered.length - 1]!.id}:${filtered[filtered.length - 1]!.deltaCount ?? 0}`
+    : "";
   useEffect(() => {
     const el = listRef.current;
     if (!el || expandedId) return;
     el.scrollTop = el.scrollHeight;
-  }, [filtered.length, expandedId]);
+  }, [lastSig, expandedId]);
 
   const clear = async () => {
     await bridge.agentTraceClear?.();
@@ -114,8 +130,20 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
                 <div className="pw-trace-line-main">
                   <span className="pw-trace-time">{formatTraceTime(event.ts)}</span>
                   <span className="pw-trace-token" data-scope={event.scope}>[{event.scope.toUpperCase()}]</span>
-                  <span className="pw-trace-token" data-phase={event.phase.toLowerCase()}>[{event.phase.toUpperCase()}]</span>
+                  {/* 合并段:phase token 显示段类型([TEXT] / [REASONING]),让 reasoning 与正文一眼可分(R6)。 */}
+                  <span
+                    className="pw-trace-token"
+                    data-phase={(event.segmentType ?? event.phase).toLowerCase()}
+                  >
+                    [{(event.segmentType ?? event.phase).toUpperCase()}]
+                  </span>
                   <span className="pw-trace-summary">{event.summary}</span>
+                  {event.segmentType ? (
+                    <span className="pw-trace-meta-token">
+                      {event.deltaCount ? `×${event.deltaCount}` : ""}
+                      {event.streaming ? " 生长中…" : " ✓"}
+                    </span>
+                  ) : null}
                   {event.agent ? <span className="pw-trace-meta-token">agent={event.agent}</span> : null}
                   {event.runId ? <span className="pw-trace-meta-token">run={event.runId}</span> : null}
                   {event.sessionId ? <span className="pw-trace-meta-token">session={event.sessionId}</span> : null}
