@@ -74,6 +74,15 @@
       "high": "Thinking · High",
       "xhigh": "Thinking · Extra high"
     },
+    "permissionMode": {
+      "label": "Run mode",
+      "plan": "Plan · read-only",
+      "accept-edits": "Auto-edit",
+      "full-auto": "Full auto",
+      "planHint": "Read-only analysis and planning; no file changes or write/exec tools",
+      "acceptEditsHint": "Auto-accept file edits; bash and other exec commands stay restricted",
+      "fullAutoHint": "Skip all permissions; every tool runs immediately (default)"
+    },
     "steerSend": "Steer: inject into the current turn (Enter)",
     "stop": "Stop",
     "imagesHint": "Will be sent with the next message",

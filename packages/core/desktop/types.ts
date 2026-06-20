@@ -978,6 +978,8 @@ export type ReasoningEffort = "low" | "medium" | "high";
 //   full-auto   跳过全部权限,所有工具直接执行(= 历史默认行为)
 //               (claude `--dangerously-skip-permissions`、codex `--dangerously-bypass-approvals-and-sandbox`、pi 不注入审批 extension)
 export type PermissionMode = "plan" | "accept-edits" | "full-auto";
+// 选择器展示顺序（从严到松）。
+export const PERMISSION_MODES: PermissionMode[] = ["plan", "accept-edits", "full-auto"];
 // 缺省回退:旧会话无 permissionMode 字段时按此处理,与历史「全自动」行为一致。
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "full-auto";
 // pi plan 档只读工具白名单(pi 官方钦定的 read-only 配方,物理上无 write/edit/bash)。

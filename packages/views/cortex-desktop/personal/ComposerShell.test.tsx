@@ -98,6 +98,62 @@ describe("ComposerShell steer 门控（U6）", () => {
   });
 });
 
+describe("ComposerShell 运行模式选择器（U7）", () => {
+  function renderMode(props: { permissionMode?: "plan" | "accept-edits" | "full-auto"; onChangeMode?: (m: string) => void }) {
+    return render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
+        <ComposerShell
+          agent="claude"
+          model={undefined}
+          providerId={undefined}
+          useOwnSkills={false}
+          running={false}
+          onSend={() => {}}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          permissionMode={props.permissionMode}
+          onChangeMode={props.onChangeMode}
+          onToggleSkills={() => {}}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+  }
+
+  // 模式 select = 含 full-auto 选项的那个 .pw-model-select（与模型 select 区分）。
+  function modeSelect(container: HTMLElement): HTMLSelectElement {
+    const selects = Array.from(container.querySelectorAll<HTMLSelectElement>(".comp-foot .pw-model-select"));
+    const sel = selects.find((s) => Array.from(s.options).some((o) => o.value === "full-auto"));
+    if (!sel) throw new Error("模式选择器未渲染");
+    return sel;
+  }
+
+  it("提供 onChangeMode → 渲染三档选择器,缺省回显 full-auto", () => {
+    const { container } = renderMode({ onChangeMode: () => {} });
+    const sel = modeSelect(container);
+    expect(Array.from(sel.options).map((o) => o.value)).toEqual(["plan", "accept-edits", "full-auto"]);
+    expect(sel.value).toBe("full-auto");
+  });
+
+  it("选择 plan → 触发 onChangeMode('plan')", () => {
+    const onChangeMode = vi.fn();
+    const { container } = renderMode({ permissionMode: "full-auto", onChangeMode });
+    fireEvent.change(modeSelect(container), { target: { value: "plan" } });
+    expect(onChangeMode).toHaveBeenCalledWith("plan");
+  });
+
+  it("受控回显:permissionMode=accept-edits → select 显示该档", () => {
+    const { container } = renderMode({ permissionMode: "accept-edits", onChangeMode: () => {} });
+    expect(modeSelect(container).value).toBe("accept-edits");
+  });
+
+  it("未提供 onChangeMode → 不渲染模式选择器(隐藏入口)", () => {
+    const { container } = renderMode({});
+    const selects = Array.from(container.querySelectorAll<HTMLSelectElement>(".comp-foot .pw-model-select"));
+    expect(selects.some((s) => Array.from(s.options).some((o) => o.value === "full-auto"))).toBe(false);
+  });
+});
+
 // 图片采集（U3）。用隐藏文件 input(可靠)为主、一条粘贴用例。
 function renderFull(
   onSend: (t: string, a: PersonalAttachment[], imgs?: PendingImage[]) => void | boolean | Promise<void | boolean>,

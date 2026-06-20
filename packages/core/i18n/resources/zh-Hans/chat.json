@@ -74,6 +74,15 @@
       "high": "思考·高",
       "xhigh": "思考·极高"
     },
+    "permissionMode": {
+      "label": "运行模式",
+      "plan": "Plan · 只读",
+      "accept-edits": "自动改文件",
+      "full-auto": "全自动",
+      "planHint": "只读分析、出计划,不改文件、不跑写/执行类工具",
+      "acceptEditsHint": "自动接受文件编辑;bash 等执行类命令仍受限",
+      "fullAutoHint": "跳过全部权限,所有工具直接执行(默认)"
+    },
     "steerSend": "插话:注入当前轮 (Enter)",
     "stop": "停止",
     "imagesHint": "将随下条消息发送",

@@ -7,13 +7,28 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   AGENT_MODELS,
+  DEFAULT_PERMISSION_MODE,
+  PERMISSION_MODES,
   PI_THINKING_LEVELS,
   useDesktopBridge,
   usePersonalStore,
   usePetStore,
 } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
-import type { AgentKind, PendingImage, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
+import type {
+  AgentKind,
+  PendingImage,
+  PermissionMode,
+  PersonalAttachment,
+  ThinkingLevel,
+} from "@cortex-work/core";
+
+// 每档运行模式的 tooltip i18n key（hover 说明实际行为,降低误判 R7）。
+const PERMISSION_MODE_HINT_KEY: Record<PermissionMode, string> = {
+  plan: "composer.permissionMode.planHint",
+  "accept-edits": "composer.permissionMode.acceptEditsHint",
+  "full-auto": "composer.permissionMode.fullAutoHint",
+};
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
 import {
@@ -91,6 +106,8 @@ export function ComposerShell({
   onChangePiModel,
   thinkingLevel,
   onChangePiThinking,
+  permissionMode,
+  onChangeMode,
   onToggleSkills,
   onOpenFlashNote,
   onCancelEdit,
@@ -127,6 +144,9 @@ export function ComposerShell({
   // pi 思考强度:会话级切换（运行时即时生效;非 pi / 未提供 → 隐藏入口）。
   thinkingLevel?: ThinkingLevel;
   onChangePiThinking?: (level: ThinkingLevel) => void;
+  // 运行模式（权限松紧）:会话级切换。缺省 full-auto;未提供 onChangeMode → 隐藏入口。
+  permissionMode?: PermissionMode;
+  onChangeMode?: (mode: PermissionMode) => void;
   onToggleSkills: () => void;
   /** 闪记图标入口:唤起闪记浮层(桌面端由壳注入,web 端缺省 → 隐藏入口)。 */
   onOpenFlashNote?: () => void;
@@ -647,15 +667,28 @@ export function ComposerShell({
               </select>
             </span>
           ) : null}
+          {onChangeMode ? (
+            <span
+              className="pill pw-model-pill"
+              title={t(PERMISSION_MODE_HINT_KEY[permissionMode ?? DEFAULT_PERMISSION_MODE])}
+            >
+              <select
+                className="pw-model-select"
+                value={permissionMode ?? DEFAULT_PERMISSION_MODE}
+                onChange={(e) => onChangeMode(e.target.value as PermissionMode)}
+              >
+                {PERMISSION_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {t(`composer.permissionMode.${m}`)}
+                  </option>
+                ))}
+              </select>
+            </span>
+          ) : null}
           {running ? (
             <>
-              {canSteer ? (
-                <button
-                  className={`send ${text.trim() ? "" : "muted"}`}
-                  onClick={steer}
-                  disabled={!text.trim()}
-                  title={t("composer.steerSend")}
-                >
+              {canSteer && text.trim() ? (
+                <button className="send" onClick={steer} title={t("composer.steerSend")}>
                   <Icon.Send size={15} />
                 </button>
               ) : null}
