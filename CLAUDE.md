@@ -77,6 +77,16 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 `apps/desktop/src/main/agents/` 是多 agent（`claude` / `codex` / `pi`）适配注册表。每个 adapter 提供两个纯函数：`buildArgs`（构造命令行）和 `parseLine`（解析一行 stdout 为归一化 `CliStreamEvent`）。`ipc/cli.ts` 的 spawn / 流式管线对所有 agent 通用。`pi` 经 `@earendil-works/pi-coding-agent` 用 `utilityProcess.fork` 启动（避免 macOS Dock 闪现）。
 
 
+## 代码质量约束（务必遵守）
+
+- **单文件行数上限 1200 行**：任何 `.ts` / `.tsx` 源文件不得超过 1200 行（不含自动生成文件、快照、锁文件）。逼近上限时优先按职责拆分组件 / hook / 工具函数，而非堆叠。
+- **关键代码必须注释**：以下场景必须写注释，且优先用 `zh-Hans`——
+  - 非显而易见的业务规则、边界条件与取舍（解释「为什么」而非复述「做了什么」）。
+  - 跨进程 / 跨包契约（IPC、`DesktopBridge`、`exports` 子路径、query key 约定等）。
+  - 并发、时序、缓存失效、WebSocket 触发 invalidation 等隐式依赖。
+  - 临时绕过 / TODO / 已知限制，注明原因与后续计划。
+- **简洁优先**：改动只触及必要代码，避免顺手重构无关逻辑；能复用现有抽象就不要新造。
+
 ## 提交规范
 
 使用 Conventional Commits（中文描述），如 `feat(automation): 新增定时任务自动化`、`fix(ui): 修复设置弹窗尺寸`。提交信息与代码注释优先用 `zh-Hans`。
