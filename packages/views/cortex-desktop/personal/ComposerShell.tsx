@@ -142,6 +142,9 @@ export function ComposerShell({
   const [dragOver, setDragOver] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  // slash 命令下拉:当前键盘高亮项 + 是否被 Esc 临时收起（下次编辑文本即重开）。
+  const [slashSel, setSlashSel] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -375,10 +378,16 @@ export function ComposerShell({
     else void startRecording();
   };
 
-  // slash 命令:输入 "/" 前缀即时匹配;唯一匹配时 Tab 直接执行。
+  // slash 命令:输入 "/" 前缀即时匹配;↑/↓ 选择、Enter/Tab 执行高亮项、Esc 收起。
   const slashQuery =
     slashCommands.length > 0 && text.trimStart().startsWith("/") && !text.includes("\n") ? text.trim() : null;
   const slashMatches = slashQuery ? slashCommands.filter((c) => c.cmd.startsWith(slashQuery)) : [];
+  const slashOpen = !!slashQuery && slashMatches.length > 0 && !slashDismissed;
+  // 查询变化（输入/删除字符）→ 高亮回到首项并撤销 Esc 收起;纯方向键导航不改 query,选择得以保持。
+  useEffect(() => {
+    setSlashSel(0);
+    setSlashDismissed(false);
+  }, [slashQuery]);
 
   const runCommand = (cmd: string) => {
     onSend(cmd, []);
@@ -386,10 +395,21 @@ export function ComposerShell({
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Tab" && slashQuery && slashMatches.length > 0) {
+    if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
-      if (slashMatches.length === 1) runCommand(slashMatches[0]!.cmd);
-      else setText(slashMatches[0]!.cmd); // 多个匹配:补全第一个
+      const n = slashMatches.length;
+      setSlashSel((i) => (e.key === "ArrowDown" ? (i + 1) % n : (i - 1 + n) % n));
+      return;
+    }
+    if (slashOpen && e.key === "Escape") {
+      e.preventDefault();
+      setSlashDismissed(true);
+      return;
+    }
+    // Tab / Enter:执行当前高亮的命令（高亮项可能因过滤变化越界,故 clamp）。
+    if (slashOpen && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing))) {
+      e.preventDefault();
+      runCommand(slashMatches[Math.min(slashSel, slashMatches.length - 1)]!.cmd);
       return;
     }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -503,23 +523,29 @@ export function ComposerShell({
             {running ? <span className="img-attach-hint">{t("composer.imagesHint")}</span> : null}
           </div>
         ) : null}
-        {/* slash 命令匹配提示:唯一匹配 Tab 直接执行,点击亦可执行 */}
-        {slashQuery && slashMatches.length > 0 ? (
-          <div className="pw-slash-hint">
-            {slashMatches.map((c) => (
-              <button
-                key={c.cmd}
-                className="pw-slash-item"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  runCommand(c.cmd);
-                }}
-              >
-                <code>{c.cmd}</code>
-                <span>{c.desc}</span>
-                {slashMatches.length === 1 ? <kbd className="pw-slash-kbd">{t("composer.slashRun")}</kbd> : null}
-              </button>
-            ))}
+        {/* slash 命令匹配提示:↑/↓ 选择、Enter/Tab 执行高亮项、点击亦可执行 */}
+        {slashOpen ? (
+          <div className="pw-slash-hint" role="listbox">
+            {slashMatches.map((c, i) => {
+              const active = i === Math.min(slashSel, slashMatches.length - 1);
+              return (
+                <button
+                  key={c.cmd}
+                  role="option"
+                  aria-selected={active}
+                  className={`pw-slash-item ${active ? "is-active" : ""}`}
+                  onMouseEnter={() => setSlashSel(i)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    runCommand(c.cmd);
+                  }}
+                >
+                  <code>{c.cmd}</code>
+                  <span>{c.desc}</span>
+                  {active ? <kbd className="pw-slash-kbd">{t("composer.slashRun")}</kbd> : null}
+                </button>
+              );
+            })}
           </div>
         ) : null}
         {editing ? (

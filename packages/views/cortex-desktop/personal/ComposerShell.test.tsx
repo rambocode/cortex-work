@@ -15,6 +15,7 @@ function renderShell(props: {
   onSteer?: (text: string) => void;
   onStop?: () => void;
   onSend?: (text: string) => void;
+  slashCommands?: { cmd: string; desc: string }[];
 }) {
   const node: ReactNode = (
     <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
@@ -24,6 +25,7 @@ function renderShell(props: {
         providerId={undefined}
         useOwnSkills={false}
         running={props.running}
+        slashCommands={props.slashCommands}
         onSend={(t) => props.onSend?.(t)}
         onStop={props.onStop}
         onSteer={props.onSteer}
@@ -40,6 +42,56 @@ function renderShell(props: {
 afterEach(() => {
   cleanup();
   usePersonalStore.setState({ providerSettings: { providers: [], defaultProviderId: undefined, defaultModel: undefined } });
+});
+
+describe("ComposerShell slash 键盘导航", () => {
+  const CMDS = [
+    { cmd: "/clear", desc: "清屏" },
+    { cmd: "/compact", desc: "压缩" },
+  ];
+
+  it("输入 / → 列出命令,首项高亮", () => {
+    const { container } = renderShell({ agent: "pi", running: false, slashCommands: CMDS });
+    const ta = screen.getByRole("textbox");
+    fireEvent.change(ta, { target: { value: "/" } });
+    const items = container.querySelectorAll(".pw-slash-item");
+    expect(items).toHaveLength(2);
+    expect(items[0]?.className).toContain("is-active");
+    expect(items[1]?.className).not.toContain("is-active");
+  });
+
+  it("↓ 移动高亮,Enter 执行高亮项", () => {
+    const onSend = vi.fn();
+    const { container } = renderShell({ agent: "pi", running: false, onSend, slashCommands: CMDS });
+    const ta = screen.getByRole("textbox");
+    fireEvent.change(ta, { target: { value: "/" } });
+    fireEvent.keyDown(ta, { key: "ArrowDown" });
+    const items = container.querySelectorAll(".pw-slash-item");
+    expect(items[1]?.className).toContain("is-active"); // 第二项高亮
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("/compact");
+  });
+
+  it("↑ 循环到末项,Tab 执行高亮项", () => {
+    const onSend = vi.fn();
+    renderShell({ agent: "pi", running: false, onSend, slashCommands: CMDS });
+    const ta = screen.getByRole("textbox");
+    fireEvent.change(ta, { target: { value: "/" } });
+    fireEvent.keyDown(ta, { key: "ArrowUp" }); // 首项再上 → 循环到末项
+    fireEvent.keyDown(ta, { key: "Tab" });
+    expect(onSend).toHaveBeenCalledWith("/compact");
+  });
+
+  it("Esc 收起下拉(Enter 不再执行命令而是正常发送)", () => {
+    const onSend = vi.fn();
+    const { container } = renderShell({ agent: "pi", running: false, onSend, slashCommands: CMDS });
+    const ta = screen.getByRole("textbox");
+    fireEvent.change(ta, { target: { value: "/clear" } });
+    fireEvent.keyDown(ta, { key: "Escape" });
+    expect(container.querySelector(".pw-slash-item")).toBeNull(); // 已收起
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("/clear"); // 走正常发送(交给 onSend 拦截层)
+  });
 });
 
 describe("ComposerShell steer 门控（U6）", () => {

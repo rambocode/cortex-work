@@ -6029,7 +6029,8 @@ button.sb-row {
   cursor: pointer;
   text-align: left;
 }
-.pw-slash-item:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-slash-item:hover,
+.pw-slash-item.is-active { background: var(--bg-hover); color: var(--text-1); }
 .pw-slash-item code {
   font-family: var(--mono);
   font-size: 12px;
