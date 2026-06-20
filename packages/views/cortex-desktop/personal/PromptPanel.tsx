@@ -1,7 +1,7 @@
 // 个人工作区右栏：Prompt 库（用户自选根目录，递归 .md 树）。
 // 文件可点击进入编辑器，也可拖入聊天输入框（dataTransfer 自定义协议）。
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { PromptNode } from "@cortex-work/core";
@@ -99,6 +99,29 @@ export function PromptPanel({ onToast, bare = false }: { onToast: (text: string)
     if (!bridge?.openPath || !promptRoot) return;
     void bridge.openPath(promptRoot).catch(() => onToast("打开目录失败"));
   };
+
+  // Prompt 目录实时监听:外部增删/改 .md 文件后自动重扫,无需手动刷新或关闭重开
+  // (复用 FilesView 同款 watchDir/onDirChanged;主进程已做噪声过滤 + 去抖)。静默刷新,不弹 toast。
+  useEffect(() => {
+    if (!bridge?.watchDir || !promptRoot) return;
+    const watchId = "prompt-panel";
+    void bridge.watchDir(watchId, promptRoot).catch(() => {
+      /* 监听失败(权限等):保留手动刷新 */
+    });
+    const off = bridge.onDirChanged?.((id) => {
+      if (id !== watchId) return;
+      void bridge.scanPromptTree!(promptRoot).then(
+        (tree) => setPromptTree(tree),
+        () => {
+          /* 重扫失败(目录已移动等):保持现状,用户可手动刷新/更换目录 */
+        },
+      );
+    });
+    return () => {
+      off?.();
+      bridge.unwatchDir?.(watchId);
+    };
+  }, [bridge, promptRoot, setPromptTree]);
 
   const inner = (
     <>
