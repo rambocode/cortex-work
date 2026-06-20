@@ -80,10 +80,15 @@ export function externalUrlForWindowOpen(value: string): string | null {
 }
 
 // 强制覆盖 webview 的安全相关 webPreferences,不信渲染端 attribute(防篡改绕过隔离)。
-function hardenWebviewPreferences(webPreferences: Record<string, unknown>): void {
+// deny-by-default:已知危险项一律清零/关闭,而非只覆盖常见几项(安全评审 P1-1)。
+export function hardenWebviewPreferences(webPreferences: Record<string, unknown>): void {
   delete webPreferences["preload"]; // 不给第三方内容注入任何业务 preload
+  delete webPreferences["enableBlinkFeatures"]; // 不放行实验性 Blink 能力
+  delete webPreferences["experimentalFeatures"];
   webPreferences["nodeIntegration"] = false;
   webPreferences["nodeIntegrationInSubFrames"] = false;
+  webPreferences["nodeIntegrationInWorker"] = false;
+  webPreferences["webviewTag"] = false; // 禁止在不可信内容里再嵌套 webview
   webPreferences["contextIsolation"] = true;
   webPreferences["sandbox"] = true;
   webPreferences["webSecurity"] = true;
@@ -113,9 +118,12 @@ function attachWebviewNavigationGuards(contents: WebContents): void {
 // createWindow 之前)。
 export function installBrowserWebviewGuards(): void {
   app.on("web-contents-created", (_event, contents) => {
-    // 宿主 webContents 上挂 attach 闸门:webview 挂载时强制安全 prefs + 校验初始 src。
+    // 宿主 webContents 上挂 attach 闸门:webview 挂载时强制安全 prefs + 锁定 partition +
+    // 校验初始 src。强制 partition 防渲染端把 webview 改挂到无 deny-by-default 防护的
+    // session 上绕过 partition.ts 的权限/下载拦截(安全评审 P1-2,不信渲染端声明)。
     contents.on("will-attach-webview", (event, webPreferences, params) => {
       hardenWebviewPreferences(webPreferences as unknown as Record<string, unknown>);
+      (params as { partition?: string }).partition = BROWSER_PARTITION;
       const src = typeof params.src === "string" ? params.src : "";
       if (src && !evaluateNavigation({ targetUrl: src, currentOrigin: null })) {
         event.preventDefault();

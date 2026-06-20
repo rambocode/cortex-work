@@ -110,9 +110,10 @@ export interface PersonalState {
   // 在内嵌浏览器打开某 URL 的请求(卡片点击 / auto_open)。BrowserView 监听 nonce 变化
   // 后加载;nonce 让「同 URL 再次请求」也能触发重载。瞬态,不进 toPersistedState。
   browserUrlRequest?: { url: string; nonce: number };
-  // 最近一次 auto_open 已自动打开的「会话:URL」键。防探测结果在重渲染中反复自动弹面板
-  // (同键不再触发)。瞬态,不进 toPersistedState。
-  autoOpenedPreviewKey?: string;
+  // 已 auto_open 自动打开过的「会话:URL」键集合。防探测结果在重渲染/多会话来回切换中
+  // 反复自动弹面板(同键不再触发)。用数组而非单槽,否则切到别的会话再切回会重复弹
+  // (安全/正确性评审)。瞬态,不进 toPersistedState。
+  autoOpenedPreviewKeys: string[];
   // 右栏当前视图（顶栏下拉选择）。
   rightView: RightView;
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
@@ -327,6 +328,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   piRuntimeBySession: {},
   modeBlockHints: {},
   piUiPending: [],
+  autoOpenedPreviewKeys: [],
   terminalOpen: false,
   rightView: "todos" as const,
   homeOpen: true,
@@ -766,7 +768,13 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       browserUrlRequest: { url, nonce: (s.browserUrlRequest?.nonce ?? 0) + 1 },
       rightView: "browser",
     })),
-  markAutoOpenedPreview: (key) => set({ autoOpenedPreviewKey: key }),
+  markAutoOpenedPreview: (key) =>
+    set((s) =>
+      s.autoOpenedPreviewKeys.includes(key)
+        ? s
+        : // 仅留最近 50 条,防长会话无限增长。
+          { autoOpenedPreviewKeys: [...s.autoOpenedPreviewKeys, key].slice(-50) },
+    ),
   setRightView: (view) => set({ rightView: view }),
 
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),

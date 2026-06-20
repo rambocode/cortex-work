@@ -1,5 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { evaluateNavigation, externalUrlForWindowOpen } from "./webviewGuards";
+import {
+  evaluateNavigation,
+  externalUrlForWindowOpen,
+  hardenWebviewPreferences,
+} from "./webviewGuards";
+
+describe("hardenWebviewPreferences — deny-by-default 强制安全 prefs", () => {
+  it("删除 preload/实验性能力,关闭 node/嵌套 webview,开 contextIsolation/sandbox", () => {
+    const prefs: Record<string, unknown> = {
+      preload: "/evil/preload.js",
+      nodeIntegration: true,
+      enableBlinkFeatures: "Foo",
+      experimentalFeatures: true,
+      webviewTag: true,
+    };
+    hardenWebviewPreferences(prefs);
+    expect(prefs.preload).toBeUndefined();
+    expect(prefs.enableBlinkFeatures).toBeUndefined();
+    expect(prefs.experimentalFeatures).toBeUndefined();
+    expect(prefs.nodeIntegration).toBe(false);
+    expect(prefs.nodeIntegrationInSubFrames).toBe(false);
+    expect(prefs.nodeIntegrationInWorker).toBe(false);
+    expect(prefs.webviewTag).toBe(false);
+    expect(prefs.contextIsolation).toBe(true);
+    expect(prefs.sandbox).toBe(true);
+    expect(prefs.webSecurity).toBe(true);
+    expect(prefs.allowRunningInsecureContent).toBe(false);
+  });
+});
 
 describe("evaluateNavigation — scheme 严格白名单", () => {
   it("放行任意 https(地址栏发起)", () => {

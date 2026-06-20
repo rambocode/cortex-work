@@ -22,7 +22,6 @@ import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/
 import type { Conversation, Message } from "@cortex-work/core/types";
 import {
   extractDetectedDevPreviewUrls,
-  extractAutoOpenDevPreviewUrls,
   extractLatestTurnDevPreviewUrls,
   extractLatestTurnAutoOpenDevPreviewUrls,
 } from "@cortex-work/core/personal/devPreviewDetection";
@@ -129,7 +128,7 @@ export function PersonalChatArea({
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
   const requestBrowserUrl = usePersonalStore((s) => s.requestBrowserUrl);
-  const autoOpenedPreviewKey = usePersonalStore((s) => s.autoOpenedPreviewKey);
+  const autoOpenedPreviewKeys = usePersonalStore((s) => s.autoOpenedPreviewKeys);
   const markAutoOpenedPreview = usePersonalStore((s) => s.markAutoOpenedPreview);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
@@ -166,12 +165,13 @@ export function PersonalChatArea({
     ];
     return Array.from(new Set(merged)).slice(0, 4);
   }, [allMessages, processMessages]);
-  // auto_open(仅环回,SSRF 收紧):取最近一轮 / 过程流里第一个自动打开候选。
-  const autoOpenPreviewUrl = useMemo(() => {
-    const fromChat = extractLatestTurnAutoOpenDevPreviewUrls(allMessages);
-    const fromProcess = extractAutoOpenDevPreviewUrls(processMessages);
-    return fromChat[0] ?? fromProcess[0] ?? null;
-  }, [allMessages, processMessages]);
+  // auto_open(仅环回,SSRF 收紧):**只信主信号**(最近一轮 assistant 正文)。process 流
+  // (agentLog)无 user 消息、无法按轮次切片,从后往前扫可能取到上一轮旧 URL → 误自动打开,
+  // 故 auto_open 不用 process 流(card 模式才用,见上;正确性评审)。
+  const autoOpenPreviewUrl = useMemo(
+    () => extractLatestTurnAutoOpenDevPreviewUrls(allMessages)[0] ?? null,
+    [allMessages],
+  );
 
   const openPreview = useCallback(
     (url: string) => {
@@ -186,11 +186,11 @@ export function PersonalChatArea({
   useEffect(() => {
     if (!autoOpenPreviewUrl || !session) return;
     const key = `${session.id}:${autoOpenPreviewUrl}`;
-    if (key === autoOpenedPreviewKey) return;
+    if (autoOpenedPreviewKeys.includes(key)) return;
     markAutoOpenedPreview(key);
     openPreview(autoOpenPreviewUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoOpenPreviewUrl, session?.id, autoOpenedPreviewKey]);
+  }, [autoOpenPreviewUrl, session?.id, autoOpenedPreviewKeys]);
   const [showHiddenHistory, setShowHiddenHistory] = useState(false);
   const [ttsPlayback, setTtsPlayback] = useState(getTtsPlaybackState);
   // 编辑重发:正在编辑的历史用户消息(原文填入 composer,发送时截断其后所有消息)。

@@ -183,6 +183,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
     webview.addEventListener("did-navigate-in-page", onNavigate);
     webview.addEventListener("did-fail-load", onFail);
     webview.addEventListener("page-title-updated", onTitle);
+    // 首帧补偿:若 did-stop-loading 在监听注册前已触发,主动同步一次按钮态/地址(正确性评审)。
+    syncNav();
     return () => {
       webview.removeEventListener("did-start-loading", onStart);
       webview.removeEventListener("did-stop-loading", onStop);
@@ -249,6 +251,9 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
       setActiveUrl(prev);
       setDraftUrl(formatAddressInput(prev));
       setLoading(true);
+      // 回到与历史项相同的 URL 字符串时,iframe key 含 reloadNonce 才会变 → 重挂触发 onLoad,
+      // 否则 loading 卡到超时误报失败(正确性评审)。
+      setIframeReloadNonce((n) => n + 1);
       return;
     }
     try {
@@ -268,6 +273,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
       setActiveUrl(next);
       setDraftUrl(formatAddressInput(next));
       setLoading(true);
+      setIframeReloadNonce((n) => n + 1);
       return;
     }
     try {
