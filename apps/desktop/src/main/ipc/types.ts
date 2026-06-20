@@ -206,6 +206,8 @@ export interface CliStartRequest {
   images?: CliImageRef[];
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数;pi 忽略。
   effort?: ReasoningEffort;
+  // 运行模式（权限松紧）:claude/codex adapter 翻译成原生标志;缺省 = full-auto。pi 不走本 DTO。
+  permissionMode?: PermissionMode;
   // pi 专用:renderer 传入当前会话选中供应商的完整配置,主进程据此生成 extension
   // 并注入 key env。
   provider?: {
@@ -309,6 +311,8 @@ export interface PiOpenRequest {
   approvalTools?: string[]; // 需审批的工具集（缺省 DEFAULT_APPROVAL_TOOLS）
   enableSampleTools?: boolean;
   enableSampleCommands?: boolean;
+  // 运行模式 plan 档:只读工具白名单。存在则 buildRpcArgs 注入 --tools <逗号拼接>;缺省 = 全工具。
+  toolWhitelist?: string[];
   // 主进程内部填充:除 provider 外追加的 extension 路径（审批/样例工具/命令），各加一个 -e。
   extraExtensionPaths?: string[];
   // pi 持久追加 system prompt（阶段4）:renderer 传,buildRpcArgs → --append-system-prompt。
@@ -562,6 +566,9 @@ export interface DocFileRaw {
 // ── 自动化（定时任务,与 core/desktop/types.ts 镜像） ──────────────────────
 
 export type ReasoningEffort = "low" | "medium" | "high";
+
+// 运行模式（权限松紧）三档,与 core/desktop/types.ts 镜像。adapter 翻译成各 CLI 原生标志。
+export type PermissionMode = "plan" | "accept-edits" | "full-auto";
 
 // weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
 export type ScheduleSpec =

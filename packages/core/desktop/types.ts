@@ -62,6 +62,9 @@ export interface SessionMeta {
   // 是否加载 agent 自身的 skills（claude: 关闭时传 --disable-slash-commands）。
   // 缺省视为 true。
   useOwnSkills?: boolean;
+  // 运行模式（权限松紧）:plan / accept-edits / full-auto。缺省 = full-auto（历史默认全自动）。
+  // claude/codex 逐轮 fresh spawn,改值下一轮即生效;pi RPC 长驻,改值触发会话重开。
+  permissionMode?: PermissionMode;
   // /clear 后默认隐藏到此游标为止的历史消息；消息文件本身仍完整保留。
   hiddenHistory?: HiddenHistoryMeta;
   // 归档时间戳;缺省 = 在会话列表。归档后默认从列表隐藏。
@@ -660,6 +663,9 @@ export interface CliStartRequest {
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数
   //（claude --effort / codex model_reasoning_effort）;不支持的 agent（pi）忽略。
   effort?: ReasoningEffort;
+  // 运行模式（权限松紧）:claude/codex adapter 翻译成原生标志（claude --permission-mode /
+  // codex -s+approval_policy）;缺省 = full-auto（历史默认）。pi 不走本 DTO（走 PiOpenRequest）。
+  permissionMode?: PermissionMode;
   // pi 专用:renderer 把当前会话选中的供应商完整配置拍平传入,主进程据此生成
   // extension（registerProvider）+ 注入 key env（与 llm.ts「主进程不读设置文件」惯例一致）。
   provider?: {
@@ -754,6 +760,9 @@ export interface PiOpenRequest {
   approvalTools?: string[];
   enableSampleTools?: boolean;
   enableSampleCommands?: boolean;
+  // 运行模式 plan 档:只读工具白名单（renderer 由 permissionMode 派生）。存在则 buildRpcArgs
+  // 注入 --tools <逗号拼接>;缺省 = 不传 = 全工具可用（accept-edits / full-auto）。
+  toolWhitelist?: string[];
   // 主进程内部填充:除 provider 外追加的 extension 路径。
   extraExtensionPaths?: string[];
   // pi 持久追加 system prompt（阶段4）:renderer 传,buildRpcArgs → --append-system-prompt。
@@ -958,6 +967,19 @@ export interface DocFileRaw {
 // 推理强度三档。各 agent adapter 尽力翻译:claude `--effort`、codex
 // `-c model_reasoning_effort=`;pi 无对应 flag,忽略。
 export type ReasoningEffort = "low" | "medium" | "high";
+
+// 运行模式（权限松紧）三档。各 agent 在非交互 print 模式下尽力翻译成原生标志:
+//   plan        只读分析+出计划,不改文件/不跑写执行类工具
+//               (claude `--permission-mode plan`、codex `-s read-only`、pi `--tools read,grep,find,ls`)
+//   accept-edits 自动接受文件编辑,写工作区放行;危险/执行类工具受限或仍审批
+//               (claude `--permission-mode acceptEdits`、codex `-s workspace-write`、pi 审批 hook 排除 edit/write)
+//   full-auto   跳过全部权限,所有工具直接执行(= 历史默认行为)
+//               (claude `--dangerously-skip-permissions`、codex `--dangerously-bypass-approvals-and-sandbox`、pi 不注入审批 extension)
+export type PermissionMode = "plan" | "accept-edits" | "full-auto";
+// 缺省回退:旧会话无 permissionMode 字段时按此处理,与历史「全自动」行为一致。
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "full-auto";
+// pi plan 档只读工具白名单(pi 官方钦定的 read-only 配方,物理上无 write/edit/bash)。
+export const PI_PLAN_TOOL_WHITELIST = ["read", "grep", "find", "ls"];
 
 // 定时规则。weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
 // minute 0-59,hour 0-23。cron 为 5 段标准表达式（分 时 日 月 周）。
