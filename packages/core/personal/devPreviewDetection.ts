@@ -214,6 +214,21 @@ function isAbsoluteOrHomePath(p: string): boolean {
   return p.startsWith("/") || p.startsWith("~/");
 }
 
+// 从一段纯文本里抽绝对/家目录的 .html 路径(去重)。供 markdown 内联预览(chatMarkdown 的
+// fenced 代码块)与下方按消息探测复用。
+export function findLocalHtmlPathsInText(text: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const match of text.matchAll(LOCAL_HTML_PATH_RE)) {
+    const raw = match[0].replace(/[`),.;]+$/g, "");
+    // 只收绝对/家目录路径;相对路径(./、../)无法可靠解析授权,跳过。
+    if (!isAbsoluteOrHomePath(raw) || seen.has(raw)) continue;
+    seen.add(raw);
+    paths.push(raw);
+  }
+  return paths;
+}
+
 export function extractDetectedLocalHtmlPaths(messages: Message[]): string[] {
   const paths: string[] = [];
   const seen = new Set<string>();
@@ -221,10 +236,8 @@ export function extractDetectedLocalHtmlPaths(messages: Message[]): string[] {
     const message = messages[i]!;
     const text = textFromMessage(message);
     if (!text) continue;
-    for (const match of text.matchAll(LOCAL_HTML_PATH_RE)) {
-      const raw = match[0].replace(/[`),.;]+$/g, "");
-      // 只收绝对/家目录路径;相对路径(./、../)无法可靠解析授权,跳过。
-      if (!isAbsoluteOrHomePath(raw) || seen.has(raw)) continue;
+    for (const raw of findLocalHtmlPathsInText(text)) {
+      if (seen.has(raw)) continue;
       seen.add(raw);
       paths.push(raw);
       if (paths.length >= MAX_DETECTED_URLS) return paths;

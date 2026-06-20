@@ -90,7 +90,10 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
 
   const webviewRef = useRef<WebviewTag | null>(null);
   const iframeLoadedUrlRef = useRef<string | null>(null);
-  const lastRequestNonceRef = useRef<number>(browserUrlRequest?.nonce ?? 0);
+  // 从 0 起,而非挂载时的 nonce:面板常是被本次请求打开的(挂载时 browserUrlRequest.nonce 已是
+  // 新值),若用它初始化会把「触发打开的那次请求」误判为已消费 → 首次点击空白、需再点一次。
+  // 从 0 起则挂载即消费当前 pending 请求(修首次点击空白)。
+  const lastRequestNonceRef = useRef<number>(0);
 
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [draftUrl, setDraftUrl] = useState("");

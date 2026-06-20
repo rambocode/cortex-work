@@ -19,15 +19,10 @@ import {
 } from "@cortex-work/core";
 import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Conversation, Message } from "@cortex-work/core/types";
-import {
-  extractDetectedDevPreviewUrls,
-  extractDetectedLocalHtmlPaths,
-  extractLatestTurnAutoOpenDevPreviewUrls,
-} from "@cortex-work/core/personal/devPreviewDetection";
+import { extractLatestTurnAutoOpenDevPreviewUrls } from "@cortex-work/core/personal/devPreviewDetection";
 import { MessageStream } from "../ChatArea";
 import { agentContact } from "./agentMeta";
 import { AskQuestionCard } from "./AskQuestionCard";
-import { DevPreviewCard } from "./DevPreviewCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
 import { ModeBlockBanner } from "./ModeBlockBanner";
@@ -168,26 +163,6 @@ export function PersonalChatArea({
     [requestBrowserUrl, setRightOpen],
   );
 
-  // 本地 HTML 文件:先经主进程授权为 file:// URL(校验在允许根内/.html/realpath),再内嵌打开。
-  const openLocalHtml = useCallback(
-    (path: string) => {
-      const resolve = bridge?.browserResolveLocalHtml;
-      if (!resolve) {
-        // 无桥(Web 端):退化为系统打开(若可用)。
-        void bridge?.openExternal?.(path).catch(() => undefined);
-        return;
-      }
-      void resolve(path).then(
-        (fileUrl) => {
-          if (fileUrl) openPreview(fileUrl);
-          else onToast("无法预览该文件(不在允许目录或不是 HTML)");
-        },
-        () => onToast("预览失败"),
-      );
-    },
-    [bridge, openPreview, onToast],
-  );
-
   // auto_open:输出明确像 dev server 且为环回时自动打开内嵌浏览器,按「会话:URL」去重,
   // 防重渲染反复弹(计划 U5)。
   useEffect(() => {
@@ -309,20 +284,11 @@ export function PersonalChatArea({
       }
       // agent 回复:复制 +(仅在开启「实时朗读」时)朗读开关。正在朗读时常驻显示便于停止。
       const speaking = ttsPlayback.isSpeaking;
-      // 内联预览入口:本条回复正文里探测到本地 dev URL / 本地 HTML 文件时,在消息正文下方直接给
-      // 「预览」chip(不再用浮在输入框上的卡片;用户要求 #1)。
-      const previewUrls = extractDetectedDevPreviewUrls([m]);
-      const previewHtmlPaths = extractDetectedLocalHtmlPaths([m]);
+      // 本地 HTML / dev URL 的预览入口已内联到消息正文里(见 chatMarkdown 的 pre 渲染:代码块
+      // 含 .html 路径时正下方给「预览网页」按钮),此处消息底部不再重复。
       return (
-        <>
-          <DevPreviewCard
-            urls={previewUrls}
-            htmlPaths={previewHtmlPaths}
-            onOpen={openPreview}
-            onOpenPath={openLocalHtml}
-          />
-          <div className="m-msg-actions">
-            <span className="m-msg-time">{m.time}</span>
+        <div className="m-msg-actions">
+          <span className="m-msg-time">{m.time}</span>
           <div className={`m-act-row ${speaking ? "is-active" : ""}`}>
             <button
               type="button"
@@ -359,23 +325,11 @@ export function PersonalChatArea({
                 <Icon.Reply size={15} />
               </button>
             ) : null}
-            </div>
           </div>
-        </>
+        </div>
       );
     },
-    [
-      session,
-      project,
-      running,
-      editResend,
-      ttsPlayback.isSpeaking,
-      ttsSettings,
-      bridge,
-      onToast,
-      openPreview,
-      openLocalHtml,
-    ],
+    [session, project, running, editResend, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast],
   );
 
   // 追问浮层的会话上下文(R6:复用当前会话 agent/model/cwd/provider,不新建会话)。

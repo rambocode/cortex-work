@@ -7678,3 +7678,14 @@ button.sb-row {
   cursor: pointer; transition: border-color .12s, color .12s;
 }
 .pw-devpreview-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 内联「预览网页」按钮:渲染在含本地 .html 路径的代码块正下方(见 chatMarkdown.tsx pre 渲染)。 */
+.pw-html-preview-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin: 6px 0 2px; padding: 4px 11px;
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  background: var(--bg-hover); color: var(--text-1);
+  font-size: 11.5px; font-weight: 500; cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.pw-html-preview-btn:hover { border-color: var(--accent); color: var(--accent); }

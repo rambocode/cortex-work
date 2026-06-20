@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frontend Design · 设计准则</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=IBM+Plex+Mono:wght@450;500;600&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================
+   Tokens
+   ============================================ */
+:root {
+  --color-bg: #f7f8fa;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f3f4f6;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+
+  --color-text: #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
+  --color-text-inverse: #ffffff;
+
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-soft: #eff6ff;
+  --color-accent-border: #bfdbfe;
+
+  --color-success: #059669;
+  --color-success-soft: #ecfdf5;
+  --color-warning: #d97706;
+  --color-warning-soft: #fffbeb;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fef2f2;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,0.1);
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'Playfair Display', Georgia, serif;
+
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+  --space-4xl: 80px;
+
+  --content-max: 1200px;
+}
+
+/* ============================================
+   Reset & Base
+   ============================================ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;scroll-behavior:smooth}
+body{font-family:var(--font-sans);color:var(--color-text);background:var(--color-bg);line-height:1.6;min-height:100vh}
+
+/* ============================================
+   Typography
+   ============================================ */
+h1,h2,h3,h4{line-height:1.2;font-weight:600;color:var(--color-text)}
+h1{font-size:clamp(2rem,4vw,3rem);letter-spacing:-0.03em;font-weight:700}
+h2{font-size:clamp(1.35rem,2.2vw,1.75rem);letter-spacing:-0.02em;font-weight:600}
+h3{font-size:1.125rem;font-weight:600;letter-spacing:-0.01em}
+h4{font-size:0.9375rem;font-weight:600}
+p{max-width:65ch;color:var(--color-text-secondary)}
+code,pre{font-family:var(--font-mono);font-size:0.8125rem}
+code{background:var(--color-surface-hover);padding:2px 6px;border-radius:4px;font-weight:500}
+pre{background:#1a1a2e;color:#e2e8f0;padding:var(--space-md);border-radius:var(--radius-md);overflow-x:auto;line-height:1.5;font-size:0.8125rem;tab-size:2}
+
+/* ============================================
+   Layout
+   ============================================ */
+.container{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-lg)}
+.section{padding:var(--space-3xl) 0;border-bottom:1px solid var(--color-border)}
+.section:last-child{border-bottom:none}
+.section-header{margin-bottom:var(--space-xl)}
+.section-header p{margin-top:var(--space-sm)}
+.grid-2{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:var(--space-lg)}
+.grid-3{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:var(--space-lg)}
+.grid-5{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr));gap:var(--space-md)}
+
+/* ============================================
+   Navbar
+   ============================================ */
+.navbar{position:sticky;top:0;z-index:100;background:rgba(247,248,250,0.85);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom:1px solid var(--color-border)}
+.navbar-inner{display:flex;align-items:center;height:56px;gap:var(--space-lg)}
+.navbar-brand{font-weight:600;font-size:0.9375rem;letter-spacing:-0.02em;color:var(--color-text);text-decoration:none;white-space:nowrap}
+.navbar-links{display:flex;gap:var(--space-sm);overflow-x:auto;scrollbar-width:none;flex:1}
+.navbar-links::-webkit-scrollbar{display:none}
+.nav-link{font-size:0.8125rem;color:var(--color-text-secondary);text-decoration:none;padding:var(--space-xs) var(--space-sm);border-radius:var(--radius-sm);white-space:nowrap;transition:color .15s,background .15s}
+.nav-link:hover{color:var(--color-text);background:var(--color-surface-hover)}
+.nav-link:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+
+/* ============================================
+   Hero
+   ============================================ */
+.hero{padding:var(--space-4xl) 0 var(--space-3xl)}
+.hero h1{display:flex;align-items:baseline;gap:var(--space-md);flex-wrap:wrap}
+.hero-badge{font-size:0.75rem;font-weight:500;color:var(--color-accent);background:var(--color-accent-soft);border:1px solid var(--color-accent-border);padding:3px 10px;border-radius:100px;text-transform:uppercase;letter-spacing:0.06em}
+.hero-sub{font-size:clamp(1rem,1.6vw,1.2rem);color:var(--color-text-secondary);max-width:56ch;margin-top:var(--space-md);line-height:1.6}
+.hero-meta{display:flex;gap:var(--space-lg);margin-top:var(--space-lg);flex-wrap:wrap}
+.hero-meta-item{display:flex;align-items:center;gap:var(--space-sm);font-size:0.8125rem;color:var(--color-text-muted)}
+.hero-meta-item svg{width:16px;height:16px;flex-shrink:0;color:var(--color-accent)}
+
+/* ============================================
+   Cards
+   ============================================ */
+.card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-lg);transition:box-shadow .2s,border-color .2s}
+.card:hover{box-shadow:var(--shadow-md);border-color:var(--color-border-strong)}
+.card:focus-within{box-shadow:0 0 0 2px var(--color-accent);border-color:var(--color-accent)}
+.card-title{font-size:1rem;font-weight:600;margin-bottom:var(--space-sm);display:flex;align-items:center;gap:var(--space-sm)}
+.card-desc{font-size:0.875rem;color:var(--color-text-secondary);line-height:1.5}
+.card-list{list-style:none;margin-top:var(--space-md)}
+.card-list li{font-size:0.8125rem;color:var(--color-text-secondary);padding:3px 0;padding-left:var(--space-md);position:relative}
+.card-list li::before{content:'—';position:absolute;left:0;color:var(--color-text-muted)}
+.card-tag{display:inline-block;font-size:0.6875rem;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:100px;background:var(--color-accent-soft);color:var(--color-accent);margin-top:var(--space-sm)}
+.card-tag.warning{background:var(--color-warning-soft);color:var(--color-warning)}
+.card-tag.danger{background:var(--color-danger-soft);color:var(--color-danger)}
+.card-tag.success{background:var(--color-success-soft);color:var(--color-success)}
+
+/* ============================================
+   Direction Cards (feature with accent border)
+   ============================================ */
+.direction-card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-lg);transition:box-shadow .2s,border-color .2s;position:relative}
+.direction-card:hover{box-shadow:var(--shadow-md);border-color:var(--color-border-strong)}
+.direction-card::before{content:'';display:block;width:100%;height:3px;background:var(--color-accent);border-radius:3px 3px 0 0;margin-bottom:var(--space-md)}
+.direction-card h4{font-size:0.9375rem;margin-bottom:var(--space-xs)}
+.direction-card .mood{font-size:0.75rem;color:var(--color-text-muted);margin-bottom:var(--space-sm);text-transform:uppercase;letter-spacing:0.04em}
+.direction-card p{font-size:0.8125rem;color:var(--color-text-secondary);line-height:1.5}
+.direction-card .avoid{font-size:0.75rem;color:var(--color-danger);margin-top:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--color-danger-soft);line-height:1.4}
+
+/* ============================================
+   Craft Rules - Visual Examples
+   ============================================ */
+.rule-group{margin-bottom:var(--space-lg)}
+.rule-group:last-child{margin-bottom:0}
+.rule-label{font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted);margin-bottom:var(--space-sm)}
+.rule-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:var(--space-md)}
+.rule-item{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-md)}
+.rule-item h4{font-size:0.8125rem;margin-bottom:var(--space-xs)}
+.rule-item p{font-size:0.75rem;color:var(--color-text-muted);line-height:1.5}
+
+/* Type demo blocks */
+.type-demo-display{font-family:var(--font-display);font-size:1.75rem;font-weight:700;letter-spacing:-0.03em;line-height:1.1;color:var(--color-text)}
+.type-demo-body{font-size:0.9375rem;line-height:1.6;color:var(--color-text-secondary);max-width:50ch}
+.type-demo-mono{font-family:var(--font-mono);font-size:0.8125rem;color:var(--color-text)}
+.type-demo-uppercase{font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--color-text-secondary)}
+
+/* Color swatches */
+.color-swatch{display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-top:var(--space-sm)}
+.swatch{width:32px;height:32px;border-radius:var(--radius-sm);border:1px solid var(--color-border);flex-shrink:0}
+.swatch-label{font-size:0.6875rem;color:var(--color-text-muted);text-align:center;margin-top:2px}
+
+/* ============================================
+   State Demos
+   ============================================ */
+.state-demo{display:flex;flex-wrap:wrap;gap:var(--space-md)}
+.demo-btn{font-family:var(--font-sans);font-size:0.8125rem;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-surface);color:var(--color-text);cursor:pointer;transition:all .12s}
+.demo-btn:hover{background:var(--color-surface-hover);border-color:var(--color-border-strong)}
+.demo-btn:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+.demo-btn.primary{background:var(--color-accent);color:var(--color-text-inverse);border-color:var(--color-accent)}
+.demo-btn.primary:hover{background:var(--color-accent-hover)}
+.demo-btn.primary:disabled{opacity:0.4;cursor:not-allowed}
+.demo-btn.danger{background:var(--color-danger);color:var(--color-text-inverse);border-color:var(--color-danger)}
+.demo-btn.loading{position:relative;pointer-events:none;opacity:0.7}
+.demo-btn.loading::after{content:'';display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;margin-left:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Status chips */
+.chip-group{display:flex;gap:var(--space-sm);flex-wrap:wrap}
+.chip{font-size:0.75rem;font-weight:500;padding:3px 10px;border-radius:100px;border:1px solid var(--color-border);color:var(--color-text-secondary);background:var(--color-surface)}
+.chip.success{border-color:var(--color-success);color:var(--color-success);background:var(--color-success-soft)}
+.chip.warning{border-color:var(--color-warning);color:var(--color-warning);background:var(--color-warning-soft)}
+.chip.danger{border-color:var(--color-danger);color:var(--color-danger);background:var(--color-danger-soft)}
+.chip.accent{border-color:var(--color-accent);color:var(--color-accent);background:var(--color-accent-soft)}
+
+/* Skeleton */
+.skeleton-line{height:12px;background:var(--color-surface-hover);border-radius:4px;margin-bottom:var(--space-sm);animation:pulse 1.5s ease-in-out infinite}
+.skeleton-line:last-child{width:60%}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+/* Empty state */
+.empty-state{text-align:center;padding:var(--space-xl) var(--space-lg);border:2px dashed var(--color-border);border-radius:var(--radius-lg)}
+.empty-state svg{width:40px;height:40px;color:var(--color-text-muted);margin-bottom:var(--space-sm)}
+.empty-state h4{font-size:0.9375rem;margin-bottom:var(--space-xs)}
+.empty-state p{font-size:0.8125rem;color:var(--color-text-muted);margin-bottom:var(--space-md)}
+
+/* Inline message */
+.inline-msg{font-size:0.8125rem;padding:var(--space-sm) var(--space-md);border-radius:var(--radius-sm);display:flex;align-items:flex-start;gap:var(--space-sm)}
+.inline-msg.error{background:var(--color-danger-soft);color:var(--color-danger);border:1px solid #fecaca}
+.inline-msg.success{background:var(--color-success-soft);color:var(--color-success);border:1px solid #a7f3d0}
+
+/* ============================================
+   UI Element Sample
+   ============================================ */
+.ui-sample{border:1px solid var(--color-border);border-radius:var(--radius-lg);overflow:hidden;background:var(--color-surface)}
+.ui-sample-header{padding:var(--space-md);border-bottom:1px solid var(--color-border);display:flex;align-items:center;justify-content:space-between;background:var(--color-bg)}
+.ui-sample-header h4{font-size:0.8125rem;font-weight:600}
+.ui-sample-body{padding:var(--space-lg)}
+.ui-table{width:100%;border-collapse:collapse;font-size:0.8125rem}
+.ui-table th{padding:var(--space-sm);text-align:left;font-weight:500;color:var(--color-text-muted);border-bottom:1px solid var(--color-border);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em}
+.ui-table td{padding:var(--space-sm);border-bottom:1px solid var(--color-border);color:var(--color-text)}
+.ui-table tr:last-child td{border-bottom:none}
+.ui-table td:first-child{font-weight:500}
+.ui-table td:last-child{font-family:var(--font-mono);color:var(--color-text-secondary);tabular-nums:true}
+
+/* ============================================
+   Footer
+   ============================================ */
+.site-footer{padding:var(--space-xl) 0;text-align:center;font-size:0.75rem;color:var(--color-text-muted);border-top:1px solid var(--color-border)}
+
+/* ============================================
+   Responsive
+   ============================================ */
+@media (max-width: 768px) {
+  .container{padding:0 var(--space-md)}
+  .section{padding:var(--space-2xl) 0}
+  .hero{padding:var(--space-2xl) 0}
+  .hero h1{font-size:clamp(1.5rem,5vw,2rem)}
+  .navbar-inner{gap:var(--space-md)}
+  .navbar-links{order:2;width:100%;margin-top:0}
+  .navbar-inner{flex-wrap:wrap;height:auto;padding:var(--space-sm) 0}
+  .grid-5{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width: 480px) {
+  .grid-2,.grid-3,.grid-5{grid-template-columns:1fr}
+  .hero-meta{flex-direction:column;gap:var(--space-sm)}
+}
+@media (prefers-reduced-motion: reduce) {
+  *,*::before,*::after{animation-duration:0.01ms!important;transition-duration:0.01ms!important}
+}
+</style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar" aria-label="页面导航">
+  <div class="container navbar-inner">
+    <a href="#" class="navbar-brand">Frontend Design</a>
+    <div class="navbar-links" role="list">
+      <a href="#directions" class="nav-link" role="listitem">设计方向</a>
+      <a href="#craft" class="nav-link" role="listitem">工艺准则</a>
+      <a href="#ui-elements" class="nav-link" role="listitem">UI 组件</a>
+      <a href="#states" class="nav-link" role="listitem">状态与响应式</a>
+      <a href="#anti-slop" class="nav-link" role="listitem">避坑指南</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="container">
+    <h1>
+      <span>Frontend Design</span>
+      <span class="hero-badge">v1.0 · 技能准则</span>
+    </h1>
+    <p class="hero-sub">
+      一套面向生产级前端界面的设计系统方法论。从设计方向选择、排版色彩规范，到组件状态、响应式适配，再到可交付质量检查——覆盖完整工作流。
+    </p>
+    <div class="hero-meta">
+      <span class="hero-meta-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        5 种设计方向
+      </span>
+      <span class="hero-meta-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        7 项工艺规则
+      </span>
+      <span class="hero-meta-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+        8+ 组件指南
+      </span>
+      <span class="hero-meta-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+        7 个断点覆盖
+      </span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============================================
+     Design Directions
+     ============================================ -->
+<section class="section" id="directions">
+  <div class="container">
+    <div class="section-header">
+      <h2>设计方向</h2>
+      <p>没有品牌约束时，从以下五个方向中选择一个并贯彻到底。不要混合拼凑。</p>
+    </div>
+    <div class="grid-5">
+      <article class="direction-card">
+        <h4>Editorial<br>出版编辑</h4>
+        <div class="mood">印刷杂志 · 克制 · 严肃</div>
+        <p>衬线标题 + 安静无衬线正文。纸墨中性色，一个收敛强调色。强留白，用边框代替阴影。</p>
+        <div class="avoid">避免：SaaS 仪表盘、商业控件、圆角卡片网格。</div>
+      </article>
+      <article class="direction-card">
+        <h4>Modern Minimal<br>现代极简</h4>
+        <div class="mood">精确 · 安静 · 软件原生</div>
+        <p>高品质无衬线系统，紧排版追踪，表格数字。中性表面、清晰边框、一个可见的产品强调色。</p>
+        <div class="avoid">避免：单色空洞、装饰渐变背景、大号营销 Hero。</div>
+      </article>
+      <article class="direction-card">
+        <h4>Human<br>亲切亲和</h4>
+        <div class="mood">友好 · 温暖 · 清晰</div>
+        <p>圆润人文显示字体，可读正文。干净的中间色基座，产品驱动的色彩；温馨但不甜腻。</p>
+        <div class="avoid">避免：过度卡通插图、Emoji 图标、假亲切感。</div>
+      </article>
+      <article class="direction-card">
+        <h4>Tech Utility<br>技术工具</h4>
+        <div class="mood">密集 · 务实 · 面向操作者</div>
+        <p>一个强有力的无衬线家族，等宽字体用于代码 / 指标 / ID。中性深色或浅色，信号色标识状态。</p>
+        <div class="avoid">避免：Hero 大图、超大标题、装饰性卡片、营销文案。</div>
+      </article>
+      <article class="direction-card">
+        <h4>Brutalist<br>粗野实验</h4>
+        <div class="mood">原始 · 自信 · 排版驱动</div>
+        <p>超大衬线显示 + 等宽正文。纸张中性色、强劲边框、一个炽热强调色。非对称布局。</p>
+        <div class="avoid">避免：阴影、渐变、圆角抛光 SaaS 镀铬。</div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================
+     Craft Rules
+     ============================================ -->
+<section class="section" id="craft">
+  <div class="container">
+    <div class="section-header">
+      <h2>工艺准则</h2>
+      <p>最终交付前的质量门。每条规则都经过真实产品验证。</p>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:var(--space-xl)">
+      <div class="card">
+        <div class="card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          排版
+        </div>
+        <div class="card-desc">
+          全文档最多 6-8 种字号。展示字体搭配宁静正文字体。正文 15-18px，行高 1.5-1.6。行宽约 50-75 字符。全大写标签间距 0.06-0.1em。
+        </div>
+        <div class="type-demo-body" style="margin-top:var(--space-md)">
+          <div class="type-demo-display">展示层级 · Display</div>
+          <div style="margin-top:var(--space-sm)">正文示例：保持行长在 50–75 字符之间，用 max-width: 65ch 是可靠的默认选择。使用三种字重：阅读、强调、宣告。</div>
+          <div style="margin-top:var(--space-sm)"><code>const tabular = metrics.length</code></div>
+          <div class="type-demo-uppercase" style="margin-top:var(--space-sm)">全大写标签 · Uppercase Label</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+          色彩
+        </div>
+        <div class="card-desc">
+          按角色命名 token：背景、表面、前景、次级、边框、强调色。强调色每屏最多 1-2 处。正文对比度约 4.5:1。避免纯黑纯白大面积使用。
+        </div>
+        <div class="color-swatch">
+          <div><div class="swatch" style="background:#f7f8fa"></div><div class="swatch-label">bg</div></div>
+          <div><div class="swatch" style="background:#ffffff;border-color:#d1d5db"></div><div class="swatch-label">surface</div></div>
+          <div><div class="swatch" style="background:#111827"></div><div class="swatch-label">text</div></div>
+          <div><div class="swatch" style="background:#6b7280"></div><div class="swatch-label">secondary</div></div>
+          <div><div class="swatch" style="background:#9ca3af"></div><div class="swatch-label">muted</div></div>
+          <div><div class="swatch" style="background:#e5e7eb"></div><div class="swatch-label">border</div></div>
+          <div><div class="swatch" style="background:#2563eb"></div><div class="swatch-label">accent</div></div>
+          <div><div class="swatch" style="background:#059669"></div><div class="swatch-label">success</div></div>
+          <div><div class="swatch" style="background:#d97706"></div><div class="swatch-label">warning</div></div>
+          <div><div class="swatch" style="background:#dc2626"></div><div class="swatch-label">danger</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10"/></svg>
+          布局
+        </div>
+        <div class="card-desc">
+          使用稳定尺寸避免状态变化导致的布局抖动。不要在卡片内嵌套卡片。工具界面优先密度与可预测导航。不要套模板式地让每个段落等宽等距等圆角。
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          动效
+        </div>
+        <div class="card-desc">
+          动效服务于状态反馈，不服务于装饰。使用 opacity + transform 保证性能。入场约 200ms，出场约 140ms。尊重 prefers-reduced-motion。
+        </div>
+        <pre style="margin-top:var(--space-md);background:#1a1a2e;color:#e2e8f0;padding:12px;border-radius:6px;font-size:0.75rem;overflow-x:auto;">transition: opacity .2s, transform .2s;
+transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================
+     UI Elements
+     ============================================ -->
+<section class="section" id="ui-elements">
+  <div class="container">
+    <div class="section-header">
+      <h2>UI 组件指南</h2>
+      <p>每个元素都应为用户工作流服务，用熟悉的控件替代装饰性替代品。</p>
+    </div>
+
+    <div class="grid-3">
+      <article class="card">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          按钮与操作
+        </div>
+        <p class="card-desc">清晰层级：主要 / 次要 / 幽灵 / 危险。图标按钮保持正方形稳定尺寸，配无障碍标签。使用具体动词代替「提交」。</p>
+        <div class="state-demo" style="margin-top:var(--space-md)">
+          <button class="demo-btn primary">创建发票</button>
+          <button class="demo-btn">取消</button>
+          <button class="demo-btn danger">删除</button>
+          <button class="demo-btn primary loading">保存中</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><line x1="4" y1="9" x2="20" y2="9"/></svg>
+          导航
+        </div>
+        <p class="card-desc">按信息架构选导航类型：小应用用顶栏，工作区用侧边栏，同级用标签页，深层嵌套用面包屑。</p>
+        <span class="card-tag">侧边栏适合管理后台</span>
+        <span class="card-tag accent">标签页用于同级视图</span>
+      </article>
+
+      <article class="card">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 6v12"/></svg>
+          卡片与面板
+        </div>
+        <p class="card-desc">卡片用于重复对象、可选择项、摘要。不嵌套卡片。一个卡片应有一个主主体、一个关键指标、一个明确操作。</p>
+        <span class="card-tag danger">禁止嵌套卡片</span>
+      </article>
+
+      <article class="card">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+          表单与输入
+        </div>
+        <p class="card-desc">标签保持可见，占位符不是标签。字段附近校验，组级错误汇总。<br>Select 用于小型固定集合，Combobox 用于大集合。</p>
+      </article>
+
+      <article class="card">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          表格
+        </div>
+        <p class="card-desc">表格用于比较。使用表格数字对齐指标、金额、日期。提供筛选项、排序、状态 Chip、空态与加载骨架。</p>
+      </article>
+
+      <article class="card">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 118 2.83M22 12A10 10 0 0012 2v10z"/></svg>
+          图表与指标
+        </div>
+        <p class="card-desc">按问题选图：趋势用折线，对比用柱状，组成用堆叠柱，相关性用散点。标注坐标轴、单位、图例。</p>
+        <span class="card-tag success">折线 → 趋势</span>
+        <span class="card-tag">柱状 → 对比</span>
+      </article>
+    </div>
+
+    <!-- Table demo -->
+    <div class="ui-sample" style="margin-top:var(--space-xl)">
+      <div class="ui-sample-header">
+        <h4>运单列表 · 示例表格</h4>
+        <div class="chip-group">
+          <span class="chip accent">筛选：全部</span>
+          <span class="chip success">已签收</span>
+          <span class="chip warning">运输中</span>
+        </div>
+      </div>
+      <div class="ui-sample-body" style="padding-top:0">
+        <table class="ui-table">
+          <thead>
+            <tr>
+              <th>运单号</th>
+              <th>目的地</th>
+              <th>状态</th>
+              <th>预计到达</th>
+              <th>金额</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>CD-2024-0831</td>
+              <td>上海 · 浦东新区</td>
+              <td><span class="chip success">已签收</span></td>
+              <td>2024-11-20</td>
+              <td>$1,280.00</td>
+            </tr>
+            <tr>
+              <td>CD-2024-0892</td>
+              <td>北京 · 朝阳区</td>
+              <td><span class="chip warning">运输中</span></td>
+              <td>2024-11-23</td>
+              <td>$843.50</td>
+            </tr>
+            <tr>
+              <td>CD-2024-0904</td>
+              <td>深圳 · 南山区</td>
+              <td><span class="chip danger">延迟</span></td>
+              <td>2024-11-25</td>
+              <td>$2,156.00</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================
+     States & Responsive
+     ============================================ -->
+<section class="section" id="states">
+  <div class="container">
+    <div class="section-header">
+      <h2>状态与响应式</h2>
+      <p>每个交互元素都应覆盖其自然工作流中需要的状态。</p>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:var(--space-xl)">
+      <!-- States -->
+      <div class="card">
+        <div class="card-title">必备状态</div>
+        <div class="rule-grid">
+          <div class="state-demo" style="flex-direction:column">
+            <div class="rule-label">加载态</div>
+            <div style="width:100%">
+              <div class="skeleton-line" style="width:100%"></div>
+              <div class="skeleton-line" style="width:80%"></div>
+              <div class="skeleton-line" style="width:60%"></div>
+            </div>
+          </div>
+          <div style="margin-top:var(--space-md)">
+            <div class="rule-label">空态</div>
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/></svg>
+              <h4>暂无数据</h4>
+              <p>创建第一个记录开始使用</p>
+              <button class="demo-btn primary">新建项目</button>
+            </div>
+          </div>
+          <div style="margin-top:var(--space-md)">
+            <div class="rule-label">错误态</div>
+            <div class="inline-msg error">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <div>请求超时，请检查网络连接后重试。</div>
+            </div>
+          </div>
+          <div style="margin-top:var(--space-md)">
+            <div class="rule-label">成功态</div>
+            <div class="inline-msg success">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <div>数据已成功保存至云端。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Responsive -->
+      <div class="card">
+        <div class="card-title">响应式断点</div>
+        <p class="card-desc">验证以下视口类别，不仅仅是缩小桌面卡片。</p>
+        <table class="ui-table" style="margin-top:var(--space-md)">
+          <thead>
+            <tr>
+              <th>宽度</th>
+              <th>设备</th>
+              <th>策略</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>360px</td><td>紧凑手机</td><td>单列、隐藏导航</td></tr>
+            <tr><td>390–430px</td><td>标准手机</td><td>底部栏 / 展开菜单</td></tr>
+            <tr><td>600–744px</td><td>折叠/小平板</td><td>双列起始</td></tr>
+            <tr><td>768–834px</td><td>平板竖屏</td><td>侧边栏可选</td></tr>
+            <tr><td>1024–1180px</td><td>平板横屏</td><td>全布局</td></tr>
+            <tr><td>1280–1536px</td><td>笔记本</td><td>多栏、密度</td></tr>
+            <tr><td>1920px</td><td>宽屏</td><td>最大内容宽度</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Accessibility -->
+    <div class="card" style="margin-top:var(--space-lg)">
+      <div class="card-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+        无障碍基线
+      </div>
+      <div class="grid-3" style="margin-top:var(--space-md)">
+        <div><span class="rule-label">语义 HTML</span><p class="card-desc">使用真正的按钮、链接、标题层级。</p></div>
+        <div><span class="rule-label">聚焦</span><p class="card-desc">保持可见的聚焦环，勿用 outline: none 却不替代。</p></div>
+        <div><span class="rule-label">触控</span><p class="card-desc">目标 ≥44px（iOS）/ 48dp（Android）。</p></div>
+        <div><span class="rule-label">颜色</span><p class="card-desc">状态不依赖颜色传递，搭配文字或图标。</p></div>
+        <div><span class="rule-label">标签</span><p class="card-desc">所有图标按钮和输入框有标签。</p></div>
+        <div><span class="rule-label">动效</span><p class="card-desc">尊重 prefers-reduced-motion。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================
+     Anti-AI-Slop
+     ============================================ -->
+<section class="section" id="anti-slop">
+  <div class="container">
+    <div class="section-header">
+      <h2>避坑指南</h2>
+      <p>发货前排查这些常见的 AI 设计通病。</p>
+    </div>
+    <div class="grid-2">
+      <div class="card" style="border-left:3px solid var(--color-danger)">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          勿用
+        </div>
+        <ul class="card-list">
+          <li>无理由的紫蓝渐变 Hero</li>
+          <li>Emoji 作为功能图标</li>
+          <li>彩色左边框圆角卡片</li>
+          <li>三段等宽卡片作为页面全部内容</li>
+          <li>「10x 加速」「99.9% 可用率」等假指标</li>
+          <li>Lorem ipsum 或「功能一」「功能二」</li>
+          <li>装饰性 blob / 波浪背景</li>
+          <li>每段等距等圆角等居中的模板感</li>
+        </ul>
+      </div>
+      <div class="card" style="border-left:3px solid var(--color-success)">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          应用
+        </div>
+        <ul class="card-list">
+          <li>语义化 HTML 与可访问控件</li>
+          <li>按角色命名的 CSS 变量</li>
+          <li>CSS Grid / Container Queries 作为主布局</li>
+          <li>真实或诚实的内容，不编造数据</li>
+          <li>一个果断的华彩而非多个竞争效果</li>
+          <li>包含加载、空态、错误、成功的完整状态</li>
+          <li>使用比例克制、语义明确的强调色</li>
+          <li>交付前自我评分：理念 / 层次 / 执行 / 特异性 / 克制</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- Footer -->
+<footer class="site-footer">
+  <div class="container">
+    <p>Frontend Design Skill · 基于真实产品验证的设计准则 · v1.0</p>
+  </div>
+</footer>
+
+</body>
+</html>

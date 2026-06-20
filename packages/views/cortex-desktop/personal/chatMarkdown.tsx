@@ -8,8 +8,15 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { Components } from "react-markdown";
-import { isLikelyFilePath, resolveProjectFileRef } from "@cortex-work/core";
+import {
+  isLikelyFilePath,
+  resolveProjectFileRef,
+  useCortexUIStore,
+  usePersonalStore,
+} from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
+import { findLocalHtmlPathsInText } from "@cortex-work/core/personal/devPreviewDetection";
+import { Icon } from "@cortex-work/ui/icons";
 
 // 递归取 react 子节点的纯文本（inline code 子节点通常是字符串,偶尔是数组）。
 function textOf(children: ReactNode): string {
@@ -118,6 +125,29 @@ function FileAnchor({
   );
 }
 
+// 本地 HTML 预览按钮:渲染在含 .html 路径的 fenced 代码块正下方(用户要求:预览入口紧跟路径)。
+// 点击经主进程把路径授权为 file:// 再在右栏内嵌浏览器打开;无桥则退化系统打开。
+function HtmlPreviewButton({ path, bridge }: { path: string; bridge: DesktopBridge | null }) {
+  const open = () => {
+    const resolve = bridge?.browserResolveLocalHtml;
+    if (!resolve) {
+      void bridge?.openExternal?.(path).catch(() => {});
+      return;
+    }
+    void resolve(path).then((fileUrl) => {
+      if (!fileUrl) return;
+      usePersonalStore.getState().requestBrowserUrl(fileUrl);
+      useCortexUIStore.getState().setRightOpen(true);
+    });
+  };
+  return (
+    <button type="button" className="pw-html-preview-btn" onClick={open} title={`在内嵌浏览器预览 ${path}`}>
+      <Icon.Globe size={13} />
+      <span>预览网页</span>
+    </button>
+  );
+}
+
 export interface ChatMarkdownOptions {
   onOpenFile: (ref: string) => void;
   projectPath: string;
@@ -129,6 +159,17 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
   const isProjectFile = (ref: string) => isLikelyFilePath(ref) && resolveProjectFileRef(projectPath, ref).within;
 
   return {
+    // fenced 代码块:若块内含绝对 .html 路径(如 `open /Users/.../foo.html`),在代码块正下方
+    // 紧跟一个「预览网页」按钮(用户要求:预览入口直接放路径后面,而非消息底部卡片)。
+    pre({ node: _node, children, ...rest }) {
+      const htmlPath = findLocalHtmlPathsInText(textOf(children))[0];
+      return (
+        <>
+          <pre {...rest}>{children}</pre>
+          {htmlPath ? <HtmlPreviewButton path={htmlPath} bridge={bridge} /> : null}
+        </>
+      );
+    },
     code({ node: _node, className, children, ...rest }) {
       const text = textOf(children);
       const isBlock = /language-/.test(className ?? "");
