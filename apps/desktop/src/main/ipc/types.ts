@@ -321,6 +321,18 @@ export interface CliExitEvent {
   error?: string;
 }
 
+export interface AgentTraceEvent {
+  id: string;
+  ts: number;
+  scope: "cli" | "oneshot" | "ask" | "pi" | "pi-rpc";
+  phase: string;
+  summary: string;
+  runId?: string;
+  sessionId?: string;
+  agent?: string;
+  data?: unknown;
+}
+
 // ── pi RPC 长驻会话（--mode rpc） ────────────────────────────────────────
 // pi 走 RPC 会话通道（可 steer/abort/fork/运行时切模型）；claude/codex 仍走 cli.ts
 // 单发管线。事件契约（已实测）见 docs/plans/2026-06-16-003-feat-pi-rpc-session-plan.md。

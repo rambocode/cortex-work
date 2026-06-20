@@ -4,6 +4,7 @@
 
 import type {
   AgentKind,
+  AgentTraceEvent,
   AgentSessionRequest,
   AgentProjectInfo,
   AskFollowupRequest,
@@ -239,6 +240,10 @@ export interface DesktopBridge {
   ptyCwd(id: string): Promise<string | null>;
   // 扫描本机 agent 会话日志,聚合系统上所有 agent 项目（首页「Agent 项目」）
   scanAgentProjects(): Promise<AgentProjectInfo[]>;
+  // dev 环境 Agent 调试跟踪:主进程旁路记录 CLI/pi RPC 生命周期与事件。生产壳不暴露。
+  agentTraceList?(): Promise<AgentTraceEvent[]>;
+  agentTraceClear?(): Promise<void>;
+  onAgentTrace?(cb: (event: AgentTraceEvent) => void): () => void;
   onPtyData(cb: (id: string, data: string) => void): () => void;
   onPtyExit(cb: (id: string, exitCode: number) => void): () => void;
   // 应用自动更新（electron-updater + GitHub Releases）:主进程检测后推

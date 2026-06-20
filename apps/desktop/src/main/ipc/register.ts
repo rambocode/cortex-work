@@ -20,10 +20,12 @@ import { registerWatchHandlers } from "./watch";
 import { registerUpdateHandlers, type RegisterUpdateHandlersOptions } from "./update";
 import { registerEditorHandlers } from "./editors";
 import { registerAppHandlers } from "./app";
+import { registerAgentTraceHandlers } from "./agent-trace";
 import { registerAutomationHandlers } from "../automation/ipc";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
+  agentTraceDevMode?: boolean;
 }
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
@@ -47,6 +49,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerUpdateHandlers(options.update);
   registerEditorHandlers();
   registerAppHandlers();
+  registerAgentTraceHandlers({ devMode: options.agentTraceDevMode ?? false });
   registerAutomationHandlers();
 }
 

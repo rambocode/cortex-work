@@ -6,10 +6,12 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const spawnMock = vi.fn();
+const traceMock = vi.fn();
 vi.mock("./pi-locate", () => ({ resolvePiBinary: () => "/fake/resources/pi/pi" }));
 vi.mock("child_process", () => ({ spawn: (...args: unknown[]) => spawnMock(...args) }));
 // pi-rpc 经 ./pi-providers 引入 safeId,后者顶层 import electron app —— mock 掉避免加载真 electron。
 vi.mock("electron", () => ({ app: {} }));
+vi.mock("../ipc/agent-trace", () => ({ recordAgentTrace: (...args: unknown[]) => traceMock(...args) }));
 
 import { mapPiEvent, PiRpcSession, buildRpcArgs, spawnPiRpc, sanitizeAskQuestionEnvelope, type RpcTransport } from "./pi-rpc";
 import type { PiSessionEvent, PiOpenRequest } from "../ipc/types";
@@ -27,6 +29,7 @@ function fakeChild() {
 }
 
 beforeEach(() => {
+  traceMock.mockReset();
   spawnMock.mockReset();
   spawnMock.mockImplementation(() => fakeChild());
 });
@@ -727,6 +730,25 @@ describe("buildRpcArgs", () => {
 });
 
 describe("spawnPiRpc", () => {
+  it("记录 pi-rpc spawn/stderr/exit trace", () => {
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const t = spawnPiRpc(["--mode", "rpc"], { cwd: "/p", env: { FOO: "1" } as NodeJS.ProcessEnv });
+    t.onExit(() => undefined);
+    child.stderr.emit("data", "panic\n");
+    child.emit("close", 1);
+
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "pi-rpc", phase: "spawn", agent: "pi" }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "pi-rpc", phase: "stderr", data: expect.objectContaining({ chunk: "panic\n" }) }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "pi-rpc", phase: "exit", data: expect.objectContaining({ code: 1 }) }),
+    );
+  });
+
   it("spawn 二进制 + stdio=[pipe,pipe,pipe];write 走 stdin", () => {
     const child = fakeChild();
     spawnMock.mockReturnValueOnce(child);

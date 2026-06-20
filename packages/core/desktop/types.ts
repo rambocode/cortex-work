@@ -998,6 +998,19 @@ export interface UpdateState {
 export interface AppInfo {
   version: string;
   os: "macos" | "windows" | "linux" | "unknown";
+  devMode?: boolean;
+}
+
+export interface AgentTraceEvent {
+  id: string;
+  ts: number;
+  scope: "cli" | "oneshot" | "ask" | "pi" | "pi-rpc";
+  phase: string;
+  summary: string;
+  runId?: string;
+  sessionId?: string;
+  agent?: string;
+  data?: unknown;
 }
 
 // ── Tasks 面板:tasks/ 目录文件列表（与 apps/desktop/src/main/ipc/types.ts 镜像） ──

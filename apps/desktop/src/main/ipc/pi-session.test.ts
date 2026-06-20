@@ -59,6 +59,7 @@ const h = vi.hoisted(() => {
     assertSpawnCwd: vi.fn(),
     spawnEnvFor: vi.fn(() => ({})),
     readImageBytes: vi.fn(async () => ({ mimeType: "image/png", base64: "AAAA" })),
+    recordAgentTrace: vi.fn(),
   };
 });
 
@@ -79,6 +80,7 @@ vi.mock("../agents/pi-extensions", () => ({
 }));
 vi.mock("./cli", () => ({ assertSpawnCwd: h.assertSpawnCwd, spawnEnvFor: h.spawnEnvFor }));
 vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
+vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace }));
 
 import { registerPiSessionHandlers, killAllPiSessions, piSessionCount, filterLoadableExtensionPaths } from "./pi-session";
 
@@ -110,6 +112,7 @@ beforeEach(() => {
   h.writeAskQuestionExtension.mockClear();
   h.spawnEnvFor.mockClear();
   h.readImageBytes.mockClear();
+  h.recordAgentTrace.mockClear();
   registerPiSessionHandlers();
 });
 
@@ -136,6 +139,22 @@ describe("registerPiSessionHandlers", () => {
 });
 
 describe("pi:open", () => {
+  it("记录 pi open/prompt/event trace", async () => {
+    await open();
+    await h.handlers.get("pi:prompt")!({}, "u1", "你好", "run-1");
+    h.onEventRef.current?.({ type: "text", delta: "hi" });
+
+    expect(h.recordAgentTrace).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "pi", phase: "open", sessionId: "u1", agent: "pi" }),
+    );
+    expect(h.recordAgentTrace).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "pi", phase: "command", runId: "run-1", sessionId: "u1", agent: "pi" }),
+    );
+    expect(h.recordAgentTrace).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "pi", phase: "event", sessionId: "u1", agent: "pi" }),
+    );
+  });
+
   it("无 provider:仅 askquestion 常驻注入,buildRpcArgs+spawn+构造会话,就绪后回 sessionId,注册表 +1", async () => {
     const { result } = await open();
     expect(h.writePiExtension).not.toHaveBeenCalled();

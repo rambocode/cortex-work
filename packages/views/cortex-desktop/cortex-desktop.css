@@ -6420,6 +6420,44 @@ button.sb-row {
 .pw-agent-status.is-on { background: var(--green-soft, #d4ebe8); color: var(--green, #0d9488); }
 .pw-agent-status.is-off { background: var(--border); color: var(--text-3); }
 
+/* dev-only Agent trace panel */
+.pw-trace-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 0 12px; }
+.pw-trace-search { flex: 1 1 auto; min-width: 0; }
+.pw-trace-list { display: grid; gap: 8px; padding: 0 0 12px; max-height: 360px; overflow: auto; }
+.pw-trace-item { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
+.pw-trace-item summary {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 9px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.pw-trace-time { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.pw-trace-chip {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 11px;
+}
+.pw-trace-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
+.pw-trace-meta { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 10px 8px; color: var(--text-3); font-size: 11px; }
+.pw-trace-data {
+  margin: 0 10px 10px;
+  padding: 9px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* 右键/项目菜单的右侧二级菜单（Open in 悬停展开） */
 .pw-ctx-haschild { position: relative; }
 .pw-ctx-sub {

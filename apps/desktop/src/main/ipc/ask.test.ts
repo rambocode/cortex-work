@@ -11,6 +11,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const spawnMock = vi.fn();
+const traceMock = vi.fn();
 // cwd 兜底测试:默认 existsSync 返回 true(让 baseReq 的 /proj 直通);兜底用例里改返回 false。
 const existsSyncMock = vi.fn((_p: string) => true);
 // ipcMain.handle 捕获:channel → handler。
@@ -31,6 +32,10 @@ vi.mock("electron", () => ({
 
 vi.mock("child_process", () => ({
   spawn: (...args: unknown[]) => spawnMock(...args),
+}));
+
+vi.mock("./agent-trace", () => ({
+  recordAgentTrace: (...args: unknown[]) => traceMock(...args),
 }));
 
 // cwd 兜底依赖 fs.existsSync + os.homedir;保留真实导出(cli.ts 等还要用其它 fs/os 函数),只覆盖这两个。
@@ -91,6 +96,7 @@ const baseReq: AskFollowupRequest = {
 
 beforeEach(() => {
   handlers.clear();
+  traceMock.mockReset();
   spawnMock.mockReset();
   spawnMock.mockImplementation(() => fakeChild());
   existsSyncMock.mockReset();
@@ -114,6 +120,29 @@ function startAsk(req: AskFollowupRequest) {
 }
 
 describe("ask:start 流式", () => {
+  it("记录 ask start/event/stderr/exit trace", () => {
+    const { child } = startAsk(baseReq);
+    child.stdout.emit(
+      "data",
+      JSON.stringify({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "答" } } }) + "\n",
+    );
+    child.stderr.emit("data", "warn\n");
+    child.emit("close", 0);
+
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "ask", phase: "start", runId: "ask-1", sessionId: "ask-1", agent: "claude" }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "ask", phase: "event", runId: "ask-1", sessionId: "ask-1", agent: "claude" }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "ask", phase: "stderr", data: expect.objectContaining({ chunk: "warn\n" }) }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "ask", phase: "exit", data: expect.objectContaining({ code: 0 }) }),
+    );
+  });
+
   it("text 多行按序发 ask:event(claude 增量)", () => {
     const { sent, child } = startAsk(baseReq);
     const line = (o: unknown) => JSON.stringify(o) + "\n";

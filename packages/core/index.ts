@@ -44,6 +44,7 @@ export {
   AGENT_MODELS,
   DEFAULT_MODEL,
   type AgentKind,
+  type AgentTraceEvent,
   type HiddenHistoryMeta,
   type PromptNode,
   type ProjectMeta,
