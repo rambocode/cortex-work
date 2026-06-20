@@ -42,6 +42,7 @@ import type {
   ProviderProbeInput,
   ProviderProbeResult,
   PluginSkill,
+  PiExtInstallResult,
   PromptNode,
   PushResult,
   PushTarget,
@@ -295,4 +296,10 @@ export interface DesktopBridge {
     body: string;
     allowedRoots: string[];
   }): Promise<{ ok: boolean; error?: string; dir?: string }>;
+  // 扩展市场（U4）:把 pi 当扩展安装运行时。可选:web/旧壳无此能力 → 扩展管理器降级空态。
+  // piExtList 返回已装包的本地路径集（存在性,core 与 store 溯源/启用按 path 对账）;
+  // piExtInstall 安装并定位落盘 path;piExtRemove 卸载。装≠启用——启用集/信任在 core store。
+  piExtList?(): Promise<string[]>;
+  piExtInstall?(args: { sourceRef: string }): Promise<PiExtInstallResult>;
+  piExtRemove?(args: { sourceRef: string }): Promise<{ ok: boolean; error?: string }>;
 }

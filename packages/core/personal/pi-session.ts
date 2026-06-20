@@ -97,6 +97,9 @@ function extensionFingerprint(req: PiOpenRequest): string {
     // 插件 Skill（U5）:启用集经 --skill 冷启注入,无运行时命令,改值必须重开。已在装配层排序,
     // 此处再排序一次确保顺序无关（内容相同顺序不同不误重开）。
     skillPaths: [...(req.skillPaths ?? [])].sort(),
+    // 扩展市场（U3）:启用集经 -e 冷启注入,同 skillPaths——启停/卸载改 extensionPaths → 指纹漂移
+    // → 下一轮重开生效（否则禁用静默不生效"裸奔"）。keyed 完整解析路径,使重装/更新换路径也漂移。
+    extensionPaths: [...(req.extensionPaths ?? [])].sort(),
     provider: req.provider
       ? {
           id: req.provider.id,

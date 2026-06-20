@@ -20,7 +20,7 @@ import type {
   SessionMeta,
   ThinkingLevel,
 } from "../desktop/types";
-import { DEFAULT_PI_SKILLS } from "../desktop/types";
+import { DEFAULT_PI_SKILLS, DEFAULT_PI_EXTENSIONS } from "../desktop/types";
 import type { DesktopBridge } from "../desktop/bridge";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
@@ -1349,6 +1349,24 @@ export async function resolveEnabledSkillPaths(
   return [...byName.values()].sort();
 }
 
+// 扩展市场（U3）:据 piExtensions 配置解析出注入 pi 的 -e 路径集合。
+// 装≠启用 + 信任门:仅「在 enabled 且 在 trusted」的已装扩展才注入（启用集是 -e 的唯一来源,
+// pi settings 自动发现已被 --no-extensions 抑制）。路径取持久化的 record.path（pi list 给出、安装时存）。
+// v1 仅用户级(global);projectPath 预留给后续项目级按 cwd 过滤。失踪/坏路径的剔除在注入层 U7 兜底。
+// useOwnSkills===false 不影响扩展（扩展是独立开关,非 skill）。返回排序去重的路径集。
+export function resolveEnabledExtensionPaths(_projectPath: string): string[] {
+  const cfg = { ...DEFAULT_PI_EXTENSIONS, ...usePersonalStore.getState().generalSettings.piExtensions };
+  const enabled = new Set(cfg.enabled);
+  const trusted = new Set(cfg.trusted);
+  const paths = new Set<string>();
+  for (const r of cfg.installed) {
+    if (r.scope !== "global") continue; // v1 仅用户级
+    const key = `${r.scope}:${r.ref}`;
+    if (enabled.has(key) && trusted.has(key)) paths.add(r.path);
+  }
+  return [...paths].sort();
+}
+
 function appendUserMessage(
   qc: QueryClient,
   sessionId: string,
@@ -1439,6 +1457,8 @@ async function sendPiTurn(
     // 插件 Skill（U5）:解析已启用 + 授信 + 去重的 skill 目录,经 --skill 注入;集合变化经
     // extensionFingerprint 触发会话重开。useOwnSkills===false → 会话级一键关 → []。
     const skillPaths = await resolveEnabledSkillPaths(bridge, projectPath, session.useOwnSkills);
+    // 扩展市场（U3）:解析已启用+已授信的扩展 -e 路径;集合变化经 extensionFingerprint 触发重开。
+    const extensionPaths = resolveEnabledExtensionPaths(projectPath);
     const opened = await ensurePiSession(
       bridge,
       {
@@ -1447,6 +1467,7 @@ async function sendPiTurn(
         model,
         useOwnSkills: session.useOwnSkills,
         skillPaths,
+        extensionPaths,
         provider: provider
           ? {
               id: provider.id,

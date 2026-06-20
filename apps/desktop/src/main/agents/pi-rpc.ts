@@ -208,9 +208,14 @@ export function buildRpcArgs(req: PiOpenRequest): string[] {
   // （accept-edits/full-auto 不收窄工具,靠审批 extension 区分）。pi 无运行时改工具集命令,故切到
   // plan 需重开会话(由发送层的模式指纹判定)。
   if (req.toolWhitelist?.length) args.push("--tools", req.toolWhitelist.join(","));
-  // extension:provider（piExtensionPath）+ 阶段3 审批/样例（extraExtensionPaths）多 `-e` 共存
-  // （spike 已证 --no-extensions 与多个显式 -e 共存、hook 注册）。各加一个 -e,`-a` 信任只加一次。
-  const exts = [req.piExtensionPath, ...(req.extraExtensionPaths ?? [])].filter((p): p is string => !!p);
+  // extension:provider（piExtensionPath）+ 阶段3 审批/样例（extraExtensionPaths）+ 扩展市场
+  // 已启用扩展（extensionPaths,U3）多 `-e` 共存（spike 已证 --no-extensions 与多个显式 -e 共存）。
+  // 各加一个 -e,`-a` 信任只加一次（实测 -a 整批信任,无逐扩展粒度——UI 信任门是唯一逐扩展强制点）。
+  const exts = [
+    req.piExtensionPath,
+    ...(req.extraExtensionPaths ?? []),
+    ...(req.extensionPaths ?? []),
+  ].filter((p): p is string => !!p);
   if (exts.length) {
     for (const p of exts) args.push("-e", p);
     args.push("-a");

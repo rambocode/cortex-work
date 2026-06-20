@@ -33,6 +33,7 @@ import type {
   PiUiRequest,
   PiUiResponsePayload,
   PluginSkill,
+  PiExtInstallResult,
   PromptNode,
   ReadFileResult,
   SkillMeta,
@@ -360,6 +361,12 @@ const personal = {
     body: string;
     allowedRoots: string[];
   }): Promise<{ ok: boolean; error?: string; dir?: string }> => ipcRenderer.invoke("pi-skills:create", args),
+  // 扩展市场（U4）:list/install/remove。形状与 DesktopBridge 的可选方法逐字对齐。
+  piExtList: (): Promise<string[]> => ipcRenderer.invoke("pi-ext:list"),
+  piExtInstall: (args: { sourceRef: string }): Promise<PiExtInstallResult> =>
+    ipcRenderer.invoke("pi-ext:install", args),
+  piExtRemove: (args: { sourceRef: string }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("pi-ext:remove", args),
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。
