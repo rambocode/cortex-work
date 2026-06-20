@@ -245,6 +245,7 @@ export {
   useCreateAutomation,
   useUpdateAutomation,
   useDeleteAutomation,
+  useDeleteAutomationRun,
   useSetAutomationEnabled,
   useRunAutomationNow,
   useAutomationEvents,

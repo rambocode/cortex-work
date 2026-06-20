@@ -120,6 +120,21 @@ export function useSetAutomationEnabled() {
   });
 }
 
+// 删除单条运行记录:乐观从 runs 缓存剔除（main 删历史文件,不广播 changed,故纯靠此对账）。
+export function useDeleteAutomationRun() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { automationId: string; runId: string }) =>
+      bridge!.automationDeleteRun!(vars.automationId, vars.runId),
+    onSuccess: (_v, vars) => {
+      qc.setQueryData<AutomationRun[]>(automationKeys.runs(vars.automationId), (prev) =>
+        (prev ?? []).filter((r) => r.id !== vars.runId),
+      );
+    },
+  });
+}
+
 export function useRunAutomationNow() {
   const bridge = useDesktopBridge();
   const qc = useQueryClient();

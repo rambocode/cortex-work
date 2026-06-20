@@ -265,6 +265,8 @@ export interface DesktopBridge {
   automationSetEnabled?(id: string, enabled: boolean): Promise<AutomationMeta | null>;
   automationRunNow?(id: string): Promise<AutomationRun | null>;
   automationListRuns?(id: string): Promise<AutomationRun[]>;
+  // 删除单条运行记录（运行历史的清理,不影响自动化本身）。
+  automationDeleteRun?(automationId: string, runId: string): Promise<void>;
   // cron 表达式校验 + nextRun 预览（ScheduleEditor 即时反馈,真相以 main 调度为准）。
   automationValidateCron?(expression: string, timezone?: string): Promise<CronValidation>;
   // 列表/元数据变化（任意 CRUD 或 lastRun 更新后推全量快照,renderer 直接替换）。

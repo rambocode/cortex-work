@@ -10,6 +10,7 @@ import { computeNextRun, validateCron, validateScheduleSpec } from "./schedule-c
 import { scheduleOne, unschedule } from "./scheduler";
 import {
   deleteAutomationStore,
+  deleteRun,
   getAutomation,
   loadAutomations,
   loadRuns,
@@ -101,6 +102,10 @@ export function registerAutomationHandlers(): void {
   });
 
   ipcMain.handle("automation:listRuns", (_e, id: string) => loadRuns(id));
+
+  // 删除单条运行记录。只动该自动化的历史文件,不影响 meta,故无需 broadcastChanged;
+  // renderer 侧靠 mutation 乐观更新对账缓存。
+  ipcMain.handle("automation:deleteRun", (_e, id: string, runId: string) => deleteRun(id, runId));
 
   ipcMain.handle("automation:validateCron", (_e, expression: string, timezone?: string) =>
     validateCron(expression, timezone),

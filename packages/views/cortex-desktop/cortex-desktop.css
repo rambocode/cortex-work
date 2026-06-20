@@ -7037,14 +7037,26 @@ button.sb-row {
 /* 运行历史 */
 .pw-auto-runs { display: flex; flex-direction: column; gap: 6px; }
 .pw-auto-runs-empty { font-size: 12px; color: var(--text-3); padding: 8px 2px; }
-.pw-auto-run { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.pw-auto-run-h { width: 100%; display: flex; align-items: center; gap: 7px; padding: 7px 9px; cursor: pointer; background: none; }
+.pw-auto-run { display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.pw-auto-run-h { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; padding: 7px 9px; cursor: pointer; background: none; }
 .pw-auto-run-h:hover { background: var(--bg-hover); }
+/* 行尾删除:hover 浮现,危险色,不占视觉重量 */
+.pw-auto-run-del { flex-shrink: 0; width: 30px; display: flex; align-items: center; justify-content: center; border: 0; border-left: 1px solid var(--border); background: none; color: var(--text-4); cursor: pointer; opacity: 0; transition: opacity .12s, color .12s, background .12s; }
+.pw-auto-run:hover .pw-auto-run-del { opacity: 1; }
+.pw-auto-run-del:hover { color: var(--red); background: var(--bg-hover); }
+/* 运行历史「加载更多」 */
+.pw-auto-run-more { margin-top: 2px; padding: 6px; border: 1px dashed var(--border); border-radius: 8px; background: none; color: var(--text-3); font-size: 11.5px; cursor: pointer; transition: color .12s, background .12s; }
+.pw-auto-run-more:hover { color: var(--text-1); background: var(--bg-hover); }
 .pw-auto-run-time { font-size: 11.5px; color: var(--text-2); }
 .pw-auto-run-tag { font-size: 10px; color: var(--text-3); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 .pw-auto-run-dur { flex: 1; text-align: right; font-size: 11px; color: var(--text-4); }
 .pw-auto-run-out { margin: 0; padding: 9px 11px; border-top: 1px solid var(--border); background: var(--bg-input); white-space: pre-wrap; word-break: break-word; font-size: 11.5px; line-height: 1.55; color: var(--text-2); font-family: var(--mono, ui-monospace, monospace); max-height: 260px; overflow-y: auto; }
 .pw-auto-run-out.is-err { color: var(--red); }
+
+/* 运行结果详情:Markdown 正文撑满剩余高度并自滚动(覆盖 pw-todo-md 的 260px 预览上限,
+   与 Tasks 任务详情一致) */
+.pw-auto-detail > .pw-todo-md { flex: 1; min-height: 0; max-height: none; padding: 16px 18px; }
+.pw-auto-detail > .pw-todo-md.is-err { color: var(--red); }
 
 /* 创建/编辑弹窗（覆盖 pw-dlg 为单列 + 底部操作条） */
 .pw-dlg.pw-auto-dlg { flex-direction: column; width: 56vw; min-width: 520px; height: auto; max-height: calc(100vh - 48px); }

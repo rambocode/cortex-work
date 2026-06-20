@@ -322,6 +322,8 @@ const personal = {
     ipcRenderer.invoke("automation:runNow", id),
   automationListRuns: (id: string): Promise<AutomationRun[]> =>
     ipcRenderer.invoke("automation:listRuns", id),
+  automationDeleteRun: (id: string, runId: string): Promise<void> =>
+    ipcRenderer.invoke("automation:deleteRun", id, runId),
   automationValidateCron: (expression: string, timezone?: string): Promise<CronValidation> =>
     ipcRenderer.invoke("automation:validateCron", expression, timezone),
   onAutomationChanged: (cb: (list: AutomationMeta[]) => void): (() => void) => {

@@ -8,7 +8,9 @@ import { automationRunsDir, automationsStorePath } from "../paths";
 import type { AutomationMeta, AutomationRun } from "../ipc/types";
 
 const SAFE_ID = /^[\w-]+$/;
-const DEFAULT_KEEP_RUNS = 50;
+// 运行历史保留上限。放宽到 200 以支撑前端「分页加载」（旧值 50 翻不了几页）;
+// 单条 output 已在 runner 侧截断,200 条磁盘占用可控。
+const DEFAULT_KEEP_RUNS = 200;
 
 let seq = 0;
 function uid(prefix: string): string {
@@ -145,6 +147,11 @@ export function appendRun(run: AutomationRun, keepN = DEFAULT_KEEP_RUNS): Promis
     const deduped = [run, ...runs.filter((r) => r.id !== run.id)];
     return deduped.slice(0, keepN);
   });
+}
+
+// 删除单条运行记录（复用串行写队列,按 id 过滤;不存在则无操作）。
+export function deleteRun(automationId: string, runId: string): Promise<void> {
+  return mutateRuns(automationId, (runs) => runs.filter((r) => r.id !== runId));
 }
 
 // 更新已有运行记录的部分字段（running → ok/error/timeout 收尾）。
