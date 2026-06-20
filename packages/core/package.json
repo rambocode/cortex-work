@@ -32,6 +32,7 @@
     "./personal/automation": "./personal/automation.ts",
     "./personal/filePaths": "./personal/filePaths.ts",
     "./personal/notes": "./personal/notes.ts",
+    "./personal/push": "./personal/push.ts",
     "./personal/extensions": "./personal/extensions.ts",
     "./personal/devPreviewUrl": "./personal/devPreviewUrl.ts",
     "./personal/devPreviewDetection": "./personal/devPreviewDetection.ts"
