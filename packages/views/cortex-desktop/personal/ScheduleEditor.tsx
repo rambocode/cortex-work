@@ -37,8 +37,9 @@ const tomorrowStr = () => {
 // 把本地「日期串 + 时 + 分」组装为绝对时刻 epoch ms。
 // once 存绝对时刻,与任务 timezone 无关;UI 兜 future,引擎宽容(见 validateScheduleSpec)。
 function dateStrToAt(dateStr: string, hour: number, minute: number): number {
+  // noUncheckedIndexedAccess 下解构元素为 number | undefined,三段都兜底(dateStr 恒为合法 YYYY-MM-DD,兜底仅满足类型)。
   const [y, mo, da] = dateStr.split("-").map(Number);
-  return new Date(y, (mo || 1) - 1, da || 1, hour, minute, 0, 0).getTime();
+  return new Date(y || 1970, (mo || 1) - 1, da || 1, hour, minute, 0, 0).getTime();
 }
 
 function fmtPreview(ts: number): string {
