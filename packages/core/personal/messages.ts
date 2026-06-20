@@ -44,6 +44,7 @@ import {
   steerPi,
   touchPiSession,
 } from "./pi-session";
+import { derivePiCapabilities } from "./permissionMode";
 import { speakText } from "./tts";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
@@ -1386,6 +1387,9 @@ async function sendPiTurn(
     // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
     // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
     const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
+    // 运行模式 → pi 能力派生:plan 收窄只读白名单、accept-edits 放行编辑保留 bash 审批、
+    // full-auto 沿用 piCustom 审批设置。三者均经 extensionFingerprint 触发会话重开(切档即重开)。
+    const piCaps = derivePiCapabilities(session.permissionMode, piCustom);
     // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
     // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
     const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;
@@ -1419,10 +1423,12 @@ async function sendPiTurn(
               })),
             }
           : undefined,
-        enableToolApproval: piCustom?.toolApproval || undefined,
-        // 审批清单:仅总开关开时下发。空数组 [] 原样穿透(=不审批任何工具),禁用 ?? DEFAULT
-        // 兜回默认——undefined→默认三件 是 renderApprovalExtension 默认参的职责,不在此抢。
-        approvalTools: piCustom?.toolApproval ? piCustom.approvalTools : undefined,
+        // 审批开关/清单由运行模式派生（full-auto 档内部已沿用 piCustom 设置,故此处不再单独读）。
+        // 空数组 [] 原样穿透(=不审批任何工具),undefined→默认三件 是 renderApprovalExtension 的职责。
+        enableToolApproval: piCaps.enableToolApproval,
+        approvalTools: piCaps.approvalTools,
+        // plan 档只读工具白名单(缺省 undefined → 全工具)。经 buildRpcArgs → --tools 注入。
+        toolWhitelist: piCaps.toolWhitelist,
         enableSampleTools: piCustom?.sampleTools || undefined,
         enableSampleCommands: piCustom?.sampleCommands || undefined,
         appendSystemPrompt: piSystemPrompt || undefined,
@@ -2033,6 +2039,9 @@ export function usePersonalActions(): PersonalActions {
           useOwnSkills: sendSession.useOwnSkills,
           skillPaths,
           images: cliImages,
+          // 运行模式:claude/codex adapter 翻译成原生标志;缺省 full-auto(历史默认)。逐轮 fresh
+          // spawn,改值下一轮即生效,无需重开。
+          permissionMode: sendSession.permissionMode,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
         autoTitle(bridge, sendSession, text);

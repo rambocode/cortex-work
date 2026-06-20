@@ -232,6 +232,8 @@ export interface AskFollowupRequest {
   model?: string;
   appendSystemPrompt?: string;
   effort?: ReasoningEffort;
+  // 运行模式:沿用主会话档位(claude/codex adapter 翻译)。与 tightenTools 叠加,更严者优先。
+  permissionMode?: PermissionMode;
   // true = 无项目会话:主进程剥离 claude/codex 的跳审批/bypass 标志,回退默认审批/沙箱（R9/KTD8）。
   // 显式标志,不靠主进程猜 cwd（真实无项目 cwd 非 homedir,猜法会失效）。
   tightenTools?: boolean;

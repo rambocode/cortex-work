@@ -319,7 +319,15 @@ export function PersonalChatArea({
       }
     }
     // 无真实项目 = 无项目会话 → 收紧 tool(FIX-3,显式标志,主进程据此剥离跳审批/bypass)。
-    return { agent: session.agent, model: session.model, cwd, tightenTools: !realProject, provider };
+    // 运行模式沿用主会话档位,追问与主会话权限一致(与 tightenTools 叠加,更严者优先)。
+    return {
+      agent: session.agent,
+      model: session.model,
+      cwd,
+      permissionMode: session.permissionMode,
+      tightenTools: !realProject,
+      provider,
+    };
     // 用 session 的细粒度字段做依赖(而非整对象),保引用稳定避免无谓重渲染(同 syntheticNoProject)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -327,6 +335,7 @@ export function PersonalChatArea({
     session?.agent,
     session?.model,
     session?.providerId,
+    session?.permissionMode,
     session?.noProjectDir,
     realProject?.path,
     realProject,
