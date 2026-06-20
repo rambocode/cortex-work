@@ -7,6 +7,7 @@ import type {
   AgentKind,
   DailyEncouragement,
   GeneralSettings,
+  PermissionMode,
   PersistedState,
   PersonalProfile,
   PiSkillSettings,
@@ -42,6 +43,16 @@ function newId(prefix: string): string {
 // 右栏当前视图（顶栏下拉选择）。后续新增视图只需扩此联合,不必逐处改字面量。
 export type RightView = "files" | "skills" | "todos" | "notes";
 
+// 运行模式拦截提示（瞬态,不持久化）。当 plan/accept-edits 模式下 agent 尝试被该模式禁止的
+// 工具(写/执行)时,在 composer 上方提示用户切档并自动重发本轮。category 决定可切到哪些档:
+// edit=写类被拦(可切 accept-edits/full-auto);exec=执行类被拦(只能切 full-auto)。
+export interface ModeBlockHint {
+  fromMode: PermissionMode;
+  category: "edit" | "exec";
+  promptText: string;
+  toolName: string;
+}
+
 // pi RPC 会话的运行时状态（瞬态展示用,不进 toPersistedState）。
 export interface PiRuntimeStatus {
   steering?: number; // 待注入的 steer 条数
@@ -66,6 +77,8 @@ export interface PersonalState {
   // pi RPC 会话运行时状态（瞬态,不持久化;由 handlePiEvent 写,头部/composer 读）:
   // 待注入队列计数 / 压缩中 / 自动重试 / 思考强度。
   piRuntimeBySession: Record<string, PiRuntimeStatus | undefined>;
+  // 运行模式拦截提示（瞬态,不持久化;轮次检测到被拦工具时写,composer 上方读）。
+  modeBlockHints: Record<string, ModeBlockHint | undefined>;
   // pi extension UI 待确认请求队列（瞬态,不持久化;阶段3 工具确认弹窗）。RPC 串行 → 通常 ≤1,
   // 跨会话才可能 >1;FIFO,弹窗只显队首。
   piUiPending: { uiSessionId: string; request: PiUiRequest }[];
@@ -178,6 +191,8 @@ export interface PersonalState {
   setRunning: (sessionId: string, runId: string | undefined) => void;
   // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
+  // 设置/清空某会话的运行模式拦截提示（hint=undefined 清空,如切档/忽略/新发送）。
+  setModeBlockHint: (sessionId: string, hint: ModeBlockHint | undefined) => void;
   // pi extension UI 待确认请求:入队 / 按请求 id 出队 / 清某会话全部（会话退出/删除时）。
   pushPiUiRequest: (item: { uiSessionId: string; request: PiUiRequest }) => void;
   resolvePiUiRequest: (id: string) => void;
@@ -286,6 +301,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   collapsedProjects: {},
   runningBySession: {},
   piRuntimeBySession: {},
+  modeBlockHints: {},
   piUiPending: [],
   terminalOpen: false,
   rightView: "todos" as const,
@@ -604,6 +620,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         [sessionId]: patch === undefined ? undefined : { ...s.piRuntimeBySession[sessionId], ...patch },
       },
     })),
+
+  setModeBlockHint: (sessionId, hint) =>
+    set((s) => ({ modeBlockHints: { ...s.modeBlockHints, [sessionId]: hint } })),
 
   pushPiUiRequest: (item) => set((s) => ({ piUiPending: [...s.piUiPending, item] })),
   resolvePiUiRequest: (id) =>

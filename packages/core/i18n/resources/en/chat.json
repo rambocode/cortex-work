@@ -83,6 +83,14 @@
       "acceptEditsHint": "Auto-accept file edits; bash and other exec commands stay restricted",
       "fullAutoHint": "Skip all permissions; every tool runs immediately (default)"
     },
+    "modeBlock": {
+      "planEdit": "You're in Plan (read-only) mode — {{name}} was blocked from editing files. Switch mode and retry this turn?",
+      "planExec": "You're in Plan (read-only) mode — {{name}} was blocked from running a command. Switch mode and retry this turn?",
+      "acceptEditsExec": "You're in Auto-edit mode — {{name}} was blocked from running a command. Switch to Full auto and retry this turn?",
+      "switchAcceptEdits": "Switch to Auto-edit & retry",
+      "switchFullAuto": "Switch to Full auto & retry",
+      "dismiss": "Dismiss"
+    },
     "steerSend": "Steer: inject into the current turn (Enter)",
     "stop": "Stop",
     "imagesHint": "Will be sent with the next message",

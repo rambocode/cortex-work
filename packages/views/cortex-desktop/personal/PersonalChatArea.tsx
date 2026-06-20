@@ -24,6 +24,7 @@ import { agentContact } from "./agentMeta";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
+import { ModeBlockBanner } from "./ModeBlockBanner";
 import { PersonalComposer } from "./PersonalComposer";
 
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
@@ -412,6 +413,9 @@ export function PersonalChatArea({
 
       {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
       <AskQuestionCard sessionId={session.id} />
+
+      {/* 运行模式拦截提示:plan/accept-edits 下 agent 被拦时,提示切档并自动重发本轮。 */}
+      <ModeBlockBanner session={session} projectPath={project.path} />
 
       <PersonalComposer
         session={session}

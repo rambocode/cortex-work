@@ -1257,6 +1257,40 @@ input, textarea { font: inherit; color: inherit; }
 /* 运行模式选择器:在 gitbar 行内紧凑展示(复用 pw-model-pill 底色,缩小内边距贴合信息条)。 */
 .pw-gitbar-mode { flex: 0 0 auto; padding: 2px 4px 2px 7px; }
 .pw-gitbar-mode .pw-model-select { font-size: 12px; }
+
+/* 运行模式拦截提示条:消息流与输入框之间,提示切档并自动重发。 */
+.pw-mode-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #7c5cff 10%, var(--bg-chip));
+  border: 1px solid color-mix(in srgb, #7c5cff 28%, transparent);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.pw-mode-block-text { flex: 1 1 auto; min-width: 0; }
+.pw-mode-block-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.pw-mode-block-btn {
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border-1);
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pw-mode-block-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-mode-block-btn.primary {
+  border-color: transparent;
+  background: #7c5cff;
+  color: #fff;
+}
+.pw-mode-block-btn.primary:hover { background: #6a48f0; }
 .pw-gitbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .pw-gitbar-stats {
   display: inline-flex; align-items: center; gap: 6px;

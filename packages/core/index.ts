@@ -34,6 +34,7 @@ export {
   resolveDefaultAgent,
   initialAgent,
   initialModelDraft,
+  type ModeBlockHint,
   type PersonalState,
   type RightView,
 } from "./store/personal";

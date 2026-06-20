@@ -30,6 +30,7 @@ import {
   isMissingAgentSessionError,
   personalChatKeys,
   personalProcessKeys,
+  restrictedToolForMode,
   sanitizeForSave,
   sessionResumeId,
   sameTextOrdinal,
@@ -133,6 +134,39 @@ describe("personal message agent session helpers", () => {
 function msg(uid: string, text = uid): Message {
   return { kind: "text", who: "me", time: "10:00", text, uid };
 }
+
+describe("restrictedToolForMode 运行模式拦截检测", () => {
+  it("plan:写类(Write/Edit)→ edit,执行类(Bash/Shell)→ exec", () => {
+    expect(restrictedToolForMode("Write", "plan")).toBe("edit");
+    expect(restrictedToolForMode("Edit", "plan")).toBe("edit");
+    expect(restrictedToolForMode("MultiEdit", "plan")).toBe("edit");
+    expect(restrictedToolForMode("Bash", "plan")).toBe("exec");
+    expect(restrictedToolForMode("Shell", "plan")).toBe("exec");
+  });
+
+  it("plan:只读类工具不拦", () => {
+    expect(restrictedToolForMode("Read", "plan")).toBeNull();
+    expect(restrictedToolForMode("Grep", "plan")).toBeNull();
+  });
+
+  it("accept-edits:仅拦执行类,放行写类", () => {
+    expect(restrictedToolForMode("Bash", "accept-edits")).toBe("exec");
+    expect(restrictedToolForMode("Shell", "accept-edits")).toBe("exec");
+    expect(restrictedToolForMode("Write", "accept-edits")).toBeNull();
+    expect(restrictedToolForMode("Edit", "accept-edits")).toBeNull();
+  });
+
+  it("full-auto / 缺省:一律不拦", () => {
+    expect(restrictedToolForMode("Bash", "full-auto")).toBeNull();
+    expect(restrictedToolForMode("Write", "full-auto")).toBeNull();
+    expect(restrictedToolForMode("Bash", undefined)).toBeNull();
+  });
+
+  it("工具名大小写不敏感", () => {
+    expect(restrictedToolForMode("bash", "plan")).toBe("exec");
+    expect(restrictedToolForMode("WRITE", "plan")).toBe("edit");
+  });
+});
 
 describe("personal hidden history helpers", () => {
   const messages = [msg("m1"), msg("m2"), msg("m3"), msg("m4")];
