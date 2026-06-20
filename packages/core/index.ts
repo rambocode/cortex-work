@@ -109,6 +109,8 @@ export {
   type PushSettings,
   type WecomPushConfig,
   type DingtalkPushConfig,
+  type FeishuPushConfig,
+  type InternalNotifyConfig,
   type EmailPushConfig,
   type PushTarget,
   type PushResult,
