@@ -623,6 +623,7 @@ export default interface Resources {
       "turnCompleteDesc": "Agent 回合结束且窗口失焦时显示系统通知。",
       "updateCard": "版本更新",
       "updateStatus": "更新状态",
+      "viewReleaseNotes": "查看更新内容",
       "workspaceRoot": "默认工作目录",
       "workspaceRootDesc": "新建无项目会话 / 定时任务未指定项目时,agent 在此目录运行（留空则用主目录）。",
       "workspaceRootPlaceholder": "留空 = 用户主目录"
