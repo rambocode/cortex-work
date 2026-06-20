@@ -35,6 +35,7 @@ import {
 import { UpdateDialog } from "../UpdateDialog";
 import type {
   AgentKind,
+  AgentTraceEvent,
   DesktopBridge,
   DingtalkPushConfig,
   EmailPushConfig,
@@ -1283,6 +1284,7 @@ function ProvidersSection() {
 
 function AgentSection() {
   const { t } = useTranslation("settings");
+  const bridge = useDesktopBridge();
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const generalSettings = usePersonalStore((s) => s.generalSettings);
   const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
@@ -1319,9 +1321,107 @@ function AgentSection() {
           );
         })}
       </SettingCard>
+
+      {bridge?.appInfo?.devMode ? <AgentTracePanel bridge={bridge} /> : null}
     </>
   );
 }
+
+function formatTraceTime(ts: number): string {
+  if (!Number.isFinite(ts) || ts <= 0) return "--:--:--";
+  return new Date(ts).toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+function traceDataPreview(data: unknown): string {
+  if (data == null) return "";
+  try {
+    return JSON.stringify(data, null, 2);
+  } catch {
+    return String(data);
+  }
+}
+
+/* eslint-disable i18next/no-literal-string -- dev-only diagnostics labels are intentionally not localized. */
+function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
+  const [events, setEvents] = useState<AgentTraceEvent[]>([]);
+  const [paused, setPaused] = useState(false);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    void bridge.agentTraceList?.().then((list) => {
+      if (alive) setEvents(list);
+    });
+    const off = bridge.onAgentTrace?.((event) => {
+      setEvents((prev) => (paused ? prev : [...prev, event].slice(-500)));
+    });
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, [bridge, paused]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return events;
+    return events.filter((event) =>
+      [event.scope, event.phase, event.summary, event.runId, event.sessionId, event.agent]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q)),
+    );
+  }, [events, query]);
+
+  const clear = async () => {
+    await bridge.agentTraceClear?.();
+    setEvents([]);
+  };
+
+  return (
+    <SettingCard title="调试跟踪">
+      <div className="pw-trace-toolbar">
+        <input
+          className="pw-set-input pw-trace-search"
+          value={query}
+          placeholder="过滤 scope / phase / runId"
+          spellCheck={false}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <button className="pw-tl-gen" onClick={() => setPaused((v) => !v)}>
+          {paused ? "继续" : "暂停"}
+        </button>
+        <button className="pw-tl-gen" onClick={() => void clear()} disabled={!bridge.agentTraceClear}>
+          清空
+        </button>
+      </div>
+      <div className="pw-trace-list">
+        {filtered.length === 0 ? (
+          <div className="pw-scard-empty">暂无 trace 事件</div>
+        ) : (
+          filtered
+            .slice()
+            .reverse()
+            .map((event) => (
+              <details key={event.id} className="pw-trace-item">
+                <summary>
+                  <span className="pw-trace-time">{formatTraceTime(event.ts)}</span>
+                  <span className="pw-trace-chip">{event.scope}</span>
+                  <span className="pw-trace-chip">{event.phase}</span>
+                  <span className="pw-trace-summary">{event.summary}</span>
+                </summary>
+                <div className="pw-trace-meta">
+                  {event.agent ? <span>agent={event.agent}</span> : null}
+                  {event.runId ? <span>run={event.runId}</span> : null}
+                  {event.sessionId ? <span>session={event.sessionId}</span> : null}
+                </div>
+                {event.data != null ? <pre className="pw-trace-data">{traceDataPreview(event.data)}</pre> : null}
+              </details>
+            ))
+        )}
+      </div>
+    </SettingCard>
+  );
+}
+/* eslint-enable i18next/no-literal-string */
 
 // 「Pi」设置分区:聚合 pi 专属设置(默认供应商/模型、工具审批、高级定制),并承载后续新增的
 // 会话级能力。卡片锚点顺序:默认供应商 → Thinking → System Prompt → 工具审批 → 高级定制 →

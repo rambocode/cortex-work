@@ -18,8 +18,14 @@ import type { AgentKind, AskFollowupRequest, CliStreamEvent } from "./types";
 import { getAdapter } from "../agents";
 import { writePiExtension } from "../agents/pi-providers";
 import { type AgentProcess, pipeStdoutLines, spawnEnvFor, startAgentProcess } from "./cli";
+import { recordAgentTrace } from "./agent-trace";
 
 const running = new Map<string, AgentProcess>();
+
+function promptPreview(prompt: string | undefined): string | undefined {
+  if (!prompt) return undefined;
+  return prompt.length > 300 ? `${prompt.slice(0, 300)}…` : prompt;
+}
 
 // 无项目会话时,跳审批的 tool 会在用户文档/主目录真实执行,有误伤风险。
 // 此处对 claude/codex 去掉「跳审批/bypass 沙箱」标志,让其回退到默认审批/沙箱;
@@ -70,6 +76,15 @@ export function registerAskHandlers(): void {
     // full-auto 仍剥离 bypass → 无项目会话安全(更严者优先)。
     const args = req.tightenTools ? tightenArgs(req.agent, built.args) : built.args;
 
+    recordAgentTrace({
+      scope: "ask",
+      phase: "start",
+      summary: `${req.agent} ask start`,
+      runId: req.askId,
+      sessionId: req.askId,
+      agent: req.agent,
+      data: { cmd: built.cmd, cwd, argCount: args.length, promptPreview: promptPreview(req.prompt) },
+    });
     const proc = startAgentProcess(built.cmd, args, {
       cwd,
       env: spawnEnvFor({ agent: req.agent, provider: req.provider }),
@@ -81,6 +96,15 @@ export function registerAskHandlers(): void {
     let resultSent = false;
     const sendEvent = (ev: CliStreamEvent) => {
       if (ev.type === "result") resultSent = true;
+      recordAgentTrace({
+        scope: "ask",
+        phase: "event",
+        summary: `${req.agent} ask ${ev.type}`,
+        runId: req.askId,
+        sessionId: req.askId,
+        agent: req.agent,
+        data: { parsedEvent: ev },
+      });
       if (!sender.isDestroyed()) sender.send("ask:event", { askId: req.askId, event: ev });
     };
 
@@ -93,6 +117,15 @@ export function registerAskHandlers(): void {
     proc.stderr?.setEncoding("utf8");
     proc.stderr?.on("data", (chunk: string) => {
       stderrTail = (stderrTail + chunk).slice(-2000);
+      recordAgentTrace({
+        scope: "ask",
+        phase: "stderr",
+        summary: `${req.agent} ask stderr`,
+        runId: req.askId,
+        sessionId: req.askId,
+        agent: req.agent,
+        data: { chunk },
+      });
     });
 
     // 进程对象延迟回收时,闭包捕获 sender/adapter 会驻留 → 显式摘除监听(防泄漏)。
@@ -104,6 +137,15 @@ export function registerAskHandlers(): void {
 
     proc.onError((err) => {
       console.error(`[ask] ${req.agent} spawn failed: ${err.message}`);
+      recordAgentTrace({
+        scope: "ask",
+        phase: "error",
+        summary: `${req.agent} ask spawn failed`,
+        runId: req.askId,
+        sessionId: req.askId,
+        agent: req.agent,
+        data: { error: err.message },
+      });
       cleanup();
       // spawn 失败(如二进制缺失)也走 result 终止信号,渲染端据此呈现错误态、关 running(R8)。
       sendEvent({ type: "result", ok: false, error: err.message });
@@ -112,6 +154,15 @@ export function registerAskHandlers(): void {
     proc.onExit((code) => {
       flushStdout(); // 冲刷无换行结尾的最后一行(可能含 adapter 自发的 result)
       cleanup();
+      recordAgentTrace({
+        scope: "ask",
+        phase: "exit",
+        summary: `${req.agent} ask exit ${code ?? "null"}`,
+        runId: req.askId,
+        sessionId: req.askId,
+        agent: req.agent,
+        data: { code, error: stderrTail.trim() || undefined },
+      });
       // code===null = 被信号 kill(cancel/killAll 路径)→ 不补发,避免取消后污染新一轮(FIX-1)。
       if (code === null) return;
       // 进程正常结束(无论 code 是否为 0):若 adapter 未自发 result,主进程补发明确终止信号,

@@ -150,7 +150,11 @@ if (!app.requestSingleInstanceLock()) {
 
   // 同步 app 信息给 preload 桥。
   ipcMain.on("app:get-info", (event) => {
-    event.returnValue = { version: getRuntimeAppVersion(), os: normalizedOS() };
+    event.returnValue = {
+      version: getRuntimeAppVersion(),
+      os: normalizedOS(),
+      devMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"],
+    };
   });
 
   // 闪记热键降级提示:渲染端 mount 后拉取一次性消费(consume-pending,仿 spotlight,
@@ -194,7 +198,10 @@ if (!app.requestSingleInstanceLock()) {
     // initLogger 稍后读设置再调整开关 + 清理过期。
     patchConsole();
     await ensureMigrated();
-    registerIpcHandlers({ update: { beforeInstall: markRealQuit } });
+    registerIpcHandlers({
+      update: { beforeInstall: markRealQuit },
+      agentTraceDevMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"],
+    });
     registerDesktopHandlers();
     registerLogHandlers();
     registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });

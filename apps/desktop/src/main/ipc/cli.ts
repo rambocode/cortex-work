@@ -11,10 +11,16 @@ import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, Cli
 import { getAdapter } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
+import { recordAgentTrace } from "./agent-trace";
 
 const running = new Map<string, AgentProcess>();
 const VERIFY_TIMEOUT_MS = 3000;
 let detectedAgents: Promise<Record<AgentKind, boolean>> | null = null;
+
+function promptPreview(prompt: string | undefined): string | undefined {
+  if (!prompt) return undefined;
+  return prompt.length > 300 ? `${prompt.slice(0, 300)}…` : prompt;
+}
 
 // 封装子进程为统一接口。三种 agent 都走 child_process.spawn:claude/codex 是 PATH 上的
 // 外部 CLI,pi 是 bun 编译的自包含二进制(见 pi-locate.ts,不依赖 node_modules 解析)。
@@ -318,6 +324,15 @@ export function registerCliHandlers(): void {
     const { cmd, args } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
     assertSpawnCwd(req.cwd);
+    recordAgentTrace({
+      scope: "cli",
+      phase: "start",
+      summary: `${req.agent} start`,
+      runId: req.runId,
+      sessionId: req.sessionId,
+      agent: req.agent,
+      data: { cmd, cwd: req.cwd, argCount: args.length, promptPreview: promptPreview(req.prompt) },
+    });
     const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req) });
     running.set(req.runId, proc);
 
@@ -332,17 +347,46 @@ export function registerCliHandlers(): void {
 
     const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
       const ev = adapter.parseLine(line);
-      if (ev) sendEvent(ev);
+      if (ev) {
+        recordAgentTrace({
+          scope: "cli",
+          phase: "event",
+          summary: `${req.agent} ${ev.type}`,
+          runId: req.runId,
+          sessionId: req.sessionId,
+          agent: req.agent,
+          data: { parsedEvent: ev },
+        });
+        sendEvent(ev);
+      }
     });
 
     let stderrTail = "";
     proc.stderr?.setEncoding("utf8");
     proc.stderr?.on("data", (chunk: string) => {
       stderrTail = (stderrTail + chunk).slice(-2000);
+      recordAgentTrace({
+        scope: "cli",
+        phase: "stderr",
+        summary: `${req.agent} stderr`,
+        runId: req.runId,
+        sessionId: req.sessionId,
+        agent: req.agent,
+        data: { chunk },
+      });
     });
 
     proc.onError((err) => {
       console.error(`[cli] ${req.agent} spawn failed: ${err.message}`);
+      recordAgentTrace({
+        scope: "cli",
+        phase: "error",
+        summary: `${req.agent} spawn failed`,
+        runId: req.runId,
+        sessionId: req.sessionId,
+        agent: req.agent,
+        data: { error: err.message },
+      });
       // 显式摘除 data 监听:闭包捕获 sender/buffer/adapter,避免进程对象延迟回收时驻留（防泄漏）。
       proc.stdout?.removeAllListeners();
       proc.stderr?.removeAllListeners();
@@ -359,6 +403,15 @@ export function registerCliHandlers(): void {
       running.delete(req.runId);
       const error = code !== 0 && code !== null ? stderrTail.trim() || undefined : undefined;
       if (error) console.error(`[cli] ${req.agent} exited with code ${code}: ${error}`);
+      recordAgentTrace({
+        scope: "cli",
+        phase: "exit",
+        summary: `${req.agent} exit ${code ?? "null"}`,
+        runId: req.runId,
+        sessionId: req.sessionId,
+        agent: req.agent,
+        data: { code, error },
+      });
       sendExit({
         runId: req.runId,
         sessionId: req.sessionId,
@@ -406,6 +459,14 @@ export function registerCliHandlers(): void {
         piExtensionPath,
       });
       assertSpawnCwd(cwd);
+      recordAgentTrace({
+        scope: "oneshot",
+        phase: "start",
+        summary: `${agent} oneshot start`,
+        sessionId: "oneshot",
+        agent,
+        data: { cmd, cwd, argCount: args.length, promptPreview: promptPreview(req.prompt) },
+      });
       return new Promise<string>((resolve, reject) => {
         const proc = startAgentProcess(cmd, args, {
           cwd,
@@ -424,6 +485,14 @@ export function registerCliHandlers(): void {
           if (!line) return;
           const ev = adapter.parseLine(line);
           if (!ev) return;
+          recordAgentTrace({
+            scope: "oneshot",
+            phase: "event",
+            summary: `${agent} oneshot ${ev.type}`,
+            sessionId: "oneshot",
+            agent,
+            data: { parsedEvent: ev },
+          });
           if (ev.type === "text" && out.length < 20_000) out += ev.delta;
           if (ev.type === "result") {
             if (!ev.ok) failed = ev.error ?? "执行失败";
@@ -444,15 +513,39 @@ export function registerCliHandlers(): void {
         proc.stderr?.setEncoding("utf8");
         proc.stderr?.on("data", (chunk: string) => {
           stderrTail = (stderrTail + chunk).slice(-2000);
+          recordAgentTrace({
+            scope: "oneshot",
+            phase: "stderr",
+            summary: `${agent} oneshot stderr`,
+            sessionId: "oneshot",
+            agent,
+            data: { chunk },
+          });
         });
         proc.onError((err) => {
           clearTimeout(timer);
           console.error(`[cli:oneshot] ${agent} spawn failed: ${err.message}`);
+          recordAgentTrace({
+            scope: "oneshot",
+            phase: "error",
+            summary: `${agent} oneshot spawn failed`,
+            sessionId: "oneshot",
+            agent,
+            data: { error: err.message },
+          });
           reject(err);
         });
         proc.onExit((code) => {
           clearTimeout(timer);
           handleLine(buffer.trim()); // 冲刷无换行结尾的最后一行
+          recordAgentTrace({
+            scope: "oneshot",
+            phase: "exit",
+            summary: `${agent} oneshot exit ${code ?? "null"}`,
+            sessionId: "oneshot",
+            agent,
+            data: { code, error: stderrTail.trim() || undefined },
+          });
           const text = (out || resultText).trim();
           if (failed) reject(new Error(failed));
           else if (code === 0 && text) resolve(text);

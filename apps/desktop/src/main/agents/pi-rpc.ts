@@ -12,6 +12,7 @@ import { spawn } from "child_process";
 
 import { resolvePiBinary } from "./pi-locate";
 import { safeId } from "./pi-providers";
+import { recordAgentTrace } from "../ipc/agent-trace";
 import type {
   AskQuestionEnvelope,
   AskQuestionGroup,
@@ -254,7 +255,15 @@ function killWithTimeout(soft: () => void, pid: number | undefined): ReturnType<
  * - stdin:绑 error 监听 + 写前可写性守卫,避免对已死管道写入冒泡成主进程未捕获异常。
  */
 export function spawnPiRpc(args: string[], opts: { cwd?: string; env: NodeJS.ProcessEnv }): RpcTransport {
-  const child = spawn(resolvePiBinary(), args, {
+  const cmd = resolvePiBinary();
+  recordAgentTrace({
+    scope: "pi-rpc",
+    phase: "spawn",
+    summary: "pi rpc spawn",
+    agent: "pi",
+    data: { cmd, cwd: opts.cwd, argCount: args.length },
+  });
+  const child = spawn(cmd, args, {
     cwd: opts.cwd,
     env: opts.env,
     stdio: ["pipe", "pipe", "pipe"],
@@ -266,11 +275,34 @@ export function spawnPiRpc(args: string[], opts: { cwd?: string; env: NodeJS.Pro
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", (chunk: string) => {
     stderrTail = (stderrTail + chunk).slice(-2000);
+    recordAgentTrace({
+      scope: "pi-rpc",
+      phase: "stderr",
+      summary: "pi rpc stderr",
+      agent: "pi",
+      data: { chunk },
+    });
   });
   // 兜底强杀 timer:进程正常 close 后清掉,避免空等 3s 占用（防泄漏）。
   let killTimer: ReturnType<typeof setTimeout> | undefined;
-  child.on("close", () => {
+  child.on("close", (code) => {
     if (killTimer) clearTimeout(killTimer);
+    recordAgentTrace({
+      scope: "pi-rpc",
+      phase: "exit",
+      summary: `pi rpc exit ${code ?? "null"}`,
+      agent: "pi",
+      data: { code, stderrTail: stderrTail.trim() || undefined },
+    });
+  });
+  child.on("error", (err) => {
+    recordAgentTrace({
+      scope: "pi-rpc",
+      phase: "error",
+      summary: "pi rpc spawn error",
+      agent: "pi",
+      data: { error: err.message },
+    });
   });
   return {
     write: (line) => {

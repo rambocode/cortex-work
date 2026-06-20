@@ -117,6 +117,46 @@ describe("设置入口与整页设置视图", () => {
     expect(screen.getByText("No published versions on GitHub")).toBeTruthy();
   });
 
+  it("非 dev 环境不显示 Agent 调试跟踪", () => {
+    usePersonalStore.setState({ settingsOpen: true });
+    const bridge = { appInfo: { version: "0.1.1", os: "macos", devMode: false } } as unknown as DesktopBridge;
+    renderUI(<PersonalSettingsView />, bridge);
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    expect(screen.queryByText("调试跟踪")).toBeNull();
+  });
+
+  it("dev 环境显示 Agent 调试跟踪,加载事件并支持清空", async () => {
+    usePersonalStore.setState({ settingsOpen: true });
+    const agentTraceClear = vi.fn(async () => undefined);
+    const bridge = {
+      appInfo: { version: "0.1.1", os: "macos", devMode: true },
+      agentTraceList: vi.fn(async () => [
+        {
+          id: "trace-1",
+          ts: 1,
+          scope: "cli",
+          phase: "start",
+          summary: "pi start",
+          runId: "run-1",
+          sessionId: "session-1",
+          agent: "pi",
+          data: { cwd: "/proj" },
+        },
+      ]),
+      agentTraceClear,
+      onAgentTrace: vi.fn(() => () => undefined),
+    } as unknown as DesktopBridge;
+    renderUI(<PersonalSettingsView />, bridge);
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    expect(await screen.findByText("调试跟踪")).toBeTruthy();
+    expect(await screen.findByText("pi start")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "清空" }));
+
+    await waitFor(() => expect(agentTraceClear).toHaveBeenCalledTimes(1));
+  });
+
   it("卸载后 window keydown 监听解绑(ESC 不再返回)", () => {
     usePersonalStore.setState({ settingsOpen: true });
     const { unmount } = renderUI(<PersonalSettingsView />);

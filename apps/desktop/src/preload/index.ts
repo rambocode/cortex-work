@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type {
   AgentKind,
+  AgentTraceEvent,
   AgentSessionRequest,
   AgentProjectInfo,
   AskFollowupRequest,
@@ -52,6 +53,7 @@ import type { Locale } from "@cortex-work/core/i18n/native";
 interface AppInfo {
   version: string;
   os: "macos" | "windows" | "linux" | "unknown";
+  devMode?: boolean;
 }
 
 interface RuntimeConfig {
@@ -274,6 +276,17 @@ const personal = {
   ptyKill: (id: string): void => ipcRenderer.send("pty:kill", { id }),
   ptyCwd: (id: string): Promise<string | null> => ipcRenderer.invoke("pty:cwd", { id }),
   scanAgentProjects: (): Promise<AgentProjectInfo[]> => ipcRenderer.invoke("agents:scanProjects"),
+  agentTraceList: (): Promise<AgentTraceEvent[]> => ipcRenderer.invoke("agent-trace:list"),
+  agentTraceClear: (): Promise<void> => ipcRenderer.invoke("agent-trace:clear"),
+  onAgentTrace: (cb: (event: AgentTraceEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, event: AgentTraceEvent) => cb(event);
+    ipcRenderer.send("agent-trace:subscribe");
+    ipcRenderer.on("agent-trace:event", listener);
+    return () => {
+      ipcRenderer.removeListener("agent-trace:event", listener);
+      ipcRenderer.send("agent-trace:unsubscribe");
+    };
+  },
   onPtyData: (cb: (id: string, data: string) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, payload: { id: string; data: string }) => cb(payload.id, payload.data);
     ipcRenderer.on("pty:data", listener);

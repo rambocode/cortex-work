@@ -9,14 +9,24 @@ import { delimiter, join } from "node:path";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const spawnMock = vi.fn();
+const traceMock = vi.hoisted(() => vi.fn());
+const ipcHandlers = vi.hoisted(() => new Map<string, (...args: unknown[]) => unknown>());
 
 vi.mock("electron", () => ({
   app: { getAppPath: () => "/fake/app", isPackaged: false },
-  ipcMain: { handle: vi.fn() },
+  ipcMain: {
+    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+      ipcHandlers.set(channel, handler);
+    }),
+  },
 }));
 
 vi.mock("child_process", () => ({
   spawn: (...args: unknown[]) => spawnMock(...args),
+}));
+
+vi.mock("./agent-trace", () => ({
+  recordAgentTrace: (...args: unknown[]) => traceMock(...args),
 }));
 
 import {
@@ -25,6 +35,7 @@ import {
   mergePathWithPreferredDirs,
   nvmBinDirs,
   resetAgentDetectionForTest,
+  registerCliHandlers,
   startAgentProcess,
   spawnEnvFor,
 } from "./cli";
@@ -42,10 +53,109 @@ function fakeChild() {
 
 beforeEach(() => {
   resetAgentDetectionForTest();
+  ipcHandlers.clear();
+  traceMock.mockReset();
   spawnMock.mockReset();
   spawnMock.mockImplementation(() => fakeChild());
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
+});
+
+describe("cli:start trace", () => {
+  it("记录启动、解析事件、stderr 和退出 trace", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-cli-trace-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    registerCliHandlers();
+    const send = vi.fn();
+
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        {
+          runId: "run-1",
+          sessionId: "session-1",
+          agent: "pi",
+          cwd,
+          prompt: "hello",
+        },
+      );
+
+      child.stdout.emit("data", JSON.stringify({ type: "session", id: "pi-session" }) + "\n");
+      child.stdout.emit(
+        "data",
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "hi" },
+        }) + "\n",
+      );
+      child.stderr.emit("data", "warn line\n");
+      child.emit("close", 0);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "cli", phase: "start", runId: "run-1", sessionId: "session-1", agent: "pi" }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "cli", phase: "event", runId: "run-1", sessionId: "session-1", agent: "pi" }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "cli", phase: "stderr", data: expect.objectContaining({ chunk: "warn line\n" }) }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "cli", phase: "exit", data: expect.objectContaining({ code: 0 }) }),
+    );
+  });
+});
+
+describe("cli:oneshot trace", () => {
+  it("记录 oneshot start/event/stderr/exit trace", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-oneshot-trace-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    registerCliHandlers();
+
+    try {
+      const promise = ipcHandlers.get("cli:oneshot")?.(
+        {},
+        {
+          agent: "pi",
+          cwd,
+          prompt: "生成标题",
+        },
+      ) as Promise<string>;
+      await Promise.resolve();
+
+      child.stdout.emit(
+        "data",
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "标题" },
+        }) + "\n",
+      );
+      child.stderr.emit("data", "warn\n");
+      child.emit("close", 0);
+
+      await expect(promise).resolves.toBe("标题");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "oneshot", phase: "start", sessionId: "oneshot", agent: "pi" }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "oneshot", phase: "event", sessionId: "oneshot", agent: "pi" }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "oneshot", phase: "stderr", data: expect.objectContaining({ chunk: "warn\n" }) }),
+    );
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "oneshot", phase: "exit", data: expect.objectContaining({ code: 0 }) }),
+    );
+  });
 });
 
 afterEach(() => {

@@ -20,6 +20,7 @@ import {
 } from "../agents/pi-extensions";
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
+import { recordAgentTrace } from "./agent-trace";
 
 interface SessionEntry {
   session: PiRpcSession;
@@ -31,6 +32,15 @@ const sessions = new Map<string, SessionEntry>();
 // 推一条归一化事件给 renderer。crashed 顺带摘除注册表条目（进程已死,避免悬挂）。
 // 带 runId（阶段4 代际）:renderer 据此守卫丢弃迟到/串台事件。
 function emitEvent(uiSessionId: string, ev: PiSessionEvent, runId?: string): void {
+  recordAgentTrace({
+    scope: "pi",
+    phase: "event",
+    summary: `pi ${ev.type}`,
+    runId,
+    sessionId: uiSessionId,
+    agent: "pi",
+    data: { event: ev },
+  });
   const entry = sessions.get(uiSessionId);
   if (ev.type === "crashed") sessions.delete(uiSessionId);
   if (entry && !entry.sender.isDestroyed()) {
@@ -118,6 +128,14 @@ export function registerPiSessionHandlers(): void {
 
     const args = buildRpcArgs(req);
     assertSpawnCwd(req.cwd);
+    recordAgentTrace({
+      scope: "pi",
+      phase: "open",
+      summary: "pi open",
+      sessionId: req.uiSessionId,
+      agent: "pi",
+      data: { cwd: req.cwd, argCount: args.length, providerId: req.provider?.id },
+    });
     const transport = spawnPiRpc(args, {
       cwd: req.cwd,
       env: spawnEnvFor({ agent: "pi", provider: req.provider }),
@@ -154,6 +172,19 @@ export function registerPiSessionHandlers(): void {
   // ── 运行时命令（均转发到对应 PiRpcSession 方法）──────────────────────────
   ipcMain.handle("pi:prompt", (_e, uiSessionId: string, message: string, runId?: string, imagePaths?: string[]) =>
     command(uiSessionId, async (s) => {
+      recordAgentTrace({
+        scope: "pi",
+        phase: "command",
+        summary: "pi prompt",
+        runId,
+        sessionId: uiSessionId,
+        agent: "pi",
+        data: {
+          command: "prompt",
+          promptPreview: message.length > 300 ? `${message.slice(0, 300)}…` : message,
+          imageCount: imagePaths?.length ?? 0,
+        },
+      });
       const images = await buildPiImages(imagePaths);
       // 无图沿用两参调用,保持既有行为/契约不变。
       return images ? s.prompt(message, runId, images) : s.prompt(message, runId);
