@@ -4970,6 +4970,9 @@ button.sb-row {
   cursor: pointer;
 }
 .pw-tb-menu-item:hover { background: var(--bg-hover); }
+/* 禁用项:置灰 + 禁止指针 + 不响应 hover（否则看起来可点、点了无反应）。 */
+.pw-tb-menu-item:disabled { opacity: 0.4; cursor: not-allowed; }
+.pw-tb-menu-item:disabled:hover { background: transparent; }
 .pw-tb-menu-item span { flex: 1; text-align: left; }
 .pw-tb-menu-item svg:last-child:not(:first-child) { color: var(--accent); }
 .pw-tb-menu-sep { height: 1px; background: var(--border-soft); margin: 4px 2px; }

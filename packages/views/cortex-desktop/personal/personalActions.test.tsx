@@ -462,6 +462,23 @@ describe("steer / setPiModel（U6）", () => {
       await result.current.compact(piSession.id, "保留最近 3 轮");
     });
     expect(bridge.piCompact).toHaveBeenCalledWith("s-pi", "保留最近 3 轮");
+    // 成功 → 补一条确认,避免「点了没反应」。
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(piSession.id)) ?? [];
+    expect(msgs.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("已压缩上下文"))).toBe(true);
+  });
+
+  it("compact:失败(上下文过短)→ 给可读反馈,不静默", async () => {
+    const bridge = makeBridge({ piCompact: vi.fn(async () => { throw new Error("Nothing to compact (session too small)"); }) });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "hi", []);
+    });
+    await act(async () => {
+      await result.current.compact(piSession.id);
+    });
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(piSession.id)) ?? [];
+    expect(msgs.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("无需压缩"))).toBe(true);
   });
 
   it("compact:claude 会话 no-op:不调 piCompact", async () => {

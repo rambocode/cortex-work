@@ -255,7 +255,7 @@ function PersonalSessionMenu({
                 : running
                   ? "运行中无法压缩，请等当前轮结束"
                   : !isPiSessionOpen(session.id)
-                    ? "会话尚未开始，无上下文可压缩"
+                    ? "会话未激活，先发送一条消息再压缩"
                     : "压缩当前会话上下文以释放窗口"
             }
             onClick={() => {

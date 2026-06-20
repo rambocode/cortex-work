@@ -2288,23 +2288,32 @@ export function usePersonalActions(): PersonalActions {
     [bridge, qc],
   );
 
-  // 手动压缩上下文:仅对就绪 pi 会话生效。compaction start/end 事件回流会点亮 PersonalTopBar 已有
-  // 的「压缩上下文…」状态,故此处不另维护 UI 状态。失败（会话已退出/压缩出错）静默——压缩失败由
-  // pi 事件体现,不影响后续对话。
+  // 手动压缩上下文:仅对就绪 pi 会话生效（未就绪由 UI 禁用项 + tooltip 引导）。压缩中由 compaction
+  // start/end 事件点亮 PersonalTopBar 的「压缩上下文…」chip;完成/失败都补一条可读反馈消息——
+  // 否则短会话 pi 抛「Nothing to compact」被吞,用户只觉得「点了没反应」。
   const compact = useCallback<PersonalActions["compact"]>(
     async (sessionId, customInstructions) => {
       if (!bridge) return;
       const session = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
       if (session?.agent !== "pi") return;
-      if (!isPiSessionOpen(sessionId)) return; // 未开/未就绪 → 无上下文可压缩
+      if (!isPiSessionOpen(sessionId)) return; // 未开/未就绪 → 无活跃会话可压缩（UI 已禁用并提示）
       touchPiSession(bridge, sessionId); // 压缩 = 活跃,重置空闲计时
       try {
         await compactPi(bridge, sessionId, customInstructions);
-      } catch {
-        /* 会话已退出/压缩出错:忽略 */
+        appendMsg(qc, sessionId, { kind: "text", who: "pi", time: realHHMM(), text: "✅ 已压缩上下文", uid: uid("pi") });
+      } catch (e) {
+        // 压缩失败给可读反馈:上下文过短 / 已压缩 / 其它错误。不再静默吞。
+        const raw = e instanceof Error ? e.message : String(e);
+        const text = /nothing to compact/i.test(raw)
+          ? "ℹ️ 无需压缩：当前上下文较短"
+          : /already compacted/i.test(raw)
+            ? "ℹ️ 当前已是压缩后的上下文"
+            : `压缩失败：${raw}`;
+        appendMsg(qc, sessionId, { kind: "text", who: "pi", time: realHHMM(), text, uid: uid("err") });
       }
+      flushChat(qc, sessionId);
     },
-    [bridge],
+    [bridge, qc],
   );
 
   const setPiModel = useCallback<PersonalActions["setPiModel"]>(
