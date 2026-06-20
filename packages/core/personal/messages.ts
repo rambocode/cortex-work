@@ -1189,8 +1189,13 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       // 一条 pi 消息呈现。置 sawText 以免随后的（补发）result 收尾再加「纯工具轮」占位。
       // 同时标记本轮为扩展命令 → 抑制右侧「执行过程」面板的空态「运行中」闪现（无过程步骤可展示）。
       store.setPiRuntime(sessionId, { extensionCommand: true });
-      if (ev.message.trim()) {
-        appendMsg(qc, sessionId, { kind: "text", who: "pi", time: realHHMM(), text: ev.message, uid: uid("pi") });
+      const msg = ev.message.trim();
+      if (msg) {
+        // notify 多是终端风格输出（树形 ├─/└─、对齐、多行）。聊天正文走 react-markdown,单个 \n 会被
+        // 折叠成空格 → 多行挤成一行。故含换行的 notify 包进 ```text 代码块（等宽 + 保留换行/对齐）;
+        // 单行则按普通文本（保留 emoji 友好排版）。
+        const text = msg.includes("\n") ? `\`\`\`text\n${msg}\n\`\`\`` : msg;
+        appendMsg(qc, sessionId, { kind: "text", who: "pi", time: realHHMM(), text, uid: uid("pi") });
         const a = piRunFor(sessionId);
         if (a) a.run.sawText = true;
       }

@@ -770,6 +770,19 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined(); // 已收尾
   });
 
+  it("notify 多行输出 → 包进 ```text 代码块(保留换行/对齐,避免 markdown 折行)", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", {
+      type: "notify",
+      message: "📊 Results:\n├─ Sessions: 42\n└─ Messages: 206",
+      level: "info",
+    });
+    const m = cacheOf(qc).find((x) => x.kind === "text" && typeof x.text === "string" && x.text.includes("Results"));
+    expect(m?.kind === "text" && m.text).toMatch(/^```text\n/);
+    expect(m?.kind === "text" && m.text).toContain("├─ Sessions: 42\n└─ Messages: 206");
+  });
+
   it("queue/compaction/retry/thinking-level 写入 piRuntimeBySession", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
