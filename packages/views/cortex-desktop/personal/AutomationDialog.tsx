@@ -65,10 +65,14 @@ function Select({
 
 export function AutomationDialog({
   meta,
+  initial,
   onClose,
   onToast,
 }: {
   meta?: AutomationMeta; // 传入 = 编辑;否则新建
+  // 模板预填:仅新建时生效（不带 id,仍走 create）。优先级 meta > initial > 空默认;
+  // agent / model / providerId 不受其影响,仍按现有 agent 兜底与联动逻辑（见 KTD-2）。
+  initial?: Partial<AutomationInput>;
   onClose: () => void;
   onToast: (text: string) => void;
 }) {
@@ -85,17 +89,17 @@ export function AutomationDialog({
   );
   const initialAgent: AgentKind = meta?.agent ?? availAgents[0] ?? "pi";
 
-  const [name, setName] = useState(meta?.name ?? "");
-  const [prompt, setPrompt] = useState(meta?.prompt ?? "");
+  const [name, setName] = useState(meta?.name ?? initial?.name ?? "");
+  const [prompt, setPrompt] = useState(meta?.prompt ?? initial?.prompt ?? "");
   const [agent, setAgent] = useState<AgentKind>(initialAgent);
   const [model, setModel] = useState(meta?.agent !== "pi" ? meta?.model ?? DEFAULT_MODEL[initialAgent] : DEFAULT_MODEL[initialAgent]);
   const [providerId, setProviderId] = useState(
     meta?.agent === "pi" ? meta?.providerId ?? (meta as { piChannelId?: string }).piChannelId ?? "" : "",
   );
   const [piModel, setPiModel] = useState(meta?.agent === "pi" ? meta?.model ?? "" : "");
-  const [effort, setEffort] = useState<ReasoningEffort>(meta?.effort ?? "medium");
-  const [projectId, setProjectId] = useState(meta?.projectId ?? "");
-  const [schedule, setSchedule] = useState<ScheduleSpec>(meta?.schedule ?? { kind: "daily", hour: 9, minute: 0 });
+  const [effort, setEffort] = useState<ReasoningEffort>(meta?.effort ?? initial?.effort ?? "medium");
+  const [projectId, setProjectId] = useState(meta?.projectId ?? initial?.projectId ?? "");
+  const [schedule, setSchedule] = useState<ScheduleSpec>(meta?.schedule ?? initial?.schedule ?? { kind: "daily", hour: 9, minute: 0 });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
