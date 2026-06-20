@@ -7230,18 +7230,45 @@ button.sb-row {
 .pw-plugins-hint { font-size: 12px; color: var(--text-3); }
 .pw-plugins-list { display: flex; flex-direction: column; gap: 28px; }
 .pw-plugins-group-title { font-size: 21px; font-weight: 700; color: var(--text-1); margin-bottom: 4px; }
-/* 双列卡片网格（窄屏自动回退单列）。每个单元格各自 border-top → 行间分隔线。 */
-.pw-plugins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); column-gap: 56px; }
-.pw-plugins-card { display: flex; align-items: flex-start; gap: 16px; padding: 16px 2px; border-top: 1px solid var(--border-soft); }
-.pw-plugins-card.is-shadowed { opacity: 0.55; }
+/* 卡片网格:自适应列宽,行/列均匀留白(替代旧的 border-top 分隔行)。 */
+.pw-plugins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+/* 卡片成「面」:圆角 + 卡面底 + 软边 + 浅阴影;hover 轻微上浮并染上品牌紫,给可操作感。 */
+.pw-plugins-card {
+  position: relative; display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; border: 1px solid var(--border-soft); border-radius: 14px;
+  background: var(--bg-card-2, var(--bg-soft)); box-shadow: var(--shadow-card);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
+}
+.pw-plugins-card:hover { border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); box-shadow: var(--shadow-pop); transform: translateY(-1px); }
+.pw-plugins-card.is-shadowed { opacity: 0.6; box-shadow: none; }
+.pw-plugins-card.is-shadowed:hover { transform: none; box-shadow: none; border-color: var(--border-soft); }
+/* 状态点:绿=已启用(代码在每轮会话运行) / 灰=已装未启用 / 琥珀=已失踪。让运行态一眼可辨。 */
+.pw-plugins-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--text-4); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-4) 16%, transparent); }
+.pw-plugins-dot[data-state="on"] { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent); }
+.pw-plugins-dot[data-state="missing"] { background: var(--amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 22%, transparent); }
 .pw-plugins-card-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+/* 动作区:竖向堆叠 + 等宽对齐(此前无样式,靠默认流布局)。 */
+.pw-plugins-card-actions { flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .pw-plugins-card-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pw-plugins-card-name { font-size: 15px; font-weight: 600; color: var(--text-1); }
 .pw-plugins-card-desc { font-size: 13px; color: var(--text-3); line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* 落盘路径走等宽 + 更弱字色,与版本号区分,弱化但可辨。 */
+.pw-plugins-card-path { font-family: var(--mono, monospace); font-size: 12px; color: var(--text-4); }
 .pw-tag { font-size: 11px; font-weight: 500; color: var(--text-2); background: var(--bg-active); padding: 2px 8px; border-radius: 6px; flex: 0 0 auto; }
+/* 语义标签:来源=等宽分类;已启用=绿;未启用=中性;下一轮生效=紫;失踪=琥珀。承载状态信息而非纯装饰。 */
+.pw-tag--origin { font-family: var(--mono, monospace); letter-spacing: 0.01em; }
+.pw-tag--on { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.pw-tag--off { color: var(--text-3); background: var(--bg-active); }
+.pw-tag--pending { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pw-tag--warn { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
 /* 启用/禁用胶囊（浅紫底，呼应参考设计）。 */
-.pw-pill { flex: 0 0 auto; align-self: center; padding: 7px 18px; border: none; border-radius: 12px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 13px; cursor: pointer; transition: background 0.12s; }
+.pw-pill { flex: 0 0 auto; align-self: center; padding: 7px 18px; border: none; border-radius: 12px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 13px; cursor: pointer; transition: background 0.12s, color 0.12s; }
 .pw-pill:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+/* 「禁用」是关停在跑的扩展:平时安静(中性),hover 才透出红色危险提示——破坏性动作不喧哗。 */
+.pw-pill--muted { background: var(--bg-active); color: var(--text-2); }
+.pw-pill--muted:hover { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
+/* 「卸载」同理:静态中性,hover 才染红。 */
+.pw-btn-sm--danger:hover { border-color: color-mix(in srgb, var(--red) 50%, var(--border)); color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); }
 .pw-plugins-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 16px; text-align: center; color: var(--text-3); }
 .pw-plugins-empty-title { font-size: 14px; font-weight: 600; color: var(--text-2); }
 .pw-plugins-empty-desc { font-size: 12.5px; color: var(--text-3); line-height: 1.5; max-width: 360px; }

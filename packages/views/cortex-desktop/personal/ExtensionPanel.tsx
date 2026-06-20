@@ -334,17 +334,33 @@ function ExtensionCard({
 }) {
   return (
     <div className={`pw-plugins-card ${ext.missing ? "is-shadowed" : ""}`}>
+      {/* 状态点:绿=启用(代码在跑) / 灰=已装未启用 / 琥珀=失踪。运行态一眼可辨。 */}
+      <span
+        className="pw-plugins-dot"
+        data-state={ext.missing ? "missing" : ext.enabled ? "on" : "off"}
+        aria-hidden
+      />
       <div className="pw-plugins-card-main">
         <div className="pw-plugins-card-title">
           <span className="pw-plugins-card-name">{ext.ref}</span>
-          <span className="pw-tag">{ext.origin}</span>
-          {ext.enabled ? <span className="pw-tag">已启用</span> : <span className="pw-tag">已安装·未启用</span>}
-          {pendingApply ? <span className="pw-tag">下一轮对话生效</span> : null}
-          {ext.missing ? <span className="pw-tag">已失踪</span> : null}
+          <span className="pw-tag pw-tag--origin">{ext.origin}</span>
+          {ext.enabled ? (
+            <span className="pw-tag pw-tag--on">已启用</span>
+          ) : (
+            <span className="pw-tag pw-tag--off">已安装·未启用</span>
+          )}
+          {pendingApply ? <span className="pw-tag pw-tag--pending">下一轮对话生效</span> : null}
+          {ext.missing ? <span className="pw-tag pw-tag--warn">已失踪</span> : null}
         </div>
         <div className="pw-plugins-card-desc">
           {ext.version ? `版本 ${ext.version} · ` : ""}
-          {ext.missing ? "pi list 中已找不到该扩展（外部删除/损坏）。" : ext.path}
+          {ext.missing ? (
+            "pi list 中已找不到该扩展（外部删除/损坏）。"
+          ) : (
+            <span className="pw-plugins-card-path" title={ext.path}>
+              {ext.path}
+            </span>
+          )}
         </div>
       </div>
       {ext.missing ? (
@@ -359,15 +375,17 @@ function ExtensionCard({
       ) : (
         <div className="pw-plugins-card-actions">
           {ext.enabled ? (
-            <button type="button" className="pw-pill" onClick={onDisable}>
+            // 「禁用」关停在跑扩展,中性样式 + hover 染红(破坏性动作不喧哗)。
+            <button type="button" className="pw-pill pw-pill--muted" onClick={onDisable}>
               禁用
             </button>
           ) : (
+            // 「信任并启用」是引导的下一步,用品牌紫胶囊吸引视线。
             <button type="button" className="pw-pill" onClick={onEnable}>
               信任并启用
             </button>
           )}
-          <button type="button" className="pw-btn-sm" onClick={onUninstall}>
+          <button type="button" className="pw-btn-sm pw-btn-sm--danger" onClick={onUninstall}>
             卸载
           </button>
         </div>
