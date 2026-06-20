@@ -44,12 +44,29 @@ export default interface Resources {
       "micBusyTitle": "正在转写",
       "micStopTitle": "停止录音并转写",
       "micTitle": "语音输入",
+      "modeBlock": {
+        "acceptEditsExec": "当前是「自动改文件」模式,{{name}} 想执行命令被拦下。切到全自动并重试本轮?",
+        "dismiss": "忽略",
+        "planEdit": "当前是 Plan(只读)模式,{{name}} 想修改文件被拦下。切换模式并重试本轮?",
+        "planExec": "当前是 Plan(只读)模式,{{name}} 想执行命令被拦下。切换模式并重试本轮?",
+        "switchAcceptEdits": "切到自动改文件并重试",
+        "switchFullAuto": "切到全自动并重试"
+      },
       "modelToast": "模型选择 · 当前 Sonnet 4.5",
       "moreActions": "更多动作",
       "noAudio": "没有录到音频",
       "noLocalAsr": "当前环境不支持本地 ASR",
       "noProvider": "未配置供应商（去设置 → 供应商）",
       "noRecording": "当前浏览器不支持录音",
+      "permissionMode": {
+        "accept-edits": "自动改文件",
+        "acceptEditsHint": "自动接受文件编辑;bash 等执行类命令仍受限",
+        "full-auto": "全自动",
+        "fullAutoHint": "跳过全部权限,所有工具直接执行(默认)",
+        "label": "运行模式",
+        "plan": "Plan · 只读",
+        "planHint": "只读分析、出计划,不改文件、不跑写/执行类工具"
+      },
       "readAttachmentFailed": "读取附件失败：{{error}}",
       "readImageFailed": "读取图片失败：{{error}}",
       "recordFailed": "录音失败：{{error}}",
@@ -336,12 +353,6 @@ export default interface Resources {
       "terminalToast": "终端 · 暂未实现"
     },
     "todoUntitled": "未命名 Todo",
-    "tweaks": {
-      "close": "关闭",
-      "density": "布局密度 · Density",
-      "palette": "品牌色调 · Palette",
-      "sidebar": "侧栏样式 · Sidebar"
-    },
     "updateButton": {
       "downloadedTitle": "v{{version}} 已就绪,点击重启安装",
       "downloading": "更新 {{percent}}%",
@@ -542,11 +553,11 @@ export default interface Resources {
       "availabilityCard": "可用性",
       "builtin": "内置",
       "defaultCard": "默认 Agent",
-      "defaultLabel": "新会话默认 Agent",
       "defaultDesc": "作为新会话的默认 Agent,并用于生成首页问候语。所选 Agent 不可用时自动回退。",
-      "labelNotInstalled": "{{name}}（未安装）",
+      "defaultLabel": "新会话默认 Agent",
       "desc": "Cortex 支持 Claude Code、Codex、内置 Pi 三种 Agent。Claude / Codex 用各自 CLI 自带鉴权;Pi 在未装 CLI 时兜底,使用「供应商」中配置的 LLM 端点。Pi 的专属设置见「Pi」分区。",
       "installed": "已安装",
+      "labelNotInstalled": "{{name}}（未安装）",
       "notDetected": "未检测到 CLI",
       "title": "Agent"
     },

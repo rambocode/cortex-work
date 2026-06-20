@@ -197,12 +197,6 @@
     "retryUpdate": "重试更新",
     "errorTitle": "更新失败"
   },
-  "tweaks": {
-    "close": "关闭",
-    "density": "布局密度 · Density",
-    "palette": "品牌色调 · Palette",
-    "sidebar": "侧栏样式 · Sidebar"
-  },
   "sectionTitle": {
     "tasks": "任务",
     "agents": "智能体",

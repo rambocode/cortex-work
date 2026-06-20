@@ -197,12 +197,6 @@
     "retryUpdate": "Retry update",
     "errorTitle": "Update failed"
   },
-  "tweaks": {
-    "close": "Close",
-    "density": "Layout density · Density",
-    "palette": "Brand palette · Palette",
-    "sidebar": "Sidebar style · Sidebar"
-  },
   "sectionTitle": {
     "tasks": "Tasks",
     "agents": "Agents",
