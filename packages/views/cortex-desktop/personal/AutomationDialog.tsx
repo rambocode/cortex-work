@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
+import { Toggle } from "@cortex-work/ui/controls/Toggle";
 import {
   AGENT_MODELS,
   DEFAULT_MODEL,
@@ -100,6 +101,8 @@ export function AutomationDialog({
   const [effort, setEffort] = useState<ReasoningEffort>(meta?.effort ?? initial?.effort ?? "medium");
   const [projectId, setProjectId] = useState(meta?.projectId ?? initial?.projectId ?? "");
   const [schedule, setSchedule] = useState<ScheduleSpec>(meta?.schedule ?? initial?.schedule ?? { kind: "daily", hour: 9, minute: 0 });
+  // 完成后推送(opt-in,默认关闭):开启后推送到「设置 → 通知」已启用的渠道。
+  const [notify, setNotify] = useState(meta?.notify ?? initial?.notify ?? false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -140,6 +143,7 @@ export function AutomationDialog({
       projectId: projectId || undefined,
       cwd: projectId ? projects.find((p) => p.id === projectId)?.path : undefined,
       effort,
+      notify,
       schedule,
     };
     try {
@@ -235,6 +239,13 @@ export function AutomationDialog({
           </div>
 
           <ScheduleEditor value={schedule} onChange={setSchedule} />
+
+          <div className="pw-set-field">
+            <Toggle label="完成后推送" value={notify} onChange={setNotify} />
+            <span className="pw-set-hint">
+              执行完成后把结果推送到「设置 → 通知」中已启用的渠道(企业微信 / 钉钉 / 飞书 / 邮件 / 内部通知)。未启用任何渠道则不会有通知。
+            </span>
+          </div>
         </div>
         <div className="pw-auto-dlg-foot">
           <button className="btn" onClick={onClose}>
