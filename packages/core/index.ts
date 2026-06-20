@@ -220,6 +220,7 @@ export {
   type DocTasksResult,
   type NextSkill,
 } from "./personal/docTasks";
+export { usePiEnabledSkills, filterEnabledPiSkills, type PiSlashSkill } from "./personal/piSkills";
 export {
   parseDocMeta,
   type DocKind,
