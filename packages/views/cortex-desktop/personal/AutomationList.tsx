@@ -110,16 +110,10 @@ export function AutomationList({
   const { data: automations = [] } = useAutomations();
   const runNow = useRunAutomationNow();
   const [menu, setMenu] = useState<{ meta: AutomationMeta; anchor: { x: number; y: number } } | null>(null);
-  // 有任务时「从模板」入口的展开态：默认收起,不常占列表空间;点任一模板后收起。
-  const [tplOpen, setTplOpen] = useState(false);
+  // 有任务时模板画廊的展开态：默认展开常驻在列表顶部,用户可经顶部按钮收起以腾出空间。
+  const [tplOpen, setTplOpen] = useState(true);
 
   const sorted = [...automations].sort((a, b) => b.createdAt - a.createdAt);
-
-  // 包一层:点模板后既上抛又收起折叠区,避免画廊一直占着位置。
-  const pickTemplate = (t: AutomationTemplate) => {
-    setTplOpen(false);
-    onPickTemplate(t);
-  };
 
   const execute = (e: React.MouseEvent, meta: AutomationMeta) => {
     e.stopPropagation();
@@ -136,7 +130,7 @@ export function AutomationList({
         <span className="pw-panel-title">自动化</span>
         {sorted.length > 0 ? (
           <div className="pw-panel-h-actions">
-            {/* 有任务时:顶部常驻「从模板」入口,点开折叠区展示画廊(KTD-3) */}
+            {/* 有任务时:模板画廊默认展开常驻顶部,此按钮可收起/再展开(KTD-3) */}
             <button
               className={`pw-icon-btn ${tplOpen ? "is-active" : ""}`}
               title="从模板新建"
@@ -162,7 +156,7 @@ export function AutomationList({
           <div className="pw-auto-tpl-empty-title">还没有自动化任务</div>
           <div className="pw-auto-tpl-empty-hint">从下面的模板一键开始,或新建空白任务</div>
           {/* 空状态:整块展示模板画廊作为新手强引导 */}
-          <AutomationTemplateGallery onPick={pickTemplate} />
+          <AutomationTemplateGallery onPick={onPickTemplate} />
           <button className="btn ghost pw-auto-tpl-blank" onClick={onCreate}>
             <Icon.Plus size={13} />
             空白新建
@@ -171,10 +165,10 @@ export function AutomationList({
       ) : (
         <div className="pw-auto-list">
           {tplOpen ? (
-            // 折叠区:仅展开时占位,点模板后由 pickTemplate 收起
+            // 默认展开常驻列表顶部;可经顶部「从模板」按钮收起。
             <div className="pw-auto-tpl-panel">
               <div className="pw-auto-tpl-panel-h">从模板新建</div>
-              <AutomationTemplateGallery onPick={pickTemplate} />
+              <AutomationTemplateGallery onPick={onPickTemplate} />
             </div>
           ) : null}
           {sorted.map((a) => (
