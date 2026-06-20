@@ -1,4 +1,4 @@
-import { cleanup, render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { CoreProvider } from "@cortex-work/core";
 import type { DesktopBridge, UpdateState } from "@cortex-work/core";
@@ -72,8 +72,8 @@ describe("UpdateButton", () => {
 
     // 下载完成:标题栏与弹窗底部均出现「重启更新」,点弹窗内的触发安装。
     push({ phase: "downloaded", version: "0.2.0" });
-    const installs = await screen.findAllByRole("button", { name: "重启更新" });
-    fireEvent.click(installs[installs.length - 1]);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "重启更新" }));
     expect(updateInstall).toHaveBeenCalledTimes(1);
   });
 
