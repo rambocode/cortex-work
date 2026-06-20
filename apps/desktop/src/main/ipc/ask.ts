@@ -61,9 +61,13 @@ export function registerAskHandlers(): void {
       model: req.model,
       appendSystemPrompt: req.appendSystemPrompt,
       effort: req.effort,
+      // 运行模式:claude/codex adapter 据此拼权限标志(pi 单发无 UI,plan 经 --tools 白名单生效)。
+      permissionMode: req.permissionMode,
       provider: req.provider,
       piExtensionPath,
     });
+    // tightenTools 与运行模式叠加:plan/accept-edits 已是非 bypass,剥离 bypass 对其 no-op;
+    // full-auto 仍剥离 bypass → 无项目会话安全(更严者优先)。
     const args = req.tightenTools ? tightenArgs(req.agent, built.args) : built.args;
 
     const proc = startAgentProcess(built.cmd, args, {

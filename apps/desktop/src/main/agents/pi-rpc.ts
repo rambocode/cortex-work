@@ -203,6 +203,11 @@ export function buildRpcArgs(req: PiOpenRequest): string[] {
   // 解析为 skillPaths,逐个 --skill 注入（与单发 pi.ts 同策略;实测 --no-skills 与显式 --skill 共存）。
   args.push("--no-skills");
   for (const p of req.skillPaths ?? []) args.push("--skill", p);
+  // 运行模式 plan 档:只读工具白名单（renderer 由 permissionMode 派生为 toolWhitelist）。--tools 是
+  // 全局 CLI flag,与 --mode rpc 正交,可与 --no-skills/--skill/-e 共存;缺省不传 = 全工具可用
+  // （accept-edits/full-auto 不收窄工具,靠审批 extension 区分）。pi 无运行时改工具集命令,故切到
+  // plan 需重开会话(由发送层的模式指纹判定)。
+  if (req.toolWhitelist?.length) args.push("--tools", req.toolWhitelist.join(","));
   // extension:provider（piExtensionPath）+ 阶段3 审批/样例（extraExtensionPaths）多 `-e` 共存
   // （spike 已证 --no-extensions 与多个显式 -e 共存、hook 注册）。各加一个 -e,`-a` 信任只加一次。
   const exts = [req.piExtensionPath, ...(req.extraExtensionPaths ?? [])].filter((p): p is string => !!p);

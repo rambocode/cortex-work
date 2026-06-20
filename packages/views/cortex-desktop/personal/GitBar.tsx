@@ -8,6 +8,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
+  DEFAULT_PERMISSION_MODE,
+  PERMISSION_MODES,
   useCortexUIStore,
   useGitBranchActions,
   useInvalidateGitInfo,
@@ -15,16 +17,26 @@ import {
   useProjectBranches,
   useProjectGitInfo,
 } from "@cortex-work/core";
-import type { ProjectMeta } from "@cortex-work/core";
+import type { PermissionMode, ProjectMeta } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { ProjectPicker } from "./ProjectPicker";
 
 export const COMMIT_PROMPT = "Commit the working tree changes with a sensible message.";
+
+// 每档运行模式的 tooltip i18n key（hover 说明实际行为,降低误判）。
+const PERMISSION_MODE_HINT_KEY: Record<PermissionMode, string> = {
+  plan: "composer.permissionMode.planHint",
+  "accept-edits": "composer.permissionMode.acceptEditsHint",
+  "full-auto": "composer.permissionMode.fullAutoHint",
+};
 
 export function GitBar({
   project,
   projectValue,
   noProjectChosen,
   onChangeProject,
+  permissionMode,
+  onChangeMode,
   running,
   onSend,
   onToast,
@@ -37,11 +49,15 @@ export function GitBar({
   noProjectChosen?: boolean;
   // 提供 = 项目可切换（新会话页）;不提供 = 只读项目名（会话页）。
   onChangeProject?: (id: string | undefined) => void;
+  // 运行模式（权限松紧）:会话级切换,显示在项目前。未提供 onChangeMode → 隐藏入口。
+  permissionMode?: PermissionMode;
+  onChangeMode?: (mode: PermissionMode) => void;
   running: boolean;
   // 提供 = 显示 ± 统计 + Commit（会话页有 session）;不提供 = 不显示（新会话页无 session）。
   onSend?: (text: string) => void;
   onToast: (text: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const info = useProjectGitInfo(project?.path);
   const branchInfo = useProjectBranches(project?.path);
   const { createBranch, checkout } = useGitBranchActions();
@@ -157,6 +173,25 @@ export function GitBar({
   return (
     <div className="pw-gitbar">
       <div className="pw-gitbar-left">
+        {onChangeMode ? (
+          <span
+            className="pw-model-pill pw-gitbar-mode"
+            title={t(PERMISSION_MODE_HINT_KEY[permissionMode ?? DEFAULT_PERMISSION_MODE])}
+          >
+            <select
+              className="pw-model-select"
+              value={permissionMode ?? DEFAULT_PERMISSION_MODE}
+              onChange={(e) => onChangeMode(e.target.value as PermissionMode)}
+              disabled={running}
+            >
+              {PERMISSION_MODES.map((m) => (
+                <option key={m} value={m}>
+                  {t(`composer.permissionMode.${m}`)}
+                </option>
+              ))}
+            </select>
+          </span>
+        ) : null}
         <ProjectPicker
           value={projectValue}
           onChange={onChangeProject ?? (() => {})}

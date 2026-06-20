@@ -649,13 +649,8 @@ export function ComposerShell({
           ) : null}
           {running ? (
             <>
-              {canSteer ? (
-                <button
-                  className={`send ${text.trim() ? "" : "muted"}`}
-                  onClick={steer}
-                  disabled={!text.trim()}
-                  title={t("composer.steerSend")}
-                >
+              {canSteer && text.trim() ? (
+                <button className="send" onClick={steer} title={t("composer.steerSend")}>
                   <Icon.Send size={15} />
                 </button>
               ) : null}

@@ -13,6 +13,7 @@ import type {
   CliStreamEvent,
   HiddenHistoryMeta,
   PendingImage,
+  PermissionMode,
   PiSessionEvent,
   PiUiResponsePayload,
   ProjectMeta,
@@ -44,6 +45,7 @@ import {
   steerPi,
   touchPiSession,
 } from "./pi-session";
+import { derivePiCapabilities } from "./permissionMode";
 import { speakText } from "./tts";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
@@ -159,6 +161,10 @@ interface RunState {
   cwd?: string;
   changedFiles?: Set<string>;
   resultExitFallback?: ReturnType<typeof setTimeout>;
+  // 本轮运行模式(plan/accept-edits/full-auto):用于检测「被模式拦截的工具尝试」→ 切档提示。
+  permissionMode?: PermissionMode;
+  // 本轮已检测到的被拦工具(写/执行类),轮结束时据此弹切档提示。只记首个,避免重复。
+  blockedTool?: { name: string; category: "edit" | "exec" };
   // 传输通道:cli=单发 startCli（claude/codex）;pi=RPC 长驻会话。pi 的看门狗绝不杀进程。
   transport?: "cli" | "pi";
   // pi 思考流（reasoning）的折叠块（独立于 text/tool 游标:思考通常先于正文,累进同一块）。
@@ -184,6 +190,34 @@ export const RESULT_EXIT_GRACE_MS = 1_000;
 export const PURE_TOOL_TURN_PLACEHOLDER = "✓ 已完成本轮操作。";
 
 const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
+
+// 各 agent 归一化工具名的「写类」「执行类」集合（claude: Write/Edit/MultiEdit/NotebookEdit/Bash;
+// codex: Shell;小写匹配）。用于检测「被运行模式拦截的工具尝试」:
+//   plan 拦写类+执行类;accept-edits 仅拦执行类;full-auto 不拦。
+const MODE_EDIT_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit"]);
+const MODE_EXEC_TOOLS = new Set(["bash", "shell"]);
+export function restrictedToolForMode(toolName: string, mode: PermissionMode | undefined): "edit" | "exec" | null {
+  if (!mode || mode === "full-auto") return null;
+  const n = toolName.toLowerCase();
+  if (MODE_EXEC_TOOLS.has(n)) return "exec"; // bash/shell 在 plan 与 accept-edits 下都被拦
+  if (mode === "plan" && MODE_EDIT_TOOLS.has(n)) return "edit"; // 写类仅 plan 拦
+  return null;
+}
+
+// 轮结束时:若本轮检测到被运行模式拦截的工具尝试**且本轮失败**,在 composer 上方挂切档提示
+//（带原 prompt 供自动重发）。**必须 gate 在 turnFailed 上**:只读/工作区沙箱里很多工具尝试其实
+// 成功（plan 下 ls、accept-edits 下多数命令），仅凭「尝试了写/执行工具」会误报;真正「被拦住没干成」
+// 才会让这一轮失败。漏报(被拦但模型绕过仍完成)可接受,优先避免噪音。
+function maybeEmitModeBlockHint(run: RunState, turnFailed: boolean): void {
+  if (!turnFailed || !run.blockedTool || !run.promptText) return;
+  if (!run.permissionMode || run.permissionMode === "full-auto") return;
+  usePersonalStore.getState().setModeBlockHint(run.sessionId, {
+    fromMode: run.permissionMode,
+    category: run.blockedTool.category,
+    promptText: run.promptText,
+    toolName: run.blockedTool.name,
+  });
+}
 
 function externalAgentUnavailableMessage(agent: Exclude<AgentKind, "pi">): string {
   return t("chat:core.externalUnavailable", { name: AGENT_NAME[agent] });
@@ -690,6 +724,11 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 时间线：写类工具的 file_path 记为变更文件。
     const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
     if (changed) (run.changedFiles ??= new Set()).add(changed);
+    // 运行模式拦截检测:plan/accept-edits 下出现被禁工具(写/执行)→ 记首个,轮结束弹切档提示。
+    if (!run.blockedTool) {
+      const cat = restrictedToolForMode(ev.name, run.permissionMode);
+      if (cat) run.blockedTool = { name: ev.name, category: cat };
+    }
     foldToolIntoProcess(qc, sessionId, run, ev);
     return;
   }
@@ -828,6 +867,9 @@ function finalizeRun(
   flushChat(qc, sessionId);
   // 成功收尾 → 开心一下;失败/中断 → 回闲置。
   usePetStore.getState().set(run.gotResult && run.resultOk !== false ? "happy" : "idle");
+
+  // 运行模式拦截:本轮若有被 plan/accept-edits 拦下的工具尝试**且本轮失败**,挂切档提示。
+  maybeEmitModeBlockHint(run, !runOk);
 
   // TTS：开启自动朗读时,把这一轮的回复读出来（失败静默,不影响会话）。
   const tts = usePersonalStore.getState().ttsSettings;
@@ -1386,6 +1428,9 @@ async function sendPiTurn(
     // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
     // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
     const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
+    // 运行模式 → pi 能力派生:plan 收窄只读白名单、accept-edits 放行编辑保留 bash 审批、
+    // full-auto 沿用 piCustom 审批设置。三者均经 extensionFingerprint 触发会话重开(切档即重开)。
+    const piCaps = derivePiCapabilities(session.permissionMode, piCustom);
     // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
     // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
     const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;
@@ -1419,10 +1464,12 @@ async function sendPiTurn(
               })),
             }
           : undefined,
-        enableToolApproval: piCustom?.toolApproval || undefined,
-        // 审批清单:仅总开关开时下发。空数组 [] 原样穿透(=不审批任何工具),禁用 ?? DEFAULT
-        // 兜回默认——undefined→默认三件 是 renderApprovalExtension 默认参的职责,不在此抢。
-        approvalTools: piCustom?.toolApproval ? piCustom.approvalTools : undefined,
+        // 审批开关/清单由运行模式派生（full-auto 档内部已沿用 piCustom 设置,故此处不再单独读）。
+        // 空数组 [] 原样穿透(=不审批任何工具),undefined→默认三件 是 renderApprovalExtension 的职责。
+        enableToolApproval: piCaps.enableToolApproval,
+        approvalTools: piCaps.approvalTools,
+        // plan 档只读工具白名单(缺省 undefined → 全工具)。经 buildRpcArgs → --tools 注入。
+        toolWhitelist: piCaps.toolWhitelist,
         enableSampleTools: piCustom?.sampleTools || undefined,
         enableSampleCommands: piCustom?.sampleCommands || undefined,
         appendSystemPrompt: piSystemPrompt || undefined,
@@ -1835,6 +1882,8 @@ export function usePersonalActions(): PersonalActions {
       if (!bridge) return false;
       const hasImages = !!(images?.length || presavedImages?.length);
       if (!text.trim() && !hasImages) return false; // 纯图(无文本)允许发送;两者皆空才拒
+      // 新一轮发送 → 清掉上一轮可能留下的运行模式拦截提示(用户已切档自动重发,或手动重发/换话题)。
+      usePersonalStore.getState().setModeBlockHint(session.id, undefined);
       if (session.agent !== "pi" && usePersonalStore.getState().agentsAvailable?.[session.agent] === false) {
         await ensureChatLoaded(qc, bridge, session.id);
         appendUserMessage(qc, session.id, text, attachments, presavedImages?.length ? presavedImages : undefined);
@@ -1958,6 +2007,7 @@ export function usePersonalActions(): PersonalActions {
         promptText: text,
         startedAt: Date.now(),
         cwd: projectPath,
+        permissionMode: session.permissionMode,
       };
       runs.set(runId, run);
       // 看门狗:每秒刷新 typing 等待时长;启动/静默超时则杀进程并提示重试。
@@ -2033,6 +2083,9 @@ export function usePersonalActions(): PersonalActions {
           useOwnSkills: sendSession.useOwnSkills,
           skillPaths,
           images: cliImages,
+          // 运行模式:claude/codex adapter 翻译成原生标志;缺省 full-auto(历史默认)。逐轮 fresh
+          // spawn,改值下一轮即生效,无需重开。
+          permissionMode: sendSession.permissionMode,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
         autoTitle(bridge, sendSession, text);

@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Message } from "../types";
-import type { AgentKind, CliStreamEvent, ReasoningEffort } from "../desktop/types";
+import type { AgentKind, CliStreamEvent, PermissionMode, ReasoningEffort } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 import { emptyFoldCursor, finalizeAgentLog, foldCliEvent, type FoldCursor } from "./messages";
 
@@ -40,6 +40,10 @@ export interface FollowupSessionCtx {
   model?: string;
   cwd: string;
   effort?: ReasoningEffort;
+  // 运行模式:沿用主会话档位,追问与主会话权限一致。与 tightenTools 自然叠加(更严者优先):
+  // plan/accept-edits 产出非 bypass 标志,tightenTools 剥离 bypass 对其为 no-op;full-auto +
+  // tightenTools 仍剥离 bypass → 安全。
+  permissionMode?: PermissionMode;
   // true = 无项目会话:透传给 askFollowupStream,主进程据此收紧 tool 能力（R9/KTD8,FIX-3）。
   tightenTools?: boolean;
   provider?: {
@@ -370,6 +374,7 @@ export function useFollowupAsk(seed: FollowupSeed, sessionCtx: FollowupSessionCt
             model: ctx.model,
             appendSystemPrompt,
             effort: ctx.effort,
+            permissionMode: ctx.permissionMode,
             tightenTools: ctx.tightenTools,
             provider: ctx.provider,
           })

@@ -34,6 +34,7 @@ export {
   resolveDefaultAgent,
   initialAgent,
   initialModelDraft,
+  type ModeBlockHint,
   type PersonalState,
   type RightView,
 } from "./store/personal";
@@ -142,6 +143,10 @@ export {
   PI_THINKING_LEVELS,
   PI_THINKING_LABELS,
   DEFAULT_PI_SKILLS,
+  PERMISSION_MODES,
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_NEW_SESSION_PERMISSION_MODE,
+  type PermissionMode,
   type PiCustomizationSettings,
   type PiSkillSettings,
   type PluginSkill,

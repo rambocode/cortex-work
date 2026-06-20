@@ -53,6 +53,15 @@ describe("piAdapter.buildArgs", () => {
     expect(joined).toContain("--skill /b/bug-hunt");
   });
 
+  it("运行模式 plan:json 单发注入 --tools 只读白名单,prompt 仍末位;非 plan 不注入", () => {
+    expect(piAdapter.buildArgs(baseReq).args).not.toContain("--tools"); // 缺省
+    expect(piAdapter.buildArgs({ ...baseReq, permissionMode: "accept-edits" }).args).not.toContain("--tools");
+    expect(piAdapter.buildArgs({ ...baseReq, permissionMode: "full-auto" }).args).not.toContain("--tools");
+    const { args } = piAdapter.buildArgs({ ...baseReq, permissionMode: "plan" });
+    expect(args.join(" ")).toContain("--tools read,grep,find,ls");
+    expect(args.at(-1)).toBe("hello");
+  });
+
   it("多轮:model / resumeSessionId / appendSystemPrompt 各自透传,prompt 仍在末位", () => {
     const { args } = piAdapter.buildArgs({
       ...baseReq,

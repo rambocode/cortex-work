@@ -6,13 +6,15 @@
 import { useState } from "react";
 import {
   DEFAULT_MODEL,
+  DEFAULT_NEW_SESSION_PERMISSION_MODE,
+  DEFAULT_PERMISSION_MODE,
   dayKey,
   resolveDefaultAgent,
   useDesktopBridge,
   usePersonalActions,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import type { PendingImage, PermissionMode, PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
 import { GitBar } from "./GitBar";
@@ -46,6 +48,7 @@ export function NewSessionLanding({
       model: agent === "pi" ? providerSettings.defaultModel ?? provider?.models[0]?.id : DEFAULT_MODEL[agent],
       providerId: agent === "pi" ? providerSettings.defaultProviderId : undefined,
       useOwnSkills: false,
+      permissionMode: DEFAULT_NEW_SESSION_PERMISSION_MODE as PermissionMode,
     };
   });
 
@@ -54,6 +57,8 @@ export function NewSessionLanding({
     const patch: Partial<SessionMeta> = {};
     if (draft.useOwnSkills) patch.useOwnSkills = true;
     if (draft.agent === "pi" && draft.providerId) patch.providerId = draft.providerId;
+    // 仅非默认档位才落盘(缺省 full-auto 由 DEFAULT_PERMISSION_MODE 回退,保持 SessionMeta 干净)。
+    if (draft.permissionMode !== DEFAULT_PERMISSION_MODE) patch.permissionMode = draft.permissionMode;
     if (Object.keys(patch).length) updateSession(sess.id, patch);
   };
 
@@ -121,6 +126,8 @@ export function NewSessionLanding({
         projectValue={selectedProjectId}
         noProjectChosen
         onChangeProject={(id) => setSelectedProjectId(id)}
+        permissionMode={draft.permissionMode}
+        onChangeMode={(mode) => setDraft((d) => ({ ...d, permissionMode: mode }))}
         running={false}
         onToast={onToast}
       />

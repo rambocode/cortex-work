@@ -61,6 +61,7 @@ export interface SessionMeta {
   providerId?: string;
   piSessionFile?: string; // 阶段4 pi 会话恢复用磁盘 JSONL 路径（与 core 镜像）
   useOwnSkills?: boolean;
+  permissionMode?: PermissionMode; // 运行模式（与 core 镜像;主进程仅 round-trip 持久化,不按字段消费）
   hiddenHistory?: HiddenHistoryMeta;
   archivedAt?: number;
   createdAt: number;
@@ -206,6 +207,8 @@ export interface CliStartRequest {
   images?: CliImageRef[];
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数;pi 忽略。
   effort?: ReasoningEffort;
+  // 运行模式（权限松紧）:claude/codex adapter 翻译成原生标志;缺省 = full-auto。pi 不走本 DTO。
+  permissionMode?: PermissionMode;
   // pi 专用:renderer 传入当前会话选中供应商的完整配置,主进程据此生成 extension
   // 并注入 key env。
   provider?: {
@@ -230,6 +233,8 @@ export interface AskFollowupRequest {
   model?: string;
   appendSystemPrompt?: string;
   effort?: ReasoningEffort;
+  // 运行模式:沿用主会话档位(claude/codex adapter 翻译)。与 tightenTools 叠加,更严者优先。
+  permissionMode?: PermissionMode;
   // true = 无项目会话:主进程剥离 claude/codex 的跳审批/bypass 标志,回退默认审批/沙箱（R9/KTD8）。
   // 显式标志,不靠主进程猜 cwd（真实无项目 cwd 非 homedir,猜法会失效）。
   tightenTools?: boolean;
@@ -309,6 +314,8 @@ export interface PiOpenRequest {
   approvalTools?: string[]; // 需审批的工具集（缺省 DEFAULT_APPROVAL_TOOLS）
   enableSampleTools?: boolean;
   enableSampleCommands?: boolean;
+  // 运行模式 plan 档:只读工具白名单。存在则 buildRpcArgs 注入 --tools <逗号拼接>;缺省 = 全工具。
+  toolWhitelist?: string[];
   // 主进程内部填充:除 provider 外追加的 extension 路径（审批/样例工具/命令），各加一个 -e。
   extraExtensionPaths?: string[];
   // pi 持久追加 system prompt（阶段4）:renderer 传,buildRpcArgs → --append-system-prompt。
@@ -562,6 +569,12 @@ export interface DocFileRaw {
 // ── 自动化（定时任务,与 core/desktop/types.ts 镜像） ──────────────────────
 
 export type ReasoningEffort = "low" | "medium" | "high";
+
+// 运行模式（权限松紧）三档,与 core/desktop/types.ts 镜像。adapter 翻译成各 CLI 原生标志。
+export type PermissionMode = "plan" | "accept-edits" | "full-auto";
+// pi plan 档只读工具白名单,与 core/desktop/types.ts 的 PI_PLAN_TOOL_WHITELIST 镜像。
+// 主进程 pi.ts 单发路径无法 import core barrel,故此处镜像一份供 adapter 引用(避免硬编码漂移)。
+export const PI_PLAN_TOOL_WHITELIST = ["read", "grep", "find", "ls"];
 
 // weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
 export type ScheduleSpec =

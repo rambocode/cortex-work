@@ -203,6 +203,22 @@ describe("ensurePiSession", () => {
     expect(bridge.piClose).not.toHaveBeenCalled();
   });
 
+  it("toolWhitelist 变化（切入 plan 只读档）→ 指纹漂移关旧重开（R5 唯一兑现路径）", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req() }); // full-auto:无 toolWhitelist
+    await ensurePiSession(bridge, { ...req(), toolWhitelist: ["read", "grep", "find", "ls"] }); // 切 plan
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("toolWhitelist 内容相同顺序不同 → 排序后指纹一致,复用不重开", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), toolWhitelist: ["read", "ls"] });
+    await ensurePiSession(bridge, { ...req(), toolWhitelist: ["ls", "read"] });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
   it("thinkingLevel 仅运行时态 → 不进指纹,切档复用温会话不重开（阶段5）", async () => {
     const bridge = fakeBridge();
     await ensurePiSession(bridge, { ...req(), thinkingLevel: "low" });

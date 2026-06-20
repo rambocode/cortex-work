@@ -87,6 +87,9 @@ function extensionFingerprint(req: PiOpenRequest): string {
   return JSON.stringify({
     toolApproval: !!req.enableToolApproval,
     approvalTools: req.approvalTools ?? null,
+    // 运行模式 plan 档:只读工具白名单经 --tools 冷启注入,无运行时改工具集命令,改值必须重开会话
+    //（切到/切出 plan）。排序确保顺序无关。
+    toolWhitelist: req.toolWhitelist ? [...req.toolWhitelist].sort() : null,
     sampleTools: !!req.enableSampleTools,
     sampleCommands: !!req.enableSampleCommands,
     // 持久 system prompt（阶段4）:经 --append-system-prompt 冷启注入,无运行时命令,改值必须重开。
