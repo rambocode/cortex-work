@@ -262,7 +262,7 @@ describe("ComposerShell 文件预览拖入会话（U6）", () => {
     return { loadChat: async () => [], saveChat: async () => {}, readFile: vi.fn(readFile) } as unknown as DesktopBridge;
   }
 
-  function renderWithBridge(b: DesktopBridge) {
+  function renderWithBridge(b: DesktopBridge, onToast: (t: string) => void = () => {}) {
     return render(
       <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={b}>
         <ComposerShell
@@ -275,7 +275,7 @@ describe("ComposerShell 文件预览拖入会话（U6）", () => {
           onChangeModel={() => {}}
           onChangePiModel={() => {}}
           onToggleSkills={() => {}}
-          onToast={() => {}}
+          onToast={onToast}
         />
       </CoreProvider>,
     );
@@ -314,5 +314,25 @@ describe("ComposerShell 文件预览拖入会话（U6）", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(container.querySelectorAll(".attach-pill").length).toBe(1);
+  });
+
+  it("truncated:true → toast 提示文件过大截断(composer.fileTruncated)", async () => {
+    const b = fileBridge(async () => ({ content: "巨长内容", truncated: true }));
+    const onToast = vi.fn();
+    const { container } = renderWithBridge(b, onToast);
+    dropFile(container, { path: "/p/big.md", name: "big.md" });
+    await waitFor(() => expect(container.querySelectorAll(".attach-pill").length).toBe(1));
+    expect(onToast).toHaveBeenCalledWith(expect.stringContaining("big.md")); // fileTruncated 含文件名
+  });
+
+  it("readFile 失败 → 走 catch 给可读 toast,不新增 pill、不崩", async () => {
+    const b = fileBridge(async () => {
+      throw new Error("ENOENT");
+    });
+    const onToast = vi.fn();
+    const { container } = renderWithBridge(b, onToast);
+    dropFile(container, { path: "/p/gone.md", name: "gone.md" });
+    await waitFor(() => expect(onToast).toHaveBeenCalled());
+    expect(container.querySelectorAll(".attach-pill").length).toBe(0); // 失败不入附件
   });
 });

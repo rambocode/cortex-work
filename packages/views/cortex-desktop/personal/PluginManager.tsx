@@ -232,7 +232,8 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
   const noBridge = !bridge?.piSkillsList;
 
   // 打开配套文档(U5):经 bridge.openPath 用系统默认程序打开;web/旧壳缺方法时静默 no-op。
-  const openDoc = (path: string) => void bridge?.openPath?.(path);
+  // 文件可能在枚举后被删/移动导致 openPath 拒绝——吞掉以免未处理 rejection(打开失败无需打扰用户)。
+  const openDoc = (path: string) => void bridge?.openPath?.(path)?.catch(() => {});
 
   return (
     <div className="pw-plugins-skill">

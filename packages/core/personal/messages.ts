@@ -1563,7 +1563,7 @@ async function sendPiTurn(
 // 编辑重发的 pi 分支:经 getForkMessages 定位编辑轮在 pi 侧的 entryId 并 fork（替代单发的
 // trimAgentSession 截断会话文件）。pi 侧 entry.text 可能含内联系统提示前缀,故按「后缀匹配」+
 // 同文序号定位。映射失败/会话未开 → 返回 false（调用方退化为只截断 UI + 重发,不 fork）。
-function piEntryMatchesText(entryText: string, originalText: string): boolean {
+export function piEntryMatchesText(entryText: string, originalText: string): boolean {
   const a = entryText.trim();
   const b = originalText.trim();
   if (a === b) return true;

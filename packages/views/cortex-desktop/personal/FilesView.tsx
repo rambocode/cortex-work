@@ -63,7 +63,8 @@ function FileTreeNode({
         onContextMenu={(e) => onCtx(e, node.path, node.name)}
         title={node.path}
         // 可拖入会话(U6):写自定义 MIME,ComposerShell 的 onDrop 读内容作为附件。
-        draggable
+        // 二进制文件(图片/字体/归档等)不可拖——经 readFile 强转 UTF-8 会注入乱码且浪费 token。
+        draggable={!isBinaryLike(node.name)}
         onDragStart={(e) => {
           e.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify({ path: node.path, name: node.name }));
           e.dataTransfer.effectAllowed = "copy";
