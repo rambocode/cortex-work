@@ -197,6 +197,17 @@
     "retryUpdate": "重试更新",
     "errorTitle": "更新失败"
   },
+  "updateDialog": {
+    "title": "发现新版本 v{{version}}",
+    "noNotes": "本次更新暂无详细说明。",
+    "download": "下载更新",
+    "downloading": "下载中 {{percent}}%",
+    "restart": "重启更新",
+    "retry": "重试下载",
+    "later": "稍后",
+    "close": "关闭",
+    "errorPrefix": "下载失败："
+  },
   "sectionTitle": {
     "tasks": "任务",
     "agents": "智能体",

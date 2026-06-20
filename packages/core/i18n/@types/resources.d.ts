@@ -362,6 +362,17 @@ export default interface Resources {
       "retryUpdate": "重试更新",
       "update": "更新 {{version}}",
       "updateAvailableTitle": "发现新版本 v{{version}},点击下载"
+    },
+    "updateDialog": {
+      "close": "关闭",
+      "download": "下载更新",
+      "downloading": "下载中 {{percent}}%",
+      "errorPrefix": "下载失败：",
+      "later": "稍后",
+      "noNotes": "本次更新暂无详细说明。",
+      "restart": "重启更新",
+      "retry": "重试下载",
+      "title": "发现新版本 v{{version}}"
     }
   },
   "files": {

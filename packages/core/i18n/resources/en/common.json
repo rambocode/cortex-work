@@ -197,6 +197,17 @@
     "retryUpdate": "Retry update",
     "errorTitle": "Update failed"
   },
+  "updateDialog": {
+    "title": "New version v{{version}} available",
+    "noNotes": "No release notes for this update.",
+    "download": "Download update",
+    "downloading": "Downloading {{percent}}%",
+    "restart": "Restart to update",
+    "retry": "Retry download",
+    "later": "Later",
+    "close": "Close",
+    "errorPrefix": "Download failed: "
+  },
   "sectionTitle": {
     "tasks": "Tasks",
     "agents": "Agents",

@@ -5260,6 +5260,57 @@ button.sb-row {
   padding: 20px 22px 16px;
   gap: 12px;
 }
+
+/* 更新内容弹窗:复用 .pw-dlg-overlay,紧凑纵向布局（覆盖 .pw-dlg 60vw×60vh）。
+   三段式:标题 / 可滚动 notes 正文 / 固定底部操作 —— 长 notes 不顶飞按钮。 */
+.pw-upd-dlg {
+  width: auto;
+  height: auto;
+  min-width: 420px;
+  min-height: 0;
+  max-width: 560px;
+  flex-direction: column;
+  padding: 20px 22px 16px;
+  gap: 12px;
+}
+.pw-upd-dlg-h {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  padding-right: 24px; /* 让出右上角关闭按钮 */
+}
+.pw-upd-notes {
+  flex: 1;
+  min-height: 0;
+  max-height: 48vh;
+  overflow-y: auto;
+}
+.pw-upd-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.pw-upd-err {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--red, #e5484d);
+  word-break: break-word;
+}
+.pw-upd-progress {
+  flex: 1 1 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+.pw-upd-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+}
 .pw-confirm-origin {
   font-size: 11px;
   color: var(--text-3);
