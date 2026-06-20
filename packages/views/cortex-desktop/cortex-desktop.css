@@ -7072,6 +7072,69 @@ button.sb-row {
 .pw-auto-inline { flex: 1; min-width: 0; }
 .pw-set-hint.is-danger { color: var(--red); }
 
+/* ============ 模板画廊（默认模板，新手引导） ============ */
+/* 空状态作为整块引导:覆盖 pw-panel-empty 的居中为顶对齐 + 可滚动(画廊撑高时) */
+.pw-auto-tpl-empty {
+  justify-content: flex-start;
+  overflow-y: auto;
+  gap: 8px;
+  padding: 28px 18px 24px;
+}
+.pw-auto-tpl-empty .pw-auto-tpl-empty-title { font-size: 13.5px; font-weight: 600; color: var(--text-1); }
+.pw-auto-tpl-empty .pw-auto-tpl-empty-hint { font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
+.pw-auto-tpl-empty .pw-auto-tpl-grid { width: 100%; margin: 4px 0 6px; }
+.pw-auto-tpl-blank { margin-top: 2px; }
+
+/* 有任务时的折叠区:列表顶部展开,展示画廊,不常占位 */
+.pw-auto-tpl-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-sidebar);
+  padding: 10px 10px 12px;
+  margin-bottom: 6px;
+}
+.pw-auto-tpl-panel-h { font-size: 11.5px; font-weight: 600; color: var(--text-3); padding: 0 2px 8px; }
+
+/* 卡片网格:自适应多列,呼应截图的多列卡片布局 */
+.pw-auto-tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.pw-auto-tpl-card { min-width: 0; }
+.pw-auto-tpl-btn {
+  width: 100%;
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 10px 11px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-input);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.pw-auto-tpl-btn:hover {
+  border-color: #7c5cff;
+  background: color-mix(in srgb, #7c5cff 6%, var(--bg-input));
+}
+.pw-auto-tpl-btn:active { border-color: #6a48f0; }
+.pw-auto-tpl-btn:focus-visible { outline: 2px solid #7c5cff; outline-offset: 1px; }
+.pw-auto-tpl-ico {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  color: #7c5cff;
+  background: color-mix(in srgb, #7c5cff 12%, transparent);
+}
+.pw-auto-tpl-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pw-auto-tpl-name { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+/* 描述单行省略号截断 */
+.pw-auto-tpl-desc {
+  font-size: 11px; color: var(--text-3); line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* ============ 闪记写作面 · CodeMirror 实时预览(移植自 Kun,cortex 配色) ============ */
 .pw-note-cm-host { flex: 1; min-height: 0; min-width: 0; display: flex; }
 .pw-note-cm-host > .cm-editor { height: 100%; width: 100%; }

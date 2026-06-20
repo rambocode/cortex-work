@@ -13,8 +13,9 @@ const KIND_LABEL: Record<ScheduleSpec["kind"], string> = {
   weekdays: "工作日",
   weekly: "每周",
   cron: "自定义",
+  once: "一次性",
 };
-const KIND_ORDER: ScheduleSpec["kind"][] = ["hourly", "daily", "weekdays", "weekly", "cron"];
+const KIND_ORDER: ScheduleSpec["kind"][] = ["hourly", "daily", "weekdays", "weekly", "cron", "once"];
 const KIND_OPTIONS = KIND_ORDER.map((k) => KIND_LABEL[k]);
 const labelToKind = (label: string): ScheduleSpec["kind"] =>
   KIND_ORDER.find((k) => KIND_LABEL[k] === label) ?? "daily";
@@ -23,6 +24,23 @@ const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "�
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = Array.from({ length: 60 }, (_, i) => i);
 const pad = (n: number) => String(n).padStart(2, "0");
+
+// 把 Date 取本地年月日格式化为 <input type="date"> 用的 YYYY-MM-DD。
+const toDateStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// 今天与明天的本地日期串：min 用今天兜 future,默认值用明天。
+const todayStr = () => toDateStr(new Date());
+const tomorrowStr = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return toDateStr(d);
+};
+// 把本地「日期串 + 时 + 分」组装为绝对时刻 epoch ms。
+// once 存绝对时刻,与任务 timezone 无关;UI 兜 future,引擎宽容(见 validateScheduleSpec)。
+function dateStrToAt(dateStr: string, hour: number, minute: number): number {
+  // noUncheckedIndexedAccess 下解构元素为 number | undefined,三段都兜底(dateStr 恒为合法 YYYY-MM-DD,兜底仅满足类型)。
+  const [y, mo, da] = dateStr.split("-").map(Number);
+  return new Date(y || 1970, (mo || 1) - 1, da || 1, hour, minute, 0, 0).getTime();
+}
 
 function fmtPreview(ts: number): string {
   const d = new Date(ts);
@@ -38,22 +56,33 @@ export function ScheduleEditor({
 }) {
   const bridge = useDesktopBridge();
   // 各维度局部缓存:切 kind 时保留已填值,改善体验。
-  const [hour, setHour] = useState(() => ("hour" in value ? value.hour : 9));
+  const [hour, setHour] = useState(() =>
+    value.kind === "once" ? new Date(value.at).getHours() : "hour" in value ? value.hour : 9,
+  );
   const [minute, setMinute] = useState(() =>
-    value.kind !== "cron" && "minute" in value ? value.minute : 0,
+    value.kind === "once"
+      ? new Date(value.at).getMinutes()
+      : value.kind !== "cron" && "minute" in value
+        ? value.minute
+        : 0,
   );
   const [weekday, setWeekday] = useState(() => (value.kind === "weekly" ? value.weekday : 1));
   const [expr, setExpr] = useState(() => (value.kind === "cron" ? value.expression : "0 9 * * *"));
+  // once 额外的「日期」维度;默认明天,编辑已有 once 时从 at 反解本地日期。
+  const [dateStr, setDateStr] = useState(() =>
+    value.kind === "once" ? toDateStr(new Date(value.at)) : tomorrowStr(),
+  );
   const [preview, setPreview] = useState<{ ok: boolean; text: string } | null>(null);
 
   const kind = value.kind;
 
-  const emit = (next: Partial<{ kind: ScheduleSpec["kind"]; hour: number; minute: number; weekday: number; expr: string }>) => {
+  const emit = (next: Partial<{ kind: ScheduleSpec["kind"]; hour: number; minute: number; weekday: number; expr: string; date: string }>) => {
     const k = next.kind ?? kind;
     const h = next.hour ?? hour;
     const m = next.minute ?? minute;
     const wd = next.weekday ?? weekday;
     const e = next.expr ?? expr;
+    const ds = next.date ?? dateStr;
     let spec: ScheduleSpec;
     switch (k) {
       case "hourly":
@@ -70,6 +99,10 @@ export function ScheduleEditor({
         break;
       case "cron":
         spec = { kind: "cron", expression: e };
+        break;
+      case "once":
+        // once 把本地「日期 + 时:分」组装为绝对 epoch ms。
+        spec = { kind: "once", at: dateStrToAt(ds, h, m) };
         break;
     }
     onChange(spec);
@@ -108,6 +141,22 @@ export function ScheduleEditor({
       />
 
       <div className="pw-auto-sched-row">
+        {kind === "once" ? (
+          <label className="pw-set-field pw-auto-inline">
+            <span className="pw-set-lbl">日期</span>
+            <input
+              type="date"
+              className="pw-set-input"
+              value={dateStr}
+              min={todayStr()}
+              onChange={(e) => {
+                setDateStr(e.target.value);
+                emit({ date: e.target.value });
+              }}
+            />
+          </label>
+        ) : null}
+
         {kind === "weekly" ? (
           <label className="pw-set-field pw-auto-inline">
             <span className="pw-set-lbl">星期</span>

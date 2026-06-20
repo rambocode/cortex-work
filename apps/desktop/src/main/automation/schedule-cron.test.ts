@@ -29,6 +29,9 @@ describe("scheduleToCron", () => {
   it("cron → 原样（去首尾空白）", () => {
     expect(scheduleToCron({ kind: "cron", expression: "  */5 * * * *  " })).toBe("*/5 * * * *");
   });
+  it("once → 无 cron 表示,抛错（调用方须单独分支）", () => {
+    expect(() => scheduleToCron({ kind: "once", at: AFTER.getTime() })).toThrow();
+  });
 });
 
 describe("validateScheduleSpec", () => {
@@ -54,6 +57,12 @@ describe("validateScheduleSpec", () => {
     expect(validateScheduleSpec({ kind: "cron", expression: "" }).ok).toBe(false);
     expect(validateScheduleSpec({ kind: "cron", expression: "99 99 99 99 99" }).ok).toBe(false);
     expect(validateScheduleSpec({ kind: "cron", expression: "*/5 * * * *" }).ok).toBe(true);
+  });
+  it("once: 有限 at 通过,NaN/Infinity 被拒（不强制 future）", () => {
+    expect(validateScheduleSpec({ kind: "once", at: AFTER.getTime() }).ok).toBe(true);
+    expect(validateScheduleSpec({ kind: "once", at: 0 }).ok).toBe(true); // 过去也算合法,future 交给 UI
+    expect(validateScheduleSpec({ kind: "once", at: NaN }).ok).toBe(false);
+    expect(validateScheduleSpec({ kind: "once", at: Infinity }).ok).toBe(false);
   });
 });
 
@@ -102,5 +111,11 @@ describe("computeNextRun（UTC 锚点 2026-01-05 周一 00:00）", () => {
   });
   it("非法 cron 返回 null", () => {
     expect(computeNextRun({ kind: "cron", expression: "99 99 99 99 99" }, TZ, AFTER)).toBeNull();
+  });
+  it("once: at 晚于参考点返回 at,已过/相等返回 null", () => {
+    const future = AFTER.getTime() + 60_000;
+    expect(computeNextRun({ kind: "once", at: future }, TZ, AFTER)).toBe(future);
+    expect(computeNextRun({ kind: "once", at: AFTER.getTime() - 60_000 }, TZ, AFTER)).toBeNull();
+    expect(computeNextRun({ kind: "once", at: AFTER.getTime() }, TZ, AFTER)).toBeNull(); // 相等不再触发
   });
 });

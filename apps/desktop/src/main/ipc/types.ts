@@ -636,7 +636,9 @@ export type ScheduleSpec =
   | { kind: "daily"; hour: number; minute: number }
   | { kind: "weekdays"; hour: number; minute: number }
   | { kind: "weekly"; weekday: number; hour: number; minute: number }
-  | { kind: "cron"; expression: string };
+  | { kind: "cron"; expression: string }
+  // once: 一次性,绝对时刻 at(epoch ms)触发一次。与 core/desktop/types.ts 镜像。
+  | { kind: "once"; at: number };
 
 export type AutomationRunStatus = "running" | "ok" | "error" | "timeout" | "killed" | "skipped";
 

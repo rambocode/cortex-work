@@ -18,6 +18,11 @@ export function scheduleSummary(s: ScheduleSpec): string {
       return `每${WEEKDAYS[s.weekday] ?? "周"} ${pad(s.hour)}:${pad(s.minute)}`;
     case "cron":
       return `cron：${s.expression}`;
+    case "once": {
+      // once 存绝对时刻（epoch ms），与任务 timezone 无关；摘要按本地时间展示。
+      const d = new Date(s.at);
+      return `一次性 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
   }
 }
 

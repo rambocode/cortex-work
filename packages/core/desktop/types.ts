@@ -1075,7 +1075,10 @@ export type ScheduleSpec =
   | { kind: "daily"; hour: number; minute: number }
   | { kind: "weekdays"; hour: number; minute: number } // 周一~周五
   | { kind: "weekly"; weekday: number; hour: number; minute: number }
-  | { kind: "cron"; expression: string };
+  | { kind: "cron"; expression: string }
+  // once: 一次性,在绝对时刻 at(epoch ms)触发一次。无 cron 表示,调度/计算时单独分支;
+  // 触发后不再重排(nextRunAt 归空)并自动停用。at 为绝对时刻,与任务 timezone 无关。
+  | { kind: "once"; at: number };
 
 // 一次执行的状态。skipped = 上轮还在跑、本轮到点被并发去重跳过;
 // killed = 应用退出/被终止时中断;timeout = 超过执行时限。

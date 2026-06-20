@@ -12,6 +12,8 @@ import {
 } from "@cortex-work/core";
 import type { AutomationMeta } from "@cortex-work/core";
 import { STATUS_CLASS, STATUS_LABEL, fmtDateTime, scheduleSummary } from "./automationFormat";
+import { AutomationTemplateGallery } from "./AutomationTemplateGallery";
+import type { AutomationTemplate } from "./automationTemplates";
 
 function RowMenu({
   meta,
@@ -96,17 +98,28 @@ export function AutomationList({
   onCreate,
   onEdit,
   onToast,
+  onPickTemplate,
 }: {
   onSelect: (id: string) => void;
   onCreate: () => void;
   onEdit: (meta: AutomationMeta) => void;
   onToast: (text: string) => void;
+  // 点击模板卡片时回调：把被选 template 原样上抛,由 AutomationView 计算 once at 并预填弹窗。
+  onPickTemplate: (template: AutomationTemplate) => void;
 }) {
   const { data: automations = [] } = useAutomations();
   const runNow = useRunAutomationNow();
   const [menu, setMenu] = useState<{ meta: AutomationMeta; anchor: { x: number; y: number } } | null>(null);
+  // 有任务时「从模板」入口的展开态：默认收起,不常占列表空间;点任一模板后收起。
+  const [tplOpen, setTplOpen] = useState(false);
 
   const sorted = [...automations].sort((a, b) => b.createdAt - a.createdAt);
+
+  // 包一层:点模板后既上抛又收起折叠区,避免画廊一直占着位置。
+  const pickTemplate = (t: AutomationTemplate) => {
+    setTplOpen(false);
+    onPickTemplate(t);
+  };
 
   const execute = (e: React.MouseEvent, meta: AutomationMeta) => {
     e.stopPropagation();
@@ -121,22 +134,49 @@ export function AutomationList({
     <div className="pw-auto">
       <div className="pw-panel-h">
         <span className="pw-panel-title">自动化</span>
-        <button className="pw-icon-btn" title="新建自动化" onClick={onCreate}>
-          <Icon.Plus size={15} />
-        </button>
+        {sorted.length > 0 ? (
+          <div className="pw-panel-h-actions">
+            {/* 有任务时:顶部常驻「从模板」入口,点开折叠区展示画廊(KTD-3) */}
+            <button
+              className={`pw-icon-btn ${tplOpen ? "is-active" : ""}`}
+              title="从模板新建"
+              aria-expanded={tplOpen}
+              onClick={() => setTplOpen((v) => !v)}
+            >
+              <Icon.Sparkle size={15} />
+            </button>
+            <button className="pw-icon-btn" title="新建自动化" onClick={onCreate}>
+              <Icon.Plus size={15} />
+            </button>
+          </div>
+        ) : (
+          <button className="pw-icon-btn" title="新建自动化" onClick={onCreate}>
+            <Icon.Plus size={15} />
+          </button>
+        )}
       </div>
 
       {sorted.length === 0 ? (
-        <div className="pw-panel-empty">
+        <div className="pw-panel-empty pw-auto-tpl-empty">
           <Icon.Workflow size={22} />
-          <div>还没有自动化任务</div>
-          <button className="btn primary" onClick={onCreate}>
+          <div className="pw-auto-tpl-empty-title">还没有自动化任务</div>
+          <div className="pw-auto-tpl-empty-hint">从下面的模板一键开始,或新建空白任务</div>
+          {/* 空状态:整块展示模板画廊作为新手强引导 */}
+          <AutomationTemplateGallery onPick={pickTemplate} />
+          <button className="btn ghost pw-auto-tpl-blank" onClick={onCreate}>
             <Icon.Plus size={13} />
-            新建自动化
+            空白新建
           </button>
         </div>
       ) : (
         <div className="pw-auto-list">
+          {tplOpen ? (
+            // 折叠区:仅展开时占位,点模板后由 pickTemplate 收起
+            <div className="pw-auto-tpl-panel">
+              <div className="pw-auto-tpl-panel-h">从模板新建</div>
+              <AutomationTemplateGallery onPick={pickTemplate} />
+            </div>
+          ) : null}
           {sorted.map((a) => (
             <div
               key={a.id}
