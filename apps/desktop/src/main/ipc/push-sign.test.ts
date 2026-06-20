@@ -7,6 +7,7 @@ import {
   audioVoiceUrls,
   chatCompletionsUrl,
   dingtalkSignedUrl,
+  feishuSign,
 } from "./push-sign";
 
 describe("dingtalkSignedUrl", () => {
@@ -24,6 +25,26 @@ describe("dingtalkSignedUrl", () => {
 
   it("无查询串时用 ? 连接", () => {
     expect(dingtalkSignedUrl("https://oapi.dingtalk.com/robot/send", "s", 1)).toContain("/send?timestamp=1&");
+  });
+});
+
+describe("feishuSign", () => {
+  // 已知答案向量(由独立 Node 参考实现算出),字面量相等 —— 快照只能锁自洽、不能证正确。
+  it("匹配独立参考实现的已知向量", () => {
+    expect(feishuSign("test-secret", 1700000000)).toBe("mbm4Y4oluIPQ00qlBIhX8vAZ0EKv3nw0LuTb91jPL84=");
+  });
+
+  // 锁住「与钉钉算法相反」:同 (secret, ts) 下飞书(key=ts\nsecret,data 空)
+  // 必须 ≠ 钉钉式(key=secret,data=ts\nsecret),防回归到钉钉实现。
+  it("与钉钉式 HMAC 结果不相等", () => {
+    const secret = "test-secret";
+    const ts = 1700000000;
+    const dingStyle = createHmac("sha256", secret).update(`${ts}\n${secret}`).digest("base64");
+    expect(feishuSign(secret, ts)).not.toBe(dingStyle);
+  });
+
+  it("空 secret 仍返回确定性 base64,不抛", () => {
+    expect(feishuSign("", 1700000000)).toBe("DaBQacIHB6FCKocfPme7o5BIrwne87ibBLj7EYGUds0=");
   });
 });
 

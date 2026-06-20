@@ -10,6 +10,13 @@ export function dingtalkSignedUrl(webhookUrl: string, secret: string, timestamp:
   return `${webhookUrl}${sep}timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
 }
 
+// 飞书加签：与钉钉「相反」—— 以 `${timestampSec}\n${secret}` 为 HMAC-SHA256 的 key、
+// 空字符串为 data,Base64。timestamp 用「秒」,且 sign 与 timestamp 一同放进请求体
+// (不进 URL query)。返回 base64 sign 字符串,timestamp 由调用方一并写入 body。
+export function feishuSign(secret: string, timestampSec: number): string {
+  return createHmac("sha256", `${timestampSec}\n${secret}`).update("").digest("base64");
+}
+
 // baseUrl 兼容带/不带 /v1 与结尾斜杠：统一拼到 /chat/completions。
 export function chatCompletionsUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, "");
