@@ -434,6 +434,10 @@ export interface GeneralSettings {
   // pi 持久追加 system prompt（阶段4）:会话开启时经 --append-system-prompt 注入(系统级,不污染每轮
   // prompt);改动需重开会话才生效(pi RPC 无运行时改 system prompt 的命令)。缺省 = 不传 = pi 默认。
   piSystemPrompt?: string;
+  // 全局指令（U3）:对 claude/codex/pi 三端统一生效的自定义系统提示词,经每轮 appendSystemPrompt 注入
+  // （pi 走 buildPiPromptMessage 每轮前缀,claude --append-system-prompt,codex promptWithSkills 前置）。
+  // 与 piSystemPrompt 区分:后者仅 pi、会话级;前者跨 agent、逐轮即时生效。缺省 = 不注入。
+  globalInstruction?: string;
   // pi 新会话默认思考强度（阶段5）:会话级 SessionMeta.thinkingLevel 缺省时回退此值。
   piThinkingDefault?: ThinkingLevel;
   // pi 插件——Skill 管理（多目录扫描 + 逐项启用 + 工作区信任）。缺省 = DEFAULT_PI_SKILLS。

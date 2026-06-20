@@ -1343,6 +1343,17 @@ function buildPiPromptMessage(text: string, appendSystemPrompt?: string): string
   return appendSystemPrompt ? `${appendSystemPrompt}\n\n${text}` : text;
 }
 
+// 全局追加系统提示词（U3/U4）:对 claude/codex/pi 三端统一注入,经每轮 appendSystemPrompt 下发
+// （pi 走 buildPiPromptMessage 前缀,claude --append-system-prompt,codex promptWithSkills 前置）。
+// 与 pi 专属、会话级的 piSystemPrompt 解耦并存。组装顺序:全局指令 → 语言指令(U4)。皆空 → undefined。
+export function buildGlobalAppend(): string | undefined {
+  const parts: string[] = [];
+  const gi = usePersonalStore.getState().generalSettings.globalInstruction?.trim();
+  if (gi) parts.push(gi);
+  // U4 语言指令在此追加。
+  return parts.length ? parts.join("\n\n") : undefined;
+}
+
 // 插件 Skill（U5）:据 piSkills 配置 + 工作区路径,解析出注入 pi 的 --skill 目录集合。
 // 流程:bridge 扫描多根 → 过滤禁用(scope:name) + 工作区未授信 → 按 name 去重(全局覆盖工作区,
 // 高可信优先,防恶意工作区同名劫持) → 排序。useOwnSkills===false = 会话级一键关 → []。
@@ -2039,8 +2050,9 @@ export function usePersonalActions(): PersonalActions {
       });
 
       const attachmentPrompt = buildAttachmentSystemPrompt(attachments);
-      // 项目信息（Spotlight 注入）在前、附件 skills/todos 在后;两者皆空仍传 undefined。
-      const appendSystemPrompt = [extraSystemPrompt, attachmentPrompt].filter(Boolean).join("\n\n") || undefined;
+      // 组装顺序:全局指令/语言(U3/U4,三端统一) → 项目信息(Spotlight) → 附件 skills/todos;皆空仍传 undefined。
+      const appendSystemPrompt =
+        [buildGlobalAppend(), extraSystemPrompt, attachmentPrompt].filter(Boolean).join("\n\n") || undefined;
 
       // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。
       if (session.agent === "pi") {

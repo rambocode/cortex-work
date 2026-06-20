@@ -22,6 +22,7 @@ import {
   serializeAskQuestionAnswers,
   agentSessionPatch,
   buildAttachmentSystemPrompt,
+  buildGlobalAppend,
   clearAgentSessionPatch,
   createHiddenHistory,
   emptyFoldCursor,
@@ -599,6 +600,27 @@ describe("personal attachment system prompt", () => {
         "</todo>",
       ].join("\n"),
     );
+  });
+});
+
+describe("buildGlobalAppend 全局指令注入（U3,三端统一）", () => {
+  afterEach(() => {
+    usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: undefined } }));
+  });
+
+  it("未设置全局指令 → undefined（不污染 appendSystemPrompt）", () => {
+    usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: undefined } }));
+    expect(buildGlobalAppend()).toBeUndefined();
+  });
+
+  it("设置全局指令 → 返回该文本（经 appendSystemPrompt 下发三端）", () => {
+    usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: "始终用简洁中文回答" } }));
+    expect(buildGlobalAppend()).toBe("始终用简洁中文回答");
+  });
+
+  it("仅空白 → undefined（trim 后为空不注入）", () => {
+    usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: "   \n  " } }));
+    expect(buildGlobalAppend()).toBeUndefined();
   });
 });
 

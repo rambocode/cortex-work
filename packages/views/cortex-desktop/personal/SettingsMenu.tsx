@@ -548,6 +548,21 @@ function GeneralSection() {
         </SRow>
       </SettingCard>
 
+      <SettingCard title={t("general.globalInstructionCard")}>
+        <SBlock label={t("general.globalInstruction")} desc={t("general.globalInstructionDesc")}>
+          <textarea
+            className="pw-ta"
+            rows={6}
+            maxLength={4000}
+            placeholder={t("general.globalInstructionPlaceholder")}
+            value={general.globalInstruction ?? ""}
+            spellCheck={false}
+            onChange={(e) => setGeneral({ globalInstruction: e.target.value || undefined })}
+          />
+          <div className="pw-ta-count">{(general.globalInstruction ?? "").length}/4000</div>
+        </SBlock>
+      </SettingCard>
+
       <SettingCard title={t("general.behaviorCard")}>
         <SwitchRow
           label={t("general.openAtLogin")}
