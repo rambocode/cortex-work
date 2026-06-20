@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePersonalStore } from "../store/personal";
+import { useCortexUIStore } from "../store/ui";
 import type { CliStreamEvent, SessionMeta } from "../desktop/types";
 import {
   PURE_TOOL_TURN_PLACEHOLDER,
@@ -603,24 +604,32 @@ describe("personal attachment system prompt", () => {
   });
 });
 
-describe("buildGlobalAppend 全局指令注入（U3,三端统一）", () => {
+describe("buildGlobalAppend 全局指令 + 语言注入（U3/U4,三端统一）", () => {
   afterEach(() => {
     usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: undefined } }));
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "zh-Hans" } }));
   });
 
-  it("未设置全局指令 → undefined（不污染 appendSystemPrompt）", () => {
-    usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: undefined } }));
-    expect(buildGlobalAppend()).toBeUndefined();
+  it("无全局指令 + zh → 仅语言指令(简体中文)", () => {
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "zh-Hans" } }));
+    expect(buildGlobalAppend()).toBe("请始终用简体中文回复。");
   });
 
-  it("设置全局指令 → 返回该文本（经 appendSystemPrompt 下发三端）", () => {
+  it("切到 en → 语言指令随之变英文", () => {
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "en" } }));
+    expect(buildGlobalAppend()).toBe("Always respond in English.");
+  });
+
+  it("全局指令 + 语言 → 全局指令在前、语言在后(顺序稳定)", () => {
     usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: "始终用简洁中文回答" } }));
-    expect(buildGlobalAppend()).toBe("始终用简洁中文回答");
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "zh-Hans" } }));
+    expect(buildGlobalAppend()).toBe("始终用简洁中文回答\n\n请始终用简体中文回复。");
   });
 
-  it("仅空白 → undefined（trim 后为空不注入）", () => {
+  it("全局指令仅空白 → trim 后不注入,仅保留语言指令", () => {
     usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: "   \n  " } }));
-    expect(buildGlobalAppend()).toBeUndefined();
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "en" } }));
+    expect(buildGlobalAppend()).toBe("Always respond in English.");
   });
 });
 

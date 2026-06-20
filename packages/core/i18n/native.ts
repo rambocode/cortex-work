@@ -25,3 +25,14 @@ const TRAY: Record<Locale, NativeTrayStrings> = {
 export function trayStrings(locale: Locale): NativeTrayStrings {
   return TRAY[locale] ?? TRAY[DEFAULT_LOCALE];
 }
+
+// 注入 agent 系统提示词的语言指令(U4):让 agent 用当前 UI 语言回复。纯字符串(核心/主进程通用)。
+// 须覆盖 LOCALES 全集;未知 locale 回退 DEFAULT_LOCALE 文案(防止 agent 静默拿不到语言指令)。
+const LANGUAGE_INSTRUCTION: Record<Locale, string> = {
+  "zh-Hans": "请始终用简体中文回复。",
+  en: "Always respond in English.",
+};
+
+export function languageInstruction(locale: Locale): string {
+  return LANGUAGE_INSTRUCTION[locale] ?? LANGUAGE_INSTRUCTION[DEFAULT_LOCALE];
+}

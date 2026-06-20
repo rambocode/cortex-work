@@ -28,6 +28,8 @@ import { usePetStore } from "../store/pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
 import { applyDeepenFinalize } from "./notes";
 import { t } from "../i18n";
+import { languageInstruction } from "../i18n/native";
+import { useCortexUIStore } from "../store/ui";
 import {
   abortPi,
   closePiSession,
@@ -1350,7 +1352,9 @@ export function buildGlobalAppend(): string | undefined {
   const parts: string[] = [];
   const gi = usePersonalStore.getState().generalSettings.globalInstruction?.trim();
   if (gi) parts.push(gi);
-  // U4 语言指令在此追加。
+  // 语言指令(U4):按当前 UI 语言注入,让 agent 用该语言回复。在 send 派发时刻读取 tweaks.language
+  // （与调用方传入的 extraSystemPrompt 捕获时刻可能相差一次语言切换,有意为之以反映最新语言）。
+  parts.push(languageInstruction(useCortexUIStore.getState().tweaks.language));
   return parts.length ? parts.join("\n\n") : undefined;
 }
 
