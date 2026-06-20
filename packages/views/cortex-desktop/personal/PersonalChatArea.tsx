@@ -14,7 +14,6 @@ import {
   useDesktopBridge,
   usePersonalActions,
   usePersonalChat,
-  usePersonalProcess,
   usePersonalStore,
   useRenderWindow,
 } from "@cortex-work/core";
@@ -23,8 +22,6 @@ import type { Conversation, Message } from "@cortex-work/core/types";
 import {
   extractDetectedDevPreviewUrls,
   extractDetectedLocalHtmlPaths,
-  extractLatestTurnDevPreviewUrls,
-  extractLatestTurnLocalHtmlPaths,
   extractLatestTurnAutoOpenDevPreviewUrls,
 } from "@cortex-work/core/personal/devPreviewDetection";
 import { MessageStream } from "../ChatArea";
@@ -153,36 +150,15 @@ export function PersonalChatArea({
   const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
-  // 瞬态执行过程流(agentLog 步骤);dev 预览探测的次信号来源(allMessages 已剥离 agentLog)。
-  const processMessages = usePersonalProcess(session?.id);
   const { send, stop: stopRun, steer, compact, setPiModel, setPiThinking, editResend, clearView } =
     usePersonalActions();
 
-  // 探测 agent 输出里的本地 dev 预览 URL(计划 U5/KTD3)。数据源现实:assistant 正文在
-  // allMessages(主信号),工具步骤 agentLog 活在 process query(次信号),合并两源探测。
-  const cardPreviewUrls = useMemo(() => {
-    const merged = [
-      ...extractLatestTurnDevPreviewUrls(allMessages),
-      ...extractDetectedDevPreviewUrls(processMessages),
-    ];
-    return Array.from(new Set(merged)).slice(0, 4);
-  }, [allMessages, processMessages]);
   // auto_open(仅环回,SSRF 收紧):**只信主信号**(最近一轮 assistant 正文)。process 流
-  // (agentLog)无 user 消息、无法按轮次切片,从后往前扫可能取到上一轮旧 URL → 误自动打开,
-  // 故 auto_open 不用 process 流(card 模式才用,见上;正确性评审)。
+  // (agentLog)无 user 消息、无法按轮次切片,从后往前扫可能取到上一轮旧 URL → 误自动打开。
   const autoOpenPreviewUrl = useMemo(
     () => extractLatestTurnAutoOpenDevPreviewUrls(allMessages)[0] ?? null,
     [allMessages],
   );
-
-  // 本地 HTML 文件路径探测(card-only,不 auto_open)。合并正文 + agentLog 两源。
-  const localHtmlPaths = useMemo(() => {
-    const merged = [
-      ...extractLatestTurnLocalHtmlPaths(allMessages),
-      ...extractDetectedLocalHtmlPaths(processMessages),
-    ];
-    return Array.from(new Set(merged)).slice(0, 4);
-  }, [allMessages, processMessages]);
 
   const openPreview = useCallback(
     (url: string) => {
@@ -333,9 +309,20 @@ export function PersonalChatArea({
       }
       // agent 回复:复制 +(仅在开启「实时朗读」时)朗读开关。正在朗读时常驻显示便于停止。
       const speaking = ttsPlayback.isSpeaking;
+      // 内联预览入口:本条回复正文里探测到本地 dev URL / 本地 HTML 文件时,在消息正文下方直接给
+      // 「预览」chip(不再用浮在输入框上的卡片;用户要求 #1)。
+      const previewUrls = extractDetectedDevPreviewUrls([m]);
+      const previewHtmlPaths = extractDetectedLocalHtmlPaths([m]);
       return (
-        <div className="m-msg-actions">
-          <span className="m-msg-time">{m.time}</span>
+        <>
+          <DevPreviewCard
+            urls={previewUrls}
+            htmlPaths={previewHtmlPaths}
+            onOpen={openPreview}
+            onOpenPath={openLocalHtml}
+          />
+          <div className="m-msg-actions">
+            <span className="m-msg-time">{m.time}</span>
           <div className={`m-act-row ${speaking ? "is-active" : ""}`}>
             <button
               type="button"
@@ -372,11 +359,23 @@ export function PersonalChatArea({
                 <Icon.Reply size={15} />
               </button>
             ) : null}
+            </div>
           </div>
-        </div>
+        </>
       );
     },
-    [session, project, running, editResend, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast],
+    [
+      session,
+      project,
+      running,
+      editResend,
+      ttsPlayback.isSpeaking,
+      ttsSettings,
+      bridge,
+      onToast,
+      openPreview,
+      openLocalHtml,
+    ],
   );
 
   // 追问浮层的会话上下文(R6:复用当前会话 agent/model/cwd/provider,不新建会话)。
@@ -491,14 +490,6 @@ export function PersonalChatArea({
             <HiddenHistoryGate count={hiddenCount} expanded={false} onToggle={() => setShowHiddenHistory(true)} />
           ) : undefined
         }
-      />
-
-      {/* 预览卡片:探测到本地 dev URL 或 agent 产出的本地 HTML 文件时,提供内嵌打开入口。 */}
-      <DevPreviewCard
-        urls={cardPreviewUrls}
-        htmlPaths={localHtmlPaths}
-        onOpen={openPreview}
-        onOpenPath={openLocalHtml}
       />
 
       {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
