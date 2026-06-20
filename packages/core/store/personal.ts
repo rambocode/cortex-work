@@ -51,7 +51,8 @@ export type RightView = "files" | "skills" | "todos" | "notes";
 // edit=写类被拦(可切 accept-edits/full-auto);exec=执行类被拦(只能切 full-auto)。
 export interface ModeBlockHint {
   fromMode: PermissionMode;
-  category: "edit" | "exec";
+  // edit=写类;exec=执行类;tool=plan 档白名单外工具(含扩展自定义工具)。决定可切到的目标档。
+  category: "edit" | "exec" | "tool";
   promptText: string;
   toolName: string;
 }

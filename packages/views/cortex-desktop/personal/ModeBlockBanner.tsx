@@ -25,10 +25,13 @@ export function ModeBlockBanner({ session, projectPath }: { session: SessionMeta
     hint.fromMode === "plan"
       ? hint.category === "edit"
         ? "composer.modeBlock.planEdit"
-        : "composer.modeBlock.planExec"
+        : hint.category === "tool"
+          ? "composer.modeBlock.planTool"
+          : "composer.modeBlock.planExec"
       : "composer.modeBlock.acceptEditsExec";
 
-  // 可切到的目标档:写类被拦 → accept-edits / full-auto;执行类被拦 → 仅 full-auto。
+  // 可切到的目标档:写类被拦 → accept-edits / full-auto;执行类 / 白名单外工具 → 仅 full-auto
+  //（accept-edits 不放行任意工具,只有 full-auto 能让扩展工具跑起来）。
   const targets: PermissionMode[] = hint.category === "edit" ? ["accept-edits", "full-auto"] : ["full-auto"];
 
   const switchAndResend = (target: PermissionMode) => {

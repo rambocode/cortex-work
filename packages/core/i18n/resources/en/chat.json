@@ -86,6 +86,7 @@
     "modeBlock": {
       "planEdit": "You're in Plan (read-only) mode — {{name}} was blocked from editing files. Switch mode and retry this turn?",
       "planExec": "You're in Plan (read-only) mode — {{name}} was blocked from running a command. Switch mode and retry this turn?",
+      "planTool": "You're in Plan (read-only) mode — {{name}} was blocked from using a restricted tool (e.g. an extension). Switch to Full auto and retry this turn?",
       "acceptEditsExec": "You're in Auto-edit mode — {{name}} was blocked from running a command. Switch to Full auto and retry this turn?",
       "switchAcceptEdits": "Switch to Auto-edit & retry",
       "switchFullAuto": "Switch to Full auto & retry",

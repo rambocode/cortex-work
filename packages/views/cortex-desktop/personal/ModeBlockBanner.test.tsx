@@ -52,6 +52,16 @@ describe("ModeBlockBanner", () => {
     expect(container.querySelectorAll(".pw-mode-block-btn.primary").length).toBe(1);
   });
 
+  it("白名单外工具/扩展工具被拦(tool):专属文案 + 只渲染 full-auto 一个切档按钮", () => {
+    seedHint({ fromMode: "plan", category: "tool", promptText: "/memory-index-sessions", toolName: "memory_index" });
+    const { container } = renderBanner();
+    expect(container.querySelectorAll(".pw-mode-block-btn.primary").length).toBe(1);
+    // 用 tool 专属文案(提到「受限工具/扩展」),而非「执行命令」。
+    expect(screen.getByText(/受限工具|扩展/)).toBeTruthy();
+    fireEvent.click(screen.getByText("切到全自动并重试"));
+    expect(usePersonalStore.getState().sessions.find((s) => s.id === "s1")?.permissionMode).toBe("full-auto");
+  });
+
   it("运行中:不渲染(本轮未结束不打扰)", () => {
     seedHint({ fromMode: "plan", category: "edit", promptText: "x", toolName: "Edit" }, true);
     const { container } = renderBanner();

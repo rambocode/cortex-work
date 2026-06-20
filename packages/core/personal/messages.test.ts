@@ -166,6 +166,30 @@ describe("restrictedToolForMode 运行模式拦截检测", () => {
     expect(restrictedToolForMode("bash", "plan")).toBe("exec");
     expect(restrictedToolForMode("WRITE", "plan")).toBe("edit");
   });
+
+  it("pi + plan:白名单外工具(扩展自定义工具)→ tool", () => {
+    // pi plan 档 --tools 白名单仅 read/grep/find/ls,扩展工具(如记忆扩展)在外 → 归 tool 类。
+    expect(restrictedToolForMode("memory_index", "plan", "pi")).toBe("tool");
+    expect(restrictedToolForMode("hermes-memory", "plan", "pi")).toBe("tool");
+    // 白名单内只读工具仍不拦。
+    expect(restrictedToolForMode("read", "plan", "pi")).toBeNull();
+    expect(restrictedToolForMode("grep", "plan", "pi")).toBeNull();
+    expect(restrictedToolForMode("find", "plan", "pi")).toBeNull();
+    expect(restrictedToolForMode("ls", "plan", "pi")).toBeNull();
+    // 写/执行类仍优先归各自类别(非 tool)。
+    expect(restrictedToolForMode("Write", "plan", "pi")).toBe("edit");
+    expect(restrictedToolForMode("Bash", "plan", "pi")).toBe("exec");
+  });
+
+  it("pi + plan tool 检测仅限 pi:claude 的白名单外工具不误判为 tool", () => {
+    // 其它 agent 的 plan 走原生机制,不套 pi 的 --tools 白名单,故非写/执行类工具不拦。
+    expect(restrictedToolForMode("WebFetch", "plan", "claude")).toBeNull();
+    expect(restrictedToolForMode("memory_index", "plan")).toBeNull(); // 无 agent → 不套白名单
+  });
+
+  it("pi + accept-edits:白名单只对 plan 生效,扩展工具在 accept-edits 不归 tool", () => {
+    expect(restrictedToolForMode("memory_index", "accept-edits", "pi")).toBeNull();
+  });
 });
 
 describe("personal hidden history helpers", () => {

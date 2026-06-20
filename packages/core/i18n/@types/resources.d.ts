@@ -49,6 +49,7 @@ export default interface Resources {
         "dismiss": "忽略",
         "planEdit": "当前是 Plan(只读)模式,{{name}} 想修改文件被拦下。切换模式并重试本轮?",
         "planExec": "当前是 Plan(只读)模式,{{name}} 想执行命令被拦下。切换模式并重试本轮?",
+        "planTool": "当前是 Plan(只读)模式,{{name}} 想用受限工具(如扩展功能)被拦下。切到全自动并重试本轮?",
         "switchAcceptEdits": "切到自动改文件并重试",
         "switchFullAuto": "切到全自动并重试"
       },

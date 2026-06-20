@@ -20,7 +20,7 @@ import type {
   SessionMeta,
   ThinkingLevel,
 } from "../desktop/types";
-import { DEFAULT_PI_SKILLS, DEFAULT_PI_EXTENSIONS } from "../desktop/types";
+import { DEFAULT_PI_SKILLS, DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 import type { DesktopBridge } from "../desktop/bridge";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
@@ -165,7 +165,7 @@ interface RunState {
   // 本轮运行模式(plan/accept-edits/full-auto):用于检测「被模式拦截的工具尝试」→ 切档提示。
   permissionMode?: PermissionMode;
   // 本轮已检测到的被拦工具(写/执行类),轮结束时据此弹切档提示。只记首个,避免重复。
-  blockedTool?: { name: string; category: "edit" | "exec" };
+  blockedTool?: { name: string; category: "edit" | "exec" | "tool" };
   // 传输通道:cli=单发 startCli（claude/codex）;pi=RPC 长驻会话。pi 的看门狗绝不杀进程。
   transport?: "cli" | "pi";
   // pi 思考流（reasoning）的折叠块（独立于 text/tool 游标:思考通常先于正文,累进同一块）。
@@ -194,14 +194,27 @@ const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "C
 
 // 各 agent 归一化工具名的「写类」「执行类」集合（claude: Write/Edit/MultiEdit/NotebookEdit/Bash;
 // codex: Shell;小写匹配）。用于检测「被运行模式拦截的工具尝试」:
-//   plan 拦写类+执行类;accept-edits 仅拦执行类;full-auto 不拦。
+//   plan 拦写类+执行类+任意非白名单工具;accept-edits 仅拦执行类;full-auto 不拦。
 const MODE_EDIT_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit"]);
 const MODE_EXEC_TOOLS = new Set(["bash", "shell"]);
-export function restrictedToolForMode(toolName: string, mode: PermissionMode | undefined): "edit" | "exec" | null {
+// pi plan 档用 --tools 白名单(read/grep/find/ls)硬限制工具集,故「不在白名单」即「被拦」——
+// 含扩展自定义工具(如记忆扩展的索引工具)。其它 agent 的 plan 走各自原生机制,不套用此白名单。
+const PI_PLAN_WHITELIST = new Set(PI_PLAN_TOOL_WHITELIST.map((s) => s.toLowerCase()));
+// 返回被拦类别:edit=写类(可切 accept-edits/full-auto);exec=执行类(仅 full-auto);
+// tool=非白名单工具/扩展工具(仅 full-auto 能放行任意工具,accept-edits 仍按白名单/审批限制)。
+export function restrictedToolForMode(
+  toolName: string,
+  mode: PermissionMode | undefined,
+  agent?: AgentKind,
+): "edit" | "exec" | "tool" | null {
   if (!mode || mode === "full-auto") return null;
   const n = toolName.toLowerCase();
   if (MODE_EXEC_TOOLS.has(n)) return "exec"; // bash/shell 在 plan 与 accept-edits 下都被拦
-  if (mode === "plan" && MODE_EDIT_TOOLS.has(n)) return "edit"; // 写类仅 plan 拦
+  if (mode === "plan") {
+    if (MODE_EDIT_TOOLS.has(n)) return "edit"; // 写类仅 plan 拦
+    // pi plan 档:白名单外的工具(扩展工具/其它内置写工具)一律被 --tools 拦,归 tool 类。
+    if (agent === "pi" && !PI_PLAN_WHITELIST.has(n)) return "tool";
+  }
   return null;
 }
 
@@ -727,7 +740,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     if (changed) (run.changedFiles ??= new Set()).add(changed);
     // 运行模式拦截检测:plan/accept-edits 下出现被禁工具(写/执行)→ 记首个,轮结束弹切档提示。
     if (!run.blockedTool) {
-      const cat = restrictedToolForMode(ev.name, run.permissionMode);
+      const cat = restrictedToolForMode(ev.name, run.permissionMode, run.agent);
       if (cat) run.blockedTool = { name: ev.name, category: cat };
     }
     foldToolIntoProcess(qc, sessionId, run, ev);
