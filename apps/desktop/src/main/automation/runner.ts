@@ -78,10 +78,14 @@ async function finalize(meta: AutomationMeta, run: AutomationRun): Promise<void>
   pending.delete(meta.id);
   await updateRun(meta.id, run.id, run);
   const nextRunAt = meta.enabled ? (computeNextRun(meta.schedule, meta.timezone) ?? undefined) : undefined;
+  // once 任务触发后即生命周期结束:computeNextRun 对过期 once 已返回 null(nextRunAt 归空),
+  // 此处再显式置 enabled:false,让列表明确呈现「已完成/已暂停」,而非「启用却无下次」的歧义态。
+  const onceDone = meta.schedule.kind === "once";
   await patchAutomation(meta.id, {
     lastRunAt: run.startedAt,
     lastStatus: run.status === "running" ? "error" : run.status,
     nextRunAt,
+    ...(onceDone ? { enabled: false } : {}),
   });
   broadcastChanged(await loadAutomations());
   broadcastRunEvent({ automationId: meta.id, run, phase: "end" });
