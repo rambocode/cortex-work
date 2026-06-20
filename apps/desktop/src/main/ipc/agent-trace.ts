@@ -117,7 +117,12 @@ function pushEvent(event: AgentTraceEvent): void {
     if (openSegments.size > 0) {
       const removedIds = new Set(removed.map((e) => e.id));
       for (const [key, seg] of openSegments) {
-        if (removedIds.has(seg.event.id)) openSegments.delete(key);
+        if (removedIds.has(seg.event.id)) {
+          // 打开段被挤出缓冲:末次广播 streaming=false,否则 renderer 该行永久停在「生长中…」。
+          seg.event.streaming = false;
+          emitTrace(seg.event);
+          openSegments.delete(key);
+        }
       }
     }
   }
@@ -125,7 +130,9 @@ function pushEvent(event: AgentTraceEvent): void {
 
 export function recordAgentTrace(input: AgentTraceInput): AgentTraceEvent {
   // 落普通(非增量)事件前,先收尾同 run/session 的打开段,保证顺序(如 tool 事件到达时 text 段定格)。
-  finalizeOpenSegment(streamKey(input));
+  // 例外:stderr 是与 stdout 并发的旁路噪声,不是流式段的逻辑边界——若收尾,交错到达的 stderr
+  // 会把正在生长的 text 段切碎(tool/result/turn-end/exit 等真实边界仍照常收尾)。
+  if (input.phase !== "stderr") finalizeOpenSegment(streamKey(input));
   const event: AgentTraceEvent = {
     ...input,
     id: traceId(),
@@ -182,6 +189,8 @@ export function agentTraceList(): AgentTraceEvent[] {
 
 export function agentTraceClear(): void {
   traceEvents.splice(0, traceEvents.length);
+  // 一并清打开段,否则清空后仍在流的增量会命中残留段、以旧 id 重新冒出幽灵行。
+  openSegments.clear();
 }
 
 function assertDevMode(devMode: boolean): void {

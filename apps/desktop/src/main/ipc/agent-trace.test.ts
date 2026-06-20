@@ -157,6 +157,33 @@ describe("流式增量合并为段", () => {
     recordAgentTrace({ scope: "cli", phase: "exit", summary: "exit" });
     expect(agentTraceList()).toHaveLength(2);
   });
+
+  it("stderr 是旁路噪声,不收尾打开的 text 段(同段继续累积)", () => {
+    recordStreamDelta({ scope: "cli", segmentType: "text", delta: "前", runId: "run-1", agent: "claude" });
+    // 交错的 stderr 不应把 text 段切碎。
+    recordAgentTrace({ scope: "cli", phase: "stderr", summary: "claude stderr", runId: "run-1", agent: "claude", data: { chunk: "warn" } });
+    recordStreamDelta({ scope: "cli", segmentType: "text", delta: "后", runId: "run-1", agent: "claude" });
+
+    const events = agentTraceList();
+    // text 段(1,仍连续) + stderr(1) = 2 条;text 未被切成两段。
+    const textSegs = events.filter((e) => e.segmentType === "text");
+    expect(textSegs).toHaveLength(1);
+    expect(textSegs[0]?.deltaCount).toBe(2);
+    expect(textSegs[0]?.streaming).toBe(true);
+    expect(textContent(textSegs[0]!)).toBe("前后");
+  });
+
+  it("clear 清空打开段,清空后续增量不复活旧段(另起新段)", () => {
+    const first = recordStreamDelta({ scope: "pi", segmentType: "text", delta: "旧", runId: "run-1", agent: "pi" });
+    agentTraceClear();
+    expect(agentTraceList()).toHaveLength(0);
+
+    const second = recordStreamDelta({ scope: "pi", segmentType: "text", delta: "新", runId: "run-1", agent: "pi" });
+    const events = agentTraceList();
+    expect(events).toHaveLength(1);
+    expect(second.id).not.toBe(first.id); // 新段、新 id,非复活旧段
+    expect(textContent(events[0]!)).toBe("新"); // 不从清空前的「旧」继续累积
+  });
 });
 
 describe("registerAgentTraceHandlers", () => {
