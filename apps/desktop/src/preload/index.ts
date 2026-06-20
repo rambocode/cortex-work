@@ -121,6 +121,8 @@ const personal = {
   revealInFolder: (path: string): Promise<void> => ipcRenderer.invoke("shell:revealInFolder", path),
   // Markdown 预览链接:系统默认浏览器打开（主进程校验 http/https）
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
+  // 内嵌浏览器面板:清除 persist:browser-panel 分区浏览数据
+  browserClearData: (): Promise<void> => ipcRenderer.invoke("browser:clearData"),
   // 项目「Open in」:列出已装编辑器 / 用指定编辑器打开项目目录
   listEditors: (): Promise<EditorInfo[]> => ipcRenderer.invoke("shell:listEditors"),
   openInEditor: (path: string, editorId: string): Promise<void> =>

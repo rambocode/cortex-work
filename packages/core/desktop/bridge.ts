@@ -123,6 +123,9 @@ export interface DesktopBridge {
   detectAgents?(): Promise<Record<AgentKind, boolean>>;
   // Markdown 预览里的链接:用系统默认浏览器打开（仅 http/https）。
   openExternal?(url: string): Promise<void>;
+  // 内嵌浏览器面板「清除浏览数据」:清空 persist:browser-panel 分区的 cookie/缓存/storage。
+  // 导航/历史/状态走渲染端 webview 元素 API,主进程只需这一条 IPC(见计划 KTD5)。
+  browserClearData?(): Promise<void>;
   // 持久化
   loadState(): Promise<PersistedState>;
   saveState(state: PersistedState): Promise<void>;

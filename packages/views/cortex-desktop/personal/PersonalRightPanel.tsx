@@ -13,6 +13,7 @@ import { FilesView } from "./FilesView";
 import { PromptPanel } from "./PromptPanel";
 import { TasksDocsView } from "./TasksDocsView";
 import { NotesView } from "./NotesView";
+import { BrowserView } from "./BrowserView";
 
 // 右栏视图 → 顶部头标题（内容沿用现有视图名）。
 const RIGHT_VIEW_TITLE: Record<string, string> = {
@@ -20,6 +21,7 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
   skills: "Skills",
   todos: "Tasks",
   notes: "闪记",
+  browser: "浏览器",
 };
 
 // 导出供测试引用,调参不破坏断言。
@@ -101,6 +103,8 @@ export function PersonalRightPanel({
         <TasksDocsView onToast={onToast} />
       ) : view === "notes" ? (
         <NotesView onToast={onToast} />
+      ) : view === "browser" ? (
+        <BrowserView onToast={onToast} />
       ) : (
         <PromptPanel onToast={onToast} bare />
       )}
