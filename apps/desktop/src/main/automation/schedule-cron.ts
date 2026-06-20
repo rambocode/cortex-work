@@ -36,12 +36,19 @@ export function validateScheduleSpec(spec: ScheduleSpec): SpecValidation {
       const v = validateCron(expr);
       return v.ok ? { ok: true } : { ok: false, error: v.error };
     }
+    case "once":
+      // 只校验 at 为有限数;不强制 future(避免时钟漂移/编辑历史任务被拒),
+      // future 约束交给 UI(ScheduleEditor 软兜)。
+      if (!Number.isFinite(spec.at)) return { ok: false, error: "一次性时间无效" };
+      return { ok: true };
     default:
       return { ok: false, error: "未知的定时类型" };
   }
 }
 
 // ScheduleSpec → 5 段 cron。cron kind 原样返回（已由 validateCron 把关）。
+// 注意:once 无 cron 表示,由调用方(scheduleOne / computeNextRun)在调用前单独分支,
+// 不应走到此函数;若走到说明调用方漏分支,显式抛错而非静默产出错误 cron。
 export function scheduleToCron(spec: ScheduleSpec): string {
   switch (spec.kind) {
     case "hourly":
@@ -54,6 +61,8 @@ export function scheduleToCron(spec: ScheduleSpec): string {
       return `${spec.minute} ${spec.hour} * * ${spec.weekday}`;
     case "cron":
       return spec.expression.trim();
+    case "once":
+      throw new Error("once 排期无 cron 表示,应由调用方单独分支处理");
   }
 }
 
@@ -84,6 +93,11 @@ export function validateCron(expression: string, timezone?: string): CronValidat
 // 计算某 ScheduleSpec 在 after（缺省 now）之后的下次触发 epoch ms;非法或永不触发返回 null。
 export function computeNextRun(spec: ScheduleSpec, timezone?: string, after?: Date): number | null {
   try {
+    // once: 纯比较,过了触发点(at <= after/now)即永不再触发返回 null;不构造 croner。
+    if (spec.kind === "once") {
+      const ref = (after ?? new Date()).getTime();
+      return spec.at > ref ? spec.at : null;
+    }
     const pattern = scheduleToCron(spec);
     return withProbeJob(pattern, timezone, (job) => {
       const next = after ? job.nextRun(after) : job.nextRun();
