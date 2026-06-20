@@ -216,12 +216,51 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   log: { enabled: true, retentionDays: 2 },
 };
 
+// 推送渠道配置（与 core/desktop/types.ts 镜像;主进程 automation runner 完成后推送时读取）。
+export interface WecomPushConfig {
+  enabled: boolean;
+  webhookUrl: string;
+}
+export interface DingtalkPushConfig {
+  enabled: boolean;
+  webhookUrl: string;
+  secret?: string;
+}
+export interface FeishuPushConfig {
+  enabled: boolean;
+  webhookUrl: string;
+  secret?: string;
+}
+export interface InternalNotifyConfig {
+  enabled: boolean;
+}
+export interface EmailPushConfig {
+  enabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  from: string;
+  to: string;
+}
+export interface PushSettings {
+  wecom?: WecomPushConfig;
+  dingtalk?: DingtalkPushConfig;
+  feishu?: FeishuPushConfig;
+  internal?: InternalNotifyConfig;
+  email?: EmailPushConfig;
+  formatSkillPath?: string;
+}
+
 export interface PersistedState {
   version: 1;
   projects: ProjectMeta[];
   promptRoot?: string;
   sessions: SessionMeta[];
   todos?: TodoMeta[];
+  // 推送渠道设置（renderer 全量写入;主进程 automation 完成后推送时读取）。
+  pushSettings?: PushSettings;
   // 持久化的供应商配置（renderer 全量写入;主进程 automation runner 只读）。
   providerSettings?: ProviderSettings;
   // 通用设置（renderer 全量写入;主进程读 workspaceRoot/desktopBehavior/log）。

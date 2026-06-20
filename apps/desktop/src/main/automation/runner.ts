@@ -17,6 +17,7 @@ import { getPersistedState, getWorkspaceRoot } from "../ipc/store";
 import type { AutomationMeta, AutomationRun, CliStartRequest } from "../ipc/types";
 import { broadcastChanged, broadcastRunEvent } from "./events";
 import { computeNextRun } from "./schedule-cron";
+import { dispatchAutomationPush, isTerminalPushStatus } from "./push-on-complete";
 import { appendRun, loadAutomations, newRunId, patchAutomation, updateRun } from "./store";
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -89,6 +90,9 @@ async function finalize(meta: AutomationMeta, run: AutomationRun): Promise<void>
   });
   broadcastChanged(await loadAutomations());
   broadcastRunEvent({ automationId: meta.id, run, phase: "end" });
+  // 完成后推送(opt-in):仅在 meta.notify 且终态(ok/error/timeout/killed)时分发到全局
+  // 启用渠道。fire-and-forget —— dispatchAutomationPush 内部已吞错,绝不影响 run 收尾。
+  if (meta.notify && isTerminalPushStatus(run.status)) void dispatchAutomationPush(meta, run);
 }
 
 // 启动一次执行;返回初始（running / skipped / error）run,执行在后台进行,
