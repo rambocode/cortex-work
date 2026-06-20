@@ -362,6 +362,102 @@ describe("PiRpcSession", () => {
     expect(onEvent).toHaveBeenCalledWith({ type: "result", willRetry: false }, undefined);
   });
 
+  it("notify 走事件流(非对话框回写通道),setStatus 丢弃", () => {
+    const events: PiSessionEvent[] = [];
+    const onUi = vi.fn();
+    const f = fakeTransport();
+    new PiRpcSession(f.transport, (e) => events.push(e), onUi);
+    f.emit(
+      JSON.stringify({ type: "extension_ui_request", id: "n1", method: "notify", message: "hi", notifyType: "warning" }) +
+        "\n",
+    );
+    f.emit(JSON.stringify({ type: "extension_ui_request", id: "s1", method: "setStatus", statusKey: "k", statusText: "x" }) + "\n");
+    expect(onUi).not.toHaveBeenCalled(); // notify/setStatus 都不进对话框队列
+    expect(events).toContainEqual({ type: "notify", message: "hi", level: "warning" });
+  });
+
+  // 扩展命令(/cmd)由 pi 即时执行后提前返回、不跑 agent → 无 agent_end。补发 result 收尾防永久卡「思考中」。
+  describe("扩展命令收尾", () => {
+    it("带 notify 输出:response 落定即补发 result(无需等宽限)", async () => {
+      const events: PiSessionEvent[] = [];
+      const f = fakeTransport();
+      const s = new PiRpcSession(f.transport, (e) => events.push(e));
+      const p = s.prompt("/memory-index-sessions", "run-x");
+      const cmd = f.lastCmd();
+      // 真实顺序:handler 跑完(发 notify) → 才回 prompt response。
+      f.emit(JSON.stringify({ type: "extension_ui_request", id: "n1", method: "notify", message: "✅ 完成" }) + "\n");
+      f.emit(JSON.stringify({ type: "response", id: cmd.id, command: "prompt", success: true }) + "\n");
+      await p;
+      await Promise.resolve(); // 让 prompt 内部 .then(scheduleExtensionCommandFinalize) 跑完
+      expect(events).toContainEqual({ type: "notify", message: "✅ 完成", level: "info" });
+      expect(events).toContainEqual({ type: "result", willRetry: false });
+    });
+
+    it("无 notify 输出:宽限后仍无 agent 活动 → 补发 result", async () => {
+      vi.useFakeTimers();
+      try {
+        const events: PiSessionEvent[] = [];
+        const f = fakeTransport();
+        const s = new PiRpcSession(f.transport, (e) => events.push(e));
+        const p = s.prompt("/quietcmd", "run-z");
+        const cmd = f.lastCmd();
+        f.emit(JSON.stringify({ type: "response", id: cmd.id, command: "prompt", success: true }) + "\n");
+        await p;
+        await Promise.resolve();
+        expect(events.filter((e) => e.type === "result")).toHaveLength(0); // 宽限未到,先不补
+        vi.advanceTimersByTime(1600);
+        expect(events.filter((e) => e.type === "result")).toEqual([{ type: "result", willRetry: false }]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("/cmd 实际起了 agent 轮(命中文本事件):不补发 result,避免双收尾", async () => {
+      vi.useFakeTimers();
+      try {
+        const events: PiSessionEvent[] = [];
+        const f = fakeTransport();
+        const s = new PiRpcSession(f.transport, (e) => events.push(e));
+        const p = s.prompt("/skill:foo", "run-y");
+        const cmd = f.lastCmd();
+        f.emit(JSON.stringify({ type: "response", id: cmd.id, command: "prompt", success: true }) + "\n");
+        await p;
+        await Promise.resolve();
+        // 宽限窗内到达 agent 文本事件 → 取消补发。
+        f.emit(
+          JSON.stringify({
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "嗨", partial: {} },
+            message: {},
+          }) + "\n",
+        );
+        vi.advanceTimersByTime(3000);
+        expect(events.some((e) => e.type === "text")).toBe(true);
+        expect(events.filter((e) => e.type === "result")).toHaveLength(0); // 无补发(真实 result 另由 agent_end 表达)
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("普通(非 /)prompt:不触发扩展命令补发", async () => {
+      vi.useFakeTimers();
+      try {
+        const events: PiSessionEvent[] = [];
+        const f = fakeTransport();
+        const s = new PiRpcSession(f.transport, (e) => events.push(e));
+        const p = s.prompt("普通问题", "run-n");
+        const cmd = f.lastCmd();
+        f.emit(JSON.stringify({ type: "response", id: cmd.id, command: "prompt", success: true }) + "\n");
+        await p;
+        await Promise.resolve();
+        vi.advanceTimersByTime(3000);
+        expect(events.filter((e) => e.type === "result")).toHaveLength(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it("ready: get_state 返回 sessionId 即就绪", async () => {
     const f = fakeTransport();
     const s = new PiRpcSession(f.transport, vi.fn());

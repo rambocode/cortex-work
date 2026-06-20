@@ -317,6 +317,20 @@ interface PendingRequest {
 const DEFAULT_TIMEOUT_MS = 30_000;
 // 压缩走一次 LLM 调用,应答在 session.compact() 完成后才回,给较长有界超时（非 0,留兜底）。
 const COMPACT_TIMEOUT_MS = 5 * 60_000;
+// 扩展命令(/cmd)收尾宽限:pi 对扩展命令即时执行后提前返回、不跑 agent（无 agent_end）。response
+// 落定后若未见 agent 活动,给这段窗口等 agent_start（防 /skill: /template 展开后的 response→agent_start
+// 竞态误判),仍无则补发 result 收尾,避免 renderer 永久卡「思考中」。
+const EXT_COMMAND_FINALIZE_GRACE_MS = 1_500;
+// 「agent 真在跑一轮」的事件类型:出现任一即说明不是纯扩展命令,无需补发收尾。
+const AGENT_TURN_EVENT_TYPES = new Set<PiSessionEvent["type"]>([
+  "text",
+  "reasoning",
+  "tool-start",
+  "tool-end",
+  "turn-end",
+  "result",
+  "error", // 错误事件自带收尾路径,出现即不补发
+]);
 
 /**
  * 一个长驻 pi RPC 会话:把命令写到子进程 stdin、解析 stdout 的 response/事件行。
@@ -333,6 +347,11 @@ export class PiRpcSession {
   // 阶段4 代际:当前轮的 runId（Cortex 自造,prompt 时绑定）。事件回带它,renderer 据此守卫
   // 丢弃迟到/串台事件（崩溃重开/editResend 重入时旧轮事件落入新轮）。
   private currentRunId?: string;
+  // 扩展命令收尾跟踪（见 EXT_COMMAND_FINALIZE_GRACE_MS）:本轮是否 / 前缀、是否见过 agent 活动 /
+  // notify 输出,以及待触发的补发收尾定时器。
+  private slashSawAgentEvent = false;
+  private slashSawNotify = false;
+  private slashFinalizeTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly transport: RpcTransport,
@@ -377,14 +396,32 @@ export class PiRpcSession {
       p.resolve(obj as unknown as RpcResponse);
       return;
     }
-    // extension UI 请求（pi → host，需 host 回写）：在 mapPiEvent 前专门分流——mapPiEvent 丢 id
-    // 且 default→null 会吞掉。只对带 id 的请求上抛。
+    // extension UI 请求（pi → host）。其中 notify / setStatus 是 fire-and-forget（pi 不等回写）:
+    // 扩展命令的输出只走 notify。把 notify 转成事件呈现（而非塞进需回写的对话框队列,否则永不显示);
+    // setStatus 在 RPC 下无对应 UI,丢弃。其余（confirm/select/input/askquestion）才是需 host 回写的对话框。
     if (obj?.type === "extension_ui_request" && typeof obj.id === "string") {
+      if (obj.method === "notify") {
+        this.slashSawNotify = true;
+        const level = obj.notifyType === "warning" || obj.notifyType === "error" ? obj.notifyType : "info";
+        this.onEvent({ type: "notify", message: String(obj.message ?? ""), level }, this.currentRunId);
+        return;
+      }
+      if (obj.method === "setStatus") return; // fire-and-forget,无 UI 承接,丢弃
       this.onUiRequest?.(this.normalizeUiRequest(obj));
       return;
     }
     const ev = mapPiEvent(obj);
-    if (ev) this.onEvent(ev, this.currentRunId);
+    if (ev) {
+      // 见到 agent 真在跑一轮的事件 → 取消扩展命令补发收尾（这是普通 prompt / 展开后的 /skill: 等）。
+      if (AGENT_TURN_EVENT_TYPES.has(ev.type)) {
+        this.slashSawAgentEvent = true;
+        if (this.slashFinalizeTimer) {
+          clearTimeout(this.slashFinalizeTimer);
+          this.slashFinalizeTimer = undefined;
+        }
+      }
+      this.onEvent(ev, this.currentRunId);
+    }
   }
 
   /**
@@ -470,8 +507,42 @@ export class PiRpcSession {
   // （pi 不参与;steer/abort 不换 runId,其事件仍归属当前轮）。
   prompt(message: string, runId?: string, images?: PiImageContent[]): Promise<RpcResponse> {
     if (runId !== undefined) this.currentRunId = runId;
+    // 扩展命令(/cmd)由 pi 即时执行后提前返回、不跑 agent → 永不发 agent_end,renderer 会永久卡
+    // 「思考中」。仅对 / 前缀重置跟踪并在 response 落定后判定是否补发收尾;普通 prompt 零影响。
+    const isSlash = message.trimStart().startsWith("/");
+    if (this.slashFinalizeTimer) {
+      clearTimeout(this.slashFinalizeTimer);
+      this.slashFinalizeTimer = undefined;
+    }
+    this.slashSawAgentEvent = false;
+    this.slashSawNotify = false;
+    const rid = runId ?? this.currentRunId;
     // 多模态:图片走 prompt 命令的协议内置 images 字段(base64),非塞进 message 字符串。
-    return this.send({ type: "prompt", message, ...(images?.length ? { images } : {}) });
+    const p = this.send({ type: "prompt", message, ...(images?.length ? { images } : {}) });
+    if (isSlash) {
+      void p.then(
+        (resp) => {
+          if (resp?.success) this.scheduleExtensionCommandFinalize(rid);
+        },
+        () => undefined, // 失败由 send 的 reject 走既有错误路径
+      );
+    }
+    return p;
+  }
+
+  // 扩展命令 prompt 的 response 在 pi 跑完 handler 后才落定（故此刻命令已结束）。判定:
+  //  - 已见 notify（命令有输出）且未见 agent 活动 → 确证扩展命令,立即补发 result 收尾;
+  //  - 否则给一段宽限等 agent_start（防 /skill: /template 展开后的 response→agent_start 竞态）,
+  //    仍无 agent 活动则补发（覆盖无 notify 输出的扩展命令）。补发的 result 让 renderer 正常收尾。
+  private scheduleExtensionCommandFinalize(rid?: string): void {
+    if (this.slashSawAgentEvent || this.stopped || this.exited) return;
+    const finalize = (): void => {
+      this.slashFinalizeTimer = undefined;
+      if (this.slashSawAgentEvent || this.stopped || this.exited) return;
+      this.onEvent({ type: "result", willRetry: false }, rid);
+    };
+    if (this.slashSawNotify) finalize();
+    else this.slashFinalizeTimer = setTimeout(finalize, EXT_COMMAND_FINALIZE_GRACE_MS);
   }
   steer(message: string): Promise<RpcResponse> {
     return this.send({ type: "steer", message });
@@ -519,6 +590,10 @@ export class PiRpcSession {
   stop(): void {
     this.stopped = true;
     this.exited = true;
+    if (this.slashFinalizeTimer) {
+      clearTimeout(this.slashFinalizeTimer);
+      this.slashFinalizeTimer = undefined;
+    }
     this.rejectAllPending(new Error("pi 会话已停止退出"));
     this.transport.kill();
   }

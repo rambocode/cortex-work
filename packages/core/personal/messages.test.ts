@@ -756,6 +756,20 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(crash).toBeTruthy();
   });
 
+  it("notify(扩展命令输出)→ 作为 pi 消息入流 + 置 sawText(免补「纯工具轮」占位)", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "notify", message: "✅ 索引完成：120 条会话", level: "info" });
+    const m = cacheOf(qc).find(
+      (x) => x.kind === "text" && typeof x.text === "string" && x.text.includes("索引完成"),
+    );
+    expect(m).toMatchObject({ who: "pi" });
+    // 随后补发的 result 收尾不应再加「纯工具轮」占位（sawText 已置真）。
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    expect(cacheOf(qc).some((x) => x.kind === "text" && typeof x.text === "string" && x.text.includes("索引完成"))).toBe(true);
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined(); // 已收尾
+  });
+
   it("queue/compaction/retry/thinking-level 写入 piRuntimeBySession", () => {
     const qc = new QueryClient();
     setupPiRun(qc);

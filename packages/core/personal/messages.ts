@@ -1184,6 +1184,16 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       return;
     case "session-info":
       return; // 预留:暂不据此改标题（避免覆盖用户改名）。
+    case "notify": {
+      // 扩展命令（如 /memory-index-sessions）经 ctx.ui.notify 的输出——不走 agent 文本流,直接作为
+      // 一条 pi 消息呈现。置 sawText 以免随后的（补发）result 收尾再加「纯工具轮」占位。
+      if (ev.message.trim()) {
+        appendMsg(qc, sessionId, { kind: "text", who: "pi", time: realHHMM(), text: ev.message, uid: uid("pi") });
+        const a = piRunFor(sessionId);
+        if (a) a.run.sawText = true;
+      }
+      return;
+    }
     case "crashed": {
       markPiSessionGone(sessionId);
       const active = piRunFor(sessionId);

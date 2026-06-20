@@ -860,6 +860,9 @@ export type PiSessionEvent =
   | { type: "queue"; steering: number; followUp: number }
   | { type: "session-info"; name?: string }
   | { type: "thinking-level"; level: string }
+  // 扩展命令（如 /memory-index-sessions）经 ctx.ui.notify 的输出。pi 对扩展命令即时执行后提前返回、
+  // 不跑 agent（无 agent_end）,其输出只走 notify（fire-and-forget）。主进程把它转成此事件呈现。
+  | { type: "notify"; message: string; level?: "info" | "warning" | "error" }
   | { type: "crashed"; error?: string }; // 进程非正常退出（session 注入,非 RPC 事件）
 
 // pi extension 经 ctx.ui.* 发起的「需用户输入」请求（与 apps/desktop/src/main/ipc/types.ts 镜像）。
