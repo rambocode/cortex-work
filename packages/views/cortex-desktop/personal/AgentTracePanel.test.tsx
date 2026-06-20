@@ -46,4 +46,39 @@ describe("AgentTracePanel", () => {
     expect(screen.queryByText("history event")).toBeNull();
     expect(screen.queryByText("live event")).toBeNull();
   });
+
+  it("以实时 console log 形式展示彩色标签,点击日志行展开 data", async () => {
+    const bridge = {
+      agentTraceList: vi.fn(async () => [
+        trace({
+          id: "trace-console",
+          ts: 1,
+          scope: "pi-rpc",
+          phase: "error",
+          summary: "tool failed",
+          runId: "run-1",
+          sessionId: "session-1",
+          agent: "pi",
+          data: { cwd: "/proj", reason: "boom" },
+        }),
+      ]),
+      onAgentTrace: vi.fn(() => () => undefined),
+    } as unknown as DesktopBridge;
+
+    render(<AgentTracePanel bridge={bridge} />);
+
+    const row = await screen.findByRole("listitem", { name: /tool failed/ });
+    expect(row.className).toContain("pw-trace-line");
+    expect(row.textContent).toContain("[PI-RPC]");
+    expect(row.textContent).toContain("[ERROR]");
+    expect(row.textContent).toContain("run=run-1");
+    expect(row.textContent).toContain("session=session-1");
+    expect(row.querySelector('[data-scope="pi-rpc"]')).toBeTruthy();
+    expect(row.querySelector('[data-phase="error"]')).toBeTruthy();
+    expect(screen.queryByText(/"reason": "boom"/)).toBeNull();
+
+    fireEvent.click(row);
+
+    expect(await screen.findByText(/"reason": "boom"/)).toBeTruthy();
+  });
 });

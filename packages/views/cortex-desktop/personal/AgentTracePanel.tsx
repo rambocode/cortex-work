@@ -3,7 +3,8 @@ import type { AgentTraceEvent, DesktopBridge } from "@cortex-work/core";
 
 function formatTraceTime(ts: number): string {
   if (!Number.isFinite(ts) || ts <= 0) return "--:--:--";
-  return new Date(ts).toLocaleTimeString("zh-CN", { hour12: false });
+  const d = new Date(ts);
+  return `${d.toLocaleTimeString("zh-CN", { hour12: false })}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 }
 
 function traceDataPreview(data: unknown): string {
@@ -20,7 +21,9 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
   const [events, setEvents] = useState<AgentTraceEvent[]>([]);
   const [paused, setPaused] = useState(false);
   const [query, setQuery] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const pausedRef = useRef(false);
+  const listRef = useRef<HTMLUListElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -46,9 +49,16 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
     );
   }, [events, query]);
 
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || expandedId) return;
+    el.scrollTop = el.scrollHeight;
+  }, [filtered.length, expandedId]);
+
   const clear = async () => {
     await bridge.agentTraceClear?.();
     setEvents([]);
+    setExpandedId(null);
   };
 
   const togglePaused = () => {
@@ -57,6 +67,10 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
       pausedRef.current = next;
       return next;
     });
+  };
+
+  const toggleExpanded = (id: string) => {
+    setExpandedId((current) => (current === id ? null : id));
   };
 
   return (
@@ -77,31 +91,41 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
           清空
         </button>
       </div>
-      <div className="pw-trace-list">
+      <ul className="pw-trace-list" ref={listRef} aria-label="Agent trace console">
         {filtered.length === 0 ? (
-          <div className="pw-scard-empty">暂无 trace 事件</div>
+          <li className="pw-trace-empty">暂无 trace 事件</li>
         ) : (
-          filtered
-            .slice()
-            .reverse()
-            .map((event) => (
-              <details key={event.id} className="pw-trace-item">
-                <summary>
+          filtered.map((event) => {
+            const expanded = expandedId === event.id;
+            return (
+              <li
+                key={event.id}
+                className={`pw-trace-line ${expanded ? "is-expanded" : ""}`}
+                aria-label={`${formatTraceTime(event.ts)} [${event.scope.toUpperCase()}] [${event.phase.toUpperCase()}] ${event.summary}`}
+                tabIndex={0}
+                onClick={() => toggleExpanded(event.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggleExpanded(event.id);
+                  }
+                }}
+              >
+                <div className="pw-trace-line-main">
                   <span className="pw-trace-time">{formatTraceTime(event.ts)}</span>
-                  <span className="pw-trace-chip">{event.scope}</span>
-                  <span className="pw-trace-chip">{event.phase}</span>
+                  <span className="pw-trace-token" data-scope={event.scope}>[{event.scope.toUpperCase()}]</span>
+                  <span className="pw-trace-token" data-phase={event.phase.toLowerCase()}>[{event.phase.toUpperCase()}]</span>
                   <span className="pw-trace-summary">{event.summary}</span>
-                </summary>
-                <div className="pw-trace-meta">
-                  {event.agent ? <span>agent={event.agent}</span> : null}
-                  {event.runId ? <span>run={event.runId}</span> : null}
-                  {event.sessionId ? <span>session={event.sessionId}</span> : null}
+                  {event.agent ? <span className="pw-trace-meta-token">agent={event.agent}</span> : null}
+                  {event.runId ? <span className="pw-trace-meta-token">run={event.runId}</span> : null}
+                  {event.sessionId ? <span className="pw-trace-meta-token">session={event.sessionId}</span> : null}
                 </div>
-                {event.data != null ? <pre className="pw-trace-data">{traceDataPreview(event.data)}</pre> : null}
-              </details>
-            ))
+                {expanded && event.data != null ? <pre className="pw-trace-data">{traceDataPreview(event.data)}</pre> : null}
+              </li>
+            );
+          })
         )}
-      </div>
+      </ul>
     </div>
   );
 }
