@@ -278,6 +278,7 @@ const personal = {
   scanAgentProjects: (): Promise<AgentProjectInfo[]> => ipcRenderer.invoke("agents:scanProjects"),
   agentTraceList: (): Promise<AgentTraceEvent[]> => ipcRenderer.invoke("agent-trace:list"),
   agentTraceClear: (): Promise<void> => ipcRenderer.invoke("agent-trace:clear"),
+  openAgentTraceWindow: (): Promise<void> => ipcRenderer.invoke("agent-trace-window:show"),
   onAgentTrace: (cb: (event: AgentTraceEvent) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, event: AgentTraceEvent) => cb(event);
     ipcRenderer.send("agent-trace:subscribe");

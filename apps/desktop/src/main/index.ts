@@ -18,6 +18,11 @@ import { registerSpotlightHandlers } from "./ipc/spotlight";
 import { toggleNotesOverlay, destroyNotesOverlay, getNotesOverlayWindow } from "./notes-overlay";
 import { registerNotesOverlayHandlers } from "./ipc/notes-overlay";
 import {
+  destroyAgentTraceWindow,
+  getAgentTraceWindow,
+  registerAgentTraceWindowHandlers,
+} from "./agent-trace-window";
+import {
   resolveHotkeyRegistration,
   rebindCandidates,
   resolveRebindChain,
@@ -202,6 +207,7 @@ if (!app.requestSingleInstanceLock()) {
       update: { beforeInstall: markRealQuit },
       agentTraceDevMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"],
     });
+    registerAgentTraceWindowHandlers({ devMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"] });
     registerDesktopHandlers();
     registerLogHandlers();
     registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });
@@ -235,7 +241,7 @@ if (!app.requestSingleInstanceLock()) {
     app.on("activate", () => {
       // 排除 Spotlight / 闪记浮层:避免「主窗口已关、只剩浮窗」时点 Dock 不重建主窗口。
       const real = BrowserWindow.getAllWindows().filter(
-        (w) => w !== getSpotlightWindow() && w !== getNotesOverlayWindow(),
+        (w) => w !== getSpotlightWindow() && w !== getNotesOverlayWindow() && w !== getAgentTraceWindow(),
       );
       if (real.length === 0) createWindow();
       else showMainWindow();
@@ -273,6 +279,7 @@ if (!app.requestSingleInstanceLock()) {
     destroyTray();
     destroySpotlight();
     destroyNotesOverlay();
+    destroyAgentTraceWindow();
     globalShortcut.unregisterAll();
   };
   app.on("before-quit", onRealQuit);

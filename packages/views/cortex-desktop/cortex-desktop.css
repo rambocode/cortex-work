@@ -6415,9 +6415,41 @@ button.sb-row {
 .pw-agent-status.is-off { background: var(--border); color: var(--text-3); }
 
 /* dev-only Agent trace panel */
+.pw-trace-panel { min-height: 0; display: flex; flex-direction: column; }
 .pw-trace-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 0 12px; }
 .pw-trace-search { flex: 1 1 auto; min-width: 0; }
+.pw-trace-count { flex-shrink: 0; min-width: 58px; text-align: right; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .pw-trace-list { display: grid; gap: 8px; padding: 0 0 12px; max-height: 360px; overflow: auto; }
+.agent-trace-window {
+  min-height: 100vh;
+  background: var(--bg-app);
+  color: var(--text-1);
+}
+.agent-trace-window .pw-trace-shell {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 18px;
+  box-sizing: border-box;
+}
+.agent-trace-window .pw-trace-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+}
+.agent-trace-window .pw-trace-title h1 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.25;
+}
+.agent-trace-window .pw-trace-title span {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.agent-trace-window .pw-trace-panel { overflow: hidden; }
+.agent-trace-window .pw-trace-list { max-height: none; min-height: 0; }
 .pw-trace-item { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
 .pw-trace-item summary {
   display: grid;

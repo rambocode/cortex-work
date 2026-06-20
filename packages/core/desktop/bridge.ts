@@ -244,6 +244,7 @@ export interface DesktopBridge {
   agentTraceList?(): Promise<AgentTraceEvent[]>;
   agentTraceClear?(): Promise<void>;
   onAgentTrace?(cb: (event: AgentTraceEvent) => void): () => void;
+  openAgentTraceWindow?(): Promise<void>;
   onPtyData(cb: (id: string, data: string) => void): () => void;
   onPtyExit(cb: (id: string, exitCode: number) => void): () => void;
   // 应用自动更新（electron-updater + GitHub Releases）:主进程检测后推
