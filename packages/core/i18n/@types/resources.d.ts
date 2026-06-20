@@ -360,7 +360,10 @@ export default interface Resources {
       "demo": {
         "quotaDesc": "Codex 可以继续使用",
         "quotaTitle": "5h 配额已重置"
-      }
+      },
+      "previewAction": "预览通知",
+      "previewDesc": "弹出一条示例提醒,预览全局通知样式。",
+      "previewTitle": "通知预览"
     },
     "todoUntitled": "未命名 Todo",
     "updateButton": {

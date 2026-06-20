@@ -15,6 +15,9 @@
   "todoUntitled": "未命名 Todo",
   "toast": {
     "closeLabel": "关闭提醒",
+    "previewTitle": "通知预览",
+    "previewDesc": "弹出一条示例提醒,预览全局通知样式。",
+    "previewAction": "预览通知",
     "demo": {
       "quotaTitle": "5h 配额已重置",
       "quotaDesc": "Codex 可以继续使用"

@@ -163,9 +163,10 @@ export function useAutomationEvents(): void {
       if (ev.phase === "end") {
         const list = qc.getQueryData<AutomationMeta[]>(automationKeys.list);
         const label = list?.find((a) => a.id === ev.automationId)?.name ?? "自动化";
-        if (ev.run.status === "ok") pushToast(`「${label}」执行完成`, { kind: "success" });
+        // 富格式提醒:自动化名作标题,状态/错误作副标题(示范全局通用提醒富用法)。
+        if (ev.run.status === "ok") pushToast("", { kind: "success", title: label, description: "执行完成" });
         else if (ev.run.status === "error" || ev.run.status === "timeout")
-          pushToast(`「${label}」执行失败：${ev.run.error ?? ""}`.trim(), { kind: "error" });
+          pushToast("", { kind: "error", title: label, description: `执行失败：${ev.run.error ?? ""}`.trim() });
         // skipped / killed 不打扰用户。
       }
     });

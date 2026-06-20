@@ -15,6 +15,9 @@
   "todoUntitled": "Untitled Todo",
   "toast": {
     "closeLabel": "Dismiss notification",
+    "previewTitle": "Notification preview",
+    "previewDesc": "Show a sample notification to preview the global toast style.",
+    "previewAction": "Preview notification",
     "demo": {
       "quotaTitle": "5h quota has reset",
       "quotaDesc": "Codex is ready to use again"

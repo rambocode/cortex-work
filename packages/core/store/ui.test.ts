@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Toast } from "../types";
 import { useCortexUIStore } from "./ui";
+
+// 取首条提醒并收窄类型(规避 noUncheckedIndexedAccess)。
+function firstToast(): Toast {
+  const t = useCortexUIStore.getState().toasts[0];
+  if (!t) throw new Error("expected at least one toast");
+  return t;
+}
 
 // 全局提醒 store 行为:向后兼容 + 富字段 + 自动/手动消失。
 describe("useCortexUIStore pushToast/dismissToast", () => {
@@ -14,7 +22,7 @@ describe("useCortexUIStore pushToast/dismissToast", () => {
 
   it("向后兼容:text-only 调用产出 info 默认图标、可关闭的提醒", () => {
     useCortexUIStore.getState().pushToast("已切换");
-    const [t] = useCortexUIStore.getState().toasts;
+    const t = firstToast();
     expect(t.text).toBe("已切换");
     expect(t.kind).toBe("info");
     expect(t.dismissible).toBe(true);
@@ -26,7 +34,7 @@ describe("useCortexUIStore pushToast/dismissToast", () => {
     useCortexUIStore
       .getState()
       .pushToast("", { title: "5h 配额已重置", description: "Codex 可以继续使用", kind: "success" });
-    const [t] = useCortexUIStore.getState().toasts;
+    const t = firstToast();
     expect(t.title).toBe("5h 配额已重置");
     expect(t.description).toBe("Codex 可以继续使用");
     expect(t.iconName).toBe("CheckCircle");
@@ -34,12 +42,12 @@ describe("useCortexUIStore pushToast/dismissToast", () => {
 
   it("error kind 默认图标为 XCircle", () => {
     useCortexUIStore.getState().pushToast("失败", { kind: "error" });
-    expect(useCortexUIStore.getState().toasts[0].iconName).toBe("XCircle");
+    expect(firstToast().iconName).toBe("XCircle");
   });
 
   it("显式 icon 覆盖 kind 默认映射", () => {
     useCortexUIStore.getState().pushToast("提示", { icon: "Bell" });
-    expect(useCortexUIStore.getState().toasts[0].iconName).toBe("Bell");
+    expect(firstToast().iconName).toBe("Bell");
   });
 
   it("默认 duration(2400ms)到点后自动移除", () => {
@@ -59,10 +67,9 @@ describe("useCortexUIStore pushToast/dismissToast", () => {
     const store = useCortexUIStore.getState();
     store.pushToast("第一条", { duration: 0 });
     store.pushToast("第二条", { duration: 0 });
-    const first = useCortexUIStore.getState().toasts[0];
-    useCortexUIStore.getState().dismissToast(first.id);
+    useCortexUIStore.getState().dismissToast(firstToast().id);
     const remaining = useCortexUIStore.getState().toasts;
     expect(remaining).toHaveLength(1);
-    expect(remaining[0].text).toBe("第二条");
+    expect(remaining[0]?.text).toBe("第二条");
   });
 });

@@ -677,6 +677,26 @@ function GeneralSection() {
           </button>
         </SRow>
       </SettingCard>
+
+      {/* 通知预览:触发图中示例提醒,验证全局通用提醒样式(icon 用 Run、info 着色贴合图)。 */}
+      <SettingCard title={tc("toast.previewTitle")}>
+        <SRow label={tc("toast.previewAction")} desc={tc("toast.previewDesc")} end>
+          <button
+            className="pw-tl-gen"
+            onClick={() =>
+              pushToast("", {
+                kind: "info",
+                icon: "Run",
+                title: tc("toast.demo.quotaTitle"),
+                description: tc("toast.demo.quotaDesc"),
+              })
+            }
+          >
+            <Icon.Bell size={12} />
+            {tc("toast.previewAction")}
+          </button>
+        </SRow>
+      </SettingCard>
     </>
   );
 }
