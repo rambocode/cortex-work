@@ -4,7 +4,7 @@
 
 import { promises as fsp } from "fs";
 import type { Dirent } from "fs";
-import { join } from "path";
+import { basename, join } from "path";
 import type { PluginSkill, SkillMeta, SkillScope } from "../ipc/types";
 import { parseFrontmatter } from "./frontmatter";
 import { skillsRoots } from "./locate";
@@ -19,7 +19,34 @@ interface RawSkill {
   skillMdPath: string;
 }
 
+// 读单个 skill 目录的 SKILL.md → RawSkill;无 SKILL.md / 读失败 → null（目录里没有 SKILL.md
+// 如杂项 / LICENSE → 跳过）。name 取 frontmatter,缺则兜底 fallbackName。
+async function readSkillDir(dir: string, fallbackName: string): Promise<RawSkill | null> {
+  const skillMdPath = join(dir, "SKILL.md");
+  let content: string;
+  try {
+    content = await fsp.readFile(skillMdPath, "utf8");
+  } catch {
+    return null;
+  }
+  const fm = parseFrontmatter(content);
+  return {
+    name: fm.name ?? fallbackName,
+    description: fm.description ?? "",
+    argumentHint: fm.argumentHint,
+    dir,
+    skillMdPath,
+  };
+}
+
 async function readRoot(root: string): Promise<RawSkill[]> {
+  // 自适应(U2 修复):root 顶层直接含 SKILL.md → 把 root 自身当作单个 skill。用户常把「某个 skill
+  // 文件夹本身」当作根添加,旧逻辑只扫 <root>/<子目录>/SKILL.md 会扫不到 → 表现为「添加后不生效」。
+  // 顶层含 SKILL.md 时按单 skill 处理(不再展开子目录,子目录视为该 skill 的配套资源);否则按
+  // 多 skill 根浅扫一层子目录。
+  const rootSkill = await readSkillDir(root, basename(root));
+  if (rootSkill) return [rootSkill];
+
   const out: RawSkill[] = [];
   let entries: Dirent[];
   try {
@@ -29,22 +56,8 @@ async function readRoot(root: string): Promise<RawSkill[]> {
   }
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const dir = join(root, entry.name);
-    const skillMdPath = join(dir, "SKILL.md");
-    let content: string;
-    try {
-      content = await fsp.readFile(skillMdPath, "utf8");
-    } catch {
-      continue; // 目录里没有 SKILL.md（如 LICENSE 之外的杂项）→ 跳过
-    }
-    const fm = parseFrontmatter(content);
-    out.push({
-      name: fm.name ?? entry.name, // frontmatter 缺 name 兜底用目录名
-      description: fm.description ?? "",
-      argumentHint: fm.argumentHint,
-      dir,
-      skillMdPath,
-    });
+    const s = await readSkillDir(join(root, entry.name), entry.name);
+    if (s) out.push(s);
   }
   return out;
 }

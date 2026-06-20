@@ -254,6 +254,12 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
         </button>
       </div>
 
+      {/* 作用域说明(U2):skill 当前仅对 pi agent 生效,claude/codex 会话不注入。PluginManager 无活动
+          会话上下文,无法据「当前会话是否 pi」动态显隐,故用面板级常驻说明,消除「添加后不生效」的困惑。 */}
+      <div className="pw-plugins-hint" role="note">
+        Skill 当前仅对 pi agent 生效；claude / codex 会话不会注入这些 skill。
+      </div>
+
       {/* 搜索 + 状态筛选。 */}
       <div className="pw-plugins-toolbar pw-plugins-toolbar-search">
         <div className="pw-search">
