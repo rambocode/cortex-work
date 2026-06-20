@@ -60,10 +60,12 @@ function formatAddressInput(url: string): string {
 }
 
 // 地址栏输入归一化:本地输入走 dev 预览归一化(localhost:5173 → http://...);否则当公网,
-// 缺 scheme 补 https://。
+// 缺 scheme 补 https://。file:// 直接透传(本地 HTML 预览),实际是否放行由主进程授权闸门把关
+// (webviewGuards 只放行已授权的 file://),故此处透传安全。
 function normalizeAddressInput(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
+  if (/^file:\/\//i.test(trimmed)) return trimmed;
   const local = normalizeDevPreviewUrlInput(trimmed);
   if (local) return local;
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;

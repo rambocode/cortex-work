@@ -22,7 +22,9 @@ import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/
 import type { Conversation, Message } from "@cortex-work/core/types";
 import {
   extractDetectedDevPreviewUrls,
+  extractDetectedLocalHtmlPaths,
   extractLatestTurnDevPreviewUrls,
+  extractLatestTurnLocalHtmlPaths,
   extractLatestTurnAutoOpenDevPreviewUrls,
 } from "@cortex-work/core/personal/devPreviewDetection";
 import { MessageStream } from "../ChatArea";
@@ -173,12 +175,41 @@ export function PersonalChatArea({
     [allMessages],
   );
 
+  // 本地 HTML 文件路径探测(card-only,不 auto_open)。合并正文 + agentLog 两源。
+  const localHtmlPaths = useMemo(() => {
+    const merged = [
+      ...extractLatestTurnLocalHtmlPaths(allMessages),
+      ...extractDetectedLocalHtmlPaths(processMessages),
+    ];
+    return Array.from(new Set(merged)).slice(0, 4);
+  }, [allMessages, processMessages]);
+
   const openPreview = useCallback(
     (url: string) => {
       requestBrowserUrl(url);
       setRightOpen(true);
     },
     [requestBrowserUrl, setRightOpen],
+  );
+
+  // 本地 HTML 文件:先经主进程授权为 file:// URL(校验在允许根内/.html/realpath),再内嵌打开。
+  const openLocalHtml = useCallback(
+    (path: string) => {
+      const resolve = bridge?.browserResolveLocalHtml;
+      if (!resolve) {
+        // 无桥(Web 端):退化为系统打开(若可用)。
+        void bridge?.openExternal?.(path).catch(() => undefined);
+        return;
+      }
+      void resolve(path).then(
+        (fileUrl) => {
+          if (fileUrl) openPreview(fileUrl);
+          else onToast("无法预览该文件(不在允许目录或不是 HTML)");
+        },
+        () => onToast("预览失败"),
+      );
+    },
+    [bridge, openPreview, onToast],
   );
 
   // auto_open:输出明确像 dev server 且为环回时自动打开内嵌浏览器,按「会话:URL」去重,
@@ -462,8 +493,13 @@ export function PersonalChatArea({
         }
       />
 
-      {/* dev 预览卡片:探测到本地 dev URL 时,在消息流与输入框间提供「打开预览」入口。 */}
-      <DevPreviewCard urls={cardPreviewUrls} onOpen={openPreview} />
+      {/* 预览卡片:探测到本地 dev URL 或 agent 产出的本地 HTML 文件时,提供内嵌打开入口。 */}
+      <DevPreviewCard
+        urls={cardPreviewUrls}
+        htmlPaths={localHtmlPaths}
+        onOpen={openPreview}
+        onOpenPath={openLocalHtml}
+      />
 
       {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
       <AskQuestionCard sessionId={session.id} />

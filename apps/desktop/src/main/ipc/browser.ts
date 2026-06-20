@@ -4,9 +4,15 @@
 
 import { ipcMain } from "electron";
 import { clearBrowserData } from "../browser/partition";
+import { resolveLocalHtml } from "../browser/localHtml";
 
 export function registerBrowserHandlers(): void {
   ipcMain.handle("browser:clearData", async () => {
     await clearBrowserData();
+  });
+  // 把 agent 产出的本地 HTML 路径授权为可内嵌预览的 file:// URL(校验在允许根内/.html/realpath)。
+  // 不合规返回 null。
+  ipcMain.handle("browser:resolveLocalHtml", async (_e, path: string): Promise<string | null> => {
+    return resolveLocalHtml(path);
   });
 }
