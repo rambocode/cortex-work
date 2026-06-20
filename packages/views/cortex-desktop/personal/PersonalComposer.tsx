@@ -2,15 +2,17 @@
 // (agent/model/providerId/useOwnSkills) 摊平后转交内核,并启用 slash 命令与文件预览
 // 「发送到 Chat」插入。
 
+import { usePiEnabledSkills } from "@cortex-work/core";
 import type { PendingImage, PersonalAttachment, SessionMeta, ThinkingLevel } from "@cortex-work/core";
-import { ComposerShell } from "./ComposerShell";
+import { ComposerShell, type SlashCommand } from "./ComposerShell";
 
-// slash 命令注册表（发送拦截在 PersonalChatArea.onSend）。/compact 仅 pi 会话有（压缩走 pi RPC）。
-const SLASH_COMMANDS: { cmd: string; desc: string }[] = [
-  { cmd: "/clear", desc: "隐藏当前历史记录（可展开）" },
+// 内建 slash 命令(发送拦截在 PersonalChatArea.onSend）。kind:"builtin" = 选中即执行。
+// /compact 仅 pi 会话有（压缩走 pi RPC）。
+const SLASH_COMMANDS: SlashCommand[] = [
+  { cmd: "/clear", desc: "隐藏当前历史记录（可展开）", kind: "builtin" },
 ];
-const PI_SLASH_COMMANDS: { cmd: string; desc: string }[] = [
-  { cmd: "/compact", desc: "压缩当前会话上下文" },
+const PI_SLASH_COMMANDS: SlashCommand[] = [
+  { cmd: "/compact", desc: "压缩当前会话上下文", kind: "builtin" },
 ];
 
 export function PersonalComposer({
@@ -51,6 +53,18 @@ export function PersonalComposer({
   onOpenFlashNote?: () => void;
   onToast: (text: string) => void;
 }) {
+  // pi 风格动态 skills(U4):仅 pi 会话非空(hook 内按 agent/useOwnSkills/桥门控)。
+  // 映射为 /skill:<name>(kind:"skill" → 选中插入待填参,KTD4),排在内建命令之后(减少异步弹入位移)。
+  const piSkills = usePiEnabledSkills(session);
+  const skillCommands: SlashCommand[] = piSkills.map((s) => ({
+    cmd: `/skill:${s.name}`,
+    desc: s.description,
+    argHint: s.argumentHint,
+    kind: "skill",
+  }));
+  const builtins = session.agent === "pi" ? [...SLASH_COMMANDS, ...PI_SLASH_COMMANDS] : SLASH_COMMANDS;
+  const slashCommands = [...builtins, ...skillCommands];
+
   return (
     <ComposerShell
       agent={session.agent}
@@ -59,7 +73,7 @@ export function PersonalComposer({
       useOwnSkills={session.useOwnSkills === true}
       running={running}
       editing={editing}
-      slashCommands={session.agent === "pi" ? [...SLASH_COMMANDS, ...PI_SLASH_COMMANDS] : SLASH_COMMANDS}
+      slashCommands={slashCommands}
       acceptComposerInsert
       onSend={onSend}
       onStop={onStop}
