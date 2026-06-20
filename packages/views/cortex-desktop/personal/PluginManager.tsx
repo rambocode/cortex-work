@@ -233,6 +233,14 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
 
   return (
     <div className="pw-plugins-skill">
+      {/* 作用域说明(U1/R1):逐 skill 开关本质只对 pi 会话生效。claude 用会话级 skills 总开关、
+          codex 无 skill 概念,故在 claude/codex 会话切这些开关不会改变其行为——属预期作用域而非故障。 */}
+      <div className="pw-plugins-hint pw-plugins-scope-note" role="note">
+        逐个开关仅对 <b>pi</b> 会话生效（也决定输入框 <code>/</code> 菜单里出现哪些 skill）。
+        <b>codex</b> 没有 skill 概念；<b>claude</b> 用会话输入框上的「skills」总开关，不支持逐个控制。
+        因此在 claude / codex 会话里切这里的开关不会改变其行为。
+      </div>
+
       {/* 顶部操作:管理目录 + 创建。 */}
       <div className="pw-plugins-actions">
         <button

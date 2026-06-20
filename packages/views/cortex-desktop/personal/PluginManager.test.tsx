@@ -44,6 +44,15 @@ describe("PluginManager", () => {
     expect(screen.getByText(/2 个启用/)).toBeTruthy();
   });
 
+  it("作用域说明 banner:点明逐 skill 开关仅 pi、codex 无 skill、claude 用总开关(U1/R1)", async () => {
+    renderWith(fakeBridge([sk("code-review", "global", "/g/cr")]));
+    const note = await screen.findByRole("note");
+    expect(note.textContent).toMatch(/pi/);
+    expect(note.textContent).toMatch(/codex/);
+    expect(note.textContent).toMatch(/claude/);
+    expect(note.textContent).toMatch(/仅对/); // 「仅对 pi 会话生效」语义
+  });
+
   it("点禁用 → 写 disabledSkills,统计减一", async () => {
     renderWith(fakeBridge([sk("code-review", "global", "/g/cr"), sk("bug-hunt", "global", "/g/bh")]));
     const toggle = await screen.findByRole("switch", { name: /code-review/ });
