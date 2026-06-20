@@ -3233,16 +3233,18 @@ button.sb-row {
 .diff-card.rejected .dc-files { text-decoration: line-through; opacity: 0.7; }
 
 /* ──────── Toast stack(全局通用提醒)──────── */
-/* 右上角堆叠,让位 TitleBar(top);容器不挡交互,仅卡片/关闭按钮可点。 */
+/* 右上角堆叠,让位 TitleBar(top);容器不挡交互,仅卡片/关闭按钮可点。
+   用 fixed 锚定视口右上角,使提醒在任意视图/覆盖层之上都可见;z-index 高于
+   全屏设置页(.pw-settings-page=200)及常规弹窗,全局通用提醒需始终浮于最上。 */
 .toast-stack {
-  position: absolute;
+  position: fixed;
   top: 56px;
   right: 16px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
-  z-index: 100;
+  z-index: 1000;
   pointer-events: none;
 }
 /* macOS 风格毛玻璃浅卡片:图标方块 + 正文 + 关闭。深色由 [data-theme] 覆盖。 */
