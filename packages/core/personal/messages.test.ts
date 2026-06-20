@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePersonalStore } from "../store/personal";
+import { useCortexUIStore } from "../store/ui";
 import type { CliStreamEvent, SessionMeta } from "../desktop/types";
 import {
   PURE_TOOL_TURN_PLACEHOLDER,
@@ -22,6 +23,8 @@ import {
   serializeAskQuestionAnswers,
   agentSessionPatch,
   buildAttachmentSystemPrompt,
+  buildGlobalAppend,
+  piEntryMatchesText,
   clearAgentSessionPatch,
   createHiddenHistory,
   emptyFoldCursor,
@@ -599,6 +602,57 @@ describe("personal attachment system prompt", () => {
         "</todo>",
       ].join("\n"),
     );
+  });
+});
+
+describe("buildGlobalAppend 全局指令 + 语言注入（U3/U4,三端统一）", () => {
+  afterEach(() => {
+    usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: undefined } }));
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "zh-Hans" } }));
+  });
+
+  it("无全局指令 + zh → 仅语言指令(简体中文)", () => {
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "zh-Hans" } }));
+    expect(buildGlobalAppend()).toBe("请始终用简体中文回复。");
+  });
+
+  it("切到 en → 语言指令随之变英文", () => {
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "en" } }));
+    expect(buildGlobalAppend()).toBe("Always respond in English.");
+  });
+
+  it("全局指令 + 语言 → 全局指令在前、语言在后(顺序稳定)", () => {
+    usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: "始终用简洁中文回答" } }));
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "zh-Hans" } }));
+    expect(buildGlobalAppend()).toBe("始终用简洁中文回答\n\n请始终用简体中文回复。");
+  });
+
+  it("全局指令仅空白 → trim 后不注入,仅保留语言指令", () => {
+    usePersonalStore.setState((s) => ({ generalSettings: { ...s.generalSettings, globalInstruction: "   \n  " } }));
+    useCortexUIStore.setState((s) => ({ tweaks: { ...s.tweaks, language: "en" } }));
+    expect(buildGlobalAppend()).toBe("Always respond in English.");
+  });
+});
+
+describe("piEntryMatchesText 编辑重发定位（U3/U4 前缀剥离回归）", () => {
+  // U3/U4 后 buildGlobalAppend 恒非空,pi 每轮 prompt 经 buildPiPromptMessage 带前缀
+  // `${appendSystemPrompt}\n\n${text}`。fork/编辑重发靠本函数「\n\n + 原文」后缀匹配剥离前缀定位,
+  // 故必须验证:无论前缀含语言指令还是多块(全局指令+语言+附件),原文仍可命中。
+  it("纯语言指令前缀 → 仍命中原文", () => {
+    expect(piEntryMatchesText("请始终用简体中文回复。\n\n继续实现", "继续实现")).toBe(true);
+  });
+
+  it("多块前缀(全局指令 + 语言 + 附件)→ 仍命中原文(结尾 \\n\\n+原文)", () => {
+    const entry = "始终用简洁中文\n\n请始终用简体中文回复。\n\n<skill name=\"a.md\">x</skill>\n\n继续实现";
+    expect(piEntryMatchesText(entry, "继续实现")).toBe(true);
+  });
+
+  it("无前缀(裸原文)→ 命中", () => {
+    expect(piEntryMatchesText("继续实现", "继续实现")).toBe(true);
+  });
+
+  it("尾串等于原文但无 \\n\\n 分隔 → 不误命中(收紧匹配)", () => {
+    expect(piEntryMatchesText("xyz继续实现", "继续实现")).toBe(false);
   });
 });
 

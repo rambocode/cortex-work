@@ -7,6 +7,7 @@ import {
   useAutomationEvents,
   useCortexUIStore,
   useDesktopBridge,
+  useNotesChangeSubscription,
   usePersonalCliEvents,
   usePersonalPersistence,
   usePersonalPiEvents,
@@ -71,6 +72,9 @@ export function PersonalWorkspace({
   useSpotlightHandoff();
   // 订阅自动化的 changed / run-event（驱动列表刷新 + 完成 toast）。bridge 不支持时内部空转。
   useAutomationEvents();
+  // 订阅 notes:changed（闪记浮层/后台落盘 → invalidate 刷新收件箱与时间线）。漏挂会导致
+  // 浮层新增的闪记在主窗口「有时候没显示」，须重获焦点才刷新。bridge 缺方法时内部空转。
+  useNotesChangeSubscription();
   // 进入落地页默认收起右栏（无项目不显示、选项目不自动弹出）。
   useCloseRightPanelOnHome(homeOpen);
 

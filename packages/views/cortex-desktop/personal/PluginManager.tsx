@@ -231,6 +231,10 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
 
   const noBridge = !bridge?.piSkillsList;
 
+  // 打开配套文档(U5):经 bridge.openPath 用系统默认程序打开;web/旧壳缺方法时静默 no-op。
+  // 文件可能在枚举后被删/移动导致 openPath 拒绝——吞掉以免未处理 rejection(打开失败无需打扰用户)。
+  const openDoc = (path: string) => void bridge?.openPath?.(path)?.catch(() => {});
+
   return (
     <div className="pw-plugins-skill">
       {/* 作用域说明(U1/R1):逐 skill 开关本质只对 pi 会话生效。claude 用会话级 skills 总开关、
@@ -447,10 +451,22 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
       ) : (
         <div className="pw-plugins-list">
           {groups.global.length > 0 ? (
-            <SkillGroup title="全局" skills={groups.global} onToggle={togglePiSkill} onTrust={trustWorkspaceSkill} />
+            <SkillGroup
+              title="全局"
+              skills={groups.global}
+              onToggle={togglePiSkill}
+              onTrust={trustWorkspaceSkill}
+              onOpenDoc={openDoc}
+            />
           ) : null}
           {groups.workspace.length > 0 ? (
-            <SkillGroup title="工作区" skills={groups.workspace} onToggle={togglePiSkill} onTrust={trustWorkspaceSkill} />
+            <SkillGroup
+              title="工作区"
+              skills={groups.workspace}
+              onToggle={togglePiSkill}
+              onTrust={trustWorkspaceSkill}
+              onOpenDoc={openDoc}
+            />
           ) : null}
         </div>
       )}
@@ -465,18 +481,26 @@ function SkillGroup({
   skills,
   onToggle,
   onTrust,
+  onOpenDoc,
 }: {
   title: string;
   skills: DecoratedSkill[];
   onToggle: (scope: string, name: string, enabled: boolean) => void;
   onTrust: (dir: string, trusted: boolean) => void;
+  onOpenDoc: (path: string) => void;
 }) {
   return (
     <div className="pw-plugins-group">
       <div className="pw-plugins-group-title">{title}</div>
       <div className="pw-plugins-grid">
         {skills.map((s) => (
-          <SkillCard key={`${s.scope}:${s.dir}`} skill={s} onToggle={onToggle} onTrust={onTrust} />
+          <SkillCard
+            key={`${s.scope}:${s.dir}`}
+            skill={s}
+            onToggle={onToggle}
+            onTrust={onTrust}
+            onOpenDoc={onOpenDoc}
+          />
         ))}
       </div>
     </div>
@@ -496,10 +520,12 @@ function SkillCard({
   skill,
   onToggle,
   onTrust,
+  onOpenDoc,
 }: {
   skill: DecoratedSkill;
   onToggle: (scope: string, name: string, enabled: boolean) => void;
   onTrust: (dir: string, trusted: boolean) => void;
+  onOpenDoc: (path: string) => void;
 }) {
   const untrustedWorkspace = skill.scope === "workspace" && !skill.trusted;
   return (
@@ -512,6 +538,22 @@ function SkillCard({
           {untrustedWorkspace ? <span className="pw-tag">未信任</span> : null}
         </div>
         <div className="pw-plugins-card-desc">{skill.description}</div>
+        {/* 配套文档（U5):skill 目录内除 SKILL.md 外的文档,点击经 bridge.openPath 用系统默认程序打开。 */}
+        {skill.docs.length > 0 ? (
+          <div className="pw-plugins-card-docs">
+            {skill.docs.map((d) => (
+              <button
+                key={d.path}
+                type="button"
+                className="pw-plugins-doc"
+                title={d.path}
+                onClick={() => onOpenDoc(d.path)}
+              >
+                <Icon.File size={12} /> {d.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
       {untrustedWorkspace ? (
         <button type="button" className="pw-pill" onClick={() => onTrust(skill.dir, true)}>

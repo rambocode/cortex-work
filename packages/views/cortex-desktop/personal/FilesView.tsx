@@ -19,6 +19,10 @@ import { FileContextMenu, type FileCtxTarget } from "./FileContextMenu";
 
 type Mode = "all" | "changes";
 
+// 文件拖入会话(U6):应用内自定义 MIME,payload {path,name};ComposerShell 据此读内容入附件。
+// 仿 PROMPT_DRAG_MIME/TODO_DRAG_MIME 的「应用内拖拽」范式,不经 Electron 主进程、不需 webUtils。
+export const FILE_DRAG_MIME = "application/x-cortex-file";
+
 const isMarkdownName = (name: string) => /\.(md|markdown|mdx)$/i.test(name);
 
 interface Preview {
@@ -58,6 +62,13 @@ function FileTreeNode({
         onClick={() => onOpen(node)}
         onContextMenu={(e) => onCtx(e, node.path, node.name)}
         title={node.path}
+        // 可拖入会话(U6):写自定义 MIME,ComposerShell 的 onDrop 读内容作为附件。
+        // 二进制文件(图片/字体/归档等)不可拖——经 readFile 强转 UTF-8 会注入乱码且浪费 token。
+        draggable={!isBinaryLike(node.name)}
+        onDragStart={(e) => {
+          e.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify({ path: node.path, name: node.name }));
+          e.dataTransfer.effectAllowed = "copy";
+        }}
       >
         <TreeRowIcon name={node.name} />
         <span className="pw-tree-name">{node.name}</span>

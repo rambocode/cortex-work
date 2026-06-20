@@ -5,7 +5,7 @@ import { DEFAULT_PI_SKILLS, type PiSkillSettings, type PluginSkill } from "../de
 import { filterEnabledPiSkills } from "./piSkills";
 
 function sk(name: string, scope: "global" | "workspace", dir: string, argumentHint?: string): PluginSkill {
-  return { name, description: `${name} 描述`, dir, rootPath: "/root", scope, enabled: true, trusted: scope === "global", argumentHint };
+  return { name, description: `${name} 描述`, dir, rootPath: "/root", scope, enabled: true, trusted: scope === "global", argumentHint, docs: [] };
 }
 
 function cfg(over: Partial<PiSkillSettings> = {}): PiSkillSettings {

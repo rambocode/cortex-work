@@ -434,6 +434,10 @@ export interface GeneralSettings {
   // pi 持久追加 system prompt（阶段4）:会话开启时经 --append-system-prompt 注入(系统级,不污染每轮
   // prompt);改动需重开会话才生效(pi RPC 无运行时改 system prompt 的命令)。缺省 = 不传 = pi 默认。
   piSystemPrompt?: string;
+  // 全局指令（U3）:对 claude/codex/pi 三端统一生效的自定义系统提示词,经每轮 appendSystemPrompt 注入
+  // （pi 走 buildPiPromptMessage 每轮前缀,claude --append-system-prompt,codex promptWithSkills 前置）。
+  // 与 piSystemPrompt 区分:后者仅 pi、会话级;前者跨 agent、逐轮即时生效。缺省 = 不注入。
+  globalInstruction?: string;
   // pi 新会话默认思考强度（阶段5）:会话级 SessionMeta.thinkingLevel 缺省时回退此值。
   piThinkingDefault?: ThinkingLevel;
   // pi 插件——Skill 管理（多目录扫描 + 逐项启用 + 工作区信任）。缺省 = DEFAULT_PI_SKILLS。
@@ -1196,6 +1200,12 @@ export interface SkillMeta {
   dir: string; // skill 根目录绝对路径（references 相对路径的绝对前缀基准）
 }
 
+// skill 目录内的配套文档（除 SKILL.md 外的 .md/.txt/.json/.yaml 等,仅展示用,不影响注入）。
+export interface SkillDoc {
+  name: string; // 文件名（含后缀）
+  path: string; // 绝对路径（点击经 bridge.openPath 打开）
+}
+
 // ── 插件管理：富 skill 项 ─────────────────────────────────────────────────────
 // 与 apps/desktop/src/main/ipc/types.ts 逐字镜像。pi-skills:list 扫描多根产出;
 // enabled/trusted/shadowedBy 由渲染端叠加配置后计算（主进程扫描时 enabled=true、
@@ -1210,4 +1220,5 @@ export interface PluginSkill {
   enabled: boolean; // 是否启用（渲染端据 disabledSkills 叠加）
   trusted: boolean; // 工作区 skill 是否已授信（global 恒 true）
   shadowedBy?: string; // 被同名覆盖时的覆盖来源 scope（UI 标注用）
+  docs: SkillDoc[]; // 配套文档清单（浅层枚举,不含 SKILL.md;空数组表示无）
 }

@@ -109,6 +109,7 @@
     "todoInstruction": "Please continue implementing this requirement based on the dragged-in Task \"{{title}}\". First understand the details, then complete the implementation, verify it, and report the results in the current project.",
     "todoTruncated": "{{title}} is too large, injected truncated",
     "skillTruncated": "{{name}} is too large, injected truncated",
+    "fileTruncated": "{{name}} is too large, injected truncated",
     "readAttachmentFailed": "Failed to read attachment: {{error}}"
   },
   "agentName": {

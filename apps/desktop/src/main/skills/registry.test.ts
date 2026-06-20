@@ -1,7 +1,7 @@
 // scanSkillRoots 多根扫描单测。electron(app) mock,fs 用真实临时目录写 SKILL.md。
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, join } from "path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ app: { isPackaged: false, getAppPath: () => "/app", getPath: () => "/userData" } }));
@@ -68,5 +68,89 @@ describe("scanSkillRoots", () => {
     expect(crs.map((s) => s.scope).sort()).toEqual(["global", "workspace"]);
     const ws = crs.find((s) => s.scope === "workspace")!;
     expect(ws.trusted).toBe(false); // 工作区默认未授信
+  });
+});
+
+// U2 修复假设 A:用户常把「某个 skill 文件夹本身」(顶层即 SKILL.md)当作根添加,
+// 旧 readRoot 只扫 <root>/<子目录>/SKILL.md → 扫不到任何 skill,表现为「添加后不生效」。
+// 修复后 readRoot 自适应:root 顶层含 SKILL.md → 把 root 自身当作单个 skill。
+describe("readRoot 自适应单 skill 根（U2 修复）", () => {
+  let solo: string;
+  let soloNoName: string;
+  let mixed: string;
+
+  beforeAll(() => {
+    solo = mkdtempSync(join(tmpdir(), "skill-solo-"));
+    writeFileSync(
+      join(solo, "SKILL.md"),
+      ["---", "name: my-skill", "description: 单技能", "---", "", "# body"].join("\n"),
+    );
+    soloNoName = mkdtempSync(join(tmpdir(), "skill-noname-"));
+    writeFileSync(join(soloNoName, "SKILL.md"), ["---", "description: 缺名", "---"].join("\n"));
+    mixed = mkdtempSync(join(tmpdir(), "skill-mixed-"));
+    writeFileSync(join(mixed, "SKILL.md"), ["---", "name: outer", "description: 外层", "---"].join("\n"));
+    makeSkill(mixed, "inner", { name: "inner", description: "子技能" });
+  });
+
+  afterAll(() => {
+    for (const d of [solo, soloNoName, mixed]) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("顶层含 SKILL.md 的目录作为根 → 列出 root 自身为单个 skill", async () => {
+    const skills = await scanSkillRoots([{ path: solo, scope: "global" }]);
+    expect(skills).toHaveLength(1);
+    expect(skills[0]!.name).toBe("my-skill");
+    expect(skills[0]!.dir).toBe(solo); // dir 指向 root 自身（而非子目录）
+    expect(skills[0]!.scope).toBe("global");
+  });
+
+  it("顶层 SKILL.md 缺 name → 兜底用 root 目录名", async () => {
+    const skills = await scanSkillRoots([{ path: soloNoName, scope: "global" }]);
+    expect(skills).toHaveLength(1);
+    expect(skills[0]!.name).toBe(basename(soloNoName));
+  });
+
+  it("root 顶层有 SKILL.md + 含子目录 skill → 按单 skill(root 本身),不展开子目录", async () => {
+    const skills = await scanSkillRoots([{ path: mixed, scope: "global" }]);
+    expect(skills).toHaveLength(1);
+    expect(skills[0]!.name).toBe("outer");
+  });
+});
+
+// U5:skill 目录内除 SKILL.md 外的白名单配套文档(.md/.txt/.json/.yaml…)挂到 docs[]，仅展示不影响注入。
+describe("配套文档枚举 docs[]（U5）", () => {
+  let root: string;
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "skill-docs-"));
+    const withDocs = join(root, "with-docs");
+    mkdirSync(withDocs, { recursive: true });
+    writeFileSync(join(withDocs, "SKILL.md"), ["---", "name: with-docs", "---"].join("\n"));
+    writeFileSync(join(withDocs, "reference.md"), "# 参考");
+    writeFileSync(join(withDocs, "config.json"), "{}");
+    writeFileSync(join(withDocs, "notes.txt"), "笔记");
+    writeFileSync(join(withDocs, "diagram.png"), "binary"); // 非白名单后缀 → 排除
+    // 仅 SKILL.md 的 skill：docs 应为空。
+    makeSkill(root, "bare", { name: "bare", description: "无配套" });
+  });
+
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  it("列出白名单配套文档(排除 SKILL.md 与非白名单后缀),按名排序", async () => {
+    const skills = await scanSkillRoots([{ path: root, scope: "global" }]);
+    const wd = skills.find((s) => s.name === "with-docs")!;
+    expect(wd.docs.map((d) => d.name)).toEqual(["config.json", "notes.txt", "reference.md"]);
+    expect(wd.docs.every((d) => d.path.startsWith(join(root, "with-docs")))).toBe(true);
+  });
+
+  it("仅含 SKILL.md → docs 为空数组", async () => {
+    const skills = await scanSkillRoots([{ path: root, scope: "global" }]);
+    const bare = skills.find((s) => s.name === "bare")!;
+    expect(bare.docs).toEqual([]);
+  });
+
+  it("docs[] 不影响 skill 收录数量(注入集合不变)", async () => {
+    const skills = await scanSkillRoots([{ path: root, scope: "global" }]);
+    expect(skills).toHaveLength(2); // with-docs + bare,配套文档不增减 skill 数
   });
 });

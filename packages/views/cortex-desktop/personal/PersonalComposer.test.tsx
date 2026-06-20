@@ -24,7 +24,7 @@ function fakeBridge(skills: PluginSkill[]): DesktopBridge {
 }
 
 function sk(name: string, argumentHint?: string): PluginSkill {
-  return { name, description: `${name} 描述`, dir: `/g/${name}`, rootPath: "/root", scope: "global", enabled: true, trusted: true, argumentHint };
+  return { name, description: `${name} 描述`, dir: `/g/${name}`, rootPath: "/root", scope: "global", enabled: true, trusted: true, argumentHint, docs: [] };
 }
 
 function renderComposer(agent: "pi" | "claude", bridge: DesktopBridge): void {

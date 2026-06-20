@@ -6,8 +6,13 @@ import { CoreProvider, usePersonalStore, DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SK
 import type { DesktopBridge, PluginSkill } from "@cortex-work/core";
 import { PluginManager } from "./PluginManager";
 
-function sk(name: string, scope: "global" | "workspace", dir: string): PluginSkill {
-  return { name, description: `${name} 描述`, dir, rootPath: "/root", scope, enabled: true, trusted: scope === "global" };
+function sk(
+  name: string,
+  scope: "global" | "workspace",
+  dir: string,
+  docs: PluginSkill["docs"] = [],
+): PluginSkill {
+  return { name, description: `${name} 描述`, dir, rootPath: "/root", scope, enabled: true, trusted: scope === "global", docs };
 }
 
 function renderWith(bridge: DesktopBridge | null, ui: ReactElement = <PluginManager />) {
@@ -93,6 +98,28 @@ describe("PluginManager", () => {
       fakeBridge([sk("dup", "global", "/g/dup"), sk("dup", "workspace", "/proj/.cortex-desktop/skills/dup")]),
     );
     expect(await screen.findByText("已被全局同名覆盖")).toBeTruthy();
+  });
+
+  it("配套文档（U5）:渲染 docs chip,点击调 bridge.openPath", async () => {
+    const bridge = fakeBridge([
+      sk("with-docs", "global", "/g/wd", [
+        { name: "reference.md", path: "/g/wd/reference.md" },
+        { name: "config.json", path: "/g/wd/config.json" },
+      ]),
+    ]);
+    const openPath = vi.fn(async () => {});
+    (bridge as unknown as { openPath: typeof openPath }).openPath = openPath;
+    renderWith(bridge);
+    const docBtn = await screen.findByRole("button", { name: /reference\.md/ });
+    expect(screen.getByRole("button", { name: /config\.json/ })).toBeTruthy();
+    fireEvent.click(docBtn);
+    expect(openPath).toHaveBeenCalledWith("/g/wd/reference.md");
+  });
+
+  it("无配套文档 → 不渲染文档区", async () => {
+    renderWith(fakeBridge([sk("bare", "global", "/g/bare")]));
+    await screen.findByText("Bare");
+    expect(screen.queryByRole("button", { name: /\.md|\.json/ })).toBeNull();
   });
 
   it("空结果 → 引导空态", async () => {
