@@ -16,7 +16,8 @@ function stripIpv6Brackets(hostname: string): string {
   return hostname.trim().toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
 }
 
-function parseIpv4(hostname: string): number[] | null {
+// 返回定长四元组,便于下游解构在严格 noUncheckedIndexedAccess 下不报 undefined。
+function parseIpv4(hostname: string): [number, number, number, number] | null {
   const parts = hostname.split(".");
   if (parts.length !== 4) return null;
   const octets = parts.map((part) => {
@@ -26,7 +27,7 @@ function parseIpv4(hostname: string): number[] | null {
   if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
     return null;
   }
-  return octets;
+  return [octets[0]!, octets[1]!, octets[2]!, octets[3]!];
 }
 
 // 环回地址判定 —— auto_open 的唯一放行集(KTD4)。

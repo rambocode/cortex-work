@@ -13,15 +13,6 @@ function txt(text: string, who = "claude"): Message {
 function me(text: string): Message {
   return { kind: "text", who: "me", time: "10:00", text };
 }
-function agentLog(title: string, items: string[]): Message {
-  return {
-    kind: "agentLog",
-    who: "claude",
-    time: "10:00",
-    title,
-    items: items.map((t) => ({ ic: "check" as const, text: t })),
-  };
-}
 
 describe("extractDetectedDevPreviewUrls(card)", () => {
   it("正文含「打开 + localhost」→ 探测出归一化 URL", () => {

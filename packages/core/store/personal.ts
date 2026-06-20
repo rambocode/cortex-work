@@ -44,7 +44,7 @@ function newId(prefix: string): string {
 }
 
 // 右栏当前视图（顶栏下拉选择）。后续新增视图只需扩此联合,不必逐处改字面量。
-export type RightView = "files" | "skills" | "todos" | "notes";
+export type RightView = "files" | "skills" | "todos" | "notes" | "browser";
 
 // 运行模式拦截提示（瞬态,不持久化）。当 plan/accept-edits 模式下 agent 尝试被该模式禁止的
 // 工具(写/执行)时,在 composer 上方提示用户切档并自动重发本轮。category 决定可切到哪些档:
@@ -107,6 +107,9 @@ export interface PersonalState {
   filePreviewRequest?: { projectId: string; path: string; name: string };
   // 点击收件箱/时间线某条闪记 → 跨栏打开详情;消费即清,瞬态,不进 toPersistedState。
   noteDetailRequest?: { noteId: string };
+  // 在内嵌浏览器打开某 URL 的请求(卡片点击 / auto_open)。BrowserView 监听 nonce 变化
+  // 后加载;nonce 让「同 URL 再次请求」也能触发重载。瞬态,不进 toPersistedState。
+  browserUrlRequest?: { url: string; nonce: number };
   // 右栏当前视图（顶栏下拉选择）。
   rightView: RightView;
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
@@ -227,6 +230,8 @@ export interface PersonalState {
   // 收件箱/时间线点闪记:右栏切到 notes 视图并请求打开该闪记详情（消费即清,仿 filePreview）。
   requestNoteDetail: (req: { noteId: string }) => void;
   consumeNoteDetailRequest: () => { noteId: string } | undefined;
+  // 在内嵌浏览器打开 URL:右栏切到 browser 视图并请求加载(右栏开关由调用方补,同 requestGitDiff)。
+  requestBrowserUrl: (url: string) => void;
   setRightView: (view: RightView) => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
@@ -751,6 +756,11 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     return req;
   },
 
+  requestBrowserUrl: (url) =>
+    set((s) => ({
+      browserUrlRequest: { url, nonce: (s.browserUrlRequest?.nonce ?? 0) + 1 },
+      rightView: "browser",
+    })),
   setRightView: (view) => set({ rightView: view }),
 
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
