@@ -25,6 +25,33 @@ export default function App() {
     });
   }, []);
 
+  // 全局提醒焦点路由:订阅 UI store,新增 toast 且主窗失焦/最小化时转发到独立通知窗体,并从
+  // 应用内 store 移除(避免回到前台重复显示)。主窗在前台时不转发,保留应用内 toast。
+  // 壳就近实现(views/core 不直接碰 window.desktopAPI);主窗重获焦点的清空在主进程侧(index.ts)。
+  useEffect(() => {
+    const ntf = window.desktopAPI?.notification;
+    if (!ntf) return;
+    const seen = new Set(useCortexUIStore.getState().toasts.map((t) => t.id));
+    return useCortexUIStore.subscribe((state) => {
+      const fresh = state.toasts.filter((t) => !seen.has(t.id));
+      if (fresh.length === 0) return;
+      fresh.forEach((t) => seen.add(t.id));
+      if (document.hasFocus()) return; // 前台:应用内 toast 接管,不转发
+      for (const t of fresh) {
+        ntf.push({
+          id: t.id,
+          kind: t.kind,
+          text: t.text,
+          title: t.title,
+          description: t.description,
+          iconName: t.iconName,
+          duration: t.duration,
+        });
+        useCortexUIStore.getState().dismissToast(t.id);
+      }
+    });
+  }, []);
+
   return (
     <CoreProvider
       wsId={workspaceId}

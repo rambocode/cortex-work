@@ -33,6 +33,7 @@ export default defineConfig({
           spotlight: resolve("src/renderer/spotlight.html"),
           notes: resolve("src/renderer/notes.html"),
           agentTrace: resolve("src/renderer/agent-trace.html"),
+          notification: resolve("src/renderer/notification.html"),
         },
       },
     },
