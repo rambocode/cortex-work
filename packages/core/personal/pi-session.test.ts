@@ -9,6 +9,7 @@ import {
   abortPi,
   closeAllPiSessions,
   closePiSession,
+  compactPi,
   ensurePiSession,
   forkPi,
   isPiSessionOpen,
@@ -43,6 +44,7 @@ function fakeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
     piFork: vi.fn(async () => undefined),
     piGetForkMessages: vi.fn(async () => []),
     piSetModel: vi.fn(async () => undefined),
+    piCompact: vi.fn(async () => undefined),
     piSwitchSession: vi.fn(async () => ({ cancelled: false })),
     piGetState: vi.fn(async () => ({ sessionId: "pi-restored", sessionFile: "/sessions/old.jsonl", messageCount: 5 })),
     piClose: vi.fn(async () => undefined),
@@ -272,11 +274,13 @@ describe("命令包装", () => {
     await abortPi(bridge, "s1");
     await forkPi(bridge, "s1", "entry-7");
     await setModelPi(bridge, "s1", "deepseek", "deepseek-chat");
+    await compactPi(bridge, "s1", "保留最近 3 轮");
     expect(bridge.piPrompt).toHaveBeenCalledWith("s1", "hi", undefined, undefined);
     expect(bridge.piSteer).toHaveBeenCalledWith("s1", "go left");
     expect(bridge.piAbort).toHaveBeenCalledWith("s1");
     expect(bridge.piFork).toHaveBeenCalledWith("s1", "entry-7");
     expect(bridge.piSetModel).toHaveBeenCalledWith("s1", "deepseek", "deepseek-chat");
+    expect(bridge.piCompact).toHaveBeenCalledWith("s1", "保留最近 3 轮");
   });
 
   it("promptPi 透传 runId + imagePaths 给 bridge.piPrompt", async () => {
@@ -290,6 +294,7 @@ describe("命令包装", () => {
     const bridge = fakeBridge();
     expect(() => promptPi(bridge, "ghost", "hi")).toThrow(/未就绪/);
     expect(() => abortPi(bridge, "ghost")).toThrow(/未就绪/);
+    expect(() => compactPi(bridge, "ghost")).toThrow(/未就绪/);
   });
 });
 

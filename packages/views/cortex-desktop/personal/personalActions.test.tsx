@@ -43,6 +43,7 @@ function makeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
     piFork: vi.fn(async () => undefined),
     piGetForkMessages: vi.fn(async () => ({ messages: [{ entryId: "e1", text: "原问题" }] })),
     piSetModel: vi.fn(async () => undefined),
+    piCompact: vi.fn(async () => undefined),
     piSwitchSession: vi.fn(async () => ({ cancelled: false })),
     piGetState: vi.fn(async () => ({ sessionId: "pi-1", sessionFile: "/sessions/s.jsonl" })),
     onPiEvent: vi.fn(() => () => undefined),
@@ -448,6 +449,40 @@ describe("steer / setPiModel（U6）", () => {
     expect(bridge.piSteer).not.toHaveBeenCalled();
     const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(piSession.id)) ?? [];
     expect(msgs.some((m) => m.kind === "text" && m.text === "插话")).toBe(false);
+  });
+
+  it("compact:会话已开 → 调 piCompact 透传指令", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "hi", []);
+    });
+    await act(async () => {
+      await result.current.compact(piSession.id, "保留最近 3 轮");
+    });
+    expect(bridge.piCompact).toHaveBeenCalledWith("s-pi", "保留最近 3 轮");
+  });
+
+  it("compact:claude 会话 no-op:不调 piCompact", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.compact(claudeSession.id);
+    });
+    expect(bridge.piCompact).not.toHaveBeenCalled();
+  });
+
+  it("compact:会话未就绪 → 不调 piCompact（无上下文可压缩）", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    // 未先 send 开会话 → isPiSessionOpen 为假。
+    await act(async () => {
+      await result.current.compact(piSession.id);
+    });
+    expect(bridge.piCompact).not.toHaveBeenCalled();
   });
 
   it("setPiModel:会话已开 → updateSession + 实时 piSetModel", async () => {

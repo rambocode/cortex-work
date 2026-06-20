@@ -285,6 +285,17 @@ export function setThinkingLevelPi(bridge: DesktopBridge, sessionId: string, lev
   return requireCap(bridge.piSetThinking, "pi setThinking")(sessionId, level);
 }
 
+/** 手动触发上下文压缩（一次 LLM 调用;compaction start/end 事件会回流,点亮 messages.ts 已有的
+ *  「压缩上下文…」运行时状态——无需此处另维护状态）。仅在会话就绪且空闲时由 UI 调用。 */
+export function compactPi(
+  bridge: DesktopBridge,
+  sessionId: string,
+  customInstructions?: string,
+): Promise<unknown> {
+  requireReady(sessionId);
+  return requireCap(bridge.piCompact, "pi compact")(sessionId, customInstructions);
+}
+
 /** 显式关闭会话:摘除登记 + 终止子进程（幂等,piClose 缺失时只清本地登记）。 */
 export async function closePiSession(bridge: DesktopBridge | null, sessionId: string): Promise<void> {
   const handle = piSessions.get(sessionId);

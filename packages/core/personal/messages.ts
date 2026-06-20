@@ -31,6 +31,7 @@ import { t } from "../i18n";
 import {
   abortPi,
   closePiSession,
+  compactPi,
   ensurePiSession,
   forkPi,
   getForkMessagesPi,
@@ -1878,6 +1879,9 @@ export interface PersonalActions {
   stop: (sessionId: string) => Promise<void>;
   // pi 运行中插话:把引导注入当前轮（仅 pi 会话有效;非 pi/未运行 no-op）。
   steer: (sessionId: string, text: string) => Promise<void>;
+  // pi 手动压缩上下文:对就绪会话触发一次压缩（compaction 事件回流点亮「压缩上下文…」状态;
+  // 仅 pi 会话有效;非 pi/未就绪 no-op）。
+  compact: (sessionId: string, customInstructions?: string) => Promise<void>;
   // pi 运行时切模型:更新会话记忆 + 会话已开则实时下发（未开仅记忆,下次 open 生效）。
   setPiModel: (session: SessionMeta, providerId: string, model: string) => void;
   // pi 运行时切思考强度:更新会话记忆 + 会话已开则实时下发（不重开;未开仅记忆,下次 open 经 --thinking 生效）。
@@ -2254,6 +2258,25 @@ export function usePersonalActions(): PersonalActions {
     [bridge, qc],
   );
 
+  // 手动压缩上下文:仅对就绪 pi 会话生效。compaction start/end 事件回流会点亮 PersonalTopBar 已有
+  // 的「压缩上下文…」状态,故此处不另维护 UI 状态。失败（会话已退出/压缩出错）静默——压缩失败由
+  // pi 事件体现,不影响后续对话。
+  const compact = useCallback<PersonalActions["compact"]>(
+    async (sessionId, customInstructions) => {
+      if (!bridge) return;
+      const session = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
+      if (session?.agent !== "pi") return;
+      if (!isPiSessionOpen(sessionId)) return; // 未开/未就绪 → 无上下文可压缩
+      touchPiSession(bridge, sessionId); // 压缩 = 活跃,重置空闲计时
+      try {
+        await compactPi(bridge, sessionId, customInstructions);
+      } catch {
+        /* 会话已退出/压缩出错:忽略 */
+      }
+    },
+    [bridge],
+  );
+
   const setPiModel = useCallback<PersonalActions["setPiModel"]>(
     (session, providerId, model) => {
       const prev = { providerId: session.providerId, model: session.model };
@@ -2306,5 +2329,5 @@ export function usePersonalActions(): PersonalActions {
     [qc],
   );
 
-  return { send, stop, steer, setPiModel, setPiThinking, editResend, clearView };
+  return { send, stop, steer, compact, setPiModel, setPiThinking, editResend, clearView };
 }
