@@ -10,6 +10,8 @@ import {
   closeAllWatchers,
   killAllAutomations,
 } from "./ipc/register";
+import { installBrowserWebviewGuards } from "./browser/webviewGuards";
+import { configureBrowserPartition } from "./browser/partition";
 import { ensureMigrated } from "./paths";
 import { initScheduler, rescheduleAll, stopScheduler } from "./automation/scheduler";
 import { createTray, destroyTray } from "./automation/tray";
@@ -98,6 +100,9 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
+      // 开启内嵌浏览器 <webview> 能力。webview 的安全靠 installBrowserWebviewGuards()
+      // 的三道闸门兜底(强制安全 prefs + 导航/新窗口闸门),见 browser/webviewGuards.ts。
+      webviewTag: true,
     },
   });
 
@@ -203,6 +208,9 @@ if (!app.requestSingleInstanceLock()) {
     // initLogger 稍后读设置再调整开关 + 清理过期。
     patchConsole();
     await ensureMigrated();
+    // 内嵌浏览器 <webview> 安全闸门须在任何 webview 可能 attach 之前装好(建窗之前)。
+    installBrowserWebviewGuards();
+    configureBrowserPartition();
     registerIpcHandlers({
       update: { beforeInstall: markRealQuit },
       agentTraceDevMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"],

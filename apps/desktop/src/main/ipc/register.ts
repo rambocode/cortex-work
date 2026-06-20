@@ -21,6 +21,7 @@ import { registerUpdateHandlers, type RegisterUpdateHandlersOptions } from "./up
 import { registerEditorHandlers } from "./editors";
 import { registerAppHandlers } from "./app";
 import { registerAgentTraceHandlers } from "./agent-trace";
+import { registerBrowserHandlers } from "./browser";
 import { registerAutomationHandlers } from "../automation/ipc";
 
 interface RegisterIpcHandlersOptions {
@@ -50,6 +51,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerEditorHandlers();
   registerAppHandlers();
   registerAgentTraceHandlers({ devMode: options.agentTraceDevMode ?? false });
+  registerBrowserHandlers();
   registerAutomationHandlers();
 }
 

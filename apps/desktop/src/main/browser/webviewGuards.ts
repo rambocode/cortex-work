@@ -1,0 +1,130 @@
+// 内嵌浏览器 <webview> 的主进程安全闸门。移植自参考仓库 Kun
+// (src/main/index.ts installDevPreviewWebviewGuards),但因本应用地址栏要支持**任意
+// https 公网站点**(Kun 只服务本地预览),把「local-only allow-list」放宽为
+// 「严格 scheme 白名单 + 公网 origin 禁跳私网」(见计划 KTD2/KTD6)。
+//
+// 三道闸门(全部挂在 app 'web-contents-created' 上):
+//   1. will-attach-webview:强制覆盖 webPreferences(删业务 preload、关 nodeIntegration、
+//      开 contextIsolation/sandbox),不信渲染端声明(防篡改绕过隔离)。
+//   2. will-navigate / will-redirect:共用 evaluateNavigation —— 严格 scheme + 公网禁跳私网。
+//   3. setWindowOpenHandler:一律 deny;仅 http(s) 交系统浏览器(openExternal)。
+//
+// 安全核心不变量(KTD6):agent 输出与第三方页面内容均不可信;公网 origin 不得自动
+// 导航进私网/环回(SSRF 跳板)。
+
+import { app, shell } from "electron";
+import type { WebContents } from "electron";
+import { isAllowedDevPreviewHostname } from "@cortex-work/core/personal/devPreviewUrl";
+
+// 内嵌浏览器专用会话分区(跨进程契约:渲染端 <webview partition> 与本常量必须一致)。
+// persist: 前缀 = 持久化第三方登录态,配套「清除浏览数据」入口(见 partition.ts)。
+export const BROWSER_PARTITION = "persist:browser-panel";
+
+function parseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+// 当前页 origin 是否为「公网」。私网/环回/.local 归为非公网;空/about:blank 视为
+// 用户主动发起(地址栏输入或首次加载),按非公网处理放行后续判定。
+function isPublicOrigin(currentOrigin: string | null | undefined): boolean {
+  if (!currentOrigin) return false;
+  const url = parseUrl(currentOrigin);
+  if (!url) return false;
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  return !isAllowedDevPreviewHostname(url.hostname);
+}
+
+export interface NavigationContext {
+  targetUrl: string;
+  // 触发导航时 webview 当前页的 URL;地址栏主动输入/首次加载传 null。
+  currentOrigin?: string | null;
+}
+
+// 纯函数:判定一次导航/重定向/attach 是否放行。被 will-navigate / will-redirect /
+// will-attach-webview 共用,亦可单测。
+export function evaluateNavigation({ targetUrl, currentOrigin }: NavigationContext): boolean {
+  const url = parseUrl(targetUrl);
+  if (!url) return false;
+
+  const fromPublic = isPublicOrigin(currentOrigin);
+
+  if (url.protocol === "https:") {
+    // 任意 https 放行;但公网页不得跳进私网/环回(SSRF 跳板)。
+    if (fromPublic && isAllowedDevPreviewHostname(url.hostname)) return false;
+    return true;
+  }
+
+  if (url.protocol === "http:") {
+    // 明文 http 仅放行本地/私网(dev 预览);公网明文 http 一律拒。
+    if (!isAllowedDevPreviewHostname(url.hostname)) return false;
+    // 公网页不得跳进私网/环回。
+    if (fromPublic) return false;
+    return true;
+  }
+
+  // deny-by-default:javascript: / data: / blob: / about: / file: / 自定义协议一律拒。
+  return false;
+}
+
+// window.open / target=_blank 的目标若为 http(s) 则返回它(交系统浏览器),否则返回 null
+// (既不导航也不外溢)。复用 fs.ts:shell:openExternal 的「仅 http/https」策略。
+export function externalUrlForWindowOpen(value: string): string | null {
+  const url = parseUrl(value);
+  if (!url) return null;
+  if (url.protocol === "http:" || url.protocol === "https:") return value;
+  return null;
+}
+
+// 强制覆盖 webview 的安全相关 webPreferences,不信渲染端 attribute(防篡改绕过隔离)。
+function hardenWebviewPreferences(webPreferences: Record<string, unknown>): void {
+  delete webPreferences["preload"]; // 不给第三方内容注入任何业务 preload
+  webPreferences["nodeIntegration"] = false;
+  webPreferences["nodeIntegrationInSubFrames"] = false;
+  webPreferences["contextIsolation"] = true;
+  webPreferences["sandbox"] = true;
+  webPreferences["webSecurity"] = true;
+  webPreferences["allowRunningInsecureContent"] = false;
+}
+
+function attachWebviewNavigationGuards(contents: WebContents): void {
+  contents.on("will-navigate", (event, navigationUrl) => {
+    if (!evaluateNavigation({ targetUrl: navigationUrl, currentOrigin: contents.getURL() })) {
+      event.preventDefault();
+    }
+  });
+  // 服务端重定向同样要过闸门(否则公网页 30x 跳私网即绕过 will-navigate)。
+  contents.on("will-redirect", (event, navigationUrl) => {
+    if (!evaluateNavigation({ targetUrl: navigationUrl, currentOrigin: contents.getURL() })) {
+      event.preventDefault();
+    }
+  });
+  contents.setWindowOpenHandler(({ url }) => {
+    const external = externalUrlForWindowOpen(url);
+    if (external) void shell.openExternal(external);
+    return { action: "deny" };
+  });
+}
+
+// 安装全局 webview 闸门。须在任何 webview 可能 attach 之前调用一次(app.whenReady 内、
+// createWindow 之前)。
+export function installBrowserWebviewGuards(): void {
+  app.on("web-contents-created", (_event, contents) => {
+    // 宿主 webContents 上挂 attach 闸门:webview 挂载时强制安全 prefs + 校验初始 src。
+    contents.on("will-attach-webview", (event, webPreferences, params) => {
+      hardenWebviewPreferences(webPreferences as unknown as Record<string, unknown>);
+      const src = typeof params.src === "string" ? params.src : "";
+      if (src && !evaluateNavigation({ targetUrl: src, currentOrigin: null })) {
+        event.preventDefault();
+      }
+    });
+
+    // webview 自身的 webContents 上挂导航/新窗口闸门。
+    if (contents.getType() === "webview") {
+      attachWebviewNavigationGuards(contents);
+    }
+  });
+}
