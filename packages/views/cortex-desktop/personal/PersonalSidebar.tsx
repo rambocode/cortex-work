@@ -7,7 +7,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   closePiSession,
-  defaultAgent,
+  resolveDefaultAgent,
   partitionProjects,
   reapSessionRun,
   useCortexUIStore,
@@ -122,6 +122,7 @@ function ProjectBlock({
   const setRightView = usePersonalStore((s) => s.setRightView);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const generalSettings = usePersonalStore((s) => s.generalSettings);
   // 项目引导态（已激活但未选会话）时高亮项目名。
   const projectActive = usePersonalStore(
     (s) => !s.homeOpen && !s.timelineProjectId && !s.activeSessionId && s.activeProjectId === project.id,
@@ -186,7 +187,8 @@ function ProjectBlock({
             className="pw-icon-btn"
             title="新建 Session"
             onClick={() => {
-              createSession(project.id, defaultAgent(agentsAvailable));
+              // 按设置里的全局默认 agent 起草(resolveDefaultAgent),而非仅按安装情况派生。
+              createSession(project.id, resolveDefaultAgent({ generalSettings, agentsAvailable }));
               onToast(`已在 ${project.name} 新建 Session`);
             }}
           >

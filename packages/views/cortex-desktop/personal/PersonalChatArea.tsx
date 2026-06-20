@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
-  defaultAgent,
+  resolveDefaultAgent,
   getTtsPlaybackState,
   resolveProjectFileRef,
   speakText,
@@ -117,6 +117,7 @@ export function PersonalChatArea({
   const updateSession = usePersonalStore((s) => s.updateSession);
   const ttsSettings = usePersonalStore((s) => s.ttsSettings);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const generalSettings = usePersonalStore((s) => s.generalSettings);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
@@ -367,7 +368,8 @@ export function PersonalChatArea({
             <button
               className="btn primary pw-center-cta"
               onClick={() => {
-                createSession(activeProject.id, defaultAgent(agentsAvailable));
+                // 按设置里的全局默认 agent 起草(resolveDefaultAgent),而非仅按安装情况派生。
+                createSession(activeProject.id, resolveDefaultAgent({ generalSettings, agentsAvailable }));
                 onToast(`已在 ${activeProject.name} 新建 Session`);
               }}
             >
