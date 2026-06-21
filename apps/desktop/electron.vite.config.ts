@@ -15,6 +15,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        // 多入口模式下 electron-vite 不再走单入口 lib 预设,会丢失对 electron 的自动外部化
+        // → 把 electron 包的 path-shim 误打进 chunk,使 ipcRenderer/contextBridge 变 undefined、
+        // desktopAPI 注入失败(渲染端兜底「仅桌面端可用」)。故显式外部化 electron(node 内建由插件兜底)。
+        external: ["electron"],
         // 显式声明多入口后 electron-vite 不再自动探测 index.ts,故须同时列出 index
         // (否则所有窗口丢失 preload)。annotation = webview 受控标注 preload(计划 U4)。
         input: {
