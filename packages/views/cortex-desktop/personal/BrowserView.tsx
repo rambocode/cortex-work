@@ -15,7 +15,9 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { normalizeDevPreviewUrlInput } from "@cortex-work/core/personal/devPreviewUrl";
+import { describeBrowserError } from "@cortex-work/core/personal/browserErrorInfo";
 import { BrowserErrorState } from "./BrowserErrorState";
+import { buildErrorPageScript } from "./browserErrorPage";
 import { useBrowserCapture } from "./useBrowserCapture";
 import { useBrowserAnnotations, type AnnotatableWebview } from "./useBrowserAnnotations";
 import { BrowserAnnotator } from "./BrowserAnnotator";
@@ -39,6 +41,8 @@ type WebviewTag = HTMLElement & {
   capturePage(): Promise<{ toPNG(): Uint8Array; isEmpty(): boolean }>;
   // 宿主 → webview preload 的点对点消息(标注 enable/disable,计划 U5)。
   send(channel: string, ...args: unknown[]): void;
+  // 在 webview 页面上下文执行脚本(用于失败时把自定义错误页注入页面 DOM,计划 U2-B)。
+  executeJavaScript(code: string): Promise<unknown>;
 };
 
 type WebviewNavigateEvent = Event & { url: string };
@@ -113,6 +117,9 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
 
   const webviewRef = useRef<WebviewTag | null>(null);
   const iframeLoadedUrlRef = useRef<string | null>(null);
+  // 暂存本次 webview 加载失败信息:did-fail-load 记录,待 did-stop-loading(错误页 DOM 就绪)
+  // 再注入自定义错误页(计划 U2-B)。注入失败则回退宿主浮层(pageError)。
+  const failedInfoRef = useRef<PageError | null>(null);
   // 从 0 起,而非挂载时的 nonce:面板常是被本次请求打开的(挂载时 browserUrlRequest.nonce 已是
   // 新值),若用它初始化会把「触发打开的那次请求」误判为已消费 → 首次点击空白、需再点一次。
   // 从 0 起则挂载即消费当前 pending 请求(修首次点击空白)。
@@ -182,13 +189,43 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
         /* webview 尚未 attach */
       }
     };
+    // 把自定义错误页注入 webview 失败页 DOM(计划 U2-B):截图/标注得以作用于这张错误页。
+    // 注入被拒(如特权错误页禁注入)→ 回退宿主浮层 pageError。
+    const injectErrorPage = (info: PageError): void => {
+      const host = hostOf(info.url);
+      const desc = describeBrowserError(info.code ?? 0, host);
+      const script = buildErrorPageScript({
+        title: t("error.title"),
+        reason: t(desc.reasonKey, { host }),
+        hints: desc.hintKeys.map((k) => t(k)),
+        codeLabel: t("error.code"),
+        code: info.description,
+        reloadLabel: t("error.reload"),
+        openLabel: t("error.openExternal"),
+        url: info.url,
+      });
+      webview.executeJavaScript(script).then(
+        (ok) => {
+          if (!ok) setPageError(info);
+        },
+        () => setPageError(info),
+      );
+    };
+
     const onStart = (): void => {
       setLoading(true);
       setPageError(null);
+      failedInfoRef.current = null;
     };
     const onStop = (): void => {
       setLoading(false);
       syncNav();
+      // did-stop-loading:错误页 DOM 已就绪,此时注入自定义错误页(单次,读后即清)。
+      if (failedInfoRef.current) {
+        const info = failedInfoRef.current;
+        failedInfoRef.current = null;
+        injectErrorPage(info);
+      }
     };
     const onNavigate: EventListener = (event): void => {
       const url = (event as WebviewNavigateEvent).url;
@@ -201,12 +238,12 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
       // -3 ERR_ABORTED 是用户/代码主动停止,不当错误。
       if (!fail.isMainFrame || fail.errorCode === -3) return;
       setLoading(false);
-      // 捕获 errorCode + validatedURL(比 activeUrl 准),供整页错误态映射中文原因(计划 KTD3)。
-      setPageError({
+      // 捕获 errorCode + validatedURL(比 activeUrl 准),待 onStop 注入错误页(计划 KTD3/U2-B)。
+      failedInfoRef.current = {
         code: fail.errorCode,
         description: fail.errorDescription || null,
         url: fail.validatedURL || activeUrl,
-      });
+      };
       syncNav();
     };
     const onTitle: EventListener = (event): void => {
@@ -229,7 +266,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
       webview.removeEventListener("did-fail-load", onFail);
       webview.removeEventListener("page-title-updated", onTitle);
     };
-  }, [activeUrl, instanceNonce, useElectronWebview]);
+  }, [activeUrl, instanceNonce, useElectronWebview, t]);
 
   // iframe 模式:无导航事件,用 10s 超时兜底失败态。
   useEffect(() => {
