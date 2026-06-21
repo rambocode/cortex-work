@@ -156,7 +156,7 @@ describe("codexDef.parseLine", () => {
     });
   });
 
-  it("command_execution item.started → tool 事件", () => {
+  it("command_execution item.started → tool 事件(归一化名 Shell + phase/toolCallId,R2)", () => {
     const line = JSON.stringify({
       type: "item.started",
       item: {
@@ -170,7 +170,27 @@ describe("codexDef.parseLine", () => {
       type: "tool",
       name: "Shell",
       detail: "/opt/homebrew/bin/zsh -lc pwd",
+      phase: "start",
+      toolCallId: "item_0",
     });
+  });
+
+  it("tool 名归一化(R2):file_change→Edit、web_search→WebSearch、mcp_tool_call→MCP", () => {
+    const ev = (item: Record<string, unknown>) =>
+      codexDef.parseLine(JSON.stringify({ type: "item.started", item }));
+    expect(ev({ id: "i1", type: "file_change", path: "/a/b.ts" })).toEqual({
+      type: "tool",
+      name: "Edit",
+      detail: "/a/b.ts",
+      phase: "start",
+      toolCallId: "i1",
+    });
+    expect(ev({ id: "i2", type: "web_search", query: "vitest" })).toMatchObject({ name: "WebSearch", detail: "vitest" });
+    expect(ev({ id: "i3", type: "mcp_tool_call", tool: "fs.read" })).toMatchObject({ name: "MCP", detail: "fs.read" });
+  });
+
+  it("未知工具类型不当作 tool(reasoning/agent_message 不产 tool 事件)", () => {
+    expect(codexDef.parseLine(JSON.stringify({ type: "item.started", item: { id: "x", type: "reasoning" } }))).toBeNull();
   });
 
   it("agent_message item.completed → text 事件", () => {

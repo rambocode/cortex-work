@@ -132,15 +132,28 @@ describe("claudeDef.parseLine", () => {
     expect(claudeDef.parseLine(line)).toEqual({ type: "text", delta: "1+1 等于 2。" });
   });
 
-  it("thinking_delta 忽略(不渲染思考过程)", () => {
+  it("thinking_delta → thinking 事件(R2:采集思考增量)", () => {
     const line = JSON.stringify({
       type: "stream_event",
-      event: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "..." } },
+      event: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "让我想想" } },
     });
-    expect(claudeDef.parseLine(line)).toBeNull();
+    expect(claudeDef.parseLine(line)).toEqual({ type: "thinking", delta: "让我想想" });
   });
 
-  it("assistant 完整消息:只取 tool_use(text 已由 delta 覆盖,避免重复)", () => {
+  it("message_delta stop_reason → turn 事件(R2/R1 轮边界)", () => {
+    const endTurn = JSON.stringify({
+      type: "stream_event",
+      event: { type: "message_delta", delta: { stop_reason: "end_turn" } },
+    });
+    expect(claudeDef.parseLine(endTurn)).toEqual({ type: "turn", stopReason: "end_turn" });
+    const toolUse = JSON.stringify({
+      type: "stream_event",
+      event: { type: "message_delta", delta: { stop_reason: "tool_use" } },
+    });
+    expect(claudeDef.parseLine(toolUse)).toEqual({ type: "turn", stopReason: "tool_use" });
+  });
+
+  it("assistant 完整消息:只取 tool_use(text 已由 delta 覆盖,避免重复)+ phase/toolCallId", () => {
     const textMsg = JSON.stringify({
       type: "assistant",
       message: { content: [{ type: "text", text: "1+1 等于 2。" }] },
@@ -149,9 +162,15 @@ describe("claudeDef.parseLine", () => {
 
     const toolMsg = JSON.stringify({
       type: "assistant",
-      message: { content: [{ type: "tool_use", name: "Bash", input: { command: "ls -la" } }] },
+      message: { content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "ls -la" } }] },
     });
-    expect(claudeDef.parseLine(toolMsg)).toEqual({ type: "tool", name: "Bash", detail: "ls -la" });
+    expect(claudeDef.parseLine(toolMsg)).toEqual({
+      type: "tool",
+      name: "Bash",
+      detail: "ls -la",
+      phase: "start",
+      toolCallId: "toolu_1",
+    });
   });
 
   it("result success → ok 事件带最终文本", () => {

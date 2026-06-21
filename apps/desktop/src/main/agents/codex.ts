@@ -24,6 +24,30 @@ function commandDetail(command: unknown): string | undefined {
   return command.length > 100 ? command.slice(0, 100) + "…" : command;
 }
 
+// codex item.type → 归一化 tool 名(R2:不再硬编码 "Shell")。把 codex 各类工具项映射到与 claude 工具名
+// 同风格的显示名;未知类型回退为其原始 item.type(humanize),避免再出现「全部叫 Shell」。
+const CODEX_TOOL_NAMES: Record<string, string> = {
+  command_execution: "Shell",
+  file_change: "Edit",
+  patch_apply: "Edit",
+  mcp_tool_call: "MCP",
+  web_search: "WebSearch",
+};
+function codexToolName(itemType: string): string {
+  return CODEX_TOOL_NAMES[itemType] ?? itemType;
+}
+
+// codex tool 项的 detail:command_execution 取命令;其余尽力取常见字段(path/查询),取不到则 undefined。
+function codexToolDetail(item: Record<string, unknown>): string | undefined {
+  if (item.type === "command_execution") return commandDetail(item.command);
+  const candidate = item.path ?? item.query ?? item.tool ?? item.server;
+  return typeof candidate === "string" ? commandDetail(candidate) : undefined;
+}
+
+// 哪些 codex item.type 视为「工具」(在 item.started 时产 tool 起始事件)。仅纳入已知工具类,
+// 避免把 reasoning / agent_message 等误当工具。
+const CODEX_TOOL_TYPES = new Set(Object.keys(CODEX_TOOL_NAMES));
+
 // codex turn.completed.usage → 归一化 usage 事件。codex 无 cost 字段(仅 token);字段缺失/类型
 // 异常一律降级为不产出(返回 null),不抛错。codex 磁盘 rollout 不带 per-event token 历史,
 // 故这条流式 usage 是 codex 唯一的 token 来源(补充信号,见 KTD3)。
@@ -99,8 +123,16 @@ export const codexDef: AgentDef = {
     }
 
     const item = obj.item as Record<string, unknown> | undefined;
-    if (item?.type === "command_execution" && obj.type === "item.started") {
-      return { type: "tool", name: "Shell", detail: commandDetail(item.command) };
+    // 工具起始(R2):归一化 tool 名(不再硬编码 "Shell"),标注 phase:"start" + toolCallId(item.id)。
+    // 只在 item.started 产起始事件,不产 end(避免重复 tool 事件污染渲染端 agentLog 折叠)。
+    if (obj.type === "item.started" && typeof item?.type === "string" && CODEX_TOOL_TYPES.has(item.type)) {
+      return {
+        type: "tool",
+        name: codexToolName(item.type),
+        detail: codexToolDetail(item),
+        phase: "start",
+        toolCallId: typeof item.id === "string" ? item.id : undefined,
+      };
     }
 
     if (item?.type === "agent_message" && obj.type === "item.completed" && typeof item.text === "string") {

@@ -124,6 +124,19 @@ export const claudeDef: AgentDef = {
         if (delta?.type === "text_delta" && typeof delta.text === "string") {
           return { type: "text", delta: delta.text };
         }
+        // 思考增量(R2):reasoning 模型的 thinking_delta 不再丢弃,归一化为 thinking 事件
+        //(消费端当前忽略,与 usage 一致——M1「采集、展示延后」)。
+        if (delta?.type === "thinking_delta" && typeof delta.thinking === "string") {
+          return { type: "thinking", delta: delta.thinking };
+        }
+      }
+      // 轮边界(R2 / R1 的 turn 信号):message_delta 携带本轮 stop_reason(end_turn / tool_use /
+      // max_tokens…),归一化为 turn 事件。stop_reason==="tool_use" = 本轮要调工具、未干净结束。
+      if (event?.type === "message_delta") {
+        const delta = event.delta as Record<string, unknown> | undefined;
+        if (typeof delta?.stop_reason === "string") {
+          return { type: "turn", stopReason: delta.stop_reason };
+        }
       }
       return null;
     }
@@ -133,7 +146,15 @@ export const claudeDef: AgentDef = {
       const content = Array.isArray(message?.content) ? (message!.content as Record<string, unknown>[]) : [];
       const tool = content.find((b) => b.type === "tool_use");
       if (tool && typeof tool.name === "string") {
-        return { type: "tool", name: tool.name, detail: toolDetail(tool.input) };
+        // R2:标注 phase:"start" 与 toolCallId(承载能力);只产起始事件,不产 end(避免重复 tool 事件
+        // 污染渲染端 agentLog 折叠)。
+        return {
+          type: "tool",
+          name: tool.name,
+          detail: toolDetail(tool.input),
+          phase: "start",
+          toolCallId: typeof tool.id === "string" ? tool.id : undefined,
+        };
       }
       return null;
     }

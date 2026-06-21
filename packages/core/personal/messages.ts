@@ -749,6 +749,12 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     return;
   }
 
+  if (ev.type === "thinking" || ev.type === "turn") {
+    // 思考增量 / 轮边界(R2):M1 仅采集并经事件透出(主进程 trace 已记录),UI 展示延后(与 usage 一致)。
+    // 显式忽略以表意「按设计暂不在主聊天流渲染」,而非遗漏。
+    return;
+  }
+
   if (ev.type === "tool") {
     usePetStore.getState().set("working");
     updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));

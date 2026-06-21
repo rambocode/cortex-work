@@ -850,13 +850,17 @@ export interface TrimSessionRequest {
 }
 
 // claude stream-json 行解析后的归一化事件（adapter 输出）。
-// M1 向后兼容扩展:新增 usage(U3)、retry(U7)两个变体,均有生产者。现有消费端(handleCliEvent/
-// applyFollowupEvent 的 if 链、foldCliEvent 对非 text/tool 原样返回)自然忽略未知 type。
+// M1 向后兼容扩展(R2):usage(U3)/retry(U7)/thinking/turn 新变体;tool 增可选 phase/toolCallId。
+// 生产者:usage、retry、thinking(claude thinking_delta)、turn(claude stop_reason);tool 起始事件
+// 标注 phase:"start"+toolCallId("end" 为承载能力预留)。现有消费端(handleCliEvent/applyFollowupEvent
+// 的 if 链、foldCliEvent 对非 text/tool 原样返回)自然忽略未知 type 与新增可选字段。
 // ⚠️ 跨包契约:与 apps/desktop/src/main/ipc/types.ts 的 CliStreamEvent 逐字镜像,改动两处必须同步。
 export type CliStreamEvent =
   | { type: "init"; sessionId: string }
   | { type: "text"; delta: string }
-  | { type: "tool"; name: string; detail?: string }
+  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string }
+  | { type: "thinking"; delta: string } // 思考/推理增量(reasoning 模型),对齐 PiSessionEvent.reasoning
+  | { type: "turn"; stopReason?: string } // 一轮 assistant 结束(claude stop_reason:end_turn/tool_use/...)
   | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number } // 流式 usage/cost(补充磁盘来源)
   | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string } // 安全重试发起(对齐 pi retry)
   | { type: "result"; ok: boolean; text?: string; error?: string };

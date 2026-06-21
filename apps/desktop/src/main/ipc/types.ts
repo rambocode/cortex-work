@@ -395,14 +395,21 @@ export interface AgentProjectInfo {
   lastActive: number; // epoch ms，取会话日志文件 mtime 最大值
 }
 
-// 归一化事件（adapter 输出）。M1 在原 4 变体上做**向后兼容扩展**:新增 usage(U3)、retry(U7)两个
-// 变体,均有生产者。现有消费端(if 链 / 无 default 的 switch)自然忽略未知 type;`foldCliEvent` 对
-// 非 text/tool 事件原样返回,故 usage/retry 不破坏文本/工具折叠。
+// 归一化事件（adapter 输出）。M1 在原 4 变体上做**向后兼容扩展**(R2):
+//   - usage(U3)/retry(U7)/thinking/turn 均为新变体;tool 增可选 phase/toolCallId 字段。
+//   - 生产者:usage(claude result / codex turn.completed)、retry(主进程安全重试)、
+//     thinking(claude thinking_delta)、turn(claude message_delta 的 stop_reason);
+//     tool.phase/toolCallId 由 claude/codex 在 tool 起始事件标注(当前只产 "start",
+//     "end" 为承载能力预留,避免重复 tool 事件污染渲染端 agentLog 折叠)。
+// 现有消费端(if 链 / 无 default 的 switch)自然忽略未知 type;`foldCliEvent` 对非 text/tool 事件
+// 原样返回,故 usage/retry/thinking/turn 不破坏文本/工具折叠;tool 的新增可选字段不影响既有读取。
 // ⚠️ 跨包契约:本类型在 packages/core/desktop/types.ts 有逐字镜像,任何改动两处必须同步。
 export type CliStreamEvent =
   | { type: "init"; sessionId: string }
   | { type: "text"; delta: string }
-  | { type: "tool"; name: string; detail?: string }
+  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string }
+  | { type: "thinking"; delta: string } // 思考/推理增量(reasoning 模型),对齐 PiSessionEvent.reasoning
+  | { type: "turn"; stopReason?: string } // 一轮 assistant 结束(claude stop_reason:end_turn/tool_use/...)
   | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number } // 流式 usage/cost(补充磁盘来源,见 KTD3)
   | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string } // 安全重试发起(对齐 pi retry)
   | { type: "result"; ok: boolean; text?: string; error?: string };
