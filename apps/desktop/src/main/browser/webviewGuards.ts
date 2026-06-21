@@ -12,11 +12,13 @@
 // 安全核心不变量(KTD6):agent 输出与第三方页面内容均不可信;公网 origin 不得自动
 // 导航进私网/环回(SSRF 跳板)。
 
-import { app, shell } from "electron";
+import { app, shell, Menu } from "electron";
 import type { WebContents } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isAllowedDevPreviewHostname } from "@cortex-work/core/personal/devPreviewUrl";
+import { browserMenuStrings } from "@cortex-work/core/i18n/native";
+import { getCurrentLocale } from "../ipc/app";
 import { isAuthorizedFileUrl } from "./localHtml";
 
 // 内嵌浏览器专用会话分区(跨进程契约:渲染端 <webview partition> 与本常量必须一致)。
@@ -143,6 +145,21 @@ function attachWebviewNavigationGuards(contents: WebContents): void {
     const external = externalUrlForWindowOpen(url);
     if (external) void shell.openExternal(external);
     return { action: "deny" };
+  });
+
+  // webview 内右键原生菜单:返回 / 重新加载 / 检查(用户要求)。webview 内部右键由 guest 捕获,
+  // host 的 DOM contextmenu 收不到,故在主进程监听 webContents 'context-menu' 弹原生 Menu。
+  contents.on("context-menu", (_event, params) => {
+    const t = browserMenuStrings(getCurrentLocale());
+    const nav = contents.navigationHistory;
+    const menu = Menu.buildFromTemplate([
+      { label: t.back, enabled: nav.canGoBack(), click: () => nav.goBack() },
+      { label: t.reload, click: () => contents.reload() },
+      { type: "separator" },
+      // 检查:在右键坐标处打开 webview 的开发者工具并定位元素。
+      { label: t.inspect, click: () => contents.inspectElement(params.x, params.y) },
+    ]);
+    menu.popup();
   });
 }
 
