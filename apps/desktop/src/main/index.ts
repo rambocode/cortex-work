@@ -39,6 +39,12 @@ import { getPersistedState } from "./ipc/store";
 import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 import { getRuntimeAppVersion } from "./app-version";
+import { installGlobalCrashGuards } from "./crash-guards";
+
+// 进程级崩溃兜底必须最先安装:历史崩溃为「异步 fs 扫描回调/漂浮 Promise 抛未捕获错误」
+// → 主进程整体 SIGTRAP 退出。装在所有初始化之前,确保后续任何未捕获异常/拒绝只记日志、
+// 不杀进程(ipcMain.handle 链内的 reject 由 Electron 转发渲染端,不会到这里)。
+installGlobalCrashGuards();
 
 const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 

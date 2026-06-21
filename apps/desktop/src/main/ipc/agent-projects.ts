@@ -80,15 +80,25 @@ async function scanAgentProjects(): Promise<AgentProjectInfo[]> {
     const rollouts: { file: string; mtime: number }[] = [];
     const walk = async (dir: string, depth: number): Promise<void> => {
       if (depth > 3) return;
-      const entries = await fsp.readdir(dir, { withFileTypes: true });
+      let entries;
+      try {
+        entries = await fsp.readdir(dir, { withFileTypes: true });
+      } catch {
+        return; // 子目录不可读:跳过该子树,而非让异常冒泡中断整轮 Codex 扫描
+      }
       for (const ent of entries) {
         if (rollouts.length >= CODEX_MAX_DISCOVERED) break;
         const p = join(dir, ent.name);
-        if (ent.isDirectory()) {
-          await walk(p, depth + 1);
-        } else if (ent.name.startsWith("rollout-") && ent.name.endsWith(".jsonl")) {
-          const st = await fsp.stat(p);
-          if (st.mtimeMs >= cutoff) rollouts.push({ file: p, mtime: st.mtimeMs });
+        try {
+          if (ent.isDirectory()) {
+            await walk(p, depth + 1);
+          } else if (ent.name.startsWith("rollout-") && ent.name.endsWith(".jsonl")) {
+            const st = await fsp.stat(p);
+            if (st.mtimeMs >= cutoff) rollouts.push({ file: p, mtime: st.mtimeMs });
+          }
+        } catch {
+          // 单条目处理失败(如扫描中途文件被删致 stat 抛错):只跳过该条,
+          // 不丢掉已收集的其余 rollout(此前整段 try 会让一个坏文件清空整批 Codex 项目)。
         }
       }
     };
