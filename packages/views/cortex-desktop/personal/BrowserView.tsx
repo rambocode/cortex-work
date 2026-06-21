@@ -13,6 +13,7 @@ import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { normalizeDevPreviewUrlInput } from "@cortex-work/core/personal/devPreviewUrl";
 
 // 跨进程契约:须与主进程 webviewGuards.ts 的 BROWSER_PARTITION 一致(主进程会强制覆盖,
@@ -79,6 +80,7 @@ function normalizeAddressInput(raw: string): string | null {
 }
 
 export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
+  const { t } = useTranslation("browser");
   const bridge = useDesktopBridge();
   // 监听「在浏览器打开」请求(卡片点击 / auto_open)。nonce 变化即(重新)加载。
   const browserUrlRequest = usePersonalStore((s) => s.browserUrlRequest);
@@ -114,7 +116,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
     (value: string) => {
       const normalized = normalizeAddressInput(value);
       if (!normalized) {
-        setLoadError("无效的网址");
+        setLoadError(t("address.invalid"));
         return;
       }
       setLoadError(null);
@@ -130,7 +132,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
       });
       setLoading(true);
     },
-    [useElectronWebview],
+    [t, useElectronWebview],
   );
 
   // 消费 browserUrlRequest(卡片/auto_open)。
@@ -299,8 +301,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
 
   const clearData = (): void => {
     void bridge?.browserClearData?.().then(
-      () => onToast?.("已清除浏览数据"),
-      () => onToast?.("清除浏览数据失败"),
+      () => onToast?.(t("clearData.ok")),
+      () => onToast?.(t("clearData.fail")),
     );
   };
 
@@ -313,8 +315,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             className="pw-icon-btn"
             onClick={goBack}
             disabled={!canNavigateBack}
-            title="后退"
-            aria-label="后退"
+            title={t("nav.back")}
+            aria-label={t("nav.back")}
           >
             <Icon.Back size={15} />
           </button>
@@ -323,8 +325,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             className="pw-icon-btn"
             onClick={goForward}
             disabled={!canNavigateForward}
-            title="前进"
-            aria-label="前进"
+            title={t("nav.forward")}
+            aria-label={t("nav.forward")}
           >
             <Icon.Fwd size={15} />
           </button>
@@ -333,8 +335,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             className={`pw-icon-btn ${loading ? "is-loading" : ""}`}
             onClick={loading ? stop : reload}
             disabled={!activeUrl}
-            title={loading ? "停止" : "刷新"}
-            aria-label={loading ? "停止" : "刷新"}
+            title={loading ? t("nav.stop") : t("nav.reload")}
+            aria-label={loading ? t("nav.stop") : t("nav.reload")}
           >
             {loading ? <Icon.Stop size={14} /> : <Icon.Retry size={15} />}
           </button>
@@ -344,9 +346,9 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
           <input
             value={draftUrl}
             onChange={(e) => setDraftUrl(e.target.value)}
-            placeholder="输入网址,或本地端口(如 localhost:5173)"
+            placeholder={t("address.placeholder")}
             spellCheck={false}
-            aria-label="地址栏"
+            aria-label={t("address.label")}
           />
         </div>
         <div className="pw-browser-actions">
@@ -355,8 +357,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             className="pw-icon-btn"
             onClick={openExternal}
             disabled={!activeUrl}
-            title="在系统浏览器打开"
-            aria-label="在系统浏览器打开"
+            title={t("nav.openExternal")}
+            aria-label={t("nav.openExternal")}
           >
             <Icon.Share size={15} />
           </button>
@@ -364,8 +366,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             type="button"
             className="pw-icon-btn"
             onClick={clearData}
-            title="清除浏览数据"
-            aria-label="清除浏览数据"
+            title={t("nav.clearData")}
+            aria-label={t("nav.clearData")}
           >
             <Icon.Trash size={15} />
           </button>
@@ -378,10 +380,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
         {!activeUrl ? (
           <div className="pw-browser-empty">
             <Icon.Globe size={40} />
-            <div className="pw-browser-empty-title">内嵌浏览器</div>
-            <div className="pw-browser-empty-sub">
-              在地址栏输入网址,或当 agent 起本地服务时从消息里的「打开预览」进入。
-            </div>
+            <div className="pw-browser-empty-title">{t("empty.title")}</div>
+            <div className="pw-browser-empty-sub">{t("empty.sub")}</div>
           </div>
         ) : useElectronWebview ? (
           // 用 createElement 渲染 <webview>:避开 JSX 内建元素类型缺失,且 ref 直挂。

@@ -1,0 +1,68 @@
+{
+  "nav": {
+    "back": "Back",
+    "forward": "Forward",
+    "reload": "Reload",
+    "stop": "Stop",
+    "openExternal": "Open in system browser",
+    "clearData": "Clear browsing data",
+    "screenshot": "Screenshot to clipboard",
+    "annotate": "Annotate page elements"
+  },
+  "address": {
+    "placeholder": "Enter a URL, or a local port (e.g. localhost:5173)",
+    "label": "Address bar",
+    "invalid": "Invalid URL"
+  },
+  "empty": {
+    "title": "Embedded browser",
+    "sub": "Type a URL above, or open a preview from a chat message when an agent starts a local server."
+  },
+  "clearData": {
+    "ok": "Browsing data cleared",
+    "fail": "Failed to clear browsing data"
+  },
+  "screenshot": {
+    "ok": "Screenshot copied to clipboard, ready to paste",
+    "fail": "Screenshot failed",
+    "emptyImage": "Page is not visible or empty, cannot capture"
+  },
+  "error": {
+    "title": "This site can’t be reached",
+    "code": "Error code",
+    "reload": "Reload",
+    "openExternal": "Open in system browser",
+    "reason": {
+      "dns": "Can’t find the server for {{host}}",
+      "refused": "{{host}} refused to connect",
+      "refusedDev": "{{host}} refused to connect (the local server may not be running)",
+      "timeout": "{{host}} took too long to respond",
+      "offline": "You appear to be offline",
+      "cert": "{{host}} has a security certificate problem",
+      "blocked": "{{host}} refused to load in an embedded frame",
+      "unknown": "Couldn’t load {{host}}"
+    },
+    "hint": {
+      "checkNetwork": "Check your network connection",
+      "checkProxy": "Check the proxy, firewall, and DNS configuration",
+      "checkUrl": "Check that the URL is spelled correctly",
+      "devServer": "The dev server may not be running or the port may be wrong — confirm the agent started it",
+      "retryLater": "Try again later",
+      "embedBlocked": "This site may block embedding via X-Frame-Options / CSP — try the system browser"
+    }
+  },
+  "annotate": {
+    "commentPlaceholder": "Add a comment…",
+    "sendToChat": "Send to Chat",
+    "sendToTerminal": "Send to terminal",
+    "delete": "Delete this annotation",
+    "emptyComment": "Please enter a comment first",
+    "limitReached": "Up to {{max}} annotations",
+    "navCleared": "Page navigated; unsent annotations were cleared",
+    "unsentWarning": "{{count}} annotation(s) not yet sent",
+    "detached": "Element no longer exists (the page changed)",
+    "sentToChat": "Annotations inserted into the composer",
+    "sentToTerminal": "Annotations sent to terminal, add a request and press Enter",
+    "iframeUnsupported": "Page annotation is not supported on web"
+  }
+}
