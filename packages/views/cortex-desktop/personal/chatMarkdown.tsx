@@ -9,7 +9,8 @@
 // - 失效标注:渲染期经 bridge.resolveProjectFile 在项目内定位 ref(支持只给文件名、真实文件在子目录),
 //   定位不到(真已删除)→ 删除线灰显且不可点击;定位得到则可点击。探测无能力/出错时乐观放行。
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Components } from "react-markdown";
 import {
   isLikelyFilePath,
@@ -205,19 +206,45 @@ function collectParagraphUrls(node: unknown): string[] {
 // 点击主体 → 内置浏览器;「打开方式」下拉可改用系统浏览器(经 bridge.openExternal)。
 function LinkPreviewCard({ url, bridge }: { url: string; bridge: DesktopBridge | null }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  // 菜单经 portal 渲染到 body 并 fixed 定位,彻底脱离消息流的 stacking context / overflow,
+  // 否则下拉会被 DOM 顺序靠后的后续消息(各自独立层叠环境)遮挡 —— 仅靠 z-index 无法解决。
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const openBtnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const host = hostLabel(url);
   const openInternal = () => openInInternalBrowser(url);
   const openSystem = () => {
     void bridge?.openExternal?.(url).catch(() => {});
   };
-  // 点击卡片外部关闭「打开方式」菜单(原生 mousedown 捕获,避免菜单常驻)。
+  // 依据「打开方式」按钮的视口坐标计算 fixed 菜单位置(下方、右对齐按钮右边)。
+  const placeMenu = () => {
+    const r = openBtnRef.current?.getBoundingClientRect();
+    if (r) setMenuPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+  };
+  const toggleMenu = () => {
+    setMenuOpen((v) => {
+      const next = !v;
+      if (next) placeMenu();
+      return next;
+    });
+  };
+  // 菜单打开期间:点击外部关闭;滚动 / 改窗 → 直接关闭(fixed 菜单不跟随滚动,重定位不如关闭省事)。
   useEffect(() => {
     if (!menuOpen) return;
     const onDown = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement)?.closest?.(".pw-link-preview-actions")) setMenuOpen(false);
+      const t = e.target as Node;
+      if (menuRef.current?.contains(t) || openBtnRef.current?.contains(t)) return;
+      setMenuOpen(false);
     };
+    const onDismiss = () => setMenuOpen(false);
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onDismiss, true);
+    window.addEventListener("resize", onDismiss);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onDismiss, true);
+      window.removeEventListener("resize", onDismiss);
+    };
   }, [menuOpen]);
   return (
     <div className="pw-link-preview-card">
@@ -232,39 +259,48 @@ function LinkPreviewCard({ url, bridge }: { url: string; bridge: DesktopBridge |
       </button>
       <div className="pw-link-preview-actions">
         <button
+          ref={openBtnRef}
           type="button"
           className="pw-link-preview-open"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((v) => !v)}
+          onClick={toggleMenu}
         >
           <span>打开方式</span>
           <Icon.Chevron size={12} />
         </button>
-        {menuOpen ? (
-          <div className="pw-link-preview-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                openInternal();
-              }}
-            >
-              内置浏览器
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                openSystem();
-              }}
-            >
-              系统浏览器
-            </button>
-          </div>
-        ) : null}
+        {menuOpen && menuPos
+          ? createPortal(
+              <div
+                ref={menuRef}
+                className="pw-link-preview-menu pw-link-preview-menu--portal"
+                role="menu"
+                style={{ top: menuPos.top, right: menuPos.right }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openInternal();
+                  }}
+                >
+                  内置浏览器
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openSystem();
+                  }}
+                >
+                  系统浏览器
+                </button>
+              </div>,
+              document.body,
+            )
+          : null}
       </div>
     </div>
   );
