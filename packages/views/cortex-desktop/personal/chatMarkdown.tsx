@@ -6,8 +6,10 @@
 //   不再默认丢给系统浏览器;系统浏览器作为下方「网页预览」卡片「打开方式」的备选项。
 // - 网页预览卡片:每条外链所在段落正下方紧跟一张静态卡片(地球图标 + 「网页预览」+ 域名),
 //   点击主体进内置浏览器,「打开方式」下拉可选内置 / 系统浏览器。
-// - 失效标注:渲染期经 bridge.resolveProjectFile 在项目内定位 ref(支持只给文件名、真实文件在子目录),
-//   定位不到(真已删除)→ 删除线灰显且不可点击;定位得到则可点击。探测无能力/出错时乐观放行。
+// - 文件链接:渲染期经 bridge.resolveProjectFile 在项目内定位 ref(支持只给文件名、真实文件在子目录),
+//   定位到 → 高亮可点(进右栏预览);探测中 / 定位不到(目录、分支名、其它分支才有的文件)→ 退化普通
+//   inline code(不高亮、不可点、无删除线)。点不到的安全网由 PersonalChatArea.handleOpenFile 的 toast
+//   兜底。探测无能力(Web / 无 bridge)或出错时乐观放行为可点。
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -35,11 +37,13 @@ function textOf(children: ReactNode): string {
   return "";
 }
 
-// 渲染期在项目内定位文件。"checking" 期间乐观当作可点击,仅确认定位不到才标 missing,
-// 避免存在的文件出现「先划线再恢复」的闪烁。无探测能力 / 探测出错 → 一律乐观放行。
+// 渲染期在项目内定位文件。只有定位到("ok")才渲染成高亮可点链接;探测中("checking")/ 定位不到
+// ("missing")一律退化普通 code(不高亮)。初始 state 按探测能力决定:无探测能力(Web / 无 bridge)
+// 直接 "ok"(同步可点、零闪烁,保住无 probe 的同步断言);有探测能力则 "checking",待结果落定再点亮。
+// 探测出错 → 乐观放行为 "ok"。
 type ResolveState = "checking" | "ok" | "missing";
 function useResolvedFile(bridge: DesktopBridge | null, projectPath: string, ref: string): ResolveState {
-  const [state, setState] = useState<ResolveState>("checking");
+  const [state, setState] = useState<ResolveState>(() => (bridge?.resolveProjectFile ? "checking" : "ok"));
   useEffect(() => {
     const probe = bridge?.resolveProjectFile;
     if (!probe) {
@@ -77,28 +81,31 @@ function FileCode({
   children,
   ...rest
 }: FileRefProps & { className?: string } & Record<string, unknown>) {
-  const missing = useResolvedFile(bridge, projectPath, ref_) === "missing";
+  // 仅「项目内确实定位到的文件」渲染成高亮可点链接;探测中 / 定位不到(目录、分支名、其它分支文件)
+  // → 退化普通 inline code(不高亮、不可点、无删除线)。点不到的安全网由 handleOpenFile 的 toast 兜底。
+  const resolved = useResolvedFile(bridge, projectPath, ref_) === "ok";
+  if (!resolved) {
+    return (
+      <code {...rest} className={className}>
+        {children}
+      </code>
+    );
+  }
   const open = () => onOpenFile(ref_);
-  const cls = [className, "file-link", missing ? "file-link-missing" : ""].filter(Boolean).join(" ");
   return (
     <code
       {...rest}
-      className={cls}
+      className={[className, "file-link"].filter(Boolean).join(" ")}
       role="button"
-      tabIndex={missing ? -1 : 0}
-      aria-disabled={missing || undefined}
-      title={missing ? `文件不存在或已删除：${ref_}` : ref_}
-      onClick={missing ? undefined : open}
-      onKeyDown={
-        missing
-          ? undefined
-          : (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                open();
-              }
-            }
-      }
+      tabIndex={0}
+      title={ref_}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          open();
+        }
+      }}
     >
       {children}
     </code>
@@ -115,18 +122,19 @@ function FileAnchor({
   children,
   ...rest
 }: FileRefProps & { href?: string } & Record<string, unknown>) {
-  const missing = useResolvedFile(bridge, projectPath, ref_) === "missing";
+  // 同 FileCode:仅定位到的文件才高亮可点;探测中 / 定位不到 → 退化普通链接(阻止 Electron 默认整窗
+  // 导航,但不当项目文件、无 file-link 高亮)。
+  const resolved = useResolvedFile(bridge, projectPath, ref_) === "ok";
   return (
     <a
       {...rest}
       href={href}
       rel="noreferrer"
-      className={["file-link", missing ? "file-link-missing" : ""].filter(Boolean).join(" ")}
-      aria-disabled={missing || undefined}
-      title={missing ? `文件不存在或已删除：${ref_}` : ref_}
+      className={resolved ? "file-link" : undefined}
+      title={resolved ? ref_ : undefined}
       onClick={(e) => {
         e.preventDefault(); // Electron 里 a 默认导航会替换整个窗口
-        if (!missing) onOpenFile(ref_);
+        if (resolved) onOpenFile(ref_);
       }}
     >
       {children}

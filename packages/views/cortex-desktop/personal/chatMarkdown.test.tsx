@@ -144,34 +144,37 @@ describe("chatMarkdownComponents", () => {
     expect(onOpenFile).toHaveBeenCalledTimes(2);
   });
 
-  it("定位不到(真已删除)→ 标 .file-link-missing 且点击不打开", async () => {
+  it("定位不到(目录/分支名/其它分支文件)→ 退化普通 code,不高亮不可点", async () => {
     const resolveProjectFile = vi.fn<(r: string, ref: string) => Promise<string | null>>().mockResolvedValue(null);
     const { container, onOpenFile } = renderMd("see `packages/core/gone.ts` now", { resolveProjectFile });
-    await waitFor(() => expect(container.querySelector("code.file-link-missing")).not.toBeNull());
-    expect(resolveProjectFile).toHaveBeenCalledWith("/proj", "packages/core/gone.ts");
-    const el = container.querySelector("code.file-link-missing")!;
-    expect(el.getAttribute("aria-disabled")).toBe("true");
+    await waitFor(() => expect(resolveProjectFile).toHaveBeenCalledWith("/proj", "packages/core/gone.ts"));
+    // 不再有删除线(file-link-missing 已移除),也不再是可点的 file-link → 退化普通 inline code。
+    expect(container.querySelector("code.file-link-missing")).toBeNull();
+    expect(container.querySelector("code.file-link")).toBeNull();
+    const el = container.querySelector("code")!;
     fireEvent.click(el);
     fireEvent.keyDown(el, { key: "Enter" });
     expect(onOpenFile).not.toHaveBeenCalled();
   });
 
-  it("裸文件名能在项目内定位 → 不标 missing,点击仍传原始 ref", async () => {
-    // 真实文件在子目录,resolveProjectFile 命中 → 可点击(回归本次反馈的核心 bug)。
+  it("裸文件名能在项目内定位 → 高亮可点,点击仍传原始 ref", async () => {
+    // 真实文件在子目录,resolveProjectFile 命中 → 命中后点亮为可点 file-link(回归本次反馈的核心 bug)。
     const resolveProjectFile = vi
       .fn<(r: string, ref: string) => Promise<string | null>>()
       .mockResolvedValue("/proj/outputs/docs/002.md");
     const { container, onOpenFile } = renderMd("见 `002.md` 文件", { resolveProjectFile });
-    await waitFor(() => expect(resolveProjectFile).toHaveBeenCalledWith("/proj", "002.md"));
-    expect(container.querySelector("code.file-link-missing")).toBeNull();
+    await waitFor(() => expect(container.querySelector("code.file-link")).not.toBeNull());
+    expect(resolveProjectFile).toHaveBeenCalledWith("/proj", "002.md");
     fireEvent.click(container.querySelector("code.file-link")!);
     expect(onOpenFile).toHaveBeenCalledWith("002.md");
   });
 
-  it("失效的 markdown 链接 → 标 missing 且点击不打开", async () => {
+  it("失效的 markdown 链接 → 退化普通链接,无高亮且点击不打开", async () => {
     const resolveProjectFile = vi.fn<(r: string, ref: string) => Promise<string | null>>().mockResolvedValue(null);
     const { container, onOpenFile } = renderMd("[doc](docs/gone.md)", { resolveProjectFile });
-    await waitFor(() => expect(container.querySelector("a.file-link-missing")).not.toBeNull());
+    await waitFor(() => expect(resolveProjectFile).toHaveBeenCalledWith("/proj", "docs/gone.md"));
+    expect(container.querySelector("a.file-link-missing")).toBeNull();
+    expect(container.querySelector("a.file-link")).toBeNull();
     fireEvent.click(container.querySelector("a")!);
     expect(onOpenFile).not.toHaveBeenCalled();
   });
