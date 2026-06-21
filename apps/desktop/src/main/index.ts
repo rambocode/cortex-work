@@ -88,6 +88,12 @@ function normalizedOS(): "macos" | "windows" | "linux" | "unknown" {
 }
 
 function createWindow(): void {
+  // macOS:启用原生侧栏 vibrancy(NSVisualEffectView「sidebar」材质),让左侧菜单栏透出桌面壁纸,
+  // 并随壁纸明暗自适应磨砂质感。要让材质透出,窗口背景必须透明(#00000000)——否则不透明底色会盖在
+  // vibrancy 之上;非 macOS 保持原不透明底色。CSS 侧由渲染端 <html data-vibrancy="sidebar"> 驱动,
+  // 把侧栏背后的背景链一路打透到窗口(见 packages/views/cortex-desktop/cortex-desktop.css §Sidebar vibrancy)。
+  // 二者门控条件一致——都仅 macOS;此处不设 transparent:true(那是给镂空/穿透窗用的,会让 vibrancy 失效)。
+  const isMacOS = process.platform === "darwin";
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 820,
@@ -97,7 +103,15 @@ function createWindow(): void {
     trafficLightPosition: { x: 16, y: 13 },
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: "#cfcbc1",
+    backgroundColor: isMacOS ? "#00000000" : "#cfcbc1",
+    ...(isMacOS
+      ? {
+          vibrancy: "sidebar" as const,
+          // active:窗口失焦时仍保持磨砂(默认 followWindow 会在失焦时把材质褪为灰色平面),
+          // 保证左侧菜单栏在任何焦点状态下都稳定透出壁纸。
+          visualEffectState: "active" as const,
+        }
+      : {}),
     icon: appIconPath,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),

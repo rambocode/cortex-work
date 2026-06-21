@@ -18,6 +18,15 @@ const openFlashNote =
     : undefined;
 
 export default function App() {
+  // macOS:主进程已给主窗口启用原生「sidebar」vibrancy(见 main/index.ts)。此处在 <html> 挂
+  // data-vibrancy="sidebar",驱动共享样式表把左侧菜单栏背后的背景链打透、透出磨砂材质
+  // (见 cortex-desktop.css §Sidebar vibrancy)。门控与主进程一致——仅 macOS;Web/非 mac 从不设此标记,
+  // 样式完全不受影响。
+  useEffect(() => {
+    if (!isMac) return;
+    document.documentElement.setAttribute("data-vibrancy", "sidebar");
+  }, []);
+
   // 全局热键被占用时拉取一次主进程的降级提示 → 浮层 toast(consume-pending,旧壳无此方法则静默)。
   useEffect(() => {
     window.desktopAPI?.consumeNotesHotkeyDegraded?.().then((text) => {

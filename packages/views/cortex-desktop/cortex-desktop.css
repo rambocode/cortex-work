@@ -49,6 +49,10 @@
   --pw-float-radius: 12px;
   --pw-float-shadow: 0 4px 16px rgba(20, 18, 12, 0.10), 0 1px 3px rgba(20, 18, 12, 0.06);
 
+  /* macOS 侧栏 vibrancy 叠色:在原生「sidebar」磨砂材质上覆一层主题色,既保证文字对比度,
+     又留出透明度让桌面壁纸透出并随之自适应。仅 :root[data-vibrancy="sidebar"] 启用(见 §Sidebar vibrancy)。 */
+  --bg-sidebar-glass: color-mix(in srgb, var(--bg-sidebar) 36%, transparent);
+
   --mono: "SF Mono", "JetBrains Mono", "Menlo", ui-monospace, "Cascadia Mono", monospace;
 }
 
@@ -88,6 +92,10 @@
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
 
   --pw-float-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+
+  /* 暗色:应用主题与系统外观可能不一致(应用暗、系统亮 → 原生材质偏亮),叠色需更不透明以压住背景、
+     保住浅色文字对比;故比亮色更高的不透明度。 */
+  --bg-sidebar-glass: color-mix(in srgb, var(--bg-sidebar) 52%, transparent);
 }
 
 * { box-sizing: border-box; }
@@ -403,6 +411,29 @@ input, textarea { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* ---------- §Sidebar vibrancy(macOS 原生磨砂半透明)----------
+   仅 macOS 桌面端启用:主进程给 BrowserWindow 设 vibrancy:'sidebar'(见 apps/desktop/src/main/index.ts),
+   渲染端在 macOS 给 <html> 挂 data-vibrancy="sidebar"(见 apps/desktop/src/renderer/src/App.tsx)。
+   原理:原生 vibrancy 材质铺在窗口最底层,要透出必须让侧栏背后整条背景链都透明。这里把
+   html→body→.app-frame→.app→.body 在「个人工作区」下打透,再把不透明底色补回主内容区 .pw-main,
+   于是只有左侧菜单栏(及其浮起留白)透出桌面壁纸的磨砂,中/右栏维持不透明。
+   用 :has(.pw-main) 限定个人工作区:经典布局(无 .pw-main)与 Web 端(从不设 data-vibrancy)均不受影响。 */
+:root[data-vibrancy="sidebar"]:has(.pw-main),
+:root[data-vibrancy="sidebar"] body:has(.pw-main),
+:root[data-vibrancy="sidebar"] .app-frame:has(.pw-main),
+:root[data-vibrancy="sidebar"] .app:has(.pw-main),
+:root[data-vibrancy="sidebar"] .body:has(.pw-main) {
+  background: transparent;
+}
+/* 主内容区重新铺不透明底,把磨砂约束在左侧菜单栏区域,不蔓延到中/右栏。 */
+:root[data-vibrancy="sidebar"] .pw-main {
+  background: var(--bg-app);
+}
+/* 左侧菜单栏:半透明叠色,透出底层 vibrancy 材质(桌面壁纸的磨砂),随壁纸明暗自适应。 */
+:root[data-vibrancy="sidebar"] .body:has(.pw-main) > .sidebar {
+  background: var(--bg-sidebar-glass);
 }
 
 /* ---------- Org / workspace switcher ---------- */
