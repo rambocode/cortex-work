@@ -7,9 +7,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { AGENT_MODELS, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
-import type { AgentKind, SessionMeta } from "@cortex-work/core";
+import type { AgentKind, DerivedAgentMeta, SessionMeta } from "@cortex-work/core";
 import { UpdateButton } from "../UpdateButton";
-import { AGENT_AVATAR, AGENT_LABEL, buildAgentSwitchPatch, useChatViewActive } from "./agentMeta";
+import {
+  agentDisplayAvatar,
+  agentDisplayLabel,
+  AGENT_LABEL,
+  buildAgentSwitchPatch,
+  useChatViewActive,
+} from "./agentMeta";
 import { SidebarLeftControls } from "./SidebarControls";
 
 export function PersonalCenterHeader() {
@@ -42,6 +48,7 @@ function PersonalSessionHeader() {
   const runningBySession = usePersonalStore((s) => s.runningBySession);
   const piRuntimeBySession = usePersonalStore((s) => s.piRuntimeBySession);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const derivedAgents = usePersonalStore((s) => s.derivedAgents);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const updateSession = usePersonalStore((s) => s.updateSession);
 
@@ -63,7 +70,9 @@ function PersonalSessionHeader() {
   }
 
   const agent = session.agent;
-  const avatar = AGENT_AVATAR[agent];
+  // 显示用「派生优先」键:有 derivedAgentId 时显示派生名/头像,否则内置(U7)。
+  const displayKey = session.derivedAgentId ?? agent;
+  const avatar = agentDisplayAvatar(displayKey, derivedAgents);
   const realProject = session.projectId ? projects.find((p) => p.id === session.projectId) : undefined;
   const projectName = realProject?.name ?? "无项目";
   const projectPath = realProject?.path ?? session.noProjectDir ?? "";
@@ -82,7 +91,7 @@ function PersonalSessionHeader() {
           <span className="pw-sh-title" title={session.title}>
             {session.title}
           </span>
-          <span className="pw-sh-tag">{AGENT_LABEL[agent]}</span>
+          <span className="pw-sh-tag">{agentDisplayLabel(displayKey, derivedAgents)}</span>
           <button
             type="button"
             className="pw-sh-pathbtn"
@@ -123,7 +132,10 @@ function PersonalSessionHeader() {
       <PersonalAgentSelect
         session={session}
         agentsAvailable={agentsAvailable}
-        onSwitch={(a) => updateSession(session.id, buildAgentSwitchPatch(session, a, providerSettings))}
+        derivedAgents={derivedAgents}
+        onSwitch={(a, derived) =>
+          updateSession(session.id, buildAgentSwitchPatch(session, a, providerSettings, derived))
+        }
       />
       <UpdateButton />
       <PersonalPanelControls />
@@ -136,15 +148,21 @@ function PersonalSessionHeader() {
 function PersonalAgentSelect({
   session,
   agentsAvailable,
+  derivedAgents,
   onSwitch,
 }: {
   session: SessionMeta;
   agentsAvailable: Partial<Record<AgentKind, boolean>> | undefined;
-  onSwitch: (agent: AgentKind) => void;
+  derivedAgents: DerivedAgentMeta[] | undefined;
+  onSwitch: (agent: AgentKind, derived?: DerivedAgentMeta) => void;
 }) {
   const menu = useDismissableMenu();
-  const agent = session.agent;
-  const avatar = AGENT_AVATAR[agent];
+  // 当前选中键:派生优先(显示派生名/头像),否则内置 base。
+  const displayKey = session.derivedAgentId ?? session.agent;
+  const avatar = agentDisplayAvatar(displayKey, derivedAgents);
+  // 派生候选:仅「新 id」(覆盖内置同名 id 的派生不新增条目,仍走内置项,R1)。
+  const builtIn: readonly string[] = ["claude", "codex", "pi"];
+  const derivedNew = (derivedAgents ?? []).filter((d) => !builtIn.includes(d.id));
 
   return (
     <div className="pw-sh-agent">
@@ -165,7 +183,7 @@ function PersonalAgentSelect({
           <span className="pw-sh-agent-avatar" style={{ background: avatar.bg }}>
             {avatar.initials}
           </span>
-          <span className="pw-sh-agent-name">{AGENT_LABEL[agent]}</span>
+          <span className="pw-sh-agent-name">{agentDisplayLabel(displayKey, derivedAgents)}</span>
           <span className={`pw-sh-chev ${menu.open ? "is-open" : ""}`}>
             <Icon.Chevron size={11} />
           </span>
@@ -191,10 +209,26 @@ function PersonalAgentSelect({
                     {AGENT_LABEL[a]}
                     {unavailable ? "（未安装）" : ""}
                   </span>
-                  {a === agent ? <Icon.Check size={13} /> : null}
+                  {/* 选中态:内置项当且仅当无派生标记且 base 匹配(避免派生时把内置也打勾)。 */}
+                  {a === session.agent && !session.derivedAgentId ? <Icon.Check size={13} /> : null}
                 </button>
               );
             })}
+            {/* 用户 JSON 派生的新 agent(U7)。派生跳过 PATH 门控(后端放行),不置灰。 */}
+            {derivedNew.map((d) => (
+              <button
+                key={d.id}
+                className="pw-tb-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  onSwitch(d.base, d);
+                  menu.setOpen(false);
+                }}
+              >
+                <span>{d.label ?? d.id}</span>
+                {d.id === session.derivedAgentId ? <Icon.Check size={13} /> : null}
+              </button>
+            ))}
           </div>
         ) : null}
       </div>

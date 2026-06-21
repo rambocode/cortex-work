@@ -108,6 +108,51 @@ describe("PersonalCenterHeader 会话头（PersonalSessionHeader）", () => {
     expect(screen.queryByText("压缩上下文…")).toBeNull();
   });
 
+  // ── U7:派生 agent 选择器 ──
+  it("agent 菜单列出派生新 id,选中写入 agent=base + derivedAgentId", () => {
+    usePersonalStore.setState({
+      derivedAgents: [{ id: "my-codex", base: "codex", label: "My Codex" }],
+    });
+    const { container } = renderHeader();
+    fireEvent.click(container.querySelector(".pw-sh-agent-btn") as HTMLElement); // 开菜单
+    fireEvent.click(screen.getByText("My Codex")); // 选派生
+    const s = usePersonalStore.getState().sessions.find((x) => x.id === "s1")!;
+    expect(s.agent).toBe("codex"); // session.agent 存 base
+    expect(s.derivedAgentId).toBe("my-codex");
+  });
+
+  it("当前会话为派生 → 会话头与按钮显示派生名称", () => {
+    usePersonalStore.setState({
+      sessions: [{ id: "s1", projectId: "p1", title: "S", agent: "codex", derivedAgentId: "my-codex", createdAt: 0, updatedAt: 0 }],
+      derivedAgents: [{ id: "my-codex", base: "codex", label: "My Codex" }],
+    });
+    renderHeader();
+    expect(screen.getAllByText("My Codex").length).toBeGreaterThan(0);
+  });
+
+  it("覆盖内置同名 id 的派生不在菜单新增条目", () => {
+    usePersonalStore.setState({
+      derivedAgents: [{ id: "codex", base: "codex", label: "Override Codex" }],
+    });
+    const { container } = renderHeader();
+    fireEvent.click(container.querySelector(".pw-sh-agent-btn") as HTMLElement);
+    expect(screen.queryByText("Override Codex")).toBeNull(); // 不新增,仍走内置 Codex 项
+  });
+
+  it("切回内置清除 derivedAgentId", () => {
+    usePersonalStore.setState({
+      sessions: [{ id: "s1", projectId: "p1", title: "S", agent: "codex", derivedAgentId: "my-codex", createdAt: 0, updatedAt: 0 }],
+      derivedAgents: [{ id: "my-codex", base: "codex", label: "My Codex" }],
+      agentsAvailable: { claude: true, codex: true },
+    });
+    const { container } = renderHeader();
+    fireEvent.click(container.querySelector(".pw-sh-agent-btn") as HTMLElement);
+    fireEvent.click(screen.getByText("Claude Code")); // 切回内置
+    const s = usePersonalStore.getState().sessions.find((x) => x.id === "s1")!;
+    expect(s.agent).toBe("claude");
+    expect(s.derivedAgentId).toBeUndefined();
+  });
+
   it("Agent 选择器点击展开下拉,列出可切换 agent", () => {
     renderHeader();
     fireEvent.click(screen.getByRole("button", { name: /Pi/ }));
