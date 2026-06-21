@@ -7770,12 +7770,15 @@ button.sb-row {
 }
 .pw-html-preview-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-/* 内联 code 形态的 http(s) URL(agent 把地址包在反引号里):渲染成可点击外链,进内置浏览器。 */
-code.url-link {
-  color: var(--accent); cursor: pointer;
-  text-decoration: none; transition: text-decoration-color .12s, color .12s;
+/* 可点击外链:内联 code 形态的 URL(`http://...`)与 markdown 外链 <a> 共用。
+   统一蓝色 + 前置地球图标,点击进内置浏览器。 */
+.url-link {
+  display: inline-flex; align-items: center; gap: 3px;
+  color: var(--link); cursor: pointer;
+  text-decoration: none; transition: color .12s;
 }
-code.url-link:hover { text-decoration: underline; }
+.url-link:hover { text-decoration: underline; }
+.url-link svg { flex: none; vertical-align: middle; }
 
 /* 「网页预览」卡片:渲染在 agent 输出含外链的段落正下方(见 chatMarkdown.tsx p / LinkPreviewCard)。 */
 .pw-link-preview-card {

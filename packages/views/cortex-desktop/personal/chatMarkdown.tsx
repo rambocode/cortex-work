@@ -332,6 +332,7 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
               }
             }}
           >
+            <Icon.Globe size={12} />
             {children}
           </code>
         );
@@ -377,6 +378,8 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
           {...rest}
           href={href}
           rel="noreferrer"
+          // 外链统一蓝色 + 前置地球图标,与内联 URL code 视觉一致。
+          className={external ? [rest.className, "url-link"].filter(Boolean).join(" ") : rest.className}
           title={external ? href : rest.title}
           onClick={(e) => {
             // Electron 里 a 默认导航会替换整个窗口,一律 preventDefault 后自行分流。
@@ -389,6 +392,7 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
             // 其余(锚点/项目外/非路径)阻止导航,不做处理。
           }}
         >
+          {external ? <Icon.Globe size={12} /> : null}
           {children}
         </a>
       );
