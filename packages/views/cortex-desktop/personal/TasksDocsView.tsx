@@ -2,7 +2,7 @@
 // （320px 窄轨，不用横向看板）+ 多维标签筛选 + origin 血缘流水线视图 + 卡片「继续」动作。
 // 数据全部来自 core 的 useDocTasks（已解析/归一/打标签/串血缘）；详情复用 MarkdownView。
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   docTasksAvailable,
@@ -15,7 +15,6 @@ import {
   TASK_STATUS_ORDER,
 } from "@cortex-work/core";
 import type { DocMetaView, Tag, TagDim, TaskStatus } from "@cortex-work/core";
-import { useTranslation } from "@cortex-work/core/i18n";
 import { MarkdownView } from "./MarkdownView";
 import { DocEditDialog } from "./DocEditDialog";
 import { relTime } from "./PersonalSidebar";
@@ -82,32 +81,17 @@ function DocCard({
 // 详情态：读 path 渲染 Markdown（只读），可用系统编辑器打开 / 二次编辑发送到 Agent。
 function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => void; onToast: (text: string) => void }) {
   const bridge = useDesktopBridge();
-  const { t } = useTranslation("files");
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [selection, setSelection] = useState("");
-  // 选区浮层锚点（相对 .pw-todo-detail 这个 relative 容器）；null 时不显示。
-  const [selAnchor, setSelAnchor] = useState<{ left: number; top: number } | null>(null);
-  const detailRef = useRef<HTMLDivElement>(null);
 
-  // 选中文本后在选区下方就地浮出「二次编辑」入口（仿 FilesView 选区弹窗）。
-  // 仅在有非空选区时显示；点其它处/折叠选区/滚动则隐藏。
-  const updateSelPopup = () => {
-    const sel = window.getSelection();
-    const text = sel?.toString() ?? "";
-    const base = detailRef.current;
-    if (!text.trim() || !sel || sel.rangeCount === 0 || !base) {
-      setSelAnchor(null);
-      return;
-    }
-    const r = sel.getRangeAt(0).getBoundingClientRect();
-    const b = base.getBoundingClientRect();
+  // 在 md 区选中一段文本（鼠标释放）即直接打开二次编辑面板；空选区不触发。
+  const onSelectText = () => {
+    const text = window.getSelection()?.toString() ?? "";
+    if (!text.trim()) return;
     setSelection(text);
-    setSelAnchor({
-      left: Math.max(8, Math.min(r.left - b.left, b.width - 150)),
-      top: r.bottom - b.top + 6,
-    });
+    setEditOpen(true);
   };
 
   useEffect(() => {
@@ -128,7 +112,7 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
   }, [bridge, doc.path]);
 
   return (
-    <div className="pw-todo-detail" ref={detailRef}>
+    <div className="pw-todo-detail">
       <div className="pw-todo-detail-h">
         <button className="pw-icon-btn" title="返回列表" onClick={onBack}>
           <Icon.Back size={14} />
@@ -148,30 +132,11 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
       ) : content === null ? (
         <div className="pw-editor-loading">加载中…</div>
       ) : (
-        // 选区变化(mouseup/键盘改选)重算浮层；滚动时隐藏避免锚点漂移。
-        <div className="pw-todo-md" onMouseUp={updateSelPopup} onKeyUp={updateSelPopup} onScroll={() => setSelAnchor(null)}>
+        // 选中一段文本（鼠标释放）即直接打开二次编辑面板。
+        <div className="pw-todo-md" onMouseUp={onSelectText}>
           <MarkdownView content={content} />
         </div>
       )}
-      {/* 选区下方浮出「二次编辑」；onMouseDown preventDefault 防点击丢选区。 */}
-      {selAnchor ? (
-        <div
-          className="pw-sel-pop"
-          style={{ left: selAnchor.left, top: selAnchor.top }}
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <button
-            className="pw-ftb-btn"
-            onClick={() => {
-              setEditOpen(true);
-              setSelAnchor(null);
-            }}
-          >
-            <Icon.Edit size={12} />
-            {t("docEdit.open")}
-          </button>
-        </div>
-      ) : null}
       {editOpen ? (
         <DocEditDialog
           path={doc.path}

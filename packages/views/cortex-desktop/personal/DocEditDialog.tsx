@@ -1,7 +1,9 @@
 // tasks 文档「二次编辑」弹框:写调整意见 → 拼「意见 + 文档上下文」→ 复用 personal store 的
 // insertToComposer / sendToTerminal 发到当前会话聊天框或终端。聊天框额外支持「插入并运行」
 // （insertToComposer 带 submit 标志,由 ComposerShell 插入后自动提交;运行中/无会话则降级为仅插入）。
-// 复刻 PiToolConfirmDialog 的 pw-dlg-overlay / pw-confirm-dlg 外壳（遮罩 + stopPropagation + ESC）。
+// 遮罩与面板**只局限在右栏文档区**（pw-doc-edit-overlay 为 position:absolute,
+// 盖住作为定位祖先的 .pw-todo-detail）,不弹整个 App 的全屏遮罩。沿用 pw-confirm-dlg
+// 的紧凑纵向布局（标题 / 意见输入 + 上下文 / 动作）+ stopPropagation + ESC 关闭。
 
 import { useEffect, useMemo, useState } from "react";
 import { usePersonalStore } from "@cortex-work/core";
@@ -57,9 +59,9 @@ export function DocEditDialog({
   };
 
   return (
-    <div className="pw-dlg-overlay" onClick={onClose}>
+    <div className="pw-doc-edit-overlay" onClick={onClose}>
       <div
-        className="pw-dlg pw-confirm-dlg pw-doc-edit-dlg"
+        className="pw-confirm-dlg pw-doc-edit-dlg"
         role="dialog"
         aria-modal="true"
         aria-label={t("docEdit.title")}

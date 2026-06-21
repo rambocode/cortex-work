@@ -403,8 +403,6 @@ export default interface Resources {
       "insertAndRun": "插入并运行",
       "insertToChat": "插入到聊天框",
       "noSelection": "（未选中段落，仅带文档路径）",
-      "open": "二次编辑",
-      "openTitle": "写调整意见并发送到 Agent",
       "placeholder": "写下你的调整意见…",
       "title": "二次编辑"
     },

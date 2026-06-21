@@ -46,8 +46,6 @@
   "sendToTerminalBtn": "Send to terminal",
   "sendToChatBtn": "Send to Chat",
   "docEdit": {
-    "open": "Edit & send",
-    "openTitle": "Write a tweak and send it to the agent",
     "title": "Edit & send",
     "placeholder": "Write your adjustment…",
     "contextLabel": "Context sent along with your note",

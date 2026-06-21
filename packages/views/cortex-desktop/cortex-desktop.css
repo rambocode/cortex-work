@@ -5436,10 +5436,28 @@ button.sb-row {
   margin-top: 4px;
 }
 
-/* tasks 二次编辑弹框:比默认 confirm 宽,容下意见输入区与三动作 + 取消（可换行）。 */
+/* tasks 二次编辑:遮罩与面板只局限在右栏文档区（.pw-todo-detail 是 position:relative 的定位祖先），
+   不弹整个 App 的全屏遮罩。 */
+.pw-doc-edit-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: rgba(26, 25, 22, 0.22);
+}
+/* 面板宽度跟随右栏（不用默认 confirm 的 360 min-width,以免溢出窄轨）。 */
 .pw-doc-edit-dlg {
-  min-width: 440px;
-  max-width: 520px;
+  width: 100%;
+  min-width: 0;
+  max-width: 460px;
+  max-height: 100%;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
 }
 .pw-doc-edit-dlg .pw-confirm-body {
   display: flex;

@@ -9,7 +9,7 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 
 ## Summary
 
-在 tasks 文档详情态选中一段文本后，于选区下方就地浮出「二次编辑」入口（仿 FilesView 选区弹窗，非工具栏常驻按钮）：点击弹框写调整意见，把「文档路径引用 + 选中段落 + 意见」复用 `sendContext` 拼装，经 `usePersonalStore` 送进当前会话聊天框或终端。聊天框额外支持「插入并运行」——通过给现有 `composerInsert` 信号加一个 `submit` 标志，让 `ComposerShell` 插入后自动提交；终端只插入。
+在 tasks 文档详情态选中一段文本后，**直接弹出二次编辑面板**（面板与遮罩**仅限右栏文档区**，不弹全屏遮罩；非工具栏常驻按钮、非浮出小按钮）：写调整意见，把「文档路径引用 + 选中段落 + 意见」复用 `sendContext` 拼装，经 `usePersonalStore` 送进当前会话聊天框或终端。聊天框额外支持「插入并运行」——通过给现有 `composerInsert` 信号加一个 `submit` 标志，让 `ComposerShell` 插入后自动提交；终端只插入。
 
 ---
 
@@ -23,7 +23,7 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 
 **入口与对话框**
 
-- R1. tasks 文档详情态（`DocDetail`）选中一段文本后，于选区下方浮出「二次编辑」入口（`pw-sel-pop` 浮层，非工具栏常驻按钮），点击打开对话框。
+- R1. tasks 文档详情态（`DocDetail`）选中一段文本（鼠标释放）即直接打开二次编辑面板；面板与遮罩**仅限右栏文档区**（`pw-doc-edit-overlay` 为 `position:absolute` 盖住 `.pw-todo-detail`），不弹全屏遮罩。
 - R2. 对话框含多行文本输入框，供用户手写调整意见。
 - R3. 对话框可见地展示本次将携带的上下文（文档路径引用，及选中段落——若有）。
 
@@ -45,9 +45,9 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 
 - KTD1. **扩展现有 `composerInsert` 信号，不另开通道。** 给 `composerInsert` 加可选 `submit?: boolean`，`insertToComposer(text, opts?)` 透传。复用既有 nonce 去重通道，自动提交天然受 `send()` 内部 `running/sending/空文本` 守卫保护。这使「插入后自动发送」成为所有会话共用的通用能力（任何调用方可用），符合 origin 确认的范围。
 - KTD2. **自动提交以「显式文本」触发，不读旧 state。** `send()` 读闭包内 `text` state，而 `setText` 异步——同 tick `setText` 后直接 `send()` 会发旧文本。正解是让发送路径接受**显式文本参数**（现成先例：`ComposerShell.tsx:415` 已有 `onSend(c.cmd, [])` 以显式文本发送 slash 命令），消费 effect 算出最终文本后 `setText` 兼以该显式文本触发发送。`requestAnimationFrame` 仅用于 setText 后聚焦，不作为「等 state 更新」的手段。注意：自动提交须复用 `onSend` 既有分支（`/clear`、`/compact`、editing 重发，见 `PersonalChatArea.tsx:460-483`），并确保拼装文本不被误判为 slash 命令。
-- KTD3. **选区触发浮层 + `window.getSelection()` 取段落。** `DocDetail` 是 `MarkdownView` 渲染态，没有 Monaco 那套选区回调；在 md 容器 `onMouseUp`/`onKeyUp` 读 `window.getSelection()`，非空则按选区矩形（`getRangeAt(0).getBoundingClientRect()` 相对 `.pw-todo-detail`）就地浮出 `pw-sel-pop`，点击打开弹框；滚动时隐藏避免锚点漂移。浮层 `onMouseDown preventDefault` 防点击折叠选区。
+- KTD3. **选区即触发面板 + `window.getSelection()` 取段落。** `DocDetail` 是 `MarkdownView` 渲染态，没有 Monaco 那套选区回调；在 md 容器 `onMouseUp` 读 `window.getSelection()`，非空（trim 后）即把选区文本存入 state 并打开面板。仅监听 `onMouseUp`（不监听 `onKeyUp`，避免 shift 扩选时每个 keyup 反复弹窗）。
 - KTD4. **降级策略（仅聊天框需要）。** 「插入并运行」在 CLI 运行中（`running`）或无活跃会话（composer 未挂载）时，退化为「只插入 + toast 提示」，不排队、不自动新建会话。无会话时插入信号无人消费而丢失——继承 `FilesView` 现有行为。终端通道无此问题：`sendToTerminal` 置 `terminalOpen:true` 会唤起终端，PTY 未就绪时片段先暂存待投递，故无「无终端」降级缺口。
-- KTD5. **弹框拆为独立组件 `DocEditDialog`。** 复刻 `pw-dlg-overlay` + `pw-confirm-dlg` 范式（见 `PiToolConfirmDialog.tsx`），与 `DocDetail` 解耦，避免 `TasksDocsView.tsx` 继续膨胀（现 305 行，受 1200 行上限约束）。
+- KTD5. **面板拆为独立组件 `DocEditDialog`，遮罩限右栏。** 沿用 `pw-confirm-dlg` 紧凑纵向布局，但遮罩用 `pw-doc-edit-overlay`（`position:absolute; inset:0`，盖住作为定位祖先的 `.pw-todo-detail`），**不**用全屏的 `pw-dlg-overlay`；面板宽度跟随右栏（`min-width:0`，避免默认 confirm 的 360 溢出窄轨）。与 `DocDetail` 解耦，避免 `TasksDocsView.tsx` 继续膨胀（1200 行上限）。
 - KTD6. **上下文路径用相对 `doc.path`。** `toTildePath` 对相对路径原样返回，可接受；不为生成 `~` 形式而额外解析绝对路径。
 
 ---
@@ -98,10 +98,10 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
   - `packages/views/cortex-desktop/personal/DocEditDialog.tsx`（新建）
   - `packages/views/cortex-desktop/personal/DocEditDialog.test.tsx`（新建）
   - `packages/views/cortex-desktop/personal/TasksDocsView.tsx`（`DocDetail` 选区浮层 + 接线）
-  - `packages/views/cortex-desktop/cortex-desktop.css`（弹框 `pw-doc-edit-dlg` 样式；复用既有 `pw-sel-pop`）
+  - `packages/views/cortex-desktop/cortex-desktop.css`（局部遮罩 `pw-doc-edit-overlay` + 面板 `pw-doc-edit-dlg` 样式）
 - **Approach:**
-  - `DocDetail` 在 md 容器 `onMouseUp`/`onKeyUp` 检测选区，非空则就地浮出 `pw-sel-pop`「二次编辑」入口（按选区矩形相对 `.pw-todo-detail` 定位，KTD3），点击打开弹框、隐藏浮层；滚动隐藏。把 `onToast` 透传进 `DocDetail`（原签名只有 `doc`/`onBack`）。
-  - `DocEditDialog` 复刻 `pw-dlg-overlay` + `pw-confirm-dlg`（KTD5）：标题、上下文预览（路径 + 选中段落若有）、意见 textarea、三个动作按钮（插入到聊天框 / 插入并运行 / 发送到终端）、ESC 关闭（照 `PiToolConfirmDialog.tsx:25-33`）。
+  - `DocDetail` 在 md 容器 `onMouseUp` 检测选区，非空即存选区文本并打开面板（KTD3）；把 `onToast` 透传进 `DocDetail`（原签名只有 `doc`/`onBack`）。
+  - `DocEditDialog` 用 `pw-doc-edit-overlay`（限右栏的局部遮罩，KTD5）+ `pw-confirm-dlg`：标题、上下文预览（路径 + 无选区提示）、意见 textarea、三个动作按钮（插入到聊天框 / 插入并运行 / 发送到终端）、ESC 关闭（照 `PiToolConfirmDialog.tsx:25-33`）。
   - 拼装（R4）：最终文本 = 用户意见 + 上下文块。有选区时上下文块 = `buildContextSnippet(doc.path, selection)`；无选区时改用裸路径引用（不调用 `buildContextSnippet`，避免空代码围栏）。**弹框的上下文预览必须与实际发送文本一致**——预览有选区/无选区两种形态各自对应同一拼装逻辑。
   - 聊天框走 `insertToComposer(text, { submit })`（「插入」submit=false、「插入并运行」submit=true）；终端走 `sendToTerminal(wrapBracketedPaste(text))`。
   - **意见为空**时禁用全部三个动作按钮（可见禁用态）——意见是必填，不支持仅发上下文。

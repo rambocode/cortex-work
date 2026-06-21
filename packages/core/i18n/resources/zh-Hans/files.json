@@ -46,8 +46,6 @@
   "sendToTerminalBtn": "发送到终端",
   "sendToChatBtn": "发送到 Chat",
   "docEdit": {
-    "open": "二次编辑",
-    "openTitle": "写调整意见并发送到 Agent",
     "title": "二次编辑",
     "placeholder": "写下你的调整意见…",
     "contextLabel": "将随意见一起发送的上下文",
