@@ -12,6 +12,7 @@ import { getAdapter, parseLineEvents } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
+import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
 
 const running = new Map<string, AgentProcess>();
 const VERIFY_TIMEOUT_MS = 3000;
@@ -373,49 +374,8 @@ export function registerCliHandlers(): void {
     const { cmd, args, stdin } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
     assertSpawnCwd(req.cwd);
-    recordAgentTrace({
-      scope: "cli",
-      phase: "start",
-      summary: `${req.agent} start`,
-      runId: req.runId,
-      sessionId: req.sessionId,
-      agent: req.agent,
-      data: { cmd, cwd: req.cwd, argCount: args.length, promptPreview: promptPreview(req.prompt) },
-    });
-    const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req), stdin });
-    running.set(req.runId, proc);
 
-    // 活跃度看门狗(U5):每次 stdout 行 / stderr 数据重置计时;超阈值无活动则杀整组,
-    // 并由 onExit 补发带超时标识的 cli:exit。spawn 后即开始计时,覆盖「起步即静默」。
-    const inactivityMs = resolveCliInactivityTimeoutMs();
-    let watchdogTripped = false;
-    let watchdog: ReturnType<typeof setTimeout> | undefined;
-    const clearWatchdog = () => {
-      if (watchdog) {
-        clearTimeout(watchdog);
-        watchdog = undefined;
-      }
-    };
-    const noteActivity = () => {
-      clearWatchdog();
-      watchdog = setTimeout(() => {
-        watchdogTripped = true;
-        recordAgentTrace({
-          scope: "cli",
-          phase: "watchdog",
-          summary: `${req.agent} inactivity timeout`,
-          runId: req.runId,
-          sessionId: req.sessionId,
-          agent: req.agent,
-          data: { inactivityMs },
-        });
-        proc.kill(); // 整组回收;触发 onExit → 补发 cli:exit(error 标识超时)
-      }, inactivityMs);
-    };
-    noteActivity();
-
-    // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,
-    // 仍能把事件归属到正确的 session 继续渲染/清理。
+    // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,仍能把事件归属到正确 session。
     const sendEvent = (ev: CliStreamEvent) => {
       if (!sender.isDestroyed()) sender.send("cli:event", { runId: req.runId, sessionId: req.sessionId, event: ev });
     };
@@ -423,100 +383,179 @@ export function registerCliHandlers(): void {
       if (!sender.isDestroyed()) sender.send("cli:exit", exit);
     };
 
-    const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
-      noteActivity(); // 任意 stdout 行(含未解析行)都算活跃,重置看门狗
-      // 一行可解析出多个归一化事件(如收尾行含 usage + result),逐个处理。
-      for (const ev of parseLineEvents(adapter, line)) {
-        // text 增量交记录端合并为一条生长段;其它事件(init/tool/usage/result…)走普通 trace(并触发段收尾)。
-        if (ev.type === "text") {
-          recordStreamDelta({
-            scope: "cli",
-            segmentType: "text",
-            delta: ev.delta,
-            runId: req.runId,
-            sessionId: req.sessionId,
-            agent: req.agent,
-          });
-        } else {
+    const inactivityMs = resolveCliInactivityTimeoutMs();
+    const retryMax = DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS;
+
+    // 单次 attempt(U7 安全重试):spawn + 流式管线 + 看门狗 + 收尾。attempt = 已重试次数(首跑 0)。
+    // 顺序重试:旧 attempt 完全退出(onExit)后才发起下一次,故无并发在途事件、无需代际守卫;
+    // 且只在「进程非零退出/空完成 + 未转发过任何可见输出/工具/result 失败」时重试 —— 保证重试前渲染端
+    // 未收到任何终态或可见内容,重试干净(无折叠污染、无重复失败提示、无半截会话续接)。
+    const launchAttempt = (attempt: number): void => {
+      recordAgentTrace({
+        scope: "cli",
+        phase: "start",
+        summary: attempt === 0 ? `${req.agent} start` : `${req.agent} retry#${attempt}`,
+        runId: req.runId,
+        sessionId: req.sessionId,
+        agent: req.agent,
+        data: { cmd, cwd: req.cwd, argCount: args.length, attempt, promptPreview: promptPreview(req.prompt) },
+      });
+      const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req), stdin });
+      running.set(req.runId, proc);
+
+      // 本 attempt 的副作用/失败追踪(重试决策输入)。
+      let sawText = false;
+      let sawTool = false;
+      let sawAny = false; // 是否产出过任意归一化事件(empty_output 判定)
+      let lastResultFailed = false; // 是否转发过 result(ok:false)——转发后不再重试,避免渲染端重复失败
+      let stderrTail = "";
+
+      // 活跃度看门狗(U5):stdout 行 / stderr 数据重置计时;超阈值杀整组,onExit 补发超时 cli:exit。
+      let watchdogTripped = false;
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      const clearWatchdog = () => {
+        if (watchdog) {
+          clearTimeout(watchdog);
+          watchdog = undefined;
+        }
+      };
+      const noteActivity = () => {
+        clearWatchdog();
+        watchdog = setTimeout(() => {
+          watchdogTripped = true;
           recordAgentTrace({
             scope: "cli",
-            phase: "event",
-            summary: `${req.agent} ${ev.type}`,
+            phase: "watchdog",
+            summary: `${req.agent} inactivity timeout`,
             runId: req.runId,
             sessionId: req.sessionId,
             agent: req.agent,
-            data: { parsedEvent: ev },
+            data: { inactivityMs },
           });
+          proc.kill();
+        }, inactivityMs);
+      };
+      noteActivity();
+
+      const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
+        noteActivity(); // 任意 stdout 行(含未解析行)都算活跃,重置看门狗
+        for (const ev of parseLineEvents(adapter, line)) {
+          sawAny = true;
+          if (ev.type === "text") {
+            sawText = true;
+            recordStreamDelta({
+              scope: "cli",
+              segmentType: "text",
+              delta: ev.delta,
+              runId: req.runId,
+              sessionId: req.sessionId,
+              agent: req.agent,
+            });
+          } else {
+            if (ev.type === "tool") sawTool = true;
+            else if (ev.type === "result" && !ev.ok) lastResultFailed = true;
+            recordAgentTrace({
+              scope: "cli",
+              phase: "event",
+              summary: `${req.agent} ${ev.type}`,
+              runId: req.runId,
+              sessionId: req.sessionId,
+              agent: req.agent,
+              data: { parsedEvent: ev },
+            });
+          }
+          sendEvent(ev);
         }
-        sendEvent(ev);
-      }
-    });
+      });
 
-    let stderrTail = "";
-    proc.stderr?.setEncoding("utf8");
-    proc.stderr?.on("data", (chunk: string) => {
-      noteActivity(); // stderr 输出也算活跃
-      stderrTail = (stderrTail + chunk).slice(-2000);
-      recordAgentTrace({
-        scope: "cli",
-        phase: "stderr",
-        summary: `${req.agent} stderr`,
-        runId: req.runId,
-        sessionId: req.sessionId,
-        agent: req.agent,
-        data: { chunk },
+      proc.stderr?.setEncoding("utf8");
+      proc.stderr?.on("data", (chunk: string) => {
+        noteActivity(); // stderr 输出也算活跃
+        stderrTail = (stderrTail + chunk).slice(-2000);
+        recordAgentTrace({
+          scope: "cli",
+          phase: "stderr",
+          summary: `${req.agent} stderr`,
+          runId: req.runId,
+          sessionId: req.sessionId,
+          agent: req.agent,
+          data: { chunk },
+        });
       });
-    });
 
-    proc.onError((err) => {
-      clearWatchdog();
-      console.error(`[cli] ${req.agent} spawn failed: ${err.message}`);
-      recordAgentTrace({
-        scope: "cli",
-        phase: "error",
-        summary: `${req.agent} spawn failed`,
-        runId: req.runId,
-        sessionId: req.sessionId,
-        agent: req.agent,
-        data: { error: err.message },
+      proc.onError((err) => {
+        clearWatchdog();
+        console.error(`[cli] ${req.agent} spawn failed: ${err.message}`);
+        recordAgentTrace({
+          scope: "cli",
+          phase: "error",
+          summary: `${req.agent} spawn failed`,
+          runId: req.runId,
+          sessionId: req.sessionId,
+          agent: req.agent,
+          data: { error: err.message },
+        });
+        proc.stdout?.removeAllListeners();
+        proc.stderr?.removeAllListeners();
+        running.delete(req.runId);
+        sendExit({ runId: req.runId, code: null, error: err.message });
       });
-      // 显式摘除 data 监听:闭包捕获 sender/buffer/adapter,避免进程对象延迟回收时驻留（防泄漏）。
-      proc.stdout?.removeAllListeners();
-      proc.stderr?.removeAllListeners();
-      running.delete(req.runId);
-      sendExit({ runId: req.runId, code: null, error: err.message });
-    });
 
-    proc.onExit((code) => {
-      clearWatchdog();
-      // 冲刷残留的最后一行（无换行结尾时）。
-      flushStdout();
-      // 显式摘除 data 监听:闭包捕获 sender/buffer/adapter,避免进程对象延迟回收时驻留（防泄漏）。
-      proc.stdout?.removeAllListeners();
-      proc.stderr?.removeAllListeners();
-      running.delete(req.runId);
-      // 看门狗触发的终止:被信号杀(code 多为 null),补上明确的超时错误标识供渲染端展示。
-      const timeoutError = watchdogTripped
-        ? `活跃超时:${Math.round(inactivityMs / 1000)} 秒无输出,已终止`
-        : undefined;
-      const error = timeoutError ?? (code !== 0 && code !== null ? stderrTail.trim() || undefined : undefined);
-      if (error) console.error(`[cli] ${req.agent} exited with code ${code}: ${error}`);
-      recordAgentTrace({
-        scope: "cli",
-        phase: "exit",
-        summary: `${req.agent} exit ${code ?? "null"}`,
-        runId: req.runId,
-        sessionId: req.sessionId,
-        agent: req.agent,
-        data: { code, error },
+      proc.onExit((code) => {
+        clearWatchdog();
+        flushStdout(); // 冲刷无换行结尾的最后一行
+        proc.stdout?.removeAllListeners();
+        proc.stderr?.removeAllListeners();
+
+        // 安全重试判定:仅「进程非零退出 或 0 退出但全程无输出」、且未转发过 result 失败、非看门狗、
+        // 非被信号取消(code !== null)时才考虑。满足时渲染端尚未收到任何终态/可见内容,重试干净。
+        const retryEligible =
+          !watchdogTripped && !lastResultFailed && ((code !== 0 && code !== null) || (code === 0 && !sawAny));
+        if (retryEligible) {
+          const failure = classifyAgentFailure({ code, stderrTail, sawAnyOutput: sawAny });
+          const decision = decideSafeRunRetry(
+            failure,
+            { cancelRequested: false, userVisibleOutputSeen: sawText, toolCallSeen: sawTool },
+            attempt,
+            retryMax,
+          );
+          if (decision.shouldRetry) {
+            recordAgentTrace({
+              scope: "cli",
+              phase: "retry",
+              summary: `${req.agent} retry (${failure.category})`,
+              runId: req.runId,
+              sessionId: req.sessionId,
+              agent: req.agent,
+              data: { attempt: attempt + 1, category: failure.category },
+            });
+            sendEvent({ type: "retry", attempt: attempt + 1, maxAttempts: retryMax, reason: failure.category });
+            launchAttempt(attempt + 1); // 顺序重试,新 attempt 覆盖 running 中的 proc
+            return;
+          }
+        }
+
+        // 终态。
+        running.delete(req.runId);
+        const timeoutError = watchdogTripped
+          ? `活跃超时:${Math.round(inactivityMs / 1000)} 秒无输出,已终止`
+          : undefined;
+        const error = timeoutError ?? (code !== 0 && code !== null ? stderrTail.trim() || undefined : undefined);
+        if (error) console.error(`[cli] ${req.agent} exited with code ${code}: ${error}`);
+        recordAgentTrace({
+          scope: "cli",
+          phase: "exit",
+          summary: `${req.agent} exit ${code ?? "null"}`,
+          runId: req.runId,
+          sessionId: req.sessionId,
+          agent: req.agent,
+          data: { code, error },
+        });
+        sendExit({ runId: req.runId, sessionId: req.sessionId, code, error });
       });
-      sendExit({
-        runId: req.runId,
-        sessionId: req.sessionId,
-        code,
-        error,
-      });
-    });
+    };
+
+    launchAttempt(0);
   });
 
   // 一次性短任务（生成 session 标题 / 日报等）:复用各 agent 的 adapter

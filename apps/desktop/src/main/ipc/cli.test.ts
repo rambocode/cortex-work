@@ -222,6 +222,59 @@ describe("cli:start 活跃度看门狗(U5)", () => {
   });
 });
 
+describe("cli:start 安全重试(U7)", () => {
+  it("首事件前瞬态失败(非零退出 + 无输出)→ 重试一次,不提前发终态", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-retry-"));
+    const child1 = fakeChild();
+    const child2 = fakeChild();
+    spawnMock.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "rt-1", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      child1.stderr.emit("data", "fetch failed: ECONNRESET\n"); // 瞬态上游错误
+      child1.emit("close", 1); // 非零退出,无任何输出 → 触发重试
+      // 已发起第二次 spawn 并广播 retry 事件,但尚未发终态 cli:exit。
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+      const retryEvent = send.mock.calls.find((c) => c[0] === "cli:event" && c[1]?.event?.type === "retry");
+      expect(retryEvent?.[1].event).toMatchObject({ type: "retry", attempt: 1 });
+      expect(send).not.toHaveBeenCalledWith("cli:exit", expect.anything());
+      // 第二次成功收尾 → 终态 cli:exit。
+      child2.emit("close", 0);
+      expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-1", code: 0 }));
+    } finally {
+      killSpy.mockRestore();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("已产生可见文本后失败 → 不重试(直接终态)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-retry2-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "rt-2", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      // 先产出可见文本(pi text_delta),再非零退出。
+      child.stdout.emit("data", JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hi" } }) + "\n");
+      child.stderr.emit("data", "fetch failed: ECONNRESET\n");
+      child.emit("close", 1);
+      expect(spawnMock).toHaveBeenCalledTimes(1); // 未重试
+      expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-2", code: 1 }));
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
