@@ -18,6 +18,7 @@ import type {
   CliStartRequest,
   CliStreamEvent,
   ContentSearchResult,
+  DerivedAgentMeta,
   CronValidation,
   DesktopBehavior,
   EditorInfo,
@@ -123,6 +124,10 @@ export interface DesktopBridge {
   // 检测 PATH 中已安装的 agent CLI（pi 内置恒可用）。可选,无此能力时
   // renderer 按全不可用处理,新建会话兜底到 pi。
   detectAgents?(): Promise<Record<AgentKind, boolean>>;
+  // M3-A:列出用户 JSON(agents.local.json)派生/覆盖的 agent;reload 改文件后刷新主进程缓存。
+  // 可选,无此能力(Web 端 / 旧壳)时 renderer 当作无派生 agent。
+  listAgentProfiles?(): Promise<DerivedAgentMeta[]>;
+  reloadAgentProfiles?(): Promise<DerivedAgentMeta[]>;
   // Markdown 预览里的链接:用系统默认浏览器打开（仅 http/https）。
   openExternal?(url: string): Promise<void>;
   // 内嵌浏览器面板「清除浏览数据」:清空 persist:browser-panel 分区的 cookie/缓存/storage。

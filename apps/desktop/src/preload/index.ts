@@ -15,6 +15,7 @@ import type {
   CliStartRequest,
   CliStreamEvent,
   ContentSearchResult,
+  DerivedAgentMeta,
   CronValidation,
   EditorInfo,
   ImageReadResult,
@@ -137,6 +138,9 @@ const personal = {
     ipcRenderer.invoke("shell:openInEditor", path, editorId),
   // 检测 PATH 中已安装的 agent CLI（pi 内置恒可用）
   detectAgents: (): Promise<Record<AgentKind, boolean>> => ipcRenderer.invoke("agents:detect"),
+  // M3-A:列出用户 JSON(agents.local.json)派生/覆盖的 agent;reload 改文件后刷新缓存。
+  listAgentProfiles: (): Promise<DerivedAgentMeta[]> => ipcRenderer.invoke("agents:profiles"),
+  reloadAgentProfiles: (): Promise<DerivedAgentMeta[]> => ipcRenderer.invoke("agents:reloadProfiles"),
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
   loadChat: (sessionId: string): Promise<unknown[]> => ipcRenderer.invoke("chat:load", sessionId),

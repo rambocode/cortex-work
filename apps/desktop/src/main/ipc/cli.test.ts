@@ -58,6 +58,7 @@ import {
   registerCliHandlers,
   startAgentProcess,
   spawnEnvFor,
+  spawnEnvForDef,
 } from "./cli";
 import { PI_KEY_ENV } from "../agents/pi-providers";
 
@@ -643,6 +644,20 @@ describe("spawnEnvFor", () => {
   it("claude:基础 env,不含 PI key", () => {
     const env = spawnEnvFor({ agent: "claude" });
     expect(env[PI_KEY_ENV]).toBeUndefined();
+  });
+});
+
+describe("spawnEnvForDef(M3-A 派生 env 注入)", () => {
+  it("def.extraEnv 合并进 env,覆盖同名键", () => {
+    const env = spawnEnvForDef({ agent: "my-claude" }, { extraEnv: { ANTHROPIC_BASE_URL: "https://x", PATH: "/only" } });
+    expect(env.ANTHROPIC_BASE_URL).toBe("https://x");
+    expect(env.PATH).toBe("/only"); // profile 显式覆盖基础 PATH
+  });
+
+  it("无 extraEnv 等价于 spawnEnvFor", () => {
+    const env = spawnEnvForDef({ agent: "claude" }, {});
+    expect(env[PI_KEY_ENV]).toBeUndefined();
+    expect(env.PATH).toBeDefined();
   });
 });
 

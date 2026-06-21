@@ -8,7 +8,7 @@ import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, readdirSync, realpathSync, statSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpSettings, TrimSessionRequest } from "./types";
-import { getAgentDef, parseLineEvents } from "../agents";
+import { getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -304,6 +304,17 @@ export function spawnEnvFor(req: { agent: string; provider?: { apiKey?: string }
   return env;
 }
 
+// 在 spawnEnvFor 基础上合并 def.extraEnv(M3-A:用户 JSON 派生 agent 注入的自定义 env)。
+// 内置 def 无 extraEnv,等价于 spawnEnvFor。profile 的 env 覆盖基础 env 同名键。
+export function spawnEnvForDef(
+  req: { agent: string; provider?: { apiKey?: string } },
+  def: { extraEnv?: Record<string, string> },
+): NodeJS.ProcessEnv {
+  const env = spawnEnvFor(req);
+  if (def.extraEnv) Object.assign(env, def.extraEnv);
+  return env;
+}
+
 function verifyAgentCli(agent: Exclude<AgentKind, "pi">, env: NodeJS.ProcessEnv): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
@@ -363,8 +374,12 @@ function agentUnavailableMessage(agent: Exclude<AgentKind, "pi">): string {
   return `${agent === "claude" ? "Claude Code" : "Codex"} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Pi。`;
 }
 
-async function assertAgentAvailable(agent: AgentKind): Promise<void> {
+async function assertAgentAvailable(agent: string): Promise<void> {
   if (agent === "pi") return;
+  // M3-A:派生/覆盖的 agent(用户 JSON)跳过 PATH 检测 —— 它可能指向不在 PATH 上的自定义 bin,
+  // 内置名检测会误判;用户既已显式配置,放行由 spawn 暴露真实错误。覆盖内置同名 id 同理。
+  if (listAgentProfiles().some((p) => p.id === agent)) return;
+  if (agent !== "claude" && agent !== "codex") return; // 仅内置 claude/codex 走 PATH 门控
   const available = await detectAgents();
   if (available[agent] === false) throw new Error(agentUnavailableMessage(agent));
 }
@@ -449,7 +464,7 @@ export function registerCliHandlers(): void {
         agent: req.agent,
         data: { cmd, cwd: req.cwd, argCount: args.length, attempt, promptPreview: promptPreview(req.prompt) },
       });
-      const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req), stdin });
+      const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvForDef(req, adapter), stdin });
       running.set(req.runId, proc);
 
       // 本 attempt 的副作用/失败追踪(重试决策输入)。
@@ -681,7 +696,7 @@ export function registerCliHandlers(): void {
       return new Promise<string>((resolve, reject) => {
         const proc = startAgentProcess(cmd, args, {
           cwd,
-          env: spawnEnvFor({ agent, provider }),
+          env: spawnEnvForDef({ agent, provider }, adapter),
           stdin,
         });
         let out = "";
@@ -790,6 +805,14 @@ export function registerCliHandlers(): void {
   ipcMain.handle("cli:trimSession", (_e, req: TrimSessionRequest) => trimAgentSession(req));
 
   ipcMain.handle("agents:detect", () => detectAgents());
+
+  // M3-A:列出用户 JSON(agents.local.json)派生/覆盖的 agent,供渲染端在选择器列出新 agent。
+  ipcMain.handle("agents:profiles", () => listAgentProfiles());
+  // 用户改 agents.local.json 后主动刷新缓存,下次 getAgentDef/profiles 重新读盘。
+  ipcMain.handle("agents:reloadProfiles", () => {
+    refreshLocalAgentProfiles();
+    return listAgentProfiles();
+  });
 
   ipcMain.handle("cli:kill", (_e, runId: string) => {
     // 先标记取消,再 kill()——onExit 据此抑制安全重试(即便 CLI 以非零码退出也不复活)。

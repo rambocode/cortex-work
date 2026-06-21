@@ -10,7 +10,7 @@
 
 import { homedir } from "os";
 import type { AgentProcess } from "../ipc/cli";
-import { assertSpawnCwd, detectAgents, spawnEnvFor, startAgentProcess } from "../ipc/cli";
+import { assertSpawnCwd, detectAgents, spawnEnvForDef, startAgentProcess } from "../ipc/cli";
 import { getAgentDef, parseLineEvents } from "../agents";
 import { CODEX_MCP_CLEAR } from "../ipc/mcp-config";
 import { writePiExtension } from "../agents/pi-providers";
@@ -171,7 +171,7 @@ export async function runAutomation(
     const adapter = getAgentDef(meta.agent);
     const { cmd, args, stdin } = adapter.buildArgs(req, CODEX_MCP_CLEAR); // 自动化后台批跑:codex 清空 MCP(沿用 M1);claude/pi 忽略
     assertSpawnCwd(cwd);
-    proc = startAgentProcess(cmd, args, { cwd, env: spawnEnvFor(req), stdin });
+    proc = startAgentProcess(cmd, args, { cwd, env: spawnEnvForDef(req, adapter), stdin });
   } catch (err) {
     run.status = "error";
     run.error = err instanceof Error ? err.message : String(err);

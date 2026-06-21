@@ -12,7 +12,13 @@
 //   imageDelivery    native-flag(--image)/ prompt-text(拼进文本)/ none
 //   appendSystemPrompt native-flag(原生 flag)/ prompt-wrap(<user_request> 包裹)/ none
 
-import type { AgentKind, CliStartRequest, CliStreamEvent } from "../ipc/types";
+import type { CliStartRequest, CliStreamEvent, DerivedAgentMeta } from "../ipc/types";
+import {
+  defaultAgentProfilesPath,
+  deriveAgentDef,
+  readLocalAgentProfilesFile,
+  type LocalAgentProfile,
+} from "./agent-profiles";
 import { claudeDef } from "./claude";
 import { codexDef } from "./codex";
 import { piDef } from "./pi";
@@ -24,13 +30,16 @@ export type ImageDelivery = "native-flag" | "prompt-text" | "none";
 export type AppendSystemPrompt = "native-flag" | "prompt-wrap" | "none";
 
 export interface AgentDef {
-  id: AgentKind;
+  // 内置 def 用 AgentKind;M3-A 用户 JSON 派生的 def 可为任意合法 id,故放宽为 string。
+  id: string;
   // ── 能力位(声明式)。mcpInjection 由公共管线消费;其余位描述各 adapter 自身策略(见文件头注释)──
   promptDelivery: PromptDelivery;
   mcpInjection: McpInjection;
   sessionResume: SessionResume;
   imageDelivery: ImageDelivery;
   appendSystemPrompt: AppendSystemPrompt;
+  // 注入子进程的额外环境变量(M3-A 派生 def 用;内置 def 为 undefined)。由 spawn 站点合并进 env。
+  extraEnv?: Record<string, string>;
   // ── 两个纯函数 ──
   // 返回可执行名与参数(可执行名不带路径，由 cli.ts 结合 PATH 解析),以及可选的 stdin 负载。
   // stdin 存在时(claude/codex):prompt 经 stdin 投递、不进 argv,绕开命令行长度上限(E2BIG/ENAMETOOLONG);
@@ -55,8 +64,54 @@ const AGENT_DEFS: Record<string, AgentDef> = {
   pi: piDef,
 };
 
+// ── M3-A:用户 JSON(agents.local.json)派生/覆盖 agent ──────────────────────────────
+// profiles 懒加载 + 缓存:首次 getAgentDef/listAgentProfiles 时读盘派生,之后命中缓存,直到
+// refreshLocalAgentProfiles() 失效(用户改文件后由 IPC 触发)。loader 可注入便于单测。
+
+let profilesLoader: () => LocalAgentProfile[] = () =>
+  readLocalAgentProfilesFile(defaultAgentProfilesPath());
+
+let derivedCache: Record<string, AgentDef> | null = null;
+let derivedMetaCache: DerivedAgentMeta[] | null = null;
+
+function loadDerived(): Record<string, AgentDef> {
+  if (derivedCache) return derivedCache;
+  const map: Record<string, AgentDef> = {};
+  const meta: DerivedAgentMeta[] = [];
+  for (const p of profilesLoader()) {
+    const base = AGENT_DEFS[p.base];
+    if (!base) continue; // base 必是内置(parseLocalAgentProfiles 已校验),防御性跳过
+    map[p.id] = deriveAgentDef(base, p);
+    meta.push({ id: p.id, base: p.base, label: p.label });
+  }
+  derivedCache = map;
+  derivedMetaCache = meta;
+  return map;
+}
+
+// 用户改 agents.local.json 后失效缓存,下次访问重新读盘派生。
+export function refreshLocalAgentProfiles(): void {
+  derivedCache = null;
+  derivedMetaCache = null;
+}
+
+// 测试注入点:传 null 恢复默认(读真实文件)。设置后自动失效缓存。
+export function setLocalAgentProfilesLoader(fn: (() => LocalAgentProfile[]) | null): void {
+  profilesLoader = fn ?? (() => readLocalAgentProfilesFile(defaultAgentProfilesPath()));
+  refreshLocalAgentProfiles();
+}
+
+// 解析 agent → def。派生/覆盖优先(用户 JSON 覆盖内置同名 id),否则取内置;均无则抛错。
 export function getAgentDef(agent: string): AgentDef {
+  const derived = loadDerived()[agent];
+  if (derived) return derived;
   const def = AGENT_DEFS[agent];
   if (!def) throw new Error(`未知 agent: ${agent}`);
   return def;
+}
+
+// 列出用户派生的 agent 元数据(供渲染端在 agent 选择器列出新 agent)。覆盖内置同名的也在内。
+export function listAgentProfiles(): DerivedAgentMeta[] {
+  loadDerived();
+  return derivedMetaCache ?? [];
 }

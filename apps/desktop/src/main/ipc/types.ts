@@ -3,6 +3,14 @@
 
 export type AgentKind = "claude" | "codex" | "pi";
 
+// M3-A:用户 JSON(agents.local.json)派生/覆盖的 agent 元数据(经 agents:profiles IPC 透出,
+// 供渲染端在 agent 选择器列出新 agent)。spawn 时 agent 字段用其 id。与 core 镜像同步。
+export interface DerivedAgentMeta {
+  id: string;
+  base: AgentKind;
+  label?: string;
+}
+
 export interface PromptNode {
   name: string;
   path: string;

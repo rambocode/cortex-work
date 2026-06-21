@@ -18,7 +18,7 @@ import type { AgentKind, AskFollowupRequest, CliStreamEvent } from "./types";
 import { getAgentDef, parseLineEvents } from "../agents";
 import { CODEX_MCP_CLEAR } from "./mcp-config";
 import { writePiExtension } from "../agents/pi-providers";
-import { type AgentProcess, pipeStdoutLines, spawnEnvFor, startAgentProcess } from "./cli";
+import { type AgentProcess, pipeStdoutLines, spawnEnvForDef, startAgentProcess } from "./cli";
 import { recordAgentTrace } from "./agent-trace";
 
 const running = new Map<string, AgentProcess>();
@@ -88,7 +88,7 @@ export function registerAskHandlers(): void {
     });
     const proc = startAgentProcess(built.cmd, args, {
       cwd,
-      env: spawnEnvFor({ agent: req.agent, provider: req.provider }),
+      env: spawnEnvForDef({ agent: req.agent, provider: req.provider }, adapter),
       stdin: built.stdin, // claude/codex 经 stdin 投递 prompt(U4);pi 为 undefined
     });
     running.set(req.askId, proc);
