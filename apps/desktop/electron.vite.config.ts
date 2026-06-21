@@ -21,6 +21,13 @@ export default defineConfig({
           index: resolve("src/preload/index.ts"),
           annotation: resolve("src/preload/annotation.ts"),
         },
+        // 强制 CJS + .js 扩展:① 现网 main 以 ../preload/index.js 引用(默认单入口本是 CJS .js,
+        // 多入口若不指定会变 .mjs 破坏引用);② webview 沙箱 preload 必须 CJS(annotation.js)。
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].js",
+          chunkFileNames: "chunks/[name]-[hash].js",
+        },
       },
     },
   },
