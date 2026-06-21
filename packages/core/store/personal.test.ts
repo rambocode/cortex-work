@@ -67,6 +67,15 @@ describe("pi 扩展市场 store（U2）", () => {
   });
 });
 
+describe("派生 agent store（U7）", () => {
+  it("setDerivedAgents 写入并可读、可清空", () => {
+    usePersonalStore.getState().setDerivedAgents([{ id: "my-codex", base: "codex", label: "My Codex" }]);
+    expect(usePersonalStore.getState().derivedAgents).toEqual([{ id: "my-codex", base: "codex", label: "My Codex" }]);
+    usePersonalStore.getState().setDerivedAgents([]);
+    expect(usePersonalStore.getState().derivedAgents).toEqual([]);
+  });
+});
+
 function proj(patch: Partial<ProjectMeta> & Pick<ProjectMeta, "id">): ProjectMeta {
   return { name: patch.id, path: `/code/${patch.id}`, addedAt: 1, ...patch };
 }

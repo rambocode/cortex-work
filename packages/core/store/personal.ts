@@ -5,6 +5,7 @@
 import { create } from "zustand";
 import type {
   AgentKind,
+  DerivedAgentMeta,
   DailyEncouragement,
   GeneralSettings,
   PermissionMode,
@@ -144,6 +145,8 @@ export interface PersonalState {
   ttsSettings: TtsSettings;
   // 各 agent 是否可用（主进程探测,不持久化;启动时回填）。
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
+  // 用户 JSON(agents.local.json)派生的 agent(主进程读盘,不持久化;启动时经 listAgentProfiles 回填,U7)。
+  derivedAgents?: DerivedAgentMeta[];
   // 供应商（Provider）注册表（持久化;pi 会话/自动化据此选端点）。
   providerSettings: ProviderSettings;
   // 通用设置（工作目录/桌面行为/通知/日志,持久化;主进程消费部分立即落盘）。
@@ -168,6 +171,7 @@ export interface PersonalState {
   // 归档项目:设 archivedAt、清 pinnedAt;若该项目正激活/在时间线则让出焦点。
   archiveProject: (id: string) => void;
   setAgentsAvailable: (avail: Partial<Record<AgentKind, boolean>>) => void;
+  setDerivedAgents: (agents: DerivedAgentMeta[]) => void;
   // 供应商注册表:整体 patch + provider 级增删改 + 设默认。
   setProviderSettings: (patch: Partial<ProviderSettings>) => void;
   addProvider: (provider: ProviderProfile) => void;
@@ -422,6 +426,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     })),
 
   setAgentsAvailable: (avail) => set({ agentsAvailable: avail }),
+  setDerivedAgents: (agents) => set({ derivedAgents: agents }),
 
   setProviderSettings: (patch) => set((s) => ({ providerSettings: { ...s.providerSettings, ...patch } })),
 

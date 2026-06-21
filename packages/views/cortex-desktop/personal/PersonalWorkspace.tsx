@@ -62,6 +62,7 @@ export function PersonalWorkspace({
     s.timelineProjectId ? s.projects.find((p) => p.id === s.timelineProjectId) : undefined,
   );
   const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
+  const setDerivedAgents = usePersonalStore((s) => s.setDerivedAgents);
   usePersonalPersistence();
   usePersonalCliEvents();
   // pi RPC 会话事件流（与 CLI 事件并列挂载一次）；bridge 无 onPiEvent 时内部空转。
@@ -83,6 +84,12 @@ export function PersonalWorkspace({
   useEffect(() => {
     bridge?.detectAgents?.().then(setAgentsAvailable).catch(() => {});
   }, [bridge, setAgentsAvailable]);
+
+  // 启动时加载用户 JSON 派生的 agent(agents.local.json),供 agent 选择器列出新 agent(U7)。
+  // 桥不可用/读失败静默退化为无派生(选择器仅内置三者)。
+  useEffect(() => {
+    bridge?.listAgentProfiles?.().then(setDerivedAgents).catch(() => {});
+  }, [bridge, setDerivedAgents]);
 
   if (!bridge) {
     return (
