@@ -13,7 +13,7 @@ import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
-import { applyClaudeMcp, buildCodexMcpArgs } from "./mcp-config";
+import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
 import { getPersistedState } from "./store";
 
 const running = new Map<string, AgentProcess>();
@@ -656,16 +656,19 @@ export function registerCliHandlers(): void {
       const adapter = getAgentDef(agent);
       const provider = agent === "pi" ? req.provider : undefined;
       const piExtensionPath = provider ? writePiExtension(provider) : undefined;
-      const { cmd, args, stdin } = adapter.buildArgs({
-        runId: "oneshot",
-        sessionId: "oneshot",
-        agent,
-        cwd,
-        prompt: req.prompt,
-        model: req.model,
-        provider,
-        piExtensionPath,
-      });
+      const { cmd, args, stdin } = adapter.buildArgs(
+        {
+          runId: "oneshot",
+          sessionId: "oneshot",
+          agent,
+          cwd,
+          prompt: req.prompt,
+          model: req.model,
+          provider,
+          piExtensionPath,
+        },
+        CODEX_MCP_CLEAR, // 轻量任务:codex 清空 MCP(沿用 M1,避免加载用户重 MCP);claude/pi 忽略
+      );
       assertSpawnCwd(cwd);
       recordAgentTrace({
         scope: "oneshot",

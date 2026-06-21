@@ -1,39 +1,61 @@
 // MCP 声明式注入(U2)。纯逻辑 + 基于 fs 的 apply,不 import electron(便于单测,同 session-trim.ts 模式)。
 // 策略由 AgentDef.mcpInjection 能力位决定,公共管线(cli.ts)在 spawn 前调用本模块。
 //
-// 严格 gate(安全红线 RISK-2):**绝不覆盖用户自己的 .mcp.json**。app 自写的 .mcp.json 旁边放一个
-// sentinel 标记文件(.mcp.json.cortex);判定:
-//   - 存在 .mcp.json 且无标记 → 用户自有文件,一律不碰(不写、不删、不注入);
-//   - 存在标记 → app 自写,可改写 / 清理。
-// 关态语义(用户决定):总开关关时不注入不覆盖 —— claude 原生加载用户 cwd .mcp.json(若有)、
-// codex 原生继承 ~/.codex 配置;app 只清理自己之前写的 stale。
+// 严格 gate(安全红线 RISK-2):**绝不覆盖/删除用户自己的 .mcp.json**。app 自写 .mcp.json 时,在旁边
+// 写一个标记文件 .mcp.json.cortex,内容 = 所写 .mcp.json 的内容哈希。判定「app 所有」要求:标记存在
+// **且**当前 .mcp.json 的内容哈希与标记记录一致 —— 即文件自 app 写入后未被用户改动。一旦用户编辑过
+// (哈希不匹配)或无标记,均视为用户文件,一律不碰(不写、不删、不注入)。写入用 `wx`/原子方式并在
+// 删除前复核哈希,关闭 existsSync→write 之间的 TOCTOU 窗口。
+//
+// 密钥安全:写入的 .mcp.json 可能含 env/headers 明文且落在用户项目目录(常是 git 仓库),故写入时同步
+// 确保 cwd/.gitignore 含 .mcp.json 与标记,避免误提交。
 
+import { createHash } from "crypto";
 import { existsSync, promises as fsp } from "fs";
 import { join } from "path";
 import type { McpServerConfig, McpSettings } from "./types";
 
 const MCP_FILE = ".mcp.json";
-const MCP_MARKER = ".mcp.json.cortex"; // app 自写标记;有它才允许接管/清理 .mcp.json
+const MCP_MARKER = ".mcp.json.cortex"; // 内容 = app 所写 .mcp.json 的哈希
+const GITIGNORE = ".gitignore";
 
-// claude 的 .mcp.json 内容:{ mcpServers: { <id>: {command,args,env} | {url,headers} } }。
+// 轻量路径(oneshot 标题/日报、ask 追问、automation)给 codex 的「清空 MCP」mcpArgs:沿用 M1 的
+// clean-slate,避免快任务加载用户 ~/.codex 的重 MCP server 拖慢/卡住。仅主会话按总开关注入。
+// claude/pi 的 buildArgs 忽略 mcpArgs,传入无副作用。
+export const CODEX_MCP_CLEAR: string[] = ["-c", "mcp_servers={}"];
+
+function sha256(s: string): string {
+  return createHash("sha256").update(s, "utf8").digest("hex");
+}
+
+// server id 校验:用作 codex dotted TOML key 段与 claude/codex 的 server 名,必须是 TOML 裸键安全字符,
+// 否则会错位或破坏解析(安全/健壮性)。非法 id 一律跳过注入。
+export function isValidServerId(id: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(id);
+}
+
+// claude 的 .mcp.json 内容:{ mcpServers: { <id>: {command,args,env} | {type,url,headers} } }。
+// 非法 id 跳过。sse/http 带 type 字段(claude 远程 server 需要),否则会被误判为 stdio。
 export function buildClaudeMcpJson(servers: McpServerConfig[]): string {
   const mcpServers: Record<string, unknown> = {};
   for (const s of servers) {
+    if (!isValidServerId(s.id)) continue;
     mcpServers[s.id] =
       s.transport === "stdio"
         ? { command: s.command, ...(s.args ? { args: s.args } : {}), ...(s.env ? { env: s.env } : {}) }
-        : { url: s.url, ...(s.headers ? { headers: s.headers } : {}) };
+        : { type: s.transport, url: s.url, ...(s.headers ? { headers: s.headers } : {}) };
   }
   return JSON.stringify({ mcpServers }, null, 2);
 }
 
 // codex 经 -c 注入(dotted path,值按 TOML 解析;实测 `codex exec -c mcp_servers.<id>.command="..."`)。
-// 取代 M1 的 `-c mcp_servers={}` 清空。stdio 用 command/args/env;sse/http 用 url。
+// 取代 M1 的 `-c mcp_servers={}` 清空。非法 id 跳过。stdio 用 command/args/env;sse/http 用 url。
 export function buildCodexMcpArgs(settings: McpSettings): string[] {
   if (!settings.enabled || settings.servers.length === 0) return [];
   const out: string[] = [];
   const push = (key: string, tomlValue: string) => out.push("-c", `${key}=${tomlValue}`);
   for (const s of settings.servers) {
+    if (!isValidServerId(s.id)) continue;
     const base = `mcp_servers.${s.id}`;
     if (s.transport === "stdio") {
       if (s.command) push(`${base}.command`, JSON.stringify(s.command)); // TOML 基本字符串
@@ -46,43 +68,82 @@ export function buildCodexMcpArgs(settings: McpSettings): string[] {
   return out;
 }
 
-// 把 {K:"v"} 编码为 TOML 行内表 `{ K = "v" }`。
+// 把 {K:"v"} 编码为 TOML 行内表 `{ "K" = "v" }`。键也用 JSON.stringify 转义(env 名含特殊字符时仍合法)。
 function tomlInlineTable(obj: Record<string, string>): string {
-  const entries = Object.entries(obj).map(([k, v]) => `${k} = ${JSON.stringify(v)}`);
+  const entries = Object.entries(obj).map(([k, v]) => `${JSON.stringify(k)} = ${JSON.stringify(v)}`);
   return `{ ${entries.join(", ")} }`;
 }
 
 export type ClaudeMcpAction = "write" | "clean" | "skip";
 
-// 纯决策(便于单测):给定开关/清单与 cwd 文件现状,决定对 .mcp.json 的动作。
+// 纯决策(便于单测)。appManaged = 标记存在且文件内容哈希与标记一致(自 app 写入后未被用户改动)。
 export function decideClaudeMcpAction(input: {
   enabled: boolean;
   serverCount: number;
   hasMcpFile: boolean;
-  hasMarker: boolean;
+  appManaged: boolean;
 }): ClaudeMcpAction {
-  const appManaged = input.hasMarker;
-  const userOwned = input.hasMcpFile && !appManaged;
-  if (userOwned) return "skip"; // 用户自有文件:一律不碰
+  const userOwned = input.hasMcpFile && !input.appManaged; // 无标记 或 内容已被用户改动
+  if (userOwned) return "skip"; // 用户自有/已改动文件:一律不碰
   if (input.enabled && input.serverCount > 0) return "write"; // 注入(无用户文件)
-  return appManaged ? "clean" : "skip"; // 关/空:清自写 stale,否则无事
+  return input.appManaged ? "clean" : "skip"; // 关/空:清自写 stale,否则无事
 }
 
-// 对某 cwd 执行 claude MCP 注入/清理(严格 gate)。返回执行的动作,便于诊断与测试。
+// 判定某 cwd 的 .mcp.json 是否「app 所有且未被改动」:标记存在 + 当前文件哈希 == 标记记录哈希。
+async function isAppManaged(filePath: string, markerPath: string): Promise<boolean> {
+  if (!existsSync(markerPath) || !existsSync(filePath)) return false;
+  try {
+    const [recorded, current] = await Promise.all([fsp.readFile(markerPath, "utf8"), fsp.readFile(filePath, "utf8")]);
+    return recorded.trim() === sha256(current);
+  } catch {
+    return false;
+  }
+}
+
+// 写入时确保 cwd/.gitignore 含 .mcp.json 与标记(避免把含密钥的注入文件误提交)。best-effort。
+async function ensureGitignore(cwd: string): Promise<void> {
+  const path = join(cwd, GITIGNORE);
+  try {
+    let content = existsSync(path) ? await fsp.readFile(path, "utf8") : "";
+    const lines = new Set(content.split("\n").map((l) => l.trim()));
+    const want = [MCP_FILE, MCP_MARKER].filter((e) => !lines.has(e));
+    if (want.length === 0) return;
+    if (content && !content.endsWith("\n")) content += "\n";
+    content += `# Cortex Desktop MCP(自动注入,勿提交)\n${want.join("\n")}\n`;
+    await fsp.writeFile(path, content, "utf8");
+  } catch {
+    /* .gitignore 写失败不阻断 */
+  }
+}
+
+// 对某 cwd 执行 claude MCP 注入/清理(严格 gate + 原子/防 TOCTOU)。返回执行的动作,便于诊断与测试。
 export async function applyClaudeMcp(cwd: string, settings: McpSettings): Promise<ClaudeMcpAction> {
   const filePath = join(cwd, MCP_FILE);
   const markerPath = join(cwd, MCP_MARKER);
+  const appManaged = await isAppManaged(filePath, markerPath);
+  const validServers = settings.servers.filter((s) => isValidServerId(s.id));
   const action = decideClaudeMcpAction({
     enabled: settings.enabled,
-    serverCount: settings.servers.length,
+    serverCount: validServers.length,
     hasMcpFile: existsSync(filePath),
-    hasMarker: existsSync(markerPath),
+    appManaged,
   });
   if (action === "write") {
-    await fsp.writeFile(filePath, buildClaudeMcpJson(settings.servers), "utf8");
-    await fsp.writeFile(markerPath, "cortex-managed\n", "utf8"); // 标记 app 所有
+    const content = buildClaudeMcpJson(validServers);
+    // 'wx' 排他写:若 write 决策基于「文件不存在」,但写入瞬间已被他人创建 → EEXIST,改判用户文件 → 放弃。
+    try {
+      await fsp.writeFile(filePath, content, { encoding: "utf8", flag: appManaged ? "w" : "wx" });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EEXIST") return "skip"; // TOCTOU:窗口内出现用户文件,不覆盖
+      throw e;
+    }
+    await fsp.writeFile(markerPath, sha256(content) + "\n", "utf8"); // 记录内容哈希
+    await ensureGitignore(cwd);
   } else if (action === "clean") {
-    await fsp.rm(filePath, { force: true });
+    // 删除前再复核 app 所有(标记+哈希),避免删到窗口内被改动/替换的文件。
+    if (await isAppManaged(filePath, markerPath)) {
+      await fsp.rm(filePath, { force: true });
+    }
     await fsp.rm(markerPath, { force: true });
   }
   return action;

@@ -12,6 +12,24 @@ const spawnMock = vi.fn();
 const traceMock = vi.hoisted(() => vi.fn());
 const streamDeltaMock = vi.hoisted(() => vi.fn());
 const ipcHandlers = vi.hoisted(() => new Map<string, (...args: unknown[]) => unknown>());
+// U2/U4 接线 mock:MCP 配置读取/注入、会话存在性。
+const m = vi.hoisted(() => ({
+  getPersistedState: vi.fn(async () => ({ generalSettings: {} as Record<string, unknown> })),
+  applyClaudeMcp: vi.fn(async () => "skip"),
+  buildCodexMcpArgs: vi.fn(() => [] as string[]),
+  agentSessionExists: vi.fn(() => true),
+}));
+
+vi.mock("./store", () => ({ getPersistedState: m.getPersistedState }));
+vi.mock("./mcp-config", () => ({
+  applyClaudeMcp: m.applyClaudeMcp,
+  buildCodexMcpArgs: m.buildCodexMcpArgs,
+  CODEX_MCP_CLEAR: ["-c", "mcp_servers={}"],
+}));
+vi.mock("./session-trim", () => ({
+  agentSessionExists: m.agentSessionExists,
+  trimAgentSession: vi.fn(async () => false),
+}));
 
 vi.mock("electron", () => ({
   app: { getAppPath: () => "/fake/app", isPackaged: false },
@@ -60,8 +78,89 @@ beforeEach(() => {
   streamDeltaMock.mockReset();
   spawnMock.mockReset();
   spawnMock.mockImplementation(() => fakeChild());
+  m.getPersistedState.mockReset().mockResolvedValue({ generalSettings: {} });
+  m.applyClaudeMcp.mockReset().mockResolvedValue("skip");
+  m.buildCodexMcpArgs.mockReset().mockReturnValue([]);
+  m.agentSessionExists.mockReset().mockReturnValue(true);
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
+});
+
+// claude/codex 经 detect 探针(claude+codex --version)后才 spawn run;辅助:发起 cli:start,
+// 关闭两个探针使 detect 通过,返回 run 子进程已 spawn 后的状态。
+async function startWithDetect(
+  agent: "claude" | "codex",
+  req: Record<string, unknown>,
+  send: (...a: unknown[]) => void,
+) {
+  const claudeProbe = fakeChild();
+  const codexProbe = fakeChild();
+  const run = fakeChild();
+  spawnMock.mockReturnValueOnce(claudeProbe).mockReturnValueOnce(codexProbe).mockReturnValueOnce(run);
+  registerCliHandlers();
+  const p = ipcHandlers.get("cli:start")?.({ sender: { isDestroyed: () => false, send } }, { agent, ...req });
+  claudeProbe.emit("close", 0);
+  codexProbe.emit("close", 0);
+  await p;
+  return run;
+}
+
+describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
+  it("claude 启用 MCP → 调用 applyClaudeMcp(cwd, 配置)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-mcpwire-"));
+    const mcp = { enabled: true, servers: [{ id: "fs", transport: "stdio", command: "/bin/fs" }] };
+    m.getPersistedState.mockResolvedValue({ generalSettings: { mcp } });
+    try {
+      await startWithDetect("claude", { runId: "m1", sessionId: "s", cwd, prompt: "hi" }, vi.fn());
+      expect(m.applyClaudeMcp).toHaveBeenCalledWith(cwd, mcp);
+      expect(m.buildCodexMcpArgs).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("codex 启用 MCP → buildCodexMcpArgs 结果作为 mcpArgs 注入 spawn", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-mcpwire2-"));
+    m.getPersistedState.mockResolvedValue({ generalSettings: { mcp: { enabled: true, servers: [] } } });
+    m.buildCodexMcpArgs.mockReturnValue(["-c", 'mcp_servers.fs.command="/bin/fs"']);
+    try {
+      const run = await startWithDetect("codex", { runId: "m2", sessionId: "s", cwd, prompt: "hi" }, vi.fn());
+      void run;
+      expect(m.buildCodexMcpArgs).toHaveBeenCalled();
+      // run 是第 3 个 spawn;其 args 含注入的 -c
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs.join(" ")).toContain('mcp_servers.fs.command="/bin/fs"');
+      expect(m.applyClaudeMcp).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("续接回退:resumeSessionId 但会话不存在 → 清除、发 resume-fallback trace、spawn 不含该 id", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-fallback-"));
+    m.agentSessionExists.mockReturnValue(false);
+    try {
+      await startWithDetect("codex", { runId: "f1", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "dead-id" }, vi.fn());
+      expect(traceMock).toHaveBeenCalledWith(expect.objectContaining({ phase: "resume-fallback" }));
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs).not.toContain("dead-id"); // 干净新建,不带失效 id
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("续接回退不触发:会话存在时保留 resume id", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-fallback2-"));
+    m.agentSessionExists.mockReturnValue(true);
+    try {
+      await startWithDetect("codex", { runId: "f2", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "live-id" }, vi.fn());
+      expect(traceMock).not.toHaveBeenCalledWith(expect.objectContaining({ phase: "resume-fallback" }));
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs).toContain("live-id");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("cli:start trace", () => {

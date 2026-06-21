@@ -16,6 +16,7 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import type { AgentKind, AskFollowupRequest, CliStreamEvent } from "./types";
 import { getAgentDef, parseLineEvents } from "../agents";
+import { CODEX_MCP_CLEAR } from "./mcp-config";
 import { writePiExtension } from "../agents/pi-providers";
 import { type AgentProcess, pipeStdoutLines, spawnEnvFor, startAgentProcess } from "./cli";
 import { recordAgentTrace } from "./agent-trace";
@@ -71,7 +72,7 @@ export function registerAskHandlers(): void {
       permissionMode: req.permissionMode,
       provider: req.provider,
       piExtensionPath,
-    });
+    }, CODEX_MCP_CLEAR); // 追问为轻量单发:codex 清空 MCP(沿用 M1);claude/pi 忽略
     // tightenTools 与运行模式叠加:plan/accept-edits 已是非 bypass,剥离 bypass 对其 no-op;
     // full-auto 仍剥离 bypass → 无项目会话安全(更严者优先)。
     const args = req.tightenTools ? tightenArgs(req.agent, built.args) : built.args;

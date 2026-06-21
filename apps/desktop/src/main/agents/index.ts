@@ -1,13 +1,16 @@
 // Agent CLI 声明式适配注册表(M2)。每个 agent 是一个声明式 `AgentDef`:两个纯函数
-// (buildArgs 构造命令 / parseLine 解析输出)+ 一组**能力位**,公共管线(cli.ts/ask/oneshot/
-// automation)按能力位决定 stdin 投递 / MCP 注入 / 会话续接 / 图片 / 系统提示的处理方式,从而
-// 对所有 agent 通用、新增 agent 只改其 def。
-// 能力位语义(M2 逐单元消费):
-//   promptDelivery   投递模式:stdin-stream-json(claude)/ stdin-eof(codex)/ argv(pi)
-//   mcpInjection     MCP 注入策略(U2):claude-mcp-json(写 cwd .mcp.json)/ codex-c(-c 注入)/ none
-//   sessionResume    续接能力(U4):continue+resume / resume-only / none
-//   imageDelivery    图片投递(U5):native-flag(--image)/ prompt-text(拼进文本)/ none
-//   appendSystemPrompt 追加系统提示(U5):native-flag(原生 flag)/ prompt-wrap(<user_request> 包裹)/ none
+// (buildArgs 构造命令 / parseLine 解析输出)+ 一组**能力位**。
+// 能力位当前的消费情况(避免误读):
+//   - mcpInjection 由公共管线(cli.ts)真正消费 —— spawn 前按它 + 全局开关决定 MCP 注入方式(U2)。
+//   - 其余位(promptDelivery / sessionResume / imageDelivery / appendSystemPrompt)目前是**声明式文档**:
+//     如实描述各 adapter 在自己 buildArgs 内的处理策略,管线尚未据此分流(分支仍内联在 adapter)。
+//     后续可按需把对应分流上提到公共管线;在此之前它们是 def 的「策略说明」,不是已生效的管线开关。
+// 能力位取值:
+//   promptDelivery   stdin-stream-json(claude)/ stdin-eof(codex)/ argv(pi)
+//   mcpInjection     claude-mcp-json(写 cwd .mcp.json)/ codex-c(-c 注入)/ none  ← 管线消费
+//   sessionResume    continue+resume / resume-only / none
+//   imageDelivery    native-flag(--image)/ prompt-text(拼进文本)/ none
+//   appendSystemPrompt native-flag(原生 flag)/ prompt-wrap(<user_request> 包裹)/ none
 
 import type { AgentKind, CliStartRequest, CliStreamEvent } from "../ipc/types";
 import { claudeDef } from "./claude";
@@ -22,7 +25,7 @@ export type AppendSystemPrompt = "native-flag" | "prompt-wrap" | "none";
 
 export interface AgentDef {
   id: AgentKind;
-  // ── 能力位(声明式):公共管线据此分流,adapter 不再各写各的 ──
+  // ── 能力位(声明式)。mcpInjection 由公共管线消费;其余位描述各 adapter 自身策略(见文件头注释)──
   promptDelivery: PromptDelivery;
   mcpInjection: McpInjection;
   sessionResume: SessionResume;
