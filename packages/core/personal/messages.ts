@@ -734,6 +734,20 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     return;
   }
 
+  if (ev.type === "retry") {
+    // 主进程安全重试(U7):上一 attempt 在产出任何可见内容前瞬态失败、即将重试。刷新「思考中」占位,
+    // 避免 typing 看起来卡死;重试发生在无可见输出时,故不动 buffer/折叠状态。
+    run.phase = "thinking";
+    updateTypingMsg(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0));
+    return;
+  }
+
+  if (ev.type === "usage") {
+    // 流式 usage/cost(U3):M1 仅采集(主进程已 trace 记录),UI 展示延后到后续里程碑;持久权威在
+    // usage.ts 磁盘路径(KTD3)。此处显式忽略以表意「按设计暂不展示」,而非遗漏。
+    return;
+  }
+
   if (ev.type === "tool") {
     usePetStore.getState().set("working");
     updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
