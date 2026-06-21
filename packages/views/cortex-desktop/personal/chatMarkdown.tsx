@@ -2,7 +2,10 @@
 // inline code 与相对链接渲染为可点击元素,点击经 onOpenFile 接到右栏文件预览。
 // - 仅个人区(传入 onOpenFile + projectPath)启用;团队侧不传 → 不使用本工厂,零回归。
 // - inline 判定:无 language-* className 的 code(块级 fenced 带语言或含换行,isLikelyFilePath 天然拒绝)。
-// - 外链行为复用 MarkdownView.MdLink 思路:http(s) → bridge.openExternal;相对文件路径 → onOpenFile。
+// - 外链行为:http(s) 点击 → 在右栏内置浏览器打开(requestBrowserUrl + setRightOpen),
+//   不再默认丢给系统浏览器;系统浏览器作为下方「网页预览」卡片「打开方式」的备选项。
+// - 网页预览卡片:每条外链所在段落正下方紧跟一张静态卡片(地球图标 + 「网页预览」+ 域名),
+//   点击主体进内置浏览器,「打开方式」下拉可选内置 / 系统浏览器。
 // - 失效标注:渲染期经 bridge.resolveProjectFile 在项目内定位 ref(支持只给文件名、真实文件在子目录),
 //   定位不到(真已删除)→ 删除线灰显且不可点击;定位得到则可点击。探测无能力/出错时乐观放行。
 
@@ -153,6 +156,108 @@ function HtmlPreviewButton({ path, bridge }: { path: string; bridge: DesktopBrid
   );
 }
 
+// 在右栏内置浏览器打开 URL:bump nonce 触发 BrowserView 加载,并确保右栏展开。
+// 与 HtmlPreviewButton / dev 预览 auto_open 走同一通路,行为统一。
+function openInInternalBrowser(url: string): void {
+  usePersonalStore.getState().requestBrowserUrl(url);
+  useCortexUIStore.getState().setRightOpen(true);
+}
+
+// 取 URL 的 host 作为卡片副标题;非法 URL(理论上 a 组件已用 https? 正则过滤)兜底空串。
+function hostLabel(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
+// 递归遍历段落的 hast 节点,收集其中的外链 href(仅 http/https),按出现顺序去重。
+// 用 node(hast)而非 children(react 元素)更稳:GFM autolink 的裸 URL 同样是 a 元素,都能命中。
+function collectExternalHrefs(node: unknown): string[] {
+  const out: string[] = [];
+  const visit = (n: unknown): void => {
+    if (!n || typeof n !== "object") return;
+    const el = n as { tagName?: string; properties?: { href?: unknown }; children?: unknown };
+    const href = el.properties?.href;
+    if (el.tagName === "a" && typeof href === "string" && /^https?:\/\//i.test(href)) {
+      out.push(href);
+    }
+    if (Array.isArray(el.children)) el.children.forEach(visit);
+  };
+  visit(node);
+  return [...new Set(out)];
+}
+
+// 「网页预览」静态卡片:不抓取网页元数据(零网络/零隐私),仅展示地球图标 + 标题 + 域名。
+// 点击主体 → 内置浏览器;「打开方式」下拉可改用系统浏览器(经 bridge.openExternal)。
+function LinkPreviewCard({ url, bridge }: { url: string; bridge: DesktopBridge | null }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const host = hostLabel(url);
+  const openInternal = () => openInInternalBrowser(url);
+  const openSystem = () => {
+    void bridge?.openExternal?.(url).catch(() => {});
+  };
+  // 点击卡片外部关闭「打开方式」菜单(原生 mousedown 捕获,避免菜单常驻)。
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement)?.closest?.(".pw-link-preview-actions")) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [menuOpen]);
+  return (
+    <div className="pw-link-preview-card">
+      <button type="button" className="pw-link-preview-main" onClick={openInternal} title={url}>
+        <span className="pw-link-preview-icon">
+          <Icon.Globe size={18} />
+        </span>
+        <span className="pw-link-preview-text">
+          <span className="pw-link-preview-title">网页预览</span>
+          <span className="pw-link-preview-host">{host || "网站"}</span>
+        </span>
+      </button>
+      <div className="pw-link-preview-actions">
+        <button
+          type="button"
+          className="pw-link-preview-open"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <span>打开方式</span>
+          <Icon.Chevron size={12} />
+        </button>
+        {menuOpen ? (
+          <div className="pw-link-preview-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                openInternal();
+              }}
+            >
+              内置浏览器
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                openSystem();
+              }}
+            >
+              系统浏览器
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export interface ChatMarkdownOptions {
   onOpenFile: (ref: string) => void;
   projectPath: string;
@@ -167,6 +272,19 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
     !!projectPath && isLikelyFilePath(ref) && resolveProjectFileRef(projectPath, ref).within;
 
   return {
+    // 段落:若段内含外链(http/https),在段落正下方为每条外链(去重)紧跟一张「网页预览」卡片。
+    // 卡片是 <p> 的兄弟节点(经 Fragment),不嵌进 <p> 内,避免 div-in-p 的非法 DOM。
+    p({ node, children, ...rest }) {
+      const urls = collectExternalHrefs(node);
+      return (
+        <>
+          <p {...rest}>{children}</p>
+          {urls.map((u) => (
+            <LinkPreviewCard key={u} url={u} bridge={bridge} />
+          ))}
+        </>
+      );
+    },
     // fenced 代码块:若块内含绝对 .html 路径(如 `open /Users/.../foo.html`),在代码块正下方
     // 紧跟一个「预览网页」按钮(用户要求:预览入口直接放路径后面,而非消息底部卡片)。
     pre({ node: _node, children, ...rest }) {
@@ -227,8 +345,8 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
             // Electron 里 a 默认导航会替换整个窗口,一律 preventDefault 后自行分流。
             e.preventDefault();
             if (external && href) {
-              if (bridge?.openExternal) void bridge.openExternal(href).catch(() => {});
-              else window.open(href, "_blank", "noreferrer");
+              // 外链点击进右栏内置浏览器(系统浏览器降级为下方卡片「打开方式」备选)。
+              openInInternalBrowser(href);
               return;
             }
             // 其余(锚点/项目外/非路径)阻止导航,不做处理。

@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DesktopBridge } from "@cortex-work/core";
+import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { chatMarkdownComponents } from "./chatMarkdown";
 
 function renderMd(
@@ -25,6 +26,11 @@ function renderMd(
 }
 
 describe("chatMarkdownComponents", () => {
+  beforeEach(() => {
+    // 外链点击/卡片改写全局 store(browserUrlRequest / rightOpen),逐用例复位避免串场。
+    usePersonalStore.setState({ browserUrlRequest: undefined });
+    useCortexUIStore.setState({ rightOpen: false });
+  });
   afterEach(() => cleanup());
 
   it("inline code 为项目内路径 → .file-link,点击触发 onOpenFile", () => {
@@ -58,11 +64,51 @@ describe("chatMarkdownComponents", () => {
     expect(openExternal).not.toHaveBeenCalled();
   });
 
-  it("markdown 外链 → 点击触发 openExternal,不触发 onOpenFile", () => {
+  it("markdown 外链 → 点击进内置浏览器(requestBrowserUrl + 展开右栏),不触发 openExternal / onOpenFile", () => {
     const { container, onOpenFile, openExternal } = renderMd("[site](https://x.com)");
     fireEvent.click(container.querySelector("a")!);
-    expect(openExternal).toHaveBeenCalledWith("https://x.com");
+    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("https://x.com");
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+    expect(openExternal).not.toHaveBeenCalled();
     expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("外链段落下方渲染「网页预览」卡片,显示域名;点击主体进内置浏览器", () => {
+    const { container } = renderMd("看看 [site](https://example.com/path)");
+    const card = container.querySelector(".pw-link-preview-card");
+    expect(card).not.toBeNull();
+    expect(container.querySelector(".pw-link-preview-title")?.textContent).toBe("网页预览");
+    expect(container.querySelector(".pw-link-preview-host")?.textContent).toBe("example.com");
+    fireEvent.click(container.querySelector(".pw-link-preview-main")!);
+    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("https://example.com/path");
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+  });
+
+  it("GFM 裸 URL(autolink)也渲染卡片", () => {
+    const { container } = renderMd("访问 https://foo.bar 即可");
+    expect(container.querySelector(".pw-link-preview-card")).not.toBeNull();
+    expect(container.querySelector(".pw-link-preview-host")?.textContent).toBe("foo.bar");
+  });
+
+  it("卡片「打开方式」下拉选系统浏览器 → 触发 openExternal", () => {
+    const { container, openExternal } = renderMd("[site](https://x.com)");
+    fireEvent.click(container.querySelector(".pw-link-preview-open")!);
+    const items = container.querySelectorAll(".pw-link-preview-menu [role=menuitem]");
+    expect(items.length).toBe(2);
+    // 第二项为「系统浏览器」。
+    fireEvent.click(items[1]!);
+    expect(openExternal).toHaveBeenCalledWith("https://x.com");
+  });
+
+  it("同段落多外链各一张卡片,重复 URL 去重", () => {
+    const { container } = renderMd("[a](https://a.com) 和 [b](https://b.com) 还有 [a2](https://a.com)");
+    const cards = container.querySelectorAll(".pw-link-preview-card");
+    expect(cards.length).toBe(2);
+  });
+
+  it("相对/项目文件链接不渲染卡片", () => {
+    const { container } = renderMd("[doc](docs/a.md)");
+    expect(container.querySelector(".pw-link-preview-card")).toBeNull();
   });
 
   it("键盘可达:.file-link 上 Enter / Space 触发 onOpenFile", () => {

@@ -7769,3 +7769,51 @@ button.sb-row {
   transition: border-color .12s, color .12s, background .12s;
 }
 .pw-html-preview-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 「网页预览」卡片:渲染在 agent 输出含外链的段落正下方(见 chatMarkdown.tsx p / LinkPreviewCard)。 */
+.pw-link-preview-card {
+  display: flex; align-items: center; gap: 8px;
+  margin: 8px 0 4px; padding: 10px 12px;
+  border: 1px solid var(--border-1); border-radius: 10px;
+  background: var(--bg-1);
+  transition: border-color .12s, background .12s;
+}
+.pw-link-preview-card:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+.pw-link-preview-main {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+}
+.pw-link-preview-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex: none;
+  border-radius: 8px; background: var(--bg-hover); color: var(--accent);
+}
+.pw-link-preview-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pw-link-preview-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.pw-link-preview-host {
+  font-size: 11.5px; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pw-link-preview-actions { position: relative; flex: none; }
+.pw-link-preview-open {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 10px; border: 1px solid var(--border-strong); border-radius: 8px;
+  background: var(--bg-1); color: var(--text-1);
+  font-size: 11.5px; font-weight: 500; cursor: pointer;
+  transition: border-color .12s, color .12s;
+}
+.pw-link-preview-open:hover { border-color: var(--accent); color: var(--accent); }
+.pw-link-preview-menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 20;
+  min-width: 120px; padding: 4px;
+  border: 1px solid var(--border-1); border-radius: 8px;
+  background: var(--bg-1); box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.pw-link-preview-menu button {
+  display: block; width: 100%; text-align: left;
+  padding: 6px 10px; border: none; border-radius: 6px;
+  background: none; color: var(--text-1); font-size: 12px; cursor: pointer;
+}
+.pw-link-preview-menu button:hover { background: var(--bg-hover); color: var(--accent); }
