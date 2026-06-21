@@ -1,17 +1,19 @@
-// 插件管理器（U7）:pi agent 的插件入口。顶部 MCP / Skill 分段切换;本轮 MCP 仅占位
-// （敬请期待）,Skill 标签完整:搜索、范围过滤、按 scope 分组、逐项启用/禁用、工作区授信、
-// 全局根增删、打开目录、四态（加载/空/错误/数据）。bridge 缺失（web/旧壳）→ 降级空态。
+// 扩展入口(两 tab 收敛,FR-3/R8)。对用户只暴露两项:
+//   - 技能(Skills):指令(prose)入口,跨 agent(SkillPanel)。
+//   - 插件:工具类入口 = MCP 工具(跨 agent,McpCard) + pi 原生扩展(pi 专属,ExtensionPanel),内部分区。
+// 「技能」管指令、「插件」管工具,定义清晰互斥。底层三套机制不硬合,仅在 UI 归类。
 //
-// 数据流:bridge.piSkillsList 扫描多根 → 叠加 store 的 disabledSkills/trustedWorkspaceSkillDirs
-// 算 enabled/trusted/shadowedBy 渲染。toggle 写 store（乐观,即时翻转）;改动下一轮对话经
-// extensionFingerprint 重开会话生效（见 U5）。
+// SkillPanel 数据流:bridge.piSkillsList 扫描多根 → 叠加 store 的 disabledSkills/trustedWorkspaceSkillDirs
+// 算 enabled/trusted/shadowedBy 渲染。toggle 写 store(乐观,即时翻转);改动下一轮对话生效。
+// skill 现对三端生效(pi 走 --skill,claude/codex 经 appendSystemPrompt 注入,见 core skill-injection)。
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { DEFAULT_PI_SKILLS, useDesktopBridge, usePersonalStore, type PluginSkill } from "@cortex-work/core";
 import { ExtensionPanel } from "./ExtensionPanel";
+import { McpCard } from "./McpSection";
 
-type Tab = "mcp" | "skill" | "extension";
+type Tab = "skill" | "plugin";
 type StatusFilter = "all" | "enabled" | "disabled";
 type LoadState =
   | { kind: "loading" }
@@ -33,16 +35,7 @@ export function PluginManager() {
 
   return (
     <div className="pw-plugins">
-      <div className="pw-plugins-tabs" role="tablist" aria-label="插件类型">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "mcp"}
-          className={`pw-seg ${tab === "mcp" ? "is-on" : ""}`}
-          onClick={() => setTab("mcp")}
-        >
-          MCP
-        </button>
+      <div className="pw-plugins-tabs" role="tablist" aria-label="扩展类型">
         <button
           type="button"
           role="tab"
@@ -50,37 +43,31 @@ export function PluginManager() {
           className={`pw-seg ${tab === "skill" ? "is-on" : ""}`}
           onClick={() => setTab("skill")}
         >
-          Skill
+          技能
         </button>
         <button
           type="button"
           role="tab"
-          aria-selected={tab === "extension"}
-          className={`pw-seg ${tab === "extension" ? "is-on" : ""}`}
-          onClick={() => setTab("extension")}
+          aria-selected={tab === "plugin"}
+          className={`pw-seg ${tab === "plugin" ? "is-on" : ""}`}
+          onClick={() => setTab("plugin")}
         >
-          扩展
+          插件
         </button>
       </div>
 
-      {tab === "mcp" ? (
-        <McpPlaceholder />
-      ) : tab === "extension" ? (
-        <ExtensionPanel bridge={bridge} />
+      {tab === "plugin" ? (
+        // 插件 = 工具类:MCP 工具(跨 agent) + pi 原生扩展(pi 专属),内部分区(KTD5)。
+        <div className="pw-plugins-plugin">
+          <McpCard />
+          <div className="pw-plugins-hint pw-plugins-scope-note" role="note">
+            <b>pi 原生扩展</b> 仅在 pi 会话中加载，对 <b>claude</b> / <b>codex</b> 无效。
+          </div>
+          <ExtensionPanel bridge={bridge} />
+        </div>
       ) : (
         <SkillPanel bridge={bridge} />
       )}
-    </div>
-  );
-}
-
-// MCP 本轮全延后,仅占位避免误导（R11）。
-function McpPlaceholder() {
-  return (
-    <div className="pw-plugins-empty" role="status">
-      <Icon.Workflow size={28} />
-      <div className="pw-plugins-empty-title">MCP 管理敬请期待</div>
-      <div className="pw-plugins-empty-desc">把外部工具接入智能体的能力正在开发中。</div>
     </div>
   );
 }
@@ -237,12 +224,11 @@ function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBridge> })
 
   return (
     <div className="pw-plugins-skill">
-      {/* 作用域说明(U1/R1):逐 skill 开关本质只对 pi 会话生效。claude 用会话级 skills 总开关、
-          codex 无 skill 概念,故在 claude/codex 会话切这些开关不会改变其行为——属预期作用域而非故障。 */}
+      {/* 作用域说明(R9):skill 现对三端生效——pi 走 --skill,claude/codex 经 appendSystemPrompt
+          把 skill 附加到系统提示(见 core skill-injection)。取代旧的「仅对 pi 生效」说明。 */}
       <div className="pw-plugins-hint pw-plugins-scope-note" role="note">
-        逐个开关仅对 <b>pi</b> 会话生效（也决定输入框 <code>/</code> 菜单里出现哪些 skill）。
-        <b>codex</b> 没有 skill 概念；<b>claude</b> 用会话输入框上的「skills」总开关，不支持逐个控制。
-        因此在 claude / codex 会话里切这里的开关不会改变其行为。
+        开关对 <b>claude</b> / <b>codex</b> / <b>pi</b> 三端均生效：pi 走 <code>--skill</code> 注入，
+        claude / codex 将 skill 附加到系统提示。工作区 skill 需先「信任」才注入。
       </div>
 
       {/* 顶部操作:管理目录 + 创建。 */}

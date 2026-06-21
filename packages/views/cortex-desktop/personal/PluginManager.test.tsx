@@ -49,13 +49,13 @@ describe("PluginManager", () => {
     expect(screen.getByText(/2 个启用/)).toBeTruthy();
   });
 
-  it("作用域说明 banner:点明逐 skill 开关仅 pi、codex 无 skill、claude 用总开关(U1/R1)", async () => {
+  it("作用域说明 banner:点明 skill 对 claude/codex/pi 三端均生效(R9)", async () => {
     renderWith(fakeBridge([sk("code-review", "global", "/g/cr")]));
     const note = await screen.findByRole("note");
     expect(note.textContent).toMatch(/pi/);
     expect(note.textContent).toMatch(/codex/);
     expect(note.textContent).toMatch(/claude/);
-    expect(note.textContent).toMatch(/仅对/); // 「仅对 pi 会话生效」语义
+    expect(note.textContent).toMatch(/三端均生效/); // 跨 agent,取代旧「仅对 pi」语义
   });
 
   it("点禁用 → 写 disabledSkills,统计减一", async () => {
@@ -127,10 +127,11 @@ describe("PluginManager", () => {
     expect(await screen.findByText("未发现 Skill")).toBeTruthy();
   });
 
-  it("切到 MCP 标签 → 敬请期待占位", async () => {
+  it("切到「插件」标签 → MCP 工具卡 + pi 原生扩展提示(两 tab 收敛,R8)", async () => {
     renderWith(fakeBridge([sk("a", "global", "/g/a")]));
-    fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
-    expect(screen.getByText("MCP 管理敬请期待")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "插件" }));
+    expect(screen.getByText("MCP 工具")).toBeTruthy(); // McpCard 区
+    expect(screen.getByText(/pi 原生扩展/)).toBeTruthy(); // pi 专属作用域提示
   });
 
   it("管理面板:添加全局目录 → 写 userGlobalRoots", async () => {

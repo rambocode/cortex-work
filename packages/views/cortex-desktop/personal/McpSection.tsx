@@ -1,7 +1,7 @@
 // MCP 设置卡片(M2 U3)。总开关 + 最小 server 清单(stdio command / http url)。读写 generalSettings.mcp,
 // 经 store 自动持久化;主进程在 cli:start 按总开关注入(见 ipc/mcp-config.ts,严格 gate 不覆盖用户文件)。
-// 渲染在 AgentSection 内(MCP 是 agent 相邻能力)。标签用 zh 字面量(桌面配置项,沿用 AgentTraceWindowCard
-// 的不本地化约定),避免为最小 UI 扩 locale。
+// 渲染在插件管理器的「插件」tab 内(MCP 工具与 pi 原生扩展同属工具类,FR-3/R8)。标签用 zh 字面量
+// (桌面配置项,沿用 AgentTraceWindowCard 的不本地化约定),避免为最小 UI 扩 locale。
 /* eslint-disable i18next/no-literal-string -- MCP 配置项标签为桌面专用,暂不本地化 */
 
 import { usePersonalStore } from "@cortex-work/core";
@@ -31,7 +31,7 @@ export function McpCard() {
 
   return (
     <div className="pw-scard">
-      <div className="pw-scard-t">MCP 服务</div>
+      <div className="pw-scard-t">MCP 工具</div>
 
       <div className="pw-srow">
         <span className="pw-srow-lbl">启用 MCP 注入</span>
