@@ -39,13 +39,18 @@ describe("codexDef.buildArgs", () => {
     expect(stdin).toBe("hello");
   });
 
-  it("纯净启动:始终带 -c mcp_servers={} 清空 MCP", () => {
-    const first = codexDef.buildArgs(baseReq).args;
-    let i = first.indexOf("-c");
-    expect(first[i + 1]).toBe("mcp_servers={}");
-    const resume = codexDef.buildArgs({ ...baseReq, resumeSessionId: "t1" }).args;
-    i = resume.indexOf("-c");
-    expect(resume[i + 1]).toBe("mcp_servers={}");
+  it("MCP(U2):默认不再写死 mcp_servers={};无 mcpArgs 时不注入(codex 原生继承 ~/.codex)", () => {
+    expect(codexDef.buildArgs(baseReq).args).not.toContain("mcp_servers={}");
+    expect(codexDef.buildArgs(baseReq).args.join(" ")).not.toContain("mcp_servers");
+  });
+
+  it("MCP(U2):传入 mcpArgs 时注入到 common(位置参数 threadId 之前)", () => {
+    const mcpArgs = ["-c", 'mcp_servers.fs.command="/bin/fs"'];
+    const first = codexDef.buildArgs(baseReq, mcpArgs).args;
+    expect(first.join(" ")).toContain('mcp_servers.fs.command="/bin/fs"');
+    const resume = codexDef.buildArgs({ ...baseReq, resumeSessionId: "tid-1" }, mcpArgs).args;
+    const ci = resume.lastIndexOf('mcp_servers.fs.command="/bin/fs"');
+    expect(ci).toBeLessThan(resume.indexOf("tid-1")); // 注入在 threadId 之前
   });
 
   it("prompt 附件:拼入用户请求前置上下文(经 stdin)", () => {

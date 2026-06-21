@@ -440,8 +440,28 @@ export interface LogSettings {
 }
 
 // 通用设置容器（与外观项 Tweaks 分属两套存储：这里随 personal-workspace.json 落盘）。
+// MCP 注入配置(M2 U2,与 apps/desktop/src/main/ipc/types.ts 逐字镜像)。renderer 设置区编辑,
+// 主进程消费注入。enabled=总开关;关时不注入不覆盖,尊重用户自有 .mcp.json / ~/.codex。
+export interface McpServerConfig {
+  id: string;
+  label?: string;
+  transport: "stdio" | "sse" | "http";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface McpSettings {
+  enabled: boolean;
+  servers: McpServerConfig[];
+}
+
 export interface GeneralSettings {
   workspaceRoot?: string; // 默认工作目录（agent 启动未显式传 cwd 时兜底）
+  // MCP 注入配置(U2);缺省视为不注入。
+  mcp?: McpSettings;
   // 新会话默认 agent;缺省 = 按安装情况派生（resolveDefaultAgent / defaultAgent）。
   // 落地页激励文案的每日 LLM 增强也基于此 agent 生成。
   defaultAgent?: AgentKind;

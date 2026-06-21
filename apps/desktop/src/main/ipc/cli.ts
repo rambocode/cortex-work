@@ -7,12 +7,14 @@ import { spawn, type ChildProcess } from "child_process";
 import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, readdirSync, realpathSync, statSync } from "fs";
-import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, TrimSessionRequest } from "./types";
+import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpSettings, TrimSessionRequest } from "./types";
 import { getAgentDef, parseLineEvents } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
+import { applyClaudeMcp, buildCodexMcpArgs } from "./mcp-config";
+import { getPersistedState } from "./store";
 
 const running = new Map<string, AgentProcess>();
 // 已被显式取消(cli:kill / killAllCli)的 runId。安全重试用它判定「被取消」——不能只靠 code===null:
@@ -376,7 +378,30 @@ export function registerCliHandlers(): void {
     if (req.agent === "pi" && req.provider) {
       req.piExtensionPath = writePiExtension(req.provider);
     }
-    const { cmd, args, stdin } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
+    // MCP 注入(U2):按 def.mcpInjection 能力位 + 全局开关。claude 写 cwd .mcp.json(严格 gate,
+    // 不覆盖用户文件);codex 算出 `-c mcp_servers.*` 注入参数交 buildArgs 放进 common。关/无配置时
+    // 不注入不覆盖(claude 原生加载用户 .mcp.json、codex 原生继承 ~/.codex)。仅主会话注入;
+    // ask/oneshot/automation 走原生继承。
+    let mcpArgs: string[] | undefined;
+    if (adapter.mcpInjection !== "none") {
+      // 配置不可读时降级为不注入(不阻断启动)。
+      let mcp: McpSettings = { enabled: false, servers: [] };
+      try {
+        mcp = (await getPersistedState()).generalSettings?.mcp ?? mcp;
+      } catch {
+        /* 配置不可读 → 不注入 */
+      }
+      if (adapter.mcpInjection === "claude-mcp-json") {
+        try {
+          await applyClaudeMcp(req.cwd, mcp);
+        } catch (e) {
+          console.warn(`[cli] applyClaudeMcp failed: ${String(e)}`); // 注入失败不阻断启动
+        }
+      } else if (adapter.mcpInjection === "codex-c") {
+        mcpArgs = buildCodexMcpArgs(mcp);
+      }
+    }
+    const { cmd, args, stdin } = adapter.buildArgs(req, mcpArgs); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
     assertSpawnCwd(req.cwd);
 

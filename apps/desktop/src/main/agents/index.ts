@@ -32,7 +32,9 @@ export interface AgentDef {
   // 返回可执行名与参数(可执行名不带路径，由 cli.ts 结合 PATH 解析),以及可选的 stdin 负载。
   // stdin 存在时(claude/codex):prompt 经 stdin 投递、不进 argv,绕开命令行长度上限(E2BIG/ENAMETOOLONG);
   // cli.ts 写入后立即 end() 发 EOF。stdin 省略时(pi):prompt 仍在 argv。
-  buildArgs(req: CliStartRequest): { cmd: string; args: string[]; stdin?: string };
+  // mcpArgs(U2):公共管线为 mcpInjection:"codex-c" 的 def 预算好的 `-c` 注入参数,def 负责放到正确位置
+  //(codex 放进 common,落在位置参数之前);其它 def(claude 文件注入 / pi 不注入)忽略。
+  buildArgs(req: CliStartRequest, mcpArgs?: string[]): { cmd: string; args: string[]; stdin?: string };
   // 解析一行 stdout，返回归一化事件；无法识别的行返回 null(忽略)。一行可携带多个事件
   // (如 claude/codex 收尾行同时含 usage 与 result),此时返回数组。
   parseLine(line: string): CliStreamEvent | CliStreamEvent[] | null;

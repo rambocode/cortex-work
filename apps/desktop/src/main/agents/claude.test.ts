@@ -49,12 +49,10 @@ describe("claudeDef.buildArgs", () => {
     expect(claudeDef.buildArgs({ ...baseReq, useOwnSkills: true }).args).not.toContain("--disable-slash-commands");
   });
 
-  it("纯净启动:始终清空 MCP(strict-mcp-config + 空 mcp-config)", () => {
+  it("MCP(U2):不再写死清空,args 不含 strict-mcp-config / mcp-config(改由 cwd .mcp.json 文件注入)", () => {
     const { args } = claudeDef.buildArgs(baseReq);
-    expect(args).toContain("--strict-mcp-config");
-    const i = args.indexOf("--mcp-config");
-    expect(i).toBeGreaterThan(-1);
-    expect(args[i + 1]).toBe('{"mcpServers":{}}');
+    expect(args).not.toContain("--strict-mcp-config");
+    expect(args).not.toContain("--mcp-config");
   });
 
   it("运行模式:plan → --permission-mode plan,不带跳审批标志", () => {

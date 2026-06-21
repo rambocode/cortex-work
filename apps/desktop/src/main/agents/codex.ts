@@ -47,7 +47,7 @@ export const codexDef: AgentDef = {
   sessionResume: "continue+resume",
   imageDelivery: "native-flag",
   appendSystemPrompt: "prompt-wrap",
-  buildArgs(req: CliStartRequest): { cmd: string; args: string[]; stdin: string } {
+  buildArgs(req: CliStartRequest, mcpArgs?: string[]): { cmd: string; args: string[]; stdin: string } {
     const prompt = promptWithSkills(req);
     const common = ["--json", "--skip-git-repo-check"];
     // 运行模式 → sandbox + 审批策略。codex exec 不接受 --ask-for-approval(顶层 TUI 才有),
@@ -60,8 +60,9 @@ export const codexDef: AgentDef = {
     if (mode === "plan") common.push("-s", "read-only", "-c", "approval_policy=never");
     else if (mode === "accept-edits") common.push("-s", "workspace-write", "-c", "approval_policy=never");
     else common.push("--dangerously-bypass-approvals-and-sandbox");
-    // 纯净启动:TOML 覆盖清空 MCP 服务,只保留全局指令(~/.codex/AGENTS.md)。
-    common.push("-c", "mcp_servers={}");
+    // MCP(U2):不再写死清空。关/无配置时不传 → codex 原生继承 ~/.codex 的 MCP;启用时公共管线经
+    // mcpArgs 传入 `-c mcp_servers.<id>...`,放进 common(落在位置参数 threadId 之前)。
+    if (mcpArgs?.length) common.push(...mcpArgs);
     if (req.model) common.push("--model", req.model);
     // 推理强度:codex 用 -c model_reasoning_effort=<low|medium|high>（与上面的 -c 并列,
     // resume 子命令同样兼容）。

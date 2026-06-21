@@ -145,8 +145,28 @@ export interface LogSettings {
   retentionDays: number;
 }
 
+// MCP 注入配置(M2 U2,与 packages/core/desktop/types.ts 逐字镜像)。主进程消费(注入),
+// renderer 设置区编辑。enabled=总开关;关时不注入不覆盖,尊重用户自有 .mcp.json / ~/.codex。
+export interface McpServerConfig {
+  id: string; // 稳定标识,同时作为注入 server 名
+  label?: string;
+  transport: "stdio" | "sse" | "http";
+  command?: string; // stdio
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string; // sse/http
+  headers?: Record<string, string>;
+}
+
+export interface McpSettings {
+  enabled: boolean;
+  servers: McpServerConfig[];
+}
+
 export interface GeneralSettings {
   workspaceRoot?: string;
+  // MCP 注入配置(U2);缺省视为 { enabled:false, servers:[] }(不注入)。
+  mcp?: McpSettings;
   desktopBehavior: DesktopBehavior;
   notifications: NotificationSettings;
   log: LogSettings;

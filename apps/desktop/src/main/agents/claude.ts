@@ -79,11 +79,8 @@ export const claudeDef: AgentDef = {
       "stream-json",
       "--verbose",
       "--include-partial-messages",
-      // 纯净启动:清空 MCP 服务(strict 模式下只认这里传入的空配置),
-      // 启动更快、行为可预期;全局指令(~/.claude/CLAUDE.md)仍然生效。
-      "--strict-mcp-config",
-      "--mcp-config",
-      '{"mcpServers":{}}',
+      // MCP(U2):不再写死清空。claude 原生加载 cwd 的 .mcp.json —— 启用时由 mcp-config.applyClaudeMcp
+      // 写入 app .mcp.json(严格 gate),关闭/无配置时不写,用户自有 .mcp.json 原样被 claude 加载。
     ];
     // 运行模式 → 权限标志。print(-p)模式无人审批回路,靠启动标志事前约束工具能力:
     //   plan        → --permission-mode plan（只读+出计划,-p 下不 hang;尝试写操作会被拒而非挂起）
