@@ -11,6 +11,7 @@ import type {
   AskQuestionAnswers,
   AskQuestionEnvelope,
   CliStreamEvent,
+  DerivedAgentMeta,
   HiddenHistoryMeta,
   PendingImage,
   PermissionMode,
@@ -194,6 +195,19 @@ export const RESULT_EXIT_GRACE_MS = 1_000;
 export const PURE_TOOL_TURN_PLACEHOLDER = "✓ 已完成本轮操作。";
 
 const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
+
+// 解析本次 spawn 实际使用的 agent id(U7)。会话带 derivedAgentId 且该 id 仍在派生列表 → 用派生 id
+//(后端 getAgentDef 按 id 解析);否则(无派生 / 派生 id 已失效,如用户删了 agents.local.json 条目)→
+// 回退会话 base agent(session.agent),避免后端「未知 agent」报错(RISK-3)。
+export function resolveSpawnAgentId(
+  session: Pick<SessionMeta, "agent" | "derivedAgentId">,
+  derivedAgents: DerivedAgentMeta[] | undefined,
+): string {
+  if (session.derivedAgentId && derivedAgents?.some((d) => d.id === session.derivedAgentId)) {
+    return session.derivedAgentId;
+  }
+  return session.agent;
+}
 
 // 各 agent 归一化工具名的「写类」「执行类」集合（claude: Write/Edit/MultiEdit/NotebookEdit/Bash;
 // codex: Shell;小写匹配）。用于检测「被运行模式拦截的工具尝试」:
@@ -2140,10 +2154,13 @@ export function usePersonalActions(): PersonalActions {
         );
         const appendWithSkills =
           [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
+        // 派生 agent(U7):spawn 用 derivedAgentId(后端 getAgentDef 按 id 解析),失效则回退 base(见
+        // resolveSpawnAgentId 的 RISK-3 兜底)。
+        const spawnAgent = resolveSpawnAgentId(sendSession, usePersonalStore.getState().derivedAgents);
         await bridge.startCli({
           runId,
           sessionId: sendSession.id,
-          agent: sendSession.agent,
+          agent: spawnAgent,
           cwd: projectPath,
           prompt: text,
           model: sendSession.model,

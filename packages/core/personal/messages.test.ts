@@ -33,6 +33,7 @@ import {
   isMissingAgentSessionError,
   personalChatKeys,
   personalProcessKeys,
+  resolveSpawnAgentId,
   restrictedToolForMode,
   sanitizeForSave,
   sessionResumeId,
@@ -1760,5 +1761,19 @@ describe("U5 editResend 截断含旧 agentLog 的会话:落盘与中栏均无 ag
     const forCache = sanitizeForSave(truncatedRaw!);
     expect(forCache.map((m) => m.kind)).toEqual(["text", "text"]);
     expect(forCache.some((m) => m.kind === "agentLog")).toBe(false);
+  });
+});
+
+describe("resolveSpawnAgentId（U7）", () => {
+  const derived = [{ id: "my-codex", base: "codex" as const, label: "My Codex" }];
+  it("有 derivedAgentId 且仍在派生列表 → 用派生 id", () => {
+    expect(resolveSpawnAgentId({ agent: "codex", derivedAgentId: "my-codex" }, derived)).toBe("my-codex");
+  });
+  it("无 derivedAgentId → 用 base agent", () => {
+    expect(resolveSpawnAgentId({ agent: "claude", derivedAgentId: undefined }, derived)).toBe("claude");
+  });
+  it("derivedAgentId 已失效(不在列表)→ 回退 base(RISK-3)", () => {
+    expect(resolveSpawnAgentId({ agent: "codex", derivedAgentId: "gone" }, derived)).toBe("codex");
+    expect(resolveSpawnAgentId({ agent: "codex", derivedAgentId: "my-codex" }, undefined)).toBe("codex");
   });
 });
