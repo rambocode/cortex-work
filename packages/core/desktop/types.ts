@@ -755,6 +755,7 @@ export interface CliStartRequest {
   prompt: string;
   model?: string;
   resumeSessionId?: string; // 多轮续接
+  continueSession?: boolean; // 续接最近会话(U4):claude --continue / codex resume --last;与 resumeSessionId 互斥优先
   appendSystemPrompt?: string; // 拖入的 prompt md 内容（skill 注入）
   useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildArgs 逐个 --skill 注入。

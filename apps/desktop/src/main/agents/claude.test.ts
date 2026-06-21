@@ -49,6 +49,18 @@ describe("claudeDef.buildArgs", () => {
     expect(claudeDef.buildArgs({ ...baseReq, useOwnSkills: true }).args).not.toContain("--disable-slash-commands");
   });
 
+  it("续接(U4):continueSession → --continue;与 resume 互斥优先", () => {
+    expect(claudeDef.buildArgs({ ...baseReq, continueSession: true }).args).toContain("--continue");
+    // continue 优先于 resume id
+    const both = claudeDef.buildArgs({ ...baseReq, continueSession: true, resumeSessionId: "s1" }).args;
+    expect(both).toContain("--continue");
+    expect(both).not.toContain("--resume");
+    // 仅 resume id 时仍走 --resume(回归)
+    const r = claudeDef.buildArgs({ ...baseReq, resumeSessionId: "s1" }).args;
+    expect(r.join(" ")).toContain("--resume s1");
+    expect(r).not.toContain("--continue");
+  });
+
   it("MCP(U2):不再写死清空,args 不含 strict-mcp-config / mcp-config(改由 cwd .mcp.json 文件注入)", () => {
     const { args } = claudeDef.buildArgs(baseReq);
     expect(args).not.toContain("--strict-mcp-config");

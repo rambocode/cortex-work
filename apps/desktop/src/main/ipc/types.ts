@@ -310,6 +310,8 @@ export interface CliStartRequest {
   prompt: string;
   model?: string;
   resumeSessionId?: string;
+  // 续接最近会话(U4):claude --continue / codex exec resume --last。与 resumeSessionId 互斥,优先生效。
+  continueSession?: boolean;
   appendSystemPrompt?: string;
   useOwnSkills?: boolean;
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildArgs 逐个 --skill 注入。

@@ -378,6 +378,25 @@ export function registerCliHandlers(): void {
     if (req.agent === "pi" && req.provider) {
       req.piExtensionPath = writePiExtension(req.provider);
     }
+    // 续接失败回退(U4):带 resumeSessionId 但该会话在本机已不存在(被清理/换机)→ 清除,改为干净新建,
+    // 而非带错 id spawn 失败。pi 无外部会话文件,agentSessionExists 恒 true,不触发。新建后的 init 事件
+    // 会让渲染端更新存储的 agentSessionId。
+    if (
+      req.resumeSessionId &&
+      !req.continueSession &&
+      !agentSessionExists({ agent: req.agent, agentSessionId: req.resumeSessionId })
+    ) {
+      recordAgentTrace({
+        scope: "cli",
+        phase: "resume-fallback",
+        summary: `${req.agent} resume session missing → fresh`,
+        runId: req.runId,
+        sessionId: req.sessionId,
+        agent: req.agent,
+        data: { missingSessionId: req.resumeSessionId },
+      });
+      req.resumeSessionId = undefined;
+    }
     // MCP 注入(U2):按 def.mcpInjection 能力位 + 全局开关。claude 写 cwd .mcp.json(严格 gate,
     // 不覆盖用户文件);codex 算出 `-c mcp_servers.*` 注入参数交 buildArgs 放进 common。关/无配置时
     // 不注入不覆盖(claude 原生加载用户 .mcp.json、codex 原生继承 ~/.codex)。仅主会话注入;

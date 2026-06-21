@@ -75,9 +75,13 @@ export const codexDef: AgentDef = {
     // prompt 经 stdin 投递(U4):codex exec 省略位置参数 [PROMPT] 时「instructions are read from stdin」
     // (--help 实测,且 argv 不得出现 `-` 哨兵否则 exit 2)。绕开命令行长度上限。resume 分支 threadId
     // 仍是位置参数,只去掉 prompt。
-    const args = req.resumeSessionId
-      ? ["exec", "resume", ...common, req.resumeSessionId]
-      : ["exec", ...common, "--cd", req.cwd];
+    // 续接(U4):continueSession → exec resume --last(最近会话,无需 id,--help 实测);
+    // 否则按 id resume;再否则首轮 exec --cd。三者互斥,continue 优先。
+    const args = req.continueSession
+      ? ["exec", "resume", ...common, "--last"]
+      : req.resumeSessionId
+        ? ["exec", "resume", ...common, req.resumeSessionId]
+        : ["exec", ...common, "--cd", req.cwd];
     return { cmd: "codex", args, stdin: prompt };
   },
 

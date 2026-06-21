@@ -95,7 +95,9 @@ export const claudeDef: AgentDef = {
     // 推理强度（claude 2.1.x 支持 --effort low|medium|high,-p 模式生效;不支持的
     // 模型自身回退）。
     if (req.effort) args.push("--effort", req.effort);
-    if (req.resumeSessionId) args.push("--resume", req.resumeSessionId);
+    // 续接(U4):continueSession 续接最近会话(--continue);否则按 id resume。两者互斥,continue 优先。
+    if (req.continueSession) args.push("--continue");
+    else if (req.resumeSessionId) args.push("--resume", req.resumeSessionId);
     if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
     // skills 默认禁用,仅当用户在 composer 显式打开(useOwnSkills === true)时才加载。
     if (req.useOwnSkills !== true) args.push("--disable-slash-commands");

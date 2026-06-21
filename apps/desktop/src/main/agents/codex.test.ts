@@ -39,6 +39,17 @@ describe("codexDef.buildArgs", () => {
     expect(stdin).toBe("hello");
   });
 
+  it("续接(U4):continueSession → exec resume --last;与 resume id 互斥优先", () => {
+    const cont = codexDef.buildArgs({ ...baseReq, continueSession: true }).args;
+    expect(cont.slice(0, 2)).toEqual(["exec", "resume"]);
+    expect(cont).toContain("--last");
+    expect(cont.at(-1)).toBe("--last"); // --last 在 common 之后、无 threadId
+    // continue 优先于 resume id
+    const both = codexDef.buildArgs({ ...baseReq, continueSession: true, resumeSessionId: "tid-1" }).args;
+    expect(both).toContain("--last");
+    expect(both).not.toContain("tid-1");
+  });
+
   it("MCP(U2):默认不再写死 mcp_servers={};无 mcpArgs 时不注入(codex 原生继承 ~/.codex)", () => {
     expect(codexDef.buildArgs(baseReq).args).not.toContain("mcp_servers={}");
     expect(codexDef.buildArgs(baseReq).args.join(" ")).not.toContain("mcp_servers");
