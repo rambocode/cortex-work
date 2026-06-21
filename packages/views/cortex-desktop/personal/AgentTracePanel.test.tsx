@@ -109,6 +109,32 @@ describe("AgentTracePanel", () => {
     expect(await screen.findByText(/你好，世界/)).toBeTruthy();
   });
 
+  it("展开后拖拽选择详情(指针移动)不折叠,纯点击仍正常折叠(可复制)", async () => {
+    const bridge = {
+      agentTraceList: vi.fn(async () => [
+        trace({ id: "trace-copy", summary: "copyable", data: { reason: "boom" } }),
+      ]),
+      onAgentTrace: vi.fn(() => () => undefined),
+    } as unknown as DesktopBridge;
+
+    render(<AgentTracePanel bridge={bridge} />);
+
+    const row = await screen.findByRole("listitem", { name: /copyable/ });
+    // 纯点击展开。
+    fireEvent.click(row);
+    expect(await screen.findByText(/"reason": "boom"/)).toBeTruthy();
+
+    // 模拟拖拽选择:按下与抬起坐标差超过阈值 → 视为选择手势,不折叠,详情仍可复制。
+    fireEvent.mouseDown(row, { clientX: 10, clientY: 10 });
+    fireEvent.click(row, { clientX: 80, clientY: 60 });
+    expect(screen.queryByText(/"reason": "boom"/)).toBeTruthy();
+
+    // 同一位置按下并点击(无移动) → 正常折叠。
+    fireEvent.mouseDown(row, { clientX: 80, clientY: 60 });
+    fireEvent.click(row, { clientX: 80, clientY: 60 });
+    expect(screen.queryByText(/"reason": "boom"/)).toBeNull();
+  });
+
   it("reasoning 与 text 段渲染为可区分的独立行(R6)", async () => {
     const bridge = {
       agentTraceList: vi.fn(async () => [

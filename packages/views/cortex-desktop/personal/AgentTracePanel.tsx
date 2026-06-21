@@ -24,6 +24,8 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const pausedRef = useRef(false);
   const listRef = useRef<HTMLUListElement | null>(null);
+  // 记录鼠标按下的坐标:用于在 click 时判断本次是「点击」还是「拖拽选择文本」。
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -89,6 +91,19 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
     setExpandedId((current) => (current === id ? null : id));
   };
 
+  // 拖拽选择详情文本后,松手会触发整行 click;若直接折叠,选中的内容会随之消失而无法复制
+  // (本次 bug 的根因)。因此用两道判据识别「选择/复制意图」并跳过折叠:
+  //   1) 指针从按下到抬起的移动距离超过阈值 —— 拖拽选择必然移动,纯点击几乎不动;
+  //   2) 当前存在非空文本选区 —— 兜底覆盖移动距离极小的选择。
+  const isSelectionGesture = (e: { clientX: number; clientY: number }): boolean => {
+    const start = pointerDownRef.current;
+    pointerDownRef.current = null;
+    const moved = start ? Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) : 0;
+    if (moved > 4) return true;
+    const selection = typeof window !== "undefined" ? window.getSelection() : null;
+    return !!selection && !selection.isCollapsed && selection.toString().length > 0;
+  };
+
   return (
     <div className="pw-trace-panel">
       <div className="pw-trace-toolbar">
@@ -119,7 +134,13 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
                 className={`pw-trace-line ${expanded ? "is-expanded" : ""}`}
                 aria-label={`${formatTraceTime(event.ts)} [${event.scope.toUpperCase()}] [${event.phase.toUpperCase()}] ${event.summary}`}
                 tabIndex={0}
-                onClick={() => toggleExpanded(event.id)}
+                onMouseDown={(e) => {
+                  pointerDownRef.current = { x: e.clientX, y: e.clientY };
+                }}
+                onClick={(e) => {
+                  if (isSelectionGesture(e)) return;
+                  toggleExpanded(event.id);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
@@ -148,7 +169,13 @@ export function AgentTracePanel({ bridge }: { bridge: DesktopBridge }) {
                   {event.runId ? <span className="pw-trace-meta-token">run={event.runId}</span> : null}
                   {event.sessionId ? <span className="pw-trace-meta-token">session={event.sessionId}</span> : null}
                 </div>
-                {expanded && event.data != null ? <pre className="pw-trace-data">{traceDataPreview(event.data)}</pre> : null}
+                {expanded && event.data != null ? (
+                  // 详情区是「阅读/复制」区域,点击它不应折叠整行:拦截 click 冒泡,
+                  // 避免在 data 区内点击(或选区清空后的尾随 click)误触整行 toggle。
+                  <pre className="pw-trace-data" onClick={(e) => e.stopPropagation()}>
+                    {traceDataPreview(event.data)}
+                  </pre>
+                ) : null}
               </li>
             );
           })
