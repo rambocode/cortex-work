@@ -29,7 +29,7 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 
 **上下文拼装**
 
-- R4. 发送文本由用户意见、文档路径引用与选中段落（可选）组成，顺序为「用户意见在前、上下文块在后」。**有选区**时上下文块复用 `buildContextSnippet`（`packages/views/cortex-desktop/personal/sendContext.ts`）；**无选区**时不调用 `buildContextSnippet`（其会无条件包一层代码围栏，空选区会产出空围栏），改用裸路径引用。
+- R4. 发送文本由文档路径引用、选中段落（可选）与用户意见组成，顺序为「引用内容在前、用户意见在后」。**有选区**时上下文块复用 `buildContextSnippet`（`packages/views/cortex-desktop/personal/sendContext.ts`）；**无选区**时不调用 `buildContextSnippet`（其会无条件包一层代码围栏，空选区会产出空围栏），改用裸路径引用。
 - R5. 选区即触发：选中段落随意见一起发送；浮层仅在有非空选区时出现，故发送时必有选中段落（`buildPathRef` 作无选区防御性兜底）。
 
 **发送通道与动作**
@@ -102,7 +102,7 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 - **Approach:**
   - `DocDetail` 在 md 容器 `onMouseUp` 检测选区，非空即存选区文本并打开面板（KTD3）；把 `onToast` 透传进 `DocDetail`（原签名只有 `doc`/`onBack`）。
   - `DocEditDialog` 用 `pw-doc-edit-overlay`（限右栏的局部遮罩，KTD5）+ `pw-confirm-dlg`：标题、上下文预览（路径 + 无选区提示）、意见 textarea、三个动作按钮（插入到聊天框 / 插入并运行 / 发送到终端）、ESC 关闭（照 `PiToolConfirmDialog.tsx:25-33`）。
-  - 拼装（R4）：最终文本 = 用户意见 + 上下文块。有选区时上下文块 = `buildContextSnippet(doc.path, selection)`；无选区时改用裸路径引用（不调用 `buildContextSnippet`，避免空代码围栏）。**弹框的上下文预览必须与实际发送文本一致**——预览有选区/无选区两种形态各自对应同一拼装逻辑。
+  - 拼装（R4）：最终文本 = 上下文块 + 用户意见（引用在前、意见在后）。有选区时上下文块 = `buildContextSnippet(doc.path, selection)`；无选区时改用裸路径引用（不调用 `buildContextSnippet`，避免空代码围栏）。**弹框的上下文预览必须与实际发送文本一致**——预览有选区/无选区两种形态各自对应同一拼装逻辑。
   - 聊天框走 `insertToComposer(text, { submit })`（「插入」submit=false、「插入并运行」submit=true）；终端走 `sendToTerminal(wrapBracketedPaste(text))`。
   - **意见为空**时禁用全部三个动作按钮（可见禁用态）——意见是必填，不支持仅发上下文。
   - 三个动作按钮点击即同步关闭弹框，避免重复点击触发二次投递。

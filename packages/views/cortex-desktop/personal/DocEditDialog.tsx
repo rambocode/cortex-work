@@ -42,8 +42,8 @@ export function DocEditDialog({
     [hasSel, path, selection],
   );
 
-  // 最终文本:意见在前、上下文在后（R4）。
-  const buildText = () => `${comment.trim()}\n\n${context}`;
+  // 最终文本:引用内容在前、用户意见在后（R4）。context 自带尾换行,再空一行隔开意见。
+  const buildText = () => `${context}\n${comment.trim()}`;
   const canSend = comment.trim().length > 0;
 
   const insertToChat = (submit: boolean) => {
