@@ -2,7 +2,7 @@
 // （320px 窄轨，不用横向看板）+ 多维标签筛选 + origin 血缘流水线视图 + 卡片「继续」动作。
 // 数据全部来自 core 的 useDocTasks（已解析/归一/打标签/串血缘）；详情复用 MarkdownView。
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   docTasksAvailable,
@@ -15,7 +15,9 @@ import {
   TASK_STATUS_ORDER,
 } from "@cortex-work/core";
 import type { DocMetaView, Tag, TagDim, TaskStatus } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { MarkdownView } from "./MarkdownView";
+import { MonacoViewer } from "./MonacoViewer";
 import { DocEditDialog } from "./DocEditDialog";
 import { relTime } from "./PersonalSidebar";
 
@@ -81,10 +83,15 @@ function DocCard({
 // 详情态：读 path 渲染 Markdown（只读），可用系统编辑器打开 / 二次编辑发送到 Agent。
 function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => void; onToast: (text: string) => void }) {
   const bridge = useDesktopBridge();
+  const { t } = useTranslation("files");
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [selection, setSelection] = useState("");
+  // 在线编辑（复用 FilesView 的 Monaco 编辑/保存范式）。
+  const [editMode, setEditMode] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const draftRef = useRef("");
 
   // 在 md 区选中一段文本（鼠标释放）即直接打开二次编辑面板；空选区不触发。
   const onSelectText = () => {
@@ -98,10 +105,15 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
     let cancelled = false;
     setContent(null);
     setError(null);
+    setEditMode(false);
+    setDirty(false);
     bridge
       ?.readFile(doc.path)
       .then((res) => {
-        if (!cancelled) setContent(res.content);
+        if (!cancelled) {
+          setContent(res.content);
+          draftRef.current = res.content;
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -111,6 +123,23 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
     };
   }, [bridge, doc.path]);
 
+  // 保存:写回源文档（bridge.writeFile），成功后同步 content + 清 dirty。
+  const save = async () => {
+    if (!bridge || !dirty) return;
+    try {
+      await bridge.writeFile(doc.path, draftRef.current);
+      setContent(draftRef.current);
+      setDirty(false);
+      onToast(t("saved"));
+    } catch (err) {
+      onToast(t("saveFailed", { error: err instanceof Error ? err.message : String(err) }));
+    }
+  };
+  const finishEdit = async () => {
+    if (dirty) await save();
+    setEditMode(false);
+  };
+
   return (
     <div className="pw-todo-detail">
       <div className="pw-todo-detail-h">
@@ -118,12 +147,40 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
           <Icon.Back size={14} />
         </button>
         <span className="pw-doc-detail-title">{doc.title}</span>
+        {dirty ? <span className="pw-dirty">●</span> : null}
         <div className="spacer" />
-        {bridge?.openPath ? (
-          <button className="pw-icon-btn" title="用系统编辑器打开" onClick={() => void bridge.openPath?.(doc.path)}>
-            <Icon.Share size={13} />
-          </button>
-        ) : null}
+        {editMode ? (
+          <>
+            <button className="pw-ftb-btn is-primary" title={t("toolbar.saveTitle")} onClick={() => void save()} disabled={!dirty}>
+              <Icon.Check size={12} />
+              {t("toolbar.save")}
+            </button>
+            <button className="pw-ftb-btn" title={t("toolbar.finishTitle")} onClick={() => void finishEdit()}>
+              {t("toolbar.finish")}
+            </button>
+          </>
+        ) : (
+          <>
+            {content !== null ? (
+              <button
+                className="pw-ftb-btn"
+                title={t("toolbar.editTitle")}
+                onClick={() => {
+                  draftRef.current = content;
+                  setEditMode(true);
+                }}
+              >
+                <Icon.Edit size={12} />
+                {t("toolbar.edit")}
+              </button>
+            ) : null}
+            {bridge?.openPath ? (
+              <button className="pw-icon-btn" title="用系统编辑器打开" onClick={() => void bridge.openPath?.(doc.path)}>
+                <Icon.Share size={13} />
+              </button>
+            ) : null}
+          </>
+        )}
       </div>
       {/* 文件详细路径（仓库相对）：详情态下完整展示，便于定位/复制源文档位置。 */}
       <div className="pw-doc-detail-path" title={doc.path}>{doc.path}</div>
@@ -131,6 +188,22 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
         <div className="pw-editor-error">{error}</div>
       ) : content === null ? (
         <div className="pw-editor-loading">加载中…</div>
+      ) : editMode ? (
+        // 在线编辑:Monaco markdown 源码编辑;⌘S 保存。
+        <div className="pw-mona-wrap">
+          <MonacoViewer
+            key={doc.path}
+            value={content}
+            language="markdown"
+            wordWrap
+            readOnly={false}
+            onChange={(v) => {
+              draftRef.current = v;
+              setDirty(v !== content);
+            }}
+            onSave={() => void save()}
+          />
+        </div>
       ) : (
         // 选中一段文本（鼠标释放）即直接打开二次编辑面板。
         <div className="pw-todo-md" onMouseUp={onSelectText}>

@@ -9,7 +9,7 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 
 ## Summary
 
-在 tasks 文档详情态选中一段文本后，**直接弹出二次编辑面板**（面板与遮罩**仅限右栏文档区**，不弹全屏遮罩；非工具栏常驻按钮、非浮出小按钮）：写调整意见，把「文档路径引用 + 选中段落 + 意见」复用 `sendContext` 拼装，经 `usePersonalStore` 送进当前会话聊天框或终端。聊天框额外支持「插入并运行」——通过给现有 `composerInsert` 信号加一个 `submit` 标志，让 `ComposerShell` 插入后自动提交；终端只插入。
+在 tasks 文档详情态选中一段文本后，**直接弹出二次编辑面板**（面板与遮罩**仅限右栏文档区**，不弹全屏遮罩；非工具栏常驻按钮、非浮出小按钮）：写调整意见，把「文档路径引用 + 选中段落 + 意见」复用 `sendContext` 拼装，经 `usePersonalStore` 送进当前会话聊天框或终端。聊天框额外支持「插入并运行」——通过给现有 `composerInsert` 信号加一个 `submit` 标志，让 `ComposerShell` 插入后自动提交；终端只插入。此外，详情态支持复用现有 Monaco 编辑器在线编辑该 MD 文档并保存（`bridge.writeFile`）。
 
 ---
 
@@ -38,6 +38,11 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 - R7. 聊天框通道额外提供「插入并运行」动作：填入 composer 后自动提交，无需用户再回车。
 - R8. 终端通道仅「插入」，不自动执行（不在 bracketed paste 后补回车）。
 - R9. 发送后给出 toast 反馈并关闭对话框。
+
+**在线编辑**
+
+- R10. 详情态提供「编辑」入口，复用现有 Monaco 编辑器（`MonacoViewer`）对该 MD 文档做源码编辑；保存经 `bridge.writeFile(doc.path, draft)` 写回，成功后同步详情内容并 toast。
+- R11. 复用 FilesView 的编辑范式：dirty 标记、⌘S 保存、「完成」退出编辑（退出前若 dirty 先保存）；切换文档时重置编辑态。
 
 ---
 
@@ -134,6 +139,18 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 - **Test scenarios:** Test expectation: none —— 纯文案资源；正确性由类型生成与 zh/en 对称约定覆盖。
 - **Verification:** `pnpm typecheck` 通过，应用内中英文案显示正确。
 
+### U5. DocDetail 在线编辑（复用 Monaco）
+
+- **Goal:** 详情态可在线编辑该 MD 文档并保存。
+- **Requirements:** R10, R11
+- **Dependencies:** 无（与 U1–U4 独立）
+- **Files:**
+  - `packages/views/cortex-desktop/personal/TasksDocsView.tsx`（`DocDetail`）
+- **Approach:** 复刻 `FilesView` 的编辑范式：`editMode`/`dirty`/`draftRef` 三态；详情头部「编辑」入口（`pw-ftb-btn` + `Icon.Edit`），编辑态显示「保存」（`is-primary` + `Icon.Check`，disabled=!dirty）与「完成」。编辑态渲染 `MonacoViewer`（`language="markdown"`、`wordWrap`、`readOnly={false}`、`key=doc.path`），`onChange` 写 `draftRef` 并按 `v!==content` 置 dirty，`onSave`（⌘S）触发保存。`save` 走 `bridge.writeFile(doc.path, draftRef.current)`，成功后 `setContent` + 清 dirty + `t("saved")` toast，失败 `t("saveFailed")`。切换文档时（readFile effect）重置 `editMode`/`dirty` 并把 `draftRef` 同步为新内容。文案复用既有 `files.toolbar.*` / `files.saved` / `files.saveFailed`。
+- **Patterns to follow:** `FilesView.tsx:312-327`（save/finishEdit）、`:403-419`（编辑/保存/完成工具栏）、`:475-492`（MonacoViewer 用法）。
+- **Test scenarios:** Test expectation: none —— 编辑保存依赖 Monaco 动态 import 与桌面 `bridge.writeFile`，jsdom 下不可靠（与 `FilesView` 同款编辑流程一致未做单测）；以 typecheck + 手动验证覆盖。
+- **Verification:** `pnpm --filter @cortex-work/views typecheck` 通过；手动：详情「编辑」→ 改内容（出现 dirty ●）→ ⌘S/「保存」→ toast「已保存」→「完成」回到只读且内容已更新；切换文档自动退出编辑态。
+
 ---
 
 ## Acceptance Examples
@@ -146,7 +163,7 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 
 ## Scope Boundaries
 
-- 不在详情态做内联富文本/源文档改写——改源文档仍走系统编辑器。
+- 在线编辑用 Monaco 源码编辑（同 FilesView），不做所见即所得（WYSIWYG）富文本编辑；系统编辑器打开入口保留。
 - 不向运行中的 claude/codex 进程注入文本——其 stdin 被 `ignore`（`apps/desktop/src/main/ipc/cli.ts`），只经聊天框/终端层投递。
 - 不为文档新建独立 agent 会话——由现有「继续」按钮（`useContinueDoc`）覆盖。
 - 终端不自动执行（不补回车），保留 bracketed paste 安全语义。
