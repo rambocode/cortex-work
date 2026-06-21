@@ -53,6 +53,7 @@
   },
   "annotate": {
     "commentPlaceholder": "添加评论…",
+    "barLabel": "已标注 {{count}} 处",
     "sendToChat": "发送到 Chat",
     "sendToTerminal": "发送到终端",
     "delete": "删除此标注",

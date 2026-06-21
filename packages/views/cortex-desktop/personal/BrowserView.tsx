@@ -10,13 +10,15 @@
 // 主进程不参与(除安全闸门),故无 bounds-sync IPC。
 
 import { createElement, useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, RefObject } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { normalizeDevPreviewUrlInput } from "@cortex-work/core/personal/devPreviewUrl";
 import { BrowserErrorState } from "./BrowserErrorState";
 import { useBrowserCapture } from "./useBrowserCapture";
+import { useBrowserAnnotations, type AnnotatableWebview } from "./useBrowserAnnotations";
+import { BrowserAnnotator } from "./BrowserAnnotator";
 
 // 跨进程契约:须与主进程 webviewGuards.ts 的 BROWSER_PARTITION 一致(主进程会强制覆盖,
 // 此处声明仅为正确性 + 可读性)。
@@ -35,6 +37,8 @@ type WebviewTag = HTMLElement & {
   stop(): void;
   // 截图当前可视区 → NativeImage(计划 U3)。返回对象只用到 toPNG/isEmpty。
   capturePage(): Promise<{ toPNG(): Uint8Array; isEmpty(): boolean }>;
+  // 宿主 → webview preload 的点对点消息(标注 enable/disable,计划 U5)。
+  send(channel: string, ...args: unknown[]): void;
 };
 
 type WebviewNavigateEvent = Event & { url: string };
@@ -342,6 +346,14 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
     });
   };
 
+  // 页面元素标注(计划 U5)。preload 在页面内画高亮/编号徽标/评论框;宿主收集纯数据 + 批量发送。
+  const annotation = useBrowserAnnotations({
+    webviewRef: webviewRef as RefObject<AnnotatableWebview | null>,
+    useElectronWebview,
+    instanceNonce,
+    onToast,
+  });
+
   return (
     <div className="pw-browser">
       <form className="pw-browser-bar" onSubmit={submitUrl}>
@@ -388,18 +400,31 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
           />
         </div>
         <div className="pw-browser-actions">
-          {/* 截图仅 Electron <webview> 支持(iframe 无 capturePage),Web 端不渲染入口 */}
+          {/* 截图/标注仅 Electron <webview> 支持(iframe 无 capturePage / 无法注入 preload),Web 端不渲染 */}
           {useElectronWebview ? (
-            <button
-              type="button"
-              className="pw-icon-btn"
-              onClick={takeScreenshot}
-              disabled={!activeUrl || loading || !!pageError || capturing}
-              title={t("nav.screenshot")}
-              aria-label={t("nav.screenshot")}
-            >
-              <Icon.Camera size={15} />
-            </button>
+            <>
+              <button
+                type="button"
+                className="pw-icon-btn"
+                onClick={takeScreenshot}
+                disabled={!activeUrl || loading || !!pageError || capturing}
+                title={t("nav.screenshot")}
+                aria-label={t("nav.screenshot")}
+              >
+                <Icon.Camera size={15} />
+              </button>
+              <button
+                type="button"
+                className={`pw-icon-btn ${annotation.enabled ? "is-active" : ""}`}
+                onClick={annotation.toggle}
+                disabled={!activeUrl || !!pageError}
+                title={t("nav.annotate")}
+                aria-label={t("nav.annotate")}
+                aria-pressed={annotation.enabled}
+              >
+                <Icon.Comment size={15} />
+              </button>
+            </>
           ) : null}
           <button
             type="button"
@@ -465,6 +490,13 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             errorDescription={pageError.description}
             onReload={reload}
             onOpenExternal={openExternal}
+          />
+        ) : null}
+        {annotation.enabled ? (
+          <BrowserAnnotator
+            count={annotation.count}
+            onSendChat={annotation.sendToChat}
+            onSendTerminal={annotation.sendToTerminal}
           />
         ) : null}
       </div>

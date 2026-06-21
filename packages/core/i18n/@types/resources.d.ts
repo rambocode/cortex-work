@@ -7,6 +7,7 @@ export default interface Resources {
       "placeholder": "输入网址,或本地端口(如 localhost:5173)"
     },
     "annotate": {
+      "barLabel": "已标注 {{count}} 处",
       "commentPlaceholder": "添加评论…",
       "delete": "删除此标注",
       "detached": "元素已失效(页面已变化)",

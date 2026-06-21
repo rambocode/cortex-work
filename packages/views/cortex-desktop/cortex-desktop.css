@@ -7802,6 +7802,25 @@ button.sb-row {
 .pw-browser-error-btn.is-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
 .pw-browser-error-btn:hover { filter: brightness(0.97); }
 
+/* 工具栏按钮激活态(标注模式开启时 Comment 按钮高亮,计划 U5) */
+.pw-icon-btn.is-active { background: var(--accent); color: #fff; }
+
+/* ── 标注模式宿主批量发送条(BrowserAnnotator,固定 stage 底部)────── */
+.pw-browser-annot-bar {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 2;
+  display: flex; align-items: center; gap: 12px; padding: 7px 10px 7px 14px;
+  background: var(--bg-1, #fff); border: 1px solid var(--border); border-radius: 999px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+}
+.pw-browser-annot-count { font-size: 12px; color: var(--text-2, var(--text-3)); white-space: nowrap; }
+.pw-browser-annot-actions { display: flex; gap: 6px; }
+.pw-browser-annot-send {
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 999px;
+  font-size: 12px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff;
+}
+.pw-browser-annot-send:disabled { opacity: 0.45; cursor: default; }
+.pw-browser-annot-send:not(:disabled):hover { filter: brightness(0.96); }
+
 /* ── 内联预览入口（渲染在每条 agent 回复正文下方，见 DevPreviewCard.tsx）──────
    不再是浮在输入框上的卡片;改为消息内联,故用 inline-flex 贴合内容宽度、低调样式。 */
 .pw-devpreview-card {

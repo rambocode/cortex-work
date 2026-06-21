@@ -53,6 +53,7 @@
   },
   "annotate": {
     "commentPlaceholder": "Add a comment…",
+    "barLabel": "{{count}} annotated",
     "sendToChat": "Send to Chat",
     "sendToTerminal": "Send to terminal",
     "delete": "Delete this annotation",
