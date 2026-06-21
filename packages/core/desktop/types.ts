@@ -1270,6 +1270,7 @@ export interface PluginSkill {
   name: string;
   description: string;
   argumentHint?: string;
+  supportedAgents?: AgentKind[]; // frontmatter 声明的适用 agent;缺省=全 agent（注入时按会话 agent 过滤）
   dir: string; // skill 根目录绝对路径（即 --skill 注入值）
   rootPath: string; // 来源根（已 expand 的绝对路径）
   scope: SkillScope; // global | workspace

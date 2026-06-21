@@ -48,4 +48,18 @@ describe("parseFrontmatter（SKILL.md 头解析）", () => {
     expect(fm.name).toBe("x");
     expect(Object.keys(fm)).toEqual(["name"]);
   });
+
+  it("supported-agents:逗号分隔 → 字符串数组(U5)", () => {
+    const fm = parseFrontmatter("---\nname: x\nsupported-agents: pi, claude\n---\n");
+    expect(fm.supportedAgents).toEqual(["pi", "claude"]);
+  });
+
+  it("supported-agents:方括号写法 [pi, codex]", () => {
+    const fm = parseFrontmatter("---\nname: x\nsupported-agents: [pi, codex]\n---\n");
+    expect(fm.supportedAgents).toEqual(["pi", "codex"]);
+  });
+
+  it("无 supported-agents → undefined(=全 agent)", () => {
+    expect(parseFrontmatter("---\nname: x\n---\n").supportedAgents).toBeUndefined();
+  });
 });

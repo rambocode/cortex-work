@@ -1380,8 +1380,9 @@ export async function resolveEnabledSkillPaths(
   bridge: DesktopBridge,
   projectPath: string,
   useOwnSkills: boolean | undefined,
+  agent?: AgentKind,
 ): Promise<string[]> {
-  return (await resolveEnabledSkillRecords(bridge, projectPath, useOwnSkills)).map((s) => s.dir);
+  return (await resolveEnabledSkillRecords(bridge, projectPath, useOwnSkills, agent)).map((s) => s.dir);
 }
 
 // 扩展市场（U3）:据 piExtensions 配置解析出注入 pi 的 -e 路径集合。
@@ -1491,7 +1492,7 @@ async function sendPiTurn(
     const thinkingLevel = session.thinkingLevel ?? usePersonalStore.getState().generalSettings.piThinkingDefault;
     // 插件 Skill（U5）:解析已启用 + 授信 + 去重的 skill 目录,经 --skill 注入;集合变化经
     // extensionFingerprint 触发会话重开。useOwnSkills===false → 会话级一键关 → []。
-    const skillPaths = await resolveEnabledSkillPaths(bridge, projectPath, session.useOwnSkills);
+    const skillPaths = await resolveEnabledSkillPaths(bridge, projectPath, session.useOwnSkills, session.agent);
     // 扩展市场（U3）:解析已启用+已授信的扩展 -e 路径;集合变化经 extensionFingerprint 触发重开。
     const extensionPaths = resolveEnabledExtensionPaths(projectPath);
     const opened = await ensurePiSession(
@@ -2129,7 +2130,7 @@ export function usePersonalActions(): PersonalActions {
         // 把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 两路互斥 → 不双注入(R3)。
         // useOwnSkills 短路对 claude/codex 同样生效(RISK-2):resolveEnabledSkillRecords 据其早退。
         const skillBlock = renderSkillBlock(
-          await resolveEnabledSkillRecords(bridge, projectPath, sendSession.useOwnSkills),
+          await resolveEnabledSkillRecords(bridge, projectPath, sendSession.useOwnSkills, sendSession.agent),
         );
         const appendWithSkills =
           [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;

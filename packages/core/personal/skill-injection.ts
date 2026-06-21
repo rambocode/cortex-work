@@ -9,7 +9,7 @@
 // messages.ts 的 resolveEnabledSkillPaths 委托到这里取 .dir,避免在已超 1200 行上限的 messages.ts
 // 继续堆叠、也避免两份过滤规则漂移。
 import type { DesktopBridge } from "../desktop/bridge";
-import { DEFAULT_PI_SKILLS, type PluginSkill } from "../desktop/types";
+import { DEFAULT_PI_SKILLS, type AgentKind, type PluginSkill } from "../desktop/types";
 import { usePersonalStore } from "../store/personal";
 
 // 注入用的精简 skill 记录(name/description/dir)。
@@ -45,14 +45,16 @@ export function renderSkillBlock(skills: InjectableSkill[]): string {
 }
 
 // 解析已启用 skill 的注入记录(U2)。复用与 resolveEnabledSkillPaths 同一过滤链:
-// 禁用(`scope:name`) + 工作区未授信剔除 → name 去重(全局覆盖工作区,防恶意工作区同名劫持)
-// → 按 dir 排序(与旧 resolveEnabledSkillPaths 输出一致)。
+// 禁用(`scope:name`) + 工作区未授信剔除 → 按 supportedAgents 过滤(U5) → name 去重(全局覆盖
+// 工作区,防恶意工作区同名劫持) → 按 dir 排序(与旧 resolveEnabledSkillPaths 输出一致)。
 // useOwnSkills===false(会话级一键关) / 无 bridge.piSkillsList(web/旧壳) / 扫描失败 → []
 // (降级,不阻断发送)。
+// agent(U5):当前会话 agent;skill 声明了 supportedAgents 且不含该 agent → 跳过(缺省/不传 = 不过滤)。
 export async function resolveEnabledSkillRecords(
   bridge: DesktopBridge,
   projectPath: string,
   useOwnSkills: boolean | undefined,
+  agent?: AgentKind,
 ): Promise<InjectableSkill[]> {
   if (useOwnSkills === false) return [];
   if (!bridge.piSkillsList) return [];
@@ -73,6 +75,7 @@ export async function resolveEnabledSkillRecords(
   const enabled = skills.filter((s) => {
     if (disabled.has(`${s.scope}:${s.name}`)) return false; // 已禁用
     if (s.scope === "workspace" && !trusted.has(s.dir)) return false; // 工作区未授信不注入
+    if (agent && s.supportedAgents && !s.supportedAgents.includes(agent)) return false; // 不适用当前 agent
     return true;
   });
   // name 去重:先放工作区、后放全局覆盖 → 同名时全局胜出。

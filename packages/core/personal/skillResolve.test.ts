@@ -95,6 +95,17 @@ describe("resolveEnabledSkillRecords", () => {
     const dirs = (await resolveEnabledSkillRecords(bridge, "/proj", undefined)).map((s) => s.dir);
     expect(dirs).toEqual(["/g/b"]);
   });
+
+  it("supportedAgents 过滤(U5):声明 [pi] 的 skill 对 claude 不注入,对 pi / 不传 agent 注入", async () => {
+    const piOnly: PluginSkill = { ...skill("pi-only", "global", "/g/pi-only"), supportedAgents: ["pi"] };
+    const uni = skill("uni", "global", "/g/uni"); // 无声明 = 全 agent
+    const bridge = bridgeWith([piOnly, uni]);
+    const dirs = async (agent?: "claude" | "codex" | "pi") =>
+      (await resolveEnabledSkillRecords(bridge, "/proj", undefined, agent)).map((s) => s.dir);
+    expect(await dirs("claude")).toEqual(["/g/uni"]); // pi-only 被过滤
+    expect(await dirs("pi")).toEqual(["/g/pi-only", "/g/uni"]); // 两者
+    expect(await dirs()).toEqual(["/g/pi-only", "/g/uni"]); // 不传 agent → 不过滤
+  });
 });
 
 // resolveEnabledExtensionPaths（U3）:仅 enabled∩trusted 的 global 已装扩展注入 -e;装≠启用、信任门。
