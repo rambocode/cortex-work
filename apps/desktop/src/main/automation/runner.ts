@@ -11,7 +11,7 @@
 import { homedir } from "os";
 import type { AgentProcess } from "../ipc/cli";
 import { assertSpawnCwd, detectAgents, spawnEnvFor, startAgentProcess } from "../ipc/cli";
-import { getAdapter } from "../agents";
+import { getAdapter, parseLineEvents } from "../agents";
 import { writePiExtension } from "../agents/pi-providers";
 import { getPersistedState, getWorkspaceRoot } from "../ipc/store";
 import type { AutomationMeta, AutomationRun, CliStartRequest } from "../ipc/types";
@@ -198,14 +198,16 @@ export async function runAutomation(
 
   const handleLine = (line: string) => {
     if (!line) return;
-    const ev = adapter.parseLine(line);
-    if (!ev) return;
-    if (ev.type === "init") run.agentSessionId = ev.sessionId;
-    else if (ev.type === "text") {
-      if (out.length < MAX_OUTPUT) out += ev.delta;
-    } else if (ev.type === "result") {
-      if (!ev.ok) failed = ev.error ?? "执行失败";
-      else if (ev.text) resultText = ev.text;
+    // 一行可解析出多个事件(如 usage + result);逐个处理。本通道只关心 init/text/result,
+    // usage 等其它事件忽略(自动化只需最终文本与会话 id)。
+    for (const ev of parseLineEvents(adapter, line)) {
+      if (ev.type === "init") run.agentSessionId = ev.sessionId;
+      else if (ev.type === "text") {
+        if (out.length < MAX_OUTPUT) out += ev.delta;
+      } else if (ev.type === "result") {
+        if (!ev.ok) failed = ev.error ?? "执行失败";
+        else if (ev.text) resultText = ev.text;
+      }
     }
   };
 

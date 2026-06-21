@@ -30,6 +30,26 @@ function buildClaudePrompt(req: CliStartRequest): string {
   return `用户上传了以下图片,请先用 Read 工具逐一查看,再回应:\n${paths}\n\n${req.prompt}`;
 }
 
+// claude result 帧的 usage + total_cost_usd → 归一化 usage 事件。claude 提供 cost,故带 costUsd;
+// 缓存命中是 cache_read_input_tokens。字段缺失/类型异常一律降级为不产出(返回 null),不抛错。
+// 流式 usage 为补充信号,持久权威仍在 usage.ts 磁盘路径(KTD3)。
+function mapClaudeUsage(obj: Record<string, unknown>): CliStreamEvent | null {
+  const usage = obj.usage as Record<string, unknown> | undefined;
+  const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
+  const inputTokens = num(usage?.input_tokens);
+  const outputTokens = num(usage?.output_tokens);
+  const cachedInputTokens = num(usage?.cache_read_input_tokens);
+  const costUsd = num(obj.total_cost_usd);
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    cachedInputTokens === undefined &&
+    costUsd === undefined
+  )
+    return null;
+  return { type: "usage", inputTokens, outputTokens, cachedInputTokens, costUsd };
+}
+
 export const claudeAdapter: AgentAdapter = {
   buildArgs(req: CliStartRequest) {
     const args = [
@@ -65,7 +85,7 @@ export const claudeAdapter: AgentAdapter = {
     return { cmd: "claude", args };
   },
 
-  parseLine(line: string): CliStreamEvent | null {
+  parseLine(line: string): CliStreamEvent | CliStreamEvent[] | null {
     let obj: Record<string, unknown>;
     try {
       obj = JSON.parse(line);
@@ -101,12 +121,15 @@ export const claudeAdapter: AgentAdapter = {
 
     if (obj.type === "result") {
       const ok = obj.subtype === "success" && !obj.is_error;
-      return {
+      const result: CliStreamEvent = {
         type: "result",
         ok,
         text: typeof obj.result === "string" ? obj.result : undefined,
         error: ok ? undefined : (typeof obj.result === "string" ? obj.result : String(obj.subtype ?? "error")),
       };
+      // 一行同时透出 usage(若有)与 result:usage 在前,供消费端先记账再收尾。
+      const usage = mapClaudeUsage(obj);
+      return usage ? [usage, result] : result;
     }
 
     return null;

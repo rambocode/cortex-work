@@ -24,6 +24,20 @@ function commandDetail(command: unknown): string | undefined {
   return command.length > 100 ? command.slice(0, 100) + "…" : command;
 }
 
+// codex turn.completed.usage → 归一化 usage 事件。codex 无 cost 字段(仅 token);字段缺失/类型
+// 异常一律降级为不产出(返回 null),不抛错。codex 磁盘 rollout 不带 per-event token 历史,
+// 故这条流式 usage 是 codex 唯一的 token 来源(补充信号,见 KTD3)。
+function mapCodexUsage(usage: unknown): CliStreamEvent | null {
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+  const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
+  const inputTokens = num(u.input_tokens);
+  const outputTokens = num(u.output_tokens);
+  const cachedInputTokens = num(u.cached_input_tokens);
+  if (inputTokens === undefined && outputTokens === undefined && cachedInputTokens === undefined) return null;
+  return { type: "usage", inputTokens, outputTokens, cachedInputTokens };
+}
+
 export const codexAdapter: AgentAdapter = {
   buildArgs(req: CliStartRequest): { cmd: string; args: string[] } {
     const prompt = promptWithSkills(req);
@@ -55,7 +69,7 @@ export const codexAdapter: AgentAdapter = {
     return { cmd: "codex", args };
   },
 
-  parseLine(line: string): CliStreamEvent | null {
+  parseLine(line: string): CliStreamEvent | CliStreamEvent[] | null {
     let obj: Record<string, unknown>;
     try {
       obj = JSON.parse(line);
@@ -78,7 +92,9 @@ export const codexAdapter: AgentAdapter = {
     }
 
     if (obj.type === "turn.completed") {
-      return { type: "result", ok: true };
+      // 一行同时透出 usage(若有)与 result:usage 在前,供消费端先记账再收尾。
+      const usage = mapCodexUsage(obj.usage);
+      return usage ? [usage, { type: "result", ok: true }] : { type: "result", ok: true };
     }
 
     if (obj.type === "turn.failed" || obj.type === "item.failed") {

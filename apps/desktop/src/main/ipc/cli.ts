@@ -8,7 +8,7 @@ import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, readdirSync, realpathSync, statSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, TrimSessionRequest } from "./types";
-import { getAdapter } from "../agents";
+import { getAdapter, parseLineEvents } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -346,9 +346,9 @@ export function registerCliHandlers(): void {
     };
 
     const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
-      const ev = adapter.parseLine(line);
-      if (ev) {
-        // text 增量交记录端合并为一条生长段;其它事件(init/tool/result)走普通 trace(并触发段收尾)。
+      // 一行可解析出多个归一化事件(如收尾行含 usage + result),逐个处理。
+      for (const ev of parseLineEvents(adapter, line)) {
+        // text 增量交记录端合并为一条生长段;其它事件(init/tool/usage/result…)走普通 trace(并触发段收尾)。
         if (ev.type === "text") {
           recordStreamDelta({
             scope: "cli",
@@ -495,31 +495,33 @@ export function registerCliHandlers(): void {
 
         const handleLine = (line: string) => {
           if (!line) return;
-          const ev = adapter.parseLine(line);
-          if (!ev) return;
-          // text 增量合并为段;其它事件走普通 trace。
-          if (ev.type === "text") {
-            recordStreamDelta({
-              scope: "oneshot",
-              segmentType: "text",
-              delta: ev.delta,
-              sessionId: "oneshot",
-              agent,
-            });
-          } else {
-            recordAgentTrace({
-              scope: "oneshot",
-              phase: "event",
-              summary: `${agent} oneshot ${ev.type}`,
-              sessionId: "oneshot",
-              agent,
-              data: { parsedEvent: ev },
-            });
-          }
-          if (ev.type === "text" && out.length < 20_000) out += ev.delta;
-          if (ev.type === "result") {
-            if (!ev.ok) failed = ev.error ?? "执行失败";
-            else if (ev.text) resultText = ev.text;
+          // 一行可解析出多个事件(usage + result);逐个处理。oneshot 只关心 text 聚合与 result 收尾,
+          // usage 等其它事件走 trace 记录即可。
+          for (const ev of parseLineEvents(adapter, line)) {
+            // text 增量合并为段;其它事件走普通 trace。
+            if (ev.type === "text") {
+              recordStreamDelta({
+                scope: "oneshot",
+                segmentType: "text",
+                delta: ev.delta,
+                sessionId: "oneshot",
+                agent,
+              });
+            } else {
+              recordAgentTrace({
+                scope: "oneshot",
+                phase: "event",
+                summary: `${agent} oneshot ${ev.type}`,
+                sessionId: "oneshot",
+                agent,
+                data: { parsedEvent: ev },
+              });
+            }
+            if (ev.type === "text" && out.length < 20_000) out += ev.delta;
+            if (ev.type === "result") {
+              if (!ev.ok) failed = ev.error ?? "执行失败";
+              else if (ev.text) resultText = ev.text;
+            }
           }
         };
 

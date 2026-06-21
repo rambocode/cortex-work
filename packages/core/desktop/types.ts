@@ -801,10 +801,17 @@ export interface TrimSessionRequest {
 }
 
 // claude stream-json 行解析后的归一化事件（adapter 输出）。
+// M1 向后兼容扩展:新增 usage/thinking/turn/retry 变体与 tool 的可选 phase。新增项全部可选/为新变体,
+// 现有消费端(handleCliEvent/applyFollowupEvent 的 if 链、foldCliEvent 对非 text/tool 原样返回)自然忽略。
+// ⚠️ 跨包契约:与 apps/desktop/src/main/ipc/types.ts 的 CliStreamEvent 逐字镜像,改动两处必须同步。
 export type CliStreamEvent =
   | { type: "init"; sessionId: string }
   | { type: "text"; delta: string }
-  | { type: "tool"; name: string; detail?: string }
+  | { type: "thinking"; delta: string } // reasoning 模型的思考增量(对齐 pi 的 reasoning)
+  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end" } // phase 缺省=旧语义(单点)
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; thinkingTokens?: number; costUsd?: number } // 流式 usage/cost(补充磁盘来源)
+  | { type: "turn"; stopReason?: string } // 一轮结束;stopReason 供 claude stdin 关闭判定
+  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string } // 安全重试发起(对齐 pi retry)
   | { type: "result"; ok: boolean; text?: string; error?: string };
 
 export interface CliExitEvent {

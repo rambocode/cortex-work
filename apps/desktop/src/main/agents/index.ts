@@ -10,7 +10,14 @@ export interface AgentAdapter {
   // 返回可执行名与参数。可执行名不带路径，由 cli.ts 结合 PATH 解析。
   buildArgs(req: CliStartRequest): { cmd: string; args: string[] };
   // 解析一行 stdout，返回归一化事件；无法识别的行返回 null（忽略）。
-  parseLine(line: string): CliStreamEvent | null;
+  // 一行可携带多个归一化事件(如 claude/codex 的收尾行同时含 usage 与 result),此时返回数组。
+  parseLine(line: string): CliStreamEvent | CliStreamEvent[] | null;
+}
+
+// 把 parseLine 的「单事件 | 数组 | null」三态归一为数组,供 spawn 管线统一迭代(cli.ts / ask.ts)。
+export function parseLineEvents(adapter: AgentAdapter, line: string): CliStreamEvent[] {
+  const r = adapter.parseLine(line);
+  return Array.isArray(r) ? r : r ? [r] : [];
 }
 
 const ADAPTERS: Record<string, AgentAdapter> = {

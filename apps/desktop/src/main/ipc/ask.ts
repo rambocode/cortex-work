@@ -15,7 +15,7 @@ import { ipcMain, type WebContents } from "electron";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import type { AgentKind, AskFollowupRequest, CliStreamEvent } from "./types";
-import { getAdapter } from "../agents";
+import { getAdapter, parseLineEvents } from "../agents";
 import { writePiExtension } from "../agents/pi-providers";
 import { type AgentProcess, pipeStdoutLines, spawnEnvFor, startAgentProcess } from "./cli";
 import { recordAgentTrace } from "./agent-trace";
@@ -109,8 +109,8 @@ export function registerAskHandlers(): void {
     };
 
     const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
-      const ev = adapter.parseLine(line);
-      if (ev) sendEvent(ev);
+      // 一行可解析出多个归一化事件(如 usage + result);逐个转发。
+      for (const ev of parseLineEvents(adapter, line)) sendEvent(ev);
     });
 
     let stderrTail = "";

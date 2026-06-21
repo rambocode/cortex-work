@@ -161,8 +161,23 @@ describe("codexAdapter.parseLine", () => {
     expect(codexAdapter.parseLine(line)).toEqual({ type: "text", delta: "OK" });
   });
 
-  it("turn.completed → ok result 事件", () => {
-    const line = JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+  it("turn.completed 带 usage → [usage, result] 两事件(usage 在前)", () => {
+    const line = JSON.stringify({
+      type: "turn.completed",
+      usage: { input_tokens: 10, output_tokens: 5, cached_input_tokens: 3 },
+    });
+    expect(codexAdapter.parseLine(line)).toEqual([
+      { type: "usage", inputTokens: 10, outputTokens: 5, cachedInputTokens: 3 },
+      { type: "result", ok: true },
+    ]);
+  });
+
+  it("turn.completed 无 usage → 仅 result(降级,不产空 usage)", () => {
+    expect(codexAdapter.parseLine(JSON.stringify({ type: "turn.completed" }))).toEqual({ type: "result", ok: true });
+  });
+
+  it("turn.completed usage 字段类型异常 → 仅 result(降级不抛)", () => {
+    const line = JSON.stringify({ type: "turn.completed", usage: { input_tokens: "x" } });
     expect(codexAdapter.parseLine(line)).toEqual({ type: "result", ok: true });
   });
 

@@ -148,6 +148,26 @@ describe("claudeAdapter.parseLine", () => {
     expect(ev).toMatchObject({ type: "result", ok: false });
   });
 
+  it("result 带 usage + cost → [usage, result] 两事件(usage 在前,缓存命中映射)", () => {
+    const line = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 50 },
+      total_cost_usd: 0.0123,
+    });
+    expect(claudeAdapter.parseLine(line)).toEqual([
+      { type: "usage", inputTokens: 100, outputTokens: 20, cachedInputTokens: 50, costUsd: 0.0123 },
+      { type: "result", ok: true, text: "done", error: undefined },
+    ]);
+  });
+
+  it("result 无 usage/cost → 仅 result(降级,不产空 usage)", () => {
+    const line = JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "x" });
+    expect(claudeAdapter.parseLine(line)).toEqual({ type: "result", ok: true, text: "x", error: undefined });
+  });
+
   it("非 JSON / 未知行忽略且不抛", () => {
     expect(claudeAdapter.parseLine("not json")).toBeNull();
     expect(claudeAdapter.parseLine(JSON.stringify({ type: "rate_limit_event" }))).toBeNull();
