@@ -13,6 +13,16 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        // 显式声明多入口后 electron-vite 不再自动探测 index.ts,故须同时列出 index
+        // (否则所有窗口丢失 preload)。annotation = webview 受控标注 preload(计划 U4)。
+        input: {
+          index: resolve("src/preload/index.ts"),
+          annotation: resolve("src/preload/annotation.ts"),
+        },
+      },
+    },
   },
   renderer: {
     server: {
