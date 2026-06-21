@@ -8,7 +8,7 @@ import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, readdirSync, realpathSync, statSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpSettings, TrimSessionRequest } from "./types";
-import { getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
+import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -399,7 +399,7 @@ export function registerCliHandlers(): void {
     if (
       req.resumeSessionId &&
       !req.continueSession &&
-      !agentSessionExists({ agent: req.agent, agentSessionId: req.resumeSessionId })
+      !agentSessionExists({ agent: baseAgentKindOf(req.agent), agentSessionId: req.resumeSessionId })
     ) {
       recordAgentTrace({
         scope: "cli",

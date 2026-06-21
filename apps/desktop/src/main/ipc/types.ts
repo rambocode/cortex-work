@@ -78,6 +78,9 @@ export interface SessionMeta {
   claudeSessionId?: string;
   agentSessionIds?: Partial<Record<AgentKind, string>>;
   agent: AgentKind;
+  // M3-A/U7:用户 JSON 派生的新 id agent。缺省 = 用 agent(内置)。spawn 时 req.agent = derivedAgentId ?? agent。
+  // agent 字段仍存其 base 内置值,使全仓 Record<AgentKind> 索引(模型/标签/头像/续接槽)无需放宽。
+  derivedAgentId?: string;
   model?: string;
   providerId?: string;
   piSessionFile?: string; // 阶段4 pi 会话恢复用磁盘 JSONL 路径（与 core 镜像）
@@ -315,7 +318,8 @@ export interface ReadFileResult {
 export interface CliStartRequest {
   runId: string;
   sessionId: string;
-  agent: AgentKind;
+  // 可为内置 AgentKind 或用户 JSON 派生的新 id(M3-A/U7);后端 getAgentDef 按 string 解析,故放宽为 string。
+  agent: string;
   cwd: string;
   prompt: string;
   model?: string;

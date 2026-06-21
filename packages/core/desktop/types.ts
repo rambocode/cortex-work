@@ -57,6 +57,9 @@ export interface SessionMeta {
   // 各 agent 自己的会话 id，后续轮次 resume 用。
   agentSessionIds?: Partial<Record<AgentKind, string>>;
   agent: AgentKind;
+  // M3-A/U7:用户 JSON 派生的新 id agent。缺省 = 用 agent(内置)。spawn 时 req.agent = derivedAgentId ?? agent。
+  // agent 字段仍存其 base 内置值,使全仓 Record<AgentKind> 索引(模型/标签/头像/续接槽)无需放宽。与 ipc 镜像。
+  derivedAgentId?: string;
   model?: string;
   // pi 思考强度（阶段5）:运行时可切(set_thinking_level),冷启经 --thinking 设初值;缺省回退
   // generalSettings.piThinkingDefault,再缺省 = 不传 = pi 内置默认。
@@ -778,7 +781,8 @@ export interface GitCommit {
 export interface CliStartRequest {
   runId: string; // renderer 生成，关联事件流
   sessionId: string; // 主进程在事件中回显,renderer 重载后仍可恢复归属
-  agent: AgentKind;
+  // 可为内置 AgentKind 或用户 JSON 派生的新 id(M3-A/U7);后端 getAgentDef 按 string 解析。与 ipc 镜像。
+  agent: string;
   cwd: string; // 项目路径
   prompt: string;
   model?: string;

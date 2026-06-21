@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { CliStartRequest } from "../ipc/types";
 import {
+  baseAgentKindOf,
   getAgentDef,
   listAgentProfiles,
   refreshLocalAgentProfiles,
@@ -65,6 +66,23 @@ describe("listAgentProfiles", () => {
   it("无派生 → []", () => {
     setLocalAgentProfilesLoader(() => []);
     expect(listAgentProfiles()).toEqual([]);
+  });
+});
+
+describe("baseAgentKindOf", () => {
+  it("内置 → 自身", () => {
+    setLocalAgentProfilesLoader(() => []);
+    expect(baseAgentKindOf("claude")).toBe("claude");
+    expect(baseAgentKindOf("codex")).toBe("codex");
+    expect(baseAgentKindOf("pi")).toBe("pi");
+  });
+  it("派生新 id → 其 base", () => {
+    setLocalAgentProfilesLoader(() => [{ id: "my-codex", base: "codex" }]);
+    expect(baseAgentKindOf("my-codex")).toBe("codex");
+  });
+  it("未知 id → 兜底 claude", () => {
+    setLocalAgentProfilesLoader(() => []);
+    expect(baseAgentKindOf("ghost")).toBe("claude");
   });
 });
 

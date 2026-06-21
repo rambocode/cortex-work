@@ -12,7 +12,7 @@
 //   imageDelivery    native-flag(--image)/ prompt-text(拼进文本)/ none
 //   appendSystemPrompt native-flag(原生 flag)/ prompt-wrap(<user_request> 包裹)/ none
 
-import type { CliStartRequest, CliStreamEvent, DerivedAgentMeta } from "../ipc/types";
+import type { AgentKind, CliStartRequest, CliStreamEvent, DerivedAgentMeta } from "../ipc/types";
 import {
   defaultAgentProfilesPath,
   deriveAgentDef,
@@ -114,4 +114,11 @@ export function getAgentDef(agent: string): AgentDef {
 export function listAgentProfiles(): DerivedAgentMeta[] {
   loadDerived();
   return derivedMetaCache ?? [];
+}
+
+// 把任意 agent(可能是派生新 id)解析为其内置 base AgentKind(U7)。内置→自身;派生→其 base;
+// 未知 id→兜底 "claude"。用于会话文件/续接等只识内置语义的主进程逻辑(派生与 base 共用 CLI、会话文件)。
+export function baseAgentKindOf(agent: string): AgentKind {
+  if (agent === "claude" || agent === "codex" || agent === "pi") return agent;
+  return listAgentProfiles().find((p) => p.id === agent)?.base ?? "claude";
 }
