@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   detectAgents: vi.fn(),
   startAgentProcess: vi.fn(),
   spawnEnvFor: vi.fn(),
-  getAdapter: vi.fn(),
+  getAgentDef: vi.fn(),
   appendRun: vi.fn(),
   updateRun: vi.fn(),
   patchAutomation: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock("../ipc/cli", () => ({
 }));
 
 vi.mock("../agents", () => ({
-  getAdapter: mocks.getAdapter,
+  getAgentDef: mocks.getAgentDef,
 }));
 
 vi.mock("../agents/pi-providers", () => ({
@@ -87,7 +87,7 @@ describe("runAutomation agent availability", () => {
     expect(run.status).toBe("error");
     expect(run.error).toContain("Claude Code 未安装或不可用");
     expect(mocks.startAgentProcess).not.toHaveBeenCalled();
-    expect(mocks.getAdapter).not.toHaveBeenCalled();
+    expect(mocks.getAgentDef).not.toHaveBeenCalled();
     expect(mocks.appendRun).toHaveBeenCalledWith(expect.objectContaining({ id: "run-1", status: "error" }));
     expect(mocks.updateRun).toHaveBeenCalledWith("auto-1", "run-1", expect.objectContaining({ status: "error" }));
     expect(mocks.patchAutomation).toHaveBeenCalledWith("auto-1", expect.objectContaining({ lastStatus: "error" }));

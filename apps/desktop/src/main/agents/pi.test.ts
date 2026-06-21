@@ -10,7 +10,7 @@ vi.mock("./pi-locate", () => ({
 // pi.ts 经 ./pi-providers 引入 safeId,后者顶层 import electron app —— mock 掉避免加载真 electron。
 vi.mock("electron", () => ({ app: {} }));
 
-import { piAdapter } from "./pi";
+import { piDef } from "./pi";
 import type { CliStartRequest } from "../ipc/types";
 
 const BIN = "/fake/resources/pi/pi";
@@ -23,9 +23,9 @@ const baseReq: CliStartRequest = {
   prompt: "hello",
 };
 
-describe("piAdapter.buildArgs", () => {
+describe("piDef.buildArgs", () => {
   it("首轮:二进制 cmd + --mode json + -p + --no-extensions + --no-skills,prompt 在末位", () => {
-    const { cmd, args } = piAdapter.buildArgs(baseReq);
+    const { cmd, args } = piDef.buildArgs(baseReq);
     expect(cmd).toBe(BIN);
     expect(args[0]).toBe("--mode");
     expect(args.join(" ")).toContain("--mode json");
@@ -39,14 +39,14 @@ describe("piAdapter.buildArgs", () => {
   });
 
   it("插件 Skill:恒带 --no-skills（不再随 useOwnSkills 省略,UI 唯一真相源）", () => {
-    expect(piAdapter.buildArgs(baseReq).args).toContain("--no-skills");
-    expect(piAdapter.buildArgs({ ...baseReq, useOwnSkills: false }).args).toContain("--no-skills");
-    expect(piAdapter.buildArgs({ ...baseReq, useOwnSkills: true }).args).toContain("--no-skills");
+    expect(piDef.buildArgs(baseReq).args).toContain("--no-skills");
+    expect(piDef.buildArgs({ ...baseReq, useOwnSkills: false }).args).toContain("--no-skills");
+    expect(piDef.buildArgs({ ...baseReq, useOwnSkills: true }).args).toContain("--no-skills");
   });
 
   it("插件 Skill:skillPaths 逐个 --skill 注入；缺省仅 --no-skills", () => {
-    expect(piAdapter.buildArgs(baseReq).args).not.toContain("--skill");
-    const { args } = piAdapter.buildArgs({ ...baseReq, skillPaths: ["/a/code-review", "/b/bug-hunt"] });
+    expect(piDef.buildArgs(baseReq).args).not.toContain("--skill");
+    const { args } = piDef.buildArgs({ ...baseReq, skillPaths: ["/a/code-review", "/b/bug-hunt"] });
     expect(args).toContain("--no-skills");
     const joined = args.join(" ");
     expect(joined).toContain("--skill /a/code-review");
@@ -54,16 +54,16 @@ describe("piAdapter.buildArgs", () => {
   });
 
   it("运行模式 plan:json 单发注入 --tools 只读白名单,prompt 仍末位;非 plan 不注入", () => {
-    expect(piAdapter.buildArgs(baseReq).args).not.toContain("--tools"); // 缺省
-    expect(piAdapter.buildArgs({ ...baseReq, permissionMode: "accept-edits" }).args).not.toContain("--tools");
-    expect(piAdapter.buildArgs({ ...baseReq, permissionMode: "full-auto" }).args).not.toContain("--tools");
-    const { args } = piAdapter.buildArgs({ ...baseReq, permissionMode: "plan" });
+    expect(piDef.buildArgs(baseReq).args).not.toContain("--tools"); // 缺省
+    expect(piDef.buildArgs({ ...baseReq, permissionMode: "accept-edits" }).args).not.toContain("--tools");
+    expect(piDef.buildArgs({ ...baseReq, permissionMode: "full-auto" }).args).not.toContain("--tools");
+    const { args } = piDef.buildArgs({ ...baseReq, permissionMode: "plan" });
     expect(args.join(" ")).toContain("--tools read,grep,find,ls");
     expect(args.at(-1)).toBe("hello");
   });
 
   it("多轮:model / resumeSessionId / appendSystemPrompt 各自透传,prompt 仍在末位", () => {
-    const { args } = piAdapter.buildArgs({
+    const { args } = piDef.buildArgs({
       ...baseReq,
       model: "openai/gpt-5.5",
       resumeSessionId: "019ebe91-aaaa-7775-b82f-9810d333859a",
@@ -76,7 +76,7 @@ describe("piAdapter.buildArgs", () => {
   });
 
   it("自定义供应商:piExtensionPath → -e/-a,provider.id → --provider", () => {
-    const { args } = piAdapter.buildArgs({
+    const { args } = piDef.buildArgs({
       ...baseReq,
       model: "deepseek-chat",
       piExtensionPath: "/data/pi-providers/deepseek.js",
@@ -90,20 +90,20 @@ describe("piAdapter.buildArgs", () => {
   });
 
   it("无 piExtensionPath:不加 -e/-a/--provider（pi 用自身默认 provider）", () => {
-    const { args } = piAdapter.buildArgs(baseReq);
+    const { args } = piDef.buildArgs(baseReq);
     expect(args).not.toContain("-e");
     expect(args).not.toContain("-a");
     expect(args).not.toContain("--provider");
   });
 
   it("推理强度:pi 无对应 flag,effort 被忽略", () => {
-    const { args } = piAdapter.buildArgs({ ...baseReq, effort: "high" });
+    const { args } = piDef.buildArgs({ ...baseReq, effort: "high" });
     expect(args.join(" ")).not.toContain("effort");
     expect(args.join(" ")).not.toContain("reasoning");
   });
 });
 
-describe("piAdapter.parseLine", () => {
+describe("piDef.parseLine", () => {
   it("session → init 事件(捕获 id)", () => {
     const line = JSON.stringify({
       type: "session",
@@ -112,7 +112,7 @@ describe("piAdapter.parseLine", () => {
       timestamp: "2026-01-01T00:00:00Z",
       cwd: "/private/tmp/x",
     });
-    expect(piAdapter.parseLine(line)).toEqual({
+    expect(piDef.parseLine(line)).toEqual({
       type: "init",
       sessionId: "019ebe91-aaaa-7775-b82f-9810d333859a",
     });
@@ -124,7 +124,7 @@ describe("piAdapter.parseLine", () => {
       assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Hello", partial: {} },
       message: {},
     });
-    expect(piAdapter.parseLine(line)).toEqual({ type: "text", delta: "Hello" });
+    expect(piDef.parseLine(line)).toEqual({ type: "text", delta: "Hello" });
   });
 
   it("tool_execution_start → tool 事件(detail 取 command)", () => {
@@ -134,7 +134,7 @@ describe("piAdapter.parseLine", () => {
       toolName: "bash",
       args: { command: "ls -la" },
     });
-    expect(piAdapter.parseLine(line)).toEqual({ type: "tool", name: "bash", detail: "ls -la" });
+    expect(piDef.parseLine(line)).toEqual({ type: "tool", name: "bash", detail: "ls -la" });
   });
 
   it("message_end stopReason=stop → ok result 带拼接文本", () => {
@@ -147,7 +147,7 @@ describe("piAdapter.parseLine", () => {
         usage: {},
       },
     });
-    expect(piAdapter.parseLine(line)).toEqual({ type: "result", ok: true, text: "PING" });
+    expect(piDef.parseLine(line)).toEqual({ type: "result", ok: true, text: "PING" });
   });
 
   it("message_end stopReason=error → ok=false 带 diagnostics 错误", () => {
@@ -162,7 +162,7 @@ describe("piAdapter.parseLine", () => {
         diagnostics: [{ type: "provider_transport_failure", error: { message: "WebSocket error" } }],
       },
     });
-    expect(piAdapter.parseLine(line)).toEqual({ type: "result", ok: false, error: "provider failed" });
+    expect(piDef.parseLine(line)).toEqual({ type: "result", ok: false, error: "provider failed" });
   });
 
   it("message_end stopReason=error 无 errorMessage → 回退到 diagnostics", () => {
@@ -175,7 +175,7 @@ describe("piAdapter.parseLine", () => {
         diagnostics: [{ type: "provider_transport_failure", error: { message: "WebSocket error" } }],
       },
     });
-    expect(piAdapter.parseLine(line)).toEqual({ type: "result", ok: false, error: "WebSocket error" });
+    expect(piDef.parseLine(line)).toEqual({ type: "result", ok: false, error: "WebSocket error" });
   });
 
   it("message_end stopReason=aborted → ok=false(无错误信息时回退 stopReason 文本)", () => {
@@ -183,7 +183,7 @@ describe("piAdapter.parseLine", () => {
       type: "message_end",
       message: { role: "assistant", content: [], stopReason: "aborted" },
     });
-    expect(piAdapter.parseLine(line)).toEqual({ type: "result", ok: false, error: "aborted" });
+    expect(piDef.parseLine(line)).toEqual({ type: "result", ok: false, error: "aborted" });
   });
 
   it("message_end stopReason=toolUse → null(中间轮,不发 result)", () => {
@@ -191,17 +191,17 @@ describe("piAdapter.parseLine", () => {
       type: "message_end",
       message: { role: "assistant", content: [], stopReason: "toolUse" },
     });
-    expect(piAdapter.parseLine(line)).toBeNull();
+    expect(piDef.parseLine(line)).toBeNull();
   });
 
   it("agent_end / 其它事件 → null", () => {
-    expect(piAdapter.parseLine(JSON.stringify({ type: "agent_end" }))).toBeNull();
-    expect(piAdapter.parseLine(JSON.stringify({ type: "turn_start" }))).toBeNull();
-    expect(piAdapter.parseLine(JSON.stringify({ type: "message_start" }))).toBeNull();
+    expect(piDef.parseLine(JSON.stringify({ type: "agent_end" }))).toBeNull();
+    expect(piDef.parseLine(JSON.stringify({ type: "turn_start" }))).toBeNull();
+    expect(piDef.parseLine(JSON.stringify({ type: "message_start" }))).toBeNull();
   });
 
   it("非 JSON / 形状不符 → null 且不抛", () => {
-    expect(piAdapter.parseLine("not json")).toBeNull();
-    expect(piAdapter.parseLine(JSON.stringify({ type: "session" }))).toBeNull();
+    expect(piDef.parseLine("not json")).toBeNull();
+    expect(piDef.parseLine(JSON.stringify({ type: "session" }))).toBeNull();
   });
 });

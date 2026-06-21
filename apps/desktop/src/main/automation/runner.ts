@@ -1,5 +1,5 @@
 // 无头执行器：到点（或手动）无头调用 agent CLI 执行自动化的 prompt,聚合输出落
-// 执行记录。复用 cli.ts 的 startAgentProcess/spawnEnvFor + agents/getAdapter,
+// 执行记录。复用 cli.ts 的 startAgentProcess/spawnEnvFor + agents/getAgentDef,
 // 但用【独立进程注册表 runningAutomations】—— 绝不进 cli.ts 的 running Map,
 // 这样 window-all-closed 的 killAllCli() 不会误杀正在跑的定时任务。
 //
@@ -11,7 +11,7 @@
 import { homedir } from "os";
 import type { AgentProcess } from "../ipc/cli";
 import { assertSpawnCwd, detectAgents, spawnEnvFor, startAgentProcess } from "../ipc/cli";
-import { getAdapter, parseLineEvents } from "../agents";
+import { getAgentDef, parseLineEvents } from "../agents";
 import { writePiExtension } from "../agents/pi-providers";
 import { getPersistedState, getWorkspaceRoot } from "../ipc/store";
 import type { AutomationMeta, AutomationRun, CliStartRequest } from "../ipc/types";
@@ -167,7 +167,7 @@ export async function runAutomation(
       provider,
       piExtensionPath,
     };
-    const adapter = getAdapter(meta.agent);
+    const adapter = getAgentDef(meta.agent);
     const { cmd, args, stdin } = adapter.buildArgs(req);
     assertSpawnCwd(cwd);
     proc = startAgentProcess(cmd, args, { cwd, env: spawnEnvFor(req), stdin });
@@ -182,7 +182,7 @@ export async function runAutomation(
 
   runningAutomations.set(meta.id, proc);
   pending.delete(meta.id); // 占位转移到 runningAutomations
-  const adapter = getAdapter(meta.agent);
+  const adapter = getAgentDef(meta.agent);
 
   let out = "";
   let resultText = "";

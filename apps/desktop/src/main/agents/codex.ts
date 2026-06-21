@@ -12,7 +12,7 @@
 //   {type:"turn.completed"}                                        → result
 
 import type { CliStartRequest, CliStreamEvent } from "../ipc/types";
-import type { AgentAdapter } from "./index";
+import type { AgentDef } from "./index";
 
 function promptWithSkills(req: CliStartRequest): string {
   if (!req.appendSystemPrompt) return req.prompt;
@@ -38,7 +38,15 @@ function mapCodexUsage(usage: unknown): CliStreamEvent | null {
   return { type: "usage", inputTokens, outputTokens, cachedInputTokens };
 }
 
-export const codexAdapter: AgentAdapter = {
+export const codexDef: AgentDef = {
+  id: "codex",
+  // 能力位:codex prompt 经 stdin 管道写完即 EOF;MCP 经 -c 注入(U2);续接 exec/exec resume(U4);
+  // 图片用原生 --image、appendSystemPrompt 以 <user_request> 包裹进 prompt(U5)。
+  promptDelivery: "stdin-eof",
+  mcpInjection: "codex-c",
+  sessionResume: "continue+resume",
+  imageDelivery: "native-flag",
+  appendSystemPrompt: "prompt-wrap",
   buildArgs(req: CliStartRequest): { cmd: string; args: string[]; stdin: string } {
     const prompt = promptWithSkills(req);
     const common = ["--json", "--skip-git-repo-check"];

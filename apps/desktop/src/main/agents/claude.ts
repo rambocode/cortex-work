@@ -12,7 +12,7 @@
 // 文本统一从 stream_event 增量取；assistant 完整消息只取 tool_use（避免重复）。
 
 import type { CliStartRequest, CliStreamEvent } from "../ipc/types";
-import type { AgentAdapter } from "./index";
+import type { AgentDef } from "./index";
 
 function toolDetail(input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined;
@@ -60,7 +60,15 @@ function buildClaudeStdin(req: CliStartRequest): string {
   });
 }
 
-export const claudeAdapter: AgentAdapter = {
+export const claudeDef: AgentDef = {
+  id: "claude",
+  // 能力位:claude 走 stream-json stdin;MCP 写 cwd .mcp.json(U2);续接支持 --continue+resume(U4);
+  // 图片拼进 prompt 文本、appendSystemPrompt 用原生 flag(U5)。
+  promptDelivery: "stdin-stream-json",
+  mcpInjection: "claude-mcp-json",
+  sessionResume: "continue+resume",
+  imageDelivery: "prompt-text",
+  appendSystemPrompt: "native-flag",
   buildArgs(req: CliStartRequest) {
     const args = [
       "-p",

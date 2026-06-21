@@ -8,7 +8,7 @@ import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, readdirSync, realpathSync, statSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, TrimSessionRequest } from "./types";
-import { getAdapter, parseLineEvents } from "../agents";
+import { getAgentDef, parseLineEvents } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -371,7 +371,7 @@ export function registerCliHandlers(): void {
   ipcMain.handle("cli:start", async (event, req: CliStartRequest) => {
     await assertAgentAvailable(req.agent);
     const sender = event.sender;
-    const adapter = getAdapter(req.agent);
+    const adapter = getAgentDef(req.agent);
     // pi 选中了自定义供应商:先生成 extension 文件,把路径塞回 req 供 buildArgs 加 -e。
     if (req.agent === "pi" && req.provider) {
       req.piExtensionPath = writePiExtension(req.provider);
@@ -609,7 +609,7 @@ export function registerCliHandlers(): void {
       // 那是交互会话/自动化的默认目录语义,oneshot 是轻量任务）。
       const cwd = req.cwd ?? homedir();
       await assertAgentAvailable(agent);
-      const adapter = getAdapter(agent);
+      const adapter = getAgentDef(agent);
       const provider = agent === "pi" ? req.provider : undefined;
       const piExtensionPath = provider ? writePiExtension(provider) : undefined;
       const { cmd, args, stdin } = adapter.buildArgs({
