@@ -172,21 +172,33 @@ function hostLabel(url: string): string {
   }
 }
 
-// 递归遍历段落的 hast 节点,收集其中的外链 href(仅 http/https),按出现顺序去重。
-// 用 node(hast)而非 children(react 元素)更稳:GFM autolink 的裸 URL 同样是 a 元素,都能命中。
-function collectExternalHrefs(node: unknown): string[] {
+// 文本里的裸 URL 匹配:排除空白、尖括号、圆括号与中英文标点(避免吞掉句末「。」「,」等)。
+const URL_IN_TEXT_RE = /https?:\/\/[^\s<>()，。；、）】]+/gi;
+
+// 递归遍历段落的 hast 节点,收集其中的 http/https URL,按出现顺序去重。
+// 三条来源都覆盖,因为 agent 习惯不一:
+//  - <a> 的 href(markdown 链接 [text](url));
+//  - GFM autolink 的裸 URL(也是 <a>);
+//  - 文本 / 内联 code 里的裸 URL —— agent 常把地址包在反引号里(`http://...`),
+//    而 GFM autolink 不会进 code span,故必须扫描 text 节点的 value。
+function collectParagraphUrls(node: unknown): string[] {
   const out: string[] = [];
   const visit = (n: unknown): void => {
     if (!n || typeof n !== "object") return;
-    const el = n as { tagName?: string; properties?: { href?: unknown }; children?: unknown };
+    const el = n as { tagName?: string; properties?: { href?: unknown }; value?: unknown; children?: unknown };
     const href = el.properties?.href;
     if (el.tagName === "a" && typeof href === "string" && /^https?:\/\//i.test(href)) {
       out.push(href);
     }
+    if (typeof el.value === "string") {
+      const m = el.value.match(URL_IN_TEXT_RE);
+      if (m) out.push(...m);
+    }
     if (Array.isArray(el.children)) el.children.forEach(visit);
   };
   visit(node);
-  return [...new Set(out)];
+  // 去掉行尾残留标点后去重。
+  return [...new Set(out.map((u) => u.replace(/[.,;:]+$/, "")))];
 }
 
 // 「网页预览」静态卡片:不抓取网页元数据(零网络/零隐私),仅展示地球图标 + 标题 + 域名。
@@ -275,7 +287,7 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
     // 段落:若段内含外链(http/https),在段落正下方为每条外链(去重)紧跟一张「网页预览」卡片。
     // 卡片是 <p> 的兄弟节点(经 Fragment),不嵌进 <p> 内,避免 div-in-p 的非法 DOM。
     p({ node, children, ...rest }) {
-      const urls = collectExternalHrefs(node);
+      const urls = collectParagraphUrls(node);
       return (
         <>
           <p {...rest}>{children}</p>
@@ -299,6 +311,31 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
     code({ node: _node, className, children, ...rest }) {
       const text = textOf(children);
       const isBlock = /language-/.test(className ?? "");
+      // 内联 code 恰为一条 http(s) URL → 渲染成可点击外链(进内置浏览器)。
+      // agent 常把地址包在反引号里(`http://localhost:3000`),GFM autolink 不进 code span,
+      // 不在此特判就会渲染成不可点的灰底 code(本次反馈的核心问题)。卡片由 p 收集器统一补。
+      const urlText = text.trim();
+      if (!isBlock && /^https?:\/\/\S+$/i.test(urlText)) {
+        const open = () => openInInternalBrowser(urlText);
+        return (
+          <code
+            {...rest}
+            className={[className, "url-link"].filter(Boolean).join(" ")}
+            role="button"
+            tabIndex={0}
+            title={urlText}
+            onClick={open}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                open();
+              }
+            }}
+          >
+            {children}
+          </code>
+        );
+      }
       if (!isBlock && isProjectFile(text)) {
         return (
           <FileCode

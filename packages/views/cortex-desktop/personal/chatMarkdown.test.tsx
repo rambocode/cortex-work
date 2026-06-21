@@ -90,6 +90,31 @@ describe("chatMarkdownComponents", () => {
     expect(container.querySelector(".pw-link-preview-host")?.textContent).toBe("foo.bar");
   });
 
+  it("内联 code 形态的 URL(反引号包裹)→ 可点击进内置浏览器 + 段落下方卡片", () => {
+    // 复现用户反馈:agent 输出 `http://localhost:3000`(反引号),GFM autolink 不进 code span。
+    const { container } = renderMd("默认访问地址是: `http://localhost:3000`");
+    const codeLink = container.querySelector("code.url-link");
+    expect(codeLink).not.toBeNull();
+    fireEvent.click(codeLink!);
+    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("http://localhost:3000");
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+    // 段落下方仍渲染预览卡片,域名取 host(含端口)。
+    expect(container.querySelector(".pw-link-preview-host")?.textContent).toBe("localhost:3000");
+  });
+
+  it("内联 code URL 键盘可达:Enter 进内置浏览器", () => {
+    const { container } = renderMd("地址 `https://k.io/p`");
+    const codeLink = container.querySelector("code.url-link")!;
+    fireEvent.keyDown(codeLink, { key: "Enter" });
+    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("https://k.io/p");
+  });
+
+  it("内联 code 非 URL(如 dev:web)仍是普通 code,不渲染卡片", () => {
+    const { container } = renderMd("脚本 `dev:web` 启动");
+    expect(container.querySelector("code.url-link")).toBeNull();
+    expect(container.querySelector(".pw-link-preview-card")).toBeNull();
+  });
+
   it("卡片「打开方式」下拉选系统浏览器 → 触发 openExternal", () => {
     const { container, openExternal } = renderMd("[site](https://x.com)");
     fireEvent.click(container.querySelector(".pw-link-preview-open")!);
