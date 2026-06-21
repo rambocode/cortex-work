@@ -166,6 +166,62 @@ describe("cli:oneshot trace", () => {
   });
 });
 
+describe("cli:start 活跃度看门狗(U5)", () => {
+  it("无活动超阈值 → 杀进程并补发带超时标识的 cli:exit", async () => {
+    vi.useFakeTimers();
+    process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS = "5000";
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-wd-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "wd-1", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      vi.advanceTimersByTime(5001); // 超阈值,看门狗触发 proc.kill()
+      child.emit("close", null); // 子进程被信号杀后 close → onExit 补发 cli:exit
+      expect(send).toHaveBeenCalledWith(
+        "cli:exit",
+        expect.objectContaining({ runId: "wd-1", error: expect.stringContaining("超时") }),
+      );
+    } finally {
+      killSpy.mockRestore();
+      vi.useRealTimers();
+      delete process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("阈值内有 stdout 活动 → 重置看门狗,不误杀", async () => {
+    vi.useFakeTimers();
+    process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS = "5000";
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-wd2-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "wd-2", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      vi.advanceTimersByTime(4000);
+      child.stdout.emit("data", JSON.stringify({ type: "session", id: "x" }) + "\n"); // 活动,重置
+      vi.advanceTimersByTime(4000); // 距上次活动仅 4s < 5s,不应触发
+      expect(send).not.toHaveBeenCalledWith("cli:exit", expect.anything());
+    } finally {
+      killSpy.mockRestore();
+      vi.useRealTimers();
+      delete process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });

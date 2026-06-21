@@ -17,6 +17,20 @@ const running = new Map<string, AgentProcess>();
 const VERIFY_TIMEOUT_MS = 3000;
 let detectedAgents: Promise<Record<AgentKind, boolean>> | null = null;
 
+// 主进程活跃度看门狗(U5)。基于 stdout/事件活跃度(非 CPU)。默认 10 分钟,可被环境变量覆盖,
+// 24 小时上限钳制(防 Node setTimeout 32-bit 溢出被静默降到 1ms)。它是**进程回收兜底**:
+// 渲染端 messages.ts 另有更短的 90s/300s per-run 看门狗负责面向用户的超时文案与 UI 清理,二者按
+// 阈值排序非冲突 —— 正常情况下渲染端先触发,主进程看门狗只在渲染端失联(刷新/重载)时兜底回收进程,
+// 避免子进程残留。两者不会双杀同一活跃 run。
+const DEFAULT_CLI_INACTIVITY_TIMEOUT_MS = 10 * 60_000;
+const MAX_CLI_INACTIVITY_TIMEOUT_MS = 24 * 60 * 60_000;
+
+export function resolveCliInactivityTimeoutMs(): number {
+  const raw = Number(process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS);
+  const v = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CLI_INACTIVITY_TIMEOUT_MS;
+  return Math.min(v, MAX_CLI_INACTIVITY_TIMEOUT_MS);
+}
+
 function promptPreview(prompt: string | undefined): string | undefined {
   if (!prompt) return undefined;
   return prompt.length > 300 ? `${prompt.slice(0, 300)}…` : prompt;
@@ -371,6 +385,35 @@ export function registerCliHandlers(): void {
     const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req), stdin });
     running.set(req.runId, proc);
 
+    // 活跃度看门狗(U5):每次 stdout 行 / stderr 数据重置计时;超阈值无活动则杀整组,
+    // 并由 onExit 补发带超时标识的 cli:exit。spawn 后即开始计时,覆盖「起步即静默」。
+    const inactivityMs = resolveCliInactivityTimeoutMs();
+    let watchdogTripped = false;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const clearWatchdog = () => {
+      if (watchdog) {
+        clearTimeout(watchdog);
+        watchdog = undefined;
+      }
+    };
+    const noteActivity = () => {
+      clearWatchdog();
+      watchdog = setTimeout(() => {
+        watchdogTripped = true;
+        recordAgentTrace({
+          scope: "cli",
+          phase: "watchdog",
+          summary: `${req.agent} inactivity timeout`,
+          runId: req.runId,
+          sessionId: req.sessionId,
+          agent: req.agent,
+          data: { inactivityMs },
+        });
+        proc.kill(); // 整组回收;触发 onExit → 补发 cli:exit(error 标识超时)
+      }, inactivityMs);
+    };
+    noteActivity();
+
     // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,
     // 仍能把事件归属到正确的 session 继续渲染/清理。
     const sendEvent = (ev: CliStreamEvent) => {
@@ -381,6 +424,7 @@ export function registerCliHandlers(): void {
     };
 
     const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
+      noteActivity(); // 任意 stdout 行(含未解析行)都算活跃,重置看门狗
       // 一行可解析出多个归一化事件(如收尾行含 usage + result),逐个处理。
       for (const ev of parseLineEvents(adapter, line)) {
         // text 增量交记录端合并为一条生长段;其它事件(init/tool/usage/result…)走普通 trace(并触发段收尾)。
@@ -411,6 +455,7 @@ export function registerCliHandlers(): void {
     let stderrTail = "";
     proc.stderr?.setEncoding("utf8");
     proc.stderr?.on("data", (chunk: string) => {
+      noteActivity(); // stderr 输出也算活跃
       stderrTail = (stderrTail + chunk).slice(-2000);
       recordAgentTrace({
         scope: "cli",
@@ -424,6 +469,7 @@ export function registerCliHandlers(): void {
     });
 
     proc.onError((err) => {
+      clearWatchdog();
       console.error(`[cli] ${req.agent} spawn failed: ${err.message}`);
       recordAgentTrace({
         scope: "cli",
@@ -442,13 +488,18 @@ export function registerCliHandlers(): void {
     });
 
     proc.onExit((code) => {
+      clearWatchdog();
       // 冲刷残留的最后一行（无换行结尾时）。
       flushStdout();
       // 显式摘除 data 监听:闭包捕获 sender/buffer/adapter,避免进程对象延迟回收时驻留（防泄漏）。
       proc.stdout?.removeAllListeners();
       proc.stderr?.removeAllListeners();
       running.delete(req.runId);
-      const error = code !== 0 && code !== null ? stderrTail.trim() || undefined : undefined;
+      // 看门狗触发的终止:被信号杀(code 多为 null),补上明确的超时错误标识供渲染端展示。
+      const timeoutError = watchdogTripped
+        ? `活跃超时:${Math.round(inactivityMs / 1000)} 秒无输出,已终止`
+        : undefined;
+      const error = timeoutError ?? (code !== 0 && code !== null ? stderrTail.trim() || undefined : undefined);
       if (error) console.error(`[cli] ${req.agent} exited with code ${code}: ${error}`);
       recordAgentTrace({
         scope: "cli",
