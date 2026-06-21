@@ -237,6 +237,14 @@ describe("文件片段发送中转（终端 / composer）", () => {
     expect(second?.text).toBe("片段B");
     expect(second!.nonce).toBe(first!.nonce + 1);
   });
+
+  it("insertToComposer 透传 submit 标志（默认不自动提交）", () => {
+    usePersonalStore.getState().insertToComposer("仅插入");
+    expect(usePersonalStore.getState().composerInsert?.submit).toBeFalsy();
+
+    usePersonalStore.getState().insertToComposer("插入并运行", { submit: true });
+    expect(usePersonalStore.getState().composerInsert?.submit).toBe(true);
+  });
 });
 
 describe("GitBar 整仓 diff 请求中转", () => {

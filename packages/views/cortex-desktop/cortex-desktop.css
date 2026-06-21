@@ -5436,6 +5436,46 @@ button.sb-row {
   margin-top: 4px;
 }
 
+/* tasks 二次编辑弹框:比默认 confirm 宽,容下意见输入区与三动作 + 取消（可换行）。 */
+.pw-doc-edit-dlg {
+  min-width: 440px;
+  max-width: 520px;
+}
+.pw-doc-edit-dlg .pw-confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  white-space: normal;
+}
+.pw-doc-edit-dlg .pw-confirm-body > textarea.pw-set-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 88px;
+  line-height: 1.5;
+}
+.pw-doc-edit-dlg .pw-confirm-foot {
+  flex-wrap: wrap;
+}
+.pw-doc-edit-ctx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pw-doc-edit-ctx-lbl {
+  color: var(--text-3, var(--text-2));
+}
+.pw-doc-edit-ctx > code {
+  font-family: var(--mono, ui-monospace, monospace);
+  word-break: break-all;
+  color: var(--text-1);
+}
+.pw-doc-edit-ctx-empty {
+  color: var(--text-3, var(--text-2));
+}
+
 /* ── 会话搜索弹窗:复用 .pw-dlg-overlay,命令面板式置顶居中小窗。 ── */
 .pw-search-dlg {
   width: 560px;

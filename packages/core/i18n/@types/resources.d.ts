@@ -397,6 +397,17 @@ export default interface Resources {
     "copyFailed": "复制失败",
     "deleteFailed": "删除失败：{{error}}",
     "deleted": "已删除 {{name}}",
+    "docEdit": {
+      "cancel": "取消",
+      "contextLabel": "将随意见一起发送的上下文",
+      "insertAndRun": "插入并运行",
+      "insertToChat": "插入到聊天框",
+      "noSelection": "（未选中段落，仅带文档路径）",
+      "open": "二次编辑",
+      "openTitle": "写调整意见并发送到 Agent",
+      "placeholder": "写下你的调整意见…",
+      "title": "二次编辑"
+    },
     "emptyDir": "空目录",
     "fileDeleted": "（文件已删除）",
     "insertedToComposer": "已插入会话输入框",

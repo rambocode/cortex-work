@@ -45,6 +45,17 @@
   "binaryNotice": "二进制文件,不支持文本预览",
   "sendToTerminalBtn": "发送到终端",
   "sendToChatBtn": "发送到 Chat",
+  "docEdit": {
+    "open": "二次编辑",
+    "openTitle": "写调整意见并发送到 Agent",
+    "title": "二次编辑",
+    "placeholder": "写下你的调整意见…",
+    "contextLabel": "将随意见一起发送的上下文",
+    "noSelection": "（未选中段落，仅带文档路径）",
+    "insertToChat": "插入到聊天框",
+    "insertAndRun": "插入并运行",
+    "cancel": "取消"
+  },
   "selectProject": "先在左侧选择一个项目",
   "segAll": "全部文件",
   "segChanges": "最近变更",

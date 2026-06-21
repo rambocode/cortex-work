@@ -15,7 +15,9 @@ import {
   TASK_STATUS_ORDER,
 } from "@cortex-work/core";
 import type { DocMetaView, Tag, TagDim, TaskStatus } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { MarkdownView } from "./MarkdownView";
+import { DocEditDialog } from "./DocEditDialog";
 import { relTime } from "./PersonalSidebar";
 
 const DIM_ORDER: TagDim[] = ["stage", "type", "topic", "depth"];
@@ -77,11 +79,15 @@ function DocCard({
   );
 }
 
-// 详情态：读 path 渲染 Markdown（只读），可用系统编辑器打开。
-function DocDetail({ doc, onBack }: { doc: DocMetaView; onBack: () => void }) {
+// 详情态：读 path 渲染 Markdown（只读），可用系统编辑器打开 / 二次编辑发送到 Agent。
+function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => void; onToast: (text: string) => void }) {
   const bridge = useDesktopBridge();
+  const { t } = useTranslation("files");
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [selection, setSelection] = useState("");
+
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +114,19 @@ function DocDetail({ doc, onBack }: { doc: DocMetaView; onBack: () => void }) {
         </button>
         <span className="pw-doc-detail-title">{doc.title}</span>
         <div className="spacer" />
+        {/* 抓取选区必须在 mousedown:其默认动作会折叠选区,等 click 时已读不到;
+            preventDefault 既保留 md 选区、又避免按钮抢焦点。无选区则只带路径。 */}
+        <button
+          className="pw-icon-btn"
+          title={t("docEdit.openTitle")}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setSelection(window.getSelection()?.toString() ?? "");
+          }}
+          onClick={() => setEditOpen(true)}
+        >
+          <Icon.Edit size={13} />
+        </button>
         {bridge?.openPath ? (
           <button className="pw-icon-btn" title="用系统编辑器打开" onClick={() => void bridge.openPath?.(doc.path)}>
             <Icon.Share size={13} />
@@ -125,6 +144,14 @@ function DocDetail({ doc, onBack }: { doc: DocMetaView; onBack: () => void }) {
           <MarkdownView content={content} />
         </div>
       )}
+      {editOpen ? (
+        <DocEditDialog
+          path={doc.path}
+          selection={selection}
+          onClose={() => setEditOpen(false)}
+          onToast={onToast}
+        />
+      ) : null}
     </div>
   );
 }
@@ -198,7 +225,7 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
   if (selected) {
     return (
       <div className="pw-rp-view pw-todos is-detail">
-        <DocDetail doc={selected} onBack={() => setSelected(null)} />
+        <DocDetail doc={selected} onBack={() => setSelected(null)} onToast={onToast} />
       </div>
     );
   }

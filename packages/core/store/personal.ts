@@ -95,8 +95,9 @@ export interface PersonalState {
   // TerminalPanel 在激活终端可写时消费）。
   pendingTerminalText?: string;
   // 待插入 composer 输入框的文本（文件预览「发送到 Chat」中转;nonce 去重,
-  // 防 composer 重挂载时重复插入）。
-  composerInsert?: { text: string; nonce: number };
+  // 防 composer 重挂载时重复插入）。submit 为真时 ComposerShell 插入后自动提交
+  // （tasks 文档「插入并运行」用;跨组件契约,见 ComposerShell 消费 effect）。
+  composerInsert?: { text: string; nonce: number; submit?: boolean };
   // GitBar「查看 diff」请求（FilesView 消费后即清,不持久化;不用 nonce——
   // FilesView 可能在请求发出时未挂载,消费即清才能让挂载后的 effect 接到）。
   gitDiffRequest?: { projectId: string };
@@ -221,7 +222,7 @@ export interface PersonalState {
   sendToTerminal: (text: string) => void;
   // 原子消费待发送文本（TermSession spawn 完成 / 面板 effect 双路触发,先到先得）。
   consumePendingTerminalText: () => string | undefined;
-  insertToComposer: (text: string) => void;
+  insertToComposer: (text: string, opts?: { submit?: boolean }) => void;
   // GitBar 点击 ± 徽章:右栏切到文件视图并请求整仓 diff 预览。
   requestGitDiff: (projectId: string) => void;
   consumeGitDiffRequest: () => { projectId: string } | undefined;
@@ -722,8 +723,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     return text;
   },
 
-  insertToComposer: (text) =>
-    set((s) => ({ composerInsert: { text, nonce: (s.composerInsert?.nonce ?? 0) + 1 } })),
+  insertToComposer: (text, opts) =>
+    set((s) => ({
+      composerInsert: { text, nonce: (s.composerInsert?.nonce ?? 0) + 1, submit: opts?.submit },
+    })),
 
   requestGitDiff: (projectId) => set({ gitDiffRequest: { projectId }, rightView: "files" }),
 

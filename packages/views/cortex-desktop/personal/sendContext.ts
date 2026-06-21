@@ -19,6 +19,11 @@ export function buildContextSnippet(absPath: string | undefined, selection: stri
   return `${head}\n\`\`\`\n${selection}\n\`\`\`\n`;
 }
 
+// 无选区时只引用文档路径:不套代码围栏,避免 buildContextSnippet 在空选区下产出空围栏。
+export function buildPathRef(absPath: string): string {
+  return `（来自 ${toTildePath(absPath)}）\n`;
+}
+
 // bracketed paste：多行内容当作一次粘贴,不会被 shell/TUI agent 逐行执行。
 export function wrapBracketedPaste(text: string): string {
   return "\x1b[200~" + text + "\x1b[201~";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildContextSnippet, guessHome, shellQuotePath, toTildePath, wrapBracketedPaste } from "./sendContext";
+import { buildContextSnippet, buildPathRef, guessHome, shellQuotePath, toTildePath, wrapBracketedPaste } from "./sendContext";
 
 describe("guessHome / toTildePath", () => {
   it("macOS /Users/<u> 前缀替换为 ~", () => {
@@ -31,6 +31,14 @@ describe("buildContextSnippet", () => {
 
   it("多行选区原样进围栏", () => {
     expect(buildContextSnippet(undefined, "a\nb")).toContain("```\na\nb\n```");
+  });
+});
+
+describe("buildPathRef", () => {
+  it("只引用路径,不含代码围栏（无选区用）", () => {
+    const s = buildPathRef("/Users/mike/source/x.md");
+    expect(s).toBe("（来自 ~/source/x.md）\n");
+    expect(s).not.toContain("```");
   });
 });
 
