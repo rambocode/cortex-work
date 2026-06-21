@@ -11,7 +11,6 @@ import {
   useDocTasks,
   useDocTasksWatch,
   useDesktopBridge,
-  TASK_STATUS_LABEL,
   TASK_STATUS_ORDER,
 } from "@cortex-work/core";
 import type { DocMetaView, Tag, TagDim, TaskStatus } from "@cortex-work/core";
@@ -22,6 +21,14 @@ import { DocEditDialog } from "./DocEditDialog";
 import { relTime } from "./PersonalSidebar";
 
 const DIM_ORDER: TagDim[] = ["stage", "type", "topic", "depth"];
+
+// 下一步 skill → i18n key（core 的 nextSkillForKind.label 仍供 useContinueDoc 拼 prompt 用,
+// UI 文案走 i18n）。
+const NEXT_KEY: Record<string, "brainstorm" | "plan" | "work"> = {
+  "ce-brainstorm": "brainstorm",
+  "ce-plan": "plan",
+  "ce-work": "work",
+};
 
 // 文档卡：阶段/类型标签 + 标题 + 相对时间 + 状态 pill + 继续按钮。
 function DocCard({
@@ -35,9 +42,12 @@ function DocCard({
   onContinue: (doc: DocMetaView) => void;
   continuing: boolean;
 }) {
+  const { t } = useTranslation("files");
   const next = nextSkillForKind(doc.kind);
-  const stage = doc.tags.find((t) => t.dim === "stage");
-  const type = doc.tags.find((t) => t.dim === "type");
+  const nextLabel = t(`tasks.next.${NEXT_KEY[next.name] ?? "work"}`);
+  const statusLabel = t(`tasks.status.${doc.status}`);
+  const stage = doc.tags.find((tag) => tag.dim === "stage");
+  const type = doc.tags.find((tag) => tag.dim === "type");
   const canContinue = doc.status !== "done";
   return (
     <div className="pw-doc-card" onClick={() => onOpen(doc)} title={doc.path}>
@@ -55,8 +65,8 @@ function DocCard({
       </div>
       <div className="pw-doc-card-foot">
         <span className={`pw-doc-status pw-doc-status-${doc.status}`}>
-          {TASK_STATUS_LABEL[doc.status]}
-          {doc.statusRaw && TASK_STATUS_LABEL[doc.status] !== doc.statusRaw ? (
+          {statusLabel}
+          {doc.statusRaw && statusLabel !== doc.statusRaw ? (
             <span className="pw-doc-status-raw" title={doc.statusRaw}>
               {" "}
               ·
@@ -67,13 +77,13 @@ function DocCard({
         <button
           className="pw-tl-gen"
           disabled={!canContinue || continuing}
-          title={canContinue ? next.label : "已完成"}
+          title={canContinue ? nextLabel : t("tasks.done")}
           onClick={(e) => {
             e.stopPropagation();
             onContinue(doc);
           }}
         >
-          {continuing ? "启动中…" : next.label}
+          {continuing ? t("tasks.continuing") : nextLabel}
         </button>
       </div>
     </div>
@@ -151,7 +161,7 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
   return (
     <div className="pw-todo-detail">
       <div className="pw-todo-detail-h">
-        <button className="pw-icon-btn" title="返回列表" onClick={onBack}>
+        <button className="pw-icon-btn" title={t("tasks.back")} onClick={onBack}>
           <Icon.Back size={14} />
         </button>
         <span className="pw-doc-detail-title">{doc.title}</span>
@@ -183,7 +193,7 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
               </button>
             ) : null}
             {bridge?.openPath ? (
-              <button className="pw-icon-btn" title="用系统编辑器打开" onClick={() => void bridge.openPath?.(doc.path)}>
+              <button className="pw-icon-btn" title={t("tasks.openInSystemEditor")} onClick={() => void bridge.openPath?.(doc.path)}>
                 <Icon.Share size={13} />
               </button>
             ) : null}
@@ -195,7 +205,7 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
       {error ? (
         <div className="pw-editor-error">{error}</div>
       ) : content === null ? (
-        <div className="pw-editor-loading">加载中…</div>
+        <div className="pw-editor-loading">{t("tasks.loading")}</div>
       ) : editMode ? (
         // 在线编辑:Monaco markdown 源码编辑;⌘S 保存。
         <div className="pw-mona-wrap">
@@ -231,6 +241,7 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
 }
 
 export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) {
+  const { t } = useTranslation("files");
   const bridge = useDesktopBridge();
   const { data } = useDocTasks();
   useDocTasksWatch();
@@ -247,9 +258,9 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
   // 全部可选标签（按维度归并去重）。
   const chips = useMemo(() => {
     const seen = new Map<string, Tag>();
-    for (const d of docs) for (const t of d.tags) seen.set(`${t.dim}:${t.value}`, t);
+    for (const d of docs) for (const tag of d.tags) seen.set(`${tag.dim}:${tag.value}`, tag);
     return DIM_ORDER.flatMap((dim) =>
-      [...seen.entries()].filter(([k]) => k.startsWith(`${dim}:`)).map(([k, t]) => ({ key: k, tag: t })),
+      [...seen.entries()].filter(([k]) => k.startsWith(`${dim}:`)).map(([k, tag]) => ({ key: k, tag })),
     );
   }, [docs]);
 
@@ -264,7 +275,7 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
     }
     return (doc: DocMetaView) => {
       for (const [dim, vals] of byDim) {
-        if (!doc.tags.some((t) => t.dim === dim && vals.has(t.value))) return false;
+        if (!doc.tags.some((tag) => tag.dim === dim && vals.has(tag.value))) return false;
       }
       return true;
     };
@@ -290,7 +301,7 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
   if (!docTasksAvailable(bridge)) {
     return (
       <div className="pw-rp-view pw-todos">
-        <div className="pw-empty-hint">当前环境不支持文档面板（缺少桌面能力）。</div>
+        <div className="pw-empty-hint">{t("tasks.unavailable")}</div>
       </div>
     );
   }
@@ -321,10 +332,10 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
       <div className="pw-doc-toolbar">
         <button
           className={`pw-doc-mode ${lineageMode ? "is-on" : ""}`}
-          title="按 origin 血缘聚合为流水线"
+          title={t("tasks.lineageTitle")}
           onClick={() => setLineageMode((v) => !v)}
         >
-          <Icon.GitBranch size={12} /> 血缘
+          <Icon.GitBranch size={12} /> {t("tasks.lineage")}
         </button>
         <div className="pw-doc-chips">
           {chips.map(({ key, tag }) => (
@@ -340,7 +351,7 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
       </div>
 
       {filtered.length === 0 ? (
-        <div className="pw-empty-hint">没有匹配的文档。深化闪记或运行 ce-plan 会在这里出现。</div>
+        <div className="pw-empty-hint">{t("tasks.empty")}</div>
       ) : lineageMode ? (
         <div className="pw-doc-list">
           {pipelines.map((chain, i) => (
@@ -359,7 +370,7 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
             </div>
           ))}
           {orphans.length > 0 ? (
-            <div className="pw-doc-group-h">独立文档</div>
+            <div className="pw-doc-group-h">{t("tasks.orphans")}</div>
           ) : null}
           {orphans.map((d) => (
             <DocCard key={d.path} doc={d} onOpen={setSelected} onContinue={onContinue} continuing={continuingPath === d.path} />
@@ -383,7 +394,7 @@ export function TasksDocsView({ onToast }: { onToast: (text: string) => void }) 
                   }
                 >
                   <Icon.ChevronRight size={12} className={isCollapsed ? "" : "pw-rot90"} />
-                  {TASK_STATUS_LABEL[g.status]} ({g.items.length})
+                  {t(`tasks.status.${g.status}`)} ({g.items.length})
                 </button>
                 {isCollapsed
                   ? null

@@ -441,6 +441,30 @@ export default interface Resources {
       "new": "新增",
       "renamed": "重命名"
     },
+    "tasks": {
+      "back": "返回列表",
+      "continuing": "启动中…",
+      "done": "已完成",
+      "empty": "没有匹配的文档。深化闪记或运行 ce-plan 会在这里出现。",
+      "lineage": "血缘",
+      "lineageTitle": "按 origin 血缘聚合为流水线",
+      "loading": "加载中…",
+      "next": {
+        "brainstorm": "生成 Brainstorm",
+        "plan": "生成 Plan",
+        "work": "开始实现"
+      },
+      "openInSystemEditor": "用系统编辑器打开",
+      "orphans": "独立文档",
+      "status": {
+        "active": "进行中",
+        "done": "已完成",
+        "idea": "构思",
+        "review": "待评审",
+        "todo": "待执行"
+      },
+      "unavailable": "当前环境不支持文档面板（缺少桌面能力）。"
+    },
     "toolbar": {
       "backToList": "返回文件列表",
       "cancel": "取消",

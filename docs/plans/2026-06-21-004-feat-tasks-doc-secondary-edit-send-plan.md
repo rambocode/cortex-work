@@ -44,6 +44,10 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 - R10. 详情态提供「编辑」入口，复用现有 Monaco 编辑器（`MonacoViewer`）对该 MD 文档做源码编辑；保存经 `bridge.writeFile(doc.path, draft)` 写回，成功后同步详情内容并 toast。
 - R11. 编辑态提供「取消」（放弃改动退出，草稿回退）与「保存」（保存并退出，仅成功时退出）；⌘S 保存且留在编辑态；保存成功**不弹提示**（仅失败 toast）；dirty 标记；切换文档重置编辑态。
 
+**多语言**
+
+- R13. tasks 视图（`TasksDocsView` 含 `DocCard`/`DocDetail`）所有用户可见文案走 i18n（`files` 命名空间下新增 `tasks.*`：返回/打开/加载/继续/血缘/独立文档/空状态/状态标签/下一步标签）；状态与下一步标签在视图层把 core 的 `TaskStatus`/`nextSkillForKind.name` 映射成 i18n key（core 标签仍供 `useContinueDoc` 拼 prompt）。二次编辑与在线编辑文案同样全部 i18n。
+
 **预览渲染**
 
 - R12. Markdown 预览正确显示有序列表序号与无序列表圆点（含嵌套层级）。修复 Tailwind preflight 把 `ol,ul` 的 `list-style` 抹为 `none` 导致序号/圆点丢失：在 `.pw-todo-md` 显式恢复 `list-style`（任务清单仍由 `contains-task-list` 保持无标记）。

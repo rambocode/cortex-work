@@ -56,6 +56,30 @@
     "insertAndRun": "Insert & run",
     "cancel": "Cancel"
   },
+  "tasks": {
+    "back": "Back to list",
+    "openInSystemEditor": "Open in system editor",
+    "loading": "Loading…",
+    "continuing": "Starting…",
+    "done": "Done",
+    "lineage": "Lineage",
+    "lineageTitle": "Group into pipelines by origin lineage",
+    "orphans": "Standalone docs",
+    "unavailable": "Document panel unavailable in this environment (missing desktop capability).",
+    "empty": "No matching documents. Deepen a flash note or run ce-plan to populate this.",
+    "status": {
+      "idea": "Idea",
+      "todo": "To do",
+      "review": "In review",
+      "active": "In progress",
+      "done": "Done"
+    },
+    "next": {
+      "brainstorm": "Generate Brainstorm",
+      "plan": "Generate Plan",
+      "work": "Start work"
+    }
+  },
   "selectProject": "Select a project on the left first",
   "segAll": "All files",
   "segChanges": "Recent changes",
