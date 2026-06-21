@@ -15,6 +15,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { normalizeDevPreviewUrlInput } from "@cortex-work/core/personal/devPreviewUrl";
+import { BrowserErrorState } from "./BrowserErrorState";
 
 // 跨进程契约:须与主进程 webviewGuards.ts 的 BROWSER_PARTITION 一致(主进程会强制覆盖,
 // 此处声明仅为正确性 + 可读性)。
@@ -38,8 +39,21 @@ type WebviewFailLoadEvent = Event & {
   errorCode: number;
   errorDescription: string;
   isMainFrame: boolean;
+  validatedURL?: string;
 };
 type WebviewTitleEvent = Event & { title: string };
+
+// 整页加载失败的结构化错误(计划 U2/KTD3)。code 为 null 表示 iframe 回退(同源策略拿不到错误码)。
+type PageError = { code: number | null; description: string | null; url: string };
+
+// 从 URL 取 host(含端口);取不到时回退原串。错误页展示与 errorCode→建议映射都用 host。
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
 
 // 环境探测:Electron 下(bridge 可用 + UA 含 Electron/)用 <webview>,否则 iframe 回退。
 export function canUseElectronWebviewEnvironment(input: {
@@ -100,7 +114,9 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [draftUrl, setDraftUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  // loadError:地址栏输入校验的细条提示(瞬态);pageError:整页加载失败错误态(计划 U2)。
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<PageError | null>(null);
   const [pageTitle, setPageTitle] = useState("");
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
@@ -120,6 +136,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
         return;
       }
       setLoadError(null);
+      setPageError(null);
       setPageTitle("");
       setDraftUrl(formatAddressInput(normalized));
       setActiveUrl((prev) => {
@@ -160,7 +177,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
     };
     const onStart = (): void => {
       setLoading(true);
-      setLoadError(null);
+      setPageError(null);
     };
     const onStop = (): void => {
       setLoading(false);
@@ -169,7 +186,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
     const onNavigate: EventListener = (event): void => {
       const url = (event as WebviewNavigateEvent).url;
       if (url) setDraftUrl(formatAddressInput(url));
-      setLoadError(null);
+      setPageError(null);
       syncNav();
     };
     const onFail: EventListener = (event): void => {
@@ -177,7 +194,12 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
       // -3 ERR_ABORTED 是用户/代码主动停止,不当错误。
       if (!fail.isMainFrame || fail.errorCode === -3) return;
       setLoading(false);
-      setLoadError(fail.errorDescription || "页面加载失败");
+      // 捕获 errorCode + validatedURL(比 activeUrl 准),供整页错误态映射中文原因(计划 KTD3)。
+      setPageError({
+        code: fail.errorCode,
+        description: fail.errorDescription || null,
+        url: fail.validatedURL || activeUrl,
+      });
       syncNav();
     };
     const onTitle: EventListener = (event): void => {
@@ -207,11 +229,13 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
     if (useElectronWebview || !activeUrl) return;
     iframeLoadedUrlRef.current = null;
     setLoading(true);
-    setLoadError(null);
+    setPageError(null);
+    const failedUrl = activeUrl;
     const timer = window.setTimeout(() => {
-      if (iframeLoadedUrlRef.current === activeUrl) return;
+      if (iframeLoadedUrlRef.current === failedUrl) return;
       setLoading(false);
-      setLoadError("页面加载失败或超时");
+      // iframe 同源策略拿不到 errorCode → code:null,错误态降级为「被拒绝嵌入」通用文案。
+      setPageError({ code: null, description: null, url: failedUrl });
     }, IFRAME_LOAD_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [activeUrl, iframeReloadNonce, useElectronWebview]);
@@ -224,7 +248,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
   const reload = (): void => {
     if (!activeUrl) return;
     setLoading(true);
-    setLoadError(null);
+    setPageError(null);
     if (!useElectronWebview) {
       iframeLoadedUrlRef.current = null;
       setIframeReloadNonce((n) => n + 1);
@@ -398,17 +422,26 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
           <iframe
             key={`iframe:${instanceNonce}:${activeUrl}:${iframeReloadNonce}`}
             src={activeUrl}
-            title={pageTitle || "内嵌浏览器"}
+            title={pageTitle || t("empty.title")}
             sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
             referrerPolicy="no-referrer"
             onLoad={() => {
               iframeLoadedUrlRef.current = activeUrl;
               setLoading(false);
-              setLoadError(null);
+              setPageError(null);
             }}
             className="pw-browser-frame"
           />
         )}
+        {pageError ? (
+          <BrowserErrorState
+            host={hostOf(pageError.url)}
+            errorCode={pageError.code}
+            errorDescription={pageError.description}
+            onReload={reload}
+            onOpenExternal={openExternal}
+          />
+        ) : null}
       </div>
     </div>
   );
