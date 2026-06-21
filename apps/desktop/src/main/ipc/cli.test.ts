@@ -192,12 +192,41 @@ describe("startAgentProcess", () => {
     expect(opts).toMatchObject({ cwd: "/proj", stdio: ["ignore", "pipe", "pipe"] });
   });
 
-  it("kill() 调用底层 child.kill（SIGTERM）", () => {
+  it("spawn 带 detached(非 win)+ shell:false,用于进程组取消", () => {
+    startAgentProcess("/res/pi/pi", ["hi"], { cwd: "/p", env: {} as NodeJS.ProcessEnv });
+    const [, , opts] = spawnMock.mock.calls[0];
+    expect(opts).toMatchObject({ shell: false, detached: process.platform !== "win32" });
+  });
+
+  it("kill() 非 win 走进程组信号 process.kill(-pgid, SIGTERM);win 直接 child.kill", () => {
     const child = fakeChild();
     spawnMock.mockReturnValueOnce(child);
+    // mock process.kill 避免向真实进程/进程组发信号(fakeChild.pid=123)。
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
     const proc = startAgentProcess("/res/pi/pi", ["hi"], { cwd: "/p", env: {} as NodeJS.ProcessEnv });
     proc.kill();
+    if (process.platform === "win32") {
+      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    } else {
+      expect(killSpy).toHaveBeenCalledWith(-123, "SIGTERM"); // -pgid 杀整组
+      expect(child.kill).not.toHaveBeenCalled();
+    }
+    child.emit("close", 0); // 清理 3s 兜底 SIGKILL timer
+    killSpy.mockRestore();
+  });
+
+  it("kill() 进程组信号抛错(未成组/已退出)时回退到 child.kill", () => {
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+    });
+    const proc = startAgentProcess("/res/pi/pi", ["hi"], { cwd: "/p", env: {} as NodeJS.ProcessEnv });
+    proc.kill();
+    // 非 win:process.kill(-pgid) 抛错 → 回退 child.kill;win:本就直接 child.kill。
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    child.emit("close", 0);
+    killSpy.mockRestore();
   });
 
   it("把命中的 CLI 目录提到 PATH 最前，确保 shebang 使用同目录 node", () => {

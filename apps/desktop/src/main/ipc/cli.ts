@@ -36,19 +36,38 @@ export interface AgentProcess {
   kill(): void;
 }
 
-// SIGTERM 先礼,3s 未退出再用 pid 强杀（kill() 退出后 pid 变 undefined,需判空）。
-// 返回强杀 timer 供进程正常退出后 clearTimeout,避免每次 kill 都空等 3s 占用（防泄漏）。
-function killWithTimeout(soft: () => void, pid: number | undefined): ReturnType<typeof setTimeout> {
-  soft();
-  return setTimeout(() => {
-    if (pid !== undefined) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        // 已退出
-      }
+// 进程组级信号(U6)。非 Windows 下子进程以 detached 建为进程组组长(pgid = child.pid),
+// process.kill(-pgid) 杀**整组** —— 连带 CLI 派生的 shell / MCP / 模型子进程,杜绝子孙残留。
+// 子进程未成组(ESRCH 等)或已退出则回退直接杀 child;Windows 无进程组语义,始终 child.kill。
+// 实测见 spike(RISK-1):整组与单进程场景均正常回收,后者不退化于原 pid 路径。
+function signalChildGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  const pid = child.pid;
+  if (pid !== undefined && platform() !== "win32") {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // 未成组/已退出 → 回退到直接杀 child
     }
-  }, 3000);
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // 已退出
+  }
+}
+
+// SIGTERM 先礼,3s 未退出再 SIGKILL（两次都针对**整组**,否则只杀组长会残留子孙）。
+// 取消第一步先关 stdin,让乖巧子进程读到 EOF 后优雅退出(stdin 为 ignore 时 child.stdin 为 null,no-op)。
+// 返回兜底强杀 timer 供进程正常退出后 clearTimeout,避免每次 kill 都空等 3s 占用（防泄漏）。
+function killWithTimeout(child: ChildProcess): ReturnType<typeof setTimeout> {
+  try {
+    child.stdin?.end();
+  } catch {
+    // stdin 已关/不可写
+  }
+  signalChildGroup(child, "SIGTERM");
+  return setTimeout(() => signalChildGroup(child, "SIGKILL"), 3000);
 }
 
 function wrapChild(child: ChildProcess): AgentProcess {
@@ -71,7 +90,7 @@ function wrapChild(child: ChildProcess): AgentProcess {
       child.on("error", cb);
     },
     kill: () => {
-      killTimer = killWithTimeout(() => child.kill("SIGTERM"), child.pid);
+      killTimer = killWithTimeout(child);
     },
   };
 }
@@ -117,6 +136,10 @@ export function startAgentProcess(
     cwd: opts.cwd,
     env,
     stdio: ["ignore", "pipe", "pipe"],
+    // detached(非 Windows):子进程成为进程组组长,使取消时 process.kill(-pgid) 能回收整组子孙(U6)。
+    detached: platform() !== "win32",
+    // 显式不经 shell:避免参数注入/转义问题(args 已是结构化数组)。
+    shell: false,
   });
   return wrapChild(child);
 }
