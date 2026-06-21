@@ -10,10 +10,17 @@
 // 主进程不参与(除安全闸门),故无 bounds-sync IPC。
 
 import { createElement, useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, RefObject } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import { normalizeDevPreviewUrlInput } from "@cortex-work/core/personal/devPreviewUrl";
+import { describeBrowserError } from "@cortex-work/core/personal/browserErrorInfo";
+import { BrowserErrorState } from "./BrowserErrorState";
+import { buildErrorPageScript } from "./browserErrorPage";
+import { useBrowserCapture } from "./useBrowserCapture";
+import { useBrowserAnnotations, type AnnotatableWebview } from "./useBrowserAnnotations";
+import { BrowserAnnotator } from "./BrowserAnnotator";
 
 // 跨进程契约:须与主进程 webviewGuards.ts 的 BROWSER_PARTITION 一致(主进程会强制覆盖,
 // 此处声明仅为正确性 + 可读性)。
@@ -30,6 +37,12 @@ type WebviewTag = HTMLElement & {
   goForward(): void;
   reload(): void;
   stop(): void;
+  // 截图当前可视区 → NativeImage(计划 U3)。返回对象只用到 toPNG/isEmpty。
+  capturePage(): Promise<{ toPNG(): Uint8Array; isEmpty(): boolean }>;
+  // 宿主 → webview preload 的点对点消息(标注 enable/disable,计划 U5)。
+  send(channel: string, ...args: unknown[]): void;
+  // 在 webview 页面上下文执行脚本(用于失败时把自定义错误页注入页面 DOM,计划 U2-B)。
+  executeJavaScript(code: string): Promise<unknown>;
 };
 
 type WebviewNavigateEvent = Event & { url: string };
@@ -37,8 +50,21 @@ type WebviewFailLoadEvent = Event & {
   errorCode: number;
   errorDescription: string;
   isMainFrame: boolean;
+  validatedURL?: string;
 };
 type WebviewTitleEvent = Event & { title: string };
+
+// 整页加载失败的结构化错误(计划 U2/KTD3)。code 为 null 表示 iframe 回退(同源策略拿不到错误码)。
+type PageError = { code: number | null; description: string | null; url: string };
+
+// 从 URL 取 host(含端口);取不到时回退原串。错误页展示与 errorCode→建议映射都用 host。
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
 
 // 环境探测:Electron 下(bridge 可用 + UA 含 Electron/)用 <webview>,否则 iframe 回退。
 export function canUseElectronWebviewEnvironment(input: {
@@ -79,6 +105,7 @@ function normalizeAddressInput(raw: string): string | null {
 }
 
 export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
+  const { t } = useTranslation("browser");
   const bridge = useDesktopBridge();
   // 监听「在浏览器打开」请求(卡片点击 / auto_open)。nonce 变化即(重新)加载。
   const browserUrlRequest = usePersonalStore((s) => s.browserUrlRequest);
@@ -90,6 +117,9 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
 
   const webviewRef = useRef<WebviewTag | null>(null);
   const iframeLoadedUrlRef = useRef<string | null>(null);
+  // 暂存本次 webview 加载失败信息:did-fail-load 记录,待 did-stop-loading(错误页 DOM 就绪)
+  // 再注入自定义错误页(计划 U2-B)。注入失败则回退宿主浮层(pageError)。
+  const failedInfoRef = useRef<PageError | null>(null);
   // 从 0 起,而非挂载时的 nonce:面板常是被本次请求打开的(挂载时 browserUrlRequest.nonce 已是
   // 新值),若用它初始化会把「触发打开的那次请求」误判为已消费 → 首次点击空白、需再点一次。
   // 从 0 起则挂载即消费当前 pending 请求(修首次点击空白)。
@@ -98,7 +128,9 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [draftUrl, setDraftUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  // loadError:地址栏输入校验的细条提示(瞬态);pageError:整页加载失败错误态(计划 U2)。
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<PageError | null>(null);
   const [pageTitle, setPageTitle] = useState("");
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
@@ -114,10 +146,11 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
     (value: string) => {
       const normalized = normalizeAddressInput(value);
       if (!normalized) {
-        setLoadError("无效的网址");
+        setLoadError(t("address.invalid"));
         return;
       }
       setLoadError(null);
+      setPageError(null);
       setPageTitle("");
       setDraftUrl(formatAddressInput(normalized));
       setActiveUrl((prev) => {
@@ -130,7 +163,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
       });
       setLoading(true);
     },
-    [useElectronWebview],
+    [t, useElectronWebview],
   );
 
   // 消费 browserUrlRequest(卡片/auto_open)。
@@ -156,18 +189,48 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
         /* webview 尚未 attach */
       }
     };
+    // 把自定义错误页注入 webview 失败页 DOM(计划 U2-B):截图/标注得以作用于这张错误页。
+    // 注入被拒(如特权错误页禁注入)→ 回退宿主浮层 pageError。
+    const injectErrorPage = (info: PageError): void => {
+      const host = hostOf(info.url);
+      const desc = describeBrowserError(info.code ?? 0, host);
+      const script = buildErrorPageScript({
+        title: t("error.title"),
+        reason: t(desc.reasonKey, { host }),
+        hints: desc.hintKeys.map((k) => t(k)),
+        codeLabel: t("error.code"),
+        code: info.description,
+        reloadLabel: t("error.reload"),
+        openLabel: t("error.openExternal"),
+        url: info.url,
+      });
+      webview.executeJavaScript(script).then(
+        (ok) => {
+          if (!ok) setPageError(info);
+        },
+        () => setPageError(info),
+      );
+    };
+
     const onStart = (): void => {
       setLoading(true);
-      setLoadError(null);
+      setPageError(null);
+      failedInfoRef.current = null;
     };
     const onStop = (): void => {
       setLoading(false);
       syncNav();
+      // did-stop-loading:错误页 DOM 已就绪,此时注入自定义错误页(单次,读后即清)。
+      if (failedInfoRef.current) {
+        const info = failedInfoRef.current;
+        failedInfoRef.current = null;
+        injectErrorPage(info);
+      }
     };
     const onNavigate: EventListener = (event): void => {
       const url = (event as WebviewNavigateEvent).url;
       if (url) setDraftUrl(formatAddressInput(url));
-      setLoadError(null);
+      setPageError(null);
       syncNav();
     };
     const onFail: EventListener = (event): void => {
@@ -175,7 +238,12 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
       // -3 ERR_ABORTED 是用户/代码主动停止,不当错误。
       if (!fail.isMainFrame || fail.errorCode === -3) return;
       setLoading(false);
-      setLoadError(fail.errorDescription || "页面加载失败");
+      // 捕获 errorCode + validatedURL(比 activeUrl 准),待 onStop 注入错误页(计划 KTD3/U2-B)。
+      failedInfoRef.current = {
+        code: fail.errorCode,
+        description: fail.errorDescription || null,
+        url: fail.validatedURL || activeUrl,
+      };
       syncNav();
     };
     const onTitle: EventListener = (event): void => {
@@ -198,18 +266,20 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
       webview.removeEventListener("did-fail-load", onFail);
       webview.removeEventListener("page-title-updated", onTitle);
     };
-  }, [activeUrl, instanceNonce, useElectronWebview]);
+  }, [activeUrl, instanceNonce, useElectronWebview, t]);
 
   // iframe 模式:无导航事件,用 10s 超时兜底失败态。
   useEffect(() => {
     if (useElectronWebview || !activeUrl) return;
     iframeLoadedUrlRef.current = null;
     setLoading(true);
-    setLoadError(null);
+    setPageError(null);
+    const failedUrl = activeUrl;
     const timer = window.setTimeout(() => {
-      if (iframeLoadedUrlRef.current === activeUrl) return;
+      if (iframeLoadedUrlRef.current === failedUrl) return;
       setLoading(false);
-      setLoadError("页面加载失败或超时");
+      // iframe 同源策略拿不到 errorCode → code:null,错误态降级为「被拒绝嵌入」通用文案。
+      setPageError({ code: null, description: null, url: failedUrl });
     }, IFRAME_LOAD_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [activeUrl, iframeReloadNonce, useElectronWebview]);
@@ -222,7 +292,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
   const reload = (): void => {
     if (!activeUrl) return;
     setLoading(true);
-    setLoadError(null);
+    setPageError(null);
     if (!useElectronWebview) {
       iframeLoadedUrlRef.current = null;
       setIframeReloadNonce((n) => n + 1);
@@ -299,10 +369,28 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
 
   const clearData = (): void => {
     void bridge?.browserClearData?.().then(
-      () => onToast?.("已清除浏览数据"),
-      () => onToast?.("清除浏览数据失败"),
+      () => onToast?.(t("clearData.ok")),
+      () => onToast?.(t("clearData.fail")),
     );
   };
+
+  const { capture, capturing } = useBrowserCapture(bridge);
+  const takeScreenshot = (): void => {
+    void capture(webviewRef.current).then((result) => {
+      if (result === "ok") onToast?.(t("screenshot.ok"));
+      else if (result === "empty") onToast?.(t("screenshot.emptyImage"));
+      else onToast?.(t("screenshot.fail"));
+    });
+  };
+
+  // 页面元素标注(计划 U5)。preload 在页面内画高亮/编号徽标/评论框;宿主收集纯数据 + 批量发送。
+  const annotation = useBrowserAnnotations({
+    webviewRef: webviewRef as RefObject<AnnotatableWebview | null>,
+    useElectronWebview,
+    activeUrl,
+    instanceNonce,
+    onToast,
+  });
 
   return (
     <div className="pw-browser">
@@ -313,8 +401,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             className="pw-icon-btn"
             onClick={goBack}
             disabled={!canNavigateBack}
-            title="后退"
-            aria-label="后退"
+            title={t("nav.back")}
+            aria-label={t("nav.back")}
           >
             <Icon.Back size={15} />
           </button>
@@ -323,8 +411,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             className="pw-icon-btn"
             onClick={goForward}
             disabled={!canNavigateForward}
-            title="前进"
-            aria-label="前进"
+            title={t("nav.forward")}
+            aria-label={t("nav.forward")}
           >
             <Icon.Fwd size={15} />
           </button>
@@ -333,8 +421,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             className={`pw-icon-btn ${loading ? "is-loading" : ""}`}
             onClick={loading ? stop : reload}
             disabled={!activeUrl}
-            title={loading ? "停止" : "刷新"}
-            aria-label={loading ? "停止" : "刷新"}
+            title={loading ? t("nav.stop") : t("nav.reload")}
+            aria-label={loading ? t("nav.stop") : t("nav.reload")}
           >
             {loading ? <Icon.Stop size={14} /> : <Icon.Retry size={15} />}
           </button>
@@ -344,19 +432,47 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
           <input
             value={draftUrl}
             onChange={(e) => setDraftUrl(e.target.value)}
-            placeholder="输入网址,或本地端口(如 localhost:5173)"
+            placeholder={t("address.placeholder")}
             spellCheck={false}
-            aria-label="地址栏"
+            aria-label={t("address.label")}
           />
         </div>
         <div className="pw-browser-actions">
+          {/* 截图/标注仅 Electron <webview> 支持(iframe 无 capturePage / 无法注入 preload),Web 端不渲染 */}
+          {useElectronWebview ? (
+            <>
+              {/* 截图/标注在错误态(pageError)下仍保留可用:用户可对错误页截图反馈、标注(用户要求)。
+                 仅在无 URL / 加载中 / 截图中时禁用。 */}
+              <button
+                type="button"
+                className="pw-icon-btn"
+                onClick={takeScreenshot}
+                disabled={!activeUrl || loading || capturing}
+                title={t("nav.screenshot")}
+                aria-label={t("nav.screenshot")}
+              >
+                <Icon.Camera size={15} />
+              </button>
+              <button
+                type="button"
+                className={`pw-icon-btn ${annotation.enabled ? "is-active" : ""}`}
+                onClick={annotation.toggle}
+                disabled={!activeUrl}
+                title={t("nav.annotate")}
+                aria-label={t("nav.annotate")}
+                aria-pressed={annotation.enabled}
+              >
+                <Icon.Comment size={15} />
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
             className="pw-icon-btn"
             onClick={openExternal}
             disabled={!activeUrl}
-            title="在系统浏览器打开"
-            aria-label="在系统浏览器打开"
+            title={t("nav.openExternal")}
+            aria-label={t("nav.openExternal")}
           >
             <Icon.Share size={15} />
           </button>
@@ -364,8 +480,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
             type="button"
             className="pw-icon-btn"
             onClick={clearData}
-            title="清除浏览数据"
-            aria-label="清除浏览数据"
+            title={t("nav.clearData")}
+            aria-label={t("nav.clearData")}
           >
             <Icon.Trash size={15} />
           </button>
@@ -378,10 +494,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
         {!activeUrl ? (
           <div className="pw-browser-empty">
             <Icon.Globe size={40} />
-            <div className="pw-browser-empty-title">内嵌浏览器</div>
-            <div className="pw-browser-empty-sub">
-              在地址栏输入网址,或当 agent 起本地服务时从消息里的「打开预览」进入。
-            </div>
+            <div className="pw-browser-empty-title">{t("empty.title")}</div>
+            <div className="pw-browser-empty-sub">{t("empty.sub")}</div>
           </div>
         ) : useElectronWebview ? (
           // 用 createElement 渲染 <webview>:避开 JSX 内建元素类型缺失,且 ref 直挂。
@@ -398,17 +512,33 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
           <iframe
             key={`iframe:${instanceNonce}:${activeUrl}:${iframeReloadNonce}`}
             src={activeUrl}
-            title={pageTitle || "内嵌浏览器"}
+            title={pageTitle || t("empty.title")}
             sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
             referrerPolicy="no-referrer"
             onLoad={() => {
               iframeLoadedUrlRef.current = activeUrl;
               setLoading(false);
-              setLoadError(null);
+              setPageError(null);
             }}
             className="pw-browser-frame"
           />
         )}
+        {pageError ? (
+          <BrowserErrorState
+            host={hostOf(pageError.url)}
+            errorCode={pageError.code}
+            errorDescription={pageError.description}
+            onReload={reload}
+            onOpenExternal={openExternal}
+          />
+        ) : null}
+        {annotation.enabled ? (
+          <BrowserAnnotator
+            count={annotation.count}
+            onSendChat={annotation.sendToChat}
+            onSendTerminal={annotation.sendToTerminal}
+          />
+        ) : null}
       </div>
     </div>
   );

@@ -208,6 +208,19 @@ export const Icon = {
       <path d="M21 16l-5-5L5 21" />
     </IconBase>
   ),
+  // 截图(相机轮廓 + 镜头);内嵌浏览器工具栏「截图到剪贴板」用。
+  Camera: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M14.5 4l1.5 2H20a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4l1.5-2z" />
+      <circle cx="12" cy="13" r="3" />
+    </IconBase>
+  ),
+  // 评论/标注气泡;内嵌浏览器工具栏「页面元素标注」用。
+  Comment: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M21 11.5a8 8 0 0 1-11.5 7.2L4 20.5l1.8-4.8A8 8 0 1 1 21 11.5z" />
+    </IconBase>
+  ),
   Mic: (p: IconProps) => (
     <IconBase {...p}>
       <rect x="9" y="3" width="6" height="11" rx="3" />

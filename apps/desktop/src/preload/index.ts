@@ -124,6 +124,8 @@ const personal = {
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
   // 内嵌浏览器面板:清除 persist:browser-panel 分区浏览数据
   browserClearData: (): Promise<void> => ipcRenderer.invoke("browser:clearData"),
+  // 内嵌浏览器面板:把可视区截图 PNG 字节写入系统剪贴板(主进程校验后 clipboard.writeImage)
+  browserCopyImage: (png: Uint8Array): Promise<boolean> => ipcRenderer.invoke("browser:copyImage", png),
   // 授权本地 HTML 路径 → 可内嵌预览的 file:// URL(主进程校验,不合规返回 null)
   browserResolveLocalHtml: (path: string): Promise<string | null> =>
     ipcRenderer.invoke("browser:resolveLocalHtml", path),

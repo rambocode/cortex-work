@@ -26,6 +26,22 @@ export function trayStrings(locale: Locale): NativeTrayStrings {
   return TRAY[locale] ?? TRAY[DEFAULT_LOCALE];
 }
 
+// 内嵌浏览器 webview 右键原生菜单文案(主进程构建 Menu,故走 native 串)。
+export interface NativeBrowserMenuStrings {
+  back: string;
+  reload: string;
+  inspect: string;
+}
+
+const BROWSER_MENU: Record<Locale, NativeBrowserMenuStrings> = {
+  "zh-Hans": { back: "返回", reload: "重新加载", inspect: "检查" },
+  en: { back: "Back", reload: "Reload", inspect: "Inspect" },
+};
+
+export function browserMenuStrings(locale: Locale): NativeBrowserMenuStrings {
+  return BROWSER_MENU[locale] ?? BROWSER_MENU[DEFAULT_LOCALE];
+}
+
 // 注入 agent 系统提示词的语言指令(U4):让 agent 用当前 UI 语言回复。纯字符串(核心/主进程通用)。
 // 须覆盖 LOCALES 全集;未知 locale 回退 DEFAULT_LOCALE 文案(防止 agent 静默拿不到语言指令)。
 const LANGUAGE_INSTRUCTION: Record<Locale, string> = {

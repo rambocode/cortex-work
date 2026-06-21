@@ -16,6 +16,7 @@ import notesZh from "./resources/zh-Hans/notes.json";
 import filesZh from "./resources/zh-Hans/files.json";
 import timelineZh from "./resources/zh-Hans/timeline.json";
 import petZh from "./resources/zh-Hans/pet.json";
+import browserZh from "./resources/zh-Hans/browser.json";
 
 import commonEn from "./resources/en/common.json";
 import settingsEn from "./resources/en/settings.json";
@@ -25,6 +26,7 @@ import notesEn from "./resources/en/notes.json";
 import filesEn from "./resources/en/files.json";
 import timelineEn from "./resources/en/timeline.json";
 import petEn from "./resources/en/pet.json";
+import browserEn from "./resources/en/browser.json";
 
 export const NAMESPACES = [
   "common",
@@ -35,6 +37,7 @@ export const NAMESPACES = [
   "files",
   "timeline",
   "pet",
+  "browser",
 ] as const;
 
 export const initialResources: Resource = {
@@ -47,6 +50,7 @@ export const initialResources: Resource = {
     files: filesZh,
     timeline: timelineZh,
     pet: petZh,
+    browser: browserZh,
   },
   en: {
     common: commonEn,
@@ -57,6 +61,7 @@ export const initialResources: Resource = {
     files: filesEn,
     timeline: timelineEn,
     pet: petEn,
+    browser: browserEn,
   },
 };
 

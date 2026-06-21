@@ -6,7 +6,7 @@ import {
 } from "./webviewGuards";
 
 describe("hardenWebviewPreferences — deny-by-default 强制安全 prefs", () => {
-  it("删除 preload/实验性能力,关闭 node/嵌套 webview,开 contextIsolation/sandbox", () => {
+  it("无可信 preload(null)时删除 preload,关闭 node/嵌套 webview,开 contextIsolation/sandbox", () => {
     const prefs: Record<string, unknown> = {
       preload: "/evil/preload.js",
       nodeIntegration: true,
@@ -14,7 +14,7 @@ describe("hardenWebviewPreferences — deny-by-default 强制安全 prefs", () =
       experimentalFeatures: true,
       webviewTag: true,
     };
-    hardenWebviewPreferences(prefs);
+    hardenWebviewPreferences(prefs, null);
     expect(prefs.preload).toBeUndefined();
     expect(prefs.enableBlinkFeatures).toBeUndefined();
     expect(prefs.experimentalFeatures).toBeUndefined();
@@ -26,6 +26,34 @@ describe("hardenWebviewPreferences — deny-by-default 强制安全 prefs", () =
     expect(prefs.sandbox).toBe(true);
     expect(prefs.webSecurity).toBe(true);
     expect(prefs.allowRunningInsecureContent).toBe(false);
+  });
+
+  it("fail-closed:即便提供可信 preload,渲染端伪造的 preload 也先被覆盖为可信路径", () => {
+    const prefs: Record<string, unknown> = { preload: "/evil/preload.js" };
+    hardenWebviewPreferences(prefs, "/app/out/preload/annotation.js");
+    expect(prefs.preload).toBe("/app/out/preload/annotation.js");
+  });
+
+  it("可信 preload 文件缺失(null)时保持 preload 未设,不残留渲染端声明(fail-closed)", () => {
+    const prefs: Record<string, unknown> = { preload: "/evil/preload.js" };
+    hardenWebviewPreferences(prefs, null);
+    expect(prefs.preload).toBeUndefined();
+  });
+
+  it("放行 preload 不连带回退任何其它隔离项(完整集合回归)", () => {
+    const prefs: Record<string, unknown> = {
+      enableBlinkFeatures: "X",
+      experimentalFeatures: true,
+      nodeIntegrationInWorker: true,
+      webviewTag: true,
+    };
+    hardenWebviewPreferences(prefs, "/app/out/preload/annotation.js");
+    expect(prefs.enableBlinkFeatures).toBeUndefined();
+    expect(prefs.experimentalFeatures).toBeUndefined();
+    expect(prefs.nodeIntegrationInWorker).toBe(false);
+    expect(prefs.webviewTag).toBe(false);
+    expect(prefs.contextIsolation).toBe(true);
+    expect(prefs.sandbox).toBe(true);
   });
 });
 

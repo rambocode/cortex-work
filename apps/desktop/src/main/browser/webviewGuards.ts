@@ -12,9 +12,13 @@
 // 安全核心不变量(KTD6):agent 输出与第三方页面内容均不可信;公网 origin 不得自动
 // 导航进私网/环回(SSRF 跳板)。
 
-import { app, shell } from "electron";
+import { app, shell, Menu } from "electron";
 import type { WebContents } from "electron";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { isAllowedDevPreviewHostname } from "@cortex-work/core/personal/devPreviewUrl";
+import { browserMenuStrings } from "@cortex-work/core/i18n/native";
+import { getCurrentLocale } from "../ipc/app";
 import { isAuthorizedFileUrl } from "./localHtml";
 
 // 内嵌浏览器专用会话分区(跨进程契约:渲染端 <webview partition> 与本常量必须一致)。
@@ -87,10 +91,32 @@ export function externalUrlForWindowOpen(value: string): string | null {
   return null;
 }
 
+// 解析打包内**可信**标注 preload 的绝对路径(计划 KTD1)。__dirname 指向 out/main,
+// preload 产物在 out/preload/annotation.js(electron-vite 双入口,dev 与 asar 同相对布局)。
+// 文件不存在 → 返回 null(fail-closed:标注禁用而非开洞)。路径只从主进程可信值派生,绝不掺渲染端输入。
+let cachedAnnotationPreload: string | null | undefined;
+export function resolveAnnotationPreloadPath(): string | null {
+  if (cachedAnnotationPreload !== undefined) return cachedAnnotationPreload;
+  const candidate = join(__dirname, "../preload/annotation.js");
+  cachedAnnotationPreload = existsSync(candidate) ? candidate : null;
+  return cachedAnnotationPreload;
+}
+
 // 强制覆盖 webview 的安全相关 webPreferences,不信渲染端 attribute(防篡改绕过隔离)。
 // deny-by-default:已知危险项一律清零/关闭,而非只覆盖常见几项(安全评审 P1-1)。
-export function hardenWebviewPreferences(webPreferences: Record<string, unknown>): void {
-  delete webPreferences["preload"]; // 不给第三方内容注入任何业务 preload
+//
+// preload 处理(计划 KTD1,唯一受控放行):先**无条件删除**渲染端声明的任意 preload(fail-closed),
+// 再仅当主进程解析出可信标注 preload 绝对路径时强制覆盖为它——用于「页面元素标注」(隔离世界、
+// 只读 DOM、只暴露 annotation:* 最小通道)。trustedPreload 为 null(文件缺失)时保持 preload 未设,
+// 标注降级不可用,但隔离不被绕过。其余隔离项一字不变。
+export function hardenWebviewPreferences(
+  webPreferences: Record<string, unknown>,
+  trustedPreload: string | null,
+): void {
+  delete webPreferences["preload"]; // 永不信任渲染端声明的 preload(fail-closed)
+  if (trustedPreload) {
+    webPreferences["preload"] = trustedPreload; // 强制为打包内可信标注 preload
+  }
   delete webPreferences["enableBlinkFeatures"]; // 不放行实验性 Blink 能力
   delete webPreferences["experimentalFeatures"];
   webPreferences["nodeIntegration"] = false;
@@ -120,6 +146,21 @@ function attachWebviewNavigationGuards(contents: WebContents): void {
     if (external) void shell.openExternal(external);
     return { action: "deny" };
   });
+
+  // webview 内右键原生菜单:返回 / 重新加载 / 检查(用户要求)。webview 内部右键由 guest 捕获,
+  // host 的 DOM contextmenu 收不到,故在主进程监听 webContents 'context-menu' 弹原生 Menu。
+  contents.on("context-menu", (_event, params) => {
+    const t = browserMenuStrings(getCurrentLocale());
+    const nav = contents.navigationHistory;
+    const menu = Menu.buildFromTemplate([
+      { label: t.back, enabled: nav.canGoBack(), click: () => nav.goBack() },
+      { label: t.reload, click: () => contents.reload() },
+      { type: "separator" },
+      // 检查:在右键坐标处打开 webview 的开发者工具并定位元素。
+      { label: t.inspect, click: () => contents.inspectElement(params.x, params.y) },
+    ]);
+    menu.popup();
+  });
 }
 
 // 安装全局 webview 闸门。须在任何 webview 可能 attach 之前调用一次(app.whenReady 内、
@@ -130,7 +171,10 @@ export function installBrowserWebviewGuards(): void {
     // 校验初始 src。强制 partition 防渲染端把 webview 改挂到无 deny-by-default 防护的
     // session 上绕过 partition.ts 的权限/下载拦截(安全评审 P1-2,不信渲染端声明)。
     contents.on("will-attach-webview", (event, webPreferences, params) => {
-      hardenWebviewPreferences(webPreferences as unknown as Record<string, unknown>);
+      hardenWebviewPreferences(
+        webPreferences as unknown as Record<string, unknown>,
+        resolveAnnotationPreloadPath(),
+      );
       (params as { partition?: string }).partition = BROWSER_PARTITION;
       const src = typeof params.src === "string" ? params.src : "";
       if (src && !evaluateNavigation({ targetUrl: src, currentOrigin: null })) {

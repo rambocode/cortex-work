@@ -126,6 +126,9 @@ export interface DesktopBridge {
   // 内嵌浏览器面板「清除浏览数据」:清空 persist:browser-panel 分区的 cookie/缓存/storage。
   // 导航/历史/状态走渲染端 webview 元素 API,主进程只需这一条 IPC(见计划 KTD5)。
   browserClearData?(): Promise<void>;
+  // 内嵌浏览器面板「截图到剪贴板」:把 webview.capturePage() 的 PNG 字节交主进程写系统剪贴板。
+  // contextIsolation+sandbox 下渲染端不能直接用 clipboard,故经此桥(见计划 U3/KTD4)。返回是否成功。
+  browserCopyImage?(png: Uint8Array): Promise<boolean>;
   // 把 agent 产出的本地 HTML 路径授权为可内嵌预览的 file:// URL(主进程校验在允许根内/.html/
   // realpath,授权后导航闸门才放行该 file://)。不合规返回 null。
   browserResolveLocalHtml?(path: string): Promise<string | null>;

@@ -35,7 +35,9 @@
     "./personal/push": "./personal/push.ts",
     "./personal/extensions": "./personal/extensions.ts",
     "./personal/devPreviewUrl": "./personal/devPreviewUrl.ts",
-    "./personal/devPreviewDetection": "./personal/devPreviewDetection.ts"
+    "./personal/devPreviewDetection": "./personal/devPreviewDetection.ts",
+    "./personal/browserErrorInfo": "./personal/browserErrorInfo.ts",
+    "./personal/annotationPayload": "./personal/annotationPayload.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",
