@@ -16,6 +16,7 @@ import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { normalizeDevPreviewUrlInput } from "@cortex-work/core/personal/devPreviewUrl";
 import { BrowserErrorState } from "./BrowserErrorState";
+import { useBrowserCapture } from "./useBrowserCapture";
 
 // 跨进程契约:须与主进程 webviewGuards.ts 的 BROWSER_PARTITION 一致(主进程会强制覆盖,
 // 此处声明仅为正确性 + 可读性)。
@@ -32,6 +33,8 @@ type WebviewTag = HTMLElement & {
   goForward(): void;
   reload(): void;
   stop(): void;
+  // 截图当前可视区 → NativeImage(计划 U3)。返回对象只用到 toPNG/isEmpty。
+  capturePage(): Promise<{ toPNG(): Uint8Array; isEmpty(): boolean }>;
 };
 
 type WebviewNavigateEvent = Event & { url: string };
@@ -330,6 +333,15 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
     );
   };
 
+  const { capture, capturing } = useBrowserCapture(bridge);
+  const takeScreenshot = (): void => {
+    void capture(webviewRef.current).then((result) => {
+      if (result === "ok") onToast?.(t("screenshot.ok"));
+      else if (result === "empty") onToast?.(t("screenshot.emptyImage"));
+      else onToast?.(t("screenshot.fail"));
+    });
+  };
+
   return (
     <div className="pw-browser">
       <form className="pw-browser-bar" onSubmit={submitUrl}>
@@ -376,6 +388,19 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
           />
         </div>
         <div className="pw-browser-actions">
+          {/* 截图仅 Electron <webview> 支持(iframe 无 capturePage),Web 端不渲染入口 */}
+          {useElectronWebview ? (
+            <button
+              type="button"
+              className="pw-icon-btn"
+              onClick={takeScreenshot}
+              disabled={!activeUrl || loading || !!pageError || capturing}
+              title={t("nav.screenshot")}
+              aria-label={t("nav.screenshot")}
+            >
+              <Icon.Camera size={15} />
+            </button>
+          ) : null}
           <button
             type="button"
             className="pw-icon-btn"
