@@ -350,6 +350,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
   const annotation = useBrowserAnnotations({
     webviewRef: webviewRef as RefObject<AnnotatableWebview | null>,
     useElectronWebview,
+    activeUrl,
     instanceNonce,
     onToast,
   });

@@ -29,10 +29,13 @@ type HostAnnotation = AnnotationRecord & { id: string };
 export function useBrowserAnnotations(opts: {
   webviewRef: RefObject<AnnotatableWebview | null>;
   useElectronWebview: boolean;
+  // activeUrl 必须入依赖:webview 元素仅在 activeUrl 非空时才挂载(BrowserView 空态时不渲染),
+  // 否则首次加载 effect 早返回、之后不重跑 → ipc-message 监听永不挂载、标注 count 卡 0(评审 P1)。
+  activeUrl: string | null;
   instanceNonce: number;
   onToast?: (text: string) => void;
 }) {
-  const { webviewRef, useElectronWebview, instanceNonce, onToast } = opts;
+  const { webviewRef, useElectronWebview, activeUrl, instanceNonce, onToast } = opts;
   const { t } = useTranslation("browser");
   const [enabled, setEnabled] = useState(false);
   const [records, setRecords] = useState<HostAnnotation[]>([]);
@@ -71,9 +74,10 @@ export function useBrowserAnnotations(opts: {
       webview.removeEventListener("ipc-message", onIpc);
       webview.removeEventListener("did-navigate", onNavigate);
     };
-    // records 仅用于 onNavigate 的「是否提示」,用 ref 避免频繁重挂;此处依赖 instanceNonce 重挂。
+    // records 仅用于 onNavigate 的「是否提示」,用 ref 避免频繁重挂;activeUrl 入依赖确保
+    // webview 元素挂载后(空态→有 url)effect 重跑并绑定监听(评审 P1)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useElectronWebview, instanceNonce, onToast, t]);
+  }, [useElectronWebview, activeUrl, instanceNonce, onToast, t]);
 
   const send = useCallback(
     (channel: string) => {

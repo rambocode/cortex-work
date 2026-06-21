@@ -77,4 +77,9 @@ describe("composeAnnotationsForChat — 动态围栏 + 界定前缀", () => {
     const fenceIdx = out.indexOf("```");
     expect(out.indexOf("![](http://evil/x.png)")).toBeGreaterThan(fenceIdx);
   });
+
+  it("控制字符剥离:chat 路径与终端对齐,正文不含 ESC(评审 P2)", () => {
+    const out = composeAnnotationsForChat([rec({ text: `a${ESC}[31mb`, comment: `c${ESC}d` })], "u");
+    expect(out).not.toContain(ESC);
+  });
 });
