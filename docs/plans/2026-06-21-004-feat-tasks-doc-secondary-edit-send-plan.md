@@ -42,7 +42,7 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 **在线编辑**
 
 - R10. 详情态提供「编辑」入口，复用现有 Monaco 编辑器（`MonacoViewer`）对该 MD 文档做源码编辑；保存经 `bridge.writeFile(doc.path, draft)` 写回，成功后同步详情内容并 toast。
-- R11. 复用 FilesView 的编辑范式：dirty 标记、⌘S 保存、「完成」退出编辑（退出前若 dirty 先保存）；切换文档时重置编辑态。
+- R11. 编辑态提供「取消」（放弃改动退出，草稿回退）与「保存」（保存并退出，仅成功时退出）；⌘S 保存且留在编辑态；保存成功**不弹提示**（仅失败 toast）；dirty 标记；切换文档重置编辑态。
 
 **预览渲染**
 
@@ -150,10 +150,10 @@ origin: docs/brainstorms/2026-06-21-tasks-doc-secondary-edit-send-requirements.m
 - **Dependencies:** 无（与 U1–U4 独立）
 - **Files:**
   - `packages/views/cortex-desktop/personal/TasksDocsView.tsx`（`DocDetail`）
-- **Approach:** 复刻 `FilesView` 的编辑范式：`editMode`/`dirty`/`draftRef` 三态；详情头部「编辑」入口（`pw-ftb-btn` + `Icon.Edit`），编辑态显示「保存」（`is-primary` + `Icon.Check`，disabled=!dirty）与「完成」。编辑态渲染 `MonacoViewer`（`language="markdown"`、`wordWrap`、`readOnly={false}`、`key=doc.path`），`onChange` 写 `draftRef` 并按 `v!==content` 置 dirty，`onSave`（⌘S）触发保存。`save` 走 `bridge.writeFile(doc.path, draftRef.current)`，成功后 `setContent` + 清 dirty + `t("saved")` toast，失败 `t("saveFailed")`。切换文档时（readFile effect）重置 `editMode`/`dirty` 并把 `draftRef` 同步为新内容。文案复用既有 `files.toolbar.*` / `files.saved` / `files.saveFailed`。
+- **Approach:** 复刻 `FilesView` 的编辑范式：`editMode`/`dirty`/`draftRef` 三态；详情头部「编辑」入口（`pw-ftb-btn` + `Icon.Edit`），编辑态显示「取消」与「保存」（`is-primary` + `Icon.Check`）。编辑态渲染 `MonacoViewer`（`language="markdown"`、`wordWrap`、`readOnly={false}`、`key=doc.path`），`onChange` 写 `draftRef` 并按 `v!==content` 置 dirty，`onSave`（⌘S）触发保存。`save()` 走 `bridge.writeFile(doc.path, draftRef.current)`，成功后 `setContent` + 清 dirty 并**返回 true（不弹成功提示）**，失败 `t("saveFailed")` 并返回 false；「保存」=`saveAndExit`（仅 `save()` 成功才退出，失败留编辑态防丢稿）；「取消」=`cancelEdit`（draftRef 回退到 content、清 dirty、退出）。切换文档时（readFile effect）重置 `editMode`/`dirty` 并把 `draftRef` 同步为新内容。文案复用既有 `files.toolbar.*`（含新增 `toolbar.cancel`/`cancelTitle`）/ `files.saveFailed`。
 - **Patterns to follow:** `FilesView.tsx:312-327`（save/finishEdit）、`:403-419`（编辑/保存/完成工具栏）、`:475-492`（MonacoViewer 用法）。
 - **Test scenarios:** Test expectation: none —— 编辑保存依赖 Monaco 动态 import 与桌面 `bridge.writeFile`，jsdom 下不可靠（与 `FilesView` 同款编辑流程一致未做单测）；以 typecheck + 手动验证覆盖。
-- **Verification:** `pnpm --filter @cortex-work/views typecheck` 通过；手动：详情「编辑」→ 改内容（出现 dirty ●）→ ⌘S/「保存」→ toast「已保存」→「完成」回到只读且内容已更新；切换文档自动退出编辑态。
+- **Verification:** `pnpm --filter @cortex-work/views typecheck` 通过；手动：详情「编辑」→ 改内容（出现 dirty ●）→「保存」保存并退到只读且内容已更新（**无成功提示**）/「取消」放弃改动退出；切换文档自动退出编辑态。
 
 ---
 

@@ -34,6 +34,8 @@
     "finishTitle": "Save and return to preview",
     "edit": "Edit",
     "editTitle": "Edit file",
+    "cancel": "Cancel",
+    "cancelTitle": "Discard changes and exit editing",
     "copyContentTitle": "Copy file content",
     "copyPathTitle": "Copy file path",
     "open": "Open",

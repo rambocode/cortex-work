@@ -443,6 +443,8 @@ export default interface Resources {
     },
     "toolbar": {
       "backToList": "返回文件列表",
+      "cancel": "取消",
+      "cancelTitle": "放弃改动并退出编辑",
       "copyContentTitle": "复制文件内容",
       "copyPathTitle": "复制文件路径",
       "diff": "diff",

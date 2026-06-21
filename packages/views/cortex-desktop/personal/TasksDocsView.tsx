@@ -124,19 +124,27 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
   }, [bridge, doc.path]);
 
   // 保存:写回源文档（bridge.writeFile），成功后同步 content + 清 dirty。
-  const save = async () => {
-    if (!bridge || !dirty) return;
+  // 不弹「已保存」提示（按需求去掉成功 toast）;失败仍 toast。返回是否成功供「保存并退出」判断。
+  const save = async (): Promise<boolean> => {
+    if (!bridge || !dirty) return true;
     try {
       await bridge.writeFile(doc.path, draftRef.current);
       setContent(draftRef.current);
       setDirty(false);
-      onToast(t("saved"));
+      return true;
     } catch (err) {
       onToast(t("saveFailed", { error: err instanceof Error ? err.message : String(err) }));
+      return false;
     }
   };
-  const finishEdit = async () => {
-    if (dirty) await save();
+  // 保存并退出:仅在保存成功时退出编辑（失败留在编辑态,避免丢稿）。
+  const saveAndExit = async () => {
+    if (await save()) setEditMode(false);
+  };
+  // 取消:放弃改动并退出（草稿回退到当前内容）。
+  const cancelEdit = () => {
+    draftRef.current = content ?? "";
+    setDirty(false);
     setEditMode(false);
   };
 
@@ -151,12 +159,12 @@ function DocDetail({ doc, onBack, onToast }: { doc: DocMetaView; onBack: () => v
         <div className="spacer" />
         {editMode ? (
           <>
-            <button className="pw-ftb-btn is-primary" title={t("toolbar.saveTitle")} onClick={() => void save()} disabled={!dirty}>
+            <button className="pw-ftb-btn" title={t("toolbar.cancelTitle")} onClick={cancelEdit}>
+              {t("toolbar.cancel")}
+            </button>
+            <button className="pw-ftb-btn is-primary" title={t("toolbar.saveTitle")} onClick={() => void saveAndExit()}>
               <Icon.Check size={12} />
               {t("toolbar.save")}
-            </button>
-            <button className="pw-ftb-btn" title={t("toolbar.finishTitle")} onClick={() => void finishEdit()}>
-              {t("toolbar.finish")}
             </button>
           </>
         ) : (
