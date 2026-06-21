@@ -48,4 +48,23 @@ describe("McpCard", () => {
     fireEvent.click(screen.getByText("删除"));
     expect(mcp()?.servers).toHaveLength(0);
   });
+
+  it("od 预设:添加 stdio od server,args 含 loopback url;重复点击不重复(U6)", () => {
+    renderUI(<McpCard />);
+    fireEvent.click(screen.getByText("+ od（open-design）"));
+    const s = mcp()?.servers ?? [];
+    expect(s).toHaveLength(1);
+    expect(s[0]?.command).toBe("od");
+    expect(s[0]?.args).toEqual(["mcp", "--daemon-url", "http://127.0.0.1:7456"]);
+    // 已有 od → 重复点击不重复添加。
+    fireEvent.click(screen.getByText("+ od（open-design）"));
+    expect(mcp()?.servers).toHaveLength(1);
+  });
+
+  it("od 预设:改端口 → daemon-url host 恒 127.0.0.1(U6)", () => {
+    renderUI(<McpCard />);
+    fireEvent.click(screen.getByText("+ od（open-design）"));
+    fireEvent.change(screen.getByLabelText("od daemon 端口"), { target: { value: "9000" } });
+    expect(mcp()?.servers[0]?.args).toEqual(["mcp", "--daemon-url", "http://127.0.0.1:9000"]);
+  });
 });
