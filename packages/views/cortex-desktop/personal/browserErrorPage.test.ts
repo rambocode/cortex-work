@@ -18,10 +18,10 @@ describe("buildErrorPageScript", () => {
     expect(() => new Function(script)).not.toThrow();
   });
 
-  it("内嵌水母 SVG 与动画 keyframes", () => {
+  it("内嵌水母 SVG 与 SMIL 动画", () => {
     const script = buildErrorPageScript(params);
-    expect(script).toContain("cx-bell");
-    expect(script).toContain("cxBob");
+    expect(script).toContain("cxJellyG"); // 水母钟罩渐变
+    expect(script).toContain("animateTransform"); // SMIL 漂浮/摆动动画
     expect(script).not.toContain("\\u25C9"); // 旧的紫色圆点已移除
   });
 
