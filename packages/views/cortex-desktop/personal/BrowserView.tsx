@@ -404,11 +404,13 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
           {/* 截图/标注仅 Electron <webview> 支持(iframe 无 capturePage / 无法注入 preload),Web 端不渲染 */}
           {useElectronWebview ? (
             <>
+              {/* 截图/标注在错误态(pageError)下仍保留可用:用户可对错误页截图反馈、标注(用户要求)。
+                 仅在无 URL / 加载中 / 截图中时禁用。 */}
               <button
                 type="button"
                 className="pw-icon-btn"
                 onClick={takeScreenshot}
-                disabled={!activeUrl || loading || !!pageError || capturing}
+                disabled={!activeUrl || loading || capturing}
                 title={t("nav.screenshot")}
                 aria-label={t("nav.screenshot")}
               >
@@ -418,7 +420,7 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
                 type="button"
                 className={`pw-icon-btn ${annotation.enabled ? "is-active" : ""}`}
                 onClick={annotation.toggle}
-                disabled={!activeUrl || !!pageError}
+                disabled={!activeUrl}
                 title={t("nav.annotate")}
                 aria-label={t("nav.annotate")}
                 aria-pressed={annotation.enabled}
