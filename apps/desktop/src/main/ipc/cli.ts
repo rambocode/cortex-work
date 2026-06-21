@@ -128,19 +128,31 @@ export function pipeStdoutLines(
 export function startAgentProcess(
   cmd: string,
   args: string[],
-  opts: { cwd?: string; env: NodeJS.ProcessEnv },
+  opts: { cwd?: string; env: NodeJS.ProcessEnv; stdin?: string },
 ): AgentProcess {
   const env = envForCommand(cmd, opts.env);
   const invocation = resolveInvocationForSpawn(cmd, args, env);
   const child = spawn(invocation.cmd, invocation.args, {
     cwd: opts.cwd,
     env,
-    stdio: ["ignore", "pipe", "pipe"],
+    // prompt 走 stdin 时开 pipe(claude/codex,U4);否则 ignore(pi,prompt 在 argv)。
+    stdio: [opts.stdin !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
     // detached(非 Windows):子进程成为进程组组长,使取消时 process.kill(-pgid) 能回收整组子孙(U6)。
     detached: platform() !== "win32",
     // 显式不经 shell:避免参数注入/转义问题(args 已是结构化数组)。
     shell: false,
   });
+  // prompt 经 stdin 投递:写入后立即 end() 发 EOF(cortex 每轮一次 spawn,单发即可,子进程读到 EOF 即处理)。
+  // 吞掉 stdin 的 EPIPE/EOF(U8):子进程提前退出会让写 stdin 报 EPIPE,真因已由 stderr/exit 路由,
+  // 这里静默避免拖崩主进程。
+  if (opts.stdin !== undefined && child.stdin) {
+    child.stdin.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code !== "EPIPE" && err.code !== "EOF") {
+        console.warn(`[cli] stdin write error: ${err.message}`);
+      }
+    });
+    child.stdin.end(opts.stdin, "utf8");
+  }
   return wrapChild(child);
 }
 
@@ -344,7 +356,7 @@ export function registerCliHandlers(): void {
     if (req.agent === "pi" && req.provider) {
       req.piExtensionPath = writePiExtension(req.provider);
     }
-    const { cmd, args } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
+    const { cmd, args, stdin } = adapter.buildArgs(req); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
     assertSpawnCwd(req.cwd);
     recordAgentTrace({
@@ -356,7 +368,7 @@ export function registerCliHandlers(): void {
       agent: req.agent,
       data: { cmd, cwd: req.cwd, argCount: args.length, promptPreview: promptPreview(req.prompt) },
     });
-    const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req) });
+    const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvFor(req), stdin });
     running.set(req.runId, proc);
 
     // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,
@@ -483,7 +495,7 @@ export function registerCliHandlers(): void {
       const adapter = getAdapter(agent);
       const provider = agent === "pi" ? req.provider : undefined;
       const piExtensionPath = provider ? writePiExtension(provider) : undefined;
-      const { cmd, args } = adapter.buildArgs({
+      const { cmd, args, stdin } = adapter.buildArgs({
         runId: "oneshot",
         sessionId: "oneshot",
         agent,
@@ -506,6 +518,7 @@ export function registerCliHandlers(): void {
         const proc = startAgentProcess(cmd, args, {
           cwd,
           env: spawnEnvFor({ agent, provider }),
+          stdin,
         });
         let out = "";
         let resultText = "";

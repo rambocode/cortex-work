@@ -14,18 +14,20 @@ const baseReq: CliStartRequest = {
 };
 
 describe("codexAdapter.buildArgs", () => {
-  it("首轮:基础参数 + json + cwd + bypass", () => {
-    const { cmd, args } = codexAdapter.buildArgs(baseReq);
+  it("首轮:基础参数 + json + cwd + bypass,prompt 走 stdin(不在 argv)", () => {
+    const { cmd, args, stdin } = codexAdapter.buildArgs(baseReq);
     expect(cmd).toBe("codex");
     expect(args.slice(0, 2)).toEqual(["exec", "--json"]);
     expect(args).toContain("--skip-git-repo-check");
     expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(args.join(" ")).toContain("--cd /tmp/proj");
-    expect(args.at(-1)).toBe("hello");
+    expect(args).not.toContain("hello"); // prompt 不在 argv
+    expect(args).not.toContain("-"); // 无 `-` 哨兵(否则 codex exit 2)
+    expect(stdin).toBe("hello");
   });
 
-  it("多轮:使用 exec resume + session id + model", () => {
-    const { args } = codexAdapter.buildArgs({
+  it("多轮:使用 exec resume + session id + model,prompt 走 stdin", () => {
+    const { args, stdin } = codexAdapter.buildArgs({
       ...baseReq,
       model: "gpt-5.4",
       resumeSessionId: "019eb656-4f8a-7841-846c-82bc4c0abee9",
@@ -33,8 +35,8 @@ describe("codexAdapter.buildArgs", () => {
     expect(args.slice(0, 3)).toEqual(["exec", "resume", "--json"]);
     expect(args.join(" ")).toContain("--model gpt-5.4");
     expect(args).not.toContain("--cd");
-    expect(args.at(-2)).toBe("019eb656-4f8a-7841-846c-82bc4c0abee9");
-    expect(args.at(-1)).toBe("hello");
+    expect(args.at(-1)).toBe("019eb656-4f8a-7841-846c-82bc4c0abee9"); // threadId 为末位位置参数
+    expect(stdin).toBe("hello");
   });
 
   it("纯净启动:始终带 -c mcp_servers={} 清空 MCP", () => {
@@ -46,14 +48,13 @@ describe("codexAdapter.buildArgs", () => {
     expect(resume[i + 1]).toBe("mcp_servers={}");
   });
 
-  it("prompt 附件:拼入用户请求前置上下文", () => {
-    const { args } = codexAdapter.buildArgs({
+  it("prompt 附件:拼入用户请求前置上下文(经 stdin)", () => {
+    const { stdin } = codexAdapter.buildArgs({
       ...baseReq,
       appendSystemPrompt: '<skill name="rule">Use concise Chinese.</skill>',
     });
-    const prompt = args.at(-1);
-    expect(prompt).toContain('<skill name="rule">Use concise Chinese.</skill>');
-    expect(prompt).toContain("<user_request>\nhello\n</user_request>");
+    expect(stdin).toContain('<skill name="rule">Use concise Chinese.</skill>');
+    expect(stdin).toContain("<user_request>\nhello\n</user_request>");
   });
 
   it("运行模式:plan → -s read-only + approval_policy=never,无 bypass", () => {
@@ -82,10 +83,11 @@ describe("codexAdapter.buildArgs", () => {
     }
   });
 
-  it("运行模式:resume 分支模式标志在 threadId/prompt 之前", () => {
-    const { args } = codexAdapter.buildArgs({ ...baseReq, permissionMode: "plan", resumeSessionId: "tid-1" });
+  it("运行模式:resume 分支模式标志在 threadId 之前;prompt 走 stdin", () => {
+    const { args, stdin } = codexAdapter.buildArgs({ ...baseReq, permissionMode: "plan", resumeSessionId: "tid-1" });
     expect(args.indexOf("read-only")).toBeLessThan(args.indexOf("tid-1"));
-    expect(args.at(-1)).toBe("hello");
+    expect(args.at(-1)).toBe("tid-1");
+    expect(stdin).toBe("hello");
   });
 
   it("推理强度:effort → -c model_reasoning_effort=,缺省不带", () => {
@@ -96,8 +98,8 @@ describe("codexAdapter.buildArgs", () => {
     expect(codexAdapter.buildArgs(baseReq).args.join(" ")).not.toContain("model_reasoning_effort");
   });
 
-  it("图片:每张 --image 绝对路径,在位置参数前;prompt 仍是末位且不含路径", () => {
-    const { args } = codexAdapter.buildArgs({
+  it("图片:每张 --image 绝对路径,顺序保持;prompt 走 stdin 不含路径", () => {
+    const { args, stdin } = codexAdapter.buildArgs({
       ...baseReq,
       images: [
         { path: "/abs/a.png", mimeType: "image/png" },
@@ -108,13 +110,12 @@ describe("codexAdapter.buildArgs", () => {
     expect(imgPos.length).toBe(2);
     expect(args[imgPos[0] + 1]).toBe("/abs/a.png");
     expect(args[imgPos[1] + 1]).toBe("/abs/b.webp"); // 顺序保持
-    expect(args.at(-1)).toBe("hello"); // prompt 仍是末位位置参数
-    expect(args.at(-1)).not.toContain("/abs/"); // prompt 不含图片路径(避开 consent 拦截)
-    expect(Math.max(...imgPos)).toBeLessThan(args.length - 1); // --image 在 prompt 之前
+    expect(stdin).toBe("hello"); // prompt 走 stdin
+    expect(stdin).not.toContain("/abs/"); // prompt 不含图片路径(避开 consent 拦截)
   });
 
-  it("图片:resume 分支 --image 在位置参数(threadId/prompt)之前", () => {
-    const { args } = codexAdapter.buildArgs({
+  it("图片:resume 分支 --image 在位置参数(threadId)之前;prompt 走 stdin", () => {
+    const { args, stdin } = codexAdapter.buildArgs({
       ...baseReq,
       resumeSessionId: "tid-1",
       images: [{ path: "/abs/a.png", mimeType: "image/png" }],
@@ -122,7 +123,7 @@ describe("codexAdapter.buildArgs", () => {
     const imgIdx = args.indexOf("--image");
     expect(imgIdx).toBeGreaterThan(-1);
     expect(imgIdx).toBeLessThan(args.indexOf("tid-1")); // --image 在 threadId 之前
-    expect(args.at(-1)).toBe("hello");
+    expect(stdin).toBe("hello");
   });
 
   it("无图:args 不含 --image(回归)", () => {

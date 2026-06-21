@@ -14,14 +14,21 @@ const baseReq: CliStartRequest = {
 };
 
 describe("claudeAdapter.buildArgs", () => {
-  it("首轮:基础参数 + stream-json", () => {
-    const { cmd, args } = claudeAdapter.buildArgs(baseReq);
+  it("首轮:基础参数 + stream-json,prompt 走 stdin(不在 argv)", () => {
+    const { cmd, args, stdin } = claudeAdapter.buildArgs(baseReq);
     expect(cmd).toBe("claude");
     expect(args).toContain("-p");
-    expect(args).toContain("hello");
+    expect(args.join(" ")).toContain("--input-format stream-json");
     expect(args.join(" ")).toContain("--output-format stream-json");
     expect(args).toContain("--include-partial-messages");
+    expect(args).not.toContain("hello"); // prompt 不再进 argv
     expect(args).not.toContain("--resume");
+    // prompt 经 stdin 以 user message JSONL 投递
+    const msg = JSON.parse(stdin!);
+    expect(msg).toMatchObject({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "hello" }] },
+    });
   });
 
   it("多轮:带 --resume / --model / --append-system-prompt", () => {
@@ -76,23 +83,23 @@ describe("claudeAdapter.buildArgs", () => {
     expect(claudeAdapter.buildArgs(baseReq).args).not.toContain("--effort");
   });
 
-  it("图片:绝对路径 + 读取指令前置进 -p,在用户文本之前;缺省 -p 值=原 prompt", () => {
-    const { args } = claudeAdapter.buildArgs({
+  it("图片:绝对路径 + 读取指令前置进 stdin 文本,在用户文本之前;无图=原 prompt", () => {
+    const { stdin } = claudeAdapter.buildArgs({
       ...baseReq,
       images: [
         { path: "/abs/a.png", mimeType: "image/png" },
         { path: "/abs/b.jpg", mimeType: "image/jpeg" },
       ],
     });
-    const prompt = args[args.indexOf("-p") + 1];
-    expect(prompt).toContain("/abs/a.png");
-    expect(prompt).toContain("/abs/b.jpg");
+    const text: string = JSON.parse(stdin!).message.content[0].text;
+    expect(text).toContain("/abs/a.png");
+    expect(text).toContain("/abs/b.jpg");
     // 图片引用在用户文本(hello)之前,且顺序保持
-    expect(prompt.indexOf("/abs/a.png")).toBeLessThan(prompt.indexOf("/abs/b.jpg"));
-    expect(prompt.indexOf("/abs/b.jpg")).toBeLessThan(prompt.indexOf("hello"));
-    // 无图:逐字符回归
-    const plain = claudeAdapter.buildArgs(baseReq).args;
-    expect(plain[plain.indexOf("-p") + 1]).toBe("hello");
+    expect(text.indexOf("/abs/a.png")).toBeLessThan(text.indexOf("/abs/b.jpg"));
+    expect(text.indexOf("/abs/b.jpg")).toBeLessThan(text.indexOf("hello"));
+    // 无图:stdin 文本=原 prompt
+    const plain = claudeAdapter.buildArgs(baseReq);
+    expect(JSON.parse(plain.stdin!).message.content[0].text).toBe("hello");
   });
 });
 

@@ -50,11 +50,23 @@ function mapClaudeUsage(obj: Record<string, unknown>): CliStreamEvent | null {
   return { type: "usage", inputTokens, outputTokens, cachedInputTokens, costUsd };
 }
 
+// prompt 经 stdin 投递(U4):claude -p --input-format stream-json 从 stdin 读取一行 user message JSONL。
+// 实测(claude 2.1.x):写入该信封 + EOF(关 stdin)即触发处理并退出,绕开 argv 长度上限。
+// 图片说明文本已由 buildClaudePrompt 拼入 text。
+function buildClaudeStdin(req: CliStartRequest): string {
+  return JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "text", text: buildClaudePrompt(req) }] },
+  });
+}
+
 export const claudeAdapter: AgentAdapter = {
   buildArgs(req: CliStartRequest) {
     const args = [
       "-p",
-      buildClaudePrompt(req),
+      // prompt 不再进 argv:经 stdin 以 stream-json 投递(U4,绕开命令行长度上限)。
+      "--input-format",
+      "stream-json",
       "--output-format",
       "stream-json",
       "--verbose",
@@ -82,7 +94,7 @@ export const claudeAdapter: AgentAdapter = {
     if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
     // skills 默认禁用,仅当用户在 composer 显式打开(useOwnSkills === true)时才加载。
     if (req.useOwnSkills !== true) args.push("--disable-slash-commands");
-    return { cmd: "claude", args };
+    return { cmd: "claude", args, stdin: buildClaudeStdin(req) };
   },
 
   parseLine(line: string): CliStreamEvent | CliStreamEvent[] | null {

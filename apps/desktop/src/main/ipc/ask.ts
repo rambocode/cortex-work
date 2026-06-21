@@ -88,6 +88,7 @@ export function registerAskHandlers(): void {
     const proc = startAgentProcess(built.cmd, args, {
       cwd,
       env: spawnEnvFor({ agent: req.agent, provider: req.provider }),
+      stdin: built.stdin, // claude/codex 经 stdin 投递 prompt(U4);pi 为 undefined
     });
     running.set(req.askId, proc);
 

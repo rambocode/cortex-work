@@ -198,6 +198,27 @@ describe("startAgentProcess", () => {
     expect(opts).toMatchObject({ shell: false, detached: process.platform !== "win32" });
   });
 
+  it("有 stdin 负载:stdio[0]=pipe,写入 prompt 并 end()(U4)", () => {
+    const child = Object.assign(new EventEmitter(), {
+      pid: 1,
+      stdout: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
+      stderr: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
+      stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),
+      kill: vi.fn(),
+    });
+    spawnMock.mockReturnValueOnce(child);
+    startAgentProcess("claude", ["-p"], { cwd: "/p", env: {} as NodeJS.ProcessEnv, stdin: "PAYLOAD" });
+    const [, , opts] = spawnMock.mock.calls[0] as [unknown, unknown, { stdio: unknown[] }];
+    expect(opts.stdio[0]).toBe("pipe");
+    expect(child.stdin.end).toHaveBeenCalledWith("PAYLOAD", "utf8");
+  });
+
+  it("无 stdin 负载:stdio[0]=ignore(pi,prompt 在 argv)", () => {
+    startAgentProcess("/res/pi/pi", ["hi"], { cwd: "/p", env: {} as NodeJS.ProcessEnv });
+    const [, , opts] = spawnMock.mock.calls[0] as [unknown, unknown, { stdio: unknown[] }];
+    expect(opts.stdio[0]).toBe("ignore");
+  });
+
   it("kill() 非 win 走进程组信号 process.kill(-pgid, SIGTERM);win 直接 child.kill", () => {
     const child = fakeChild();
     spawnMock.mockReturnValueOnce(child);

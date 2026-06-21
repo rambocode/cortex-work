@@ -39,7 +39,7 @@ function mapCodexUsage(usage: unknown): CliStreamEvent | null {
 }
 
 export const codexAdapter: AgentAdapter = {
-  buildArgs(req: CliStartRequest): { cmd: string; args: string[] } {
+  buildArgs(req: CliStartRequest): { cmd: string; args: string[]; stdin: string } {
     const prompt = promptWithSkills(req);
     const common = ["--json", "--skip-git-repo-check"];
     // 运行模式 → sandbox + 审批策略。codex exec 不接受 --ask-for-approval(顶层 TUI 才有),
@@ -63,10 +63,13 @@ export const codexAdapter: AgentAdapter = {
     // prompt)之前,exec 与 exec resume 两分支通用。每轮新 spawn,故 -i 附到当轮消息成立。
     for (const img of req.images ?? []) common.push("--image", img.path);
 
+    // prompt 经 stdin 投递(U4):codex exec 省略位置参数 [PROMPT] 时「instructions are read from stdin」
+    // (--help 实测,且 argv 不得出现 `-` 哨兵否则 exit 2)。绕开命令行长度上限。resume 分支 threadId
+    // 仍是位置参数,只去掉 prompt。
     const args = req.resumeSessionId
-      ? ["exec", "resume", ...common, req.resumeSessionId, prompt]
-      : ["exec", ...common, "--cd", req.cwd, prompt];
-    return { cmd: "codex", args };
+      ? ["exec", "resume", ...common, req.resumeSessionId]
+      : ["exec", ...common, "--cd", req.cwd];
+    return { cmd: "codex", args, stdin: prompt };
   },
 
   parseLine(line: string): CliStreamEvent | CliStreamEvent[] | null {
