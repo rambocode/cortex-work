@@ -363,18 +363,15 @@ export interface AgentProjectInfo {
   lastActive: number; // epoch ms，取会话日志文件 mtime 最大值
 }
 
-// 归一化事件（adapter 输出）。M1 在原 4 变体上做**向后兼容扩展**:新增 usage/thinking/turn/retry
-// 变体与 tool 的可选 phase 字段。新增项全部可选/为新变体,现有消费端(if 链 / 无 default 的 switch)
-// 自然忽略未知 type;`foldCliEvent` 对非 text/tool 事件原样返回,故中途插入 usage/thinking 不破坏折叠。
-// 变体命名对齐 pi RPC 路径的 PiSessionEvent(turn-end/retry/thinking-level)以保持跨路径一致。
+// 归一化事件（adapter 输出）。M1 在原 4 变体上做**向后兼容扩展**:新增 usage(U3)、retry(U7)两个
+// 变体,均有生产者。现有消费端(if 链 / 无 default 的 switch)自然忽略未知 type;`foldCliEvent` 对
+// 非 text/tool 事件原样返回,故 usage/retry 不破坏文本/工具折叠。
 // ⚠️ 跨包契约:本类型在 packages/core/desktop/types.ts 有逐字镜像,任何改动两处必须同步。
 export type CliStreamEvent =
   | { type: "init"; sessionId: string }
   | { type: "text"; delta: string }
-  | { type: "thinking"; delta: string } // reasoning 模型的思考增量(对齐 pi 的 reasoning)
-  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end" } // phase 缺省=旧语义(单点)
-  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; thinkingTokens?: number; costUsd?: number } // 流式 usage/cost(补充磁盘来源,见 KTD3)
-  | { type: "turn"; stopReason?: string } // 一轮结束;stopReason 供 claude stdin 关闭判定(!== "tool_use" 才关)
+  | { type: "tool"; name: string; detail?: string }
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number } // 流式 usage/cost(补充磁盘来源,见 KTD3)
   | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string } // 安全重试发起(对齐 pi retry)
   | { type: "result"; ok: boolean; text?: string; error?: string };
 

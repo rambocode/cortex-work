@@ -15,6 +15,11 @@ import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
 
 const running = new Map<string, AgentProcess>();
+// 已被显式取消(cli:kill / killAllCli)的 runId。安全重试用它判定「被取消」——不能只靠 code===null:
+// CLI 捕获 SIGTERM 后可能以非零码退出,此时仍属取消,绝不能重试(否则取消后复活子进程)。
+const cancelledRunIds = new Set<string>();
+// 安全重试前的退避:限流/上游瞬断后零延迟重试几乎必然再次撞墙,给上游一个恢复窗口。
+const RETRY_BACKOFF_MS = 800;
 const VERIFY_TIMEOUT_MS = 3000;
 let detectedAgents: Promise<Record<AgentKind, boolean>> | null = null;
 
@@ -404,6 +409,7 @@ export function registerCliHandlers(): void {
       running.set(req.runId, proc);
 
       // 本 attempt 的副作用/失败追踪(重试决策输入)。
+      let settled = false; // onError/onExit 互斥:spawn 失败时 Node 会同时触发 error 与 close,只处理一次
       let sawText = false;
       let sawTool = false;
       let sawAny = false; // 是否产出过任意归一化事件(empty_output 判定)
@@ -484,7 +490,10 @@ export function registerCliHandlers(): void {
       });
 
       proc.onError((err) => {
+        if (settled) return; // 已被 onExit 收尾,避免重复终态
+        settled = true;
         clearWatchdog();
+        cancelledRunIds.delete(req.runId);
         console.error(`[cli] ${req.agent} spawn failed: ${err.message}`);
         recordAgentTrace({
           scope: "cli",
@@ -502,20 +511,28 @@ export function registerCliHandlers(): void {
       });
 
       proc.onExit((code) => {
+        if (settled) return; // 已被 onError 收尾(spawn 失败时 error+close 都会触发)
+        settled = true;
         clearWatchdog();
         flushStdout(); // 冲刷无换行结尾的最后一行
         proc.stdout?.removeAllListeners();
         proc.stderr?.removeAllListeners();
 
-        // 安全重试判定:仅「进程非零退出 或 0 退出但全程无输出」、且未转发过 result 失败、非看门狗、
-        // 非被信号取消(code !== null)时才考虑。满足时渲染端尚未收到任何终态/可见内容,重试干净。
+        // 取消判定:被信号杀(code===null)或显式取消(cli:kill/killAllCli)。CLI 捕获 SIGTERM 后可能
+        // 以非零码退出,故不能只看 code===null —— 必须并入 cancelledRunIds,否则取消后会被误重试复活。
+        const cancelRequested = code === null || cancelledRunIds.has(req.runId);
+        // 安全重试判定:仅「进程非零退出 或 0 退出但全程无输出」、未转发过 result 失败、非看门狗、非取消时
+        // 才考虑。满足时渲染端尚未收到任何终态/可见内容,重试干净。
         const retryEligible =
-          !watchdogTripped && !lastResultFailed && ((code !== 0 && code !== null) || (code === 0 && !sawAny));
+          !watchdogTripped &&
+          !cancelRequested &&
+          !lastResultFailed &&
+          ((code !== 0 && code !== null) || (code === 0 && !sawAny));
         if (retryEligible) {
           const failure = classifyAgentFailure({ code, stderrTail, sawAnyOutput: sawAny });
           const decision = decideSafeRunRetry(
             failure,
-            { cancelRequested: false, userVisibleOutputSeen: sawText, toolCallSeen: sawTool },
+            { cancelRequested, userVisibleOutputSeen: sawText, toolCallSeen: sawTool },
             attempt,
             retryMax,
           );
@@ -530,12 +547,22 @@ export function registerCliHandlers(): void {
               data: { attempt: attempt + 1, category: failure.category },
             });
             sendEvent({ type: "retry", attempt: attempt + 1, maxAttempts: retryMax, reason: failure.category });
-            launchAttempt(attempt + 1); // 顺序重试,新 attempt 覆盖 running 中的 proc
+            // 退避后再起新 attempt;退避窗口内若被取消,直接收尾、不复活子进程。
+            setTimeout(() => {
+              if (cancelledRunIds.has(req.runId)) {
+                cancelledRunIds.delete(req.runId);
+                running.delete(req.runId);
+                sendExit({ runId: req.runId, sessionId: req.sessionId, code: null });
+                return;
+              }
+              launchAttempt(attempt + 1); // 顺序重试,新 attempt 覆盖 running 中的 proc
+            }, RETRY_BACKOFF_MS);
             return;
           }
         }
 
         // 终态。
+        cancelledRunIds.delete(req.runId);
         running.delete(req.runId);
         const timeoutError = watchdogTripped
           ? `活跃超时:${Math.round(inactivityMs / 1000)} 秒无输出,已终止`
@@ -718,12 +745,14 @@ export function registerCliHandlers(): void {
   ipcMain.handle("agents:detect", () => detectAgents());
 
   ipcMain.handle("cli:kill", (_e, runId: string) => {
-    // kill() 内置 SIGTERM + 3s 兜底强杀（claude 偶尔会拖延收尾）。
-    running.get(runId)?.kill();
+    // 先标记取消,再 kill()——onExit 据此抑制安全重试(即便 CLI 以非零码退出也不复活)。
+    cancelledRunIds.add(runId);
+    running.get(runId)?.kill(); // kill() 内置先关 stdin + 进程组 SIGTERM + 3s 兜底 SIGKILL
   });
 }
 
 export function killAllCli(): void {
+  for (const runId of running.keys()) cancelledRunIds.add(runId);
   for (const proc of running.values()) proc.kill();
   running.clear();
 }

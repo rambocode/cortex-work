@@ -223,7 +223,8 @@ describe("cli:start 活跃度看门狗(U5)", () => {
 });
 
 describe("cli:start 安全重试(U7)", () => {
-  it("首事件前瞬态失败(非零退出 + 无输出)→ 重试一次,不提前发终态", async () => {
+  it("首事件前瞬态失败(非零退出 + 无输出)→ 退避后重试一次,不提前发终态", async () => {
+    vi.useFakeTimers();
     const cwd = mkdtempSync(join(tmpdir(), "cortex-retry-"));
     const child1 = fakeChild();
     const child2 = fakeChild();
@@ -238,16 +239,64 @@ describe("cli:start 安全重试(U7)", () => {
       );
       child1.stderr.emit("data", "fetch failed: ECONNRESET\n"); // 瞬态上游错误
       child1.emit("close", 1); // 非零退出,无任何输出 → 触发重试
-      // 已发起第二次 spawn 并广播 retry 事件,但尚未发终态 cli:exit。
-      expect(spawnMock).toHaveBeenCalledTimes(2);
+      // 立即广播 retry 事件;但重 spawn 有退避,尚未发生,也未发终态 cli:exit。
       const retryEvent = send.mock.calls.find((c) => c[0] === "cli:event" && c[1]?.event?.type === "retry");
       expect(retryEvent?.[1].event).toMatchObject({ type: "retry", attempt: 1 });
+      expect(spawnMock).toHaveBeenCalledTimes(1);
       expect(send).not.toHaveBeenCalledWith("cli:exit", expect.anything());
-      // 第二次成功收尾 → 终态 cli:exit。
-      child2.emit("close", 0);
+      vi.advanceTimersByTime(800); // 退避到期 → 第二次 spawn
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+      child2.emit("close", 0); // 第二次成功收尾 → 终态 cli:exit
       expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-1", code: 0 }));
     } finally {
       killSpy.mockRestore();
+      vi.useRealTimers();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("取消(cli:kill)后即便子进程非零退出也不重试 —— 直接终态", async () => {
+    vi.useFakeTimers();
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-retry3-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "rt-3", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      ipcHandlers.get("cli:kill")?.({}, "rt-3"); // 用户取消
+      child.stderr.emit("data", "fetch failed: ECONNRESET\n"); // 瞬态文本(诱导误重试)
+      child.emit("close", 1); // 捕获 SIGTERM 后非零退出
+      vi.advanceTimersByTime(800);
+      expect(spawnMock).toHaveBeenCalledTimes(1); // 未重试
+      expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-3", code: 1 }));
+    } finally {
+      killSpy.mockRestore();
+      vi.useRealTimers();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("spawn 失败时 error+close 都触发,只发一次终态 cli:exit(settled 守卫)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-retry4-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "rt-4", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      child.emit("error", Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }));
+      child.emit("close", null); // Node 在 error 后还会触发 close
+      const exits = send.mock.calls.filter((c) => c[0] === "cli:exit" && c[1]?.runId === "rt-4");
+      expect(exits).toHaveLength(1);
+    } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
@@ -320,6 +369,12 @@ describe("startAgentProcess", () => {
     const [, , opts] = spawnMock.mock.calls[0] as [unknown, unknown, { stdio: unknown[] }];
     expect(opts.stdio[0]).toBe("pipe");
     expect(child.stdin.end).toHaveBeenCalledWith("PAYLOAD", "utf8");
+    // U8:stdin EPIPE/EOF 静默吞掉(子进程提前退出),其余错误才告警。
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    expect(warnSpy).not.toHaveBeenCalled();
+    child.stdin.emit("error", Object.assign(new Error("boom"), { code: "EACCES" }));
+    expect(warnSpy).toHaveBeenCalled();
   });
 
   it("无 stdin 负载:stdio[0]=ignore(pi,prompt 在 argv)", () => {
