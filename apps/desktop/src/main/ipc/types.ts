@@ -145,8 +145,28 @@ export interface LogSettings {
   retentionDays: number;
 }
 
+// MCP 注入配置(M2 U2,与 packages/core/desktop/types.ts 逐字镜像)。主进程消费(注入),
+// renderer 设置区编辑。enabled=总开关;关时不注入不覆盖,尊重用户自有 .mcp.json / ~/.codex。
+export interface McpServerConfig {
+  id: string; // 稳定标识,同时作为注入 server 名
+  label?: string;
+  transport: "stdio" | "sse" | "http";
+  command?: string; // stdio
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string; // sse/http
+  headers?: Record<string, string>;
+}
+
+export interface McpSettings {
+  enabled: boolean;
+  servers: McpServerConfig[];
+}
+
 export interface GeneralSettings {
   workspaceRoot?: string;
+  // MCP 注入配置(U2);缺省视为 { enabled:false, servers:[] }(不注入)。
+  mcp?: McpSettings;
   desktopBehavior: DesktopBehavior;
   notifications: NotificationSettings;
   log: LogSettings;
@@ -290,6 +310,8 @@ export interface CliStartRequest {
   prompt: string;
   model?: string;
   resumeSessionId?: string;
+  // 续接最近会话(U4):claude --continue / codex exec resume --last。与 resumeSessionId 互斥,优先生效。
+  continueSession?: boolean;
   appendSystemPrompt?: string;
   useOwnSkills?: boolean;
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildArgs 逐个 --skill 注入。
@@ -363,10 +385,16 @@ export interface AgentProjectInfo {
   lastActive: number; // epoch ms，取会话日志文件 mtime 最大值
 }
 
+// 归一化事件（adapter 输出）。M1 在原 4 变体上做**向后兼容扩展**:新增 usage(U3)、retry(U7)两个
+// 变体,均有生产者。现有消费端(if 链 / 无 default 的 switch)自然忽略未知 type;`foldCliEvent` 对
+// 非 text/tool 事件原样返回,故 usage/retry 不破坏文本/工具折叠。
+// ⚠️ 跨包契约:本类型在 packages/core/desktop/types.ts 有逐字镜像,任何改动两处必须同步。
 export type CliStreamEvent =
   | { type: "init"; sessionId: string }
   | { type: "text"; delta: string }
   | { type: "tool"; name: string; detail?: string }
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number } // 流式 usage/cost(补充磁盘来源,见 KTD3)
+  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string } // 安全重试发起(对齐 pi retry)
   | { type: "result"; ok: boolean; text?: string; error?: string };
 
 export interface CliExitEvent {

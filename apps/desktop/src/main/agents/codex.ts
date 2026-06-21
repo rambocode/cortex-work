@@ -12,7 +12,7 @@
 //   {type:"turn.completed"}                                        → result
 
 import type { CliStartRequest, CliStreamEvent } from "../ipc/types";
-import type { AgentAdapter } from "./index";
+import type { AgentDef } from "./index";
 
 function promptWithSkills(req: CliStartRequest): string {
   if (!req.appendSystemPrompt) return req.prompt;
@@ -24,8 +24,30 @@ function commandDetail(command: unknown): string | undefined {
   return command.length > 100 ? command.slice(0, 100) + "…" : command;
 }
 
-export const codexAdapter: AgentAdapter = {
-  buildArgs(req: CliStartRequest): { cmd: string; args: string[] } {
+// codex turn.completed.usage → 归一化 usage 事件。codex 无 cost 字段(仅 token);字段缺失/类型
+// 异常一律降级为不产出(返回 null),不抛错。codex 磁盘 rollout 不带 per-event token 历史,
+// 故这条流式 usage 是 codex 唯一的 token 来源(补充信号,见 KTD3)。
+function mapCodexUsage(usage: unknown): CliStreamEvent | null {
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+  const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
+  const inputTokens = num(u.input_tokens);
+  const outputTokens = num(u.output_tokens);
+  const cachedInputTokens = num(u.cached_input_tokens);
+  if (inputTokens === undefined && outputTokens === undefined && cachedInputTokens === undefined) return null;
+  return { type: "usage", inputTokens, outputTokens, cachedInputTokens };
+}
+
+export const codexDef: AgentDef = {
+  id: "codex",
+  // 能力位:codex prompt 经 stdin 管道写完即 EOF;MCP 经 -c 注入(U2);续接 exec/exec resume(U4);
+  // 图片用原生 --image、appendSystemPrompt 以 <user_request> 包裹进 prompt(U5)。
+  promptDelivery: "stdin-eof",
+  mcpInjection: "codex-c",
+  sessionResume: "continue+resume",
+  imageDelivery: "native-flag",
+  appendSystemPrompt: "prompt-wrap",
+  buildArgs(req: CliStartRequest, mcpArgs?: string[]): { cmd: string; args: string[]; stdin: string } {
     const prompt = promptWithSkills(req);
     const common = ["--json", "--skip-git-repo-check"];
     // 运行模式 → sandbox + 审批策略。codex exec 不接受 --ask-for-approval(顶层 TUI 才有),
@@ -38,8 +60,9 @@ export const codexAdapter: AgentAdapter = {
     if (mode === "plan") common.push("-s", "read-only", "-c", "approval_policy=never");
     else if (mode === "accept-edits") common.push("-s", "workspace-write", "-c", "approval_policy=never");
     else common.push("--dangerously-bypass-approvals-and-sandbox");
-    // 纯净启动:TOML 覆盖清空 MCP 服务,只保留全局指令(~/.codex/AGENTS.md)。
-    common.push("-c", "mcp_servers={}");
+    // MCP(U2):不再写死清空。关/无配置时不传 → codex 原生继承 ~/.codex 的 MCP;启用时公共管线经
+    // mcpArgs 传入 `-c mcp_servers.<id>...`,放进 common(落在位置参数 threadId 之前)。
+    if (mcpArgs?.length) common.push(...mcpArgs);
     if (req.model) common.push("--model", req.model);
     // 推理强度:codex 用 -c model_reasoning_effort=<low|medium|high>（与上面的 -c 并列,
     // resume 子命令同样兼容）。
@@ -49,13 +72,20 @@ export const codexAdapter: AgentAdapter = {
     // prompt)之前,exec 与 exec resume 两分支通用。每轮新 spawn,故 -i 附到当轮消息成立。
     for (const img of req.images ?? []) common.push("--image", img.path);
 
-    const args = req.resumeSessionId
-      ? ["exec", "resume", ...common, req.resumeSessionId, prompt]
-      : ["exec", ...common, "--cd", req.cwd, prompt];
-    return { cmd: "codex", args };
+    // prompt 经 stdin 投递(U4):codex exec 省略位置参数 [PROMPT] 时「instructions are read from stdin」
+    // (--help 实测,且 argv 不得出现 `-` 哨兵否则 exit 2)。绕开命令行长度上限。resume 分支 threadId
+    // 仍是位置参数,只去掉 prompt。
+    // 续接(U4):continueSession → exec resume --last(最近会话,无需 id,--help 实测);
+    // 否则按 id resume;再否则首轮 exec --cd。三者互斥,continue 优先。
+    const args = req.continueSession
+      ? ["exec", "resume", ...common, "--last"]
+      : req.resumeSessionId
+        ? ["exec", "resume", ...common, req.resumeSessionId]
+        : ["exec", ...common, "--cd", req.cwd];
+    return { cmd: "codex", args, stdin: prompt };
   },
 
-  parseLine(line: string): CliStreamEvent | null {
+  parseLine(line: string): CliStreamEvent | CliStreamEvent[] | null {
     let obj: Record<string, unknown>;
     try {
       obj = JSON.parse(line);
@@ -78,7 +108,9 @@ export const codexAdapter: AgentAdapter = {
     }
 
     if (obj.type === "turn.completed") {
-      return { type: "result", ok: true };
+      // 一行同时透出 usage(若有)与 result:usage 在前,供消费端先记账再收尾。
+      const usage = mapCodexUsage(obj.usage);
+      return usage ? [usage, { type: "result", ok: true }] : { type: "result", ok: true };
     }
 
     if (obj.type === "turn.failed" || obj.type === "item.failed") {

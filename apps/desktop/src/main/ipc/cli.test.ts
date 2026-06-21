@@ -12,6 +12,24 @@ const spawnMock = vi.fn();
 const traceMock = vi.hoisted(() => vi.fn());
 const streamDeltaMock = vi.hoisted(() => vi.fn());
 const ipcHandlers = vi.hoisted(() => new Map<string, (...args: unknown[]) => unknown>());
+// U2/U4 接线 mock:MCP 配置读取/注入、会话存在性。
+const m = vi.hoisted(() => ({
+  getPersistedState: vi.fn(async () => ({ generalSettings: {} as Record<string, unknown> })),
+  applyClaudeMcp: vi.fn(async () => "skip"),
+  buildCodexMcpArgs: vi.fn(() => [] as string[]),
+  agentSessionExists: vi.fn(() => true),
+}));
+
+vi.mock("./store", () => ({ getPersistedState: m.getPersistedState }));
+vi.mock("./mcp-config", () => ({
+  applyClaudeMcp: m.applyClaudeMcp,
+  buildCodexMcpArgs: m.buildCodexMcpArgs,
+  CODEX_MCP_CLEAR: ["-c", "mcp_servers={}"],
+}));
+vi.mock("./session-trim", () => ({
+  agentSessionExists: m.agentSessionExists,
+  trimAgentSession: vi.fn(async () => false),
+}));
 
 vi.mock("electron", () => ({
   app: { getAppPath: () => "/fake/app", isPackaged: false },
@@ -60,8 +78,89 @@ beforeEach(() => {
   streamDeltaMock.mockReset();
   spawnMock.mockReset();
   spawnMock.mockImplementation(() => fakeChild());
+  m.getPersistedState.mockReset().mockResolvedValue({ generalSettings: {} });
+  m.applyClaudeMcp.mockReset().mockResolvedValue("skip");
+  m.buildCodexMcpArgs.mockReset().mockReturnValue([]);
+  m.agentSessionExists.mockReset().mockReturnValue(true);
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
+});
+
+// claude/codex 经 detect 探针(claude+codex --version)后才 spawn run;辅助:发起 cli:start,
+// 关闭两个探针使 detect 通过,返回 run 子进程已 spawn 后的状态。
+async function startWithDetect(
+  agent: "claude" | "codex",
+  req: Record<string, unknown>,
+  send: (...a: unknown[]) => void,
+) {
+  const claudeProbe = fakeChild();
+  const codexProbe = fakeChild();
+  const run = fakeChild();
+  spawnMock.mockReturnValueOnce(claudeProbe).mockReturnValueOnce(codexProbe).mockReturnValueOnce(run);
+  registerCliHandlers();
+  const p = ipcHandlers.get("cli:start")?.({ sender: { isDestroyed: () => false, send } }, { agent, ...req });
+  claudeProbe.emit("close", 0);
+  codexProbe.emit("close", 0);
+  await p;
+  return run;
+}
+
+describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
+  it("claude 启用 MCP → 调用 applyClaudeMcp(cwd, 配置)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-mcpwire-"));
+    const mcp = { enabled: true, servers: [{ id: "fs", transport: "stdio", command: "/bin/fs" }] };
+    m.getPersistedState.mockResolvedValue({ generalSettings: { mcp } });
+    try {
+      await startWithDetect("claude", { runId: "m1", sessionId: "s", cwd, prompt: "hi" }, vi.fn());
+      expect(m.applyClaudeMcp).toHaveBeenCalledWith(cwd, mcp);
+      expect(m.buildCodexMcpArgs).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("codex 启用 MCP → buildCodexMcpArgs 结果作为 mcpArgs 注入 spawn", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-mcpwire2-"));
+    m.getPersistedState.mockResolvedValue({ generalSettings: { mcp: { enabled: true, servers: [] } } });
+    m.buildCodexMcpArgs.mockReturnValue(["-c", 'mcp_servers.fs.command="/bin/fs"']);
+    try {
+      const run = await startWithDetect("codex", { runId: "m2", sessionId: "s", cwd, prompt: "hi" }, vi.fn());
+      void run;
+      expect(m.buildCodexMcpArgs).toHaveBeenCalled();
+      // run 是第 3 个 spawn;其 args 含注入的 -c
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs.join(" ")).toContain('mcp_servers.fs.command="/bin/fs"');
+      expect(m.applyClaudeMcp).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("续接回退:resumeSessionId 但会话不存在 → 清除、发 resume-fallback trace、spawn 不含该 id", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-fallback-"));
+    m.agentSessionExists.mockReturnValue(false);
+    try {
+      await startWithDetect("codex", { runId: "f1", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "dead-id" }, vi.fn());
+      expect(traceMock).toHaveBeenCalledWith(expect.objectContaining({ phase: "resume-fallback" }));
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs).not.toContain("dead-id"); // 干净新建,不带失效 id
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("续接回退不触发:会话存在时保留 resume id", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-fallback2-"));
+    m.agentSessionExists.mockReturnValue(true);
+    try {
+      await startWithDetect("codex", { runId: "f2", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "live-id" }, vi.fn());
+      expect(traceMock).not.toHaveBeenCalledWith(expect.objectContaining({ phase: "resume-fallback" }));
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs).toContain("live-id");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("cli:start trace", () => {
@@ -166,6 +265,164 @@ describe("cli:oneshot trace", () => {
   });
 });
 
+describe("cli:start 活跃度看门狗(U5)", () => {
+  it("无活动超阈值 → 杀进程并补发带超时标识的 cli:exit", async () => {
+    vi.useFakeTimers();
+    process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS = "5000";
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-wd-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "wd-1", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      vi.advanceTimersByTime(5001); // 超阈值,看门狗触发 proc.kill()
+      child.emit("close", null); // 子进程被信号杀后 close → onExit 补发 cli:exit
+      expect(send).toHaveBeenCalledWith(
+        "cli:exit",
+        expect.objectContaining({ runId: "wd-1", error: expect.stringContaining("超时") }),
+      );
+    } finally {
+      killSpy.mockRestore();
+      vi.useRealTimers();
+      delete process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("阈值内有 stdout 活动 → 重置看门狗,不误杀", async () => {
+    vi.useFakeTimers();
+    process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS = "5000";
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-wd2-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "wd-2", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      vi.advanceTimersByTime(4000);
+      child.stdout.emit("data", JSON.stringify({ type: "session", id: "x" }) + "\n"); // 活动,重置
+      vi.advanceTimersByTime(4000); // 距上次活动仅 4s < 5s,不应触发
+      expect(send).not.toHaveBeenCalledWith("cli:exit", expect.anything());
+    } finally {
+      killSpy.mockRestore();
+      vi.useRealTimers();
+      delete process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cli:start 安全重试(U7)", () => {
+  it("首事件前瞬态失败(非零退出 + 无输出)→ 退避后重试一次,不提前发终态", async () => {
+    vi.useFakeTimers();
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-retry-"));
+    const child1 = fakeChild();
+    const child2 = fakeChild();
+    spawnMock.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "rt-1", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      child1.stderr.emit("data", "fetch failed: ECONNRESET\n"); // 瞬态上游错误
+      child1.emit("close", 1); // 非零退出,无任何输出 → 触发重试
+      // 立即广播 retry 事件;但重 spawn 有退避,尚未发生,也未发终态 cli:exit。
+      const retryEvent = send.mock.calls.find((c) => c[0] === "cli:event" && c[1]?.event?.type === "retry");
+      expect(retryEvent?.[1].event).toMatchObject({ type: "retry", attempt: 1 });
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalledWith("cli:exit", expect.anything());
+      vi.advanceTimersByTime(800); // 退避到期 → 第二次 spawn
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+      child2.emit("close", 0); // 第二次成功收尾 → 终态 cli:exit
+      expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-1", code: 0 }));
+    } finally {
+      killSpy.mockRestore();
+      vi.useRealTimers();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("取消(cli:kill)后即便子进程非零退出也不重试 —— 直接终态", async () => {
+    vi.useFakeTimers();
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-retry3-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "rt-3", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      ipcHandlers.get("cli:kill")?.({}, "rt-3"); // 用户取消
+      child.stderr.emit("data", "fetch failed: ECONNRESET\n"); // 瞬态文本(诱导误重试)
+      child.emit("close", 1); // 捕获 SIGTERM 后非零退出
+      vi.advanceTimersByTime(800);
+      expect(spawnMock).toHaveBeenCalledTimes(1); // 未重试
+      expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-3", code: 1 }));
+    } finally {
+      killSpy.mockRestore();
+      vi.useRealTimers();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("spawn 失败时 error+close 都触发,只发一次终态 cli:exit(settled 守卫)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-retry4-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "rt-4", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      child.emit("error", Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }));
+      child.emit("close", null); // Node 在 error 后还会触发 close
+      const exits = send.mock.calls.filter((c) => c[0] === "cli:exit" && c[1]?.runId === "rt-4");
+      expect(exits).toHaveLength(1);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("已产生可见文本后失败 → 不重试(直接终态)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-retry2-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "rt-2", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+      // 先产出可见文本(pi text_delta),再非零退出。
+      child.stdout.emit("data", JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hi" } }) + "\n");
+      child.stderr.emit("data", "fetch failed: ECONNRESET\n");
+      child.emit("close", 1);
+      expect(spawnMock).toHaveBeenCalledTimes(1); // 未重试
+      expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-2", code: 1 }));
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -192,12 +449,68 @@ describe("startAgentProcess", () => {
     expect(opts).toMatchObject({ cwd: "/proj", stdio: ["ignore", "pipe", "pipe"] });
   });
 
-  it("kill() 调用底层 child.kill（SIGTERM）", () => {
+  it("spawn 带 detached(非 win)+ shell:false,用于进程组取消", () => {
+    startAgentProcess("/res/pi/pi", ["hi"], { cwd: "/p", env: {} as NodeJS.ProcessEnv });
+    const [, , opts] = spawnMock.mock.calls[0];
+    expect(opts).toMatchObject({ shell: false, detached: process.platform !== "win32" });
+  });
+
+  it("有 stdin 负载:stdio[0]=pipe,写入 prompt 并 end()(U4)", () => {
+    const child = Object.assign(new EventEmitter(), {
+      pid: 1,
+      stdout: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
+      stderr: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
+      stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),
+      kill: vi.fn(),
+    });
+    spawnMock.mockReturnValueOnce(child);
+    startAgentProcess("claude", ["-p"], { cwd: "/p", env: {} as NodeJS.ProcessEnv, stdin: "PAYLOAD" });
+    const [, , opts] = spawnMock.mock.calls[0] as [unknown, unknown, { stdio: unknown[] }];
+    expect(opts.stdio[0]).toBe("pipe");
+    expect(child.stdin.end).toHaveBeenCalledWith("PAYLOAD", "utf8");
+    // U8:stdin EPIPE/EOF 静默吞掉(子进程提前退出),其余错误才告警。
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    expect(warnSpy).not.toHaveBeenCalled();
+    child.stdin.emit("error", Object.assign(new Error("boom"), { code: "EACCES" }));
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("无 stdin 负载:stdio[0]=ignore(pi,prompt 在 argv)", () => {
+    startAgentProcess("/res/pi/pi", ["hi"], { cwd: "/p", env: {} as NodeJS.ProcessEnv });
+    const [, , opts] = spawnMock.mock.calls[0] as [unknown, unknown, { stdio: unknown[] }];
+    expect(opts.stdio[0]).toBe("ignore");
+  });
+
+  it("kill() 非 win 走进程组信号 process.kill(-pgid, SIGTERM);win 直接 child.kill", () => {
     const child = fakeChild();
     spawnMock.mockReturnValueOnce(child);
+    // mock process.kill 避免向真实进程/进程组发信号(fakeChild.pid=123)。
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
     const proc = startAgentProcess("/res/pi/pi", ["hi"], { cwd: "/p", env: {} as NodeJS.ProcessEnv });
     proc.kill();
+    if (process.platform === "win32") {
+      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    } else {
+      expect(killSpy).toHaveBeenCalledWith(-123, "SIGTERM"); // -pgid 杀整组
+      expect(child.kill).not.toHaveBeenCalled();
+    }
+    child.emit("close", 0); // 清理 3s 兜底 SIGKILL timer
+    killSpy.mockRestore();
+  });
+
+  it("kill() 进程组信号抛错(未成组/已退出)时回退到 child.kill", () => {
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+    });
+    const proc = startAgentProcess("/res/pi/pi", ["hi"], { cwd: "/p", env: {} as NodeJS.ProcessEnv });
+    proc.kill();
+    // 非 win:process.kill(-pgid) 抛错 → 回退 child.kill;win:本就直接 child.kill。
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    child.emit("close", 0);
+    killSpy.mockRestore();
   });
 
   it("把命中的 CLI 目录提到 PATH 最前，确保 shebang 使用同目录 node", () => {

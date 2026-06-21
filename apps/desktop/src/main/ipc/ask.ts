@@ -1,5 +1,5 @@
 // 历史消息追问的临时流式应答通道(ask:*)。复用 cli.ts 的 spawn 基建
-// (getAdapter / startAgentProcess / spawnEnvFor / pipeStdoutLines),但用一次性 askId:
+// (getAgentDef / startAgentProcess / spawnEnvFor / pipeStdoutLines),但用一次性 askId:
 //   · 不写 chats/、不进 React Query 缓存、不入个人 run 注册表 —— 关闭即弃(R5)。
 //   · 流式逐行 parseLine → e.sender.send("ask:event", {askId, event})(R3)。
 //   · 终止信号 = {type:"result"}：adapter 可能自发(parseLine 解析出 result),也可能不发；
@@ -15,7 +15,8 @@ import { ipcMain, type WebContents } from "electron";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import type { AgentKind, AskFollowupRequest, CliStreamEvent } from "./types";
-import { getAdapter } from "../agents";
+import { getAgentDef, parseLineEvents } from "../agents";
+import { CODEX_MCP_CLEAR } from "./mcp-config";
 import { writePiExtension } from "../agents/pi-providers";
 import { type AgentProcess, pipeStdoutLines, spawnEnvFor, startAgentProcess } from "./cli";
 import { recordAgentTrace } from "./agent-trace";
@@ -46,7 +47,7 @@ function tightenArgs(agent: AgentKind, args: string[]): string[] {
 export function registerAskHandlers(): void {
   ipcMain.handle("ask:start", (event, req: AskFollowupRequest) => {
     const sender = event.sender;
-    const adapter = getAdapter(req.agent);
+    const adapter = getAgentDef(req.agent);
 
     // cwd 兜底:空串或磁盘上不存在的目录会让 child_process.spawn 抛 `spawn <cmd> ENOENT`
     // (Node 把「cwd 不存在」误报成 cmd 不存在)。无项目会话(cwd=noProjectDir 可能尚未创建)
@@ -71,7 +72,7 @@ export function registerAskHandlers(): void {
       permissionMode: req.permissionMode,
       provider: req.provider,
       piExtensionPath,
-    });
+    }, CODEX_MCP_CLEAR); // 追问为轻量单发:codex 清空 MCP(沿用 M1);claude/pi 忽略
     // tightenTools 与运行模式叠加:plan/accept-edits 已是非 bypass,剥离 bypass 对其 no-op;
     // full-auto 仍剥离 bypass → 无项目会话安全(更严者优先)。
     const args = req.tightenTools ? tightenArgs(req.agent, built.args) : built.args;
@@ -88,6 +89,7 @@ export function registerAskHandlers(): void {
     const proc = startAgentProcess(built.cmd, args, {
       cwd,
       env: spawnEnvFor({ agent: req.agent, provider: req.provider }),
+      stdin: built.stdin, // claude/codex 经 stdin 投递 prompt(U4);pi 为 undefined
     });
     running.set(req.askId, proc);
 
@@ -109,8 +111,8 @@ export function registerAskHandlers(): void {
     };
 
     const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
-      const ev = adapter.parseLine(line);
-      if (ev) sendEvent(ev);
+      // 一行可解析出多个归一化事件(如 usage + result);逐个转发。
+      for (const ev of parseLineEvents(adapter, line)) sendEvent(ev);
     });
 
     let stderrTail = "";

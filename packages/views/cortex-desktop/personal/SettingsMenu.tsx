@@ -33,6 +33,7 @@ import {
   type PetMode,
 } from "@cortex-work/core";
 import { UpdateDialog } from "../UpdateDialog";
+import { McpCard } from "./McpSection";
 import type {
   AgentKind,
   DesktopBridge,
@@ -1357,6 +1358,8 @@ function AgentSection() {
           );
         })}
       </SettingCard>
+
+      <McpCard />
 
       {bridge?.appInfo?.devMode ? <AgentTraceWindowCard bridge={bridge} /> : null}
     </>

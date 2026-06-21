@@ -20,7 +20,7 @@
 import { resolvePiBinary } from "./pi-locate";
 import { safeId } from "./pi-providers";
 import { PI_PLAN_TOOL_WHITELIST, type CliStartRequest, type CliStreamEvent } from "../ipc/types";
-import type { AgentAdapter } from "./index";
+import type { AgentDef } from "./index";
 
 function toolDetail(args: unknown): string | undefined {
   if (!args || typeof args !== "object") return undefined;
@@ -49,7 +49,15 @@ function diagnosticsError(diagnostics: unknown): string | undefined {
   return typeof err?.message === "string" ? err.message : undefined;
 }
 
-export const piAdapter: AgentAdapter = {
+export const piDef: AgentDef = {
+  id: "pi",
+  // 能力位:pi 是自包含二进制,prompt 走 argv 位置参数;不注入 MCP(走自身扩展);续接用 --session;
+  // 无图片处理;appendSystemPrompt 原生 flag。
+  promptDelivery: "argv",
+  mcpInjection: "none",
+  sessionResume: "resume-only",
+  imageDelivery: "none",
+  appendSystemPrompt: "native-flag",
   buildArgs(req: CliStartRequest): { cmd: string; args: string[] } {
     const args = [
       "--mode",

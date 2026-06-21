@@ -57,6 +57,8 @@ export {
   type ProviderProbeInput,
   type ProviderProbeResult,
   type GeneralSettings,
+  type McpServerConfig,
+  type McpSettings,
   type DailyEncouragement,
   type DesktopBehavior,
   type NotificationSettings,

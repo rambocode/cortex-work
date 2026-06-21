@@ -1,5 +1,5 @@
 // 无头执行器：到点（或手动）无头调用 agent CLI 执行自动化的 prompt,聚合输出落
-// 执行记录。复用 cli.ts 的 startAgentProcess/spawnEnvFor + agents/getAdapter,
+// 执行记录。复用 cli.ts 的 startAgentProcess/spawnEnvFor + agents/getAgentDef,
 // 但用【独立进程注册表 runningAutomations】—— 绝不进 cli.ts 的 running Map,
 // 这样 window-all-closed 的 killAllCli() 不会误杀正在跑的定时任务。
 //
@@ -11,7 +11,8 @@
 import { homedir } from "os";
 import type { AgentProcess } from "../ipc/cli";
 import { assertSpawnCwd, detectAgents, spawnEnvFor, startAgentProcess } from "../ipc/cli";
-import { getAdapter } from "../agents";
+import { getAgentDef, parseLineEvents } from "../agents";
+import { CODEX_MCP_CLEAR } from "../ipc/mcp-config";
 import { writePiExtension } from "../agents/pi-providers";
 import { getPersistedState, getWorkspaceRoot } from "../ipc/store";
 import type { AutomationMeta, AutomationRun, CliStartRequest } from "../ipc/types";
@@ -167,10 +168,10 @@ export async function runAutomation(
       provider,
       piExtensionPath,
     };
-    const adapter = getAdapter(meta.agent);
-    const { cmd, args } = adapter.buildArgs(req);
+    const adapter = getAgentDef(meta.agent);
+    const { cmd, args, stdin } = adapter.buildArgs(req, CODEX_MCP_CLEAR); // 自动化后台批跑:codex 清空 MCP(沿用 M1);claude/pi 忽略
     assertSpawnCwd(cwd);
-    proc = startAgentProcess(cmd, args, { cwd, env: spawnEnvFor(req) });
+    proc = startAgentProcess(cmd, args, { cwd, env: spawnEnvFor(req), stdin });
   } catch (err) {
     run.status = "error";
     run.error = err instanceof Error ? err.message : String(err);
@@ -182,7 +183,7 @@ export async function runAutomation(
 
   runningAutomations.set(meta.id, proc);
   pending.delete(meta.id); // 占位转移到 runningAutomations
-  const adapter = getAdapter(meta.agent);
+  const adapter = getAgentDef(meta.agent);
 
   let out = "";
   let resultText = "";
@@ -198,14 +199,16 @@ export async function runAutomation(
 
   const handleLine = (line: string) => {
     if (!line) return;
-    const ev = adapter.parseLine(line);
-    if (!ev) return;
-    if (ev.type === "init") run.agentSessionId = ev.sessionId;
-    else if (ev.type === "text") {
-      if (out.length < MAX_OUTPUT) out += ev.delta;
-    } else if (ev.type === "result") {
-      if (!ev.ok) failed = ev.error ?? "执行失败";
-      else if (ev.text) resultText = ev.text;
+    // 一行可解析出多个事件(如 usage + result);逐个处理。本通道只关心 init/text/result,
+    // usage 等其它事件忽略(自动化只需最终文本与会话 id)。
+    for (const ev of parseLineEvents(adapter, line)) {
+      if (ev.type === "init") run.agentSessionId = ev.sessionId;
+      else if (ev.type === "text") {
+        if (out.length < MAX_OUTPUT) out += ev.delta;
+      } else if (ev.type === "result") {
+        if (!ev.ok) failed = ev.error ?? "执行失败";
+        else if (ev.text) resultText = ev.text;
+      }
     }
   };
 

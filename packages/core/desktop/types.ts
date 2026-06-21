@@ -440,8 +440,28 @@ export interface LogSettings {
 }
 
 // 通用设置容器（与外观项 Tweaks 分属两套存储：这里随 personal-workspace.json 落盘）。
+// MCP 注入配置(M2 U2,与 apps/desktop/src/main/ipc/types.ts 逐字镜像)。renderer 设置区编辑,
+// 主进程消费注入。enabled=总开关;关时不注入不覆盖,尊重用户自有 .mcp.json / ~/.codex。
+export interface McpServerConfig {
+  id: string;
+  label?: string;
+  transport: "stdio" | "sse" | "http";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface McpSettings {
+  enabled: boolean;
+  servers: McpServerConfig[];
+}
+
 export interface GeneralSettings {
   workspaceRoot?: string; // 默认工作目录（agent 启动未显式传 cwd 时兜底）
+  // MCP 注入配置(U2);缺省视为不注入。
+  mcp?: McpSettings;
   // 新会话默认 agent;缺省 = 按安装情况派生（resolveDefaultAgent / defaultAgent）。
   // 落地页激励文案的每日 LLM 增强也基于此 agent 生成。
   defaultAgent?: AgentKind;
@@ -735,6 +755,7 @@ export interface CliStartRequest {
   prompt: string;
   model?: string;
   resumeSessionId?: string; // 多轮续接
+  continueSession?: boolean; // 续接最近会话(U4):claude --continue / codex resume --last;与 resumeSessionId 互斥优先
   appendSystemPrompt?: string; // 拖入的 prompt md 内容（skill 注入）
   useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildArgs 逐个 --skill 注入。
@@ -801,10 +822,15 @@ export interface TrimSessionRequest {
 }
 
 // claude stream-json 行解析后的归一化事件（adapter 输出）。
+// M1 向后兼容扩展:新增 usage(U3)、retry(U7)两个变体,均有生产者。现有消费端(handleCliEvent/
+// applyFollowupEvent 的 if 链、foldCliEvent 对非 text/tool 原样返回)自然忽略未知 type。
+// ⚠️ 跨包契约:与 apps/desktop/src/main/ipc/types.ts 的 CliStreamEvent 逐字镜像,改动两处必须同步。
 export type CliStreamEvent =
   | { type: "init"; sessionId: string }
   | { type: "text"; delta: string }
   | { type: "tool"; name: string; detail?: string }
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number } // 流式 usage/cost(补充磁盘来源)
+  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string } // 安全重试发起(对齐 pi retry)
   | { type: "result"; ok: boolean; text?: string; error?: string };
 
 export interface CliExitEvent {

@@ -2,7 +2,7 @@
 // claude 2.1.172 实测输出）。
 
 import { describe, expect, it } from "vitest";
-import { claudeAdapter } from "./claude";
+import { claudeDef } from "./claude";
 import type { CliStartRequest } from "../ipc/types";
 
 const baseReq: CliStartRequest = {
@@ -13,19 +13,26 @@ const baseReq: CliStartRequest = {
   prompt: "hello",
 };
 
-describe("claudeAdapter.buildArgs", () => {
-  it("首轮:基础参数 + stream-json", () => {
-    const { cmd, args } = claudeAdapter.buildArgs(baseReq);
+describe("claudeDef.buildArgs", () => {
+  it("首轮:基础参数 + stream-json,prompt 走 stdin(不在 argv)", () => {
+    const { cmd, args, stdin } = claudeDef.buildArgs(baseReq);
     expect(cmd).toBe("claude");
     expect(args).toContain("-p");
-    expect(args).toContain("hello");
+    expect(args.join(" ")).toContain("--input-format stream-json");
     expect(args.join(" ")).toContain("--output-format stream-json");
     expect(args).toContain("--include-partial-messages");
+    expect(args).not.toContain("hello"); // prompt 不再进 argv
     expect(args).not.toContain("--resume");
+    // prompt 经 stdin 以 user message JSONL 投递
+    const msg = JSON.parse(stdin!);
+    expect(msg).toMatchObject({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "hello" }] },
+    });
   });
 
   it("多轮:带 --resume / --model / --append-system-prompt", () => {
-    const { args } = claudeAdapter.buildArgs({
+    const { args } = claudeDef.buildArgs({
       ...baseReq,
       model: "opus",
       resumeSessionId: "sess-123",
@@ -37,74 +44,84 @@ describe("claudeAdapter.buildArgs", () => {
   });
 
   it("skills 默认禁用:仅 useOwnSkills=true 时不带 --disable-slash-commands", () => {
-    expect(claudeAdapter.buildArgs(baseReq).args).toContain("--disable-slash-commands");
-    expect(claudeAdapter.buildArgs({ ...baseReq, useOwnSkills: false }).args).toContain("--disable-slash-commands");
-    expect(claudeAdapter.buildArgs({ ...baseReq, useOwnSkills: true }).args).not.toContain("--disable-slash-commands");
+    expect(claudeDef.buildArgs(baseReq).args).toContain("--disable-slash-commands");
+    expect(claudeDef.buildArgs({ ...baseReq, useOwnSkills: false }).args).toContain("--disable-slash-commands");
+    expect(claudeDef.buildArgs({ ...baseReq, useOwnSkills: true }).args).not.toContain("--disable-slash-commands");
   });
 
-  it("纯净启动:始终清空 MCP(strict-mcp-config + 空 mcp-config)", () => {
-    const { args } = claudeAdapter.buildArgs(baseReq);
-    expect(args).toContain("--strict-mcp-config");
-    const i = args.indexOf("--mcp-config");
-    expect(i).toBeGreaterThan(-1);
-    expect(args[i + 1]).toBe('{"mcpServers":{}}');
+  it("续接(U4):continueSession → --continue;与 resume 互斥优先", () => {
+    expect(claudeDef.buildArgs({ ...baseReq, continueSession: true }).args).toContain("--continue");
+    // continue 优先于 resume id
+    const both = claudeDef.buildArgs({ ...baseReq, continueSession: true, resumeSessionId: "s1" }).args;
+    expect(both).toContain("--continue");
+    expect(both).not.toContain("--resume");
+    // 仅 resume id 时仍走 --resume(回归)
+    const r = claudeDef.buildArgs({ ...baseReq, resumeSessionId: "s1" }).args;
+    expect(r.join(" ")).toContain("--resume s1");
+    expect(r).not.toContain("--continue");
+  });
+
+  it("MCP(U2):不再写死清空,args 不含 strict-mcp-config / mcp-config(改由 cwd .mcp.json 文件注入)", () => {
+    const { args } = claudeDef.buildArgs(baseReq);
+    expect(args).not.toContain("--strict-mcp-config");
+    expect(args).not.toContain("--mcp-config");
   });
 
   it("运行模式:plan → --permission-mode plan,不带跳审批标志", () => {
-    const { args } = claudeAdapter.buildArgs({ ...baseReq, permissionMode: "plan" });
+    const { args } = claudeDef.buildArgs({ ...baseReq, permissionMode: "plan" });
     expect(args.join(" ")).toContain("--permission-mode plan");
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
   it("运行模式:accept-edits → --permission-mode acceptEdits", () => {
-    const { args } = claudeAdapter.buildArgs({ ...baseReq, permissionMode: "accept-edits" });
+    const { args } = claudeDef.buildArgs({ ...baseReq, permissionMode: "accept-edits" });
     expect(args.join(" ")).toContain("--permission-mode acceptEdits");
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
   it("运行模式:full-auto 与缺省均回退 --dangerously-skip-permissions(回归)", () => {
-    expect(claudeAdapter.buildArgs({ ...baseReq, permissionMode: "full-auto" }).args).toContain(
+    expect(claudeDef.buildArgs({ ...baseReq, permissionMode: "full-auto" }).args).toContain(
       "--dangerously-skip-permissions",
     );
-    const def = claudeAdapter.buildArgs(baseReq).args;
+    const def = claudeDef.buildArgs(baseReq).args;
     expect(def).toContain("--dangerously-skip-permissions");
     expect(def.join(" ")).not.toContain("--permission-mode");
   });
 
   it("推理强度:effort → --effort,缺省不带", () => {
-    expect(claudeAdapter.buildArgs({ ...baseReq, effort: "high" }).args.join(" ")).toContain("--effort high");
-    expect(claudeAdapter.buildArgs(baseReq).args).not.toContain("--effort");
+    expect(claudeDef.buildArgs({ ...baseReq, effort: "high" }).args.join(" ")).toContain("--effort high");
+    expect(claudeDef.buildArgs(baseReq).args).not.toContain("--effort");
   });
 
-  it("图片:绝对路径 + 读取指令前置进 -p,在用户文本之前;缺省 -p 值=原 prompt", () => {
-    const { args } = claudeAdapter.buildArgs({
+  it("图片:绝对路径 + 读取指令前置进 stdin 文本,在用户文本之前;无图=原 prompt", () => {
+    const { stdin } = claudeDef.buildArgs({
       ...baseReq,
       images: [
         { path: "/abs/a.png", mimeType: "image/png" },
         { path: "/abs/b.jpg", mimeType: "image/jpeg" },
       ],
     });
-    const prompt = args[args.indexOf("-p") + 1];
-    expect(prompt).toContain("/abs/a.png");
-    expect(prompt).toContain("/abs/b.jpg");
+    const text: string = JSON.parse(stdin!).message.content[0].text;
+    expect(text).toContain("/abs/a.png");
+    expect(text).toContain("/abs/b.jpg");
     // 图片引用在用户文本(hello)之前,且顺序保持
-    expect(prompt.indexOf("/abs/a.png")).toBeLessThan(prompt.indexOf("/abs/b.jpg"));
-    expect(prompt.indexOf("/abs/b.jpg")).toBeLessThan(prompt.indexOf("hello"));
-    // 无图:逐字符回归
-    const plain = claudeAdapter.buildArgs(baseReq).args;
-    expect(plain[plain.indexOf("-p") + 1]).toBe("hello");
+    expect(text.indexOf("/abs/a.png")).toBeLessThan(text.indexOf("/abs/b.jpg"));
+    expect(text.indexOf("/abs/b.jpg")).toBeLessThan(text.indexOf("hello"));
+    // 无图:stdin 文本=原 prompt
+    const plain = claudeDef.buildArgs(baseReq);
+    expect(JSON.parse(plain.stdin!).message.content[0].text).toBe("hello");
   });
 });
 
-describe("claudeAdapter.parseLine", () => {
+describe("claudeDef.parseLine", () => {
   it("system.init → init 事件(捕获 session_id)", () => {
     const line = JSON.stringify({ type: "system", subtype: "init", session_id: "559c64e6" });
-    expect(claudeAdapter.parseLine(line)).toEqual({ type: "init", sessionId: "559c64e6" });
+    expect(claudeDef.parseLine(line)).toEqual({ type: "init", sessionId: "559c64e6" });
   });
 
   it("其它 system 子类型(hook_started 等)忽略", () => {
     const line = JSON.stringify({ type: "system", subtype: "hook_started", session_id: "x" });
-    expect(claudeAdapter.parseLine(line)).toBeNull();
+    expect(claudeDef.parseLine(line)).toBeNull();
   });
 
   it("stream_event text_delta → text 增量", () => {
@@ -112,7 +129,7 @@ describe("claudeAdapter.parseLine", () => {
       type: "stream_event",
       event: { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "1+1 等于 2。" } },
     });
-    expect(claudeAdapter.parseLine(line)).toEqual({ type: "text", delta: "1+1 等于 2。" });
+    expect(claudeDef.parseLine(line)).toEqual({ type: "text", delta: "1+1 等于 2。" });
   });
 
   it("thinking_delta 忽略(不渲染思考过程)", () => {
@@ -120,7 +137,7 @@ describe("claudeAdapter.parseLine", () => {
       type: "stream_event",
       event: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "..." } },
     });
-    expect(claudeAdapter.parseLine(line)).toBeNull();
+    expect(claudeDef.parseLine(line)).toBeNull();
   });
 
   it("assistant 完整消息:只取 tool_use(text 已由 delta 覆盖,避免重复)", () => {
@@ -128,28 +145,48 @@ describe("claudeAdapter.parseLine", () => {
       type: "assistant",
       message: { content: [{ type: "text", text: "1+1 等于 2。" }] },
     });
-    expect(claudeAdapter.parseLine(textMsg)).toBeNull();
+    expect(claudeDef.parseLine(textMsg)).toBeNull();
 
     const toolMsg = JSON.stringify({
       type: "assistant",
       message: { content: [{ type: "tool_use", name: "Bash", input: { command: "ls -la" } }] },
     });
-    expect(claudeAdapter.parseLine(toolMsg)).toEqual({ type: "tool", name: "Bash", detail: "ls -la" });
+    expect(claudeDef.parseLine(toolMsg)).toEqual({ type: "tool", name: "Bash", detail: "ls -la" });
   });
 
   it("result success → ok 事件带最终文本", () => {
     const line = JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "1+1 等于 2。" });
-    expect(claudeAdapter.parseLine(line)).toEqual({ type: "result", ok: true, text: "1+1 等于 2。", error: undefined });
+    expect(claudeDef.parseLine(line)).toEqual({ type: "result", ok: true, text: "1+1 等于 2。", error: undefined });
   });
 
   it("result error → ok=false 带错误信息", () => {
     const line = JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true });
-    const ev = claudeAdapter.parseLine(line);
+    const ev = claudeDef.parseLine(line);
     expect(ev).toMatchObject({ type: "result", ok: false });
   });
 
+  it("result 带 usage + cost → [usage, result] 两事件(usage 在前,缓存命中映射)", () => {
+    const line = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 50 },
+      total_cost_usd: 0.0123,
+    });
+    expect(claudeDef.parseLine(line)).toEqual([
+      { type: "usage", inputTokens: 100, outputTokens: 20, cachedInputTokens: 50, costUsd: 0.0123 },
+      { type: "result", ok: true, text: "done", error: undefined },
+    ]);
+  });
+
+  it("result 无 usage/cost → 仅 result(降级,不产空 usage)", () => {
+    const line = JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "x" });
+    expect(claudeDef.parseLine(line)).toEqual({ type: "result", ok: true, text: "x", error: undefined });
+  });
+
   it("非 JSON / 未知行忽略且不抛", () => {
-    expect(claudeAdapter.parseLine("not json")).toBeNull();
-    expect(claudeAdapter.parseLine(JSON.stringify({ type: "rate_limit_event" }))).toBeNull();
+    expect(claudeDef.parseLine("not json")).toBeNull();
+    expect(claudeDef.parseLine(JSON.stringify({ type: "rate_limit_event" }))).toBeNull();
   });
 });
