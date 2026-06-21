@@ -184,12 +184,13 @@ export function ComposerShell({
   // pi 运行中可插话（steer）:把引导注入当前轮。仅 pi + 提供 onSteer 时启用。
   const canSteer = !!onSteer && isPi && running;
 
-  const send = async () => {
-    if ((!text.trim() && images.length === 0) || running || sending) return; // 纯图(无文本)允许发送
+  // 以显式文本发送（「插入并运行」自动提交用）:不读闭包 text state,避免 setText 异步后发到旧值。
+  const sendText = async (textToSend: string) => {
+    if ((!textToSend.trim() && images.length === 0) || running || sending) return; // 纯图(无文本)允许发送
     setSending(true);
     try {
       // onSend 返回「是否已消费」(真正发出);未消费(/clear、pi 不可用、落盘失败)则保留待发图供重试。
-      const consumed = await onSend(text, attachments, images.length ? images : undefined);
+      const consumed = await onSend(textToSend, attachments, images.length ? images : undefined);
       setText("");
       setAttachments([]);
       if (consumed) setImages([]); // KTD9:仅真正消费才清待发图
@@ -197,6 +198,7 @@ export function ComposerShell({
       setSending(false);
     }
   };
+  const send = () => sendText(text);
 
   // 采集图片:格式/大小校验(toast 原因)→ 读成 PendingImage → 去重 + 张数上限以 prev 为准
   // (放进 setImages 函数式更新,避免快速连续采集时过期闭包 images 导致越限/漏去重)。
@@ -283,17 +285,26 @@ export function ComposerShell({
 
   // 文件预览「发送到 Chat」:片段插入输入框（不直接发送,让用户补一句再回车）。
   // nonce 去重:composer 随会话切换重挂载时,旧 insert 不能再次插入。
+  // 镜像 text 供插入 effect 读取,避免在 setText 更新函数里做副作用计算最终文本（自动提交需显式文本）。
   const composerInsert = usePersonalStore((s) => s.composerInsert);
   const consumedNonceRef = useRef(composerInsert?.nonce ?? 0);
+  const textRef = useRef(text);
+  textRef.current = text;
   useEffect(() => {
     if (!acceptComposerInsert) return;
     if (!composerInsert || composerInsert.nonce === consumedNonceRef.current) return;
     consumedNonceRef.current = composerInsert.nonce;
-    setText((prev) => {
-      if (!prev.trim()) return composerInsert.text;
-      return `${prev}${prev.endsWith("\n") ? "" : "\n"}${composerInsert.text}`;
-    });
-    requestAnimationFrame(() => taRef.current?.focus());
+    const prev = textRef.current;
+    const finalText = !prev.trim()
+      ? composerInsert.text
+      : `${prev}${prev.endsWith("\n") ? "" : "\n"}${composerInsert.text}`;
+    setText(finalText);
+    // submit 且空闲:以显式文本直接提交（tasks「插入并运行」);running 时退化为仅插入。
+    if (composerInsert.submit && !running) {
+      void sendText(finalText);
+    } else {
+      requestAnimationFrame(() => taRef.current?.focus());
+    }
   }, [composerInsert, acceptComposerInsert]);
 
   const appendTranscript = (transcript: string) => {

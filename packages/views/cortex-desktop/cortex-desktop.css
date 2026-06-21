@@ -3990,9 +3990,18 @@ button.sb-row {
 .pw-todo-md h3 { font-size: 13.5px; margin: 12px 0 5px; }
 .pw-todo-md h4 { font-size: 13px; margin: 10px 0 4px; }
 .pw-todo-md p { margin: 6px 0; }
+/* Tailwind preflight 会把 ol/ul 的 list-style 抹成 none,这里显式恢复标记,
+   否则有序列表不显示序号、无序列表不显示圆点（任务清单另由 contains-task-list 覆盖为 none）。 */
 .pw-todo-md ul,
 .pw-todo-md ol { margin: 6px 0; padding-left: 20px; }
+.pw-todo-md ul { list-style: disc outside; }
+.pw-todo-md ol { list-style: decimal outside; }
+.pw-todo-md ul ul { list-style-type: circle; }
+.pw-todo-md ul ul ul { list-style-type: square; }
+.pw-todo-md ol ol { list-style-type: lower-alpha; }
+.pw-todo-md ol ol ol { list-style-type: lower-roman; }
 .pw-todo-md li { margin: 3px 0; }
+.pw-todo-md li::marker { color: var(--text-3); }
 .pw-todo-md li > ul,
 .pw-todo-md li > ol { margin: 2px 0; }
 /* GFM 任务清单:不渲染 checkbox 方框,用符号标记（✓ 完成 / ○ 待办）,
@@ -5434,6 +5443,64 @@ button.sb-row {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+
+/* tasks 二次编辑:遮罩与面板只局限在右栏文档区（.pw-todo-detail 是 position:relative 的定位祖先），
+   不弹整个 App 的全屏遮罩。 */
+.pw-doc-edit-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: rgba(26, 25, 22, 0.22);
+}
+/* 面板宽度跟随右栏（不用默认 confirm 的 360 min-width,以免溢出窄轨）。 */
+.pw-doc-edit-dlg {
+  width: 100%;
+  min-width: 0;
+  max-width: 460px;
+  max-height: 100%;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+}
+.pw-doc-edit-dlg .pw-confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  white-space: normal;
+}
+.pw-doc-edit-dlg .pw-confirm-body > textarea.pw-set-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 88px;
+  line-height: 1.5;
+}
+.pw-doc-edit-dlg .pw-confirm-foot {
+  flex-wrap: wrap;
+}
+.pw-doc-edit-ctx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pw-doc-edit-ctx-lbl {
+  color: var(--text-3, var(--text-2));
+}
+.pw-doc-edit-ctx > code {
+  font-family: var(--mono, ui-monospace, monospace);
+  word-break: break-all;
+  color: var(--text-1);
+}
+.pw-doc-edit-ctx-empty {
+  color: var(--text-3, var(--text-2));
 }
 
 /* ── 会话搜索弹窗:复用 .pw-dlg-overlay,命令面板式置顶居中小窗。 ── */

@@ -34,6 +34,8 @@
     "finishTitle": "Save and return to preview",
     "edit": "Edit",
     "editTitle": "Edit file",
+    "cancel": "Cancel",
+    "cancelTitle": "Discard changes and exit editing",
     "copyContentTitle": "Copy file content",
     "copyPathTitle": "Copy file path",
     "open": "Open",
@@ -45,6 +47,39 @@
   "binaryNotice": "Binary file, text preview not supported",
   "sendToTerminalBtn": "Send to terminal",
   "sendToChatBtn": "Send to Chat",
+  "docEdit": {
+    "title": "Edit & send",
+    "placeholder": "Write your adjustment…",
+    "contextLabel": "Context sent along with your note",
+    "noSelection": "(No selection — document path only)",
+    "insertToChat": "Insert into chat",
+    "insertAndRun": "Insert & run",
+    "cancel": "Cancel"
+  },
+  "tasks": {
+    "back": "Back to list",
+    "openInSystemEditor": "Open in system editor",
+    "loading": "Loading…",
+    "continuing": "Starting…",
+    "done": "Done",
+    "lineage": "Lineage",
+    "lineageTitle": "Group into pipelines by origin lineage",
+    "orphans": "Standalone docs",
+    "unavailable": "Document panel unavailable in this environment (missing desktop capability).",
+    "empty": "No matching documents. Deepen a flash note or run ce-plan to populate this.",
+    "status": {
+      "idea": "Idea",
+      "todo": "To do",
+      "review": "In review",
+      "active": "In progress",
+      "done": "Done"
+    },
+    "next": {
+      "brainstorm": "Generate Brainstorm",
+      "plan": "Generate Plan",
+      "work": "Start work"
+    }
+  },
   "selectProject": "Select a project on the left first",
   "segAll": "All files",
   "segChanges": "Recent changes",

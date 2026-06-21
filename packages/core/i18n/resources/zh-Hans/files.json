@@ -34,6 +34,8 @@
     "finishTitle": "保存并回到预览",
     "edit": "编辑",
     "editTitle": "编辑文件",
+    "cancel": "取消",
+    "cancelTitle": "放弃改动并退出编辑",
     "copyContentTitle": "复制文件内容",
     "copyPathTitle": "复制文件路径",
     "open": "打开",
@@ -45,6 +47,39 @@
   "binaryNotice": "二进制文件,不支持文本预览",
   "sendToTerminalBtn": "发送到终端",
   "sendToChatBtn": "发送到 Chat",
+  "docEdit": {
+    "title": "二次编辑",
+    "placeholder": "写下你的调整意见…",
+    "contextLabel": "将随意见一起发送的上下文",
+    "noSelection": "（未选中段落，仅带文档路径）",
+    "insertToChat": "插入到聊天框",
+    "insertAndRun": "插入并运行",
+    "cancel": "取消"
+  },
+  "tasks": {
+    "back": "返回列表",
+    "openInSystemEditor": "用系统编辑器打开",
+    "loading": "加载中…",
+    "continuing": "启动中…",
+    "done": "已完成",
+    "lineage": "血缘",
+    "lineageTitle": "按 origin 血缘聚合为流水线",
+    "orphans": "独立文档",
+    "unavailable": "当前环境不支持文档面板（缺少桌面能力）。",
+    "empty": "没有匹配的文档。深化闪记或运行 ce-plan 会在这里出现。",
+    "status": {
+      "idea": "构思",
+      "todo": "待执行",
+      "review": "待评审",
+      "active": "进行中",
+      "done": "已完成"
+    },
+    "next": {
+      "brainstorm": "生成 Brainstorm",
+      "plan": "生成 Plan",
+      "work": "开始实现"
+    }
+  },
   "selectProject": "先在左侧选择一个项目",
   "segAll": "全部文件",
   "segChanges": "最近变更",

@@ -2,7 +2,7 @@
 // 运行中输入框可发插话(Enter/按钮 → onSteer);claude 运行中只剩停止按钮。
 
 import type { ReactNode } from "react";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePersonalStore, type AgentKind, type DesktopBridge, type PendingImage, type PersonalAttachment } from "@cortex-work/core";
 import { ComposerShell, type SlashCommand } from "./ComposerShell";
@@ -294,6 +294,65 @@ describe("ComposerShell 图片采集（U3）", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(container.querySelectorAll(".img-attach").length).toBe(1);
+  });
+});
+
+// composerInsert 的 submit 标志:tasks「插入并运行」自动提交（U2）。
+describe("ComposerShell 插入并运行（submit 标志）", () => {
+  function renderInsert(opts: {
+    onSend: (t: string, a: PersonalAttachment[], imgs?: PendingImage[]) => void | boolean | Promise<void | boolean>;
+    running?: boolean;
+    accept?: boolean;
+  }) {
+    return render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
+        <ComposerShell
+          agent="claude"
+          model={undefined}
+          providerId={undefined}
+          useOwnSkills={false}
+          running={opts.running ?? false}
+          acceptComposerInsert={opts.accept ?? true}
+          onSend={opts.onSend}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onToggleSkills={() => {}}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+  }
+
+  it("submit:true 且空闲 → 以插入文本自动提交", async () => {
+    const onSend = vi.fn(() => true);
+    renderInsert({ onSend });
+    act(() => usePersonalStore.getState().insertToComposer("跑这个", { submit: true }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("跑这个", expect.anything(), undefined));
+  });
+
+  it("submit 缺省 → 只插入不发送", async () => {
+    const onSend = vi.fn(() => true);
+    renderInsert({ onSend });
+    act(() => usePersonalStore.getState().insertToComposer("仅插入"));
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("仅插入"));
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("submit:true 但 running → 降级为仅插入", async () => {
+    const onSend = vi.fn(() => true);
+    renderInsert({ onSend, running: true });
+    act(() => usePersonalStore.getState().insertToComposer("运行中", { submit: true }));
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("运行中"));
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("acceptComposerInsert=false → 既不插入也不发送", async () => {
+    const onSend = vi.fn(() => true);
+    renderInsert({ onSend, accept: false });
+    act(() => usePersonalStore.getState().insertToComposer("忽略", { submit: true }));
+    await Promise.resolve();
+    expect(onSend).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
   });
 });
 
