@@ -113,6 +113,10 @@ export function NewSessionLanding({
         slashCommands={[]}
         className="pw-landing-composer"
         placeholder="输入消息开启新会话,Enter 发送 · Shift+Enter 换行"
+        // 订阅 composerInsert:插件「在对话中试用」在无活动会话时落到新会话落地页的输入框
+        //（预填 defaultPrompt + 插件 pill,用户发送即 createSession）。与会话内 PersonalComposer 同款,
+        // 二者不同时挂载,nonce 去重避免重复消费。
+        acceptComposerInsert
         onSend={onSubmit}
         onChangeModel={(model) => setDraft((d) => ({ ...d, model }))}
         onChangePiModel={(providerId, model) => setDraft((d) => ({ ...d, providerId, model }))}
