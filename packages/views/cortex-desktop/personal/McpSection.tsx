@@ -1,13 +1,12 @@
-// MCP 设置卡片(M2 U3)。总开关 + server 清单 + 「连接至自定义 MCP」表单(新增/编辑,见 McpServerForm)。
-// 读写 generalSettings.mcp,经 store 自动持久化;主进程在 cli:start 按总开关注入(见 ipc/mcp-config.ts,
-// 严格 gate 不覆盖用户文件)。渲染在插件管理器的「插件」tab 内。标签用 zh 字面量(桌面配置项不本地化)。
+// MCP 设置卡片(M2 U3)。总开关 + server 清单 + 增删/启停。新增/编辑走独立页(由 PluginManagePage
+// 通过 onEdit 上提渲染 McpServerForm,见该文件),本卡只负责列表与 od 预设,不内联表单。
+// 读写 generalSettings.mcp,经 store 自动持久化;主进程在 cli:start 按总开关注入(ipc/mcp-config.ts)。
+// 标签用 zh 字面量(桌面配置项不本地化)。
 /* eslint-disable i18next/no-literal-string -- MCP 配置项标签为桌面专用,暂不本地化 */
 
-import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { usePersonalStore } from "@cortex-work/core";
 import type { McpServerConfig, McpSettings } from "@cortex-work/core";
-import { McpServerForm } from "./McpServerForm";
 
 const EMPTY: McpSettings = { enabled: false, servers: [] };
 
@@ -16,14 +15,10 @@ const OD_PORT_DEFAULT = 7456;
 const odArgs = (port: number): string[] => ["mcp", "--daemon-url", `http://127.0.0.1:${port}`];
 const isOdServer = (s: McpServerConfig): boolean => s.transport === "stdio" && s.command === "od";
 
-// 编辑态:null=列表;{index:null}=新增;{index:n}=编辑第 n 个。
-type Editing = { index: number | null } | null;
-
-export function McpCard() {
+export function McpCard({ onEdit }: { onEdit: (index: number | null) => void }) {
   const general = usePersonalStore((s) => s.generalSettings);
   const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
   const mcp: McpSettings = general.mcp ?? EMPTY;
-  const [editing, setEditing] = useState<Editing>(null);
 
   const update = (patch: Partial<McpSettings>) => setGeneral({ mcp: { ...mcp, ...patch } });
   const removeServer = (i: number) => update({ servers: mcp.servers.filter((_, idx) => idx !== i) });
@@ -31,19 +26,6 @@ export function McpCard() {
     if (mcp.servers.some(isOdServer)) return;
     update({ servers: [...mcp.servers, { id: "od", label: "od", transport: "stdio", command: "od", args: odArgs(OD_PORT_DEFAULT) }] });
   };
-  const saveServer = (cfg: McpServerConfig) => {
-    if (editing?.index == null) update({ servers: [...mcp.servers, cfg] });
-    else update({ servers: mcp.servers.map((s, i) => (i === editing.index ? cfg : s)) });
-    setEditing(null);
-  };
-
-  // 表单态:渲染「连接至自定义 MCP」。不再套 .pw-scard 外层卡（表单自带卡片布局,避免卡套卡)。
-  if (editing) {
-    const initial = editing.index != null ? mcp.servers[editing.index] : undefined;
-    return (
-      <McpServerForm initial={initial} existingIds={mcp.servers.map((s) => s.id)} onSave={saveServer} onCancel={() => setEditing(null)} />
-    );
-  }
 
   return (
     <div className="pw-scard">
@@ -65,8 +47,8 @@ export function McpCard() {
         <div className="pw-mcp-list">
           {mcp.servers.map((s, i) => (
             <div key={i} className="pw-mcp-item">
-              <div className="pw-mcp-item-main" onClick={() => setEditing({ index: i })} role="button" tabIndex={0}
-                onKeyDown={(e) => { if (e.key === "Enter") setEditing({ index: i }); }}
+              <div className="pw-mcp-item-main" onClick={() => onEdit(i)} role="button" tabIndex={0}
+                onKeyDown={(e) => { if (e.key === "Enter") onEdit(i); }}
               >
                 <span className="pw-mcp-item-name">{s.label ?? s.id}</span>
                 <span className="pw-tag">{s.transport === "stdio" ? "STDIO" : "流式 HTTP"}</span>
@@ -81,7 +63,7 @@ export function McpCard() {
       )}
 
       <div className="pw-srow pw-srow-actions">
-        <button className="pw-tl-gen" onClick={() => setEditing({ index: null })}>
+        <button className="pw-tl-gen" onClick={() => onEdit(null)}>
           + 连接自定义 MCP
         </button>
         <button className="pw-tl-gen" onClick={addOdPreset}>
