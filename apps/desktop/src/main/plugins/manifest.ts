@@ -45,11 +45,14 @@ function asStringArray(v: unknown): string[] | undefined {
 }
 
 // 把 .codex-plugin / .claude-plugin 的 plugin.json 映射为归一 manifest。`interface` 字段（codex 最全）
-// 覆盖顶层同义字段。id 缺省取目录名（启停集的稳定键）。
+// 覆盖顶层同义字段。
+// 安全（ADV-001）：id **恒取目录名 basename**，不采信 manifest 声明的 json.id——后者是第三方可控值，
+// 两个插件可声明相同 id 造成启停键碰撞（启用一个连带注入另一个）。目录名在 installedPluginsRoot 下
+// 由文件系统保证唯一，是无法伪造碰撞的稳定身份键。
 function mapJsonManifest(id: string, json: Record<string, unknown>): PluginManifest {
   const iface = (json.interface && typeof json.interface === "object" ? json.interface : {}) as Record<string, unknown>;
   return {
-    id: asString(json.id) ?? id,
+    id,
     name: asString(json.name) ?? id,
     displayName: asString(iface.displayName) ?? asString(json.displayName),
     version: asString(json.version),

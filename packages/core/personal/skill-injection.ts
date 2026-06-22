@@ -34,7 +34,10 @@ export function renderSkillBlock(skills: InjectableSkill[]): string {
     const name = sanitize(s.name);
     const desc = sanitize(s.description);
     const tail = desc ? ` — ${desc}` : "";
-    return `- **${name}**${tail}\n  指令文件:${s.dir}/SKILL.md(需要时用 Read 工具查看完整指令)`;
+    // 安全（ADV-003）:dir 也去换行——插件/skill 目录名理论上可含字面换行（readdir 原样返回），
+    // 若原样插入会从「指令文件」行越界注入新行。含换行的路径本就不可 Read,清洗不损失有效路径。
+    const dir = s.dir.replace(/[\r\n]+/g, " ");
+    return `- **${name}**${tail}\n  指令文件:${dir}/SKILL.md(需要时用 Read 工具查看完整指令)`;
   });
   return [
     "## 已启用的 Skills",

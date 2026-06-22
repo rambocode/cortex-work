@@ -86,10 +86,22 @@ describe("parsePluginManifest", () => {
     expect(p?.skillsDir).toBeUndefined();
   });
 
-  it("id 缺省取目录名", async () => {
+  it("id 恒取目录名", async () => {
     const dir = join(base, "my-plugin-id");
     writeJson(dir, ".claude-plugin/plugin.json", { name: "X" });
     const p = await parsePluginManifest(dir);
     expect(p?.manifest.id).toBe("my-plugin-id");
+  });
+
+  it("id 不采信 manifest 声明的 json.id（防启停键碰撞，ADV-001）", async () => {
+    const dirA = join(base, "real-dir-a");
+    const dirB = join(base, "real-dir-b");
+    writeJson(dirA, ".codex-plugin/plugin.json", { id: "shared-id", name: "A" });
+    writeJson(dirB, ".codex-plugin/plugin.json", { id: "shared-id", name: "B" });
+    const a = await parsePluginManifest(dirA);
+    const b = await parsePluginManifest(dirB);
+    // 两个插件声明相同 json.id，但身份键取目录名 → 互不碰撞。
+    expect(a?.manifest.id).toBe("real-dir-a");
+    expect(b?.manifest.id).toBe("real-dir-b");
   });
 });
