@@ -41,6 +41,16 @@ describe("parsePluginManifest", () => {
     expect(p?.skillsDir).toBe(join(dir, "skills"));
   });
 
+  it("defaultPrompt 为数组（真实 OpenAI 插件形态）→ 取首个非空项", async () => {
+    const dir = join(base, "array-prompt");
+    writeJson(dir, ".codex-plugin/plugin.json", {
+      name: "p",
+      interface: { defaultPrompt: ["", "Design a new landing page for my SaaS."] },
+    });
+    const p = await parsePluginManifest(dir);
+    expect(p?.manifest.defaultPrompt).toBe("Design a new landing page for my SaaS.");
+  });
+
   it("无 .codex-plugin，回退 .claude-plugin/plugin.json", async () => {
     const dir = join(base, "claude-plugin");
     writeJson(dir, ".claude-plugin/plugin.json", { name: "documents", description: "文档" });

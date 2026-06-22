@@ -44,6 +44,14 @@ function asStringArray(v: unknown): string[] | undefined {
   return list.length ? list : undefined;
 }
 
+// defaultPrompt 在真实 OpenAI 插件中是字符串数组（如 ["Design a landing page."]），
+// 也兼容单字符串。取首个非空项。
+function asPromptString(v: unknown): string | undefined {
+  if (typeof v === "string" && v.trim()) return v;
+  if (Array.isArray(v)) return v.find((x): x is string => typeof x === "string" && x.trim().length > 0);
+  return undefined;
+}
+
 // 把 .codex-plugin / .claude-plugin 的 plugin.json 映射为归一 manifest。`interface` 字段（codex 最全）
 // 覆盖顶层同义字段。
 // 安全（ADV-001）：id **恒取目录名 basename**，不采信 manifest 声明的 json.id——后者是第三方可控值，
@@ -59,7 +67,7 @@ function mapJsonManifest(id: string, json: Record<string, unknown>): PluginManif
     description: asString(json.description) ?? asString(iface.description),
     category: asString(iface.category) ?? asString(json.category),
     capabilities: asStringArray(iface.capabilities) ?? asStringArray(json.capabilities),
-    defaultPrompt: asString(iface.defaultPrompt) ?? asString(json.defaultPrompt),
+    defaultPrompt: asPromptString(iface.defaultPrompt) ?? asPromptString(json.defaultPrompt),
   };
 }
 
