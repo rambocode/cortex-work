@@ -37,13 +37,11 @@ export function McpCard() {
     setEditing(null);
   };
 
-  // 表单态:渲染「连接至自定义 MCP」。
+  // 表单态:渲染「连接至自定义 MCP」。不再套 .pw-scard 外层卡（表单自带卡片布局,避免卡套卡)。
   if (editing) {
     const initial = editing.index != null ? mcp.servers[editing.index] : undefined;
     return (
-      <div className="pw-scard">
-        <McpServerForm initial={initial} existingIds={mcp.servers.map((s) => s.id)} onSave={saveServer} onCancel={() => setEditing(null)} />
-      </div>
+      <McpServerForm initial={initial} existingIds={mcp.servers.map((s) => s.id)} onSave={saveServer} onCancel={() => setEditing(null)} />
     );
   }
 
