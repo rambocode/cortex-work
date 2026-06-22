@@ -34,16 +34,34 @@ export function isValidServerId(id: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(id);
 }
 
-// claude 的 .mcp.json 内容:{ mcpServers: { <id>: {command,args,env} | {type,url,headers} } }。
+// 有效 env = 显式 env 叠加「环境变量传递」(envPassthrough)从宿主 process.env 解析的值。
+// 透传名缺失于宿主则跳过。结果写入的 .mcp.json 已被 ensureGitignore 加入忽略,故解析值落盘可接受。
+function effectiveEnv(s: McpServerConfig): Record<string, string> | undefined {
+  const env: Record<string, string> = { ...(s.env ?? {}) };
+  for (const name of s.envPassthrough ?? []) {
+    const v = process.env[name];
+    if (v !== undefined) env[name] = v;
+  }
+  return Object.keys(env).length ? env : undefined;
+}
+
+// claude 的 .mcp.json 内容:{ mcpServers: { <id>: {command,args,env,cwd} | {type,url,headers} } }。
 // 非法 id 跳过。sse/http 带 type 字段(claude 远程 server 需要),否则会被误判为 stdio。
 export function buildClaudeMcpJson(servers: McpServerConfig[]): string {
   const mcpServers: Record<string, unknown> = {};
   for (const s of servers) {
     if (!isValidServerId(s.id)) continue;
-    mcpServers[s.id] =
-      s.transport === "stdio"
-        ? { command: s.command, ...(s.args ? { args: s.args } : {}), ...(s.env ? { env: s.env } : {}) }
-        : { type: s.transport, url: s.url, ...(s.headers ? { headers: s.headers } : {}) };
+    if (s.transport === "stdio") {
+      const env = effectiveEnv(s);
+      mcpServers[s.id] = {
+        command: s.command,
+        ...(s.args ? { args: s.args } : {}),
+        ...(env ? { env } : {}),
+        ...(s.cwd ? { cwd: s.cwd } : {}),
+      };
+    } else {
+      mcpServers[s.id] = { type: s.transport, url: s.url, ...(s.headers ? { headers: s.headers } : {}) };
+    }
   }
   return JSON.stringify({ mcpServers }, null, 2);
 }
@@ -60,7 +78,9 @@ export function buildCodexMcpArgs(settings: McpSettings): string[] {
     if (s.transport === "stdio") {
       if (s.command) push(`${base}.command`, JSON.stringify(s.command)); // TOML 基本字符串
       if (s.args?.length) push(`${base}.args`, JSON.stringify(s.args)); // TOML 字符串数组
-      if (s.env && Object.keys(s.env).length) push(`${base}.env`, tomlInlineTable(s.env));
+      const env = effectiveEnv(s);
+      if (env) push(`${base}.env`, tomlInlineTable(env));
+      if (s.cwd) push(`${base}.cwd`, JSON.stringify(s.cwd));
     } else if (s.url) {
       push(`${base}.url`, JSON.stringify(s.url));
     }

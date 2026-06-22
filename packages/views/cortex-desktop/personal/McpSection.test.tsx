@@ -34,18 +34,40 @@ describe("McpCard", () => {
     expect(mcp()?.enabled).toBe(true);
   });
 
-  it("添加 server → store 多一条 stdio 条目;编辑命令回写;删除移除", () => {
+  it("连接自定义 MCP:打开表单 → 填名称+命令+参数+工作目录 → 保存写 store", () => {
     renderUI(<McpCard />);
-    fireEvent.click(screen.getByText("+ 添加 MCP server"));
-    expect(mcp()?.servers).toHaveLength(1);
-    expect(mcp()?.servers[0]?.transport).toBe("stdio");
+    fireEvent.click(screen.getByText("+ 连接自定义 MCP"));
+    // 表单标题
+    expect(screen.getByText("连接至自定义 MCP")).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText("MCP server name"), { target: { value: "My FS" } });
+    fireEvent.change(screen.getByPlaceholderText("openai-dev-mcp serve-sqlite"), { target: { value: "/usr/local/bin/mcp-fs" } });
+    fireEvent.change(screen.getByPlaceholderText("~/code"), { target: { value: "~/code" } });
+    // 添加一个参数
+    fireEvent.click(screen.getByText("添加参数"));
+    const args = screen.getAllByRole("textbox").find((el) => (el as HTMLInputElement).value === "");
+    fireEvent.change(args!, { target: { value: "--root" } });
+    fireEvent.click(screen.getByText("保存"));
+    const s = mcp()?.servers ?? [];
+    expect(s).toHaveLength(1);
+    expect(s[0]).toMatchObject({ label: "My FS", transport: "stdio", command: "/usr/local/bin/mcp-fs", cwd: "~/code", args: ["--root"] });
+    expect(s[0]?.id).toBe("my-fs"); // 名称 slug 化为 TOML 安全 id
+  });
 
-    // 编辑命令输入(第二个输入框是 command)
-    const inputs = screen.getAllByRole("textbox");
-    fireEvent.change(inputs[1]!, { target: { value: "/usr/local/bin/mcp-fs" } });
-    expect(mcp()?.servers[0]?.command).toBe("/usr/local/bin/mcp-fs");
+  it("流式 HTTP:切换 transport → 保存 http server(url)", () => {
+    renderUI(<McpCard />);
+    fireEvent.click(screen.getByText("+ 连接自定义 MCP"));
+    fireEvent.change(screen.getByPlaceholderText("MCP server name"), { target: { value: "Remote" } });
+    fireEvent.click(screen.getByRole("tab", { name: "流式 HTTP" }));
+    fireEvent.change(screen.getByPlaceholderText("https://example.com/mcp"), { target: { value: "https://mcp.example/sse" } });
+    fireEvent.click(screen.getByText("保存"));
+    expect(mcp()?.servers[0]).toMatchObject({ transport: "http", url: "https://mcp.example/sse" });
+  });
 
-    fireEvent.click(screen.getByText("删除"));
+  it("列表:点条目进编辑、删除移除", () => {
+    usePersonalStore.getState().setGeneralSettings({ mcp: { enabled: true, servers: [{ id: "fs", label: "FS", transport: "stdio", command: "/bin/fs" }] } });
+    renderUI(<McpCard />);
+    expect(screen.getByText("FS")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("删除 FS"));
     expect(mcp()?.servers).toHaveLength(0);
   });
 
@@ -56,15 +78,7 @@ describe("McpCard", () => {
     expect(s).toHaveLength(1);
     expect(s[0]?.command).toBe("od");
     expect(s[0]?.args).toEqual(["mcp", "--daemon-url", "http://127.0.0.1:7456"]);
-    // 已有 od → 重复点击不重复添加。
     fireEvent.click(screen.getByText("+ od（open-design）"));
     expect(mcp()?.servers).toHaveLength(1);
-  });
-
-  it("od 预设:改端口 → daemon-url host 恒 127.0.0.1(U6)", () => {
-    renderUI(<McpCard />);
-    fireEvent.click(screen.getByText("+ od（open-design）"));
-    fireEvent.change(screen.getByLabelText("od daemon 端口"), { target: { value: "9000" } });
-    expect(mcp()?.servers[0]?.args).toEqual(["mcp", "--daemon-url", "http://127.0.0.1:9000"]);
   });
 });

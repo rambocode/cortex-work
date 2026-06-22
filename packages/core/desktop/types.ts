@@ -449,6 +449,8 @@ export interface McpServerConfig {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  cwd?: string; // stdio 工作目录（spawn cwd）
+  envPassthrough?: string[]; // stdio:从宿主环境透传的变量名（注入时解析为 env 值，写入 gitignore 的 .mcp.json）
   url?: string;
   headers?: Record<string, string>;
 }
