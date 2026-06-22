@@ -67,7 +67,7 @@ export function buildClaudeMcpJson(servers: McpServerConfig[]): string {
 }
 
 // codex 经 -c 注入(dotted path,值按 TOML 解析;实测 `codex exec -c mcp_servers.<id>.command="..."`)。
-// 取代 M1 的 `-c mcp_servers={}` 清空。非法 id 跳过。stdio 用 command/args/env;sse/http 用 url。
+// 取代 M1 的 `-c mcp_servers={}` 清空。非法 id 跳过。stdio 用 command/args/env;sse/http 用 url + http_headers(鉴权头)。
 export function buildCodexMcpArgs(settings: McpSettings): string[] {
   if (!settings.enabled || settings.servers.length === 0) return [];
   const out: string[] = [];
@@ -83,6 +83,9 @@ export function buildCodexMcpArgs(settings: McpSettings): string[] {
       if (s.cwd) push(`${base}.cwd`, JSON.stringify(s.cwd));
     } else if (s.url) {
       push(`${base}.url`, JSON.stringify(s.url));
+      // http/sse 鉴权头:codex streamable-http 原生支持 mcp_servers.<id>.http_headers(spike 已证)。
+      // 浏览器控制 server 的 Bearer token 经此发,与 claude 的 headers 对齐(不进 URL)。
+      if (s.headers && Object.keys(s.headers).length) push(`${base}.http_headers`, tomlInlineTable(s.headers));
     }
   }
   return out;

@@ -75,6 +75,15 @@ describe("buildCodexMcpArgs", () => {
     expect(buildCodexMcpArgs({ enabled: true, servers: [http] })).toEqual(["-c", 'mcp_servers.web.url="https://mcp.example/sse"']);
     expect(buildCodexMcpArgs({ enabled: true, servers: [{ id: "a.b", transport: "stdio", command: "z" }] })).toEqual([]);
   });
+
+  it("http 带 headers → -c http_headers(浏览器控制 token 经此发)", () => {
+    const out = buildCodexMcpArgs({
+      enabled: true,
+      servers: [{ id: "cortex-browser", transport: "http", url: "http://127.0.0.1:9/mcp", headers: { Authorization: "Bearer tok" } }],
+    });
+    expect(out).toContain('mcp_servers.cortex-browser.url="http://127.0.0.1:9/mcp"');
+    expect(out).toContain('mcp_servers.cortex-browser.http_headers={ "Authorization" = "Bearer tok" }');
+  });
 });
 
 describe("decideClaudeMcpAction(严格 gate)", () => {
