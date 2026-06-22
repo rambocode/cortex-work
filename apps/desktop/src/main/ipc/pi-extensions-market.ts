@@ -30,15 +30,15 @@ function defaultRunner(args: string[]): Promise<PiRunResult> {
     let stdout = "";
     let stderr = "";
     let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    // finish 只管「settle 一次」,不引用 timer(否则 finish↔timer 循环引用须前向声明 let);
+    // 定时器由正常退出路径(close/error)显式 clearTimeout,超时路径触发即已自然失效。
     const finish = (r: PiRunResult) => {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
       res(r);
     };
     const timeoutMs = args[0] === "install" ? INSTALL_TIMEOUT_MS : SHORT_TIMEOUT_MS;
-    timer = setTimeout(() => {
+    const timer = setTimeout(() => {
       // 挂死:优雅 SIGTERM,仍不退则强杀,确保 Promise 必 settle、串行链不被永久卡住。
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref?.();
@@ -47,8 +47,14 @@ function defaultRunner(args: string[]): Promise<PiRunResult> {
     timer.unref?.();
     child.stdout?.on("data", (d) => (stdout += String(d)));
     child.stderr?.on("data", (d) => (stderr += String(d)));
-    child.on("error", (e) => finish({ code: -1, stdout, stderr: `${stderr}${String(e)}` }));
-    child.on("close", (code) => finish({ code: code ?? -1, stdout, stderr }));
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      finish({ code: -1, stdout, stderr: `${stderr}${String(e)}` });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      finish({ code: code ?? -1, stdout, stderr });
+    });
   });
 }
 
