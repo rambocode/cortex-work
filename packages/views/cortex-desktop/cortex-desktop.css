@@ -8012,3 +8012,39 @@ button.sb-row {
 .pw-plg-detail-long { font-size: 14px; color: var(--text-2); line-height: 1.7; max-width: 760px; white-space: pre-wrap; }
 .pw-plg-info-link { border: none; background: transparent; color: var(--accent); font-size: 13.5px; cursor: pointer; padding: 0; display: inline-flex; align-items: center; gap: 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-plg-info-link:hover { text-decoration: underline; }
+
+/* ── 插件详情页(对齐 Codex 设计稿)──────────────────────────────────────────── */
+/* 黑色「在对话中试用」按钮 */
+.pw-plg-try-btn { display: inline-flex; align-items: center; gap: 7px; background: #111; color: #fff; border: none; font-size: 13.5px; font-weight: 600; padding: 9px 16px; border-radius: 11px; cursor: pointer; white-space: nowrap; }
+.pw-plg-try-btn:disabled { opacity: 0.5; cursor: default; }
+/* 「···」菜单 */
+.pw-plg-menu-wrap { position: relative; }
+.pw-plg-menu-btn { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--border); background: transparent; color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.pw-plg-menu-btn:hover { background: var(--bg-soft); }
+.pw-plg-menu-overlay { position: fixed; inset: 0; z-index: 40; }
+.pw-plg-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 41; min-width: 200px; background: var(--bg-app); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.pw-plg-menu-item { text-align: left; border: none; background: transparent; color: var(--text-1); font-size: 13.5px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.pw-plg-menu-item:hover:not(:disabled) { background: var(--bg-soft); }
+.pw-plg-menu-item:disabled { color: var(--text-3); cursor: default; }
+.pw-plg-menu-item.is-danger { color: var(--danger, #c0392b); }
+.pw-plg-menu-item.is-danger:disabled { color: var(--text-3); }
+.pw-plg-menu-path { font-size: 11px; color: var(--text-3); font-family: var(--mono, monospace); padding: 6px 10px; word-break: break-all; border-top: 1px solid var(--border-soft, var(--border)); margin-top: 2px; }
+/* 渐变试用 banner */
+.pw-plg-try-banner { display: block; width: 100%; border: none; cursor: pointer; padding: 28px 22px; border-radius: 18px; background: linear-gradient(110deg, #cfd6fb 0%, #e7d8fb 45%, #c8bdf7 100%); }
+.pw-plg-try-card { display: flex; align-items: center; gap: 12px; max-width: 680px; margin: 0 auto; background: rgba(255, 255, 255, 0.78); border-radius: 13px; padding: 14px 16px; box-shadow: 0 1px 6px rgba(60, 40, 120, 0.08); transition: background 0.15s; }
+.pw-plg-try-banner:hover .pw-plg-try-card { background: rgba(255, 255, 255, 0.96); }
+.pw-plg-try-card-ico { width: 22px; height: 22px; flex: none; border-radius: 6px; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--text-1); }
+.pw-plg-try-card-ico .pw-plg-ico-img { padding: 0; }
+.pw-plg-try-card-name { font-weight: 700; flex: none; color: #0d0d0d; }
+.pw-plg-try-card-sample { flex: 1; min-width: 0; color: #3a3a3c; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-plg-try-card-arrow { width: 34px; height: 34px; flex: none; border-radius: 50%; background: rgba(0, 0, 0, 0.06); display: inline-flex; align-items: center; justify-content: center; color: #3a3a3c; transition: transform 0.15s, background 0.15s; }
+.pw-plg-try-banner:hover .pw-plg-try-card-arrow { background: rgba(0, 0, 0, 0.12); transform: translateX(3px); }
+/* 技能 chips */
+.pw-plg-detail-count { color: var(--text-3); font-weight: 500; }
+.pw-plg-skill-chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.pw-plg-skill-chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px 7px 8px; font-size: 13.5px; color: var(--text-1); }
+.pw-plg-skill-chip-ico { width: 20px; height: 20px; flex: none; border-radius: 6px; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--text-1); }
+.pw-plg-skill-chip-ico .pw-plg-ico-img { padding: 0; }
+/* 信息图标外链 */
+.pw-plg-info-link-icon { border: none; background: transparent; color: var(--text-3); cursor: pointer; padding: 2px; display: inline-flex; }
+.pw-plg-info-link-icon:hover { color: var(--accent); }

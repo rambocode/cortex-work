@@ -122,37 +122,45 @@ describe("PluginManager 三层 IA", () => {
     expect(screen.getByText(/缺少 source 字段/)).toBeTruthy();
   });
 
-  it("点插件进详情页：富元数据 + 本地路径 + 升级/删除禁用", async () => {
-    renderWith(fakeBridge({ plugins: [plug("a", "Alpha", { category: "Productivity", version: "1.0.0", skillsDir: "/p/a/skills", capabilities: ["Read"] })] }));
+  it("点插件进详情页：富元数据 + 能力 + 「···」菜单含路径/升级禁用", async () => {
+    renderWith(fakeBridge({ plugins: [plug("a", "Alpha", { category: "Productivity", capabilities: ["Read"] })] }));
     fireEvent.click(await screen.findByText("Alpha"));
-    expect(await screen.findByText("本地路径")).toBeTruthy();
-    expect(screen.getByText("/p/a")).toBeTruthy();
     expect(screen.getAllByText("Read").length).toBeGreaterThan(0); // 能力(功能行 + chip)
-    const upgrade = screen.getByRole("button", { name: "升级" });
+    // 打开 ··· 菜单 → 升级禁用 + 本地路径
+    fireEvent.click(screen.getByRole("button", { name: "更多" }));
+    const upgrade = screen.getByRole("menuitem", { name: "升级" });
     expect((upgrade as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("/p/a")).toBeTruthy();
   });
 
-  it("详情页启停开关 → 写 store；面包屑可返回", async () => {
+  it("详情页「···」菜单启停 → 写 store；面包屑可返回", async () => {
     renderWith(fakeBridge({ plugins: [plug("pdf", "PDF")] }));
     fireEvent.click(await screen.findByText("PDF"));
-    const sw = await screen.findByRole("switch", { name: /PDF/ });
-    fireEvent.click(sw);
+    fireEvent.click(screen.getByRole("button", { name: "更多" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "启用" }));
     expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toContain("pdf");
     // 面包屑返回首页
     fireEvent.click(screen.getByRole("button", { name: "插件" }));
     expect(await screen.findByRole("tab", { name: "技能" })).toBeTruthy();
   });
 
-  it("详情页「在对话中试用」→ 启用插件 + 预填 defaultPrompt 到输入框", async () => {
+  it("详情页头部「在对话中试用」→ 启用插件 + 预填 defaultPrompt 到输入框", async () => {
     renderWith(fakeBridge({ plugins: [plug("pdf", "PDF", { defaultPrompt: "Review this PDF" })] }));
     fireEvent.click(await screen.findByText("PDF"));
-    const tryBtn = await screen.findByRole("button", { name: /在对话中试用/ });
-    expect((tryBtn as HTMLButtonElement).disabled).toBe(false);
+    // 头部按钮(exact)避免与 banner 的 aria-label「在对话中试用 PDF」冲突
+    const tryBtn = screen.getByRole("button", { name: "在对话中试用" });
     fireEvent.click(tryBtn);
     expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toContain("pdf");
     expect(usePersonalStore.getState().composerInsert?.text).toBe("Review this PDF");
-    // 携带插件上下文 → 输入框渲染插件 pill
-    expect(usePersonalStore.getState().composerInsert?.plugin).toEqual({ id: "pdf", name: "PDF" });
+    expect(usePersonalStore.getState().composerInsert?.plugin).toMatchObject({ id: "pdf", name: "PDF" });
+  });
+
+  it("详情页渐变 banner 可点击试用（启用 + 预填）", async () => {
+    renderWith(fakeBridge({ plugins: [plug("pdf", "PDF", { defaultPrompt: "Review this PDF" })] }));
+    fireEvent.click(await screen.findByText("PDF"));
+    fireEvent.click(screen.getByRole("button", { name: "在对话中试用 PDF" })); // banner aria-label
+    expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toContain("pdf");
+    expect(usePersonalStore.getState().composerInsert?.text).toBe("Review this PDF");
   });
 
   it("bridge=null（web/旧壳）→ 插件首页降级空态", async () => {
