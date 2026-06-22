@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileIconSpec, isBinaryLike } from "./fileIcons";
+import { fileIconSpec, isBinaryLike, isOpenExternalLike } from "./fileIcons";
 
 describe("fileIconSpec 扩展名映射", () => {
   it("代码族返回品牌色徽章", () => {
@@ -48,5 +48,25 @@ describe("isBinaryLike", () => {
     expect(isBinaryLike("a.ts")).toBe(false);
     expect(isBinaryLike("a.md")).toBe(false);
     expect(isBinaryLike("Dockerfile")).toBe(false);
+  });
+});
+
+describe("isOpenExternalLike", () => {
+  it("office 文档 / pdf / 媒体 / 二进制 → 交系统默认应用打开", () => {
+    expect(isOpenExternalLike("monthly.xlsx")).toBe(true);
+    expect(isOpenExternalLike("report.docx")).toBe(true);
+    expect(isOpenExternalLike("slides.pptx")).toBe(true);
+    expect(isOpenExternalLike("doc.pdf")).toBe(true);
+    expect(isOpenExternalLike("logo.png")).toBe(true);
+    expect(isOpenExternalLike("dist.zip")).toBe(true);
+    expect(isOpenExternalLike("data.sqlite")).toBe(true);
+  });
+  it("文本 / 代码 / 可内置打开的文本文档 → 不外部打开(走内置编辑器)", () => {
+    expect(isOpenExternalLike("a.ts")).toBe(false);
+    expect(isOpenExternalLike("a.md")).toBe(false);
+    expect(isOpenExternalLike("a.csv")).toBe(false);
+    expect(isOpenExternalLike("a.json")).toBe(false);
+    expect(isOpenExternalLike("a.svg")).toBe(false);
+    expect(isOpenExternalLike("Dockerfile")).toBe(false);
   });
 });

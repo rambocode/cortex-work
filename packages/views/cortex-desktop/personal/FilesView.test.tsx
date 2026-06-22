@@ -81,13 +81,25 @@ describe("FilesView 消费 filePreviewRequest", () => {
     });
   });
 
-  it("二进制文件名(.png) → 占位分支,不调 readFile", async () => {
-    const bridge = makeBridge();
+  it("非文本文件名(.png) → 系统默认应用打开,不调 readFile、不进内置预览", async () => {
+    const openPath = vi.fn().mockResolvedValue("");
+    const bridge = makeBridge({ openPath });
     usePersonalStore.setState({
       filePreviewRequest: { projectId: "p1", path: "/code/alpha/logo.png", name: "logo.png" },
     });
     renderView(bridge);
-    expect(await screen.findByText(/二进制文件/)).toBeInTheDocument();
+    await waitFor(() => expect(openPath).toHaveBeenCalledWith("/code/alpha/logo.png"));
+    expect(bridge.readFile).not.toHaveBeenCalled();
+  });
+
+  it("office 文档(.xlsx) → 系统默认应用打开,不调 readFile", async () => {
+    const openPath = vi.fn().mockResolvedValue("");
+    const bridge = makeBridge({ openPath });
+    usePersonalStore.setState({
+      filePreviewRequest: { projectId: "p1", path: "/code/alpha/outputs/monthly.xlsx", name: "monthly.xlsx" },
+    });
+    renderView(bridge);
+    await waitFor(() => expect(openPath).toHaveBeenCalledWith("/code/alpha/outputs/monthly.xlsx"));
     expect(bridge.readFile).not.toHaveBeenCalled();
   });
 

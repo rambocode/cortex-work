@@ -213,6 +213,30 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     expect(useCortexUIStore.getState().rightOpen).toBe(true);
   });
 
+  it("项目外的非文本产物(如 outputs 里的 xlsx)→ 系统默认应用打开,不进右栏预览", async () => {
+    const openPath = vi.fn(async () => "");
+    const b = {
+      loadChat: async () => [
+        { kind: "text", who: "claude", time: "12:00", uid: "mx", text: "见 `/data/outputs/x/monthly.xlsx`" },
+      ],
+      saveChat: async () => {},
+      // 项目根为 /code/alpha,文件在项目外;主进程按真实存在性解析回绝对路径。
+      resolveProjectFile: async (_root: string, _ref: string) => "/data/outputs/x/monthly.xlsx",
+      openPath,
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    // 项目外绝对路径也点亮为可点 file-link(渲染层放行 + 主进程解析命中)。
+    await waitFor(() => expect(screen.getByText("/data/outputs/x/monthly.xlsx")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("/data/outputs/x/monthly.xlsx"));
+    await waitFor(() => expect(openPath).toHaveBeenCalledWith("/data/outputs/x/monthly.xlsx"));
+    // 非文本不走右栏内置预览。
+    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+  });
+
   it("无项目会话:projectPath 缺失,文本路径不可点(无 .file-link)", async () => {
     usePersonalStore.setState({
       sessions: [

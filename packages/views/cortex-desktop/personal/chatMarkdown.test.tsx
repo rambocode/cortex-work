@@ -118,7 +118,8 @@ describe("chatMarkdownComponents", () => {
   it("卡片「打开方式」下拉选系统浏览器 → 触发 openExternal", () => {
     const { container, openExternal } = renderMd("[site](https://x.com)");
     fireEvent.click(container.querySelector(".pw-link-preview-open")!);
-    const items = container.querySelectorAll(".pw-link-preview-menu [role=menuitem]");
+    // 菜单经 createPortal 渲染到 document.body(脱离消息流避免遮挡),故从 document 查询而非 container。
+    const items = document.querySelectorAll(".pw-link-preview-menu [role=menuitem]");
     expect(items.length).toBe(2);
     // 第二项为「系统浏览器」。
     fireEvent.click(items[1]!);

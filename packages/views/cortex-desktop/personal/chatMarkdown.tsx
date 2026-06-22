@@ -321,11 +321,18 @@ export interface ChatMarkdownOptions {
 }
 
 export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: ChatMarkdownOptions): Components {
-  // 渲染期静态判定:像文件路径 且 解析后落在项目根内（white-list 代理,见 KTD2）。
+  // 渲染期静态判定:是否当作可点击文件链接渲染。
   // 无项目会话(projectPath 空)没有可解析的项目根 → 一律不当项目文件链接(否则空根会把任意
   // 相对路径误判为 within);但 pre 的本地 HTML 预览不依赖 isProjectFile,仍对无项目会话生效。
-  const isProjectFile = (ref: string) =>
-    !!projectPath && isLikelyFilePath(ref) && resolveProjectFileRef(projectPath, ref).within;
+  // 项目内相对/绝对路径走 within;项目外的绝对路径(agent 写到项目根之外的产物,如 outputs/
+  // 落在项目外)仅在能经主进程 resolveProjectFile 异步验证存在性时才放行——真实存在则点亮、
+  // 不存在则退化普通 code。无该能力(web/旧 shell)时不放行项目外路径(无从验证、也打不开)。
+  const canProbe = !!bridge?.resolveProjectFile;
+  const isProjectFile = (ref: string) => {
+    if (!projectPath || !isLikelyFilePath(ref)) return false;
+    if (resolveProjectFileRef(projectPath, ref).within) return true;
+    return canProbe && ref.startsWith("/");
+  };
 
   return {
     // 段落:若段内含外链(http/https),在段落正下方为每条外链(去重)紧跟一张「网页预览」卡片。

@@ -31,16 +31,34 @@ function isInside(parent: string, child: string): boolean {
   return c === p || c.startsWith(p + sep);
 }
 
-// 路径必须在 promptRoot 或某个项目目录内，否则拒绝。watch.ts 等共用。
-export async function assertAllowed(path: string): Promise<void> {
+// 信任白名单:promptRoot + Documents/cortex/<日期>(无项目会话读写处) + 各项目根。
+async function allowedRoots(): Promise<string[]> {
   const state = await getPersistedState();
-  // 无项目会话在 Documents/cortex/<日期> 下读写,故白名单含该根目录。
-  const roots = [state.promptRoot, documentsCortexDir(), ...state.projects.map((p) => p.path)].filter(
+  return [state.promptRoot, documentsCortexDir(), ...state.projects.map((p) => p.path)].filter(
     (r): r is string => !!r,
   );
+}
+
+// 路径必须在白名单根内，否则拒绝。写/删等改动型操作及 watch.ts 等共用(严格)。
+export async function assertAllowed(path: string): Promise<void> {
+  const roots = await allowedRoots();
   if (!roots.some((root) => isInside(root, path))) {
     throw new Error(`路径不在允许范围内: ${path}`);
   }
+}
+
+// 「打开/读取」放宽校验:白名单根内 → 放行;否则仅当目标是真实存在的文件才放行。
+// 用途:打开 agent 写到项目根之外的产物(如 outputs/ 落在项目外)。只读取与系统 open
+// 用此,写/删仍走严格 assertAllowed,避免越权写入项目外。目录/不存在路径一律拒。
+export async function assertOpenable(path: string): Promise<void> {
+  const roots = await allowedRoots();
+  if (roots.some((root) => isInside(root, path))) return;
+  try {
+    if ((await fsp.stat(path)).isFile()) return;
+  } catch {
+    /* 落到拒绝 */
+  }
+  throw new Error(`路径不在允许范围内: ${path}`);
 }
 
 async function scanTree(
@@ -438,7 +456,7 @@ export function registerFsHandlers(): void {
   });
 
   ipcMain.handle("fs:readFile", async (_e, path: string) => {
-    await assertAllowed(path);
+    await assertOpenable(path);
     const stat = await fsp.stat(path);
     if (stat.size > MAX_FILE_BYTES) {
       const fh = await fsp.open(path, "r");
@@ -454,19 +472,18 @@ export function registerFsHandlers(): void {
   });
 
   // 会话消息里文件链接的「项目内」定位:把 ref(相对路径或裸文件名)解析为真实绝对路径。
-  // 1) 先试精确路径(ref 在 root 内且为文件) → 直接用;
+  // 1) 先试精确路径——只要 ref 指向真实存在的文件即直接用(含项目根之外的 agent 产物,
+  //    如 outputs/ 落在项目外;不再要求 isInside,否则项目外文件渲染成不可点击灰色文本);
   // 2) 否则按 basename 在项目内查找(yuque 导出等表格只列文件名,真实文件在子目录) → 取首个匹配;
   // 3) 仍找不到 → null。越权 / 出错一律 null,不抛错(避免污染主进程日志,见 chatMarkdown.tsx)。
   ipcMain.handle("fs:resolveProjectFile", async (_e, root: string, ref: string): Promise<string | null> => {
     try {
       await assertAllowed(root);
       const exact = ref.startsWith("/") ? ref : join(root, ref);
-      if (isInside(root, exact)) {
-        try {
-          if ((await fsp.stat(exact)).isFile()) return exact;
-        } catch {
-          /* 落到 basename 搜索 */
-        }
+      try {
+        if ((await fsp.stat(exact)).isFile()) return exact;
+      } catch {
+        /* 落到 basename 搜索 */
       }
       const base = exact.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? ref;
       const index = await getFileIndex(root, Date.now());
@@ -595,8 +612,9 @@ export function registerFsHandlers(): void {
   });
 
   // 文件预览工具栏:用系统默认应用打开 / 在访达中显示。
+  // openPath 放宽到 assertOpenable:支持打开 agent 写到项目外的产物(交 OS 处理,等同用户双击)。
   ipcMain.handle("shell:openPath", async (_e, path: string) => {
-    await assertAllowed(path);
+    await assertOpenable(path);
     const err = await shell.openPath(path);
     if (err) throw new Error(err);
   });

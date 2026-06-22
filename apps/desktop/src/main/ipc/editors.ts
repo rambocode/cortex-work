@@ -8,7 +8,7 @@ import { promises as fsp } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { execFile } from "child_process";
-import { assertAllowed } from "./fs";
+import { assertOpenable } from "./fs";
 import type { EditorInfo } from "./types";
 
 // 候选编辑器清单（按常见度排序）。apps 为 .app 包名候选（任一命中即可，兼容多版本包名）。
@@ -99,9 +99,9 @@ export function registerEditorHandlers(): void {
     return entries.map(({ id, name }) => ({ id, name }));
   });
 
-  // 在指定编辑器中打开路径：路径过白名单 → 查回 .app 绝对路径 → open -a。
+  // 在指定编辑器中打开路径：路径过校验(放宽到任意真实文件,支持项目外产物) → 查回 .app 绝对路径 → open -a。
   ipcMain.handle("shell:openInEditor", async (_e, path: string, editorId: string): Promise<void> => {
-    await assertAllowed(path);
+    await assertOpenable(path);
     const entries = await detectCached();
     const target = entries.find((e) => e.id === editorId);
     if (!target) throw new Error(`未找到编辑器: ${editorId}`);

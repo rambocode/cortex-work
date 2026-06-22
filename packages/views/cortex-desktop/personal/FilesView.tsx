@@ -10,7 +10,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { ChangedFile, ContentSearchResult, GitChangesResult, PromptNode } from "@cortex-work/core";
-import { FileIcon, fileIconSpec, isBinaryLike } from "./fileIcons";
+import { FileIcon, fileIconSpec, isOpenExternalLike } from "./fileIcons";
 import { langForName, wordWrapForName } from "./monacoLang";
 import { MonacoViewer, type SelectionAnchor } from "./MonacoViewer";
 import { MarkdownView } from "./MarkdownView";
@@ -31,7 +31,6 @@ interface Preview {
   content: string;
   isDiff: boolean;
   truncated?: boolean;
-  binary?: boolean;
 }
 
 function TreeRowIcon({ name }: { name: string }) {
@@ -63,8 +62,8 @@ function FileTreeNode({
         onContextMenu={(e) => onCtx(e, node.path, node.name)}
         title={node.path}
         // 可拖入会话(U6):写自定义 MIME,ComposerShell 的 onDrop 读内容作为附件。
-        // 二进制文件(图片/字体/归档等)不可拖——经 readFile 强转 UTF-8 会注入乱码且浪费 token。
-        draggable={!isBinaryLike(node.name)}
+        // 非文本文件(图片/字体/归档/office/pdf 等)不可拖——经 readFile 强转 UTF-8 会注入乱码且浪费 token。
+        draggable={!isOpenExternalLike(node.name)}
         onDragStart={(e) => {
           e.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify({ path: node.path, name: node.name }));
           e.dataTransfer.effectAllowed = "copy";
@@ -262,8 +261,15 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     setEditMode(false);
     setDirty(false);
     setSelection("");
-    if (isBinaryLike(name)) {
-      setPreview({ name, path, content: "", isDiff: false, binary: true });
+    // 内置编辑器打不开的类型(图片/媒体/office/pdf/二进制)→ 交系统默认应用打开,不进内置预览
+    // (强转 UTF-8 会乱码)。文本类型继续走 readFile + Monaco/Markdown。
+    if (isOpenExternalLike(name)) {
+      if (!bridge.openPath) return;
+      try {
+        await bridge.openPath(path);
+      } catch (err) {
+        onToast(t("openFailed", { error: err instanceof Error ? err.message : String(err) }));
+      }
       return;
     }
     try {
@@ -385,7 +391,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   if (!project) return <div className="pw-panel-empty">{t("selectProject")}</div>;
 
   if (preview) {
-    const canEdit = !preview.isDiff && !preview.binary && !preview.truncated && !!preview.path;
+    const canEdit = !preview.isDiff && !preview.truncated && !!preview.path;
     return (
       <div className="pw-rp-view is-fileopen">
         <div className="pw-editor-h pw-file-toolbar">
@@ -418,15 +424,13 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                   {t("toolbar.edit")}
                 </button>
               ) : null}
-              {!preview.binary ? (
-                <button
-                  className="pw-ftb-btn"
-                  title={t("toolbar.copyContentTitle")}
-                  onClick={() => void copyText(dirty ? draftRef.current : preview.content, t("content"))}
-                >
-                  {t("content")}
-                </button>
-              ) : null}
+              <button
+                className="pw-ftb-btn"
+                title={t("toolbar.copyContentTitle")}
+                onClick={() => void copyText(dirty ? draftRef.current : preview.content, t("content"))}
+              >
+                {t("content")}
+              </button>
               {preview.path ? (
                 <button className="pw-ftb-btn" title={t("toolbar.copyPathTitle")} onClick={() => void copyText(preview.path!, t("path"))}>
                   {t("path")}
@@ -450,7 +454,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                   {t("toolbar.reveal")}
                 </button>
               ) : null}
-              {preview.path && !preview.isDiff && !preview.binary ? (
+              {preview.path && !preview.isDiff ? (
                 <button className="pw-icon-btn" title={t("toolbar.reload")} onClick={() => void openFile(preview.path!, preview.name)}>
                   <Icon.Workflow size={13} />
                 </button>
@@ -460,11 +464,6 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
         </div>
         {preview.isDiff ? (
           <DiffText content={preview.content} />
-        ) : preview.binary ? (
-          <div className="pw-panel-empty">
-            <FileIcon name={preview.name} size={40} />
-            <span>{t("binaryNotice")}</span>
-          </div>
         ) : isMarkdownName(preview.name) && !editMode ? (
           // .md 预览:与 tasks 文档同款渲染（点「编辑」切回 Monaco 源码编辑）。
           <div className="pw-file-md">

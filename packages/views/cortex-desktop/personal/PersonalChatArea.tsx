@@ -22,6 +22,7 @@ import type { Conversation, Message } from "@cortex-work/core/types";
 import { extractLatestTurnAutoOpenDevPreviewUrls } from "@cortex-work/core/personal/devPreviewDetection";
 import { MessageStream } from "../ChatArea";
 import { agentContact } from "./agentMeta";
+import { isOpenExternalLike } from "./fileIcons";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
@@ -212,24 +213,30 @@ export function PersonalChatArea({
   // 早退之前调用(hooks 规则);session/project 可空时回调内部短路(此时消息流根本不渲染)。
   const running = session ? !!runningBySession[session.id] : false;
 
-  // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为绝对路径,请求右栏预览并展开右栏。
+  // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为绝对路径,按文件类型分发:
+  // - 文本类 → 请求右栏内置预览并展开右栏;
+  // - 非文本(图片/媒体/office/pdf/二进制)→ 直接系统默认应用打开,不开右栏。
   // 无项目会话(无 realProject)与解析爬出项目(within=false)一律短路,不派发。
   const handleOpenFile = useCallback(
     (ref: string) => {
       if (!realProject) return;
-      const openPreview = (abs: string) => {
+      const openResolved = (abs: string) => {
         const name = abs.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? ref;
+        if (isOpenExternalLike(name)) {
+          void bridge?.openPath?.(abs).catch(() => onToast(`打开失败：${name}`));
+          return;
+        }
         requestFilePreview({ projectId: realProject.id, path: abs, name });
         setRightOpen(true);
       };
       const probe = bridge?.resolveProjectFile;
       if (!probe) {
         const { abs, within } = resolveProjectFileRef(realProject.path, ref);
-        if (within) openPreview(abs);
+        if (within) openResolved(abs);
         return;
       }
       void probe(realProject.path, ref).then((abs) => {
-        if (abs) openPreview(abs);
+        if (abs) openResolved(abs);
         else onToast(`未找到文件：${ref}`);
       });
     },

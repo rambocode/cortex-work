@@ -84,6 +84,16 @@ const FULLNAME_BADGES: Record<string, [string, number, string, string]> = {
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "heic", "ico", "icns", "bmp", "tiff"]);
 const ARCHIVE_EXT = new Set(["zip", "rar", "7z", "gz", "tar", "tgz", "bz2", "xz", "dmg"]);
 const MEDIA_EXT = new Set(["mp4", "mov", "webm", "mkv", "avi", "mp3", "wav", "m4a", "flac", "ogg"]);
+// 文档/二进制类:内置 Monaco 文本编辑器打不开(强转 UTF-8 会乱码),应交给系统默认应用打开。
+// 与 IMAGE/ARCHIVE/MEDIA 区分:这些仍能在文件树显示文档徽章,但点击走系统 open 而非内置预览。
+const DOC_BINARY_EXT = new Set([
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  "odt", "ods", "odp", "rtf", "pages", "numbers", "key",
+  "sqlite", "sqlite3", "db",
+  "exe", "dll", "so", "dylib", "bin", "dat",
+  "ttf", "otf", "woff", "woff2",
+  "psd", "ai", "sketch", "fig",
+]);
 
 function extOf(name: string): string {
   const i = name.lastIndexOf(".");
@@ -106,10 +116,16 @@ export function fileIconSpec(name: string): FileIconSpec | null {
   return null;
 }
 
-// 二进制类文件（图片/压缩包/媒体）不进 Monaco 文本预览。
+// 二进制类文件（图片/压缩包/媒体）不进 Monaco 文本预览。仅用于文件树拖拽门控。
 export function isBinaryLike(name: string): boolean {
   const ex = extOf(name);
   return IMAGE_EXT.has(ex) || ARCHIVE_EXT.has(ex) || MEDIA_EXT.has(ex);
+}
+
+// 内置编辑器打不开、应交系统默认应用打开的文件:图片/压缩/媒体 + office 文档/pdf/二进制。
+// 点击此类文件链接(会话内或文件树)直接调 bridge.openPath,不进右栏内置预览。
+export function isOpenExternalLike(name: string): boolean {
+  return isBinaryLike(name) || DOC_BINARY_EXT.has(extOf(name));
 }
 
 // 文件树行内小图标。spec 为 null 时由调用方回退通用 <Icon.File>。
