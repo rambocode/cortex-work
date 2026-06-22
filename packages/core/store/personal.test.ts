@@ -111,6 +111,37 @@ describe("插件市场启停/信任 store（U5）", () => {
   });
 });
 
+describe("浏览器控制 store（U1）", () => {
+  it("hydrate 缺 browserControl 时兜 DEFAULT_BROWSER_CONTROL", () => {
+    usePersonalStore.getState().hydrate({ ...base, generalSettings: { ...DEFAULT_GENERAL_SETTINGS } });
+    expect(usePersonalStore.getState().generalSettings.browserControl).toEqual({
+      enabled: false,
+      cdpEnabled: false,
+      approvedOrigins: [],
+    });
+  });
+
+  it("setBrowserControl patch 不覆盖未传字段", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setBrowserControl({ enabled: true });
+    usePersonalStore.getState().setBrowserControl({ cdpEnabled: true });
+    const bc = usePersonalStore.getState().generalSettings.browserControl!;
+    expect(bc.enabled).toBe(true);
+    expect(bc.cdpEnabled).toBe(true);
+  });
+
+  it("approvedOrigins 增删去重", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().addApprovedOrigin("https://example.com");
+    usePersonalStore.getState().addApprovedOrigin("https://example.com");
+    expect(usePersonalStore.getState().generalSettings.browserControl!.approvedOrigins).toEqual([
+      "https://example.com",
+    ]);
+    usePersonalStore.getState().removeApprovedOrigin("https://example.com");
+    expect(usePersonalStore.getState().generalSettings.browserControl!.approvedOrigins).toEqual([]);
+  });
+});
+
 describe("hydrate 推送设置迁移", () => {
   it("旧数据（timelineSettings.push）迁移到全局 pushSettings", () => {
     const legacy = {

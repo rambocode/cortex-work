@@ -500,6 +500,9 @@ export interface GeneralSettings {
   // 插件市场（agents 标准，第一期）——启停/信任态（只读库存之上的本地叠加层）。缺省 = DEFAULT_PLUGIN_ENABLE。
   // 主进程不读（注入根经 IPC 入参传入，见 skill-injection），故不在 main GeneralSettings 镜像。
   plugins?: PluginEnableSettings;
+  // 浏览器控制（agent 经第一方 MCP server 驱动内置 webview）——总开关 / CDP / 非本地导航预授权白名单。
+  // 缺省 = DEFAULT_BROWSER_CONTROL。主进程读 enabled 决定是否注入浏览器 server（cli.ts），故**进** main 镜像。
+  browserControl?: BrowserControlSettings;
 }
 
 // pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。
@@ -625,6 +628,19 @@ export const PI_THINKING_LABELS: Record<ThinkingLevel, string> = {
   medium: "中",
   high: "高",
   xhigh: "极高",
+};
+
+// 浏览器控制配置（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。
+export interface BrowserControlSettings {
+  enabled: boolean; // 总开关:关时不注入任何浏览器工具,行为同现状
+  cdpEnabled: boolean; // CDP(网络观测 / 无障碍)独立 opt-in,默认关
+  approvedOrigins: string[]; // 非本地导航的预授权 origin 白名单(scheme 限定,如 https://example.com)
+}
+
+export const DEFAULT_BROWSER_CONTROL: BrowserControlSettings = {
+  enabled: false,
+  cdpEnabled: false,
+  approvedOrigins: [],
 };
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {

@@ -15,6 +15,7 @@ import type {
   PiExtensionSettings,
   InstalledExtensionRecord,
   PluginEnableSettings,
+  BrowserControlSettings,
   PiUiRequest,
   ProviderProfile,
   ProviderSettings,
@@ -33,6 +34,7 @@ import {
   DEFAULT_PI_SKILLS,
   DEFAULT_PI_EXTENSIONS,
   DEFAULT_PLUGIN_ENABLE,
+  DEFAULT_BROWSER_CONTROL,
   DEFAULT_PROVIDER_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TIMELINE_SETTINGS,
@@ -195,6 +197,10 @@ export interface PersonalState {
   // 插件市场 setter（U5）:启停（opt-in）+ 信任（默认已授信，仅记显式撤信）。键 = 插件 id。
   togglePlugin: (id: string, enabled: boolean) => void;
   setPluginTrusted: (id: string, trusted: boolean) => void;
+  // 浏览器控制 setter（U1）:总开关/CDP 经 patch;非本地导航白名单单独增删（去重）。
+  setBrowserControl: (patch: Partial<BrowserControlSettings>) => void;
+  addApprovedOrigin: (origin: string) => void;
+  removeApprovedOrigin: (origin: string) => void;
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
   // projectId 缺省 = 不使用项目（会话在 opts.noProjectDir 工作目录运行）。
@@ -320,6 +326,8 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     piExtensions: { ...DEFAULT_PI_EXTENSIONS, ...g.piExtensions },
     // 插件市场启停/信任:旧档无 plugins 或缺子字段时兜 DEFAULT_PLUGIN_ENABLE（U5）。
     plugins: { ...DEFAULT_PLUGIN_ENABLE, ...g.plugins },
+    // 浏览器控制:旧档无 browserControl 或缺子字段时逐字段兜 DEFAULT_BROWSER_CONTROL（U1）。
+    browserControl: { ...DEFAULT_BROWSER_CONTROL, ...g.browserControl },
   };
 }
 
@@ -598,6 +606,32 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
           ? cur.distrusted
           : [...cur.distrusted, id];
       return { generalSettings: { ...s.generalSettings, plugins: { ...cur, distrusted: next } } };
+    }),
+
+  // ── 浏览器控制 setter（U1）─────────────────────────────────────────────────
+  // 现值兜底 DEFAULT_BROWSER_CONTROL；patch 不覆盖未传字段;白名单增删去重。
+  setBrowserControl: (patch) =>
+    set((s) => ({
+      generalSettings: {
+        ...s.generalSettings,
+        browserControl: { ...DEFAULT_BROWSER_CONTROL, ...s.generalSettings.browserControl, ...patch },
+      },
+    })),
+  addApprovedOrigin: (origin) =>
+    set((s) => {
+      const cur: BrowserControlSettings = { ...DEFAULT_BROWSER_CONTROL, ...s.generalSettings.browserControl };
+      const next = cur.approvedOrigins.includes(origin) ? cur.approvedOrigins : [...cur.approvedOrigins, origin];
+      return { generalSettings: { ...s.generalSettings, browserControl: { ...cur, approvedOrigins: next } } };
+    }),
+  removeApprovedOrigin: (origin) =>
+    set((s) => {
+      const cur: BrowserControlSettings = { ...DEFAULT_BROWSER_CONTROL, ...s.generalSettings.browserControl };
+      return {
+        generalSettings: {
+          ...s.generalSettings,
+          browserControl: { ...cur, approvedOrigins: cur.approvedOrigins.filter((o) => o !== origin) },
+        },
+      };
     }),
 
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),
