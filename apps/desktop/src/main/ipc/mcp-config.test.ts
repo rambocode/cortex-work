@@ -41,6 +41,16 @@ describe("buildClaudeMcpJson", () => {
     expect(json.mcpServers.web).toEqual({ type: "http", url: "https://mcp.example/sse" });
     expect(json.mcpServers["x.y"]).toBeUndefined(); // 非法 id 跳过
   });
+
+  it("stdio 带 cwd + envPassthrough → cwd 写入,透传名从 process.env 解析并入 env", () => {
+    process.env.__MCP_PASS_TEST = "pv";
+    const json = JSON.parse(
+      buildClaudeMcpJson([{ id: "fs", transport: "stdio", command: "/bin/fs", env: { A: "1" }, cwd: "~/code", envPassthrough: ["__MCP_PASS_TEST", "__MCP_MISSING"] }]),
+    );
+    expect(json.mcpServers.fs.cwd).toBe("~/code");
+    expect(json.mcpServers.fs.env).toEqual({ A: "1", __MCP_PASS_TEST: "pv" }); // 缺失的透传名跳过
+    delete process.env.__MCP_PASS_TEST;
+  });
 });
 
 describe("buildCodexMcpArgs", () => {
@@ -54,6 +64,11 @@ describe("buildCodexMcpArgs", () => {
     expect(out).toContain('mcp_servers.fs.command="/bin/fs"');
     expect(out).toContain('mcp_servers.fs.args=["--root","/p"]');
     expect(out).toContain('mcp_servers.fs.env={ "TOKEN" = "x" }');
+  });
+
+  it("stdio cwd → -c mcp_servers.<id>.cwd", () => {
+    const out = buildCodexMcpArgs({ enabled: true, servers: [{ id: "fs", transport: "stdio", command: "/bin/fs", cwd: "~/code" }] });
+    expect(out).toContain('mcp_servers.fs.cwd="~/code"');
   });
 
   it("http → -c url;非法 id 跳过(不产生错位 dotted key)", () => {

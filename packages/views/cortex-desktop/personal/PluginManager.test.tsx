@@ -1,210 +1,170 @@
-// 插件管理器（U7）渲染与交互测试。CoreProvider 注入 fake bridge;usePersonalStore 真实。
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+// PluginManager 三层 IA 壳测试（U7–U10）：顶栏两首页 / 管理页四 sub-tab / 详情页 / 插件启停。
+// CoreProvider 注入 fake bridge（pluginList/marketplaceList/piSkillsList）；usePersonalStore 真实。
+import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReactElement } from "react";
 import { CoreProvider, usePersonalStore, DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS } from "@cortex-work/core";
-import type { DesktopBridge, PluginSkill } from "@cortex-work/core";
+import type { DesktopBridge, InstalledPlugin, MarketplaceEntry } from "@cortex-work/core";
 import { PluginManager } from "./PluginManager";
 
-function sk(
-  name: string,
-  scope: "global" | "workspace",
-  dir: string,
-  docs: PluginSkill["docs"] = [],
-): PluginSkill {
-  return { name, description: `${name} 描述`, dir, rootPath: "/root", scope, enabled: true, trusted: scope === "global", docs };
+function plug(id: string, name: string, opts: Partial<InstalledPlugin["manifest"]> & { skillsDir?: string } = {}): InstalledPlugin {
+  const { skillsDir, ...mf } = opts;
+  return {
+    manifest: { id, name, ...mf },
+    installPath: `/p/${id}`,
+    skillsDir,
+    manifestKind: "codex",
+  };
 }
 
-function renderWith(bridge: DesktopBridge | null, ui: ReactElement = <PluginManager />) {
+function fakeBridge(opts: {
+  plugins?: InstalledPlugin[];
+  market?: MarketplaceEntry[];
+  marketError?: string;
+  marketRootExists?: boolean;
+} = {}): DesktopBridge {
+  return {
+    piSkillsList: vi.fn(async () => []),
+    pluginList: vi.fn(async () => ({ items: opts.plugins ?? [], rootExists: true })),
+    marketplaceList: vi.fn(async () => ({
+      items: opts.market ?? [],
+      rootExists: opts.marketRootExists ?? true,
+      error: opts.marketError,
+    })),
+  } as unknown as DesktopBridge;
+}
+
+function renderWith(bridge: DesktopBridge | null) {
   return render(
     <CoreProvider wsId="ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-      {ui}
+      <PluginManager />
     </CoreProvider>,
   );
 }
 
-function fakeBridge(skills: PluginSkill[], createSkill?: DesktopBridge["createSkill"]): DesktopBridge {
-  return {
-    piSkillsList: vi.fn(async () => skills),
-    openSkillDir: vi.fn(async () => ({ ok: true })),
-    createSkill: createSkill ?? vi.fn(async () => ({ ok: true })),
-  } as unknown as DesktopBridge;
-}
-
 beforeEach(() => {
   usePersonalStore.setState({
-    generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: { ...DEFAULT_PI_SKILLS } },
+    generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: { ...DEFAULT_PI_SKILLS }, plugins: { enabled: [], distrusted: [] } },
     projects: [],
     activeProjectId: undefined,
   });
 });
 afterEach(() => cleanup());
 
-describe("PluginManager", () => {
-  it("渲染全局 skill 列表 + 统计", async () => {
-    renderWith(fakeBridge([sk("code-review", "global", "/g/cr"), sk("bug-hunt", "global", "/g/bh")]));
-    expect(await screen.findByText("Code Review")).toBeTruthy(); // 展示名 title-case
-    expect(screen.getByText("Bug Hunt")).toBeTruthy();
-    expect(screen.getByText(/已扫描 2 个/)).toBeTruthy();
-    expect(screen.getByText(/2 个启用/)).toBeTruthy();
+describe("PluginManager 三层 IA", () => {
+  it("顶栏两首页：默认插件首页，可切到技能首页（SkillPanel）", async () => {
+    renderWith(fakeBridge({ plugins: [plug("a", "Alpha")] }));
+    expect(screen.getByRole("tab", { name: "插件" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "技能" })).toBeTruthy();
+    // 默认插件首页：渲染已装插件
+    expect(await screen.findByText("Alpha")).toBeTruthy();
+    // 切技能 → SkillPanel 的三端作用域说明
+    fireEvent.click(screen.getByRole("tab", { name: "技能" }));
+    expect(await screen.findByText(/三端均生效/)).toBeTruthy();
   });
 
-  it("作用域说明 banner:点明逐 skill 开关仅 pi、codex 无 skill、claude 用总开关(U1/R1)", async () => {
-    renderWith(fakeBridge([sk("code-review", "global", "/g/cr")]));
-    const note = await screen.findByRole("note");
-    expect(note.textContent).toMatch(/pi/);
-    expect(note.textContent).toMatch(/codex/);
-    expect(note.textContent).toMatch(/claude/);
-    expect(note.textContent).toMatch(/仅对/); // 「仅对 pi 会话生效」语义
+  it("插件首页空态：无已装插件给引导", async () => {
+    renderWith(fakeBridge({ plugins: [] }));
+    expect(await screen.findByText("还没有已装插件")).toBeTruthy();
   });
 
-  it("点禁用 → 写 disabledSkills,统计减一", async () => {
-    renderWith(fakeBridge([sk("code-review", "global", "/g/cr"), sk("bug-hunt", "global", "/g/bh")]));
-    const toggle = await screen.findByRole("switch", { name: /code-review/ });
-    fireEvent.click(toggle);
-    expect(usePersonalStore.getState().generalSettings.piSkills!.disabledSkills).toContain("global:code-review");
-    await waitFor(() => expect(screen.getByText(/1 个启用/)).toBeTruthy());
+  it("插件行开关 → 写 store.plugins.enabled（opt-in）", async () => {
+    renderWith(fakeBridge({ plugins: [plug("pdf", "PDF")] }));
+    const sw = await screen.findByRole("switch", { name: /PDF/ });
+    fireEvent.click(sw);
+    expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toContain("pdf");
   });
 
-  it("搜索过滤", async () => {
-    renderWith(fakeBridge([sk("code-review", "global", "/g/cr"), sk("bug-hunt", "global", "/g/bh")]));
-    await screen.findByText("Code Review");
-    fireEvent.change(screen.getByLabelText("搜索 Skill"), { target: { value: "bug" } });
-    expect(screen.queryByText("Code Review")).toBeNull();
-    expect(screen.getByText("Bug Hunt")).toBeTruthy();
+  it("插件首页「管理」→ 进管理页四 sub-tab（插件/MCP/技能/市场，无应用）", async () => {
+    renderWith(fakeBridge({ plugins: [plug("a", "Alpha")] }));
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "管理" }));
+    expect(await screen.findByRole("tab", { name: /插件/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /MCP/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /技能/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /市场/ })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: /应用/ })).toBeNull();
   });
 
-  it("工作区未授信 skill → 显示「信任并启用」,点击写 trustedWorkspaceSkillDirs", async () => {
-    usePersonalStore.setState({
-      generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: { ...DEFAULT_PI_SKILLS } },
-      projects: [{ id: "p1", name: "p", path: "/proj", addedAt: 1 }],
-      activeProjectId: "p1",
-    });
-    renderWith(fakeBridge([sk("ws-skill", "workspace", "/proj/.cortex-desktop/skills/ws-skill")]));
-    const trustBtn = await screen.findByRole("button", { name: "信任并启用" });
-    fireEvent.click(trustBtn);
-    expect(usePersonalStore.getState().generalSettings.piSkills!.trustedWorkspaceSkillDirs).toContain(
-      "/proj/.cortex-desktop/skills/ws-skill",
-    );
+  it("管理页 MCP sub-tab：MCP 工具 + pi 原生扩展并列（pi 扩展并入 MCP 同级）", async () => {
+    renderWith(fakeBridge({ plugins: [plug("a", "Alpha")] }));
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "管理" }));
+    fireEvent.click(await screen.findByRole("tab", { name: /MCP/ }));
+    expect(await screen.findByText(/pi 原生扩展/)).toBeTruthy();
   });
 
-  it("同名全局+工作区 → 工作区卡标「已被全局同名覆盖」", async () => {
-    usePersonalStore.setState({
-      generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: { ...DEFAULT_PI_SKILLS } },
-      projects: [{ id: "p1", name: "p", path: "/proj", addedAt: 1 }],
-      activeProjectId: "p1",
-    });
+  it("管理页 市场 sub-tab：只读列条目 + 安装按钮禁用", async () => {
     renderWith(
-      fakeBridge([sk("dup", "global", "/g/dup"), sk("dup", "workspace", "/proj/.cortex-desktop/skills/dup")]),
+      fakeBridge({
+        plugins: [plug("a", "Alpha")],
+        market: [{ name: "Cowart", sourceKind: "local", sourcePath: "./plugins/cowart", ok: true }],
+      }),
     );
-    expect(await screen.findByText("已被全局同名覆盖")).toBeTruthy();
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "管理" }));
+    fireEvent.click(await screen.findByRole("tab", { name: /市场/ }));
+    expect(await screen.findByText("Cowart")).toBeTruthy();
+    const installBtn = screen.getByRole("button", { name: /安装/ });
+    expect((installBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("配套文档（U5）:渲染 docs chip,点击调 bridge.openPath", async () => {
-    const bridge = fakeBridge([
-      sk("with-docs", "global", "/g/wd", [
-        { name: "reference.md", path: "/g/wd/reference.md" },
-        { name: "config.json", path: "/g/wd/config.json" },
-      ]),
-    ]);
-    const openPath = vi.fn(async () => {});
-    (bridge as unknown as { openPath: typeof openPath }).openPath = openPath;
-    renderWith(bridge);
-    const docBtn = await screen.findByRole("button", { name: /reference\.md/ });
-    expect(screen.getByRole("button", { name: /config\.json/ })).toBeTruthy();
-    fireEvent.click(docBtn);
-    expect(openPath).toHaveBeenCalledWith("/g/wd/reference.md");
-  });
-
-  it("无配套文档 → 不渲染文档区", async () => {
-    renderWith(fakeBridge([sk("bare", "global", "/g/bare")]));
-    await screen.findByText("Bare");
-    expect(screen.queryByRole("button", { name: /\.md|\.json/ })).toBeNull();
-  });
-
-  it("空结果 → 引导空态", async () => {
-    renderWith(fakeBridge([]));
-    expect(await screen.findByText("未发现 Skill")).toBeTruthy();
-  });
-
-  it("切到 MCP 标签 → 敬请期待占位", async () => {
-    renderWith(fakeBridge([sk("a", "global", "/g/a")]));
-    fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
-    expect(screen.getByText("MCP 管理敬请期待")).toBeTruthy();
-  });
-
-  it("管理面板:添加全局目录 → 写 userGlobalRoots", async () => {
-    renderWith(fakeBridge([]));
-    await screen.findByText("未发现 Skill");
-    fireEvent.click(screen.getByRole("button", { name: /管理/ })); // 展开管理面板
-    fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/my/skills" } });
-    fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
-    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/my/skills");
-  });
-
-  it("添加全局目录:validateDir 返回 false → 报错且不写入", async () => {
-    const bridge = fakeBridge([]);
-    (bridge as unknown as { validateDir: () => Promise<boolean> }).validateDir = vi.fn(async () => false);
-    renderWith(bridge);
-    await screen.findByText("未发现 Skill");
-    fireEvent.click(screen.getByRole("button", { name: /管理/ }));
-    fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/not/exist" } });
-    fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
-    await screen.findByRole("alert");
-    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).not.toContain("~/not/exist");
-  });
-
-  it("添加全局目录:validateDir 返回 true → 写入 userGlobalRoots", async () => {
-    const bridge = fakeBridge([]);
-    (bridge as unknown as { validateDir: () => Promise<boolean> }).validateDir = vi.fn(async () => true);
-    renderWith(bridge);
-    await screen.findByText("未发现 Skill");
-    fireEvent.click(screen.getByRole("button", { name: /管理/ }));
-    fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/real/skills" } });
-    fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
-    await waitFor(() =>
-      expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/real/skills"),
+  it("市场坏条目 → 错误卡（对齐设计稿）", async () => {
+    renderWith(
+      fakeBridge({
+        plugins: [plug("a", "Alpha")],
+        market: [{ name: "Broken", sourceKind: "unknown", ok: false, error: "缺少 source 字段" }],
+      }),
     );
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "管理" }));
+    fireEvent.click(await screen.findByRole("tab", { name: /市场/ }));
+    expect(await screen.findByText(/部分插件市场条目无法加载/)).toBeTruthy();
+    expect(screen.getByText(/缺少 source 字段/)).toBeTruthy();
   });
 
-  it("创建:点「创建」展开表单,填写后「添加自定义」调 createSkill", async () => {
-    const createSkill = vi.fn(async () => ({ ok: true }));
-    renderWith(fakeBridge([], createSkill));
-    await screen.findByText("未发现 Skill");
-    fireEvent.click(screen.getByRole("button", { name: /创建/ }));
-    fireEvent.change(screen.getByLabelText("Skill 名称"), { target: { value: "my-plugin" } });
-    fireEvent.change(screen.getByLabelText("基础描述"), { target: { value: "我的插件" } });
-    fireEvent.change(screen.getByLabelText("Skill 指令"), { target: { value: "你是助手" } });
-    fireEvent.click(screen.getByRole("button", { name: /添加自定义/ }));
-    await waitFor(() =>
-      expect(createSkill).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "my-plugin", description: "我的插件", body: "你是助手" }),
-      ),
-    );
+  it("点插件进详情页：富元数据 + 能力 + 「···」菜单含路径/升级禁用", async () => {
+    renderWith(fakeBridge({ plugins: [plug("a", "Alpha", { category: "Productivity", capabilities: ["Read"] })] }));
+    fireEvent.click(await screen.findByText("Alpha"));
+    expect(screen.getAllByText("Read").length).toBeGreaterThan(0); // 能力(功能行 + chip)
+    // 打开 ··· 菜单 → 升级禁用 + 本地路径
+    fireEvent.click(screen.getByRole("button", { name: "更多" }));
+    const upgrade = screen.getByRole("menuitem", { name: "升级" });
+    expect((upgrade as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("/p/a")).toBeTruthy();
   });
 
-  it("目录选择器:选具体目录 → 统计按该目录计", async () => {
-    usePersonalStore.setState({
-      generalSettings: {
-        ...DEFAULT_GENERAL_SETTINGS,
-        piSkills: { ...DEFAULT_PI_SKILLS, globalRoots: ["~/.agents/skills", "~/other"] },
-      },
-      projects: [],
-      activeProjectId: undefined,
-    });
-    // 两个 skill,rootPath 落在不同根。
-    const a: PluginSkill = { ...sk("a", "global", "/g/a"), rootPath: "/home/u/.agents/skills" };
-    const b: PluginSkill = { ...sk("b", "global", "/o/b"), rootPath: "/home/u/other" };
-    renderWith(fakeBridge([a, b]));
-    await screen.findByText("A");
-    expect(screen.getByText(/已扫描 2 个/)).toBeTruthy();
-    // 选 ~/.agents/skills → 只数尾段匹配的那 1 个。
-    fireEvent.change(screen.getByLabelText("选择 Skill 目录"), { target: { value: "~/.agents/skills" } });
-    expect(screen.getByText(/已扫描 1 个/)).toBeTruthy();
+  it("详情页「···」菜单启停 → 写 store；面包屑可返回", async () => {
+    renderWith(fakeBridge({ plugins: [plug("pdf", "PDF")] }));
+    fireEvent.click(await screen.findByText("PDF"));
+    fireEvent.click(screen.getByRole("button", { name: "更多" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "启用" }));
+    expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toContain("pdf");
+    // 面包屑返回首页
+    fireEvent.click(screen.getByRole("button", { name: "插件" }));
+    expect(await screen.findByRole("tab", { name: "技能" })).toBeTruthy();
   });
 
-  it("bridge=null（web/旧壳）→ 降级空态", () => {
+  it("详情页头部「在对话中试用」→ 启用插件 + 预填 defaultPrompt 到输入框", async () => {
+    renderWith(fakeBridge({ plugins: [plug("pdf", "PDF", { defaultPrompt: "Review this PDF" })] }));
+    fireEvent.click(await screen.findByText("PDF"));
+    // 头部按钮(exact)避免与 banner 的 aria-label「在对话中试用 PDF」冲突
+    const tryBtn = screen.getByRole("button", { name: "在对话中试用" });
+    fireEvent.click(tryBtn);
+    expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toContain("pdf");
+    expect(usePersonalStore.getState().composerInsert?.text).toBe("Review this PDF");
+    expect(usePersonalStore.getState().composerInsert?.plugin).toMatchObject({ id: "pdf", name: "PDF" });
+  });
+
+  it("详情页渐变 banner 可点击试用（启用 + 预填）", async () => {
+    renderWith(fakeBridge({ plugins: [plug("pdf", "PDF", { defaultPrompt: "Review this PDF" })] }));
+    fireEvent.click(await screen.findByText("PDF"));
+    fireEvent.click(screen.getByRole("button", { name: "在对话中试用 PDF" })); // banner aria-label
+    expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toContain("pdf");
+    expect(usePersonalStore.getState().composerInsert?.text).toBe("Review this PDF");
+  });
+
+  it("bridge=null（web/旧壳）→ 插件首页降级空态", async () => {
     renderWith(null);
-    expect(screen.getByText(/当前环境不支持 Skill 扫描/)).toBeTruthy();
+    expect(await screen.findByText(/当前环境不支持插件扫描/)).toBeTruthy();
   });
 });

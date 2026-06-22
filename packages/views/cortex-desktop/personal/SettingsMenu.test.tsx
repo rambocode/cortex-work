@@ -276,10 +276,11 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     expect(usePersonalStore.getState().generalSettings.piThinkingDefault).toBe("high");
   });
 
-  it("切到「插件」标签渲染插件管理器(MCP/Skill 分段)", () => {
+  it("切到「插件」标签渲染插件管理器(三层 IA 顶栏:插件/技能)", () => {
     renderUI(<PersonalSettingsView />);
     fireEvent.click(screen.getByRole("button", { name: "插件" }));
-    expect(screen.getByRole("tab", { name: "Skill" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "MCP" })).toBeTruthy();
+    // 三层 IA 取代旧 Skill/MCP 两 tab:顶栏为「插件 / 技能」两大类。
+    expect(screen.getByRole("tab", { name: "插件" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "技能" })).toBeTruthy();
   });
 });

@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
 import { getSkill, listSkills, scanSkillRoots } from "../skills/registry";
 import { expandTilde, pluginSkillRoots } from "../skills/locate";
+import { installedPluginsRoot } from "../plugins/locate";
 import type { PluginSkill, SkillMeta } from "./types";
 
 // pi-skills:list 入参(渲染端从 piSkills 配置拍平传入)。
@@ -19,6 +20,9 @@ interface PiSkillsListArgs {
   userGlobalRoots?: string[];
   workspaceEnabled: boolean;
   workspaceDir?: string;
+  // U6:已启用 ∩ 已授信插件的 skills 根（绝对路径）。渲染端按 store 过滤后传入（main 不读 store）;
+  // 以 scope=global 并入扫描根，使插件内 skill 与第一方 skill 走同一注入链与去重。
+  pluginSkillDirs?: string[];
 }
 
 // pi-skills:open-dir 入参:dir = 要打开的根;allowedRoots = 全部已配置根（白名单,可含 ~）。
@@ -61,6 +65,15 @@ export function registerSkillsHandlers(): void {
   // 插件管理:按配置扫描多根 → PluginSkill[]（enabled 恒 true,启用/授信态由渲染端叠加）。
   ipcMain.handle("pi-skills:list", (_e, args: PiSkillsListArgs): Promise<PluginSkill[]> => {
     const roots = pluginSkillRoots(args, args.workspaceDir);
+    // U6:已启用插件的 skills 根以 scope=global 并入（渲染端已按启停/信任过滤要送哪些）。
+    // 安全（ADV-002）:渲染端传入的 pluginSkillDirs 视为不可信，主进程须二次校验其落在
+    // installedPluginsRoot 内（与 open-dir/create 的白名单姿态一致）——杜绝被篡改的渲染端传入
+    // 任意路径（如 / 或 /etc）让 scanSkillRoots 扫描并把其 SKILL.md 注入系统提示。
+    const pluginRoot = installedPluginsRoot();
+    for (const dir of args.pluginSkillDirs ?? []) {
+      const resolved = resolve(expandTilde(dir));
+      if (isInside(pluginRoot, resolved)) roots.push({ path: resolved, scope: "global" });
+    }
     return scanSkillRoots(roots);
   });
 

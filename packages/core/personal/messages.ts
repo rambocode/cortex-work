@@ -20,8 +20,9 @@ import type {
   SessionMeta,
   ThinkingLevel,
 } from "../desktop/types";
-import { DEFAULT_PI_SKILLS, DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
+import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 import type { DesktopBridge } from "../desktop/bridge";
+import { renderSkillBlock, resolveEnabledSkillRecords } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
@@ -1372,41 +1373,16 @@ export function buildGlobalAppend(): string | undefined {
   return parts.length ? parts.join("\n\n") : undefined;
 }
 
-// 插件 Skill（U5）:据 piSkills 配置 + 工作区路径,解析出注入 pi 的 --skill 目录集合。
-// 流程:bridge 扫描多根 → 过滤禁用(scope:name) + 工作区未授信 → 按 name 去重(全局覆盖工作区,
-// 高可信优先,防恶意工作区同名劫持) → 排序。useOwnSkills===false = 会话级一键关 → []。
-// bridge 无 piSkillsList（web/旧壳）或扫描失败 → []（降级,不阻断发送）。RPC 与单发两路共用。
+// 插件 Skill:解析注入 pi 的 --skill 目录集合。过滤/去重逻辑(禁用、工作区未授信、name 去重、
+// useOwnSkills 短路、降级)已下沉到 skill-injection.ts 的 resolveEnabledSkillRecords(唯一实现、
+// 跨 agent 共用),此处取其 dir 维持 pi 路径与既有调用方/测试的 string[] 契约不变。
 export async function resolveEnabledSkillPaths(
   bridge: DesktopBridge,
   projectPath: string,
   useOwnSkills: boolean | undefined,
+  agent?: AgentKind,
 ): Promise<string[]> {
-  if (useOwnSkills === false) return [];
-  if (!bridge.piSkillsList) return [];
-  const cfg = { ...DEFAULT_PI_SKILLS, ...usePersonalStore.getState().generalSettings.piSkills };
-  let skills;
-  try {
-    skills = await bridge.piSkillsList({
-      globalRoots: cfg.globalRoots,
-      userGlobalRoots: cfg.userGlobalRoots,
-      workspaceEnabled: cfg.workspaceEnabled,
-      workspaceDir: projectPath,
-    });
-  } catch {
-    return [];
-  }
-  const disabled = new Set(cfg.disabledSkills);
-  const trusted = new Set(cfg.trustedWorkspaceSkillDirs);
-  const enabled = skills.filter((s) => {
-    if (disabled.has(`${s.scope}:${s.name}`)) return false; // 已禁用
-    if (s.scope === "workspace" && !trusted.has(s.dir)) return false; // 工作区未授信不注入
-    return true;
-  });
-  // name 去重:先放工作区、后放全局覆盖 → 同名时全局胜出。
-  const byName = new Map<string, string>();
-  for (const s of enabled) if (s.scope === "workspace") byName.set(s.name, s.dir);
-  for (const s of enabled) if (s.scope === "global") byName.set(s.name, s.dir);
-  return [...byName.values()].sort();
+  return (await resolveEnabledSkillRecords(bridge, projectPath, useOwnSkills, agent)).map((s) => s.dir);
 }
 
 // 扩展市场（U3）:据 piExtensions 配置解析出注入 pi 的 -e 路径集合。
@@ -1516,7 +1492,7 @@ async function sendPiTurn(
     const thinkingLevel = session.thinkingLevel ?? usePersonalStore.getState().generalSettings.piThinkingDefault;
     // 插件 Skill（U5）:解析已启用 + 授信 + 去重的 skill 目录,经 --skill 注入;集合变化经
     // extensionFingerprint 触发会话重开。useOwnSkills===false → 会话级一键关 → []。
-    const skillPaths = await resolveEnabledSkillPaths(bridge, projectPath, session.useOwnSkills);
+    const skillPaths = await resolveEnabledSkillPaths(bridge, projectPath, session.useOwnSkills, session.agent);
     // 扩展市场（U3）:解析已启用+已授信的扩展 -e 路径;集合变化经 extensionFingerprint 触发重开。
     const extensionPaths = resolveEnabledExtensionPaths(projectPath);
     const opened = await ensurePiSession(
@@ -2150,12 +2126,14 @@ export function usePersonalActions(): PersonalActions {
           }
         }
 
-        // 插件 Skill（U5）:仅 pi 单发路径解析注入 skillPaths（claude/codex adapter 忽略,
-        // 且不必为它们空扫目录）。RPC 路径在 sendPiTurn 另行注入。
-        const skillPaths =
-          sendSession.agent === "pi"
-            ? await resolveEnabledSkillPaths(bridge, projectPath, sendSession.useOwnSkills)
-            : undefined;
+        // 跨 agent skill 注入(U2):此分支仅 claude/codex(pi 已在上面 sendPiTurn 走 --skill 并 return)。
+        // 把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 两路互斥 → 不双注入(R3)。
+        // useOwnSkills 短路对 claude/codex 同样生效(RISK-2):resolveEnabledSkillRecords 据其早退。
+        const skillBlock = renderSkillBlock(
+          await resolveEnabledSkillRecords(bridge, projectPath, sendSession.useOwnSkills, sendSession.agent),
+        );
+        const appendWithSkills =
+          [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
         await bridge.startCli({
           runId,
           sessionId: sendSession.id,
@@ -2164,9 +2142,9 @@ export function usePersonalActions(): PersonalActions {
           prompt: text,
           model: sendSession.model,
           resumeSessionId,
-          appendSystemPrompt,
+          appendSystemPrompt: appendWithSkills,
           useOwnSkills: sendSession.useOwnSkills,
-          skillPaths,
+          skillPaths: undefined,
           images: cliImages,
           // 运行模式:claude/codex adapter 翻译成原生标志;缺省 full-auto(历史默认)。逐轮 fresh
           // spawn,改值下一轮即生效,无需重开。

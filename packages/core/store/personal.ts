@@ -13,6 +13,7 @@ import type {
   PiSkillSettings,
   PiExtensionSettings,
   InstalledExtensionRecord,
+  PluginEnableSettings,
   PiUiRequest,
   ProviderProfile,
   ProviderSettings,
@@ -30,6 +31,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_PI_SKILLS,
   DEFAULT_PI_EXTENSIONS,
+  DEFAULT_PLUGIN_ENABLE,
   DEFAULT_PROVIDER_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TIMELINE_SETTINGS,
@@ -97,7 +99,8 @@ export interface PersonalState {
   // 待插入 composer 输入框的文本（文件预览「发送到 Chat」中转;nonce 去重,
   // 防 composer 重挂载时重复插入）。submit 为真时 ComposerShell 插入后自动提交
   // （tasks 文档「插入并运行」用;跨组件契约,见 ComposerShell 消费 effect）。
-  composerInsert?: { text: string; nonce: number; submit?: boolean };
+  // plugin:插件「在对话中试用」携带的插件上下文（id+名称），ComposerShell 据此在输入框前渲染插件 pill。
+  composerInsert?: { text: string; nonce: number; submit?: boolean; plugin?: { id: string; name: string; icon?: string } };
   // GitBar「查看 diff」请求（FilesView 消费后即清,不持久化;不用 nonce——
   // FilesView 可能在请求发出时未挂载,消费即清才能让挂载后的 effect 接到）。
   gitDiffRequest?: { projectId: string };
@@ -185,6 +188,9 @@ export interface PersonalState {
   removeInstalledExtension: (scope: string, ref: string) => void; // 卸载:清溯源 + 启用 + 信任
   toggleExtension: (scope: string, ref: string, enabled: boolean) => void; // 启用/禁用
   trustExtension: (scope: string, ref: string, trusted: boolean) => void; // 过/撤信任门
+  // 插件市场 setter（U5）:启停（opt-in）+ 信任（默认已授信，仅记显式撤信）。键 = 插件 id。
+  togglePlugin: (id: string, enabled: boolean) => void;
+  setPluginTrusted: (id: string, trusted: boolean) => void;
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
   // projectId 缺省 = 不使用项目（会话在 opts.noProjectDir 工作目录运行）。
@@ -222,7 +228,7 @@ export interface PersonalState {
   sendToTerminal: (text: string) => void;
   // 原子消费待发送文本（TermSession spawn 完成 / 面板 effect 双路触发,先到先得）。
   consumePendingTerminalText: () => string | undefined;
-  insertToComposer: (text: string, opts?: { submit?: boolean }) => void;
+  insertToComposer: (text: string, opts?: { submit?: boolean; plugin?: { id: string; name: string; icon?: string } }) => void;
   // GitBar 点击 ± 徽章:右栏切到文件视图并请求整仓 diff 预览。
   requestGitDiff: (projectId: string) => void;
   consumeGitDiffRequest: () => { projectId: string } | undefined;
@@ -308,6 +314,8 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     piSkills: { ...DEFAULT_PI_SKILLS, ...g.piSkills, globalRoots: DEFAULT_PI_SKILLS.globalRoots },
     // pi 扩展市场:旧档无 piExtensions 或缺子字段时兜 DEFAULT_PI_EXTENSIONS（U2）。
     piExtensions: { ...DEFAULT_PI_EXTENSIONS, ...g.piExtensions },
+    // 插件市场启停/信任:旧档无 plugins 或缺子字段时兜 DEFAULT_PLUGIN_ENABLE（U5）。
+    plugins: { ...DEFAULT_PLUGIN_ENABLE, ...g.plugins },
   };
 }
 
@@ -562,6 +570,31 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       return { generalSettings: { ...s.generalSettings, piExtensions: { ...cur, trusted: next } } };
     }),
 
+  // ── 插件市场 setter（U5）─────────────────────────────────────────────────────
+  // 现值兜底 DEFAULT_PLUGIN_ENABLE；整体写回 generalSettings.plugins。键 = 插件 id。
+  togglePlugin: (id, enabled) =>
+    set((s) => {
+      const cur: PluginEnableSettings = { ...DEFAULT_PLUGIN_ENABLE, ...s.generalSettings.plugins };
+      const next = enabled
+        ? cur.enabled.includes(id)
+          ? cur.enabled
+          : [...cur.enabled, id]
+        : cur.enabled.filter((k) => k !== id);
+      return { generalSettings: { ...s.generalSettings, plugins: { ...cur, enabled: next } } };
+    }),
+
+  // 默认已授信:trusted=false → 加入 distrusted（撤信）；trusted=true → 移出 distrusted。
+  setPluginTrusted: (id, trusted) =>
+    set((s) => {
+      const cur: PluginEnableSettings = { ...DEFAULT_PLUGIN_ENABLE, ...s.generalSettings.plugins };
+      const next = trusted
+        ? cur.distrusted.filter((k) => k !== id)
+        : cur.distrusted.includes(id)
+          ? cur.distrusted
+          : [...cur.distrusted, id];
+      return { generalSettings: { ...s.generalSettings, plugins: { ...cur, distrusted: next } } };
+    }),
+
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),
   setPromptTree: (tree) => set({ promptTree: tree }),
 
@@ -725,7 +758,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   insertToComposer: (text, opts) =>
     set((s) => ({
-      composerInsert: { text, nonce: (s.composerInsert?.nonce ?? 0) + 1, submit: opts?.submit },
+      composerInsert: { text, nonce: (s.composerInsert?.nonce ?? 0) + 1, submit: opts?.submit, plugin: opts?.plugin },
     })),
 
   requestGitDiff: (projectId) => set({ gitDiffRequest: { projectId }, rightView: "files" }),

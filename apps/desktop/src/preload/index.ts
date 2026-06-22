@@ -34,6 +34,8 @@ import type {
   PiUiRequest,
   PiUiResponsePayload,
   PluginSkill,
+  PluginListResult,
+  MarketplaceListResult,
   PiExtInstallResult,
   PromptNode,
   ReadFileResult,
@@ -375,6 +377,7 @@ const personal = {
     userGlobalRoots?: string[];
     workspaceEnabled: boolean;
     workspaceDir?: string;
+    pluginSkillDirs?: string[];
   }): Promise<PluginSkill[]> => ipcRenderer.invoke("pi-skills:list", args),
   openSkillDir: (args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("pi-skills:open-dir", args),
@@ -391,6 +394,10 @@ const personal = {
     ipcRenderer.invoke("pi-ext:install", args),
   piExtRemove: (args: { sourceRef: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("pi-ext:remove", args),
+  // 插件市场（第一期，只读）:扫描已装插件 / 读 marketplace.json 索引。形状与 DesktopBridge
+  // 的可选方法逐字对齐。
+  pluginList: (): Promise<PluginListResult> => ipcRenderer.invoke("plugins:list"),
+  marketplaceList: (): Promise<MarketplaceListResult> => ipcRenderer.invoke("marketplace:list"),
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

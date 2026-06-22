@@ -449,6 +449,8 @@ export interface McpServerConfig {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  cwd?: string; // stdio 工作目录（spawn cwd）
+  envPassthrough?: string[]; // stdio:从宿主环境透传的变量名（注入时解析为 env 值，写入 gitignore 的 .mcp.json）
   url?: string;
   headers?: Record<string, string>;
 }
@@ -485,6 +487,9 @@ export interface GeneralSettings {
   piSkills?: PiSkillSettings;
   // pi 扩展市场——已装扩展溯源 + 启用集 + 信任集。缺省 = DEFAULT_PI_EXTENSIONS。
   piExtensions?: PiExtensionSettings;
+  // 插件市场（agents 标准，第一期）——启停/信任态（只读库存之上的本地叠加层）。缺省 = DEFAULT_PLUGIN_ENABLE。
+  // 主进程不读（注入根经 IPC 入参传入，见 skill-injection），故不在 main GeneralSettings 镜像。
+  plugins?: PluginEnableSettings;
 }
 
 // pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。
@@ -546,6 +551,22 @@ export const DEFAULT_PI_EXTENSIONS: PiExtensionSettings = {
   installed: [],
   enabled: [],
   trusted: [],
+};
+
+// ── 插件市场启停/信任态（第一期）──────────────────────────────────────────────
+// 叠加在 ~/.agents/plugins 只读库存之上的 cortex 本地 opt-in 层（main 不读 store，注入接线见
+// skill-injection 的 pluginSkillRoots 入参）。语义（KTD4）：
+//   - 装≠启用 → enabled 是 opt-in 集合（默认未启用），键 = 插件 id。
+//   - 已装插件在用户本机全局共享目录，类比全局 skill 默认「已授信」；为省存储，只记录「显式撤信」
+//     的 id（distrusted），缺省即视为已授信。注入 gate（U6）= enabled.has(id) && !distrusted.has(id)。
+export interface PluginEnableSettings {
+  enabled: string[]; // 已启用插件 id（opt-in）
+  distrusted: string[]; // 已显式撤信的插件 id（缺省 = 已授信）
+}
+
+export const DEFAULT_PLUGIN_ENABLE: PluginEnableSettings = {
+  enabled: [],
+  distrusted: [],
 };
 
 // 渲染端富扩展项:pi list 的存在性 + store 的溯源/启用/信任叠加后计算（bridge piExtList 返回 +
@@ -1270,6 +1291,7 @@ export interface PluginSkill {
   name: string;
   description: string;
   argumentHint?: string;
+  supportedAgents?: AgentKind[]; // frontmatter 声明的适用 agent;缺省=全 agent（注入时按会话 agent 过滤）
   dir: string; // skill 根目录绝对路径（即 --skill 注入值）
   rootPath: string; // 来源根（已 expand 的绝对路径）
   scope: SkillScope; // global | workspace
@@ -1278,3 +1300,6 @@ export interface PluginSkill {
   shadowedBy?: string; // 被同名覆盖时的覆盖来源 scope（UI 标注用）
   docs: SkillDoc[]; // 配套文档清单（浅层枚举,不含 SKILL.md;空数组表示无）
 }
+
+// 插件市场（第一期，只读）类型。集中在 ./plugin-types 以免本已超 1200 行的类型文件继续膨胀。
+export * from "./plugin-types";

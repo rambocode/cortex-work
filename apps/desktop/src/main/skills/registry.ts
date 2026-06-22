@@ -5,8 +5,17 @@
 import { promises as fsp } from "fs";
 import type { Dirent } from "fs";
 import { basename, extname, join } from "path";
-import type { PluginSkill, SkillDoc, SkillMeta, SkillScope } from "../ipc/types";
+import type { AgentKind, PluginSkill, SkillDoc, SkillMeta, SkillScope } from "../ipc/types";
 import { parseFrontmatter } from "./frontmatter";
+
+// 校验 frontmatter 声明的 supported-agents:仅保留合法 agent 名;全非法 → undefined(=全 agent),
+// 避免拼写错误误把 skill 完全禁掉。
+const AGENT_KINDS = new Set<AgentKind>(["claude", "codex", "pi"]);
+function normalizeSupportedAgents(raw: string[] | undefined): AgentKind[] | undefined {
+  if (!raw) return undefined;
+  const valid = raw.filter((a): a is AgentKind => AGENT_KINDS.has(a as AgentKind));
+  return valid.length ? valid : undefined;
+}
 import { skillsRoots } from "./locate";
 
 // 配套文档白名单后缀（U5）:仅列文档型文件,排除二进制/图片等噪声。SKILL.md 单独排除。
@@ -18,6 +27,7 @@ interface RawSkill {
   name: string;
   description: string;
   argumentHint?: string;
+  supportedAgents?: AgentKind[]; // frontmatter 声明的适用 agent;缺省=全 agent（注入时过滤）
   dir: string;
   skillMdPath: string;
   docs: SkillDoc[]; // 同目录配套文档（U5,仅展示;不影响注入集合）
@@ -55,6 +65,7 @@ async function readSkillDir(dir: string, fallbackName: string): Promise<RawSkill
     name: fm.name ?? fallbackName,
     description: fm.description ?? "",
     argumentHint: fm.argumentHint,
+    supportedAgents: normalizeSupportedAgents(fm.supportedAgents),
     dir,
     skillMdPath,
     docs: await readSkillDocs(dir),
@@ -112,6 +123,7 @@ export async function scanSkillRoots(
         name: s.name,
         description: s.description,
         argumentHint: s.argumentHint,
+        supportedAgents: s.supportedAgents,
         dir: s.dir,
         rootPath: path,
         scope,

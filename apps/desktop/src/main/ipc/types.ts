@@ -154,6 +154,8 @@ export interface McpServerConfig {
   command?: string; // stdio
   args?: string[];
   env?: Record<string, string>;
+  cwd?: string; // stdio 工作目录（spawn cwd）
+  envPassthrough?: string[]; // stdio:从宿主环境透传的变量名（注入时解析为 env 值，写入 gitignore 的 .mcp.json）
   url?: string; // sse/http
   headers?: Record<string, string>;
 }
@@ -847,6 +849,7 @@ export interface PluginSkill {
   name: string;
   description: string;
   argumentHint?: string;
+  supportedAgents?: AgentKind[]; // frontmatter 声明的适用 agent;缺省=全 agent（注入时按会话 agent 过滤）
   dir: string; // skill 根目录绝对路径（即 --skill 注入值）
   rootPath: string; // 来源根（已 expand 的绝对路径）
   scope: SkillScope; // global | workspace
@@ -855,3 +858,6 @@ export interface PluginSkill {
   shadowedBy?: string;
   docs: SkillDoc[]; // 配套文档清单（浅层枚举,不含 SKILL.md;空数组表示无）
 }
+
+// 插件市场（第一期，只读）类型。集中在 ./plugin-types 以免本已超 1200 行的类型文件继续膨胀。
+export * from "./plugin-types";

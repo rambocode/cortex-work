@@ -43,6 +43,8 @@ import type {
   ProviderProbeInput,
   ProviderProbeResult,
   PluginSkill,
+  PluginListResult,
+  MarketplaceListResult,
   PiExtInstallResult,
   PromptNode,
   PushResult,
@@ -303,6 +305,8 @@ export interface DesktopBridge {
     userGlobalRoots?: string[];
     workspaceEnabled: boolean;
     workspaceDir?: string;
+    // U6:已启用插件的 skills 根（绝对路径，scope=global）。主进程 append 进扫描根，与第一方 skill 同链注入。
+    pluginSkillDirs?: string[];
   }): Promise<PluginSkill[]>;
   openSkillDir?(args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }>;
   // 在选定根下新建 skill（写 <dir>/<name>/SKILL.md）。白名单 + 名称校验,返回结果。
@@ -319,4 +323,9 @@ export interface DesktopBridge {
   piExtList?(): Promise<string[]>;
   piExtInstall?(args: { sourceRef: string }): Promise<PiExtInstallResult>;
   piExtRemove?(args: { sourceRef: string }): Promise<{ ok: boolean; error?: string }>;
+  // 插件市场（第一期，只读）:扫描 agents 标准已装插件（~/.agents/plugins/plugins/）+ 读
+  // marketplace.json 索引。纯只读消费，不写共享目录;启停/信任态在 core store。
+  // 可选:web/旧壳无此能力 → 插件面降级空态。安装/升级/删除为后续阶段，本期不提供。
+  pluginList?(): Promise<PluginListResult>;
+  marketplaceList?(): Promise<MarketplaceListResult>;
 }

@@ -71,6 +71,37 @@ function proj(patch: Partial<ProjectMeta> & Pick<ProjectMeta, "id">): ProjectMet
   return { name: patch.id, path: `/code/${patch.id}`, addedAt: 1, ...patch };
 }
 
+describe("插件市场启停/信任 store（U5）", () => {
+  it("hydrate 缺 plugins 时兜 DEFAULT_PLUGIN_ENABLE", () => {
+    usePersonalStore.getState().hydrate({ ...base, generalSettings: { ...DEFAULT_GENERAL_SETTINGS } });
+    expect(usePersonalStore.getState().generalSettings.plugins).toEqual({ enabled: [], distrusted: [] });
+  });
+
+  it("togglePlugin 默认未启用、opt-in 启用，按插件 id", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().togglePlugin("build-web-apps", true);
+    expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toEqual(["build-web-apps"]);
+    usePersonalStore.getState().togglePlugin("build-web-apps", false);
+    expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toEqual([]);
+  });
+
+  it("togglePlugin 重复启用幂等（不重复入集）", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().togglePlugin("pdf", true);
+    usePersonalStore.getState().togglePlugin("pdf", true);
+    expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toEqual(["pdf"]);
+  });
+
+  it("setPluginTrusted 默认已授信，仅记显式撤信；恢复信任移出 distrusted", () => {
+    usePersonalStore.getState().hydrate({ ...base, generalSettings: { ...DEFAULT_GENERAL_SETTINGS } });
+    expect(usePersonalStore.getState().generalSettings.plugins!.distrusted).toEqual([]);
+    usePersonalStore.getState().setPluginTrusted("evil", false);
+    expect(usePersonalStore.getState().generalSettings.plugins!.distrusted).toEqual(["evil"]);
+    usePersonalStore.getState().setPluginTrusted("evil", true);
+    expect(usePersonalStore.getState().generalSettings.plugins!.distrusted).toEqual([]);
+  });
+});
+
 describe("hydrate 推送设置迁移", () => {
   it("旧数据（timelineSettings.push）迁移到全局 pushSettings", () => {
     const legacy = {
