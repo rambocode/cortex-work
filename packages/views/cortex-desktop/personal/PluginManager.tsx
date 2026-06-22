@@ -61,8 +61,10 @@ export function PluginManager() {
   const tryInChat = useCallback((p: DecoratedPlugin) => {
     catalog.togglePlugin(p.manifest.id, true);
     const name = p.manifest.displayName ?? p.manifest.name;
-    // 带插件上下文:ComposerShell 据此在提示词左侧渲染插件 pill（图标+名称）。无 defaultPrompt 也保留 pill。
-    usePersonalStore.getState().insertToComposer(p.manifest.defaultPrompt ?? "", { plugin: { id: p.manifest.id, name } });
+    // 带插件上下文:ComposerShell 据此在提示词左侧渲染插件 pill（composerIcon 图标+名称）。无 defaultPrompt 也保留 pill。
+    usePersonalStore
+      .getState()
+      .insertToComposer(p.manifest.defaultPrompt ?? "", { plugin: { id: p.manifest.id, name, icon: p.composerIconDataUrl } });
     usePersonalStore.getState().closeSettings();
   }, [catalog]);
 

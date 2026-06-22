@@ -51,26 +51,67 @@ describe("parsePluginManifest", () => {
     expect(p?.manifest.defaultPrompt).toBe("Design a new landing page for my SaaS.");
   });
 
-  it("composerIcon(svg/png)内联为 data URL；超 64KiB 或越界 → 不内联", async () => {
-    // 正常小图标:内联
-    const dir = join(base, "with-icon");
-    writeJson(dir, ".codex-plugin/plugin.json", { name: "p", interface: { composerIcon: "./assets/icon.svg" } });
+  it("logo→iconDataUrl(管理) / composerIcon→composerIconDataUrl(对话),语义分离", async () => {
+    const dir = join(base, "two-icons");
+    writeJson(dir, ".codex-plugin/plugin.json", {
+      name: "p",
+      interface: { logo: "./assets/logo.png", composerIcon: "./assets/composer.svg" },
+    });
     mkdirSync(join(dir, "assets"), { recursive: true });
-    writeFileSync(join(dir, "assets", "icon.svg"), "<svg/>");
+    writeFileSync(join(dir, "assets", "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    writeFileSync(join(dir, "assets", "composer.svg"), "<svg/>");
     const p = await parsePluginManifest(dir);
-    expect(p?.iconDataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(p?.iconDataUrl).toMatch(/^data:image\/png;base64,/); // 管理用 logo
+    expect(p?.composerIconDataUrl).toMatch(/^data:image\/svg\+xml;base64,/); // 对话用 composerIcon
+  });
 
-    // 超 64KiB:回退(不内联)
+  it("缺 logo 时管理图标回退 composerIcon；超 256KiB 或越界 → 不内联", async () => {
+    // 无 logo,仅 composerIcon → iconDataUrl 回退到它
+    const fb = join(base, "icon-fallback");
+    writeJson(fb, ".codex-plugin/plugin.json", { name: "p", interface: { composerIcon: "./assets/icon.svg" } });
+    mkdirSync(join(fb, "assets"), { recursive: true });
+    writeFileSync(join(fb, "assets", "icon.svg"), "<svg/>");
+    expect((await parsePluginManifest(fb))?.iconDataUrl).toMatch(/^data:image\/svg\+xml/);
+
+    // 超 256KiB:回退(不内联)
     const big = join(base, "big-icon");
     writeJson(big, ".codex-plugin/plugin.json", { name: "p", interface: { logo: "./assets/big.png" } });
     mkdirSync(join(big, "assets"), { recursive: true });
-    writeFileSync(join(big, "assets", "big.png"), Buffer.alloc(70 * 1024));
+    writeFileSync(join(big, "assets", "big.png"), Buffer.alloc(300 * 1024));
     expect((await parsePluginManifest(big))?.iconDataUrl).toBeUndefined();
 
     // 越界 ../：拒绝内联
     const esc = join(base, "esc-icon");
-    writeJson(esc, ".codex-plugin/plugin.json", { name: "p", interface: { composerIcon: "../../secret.png" } });
+    writeJson(esc, ".codex-plugin/plugin.json", { name: "p", interface: { logo: "../../secret.png" } });
     expect((await parsePluginManifest(esc))?.iconDataUrl).toBeUndefined();
+  });
+
+  it("captures developer/website/privacy/terms/longDescription", async () => {
+    const dir = join(base, "rich-meta");
+    writeJson(dir, ".codex-plugin/plugin.json", {
+      name: "browser",
+      author: { name: "OpenAI" },
+      homepage: "https://gh/openai",
+      license: "Proprietary",
+      keywords: ["browser", "automation"],
+      interface: {
+        shortDescription: "短描述",
+        longDescription: "长描述正文",
+        developerName: "OpenAI",
+        websiteURL: "https://openai.com/",
+        privacyPolicyURL: "https://openai.com/privacy",
+        termsOfServiceURL: "https://openai.com/terms",
+      },
+    });
+    const m = (await parsePluginManifest(dir))!.manifest;
+    expect(m.description).toBe("短描述"); // shortDescription 优先
+    expect(m.longDescription).toBe("长描述正文");
+    expect(m.developer).toBe("OpenAI");
+    expect(m.website).toBe("https://openai.com/");
+    expect(m.privacyUrl).toBe("https://openai.com/privacy");
+    expect(m.termsUrl).toBe("https://openai.com/terms");
+    expect(m.license).toBe("Proprietary");
+    expect(m.keywords).toEqual(["browser", "automation"]);
   });
 
   it("无 .codex-plugin，回退 .claude-plugin/plugin.json", async () => {

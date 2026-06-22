@@ -3,6 +3,7 @@
 // 捆绑 skill 名清单需扫描 skillsDir（读层只给 skillsRef 路径），第一期以能力/技能存在性呈现，不臆造名单。
 
 import { Icon } from "@cortex-work/ui/icons";
+import { useDesktopBridge } from "@cortex-work/core";
 import { pluginIconNode } from "./PluginRow";
 import type { DecoratedPlugin, PluginCatalog } from "./usePluginCatalog";
 
@@ -21,11 +22,15 @@ export function PluginDetail({
   catalog: PluginCatalog;
   onTryInChat?: (plugin: DecoratedPlugin) => void;
 }) {
+  const bridge = useDesktopBridge();
   if (!plugin) {
     return <div className="pw-plugins-empty" role="status">插件不存在或已被移除。</div>;
   }
   const m = plugin.manifest;
   const name = m.displayName ?? m.name;
+  const openExt = (url?: string) => {
+    if (url) void bridge?.openExternal?.(url);
+  };
 
   return (
     <div className="pw-plg-detail">
@@ -73,6 +78,9 @@ export function PluginDetail({
         </div>
       )}
 
+      {/* 长描述（manifest.longDescription）。 */}
+      {m.longDescription ? <p className="pw-plg-detail-long">{m.longDescription}</p> : null}
+
       {/* 能力 chips（manifest.capabilities）。 */}
       {m.capabilities && m.capabilities.length > 0 ? (
         <div className="pw-plg-detail-sec">
@@ -85,13 +93,19 @@ export function PluginDetail({
         </div>
       ) : null}
 
-      {/* 信息表。 */}
+      {/* 信息表（对齐设计稿:功能/开发者/类别/版本/网站/隐私政策/服务条款）。 */}
       <div className="pw-plg-detail-sec">
         <div className="pw-plg-detail-h">信息</div>
-        <InfoRow label="来源" value={KIND_LABEL[plugin.manifestKind]} />
+        {m.capabilities && m.capabilities.length > 0 ? <InfoRow label="功能" value={m.capabilities.join("、")} /> : null}
+        {m.developer ? <InfoRow label="开发者" value={m.developer} /> : null}
         {m.category ? <InfoRow label="类别" value={m.category} /> : null}
         {m.version ? <InfoRow label="版本" value={m.version} /> : null}
+        {m.license ? <InfoRow label="许可" value={m.license} /> : null}
+        <InfoRow label="来源" value={KIND_LABEL[plugin.manifestKind]} />
         <InfoRow label="技能" value={plugin.skillsDir ? "包含（启用后注入）" : "无"} />
+        {m.website ? <InfoLinkRow label="网站" url={m.website} onOpen={openExt} /> : null}
+        {m.privacyUrl ? <InfoLinkRow label="隐私政策" url={m.privacyUrl} onOpen={openExt} /> : null}
+        {m.termsUrl ? <InfoLinkRow label="服务条款" url={m.termsUrl} onOpen={openExt} /> : null}
       </div>
 
       {/* 本地路径 + 升级/删除（占位禁用）。 */}
@@ -112,6 +126,18 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div className="pw-plg-info-row">
       <div className="pw-plg-info-label">{label}</div>
       <div className="pw-plg-info-value">{value}</div>
+    </div>
+  );
+}
+
+// 可点击外链行（网站/隐私政策/服务条款）:经 bridge.openExternal 用系统浏览器打开（仅 http/https）。
+function InfoLinkRow({ label, url, onOpen }: { label: string; url: string; onOpen: (url: string) => void }) {
+  return (
+    <div className="pw-plg-info-row">
+      <div className="pw-plg-info-label">{label}</div>
+      <button type="button" className="pw-plg-info-link" onClick={() => onOpen(url)} title={url}>
+        {url} <Icon.Globe size={12} />
+      </button>
     </div>
   );
 }

@@ -154,8 +154,8 @@ export function ComposerShell({
   // slash 命令下拉:当前键盘高亮项 + 是否被 Esc 临时收起（下次编辑文本即重开）。
   const [slashSel, setSlashSel] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
-  // 插件「在对话中试用」上下文:输入框前渲染的插件 pill（图标+名称）。发送或手动移除即清。
-  const [tryPlugin, setTryPlugin] = useState<{ id: string; name: string } | null>(null);
+  // 插件「在对话中试用」上下文:输入框前渲染的插件 pill（composerIcon 图标+名称）。发送或手动移除即清。
+  const [tryPlugin, setTryPlugin] = useState<{ id: string; name: string; icon?: string } | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -618,7 +618,13 @@ export function ComposerShell({
           {/* 插件「在对话中试用」pill:图标(首字母)+名称,内联在提示词左侧。点 × 移除。 */}
           {tryPlugin ? (
             <span className="pw-try-pill" title={tryPlugin.name}>
-              <span className="pw-try-pill-ico">{(tryPlugin.name.charAt(0) || "?").toUpperCase()}</span>
+              <span className="pw-try-pill-ico">
+                {tryPlugin.icon ? (
+                  <img className="pw-try-pill-img" src={tryPlugin.icon} alt="" />
+                ) : (
+                  (tryPlugin.name.charAt(0) || "?").toUpperCase()
+                )}
+              </span>
               <span className="pw-try-pill-name">{tryPlugin.name}</span>
               <button
                 type="button"

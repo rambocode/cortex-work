@@ -127,7 +127,7 @@ describe("PluginManager 三层 IA", () => {
     fireEvent.click(await screen.findByText("Alpha"));
     expect(await screen.findByText("本地路径")).toBeTruthy();
     expect(screen.getByText("/p/a")).toBeTruthy();
-    expect(screen.getByText("Read")).toBeTruthy(); // 能力 chip
+    expect(screen.getAllByText("Read").length).toBeGreaterThan(0); // 能力(功能行 + chip)
     const upgrade = screen.getByRole("button", { name: "升级" });
     expect((upgrade as HTMLButtonElement).disabled).toBe(true);
   });

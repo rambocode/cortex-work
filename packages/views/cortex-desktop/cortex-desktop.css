@@ -8010,3 +8010,8 @@ button.sb-row {
 .pw-plg-ico-img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; padding: 5px; box-sizing: border-box; }
 .pw-plg-tile .pw-plg-ico-img { padding: 9px; }
 .pw-plg-ico-lg .pw-plg-ico-img { padding: 9px; }
+.pw-try-pill-img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
+/* 详情页:长描述段 + 外链行 */
+.pw-plg-detail-long { font-size: 14px; color: var(--text-2); line-height: 1.7; max-width: 760px; white-space: pre-wrap; }
+.pw-plg-info-link { border: none; background: transparent; color: var(--accent); font-size: 13.5px; cursor: pointer; padding: 0; display: inline-flex; align-items: center; gap: 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-plg-info-link:hover { text-decoration: underline; }

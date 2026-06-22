@@ -52,8 +52,15 @@ function asPromptString(v: unknown): string | undefined {
   return undefined;
 }
 
+// author 可为 { name } 对象或字符串。
+function asAuthorName(v: unknown): string | undefined {
+  if (typeof v === "string" && v.trim()) return v;
+  if (v && typeof v === "object" && !Array.isArray(v)) return asString((v as Record<string, unknown>).name);
+  return undefined;
+}
+
 // 把 .codex-plugin / .claude-plugin 的 plugin.json 映射为归一 manifest。`interface` 字段（codex 最全）
-// 覆盖顶层同义字段。
+// 覆盖顶层同义字段。短描述优先 interface.shortDescription（列表/头部用），长描述取 longDescription。
 // 安全（ADV-001）：id **恒取目录名 basename**，不采信 manifest 声明的 json.id——后者是第三方可控值，
 // 两个插件可声明相同 id 造成启停键碰撞（启用一个连带注入另一个）。目录名在 installedPluginsRoot 下
 // 由文件系统保证唯一，是无法伪造碰撞的稳定身份键。
@@ -64,10 +71,17 @@ function mapJsonManifest(id: string, json: Record<string, unknown>): PluginManif
     name: asString(json.name) ?? id,
     displayName: asString(iface.displayName) ?? asString(json.displayName),
     version: asString(json.version),
-    description: asString(json.description) ?? asString(iface.description),
+    description: asString(iface.shortDescription) ?? asString(json.description) ?? asString(iface.description),
+    longDescription: asString(iface.longDescription),
     category: asString(iface.category) ?? asString(json.category),
     capabilities: asStringArray(iface.capabilities) ?? asStringArray(json.capabilities),
     defaultPrompt: asPromptString(iface.defaultPrompt) ?? asPromptString(json.defaultPrompt),
+    developer: asString(iface.developerName) ?? asAuthorName(json.author),
+    website: asString(iface.websiteURL) ?? asString(json.homepage),
+    privacyUrl: asString(iface.privacyPolicyURL),
+    termsUrl: asString(iface.termsOfServiceURL),
+    license: asString(json.license),
+    keywords: asStringArray(json.keywords),
   };
 }
 
@@ -100,27 +114,42 @@ const ICON_MIME: Record<string, string> = {
   ".webp": "image/webp",
   ".gif": "image/gif",
 };
-const MAX_ICON_BYTES = 64 * 1024; // 超过则回退首字母,避免把大图(如 computer-use 的 923KB)内联进列表
+const MAX_ICON_BYTES = 256 * 1024; // 超过则回退首字母,避免把大图(如 computer-use 的 923KB)内联
 
-// 把插件图标（manifest 的 composerIcon/logo/icon，包内相对路径）读盘内联为 data URL。
-// isInside 防 ../ 越界;≤64KiB 才内联;mime 按扩展白名单;任何失败 → undefined（UI 回退首字母）。
-async function resolveIconDataUrl(dir: string, json: Record<string, unknown>): Promise<string | undefined> {
-  const iface = (json.interface && typeof json.interface === "object" ? json.interface : {}) as Record<string, unknown>;
-  const rel =
-    asString(iface.composerIcon) ?? asString(iface.logo) ?? asString(iface.icon) ?? asString(json.icon) ?? asString(json.logo);
-  if (!rel) return undefined;
-  const abs = isAbsolute(rel) ? rel : resolve(dir, rel);
-  if (!isInside(dir, abs)) return undefined;
-  const mime = ICON_MIME[extname(abs).toLowerCase()];
-  if (!mime) return undefined;
-  try {
-    const st = await fsp.stat(abs);
-    if (!st.isFile() || st.size > MAX_ICON_BYTES) return undefined;
-    const buf = await fsp.readFile(abs);
-    return `data:${mime};base64,${buf.toString("base64")}`;
-  } catch {
-    return undefined;
+// 把一个包内相对图标路径读盘内联为 data URL。isInside 防 ../ 越界;≤256KiB;mime 按扩展白名单;
+// 任何失败/缺路径 → undefined（UI 回退首字母）。candidates 按序取首个存在且可内联者。
+async function inlineIcon(dir: string, candidates: (string | undefined)[]): Promise<string | undefined> {
+  for (const rel of candidates) {
+    if (!rel) continue;
+    const abs = isAbsolute(rel) ? rel : resolve(dir, rel);
+    if (!isInside(dir, abs)) continue;
+    const mime = ICON_MIME[extname(abs).toLowerCase()];
+    if (!mime) continue;
+    try {
+      const st = await fsp.stat(abs);
+      if (!st.isFile() || st.size > MAX_ICON_BYTES) continue;
+      const buf = await fsp.readFile(abs);
+      return `data:${mime};base64,${buf.toString("base64")}`;
+    } catch {
+      // 试下一个候选
+    }
   }
+  return undefined;
+}
+
+// 解析两类图标:管理 UI 用 logo（回退 icon/composerIcon），composer pill 用 composerIcon（回退 logo）。
+async function resolveIcons(
+  dir: string,
+  json: Record<string, unknown>,
+): Promise<{ iconDataUrl?: string; composerIconDataUrl?: string }> {
+  const iface = (json.interface && typeof json.interface === "object" ? json.interface : {}) as Record<string, unknown>;
+  const logo = asString(iface.logo) ?? asString(iface.icon) ?? asString(json.logo) ?? asString(json.icon);
+  const composer = asString(iface.composerIcon);
+  const [iconDataUrl, composerIconDataUrl] = await Promise.all([
+    inlineIcon(dir, [logo, composer]), // 管理:logo 优先
+    inlineIcon(dir, [composer, logo]), // 对话:composerIcon 优先
+  ]);
+  return { iconDataUrl, composerIconDataUrl };
 }
 
 // 解析单个插件包目录 → InstalledPlugin；目录无任何可识别 manifest → null。
@@ -136,7 +165,7 @@ export async function parsePluginManifest(dir: string): Promise<InstalledPlugin 
       installPath: dir,
       manifestKind: "codex",
       skillsDir: await resolveSkillsDir(dir, "codex", codex.skills),
-      iconDataUrl: await resolveIconDataUrl(dir, codex),
+      ...(await resolveIcons(dir, codex)),
     };
   }
 
@@ -149,7 +178,7 @@ export async function parsePluginManifest(dir: string): Promise<InstalledPlugin 
       installPath: dir,
       manifestKind: "claude",
       skillsDir: await resolveSkillsDir(dir, "claude", claude.skills),
-      iconDataUrl: await resolveIconDataUrl(dir, claude),
+      ...(await resolveIcons(dir, claude)),
     };
   }
 
