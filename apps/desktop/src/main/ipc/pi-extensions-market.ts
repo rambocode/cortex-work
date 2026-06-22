@@ -17,15 +17,38 @@ import type { PiExtInstallResult } from "./types";
 export type PiRunResult = { code: number; stdout: string; stderr: string };
 export type PiRunner = (args: string[]) => Promise<PiRunResult>;
 
+// 超时上限:install 可能联网拉包给长超时;list/remove 是本地操作给短超时。无超时则挂死的 pi
+// 子进程永不 settle → 永久阻塞 serialize 串行链与 inflight 去重,后续 install/remove 全卡死
+// （plan C1「spawn 超时被杀」)。到点先 SIGTERM,宽限 KILL_GRACE_MS 再 SIGKILL,并以 code:-1 settle。
+const INSTALL_TIMEOUT_MS = 120_000;
+const SHORT_TIMEOUT_MS = 30_000;
+const KILL_GRACE_MS = 3_000;
+
 function defaultRunner(args: string[]): Promise<PiRunResult> {
   return new Promise((res) => {
     const child = spawn(resolvePiBinary(), args, { env: spawnEnvFor({ agent: "pi" }) });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (r: PiRunResult) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      res(r);
+    };
+    const timeoutMs = args[0] === "install" ? INSTALL_TIMEOUT_MS : SHORT_TIMEOUT_MS;
+    timer = setTimeout(() => {
+      // 挂死:优雅 SIGTERM,仍不退则强杀,确保 Promise 必 settle、串行链不被永久卡住。
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref?.();
+      finish({ code: -1, stdout, stderr: `${stderr}\n[pi-ext] pi ${args[0]} 超时(${timeoutMs}ms)已终止`.trim() });
+    }, timeoutMs);
+    timer.unref?.();
     child.stdout?.on("data", (d) => (stdout += String(d)));
     child.stderr?.on("data", (d) => (stderr += String(d)));
-    child.on("error", (e) => res({ code: -1, stdout, stderr: `${stderr}${String(e)}` }));
-    child.on("close", (code) => res({ code: code ?? -1, stdout, stderr }));
+    child.on("error", (e) => finish({ code: -1, stdout, stderr: `${stderr}${String(e)}` }));
+    child.on("close", (code) => finish({ code: code ?? -1, stdout, stderr }));
   });
 }
 

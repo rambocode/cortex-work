@@ -4,7 +4,8 @@
 
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
-import { isAbsolute } from "path";
+import { homedir } from "os";
+import { isAbsolute, resolve, sep } from "path";
 
 import { ipcMain, type WebContents } from "electron";
 
@@ -102,15 +103,39 @@ async function command(uiSessionId: string, fn: (s: PiRpcSession) => Promise<Rpc
   return resp.data;
 }
 
-// U7 坏 -e 隔离:实测 pi 对坏 -e fail-hard——一个失效路径会拖垮整会话。注入前剔除不存在/非绝对路径
-// （被篡改的 settings 或 pi list 可能指向坏/越界路径;C3 已承认 settings 可被外部改）。UI 侧已据
-// pi list 标失踪,此处是注入层的最后安全网。返回可加载子集,跳过的打 warn。
+// U7 路径收敛根:市场扩展 -e 必须落在 pi 库存根（~/.pi:pi install 的 npm/git 包落盘处,C7——
+// install 与运行同 HOME,pi 读 ~/.pi/agent/settings.json）内。v1 仅 npm/git（均在库存根内）;
+// 未来 local 扩展接入需放宽。可注入根便于测试（无 ~/.pi 的 CI 环境）。
+let piExtStoreRoot = resolve(homedir(), ".pi");
+/** 测试注入库存根;传 null 复位为 ~/.pi。 */
+export function __setPiExtStoreRootForTest(root: string | null): void {
+  piExtStoreRoot = root ? resolve(root) : resolve(homedir(), ".pi");
+}
+
+// c 必须等于根或在根/ 下。resolve 规范化 `..` 段,挡住 `<root>/../../etc/passwd` 这类逃逸
+// （与 skills.ts:39-43 的 isInside 同款收敛）。
+function isInsideExtStoreRoot(child: string): boolean {
+  const c = resolve(child);
+  return c === piExtStoreRoot || c.startsWith(piExtStoreRoot + sep);
+}
+
+// U7 坏/越界 -e 隔离:实测 pi 对坏 -e fail-hard——一个失效路径会拖垮整会话。注入前剔除
+// (a) 非绝对/不存在路径（防 fail-hard）与 (b) 库存根外路径——被篡改的 store/settings/pi list
+// 可能把 -e 指向 ~/.ssh/id_rsa、~/.zshrc 等库存根外现存文件,经 blanket -a 每轮注入执行
+// （C3 已承认 settings 可被外部改）。UI 侧已据 pi list 标失踪,此处是注入层最后安全网。
+// 返回可加载子集,跳过的打 warn。
 export function filterLoadableExtensionPaths(paths: string[] | undefined): string[] {
   if (!paths?.length) return [];
   return paths.filter((p) => {
-    const ok = isAbsolute(p) && existsSync(p);
-    if (!ok) console.warn(`[pi-ext] 注入前跳过失效扩展 -e 路径: ${p}`);
-    return ok;
+    if (!isAbsolute(p) || !existsSync(p)) {
+      console.warn(`[pi-ext] 注入前跳过失效扩展 -e 路径: ${p}`);
+      return false;
+    }
+    if (!isInsideExtStoreRoot(p)) {
+      console.warn(`[pi-ext] 注入前跳过越界扩展 -e 路径(不在 pi 库存根内): ${p}`);
+      return false;
+    }
+    return true;
   });
 }
 

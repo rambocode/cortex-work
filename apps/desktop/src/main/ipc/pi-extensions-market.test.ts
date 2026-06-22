@@ -1,13 +1,18 @@
 // pi 扩展市场 IPC（U4）单测:parsePiList/detectOrigin 纯函数;install 落盘定位/失败回滚/无新增报错/
 // 在途去重;list/remove。electron(ipcMain) + cli(spawnEnvFor) + pi-locate 全 mock,runner 注入 fake。
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { EventEmitter } from "events";
 
-const h = vi.hoisted(() => ({ handlers: new Map<string, (...a: unknown[]) => unknown>() }));
+const h = vi.hoisted(() => ({
+  handlers: new Map<string, (...a: unknown[]) => unknown>(),
+  spawnMock: vi.fn(),
+}));
 vi.mock("electron", () => ({
   ipcMain: { handle: (ch: string, fn: (...a: unknown[]) => unknown) => h.handlers.set(ch, fn) },
 }));
 vi.mock("./cli", () => ({ spawnEnvFor: () => ({}) }));
 vi.mock("../agents/pi-locate", () => ({ resolvePiBinary: () => "/pi" }));
+vi.mock("child_process", () => ({ spawn: (...a: unknown[]) => h.spawnMock(...a) }));
 
 import {
   registerPiExtensionMarketHandlers,
@@ -116,6 +121,48 @@ describe("pi-ext:install", () => {
     const r = await callInstall("   ");
     expect(r.ok).toBe(false);
     expect(spawned).toBe(false);
+  });
+});
+
+describe("defaultRunner 超时（C1 spawn 挂死兜底）", () => {
+  // 可控 fake 子进程:不 emit close → 模拟挂死。
+  function fakeChild() {
+    const c = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      kill: ReturnType<typeof vi.fn>;
+    };
+    c.stdout = new EventEmitter();
+    c.stderr = new EventEmitter();
+    c.kill = vi.fn();
+    return c;
+  }
+  afterEach(() => {
+    vi.useRealTimers();
+    __setPiRunnerForTest(null);
+  });
+
+  it("pi list 挂死 → 短超时(30s) SIGTERM 并以 code:-1 settle,不永久阻塞", async () => {
+    vi.useFakeTimers();
+    const child = fakeChild();
+    h.spawnMock.mockReturnValue(child);
+    __setPiRunnerForTest(null); // 用真实 defaultRunner（走 mock spawn）
+    const pending = callList(); // list 永不 close → 挂死
+    await vi.advanceTimersByTimeAsync(30_001); // 越过 list/remove 的 30s 短超时
+    await expect(pending).resolves.toEqual([]); // list code:-1 → listPaths []
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("子进程正常 close → 不触发超时,正常返回退出码", async () => {
+    vi.useFakeTimers();
+    const child = fakeChild();
+    h.spawnMock.mockReturnValue(child);
+    __setPiRunnerForTest(null);
+    const pending = callList();
+    child.stdout.emit("data", "    /a/x\n");
+    child.emit("close", 0);
+    await expect(pending).resolves.toEqual(["/a/x"]);
+    expect(child.kill).not.toHaveBeenCalled();
   });
 });
 

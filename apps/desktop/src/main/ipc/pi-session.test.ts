@@ -2,7 +2,10 @@
 // electron(ipcMain)、pi-rpc(spawn+会话)、pi-providers、cli(spawnEnvFor) 全 mock,
 // 纯逻辑校验:不真的 spawn 子进程。
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join, dirname } from "path";
 
 import type { PiOpenRequest, PiOpenResult } from "./types";
 
@@ -83,7 +86,13 @@ vi.mock("./cli", () => ({ assertSpawnCwd: h.assertSpawnCwd, spawnEnvFor: h.spawn
 vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
 vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace, recordStreamDelta: h.recordStreamDelta }));
 
-import { registerPiSessionHandlers, killAllPiSessions, piSessionCount, filterLoadableExtensionPaths } from "./pi-session";
+import {
+  registerPiSessionHandlers,
+  killAllPiSessions,
+  piSessionCount,
+  filterLoadableExtensionPaths,
+  __setPiExtStoreRootForTest,
+} from "./pi-session";
 
 // renderer 替身:可控的 isDestroyed + 记录 send + once(pi:open 监听 sender 'destroyed' 回收会话)。
 function fakeEvent() {
@@ -454,12 +463,34 @@ describe("阶段4 恢复:pi:switchSession + ready sessionFile", () => {
   });
 });
 
-describe("filterLoadableExtensionPaths（U7 坏 -e 隔离）", () => {
-  it("仅保留存在的绝对路径,剔除不存在/相对路径（防 fail-hard 拖垮会话）", () => {
-    // process.execPath 必为存在的绝对路径;另两个失效。
-    expect(filterLoadableExtensionPaths([process.execPath, "/nope/missing-ext.js", "rel/x.js"])).toEqual([
-      process.execPath,
-    ]);
+describe("filterLoadableExtensionPaths（U7 坏/越界 -e 隔离）", () => {
+  let root: string;
+  let goodPath: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "pi-ext-root-"));
+    __setPiExtStoreRootForTest(root); // 把库存根指到临时目录(CI 无 ~/.pi)
+    goodPath = join(root, "npm-foo", "index.js");
+    mkdirSync(dirname(goodPath), { recursive: true });
+    writeFileSync(goodPath, "// ext");
+  });
+  afterEach(() => {
+    __setPiExtStoreRootForTest(null);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("保留库存根内存在的绝对路径", () => {
+    expect(filterLoadableExtensionPaths([goodPath])).toEqual([goodPath]);
+  });
+  it("剔除不存在/相对路径（防 fail-hard 拖垮会话）", () => {
+    expect(filterLoadableExtensionPaths([goodPath, join(root, "missing.js"), "rel/x.js"])).toEqual([goodPath]);
+  });
+  it("剔除库存根外的存在路径（防被篡改 settings/pi list 把 -e 指向 ~/.ssh 等注入逃逸）", () => {
+    // process.execPath 必为存在的绝对路径,但在 pi 库存根外 → 须被根收敛拒绝。
+    expect(filterLoadableExtensionPaths([process.execPath])).toEqual([]);
+  });
+  it("剔除以 `..` 逃逸出库存根的路径", () => {
+    const escape = join(root, "..", "evil.js"); // resolve 后跳出根
+    expect(filterLoadableExtensionPaths([escape])).toEqual([]);
   });
   it("空 / undefined → []", () => {
     expect(filterLoadableExtensionPaths(undefined)).toEqual([]);
