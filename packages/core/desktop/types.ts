@@ -1279,3 +1279,6 @@ export interface PluginSkill {
   shadowedBy?: string; // 被同名覆盖时的覆盖来源 scope（UI 标注用）
   docs: SkillDoc[]; // 配套文档清单（浅层枚举,不含 SKILL.md;空数组表示无）
 }
+
+// 插件市场（第一期，只读）类型。集中在 ./plugin-types 以免本已超 1200 行的类型文件继续膨胀。
+export * from "./plugin-types";
