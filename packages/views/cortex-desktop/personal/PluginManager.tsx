@@ -60,8 +60,9 @@ export function PluginManager() {
   // 预填仅在已有活动会话的输入框挂载时被消费;无会话则静默（用户自建会话后手动触发即可）。
   const tryInChat = useCallback((p: DecoratedPlugin) => {
     catalog.togglePlugin(p.manifest.id, true);
-    const prompt = p.manifest.defaultPrompt;
-    if (prompt) usePersonalStore.getState().insertToComposer(prompt);
+    const name = p.manifest.displayName ?? p.manifest.name;
+    // 带插件上下文:ComposerShell 据此在提示词左侧渲染插件 pill（图标+名称）。无 defaultPrompt 也保留 pill。
+    usePersonalStore.getState().insertToComposer(p.manifest.defaultPrompt ?? "", { plugin: { id: p.manifest.id, name } });
     usePersonalStore.getState().closeSettings();
   }, [catalog]);
 

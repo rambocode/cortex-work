@@ -7985,3 +7985,23 @@ button.sb-row {
 .pw-plg-detail-path-val { font-size: 12.5px; font-family: var(--mono, monospace); color: var(--text-2); word-break: break-all; line-height: 1.5; }
 .pw-plg-detail-path-acts { display: flex; gap: 10px; }
 .pw-btn-danger { color: var(--danger, #c0392b); }
+
+/* 插件「在对话中试用」内联 pill(输入框内、提示词左侧) */
+.composer .input-area .pw-try-pill {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  margin-top: 3px; padding: 3px 7px 3px 4px;
+  border-radius: 8px; background: var(--bg-soft); border: 1px solid var(--border);
+  font-size: 13px; font-weight: 600; color: var(--text-1); white-space: nowrap;
+}
+.pw-try-pill-ico {
+  width: 18px; height: 18px; flex: none; border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff;
+  background: linear-gradient(135deg, #8ab4ff, #c89bff);
+}
+.pw-try-pill-name { line-height: 1; }
+.pw-try-pill-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; color: var(--text-3); cursor: pointer; padding: 0 1px;
+}
+.pw-try-pill-x:hover { color: var(--text-1); }

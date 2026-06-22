@@ -151,6 +151,8 @@ describe("PluginManager 三层 IA", () => {
     fireEvent.click(tryBtn);
     expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toContain("pdf");
     expect(usePersonalStore.getState().composerInsert?.text).toBe("Review this PDF");
+    // 携带插件上下文 → 输入框渲染插件 pill
+    expect(usePersonalStore.getState().composerInsert?.plugin).toEqual({ id: "pdf", name: "PDF" });
   });
 
   it("bridge=null（web/旧壳）→ 插件首页降级空态", async () => {
