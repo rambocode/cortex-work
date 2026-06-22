@@ -8065,14 +8065,15 @@ button.sb-row {
 .pw-mcpf-input:focus { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .pw-mcpf-input::placeholder { color: var(--text-3); }
 /* 分段切换 STDIO / 流式 HTTP */
-.pw-mcpf-seg { display: flex; gap: 4px; padding: 4px; border-radius: 11px; background: var(--bg-soft); }
-.pw-mcpf-seg-btn { flex: 1; border: none; background: transparent; color: var(--text-2); font-size: 13.5px; font-weight: 600; padding: 8px 0; border-radius: 8px; cursor: pointer; }
-.pw-mcpf-seg-btn.is-on { background: var(--bg-app); color: var(--text-1); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.pw-mcpf-seg { display: flex; gap: 8px; }
+.pw-mcpf-seg-btn { flex: 1; border: none; background: color-mix(in srgb, var(--text-1) 5%, transparent); color: var(--text-2); font-size: 13.5px; font-weight: 600; padding: 11px 0; border-radius: 10px; cursor: pointer; transition: background 0.12s, color 0.12s; }
+.pw-mcpf-seg-btn:hover { background: color-mix(in srgb, var(--text-1) 9%, transparent); }
+.pw-mcpf-seg-btn.is-on { background: color-mix(in srgb, var(--text-1) 13%, transparent); color: var(--text-1); }
 /* list / kv 行编辑 */
 .pw-mcpf-list { display: flex; flex-direction: column; gap: 8px; }
 .pw-mcpf-list-row { display: flex; align-items: center; gap: 8px; }
 .pw-mcpf-del { flex: none; width: 34px; height: 34px; border: none; background: transparent; color: var(--text-3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; }
-.pw-mcpf-del:hover { background: var(--bg-soft); color: var(--danger, #c0392b); }
-.pw-mcpf-add { display: flex; align-items: center; justify-content: center; gap: 6px; border: none; background: var(--bg-soft); color: var(--text-2); font-size: 13.5px; padding: 10px; border-radius: 10px; cursor: pointer; }
-.pw-mcpf-add:hover { color: var(--text-1); }
+.pw-mcpf-del:hover { background: color-mix(in srgb, var(--text-1) 7%, transparent); color: var(--danger, #c0392b); }
+.pw-mcpf-add { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; border: none; background: color-mix(in srgb, var(--text-1) 4%, transparent); color: var(--text-2); font-size: 13.5px; padding: 12px; border-radius: 10px; cursor: pointer; transition: background 0.12s; }
+.pw-mcpf-add:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); color: var(--text-1); }
 .pw-mcpf-foot { display: flex; justify-content: flex-end; gap: 10px; }
