@@ -163,6 +163,16 @@ export {
   type PluginSkill,
   type SkillScope,
   type ThinkingLevel,
+  // 插件市场（第一期，只读）
+  DEFAULT_PLUGIN_ENABLE,
+  type PluginEnableSettings,
+  type PluginManifest,
+  type PluginManifestKind,
+  type InstalledPlugin,
+  type PluginListResult,
+  type MarketplaceEntry,
+  type MarketplaceSourceKind,
+  type MarketplaceListResult,
 } from "./desktop/types";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
 export { useUpdateState } from "./desktop/useUpdateState";
