@@ -51,6 +51,28 @@ describe("parsePluginManifest", () => {
     expect(p?.manifest.defaultPrompt).toBe("Design a new landing page for my SaaS.");
   });
 
+  it("composerIcon(svg/png)内联为 data URL；超 64KiB 或越界 → 不内联", async () => {
+    // 正常小图标:内联
+    const dir = join(base, "with-icon");
+    writeJson(dir, ".codex-plugin/plugin.json", { name: "p", interface: { composerIcon: "./assets/icon.svg" } });
+    mkdirSync(join(dir, "assets"), { recursive: true });
+    writeFileSync(join(dir, "assets", "icon.svg"), "<svg/>");
+    const p = await parsePluginManifest(dir);
+    expect(p?.iconDataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+
+    // 超 64KiB:回退(不内联)
+    const big = join(base, "big-icon");
+    writeJson(big, ".codex-plugin/plugin.json", { name: "p", interface: { logo: "./assets/big.png" } });
+    mkdirSync(join(big, "assets"), { recursive: true });
+    writeFileSync(join(big, "assets", "big.png"), Buffer.alloc(70 * 1024));
+    expect((await parsePluginManifest(big))?.iconDataUrl).toBeUndefined();
+
+    // 越界 ../：拒绝内联
+    const esc = join(base, "esc-icon");
+    writeJson(esc, ".codex-plugin/plugin.json", { name: "p", interface: { composerIcon: "../../secret.png" } });
+    expect((await parsePluginManifest(esc))?.iconDataUrl).toBeUndefined();
+  });
+
   it("无 .codex-plugin，回退 .claude-plugin/plugin.json", async () => {
     const dir = join(base, "claude-plugin");
     writeJson(dir, ".claude-plugin/plugin.json", { name: "documents", description: "文档" });

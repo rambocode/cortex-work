@@ -5,7 +5,7 @@
 import { useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import type { PluginCatalog } from "./usePluginCatalog";
-import { PluginRow, pluginInitial } from "./PluginRow";
+import { PluginRow, pluginIconNode } from "./PluginRow";
 
 export function PluginsHome({
   catalog,
@@ -91,7 +91,7 @@ export function PluginsHome({
                 title={p.manifest.displayName ?? p.manifest.name}
                 onClick={() => onOpenDetail(p.manifest.id)}
               >
-                {pluginInitial(p.manifest)}
+                {pluginIconNode(p)}
               </button>
             ))}
           </div>

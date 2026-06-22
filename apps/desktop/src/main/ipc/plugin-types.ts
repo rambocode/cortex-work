@@ -26,6 +26,9 @@ export interface InstalledPlugin {
   installPath: string; // 插件包目录绝对路径（详情页「本地路径」）
   skillsDir?: string; // <installPath>/skills（存在且 isInside 校验通过才置；启用后并入注入扫描根）
   manifestKind: PluginManifestKind;
+  // 插件图标（manifest 的 composerIcon/logo，包内 svg/png）内联为 data URL，供 UI 直接渲染；
+  // 主进程读盘内联（≤64KiB 才内联，过大回退首字母）。缺省 → UI 用名称首字母 monogram。
+  iconDataUrl?: string;
 }
 
 // plugins:list 返回。rootExists 区分「无 ~/.agents/plugins 目录」与「目录在但空」空态文案。

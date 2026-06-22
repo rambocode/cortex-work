@@ -5,7 +5,7 @@
 // 任一档 JSON 非法 → 容错降级到下一档；全失败 → null。复用现有 skills/frontmatter 解析 SKILL.md。
 
 import { promises as fsp } from "fs";
-import { basename, isAbsolute, join, resolve, sep } from "path";
+import { basename, extname, isAbsolute, join, resolve, sep } from "path";
 import { parseFrontmatter } from "../skills/frontmatter";
 import type { InstalledPlugin, PluginManifest, PluginManifestKind } from "../ipc/plugin-types";
 
@@ -91,6 +91,38 @@ async function resolveSkillsDir(
   }
 }
 
+// 图标 mime 白名单（按扩展名）。无法识别的扩展 → 不内联。
+const ICON_MIME: Record<string, string> = {
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+};
+const MAX_ICON_BYTES = 64 * 1024; // 超过则回退首字母,避免把大图(如 computer-use 的 923KB)内联进列表
+
+// 把插件图标（manifest 的 composerIcon/logo/icon，包内相对路径）读盘内联为 data URL。
+// isInside 防 ../ 越界;≤64KiB 才内联;mime 按扩展白名单;任何失败 → undefined（UI 回退首字母）。
+async function resolveIconDataUrl(dir: string, json: Record<string, unknown>): Promise<string | undefined> {
+  const iface = (json.interface && typeof json.interface === "object" ? json.interface : {}) as Record<string, unknown>;
+  const rel =
+    asString(iface.composerIcon) ?? asString(iface.logo) ?? asString(iface.icon) ?? asString(json.icon) ?? asString(json.logo);
+  if (!rel) return undefined;
+  const abs = isAbsolute(rel) ? rel : resolve(dir, rel);
+  if (!isInside(dir, abs)) return undefined;
+  const mime = ICON_MIME[extname(abs).toLowerCase()];
+  if (!mime) return undefined;
+  try {
+    const st = await fsp.stat(abs);
+    if (!st.isFile() || st.size > MAX_ICON_BYTES) return undefined;
+    const buf = await fsp.readFile(abs);
+    return `data:${mime};base64,${buf.toString("base64")}`;
+  } catch {
+    return undefined;
+  }
+}
+
 // 解析单个插件包目录 → InstalledPlugin；目录无任何可识别 manifest → null。
 export async function parsePluginManifest(dir: string): Promise<InstalledPlugin | null> {
   const id = basename(dir);
@@ -99,14 +131,26 @@ export async function parsePluginManifest(dir: string): Promise<InstalledPlugin 
   const codex = await readJsonObject(join(dir, ".codex-plugin", "plugin.json"));
   if (codex) {
     const manifest = mapJsonManifest(id, codex);
-    return { manifest, installPath: dir, manifestKind: "codex", skillsDir: await resolveSkillsDir(dir, "codex", codex.skills) };
+    return {
+      manifest,
+      installPath: dir,
+      manifestKind: "codex",
+      skillsDir: await resolveSkillsDir(dir, "codex", codex.skills),
+      iconDataUrl: await resolveIconDataUrl(dir, codex),
+    };
   }
 
   // 2. .claude-plugin/plugin.json
   const claude = await readJsonObject(join(dir, ".claude-plugin", "plugin.json"));
   if (claude) {
     const manifest = mapJsonManifest(id, claude);
-    return { manifest, installPath: dir, manifestKind: "claude", skillsDir: await resolveSkillsDir(dir, "claude", claude.skills) };
+    return {
+      manifest,
+      installPath: dir,
+      manifestKind: "claude",
+      skillsDir: await resolveSkillsDir(dir, "claude", claude.skills),
+      iconDataUrl: await resolveIconDataUrl(dir, claude),
+    };
   }
 
   // 3. SKILL.md frontmatter（第一方单 skill 兼容）

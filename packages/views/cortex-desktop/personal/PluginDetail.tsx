@@ -3,7 +3,7 @@
 // 捆绑 skill 名清单需扫描 skillsDir（读层只给 skillsRef 路径），第一期以能力/技能存在性呈现，不臆造名单。
 
 import { Icon } from "@cortex-work/ui/icons";
-import { pluginInitial } from "./PluginRow";
+import { pluginIconNode } from "./PluginRow";
 import type { DecoratedPlugin, PluginCatalog } from "./usePluginCatalog";
 
 const KIND_LABEL: Record<DecoratedPlugin["manifestKind"], string> = {
@@ -31,7 +31,7 @@ export function PluginDetail({
     <div className="pw-plg-detail">
       {/* 头部：图标 + 名称/描述 + 启停 + 在对话中试用 */}
       <div className="pw-plg-detail-head">
-        <span className="pw-plg-ico pw-plg-ico-lg">{pluginInitial(m)}</span>
+        <span className="pw-plg-ico pw-plg-ico-lg">{pluginIconNode(plugin)}</span>
         <div className="pw-plg-detail-headmain">
           <div className="pw-plg-detail-name">{name}</div>
           {m.description ? <div className="pw-plg-detail-desc">{m.description}</div> : null}

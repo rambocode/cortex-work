@@ -8005,3 +8005,8 @@ button.sb-row {
   border: none; background: transparent; color: var(--text-3); cursor: pointer; padding: 0 1px;
 }
 .pw-try-pill-x:hover { color: var(--text-1); }
+
+/* 插件自带图标(data URL)填充方框;无图标时回退首字母(原样式) */
+.pw-plg-ico-img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; padding: 5px; box-sizing: border-box; }
+.pw-plg-tile .pw-plg-ico-img { padding: 9px; }
+.pw-plg-ico-lg .pw-plg-ico-img { padding: 9px; }
