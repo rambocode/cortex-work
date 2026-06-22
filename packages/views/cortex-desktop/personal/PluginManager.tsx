@@ -6,7 +6,8 @@
 // 「应用」本期不做。插件目录数据经 usePluginCatalog 在本壳取一次、下传子页共享。
 
 import { useCallback, useState } from "react";
-import { useDesktopBridge } from "@cortex-work/core";
+import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
+import type { DecoratedPlugin } from "./usePluginCatalog";
 import { SkillPanel } from "./SkillPanel";
 import { PluginsHome } from "./PluginsHome";
 import { PluginManagePage } from "./PluginManagePage";
@@ -53,6 +54,16 @@ export function PluginManager() {
   }, [ret]);
 
   const selected = catalog.plugins.find((p) => p.manifest.id === selectedId) ?? null;
+
+  // 「在对话中试用」:启用该插件 → 把 defaultPrompt 预填进当前会话输入框（不自动发送，
+  // 用户确认后再发）→ 关设置面板落到对话。复用 composerInsert 中转（文件预览「发送到 Chat」同款）。
+  // 预填仅在已有活动会话的输入框挂载时被消费;无会话则静默（用户自建会话后手动触发即可）。
+  const tryInChat = useCallback((p: DecoratedPlugin) => {
+    catalog.togglePlugin(p.manifest.id, true);
+    const prompt = p.manifest.defaultPrompt;
+    if (prompt) usePersonalStore.getState().insertToComposer(prompt);
+    usePersonalStore.getState().closeSettings();
+  }, [catalog]);
 
   return (
     <div className="pw-plg">
@@ -105,7 +116,7 @@ export function PluginManager() {
         />
       ) : null}
       {view === "detail" ? (
-        <PluginDetail plugin={selected} catalog={catalog} onTryInChat={undefined} />
+        <PluginDetail plugin={selected} catalog={catalog} onTryInChat={tryInChat} />
       ) : null}
     </div>
   );

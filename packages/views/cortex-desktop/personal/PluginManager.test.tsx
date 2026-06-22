@@ -143,6 +143,16 @@ describe("PluginManager 三层 IA", () => {
     expect(await screen.findByRole("tab", { name: "技能" })).toBeTruthy();
   });
 
+  it("详情页「在对话中试用」→ 启用插件 + 预填 defaultPrompt 到输入框", async () => {
+    renderWith(fakeBridge({ plugins: [plug("pdf", "PDF", { defaultPrompt: "Review this PDF" })] }));
+    fireEvent.click(await screen.findByText("PDF"));
+    const tryBtn = await screen.findByRole("button", { name: /在对话中试用/ });
+    expect((tryBtn as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(tryBtn);
+    expect(usePersonalStore.getState().generalSettings.plugins!.enabled).toContain("pdf");
+    expect(usePersonalStore.getState().composerInsert?.text).toBe("Review this PDF");
+  });
+
   it("bridge=null（web/旧壳）→ 插件首页降级空态", async () => {
     renderWith(null);
     expect(await screen.findByText(/当前环境不支持插件扫描/)).toBeTruthy();
