@@ -4505,18 +4505,6 @@ button.sb-row {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-/* 文件已删除/不存在:渲染期探测命中(chatMarkdown.tsx),删除线灰显且不可点击。 */
-.md-body .file-link-missing,
-.md-body code.file-link.file-link-missing {
-  cursor: not-allowed;
-  color: var(--text-3);
-  background: transparent;
-  text-decoration: line-through;
-  opacity: 0.75;
-}
-.md-body .file-link-missing:hover {
-  text-decoration: line-through;
-}
 .md-body pre {
   margin: 8px 0;
   padding: 10px 12px;

@@ -200,7 +200,9 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
         <PersonalChatArea onToast={() => {}} />
       </CoreProvider>,
     );
-    fireEvent.click(await screen.findByText("002.md"));
+    // 探测命中后才点亮为可点 file-link(checking 期是普通 code、无 onClick);先等点亮再点击。
+    await waitFor(() => expect(screen.getByText("002.md")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("002.md"));
     await waitFor(() =>
       expect(usePersonalStore.getState().filePreviewRequest).toEqual({
         projectId: "p1",
