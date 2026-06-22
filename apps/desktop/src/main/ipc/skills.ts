@@ -19,6 +19,9 @@ interface PiSkillsListArgs {
   userGlobalRoots?: string[];
   workspaceEnabled: boolean;
   workspaceDir?: string;
+  // U6:已启用 ∩ 已授信插件的 skills 根（绝对路径）。渲染端按 store 过滤后传入（main 不读 store）;
+  // 以 scope=global 并入扫描根，使插件内 skill 与第一方 skill 走同一注入链与去重。
+  pluginSkillDirs?: string[];
 }
 
 // pi-skills:open-dir 入参:dir = 要打开的根;allowedRoots = 全部已配置根（白名单,可含 ~）。
@@ -61,6 +64,10 @@ export function registerSkillsHandlers(): void {
   // 插件管理:按配置扫描多根 → PluginSkill[]（enabled 恒 true,启用/授信态由渲染端叠加）。
   ipcMain.handle("pi-skills:list", (_e, args: PiSkillsListArgs): Promise<PluginSkill[]> => {
     const roots = pluginSkillRoots(args, args.workspaceDir);
+    // U6:已启用插件的 skills 根以 scope=global 并入（渲染端已按启停/信任过滤要送哪些）。
+    for (const dir of args.pluginSkillDirs ?? []) {
+      roots.push({ path: expandTilde(dir), scope: "global" });
+    }
     return scanSkillRoots(roots);
   });
 

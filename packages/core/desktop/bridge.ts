@@ -305,6 +305,8 @@ export interface DesktopBridge {
     userGlobalRoots?: string[];
     workspaceEnabled: boolean;
     workspaceDir?: string;
+    // U6:已启用插件的 skills 根（绝对路径，scope=global）。主进程 append 进扫描根，与第一方 skill 同链注入。
+    pluginSkillDirs?: string[];
   }): Promise<PluginSkill[]>;
   openSkillDir?(args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }>;
   // 在选定根下新建 skill（写 <dir>/<name>/SKILL.md）。白名单 + 名称校验,返回结果。

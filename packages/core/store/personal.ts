@@ -13,6 +13,7 @@ import type {
   PiSkillSettings,
   PiExtensionSettings,
   InstalledExtensionRecord,
+  PluginEnableSettings,
   PiUiRequest,
   ProviderProfile,
   ProviderSettings,
@@ -30,6 +31,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_PI_SKILLS,
   DEFAULT_PI_EXTENSIONS,
+  DEFAULT_PLUGIN_ENABLE,
   DEFAULT_PROVIDER_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TIMELINE_SETTINGS,
@@ -185,6 +187,9 @@ export interface PersonalState {
   removeInstalledExtension: (scope: string, ref: string) => void; // 卸载:清溯源 + 启用 + 信任
   toggleExtension: (scope: string, ref: string, enabled: boolean) => void; // 启用/禁用
   trustExtension: (scope: string, ref: string, trusted: boolean) => void; // 过/撤信任门
+  // 插件市场 setter（U5）:启停（opt-in）+ 信任（默认已授信，仅记显式撤信）。键 = 插件 id。
+  togglePlugin: (id: string, enabled: boolean) => void;
+  setPluginTrusted: (id: string, trusted: boolean) => void;
   setPromptRoot: (root: string, tree: PromptNode) => void;
   setPromptTree: (tree: PromptNode) => void;
   // projectId 缺省 = 不使用项目（会话在 opts.noProjectDir 工作目录运行）。
@@ -308,6 +313,8 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     piSkills: { ...DEFAULT_PI_SKILLS, ...g.piSkills, globalRoots: DEFAULT_PI_SKILLS.globalRoots },
     // pi 扩展市场:旧档无 piExtensions 或缺子字段时兜 DEFAULT_PI_EXTENSIONS（U2）。
     piExtensions: { ...DEFAULT_PI_EXTENSIONS, ...g.piExtensions },
+    // 插件市场启停/信任:旧档无 plugins 或缺子字段时兜 DEFAULT_PLUGIN_ENABLE（U5）。
+    plugins: { ...DEFAULT_PLUGIN_ENABLE, ...g.plugins },
   };
 }
 
@@ -560,6 +567,31 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
           : [...cur.trusted, key]
         : cur.trusted.filter((k) => k !== key);
       return { generalSettings: { ...s.generalSettings, piExtensions: { ...cur, trusted: next } } };
+    }),
+
+  // ── 插件市场 setter（U5）─────────────────────────────────────────────────────
+  // 现值兜底 DEFAULT_PLUGIN_ENABLE；整体写回 generalSettings.plugins。键 = 插件 id。
+  togglePlugin: (id, enabled) =>
+    set((s) => {
+      const cur: PluginEnableSettings = { ...DEFAULT_PLUGIN_ENABLE, ...s.generalSettings.plugins };
+      const next = enabled
+        ? cur.enabled.includes(id)
+          ? cur.enabled
+          : [...cur.enabled, id]
+        : cur.enabled.filter((k) => k !== id);
+      return { generalSettings: { ...s.generalSettings, plugins: { ...cur, enabled: next } } };
+    }),
+
+  // 默认已授信:trusted=false → 加入 distrusted（撤信）；trusted=true → 移出 distrusted。
+  setPluginTrusted: (id, trusted) =>
+    set((s) => {
+      const cur: PluginEnableSettings = { ...DEFAULT_PLUGIN_ENABLE, ...s.generalSettings.plugins };
+      const next = trusted
+        ? cur.distrusted.filter((k) => k !== id)
+        : cur.distrusted.includes(id)
+          ? cur.distrusted
+          : [...cur.distrusted, id];
+      return { generalSettings: { ...s.generalSettings, plugins: { ...cur, distrusted: next } } };
     }),
 
   setPromptRoot: (root, tree) => set({ promptRoot: root, promptTree: tree }),

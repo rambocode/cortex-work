@@ -377,6 +377,7 @@ const personal = {
     userGlobalRoots?: string[];
     workspaceEnabled: boolean;
     workspaceDir?: string;
+    pluginSkillDirs?: string[];
   }): Promise<PluginSkill[]> => ipcRenderer.invoke("pi-skills:list", args),
   openSkillDir: (args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("pi-skills:open-dir", args),

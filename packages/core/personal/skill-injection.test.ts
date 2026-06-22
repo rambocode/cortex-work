@@ -2,7 +2,10 @@
 // resolveEnabledSkillRecords 的过滤/去重/降级由 skillResolve.test.ts 覆盖(经委托的
 // resolveEnabledSkillPaths 间接验证),此处聚焦渲染纯函数与防注入清洗。
 import { describe, expect, it } from "vitest";
-import { renderSkillBlock, type InjectableSkill } from "./skill-injection";
+import { renderSkillBlock, resolveEnabledPluginSkillDirs, type InjectableSkill } from "./skill-injection";
+import type { DesktopBridge } from "../desktop/bridge";
+import type { InstalledPlugin } from "../desktop/types";
+import { usePersonalStore } from "../store/personal";
 
 const mk = (name: string, description: string | undefined, dir: string): InjectableSkill => ({ name, description, dir });
 
@@ -45,5 +48,51 @@ describe("renderSkillBlock", () => {
     const out = renderSkillBlock([mk("name\n## injected", "d", "/g/n")]);
     expect(out).not.toMatch(/\n## injected/);
     expect(out).toContain("- **name ## injected** — d");
+  });
+});
+
+describe("resolveEnabledPluginSkillDirs（U6 插件 skills 注入 gate）", () => {
+  const plugin = (id: string, skillsDir?: string): InstalledPlugin => ({
+    manifest: { id, name: id },
+    installPath: `/p/${id}`,
+    skillsDir,
+    manifestKind: "codex",
+  });
+  const bridgeWith = (items: InstalledPlugin[]): DesktopBridge =>
+    ({ pluginList: async () => ({ items, rootExists: true }) }) as unknown as DesktopBridge;
+
+  it("无启用插件 → []", async () => {
+    usePersonalStore.getState().setGeneralSettings({ plugins: { enabled: [], distrusted: [] } });
+    expect(await resolveEnabledPluginSkillDirs(bridgeWith([plugin("a", "/p/a/skills")]))).toEqual([]);
+  });
+
+  it("仅返回 已启用 ∩ 已授信 ∩ 有 skillsDir 的根", async () => {
+    usePersonalStore.getState().setGeneralSettings({ plugins: { enabled: ["a", "b", "c", "d"], distrusted: ["b"] } });
+    const dirs = await resolveEnabledPluginSkillDirs(
+      bridgeWith([
+        plugin("a", "/p/a/skills"), // 启用+授信+有根 → 收
+        plugin("b", "/p/b/skills"), // 启用但已撤信 → 排除
+        plugin("c", undefined), // 启用但无 skillsDir → 排除
+        plugin("d", "/p/d/skills"), // 启用+授信+有根 → 收
+      ]),
+    );
+    expect(dirs).toEqual(["/p/a/skills", "/p/d/skills"]);
+  });
+
+  it("禁用的插件不进注入（不在 enabled 集）", async () => {
+    usePersonalStore.getState().setGeneralSettings({ plugins: { enabled: ["a"], distrusted: [] } });
+    const dirs = await resolveEnabledPluginSkillDirs(bridgeWith([plugin("a", "/p/a/skills"), plugin("z", "/p/z/skills")]));
+    expect(dirs).toEqual(["/p/a/skills"]);
+  });
+
+  it("无 bridge.pluginList（web/旧壳）→ [] 降级", async () => {
+    usePersonalStore.getState().setGeneralSettings({ plugins: { enabled: ["a"], distrusted: [] } });
+    expect(await resolveEnabledPluginSkillDirs({} as DesktopBridge)).toEqual([]);
+  });
+
+  it("pluginList 抛错 → [] 降级，不阻断发送", async () => {
+    usePersonalStore.getState().setGeneralSettings({ plugins: { enabled: ["a"], distrusted: [] } });
+    const bridge = { pluginList: async () => { throw new Error("boom"); } } as unknown as DesktopBridge;
+    expect(await resolveEnabledPluginSkillDirs(bridge)).toEqual([]);
   });
 });

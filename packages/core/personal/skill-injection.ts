@@ -9,7 +9,7 @@
 // messages.ts 的 resolveEnabledSkillPaths 委托到这里取 .dir,避免在已超 1200 行上限的 messages.ts
 // 继续堆叠、也避免两份过滤规则漂移。
 import type { DesktopBridge } from "../desktop/bridge";
-import { DEFAULT_PI_SKILLS, type AgentKind, type PluginSkill } from "../desktop/types";
+import { DEFAULT_PI_SKILLS, DEFAULT_PLUGIN_ENABLE, type AgentKind, type PluginSkill } from "../desktop/types";
 import { usePersonalStore } from "../store/personal";
 
 // 注入用的精简 skill 记录(name/description/dir)。
@@ -59,6 +59,9 @@ export async function resolveEnabledSkillRecords(
   if (useOwnSkills === false) return [];
   if (!bridge.piSkillsList) return [];
   const cfg = { ...DEFAULT_PI_SKILLS, ...usePersonalStore.getState().generalSettings.piSkills };
+  // U6:已启用 ∩ 已授信插件的 skills 根作为额外全局扫描根并入（主进程 append 进 scanSkillRoots）。
+  // 插件级启停/信任是注入 gate——在这里按 store 过滤要送哪些根，主进程不读 store（KTD3）。
+  const pluginSkillDirs = await resolveEnabledPluginSkillDirs(bridge);
   let skills: PluginSkill[];
   try {
     skills = await bridge.piSkillsList({
@@ -66,6 +69,7 @@ export async function resolveEnabledSkillRecords(
       userGlobalRoots: cfg.userGlobalRoots,
       workspaceEnabled: cfg.workspaceEnabled,
       workspaceDir: projectPath,
+      pluginSkillDirs,
     });
   } catch {
     return [];
@@ -85,4 +89,24 @@ export async function resolveEnabledSkillRecords(
   for (const s of enabled) if (s.scope === "global") put(s);
   // 按 dir 字典序排序(与旧实现的 [...paths].sort() 等价,保持调用方稳定顺序)。
   return [...byName.values()].sort((a, b) => (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0));
+}
+
+// 解析「已启用 ∩ 已授信」插件的 skills 根目录(U6)。插件级 gate(语义见 PluginEnableSettings)：
+//   enabled.has(id) && !distrusted.has(id) && 该插件有 skillsDir。
+// 缺 bridge.pluginList(web/旧壳) / 无启用插件 / 扫描失败 → []（降级，不阻断发送）。
+// 这些根以 scope=global 并入 scanSkillRoots（主进程），随后流入与第一方 skill 同一注入链。
+export async function resolveEnabledPluginSkillDirs(bridge: DesktopBridge): Promise<string[]> {
+  if (!bridge.pluginList) return [];
+  const cfg = { ...DEFAULT_PLUGIN_ENABLE, ...usePersonalStore.getState().generalSettings.plugins };
+  if (!cfg.enabled.length) return [];
+  const enabled = new Set(cfg.enabled);
+  const distrusted = new Set(cfg.distrusted);
+  try {
+    const { items } = await bridge.pluginList();
+    return items
+      .filter((p) => enabled.has(p.manifest.id) && !distrusted.has(p.manifest.id) && p.skillsDir)
+      .map((p) => p.skillsDir as string);
+  } catch {
+    return [];
+  }
 }
