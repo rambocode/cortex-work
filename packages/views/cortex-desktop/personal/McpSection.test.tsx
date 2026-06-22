@@ -1,4 +1,4 @@
-// McpCard(MCP 设置卡片,U3)最小渲染 + 交互测试:总开关、列表、od 预设、删除经 store;
+// McpCard(MCP 设置卡片,U3)最小渲染 + 交互测试:总开关、列表、删除经 store;
 // 新增/编辑表单已上提为独立页(经 onEdit 回调),本卡只验证 onEdit 被调用(表单本身见 McpServerForm.test)。
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,16 +49,5 @@ describe("McpCard", () => {
     expect(onEdit).toHaveBeenCalledWith(0);
     fireEvent.click(screen.getByLabelText("删除 FS"));
     expect(mcp()?.servers).toHaveLength(0);
-  });
-
-  it("od 预设:添加 stdio od server,args 含 loopback url;重复点击不重复(U6)", () => {
-    renderUI(<McpCard onEdit={vi.fn()} />);
-    fireEvent.click(screen.getByText("+ od（open-design）"));
-    const s = mcp()?.servers ?? [];
-    expect(s).toHaveLength(1);
-    expect(s[0]?.command).toBe("od");
-    expect(s[0]?.args).toEqual(["mcp", "--daemon-url", "http://127.0.0.1:7456"]);
-    fireEvent.click(screen.getByText("+ od（open-design）"));
-    expect(mcp()?.servers).toHaveLength(1);
   });
 });

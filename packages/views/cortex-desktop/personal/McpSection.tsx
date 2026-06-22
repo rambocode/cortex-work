@@ -1,19 +1,14 @@
 // MCP 设置卡片(M2 U3)。总开关 + server 清单 + 增删/启停。新增/编辑走独立页(由 PluginManagePage
-// 通过 onEdit 上提渲染 McpServerForm,见该文件),本卡只负责列表与 od 预设,不内联表单。
+// 通过 onEdit 上提渲染 McpServerForm,见该文件),本卡只负责列表,不内联表单。
 // 读写 generalSettings.mcp,经 store 自动持久化;主进程在 cli:start 按总开关注入(ipc/mcp-config.ts)。
 // 标签用 zh 字面量(桌面配置项不本地化)。
 /* eslint-disable i18next/no-literal-string -- MCP 配置项标签为桌面专用,暂不本地化 */
 
 import { Icon } from "@cortex-work/ui/icons";
 import { usePersonalStore } from "@cortex-work/core";
-import type { McpServerConfig, McpSettings } from "@cortex-work/core";
+import type { McpSettings } from "@cortex-work/core";
 
 const EMPTY: McpSettings = { enabled: false, servers: [] };
-
-// open-design(od)经 MCP 接入预设(FR-5/U6)。od 以 stdio MCP server 接入,host 固定 loopback。
-const OD_PORT_DEFAULT = 7456;
-const odArgs = (port: number): string[] => ["mcp", "--daemon-url", `http://127.0.0.1:${port}`];
-const isOdServer = (s: McpServerConfig): boolean => s.transport === "stdio" && s.command === "od";
 
 export function McpCard({ onEdit }: { onEdit: (index: number | null) => void }) {
   const general = usePersonalStore((s) => s.generalSettings);
@@ -22,10 +17,6 @@ export function McpCard({ onEdit }: { onEdit: (index: number | null) => void }) 
 
   const update = (patch: Partial<McpSettings>) => setGeneral({ mcp: { ...mcp, ...patch } });
   const removeServer = (i: number) => update({ servers: mcp.servers.filter((_, idx) => idx !== i) });
-  const addOdPreset = () => {
-    if (mcp.servers.some(isOdServer)) return;
-    update({ servers: [...mcp.servers, { id: "od", label: "od", transport: "stdio", command: "od", args: odArgs(OD_PORT_DEFAULT) }] });
-  };
 
   return (
     <div className="pw-scard">
@@ -66,12 +57,6 @@ export function McpCard({ onEdit }: { onEdit: (index: number | null) => void }) 
         <button className="pw-tl-gen" onClick={() => onEdit(null)}>
           + 连接自定义 MCP
         </button>
-        <button className="pw-tl-gen" onClick={addOdPreset}>
-          + od（open-design）
-        </button>
-      </div>
-      <div className="pw-srow-desc">
-        od 预设把 open-design 经 MCP 接入（stdio：<code>od mcp --daemon-url</code>），host 固定 127.0.0.1。
       </div>
     </div>
   );
