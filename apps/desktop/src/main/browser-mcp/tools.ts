@@ -10,6 +10,7 @@ import { isAuthorizedFileUrl } from "../browser/localHtml";
 import { getPersistedState } from "../ipc/store";
 import { getLiveGuest, readConsoleBuffer } from "./guest-registry";
 import { claimForMutation } from "./ownership";
+import { registerCdpTools } from "./cdp";
 import { asUntrustedPageContent } from "./sanitize";
 import type { ToolContext } from "./server";
 import { classifyTarget } from "./url-gate";
@@ -101,4 +102,7 @@ export function registerBrowserTools(mcp: McpServer, ctx: ToolContext): void {
       return text(r === NOT_FOUND ? `未找到元素:${selector}` : `已向 ${selector} 输入文本`);
     },
   );
+
+  // CDP 层工具(opt-in:网络脱敏 + 无障碍,U7)。
+  registerCdpTools(mcp);
 }
