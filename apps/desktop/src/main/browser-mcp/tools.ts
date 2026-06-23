@@ -4,6 +4,7 @@
 // OAuth / 表单提交等可信门控操作(更安全)。可信输入(sendInputEvent)留作 follow-up。
 // 看门狗:readDom 结果经 sanitize 钳制大小,避免巨型返回拖久工具调用触发渲染端 stall 看门狗。
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { WebContents } from "electron";
 import { z } from "zod";
 
 import { isAuthorizedFileUrl } from "../browser/localHtml";
@@ -19,6 +20,24 @@ const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 
 const LEVEL_NAME = ["verbose", "info", "warning", "error"];
 const NOT_FOUND = "__CORTEX_NOT_FOUND__";
+const OPEN_TIMEOUT_MS = 6000; // 请求开面板后等 guest 出现的上限
+
+// 主进程提供的运行时能力(由 index.ts 注入)。
+export interface BrowserToolDeps {
+  // 请求渲染端打开内置浏览器面板并导航(面板未开时用)。
+  openPanel: (url: string) => void;
+}
+
+// 轮询等 guest 出现:渲染端开面板 → webview 挂载 → web-contents-created 捕获,均异步。
+async function waitForGuest(timeoutMs: number): Promise<WebContents | null> {
+  const deadline = Date.now() + timeoutMs;
+  let g = getLiveGuest();
+  while (!g && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 100));
+    g = getLiveGuest();
+  }
+  return g;
+}
 
 async function approvedOrigins(): Promise<string[]> {
   try {
@@ -28,11 +47,11 @@ async function approvedOrigins(): Promise<string[]> {
   }
 }
 
-export function registerBrowserTools(mcp: McpServer, ctx: ToolContext): void {
-  // navigate(改动型):过 URL 闸 + 归属。
+export function registerBrowserTools(mcp: McpServer, ctx: ToolContext, deps: BrowserToolDeps): void {
+  // navigate(改动型):过 URL 闸 + 归属;面板未开则请求渲染端打开并导航。
   mcp.registerTool(
     "browser_navigate",
-    { description: "把内置浏览器导航到 URL(本地优先;非本地需用户预授权)。", inputSchema: { url: z.string() } },
+    { description: "把内置浏览器导航到 URL(本地优先;非本地需用户预授权)。面板未开会自动打开。", inputSchema: { url: z.string() } },
     async ({ url }) => {
       const verdict = classifyTarget(url, await approvedOrigins(), isAuthorizedFileUrl);
       if (!verdict.allow) {
@@ -40,9 +59,15 @@ export function registerBrowserTools(mcp: McpServer, ctx: ToolContext): void {
           return text(`被拒:origin ${verdict.origin} 未授权。请用户在「设置 → 浏览器控制 → 待授权」授权后重试。`);
         return text(`被拒(${verdict.reason}):该 URL 不允许导航。`);
       }
-      const guest = getLiveGuest();
-      if (!guest) return text("无可控浏览器面板(请先在应用内打开内置浏览器)。");
       if (!claimForMutation(ctx.sessionId, Date.now())) return text("浏览器面板正被其它会话占用,稍后重试。");
+      const guest = getLiveGuest();
+      if (!guest) {
+        // 面板未开:请求渲染端开面板并导航(requestBrowserUrl 同时开面板 + loadUrl),再等 guest 出现。
+        deps.openPanel(url);
+        const opened = await waitForGuest(OPEN_TIMEOUT_MS);
+        if (!opened) return text("已请求打开内置浏览器面板;若应用窗口可见请稍候重试。");
+        return text(`已打开浏览器面板并导航到 ${url}`);
+      }
       await guest.loadURL(url);
       return text(`已导航到 ${url}`);
     },

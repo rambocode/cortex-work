@@ -21,10 +21,10 @@ import { registerBrowserTools } from "./tools";
 
 type Handler = (args: Record<string, unknown>) => Promise<{ content: Array<Record<string, unknown>> }>;
 
-function collectTools(sessionId: string | null = "s1"): Map<string, Handler> {
+function collectTools(sessionId: string | null = "s1", openPanel: (url: string) => void = () => {}): Map<string, Handler> {
   const handlers = new Map<string, Handler>();
   const mcp = { registerTool: (name: string, _cfg: unknown, cb: Handler) => handlers.set(name, cb) };
-  registerBrowserTools(mcp as never, { sessionId });
+  registerBrowserTools(mcp as never, { sessionId }, { openPanel });
   return handlers;
 }
 
@@ -55,6 +55,16 @@ describe("浏览器默认层工具（U5）", () => {
     const r = await collectTools().get("browser_navigate")!({ url: "http://localhost:3000" });
     expect(g.loadURL).toHaveBeenCalledWith("http://localhost:3000");
     expect(String(r.content[0].text)).toContain("已导航");
+  });
+
+  it("面板未开 → 请求 openPanel 并等 guest 出现后回「已打开」", async () => {
+    h.guest = null;
+    const openPanel = vi.fn((_url: string) => {
+      h.guest = fakeGuest(); // 模拟渲染端开面板后 guest 出现
+    });
+    const r = await collectTools("s1", openPanel).get("browser_navigate")!({ url: "http://localhost:3000" });
+    expect(openPanel).toHaveBeenCalledWith("http://localhost:3000");
+    expect(String(r.content[0].text)).toContain("已打开");
   });
 
   it("navigate 非本地未授权 → 拒 + 提示授权,不调 loadURL", async () => {

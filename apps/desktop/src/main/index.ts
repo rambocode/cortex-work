@@ -273,7 +273,12 @@ if (!app.requestSingleInstanceLock()) {
     await initScheduler();
     // 浏览器控制 MCP server:随主进程常驻(U2)。工具由 U5 注入;是否注入给 agent 由 U3 按总开关 gate。
     // fire-and-forget:listen 快且失败已内部降级,不阻塞建窗。
-    void startBrowserMcpServer(registerBrowserTools);
+    // 注入运行时能力:openPanel 让 agent 的 browser_navigate 在面板未开时打开内置浏览器(经渲染端)。
+    void startBrowserMcpServer((mcp, toolCtx) =>
+      registerBrowserTools(mcp, toolCtx, {
+        openPanel: (url) => mainWindow?.webContents.send("browser:open-panel", url),
+      }),
+    );
     createWindow();
 
     app.on("activate", () => {

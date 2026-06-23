@@ -209,6 +209,8 @@ export interface DesktopBridge {
   trimAgentSession?(req: TrimSessionRequest): Promise<boolean>;
   onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;
   onCliExit(cb: (exit: CliExitEvent) => void): () => void;
+  // 主进程请求打开内置浏览器面板并导航(agent browser_navigate 在面板未开时触发)。回调 (url);返回退订。
+  onBrowserOpenPanel?(cb: (url: string) => void): () => void;
   // ── 历史消息追问的临时流式应答（ask:*）。复用 CliStreamEvent,但不落盘/不进 run 注册表; ──
   // 关闭浮层即弃。全部可选（web 端 bridge 为 null、旧壳无此方法时 UI 降级隐藏追问入口）。
   // 一轮一个 askId:既作 invoke 入参的登记 key,也经 onAskFollowupEvent 回带做代际守卫。

@@ -233,6 +233,11 @@ const personal = {
     ipcRenderer.on("cli:exit", listener);
     return () => ipcRenderer.removeListener("cli:exit", listener);
   },
+  onBrowserOpenPanel: (cb: (url: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, url: string) => cb(url);
+    ipcRenderer.on("browser:open-panel", listener);
+    return () => ipcRenderer.removeListener("browser:open-panel", listener);
+  },
   // ── 历史消息追问的临时流式应答（ask:*）。不落盘/不进 run 注册表,关闭浮层即弃。 ────────
   askFollowupStream: (req: AskFollowupRequest): Promise<void> => ipcRenderer.invoke("ask:start", req),
   onAskFollowupEvent: (cb: (askId: string, event: CliStreamEvent) => void): (() => void) => {

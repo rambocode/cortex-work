@@ -63,6 +63,7 @@ export function PersonalWorkspace({
   );
   const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
   const setDerivedAgents = usePersonalStore((s) => s.setDerivedAgents);
+  const requestBrowserUrl = usePersonalStore((s) => s.requestBrowserUrl);
   usePersonalPersistence();
   usePersonalCliEvents();
   // pi RPC 会话事件流（与 CLI 事件并列挂载一次）；bridge 无 onPiEvent 时内部空转。
@@ -90,6 +91,10 @@ export function PersonalWorkspace({
   useEffect(() => {
     bridge?.listAgentProfiles?.().then(setDerivedAgents).catch(() => {});
   }, [bridge, setDerivedAgents]);
+
+  // 订阅主进程「打开浏览器面板」请求:agent 的 browser_navigate 在面板未开时触发 → 开面板并导航。
+  // bridge 无该方法(web/旧壳)时空转。
+  useEffect(() => bridge?.onBrowserOpenPanel?.((url) => requestBrowserUrl(url)), [bridge, requestBrowserUrl]);
 
   if (!bridge) {
     return (
