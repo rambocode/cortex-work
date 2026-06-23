@@ -7,8 +7,9 @@ import type { BrowserControlSettings } from "@cortex-work/core";
 const EMPTY: BrowserControlSettings = { enabled: false, cdpEnabled: false, approvedOrigins: [] };
 
 // 浏览器控制设置区(U8):总开关 + CDP「风险升高」确认开关 + 非本地导航预授权白名单。
-// 落 MCP sub-tab,与 McpCard 并列(第一方能力)。读写 generalSettings.browserControl;主进程在
-// cli:start 按总开关注入浏览器 MCP server(见 browser-mcp/inject)。views 不碰 Node。
+// 由 SettingsMenu 的「应用 → 浏览器」分区（BrowserSection）渲染（原落 MCP sub-tab,已提升为
+// 顶层分区）。读写 generalSettings.browserControl;主进程在 cli:start 按总开关注入浏览器
+// MCP server(见 browser-mcp/inject)。views 不碰 Node。
 export function BrowserControlSection() {
   const general = usePersonalStore((s) => s.generalSettings);
   const setBrowserControl = usePersonalStore((s) => s.setBrowserControl);
