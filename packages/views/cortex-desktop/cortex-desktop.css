@@ -1011,6 +1011,15 @@ input, textarea { font: inherit; color: inherit; }
 .pw-process-fab-ic { display: inline-flex; align-items: center; justify-content: center; }
 .pw-process.is-collapsed[data-active="true"] .pw-process-fab-ic { color: var(--amber); }
 .pw-process.is-collapsed[data-active="false"] .pw-process-fab-ic { color: var(--green); }
+/* 收起态 FAB 里的运行中转圈：.spinner 无基础尺寸（仅在特定父级下才有），须在此显式给尺寸/边框，
+   否则运行中收起态零尺寸不可见（只在完成态 CheckCircle 才看得到 icon）。 */
+.pw-process.is-collapsed .pw-process-fab-ic .spinner {
+  width: 16px; height: 16px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
 .pw-process-head {
   display: flex;
   align-items: center;
