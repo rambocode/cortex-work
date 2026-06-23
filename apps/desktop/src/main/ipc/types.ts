@@ -741,7 +741,21 @@ export type ReasoningEffort = "low" | "medium" | "high";
 export type PermissionMode = "plan" | "accept-edits" | "full-auto";
 // pi plan 档只读工具白名单,与 core/desktop/types.ts 的 PI_PLAN_TOOL_WHITELIST 镜像。
 // 主进程 pi.ts 单发路径无法 import core barrel,故此处镜像一份供 adapter 引用(避免硬编码漂移)。
-export const PI_PLAN_TOOL_WHITELIST = ["read", "grep", "find", "ls"];
+// 浏览器控制工具(browser_*,沙箱 + URL 闸)并入,须与 core 镜像逐字一致。
+export const PI_PLAN_TOOL_WHITELIST = [
+  "read",
+  "grep",
+  "find",
+  "ls",
+  "browser_navigate",
+  "browser_screenshot",
+  "browser_read_dom",
+  "browser_read_console",
+  "browser_click",
+  "browser_type",
+  "browser_network",
+  "browser_accessibility",
+];
 
 // weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
 export type ScheduleSpec =

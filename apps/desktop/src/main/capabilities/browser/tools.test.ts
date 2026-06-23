@@ -18,6 +18,7 @@ vi.mock("../../browser/localHtml", () => ({ isAuthorizedFileUrl: () => false }))
 
 import { __resetOwnership } from "./ownership";
 import { registerBrowserTools } from "./tools";
+import { BROWSER_MCP_PLAN_TOOLS } from "@cortex-work/core/desktop/types";
 
 type Handler = (args: Record<string, unknown>) => Promise<{ content: Array<Record<string, unknown>> }>;
 
@@ -101,5 +102,12 @@ describe("浏览器默认层工具（U5）", () => {
     await collectTools("s1").get("browser_navigate")!({ url: "http://localhost:3000" }); // s1 认领
     const r = await collectTools("s2").get("browser_navigate")!({ url: "http://localhost:3001" });
     expect(String(r.content[0].text)).toContain("占用");
+  });
+
+  // 漂移守卫:注册的浏览器工具名必须与 core 的 BROWSER_MCP_PLAN_TOOLS 逐一对应——后者并入 pi plan
+  // 只读白名单(让默认 plan 会话也能用浏览器控制)。新增/改名工具忘了同步白名单 → 本测试红。
+  it("注册的工具名与 BROWSER_MCP_PLAN_TOOLS 一致(plan 白名单漂移守卫)", () => {
+    const registered = [...collectTools().keys()].sort();
+    expect(registered).toEqual([...BROWSER_MCP_PLAN_TOOLS].sort());
   });
 });

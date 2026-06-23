@@ -1175,8 +1175,22 @@ export const DEFAULT_PERMISSION_MODE: PermissionMode = "full-auto";
 // 新建会话的默认档位:从只读 plan 起步,用户确认后再放权(更安全的默认)。仅落地页草稿用,
 // 与上面的「存量回退」解耦:新会话显式持久化 plan,旧会话仍回退 full-auto。
 export const DEFAULT_NEW_SESSION_PERMISSION_MODE: PermissionMode = "plan";
-// pi plan 档只读工具白名单(pi 官方钦定的 read-only 配方,物理上无 write/edit/bash)。
-export const PI_PLAN_TOOL_WHITELIST = ["read", "grep", "find", "ls"];
+// 浏览器控制工具名(browser_*)。须与主进程 capabilities/browser/{tools,cdp}.ts 注册的工具名
+// 逐字一致(漂移由 capabilities/browser/tools.test.ts 守)。内置浏览器是沙箱 + URL 闸,
+// navigate/click/type 只动内置浏览器、不碰用户文件/系统,故纳入 plan 只读白名单(见下)。
+export const BROWSER_MCP_PLAN_TOOLS = [
+  "browser_navigate",
+  "browser_screenshot",
+  "browser_read_dom",
+  "browser_read_console",
+  "browser_click",
+  "browser_type",
+  "browser_network",
+  "browser_accessibility",
+];
+// pi plan 档只读工具白名单(pi 官方钦定的 read-only 配方,物理上无 write/edit/bash)。并入浏览器控制
+// 工具:否则「新会话默认 plan」会让浏览器控制开箱即用不了(pi 用 --tools 硬限工具集,白名单外即被拦)。
+export const PI_PLAN_TOOL_WHITELIST = ["read", "grep", "find", "ls", ...BROWSER_MCP_PLAN_TOOLS];
 
 // 定时规则。weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
 // minute 0-59,hour 0-23。cron 为 5 段标准表达式（分 时 日 月 周）。

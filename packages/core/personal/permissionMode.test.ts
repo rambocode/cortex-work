@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { derivePiCapabilities } from "./permissionMode";
+import { PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 
 describe("derivePiCapabilities", () => {
-  it("plan:只读白名单 + 关审批,不带 approvalTools", () => {
+  it("plan:只读白名单(含浏览器控制工具)+ 关审批,不带 approvalTools", () => {
     const caps = derivePiCapabilities("plan");
-    expect(caps.toolWhitelist).toEqual(["read", "grep", "find", "ls"]);
+    expect(caps.toolWhitelist).toEqual(PI_PLAN_TOOL_WHITELIST);
+    // 只读文件工具 + 浏览器控制工具(沙箱,plan 下亦放行)。
+    expect(caps.toolWhitelist).toEqual(expect.arrayContaining(["read", "grep", "find", "ls", "browser_navigate"]));
     expect(caps.enableToolApproval).toBe(false);
     expect(caps.approvalTools).toBeUndefined();
   });
