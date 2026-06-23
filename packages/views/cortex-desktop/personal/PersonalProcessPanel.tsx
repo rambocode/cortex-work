@@ -1,20 +1,18 @@
-// 右侧执行过程区（U4）：中栏右侧占位、默认收起为常驻细头部、点击向下展开的临时执行过程区。读瞬态
+// 右侧执行过程区（U4）：中栏右侧占位、默认收起为一个圆形 icon、点击向下展开的临时执行过程区。读瞬态
 // 过程流（usePersonalProcess(activeSessionId)）和当前回复状态（typing），按当前会话渲染 agentLog
-// 步骤 + reasoning 思考 + agent 状态，随运行流式更新。
+// 步骤 + reasoning 思考 + agent 状态，随运行流式更新；默认始终收起为 icon，点击展开看步骤。
 //
-// 关键约定（见计划 2026-06-23-001 KTD1–KTD5；原 U4 KTD3/KTD9）：
+// 关键约定（见计划 KTD3/KTD9）：
 //  - 过程区作为 .pw-center-col 里的右侧占位列参与布局，主会话区自然变窄，**不遮挡**消息和输入框。
 //    **不**进 rightView、不进 PersonalRightPanel。
 //  - 用新建精简 ProcessStep 渲染件，**不**复用团队侧 ChatArea 的私有 AgentLogMessage/ReasoningMessage
 //    （守 R12：不触碰 ChatArea 导出面）。
 //  - 门控与 rightOpen/rightView 解耦：仅当中栏显示会话区（非 automation/home/timeline/noteEditor/
 //    settings）且当前会话有过程或正在回复时渲染。
-//  - 默认收起（expanded = userOpen ?? false）：无论运行中还是已完成，首次都只露一条常驻细头部
-//    （执行过程标题 + 运行中/已完成状态徽标 + 朝下 chevron），body 不渲染；状态徽标与 chevron 朝向
-//    即为用户的「执行感知」。点击 / Enter / Space 头部把 body 向下展开。用户手动开合（userOpen）在
-//    同一轮（processResetKey 不变）保持，下一轮过程流（runId/首步变化）经 useEffect 重置回默认收起。
-//  - 头部即开关、收起展开共用同一卡片外壳（无圆形 FAB）：仅 body 随 expanded 条件渲染。
-//  - 可达性：头部键盘可聚焦、role=button + aria-expanded 随态切换；流式步骤容器 aria-live=polite；
+//  - 默认收起（expanded = userOpen ?? false）：运行中也收起为圆形 icon，不自动撑开整块面板抢焦；
+//    icon 随状态变化（运行中转圈 ↔ 完成绿勾）即为「执行感知」。点击 icon 向下展开看步骤，展开态点
+//    头部收起。用户手动开合（userOpen）同一轮（processResetKey 不变）保持，下一轮过程流恢复默认收起。
+//  - 可达性：收起入口键盘可聚焦、role=button + aria-expanded；流式步骤容器 aria-live=polite；
 //    过程区出现不抢当前焦点（纯渲染，无 autoFocus/无 focus() 调用）。
 
 import { useEffect, useMemo, useState } from "react";
@@ -143,9 +141,9 @@ export function PersonalProcessPanel() {
   useEffect(() => {
     setUserOpen(null);
   }, [processResetKey]);
-  // 默认收起（KTD1）：无论运行中还是已完成，首次都收起为常驻细头部，用户点开才向下展开。
-  // userOpen 为用户手动覆盖，同一轮内（processResetKey 不变）保持；下一轮 runId/首步变化时
-  // useEffect 重置回默认收起。
+  // 默认收起为圆形 icon（运行中也收起，不自动撑开整块面板，避免抢焦）：userOpen 为用户手动覆盖，
+  // 同一轮内（processResetKey 不变）保持；下一轮 runId/首步变化时 useEffect 重置回默认收起。
+  // 运行/完成的 icon 变化（转圈↔绿勾）即为用户的「执行感知」，点开才向下展开看步骤。
   const expanded = userOpen ?? false;
 
   // 门控：中栏非会话区 / 当前会话既无过程也无回复状态 → 不渲染。
@@ -153,21 +151,40 @@ export function PersonalProcessPanel() {
   if (!chatViewActive || (process.length === 0 && !statusText)) return null;
   if (isExtensionCommand && process.length === 0) return null;
 
-  // 头部即开关：点击 / Enter / Space 切换 body 显隐（KTD3）。收起展开共用同一卡片外壳，头部常驻、
-  // body 仅展开时渲染（KTD2，无圆形 FAB 分支）。
+  // 开关：收起态点 icon 展开、展开态点头部收起。默认收起（userOpen 为 null 时视作 false），
+  // 故首次点击从收起翻到展开。
   const toggle = () => setUserOpen((v) => !(v ?? false));
 
-  // 单卡片手风琴：收起态只渲染头部一行（细头部，is-collapsed），展开态再向下渲染 body。
-  // 头部点击 / Enter / Space 切换；chevron 收起朝下、展开 is-open 旋转朝上（KTD4，配色见 CSS）。
+  // 收起态（默认）：整卡塌成一个圆形 icon 按钮（点击向下展开入口），grid 第二列随之塌窄、会话区变宽。
+  // 原生 <button> → 键盘/读屏可达；图标随状态变化即为「执行感知」：运行中转圈、完成显示绿色对勾。
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        className="pw-process is-collapsed"
+        data-active={active}
+        aria-expanded={false}
+        aria-label="展开执行过程"
+        title={active ? "执行中，点击展开" : "执行过程已完成，点击展开"}
+        onClick={toggle}
+      >
+        <span className="pw-process-fab-ic" aria-hidden="true">
+          {active ? <span className="spinner" /> : <Icon.CheckCircle size={18} />}
+        </span>
+      </button>
+    );
+  }
+
+  // 展开态：完整卡片（此处 expanded 必为 true，收起态已在上方提前 return）。头部点击/Enter/Space
+  // 收起为 icon。
   return (
-    <div className={`pw-process ${expanded ? "is-expanded" : "is-collapsed"}`} data-active={active}>
+    <div className="pw-process is-expanded" data-active={active}>
       <div
         className="pw-process-head"
         role="button"
         tabIndex={0}
-        aria-expanded={expanded}
-        aria-label={expanded ? "收起执行过程" : "展开执行过程"}
-        title={expanded ? "点击收起执行过程" : active ? "执行中，点击展开" : "执行过程已完成，点击展开"}
+        aria-expanded={true}
+        aria-label="收起执行过程"
         onClick={toggle}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -180,19 +197,17 @@ export function PersonalProcessPanel() {
         <span className={`pw-process-badge ${active ? "is-active" : "is-done"}`}>
           {active ? "运行中" : "已完成"}
         </span>
-        <span className={`pw-process-chev ${expanded ? "is-open" : ""}`} aria-hidden="true">
+        <span className="pw-process-chev is-open" aria-hidden="true">
           <Icon.Chevron size={14} />
         </span>
       </div>
-      {/* 流式步骤容器：仅展开时渲染；aria-live=polite 让辅助技术可感知增量步骤（R9）。 */}
-      {expanded ? (
-        <div className="pw-process-body" aria-live="polite">
-          {statusText ? <StatusStep text={statusText} active={!!runId} /> : null}
-          {process.map((m, i) => (
-            <ProcessStep key={m.uid ?? i} m={m} />
-          ))}
-        </div>
-      ) : null}
+      {/* 流式步骤容器：aria-live=polite 让辅助技术可感知增量步骤（R9）。 */}
+      <div className="pw-process-body" aria-live="polite">
+        {statusText ? <StatusStep text={statusText} active={!!runId} /> : null}
+        {process.map((m, i) => (
+          <ProcessStep key={m.uid ?? i} m={m} />
+        ))}
+      </div>
     </div>
   );
 }
