@@ -284,3 +284,33 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     expect(screen.getByRole("tab", { name: "技能" })).toBeTruthy();
   });
 });
+
+describe("设置菜单分组 + 应用/浏览器分区", () => {
+  beforeEach(() => {
+    usePersonalStore.setState({ settingsOpen: true, profile: {} });
+  });
+  afterEach(() => cleanup());
+
+  it("左栏渲染 5 个分组标题(组标题用 .pw-dlg-nav-h,与同名菜单项区分)", () => {
+    const { container } = renderUI(<PersonalSettingsView />);
+    // 组标题节点（非 button）：逐字校验 5 组顺序与文案。
+    const heads = Array.from(container.querySelectorAll(".pw-dlg-nav-h")).map((el) => el.textContent);
+    expect(heads).toEqual(["通用", "模型与 Agent", "应用", "个性化", "自动化"]);
+  });
+
+  it("「应用」组并列「插件」「浏览器」两个菜单项", () => {
+    renderUI(<PersonalSettingsView />);
+    expect(screen.getByRole("button", { name: "插件" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "浏览器" })).toBeTruthy();
+  });
+
+  it("切到「浏览器」分区:右栏渲染内置浏览器控制开关,菜单态同步(Covers R4)", () => {
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "浏览器" }));
+    // BrowserControlSection 的总开关(原埋在 插件→管理→MCP,现提升为顶层分区)。
+    expect(screen.getByLabelText("允许 agent 控制内置浏览器")).toBeTruthy();
+    const active = screen.getByRole("button", { name: "浏览器" });
+    expect(active.className).toContain("is-active");
+    expect(active.getAttribute("aria-current")).toBe("page");
+  });
+});

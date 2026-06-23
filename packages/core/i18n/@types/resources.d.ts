@@ -689,6 +689,10 @@ export default interface Resources {
       "notDetected": "未检测到 CLI",
       "title": "Agent"
     },
+    "browser": {
+      "desc": "管理内置浏览器与 agent 的浏览器控制权限。",
+      "title": "浏览器"
+    },
     "general": {
       "action": "操作",
       "baseCard": "基础设置",
@@ -908,8 +912,16 @@ export default interface Resources {
       "webhookUrl": "Webhook 地址",
       "wecom": "企业微信机器人"
     },
+    "tabGroups": {
+      "apps": "应用",
+      "automation": "自动化",
+      "general": "通用",
+      "models": "模型与 Agent",
+      "personalization": "个性化"
+    },
     "tabs": {
       "agent": "Agent",
+      "browser": "浏览器",
       "general": "通用",
       "pet": "宠物",
       "pi": "Pi",

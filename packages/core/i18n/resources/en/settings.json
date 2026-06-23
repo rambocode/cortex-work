@@ -11,10 +11,22 @@
     "agent": "Agent",
     "pi": "Pi",
     "plugins": "Plugins",
+    "browser": "Browser",
     "pet": "Pet",
     "timeline": "Timeline",
     "push": "Push",
     "voice": "Voice"
+  },
+  "tabGroups": {
+    "general": "General",
+    "models": "Models & Agents",
+    "apps": "Apps",
+    "personalization": "Personalization",
+    "automation": "Automation"
+  },
+  "browser": {
+    "title": "Browser",
+    "desc": "Manage the built-in browser and the agent's browser-control permission."
   },
   "profile": {
     "title": "Profile",

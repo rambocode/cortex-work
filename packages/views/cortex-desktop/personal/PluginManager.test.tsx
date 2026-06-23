@@ -93,6 +93,15 @@ describe("PluginManager 三层 IA", () => {
     expect(await screen.findByText(/pi 原生扩展/)).toBeTruthy();
   });
 
+  it("管理页 MCP sub-tab 不再含内置浏览器控制开关（已迁至「应用→浏览器」分区）", async () => {
+    renderWith(fakeBridge({ plugins: [plug("a", "Alpha")] }));
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "管理" }));
+    fireEvent.click(await screen.findByRole("tab", { name: /MCP/ }));
+    await screen.findByText(/pi 原生扩展/);
+    expect(screen.queryByLabelText("允许 agent 控制内置浏览器")).toBeNull();
+  });
+
   it("管理页 市场 sub-tab：只读列条目 + 安装按钮禁用", async () => {
     renderWith(
       fakeBridge({
