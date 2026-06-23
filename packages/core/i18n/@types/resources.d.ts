@@ -19,6 +19,7 @@ export default interface Resources {
       "sendToTerminal": "发送到终端",
       "sentToChat": "标注已插入会话输入框",
       "sentToTerminal": "标注已发送到终端,补一句要求再回车",
+      "screenshotFailed": "截图失败,仅插入标注文本",
       "unsentWarning": "有 {{count}} 条标注尚未发送"
     },
     "clearData": {

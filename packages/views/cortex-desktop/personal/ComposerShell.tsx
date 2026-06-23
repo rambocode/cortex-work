@@ -303,6 +303,21 @@ export function ComposerShell({
       ? composerInsert.text
       : `${prev}${prev.endsWith("\n") ? "" : "\n"}${composerInsert.text}`;
     setText(finalText);
+    // 随插入携带的待发图片(如批注「始终包含截图」,U4):并入 images,沿用去重 + 张数上限。
+    if (composerInsert.images?.length) {
+      const incoming = composerInsert.images;
+      setImages((prevImgs) => {
+        const seen = new Set(prevImgs.map((i) => imageDedupeKey(i.name, i.data.byteLength)));
+        const merged = [...prevImgs];
+        for (const img of incoming) {
+          const key = imageDedupeKey(img.name, img.data.byteLength);
+          if (seen.has(key) || merged.length >= MAX_IMAGES_PER_MESSAGE) continue;
+          seen.add(key);
+          merged.push(img);
+        }
+        return merged;
+      });
+    }
     // submit 且空闲:以显式文本直接提交（tasks「插入并运行」);running 时退化为仅插入。
     if (composerInsert.submit && !running) {
       void sendText(finalText);
