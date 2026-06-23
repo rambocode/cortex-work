@@ -92,3 +92,17 @@ ELECTRON_RUN_AS_NODE=1 "/tmp/Test.app/Contents/MacOS/<App>" \
 2. 反查 `ref → 绝对路径` 的**构造链路**(本例 `resolveProjectFileRef` 简单拼根)。裸文件名 / 相对名落到错误基准目录,是 ENOENT 的常见伪装。
 3. **让用户的复现描述纠偏假设**:「第一次能、后面不能」本质是「根目录文件能、子目录文件不能」,这个非对称性直接指向「路径基准错」而非「文件缺失」。
 4. 修法是**让 ref 能定位到真实文件**(项目内按 basename 查找,见 `fs:resolveProjectFile`),而非把定位不到的标成「已删除」。仅当项目内确实搜不到才按缺失处理。
+
+---
+
+## 新增主进程依赖时,务必核对 electron-builder.yml 的 `files` 排除清单(renderer-only 排除会坑主进程)
+
+**现象**:浏览器控制上线后,打包正式版**启动即崩**:`Cannot find module 'zod/v3'`(`@modelcontextprotocol/sdk/.../zod-compat.js` require)。dev、`pnpm test`、worktree 全绿,只有打包后崩。
+
+**根因**:`electron-builder.yml` 的 `files` 里有一条历史排除 `- "!**/node_modules/zod/**"`,注释写「zod 仅 renderer 用、随 out/ bundle」。但新功能让**主进程**的 MCP SDK 依赖 zod——主进程走 `externalizeDepsPlugin`,SDK 不进 bundle、运行时从 **asar 的 node_modules** `require`,且 `require('zod/v3')`(zod v4 的兼容子路径)。排除后 asar 内 zod 条目数=0 → 解析失败。node 对 `require('zod/v3')` 报的是**原始 specifier**,故显示 `zod/v3` 而非 `zod`,别被误导成「子路径问题」。
+
+**教训 / 排查套路**:
+1. **引入任何会被主进程 `require` 的新依赖(尤其经 externalizeDepsPlugin external 掉的)后,先查 `electron-builder.yml` 的 `files` 黑名单**有没有把它(或它的传递依赖)排除掉。renderer-only 的体积优化排除,会随「该依赖被主进程用上」而失效。
+2. `Cannot find module 'X/sub'` 先判断是「整个包没打进去」还是「子路径缺失」:`node -e "require('@electron/asar').listPackage(asar).filter(p=>p.includes('node_modules/X/'))"` 数条目,0 条=整包没进(报错里的子路径只是原始 specifier)。
+3. **打包问题必须仓库外验证**:改完跑 `dist:dir`(跳签名),再用 `@electron/asar` listPackage 确认目标文件(如 `zod/v3/index.cjs`)真在 asar 里,别只改配置就发版。
+4. peerDependency 不会被 electron-builder 自动收;靠消费方(desktop)把它列进 `dependencies` 才打包——但若被 `files` 显式排除,列了也没用。
