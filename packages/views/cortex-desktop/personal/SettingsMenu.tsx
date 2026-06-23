@@ -65,7 +65,8 @@ import {
 import { savePetEnabled, savePetMode, savePetWalk } from "../pet/behavior";
 import { BUILTIN_AVATARS } from "./avatars";
 import { PluginManager } from "./PluginManager";
-import { BrowserControlSection } from "./BrowserControlSection";
+import { BrowserSettingsSection } from "./BrowserSettingsSection";
+import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 
 const PALETTES: PaletteOption[] = [
   { id: "clay", name: "Clay", colors: ["#c96442", "#f3e7df", "#1a1916"] },
@@ -358,94 +359,6 @@ const DEFAULT_NOTES_HOTKEY = "CommandOrControl+Shift+N";
 function detectIsMac(): boolean {
   if (typeof navigator === "undefined") return false;
   return /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
-}
-
-// kun 风格设置卡片 + 行（标签/说明在左,控件在右,行间分隔线）。
-function SettingCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="pw-scard">
-      <div className="pw-scard-t">{title}</div>
-      {children}
-    </div>
-  );
-}
-// 标签在上、内容全宽的块（宽控件用：头像网格 / 宠物造型 / 多字段表单）。
-function SBlock({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
-  return (
-    <div className="pw-sblock">
-      <div className="pw-sblock-head">
-        <span className="pw-srow-lbl">{label}</span>
-        {desc ? <span className="pw-srow-desc">{desc}</span> : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-function SRow({
-  label,
-  desc,
-  children,
-  end,
-}: {
-  label: string;
-  desc?: string;
-  children: React.ReactNode;
-  end?: boolean;
-}) {
-  return (
-    <div className="pw-srow">
-      <div className="pw-srow-l">
-        <span className="pw-srow-lbl">{label}</span>
-        {desc ? <span className="pw-srow-desc">{desc}</span> : null}
-      </div>
-      <div className={`pw-srow-c ${end ? "pw-srow-c-end" : ""}`}>{children}</div>
-    </div>
-  );
-}
-function SwitchRow({
-  label,
-  desc,
-  value,
-  onChange,
-}: {
-  label: string;
-  desc?: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <SRow label={label} desc={desc} end>
-      <button
-        type="button"
-        className="twk-toggle"
-        data-on={value ? "1" : "0"}
-        role="switch"
-        aria-checked={value}
-        onClick={() => onChange(!value)}
-      >
-        <i />
-      </button>
-    </SRow>
-  );
-}
-function BareSelect({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: { label: string; value: string }[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <select className="pw-set-input" value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
 }
 
 function GeneralSection() {
@@ -1999,15 +1912,15 @@ function isTypingTarget(el: Element | null): boolean {
   return false;
 }
 
-// 「浏览器」分区（应用组）：内置浏览器与 agent 浏览器控制权限。原 BrowserControlSection
-// 深埋在「插件 → 管理页 → MCP 子标签」,此处提升为顶层分区,与「插件」并列于应用组。
+// 「浏览器」分区（应用组）：内置浏览器与 agent 浏览器控制权限。整页落于 BrowserSettingsSection,
+// 此处仅渲染标题/描述 + 该组件,避免继续撑大本文件(单文件 1200 行上限)。
 function BrowserSection() {
   const { t } = useTranslation("settings");
   return (
     <>
       <div className="pw-dlg-title">{t("browser.title")}</div>
       <div className="pw-dlg-desc">{t("browser.desc")}</div>
-      <BrowserControlSection />
+      <BrowserSettingsSection />
     </>
   );
 }
