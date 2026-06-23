@@ -51,6 +51,7 @@ export function PersonalWorkspace({
 }) {
   const bridge = useDesktopBridge();
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
+  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const leftCollapsed = useCortexUIStore((s) => s.leftCollapsed);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
@@ -63,6 +64,7 @@ export function PersonalWorkspace({
   );
   const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
   const setDerivedAgents = usePersonalStore((s) => s.setDerivedAgents);
+  const requestBrowserUrl = usePersonalStore((s) => s.requestBrowserUrl);
   usePersonalPersistence();
   usePersonalCliEvents();
   // pi RPC 会话事件流（与 CLI 事件并列挂载一次）；bridge 无 onPiEvent 时内部空转。
@@ -90,6 +92,18 @@ export function PersonalWorkspace({
   useEffect(() => {
     bridge?.listAgentProfiles?.().then(setDerivedAgents).catch(() => {});
   }, [bridge, setDerivedAgents]);
+
+  // 订阅主进程「打开浏览器面板」请求:agent 的 browser_navigate 在面板未开时触发。
+  // 须 setRightOpen(true) 展开右栏 + requestBrowserUrl 切 browser 视图并导航——二者缺一面板不可见
+  // (与现有「点 URL 开浏览器」一致,见 chatMarkdown/PersonalChatArea)。bridge 无该方法时空转。
+  useEffect(
+    () =>
+      bridge?.onBrowserOpenPanel?.((url) => {
+        setRightOpen(true);
+        requestBrowserUrl(url);
+      }),
+    [bridge, requestBrowserUrl, setRightOpen],
+  );
 
   if (!bridge) {
     return (

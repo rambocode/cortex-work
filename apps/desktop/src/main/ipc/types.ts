@@ -196,6 +196,15 @@ export interface GeneralSettings {
   piSkills?: PiSkillSettings;
   // pi 扩展市场配置（与 core 镜像）。主进程仅持久化。
   piExtensions?: PiExtensionSettings;
+  // 浏览器控制（与 core 镜像）。主进程读 enabled 决定是否注入浏览器 MCP server（cli.ts，KTD5/KTD6）。
+  browserControl?: BrowserControlSettings;
+}
+
+// 浏览器控制配置（与 packages/core/desktop/types.ts 逐字镜像）。
+export interface BrowserControlSettings {
+  enabled: boolean;
+  cdpEnabled: boolean;
+  approvedOrigins: string[];
 }
 
 // pi 插件 Skill 配置（与 packages/core/desktop/types.ts 逐字镜像）。

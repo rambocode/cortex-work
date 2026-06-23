@@ -14,6 +14,7 @@ import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
 import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
+import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { getPersistedState } from "./store";
 
 const running = new Map<string, AgentProcess>();
@@ -421,7 +422,15 @@ export function registerCliHandlers(): void {
       // 配置不可读时降级为不注入(不阻断启动)。
       let mcp: McpSettings = { enabled: false, servers: [] };
       try {
-        mcp = (await getPersistedState()).generalSettings?.mcp ?? mcp;
+        const gs = (await getPersistedState()).generalSettings;
+        mcp = gs?.mcp ?? mcp;
+        // 浏览器控制(U3):总开关开 + server 可用时,把内置浏览器 server 并入 mcp.servers(token 经 header)。
+        // 用户 MCP 关闭时不连带启用其 server——仅注入浏览器 server。此即主会话注入路径(ask/oneshot/automation 不经此)。
+        const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, req.sessionId);
+        if (browserServer) {
+          const userServers = mcp.enabled ? mcp.servers : [];
+          mcp = { enabled: true, servers: [...userServers, browserServer] };
+        }
       } catch {
         /* 配置不可读 → 不注入 */
       }

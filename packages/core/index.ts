@@ -59,6 +59,7 @@ export {
   type GeneralSettings,
   type McpServerConfig,
   type McpSettings,
+  type BrowserControlSettings,
   type DerivedAgentMeta,
   type DailyEncouragement,
   type DesktopBehavior,

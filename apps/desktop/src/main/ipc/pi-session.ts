@@ -20,6 +20,9 @@ import {
   writeSlashCommandExtension,
 } from "../agents/pi-extensions";
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
+import { getPersistedState } from "./store";
+import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
+import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 
@@ -160,6 +163,18 @@ export function registerPiSessionHandlers(): void {
     // PiRpcSession.handleLine 据同一 sentinel 归一为 method:"askquestion"（防 LLM 在裸 input 的 title 伪造）。
     const askQuestionSentinel = `@@CORTEX_ASKQ:${randomUUID()}@@`;
     extra.push(writeAskQuestionExtension(askQuestionSentinel));
+    // pi MCP 桥接(系统默认集成):pi 核心不吃原生 MCP,改由 cortex 自写的桥接扩展把「用户已启用的 MCP
+    // server + 内置浏览器控制 server」异步发现并代理注册为 pi 工具(async factory 在 pi startup 前完成
+    // 连接 + tools/list + registerTool)。token/session 每会话烘焙当前值。无任何 server 时不生成(零副作用)。
+    try {
+      const gs = (await getPersistedState()).generalSettings;
+      const userServers = gs?.mcp?.enabled ? gs.mcp.servers : [];
+      const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, req.uiSessionId);
+      const bridgeServers = collectBridgeServers(userServers, browserServer);
+      if (bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
+    } catch (e) {
+      console.warn(`[pi-session] MCP 桥接扩展生成失败: ${String(e)}`);
+    }
     req.extraExtensionPaths = extra;
     // U7:市场扩展 -e 注入前剔除失效路径,避免单个坏路径让 pi fail-hard 拖垮整会话。
     req.extensionPaths = filterLoadableExtensionPaths(req.extensionPaths);

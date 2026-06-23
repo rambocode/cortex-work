@@ -132,6 +132,14 @@ describe("chatMarkdownComponents", () => {
     expect(cards.length).toBe(2);
   });
 
+  it("仅尾斜杠之差的同链只出一张卡片(回归:browser_navigate 后两张重复网页预览)", () => {
+    // agent 把链接 href 归一成带尾斜杠,文本写不带斜杠 → 旧逻辑判成两条、渲染两张重复卡片。
+    const { container } = renderMd("已成功导航到 [http://localhost:3000](http://localhost:3000/)");
+    const cards = container.querySelectorAll(".pw-link-preview-card");
+    expect(cards.length).toBe(1);
+    expect(container.querySelector(".pw-link-preview-host")?.textContent).toBe("localhost:3000");
+  });
+
   it("相对/项目文件链接不渲染卡片", () => {
     const { container } = renderMd("[doc](docs/a.md)");
     expect(container.querySelector(".pw-link-preview-card")).toBeNull();

@@ -12,8 +12,9 @@
 // 安全核心不变量(KTD6):agent 输出与第三方页面内容均不可信;公网 origin 不得自动
 // 导航进私网/环回(SSRF 跳板)。
 
-import { app, shell, Menu } from "electron";
+import { app, shell, Menu, session } from "electron";
 import type { WebContents } from "electron";
+import { clearGuestIf, setGuest } from "../capabilities/browser/guest-registry";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isAllowedDevPreviewHostname } from "@cortex-work/core/personal/devPreviewUrl";
@@ -185,6 +186,12 @@ export function installBrowserWebviewGuards(): void {
     // webview 自身的 webContents 上挂导航/新窗口闸门。
     if (contents.getType() === "webview") {
       attachWebviewNavigationGuards(contents);
+      // 浏览器控制(U4):仅本面板 partition 的 guest 入注册表,供主进程直驱(工具 U5 / CDP U7)。
+      // WebContents 无 partition 属性,用 session 身份判定;销毁清、重挂由新 guest 覆盖。
+      if (contents.session === session.fromPartition(BROWSER_PARTITION)) {
+        setGuest(contents);
+        contents.once("destroyed", () => clearGuestIf(contents));
+      }
     }
   });
 }
