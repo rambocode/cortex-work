@@ -4,7 +4,7 @@
 import type { WebContents } from "electron";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { getPersistedState } from "../ipc/store";
+import { getPersistedState } from "../../ipc/store";
 import { getLiveGuest } from "./guest-registry";
 import { asUntrustedPageContent } from "./sanitize";
 

@@ -14,8 +14,8 @@ import { installBrowserWebviewGuards } from "./browser/webviewGuards";
 import { configureBrowserPartition } from "./browser/partition";
 import { ensureMigrated } from "./paths";
 import { initScheduler, rescheduleAll, stopScheduler } from "./automation/scheduler";
-import { startBrowserMcpServer, stopBrowserMcpServer } from "./browser-mcp/server";
-import { registerBrowserTools } from "./browser-mcp/tools";
+import { startMcpHost, stopMcpHost } from "./capabilities/mcp-host/server";
+import { registerBrowserTools } from "./capabilities/browser/tools";
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
@@ -274,7 +274,7 @@ if (!app.requestSingleInstanceLock()) {
     // 浏览器控制 MCP server:随主进程常驻(U2)。工具由 U5 注入;是否注入给 agent 由 U3 按总开关 gate。
     // fire-and-forget:listen 快且失败已内部降级,不阻塞建窗。
     // 注入运行时能力:openPanel 让 agent 的 browser_navigate 在面板未开时打开内置浏览器(经渲染端)。
-    void startBrowserMcpServer((mcp, toolCtx) =>
+    void startMcpHost((mcp, toolCtx) =>
       registerBrowserTools(mcp, toolCtx, {
         openPanel: (url) => mainWindow?.webContents.send("browser:open-panel", url),
       }),
@@ -313,7 +313,7 @@ if (!app.requestSingleInstanceLock()) {
     realQuitCleanupStarted = true;
     markRealQuit();
     stopScheduler();
-    stopBrowserMcpServer();
+    stopMcpHost();
     killAllAutomations();
     killAllCli();
     killAllAsk();

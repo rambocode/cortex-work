@@ -14,7 +14,7 @@ import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
 import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
-import { buildBrowserMcpServerConfig } from "../browser-mcp/inject";
+import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { getPersistedState } from "./store";
 
 const running = new Map<string, AgentProcess>();

@@ -90,7 +90,7 @@ vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
 vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace, recordStreamDelta: h.recordStreamDelta }));
 vi.mock("./store", () => ({ getPersistedState: h.getPersistedState }));
 vi.mock("./mcp-config", () => ({ applyClaudeMcp: h.applyClaudeMcp }));
-vi.mock("../browser-mcp/inject", () => ({ buildBrowserMcpServerConfig: h.buildBrowserMcpServerConfig }));
+vi.mock("../capabilities/browser/inject", () => ({ buildBrowserMcpServerConfig: h.buildBrowserMcpServerConfig }));
 
 import {
   registerPiSessionHandlers,

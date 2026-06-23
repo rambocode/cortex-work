@@ -11,10 +11,10 @@ vi.mock("./guest-registry", () => ({
   getLiveGuest: () => h.guest,
   readConsoleBuffer: () => h.consoleBuf,
 }));
-vi.mock("../ipc/store", () => ({
+vi.mock("../../ipc/store", () => ({
   getPersistedState: async () => ({ generalSettings: { browserControl: { approvedOrigins: h.approved } } }),
 }));
-vi.mock("../browser/localHtml", () => ({ isAuthorizedFileUrl: () => false }));
+vi.mock("../../browser/localHtml", () => ({ isAuthorizedFileUrl: () => false }));
 
 import { __resetOwnership } from "./ownership";
 import { registerBrowserTools } from "./tools";

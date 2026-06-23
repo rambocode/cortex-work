@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BROWSER_MCP_SERVER_ID, buildBrowserMcpServerConfig } from "./inject";
-import { startBrowserMcpServer, stopBrowserMcpServer } from "./server";
+import { startMcpHost, stopMcpHost } from "../mcp-host/server";
 
 const ON: { enabled: boolean; cdpEnabled: boolean; approvedOrigins: string[] } = {
   enabled: true,
@@ -10,7 +10,7 @@ const ON: { enabled: boolean; cdpEnabled: boolean; approvedOrigins: string[] } =
 };
 
 describe("浏览器控制 server 注入（U3）", () => {
-  afterEach(() => stopBrowserMcpServer());
+  afterEach(() => stopMcpHost());
 
   it("总开关关 / 缺配置 → null", () => {
     expect(buildBrowserMcpServerConfig(undefined)).toBeNull();
@@ -22,7 +22,7 @@ describe("浏览器控制 server 注入（U3）", () => {
   });
 
   it("总开关开 + server 可用 → http server config,token 经 Authorization 头(不进 URL)", async () => {
-    const { port, token } = await startBrowserMcpServer();
+    const { port, token } = await startMcpHost();
     const cfg = buildBrowserMcpServerConfig(ON);
     expect(cfg).not.toBeNull();
     expect(cfg!.id).toBe(BROWSER_MCP_SERVER_ID);

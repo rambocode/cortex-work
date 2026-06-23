@@ -14,7 +14,7 @@
 
 import { app, shell, Menu, session } from "electron";
 import type { WebContents } from "electron";
-import { clearGuestIf, setGuest } from "../browser-mcp/guest-registry";
+import { clearGuestIf, setGuest } from "../capabilities/browser/guest-registry";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isAllowedDevPreviewHostname } from "@cortex-work/core/personal/devPreviewUrl";

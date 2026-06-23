@@ -2,8 +2,8 @@
 // 复用现有 MCP 注入接线(buildClaudeMcpJson / buildCodexMcpArgs),由 cli.ts 在主会话注入分流前
 // 并入 mcp.servers。鉴权:token 经 Authorization 头(claude headers / codex http_headers),
 // **不进 URL**(避免泄进日志/进程参数)。
-import type { BrowserControlSettings, McpServerConfig } from "../ipc/types";
-import { getBrowserMcpHandle } from "./server";
+import type { BrowserControlSettings, McpServerConfig } from "../../ipc/types";
+import { getMcpHostHandle } from "../mcp-host/server";
 
 // 注入用的 server id(= MCP server 名)。须为 TOML 裸键安全(见 mcp-config.isValidServerId)。
 export const BROWSER_MCP_SERVER_ID = "cortex-browser";
@@ -15,7 +15,7 @@ export function buildBrowserMcpServerConfig(
   sessionId?: string,
 ): McpServerConfig | null {
   if (!bc?.enabled) return null;
-  const handle = getBrowserMcpHandle();
+  const handle = getMcpHostHandle();
   if (!handle || !handle.serverAvailable || handle.port <= 0) return null;
   return {
     id: BROWSER_MCP_SERVER_ID,

@@ -7,13 +7,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WebContents } from "electron";
 import { z } from "zod";
 
-import { isAuthorizedFileUrl } from "../browser/localHtml";
-import { getPersistedState } from "../ipc/store";
+import { isAuthorizedFileUrl } from "../../browser/localHtml";
+import { getPersistedState } from "../../ipc/store";
 import { getLiveGuest, readConsoleBuffer } from "./guest-registry";
 import { claimForMutation } from "./ownership";
 import { registerCdpTools } from "./cdp";
 import { asUntrustedPageContent } from "./sanitize";
-import type { ToolContext } from "./server";
+import type { ToolContext } from "../mcp-host/server";
 import { classifyTarget } from "./url-gate";
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });

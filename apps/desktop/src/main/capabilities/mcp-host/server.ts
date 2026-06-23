@@ -12,7 +12,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
-export interface BrowserMcpHandle {
+export interface McpHostHandle {
   port: number;
   token: string;
   // listen 失败时 false:注入侧(U3)据此不注入,避免给 agent 一个连不上的 url。
@@ -26,7 +26,7 @@ export interface ToolContext {
 }
 export type ToolRegistrar = (mcp: McpServer, ctx: ToolContext) => void;
 
-let current: { http: http.Server; handle: BrowserMcpHandle } | null = null;
+let current: { http: http.Server; handle: McpHostHandle } | null = null;
 
 // 常量时间比较,避免 token 计时侧信道泄漏。
 function tokensEqual(a: string, b: string): boolean {
@@ -53,23 +53,23 @@ function makeServer(registerTools: ToolRegistrar, ctx: ToolContext): McpServer {
 }
 
 // 起 server。已起则返回现有 handle(单例,随主进程常驻)。
-export async function startBrowserMcpServer(registerTools: ToolRegistrar = () => {}): Promise<BrowserMcpHandle> {
+export async function startMcpHost(registerTools: ToolRegistrar = () => {}): Promise<McpHostHandle> {
   if (current) return current.handle;
   const token = randomBytes(32).toString("hex");
   const httpServer = http.createServer((req, res) => {
     void handleRequest(req, res, token, registerTools);
   });
-  return await new Promise<BrowserMcpHandle>((resolve) => {
+  return await new Promise<McpHostHandle>((resolve) => {
     httpServer.once("error", (err) => {
       // listen 失败(端口受限/网络沙箱)→ 降级,不崩主进程。
-      console.error("[browser-mcp] server listen failed:", err);
+      console.error("[mcp-host] server listen failed:", err);
       current = null;
       resolve({ port: 0, token, serverAvailable: false });
     });
     httpServer.listen(0, "127.0.0.1", () => {
       const addr = httpServer.address();
       const port = typeof addr === "object" && addr ? addr.port : 0;
-      const handle: BrowserMcpHandle = { port, token, serverAvailable: true };
+      const handle: McpHostHandle = { port, token, serverAvailable: true };
       current = { http: httpServer, handle };
       resolve(handle);
     });
@@ -120,18 +120,18 @@ async function handleRequest(
       void transport.handleRequest(req, res, parsed);
     });
   } catch (e) {
-    console.error("[browser-mcp] request error:", e);
+    console.error("[mcp-host] request error:", e);
     if (!res.headersSent) res.writeHead(500).end();
   }
 }
 
-export function stopBrowserMcpServer(): void {
+export function stopMcpHost(): void {
   if (!current) return;
   current.http.close();
   current = null;
 }
 
 // 注入侧(U3)读取当前 server 端点 + token。null = 未起 / 不可用。
-export function getBrowserMcpHandle(): BrowserMcpHandle | null {
+export function getMcpHostHandle(): McpHostHandle | null {
   return current?.handle ?? null;
 }

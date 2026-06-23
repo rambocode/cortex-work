@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { startBrowserMcpServer, stopBrowserMcpServer } from "./server";
+import { startMcpHost, stopMcpHost } from "./server";
 
 const INIT_BODY = JSON.stringify({
   jsonrpc: "2.0",
@@ -18,10 +18,10 @@ function postInit(port: number, headers: Record<string, string>): Promise<Respon
 }
 
 describe("浏览器控制 MCP server（U2）", () => {
-  afterEach(() => stopBrowserMcpServer());
+  afterEach(() => stopMcpHost());
 
   it("带正确 Bearer token 的 initialize 返回 200 + 合法 MCP 结果", async () => {
-    const { port, token, serverAvailable } = await startBrowserMcpServer();
+    const { port, token, serverAvailable } = await startMcpHost();
     expect(serverAvailable).toBe(true);
     expect(port).toBeGreaterThan(0);
     const res = await postInit(port, { Authorization: `Bearer ${token}` });
@@ -32,19 +32,19 @@ describe("浏览器控制 MCP server（U2）", () => {
   });
 
   it("缺 / 错 token → 401", async () => {
-    const { port } = await startBrowserMcpServer();
+    const { port } = await startMcpHost();
     expect((await postInit(port, {})).status).toBe(401);
     expect((await postInit(port, { Authorization: "Bearer wrong" })).status).toBe(401);
   });
 
   it("带浏览器 Origin → 403(挡 DNS-rebinding）", async () => {
-    const { port, token } = await startBrowserMcpServer();
+    const { port, token } = await startMcpHost();
     const res = await postInit(port, { Authorization: `Bearer ${token}`, Origin: "https://evil.com" });
     expect(res.status).toBe(403);
   });
 
   it("非 /mcp 路径 → 404", async () => {
-    const { port, token } = await startBrowserMcpServer();
+    const { port, token } = await startMcpHost();
     const res = await fetch(`http://127.0.0.1:${port}/other`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },

@@ -22,7 +22,7 @@ import {
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
 import { getPersistedState } from "./store";
 import { applyClaudeMcp } from "./mcp-config";
-import { buildBrowserMcpServerConfig } from "../browser-mcp/inject";
+import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 
