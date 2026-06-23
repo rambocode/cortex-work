@@ -63,6 +63,11 @@ describe("导航授权范围 navigationApproval（U5）", () => {
     expect(classifyTarget("http://localhost:3000/x", ["http://localhost:3000"], noFile, "all").allow).toBe(true);
   });
 
+  it("all 档:未授权 IPv6 环回 ::1 → 拒 + 回 origin(不被私网误判)", () => {
+    const v = classifyTarget("http://[::1]:3000/", [], noFile, "all");
+    expect(v).toMatchObject({ allow: false, reason: "non-local-unapproved" });
+  });
+
   it("all 档:非本地仍按白名单(放行需在白名单)", () => {
     expect(classifyTarget("https://evil.com/", [], noFile, "all").allow).toBe(false);
     expect(classifyTarget("https://ok.com/a", ["https://ok.com"], noFile, "all").allow).toBe(true);
