@@ -205,6 +205,9 @@ export interface BrowserControlSettings {
   enabled: boolean;
   cdpEnabled: boolean;
   approvedOrigins: string[];
+  localUrlOpenTarget: "internal" | "system";
+  annotateScreenshotMode: "always" | "ask" | "never";
+  navigationApproval: "nonLocalOnly" | "all";
 }
 
 // pi 插件 Skill 配置（与 packages/core/desktop/types.ts 逐字镜像）。

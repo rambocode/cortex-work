@@ -1,10 +1,10 @@
 /* eslint-disable i18next/no-literal-string -- 浏览器控制为桌面配置项,标签暂不本地化 */
 import { useState } from "react";
 
-import { usePersonalStore } from "@cortex-work/core";
+import { DEFAULT_BROWSER_CONTROL, usePersonalStore } from "@cortex-work/core";
 import type { BrowserControlSettings } from "@cortex-work/core";
 
-const EMPTY: BrowserControlSettings = { enabled: false, cdpEnabled: false, approvedOrigins: [] };
+const EMPTY: BrowserControlSettings = DEFAULT_BROWSER_CONTROL;
 
 // 浏览器控制设置区(U8):总开关 + CDP「风险升高」确认开关 + 非本地导航预授权白名单。
 // 由 SettingsMenu 的「应用 → 浏览器」分区（BrowserSection）渲染（原落 MCP sub-tab,已提升为

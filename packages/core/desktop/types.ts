@@ -630,17 +630,30 @@ export const PI_THINKING_LABELS: Record<ThinkingLevel, string> = {
   xhigh: "极高",
 };
 
+// 本地 URL 默认打开目标:内置 webview 面板 / 系统默认浏览器（仅作用于本地 / loopback URL）。
+export type LocalUrlOpenTarget = "internal" | "system";
+// 批注「发送到 Chat」是否附带当前页截图:始终 / 询问(本期=手动不自动附) / 从不。
+export type AnnotateScreenshotMode = "always" | "ask" | "never";
+// 导航授权范围(预授权严格度,取代 Codex 事中审批):仅非本地需预授权 / 含 localhost 也需。
+export type NavigationApproval = "nonLocalOnly" | "all";
+
 // 浏览器控制配置（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。
 export interface BrowserControlSettings {
   enabled: boolean; // 总开关:关时不注入任何浏览器工具,行为同现状
   cdpEnabled: boolean; // CDP(网络观测 / 无障碍)独立 opt-in,默认关
   approvedOrigins: string[]; // 非本地导航的预授权 origin 白名单(scheme 限定,如 https://example.com)
+  localUrlOpenTarget: LocalUrlOpenTarget; // 本地 URL 打开目标(仅本地;外链恒进内置)。缺省 internal
+  annotateScreenshotMode: AnnotateScreenshotMode; // 批注附截图策略。缺省 ask(零行为变更)
+  navigationApproval: NavigationApproval; // 导航授权范围。缺省 nonLocalOnly(当前行为)
 }
 
 export const DEFAULT_BROWSER_CONTROL: BrowserControlSettings = {
   enabled: false,
   cdpEnabled: false,
   approvedOrigins: [],
+  localUrlOpenTarget: "internal",
+  annotateScreenshotMode: "ask",
+  navigationApproval: "nonLocalOnly",
 };
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {

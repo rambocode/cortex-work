@@ -118,16 +118,37 @@ describe("浏览器控制 store（U1）", () => {
       enabled: false,
       cdpEnabled: false,
       approvedOrigins: [],
+      localUrlOpenTarget: "internal",
+      annotateScreenshotMode: "ask",
+      navigationApproval: "nonLocalOnly",
     });
+  });
+
+  it("旧档仅含三字段时,新字段逐项兜默认不崩", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        browserControl: { enabled: true, cdpEnabled: false, approvedOrigins: ["https://a.com"] } as never,
+      },
+    });
+    const bc = usePersonalStore.getState().generalSettings.browserControl!;
+    expect(bc.enabled).toBe(true);
+    expect(bc.localUrlOpenTarget).toBe("internal");
+    expect(bc.annotateScreenshotMode).toBe("ask");
+    expect(bc.navigationApproval).toBe("nonLocalOnly");
   });
 
   it("setBrowserControl patch 不覆盖未传字段", () => {
     usePersonalStore.getState().hydrate(base);
     usePersonalStore.getState().setBrowserControl({ enabled: true });
     usePersonalStore.getState().setBrowserControl({ cdpEnabled: true });
+    usePersonalStore.getState().setBrowserControl({ navigationApproval: "all" });
     const bc = usePersonalStore.getState().generalSettings.browserControl!;
     expect(bc.enabled).toBe(true);
     expect(bc.cdpEnabled).toBe(true);
+    expect(bc.navigationApproval).toBe("all");
+    expect(bc.localUrlOpenTarget).toBe("internal"); // 未传字段保持默认
   });
 
   it("approvedOrigins 增删去重", () => {
