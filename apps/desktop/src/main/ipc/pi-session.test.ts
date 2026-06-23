@@ -64,6 +64,9 @@ const h = vi.hoisted(() => {
     readImageBytes: vi.fn(async () => ({ mimeType: "image/png", base64: "AAAA" })),
     recordAgentTrace: vi.fn(),
     recordStreamDelta: vi.fn(),
+    getPersistedState: vi.fn(async () => ({ generalSettings: {} as Record<string, unknown> })),
+    applyClaudeMcp: vi.fn(async () => "skip"),
+    buildBrowserMcpServerConfig: vi.fn((): unknown => null),
   };
 });
 
@@ -85,6 +88,9 @@ vi.mock("../agents/pi-extensions", () => ({
 vi.mock("./cli", () => ({ assertSpawnCwd: h.assertSpawnCwd, spawnEnvFor: h.spawnEnvFor }));
 vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
 vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace, recordStreamDelta: h.recordStreamDelta }));
+vi.mock("./store", () => ({ getPersistedState: h.getPersistedState }));
+vi.mock("./mcp-config", () => ({ applyClaudeMcp: h.applyClaudeMcp }));
+vi.mock("../browser-mcp/inject", () => ({ buildBrowserMcpServerConfig: h.buildBrowserMcpServerConfig }));
 
 import {
   registerPiSessionHandlers,
@@ -124,6 +130,9 @@ beforeEach(() => {
   h.readImageBytes.mockClear();
   h.recordAgentTrace.mockClear();
   h.recordStreamDelta.mockClear();
+  h.getPersistedState.mockReset().mockResolvedValue({ generalSettings: {} });
+  h.applyClaudeMcp.mockReset().mockResolvedValue("skip");
+  h.buildBrowserMcpServerConfig.mockReset().mockReturnValue(null);
   registerPiSessionHandlers();
 });
 
@@ -146,6 +155,21 @@ describe("registerPiSessionHandlers", () => {
     ]) {
       expect(h.handlers.has(ch)).toBe(true);
     }
+  });
+});
+
+describe("pi:open 浏览器控制旁路（pi-mcp-adapter）", () => {
+  it("总开关开 + server 可用 → 写浏览器 server 进 cwd .mcp.json", async () => {
+    h.getPersistedState.mockResolvedValue({ generalSettings: { browserControl: { enabled: true } } });
+    const server = { id: "cortex-browser", transport: "http", url: "http://127.0.0.1:1/mcp", headers: { Authorization: "Bearer t" } };
+    h.buildBrowserMcpServerConfig.mockReturnValue(server);
+    await open({ uiSessionId: "ub", cwd: "/proj" });
+    expect(h.applyClaudeMcp).toHaveBeenCalledWith("/proj", { enabled: true, servers: [server] });
+  });
+
+  it("server 不可用 / 总开关关 → 不写 .mcp.json", async () => {
+    await open({ uiSessionId: "ub2", cwd: "/proj" }); // 默认 buildBrowserMcpServerConfig→null
+    expect(h.applyClaudeMcp).not.toHaveBeenCalled();
   });
 });
 

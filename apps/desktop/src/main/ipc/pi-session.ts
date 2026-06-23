@@ -20,6 +20,9 @@ import {
   writeSlashCommandExtension,
 } from "../agents/pi-extensions";
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
+import { getPersistedState } from "./store";
+import { applyClaudeMcp } from "./mcp-config";
+import { buildBrowserMcpServerConfig } from "../browser-mcp/inject";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 
@@ -166,6 +169,19 @@ export function registerPiSessionHandlers(): void {
 
     const args = buildRpcArgs(req);
     assertSpawnCwd(req.cwd);
+    // pi 浏览器控制旁路:pi 不吃原生 MCP,但社区扩展 pi-mcp-adapter(用户需 `pi install npm:pi-mcp-adapter`)
+    // 读 cwd .mcp.json。总开关开 + server 可用 → 把浏览器 server(当前 port+token)写进 .mcp.json,
+    // pi-mcp-adapter 即可代理。token 每会话写当前值(重启会轮换);未装 adapter 时该文件对 pi 无副作用。
+    try {
+      const gs = (await getPersistedState()).generalSettings;
+      const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, req.uiSessionId);
+      if (browserServer) {
+        const userServers = gs?.mcp?.enabled ? gs.mcp.servers : [];
+        await applyClaudeMcp(req.cwd, { enabled: true, servers: [...userServers, browserServer] });
+      }
+    } catch (e) {
+      console.warn(`[pi-session] browser .mcp.json write failed: ${String(e)}`);
+    }
     recordAgentTrace({
       scope: "pi",
       phase: "open",
