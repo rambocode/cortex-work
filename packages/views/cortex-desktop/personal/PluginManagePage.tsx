@@ -10,7 +10,6 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { McpServerConfig, McpSettings } from "@cortex-work/core";
 import { McpCard } from "./McpSection";
-import { BrowserControlSection } from "./BrowserControlSection";
 import { McpServerForm } from "./McpServerForm";
 import { ExtensionPanel } from "./ExtensionPanel";
 import { SkillPanel } from "./SkillPanel";
@@ -138,7 +137,6 @@ export function PluginManagePage({
       {tab === "mcp" ? (
         <div className="pw-plg-manage-mcp">
           <McpCard onEdit={(index) => setMcpEditing({ index })} />
-          <BrowserControlSection />
           <div className="pw-plugins-hint pw-plugins-scope-note" role="note">
             <b>pi 原生扩展</b> 仅在 pi 会话中加载，对 <b>claude</b> / <b>codex</b> 无效。
           </div>

@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { DEFAULT_BROWSER_CONTROL } from "@cortex-work/core";
+import type { BrowserControlSettings } from "@cortex-work/core";
+
 import { BROWSER_MCP_SERVER_ID, buildBrowserMcpServerConfig } from "./inject";
 import { startMcpHost, stopMcpHost } from "../mcp-host/server";
 
-const ON: { enabled: boolean; cdpEnabled: boolean; approvedOrigins: string[] } = {
-  enabled: true,
-  cdpEnabled: false,
-  approvedOrigins: [],
-};
+const ON: BrowserControlSettings = { ...DEFAULT_BROWSER_CONTROL, enabled: true };
 
 describe("浏览器控制 server 注入（U3）", () => {
   afterEach(() => stopMcpHost());

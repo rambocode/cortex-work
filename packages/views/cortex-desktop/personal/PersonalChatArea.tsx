@@ -158,10 +158,17 @@ export function PersonalChatArea({
 
   const openPreview = useCallback(
     (url: string) => {
+      // auto_open 均为环回 URL,受「本地 URL 打开目标」偏好控制(plan U3 / R7):
+      // system 且 bridge 可用 → 系统浏览器;否则内置面板。
+      const target = usePersonalStore.getState().generalSettings.browserControl?.localUrlOpenTarget ?? "internal";
+      if (target === "system" && bridge?.openExternal) {
+        void bridge.openExternal(url).catch(() => {});
+        return;
+      }
       requestBrowserUrl(url);
       setRightOpen(true);
     },
-    [requestBrowserUrl, setRightOpen],
+    [requestBrowserUrl, setRightOpen, bridge],
   );
 
   // auto_open:输出明确像 dev server 且为环回时自动打开内嵌浏览器,按「会话:URL」去重,

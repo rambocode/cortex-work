@@ -5,6 +5,7 @@ const h = vi.hoisted(() => ({
   guest: null as unknown,
   consoleBuf: [] as { level: number; message: string }[],
   approved: [] as string[],
+  nav: "nonLocalOnly" as "nonLocalOnly" | "all",
 }));
 
 vi.mock("./guest-registry", () => ({
@@ -12,7 +13,9 @@ vi.mock("./guest-registry", () => ({
   readConsoleBuffer: () => h.consoleBuf,
 }));
 vi.mock("../../ipc/store", () => ({
-  getPersistedState: async () => ({ generalSettings: { browserControl: { approvedOrigins: h.approved } } }),
+  getPersistedState: async () => ({
+    generalSettings: { browserControl: { approvedOrigins: h.approved, navigationApproval: h.nav } },
+  }),
 }));
 vi.mock("../../browser/localHtml", () => ({ isAuthorizedFileUrl: () => false }));
 
@@ -43,6 +46,7 @@ describe("浏览器默认层工具（U5）", () => {
     h.guest = null;
     h.consoleBuf = [];
     h.approved = [];
+    h.nav = "nonLocalOnly";
   });
 
   it("无面板时回「无可控面板」", async () => {
@@ -74,6 +78,27 @@ describe("浏览器默认层工具（U5）", () => {
     const r = await collectTools().get("browser_navigate")!({ url: "https://evil.com" });
     expect(g.loadURL).not.toHaveBeenCalled();
     expect(String(r.content[0].text)).toContain("未授权");
+  });
+
+  it("navigationApproval=all:未授权本地导航被拒,加入白名单后放行(U5)", async () => {
+    const g = fakeGuest();
+    h.guest = g;
+    h.nav = "all";
+    const denied = await collectTools().get("browser_navigate")!({ url: "http://localhost:3000" });
+    expect(g.loadURL).not.toHaveBeenCalled();
+    expect(String(denied.content[0].text)).toContain("未授权");
+    // 用户加入白名单后(模拟设置页写 approvedOrigins)→ 放行
+    h.approved = ["http://localhost:3000"];
+    await collectTools().get("browser_navigate")!({ url: "http://localhost:3000" });
+    expect(g.loadURL).toHaveBeenCalledWith("http://localhost:3000");
+  });
+
+  it("KTD7 负向:浏览器 MCP 工具集不含任何写权限字段的工具(agent 不可自改授权)", () => {
+    const names = [...collectTools().keys()];
+    // 工具名须全部落在计划白名单内(新增工具须先进白名单,迫使评审)。
+    for (const n of names) expect(BROWSER_MCP_PLAN_TOOLS).toContain(n);
+    // 且无任何写设置 / 白名单 / CDP / 总开关的工具(只读 + 导航/点击/输入)。
+    for (const n of names) expect(n).not.toMatch(/approve|origin|setting|config|cdp|enable|permission|authoriz/i);
   });
 
   it("screenshot → image content(base64 PNG)", async () => {

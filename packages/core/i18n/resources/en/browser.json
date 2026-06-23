@@ -64,6 +64,7 @@
     "detached": "Element no longer exists (the page changed)",
     "sentToChat": "Annotations inserted into the composer",
     "sentToTerminal": "Annotations sent to terminal, add a request and press Enter",
+    "screenshotFailed": "Screenshot failed; inserted annotation text only",
     "iframeUnsupported": "Page annotation is not supported on web"
   }
 }

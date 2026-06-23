@@ -47,13 +47,22 @@ async function approvedOrigins(): Promise<string[]> {
   }
 }
 
+// 导航授权范围(plan U5):每次工具调用即时读最新持久化值,改设置即对下一次导航生效。
+async function navigationApproval(): Promise<"nonLocalOnly" | "all"> {
+  try {
+    return (await getPersistedState()).generalSettings?.browserControl?.navigationApproval ?? "nonLocalOnly";
+  } catch {
+    return "nonLocalOnly";
+  }
+}
+
 export function registerBrowserTools(mcp: McpServer, ctx: ToolContext, deps: BrowserToolDeps): void {
   // navigate(改动型):过 URL 闸 + 归属;面板未开则请求渲染端打开并导航。
   mcp.registerTool(
     "browser_navigate",
     { description: "把内置浏览器导航到 URL(本地优先;非本地需用户预授权)。面板未开会自动打开。", inputSchema: { url: z.string() } },
     async ({ url }) => {
-      const verdict = classifyTarget(url, await approvedOrigins(), isAuthorizedFileUrl);
+      const verdict = classifyTarget(url, await approvedOrigins(), isAuthorizedFileUrl, await navigationApproval());
       if (!verdict.allow) {
         if (verdict.reason === "non-local-unapproved")
           return text(`被拒:origin ${verdict.origin} 未授权。请用户在「设置 → 浏览器控制 → 待授权」授权后重试。`);

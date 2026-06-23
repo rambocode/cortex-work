@@ -354,6 +354,21 @@ describe("ComposerShell 插入并运行（submit 标志）", () => {
     expect(onSend).not.toHaveBeenCalled();
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
   });
+
+  it("composerInsert 携带 images → 文本插入 + 缩略图并入 composer(U4 批注始终包含截图)", async () => {
+    const onSend = vi.fn(() => true);
+    const { container } = renderInsert({ onSend });
+    const img: PendingImage = {
+      id: "shot1",
+      name: "annotation.png",
+      mimeType: "image/png",
+      dataUrl: "data:image/png;base64,AAAA",
+      data: new ArrayBuffer(8),
+    };
+    act(() => usePersonalStore.getState().insertToComposer("标注内容", { images: [img] }));
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("标注内容"));
+    expect(container.querySelector(".img-attach-thumb")).toBeTruthy();
+  });
 });
 
 describe("ComposerShell 文件预览拖入会话（U6）", () => {

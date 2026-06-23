@@ -10,12 +10,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { usePersonalStore } from "@cortex-work/core";
+import type { PendingImage } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import {
   composeAnnotationsForChat,
   composeAnnotationsForTerminal,
   type AnnotationRecord,
 } from "@cortex-work/core/personal/annotationPayload";
+
+import { fileToPendingImage } from "./imageIntake";
+import type { CapturableWebview } from "./useBrowserCapture";
 
 // webview 元素的标注相关能力(运行期由 Electron 提供)。
 export type AnnotatableWebview = HTMLElement & {
@@ -116,14 +120,33 @@ export function useBrowserAnnotations(opts: {
     }
   };
 
-  const sendToChat = useCallback(() => {
+  // 批注「始终包含截图」(plan U4):mode=always 时截当前页 → 随标注文本一并注入 composer。
+  // 截图失败 / 空图 → 降级仅发文本 + 可读 toast(不静默丢)。ask(默认)/never → 仅文本。
+  const sendToChat = useCallback(async () => {
     if (records.length === 0) return;
     const text = composeAnnotationsForChat(toRecords(records), currentUrl());
-    usePersonalStore.getState().insertToComposer(text); // 不传 submit:人审后手动发送(KTD2)
+    let images: PendingImage[] | undefined;
+    const mode = usePersonalStore.getState().generalSettings.browserControl?.annotateScreenshotMode ?? "ask";
+    if (mode === "always") {
+      try {
+        const wv = webviewRef.current as unknown as CapturableWebview | null;
+        const image = wv ? await wv.capturePage() : null;
+        if (image && !image.isEmpty()) {
+          // 复制为 ArrayBuffer-backed Uint8Array(toPNG 的 ArrayBufferLike 可能是 SharedArrayBuffer,不满足 BlobPart)。
+          const file = new File([new Uint8Array(image.toPNG())], "annotation.png", { type: "image/png" });
+          images = [await fileToPendingImage(file)];
+        } else {
+          onToast?.(t("annotate.screenshotFailed"));
+        }
+      } catch {
+        onToast?.(t("annotate.screenshotFailed"));
+      }
+    }
+    usePersonalStore.getState().insertToComposer(text, images ? { images } : undefined); // 不传 submit:人审后手动发送
     onToast?.(t("annotate.sentToChat"));
     finish();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records, finish, onToast, t]);
+  }, [records, finish, onToast, t, webviewRef]);
 
   const sendToTerminal = useCallback(() => {
     if (records.length === 0) return;

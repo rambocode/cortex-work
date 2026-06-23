@@ -49,3 +49,32 @@ describe("URL 闸 classifyTarget（U6）", () => {
     expect(classifyTarget("ftp://x/", [], noFile)).toEqual({ allow: false, reason: "bad-url" });
   });
 });
+
+describe("导航授权范围 navigationApproval（U5）", () => {
+  it("all 档:未授权本地 → 拒 + 回 origin(供待授权)", () => {
+    expect(classifyTarget("http://localhost:3000/", [], noFile, "all")).toEqual({
+      allow: false,
+      reason: "non-local-unapproved",
+      origin: "http://localhost:3000",
+    });
+  });
+
+  it("all 档:已授权本地 → 放行", () => {
+    expect(classifyTarget("http://localhost:3000/x", ["http://localhost:3000"], noFile, "all").allow).toBe(true);
+  });
+
+  it("all 档:未授权 IPv6 环回 ::1 → 拒 + 回 origin(不被私网误判)", () => {
+    const v = classifyTarget("http://[::1]:3000/", [], noFile, "all");
+    expect(v).toMatchObject({ allow: false, reason: "non-local-unapproved" });
+  });
+
+  it("all 档:非本地仍按白名单(放行需在白名单)", () => {
+    expect(classifyTarget("https://evil.com/", [], noFile, "all").allow).toBe(false);
+    expect(classifyTarget("https://ok.com/a", ["https://ok.com"], noFile, "all").allow).toBe(true);
+  });
+
+  it("nonLocalOnly(默认):本地放行(回归)", () => {
+    expect(classifyTarget("http://localhost:3000/", [], noFile, "nonLocalOnly").allow).toBe(true);
+    expect(classifyTarget("http://127.0.0.1:8080/", [], noFile).allow).toBe(true); // 缺省即 nonLocalOnly
+  });
+});

@@ -65,6 +65,8 @@ import {
 import { savePetEnabled, savePetMode, savePetWalk } from "../pet/behavior";
 import { BUILTIN_AVATARS } from "./avatars";
 import { PluginManager } from "./PluginManager";
+import { BrowserSettingsSection } from "./BrowserSettingsSection";
+import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 
 const PALETTES: PaletteOption[] = [
   { id: "clay", name: "Clay", colors: ["#c96442", "#f3e7df", "#1a1916"] },
@@ -78,20 +80,43 @@ const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 // 译函数最小签名（与 TimelineView 一致,避免引入 react-i18next 的 TFunction 泛型）。
 type TFunction = (key: string, opts?: Record<string, unknown>) => string;
 
-type SettingsTab = "profile" | "general" | "providers" | "agent" | "pi" | "plugins" | "pet" | "timeline" | "push" | "voice";
+type SettingsTab =
+  | "profile"
+  | "general"
+  | "providers"
+  | "agent"
+  | "pi"
+  | "plugins"
+  | "browser"
+  | "pet"
+  | "timeline"
+  | "push"
+  | "voice";
 
-// label 走 i18n（settings:tabs.*）,故此处只存 tabKey,渲染时即时翻译。
-const TABS: { id: SettingsTab; tabKey: string; icon: React.ReactNode }[] = [
-  { id: "profile", tabKey: "tabs.profile", icon: <Icon.Users size={14} /> },
-  { id: "general", tabKey: "tabs.general", icon: <Icon.Settings size={14} /> },
-  { id: "providers", tabKey: "tabs.providers", icon: <Icon.Globe size={14} /> },
-  { id: "agent", tabKey: "tabs.agent", icon: <Icon.Terminal size={14} /> },
-  { id: "pi", tabKey: "tabs.pi", icon: <Icon.Bot size={14} /> },
-  { id: "plugins", tabKey: "tabs.plugins", icon: <Icon.Workflow size={14} /> },
-  { id: "pet", tabKey: "tabs.pet", icon: <Icon.Sparkle size={14} /> },
-  { id: "timeline", tabKey: "tabs.timeline", icon: <Icon.Clock size={14} /> },
-  { id: "push", tabKey: "tabs.push", icon: <Icon.Send size={14} /> },
-  { id: "voice", tabKey: "tabs.voice", icon: <Icon.Mic size={14} /> },
+// 项元数据唯一来源：label 走 i18n（settings:tabs.*）,故此处只存 tabKey + icon,渲染时即时翻译。
+// 分组（NAV_GROUPS）只描述「哪些项归哪组 + 顺序」,不重复 icon/文案,避免双写漂移（KTD3）。
+const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> = {
+  profile: { tabKey: "tabs.profile", icon: <Icon.Users size={14} /> },
+  general: { tabKey: "tabs.general", icon: <Icon.Settings size={14} /> },
+  providers: { tabKey: "tabs.providers", icon: <Icon.Globe size={14} /> },
+  agent: { tabKey: "tabs.agent", icon: <Icon.Terminal size={14} /> },
+  pi: { tabKey: "tabs.pi", icon: <Icon.Bot size={14} /> },
+  plugins: { tabKey: "tabs.plugins", icon: <Icon.Workflow size={14} /> },
+  browser: { tabKey: "tabs.browser", icon: <Icon.Globe size={14} /> },
+  pet: { tabKey: "tabs.pet", icon: <Icon.Sparkle size={14} /> },
+  timeline: { tabKey: "tabs.timeline", icon: <Icon.Clock size={14} /> },
+  push: { tabKey: "tabs.push", icon: <Icon.Send size={14} /> },
+  voice: { tabKey: "tabs.voice", icon: <Icon.Mic size={14} /> },
+};
+
+// 设置左栏分组：组标题走 i18n（settings:tabGroups.*）,组内项按数组顺序渲染。
+// 「应用」组并列「插件」「浏览器」两项（用户确认的 IA）。
+const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
+  { groupKey: "tabGroups.general", items: ["profile", "general"] },
+  { groupKey: "tabGroups.models", items: ["providers", "agent", "pi"] },
+  { groupKey: "tabGroups.apps", items: ["plugins", "browser"] },
+  { groupKey: "tabGroups.personalization", items: ["pet", "voice"] },
+  { groupKey: "tabGroups.automation", items: ["timeline", "push"] },
 ];
 
 // 颜色预设(主色;深/浅两档由 petColorVars 自动派生)。
@@ -334,94 +359,6 @@ const DEFAULT_NOTES_HOTKEY = "CommandOrControl+Shift+N";
 function detectIsMac(): boolean {
   if (typeof navigator === "undefined") return false;
   return /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
-}
-
-// kun 风格设置卡片 + 行（标签/说明在左,控件在右,行间分隔线）。
-function SettingCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="pw-scard">
-      <div className="pw-scard-t">{title}</div>
-      {children}
-    </div>
-  );
-}
-// 标签在上、内容全宽的块（宽控件用：头像网格 / 宠物造型 / 多字段表单）。
-function SBlock({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
-  return (
-    <div className="pw-sblock">
-      <div className="pw-sblock-head">
-        <span className="pw-srow-lbl">{label}</span>
-        {desc ? <span className="pw-srow-desc">{desc}</span> : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-function SRow({
-  label,
-  desc,
-  children,
-  end,
-}: {
-  label: string;
-  desc?: string;
-  children: React.ReactNode;
-  end?: boolean;
-}) {
-  return (
-    <div className="pw-srow">
-      <div className="pw-srow-l">
-        <span className="pw-srow-lbl">{label}</span>
-        {desc ? <span className="pw-srow-desc">{desc}</span> : null}
-      </div>
-      <div className={`pw-srow-c ${end ? "pw-srow-c-end" : ""}`}>{children}</div>
-    </div>
-  );
-}
-function SwitchRow({
-  label,
-  desc,
-  value,
-  onChange,
-}: {
-  label: string;
-  desc?: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <SRow label={label} desc={desc} end>
-      <button
-        type="button"
-        className="twk-toggle"
-        data-on={value ? "1" : "0"}
-        role="switch"
-        aria-checked={value}
-        onClick={() => onChange(!value)}
-      >
-        <i />
-      </button>
-    </SRow>
-  );
-}
-function BareSelect({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: { label: string; value: string }[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <select className="pw-set-input" value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
 }
 
 function GeneralSection() {
@@ -1975,6 +1912,19 @@ function isTypingTarget(el: Element | null): boolean {
   return false;
 }
 
+// 「浏览器」分区（应用组）：内置浏览器与 agent 浏览器控制权限。整页落于 BrowserSettingsSection,
+// 此处仅渲染标题/描述 + 该组件,避免继续撑大本文件(单文件 1200 行上限)。
+function BrowserSection() {
+  const { t } = useTranslation("settings");
+  return (
+    <>
+      <div className="pw-dlg-title">{t("browser.title")}</div>
+      <div className="pw-dlg-desc">{t("browser.desc")}</div>
+      <BrowserSettingsSection />
+    </>
+  );
+}
+
 export function PersonalSettingsView() {
   const { t } = useTranslation("settings");
   const closeSettings = usePersonalStore((s) => s.closeSettings);
@@ -2005,16 +1955,21 @@ export function PersonalSettingsView() {
           <Icon.Back size={15} />
           {t("page.back")}
         </button>
-        {TABS.map((tab2) => (
-          <button
-            key={tab2.id}
-            className={`pw-dlg-nav-item ${tab === tab2.id ? "is-active" : ""}`}
-            aria-current={tab === tab2.id ? "page" : undefined}
-            onClick={() => setTab(tab2.id)}
-          >
-            {tab2.icon}
-            {t(tab2.tabKey)}
-          </button>
+        {NAV_GROUPS.map((group) => (
+          <div key={group.groupKey} className="pw-dlg-nav-group">
+            <div className="pw-dlg-nav-h">{t(group.groupKey)}</div>
+            {group.items.map((id) => (
+              <button
+                key={id}
+                className={`pw-dlg-nav-item ${tab === id ? "is-active" : ""}`}
+                aria-current={tab === id ? "page" : undefined}
+                onClick={() => setTab(id)}
+              >
+                {TAB_META[id].icon}
+                {t(TAB_META[id].tabKey)}
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
       <div className="pw-dlg-body">
@@ -2037,6 +1992,8 @@ export function PersonalSettingsView() {
             <PushSection />
           ) : tab === "plugins" ? (
             <PluginManager />
+          ) : tab === "browser" ? (
+            <BrowserSection />
           ) : (
             <VoiceSection />
           )}
