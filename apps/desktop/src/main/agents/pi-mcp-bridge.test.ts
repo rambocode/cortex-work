@@ -85,6 +85,10 @@ describe("renderMcpBridgeExtension", () => {
     const src = renderMcpBridgeExtension(servers);
     // ESM import 必须置顶(在 SERVERS 之前)。
     expect(src.indexOf('import { spawn } from "node:child_process";')).toBeLessThan(src.indexOf("const SERVERS ="));
+    // http 客户端走 node:http/https(非全局 fetch——pi 的 Electron utilityProcess 里 undici fetch 可能不可用)。
+    expect(src).toContain('import http from "node:http";');
+    expect(src).toContain('import https from "node:https";');
+    expect(src).not.toContain("await fetch(");
     expect(src).toContain(`const SERVERS = ${JSON.stringify(servers)};`);
     expect(src).toContain("export default async function (pi)");
     // 两种传输 + MCP 握手 + 工具注册关键标记。

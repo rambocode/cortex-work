@@ -156,6 +156,37 @@ function parseSseForId(text, id) {
   return fallback;
 }
 
+// 一次 HTTP POST。**刻意用 node:http/https 而非全局 fetch**:pi 跑在 Electron utilityProcess 里,
+// 其全局 fetch(undici)在该宿主可能不可用/抛 "fetch failed"(实测 undici 版本错配会崩);
+// node:http 在 Electron 里铁打不动。返回 { status, headers, body }(body 已读全;响应带 content-length)。
+function httpPostRaw(urlStr, headers, bodyStr) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try { u = new URL(urlStr); } catch (e) { reject(e); return; }
+    const mod = u.protocol === "https:" ? https : http;
+    const req = mod.request(
+      {
+        hostname: u.hostname,
+        port: u.port || (u.protocol === "https:" ? 443 : 80),
+        path: u.pathname + u.search,
+        method: "POST",
+        headers: Object.assign({}, headers, { "content-length": Buffer.byteLength(bodyStr) }),
+      },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => { data += c; });
+        res.on("end", () => resolve({ status: res.statusCode || 0, headers: res.headers, body: data }));
+      },
+    );
+    const timer = setTimeout(() => { req.destroy(new Error("MCP HTTP 超时")); }, MCP_TIMEOUT_MS);
+    req.on("error", (e) => { clearTimeout(timer); reject(e); });
+    req.on("close", () => clearTimeout(timer));
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
 // streamable-http 传输:每条 JSON-RPC 一次 POST。Accept 须同时含 application/json 与 text/event-stream
 // (SDK StreamableHTTPServerTransport 据此判定,缺则 406)。捕获并回送 mcp-session-id(远程有状态 server)。
 function makeHttpClient(server) {
@@ -171,15 +202,15 @@ function makeHttpClient(server) {
     const envelope = { jsonrpc: "2.0", method: method };
     if (id != null) envelope.id = id;
     if (params !== undefined) envelope.params = params;
-    const res = await fetch(server.url, { method: "POST", headers: headers, body: JSON.stringify(envelope) });
-    const sid = res.headers.get("mcp-session-id");
-    if (sid) sessionId = sid;
-    if (isNotify) { try { await res.arrayBuffer(); } catch (e) {} return undefined; }
-    if (!res.ok && res.status !== 200) throw new Error("MCP HTTP " + res.status);
-    const ct = res.headers.get("content-type") || "";
+    const res = await httpPostRaw(server.url, headers, JSON.stringify(envelope));
+    const sid = res.headers["mcp-session-id"];
+    if (sid) sessionId = Array.isArray(sid) ? sid[0] : sid;
+    if (isNotify) return undefined;
+    if (res.status !== 200 && res.status !== 202) throw new Error("MCP HTTP " + res.status);
+    const ct = String(res.headers["content-type"] || "");
     let payload;
-    if (ct.indexOf("text/event-stream") >= 0) payload = parseSseForId(await res.text(), id);
-    else { const t = await res.text(); payload = t ? JSON.parse(t) : undefined; }
+    if (ct.indexOf("text/event-stream") >= 0) payload = parseSseForId(res.body, id);
+    else payload = res.body ? JSON.parse(res.body) : undefined;
     if (!payload) throw new Error("MCP 无响应: " + method);
     if (payload.error) throw new Error((payload.error && payload.error.message) || "MCP error");
     return payload.result;
@@ -255,6 +286,8 @@ export function renderMcpBridgeExtension(servers: BridgeServer[]): string {
   return [
     "// 由 Cortex Desktop 自动生成(pi MCP 桥接),请勿手改。",
     'import { spawn } from "node:child_process";',
+    'import http from "node:http";',
+    'import https from "node:https";',
     `const SERVERS = ${JSON.stringify(servers)};`,
     MCP_BRIDGE_RUNTIME,
     "export default async function (pi) { await __mcpBridgeMain(pi, SERVERS); }",
