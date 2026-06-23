@@ -66,11 +66,19 @@ function isPrivateOrLinkLocal(host: string): boolean {
   );
 }
 
+// 导航授权范围(设置页「导航授权范围」下拉,plan U5/R9):
+//   - nonLocalOnly(默认/当前行为):本地免审,仅非本地查白名单。
+//   - all:连本地(localhost/127.x/::1)也需在 approvedOrigins 白名单,未授权则拒并回 origin。
+// cortex 无事中弹窗审批(claude/codex 一次性 spawn),故用预授权强度取代 Codex 的事中「审批」。
+export type NavigationApproval = "nonLocalOnly" | "all";
+
 // 判定 agent 请求导航的目标 URL 是否放行。isFileAuthorized 由调用方注入(对齐 webviewGuards）。
+// navigationApproval 缺省 nonLocalOnly,保后向兼容(既有 3 参调用与测试不变)。
 export function classifyTarget(
   rawUrl: string,
   approvedOrigins: string[],
   isFileAuthorized: (url: string) => boolean,
+  navigationApproval: NavigationApproval = "nonLocalOnly",
 ): GateVerdict {
   let u: URL;
   try {
@@ -83,8 +91,9 @@ export function classifyTarget(
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") return { allow: false, reason: "bad-url" };
   const host = u.hostname.replace(/^\[|\]$/g, ""); // 去 IPv6 方括号
-  if (isLoopbackHost(host)) return { allow: true }; // 本地自测,免审
-  if (approvedOrigins.includes(u.origin)) return { allow: true }; // 已预授权
+  // all 档下本地不再免审,落入下方白名单检查(未授权 → 回 origin 待授权)。
+  if (navigationApproval !== "all" && isLoopbackHost(host)) return { allow: true }; // 本地自测,免审
+  if (approvedOrigins.includes(u.origin)) return { allow: true }; // 已预授权(含 all 档下已授权的本地)
   if (isPrivateOrLinkLocal(host)) return { allow: false, reason: "private-ip" }; // 未授权私网 → SSRF 跳板,拒
   return { allow: false, reason: "non-local-unapproved", origin: u.origin }; // 非本地未授权 → 回 origin 待授权
 }
