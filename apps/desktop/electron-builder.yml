@@ -51,7 +51,10 @@ files:
   - "!**/node_modules/fast-xml-parser/**"
   - "!**/node_modules/gaxios/**"
   - "!**/node_modules/@silvia-odwyer/**"       # 2.1MB photon 图像（pi 二进制自带,asar 这份冗余）
-  - "!**/node_modules/zod/**"                  # 4.0MB schema 校验
+  # 注意:zod 不能排除!主进程的 @modelcontextprotocol/sdk(浏览器控制 MCP server)走
+  # externalizeDepsPlugin、运行时从 asar node_modules require zod(且 require('zod/v3')),
+  # 排除会导致打包后启动崩溃 "Cannot find module 'zod/v3'"。renderer 那份 zod 仍随 out/ bundle,
+  # 二者并存(asar 这份 ~4MB 是主进程必需,非冗余)。
   # mermaid 图表渲染闭包（notes md 预览引入,纯 renderer,已 bundle 进 out/）。
   # mermaid 一家连同 cytoscape 图布局 / katex 公式 / d3 ≈ 107MB,是当前 asar 最大冗余。
   - "!**/node_modules/mermaid/**"              # 72.3MB
