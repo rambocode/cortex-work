@@ -11,10 +11,22 @@
     "agent": "Agent",
     "pi": "Pi",
     "plugins": "插件",
+    "browser": "浏览器",
     "pet": "宠物",
     "timeline": "时间线",
     "push": "推送",
     "voice": "语音"
+  },
+  "tabGroups": {
+    "general": "通用",
+    "models": "模型与 Agent",
+    "apps": "应用",
+    "personalization": "个性化",
+    "automation": "自动化"
+  },
+  "browser": {
+    "title": "浏览器",
+    "desc": "管理内置浏览器与 agent 的浏览器控制权限。"
   },
   "profile": {
     "title": "个人资料",

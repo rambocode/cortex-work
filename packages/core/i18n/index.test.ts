@@ -53,4 +53,12 @@ describe("i18n 单例", () => {
     // 直接从打包资源取(不经 t 的命名空间推断),证明 config 即提供 settings。
     expect(i18n.getResource("zh-Hans", "settings", "tabs.profile")).toBe("个人资料");
   });
+
+  // 设置菜单分组(应用→浏览器):组标题 + 新增「浏览器」项的文案中英同步。
+  it("settings 提供菜单分组标题与浏览器项文案(中英)", () => {
+    expect(i18n.getResource("zh-Hans", "settings", "tabs.browser")).toBe("浏览器");
+    expect(i18n.getResource("en", "settings", "tabs.browser")).toBe("Browser");
+    expect(i18n.getResource("zh-Hans", "settings", "tabGroups.apps")).toBe("应用");
+    expect(i18n.getResource("en", "settings", "tabGroups.apps")).toBe("Apps");
+  });
 });
