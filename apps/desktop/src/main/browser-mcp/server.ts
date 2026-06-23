@@ -20,7 +20,11 @@ export interface BrowserMcpHandle {
 }
 
 // 工具注册钩子:U5 经此注入实际浏览器工具;缺省仅 ping。
-export type ToolRegistrar = (mcp: McpServer) => void;
+// 每请求上下文:调用会话标识(经 X-Cortex-Session 头,供归属仲裁 U5)。
+export interface ToolContext {
+  sessionId: string | null;
+}
+export type ToolRegistrar = (mcp: McpServer, ctx: ToolContext) => void;
 
 let current: { http: http.Server; handle: BrowserMcpHandle } | null = null;
 
@@ -38,13 +42,13 @@ function originAllowed(origin: string | undefined): boolean {
   return origin === undefined || origin === "null";
 }
 
-function makeServer(registerTools: ToolRegistrar): McpServer {
+function makeServer(registerTools: ToolRegistrar, ctx: ToolContext): McpServer {
   const mcp = new McpServer({ name: "cortex-browser", version: "1.0.0" });
   // ping:连通性占位(U2);实际浏览器工具(navigate/screenshot/...)由 U5 经 registerTools 注入。
   mcp.registerTool("ping", { description: "连通性检查,返回 pong。", inputSchema: {} }, async () => ({
     content: [{ type: "text" as const, text: "pong" }],
   }));
-  registerTools(mcp);
+  registerTools(mcp, ctx);
   return mcp;
 }
 
@@ -92,8 +96,11 @@ async function handleRequest(
     res.writeHead(401).end();
     return;
   }
+  // 调用会话标识(供归属仲裁 U5):X-Cortex-Session 头由 inject 按 cli 会话 id 注入。
+  const sidHeader = req.headers["x-cortex-session"];
+  const sessionId = typeof sidHeader === "string" ? sidHeader : null;
   // 无状态:每请求新建 server + transport(sessionIdGenerator: undefined;spike 已证可行)。
-  const mcp = makeServer(registerTools);
+  const mcp = makeServer(registerTools, { sessionId });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => {
     void transport.close();

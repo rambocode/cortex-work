@@ -6,9 +6,25 @@ import type { WebContents } from "electron";
 
 let currentGuest: WebContents | null = null;
 
-// 登记当前面板 guest(webview 重挂时覆盖旧引用)。
+// 控制台缓冲(供 readConsole 工具 U5):有界环形,新面板/重挂时清。
+const CONSOLE_MAX = 200;
+let consoleBuf: { level: number; message: string }[] = [];
+
+export function readConsoleBuffer(): { level: number; message: string }[] {
+  return [...consoleBuf];
+}
+
+// 登记当前面板 guest(webview 重挂时覆盖旧引用)+ 接控制台捕获。
 export function setGuest(wc: WebContents): void {
   currentGuest = wc;
+  consoleBuf = [];
+  // Electron 39 console-message:运行时回调 (event, MessageDetails){level 0–3, message}。
+  // d.ts 重载可能仍把第二参推断为旧版 level:number,故 cast(运行时取对象字段正确)。
+  wc.on("console-message", (_event, details) => {
+    const d = details as unknown as { level: number; message: string };
+    consoleBuf.push({ level: d.level, message: d.message });
+    if (consoleBuf.length > CONSOLE_MAX) consoleBuf.shift();
+  });
 }
 
 // 清除:仅当被清的正是当前记录引用时才清——避免旧 guest 的 destroyed 事件清掉已重挂的新引用。

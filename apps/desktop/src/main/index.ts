@@ -15,6 +15,7 @@ import { configureBrowserPartition } from "./browser/partition";
 import { ensureMigrated } from "./paths";
 import { initScheduler, rescheduleAll, stopScheduler } from "./automation/scheduler";
 import { startBrowserMcpServer, stopBrowserMcpServer } from "./browser-mcp/server";
+import { registerBrowserTools } from "./browser-mcp/tools";
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
@@ -272,7 +273,7 @@ if (!app.requestSingleInstanceLock()) {
     await initScheduler();
     // 浏览器控制 MCP server:随主进程常驻(U2)。工具由 U5 注入;是否注入给 agent 由 U3 按总开关 gate。
     // fire-and-forget:listen 快且失败已内部降级,不阻塞建窗。
-    void startBrowserMcpServer();
+    void startBrowserMcpServer(registerBrowserTools);
     createWindow();
 
     app.on("activate", () => {

@@ -426,7 +426,7 @@ export function registerCliHandlers(): void {
         mcp = gs?.mcp ?? mcp;
         // 浏览器控制(U3):总开关开 + server 可用时,把内置浏览器 server 并入 mcp.servers(token 经 header)。
         // 用户 MCP 关闭时不连带启用其 server——仅注入浏览器 server。此即主会话注入路径(ask/oneshot/automation 不经此)。
-        const browserServer = buildBrowserMcpServerConfig(gs?.browserControl);
+        const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, req.sessionId);
         if (browserServer) {
           const userServers = mcp.enabled ? mcp.servers : [];
           mcp = { enabled: true, servers: [...userServers, browserServer] };

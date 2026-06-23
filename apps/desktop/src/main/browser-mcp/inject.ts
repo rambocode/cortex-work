@@ -9,7 +9,11 @@ import { getBrowserMcpHandle } from "./server";
 export const BROWSER_MCP_SERVER_ID = "cortex-browser";
 
 // 总开关关 / server 未起或不可用 → null(不注入,避免给 agent 一个连不上的 url)。
-export function buildBrowserMcpServerConfig(bc: BrowserControlSettings | undefined): McpServerConfig | null {
+// sessionId(cli 会话)经 X-Cortex-Session 头注入,供 server 归属仲裁(U5/KTD9)。
+export function buildBrowserMcpServerConfig(
+  bc: BrowserControlSettings | undefined,
+  sessionId?: string,
+): McpServerConfig | null {
   if (!bc?.enabled) return null;
   const handle = getBrowserMcpHandle();
   if (!handle || !handle.serverAvailable || handle.port <= 0) return null;
@@ -17,6 +21,9 @@ export function buildBrowserMcpServerConfig(bc: BrowserControlSettings | undefin
     id: BROWSER_MCP_SERVER_ID,
     transport: "http",
     url: `http://127.0.0.1:${handle.port}/mcp`,
-    headers: { Authorization: `Bearer ${handle.token}` },
+    headers: {
+      Authorization: `Bearer ${handle.token}`,
+      ...(sessionId ? { "X-Cortex-Session": sessionId } : {}),
+    },
   };
 }
