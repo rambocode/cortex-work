@@ -36,7 +36,8 @@ export function isValidServerId(id: string): boolean {
 
 // 有效 env = 显式 env 叠加「环境变量传递」(envPassthrough)从宿主 process.env 解析的值。
 // 透传名缺失于宿主则跳过。结果写入的 .mcp.json 已被 ensureGitignore 加入忽略,故解析值落盘可接受。
-function effectiveEnv(s: McpServerConfig): Record<string, string> | undefined {
+// 导出复用:pi MCP 桥接(pi-mcp-bridge)也按同样规则解析 stdio server 的 env 后烘焙进扩展。
+export function effectiveEnv(s: McpServerConfig): Record<string, string> | undefined {
   const env: Record<string, string> = { ...(s.env ?? {}) };
   for (const name of s.envPassthrough ?? []) {
     const v = process.env[name];

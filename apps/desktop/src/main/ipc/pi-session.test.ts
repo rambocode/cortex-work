@@ -52,7 +52,7 @@ const h = vi.hoisted(() => {
     instances,
     makeSession,
     PiRpcSession,
-    buildRpcArgs: vi.fn(() => ["--mode", "rpc"]),
+    buildRpcArgs: vi.fn((_req: PiOpenRequest) => ["--mode", "rpc"]),
     spawnPiRpc: vi.fn(() => ({})),
     writePiExtension: vi.fn(() => "/ext/deepseek.js"),
     writeApprovalExtension: vi.fn(() => "/ext/approval.js"),
@@ -65,8 +65,9 @@ const h = vi.hoisted(() => {
     recordAgentTrace: vi.fn(),
     recordStreamDelta: vi.fn(),
     getPersistedState: vi.fn(async () => ({ generalSettings: {} as Record<string, unknown> })),
-    applyClaudeMcp: vi.fn(async () => "skip"),
     buildBrowserMcpServerConfig: vi.fn((): unknown => null),
+    collectBridgeServers: vi.fn((): unknown[] => []),
+    writeMcpBridgeExtension: vi.fn(() => "/ext/mcp-bridge.js"),
   };
 });
 
@@ -89,8 +90,11 @@ vi.mock("./cli", () => ({ assertSpawnCwd: h.assertSpawnCwd, spawnEnvFor: h.spawn
 vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
 vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace, recordStreamDelta: h.recordStreamDelta }));
 vi.mock("./store", () => ({ getPersistedState: h.getPersistedState }));
-vi.mock("./mcp-config", () => ({ applyClaudeMcp: h.applyClaudeMcp }));
 vi.mock("../capabilities/browser/inject", () => ({ buildBrowserMcpServerConfig: h.buildBrowserMcpServerConfig }));
+vi.mock("../agents/pi-mcp-bridge", () => ({
+  collectBridgeServers: h.collectBridgeServers,
+  writeMcpBridgeExtension: h.writeMcpBridgeExtension,
+}));
 
 import {
   registerPiSessionHandlers,
@@ -131,8 +135,9 @@ beforeEach(() => {
   h.recordAgentTrace.mockClear();
   h.recordStreamDelta.mockClear();
   h.getPersistedState.mockReset().mockResolvedValue({ generalSettings: {} });
-  h.applyClaudeMcp.mockReset().mockResolvedValue("skip");
   h.buildBrowserMcpServerConfig.mockReset().mockReturnValue(null);
+  h.collectBridgeServers.mockReset().mockReturnValue([]);
+  h.writeMcpBridgeExtension.mockReset().mockReturnValue("/ext/mcp-bridge.js");
   registerPiSessionHandlers();
 });
 
@@ -158,18 +163,28 @@ describe("registerPiSessionHandlers", () => {
   });
 });
 
-describe("pi:open 浏览器控制旁路（pi-mcp-adapter）", () => {
-  it("总开关开 + server 可用 → 写浏览器 server 进 cwd .mcp.json", async () => {
-    h.getPersistedState.mockResolvedValue({ generalSettings: { browserControl: { enabled: true } } });
-    const server = { id: "cortex-browser", transport: "http", url: "http://127.0.0.1:1/mcp", headers: { Authorization: "Bearer t" } };
-    h.buildBrowserMcpServerConfig.mockReturnValue(server);
+describe("pi:open MCP 桥接扩展(cortex 自有,替代 pi-mcp-adapter)", () => {
+  it("有桥接 server → 生成桥接扩展并加入 extraExtensionPaths", async () => {
+    h.getPersistedState.mockResolvedValue({
+      generalSettings: { browserControl: { enabled: true }, mcp: { enabled: true, servers: [{ id: "fs" }] } },
+    });
+    const browser = { id: "cortex-browser", transport: "http", url: "http://127.0.0.1:1/mcp", headers: { Authorization: "Bearer t" } };
+    h.buildBrowserMcpServerConfig.mockReturnValue(browser);
+    h.collectBridgeServers.mockReturnValue([{ id: "fs", transport: "stdio", command: "/bin/fs" }, browser]);
     await open({ uiSessionId: "ub", cwd: "/proj" });
-    expect(h.applyClaudeMcp).toHaveBeenCalledWith("/proj", { enabled: true, servers: [server] });
+    // 汇总用户 server(总开关开)+ 浏览器 server 交给 collectBridgeServers。
+    expect(h.collectBridgeServers).toHaveBeenCalledWith([{ id: "fs" }], browser);
+    expect(h.writeMcpBridgeExtension).toHaveBeenCalledTimes(1);
+    // 生成的桥接扩展路径并入本会话的 extraExtensionPaths(供 buildRpcArgs 加 -e)。
+    const req = h.buildRpcArgs.mock.calls[0][0] as PiOpenRequest;
+    expect(req.extraExtensionPaths).toContain("/ext/mcp-bridge.js");
   });
 
-  it("server 不可用 / 总开关关 → 不写 .mcp.json", async () => {
-    await open({ uiSessionId: "ub2", cwd: "/proj" }); // 默认 buildBrowserMcpServerConfig→null
-    expect(h.applyClaudeMcp).not.toHaveBeenCalled();
+  it("无桥接 server(总开关关 + 浏览器不可用)→ 不生成桥接扩展", async () => {
+    await open({ uiSessionId: "ub2", cwd: "/proj" }); // 默认 collectBridgeServers→[]
+    expect(h.writeMcpBridgeExtension).not.toHaveBeenCalled();
+    const req = h.buildRpcArgs.mock.calls[0][0] as PiOpenRequest;
+    expect(req.extraExtensionPaths).not.toContain("/ext/mcp-bridge.js");
   });
 });
 
