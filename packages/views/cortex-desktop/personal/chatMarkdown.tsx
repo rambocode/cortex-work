@@ -22,6 +22,7 @@ import {
 } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 import { findLocalHtmlPathsInText } from "@cortex-work/core/personal/devPreviewDetection";
+import { isLoopbackOnly } from "@cortex-work/core/personal/devPreviewUrl";
 import { Icon } from "@cortex-work/ui/icons";
 
 // 递归取 react 子节点的纯文本。inline code 子节点通常是字符串/数组;但 fenced 代码块的
@@ -172,6 +173,26 @@ function openInInternalBrowser(url: string): void {
   useCortexUIStore.getState().setRightOpen(true);
 }
 
+// 本地/loopback URL 判定——仅这类受「本地 URL 打开目标」偏好控制(外链恒进内置,保留既有决策)。
+function isLocalUrl(url: string): boolean {
+  try {
+    return isLoopbackOnly(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+// 按 browserControl.localUrlOpenTarget 分流:偏好=system 且为本地 URL 且 bridge 可用 → 系统浏览器;
+// 其余(含全部外链)→ 内置面板。设置页「本地 URL 打开目标」下拉经此生效(plan U3 / R7)。
+function openUrlByPreference(url: string, bridge: DesktopBridge | null): void {
+  const target = usePersonalStore.getState().generalSettings.browserControl?.localUrlOpenTarget ?? "internal";
+  if (target === "system" && isLocalUrl(url) && bridge?.openExternal) {
+    void bridge.openExternal(url).catch(() => {});
+    return;
+  }
+  openInInternalBrowser(url);
+}
+
 // 取 URL 的 host 作为卡片副标题;非法 URL(理论上 a 组件已用 https? 正则过滤)兜底空串。
 function hostLabel(url: string): string {
   try {
@@ -232,6 +253,8 @@ function LinkPreviewCard({ url, bridge }: { url: string; bridge: DesktopBridge |
   const openBtnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const host = hostLabel(url);
+  // 主体点击按偏好分流(本地 URL 可走系统);菜单两项为显式覆盖(始终内置 / 始终系统)。
+  const openMain = () => openUrlByPreference(url, bridge);
   const openInternal = () => openInInternalBrowser(url);
   const openSystem = () => {
     void bridge?.openExternal?.(url).catch(() => {});
@@ -268,7 +291,7 @@ function LinkPreviewCard({ url, bridge }: { url: string; bridge: DesktopBridge |
   }, [menuOpen]);
   return (
     <div className="pw-link-preview-card">
-      <button type="button" className="pw-link-preview-main" onClick={openInternal} title={url}>
+      <button type="button" className="pw-link-preview-main" onClick={openMain} title={url}>
         <span className="pw-link-preview-icon">
           <Icon.Globe size={18} />
         </span>
@@ -448,8 +471,8 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
             // Electron 里 a 默认导航会替换整个窗口,一律 preventDefault 后自行分流。
             e.preventDefault();
             if (external && href) {
-              // 外链点击进右栏内置浏览器(系统浏览器降级为下方卡片「打开方式」备选)。
-              openInInternalBrowser(href);
+              // 外链/本地链接点击:按「本地 URL 打开目标」偏好分流(外链恒内置,本地可走系统)。
+              openUrlByPreference(href, bridge);
               return;
             }
             // 其余(锚点/项目外/非路径)阻止导航,不做处理。

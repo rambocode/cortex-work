@@ -3,8 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DesktopBridge } from "@cortex-work/core";
-import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
+import { DEFAULT_BROWSER_CONTROL, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { chatMarkdownComponents } from "./chatMarkdown";
+
+function setLocalUrlTarget(target: "internal" | "system") {
+  usePersonalStore.setState((s) => ({
+    generalSettings: { ...s.generalSettings, browserControl: { ...DEFAULT_BROWSER_CONTROL, localUrlOpenTarget: target } },
+  }));
+}
 
 function renderMd(
   text: string,
@@ -28,7 +34,11 @@ function renderMd(
 describe("chatMarkdownComponents", () => {
   beforeEach(() => {
     // 外链点击/卡片改写全局 store(browserUrlRequest / rightOpen),逐用例复位避免串场。
-    usePersonalStore.setState({ browserUrlRequest: undefined });
+    usePersonalStore.setState((s) => ({
+      browserUrlRequest: undefined,
+      // 复位浏览器控制偏好,避免「本地 URL 打开目标」用例间串场。
+      generalSettings: { ...s.generalSettings, browserControl: undefined },
+    }));
     useCortexUIStore.setState({ rightOpen: false });
   });
   afterEach(() => cleanup());
@@ -71,6 +81,22 @@ describe("chatMarkdownComponents", () => {
     expect(useCortexUIStore.getState().rightOpen).toBe(true);
     expect(openExternal).not.toHaveBeenCalled();
     expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("localUrlOpenTarget=system:本地链接点击走系统浏览器(openExternal),不进内置(U3)", () => {
+    setLocalUrlTarget("system");
+    const { container, openExternal } = renderMd("[local](http://localhost:3000)");
+    fireEvent.click(container.querySelector("a")!);
+    expect(openExternal).toHaveBeenCalledWith("http://localhost:3000");
+    expect(usePersonalStore.getState().browserUrlRequest?.url).toBeUndefined();
+  });
+
+  it("localUrlOpenTarget=system:外链仍进内置(外链不受偏好影响)(U3)", () => {
+    setLocalUrlTarget("system");
+    const { container, openExternal } = renderMd("[site](https://x.com)");
+    fireEvent.click(container.querySelector("a")!);
+    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("https://x.com");
+    expect(openExternal).not.toHaveBeenCalled();
   });
 
   it("外链段落下方渲染「网页预览」卡片,显示域名;点击主体进内置浏览器", () => {
