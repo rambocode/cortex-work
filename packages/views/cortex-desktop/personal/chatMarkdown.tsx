@@ -206,8 +206,20 @@ function collectParagraphUrls(node: unknown): string[] {
     if (Array.isArray(el.children)) el.children.forEach(visit);
   };
   visit(node);
-  // 去掉行尾残留标点后去重。
-  return [...new Set(out.map((u) => u.replace(/[.,;:]+$/, "")))];
+  // 去重:剥行尾残留标点后,用「再去尾斜杠 + 小写」作归一键判重(显示/点击仍用原始串)。
+  // 关键:同一外链常以「裸 URL 文本 + markdown 链接 href」两种形态同段出现,而 agent/LLM 习惯把
+  // 链接 href 归一成带尾斜杠(http://h:3000/),文本写不带斜杠(http://h:3000)——不归一会判成两条、
+  // 渲染出两张重复「网页预览」卡片(用户反馈)。归一键合并这种「仅尾斜杠/大小写之差」的同链。
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of out) {
+    const cleaned = raw.replace(/[.,;:]+$/, "");
+    const key = cleaned.replace(/\/+$/, "").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(cleaned);
+  }
+  return result;
 }
 
 // 「网页预览」静态卡片:不抓取网页元数据(零网络/零隐私),仅展示地球图标 + 标题 + 域名。
