@@ -990,27 +990,15 @@ input, textarea { font: inherit; color: inherit; }
   overflow: hidden;
   animation: pw-process-in 0.18s ease-out;
 }
-/* 收起态：整卡塌成一个圆形 icon 按钮（可重开入口），覆盖 .pw-process 的 width clamp，
-   使 grid 第二列塌窄、会话区变宽。 */
+/* 收起态：整卡只剩一条常驻细头部（点击向下展开入口）。align-self:start 使其只占头部一行高度、
+   不撑满列高；卡片宽度沿用 .pw-process 的 clamp（面板常驻占位，收起不塌窄会话区）。收起无 body，
+   去掉头部下边框。 */
 .pw-process.is-collapsed {
   align-self: start;
-  width: 40px;
-  height: 40px;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
 }
-.pw-process.is-collapsed:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); }
-.pw-process-fab-ic { display: inline-flex; align-items: center; justify-content: center; }
-.pw-process.is-collapsed[data-active="true"] .pw-process-fab-ic { color: var(--amber); }
-.pw-process.is-collapsed[data-active="false"] .pw-process-fab-ic { color: var(--green); }
+.pw-process.is-collapsed .pw-process-head {
+  border-bottom: none;
+}
 .pw-process-head {
   display: flex;
   align-items: center;
@@ -1032,15 +1020,17 @@ input, textarea { font: inherit; color: inherit; }
 }
 .pw-process-badge.is-done { color: var(--green); background: var(--green-soft); }
 .pw-process-badge.is-active { color: var(--amber); background: var(--amber-soft); }
+/* chevron 朝向即开合感知（KTD4）：收起朝下（⌄，提示「点开向下展开」），展开旋转朝上（⌃）。
+   Icon.Chevron 自然朝下，故收起为 rotate(0)、展开为 rotate(180deg)。 */
 .pw-process-chev {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
   color: var(--text-3);
   transition: transform 0.18s;
-  transform: rotate(-90deg);
+  transform: rotate(0deg);
 }
-.pw-process-chev.is-open { transform: rotate(0deg); }
+.pw-process-chev.is-open { transform: rotate(180deg); }
 .pw-process-body {
   padding: 18px 22px 28px;
   overflow-y: auto;
