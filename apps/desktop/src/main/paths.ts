@@ -35,6 +35,18 @@ export function chatImagesDir(sessionId: string): string {
   return join(chatImagesRoot(), sessionId);
 }
 
+// 聊天文档附件落盘根:~/.cortex-desktop/chat-docs/（per-session 子目录,随会话删除清理）。
+// 专用根,**不**纳入 fs.ts 的 allowedRoots()——抽取工具(doc-extract)读取时以此根做严格边界,
+// 杜绝 assertOpenable「任意真实文件即放行」兜底被用来读任意路径(见 doc.ts assertDocPath)。
+export function chatDocsRoot(): string {
+  return join(cortexHome(), "chat-docs");
+}
+
+export function chatDocsDir(sessionId: string): string {
+  if (!SAFE_SESSION_ID.test(sessionId)) throw new Error(`非法 session id: ${sessionId}`);
+  return join(chatDocsRoot(), sessionId);
+}
+
 export function timelinesDir(): string {
   return join(cortexHome(), "timelines");
 }
