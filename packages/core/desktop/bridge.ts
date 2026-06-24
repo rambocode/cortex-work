@@ -74,6 +74,7 @@ import type {
 } from "../whisper/models";
 import type { AsrSettings } from "./media-gen-types";
 import type { Locale } from "../i18n/locales";
+import type { WorkflowDef, WorkflowRun, WorkflowRunEvent } from "./workflow-types";
 
 export interface DesktopBridge {
   appInfo?: AppInfo;
@@ -371,4 +372,47 @@ export interface DesktopBridge {
   //   mimo-asr               → MIMO ASR（同 OpenAI 兼容接口形状）
   // U9 ComposerShell 通过此方法发起转写；asrTranscribe 保持向后兼容供旧消费方使用。
   transcribeSpeech?(req: AsrTranscribeRequest, asrSettings: AsrSettings): Promise<AsrTranscribeResponse>;
+
+  // ── 节点式工作流（loop）────────────────────────────────────────────────────
+  // 可选能力（web/旧壳无此桥 → UI 据此降级隐藏工作流入口）。
+  // 跨进程契约：core/views 只经此接口调用，永不直接触碰 window.desktopAPI 或 Node API。
+  // 运行时相关方法（runNow/stop/node:run/node:test/approval:resolve/import/export）
+  // 在 U8/U9/U14/U15 完整接线前，主进程侧返回明确错误（渲染层需捕获并提示）。
+
+  /** 列出所有工作流定义快照。 */
+  workflowList?(): Promise<WorkflowDef[]>;
+  /** 创建工作流（id/时间戳由主进程分配）。 */
+  workflowCreate?(input: Partial<WorkflowDef>): Promise<WorkflowDef>;
+  /** 更新工作流（patch 由 renderer 组装，主进程 normalize + 持久化）。 */
+  workflowUpdate?(id: string, patch: Partial<WorkflowDef>): Promise<WorkflowDef | null>;
+  /** 切换启用状态。 */
+  workflowSetEnabled?(id: string, enabled: boolean): Promise<WorkflowDef | null>;
+  /** 切换 AI 可调用标记（MCP 侧 U14 监听此变化刷新工具列表）。 */
+  workflowSetCallableByAgent?(id: string, callableByAgent: boolean): Promise<WorkflowDef | null>;
+  /** 删除工作流（含运行历史）。 */
+  workflowDelete?(id: string): Promise<void>;
+  /** 立即触发一次运行（待 U9 接线）。 */
+  workflowRunNow?(id: string): Promise<WorkflowRun | null>;
+  /** 停止正在进行的运行（待 U9 接线）。 */
+  workflowStop?(id: string, runId: string): Promise<void>;
+  /** 列出工作流的运行历史。 */
+  workflowListRuns?(id: string): Promise<WorkflowRun[]>;
+  /** 删除单条运行记录（不影响工作流 meta）。 */
+  workflowDeleteRun?(id: string, runId: string): Promise<void>;
+  /** 从 DSL JSON 导入工作流（待 U15 接线）。 */
+  workflowImport?(dsl: unknown): Promise<WorkflowDef>;
+  /** 导出工作流为 DSL JSON（secret 脱敏由主进程负责，待 U15 接线）。 */
+  workflowExport?(id: string): Promise<unknown>;
+  /** 画布单节点运行（待 U8 接线）。 */
+  workflowNodeRun?(workflowId: string, nodeId: string, input: unknown): Promise<unknown>;
+  /** 配置面板单节点测试（待 U8 接线）。 */
+  workflowNodeTest?(workflowId: string, nodeId: string, input: unknown): Promise<unknown>;
+  /** human-approval 节点 resolve（待 U10 接线）。 */
+  workflowResolveApproval?(runId: string, decision: "approved" | "rejected"): Promise<void>;
+  /** cron 表达式即时校验（ScheduleEditor 实时反馈，真相以 main 调度为准）。 */
+  workflowValidateCron?(expression: string, timezone?: string): Promise<{ ok: boolean; error?: string; nextRun?: string }>;
+  /** 订阅工作流列表变化（CRUD 后主进程推全量快照；返回退订函数）。 */
+  onWorkflowChanged?(cb: (list: WorkflowDef[]) => void): () => void;
+  /** 订阅单次运行阶段事件（start/end，运行时 U8/U9 推送；返回退订函数）。 */
+  onWorkflowRunEvent?(cb: (event: WorkflowRunEvent) => void): () => void;
 }

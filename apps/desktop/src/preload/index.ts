@@ -54,6 +54,9 @@ import type {
   TtsVoiceOption,
   UpdateState,
   NotificationPayload,
+  WorkflowDef,
+  WorkflowRun,
+  WorkflowRunEvent,
 } from "../main/ipc/types";
 import type {
   LocalWhisperModelProgress,
@@ -457,6 +460,90 @@ const personal = {
     asrSettings: AsrSettings,
   ): Promise<AsrTranscribeResponse> =>
     ipcRenderer.invoke("stt:transcribe", { ...req, asrSettings }),
+
+  // ── 节点式工作流（loop）IPC 透传 ───────────────────────────────────────────
+  // 形状与 packages/core/desktop/bridge.ts 的 DesktopBridge workflow* 方法一一对应。
+  // 跨进程契约：渲染层只通过 DesktopBridge 调用，永不直接访问 ipcRenderer。
+  // 运行时相关方法（runNow/stop/node:run/node:test/approval:resolve/import/export）
+  // 在 U8/U9/U14/U15 完整接线前，主进程侧会返回明确错误。
+
+  /** 列出所有工作流定义快照。 */
+  workflowList: (): Promise<WorkflowDef[]> =>
+    ipcRenderer.invoke("workflow:list"),
+
+  /** 创建工作流（id/时间戳由主进程分配）。 */
+  workflowCreate: (input: Partial<WorkflowDef>): Promise<WorkflowDef> =>
+    ipcRenderer.invoke("workflow:create", input),
+
+  /** 更新工作流（patch 由 renderer 组装全量，主进程 normalize + 持久化）。 */
+  workflowUpdate: (id: string, patch: Partial<WorkflowDef>): Promise<WorkflowDef | null> =>
+    ipcRenderer.invoke("workflow:update", id, patch),
+
+  /** 切换启用状态。 */
+  workflowSetEnabled: (id: string, enabled: boolean): Promise<WorkflowDef | null> =>
+    ipcRenderer.invoke("workflow:setEnabled", id, enabled),
+
+  /** 切换 AI 可调用标记（MCP 侧在 U14 监听此变化刷新工具列表）。 */
+  workflowSetCallableByAgent: (id: string, callableByAgent: boolean): Promise<WorkflowDef | null> =>
+    ipcRenderer.invoke("workflow:setCallableByAgent", id, callableByAgent),
+
+  /** 删除工作流（含运行历史）。 */
+  workflowDelete: (id: string): Promise<void> =>
+    ipcRenderer.invoke("workflow:delete", id),
+
+  /** 立即触发一次运行（待 U9 接线）。 */
+  workflowRunNow: (id: string): Promise<WorkflowRun | null> =>
+    ipcRenderer.invoke("workflow:runNow", id),
+
+  /** 停止正在进行的运行（待 U9 接线）。 */
+  workflowStop: (id: string, runId: string): Promise<void> =>
+    ipcRenderer.invoke("workflow:stop", id, runId),
+
+  /** 列出工作流的运行历史。 */
+  workflowListRuns: (id: string): Promise<WorkflowRun[]> =>
+    ipcRenderer.invoke("workflow:listRuns", id),
+
+  /** 删除单条运行记录。 */
+  workflowDeleteRun: (id: string, runId: string): Promise<void> =>
+    ipcRenderer.invoke("workflow:deleteRun", id, runId),
+
+  /** 从 DSL JSON 导入工作流（待 U15 接线）。 */
+  workflowImport: (dsl: unknown): Promise<WorkflowDef> =>
+    ipcRenderer.invoke("workflow:import", dsl),
+
+  /** 导出工作流为 DSL JSON（待 U15 接线）。 */
+  workflowExport: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke("workflow:export", id),
+
+  /** 画布单节点运行（待 U8 接线）。 */
+  workflowNodeRun: (workflowId: string, nodeId: string, input: unknown): Promise<unknown> =>
+    ipcRenderer.invoke("workflow:node:run", workflowId, nodeId, input),
+
+  /** 配置面板单节点测试（待 U8 接线）。 */
+  workflowNodeTest: (workflowId: string, nodeId: string, input: unknown): Promise<unknown> =>
+    ipcRenderer.invoke("workflow:node:test", workflowId, nodeId, input),
+
+  /** human-approval 节点 resolve（待 U10 接线）。 */
+  workflowResolveApproval: (runId: string, decision: "approved" | "rejected"): Promise<void> =>
+    ipcRenderer.invoke("workflow:approval:resolve", runId, decision),
+
+  /** cron 表达式即时校验（ScheduleEditor 实时反馈，真相以 main 调度为准）。 */
+  workflowValidateCron: (expression: string, timezone?: string): Promise<{ ok: boolean; error?: string; nextRun?: string }> =>
+    ipcRenderer.invoke("workflow:validateCron", expression, timezone),
+
+  /** 订阅工作流列表变化（CRUD 后主进程推全量快照，返回退订函数）。 */
+  onWorkflowChanged: (cb: (list: WorkflowDef[]) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, list: WorkflowDef[]) => cb(list);
+    ipcRenderer.on("workflow:changed", listener);
+    return () => ipcRenderer.removeListener("workflow:changed", listener);
+  },
+
+  /** 订阅单次运行阶段事件（start/end，运行时 U8/U9 推送，返回退订函数）。 */
+  onWorkflowRunEvent: (cb: (event: WorkflowRunEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, event: WorkflowRunEvent) => cb(event);
+    ipcRenderer.on("workflow:run-event", listener);
+    return () => ipcRenderer.removeListener("workflow:run-event", listener);
+  },
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。
