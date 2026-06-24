@@ -16,6 +16,7 @@ import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_AT
 import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
+import { buildMediaGenMcpServerConfig } from "../capabilities/media-gen/server";
 import { getPersistedState } from "./store";
 
 const running = new Map<string, AgentProcess>();
@@ -423,15 +424,18 @@ export function registerCliHandlers(): void {
       // 配置不可读时降级为不注入(不阻断启动)。
       let mcp: McpSettings = { enabled: false, servers: [] };
       try {
-        const gs = (await getPersistedState()).generalSettings;
+        const persistedState = await getPersistedState();
+        const gs = persistedState.generalSettings;
         mcp = gs?.mcp ?? mcp;
         // 内置 server 并入 mcp.servers(token 经 header):
         //  - 浏览器控制:仅总开关开 + server 可用时注入(buildBrowserMcpServerConfig 内部 gate)。
         //  - 文档抽取:v1 无开关,host 可用即注入(extract_document 工具靠会话隔离 + 限根自保)。
+        //  - 媒体生成:四模态全关 → null;至少一个 enabled → 注入,cwd 穿透至工具 handler(U5)。
         // 用户 MCP 关闭时不连带启用其 server——仅注入内置 server。此即主会话注入路径(ask/oneshot/automation 不经此)。
         const builtinServers = [
           buildBrowserMcpServerConfig(gs?.browserControl, req.sessionId),
           buildDocExtractMcpServerConfig(req.sessionId),
+          buildMediaGenMcpServerConfig(persistedState.mediaGenSettings, req.sessionId, req.cwd),
         ].filter((s): s is McpServerConfig => s !== null);
         if (builtinServers.length) {
           const userServers = mcp.enabled ? mcp.servers : [];
