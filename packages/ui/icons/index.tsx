@@ -100,6 +100,14 @@ export const Icon = {
       <path d="M20 20l-3.5-3.5" />
     </IconBase>
   ),
+  // 下载/导出:向下箭头 + 底托,用于自动化「导出运行历史」。
+  Download: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M12 4v11" />
+      <path d="M8 11l4 4 4-4" />
+      <path d="M5 19h14" />
+    </IconBase>
+  ),
   Clock: (p: IconProps) => (
     <IconBase {...p}>
       <circle cx="12" cy="12" r="9" />
