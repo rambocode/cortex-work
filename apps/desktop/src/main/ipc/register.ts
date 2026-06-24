@@ -69,3 +69,4 @@ export { killAllPiSessions } from "./pi-session";
 export { killAllPty } from "./pty";
 export { closeAllWatchers } from "./watch";
 export { killAllAutomations } from "../automation/runner";
+export { killAllWorkflows } from "../workflow/index";

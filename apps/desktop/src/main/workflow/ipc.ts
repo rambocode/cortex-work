@@ -22,6 +22,7 @@ import {
 } from "./store";
 import { normalizeWorkflow } from "./normalize";
 import type { WorkflowDef } from "./types";
+import { getWorkflowRuntime } from "./index";
 
 // ── 帮助函数 ──────────────────────────────────────────────────────────────────
 
@@ -113,29 +114,68 @@ export function registerWorkflowHandlers(): void {
   // 这些频道已注册，渲染层调用时得到明确错误而非「no handler registered」。
   // 引擎接线完成后替换 body 实现，删除此注释即可。
 
-  // 立即触发一次运行（需图执行引擎 U8 + 调度器 U9）。
-  ipcMain.handle("workflow:runNow", (_e, _id: string) => {
-    throw new Error("workflow:runNow 尚未接线（待 U9 实现图执行引擎后替换）");
+  // 立即触发一次运行（fire-and-forget：立即返回 running run，执行在后台进行）。
+  ipcMain.handle("workflow:runNow", (_e, id: string, input: Record<string, unknown> = {}) => {
+    assertId(id);
+    return getWorkflowRuntime().runNow(id, "manual", input);
   });
 
-  // 停止正在运行的 run（需引擎 abort 信号 U8/U9）。
-  ipcMain.handle("workflow:stop", (_e, _id: string, _runId: string) => {
-    throw new Error("workflow:stop 尚未接线（待 U9 实现引擎 abort 后替换）");
+  // 停止正在运行的 run（cancel + 级联拒绝 pending approvals + kill AI 进程）。
+  ipcMain.handle("workflow:stop", (_e, _id: string, runId: string) => {
+    assertId(runId, "runId");
+    getWorkflowRuntime().stopRun(runId);
   });
 
-  // 单节点运行（画布「运行节点」按钮，需引擎单节点沙箱 U8）。
-  ipcMain.handle("workflow:node:run", (_e, _workflowId: string, _nodeId: string, _input: unknown) => {
-    throw new Error("workflow:node:run 尚未接线（待 U8 实现单节点执行后替换）");
+  // 单节点运行（画布「运行节点」按钮；返回该节点的 output payload）。
+  ipcMain.handle("workflow:node:run", (_e, workflowId: string, nodeId: string, input: unknown) => {
+    assertId(workflowId);
+    assertId(nodeId, "nodeId");
+    const payload =
+      typeof input === "object" && input !== null && !Array.isArray(input)
+        ? (input as { json?: unknown; text?: string })
+        : { json: input, text: "" };
+    return getWorkflowRuntime().runSingleNode(workflowId, nodeId, {
+      json: payload.json ?? null,
+      text: typeof payload.text === "string" ? payload.text : "",
+    });
   });
 
-  // 单节点测试（配置面板「测试」按钮，同上依赖 U8）。
-  ipcMain.handle("workflow:node:test", (_e, _workflowId: string, _nodeId: string, _input: unknown) => {
-    throw new Error("workflow:node:test 尚未接线（待 U8 实现单节点沙箱后替换）");
+  // 单节点测试（配置面板「测试」按钮；同 node:run，alias）。
+  ipcMain.handle("workflow:node:test", (_e, workflowId: string, nodeId: string, input: unknown) => {
+    assertId(workflowId);
+    assertId(nodeId, "nodeId");
+    const payload =
+      typeof input === "object" && input !== null && !Array.isArray(input)
+        ? (input as { json?: unknown; text?: string })
+        : { json: input, text: "" };
+    return getWorkflowRuntime().runSingleNode(workflowId, nodeId, {
+      json: payload.json ?? null,
+      text: typeof payload.text === "string" ? payload.text : "",
+    });
   });
 
-  // human-approval 节点挂起/resolve（需引擎挂起队列 U10/U8）。
-  ipcMain.handle("workflow:approval:resolve", (_e, _runId: string, _decision: "approved" | "rejected") => {
-    throw new Error("workflow:approval:resolve 尚未接线（待 U10 实现 human-approval 节点后替换）");
+  // human-approval 节点 resolve（approved/rejected → 唤醒挂起节点）。
+  // RunContext.pendingApprovals Map 由 stop + 此 handler 双路 resolve（R11）。
+  ipcMain.handle("workflow:approval:resolve", (_e, runId: string, decision: "approved" | "rejected") => {
+    assertId(runId, "runId");
+    if (decision !== "approved" && decision !== "rejected") {
+      throw new Error("decision 只能是 'approved' 或 'rejected'");
+    }
+    // 从 activeRuns 取 ctx，遍历 pendingApprovals 找到对应 runId 的 approval。
+    // human-approval 节点把自己的 resolve 注册进 ctx.pendingApprovals（key=approvalId）；
+    // 这里以 runId 作为 approvalId（flow-control.ts 的约定，U10 实现）。
+    const runtime = getWorkflowRuntime();
+    // 直接调 stopRun 的 pendingApprovals.resolve（需要 runtime 暴露 resolveApproval）。
+    // U10 实现的 human-approval 节点用 approvalId=runId+nodeId 注册；
+    // 此处先广播 decision，由 resolveApproval 内部按 decision 分发。
+    // 简化实现：approval decision 通过 IPC 发给所有正在等待此 runId 的节点。
+    void runtime; // 占位：U10 flow-control.ts 已实现 pendingApprovals；handler 在 stop 时遍历
+    // 真正的 resolve 路径：flow-control.ts 的 executeHumanApproval 已注册到 ctx.pendingApprovals，
+    // ipc handler 需要找到对应 ctx。由于 pendingApprovals key 为 approvalId（nodeId+runId），
+    // 此处遍历所有 activeRuns 找到含该 runId 的 ctx，resolve 其 pendingApprovals。
+    // 注：getWorkflowRuntime 无法暴露 activeRuns，故此处用 import 方式访问内部状态。
+    // 此占位将在 U10 完善时替换（activeRuns 结构已定义，只需导出 resolveApproval 工具函数）。
+    throw new Error("workflow:approval:resolve 的 approvalId 映射待 U10 flow-control 完善后接线（RunContext.pendingApprovals 已就绪）");
   });
 
   // 从 DSL JSON 导入工作流（需 DSL 解析校验 U15）。

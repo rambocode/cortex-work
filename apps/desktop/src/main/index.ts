@@ -18,6 +18,9 @@ import { startMcpHost, stopMcpHost } from "./capabilities/mcp-host/server";
 import { registerBrowserTools } from "./capabilities/browser/tools";
 import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extract/mcp";
 import { startMediaGenHost, stopMediaGenHost } from "./capabilities/media-gen/server";
+import { initWorkflowRuntime, killAllWorkflows } from "./workflow/index";
+import { loadWorkflows } from "./workflow/store";
+import { initWorkflowScheduler } from "./workflow/scheduler";
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
@@ -273,6 +276,17 @@ if (!app.requestSingleInstanceLock()) {
       onToggleSpotlight: toggleSpotlight,
     });
     await initScheduler();
+    // 工作流运行时（loop 引擎）：独立于 automation，与之并列。
+    // fire-and-forget：调度器初始化快，失败已内部降级，不阻塞建窗。
+    const workflowRuntime = initWorkflowRuntime()
+    loadWorkflows().then((workflows) => {
+      initWorkflowScheduler(workflows, workflowRuntime.runNow)
+      workflowRuntime.sync().catch((err) => {
+        console.error('[workflow] sync 失败:', err)
+      })
+    }).catch((err) => {
+      console.error('[workflow] loadWorkflows 失败:', err)
+    })
     // 浏览器控制 MCP server:随主进程常驻(U2)。工具由 U5 注入;是否注入给 agent 由 U3 按总开关 gate。
     // fire-and-forget:listen 快且失败已内部降级,不阻塞建窗。
     // 注入运行时能力:openPanel 让 agent 的 browser_navigate 在面板未开时打开内置浏览器(经渲染端)。
@@ -323,6 +337,7 @@ if (!app.requestSingleInstanceLock()) {
     stopDocExtractHost();
     stopMediaGenHost();
     killAllAutomations();
+    killAllWorkflows();
     killAllCli();
     killAllAsk();
     killAllPiSessions();

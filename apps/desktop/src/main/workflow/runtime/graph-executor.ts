@@ -352,7 +352,25 @@ export async function runGraph(
             const nodeInputs = resolveNodeInputs(node, primary, baseScope)
             const resolvedScope: InterpScope = nodeInputs ? { ...baseScope, input: nodeInputs } : baseScope
 
-            outcome = await executeNode(node, ctx, primary, resolvedScope, deps)
+            /**
+             * U10 扩展：
+             *   1. inputs —— 全部 delivered 上游 payload 数组，供 merge 节点消费。
+             *   2. enrichedDeps —— 在 deps 基础上注入 runGraph 函数引用、allWorkflows 快照、
+             *      当前递归深度（loop/subworkflow 节点需要这三者递归调用 runGraph）。
+             *      传函数引用而非 import 避免 node-executors ↔ runtime 循环依赖。
+             */
+            /**
+             * runGraph 函数类型需适配 RunGraphFn（deps: Record<string,unknown>），
+             * 用 as unknown as 绕过 TS 的函数参数逆变检查。
+             * 运行期传入的 deps 仍是 NodeExecutorDeps 实例，类型安全由约定保证。
+             */
+            const enrichedDeps = {
+              ...deps,
+              runGraph: runGraph as unknown as import('../node-executors/flow-control.js').RunGraphFn,
+              allWorkflows,
+              depth,
+            }
+            outcome = await executeNode(node, ctx, primary, resolvedScope, enrichedDeps, inputs)
             break
           } catch (error) {
             lastError = error instanceof Error ? error.message : String(error)
@@ -463,8 +481,6 @@ export async function runGraph(
       output = ctx.nodeOutputs[outputNode.id]
     }
   }
-
-  void allWorkflows // 供 U10 subworkflow/loop 节点使用，此处预留参数
 
   return { status, errorMessage, nodeResults, output }
 }
