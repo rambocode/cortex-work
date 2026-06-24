@@ -40,7 +40,7 @@ const run = (over: Partial<AutomationRun> = {}): AutomationRun => ({
 
 describe("buildDuplicateInput", () => {
   it("剥离全部服务端生成字段", () => {
-    const input = buildDuplicateInput(meta()) as Record<string, unknown>;
+    const input = buildDuplicateInput(meta()) as unknown as Record<string, unknown>;
     for (const k of ["id", "createdAt", "updatedAt", "lastRunAt", "lastStatus", "nextRunAt"]) {
       expect(input[k]).toBeUndefined();
     }

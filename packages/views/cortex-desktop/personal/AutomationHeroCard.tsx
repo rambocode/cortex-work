@@ -41,7 +41,7 @@ export function AutomationHeroCard({
           </button>
         </div>
       </div>
-      <div className={`pw-auto-hero-body ${latestRun.error ? "is-err" : ""}`}>
+      <div className={`pw-auto-hero-body pw-todo-md ${latestRun.error ? "is-err" : ""}`}>
         <MarkdownView content={body || "（无输出）"} />
       </div>
     </div>
