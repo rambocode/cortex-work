@@ -1000,12 +1000,14 @@ export default interface Resources {
       "archivedSessions": "已归档对话",
       "browser": "浏览器",
       "general": "通用",
+      "mediaGen": "媒体生成",
       "pet": "宠物",
       "pi": "Pi",
       "plugins": "插件",
       "profile": "个人资料",
       "providers": "供应商",
       "push": "推送",
+      "stt": "语音转文字",
       "timeline": "时间线",
       "voice": "语音"
     },
@@ -1075,6 +1077,14 @@ export default interface Resources {
       "voiceLoading": "加载中…",
       "voiceSystemDefault": "系统默认",
       "voiceSystemDesc": "使用本机系统语音库,无需联网与配置。"
+    },
+    "mediaGen": {
+      "title": "媒体生成",
+      "desc": "配置图像、视频、音频生成能力,供 agent 在会话中调用。"
+    },
+    "stt": {
+      "title": "语音转文字",
+      "desc": "配置语音识别引擎与输入方式,支持本地 Whisper 与云端 API。"
     }
   },
   "spotlight": {

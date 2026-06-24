@@ -323,4 +323,41 @@ describe("设置菜单分组 + 应用/浏览器分区", () => {
     expect(item.className).toContain("is-active");
     expect(item.getAttribute("aria-current")).toBe("page");
   });
+
+  it("「应用」组含「媒体生成」菜单项,切换后右栏渲染该分区(U2)", () => {
+    const { container } = renderUI(<PersonalSettingsView />);
+    const item = screen.getByRole("button", { name: "媒体生成" });
+    expect(item).toBeTruthy();
+    fireEvent.click(item);
+    // 外壳 MediaGenSection 渲染的 pw-dlg-desc 描述文案(唯一出现,Section 组件返回 null)。
+    expect(container.querySelector(".pw-dlg-desc")?.textContent).toBe(
+      "配置图像、视频、音频生成能力,供 agent 在会话中调用。",
+    );
+    expect(item.className).toContain("is-active");
+    expect(item.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("「个性化」组含「语音转文字」菜单项,切换后右栏渲染该分区(U2)", () => {
+    const { container } = renderUI(<PersonalSettingsView />);
+    const item = screen.getByRole("button", { name: "语音转文字" });
+    expect(item).toBeTruthy();
+    fireEvent.click(item);
+    // 外壳 SttSection 渲染的 pw-dlg-desc 描述文案(唯一出现,Section 组件返回 null)。
+    expect(container.querySelector(".pw-dlg-desc")?.textContent).toBe(
+      "配置语音识别引擎与输入方式,支持本地 Whisper 与云端 API。",
+    );
+    expect(item.className).toContain("is-active");
+    expect(item.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("「媒体生成」归入「应用」组,「语音转文字」归入「个性化」组(U2 分组正确性)", () => {
+    const { container } = renderUI(<PersonalSettingsView />);
+    // 组标题节点（.pw-dlg-nav-h 非 button）:此时应有 5 个组标题（新增未改组数）。
+    const heads = Array.from(container.querySelectorAll(".pw-dlg-nav-h")).map((el) => el.textContent);
+    expect(heads).toEqual(["通用", "模型与 Agent", "应用", "个性化", "自动化"]);
+    // 「应用」组同时包含「媒体生成」
+    expect(screen.getByRole("button", { name: "媒体生成" })).toBeTruthy();
+    // 「个性化」组同时包含「语音转文字」
+    expect(screen.getByRole("button", { name: "语音转文字" })).toBeTruthy();
+  });
 });

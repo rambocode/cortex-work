@@ -16,7 +16,9 @@
     "pet": "宠物",
     "timeline": "时间线",
     "push": "推送",
-    "voice": "语音"
+    "voice": "语音",
+    "mediaGen": "媒体生成",
+    "stt": "语音转文字"
   },
   "tabGroups": {
     "general": "通用",
@@ -388,5 +390,13 @@
     "stop": "停止",
     "testText": "你好,这是 Cortex Desktop 的语音测试。",
     "speechRateDefault": "1×（默认）"
+  },
+  "mediaGen": {
+    "title": "媒体生成",
+    "desc": "配置图像、视频、音频生成能力,供 agent 在会话中调用。"
+  },
+  "stt": {
+    "title": "语音转文字",
+    "desc": "配置语音识别引擎与输入方式,支持本地 Whisper 与云端 API。"
   }
 }

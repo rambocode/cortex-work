@@ -67,6 +67,8 @@ import { BUILTIN_AVATARS } from "./avatars";
 import { PluginManager } from "./PluginManager";
 import { BrowserSettingsSection } from "./BrowserSettingsSection";
 import { ArchivedSessionsSection } from "./ArchivedSessionsSection";
+import { MediaGenSettingsSection } from "./MediaGenSettingsSection";
+import { SttSettingsSection } from "./SttSettingsSection";
 import { BareSelect, SBlock, SRow, SecretField, SettingCard, SwitchRow } from "./settingsControls";
 
 const PALETTES: PaletteOption[] = [
@@ -90,10 +92,12 @@ type SettingsTab =
   | "pi"
   | "plugins"
   | "browser"
+  | "mediaGen"
   | "pet"
   | "timeline"
   | "push"
-  | "voice";
+  | "voice"
+  | "stt";
 
 // 项元数据唯一来源：label 走 i18n（settings:tabs.*）,故此处只存 tabKey + icon,渲染时即时翻译。
 // 分组（NAV_GROUPS）只描述「哪些项归哪组 + 顺序」,不重复 icon/文案,避免双写漂移（KTD3）。
@@ -106,6 +110,9 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   pi: { tabKey: "tabs.pi", icon: <Icon.Bot size={14} /> },
   plugins: { tabKey: "tabs.plugins", icon: <Icon.Workflow size={14} /> },
   browser: { tabKey: "tabs.browser", icon: <Icon.Globe size={14} /> },
+  // 媒体生成 / 语音转文字（U2 新增,U3/U6 填充真实表单）
+  mediaGen: { tabKey: "tabs.mediaGen", icon: <Icon.Image size={14} /> },
+  stt: { tabKey: "tabs.stt", icon: <Icon.Mic size={14} /> },
   pet: { tabKey: "tabs.pet", icon: <Icon.Sparkle size={14} /> },
   timeline: { tabKey: "tabs.timeline", icon: <Icon.Clock size={14} /> },
   push: { tabKey: "tabs.push", icon: <Icon.Send size={14} /> },
@@ -117,8 +124,9 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
 const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
   { groupKey: "tabGroups.general", items: ["profile", "general", "archivedSessions"] },
   { groupKey: "tabGroups.models", items: ["providers", "agent", "pi"] },
-  { groupKey: "tabGroups.apps", items: ["plugins", "browser"] },
-  { groupKey: "tabGroups.personalization", items: ["pet", "voice"] },
+  // 媒体生成挂「应用」组,语音转文字挂「个性化」组（同 pet/voice 并列,U2 新增）
+  { groupKey: "tabGroups.apps", items: ["plugins", "browser", "mediaGen"] },
+  { groupKey: "tabGroups.personalization", items: ["pet", "voice", "stt"] },
   { groupKey: "tabGroups.automation", items: ["timeline", "push"] },
 ];
 
@@ -1894,6 +1902,30 @@ function BrowserSection() {
   );
 }
 
+// 媒体生成分区薄壳 — 真实表单由 U3 填充,此处只保证 switch case 不白屏。
+function MediaGenSection() {
+  const { t } = useTranslation("settings");
+  return (
+    <>
+      <div className="pw-dlg-title">{t("mediaGen.title")}</div>
+      <div className="pw-dlg-desc">{t("mediaGen.desc")}</div>
+      <MediaGenSettingsSection />
+    </>
+  );
+}
+
+// 语音转文字分区薄壳 — 真实表单由 U6 填充,此处只保证 switch case 不白屏。
+function SttSection() {
+  const { t } = useTranslation("settings");
+  return (
+    <>
+      <div className="pw-dlg-title">{t("stt.title")}</div>
+      <div className="pw-dlg-desc">{t("stt.desc")}</div>
+      <SttSettingsSection />
+    </>
+  );
+}
+
 export function PersonalSettingsView() {
   const { t } = useTranslation("settings");
   const closeSettings = usePersonalStore((s) => s.closeSettings);
@@ -1965,6 +1997,10 @@ export function PersonalSettingsView() {
             <PluginManager />
           ) : tab === "browser" ? (
             <BrowserSection />
+          ) : tab === "mediaGen" ? (
+            <MediaGenSection />
+          ) : tab === "stt" ? (
+            <SttSection />
           ) : (
             <VoiceSection />
           )}

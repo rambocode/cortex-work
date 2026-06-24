@@ -16,7 +16,9 @@
     "pet": "Pet",
     "timeline": "Timeline",
     "push": "Push",
-    "voice": "Voice"
+    "voice": "Voice",
+    "mediaGen": "Media Generation",
+    "stt": "Speech to Text"
   },
   "tabGroups": {
     "general": "General",
@@ -388,5 +390,13 @@
     "stop": "Stop",
     "testText": "Hello, this is a voice test for Cortex Desktop.",
     "speechRateDefault": "1× (default)"
+  },
+  "mediaGen": {
+    "title": "Media Generation",
+    "desc": "Configure image, video and audio generation capabilities for agent use in conversations."
+  },
+  "stt": {
+    "title": "Speech to Text",
+    "desc": "Configure speech recognition engine and input method, supporting local Whisper and cloud APIs."
   }
 }
