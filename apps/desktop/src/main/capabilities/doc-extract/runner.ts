@@ -1,79 +1,39 @@
-// 文档抽取 runner:在独立子进程里跑 worker(officeParser),带超时 + 堆上限。
-// 进程模型(KTD2):child_process.fork —— 仓库已验证可用的子进程模式,崩溃/CPU 隔离等效,
-// 不阻塞主进程。fork-per-request(每次抽取一个全新进程,超时即 SIGKILL),实现最简、隔离最彻底;
-// v1 文档抽取频次低,冷启动成本可接受。
+// 文档抽取 runner:在主进程内调用 officeParser 抽取(v1)。
 //
-// 资源边界(KTD9 / 安全):
-//  - execArgv --max-old-space-size 限 worker 堆,防恶意/超大文档(ZIP 膨胀、pdfjs 内存耗尽)撑爆。
-//  - timeoutMs 到点 SIGKILL,杜绝卡死;输出字节上限在 extract.ts 内截断。
+// 进程模型(执行期决策,修订自计划 KTD2):原计划 child_process.fork 独立 worker 隔离,但
+// 为 worker 单独建 electron-vite 构建入口会覆盖主进程单入口 lib 预设、使 externalizeDepsPlugin
+// 失效(把 nodemailer/electron-updater/MCP SDK 等全打进 chunk),是回归;且 asar 内 worker +
+// pdfjs/tesseract wasm 的 fork 加载无法在本地经验性验证。故 v1 改为主进程内跑:officeParser 经
+// externalizeDepsPlugin 正常外部化、配合 electron-builder asarUnpack 取真实文件(wasm 完整)。
+// 代价:失去进程隔离(恶意/超大文档可能拖累主进程);以 50MB 输入上限 + 输出截断 + best-effort
+// 超时缓解。进程隔离(utilityProcess.fork + 旁置 worker 资产)列为二期 follow-up。
 //
-// ⚠ 打包待验证(U6,仓库外 ditto→/tmp):worker 脚本与 officeParser 的 pdfjs/tesseract wasm 资产
-//   位于 asar 内,fork 出的子进程能否加载取决于打包方式。U6 须确认;若 fork-from-asar 失败,
-//   回退方案 = asarUnpack worker + officeParser,或改用 utilityProcess.fork(asar-aware)。
+// officeParser 用动态 import 延迟加载(避免 pdfjs/tesseract 在 app 启动即载入,只在首次抽取时载)。
 
-import { fork } from "child_process";
-import { join } from "path";
-import { EXTRACT_TIMEOUT_MS, MAX_EXTRACT_TEXT_BYTES, type ExtractResult } from "./extract";
-
-// worker 编译产物与 main 同目录(out/main/doc-extract-worker.js;构建入口见 U6 electron.vite.config)。
-function workerPath(): string {
-  return join(__dirname, "doc-extract-worker.js");
-}
-
-interface WorkerReply {
-  id: number;
-  ok: boolean;
-  result?: ExtractResult;
-  error?: string;
-}
+import { EXTRACT_TIMEOUT_MS, MAX_EXTRACT_TEXT_BYTES, extractDocText, type ExtractResult, type ParseOffice } from "./extract";
 
 export interface RunExtractionOptions {
   timeoutMs?: number;
   maxBytes?: number;
-  // 测试可注入 worker 路径(指向编译后的 worker 或一个 stub)。
-  workerScript?: string;
+  // 测试可注入 parse,避开真实 officeParser/wasm。
+  parse?: ParseOffice;
 }
 
-let seq = 0;
-
-export function runExtraction(absPath: string, opts: RunExtractionOptions = {}): Promise<ExtractResult> {
+export async function runExtraction(absPath: string, opts: RunExtractionOptions = {}): Promise<ExtractResult> {
   const timeoutMs = opts.timeoutMs ?? EXTRACT_TIMEOUT_MS;
   const maxBytes = opts.maxBytes ?? MAX_EXTRACT_TEXT_BYTES;
-  const id = ++seq;
+  // 纯文本类(.txt/.csv/.md)在 extractDocText 内直读,不会用到 parse;Office 类才需 officeParser。
+  const parse = opts.parse ?? ((await import("officeparser")).parseOffice as unknown as ParseOffice);
 
-  return new Promise<ExtractResult>((resolve, reject) => {
-    const child = fork(opts.workerScript ?? workerPath(), [], {
-      // 限 worker 堆,隔离恶意文档的内存耗尽;静默 stdio 避免污染主进程日志。
-      execArgv: ["--max-old-space-size=512"],
-      stdio: ["ignore", "ignore", "ignore", "ipc"],
-    });
-
-    let settled = false;
-    const done = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        child.kill("SIGKILL"); // fork-per-request:回复后即销毁
-      } catch {
-        /* 已退出 */
-      }
-      fn();
-    };
-
-    const timer = setTimeout(() => {
-      done(() => reject(new Error(`文档抽取超时(>${timeoutMs}ms)`)));
-    }, timeoutMs);
-
-    child.once("message", (msg: WorkerReply) => {
-      if (msg.ok && msg.result) done(() => resolve(msg.result as ExtractResult));
-      else done(() => reject(new Error(msg.error ?? "文档抽取失败")));
-    });
-    child.once("error", (e) => done(() => reject(e)));
-    child.once("exit", (code) => {
-      if (!settled) done(() => reject(new Error(`抽取 worker 异常退出(code=${code})`)));
-    });
-
-    child.send({ id, path: absPath, maxBytes });
+  const work = extractDocText(absPath, { maxBytes, parse });
+  // best-effort 超时:officeParser 异步,正常可被甩开;主进程内无法对卡死的解析硬 kill(隔离的代价)。
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`文档抽取超时(>${timeoutMs}ms)`)), timeoutMs);
   });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
