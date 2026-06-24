@@ -1,5 +1,6 @@
-// 自动化详情(编排器):组装顶部操作栏 + 主滚动区(状态 meta 行 / 最新结果 hero / 提示词折叠 /
-// 运行历史) + 右侧配置栏;并保留「整页运行详情」(选中某次运行看完整 Markdown 输出)。
+// 自动化详情(编排器):组装顶部操作栏 + 主滚动区(状态 meta 行 / 最新结果 hero / 运行历史) +
+// 右侧配置栏;并保留「整页运行详情」(选中某次运行看完整 Markdown 输出)。提示词不占主区,
+// 经顶部/配置栏「编辑」弹窗或「更多 → 复制提示词」访问。
 // 全部子组件为纯展示,本编排器持有唯一本地态(selectedRunId,仿 TodosView 不进全局 store)与
 // 全部 React Query mutation 接线(启用/运行/副本/导出/删除)。编辑仍走 AutomationDialog(onEdit)。
 
@@ -47,13 +48,10 @@ export function AutomationDetail({
   // 运行结果二级详情:列表 → 详情 → 运行结果整页。选中态只存 id,当前 run 恒从 runs 现取。
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const selectedRun = selectedRunId ? runs.find((r) => r.id === selectedRunId) : undefined;
-  // 提示词降级为只读折叠区(默认收起),编辑仍走弹窗。
-  const [promptOpen, setPromptOpen] = useState(false);
 
-  // 切换自动化(组件实例复用)时重置选中态与折叠态,避免串场。
+  // 切换自动化(组件实例复用)时重置选中态,避免串场。
   useEffect(() => {
     setSelectedRunId(null);
-    setPromptOpen(false);
   }, [meta.id]);
 
   // 选中的运行记录失效(被删除/刷新后消失)时自动退出整页详情。
@@ -205,22 +203,7 @@ export function AutomationDetail({
           <div className="pw-auto-sec-h">最新结果</div>
           <AutomationHeroCard latestRun={latest} onRerun={execute} />
 
-          {/* 提示词降级:只读折叠区。toggle 与操作区平级,避免按钮嵌套(非法 DOM)。 */}
-          <div className={`pw-auto-prompt-acc ${promptOpen ? "is-open" : ""}`}>
-            <div className="pw-auto-prompt-head">
-              <button className="pw-auto-prompt-toggle" onClick={() => setPromptOpen((v) => !v)}>
-                <Icon.ChevronRight size={14} className="pw-auto-prompt-chev" />
-                <span className="pw-auto-prompt-t">提示词</span>
-              </button>
-              <span className="pw-auto-prompt-acts">
-                <CopyButton text={meta.prompt} title="复制提示词" />
-                <button className="pw-icon-btn" title="编辑" onClick={() => onEdit(meta)}>
-                  <Icon.Edit size={14} />
-                </button>
-              </span>
-            </div>
-            {promptOpen ? <pre className="pw-auto-prompt-text">{meta.prompt}</pre> : null}
-          </div>
+          {/* 提示词不再占主区:经顶部/配置栏「编辑」(弹窗)或「更多 → 复制提示词」访问。 */}
 
           {/* 运行历史 */}
           <AutomationRunHistory

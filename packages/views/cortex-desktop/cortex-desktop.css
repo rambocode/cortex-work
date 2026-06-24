@@ -7364,16 +7364,6 @@ button.sb-row {
 .pw-auto-run-open { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; cursor: pointer; font-size: 12px; font-weight: 600; color: #7c5cff; padding: 0; }
 .pw-auto-run-open:hover { color: #6a48f0; }
 
-/* 提示词降级折叠区 */
-.pw-auto-prompt-acc { margin: 24px 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-.pw-auto-prompt-head { display: flex; align-items: center; padding: 9px 12px; background: var(--bg-card); }
-.pw-auto-prompt-toggle { display: flex; align-items: center; gap: 8px; flex: 1; border: 0; background: none; cursor: pointer; text-align: left; color: var(--text-1); }
-.pw-auto-prompt-t { font-weight: 650; font-size: 13px; }
-.pw-auto-prompt-chev { color: var(--text-4); transition: transform 0.15s; }
-.pw-auto-prompt-acc.is-open .pw-auto-prompt-chev { transform: rotate(90deg); }
-.pw-auto-prompt-acts { display: flex; gap: 2px; }
-.pw-auto-prompt-text { margin: 0; padding: 14px 16px; border-top: 1px solid var(--border-soft); white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; color: var(--text-1); background: var(--bg-input); font-family: var(--mono, ui-monospace, monospace); }
-
 /* 右侧配置栏 */
 .pw-auto-config { width: 272px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--bg-sidebar); overflow-y: auto; padding: 18px 16px; }
 .pw-auto-config-h { display: flex; align-items: center; margin: 0 2px 12px; }
