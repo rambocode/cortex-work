@@ -1,0 +1,57 @@
+// 自动化详情页「更多菜单」净新增动作的纯逻辑：创建副本入参、导出运行历史序列化。
+// 抽成纯函数便于单测;副作用(调 useCreateAutomation / 触发下载)留在编排器。
+
+import type { AutomationInput, AutomationMeta, AutomationRun } from "@cortex-work/core";
+
+// 从既有 meta 构造「创建副本」的 AutomationInput：剥离全部服务端生成字段
+// (id/createdAt/updatedAt/lastRunAt/lastStatus/nextRunAt),name 追加「 副本」,其余原样透传。
+// 透传字段须与 AutomationInput 对齐(见 packages/core/desktop/types.ts);新增 Input 字段时同步补此处。
+export function buildDuplicateInput(meta: AutomationMeta): AutomationInput {
+  return {
+    name: `${meta.name || "未命名自动化"} 副本`,
+    enabled: meta.enabled,
+    projectId: meta.projectId,
+    cwd: meta.cwd,
+    agent: meta.agent,
+    model: meta.model,
+    effort: meta.effort,
+    prompt: meta.prompt,
+    useOwnSkills: meta.useOwnSkills,
+    notifyChannels: meta.notifyChannels,
+    providerId: meta.providerId,
+    schedule: meta.schedule,
+    timezone: meta.timezone,
+  };
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+// 把路径分隔符、Windows 非法文件名字符与空白统一替换为下划线(并合并/裁剪),避免下载落盘失败。
+function safeFileName(name: string): string {
+  const cleaned = name
+    .replace(/[<>:"/\\|?*\s]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+  return cleaned || "自动化";
+}
+
+// 序列化运行历史为可下载内容:JSON 全量(含 meta 摘要 + runs 数组)。
+// filename 形如「<名称>-运行历史-YYYYMMDD.json」;now 由调用方注入(纯函数,便于测试)。
+export function serializeRunsForExport(
+  meta: AutomationMeta,
+  runs: AutomationRun[],
+  now: Date,
+): { filename: string; content: string } {
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const filename = `${safeFileName(meta.name)}-运行历史-${stamp}.json`;
+  const content = JSON.stringify(
+    {
+      automation: { id: meta.id, name: meta.name, schedule: meta.schedule, agent: meta.agent },
+      exportedAt: now.toISOString(),
+      runs,
+    },
+    null,
+    2,
+  );
+  return { filename, content };
+}

@@ -1,10 +1,22 @@
-// 自动化展示用纯函数：定时规则摘要、时间格式化、运行状态标签/样式。
-// List 与 Detail 共用,避免文案漂移。
+// 自动化展示用纯函数：定时规则摘要、时间格式化、运行状态标签/样式、推理强度标签、耗时。
+// List 与 Detail（含重做后的详情子组件）共用,避免文案漂移。
+// 注：AGENT_LABEL 已在 agentMeta.ts 规范导出,详情组件直接复用那一份,不在此重复定义。
 
-import type { AutomationRunStatus, ScheduleSpec } from "@cortex-work/core";
+import type { AutomationRun, AutomationRunStatus, ReasoningEffort, ScheduleSpec } from "@cortex-work/core";
 
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 const pad = (n: number) => String(n).padStart(2, "0");
+
+// 推理强度展示标签。原先散落在 AutomationDetail/AutomationDialog,收敛至此供详情子组件统一引用。
+export const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: "低", medium: "中", high: "高" };
+
+// 运行耗时(开始→结束)摘要。未结束(无 endedAt)返回空串;<60s 显示「Ns」,否则「Nm Ss」。
+export function fmtDuration(run: AutomationRun): string {
+  if (!run.endedAt) return "";
+  const s = Math.round((run.endedAt - run.startedAt) / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m${s % 60}s`;
+}
 
 export function scheduleSummary(s: ScheduleSpec): string {
   switch (s.kind) {

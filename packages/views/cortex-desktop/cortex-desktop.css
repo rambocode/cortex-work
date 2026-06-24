@@ -7289,6 +7289,107 @@ button.sb-row {
 .pw-auto-detail > .pw-todo-md { flex: 1; min-height: 0; max-height: none; padding: 16px 18px; }
 .pw-auto-detail > .pw-todo-md.is-err { color: var(--red); }
 
+/* ============ 详情页重做(对标设计稿):顶栏 / meta 行 / hero / 运行历史 / 配置栏 / 提示词折叠 ============
+   品牌主色沿用字面量 #7c5cff(hover #6a48f0),与 .pw-auto-tpl-btn 既有写法一致;
+   其余颜色走主题 CSS 变量,深色模式自动翻转。 */
+
+/* 顶部操作栏 */
+.pw-auto-dt-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+.pw-auto-dt-head .btn { gap: 6px; }
+.pw-auto-dt-title { font-size: 16px; font-weight: 680; letter-spacing: -0.01em; color: var(--text-1); white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.pw-auto-status-pill { display: inline-flex; align-items: center; gap: 6px; height: 23px; padding: 0 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: rgba(46, 158, 107, 0.13); color: #2e9e6b; }
+.pw-auto-status-pill .pw-auto-status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pw-auto-status-pill.off { background: var(--bg-active); color: var(--text-3); }
+.pw-auto-dt-spacer { flex: 1; }
+.pw-auto-dt-run.primary { background: #7c5cff; border-color: transparent; color: #fff; box-shadow: 0 1px 2px rgba(124, 92, 255, 0.35); }
+.pw-auto-dt-run.primary:hover { background: #6a48f0; }
+.pw-auto-dt-run[disabled] { opacity: 0.7; cursor: default; }
+
+/* 更多菜单(内联下拉) */
+.pw-auto-more-wrap { position: relative; display: flex; }
+.pw-auto-menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 182px; background: var(--bg-app); border: 1px solid var(--border); border-radius: 11px; box-shadow: var(--shadow-pop); padding: 6px; z-index: 30; }
+.pw-auto-mi { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; background: none; border-radius: 7px; font-size: 13px; font-weight: 550; color: var(--text-1); text-align: left; cursor: pointer; }
+.pw-auto-mi:hover { background: var(--bg-hover); }
+.pw-auto-mi svg { color: var(--text-3); flex-shrink: 0; }
+.pw-auto-mi.is-danger, .pw-auto-mi.is-danger svg { color: var(--red); }
+.pw-auto-mi-sep { height: 1px; background: var(--border-soft); margin: 5px 4px; }
+
+/* 主体:滚动区 + 配置栏 */
+.pw-auto-dt-body { flex: 1; display: flex; min-height: 0; }
+.pw-auto-dt-scroll { flex: 1; overflow-y: auto; padding: 20px 22px 36px; min-width: 0; }
+
+/* 状态 meta 行 */
+.pw-auto-meta-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 22px; font-size: 12px; color: var(--text-2); }
+.pw-auto-ml { display: inline-flex; align-items: center; gap: 6px; }
+.pw-auto-ml b { color: var(--text-1); font-weight: 650; }
+.pw-auto-ml.is-ok { color: var(--green); font-weight: 600; }
+.pw-auto-ml.is-err { color: var(--red); font-weight: 600; }
+.pw-auto-ml.is-warn { color: #b07c1a; font-weight: 600; }
+.pw-auto-ml.is-running { color: var(--accent); font-weight: 600; }
+.pw-auto-ml-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pw-auto-ml-sep { color: var(--text-4); }
+
+/* 区块小标题 */
+.pw-auto-sec-h { font-size: 13px; font-weight: 680; color: var(--text-1); margin: 0 0 10px; }
+
+/* 最新结果 hero 卡片 */
+.pw-auto-hero { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-app); box-shadow: var(--shadow-card); overflow: hidden; margin-bottom: 26px; }
+.pw-auto-hero.is-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 30px 20px; color: var(--text-3); text-align: center; }
+.pw-auto-hero-empty-t { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.pw-auto-hero-empty-h { font-size: 12px; color: var(--text-3); }
+.pw-auto-hero-top { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 1px solid var(--border-soft); background: var(--bg-card); }
+.pw-auto-hero-when { font-size: 12px; color: var(--text-2); font-weight: 600; }
+.pw-auto-hero-dur { font-size: 11.5px; color: var(--text-3); font-family: var(--mono, ui-monospace, monospace); }
+.pw-auto-hero-acts { margin-left: auto; display: flex; gap: 4px; }
+.pw-auto-hero-body { padding: 16px 20px 20px; }
+.pw-auto-hero-body.is-err { color: var(--red); }
+
+/* 运行历史:区头 + 搜索 */
+.pw-auto-runs-section { margin-top: 6px; }
+.pw-auto-runs-head { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; }
+.pw-auto-runs-t { font-size: 13px; font-weight: 680; color: var(--text-1); }
+.pw-auto-runs-c { font-size: 12px; color: var(--text-3); font-weight: 600; }
+.pw-auto-search { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-app); color: var(--text-3); width: 230px; }
+.pw-auto-search:focus-within { border-color: #7c5cff; box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.16); }
+.pw-auto-search input { border: 0; outline: none; background: none; flex: 1; font-size: 12.5px; color: var(--text-1); min-width: 0; }
+.pw-auto-search input::placeholder { color: var(--text-4); }
+
+/* 运行历史:行(就地展开)。复用既有 .pw-auto-run-h/-del/-time/-tag/-dur,但容器改竖排以容纳展开区。 */
+.pw-auto-runs .pw-auto-run { flex-direction: column; }
+.pw-auto-run-line { display: flex; align-items: stretch; }
+.pw-auto-run-chev { color: var(--text-4); margin-left: 2px; transition: transform 0.15s; }
+.pw-auto-run.is-open .pw-auto-run-chev { transform: rotate(90deg); }
+.pw-auto-run-detail { padding: 2px 12px 12px; border-top: 1px solid var(--border-soft); background: var(--bg-card); }
+.pw-auto-run-preview { margin: 8px 0 10px; font-size: 12px; line-height: 1.6; color: var(--text-2); white-space: pre-wrap; word-break: break-word; }
+.pw-auto-run-open { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; cursor: pointer; font-size: 12px; font-weight: 600; color: #7c5cff; padding: 0; }
+.pw-auto-run-open:hover { color: #6a48f0; }
+
+/* 提示词降级折叠区 */
+.pw-auto-prompt-acc { margin: 24px 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.pw-auto-prompt-head { display: flex; align-items: center; padding: 9px 12px; background: var(--bg-card); }
+.pw-auto-prompt-toggle { display: flex; align-items: center; gap: 8px; flex: 1; border: 0; background: none; cursor: pointer; text-align: left; color: var(--text-1); }
+.pw-auto-prompt-t { font-weight: 650; font-size: 13px; }
+.pw-auto-prompt-chev { color: var(--text-4); transition: transform 0.15s; }
+.pw-auto-prompt-acc.is-open .pw-auto-prompt-chev { transform: rotate(90deg); }
+.pw-auto-prompt-acts { display: flex; gap: 2px; }
+.pw-auto-prompt-text { margin: 0; padding: 14px 16px; border-top: 1px solid var(--border-soft); white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; color: var(--text-1); background: var(--bg-input); font-family: var(--mono, ui-monospace, monospace); }
+
+/* 右侧配置栏 */
+.pw-auto-config { width: 272px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--bg-sidebar); overflow-y: auto; padding: 18px 16px; }
+.pw-auto-config-h { display: flex; align-items: center; margin: 0 2px 12px; }
+.pw-auto-config-t { font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em; color: var(--text-3); text-transform: uppercase; }
+.pw-auto-config-edit { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; cursor: pointer; font-size: 12px; font-weight: 600; color: #7c5cff; }
+.pw-auto-config-edit:hover { color: #6a48f0; }
+.pw-auto-cfg-list { display: flex; flex-direction: column; gap: 2px; }
+.pw-auto-cfg-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; }
+.pw-auto-cfg-item:hover { background: var(--bg-hover); }
+.pw-auto-cfg-ic { width: 26px; height: 26px; border-radius: 7px; background: var(--bg-card); display: flex; align-items: center; justify-content: center; color: var(--text-2); flex-shrink: 0; }
+.pw-auto-cfg-k { font-size: 12px; color: var(--text-2); }
+.pw-auto-cfg-v { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--text-1); text-align: right; }
+.pw-auto-cfg-divider { height: 1px; background: var(--border-soft); margin: 14px 4px; }
+.pw-auto-cfg-danger { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: 0; background: none; border-radius: 8px; color: var(--red); font-weight: 600; font-size: 12.5px; cursor: pointer; }
+.pw-auto-cfg-danger:hover { background: rgba(220, 38, 38, 0.08); }
+
 /* 创建/编辑弹窗（覆盖 pw-dlg 为单列 + 底部操作条） */
 .pw-dlg.pw-auto-dlg { flex-direction: column; width: 56vw; min-width: 520px; height: auto; max-height: calc(100vh - 48px); }
 .pw-auto-dlg-body { flex: 1; overflow-y: auto; padding: 22px 24px; display: flex; flex-direction: column; gap: 12px; }
