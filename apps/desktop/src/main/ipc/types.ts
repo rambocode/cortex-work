@@ -645,6 +645,24 @@ export interface ImageReadResult {
   dataUrl: string;
 }
 
+// ── 聊天文档附件（PDF / 现代 Office / 纯文本;与 core/desktop/types.ts 镜像。
+//    PendingDocFile 只活在 composer 内存态,不镜像;主进程只见 DocSaveRequest/Result） ──
+export interface DocSaveRequest {
+  sessionId: string;
+  fileName: string; // 原始文件名,仅用于显示与扩展名嗅探,不参与落盘路径构造
+  mimeType: string;
+  // 二选一,优先 srcPath:file-picker / 拖拽给出的本地路径(Electron File.path),
+  // 主进程直接从该路径拷贝,避免最大 50MB 的 ArrayBuffer 过 IPC 结构化克隆卡住 renderer。
+  // 粘贴等无路径的内存态数据才走 data。
+  srcPath?: string;
+  data?: ArrayBuffer;
+}
+
+export interface DocSaveResult {
+  path: string; // 落盘绝对路径(chatDocsRoot()/<sessionId>/<uuid>.<ext>)
+  sizeBytes: number;
+}
+
 // ── 应用自动更新（与 core/desktop/types.ts 镜像） ────────────────────────
 
 export type UpdatePhase = "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
