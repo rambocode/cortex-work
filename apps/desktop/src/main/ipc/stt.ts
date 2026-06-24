@@ -27,6 +27,7 @@ import {
 } from "../capabilities/whisper/models";
 import { transcribeLocal } from "../capabilities/whisper/transcribe";
 import { transcribeOnline, ASR_MAX_BYTES } from "../capabilities/whisper/online-transcribe";
+import { isLocalWhisperModelId } from "@cortex-work/core/whisper/models";
 import type { LocalWhisperModelProgress } from "@cortex-work/core/whisper/models";
 import type { AsrTranscribeRequest, AsrTranscribeResponse, AsrSettings } from "./types";
 
@@ -107,6 +108,15 @@ export function registerSttHandlers(): void {
         // ── 本地 whisper-cli 路径 ─────────────────────────────────────────────
         // 取模型的磁盘路径：modelId 从 asrSettings.model 读取，经 getModelStatus 查 ready 状态。
         const modelId = asrSettings.model;
+
+        // 白名单校验：getModelStatus 对非白名单 modelId 会抛异常（而非返回 undefined），
+        // 先做前置判断，转为用户友好的错误信息，避免 IPC 层收到通用异常。
+        if (!isLocalWhisperModelId(modelId)) {
+          throw new Error(
+            `请先在设置中选择有效的本地模型（当前值: ${String(modelId)}）。`,
+          );
+        }
+
         const statusResult = await getModelStatus(modelId);
         // getModelStatus(modelId) 返回单个状态或 undefined
         const status = Array.isArray(statusResult) ? statusResult[0] : statusResult;

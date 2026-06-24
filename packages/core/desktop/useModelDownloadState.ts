@@ -29,11 +29,14 @@ export function useModelDownloadState(
   useEffect(() => {
     if (!bridge?.onWhisperDownloadProgress) return;
     let alive = true;
+    // 补拉的 Promise 可能晚于推送事件 resolve，pushed flag 防止旧状态覆盖已推送的新进度
+    let pushed = false;
 
     const off = bridge.onWhisperDownloadProgress((progress) => {
       if (!alive) return;
       // 若指定了 modelId，则只响应对应模型的进度
       if (modelId && progress.modelId !== modelId) return;
+      pushed = true;
       if (progress.percent !== undefined && progress.percent >= 100) {
         setState({ status: "done" });
       } else {
@@ -47,6 +50,8 @@ export function useModelDownloadState(
         .getWhisperModelStatus(modelId)
         .then((s) => {
           if (!alive) return;
+          // pushed flag：推送事件已到，补拉结果可能是旧快照，跳过以防止进度倒退
+          if (pushed) return;
           if (s.state === "downloading") {
             setState({
               status: "downloading",

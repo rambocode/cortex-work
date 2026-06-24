@@ -64,10 +64,10 @@ export async function openaiImagesGenerate(
         `图片生成接口 HTTP ${retryResult.httpStatus}（重试后仍失败）: ${retryResult.errorBody}`,
       );
     }
-    return parseResponse(retryResult.data);
+    return parseResponse(retryResult.data, signal);
   }
 
-  return parseResponse(result.data);
+  return parseResponse(result.data, signal);
 }
 
 // ── 内部：发单次请求 ──────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ async function doRequest(
 
 // ── 内部：解析响应 ────────────────────────────────────────────────────────────
 
-async function parseResponse(data: OpenAIImagesResponse): Promise<Buffer> {
+async function parseResponse(data: OpenAIImagesResponse, signal: AbortSignal): Promise<Buffer> {
   const item = data.data?.[0];
   if (!item) {
     throw new Error("图片生成接口响应中 data 数组为空或缺失");
@@ -120,9 +120,9 @@ async function parseResponse(data: OpenAIImagesResponse): Promise<Buffer> {
     return Buffer.from(item.b64_json, "base64");
   }
 
-  // 回退 url：下载二进制
+  // 回退 url：下载二进制（必须传 signal，否则 CDN 卡住时 timeout 无法中止下载）。
   if (item.url) {
-    return downloadUrl(item.url);
+    return downloadUrl(item.url, signal);
   }
 
   throw new Error("图片生成接口响应中既无 b64_json 也无 url");
@@ -130,12 +130,14 @@ async function parseResponse(data: OpenAIImagesResponse): Promise<Buffer> {
 
 // ── 内部：从 URL 下载图片二进制 ────────────────────────────────────────────────
 
-async function downloadUrl(url: string): Promise<Buffer> {
+async function downloadUrl(url: string, signal: AbortSignal): Promise<Buffer> {
   // 安全：只允许 https://
   if (!url.startsWith("https://")) {
     throw new Error(`图片下载 URL 必须为 https://，当前: ${url}`);
   }
-  const res = await fetch(url);
+  // 必须传 signal：CDN 响应慢时若不绑 AbortSignal，超时触发后 AbortController abort 无法
+  // 中止此 fetch，导致下载 Promise 悬挂，工具 handler 无法正常退出。
+  const res = await fetch(url, { signal });
   if (!res.ok) {
     throw new Error(`下载图片失败 HTTP ${res.status}: ${url}`);
   }

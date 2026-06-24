@@ -120,16 +120,34 @@ export function useComposerVoice({
       .then((status) => { if (!cancelled) setLocalModelStatus(status); })
       .catch(() => { /* 模型不在清单内则忽略，按钮将隐藏/禁用 */ });
 
-    // 订阅下载进度推送：downloading → 更新 percent；ready/error → 刷新状态
+    // 订阅下载进度推送：乐观更新——直接用事件字段更新进度，
+    // 避免每条进度都打 IPC 往返，防止乱序 resolve 把 ready 覆盖回 downloading。
+    // 仅在终态（percent >= 100 或 complete）时才补拉完整状态刷新。
     let unsubscribe: (() => void) | undefined;
     if (bridge.onWhisperDownloadProgress) {
       unsubscribe = bridge.onWhisperDownloadProgress((progress) => {
         if (cancelled || progress.modelId !== modelId) return;
-        // 进度推送只含 percent，需同步拉完整状态
-        if (bridge.getWhisperModelStatus) {
-          bridge.getWhisperModelStatus(modelId as Parameters<typeof bridge.getWhisperModelStatus>[0])
-            .then((status) => { if (!cancelled) setLocalModelStatus(status); })
-            .catch(() => undefined);
+        const percent = progress.percent;
+        if (percent !== undefined && percent >= 100) {
+          // 下载完成：补拉一次完整状态确认 ready（终态一次 IPC 可接受）
+          if (bridge.getWhisperModelStatus) {
+            bridge.getWhisperModelStatus(modelId as Parameters<typeof bridge.getWhisperModelStatus>[0])
+              .then((status) => { if (!cancelled) setLocalModelStatus(status); })
+              .catch(() => undefined);
+          }
+        } else {
+          // 进行中：直接用事件字段乐观更新，不打 IPC 往返；
+          // prev 为 null 说明初始快照未到，等快照落地后再推进度即可（init 请求保持）
+          setLocalModelStatus((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              state: "downloading",
+              downloadedBytes: progress.downloadedBytes,
+              totalBytes: progress.totalBytes,
+              speedBytesPerSecond: progress.speedBytesPerSecond,
+            };
+          });
         }
       });
     }

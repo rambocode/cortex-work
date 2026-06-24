@@ -625,32 +625,37 @@ describe("ComposerShell 语音按钮可用条件（U9 R11）", () => {
 });
 
 describe("ComposerShell 转写路由与失败处理（U9）", () => {
-  // 因 jsdom 没有 AudioContext，encodeBlobAsWav 会抛；故 transcribeSpeech mock 不需走真实编码路径。
-  // 这里测的是「调用路由正确」和「失败 toast 正确」。
+  // 因 jsdom 没有 AudioContext / MediaRecorder，无法走完整录音链路。
+  // 测试重点：bridge 不支持录音时，点击麦克风按钮后 onToast 被调用（含「不支持」字样）；
+  // 且输入框已有内容不会被清空（失败不清空输入框的约束）。
 
   afterEach(() => {
     cleanup();
     usePersonalStore.setState({ asrSettings: undefined as unknown as AsrSettings });
   });
 
-  it("转写失败 → toast 含原因，输入框内容不变", async () => {
-    const transcribeSpeech = vi.fn().mockRejectedValue(new Error("网络超时"));
-    const b = makeBridge({ transcribeSpeech });
+  it("转写失败（bridge 无 transcribeSpeech）→ 点击麦克风触发 onToast，输入框内容不变", async () => {
+    // bridge 有 transcribeSpeech 但 jsdom 无 getUserMedia → 录音失败 → toast
+    // 注：useComposerVoice 中若 navigator.mediaDevices?.getUserMedia 不存在，
+    // startRecording 会直接调用 onToast("当前浏览器不支持录音")，无需真实录音。
+    const b = makeBridge({ transcribeSpeech: async () => ({ text: "x" }) });
     const onToast = vi.fn();
-
-    // 直接给 useComposerVoice 发一个模拟的 onTranscript 调用不合适，
-    // 这里通过 mock AudioContext 绕过 encodeBlobAsWav；
-    // 实际只能测 onToast 被调用（全链路需真机联调）。
-    // 覆盖：当 transcribeSpeech 抛出，onToast 应被调用。
-    // 简化验证：transcribeSpeech 被调用（证明路由到正确入口）由其他测试覆盖；
-    // 此处仅验证组件渲染与按钮存在（真正的失败路径需集成测试）。
     renderVoice(b, makeAsrSettings({ protocol: "openai-transcriptions", baseUrl: "http://api.test" }), onToast);
+
+    // 等待麦克风按钮渲染
     await waitFor(() => expect(document.querySelector(".pw-mic-btn")).not.toBeNull());
-    // 输入框有内容时录音后失败不清空
+
+    // 输入框预填内容，验证失败后不被清空
     const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "已输入的文字" } });
     expect(ta.value).toBe("已输入的文字");
-    // 验证按钮存在且可点击（更深的录音→转写链路需集成测试）
-    expect(document.querySelector(".pw-mic-btn")).not.toBeNull();
+
+    // 点击麦克风按钮；jsdom 无 MediaRecorder → startRecording 触发 onToast
+    fireEvent.click(document.querySelector(".pw-mic-btn")!);
+
+    // onToast 应被调用，输入框内容保持不变
+    await waitFor(() => expect(onToast).toHaveBeenCalled());
+    expect(onToast.mock.calls[0]?.[0]).toMatch(/录音|转写|支持/);
+    expect(ta.value).toBe("已输入的文字");
   });
 });

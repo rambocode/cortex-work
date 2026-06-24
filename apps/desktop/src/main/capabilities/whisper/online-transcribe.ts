@@ -21,12 +21,45 @@ export const ASR_ONLINE_TIMEOUT_MS = 180_000;
 // 本地路径也用同一阈值，避免 spawn 侧内存压力。
 export const ASR_MAX_BYTES = 25 * 1024 * 1024;
 
+// ── 本地地址白名单（与 transcribe-auth.ts 的 LOCAL_OMLX_BASE_URLS 保持同步） ─
+// 放行 localhost/127.0.0.1/::1 的原因：omlx 本地推理服务仅绑定 loopback，
+// 不经公网，无需 HTTPS；强制 HTTPS 会导致本地调试完全不可用。
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+/**
+ * 断言 baseUrl 使用 HTTPS，本地地址（localhost/127.0.0.1/::1）豁免。
+ *
+ * 安全背景：transcribeOnline 会把 API key（最多 API key + 25 MB 音频）发往该地址；
+ * 若允许 HTTP，网络中间人可明文截获两者。
+ * 豁免本地地址：loopback 不出网，HTTP 无明文泄露风险。
+ *
+ * @throws 若非 HTTPS 且非本地地址。
+ */
+export function assertHttpsOrLocal(baseUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error(`ASR baseUrl 格式无效: ${baseUrl}`);
+  }
+  if (parsed.protocol === "https:") return;
+  if (parsed.protocol === "http:" && LOCAL_HOSTNAMES.has(parsed.hostname)) return;
+  throw new Error(
+    `ASR baseUrl 必须使用 HTTPS（当前: ${parsed.protocol}//${parsed.host}）。` +
+    `本地地址（localhost/127.0.0.1/::1）可使用 HTTP。`,
+  );
+}
+
 /**
  * 调用 OpenAI 兼容 /v1/audio/transcriptions 接口进行在线转写。
  *
- * @throws 若 HTTP 非 2xx、或响应体不含 text 字段。
+ * @throws 若 baseUrl 非 HTTPS（本地地址除外）、HTTP 非 2xx、或响应体格式错误。
+ *         静音音频（API 返回空 text）不报错，返回 { text: '' }。
  */
 export async function transcribeOnline(req: AsrTranscribeRequest): Promise<AsrTranscribeResponse> {
+  // 安全：防止 API key + 音频通过 HTTP 明文传输（本地地址豁免）
+  assertHttpsOrLocal(req.baseUrl);
+
   const form = new FormData();
   form.append("file", new Blob([req.audio], { type: req.mimeType || "application/octet-stream" }), req.fileName);
   form.append("model", req.model);
@@ -48,8 +81,12 @@ export async function transcribeOnline(req: AsrTranscribeRequest): Promise<AsrTr
   }
 
   const data = (await res.json()) as AsrTranscribeResponse;
-  if (typeof data.text !== "string" || !data.text.trim()) {
-    throw new Error("ASR 未返回转写文本");
+
+  // 区分格式错误（text 字段缺失）与静音（text 为空串）：
+  //   - text 字段不是字符串 → API 格式异常，抛出错误
+  //   - text.trim() === '' → 静音音频，正常返回空结果（不报错，让调用方决策）
+  if (typeof data.text !== "string") {
+    throw new Error("ASR 接口响应格式错误：缺少 text 字段");
   }
   return { ...data, text: data.text.trim() };
 }

@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolveMediaGenSettings,
   assertHttps,
+  MAX_TIMEOUT_MS,
 } from "./resolve";
 import type { MediaGenSettings, ProviderSettings } from "@cortex-work/core/desktop/types";
 import {
@@ -320,5 +321,97 @@ describe("resolveMediaGenSettings - 字段校验", () => {
     expect(() =>
       resolveMediaGenSettings("image", mediaGen, makeProviderSettings()),
     ).toThrowError(/https/);
+  });
+});
+
+// ── timeoutMs 夹紧（OQ1/KTD8，防止超过看门狗 300s） ──────────────────────────
+
+describe("resolveMediaGenSettings - timeoutMs 夹紧", () => {
+  it("image: timeoutMs 超过 MAX_TIMEOUT_MS 时被夹紧", () => {
+    const mediaGen = makeMediaGenSettings({
+      image: {
+        enabled: true,
+        providerId: "custom",
+        protocol: "openai-images",
+        baseUrl: "https://api.example.com",
+        apiKey: "sk-key",
+        model: "dall-e-3",
+        defaultSize: "1024x1024",
+        timeoutMs: 500_000, // 超过 290s
+      },
+    });
+    const result = resolveMediaGenSettings("image", mediaGen, makeProviderSettings());
+    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS);
+  });
+
+  it("speech: timeoutMs 超过 MAX_TIMEOUT_MS 时被夹紧", () => {
+    const mediaGen = makeMediaGenSettings({
+      speech: {
+        enabled: true,
+        providerId: "custom",
+        protocol: "openai-speech",
+        baseUrl: "https://api.openai.com",
+        apiKey: "sk-key",
+        model: "tts-1",
+        voice: "alloy",
+        format: "mp3",
+        timeoutMs: 999_000,
+      },
+    });
+    const result = resolveMediaGenSettings("speech", mediaGen, makeProviderSettings());
+    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS);
+  });
+
+  it("music: timeoutMs 超过 MAX_TIMEOUT_MS 时被夹紧", () => {
+    const mediaGen = makeMediaGenSettings({
+      music: {
+        enabled: true,
+        providerId: "custom",
+        protocol: "minimax-music",
+        baseUrl: "https://api.minimax.chat",
+        apiKey: "key",
+        model: "music-01",
+        format: "mp3",
+        timeoutMs: 400_000,
+      },
+    });
+    const result = resolveMediaGenSettings("music", mediaGen, makeProviderSettings());
+    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS);
+  });
+
+  it("video: timeoutMs 超过 MAX_TIMEOUT_MS 时被夹紧", () => {
+    const mediaGen = makeMediaGenSettings({
+      video: {
+        enabled: true,
+        providerId: "custom",
+        protocol: "minimax-video",
+        baseUrl: "https://api.minimax.chat",
+        apiKey: "key",
+        model: "video-01",
+        defaultDuration: 6,
+        defaultResolution: "1080P",
+        timeoutMs: 600_000,
+        pollIntervalMs: 5_000,
+      },
+    });
+    const result = resolveMediaGenSettings("video", mediaGen, makeProviderSettings());
+    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS);
+  });
+
+  it("timeoutMs 未超过 MAX_TIMEOUT_MS 时保持原值", () => {
+    const mediaGen = makeMediaGenSettings({
+      image: {
+        enabled: true,
+        providerId: "custom",
+        protocol: "openai-images",
+        baseUrl: "https://api.example.com",
+        apiKey: "sk-key",
+        model: "dall-e-3",
+        defaultSize: "1024x1024",
+        timeoutMs: 180_000, // 180s < 290s，保持原值
+      },
+    });
+    const result = resolveMediaGenSettings("image", mediaGen, makeProviderSettings());
+    expect(result.timeoutMs).toBe(180_000);
   });
 });

@@ -10,6 +10,7 @@ import {
   generateVideo,
   assertWithinWorkspace,
   MAX_RESPONSE_BYTES,
+  resolveAudioFormat,
 } from "./client";
 import type { ResolvedMediaGenConfig } from "./resolve";
 
@@ -376,5 +377,76 @@ describe("超时行为", () => {
         { workspaceRoot: WORKSPACE },
       ),
     ).rejects.toThrow();
+  });
+});
+
+// ── resolveAudioFormat 白名单校验 ─────────────────────────────────────────────
+
+describe("resolveAudioFormat", () => {
+  it("白名单内的格式正确返回 ext 和 mimeType", () => {
+    expect(resolveAudioFormat("mp3")).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
+    expect(resolveAudioFormat("wav")).toEqual({ ext: "wav", mimeType: "audio/wav" });
+    expect(resolveAudioFormat("ogg")).toEqual({ ext: "ogg", mimeType: "audio/ogg" });
+    expect(resolveAudioFormat("flac")).toEqual({ ext: "flac", mimeType: "audio/flac" });
+    expect(resolveAudioFormat("m4a")).toEqual({ ext: "m4a", mimeType: "audio/mp4" });
+    expect(resolveAudioFormat("aac")).toEqual({ ext: "aac", mimeType: "audio/mp4" });
+  });
+
+  it("大写格式名规范化为小写", () => {
+    expect(resolveAudioFormat("MP3")).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
+    expect(resolveAudioFormat("WAV")).toEqual({ ext: "wav", mimeType: "audio/wav" });
+  });
+
+  it("非白名单格式回落到 mp3（防路径穿越）", () => {
+    expect(resolveAudioFormat("../../etc/passwd")).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
+    expect(resolveAudioFormat("exe")).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
+    expect(resolveAudioFormat("../secret")).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
+  });
+
+  it("undefined 回落到 mp3", () => {
+    expect(resolveAudioFormat(undefined)).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
+  });
+
+  it("空字符串回落到 mp3", () => {
+    expect(resolveAudioFormat("")).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
+  });
+});
+
+// ── generateSpeech format 白名单集成 ─────────────────────────────────────────
+
+describe("generateSpeech - format 白名单集成", () => {
+  it("wav format → mimeType 为 audio/wav（而非 audio/mpeg）", async () => {
+    const fakeAudio = Buffer.from("wav-audio-content");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => fakeAudio.buffer,
+    });
+
+    const result = await generateSpeech(
+      { prompt: "Test speech" },
+      { ...makeSpeechConfig(), format: "wav" },
+      { workspaceRoot: WORKSPACE },
+    );
+
+    expect(result.files[0].mimeType).toBe("audio/wav");
+    expect(result.files[0].relativePath).toMatch(/\.wav$/);
+  });
+
+  it("非白名单 format（例如穿越字符）回落 mp3，mimeType 为 audio/mpeg", async () => {
+    const fakeAudio = Buffer.from("audio-content");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => fakeAudio.buffer,
+    });
+
+    const result = await generateSpeech(
+      { prompt: "Test speech" },
+      { ...makeSpeechConfig(), format: "../../etc" }, // 路径穿越尝试
+      { workspaceRoot: WORKSPACE },
+    );
+
+    // 应回落到 mp3，不能用穿越字符作为文件扩展名
+    expect(result.files[0].mimeType).toBe("audio/mpeg");
+    expect(result.files[0].relativePath).toMatch(/\.mp3$/);
   });
 });

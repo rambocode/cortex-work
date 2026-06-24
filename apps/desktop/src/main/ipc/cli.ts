@@ -16,7 +16,7 @@ import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_AT
 import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
-import { buildMediaGenMcpServerConfig } from "../capabilities/media-gen/server";
+import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { getPersistedState } from "./store";
 
 const running = new Map<string, AgentProcess>();
@@ -639,7 +639,12 @@ export function registerCliHandlers(): void {
           }
         }
 
-        // 终态。
+        // 终态：session 不再复用，清理媒体生成 session 状态（cwd + modalities 映射）。
+        // 同 session 下一轮 run 会在 buildMediaGenMcpServerConfig 中重新 register，
+        // 故此处清理安全，不影响潜在的会话续接。
+        if (req.sessionId) {
+          unregisterMediaGenSession(req.sessionId);
+        }
         cancelledRunIds.delete(req.runId);
         running.delete(req.runId);
         const timeoutError = watchdogTripped

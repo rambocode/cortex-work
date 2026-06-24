@@ -63,6 +63,37 @@ export interface GenerateMediaResult {
   durationMs: number;
 }
 
+// ── 音频格式白名单（安全 + 正确 mimeType） ───────────────────────────────────
+//
+// Agent 提供的 format 参数直接作为文件扩展名拼入路径，若不做校验则可能遭路径穿越攻击
+// （例如 format='../../etc/passwd'）。此白名单只允许已知音频扩展名，非白名单回落 'mp3'。
+// mimeType 映射确保落盘文件的 MIME 类型正确（而非一律 audio/mpeg）。
+
+const AUDIO_EXT_WHITELIST = ["mp3", "wav", "ogg", "flac", "m4a", "aac"] as const;
+type AudioExt = (typeof AUDIO_EXT_WHITELIST)[number];
+
+const AUDIO_MIME_MAP: Record<AudioExt, string> = {
+  mp3:  "audio/mpeg",
+  wav:  "audio/wav",
+  ogg:  "audio/ogg",
+  flac: "audio/flac",
+  m4a:  "audio/mp4",
+  aac:  "audio/mp4",
+};
+
+/**
+ * 将 Agent 提供的 format 字符串规范化为安全扩展名与对应 mimeType。
+ * 非白名单值一律回落到 'mp3'（防路径穿越 + 未知格式兜底）。
+ */
+export function resolveAudioFormat(format: string | undefined): { ext: AudioExt; mimeType: string } {
+  const lower = format?.toLowerCase() ?? "";
+  if ((AUDIO_EXT_WHITELIST as readonly string[]).includes(lower)) {
+    const ext = lower as AudioExt;
+    return { ext, mimeType: AUDIO_MIME_MAP[ext] };
+  }
+  return { ext: "mp3", mimeType: AUDIO_MIME_MAP.mp3 };
+}
+
 // ── 安全收口（KTD11） ─────────────────────────────────────────────────────────
 
 /**
@@ -216,7 +247,9 @@ export async function generateSpeech(
   try {
     let buffer: Buffer;
     const protocol = resolvedConfig.protocol;
-    const format = (resolvedConfig.format as string | undefined) ?? "mp3";
+    const rawFormat = (resolvedConfig.format as string | undefined) ?? "mp3";
+    // 白名单校验：防止 Agent 提供的 format 含路径穿越字符，非白名单回落 mp3。
+    const { ext, mimeType } = resolveAudioFormat(rawFormat);
 
     if (protocol === "openai-speech") {
       buffer = await openaiSpeechGenerate(
@@ -225,7 +258,7 @@ export async function generateSpeech(
           model: resolvedConfig.model,
           voice: args.voice ?? (resolvedConfig.voice as string | undefined),
           speed: args.speed,
-          format,
+          format: ext,
         },
         resolvedConfig,
         signal,
@@ -237,7 +270,7 @@ export async function generateSpeech(
           model: resolvedConfig.model,
           voice: args.voice ?? (resolvedConfig.voice as string | undefined),
           speed: args.speed,
-          format,
+          format: ext,
         },
         resolvedConfig,
         signal,
@@ -248,8 +281,6 @@ export async function generateSpeech(
 
     assertResponseSize(buffer, MAX_RESPONSE_BYTES.speech, "speech");
 
-    const ext = format || "mp3";
-    const mimeType = ext === "wav" ? "audio/wav" : "audio/mpeg";
     const file = await saveToWorkspace(workspaceRoot, "speech", buffer, ext, mimeType);
     return { files: [file], model: resolvedConfig.model, durationMs: Date.now() - startTs };
   } finally {
@@ -280,7 +311,9 @@ export async function generateMusic(
   try {
     let buffer: Buffer;
     const protocol = resolvedConfig.protocol;
-    const format = (resolvedConfig.format as string | undefined) ?? "mp3";
+    const rawFormat = (resolvedConfig.format as string | undefined) ?? "mp3";
+    // 白名单校验：防止 Agent 提供的 format 含路径穿越字符，非白名单回落 mp3。
+    const { ext, mimeType } = resolveAudioFormat(rawFormat);
 
     if (protocol === "minimax-music") {
       buffer = await minimaxGenerateMusic(
@@ -288,7 +321,7 @@ export async function generateMusic(
           prompt: args.prompt,
           model: resolvedConfig.model,
           lyrics: args.lyrics,
-          format,
+          format: ext,
         },
         resolvedConfig,
         signal,
@@ -299,8 +332,6 @@ export async function generateMusic(
 
     assertResponseSize(buffer, MAX_RESPONSE_BYTES.music, "music");
 
-    const ext = format || "mp3";
-    const mimeType = "audio/mpeg";
     const file = await saveToWorkspace(workspaceRoot, "music", buffer, ext, mimeType);
     return { files: [file], model: resolvedConfig.model, durationMs: Date.now() - startTs };
   } finally {

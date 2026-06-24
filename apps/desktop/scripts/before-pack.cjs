@@ -21,15 +21,17 @@ exports.default = async function beforePack(context) {
   const targetPlatform = context.packager.platform.name; // "mac" | "win" | "linux"
   const targetArch = context.arch;                       // 0=x64, 1=arm64, 2=universal, ...
 
-  // electron-builder Arch enum: 0=x64, 1=arm64
+  // electron-builder Arch enum: 0=x64, 1=arm64, 2=universal（及其他未来值）。
   // 参考：https://www.electron.build/api/electron-builder#arch
-  const archName = targetArch === 1 ? "arm64" : targetArch === 0 ? "x64" : "unknown";
+  // ⚠️ 当 archName 无法确定（如 universal=2 或未来新 arch），
+  //    步骤 2 的 prune 绝不执行——宁可多打文件也不能删错源码目录（不可逆）。
+  const archName = targetArch === 1 ? "arm64" : targetArch === 0 ? "x64" : null;
   const platformName = targetPlatform === "mac" ? "darwin"
     : targetPlatform === "windows" ? "win32"
     : targetPlatform === "linux" ? "linux"
     : targetPlatform;
 
-  const targetKey = `${platformName}-${archName}`;
+  const targetKey = archName ? `${platformName}-${archName}` : `${platformName}-<unknown-arch>`;
 
   console.log(`[before-pack] 目标平台: ${targetKey}`);
 
@@ -57,17 +59,30 @@ exports.default = async function beforePack(context) {
   // ── 步骤 2：剪裁非目标平台的 whisper runner 目录 ─────────────────────────
   // extraResources 把整个 resources/whisper/ 拷进产物；pruning 确保只有目标平台产物进包，
   // 避免 darwin-arm64 产物混进 darwin-x64 包（v2 多平台后更重要）。
-  const whisperResDir = join(desktopRoot, "resources", "whisper");
-  if (existsSync(whisperResDir)) {
-    const subdirs = readdirSync(whisperResDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
+  //
+  // ⚠️ 破坏性警告：rmSync 删除的是源码树（resources/whisper/），而非构建产物。
+  //   一旦误删将永久丢失二进制，git 恢复也需要重新构建。
+  //   因此只在 archName 明确（arm64/x64）时才执行 prune；
+  //   archName 为 null（universal=2 等未知 arch）时跳过，打印警告，宁可多带文件。
+  if (archName === null) {
+    console.warn(
+      `[before-pack] ⚠ 无法确定目标 arch（targetArch=${targetArch}），` +
+      `跳过 whisper 目录 prune，避免误删源码树。`,
+    );
+  } else {
+    const whisperResDir = join(desktopRoot, "resources", "whisper");
+    if (existsSync(whisperResDir)) {
+      const subdirs = readdirSync(whisperResDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name);
 
-    for (const dir of subdirs) {
-      if (dir !== targetKey) {
-        const fullPath = join(whisperResDir, dir);
-        console.log(`[before-pack] 删除非目标平台目录: ${fullPath}`);
-        rmSync(fullPath, { recursive: true, force: true });
+      for (const dir of subdirs) {
+        if (dir !== targetKey) {
+          const fullPath = join(whisperResDir, dir);
+          // 只删除已知精确路径（如 "darwin-x64"），不做模糊匹配。
+          console.log(`[before-pack] 删除非目标平台目录: ${fullPath}`);
+          rmSync(fullPath, { recursive: true, force: true });
+        }
       }
     }
   }

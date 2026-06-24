@@ -35,6 +35,15 @@ export interface ResolvedMediaGenConfig {
   [key: string]: unknown;
 }
 
+// ── timeoutMs 上限（OQ1/KTD8） ───────────────────────────────────────────────
+//
+// 用户可在设置里把 timeoutMs 调到任意值，但必须钳制在看门狗阈值以下。
+// cli.ts 的主进程看门狗（RUN_STALL_TIMEOUT_MS）默认 300s（inactivityMs），
+// 若工具 timeoutMs > 300s，工具 AbortController 还未触发看门狗先把 session 杀掉，
+// 之后主进程 poll 循环继续悬挂，导致资源泄漏。
+// 留 10s 余量（290s），确保工具超时先于看门狗触发，poll 循环能正常退出。
+export const MAX_TIMEOUT_MS = 290_000;
+
 // ── 安全断言 ──────────────────────────────────────────────────────────────────
 
 /**
@@ -71,7 +80,7 @@ export function resolveImageGenConfig(
   if (!providerId || providerId === "custom") {
     // 自定义：直接用自填字段
     validateConfig(baseUrl, apiKey, model, "image");
-    return { baseUrl, apiKey, protocol, model, timeoutMs, defaultSize };
+    return { baseUrl, apiKey, protocol, model, timeoutMs: Math.min(timeoutMs, MAX_TIMEOUT_MS), defaultSize };
   }
 
   // 继承供应商
@@ -93,7 +102,8 @@ export function resolveImageGenConfig(
     apiKey: resolvedApiKey,
     protocol: (protocol as ImageGenProtocol) || "openai-images",
     model: resolvedModel,
-    timeoutMs,
+    // 夹紧 timeoutMs，防止超过看门狗阈值导致 session 被杀后 poll 循环悬挂（OQ1/KTD8）。
+    timeoutMs: Math.min(timeoutMs, MAX_TIMEOUT_MS),
     defaultSize,
   };
 }
@@ -109,7 +119,7 @@ export function resolveSpeechGenConfig(
 
   if (!providerId || providerId === "custom") {
     validateConfig(baseUrl, apiKey, model, "speech");
-    return { baseUrl, apiKey, protocol, model, timeoutMs, voice, format };
+    return { baseUrl, apiKey, protocol, model, timeoutMs: Math.min(timeoutMs, MAX_TIMEOUT_MS), voice, format };
   }
 
   const provider = findProviderById(providerSettings, providerId);
@@ -130,7 +140,7 @@ export function resolveSpeechGenConfig(
     apiKey: resolvedApiKey,
     protocol: (protocol as SpeechGenProtocol) || "openai-speech",
     model: resolvedModel,
-    timeoutMs,
+    timeoutMs: Math.min(timeoutMs, MAX_TIMEOUT_MS),
     voice,
     format,
   };
@@ -147,7 +157,7 @@ export function resolveMusicGenConfig(
 
   if (!providerId || providerId === "custom") {
     validateConfig(baseUrl, apiKey, model, "music");
-    return { baseUrl, apiKey, protocol, model, timeoutMs, format };
+    return { baseUrl, apiKey, protocol, model, timeoutMs: Math.min(timeoutMs, MAX_TIMEOUT_MS), format };
   }
 
   const provider = findProviderById(providerSettings, providerId);
@@ -168,7 +178,7 @@ export function resolveMusicGenConfig(
     apiKey: resolvedApiKey,
     protocol: (protocol as MusicGenProtocol) || "minimax-music",
     model: resolvedModel,
-    timeoutMs,
+    timeoutMs: Math.min(timeoutMs, MAX_TIMEOUT_MS),
     format,
   };
 }
@@ -187,7 +197,7 @@ export function resolveVideoGenConfig(
 
   if (!providerId || providerId === "custom") {
     validateConfig(baseUrl, apiKey, model, "video");
-    return { baseUrl, apiKey, protocol, model, timeoutMs, defaultDuration, defaultResolution, pollIntervalMs };
+    return { baseUrl, apiKey, protocol, model, timeoutMs: Math.min(timeoutMs, MAX_TIMEOUT_MS), defaultDuration, defaultResolution, pollIntervalMs };
   }
 
   const provider = findProviderById(providerSettings, providerId);
@@ -208,7 +218,7 @@ export function resolveVideoGenConfig(
     apiKey: resolvedApiKey,
     protocol: (protocol as VideoGenProtocol) || "minimax-video",
     model: resolvedModel,
-    timeoutMs,
+    timeoutMs: Math.min(timeoutMs, MAX_TIMEOUT_MS),
     defaultDuration,
     defaultResolution,
     pollIntervalMs,

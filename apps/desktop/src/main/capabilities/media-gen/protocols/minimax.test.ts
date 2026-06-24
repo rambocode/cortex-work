@@ -334,6 +334,42 @@ describe("minimaxGenerateMusic", () => {
   });
 });
 
+// ── delay 预中止漏判（ADV-007 修复验证） ─────────────────────────────────────
+//
+// 若 signal 在调用 delay() 时已是 aborted 状态，abort 事件不会再触发，
+// 定时器会跑满整个 pollInterval。修复后应立即 reject。
+
+describe("minimaxGenerateVideo — delay 预中止", () => {
+  it("signal 已 aborted 时，delay 立即 reject，不等待 pollInterval", async () => {
+    // 提交成功
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        base_resp: { status_code: 0 },
+        task_id: "task-preabort",
+      }),
+    });
+
+    // 创建已中止的 signal
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const abortedSignal = ctrl.signal;
+
+    const start = Date.now();
+    await expect(
+      minimaxGenerateVideo(
+        { prompt: "x", model: "video-01" },
+        // pollIntervalMs 很长（2s），若 delay 预中止失效，会等 2s 才报错
+        makeConfig({ protocol: "minimax-video", timeoutMs: 5000, pollIntervalMs: 2000 }),
+        abortedSignal,
+      ),
+    ).rejects.toThrow();
+
+    // 已中止时应立即抛出（远小于 pollInterval 的 2000ms）
+    expect(Date.now() - start).toBeLessThan(500);
+  });
+});
+
 // ── TTS 生成 ──────────────────────────────────────────────────────────────────
 
 describe("minimaxGenerateTts", () => {

@@ -24,30 +24,78 @@ export const MEDIA_GEN_SERVER_ID = "cortex-media-gen";
 // 媒体生成 MCP host 实例（独立 port/token，与浏览器/文档抽取互不干扰）。
 const mediaGenHost = createMcpHost(MEDIA_GEN_SERVER_ID);
 
-// ── sessionId → cwd 映射 ─────────────────────────────────────────────────────
-// inject.ts 在构造注入配置时传入 (sessionId, cwd)，工具 handler 据此找到工作区根目录。
-// cwd 穿透路径：cli.ts → buildMediaGenMcpServerConfig(cwd) → registerSession(sid, cwd)
-// → 工具调用时 ctx.sessionId → sessionCwdMap.get(sid)。
-// 无此映射则工具返回错误（cwd 未知不能落盘产物）。
-const sessionCwdMap = new Map<string, string>();
+// ── 并发会话状态（session-scoped，解决多会话竞态） ─────────────────────────────
+//
+// 并发约定：token 是 host 级共享，但 cwd 与激活模态集均为 per-session 的。
+// 多个并发 session 各自调用 buildMediaGenMcpServerConfig（不同 cwd/modalities），
+// 必须按 sessionId 存储，而非用单一全局 Set 覆盖——后者会导致后来的 session 覆盖
+// 前一 session 的模态集，使早期 session 的 per-request McpServer 拿到错误工具集。
+//
+// per-request McpServer 注册时从 sessionStateMap.get(ctx.sessionId) 取本 session 状态；
+// host 级 token 仍共享（认证），session 级状态独立（工具集 + cwd）。
 
-export function registerMediaGenSession(sessionId: string, cwd: string): void {
-  sessionCwdMap.set(sessionId, cwd);
+interface SessionState {
+  cwd: string;
+  modalities: Set<"image" | "speech" | "music" | "video">;
+}
+
+const sessionStateMap = new Map<string, SessionState>();
+
+export function registerMediaGenSession(
+  sessionId: string,
+  cwd: string,
+  modalities: Set<"image" | "speech" | "music" | "video">,
+): void {
+  // 幂等：同一 session 多轮 run 时用新 cwd/modalities 刷新（同会话 cwd 不变，但 modalities 可能随
+  // 设置更改而变化）；清理时调 unregisterMediaGenSession，不影响此处覆盖写。
+  sessionStateMap.set(sessionId, { cwd, modalities });
 }
 
 export function unregisterMediaGenSession(sessionId: string): void {
-  sessionCwdMap.delete(sessionId);
+  sessionStateMap.delete(sessionId);
 }
 
-// ── 工具文本回包辅助 ─────────────────────────────────────────────────────────
+// ── 构造结构化工具结果（文本 + resource 产物，供 agent 程序化提取路径） ──────────
+//
+// agent-native 要求：工具产物除可读文本外，须追加 resource 类型条目，
+// 让 agent 能从 content 数组中程序化提取文件 URI 和 mimeType，而不必解析自由文本。
+function makeSuccessResult(
+  description: string,
+  files: { absolutePath: string; relativePath: string; mimeType: string }[],
+): { content: Array<{ type: "text"; text: string } | { type: "resource"; resource: { uri: string; mimeType: string; text: string } }> } {
+  const content: Array<
+    { type: "text"; text: string } |
+    { type: "resource"; resource: { uri: string; mimeType: string; text: string } }
+  > = [{ type: "text", text: description }];
 
-const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
+  for (const f of files) {
+    content.push({
+      type: "resource",
+      resource: {
+        uri: `file://${f.absolutePath}`,
+        mimeType: f.mimeType,
+        text: f.relativePath,
+      },
+    });
+  }
+
+  return { content };
+}
+
+// 工具失败时返回带 isError 标志的结果，让 agent 程序化判断失败态。
+function makeErrorResult(message: string): { content: [{ type: "text"; text: string }]; isError: true } {
+  return { content: [{ type: "text", text: message }], isError: true };
+}
 
 // ── 工具注册 ─────────────────────────────────────────────────────────────────
 
 /**
- * 注册哪些模态工具由 inject.ts 的 enabledModalities 参数控制：
+ * 注册哪些模态工具由 per-session 的 modalities 参数控制：
  * 只有 enabled 的模态才注册对应工具，避免 agent 拿到永远失败的工具。
+ *
+ * 并发安全：此函数在 per-request McpServer 新建时调用（非全局单例），
+ * enabledModalities 参数来自 sessionStateMap.get(ctx.sessionId)，保证每个
+ * session 读取自己的模态集，互不干扰。
  */
 export function registerMediaGenTools(
   mcp: McpServer,
@@ -61,7 +109,8 @@ export function registerMediaGenTools(
       {
         description:
           "根据文字描述生成图片，产物落盘 workspace/.cortex/media/images/，返回相对路径供引用。" +
-          "支持参考图片（image_to_image）：提供 reference_image_paths 时进行图片变换/风格迁移。",
+          "reference_image_paths 参数仅 MiniMax 协议支持（图生图/风格迁移）；" +
+          "OpenAI Images 协议忽略此参数（不上传参考图，仅文生图）。",
         inputSchema: {
           prompt: z.string().min(1).describe("图片生成描述（英文效果最佳）"),
           aspect_ratio: z.string().optional().describe("宽高比，例如 '1:1' '16:9' '4:3'（部分 provider 支持）"),
@@ -72,7 +121,7 @@ export function registerMediaGenTools(
           reference_image_paths: z
             .array(z.string())
             .optional()
-            .describe("参考图片的绝对路径或相对 workspace 的路径（image-to-image）"),
+            .describe("参考图片的绝对路径或相对 workspace 的路径（仅 MiniMax 协议支持 image-to-image；OpenAI Images 协议忽略此参数）"),
         },
       },
       async ({
@@ -86,27 +135,29 @@ export function registerMediaGenTools(
         image_size?: string;
         reference_image_paths?: string[];
       }) => {
-        const workspaceRoot = ctx.sessionId ? sessionCwdMap.get(ctx.sessionId) : undefined;
+        // 从 per-session 状态获取 cwd，避免跨 session 数据泄漏。
+        const sessionState = ctx.sessionId ? sessionStateMap.get(ctx.sessionId) : undefined;
+        const workspaceRoot = sessionState?.cwd;
         if (!workspaceRoot) {
-          return text("generate_image 错误：无法确定工作区路径（sessionId 未注册）");
+          return makeErrorResult("generate_image 错误：无法确定工作区路径（sessionId 未注册）");
         }
         // 每次调用读最新设置，支持用户在会话中途改设置立即生效。
         let state: Awaited<ReturnType<typeof getPersistedState>>;
         try {
           state = await getPersistedState();
         } catch (e) {
-          return text(`generate_image 错误：读取配置失败 —— ${String(e)}`);
+          return makeErrorResult(`generate_image 错误：读取配置失败 —— ${String(e)}`);
         }
         const mediaGenSettings = state.mediaGenSettings;
         const providerSettings = state.providerSettings;
         if (!mediaGenSettings?.image.enabled) {
-          return text("图片生成工具已禁用，请在「设置 → 媒体生成」中启用。");
+          return makeErrorResult("图片生成工具已禁用，请在「设置 → 媒体生成」中启用。");
         }
         let resolvedConfig;
         try {
           resolvedConfig = resolveMediaGenSettings("image", mediaGenSettings, providerSettings ?? { providers: [] });
         } catch (e) {
-          return text(`generate_image 配置错误：${e instanceof Error ? e.message : String(e)}`);
+          return makeErrorResult(`generate_image 配置错误：${e instanceof Error ? e.message : String(e)}`);
         }
         try {
           const result = await generateImage(
@@ -118,12 +169,10 @@ export function registerMediaGenTools(
             resolvedConfig,
             { workspaceRoot },
           );
-          const paths = result.files.map((f) => f.relativePath).join("\n");
-          return text(
-            `图片生成完成（模型：${result.model}，耗时 ${result.durationMs}ms）：\n${paths}`,
-          );
+          const description = `图片生成完成（模型：${result.model}，耗时 ${result.durationMs}ms）：\n${result.files.map((f) => f.relativePath).join("\n")}`;
+          return makeSuccessResult(description, result.files);
         } catch (e) {
-          return text(`generate_image 失败：${e instanceof Error ? e.message : String(e)}`);
+          return makeErrorResult(`generate_image 失败：${e instanceof Error ? e.message : String(e)}`);
         }
       },
     );
@@ -143,26 +192,27 @@ export function registerMediaGenTools(
         },
       },
       async ({ text: inputText, voice, format }: { text: string; voice?: string; format?: string }) => {
-        const workspaceRoot = ctx.sessionId ? sessionCwdMap.get(ctx.sessionId) : undefined;
+        const sessionState = ctx.sessionId ? sessionStateMap.get(ctx.sessionId) : undefined;
+        const workspaceRoot = sessionState?.cwd;
         if (!workspaceRoot) {
-          return text("generate_speech 错误：无法确定工作区路径（sessionId 未注册）");
+          return makeErrorResult("generate_speech 错误：无法确定工作区路径（sessionId 未注册）");
         }
         let state: Awaited<ReturnType<typeof getPersistedState>>;
         try {
           state = await getPersistedState();
         } catch (e) {
-          return text(`generate_speech 错误：读取配置失败 —— ${String(e)}`);
+          return makeErrorResult(`generate_speech 错误：读取配置失败 —— ${String(e)}`);
         }
         const mediaGenSettings = state.mediaGenSettings;
         const providerSettings = state.providerSettings;
         if (!mediaGenSettings?.speech.enabled) {
-          return text("语音生成工具已禁用，请在「设置 → 媒体生成」中启用。");
+          return makeErrorResult("语音生成工具已禁用，请在「设置 → 媒体生成」中启用。");
         }
         let resolvedConfig;
         try {
           resolvedConfig = resolveMediaGenSettings("speech", mediaGenSettings, providerSettings ?? { providers: [] });
         } catch (e) {
-          return text(`generate_speech 配置错误：${e instanceof Error ? e.message : String(e)}`);
+          return makeErrorResult(`generate_speech 配置错误：${e instanceof Error ? e.message : String(e)}`);
         }
         // 将 format 参数注入 resolvedConfig（工具层 format 覆盖 config 层 format）。
         if (format) resolvedConfig = { ...resolvedConfig, format };
@@ -172,12 +222,10 @@ export function registerMediaGenTools(
             resolvedConfig,
             { workspaceRoot },
           );
-          const paths = result.files.map((f) => f.relativePath).join("\n");
-          return text(
-            `语音生成完成（模型：${result.model}，耗时 ${result.durationMs}ms）：\n${paths}`,
-          );
+          const description = `语音生成完成（模型：${result.model}，耗时 ${result.durationMs}ms）：\n${result.files.map((f) => f.relativePath).join("\n")}`;
+          return makeSuccessResult(description, result.files);
         } catch (e) {
-          return text(`generate_speech 失败：${e instanceof Error ? e.message : String(e)}`);
+          return makeErrorResult(`generate_speech 失败：${e instanceof Error ? e.message : String(e)}`);
         }
       },
     );
@@ -209,26 +257,27 @@ export function registerMediaGenTools(
         lyrics?: string;
         instrumental?: boolean;
       }) => {
-        const workspaceRoot = ctx.sessionId ? sessionCwdMap.get(ctx.sessionId) : undefined;
+        const sessionState = ctx.sessionId ? sessionStateMap.get(ctx.sessionId) : undefined;
+        const workspaceRoot = sessionState?.cwd;
         if (!workspaceRoot) {
-          return text("generate_music 错误：无法确定工作区路径（sessionId 未注册）");
+          return makeErrorResult("generate_music 错误：无法确定工作区路径（sessionId 未注册）");
         }
         let state: Awaited<ReturnType<typeof getPersistedState>>;
         try {
           state = await getPersistedState();
         } catch (e) {
-          return text(`generate_music 错误：读取配置失败 —— ${String(e)}`);
+          return makeErrorResult(`generate_music 错误：读取配置失败 —— ${String(e)}`);
         }
         const mediaGenSettings = state.mediaGenSettings;
         const providerSettings = state.providerSettings;
         if (!mediaGenSettings?.music.enabled) {
-          return text("音乐生成工具已禁用，请在「设置 → 媒体生成」中启用。");
+          return makeErrorResult("音乐生成工具已禁用，请在「设置 → 媒体生成」中启用。");
         }
         let resolvedConfig;
         try {
           resolvedConfig = resolveMediaGenSettings("music", mediaGenSettings, providerSettings ?? { providers: [] });
         } catch (e) {
-          return text(`generate_music 配置错误：${e instanceof Error ? e.message : String(e)}`);
+          return makeErrorResult(`generate_music 配置错误：${e instanceof Error ? e.message : String(e)}`);
         }
         // instrumental 覆盖 lyrics：明确要纯器乐时清空歌词字段。
         const effectiveLyrics = instrumental ? undefined : lyrics;
@@ -238,12 +287,10 @@ export function registerMediaGenTools(
             resolvedConfig,
             { workspaceRoot },
           );
-          const paths = result.files.map((f) => f.relativePath).join("\n");
-          return text(
-            `音乐生成完成（模型：${result.model}，耗时 ${result.durationMs}ms）：\n${paths}`,
-          );
+          const description = `音乐生成完成（模型：${result.model}，耗时 ${result.durationMs}ms）：\n${result.files.map((f) => f.relativePath).join("\n")}`;
+          return makeSuccessResult(description, result.files);
         } catch (e) {
-          return text(`generate_music 失败：${e instanceof Error ? e.message : String(e)}`);
+          return makeErrorResult(`generate_music 失败：${e instanceof Error ? e.message : String(e)}`);
         }
       },
     );
@@ -292,26 +339,27 @@ export function registerMediaGenTools(
         first_frame_image_path?: string;
         last_frame_image_path?: string;
       }) => {
-        const workspaceRoot = ctx.sessionId ? sessionCwdMap.get(ctx.sessionId) : undefined;
+        const sessionState = ctx.sessionId ? sessionStateMap.get(ctx.sessionId) : undefined;
+        const workspaceRoot = sessionState?.cwd;
         if (!workspaceRoot) {
-          return text("generate_video 错误：无法确定工作区路径（sessionId 未注册）");
+          return makeErrorResult("generate_video 错误：无法确定工作区路径（sessionId 未注册）");
         }
         let state: Awaited<ReturnType<typeof getPersistedState>>;
         try {
           state = await getPersistedState();
         } catch (e) {
-          return text(`generate_video 错误：读取配置失败 —— ${String(e)}`);
+          return makeErrorResult(`generate_video 错误：读取配置失败 —— ${String(e)}`);
         }
         const mediaGenSettings = state.mediaGenSettings;
         const providerSettings = state.providerSettings;
         if (!mediaGenSettings?.video.enabled) {
-          return text("视频生成工具已禁用，请在「设置 → 媒体生成」中启用。");
+          return makeErrorResult("视频生成工具已禁用，请在「设置 → 媒体生成」中启用。");
         }
         let resolvedConfig;
         try {
           resolvedConfig = resolveMediaGenSettings("video", mediaGenSettings, providerSettings ?? { providers: [] });
         } catch (e) {
-          return text(`generate_video 配置错误：${e instanceof Error ? e.message : String(e)}`);
+          return makeErrorResult(`generate_video 配置错误：${e instanceof Error ? e.message : String(e)}`);
         }
         // 工具参数 duration/resolution 覆盖 resolvedConfig 的默认值。
         if (duration !== undefined) resolvedConfig = { ...resolvedConfig, defaultDuration: duration };
@@ -326,12 +374,10 @@ export function registerMediaGenTools(
             resolvedConfig,
             { workspaceRoot },
           );
-          const paths = result.files.map((f) => f.relativePath).join("\n");
-          return text(
-            `视频生成完成（模型：${result.model}，耗时 ${result.durationMs}ms）：\n${paths}`,
-          );
+          const description = `视频生成完成（模型：${result.model}，耗时 ${result.durationMs}ms）：\n${result.files.map((f) => f.relativePath).join("\n")}`;
+          return makeSuccessResult(description, result.files);
         } catch (e) {
-          return text(`generate_video 失败：${e instanceof Error ? e.message : String(e)}`);
+          return makeErrorResult(`generate_video 失败：${e instanceof Error ? e.message : String(e)}`);
         }
       },
     );
@@ -342,18 +388,16 @@ export function registerMediaGenTools(
 
 /**
  * 启动媒体生成 MCP host（index.ts 在 whenReady 调用）。
- * enabledModalities 在首次 buildMediaGenMcpServerConfig 调用时确定，
- * 但 host 需要提前启动以获取 port/token；工具注册在 start 时通过 enabledModalities 闭包延迟绑定。
- * 注意：host 生命周期常驻（随 app），enabledModalities 由注入侧每次 buildMediaGenMcpServerConfig
- * 调用时按最新 settings 计算，通过 McpServer per-request 新建实例特性实现动态工具列表。
+ *
+ * per-request McpServer 在每次 HTTP 请求时新建，注册回调从 sessionStateMap 取本 session 的
+ * modalities；cwd 同样按 sessionId 查取，确保并发 session 互不干扰。
  */
 export function startMediaGenHost(): Promise<McpHostHandle> {
-  // registerTools 在每个 MCP 请求新建 McpServer 实例时调用，此时从 sessionCwdMap 取 cwd。
-  // enabledModalities 在工具注册时从最新 inject 侧参数取（见 buildMediaGenMcpServerConfig）。
-  // 因为 createMcpHost 的 makeServer 是 per-request 的，enabledModalities 需在 handler 里从外部取。
-  // 解决方案：存一个可被 inject.ts 更新的全局 enabledModalities，handler 每次读取最新值。
   return mediaGenHost.start((mcp, ctx) => {
-    registerMediaGenTools(mcp, ctx, currentEnabledModalities);
+    // 从 per-session 状态取本 session 的模态集（并发安全：各 session 独立）。
+    const sessionState = ctx.sessionId ? sessionStateMap.get(ctx.sessionId) : undefined;
+    const modalities = sessionState?.modalities ?? new Set<"image" | "speech" | "music" | "video">();
+    registerMediaGenTools(mcp, ctx, modalities);
   });
 }
 
@@ -365,14 +409,6 @@ export function getMediaGenHostHandle(): McpHostHandle | null {
   return mediaGenHost.getHandle();
 }
 
-// 当前激活的模态集合，由 inject.ts 在每次 buildMediaGenMcpServerConfig 调用时更新。
-// per-request McpServer 新建时读取此值，实现动态工具列表（settings 变更后新请求立即生效）。
-let currentEnabledModalities: Set<"image" | "speech" | "music" | "video"> = new Set();
-
-export function updateEnabledModalities(modalities: Set<"image" | "speech" | "music" | "video">): void {
-  currentEnabledModalities = modalities;
-}
-
 // ── 注入配置构建 ──────────────────────────────────────────────────────────────
 
 /**
@@ -382,10 +418,9 @@ export function updateEnabledModalities(modalities: Set<"image" | "speech" | "mu
  *   - 四模态全 enabled:false → 返回 null（不注入，避免给 agent 一个无工具的 server）。
  *   - 至少一个 enabled → 注入，token 经 Authorization 头（不进 URL）。
  *
- * cwd 穿透：registerMediaGenSession 把 sessionId→cwd 映射存入 sessionCwdMap，
- * 工具 handler 在调用时据此找到工作区根目录。
- *
- * 本函数同时更新 currentEnabledModalities，使 per-request McpServer 注册时读到最新模态集。
+ * 并发安全：本函数把 (sessionId → {cwd, modalities}) 存入 sessionStateMap，
+ * 而非写全局变量。多个并发 session 各自持有独立状态，per-request McpServer 按
+ * ctx.sessionId 查取本 session 的模态集与 cwd，不会互相覆盖。
  */
 export function buildMediaGenMcpServerConfig(
   mediaGenSettings: import("../../ipc/types").MediaGenSettings | undefined,
@@ -402,16 +437,15 @@ export function buildMediaGenMcpServerConfig(
   // 四模态全关 → 不注入（OQ5 已决：全关返回 null）。
   if (enabled.size === 0) return null;
 
-  // 更新全局模态集合，供 per-request 工具注册回调读取。
-  updateEnabledModalities(enabled);
-
   const handle = getMediaGenHostHandle();
   // host 未起或不可用 → 不注入，避免 agent 连接失败。
   if (!handle || !handle.serverAvailable || handle.port <= 0) return null;
 
-  // 注册 sessionId → cwd 映射，供工具 handler 定位工作区。
+  // 注册 per-session 状态（cwd + modalities）。
+  // 幂等：同一 session 多轮 run 时覆盖写（cwd 通常不变，modalities 随设置更新），
+  // 不影响同 session 下一轮继续使用；清理由 unregisterMediaGenSession 负责。
   if (sessionId) {
-    registerMediaGenSession(sessionId, cwd);
+    registerMediaGenSession(sessionId, cwd, enabled);
   }
 
   return {

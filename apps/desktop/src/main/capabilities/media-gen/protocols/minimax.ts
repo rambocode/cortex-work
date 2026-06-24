@@ -123,10 +123,10 @@ export async function minimaxGenerateImage(
     return Buffer.from(base64, "base64");
   }
 
-  // 回退 url
+  // 回退 url（传 signal：CDN 卡住时 abort 可中止下载，与 openai-images 行为对齐）。
   const imageUrl = data.data?.image_urls?.[0];
   if (imageUrl) {
-    return downloadHttpsUrl(imageUrl);
+    return downloadHttpsUrl(imageUrl, signal);
   }
 
   throw new Error("MiniMax 图片生成响应中既无 image_base64 也无 image_urls");
@@ -416,8 +416,16 @@ async function downloadHttpsUrl(url: string, signal?: AbortSignal): Promise<Buff
 
 /**
  * 可取消的延迟（AbortSignal 触发时提前 reject）。
+ *
+ * 预中止检测（ADV-007）：若 signal 在调用时已处于 aborted 状态，
+ * abort 事件不会再次触发（事件已过），定时器会跑满整个 pollInterval。
+ * 因此必须在注册监听前先检查 signal.aborted，提前 reject。
  */
 function delay(ms: number, signal: AbortSignal): Promise<void> {
+  // 若 signal 已中止，立即 reject，不等待定时器。
+  if (signal.aborted) {
+    return Promise.reject(new Error("已中止"));
+  }
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(resolve, ms);
     signal.addEventListener("abort", () => {

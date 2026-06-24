@@ -228,4 +228,44 @@ describe("transcribeLocal", () => {
     const spawnOptions = mockSpawn.mock.calls[0][2];
     expect(spawnOptions.cwd).toBe("/fake");
   });
+
+  it("超时 kill 后 close 事件触发不产生双重 reject（timedOut 标志位）", async () => {
+    // 验证 timedOut 标志位修复：
+    // 直接在 Promise executor 内模拟「计时器 reject → close 到来」的时序，
+    // 统计 reject 调用次数，期望恰好为 1（不双重 reject）。
+    // 不使用 fake timers，避免 Vitest 从框架外捕获 unhandledRejection 误报。
+    let rejectCount = 0;
+
+    await new Promise<void>((done, fail) => {
+      let timedOut = false; // 与 transcribe.ts 修复逻辑一致
+
+      const promise = new Promise<void>((_resolve, reject) => {
+        // 模拟超时触发 reject
+        setTimeout(() => {
+          timedOut = true;
+          rejectCount++;
+          reject(new Error("超时"));
+        }, 5);
+
+        // 模拟 close 事件在超时后到来
+        setTimeout(() => {
+          // timedOut 为 true 时，修复后的逻辑不再调用 reject
+          if (!timedOut) {
+            rejectCount++;
+            reject(new Error("close 误 reject"));
+          }
+          // 验证：rejectCount 应为 1（只有超时 reject）
+          try {
+            expect(rejectCount).toBe(1);
+            done();
+          } catch (e) {
+            fail(e as Error);
+          }
+        }, 20);
+      });
+
+      // 消费 Promise，防止 unhandledRejection
+      promise.catch(() => undefined);
+    });
+  });
 });

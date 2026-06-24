@@ -15,6 +15,10 @@ vi.mock("electron", () => ({
 
 // ── mock capabilities/whisper/models ──────────────────────────────────────────
 const mockGetModelStatus = vi.fn();
+// isLocalWhisperModelId 在白名单校验中使用；
+// mock 中默认返回 true（白名单通过），便于路由测试聚焦在后续逻辑。
+// 个别用例可覆盖为 false 以测试无效 modelId 分支。
+const mockIsLocalWhisperModelId = vi.fn().mockReturnValue(true);
 vi.mock("../capabilities/whisper/models", () => ({
   getModelStatus: (...args: unknown[]) => mockGetModelStatus(...args),
   downloadModel: vi.fn(),
@@ -22,6 +26,10 @@ vi.mock("../capabilities/whisper/models", () => ({
   deleteModel: vi.fn(),
   checkSources: vi.fn(),
   setWhisperProgressEmitter: vi.fn(),
+}));
+// isLocalWhisperModelId 从 @cortex-work/core/whisper/models 导入，单独 mock
+vi.mock("@cortex-work/core/whisper/models", () => ({
+  isLocalWhisperModelId: (...args: unknown[]) => mockIsLocalWhisperModelId(...args),
 }));
 
 // ── mock capabilities/whisper/transcribe ──────────────────────────────────────
@@ -49,6 +57,8 @@ beforeEach(() => {
     handlers[channel] = handler as (event: unknown, ...args: unknown[]) => unknown;
   });
   vi.clearAllMocks();
+  // 白名单默认通过（大多数用例测试路由逻辑，不测试 modelId 校验）
+  mockIsLocalWhisperModelId.mockReturnValue(true);
   // 重新注册以收集最新 handlers
   registerSttHandlers();
 });
@@ -226,6 +236,26 @@ describe("stt:transcribe handler", () => {
       await expect(
         handlers["stt:transcribe"]?.({}, req),
       ).rejects.toThrow(/尚未就绪|未找到/);
+    });
+
+    it("无效 modelId（不在白名单）时返回友好错误，不抛内部异常", async () => {
+      // 模拟 isLocalWhisperModelId 返回 false（非白名单）
+      mockIsLocalWhisperModelId.mockReturnValue(false);
+
+      const req = makeReq({
+        asrSettings: {
+          ...makeReq().asrSettings,
+          protocol: "local-whisper",
+          model: "invalid-model-id",
+        },
+      });
+
+      await expect(
+        handlers["stt:transcribe"]?.({}, req),
+      ).rejects.toThrow(/请先在设置中选择有效的本地模型/);
+
+      // 白名单校验失败后，不应再调用 getModelStatus
+      expect(mockGetModelStatus).not.toHaveBeenCalled();
     });
   });
 });

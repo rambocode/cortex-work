@@ -158,7 +158,11 @@ function spawnWhisperCli(
     child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
     // ── 超时看门狗 ───────────────────────────────────────────────────────────
+    // timedOut 标志位：timer reject 后，close 事件仍会触发，
+    // 若不加守卫会导致二次 reject（unhandledRejection）。
+    let timedOut = false;
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill("SIGKILL");
       reject(new Error(`whisper-cli 转写超时（${TRANSCRIBE_TIMEOUT_MS / 1000}s）`));
     }, TRANSCRIBE_TIMEOUT_MS);
@@ -169,6 +173,8 @@ function spawnWhisperCli(
     });
 
     child.on("close", (code) => {
+      // 超时已经 reject 过，close 事件的第二次 reject 会产生 unhandledRejection，忽略。
+      if (timedOut) return;
       clearTimeout(timer);
       const stdout = Buffer.concat(stdoutChunks).toString("utf-8");
       const stderr = Buffer.concat(stderrChunks).toString("utf-8");

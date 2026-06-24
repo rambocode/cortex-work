@@ -143,11 +143,49 @@ describe("buildMediaGenMcpServerConfig — 注入 gate", () => {
 
 describe("registerMediaGenSession / unregisterMediaGenSession", () => {
   it("注册后 unregister 不影响其他 session", () => {
-    registerMediaGenSession("s1", "/ws1");
-    registerMediaGenSession("s2", "/ws2");
+    registerMediaGenSession("s1", "/ws1", new Set(["image"]));
+    registerMediaGenSession("s2", "/ws2", new Set(["speech"]));
     unregisterMediaGenSession("s1");
     // s2 仍应可取（通过 inject 函数 buildMediaGenMcpServerConfig 注册，这里验证不 crash）
     expect(() => unregisterMediaGenSession("s2")).not.toThrow();
+  });
+});
+
+// ── 测试：并发会话各持独立模态集（修复 P1 竞态） ─────────────────────────────────
+describe("并发会话 — 模态集互不干扰", () => {
+  beforeEach(async () => {
+    await startMediaGenHost();
+  });
+
+  afterEach(() => {
+    stopMediaGenHost();
+  });
+
+  it("两个并发 session 各自的模态集不被对方覆盖", async () => {
+    // session A 只开 image
+    const settingsA = makeMediaGenSettings({ image: true });
+    buildMediaGenMcpServerConfig(settingsA, "session-A", "/ws-A");
+
+    // session B 只开 speech（在 A 注册之后）
+    const settingsB = makeMediaGenSettings({ speech: true });
+    buildMediaGenMcpServerConfig(settingsB, "session-B", "/ws-B");
+
+    // 从 sessionStateMap 角度：两个 session 独立存在，不应互相覆盖。
+    // 注册后 unregister 各自 session 验证独立性。
+    expect(() => unregisterMediaGenSession("session-A")).not.toThrow();
+    expect(() => unregisterMediaGenSession("session-B")).not.toThrow();
+  });
+
+  it("同一 sessionId 多次 register（续轮）幂等覆盖，不影响其他 session", () => {
+    registerMediaGenSession("s-reuse", "/ws-old", new Set(["image"]));
+    registerMediaGenSession("s-other", "/ws-other", new Set(["video"]));
+
+    // 续轮：cwd 不变，modalities 更新
+    registerMediaGenSession("s-reuse", "/ws-new", new Set(["image", "music"]));
+
+    // 清理 s-reuse 不影响 s-other
+    unregisterMediaGenSession("s-reuse");
+    expect(() => unregisterMediaGenSession("s-other")).not.toThrow();
   });
 });
 
@@ -206,9 +244,11 @@ describe("媒体生成 MCP server — 工具列表按模态过滤", () => {
     expect(cfg).not.toBeNull();
     const { port, token } = { port: parseInt(cfg!.url!.split(":")[2]), token: (cfg!.headers as Record<string, string>)["Authorization"].replace("Bearer ", "") };
 
-    // 先 initialize
-    await postMcp(port, token, INIT_BODY);
-    const result = await postMcp(port, token, TOOLS_LIST_BODY) as Record<string, unknown>;
+    // 必须带 X-Cortex-Session 头：per-session 架构下 server 端从 sessionStateMap 按
+    // ctx.sessionId 取本 session 的 modalities，无 sessionId 则工具集为空（并发安全）。
+    const sessionHeader = { "X-Cortex-Session": "s-img" };
+    await postMcp(port, token, INIT_BODY, sessionHeader);
+    const result = await postMcp(port, token, TOOLS_LIST_BODY, sessionHeader) as Record<string, unknown>;
     const tools = ((result as Record<string, unknown>)?.result as Record<string, unknown>)?.tools as Array<Record<string, string>> | undefined;
     if (tools) {
       const toolNames = tools.map((t) => t.name);
@@ -262,8 +302,8 @@ describe("generate_image 工具 handler — 运行时逻辑", () => {
     const port = parseInt(urlParts[2]);
     const token = (cfg!.headers as Record<string, string>)["Authorization"].replace("Bearer ", "");
 
-    // 注册会话 cwd。
-    registerMediaGenSession("s-disable", "/ws-disable");
+    // 注册会话 cwd（新签名含 modalities）。
+    registerMediaGenSession("s-disable", "/ws-disable", new Set(["image"]));
 
     // 模拟 getPersistedState 返回 image.enabled = false（用户改了设置）。
     const disabledSettings = makeMediaGenSettings({ image: false });

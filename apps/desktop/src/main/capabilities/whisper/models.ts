@@ -260,11 +260,14 @@ async function runDownload(
     }, STALL_TIMEOUT_MS);
   };
 
+  // ⚠️ 竞态修复（ADV-004）：必须在第一个 await（mkdir）之前同步设置 activeDownload。
+  // 若在 await 之后设置，cancelDownload 在 mkdir 等待窗口内调用时，
+  // 见到 activeDownload===null 会返回 ok:true 但实际什么都没中止，下载继续进行。
+  activeDownload = { modelId, controller, tempPath, canceled: false };
+
   try {
     // 确保目录存在
     await mkdir(dirname(target), { recursive: true });
-
-    activeDownload = { modelId, controller, tempPath, canceled: false };
 
     // 连接超时守卫
     connectTimer = setTimeout(() => {
