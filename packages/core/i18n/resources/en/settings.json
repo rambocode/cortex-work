@@ -7,6 +7,7 @@
   "tabs": {
     "profile": "Profile",
     "general": "General",
+    "archivedSessions": "Archived",
     "providers": "Providers",
     "agent": "Agent",
     "pi": "Pi",
@@ -23,6 +24,22 @@
     "apps": "Apps",
     "personalization": "Personalization",
     "automation": "Automation"
+  },
+  "archivedSessions": {
+    "title": "Archived conversations",
+    "subtitle": "Archived conversation history",
+    "desc": "View conversations removed from the active sidebar. You can open, restore, or permanently delete them here.",
+    "searchPlaceholder": "Search archived conversations",
+    "countBadge": "{{count}} archived",
+    "groupCount": "{{count}} conversations",
+    "unarchive": "Unarchive",
+    "delete": "Delete",
+    "deleteConfirm": "Click again to confirm",
+    "noProject": "No project",
+    "deletedProject": "Deleted project",
+    "empty": "No archived conversations",
+    "searchEmpty": "No matching conversations",
+    "clearSearch": "Clear search"
   },
   "browser": {
     "title": "Browser",
