@@ -6098,6 +6098,10 @@ button.sb-row {
 .pw-settings-page .pw-dlg-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
 .pw-settings-page .pw-dlg-desc { font-size: 13px; max-width: 600px; margin-bottom: 8px; line-height: 1.6; }
 .pw-settings-page .pw-dlg-nav { width: 300px; }
+/* 二级菜单项：在组标题（.pw-dlg-nav-h）下额外缩进 10px（基础 padding-left 10 → 20），
+   形成层级感；width:100% 让 hover/选中背景铺满菜单宽，而非只贴文本宽（flex 列里 button
+   默认不拉伸到交叉轴满宽，同 .pw-settings-back 显式 width:100% 的原因）。 */
+.pw-settings-page .pw-dlg-nav-item { width: 100%; padding-left: 20px; }
 /* 分组导航：组标题收敛为小标题观感（参考 .twk-sect:小字/大写/字距/弱色阶,与 .pw-dlg-nav-h
    的页标题观感区分）;非首组上方留间距,凸显组边界。作用域限定设置页,不影响通用弹窗。 */
 .pw-settings-page .pw-dlg-nav-h {
