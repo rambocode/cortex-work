@@ -38,6 +38,11 @@ export {
   type PersonalState,
   type RightView,
 } from "./store/personal";
+export {
+  partitionArchivedSessions,
+  type ArchivedGroup,
+  type ArchivedPartition,
+} from "./store/archivedSessions";
 export { usePetStore, type PetState, type PetKind, type PetMode, type PetStore } from "./store/pet";
 export type { DesktopBridge } from "./desktop/bridge";
 export {
