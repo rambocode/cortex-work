@@ -25,6 +25,7 @@ import { registerAppHandlers } from "./app";
 import { registerAgentTraceHandlers } from "./agent-trace";
 import { registerBrowserHandlers } from "./browser";
 import { registerAutomationHandlers } from "../automation/ipc";
+import { registerSttHandlers } from "./stt";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -57,6 +58,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerAgentTraceHandlers({ devMode: options.agentTraceDevMode ?? false });
   registerBrowserHandlers();
   registerAutomationHandlers();
+  registerSttHandlers();
 }
 
 export { killAllCli } from "./cli";

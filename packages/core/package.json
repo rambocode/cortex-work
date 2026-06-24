@@ -38,7 +38,8 @@
     "./personal/devPreviewDetection": "./personal/devPreviewDetection.ts",
     "./personal/browserErrorInfo": "./personal/browserErrorInfo.ts",
     "./personal/browserOrigin": "./personal/browserOrigin.ts",
-    "./personal/annotationPayload": "./personal/annotationPayload.ts"
+    "./personal/annotationPayload": "./personal/annotationPayload.ts",
+    "./whisper/models": "./whisper/models.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",

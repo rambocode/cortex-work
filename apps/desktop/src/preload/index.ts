@@ -54,6 +54,11 @@ import type {
   UpdateState,
   NotificationPayload,
 } from "../main/ipc/types";
+import type {
+  LocalWhisperModelProgress,
+  LocalWhisperModelStatus,
+  LocalWhisperSourcesResult,
+} from "@cortex-work/core/whisper/models";
 import type { Locale } from "@cortex-work/core/i18n/native";
 
 interface AppInfo {
@@ -411,6 +416,37 @@ const personal = {
   // 的可选方法逐字对齐。
   pluginList: (): Promise<PluginListResult> => ipcRenderer.invoke("plugins:list"),
   marketplaceList: (): Promise<MarketplaceListResult> => ipcRenderer.invoke("marketplace:list"),
+  // ── 本地 Whisper 模型管理（U7）────────────────────────────────────────────
+  // IPC 通道对应 apps/desktop/src/main/ipc/stt.ts；形状与 DesktopBridge 的
+  // listWhisperModels/getWhisperModelStatus/... 逐字对齐（手工比对，无 satisfies）。
+  listWhisperModels: (): Promise<LocalWhisperModelStatus[]> =>
+    ipcRenderer.invoke("stt:listModels"),
+  getWhisperModelStatus: (modelId: string): Promise<LocalWhisperModelStatus> =>
+    ipcRenderer.invoke("stt:modelStatus", modelId),
+  downloadWhisperModel: (args: {
+    modelId: string;
+    sourceId?: string;
+  }): Promise<{ ok: boolean; message?: string; status?: LocalWhisperModelStatus }> =>
+    ipcRenderer.invoke("stt:downloadModel", args),
+  cancelWhisperDownload: (
+    modelId: string,
+  ): Promise<{ ok: boolean; status?: LocalWhisperModelStatus }> =>
+    ipcRenderer.invoke("stt:cancelDownload", modelId),
+  deleteWhisperModel: (
+    modelId: string,
+  ): Promise<{ ok: boolean; message?: string; status?: LocalWhisperModelStatus }> =>
+    ipcRenderer.invoke("stt:deleteModel", modelId),
+  checkWhisperSources: (modelId?: string): Promise<LocalWhisperSourcesResult> =>
+    ipcRenderer.invoke("stt:checkSources", modelId),
+  // 进度订阅：主进程经 stt:downloadProgress 广播，渲染端转为回调 + 退订（KTD5）。
+  onWhisperDownloadProgress: (
+    cb: (progress: LocalWhisperModelProgress) => void,
+  ): (() => void) => {
+    const listener = (_e: IpcRendererEvent, progress: LocalWhisperModelProgress) =>
+      cb(progress);
+    ipcRenderer.on("stt:downloadProgress", listener);
+    return () => ipcRenderer.removeListener("stt:downloadProgress", listener);
+  },
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

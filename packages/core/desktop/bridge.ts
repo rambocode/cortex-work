@@ -67,6 +67,11 @@ import type {
   AppInfo,
   UpdateState,
 } from "./types";
+import type {
+  LocalWhisperModelStatus,
+  LocalWhisperModelProgress,
+  LocalWhisperSourcesResult,
+} from "../whisper/models";
 import type { Locale } from "../i18n/locales";
 
 export interface DesktopBridge {
@@ -340,4 +345,22 @@ export interface DesktopBridge {
   // 可选:web/旧壳无此能力 → 插件面降级空态。安装/升级/删除为后续阶段，本期不提供。
   pluginList?(): Promise<PluginListResult>;
   marketplaceList?(): Promise<MarketplaceListResult>;
+  // ── 本地 Whisper 模型管理（U7）。可选:web/旧壳无此能力 → UI 降级隐藏本地转写入口。 ──
+  // IPC 通道: stt:listModels / stt:modelStatus / stt:downloadModel /
+  //           stt:cancelDownload / stt:deleteModel / stt:checkSources
+  // 进度推送: stt:downloadProgress（主进程 → 渲染端，通过 onWhisperDownloadProgress 订阅）
+  /** 列出所有本地 Whisper 模型状态（missing/downloading/ready/error）。*/
+  listWhisperModels?(): Promise<LocalWhisperModelStatus[]>;
+  /** 查询单个模型状态（含下载进度快照）。*/
+  getWhisperModelStatus?(modelId: string): Promise<LocalWhisperModelStatus>;
+  /** 下载指定模型（互斥;进度经 onWhisperDownloadProgress 推送）。*/
+  downloadWhisperModel?(args: { modelId: string; sourceId?: string }): Promise<{ ok: boolean; message?: string; status?: LocalWhisperModelStatus }>;
+  /** 取消正在进行的下载（幂等）。*/
+  cancelWhisperDownload?(modelId: string): Promise<{ ok: boolean; status?: LocalWhisperModelStatus }>;
+  /** 删除已下载的模型文件。*/
+  deleteWhisperModel?(modelId: string): Promise<{ ok: boolean; message?: string; status?: LocalWhisperModelStatus }>;
+  /** 检测各下载源对指定模型的可达性。*/
+  checkWhisperSources?(modelId?: string): Promise<LocalWhisperSourcesResult>;
+  /** 订阅下载进度推送（仿 onUpdateState；返回退订函数）。*/
+  onWhisperDownloadProgress?(cb: (progress: LocalWhisperModelProgress) => void): () => void;
 }
