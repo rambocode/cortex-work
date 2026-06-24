@@ -8,6 +8,7 @@ import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { renderRich } from "./rich";
 import { chatMarkdownComponents } from "./personal/chatMarkdown";
 import { ChatImages } from "./personal/ChatImages";
+import { ChatFiles } from "./personal/ChatFiles";
 import { renderAvatar } from "./personal/avatars";
 
 function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
@@ -187,6 +188,7 @@ const TextMessage = memo(function TextMessage({
           </div>
         ) : null}
         {m.images && m.images.length > 0 ? <ChatImages images={m.images} /> : null}
+        {m.files && m.files.length > 0 ? <ChatFiles files={m.files} /> : null}
         {renderTail?.(m)}
       </div>
     </div>

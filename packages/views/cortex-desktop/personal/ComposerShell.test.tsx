@@ -327,7 +327,7 @@ describe("ComposerShell 插入并运行（submit 标志）", () => {
     const onSend = vi.fn(() => true);
     renderInsert({ onSend });
     act(() => usePersonalStore.getState().insertToComposer("跑这个", { submit: true }));
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith("跑这个", expect.anything(), undefined));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("跑这个", expect.anything(), undefined, undefined));
   });
 
   it("submit 缺省 → 只插入不发送", async () => {

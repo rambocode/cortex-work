@@ -110,6 +110,7 @@ export default interface Resources {
       "groupPlaceholder": "在 {{name}} 中发消息,@ 提及成员或他们的 Agent…",
       "imagesHint": "将随下条消息发送",
       "maxImages": "最多 {{count}} 张图片,已忽略多余",
+      "maxDocs": "最多 {{count}} 个文档,已忽略多余",
       "mention": "提及",
       "mentionToast": "提及 · 输入 @ 选择联系人",
       "micBusyTitle": "正在转写",
@@ -141,6 +142,7 @@ export default interface Resources {
       },
       "readAttachmentFailed": "读取附件失败：{{error}}",
       "readImageFailed": "读取图片失败：{{error}}",
+      "readDocFailed": "读取文档失败：{{error}}",
       "recordFailed": "录音失败：{{error}}",
       "remove": "移除",
       "removeImage": "移除 {{name}}",
@@ -172,6 +174,7 @@ export default interface Resources {
       "todoTruncated": "{{title}} 过大,已截断注入",
       "transcribeFailed": "转写失败：{{error}}",
       "uploadImage": "上传图片",
+      "uploadDoc": "上传文档",
       "voiceToast": "语音输入 · 暂未实现"
     },
     "core": {
@@ -187,6 +190,8 @@ export default interface Resources {
       "externalUnavailable": "⚠️ {{name}} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Pi 后重试。",
       "imageSaveFailed": "⚠️ 图片保存失败：{{error}}",
       "imageUnsupported": "⚠️ 当前环境不支持图片上传。",
+      "docSaveFailed": "⚠️ 文档保存失败：{{error}}",
+      "docUnsupported": "⚠️ 当前环境不支持文档上传。",
       "newSession": "新会话",
       "notify": {
         "title": "Cortex Desktop",

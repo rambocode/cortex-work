@@ -13,7 +13,7 @@ import {
   usePetStore,
 } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
-import type { AgentKind, PendingImage, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
+import type { AgentKind, PendingDocFile, PendingImage, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
 import { FILE_DRAG_MIME } from "./FilesView";
@@ -24,6 +24,15 @@ import {
   imageDedupeKey,
   rejectReasonText,
 } from "./imageIntake";
+import {
+  DOC_ACCEPT_ATTR,
+  MAX_DOCS_PER_MESSAGE,
+  checkDocFile,
+  docDedupeKey,
+  docRejectText,
+  fileToPendingDocFile,
+  isAcceptedDoc,
+} from "./docIntake";
 
 // 输入框占位文案中的 agent 展示名。
 const AGENT_PLACEHOLDER_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
@@ -126,6 +135,7 @@ export function ComposerShell({
     text: string,
     attachments: PersonalAttachment[],
     images?: PendingImage[],
+    docFiles?: PendingDocFile[],
   ) => void | boolean | Promise<void | boolean>;
   onStop?: () => void;
   /** pi 运行中插话:把引导注入当前轮（仅 pi + 提供时启用;非 pi/单发不传 → 运行中只能停止）。 */
@@ -147,6 +157,7 @@ export function ComposerShell({
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<PersonalAttachment[]>([]);
   const [images, setImages] = useState<PendingImage[]>([]);
+  const [docFiles, setDocFiles] = useState<PendingDocFile[]>([]);
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -158,6 +169,7 @@ export function ComposerShell({
   const [tryPlugin, setTryPlugin] = useState<{ id: string; name: string; icon?: string } | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -188,15 +200,24 @@ export function ComposerShell({
 
   // 以显式文本发送（「插入并运行」自动提交用）:不读闭包 text state,避免 setText 异步后发到旧值。
   const sendText = async (textToSend: string) => {
-    if ((!textToSend.trim() && images.length === 0) || running || sending) return; // 纯图(无文本)允许发送
+    // 纯图 / 纯文档(无文本)也允许发送。
+    if ((!textToSend.trim() && images.length === 0 && docFiles.length === 0) || running || sending) return;
     setSending(true);
     try {
-      // onSend 返回「是否已消费」(真正发出);未消费(/clear、pi 不可用、落盘失败)则保留待发图供重试。
-      const consumed = await onSend(textToSend, attachments, images.length ? images : undefined);
+      // onSend 返回「是否已消费」(真正发出);未消费(/clear、pi 不可用、落盘失败)则保留待发图/文档供重试。
+      const consumed = await onSend(
+        textToSend,
+        attachments,
+        images.length ? images : undefined,
+        docFiles.length ? docFiles : undefined,
+      );
       setText("");
       setAttachments([]);
       setTryPlugin(null); // 发送后清插件试用 pill
-      if (consumed) setImages([]); // KTD9:仅真正消费才清待发图
+      if (consumed) {
+        setImages([]); // 仅真正消费才清待发图/文档
+        setDocFiles([]);
+      }
     } finally {
       setSending(false);
     }
@@ -240,15 +261,18 @@ export function ComposerShell({
     if (overflow) onToast(t("composer.maxImages", { count: MAX_IMAGES_PER_MESSAGE }));
   };
 
-  // 粘贴:剪贴板含图片 → 加入待发(并拦截默认粘贴);纯文本走原行为(不拦截)。
+  // 粘贴:剪贴板文件分流——图片走图片通道、受支持文档走文档通道(R8 不混用);纯文本走原行为(不拦截)。
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(e.clipboardData?.items ?? [])
-      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+    const fileItems = Array.from(e.clipboardData?.items ?? [])
+      .filter((it) => it.kind === "file")
       .map((it) => it.getAsFile())
       .filter((f): f is File => !!f);
-    if (files.length === 0) return;
+    const imgs = fileItems.filter((f) => f.type.startsWith("image/"));
+    const docs = fileItems.filter((f) => !f.type.startsWith("image/") && isAcceptedDoc(f.name));
+    if (imgs.length === 0 && docs.length === 0) return;
     e.preventDefault();
-    void addImageFiles(files);
+    if (imgs.length) void addImageFiles(imgs);
+    if (docs.length) void addDocFiles(docs);
   };
 
   // 文件选择:选完即清空 input.value,允许重复选同一文件。
@@ -256,6 +280,50 @@ export function ComposerShell({
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     void addImageFiles(files);
+  };
+
+  // 采集文档:格式/大小校验(toast 原因)→ File → PendingDocFile(优先 srcPath)→ 去重 + 张数上限。
+  // 文档内容不进消息,发送时经 doc:save 落盘 + 由 agent 经 extract_document 按需读取。
+  const addDocFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    const accepted: File[] = [];
+    for (const f of files) {
+      const reason = checkDocFile(f);
+      if (reason) onToast(docRejectText(reason, f.name));
+      else accepted.push(f);
+    }
+    if (accepted.length === 0) return;
+    let pending: PendingDocFile[];
+    try {
+      pending = await Promise.all(accepted.map((f) => fileToPendingDocFile(f)));
+    } catch (err) {
+      onToast(t("composer.readDocFailed", { error: err instanceof Error ? err.message : String(err) }));
+      return;
+    }
+    let overflow = false;
+    setDocFiles((prev) => {
+      const seen = new Set(prev.map((d) => docDedupeKey(d.name, d.sizeBytes)));
+      const merged = [...prev];
+      for (const d of pending) {
+        const key = docDedupeKey(d.name, d.sizeBytes);
+        if (seen.has(key)) continue;
+        if (merged.length >= MAX_DOCS_PER_MESSAGE) {
+          overflow = true;
+          continue;
+        }
+        seen.add(key);
+        merged.push(d);
+      }
+      return merged;
+    });
+    if (overflow) onToast(t("composer.maxDocs", { count: MAX_DOCS_PER_MESSAGE }));
+  };
+
+  // 文档选择:选完即清空 input.value,允许重复选同一文件。
+  const onPickDocs = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    void addDocFiles(files);
   };
 
   const steer = () => {
@@ -483,10 +551,16 @@ export function ComposerShell({
     const rawPrompt = e.dataTransfer.getData(PROMPT_DRAG_MIME);
     const rawTodo = e.dataTransfer.getData(TODO_DRAG_MIME);
     const rawFile = e.dataTransfer.getData(FILE_DRAG_MIME);
-    // 应用内 MIME(skill/todo/file)优先;否则当作系统图片文件拖入(图片无需 bridge,走 FileReader)。
+    // 应用内 MIME(skill/todo/file)优先;否则当作系统文件拖入,按类型分流:
+    // 图片→图片通道、受支持文档→文档通道(R8 不混用)、其余(含旧二进制 .doc/.xls/.ppt)→ 逐个 toast 跳过。
     if (!rawPrompt && !rawTodo && !rawFile) {
-      const files = Array.from(e.dataTransfer.files ?? []).filter((f) => f.type.startsWith("image/"));
-      if (files.length) void addImageFiles(files);
+      const all = Array.from(e.dataTransfer.files ?? []);
+      const imgs = all.filter((f) => f.type.startsWith("image/"));
+      const docs = all.filter((f) => !f.type.startsWith("image/") && isAcceptedDoc(f.name));
+      const rejected = all.filter((f) => !f.type.startsWith("image/") && !isAcceptedDoc(f.name));
+      if (imgs.length) void addImageFiles(imgs);
+      if (docs.length) void addDocFiles(docs);
+      for (const f of rejected) onToast(docRejectText("type", f.name));
       return;
     }
     if (!bridge) return;
@@ -593,6 +667,25 @@ export function ComposerShell({
               </span>
             ))}
             {running ? <span className="img-attach-hint">{t("composer.imagesHint")}</span> : null}
+          </div>
+        ) : null}
+        {docFiles.length > 0 ? (
+          <div className="attach-row">
+            {docFiles.map((d) => (
+              <span key={d.id} className="attach-pill" title={d.name}>
+                <span className="ap-thumb" style={{ background: "linear-gradient(135deg,#3b6fb0,#2a5183)" }}>
+                  <Icon.File size={12} />
+                </span>
+                <span>{d.name}</span>
+                <button
+                  className="attach-x"
+                  onClick={() => setDocFiles((prev) => prev.filter((x) => x.id !== d.id))}
+                  title={t("composer.remove")}
+                >
+                  <Icon.X size={11} />
+                </button>
+              </span>
+            ))}
           </div>
         ) : null}
         {/* slash 命令匹配提示:↑/↓ 选择、Enter/Tab 执行高亮项、点击亦可执行 */}
@@ -717,6 +810,23 @@ export function ComposerShell({
             multiple
             style={{ display: "none" }}
             onChange={onPickFiles}
+          />
+          <button
+            className="pill"
+            type="button"
+            onClick={() => docInputRef.current?.click()}
+            title={t("composer.uploadDoc")}
+            aria-label={t("composer.uploadDoc")}
+          >
+            <Icon.Paperclip size={13} />
+          </button>
+          <input
+            ref={docInputRef}
+            type="file"
+            accept={DOC_ACCEPT_ATTR}
+            multiple
+            style={{ display: "none" }}
+            onChange={onPickDocs}
           />
           <div className="spacer" />
           <span className="pill pw-model-pill">

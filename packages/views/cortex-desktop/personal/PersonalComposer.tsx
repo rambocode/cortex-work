@@ -3,7 +3,7 @@
 // 「发送到 Chat」插入。
 
 import { usePiEnabledSkills } from "@cortex-work/core";
-import type { PendingImage, PersonalAttachment, SessionMeta, ThinkingLevel } from "@cortex-work/core";
+import type { PendingDocFile, PendingImage, PersonalAttachment, SessionMeta, ThinkingLevel } from "@cortex-work/core";
 import { ComposerShell, type SlashCommand } from "./ComposerShell";
 
 // 内建 slash 命令(发送拦截在 PersonalChatArea.onSend）。kind:"builtin" = 选中即执行。
@@ -39,6 +39,7 @@ export function PersonalComposer({
     text: string,
     attachments: PersonalAttachment[],
     images?: PendingImage[],
+    docFiles?: PendingDocFile[],
   ) => void | boolean | Promise<void | boolean>;
   onStop: () => void;
   /** pi 运行中插话:注入当前轮（仅 pi 会话传入;ComposerShell 内部再按 isPi+running 门控）。 */

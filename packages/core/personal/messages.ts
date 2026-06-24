@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { ChatImageRef, Message } from "../types";
+import type { ChatFileRef, ChatImageRef, Message } from "../types";
 import type {
   AgentKind,
   AskQuestionAnswers,
@@ -13,6 +13,7 @@ import type {
   CliStreamEvent,
   DerivedAgentMeta,
   HiddenHistoryMeta,
+  PendingDocFile,
   PendingImage,
   PermissionMode,
   PiSessionEvent,
@@ -1429,6 +1430,7 @@ function appendUserMessage(
   text: string,
   attachments: PersonalAttachment[],
   images?: ChatImageRef[],
+  files?: ChatFileRef[],
 ): void {
   appendMsg(qc, sessionId, {
     kind: "text",
@@ -1439,8 +1441,25 @@ function appendUserMessage(
     attachments: attachments.length ? attachments.map((a) => ({ name: a.name, kind: a.kind })) : undefined,
     // 已落盘的图片引用(path/name/mime/宽高;不含 dataUrl),气泡缩略图据此经 image:read 回读渲染。
     images: images?.length ? images : undefined,
+    // 已落盘的文档引用(path/name/mime/字节数;不含内容),气泡据此回显「附带了什么文档」,
+    // 内容由 agent 经 extract_document 按需读取。
+    files: files?.length ? files : undefined,
     uid: uid("u"),
   });
+}
+
+// 把本轮附带的文档清单注入 system prompt:告诉 agent 有哪些文档及其绝对路径,并提示用
+// extract_document 工具按需读取(否则 agent 不知道有文件可读)。与图片把路径注入 prompt 同理。
+export function buildDocFilesSystemPrompt(files: ChatFileRef[]): string | undefined {
+  if (files.length === 0) return undefined;
+  const list = files.map((f) => `- ${f.name} (path: ${f.path})`).join("\n");
+  return [
+    "<attached-documents>",
+    "用户在本条消息中附带了以下文档。需要其内容时,调用 extract_document 工具并传入对应 path 读取",
+    "(支持 PDF / Word / Excel / PPT / 纯文本;扫描件可能无文本)。不要臆测文档内容。",
+    list,
+    "</attached-documents>",
+  ].join("\n");
 }
 
 // pi 轮启动/受理失败:收尾本轮（drop typing + ⚠️ + 清 running）。
@@ -1929,7 +1948,9 @@ export interface PersonalActions {
     images?: PendingImage[],
     // 已落盘图片引用(编辑重发复用原消息的图,不重新落盘)。
     presavedImages?: ChatImageRef[],
-    // 返回是否「已消费」(真正发出/已落定):composer 据此决定是否清空待发图(未消费则保留供重试)。
+    // 待发文档(send 内逐个落盘;内容不进消息,由 agent 经 extract_document 按需读取)。
+    docFiles?: PendingDocFile[],
+    // 返回是否「已消费」(真正发出/已落定):composer 据此决定是否清空待发图/文档(未消费则保留供重试)。
   ) => Promise<boolean>;
   stop: (sessionId: string) => Promise<void>;
   // pi 运行中插话:把引导注入当前轮（仅 pi 会话有效;非 pi/未运行 no-op）。
@@ -1958,10 +1979,11 @@ export function usePersonalActions(): PersonalActions {
   const qc = useQueryClient();
 
   const send = useCallback<PersonalActions["send"]>(
-    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages) => {
+    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles) => {
       if (!bridge) return false;
       const hasImages = !!(images?.length || presavedImages?.length);
-      if (!text.trim() && !hasImages) return false; // 纯图(无文本)允许发送;两者皆空才拒
+      const hasDocs = !!docFiles?.length;
+      if (!text.trim() && !hasImages && !hasDocs) return false; // 纯图/纯文档(无文本)允许发送;皆空才拒
       // 新一轮发送 → 清掉上一轮可能留下的运行模式拦截提示(用户已切档自动重发,或手动重发/换话题)。
       usePersonalStore.getState().setModeBlockHint(session.id, undefined);
       if (session.agent !== "pi" && usePersonalStore.getState().agentsAvailable?.[session.agent] === false) {
@@ -2045,6 +2067,50 @@ export function usePersonalActions(): PersonalActions {
       const cliImages = refs?.map((r) => ({ path: r.path, mimeType: r.mimeType }));
       const imagePaths = refs?.map((r) => r.path);
 
+      // 文档落盘(在 appendUserMessage / spawn 之前):逐个经 doc:save 拿绝对路径组装 ChatFileRef[]。
+      // 内容不进消息,agent 经 extract_document 按需读取。任一失败 → 整轮中止(已落盘的随会话删除清理)。
+      const fileRefs: ChatFileRef[] = [];
+      if (docFiles?.length) {
+        if (!bridge.docSave) {
+          if (session.agent === "pi") piSendStarting.delete(session.id);
+          await ensureChatLoaded(qc, bridge, session.id);
+          appendMsg(qc, session.id, {
+            kind: "text",
+            who: session.agent,
+            time: realHHMM(),
+            text: t("chat:core.docUnsupported"),
+            uid: uid("err"),
+          });
+          flushChat(qc, session.id);
+          return false;
+        }
+        try {
+          for (const d of docFiles) {
+            const { path, sizeBytes } = await bridge.docSave({
+              sessionId: session.id,
+              fileName: d.name,
+              mimeType: d.mimeType,
+              srcPath: d.srcPath,
+              data: d.data,
+            });
+            fileRefs.push({ path, name: d.name, mimeType: d.mimeType, sizeBytes });
+          }
+        } catch (err) {
+          if (session.agent === "pi") piSendStarting.delete(session.id);
+          await ensureChatLoaded(qc, bridge, session.id);
+          appendMsg(qc, session.id, {
+            kind: "text",
+            who: session.agent,
+            time: realHHMM(),
+            text: t("chat:core.docSaveFailed", { error: err instanceof Error ? err.message : String(err) }),
+            uid: uid("err"),
+          });
+          flushChat(qc, session.id);
+          return false;
+        }
+      }
+      const docRefs = fileRefs.length ? fileRefs : undefined;
+
       const runId = uid("run");
       const typingUid = uid("typing");
 
@@ -2055,7 +2121,7 @@ export function usePersonalActions(): PersonalActions {
       // 否则新轮的 tool/reasoning 会追加在旧轮已收起的步骤之后。
       clearProcess(qc, session.id);
 
-      appendUserMessage(qc, session.id, text, attachments, refs);
+      appendUserMessage(qc, session.id, text, attachments, refs, docRefs);
       appendMsg(qc, session.id, {
         kind: "typing",
         who: session.agent,
@@ -2064,9 +2130,10 @@ export function usePersonalActions(): PersonalActions {
       });
 
       const attachmentPrompt = buildAttachmentSystemPrompt(attachments);
-      // 组装顺序:全局指令/语言(U3/U4,三端统一) → 项目信息(Spotlight) → 附件 skills/todos;皆空仍传 undefined。
+      const docPrompt = docRefs ? buildDocFilesSystemPrompt(docRefs) : undefined;
+      // 组装顺序:全局指令/语言(U3/U4,三端统一) → 项目信息(Spotlight) → 附件 skills/todos → 文档清单;皆空仍传 undefined。
       const appendSystemPrompt =
-        [buildGlobalAppend(), extraSystemPrompt, attachmentPrompt].filter(Boolean).join("\n\n") || undefined;
+        [buildGlobalAppend(), extraSystemPrompt, attachmentPrompt, docPrompt].filter(Boolean).join("\n\n") || undefined;
 
       // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。
       if (session.agent === "pi") {
