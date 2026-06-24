@@ -7,6 +7,7 @@ import type {
   AskFollowupRequest,
   AsrTranscribeRequest,
   AsrTranscribeResponse,
+  AsrSettings,
   AutomationInput,
   AutomationMeta,
   AutomationRun,
@@ -447,6 +448,15 @@ const personal = {
     ipcRenderer.on("stt:downloadProgress", listener);
     return () => ipcRenderer.removeListener("stt:downloadProgress", listener);
   },
+  // ── U8：统一转写入口（按 AsrSettings.protocol 分发） ──────────────────────
+  // 相比旧的 asrTranscribe（走 asr:transcribe，仅在线），
+  // transcribeSpeech 统一处理 local-whisper / openai-transcriptions / mimo-asr，
+  // 由主进程 stt:transcribe handler 按 protocol 路由。
+  transcribeSpeech: (
+    req: AsrTranscribeRequest,
+    asrSettings: AsrSettings,
+  ): Promise<AsrTranscribeResponse> =>
+    ipcRenderer.invoke("stt:transcribe", { ...req, asrSettings }),
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

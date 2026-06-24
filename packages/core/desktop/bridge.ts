@@ -72,6 +72,7 @@ import type {
   LocalWhisperModelProgress,
   LocalWhisperSourcesResult,
 } from "../whisper/models";
+import type { AsrSettings } from "./media-gen-types";
 import type { Locale } from "../i18n/locales";
 
 export interface DesktopBridge {
@@ -363,4 +364,11 @@ export interface DesktopBridge {
   checkWhisperSources?(modelId?: string): Promise<LocalWhisperSourcesResult>;
   /** 订阅下载进度推送（仿 onUpdateState；返回退订函数）。*/
   onWhisperDownloadProgress?(cb: (progress: LocalWhisperModelProgress) => void): () => void;
+  // ── U8：统一转写入口 ─────────────────────────────────────────────────────────
+  // 相比 asrTranscribe（只支持在线），transcribeSpeech 按 asrSettings.protocol 路由：
+  //   local-whisper          → 主进程 spawn whisper-cli（本地，无网络）
+  //   openai-transcriptions  → OpenAI 兼容 /v1/audio/transcriptions
+  //   mimo-asr               → MIMO ASR（同 OpenAI 兼容接口形状）
+  // U9 ComposerShell 通过此方法发起转写；asrTranscribe 保持向后兼容供旧消费方使用。
+  transcribeSpeech?(req: AsrTranscribeRequest, asrSettings: AsrSettings): Promise<AsrTranscribeResponse>;
 }

@@ -8,6 +8,7 @@
 //   stt:cancelDownload  → WhisperDownloadResult（幂等）
 //   stt:deleteModel     → WhisperDownloadResult
 //   stt:checkSources    → LocalWhisperSourcesResult
+//   stt:transcribe      → AsrTranscribeResponse（U8 新增：按 AsrSettings.protocol 分发）
 //
 // 进度推送通道（主进程 → 渲染端，单向推送）：
 //   stt:downloadProgress  payload: LocalWhisperModelProgress
@@ -24,7 +25,10 @@ import {
   checkSources,
   setWhisperProgressEmitter,
 } from "../capabilities/whisper/models";
+import { transcribeLocal } from "../capabilities/whisper/transcribe";
+import { transcribeOnline, ASR_MAX_BYTES } from "../capabilities/whisper/online-transcribe";
 import type { LocalWhisperModelProgress } from "@cortex-work/core/whisper/models";
+import type { AsrTranscribeRequest, AsrTranscribeResponse, AsrSettings } from "./types";
 
 /** 向所有未销毁窗口广播下载进度。*/
 function broadcastProgress(progress: LocalWhisperModelProgress): void {
@@ -74,4 +78,63 @@ export function registerSttHandlers(): void {
   ipcMain.handle("stt:checkSources", async (_e, modelId?: unknown) => {
     return checkSources(modelId);
   });
+
+  // ── U8：统一转写入口（按 AsrSettings.protocol 分发） ───────────────────────
+  // 调用方（U9 ComposerShell）传入完整的 asrSettings，由此 handler 路由到：
+  //   local-whisper          → transcribeLocal（spawn whisper-cli）
+  //   openai-transcriptions  → transcribeOnline（OpenAI 兼容 API）
+  //   mimo-asr               → transcribeOnline（MIMO ASR，同 OpenAI 兼容接口形状）
+  //
+  // MAX_BYTES 在入口统一检查，两条路径均不重复判断。
+  ipcMain.handle(
+    "stt:transcribe",
+    async (
+      _e,
+      req: AsrTranscribeRequest & { asrSettings: AsrSettings },
+    ): Promise<AsrTranscribeResponse> => {
+      const { asrSettings, ...audioReq } = req;
+
+      // ── 统一 MAX_BYTES 检查 ─────────────────────────────────────────────────
+      if (audioReq.audio.byteLength > ASR_MAX_BYTES) {
+        throw new Error(
+          `音频文件超过大小限制（${Math.round(audioReq.audio.byteLength / 1024 / 1024)} MB > ${Math.round(ASR_MAX_BYTES / 1024 / 1024)} MB）`,
+        );
+      }
+
+      const protocol = asrSettings?.protocol ?? "openai-transcriptions";
+
+      if (protocol === "local-whisper") {
+        // ── 本地 whisper-cli 路径 ─────────────────────────────────────────────
+        // 取模型的磁盘路径：modelId 从 asrSettings.model 读取，经 getModelStatus 查 ready 状态。
+        const modelId = asrSettings.model;
+        const statusResult = await getModelStatus(modelId);
+        // getModelStatus(modelId) 返回单个状态或 undefined
+        const status = Array.isArray(statusResult) ? statusResult[0] : statusResult;
+        if (!status || status.state !== "ready" || !status.path) {
+          throw new Error(
+            `本地 Whisper 模型「${modelId}」尚未就绪（当前状态: ${status?.state ?? "未找到"}）。` +
+            `请先在设置中下载该模型。`,
+          );
+        }
+        const result = await transcribeLocal({
+          audio: audioReq.audio,
+          mimeType: audioReq.mimeType,
+          language: asrSettings.language ?? "",
+          modelPath: status.path,
+        });
+        return { text: result.text };
+      }
+
+      // ── 在线路径（openai-transcriptions / mimo-asr） ──────────────────────
+      // asrSettings 提供 baseUrl / apiKey / model / language；
+      // audioReq 提供 audio / mimeType / fileName。
+      return transcribeOnline({
+        ...audioReq,
+        baseUrl: asrSettings.baseUrl,
+        apiKey: asrSettings.apiKey,
+        model: asrSettings.model,
+        language: asrSettings.language || undefined,
+      });
+    },
+  );
 }

@@ -2,9 +2,6 @@
 // 在主进程发请求：规避 renderer CORS,且 apiKey 不出 main。
 
 import { ipcMain } from "electron";
-import { readFile } from "fs/promises";
-import { homedir } from "os";
-import { join } from "path";
 import type {
   AsrTranscribeRequest,
   AsrTranscribeResponse,
@@ -14,7 +11,12 @@ import type {
   TtsStreamEvent,
   TtsVoiceOption,
 } from "./types";
-import { audioSpeechPayload, audioSpeechUrl, audioTranscriptionsUrl, audioVoiceUrls, chatCompletionsUrl } from "./push-sign";
+import { audioSpeechPayload, audioSpeechUrl, audioVoiceUrls, chatCompletionsUrl } from "./push-sign";
+// OQ4：在线转写逻辑已抽取为共享函数（capabilities/whisper/online-transcribe.ts），
+// asr:transcribe（旧入口）与 stt:transcribe 在线分支（新入口）均调用它，
+// 确保 MAX_BYTES 约束与行为一致。
+import { transcribeOnline, ASR_MAX_BYTES } from "../capabilities/whisper/online-transcribe";
+import { authHeaders } from "../capabilities/whisper/transcribe-auth";
 
 interface OpenAiCompleteRequest {
   baseUrl: string;
@@ -25,33 +27,6 @@ interface OpenAiCompleteRequest {
 
 const TIMEOUT_MS = 60_000;
 const TTS_STREAM_TIMEOUT_MS = 10 * 60_000;
-const ASR_TIMEOUT_MS = 180_000;
-const LOCAL_OMLX_BASE_URLS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-
-function isLocalOmlxUrl(baseUrl: string): boolean {
-  try {
-    const url = new URL(baseUrl);
-    return LOCAL_OMLX_BASE_URLS.has(url.hostname) && (!url.port || url.port === "8000");
-  } catch {
-    return false;
-  }
-}
-
-async function localOmlxApiKey(baseUrl: string): Promise<string | undefined> {
-  if (!isLocalOmlxUrl(baseUrl)) return undefined;
-  try {
-    const raw = await readFile(join(homedir(), ".omlx", "settings.json"), "utf8");
-    const data = JSON.parse(raw) as { auth?: { api_key?: unknown } };
-    return typeof data.auth?.api_key === "string" && data.auth.api_key.trim() ? data.auth.api_key : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function authHeaders(baseUrl: string, apiKey?: string): Promise<Record<string, string>> {
-  const key = apiKey?.trim() || (await localOmlxApiKey(baseUrl));
-  return key ? { Authorization: `Bearer ${key}` } : {};
-}
 
 function voiceFromUnknown(item: unknown): TtsVoiceOption | null {
   if (typeof item === "string" && item.trim()) return { id: item.trim() };
@@ -189,27 +164,12 @@ export function registerLlmHandlers(): void {
   });
 
   // ASR：OpenAI 兼容 /v1/audio/transcriptions,返回转写文本。
+  // OQ4：实际转写逻辑已委托给共享函数 transcribeOnline（含 MAX_BYTES 检查），
+  // 此 handler 作为旧入口保持向后兼容（renderer 仍可直接调 asr:transcribe）。
   ipcMain.handle("asr:transcribe", async (_e, req: AsrTranscribeRequest): Promise<AsrTranscribeResponse> => {
-    const form = new FormData();
-    form.append("file", new Blob([req.audio], { type: req.mimeType || "application/octet-stream" }), req.fileName);
-    form.append("model", req.model);
-    form.append("response_format", "verbose_json");
-    if (req.language) form.append("language", req.language);
-
-    const res = await fetch(audioTranscriptionsUrl(req.baseUrl), {
-      method: "POST",
-      headers: {
-        ...(await authHeaders(req.baseUrl, req.apiKey)),
-      },
-      body: form,
-      signal: AbortSignal.timeout(ASR_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`ASR 接口 HTTP ${res.status}${body ? `:${body.slice(0, 200)}` : ""}`);
+    if (req.audio.byteLength > ASR_MAX_BYTES) {
+      throw new Error(`音频文件超过大小限制（${Math.round(req.audio.byteLength / 1024 / 1024)} MB > ${Math.round(ASR_MAX_BYTES / 1024 / 1024)} MB）`);
     }
-    const data = (await res.json()) as AsrTranscribeResponse;
-    if (typeof data.text !== "string" || !data.text.trim()) throw new Error("ASR 未返回转写文本");
-    return { ...data, text: data.text.trim() };
+    return transcribeOnline(req);
   });
 }

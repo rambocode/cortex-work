@@ -13,6 +13,9 @@ productName: Cortex
 # node-pty 已由 pnpm 安装步按 onlyBuiltDependencies 重建;关掉 electron-builder 的原生重建,
 # 让签名+发布步不在持有 PAT/证书时再跑 node-gyp 原生编译(密钥按步隔离,见计划 KTD8)。
 npmRebuild: false
+# ⚠️ beforePack 只能有一个入口。将来若需增加预打包步骤，必须并入此文件。
+# 职责：①构建 whisper-cli（仅 darwin-arm64）；②删除非目标平台 whisper runner 目录。
+beforePack: scripts/before-pack.cjs
 directories:
   output: dist
 # 应用内更新内容:由 scripts/extract-release-notes.mjs 在打包前生成 build/release-notes.md
@@ -87,6 +90,12 @@ extraResources:
   # skills/locate.builtinSkillsRoot 打包态指向这里；第二阶段下载的官方库走 userData/skills 优先覆盖。
   - from: resources/skills
     to: skills
+  # 本地 Whisper runner（U8）：whisper-cli 原生可执行文件不能进 asar（asar 是虚拟归档，
+  # 原生二进制必须以真实文件存在才可被 child_process.spawn 执行）。
+  # beforePack 中 prune 步骤已删除非目标平台目录，打包时只含目标平台产物。
+  # 落到 <App>/Contents/Resources/whisper/<platform>-<arch>/，resolveWhisperRunner 打包态指向这里。
+  - from: resources/whisper
+    to: whisper
 # pi 现在走 resources/pi 下的 bun 自包含二进制（extraResources,不进 asar）,依赖全 inline,
 # 故无需再为 pi 依赖 unpack 任何 node_modules。这里只留必须落地的原生模块:node-pty。
 #（@mariozechner/clipboard 的 NAPI 由 electron-builder 自动 unpack,无需显式列出。）
@@ -113,6 +122,11 @@ mac:
   gatekeeperAssess: false
   identity: "Jiangwei Lan (HQ537XMLJY)"
   notarize: true
+  # NSMicrophoneUsageDescription：macOS 要求应用在 Info.plist 声明麦克风用途描述，
+  # 否则系统在首次访问麦克风时会拒绝授权并弹出无描述的空白权限弹窗。
+  # 本字段覆盖 Electron 默认（通常为空或泛型描述），提供产品级用户文案。
+  extendInfo:
+    NSMicrophoneUsageDescription: "Cortex 需要访问麦克风以使用语音转文字功能，将您的语音实时转为文字输入。"
   target:
     # 自动更新走 zip,人工分发用 dmg
     - target: zip
