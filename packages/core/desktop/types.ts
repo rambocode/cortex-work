@@ -700,6 +700,9 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
 export * from "./media-gen-types";
 import type { MediaGenSettings, AsrSettings } from "./media-gen-types";
 
+// 工作流（loop）类型定义集中在 ./workflow-types 以遵守单文件 1200 行上限。
+export * from "./workflow-types";
+
 // 主进程 userData JSON 中持久化的全量状态。
 export interface PersistedState {
   version: 1;

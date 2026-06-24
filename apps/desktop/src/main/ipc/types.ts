@@ -1005,3 +1005,7 @@ export interface PluginSkill {
 
 // 插件市场（第一期，只读）类型。集中在 ./plugin-types 以免本已超 1200 行的类型文件继续膨胀。
 export * from "./plugin-types";
+
+// 工作流（loop）类型。集中在 ../workflow/types 以遵守单文件 1200 行上限。
+// ⚠️ 与 packages/core/desktop/workflow-types.ts 逐字镜像（KTD5 双写契约）。
+export * from "../workflow/types";
