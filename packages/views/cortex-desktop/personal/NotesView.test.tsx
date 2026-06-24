@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge, NoteMeta } from "@cortex-work/core";
@@ -336,6 +336,62 @@ describe("NotesView 列表/详情", () => {
     fireEvent.click(await screen.findByText("alpha"));
 
     await waitFor(() => expect(store.get("n1")?.projectId).toBe("p1"));
+  });
+
+  it("已归项目的闪记也可换到另一个项目:菜单排除当前项目、选 beta 后 notesUpdate(projectId)", async () => {
+    const { bridge, store } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "归属甲" })]);
+    renderNotes(bridge);
+
+    await screen.findByText("归属甲");
+    fireEvent.click(await screen.findByTitle("移到项目"));
+    const menu = screen.getByRole("menu");
+    // 排除当前项目 alpha(menu 内不出现);含目标 beta 与「移回未归类」。
+    expect(within(menu).queryByText("alpha")).toBeNull();
+    expect(within(menu).getByText("beta")).toBeInTheDocument();
+    expect(within(menu).getByText("移回未归类")).toBeInTheDocument();
+
+    fireEvent.click(within(menu).getByText("beta"));
+    await waitFor(() => expect(store.get("n1")?.projectId).toBe("p2"));
+  });
+
+  it("已归项目的闪记可「移回未归类」:patch 显式带 projectId:undefined,落库后清空归属", async () => {
+    const { bridge, store, calls } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "归属乙" })]);
+    renderNotes(bridge);
+
+    await screen.findByText("归属乙");
+    fireEvent.click(await screen.findByTitle("移到项目"));
+    fireEvent.click(within(screen.getByRole("menu")).getByText("移回未归类"));
+
+    await waitFor(() => expect(calls.update.length).toBeGreaterThan(0));
+    // 显式带 projectId 键(值 undefined),保证字段级合并后清空归属。
+    const patch = calls.update[0]!.patch;
+    expect("projectId" in patch).toBe(true);
+    expect(patch.projectId).toBeUndefined();
+    expect(store.get("n1")?.projectId).toBeUndefined();
+  });
+
+  it("未归类闪记的菜单不含「移回未归类」(无意义),仅列项目", async () => {
+    const { bridge } = fakeNotesBridge([note({ id: "n1", content: "散记" })]);
+    renderNotes(bridge);
+
+    await screen.findByText("未归类");
+    fireEvent.click(await screen.findByTitle("移到项目"));
+    const menu = screen.getByRole("menu");
+    expect(within(menu).queryByText("移回未归类")).toBeNull();
+    expect(within(menu).getByText("alpha")).toBeInTheDocument();
+    expect(within(menu).getByText("beta")).toBeInTheDocument();
+  });
+
+  it("右栏速览详情头部提供移动入口,选另一项目后 notesUpdate(projectId)", async () => {
+    const { bridge, store } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "详情移动" })]);
+    renderNotes(bridge);
+
+    await openDetailViaRequest("n1", "详情移动");
+    await screen.findByTitle("编辑"); // 详情已打开
+    fireEvent.click(await screen.findByTitle("移到项目"));
+    fireEvent.click(within(screen.getByRole("menu")).getByText("beta"));
+
+    await waitFor(() => expect(store.get("n1")?.projectId).toBe("p2"));
   });
 
   it("consumeNoteDetailRequest 落地为打开该闪记详情", async () => {

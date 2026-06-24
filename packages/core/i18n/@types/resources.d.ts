@@ -606,6 +606,7 @@ export default interface Resources {
     },
     "group": {
       "moveToProject": "移到项目",
+      "moveToUnassigned": "移回未归类",
       "noArchivableProject": "没有可归档的项目",
       "unassigned": "未归类"
     },
@@ -645,6 +646,7 @@ export default interface Resources {
       "generatePlanFailed": "生成 plan 失败：{{error}}",
       "moveFailed": "移动失败：{{error}}",
       "moved": "已移到项目",
+      "movedToUnassigned": "已移回未归类",
       "noteDeleteFailed": "删除失败：{{error}}",
       "noteDeleted": "已删除闪记",
       "noteSaveFailed": "保存失败：{{error}}",

@@ -20,6 +20,7 @@ import {
 } from "@cortex-work/core";
 import type { DesktopBridge, NoteMeta, ProjectMeta } from "@cortex-work/core";
 import { MarkdownView } from "./MarkdownView";
+import { MoveToProjectMenu } from "./MoveToProjectMenu";
 import { noteTitle, STATUS_LABEL } from "./noteDisplay";
 import { relTime } from "./PersonalSidebar";
 
@@ -161,11 +162,16 @@ function NoteDocView({
 function NoteDetail({
   note,
   project,
+  liveProjects,
+  onMoveTo,
   onBack,
   onToast,
 }: {
   note: NoteMeta;
   project?: ProjectMeta;
+  liveProjects: ProjectMeta[];
+  // projectId 为 undefined 表示移回「未归类」。
+  onMoveTo: (noteId: string, projectId: string | undefined) => void;
   onBack: () => void;
   onToast: (text: string) => void;
 }) {
@@ -273,6 +279,12 @@ function NoteDetail({
         <div className="spacer" />
         {statusLabel ? <span className="pw-note-badge" data-status={note.status}>{statusLabel}</span> : null}
         {project ? <span className="pw-todo-total">{project.name}</span> : <span className="pw-readonly">{t("detail.unassigned")}</span>}
+        {/* 移动到其它项目 / 移回未归类(currentProjectId 排除当前所属)。 */}
+        <MoveToProjectMenu
+          projects={liveProjects}
+          currentProjectId={note.projectId}
+          onPick={(projectId) => onMoveTo(note.id, projectId)}
+        />
       </div>
       <div className="pw-note-detail">
         <div className="pw-note-detail-h">
@@ -471,77 +483,6 @@ function NoteRow({
   );
 }
 
-// 「移到项目」下拉:把未归类闪记归档到某项目(hover 自动收起)。
-function MoveToProjectMenu({
-  projects,
-  onPick,
-}: {
-  projects: ProjectMeta[];
-  onPick: (projectId: string) => void;
-}) {
-  const { t } = useTranslation("notes");
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const cancelCloseTimer = () => {
-    if (closeTimer.current) {
-      clearTimeout(closeTimer.current);
-      closeTimer.current = null;
-    }
-  };
-  useEffect(() => cancelCloseTimer, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  const onMenuLeave = () => {
-    cancelCloseTimer();
-    closeTimer.current = setTimeout(() => {
-      closeTimer.current = null;
-      setOpen(false);
-    }, 220);
-  };
-  const onMenuEnter = () => cancelCloseTimer();
-
-  return (
-    <div className="pw-tb-menu-wrap" ref={wrapRef} onMouseLeave={onMenuLeave} onMouseEnter={onMenuEnter}>
-      <button className={`pw-icon-btn ${open ? "is-on" : ""}`} title={t("group.moveToProject")} onClick={() => setOpen((v) => !v)}>
-        <Icon.Folder size={13} />
-        <Icon.Chevron size={9} />
-      </button>
-      {open ? (
-        <div className="pw-tb-menu" role="menu">
-          {projects.length === 0 ? (
-            <div className="pw-archive-empty">{t("group.noArchivableProject")}</div>
-          ) : (
-            projects.map((p) => (
-              <button
-                key={p.id}
-                className="pw-tb-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  onPick(p.id);
-                  setOpen(false);
-                }}
-              >
-                <Icon.Folder size={14} />
-                <span>{p.name}</span>
-              </button>
-            ))
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 // 项目分组(含「未归类」)。selectedIds 限同项目内,选中态用于「深化」触发。
 function NoteGroup({
   group,
@@ -561,7 +502,8 @@ function NoteGroup({
   selectable: boolean;
   onToggleSelect: (note: NoteMeta) => void;
   onOpen: (noteId: string) => void;
-  onMoveTo: (noteId: string, projectId: string) => void;
+  // projectId 为 undefined 表示移回「未归类」。
+  onMoveTo: (noteId: string, projectId: string | undefined) => void;
 }) {
   const { t } = useTranslation("notes");
   const [collapsed, setCollapsed] = useState(false);
@@ -576,7 +518,6 @@ function NoteGroup({
           <span>{group ? group.name : t("group.unassigned")}</span>
           <small>{notes.length}</small>
         </button>
-        {/* 未归类闪记单条「移到项目」入口(选中条数为 1 时不展示,统一逐条归档)。 */}
       </header>
       {!collapsed ? (
         <div className="pw-todo-list">
@@ -588,9 +529,12 @@ function NoteGroup({
                 onToggleSelect={() => (selectable ? onToggleSelect(n) : undefined)}
                 onOpen={() => onOpen(n.id)}
               />
-              {!group ? (
-                <MoveToProjectMenu projects={liveProjects} onPick={(projectId) => onMoveTo(n.id, projectId)} />
-              ) : null}
+              {/* 任意闪记(含已归项目的)都可换项目 / 移回未归类;currentProjectId 排除自身分组。 */}
+              <MoveToProjectMenu
+                projects={liveProjects}
+                currentProjectId={group?.id}
+                onPick={(projectId) => onMoveTo(n.id, projectId)}
+              />
             </div>
           ))}
         </div>
@@ -694,10 +638,12 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
     });
   };
 
-  const moveTo = async (noteId: string, projectId: string) => {
+  // projectId 为 undefined 即移回「未归类」:patch 显式带 projectId 键,主进程字段级合并后
+  // JSON.stringify 落盘时丢弃 undefined → 重载后缺省 = 未归类(NoteMeta.projectId?)。
+  const moveTo = async (noteId: string, projectId: string | undefined) => {
     try {
       await updateNote.mutateAsync({ id: noteId, patch: { projectId } });
-      onToast(t("toast.moved"));
+      onToast(projectId ? t("toast.moved") : t("toast.movedToUnassigned"));
     } catch (err) {
       onToast(t("toast.moveFailed", { error: err instanceof Error ? err.message : String(err) }));
     }
@@ -736,6 +682,8 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
       <NoteDetail
         note={selectedNote}
         project={selectedProject}
+        liveProjects={liveProjects}
+        onMoveTo={(noteId, projectId) => void moveTo(noteId, projectId)}
         onBack={() => setSelected(null)}
         onToast={onToast}
       />

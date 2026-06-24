@@ -8,7 +8,8 @@
   "group": {
     "unassigned": "Unsorted",
     "noArchivableProject": "No project to archive into",
-    "moveToProject": "Move to project"
+    "moveToProject": "Move to project",
+    "moveToUnassigned": "Move to unsorted"
   },
   "row": {
     "select": "Select \"{{title}}\"",
@@ -72,6 +73,7 @@
     "abandonDeepenFailed": "Failed to abandon deepening: {{error}}",
     "generatePlanFailed": "Failed to generate plan: {{error}}",
     "moved": "Moved to project",
+    "movedToUnassigned": "Moved to unsorted",
     "moveFailed": "Move failed: {{error}}",
     "deepenFailed": "Deepening failed: {{error}}"
   },

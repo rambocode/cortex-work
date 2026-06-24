@@ -15,6 +15,7 @@ import {
   usePersonalStore,
 } from "@cortex-work/core";
 import { MarkdownView } from "./MarkdownView";
+import { MoveToProjectMenu } from "./MoveToProjectMenu";
 import { NoteCodeMirrorEditor, type NoteEditorAppearance } from "./editor/NoteCodeMirrorEditor";
 import { useNoteAutosave } from "./useNoteAutosave";
 import { noteTitle, STATUS_LABEL } from "./noteDisplay";
@@ -50,6 +51,8 @@ export function FlashNoteEditor({
   const note = useMemo(() => notes.find((n) => n.id === noteId), [notes, noteId]);
   const projects = usePersonalStore((s) => s.projects);
   const project = note?.projectId ? projects.find((p) => p.id === note.projectId) : undefined;
+  // 仅活跃(未归档)项目可作移动目标,与列表/详情语义一致。
+  const liveProjects = useMemo(() => projects.filter((p) => p.archivedAt == null), [projects]);
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
   const generatePlan = useGeneratePlan();
@@ -88,6 +91,16 @@ export function FlashNoteEditor({
       onClose();
     } catch (err) {
       onToast(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  // 改归属:projectId 为 undefined 即移回「未归类」(主进程字段级合并 + 落盘丢弃 undefined)。
+  const moveTo = async (projectId: string | undefined) => {
+    try {
+      await updateNote.mutateAsync({ id: noteId, patch: { projectId } });
+      onToast(projectId ? "已移到项目" : "已移回未归类");
+    } catch (err) {
+      onToast(`移动失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -148,6 +161,12 @@ export function FlashNoteEditor({
         ) : (
           <span className="pw-readonly">未归类</span>
         )}
+        {/* 移动到其它项目 / 移回未归类(currentProjectId 排除当前所属)。 */}
+        <MoveToProjectMenu
+          projects={liveProjects}
+          currentProjectId={note.projectId}
+          onPick={(projectId) => void moveTo(projectId)}
+        />
         <div className="spacer" />
         {/* 三档切换(分段按钮,radio 语义)。编辑器装载失败时,源码/实时预览禁用(强制仅预览)。 */}
         <div className="pw-note-mode" role="group" aria-label="编辑模式">
