@@ -313,4 +313,14 @@ describe("设置菜单分组 + 应用/浏览器分区", () => {
     expect(active.className).toContain("is-active");
     expect(active.getAttribute("aria-current")).toBe("page");
   });
+
+  it("「通用」组含「已归档对话」菜单项,切换后右栏渲染该分区(Covers R1)", () => {
+    renderUI(<PersonalSettingsView />);
+    const item = screen.getByRole("button", { name: "已归档对话" });
+    fireEvent.click(item);
+    // ArchivedSessionsSection 的搜索占位符(分区特征文案)。
+    expect(screen.getByPlaceholderText("搜索已归档对话")).toBeTruthy();
+    expect(item.className).toContain("is-active");
+    expect(item.getAttribute("aria-current")).toBe("page");
+  });
 });
