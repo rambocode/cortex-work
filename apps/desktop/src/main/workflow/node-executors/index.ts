@@ -34,6 +34,17 @@ import {
   executeDelay,
   type RunGraphFn,
 } from './flow-control.js'
+import {
+  executeSetFields,
+  executeSort,
+  executeLimit,
+  executeAggregate,
+  executeTemplate,
+  executeJson,
+  executeOutput,
+} from './data.js'
+import { executeCode, executeCustom } from './code.js'
+import { executeHttpRequest } from './http.js'
 
 // ── 对外类型契约 ──────────────────────────────────────────────────────────────
 
@@ -184,22 +195,36 @@ export async function executeNode(
 
     // ── 数据处理节点（U11 实现）────────────────────────────────────────────────
     case 'set-fields':
+      return executeSetFields(node.config, primary, scope, ctx)
+
     case 'sort':
+      return executeSort(node.config, primary)
+
     case 'limit':
+      return executeLimit(node.config, primary)
+
     case 'aggregate':
+      return executeAggregate(node.config, primary)
+
     case 'template':
+      return executeTemplate(node.config, primary, scope)
+
     case 'json':
+      return executeJson(node.config, primary)
+
     case 'output':
-      throw new Error(`节点类型 ${node.type} 待 U11（数据处理节点）实现`)
+      return executeOutput(node.config, primary, scope)
 
     // ── 代码节点（U11 实现）────────────────────────────────────────────────────
     case 'code':
+      return executeCode(node.config, primary)
+
     case 'custom':
-      throw new Error(`节点类型 ${node.type} 待 U11（代码/自定义节点）实现`)
+      return executeCustom(node.config, primary)
 
     // ── HTTP 节点（U11 实现）───────────────────────────────────────────────────
     case 'http-request':
-      throw new Error(`节点类型 ${node.type} 待 U11（HTTP 节点）实现`)
+      return executeHttpRequest(node.config, primary, scope)
 
     // ── AI 节点（U12 实现）─────────────────────────────────────────────────────
     case 'ai-agent':
