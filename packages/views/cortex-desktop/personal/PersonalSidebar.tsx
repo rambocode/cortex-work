@@ -27,7 +27,11 @@ export function relTime(ts: number): string {
   if (min < 60) return `${min} 分钟`;
   const hr = Math.floor(min / 60);
   if (hr < 24) return `${hr} 小时`;
-  return `${Math.floor(hr / 24)} 天`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} 天`;
+  // 周/月粒度:超过 7 天的旧条目(归档会话等)不再笼统显示「N 天」。
+  if (day < 30) return `${Math.floor(day / 7)} 周`;
+  return `${Math.floor(day / 30)} 个月`;
 }
 
 // 会话行:悬停在右侧浮现「归档/取消归档」+「删除」两个图标按钮。
