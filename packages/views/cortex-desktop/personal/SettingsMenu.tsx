@@ -67,7 +67,7 @@ import { BUILTIN_AVATARS } from "./avatars";
 import { PluginManager } from "./PluginManager";
 import { BrowserSettingsSection } from "./BrowserSettingsSection";
 import { ArchivedSessionsSection } from "./ArchivedSessionsSection";
-import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
+import { BareSelect, SBlock, SRow, SecretField, SettingCard, SwitchRow } from "./settingsControls";
 
 const PALETTES: PaletteOption[] = [
   { id: "clay", name: "Clay", colors: ["#c96442", "#f3e7df", "#1a1916"] },
@@ -845,40 +845,6 @@ const ENDPOINT_FORMAT_OPTIONS: { formatKey: string; value: EndpointFormat }[] = 
   { formatKey: "providers.endpointFormat.messages", value: "messages" },
   { formatKey: "providers.endpointFormat.custom", value: "custom" },
 ];
-
-// 带显隐切换的密钥输入（本仓原无 SecretInput,此处新增）。
-function SecretField({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  const { t } = useTranslation("settings");
-  const [show, setShow] = useState(false);
-  return (
-    <label className="pw-set-field">
-      <span className="pw-set-lbl">{label}</span>
-      <span className="pw-secret-wrap">
-        <input
-          className="pw-set-input"
-          type={show ? "text" : "password"}
-          value={value}
-          placeholder={placeholder}
-          spellCheck={false}
-          onChange={(e) => onChange(e.target.value)}
-        />
-        <button type="button" className="pw-secret-toggle" onClick={() => setShow((s) => !s)}>
-          {show ? t("providers.secretHide") : t("providers.secretShow")}
-        </button>
-      </span>
-    </label>
-  );
-}
 
 // 两段式删除确认（仿 ProjectMenu:首次点击进入确认态,再次点击执行,失焦撤销）。
 function ConfirmDelete({ onConfirm, title }: { onConfirm: () => void; title?: string }) {

@@ -696,6 +696,10 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   piSkills: DEFAULT_PI_SKILLS,
 };
 
+// 媒体生成/ASR 类型定义集中在 ./media-gen-types 以免本已超 1200 行的类型文件继续膨胀。
+export * from "./media-gen-types";
+import type { MediaGenSettings, AsrSettings } from "./media-gen-types";
+
 // 主进程 userData JSON 中持久化的全量状态。
 export interface PersistedState {
   version: 1;
@@ -721,6 +725,10 @@ export interface PersistedState {
   lastActiveProjectId?: string;
   // 落地页激励问候语的「按天」LLM 增强缓存（day=YYYY-MM-DD;跨重启复用,跨天失效）。
   dailyEncouragement?: DailyEncouragement;
+  // 媒体生成设置（四模态;旧 JSON 无此字段时 hydrate 回落工厂默认）。
+  mediaGenSettings?: MediaGenSettings;
+  // 语音识别设置（旧 JSON 无此字段时 hydrate 回落工厂默认）。
+  asrSettings?: AsrSettings;
 }
 
 // 落地页激励问候语的每日 LLM 生成快照（按天缓存）。

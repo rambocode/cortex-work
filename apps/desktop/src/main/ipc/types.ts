@@ -301,6 +301,84 @@ export interface PushSettings {
 // 推送渠道标识(与 core/desktop/types.ts 镜像)。自动化「完成后通知」按此选择渠道。
 export type PushChannelKind = "wecom" | "dingtalk" | "feishu" | "email" | "internal";
 
+// ── 媒体生成/ASR 设置镜像（与 packages/core/desktop/types.ts 逐字镜像;主进程
+//    仅持久化转发,运行期由 U4/U7/U9 读取,故当前不在 GeneralSettings 里消费）。
+// timeoutMs 全部 <300s:主进程看门狗上限约 300s TCP,卡在 280 以内可得清晰超时错误。
+
+export type ImageGenProtocol = "openai-images" | "minimax-image";
+export type SpeechGenProtocol = "openai-speech" | "minimax-t2a" | "mimo-tts";
+export type MusicGenProtocol = "minimax-music";
+export type VideoGenProtocol = "minimax-video";
+
+export interface ImageGenSettings {
+  enabled: boolean;
+  providerId: string;
+  protocol: ImageGenProtocol;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  defaultSize: string;
+  timeoutMs: number;
+}
+
+export interface SpeechGenSettings {
+  enabled: boolean;
+  providerId: string;
+  protocol: SpeechGenProtocol;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  voice: string;
+  format: string;
+  timeoutMs: number;
+}
+
+export interface MusicGenSettings {
+  enabled: boolean;
+  providerId: string;
+  protocol: MusicGenProtocol;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  format: string;
+  timeoutMs: number;
+}
+
+export interface VideoGenSettings {
+  enabled: boolean;
+  providerId: string;
+  protocol: VideoGenProtocol;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  defaultDuration: number;
+  defaultResolution: string;
+  timeoutMs: number;
+  pollIntervalMs: number;
+}
+
+export interface MediaGenSettings {
+  image: ImageGenSettings;
+  speech: SpeechGenSettings;
+  music: MusicGenSettings;
+  video: VideoGenSettings;
+}
+
+export type AsrProtocol = "openai-transcriptions" | "mimo-asr" | "local-whisper";
+export type LocalWhisperDownloadSource = "huggingface" | "hf-mirror" | "hf-sufy";
+
+export interface AsrSettings {
+  enabled: boolean;
+  providerId: string;
+  protocol: AsrProtocol;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  localWhisperDownloadSource: LocalWhisperDownloadSource;
+  language: string;
+  timeoutMs: number;
+}
+
 export interface PersistedState {
   version: 1;
   projects: ProjectMeta[];
@@ -320,6 +398,9 @@ export interface PersistedState {
   lastProviderId?: string;
   // 最近活跃项目（闪记浮层默认归属推导用;归档/删除该项目时清空）。与 core 镜像逐字一致。
   lastActiveProjectId?: string;
+  // 媒体生成/ASR 设置（renderer 全量写入;主进程透传持久化;U4/U7/U9 读取路由）。
+  mediaGenSettings?: MediaGenSettings;
+  asrSettings?: AsrSettings;
 }
 
 export interface ReadFileResult {

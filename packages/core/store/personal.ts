@@ -5,9 +5,11 @@
 import { create } from "zustand";
 import type {
   AgentKind,
+  AsrSettings,
   DerivedAgentMeta,
   DailyEncouragement,
   GeneralSettings,
+  MediaGenSettings,
   PermissionMode,
   PersistedState,
   PersonalProfile,
@@ -40,6 +42,8 @@ import {
   DEFAULT_PUSH_SETTINGS,
   DEFAULT_TIMELINE_SETTINGS,
   DEFAULT_TTS_SETTINGS,
+  defaultMediaGenSettings,
+  defaultAsrSettings,
 } from "../desktop/types";
 import { migratePiSettings, normalizeProviderProfile } from "../desktop/providers";
 
@@ -153,6 +157,10 @@ export interface PersonalState {
   pushSettings: PushSettings;
   // TTS 设置（自动朗读 + 引擎,持久化）。
   ttsSettings: TtsSettings;
+  // 媒体生成设置（四模态:图片/语音/音乐/视频,持久化;与 PersistedState.mediaGenSettings 镜像）。
+  mediaGenSettings: MediaGenSettings;
+  // 语音识别设置（持久化;与 PersistedState.asrSettings 镜像）。
+  asrSettings: AsrSettings;
   // 各 agent 是否可用（主进程探测,不持久化;启动时回填）。
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
   // 用户 JSON(agents.local.json)派生的 agent(主进程读盘,不持久化;启动时经 listAgentProfiles 回填,U7)。
@@ -282,6 +290,10 @@ export interface PersonalState {
   setTimelineSettings: (patch: Partial<TimelineSettings>) => void;
   setPushSettings: (patch: Partial<PushSettings>) => void;
   setTtsSettings: (patch: Partial<TtsSettings>) => void;
+  // 媒体生成设置 patch（浅合并整体 MediaGenSettings;单模态字段由调用方 spread 现值）。
+  setMediaGenSettings: (patch: Partial<MediaGenSettings>) => void;
+  // 语音识别设置 patch（浅合并;与 setTtsSettings 模式一致）。
+  setAsrSettings: (patch: Partial<AsrSettings>) => void;
   // 用户资料 patch（浅合并;允许只改昵称或只改头像）。
   setProfile: (patch: Partial<PersonalProfile>) => void;
 }
@@ -369,6 +381,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   timelineSettings: DEFAULT_TIMELINE_SETTINGS,
   pushSettings: DEFAULT_PUSH_SETTINGS,
   ttsSettings: DEFAULT_TTS_SETTINGS,
+  mediaGenSettings: defaultMediaGenSettings(),
+  asrSettings: defaultAsrSettings(),
   providerSettings: DEFAULT_PROVIDER_SETTINGS,
   generalSettings: DEFAULT_GENERAL_SETTINGS,
   profile: {},
@@ -386,6 +400,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         (s.timelineSettings as undefined | { push?: PushSettings })?.push ??
         DEFAULT_PUSH_SETTINGS,
       ttsSettings: s.ttsSettings ?? DEFAULT_TTS_SETTINGS,
+      // 媒体生成/ASR：旧档无此字段时回落工厂默认（向后兼容）。
+      // 各模态子字段全量覆盖（无 deep merge），旧档缺字段时整体回落工厂对象。
+      mediaGenSettings: s.mediaGenSettings ?? defaultMediaGenSettings(),
+      asrSettings: s.asrSettings ?? defaultAsrSettings(),
       // providerSettings：新档直接用；旧档 piSettings.channels 迁移；都没有则空。
       providerSettings: resolveProviderSettings(s),
       // 通用设置：嵌套子对象逐层以默认值补全。
@@ -902,6 +920,12 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setTtsSettings: (patch) =>
     set((s) => ({ ttsSettings: { ...s.ttsSettings, ...patch } })),
 
+  setMediaGenSettings: (patch) =>
+    set((s) => ({ mediaGenSettings: { ...s.mediaGenSettings, ...patch } })),
+
+  setAsrSettings: (patch) =>
+    set((s) => ({ asrSettings: { ...s.asrSettings, ...patch } })),
+
   setProfile: (patch) =>
     set((s) => ({ profile: { ...s.profile, ...patch } })),
 }));
@@ -922,6 +946,8 @@ export function toPersistedState(s: PersonalState): PersistedState {
     timelineSettings: s.timelineSettings,
     pushSettings: s.pushSettings,
     ttsSettings: s.ttsSettings,
+    mediaGenSettings: s.mediaGenSettings,
+    asrSettings: s.asrSettings,
     providerSettings: s.providerSettings,
     generalSettings: s.generalSettings,
     profile: s.profile,

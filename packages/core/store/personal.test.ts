@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PersistedState, ProjectMeta, PushSettings } from "../desktop/types";
-import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS } from "../desktop/types";
+import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS, defaultMediaGenSettings, defaultAsrSettings } from "../desktop/types";
 import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } from "./personal";
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
@@ -1135,5 +1135,101 @@ describe("插件 Skill 配置（piSkills）", () => {
     const persisted = toPersistedState(usePersonalStore.getState());
     expect(persisted.generalSettings!.piSkills!.disabledSkills).toContain("global:x");
     expect(persisted.generalSettings!.piSkills!.userGlobalRoots).toContain("~/extra");
+  });
+});
+
+describe("媒体生成设置（mediaGenSettings）", () => {
+  it("hydrate 缺 mediaGenSettings → 回落工厂默认值(全部 enabled:false)", () => {
+    usePersonalStore.getState().hydrate(base);
+    const mg = usePersonalStore.getState().mediaGenSettings;
+    expect(mg).toEqual(defaultMediaGenSettings());
+    expect(mg.image.enabled).toBe(false);
+    expect(mg.speech.enabled).toBe(false);
+    expect(mg.music.enabled).toBe(false);
+    expect(mg.video.enabled).toBe(false);
+  });
+
+  it("hydrate 有 mediaGenSettings → 直接使用持久化值", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      mediaGenSettings: {
+        ...defaultMediaGenSettings(),
+        image: { ...defaultMediaGenSettings().image, enabled: true, apiKey: "sk-img" },
+      },
+    });
+    expect(usePersonalStore.getState().mediaGenSettings.image.enabled).toBe(true);
+    expect(usePersonalStore.getState().mediaGenSettings.image.apiKey).toBe("sk-img");
+    // 其他模态不受影响
+    expect(usePersonalStore.getState().mediaGenSettings.speech.enabled).toBe(false);
+  });
+
+  it("setMediaGenSettings patch 单模态 enabled → 其他模态不变", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setMediaGenSettings({
+      image: { ...defaultMediaGenSettings().image, enabled: true },
+    });
+    const mg = usePersonalStore.getState().mediaGenSettings;
+    expect(mg.image.enabled).toBe(true);
+    expect(mg.speech.enabled).toBe(false);
+    expect(mg.music.enabled).toBe(false);
+    expect(mg.video.enabled).toBe(false);
+  });
+
+  it("toPersistedState 带出 mediaGenSettings 并与 state 引用相同", () => {
+    usePersonalStore.getState().hydrate(base);
+    const s = usePersonalStore.getState();
+    expect(toPersistedState(s).mediaGenSettings).toBe(s.mediaGenSettings);
+  });
+
+  it("工厂默认:timeoutMs 均 <300_000 (看门狗上限)", () => {
+    const d = defaultMediaGenSettings();
+    expect(d.image.timeoutMs).toBeLessThan(300_000);
+    expect(d.speech.timeoutMs).toBeLessThan(300_000);
+    expect(d.music.timeoutMs).toBeLessThan(300_000);
+    expect(d.video.timeoutMs).toBeLessThan(300_000);
+  });
+
+  it("视频默认值:defaultDuration=6、defaultResolution='1080P'、pollIntervalMs=10_000", () => {
+    const v = defaultMediaGenSettings().video;
+    expect(v.defaultDuration).toBe(6);
+    expect(v.defaultResolution).toBe("1080P");
+    expect(v.pollIntervalMs).toBe(10_000);
+  });
+});
+
+describe("语音识别设置（asrSettings）", () => {
+  it("hydrate 缺 asrSettings → 回落工厂默认值", () => {
+    usePersonalStore.getState().hydrate(base);
+    expect(usePersonalStore.getState().asrSettings).toEqual(defaultAsrSettings());
+  });
+
+  it("工厂默认:enabled=false、protocol='openai-transcriptions'、language='auto'、localWhisperDownloadSource='huggingface'", () => {
+    const d = defaultAsrSettings();
+    expect(d.enabled).toBe(false);
+    expect(d.protocol).toBe("openai-transcriptions");
+    expect(d.language).toBe("auto");
+    expect(d.localWhisperDownloadSource).toBe("huggingface");
+    expect(d.timeoutMs).toBe(60_000);
+    expect(d.model).toBe("");
+  });
+
+  it("setAsrSettings 切 protocol → state 正确", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setAsrSettings({ protocol: "local-whisper" });
+    expect(usePersonalStore.getState().asrSettings.protocol).toBe("local-whisper");
+    // 其他字段保持默认
+    expect(usePersonalStore.getState().asrSettings.enabled).toBe(false);
+  });
+
+  it("setAsrSettings 切 localWhisperDownloadSource → state 正确", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setAsrSettings({ localWhisperDownloadSource: "hf-mirror" });
+    expect(usePersonalStore.getState().asrSettings.localWhisperDownloadSource).toBe("hf-mirror");
+  });
+
+  it("toPersistedState 带出 asrSettings 并与 state 引用相同", () => {
+    usePersonalStore.getState().hydrate(base);
+    const s = usePersonalStore.getState();
+    expect(toPersistedState(s).asrSettings).toBe(s.asrSettings);
   });
 });

@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type React from "react";
+import { useTranslation } from "@cortex-work/core/i18n";
 
 // 设置页共享控件原语(kun 风格:标签/说明在左、控件在右,行间分隔线)。
 // 抽自 SettingsMenu.tsx,供 SettingsMenu 自身各分区与 BrowserSettingsSection 共用——
@@ -97,5 +99,41 @@ export function BareSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+// 带显隐切换的密钥输入（API Key 等敏感字段专用）。
+// 抽自 SettingsMenu.tsx;供供应商分区、媒体生成分区、ASR 分区等多处复用。
+// 翻译 key 用 settings 命名空间（providers.secretShow / providers.secretHide）。
+export function SecretField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const { t } = useTranslation("settings");
+  const [show, setShow] = useState(false);
+  return (
+    <label className="pw-set-field">
+      <span className="pw-set-lbl">{label}</span>
+      <span className="pw-secret-wrap">
+        <input
+          className="pw-set-input"
+          type={show ? "text" : "password"}
+          value={value}
+          placeholder={placeholder}
+          spellCheck={false}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <button type="button" className="pw-secret-toggle" onClick={() => setShow((s) => !s)}>
+          {show ? t("providers.secretHide") : t("providers.secretShow")}
+        </button>
+      </span>
+    </label>
   );
 }
