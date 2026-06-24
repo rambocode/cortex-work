@@ -94,7 +94,7 @@ export function ArchivedSessionsSection() {
 
   const onUnarchive = (s: SessionMeta) => {
     unarchiveSession(s.id);
-    pushToast(t("archivedSessions.unarchive") + " " + s.title);
+    pushToast(t("archivedSessions.unarchiveToast", { title: s.title }));
   };
 
   // 永久删除:四步与侧边栏 SessionRow 完全一致,缺一会留孤儿(看门狗 interval / 磁盘文件 / pi 进程)。
@@ -103,7 +103,7 @@ export function ArchivedSessionsSection() {
     removeSession(s.id);
     void bridge?.deleteChat?.(s.id);
     void closePiSession(bridge, s.id);
-    pushToast(t("archivedSessions.delete") + " " + s.title);
+    pushToast(t("archivedSessions.deleteToast", { title: s.title }));
   };
 
   // 搜索框 ESC:query 非空时仅清空并阻止冒泡;空时透传(由设置页全局 ESC 关闭)。
