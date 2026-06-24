@@ -81,6 +81,16 @@ export function automationRunsDir(): string {
   return join(cortexHome(), "automation-runs");
 }
 
+// 工作流配置：单文件全量（workflows.json）。
+export function workflowsStorePath(): string {
+  return join(cortexHome(), "workflows.json");
+}
+
+// 工作流执行历史：按 workflowId 一文件（workflow-runs/<id>.json）。
+export function workflowRunsDir(): string {
+  return join(cortexHome(), "workflow-runs");
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await fsp.access(path);
