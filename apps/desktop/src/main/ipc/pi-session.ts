@@ -22,6 +22,7 @@ import {
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
 import { getPersistedState } from "./store";
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
+import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -169,8 +170,11 @@ export function registerPiSessionHandlers(): void {
     try {
       const gs = (await getPersistedState()).generalSettings;
       const userServers = gs?.mcp?.enabled ? gs.mcp.servers : [];
+      // 文档抽取 server(v1 无开关,host 可用即注入)并入桥接;与用户 server 同走 mcpServerToBridge。
+      const docServer = buildDocExtractMcpServerConfig(req.uiSessionId);
+      const bridgeInputs = docServer ? [...userServers, docServer] : userServers;
       const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, req.uiSessionId);
-      const bridgeServers = collectBridgeServers(userServers, browserServer);
+      const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
       if (bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
     } catch (e) {
       console.warn(`[pi-session] MCP 桥接扩展生成失败: ${String(e)}`);

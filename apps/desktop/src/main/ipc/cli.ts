@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "child_process";
 import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, readdirSync, realpathSync, statSync } from "fs";
-import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpSettings, TrimSessionRequest } from "./types";
+import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpServerConfig, McpSettings, TrimSessionRequest } from "./types";
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
@@ -15,6 +15,7 @@ import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
 import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
+import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { getPersistedState } from "./store";
 
 const running = new Map<string, AgentProcess>();
@@ -424,12 +425,17 @@ export function registerCliHandlers(): void {
       try {
         const gs = (await getPersistedState()).generalSettings;
         mcp = gs?.mcp ?? mcp;
-        // 浏览器控制(U3):总开关开 + server 可用时,把内置浏览器 server 并入 mcp.servers(token 经 header)。
-        // 用户 MCP 关闭时不连带启用其 server——仅注入浏览器 server。此即主会话注入路径(ask/oneshot/automation 不经此)。
-        const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, req.sessionId);
-        if (browserServer) {
+        // 内置 server 并入 mcp.servers(token 经 header):
+        //  - 浏览器控制:仅总开关开 + server 可用时注入(buildBrowserMcpServerConfig 内部 gate)。
+        //  - 文档抽取:v1 无开关,host 可用即注入(extract_document 工具靠会话隔离 + 限根自保)。
+        // 用户 MCP 关闭时不连带启用其 server——仅注入内置 server。此即主会话注入路径(ask/oneshot/automation 不经此)。
+        const builtinServers = [
+          buildBrowserMcpServerConfig(gs?.browserControl, req.sessionId),
+          buildDocExtractMcpServerConfig(req.sessionId),
+        ].filter((s): s is McpServerConfig => s !== null);
+        if (builtinServers.length) {
           const userServers = mcp.enabled ? mcp.servers : [];
-          mcp = { enabled: true, servers: [...userServers, browserServer] };
+          mcp = { enabled: true, servers: [...userServers, ...builtinServers] };
         }
       } catch {
         /* 配置不可读 → 不注入 */
