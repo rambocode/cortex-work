@@ -368,11 +368,17 @@ export async function generateVideo(
     : abortCtrl.signal;
 
   try {
-    let buffer: Buffer;
     const protocol = resolvedConfig.protocol;
 
     if (protocol === "minimax-video") {
-      buffer = await minimaxGenerateVideo(
+      // 视频最大 500MB，提前生成落盘路径，协议函数直接流式写盘，不经过 Buffer（KTD11 / ADV-006）。
+      const dir = mediaDir(workspaceRoot, "video");
+      await mkdir(dir, { recursive: true });
+      const fileName = generateFileName("mp4");
+      const absolutePath = join(dir, fileName);
+      const relativePath = `.cortex/media/video/${fileName}`;
+
+      const byteSize = await minimaxGenerateVideo(
         {
           prompt: args.prompt,
           model: resolvedConfig.model,
@@ -380,18 +386,22 @@ export async function generateVideo(
           lastFrameImagePath: safeLastFrame,
           duration: resolvedConfig.defaultDuration as number | undefined,
           resolution: resolvedConfig.defaultResolution as string | undefined,
+          destPath: absolutePath,
         },
         resolvedConfig,
         signal,
       );
+
+      const file: GeneratedFile = {
+        relativePath,
+        absolutePath,
+        mimeType: "video/mp4",
+        byteSize,
+      };
+      return { files: [file], model: resolvedConfig.model, durationMs: Date.now() - startTs };
     } else {
       throw new Error(`不支持的视频生成协议: ${protocol}`);
     }
-
-    assertResponseSize(buffer, MAX_RESPONSE_BYTES.video, "video");
-
-    const file = await saveToWorkspace(workspaceRoot, "video", buffer, "mp4", "video/mp4");
-    return { files: [file], model: resolvedConfig.model, durationMs: Date.now() - startTs };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -439,8 +449,32 @@ async function openaiSpeechGenerate(
     throw new Error(`OpenAI Speech 接口 HTTP ${res.status}: ${errorBody.slice(0, 300)}`);
   }
 
-  const arrayBuffer = await res.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  // 语音响应直接是二进制流（非 JSON），使用 streamDownloadToBuffer 流式读取（KTD11 / ADV-006）：
+  // 边读边计数，超过 MAX_RESPONSE_BYTES.speech（200MB）时立即中止，不等全量进堆。
+  if (!res.body) {
+    throw new Error("OpenAI Speech 响应缺少 body（ReadableStream）");
+  }
+  // 复用 streamDownloadToBuffer 的 drainStream 逻辑；此处 URL 已消耗，直接读 res.body
+  const chunks: Uint8Array[] = [];
+  const reader = res.body.getReader();
+  let bytesRead = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > MAX_RESPONSE_BYTES.speech) {
+        await reader.cancel();
+        throw new Error(
+          `[speech] 响应体超过大小限制（已读 ${bytesRead} > ${MAX_RESPONSE_BYTES.speech} bytes），下载已中止`,
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
 }
 
 // ── AbortSignal 合并（两个信号任一触发则整体 abort） ─────────────────────────

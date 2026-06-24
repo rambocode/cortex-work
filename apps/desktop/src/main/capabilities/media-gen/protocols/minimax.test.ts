@@ -10,6 +10,35 @@ import {
 } from "./minimax";
 import type { ResolvedMediaGenConfig } from "../resolve";
 
+// ── vi.hoisted：确保 mock fn 可在 vi.mock factory 内引用 ──────────────────────
+
+const { mockCreateWriteStreamMinimax, mockUnlinkMinimax } = vi.hoisted(() => {
+  const writeStream = {
+    write: vi.fn((_chunk: unknown, cb: (err?: Error | null) => void) => { cb(null); return true; }),
+    end: vi.fn((cb: (err?: Error | null) => void) => { cb(null); }),
+    destroy: vi.fn(),
+    once: vi.fn(),
+  };
+  const mockCreateWriteStreamMinimax = vi.fn(() => writeStream);
+  const mockUnlinkMinimax = vi.fn(
+    (_path: string, cb: (err: NodeJS.ErrnoException | null) => void) => cb(null)
+  );
+  return { mockCreateWriteStreamMinimax, mockUnlinkMinimax };
+});
+
+// ── mock node:fs（createWriteStream / unlink，用于视频流式写盘） ──────────────
+
+vi.mock("node:fs", () => ({
+  createWriteStream: mockCreateWriteStreamMinimax,
+  unlink: mockUnlinkMinimax,
+}));
+
+// ── mock node:fs/promises（mkdir） ────────────────────────────────────────────
+
+vi.mock("node:fs/promises", () => ({
+  mkdir: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ── 辅助工厂 ──────────────────────────────────────────────────────────────────
 
 function makeConfig(override?: Partial<ResolvedMediaGenConfig>): ResolvedMediaGenConfig {
@@ -60,13 +89,9 @@ describe("minimaxGenerateImage", () => {
     expect(buffer.toString()).toBe("minimax-image");
   });
 
-  it("成功解析 data.image_urls[0]（下载模式）", async () => {
+  it("成功解析 data.image_urls[0]（流式下载模式）", async () => {
     const imageUrl = "https://cdn.minimax.chat/img/test.png";
-    const fakeBytes = Buffer.from("image-from-url");
-    const isolatedBuffer = fakeBytes.buffer.slice(
-      fakeBytes.byteOffset,
-      fakeBytes.byteOffset + fakeBytes.byteLength,
-    );
+    const fakeChunk = new Uint8Array(Buffer.from("image-from-url"));
 
     // 第一次 fetch：图片生成接口
     mockFetch.mockResolvedValueOnce({
@@ -76,10 +101,18 @@ describe("minimaxGenerateImage", () => {
         data: { image_urls: [imageUrl] },
       }),
     });
-    // 第二次 fetch：下载图片
+    // 第二次 fetch：流式下载图片（mock ReadableStream body）
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      arrayBuffer: async () => isolatedBuffer,
+      body: {
+        getReader: () => ({
+          read: vi.fn()
+            .mockResolvedValueOnce({ done: false, value: fakeChunk })
+            .mockResolvedValueOnce({ done: true, value: undefined }),
+          releaseLock: vi.fn(),
+          cancel: vi.fn(),
+        }),
+      },
     });
 
     const buffer = await minimaxGenerateImage(
@@ -156,13 +189,11 @@ describe("minimaxGenerateImage", () => {
 
 // ── 视频生成（异步轮询） ──────────────────────────────────────────────────────
 
+const DEST_PATH = "/tmp/test-video.mp4";
+
 describe("minimaxGenerateVideo", () => {
-  it("完整轮询流程：提交 → 轮询 Success → retrieve → 下载", async () => {
-    const videoBytes = Buffer.from("video-binary-data");
-    const isolatedVideoBuffer = videoBytes.buffer.slice(
-      videoBytes.byteOffset,
-      videoBytes.byteOffset + videoBytes.byteLength,
-    );
+  it("完整轮询流程：提交 → 轮询 Success → retrieve → 流式写盘", async () => {
+    const videoChunk = new Uint8Array(Buffer.from("video-binary-data"));
     const downloadUrl = "https://cdn.minimax.chat/video/test.mp4";
 
     // 1. 提交任务
@@ -198,20 +229,28 @@ describe("minimaxGenerateVideo", () => {
         file: { file_id: "file-xyz456", download_url: downloadUrl },
       }),
     });
-    // 5. 下载视频
+    // 5. 下载视频（流式写盘，mock ReadableStream body）
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      arrayBuffer: async () => isolatedVideoBuffer,
+      body: {
+        getReader: () => ({
+          read: vi.fn()
+            .mockResolvedValueOnce({ done: false, value: videoChunk })
+            .mockResolvedValueOnce({ done: true, value: undefined }),
+          releaseLock: vi.fn(),
+          cancel: vi.fn(),
+        }),
+      },
     });
 
-    const buffer = await minimaxGenerateVideo(
-      { prompt: "a flying bird", model: "video-01" },
+    const byteSize = await minimaxGenerateVideo(
+      { prompt: "a flying bird", model: "video-01", destPath: DEST_PATH },
       makeConfig({ protocol: "minimax-video" }),
       makeSignal(),
     );
 
-    expect(Buffer.isBuffer(buffer)).toBe(true);
-    expect(buffer.toString()).toBe("video-binary-data");
+    // 返回写入字节数（而非 Buffer）
+    expect(byteSize).toBe(videoChunk.byteLength);
     expect(mockFetch).toHaveBeenCalledTimes(5);
 
     // 校验 query 请求含 task_id
@@ -239,7 +278,7 @@ describe("minimaxGenerateVideo", () => {
 
     await expect(
       minimaxGenerateVideo(
-        { prompt: "x", model: "video-01" },
+        { prompt: "x", model: "video-01", destPath: DEST_PATH },
         makeConfig({ protocol: "minimax-video" }),
         makeSignal(),
       ),
@@ -267,7 +306,7 @@ describe("minimaxGenerateVideo", () => {
     // 设置极短超时（比 pollIntervalMs 还短）让第一次轮询前就超时
     await expect(
       minimaxGenerateVideo(
-        { prompt: "x", model: "video-01" },
+        { prompt: "x", model: "video-01", destPath: DEST_PATH },
         makeConfig({ protocol: "minimax-video", timeoutMs: 50, pollIntervalMs: 200 }),
         makeSignal(),
       ),
@@ -285,7 +324,7 @@ describe("minimaxGenerateVideo", () => {
 
     await expect(
       minimaxGenerateVideo(
-        { prompt: "x", model: "video-01" },
+        { prompt: "x", model: "video-01", destPath: DEST_PATH },
         makeConfig({ protocol: "minimax-video" }),
         makeSignal(),
       ),
@@ -358,7 +397,7 @@ describe("minimaxGenerateVideo — delay 预中止", () => {
     const start = Date.now();
     await expect(
       minimaxGenerateVideo(
-        { prompt: "x", model: "video-01" },
+        { prompt: "x", model: "video-01", destPath: DEST_PATH },
         // pollIntervalMs 很长（2s），若 delay 预中止失效，会等 2s 才报错
         makeConfig({ protocol: "minimax-video", timeoutMs: 5000, pollIntervalMs: 2000 }),
         abortedSignal,

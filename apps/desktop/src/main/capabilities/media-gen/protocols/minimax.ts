@@ -20,6 +20,8 @@
 // TTS：POST {baseUrl}/v1/t2a_v2
 
 import type { ResolvedMediaGenConfig } from "../resolve";
+import { streamDownloadToBuffer, streamDownloadToFile } from "../download";
+import { MAX_RESPONSE_BYTES } from "../client";
 
 // ── 视频轮询参数 ──────────────────────────────────────────────────────────────
 
@@ -43,6 +45,11 @@ export interface MinimaxVideoArgs {
   lastFrameImagePath?: string;
   duration?: number;
   resolution?: string;
+  /**
+   * 视频产物绝对路径（调用方提前生成）。
+   * 视频最大 500MB，直接写盘避免整块 Buffer 进堆（KTD11 / ADV-006）。
+   */
+  destPath: string;
 }
 
 // ── 音乐生成参数 ──────────────────────────────────────────────────────────────
@@ -123,10 +130,10 @@ export async function minimaxGenerateImage(
     return Buffer.from(base64, "base64");
   }
 
-  // 回退 url（传 signal：CDN 卡住时 abort 可中止下载，与 openai-images 行为对齐）。
+  // 回退 url：流式下载，超过图片限制时立即中止（CDN 卡住时 signal 可中止下载）。
   const imageUrl = data.data?.image_urls?.[0];
   if (imageUrl) {
-    return downloadHttpsUrl(imageUrl, signal);
+    return downloadHttpsUrl(imageUrl, signal, MAX_RESPONSE_BYTES.image, "image");
   }
 
   throw new Error("MiniMax 图片生成响应中既无 image_base64 也无 image_urls");
@@ -154,13 +161,16 @@ interface MinimaxFileRetrieveResponse {
 }
 
 /**
- * 调用 MiniMax 视频生成接口（异步轮询），返回视频二进制 Buffer。
+ * 调用 MiniMax 视频生成接口（异步轮询），将视频流式写入 args.destPath。
+ *
+ * 返回写入字节数（而非 Buffer）。视频最大 500MB，直接写盘避免整块响应进堆
+ * （KTD11 / ADV-006）：边读边计数，超过 MAX_RESPONSE_BYTES.video 立即中止。
  */
 export async function minimaxGenerateVideo(
   args: MinimaxVideoArgs,
   config: ResolvedMediaGenConfig,
   signal: AbortSignal,
-): Promise<Buffer> {
+): Promise<number> {
   const baseUrl = config.baseUrl.replace(/\/+$/, "");
 
   // ── 1. 提交任务 ───────────────────────────────────────────────────────────
@@ -266,8 +276,14 @@ export async function minimaxGenerateVideo(
     throw new Error(`MiniMax 文件获取响应中无 download_url（file_id=${fileId}）`);
   }
 
-  // ── 4. 下载视频二进制 ─────────────────────────────────────────────────────
-  return downloadHttpsUrl(downloadUrl, signal);
+  // ── 4. 流式下载视频并直接写盘（KTD11 / ADV-006）────────────────────────────
+  // 视频最大 500MB，用 streamDownloadToFile 边读边计数，超限立即中止不进堆。
+  return streamDownloadToFile(downloadUrl, {
+    signal,
+    maxBytes: MAX_RESPONSE_BYTES.video,
+    destPath: args.destPath,
+    modality: "video",
+  });
 }
 
 // ── 音乐生成 ──────────────────────────────────────────────────────────────────
@@ -321,7 +337,7 @@ export async function minimaxGenerateMusic(
 
   const audioUrl = data.data?.audio_url;
   if (audioUrl) {
-    return downloadHttpsUrl(audioUrl, signal);
+    return downloadHttpsUrl(audioUrl, signal, MAX_RESPONSE_BYTES.music, "music");
   }
 
   throw new Error("MiniMax 音乐生成响应中既无 audio（base64）也无 audio_url");
@@ -400,18 +416,18 @@ function checkMinimaxBaseResp(
 }
 
 /**
- * 从 HTTPS URL 下载二进制数据。
+ * 从 HTTPS URL 流式下载二进制数据到 Buffer（图片/音乐等小文件场景）。
+ *
+ * 使用 streamDownloadToBuffer 而非 res.arrayBuffer()（KTD11 / ADV-006）：
+ * 边读边计数，超过 maxBytes 时立即 reader.cancel() 中止，防止异常大响应进堆。
  */
-async function downloadHttpsUrl(url: string, signal?: AbortSignal): Promise<Buffer> {
-  if (!url.startsWith("https://")) {
-    throw new Error(`下载 URL 必须为 https://，当前: ${url}`);
-  }
-  const res = await fetch(url, { ...(signal ? { signal } : {}) });
-  if (!res.ok) {
-    throw new Error(`下载失败 HTTP ${res.status}: ${url}`);
-  }
-  const arrayBuffer = await res.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+async function downloadHttpsUrl(
+  url: string,
+  signal: AbortSignal,
+  maxBytes: number,
+  modality: string,
+): Promise<Buffer> {
+  return streamDownloadToBuffer(url, { signal, maxBytes, modality });
 }
 
 /**

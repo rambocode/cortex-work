@@ -9,6 +9,8 @@
 //     （兼容部分兼容 API 不支持 response_format 参数的情况）
 
 import type { ResolvedMediaGenConfig } from "../resolve";
+import { streamDownloadToBuffer } from "../download";
+import { MAX_RESPONSE_BYTES } from "../client";
 
 // ── 参数类型 ──────────────────────────────────────────────────────────────────
 
@@ -129,18 +131,17 @@ async function parseResponse(data: OpenAIImagesResponse, signal: AbortSignal): P
 }
 
 // ── 内部：从 URL 下载图片二进制 ────────────────────────────────────────────────
+//
+// 使用 streamDownloadToBuffer 而非 res.arrayBuffer()（KTD11 / ADV-006）：
+// 边读边计数，累计超过 MAX_RESPONSE_BYTES.image 时立即 reader.cancel() 中止，
+// 防止异常大响应在事后检查前就耗尽 V8 堆。图片上限 50MB，收集到 Buffer 可接受。
 
 async function downloadUrl(url: string, signal: AbortSignal): Promise<Buffer> {
-  // 安全：只允许 https://
-  if (!url.startsWith("https://")) {
-    throw new Error(`图片下载 URL 必须为 https://，当前: ${url}`);
-  }
   // 必须传 signal：CDN 响应慢时若不绑 AbortSignal，超时触发后 AbortController abort 无法
   // 中止此 fetch，导致下载 Promise 悬挂，工具 handler 无法正常退出。
-  const res = await fetch(url, { signal });
-  if (!res.ok) {
-    throw new Error(`下载图片失败 HTTP ${res.status}: ${url}`);
-  }
-  const arrayBuffer = await res.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  return streamDownloadToBuffer(url, {
+    signal,
+    maxBytes: MAX_RESPONSE_BYTES.image,
+    modality: "image",
+  });
 }

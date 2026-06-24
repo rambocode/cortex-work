@@ -76,24 +76,27 @@ describe("openaiImagesGenerate", () => {
 
   // ── url 下载 ─────────────────────────────────────────────────────────────────
 
-  it("响应含 data[0].url 时下载二进制", async () => {
+  it("响应含 data[0].url 时流式下载二进制", async () => {
     const imageUrl = "https://images.openai.com/generated/test.png";
-    const fakeImageBytes = Buffer.from("png-image-bytes");
-    // 使用独立的 ArrayBuffer，避免共享底层 buffer 导致数据污染
-    const isolatedBuffer = fakeImageBytes.buffer.slice(
-      fakeImageBytes.byteOffset,
-      fakeImageBytes.byteOffset + fakeImageBytes.byteLength,
-    );
+    const fakeImageChunk = new Uint8Array(Buffer.from("png-image-bytes"));
 
     // 第一次 fetch：生成接口
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ data: [{ url: imageUrl }] }),
     });
-    // 第二次 fetch：下载图片
+    // 第二次 fetch：下载图片（流式，mock ReadableStream body）
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      arrayBuffer: async () => isolatedBuffer,
+      body: {
+        getReader: () => ({
+          read: vi.fn()
+            .mockResolvedValueOnce({ done: false, value: fakeImageChunk })
+            .mockResolvedValueOnce({ done: true, value: undefined }),
+          releaseLock: vi.fn(),
+          cancel: vi.fn(),
+        }),
+      },
     });
 
     const buffer = await openaiImagesGenerate(makeArgs(), makeConfig(), makeSignal());

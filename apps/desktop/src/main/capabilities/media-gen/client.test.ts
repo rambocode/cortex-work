@@ -14,14 +14,36 @@ import {
 } from "./client";
 import type { ResolvedMediaGenConfig } from "./resolve";
 
+// ── vi.hoisted：确保 mock fn 可在 vi.mock factory 内引用 ──────────────────────
+
+const { mockMkdir, mockWriteFile, mockCreateWriteStreamClient, mockUnlinkClient } = vi.hoisted(() => {
+  const mockMkdir = vi.fn().mockResolvedValue(undefined);
+  const mockWriteFile = vi.fn().mockResolvedValue(undefined);
+  const writeStream = {
+    write: vi.fn((_chunk: unknown, cb: (err?: Error | null) => void) => { cb(null); return true; }),
+    end: vi.fn((cb: (err?: Error | null) => void) => { cb(null); }),
+    destroy: vi.fn(),
+    once: vi.fn(),
+  };
+  const mockCreateWriteStreamClient = vi.fn(() => writeStream);
+  const mockUnlinkClient = vi.fn(
+    (_path: string, cb: (err: NodeJS.ErrnoException | null) => void) => cb(null)
+  );
+  return { mockMkdir, mockWriteFile, mockCreateWriteStreamClient, mockUnlinkClient };
+});
+
 // ── mock node:fs/promises ──────────────────────────────────────────────────────
 
-const mockMkdir = vi.fn().mockResolvedValue(undefined);
-const mockWriteFile = vi.fn().mockResolvedValue(undefined);
-
 vi.mock("node:fs/promises", () => ({
-  mkdir: (...args: unknown[]) => mockMkdir(...args),
-  writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  mkdir: mockMkdir,
+  writeFile: mockWriteFile,
+}));
+
+// ── mock node:fs（createWriteStream / unlink，用于视频流式写盘） ──────────────
+
+vi.mock("node:fs", () => ({
+  createWriteStream: mockCreateWriteStreamClient,
+  unlink: mockUnlinkClient,
 }));
 
 // ── mock node:crypto（固定随机 id） ────────────────────────────────────────────
@@ -229,10 +251,20 @@ describe("generateImage", () => {
 
 describe("generateSpeech", () => {
   it("成功生成语音，产物落盘 .cortex/media/speech/", async () => {
-    const fakeAudio = Buffer.from("audio-content");
+    const audioChunk = new Uint8Array(Buffer.from("audio-content"));
+    // openaiSpeechGenerate 直接读 res.body（流式），不再用 res.arrayBuffer()
+    const mockBody = {
+      getReader: () => ({
+        read: vi.fn()
+          .mockResolvedValueOnce({ done: false, value: audioChunk })
+          .mockResolvedValueOnce({ done: true, value: undefined }),
+        releaseLock: vi.fn(),
+        cancel: vi.fn(),
+      }),
+    };
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      arrayBuffer: async () => fakeAudio.buffer,
+      body: mockBody,
     });
 
     const result = await generateSpeech(
@@ -293,7 +325,7 @@ describe("generateMusic", () => {
 
 describe("generateVideo", () => {
   it("成功生成视频，产物落盘 .cortex/media/video/", async () => {
-    const videoBytes = Buffer.from("video-content");
+    const videoChunk = new Uint8Array(Buffer.from("video-content"));
 
     // 提交
     mockFetch.mockResolvedValueOnce({
@@ -317,10 +349,19 @@ describe("generateVideo", () => {
         file: { download_url: "https://cdn.minimax.chat/v.mp4" },
       }),
     });
-    // 下载
+    // 下载（视频走流式写盘，mock ReadableStream body）
+    const mockBody = {
+      getReader: () => ({
+        read: vi.fn()
+          .mockResolvedValueOnce({ done: false, value: videoChunk })
+          .mockResolvedValueOnce({ done: true, value: undefined }),
+        releaseLock: vi.fn(),
+        cancel: vi.fn(),
+      }),
+    };
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      arrayBuffer: async () => videoBytes.buffer,
+      body: mockBody,
     });
 
     const result = await generateVideo(
@@ -331,6 +372,9 @@ describe("generateVideo", () => {
 
     expect(result.files[0].relativePath).toMatch(/^\.cortex\/media\/video\//);
     expect(result.files[0].mimeType).toBe("video/mp4");
+    expect(result.files[0].byteSize).toBe(videoChunk.byteLength);
+    // 不调用 writeFile（视频走 createWriteStream 写盘）
+    expect(mockWriteFile).not.toHaveBeenCalled();
   });
 
   it("firstFrameImagePath 越界时抛出错误", async () => {
@@ -415,11 +459,23 @@ describe("resolveAudioFormat", () => {
 // ── generateSpeech format 白名单集成 ─────────────────────────────────────────
 
 describe("generateSpeech - format 白名单集成", () => {
+  function makeSpeechBodyMock(content: string) {
+    const chunk = new Uint8Array(Buffer.from(content));
+    return {
+      getReader: () => ({
+        read: vi.fn()
+          .mockResolvedValueOnce({ done: false, value: chunk })
+          .mockResolvedValueOnce({ done: true, value: undefined }),
+        releaseLock: vi.fn(),
+        cancel: vi.fn(),
+      }),
+    };
+  }
+
   it("wav format → mimeType 为 audio/wav（而非 audio/mpeg）", async () => {
-    const fakeAudio = Buffer.from("wav-audio-content");
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      arrayBuffer: async () => fakeAudio.buffer,
+      body: makeSpeechBodyMock("wav-audio-content"),
     });
 
     const result = await generateSpeech(
@@ -433,10 +489,9 @@ describe("generateSpeech - format 白名单集成", () => {
   });
 
   it("非白名单 format（例如穿越字符）回落 mp3，mimeType 为 audio/mpeg", async () => {
-    const fakeAudio = Buffer.from("audio-content");
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      arrayBuffer: async () => fakeAudio.buffer,
+      body: makeSpeechBodyMock("audio-content"),
     });
 
     const result = await generateSpeech(
