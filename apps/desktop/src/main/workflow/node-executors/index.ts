@@ -45,6 +45,7 @@ import {
 } from './data.js'
 import { executeCode, executeCustom } from './code.js'
 import { executeHttpRequest } from './http.js'
+import { executeGenerateImage } from './image.js'
 
 // ── 对外类型契约 ──────────────────────────────────────────────────────────────
 
@@ -233,8 +234,10 @@ export async function executeNode(
       throw new Error(`节点类型 ${node.type} 待 U12（AI 节点 CLI spawn 适配）实现`)
 
     // ── 图片生成节点（U13 实现）────────────────────────────────────────────────
+    // workspaceRoot 优先取 deps.workspaceRoot（由 graph-executor 从触发器 config 解析并注入）。
+    // cancelToken 不直接转 AbortSignal（RunContext 无此结构），此处暂不传 signal（U13 约束见 image.ts 注释）。
     case 'generate-image':
-      throw new Error(`节点类型 ${node.type} 待 U13（生成图片节点）实现`)
+      return executeGenerateImage(node.config, primary, scope, deps.workspaceRoot)
 
     default: {
       // TypeScript exhaustive check：如果新增了 WorkflowNodeKind 但未加 case，此处会报错
