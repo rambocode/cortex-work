@@ -393,7 +393,57 @@
   },
   "mediaGen": {
     "title": "Media Generation",
-    "desc": "Configure image, video and audio generation capabilities for agent use in conversations."
+    "desc": "Configure image, video and audio generation capabilities for agent use in conversations.",
+    "overviewCard": "Overview",
+    "overviewDesc": "When enabled, agents can call the corresponding media generation tools in conversations. Each modality can be enabled independently with its own provider or custom API.",
+    "providerLabel": "Provider",
+    "providerDesc": "Select a configured provider, or use a custom API.",
+    "providerCustom": "Custom",
+    "providerKeyHint": "Using {{name}}'s API key",
+    "protocolLabel": "Protocol",
+    "baseUrlLabel": "API Base URL",
+    "apiKeyLabel": "API Key",
+    "modelLabel": "Model",
+    "image": {
+      "cardTitle": "Image Generation",
+      "enableLabel": "Enable image generation",
+      "enableDesc": "When enabled, agents can call the generate_image tool.",
+      "protocolOpenAi": "OpenAI Images",
+      "protocolMiniMax": "MiniMax Image",
+      "defaultSizeLabel": "Default image size",
+      "defaultSizePlaceholder": "e.g. 1024x1024",
+      "modelPlaceholder": "e.g. dall-e-3"
+    },
+    "speech": {
+      "cardTitle": "Speech Synthesis",
+      "enableLabel": "Enable speech synthesis",
+      "enableDesc": "When enabled, agents can call the generate_speech tool.",
+      "protocolOpenAi": "OpenAI Speech",
+      "protocolMiniMax": "MiniMax T2A",
+      "protocolMimo": "Mimo TTS",
+      "voiceLabel": "Voice",
+      "voicePlaceholder": "e.g. alloy",
+      "formatLabel": "Output format",
+      "modelPlaceholder": "e.g. tts-1"
+    },
+    "music": {
+      "cardTitle": "Music Generation",
+      "enableLabel": "Enable music generation",
+      "enableDesc": "When enabled, agents can call the generate_music tool.",
+      "protocolMiniMax": "MiniMax Music",
+      "formatLabel": "Output format",
+      "modelPlaceholder": "e.g. music-01"
+    },
+    "video": {
+      "cardTitle": "Video Generation",
+      "enableLabel": "Enable video generation",
+      "enableDesc": "When enabled, agents can call the generate_video tool.",
+      "protocolMiniMax": "MiniMax Video",
+      "durationLabel": "Default duration (seconds)",
+      "resolutionLabel": "Default resolution",
+      "pollIntervalLabel": "Poll interval (ms)",
+      "modelPlaceholder": "e.g. video-01"
+    }
   },
   "stt": {
     "title": "Speech to Text",

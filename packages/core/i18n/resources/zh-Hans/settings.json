@@ -393,7 +393,57 @@
   },
   "mediaGen": {
     "title": "媒体生成",
-    "desc": "配置图像、视频、音频生成能力,供 agent 在会话中调用。"
+    "desc": "配置图像、视频、音频生成能力,供 agent 在会话中调用。",
+    "overviewCard": "总览",
+    "overviewDesc": "启用后,Agent 可在会话中调用对应的媒体生成工具。每个模态可独立启用并配置供应商或自定义 API。",
+    "providerLabel": "供应商",
+    "providerDesc": "选择已配置的供应商,或使用自定义 API。",
+    "providerCustom": "自定义",
+    "providerKeyHint": "使用 {{name}} 的密钥",
+    "protocolLabel": "协议",
+    "baseUrlLabel": "API 地址",
+    "apiKeyLabel": "API 密钥",
+    "modelLabel": "模型",
+    "image": {
+      "cardTitle": "图片生成",
+      "enableLabel": "启用图片生成",
+      "enableDesc": "开启后 Agent 可调用 generate_image 工具。",
+      "protocolOpenAi": "OpenAI Images",
+      "protocolMiniMax": "MiniMax 图像",
+      "defaultSizeLabel": "默认图片尺寸",
+      "defaultSizePlaceholder": "如 1024x1024",
+      "modelPlaceholder": "如 dall-e-3"
+    },
+    "speech": {
+      "cardTitle": "语音合成",
+      "enableLabel": "启用语音合成",
+      "enableDesc": "开启后 Agent 可调用 generate_speech 工具。",
+      "protocolOpenAi": "OpenAI Speech",
+      "protocolMiniMax": "MiniMax T2A",
+      "protocolMimo": "Mimo TTS",
+      "voiceLabel": "语音角色",
+      "voicePlaceholder": "如 alloy",
+      "formatLabel": "输出格式",
+      "modelPlaceholder": "如 tts-1"
+    },
+    "music": {
+      "cardTitle": "音乐生成",
+      "enableLabel": "启用音乐生成",
+      "enableDesc": "开启后 Agent 可调用 generate_music 工具。",
+      "protocolMiniMax": "MiniMax Music",
+      "formatLabel": "输出格式",
+      "modelPlaceholder": "如 music-01"
+    },
+    "video": {
+      "cardTitle": "视频生成",
+      "enableLabel": "启用视频生成",
+      "enableDesc": "开启后 Agent 可调用 generate_video 工具。",
+      "protocolMiniMax": "MiniMax Video",
+      "durationLabel": "默认时长（秒）",
+      "resolutionLabel": "默认分辨率",
+      "pollIntervalLabel": "轮询间隔（ms）",
+      "modelPlaceholder": "如 video-01"
+    }
   },
   "stt": {
     "title": "语音转文字",
