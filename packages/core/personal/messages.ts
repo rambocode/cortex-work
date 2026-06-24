@@ -274,7 +274,16 @@ export function typingText(agent: AgentKind, phase: "starting" | "thinking", wai
   return text;
 }
 
+// 工具名在「执行过程」面板与状态文案的清洗:claude 把内置 MCP 工具写成 mcp__<server>__<tool>,
+// 去前缀让用户一眼看出用了哪个内置能力(文档抽取 extract_document / 浏览器 browser_*);非 MCP
+// 工具(bash 等)原样。这是文档抽取等 MCP 能力的可观测性入口——工具被调用即在面板可读地呈现。
+export function cleanToolName(name: string): string {
+  const m = /^mcp__.+?__(.+)$/.exec(name);
+  return m ? m[1]! : name;
+}
+
 function typingToolText(agent: AgentKind, tool: string, detail?: string): string {
+  tool = cleanToolName(tool);
   const name = AGENT_NAME[agent];
   return detail
     ? t("chat:core.typing.workingDetail", { name, tool, detail })
@@ -282,7 +291,7 @@ function typingToolText(agent: AgentKind, tool: string, detail?: string): string
 }
 
 function typingToolDoneText(agent: AgentKind, tool: string): string {
-  return t("chat:core.typing.toolDone", { name: AGENT_NAME[agent], tool });
+  return t("chat:core.typing.toolDone", { name: AGENT_NAME[agent], tool: cleanToolName(tool) });
 }
 
 function stopWatchdog(run: RunState): void {
@@ -633,7 +642,8 @@ export function foldCliEvent(
   }
 
   if (ev.type === "tool") {
-    const itemText = ev.detail ? `${ev.name} · ${ev.detail}` : ev.name;
+    const displayName = cleanToolName(ev.name);
+    const itemText = ev.detail ? `${displayName} · ${ev.detail}` : displayName;
     // 并入当前 agentLog 卡片:既有 items 翻 check,追加新 running 项。
     if (cursor.lastKind === "tool" && cursor.logUid) {
       const next = messages.map((m) =>

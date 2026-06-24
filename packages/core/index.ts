@@ -288,6 +288,7 @@ export {
   personalProcessKeys,
   buildAttachmentSystemPrompt,
   buildProjectSystemPrompt,
+  cleanToolName,
   usePersonalChat,
   usePersonalProcess,
   useRenderWindow,
