@@ -1,0 +1,88 @@
+// 文档采集纯函数单测:扩展名/大小校验(拒旧二进制)、去重键、File→PendingDocFile(srcPath 优先 / data 兜底)。
+import { describe, expect, it } from "vitest";
+import {
+  MAX_DOC_BYTES,
+  checkDocFile,
+  docDedupeKey,
+  docExtOf,
+  fileToPendingDocFile,
+  isAcceptedDoc,
+  isBinaryDoc,
+  pendingDocFromPath,
+} from "./docIntake";
+
+describe("docExtOf / isAcceptedDoc", () => {
+  it("识别受支持扩展名(大小写无关)", () => {
+    expect(docExtOf("报表.XLSX")).toBe("xlsx");
+    expect(isAcceptedDoc("a.pdf")).toBe(true);
+    expect(isAcceptedDoc("a.md")).toBe(true);
+  });
+  it("旧二进制与未知 → 不支持", () => {
+    expect(isAcceptedDoc("a.doc")).toBe(false);
+    expect(isAcceptedDoc("a.xls")).toBe(false);
+    expect(isAcceptedDoc("a.ppt")).toBe(false);
+    expect(isAcceptedDoc("a.zip")).toBe(false);
+    expect(isAcceptedDoc("noext")).toBe(false);
+  });
+});
+
+describe("isBinaryDoc(仅 PDF/Office,区分文本注入 vs 文档通道)", () => {
+  it("二进制文档 → true", () => {
+    for (const n of ["a.pdf", "b.docx", "c.xlsx", "d.pptx"]) expect(isBinaryDoc(n)).toBe(true);
+  });
+  it("文本类/其他 → false", () => {
+    for (const n of ["a.md", "b.txt", "c.csv", "d.ts", "e.doc"]) expect(isBinaryDoc(n)).toBe(false);
+  });
+});
+
+describe("pendingDocFromPath(应用内拖入:已知路径作 srcPath)", () => {
+  it("用 srcPath、status ready、按扩展名补 MIME、不读 data", () => {
+    const p = pendingDocFromPath("/proj/report.xlsx", "report.xlsx");
+    expect(p.srcPath).toBe("/proj/report.xlsx");
+    expect(p.data).toBeUndefined();
+    expect(p.status).toBe("ready");
+    expect(p.name).toBe("report.xlsx");
+    expect(p.mimeType).toMatch(/spreadsheetml/);
+  });
+});
+
+describe("checkDocFile", () => {
+  it("不支持格式 → type", () => {
+    expect(checkDocFile({ name: "a.doc", size: 10 })).toBe("type");
+  });
+  it("超大 → size", () => {
+    expect(checkDocFile({ name: "a.pdf", size: MAX_DOC_BYTES + 1 })).toBe("size");
+  });
+  it("合规 → null", () => {
+    expect(checkDocFile({ name: "a.pdf", size: 10 })).toBeNull();
+  });
+});
+
+describe("docDedupeKey", () => {
+  it("name + size", () => {
+    expect(docDedupeKey("a.pdf", 5)).toBe("a.pdf:5");
+  });
+});
+
+describe("fileToPendingDocFile", () => {
+  it("Electron File.path 存在 → 用 srcPath,不读 data", async () => {
+    const f = Object.assign(new File(["x"], "a.pdf", { type: "application/pdf" }), { path: "/abs/a.pdf" });
+    const p = await fileToPendingDocFile(f);
+    expect(p.srcPath).toBe("/abs/a.pdf");
+    expect(p.data).toBeUndefined();
+    expect(p.status).toBe("ready");
+    expect(p.name).toBe("a.pdf");
+  });
+  it("无 path(粘贴来源)→ 读 data", async () => {
+    const f = new File(["hello"], "b.txt", { type: "text/plain" });
+    const p = await fileToPendingDocFile(f);
+    expect(p.srcPath).toBeUndefined();
+    expect(p.data).toBeInstanceOf(ArrayBuffer);
+    expect(p.mimeType).toBe("text/plain");
+  });
+  it("空 type 按扩展名补 MIME", async () => {
+    const f = Object.assign(new File(["x"], "c.docx", { type: "" }), { path: "/abs/c.docx" });
+    const p = await fileToPendingDocFile(f);
+    expect(p.mimeType).toMatch(/wordprocessingml/);
+  });
+});

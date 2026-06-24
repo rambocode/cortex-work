@@ -25,6 +25,8 @@ import type {
   GitBranchesResult,
   GitChangesResult,
   GitCommit,
+  DocSaveRequest,
+  DocSaveResult,
   GitDiffAllResult,
   GitInfoResult,
   GitOpResult,
@@ -151,6 +153,9 @@ export interface DesktopBridge {
   // 可选（web/旧壳无 → composer 图片上传入口降级隐藏）。
   imageSave?(req: ImageSaveRequest): Promise<ImageSaveResult>;
   imageRead?(path: string): Promise<ImageReadResult>;
+  // 聊天文档附件落盘:返回绝对路径 + 字节数。内容由 agent 经文档抽取 MCP 工具按需读取,
+  // 本桥接不负责抽取。可选（web/旧壳无 → composer 文档上传入口降级隐藏）。
+  docSave?(req: DocSaveRequest): Promise<DocSaveResult>;
   // 项目时间线持久化（按 projectId 一文件,内容对桥接层不透明;不存在返回 null）
   loadTimeline(projectId: string): Promise<unknown>;
   saveTimeline(projectId: string, data: unknown): Promise<void>;

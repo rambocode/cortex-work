@@ -4,7 +4,7 @@
 import { ipcMain } from "electron";
 import { promises as fsp } from "fs";
 import { join } from "path";
-import { chatImagesDir, chatsDir, ensureMigrated } from "../paths";
+import { chatDocsDir, chatImagesDir, chatsDir, ensureMigrated } from "../paths";
 import { enqueue } from "./sessionWriteQueue";
 
 const SAFE_ID = /^[\w-]+$/;
@@ -49,12 +49,13 @@ export function registerChatHandlers(): void {
 
   ipcMain.handle("chat:delete", (_e, sessionId: string) => {
     const path = chatPath(sessionId); // 复用 SAFE_ID 校验
-    // 同队列串行：删消息文件 + 该会话图片目录（避免与在途 save / image:save 交错留孤儿）。
+    // 同队列串行：删消息文件 + 该会话图片/文档目录（避免与在途 save / image:save / doc:save 交错留孤儿）。
     return enqueue(sessionId, async () => {
       try {
         await ensureMigrated();
         await fsp.rm(path, { force: true }); // 不存在不报错
         await fsp.rm(chatImagesDir(sessionId), { recursive: true, force: true });
+        await fsp.rm(chatDocsDir(sessionId), { recursive: true, force: true });
       } catch (err) {
         console.error("[personal-chats] delete failed:", err);
       }

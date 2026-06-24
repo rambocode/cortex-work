@@ -11,6 +11,7 @@ import { registerAskHandlers } from "./ask";
 import { registerPiSessionHandlers } from "./pi-session";
 import { registerChatHandlers } from "./chat";
 import { registerImageHandlers } from "./image";
+import { registerDocHandlers } from "./doc";
 import { registerTimelineHandlers } from "./timeline";
 import { registerPushHandlers } from "./push";
 import { registerLlmHandlers } from "./llm";
@@ -43,6 +44,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerPiSessionHandlers();
   registerChatHandlers();
   registerImageHandlers();
+  registerDocHandlers();
   registerTimelineHandlers();
   registerPushHandlers();
   registerLlmHandlers();

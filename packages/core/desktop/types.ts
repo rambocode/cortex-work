@@ -399,6 +399,38 @@ export interface ImageReadResult {
   dataUrl: string; // data:<mime>;base64,...（缩略图回读用）
 }
 
+// ── 聊天文档附件（PDF / 现代 Office / 纯文本;与 apps/desktop/src/main/ipc/types.ts 镜像）。
+//    PendingDocFile 只活在 composer 内存态,不镜像到 main——主进程只见 DocSaveRequest。
+//    文档内容不进消息,由 agent 经文档抽取 MCP 工具(doc-extract)按需读取。
+
+// composer 待发文档（renderer 内存态）。id/name 是客户端值,**不得用于主进程路径构造**。
+export interface PendingDocFile {
+  id: string; // 客户端临时 id（列表 key / 同批去重）
+  name: string; // 原始文件名（仅显示）
+  mimeType: string;
+  sizeBytes: number;
+  status: "saving" | "ready" | "error"; // 待发项状态:写盘中 / 就绪 / 失败
+  // 二选一,优先 srcPath（Electron File.path,落盘走路径直拷,避免 50MB ArrayBuffer 过 IPC）。
+  srcPath?: string;
+  data?: ArrayBuffer; // 粘贴等无路径来源的内存态字节
+  savedPath?: string; // 落盘后的绝对路径（status==="ready" 时有值）
+  error?: string; // status==="error" 时的简短错因
+}
+
+// doc:save 入参（renderer → 主进程）。优先 srcPath 路径直拷;无路径才走 data。
+export interface DocSaveRequest {
+  sessionId: string; // 落盘目录键（主进程 SAFE_ID 校验）
+  fileName: string; // 原始名（仅显示与扩展名嗅探,不参与路径）
+  mimeType: string;
+  srcPath?: string;
+  data?: ArrayBuffer;
+}
+
+export interface DocSaveResult {
+  path: string; // 落盘绝对路径（chatDocsRoot()/<sessionId>/<uuid>.<ext>）
+  sizeBytes: number;
+}
+
 // 推送目标（renderer 把设置拍平后传给主进程,主进程不读设置文件）。
 // 注意:本类型在 apps/desktop/src/main/ipc/push.ts 有一份本地镜像,两侧须同步。
 export type PushTarget =

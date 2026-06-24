@@ -79,10 +79,10 @@ export interface ReplyRef {
   text: string;
 }
 
-// 用户消息携带的引用(拖入聊天框的 skill / todo),仅用于会话气泡里回显「引用了什么」。
+// 用户消息携带的引用(拖入聊天框的 skill / todo / 文档),仅用于会话气泡里回显「引用了什么」。
 export interface MessageAttachmentRef {
   name: string;
-  kind: "prompt" | "todo";
+  kind: "prompt" | "todo" | "document";
 }
 
 // 用户消息携带的图片引用(粘贴/拖拽/选择上传)。落盘后的绝对路径 + 显示名 + MIME + 宽高,
@@ -96,6 +96,16 @@ export interface ChatImageRef {
   height?: number;
 }
 
+// 用户消息携带的文档附件引用(PDF / 现代 Office / 纯文本)。落盘后的绝对路径 + 显示名 + MIME + 字节数,
+// 随会话 JSON 持久化。**不含**文件内容 —— 内容由 agent 经文档抽取 MCP 工具(doc-extract)按需读取,
+// 不内联进 chat JSON(同 ChatImageRef 不存 base64 的前车之鉴)。
+export interface ChatFileRef {
+  path: string; // 绝对路径(主进程 doc:save 落盘后返回,落在 chatDocsRoot()/<sessionId>/)
+  name: string; // 显示用原始文件名(仅展示,不参与路径构造)
+  mimeType: string;
+  sizeBytes?: number;
+}
+
 export type Message =
   | { kind: "day"; label: string; uid?: string }
   | {
@@ -106,6 +116,7 @@ export type Message =
       reply?: ReplyRef;
       attachments?: MessageAttachmentRef[];
       images?: ChatImageRef[];
+      files?: ChatFileRef[];
       uid?: string;
     }
   | {

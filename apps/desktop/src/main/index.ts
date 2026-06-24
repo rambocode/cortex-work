@@ -16,6 +16,7 @@ import { ensureMigrated } from "./paths";
 import { initScheduler, rescheduleAll, stopScheduler } from "./automation/scheduler";
 import { startMcpHost, stopMcpHost } from "./capabilities/mcp-host/server";
 import { registerBrowserTools } from "./capabilities/browser/tools";
+import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extract/mcp";
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
@@ -279,6 +280,8 @@ if (!app.requestSingleInstanceLock()) {
         openPanel: (url) => mainWindow?.webContents.send("browser:open-panel", url),
       }),
     );
+    // 文档抽取 MCP host:独立实例(独立 port/token),常驻可用;agent 经 extract_document 按需读附件。
+    void startDocExtractHost();
     createWindow();
 
     app.on("activate", () => {
@@ -314,6 +317,7 @@ if (!app.requestSingleInstanceLock()) {
     markRealQuit();
     stopScheduler();
     stopMcpHost();
+    stopDocExtractHost();
     killAllAutomations();
     killAllCli();
     killAllAsk();

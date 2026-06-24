@@ -8,6 +8,7 @@ import { renderHook, act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CoreProvider,
+  cleanToolName,
   personalChatKeys,
   usePersonalActions,
   usePersonalPiEvents,
@@ -18,6 +19,7 @@ import {
   __resetPiSessionsForTest,
   type DesktopBridge,
   type Message,
+  type PendingDocFile,
   type PendingImage,
   type SessionMeta,
 } from "@cortex-work/core";
@@ -88,6 +90,14 @@ function pendingImg(name: string): PendingImage {
 // imageSave mock:按 fileName 回一个确定路径,便于断言保序。
 function imageSaveMock() {
   return vi.fn(async (req: { fileName: string }) => ({ path: `/img/${req.fileName}` }));
+}
+
+// 待发文档(srcPath 形态;docSave 被 mock,不真正落盘)。
+function pendingDoc(name: string): PendingDocFile {
+  return { id: `d-${name}`, name, mimeType: "application/pdf", sizeBytes: 10, status: "ready", srcPath: `/abs/${name}` };
+}
+function docSaveMock() {
+  return vi.fn(async (req: { fileName: string }) => ({ path: `/docs/${req.fileName}`, sizeBytes: 10 }));
 }
 
 function userMsgUid(qc: QueryClient, sessionId: string, text: string): string {
@@ -240,6 +250,48 @@ describe("send 分叉", () => {
     expect(req).toMatchObject({ agent: "claude", prompt: "你好" });
     expect(bridge.piOpen).not.toHaveBeenCalled();
     expect(bridge.piPrompt).not.toHaveBeenCalled();
+  });
+
+  it("claude:带文档 → doc:save 落盘 + appendSystemPrompt 注入文档清单/extract_document + Message.files 回显", async () => {
+    const docSave = docSaveMock();
+    const bridge = makeBridge({ docSave });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(claudeSession, "/proj", "分析这个", [], undefined, undefined, undefined, [pendingDoc("a.pdf")]);
+    });
+    expect(docSave).toHaveBeenCalledTimes(1);
+    const req = (bridge.startCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(req.appendSystemPrompt).toContain("/docs/a.pdf");
+    expect(req.appendSystemPrompt).toContain("extract_document");
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail(claudeSession.id)) ?? [];
+    const userMsg = msgs.find((m) => m.kind === "text" && m.who === "me");
+    expect(userMsg && userMsg.kind === "text" ? userMsg.files?.[0]?.path : undefined).toBe("/docs/a.pdf");
+  });
+
+  it("pi:带文档 → doc:save + piPrompt 文本含文档清单/extract_document", async () => {
+    const docSave = docSaveMock();
+    const bridge = makeBridge({ docSave });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "看看这个", [], undefined, undefined, undefined, [pendingDoc("b.docx")]);
+    });
+    expect(docSave).toHaveBeenCalledTimes(1);
+    const promptArg = (bridge.piPrompt as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
+    expect(String(promptArg)).toContain("/docs/b.docx");
+    expect(String(promptArg)).toContain("extract_document");
+  });
+});
+
+describe("cleanToolName(MCP 工具可观测性)", () => {
+  it("去 claude 的 mcp__<server>__ 前缀", () => {
+    expect(cleanToolName("mcp__cortex-docs__extract_document")).toBe("extract_document");
+    expect(cleanToolName("mcp__cortex-browser__browser_navigate")).toBe("browser_navigate");
+  });
+  it("非 MCP 工具原样", () => {
+    expect(cleanToolName("bash")).toBe("bash");
+    expect(cleanToolName("extract_document")).toBe("extract_document");
   });
 });
 

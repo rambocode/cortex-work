@@ -92,6 +92,20 @@ extraResources:
 #（@mariozechner/clipboard 的 NAPI 由 electron-builder 自动 unpack,无需显式列出。）
 asarUnpack:
   - "**/node_modules/node-pty/**"
+  # 文档抽取(doc-extract):officeParser 在主进程内跑,但其 pdfjs/tesseract 的 wasm/worker 资产
+  # 在 asar 内加载不可靠,故把 officeParser 及其依赖闭包全部 unpack,运行时从真实文件加载。
+  # ⚠ 仓库外 ditto→/tmp 验证:若有 "Cannot find module"/wasm 加载失败,按 docs/lessons.md 排查。
+  - "**/node_modules/officeparser/**"
+  - "**/node_modules/pdfjs-dist/**"
+  - "**/node_modules/tesseract.js/**"
+  - "**/node_modules/tesseract.js-core/**"
+  - "**/node_modules/@xmldom/**"
+  - "**/node_modules/fflate/**"
+  - "**/node_modules/file-type/**"
+  - "**/node_modules/strtok3/**"
+  - "**/node_modules/token-types/**"
+  - "**/node_modules/uint8array-extras/**"
+  - "**/node_modules/@tokenizer/**"
 mac:
   category: public.app-category.productivity
   icon: assets/cortex-neuron-icon.png

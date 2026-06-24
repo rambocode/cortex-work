@@ -327,7 +327,7 @@ describe("ComposerShell 插入并运行（submit 标志）", () => {
     const onSend = vi.fn(() => true);
     renderInsert({ onSend });
     act(() => usePersonalStore.getState().insertToComposer("跑这个", { submit: true }));
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith("跑这个", expect.anything(), undefined));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("跑这个", expect.anything(), undefined, undefined));
   });
 
   it("submit 缺省 → 只插入不发送", async () => {
@@ -428,6 +428,22 @@ describe("ComposerShell 文件预览拖入会话（U6）", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(container.querySelectorAll(".attach-pill").length).toBe(1);
+  });
+
+  it("拖入二进制文档(.pdf) → 走文档通道出现文件 chip,不调 readFile", async () => {
+    const b = fileBridge(async () => ({ content: "不该被读到", truncated: false }));
+    const { container } = renderWithBridge(b);
+    dropFile(container, { path: "/p/report.pdf", name: "report.pdf" });
+    await waitFor(() => expect(screen.getByText("report.pdf")).toBeInTheDocument());
+    expect(b.readFile as ReturnType<typeof vi.fn>).not.toHaveBeenCalled(); // 二进制文档不走 readFile
+  });
+
+  it("拖入文本文件(.md) → 仍走 readFile 注入(不改道文档通道,零回归)", async () => {
+    const b = fileBridge(async () => ({ content: "# 笔记", truncated: false }));
+    const { container } = renderWithBridge(b);
+    dropFile(container, { path: "/p/note.md", name: "note.md" });
+    await waitFor(() => expect(screen.getByText("note.md")).toBeInTheDocument());
+    expect(b.readFile as ReturnType<typeof vi.fn>).toHaveBeenCalledWith("/p/note.md");
   });
 
   it("truncated:true → toast 提示文件过大截断(composer.fileTruncated)", async () => {

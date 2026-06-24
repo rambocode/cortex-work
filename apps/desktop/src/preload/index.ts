@@ -17,6 +17,8 @@ import type {
   ContentSearchResult,
   DerivedAgentMeta,
   CronValidation,
+  DocSaveRequest,
+  DocSaveResult,
   EditorInfo,
   ImageReadResult,
   ImageSaveRequest,
@@ -150,6 +152,8 @@ const personal = {
   // 聊天图片上传:落盘(二进制 ArrayBuffer 直传)/ 回读为 dataURL(缩略图)。
   imageSave: (req: ImageSaveRequest): Promise<ImageSaveResult> => ipcRenderer.invoke("image:save", req),
   imageRead: (path: string): Promise<ImageReadResult> => ipcRenderer.invoke("image:read", path),
+  // 聊天文档附件落盘(优先 srcPath 路径直拷,避免 50MB ArrayBuffer 过 IPC)。
+  docSave: (req: DocSaveRequest): Promise<DocSaveResult> => ipcRenderer.invoke("doc:save", req),
   loadTimeline: (projectId: string): Promise<unknown> => ipcRenderer.invoke("timeline:load", projectId),
   saveTimeline: (projectId: string, data: unknown): Promise<void> =>
     ipcRenderer.invoke("timeline:save", projectId, data),
