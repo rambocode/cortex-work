@@ -342,6 +342,26 @@ export {
   useAutomationEvents,
 } from "./personal/automation";
 export {
+  workflowKeys,
+  upsertDef as upsertWorkflowDef,
+  upsertRun as upsertWorkflowRun,
+  useWorkflows,
+  useWorkflowRuns,
+  useWorkflowsAvailable,
+  useCreateWorkflow,
+  useUpdateWorkflow,
+  useDeleteWorkflow,
+  useSetWorkflowEnabled,
+  useSetWorkflowCallableByAgent,
+  useRunWorkflowNow,
+  useStopWorkflowRun,
+  useDeleteWorkflowRun,
+  useImportWorkflow,
+  useExportWorkflow,
+  useValidateWorkflowCron,
+  useWorkflowEvents,
+} from "./personal/workflow";
+export {
   gitInfoKeys,
   gitBranchKeys,
   useProjectGitInfo,
