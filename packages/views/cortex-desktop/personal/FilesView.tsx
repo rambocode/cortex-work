@@ -11,6 +11,7 @@ import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { ChangedFile, ContentSearchResult, GitChangesResult, PromptNode } from "@cortex-work/core";
 import { FileIcon, fileIconSpec, isOpenExternalLike } from "./fileIcons";
+import { isBinaryDoc } from "./docIntake";
 import { langForName, wordWrapForName } from "./monacoLang";
 import { MonacoViewer, type SelectionAnchor } from "./MonacoViewer";
 import { MarkdownView } from "./MarkdownView";
@@ -61,9 +62,10 @@ function FileTreeNode({
         onClick={() => onOpen(node)}
         onContextMenu={(e) => onCtx(e, node.path, node.name)}
         title={node.path}
-        // 可拖入会话(U6):写自定义 MIME,ComposerShell 的 onDrop 读内容作为附件。
-        // 非文本文件(图片/字体/归档/office/pdf 等)不可拖——经 readFile 强转 UTF-8 会注入乱码且浪费 token。
-        draggable={!isOpenExternalLike(node.name)}
+        // 可拖入会话(U6):写自定义 MIME,ComposerShell 的 onDrop 据类型分流。
+        // 文本文件 → 作为 prompt 附件(readFile 注入内容);二进制文档(PDF/Office)→ 文档附件通道
+        // (落盘 + agent extract_document 读取)。其余二进制(图片/字体/归档)仍不可拖。
+        draggable={!isOpenExternalLike(node.name) || isBinaryDoc(node.name)}
         onDragStart={(e) => {
           e.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify({ path: node.path, name: node.name }));
           e.dataTransfer.effectAllowed = "copy";

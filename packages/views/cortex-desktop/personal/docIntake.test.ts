@@ -7,6 +7,8 @@ import {
   docExtOf,
   fileToPendingDocFile,
   isAcceptedDoc,
+  isBinaryDoc,
+  pendingDocFromPath,
 } from "./docIntake";
 
 describe("docExtOf / isAcceptedDoc", () => {
@@ -21,6 +23,26 @@ describe("docExtOf / isAcceptedDoc", () => {
     expect(isAcceptedDoc("a.ppt")).toBe(false);
     expect(isAcceptedDoc("a.zip")).toBe(false);
     expect(isAcceptedDoc("noext")).toBe(false);
+  });
+});
+
+describe("isBinaryDoc(仅 PDF/Office,区分文本注入 vs 文档通道)", () => {
+  it("二进制文档 → true", () => {
+    for (const n of ["a.pdf", "b.docx", "c.xlsx", "d.pptx"]) expect(isBinaryDoc(n)).toBe(true);
+  });
+  it("文本类/其他 → false", () => {
+    for (const n of ["a.md", "b.txt", "c.csv", "d.ts", "e.doc"]) expect(isBinaryDoc(n)).toBe(false);
+  });
+});
+
+describe("pendingDocFromPath(应用内拖入:已知路径作 srcPath)", () => {
+  it("用 srcPath、status ready、按扩展名补 MIME、不读 data", () => {
+    const p = pendingDocFromPath("/proj/report.xlsx", "report.xlsx");
+    expect(p.srcPath).toBe("/proj/report.xlsx");
+    expect(p.data).toBeUndefined();
+    expect(p.status).toBe("ready");
+    expect(p.name).toBe("report.xlsx");
+    expect(p.mimeType).toMatch(/spreadsheetml/);
   });
 });
 

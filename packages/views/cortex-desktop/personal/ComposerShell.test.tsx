@@ -430,6 +430,22 @@ describe("ComposerShell 文件预览拖入会话（U6）", () => {
     expect(container.querySelectorAll(".attach-pill").length).toBe(1);
   });
 
+  it("拖入二进制文档(.pdf) → 走文档通道出现文件 chip,不调 readFile", async () => {
+    const b = fileBridge(async () => ({ content: "不该被读到", truncated: false }));
+    const { container } = renderWithBridge(b);
+    dropFile(container, { path: "/p/report.pdf", name: "report.pdf" });
+    await waitFor(() => expect(screen.getByText("report.pdf")).toBeInTheDocument());
+    expect(b.readFile as ReturnType<typeof vi.fn>).not.toHaveBeenCalled(); // 二进制文档不走 readFile
+  });
+
+  it("拖入文本文件(.md) → 仍走 readFile 注入(不改道文档通道,零回归)", async () => {
+    const b = fileBridge(async () => ({ content: "# 笔记", truncated: false }));
+    const { container } = renderWithBridge(b);
+    dropFile(container, { path: "/p/note.md", name: "note.md" });
+    await waitFor(() => expect(screen.getByText("note.md")).toBeInTheDocument());
+    expect(b.readFile as ReturnType<typeof vi.fn>).toHaveBeenCalledWith("/p/note.md");
+  });
+
   it("truncated:true → toast 提示文件过大截断(composer.fileTruncated)", async () => {
     const b = fileBridge(async () => ({ content: "巨长内容", truncated: true }));
     const onToast = vi.fn();

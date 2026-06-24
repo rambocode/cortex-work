@@ -32,6 +32,8 @@ import {
   docRejectText,
   fileToPendingDocFile,
   isAcceptedDoc,
+  isBinaryDoc,
+  pendingDocFromPath,
 } from "./docIntake";
 
 // 输入框占位文案中的 agent 展示名。
@@ -569,6 +571,17 @@ export function ComposerShell({
       // 避免含 name: frontmatter 的普通文件被改成无关 skill 名)。同路径已存在则去重 no-op。
       if (rawFile) {
         const { path, name } = JSON.parse(rawFile) as { path: string; name: string };
+        // 仅二进制文档(PDF/Office)走文档附件通道(已知路径作 srcPath 直接落盘 → agent 经
+        // extract_document 读取);文本文件(.md/.txt/代码/配置等)保持既有 readFile→prompt 注入,
+        // 不在此改道(那是注入文件内容作上下文的独立功能,非"附文档")。
+        if (isBinaryDoc(name)) {
+          setDocFiles((prev) =>
+            prev.some((d) => d.srcPath === path) || prev.length >= MAX_DOCS_PER_MESSAGE
+              ? prev
+              : [...prev, pendingDocFromPath(path, name)],
+          );
+          return;
+        }
         if (attachments.some((a) => a.path === path)) return;
         const { content, truncated } = await bridge.readFile(path);
         if (truncated) onToast(t("composer.fileTruncated", { name }));
