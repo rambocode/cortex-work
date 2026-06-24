@@ -3,13 +3,14 @@
     "title": "闪记",
     "count": "{{count}} 条",
     "loading": "加载中…",
-    "empty": "还没有闪记"
+    "empty": "还没有闪记",
+    "emptyInProject": "当前项目还没有闪记"
   },
   "group": {
-    "unassigned": "未归类",
+    "unassigned": "无项目",
     "noArchivableProject": "没有可归档的项目",
     "moveToProject": "移到项目",
-    "moveToUnassigned": "移回未归类"
+    "moveToUnassigned": "移到无项目"
   },
   "row": {
     "select": "选择「{{title}}」",
@@ -25,7 +26,7 @@
   },
   "detail": {
     "closeDetail": "关闭详情",
-    "unassigned": "未归类",
+    "unassigned": "无项目",
     "cancel": "取消",
     "saving": "保存中…",
     "save": "保存",
@@ -73,13 +74,13 @@
     "abandonDeepenFailed": "放弃深化失败：{{error}}",
     "generatePlanFailed": "生成 plan 失败：{{error}}",
     "moved": "已移到项目",
-    "movedToUnassigned": "已移回未归类",
+    "movedToUnassigned": "已移到无项目",
     "moveFailed": "移动失败：{{error}}",
     "deepenFailed": "深化失败：{{error}}"
   },
   "overlay": {
     "placeholder": "记点什么…（Enter 保存,Shift+Enter 换行）",
-    "unassigned": "未归类",
+    "unassigned": "无项目",
     "saveFailed": "保存失败,请重试",
     "saveAria": "保存闪记"
   },

@@ -1,5 +1,5 @@
 // 闪记（Flash Notes）收件箱右栏视图。按项目分组展示闪记,双态切换(列表/详情):
-//   列表 → 按项目分组,「未归类」分组无内容时隐藏标题;同项目内可多选触发「深化」。
+//   列表 → 按项目分组,「无项目」分组无内容时隐藏标题;同项目内可多选触发「深化」。
 //   详情 → textarea 受控编辑(Cmd/Ctrl+S 存、Esc 取消) + MarkdownView 预览。
 // 取数走 React Query(useAllNotes,key 以 projectId),不复制 Zustand 副本;写回走
 // bridge.notesUpdate / notesDelete(经 mutation hook 成功后 invalidate)。删除仅删自身,
@@ -170,7 +170,7 @@ function NoteDetail({
   note: NoteMeta;
   project?: ProjectMeta;
   liveProjects: ProjectMeta[];
-  // projectId 为 undefined 表示移回「未归类」。
+  // projectId 为 undefined 表示移到「无项目」。
   onMoveTo: (noteId: string, projectId: string | undefined) => void;
   onBack: () => void;
   onToast: (text: string) => void;
@@ -279,7 +279,7 @@ function NoteDetail({
         <div className="spacer" />
         {statusLabel ? <span className="pw-note-badge" data-status={note.status}>{statusLabel}</span> : null}
         {project ? <span className="pw-todo-total">{project.name}</span> : <span className="pw-readonly">{t("detail.unassigned")}</span>}
-        {/* 移动到其它项目 / 移回未归类(currentProjectId 排除当前所属)。 */}
+        {/* 移动到其它项目 / 移到无项目(currentProjectId 排除当前所属)。 */}
         <MoveToProjectMenu
           projects={liveProjects}
           currentProjectId={note.projectId}
@@ -483,7 +483,7 @@ function NoteRow({
   );
 }
 
-// 项目分组(含「未归类」)。selectedIds 限同项目内,选中态用于「深化」触发。
+// 项目分组(含「无项目」)。selectedIds 限同项目内,选中态用于「深化」触发。
 function NoteGroup({
   group,
   notes,
@@ -494,7 +494,7 @@ function NoteGroup({
   onOpen,
   onMoveTo,
 }: {
-  // group=undefined 即「未归类」分组。
+  // group=undefined 即「无项目」分组。
   group: ProjectMeta | undefined;
   notes: NoteMeta[];
   liveProjects: ProjectMeta[];
@@ -502,7 +502,7 @@ function NoteGroup({
   selectable: boolean;
   onToggleSelect: (note: NoteMeta) => void;
   onOpen: (noteId: string) => void;
-  // projectId 为 undefined 表示移回「未归类」。
+  // projectId 为 undefined 表示移到「无项目」。
   onMoveTo: (noteId: string, projectId: string | undefined) => void;
 }) {
   const { t } = useTranslation("notes");
@@ -529,7 +529,7 @@ function NoteGroup({
                 onToggleSelect={() => (selectable ? onToggleSelect(n) : undefined)}
                 onOpen={() => onOpen(n.id)}
               />
-              {/* 任意闪记(含已归项目的)都可换项目 / 移回未归类;currentProjectId 排除自身分组。 */}
+              {/* 任意闪记(含已归项目的)都可换项目 / 移到无项目;currentProjectId 排除自身分组。 */}
               <MoveToProjectMenu
                 projects={liveProjects}
                 currentProjectId={group?.id}
@@ -554,10 +554,13 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   // 点击列表某条闪记 → 进入中心区宽写作面(占据 .pw-center-col);
   // 右栏内 NoteDetail 仅保留给跨栏 requestNoteDetail 速览(时间线卡片跳转,不抢占中心区)。
   const openNoteEditor = usePersonalStore((s) => s.openNoteEditor);
+  // 闪记按「当前会话所在项目」过滤所需:活跃会话 id + 会话列表(从会话取 projectId)。
+  const sessions = usePersonalStore((s) => s.sessions);
+  const activeSessionId = usePersonalStore((s) => s.activeSessionId);
 
   // 双态:null → 列表;否则详情。
   const [selected, setSelected] = useState<{ kind: "note"; id: string } | null>(null);
-  // 多选(限同项目内):selectedProjectKey 锁定当前选择所在项目(undefined=未归类组)。
+  // 多选(限同项目内):selectedProjectKey 锁定当前选择所在项目(undefined=无项目组)。
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | undefined>(undefined);
   // 深化触发在途态(仿 NoteDetail 的 planning/saving):onDeepen 进行中禁用按钮,
@@ -582,7 +585,7 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   // 仅活跃(未归档)项目可作归档目标。
   const liveProjects = useMemo(() => projects.filter((p) => p.archivedAt == null), [projects]);
 
-  // 按项目分组:每个项目一组 + 未归类组(放最后)。
+  // 按项目分组:每个项目一组 + 「无项目」组(放最后)。
   const groups = useMemo(() => {
     const byProject = new Map<string, NoteMeta[]>();
     const unassigned: NoteMeta[] = [];
@@ -604,12 +607,27 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
         byProject.delete(project.id); // 标记已消费,剩余即「孤儿」(projectId 不在 projects)
       }
     }
-    // 孤儿笔记(项目被删 / projects 尚未加载完)并入未归类兜底,绝不静默消失。
+    // 孤儿笔记(项目被删 / projects 尚未加载完)并入「无项目」兜底,绝不静默消失。
     for (const group of byProject.values()) unassigned.push(...group);
-    // 未归类组无内容时整组省略(隐藏标题)。
+    // 「无项目」组无内容时整组省略(隐藏标题)。
     if (unassigned.length > 0) rows.push({ project: undefined, notes: [...unassigned].sort(sortByCreated) });
     return rows;
   }, [notes, projects]);
+
+  // 按「当前会话所在项目」过滤分组(闪记归属到项目):
+  // - 有活跃会话 → 仅保留该会话所在项目的分组(会话无项目 → 仅「无项目」组);
+  // - 无活跃会话(如落地页/未进任何会话)→ 不过滤,显示全部分组。
+  // 过滤作用于已分组的 rows(而非裸 notes),以保留「孤儿并入无项目」的兜底语义。
+  const visibleGroups = useMemo(() => {
+    const active = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : undefined;
+    if (!active) return groups;
+    const pid = active.projectId; // undefined = 无项目会话
+    return groups.filter((g) => (g.project?.id ?? undefined) === (pid ?? undefined));
+  }, [groups, sessions, activeSessionId]);
+  const visibleCount = useMemo(
+    () => visibleGroups.reduce((sum, g) => sum + g.notes.length, 0),
+    [visibleGroups],
+  );
 
   const selectedNote = selected ? notes.find((n) => n.id === selected.id) : undefined;
   const selectedProject = selectedNote?.projectId
@@ -638,8 +656,8 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
     });
   };
 
-  // projectId 为 undefined 即移回「未归类」:patch 显式带 projectId 键,主进程字段级合并后
-  // JSON.stringify 落盘时丢弃 undefined → 重载后缺省 = 未归类(NoteMeta.projectId?)。
+  // projectId 为 undefined 即移到「无项目」:patch 显式带 projectId 键,主进程字段级合并后
+  // JSON.stringify 落盘时丢弃 undefined → 重载后缺省 = 无项目(NoteMeta.projectId?)。
   const moveTo = async (noteId: string, projectId: string | undefined) => {
     try {
       await updateNote.mutateAsync({ id: noteId, patch: { projectId } });
@@ -696,7 +714,7 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
         <Icon.Pin size={14} />
         <span className="pw-panel-title">{t("panel.title")}</span>
         <div className="spacer" />
-        <span className="pw-todo-total">{t("panel.count", { count: notes.length })}</span>
+        <span className="pw-todo-total">{t("panel.count", { count: visibleCount })}</span>
       </div>
       {isLoading ? (
         <div className="pw-editor-loading">{t("panel.loading")}</div>
@@ -705,9 +723,15 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
           <Icon.Pin size={22} />
           <div>{t("panel.empty")}</div>
         </div>
+      ) : visibleGroups.length === 0 ? (
+        // 整体有闪记、但当前会话所在项目下没有 → 项目级空态(非「还没有闪记」)。
+        <div className="pw-panel-empty">
+          <Icon.Pin size={22} />
+          <div>{t("panel.emptyInProject")}</div>
+        </div>
       ) : (
         <div className="pw-todo-scroll">
-          {groups.map(({ project, notes: groupNotes }) => (
+          {visibleGroups.map(({ project, notes: groupNotes }) => (
             <NoteGroup
               key={project?.id ?? "__unassigned__"}
               group={project}

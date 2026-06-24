@@ -134,29 +134,29 @@ describe("NotesView 列表/详情", () => {
     expect(await screen.findByText(/还没有闪记/)).toBeInTheDocument();
   });
 
-  it("未归类分组无内容时隐藏其标题", async () => {
+  it("无项目分组无内容时隐藏其标题", async () => {
     const { bridge } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "归类的" })]);
     renderNotes(bridge);
     await screen.findByText("归类的");
-    expect(screen.queryByText("未归类")).toBeNull();
+    expect(screen.queryByText("无项目")).toBeNull();
   });
 
-  it("未归类闪记单独成组,显示「未归类」标题", async () => {
+  it("无项目闪记单独成组,显示「无项目」标题", async () => {
     const { bridge } = fakeNotesBridge([note({ id: "n1", content: "散记" })]);
     renderNotes(bridge);
-    expect(await screen.findByText("未归类")).toBeInTheDocument();
+    expect(await screen.findByText("无项目")).toBeInTheDocument();
     expect(screen.getByText("散记")).toBeInTheDocument();
   });
 
-  it("projectId 不在 projects 的孤儿闪记并入「未归类」,不静默消失", async () => {
+  it("projectId 不在 projects 的孤儿闪记并入「无项目」,不静默消失", async () => {
     // 笔记的 projectId 指向一个已不在 projects store 的项目(项目被删 / store 未加载完)。
     const { bridge } = fakeNotesBridge([
       note({ id: "n1", projectId: "ghost", content: "孤儿闪记甲" }),
       note({ id: "n2", projectId: "ghost", content: "孤儿闪记乙" }),
     ]);
     renderNotes(bridge);
-    // 落到「未归类」兜底分组,两条都可见。
-    expect(await screen.findByText("未归类")).toBeInTheDocument();
+    // 落到「无项目」兜底分组,两条都可见。
+    expect(await screen.findByText("无项目")).toBeInTheDocument();
     expect(screen.getByText("孤儿闪记甲")).toBeInTheDocument();
     expect(screen.getByText("孤儿闪记乙")).toBeInTheDocument();
   });
@@ -326,11 +326,11 @@ describe("NotesView 列表/详情", () => {
     expect(await screen.findByRole("button", { name: /深化 1 条/ })).toBeInTheDocument();
   });
 
-  it("未归类「移到项目」归档:notesUpdate(projectId) 后该闪记进入目标项目分组", async () => {
+  it("无项目「移到项目」归档:notesUpdate(projectId) 后该闪记进入目标项目分组", async () => {
     const { bridge, store } = fakeNotesBridge([note({ id: "n1", content: "无主想法" })]);
     renderNotes(bridge);
 
-    await screen.findByText("未归类");
+    await screen.findByText("无项目");
     // 「移到项目」下拉选择 alpha
     fireEvent.click(await screen.findByTitle("移到项目"));
     fireEvent.click(await screen.findByText("alpha"));
@@ -345,22 +345,22 @@ describe("NotesView 列表/详情", () => {
     await screen.findByText("归属甲");
     fireEvent.click(await screen.findByTitle("移到项目"));
     const menu = screen.getByRole("menu");
-    // 排除当前项目 alpha(menu 内不出现);含目标 beta 与「移回未归类」。
+    // 排除当前项目 alpha(menu 内不出现);含目标 beta 与「移到无项目」。
     expect(within(menu).queryByText("alpha")).toBeNull();
     expect(within(menu).getByText("beta")).toBeInTheDocument();
-    expect(within(menu).getByText("移回未归类")).toBeInTheDocument();
+    expect(within(menu).getByText("移到无项目")).toBeInTheDocument();
 
     fireEvent.click(within(menu).getByText("beta"));
     await waitFor(() => expect(store.get("n1")?.projectId).toBe("p2"));
   });
 
-  it("已归项目的闪记可「移回未归类」:patch 显式带 projectId:undefined,落库后清空归属", async () => {
+  it("已归项目的闪记可「移到无项目」:patch 显式带 projectId:undefined,落库后清空归属", async () => {
     const { bridge, store, calls } = fakeNotesBridge([note({ id: "n1", projectId: "p1", content: "归属乙" })]);
     renderNotes(bridge);
 
     await screen.findByText("归属乙");
     fireEvent.click(await screen.findByTitle("移到项目"));
-    fireEvent.click(within(screen.getByRole("menu")).getByText("移回未归类"));
+    fireEvent.click(within(screen.getByRole("menu")).getByText("移到无项目"));
 
     await waitFor(() => expect(calls.update.length).toBeGreaterThan(0));
     // 显式带 projectId 键(值 undefined),保证字段级合并后清空归属。
@@ -370,14 +370,14 @@ describe("NotesView 列表/详情", () => {
     expect(store.get("n1")?.projectId).toBeUndefined();
   });
 
-  it("未归类闪记的菜单不含「移回未归类」(无意义),仅列项目", async () => {
+  it("无项目闪记的菜单不含「移到无项目」(无意义),仅列项目", async () => {
     const { bridge } = fakeNotesBridge([note({ id: "n1", content: "散记" })]);
     renderNotes(bridge);
 
-    await screen.findByText("未归类");
+    await screen.findByText("无项目");
     fireEvent.click(await screen.findByTitle("移到项目"));
     const menu = screen.getByRole("menu");
-    expect(within(menu).queryByText("移回未归类")).toBeNull();
+    expect(within(menu).queryByText("移到无项目")).toBeNull();
     expect(within(menu).getByText("alpha")).toBeInTheDocument();
     expect(within(menu).getByText("beta")).toBeInTheDocument();
   });
@@ -704,5 +704,76 @@ describe("NotesView 深化健壮性", () => {
       expect(screen.queryByRole("button", { name: /深化中…/ })).toBeNull();
       expect(screen.queryByRole("button", { name: /深化 \d+ 条/ })).toBeNull();
     });
+  });
+});
+
+// 闪记面板按「当前会话所在项目」过滤:活跃会话→仅该项目;无项目会话→仅「无项目」组;
+// 无活跃会话→显示全部。
+describe("NotesView 按会话所在项目过滤", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      activeProjectId: undefined,
+      activeSessionId: undefined,
+      projects: [
+        { id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW },
+        { id: "p2", name: "beta", path: "/code/beta", addedAt: NOW },
+      ],
+      sessions: [
+        { id: "s-p1", projectId: "p1", title: "p1 会话", agent: "claude" as const, model: "", createdAt: NOW, updatedAt: NOW },
+        { id: "s-none", title: "无项目会话", agent: "claude" as const, model: "", createdAt: NOW, updatedAt: NOW },
+      ],
+      agentsAvailable: { claude: true },
+      noteDetailRequest: undefined,
+      noteEditorId: undefined,
+      runningBySession: {},
+    });
+  });
+
+  const seedThree = () =>
+    fakeNotesBridge([
+      note({ id: "a1", projectId: "p1", content: "甲项目记" }),
+      note({ id: "b1", projectId: "p2", content: "乙项目记" }),
+      note({ id: "n0", content: "无项目记" }),
+    ]);
+
+  it("活跃会话在 p1 → 仅显示 p1 的闪记", async () => {
+    usePersonalStore.setState({ activeSessionId: "s-p1" });
+    const { bridge } = seedThree();
+    renderNotes(bridge);
+    expect(await screen.findByText("甲项目记")).toBeInTheDocument();
+    expect(screen.queryByText("乙项目记")).toBeNull();
+    expect(screen.queryByText("无项目记")).toBeNull();
+  });
+
+  it("活跃会话为无项目会话 → 仅显示「无项目」组", async () => {
+    usePersonalStore.setState({ activeSessionId: "s-none" });
+    const { bridge } = seedThree();
+    renderNotes(bridge);
+    expect(await screen.findByText("无项目记")).toBeInTheDocument();
+    expect(screen.queryByText("甲项目记")).toBeNull();
+    expect(screen.queryByText("乙项目记")).toBeNull();
+  });
+
+  it("无活跃会话 → 显示全部分组(不过滤)", async () => {
+    const { bridge } = seedThree(); // beforeEach 已置 activeSessionId: undefined
+    renderNotes(bridge);
+    expect(await screen.findByText("甲项目记")).toBeInTheDocument();
+    expect(screen.getByText("乙项目记")).toBeInTheDocument();
+    expect(screen.getByText("无项目记")).toBeInTheDocument();
+  });
+
+  it("当前会话项目下无闪记 → 项目级空态(区别于整体空态)", async () => {
+    usePersonalStore.setState({ activeSessionId: "s-p1" });
+    // 整体有闪记,但 p1 下无 → 过滤后空,显示项目级空态。
+    const { bridge } = fakeNotesBridge([
+      note({ id: "b1", projectId: "p2", content: "乙项目记" }),
+      note({ id: "n0", content: "无项目记" }),
+    ]);
+    renderNotes(bridge);
+    expect(await screen.findByText("当前项目还没有闪记")).toBeInTheDocument();
+    expect(screen.queryByText("乙项目记")).toBeNull();
   });
 });

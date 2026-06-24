@@ -589,7 +589,7 @@ export default interface Resources {
       "save": "保存",
       "saving": "保存中…",
       "sourceSession": "来源会话",
-      "unassigned": "未归类"
+      "unassigned": "无项目"
     },
     "doc": {
       "cancel": "取消",
@@ -606,19 +606,20 @@ export default interface Resources {
     },
     "group": {
       "moveToProject": "移到项目",
-      "moveToUnassigned": "移回未归类",
+      "moveToUnassigned": "移到无项目",
       "noArchivableProject": "没有可归档的项目",
-      "unassigned": "未归类"
+      "unassigned": "无项目"
     },
     "overlay": {
       "placeholder": "记点什么…（Enter 保存,Shift+Enter 换行）",
       "saveAria": "保存闪记",
       "saveFailed": "保存失败,请重试",
-      "unassigned": "未归类"
+      "unassigned": "无项目"
     },
     "panel": {
       "count": "{{count}} 条",
       "empty": "还没有闪记",
+      "emptyInProject": "当前项目还没有闪记",
       "loading": "加载中…",
       "title": "闪记"
     },
@@ -646,7 +647,7 @@ export default interface Resources {
       "generatePlanFailed": "生成 plan 失败：{{error}}",
       "moveFailed": "移动失败：{{error}}",
       "moved": "已移到项目",
-      "movedToUnassigned": "已移回未归类",
+      "movedToUnassigned": "已移到无项目",
       "noteDeleteFailed": "删除失败：{{error}}",
       "noteDeleted": "已删除闪记",
       "noteSaveFailed": "保存失败：{{error}}",

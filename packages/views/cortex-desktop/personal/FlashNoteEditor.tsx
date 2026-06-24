@@ -94,11 +94,11 @@ export function FlashNoteEditor({
     }
   };
 
-  // 改归属:projectId 为 undefined 即移回「未归类」(主进程字段级合并 + 落盘丢弃 undefined)。
+  // 改归属:projectId 为 undefined 即移到「无项目」(主进程字段级合并 + 落盘丢弃 undefined)。
   const moveTo = async (projectId: string | undefined) => {
     try {
       await updateNote.mutateAsync({ id: noteId, patch: { projectId } });
-      onToast(projectId ? "已移到项目" : "已移回未归类");
+      onToast(projectId ? "已移到项目" : "已移到无项目");
     } catch (err) {
       onToast(`移动失败：${err instanceof Error ? err.message : String(err)}`);
     }
@@ -159,9 +159,9 @@ export function FlashNoteEditor({
         {project ? (
           <span className="pw-todo-total">{project.name}</span>
         ) : (
-          <span className="pw-readonly">未归类</span>
+          <span className="pw-readonly">无项目</span>
         )}
-        {/* 移动到其它项目 / 移回未归类(currentProjectId 排除当前所属)。 */}
+        {/* 移动到其它项目 / 移到无项目(currentProjectId 排除当前所属)。 */}
         <MoveToProjectMenu
           projects={liveProjects}
           currentProjectId={note.projectId}

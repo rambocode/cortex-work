@@ -3,13 +3,14 @@
     "title": "Flash Notes",
     "count": "{{count}} notes",
     "loading": "Loading…",
-    "empty": "No flash notes yet"
+    "empty": "No flash notes yet",
+    "emptyInProject": "No flash notes in the current project"
   },
   "group": {
-    "unassigned": "Unsorted",
+    "unassigned": "No project",
     "noArchivableProject": "No project to archive into",
     "moveToProject": "Move to project",
-    "moveToUnassigned": "Move to unsorted"
+    "moveToUnassigned": "Move to no project"
   },
   "row": {
     "select": "Select \"{{title}}\"",
@@ -25,7 +26,7 @@
   },
   "detail": {
     "closeDetail": "Close details",
-    "unassigned": "Unsorted",
+    "unassigned": "No project",
     "cancel": "Cancel",
     "saving": "Saving…",
     "save": "Save",
@@ -73,13 +74,13 @@
     "abandonDeepenFailed": "Failed to abandon deepening: {{error}}",
     "generatePlanFailed": "Failed to generate plan: {{error}}",
     "moved": "Moved to project",
-    "movedToUnassigned": "Moved to unsorted",
+    "movedToUnassigned": "Moved to no project",
     "moveFailed": "Move failed: {{error}}",
     "deepenFailed": "Deepening failed: {{error}}"
   },
   "overlay": {
     "placeholder": "Jot something down… (Enter to save, Shift+Enter for newline)",
-    "unassigned": "Unsorted",
+    "unassigned": "No project",
     "saveFailed": "Save failed, please try again",
     "saveAria": "Save note"
   },
