@@ -78,7 +78,7 @@ describe("ArchivedSessionsSection", () => {
 
   it("点击「取消归档」→ unarchiveSession(清 archivedAt),不动 activeSession (R7)", () => {
     renderUI(<ArchivedSessionsSection />);
-    const row = screen.getByText("创建一个软件著作管理系统").closest(".pw-arch-row")!;
+    const row = screen.getByText("创建一个软件著作管理系统").closest(".pw-arch-row") as HTMLElement;
     fireEvent.click(within(row).getByText("取消归档"));
     const s = usePersonalStore.getState().sessions.find((x) => x.id === "a")!;
     expect(s.archivedAt).toBeUndefined();
@@ -97,7 +97,7 @@ describe("ArchivedSessionsSection", () => {
   it("删除:首点仅确认,再点 removeSession + bridge.deleteChat (R8)", () => {
     const deleteChat = vi.fn(() => Promise.resolve());
     renderUI(<ArchivedSessionsSection />, fakeBridge(deleteChat));
-    const row = screen.getByText("创建一个软件著作管理系统").closest(".pw-arch-row")!;
+    const row = screen.getByText("创建一个软件著作管理系统").closest(".pw-arch-row") as HTMLElement;
     const delBtn = within(row).getByTitle("删除");
     fireEvent.click(delBtn);
     expect(usePersonalStore.getState().sessions.some((x) => x.id === "a")).toBe(true); // 仅确认态

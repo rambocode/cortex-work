@@ -22,7 +22,7 @@ describe("partitionArchivedSessions", () => {
     ];
     const { groups } = partitionArchivedSessions(sessions);
     expect(groups.map((g) => g.projectId)).toEqual(["p1", "p2", undefined]);
-    expect(groups[2].sessions.map((s) => s.id)).toEqual(["c"]);
+    expect(groups[2]!.sessions.map((s) => s.id)).toEqual(["c"]);
   });
 
   it("组内按 archivedAt 降序;同值以原始下标稳定排序 (R2/R5)", () => {
@@ -34,7 +34,7 @@ describe("partitionArchivedSessions", () => {
     ];
     const { groups } = partitionArchivedSessions(sessions);
     // 500 > 300(tieA 先于 tieB,原序兜底) > 100
-    expect(groups[0].sessions.map((s) => s.id)).toEqual(["new", "tieA", "tieB", "old"]);
+    expect(groups[0]!.sessions.map((s) => s.id)).toEqual(["new", "tieA", "tieB", "old"]);
   });
 
   it("仅含未归档会话 → 两计数为 0、groups 为空", () => {
@@ -52,7 +52,7 @@ describe("partitionArchivedSessions", () => {
     ];
     const r = partitionArchivedSessions(sessions, "  软件  ");
     expect(r.filteredTotal).toBe(1);
-    expect(r.groups[0].sessions.map((s) => s.id)).toEqual(["1"]);
+    expect(r.groups[0]!.sessions.map((s) => s.id)).toEqual(["1"]);
 
     const upper = partitionArchivedSessions(
       [sess({ id: "x", title: "DeepSeek Chat", archivedAt: 100 })],
