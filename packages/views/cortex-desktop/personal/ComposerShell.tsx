@@ -3,7 +3,7 @@
 // 会话页（PersonalComposer 薄封装）与新会话落地页（草稿态）共用。复用 cortex-desktop.css
 // 的 composer 类名体系。
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   AGENT_MODELS,
@@ -12,6 +12,7 @@ import {
   usePersonalStore,
   usePetStore,
 } from "@cortex-work/core";
+import { useComposerVoice } from "./useComposerVoice";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { AgentKind, PendingDocFile, PendingImage, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
@@ -40,26 +41,6 @@ import {
 const AGENT_PLACEHOLDER_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
 let attachSeq = 0;
-
-const DEFAULT_ASR = {
-  baseUrl: "http://127.0.0.1:8000",
-  model: "Qwen3-ASR-1.7B-bf16",
-  language: "zh",
-};
-
-function pickRecordingMimeType(): string {
-  if (typeof MediaRecorder === "undefined") return "";
-  for (const type of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]) {
-    if (MediaRecorder.isTypeSupported(type)) return type;
-  }
-  return "";
-}
-
-function extensionForMimeType(mimeType: string): string {
-  if (mimeType.includes("mp4")) return "m4a";
-  if (mimeType.includes("webm")) return "webm";
-  return "wav";
-}
 
 // 从 skill 文件提取展示名,让用户明确知道拖入的是哪个 skill:
 // 1) 优先 frontmatter 的 name 字段;
@@ -162,8 +143,6 @@ export function ComposerShell({
   const [docFiles, setDocFiles] = useState<PendingDocFile[]>([]);
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
   // slash 命令下拉:当前键盘高亮项 + 是否被 Esc 临时收起（下次编辑文本即重开）。
   const [slashSel, setSlashSel] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
@@ -172,13 +151,12 @@ export function ComposerShell({
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
 
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   // 会话未单独设 thinkingLevel 时,下拉回退全局默认（与 sendPiTurn 的实际生效值一致,避免「显关闭、实际用默认」）。
   const piThinkingDefault = usePersonalStore((s) => s.generalSettings.piThinkingDefault);
+  // 读取 ASR 配置（U9：不再硬编码，从 store 取用户配置）。
+  const asrSettings = usePersonalStore((s) => s.asrSettings);
   const isPi = agent === "pi";
   const models = AGENT_MODELS[agent];
   // pi:模型下拉来自已启用 provider,选项编码 `${providerId}::${modelId}`,展示「供应商 · 模型」。
@@ -349,13 +327,6 @@ export function ComposerShell({
     onCancelEdit?.();
   };
 
-  useEffect(() => {
-    return () => {
-      if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-    };
-  }, []);
-
   // 文件预览「发送到 Chat」:片段插入输入框（不直接发送,让用户补一句再回车）。
   // nonce 去重:composer 随会话切换重挂载时,旧 insert 不能再次插入。
   // 镜像 text 供插入 effect 读取,避免在 setText 更新函数里做副作用计算最终文本（自动提交需显式文本）。
@@ -403,14 +374,33 @@ export function ComposerShell({
     }
   }, [composerInsert, acceptComposerInsert]);
 
-  const appendTranscript = (transcript: string) => {
+  // 转写成功后：追加到输入框（保留现有内容 + 换行），并聚焦。
+  const appendTranscript = useCallback((transcript: string) => {
     setText((prev) => {
       const clean = transcript.trim();
       if (!prev.trim()) return clean;
       return `${prev}${prev.endsWith("\n") ? "" : "\n"}${clean}`;
     });
     requestAnimationFrame(() => taRef.current?.focus());
-  };
+  }, []);
+
+  // ── 语音录制与转写 hook（U9）─────────────────────────────────────────────────
+  // 抽离录音状态机、WAV 重采样、按钮可用条件到 useComposerVoice；
+  // ComposerShell 只负责 onTranscript 回填和 onToast。
+  const {
+    recording,
+    transcribing,
+    micVisible,
+    micReady,
+    downloadPercent,
+    toggleRecording,
+  } = useComposerVoice({
+    bridge,
+    asrSettings,
+    onTranscript: appendTranscript,
+    onToast,
+    runningOrSending: running || sending,
+  });
 
   const appendTodoInstruction = (title: string) => {
     const instruction = t("composer.todoInstruction", { title });
@@ -420,78 +410,6 @@ export function ComposerShell({
       return `${prev}${prev.endsWith("\n") ? "" : "\n"}${instruction}`;
     });
     requestAnimationFrame(() => taRef.current?.focus());
-  };
-
-  const stopRecording = () => {
-    if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
-  };
-
-  const startRecording = async () => {
-    if (!bridge) {
-      onToast(t("composer.noLocalAsr"));
-      return;
-    }
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      onToast(t("composer.noRecording"));
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      chunksRef.current = [];
-      const mimeType = pickRecordingMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      };
-      recorder.onstop = () => {
-        const stoppedStream = streamRef.current;
-        stoppedStream?.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-        recorderRef.current = null;
-        setRecording(false);
-        const type = recorder.mimeType || mimeType || "audio/webm";
-        const blob = new Blob(chunksRef.current, { type });
-        chunksRef.current = [];
-        if (blob.size === 0) {
-          onToast(t("composer.noAudio"));
-          return;
-        }
-        setTranscribing(true);
-        blob
-          .arrayBuffer()
-          .then((audio) =>
-            bridge.asrTranscribe({
-              ...DEFAULT_ASR,
-              fileName: `recording.${extensionForMimeType(type)}`,
-              mimeType: type,
-              audio,
-            }),
-          )
-          .then((result) => {
-            appendTranscript(result.text);
-          })
-          .catch((err) => {
-            onToast(t("composer.transcribeFailed", { error: err instanceof Error ? err.message : String(err) }));
-          })
-          .finally(() => setTranscribing(false));
-      };
-      recorder.start();
-      setRecording(true);
-    } catch (err) {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      recorderRef.current = null;
-      setRecording(false);
-      onToast(t("composer.recordFailed", { error: err instanceof Error ? err.message : String(err) }));
-    }
-  };
-
-  const toggleRecording = () => {
-    if (running || transcribing) return;
-    if (recording) stopRecording();
-    else void startRecording();
   };
 
   // slash 命令:输入 "/" 前缀即时匹配;↑/↓ 选择、Enter/Tab 执行高亮项、Esc 收起。
@@ -794,14 +712,28 @@ export function ComposerShell({
             <Icon.Sparkle size={13} color="#7c5cff" />
             {t("composer.skills")} {useOwnSkills ? t("composer.skillsOn") : t("composer.skillsOff")}
           </button>
-          <button
-            className={`pill pw-mic-btn ${recording ? "is-recording" : ""} ${transcribing ? "is-busy" : ""}`}
-            onClick={toggleRecording}
-            disabled={running || transcribing}
-            title={recording ? t("composer.micStopTitle") : transcribing ? t("composer.micBusyTitle") : t("composer.micTitle")}
-          >
-            {transcribing ? <Icon.Clock size={13} /> : <Icon.Mic size={13} />}
-          </button>
+          {/* 语音按钮：仅 bridge 存在 + STT enabled 时显示（R11）。
+              下载中禁用并给出进度 tooltip；配置不就绪时禁用。 */}
+          {micVisible ? (
+            <button
+              className={`pill pw-mic-btn ${recording ? "is-recording" : ""} ${transcribing ? "is-busy" : ""}`}
+              onClick={toggleRecording}
+              disabled={running || sending || transcribing || !micReady}
+              title={
+                recording
+                  ? t("composer.micStopTitle")
+                  : transcribing
+                  ? t("composer.micBusyTitle")
+                  : downloadPercent !== null
+                  ? t("composer.micDownloadingTitle", { percent: downloadPercent })
+                  : !micReady
+                  ? t("composer.micNotReadyTitle")
+                  : t("composer.micTitle")
+              }
+            >
+              {transcribing ? <Icon.Clock size={13} /> : <Icon.Mic size={13} />}
+            </button>
+          ) : null}
           {onOpenFlashNote ? (
             <button className="pill" onClick={onOpenFlashNote} title={t("composer.flashNote")}>
               <Icon.Pin size={13} color="#7c5cff" />

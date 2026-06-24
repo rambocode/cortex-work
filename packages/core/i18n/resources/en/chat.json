@@ -105,6 +105,8 @@
     "noAudio": "No audio captured",
     "transcribeFailed": "Transcription failed: {{error}}",
     "recordFailed": "Recording failed: {{error}}",
+    "micDownloadingTitle": "Model downloading ({{percent}}%) — wait for it to finish or switch to a ready model",
+    "micNotReadyTitle": "Speech-to-text not ready: configure it in Settings → Speech to Text",
     "readImageFailed": "Failed to read image: {{error}}",
     "readDocFailed": "Failed to read document: {{error}}",
     "maxImages": "Up to {{count}} images, extras ignored",

@@ -105,6 +105,8 @@
     "noAudio": "没有录到音频",
     "transcribeFailed": "转写失败：{{error}}",
     "recordFailed": "录音失败：{{error}}",
+    "micDownloadingTitle": "模型下载中（{{percent}}%），等待完成或换已就绪的模型",
+    "micNotReadyTitle": "语音转写未就绪：请在设置 → 语音转文字 中配置",
     "readImageFailed": "读取图片失败：{{error}}",
     "readDocFailed": "读取文档失败：{{error}}",
     "maxImages": "最多 {{count}} 张图片,已忽略多余",
