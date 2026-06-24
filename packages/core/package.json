@@ -24,6 +24,8 @@
     "./store/personal": "./store/personal.ts",
     "./desktop/types": "./desktop/types.ts",
     "./desktop/bridge": "./desktop/bridge.ts",
+    "./desktop/media-gen-types": "./desktop/media-gen-types.ts",
+    "./desktop/useModelDownloadState": "./desktop/useModelDownloadState.ts",
     "./i18n": "./i18n/index.ts",
     "./i18n/native": "./i18n/native.ts",
     "./i18n/testing": "./i18n/testing.ts",
