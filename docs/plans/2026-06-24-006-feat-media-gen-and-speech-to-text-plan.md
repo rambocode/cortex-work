@@ -42,7 +42,7 @@ cortex-work 的 Agent 目前不能生成媒体,聊天语音输入只有一条硬
 ### 跨切面
 
 - R12. 两个分区的新增设置字段经「主进程 JSON 持久化」落盘,与现有个人工作区设置同源;切换语言不把本地化文案冻进磁盘。
-- R13. macOS(arm64 + x64)打包须带上 whisper.cpp runner 二进制并能离线转写;其它平台延后。
+- R13. macOS arm64 打包须带上 whisper.cpp runner 二进制并能离线转写;darwin-x64 与其它平台延后(OQ2 已决:v1 仅 arm64)。
 
 ---
 
@@ -55,7 +55,7 @@ cortex-work 的 Agent 目前不能生成媒体,聊天语音输入只有一条硬
 - KTD5. **模型下载进度复用 `useUpdateState` 的 push 镜像模式,不进 Zustand。** 主进程持下载状态机,`webContents.send` 广播,渲染端 hook「订阅推送 + 挂载补拉」镜像主进程单例状态(见 `docs/plans/2026-06-20-002`、`packages/core/desktop/useUpdateState.ts`)。
 - KTD6. **图片生成同时支持 OpenAI Images 与 MiniMax 两种协议,其余模态按 Kun 协议枚举。** 对齐 origin Kun 协议常量;OpenAI Images 请求 `{baseUrl}/v1/images/generations`,遇 4xx 含 `response_format` 自动去字段重试。
 - KTD7. **生成产物写入 workspace 子目录,工具返回相对路径。** 图片/音频/视频各落固定目录,返回路径供 Agent 引用;图片内联预览(附件注册)作为增强、可延后,不阻塞工具可用。
-- KTD8. **各模态 `timeoutMs` 必须严格小于会话看门狗 `RUN_STALL_TIMEOUT_MS`(=300_000ms,`packages/core/personal/messages.ts:190`)。** 关键修正:看门狗只在 agent stdout 产生 CLI 事件时重置 `lastEventAt`(`cli.ts:520`),而 MCP progress notification 走 HTTP 不经 stdout——**发 MCP 进度通知并不能给看门狗续命**。因此长耗时工具(尤其 MiniMax 视频异步轮询)要么把 `timeoutMs` 卡在 300s 以内令其先于看门狗失败/完成,要么另开一条 `cli:keepalive` IPC 由主进程在工具执行期间显式重置 `lastEventAt`(二选一见 Open Questions)。各模态独立 `timeoutMs` + 主进程 `AbortController`。
+- KTD8. **各模态 `timeoutMs` 必须严格小于会话看门狗 `RUN_STALL_TIMEOUT_MS`(=300_000ms,`packages/core/personal/messages.ts:190`)。** 关键修正:看门狗只在 agent stdout 产生 CLI 事件时重置 `lastEventAt`(`cli.ts:520`),而 MCP progress notification 走 HTTP 不经 stdout——**发 MCP 进度通知并不能给看门狗续命**。**OQ1 已决:v1 各模态 `timeoutMs` 卡在 ~280s(< 300s)** 令工具先于看门狗失败/完成;`cli:keepalive` IPC 留作后续(视频实测常超再升级)。各模态独立 `timeoutMs` + 主进程 `AbortController`。
 - KTD9. **新增设置字段遵循「五处对称镜像」。** `packages/core/desktop/types.ts`(类型+默认值)、`apps/desktop/src/main/ipc/types.ts`(镜像,`satisfies` 对齐)、`packages/core/store/personal.ts`(state+setter+`toPersistedState`+`hydrate` 兜默认)、`packages/core/desktop/bridge.ts`(新能力签名)、`usePersonalPersistence.ts`(确认 saveUrgency 覆盖切片)。
 - KTD10. **i18n 新 key 加 `settings`(分区文案)与 `chat`(语音按钮)namespace,不提交全量 extract 输出,不 `t()` 持久化值。** 同步 `zh-Hans`/`en`/`@types/resources.d.ts` 三处;供应商预设名按 `nameKey` 在创建时解析(见现有 `PROVIDER_PRESETS`)。
 - KTD11. **不可信输入与传输安全在主进程统一收口。** (1) Agent 提供的所有路径(`reference_image_paths`、`first/last_frame_image_path`、产物子目录)在任何 fs 读写前 `path.resolve(workspaceRoot, p)` 并断言落在 workspace 内,拒绝越界——既防写越界也防把本地敏感文件喂给第三方 API。(2) 媒体 API `baseUrl` 与 whisper 下载源(含 HF-Mirror 第三方镜像)强制 `https:`,sha256 与 host 全部 hardcode 在清单里(不从同一不可信通道取校验值)。(3) 各模态响应体与音频上传设 `MAX_BYTES`/`MAX_RESPONSE_BYTES` 上限(含**复用的既有 `asr:transcribe` 在线通道**,该 handler 目前缺上限)。(4) `modelId` 拼路径前白名单校验,防 spawn 任意二进制。
@@ -372,12 +372,15 @@ per-unit `**Files:**` 为权威清单,实现时可微调结构。
 
 实现前应决议的分叉(不阻塞计划成形,但开工前需明确):
 
-- OQ1. **长耗时工具看门狗续命方案二选一**(KTD8/RISK-4):是把各模态 `timeoutMs` 硬卡在 300s 内(简单,但视频可能不够),还是新增 `cli:keepalive` IPC 在工具执行期间重置 `lastEventAt`(彻底,但要改 `messages.ts` 看门狗逻辑)。需先量 MiniMax 视频 p95 时延——若常超 300s,视频是 v1 阻塞项。
-- OQ2. **darwin-x64 是否纳入 v1**(R13):当前 release CI 只有 `build-macos-arm64` 单 job、只发 arm64 产物。x64 要么新增 `macos-13` Intel job 交叉编译,要么改 universal 二进制——都不在现有任何单元里。若不做,应把 R13 收窄为「v1 仅 arm64」。
-- OQ3. **whisper.cpp 主供给路径**(RISK-6):源码 cmake 构建放进 release CI 关键路径有工具链/时长风险。是否反转为「预编译二进制为主、源码构建为开发者可选」(对齐 pi 用 npm 预编译二进制的取舍)。
-- OQ4. **在线 STT 逻辑去重方式**(U8/KTD4):`stt:transcribe` 在线分支是把 `asr:transcribe` 的转写逻辑抽成共享函数复用(推荐),还是复制一份。复制会留两处待同步,且既有 handler 缺 `MAX_BYTES`(见 KTD11)。
-- OQ5. **媒体 MCP server 复用 `createMcpHost` 工厂还是自起 `McpServer`**(U5):复用可继承既有安全属性,自起会重复端口/token/生命周期管理。
-- OQ6. **图片内联预览是否进 v1**:当前 R5 只返回相对路径,Agent 回复里是裸路径而非可见图片(媒体生成的核心用户产出缺失)。预览已列入延后,但应明确交付窗口,避免「Agent 说生成好了在 /path/… 但用户看不到图」的体验。
+已决(开工前确认):
+- OQ1. ✅ **v1 各模态 `timeoutMs` 卡 ~280s**(< 看门狗 300s)。Kun 媒体工具跑 in-process loop、无外部 stdout 看门狗,无可移植 keepalive 先例。`cli:keepalive` IPC 留后续。见 KTD8。
+- OQ2. ✅ **v1 仅 arm64**,R13 已收窄;不动 release CI,Intel Mac 推后续。
+- OQ3. ✅ **源码 cmake 构建为主**(对齐 Kun),预编译为开发者可选 fallback;CI macOS runner 已有 git+cmake。
+
+执行期默认(可在对应单元微调):
+- OQ4. **在线 STT 逻辑去重**(U8/KTD4):把 `asr:transcribe` 转写逻辑抽成共享函数,本地与在线两条路径都过 `MAX_BYTES`(默认采纳,见 KTD11)。
+- OQ5. **媒体 MCP server**(U5):优先复用 `createMcpHost` 工厂继承既有安全属性;若工厂不适配再自起 `McpServer`。
+- OQ6. **图片内联预览**:v1 工具返回相对路径即可用,内联预览延后(已在 Scope Boundaries)。
 
 ---
 
