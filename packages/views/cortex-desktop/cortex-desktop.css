@@ -7255,16 +7255,6 @@ button.sb-row {
 .pw-auto-badge.is-warn { color: #b07c1a; background: rgba(176, 124, 26, 0.14); }
 .pw-auto-badge.is-running { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 
-/* 详情 */
-.pw-auto-detail-body { flex: 1; display: grid; grid-template-columns: 1fr 340px; gap: 0; min-height: 0; }
-.pw-auto-detail-left { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--border); }
-.pw-auto-detail-right { padding: 16px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
-.pw-auto-detail-label { font-size: 11.5px; font-weight: 600; color: var(--text-3); }
-.pw-auto-prompt { flex: 1; margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.6; color: var(--text-1); font-family: var(--mono, ui-monospace, monospace); background: var(--bg-input); border: 1px solid var(--border); border-radius: 9px; padding: 12px 14px; }
-.pw-auto-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-sidebar); }
-.pw-auto-card-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-3); }
-.pw-auto-card-row b { font-size: 12px; font-weight: 600; color: var(--text-1); text-align: right; }
-
 /* 运行历史 */
 .pw-auto-runs { display: flex; flex-direction: column; gap: 6px; }
 .pw-auto-runs-empty { font-size: 12px; color: var(--text-3); padding: 8px 2px; }
