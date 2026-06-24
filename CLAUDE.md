@@ -96,5 +96,7 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 发版（bump `apps/desktop/package.json` 的 `version` → commit → 打 `v<version>` tag → push）前，**必须**在 `apps/desktop/CHANGELOG.md` 顶部新增对应版本段，否则正式发布会失败。
 
 - 版本段标题须匹配格式契约 `^## \[?<version>\]?`（`<version>` 为裸版本号、无 `v` 前缀），如 `## [0.1.9]`、`## 0.1.9`、`## [0.1.9] - 2026-07-01`。
+- **版本段正文必须按「上一个 tag → HEAD」的全部提交汇总**，而非只依据最近一次提交。生成前先用 `git log <上一个 tag>..HEAD --oneline`（如 `git log v0.1.12..HEAD --oneline`）取出区间内所有 commit，再归纳成更新说明，避免漏掉本次发版包含的其它改动。
+- **版本段正文面向用户，只写有感知的更新（新功能、可见的改进与修复），不展示无意义的细节**：跳过纯内部改动（重构、依赖 bump、CI / 构建脚本、版本号 bump 本身、格式化、注释、测试）；多条同类提交归并成一条用户视角的说明，不要逐条罗列 commit。
 - 该段正文是应用内「更新内容」与 GitHub Release body 的唯一来源：打包时 `scripts/extract-release-notes.mjs` 按 `version` 提取它 → 写入 `latest-mac.yml` 的 `releaseNotes`，运行时更新弹窗展示。
 - 缺段时：本地/非正式构建写安全占位、不阻断；CI `publish-release`（`CORTEX_NOTES_STRICT=1`）则**非零退出使发布失败**，刻意防止「忘写版本段 → 静默丢更新说明」。tag 仍须与 `package.json` 的 `version` 一致（CI 有强校验）。

@@ -26,6 +26,7 @@ status: ready
 
 ## Problem Frame
 
+
 自动化任务当前的结果只落「运行记录」(`AutomationRun.output`),用户必须主动打开自动化视图查看。两份既有计划已显式为本功能预留接口:`2026-06-20-003-feat-automation-templates-plan.md` 的 Deferred 第一条「推送类模板把产出推系统通知(当前仅落运行记录)」,以及 `2026-06-21-001-feat-global-notification-toast-plan.md` 把「macOS 原生系统通知」「真实事件自动触发」列为 Deferred Follow-Up。本计划是这两处预留的收口实现。
 
 现有推送基础设施(`apps/desktop/src/main/ipc/push.ts` + 全局 `pushSettings`)仅服务于渲染端的「时间线日报」一键推送,且只支持企业微信/钉钉/邮件。需要:(a) 把推送能力接到主进程的自动化完成收尾;(b) 新增飞书与内部原生通知两个渠道;(c) 让单个自动化可选择是否在完成后推送。
