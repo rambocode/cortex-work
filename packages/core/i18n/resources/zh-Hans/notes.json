@@ -8,7 +8,8 @@
   "group": {
     "unassigned": "未归类",
     "noArchivableProject": "没有可归档的项目",
-    "moveToProject": "移到项目"
+    "moveToProject": "移到项目",
+    "moveToUnassigned": "移回未归类"
   },
   "row": {
     "select": "选择「{{title}}」",
@@ -72,6 +73,7 @@
     "abandonDeepenFailed": "放弃深化失败：{{error}}",
     "generatePlanFailed": "生成 plan 失败：{{error}}",
     "moved": "已移到项目",
+    "movedToUnassigned": "已移回未归类",
     "moveFailed": "移动失败：{{error}}",
     "deepenFailed": "深化失败：{{error}}"
   },
