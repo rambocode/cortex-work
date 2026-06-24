@@ -66,6 +66,7 @@ import { savePetEnabled, savePetMode, savePetWalk } from "../pet/behavior";
 import { BUILTIN_AVATARS } from "./avatars";
 import { PluginManager } from "./PluginManager";
 import { BrowserSettingsSection } from "./BrowserSettingsSection";
+import { ArchivedSessionsSection } from "./ArchivedSessionsSection";
 import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 
 const PALETTES: PaletteOption[] = [
@@ -83,6 +84,7 @@ type TFunction = (key: string, opts?: Record<string, unknown>) => string;
 type SettingsTab =
   | "profile"
   | "general"
+  | "archivedSessions"
   | "providers"
   | "agent"
   | "pi"
@@ -98,6 +100,7 @@ type SettingsTab =
 const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> = {
   profile: { tabKey: "tabs.profile", icon: <Icon.Users size={14} /> },
   general: { tabKey: "tabs.general", icon: <Icon.Settings size={14} /> },
+  archivedSessions: { tabKey: "tabs.archivedSessions", icon: <Icon.Archive size={14} /> },
   providers: { tabKey: "tabs.providers", icon: <Icon.Globe size={14} /> },
   agent: { tabKey: "tabs.agent", icon: <Icon.Terminal size={14} /> },
   pi: { tabKey: "tabs.pi", icon: <Icon.Bot size={14} /> },
@@ -112,7 +115,7 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
 // 设置左栏分组：组标题走 i18n（settings:tabGroups.*）,组内项按数组顺序渲染。
 // 「应用」组并列「插件」「浏览器」两项（用户确认的 IA）。
 const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
-  { groupKey: "tabGroups.general", items: ["profile", "general"] },
+  { groupKey: "tabGroups.general", items: ["profile", "general", "archivedSessions"] },
   { groupKey: "tabGroups.models", items: ["providers", "agent", "pi"] },
   { groupKey: "tabGroups.apps", items: ["plugins", "browser"] },
   { groupKey: "tabGroups.personalization", items: ["pet", "voice"] },
@@ -1978,6 +1981,8 @@ export function PersonalSettingsView() {
             <ProfileSection />
           ) : tab === "general" ? (
             <GeneralSection />
+          ) : tab === "archivedSessions" ? (
+            <ArchivedSessionsSection />
           ) : tab === "providers" ? (
             <ProvidersSection />
           ) : tab === "agent" ? (

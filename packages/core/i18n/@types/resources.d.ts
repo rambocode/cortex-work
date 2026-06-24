@@ -698,6 +698,24 @@ export default interface Resources {
       "notDetected": "未检测到 CLI",
       "title": "Agent"
     },
+    "archivedSessions": {
+      "title": "已归档对话",
+      "subtitle": "归档对话历史",
+      "desc": "查看已经从活跃侧边栏移除的对话。你可以在这里打开、恢复或永久删除。",
+      "searchPlaceholder": "搜索已归档对话",
+      "countBadge": "{{count}} 个已归档",
+      "groupCount": "{{count}} 个对话",
+      "unarchive": "取消归档",
+      "unarchiveToast": "已取消归档 {{title}}",
+      "delete": "删除",
+      "deleteToast": "已删除 {{title}}",
+      "deleteConfirm": "再点确认删除",
+      "noProject": "无项目",
+      "deletedProject": "已删除项目",
+      "empty": "暂无已归档对话",
+      "searchEmpty": "未找到匹配的对话",
+      "clearSearch": "清除搜索"
+    },
     "browser": {
       "desc": "管理内置浏览器与 agent 的浏览器控制权限。",
       "title": "浏览器",
@@ -979,6 +997,7 @@ export default interface Resources {
     },
     "tabs": {
       "agent": "Agent",
+      "archivedSessions": "已归档对话",
       "browser": "浏览器",
       "general": "通用",
       "pet": "宠物",

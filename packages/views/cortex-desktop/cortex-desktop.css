@@ -8190,3 +8190,68 @@ button.sb-row {
 /* 管理页二级返回条(MCP 表单独立页等) */
 .pw-plg-backbar { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; border: none; background: transparent; color: var(--text-2); font-size: 14px; cursor: pointer; padding: 4px 6px; border-radius: 8px; }
 .pw-plg-backbar:hover { background: color-mix(in srgb, var(--text-1) 6%, transparent); color: var(--text-1); }
+
+/* ── 设置页「已归档对话」分区(ArchivedSessionsSection)。作用域限定在设置页内,
+   不污染侧边栏 .pw-session-* 规则。 ── */
+.pw-settings-page .pw-arch { display: flex; flex-direction: column; gap: 14px; }
+.pw-settings-page .pw-arch-intro { display: flex; flex-direction: column; gap: 4px; }
+.pw-settings-page .pw-arch-subtitle { font-size: 14px; font-weight: 600; color: var(--text-1); }
+.pw-settings-page .pw-arch-desc { font-size: 13px; color: var(--text-3); line-height: 1.5; }
+.pw-settings-page .pw-arch-toolbar { display: flex; align-items: center; gap: 12px; }
+.pw-settings-page .pw-arch-search {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-3);
+}
+.pw-settings-page .pw-arch-search-input {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  font-size: 13.5px; color: var(--text-1); font-family: inherit;
+}
+.pw-settings-page .pw-arch-search-input::placeholder { color: var(--text-3); }
+.pw-settings-page .pw-arch-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
+  font-size: 12.5px; color: var(--text-2); white-space: nowrap;
+}
+.pw-settings-page .pw-arch-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--text-3); padding: 32px; text-align: center;
+}
+.pw-settings-page .pw-arch-clear {
+  border: 1px solid var(--border); background: transparent; color: var(--text-2);
+  font-size: 12.5px; padding: 4px 12px; border-radius: 8px; cursor: pointer;
+}
+.pw-settings-page .pw-arch-clear:hover { background: var(--bg-hover); color: var(--text-1); }
+/* 列表容器:限高滚动,避免分组过多撑高于视口。 */
+.pw-settings-page .pw-arch-list {
+  display: flex; flex-direction: column; gap: 14px;
+  max-height: 420px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+}
+.pw-settings-page .pw-arch-group { display: flex; flex-direction: column; gap: 2px; }
+.pw-settings-page .pw-arch-group-h {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+  color: var(--text-3); font-size: 12.5px;
+}
+.pw-settings-page .pw-arch-group-name { color: var(--text-2); font-weight: 500; }
+.pw-settings-page .pw-arch-group-count { margin-left: auto; color: var(--text-3); }
+.pw-settings-page .pw-arch-row {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px;
+}
+.pw-settings-page .pw-arch-row:hover { background: var(--bg-hover); }
+.pw-settings-page .pw-arch-open {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  border: none; background: transparent; text-align: left; cursor: pointer; font-family: inherit;
+}
+.pw-settings-page .pw-arch-title {
+  font-size: 13.5px; font-weight: 500; color: var(--text-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pw-settings-page .pw-arch-meta { font-size: 11.5px; color: var(--text-3); font-family: var(--mono); }
+.pw-settings-page .pw-arch-acts { flex: none; display: flex; align-items: center; gap: 8px; }
+.pw-settings-page .pw-arch-unarchive { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.pw-settings-page .pw-arch-del {
+  flex: none; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; color: var(--text-3); border-radius: 8px; cursor: pointer;
+}
+.pw-settings-page .pw-arch-del:hover { background: color-mix(in srgb, var(--text-1) 7%, transparent); color: var(--text-1); }
+.pw-settings-page .pw-arch-del.is-danger { color: var(--danger, #c0392b); }
