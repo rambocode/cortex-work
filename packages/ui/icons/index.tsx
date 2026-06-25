@@ -27,6 +27,122 @@ function IconBase({ size = 16, sw = 1.7, children, ...rest }: IconProps & { chil
 }
 
 export const Icon = {
+  // ── 工作流节点专属图标（对应 25 种节点 kind）────────────────────────────────
+  // Hand：手动触发节点（手形，代表「人工启动」）
+  Hand: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M18 11V7a2 2 0 0 0-4 0v1" />
+      <path d="M14 8V5a2 2 0 0 0-4 0v3" />
+      <path d="M10 8.5V5a2 2 0 0 0-4 0v5" />
+      <path d="M6 10v4a6 6 0 0 0 12 0v-3" />
+    </IconBase>
+  ),
+  // Webhook：Webhook 触发节点（网络钩子，箭头 + 连接点）
+  Webhook: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2" />
+      <path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06" />
+      <path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8" />
+    </IconBase>
+  ),
+  // Split：分支（Switch）节点（一路变多路）
+  Split: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M16 3h5v5" />
+      <path d="M8 3H3v5" />
+      <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3" />
+      <path d="m15 9 6-6" />
+    </IconBase>
+  ),
+  // Filter：过滤节点（漏斗形状）
+  Filter: (p: IconProps) => (
+    <IconBase {...p}>
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </IconBase>
+  ),
+  // Sort：排序节点（上下双箭头）
+  Sort: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M3 16l4 4 4-4" />
+      <path d="M7 20V4" />
+      <path d="M21 8l-4-4-4 4" />
+      <path d="M17 4v16" />
+    </IconBase>
+  ),
+  // Scissors：截取（Limit）节点（剪刀）
+  Scissors: (p: IconProps) => (
+    <IconBase {...p}>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M20 4L8.12 15.88M14.47 14.48L20 20" />
+      <path d="M8.12 8.12L12 12" />
+    </IconBase>
+  ),
+  // Sigma：聚合（Aggregate）节点（Σ 求和符号）
+  Sigma: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M18 7V4H6l6 8-6 8h12v-3" />
+    </IconBase>
+  ),
+  // Merge：合并（Merge）节点（GitMerge 语义，多路汇聚）
+  Merge: (p: IconProps) => (
+    <IconBase {...p}>
+      <circle cx="18" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <path d="M6 21V9a9 9 0 0 0 9 9" />
+    </IconBase>
+  ),
+  // Type：模板（Template）节点（文字/字体标识）
+  Type: (p: IconProps) => (
+    <IconBase {...p}>
+      <polyline points="4 7 4 4 20 4 20 7" />
+      <line x1="9" y1="20" x2="15" y2="20" />
+      <line x1="12" y1="4" x2="12" y2="20" />
+    </IconBase>
+  ),
+  // LogOut：输出（Output）节点（退出/导出箭头）
+  LogOut: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </IconBase>
+  ),
+  // Tags：问题分类（QuestionClassifier）节点（多标签）
+  Tags: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M9 5H2v7l6.29 6.29c.94.94 2.48.94 3.42 0l3.58-3.58c.94-.94.94-2.48 0-3.42L9 5Z" />
+      <path d="M6 9.01V9" />
+      <path d="m15 5 6.3 6.3a2.4 2.4 0 0 1 0 3.4L17 19" />
+    </IconBase>
+  ),
+  // Save：保存按钮（软盘形状）
+  Save: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+      <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" />
+      <path d="M7 3v4a1 1 0 0 0 1 1h7" />
+    </IconBase>
+  ),
+  // Variable：环境变量按钮（花括号 + $）
+  Variable: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1" />
+      <path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1" />
+    </IconBase>
+  ),
+  // MousePointer：画布空态提示图标（光标点击）
+  MousePointer: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
+    </IconBase>
+  ),
+  // ChevronLeft：左折叠箭头（sidebar 折叠按钮）
+  ChevronLeft: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M15 6l-6 6 6 6" />
+    </IconBase>
+  ),
   Sidebar: (p: IconProps) => (
     <IconBase {...p}>
       <rect x="3" y="4" width="18" height="16" rx="2" />
