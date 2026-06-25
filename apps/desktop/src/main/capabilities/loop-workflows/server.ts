@@ -21,7 +21,10 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpHost, type McpHostHandle, type ToolContext } from "../mcp-host/server";
 import type { McpServerConfig } from "../../ipc/types";
-import { getWorkflowRuntime } from "../../workflow/index";
+// 仅取类型：避免在模块顶层 eager 引入 workflow/index → scheduler（electron.powerMonitor），
+// 否则 ipc/cli.ts（及经它的 ask/pty）的测试 electron mock 会因缺 powerMonitor 而加载失败。
+// 运行时实例在 run_workflow handler 内按需动态 import。
+import type { getWorkflowRuntime } from "../../workflow/index";
 import { loadWorkflows } from "../../workflow/store";
 import type { WorkflowDef, WorkflowManualTriggerConfig } from "../../workflow/types";
 
@@ -180,6 +183,8 @@ export function registerLoopWorkflowsTools(mcp: McpServer, ctx: ToolContext): vo
       // sessionCwd 优先；若 session 未注册（极少发生），运行时会取全局工作区或 homedir 兜底。
       let runtime: ReturnType<typeof getWorkflowRuntime>;
       try {
+        // 动态 import：断开顶层 eager 链（见文件头 import type 注释）。
+        const { getWorkflowRuntime } = await import("../../workflow/index");
         runtime = getWorkflowRuntime();
       } catch (e) {
         return makeErrorResult(`run_workflow 错误：工作流运行时未初始化 —— ${String(e)}`);
