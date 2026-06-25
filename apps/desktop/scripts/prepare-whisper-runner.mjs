@@ -26,7 +26,8 @@ import { randomBytes } from "node:crypto";
 
 // ── 目标版本 ──────────────────────────────────────────────────────────────────
 // whisper.cpp v1.9.x 稳定分支；与 Kun 对齐，保证 GGML 权重格式兼容。
-const WHISPER_CPP_TAG = "v1.9.2";
+// 注意：上游最新补丁为 v1.9.1（v1.9.2 不存在），勿误填不存在的 tag 致 git clone 失败。
+const WHISPER_CPP_TAG = "v1.9.1";
 const WHISPER_CPP_REPO = "https://github.com/ggerganov/whisper.cpp.git";
 
 // ── 路径 ──────────────────────────────────────────────────────────────────────
