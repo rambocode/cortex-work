@@ -1,11 +1,19 @@
 // WorkflowEditorView.tsx — 工作流画布编辑器壳。
-// 对应 Kun WorkflowEditorView.tsx（精简版，守 1200 行；U7 右侧面板为占位）。
+// 对应 Kun WorkflowEditorView.tsx（精简版，守 1200 行）。
+// U7 已落地：右侧面板接入真实 NodeConfigPanel + WorkflowRunLogPanel。
 //
 // 布局：
 //   左侧 Sidebar（节点 palette，按分组折叠）
 //   中间 WorkflowCanvas（@xyflow/react 画布）
-//   右侧 右侧面板（U7 实现：配置 / 运行日志，当前为占位）
+//   右侧 右侧面板（配置 / 运行日志 tab）
 //   顶部 header（返回 / 名称 / 已启用 / 环境变量 / 保存 / 运行一次）
+//
+// onNodeChange 流转：
+//   NodeConfigPanel.onNodeChange(updatedNode)
+//     → WorkflowEditorView.handleNodeChange(updatedNode)
+//       → setNodes(prev => prev.map(n => n.id === updatedNode.id ? updatedNode : n))
+//       → setDirty(true)
+//   用户点保存 → updateWorkflow.mutateAsync({ id, patch: { nodes, ... } })
 //
 // ⚠️ SSR 安全：WorkflowCanvas 内部用动态 import，本文件无需特殊处理。
 // ⚠️ views 包不得引入 next/* 或 react-router-dom（路由由外层 PersonalWorkspace 管理）。
@@ -17,6 +25,7 @@ import {
   useUpdateWorkflow,
   useRunWorkflowNow,
   useStopWorkflowRun,
+  useWorkflows,
 } from "@cortex-work/core";
 import type {
   WorkflowDef,
@@ -31,6 +40,8 @@ import {
   createWorkflowNode,
 } from "./workflow-flow";
 import { WorkflowCanvas } from "./WorkflowCanvas";
+import { NodeConfigPanel } from "./node-config/NodeConfigPanel";
+import { WorkflowRunLogPanel } from "./WorkflowRunLogPanel";
 
 // 节点图标：动态加载前用文本，加载后用真实 icon（画布在 WorkflowCanvas 处理动态加载）
 // palette 图标仅在 sidebar 中用，使用轻量文本符号即可。
@@ -90,6 +101,8 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
   const runNow = useRunWorkflowNow();
   const stopRun = useStopWorkflowRun();
   const { data: runs = [] } = useWorkflowRuns(workflow.id);
+  // 全量工作流列表（loop/subworkflow 选择器用）
+  const { data: allWorkflows = [] } = useWorkflows();
 
   // ── 本地编辑状态 ────────────────────────────────────────────────────────
 
@@ -227,6 +240,16 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
       prev.filter((c) => c.source !== nodeId && c.target !== nodeId),
     );
     setSelectedNodeId((id) => (id === nodeId ? null : id));
+    setDirty(true);
+  }, []);
+
+  // ── 节点配置变更回调（NodeConfigPanel → 更新本地 nodes 状态）────────────
+  // 节点 config/name/disabled/onError/retries 等均在此单点更新，
+  // 用户再点保存时统一回写 backend（不自动保存，避免频繁 IPC）。
+  const handleNodeChange = useCallback((updated: WorkflowNode) => {
+    setNodes((prev) =>
+      prev.map((n) => (n.id === updated.id ? updated : n)),
+    );
     setDirty(true);
   }, []);
 
@@ -497,81 +520,24 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
                 ))}
               </div>
 
-              {/* 面板内容（U7 落地前占位）*/}
-              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+              {/* 面板内容（U7：NodeConfigPanel + WorkflowRunLogPanel）*/}
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
                 {rightTab === "config" ? (
-                  selectedNode ? (
-                    // U7-placeholder: NodeConfigPanel（U7 实现后替换）
-                    <div className="flex flex-col gap-2">
-                      <div className="text-[13px] font-semibold text-ds-ink">
-                        {selectedNode.name || NODE_LABELS[selectedNode.type] || selectedNode.type}
-                      </div>
-                      <div className="text-[11.5px] text-ds-faint">
-                        {/* U7: 替换为 NodeConfigPanel 组件 */}
-                        节点配置面板即将在 U7 实现。
-                        <br />
-                        当前节点：<code className="text-[11px] text-accent">{selectedNode.type}</code>
-                        <br />
-                        节点 id：<code className="text-[11px] text-ds-faint">{selectedNode.id}</code>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
-                      <p className="text-[12.5px] text-ds-faint">
-                        选中画布节点后，此处展示配置（U7 实现）
-                      </p>
-                    </div>
-                  )
+                  // NodeConfigPanel：分发到各节点 form；无选中时提示
+                  <NodeConfigPanel
+                    node={selectedNode}
+                    allNodes={nodes}
+                    envVars={env}
+                    workflowId={workflow.id}
+                    workflows={allWorkflows}
+                    onNodeChange={handleNodeChange}
+                  />
                 ) : (
-                  // 运行日志占位（U7 WorkflowRunLogPanel 落地后替换）
-                  <div className="flex flex-col gap-2">
-                    {runs.length > 0 ? (
-                      runs
-                        .slice()
-                        .reverse()
-                        .slice(0, 10)
-                        .map((run) => (
-                          <div key={run.id} className="rounded-lg border border-ds-border bg-ds-card p-2">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`h-2 w-2 rounded-full ${
-                                  run.status === "running"
-                                    ? "bg-amber-500 animate-pulse"
-                                    : run.status === "success"
-                                    ? "bg-emerald-500"
-                                    : run.status === "error"
-                                    ? "bg-red-500"
-                                    : "bg-ds-border"
-                                }`}
-                              />
-                              <span className="text-[12px] font-medium text-ds-ink">
-                                {run.status === "running"
-                                  ? "运行中"
-                                  : run.status === "success"
-                                  ? "成功"
-                                  : run.status === "error"
-                                  ? "失败"
-                                  : "空闲"}
-                              </span>
-                              <span className="ml-auto text-[10.5px] text-ds-faint">
-                                {new Date(run.startedAt).toLocaleTimeString("zh-CN", {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                  second: "2-digit",
-                                })}
-                              </span>
-                            </div>
-                            {run.message ? (
-                              <p className="mt-1 truncate text-[11px] text-ds-faint">{run.message}</p>
-                            ) : null}
-                          </div>
-                        ))
-                    ) : (
-                      <p className="py-8 text-center text-[12.5px] text-ds-faint">
-                        暂无运行记录
-                      </p>
-                    )}
-                  </div>
+                  // WorkflowRunLogPanel：拉取运行历史，按节点展示结果
+                  <WorkflowRunLogPanel
+                    workflowId={workflow.id}
+                    allNodes={nodes}
+                  />
                 )}
               </div>
             </aside>

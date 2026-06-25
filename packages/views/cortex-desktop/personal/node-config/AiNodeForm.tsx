@@ -1,0 +1,510 @@
+// AiNodeForm.tsx — ai-agent / parameter-extractor / question-classifier 节点配置表单。
+// providerId/model 联动逻辑对照 AutomationDialog（通过 usePersonalStore 读取 providerSettings）。
+// reasoningEffort 三档选择；categories/fields 列表编辑。
+
+import { usePersonalStore } from "@cortex-work/core";
+import type { WorkflowNode } from "@cortex-work/core";
+import type {
+  WorkflowAiAgentConfig,
+  WorkflowParameterExtractorConfig,
+  WorkflowQuestionClassifierConfig,
+  WorkflowInputField,
+  WorkflowInputFieldType,
+  WorkflowClassifierCategory,
+} from "@cortex-work/core";
+import { Icon } from "@cortex-work/ui/icons";
+import { INPUT_CLS, FIELD_LABEL_CLS, SECTION_LABEL_CLS } from "./TriggerNodeForm";
+
+// ── 常量 ─────────────────────────────────────────────────────────────────────
+
+const REASONING_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "auto", label: "自动" },
+  { value: "off", label: "关闭" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+  { value: "max", label: "最高" },
+];
+
+const MODE_OPTIONS = [
+  { value: "agent", label: "Agent（自动执行）" },
+  { value: "plan", label: "Plan（只读分析）" },
+];
+
+const FIELD_TYPES: WorkflowInputFieldType[] = [
+  "text",
+  "paragraph",
+  "number",
+  "boolean",
+  "select",
+  "json",
+];
+const FIELD_TYPE_LABELS: Record<WorkflowInputFieldType, string> = {
+  text: "文本",
+  paragraph: "段落",
+  number: "数值",
+  boolean: "布尔",
+  select: "选项",
+  json: "JSON",
+};
+
+// ── Props ─────────────────────────────────────────────────────────────────────
+
+type Props = {
+  node: WorkflowNode & { type: "ai-agent" | "parameter-extractor" | "question-classifier" };
+  onChange: (updated: WorkflowNode) => void;
+};
+
+// ── 共享：provider/model 联动选择器 ─────────────────────────────────────────
+
+function ProviderModelPicker({
+  providerId,
+  model,
+  onProviderChange,
+  onModelChange,
+}: {
+  providerId: string;
+  model: string;
+  onProviderChange: (pid: string) => void;
+  onModelChange: (mid: string) => void;
+}) {
+  // 通过 usePersonalStore 读取全局 providerSettings（与 AutomationDialog 相同来源）
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const providers = providerSettings?.providers ?? [];
+
+  const currentProvider = providers.find((p) => p.id === providerId);
+  const models = currentProvider?.models ?? [];
+
+  function handleProviderChange(pid: string) {
+    onProviderChange(pid);
+    // 切换 provider 时重置 model 为该 provider 第一个可用 model
+    const p = providers.find((x) => x.id === pid);
+    onModelChange(p?.models?.[0]?.id ?? "");
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>供应商</label>
+        <select
+          className={INPUT_CLS}
+          value={providerId}
+          onChange={(e) => handleProviderChange(e.target.value)}
+        >
+          <option value="">选择供应商…</option>
+          {providers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>模型</label>
+        <select
+          className={INPUT_CLS}
+          value={model}
+          onChange={(e) => onModelChange(e.target.value)}
+          disabled={!currentProvider}
+        >
+          <option value="">选择模型…</option>
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label ?? m.id}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+// ── ai-agent 表单 ─────────────────────────────────────────────────────────────
+
+function AiAgentForm({
+  node,
+  onChange,
+}: {
+  node: WorkflowNode & { type: "ai-agent" };
+  onChange: (updated: WorkflowNode) => void;
+}) {
+  const cfg = node.config as WorkflowAiAgentConfig;
+
+  function updateConfig(patch: Partial<WorkflowAiAgentConfig>) {
+    onChange({ ...node, config: { ...cfg, ...patch } });
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* 提示词 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>提示词</label>
+        <textarea
+          className={`${INPUT_CLS} min-h-[100px] resize-y font-mono text-[12px]`}
+          value={cfg.prompt}
+          placeholder="输入给 AI 的指令，支持 {{变量}} 插值…"
+          onChange={(e) => updateConfig({ prompt: e.target.value })}
+        />
+      </div>
+
+      {/* 运行模式 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>运行模式</label>
+        <select
+          className={INPUT_CLS}
+          value={cfg.mode}
+          onChange={(e) => updateConfig({ mode: e.target.value as "agent" | "plan" })}
+        >
+          {MODE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 工作区目录 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>工作区目录</label>
+        <input
+          className={INPUT_CLS}
+          value={cfg.workspaceRoot}
+          placeholder="~/.cortex/workspace"
+          onChange={(e) => updateConfig({ workspaceRoot: e.target.value })}
+        />
+      </div>
+
+      {/* 供应商 / 模型 */}
+      <ProviderModelPicker
+        providerId={cfg.providerId}
+        model={cfg.model}
+        onProviderChange={(pid) => updateConfig({ providerId: pid })}
+        onModelChange={(mid) => updateConfig({ model: mid })}
+      />
+
+      {/* 推理强度 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>推理强度</label>
+        <select
+          className={INPUT_CLS}
+          value={cfg.reasoningEffort}
+          onChange={(e) =>
+            updateConfig({
+              reasoningEffort: e.target.value as WorkflowAiAgentConfig["reasoningEffort"],
+            })
+          }
+        >
+          {REASONING_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+// ── parameter-extractor 表单 ─────────────────────────────────────────────────
+
+function ParameterExtractorForm({
+  node,
+  onChange,
+}: {
+  node: WorkflowNode & { type: "parameter-extractor" };
+  onChange: (updated: WorkflowNode) => void;
+}) {
+  const cfg = node.config as WorkflowParameterExtractorConfig;
+
+  function updateConfig(patch: Partial<WorkflowParameterExtractorConfig>) {
+    onChange({ ...node, config: { ...cfg, ...patch } });
+  }
+
+  function updateField(idx: number, patch: Partial<WorkflowInputField>) {
+    const fields = cfg.fields.map((f, i) => (i === idx ? { ...f, ...patch } : f));
+    updateConfig({ fields });
+  }
+
+  function addField() {
+    updateConfig({
+      fields: [
+        ...cfg.fields,
+        {
+          key: `field_${cfg.fields.length + 1}`,
+          label: "",
+          type: "text",
+          required: false,
+          options: [],
+          defaultValue: "",
+          description: "",
+        },
+      ],
+    });
+  }
+
+  function removeField(idx: number) {
+    updateConfig({ fields: cfg.fields.filter((_, i) => i !== idx) });
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* 输入来源表达式 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>输入来源</label>
+        <input
+          className={`${INPUT_CLS} font-mono`}
+          value={cfg.source}
+          placeholder="{{$input.text}} 或 {{$nodes.xxx.json.output}}"
+          onChange={(e) => updateConfig({ source: e.target.value })}
+        />
+      </div>
+
+      {/* 指令 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>提取指令（可选）</label>
+        <textarea
+          className={`${INPUT_CLS} min-h-[60px] resize-y`}
+          value={cfg.instruction}
+          placeholder="描述需要从文本中提取哪些参数…"
+          onChange={(e) => updateConfig({ instruction: e.target.value })}
+        />
+      </div>
+
+      {/* 供应商 / 模型 */}
+      <ProviderModelPicker
+        providerId={cfg.providerId}
+        model={cfg.model}
+        onProviderChange={(pid) => updateConfig({ providerId: pid })}
+        onModelChange={(mid) => updateConfig({ model: mid })}
+      />
+
+      {/* 推理强度 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>推理强度</label>
+        <select
+          className={INPUT_CLS}
+          value={cfg.reasoningEffort}
+          onChange={(e) =>
+            updateConfig({
+              reasoningEffort: e.target.value as WorkflowParameterExtractorConfig["reasoningEffort"],
+            })
+          }
+        >
+          {REASONING_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 字段列表 */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className={SECTION_LABEL_CLS}>提取字段</span>
+          <button
+            type="button"
+            onClick={addField}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent/10 transition"
+          >
+            <Icon.Plus size={13} sw={2} />
+            添加
+          </button>
+        </div>
+        {cfg.fields.map((f, idx) => (
+          <div key={idx} className="rounded-xl border border-ds-border bg-ds-card/60 p-3 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                className={`${INPUT_CLS} flex-1 font-mono`}
+                value={f.key}
+                placeholder="字段 key"
+                onChange={(e) => updateField(idx, { key: e.target.value })}
+              />
+              <select
+                className={`${INPUT_CLS} w-[80px] shrink-0`}
+                value={f.type}
+                onChange={(e) => updateField(idx, { type: e.target.value as WorkflowInputFieldType })}
+              >
+                {FIELD_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {FIELD_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => removeField(idx)}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ds-faint hover:bg-red-500/10 hover:text-red-600 transition"
+              >
+                <Icon.X size={13} sw={2} />
+              </button>
+            </div>
+            <input
+              className={INPUT_CLS}
+              value={f.label}
+              placeholder="显示标签"
+              onChange={(e) => updateField(idx, { label: e.target.value })}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── question-classifier 表单 ─────────────────────────────────────────────────
+
+function QuestionClassifierForm({
+  node,
+  onChange,
+}: {
+  node: WorkflowNode & { type: "question-classifier" };
+  onChange: (updated: WorkflowNode) => void;
+}) {
+  const cfg = node.config as WorkflowQuestionClassifierConfig;
+
+  function updateConfig(patch: Partial<WorkflowQuestionClassifierConfig>) {
+    onChange({ ...node, config: { ...cfg, ...patch } });
+  }
+
+  function updateCategory(idx: number, patch: Partial<WorkflowClassifierCategory>) {
+    const categories = cfg.categories.map((c, i) => (i === idx ? { ...c, ...patch } : c));
+    updateConfig({ categories });
+  }
+
+  function addCategory() {
+    updateConfig({
+      categories: [
+        ...cfg.categories,
+        { id: `cat_${cfg.categories.length + 1}`, label: "" },
+      ],
+    });
+  }
+
+  function removeCategory(idx: number) {
+    updateConfig({ categories: cfg.categories.filter((_, i) => i !== idx) });
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* 输入来源 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>输入来源</label>
+        <input
+          className={`${INPUT_CLS} font-mono`}
+          value={cfg.source}
+          placeholder="{{$input.text}}"
+          onChange={(e) => updateConfig({ source: e.target.value })}
+        />
+      </div>
+
+      {/* 分类指令 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>分类指令（可选）</label>
+        <textarea
+          className={`${INPUT_CLS} min-h-[60px] resize-y`}
+          value={cfg.instruction}
+          placeholder="描述如何对输入进行分类…"
+          onChange={(e) => updateConfig({ instruction: e.target.value })}
+        />
+      </div>
+
+      {/* 供应商 / 模型 */}
+      <ProviderModelPicker
+        providerId={cfg.providerId}
+        model={cfg.model}
+        onProviderChange={(pid) => updateConfig({ providerId: pid })}
+        onModelChange={(mid) => updateConfig({ model: mid })}
+      />
+
+      {/* 推理强度 */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>推理强度</label>
+        <select
+          className={INPUT_CLS}
+          value={cfg.reasoningEffort}
+          onChange={(e) =>
+            updateConfig({
+              reasoningEffort: e.target.value as WorkflowQuestionClassifierConfig["reasoningEffort"],
+            })
+          }
+        >
+          {REASONING_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 分类列表（最多 20 个）*/}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className={SECTION_LABEL_CLS}>分类（最多 20 个）</span>
+          <button
+            type="button"
+            onClick={addCategory}
+            disabled={cfg.categories.length >= 20}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent/10 transition disabled:opacity-40"
+          >
+            <Icon.Plus size={13} sw={2} />
+            添加
+          </button>
+        </div>
+        {cfg.categories.map((cat, idx) => (
+          <div key={idx} className="flex items-center gap-2">
+            <input
+              className={`${INPUT_CLS} w-28 shrink-0 font-mono`}
+              value={cat.id}
+              placeholder="cat_id"
+              onChange={(e) => updateCategory(idx, { id: e.target.value })}
+            />
+            <input
+              className={`${INPUT_CLS} flex-1`}
+              value={cat.label}
+              placeholder="分类标签"
+              onChange={(e) => updateCategory(idx, { label: e.target.value })}
+            />
+            <button
+              type="button"
+              onClick={() => removeCategory(idx)}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ds-faint hover:bg-red-500/10 hover:text-red-600 transition"
+            >
+              <Icon.X size={13} sw={2} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 主导出 ───────────────────────────────────────────────────────────────────
+
+export function AiNodeForm({ node, onChange }: Props) {
+  if (node.type === "ai-agent") {
+    return (
+      <AiAgentForm
+        node={node as WorkflowNode & { type: "ai-agent" }}
+        onChange={onChange}
+      />
+    );
+  }
+  if (node.type === "parameter-extractor") {
+    return (
+      <ParameterExtractorForm
+        node={node as WorkflowNode & { type: "parameter-extractor" }}
+        onChange={onChange}
+      />
+    );
+  }
+  if (node.type === "question-classifier") {
+    return (
+      <QuestionClassifierForm
+        node={node as WorkflowNode & { type: "question-classifier" }}
+        onChange={onChange}
+      />
+    );
+  }
+  return null;
+}
