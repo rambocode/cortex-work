@@ -8305,8 +8305,17 @@ button.sb-row {
   --xy-attribution-background-color: transparent;
 
   background: var(--bg-app);
-  width: 100%;
-  height: 100%;
+}
+
+/* ReactFlow 容器高度修复：base .react-flow 设 height:100%，但本画布父级是 flex-grow
+   (flex-1)，其高度对百分比解析是「不确定」→ height:100% 塌陷成 0 → 画布不显示。
+   用更高优先级 .react-flow.ds-workflow-canvas 改为绝对填充（父级为 relative，inset:0
+   取确定像素高度），覆盖 base 的百分比尺寸。 */
+.react-flow.ds-workflow-canvas {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
 }
 
 .ds-workflow-canvas .react-flow__attribution { display: none; }
