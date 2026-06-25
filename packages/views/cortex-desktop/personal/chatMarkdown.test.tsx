@@ -14,14 +14,21 @@ function setLocalUrlTarget(target: "internal" | "system") {
 
 function renderMd(
   text: string,
-  opts: { projectPath?: string; resolveProjectFile?: (root: string, ref: string) => Promise<string | null> } = {},
+  opts: {
+    projectPath?: string;
+    resolveProjectFile?: (root: string, ref: string) => Promise<string | null>;
+    fileExists?: (path: string) => Promise<boolean>;
+    imageReadAny?: (path: string) => Promise<{ dataUrl: string }>;
+  } = {},
 ) {
-  const { projectPath = "/proj", resolveProjectFile } = opts;
+  const { projectPath = "/proj", resolveProjectFile, fileExists, imageReadAny } = opts;
   const onOpenFile = vi.fn<(ref: string) => void>();
   const openExternal = vi.fn<(url: string) => Promise<void>>().mockResolvedValue(undefined);
   const bridge = {
     openExternal,
     ...(resolveProjectFile ? { resolveProjectFile } : {}),
+    ...(fileExists ? { fileExists } : {}),
+    ...(imageReadAny ? { imageReadAny } : {}),
   } as unknown as DesktopBridge;
   const { container } = render(
     <Markdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents({ onOpenFile, projectPath, bridge })}>
@@ -212,6 +219,75 @@ describe("chatMarkdownComponents", () => {
     expect(container.querySelector("a.file-link")).toBeNull();
     fireEvent.click(container.querySelector("a")!);
     expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("项目外绝对路径 docx 链接:fileExists 命中 → 可点 file-link,点击传原始 ref", async () => {
+    const abs = "/Users/mike/outputs/report.docx";
+    const fileExists = vi.fn<(p: string) => Promise<boolean>>().mockResolvedValue(true);
+    const { container, onOpenFile } = renderMd(`见 [报告](${abs})`, { fileExists });
+    await waitFor(() => expect(container.querySelector("a.file-link")).not.toBeNull());
+    expect(fileExists).toHaveBeenCalledWith(abs);
+    fireEvent.click(container.querySelector("a.file-link")!);
+    expect(onOpenFile).toHaveBeenCalledWith(abs);
+  });
+
+  it("../outputs 相对爬出 docx(within=false):resolveProjectFile 落空 + fileExists 命中 → 可点", async () => {
+    const resolveProjectFile = vi.fn<(r: string, ref: string) => Promise<string | null>>().mockResolvedValue(null);
+    const fileExists = vi.fn<(p: string) => Promise<boolean>>().mockResolvedValue(true);
+    const { container, onOpenFile } = renderMd("见 [报告](../outputs/report.docx)", { resolveProjectFile, fileExists });
+    await waitFor(() => expect(container.querySelector("a.file-link")).not.toBeNull());
+    // 爬出项目后拼出的绝对路径(/proj 的上级 outputs)。
+    expect(fileExists).toHaveBeenCalledWith("/outputs/report.docx");
+    fireEvent.click(container.querySelector("a.file-link")!);
+    expect(onOpenFile).toHaveBeenCalledWith("../outputs/report.docx");
+  });
+
+  it("项目外绝对路径图片链接 → 内联渲染 <img>(经 imageReadAny 回读)", async () => {
+    const abs = "/Users/mike/.codex/generated_images/x/ig_a.png";
+    const imageReadAny = vi
+      .fn<(p: string) => Promise<{ dataUrl: string }>>()
+      .mockResolvedValue({ dataUrl: "data:image/png;base64,AAA" });
+    const { container } = renderMd(`图片已生成: [ig_a.png](${abs})`, { imageReadAny });
+    await waitFor(() => expect(container.querySelector("img.chat-inline-img")).not.toBeNull());
+    expect(imageReadAny).toHaveBeenCalledWith(abs);
+    expect(container.querySelector("img.chat-inline-img")!.getAttribute("src")).toBe("data:image/png;base64,AAA");
+  });
+
+  it("img 语法 `![]()` 的本地图片 → 同样内联渲染", async () => {
+    const imageReadAny = vi
+      .fn<(p: string) => Promise<{ dataUrl: string }>>()
+      .mockResolvedValue({ dataUrl: "data:image/png;base64,BBB" });
+    const { container } = renderMd("![封面](/abs/cover.png)", { imageReadAny });
+    await waitFor(() => expect(container.querySelector("img.chat-inline-img")).not.toBeNull());
+    expect(imageReadAny).toHaveBeenCalledWith("/abs/cover.png");
+  });
+
+  it("imageReadAny 失败 → 降级为可点击文件链接", async () => {
+    const imageReadAny = vi.fn<(p: string) => Promise<{ dataUrl: string }>>().mockRejectedValue(new Error("denied"));
+    const { container, onOpenFile } = renderMd("[ig.png](/abs/ig.png)", { imageReadAny });
+    await waitFor(() => expect(container.querySelector("a.file-link")).not.toBeNull());
+    expect(container.querySelector("img.chat-inline-img")).toBeNull();
+    fireEvent.click(container.querySelector("a.file-link")!);
+    expect(onOpenFile).toHaveBeenCalledWith("/abs/ig.png");
+  });
+
+  it("点击内联图片 → 弹出灯箱(portal 到 body),Esc 关闭", async () => {
+    const imageReadAny = vi
+      .fn<(p: string) => Promise<{ dataUrl: string }>>()
+      .mockResolvedValue({ dataUrl: "data:image/png;base64,CCC" });
+    const { container } = renderMd("[ig.png](/abs/ig.png)", { imageReadAny });
+    await waitFor(() => expect(container.querySelector("img.chat-inline-img")).not.toBeNull());
+    fireEvent.click(container.querySelector("img.chat-inline-img")!);
+    expect(document.querySelector(".img-lightbox")).not.toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(document.querySelector(".img-lightbox")).toBeNull());
+  });
+
+  it("远程图床图片(http)→ 不经 imageReadAny,走默认 img / 链接", async () => {
+    const imageReadAny = vi.fn<(p: string) => Promise<{ dataUrl: string }>>();
+    const { container } = renderMd("![远程](https://cdn.x.com/a.png)", { imageReadAny });
+    expect(container.querySelector("img.chat-inline-img")).toBeNull();
+    expect(imageReadAny).not.toHaveBeenCalled();
   });
 
   it("fenced 代码块含本地 .html 路径 → 代码块下方渲染「预览网页」按钮,点击授权", async () => {

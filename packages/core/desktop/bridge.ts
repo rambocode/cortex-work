@@ -159,6 +159,10 @@ export interface DesktopBridge {
   // 可选（web/旧壳无 → composer 图片上传入口降级隐藏）。
   imageSave?(req: ImageSaveRequest): Promise<ImageSaveResult>;
   imageRead?(path: string): Promise<ImageReadResult>;
+  // agent 产出的本地图片(项目外绝对路径如 ~/.codex/generated_images,或项目内 .cortex/media/images)
+  // 回读为 dataURL 供聊天内联渲染。读侧沿用 openPath 的 assertOpenable 宽松语义 + realpath/拒符号链接/
+  // 仅位图扩展名/体积上限硬防护。可选(web/旧壳无 → 内联图片降级为可点击文件链接,走 openPath 打开)。
+  imageReadAny?(path: string): Promise<ImageReadResult>;
   // 聊天文档附件落盘:返回绝对路径 + 字节数。内容由 agent 经文档抽取 MCP 工具按需读取,
   // 本桥接不负责抽取。可选（web/旧壳无 → composer 文档上传入口降级隐藏）。
   docSave?(req: DocSaveRequest): Promise<DocSaveResult>;

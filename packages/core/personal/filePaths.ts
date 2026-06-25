@@ -22,6 +22,21 @@ export function isLikelyFilePath(text: string): boolean {
   return true;
 }
 
+// 本地位图图片路径扩展名(与主进程 image.ts 读侧 allowlist 对齐:仅 PNG/JPEG/GIF/WebP)。
+// svg 刻意不在内——读侧也拒(svg 可内联脚本),避免内联渲染引入注入面。
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp)$/i;
+
+// 一段文本是否「本地图片路径」:非 scheme://(http(s)/file/data 等)、且以位图扩展名结尾。
+// 用于聊天 markdown 把图片链接 / `<img>` 内联渲染。命中即交给 ChatInlineImage 经 imageReadAny
+// 回读为 dataURL 显示;不命中(含 svg、http 图床、data: URI)走原有链接渲染逻辑。
+export function isLocalImagePath(ref: string): boolean {
+  const t = ref.trim();
+  if (!t || /\s/.test(t)) return false;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return false; // scheme:// (http(s)/file/...)
+  if (/^data:/i.test(t)) return false; // data: URI 已是可直接渲染的内联源,不经回读
+  return IMAGE_EXT_RE.test(t);
+}
+
 // 取 POSIX 风格 basename（折叠尾分隔符后取末段）。
 function baseName(p: string): string {
   const trimmed = p.replace(/\/+$/, "");

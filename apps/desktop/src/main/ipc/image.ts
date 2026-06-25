@@ -21,6 +21,10 @@ import type { ImageReadResult, ImageSaveRequest, ImageSaveResult } from "./types
 // 主进程是权威闸门(renderer imageIntake.ts 的 MAX_IMAGE_BYTES 仅 UX 预检,须与此值一致)。
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 
+// 聊天内联渲染 agent 产出图片(image:readAny)的体积上限:这些图非本应用落盘、无写侧 5MB 约束,
+// 读侧自设上限,避免把超大文件 base64 膨胀(≈+33%)塞进 renderer。
+export const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024; // 20MB
+
 const SAFE_ID = /^[\w-]+$/;
 
 type ImageExt = "png" | "jpg" | "gif" | "webp";
@@ -99,16 +103,15 @@ export async function saveImageInto(
   return { path };
 }
 
-// 读侧唯一闸门(返回 base64 + mime)。realpath + lstat 拒符号链接 + 根边界 + 扩展名 allowlist;
-// 读校验后的真实路径(非原始入参)消除 TOCTOU;只 base64 搬运,绝不解码。
-// 缩略图(image:read → dataUrl)与 pi RPC images(base64 注入)共用此闸门。
-export async function readImageBytes(root: string, requested: string): Promise<{ mimeType: string; base64: string }> {
-  let realRoot: string;
-  try {
-    realRoot = await fsp.realpath(root); // 根不存在 = 无任何图片可读
-  } catch {
-    throw new Error(`路径不在允许范围内: ${requested}`);
-  }
+// 读侧通用闸门(返回 base64 + mime)。硬防护顺序固定:lstat 拒符号链接 → realpath →
+// isAllowed(校验后真实路径) → 扩展名 allowlist → 可选体积上限。读「校验后的真实路径」(非原始
+// 入参)消除 check→use 间被换 symlink 的 TOCTOU;只 base64 搬运,绝不解码。
+// isAllowed 抽成入参:固定根(chat-images)与 assertOpenable 宽松语义(agent 产物)共用同一骨架。
+export async function readImageGated(
+  requested: string,
+  isAllowed: (realTarget: string) => boolean | Promise<boolean>,
+  maxBytes?: number,
+): Promise<{ mimeType: string; base64: string }> {
   let st;
   try {
     st = await fsp.lstat(requested);
@@ -117,18 +120,46 @@ export async function readImageBytes(root: string, requested: string): Promise<{
     e.code = "ENOENT";
     throw e;
   }
-  if (st.isSymbolicLink()) throw new Error(`路径不在允许范围内: ${requested}`); // 我们落盘的都是普通文件
+  if (st.isSymbolicLink()) throw new Error(`路径不在允许范围内: ${requested}`); // 不跟随符号链接,杜绝逃逸
   const realTarget = await fsp.realpath(requested);
-  if (!isInsideRoot(realRoot, realTarget)) throw new Error(`路径不在允许范围内: ${requested}`);
+  if (!(await isAllowed(realTarget))) throw new Error(`路径不在允许范围内: ${requested}`);
   const ext = extToImageExt(extname(realTarget));
   if (!ext) throw new Error(`不支持的图片扩展名: ${requested}`); // 读侧也只放行位图,绝不返回 svg
+  if (maxBytes != null) {
+    const { size } = await fsp.stat(realTarget); // realTarget 已 realpath + 非符号链接
+    if (size > maxBytes) throw new Error(`图片过大: ${size} 字节 > 上限 ${maxBytes}`);
+  }
   const buf = await fsp.readFile(realTarget); // 读已校验的真实路径,消除 TOCTOU
   return { mimeType: EXT_MIME[ext], base64: buf.toString("base64") };
+}
+
+// 固定根闸门:缩略图(image:read → dataUrl)与 pi RPC images(base64 注入)共用。
+// 根不存在 = 无任何图片可读 → isAllowed 直接 false(等价旧 readImageBytes 的根 realpath 失败即拒)。
+export async function readImageBytes(root: string, requested: string): Promise<{ mimeType: string; base64: string }> {
+  return readImageGated(requested, async (realTarget) => {
+    let realRoot: string;
+    try {
+      realRoot = await fsp.realpath(root);
+    } catch {
+      return false;
+    }
+    return isInsideRoot(realRoot, realTarget);
+  });
 }
 
 // 缩略图回读:包装成 data: URL。
 export async function readImageFrom(root: string, requested: string): Promise<ImageReadResult> {
   const { mimeType, base64 } = await readImageBytes(root, requested);
+  return { dataUrl: `data:${mimeType};base64,${base64}` };
+}
+
+// agent 产出图片回读(image:readAny → dataUrl)。isAllowed 由调用方注入 assertOpenable 宽松语义
+// (白名单根内 OR 真实存在文件),叠加 readImageGated 的符号链接/realpath/位图扩展名/体积上限硬防护。
+export async function readImageOpenable(
+  requested: string,
+  isAllowed: (realTarget: string) => boolean | Promise<boolean>,
+): Promise<ImageReadResult> {
+  const { mimeType, base64 } = await readImageGated(requested, isAllowed, MAX_INLINE_IMAGE_BYTES);
   return { dataUrl: `data:${mimeType};base64,${base64}` };
 }
 
