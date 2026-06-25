@@ -10,6 +10,9 @@
 // 因此在 loadCanvas() 函数内一起动态加载。
 
 import { type DragEvent, useCallback, useEffect, useRef, useState } from "react";
+// ReactFlow 基础样式表（纯 CSS，SSR 安全）。缺它则 Controls/MiniMap 失去绝对定位，
+// 挤到画布左上角渲染成无样式黑框，点阵网格也不生效——必须导入。
+import "@xyflow/react/dist/style.css";
 import { Icon } from "@cortex-work/ui/icons";
 import type { WorkflowNodeKind, WorkflowNode, WorkflowNodeRunStatus, WorkflowConnection } from "@cortex-work/core";
 import { WORKFLOW_NODE_KINDS } from "@cortex-work/core";
@@ -523,6 +526,7 @@ function ReactFlowInner({
       <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
       <Controls showInteractive={false} />
       <MiniMap
+        className="ds-workflow-minimap"
         pannable
         zoomable
         style={{ width: 150, height: 96 }}
