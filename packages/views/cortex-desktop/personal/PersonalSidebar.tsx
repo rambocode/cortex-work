@@ -247,6 +247,9 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
   const openHome = usePersonalStore((s) => s.openHome);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
   const openAutomation = usePersonalStore((s) => s.openAutomation);
+  // loop 工作流视图状态（bridge.workflowList 有值时才渲染入口，web 端 bridge 为 null 自动降级）。
+  const workflowOpen = usePersonalStore((s) => s.workflowOpen);
+  const openWorkflow = usePersonalStore((s) => s.openWorkflow);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
@@ -309,6 +312,18 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
         >
           <Icon.Workflow size={14} />
           <span>自动化</span>
+        </button>
+      ) : null}
+      {/* loop 工作流入口：bridge.workflowList 有值时才渲染（web 端 bridge 为 null 自动降级隐藏）。
+          使用 GitBranch 图标以区分 Workflow（自动化）入口。 */}
+      {bridge?.workflowList ? (
+        <button
+          className={`pw-home-btn ${workflowOpen ? "is-active" : ""}`}
+          onClick={openWorkflow}
+          title="Loop 工作流（节点式自动化）"
+        >
+          <Icon.GitBranch size={14} />
+          <span>Loop 工作流</span>
         </button>
       ) : null}
       <div className="pw-section-h">
