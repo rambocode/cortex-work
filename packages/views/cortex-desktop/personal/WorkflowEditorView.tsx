@@ -301,7 +301,7 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
   // ── 渲染 ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="ds-no-drag fixed inset-0 z-[60] flex bg-ds-main">
+    <div className="ds-workflow-scope ds-no-drag fixed inset-0 z-[60] flex bg-ds-main">
       {/* ── 左侧 Palette sidebar ───────────────────────────────────────────── */}
       {!leftCollapsed ? (
         <aside className="ds-drag flex w-[184px] shrink-0 flex-col border-r border-ds-border bg-ds-card/40">

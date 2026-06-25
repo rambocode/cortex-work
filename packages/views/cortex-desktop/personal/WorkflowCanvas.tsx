@@ -194,7 +194,7 @@ export function WorkflowCanvas({
     return (
       <div
         ref={containerRef}
-        className="relative flex min-h-0 flex-1 items-center justify-center bg-ds-main"
+        className="absolute inset-0 flex items-center justify-center bg-ds-main"
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
@@ -251,7 +251,11 @@ export function WorkflowCanvas({
   return (
     <div
       ref={containerRef}
-      className="relative min-h-0 flex-1"
+      // 绝对填充父级（WorkflowEditorView 的 relative min-w-0 flex-1 画布区）。
+      // 原 `flex-1` 无效：父级不是 flex 容器，本 div 退化为 block，子元素(ReactFlow/overlay)
+      // 又都是 absolute 不撑高 → 高度塌陷为 0 → 画布不显示。父级为 relative 且有确定高度
+      // (flex 行 stretch)，故 absolute inset-0 取确定像素高度。
+      className="absolute inset-0"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >

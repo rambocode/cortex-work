@@ -8284,6 +8284,15 @@ button.sb-row {
 .ds-no-drag { -webkit-app-region: no-drag; }
 .ds-titlebar-safe-block { height: 22px; flex-shrink: 0; }
 
+/* Loop 工作流编辑器作用域：把强调色覆盖为蓝色（对齐 Kun 的蓝色主题），
+   仅作用于工作流编辑器内部（palette/按钮/运行一次/画布边/选中态），
+   不影响 cortex 其余地方的品牌橙色。accent 经 @theme inline 内联 var(--accent)，
+   此处重定义 --accent 即可让作用域内所有 accent 工具类跟随变蓝。 */
+.ds-workflow-scope {
+  --accent: var(--blue);
+  --accent-soft: var(--blue-soft);
+}
+
 /* ReactFlow 画布主题化（移植自 Kun workflow-canvas.css，--ds-* 改为本项目 CSS 变量）。
    通过 @xyflow/react v12 的 --xy-* 主题变量，使点阵/边/控件/minimap/handle 跟随亮暗主题。 */
 .ds-workflow-canvas {
