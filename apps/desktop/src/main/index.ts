@@ -44,6 +44,7 @@ import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 import { getRuntimeAppVersion } from "./app-version";
 import { installGlobalCrashGuards } from "./crash-guards";
+import { installAppMenu } from "./app-menu";
 
 // 进程级崩溃兜底必须最先安装:历史崩溃为「异步 fs 扫描回调/漂浮 Promise 抛未捕获错误」
 // → 主进程整体 SIGTRAP 退出。装在所有初始化之前,确保后续任何未捕获异常/拒绝只记日志、
@@ -285,6 +286,8 @@ if (!app.requestSingleInstanceLock()) {
     void startDocExtractHost();
     // 媒体生成 MCP host:独立实例,常驻;四模态全关时注入侧返回 null 不连接,host 仍在后台静默运行(U5)。
     void startMediaGenHost();
+    // 安装自定义主菜单(去除 macOS View 菜单重复的全屏项),须在建窗前就位。
+    installAppMenu();
     createWindow();
 
     app.on("activate", () => {
