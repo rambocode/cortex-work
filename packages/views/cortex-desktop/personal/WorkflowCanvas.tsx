@@ -9,7 +9,7 @@
 // WorkflowNodes.tsx 同样不能静态 import（它依赖 @xyflow/react 运行时），
 // 因此在 loadCanvas() 函数内一起动态加载。
 
-import { type DragEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 // ReactFlow 基础样式表（纯 CSS，SSR 安全）。缺它则 Controls/MiniMap 失去绝对定位，
 // 挤到画布左上角渲染成无样式黑框，点阵网格也不生效——必须导入。
 import "@xyflow/react/dist/style.css";
@@ -124,6 +124,41 @@ export function WorkflowCanvas({
     [onChange],
   );
 
+  // 节点操作（经 context 传给每个节点组件）。useMemo 稳定引用——否则每次渲染
+  // (含拖动每帧 setRfNodes 触发的重渲染) 都产生新对象，使 NodeActionsContext 的 value
+  // 变化，导致所有节点组件重渲染 → 拖动时全画布闪烁。
+  const nodeActions = useMemo(
+    () => ({
+      runNode: onRunNode,
+      toggleDisabled: onToggleDisabled,
+      deleteNode: (nodeId: string) => {
+        setRfNodes((prev) => {
+          const next = prev.filter((n) => n.id !== nodeId);
+          setRfEdges((edges) => {
+            const nextEdges = edges.filter(
+              (e) => e.source !== nodeId && e.target !== nodeId,
+            ) as WorkflowFlowEdge[];
+            notifyChange(next, nextEdges);
+            return nextEdges;
+          });
+          return next;
+        });
+        onDeleteNode(nodeId);
+      },
+    }),
+    [onRunNode, onToggleDisabled, onDeleteNode, notifyChange],
+  );
+
+  // 带运行状态样式（running 边动画）的边。useMemo 仅依赖 rfEdges/runStatus：
+  // 连线关系只来自 rfEdges，节点「位置」变化不改变连线，故拖动时不重建边数组
+  // （避免每帧产生新 edges → 边/handle 重绘闪烁）。
+  const styledEdges = useMemo(
+    () => toFlowEdges(flowToWorkflowGraph(rfNodes, rfEdges).connections, runStatus),
+    // rfNodes 仅供 flowToWorkflowGraph 的节点部分（被丢弃），连线只取自 rfEdges。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rfEdges, runStatus],
+  );
+
   // 连接拖拽起点 ref（拖拽到画布空白处展示「添加节点」菜单，与 Kun onConnectEnd 对齐）
   const connectingRef = useRef<{ nodeId: string; handleId: string } | null>(null);
 
@@ -224,30 +259,6 @@ export function WorkflowCanvas({
     WorkflowNodeActionsContext,
   } = nodesMod;
 
-  // 节点操作（由 context 传入每个节点组件）
-  const nodeActions = {
-    runNode: onRunNode,
-    toggleDisabled: onToggleDisabled,
-    deleteNode: (nodeId: string) => {
-      setRfNodes((prev) => {
-        const next = prev.filter((n) => n.id !== nodeId);
-        setRfEdges((edges) => {
-          const nextEdges = edges.filter((e) => e.source !== nodeId && e.target !== nodeId) as WorkflowFlowEdge[];
-          notifyChange(next, nextEdges);
-          return nextEdges;
-        });
-        return next;
-      });
-      onDeleteNode(nodeId);
-    },
-  };
-
-  // 带 styled edges（运行状态动画）
-  const styledEdges = toFlowEdges(
-    flowToWorkflowGraph(rfNodes, rfEdges).connections,
-    runStatus,
-  );
-
   return (
     <div
       ref={containerRef}
@@ -275,7 +286,17 @@ export function WorkflowCanvas({
               onNodesChangeExternal={(changes) => {
                 setRfNodes((prev) => {
                   const next = applyNodeChanges(changes, prev) as WorkflowFlowNode[];
-                  if (changes.some((c) => c.type !== "select" && c.type !== "dimensions")) {
+                  // 拖动进行中（position 变更且 dragging:true）不回写父级——否则父组件
+                  // setState(nodes) → nodes prop 变化 → 同步 effect setRfNodes(toFlowNodes)
+                  // 重建全部节点对象，与正在进行的拖动相互覆盖 → 全画布闪烁/抖动。
+                  // 只在拖动结束（dragging:false/undefined）或非拖动的结构性变更时回写。
+                  const midDrag = changes.some(
+                    (c) => c.type === "position" && c.dragging === true,
+                  );
+                  if (
+                    !midDrag &&
+                    changes.some((c) => c.type !== "select" && c.type !== "dimensions")
+                  ) {
                     notifyChange(next, rfEdges);
                   }
                   return next;
