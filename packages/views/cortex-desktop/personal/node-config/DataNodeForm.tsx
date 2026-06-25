@@ -18,6 +18,9 @@ import type {
 import { Icon } from "@cortex-work/ui/icons";
 import { INPUT_CLS, FIELD_LABEL_CLS, SECTION_LABEL_CLS } from "./TriggerNodeForm";
 
+// sort/limit/aggregate 均作用于「数组输入」，顶部统一提示用户上游需输出数组(对齐 Kun workflowArrayHint)
+const ARRAY_HINT_CLS = "text-[11.5px] leading-relaxed text-ds-faint";
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 type Props = {
@@ -144,6 +147,7 @@ function SortForm({
 
   return (
     <div className="flex flex-col gap-3">
+      <p className={ARRAY_HINT_CLS}>对上游输出的数组逐项排序；非数组输入将原样透传。</p>
       <div className="flex flex-col gap-1">
         <label className={FIELD_LABEL_CLS}>排序字段</label>
         <input
@@ -193,6 +197,7 @@ function LimitForm({
 
   return (
     <div className="flex flex-col gap-3">
+      <p className={ARRAY_HINT_CLS}>截取上游数组的前/后 N 条；非数组输入将原样透传。</p>
       <div className="flex flex-col gap-1">
         <label className={FIELD_LABEL_CLS}>条数（1–100000）</label>
         <input
@@ -201,7 +206,10 @@ function LimitForm({
           value={cfg.count}
           min={1}
           max={100000}
-          onChange={(e) => updateConfig({ count: Number(e.target.value) })}
+          // clamp 到 [1, 100000]，防止手输 0/负数/越界(对齐 Kun 的 Math.max/min 约束)
+          onChange={(e) =>
+            updateConfig({ count: Math.max(1, Math.min(100000, Number(e.target.value) || 1)) })
+          }
         />
       </div>
       <div className="flex flex-col gap-1">
@@ -238,6 +246,7 @@ function AggregateForm({
 
   return (
     <div className="flex flex-col gap-3">
+      <p className={ARRAY_HINT_CLS}>对上游输出的数组做聚合计算；非数组输入将原样透传。</p>
       <div className="flex flex-col gap-1">
         <label className={FIELD_LABEL_CLS}>聚合模式</label>
         <select
@@ -251,15 +260,18 @@ function AggregateForm({
           <option value="join">拼接为字符串（join）</option>
         </select>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className={FIELD_LABEL_CLS}>聚合字段</label>
-        <input
-          className={`${INPUT_CLS} font-mono`}
-          value={cfg.field}
-          placeholder="json.value 或 text"
-          onChange={(e) => updateConfig({ field: e.target.value })}
-        />
-      </div>
+      {/* count 模式不取字段(直接 items.length)，隐藏聚合字段避免无意义输入(对齐 Kun + data.ts 执行器) */}
+      {cfg.mode !== "count" ? (
+        <div className="flex flex-col gap-1">
+          <label className={FIELD_LABEL_CLS}>聚合字段</label>
+          <input
+            className={`${INPUT_CLS} font-mono`}
+            value={cfg.field}
+            placeholder="json.value 或 text"
+            onChange={(e) => updateConfig({ field: e.target.value })}
+          />
+        </div>
+      ) : null}
       {isJoin ? (
         <div className="flex flex-col gap-1">
           <label className={FIELD_LABEL_CLS}>分隔符</label>
@@ -292,6 +304,19 @@ function TemplateForm({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* 模板内容在前、输出模式在后，对齐 Kun 的字段顺序(主输入优先) */}
+      <div className="flex flex-col gap-1">
+        <label className={FIELD_LABEL_CLS}>模板内容</label>
+        <textarea
+          className={`${INPUT_CLS} min-h-[120px] resize-y font-mono text-[12px]`}
+          value={cfg.template}
+          placeholder="Hello {{$input.name}}，今天是 {{$run.date}}。"
+          onChange={(e) => updateConfig({ template: e.target.value })}
+        />
+        <p className="text-[11px] text-ds-faint">
+          使用 {"{{变量}}"} 插值，支持 $input、$nodes、$env、$run、$loop。
+        </p>
+      </div>
       <div className="flex flex-col gap-1">
         <label className={FIELD_LABEL_CLS}>输出模式</label>
         <select
@@ -304,18 +329,6 @@ function TemplateForm({
           <option value="text">文本</option>
           <option value="json">JSON</option>
         </select>
-      </div>
-      <div className="flex flex-col gap-1">
-        <label className={FIELD_LABEL_CLS}>模板内容</label>
-        <textarea
-          className={`${INPUT_CLS} min-h-[120px] resize-y font-mono text-[12px]`}
-          value={cfg.template}
-          placeholder="Hello {{$input.name}}，今天是 {{$run.date}}。"
-          onChange={(e) => updateConfig({ template: e.target.value })}
-        />
-        <p className="text-[11px] text-ds-faint">
-          使用 {"{{变量}}"} 插值，支持 $input、$nodes、$env、$run、$loop。
-        </p>
       </div>
     </div>
   );
@@ -351,14 +364,17 @@ function JsonForm({
           <option value="stringify">序列化（对象 → JSON 字符串）</option>
         </select>
       </div>
-      <label className="flex items-center gap-2 text-[12px] text-ds-muted">
-        <input
-          type="checkbox"
-          checked={cfg.strict}
-          onChange={(e) => updateConfig({ strict: e.target.checked })}
-        />
-        严格模式（解析失败时中断）
-      </label>
+      {/* strict 仅 parse 模式生效(stringify 忽略，见 data.ts)，故仅 parse 时渲染，对齐 Kun */}
+      {cfg.mode === "parse" ? (
+        <label className="flex items-center gap-2 text-[12px] text-ds-muted">
+          <input
+            type="checkbox"
+            checked={cfg.strict}
+            onChange={(e) => updateConfig({ strict: e.target.checked })}
+          />
+          严格模式（解析失败时中断）
+        </label>
+      ) : null}
     </div>
   );
 }
@@ -380,6 +396,7 @@ function OutputForm({
 
   return (
     <div className="flex flex-col gap-3">
+      <p className={ARRAY_HINT_CLS}>终态输出节点：决定本次运行的规范输出（供调用方/日志读取）。</p>
       <div className="flex flex-col gap-1">
         <label className={FIELD_LABEL_CLS}>输出模式</label>
         <select
@@ -394,7 +411,8 @@ function OutputForm({
           <option value="json">JSON 路径提取</option>
         </select>
       </div>
-      {cfg.mode === "text" || cfg.mode === "auto" ? (
+      {/* auto 模式直接透传 payload、不渲染模板(见 data.ts executeOutput)，故仅 text 模式显示，对齐 Kun */}
+      {cfg.mode === "text" ? (
         <div className="flex flex-col gap-1">
           <label className={FIELD_LABEL_CLS}>文本模板</label>
           <textarea

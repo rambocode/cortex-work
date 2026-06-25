@@ -307,6 +307,97 @@ describe('executeLoop — foreach 顺序', () => {
     expect(result.message).toContain('(parallel)')
   })
 
+  it('foreach parallel：每个迭代使用隔离的 nodeOutputs/runVars，但共享取消与预算', async () => {
+    const seenContexts: Parameters<RunGraphFn>[2][] = []
+    const mockRunGraph: RunGraphFn = vi.fn(async (_wf, _payload, itemCtx, _all, _deps, _depth, _cb, loopFrame) => {
+      itemCtx.nodeOutputs.sharedNode = { json: loopFrame!.index, text: String(loopFrame!.index) }
+      itemCtx.runVars.sharedVar = loopFrame!.index
+      seenContexts.push(itemCtx)
+      return mkResult(loopFrame!.index)
+    })
+
+    const bodyWf = makeWorkflow('body', [makeTrigger()])
+    const ctx = createRunContext()
+    const node: WorkflowNode = {
+      id: 'loop1',
+      type: 'loop',
+      name: 'loop',
+      position: { x: 0, y: 0 },
+      disabled: false,
+      config: {
+        workflowId: 'body',
+        mode: 'foreach',
+        arraySource: '',
+        execution: 'parallel',
+        concurrency: 3,
+        continueOnError: false,
+        maxIterations: 100,
+        leftExpr: '',
+        operator: 'equals',
+        rightValue: '',
+        caseSensitive: true,
+      },
+    }
+    const payload: WorkflowPayload = { json: ['a', 'b', 'c'], text: '' }
+
+    await executeLoop(node, node.config, payload, scope, ctx, [bodyWf], {}, 0, mockRunGraph)
+
+    expect(seenContexts).toHaveLength(3)
+    expect(new Set(seenContexts.map((c) => c.nodeOutputs)).size).toBe(3)
+    expect(new Set(seenContexts.map((c) => c.runVars)).size).toBe(3)
+    for (const itemCtx of seenContexts) {
+      expect(itemCtx).not.toBe(ctx)
+      expect(itemCtx.cancelToken).toBe(ctx.cancelToken)
+      expect(itemCtx.executionBudget).toBe(ctx.executionBudget)
+      expect(itemCtx.pendingApprovals).toBe(ctx.pendingApprovals)
+      expect(itemCtx.aiProcesses).toBe(ctx.aiProcesses)
+    }
+    expect(ctx.nodeOutputs.sharedNode).toBeUndefined()
+    expect(ctx.runVars.sharedVar).toBeUndefined()
+  })
+
+  it('foreach parallel：continueOnError=false 时等待已启动迭代 settle 后再抛错', async () => {
+    const settled: number[] = []
+    const mockRunGraph: RunGraphFn = vi.fn(async (_wf, _payload, _ctx, _all, _deps, _depth, _cb, loopFrame) => {
+      if (loopFrame!.index === 0) {
+        throw new Error('boom')
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      settled.push(loopFrame!.index)
+      return mkResult(loopFrame!.index)
+    })
+
+    const bodyWf = makeWorkflow('body', [makeTrigger()])
+    const ctx = createRunContext()
+    const node: WorkflowNode = {
+      id: 'loop1',
+      type: 'loop',
+      name: 'loop',
+      position: { x: 0, y: 0 },
+      disabled: false,
+      config: {
+        workflowId: 'body',
+        mode: 'foreach',
+        arraySource: '',
+        execution: 'parallel',
+        concurrency: 2,
+        continueOnError: false,
+        maxIterations: 100,
+        leftExpr: '',
+        operator: 'equals',
+        rightValue: '',
+        caseSensitive: true,
+      },
+    }
+    const payload: WorkflowPayload = { json: ['a', 'b', 'c'], text: '' }
+
+    await expect(
+      executeLoop(node, node.config, payload, scope, ctx, [bodyWf], {}, 0, mockRunGraph)
+    ).rejects.toThrow('boom')
+    expect(settled).toEqual([1])
+    expect(vi.mocked(mockRunGraph).mock.calls.length).toBe(2)
+  })
+
   it('continueOnError=true：单 item 失败不中止，错误记录在 result', async () => {
     let callCount = 0
     const mockRunGraph: RunGraphFn = vi.fn(async (_wf, _payload, _ctx, _all, _deps, _depth, _cb, loopFrame) => {

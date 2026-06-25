@@ -9,17 +9,28 @@
 
 import type { ComponentType, ReactElement } from "react";
 import { createContext, useContext } from "react";
-import { Handle, NodeToolbar, Position, type NodeProps, type NodeTypes } from "@xyflow/react";
+import {
+  Handle,
+  NodeToolbar,
+  Position,
+  type NodeProps,
+  type NodeTypes,
+} from "@xyflow/react";
 import { Icon } from "@cortex-work/ui/icons";
-import type { WorkflowNodeKind, WorkflowNodeRunStatus } from "@cortex-work/core";
+import type {
+  WorkflowNodeKind,
+  WorkflowNodeRunStatus,
+} from "@cortex-work/core";
 import { WORKFLOW_NODE_KINDS } from "@cortex-work/core";
-import { NODE_ICONS } from "./workflow-flow";
+import { NODE_ICONS, nodeCategory, CATEGORY_LABELS } from "./workflow-flow";
 import type { WorkflowFlowNodeData } from "./workflow-flow";
 
 // ── Context：节点运行状态 & 操作回调 ─────────────────────────────────────────
 
 /** 画布所有节点的运行状态（nodeId → status），由 WorkflowCanvas 提供。 */
-export const WorkflowRunStatusContext = createContext<Record<string, WorkflowNodeRunStatus>>({});
+export const WorkflowRunStatusContext = createContext<
+  Record<string, WorkflowNodeRunStatus>
+>({});
 
 export type WorkflowNodeActions = {
   runNode: (nodeId: string) => void;
@@ -95,19 +106,21 @@ const NODE_LABELS: Record<WorkflowNodeKind, string> = {
 };
 
 // ── 节点状态指示点 ────────────────────────────────────────────────────────
+// 对齐 mockup：成功/失败/运行中的点带一圈同色软光晕(box-shadow ring)，
+// idle/跳过为无光晕的灰点。运行中额外脉冲动画。
 
 function statusDotClass(status: WorkflowNodeRunStatus | undefined): string {
   switch (status) {
     case "running":
-      return "bg-amber-500 animate-pulse";
+      return "bg-amber-500 shadow-[0_0_0_3px_rgba(217,119,6,0.18)] animate-pulse";
     case "success":
-      return "bg-emerald-500";
+      return "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,163,74,0.16)]";
     case "error":
-      return "bg-red-500";
+      return "bg-red-500 shadow-[0_0_0_3px_rgba(220,38,38,0.16)]";
     case "skipped":
       return "bg-ds-border";
     default:
-      return "bg-transparent";
+      return "bg-ds-faint/40";
   }
 }
 
@@ -115,14 +128,20 @@ function statusDotClass(status: WorkflowNodeRunStatus | undefined): string {
 
 type AnyConfig = Record<string, unknown>;
 
-function nodeSummary(node: { type: WorkflowNodeKind; config: AnyConfig }): string {
+function nodeSummary(node: {
+  type: WorkflowNodeKind;
+  config: AnyConfig;
+}): string {
   const cfg = node.config;
   switch (node.type) {
     case "schedule-trigger": {
-      const s = cfg["schedule"] as { kind: string; expression?: string; minute?: number } | undefined;
+      const s = cfg["schedule"] as
+        | { kind: string; expression?: string; minute?: number }
+        | undefined;
       if (!s) return "";
       if (s.kind === "cron") return s.expression || "cron";
-      if (s.kind === "hourly") return `每小时 :${String(s.minute ?? 0).padStart(2, "0")}`;
+      if (s.kind === "hourly")
+        return `每小时 :${String(s.minute ?? 0).padStart(2, "0")}`;
       if (s.kind === "daily") return "每天";
       if (s.kind === "weekly") return "每周";
       if (s.kind === "once") return "单次";
@@ -131,13 +150,19 @@ function nodeSummary(node: { type: WorkflowNodeKind; config: AnyConfig }): strin
     case "webhook-trigger":
       return `${cfg["method"] ?? ""} ${cfg["path"] ?? ""}`.trim();
     case "ai-agent":
-      return String(cfg["prompt"] ?? "")
-        .trim()
-        .slice(0, 60) || String(cfg["model"] ?? "") || "AI 任务";
+      return (
+        String(cfg["prompt"] ?? "")
+          .trim()
+          .slice(0, 60) ||
+        String(cfg["model"] ?? "") ||
+        "AI 任务"
+      );
     case "generate-image":
-      return String(cfg["prompt"] ?? "")
-        .trim()
-        .slice(0, 60) || "图片";
+      return (
+        String(cfg["prompt"] ?? "")
+          .trim()
+          .slice(0, 60) || "图片"
+      );
     case "condition":
       return `${cfg["leftExpr"] || "text"} ${cfg["operator"]} ${cfg["rightValue"]}`.trim();
     case "switch": {
@@ -177,9 +202,11 @@ function nodeSummary(node: { type: WorkflowNodeKind; config: AnyConfig }): strin
     case "delay":
       return `${Math.round(Number(cfg["delayMs"] ?? 1000) / 1000)}s`;
     case "template":
-      return String(cfg["template"] ?? "")
-        .trim()
-        .slice(0, 40) || String(cfg["outputMode"] ?? "");
+      return (
+        String(cfg["template"] ?? "")
+          .trim()
+          .slice(0, 40) || String(cfg["outputMode"] ?? "")
+      );
     case "json":
       return String(cfg["mode"] ?? "");
     case "output": {
@@ -222,25 +249,43 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
     node.type === "schedule-trigger" ||
     node.type === "webhook-trigger";
 
-  const summary = nodeSummary({ type: node.type, config: node.config as AnyConfig });
+  const summary = nodeSummary({
+    type: node.type,
+    config: node.config as AnyConfig,
+  });
 
-  const ring = selected ? "border-accent ring-2 ring-accent/30" : "border-ds-border";
+  // 5 色分类：图标芯片用 .wf-cat-{category} 着色（对齐 mockup）。
+  const category = nodeCategory(node.type);
+  const trimmedName = node.name.trim();
+  const title = trimmedName || NODE_LABELS[node.type] || node.type;
+  // 标题已是自定义名时，副标题展示节点类型名；否则用分类名，避免与标题文字重复。
+  const kindLine = trimmedName
+    ? NODE_LABELS[node.type] || node.type
+    : CATEGORY_LABELS[category];
+
+  const ring = selected
+    ? "border-accent ring-2 ring-accent/30"
+    : "border-ds-border";
   const disabled = node.disabled ? "opacity-50" : "";
 
   // switch/question-classifier 的动态 handle 数取自 config
-  const switchRules = node.type === "switch"
-    ? ((node.config as { rules: unknown[] }).rules ?? [])
-    : [];
-  const hasSwitchFallback = node.type === "switch"
-    ? (node.config as { fallback: boolean }).fallback
-    : false;
-  const classifierCategories = node.type === "question-classifier"
-    ? ((node.config as { categories: Array<{ id: string; label: string }> }).categories ?? [])
-    : [];
+  const switchRules =
+    node.type === "switch"
+      ? ((node.config as { rules: unknown[] }).rules ?? [])
+      : [];
+  const hasSwitchFallback =
+    node.type === "switch"
+      ? (node.config as { fallback: boolean }).fallback
+      : false;
+  const classifierCategories =
+    node.type === "question-classifier"
+      ? ((node.config as { categories: Array<{ id: string; label: string }> })
+          .categories ?? [])
+      : [];
 
   return (
     <div
-      className={`relative w-[210px] rounded-xl border bg-ds-card px-3 py-2.5 shadow-sm ${ring} ${disabled}`}
+      className={`relative w-[216px] rounded-[13px] border bg-ds-card shadow-sm ${ring} ${disabled}`}
     >
       {/* 选中时展示节点操作工具栏（运行 / 禁用 / 删除）*/}
       <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
@@ -283,29 +328,50 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
         <Handle type="target" position={Position.Left} id="in" />
       ) : null}
 
-      {/* 节点内容：图标 + 标题 + 摘要 + 状态指示点 */}
-      <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+      {/* 头部：分类着色图标 + 标题/kind 副标题 + 运行状态点（对齐 mockup node-head）*/}
+      <div className="flex items-center gap-2.5 px-3 pb-2 pt-2.5">
+        <span
+          className={`wf-ic wf-cat-${category} flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px]`}
+        >
           <NodeIcon size={16} sw={1.9} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold text-ds-ink">
-            {node.name.trim() || NODE_LABELS[node.type] || node.type}
+            {title}
           </div>
-          {summary ? (
-            <div className="truncate text-[11px] text-ds-faint">{summary}</div>
-          ) : null}
+          <div className="truncate text-[11px] text-ds-faint">{kindLine}</div>
         </div>
         {/* 运行状态指示点 */}
-        <span className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(status)}`} />
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(status)}`}
+        />
       </div>
+
+      {/* 摘要行：与头部以细分隔线分隔；配置值用 mono 芯片呈现（对齐 mockup node-sub 的等宽值）*/}
+      {summary ? (
+        <div className="mx-3 flex items-center border-t border-ds-border/60 py-2">
+          <span className="truncate rounded-[5px] bg-ds-hover px-1.5 py-0.5 font-mono text-[10.5px] text-ds-ink">
+            {summary}
+          </span>
+        </div>
+      ) : null}
 
       {/* 输出 handle：按节点类型分支渲染 */}
       {node.type === "condition" ? (
         // condition：true / false 两路输出
         <>
-          <Handle type="source" position={Position.Right} id="true" style={{ top: "38%" }} />
-          <Handle type="source" position={Position.Right} id="false" style={{ top: "70%" }} />
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="true"
+            style={{ top: "38%" }}
+          />
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="false"
+            style={{ top: "70%" }}
+          />
           <div className="pointer-events-none absolute right-1 top-[30%] text-[9px] font-medium text-emerald-600">
             是
           </div>
@@ -337,14 +403,29 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
             );
           })}
           {hasSwitchFallback ? (
-            <Handle type="source" position={Position.Right} id="fallback" style={{ top: "88%" }} />
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="fallback"
+              style={{ top: "88%" }}
+            />
           ) : null}
         </>
       ) : node.type === "human-approval" ? (
         // human-approval：approved / rejected 两路
         <>
-          <Handle type="source" position={Position.Right} id="approved" style={{ top: "38%" }} />
-          <Handle type="source" position={Position.Right} id="rejected" style={{ top: "70%" }} />
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="approved"
+            style={{ top: "38%" }}
+          />
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="rejected"
+            style={{ top: "70%" }}
+          />
           <div className="pointer-events-none absolute right-1 top-[30%] text-[9px] font-medium text-emerald-600">
             批准
           </div>
@@ -375,10 +456,7 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
             );
           })}
         </>
-      ) : node.type === "output" ? (
-        // output 是终态节点，无输出 handle
-        null
-      ) : (
+      ) : node.type === "output" ? null : ( // output 是终态节点，无输出 handle
         // 其余节点：单一输出 handle 'out'
         <Handle type="source" position={Position.Right} id="out" />
       )}

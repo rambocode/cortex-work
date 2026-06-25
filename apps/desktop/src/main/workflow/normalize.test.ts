@@ -69,12 +69,24 @@ describe("normalizeWorkflowNode — 基础字段", () => {
 // ── manual-trigger ────────────────────────────────────────────────────────────
 
 describe("manual-trigger", () => {
-  it("空 config → workspaceRoot=''，无 inputSchema", () => {
+  it("空 config → workspaceRoot=''，无 inputSchema，自动生成 runToken", () => {
     const r = normalizeWorkflowNode(node("manual-trigger"), 0);
     expect(r?.type).toBe("manual-trigger");
     if (r?.type !== "manual-trigger") return;
     expect(r.config.workspaceRoot).toBe("");
     expect(r.config.inputSchema).toBeUndefined();
+    // 本地 API 触发令牌自动生成（非空字符串）
+    expect(typeof r.config.runToken).toBe("string");
+    expect(r.config.runToken).toBeTruthy();
+  });
+
+  it("已有 runToken 原样保留", () => {
+    const r = normalizeWorkflowNode(
+      node("manual-trigger", { runToken: "fixed-token-xyz" }),
+      0,
+    );
+    if (r?.type !== "manual-trigger") throw new Error("wrong type");
+    expect(r.config.runToken).toBe("fixed-token-xyz");
   });
 
   it("有效 inputSchema 被保留", () => {

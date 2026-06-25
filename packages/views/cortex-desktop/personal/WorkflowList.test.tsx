@@ -139,20 +139,26 @@ describe("列表渲染", () => {
   it("失败状态显示失败 pill", () => {
     h.workflows = [wf({ lastStatus: "error" })];
     renderList();
-    // 「失败」标签应出现
-    expect(screen.getByText("失败")).toBeTruthy();
+    // selector 限定徽章，避免与过滤 tab「失败」文本撞车
+    expect(screen.getByText("失败", { selector: ".pw-wfl-badge" })).toBeTruthy();
   });
 
-  it("success 状态显示成功 pill", () => {
-    h.workflows = [wf({ lastStatus: "success" })];
+  it("启用且成功状态显示「已启用」pill", () => {
+    h.workflows = [wf({ enabled: true, lastStatus: "success" })];
     renderList();
-    expect(screen.getByText("成功")).toBeTruthy();
+    expect(screen.getByText("已启用", { selector: ".pw-wfl-badge" })).toBeTruthy();
+  });
+
+  it("运行中状态显示「运行中」pill", () => {
+    h.workflows = [wf({ lastStatus: "running" })];
+    renderList();
+    expect(screen.getByText("运行中", { selector: ".pw-wfl-badge" })).toBeTruthy();
   });
 
   it("已暂停（enabled=false）显示已暂停 pill", () => {
     h.workflows = [wf({ enabled: false })];
     renderList();
-    expect(screen.getByText("已暂停")).toBeTruthy();
+    expect(screen.getByText("已暂停", { selector: ".pw-wfl-badge" })).toBeTruthy();
   });
 
   it("有 lastMessage 时显示结果摘要", () => {
@@ -173,12 +179,12 @@ describe("列表渲染", () => {
 // ── toggle 开关 ──────────────────────────────────────────────────────────────
 
 describe("toggle 开关", () => {
-  it("点击启用 toggle 调 setEnabled mutation", () => {
+  it("「更多」菜单点「暂停」调 setEnabled mutation", () => {
     h.workflows = [wf({ enabled: true })];
     renderList();
-    // 「启用」toggle
-    const btn = screen.getByRole("switch", { name: "启用" });
-    fireEvent.click(btn);
+    // 启用·暂停收进「更多」菜单
+    fireEvent.click(screen.getByTitle("更多操作"));
+    fireEvent.click(screen.getByRole("menuitem", { name: /暂停/ }));
     expect(h.setEnabledMutate).toHaveBeenCalledWith(
       { id: "wf-1", enabled: false },
       expect.any(Object),

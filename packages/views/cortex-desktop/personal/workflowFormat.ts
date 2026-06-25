@@ -1,7 +1,26 @@
 // 工作流展示用纯函数：节点数摘要、状态标签/变体、相对时间、最近结果摘要。
 // WorkflowList 与未来的 WorkflowDetail 共用,避免文案漂移。无 React 依赖。
 
-import type { WorkflowRunStatus } from "@cortex-work/core";
+import type { WorkflowRunStatus, WorkflowNode } from "@cortex-work/core";
+
+// ── 触发器 chip ──────────────────────────────────────────────────────────────
+
+/** 从节点列表推导触发器 chip 文本（展示在最近结果摘要前的来源标签）。
+ *  取第一个触发器节点的种类映射为简短中文/英文标签；无触发器返回空串（不渲染 chip）。 */
+export function formatTriggerChip(nodes: WorkflowNode[] | undefined): string {
+  if (!nodes?.length) return "";
+  for (const n of nodes) {
+    switch (n.type) {
+      case "manual-trigger":
+        return "手动";
+      case "schedule-trigger":
+        return "定时";
+      case "webhook-trigger":
+        return "webhook";
+    }
+  }
+  return "";
+}
 
 // ── 节点数摘要 ───────────────────────────────────────────────────────────────
 

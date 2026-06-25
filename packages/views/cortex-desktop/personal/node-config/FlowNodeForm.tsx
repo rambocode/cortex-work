@@ -217,7 +217,8 @@ function SwitchForm({
     updateConfig({
       rules: [
         ...cfg.rules,
-        { leftExpr: "", operator: "equals", rightValue: "", caseSensitive: false },
+        // 新规则默认 operator=contains，对齐 Kun addRule
+        { leftExpr: "", operator: "contains", rightValue: "", caseSensitive: false },
       ],
     });
   }
@@ -229,7 +230,7 @@ function SwitchForm({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[11.5px] text-ds-faint">
-        按顺序匹配，第一条命中的规则决定输出分支（case-0, case-1…）。
+        按顺序匹配，第一条命中的规则决定输出分支（case-1, case-2…，与画布上的分支序号一致）。
       </p>
 
       {/* 规则列表 */}
@@ -254,8 +255,9 @@ function SwitchForm({
               className="rounded-xl border border-ds-border bg-ds-card/60 p-3 flex flex-col gap-2"
             >
               <div className="flex items-center justify-between">
+                {/* 显示 1 起序号(与画布 handle 标签一致)；内部 branch/handle id 仍为 case-{idx}(0 起) */}
                 <span className="text-[11px] font-mono text-ds-faint">
-                  case-{idx}
+                  case-{idx + 1}
                 </span>
                 <button
                   type="button"
@@ -399,9 +401,12 @@ function LoopForm({
             <input
               className={`${INPUT_CLS} font-mono`}
               value={cfg.arraySource ?? ""}
-              placeholder="{{$input.items}}（留空 = payload.json）"
+              placeholder="json.items（留空 = payload.json）"
               onChange={(e) => updateConfig({ arraySource: e.target.value || undefined })}
             />
+            <p className="text-[11px] text-ds-faint">
+              指向上游 payload 中的数组字段；每个数组项作为一次子工作流的输入。
+            </p>
           </div>
           <div className="flex flex-col gap-1">
             <label className={FIELD_LABEL_CLS}>执行方式</label>
@@ -425,8 +430,9 @@ function LoopForm({
                 value={cfg.concurrency ?? 4}
                 min={1}
                 max={8}
+                // clamp 到 [1,8]，防手输越界(对齐 Kun Math.max/min)
                 onChange={(e) =>
-                  updateConfig({ concurrency: Number(e.target.value) })
+                  updateConfig({ concurrency: Math.max(1, Math.min(8, Number(e.target.value) || 1)) })
                 }
               />
             </div>
@@ -451,7 +457,10 @@ function LoopForm({
           value={cfg.maxIterations}
           min={1}
           max={100}
-          onChange={(e) => updateConfig({ maxIterations: Number(e.target.value) })}
+          // clamp 到 [1,100]，防手输越界(对齐 Kun Math.max/min)
+          onChange={(e) =>
+            updateConfig({ maxIterations: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })
+          }
         />
       </div>
     </div>

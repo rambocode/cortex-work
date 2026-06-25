@@ -414,6 +414,12 @@ export function normalizeWorkflowNode(value: unknown, index: number): WorkflowNo
     case "manual-trigger": {
       const manualConfig: import("./types").WorkflowManualTriggerConfig = {
         workspaceRoot: asTrimmed(config.workspaceRoot),
+        // 无 token 时自动生成，使 POST /workflow/run 鉴权始终可用（镜像 webhookToken）。
+        // 已有 token（从磁盘加载）原样保留。
+        runToken:
+          typeof config.runToken === "string" && config.runToken
+            ? config.runToken
+            : randomUUID(),
       };
       const inputSchema = normalizeWorkflowInputSchema(config.inputSchema);
       if (inputSchema.length) manualConfig.inputSchema = inputSchema;

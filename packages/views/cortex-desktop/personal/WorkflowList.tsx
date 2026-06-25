@@ -1,10 +1,12 @@
-// 工作流（loop）列表页：每行展示名称/节点数/上次运行时间/最近结果摘要/失败 pill。
-// 悬停浮现操作：运行一次/编辑/导出/删除（删除走行内二次确认）。
-// 每行底部两个 toggle：「启用」与「AI 可调用」。
-// 顶部操作：触发器（暂位，U9 后接入）/ 导入（U15 后接入）/ 新建 loop。
+// 工作流（loop）列表页（按设计稿 Workflow List 重构）：
+// - 顶部列表头：标题 + 计数 pill + 运行全部 / 导入 / 新建工作流。
+// - 工具栏：搜索框 + 状态过滤 tab（全部/运行中/已启用/已暂停/失败，带计数）+ 排序切换。
+// - 列表行：名称 + 状态徽章、节点数·上次运行、触发器 chip + 最近结果摘要，
+//   右侧操作簇（运行一次 / AI 可调用 toggle / 更多菜单）+ AI 调用状态标签。
+// 启用·暂停收进「更多」菜单（设计稿行内只保留运行与 AI 两个常驻按钮）。
 // Web 端（bridge.workflowList 不存在）：此组件不会被渲染（PersonalSidebar 已门控）。
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   useWorkflows,
@@ -16,13 +18,12 @@ import {
 import type { WorkflowDef } from "@cortex-work/core";
 import {
   formatNodeCount,
-  formatWorkflowStatus,
   formatRelativeTime,
   formatRunResultSummary,
-  WORKFLOW_STATUS_CLASS,
+  formatTriggerChip,
 } from "./workflowFormat";
 
-// ── 行内更多操作菜单（运行/编辑/导出/删除）────────────────────────────────
+// ── 行内更多操作菜单（编辑/启用·暂停/导出/删除）──────────────────────────────
 
 function RowMenu({
   workflow,
@@ -30,6 +31,7 @@ function RowMenu({
   onClose,
   onEdit,
   onExport,
+  onToggleEnabled,
   onToast,
 }: {
   workflow: WorkflowDef;
@@ -37,10 +39,10 @@ function RowMenu({
   onClose: () => void;
   onEdit: (wf: WorkflowDef) => void;
   onExport: (wf: WorkflowDef) => void;
+  onToggleEnabled: (wf: WorkflowDef) => void;
   onToast: (text: string) => void;
 }) {
   const del = useDeleteWorkflow();
-  const runNow = useRunWorkflowNow();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: anchor.x, top: anchor.y });
   const [confirming, setConfirming] = useState(false);
@@ -71,14 +73,6 @@ function RowMenu({
     };
   }, [onClose]);
 
-  const doRun = () => {
-    runNow.mutate(workflow.id, {
-      onSuccess: () => onToast(`已触发「${workflow.name || "未命名 loop"}」`),
-      onError: (e) => onToast(`执行失败：${e instanceof Error ? e.message : String(e)}`),
-    });
-    onClose();
-  };
-
   const doDelete = () => {
     del.mutate(workflow.id, {
       onSuccess: () => onToast(`已删除「${workflow.name || "未命名 loop"}」`),
@@ -89,10 +83,6 @@ function RowMenu({
 
   return (
     <div ref={ref} className="pw-ctx-menu" style={pos} role="menu" aria-label={`${workflow.name} 操作`}>
-      <button className="pw-tb-menu-item" role="menuitem" onClick={doRun}>
-        <Icon.Run size={13} />
-        <span>运行一次</span>
-      </button>
       <button
         className="pw-tb-menu-item"
         role="menuitem"
@@ -103,6 +93,17 @@ function RowMenu({
       >
         <Icon.Edit size={13} />
         <span>编辑</span>
+      </button>
+      <button
+        className="pw-tb-menu-item"
+        role="menuitem"
+        onClick={() => {
+          onToggleEnabled(workflow);
+          onClose();
+        }}
+      >
+        {workflow.enabled ? <Icon.Stop size={13} /> : <Icon.Run size={13} />}
+        <span>{workflow.enabled ? "暂停" : "启用"}</span>
       </button>
       <button
         className="pw-tb-menu-item"
@@ -128,47 +129,156 @@ function RowMenu({
   );
 }
 
-// ── 单条 toggle 按钮（启用 / AI 可调用）─────────────────────────────────────
+// ── 状态过滤 tab 定义 ─────────────────────────────────────────────────────────
 
-function WorkflowToggle({
-  on,
-  disabled = false,
-  label,
-  title,
-  icon,
-  onClick,
+type FilterKey = "all" | "run" | "on" | "paused" | "fail";
+
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "run", label: "运行中" },
+  { key: "on", label: "已启用" },
+  { key: "paused", label: "已暂停" },
+  { key: "fail", label: "失败" },
+];
+
+// 单条工作流在各过滤类目下的归属（类目可重叠，如「已暂停 + 失败」）。
+function matchFilter(wf: WorkflowDef, key: FilterKey): boolean {
+  switch (key) {
+    case "all":
+      return true;
+    case "run":
+      return wf.lastStatus === "running";
+    case "on":
+      return wf.enabled && wf.lastStatus !== "running";
+    case "paused":
+      return !wf.enabled;
+    case "fail":
+      return wf.lastStatus === "error";
+  }
+}
+
+type SortKey = "recent" | "name";
+
+// ── 单行 ─────────────────────────────────────────────────────────────────────
+
+function WorkflowRow({
+  wf,
+  onEdit,
+  onRun,
+  onToggleCallable,
+  onOpenMenu,
 }: {
-  on: boolean;
-  disabled?: boolean;
-  label: string;
-  title?: string;
-  icon: React.ReactNode;
-  onClick: () => void;
+  wf: WorkflowDef;
+  onEdit: (wf: WorkflowDef) => void;
+  onRun: (wf: WorkflowDef) => void;
+  onToggleCallable: (wf: WorkflowDef) => void;
+  onOpenMenu: (wf: WorkflowDef, anchor: { x: number; y: number }) => void;
 }) {
-  const active = on && !disabled;
+  const running = wf.lastStatus === "running";
+  const isError = wf.lastStatus === "error";
+  const lastRunText = formatRelativeTime(wf.lastRunAt || null);
+  const resultText = formatRunResultSummary(wf.lastMessage);
+  const nodeCount = formatNodeCount(wf.nodes?.length ?? 0);
+  const chip = formatTriggerChip(wf.nodes);
+  const callOn = wf.callableByAgent && wf.enabled;
+
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      disabled={disabled}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      title={title}
-      className={`pw-wf-toggle ${active ? "is-on" : ""} ${disabled ? "is-disabled" : ""}`}
+    <div
+      className="pw-wfl-row"
+      role="button"
+      tabIndex={0}
+      onClick={() => onEdit(wf)}
+      onKeyDown={(e) => e.key === "Enter" && onEdit(wf)}
     >
-      {/* pill 轨道 */}
-      <span className={`pw-wf-toggle-track ${active ? "is-active" : ""}`}>
-        <span className={`pw-wf-toggle-thumb ${on ? "is-on" : ""}`} />
-      </span>
-      <span className={`pw-wf-toggle-label ${active ? "is-active" : ""}`}>
-        {icon}
-        {label}
-      </span>
-    </button>
+      {/* 主信息区 */}
+      <div className="pw-wfl-main">
+        <div className="pw-wfl-line1">
+          <span className="pw-wfl-name">{wf.name || "未命名 loop"}</span>
+          {/* 状态徽章：运行中 / 已暂停 / 已启用 / 失败（可叠加） */}
+          {running ? (
+            <span className="pw-wfl-badge run">
+              <span className="dot" />
+              运行中
+            </span>
+          ) : (
+            <>
+              {!wf.enabled ? <span className="pw-wfl-badge paused">已暂停</span> : null}
+              {wf.enabled && !isError ? (
+                <span className="pw-wfl-badge on">
+                  <span className="dot" />
+                  已启用
+                </span>
+              ) : null}
+              {isError ? <span className="pw-wfl-badge fail">失败</span> : null}
+            </>
+          )}
+        </div>
+        <div className="pw-wfl-meta">
+          <span className="m">
+            <Icon.Workflow size={13} />
+            {nodeCount}
+          </span>
+          <span className="sep">·</span>
+          <span className="m">
+            <Icon.Clock size={13} />
+            上次运行 {lastRunText}
+          </span>
+        </div>
+        {resultText ? (
+          <div className={`pw-wfl-preview ${isError ? "err" : ""}`}>
+            {chip ? <span className="pw-wfl-chip">{chip}</span> : null}
+            <span className="pw-wfl-preview-text">{resultText}</span>
+          </div>
+        ) : null}
+      </div>
+
+      {/* 右侧操作簇（点击不进编辑器）*/}
+      <div className="pw-wfl-right" onClick={(e) => e.stopPropagation()}>
+        <div className="pw-wfl-acts">
+          <button
+            className="pw-wfl-act run"
+            title="运行一次"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRun(wf);
+            }}
+          >
+            <Icon.Run size={14} />
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={wf.callableByAgent}
+            aria-label="AI 可调用"
+            // 未启用时 AI 可调用无意义，禁用
+            disabled={!wf.enabled}
+            title={wf.enabled ? "允许 AI Agent 经 MCP 调用此 loop" : "需先启用才可开放 AI 调用"}
+            className={`pw-wfl-act ai ${callOn ? "is-on" : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCallable(wf);
+            }}
+          >
+            <Icon.Bot size={15} />
+          </button>
+          <button
+            className="pw-wfl-act"
+            title="更多操作"
+            onClick={(e) => {
+              e.stopPropagation();
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              onOpenMenu(wf, { x: r.left, y: r.bottom + 4 });
+            }}
+          >
+            <Icon.More size={14} />
+          </button>
+        </div>
+        <span className={`pw-wfl-ai-lbl ${callOn ? "is-on" : ""}`}>
+          {callOn ? <span className="dot" /> : null}
+          {callOn ? "已开放 AI 调用" : "未开放调用"}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -192,14 +302,40 @@ export function WorkflowList({
   const { data: workflows = [] } = useWorkflows();
   const setEnabled = useSetWorkflowEnabled();
   const setCallable = useSetWorkflowCallableByAgent();
+  const runNow = useRunWorkflowNow();
   const [menu, setMenu] = useState<{ workflow: WorkflowDef; anchor: { x: number; y: number } } | null>(null);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [sort, setSort] = useState<SortKey>("recent");
 
-  // 按 createdAt 降序（最新在前）
-  const sorted = [...workflows].sort((a, b) => {
-    const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return bTime - aTime;
-  });
+  // 各 tab 计数（基于全量，不受搜索/当前 tab 影响）。
+  const counts = useMemo(() => {
+    const c: Record<FilterKey, number> = { all: 0, run: 0, on: 0, paused: 0, fail: 0 };
+    for (const wf of workflows) {
+      for (const f of FILTERS) if (matchFilter(wf, f.key)) c[f.key] += 1;
+    }
+    return c;
+  }, [workflows]);
+
+  // 过滤（tab + 搜索）→ 排序。
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = workflows.filter((wf) => {
+      if (!matchFilter(wf, filter)) return false;
+      if (!q) return true;
+      return (
+        (wf.name || "").toLowerCase().includes(q) ||
+        (wf.lastMessage || "").toLowerCase().includes(q)
+      );
+    });
+    return filtered.sort((a, b) => {
+      if (sort === "name") return (a.name || "").localeCompare(b.name || "", "zh-Hans");
+      // recent：按上次运行时间降序，回退到创建时间。
+      const at = new Date(a.lastRunAt || a.createdAt || 0).getTime() || 0;
+      const bt = new Date(b.lastRunAt || b.createdAt || 0).getTime() || 0;
+      return bt - at;
+    });
+  }, [workflows, filter, query, sort]);
 
   const toggleEnabled = (wf: WorkflowDef) => {
     setEnabled.mutate(
@@ -215,33 +351,87 @@ export function WorkflowList({
     );
   };
 
+  const runOne = (wf: WorkflowDef) => {
+    runNow.mutate(wf.id, {
+      onSuccess: () => onToast(`已触发「${wf.name || "未命名 loop"}」`),
+      onError: (e) => onToast(`执行失败：${e instanceof Error ? e.message : String(e)}`),
+    });
+  };
+
+  // 运行全部已启用（跳过正在运行的）。
+  const runAll = () => {
+    const targets = workflows.filter((w) => w.enabled && w.lastStatus !== "running");
+    if (targets.length === 0) {
+      onToast("没有可运行的已启用 loop");
+      return;
+    }
+    targets.forEach((w) => runNow.mutate(w.id));
+    onToast(`已触发 ${targets.length} 个已启用 loop`);
+  };
+
+  const isEmpty = workflows.length === 0;
+
   return (
-    <div className="pw-auto">
-      {/* 顶部面板标题 + 操作按钮 */}
-      <div className="pw-panel-h">
-        <span className="pw-panel-title">Loop 工作流</span>
-        <div className="pw-panel-h-actions">
-          {/* 触发器入口：U9 Webhook server 落地后接入真实功能，此处预留入口 */}
-          <button className="pw-icon-btn" title="Webhook 触发器（即将上线）" disabled>
-            <Icon.Lightning size={15} />
-          </button>
-          {/* 导入：U15 已接线，点击触发文件选择 */}
-          <button
-            className="pw-icon-btn"
-            title="导入 loop（从 JSON 文件）"
-            onClick={onImport}
-            disabled={!onImport}
-          >
-            <Icon.Upload size={15} />
-          </button>
-          <button className="pw-icon-btn" title="新建 loop" onClick={onCreate}>
-            <Icon.Plus size={15} />
-          </button>
-        </div>
+    <div className="pw-wfl">
+      {/* 列表头部 */}
+      <div className="pw-wfl-h">
+        <span className="pw-wfl-title">
+          Loop 工作流
+          {!isEmpty ? <span className="pw-wfl-count">{workflows.length} 个</span> : null}
+        </span>
+        <span className="pw-wfl-spacer" />
+        <button className="pw-wfl-icon" title="运行全部已启用" onClick={runAll} disabled={isEmpty}>
+          <Icon.Lightning size={17} />
+        </button>
+        <button className="pw-wfl-icon" title="导入 loop（从 JSON 文件）" onClick={onImport} disabled={!onImport}>
+          <Icon.Upload size={17} />
+        </button>
+        <button className="pw-wfl-new" onClick={onCreate}>
+          <Icon.Plus size={15} />
+          新建工作流
+        </button>
       </div>
 
-      {sorted.length === 0 ? (
-        // 空态引导
+      {/* 工具栏：仅在有工作流时展示 */}
+      {!isEmpty ? (
+        <div className="pw-wfl-toolbar">
+          <span className="pw-wfl-search">
+            <Icon.Search size={15} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索工作流…"
+              aria-label="搜索工作流"
+            />
+          </span>
+          <div className="pw-wfl-tabs" role="tablist">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                role="tab"
+                aria-selected={filter === f.key}
+                className={`pw-wfl-tab ${filter === f.key ? "is-on" : ""}`}
+                onClick={() => setFilter(f.key)}
+              >
+                {f.label}
+                <span className="n">{counts[f.key]}</span>
+              </button>
+            ))}
+          </div>
+          <span className="pw-wfl-spacer" />
+          <button
+            className="pw-wfl-sort"
+            title="切换排序方式"
+            onClick={() => setSort((s) => (s === "recent" ? "name" : "recent"))}
+          >
+            <Icon.Sort size={15} />
+            {sort === "recent" ? "最近运行" : "按名称"}
+          </button>
+        </div>
+      ) : null}
+
+      {isEmpty ? (
+        // 空态引导（无任何工作流）
         <div className="pw-panel-empty">
           <Icon.Workflow size={22} />
           <div className="pw-auto-tpl-empty-title">还没有 loop 工作流</div>
@@ -251,89 +441,21 @@ export function WorkflowList({
             新建 loop
           </button>
         </div>
+      ) : visible.length === 0 ? (
+        // 过滤/搜索无结果
+        <div className="pw-wfl-empty">没有匹配的工作流</div>
       ) : (
-        <div className="pw-auto-list">
-          {sorted.map((wf) => {
-            const { label: statusLabel, variant } = formatWorkflowStatus(wf.lastStatus ?? "idle");
-            const statusClass = WORKFLOW_STATUS_CLASS[variant];
-            const lastRunText = formatRelativeTime(wf.lastRunAt || null);
-            const resultText = formatRunResultSummary(wf.lastMessage);
-            const nodeCount = formatNodeCount(wf.nodes?.length ?? 0);
-            const isFailed = variant === "error";
-
-            return (
-              <div
-                key={wf.id}
-                className={`pw-auto-item ${wf.enabled ? "" : "is-paused"}`}
-                role="button"
-                tabIndex={0}
-                // 点击行体进入编辑器
-                onClick={() => onEdit(wf)}
-                onKeyDown={(e) => e.key === "Enter" && onEdit(wf)}
-              >
-                {/* 主信息区 */}
-                <div className="pw-auto-item-main">
-                  <div className="pw-auto-item-title">
-                    {wf.name || "未命名 loop"}
-                    {/* 启用状态 */}
-                    {!wf.enabled ? <span className="pw-auto-badge is-warn">已暂停</span> : null}
-                    {/* 失败 pill（上次运行失败时显示红色 pill）*/}
-                    {isFailed ? (
-                      <span className={`pw-auto-badge ${statusClass}`}>{statusLabel}</span>
-                    ) : wf.lastStatus && wf.lastStatus !== "idle" ? (
-                      <span className={`pw-auto-badge ${statusClass}`}>{statusLabel}</span>
-                    ) : null}
-                  </div>
-                  <div className="pw-auto-item-sub">
-                    <Icon.Workflow size={11} />
-                    <span>{nodeCount}</span>
-                    <span className="pw-auto-dot">·</span>
-                    <Icon.Clock size={11} />
-                    <span>上次运行 {lastRunText}</span>
-                  </div>
-                  {/* 最近结果摘要（有内容才显示）*/}
-                  {resultText ? (
-                    <div className="pw-auto-item-result">{resultText}</div>
-                  ) : null}
-                </div>
-
-                {/* 悬停操作区 */}
-                <div className="pw-auto-item-actions">
-                  <button
-                    className="pw-icon-btn"
-                    title="更多操作"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      setMenu({ workflow: wf, anchor: { x: r.left, y: r.bottom + 4 } });
-                    }}
-                  >
-                    <Icon.More size={14} />
-                  </button>
-                </div>
-
-                {/* 两个 toggle 开关（点击不跳编辑器，内部 stopPropagation）*/}
-                <div className="pw-wf-toggles" onClick={(e) => e.stopPropagation()}>
-                  <WorkflowToggle
-                    on={wf.enabled}
-                    label="启用"
-                    title={wf.enabled ? "点击暂停工作流" : "点击启用工作流"}
-                    icon={<Icon.Run size={12} />}
-                    onClick={() => toggleEnabled(wf)}
-                  />
-                  <WorkflowToggle
-                    on={wf.callableByAgent}
-                    // 未启用时 AI 可调用无意义，灰掉
-                    disabled={!wf.enabled}
-                    label="AI 可调用"
-                    title={wf.enabled ? "允许 AI Agent 经 MCP 调用此 loop" : "需先启用才可开放 AI 调用"}
-                    icon={<Icon.Bot size={12} />}
-                    onClick={() => toggleCallable(wf)}
-                  />
-                </div>
-              </div>
-            );
-          })}
+        <div className="pw-wfl-list">
+          {visible.map((wf) => (
+            <WorkflowRow
+              key={wf.id}
+              wf={wf}
+              onEdit={onEdit}
+              onRun={runOne}
+              onToggleCallable={toggleCallable}
+              onOpenMenu={(w, anchor) => setMenu({ workflow: w, anchor })}
+            />
+          ))}
         </div>
       )}
 
@@ -344,6 +466,7 @@ export function WorkflowList({
           onClose={() => setMenu(null)}
           onEdit={onEdit}
           onExport={onExport}
+          onToggleEnabled={toggleEnabled}
           onToast={onToast}
         />
       ) : null}

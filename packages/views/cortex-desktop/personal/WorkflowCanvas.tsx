@@ -9,12 +9,24 @@
 // WorkflowNodes.tsx 同样不能静态 import（它依赖 @xyflow/react 运行时），
 // 因此在 loadCanvas() 函数内一起动态加载。
 
-import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type DragEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 // ReactFlow 基础样式表（纯 CSS，SSR 安全）。缺它则 Controls/MiniMap 失去绝对定位，
 // 挤到画布左上角渲染成无样式黑框，点阵网格也不生效——必须导入。
 import "@xyflow/react/dist/style.css";
 import { Icon } from "@cortex-work/ui/icons";
-import type { WorkflowNodeKind, WorkflowNode, WorkflowNodeRunStatus, WorkflowConnection } from "@cortex-work/core";
+import type {
+  WorkflowNodeKind,
+  WorkflowNode,
+  WorkflowNodeRunStatus,
+  WorkflowConnection,
+} from "@cortex-work/core";
 import { WORKFLOW_NODE_KINDS } from "@cortex-work/core";
 import {
   createWorkflowNode,
@@ -87,8 +99,12 @@ export function WorkflowCanvas({
   const [loaded, setLoaded] = useState(false);
 
   // RF 受控状态（本地持有，通过 onChange 同步给父组件）
-  const [rfNodes, setRfNodes] = useState<WorkflowFlowNode[]>(() => toFlowNodes(nodes));
-  const [rfEdges, setRfEdges] = useState<WorkflowFlowEdge[]>(() => toFlowEdges(connections));
+  const [rfNodes, setRfNodes] = useState<WorkflowFlowNode[]>(() =>
+    toFlowNodes(nodes),
+  );
+  const [rfEdges, setRfEdges] = useState<WorkflowFlowEdge[]>(() =>
+    toFlowEdges(connections),
+  );
 
   // 外部 nodes/connections 变更时同步（编辑器保存或运行状态刷新时）
   const prevNodesRef = useRef(nodes);
@@ -118,7 +134,10 @@ export function WorkflowCanvas({
   // 从 flow 状态同步回父组件
   const notifyChange = useCallback(
     (nextNodes: WorkflowFlowNode[], nextEdges: WorkflowFlowEdge[]) => {
-      const { nodes: wfNodes, connections: wfConns } = flowToWorkflowGraph(nextNodes, nextEdges);
+      const { nodes: wfNodes, connections: wfConns } = flowToWorkflowGraph(
+        nextNodes,
+        nextEdges,
+      );
       onChange(wfNodes, wfConns);
     },
     [onChange],
@@ -153,14 +172,17 @@ export function WorkflowCanvas({
   // 连线关系只来自 rfEdges，节点「位置」变化不改变连线，故拖动时不重建边数组
   // （避免每帧产生新 edges → 边/handle 重绘闪烁）。
   const styledEdges = useMemo(
-    () => toFlowEdges(flowToWorkflowGraph(rfNodes, rfEdges).connections, runStatus),
+    () =>
+      toFlowEdges(flowToWorkflowGraph(rfNodes, rfEdges).connections, runStatus),
     // rfNodes 仅供 flowToWorkflowGraph 的节点部分（被丢弃），连线只取自 rfEdges。
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rfEdges, runStatus],
   );
 
   // 连接拖拽起点 ref（拖拽到画布空白处展示「添加节点」菜单，与 Kun onConnectEnd 对齐）
-  const connectingRef = useRef<{ nodeId: string; handleId: string } | null>(null);
+  const connectingRef = useRef<{ nodeId: string; handleId: string } | null>(
+    null,
+  );
 
   // 「拖到空白处后添加节点」快捷菜单 state
   const [connectMenu, setConnectMenu] = useState<{
@@ -208,12 +230,20 @@ export function WorkflowCanvas({
       if (!container) return;
       const rect = container.getBoundingClientRect();
       // 简单估算：偏移量 - 容器左上角，再除以画布缩放（初始 1.0）
-      const position = { x: e.clientX - rect.left - 80, y: e.clientY - rect.top - 20 };
+      const position = {
+        x: e.clientX - rect.left - 80,
+        y: e.clientY - rect.top - 20,
+      };
       const newNode = createWorkflowNode(kind, position);
       setRfNodes((prev) => {
         const next = [
           ...prev,
-          { id: newNode.id, type: newNode.type, position: newNode.position, data: { node: newNode } },
+          {
+            id: newNode.id,
+            type: newNode.type,
+            position: newNode.position,
+            data: { node: newNode },
+          },
         ] as WorkflowFlowNode[];
         notifyChange(next, rfEdges);
         return next;
@@ -246,12 +276,8 @@ export function WorkflowCanvas({
   const nodesMod = nodesModRef.current;
 
   // 只取必要字段（ReactFlow/Background 等在 ReactFlowInner 内使用）
-  const {
-    ReactFlowProvider,
-    addEdge,
-    applyNodeChanges,
-    applyEdgeChanges,
-  } = rfMod;
+  const { ReactFlowProvider, addEdge, applyNodeChanges, applyEdgeChanges } =
+    rfMod;
 
   const {
     workflowNodeTypes,
@@ -285,7 +311,10 @@ export function WorkflowCanvas({
               onSelectNode={onSelectNode}
               onNodesChangeExternal={(changes) => {
                 setRfNodes((prev) => {
-                  const next = applyNodeChanges(changes, prev) as WorkflowFlowNode[];
+                  const next = applyNodeChanges(
+                    changes,
+                    prev,
+                  ) as WorkflowFlowNode[];
                   // 拖动进行中（position 变更且 dragging:true）不回写父级——否则父组件
                   // setState(nodes) → nodes prop 变化 → 同步 effect setRfNodes(toFlowNodes)
                   // 重建全部节点对象，与正在进行的拖动相互覆盖 → 全画布闪烁/抖动。
@@ -295,7 +324,9 @@ export function WorkflowCanvas({
                   );
                   if (
                     !midDrag &&
-                    changes.some((c) => c.type !== "select" && c.type !== "dimensions")
+                    changes.some(
+                      (c) => c.type !== "select" && c.type !== "dimensions",
+                    )
                   ) {
                     notifyChange(next, rfEdges);
                   }
@@ -304,7 +335,10 @@ export function WorkflowCanvas({
               }}
               onEdgesChangeExternal={(changes) => {
                 setRfEdges((prev) => {
-                  const next = applyEdgeChanges(changes, prev) as WorkflowFlowEdge[];
+                  const next = applyEdgeChanges(
+                    changes,
+                    prev,
+                  ) as WorkflowFlowEdge[];
                   if (changes.some((c) => c.type !== "select")) {
                     notifyChange(rfNodes, next);
                   }
@@ -320,7 +354,10 @@ export function WorkflowCanvas({
               }}
               addConnectedNode={(kind) => {
                 if (!connectMenu) return;
-                const newNode = createWorkflowNode(kind, { x: connectMenu.screenPos.x, y: connectMenu.screenPos.y });
+                const newNode = createWorkflowNode(kind, {
+                  x: connectMenu.screenPos.x,
+                  y: connectMenu.screenPos.y,
+                });
                 const rfNode: WorkflowFlowNode = {
                   id: newNode.id,
                   type: newNode.type,
@@ -364,7 +401,10 @@ export function WorkflowCanvas({
       {/* 拖拽连线到空白处后弹出的「添加节点」快捷菜单 */}
       {connectMenu ? (
         <>
-          <div className="fixed inset-0 z-[70]" onClick={() => setConnectMenu(null)} />
+          <div
+            className="fixed inset-0 z-[70]"
+            onClick={() => setConnectMenu(null)}
+          />
           <div
             className="fixed z-[71] max-h-[60vh] w-44 overflow-y-auto rounded-lg border border-ds-border bg-ds-card p-1 shadow-lg"
             style={{ left: connectMenu.x, top: connectMenu.y }}
@@ -415,15 +455,28 @@ export function WorkflowCanvas({
                         onClick={() => {
                           setConnectMenu((m) => {
                             if (!m) return null;
-                            const newNode = createWorkflowNode(kind, m.screenPos);
+                            const newNode = createWorkflowNode(
+                              kind,
+                              m.screenPos,
+                            );
                             setRfNodes((prev) => {
                               const next = [
                                 ...prev,
-                                { id: newNode.id, type: newNode.type, position: newNode.position, data: { node: newNode } } as WorkflowFlowNode,
+                                {
+                                  id: newNode.id,
+                                  type: newNode.type,
+                                  position: newNode.position,
+                                  data: { node: newNode },
+                                } as WorkflowFlowNode,
                               ];
                               setRfEdges((edges) => {
                                 const nextEdges = addEdge(
-                                  { source: m.sourceId, sourceHandle: m.sourceHandle, target: newNode.id, targetHandle: "in" },
+                                  {
+                                    source: m.sourceId,
+                                    sourceHandle: m.sourceHandle,
+                                    target: newNode.id,
+                                    targetHandle: "in",
+                                  },
                                   edges,
                                 ) as WorkflowFlowEdge[];
                                 notifyChange(next, nextEdges);
@@ -440,7 +493,9 @@ export function WorkflowCanvas({
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-accent">
                           {(() => {
                             const NodeIcon = NODE_ICONS[kind];
-                            return NodeIcon ? <NodeIcon size={13} sw={1.8} /> : null;
+                            return NodeIcon ? (
+                              <NodeIcon size={13} sw={1.8} />
+                            ) : null;
                           })()}
                         </span>
                         {nodeLabels[kind] ?? kind}
@@ -465,8 +520,17 @@ type InnerProps = {
   workflowNodeTypes: Record<string, unknown>;
   rfMod: ReactFlowModule;
   selectedNodeId: string | null;
-  connectingRef: React.MutableRefObject<{ nodeId: string; handleId: string } | null>;
-  connectMenu: { x: number; y: number; sourceId: string; sourceHandle: string; screenPos: { x: number; y: number } } | null;
+  connectingRef: React.MutableRefObject<{
+    nodeId: string;
+    handleId: string;
+  } | null>;
+  connectMenu: {
+    x: number;
+    y: number;
+    sourceId: string;
+    sourceHandle: string;
+    screenPos: { x: number; y: number };
+  } | null;
   setConnectMenu: React.Dispatch<
     React.SetStateAction<{
       x: number;
@@ -477,8 +541,14 @@ type InnerProps = {
     } | null>
   >;
   onSelectNode: (id: string | null) => void;
-  onNodesChangeExternal: (changes: ReturnType<ReactFlowModule["applyNodeChanges"]> extends never[] ? never : Parameters<ReactFlowModule["applyNodeChanges"]>[0]) => void;
-  onEdgesChangeExternal: (changes: Parameters<ReactFlowModule["applyEdgeChanges"]>[0]) => void;
+  onNodesChangeExternal: (
+    changes: ReturnType<ReactFlowModule["applyNodeChanges"]> extends never[]
+      ? never
+      : Parameters<ReactFlowModule["applyNodeChanges"]>[0],
+  ) => void;
+  onEdgesChangeExternal: (
+    changes: Parameters<ReactFlowModule["applyEdgeChanges"]>[0],
+  ) => void;
   onConnectExternal: (conn: Parameters<ReactFlowModule["addEdge"]>[0]) => void;
   addConnectedNode: (kind: WorkflowNodeKind) => void;
 };
@@ -508,9 +578,13 @@ function ReactFlowInner({
   const { screenToFlowPosition } = useReactFlow();
 
   const onConnectStart = useCallback(
-    (_: unknown, params: { nodeId?: string | null; handleId?: string | null }) => {
-      connectingRef.current =
-        params.nodeId ? { nodeId: params.nodeId, handleId: params.handleId ?? "out" } : null;
+    (
+      _: unknown,
+      params: { nodeId?: string | null; handleId?: string | null },
+    ) => {
+      connectingRef.current = params.nodeId
+        ? { nodeId: params.nodeId, handleId: params.handleId ?? "out" }
+        : null;
     },
     [connectingRef],
   );
@@ -520,7 +594,7 @@ function ReactFlowInner({
       const source = connectingRef.current;
       connectingRef.current = null;
       if (!source) return;
-      const target = (event.target as HTMLElement | null);
+      const target = event.target as HTMLElement | null;
       if (!target?.classList.contains("react-flow__pane")) return;
       const clientX = "clientX" in event ? event.clientX : 0;
       const clientY = "clientY" in event ? event.clientY : 0;
@@ -555,6 +629,7 @@ function ReactFlowInner({
       proOptions={{ hideAttribution: true }}
     >
       <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+      {/* 默认缩放控件（左下角 + / − / 适应）+ 右下角缩略图 MiniMap */}
       <Controls showInteractive={false} />
       <MiniMap
         className="ds-workflow-minimap"

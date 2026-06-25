@@ -276,6 +276,52 @@ describe("NodeConfigPanel — kind dispatch", () => {
     );
     expect(screen.getByDisplayValue("Hello {{$input.name}}")).toBeTruthy();
   });
+
+  it("loop foreach 的数组来源提示使用运行时可解析的裸表达式", () => {
+    const node = makeNode("loop", {
+      workflowId: "body",
+      mode: "foreach",
+      arraySource: undefined,
+      execution: "sequential",
+      concurrency: 1,
+      continueOnError: false,
+      maxIterations: 10,
+      leftExpr: "",
+      operator: "equals",
+      rightValue: "",
+      caseSensitive: true,
+    });
+    wrap(
+      <NodeConfigPanel
+        node={node}
+        allNodes={[node]}
+        envVars={[]}
+        onNodeChange={h.onNodeChange}
+      />,
+    );
+    expect(screen.getByPlaceholderText("json.items（留空 = payload.json）")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("{{$input.items}}（留空 = payload.json）")).toBeNull();
+  });
+
+  it("VariablePicker 只展示 runtime 已实现的 loop 变量", () => {
+    const node = makeNode("template", {
+      template: "",
+      outputMode: "text",
+    });
+    wrap(
+      <NodeConfigPanel
+        node={node}
+        allNodes={[node]}
+        envVars={[]}
+        onNodeChange={h.onNodeChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /插入变量/ }));
+
+    expect(screen.getByText("{{$loop.total}}")).toBeTruthy();
+    expect(screen.queryByText("{{$loop.iteration}}")).toBeNull();
+  });
 });
 
 // ── 3. 编辑字段 → onNodeChange ──────────────────────────────────────────────

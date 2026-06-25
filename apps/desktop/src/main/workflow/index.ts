@@ -13,9 +13,10 @@
 
 import { getWorkspaceRoot } from '../ipc/store'
 import { homedir } from 'os'
-import type { WorkflowRun } from './types'
+import type { WorkflowNodeRunResult, WorkflowNodeRunStatus, WorkflowRun } from './types'
 import {
   loadWorkflows,
+  loadRuns,
   newRunId,
   appendRun,
   updateRun,
@@ -153,6 +154,29 @@ async function runWorkflowInternal(
     })
   }
 
+  const liveNodeResults = new Map<string, WorkflowNodeRunResult>()
+  const onNodeStatus = (nodeId: string, status: WorkflowNodeRunStatus): void => {
+    const previous = liveNodeResults.get(nodeId)
+    const now = new Date().toISOString()
+    liveNodeResults.set(nodeId, {
+      nodeId,
+      status,
+      startedAt: previous?.startedAt || now,
+      finishedAt: status === 'running' ? '' : now,
+      message: previous?.message ?? '',
+      outputJson: previous?.outputJson ?? '',
+      inputJson: previous?.inputJson ?? '',
+      retries: previous?.retries ?? 0,
+      threadId: previous?.threadId ?? '',
+      error: previous?.error ?? '',
+    })
+    broadcastWorkflowRunEvent({
+      workflowId,
+      run: { ...run, nodeResults: Array.from(liveNodeResults.values()) },
+      phase: 'update',
+    })
+  }
+
   // fire-and-forget：后台执行引擎，不 await。
   void (async () => {
     try {
@@ -169,6 +193,7 @@ async function runWorkflowInternal(
           onPendingApproval,
         },
         0,
+        { onNodeStatus },
       )
 
       const finishedAt = new Date().toISOString()
@@ -227,6 +252,31 @@ async function runWorkflowInternal(
   return { ok: true, run: { ...run } }
 }
 
+/**
+ * 强制收尾某个仍处于 running 的持久化 run（停止 / 孤儿恢复用）。
+ * 仅在该 run 仍为 running 时落为 error，避免覆盖真实终态；广播 end 让 UI 立即清除「运行中」。
+ */
+async function forceFinalizeRunningRun(workflowId: string, runId: string): Promise<void> {
+  const runs = await loadRuns(workflowId).catch(() => [] as WorkflowRun[])
+  const target = runs.find((r) => r.id === runId)
+  if (!target || target.status !== 'running') return
+  const finishedAt = new Date().toISOString()
+  const finalRun: Partial<WorkflowRun> = { status: 'error', finishedAt, message: '已手动停止' }
+  await updateRun(workflowId, runId, finalRun).catch(() => {})
+  await patchWorkflow(workflowId, {
+    lastRunAt: finishedAt,
+    lastStatus: 'error',
+    lastMessage: '已手动停止',
+  }).catch(() => {})
+  broadcastWorkflowRunEvent({
+    workflowId,
+    run: { ...target, ...finalRun } as WorkflowRun,
+    phase: 'end',
+  })
+  broadcastWorkflowChanged(await loadWorkflows().catch(() => []))
+  activeRuns.delete(runId)
+}
+
 // ── 对外 API ──────────────────────────────────────────────────────────────────
 
 export interface WorkflowRuntime {
@@ -249,7 +299,7 @@ export interface WorkflowRuntime {
    *   2. 遍历 pendingApprovals 级联拒绝（R11）。
    *   3. 遍历 aiProcesses kill 全部在途 AI 子进程（U12 填充后生效）。
    */
-  stopRun: (runId: string) => void
+  stopRun: (runId: string, workflowId?: string) => Promise<void>
 
   /**
    * 单节点执行（workflow:node:run / node:test IPC → 此方法）。
@@ -297,25 +347,35 @@ export function createWorkflowRuntime(): WorkflowRuntime {
   return {
     runNow: runWorkflowInternal,
 
-    stopRun(runId: string) {
+    async stopRun(runId: string, workflowId?: string) {
       const active = activeRuns.get(runId)
-      if (!active) return
-      const { ctx } = active
 
-      // 1. 置取消标志，runGraph 会在下一轮循环提前退出。
-      ctx.cancelToken.cancelled = true
+      if (active) {
+        const { ctx } = active
 
-      // 2. 级联拒绝所有挂起的 human-approval 节点（R11）。
-      for (const [, approval] of ctx.pendingApprovals) {
-        approval.resolve('rejected')
+        // 1. 置取消标志，runGraph 会在下一轮循环提前退出。
+        ctx.cancelToken.cancelled = true
+
+        // 2. 级联拒绝所有挂起的 human-approval 节点（R11）。
+        for (const [, approval] of ctx.pendingApprovals) {
+          approval.resolve('rejected')
+        }
+        ctx.pendingApprovals.clear()
+
+        // 3. kill 所有在途 AI 子进程（U12 填充后生效；U9 阶段为空 Map）。
+        for (const [, proc] of ctx.aiProcesses) {
+          proc.kill()
+        }
+        ctx.aiProcesses.clear()
       }
-      ctx.pendingApprovals.clear()
 
-      // 3. kill 所有在途 AI 子进程（U12 填充后生效；U9 阶段为空 Map）。
-      for (const [, proc] of ctx.aiProcesses) {
-        proc.kill()
-      }
-      ctx.aiProcesses.clear()
+      // 4. 强制收尾：把仍处于 running 的持久化 run 落为 error（"已手动停止"）。
+      //    覆盖两类卡死：(a) 孤儿 run —— IIFE 已结束/进程重启致 run 不在 activeRuns，
+      //    旧逻辑直接 return 使其永久 running；(b) runGraph 在节点 await 中真正挂起，
+      //    cancelToken 无法打断、IIFE 不会收尾。两种情形下若不强制落盘，UI 的「停止」
+      //    按钮永远清不掉。已是终态则不覆盖（避免改写真实结果）。
+      const wfId = workflowId ?? active?.workflowId
+      if (wfId) await forceFinalizeRunningRun(wfId, runId)
     },
 
     async runSingleNode(workflowId, nodeId, inputPayload) {
@@ -429,11 +489,15 @@ export function createWorkflowRuntime(): WorkflowRuntime {
       const workflows = await loadWorkflows()
       // 调度器：根据 enabled + schedule-trigger 的工作流重建 croner jobs。
       await rescheduleWorkflows(workflows, runWorkflowInternal)
-      // Webhook server：根据含 enabled webhook-trigger 的工作流启停。
-      const hasWebhook = workflows.some(
-        (w) => w.enabled && w.nodes.some((n) => n.type === 'webhook-trigger'),
+      // Webhook server：服务 webhook-trigger（POST /webhook/...）与本地 API（POST /workflow/run，
+      // 触发 manual-trigger）。只要有 enabled 工作流含 webhook 或 manual 触发就启动；
+      // 「已启用」开关统一管控所有外部触发，与 matchWebhook/handleWorkflowRun 的 enabled 门控一致。
+      const hasServerTrigger = workflows.some(
+        (w) =>
+          w.enabled &&
+          w.nodes.some((n) => n.type === 'webhook-trigger' || n.type === 'manual-trigger'),
       )
-      if (hasWebhook) {
+      if (hasServerTrigger) {
         await startWebhookServer(settings?.webhookPort ?? 18765, runWorkflowInternal)
       } else {
         stopWebhookServer()

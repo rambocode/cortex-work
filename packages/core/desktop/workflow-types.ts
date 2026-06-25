@@ -198,6 +198,12 @@ export interface WorkflowManualTriggerConfig {
   workspaceRoot?: string;
   /** 启动工作流时调用方提供的类型化输入模式。 */
   inputSchema?: WorkflowInputField[];
+  /**
+   * 本地 API 触发令牌。normalizeWorkflow 自动生成 UUID；
+   * webhook-server 的 POST /workflow/run 用 timingSafeEqual 校验
+   * Authorization: Bearer <runToken>，防止同机任意进程触发手动工作流。
+   */
+  runToken?: string;
 }
 
 /** 定时触发复用 cortex-work 现有 ScheduleSpec（daily/cron/once 等）。
@@ -559,7 +565,7 @@ export interface WorkflowPendingApproval {
 export interface WorkflowRunEvent {
   workflowId: string;
   run: WorkflowRun;
-  phase: "start" | "end" | "pending-approval";
+  phase: "start" | "update" | "end" | "pending-approval";
   /** phase='pending-approval' 时携带，供 UI 展示审批卡并调 workflowResolveApproval。 */
   pendingApproval?: WorkflowPendingApproval;
 }

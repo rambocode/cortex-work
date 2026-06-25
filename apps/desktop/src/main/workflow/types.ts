@@ -169,6 +169,12 @@ export interface WorkflowEnvVar {
 export interface WorkflowManualTriggerConfig {
   workspaceRoot?: string;
   inputSchema?: WorkflowInputField[];
+  /**
+   * 本地 API 触发令牌（P3）。normalizeWorkflow 自动生成 UUID；
+   * webhook-server 的 POST /workflow/run 用 timingSafeEqual 校验
+   * Authorization: Bearer <runToken>，防止同机任意进程触发手动工作流。
+   */
+  runToken?: string;
 }
 
 export interface WorkflowScheduleTriggerConfig {
@@ -478,7 +484,7 @@ export interface WorkflowPendingApproval {
 export interface WorkflowRunEvent {
   workflowId: string;
   run: WorkflowRun;
-  phase: "start" | "end" | "pending-approval";
+  phase: "start" | "update" | "end" | "pending-approval";
   /** phase='pending-approval' 时携带，供 UI 展示审批卡。 */
   pendingApproval?: WorkflowPendingApproval;
 }

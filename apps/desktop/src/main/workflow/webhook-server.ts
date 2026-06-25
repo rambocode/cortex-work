@@ -100,6 +100,29 @@ function err(res: ServerResponse, status: number, message: string): void {
   send(res, status, JSON.stringify({ error: message }))
 }
 
+/**
+ * 时序安全 token 比较（P2 Fix-12）。
+ * 防止计时侧信道攻击：标准 === 比较会短路，攻击者可用响应时间枚举 token。
+ * timingSafeEqual 要求等长 Buffer，长度不等时直接判 false（不泄露长度信息）。
+ */
+function safeTokenEqual(a: string, b: string): boolean {
+  try {
+    const ba = Buffer.from(a)
+    const bb = Buffer.from(b)
+    return ba.length === bb.length && timingSafeEqual(ba, bb)
+  } catch {
+    return false
+  }
+}
+
+/** 从 Authorization: Bearer <token> 头提取 token；无则返回 undefined。 */
+function bearerToken(req: IncomingMessage): string | undefined {
+  const headerAuth = req.headers['authorization']
+  return typeof headerAuth === 'string' && headerAuth.startsWith('Bearer ')
+    ? headerAuth.slice(7).trim()
+    : undefined
+}
+
 // ── 请求处理 ──────────────────────────────────────────────────────────────────
 
 /**
@@ -158,21 +181,6 @@ function matchWebhook(
     const expectedToken = config.webhookToken
     const configPath = norm(config.path ?? '')
 
-    /**
-     * 时序安全 token 比较（P2 Fix-12）。
-     * 防止计时侧信道攻击：标准 ===  比较会短路，攻击者可用响应时间枚举 token。
-     * timingSafeEqual 要求等长 Buffer，长度不等时直接判 false（不泄露长度信息）。
-     */
-    const safeTokenEqual = (a: string, b: string): boolean => {
-      try {
-        const ba = Buffer.from(a)
-        const bb = Buffer.from(b)
-        return ba.length === bb.length && timingSafeEqual(ba, bb)
-      } catch {
-        return false
-      }
-    }
-
     // 尝试 A 模式：pathA = webhookPath，token 来自 header。
     if (configPath === pathA) {
       if (expectedToken) {
@@ -211,8 +219,91 @@ function matchWebhook(
   return { notFound: true }
 }
 
+/**
+ * POST /workflow/run —— 本地 API 触发「手动触发」工作流（对齐 Kun Local API）。
+ *
+ * 鉴权：必须提供 `Authorization: Bearer <runToken>`，token 取自目标工作流
+ * manual-trigger 节点的 config.runToken（normalize 自动生成、每工作流独立）。
+ * 每工作流独立 token 比全局 secret 更安全：单 token 泄露不波及其它工作流。
+ *
+ * body: { workflow: <工作流 id 或 name>, input?: object }
+ *   - workflow 先按 id 精确匹配，再按 name（trim 后精确）匹配；
+ *   - 仅匹配「含 manual-trigger 节点」的工作流（schedule/webhook 工作流不经此端点）。
+ *   - input 为对象时作为运行输入；否则视为空 {}。
+ *
+ * 与 webhook 端点一致：fire-and-forget，立即返回 202 风格的 { status:'accepted' }。
+ */
+async function handleWorkflowRun(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (req.method?.toUpperCase() !== 'POST') {
+    err(res, 405, '/workflow/run 仅接受 POST 方法')
+    return
+  }
+
+  const headerToken = bearerToken(req)
+  if (!headerToken) {
+    err(res, 401, '缺少 Authorization: Bearer <runToken>')
+    return
+  }
+
+  const body = await parseBody(req)
+  const target = typeof body.workflow === 'string' ? body.workflow.trim() : ''
+  if (!target) {
+    err(res, 400, 'workflow 字段必填（工作流 id 或名称）')
+    return
+  }
+
+  // 仅在「enabled 且含 manual-trigger」的工作流中按 id→name 查找。
+  // enabled 门控与 webhook 触发一致：「已启用」开关统一管控所有外部触发。
+  const eligible = (w: WorkflowDef): boolean =>
+    w.enabled && w.nodes.some((n) => n.type === 'manual-trigger')
+  const workflows = await loadWorkflows()
+  const candidates = workflows.filter(eligible)
+  const workflow =
+    candidates.find((w) => w.id === target) ??
+    candidates.find((w) => w.name.trim() === target)
+
+  if (!workflow) {
+    err(res, 404, '未找到含手动触发的已启用工作流')
+    return
+  }
+
+  // 校验 runToken（timing-safe）。
+  const manualNode = workflow.nodes.find((n) => n.type === 'manual-trigger')
+  const expectedToken = (manualNode?.config as { runToken?: string } | undefined)?.runToken
+  if (!expectedToken || !safeTokenEqual(headerToken, expectedToken)) {
+    err(res, 401, 'runToken 不匹配，请求被拒绝')
+    return
+  }
+
+  if (!_runFn) {
+    err(res, 503, '工作流运行时尚未就绪')
+    return
+  }
+
+  // input 仅接受 JSON 对象；其它形态（字符串/数组/缺省）一律视为空输入。
+  const rawInput = body.input
+  const input =
+    typeof rawInput === 'object' && rawInput !== null && !Array.isArray(rawInput)
+      ? (rawInput as Record<string, unknown>)
+      : {}
+
+  const runResult = await _runFn(workflow.id, 'manual', input)
+  if (runResult.ok) {
+    ok(res, { status: 'accepted', runId: runResult.run?.id, workflowId: workflow.id })
+  } else {
+    err(res, 500, '工作流启动失败')
+  }
+}
+
 async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = req.url ?? ''
+  const [pathname] = url.split('?')
+
+  // ── 本地 API：按 id/name 触发手动工作流 ────────────────────────────────────
+  if (pathname === '/workflow/run') {
+    await handleWorkflowRun(req, res)
+    return
+  }
 
   // ── Kun 兼容端点（stub）───────────────────────────────────────────────────
   if (url.startsWith('/hook-run')) {
@@ -230,11 +321,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   // 从 Authorization header 提取 Bearer token（备选鉴权方式）。
-  const headerAuth = req.headers['authorization']
-  const headerToken =
-    typeof headerAuth === 'string' && headerAuth.startsWith('Bearer ')
-      ? headerAuth.slice(7).trim()
-      : undefined
+  const headerToken = bearerToken(req)
 
   const workflows = await loadWorkflows()
   const match = matchWebhook(workflows, segments, headerToken)

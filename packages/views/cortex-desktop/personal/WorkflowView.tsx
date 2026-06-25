@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   useWorkflows,
+  useWorkflowEvents,
   useCreateWorkflow,
   useExportWorkflow,
   useImportWorkflow,
@@ -18,6 +19,10 @@ import { WorkflowEditorView } from "./WorkflowEditorView";
 // ── 主容器 ───────────────────────────────────────────────────────────────────
 
 export function WorkflowView({ onToast }: { onToast: (text: string) => void }) {
+  // 订阅工作流事件（workflow:changed / workflow:run:event），驱动 React Query 缓存更新。
+  // 必须在工作流功能区根部挂载一次：列表与编辑器都依赖运行事件实时刷新 runs 缓存，
+  // 缺它会导致「运行中」状态永不更新（无节点日志、停止无效）。
+  useWorkflowEvents();
   const { data: workflows = [] } = useWorkflows();
   const createWorkflow = useCreateWorkflow();
   const exportWorkflow = useExportWorkflow();

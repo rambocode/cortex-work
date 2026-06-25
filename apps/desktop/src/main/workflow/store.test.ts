@@ -179,61 +179,72 @@ describe("getWorkflow", () => {
   });
 });
 
-// ── appendRun 超过 keepN 截断 ─────────────────────────────────────────────────
+// ── 运行记录：持久化运行列表（保留最近 N 条，最新在前）──────────────────────────
 
-describe("appendRun — keepN 截断", () => {
-  it("超过 keepN 只保留最新 keepN 条", async () => {
+describe("appendRun — 持久化运行列表（最近 N 条）", () => {
+  it("多次 append 同一 workflowId 保留全部，最新在前", async () => {
     const store = await freshStore();
-    const keepN = 5;
     for (let i = 0; i < 8; i++) {
-      await store.appendRun("wf-trunc", makeRun(`run-${i}`), keepN);
+      await store.appendRun("wf-latest", makeRun(`run-${i}`));
     }
-    const store2 = await freshStore();
-    const runs = await store2.loadRuns("wf-trunc");
-    expect(runs).toHaveLength(keepN);
-    // 最新的在最前面（run-7 是最后一次 append，应在首位）
-    expect(runs[0].id).toBe("run-7");
+    const runs = await store.loadRuns("wf-latest");
+    expect(runs).toHaveLength(8);
+    expect(runs[0].id).toBe("run-7"); // 最新在前
+    expect(runs[7].id).toBe("run-0");
   });
 
-  it("相同 id 重复 append 去重不增加条数", async () => {
+  it("新实例（模拟进程重启）后仍能读回——已持久化落盘", async () => {
     const store = await freshStore();
-    await store.appendRun("wf-dedup", makeRun("run-dup"), 200);
-    await store.appendRun("wf-dedup", makeRun("run-dup"), 200);
-
+    await store.appendRun("wf-persist", makeRun("run-1"));
+    await store.appendRun("wf-persist", makeRun("run-2"));
+    expect(await store.loadRuns("wf-persist")).toHaveLength(2);
+    // freshStore 重新 import → 模块级内存 Map 全新，但磁盘文件仍在 → 重读盘
     const store2 = await freshStore();
-    const runs = await store2.loadRuns("wf-dedup");
-    expect(runs).toHaveLength(1);
+    const reloaded = await store2.loadRuns("wf-persist");
+    expect(reloaded).toHaveLength(2);
+    expect(reloaded[0].id).toBe("run-2");
+  });
+
+  it("超过保留上限时丢弃最旧（keepN=3）", async () => {
+    const store = await freshStore();
+    for (let i = 0; i < 5; i++) {
+      await store.appendRun("wf-cap", makeRun(`run-${i}`), 3);
+    }
+    const runs = await store.loadRuns("wf-cap");
+    expect(runs).toHaveLength(3);
+    expect(runs.map((r) => r.id)).toEqual(["run-4", "run-3", "run-2"]);
   });
 });
 
-// ── 并发 appendRun 同一 id 不丢失（串行队列）────────────────────────────────
-
-describe("appendRun — 并发安全（串行队列）", () => {
-  it("并发 appendRun 同一 workflowId 所有记录都落盘", async () => {
+describe("appendRun — 并发（串行链保证不丢失）", () => {
+  it("并发 append 同一 workflowId 全部保留（读-改-写串行）", async () => {
     const store = await freshStore();
-    const n = 10;
-    const promises = Array.from({ length: n }, (_, i) =>
-      store.appendRun("wf-concurrent", makeRun(`run-c${i}`), 200),
+    await Promise.all(
+      Array.from({ length: 10 }, (_, i) => store.appendRun("wf-concurrent", makeRun(`run-c${i}`))),
     );
-    await Promise.all(promises);
-
-    const store2 = await freshStore();
-    const runs = await store2.loadRuns("wf-concurrent");
-    // 每次 append 去重（不同 id）→ 应保留全部 n 条
-    expect(runs).toHaveLength(n);
+    expect(await store.loadRuns("wf-concurrent")).toHaveLength(10);
   });
 
-  it("并发 appendRun 不同 workflowId 互不干扰", async () => {
+  it("不同 workflowId 互不干扰", async () => {
     const store = await freshStore();
     await Promise.all([
-      store.appendRun("wf-a", makeRun("run-a1"), 200),
-      store.appendRun("wf-b", makeRun("run-b1"), 200),
-      store.appendRun("wf-a", makeRun("run-a2"), 200),
+      store.appendRun("wf-a", makeRun("run-a1")),
+      store.appendRun("wf-b", makeRun("run-b1")),
+      store.appendRun("wf-a", makeRun("run-a2")),
     ]);
+    const aRuns = await store.loadRuns("wf-a");
+    expect(aRuns).toHaveLength(2);
+    expect(aRuns[0].id).toBe("run-a2"); // 最新在前
+    expect(await store.loadRuns("wf-b")).toHaveLength(1);
+  });
 
-    const store2 = await freshStore();
-    expect(await store2.loadRuns("wf-a")).toHaveLength(2);
-    expect(await store2.loadRuns("wf-b")).toHaveLength(1);
+  it("updateRun 收尾运行（running → error）", async () => {
+    const store = await freshStore();
+    await store.appendRun("wf-upd", { ...makeRun("run-u"), status: "running" });
+    await store.updateRun("wf-upd", "run-u", { status: "error", message: "x" });
+    const runs = await store.loadRuns("wf-upd");
+    expect(runs[0].status).toBe("error");
+    expect(runs[0].message).toBe("x");
   });
 });
 
@@ -279,12 +290,10 @@ describe("原子写 — 写后可读回", () => {
     expect((await store2.loadWorkflows()).find((w) => w.id === "wf-atomic")).toBeTruthy();
   });
 
-  it("appendRun 后 loadRuns 能取到（验证 runs 文件 tmp→rename 完成）", async () => {
+  it("appendRun 后同实例 loadRuns 能取到（持久化落盘）", async () => {
     const store = await freshStore();
     await store.appendRun("wf-atomic-run", makeRun("run-x"));
-
-    const store2 = await freshStore();
-    const runs = await store2.loadRuns("wf-atomic-run");
+    const runs = await store.loadRuns("wf-atomic-run");
     expect(runs).toHaveLength(1);
     expect(runs[0].id).toBe("run-x");
   });
@@ -293,59 +302,67 @@ describe("原子写 — 写后可读回", () => {
 // ── updateRun / deleteRun ─────────────────────────────────────────────────────
 
 describe("updateRun / deleteRun", () => {
-  it("updateRun 更新指定字段，其它字段不变", async () => {
+  it("updateRun 更新最新一条的字段，其它字段不变（同实例内存态）", async () => {
     const store = await freshStore();
     await store.appendRun("wf-upd", makeRun("run-upd"));
     await store.updateRun("wf-upd", "run-upd", { status: "error", message: "失败" });
 
-    const store2 = await freshStore();
-    const runs = await store2.loadRuns("wf-upd");
+    const runs = await store.loadRuns("wf-upd");
     expect(runs[0].status).toBe("error");
     expect(runs[0].message).toBe("失败");
     // 其它字段（trigger 等）不应丢失
     expect(runs[0].trigger).toBe("manual");
   });
 
-  it("deleteRun 删除指定记录，其余保留", async () => {
+  it("updateRun id 不匹配时忽略", async () => {
     const store = await freshStore();
-    await store.appendRun("wf-del-run", makeRun("run-keep"));
-    await store.appendRun("wf-del-run", makeRun("run-gone"));
-    await store.deleteRun("wf-del-run", "run-gone");
+    await store.appendRun("wf-upd2", makeRun("run-real"));
+    await store.updateRun("wf-upd2", "run-other", { status: "error" });
+    const runs = await store.loadRuns("wf-upd2");
+    expect(runs[0].status).toBe("success"); // 未被改写
+  });
 
-    const store2 = await freshStore();
-    const runs = await store2.loadRuns("wf-del-run");
-    expect(runs.find((r) => r.id === "run-gone")).toBeUndefined();
-    expect(runs.find((r) => r.id === "run-keep")).toBeTruthy();
+  it("deleteRun 删除最新一条后 loadRuns 为空", async () => {
+    const store = await freshStore();
+    await store.appendRun("wf-del-run", makeRun("run-x"));
+    await store.deleteRun("wf-del-run", "run-x");
+    expect(await store.loadRuns("wf-del-run")).toHaveLength(0);
+  });
+
+  it("deleteRun id 不匹配时不影响最新记录", async () => {
+    const store = await freshStore();
+    await store.appendRun("wf-del-run2", makeRun("run-keep"));
+    await store.deleteRun("wf-del-run2", "run-other");
+    const runs = await store.loadRuns("wf-del-run2");
+    expect(runs[0].id).toBe("run-keep");
   });
 });
 
 // ── markOrphanRunsKilled ──────────────────────────────────────────────────────
+// 运行记录已持久化：进程重启后把残留 "running" 收尾为 error，避免历史永久「运行中」。
 
-describe("markOrphanRunsKilled", () => {
-  it("running 状态记录被标为 error", async () => {
+describe("markOrphanRunsKilled — 收尾孤儿运行", () => {
+  it("重启后把残留的 running 标记为 error，终态记录不动", async () => {
     const store = await freshStore();
-    await store.upsertWorkflow(makeWorkflow("wf-orphan"));
     await store.appendRun("wf-orphan", {
-      ...makeRun("run-orphan"),
+      ...makeRun("run-run"),
       status: "running",
+      finishedAt: "",
     });
-    await store.markOrphanRunsKilled();
-
+    await store.appendRun("wf-orphan", makeRun("run-done")); // 已终态
+    // 模拟进程重启：新实例 + 自愈
     const store2 = await freshStore();
+    await store2.markOrphanRunsKilled();
     const runs = await store2.loadRuns("wf-orphan");
-    expect(runs[0].status).toBe("error");
-    expect(runs[0].message).toBe("进程异常退出");
+    expect(runs.find((r) => r.id === "run-run")?.status).toBe("error");
+    expect(runs.find((r) => r.id === "run-done")?.status).toBe("success");
   });
 
-  it("非 running 状态记录不受影响", async () => {
+  it("没有 running 时不抛错且不改动", async () => {
     const store = await freshStore();
-    await store.upsertWorkflow(makeWorkflow("wf-no-orphan"));
-    await store.appendRun("wf-no-orphan", makeRun("run-ok"));
-    await store.markOrphanRunsKilled();
-
-    const store2 = await freshStore();
-    const runs = await store2.loadRuns("wf-no-orphan");
-    expect(runs[0].status).toBe("success");
+    await store.appendRun("wf-noorphan", makeRun("run-ok"));
+    await expect(store.markOrphanRunsKilled()).resolves.toBeUndefined();
+    expect((await store.loadRuns("wf-noorphan"))[0].status).toBe("success");
   });
 });
 

@@ -118,8 +118,22 @@ async function mapWithConcurrency<T, R>(
       results[index] = await fn(items[index], index)
     }
   })
-  await Promise.all(workers)
+  const settled = await Promise.allSettled(workers)
+  const rejected = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+  if (rejected) throw rejected.reason
   return results
+}
+
+/**
+ * 并行 loop 子运行上下文。
+ * 只隔离会被 body workflow 按 nodeId 覆盖的可变作用域；取消、预算和在途资源保持父 run 共享。
+ */
+function createParallelLoopContext(parent: RunContext): RunContext {
+  return {
+    ...parent,
+    nodeOutputs: { ...parent.nodeOutputs },
+    runVars: { ...parent.runVars },
+  }
 }
 
 // ── 各节点执行器 ──────────────────────────────────────────────────────────────
@@ -277,9 +291,10 @@ export async function executeLoop(
      * 后续 worker 检测到后立即抛错而不再启动新的子 run。
      */
     let aborted = false
+    let abortError: unknown
 
     const runItem = async (item: unknown, index: number): Promise<unknown> => {
-      if (aborted) throw new Error('Loop 已因先前的错误中止。')
+      if (aborted) throw abortError ?? new Error('Loop 已因先前的错误中止。')
 
       const itemPayload: WorkflowPayload = {
         json: item,
@@ -287,10 +302,11 @@ export async function executeLoop(
       }
 
       try {
+        const itemCtx = config.execution === 'parallel' ? createParallelLoopContext(ctx) : ctx
         const result = await runGraph(
           target,
           itemPayload,
-          ctx, // 同一 RunContext，cancelToken 共享
+          itemCtx,
           allWorkflows,
           deps,
           depth + 1,
@@ -306,8 +322,9 @@ export async function executeLoop(
           // continueOnError：记录错误，继续下一个 item
           return { error: error instanceof Error ? error.message : String(error) }
         }
+        if (!aborted) abortError = error
         aborted = true
-        throw error
+        throw abortError
       }
     }
 

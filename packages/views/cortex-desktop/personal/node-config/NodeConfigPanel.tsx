@@ -17,8 +17,14 @@
 // ⚠️ views 包不引入 next/* 或 react-router-dom。
 
 import { useState } from "react";
-import type { WorkflowNode, WorkflowNodeErrorMode, WorkflowDef, WorkflowEnvVar } from "@cortex-work/core";
+import type {
+  WorkflowNode,
+  WorkflowNodeErrorMode,
+  WorkflowDef,
+  WorkflowEnvVar,
+} from "@cortex-work/core";
 import { Icon } from "@cortex-work/ui/icons";
+import { nodeCategory, CATEGORY_LABELS, NODE_ICONS } from "../workflow-flow";
 import { TriggerNodeForm } from "./TriggerNodeForm";
 import { AiNodeForm } from "./AiNodeForm";
 import { FlowNodeForm } from "./FlowNodeForm";
@@ -99,7 +105,10 @@ const KIND_LABELS: Record<string, string> = {
   custom: "自定义",
 };
 
-const ERROR_MODE_OPTIONS: Array<{ value: WorkflowNodeErrorMode; label: string }> = [
+const ERROR_MODE_OPTIONS: Array<{
+  value: WorkflowNodeErrorMode;
+  label: string;
+}> = [
   { value: "fail", label: "停止（fail）" },
   { value: "continue", label: "忽略继续（continue）" },
   { value: "fallback", label: "兜底值（fallback）" },
@@ -164,33 +173,63 @@ export function NodeConfigPanel({
   function renderForm(n: WorkflowNode) {
     const kind = n.type;
 
-    if (TRIGGER_KINDS.has(kind as "manual-trigger" | "schedule-trigger" | "webhook-trigger")) {
+    if (
+      TRIGGER_KINDS.has(
+        kind as "manual-trigger" | "schedule-trigger" | "webhook-trigger",
+      )
+    ) {
       return (
         <TriggerNodeForm
-          node={n as WorkflowNode & { type: "manual-trigger" | "schedule-trigger" | "webhook-trigger" }}
+          node={
+            n as WorkflowNode & {
+              type: "manual-trigger" | "schedule-trigger" | "webhook-trigger";
+            }
+          }
           onChange={onNodeChange}
           workflowId={workflowId}
         />
       );
     }
-    if (AI_KINDS.has(kind as "ai-agent" | "parameter-extractor" | "question-classifier")) {
+    if (
+      AI_KINDS.has(
+        kind as "ai-agent" | "parameter-extractor" | "question-classifier",
+      )
+    ) {
       return (
         <AiNodeForm
-          node={n as WorkflowNode & { type: "ai-agent" | "parameter-extractor" | "question-classifier" }}
+          node={
+            n as WorkflowNode & {
+              type: "ai-agent" | "parameter-extractor" | "question-classifier";
+            }
+          }
           onChange={onNodeChange}
         />
       );
     }
     if (
       FLOW_KINDS.has(
-        kind as "condition" | "switch" | "filter" | "merge" | "loop" | "subworkflow" | "delay",
+        kind as
+          | "condition"
+          | "switch"
+          | "filter"
+          | "merge"
+          | "loop"
+          | "subworkflow"
+          | "delay",
       )
     ) {
       return (
         <FlowNodeForm
           node={
             n as WorkflowNode & {
-              type: "condition" | "switch" | "filter" | "merge" | "loop" | "subworkflow" | "delay";
+              type:
+                | "condition"
+                | "switch"
+                | "filter"
+                | "merge"
+                | "loop"
+                | "subworkflow"
+                | "delay";
             }
           }
           onChange={onNodeChange}
@@ -200,14 +239,28 @@ export function NodeConfigPanel({
     }
     if (
       DATA_KINDS.has(
-        kind as "set-fields" | "sort" | "limit" | "aggregate" | "template" | "json" | "output",
+        kind as
+          | "set-fields"
+          | "sort"
+          | "limit"
+          | "aggregate"
+          | "template"
+          | "json"
+          | "output",
       )
     ) {
       return (
         <DataNodeForm
           node={
             n as WorkflowNode & {
-              type: "set-fields" | "sort" | "limit" | "aggregate" | "template" | "json" | "output";
+              type:
+                | "set-fields"
+                | "sort"
+                | "limit"
+                | "aggregate"
+                | "template"
+                | "json"
+                | "output";
             }
           }
           onChange={onNodeChange}
@@ -233,7 +286,9 @@ export function NodeConfigPanel({
     if (APPROVAL_KINDS.has(kind as "human-approval" | "generate-image")) {
       return (
         <ApprovalNodeForm
-          node={n as WorkflowNode & { type: "human-approval" | "generate-image" }}
+          node={
+            n as WorkflowNode & { type: "human-approval" | "generate-image" }
+          }
           onChange={onNodeChange}
         />
       );
@@ -245,17 +300,26 @@ export function NodeConfigPanel({
     );
   }
 
+  // 头部分类着色（对齐 mockup insp-head 的 5 色体系）
+  const category = nodeCategory(node.type);
+  const NodeIcon = NODE_ICONS[node.type];
+
   return (
     <div className="flex flex-col gap-4">
-      {/* ── 节点头部 ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="truncate text-[13px] font-semibold text-ds-ink">
-            {KIND_LABELS[node.type] ?? node.type}
-          </span>
-          <span className="rounded-full bg-ds-border/60 px-2 py-0.5 text-[10px] font-mono text-ds-faint">
-            {node.id.slice(0, 8)}
-          </span>
+      {/* ── 节点头部：分类着色图标 + 标题/分类·类型 + 变量选择器 ──────────────── */}
+      <div className="flex items-center gap-3">
+        <span
+          className={`wf-ic wf-cat-${category} flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]`}
+        >
+          {NodeIcon ? <NodeIcon size={17} sw={1.8} /> : null}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-semibold text-ds-ink">
+            {node.name.trim() || KIND_LABELS[node.type] || node.type}
+          </div>
+          <div className="truncate text-[11.5px] text-ds-faint">
+            {CATEGORY_LABELS[category]} · {KIND_LABELS[node.type] ?? node.type}
+          </div>
         </div>
         {/* VariablePicker（点击「插入变量」→ 复制到剪贴板）*/}
         <VariablePicker
@@ -317,7 +381,9 @@ export function NodeConfigPanel({
                 className={INPUT_CLS}
                 value={node.onError ?? "fail"}
                 onChange={(e) =>
-                  patchNode({ onError: e.target.value as WorkflowNodeErrorMode })
+                  patchNode({
+                    onError: e.target.value as WorkflowNodeErrorMode,
+                  })
                 }
               >
                 {ERROR_MODE_OPTIONS.map((o) => (
@@ -352,7 +418,9 @@ export function NodeConfigPanel({
                   min={0}
                   max={60000}
                   step={500}
-                  onChange={(e) => patchNode({ retryDelayMs: Number(e.target.value) })}
+                  onChange={(e) =>
+                    patchNode({ retryDelayMs: Number(e.target.value) })
+                  }
                 />
               </div>
             ) : null}
@@ -365,7 +433,9 @@ export function NodeConfigPanel({
                   className={`${INPUT_CLS} min-h-[60px] resize-y font-mono text-[12px]`}
                   value={node.fallbackJson ?? ""}
                   placeholder='{"result": null}'
-                  onChange={(e) => patchNode({ fallbackJson: e.target.value || undefined })}
+                  onChange={(e) =>
+                    patchNode({ fallbackJson: e.target.value || undefined })
+                  }
                 />
               </div>
             ) : null}

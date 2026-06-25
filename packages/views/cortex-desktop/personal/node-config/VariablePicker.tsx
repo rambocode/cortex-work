@@ -103,8 +103,8 @@ function buildVarItems(
     { group: "循环上下文", expr: "{{$loop.index}}", label: "$loop.index（当前索引）", type: "number" },
     {
       group: "循环上下文",
-      expr: "{{$loop.iteration}}",
-      label: "$loop.iteration（迭代次数）",
+      expr: "{{$loop.total}}",
+      label: "$loop.total（总次数）",
       type: "number",
     },
   );

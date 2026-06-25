@@ -68,6 +68,40 @@ function makeWebhookWorkflow(opts: {
   }
 }
 
+/** 构造一个含 manual-trigger 的工作流（供 POST /workflow/run 测试）。 */
+function makeManualWorkflow(opts: {
+  id: string
+  name: string
+  runToken?: string
+  enabled?: boolean
+}): WorkflowDef {
+  return {
+    id: opts.id,
+    name: opts.name,
+    enabled: opts.enabled ?? false,
+    callableByAgent: false,
+    env: [],
+    nodes: [
+      {
+        id: 'trig-1',
+        type: 'manual-trigger',
+        name: 'manual',
+        position: { x: 0, y: 0 },
+        disabled: false,
+        config: { ...(opts.runToken ? { runToken: opts.runToken } : {}) },
+      },
+    ],
+    connections: [],
+    createdAt: '',
+    updatedAt: '',
+    lastRunAt: '',
+    nextRunAt: '',
+    lastStatus: 'idle',
+    lastMessage: '',
+    runs: [],
+  } as WorkflowDef
+}
+
 // ── HTTP 工具 ──────────────────────────────────────────────────────────────────
 
 function request(opts: {
@@ -104,6 +138,8 @@ describe('webhook-server', () => {
       makeWebhookWorkflow({ path: 'post-only', method: 'POST', webhookToken: 'post-token' }),
       makeWebhookWorkflow({ path: 'no-auth', method: 'ANY' }), // 无 token
       makeWebhookWorkflow({ path: 'disabled', method: 'ANY', webhookToken: 'x', enabled: false }),
+      makeManualWorkflow({ id: 'wf-manual-1', name: '我的手动流', runToken: 'manual-token-abc', enabled: true }),
+      makeManualWorkflow({ id: 'wf-manual-off', name: '停用手动流', runToken: 'off-token', enabled: false }),
     ])
     await startWebhookServer(TEST_PORT, runFn)
   })
@@ -196,6 +232,107 @@ describe('webhook-server', () => {
     })
     expect(res.status).toBe(200)
     expect(runFn).toHaveBeenCalledOnce()
+  })
+
+  // ── POST /workflow/run（本地 API 触发手动工作流）─────────────────────────────
+
+  it('POST /workflow/run 按 id + 正确 runToken → 200 accepted（trigger=manual）', async () => {
+    runFn.mockClear()
+    const res = await request({
+      method: 'POST',
+      path: '/workflow/run',
+      body: JSON.stringify({ workflow: 'wf-manual-1', input: { a: 1 } }),
+      headers: { Authorization: 'Bearer manual-token-abc' },
+    })
+    expect(res.status).toBe(200)
+    const body = JSON.parse(res.body) as { status: string; runId: string; workflowId: string }
+    expect(body.status).toBe('accepted')
+    expect(body.workflowId).toBe('wf-manual-1')
+    expect(runFn).toHaveBeenCalledOnce()
+    const call = runFn.mock.calls[0] as unknown as [string, string, Record<string, unknown>]
+    expect(call[0]).toBe('wf-manual-1')
+    expect(call[1]).toBe('manual')
+    expect(call[2]).toEqual({ a: 1 })
+  })
+
+  it('POST /workflow/run 按 name 匹配 → 200 accepted', async () => {
+    runFn.mockClear()
+    const res = await request({
+      method: 'POST',
+      path: '/workflow/run',
+      body: JSON.stringify({ workflow: '我的手动流' }),
+      headers: { Authorization: 'Bearer manual-token-abc' },
+    })
+    expect(res.status).toBe(200)
+    expect(runFn).toHaveBeenCalledOnce()
+    const call = runFn.mock.calls[0] as unknown as [string, string, Record<string, unknown>]
+    expect(call[2]).toEqual({}) // 无 input → 空对象
+  })
+
+  it('POST /workflow/run 错误 runToken → 401', async () => {
+    runFn.mockClear()
+    const res = await request({
+      method: 'POST',
+      path: '/workflow/run',
+      body: JSON.stringify({ workflow: 'wf-manual-1' }),
+      headers: { Authorization: 'Bearer wrong-token' },
+    })
+    expect(res.status).toBe(401)
+    expect(runFn).not.toHaveBeenCalled()
+  })
+
+  it('POST /workflow/run 缺少 Authorization → 401', async () => {
+    runFn.mockClear()
+    const res = await request({
+      method: 'POST',
+      path: '/workflow/run',
+      body: JSON.stringify({ workflow: 'wf-manual-1' }),
+    })
+    expect(res.status).toBe(401)
+    expect(runFn).not.toHaveBeenCalled()
+  })
+
+  it('POST /workflow/run 停用工作流（enabled=false）即使 token 正确 → 404', async () => {
+    runFn.mockClear()
+    const res = await request({
+      method: 'POST',
+      path: '/workflow/run',
+      body: JSON.stringify({ workflow: 'wf-manual-off' }),
+      headers: { Authorization: 'Bearer off-token' },
+    })
+    expect(res.status).toBe(404)
+    expect(runFn).not.toHaveBeenCalled()
+  })
+
+  it('POST /workflow/run 未知工作流 → 404', async () => {
+    runFn.mockClear()
+    const res = await request({
+      method: 'POST',
+      path: '/workflow/run',
+      body: JSON.stringify({ workflow: 'nope' }),
+      headers: { Authorization: 'Bearer manual-token-abc' },
+    })
+    expect(res.status).toBe(404)
+    expect(runFn).not.toHaveBeenCalled()
+  })
+
+  it('POST /workflow/run 缺 workflow 字段 → 400', async () => {
+    runFn.mockClear()
+    const res = await request({
+      method: 'POST',
+      path: '/workflow/run',
+      body: JSON.stringify({ input: {} }),
+      headers: { Authorization: 'Bearer manual-token-abc' },
+    })
+    expect(res.status).toBe(400)
+    expect(runFn).not.toHaveBeenCalled()
+  })
+
+  it('GET /workflow/run → 405（仅接受 POST）', async () => {
+    runFn.mockClear()
+    const res = await request({ method: 'GET', path: '/workflow/run' })
+    expect(res.status).toBe(405)
+    expect(runFn).not.toHaveBeenCalled()
   })
 
   it('/hook-run stub → 501（P2 Fix-12：未实现端点返回 501 Not Implemented）', async () => {

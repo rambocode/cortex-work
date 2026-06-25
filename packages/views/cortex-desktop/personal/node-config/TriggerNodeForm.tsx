@@ -53,12 +53,17 @@ type Props = {
 
 // ── manual-trigger ───────────────────────────────────────────────────────────
 
+/** 本地 API 端口（webhook-server 默认监听端口；无设置 UI，恒为此值）。 */
+const LOCAL_API_PORT = 18765;
+
 function ManualTriggerForm({
   node,
   onChange,
+  workflowId,
 }: {
   node: WorkflowNode & { type: "manual-trigger" };
   onChange: (updated: WorkflowNode) => void;
+  workflowId?: string;
 }) {
   const cfg = node.config as WorkflowManualTriggerConfig;
 
@@ -163,28 +168,21 @@ function ManualTriggerForm({
                   <Icon.X size={13} sw={2} />
                 </button>
               </div>
+              {/* label + defaultValue 并排一行，对齐 Kun InputFieldsEditor */}
               <div className="flex items-center gap-2">
                 <input
-                  className={`${INPUT_CLS} flex-1`}
+                  className={`${INPUT_CLS} min-w-0 flex-1`}
                   value={f.label}
                   placeholder="显示标签"
                   onChange={(e) => updateField(idx, { label: e.target.value })}
                 />
-                <label className="flex items-center gap-1 text-[12px] text-ds-muted whitespace-nowrap shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={f.required}
-                    onChange={(e) => updateField(idx, { required: e.target.checked })}
-                  />
-                  必填
-                </label>
+                <input
+                  className={`${INPUT_CLS} min-w-0 flex-1`}
+                  value={f.defaultValue}
+                  placeholder="默认值"
+                  onChange={(e) => updateField(idx, { defaultValue: e.target.value })}
+                />
               </div>
-              <input
-                className={INPUT_CLS}
-                value={f.description}
-                placeholder="字段说明（可选）"
-                onChange={(e) => updateField(idx, { description: e.target.value })}
-              />
               {f.type === "select" ? (
                 <input
                   className={INPUT_CLS}
@@ -197,12 +195,64 @@ function ManualTriggerForm({
                   }
                 />
               ) : null}
+              {/* required 独占一行，对齐 Kun */}
+              <label className="flex items-center gap-2 text-[12px] text-ds-muted">
+                <input
+                  type="checkbox"
+                  checked={f.required}
+                  onChange={(e) => updateField(idx, { required: e.target.checked })}
+                />
+                必填
+              </label>
             </div>
           ))
         )}
       </div>
+
+      {/* 本地 API：用 curl 触发此工作流（对齐 Kun Local API）。
+          token 取自节点 config.runToken（normalize 自动生成），端口为 webhook-server 默认。
+          新建未保存的节点尚无 runToken，此时显示占位提示。 */}
+      <div className="flex flex-col gap-1.5 border-t border-ds-border pt-3">
+        <span className="text-[12px] font-medium text-ds-muted">本地 API 调用</span>
+        {cfg.runToken && workflowId ? (
+          <>
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-ds-main px-3 py-2 font-mono text-[11px] leading-5 text-ds-muted">
+              {buildRunCurl(workflowId, cfg.runToken)}
+            </pre>
+            <button
+              type="button"
+              onClick={() =>
+                void navigator.clipboard?.writeText(buildRunCurl(workflowId, cfg.runToken!))
+              }
+              className="self-start rounded-md border border-ds-border px-2 py-1 text-[11.5px] font-medium text-ds-ink transition hover:bg-ds-hover"
+            >
+              复制
+            </button>
+            <span className="text-[11px] leading-4 text-ds-faint">
+              向本机 127.0.0.1:{LOCAL_API_PORT} 发送此请求即可触发运行（仅本机可访问）。
+              需先在顶部开启「已启用」，本地 API server 才会监听。
+            </span>
+          </>
+        ) : (
+          <span className="text-[11px] leading-4 text-ds-faint">
+            保存工作流后将生成调用令牌与示例命令。
+          </span>
+        )}
+      </div>
     </div>
   );
+}
+
+/** 构造触发该工作流的 curl 命令（POST /workflow/run + Bearer runToken）。 */
+function buildRunCurl(workflowId: string, runToken: string): string {
+  // 单引号转义，防止含引号的值破坏 -d '...' 包裹。
+  const payload = JSON.stringify({ workflow: workflowId, input: {} }).replace(/'/g, "'\\''");
+  return [
+    `curl -X POST http://127.0.0.1:${LOCAL_API_PORT}/workflow/run \\`,
+    `  -H "Content-Type: application/json" \\`,
+    `  -H "Authorization: Bearer ${runToken}" \\`,
+    `  -d '${payload}'`,
+  ].join("\n");
 }
 
 // ── schedule-trigger ─────────────────────────────────────────────────────────
@@ -261,10 +311,11 @@ function WebhookTriggerForm({
     onChange({ ...node, config: { ...cfg, ...patch } });
   }
 
-  // Webhook 入口 URL 只做预览（实际地址由主进程 webhook-server 管理）
-  const previewUrl = workflowId
-    ? `http://localhost:4891/webhook${cfg.path || "/webhook"}?workflowId=${workflowId}`
-    : `http://localhost:4891/webhook${cfg.path || "/webhook"}`;
+  // Webhook 入口 URL 只做预览（实际地址由主进程 webhook-server 管理）。
+  // 端口取默认 18765（见 main/workflow/index.ts startWebhookServer 默认值）；
+  // 若用户在设置里改了 webhookPort，此预览不会跟随——视图层暂无 settings 通道，按默认展示。
+  const base = `http://localhost:18765/webhook${cfg.path || "/webhook"}`;
+  const previewUrl = workflowId ? `${base}?workflowId=${workflowId}` : base;
 
   return (
     <div className="flex flex-col gap-4">
@@ -332,6 +383,7 @@ export function TriggerNodeForm({ node, onChange, workflowId }: Props) {
       <ManualTriggerForm
         node={node as WorkflowNode & { type: "manual-trigger" }}
         onChange={onChange}
+        workflowId={workflowId}
       />
     );
   }

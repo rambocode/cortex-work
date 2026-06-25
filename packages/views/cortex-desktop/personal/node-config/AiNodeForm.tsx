@@ -145,6 +145,9 @@ function AiAgentForm({
           placeholder="输入给 AI 的指令，支持 {{变量}} 插值…"
           onChange={(e) => updateConfig({ prompt: e.target.value })}
         />
+        <p className="text-[11px] text-ds-faint">
+          可用 {"{{$input}}"}、{"{{$nodes.节点id.json.字段}}"} 引用上游输出。
+        </p>
       </div>
 
       {/* 运行模式 */}
@@ -339,12 +342,48 @@ function ParameterExtractorForm({
                 <Icon.X size={13} sw={2} />
               </button>
             </div>
+            {/* label + required(执行器据此在 schema 中标注必填，见 ai.ts) */}
+            <div className="flex items-center gap-2">
+              <input
+                className={`${INPUT_CLS} flex-1`}
+                value={f.label}
+                placeholder="显示标签"
+                onChange={(e) => updateField(idx, { label: e.target.value })}
+              />
+              <label className="flex items-center gap-1 text-[12px] text-ds-muted whitespace-nowrap shrink-0">
+                <input
+                  type="checkbox"
+                  checked={f.required}
+                  onChange={(e) => updateField(idx, { required: e.target.checked })}
+                />
+                必填
+              </label>
+            </div>
+            {/* description 进入 schema prompt(见 ai.ts)；defaultValue 为 Kun 字段对齐 */}
             <input
               className={INPUT_CLS}
-              value={f.label}
-              placeholder="显示标签"
-              onChange={(e) => updateField(idx, { label: e.target.value })}
+              value={f.defaultValue}
+              placeholder="默认值（可选）"
+              onChange={(e) => updateField(idx, { defaultValue: e.target.value })}
             />
+            <input
+              className={INPUT_CLS}
+              value={f.description}
+              placeholder="字段说明（可选，进入提取指令）"
+              onChange={(e) => updateField(idx, { description: e.target.value })}
+            />
+            {f.type === "select" ? (
+              <input
+                className={INPUT_CLS}
+                value={f.options.join(",")}
+                placeholder="选项（逗号分隔，如 A,B,C）"
+                onChange={(e) =>
+                  updateField(idx, {
+                    options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                  })
+                }
+              />
+            ) : null}
           </div>
         ))}
       </div>
@@ -465,10 +504,12 @@ function QuestionClassifierForm({
               placeholder="分类标签"
               onChange={(e) => updateCategory(idx, { label: e.target.value })}
             />
+            {/* 至少保留 1 个分类，防删空导致运行无分支(对齐 Kun disabled<=1) */}
             <button
               type="button"
               onClick={() => removeCategory(idx)}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ds-faint hover:bg-red-500/10 hover:text-red-600 transition"
+              disabled={cfg.categories.length <= 1}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ds-faint hover:bg-red-500/10 hover:text-red-600 transition disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ds-faint"
             >
               <Icon.X size={13} sw={2} />
             </button>

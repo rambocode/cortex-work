@@ -58,6 +58,9 @@ function HumanApprovalForm({
 
   return (
     <div className="flex flex-col gap-4">
+      <p className="text-[11.5px] leading-relaxed text-ds-faint">
+        运行至此节点会暂停，等待人工在运行日志中点选「批准 / 拒绝」后再继续。
+      </p>
       {/* 标题 */}
       <div className="flex flex-col gap-1">
         <label className={FIELD_LABEL_CLS}>审批标题</label>
@@ -169,13 +172,14 @@ function GenerateImageForm({
 
       {/* 供应商 */}
       <div className="flex flex-col gap-1">
-        <label className={FIELD_LABEL_CLS}>供应商</label>
+        <label className={FIELD_LABEL_CLS}>供应商（可选覆盖）</label>
         <select
           className={INPUT_CLS}
           value={cfg.providerId}
           onChange={(e) => handleProviderChange(e.target.value)}
         >
-          <option value="">选择供应商…</option>
+          {/* 留空 = 继承全局「媒体生成 · 图片」设置；选择则覆盖该节点的出图供应商 */}
+          <option value="">继承全局图片设置</option>
           {providers.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}

@@ -125,10 +125,13 @@ export function registerWorkflowHandlers(): void {
     return result.ok ? result.run : null;
   });
 
-  // 停止正在运行的 run（cancel + 级联拒绝 pending approvals + kill AI 进程）。
-  ipcMain.handle("workflow:stop", (_e, _id: string, runId: string) => {
+  // 停止正在运行的 run（cancel + 级联拒绝 pending approvals + kill AI 进程 +
+  // 强制收尾仍 running 的持久化记录，覆盖孤儿/挂起 run 让 UI 不再永久卡「运行中」）。
+  // 传入 workflowId 使孤儿 run（不在 activeRuns）也能被定位收尾。
+  ipcMain.handle("workflow:stop", (_e, workflowId: string, runId: string) => {
+    assertId(workflowId, "workflowId");
     assertId(runId, "runId");
-    getWorkflowRuntime().stopRun(runId);
+    return getWorkflowRuntime().stopRun(runId, workflowId);
   });
 
   // 单节点运行（画布「运行节点」按钮；返回该节点的 output payload）。

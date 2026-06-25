@@ -110,105 +110,149 @@ export async function deleteWorkflow(id: string): Promise<void> {
   }
 }
 
-// ── workflow-runs/<id>.json（按 workflowId 串行读-改-写）─────────────────────
+// ── 运行历史：持久化每个工作流的运行列表 workflow-runs/<id>.json（保留最近 N 条）────
+//
+// 内存缓存（最新在前，懒加载自磁盘）+ 每文件「读-改-写」串行链（tmp+rename 原子写）。
+// 主进程是唯一写者；渲染端通过 onWorkflowRunEvent 实时收到 start/update/end，
+// 并经 React Query 刷新拿到完整列表。进程重启后 markOrphanRunsKilled 把残留的
+// "running"（上次异常退出的孤儿）收尾为 error，避免历史里出现永久「运行中」。
 
 function runsPath(workflowId: string): string {
-  // SAFE_ID 防穿越：id 含 / .. 等字符会跳出 workflow-runs/ 目录读写任意文件。
   if (!SAFE_ID.test(workflowId)) throw new Error(`非法 workflow id: ${workflowId}`);
   return join(workflowRunsDir(), `${workflowId}.json`);
 }
 
-// runQueues：每个 workflowId 独立串行队列，避免同一工作流并发追加运行记录时相互覆盖。
-// 不同 workflowId 之间互不阻塞，保持 IO 并发能力。
-const runQueues = new Map<string, Promise<void>>();
+// 非法 id 仍校验（防御 + 保持既有契约）：传入恶意/畸形 id 抛错而非静默处理。
+function assertSafeId(workflowId: string): void {
+  if (!SAFE_ID.test(workflowId)) throw new Error(`非法 workflow id: ${workflowId}`);
+}
 
-export async function loadRuns(workflowId: string): Promise<WorkflowRun[]> {
-  // SAFE_ID 校验在 try 外部：非法 id 应抛出（而非静默返回 []），
-  // 让调用方感知到编程错误而不是以为文件不存在。
-  const path = runsPath(workflowId);
+/** workflowId → 运行列表（最新在前）。懒加载自磁盘，加载后常驻内存。 */
+const runsCache = new Map<string, WorkflowRun[]>();
+// 每个工作流一条串行链：把「读-改-写」整体串行化，避免并发 append/update 互相覆盖。
+const runsChain = new Map<string, Promise<unknown>>();
+
+async function readRunsFile(workflowId: string): Promise<WorkflowRun[]> {
   try {
-    const raw = await fsp.readFile(path, "utf8");
-    const parsed = JSON.parse(raw) as { runs?: WorkflowRun[] };
-    return Array.isArray(parsed?.runs) ? parsed.runs : [];
+    const raw = await fsp.readFile(runsPath(workflowId), "utf8");
+    const parsed = JSON.parse(raw) as { version?: number; runs?: unknown[] };
+    return Array.isArray(parsed?.runs) ? (parsed.runs as WorkflowRun[]) : [];
   } catch {
     return []; // 首次或文件损坏
   }
 }
 
-// mutateRuns：读→变换→tmp+rename 原子写，在 workflowId 专属串行队列中执行。
-// runsPath 在进入 Promise 链前同步调用，非法 id 立即抛出（同步）；
-// 调用方（appendRun/deleteRun/updateRun）须包装成 Promise.reject 以兼容 async 调用。
+async function ensureRunsLoaded(workflowId: string): Promise<WorkflowRun[]> {
+  const cached = runsCache.get(workflowId);
+  if (cached) return cached;
+  const list = await readRunsFile(workflowId);
+  runsCache.set(workflowId, list);
+  return list;
+}
+
+async function writeRunsFile(workflowId: string, list: WorkflowRun[]): Promise<void> {
+  const path = runsPath(workflowId);
+  await fsp.mkdir(dirname(path), { recursive: true });
+  const tmp = path + ".tmp";
+  await fsp.writeFile(tmp, JSON.stringify({ version: 1, runs: list }, null, 2), "utf8");
+  await fsp.rename(tmp, path);
+}
+
+// 串行化「读-改-写」：transform 返回新列表则更新缓存并落盘；返回 null 表示无变化。
 function mutateRuns(
   workflowId: string,
-  fn: (runs: WorkflowRun[]) => WorkflowRun[],
+  transform: (list: WorkflowRun[]) => WorkflowRun[] | null,
 ): Promise<void> {
-  const path = runsPath(workflowId); // 非法 id 在此同步抛出
-  const prev = runQueues.get(workflowId) ?? Promise.resolve();
+  const prev = runsChain.get(workflowId) ?? Promise.resolve();
   const next = prev
     .then(async () => {
-      const current = await loadRuns(workflowId);
-      const updated = fn(current);
-      await fsp.mkdir(workflowRunsDir(), { recursive: true });
-      const tmp = path + ".tmp";
-      await fsp.writeFile(tmp, JSON.stringify({ version: 1, runs: updated }), "utf8");
-      await fsp.rename(tmp, path);
+      const list = await ensureRunsLoaded(workflowId);
+      const updated = transform(list);
+      if (!updated) return;
+      runsCache.set(workflowId, updated);
+      await writeRunsFile(workflowId, updated);
     })
-    .catch((err) => console.error("[workflow-runs] save failed:", err));
-  runQueues.set(workflowId, next);
+    .catch((err) => console.error("[workflow-store] runs mutate failed:", err));
+  runsChain.set(workflowId, next);
   return next;
 }
 
-// 追加一条运行记录：最新在前 + 按 id 去重（重复 upsert 安全）+ 截断到 keepN。
-// workflowId 单独传入（WorkflowRun 无 automationId 字段，故不能像 automation 一样用 run.automationId）。
-// try/catch 把 runsPath 的同步 SAFE_ID 错误包装成 rejected Promise，让 async 调用方能 await 到。
-export function appendRun(workflowId: string, run: WorkflowRun, keepN = DEFAULT_KEEP_RUNS): Promise<void> {
-  try {
-    return mutateRuns(workflowId, (runs) => {
-      const deduped = [run, ...runs.filter((r) => r.id !== run.id)];
-      return deduped.slice(0, keepN);
-    });
-  } catch (err) {
-    return Promise.reject(err);
-  }
+export async function loadRuns(workflowId: string): Promise<WorkflowRun[]> {
+  assertSafeId(workflowId);
+  return (await ensureRunsLoaded(workflowId)).slice();
 }
 
-// 删除单条运行记录（按 id 过滤；不存在则无操作）。
-export function deleteRun(workflowId: string, runId: string): Promise<void> {
-  try {
-    return mutateRuns(workflowId, (runs) => runs.filter((r) => r.id !== runId));
-  } catch (err) {
-    return Promise.reject(err);
+// 记录一次运行：前插到列表头（最新在前），按 id 去重，保留最近 keepN 条。
+export function appendRun(
+  workflowId: string,
+  run: WorkflowRun,
+  keepN = DEFAULT_KEEP_RUNS,
+): Promise<void> {
+  if (!SAFE_ID.test(workflowId)) {
+    return Promise.reject(new Error(`非法 workflow id: ${workflowId}`));
   }
+  return mutateRuns(workflowId, (list) => {
+    const filtered = list.filter((r) => r.id !== run.id);
+    return [run, ...filtered].slice(0, Math.max(1, keepN));
+  });
 }
 
-// 更新已有运行记录的部分字段（running → success/error 收尾）。
+// 更新某条运行的部分字段（running → success/error 收尾）。id 不匹配则忽略（返回 null）。
 export function updateRun(
   workflowId: string,
   runId: string,
   patch: Partial<WorkflowRun>,
 ): Promise<void> {
-  try {
-    return mutateRuns(workflowId, (runs) =>
-      runs.map((r) => (r.id === runId ? { ...r, ...patch } : r)),
-    );
-  } catch (err) {
-    return Promise.reject(err);
+  if (!SAFE_ID.test(workflowId)) {
+    return Promise.reject(new Error(`非法 workflow id: ${workflowId}`));
   }
+  return mutateRuns(workflowId, (list) => {
+    const idx = list.findIndex((r) => r.id === runId);
+    if (idx < 0) return null;
+    const next = list.slice();
+    next[idx] = { ...next[idx], ...patch };
+    return next;
+  });
 }
 
-// 启动自愈：上次异常退出残留的 running 记录标 killed（进程已不在，不可能仍在跑）。
+// 删除某条运行记录。id 不存在则忽略（返回 null）。
+export function deleteRun(workflowId: string, runId: string): Promise<void> {
+  if (!SAFE_ID.test(workflowId)) {
+    return Promise.reject(new Error(`非法 workflow id: ${workflowId}`));
+  }
+  return mutateRuns(workflowId, (list) => {
+    const next = list.filter((r) => r.id !== runId);
+    return next.length === list.length ? null : next;
+  });
+}
+
+// 启动自愈：扫描所有运行文件，把残留的 "running"（上次异常退出的孤儿）收尾为 error，
+// 避免历史里永久停在「运行中」。对齐 automation/store.ts markOrphanRunsKilled 思路。
 export async function markOrphanRunsKilled(): Promise<void> {
-  const list = await loadWorkflows();
-  for (const w of list) {
-    const runs = await loadRuns(w.id);
-    if (runs.some((r) => r.status === "running")) {
-      await mutateRuns(w.id, (rs) =>
-        rs.map((r) =>
-          r.status === "running"
-            ? { ...r, status: "error" as const, finishedAt: r.finishedAt || new Date().toISOString(), message: "进程异常退出" }
-            : r,
-        ),
-      );
-    }
+  let files: string[];
+  try {
+    files = await fsp.readdir(workflowRunsDir());
+  } catch {
+    return; // 目录不存在 → 无历史
+  }
+  const now = new Date().toISOString();
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    const workflowId = file.slice(0, -5);
+    if (!SAFE_ID.test(workflowId)) continue;
+    await mutateRuns(workflowId, (list) => {
+      let changed = false;
+      const next = list.map((r) => {
+        if (r.status !== "running") return r;
+        changed = true;
+        return {
+          ...r,
+          status: "error" as const,
+          finishedAt: r.finishedAt || now,
+          message: r.message || "进程重启，运行已中断",
+        };
+      });
+      return changed ? next : null;
+    });
   }
 }

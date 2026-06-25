@@ -65,10 +65,35 @@ export const WORKFLOW_PALETTE_GROUPS: ReadonlyArray<{
   id: string;
   kinds: readonly WorkflowNodeKind[];
 }> = [
-  { id: "trigger", kinds: ["manual-trigger", "schedule-trigger", "webhook-trigger"] },
+  {
+    id: "trigger",
+    kinds: ["manual-trigger", "schedule-trigger", "webhook-trigger"],
+  },
   { id: "ai", kinds: ["ai-agent", "generate-image", "parameter-extractor"] },
-  { id: "flow", kinds: ["condition", "switch", "question-classifier", "filter", "merge", "loop", "human-approval"] },
-  { id: "data", kinds: ["set-fields", "template", "json", "code", "sort", "limit", "aggregate"] },
+  {
+    id: "flow",
+    kinds: [
+      "condition",
+      "switch",
+      "question-classifier",
+      "filter",
+      "merge",
+      "loop",
+      "human-approval",
+    ],
+  },
+  {
+    id: "data",
+    kinds: [
+      "set-fields",
+      "template",
+      "json",
+      "code",
+      "sort",
+      "limit",
+      "aggregate",
+    ],
+  },
   { id: "action", kinds: ["http-request", "subworkflow", "delay", "output"] },
 ];
 
@@ -77,6 +102,44 @@ export const TRIGGER_KINDS: ReadonlySet<WorkflowNodeKind> = new Set([
   "schedule-trigger",
   "webhook-trigger",
 ]);
+
+// ── kind → 分类（5 色体系）─────────────────────────────────────────────────────
+// 从 WORKFLOW_PALETTE_GROUPS 的 group.id 直接派生，避免与 palette 分组漂移。
+// palette 未列出的 kind（custom）兜底归到 data 组（与 code 同源的数据处理语义）。
+// 供画布节点卡片 / palette / inspector 共用：外层加 .wf-cat-{category} 即着色。
+
+export type WorkflowNodeCategory =
+  | "trigger"
+  | "ai"
+  | "flow"
+  | "data"
+  | "action";
+
+export const NODE_CATEGORY: Record<WorkflowNodeKind, WorkflowNodeCategory> =
+  (() => {
+    const map = {} as Record<WorkflowNodeKind, WorkflowNodeCategory>;
+    for (const group of WORKFLOW_PALETTE_GROUPS) {
+      for (const kind of group.kinds) {
+        map[kind] = group.id as WorkflowNodeCategory;
+      }
+    }
+    // custom 不在任何 palette 分组中，兜底归 data。
+    if (!map["custom"]) map["custom"] = "data";
+    return map;
+  })();
+
+export const CATEGORY_LABELS: Record<WorkflowNodeCategory, string> = {
+  trigger: "触发器",
+  ai: "AI",
+  flow: "流程控制",
+  data: "数据处理",
+  action: "动作",
+};
+
+/** 取节点 kind 的分类（用于 .wf-cat-{category} 着色类）。 */
+export function nodeCategory(kind: WorkflowNodeKind): WorkflowNodeCategory {
+  return NODE_CATEGORY[kind] ?? "data";
+}
 
 // ── Edge 默认样式常量（MarkerType.ArrowClosed 的字符串值为 "arrowclosed"）──
 const EDGE_MARKER_END = { type: "arrowclosed" as const, width: 16, height: 16 };
@@ -141,14 +204,25 @@ export function createWorkflowNode(
       return {
         ...base,
         type: "generate-image",
-        config: { prompt: "", providerId: "", model: "", size: "", outputDir: "" },
+        config: {
+          prompt: "",
+          providerId: "",
+          model: "",
+          size: "",
+          outputDir: "",
+        },
       };
 
     case "condition":
       return {
         ...base,
         type: "condition",
-        config: { leftExpr: "", operator: "contains", rightValue: "", caseSensitive: false },
+        config: {
+          leftExpr: "",
+          operator: "contains",
+          rightValue: "",
+          caseSensitive: false,
+        },
       };
 
     case "switch":
@@ -156,7 +230,14 @@ export function createWorkflowNode(
         ...base,
         type: "switch",
         config: {
-          rules: [{ leftExpr: "", operator: "contains", rightValue: "", caseSensitive: false }],
+          rules: [
+            {
+              leftExpr: "",
+              operator: "contains",
+              rightValue: "",
+              caseSensitive: false,
+            },
+          ],
           fallback: true,
         },
       };
@@ -165,24 +246,41 @@ export function createWorkflowNode(
       return {
         ...base,
         type: "filter",
-        config: { leftExpr: "", operator: "contains", rightValue: "", caseSensitive: false },
+        config: {
+          leftExpr: "",
+          operator: "contains",
+          rightValue: "",
+          caseSensitive: false,
+        },
       };
 
     case "set-fields":
       return {
         ...base,
         type: "set-fields",
-        config: { fields: [{ key: "", value: "" }], keepIncoming: false, scope: "payload" },
+        config: {
+          fields: [{ key: "", value: "" }],
+          keepIncoming: false,
+          scope: "payload",
+        },
       };
 
     case "sort":
-      return { ...base, type: "sort", config: { field: "", order: "asc", numeric: false } };
+      return {
+        ...base,
+        type: "sort",
+        config: { field: "", order: "asc", numeric: false },
+      };
 
     case "limit":
       return { ...base, type: "limit", config: { count: 10, from: "first" } };
 
     case "aggregate":
-      return { ...base, type: "aggregate", config: { mode: "count", field: "", separator: ", " } };
+      return {
+        ...base,
+        type: "aggregate",
+        config: { mode: "count", field: "", separator: ", " },
+      };
 
     case "code":
       return {
@@ -234,13 +332,25 @@ export function createWorkflowNode(
       return { ...base, type: "delay", config: { delayMs: 1_000 } };
 
     case "template":
-      return { ...base, type: "template", config: { template: "", outputMode: "text" } };
+      return {
+        ...base,
+        type: "template",
+        config: { template: "", outputMode: "text" },
+      };
 
     case "json":
-      return { ...base, type: "json", config: { mode: "parse", strict: false } };
+      return {
+        ...base,
+        type: "json",
+        config: { mode: "parse", strict: false },
+      };
 
     case "output":
-      return { ...base, type: "output", config: { mode: "auto", textTemplate: "", jsonPath: "" } };
+      return {
+        ...base,
+        type: "output",
+        config: { mode: "auto", textTemplate: "", jsonPath: "" },
+      };
 
     case "parameter-extractor":
       return {
@@ -274,7 +384,12 @@ export function createWorkflowNode(
       return {
         ...base,
         type: "human-approval",
-        config: { title: "", instruction: "", timeoutMs: 0, onTimeout: "rejected" },
+        config: {
+          title: "",
+          instruction: "",
+          timeoutMs: 0,
+          onTimeout: "rejected",
+        },
       };
 
     case "custom":

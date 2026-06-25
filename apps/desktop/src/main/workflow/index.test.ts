@@ -16,6 +16,7 @@ vi.mock('./store', () => {
   const runs: Record<string, unknown[]> = {}
   return {
     loadWorkflows: vi.fn(async () => Object.values(workflows)),
+    loadRuns: vi.fn(async (workflowId: string) => runs[workflowId] ?? []),
     getWorkflow: vi.fn(async (id: string) => workflows[id]),
     newRunId: vi.fn(() => `run-${Date.now()}-${Math.random().toString(36).slice(2)}`),
     appendRun: vi.fn(async (workflowId: string, run: unknown) => {
@@ -165,6 +166,17 @@ describe('U9 createWorkflowRuntime', () => {
         expect.objectContaining({ phase: 'start', workflowId: workflow.id }),
       )
       expect(eventsMock.broadcastWorkflowRunEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          phase: 'update',
+          workflowId: workflow.id,
+          run: expect.objectContaining({
+            nodeResults: expect.arrayContaining([
+              expect.objectContaining({ nodeId: 'trigger-1', status: 'running' }),
+            ]),
+          }),
+        }),
+      )
+      expect(eventsMock.broadcastWorkflowRunEvent).toHaveBeenCalledWith(
         expect.objectContaining({ phase: 'end', workflowId: workflow.id }),
       )
       expect(eventsMock.broadcastWorkflowChanged).toHaveBeenCalled()
@@ -214,6 +226,45 @@ describe('U9 createWorkflowRuntime', () => {
           return patch.status === 'error' || patch.status === 'success'
         })
       }, { timeout: 5000 })
+    })
+
+    it('停止孤儿 run（不在 activeRuns、持久化仍 running）→ 强制落为 error', async () => {
+      const workflow = makeManualWorkflow()
+      seedFn(workflow)
+      // 直接在 store 写入一条 running run（不经 runNow，故不在 activeRuns）。
+      const store = storeMock as unknown as {
+        _runs: Record<string, unknown[]>
+      }
+      const orphanId = 'run-orphan-stuck'
+      store._runs[workflow.id] = [
+        { id: orphanId, status: 'running', startedAt: '', finishedAt: '', trigger: 'manual', nodeResults: [] },
+      ]
+      vi.mocked(storeMock.updateRun).mockClear()
+
+      await runtime.stopRun(orphanId, workflow.id)
+
+      // 强制收尾：updateRun 被调用且状态置 error
+      const calls = vi.mocked(storeMock.updateRun).mock.calls
+      expect(
+        calls.some((c) => c[1] === orphanId && (c[2] as { status: string }).status === 'error'),
+      ).toBe(true)
+    })
+
+    it('停止已是终态的 run → 不覆盖（不调用 updateRun）', async () => {
+      const workflow = makeManualWorkflow()
+      seedFn(workflow)
+      const store = storeMock as unknown as { _runs: Record<string, unknown[]> }
+      const doneId = 'run-already-done'
+      store._runs[workflow.id] = [
+        { id: doneId, status: 'success', startedAt: '', finishedAt: 'x', trigger: 'manual', nodeResults: [] },
+      ]
+      vi.mocked(storeMock.updateRun).mockClear()
+
+      await runtime.stopRun(doneId, workflow.id)
+
+      // 已 success，不应被改写
+      const calls = vi.mocked(storeMock.updateRun).mock.calls
+      expect(calls.some((c) => c[1] === doneId)).toBe(false)
     })
   })
 })
