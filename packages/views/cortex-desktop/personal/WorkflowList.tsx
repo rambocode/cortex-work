@@ -178,12 +178,15 @@ export function WorkflowList({
   onEdit,
   onCreate,
   onExport,
+  onImport,
   onToast,
 }: {
   /** 点编辑 → 传 WorkflowDef，由 WorkflowView 切换到编辑器。 */
   onEdit: (wf: WorkflowDef) => void;
   onCreate: () => void;
   onExport: (wf: WorkflowDef) => void;
+  /** 导入回调（U15 接线后由 WorkflowView 触发文件选择）。 */
+  onImport?: () => void;
   onToast: (text: string) => void;
 }) {
   const { data: workflows = [] } = useWorkflows();
@@ -222,9 +225,14 @@ export function WorkflowList({
           <button className="pw-icon-btn" title="Webhook 触发器（即将上线）" disabled>
             <Icon.Lightning size={15} />
           </button>
-          {/* 导入：U15 导入导出 DSL 落地后接入，此处预留入口 */}
-          <button className="pw-icon-btn" title="导入 loop（即将上线）" disabled>
-            <Icon.Download size={15} />
+          {/* 导入：U15 已接线，点击触发文件选择 */}
+          <button
+            className="pw-icon-btn"
+            title="导入 loop（从 JSON 文件）"
+            onClick={onImport}
+            disabled={!onImport}
+          >
+            <Icon.Upload size={15} />
           </button>
           <button className="pw-icon-btn" title="新建 loop" onClick={onCreate}>
             <Icon.Plus size={15} />

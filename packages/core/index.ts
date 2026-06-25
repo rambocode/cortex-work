@@ -206,6 +206,8 @@ export {
   type WorkflowQuestionClassifierConfig,
   type WorkflowHumanApprovalConfig,
   type WorkflowCustomConfig,
+  type WorkflowModuleField,
+  type WorkflowCustomModule,
   type WorkflowNodeConfigByKind,
   type WorkflowNode,
   type WorkflowConnection,

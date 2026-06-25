@@ -23,6 +23,7 @@ import {
 import { normalizeWorkflow } from "./normalize";
 import type { WorkflowDef } from "./types";
 import { getWorkflowRuntime } from "./index";
+import { exportWorkflowDsl, parseWorkflowDsl, hasCodeNodes } from "./dsl";
 
 // ── 帮助函数 ──────────────────────────────────────────────────────────────────
 
@@ -178,13 +179,62 @@ export function registerWorkflowHandlers(): void {
     throw new Error("workflow:approval:resolve 的 approvalId 映射待 U10 flow-control 完善后接线（RunContext.pendingApprovals 已就绪）");
   });
 
-  // 从 DSL JSON 导入工作流（需 DSL 解析校验 U15）。
-  ipcMain.handle("workflow:import", (_e, _dsl: unknown) => {
-    throw new Error("workflow:import 尚未接线（待 U15 实现 DSL 导入后替换）");
+  // 从 DSL JSON 导入工作流（U15 接线）。
+  // 入参：任意 unknown（来自 renderer 解析或用户粘贴的 JSON）。
+  // 流程：parseWorkflowDsl → 分配新 id → 处理重名 → upsert + 广播。
+  ipcMain.handle("workflow:import", async (_e, dsl: unknown) => {
+    const now = new Date().toISOString();
+    const result = parseWorkflowDsl(dsl, now);
+    if (!result.ok) {
+      throw new Error(`工作流 DSL 解析失败：${result.error}`);
+    }
+
+    // 分配新 id（不信任 DSL 中的 id，防止与现有工作流冲突）
+    const existing = await loadWorkflows();
+    const newId = newWorkflowId();
+
+    // 重名处理：若已有同名工作流，自动追加「副本」后缀
+    const existingNames = new Set(existing.map((w) => w.name));
+    let importName = result.workflow.name || "导入的 loop";
+    if (existingNames.has(importName)) {
+      importName = `${importName} 副本`;
+      // 若「副本」也重名，继续追加数字序号
+      let n = 2;
+      while (existingNames.has(importName)) {
+        importName = `${result.workflow.name || "导入的 loop"} 副本 ${n}`;
+        n++;
+      }
+    }
+
+    // 含 code/custom 节点时，记录到 console（安全提示由 UI 层在调用前展示）
+    if (hasCodeNodes(result.workflow)) {
+      console.info(`[workflow:import] 工作流「${importName}」含可执行代码节点（code/custom），已通过安全确认`);
+    }
+
+    const def = normalizeWorkflow(
+      {
+        ...result.workflow,
+        id: newId,
+        name: importName,
+        createdAt: now,
+        updatedAt: now,
+      },
+      0,
+      now,
+    );
+
+    await upsertWorkflow(def);
+    broadcastWorkflowChanged(await loadWorkflows());
+    return def;
   });
 
-  // 导出工作流为 DSL JSON（需 secret 脱敏逻辑 U15）。
-  ipcMain.handle("workflow:export", (_e, _id: string) => {
-    throw new Error("workflow:export 尚未接线（待 U15 实现 DSL 导出后替换）");
+  // 导出工作流为 DSL JSON（U15 接线）。
+  // 入参：工作流 id（string）。
+  // 返回：WorkflowDslV1 对象（由 renderer 序列化为 JSON 文件）。
+  ipcMain.handle("workflow:export", async (_e, id: string) => {
+    assertId(id);
+    const wf = await getWorkflow(id);
+    if (!wf) throw new Error(`workflow:export 找不到 id=${id} 的工作流`);
+    return exportWorkflowDsl(wf, new Date().toISOString());
   });
 }

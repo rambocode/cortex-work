@@ -7,6 +7,7 @@ import type {
   WorkflowClassifierCategory,
   WorkflowConditionOperator,
   WorkflowConnection,
+  WorkflowCustomModule,
   WorkflowDef,
   WorkflowEnvVar,
   WorkflowField,
@@ -14,6 +15,7 @@ import type {
   WorkflowHttpMethod,
   WorkflowInputField,
   WorkflowInputFieldType,
+  WorkflowModuleField,
   WorkflowNode,
   WorkflowNodeInput,
   WorkflowNodeInputType,
@@ -241,6 +243,61 @@ function normalizeEnvVars(value: unknown): WorkflowEnvVar[] {
     })
     .filter((e) => e.key.length > 0)
     .slice(0, MAX_ENV_VARS);
+}
+
+// ── 自定义模块规范化 ──────────────────────────────────────────────────────────
+
+const MAX_MODULES = 50;
+const MAX_MODULE_FIELDS = 30;
+const MODULE_FIELD_TYPES = ["text", "textarea", "number", "boolean", "select"] as const;
+
+function normalizeModuleField(value: unknown): WorkflowModuleField | null {
+  const f = record(value);
+  const key = asTrimmed(f.key);
+  if (!key) return null;
+  const type = MODULE_FIELD_TYPES.includes(f.type as (typeof MODULE_FIELD_TYPES)[number])
+    ? (f.type as WorkflowModuleField["type"])
+    : "text";
+  return {
+    key,
+    label: asTrimmed(f.label) || key,
+    type,
+    defaultValue: asText(f.defaultValue),
+    options: Array.isArray(f.options) ? f.options.map((o) => asText(o)).filter(Boolean) : [],
+    placeholder: asText(f.placeholder),
+  };
+}
+
+function normalizeModules(value: unknown): WorkflowCustomModule[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result = value
+    .map((entry): WorkflowCustomModule | null => {
+      const m = record(entry);
+      const id = asTrimmed(m.id);
+      if (!id) return null;
+      const language = (["javascript", "python", "bash"] as const).includes(
+        m.language as "javascript",
+      )
+        ? (m.language as WorkflowCustomModule["language"])
+        : "javascript";
+      return {
+        id,
+        name: asTrimmed(m.name) || id,
+        description: asText(m.description),
+        icon: asText(m.icon),
+        language,
+        fields: Array.isArray(m.fields)
+          ? m.fields
+              .map(normalizeModuleField)
+              .filter((f): f is WorkflowModuleField => f !== null)
+              .slice(0, MAX_MODULE_FIELDS)
+          : [],
+        code: asText(m.code),
+      };
+    })
+    .filter((m): m is WorkflowCustomModule => m !== null)
+    .slice(0, MAX_MODULES);
+  return result.length > 0 ? result : undefined;
 }
 
 /** 规范化触发工作流时调用方提供的输入模式。 */
@@ -735,12 +792,16 @@ export function normalizeWorkflow(
         .slice(-MAX_WORKFLOW_RUNS)
     : [];
 
+  const modules = normalizeModules((w as Record<string, unknown>).modules);
+
   return {
     id: asTrimmed(w.id) || `workflow-${index + 1}`,
     name: asTrimmed(w.name) || `Workflow ${index + 1}`,
     enabled: normalizeBoolean(w.enabled, true),
     callableByAgent: normalizeBoolean(w.callableByAgent, false),
     env: normalizeEnvVars(w.env),
+    // modules 可选字段：有内容时包含，避免所有存量工作流多一个空数组字段
+    ...(modules !== undefined ? { modules } : {}),
     nodes,
     connections,
     createdAt: asTrimmed(w.createdAt) || now,

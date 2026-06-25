@@ -327,6 +327,31 @@ export interface WorkflowCustomConfig {
   values: Record<string, string>;
 }
 
+// ── 自定义模块定义 ────────────────────────────────────────────────────────────
+// （与 node-executors/modules.ts 的 WorkflowCustomModule 语义对齐，此处是契约层定义）
+
+/** 模块字段声明（与 Kun WorkflowModuleFieldV1 保持语义对齐）。 */
+export interface WorkflowModuleField {
+  key: string;
+  label: string;
+  type: "text" | "textarea" | "number" | "boolean" | "select";
+  defaultValue: string;
+  options: string[];
+  placeholder: string;
+}
+
+/** 自定义脚本模块定义（custom 节点的底层，存于工作流内嵌数组）。 */
+export interface WorkflowCustomModule {
+  id: string;
+  name: string;
+  description: string;
+  /** 保留字段，供未来图标选择器使用；空字符串使用通用图标。 */
+  icon: string;
+  language: WorkflowCodeLanguage;
+  fields: WorkflowModuleField[];
+  code: string;
+}
+
 // ── 节点 config 按 kind 索引 ──────────────────────────────────────────────────
 
 export interface WorkflowNodeConfigByKind {
@@ -418,6 +443,8 @@ export interface WorkflowDef {
   enabled: boolean;
   callableByAgent: boolean;
   env: WorkflowEnvVar[];
+  /** 工作流内嵌自定义模块（custom 节点的底层脚本，存于工作流内，不跨工作流共享）。 */
+  modules?: WorkflowCustomModule[];
   nodes: WorkflowNode[];
   connections: WorkflowConnection[];
   createdAt: string;
