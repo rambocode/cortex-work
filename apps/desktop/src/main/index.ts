@@ -18,6 +18,7 @@ import { startMcpHost, stopMcpHost } from "./capabilities/mcp-host/server";
 import { registerBrowserTools } from "./capabilities/browser/tools";
 import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extract/mcp";
 import { startMediaGenHost, stopMediaGenHost } from "./capabilities/media-gen/server";
+import { startLoopWorkflowsHost, stopLoopWorkflowsHost } from "./capabilities/loop-workflows/server";
 import { initWorkflowRuntime, killAllWorkflows } from "./workflow/index";
 import { loadWorkflows } from "./workflow/store";
 import { initWorkflowScheduler } from "./workflow/scheduler";
@@ -299,6 +300,8 @@ if (!app.requestSingleInstanceLock()) {
     void startDocExtractHost();
     // 媒体生成 MCP host:独立实例,常驻;四模态全关时注入侧返回 null 不连接,host 仍在后台静默运行(U5)。
     void startMediaGenHost();
+    // Loop 工作流 MCP host:独立实例,常驻;无 enabled+callable 工作流时注入侧返回 null（U14）。
+    void startLoopWorkflowsHost();
     createWindow();
 
     app.on("activate", () => {
@@ -336,6 +339,7 @@ if (!app.requestSingleInstanceLock()) {
     stopMcpHost();
     stopDocExtractHost();
     stopMediaGenHost();
+    stopLoopWorkflowsHost();
     killAllAutomations();
     killAllWorkflows();
     killAllCli();
