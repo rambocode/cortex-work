@@ -34,8 +34,10 @@ export default function App() {
     });
   }, []);
 
-  // 全局提醒焦点路由:订阅 UI store,新增 toast 且主窗失焦/最小化时转发到独立通知窗体,并从
-  // 应用内 store 移除(避免回到前台重复显示)。主窗在前台时不转发,保留应用内 toast。
+  // 全局提醒焦点路由:订阅 UI store,新增 toast 时按主窗焦点态分流。
+  //  - 主窗失焦/最小化:转发到独立通知窗体,并从应用内移除(避免回到前台重复显示)。
+  //  - 主窗在前台:用户就在应用里,确认/信息类提醒(已保存/已触发运行等)纯属噪音 → 直接丢弃;
+  //    仅保留 error 类应用内卡片(操作失败必须当场可见)。这样「只有不在当前应用上时才提醒」。
   // 壳就近实现(views/core 不直接碰 window.desktopAPI);主窗重获焦点的清空在主进程侧(index.ts)。
   useEffect(() => {
     const ntf = window.desktopAPI?.notification;
@@ -45,7 +47,14 @@ export default function App() {
       const fresh = state.toasts.filter((t) => !seen.has(t.id));
       if (fresh.length === 0) return;
       fresh.forEach((t) => seen.add(t.id));
-      if (document.hasFocus()) return; // 前台:应用内 toast 接管,不转发
+      if (document.hasFocus()) {
+        // 前台:仅 error 留作应用内卡片,其余确认/信息类立即移除(同步发生在 pushToast 的
+        // set 回调内,ToastStack 尚未渲染,无一闪而过)。
+        for (const t of fresh) {
+          if (t.kind !== "error") useCortexUIStore.getState().dismissToast(t.id);
+        }
+        return;
+      }
       for (const t of fresh) {
         ntf.push({
           id: t.id,

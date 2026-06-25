@@ -17,6 +17,8 @@ import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
+import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
+import { loadWorkflows } from "../workflow/store";
 import { getPersistedState } from "./store";
 
 const running = new Map<string, AgentProcess>();
@@ -432,10 +434,19 @@ export function registerCliHandlers(): void {
         //  - 文档抽取:v1 无开关,host 可用即注入(extract_document 工具靠会话隔离 + 限根自保)。
         //  - 媒体生成:四模态全关 → null;至少一个 enabled → 注入,cwd 穿透至工具 handler(U5)。
         // 用户 MCP 关闭时不连带启用其 server——仅注入内置 server。此即主会话注入路径(ask/oneshot/automation 不经此)。
+        // loop 工作流注入需要当前工作流列表，在此读取（异步加载，失败时降级不注入）。
+        let workflowsForMcp: Awaited<ReturnType<typeof loadWorkflows>> = [];
+        try {
+          workflowsForMcp = await loadWorkflows();
+        } catch {
+          /* 工作流列表读取失败 → loop MCP 不注入，不阻断主 agent 启动 */
+        }
         const builtinServers = [
           buildBrowserMcpServerConfig(gs?.browserControl, req.sessionId),
           buildDocExtractMcpServerConfig(req.sessionId),
           buildMediaGenMcpServerConfig(persistedState.mediaGenSettings, req.sessionId, req.cwd),
+          // loop 工作流 MCP 注入（U14）：无 enabled+callable 工作流时返回 null，不注入。
+          buildLoopWorkflowsMcpServerConfig(workflowsForMcp, req.sessionId, req.cwd),
         ].filter((s): s is McpServerConfig => s !== null);
         if (builtinServers.length) {
           const userServers = mcp.enabled ? mcp.servers : [];
@@ -639,11 +650,13 @@ export function registerCliHandlers(): void {
           }
         }
 
-        // 终态：session 不再复用，清理媒体生成 session 状态（cwd + modalities 映射）。
-        // 同 session 下一轮 run 会在 buildMediaGenMcpServerConfig 中重新 register，
+        // 终态：session 不再复用，清理各 MCP host 的 session 状态。
+        // 同 session 下一轮 run 会在各 buildXxxMcpServerConfig 中重新 register，
         // 故此处清理安全，不影响潜在的会话续接。
         if (req.sessionId) {
           unregisterMediaGenSession(req.sessionId);
+          // U14：清理 loop 工作流 session cwd 映射。
+          unregisterLoopWorkflowsSession(req.sessionId);
         }
         cancelledRunIds.delete(req.runId);
         running.delete(req.runId);

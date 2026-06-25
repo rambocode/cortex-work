@@ -13,6 +13,7 @@
     "./cortex-desktop/styles.css": "./cortex-desktop/cortex-desktop.css"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.0",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language": "^6.12.3",

@@ -32,6 +32,8 @@
     "./personal/messages": "./personal/messages.ts",
     "./personal/followup": "./personal/followup.ts",
     "./personal/automation": "./personal/automation.ts",
+    "./personal/workflow": "./personal/workflow.ts",
+    "./desktop/workflow-types": "./desktop/workflow-types.ts",
     "./personal/filePaths": "./personal/filePaths.ts",
     "./personal/notes": "./personal/notes.ts",
     "./personal/push": "./personal/push.ts",

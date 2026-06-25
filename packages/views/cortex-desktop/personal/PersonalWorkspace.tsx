@@ -25,6 +25,7 @@ import { TerminalPanel } from "./TerminalPanel";
 import { TimelineView } from "./TimelineView";
 import { NewSessionLanding } from "./NewSessionLanding";
 import { AutomationView } from "./AutomationView";
+import { WorkflowView } from "./WorkflowView";
 import { FlashNoteEditor } from "./FlashNoteEditor";
 import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
 import { PersonalSettingsView } from "./SettingsMenu";
@@ -55,6 +56,8 @@ export function PersonalWorkspace({
   const leftCollapsed = useCortexUIStore((s) => s.leftCollapsed);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
+  // loop 工作流主区视图（优先级最高；bridge.workflowList 为 null 时不可能为 true）。
+  const workflowOpen = usePersonalStore((s) => s.workflowOpen);
   // 设置整页：全屏覆盖层叠加在工作区之上（不卸载 pw-main → 终端 PTY 存活）。
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
@@ -130,7 +133,9 @@ export function PersonalWorkspace({
         <div className="pw-upper">
           <div className="pw-center-col">
             <PersonalCenterHeader />
-            {automationOpen ? (
+            {workflowOpen ? (
+              <WorkflowView onToast={onToast} />
+            ) : automationOpen ? (
               <AutomationView onToast={onToast} />
             ) : noteEditorId ? (
               <FlashNoteEditor noteId={noteEditorId} onClose={closeNoteEditor} onToast={onToast} />
@@ -146,7 +151,8 @@ export function PersonalWorkspace({
                 由组件自身依据「中栏显示会话区 + 当前会话有过程」判定是否渲染。 */}
             <PersonalProcessPanel />
           </div>
-          {!automationOpen && rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}
+          {/* 工作流和自动化视图时隐藏右栏（画布编辑器不需要辅助面板）。*/}
+          {!workflowOpen && !automationOpen && rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}
         </div>
         <TerminalPanel onToast={onToast} />
       </div>

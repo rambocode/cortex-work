@@ -25,6 +25,7 @@ import { registerAppHandlers } from "./app";
 import { registerAgentTraceHandlers } from "./agent-trace";
 import { registerBrowserHandlers } from "./browser";
 import { registerAutomationHandlers } from "../automation/ipc";
+import { registerWorkflowHandlers } from "../workflow/ipc";
 import { registerSttHandlers } from "./stt";
 
 interface RegisterIpcHandlersOptions {
@@ -58,6 +59,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerAgentTraceHandlers({ devMode: options.agentTraceDevMode ?? false });
   registerBrowserHandlers();
   registerAutomationHandlers();
+  registerWorkflowHandlers(); // 节点式工作流（loop）IPC，紧挨 automation 注册
   registerSttHandlers();
 }
 
@@ -67,3 +69,4 @@ export { killAllPiSessions } from "./pi-session";
 export { killAllPty } from "./pty";
 export { closeAllWatchers } from "./watch";
 export { killAllAutomations } from "../automation/runner";
+export { killAllWorkflows } from "../workflow/index";

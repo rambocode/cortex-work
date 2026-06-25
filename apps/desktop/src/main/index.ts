@@ -18,6 +18,10 @@ import { startMcpHost, stopMcpHost } from "./capabilities/mcp-host/server";
 import { registerBrowserTools } from "./capabilities/browser/tools";
 import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extract/mcp";
 import { startMediaGenHost, stopMediaGenHost } from "./capabilities/media-gen/server";
+import { startLoopWorkflowsHost, stopLoopWorkflowsHost } from "./capabilities/loop-workflows/server";
+import { initWorkflowRuntime, killAllWorkflows } from "./workflow/index";
+import { loadWorkflows, markOrphanRunsKilled } from "./workflow/store";
+import { initWorkflowScheduler } from "./workflow/scheduler";
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
@@ -274,6 +278,26 @@ if (!app.requestSingleInstanceLock()) {
       onToggleSpotlight: toggleSpotlight,
     });
     await initScheduler();
+    // 工作流运行时（loop 引擎）：独立于 automation，与之并列。
+    // fire-and-forget：调度器初始化快，失败已内部降级，不阻塞建窗。
+    const workflowRuntime = initWorkflowRuntime()
+    // P1 Fix-2：启动时标记残留的 running run 为 error（崩溃/强退后留下的孤儿 run）。
+    // 对齐 automation/scheduler.ts initScheduler 中 markOrphanRunsKilled 的做法。
+    markOrphanRunsKilled().catch((err) => {
+      console.error('[workflow] markOrphanRunsKilled 失败:', err)
+    })
+    loadWorkflows().then((workflows) => {
+      // P1 Fix-9（去重调度）：只保留一条初始化路径——initWorkflowScheduler 负责 catch-up，
+      // sync() 主要负责 webhook server 启停。两者都调用 rescheduleWorkflows/runFn 会导致
+      // catch-up 在 initWorkflowScheduler + sync() 内各触发一次（重复 run）。
+      // 修：initWorkflowScheduler 做 catch-up + 建 cron job，sync() 只管 webhook server。
+      initWorkflowScheduler(workflows, workflowRuntime.runNow)
+      workflowRuntime.sync().catch((err) => {
+        console.error('[workflow] sync 失败:', err)
+      })
+    }).catch((err) => {
+      console.error('[workflow] loadWorkflows 失败:', err)
+    })
     // 浏览器控制 MCP server:随主进程常驻(U2)。工具由 U5 注入;是否注入给 agent 由 U3 按总开关 gate。
     // fire-and-forget:listen 快且失败已内部降级,不阻塞建窗。
     // 注入运行时能力:openPanel 让 agent 的 browser_navigate 在面板未开时打开内置浏览器(经渲染端)。
@@ -286,6 +310,8 @@ if (!app.requestSingleInstanceLock()) {
     void startDocExtractHost();
     // 媒体生成 MCP host:独立实例,常驻;四模态全关时注入侧返回 null 不连接,host 仍在后台静默运行(U5)。
     void startMediaGenHost();
+    // Loop 工作流 MCP host:独立实例,常驻;无 enabled+callable 工作流时注入侧返回 null（U14）。
+    void startLoopWorkflowsHost();
     // 安装自定义主菜单(去除 macOS View 菜单重复的全屏项),须在建窗前就位。
     installAppMenu();
     createWindow();
@@ -325,7 +351,9 @@ if (!app.requestSingleInstanceLock()) {
     stopMcpHost();
     stopDocExtractHost();
     stopMediaGenHost();
+    stopLoopWorkflowsHost();
     killAllAutomations();
+    killAllWorkflows();
     killAllCli();
     killAllAsk();
     killAllPiSessions();

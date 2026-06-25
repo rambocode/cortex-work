@@ -7308,6 +7308,83 @@ button.sb-row {
 .pw-auto-detail .pw-panel-h .pw-panel-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-panel-h-actions { display: flex; align-items: center; gap: 2px; }
 
+/* ════════════ Loop 工作流列表（WorkflowList，设计稿 Workflow List）════════════
+   品牌主色沿用字面量 #7c5cff（hover #6a48f0），与 .pw-auto-dt-run.primary 既有写法对齐。 */
+.pw-wfl { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+
+/* 列表头部：标题 + 计数 pill + 运行全部 / 导入 / 新建 */
+.pw-wfl-h { display: flex; align-items: center; gap: 10px; padding: 16px 20px 12px; flex-shrink: 0; }
+.pw-wfl-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-1); display: flex; align-items: center; gap: 9px; }
+.pw-wfl-count { font-size: 12px; font-weight: 600; color: var(--text-3); background: var(--bg-card); padding: 2px 9px; border-radius: 999px; }
+.pw-wfl-spacer { flex: 1; }
+.pw-wfl-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--text-2); border: 1px solid transparent; }
+.pw-wfl-icon:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-wfl-icon:disabled { opacity: 0.4; cursor: default; }
+.pw-wfl-icon:disabled:hover { background: transparent; color: var(--text-2); }
+.pw-wfl-new { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px; border-radius: 8px; font-weight: 600; font-size: 13px; color: #fff; background: #7c5cff; box-shadow: 0 1px 2px rgba(124, 92, 255, 0.35); }
+.pw-wfl-new:hover { background: #6a48f0; }
+
+/* 工具栏：搜索 + 状态过滤 tab + 排序 */
+.pw-wfl-toolbar { display: flex; align-items: center; gap: 12px; padding: 0 20px 12px; flex-shrink: 0; }
+.pw-wfl-search { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-input); color: var(--text-3); width: 240px; }
+.pw-wfl-search:focus-within { border-color: #7c5cff; box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.16); }
+.pw-wfl-search input { border: none; outline: none; background: none; flex: 1; font-size: 13px; color: var(--text-1); min-width: 0; }
+.pw-wfl-search input::placeholder { color: var(--text-4); }
+.pw-wfl-tabs { display: flex; gap: 3px; background: var(--bg-card); padding: 3px; border-radius: 8px; }
+.pw-wfl-tab { height: 26px; padding: 0 11px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.pw-wfl-tab .n { font-variant-numeric: tabular-nums; color: var(--text-4); }
+.pw-wfl-tab:hover { color: var(--text-1); }
+.pw-wfl-tab.is-on { background: var(--bg-app); color: var(--text-1); box-shadow: var(--shadow-card); }
+.pw-wfl-tab.is-on .n { color: var(--text-3); }
+.pw-wfl-sort { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.pw-wfl-sort:hover { background: var(--bg-hover); color: var(--text-1); }
+
+/* 列表滚动区 + 行 */
+.pw-wfl-list { flex: 1; overflow-y: auto; padding: 0 20px 28px; }
+.pw-wfl-empty { padding: 50px 20px; text-align: center; color: var(--text-3); font-size: 13px; }
+.pw-wfl-row { display: flex; align-items: center; gap: 16px; padding: 15px 4px; border-top: 1px solid var(--border-soft); cursor: pointer; border-radius: 10px; }
+.pw-wfl-row:first-child { border-top-color: transparent; }
+/* hover 浮起为卡片：负外边距 + 同步内边距，避免内容跳动 */
+.pw-wfl-row:hover { background: var(--bg-card-2); margin: 0 -12px; padding-left: 16px; padding-right: 16px; border-top-color: transparent; }
+.pw-wfl-row:hover + .pw-wfl-row { border-top-color: transparent; }
+
+.pw-wfl-main { flex: 1; min-width: 0; }
+.pw-wfl-line1 { display: flex; align-items: center; gap: 8px; }
+.pw-wfl-name { font-size: 14.5px; font-weight: 680; letter-spacing: -0.005em; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 状态徽章 */
+.pw-wfl-badge { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 650; flex-shrink: 0; }
+.pw-wfl-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.pw-wfl-badge.run { background: var(--green-soft); color: var(--green); }
+.pw-wfl-badge.run .dot { animation: pw-wfl-pulse 1.6s ease-in-out infinite; }
+@keyframes pw-wfl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.pw-wfl-badge.on { background: var(--green-soft); color: var(--green); }
+.pw-wfl-badge.paused { background: var(--amber-soft); color: var(--amber); }
+.pw-wfl-badge.fail { background: var(--red-soft); color: var(--red); }
+
+.pw-wfl-meta { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.pw-wfl-meta .m { display: inline-flex; align-items: center; gap: 5px; }
+.pw-wfl-meta .m svg { color: var(--text-4); }
+.pw-wfl-meta .sep { color: var(--text-4); }
+
+.pw-wfl-preview { margin-top: 6px; font-size: 12.5px; color: var(--text-2); display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.pw-wfl-preview-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pw-wfl-preview.err .pw-wfl-preview-text { color: var(--red); }
+.pw-wfl-chip { flex-shrink: 0; font-family: var(--mono); font-size: 11px; color: var(--text-3); background: var(--bg-chip); padding: 1px 6px; border-radius: 5px; }
+
+/* 右侧操作簇 */
+.pw-wfl-right { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+.pw-wfl-acts { display: flex; gap: 6px; }
+.pw-wfl-act { width: 31px; height: 31px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--text-2); border: 1px solid var(--border); background: var(--bg-app); }
+.pw-wfl-act:hover { background: var(--bg-hover); color: var(--text-1); border-color: var(--border-strong); }
+.pw-wfl-act.run:hover { color: var(--green); border-color: #bfe3cb; background: var(--green-soft); }
+.pw-wfl-act.ai.is-on { color: #7c5cff; border-color: #cfc9f7; background: rgba(124, 92, 255, 0.12); }
+.pw-wfl-act:disabled { opacity: 0.45; cursor: not-allowed; }
+.pw-wfl-act:disabled:hover { background: var(--bg-app); color: var(--text-2); border-color: var(--border); }
+.pw-wfl-ai-lbl { font-size: 11px; font-weight: 600; color: var(--text-3); display: flex; align-items: center; gap: 5px; }
+.pw-wfl-ai-lbl.is-on { color: #7c5cff; }
+.pw-wfl-ai-lbl .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
 /* 列表 */
 .pw-auto-list { flex: 1; overflow-y: auto; padding: 8px 10px 16px; display: flex; flex-direction: column; gap: 4px; }
 .pw-auto-item {
@@ -8311,3 +8388,206 @@ button.sb-row {
 }
 .pw-settings-page .pw-arch-del:hover { background: color-mix(in srgb, var(--text-1) 7%, transparent); color: var(--text-1); }
 .pw-settings-page .pw-arch-del.is-danger { color: var(--danger, #c0392b); }
+
+/* ──────────────────────────────────────────────────────────────────────────────
+   Loop 节点工作流 UI 的 ds-* / accent 设计 token（U5-U7 引入）。
+   这套界面用 Tailwind 工具类（bg-ds-card、text-ds-ink、border-ds-border…），
+   而非 pw-* 手写类。Tailwind v4 需在 @theme 里登记颜色 token 才会生成对应工具类，
+   否则全部为空 → 背景透明、配色失效（曾导致编辑器透出底层侧边栏）。
+   用 @theme inline 把 ds-* 直接内联映射到本文件 :root / [data-theme=dark] 既有 CSS
+   变量，从而自动跟随亮/暗主题，无需重复维护一套色值。
+   ────────────────────────────────────────────────────────────────────────────── */
+@theme inline {
+  --color-ds-main: var(--bg-app);
+  --color-ds-card: var(--bg-card);
+  --color-ds-hover: var(--bg-hover);
+  --color-ds-border: var(--border);
+  --color-ds-ink: var(--text-1);
+  --color-ds-muted: var(--text-2);
+  --color-ds-faint: var(--text-3);
+  --color-accent: var(--accent);
+  /* 主操作按钮（运行一次）：复用 accent 作底、白字。 */
+  --color-ds-userbubble: var(--accent);
+  --color-ds-userbubbleFg: #ffffff;
+}
+
+/* macOS 无边框窗口的标题栏拖拽区与红绿灯安全占位（Loop 编辑器为全屏 fixed overlay，
+   顶部需可拖拽且避让左上角红绿灯）。对齐项目既有 -webkit-app-region 与 84px 避让惯例。 */
+.ds-drag { -webkit-app-region: drag; }
+.ds-no-drag { -webkit-app-region: no-drag; }
+.ds-titlebar-safe-block { height: 22px; flex-shrink: 0; }
+
+/* Loop 工作流编辑器作用域：把强调色覆盖为蓝色（对齐 Kun 的蓝色主题），
+   仅作用于工作流编辑器内部（palette/按钮/运行一次/画布边/选中态），
+   不影响 cortex 其余地方的品牌橙色。accent 经 @theme inline 内联 var(--accent)，
+   此处重定义 --accent 即可让作用域内所有 accent 工具类跟随变蓝。 */
+.ds-workflow-scope {
+  --accent: var(--blue);
+  --accent-soft: var(--blue-soft);
+
+  /* 5 色分类体系（对齐 Workflow Editor mockup）：触发器绿 / AI 靛 / 流程琥珀 /
+     数据蓝 / 动作赭。仅定义图标主色，底色统一用 color-mix 从主色按 14% 混到
+     透明——这样同一套 token 在亮/暗主题下都能得到协调的浅色底块（不必为暗色另设值）。 */
+  --wf-trigger: #16a34a;
+  --wf-ai: #5b50e6;
+  --wf-flow: #d97706;
+  --wf-data: #2563eb;
+  --wf-action: #c96442;
+}
+
+/* 节点/palette/inspector 共用的分类着色图标芯片。
+   各分类只需在外层加 .wf-cat-{cat} 设定 --wf-c，本类据此取主色 + 软底色。 */
+.ds-workflow-scope .wf-ic {
+  color: var(--wf-c, var(--accent));
+  background: color-mix(in srgb, var(--wf-c, var(--accent)) 14%, transparent);
+}
+/* 纯描边着色（无底色芯片）：palette 节点图标用——对齐 mockup 左侧菜单图标无底块。 */
+.ds-workflow-scope .wf-ink { color: var(--wf-c, var(--accent)); }
+.ds-workflow-scope .wf-cat-trigger { --wf-c: var(--wf-trigger); }
+.ds-workflow-scope .wf-cat-ai { --wf-c: var(--wf-ai); }
+.ds-workflow-scope .wf-cat-flow { --wf-c: var(--wf-flow); }
+.ds-workflow-scope .wf-cat-data { --wf-c: var(--wf-data); }
+.ds-workflow-scope .wf-cat-action { --wf-c: var(--wf-action); }
+
+/* Loop palette(左侧节点菜单)悬停背景:必须用未分层的作用域规则,不能用 Tailwind hover:bg-*。
+   根因——上方第 134 行的全局 `button{background:none;border:none;color:inherit}` 是未分层规则,
+   而 Tailwind 工具类在 @layer utilities 内;CSS 分层规则恒输给未分层规则(与特异性无关),
+   故 <button> 上的 hover 背景被 reset 吃掉(图标在 <span> 上不受影响,这正是「只有图标变色、
+   整行无背景」的成因)。与 .icon-btn/.sb-row/.pill 等既有 hover 同范式——都是未分层自定义类。
+   hover 用中性灰 --bg-hover(对齐设计稿:整行浅灰圆角高亮),亮/暗主题自动跟随。 */
+.ds-workflow-scope .ds-palette-group:hover {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+.ds-workflow-scope .ds-palette-node:hover {
+  background: var(--bg-hover);
+}
+
+/* 顶栏操作按钮：全局 button reset(L134,未分层) 抹平 padding/border/background/color，
+   Tailwind 工具类在 @layer 内恒输给未分层 reset(与 hover 背景同因)。故顶栏按钮的
+   内边距/底色/描边/文字色统一用未分层作用域类恢复(与 .icon-btn/.pill 同范式)。 */
+.ds-workflow-scope .wf-tb-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--text-1);
+}
+.ds-workflow-scope .wf-tb-ghost:hover {
+  background: var(--bg-hover);
+}
+.ds-workflow-scope .wf-tb-ghost:disabled {
+  opacity: 0.6;
+}
+.ds-workflow-scope .wf-tb-run,
+.ds-workflow-scope .wf-tb-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-1);
+  box-shadow: 0 1px 2px rgba(20, 18, 12, 0.06);
+}
+.ds-workflow-scope .wf-tb-run:hover {
+  background: var(--bg-hover);
+}
+.ds-workflow-scope .wf-tb-stop {
+  border-color: color-mix(in srgb, #ef4444 40%, transparent);
+  color: #ef4444;
+}
+.ds-workflow-scope .wf-tb-stop:hover {
+  background: color-mix(in srgb, #ef4444 6%, #fff);
+}
+.ds-workflow-scope .wf-tb-publish {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: var(--wf-ai);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(91, 80, 230, 0.35);
+}
+.ds-workflow-scope .wf-tb-publish:hover {
+  filter: brightness(1.1);
+}
+.ds-workflow-scope .wf-tb-publish:disabled {
+  opacity: 0.6;
+}
+
+/* ReactFlow 画布主题化（移植自 Kun workflow-canvas.css，--ds-* 改为本项目 CSS 变量）。
+   通过 @xyflow/react v12 的 --xy-* 主题变量，使点阵/边/控件/minimap/handle 跟随亮暗主题。 */
+.ds-workflow-canvas {
+  --xy-background-color: var(--bg-app);
+  --xy-background-pattern-color: var(--border-soft, var(--border));
+  --xy-edge-stroke: var(--border);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-selected: var(--accent);
+  --xy-connectionline-stroke: var(--accent);
+  --xy-connectionline-stroke-width: 1.5;
+
+  --xy-controls-button-background-color: var(--bg-card);
+  --xy-controls-button-background-color-hover: var(--bg-hover);
+  --xy-controls-button-color: var(--text-2);
+  --xy-controls-button-color-hover: var(--text-1);
+  --xy-controls-button-border-color: var(--border);
+
+  --xy-minimap-background-color: var(--bg-card);
+  --xy-attribution-background-color: transparent;
+
+  background: var(--bg-app);
+}
+
+/* ReactFlow 容器高度修复：base .react-flow 设 height:100%，但本画布父级是 flex-grow
+   (flex-1)，其高度对百分比解析是「不确定」→ height:100% 塌陷成 0 → 画布不显示。
+   用更高优先级 .react-flow.ds-workflow-canvas 改为绝对填充（父级为 relative，inset:0
+   取确定像素高度），覆盖 base 的百分比尺寸。 */
+.react-flow.ds-workflow-canvas {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+
+.ds-workflow-canvas .react-flow__attribution { display: none; }
+
+/* 我方节点 type 名（output 等）会与 ReactFlow 内置 node 类型撞名，内置 style.css 会给它
+   画一个 150px 内边距的白边框盒子（双框）。重置之，视觉全由我方卡片提供。 */
+.ds-workflow-canvas .react-flow__node-input,
+.ds-workflow-canvas .react-flow__node-output,
+.ds-workflow-canvas .react-flow__node-default,
+.ds-workflow-canvas .react-flow__node-group {
+  padding: 0; width: auto; border: none; border-radius: 0;
+  background: transparent; color: inherit; text-align: left;
+  font-size: inherit; box-shadow: none;
+}
+
+.ds-workflow-canvas .react-flow__controls {
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); border-radius: 12px; overflow: hidden;
+}
+.ds-workflow-canvas .react-flow__controls-button { border-bottom-color: var(--border); }
+
+/* MiniMap：紧凑、圆角、主题化，定位右下角（替代默认贴边白盒）。 */
+.ds-workflow-canvas .react-flow__minimap.ds-workflow-minimap {
+  margin: 0; bottom: 16px; right: 16px;
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.1); overflow: hidden;
+}
+.ds-workflow-canvas .react-flow__minimap.ds-workflow-minimap svg { border-radius: 12px; }
+
+/* 正在运行节点流出的边高亮。 */
+.ds-workflow-canvas .react-flow__edge.is-running .react-flow__edge-path { stroke: var(--accent); }
+
+.ds-workflow-canvas .react-flow__handle {
+  width: 9px; height: 9px; background: var(--bg-card); border: 1.5px solid var(--border);
+}
+.ds-workflow-canvas .react-flow__handle.connectionindicator:hover { border-color: var(--accent); }
