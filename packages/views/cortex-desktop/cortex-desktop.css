@@ -8255,3 +8255,34 @@ button.sb-row {
 }
 .pw-settings-page .pw-arch-del:hover { background: color-mix(in srgb, var(--text-1) 7%, transparent); color: var(--text-1); }
 .pw-settings-page .pw-arch-del.is-danger { color: var(--danger, #c0392b); }
+
+/* ──────────────────────────────────────────────────────────────────────────────
+   Loop 节点工作流 UI 的 ds-* / accent 设计 token（U5-U7 引入）。
+   这套界面用 Tailwind 工具类（bg-ds-card、text-ds-ink、border-ds-border…），
+   而非 pw-* 手写类。Tailwind v4 需在 @theme 里登记颜色 token 才会生成对应工具类，
+   否则全部为空 → 背景透明、配色失效（曾导致编辑器透出底层侧边栏）。
+   用 @theme inline 把 ds-* 直接内联映射到本文件 :root / [data-theme=dark] 既有 CSS
+   变量，从而自动跟随亮/暗主题，无需重复维护一套色值。
+   ────────────────────────────────────────────────────────────────────────────── */
+@theme inline {
+  --color-ds-main: var(--bg-app);
+  --color-ds-card: var(--bg-card);
+  --color-ds-hover: var(--bg-hover);
+  --color-ds-border: var(--border);
+  --color-ds-ink: var(--text-1);
+  --color-ds-muted: var(--text-2);
+  --color-ds-faint: var(--text-3);
+  --color-accent: var(--accent);
+  /* 主操作按钮（运行一次）：复用 accent 作底、白字。 */
+  --color-ds-userbubble: var(--accent);
+  --color-ds-userbubbleFg: #ffffff;
+}
+
+/* macOS 无边框窗口的标题栏拖拽区与红绿灯安全占位（Loop 编辑器为全屏 fixed overlay，
+   顶部需可拖拽且避让左上角红绿灯）。对齐项目既有 -webkit-app-region 与 84px 避让惯例。 */
+.ds-drag { -webkit-app-region: drag; }
+.ds-no-drag { -webkit-app-region: no-drag; }
+.ds-titlebar-safe-block { height: 22px; flex-shrink: 0; }
+
+/* ReactFlow 画布容器：铺主题底色，使点阵画布在亮/暗主题下都有不透明底（不透出 overlay）。 */
+.ds-workflow-canvas { background: var(--bg-app); }

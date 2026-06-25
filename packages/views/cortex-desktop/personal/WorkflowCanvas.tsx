@@ -526,7 +526,7 @@ function ReactFlowInner({
         pannable
         zoomable
         style={{ width: 150, height: 96 }}
-        nodeColor="var(--ds-accent)"
+        nodeColor="var(--accent)"
         nodeStrokeColor="transparent"
         nodeBorderRadius={3}
         maskColor="rgb(15 23 42 / 0.08)"
