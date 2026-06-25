@@ -27,6 +27,7 @@ import { createRunContext } from './runtime/run-context'
 import type { WorkflowPayload } from './runtime/interp'
 import { stopWorkflowScheduler, rescheduleWorkflows } from './scheduler'
 import { startWebhookServer, stopWebhookServer } from './webhook-server'
+import { killAllHeadlessPrompts } from './run-prompt-headless'
 
 // ── 活跃 run 注册表 ────────────────────────────────────────────────────────────
 
@@ -384,4 +385,6 @@ export function killAllWorkflows(): void {
   stopWorkflowScheduler()
   // 停止 webhook server。
   stopWebhookServer()
+  // 终止所有 AI 节点无头子进程（与 killAllCli 隔离的独立进程注册表，KTD3）。
+  killAllHeadlessPrompts()
 }

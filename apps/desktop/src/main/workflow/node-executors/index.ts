@@ -46,6 +46,7 @@ import {
 import { executeCode, executeCustom } from './code.js'
 import { executeHttpRequest } from './http.js'
 import { executeGenerateImage } from './image.js'
+import { executeAiAgent, executeParameterExtractor, executeQuestionClassifier } from './ai.js'
 
 // ── 对外类型契约 ──────────────────────────────────────────────────────────────
 
@@ -228,10 +229,16 @@ export async function executeNode(
       return executeHttpRequest(node.config, primary, scope)
 
     // ── AI 节点（U12 实现）─────────────────────────────────────────────────────
+    // 三种 AI 节点共用 runPromptHeadless（CLI spawn 适配，KTD3）。
+    // workspaceRoot 取 deps.workspaceRoot（触发器节点解析注入），ai.ts 内部再做三级兜底。
     case 'ai-agent':
+      return executeAiAgent(node.config, primary, scope, ctx, deps.workspaceRoot)
+
     case 'parameter-extractor':
+      return executeParameterExtractor(node.config, primary, scope, ctx, deps.workspaceRoot)
+
     case 'question-classifier':
-      throw new Error(`节点类型 ${node.type} 待 U12（AI 节点 CLI spawn 适配）实现`)
+      return executeQuestionClassifier(node.config, primary, scope, ctx, deps.workspaceRoot)
 
     // ── 图片生成节点（U13 实现）────────────────────────────────────────────────
     // workspaceRoot 优先取 deps.workspaceRoot（由 graph-executor 从触发器 config 解析并注入）。
