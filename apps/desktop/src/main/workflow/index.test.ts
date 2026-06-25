@@ -146,8 +146,8 @@ describe('U9 createWorkflowRuntime', () => {
       // runNow 返回初始 running run（fire-and-forget）
       const result = await runtime.runNow(workflow.id, 'manual', {})
       expect(result.ok).toBe(true)
-      expect(result.status).toBe('running')
-      expect(typeof result.runId).toBe('string')
+      expect(result.run?.status).toBe('running')
+      expect(typeof result.run?.id).toBe('string')
 
       // 等待后台 run 完成（fire-and-forget，轮询直到 updateRun 被调用一次）
       await vi.waitFor(() => {
@@ -203,8 +203,8 @@ describe('U9 createWorkflowRuntime', () => {
       // 短暂等待 run 启动
       await new Promise((r) => setTimeout(r, 50))
 
-      // 停止
-      runtime.stopRun(result.runId)
+      // 停止：run.id 即为 runId
+      runtime.stopRun(result.run!.id)
 
       // run 应该以 error/cancelled 终止，而不是一直卡在 running
       await vi.waitFor(() => {

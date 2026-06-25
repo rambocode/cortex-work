@@ -66,6 +66,7 @@ function makeCtx(cancelled = false): RunContext {
     runVars: {},
     pendingApprovals: new Map(),
     cancelToken: { cancelled },
+    executionBudget: { count: 0 },
     aiProcesses: new Map(),
   }
 }

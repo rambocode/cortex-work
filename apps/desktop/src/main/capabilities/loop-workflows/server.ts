@@ -113,22 +113,36 @@ export function registerLoopWorkflowsTools(mcp: McpServer, ctx: ToolContext): vo
       }
 
       // 从 manual-trigger 节点提取 inputSchema（该节点定义了运行一次时的输入字段）。
+      // P2 Fix-14：每项加 description/lastStatus/triggerType，帮助 agent 选择合适工作流。
       const items = callable.map((w) => {
         const manualNode = w.nodes.find((n) => n.type === "manual-trigger");
         // manual-trigger 节点的 config.inputSchema 为 WorkflowInputField[] 数组；
-        // 转为 key→{ type, required, label } 映射方便 AI 理解输入结构。
+        // 转为 key→{ type, required, label, description } 映射方便 AI 理解输入结构。
         const rawSchema = manualNode
           ? (manualNode.config as WorkflowManualTriggerConfig).inputSchema
           : undefined;
-        const inputSchema: Record<string, { type: string; required: boolean; label: string }> = {};
+        const inputSchema: Record<string, { type: string; required: boolean; label: string; description?: string }> = {};
         if (rawSchema) {
           for (const field of rawSchema) {
-            inputSchema[field.key] = { type: field.type, required: field.required, label: field.label };
+            inputSchema[field.key] = {
+              type: field.type,
+              required: field.required,
+              label: field.label,
+              ...(field.description ? { description: field.description } : {}),
+            };
           }
         }
+        // 触发器类型（manual/schedule/webhook，让 agent 了解触发方式）
+        const triggerNode = w.nodes.find(
+          (n) => n.type === "manual-trigger" || n.type === "schedule-trigger" || n.type === "webhook-trigger"
+        );
+        const triggerType = triggerNode?.type ?? "manual-trigger";
         return {
           id: w.id,
           name: w.name,
+          description: "",  // WorkflowDef 暂无 description 字段，占位
+          lastStatus: w.lastStatus,
+          triggerType,
           inputSchema,
         };
       });
@@ -196,7 +210,7 @@ export function registerLoopWorkflowsTools(mcp: McpServer, ctx: ToolContext): vo
           return makeErrorResult(`run_workflow 执行失败：${result.error ?? "未知错误"}`);
         }
 
-        // 构造可读摘要 + 结构化输出，让 agent 既能读懂文本也能程序化提取。
+        // P2 Fix-14：result 里加 run_id，让 agent 可在日志/IPC 里追踪此次 run。
         const outputData = result.output
           ? { text: result.output.text ?? "", json: result.output.json }
           : undefined;
@@ -204,7 +218,10 @@ export function registerLoopWorkflowsTools(mcp: McpServer, ctx: ToolContext): vo
           ? `工作流「${workflow.name}」执行完成。\n输出：${result.output.text}`
           : `工作流「${workflow.name}」执行完成。`;
 
-        return makeSuccessResult(textSummary, outputData ? { output: outputData } : undefined);
+        return makeSuccessResult(textSummary, {
+          run_id: result.runId,
+          ...(outputData ? { output: outputData } : {}),
+        });
       } catch (e) {
         return makeErrorResult(`run_workflow 执行异常：${e instanceof Error ? e.message : String(e)}`);
       }

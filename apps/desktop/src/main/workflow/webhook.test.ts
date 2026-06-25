@@ -95,7 +95,8 @@ function request(opts: {
 // ── 测试 ──────────────────────────────────────────────────────────────────────
 
 describe('webhook-server', () => {
-  const runFn = vi.fn(async () => ({ ok: true, runId: 'run-test', status: 'running' }))
+  // P1 Fix-4：runFn 返回类型对齐 runWorkflowInternal → { ok, run }，webhook-server 用 run?.id 取 runId
+  const runFn = vi.fn(async () => ({ ok: true, run: { id: 'run-test' } }))
 
   beforeAll(async () => {
     vi.mocked(loadWorkflows).mockResolvedValue([
@@ -197,13 +198,15 @@ describe('webhook-server', () => {
     expect(runFn).toHaveBeenCalledOnce()
   })
 
-  it('/hook-run stub → 200', async () => {
+  it('/hook-run stub → 501（P2 Fix-12：未实现端点返回 501 Not Implemented）', async () => {
     const res = await request({
       method: 'POST',
       path: '/hook-run',
     })
-    expect(res.status).toBe(200)
-    const body = JSON.parse(res.body) as { status: string }
-    expect(body.status).toBe('ok')
+    // P2 Fix-12：/hook-run 是预留端点，暂不实现，应返回 501 而非 200，
+    // 防止 agent 误以为调用成功。
+    expect(res.status).toBe(501)
+    const body = JSON.parse(res.body) as { error: string }
+    expect(body.error).toContain('未实现')
   })
 })

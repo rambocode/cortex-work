@@ -391,8 +391,8 @@ export interface DesktopBridge {
   workflowSetCallableByAgent?(id: string, callableByAgent: boolean): Promise<WorkflowDef | null>;
   /** 删除工作流（含运行历史）。 */
   workflowDelete?(id: string): Promise<void>;
-  /** 立即触发一次运行（待 U9 接线）。 */
-  workflowRunNow?(id: string): Promise<WorkflowRun | null>;
+  /** 立即触发一次运行，返回初始 running WorkflowRun。P1 AC-003：支持可选 input 参数。 */
+  workflowRunNow?(id: string, input?: Record<string, unknown>): Promise<WorkflowRun | null>;
   /** 停止正在进行的运行（待 U9 接线）。 */
   workflowStop?(id: string, runId: string): Promise<void>;
   /** 列出工作流的运行历史。 */
@@ -407,10 +407,12 @@ export interface DesktopBridge {
   workflowNodeRun?(workflowId: string, nodeId: string, input: unknown): Promise<unknown>;
   /** 配置面板单节点测试（待 U8 接线）。 */
   workflowNodeTest?(workflowId: string, nodeId: string, input: unknown): Promise<unknown>;
-  /** human-approval 节点 resolve（待 U10 接线）。 */
-  workflowResolveApproval?(runId: string, decision: "approved" | "rejected"): Promise<void>;
-  /** cron 表达式即时校验（ScheduleEditor 实时反馈，真相以 main 调度为准）。 */
-  workflowValidateCron?(expression: string, timezone?: string): Promise<{ ok: boolean; error?: string; nextRun?: string }>;
+  /** human-approval 节点 resolve。P0 Fix-1：入参为 approval token（非 runId），
+   * token 由 executeHumanApproval 通过 WorkflowRunEvent 广播给 UI。 */
+  workflowResolveApproval?(token: string, decision: "approved" | "rejected"): Promise<void>;
+  /** cron 表达式即时校验（ScheduleEditor 实时反馈，真相以 main 调度为准）。
+   * P2 Fix-13：nextRun 类型与 CronValidation/automationValidateCron 对齐为 number（epoch ms）。 */
+  workflowValidateCron?(expression: string, timezone?: string): Promise<{ ok: boolean; error?: string; nextRun?: number }>;
   /** 订阅工作流列表变化（CRUD 后主进程推全量快照；返回退订函数）。 */
   onWorkflowChanged?(cb: (list: WorkflowDef[]) => void): () => void;
   /** 订阅单次运行阶段事件（start/end，运行时 U8/U9 推送；返回退订函数）。 */

@@ -180,6 +180,11 @@ export interface WorkflowWebhookTriggerConfig {
   path: string;
   method: WorkflowWebhookMethod;
   workspaceRoot?: string;
+  /**
+   * 身份验证 token（P2 Fix-12）。normalizeWorkflow 自动生成 UUID；
+   * webhook-server 用 timingSafeEqual 校验 Authorization: Bearer <token>。
+   */
+  webhookToken?: string;
 }
 
 export interface WorkflowAiAgentConfig {
@@ -458,8 +463,22 @@ export interface WorkflowDef {
 
 // ── 事件（主进程 → 渲染层）────────────────────────────────────────────────────
 
+/**
+ * human-approval 节点进入 pending 时广播的待审批信息。
+ * P0 Fix-1：与 core/desktop/workflow-types.ts 逐字镜像，修改须同步。
+ */
+export interface WorkflowPendingApproval {
+  token: string;
+  nodeId: string;
+  nodeName: string;
+  title: string;
+  instruction: string;
+}
+
 export interface WorkflowRunEvent {
   workflowId: string;
   run: WorkflowRun;
-  phase: "start" | "end";
+  phase: "start" | "end" | "pending-approval";
+  /** phase='pending-approval' 时携带，供 UI 展示审批卡。 */
+  pendingApproval?: WorkflowPendingApproval;
 }

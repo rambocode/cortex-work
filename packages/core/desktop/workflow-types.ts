@@ -541,9 +541,25 @@ export interface WorkflowDef {
 
 // ── 事件（主进程 → 渲染层）────────────────────────────────────────────────────
 
+/**
+ * human-approval 节点进入 pending 时广播的待审批信息。
+ * UI 凭此展示「审批」操作卡，拿 token 调 workflowResolveApproval。
+ * P0 Fix-1：让 UI 能拿到待审批 token，进而调 IPC resolve。
+ */
+export interface WorkflowPendingApproval {
+  /** approvalId = randomUUID，flow-control.ts 注册到 ctx.pendingApprovals 的 key。 */
+  token: string;
+  nodeId: string;
+  nodeName: string;
+  title: string;
+  instruction: string;
+}
+
 /** 工作流运行阶段推送事件（对齐 AutomationRunEvent 结构）。 */
 export interface WorkflowRunEvent {
   workflowId: string;
   run: WorkflowRun;
-  phase: "start" | "end";
+  phase: "start" | "end" | "pending-approval";
+  /** phase='pending-approval' 时携带，供 UI 展示审批卡并调 workflowResolveApproval。 */
+  pendingApproval?: WorkflowPendingApproval;
 }

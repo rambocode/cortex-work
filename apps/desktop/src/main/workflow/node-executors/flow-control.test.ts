@@ -24,7 +24,7 @@ import {
 } from './flow-control.js'
 import type { WorkflowPayload } from '../runtime/interp.js'
 import { createRunContext } from '../runtime/run-context.js'
-import type { WorkflowDef, WorkflowNode } from '../types.js'
+import type { WorkflowDef, WorkflowNode, WorkflowHumanApprovalConfig } from '../types.js'
 import type { RunGraphFn, RunGraphResult } from './flow-control.js'
 
 /** 创建类型安全的 mock RunGraph 返回值。 */
@@ -542,6 +542,17 @@ describe('executeSubworkflow', () => {
 // ── human-approval ────────────────────────────────────────────────────────────
 
 describe('executeHumanApproval', () => {
+  // P0 Fix-1：executeHumanApproval 新增 node 参数，测试用最小 WorkflowNode 存根。
+  // as unknown as WorkflowNode 是有意为之：测试只关心 node.id/name（供 onPendingApproval 回调），
+  // 不需要完整的 config union，强制转换避免在测试中补全所有 required fields。
+  const node = {
+    id: 'node-approval-1',
+    type: 'human-approval' as const,
+    name: 'Test Approval Node',
+    config: {} as WorkflowHumanApprovalConfig,
+    position: { x: 0, y: 0 },
+    disabled: false,
+  } as WorkflowNode
   const config = {
     title: 'Test Approval',
     instruction: 'Please review',
@@ -552,7 +563,7 @@ describe('executeHumanApproval', () => {
 
   it('noRunRef=true 时自动 approved（单节点测试模式）', async () => {
     const ctx = createRunContext()
-    const result = await executeHumanApproval(config, payload, scope, ctx, true)
+    const result = await executeHumanApproval(node, config, payload, scope, ctx, true)
     expect(result.branch).toBe('approved')
     expect(result.message).toContain('test')
   })
@@ -560,7 +571,7 @@ describe('executeHumanApproval', () => {
   it('resolve(approved)：branch=approved，payload.json 附加 _approved', async () => {
     const ctx = createRunContext()
     // 设置延迟 resolve：在 executeHumanApproval 注册 pendingApprovals 后 resolve
-    const approvePromise = executeHumanApproval(config, payload, scope, ctx)
+    const approvePromise = executeHumanApproval(node, config, payload, scope, ctx)
 
     // 等一个 microtask 让 pendingApprovals 完成注册
     await Promise.resolve()
@@ -579,7 +590,7 @@ describe('executeHumanApproval', () => {
 
   it('resolve(rejected)：branch=rejected，payload 原样透传', async () => {
     const ctx = createRunContext()
-    const approvePromise = executeHumanApproval(config, payload, scope, ctx)
+    const approvePromise = executeHumanApproval(node, config, payload, scope, ctx)
 
     await Promise.resolve()
     ;[...ctx.pendingApprovals.values()][0].resolve('rejected')
@@ -598,7 +609,7 @@ describe('executeHumanApproval', () => {
       onTimeout: 'rejected' as const,
     }
 
-    const approvePromise = executeHumanApproval(timeoutConfig, payload, scope, ctx)
+    const approvePromise = executeHumanApproval(node, timeoutConfig, payload, scope, ctx)
     // 推进时间
     vi.advanceTimersByTime(1001)
 
@@ -616,7 +627,7 @@ describe('executeHumanApproval', () => {
       onTimeout: 'approved' as const,
     }
 
-    const approvePromise = executeHumanApproval(timeoutConfig, payload, scope, ctx)
+    const approvePromise = executeHumanApproval(node, timeoutConfig, payload, scope, ctx)
     vi.advanceTimersByTime(501)
 
     const result = await approvePromise
@@ -626,7 +637,7 @@ describe('executeHumanApproval', () => {
 
   it('stop 级联 rejected：遍历 pendingApprovals 调用 resolve(rejected)', async () => {
     const ctx = createRunContext()
-    const approvePromise = executeHumanApproval(config, payload, scope, ctx)
+    const approvePromise = executeHumanApproval(node, config, payload, scope, ctx)
 
     await Promise.resolve()
     // 模拟 stop handler：遍历 pendingApprovals 级联 reject

@@ -28,6 +28,7 @@ import type { WorkflowPayload } from './runtime/interp'
 import { stopWorkflowScheduler, rescheduleWorkflows } from './scheduler'
 import { startWebhookServer, stopWebhookServer } from './webhook-server'
 import { killAllHeadlessPrompts } from './run-prompt-headless'
+import { registerModule } from './node-executors/modules.js'
 
 // ── 活跃 run 注册表 ────────────────────────────────────────────────────────────
 
@@ -38,6 +39,24 @@ interface ActiveRun {
 }
 
 const activeRuns = new Map<string, ActiveRun>()
+
+/**
+ * 遍历所有活跃 run，找到含指定 token 的 pendingApprovals，调用其 resolve(decision)。
+ *
+ * 返回 true = 找到并触发；false = token 不存在（已超时/已被 stop 级联 reject）。
+ * IPC handler workflow:approval:resolve 调此函数，不再无条件 throw。
+ */
+export function resolveApproval(token: string, decision: 'approved' | 'rejected'): boolean {
+  for (const { ctx } of activeRuns.values()) {
+    const entry = ctx.pendingApprovals.get(token)
+    if (entry) {
+      // settle 函数内部会同时 clearTimeout + 从 Map 移除（flow-control.ts）
+      entry.resolve(decision)
+      return true
+    }
+  }
+  return false
+}
 
 // ── 内部工具 ──────────────────────────────────────────────────────────────────
 
@@ -69,16 +88,23 @@ function makeRun(trigger: string): WorkflowRun {
  * @param trigger    触发来源（'manual' | 'schedule' | 'webhook'）
  * @param input      触发器初始 payload（manual 手动输入 / webhook body）
  */
+/**
+ * runWorkflowInternal 返回类型：
+ *   ok=true  → run 即初始 running 状态的 WorkflowRun（与 bridge.ts workflowRunNow 契约一致）。
+ *   ok=false → null（工作流不存在等错误）。
+ *
+ * P1 AC-001：IPC 返回完整 WorkflowRun 对象，preload/hook 可直接 upsertRun 到缓存。
+ */
 async function runWorkflowInternal(
   workflowId: string,
   trigger: string,
   input: Record<string, unknown>,
-): Promise<{ ok: boolean; runId: string; status: 'running' | 'error' }> {
+): Promise<{ ok: boolean; run: WorkflowRun | null }> {
   // 一次性快照：运行中用户编辑不影响在途 run（KTD2 open question 决定）。
   const allWorkflows = await loadWorkflows()
   const workflow = allWorkflows.find((w) => w.id === workflowId)
   if (!workflow) {
-    return { ok: false, runId: '', status: 'error' }
+    return { ok: false, run: null }
   }
 
   const run = makeRun(trigger)
@@ -107,6 +133,26 @@ async function runWorkflowInternal(
     text: '',
   }
 
+  // P1 Fix-7：将 workflow.modules 注册到内存注册表，使 custom 节点执行时能 getModule。
+  // 需在 runGraph 之前完成，否则 custom 节点在第一轮 executeNode 时 getModule 找不到模块。
+  if (workflow.modules) {
+    for (const mod of workflow.modules) {
+      registerModule(mod)
+    }
+  }
+
+  // P0 Fix-1：human-approval 进入 pending 时，广播 pending-approval 事件让 UI 拿到 token。
+  const onPendingApproval = (info: {
+    token: string; nodeId: string; nodeName: string; title: string; instruction: string
+  }): void => {
+    broadcastWorkflowRunEvent({
+      workflowId,
+      run: { ...run },
+      phase: 'pending-approval',
+      pendingApproval: info,
+    })
+  }
+
   // fire-and-forget：后台执行引擎，不 await。
   void (async () => {
     try {
@@ -120,6 +166,7 @@ async function runWorkflowInternal(
           // runGraph（loop/subworkflow）需要 runGraph 函数引用以避免循环 import。
           runGraph: runGraph as Parameters<typeof runGraph>[4]['runGraph'],
           depth: 0,
+          onPendingApproval,
         },
         0,
       )
@@ -176,7 +223,8 @@ async function runWorkflowInternal(
     }
   })()
 
-  return { ok: true, runId: run.id, status: 'running' }
+  // 返回初始 running run 对象（完整 WorkflowRun），preload/hook 可直接 upsertRun。
+  return { ok: true, run: { ...run } }
 }
 
 // ── 对外 API ──────────────────────────────────────────────────────────────────
@@ -184,13 +232,14 @@ async function runWorkflowInternal(
 export interface WorkflowRuntime {
   /**
    * 手动触发一次执行（workflow:runNow IPC → 此方法）。
-   * fire-and-forget：立即返回初始 running run，执行在后台进行。
+   * fire-and-forget：立即返回初始 running run 完整对象，执行在后台进行。
+   * P1 AC-001：返回 WorkflowRun|null 以统一 bridge.ts 的契约声明。
    */
   runNow: (
     workflowId: string,
     trigger: string,
     input: Record<string, unknown>,
-  ) => Promise<{ ok: boolean; runId: string; status: 'running' | 'error' }>
+  ) => Promise<{ ok: boolean; run: WorkflowRun | null }>
 
   /**
    * 停止正在运行的 run（workflow:stop IPC → 此方法）。
@@ -215,12 +264,21 @@ export interface WorkflowRuntime {
   /**
    * MCP 工具层调用（U14 run_workflow）：同步等待完成后返回结果。
    * 与 runNow 不同，此方法 await 整个执行完成再返回（供 MCP tool 同步响应）。
+   * P2 Fix-14：result.runId 供 server.ts 加入结构化 data，让 agent 可追踪 run。
    */
   runForTool: (
     idOrName: string,
     input: Record<string, unknown>,
     workspaceOverride?: string,
-  ) => Promise<{ ok: boolean; output?: WorkflowPayload; error?: string }>
+  ) => Promise<{ ok: boolean; runId?: string; output?: WorkflowPayload; error?: string }>
+
+  /**
+   * 解析人工审批：找到 pendingApprovals 中含 token 的 run，调用其 resolve(decision)。
+   * P0 Fix-1：IPC workflow:approval:resolve 调此方法，不再无条件 throw。
+   *
+   * @returns true = 找到并触发；false = token 不存在（已超时/已被 stop 级联拒绝）
+   */
+  resolveApproval: (token: string, decision: 'approved' | 'rejected') => boolean
 
   /**
    * 同步调度器与 webhook server（settings 变更时重调）。
@@ -307,6 +365,25 @@ export function createWorkflowRuntime(): WorkflowRuntime {
         json: Object.keys(input).length > 0 ? input : null,
         text: '',
       }
+      // P1 Fix-7：注册 workflow.modules 到内存注册表，确保 custom 节点可用。
+      if (workflow.modules) {
+        for (const mod of workflow.modules) {
+          registerModule(mod)
+        }
+      }
+
+      // P2 Fix-14（agent 可用性）：含 human-approval 节点的工作流提前返回错误。
+      // MCP 工具调用无法交互式解批，继续会导致 agent 调用永久挂起。
+      if (workflow.nodes.some((n) => n.type === 'human-approval')) {
+        // 已写入的 running run 标记为 error 并广播结束
+        const finishedAt = new Date().toISOString()
+        const errMsg = '该工作流含人工审批节点，暂不支持 AI 调用'
+        await updateRun(workflow.id, run.id, { status: 'error', finishedAt, message: errMsg }).catch(() => {})
+        broadcastWorkflowRunEvent({ workflowId: workflow.id, run: { ...run, status: 'error', finishedAt, message: errMsg } as WorkflowRun, phase: 'end' })
+        activeRuns.delete(run.id)
+        return { ok: false, error: errMsg }
+      }
+
       try {
         const result = await runGraph(
           workflow,
@@ -329,13 +406,23 @@ export function createWorkflowRuntime(): WorkflowRuntime {
         broadcastWorkflowChanged(await loadWorkflows())
         activeRuns.delete(run.id)
         return result.status === 'success'
-          ? { ok: true, output: result.output }
-          : { ok: false, error: result.errorMessage }
+          ? { ok: true, runId: run.id, output: result.output }
+          : { ok: false, runId: run.id, error: result.errorMessage }
       } catch (err) {
+        // P1 Fix-3: catch 内补全 error 状态落盘 + 广播，防止 run 永卡 running 状态。
+        const finishedAt = new Date().toISOString()
+        const errMsg = err instanceof Error ? err.message : String(err)
+        const finalRun: Partial<WorkflowRun> = { status: 'error', finishedAt, message: errMsg }
+        await updateRun(workflow.id, run.id, finalRun).catch(() => {})
+        await patchWorkflow(workflow.id, { lastRunAt: finishedAt, lastStatus: 'error', lastMessage: errMsg }).catch(() => {})
+        broadcastWorkflowRunEvent({ workflowId: workflow.id, run: { ...run, ...finalRun } as WorkflowRun, phase: 'end' })
+        broadcastWorkflowChanged(await loadWorkflows().catch(() => []))
         activeRuns.delete(run.id)
-        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+        return { ok: false, runId: run.id, error: errMsg }
       }
     },
+
+    resolveApproval,
 
     async sync(settings) {
       // 重新加载工作流列表，同步调度器 + webhook server。

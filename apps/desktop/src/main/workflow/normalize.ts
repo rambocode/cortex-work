@@ -3,6 +3,8 @@
 // 但调度字段替换为 cortex ScheduleSpec（非 Kun WorkflowScheduleV1）。
 // 契约：任何输入（包括未知 kind、损坏节点、越界值）都安全处理——不抛出，返回合法默认值。
 
+import { randomUUID } from 'crypto'
+
 import type {
   WorkflowClassifierCategory,
   WorkflowConditionOperator,
@@ -434,6 +436,11 @@ export function normalizeWorkflowNode(value: unknown, index: number): WorkflowNo
           path: normalizeWebhookPath(config.path),
           method: normalizeWebhookMethod(config.method),
           workspaceRoot: asTrimmed(config.workspaceRoot),
+          // P2 Fix-12：无 token 时自动生成，防止未鉴权的任意 POST 触发工作流。
+          // 已有 token（从磁盘加载）原样保留；新建工作流分配一个随机 UUID。
+          webhookToken: typeof config.webhookToken === 'string' && config.webhookToken
+            ? config.webhookToken
+            : randomUUID(),
         },
       };
     case "ai-agent":

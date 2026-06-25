@@ -89,6 +89,19 @@ export interface NodeExecutorDeps {
    * 用途：单节点测试 / graph-executor mock 场景（对齐 Kun "no runRef → auto-approve"）。
    */
   noRunRef?: boolean
+
+  /**
+   * human-approval 节点进入 pending 时的通知回调。
+   * P0 Fix-1：index.ts 实现为 broadcastWorkflowRunEvent(pending-approval)，
+   * 让 UI 能拿到 token 进而调 workflowResolveApproval。
+   */
+  onPendingApproval?: (info: {
+    token: string
+    nodeId: string
+    nodeName: string
+    title: string
+    instruction: string
+  }) => void
 }
 
 /**
@@ -190,10 +203,19 @@ export async function executeNode(
     }
 
     case 'human-approval':
-      return executeHumanApproval(node.config, primary, scope, ctx, deps.noRunRef)
+      return executeHumanApproval(
+        node,
+        node.config,
+        primary,
+        scope,
+        ctx,
+        deps.noRunRef,
+        deps.onPendingApproval,
+      )
 
     case 'delay':
-      return executeDelay(node.config, primary)
+      // P1 Fix-8：传 ctx 使 delay 节点能响应 cancelToken 快速退出
+      return executeDelay(node.config, primary, ctx)
 
     // ── 数据处理节点（U11 实现）────────────────────────────────────────────────
     case 'set-fields':

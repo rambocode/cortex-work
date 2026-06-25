@@ -457,12 +457,26 @@ export async function executeSubworkflow(
  *   实际上，只要 ctx.pendingApprovals Map 正常传入就走正常流程；
  *   测试时使用 noRunRef=true 参数显式跳过挂起。
  */
+/**
+ * human-approval 节点的待审批通知回调类型（P0 Fix-1）。
+ * index.ts 注入的实现调 broadcastWorkflowRunEvent(pending-approval) 把 token 推给 UI。
+ */
+type OnPendingApprovalFn = (info: {
+  token: string
+  nodeId: string
+  nodeName: string
+  title: string
+  instruction: string
+}) => void
+
 export async function executeHumanApproval(
+  node: WorkflowNode,
   config: WorkflowHumanApprovalConfig,
   payload: WorkflowPayload,
   _scope: InterpScope,
   ctx: RunContext,
-  noRunRef?: boolean
+  noRunRef?: boolean,
+  onPendingApproval?: OnPendingApprovalFn
 ): Promise<NodeOutcome> {
   // 单节点测试/无 runRef 时自动 approved（对齐 Kun "Single-node test / validation: cannot pause"）
   if (noRunRef) {
@@ -488,6 +502,16 @@ export async function executeHumanApproval(
 
     // 注册到 pendingApprovals，供外部 IPC handler 或 stop handler 调用
     ctx.pendingApprovals.set(token, { resolve: settle })
+
+    // P0 Fix-1：注册完成后立即广播 pending-approval 事件，让 UI 能拿到 token。
+    // 通知在 set 之后发出，确保 IPC 侧 resolveApproval 收到时 token 已在 Map 中。
+    onPendingApproval?.({
+      token,
+      nodeId: node.id,
+      nodeName: node.name,
+      title: config.title,
+      instruction: config.instruction,
+    })
   })
 
   if (decision === 'rejected') {
@@ -510,12 +534,44 @@ export async function executeHumanApproval(
 /**
  * delay 节点：等待指定毫秒后透传 payload。
  * delayMs 上限 86400000（24 小时），避免超长 await 阻塞引擎线程。
+ *
+ * P1 Fix-8：响应 cancelToken，stop 后快速退出（不再等待最长 24h）。
+ * 实现：Promise.race([delay, cancelPoll])，cancelPoll 每 50ms 检查 cancelToken.cancelled。
  */
 export async function executeDelay(
   config: WorkflowDelayConfig,
-  payload: WorkflowPayload
+  payload: WorkflowPayload,
+  ctx?: RunContext
 ): Promise<NodeOutcome> {
   const ms = Math.max(0, Math.min(config.delayMs, MAX_DELAY_MS))
-  await new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+  // 若无 ctx（单节点测试等场景），退化为原始实现。
+  if (!ctx) {
+    await new Promise<void>((resolve) => setTimeout(resolve, ms))
+    return { payload, message: `Waited ${ms}ms` }
+  }
+
+  // cancelToken 轮询（对齐 ai.ts 的轮询模式）：每 50ms 检查一次，取消后立即退出。
+  const POLL_INTERVAL = 50
+  const cancelled = await new Promise<boolean>((resolve) => {
+    const deadline = Date.now() + ms
+    const timer = setTimeout(() => resolve(false), ms)
+    const poll = setInterval(() => {
+      if (ctx.cancelToken.cancelled) {
+        clearTimeout(timer)
+        clearInterval(poll)
+        resolve(true)
+      } else if (Date.now() >= deadline) {
+        clearInterval(poll)
+        resolve(false)
+      }
+    }, POLL_INTERVAL)
+  })
+
+  if (cancelled) {
+    // 取消时抛错，让 runGraph 捕获并记录 cancelled 状态（对齐 cancelToken 语义）。
+    throw new Error('工作流已取消。')
+  }
+
   return { payload, message: `Waited ${ms}ms` }
 }

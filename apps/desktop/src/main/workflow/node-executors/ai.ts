@@ -116,13 +116,26 @@ export function extractCategoryId(
     // 继续策略2
   }
 
-  // 策略2：在输出中找 category.id 或 category.label 的精确/大小写不敏感匹配
-  const lower = trimmed.toLowerCase()
-  for (const cat of categories) {
-    if (
-      lower.includes(cat.id.toLowerCase()) ||
-      lower.includes(cat.label.toLowerCase())
-    ) {
+  // 策略2：在输出中找 category.id 或 category.label 的匹配（防止短 id 误命中长词）。
+  // id 通常为 ASCII（如 'tech'、'billing'），用词边界正则防止 'tech' 命中 'biotechnology'。
+  // label 可能含 CJK（如 '技术问题'），\b 对 CJK 无效；改用「前后无字母/数字」断言
+  //   或直接 includes（CJK label 误命中短 label 概率极低，保持简单）。
+  // 按 id 长度降序匹配，优先匹配更精确的长 id（避免 'ai' 先于 'ai-agent' 命中）。
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const isAsciiOnly = (s: string) => /^[\x00-\x7F]*$/.test(s)
+  const sortedByLength = [...categories].sort((a, b) => b.id.length - a.id.length)
+  for (const cat of sortedByLength) {
+    const escapedId = escapeRegExp(cat.id)
+    // id 为 ASCII 时用 \b 词边界；含非 ASCII 时直接 includes（罕见，兜底）
+    const idRe = isAsciiOnly(cat.id)
+      ? new RegExp(`\\b${escapedId}\\b`, 'i')
+      : new RegExp(escapedId, 'i')
+    // label 含 CJK 时 \b 无效，改用「前后无字母数字下划线」的零宽断言，确保精确匹配
+    const escapedLabel = escapeRegExp(cat.label)
+    const labelRe = isAsciiOnly(cat.label)
+      ? new RegExp(`\\b${escapedLabel}\\b`, 'i')
+      : new RegExp(`(?<![\\w])${escapedLabel}(?![\\w])`)
+    if (idRe.test(trimmed) || labelRe.test(trimmed)) {
       return cat.id
     }
   }

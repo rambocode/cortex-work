@@ -20,7 +20,7 @@ import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extr
 import { startMediaGenHost, stopMediaGenHost } from "./capabilities/media-gen/server";
 import { startLoopWorkflowsHost, stopLoopWorkflowsHost } from "./capabilities/loop-workflows/server";
 import { initWorkflowRuntime, killAllWorkflows } from "./workflow/index";
-import { loadWorkflows } from "./workflow/store";
+import { loadWorkflows, markOrphanRunsKilled } from "./workflow/store";
 import { initWorkflowScheduler } from "./workflow/scheduler";
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
@@ -280,7 +280,16 @@ if (!app.requestSingleInstanceLock()) {
     // 工作流运行时（loop 引擎）：独立于 automation，与之并列。
     // fire-and-forget：调度器初始化快，失败已内部降级，不阻塞建窗。
     const workflowRuntime = initWorkflowRuntime()
+    // P1 Fix-2：启动时标记残留的 running run 为 error（崩溃/强退后留下的孤儿 run）。
+    // 对齐 automation/scheduler.ts initScheduler 中 markOrphanRunsKilled 的做法。
+    markOrphanRunsKilled().catch((err) => {
+      console.error('[workflow] markOrphanRunsKilled 失败:', err)
+    })
     loadWorkflows().then((workflows) => {
+      // P1 Fix-9（去重调度）：只保留一条初始化路径——initWorkflowScheduler 负责 catch-up，
+      // sync() 主要负责 webhook server 启停。两者都调用 rescheduleWorkflows/runFn 会导致
+      // catch-up 在 initWorkflowScheduler + sync() 内各触发一次（重复 run）。
+      // 修：initWorkflowScheduler 做 catch-up + 建 cron job，sync() 只管 webhook server。
       initWorkflowScheduler(workflows, workflowRuntime.runNow)
       workflowRuntime.sync().catch((err) => {
         console.error('[workflow] sync 失败:', err)

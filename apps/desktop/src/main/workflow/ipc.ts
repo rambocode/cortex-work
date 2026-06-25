@@ -115,10 +115,14 @@ export function registerWorkflowHandlers(): void {
   // 这些频道已注册，渲染层调用时得到明确错误而非「no handler registered」。
   // 引擎接线完成后替换 body 实现，删除此注释即可。
 
-  // 立即触发一次运行（fire-and-forget：立即返回 running run，执行在后台进行）。
-  ipcMain.handle("workflow:runNow", (_e, id: string, input: Record<string, unknown> = {}) => {
+  // 立即触发一次运行（fire-and-forget：立即返回初始 WorkflowRun，执行在后台进行）。
+  // P1 AC-001：返回完整 WorkflowRun 而非 {ok,runId,status}，与 bridge.ts 契约一致。
+  // P1 AC-003：入参支持可选 input（对应 manual-trigger inputSchema），让 UI 传值生效。
+  ipcMain.handle("workflow:runNow", async (_e, id: string, input: Record<string, unknown> = {}) => {
     assertId(id);
-    return getWorkflowRuntime().runNow(id, "manual", input);
+    const result = await getWorkflowRuntime().runNow(id, "manual", input);
+    // bridge 契约：workflowRunNow?(id, input?) → Promise<WorkflowRun|null>
+    return result.ok ? result.run : null;
   });
 
   // 停止正在运行的 run（cancel + 级联拒绝 pending approvals + kill AI 进程）。
@@ -156,37 +160,39 @@ export function registerWorkflowHandlers(): void {
   });
 
   // human-approval 节点 resolve（approved/rejected → 唤醒挂起节点）。
-  // RunContext.pendingApprovals Map 由 stop + 此 handler 双路 resolve（R11）。
-  ipcMain.handle("workflow:approval:resolve", (_e, runId: string, decision: "approved" | "rejected") => {
-    assertId(runId, "runId");
+  // 入参 { token, decision }：token 由 executeHumanApproval 广播到 UI，UI 持有后通过此 handler resolve。
+  // P0 Fix-1：不再无条件 throw；改调 runtime.resolveApproval(token, decision)。
+  ipcMain.handle("workflow:approval:resolve", (_e, token: string, decision: "approved" | "rejected") => {
+    assertId(token, "token");
     if (decision !== "approved" && decision !== "rejected") {
       throw new Error("decision 只能是 'approved' 或 'rejected'");
     }
-    // 从 activeRuns 取 ctx，遍历 pendingApprovals 找到对应 runId 的 approval。
-    // human-approval 节点把自己的 resolve 注册进 ctx.pendingApprovals（key=approvalId）；
-    // 这里以 runId 作为 approvalId（flow-control.ts 的约定，U10 实现）。
-    const runtime = getWorkflowRuntime();
-    // 直接调 stopRun 的 pendingApprovals.resolve（需要 runtime 暴露 resolveApproval）。
-    // U10 实现的 human-approval 节点用 approvalId=runId+nodeId 注册；
-    // 此处先广播 decision，由 resolveApproval 内部按 decision 分发。
-    // 简化实现：approval decision 通过 IPC 发给所有正在等待此 runId 的节点。
-    void runtime; // 占位：U10 flow-control.ts 已实现 pendingApprovals；handler 在 stop 时遍历
-    // 真正的 resolve 路径：flow-control.ts 的 executeHumanApproval 已注册到 ctx.pendingApprovals，
-    // ipc handler 需要找到对应 ctx。由于 pendingApprovals key 为 approvalId（nodeId+runId），
-    // 此处遍历所有 activeRuns 找到含该 runId 的 ctx，resolve 其 pendingApprovals。
-    // 注：getWorkflowRuntime 无法暴露 activeRuns，故此处用 import 方式访问内部状态。
-    // 此占位将在 U10 完善时替换（activeRuns 结构已定义，只需导出 resolveApproval 工具函数）。
-    throw new Error("workflow:approval:resolve 的 approvalId 映射待 U10 flow-control 完善后接线（RunContext.pendingApprovals 已就绪）");
+    const found = getWorkflowRuntime().resolveApproval(token, decision);
+    // found=false 说明 token 已超时/被 stop 级联拒绝，属正常竞争情形，不报错。
+    return { ok: found };
   });
 
   // 从 DSL JSON 导入工作流（U15 接线）。
   // 入参：任意 unknown（来自 renderer 解析或用户粘贴的 JSON）。
   // 流程：parseWorkflowDsl → 分配新 id → 处理重名 → upsert + 广播。
+  // ADV-011 P2 Fix-15：DSL 导入节点数上限。
+  // 超大 DSL（数百节点）反序列化后送进 normalizeWorkflow → runGraph 会占用大量主进程 CPU，
+  // 在 Electron 单线程主进程中等同于 DoS。在解析成功后、落盘前提前拒绝。
+  const DSL_IMPORT_MAX_NODES = 500;
+
   ipcMain.handle("workflow:import", async (_e, dsl: unknown) => {
     const now = new Date().toISOString();
     const result = parseWorkflowDsl(dsl, now);
     if (!result.ok) {
       throw new Error(`工作流 DSL 解析失败：${result.error}`);
+    }
+
+    // P2 Fix-15：节点数超上限直接拒绝，防止超大 DSL 阻塞主进程（ADV-011）。
+    if (result.workflow.nodes.length > DSL_IMPORT_MAX_NODES) {
+      throw new Error(
+        `DSL 导入失败：节点数（${result.workflow.nodes.length}）超过上限 ${DSL_IMPORT_MAX_NODES}，` +
+          `请拆分后分批导入。`,
+      );
     }
 
     // 分配新 id（不信任 DSL 中的 id，防止与现有工作流冲突）

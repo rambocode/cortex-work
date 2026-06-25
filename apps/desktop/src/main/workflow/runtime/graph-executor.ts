@@ -30,6 +30,7 @@ import type { WorkflowDef, WorkflowConnection, WorkflowNodeRunStatus } from '../
 import type { WorkflowPayload, InterpScope } from './interp.js'
 import { resolveEnvVars, resolveNodeInputs, interpolate } from './interp.js'
 import type { RunContext } from './run-context.js'
+import { MAX_TOTAL_NODE_EXECUTIONS } from './run-context.js'
 import type { NodeExecutorDeps } from '../node-executors/index.js'
 import { executeNode } from '../node-executors/index.js'
 import type { WorkflowNodeRunResult } from '../types.js'
@@ -284,10 +285,17 @@ export async function runGraph(
         break
       }
 
-      // 早退检查 3：执行次数上限（防无限 loop）
+      // 早退检查 3：单层执行次数上限（防无限 loop）
       if (executions >= MAX_NODE_EXECUTIONS) {
         status = 'error'
         errorMessage = `工作流超过最大节点执行次数（${MAX_NODE_EXECUTIONS}）。`
+        break
+      }
+
+      // 早退检查 4：跨嵌套全局预算（P1 Fix-10：loop/subworkflow 递归共享同一计数器）
+      if (ctx.executionBudget.count >= MAX_TOTAL_NODE_EXECUTIONS) {
+        status = 'error'
+        errorMessage = `工作流超过全局最大节点执行次数（${MAX_TOTAL_NODE_EXECUTIONS}），可能存在深层嵌套循环。`
         break
       }
 
@@ -308,6 +316,8 @@ export async function runGraph(
       // 不变量 1：settledNodes.add 必须在 executeNode 调用之前（防重入）
       settledNodes.add(nodeId)
       executions += 1
+      // P1 Fix-10：跨嵌套全局预算同步递增（ctx 跨递归共享）
+      ctx.executionBudget.count += 1
 
       // 收集该节点所有 delivered 入边的 payload
       const inputs = incoming(nodeId)

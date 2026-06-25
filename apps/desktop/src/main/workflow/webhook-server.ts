@@ -22,6 +22,7 @@
  */
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'http'
+import { timingSafeEqual } from 'crypto'
 import type { WorkflowDef } from './types'
 import { loadWorkflows } from './store'
 
@@ -30,12 +31,14 @@ import { loadWorkflows } from './store'
 /** webhook body 大小上限（1 MB）。 */
 const MAX_BODY_SIZE = 1_048_576
 
-/** runWorkflowInternal 的类型签名（注入以避免循环 import）。 */
+/** runWorkflowInternal 的类型签名（注入以避免循环 import）。
+ * 返回类型对齐 runWorkflowInternal：{ ok, run }；webhook server 从 run.id 取 runId。
+ */
 type RunFn = (
   workflowId: string,
   trigger: string,
   input: Record<string, unknown>,
-) => Promise<{ ok: boolean; runId: string; status: string }>
+) => Promise<{ ok: boolean; run?: { id: string } | null }>
 
 // ── 内部状态 ──────────────────────────────────────────────────────────────────
 
@@ -155,11 +158,26 @@ function matchWebhook(
     const expectedToken = config.webhookToken
     const configPath = norm(config.path ?? '')
 
+    /**
+     * 时序安全 token 比较（P2 Fix-12）。
+     * 防止计时侧信道攻击：标准 ===  比较会短路，攻击者可用响应时间枚举 token。
+     * timingSafeEqual 要求等长 Buffer，长度不等时直接判 false（不泄露长度信息）。
+     */
+    const safeTokenEqual = (a: string, b: string): boolean => {
+      try {
+        const ba = Buffer.from(a)
+        const bb = Buffer.from(b)
+        return ba.length === bb.length && timingSafeEqual(ba, bb)
+      } catch {
+        return false
+      }
+    }
+
     // 尝试 A 模式：pathA = webhookPath，token 来自 header。
     if (configPath === pathA) {
       if (expectedToken) {
         const provided = headerToken
-        if (!provided || provided !== expectedToken) {
+        if (!provided || !safeTokenEqual(provided, expectedToken)) {
           // 路径匹配但 token 不对 → 记录 unauthorized（不立即返回，还要尝试 B 模式）。
           firstUnauthorized = true
           // 继续尝试 B 模式（同 config 可能 B 模式匹配成功）。
@@ -167,7 +185,8 @@ function matchWebhook(
           return { workflow, config: config as Record<string, unknown> }
         }
       } else {
-        // 无 token 要求 → 直接匹配。
+        // P2 Fix-12：normalize 已确保 webhookToken 总存在，此分支在现有存量数据中仍可能出现。
+        // 保留以维持向后兼容，不应再有新工作流走到此处。
         return { workflow, config: config as Record<string, unknown> }
       }
     }
@@ -176,14 +195,13 @@ function matchWebhook(
     if (pathB !== undefined && configPath === pathB) {
       if (expectedToken) {
         const provided = urlTokenB ?? headerToken
-        if (!provided || provided !== expectedToken) {
+        if (!provided || !safeTokenEqual(provided, expectedToken)) {
           firstUnauthorized = true
         } else {
           return { workflow, config: config as Record<string, unknown> }
         }
       } else {
-        // 无 token 要求 → 直接匹配（pathB 模式，意味着第一段被当作 path 前缀）。
-        // 但此时 segments[0] 会被解读为 path 的一部分，需确认 configPath 等于 pathB。
+        // 无 token 要求 → 直接匹配（向后兼容）。
         return { workflow, config: config as Record<string, unknown> }
       }
     }
@@ -198,8 +216,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
   // ── Kun 兼容端点（stub）───────────────────────────────────────────────────
   if (url.startsWith('/hook-run')) {
-    // U14/Kun 兼容：未来用于工作流内部回调；当前 stub 接收并 200。
-    ok(res, { status: 'ok', message: 'hook-run stub（U14 实现后替换）' })
+    // P2 Fix-12：/hook-run 未实现，返回 501 Not Implemented（原返回 200 且无鉴权，会误导调用方）。
+    err(res, 501, '/hook-run 端点尚未实现（Kun 兼容端点，待后续版本接线）')
     return
   }
 
@@ -251,7 +269,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   // fire-and-forget：立即返回 202 Accepted，不等待执行完成。
   const runResult = await _runFn(workflow.id, 'webhook', body)
   if (runResult.ok) {
-    ok(res, { status: 'accepted', runId: runResult.runId, workflowId: workflow.id })
+    ok(res, { status: 'accepted', runId: runResult.run?.id, workflowId: workflow.id })
   } else {
     err(res, 500, '工作流启动失败')
   }

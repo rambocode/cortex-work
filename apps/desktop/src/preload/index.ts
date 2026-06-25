@@ -491,9 +491,9 @@ const personal = {
   workflowDelete: (id: string): Promise<void> =>
     ipcRenderer.invoke("workflow:delete", id),
 
-  /** 立即触发一次运行（待 U9 接线）。 */
-  workflowRunNow: (id: string): Promise<WorkflowRun | null> =>
-    ipcRenderer.invoke("workflow:runNow", id),
+  /** 立即触发一次运行，返回初始 WorkflowRun。P1 AC-003：支持可选 input。 */
+  workflowRunNow: (id: string, input?: Record<string, unknown>): Promise<WorkflowRun | null> =>
+    ipcRenderer.invoke("workflow:runNow", id, input ?? {}),
 
   /** 停止正在进行的运行（待 U9 接线）。 */
   workflowStop: (id: string, runId: string): Promise<void> =>
@@ -523,12 +523,13 @@ const personal = {
   workflowNodeTest: (workflowId: string, nodeId: string, input: unknown): Promise<unknown> =>
     ipcRenderer.invoke("workflow:node:test", workflowId, nodeId, input),
 
-  /** human-approval 节点 resolve（待 U10 接线）。 */
-  workflowResolveApproval: (runId: string, decision: "approved" | "rejected"): Promise<void> =>
-    ipcRenderer.invoke("workflow:approval:resolve", runId, decision),
+  /** human-approval 节点 resolve。P0 Fix-1：入参为 token（非 runId），IPC handler 已修正。 */
+  workflowResolveApproval: (token: string, decision: "approved" | "rejected"): Promise<void> =>
+    ipcRenderer.invoke("workflow:approval:resolve", token, decision),
 
-  /** cron 表达式即时校验（ScheduleEditor 实时反馈，真相以 main 调度为准）。 */
-  workflowValidateCron: (expression: string, timezone?: string): Promise<{ ok: boolean; error?: string; nextRun?: string }> =>
+  /** cron 表达式即时校验（ScheduleEditor 实时反馈，真相以 main 调度为准）。
+   * P2 Fix-13：nextRun 为 number（epoch ms），与 automationValidateCron 一致。 */
+  workflowValidateCron: (expression: string, timezone?: string): Promise<{ ok: boolean; error?: string; nextRun?: number }> =>
     ipcRenderer.invoke("workflow:validateCron", expression, timezone),
 
   /** 订阅工作流列表变化（CRUD 后主进程推全量快照，返回退订函数）。 */

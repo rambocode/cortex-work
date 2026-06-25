@@ -16,12 +16,14 @@ import { computeNextRun, scheduleToCron } from '../automation/schedule-cron'
 
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
-/** runWorkflowInternal 的类型签名（注入以避免循环 import）。 */
+/** runWorkflowInternal 的类型签名（注入以避免循环 import）。
+ * 返回类型对齐 runWorkflowInternal：{ ok, run }；scheduler 调用时 void，不使用返回值。
+ */
 type RunFn = (
   workflowId: string,
   trigger: string,
   input: Record<string, unknown>,
-) => Promise<{ ok: boolean; runId: string; status: string }>
+) => Promise<{ ok: boolean; run?: unknown }>
 
 // ── 内部状态 ──────────────────────────────────────────────────────────────────
 
@@ -162,10 +164,16 @@ export function initWorkflowScheduler(
 /**
  * 重新同步所有 Cron job（settings 变更 / 工作流 CRUD 后调用）。
  * 先停掉全部旧 job，再重建。
+ *
+ * P1 Fix-9（去重调度）：skipCatchUp=true 时跳过开机补漏逻辑，防止 CRUD 触发的
+ * reschedule 与 initWorkflowScheduler 的一次性补漏重叠导致重复 run。
+ * 正常 CRUD 场景无需补漏（用户刚创建/修改的工作流不应立即运行）。
+ * 唤醒（resume）场景则需要补漏（使用 rescheduleOnResume，skipCatchUp=false）。
  */
 export async function rescheduleWorkflows(
   workflows: WorkflowDef[],
   runFn: RunFn,
+  skipCatchUp = true,
 ): Promise<void> {
   _runFn = runFn
   // 停掉全部旧 job。
@@ -175,7 +183,7 @@ export async function rescheduleWorkflows(
   const now = Date.now()
   for (const workflow of workflows) {
     const spec = extractScheduleSpec(workflow)
-    if (spec) {
+    if (!skipCatchUp && spec) {
       if (shouldCatchUp(workflow, spec, now) || shouldCatchUpOnce(workflow, spec, now)) {
         void runFn(workflow.id, 'schedule', {})
       }
@@ -185,12 +193,12 @@ export async function rescheduleWorkflows(
   updatePowerSaveBlocker()
 }
 
-/** 休眠唤醒后重排（补漏 + 重建 job，消除漂移）。 */
+/** 休眠唤醒后重排（补漏 + 重建 job，消除漂移）。skipCatchUp=false 确保唤醒时补漏。 */
 export async function rescheduleOnResume(
   workflows: WorkflowDef[],
   runFn: RunFn,
 ): Promise<void> {
-  await rescheduleWorkflows(workflows, runFn)
+  await rescheduleWorkflows(workflows, runFn, false)
 }
 
 /** 真正退出时停掉所有 Cron job。 */
@@ -212,9 +220,20 @@ export function stopWorkflowScheduler(): void {
 // 由于 module 级无法直接持有最新 workflows，改为由 index.ts 的 sync 在 resume 后重调。
 // 本注册仅做一次，注册动作本身轻量（callback 里再读快照）。
 powerMonitor.on('resume', () => {
-  // 休眠唤醒：重排所有 job，由 main/index.ts 的 rescheduleAll 监听此事件并调 sync。
+  // P2 Fix-11：休眠唤醒后主动补漏 + 重排 cron job（消除休眠期漂移）。
   // 此处 _runFn 可能为 null（应用尚未初始化），安全 check。
   if (!_runFn) return
-  // 快速补触发：从 loadWorkflows 取最新快照再 reshedule。
-  // 避免 powerMonitor callback 层导入 store（避免副作用），通过 _runFn 非空表明已初始化。
+  // 动态 import store：避免模块加载时拉入 store 副作用（同 automation/scheduler.ts）。
+  // rescheduleOnResume 内 skipCatchUp=false，确保唤醒时补跑错过的触发点。
+  import('./store.js').then(({ loadWorkflows: load }) => {
+    load().then((workflows) => {
+      if (_runFn) {
+        void rescheduleOnResume(workflows, _runFn)
+      }
+    }).catch((err) => {
+      console.error('[workflow-scheduler] resume 重排失败:', err)
+    })
+  }).catch((err) => {
+    console.error('[workflow-scheduler] resume 重排 store 加载失败:', err)
+  })
 })

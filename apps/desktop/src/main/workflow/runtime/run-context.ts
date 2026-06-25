@@ -37,12 +37,29 @@ export interface RunContext {
   cancelToken: { cancelled: boolean }
 
   /**
+   * 跨嵌套全局执行预算（P1 Fix-10）。
+   *
+   * 设计意图：单层 runGraph 有 MAX_NODE_EXECUTIONS=200 上限，但 loop/subworkflow 嵌套
+   * 时各自从 0 起算，可绕过该上限（1000 items × 200 = 20 万次节点执行）。
+   * 改为将计数器存于 RunContext（跨递归共享），所有层级共用同一 { count } 对象引用。
+   * graph-executor 每执行一节点 count++，超 MAX_TOTAL_NODE_EXECUTIONS 即终止整个 run。
+   */
+  executionBudget: { count: number }
+
+  /**
    * run 期间 spawn 的 AI 子进程注册表（spawnKey → kill 函数）。
    * 与 ipc/cli.ts 的 `running` map 隔离，避免关窗误杀正在运行的 workflow AI 节点（KTD3）。
    * stop workflow 时遍历此 map kill 全部在途进程（U12 填充）。
    */
   aiProcesses: Map<string, { kill: () => void }>
 }
+
+/**
+ * 单次 run 全局节点执行总上限（跨嵌套共享）。
+ * P1 Fix-10：loop × subworkflow 嵌套不可绕过此上限。
+ * 2000 = 单层 MAX_NODE_EXECUTIONS(200) × MAX_SUBWORKFLOW_DEPTH(5) × 2 的安全余量。
+ */
+export const MAX_TOTAL_NODE_EXECUTIONS = 2000
 
 /** 创建一个空白的 RunContext，用于 runWorkflowInternal 入口。 */
 export function createRunContext(): RunContext {
@@ -51,6 +68,7 @@ export function createRunContext(): RunContext {
     runVars: {},
     pendingApprovals: new Map(),
     cancelToken: { cancelled: false },
+    executionBudget: { count: 0 },
     aiProcesses: new Map(),
   }
 }

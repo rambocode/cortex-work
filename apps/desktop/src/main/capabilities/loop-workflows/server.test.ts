@@ -364,6 +364,7 @@ describe("run_workflow — 匹配、callableByAgent 校验、inputs 传入", () 
     runNow: vi.fn(),
     stopRun: vi.fn(),
     runSingleNode: vi.fn(),
+    resolveApproval: vi.fn(),
     sync: vi.fn(),
   };
 
@@ -502,6 +503,7 @@ describe("run_workflow — per-session cwd 传入 runForTool", () => {
     runNow: vi.fn(),
     stopRun: vi.fn(),
     runSingleNode: vi.fn(),
+    resolveApproval: vi.fn(),
     sync: vi.fn(),
   };
 
