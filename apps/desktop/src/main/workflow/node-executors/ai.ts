@@ -122,7 +122,13 @@ export function extractCategoryId(
   //   或直接 includes（CJK label 误命中短 label 概率极低，保持简单）。
   // 按 id 长度降序匹配，优先匹配更精确的长 id（避免 'ai' 先于 'ai-agent' 命中）。
   const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const isAsciiOnly = (s: string) => /^[\x00-\x7F]*$/.test(s)
+  // 用 charCode 判断纯 ASCII，避免正则控制字符（no-control-regex）。
+  const isAsciiOnly = (s: string) => {
+    for (let i = 0; i < s.length; i++) {
+      if (s.charCodeAt(i) > 0x7f) return false
+    }
+    return true
+  }
   const sortedByLength = [...categories].sort((a, b) => b.id.length - a.id.length)
   for (const cat of sortedByLength) {
     const escapedId = escapeRegExp(cat.id)
