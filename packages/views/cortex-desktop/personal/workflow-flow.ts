@@ -7,13 +7,47 @@
 //   2. @xyflow/react 的 MarkerType 通过字符串常量规避 SSR 问题（动态 import 只在 WorkflowCanvas 用）。
 //   3. flowToWorkflowGraph 是无损往返的：node.data.node 保持原始引用，仅更新 position（取整）。
 
+import type { ReactElement } from "react";
 import type { Edge, Node } from "@xyflow/react";
+import { Icon, type IconProps } from "@cortex-work/ui/icons";
 import type {
   WorkflowNode,
   WorkflowNodeKind,
   WorkflowConnection,
   WorkflowNodeRunStatus,
 } from "@cortex-work/core";
+
+// ── 节点 kind → 图标映射 ──────────────────────────────────────────────────────
+// 放在本 SSR 安全模块（仅 type-import xyflow），供 palette(WorkflowEditorView) 与
+// 画布节点(WorkflowNodes) 共用——对齐 Kun：菜单/节点用图标而非首字母徽章。
+export type NodeIconComponent = (p: IconProps) => ReactElement;
+export const NODE_ICONS: Record<WorkflowNodeKind, NodeIconComponent> = {
+  "manual-trigger": Icon.Hand,
+  "schedule-trigger": Icon.Clock,
+  "webhook-trigger": Icon.Webhook,
+  "ai-agent": Icon.Bot,
+  "generate-image": Icon.Image,
+  condition: Icon.GitBranch,
+  switch: Icon.Split,
+  filter: Icon.Filter,
+  "set-fields": Icon.Code,
+  code: Icon.Code,
+  sort: Icon.Sort,
+  limit: Icon.Scissors,
+  aggregate: Icon.Sigma,
+  "http-request": Icon.Globe,
+  merge: Icon.Merge,
+  subworkflow: Icon.Workflow,
+  loop: Icon.Retry,
+  delay: Icon.Clock,
+  template: Icon.Type,
+  json: Icon.File,
+  output: Icon.LogOut,
+  "parameter-extractor": Icon.Task,
+  "question-classifier": Icon.Tags,
+  "human-approval": Icon.Users,
+  custom: Icon.Workflow,
+};
 
 // ── 类型别名 ────────────────────────────────────────────────────────────────
 

@@ -23,6 +23,7 @@ import {
   toFlowNodes,
   WORKFLOW_PALETTE_GROUPS,
   TRIGGER_KINDS,
+  NODE_ICONS,
   type WorkflowFlowNode,
   type WorkflowFlowEdge,
 } from "./workflow-flow";
@@ -411,7 +412,12 @@ export function WorkflowCanvas({
                         }}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-ds-ink transition hover:bg-ds-hover"
                       >
-                        <span className="text-accent">+</span>
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center text-accent">
+                          {(() => {
+                            const NodeIcon = NODE_ICONS[kind];
+                            return NodeIcon ? <NodeIcon size={13} sw={1.8} /> : null;
+                          })()}
+                        </span>
                         {nodeLabels[kind] ?? kind}
                       </button>
                     );

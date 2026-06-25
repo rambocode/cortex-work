@@ -10,9 +10,10 @@
 import type { ComponentType, ReactElement } from "react";
 import { createContext, useContext } from "react";
 import { Handle, NodeToolbar, Position, type NodeProps, type NodeTypes } from "@xyflow/react";
-import { Icon, type IconProps } from "@cortex-work/ui/icons";
+import { Icon } from "@cortex-work/ui/icons";
 import type { WorkflowNodeKind, WorkflowNodeRunStatus } from "@cortex-work/core";
 import { WORKFLOW_NODE_KINDS } from "@cortex-work/core";
+import { NODE_ICONS } from "./workflow-flow";
 import type { WorkflowFlowNodeData } from "./workflow-flow";
 
 // ── Context：节点运行状态 & 操作回调 ─────────────────────────────────────────
@@ -61,35 +62,7 @@ export const WorkflowNodeActionsContext = createContext<WorkflowNodeActions>({
 //   human-approval   → Users（人工审批，多人）
 //   custom           → Workflow（通用/自定义，复用 Workflow 形状）
 
-type NodeIconComponent = (p: IconProps) => ReactElement;
-
-export const NODE_ICONS: Record<WorkflowNodeKind, NodeIconComponent> = {
-  "manual-trigger": Icon.Hand,
-  "schedule-trigger": Icon.Clock,
-  "webhook-trigger": Icon.Webhook,
-  "ai-agent": Icon.Bot,
-  "generate-image": Icon.Image,
-  condition: Icon.GitBranch,
-  switch: Icon.Split,
-  filter: Icon.Filter,
-  "set-fields": Icon.Code,
-  code: Icon.Code,
-  sort: Icon.Sort,
-  limit: Icon.Scissors,
-  aggregate: Icon.Sigma,
-  "http-request": Icon.Globe,
-  merge: Icon.Merge,
-  subworkflow: Icon.Workflow,
-  loop: Icon.Retry,
-  delay: Icon.Clock,
-  template: Icon.Type,
-  json: Icon.File,
-  output: Icon.LogOut,
-  "parameter-extractor": Icon.Task,
-  "question-classifier": Icon.Tags,
-  "human-approval": Icon.Users,
-  custom: Icon.Workflow,
-};
+// NODE_ICONS 已移至 ./workflow-flow（SSR 安全，供 palette 与画布共用），此处直接复用。
 
 // ── 节点标签（中文展示，不走 i18n）──────────────────────────────────────────
 

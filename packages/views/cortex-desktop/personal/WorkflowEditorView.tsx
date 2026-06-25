@@ -38,6 +38,7 @@ import type {
 import {
   WORKFLOW_PALETTE_GROUPS,
   createWorkflowNode,
+  NODE_ICONS,
 } from "./workflow-flow";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 import { NodeConfigPanel } from "./node-config/NodeConfigPanel";
@@ -347,8 +348,11 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
                           onClick={() => onPaletteClick(kind)}
                           className="flex cursor-grab items-center gap-2 rounded-lg border border-transparent px-2 py-1.5 text-left text-[12.5px] text-ds-ink transition hover:border-ds-border hover:bg-ds-hover active:cursor-grabbing"
                         >
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent text-[10px] font-bold">
-                            {kind[0]?.toUpperCase() ?? "?"}
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
+                            {(() => {
+                              const NodeIcon = NODE_ICONS[kind];
+                              return NodeIcon ? <NodeIcon size={14} sw={1.8} /> : null;
+                            })()}
                           </span>
                           <span className="min-w-0 flex-1 truncate">
                             {NODE_LABELS[kind] ?? kind}
