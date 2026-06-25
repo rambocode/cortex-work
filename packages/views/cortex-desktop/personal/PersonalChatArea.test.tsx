@@ -253,6 +253,34 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     fireEvent.click(code);
     expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
   });
+
+  it("无项目会话:codex 绝对路径产物(.docx)经 fileExists 命中 → 可点 + 系统打开(截图回归)", async () => {
+    // 复现用户截图:无项目会话里 codex 输出指向项目外绝对路径的文件,旧逻辑(!projectPath 短路)→
+    // 死链接点击无反应。现按 fileExists 存在性放行,点击经 openPath 系统打开。
+    usePersonalStore.setState({
+      sessions: [{ id: "s3", title: "总结", agent: "codex", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" }],
+      activeProjectId: undefined,
+      activeSessionId: "s3",
+    });
+    const openPath = vi.fn(async () => "");
+    const fileExists = vi.fn(async () => true);
+    const abs = "/Users/mike/.codex/outputs/report.docx";
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "codex", time: "06:03", uid: "m3", text: `产物在 [报告](${abs})` }],
+      saveChat: async () => {},
+      fileExists,
+      openPath,
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("报告")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("报告"));
+    await waitFor(() => expect(openPath).toHaveBeenCalledWith(abs));
+    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+  });
 });
 
 describe("PersonalChatArea pi 渲染：reasoning 块 + 运行时状态（U5）", () => {

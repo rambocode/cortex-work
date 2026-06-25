@@ -16,11 +16,14 @@ import { createPortal } from "react-dom";
 import type { Components } from "react-markdown";
 import {
   isLikelyFilePath,
+  isLocalImagePath,
   resolveProjectFileRef,
   useCortexUIStore,
   usePersonalStore,
 } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
+import { canProbeFile, resolveExistingFile } from "./resolveFileRef";
+import { ChatInlineImage } from "./ChatInlineImage";
 import { findLocalHtmlPathsInText } from "@cortex-work/core/personal/devPreviewDetection";
 import { isLoopbackOnly } from "@cortex-work/core/personal/devPreviewUrl";
 import { Icon } from "@cortex-work/ui/icons";
@@ -38,22 +41,22 @@ function textOf(children: ReactNode): string {
   return "";
 }
 
-// 渲染期在项目内定位文件。只有定位到("ok")才渲染成高亮可点链接;探测中("checking")/ 定位不到
-// ("missing")一律退化普通 code(不高亮)。初始 state 按探测能力决定:无探测能力(Web / 无 bridge)
-// 直接 "ok"(同步可点、零闪烁,保住无 probe 的同步断言);有探测能力则 "checking",待结果落定再点亮。
-// 探测出错 → 乐观放行为 "ok"。
+// 渲染期按「文件真实存在」点亮链接(口径见 resolveExistingFile:绝对路径走 fileExists、相对走
+// resolveProjectFile→拼 abs+fileExists,覆盖项目外与 `../outputs` 爬出)。只有解析到真实路径
+// ("ok")才高亮可点;探测中("checking")/ 解析不到("missing")退化普通 code(不高亮)。
+// 初始 state 按探测能力决定:无探测能力(Web / 无 bridge)直接 "ok"(同步可点、零闪烁,保住无 probe
+// 的同步断言);有探测能力则 "checking",待结果落定再点亮。探测出错 → 乐观放行为 "ok"。
 type ResolveState = "checking" | "ok" | "missing";
 function useResolvedFile(bridge: DesktopBridge | null, projectPath: string, ref: string): ResolveState {
-  const [state, setState] = useState<ResolveState>(() => (bridge?.resolveProjectFile ? "checking" : "ok"));
+  const [state, setState] = useState<ResolveState>(() => (canProbeFile(bridge) ? "checking" : "ok"));
   useEffect(() => {
-    const probe = bridge?.resolveProjectFile;
-    if (!probe) {
+    if (!canProbeFile(bridge)) {
       setState("ok");
       return;
     }
     let alive = true;
     setState("checking");
-    probe(projectPath, ref).then(
+    resolveExistingFile(bridge, projectPath, ref).then(
       (abs) => alive && setState(abs ? "ok" : "missing"),
       () => alive && setState("ok"), // 探测失败不误判删除
     );
@@ -356,20 +359,33 @@ export interface ChatMarkdownOptions {
 }
 
 export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: ChatMarkdownOptions): Components {
-  // 渲染期静态判定:是否当作可点击文件链接渲染。
-  // 无项目会话(projectPath 空)没有可解析的项目根 → 一律不当项目文件链接(否则空根会把任意
-  // 相对路径误判为 within);但 pre 的本地 HTML 预览不依赖 isProjectFile,仍对无项目会话生效。
-  // 项目内相对/绝对路径走 within;项目外的绝对路径(agent 写到项目根之外的产物,如 outputs/
-  // 落在项目外)仅在能经主进程 resolveProjectFile 异步验证存在性时才放行——真实存在则点亮、
-  // 不存在则退化普通 code。无该能力(web/旧 shell)时不放行项目外路径(无从验证、也打不开)。
-  const canProbe = !!bridge?.resolveProjectFile;
-  const isProjectFile = (ref: string) => {
-    if (!projectPath || !isLikelyFilePath(ref)) return false;
-    if (resolveProjectFileRef(projectPath, ref).within) return true;
-    return canProbe && ref.startsWith("/");
+  // 渲染期静态判定:是否当作可点击文件链接渲染(再经 useResolvedFile 按存在性点亮)。
+  // 判定按「能否打开」而非「是否项目内」:
+  //  - 绝对路径(agent 产物常落项目外,如 ~/.codex/generated_images):有探测能力即进入存在性判定;
+  //  - 项目内相对路径:走 within(无探测能力时也乐观可点,保住 web 同步断言);
+  //  - 项目外相对爬出(`../outputs/x.docx`,within=false):有探测能力即进入存在性判定。
+  // 无探测能力(web/旧壳)时不放行项目外路径(无从验证、也打不开),退化普通 code/链接。
+  // pre 的本地 HTML 预览不依赖此判定,仍对无项目会话生效。
+  const canProbe = canProbeFile(bridge);
+  const isOpenableFile = (ref: string) => {
+    if (!isLikelyFilePath(ref)) return false;
+    if (ref.startsWith("/")) return canProbe; // 绝对路径:存在性由 useResolvedFile/handleOpenFile 兜底
+    if (!projectPath) return false; // 相对路径需项目根(空根会把任意相对路径误判 within)
+    if (resolveProjectFileRef(projectPath, ref).within) return true; // 项目内
+    return canProbe; // 项目外相对爬出
   };
 
   return {
+    // 图片:agent 用 `![](path)` 给本地图片时,内联渲染为图片(经 imageReadAny 回读 dataURL)。
+    // 远程图床 / data: URI / svg 不命中 isLocalImagePath → 走 react-markdown 默认 <img>。
+    img({ node: _node, src, alt, ...rest }) {
+      if (typeof src === "string" && isLocalImagePath(src)) {
+        return (
+          <ChatInlineImage src={src} alt={typeof alt === "string" ? alt : ""} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
+        );
+      }
+      return <img {...rest} src={src} alt={typeof alt === "string" ? alt : ""} />;
+    },
     // 段落:若段内含外链(http/https),在段落正下方为每条外链(去重)紧跟一张「网页预览」卡片。
     // 卡片是 <p> 的兄弟节点(经 Fragment),不嵌进 <p> 内,避免 div-in-p 的非法 DOM。
     p({ node, children, ...rest }) {
@@ -423,7 +439,7 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
           </code>
         );
       }
-      if (!isBlock && isProjectFile(text)) {
+      if (!isBlock && isOpenableFile(text)) {
         return (
           <FileCode
             {...rest}
@@ -445,7 +461,13 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
     },
     a({ node: _node, href, children, ...rest }) {
       const external = /^https?:\/\//i.test(href ?? "");
-      if (!external && href && isProjectFile(href)) {
+      // agent 常用链接语法 `[name](path)` 给图片(而非 `![]()`)→ 命中本地图片路径则内联渲染图片。
+      if (!external && href && isLocalImagePath(href)) {
+        return (
+          <ChatInlineImage src={href} alt={textOf(children)} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
+        );
+      }
+      if (!external && href && isOpenableFile(href)) {
         return (
           <FileAnchor
             {...rest}

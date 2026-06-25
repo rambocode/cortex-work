@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLikelyFilePath, resolveProjectFileRef } from "./filePaths";
+import { isLikelyFilePath, isLocalImagePath, resolveProjectFileRef } from "./filePaths";
 
 describe("isLikelyFilePath", () => {
   it("识别项目内文件路径(正例)", () => {
@@ -23,6 +23,26 @@ describe("isLikelyFilePath", () => {
     expect(isLikelyFilePath("const x")).toBe(false); // 含空格
     expect(isLikelyFilePath("   ")).toBe(false); // 纯空白
     expect(isLikelyFilePath("")).toBe(false); // 空串
+  });
+});
+
+describe("isLocalImagePath", () => {
+  it("命中位图扩展名(绝对/相对/裸名)", () => {
+    expect(isLocalImagePath("/Users/mike/.codex/generated_images/x/ig_a.png")).toBe(true);
+    expect(isLocalImagePath("../outputs/photo.JPG")).toBe(true);
+    expect(isLocalImagePath(".cortex/media/images/a.jpeg")).toBe(true);
+    expect(isLocalImagePath("a.gif")).toBe(true);
+    expect(isLocalImagePath("cover.webp")).toBe(true);
+  });
+
+  it("排除 svg / 远程图床 / data URI / 非图片", () => {
+    expect(isLocalImagePath("/tmp/a.svg")).toBe(false); // svg 不内联(读侧也拒)
+    expect(isLocalImagePath("https://cdn.example.com/a.png")).toBe(false); // 远程
+    expect(isLocalImagePath("file:///Users/a.png")).toBe(false); // scheme://
+    expect(isLocalImagePath("data:image/png;base64,iVBOR")).toBe(false); // data URI
+    expect(isLocalImagePath("report.docx")).toBe(false); // 文档
+    expect(isLocalImagePath("a.png b.png")).toBe(false); // 含空白
+    expect(isLocalImagePath("")).toBe(false);
   });
 });
 

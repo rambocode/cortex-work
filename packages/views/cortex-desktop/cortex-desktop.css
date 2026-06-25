@@ -1527,6 +1527,62 @@ input, textarea { font: inherit; color: inherit; }
 .msg-img-label { color: var(--text-3); }
 .msg-img-loading { opacity: 0.55; } /* 回读中的占位空框(尺寸由 .msg-img 给) */
 
+/* agent 回复正文里内联渲染的本地图片(经 imageReadAny 回读);点击进灯箱放大 */
+.chat-inline-img {
+  display: block;
+  max-width: min(420px, 100%);
+  max-height: 360px;
+  width: auto; height: auto;
+  margin: 6px 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  cursor: zoom-in;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.chat-inline-img:hover { border-color: var(--border-strong); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12); }
+.chat-inline-img--loading {
+  width: 180px; height: 120px;
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* 图片灯箱:全屏遮罩 + 居中大图 + 底部操作条(portal 到 body) */
+.img-lightbox {
+  position: fixed; inset: 0; z-index: 2000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: zoom-out;
+}
+.img-lightbox-body {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  max-width: 100%; max-height: 100%;
+  cursor: default;
+}
+.img-lightbox-img {
+  max-width: 90vw; max-height: 82vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+.img-lightbox-bar {
+  display: flex; align-items: center; gap: 8px;
+}
+.img-lightbox-action,
+.img-lightbox-close {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff; font-size: 12.5px;
+  cursor: pointer;
+}
+.img-lightbox-action:hover,
+.img-lightbox-close:hover { background: rgba(255, 255, 255, 0.2); }
+.img-lightbox-close { padding: 6px 8px; }
+
 /* 消息气泡内的文档附件 chip（回显「附带了什么文档」;内容由 agent 经 extract_document 读取） */
 .msg-file-row {
   display: flex; flex-wrap: wrap; gap: 6px;

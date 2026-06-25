@@ -19,6 +19,8 @@ import { getPersistedState } from "./store";
 import { expandTilde } from "../skills/locate";
 import { documentsCortexDir, noProjectSessionDir } from "../paths";
 import { countAddedLines, parseNumstat, parseUntracked, sumStats, synthUntrackedDiff } from "./git-info";
+import { readImageOpenable } from "./image";
+import type { ImageReadResult } from "./types";
 
 const MAX_DEPTH = 8;
 const MAX_NODES = 5000;
@@ -623,6 +625,15 @@ export function registerFsHandlers(): void {
     await assertAllowed(path);
     shell.showItemInFolder(path);
   });
+
+  // agent 产出本地图片回读为 dataURL,供聊天内联渲染(项目外绝对路径如 ~/.codex/generated_images,
+  // 或项目内 .cortex/media/images)。闸门 = openPath 的 assertOpenable 宽松语义(白名单根内 OR 真实
+  // 存在文件),叠加 readImageOpenable 的符号链接/realpath/仅位图扩展名/体积上限硬防护。
+  ipcMain.handle(
+    "image:readAny",
+    (_e, path: string): Promise<ImageReadResult> =>
+      readImageOpenable(path, (realTarget) => assertOpenable(realTarget).then(() => true, () => false)),
+  );
 
   // Markdown 预览链接:仅放行 http/https,避免 file:// 等协议被滥用。
   ipcMain.handle("shell:openExternal", async (_e, url: string) => {

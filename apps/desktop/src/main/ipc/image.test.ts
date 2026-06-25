@@ -11,7 +11,16 @@ vi.mock("electron", () => ({
   app: { getPath: () => "/tmp", isPackaged: false, getAppPath: () => "/app" },
 }));
 
-import { isInsideRoot, MAX_IMAGE_BYTES, readImageFrom, saveImageInto, sniffImageExt } from "./image";
+import {
+  isInsideRoot,
+  MAX_IMAGE_BYTES,
+  readImageFrom,
+  readImageGated,
+  readImageOpenable,
+  saveImageInto,
+  sniffImageExt,
+} from "./image";
+import { writeFileSync } from "fs";
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
@@ -89,5 +98,48 @@ describe("readImageFrom", () => {
   });
   it("文件不存在 → reject(ENOENT 可识别)", async () => {
     await expect(readImageFrom(base, join(base, "sessR", "nope.png"))).rejects.toThrow();
+  });
+});
+
+// image:readAny 的读侧:闸门由调用方注入(运行时是 assertOpenable 宽松语义),叠加符号链接/扩展名/
+// 体积上限硬防护。测试用显式 isAllowed 替身,与 fs.ts 的 assertOpenable 解耦。
+describe("readImageOpenable / readImageGated(任意根)", () => {
+  it("项目外真实 PNG + 放行闸门 → dataURL", async () => {
+    const f = join(base, "outside.png");
+    writeFileSync(f, PNG);
+    const r = await readImageOpenable(f, () => true);
+    expect(r.dataUrl.startsWith("data:image/png;base64,")).toBe(true);
+  });
+
+  it("闸门拒绝(即便真实文件) → 拒", async () => {
+    const f = join(base, "denied.png");
+    writeFileSync(f, PNG);
+    await expect(readImageOpenable(f, () => false)).rejects.toThrow(/允许范围/);
+  });
+
+  it("符号链接 → 拒(不跟随)", async () => {
+    const f = join(base, "real.png");
+    writeFileSync(f, PNG);
+    const link = join(base, "link.png");
+    symlinkSync(f, link);
+    await expect(readImageOpenable(link, () => true)).rejects.toThrow(/允许范围/);
+  });
+
+  it("svg 扩展名 → 拒(读侧只放行位图,绝不返回 svg)", async () => {
+    const f = join(base, "vector.svg");
+    writeFileSync(f, SVG);
+    await expect(readImageOpenable(f, () => true)).rejects.toThrow(/不支持/);
+  });
+
+  it("超体积上限 → 拒", async () => {
+    const f = join(base, "big.png");
+    writeFileSync(f, PNG);
+    // PNG 替身 10 字节 > maxBytes=1 → 触发上限分支(避免真写 20MB)。
+    await expect(readImageGated(f, () => true, 1)).rejects.toThrow(/过大/);
+  });
+
+  it("目录 / 不存在 → 拒", async () => {
+    await expect(readImageOpenable(base, () => true)).rejects.toThrow(); // 目录无位图扩展名
+    await expect(readImageOpenable(join(base, "nope.png"), () => true)).rejects.toThrow();
   });
 });

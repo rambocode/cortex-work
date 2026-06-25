@@ -23,6 +23,7 @@ import { extractLatestTurnAutoOpenDevPreviewUrls } from "@cortex-work/core/perso
 import { MessageStream } from "../ChatArea";
 import { agentContact } from "./agentMeta";
 import { isOpenExternalLike } from "./fileIcons";
+import { resolveExistingFile } from "./resolveFileRef";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
@@ -220,29 +221,32 @@ export function PersonalChatArea({
   // 早退之前调用(hooks 规则);session/project 可空时回调内部短路(此时消息流根本不渲染)。
   const running = session ? !!runningBySession[session.id] : false;
 
-  // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为绝对路径,按文件类型分发:
-  // - 文本类 → 请求右栏内置预览并展开右栏;
-  // - 非文本(图片/媒体/office/pdf/二进制)→ 直接系统默认应用打开,不开右栏。
-  // 无项目会话(无 realProject)与解析爬出项目(within=false)一律短路,不派发。
+  // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为「真实存在的绝对路径」(口径见
+  // resolveExistingFile:绝对路径走 fileExists、相对走 resolveProjectFile→拼 abs+fileExists,
+  // 覆盖项目外 agent 产物如 ~/.codex/generated_images 与 `../outputs` 爬出),按文件类型分发:
+  // - 非文本(图片/媒体/office/pdf/二进制)→ 系统默认应用打开,不依赖项目上下文;
+  // - 文本类 → 右栏内置预览并展开右栏(需项目);无项目会话退化为系统打开。
   const handleOpenFile = useCallback(
     (ref: string) => {
-      if (!realProject) return;
+      const projectPath = realProject?.path ?? "";
       const openResolved = (abs: string) => {
         const name = abs.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? ref;
-        if (isOpenExternalLike(name)) {
+        // 图片/office/pdf/媒体/二进制 → 系统打开;无项目会话(无右栏预览上下文)亦同。
+        if (isOpenExternalLike(name) || !realProject) {
           void bridge?.openPath?.(abs).catch(() => onToast(`打开失败：${name}`));
           return;
         }
         requestFilePreview({ projectId: realProject.id, path: abs, name });
         setRightOpen(true);
       };
-      const probe = bridge?.resolveProjectFile;
-      if (!probe) {
-        const { abs, within } = resolveProjectFileRef(realProject.path, ref);
+      // 无任何探测能力(web/旧壳):沿用原乐观逻辑(仅项目内相对路径,凭 within 放行)。
+      if (!bridge?.fileExists && !bridge?.resolveProjectFile) {
+        if (!projectPath) return;
+        const { abs, within } = resolveProjectFileRef(projectPath, ref);
         if (within) openResolved(abs);
         return;
       }
-      void probe(realProject.path, ref).then((abs) => {
+      void resolveExistingFile(bridge, projectPath, ref).then((abs) => {
         if (abs) openResolved(abs);
         else onToast(`未找到文件：${ref}`);
       });
