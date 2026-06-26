@@ -1310,7 +1310,8 @@ input, textarea { font: inherit; color: inherit; }
 .pw-gitbar {
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px;
-  margin: 0 40px;
+  /* 底部留 20px 稳定留白(标注③);横向 40px 仍可被密度档/落地页的 margin-inline 覆盖,纵向不受影响。 */
+  margin: 0 40px 20px;
   padding: 2px 10px;
   border: 0;
   background: transparent;
@@ -1319,6 +1320,15 @@ input, textarea { font: inherit; color: inherit; }
 }
 /* GitBar 紧贴输入框底部:上移吃掉 .composer-wrap 的底部内边距,贴近 composer 框。 */
 .composer-wrap + .pw-gitbar { margin-top: -10px; }
+/* GitBar 行内的运行模式 / 项目选择器:去灰色填充底色,改透明底 + 描边(标注①),
+   与顶部「自动执行」按钮风格统一。作用域限定在 .pw-gitbar 内,不影响工具栏里复用
+   pw-model-pill 的模型/思考选择器。 */
+.pw-gitbar .pw-gitbar-mode {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+.pw-gitbar .pw-gitbar-mode:hover { background: var(--bg-hover); }
+.pw-gitbar .pw-proj-picker-trigger { border-color: var(--border); }
 .pw-gitbar-left { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-3); }
 .pw-gitbar-name { font-weight: 600; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pw-gitbar-branch { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
