@@ -11,6 +11,11 @@
 //   sessionResume    continue+resume / resume-only / none
 //   imageDelivery    native-flag(--image)/ prompt-text(拼进文本)/ none
 //   appendSystemPrompt native-flag(原生 flag)/ prompt-wrap(<user_request> 包裹)/ none
+//   transport        spawn(缺省,claude/pi:每轮 spawn CLI + 逐行解析)/ ws(codex 主交互会话:
+//                    长驻 `codex app-server --listen ws://` + WebSocket 持久连接)  ← 管线消费(U5)
+//   ⚠️ transport 与 mcpInjection 一样**由公共管线真正消费**(cli:start 据 (transport ?? "spawn")
+//      分流到 ws 路径或现有 spawn 路径);仅 codex 主交互会话(cli:start)走 ws,轻量路径
+//      (oneshot/ask/automation/workflow-headless)不读该位、恒走 spawn+`codex exec`。
 
 import type { AgentKind, CliStartRequest, CliStreamEvent, DerivedAgentMeta } from "../ipc/types";
 import {
@@ -28,6 +33,7 @@ export type McpInjection = "claude-mcp-json" | "codex-c" | "none";
 export type SessionResume = "continue+resume" | "resume-only" | "none";
 export type ImageDelivery = "native-flag" | "prompt-text" | "none";
 export type AppendSystemPrompt = "native-flag" | "prompt-wrap" | "none";
+export type Transport = "spawn" | "ws";
 
 export interface AgentDef {
   // 内置 def 用 AgentKind;M3-A 用户 JSON 派生的 def 可为任意合法 id,故放宽为 string。
@@ -38,6 +44,13 @@ export interface AgentDef {
   sessionResume: SessionResume;
   imageDelivery: ImageDelivery;
   appendSystemPrompt: AppendSystemPrompt;
+  // 传输方式(可选,缺省 "spawn")。由公共管线消费:cli:start 据 (transport ?? "spawn") 分流。
+  // 仅 codex 标 "ws"(主交互会话走 app-server WebSocket);claude/pi 省略 → 缺省 spawn,零改动。
+  // 派生 agent(base:codex)经 deriveAgentDef 的 {...base} 展开继承本位。
+  transport?: Transport;
+  // 传输为 "ws" 时,spawn `codex app-server` 的可执行名(缺省 "codex")。派生 agent 若覆写
+  // 二进制路径(profile.bin)应填此字段,否则 ws 路径会静默用系统 codex 而非自定义 bin。
+  serverCmd?: string;
   // 注入子进程的额外环境变量(M3-A 派生 def 用;内置 def 为 undefined)。由 spawn 站点合并进 env。
   extraEnv?: Record<string, string>;
   // ── 两个纯函数 ──

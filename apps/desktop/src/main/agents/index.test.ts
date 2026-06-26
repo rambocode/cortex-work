@@ -98,3 +98,32 @@ describe("refreshLocalAgentProfiles", () => {
     expect(listAgentProfiles().map((p) => p.id)).toEqual(["v2"]);
   });
 });
+
+describe("transport 能力位(U1)", () => {
+  it("仅 codex 标 ws,claude/pi 缺省(spawn)", () => {
+    setLocalAgentProfilesLoader(() => []);
+    expect(getAgentDef("codex").transport).toBe("ws");
+    expect(getAgentDef("claude").transport).toBeUndefined();
+    expect(getAgentDef("pi").transport).toBeUndefined();
+  });
+
+  it("分流判定 (transport ?? spawn):仅 codex 走 ws", () => {
+    setLocalAgentProfilesLoader(() => []);
+    const isWs = (id: string) => (getAgentDef(id).transport ?? "spawn") === "ws";
+    expect(isWs("codex")).toBe(true);
+    expect(isWs("claude")).toBe(false);
+    expect(isWs("pi")).toBe(false);
+  });
+
+  it("派生 base:codex 继承 transport:ws,profile.bin 同步到 serverCmd", () => {
+    setLocalAgentProfilesLoader(() => [{ id: "my-codex", base: "codex", bin: "/opt/custom-codex" }]);
+    const def = getAgentDef("my-codex");
+    expect(def.transport).toBe("ws"); // 继承
+    expect(def.serverCmd).toBe("/opt/custom-codex"); // ws 路径用自定义 bin(RISK-7)
+  });
+
+  it("派生 base:claude 不引入 ws", () => {
+    setLocalAgentProfilesLoader(() => [{ id: "my-claude", base: "claude" }]);
+    expect(getAgentDef("my-claude").transport).toBeUndefined();
+  });
+});

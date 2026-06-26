@@ -73,6 +73,9 @@ export const codexDef: AgentDef = {
   sessionResume: "continue+resume",
   imageDelivery: "native-flag",
   appendSystemPrompt: "prompt-wrap",
+  // 主交互会话(cli:start)走 app-server WebSocket 持久连接(见 ipc/codex-ws-channel.ts);
+  // 轻量路径(oneshot/ask/automation/workflow-headless)不读 transport,仍用下方 buildArgs 走 `codex exec`。
+  transport: "ws",
   buildArgs(req: CliStartRequest, mcpArgs?: string[]): { cmd: string; args: string[]; stdin: string } {
     const prompt = promptWithSkills(req);
     const common = ["--json", "--skip-git-repo-check"];
