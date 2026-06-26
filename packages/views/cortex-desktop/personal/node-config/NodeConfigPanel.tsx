@@ -32,6 +32,7 @@ import { DataNodeForm } from "./DataNodeForm";
 import { CodeNodeForm } from "./CodeNodeForm";
 import { HttpNodeForm } from "./HttpNodeForm";
 import { ApprovalNodeForm } from "./ApprovalNodeForm";
+import { StickyNoteForm } from "./StickyNoteForm";
 import { VariablePicker } from "./VariablePicker";
 import { INPUT_CLS, FIELD_LABEL_CLS } from "./TriggerNodeForm";
 
@@ -290,6 +291,14 @@ export function NodeConfigPanel({
           node={
             n as WorkflowNode & { type: "human-approval" | "generate-image" }
           }
+          onChange={onNodeChange}
+        />
+      );
+    }
+    if (kind === "sticky-note") {
+      return (
+        <StickyNoteForm
+          node={n as WorkflowNode & { type: "sticky-note" }}
           onChange={onNodeChange}
         />
       );
