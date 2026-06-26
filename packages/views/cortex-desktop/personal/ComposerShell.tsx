@@ -200,12 +200,12 @@ export function ComposerShell({
   const thinkingOptions = agentThinkingOptions(agent);
   const resolvedThinkingValue = isPi ? (thinkingValue ?? piThinkingDefault ?? "off") : (thinkingValue ?? DEFAULT_AGENT_THINKING);
   // pi:模型下拉来自已启用 provider,选项编码 `${providerId}::${modelId}`,展示「供应商 · 模型」。
+  // 菜单只显示模型名,不带供应商前缀(供应商对选择意义不大)。value 仍编码 providerId::modelId
+  // 供回调拆分。
   const piModelOptions = isPi
     ? providerSettings.providers
         .filter((p) => p.enabled)
-        .flatMap((p) =>
-          p.models.map((m) => ({ value: `${p.id}::${m.id}`, label: `${p.name} · ${m.label ?? m.id}` })),
-        )
+        .flatMap((p) => p.models.map((m) => ({ value: `${p.id}::${m.id}`, label: m.label ?? m.id })))
     : [];
   const piModelValue = `${providerId ?? ""}::${model ?? ""}`;
 

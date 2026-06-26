@@ -22,10 +22,6 @@ function shortLabel(full: string): string {
   const seg = full.split("·").pop();
   return (seg ?? full).trim();
 }
-// 模型短名:含「provider · model」时取模型段(pi 选项),否则原样。
-function modelShortLabel(full: string): string {
-  return full.includes("·") ? full.split("·").pop()!.trim() : full;
-}
 
 export function ModelThinkingPill({
   isPi,
@@ -97,7 +93,7 @@ export function ModelThinkingPill({
         <span className="lightning">
           <Icon.Lightning size={11} />
         </span>
-        {modelShortLabel(currentModelLabel)}
+        {currentModelLabel}
         {reasoningShort ? <span className="pw-mt-reason">{reasoningShort}</span> : null}
         <Icon.Chevron size={11} className="chev" />
       </button>
