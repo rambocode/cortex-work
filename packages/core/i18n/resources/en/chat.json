@@ -64,6 +64,11 @@
     "micTitle": "Voice input",
     "flashNote": "Flash note",
     "attach": "Attach",
+    "addMenu": "Add file / Skills",
+    "customize": {
+      "label": "Customize"
+    },
+    "uploadFile": "File",
     "uploadImage": "Upload image",
     "uploadDoc": "Upload document",
     "noProvider": "No provider configured (go to Settings → Providers)",

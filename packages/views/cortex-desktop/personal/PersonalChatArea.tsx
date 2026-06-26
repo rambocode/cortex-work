@@ -105,11 +105,8 @@ function messageScrollSignature(messages: Message[]): string {
 
 export function PersonalChatArea({
   onToast,
-  onOpenFlashNote,
 }: {
   onToast: (text: string) => void;
-  // 闪记浮层入口(壳注入,透传给 composer 图标;web/旧壳缺省 → 隐藏)。
-  onOpenFlashNote?: () => void;
 }) {
   const projects = usePersonalStore((s) => s.projects);
   const sessions = usePersonalStore((s) => s.sessions);
@@ -512,7 +509,6 @@ export function PersonalChatArea({
         onChangePermissionMode={(mode) => updateSession(session.id, { permissionMode: mode })}
         onChangeApprovalPolicy={(p) => updateSession(session.id, { approvalPolicy: p })}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
-        onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}
       />
 

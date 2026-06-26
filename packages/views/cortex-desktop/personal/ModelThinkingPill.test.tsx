@@ -45,15 +45,15 @@ describe("ModelThinkingPill(模型+推理合并)", () => {
     expect(trigger.textContent).toContain("中"); // medium 短标签
   });
 
-  it("点击打开:含推理分区 + 模型行;子菜单列出模型(✓ 当前)", () => {
+  it("点击打开:含推理分区 + 模型入口行;下钻后列出模型(✓ 当前)", () => {
     const { container } = renderPill();
     fireEvent.click(container.querySelector(".pw-mt-trigger")!);
     expect(container.querySelector(".pw-mt-menu")).not.toBeNull();
     // 推理选项「高」可见。
     expect([...container.querySelectorAll(".pw-mt-menu .pw-tb-menu-item")].some((b) => b.textContent?.trim() === "高")).toBe(true);
-    // 打开模型子菜单。
-    fireEvent.click(container.querySelector(".pw-submenu-wrap > button")!);
-    const opts = [...container.querySelectorAll(".pw-mt-submenu .pw-tb-menu-item")];
+    // 点一次「模型」入口行即原地下钻到模型层(不需二次点击)。
+    fireEvent.click(container.querySelector('.pw-mt-menu button[aria-haspopup="menu"]')!);
+    const opts = [...container.querySelectorAll(".pw-mt-models .pw-tb-menu-item")];
     expect(opts.map((b) => b.textContent?.replace(/\s/g, ""))).toEqual(expect.arrayContaining(["Sonnet", "Opus"]));
   });
 
@@ -67,13 +67,13 @@ describe("ModelThinkingPill(模型+推理合并)", () => {
     expect(onChangeThinking).toHaveBeenCalledWith("high");
 
     fireEvent.click(container.querySelector(".pw-mt-trigger")!);
-    fireEvent.click(container.querySelector(".pw-submenu-wrap > button")!);
-    const opus = [...container.querySelectorAll(".pw-mt-submenu .pw-tb-menu-item")].find((b) => b.textContent?.includes("Opus"))!;
+    fireEvent.click(container.querySelector('.pw-mt-menu button[aria-haspopup="menu"]')!);
+    const opus = [...container.querySelectorAll(".pw-mt-models .pw-tb-menu-item")].find((b) => b.textContent?.includes("Opus"))!;
     fireEvent.click(opus);
     expect(onChangeModel).toHaveBeenCalledWith("opus");
   });
 
-  it("pi:子菜单用 provider::model 选项,回调拆分", () => {
+  it("pi:模型列表用 provider::model 选项,回调拆分", () => {
     const onChangePiModel = vi.fn();
     const { container } = renderPill({
       isPi: true,
@@ -82,8 +82,8 @@ describe("ModelThinkingPill(模型+推理合并)", () => {
       onChangePiModel,
     });
     fireEvent.click(container.querySelector(".pw-mt-trigger")!);
-    fireEvent.click(container.querySelector(".pw-submenu-wrap > button")!);
-    fireEvent.click(container.querySelector(".pw-mt-submenu .pw-tb-menu-item")!);
+    fireEvent.click(container.querySelector('.pw-mt-menu button[aria-haspopup="menu"]')!);
+    fireEvent.click(container.querySelector(".pw-mt-models .pw-tb-menu-item")!);
     expect(onChangePiModel).toHaveBeenCalledWith("prov", "m1");
   });
 });

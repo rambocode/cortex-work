@@ -235,39 +235,55 @@ function pickImage(container: HTMLElement, file: File) {
 }
 
 describe("ComposerShell 图片采集（U3）", () => {
-  it("合并上传按钮:单个「添加附件」按钮存在,点击弹出图片/文档菜单", () => {
+  it("合并「+」按钮:单个入口存在,点击弹出「文件」与「Skills」菜单项", () => {
     const { container } = renderFull(() => true);
-    // 工具栏只剩一个上传入口(aria-label「添加附件」),不再有独立的「上传图片/上传文档」按钮。
-    const trigger = screen.getByLabelText("添加附件");
+    // 工具栏只剩一个「+」入口(aria-label「添加文件 / Skills」),图片/文档/Skills 都收进菜单。
+    const trigger = screen.getByLabelText("添加文件 / Skills");
     expect(trigger).toBeInTheDocument();
     expect(container.querySelector(".pw-tb-menu")).toBeNull(); // 默认收起
     fireEvent.click(trigger);
-    // 菜单上弹(避免被 GitBar/终端遮挡),含「上传图片」「上传文档」两项。
+    // 菜单上弹(避免被 GitBar/终端遮挡),含「文件」与「Skills」两项。
     expect(container.querySelector(".pw-tb-menu.pw-tb-menu--up")).not.toBeNull();
-    expect(screen.getByRole("menuitem", { name: "上传图片" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "上传文档" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "文件" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: /Skills/ })).toBeInTheDocument();
   });
 
-  it("点击菜单「上传图片」→ 触发图片文件选择并收起菜单", () => {
+  it("点击菜单「文件」→ 触发统一文件选择(accept 含图片与文档)并收起菜单", () => {
     const { container } = renderFull(() => true);
-    const imgInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const clickSpy = vi.spyOn(imgInput, "click").mockImplementation(() => {});
-    fireEvent.click(screen.getByLabelText("添加附件"));
-    fireEvent.click(screen.getByRole("menuitem", { name: "上传图片" }));
+    // 仅一个隐藏 input:同时接受图片与文档类型。
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.getAttribute("accept")).toContain("image/png");
+    expect(input.getAttribute("accept")).toContain(DOC_ACCEPT_ATTR);
+    const clickSpy = vi.spyOn(input, "click").mockImplementation(() => {});
+    fireEvent.click(screen.getByLabelText("添加文件 / Skills"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "文件" }));
     expect(clickSpy).toHaveBeenCalled();
     expect(container.querySelector(".pw-tb-menu")).toBeNull(); // 选完收起
   });
 
-  it("点击菜单「上传文档」→ 触发文档文件选择(accept 保持文档类型)并收起菜单", () => {
-    const { container } = renderFull(() => true);
-    const inputs = container.querySelectorAll('input[type="file"]');
-    const docInput = inputs[1] as HTMLInputElement; // 第二个隐藏 input = 文档通道
-    expect(docInput.getAttribute("accept")).toBe(DOC_ACCEPT_ATTR);
-    const clickSpy = vi.spyOn(docInput, "click").mockImplementation(() => {});
-    fireEvent.click(screen.getByLabelText("添加附件"));
-    fireEvent.click(screen.getByRole("menuitem", { name: "上传文档" }));
-    expect(clickSpy).toHaveBeenCalled();
-    expect(container.querySelector(".pw-tb-menu")).toBeNull();
+  it("点击菜单「Skills」→ 触发 onToggleSkills 且菜单保持展开(可见状态变化)", () => {
+    const onToggleSkills = vi.fn();
+    const { container } = render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
+        <ComposerShell
+          agent="claude"
+          model={undefined}
+          providerId={undefined}
+          useOwnSkills={false}
+          running={false}
+          onSend={() => true}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onToggleSkills={onToggleSkills}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+    fireEvent.click(screen.getByLabelText("添加文件 / Skills"));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /Skills/ }));
+    expect(onToggleSkills).toHaveBeenCalledTimes(1);
+    // Skills 是开关,点击后菜单不收起,便于看到当前状态。
+    expect(container.querySelector(".pw-tb-menu")).not.toBeNull();
   });
 
   it("选择图片 → 出现缩略图(alt + 移除按钮)", async () => {

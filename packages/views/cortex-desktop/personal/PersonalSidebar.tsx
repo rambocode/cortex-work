@@ -239,7 +239,14 @@ function ProjectBlock({
   );
 }
 
-export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }) {
+export function PersonalSidebar({
+  onToast,
+  onOpenFlashNote,
+}: {
+  onToast: (text: string) => void;
+  // 闪记浮层入口(壳注入 window.desktopAPI.notesOverlay.show;web/旧壳缺省 → 隐藏入口)。
+  onOpenFlashNote?: () => void;
+}) {
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const addProject = usePersonalStore((s) => s.addProject);
@@ -304,6 +311,13 @@ export function PersonalSidebar({ onToast }: { onToast: (text: string) => void }
         <span>新会话</span>
         <span className="pw-home-btn__kbd">⌘N</span>
       </button>
+      {/* 闪记入口:从输入框工具栏迁来,壳注入 onOpenFlashNote 时才渲染(web/旧壳缺省 → 隐藏)。 */}
+      {onOpenFlashNote ? (
+        <button className="pw-home-btn" onClick={onOpenFlashNote} title="闪记（速记浮层）">
+          <Icon.Pin size={14} color="#7c5cff" />
+          <span>闪记</span>
+        </button>
+      ) : null}
       {bridge?.automationList ? (
         <button
           className={`pw-home-btn ${automationOpen ? "is-active" : ""}`}

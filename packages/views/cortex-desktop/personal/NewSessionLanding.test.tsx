@@ -123,12 +123,12 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     );
   });
 
-  it("改 model(合并 pill 子菜单)后发送:新会话沿用所选 model", async () => {
+  it("改 model(合并 pill 下钻模型层)后发送:新会话沿用所选 model", async () => {
     const { container } = renderLanding(fakeBridge());
-    // 打开合并 pill → 打开模型子菜单 → 选 Opus。
+    // 打开合并 pill → 下钻到模型层 → 选 Opus。
     fireEvent.click(container.querySelector(".pw-mt-trigger")!);
-    fireEvent.click(container.querySelector(".pw-submenu-wrap > button")!);
-    const opus = [...container.querySelectorAll(".pw-mt-submenu .pw-tb-menu-item")].find((b) =>
+    fireEvent.click(container.querySelector('.pw-mt-menu button[aria-haspopup="menu"]')!);
+    const opus = [...container.querySelectorAll(".pw-mt-models .pw-tb-menu-item")].find((b) =>
       b.textContent?.includes("Opus"),
     )!;
     fireEvent.click(opus);

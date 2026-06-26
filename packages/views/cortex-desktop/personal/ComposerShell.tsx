@@ -26,8 +26,7 @@ import type {
   PersonalAttachment,
 } from "@cortex-work/core";
 import { AgentSelect } from "./AgentSelect";
-import { ModePill } from "./ModePill";
-import { ApprovalPill } from "./ApprovalPill";
+import { CustomizePill } from "./CustomizePill";
 import { ModelThinkingPill } from "./ModelThinkingPill";
 import { useDismissableMenu } from "./useDismissableMenu";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
@@ -116,7 +115,6 @@ export function ComposerShell({
   approvalPolicy,
   onChangeApprovalPolicy,
   onToggleSkills,
-  onOpenFlashNote,
   onCancelEdit,
   onToast,
 }: {
@@ -166,8 +164,6 @@ export function ComposerShell({
   approvalPolicy?: ApprovalPolicy;
   onChangeApprovalPolicy?: (p: ApprovalPolicy) => void;
   onToggleSkills: () => void;
-  /** 闪记图标入口:唤起闪记浮层(桌面端由壳注入,web 端缺省 → 隐藏入口)。 */
-  onOpenFlashNote?: () => void;
   onCancelEdit?: () => void;
   onToast: (text: string) => void;
 }) {
@@ -185,9 +181,9 @@ export function ComposerShell({
   // 插件「在对话中试用」上下文:输入框前渲染的插件 pill（composerIcon 图标+名称）。发送或手动移除即清。
   const [tryPlugin, setTryPlugin] = useState<{ id: string; name: string; icon?: string } | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const docInputRef = useRef<HTMLInputElement>(null);
-  // 上传入口合并:图片/文档两个触发器收进单个「附件」按钮的上弹菜单(复用 AgentSelect 同款关闭范式)。
+  // 上传入口合并:图片/文档共用单个隐藏 input,经「+」菜单「文件」项触发,onChange 按 MIME 分流。
+  const attachInputRef = useRef<HTMLInputElement>(null);
+  // 上传入口合并:文件上传 + Skills 开关收进单个「+」按钮的上弹菜单(复用 AgentSelect 同款关闭范式)。
   const attachMenu = useDismissableMenu();
 
   const providerSettings = usePersonalStore((s) => s.providerSettings);
@@ -295,11 +291,15 @@ export function ComposerShell({
     if (docs.length) void addDocFiles(docs);
   };
 
-  // 文件选择:选完即清空 input.value,允许重复选同一文件。
-  const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 统一文件选择:单个 input 同时接受图片与文档,按 MIME 分流——图片走图片通道、其余走文档通道
+  // (文档侧 checkDocFile 仍会校验/拒绝不支持的类型)。选完即清空 input.value,允许重复选同一文件。
+  const onPickAttachments = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    void addImageFiles(files);
+    const imgs = files.filter((f) => f.type.startsWith("image/"));
+    const docs = files.filter((f) => !f.type.startsWith("image/"));
+    if (imgs.length) void addImageFiles(imgs);
+    if (docs.length) void addDocFiles(docs);
   };
 
   // 采集文档:格式/大小校验(toast 原因)→ File → PendingDocFile(优先 srcPath)→ 去重 + 张数上限。
@@ -337,13 +337,6 @@ export function ComposerShell({
       return merged;
     });
     if (overflow) onToast(t("composer.maxDocs", { count: MAX_DOCS_PER_MESSAGE }));
-  };
-
-  // 文档选择:选完即清空 input.value,允许重复选同一文件。
-  const onPickDocs = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
-    void addDocFiles(files);
   };
 
   const steer = () => {
@@ -744,14 +737,6 @@ export function ComposerShell({
           />
         </div>
         <div className="comp-foot">
-          <button
-            className={`pill ${useOwnSkills ? "is-on" : ""}`}
-            onClick={onToggleSkills}
-            title={useOwnSkills ? t("composer.skillsOnTitle") : t("composer.skillsOffTitle")}
-          >
-            <Icon.Sparkle size={13} color="#7c5cff" />
-            {t("composer.skills")} {useOwnSkills ? t("composer.skillsOn") : t("composer.skillsOff")}
-          </button>
           {/* 语音按钮：仅 bridge 存在 + STT enabled 时显示（R11）。
               下载中禁用并给出进度 tooltip；配置不就绪时禁用。 */}
           {micVisible ? (
@@ -774,12 +759,9 @@ export function ComposerShell({
               {transcribing ? <Icon.Clock size={13} /> : <Icon.Mic size={13} />}
             </button>
           ) : null}
-          {onOpenFlashNote ? (
-            <button className="pill" onClick={onOpenFlashNote} title={t("composer.flashNote")}>
-              <Icon.Pin size={13} color="#7c5cff" />
-            </button>
-          ) : null}
-          {/* 图片/文档上传合并为单个「附件」按钮 + 上弹菜单;隐藏 input 与原 onChange 逻辑不变。 */}
+          {/* 图片/文档上传 + Skills 开关合并进单个「+」按钮的上弹菜单:
+              「文件」统一图片与附件(单个 input,按 MIME 分流);Skills 行内开关显示当前态,
+              点击切换且不收起菜单(便于看到状态变化)。 */}
           <div
             className="pw-tb-menu-wrap"
             ref={attachMenu.wrapRef}
@@ -792,10 +774,10 @@ export function ComposerShell({
               aria-haspopup="menu"
               aria-expanded={attachMenu.open}
               onClick={() => attachMenu.setOpen((v) => !v)}
-              title={t("composer.attach")}
-              aria-label={t("composer.attach")}
+              title={t("composer.addMenu")}
+              aria-label={t("composer.addMenu")}
             >
-              <Icon.Paperclip size={13} />
+              <Icon.Plus size={15} />
             </button>
             {attachMenu.open ? (
               <div className="pw-tb-menu pw-tb-menu--up" role="menu">
@@ -803,43 +785,50 @@ export function ComposerShell({
                   className="pw-tb-menu-item"
                   role="menuitem"
                   onClick={() => {
-                    fileInputRef.current?.click();
-                    attachMenu.setOpen(false);
-                  }}
-                >
-                  <Icon.Image size={14} />
-                  <span>{t("composer.uploadImage")}</span>
-                </button>
-                <button
-                  className="pw-tb-menu-item"
-                  role="menuitem"
-                  onClick={() => {
-                    docInputRef.current?.click();
+                    attachInputRef.current?.click();
                     attachMenu.setOpen(false);
                   }}
                 >
                   <Icon.Paperclip size={14} />
-                  <span>{t("composer.uploadDoc")}</span>
+                  <span>{t("composer.uploadFile")}</span>
+                </button>
+                <button
+                  className={`pw-tb-menu-item ${useOwnSkills ? "is-on" : ""}`}
+                  role="menuitemcheckbox"
+                  aria-checked={useOwnSkills}
+                  title={useOwnSkills ? t("composer.skillsOnTitle") : t("composer.skillsOffTitle")}
+                  onClick={() => onToggleSkills()}
+                >
+                  <Icon.Sparkle size={14} color="#7c5cff" />
+                  <span>{t("composer.skills")}</span>
+                  <span className="pw-tb-menu-state">
+                    {useOwnSkills ? t("composer.skillsOn") : t("composer.skillsOff")}
+                  </span>
                 </button>
               </div>
             ) : null}
           </div>
+          {/* 统一附件入口:单个 input 同时接受图片与文档,onChange 按 MIME 分流到图片/文档通道。 */}
           <input
-            ref={fileInputRef}
+            ref={attachInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
+            accept={`image/png,image/jpeg,image/gif,image/webp,${DOC_ACCEPT_ATTR}`}
             multiple
             style={{ display: "none" }}
-            onChange={onPickFiles}
+            onChange={onPickAttachments}
           />
-          <input
-            ref={docInputRef}
-            type="file"
-            accept={DOC_ACCEPT_ATTR}
-            multiple
-            style={{ display: "none" }}
-            onChange={onPickDocs}
-          />
+          {/* 「自定义」下拉(置于「+」之后):合并原先并排的「执行模式」+「工作区」两 pill。
+              两组均 opt-in,至少有一个 onChange 时才渲染整个按钮。 */}
+          {onChangeApprovalPolicy || onChangePermissionMode ? (
+            <CustomizePill
+              agent={agent}
+              approvalPolicy={approvalPolicy}
+              onChangeApprovalPolicy={onChangeApprovalPolicy}
+              permissionMode={permissionMode}
+              onChangePermissionMode={onChangePermissionMode}
+              running={running}
+            />
+          ) : null}
           <div className="spacer" />
           {/* agent 选择器(opt-in):仅新会话落地页传 onChangeAgent 时渲染,置于模型 pill 前;
               会话内不传 → 不渲染(会话头已有选择器)。 */}
@@ -867,18 +856,6 @@ export function ComposerShell({
             onChangeThinking={onChangeThinking}
             disabled={isPi ? piModelOptions.length === 0 : models.length === 0}
           />
-          {/* 执行/审批 + 访问范围两 pill(Image #2):与模型/思考同处 comp-foot 行。 */}
-          {onChangeApprovalPolicy ? (
-            <ApprovalPill
-              approvalPolicy={approvalPolicy}
-              onChange={onChangeApprovalPolicy}
-              running={running}
-              agent={agent}
-            />
-          ) : null}
-          {onChangePermissionMode ? (
-            <ModePill permissionMode={permissionMode} onChange={onChangePermissionMode} running={running} />
-          ) : null}
           {running ? (
             <>
               {canSteer && text.trim() ? (

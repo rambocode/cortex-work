@@ -128,7 +128,7 @@ export function PersonalWorkspace({
   return (
     <>
       {/* 折叠态隐藏左栏菜单；折叠/搜索控制改由中栏顶栏渲染（见 PersonalCenterHeader）。 */}
-      {leftCollapsed ? null : <PersonalSidebar onToast={onToast} />}
+      {leftCollapsed ? null : <PersonalSidebar onToast={onToast} onOpenFlashNote={onOpenFlashNote} />}
       <div className="pw-main">
         <div className="pw-upper">
           <div className="pw-center-col">
@@ -140,11 +140,11 @@ export function PersonalWorkspace({
             ) : noteEditorId ? (
               <FlashNoteEditor noteId={noteEditorId} onClose={closeNoteEditor} onToast={onToast} />
             ) : homeOpen ? (
-              <NewSessionLanding onToast={onToast} onOpenFlashNote={onOpenFlashNote} />
+              <NewSessionLanding onToast={onToast} />
             ) : timelineProject ? (
               <TimelineView project={timelineProject} onToast={onToast} />
             ) : (
-              <PersonalChatArea onToast={onToast} onOpenFlashNote={onOpenFlashNote} />
+              <PersonalChatArea onToast={onToast} />
             )}
             {/* 右侧执行过程区（浮起 overlay，position:absolute 脱离 .pw-center-col 的 flex:1 规则，
                 锚到 .pw-center-col 的 relative）。独立门控：与上面的视图切换、rightOpen/rightView 解耦，

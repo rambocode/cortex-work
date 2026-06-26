@@ -56,11 +56,8 @@ function draftDefaultsForAgent(
 
 export function NewSessionLanding({
   onToast,
-  onOpenFlashNote,
 }: {
   onToast: (text: string) => void;
-  // 闪记浮层入口(壳注入,透传给 composer 图标;web/旧壳缺省 → 隐藏)。
-  onOpenFlashNote?: () => void;
 }) {
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
@@ -192,7 +189,6 @@ export function NewSessionLanding({
         approvalPolicy={draft.approvalPolicy}
         onChangeApprovalPolicy={(p) => setDraft((d) => ({ ...d, approvalPolicy: p }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
-        onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}
       />
 

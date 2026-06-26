@@ -29,7 +29,6 @@ export function PersonalComposer({
   onChangePermissionMode,
   onChangeApprovalPolicy,
   onToggleSkills,
-  onOpenFlashNote,
   onToast,
 }: {
   session: SessionMeta;
@@ -54,8 +53,6 @@ export function PersonalComposer({
   onChangePermissionMode: (mode: PermissionMode) => void;
   onChangeApprovalPolicy: (p: ApprovalPolicy) => void;
   onToggleSkills: () => void;
-  /** 闪记图标入口:唤起闪记浮层(由壳注入,web 端缺省 → 隐藏)。 */
-  onOpenFlashNote?: () => void;
   onToast: (text: string) => void;
 }) {
   // pi 风格动态 skills(U4):仅 pi 会话非空(hook 内按 agent/useOwnSkills/桥门控)。
@@ -92,7 +89,6 @@ export function PersonalComposer({
       approvalPolicy={session.approvalPolicy}
       onChangeApprovalPolicy={onChangeApprovalPolicy}
       onToggleSkills={onToggleSkills}
-      onOpenFlashNote={onOpenFlashNote}
       onCancelEdit={onCancelEdit}
       onToast={onToast}
     />

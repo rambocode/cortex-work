@@ -96,8 +96,13 @@ export default interface Resources {
       "shared": "共享"
     },
     "composer": {
+      "addMenu": "添加文件 / Skills",
       "attach": "添加附件",
       "attachment": "附件",
+      "customize": {
+        "label": "自定义"
+      },
+      "uploadFile": "文件",
       "attachmentToast": "已附加截图",
       "cancel": "取消",
       "contactFallback": "联系人",

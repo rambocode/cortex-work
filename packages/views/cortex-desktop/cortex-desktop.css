@@ -4535,21 +4535,15 @@ button.sb-row {
   font-size: 11px;
   color: var(--text-3);
 }
-/* 模型行 → 右侧子菜单容器。 */
-.pw-submenu-wrap { position: relative; }
-/* 子菜单:必须复位 pw-tb-menu 继承来的 top/right(否则 top+bottom、left+right 同时生效 → 盒子
-   被拉伸错位、看起来「透明/破损」)。.pw-tb-menu 定义更靠后,等特异性会反向覆盖,故用
-   (0,2,0) 选择器确保复位生效。显式 opaque 背景 + 抬高 z-index 盖住下方 composer pill。 */
-.pw-mt-pill .pw-mt-submenu {
-  position: absolute;
-  left: 100%;
-  right: auto;
-  bottom: 0;
-  top: auto;
-  margin-left: 2px;
-  min-width: 200px;
-  background: var(--bg-app);
-  z-index: 200;
+/* 模型层:单面板下钻(原地替换一级内容)。「返回」头 + 列表;列表限高内部滚动承载长模型列表/
+   后续搜索;长模型名(如 pi 的「Prov · Model」)省略号截断,避免过宽。 */
+.pw-mt-back { color: var(--text-2); }
+.pw-mt-models { max-height: 280px; overflow-y: auto; }
+.pw-mt-models .pw-tb-menu-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pw-agent-select {
   border: 1px solid var(--border);
@@ -5262,6 +5256,35 @@ button.sb-row {
 .pw-tb-menu-item span { flex: 1; text-align: left; }
 .pw-tb-menu-item svg:last-child:not(:first-child) { color: var(--accent); }
 .pw-tb-menu-sep { height: 1px; background: var(--border-soft); margin: 4px 2px; }
+/* 「+」菜单里 Skills 行的当前状态徽标:靠右、不抢占 flex,开启态用强调色高亮。 */
+.pw-tb-menu-state {
+  flex: 0 0 auto !important;
+  text-align: right !important;
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+}
+.pw-tb-menu-item.is-on .pw-tb-menu-state {
+  color: #fff;
+  background: var(--accent, #7c5cff);
+}
+/* 「自定义」下拉:齿轮 + 文字 + chevron 的 pill(置于「+」之后),复用 pill 基样式。 */
+.pw-customize-pill { display: inline-flex; align-items: center; gap: 5px; }
+.pw-customize-pill > span { font-size: 13px; }
+/* 「自定义」菜单:同时容纳「执行模式」「工作区」两组,略加宽。 */
+.pw-customize-menu { min-width: 196px; }
+/* 分组标题:小字弱化,区隔执行模式 / 工作区两组。 */
+.pw-tb-menu-group-h {
+  padding: 6px 9px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: none;
+}
+/* 降级项(ask 在 claude/codex)文字标黄提示,与 pw-model-pill 的 data-warn 呼应。 */
+.pw-tb-menu-item[data-warn="1"] span { color: var(--warn, #d08700); }
 
 /* 文件列表右键菜单（复用 .pw-tb-menu-item 行样式） */
 .pw-ctx-menu {
