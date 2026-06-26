@@ -49,6 +49,17 @@ vi.mock("./agent-trace", () => ({
   recordStreamDelta: (...args: unknown[]) => streamDeltaMock(...args),
 }));
 
+// codex ws 传输:在 cli.ts 单测里把 ws 编排 stub 掉,只验证 cli:start 的分流接线(ws 机制本身由
+// codex-ws-run.test.ts / codex-app-server.test.ts / codex-ws-channel.test.ts 覆盖)。否则 codex 主会话
+// 会触发真实后台 app-server spawn + /readyz 轮询,污染单测且泄漏定时器。
+const startCodexWsRunMock = vi.hoisted(() => vi.fn());
+vi.mock("./codex-ws-run", () => ({
+  startCodexWsRun: (...args: unknown[]) => {
+    startCodexWsRunMock(...args);
+    return { pid: undefined, stdout: null, stderr: null, onExit() {}, onError() {}, kill() {} };
+  },
+}));
+
 import {
   detectAgents,
   envForCommand,
@@ -120,28 +131,30 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
     }
   });
 
-  it("codex 启用 MCP → buildCodexMcpArgs 结果作为 mcpArgs 注入 spawn", async () => {
+  it("codex 启用 MCP → buildCodexMcpArgs 算出 mcpArgs 交 ws 编排(非 applyClaudeMcp)", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-mcpwire2-"));
     m.getPersistedState.mockResolvedValue({ generalSettings: { mcp: { enabled: true, servers: [] } } });
     m.buildCodexMcpArgs.mockReturnValue(["-c", 'mcp_servers.fs.command="/bin/fs"']);
+    startCodexWsRunMock.mockClear();
     try {
-      const run = await startWithDetect("codex", { runId: "m2", sessionId: "s", cwd, prompt: "hi" }, vi.fn());
-      void run;
+      // codex 主会话走 ws:mcpArgs 经 startCodexWsRun 透传给 app-server(不再 spawn `codex exec`)。
+      await startWithDetect("codex", { runId: "m2", sessionId: "s", cwd, prompt: "hi" }, vi.fn());
       expect(m.buildCodexMcpArgs).toHaveBeenCalled();
-      // run 是第 3 个 spawn;其 args 含注入的 -c
-      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
-      expect(runArgs.join(" ")).toContain('mcp_servers.fs.command="/bin/fs"');
       expect(m.applyClaudeMcp).not.toHaveBeenCalled();
+      expect(startCodexWsRunMock).toHaveBeenCalledWith(
+        expect.objectContaining({ mcpArgs: ["-c", 'mcp_servers.fs.command="/bin/fs"'] }),
+      );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
 
-  it("续接回退:resumeSessionId 但会话不存在 → 清除、发 resume-fallback trace、spawn 不含该 id", async () => {
+  it("续接回退(spawn agent):resumeSessionId 但会话不存在 → 清除、发 trace、spawn 不含该 id", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-fallback-"));
     m.agentSessionExists.mockReturnValue(false);
     try {
-      await startWithDetect("codex", { runId: "f1", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "dead-id" }, vi.fn());
+      // 用 claude(spawn 传输)验证通用磁盘回退仍生效。
+      await startWithDetect("claude", { runId: "f1", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "dead-id" }, vi.fn());
       expect(traceMock).toHaveBeenCalledWith(expect.objectContaining({ phase: "resume-fallback" }));
       const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
       expect(runArgs).not.toContain("dead-id"); // 干净新建,不带失效 id
@@ -150,14 +163,30 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
     }
   });
 
-  it("续接回退不触发:会话存在时保留 resume id", async () => {
+  it("续接回退不触发(spawn agent):会话存在时保留 resume id", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-fallback2-"));
     m.agentSessionExists.mockReturnValue(true);
     try {
-      await startWithDetect("codex", { runId: "f2", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "live-id" }, vi.fn());
+      await startWithDetect("claude", { runId: "f2", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "live-id" }, vi.fn());
       expect(traceMock).not.toHaveBeenCalledWith(expect.objectContaining({ phase: "resume-fallback" }));
       const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
       expect(runArgs).toContain("live-id");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("codex ws 跳过磁盘 resume 回退:会话不存在也不清除 id、不发 fallback trace(U6)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-wsresume-"));
+    m.agentSessionExists.mockReturnValue(false); // 磁盘无该会话
+    startCodexWsRunMock.mockClear();
+    try {
+      await startWithDetect("codex", { runId: "f3", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "thr_x" }, vi.fn());
+      // ws 路径不走磁盘检查:无 resume-fallback trace,且 resumeSessionId 原样交给 ws 编排(由 thread/resume 处理)。
+      expect(traceMock).not.toHaveBeenCalledWith(expect.objectContaining({ phase: "resume-fallback" }));
+      expect(startCodexWsRunMock).toHaveBeenCalledWith(
+        expect.objectContaining({ req: expect.objectContaining({ resumeSessionId: "thr_x" }) }),
+      );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

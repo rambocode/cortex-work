@@ -1687,10 +1687,17 @@ export function usePersonalCliEvents(): void {
     bridgeRef = bridge;
     const offEvent = bridge.onCliEvent((runId, ev, sessionId) => handleCliEvent(qc, runId, ev, sessionId));
     const offExit = bridge.onCliExit((exit) => handleCliExit(qc, exit.runId, exit.code, exit.error, exit.sessionId));
+    // ws 传输心跳(U5):codex app-server 长 MCP 工具静默期,主进程定期推 keepalive。仅刷新该 run 的
+    // lastEventAt(等同收到一次 cli:event 的活跃信号),让 300s 静默看门狗不误杀长工具;不改变其它状态。
+    const offKeepalive = bridge.onCliKeepalive?.((runId) => {
+      const run = runs.get(runId);
+      if (run) run.lastEventAt = Date.now();
+    });
     return () => {
       bridgeRef = null;
       offEvent();
       offExit();
+      offKeepalive?.();
     };
   }, [bridge, qc]);
 }

@@ -225,6 +225,9 @@ export interface DesktopBridge {
   trimAgentSession?(req: TrimSessionRequest): Promise<boolean>;
   onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;
   onCliExit(cb: (exit: CliExitEvent) => void): () => void;
+  // ws 传输心跳(U5,可选能力):codex app-server 长 MCP 工具静默期主进程定期推送,渲染端据此重置
+  // 300s 静默看门狗(防误杀)。旧壳/web 端缺失时无此信号,行为退化为仅靠 cli:event 重置(不影响 spawn agent)。
+  onCliKeepalive?(cb: (runId: string, sessionId?: string) => void): () => void;
   // 主进程请求打开内置浏览器面板并导航(agent browser_navigate 在面板未开时触发)。回调 (url);返回退订。
   onBrowserOpenPanel?(cb: (url: string) => void): () => void;
   // ── 历史消息追问的临时流式应答（ask:*）。复用 CliStreamEvent,但不落盘/不进 run 注册表; ──
