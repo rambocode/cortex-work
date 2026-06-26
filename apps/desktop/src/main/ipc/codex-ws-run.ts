@@ -116,7 +116,8 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
         agent: req.agent,
       });
     } else {
-      if (ev.type === "tool" || ev.type === "result") sawAnyVisible = true;
+      // thinking(reasoning/commentary)也算可见输出:推理已流出后失败不再重试,避免重复。
+      if (ev.type === "tool" || ev.type === "result" || ev.type === "thinking") sawAnyVisible = true;
       recordAgentTrace({
         scope: "cli",
         phase: "event",

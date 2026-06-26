@@ -64,10 +64,17 @@ export interface TurnStartResult {
   turn?: { id?: string; status?: string };
 }
 
-/** item/agentMessage/delta 通知:流式文本增量。 */
+/** item/agentMessage/delta 通知:流式文本增量。itemId 用于查 phase(commentary/final_answer)。 */
 export interface AgentMessageDeltaParams {
+  itemId?: string;
   delta?: string;
   text?: string;
+}
+
+/** item/reasoning/summaryTextDelta | item/reasoning/textDelta 通知:推理摘要/原文增量。 */
+export interface ReasoningDeltaParams {
+  itemId?: string;
+  delta?: string;
 }
 
 /** item/started | item/completed 通知。item.type 决定是工具还是 agentMessage 等。 */
@@ -120,6 +127,8 @@ export interface ErrorNotificationParams {
 export const CODEX_NOTIF = {
   threadStarted: "thread/started",
   agentMessageDelta: "item/agentMessage/delta",
+  reasoningSummaryDelta: "item/reasoning/summaryTextDelta",
+  reasoningTextDelta: "item/reasoning/textDelta",
   itemStarted: "item/started",
   itemCompleted: "item/completed",
   tokenUsage: "thread/tokenUsage/updated",

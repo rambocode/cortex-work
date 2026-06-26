@@ -19,6 +19,7 @@ import {
   type CodexUserInput,
   type ErrorNotificationParams,
   type ItemNotificationParams,
+  type ReasoningDeltaParams,
   type ThreadStartResult,
   type TokenUsageParams,
   type TurnCompletedParams,
@@ -72,19 +73,38 @@ function toolDetail(item: NonNullable<ItemNotificationParams["item"]>): string |
   return clip(item.path ?? item.query ?? item.tool ?? item.server);
 }
 
+/** 解析上下文:agentMessage delta 的 phase 查询(commentary→thinking,final_answer→text)。 */
+export interface ParseCtx {
+  agentMessagePhase?: (itemId: string | undefined) => string | undefined;
+}
+
 /**
  * U4:把一条 app-server 通知映射为归一化 CliStreamEvent(s)。无关/未知通知返回 null。
  * 纯函数,供通道与单测共用。init 不在此处产出(由通道在 thread/start 应答后显式发,见 CodexWsChannel)。
+ *
+ * 「执行过程」与「对话回复」分流(用户要求:思考/过程进右侧运行过程面板,不进回复):
+ *   - reasoning 摘要/原文增量 → thinking(右侧过程流)
+ *   - agentMessage phase=commentary(过程叙述) → thinking;phase=final_answer/未知 → text(回复)
  */
 export function parseAppServerEvent(
   method: string,
   params: unknown,
+  ctx?: ParseCtx,
 ): CliStreamEvent | CliStreamEvent[] | null {
   switch (method) {
     case CODEX_NOTIF.agentMessageDelta: {
       const p = (params ?? {}) as AgentMessageDeltaParams;
       const delta = p.delta ?? p.text ?? "";
-      return delta ? { type: "text", delta } : null;
+      if (!delta) return null;
+      // commentary 是 codex 的过程叙述(如「我先读 skill 再执行 ls」),归入 thinking(右侧过程),
+      // 保持对话回复只含 final_answer。phase 未知时按回复处理(向后兼容,见 MessagePhase 文档)。
+      const phase = ctx?.agentMessagePhase?.(p.itemId);
+      return phase === "commentary" ? { type: "thinking", delta } : { type: "text", delta };
+    }
+    case CODEX_NOTIF.reasoningSummaryDelta:
+    case CODEX_NOTIF.reasoningTextDelta: {
+      const p = (params ?? {}) as ReasoningDeltaParams;
+      return p.delta ? { type: "thinking", delta: p.delta } : null;
     }
     case CODEX_NOTIF.itemStarted: {
       const item = (params as ItemNotificationParams)?.item;
@@ -183,6 +203,9 @@ export class CodexWsChannel {
   private _threadId: string | undefined;
   private _turnId: string | undefined;
   private turnSettled = false; // 当前 turn 是否已产出终态 result(防重复 result)
+  // agentMessage itemId → phase(commentary/final_answer):delta 通知不带 phase,从 item/started 记下,
+  // 供 parseAppServerEvent 把 commentary 分流到 thinking(右侧过程)、final_answer 留在 text(回复)。
+  private agentMsgPhases = new Map<string, string>();
 
   constructor(opts: CodexWsChannelOpts) {
     this.opts = opts;
@@ -274,17 +297,22 @@ export class CodexWsChannel {
     this.opts.onEvent({ type: "init", sessionId: threadId });
   }
 
-  /** turn/start → turnId。实际工作经通知流式产出(text/tool/usage/result)。 */
+  /** turn/start → turnId。实际工作经通知流式产出(thinking/text/tool/usage/result)。 */
   async startTurn(params: {
     input: CodexUserInput[];
     effort?: string;
     model?: string;
+    /** 推理摘要档:默认 "auto" → codex 发 item/reasoning/summaryTextDelta,思考过程可见(右侧)。 */
+    summary?: "auto" | "concise" | "detailed" | "none";
   }): Promise<string> {
     if (!this._threadId) throw new Error("startTurn 前需先 startThread/resumeThread");
     this.turnSettled = false;
+    this.agentMsgPhases.clear(); // 新 turn 重置 phase 表
     const res = (await this.request("turn/start", {
       threadId: this._threadId,
       input: params.input,
+      // 开启推理摘要(默认 auto):否则 codex 不发 reasoning 增量,右侧过程看不到思考。
+      summary: params.summary ?? "auto",
       ...(params.effort ? { effort: params.effort } : {}),
       ...(params.model ? { model: params.model } : {}),
     })) as TurnStartResult;
@@ -365,7 +393,15 @@ export class CodexWsChannel {
     }
     // 通知:stopped 后丢弃(防旧事件串入新会话)
     if (typeof msg.method === "string" && !this.stopped) {
-      const mapped = parseAppServerEvent(msg.method, msg.params);
+      // 记录 agentMessage 的 phase(delta 通知不带 phase,从 item/started 取),供 commentary/final_answer 分流。
+      if (msg.method === CODEX_NOTIF.itemStarted) {
+        const item = (msg.params as ItemNotificationParams)?.item;
+        if (item?.type === "agentMessage" && typeof item.id === "string")
+          this.agentMsgPhases.set(item.id, item.phase ?? "");
+      }
+      const mapped = parseAppServerEvent(msg.method, msg.params, {
+        agentMessagePhase: (id) => (id ? this.agentMsgPhases.get(id) : undefined),
+      });
       if (!mapped) return;
       const events = Array.isArray(mapped) ? mapped : [mapped];
       for (const e of events) {

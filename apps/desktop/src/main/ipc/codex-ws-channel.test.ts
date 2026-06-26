@@ -83,12 +83,34 @@ function makeChannel(over: {
 
 // ── U4:parseAppServerEvent ──────────────────────────────────────────────────
 describe("parseAppServerEvent(U4)", () => {
-  it("agentMessage/delta → text(空 delta → null)", () => {
+  it("agentMessage/delta → text(phase 未知/final_answer);空 delta → null", () => {
     expect(parseAppServerEvent("item/agentMessage/delta", { delta: "hi" })).toEqual({
       type: "text",
       delta: "hi",
     });
     expect(parseAppServerEvent("item/agentMessage/delta", { delta: "" })).toBeNull();
+    // final_answer → text(回复)
+    expect(
+      parseAppServerEvent("item/agentMessage/delta", { itemId: "m1", delta: "ans" }, { agentMessagePhase: () => "final_answer" }),
+    ).toEqual({ type: "text", delta: "ans" });
+  });
+
+  it("agentMessage/delta phase=commentary → thinking(右侧过程,不进回复)", () => {
+    expect(
+      parseAppServerEvent("item/agentMessage/delta", { itemId: "m1", delta: "我先读 skill" }, { agentMessagePhase: () => "commentary" }),
+    ).toEqual({ type: "thinking", delta: "我先读 skill" });
+  });
+
+  it("reasoning summary/text delta → thinking(右侧过程)", () => {
+    expect(parseAppServerEvent("item/reasoning/summaryTextDelta", { delta: "思考中" })).toEqual({
+      type: "thinking",
+      delta: "思考中",
+    });
+    expect(parseAppServerEvent("item/reasoning/textDelta", { delta: "raw" })).toEqual({
+      type: "thinking",
+      delta: "raw",
+    });
+    expect(parseAppServerEvent("item/reasoning/summaryTextDelta", { delta: "" })).toBeNull();
   });
 
   it("item/started 各工具类型 → 正确 tool 名 + detail + toolCallId", () => {
@@ -302,30 +324,57 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ code: 1006, expected: false }));
   });
 
-  it("端到端:完整 turn 通知序列 → 与 codex exec 契约等价的归一化事件流(U8)", async () => {
+  it("startTurn 默认开启 reasoning summary(summary=auto)", async () => {
+    const { channel, fake } = connectedChannel();
+    const p = channel.connect();
+    fake.open();
+    await p;
+    await channel.startThread({ cwd: "/p" });
+    await channel.startTurn({ input: buildTurnInput({ prompt: "hi" }) });
+    const t = fake.sent.find((f) => f.method === "turn/start");
+    expect((t?.params as { summary: string }).summary).toBe("auto");
+  });
+
+  it("commentary 归 thinking、final_answer 归 text(按 item/started 的 phase 分流)", async () => {
+    const { channel, fake, events } = connectedChannel();
+    const p = channel.connect();
+    fake.open();
+    await p;
+    await channel.startThread({ cwd: "/p" });
+    await channel.startTurn({ input: buildTurnInput({ prompt: "hi" }) });
+    // commentary 消息
+    fake.emit({ method: "item/started", params: { item: { type: "agentMessage", id: "m1", phase: "commentary" } } });
+    fake.emit({ method: "item/agentMessage/delta", params: { itemId: "m1", delta: "我先读 skill" } });
+    // final_answer 消息
+    fake.emit({ method: "item/started", params: { item: { type: "agentMessage", id: "m2", phase: "final_answer" } } });
+    fake.emit({ method: "item/agentMessage/delta", params: { itemId: "m2", delta: "答案" } });
+    expect(events).toContainEqual({ type: "thinking", delta: "我先读 skill" });
+    expect(events).toContainEqual({ type: "text", delta: "答案" });
+  });
+
+  it("端到端:富 turn 通知序列 → 过程(thinking/tool)与回复(text)分流(U8)", async () => {
     const { channel, fake, events } = connectedChannel();
     const p = channel.connect();
     fake.open();
     await p;
     await channel.startThread({ cwd: "/p", permissionMode: "full-auto" }); // → init
     await channel.startTurn({ input: buildTurnInput({ prompt: "build it" }) });
-    // 回放实测 0.142.2 的一轮 turn 通知序列(含工具/推理/文本/usage/完成)。
-    fake.emit({ method: "thread/started", params: {} }); // 通道已自产 init,此通知映射为 null
-    fake.emit({ method: "turn/started", params: {} });
-    fake.emit({ method: "item/started", params: { item: { type: "reasoning" } } }); // 非工具 → null
-    fake.emit({ method: "item/started", params: { item: { type: "commandExecution", id: "c1", command: "npm i" } } });
-    fake.emit({ method: "item/agentMessage/delta", params: { delta: "Done" } });
-    fake.emit({ method: "item/completed", params: { item: { type: "agentMessage", text: "Done", phase: "final_answer" } } }); // item/completed 不单独映射 → null
-    fake.emit({
-      method: "thread/tokenUsage/updated",
-      params: { tokenUsage: { total: { inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 } } },
-    });
+    // 回放实测 0.142.2 富 turn:推理 → commentary → 工具 → final_answer → usage → 完成。
+    fake.emit({ method: "item/reasoning/summaryTextDelta", params: { delta: "分析需求" } }); // → thinking
+    fake.emit({ method: "item/started", params: { item: { type: "agentMessage", id: "c", phase: "commentary" } } });
+    fake.emit({ method: "item/agentMessage/delta", params: { itemId: "c", delta: "我先看看目录" } }); // commentary → thinking
+    fake.emit({ method: "item/started", params: { item: { type: "commandExecution", id: "c1", command: "ls" } } }); // → tool
+    fake.emit({ method: "item/started", params: { item: { type: "agentMessage", id: "f", phase: "final_answer" } } });
+    fake.emit({ method: "item/agentMessage/delta", params: { itemId: "f", delta: "这是答案" } }); // final → text
+    fake.emit({ method: "thread/tokenUsage/updated", params: { tokenUsage: { total: { inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 } } } });
     fake.emit({ method: "turn/completed", params: { turn: { status: "completed" } } });
-    // 归一化事件顺序:init(自产) → tool(Shell) → text → usage → result。与 codex exec parseLine 产物同构。
+    // 过程(thinking + tool)与回复(text)分流;init 自产在首。
     expect(events).toEqual([
       { type: "init", sessionId: "thr_1" },
-      { type: "tool", name: "Shell", detail: "npm i", phase: "start", toolCallId: "c1" },
-      { type: "text", delta: "Done" },
+      { type: "thinking", delta: "分析需求" },
+      { type: "thinking", delta: "我先看看目录" },
+      { type: "tool", name: "Shell", detail: "ls", phase: "start", toolCallId: "c1" },
+      { type: "text", delta: "这是答案" },
       { type: "usage", inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 },
       { type: "result", ok: true },
     ]);
