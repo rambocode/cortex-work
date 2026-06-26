@@ -166,6 +166,22 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     );
   });
 
+  it("pi 默认 + 有 provider 但 defaultProviderId 未设:草稿回退第一个已启用 provider(不显示未配置)", () => {
+    usePersonalStore.setState({
+      agentsAvailable: {}, // 无 claude/codex → 默认 agent 回退 pi
+      providerSettings: {
+        defaultProviderId: undefined,
+        defaultModel: undefined,
+        providers: [{ id: "prov1", name: "供应商一", enabled: true, models: [{ id: "m1", label: "M1" }] }],
+      } as never,
+    });
+    const { container } = renderLanding(fakeBridge());
+    const trigger = container.querySelector(".pw-mt-trigger")!;
+    // 回退到第一个已启用 provider 的模型 → 不应显示「未配置供应商」。
+    expect(trigger.textContent).not.toContain("未配置");
+    expect(trigger.textContent).toContain("M1");
+  });
+
   it("不支持 ensureNoProjectDir 的环境:提示且不建会话不 send", async () => {
     const onToast = vi.fn();
     // 默认「不使用项目」但桥缺 ensureNoProjectDir(web/旧壳)→ 拒绝并提示。

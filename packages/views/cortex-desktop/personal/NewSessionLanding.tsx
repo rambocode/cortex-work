@@ -40,10 +40,14 @@ function draftDefaultsForAgent(
   providerSettings: ProviderSettings,
 ): { model: string | undefined; providerId: string | undefined } {
   if (base === "pi") {
-    const provider = providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId);
+    // 默认 provider 解析:优先 defaultProviderId,缺省/失效则回退「第一个已启用」provider
+    //(与 initialModelDraft 一致)。否则 defaultProviderId 未设时会落 providerId=undefined →
+    // 合并 pill 找不到匹配项,误显示「未配置供应商」(即便实际已配 provider)。
+    const enabled = providerSettings.providers.filter((p) => p.enabled);
+    const provider = enabled.find((p) => p.id === providerSettings.defaultProviderId) ?? enabled[0];
     return {
       model: providerSettings.defaultModel ?? provider?.models[0]?.id,
-      providerId: providerSettings.defaultProviderId,
+      providerId: provider?.id,
     };
   }
   return { model: DEFAULT_MODEL[base], providerId: undefined };
