@@ -62,7 +62,7 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
 
   it("内核控件就位:渲染 model 下拉 / Skills / 发送(补回退化版丢失的能力)", () => {
     const { container } = renderLanding(fakeBridge());
-    expect(container.querySelector(".pw-model-select")).not.toBeNull();
+    expect(container.querySelector(".pw-mt-trigger")).not.toBeNull();
     expect(screen.getByRole("button", { name: /Skills/ })).toBeInTheDocument();
     expect(screen.getByTitle("发送 (Enter)")).toBeInTheDocument();
     // 复用内核根节点,不再有双层 composer-wrap。
@@ -123,9 +123,15 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     );
   });
 
-  it("改 model 下拉后发送:新会话沿用所选 model", async () => {
+  it("改 model(合并 pill 子菜单)后发送:新会话沿用所选 model", async () => {
     const { container } = renderLanding(fakeBridge());
-    fireEvent.change(container.querySelector(".pw-model-select")!, { target: { value: "opus" } });
+    // 打开合并 pill → 打开模型子菜单 → 选 Opus。
+    fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+    fireEvent.click(container.querySelector(".pw-submenu-wrap > button")!);
+    const opus = [...container.querySelectorAll(".pw-mt-submenu .pw-tb-menu-item")].find((b) =>
+      b.textContent?.includes("Opus"),
+    )!;
+    fireEvent.click(opus);
     fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "ship it" } });
     fireEvent.click(screen.getByTitle("发送 (Enter)"));
     await Promise.resolve();
@@ -134,10 +140,14 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     expect(created.model).toBe("opus");
   });
 
-  it("改思考强度后发送:新会话沿用所选 effort", async () => {
-    renderLanding(fakeBridge());
-    const thinkingSelect = screen.getByTitle("思考强度").querySelector("select")!;
-    fireEvent.change(thinkingSelect, { target: { value: "high" } });
+  it("改思考强度(合并 pill)后发送:新会话沿用所选 effort", async () => {
+    const { container } = renderLanding(fakeBridge());
+    // 打开合并 pill → 点推理「高」。
+    fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+    const high = [...container.querySelectorAll(".pw-mt-menu .pw-tb-menu-item")].find(
+      (b) => b.textContent?.trim() === "高",
+    )!;
+    fireEvent.click(high);
     fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "think harder" } });
     fireEvent.click(screen.getByTitle("发送 (Enter)"));
     await Promise.resolve();

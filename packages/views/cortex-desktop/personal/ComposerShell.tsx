@@ -28,6 +28,7 @@ import type {
 import { AgentSelect } from "./AgentSelect";
 import { ModePill } from "./ModePill";
 import { ApprovalPill } from "./ApprovalPill";
+import { ModelThinkingPill } from "./ModelThinkingPill";
 import { useDismissableMenu } from "./useDismissableMenu";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
@@ -852,61 +853,20 @@ export function ComposerShell({
               menuPlacement="up"
             />
           ) : null}
-          <span className="pill pw-model-pill">
-            <span className="lightning">
-              <Icon.Lightning size={11} />
-            </span>
-            {isPi ? (
-              <select
-                className="pw-model-select"
-                value={piModelValue}
-                onChange={(e) => {
-                  const [providerId, model] = e.target.value.split("::");
-                  onChangePiModel(providerId ?? "", model ?? "");
-                }}
-                disabled={piModelOptions.length === 0}
-              >
-                {piModelOptions.length === 0 ? (
-                  <option value="::">{t("composer.noProvider")}</option>
-                ) : (
-                  piModelOptions.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))
-                )}
-              </select>
-            ) : (
-              <select
-                className="pw-model-select"
-                value={model || models[0]?.value || ""}
-                onChange={(e) => onChangeModel(e.target.value)}
-                disabled={models.length === 0}
-              >
-                {models.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </span>
-          {thinkingOptions.length ? (
-            <span className="pill pw-model-pill" title={t("composer.thinkingStrength")}>
-              <select
-                className="pw-model-select"
-                value={resolvedThinkingValue}
-                onChange={(e) => onChangeThinking?.(e.target.value as AgentThinkingValue)}
-                disabled={!onChangeThinking}
-              >
-                {thinkingOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {t(option.labelKey)}
-                  </option>
-                ))}
-              </select>
-            </span>
-          ) : null}
+          {/* 模型 + 推理强度合并为单个 pill(Image #3),减少占用。 */}
+          <ModelThinkingPill
+            isPi={isPi}
+            models={models}
+            model={model}
+            onChangeModel={onChangeModel}
+            piModelOptions={piModelOptions}
+            piModelValue={piModelValue}
+            onChangePiModel={onChangePiModel}
+            thinkingOptions={thinkingOptions}
+            resolvedThinkingValue={resolvedThinkingValue}
+            onChangeThinking={onChangeThinking}
+            disabled={isPi ? piModelOptions.length === 0 : models.length === 0}
+          />
           {/* 执行/审批 + 访问范围两 pill(Image #2):与模型/思考同处 comp-foot 行。 */}
           {onChangeApprovalPolicy ? (
             <ApprovalPill

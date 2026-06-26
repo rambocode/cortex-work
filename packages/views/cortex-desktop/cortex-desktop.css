@@ -4502,6 +4502,44 @@ button.sb-row {
   width: auto;
   max-width: 100%;
 }
+
+/* 模型 + 推理 合并 pill(Image #3):触发器 + 上弹菜单 + 模型右侧子菜单。 */
+.pw-mt-pill { position: relative; }
+.pw-mt-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pw-mt-trigger:disabled { cursor: default; opacity: 0.6; }
+.pw-mt-reason { color: var(--text-3); }
+.pw-mt-trigger .chev { color: var(--text-3); flex: 0 0 auto; }
+/* 合并 pill 的菜单左对齐(pw-tb-menu 默认 right:0)。 */
+.pw-mt-menu { left: 0; right: auto; min-width: 200px; }
+/* 菜单分区表头(推理/模型)。 */
+.pw-tb-menu-head {
+  padding: 4px 9px 2px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+/* 模型行 → 右侧子菜单容器。 */
+.pw-submenu-wrap { position: relative; }
+.pw-mt-submenu {
+  position: absolute;
+  left: 100%;
+  bottom: 0;
+  margin-left: 4px;
+  min-width: 200px;
+}
 .pw-agent-select {
   border: 1px solid var(--border);
   border-radius: 6px;

@@ -68,6 +68,8 @@
     "uploadDoc": "Upload document",
     "noProvider": "No provider configured (go to Settings → Providers)",
     "thinkingStrength": "Thinking strength",
+    "reasoningHeader": "Reasoning",
+    "modelHeader": "Model",
     "thinkingLevel": {
       "default": "Thinking · Default",
       "off": "Thinking · Off",

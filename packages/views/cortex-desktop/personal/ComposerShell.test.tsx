@@ -35,6 +35,7 @@ function renderShell(props: {
         onSteer={props.onSteer}
         onChangeModel={() => {}}
         onChangePiModel={() => {}}
+        onChangeThinking={() => {}}
         onToggleSkills={() => {}}
         onToast={() => {}}
       />
@@ -150,9 +151,11 @@ describe("ComposerShell steer 门控（U6）", () => {
     expect(send).toBeInTheDocument();
   });
 
-  it("非 Pi agent 也渲染思考强度选择器", () => {
-    renderShell({ agent: "claude", running: false });
-    expect(screen.getByTitle("思考强度")).toBeInTheDocument();
+  it("非 Pi agent:合并 pill 打开后含推理强度区", () => {
+    const { container } = renderShell({ agent: "claude", running: false });
+    fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+    // 菜单含「推理」分区表头。
+    expect(screen.getByText("推理")).toBeInTheDocument();
   });
 
   it("pi + running:输入回车 → onSteer(注入当前轮),不影响停止", () => {

@@ -181,6 +181,8 @@ export default interface Resources {
         "xhigh": "思考·极高"
       },
       "thinkingStrength": "思考强度",
+      "reasoningHeader": "推理",
+      "modelHeader": "模型",
       "todoInstruction": "请根据拖入的 Task「{{title}}」继续实现这个需求，先理解详情，再在当前项目中完成实现、验证并汇报结果。",
       "todoTruncated": "{{title}} 过大,已截断注入",
       "transcribeFailed": "转写失败：{{error}}",
