@@ -84,16 +84,20 @@ export interface ItemNotificationParams {
   turnId?: string;
 }
 export interface CodexItem {
-  type?: string; // userMessage | agentMessage | reasoning | commandExecution | fileChange | mcpToolCall | webSearch ...
+  type?: string; // userMessage | agentMessage | reasoning | commandExecution | fileChange | mcpToolCall | webSearch | imageGeneration | imageView ...
   id?: string;
   text?: string; // agentMessage 完成时的最终文本
   phase?: string; // agentMessage: "commentary" | "final_answer"
   // command_execution / 工具项常见字段(尽力取 detail)
   command?: string;
-  path?: string;
+  path?: string; // imageView: 图片绝对路径;fileChange: 文件路径
   query?: string;
   server?: string;
   tool?: string;
+  // imageGeneration(imagegen skill 产物):savedPath 为生成图片的绝对路径,渲染端经 ![](savedPath)
+  // + ChatInlineImage(bridge.imageReadAny)内联显示;revisedPrompt 为模型改写后的提示词。
+  savedPath?: string;
+  revisedPrompt?: string;
 }
 
 /** thread/tokenUsage/updated 通知:token 嵌套在 tokenUsage.total 下。 */

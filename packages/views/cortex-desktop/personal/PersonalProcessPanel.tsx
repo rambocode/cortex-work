@@ -134,7 +134,9 @@ export function PersonalProcessPanel() {
     return `${name} 正在响应...`;
   }, [activeSession?.agent, allMessages, runId]);
   const active = useMemo(() => isProcessActive(process) || !!runId, [process, runId]);
-  const processResetKey = `${activeSessionId ?? ""}:${runId ?? ""}:${process[0]?.uid ?? ""}`;
+  // 每轮(runId)重置展开偏好;**不**含 process[0].uid —— 否则本轮第一个过程项(如 reasoning)出现时
+  // key 变化会把用户刚展开的面板重置回收起(表现为「关闭一次」闪烁,codex 发 reasoning 时尤为明显)。
+  const processResetKey = `${activeSessionId ?? ""}:${runId ?? ""}`;
 
   // 展开/收起：每轮新过程默认收起；用户手动展开/折叠覆盖默认，同一轮流式增量和完成态不重置。
   const [userOpen, setUserOpen] = useState<boolean | null>(null);

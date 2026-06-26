@@ -131,6 +131,33 @@ describe("parseAppServerEvent(U4)", () => {
     });
   });
 
+  it("item/started imageGeneration → tool Image(过程步骤)", () => {
+    expect(parseAppServerEvent("item/started", { item: { type: "imageGeneration", id: "g1" } })).toMatchObject({
+      type: "tool",
+      name: "Image",
+      phase: "start",
+    });
+  });
+
+  it("item/completed imageGeneration(savedPath) → 内联 markdown 图片 text", () => {
+    const ev = parseAppServerEvent("item/completed", {
+      item: { type: "imageGeneration", id: "g1", savedPath: "/Users/me/.codex/generated_images/a.png", revisedPrompt: "x" },
+    });
+    expect(ev).toEqual({ type: "text", delta: "\n\n![生成的图片](/Users/me/.codex/generated_images/a.png)\n\n" });
+  });
+
+  it("item/completed imageView(path) → 内联 markdown 图片 text", () => {
+    expect(parseAppServerEvent("item/completed", { item: { type: "imageView", id: "v1", path: "/tmp/x.png" } })).toEqual({
+      type: "text",
+      delta: "\n\n![图片](/tmp/x.png)\n\n",
+    });
+  });
+
+  it("item/completed 非图片类型(agentMessage/commandExecution) → null", () => {
+    expect(parseAppServerEvent("item/completed", { item: { type: "agentMessage", text: "hi" } })).toBeNull();
+    expect(parseAppServerEvent("item/completed", { item: { type: "commandExecution", command: "ls" } })).toBeNull();
+  });
+
   it("item/started 非工具类型(reasoning/agentMessage/userMessage) → null", () => {
     expect(parseAppServerEvent("item/started", { item: { type: "reasoning" } })).toBeNull();
     expect(parseAppServerEvent("item/started", { item: { type: "agentMessage" } })).toBeNull();

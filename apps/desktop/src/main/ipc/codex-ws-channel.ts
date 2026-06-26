@@ -60,6 +60,7 @@ const WS_TOOL_NAMES: Record<string, string> = {
   patchApply: "Edit",
   mcpToolCall: "MCP",
   webSearch: "WebSearch",
+  imageGeneration: "Image", // imagegen skill:item/started 走过程「Image」步骤,完成时另出内联图(见 itemCompleted)
 };
 const WS_TOOL_TYPES = new Set(Object.keys(WS_TOOL_NAMES));
 
@@ -105,6 +106,17 @@ export function parseAppServerEvent(
     case CODEX_NOTIF.reasoningTextDelta: {
       const p = (params ?? {}) as ReasoningDeltaParams;
       return p.delta ? { type: "thinking", delta: p.delta } : null;
+    }
+    case CODEX_NOTIF.itemCompleted: {
+      // 图片产物在完成时透出:imageGeneration(imagegen skill)/imageView → 以 markdown 图片插入回复,
+      // 渲染端 chatMarkdown + ChatInlineImage(bridge.imageReadAny)内联显示绝对路径图片。
+      // 其它 item 类型的完成不在此产事件(text 走 delta、tool 走 item/started)。
+      const item = (params as ItemNotificationParams)?.item;
+      if (item?.type === "imageGeneration" && item.savedPath)
+        return { type: "text", delta: `\n\n![生成的图片](${item.savedPath})\n\n` };
+      if (item?.type === "imageView" && item.path)
+        return { type: "text", delta: `\n\n![图片](${item.path})\n\n` };
+      return null;
     }
     case CODEX_NOTIF.itemStarted: {
       const item = (params as ItemNotificationParams)?.item;
