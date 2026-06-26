@@ -102,7 +102,9 @@ app-server 模式 MCP 在 server 生命周期内固定（不像逐 turn `-c`）�
 
 ### KTD8 — server 作用域：每会话一个长驻 server（v1 保守），不做跨会话连接池
 
-v1 采用 `Map<sessionId, CodexAppServer>`，一个交互 session 对应一个 app-server 进程 + 一条 ws 连接。虽然 app-server 支持单进程多 thread，但跨会话共享会引入 cwd/sandbox/MCP 配置冲突与隔离复杂度。每会话一进程换取隔离清晰、取消/回收语义简单，与现有 per-run 进程模型最接近。跨会话池化列为 Future Consideration。
+v1 采用 `Map<sessionId, CodexAppServer>`，一个交互 session 对应一个 app-server 进程 + 一条 ws 连接。虽然 app-server 支持单进程多 thread，但跨会话共享会引入 cwd/sandbox/MCP 配置冲突与隔离复杂度。每会话一进程换取隔离清晰、取消/回收语义简单。跨会话池化列为 Future Consideration。
+
+> **连接模型修订(2026-06-26,落地后按用户反馈升级)**：ws 连接由「per-run(每轮重连)」升级为「**per-session 跨轮持久**」。首轮:连接 + initialize + 建/续 thread;后续轮:复用同一连接,只发 `turn/start`(不再握手、不再 resume)。这才吃满相对 `codex exec` 的优势(轮间零进程冷启、零磁盘水合、零握手)。实现:`codex-ws-run.ts` 的模块级 `sessionConns` 注册表,channel 事件经委托 sink 指向当前活跃 run;turn 结束只 detach run、不关连接;取消走 `turn/interrupt` 保连接;连接异常/server 驱逐 → 标记 dead 下轮惰性重建。
 
 **资源回收（修订自 adversarial 审查）**：与 `codex exec` 每轮自然退出不同，长驻 server 会随会话增多累积进程。v1 必须有上界：① 空闲驱逐 —— server 无活跃 turn 超过空闲阈值（默认 30 分钟，环境变量可覆盖）→ SIGTERM 整组 + 从注册表移除；② 最大并发 server 数上限（默认 8）+ LRU 驱逐最久未用的空闲 server。仅 `killAllCli()` 在退出时兜底是不够的。在 `CodexAppServer` 记录 `lastActiveAt` 即可实现，归 U2。
 
