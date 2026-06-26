@@ -58,7 +58,7 @@ describe("ModeBlockBanner", () => {
     expect(container.querySelectorAll(".pw-mode-block-btn.primary").length).toBe(1);
     // 用 tool 专属文案(提到「受限工具/扩展」),而非「执行命令」。
     expect(screen.getByText(/受限工具|扩展/)).toBeTruthy();
-    fireEvent.click(screen.getByText("切到全自动并重试"));
+    fireEvent.click(screen.getByText("切到访问所有文件并重试"));
     expect(usePersonalStore.getState().sessions.find((s) => s.id === "s1")?.permissionMode).toBe("full-auto");
   });
 
@@ -84,7 +84,7 @@ describe("ModeBlockBanner", () => {
   it("点切档 → 写入新 permissionMode 并清提示", () => {
     seedHint({ fromMode: "plan", category: "exec", promptText: "跑命令", toolName: "Shell" });
     renderBanner();
-    fireEvent.click(screen.getByText("切到全自动并重试"));
+    fireEvent.click(screen.getByText("切到访问所有文件并重试"));
     expect(usePersonalStore.getState().sessions.find((s) => s.id === "s1")?.permissionMode).toBe("full-auto");
     expect(usePersonalStore.getState().modeBlockHints.s1).toBeUndefined();
   });

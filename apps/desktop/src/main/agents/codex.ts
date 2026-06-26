@@ -86,18 +86,19 @@ export const codexDef: AgentDef = {
     //   plan        → sandbox_mode=read-only + approval_policy=never（只读+无网,提权命令直接被拒不挂起）
     //   accept-edits → sandbox_mode=workspace-write + approval_policy=never（自动写 cwd,默认不联网）
     //   full-auto/缺省 → --dangerously-bypass-approvals-and-sandbox（= danger-full-access 无审批,resume 也接受）
+    // 访问范围 → codex sandbox_mode(approval_policy 始终 never,见下「执行/审批」):
+    //   plan(只读文件)        → sandbox_mode=read-only
+    //   accept-edits(可写工作区) → sandbox_mode=workspace-write
+    //   sandbox(外部沙箱)      → sandbox_mode=workspace-write(codex 原生 OS 沙箱;外部沙箱 ≈ 可写工作区沙箱)
+    //   full-auto(访问所有文件)  → --dangerously-bypass-approvals-and-sandbox(= danger-full-access,resume 也接受)
+    // sandbox 统一经 -c sandbox_mode(而非 -s):common 对 exec 与 exec resume 通用,resume 不接受 -s。
     const mode = req.permissionMode ?? "full-auto";
     if (mode === "plan") common.push("-c", "sandbox_mode=read-only", "-c", "approval_policy=never");
-    else if (mode === "accept-edits") common.push("-c", "sandbox_mode=workspace-write", "-c", "approval_policy=never");
+    else if (mode === "accept-edits" || mode === "sandbox")
+      common.push("-c", "sandbox_mode=workspace-write", "-c", "approval_policy=never");
     else common.push("--dangerously-bypass-approvals-and-sandbox");
-    // 目录授权(KTD4/KTD5):额外可写目录。codex `--add-dir` 仅顶层 exec 接受、exec resume 不认
-    //(同 -s 的踩坑),故走两分支通用的 `-c sandbox_workspace_write.writable_roots=[...]`(TOML 数组,
-    // 落 common 对 exec/exec resume 通用)。仅 accept-edits 档有值(plan 由 clamp 置空;full-auto 已全开)。
-    const writableDirs = req.writableExtraDirs ?? [];
-    if (writableDirs.length) {
-      const toml = `[${writableDirs.map((d) => JSON.stringify(d)).join(",")}]`;
-      common.push("-c", `sandbox_workspace_write.writable_roots=${toml}`);
-    }
+    // 执行/审批:codex exec 非交互,approval_policy=on-request/on-failure 会在无人审批时挂起,
+    // 故 ask(询问后执行)无法兑现 → 降级为 never(与 auto 同,由 UI 标注降级映射);不改上面标志。
     // MCP(U2):不再写死清空。关/无配置时不传 → codex 原生继承 ~/.codex 的 MCP;启用时公共管线经
     // mcpArgs 传入 `-c mcp_servers.<id>...`,放进 common(落在位置参数 threadId 之前)。
     if (mcpArgs?.length) common.push(...mcpArgs);

@@ -27,8 +27,6 @@ import { resolveExistingFile } from "./resolveFileRef";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
-import { ModePill } from "./ModePill";
-import { DirectoryGrantPill } from "./DirectoryGrantPill";
 import { ModeBlockBanner } from "./ModeBlockBanner";
 import { PersonalComposer } from "./PersonalComposer";
 
@@ -381,6 +379,7 @@ export function PersonalChatArea({
       effort: session.effort,
       cwd,
       permissionMode: session.permissionMode,
+      approvalPolicy: session.approvalPolicy,
       tightenTools: !realProject,
       provider,
     };
@@ -393,6 +392,7 @@ export function PersonalChatArea({
     session?.effort,
     session?.providerId,
     session?.permissionMode,
+    session?.approvalPolicy,
     session?.noProjectDir,
     realProject?.path,
     realProject,
@@ -509,26 +509,12 @@ export function PersonalChatArea({
         onChangeModel={(model) => updateSession(session.id, { model })}
         onChangePiModel={(providerId, model) => setPiModel(session, providerId, model)}
         onChangeThinking={(value) => setThinking(session, value)}
+        onChangePermissionMode={(mode) => updateSession(session.id, { permissionMode: mode })}
+        onChangeApprovalPolicy={(p) => updateSession(session.id, { approvalPolicy: p })}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}
       />
-
-      <div className="pw-composer-pills-bar">
-        <ModePill
-          permissionMode={session.permissionMode}
-          onChange={(mode) => updateSession(session.id, { permissionMode: mode })}
-          running={running}
-        />
-        <DirectoryGrantPill
-          grants={session.directoryGrants ?? []}
-          onChange={(grants) => updateSession(session.id, { directoryGrants: grants })}
-          permissionMode={session.permissionMode}
-          running={running}
-          agent={session.agent}
-          onToast={onToast}
-        />
-      </div>
 
       <GitBar
         project={realProject}

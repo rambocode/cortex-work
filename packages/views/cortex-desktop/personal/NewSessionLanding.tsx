@@ -9,7 +9,7 @@ import {
   DEFAULT_AGENT_THINKING,
   DEFAULT_NEW_SESSION_PERMISSION_MODE,
   DEFAULT_PERMISSION_MODE,
-  DEFAULT_DIRECTORY_GRANTS,
+  DEFAULT_APPROVAL_POLICY,
   dayKey,
   mapThinkingForAgent,
   resolveDefaultAgent,
@@ -20,8 +20,8 @@ import {
 import type {
   AgentThinkingValue,
   AgentKind,
+  ApprovalPolicy,
   DerivedAgentMeta,
-  DirectoryGrant,
   PendingDocFile,
   PendingImage,
   PermissionMode,
@@ -32,8 +32,6 @@ import type {
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
 import { GitBar } from "./GitBar";
-import { ModePill } from "./ModePill";
-import { DirectoryGrantPill } from "./DirectoryGrantPill";
 
 // 按目标 agent 解析草稿默认 model/provider：pi 用默认 provider + 默认模型(或 provider 首模型);
 // 其余内置 agent 用各自 DEFAULT_MODEL。初始化与切换 agent 共用,保证两处默认一致(R4)。
@@ -83,7 +81,7 @@ export function NewSessionLanding({
       useOwnSkills: false,
       thinkingValue: agent === "pi" ? undefined : DEFAULT_AGENT_THINKING as AgentThinkingValue,
       permissionMode: DEFAULT_NEW_SESSION_PERMISSION_MODE as PermissionMode,
-      directoryGrants: DEFAULT_DIRECTORY_GRANTS as DirectoryGrant[],
+      approvalPolicy: DEFAULT_APPROVAL_POLICY as ApprovalPolicy,
     };
   });
 
@@ -109,12 +107,10 @@ export function NewSessionLanding({
     if (draft.derivedAgentId) patch.derivedAgentId = draft.derivedAgentId;
     if (draft.agent === "pi" && draft.providerId) patch.providerId = draft.providerId;
     Object.assign(patch, mapThinkingForAgent(draft.agent, draft.thinkingValue));
-    // 仅非默认档位才落盘(缺省 full-auto 由 DEFAULT_PERMISSION_MODE 回退,保持 SessionMeta 干净)。
+    // 访问范围:非默认(full-auto 回退)才落盘。新会话默认 accept-edits,与 full-auto 不同 → 会落盘。
     if (draft.permissionMode !== DEFAULT_PERMISSION_MODE) patch.permissionMode = draft.permissionMode;
-    // 目录授权:非「仅工作区」默认才落盘(避免每个新会话都写一份默认值)。
-    const isDefaultGrants =
-      draft.directoryGrants.length === 1 && draft.directoryGrants[0]?.kind === "workspace";
-    if (!isDefaultGrants) patch.directoryGrants = draft.directoryGrants;
+    // 执行/审批:非 auto 默认才落盘。
+    if (draft.approvalPolicy !== DEFAULT_APPROVAL_POLICY) patch.approvalPolicy = draft.approvalPolicy;
     if (Object.keys(patch).length) updateSession(sess.id, patch);
     return { ...sess, ...patch };
   };
@@ -186,26 +182,14 @@ export function NewSessionLanding({
         onChangePiModel={(providerId, model) => setDraft((d) => ({ ...d, providerId, model }))}
         thinkingValue={draft.thinkingValue}
         onChangeThinking={(thinkingValue) => setDraft((d) => ({ ...d, thinkingValue }))}
+        permissionMode={draft.permissionMode}
+        onChangePermissionMode={(mode) => setDraft((d) => ({ ...d, permissionMode: mode }))}
+        approvalPolicy={draft.approvalPolicy}
+        onChangeApprovalPolicy={(p) => setDraft((d) => ({ ...d, approvalPolicy: p }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
         onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}
       />
-
-      <div className="pw-composer-pills-bar">
-        <ModePill
-          permissionMode={draft.permissionMode}
-          onChange={(mode) => setDraft((d) => ({ ...d, permissionMode: mode }))}
-          running={false}
-        />
-        <DirectoryGrantPill
-          grants={draft.directoryGrants}
-          onChange={(grants) => setDraft((d) => ({ ...d, directoryGrants: grants }))}
-          permissionMode={draft.permissionMode}
-          running={false}
-          agent={draft.agent}
-          onToast={onToast}
-        />
-      </div>
 
       <GitBar
         project={selectedProject}

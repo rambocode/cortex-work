@@ -26,9 +26,7 @@ import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types"
 import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-thinking";
 import type { DesktopBridge } from "../desktop/bridge";
 import { renderSkillBlock, resolveEnabledSkillRecords } from "./skill-injection";
-import { useDesktopBridge, useHome } from "../provider";
-import { assembleModeGrants } from "./spawnAssembly";
-import { resolveEffectiveMode } from "./resolveMode";
+import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
@@ -1534,11 +1532,9 @@ async function sendPiTurn(
     // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
     // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
     const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
-    // 运行模式 → pi 能力派生:plan 收窄只读白名单、accept-edits 放行编辑保留 bash 审批、
-    // full-auto 沿用 piCustom 审批设置。三者均经 extensionFingerprint 触发会话重开(切档即重开)。
-    // auto 先按当轮 prompt 解析成具体档(KTD7);解析结果变化 → 派生能力变化 → 触发会话重开。
-    const piEffectiveMode = resolveEffectiveMode(session.permissionMode, text);
-    const piCaps = derivePiCapabilities(piEffectiveMode, piCustom);
+    // 访问范围 + 审批 → pi 能力派生:plan 收窄只读白名单;ask 注入审批 extension(写/执行类前审批);
+    // auto + 非 plan 沿用 piCustom。切档/切审批经 extensionFingerprint 触发会话重开。
+    const piCaps = derivePiCapabilities(session.permissionMode, session.approvalPolicy, piCustom);
     // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
     // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
     const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;
@@ -1993,7 +1989,6 @@ export interface PersonalActions {
 
 export function usePersonalActions(): PersonalActions {
   const bridge = useDesktopBridge();
-  const home = useHome();
   const qc = useQueryClient();
 
   const send = useCallback<PersonalActions["send"]>(
@@ -2173,8 +2168,7 @@ export function usePersonalActions(): PersonalActions {
         promptText: text,
         startedAt: Date.now(),
         cwd: projectPath,
-        // 存解析后的具体档(KTD7):auto 按当轮 prompt 解析,切档提示的 fromMode 须是具体档而非 auto。
-        permissionMode: resolveEffectiveMode(session.permissionMode, text),
+        permissionMode: session.permissionMode,
       };
       runs.set(runId, run);
       // 看门狗:每秒刷新 typing 等待时长;启动/静默超时则杀进程并提示重试。
@@ -2243,15 +2237,6 @@ export function usePersonalActions(): PersonalActions {
         // 派生 agent(U7):spawn 用 derivedAgentId(后端 getAgentDef 按 id 解析),失效则回退 base(见
         // resolveSpawnAgentId 的 RISK-3 兜底)。
         const spawnAgent = resolveSpawnAgentId(sendSession, usePersonalStore.getState().derivedAgents);
-        // 合成本轮 mode + 目录授权(KTD1/KTD7):auto 按当轮 prompt 逐轮解析成具体档,
-        // 目录授权钳制成可写/可读额外目录。adapter 永不见 auto。
-        const modeGrants = assembleModeGrants({
-          permissionMode: sendSession.permissionMode,
-          directoryGrants: sendSession.directoryGrants,
-          prompt: text,
-          cwd: projectPath,
-          home,
-        });
         await bridge.startCli({
           runId,
           sessionId: sendSession.id,
@@ -2265,11 +2250,10 @@ export function usePersonalActions(): PersonalActions {
           useOwnSkills: sendSession.useOwnSkills,
           skillPaths: undefined,
           images: cliImages,
-          // 运行模式:claude/codex adapter 翻译成原生标志;缺省 full-auto(历史默认)。逐轮 fresh
-          // spawn,改值下一轮即生效,无需重开。
-          permissionMode: modeGrants.permissionMode,
-          writableExtraDirs: modeGrants.writableExtraDirs,
-          readableExtraDirs: modeGrants.readableExtraDirs,
+          // 访问范围 + 审批:claude/codex adapter 翻译成原生标志;缺省 full-auto/auto(历史默认)。
+          // 逐轮 fresh spawn,改值下一轮即生效,无需重开。
+          permissionMode: sendSession.permissionMode,
+          approvalPolicy: sendSession.approvalPolicy,
         });
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
         autoTitle(bridge, sendSession, text);

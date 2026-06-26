@@ -87,9 +87,8 @@ export interface SessionMeta {
   providerId?: string;
   piSessionFile?: string; // 阶段4 pi 会话恢复用磁盘 JSONL 路径（与 core 镜像）
   useOwnSkills?: boolean;
-  permissionMode?: PermissionMode; // 运行模式（与 core 镜像;主进程仅 round-trip 持久化,不按字段消费）
-  // 目录授权（与 core 镜像）。主进程在 saveState 时据此构建「会话授权注册表」(grantsRegistry)。
-  directoryGrants?: DirectoryGrant[];
+  permissionMode?: PermissionMode; // 访问范围（与 core 镜像;主进程仅 round-trip 持久化,不按字段消费）
+  approvalPolicy?: ApprovalPolicy; // 执行/审批策略（与 core 镜像;round-trip）
   hiddenHistory?: HiddenHistoryMeta;
   archivedAt?: number;
   createdAt: number;
@@ -431,12 +430,10 @@ export interface CliStartRequest {
   images?: CliImageRef[];
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数;pi 忽略。
   effort?: ReasoningEffort;
-  // 运行模式（权限松紧）:claude/codex adapter 翻译成原生标志;缺省 = full-auto。pi 不走本 DTO。
-  // ConcretePermissionMode:auto 已在 core 合成层派生,不会到达 adapter。
-  permissionMode?: ConcretePermissionMode;
-  // 目录授权合成产物（core spawnAssembly 算出）:adapter 翻译成 --add-dir 等。
-  writableExtraDirs?: string[];
-  readableExtraDirs?: string[];
+  // 访问范围（沙箱档）:claude/codex adapter 翻译成原生标志;缺省 = full-auto。pi 不走本 DTO。
+  permissionMode?: PermissionMode;
+  // 执行/审批策略:与 permissionMode 正交,adapter 据此决定 approval。缺省 = auto。
+  approvalPolicy?: ApprovalPolicy;
   // pi 专用:renderer 传入当前会话选中供应商的完整配置,主进程据此生成 extension
   // 并注入 key env。
   provider?: {
@@ -462,11 +459,9 @@ export interface AskFollowupRequest {
   appendSystemPrompt?: string;
   effort?: ReasoningEffort;
   // 运行模式:沿用主会话档位(claude/codex adapter 翻译)。与 tightenTools 叠加,更严者优先。
-  // ConcretePermissionMode:auto 已在合成层按当轮 prompt 派生。
-  permissionMode?: ConcretePermissionMode;
-  // 目录授权合成产物(同 CliStartRequest)。
-  writableExtraDirs?: string[];
-  readableExtraDirs?: string[];
+  permissionMode?: PermissionMode;
+  // 执行/审批策略(同 CliStartRequest)。
+  approvalPolicy?: ApprovalPolicy;
   // true = 无项目会话:主进程剥离 claude/codex 的跳审批/bypass 标志,回退默认审批/沙箱（R9/KTD8）。
   // 显式标志,不靠主进程猜 cwd（真实无项目 cwd 非 homedir,猜法会失效）。
   tightenTools?: boolean;
@@ -851,16 +846,10 @@ export interface DocFileRaw {
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
-// 运行模式（权限松紧）,与 core/desktop/types.ts 镜像。adapter 翻译成各 CLI 原生标志。
-// auto 仅存在于会话/UI 态,合成层派生后不进 adapter(adapter 只见 ConcretePermissionMode)。
-export type PermissionMode = "plan" | "accept-edits" | "full-auto" | "auto";
-export type ConcretePermissionMode = Exclude<PermissionMode, "auto">;
-// 目录授权（与 mode 正交），与 core/desktop/types.ts 镜像。主进程「会话授权注册表」消费它。
-export type DirectoryGrant =
-  | { kind: "workspace" }
-  | { kind: "generated-images" }
-  | { kind: "custom"; dirs: string[] }
-  | { kind: "all-files" };
+// 访问范围（沙箱档），与 core/desktop/types.ts 镜像。adapter 翻译成各 CLI 原生标志。
+export type PermissionMode = "plan" | "accept-edits" | "full-auto" | "sandbox";
+// 执行/审批策略（与访问范围正交），与 core 镜像。
+export type ApprovalPolicy = "auto" | "ask";
 // pi plan 档只读工具白名单,与 core/desktop/types.ts 的 PI_PLAN_TOOL_WHITELIST 镜像。
 // 主进程 pi.ts 单发路径无法 import core barrel,故此处镜像一份供 adapter 引用(避免硬编码漂移)。
 // 浏览器控制工具(browser_*,沙箱 + URL 闸)并入,须与 core 镜像逐字一致。

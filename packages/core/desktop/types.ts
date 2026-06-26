@@ -74,13 +74,11 @@ export interface SessionMeta {
   // 是否加载 agent 自身的 skills（claude: 关闭时传 --disable-slash-commands）。
   // 缺省视为 true。
   useOwnSkills?: boolean;
-  // 运行模式（权限松紧）:plan / accept-edits / full-auto / auto。缺省 = full-auto（历史默认全自动）。
+  // 访问范围（沙箱档):plan / accept-edits / full-auto / sandbox。缺省 = full-auto（历史默认）。
   // claude/codex 逐轮 fresh spawn,改值下一轮即生效;pi RPC 长驻,改值触发会话重开。
-  // auto:每轮按当轮 prompt 经 resolveEffectiveMode 派生具体档(逐轮可变,KTD7)。
   permissionMode?: PermissionMode;
-  // 目录授权（与 mode 正交）。缺省 = DEFAULT_DIRECTORY_GRANTS（仅工作区）。主进程在会话
-  // 保存时据此解析并 realpath 规范化后入「会话授权注册表」,供 app 侧打开/读取闸门放行。
-  directoryGrants?: DirectoryGrant[];
+  // 执行/审批策略（与访问范围正交）:auto 自动执行 / ask 询问后执行。缺省 = auto（历史默认无审批）。
+  approvalPolicy?: ApprovalPolicy;
   // /clear 后默认隐藏到此游标为止的历史消息；消息文件本身仍完整保留。
   hiddenHistory?: HiddenHistoryMeta;
   // 归档时间戳;缺省 = 在会话列表。归档后默认从列表隐藏。
@@ -876,15 +874,12 @@ export interface CliStartRequest {
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数
   //（claude --effort / codex model_reasoning_effort）;不支持的 agent（pi）忽略。
   effort?: ReasoningEffort;
-  // 运行模式（权限松紧）:claude/codex adapter 翻译成原生标志（claude --permission-mode /
-  // codex -s+approval_policy）;缺省 = full-auto（历史默认）。pi 不走本 DTO（走 PiOpenRequest）。
-  // 类型为 ConcretePermissionMode:`auto` 已在 core 合成层(spawnAssembly)派生成具体档,
-  // 不会到达本 DTO/adapter。
-  permissionMode?: ConcretePermissionMode;
-  // 目录授权合成产物(core spawnAssembly 由 resolveGrantDirs+clampByMode 算出):可写/可读的
-  // 额外绝对目录,adapter 翻译成 --add-dir 等。plan 档 writable 恒空。
-  writableExtraDirs?: string[];
-  readableExtraDirs?: string[];
+  // 访问范围（沙箱档）:claude/codex adapter 翻译成原生标志（claude --permission-mode /
+  // codex -c sandbox_mode）;缺省 = full-auto（历史默认）。pi 不走本 DTO（走 PiOpenRequest）。
+  permissionMode?: PermissionMode;
+  // 执行/审批策略:与 permissionMode 正交,adapter 据此决定 approval(codex approval_policy /
+  // claude 审批 / pi 审批 extension)。缺省 = auto。
+  approvalPolicy?: ApprovalPolicy;
   // pi 专用:renderer 把当前会话选中的供应商完整配置拍平传入,主进程据此生成
   // extension（registerProvider）+ 注入 key env（与 llm.ts「主进程不读设置文件」惯例一致）。
   provider?: {
@@ -910,11 +905,9 @@ export interface AskFollowupRequest {
   appendSystemPrompt?: string;
   effort?: ReasoningEffort;
   // 运行模式:沿用主会话档位(claude/codex adapter 翻译)。与 tightenTools 自然叠加,更严者优先。
-  // ConcretePermissionMode:auto 已在合成层按当轮 prompt 派生。
-  permissionMode?: ConcretePermissionMode;
-  // 目录授权合成产物(同 CliStartRequest)。
-  writableExtraDirs?: string[];
-  readableExtraDirs?: string[];
+  permissionMode?: PermissionMode;
+  // 执行/审批策略(同 CliStartRequest)。
+  approvalPolicy?: ApprovalPolicy;
   // true = 无项目会话:主进程剥离 claude/codex 的跳审批/bypass 标志,回退默认审批/沙箱（R9/KTD8）。
   // 显式标志,不靠主进程猜 cwd（真实无项目 cwd 非 homedir,猜法会失效）。
   tightenTools?: boolean;
@@ -1231,59 +1224,37 @@ export interface DocFileRaw {
 // `-c model_reasoning_effort=`;pi 无对应 flag,忽略。
 export type ReasoningEffort = "low" | "medium" | "high";
 
-// 运行模式（权限松紧）。各 agent 在非交互 print 模式下尽力翻译成原生标志:
-//   plan        只读分析+出计划,不改文件/不跑写执行类工具
-//               (claude `--permission-mode plan`、codex `-s read-only`、pi `--tools read,grep,find,ls`)
-//   accept-edits 自动接受文件编辑,写工作区放行;危险/执行类工具受限或仍审批
-//               (claude `--permission-mode acceptEdits`、codex `-s workspace-write`、pi 审批 hook 排除 edit/write)
-//   full-auto   跳过全部权限,所有工具直接执行(= 历史默认行为)
-//               (claude `--dangerously-skip-permissions`、codex `--dangerously-bypass-approvals-and-sandbox`、pi 不注入审批 extension)
-//   auto        应用按当轮 prompt 自动选档(core resolveEffectiveMode 派生);永不自动升 full-auto。
+// ── 运行控制:两个正交轴(本质即 codex 原生 sandbox_mode × approval_policy) ──
+// UI 上拆成 Composer 底部两个单选 pill:
+//   Pill 2「访问范围」= permissionMode(沿用历史字段名,值即 sandbox 范围)
+//   Pill 1「执行/审批」= approvalPolicy(新增)
 //
-// 命名约定（重要，勿动内部值）:内部值 `accept-edits`/`full-auto` 为历史持久化值,**不改名**
-// (零迁移)。UI 显示名:plan→「Plan」、accept-edits→「Edit automatically / 自动改文件」、
-// full-auto→「Bypass permissions / 全自动」、auto→「Auto / 自动」。即「内部值 ≠ UI 名」,
-// 全仓 mode 标识符一律用内部值,显示名只在 i18n。
-// `accept-edits` 在本轮**永久**表示「自动改文件、不逐条审批」;未来若加交互式
-// `ask-before-edits`,**必须用新内部值**,不得回收 `accept-edits`(否则触发存量迁移)。
-export type PermissionMode = "plan" | "accept-edits" | "full-auto" | "auto";
-// 具体档:剔除 `auto`。adapter 只认识具体档;`auto` 在 core 合成层经 resolveEffectiveMode
-// 派生成具体档再下传。下传字段(CliStartRequest/PiOpenRequest)用此类型,使「auto 泄漏到
-// adapter」成为编译期错误。
-export type ConcretePermissionMode = Exclude<PermissionMode, "auto">;
-// 选择器展示顺序（从严到松,auto 置末为「让应用决定」)。
-export const PERMISSION_MODES: PermissionMode[] = ["plan", "accept-edits", "full-auto", "auto"];
+// 访问范围 permissionMode(从严到松 + 沙箱):内部值沿用历史 plan/accept-edits/full-auto
+// 不改名(零迁移),新增 sandbox。UI 显示名独立(见 i18n composer.permissionMode.*):
+//   plan         只读文件 —— 只读分析、不改文件/不跑写执行类工具
+//                (claude `--permission-mode plan`、codex `-c sandbox_mode=read-only`、pi 只读工具白名单)
+//   accept-edits 可写工作区 —— 自动写工作区,默认不联网/不出 cwd
+//                (claude `--permission-mode acceptEdits`、codex `-c sandbox_mode=workspace-write`)
+//   full-auto    访问所有文件 —— 跳过全部权限/沙箱,全盘读写(= 历史默认行为)
+//                (claude `--dangerously-skip-permissions`、codex `--dangerously-bypass-approvals-and-sandbox`)
+//   sandbox      外部沙箱 —— 在隔离沙箱内放开,限制对真实文件系统的影响。codex 走原生
+//                workspace-write 沙箱;claude/pi 无原生沙箱 → 降级映射(见各 adapter,UI 标注)。
+export type PermissionMode = "plan" | "accept-edits" | "full-auto" | "sandbox";
+// 选择器展示顺序(对应 Image #1:可写工作区 / 只读文件 / 访问所有文件 / 外部沙箱)。
+export const PERMISSION_MODES: PermissionMode[] = ["accept-edits", "plan", "full-auto", "sandbox"];
 // 缺省回退:旧会话无 permissionMode 字段时按此处理,与历史「全自动」行为一致(adapter 同款兜底,
 // 不改它以免存量会话被静默收紧为只读)。
-export const DEFAULT_PERMISSION_MODE: ConcretePermissionMode = "full-auto";
-// 新建会话的默认档位:从只读 plan 起步,用户确认后再放权(更安全的默认)。仅落地页草稿用,
-// 与上面的「存量回退」解耦:新会话显式持久化 plan,旧会话仍回退 full-auto。
-export const DEFAULT_NEW_SESSION_PERMISSION_MODE: PermissionMode = "plan";
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "full-auto";
+// 新建会话的默认档位:从可写工作区起步(与 Image #1 默认一致),不直接给全盘访问。
+export const DEFAULT_NEW_SESSION_PERMISSION_MODE: PermissionMode = "accept-edits";
 
-// ── 目录授权（与 mode 正交） ──────────────────────────────────────────────
-// mode 表执行/审批松紧;目录授权表「agent 可触达哪些目录」。运行时由 core 合成层把
-// (mode × grants) 翻译成各 agent 真实启动参数(--add-dir 等)与 app 侧打开/读取闸门。
-// 判别联合让非法态不可表达:custom 的路径内聚于 grant,不再单列 customGrantDirs。
-//   workspace        当前项目 / 无项目工作目录(= cwd)
-//   generated-images agent 产图目录(当前为 codex `~/.codex/generated_images` + app 媒体目录;
-//                    claude/pi 产图目录待扩展)
-//   custom           用户手选的绝对目录(dirs)
-//   all-files        全盘访问哨兵(无具体路径);仅 full-auto 有效,其它 mode 下被 clampByMode 忽略
-export type DirectoryGrant =
-  | { kind: "workspace" }
-  | { kind: "generated-images" }
-  | { kind: "custom"; dirs: string[] }
-  | { kind: "all-files" };
-// 目录授权类别(UI 渲染顺序)。
-export const DIRECTORY_GRANT_KINDS = [
-  "workspace",
-  "generated-images",
-  "custom",
-  "all-files",
-] as const;
-export type DirectoryGrantKind = (typeof DIRECTORY_GRANT_KINDS)[number];
-// 新会话默认授权:仅工作区。
-export const DEFAULT_DIRECTORY_GRANTS: DirectoryGrant[] = [{ kind: "workspace" }];
+// 执行/审批策略(新增轴)。
+//   auto 自动执行:不拦截,工具直接跑(approval_policy=never;pi 不注入审批 extension)。
+//   ask  询问后执行:写/执行类工具前审批。仅 pi RPC 有真交互审批回路;claude -p / codex exec
+//        是非交互 print 模式,无法中途询问 → 降级为「不放开额外权限」并由 UI 标注降级映射。
+export type ApprovalPolicy = "auto" | "ask";
+export const APPROVAL_POLICIES: ApprovalPolicy[] = ["auto", "ask"];
+export const DEFAULT_APPROVAL_POLICY: ApprovalPolicy = "auto";
 // 浏览器控制工具名(browser_*)。须与主进程 capabilities/browser/{tools,cdp}.ts 注册的工具名
 // 逐字一致(漂移由 capabilities/browser/tools.test.ts 守)。内置浏览器是沙箱 + URL 闸,
 // navigate/click/type 只动内置浏览器、不碰用户文件/系统,故纳入 plan 只读白名单(见下)。

@@ -1,17 +1,13 @@
-// 运行模式（权限松紧）→ pi RPC 能力派生。
-// claude/codex 直接把 permissionMode 随 CliStartRequest 下传,由各 adapter 翻译成原生标志;
-// 而 pi 无原生权限/沙箱标志,需在 core 侧把模式派生成 pi 能兑现的能力三元组（工具白名单 +
-// 审批开关 + 审批集），再塞进 PiOpenRequest。
-//   plan        → 只读工具白名单(物理上无 write/edit/bash),无需审批
-//   accept-edits → 自动接受编辑:从审批集剔除 write/edit(放行),其余(bash 等)仍审批
-//   full-auto   → 不收窄工具,审批沿用用户 piCustomization 设置(回归保护:与历史行为一致)
+// 访问范围 × 执行审批 → pi RPC 能力派生。
+// claude/codex 直接把 permissionMode/approvalPolicy 随 CliStartRequest 下传,由各 adapter 翻译成
+// 原生标志;而 pi 无原生权限/沙箱标志,需在 core 侧把两轴派生成 pi 能兑现的能力三元组
+//(工具白名单 + 审批开关 + 审批集),再塞进 PiOpenRequest。两轴正交:
+//   访问范围 plan(只读) → 只读工具白名单(物理上无 write/edit/bash),审批无意义关闭。
+//          其它(可写工作区/访问所有/外部沙箱) → 不收窄工具(pi 无原生沙箱,sandbox 降级=不收窄)。
+//   执行审批 ask(询问后执行) → 写/执行类工具前审批(真审批回路,pi RPC 独有)。
+//          auto(自动执行) → 沿用用户 piCustomization 审批设置(历史默认行为)。
 
-import {
-  DEFAULT_PERMISSION_MODE,
-  DEFAULT_PI_APPROVAL_TOOLS,
-  PI_PLAN_TOOL_WHITELIST,
-  type PermissionMode,
-} from "../desktop/types";
+import { DEFAULT_PI_APPROVAL_TOOLS, PI_PLAN_TOOL_WHITELIST, type ApprovalPolicy, type PermissionMode } from "../desktop/types";
 
 // pi 审批相关的用户设置子集（取自 GeneralSettings.piCustomization）。
 export interface PiApprovalPrefs {
@@ -28,24 +24,22 @@ export interface PiPermissionCapabilities {
 
 export function derivePiCapabilities(
   mode: PermissionMode | undefined,
+  approval: ApprovalPolicy | undefined,
   prefs?: PiApprovalPrefs,
 ): PiPermissionCapabilities {
-  const m = mode ?? DEFAULT_PERMISSION_MODE;
-  if (m === "plan") {
-    // 只读白名单 → 没有写/执行类工具可调,审批无意义,显式关闭。
+  // 访问范围:plan(只读) → 只读白名单,无写/执行工具可调,审批无意义关闭。
+  if (mode === "plan") {
     return { toolWhitelist: [...PI_PLAN_TOOL_WHITELIST], enableToolApproval: false, approvalTools: undefined };
   }
-  if (m === "accept-edits") {
-    // 从审批集剔除 write/edit(自动放行编辑),保留 bash 等执行类仍走审批。
+  // 执行审批:ask(询问后执行) → 写/执行类工具前审批(真交互审批,pi RPC 独有)。
+  if (approval === "ask") {
     const base = prefs?.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS;
-    const filtered = base.filter((t) => t !== "write" && t !== "edit");
-    // 安全底线:剔除后必须保留 bash 审批。否则用户自定义审批集恰为 ["write","edit"] 时
-    // filtered=[],经 pi-extensions 的 NEEDS=Set([]) 会放行全部工具 → bash 零审批穿透,
-    // 与「自动改文件但 bash 仍受限」的承诺相悖。强制并入 bash 兜住执行类硬底。
-    const approvalTools = filtered.includes("bash") ? filtered : [...filtered, "bash"];
+    // 安全底线:审批集至少覆盖 write/edit/bash(否则空集经 pi-extensions 会放行全部工具)。
+    const need = ["write", "edit", "bash"];
+    const approvalTools = [...new Set([...base, ...need])];
     return { toolWhitelist: undefined, enableToolApproval: true, approvalTools };
   }
-  // full-auto:不收窄工具,审批沿用用户设置(toolApproval 关→无审批 extension,= 历史默认)。
+  // auto(自动执行)+ 非 plan:不收窄工具,审批沿用用户设置(toolApproval 关→无审批 extension,= 历史默认)。
   return {
     toolWhitelist: undefined,
     enableToolApproval: prefs?.toolApproval || undefined,

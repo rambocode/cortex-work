@@ -18,12 +18,16 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import type {
   AgentKind,
   AgentThinkingValue,
+  ApprovalPolicy,
   DerivedAgentMeta,
   PendingDocFile,
   PendingImage,
+  PermissionMode,
   PersonalAttachment,
 } from "@cortex-work/core";
 import { AgentSelect } from "./AgentSelect";
+import { ModePill } from "./ModePill";
+import { ApprovalPill } from "./ApprovalPill";
 import { useDismissableMenu } from "./useDismissableMenu";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
@@ -106,6 +110,10 @@ export function ComposerShell({
   onChangePiModel,
   thinkingValue,
   onChangeThinking,
+  permissionMode,
+  onChangePermissionMode,
+  approvalPolicy,
+  onChangeApprovalPolicy,
   onToggleSkills,
   onOpenFlashNote,
   onCancelEdit,
@@ -151,6 +159,11 @@ export function ComposerShell({
   // 思考强度:非 Pi 映射为 effort（下一轮生效）;Pi 映射为 thinkingLevel（运行时即时生效）。
   thinkingValue?: AgentThinkingValue;
   onChangeThinking?: (value: AgentThinkingValue) => void;
+  // 访问范围 + 执行/审批 两个 pill(会话级)。提供 onChange 才渲染对应 pill。
+  permissionMode?: PermissionMode;
+  onChangePermissionMode?: (mode: PermissionMode) => void;
+  approvalPolicy?: ApprovalPolicy;
+  onChangeApprovalPolicy?: (p: ApprovalPolicy) => void;
   onToggleSkills: () => void;
   /** 闪记图标入口:唤起闪记浮层(桌面端由壳注入,web 端缺省 → 隐藏入口)。 */
   onOpenFlashNote?: () => void;
@@ -893,6 +906,18 @@ export function ComposerShell({
                 ))}
               </select>
             </span>
+          ) : null}
+          {/* 执行/审批 + 访问范围两 pill(Image #2):与模型/思考同处 comp-foot 行。 */}
+          {onChangeApprovalPolicy ? (
+            <ApprovalPill
+              approvalPolicy={approvalPolicy}
+              onChange={onChangeApprovalPolicy}
+              running={running}
+              agent={agent}
+            />
+          ) : null}
+          {onChangePermissionMode ? (
+            <ModePill permissionMode={permissionMode} onChange={onChangePermissionMode} running={running} />
           ) : null}
           {running ? (
             <>

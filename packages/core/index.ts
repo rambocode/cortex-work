@@ -1,6 +1,6 @@
 export * from "./types";
 export { createQueryClient } from "./query-client";
-export { CoreProvider, useCoreContext, useWorkspaceId, useDesktopBridge, useHome, type Identity } from "./provider";
+export { CoreProvider, useCoreContext, useWorkspaceId, useDesktopBridge, type Identity } from "./provider";
 export {
   DEFAULT_AGENT_THINKING,
   agentThinkingOptions,
@@ -239,11 +239,9 @@ export {
   DEFAULT_PERMISSION_MODE,
   DEFAULT_NEW_SESSION_PERMISSION_MODE,
   type PermissionMode,
-  type ConcretePermissionMode,
-  type DirectoryGrant,
-  type DirectoryGrantKind,
-  DIRECTORY_GRANT_KINDS,
-  DEFAULT_DIRECTORY_GRANTS,
+  APPROVAL_POLICIES,
+  DEFAULT_APPROVAL_POLICY,
+  type ApprovalPolicy,
   DEFAULT_PI_EXTENSIONS,
   type PiCustomizationSettings,
   type PiSkillSettings,
@@ -342,13 +340,6 @@ export {
   STATUS_SYNONYMS,
   type TaskStatus,
 } from "./personal/docStatus";
-export { resolveEffectiveMode } from "./personal/resolveMode";
-export {
-  resolveGrantDirs,
-  clampByMode,
-  type ResolvedGrantDirs,
-  type ClampedGrantDirs,
-} from "./personal/resolveGrants";
 export { deriveTags, topicOf, type Tag, type TagDim } from "./personal/docTags";
 export { buildLineage, extractOriginBasenames, type Lineage } from "./personal/docLineage";
 export {

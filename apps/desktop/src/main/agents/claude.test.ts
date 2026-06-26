@@ -88,15 +88,10 @@ describe("claudeDef.buildArgs", () => {
     expect(def.join(" ")).not.toContain("--permission-mode");
   });
 
-  it("目录授权:writableExtraDirs → 逐个 --add-dir;缺省不带", () => {
-    const { args } = claudeDef.buildArgs({
-      ...baseReq,
-      permissionMode: "accept-edits",
-      writableExtraDirs: ["/a", "/b"],
-    });
-    expect(args.join(" ")).toContain("--add-dir /a");
-    expect(args.join(" ")).toContain("--add-dir /b");
-    expect(claudeDef.buildArgs(baseReq).args).not.toContain("--add-dir");
+  it("访问范围:sandbox(外部沙箱)降级为 acceptEdits(claude 无原生沙箱)", () => {
+    const { args } = claudeDef.buildArgs({ ...baseReq, permissionMode: "sandbox" });
+    expect(args.join(" ")).toContain("--permission-mode acceptEdits");
+    expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
   it("推理强度:effort → --effort,缺省不带", () => {

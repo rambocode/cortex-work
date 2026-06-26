@@ -87,13 +87,17 @@ export const claudeDef: AgentDef = {
     //   accept-edits → --permission-mode acceptEdits（自动批准工作目录内编辑;非编辑 Bash 受限即中止）
     //   full-auto/缺省 → --dangerously-skip-permissions（≡ bypassPermissions;本机交互场景,
     //                  与用户终端使用习惯一致,保留现用标志最小化回归）
+    // 访问范围 → claude --permission-mode / bypass 标志(print 模式靠启动标志事前约束):
+    //   plan(只读文件)     → --permission-mode plan
+    //   accept-edits(可写工作区) → --permission-mode acceptEdits
+    //   full-auto(访问所有文件)  → --dangerously-skip-permissions
+    //   sandbox(外部沙箱)   → 降级:claude 无原生沙箱,退化为 acceptEdits(可写工作区,最接近的「受限可写」)
     const mode = req.permissionMode ?? "full-auto";
     if (mode === "plan") args.push("--permission-mode", "plan");
-    else if (mode === "accept-edits") args.push("--permission-mode", "acceptEdits");
+    else if (mode === "accept-edits" || mode === "sandbox") args.push("--permission-mode", "acceptEdits");
     else args.push("--dangerously-skip-permissions");
-    // 目录授权(KTD4/KTD5):额外可写目录经 claude 原生 --add-dir 逐个追加(claude code 支持)。
-    // plan 档由 core clampByMode 保证 writableExtraDirs 为空;full-auto 已全开,--add-dir 实质 no-op。
-    for (const dir of req.writableExtraDirs ?? []) args.push("--add-dir", dir);
+    // 执行/审批:claude -p 非交互,无中途审批回路。ask(询问后执行)在此无法兑现 → 降级为与 auto
+    // 同行为(由 UI 标注降级映射),不改启动标志。
     if (req.model) args.push("--model", req.model);
     // 推理强度（claude 2.1.x 支持 --effort low|medium|high,-p 模式生效;不支持的
     // 模型自身回退）。
