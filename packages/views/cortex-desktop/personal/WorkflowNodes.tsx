@@ -18,12 +18,14 @@ import {
 } from "@xyflow/react";
 import { Icon } from "@cortex-work/ui/icons";
 import type {
+  WorkflowNode,
   WorkflowNodeKind,
   WorkflowNodeRunStatus,
 } from "@cortex-work/core";
 import { WORKFLOW_NODE_KINDS } from "@cortex-work/core";
 import { NODE_ICONS, nodeCategory, CATEGORY_LABELS } from "./workflow-flow";
 import type { WorkflowFlowNodeData } from "./workflow-flow";
+import { StickyNoteNode } from "./StickyNoteNode";
 
 // ── Context：节点运行状态 & 操作回调 ─────────────────────────────────────────
 
@@ -36,12 +38,18 @@ export type WorkflowNodeActions = {
   runNode: (nodeId: string) => void;
   toggleDisabled: (nodeId: string) => void;
   deleteNode: (nodeId: string) => void;
+  /**
+   * 用整个更新后的节点替换原节点（画布内编辑用，目前便签的双击改文本/改色走此路）。
+   * 与右面板 NodeConfigPanel 的 onNodeChange 同语义，便签改完即时回写并随保存持久化。
+   */
+  updateNode: (node: WorkflowNode) => void;
 };
 
 export const WorkflowNodeActionsContext = createContext<WorkflowNodeActions>({
   runNode: () => {},
   toggleDisabled: () => {},
   deleteNode: () => {},
+  updateNode: () => {},
 });
 
 // ── 节点图标映射（对齐 Kun NODE_ICONS，25 种全覆盖）────────────────────────
@@ -472,6 +480,8 @@ const sharedNode = WorkflowCanvasNode as ComponentType<NodeProps>;
  * workflowNodeTypes：@xyflow/react 的 nodeTypes 映射。
  * 从 WORKFLOW_NODE_KINDS 派生，防止漏掉新增节点 kind（否则 RF 会用默认无样式节点渲染）。
  */
-export const workflowNodeTypes: NodeTypes = Object.fromEntries(
-  WORKFLOW_NODE_KINDS.map((kind) => [kind, sharedNode]),
-);
+export const workflowNodeTypes: NodeTypes = {
+  ...Object.fromEntries(WORKFLOW_NODE_KINDS.map((kind) => [kind, sharedNode])),
+  // 便签用专属组件（彩色卡片 + Markdown + 缩放 + 无 handle），覆盖共享壳。
+  "sticky-note": StickyNoteNode as ComponentType<NodeProps>,
+};

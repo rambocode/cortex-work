@@ -68,6 +68,8 @@ export type WorkflowCanvasProps = {
   onRunNode: (nodeId: string) => void;
   onToggleDisabled: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
+  /** 画布内节点编辑回调（便签双击改文本/改色），与右面板 onNodeChange 同语义。 */
+  onNodeChange: (node: WorkflowNode) => void;
 };
 
 // ── WorkflowCanvas ────────────────────────────────────────────────────────────
@@ -87,6 +89,7 @@ export function WorkflowCanvas({
   onRunNode,
   onToggleDisabled,
   onDeleteNode,
+  onNodeChange,
 }: WorkflowCanvasProps) {
   // 容器 ref（动态加载后 ReactFlow 挂载到此 div）
   const containerRef = useRef<HTMLDivElement>(null);
@@ -164,8 +167,24 @@ export function WorkflowCanvas({
         });
         onDeleteNode(nodeId);
       },
+      // 画布内编辑：替换匹配节点的 data.node（即时反映新文本/颜色）并回写父级。
+      updateNode: (updated: WorkflowNode) => {
+        setRfNodes((prev) => {
+          const next = prev.map((n) =>
+            n.id === updated.id
+              ? { ...n, data: { ...n.data, node: updated } }
+              : n,
+          );
+          setRfEdges((edges) => {
+            notifyChange(next, edges);
+            return edges;
+          });
+          return next;
+        });
+        onNodeChange(updated);
+      },
     }),
-    [onRunNode, onToggleDisabled, onDeleteNode, notifyChange],
+    [onRunNode, onToggleDisabled, onDeleteNode, onNodeChange, notifyChange],
   );
 
   // 带运行状态样式（running 边动画）的边。useMemo 仅依赖 rfEdges/runStatus：

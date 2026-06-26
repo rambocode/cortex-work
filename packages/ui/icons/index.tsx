@@ -382,6 +382,15 @@ export const Icon = {
       <path d="M14 21v-5a2 2 0 0 1 2-2h5" />
     </IconBase>
   ),
+  // Palette：调色板（便签改色）。
+  Palette: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M12 21a9 9 0 1 1 0-18c4.97 0 9 3.58 9 8 0 2.5-2 4-4 4h-2a2 2 0 0 0-1.5 3.3A1.5 1.5 0 0 1 12 21z" />
+      <circle cx="7.5" cy="11" r="1" />
+      <circle cx="12" cy="7.5" r="1" />
+      <circle cx="16" cy="11" r="1" />
+    </IconBase>
+  ),
   Reply: (p: IconProps) => (
     <IconBase {...p}>
       <path d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 5 5v6" />

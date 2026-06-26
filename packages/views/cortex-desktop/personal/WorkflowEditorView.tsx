@@ -763,6 +763,7 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
               onRunNode={handleRunNode}
               onToggleDisabled={handleToggleDisabled}
               onDeleteNode={handleDeleteNode}
+              onNodeChange={handleNodeChange}
             />
 
             {/* 左侧面板折叠/展开按钮 */}

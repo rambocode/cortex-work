@@ -435,6 +435,15 @@ export function toFlowNodes(nodes: WorkflowNode[]): WorkflowFlowNode[] {
     // React Flow nodeTypes key 与 node.type 同名（workflowNodeTypes 映射保证覆盖全部 25 种）
     type: node.type,
     position: node.position,
+    // 便签是背景注释：zIndex 低于功能节点(0 vs 1)，避免遮挡连线/节点；
+    // 选中时 React Flow 的 elevateNodesOnSelect 会临时提升，便于编辑/缩放。
+    zIndex: node.type === "sticky-note" ? 0 : 1,
+    // 便签尺寸放到 RF 节点顶层 width/height（NodeResizer 管理的就是这两个；
+    // 不能用 style.width，否则内联样式会盖过缩放时的实时尺寸）。组件本体填充 100%，
+    // 缩放结束回写 config.width/height（见 StickyNoteNode.onResizeEnd）。
+    ...(node.type === "sticky-note"
+      ? { width: node.config.width, height: node.config.height }
+      : {}),
     data: { node },
   }));
 }
