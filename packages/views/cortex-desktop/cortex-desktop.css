@@ -4504,7 +4504,9 @@ button.sb-row {
 }
 
 /* 模型 + 推理 合并 pill(Image #3):触发器 + 上弹菜单 + 模型右侧子菜单。 */
-.pw-mt-pill { position: relative; }
+/* overflow:visible 覆盖 pw-model-pill 的 overflow:hidden —— 否则上弹菜单(bottom:100%)被裁剪,
+   表现为「点了没反应」。触发器自身用 text-overflow 截断长模型名,无需 pill 裁剪。 */
+.pw-mt-pill { position: relative; overflow: visible; }
 .pw-mt-trigger {
   display: inline-flex;
   align-items: center;

@@ -82,9 +82,6 @@ export function ModelThinkingPill({
       onMouseLeave={menu.onMouseLeave}
       onMouseEnter={menu.onMouseEnter}
     >
-      <span className="lightning">
-        <Icon.Lightning size={11} />
-      </span>
       <button
         type="button"
         className="pw-mt-trigger"
@@ -93,6 +90,9 @@ export function ModelThinkingPill({
         aria-haspopup="menu"
         aria-expanded={menu.open}
       >
+        <span className="lightning">
+          <Icon.Lightning size={11} />
+        </span>
         {modelShortLabel(currentModelLabel)}
         {reasoningShort ? <span className="pw-mt-reason">{reasoningShort}</span> : null}
         <Icon.Chevron size={11} className="chev" />
