@@ -61,6 +61,8 @@ export interface SessionMeta {
   // agent 字段仍存其 base 内置值,使全仓 Record<AgentKind> 索引(模型/标签/头像/续接槽)无需放宽。与 ipc 镜像。
   derivedAgentId?: string;
   model?: string;
+  // Claude/Codex 推理强度:普通会话逐轮 fresh spawn,改值下一轮生效。缺省 = 不传原生参数。
+  effort?: ReasoningEffort;
   // pi 思考强度（阶段5）:运行时可切(set_thinking_level),冷启经 --thinking 设初值;缺省回退
   // generalSettings.piThinkingDefault,再缺省 = 不传 = pi 内置默认。
   thinkingLevel?: ThinkingLevel;

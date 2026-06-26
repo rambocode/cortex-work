@@ -7,7 +7,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   AGENT_MODELS,
-  PI_THINKING_LEVELS,
+  DEFAULT_AGENT_THINKING,
+  agentThinkingOptions,
   useDesktopBridge,
   usePersonalStore,
   usePetStore,
@@ -16,11 +17,11 @@ import { useComposerVoice } from "./useComposerVoice";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type {
   AgentKind,
+  AgentThinkingValue,
   DerivedAgentMeta,
   PendingDocFile,
   PendingImage,
   PersonalAttachment,
-  ThinkingLevel,
 } from "@cortex-work/core";
 import { AgentSelect } from "./AgentSelect";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
@@ -102,8 +103,8 @@ export function ComposerShell({
   onChangeAgent,
   onChangeModel,
   onChangePiModel,
-  thinkingLevel,
-  onChangePiThinking,
+  thinkingValue,
+  onChangeThinking,
   onToggleSkills,
   onOpenFlashNote,
   onCancelEdit,
@@ -146,9 +147,9 @@ export function ComposerShell({
   onChangeModel: (model: string) => void;
   // pi 多供应商:同时切换 provider 与模型。
   onChangePiModel: (providerId: string, model: string) => void;
-  // pi 思考强度:会话级切换（运行时即时生效;非 pi / 未提供 → 隐藏入口）。
-  thinkingLevel?: ThinkingLevel;
-  onChangePiThinking?: (level: ThinkingLevel) => void;
+  // 思考强度:非 Pi 映射为 effort（下一轮生效）;Pi 映射为 thinkingLevel（运行时即时生效）。
+  thinkingValue?: AgentThinkingValue;
+  onChangeThinking?: (value: AgentThinkingValue) => void;
   onToggleSkills: () => void;
   /** 闪记图标入口:唤起闪记浮层(桌面端由壳注入,web 端缺省 → 隐藏入口)。 */
   onOpenFlashNote?: () => void;
@@ -179,6 +180,8 @@ export function ComposerShell({
   const asrSettings = usePersonalStore((s) => s.asrSettings);
   const isPi = agent === "pi";
   const models = AGENT_MODELS[agent];
+  const thinkingOptions = agentThinkingOptions(agent);
+  const resolvedThinkingValue = isPi ? (thinkingValue ?? piThinkingDefault ?? "off") : (thinkingValue ?? DEFAULT_AGENT_THINKING);
   // pi:模型下拉来自已启用 provider,选项编码 `${providerId}::${modelId}`,展示「供应商 · 模型」。
   const piModelOptions = isPi
     ? providerSettings.providers
@@ -845,16 +848,17 @@ export function ComposerShell({
               </select>
             )}
           </span>
-          {isPi && onChangePiThinking ? (
+          {thinkingOptions.length ? (
             <span className="pill pw-model-pill" title={t("composer.thinkingStrength")}>
               <select
                 className="pw-model-select"
-                value={thinkingLevel ?? piThinkingDefault ?? "off"}
-                onChange={(e) => onChangePiThinking(e.target.value as ThinkingLevel)}
+                value={resolvedThinkingValue}
+                onChange={(e) => onChangeThinking?.(e.target.value as AgentThinkingValue)}
+                disabled={!onChangeThinking}
               >
-                {PI_THINKING_LEVELS.map((lv) => (
-                  <option key={lv} value={lv}>
-                    {t(`composer.thinkingLevel.${lv}`)}
+                {thinkingOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.labelKey)}
                   </option>
                 ))}
               </select>

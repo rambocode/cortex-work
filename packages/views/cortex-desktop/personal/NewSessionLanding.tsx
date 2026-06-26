@@ -6,15 +6,18 @@
 import { useState } from "react";
 import {
   DEFAULT_MODEL,
+  DEFAULT_AGENT_THINKING,
   DEFAULT_NEW_SESSION_PERMISSION_MODE,
   DEFAULT_PERMISSION_MODE,
   dayKey,
+  mapThinkingForAgent,
   resolveDefaultAgent,
   useDesktopBridge,
   usePersonalActions,
   usePersonalStore,
 } from "@cortex-work/core";
 import type {
+  AgentThinkingValue,
   AgentKind,
   DerivedAgentMeta,
   PendingDocFile,
@@ -26,6 +29,7 @@ import type {
 } from "@cortex-work/core";
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
+import { GitBar } from "./GitBar";
 
 // 按目标 agent 解析草稿默认 model/provider：pi 用默认 provider + 默认模型(或 provider 首模型);
 // 其余内置 agent 用各自 DEFAULT_MODEL。初始化与切换 agent 共用,保证两处默认一致(R4)。
@@ -42,7 +46,6 @@ function draftDefaultsForAgent(
   }
   return { model: DEFAULT_MODEL[base], providerId: undefined };
 }
-import { GitBar } from "./GitBar";
 
 export function NewSessionLanding({
   onToast,
@@ -74,6 +77,7 @@ export function NewSessionLanding({
       derivedAgentId: undefined as string | undefined,
       ...draftDefaultsForAgent(agent, providerSettings),
       useOwnSkills: false,
+      thinkingValue: agent === "pi" ? undefined : DEFAULT_AGENT_THINKING as AgentThinkingValue,
       permissionMode: DEFAULT_NEW_SESSION_PERMISSION_MODE as PermissionMode,
     };
   });
@@ -99,6 +103,7 @@ export function NewSessionLanding({
     // 派生 agent:落 derivedAgentId,spawn 端经 resolveSpawnAgentId 取派生 id 发给后端(R2)。
     if (draft.derivedAgentId) patch.derivedAgentId = draft.derivedAgentId;
     if (draft.agent === "pi" && draft.providerId) patch.providerId = draft.providerId;
+    Object.assign(patch, mapThinkingForAgent(draft.agent, draft.thinkingValue));
     // 仅非默认档位才落盘(缺省 full-auto 由 DEFAULT_PERMISSION_MODE 回退,保持 SessionMeta 干净)。
     if (draft.permissionMode !== DEFAULT_PERMISSION_MODE) patch.permissionMode = draft.permissionMode;
     if (Object.keys(patch).length) updateSession(sess.id, patch);
@@ -170,6 +175,8 @@ export function NewSessionLanding({
         onChangeAgent={onChangeAgent}
         onChangeModel={(model) => setDraft((d) => ({ ...d, model }))}
         onChangePiModel={(providerId, model) => setDraft((d) => ({ ...d, providerId, model }))}
+        thinkingValue={draft.thinkingValue}
+        onChangeThinking={(thinkingValue) => setDraft((d) => ({ ...d, thinkingValue }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
         onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}

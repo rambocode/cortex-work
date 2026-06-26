@@ -36,7 +36,7 @@ function renderComposer(agent: "pi" | "claude", bridge: DesktopBridge): void {
       onStop={() => {}}
       onChangeModel={() => {}}
       onChangePiModel={() => {}}
-      onChangePiThinking={() => {}}
+      onChangeThinking={() => {}}
       onToggleSkills={() => {}}
       onToast={() => {}}
     />

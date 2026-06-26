@@ -68,6 +68,7 @@
     "noProvider": "No provider configured (go to Settings → Providers)",
     "thinkingStrength": "Thinking strength",
     "thinkingLevel": {
+      "default": "Thinking · Default",
       "off": "Thinking · Off",
       "minimal": "Thinking · Minimal",
       "low": "Thinking · Low",

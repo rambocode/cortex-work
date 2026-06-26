@@ -1,6 +1,15 @@
 export * from "./types";
 export { createQueryClient } from "./query-client";
 export { CoreProvider, useCoreContext, useWorkspaceId, useDesktopBridge, type Identity } from "./provider";
+export {
+  DEFAULT_AGENT_THINKING,
+  agentThinkingOptions,
+  effortFromThinkingValue,
+  mapThinkingAcrossAgents,
+  mapThinkingForAgent,
+  type AgentThinkingOption,
+  type AgentThinkingValue,
+} from "./desktop/agent-thinking";
 export { ApiClient, ApiError, type ApiClientConfig } from "./api/client";
 export type {
   Issue,

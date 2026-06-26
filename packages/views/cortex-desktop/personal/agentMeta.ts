@@ -1,7 +1,7 @@
 // 个人工作区 agent 元数据与共享小工具：供会话头（PersonalTopBar）与会话区（PersonalChatArea）复用，
 // 避免 AGENT_LABEL / AGENT_AVATAR / agentContact / switchAgent 在两处重复。
 
-import { DEFAULT_MODEL, usePersonalStore } from "@cortex-work/core";
+import { DEFAULT_MODEL, mapThinkingAcrossAgents, usePersonalStore } from "@cortex-work/core";
 import type { AgentKind, DerivedAgentMeta, ProviderSettings, SessionMeta } from "@cortex-work/core";
 import type { Contact } from "@cortex-work/core/types";
 
@@ -72,6 +72,11 @@ export function buildAgentSwitchPatch(
   const agentSessionIds = { ...session.agentSessionIds };
   delete agentSessionIds[base];
   const piDefaultProvider = providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId);
+  const thinkingPatch = mapThinkingAcrossAgents(
+    session.agent,
+    base,
+    session.agent === "pi" ? session.thinkingLevel : session.effort,
+  );
   return {
     agent: base,
     derivedAgentId: derived?.id, // 内置时为 undefined,显式清除旧派生标记
@@ -82,6 +87,7 @@ export function buildAgentSwitchPatch(
       base === "pi"
         ? (providerSettings.defaultModel ?? piDefaultProvider?.models[0]?.id)
         : DEFAULT_MODEL[base],
+    ...thinkingPatch,
   };
 }
 

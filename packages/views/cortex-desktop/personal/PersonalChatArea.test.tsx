@@ -818,6 +818,31 @@ describe("PersonalChatArea 追问入口（U5）", () => {
     expect((askSpy.mock.calls[0]![0] as { tightenTools?: boolean }).tightenTools).toBe(false);
   });
 
+  it("追问继承当前会话 effort", async () => {
+    usePersonalStore.setState({
+      sessions: [
+        { id: "s1", projectId: "p1", title: "S1", agent: "claude", effort: "high", createdAt: NOW, updatedAt: NOW },
+      ],
+    });
+    const askSpy = vi.fn(async (_req: { effort?: string }) => {});
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "可追问回复" }],
+      saveChat: async () => {},
+      askFollowupStream: askSpy,
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+    renderWith(b);
+    await screen.findByText("可追问回复");
+    fireEvent.click(screen.getByRole("button", { name: "追问" }));
+    await screen.findByRole("dialog", { name: "追问" });
+    const ta = screen.getByPlaceholderText(/继续追问/);
+    fireEvent.change(ta, { target: { value: "继续?" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(askSpy).toHaveBeenCalled());
+    expect((askSpy.mock.calls[0]![0] as { effort?: string }).effort).toBe("high");
+  });
+
   it("仅 askFollowupStream、缺 onAskFollowupEvent/cancelFollowup → 不渲染「追问」按钮(FIX-2)", async () => {
     const partial = {
       loadChat: async () => [{ kind: "text", who: "claude", time: "12:00", uid: "a1", text: "部分桥回复" }],

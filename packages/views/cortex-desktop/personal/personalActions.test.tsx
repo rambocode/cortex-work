@@ -252,6 +252,18 @@ describe("send 分叉", () => {
     expect(bridge.piPrompt).not.toHaveBeenCalled();
   });
 
+  it("claude 会话思考强度经 startCli.effort 下发", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const session = { ...claudeSession, effort: "high" } as SessionMeta;
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(session, "/proj", "需要认真推理", []);
+    });
+    const req = (bridge.startCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(req).toMatchObject({ agent: "claude", effort: "high" });
+  });
+
   it("claude:带文档 → doc:save 落盘 + appendSystemPrompt 注入文档清单/extract_document + Message.files 回显", async () => {
     const docSave = docSaveMock();
     const bridge = makeBridge({ docSave });

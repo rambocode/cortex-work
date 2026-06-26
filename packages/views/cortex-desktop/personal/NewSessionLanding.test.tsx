@@ -134,6 +134,28 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     expect(created.model).toBe("opus");
   });
 
+  it("改思考强度后发送:新会话沿用所选 effort", async () => {
+    renderLanding(fakeBridge());
+    const thinkingSelect = screen.getByTitle("思考强度").querySelector("select")!;
+    fireEvent.change(thinkingSelect, { target: { value: "high" } });
+    fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "think harder" } });
+    fireEvent.click(screen.getByTitle("发送 (Enter)"));
+    await Promise.resolve();
+
+    const created = usePersonalStore.getState().sessions.find((s) => s.id !== "s1")!;
+    expect(created.effort).toBe("high");
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: created.id, effort: "high" }),
+      "/docs/cortex/2026-06-17",
+      "think harder",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
   it("不支持 ensureNoProjectDir 的环境:提示且不建会话不 send", async () => {
     const onToast = vi.fn();
     // 默认「不使用项目」但桥缺 ensureNoProjectDir(web/旧壳)→ 拒绝并提示。

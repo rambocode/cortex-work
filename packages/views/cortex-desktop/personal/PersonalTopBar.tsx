@@ -116,6 +116,7 @@ function PersonalSessionHeader() {
               计数早已随 queue 事件写入 store,此前只缺回显。 */}
           {piRuntime?.followUp ? <span className="pw-pi-chip">{piRuntime.followUp} 条排队</span> : null}
           {piRuntime?.thinkingLevel ? <span className="pw-pi-chip">思考 {piRuntime.thinkingLevel}</span> : null}
+          {session.agent !== "pi" && session.effort ? <span className="pw-pi-chip">思考 {session.effort}</span> : null}
         </div>
         {pathOpen ? (
           <div className="pw-sh-path">
