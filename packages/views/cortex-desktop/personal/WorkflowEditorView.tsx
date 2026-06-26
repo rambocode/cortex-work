@@ -166,6 +166,14 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
   const [paletteQuery, setPaletteQuery] = useState("");
   const [rightTab, setRightTab] = useState<"config" | "log">("config");
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  // onToast 最新引用：异步流程中用 ref 取最新回调，避免闭包失效。
+  const onToastRef = useRef(onToast);
+  onToastRef.current = onToast;
+  // 单节点运行的状态（nodeId → running/success/error）：覆盖在整体 runStatus 之上，
+  // 让画布节点的状态圆点实时反映「运行该节点」的结果（单节点运行不产生整体 run 记录）。
+  const [nodeRunStatus, setNodeRunStatus] = useState<
+    Record<string, WorkflowNodeRunStatus>
+  >({});
   // 居中 loop 名称输入框 ref（铅笔图标点击聚焦用）
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -184,6 +192,12 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
     }
     return map;
   }, [latestRun]);
+
+  // 画布最终状态：单节点运行状态覆盖在整体 run 状态之上（单节点运行的圆点优先）。
+  const mergedRunStatus = useMemo<Record<string, WorkflowNodeRunStatus>>(
+    () => ({ ...runStatus, ...nodeRunStatus }),
+    [runStatus, nodeRunStatus],
+  );
 
   // 运行中检测：只跟踪本页面点击「运行一次」启动的 run，避免历史 running 记录让初始页面误显示停止。
   // !activeRun 兜底：run 刚创建、runs 缓存尚未反映时也立即显示「停止」。
@@ -212,6 +226,7 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
       setNodes(workflow.nodes);
       setConnections(workflow.connections);
       setActiveRunId(null);
+      setNodeRunStatus({});
       setDirty(false);
     }
     // 未切换但外部有变（如广播刷新）且本地无脏修改，同步
@@ -229,7 +244,7 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
   // successText：保存成功提示文案。「发布」复用本逻辑（发布 = 持久化当前版本），
   // 仅提示语不同，避免再造一套 mutate 流程。
   const handleSave = useCallback(
-    async (successText = "已保存") => {
+    async (successText = "已保存", silent = false) => {
       setSaving(true);
       try {
         await updateWorkflow.mutateAsync({
@@ -243,7 +258,8 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
           },
         });
         setDirty(false);
-        onToast(successText);
+        // silent：单节点运行前的预保存，不弹「已保存」噪音（运行反馈由调用方给）。
+        if (!silent) onToast(successText);
       } catch (e) {
         onToast(`保存失败：${e instanceof Error ? e.message : String(e)}`);
       } finally {
@@ -265,6 +281,8 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
   // ── 运行一次 ──────────────────────────────────────────────────────────────
 
   const handleRun = useCallback(async () => {
+    // 整体运行：清掉单节点运行的圆点，交还给本次 run 的 nodeResults 驱动。
+    setNodeRunStatus({});
     // 运行前先保存（与 Kun handleRun 同款逻辑）
     await handleSave();
     try {
@@ -297,19 +315,29 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
   // 再调 workflow:node:run，结果以 toast 反馈。
   const handleRunNode = useCallback(
     async (nodeId: string) => {
-      await handleSave();
+      // 点击即把该节点圆点置「运行中」(即时视觉反馈)；静默预保存后调单节点运行。
+      setNodeRunStatus((s) => ({ ...s, [nodeId]: "running" }));
+      await handleSave("", true);
       try {
         const res = await runNode.mutateAsync({
           workflowId: workflow.id,
           nodeId,
         });
-        if (res?.ok) onToast("节点运行完成");
-        else onToast(`节点运行失败：${res?.error ?? "未知错误"}`);
+        setNodeRunStatus((s) => ({
+          ...s,
+          [nodeId]: res?.ok ? "success" : "error",
+        }));
+        // 仅失败时给通知(说明失败原因)；成功只靠圆点反馈，不打扰。
+        if (!res?.ok)
+          onToastRef.current(`节点运行失败：${res?.error ?? "未知错误"}`);
       } catch (e) {
-        onToast(`节点运行失败：${e instanceof Error ? e.message : String(e)}`);
+        setNodeRunStatus((s) => ({ ...s, [nodeId]: "error" }));
+        onToastRef.current(
+          `节点运行失败：${e instanceof Error ? e.message : String(e)}`,
+        );
       }
     },
-    [handleSave, runNode, workflow.id, onToast],
+    [handleSave, runNode, workflow.id],
   );
 
   const handleToggleDisabled = useCallback((nodeId: string) => {
@@ -769,7 +797,7 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
             <WorkflowCanvas
               nodes={nodes}
               connections={connections}
-              runStatus={runStatus}
+              runStatus={mergedRunStatus}
               onChange={handleCanvasChange}
               onSelectNode={setSelectedNodeId}
               selectedNodeId={selectedNodeId}
