@@ -5176,6 +5176,12 @@ button.sb-row {
   z-index: 90;
   padding: 4px;
 }
+/* 向上弹出变体:用于底部工具栏(新会话落地页 composer 的 agent 选择器),
+   避免向下弹出被 GitBar/终端区遮挡。 */
+.pw-tb-menu.pw-tb-menu--up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
 .pw-tb-menu-item {
   display: flex;
   align-items: center;

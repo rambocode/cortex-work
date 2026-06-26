@@ -172,3 +172,65 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     );
   });
 });
+
+describe("NewSessionLanding agent 选择(U3)", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    sendSpy.mockClear();
+    usePersonalStore.setState({
+      homeOpen: false,
+      activeProjectId: undefined,
+      activeSessionId: undefined,
+      agentsAvailable: { claude: true, codex: true },
+      derivedAgents: [{ id: "my-cx", base: "codex", label: "我的CX" }],
+      projects: [],
+      sessions: [],
+    });
+  });
+
+  it("落地页渲染 agent 选择器(opt-in)", () => {
+    const { container } = renderLanding(fakeBridge());
+    expect(container.querySelector(".pw-sh-agent")).not.toBeNull();
+  });
+
+  it("选内置 codex → 新会话 agent=codex、model=codex 默认、无 derivedAgentId", async () => {
+    renderLanding(fakeBridge());
+    fireEvent.click(screen.getByRole("button", { name: /Claude Code/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Codex$/ }));
+    fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "go" } });
+    fireEvent.click(screen.getByTitle("发送 (Enter)"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const created = usePersonalStore.getState().sessions[0]!;
+    expect(created.agent).toBe("codex");
+    expect(created.model).toBe("gpt-5.5");
+    expect(created.derivedAgentId).toBeUndefined();
+  });
+
+  it("选派生 my-cx → 新会话 agent=base(codex) + derivedAgentId=my-cx", async () => {
+    renderLanding(fakeBridge());
+    fireEvent.click(screen.getByRole("button", { name: /Claude Code/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /我的CX/ }));
+    fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "go" } });
+    fireEvent.click(screen.getByTitle("发送 (Enter)"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const created = usePersonalStore.getState().sessions[0]!;
+    expect(created.agent).toBe("codex");
+    expect(created.derivedAgentId).toBe("my-cx");
+    // spawn 端取派生 id 发送(经 send 的会话对象携带 derivedAgentId)。
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: created.id, derivedAgentId: "my-cx" }),
+      expect.any(String),
+      "go",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+});

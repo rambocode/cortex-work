@@ -14,7 +14,15 @@ import {
 } from "@cortex-work/core";
 import { useComposerVoice } from "./useComposerVoice";
 import { useTranslation } from "@cortex-work/core/i18n";
-import type { AgentKind, PendingDocFile, PendingImage, PersonalAttachment, ThinkingLevel } from "@cortex-work/core";
+import type {
+  AgentKind,
+  DerivedAgentMeta,
+  PendingDocFile,
+  PendingImage,
+  PersonalAttachment,
+  ThinkingLevel,
+} from "@cortex-work/core";
+import { AgentSelect } from "./AgentSelect";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
 import { FILE_DRAG_MIME } from "./FilesView";
@@ -76,6 +84,9 @@ export type SlashCommand = { cmd: string; desc: string; argHint?: string; kind?:
 
 export function ComposerShell({
   agent,
+  derivedAgentId,
+  derivedAgents,
+  agentsAvailable,
   model,
   providerId,
   useOwnSkills,
@@ -88,6 +99,7 @@ export function ComposerShell({
   onSend,
   onStop,
   onSteer,
+  onChangeAgent,
   onChangeModel,
   onChangePiModel,
   thinkingLevel,
@@ -98,6 +110,12 @@ export function ComposerShell({
   onToast,
 }: {
   agent: AgentKind;
+  // agent 选择器(opt-in,仅新会话落地页用):选中的派生 id + 候选/门控数据 + 切换回调。
+  // 仅当传入 onChangeAgent 时在工具栏渲染选择器;会话内 PersonalComposer 不传 → 不渲染
+  // (会话头 PersonalTopBar 已有选择器,避免重复)。
+  derivedAgentId?: string;
+  derivedAgents?: DerivedAgentMeta[];
+  agentsAvailable?: Partial<Record<AgentKind, boolean>>;
   model: string | undefined;
   providerId: string | undefined;
   useOwnSkills: boolean;
@@ -123,6 +141,8 @@ export function ComposerShell({
   onStop?: () => void;
   /** pi 运行中插话:把引导注入当前轮（仅 pi + 提供时启用;非 pi/单发不传 → 运行中只能停止）。 */
   onSteer?: (text: string) => void;
+  /** agent 切换(opt-in):提供则在工具栏渲染 AgentSelect。derived 存在表示切到派生 agent。 */
+  onChangeAgent?: (agent: AgentKind, derived?: DerivedAgentMeta) => void;
   onChangeModel: (model: string) => void;
   // pi 多供应商:同时切换 provider 与模型。
   onChangePiModel: (providerId: string, model: string) => void;
@@ -774,6 +794,18 @@ export function ComposerShell({
             onChange={onPickDocs}
           />
           <div className="spacer" />
+          {/* agent 选择器(opt-in):仅新会话落地页传 onChangeAgent 时渲染,置于模型 pill 前;
+              会话内不传 → 不渲染(会话头已有选择器)。 */}
+          {onChangeAgent ? (
+            <AgentSelect
+              agent={agent}
+              derivedAgentId={derivedAgentId}
+              agentsAvailable={agentsAvailable}
+              derivedAgents={derivedAgents}
+              onSwitch={onChangeAgent}
+              menuPlacement="up"
+            />
+          ) : null}
           <span className="pill pw-model-pill">
             <span className="lightning">
               <Icon.Lightning size={11} />

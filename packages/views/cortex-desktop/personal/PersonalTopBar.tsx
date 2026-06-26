@@ -4,18 +4,18 @@
 // 其它视图(落地/自动化/timeline/设置)维持「个人工作区」标题。
 // 拖拽区由 CSS .pw-col-head 的 -webkit-app-region: drag 提供,交互子元素 no-drag。
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { AGENT_MODELS, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
-import type { AgentKind, DerivedAgentMeta, SessionMeta } from "@cortex-work/core";
+import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { UpdateButton } from "../UpdateButton";
 import {
   agentDisplayAvatar,
   agentDisplayLabel,
-  AGENT_LABEL,
   buildAgentSwitchPatch,
   useChatViewActive,
 } from "./agentMeta";
+import { AgentSelect } from "./AgentSelect";
+import { useDismissableMenu } from "./useDismissableMenu";
 import { SidebarLeftControls } from "./SidebarControls";
 
 export function PersonalCenterHeader() {
@@ -129,8 +129,9 @@ function PersonalSessionHeader() {
         ) : null}
       </div>
 
-      <PersonalAgentSelect
-        session={session}
+      <AgentSelect
+        agent={session.agent}
+        derivedAgentId={session.derivedAgentId}
         agentsAvailable={agentsAvailable}
         derivedAgents={derivedAgents}
         onSwitch={(a, derived) =>
@@ -141,146 +142,6 @@ function PersonalSessionHeader() {
       <PersonalPanelControls />
     </div>
   );
-}
-
-// Agent 选择器：自定义下拉（按钮内含 agent 小头像 + 名称 + chevron），复用顶栏菜单交互范式
-// （点击展开 / 点外部·Esc·失焦关闭 / 移出延时收起）。未探测到安装的(非 pi) agent 禁用并标注。
-function PersonalAgentSelect({
-  session,
-  agentsAvailable,
-  derivedAgents,
-  onSwitch,
-}: {
-  session: SessionMeta;
-  agentsAvailable: Partial<Record<AgentKind, boolean>> | undefined;
-  derivedAgents: DerivedAgentMeta[] | undefined;
-  onSwitch: (agent: AgentKind, derived?: DerivedAgentMeta) => void;
-}) {
-  const menu = useDismissableMenu();
-  // 当前选中键:派生优先(显示派生名/头像),否则内置 base。
-  const displayKey = session.derivedAgentId ?? session.agent;
-  const avatar = agentDisplayAvatar(displayKey, derivedAgents);
-  // 派生候选:仅「新 id」(覆盖内置同名 id 的派生不新增条目,仍走内置项,R1)。
-  const builtIn: readonly string[] = ["claude", "codex", "pi"];
-  const derivedNew = (derivedAgents ?? []).filter((d) => !builtIn.includes(d.id));
-
-  return (
-    <div className="pw-sh-agent">
-      <span className="pw-sh-agent-label">Agent</span>
-      <div
-        className="pw-tb-menu-wrap"
-        ref={menu.wrapRef}
-        onMouseLeave={menu.onMouseLeave}
-        onMouseEnter={menu.onMouseEnter}
-      >
-        <button
-          type="button"
-          className="pw-sh-agent-btn"
-          aria-haspopup="menu"
-          aria-expanded={menu.open}
-          onClick={() => menu.setOpen((v) => !v)}
-        >
-          <span className="pw-sh-agent-avatar" style={{ background: avatar.bg }}>
-            {avatar.initials}
-          </span>
-          <span className="pw-sh-agent-name">{agentDisplayLabel(displayKey, derivedAgents)}</span>
-          <span className={`pw-sh-chev ${menu.open ? "is-open" : ""}`}>
-            <Icon.Chevron size={11} />
-          </span>
-        </button>
-        {menu.open ? (
-          <div className="pw-tb-menu" role="menu">
-            {(Object.keys(AGENT_MODELS) as AgentKind[]).map((a) => {
-              // pi 是内置兜底,永不禁用;其余 agent 未探测到安装时禁用并标注。
-              const unavailable = a !== "pi" && agentsAvailable?.[a] === false;
-              return (
-                <button
-                  key={a}
-                  className="pw-tb-menu-item"
-                  role="menuitem"
-                  disabled={unavailable}
-                  onClick={() => {
-                    if (unavailable) return;
-                    onSwitch(a);
-                    menu.setOpen(false);
-                  }}
-                >
-                  <span>
-                    {AGENT_LABEL[a]}
-                    {unavailable ? "（未安装）" : ""}
-                  </span>
-                  {/* 选中态:内置项当且仅当无派生标记且 base 匹配(避免派生时把内置也打勾)。 */}
-                  {a === session.agent && !session.derivedAgentId ? <Icon.Check size={13} /> : null}
-                </button>
-              );
-            })}
-            {/* 用户 JSON 派生的新 agent(U7)。派生跳过 PATH 门控(后端放行),不置灰。 */}
-            {derivedNew.map((d) => (
-              <button
-                key={d.id}
-                className="pw-tb-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  onSwitch(d.base, d);
-                  menu.setOpen(false);
-                }}
-              >
-                <span>{d.label ?? d.id}</span>
-                {d.id === session.derivedAgentId ? <Icon.Check size={13} /> : null}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-
-// 下拉菜单关闭范式（与项目内其它菜单约定一致,见 ProjectMenu / TodosView 的 ArchiveMenu）：
-// 点击外部 / Esc / 窗口失焦关闭;鼠标移出菜单区域短延迟自动收起,重新移入取消。
-function useDismissableMenu() {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const cancelCloseTimer = () => {
-    if (closeTimer.current) {
-      clearTimeout(closeTimer.current);
-      closeTimer.current = null;
-    }
-  };
-  useEffect(() => cancelCloseTimer, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    const onBlur = () => setOpen(false);
-    window.addEventListener("mousedown", onDown, true);
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("mousedown", onDown, true);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [open]);
-
-  const onMouseLeave = () => {
-    cancelCloseTimer();
-    closeTimer.current = setTimeout(() => {
-      closeTimer.current = null;
-      setOpen(false);
-    }, 220);
-  };
-  const onMouseEnter = () => cancelCloseTimer();
-
-  return { open, setOpen, wrapRef, onMouseLeave, onMouseEnter };
 }
 
 // 终端开关 + 右栏面板下拉（选择 文件 / Skills / Tasks 视图,或收起面板）。

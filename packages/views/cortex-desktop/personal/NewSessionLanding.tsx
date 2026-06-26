@@ -14,9 +14,34 @@ import {
   usePersonalActions,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { PendingDocFile, PendingImage, PermissionMode, PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import type {
+  AgentKind,
+  DerivedAgentMeta,
+  PendingDocFile,
+  PendingImage,
+  PermissionMode,
+  PersonalAttachment,
+  ProviderSettings,
+  SessionMeta,
+} from "@cortex-work/core";
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
+
+// 按目标 agent 解析草稿默认 model/provider：pi 用默认 provider + 默认模型(或 provider 首模型);
+// 其余内置 agent 用各自 DEFAULT_MODEL。初始化与切换 agent 共用,保证两处默认一致(R4)。
+function draftDefaultsForAgent(
+  base: AgentKind,
+  providerSettings: ProviderSettings,
+): { model: string | undefined; providerId: string | undefined } {
+  if (base === "pi") {
+    const provider = providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId);
+    return {
+      model: providerSettings.defaultModel ?? provider?.models[0]?.id,
+      providerId: providerSettings.defaultProviderId,
+    };
+  }
+  return { model: DEFAULT_MODEL[base], providerId: undefined };
+}
 import { GitBar } from "./GitBar";
 
 export function NewSessionLanding({
@@ -30,6 +55,7 @@ export function NewSessionLanding({
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const derivedAgents = usePersonalStore((s) => s.derivedAgents);
   const generalSettings = usePersonalStore((s) => s.generalSettings);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const createSession = usePersonalStore((s) => s.createSession);
@@ -40,26 +66,43 @@ export function NewSessionLanding({
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(undefined);
 
   // 会话尚未创建,草稿态承载输入框控件(默认 agent + 默认 model/provider),发送时落进 createSession。
+  // agent 始终存内置 base;选派生时另存 derivedAgentId(发送时经 applyDraftPatch 落到新会话,spawn 端取派生 id)。
   const [draft, setDraft] = useState(() => {
     const agent = resolveDefaultAgent({ generalSettings, agentsAvailable });
-    const provider = providerSettings.providers.find((p) => p.id === providerSettings.defaultProviderId);
     return {
       agent,
-      model: agent === "pi" ? providerSettings.defaultModel ?? provider?.models[0]?.id : DEFAULT_MODEL[agent],
-      providerId: agent === "pi" ? providerSettings.defaultProviderId : undefined,
+      derivedAgentId: undefined as string | undefined,
+      ...draftDefaultsForAgent(agent, providerSettings),
       useOwnSkills: false,
       permissionMode: DEFAULT_NEW_SESSION_PERMISSION_MODE as PermissionMode,
     };
   });
 
-  // 把草稿态里 createSession 不直接支持的字段(providerId/useOwnSkills)补到新建会话上。
-  const applyDraftPatch = (sess: SessionMeta) => {
+  // 切换 agent(内置或派生):agent 落 base,派生另记 id,model/provider 按目标重置默认(R4)。
+  const onChangeAgent = (a: AgentKind, derived?: DerivedAgentMeta) => {
+    const base = derived?.base ?? a;
+    setDraft((d) => ({
+      ...d,
+      agent: base,
+      derivedAgentId: derived?.id,
+      ...draftDefaultsForAgent(base, providerSettings),
+    }));
+  };
+
+  // 把草稿态里 createSession 不直接支持的字段(derivedAgentId/providerId/useOwnSkills/permissionMode)
+  // 补到新建会话上,并返回合并后的会话。关键:updateSession 只改 store 里的会话,本地 sess 引用不变;
+  // 而 send 是按「传入的会话对象」解析 spawn agent / skill(见 messages.ts resolveSpawnAgentId、
+  // sendSession.useOwnSkills),故必须把合并结果传给 send,否则 derivedAgentId/useOwnSkills 到不了 spawn。
+  const applyDraftPatch = (sess: SessionMeta): SessionMeta => {
     const patch: Partial<SessionMeta> = {};
     if (draft.useOwnSkills) patch.useOwnSkills = true;
+    // 派生 agent:落 derivedAgentId,spawn 端经 resolveSpawnAgentId 取派生 id 发给后端(R2)。
+    if (draft.derivedAgentId) patch.derivedAgentId = draft.derivedAgentId;
     if (draft.agent === "pi" && draft.providerId) patch.providerId = draft.providerId;
     // 仅非默认档位才落盘(缺省 full-auto 由 DEFAULT_PERMISSION_MODE 回退,保持 SessionMeta 干净)。
     if (draft.permissionMode !== DEFAULT_PERMISSION_MODE) patch.permissionMode = draft.permissionMode;
     if (Object.keys(patch).length) updateSession(sess.id, patch);
+    return { ...sess, ...patch };
   };
 
   // GitBar 据此查 git/显示分支;undefined（未选 / 不使用项目）只显示项目选择器。
@@ -83,8 +126,7 @@ export function NewSessionLanding({
             onToast("项目不存在,请重新选择");
             return false;
           }
-          const sess = createSession(selectedProjectId, draft.agent, draft.model);
-          applyDraftPatch(sess);
+          const sess = applyDraftPatch(createSession(selectedProjectId, draft.agent, draft.model));
           return await send(sess, selectedProject.path, trimmed, attachments, undefined, images, undefined, docFiles);
         }
         // selectedProjectId 为 undefined = 不使用项目:在当天的无项目工作目录下新建会话。
@@ -93,8 +135,7 @@ export function NewSessionLanding({
           return false;
         }
         const dir = await bridge.ensureNoProjectDir(dayKey(Date.now()));
-        const sess = createSession(undefined, draft.agent, draft.model, { noProjectDir: dir });
-        applyDraftPatch(sess);
+        const sess = applyDraftPatch(createSession(undefined, draft.agent, draft.model, { noProjectDir: dir }));
         return await send(sess, dir, trimmed, attachments, undefined, images, undefined, docFiles);
       } catch (err) {
         onToast(`发送失败：${err instanceof Error ? err.message : String(err)}`);
@@ -111,6 +152,9 @@ export function NewSessionLanding({
 
       <ComposerShell
         agent={draft.agent}
+        derivedAgentId={draft.derivedAgentId}
+        derivedAgents={derivedAgents}
+        agentsAvailable={agentsAvailable}
         model={draft.model}
         providerId={draft.providerId}
         useOwnSkills={draft.useOwnSkills}
@@ -123,6 +167,7 @@ export function NewSessionLanding({
         // 二者不同时挂载,nonce 去重避免重复消费。
         acceptComposerInsert
         onSend={onSubmit}
+        onChangeAgent={onChangeAgent}
         onChangeModel={(model) => setDraft((d) => ({ ...d, model }))}
         onChangePiModel={(providerId, model) => setDraft((d) => ({ ...d, providerId, model }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}

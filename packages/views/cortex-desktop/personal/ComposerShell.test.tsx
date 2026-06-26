@@ -3,9 +3,9 @@
 
 import type { ReactNode } from "react";
 import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { CoreProvider, usePersonalStore, type AgentKind, type DesktopBridge, type PendingImage, type PersonalAttachment } from "@cortex-work/core";
-import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CoreProvider, usePersonalStore, type AgentKind, type DerivedAgentMeta, type DesktopBridge, type PendingImage, type PersonalAttachment } from "@cortex-work/core";
+import { defaultAsrSettings, type AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
 import type { LocalWhisperModelStatus } from "@cortex-work/core/whisper/models";
 import { ComposerShell, type SlashCommand } from "./ComposerShell";
 import { FILE_DRAG_MIME } from "./FilesView";
@@ -657,5 +657,52 @@ describe("ComposerShell 转写路由与失败处理（U9）", () => {
     await waitFor(() => expect(onToast).toHaveBeenCalled());
     expect(onToast.mock.calls[0]?.[0]).toMatch(/录音|转写|支持/);
     expect(ta.value).toBe("已输入的文字");
+  });
+});
+
+// U2: agent 选择器 opt-in —— 仅传 onChangeAgent 时渲染,会话内不传则不渲染。
+describe("ComposerShell agent 选择器(opt-in)", () => {
+  // 前序 voice 测试把 asrSettings 置 undefined 且未还原,这里恢复默认,避免 ComposerShell 渲染期读 undefined.protocol 崩。
+  beforeEach(() => {
+    usePersonalStore.setState({ asrSettings: defaultAsrSettings() });
+  });
+
+  function renderWithAgentProps(onChangeAgent?: (a: AgentKind, d?: DerivedAgentMeta) => void) {
+    return render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
+        <ComposerShell
+          agent="claude"
+          derivedAgents={[{ id: "my-cx", base: "codex", label: "我的CX" }]}
+          agentsAvailable={{ claude: true, codex: true }}
+          model={undefined}
+          providerId={undefined}
+          useOwnSkills={false}
+          running={false}
+          onSend={() => {}}
+          onChangeAgent={onChangeAgent}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onToggleSkills={() => {}}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+  }
+
+  it("传 onChangeAgent → 工具栏渲染 agent 选择器,点击派生项触发回调", () => {
+    const onChangeAgent = vi.fn();
+    renderWithAgentProps(onChangeAgent);
+    const trigger = screen.getByRole("button", { name: /Claude Code/ });
+    expect(trigger).toBeTruthy();
+    fireEvent.click(trigger);
+    // composer 工具栏在底部 → 菜单向上弹出,避免被 GitBar/终端遮挡。
+    expect(document.querySelector(".pw-tb-menu.pw-tb-menu--up")).not.toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /我的CX/ }));
+    expect(onChangeAgent).toHaveBeenCalledWith("codex", { id: "my-cx", base: "codex", label: "我的CX" });
+  });
+
+  it("不传 onChangeAgent(会话内)→ 不渲染 agent 选择器", () => {
+    const { container } = renderWithAgentProps(undefined);
+    expect(container.querySelector(".pw-sh-agent")).toBeNull();
   });
 });
