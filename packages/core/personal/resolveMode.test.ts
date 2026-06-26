@@ -28,6 +28,16 @@ describe("resolveEffectiveMode", () => {
     expect(resolveEffectiveMode("auto", "帮我规划方案")).toBe("plan");
   });
 
+  it("auto + 英文动作词作子串不误命中(词边界,评审 F1)", () => {
+    // address 含 add、changes 含 change、implementation 含 implement、refactoring 含 refactor、credit 含 edit
+    expect(resolveEffectiveMode("auto", "what is the memory address?")).toBe("plan");
+    expect(resolveEffectiveMode("auto", "summarize the changes please")).toBe("plan");
+    expect(resolveEffectiveMode("auto", "describe the implementation details")).toBe("plan");
+    expect(resolveEffectiveMode("auto", "what credit card parsing is used")).toBe("plan");
+    // 真·祈使动作词仍命中
+    expect(resolveEffectiveMode("auto", "add a logout button")).toBe("accept-edits");
+  });
+
   it("auto + 危险词不自动升 full-auto(安全底线)", () => {
     const r = resolveEffectiveMode("auto", "修复后顺便 rm -rf /tmp/x");
     expect(r).not.toBe("full-auto");

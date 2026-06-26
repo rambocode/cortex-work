@@ -65,7 +65,17 @@ export function resolveEffectiveMode(
   if (!text) return "plan";
   // 疑问/规划引导 → 只读提问。
   if (INTERROGATIVE_MARKERS.some((m) => text.includes(m))) return "plan";
-  // 裸祈使动作词 → 自动改文件。
-  if (ACTION_KEYWORDS.some((k) => text.includes(k))) return "accept-edits";
+  // 裸祈使动作词 → 自动改文件。英文关键词须按词边界匹配,否则 "address"→"add"、
+  // "changes"→"change"、"implementation"→"implement" 等会误命中(评审 F1)。中文无词边界,
+  // 用 includes(中文动作词足够明确,不会嵌在无关词里)。
+  if (ACTION_KEYWORDS.some((k) => matchKeyword(text, k))) return "accept-edits";
   return "plan";
+}
+
+// 纯 ASCII 关键词用 \b 词边界;含非 ASCII(中文)的关键词用 includes。
+function matchKeyword(text: string, keyword: string): boolean {
+  if (/^[a-z]+$/.test(keyword)) {
+    return new RegExp(`\\b${keyword}\\b`).test(text);
+  }
+  return text.includes(keyword);
 }

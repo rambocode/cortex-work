@@ -52,7 +52,8 @@ export function resolveGrantDirs(
         out.generatedImages = generatedImageDirs(cwd, home);
         break;
       case "custom":
-        out.custom = [...g.dirs];
+        // 累加而非覆盖:防止畸形持久数据里多个 custom 条目只保留最后一个(评审 F2)。
+        out.custom.push(...g.dirs);
         break;
       case "all-files":
         out.allFiles = true;

@@ -73,7 +73,7 @@ describe("DirectoryGrantPill", () => {
     const addBtn = container.querySelector(".pw-grant-add") as HTMLButtonElement;
     fireEvent.click(addBtn);
     await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
-    const next = onChange.mock.calls[0][0] as DirectoryGrant[];
+    const next = (onChange.mock.calls[0]?.[0] ?? []) as DirectoryGrant[];
     const custom = next.find((g) => g.kind === "custom") as Extract<DirectoryGrant, { kind: "custom" }>;
     expect(custom.dirs).toContain("/picked/dir");
   });
