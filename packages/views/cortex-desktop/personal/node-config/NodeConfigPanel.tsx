@@ -103,6 +103,7 @@ const KIND_LABELS: Record<string, string> = {
   "question-classifier": "问题分类",
   "human-approval": "人工审批",
   custom: "自定义",
+  "sticky-note": "便签",
 };
 
 const ERROR_MODE_OPTIONS: Array<{

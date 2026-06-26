@@ -685,6 +685,24 @@ export function normalizeWorkflowNode(value: unknown, index: number): WorkflowNo
           values: normalizeStringRecord(config.values),
         },
       };
+    case "sticky-note":
+      // 便签：容错读取注释内容/颜色/尺寸。默认值与渲染层
+      // packages/views/cortex-desktop/personal/workflow-sticky.ts 对齐（主进程为 core 镜像、
+      // 不 import 渲染层，故此处内联，改默认时两侧同步）。
+      return {
+        ...base,
+        type: "sticky-note",
+        config: {
+          content: asText(config.content),
+          color:
+            typeof config.color === "string" &&
+            /^#[0-9a-fA-F]{3,8}$/.test(config.color)
+              ? config.color
+              : "#fde7ea",
+          width: clampInt(config.width, 240, 120, 4_000),
+          height: clampInt(config.height, 160, 80, 4_000),
+        },
+      };
     default:
       // TypeScript exhaustive check — 运行时不会进到这里
       return null;

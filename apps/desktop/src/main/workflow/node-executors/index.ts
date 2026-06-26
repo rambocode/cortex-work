@@ -268,6 +268,12 @@ export async function executeNode(
     case 'generate-image':
       return executeGenerateImage(node.config, primary, scope, deps.workspaceRoot)
 
+    // ── 便签节点：画布注释，不参与执行 ──────────────────────────────────────────
+    // 便签无连接，图执行器(graph-executor)的 BFS 永远不会把它加入 readyQueue，
+    // 因此此分支实际不会被触及；仅为满足 exhaustive switch、并在异常路径下安全透传。
+    case 'sticky-note':
+      return { payload: primary, message: '便签节点不参与执行（透传）' }
+
     default: {
       // TypeScript exhaustive check：如果新增了 WorkflowNodeKind 但未加 case，此处会报错
       const _exhaustive: never = node

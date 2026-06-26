@@ -16,6 +16,12 @@ import type {
   WorkflowConnection,
   WorkflowNodeRunStatus,
 } from "@cortex-work/core";
+import {
+  STICKY_DEFAULT_COLOR,
+  STICKY_DEFAULT_CONTENT,
+  STICKY_DEFAULT_WIDTH,
+  STICKY_DEFAULT_HEIGHT,
+} from "./workflow-sticky";
 
 // ── 节点 kind → 图标映射 ──────────────────────────────────────────────────────
 // 放在本 SSR 安全模块（仅 type-import xyflow），供 palette(WorkflowEditorView) 与
@@ -47,6 +53,7 @@ export const NODE_ICONS: Record<WorkflowNodeKind, NodeIconComponent> = {
   "question-classifier": Icon.Tags,
   "human-approval": Icon.Users,
   custom: Icon.Workflow,
+  "sticky-note": Icon.StickyNote,
 };
 
 // ── 类型别名 ────────────────────────────────────────────────────────────────
@@ -123,8 +130,10 @@ export const NODE_CATEGORY: Record<WorkflowNodeKind, WorkflowNodeCategory> =
         map[kind] = group.id as WorkflowNodeCategory;
       }
     }
-    // custom 不在任何 palette 分组中，兜底归 data。
+    // custom / sticky-note 不在任何 palette 分组中，兜底归 data。
+    // （便签自带 config.color 着色，分类仅影响 .wf-cat-* 图标芯片，兜底即可。）
     if (!map["custom"]) map["custom"] = "data";
+    if (!map["sticky-note"]) map["sticky-note"] = "data";
     return map;
   })();
 
@@ -394,6 +403,18 @@ export function createWorkflowNode(
 
     case "custom":
       return { ...base, type: "custom", config: { moduleId: "", values: {} } };
+
+    case "sticky-note":
+      return {
+        ...base,
+        type: "sticky-note",
+        config: {
+          content: STICKY_DEFAULT_CONTENT,
+          color: STICKY_DEFAULT_COLOR,
+          width: STICKY_DEFAULT_WIDTH,
+          height: STICKY_DEFAULT_HEIGHT,
+        },
+      };
 
     default: {
       // 防御：未知 kind 降级为 manual-trigger

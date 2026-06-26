@@ -48,7 +48,9 @@ export type WorkflowNodeKind =
   | "parameter-extractor"
   | "question-classifier"
   | "human-approval"
-  | "custom";
+  | "custom"
+  // 便签：画布注释节点，不参与连接与执行（详见 WorkflowStickyNoteConfig）。
+  | "sticky-note";
 
 export const WORKFLOW_NODE_KINDS: readonly WorkflowNodeKind[] = [
   "manual-trigger",
@@ -76,6 +78,7 @@ export const WORKFLOW_NODE_KINDS: readonly WorkflowNodeKind[] = [
   "question-classifier",
   "human-approval",
   "custom",
+  "sticky-note",
 ];
 
 /** 工作流整体运行状态。 */
@@ -389,6 +392,22 @@ export interface WorkflowCustomConfig {
   values: Record<string, string>;
 }
 
+/**
+ * 便签（sticky note）节点配置：画布上的彩色注释卡片。
+ * 不参与连接/执行——执行引擎遍历不到它（无连接、不入 readyQueue），
+ * 仅在画布渲染与持久化。content 按 Markdown 渲染。
+ */
+export interface WorkflowStickyNoteConfig {
+  /** 便签正文（Markdown 源文本）。 */
+  content: string;
+  /** 背景色（取自 STICKY_NOTE_COLORS 预设，存十六进制值）。 */
+  color: string;
+  /** 卡片宽度（px）。 */
+  width: number;
+  /** 卡片高度（px）。 */
+  height: number;
+}
+
 // ── 自定义模块定义 ────────────────────────────────────────────────────────────
 // （与 apps/desktop/src/main/workflow/types.ts 逐字镜像，修改时必须同步）
 
@@ -442,6 +461,7 @@ export interface WorkflowNodeConfigByKind {
   "question-classifier": WorkflowQuestionClassifierConfig;
   "human-approval": WorkflowHumanApprovalConfig;
   custom: WorkflowCustomConfig;
+  "sticky-note": WorkflowStickyNoteConfig;
 }
 
 // ── 节点（discriminated union，判别字段 `type`）────────────────────────────────

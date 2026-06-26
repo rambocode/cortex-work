@@ -375,6 +375,13 @@ export const Icon = {
       <path d="M14 3v6h6" />
     </IconBase>
   ),
+  // StickyNote：便签节点（折角便签卡片）。
+  StickyNote: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8l7-7V5a2 2 0 0 0-2-2z" />
+      <path d="M14 21v-5a2 2 0 0 1 2-2h5" />
+    </IconBase>
+  ),
   Reply: (p: IconProps) => (
     <IconBase {...p}>
       <path d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 5 5v6" />

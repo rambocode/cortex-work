@@ -89,6 +89,7 @@ const NODE_LABELS: Record<WorkflowNodeKind, string> = {
   "question-classifier": "问题分类",
   "human-approval": "人工审批",
   custom: "自定义",
+  "sticky-note": "便签",
 };
 
 const DND_MIME = "application/x-workflow-node";
@@ -339,8 +340,11 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
   const handleAutoLayout = useCallback(() => {
     setNodes((prev) => {
       if (prev.length === 0) return prev;
+      // 便签是画布注释、无连接：排除出自动布局，否则会被当作 in-degree=0 的 root
+      // 放到 depth=0 列、覆盖用户手动摆放的位置。便签保留原 position。
+      const layoutNodes = prev.filter((n) => n.type !== "sticky-note");
       const incoming = new Map<string, number>();
-      prev.forEach((n) => incoming.set(n.id, 0));
+      layoutNodes.forEach((n) => incoming.set(n.id, 0));
       const adj = new Map<string, string[]>();
       connections.forEach((c) => {
         incoming.set(c.target, (incoming.get(c.target) ?? 0) + 1);
@@ -348,12 +352,12 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
         list.push(c.target);
         adj.set(c.source, list);
       });
-      const roots = prev
+      const roots = layoutNodes
         .filter((n) => (incoming.get(n.id) ?? 0) === 0)
         .map((n) => n.id);
       const depth = new Map<string, number>();
       const visited = new Set<string>();
-      const firstId = prev[0]?.id;
+      const firstId = layoutNodes[0]?.id;
       let frontier = roots.length ? roots : firstId ? [firstId] : [];
       let d = 0;
       while (frontier.length) {
@@ -374,7 +378,7 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
         maxD = Math.max(maxD, v);
       });
       const byDepth = new Map<number, string[]>();
-      prev.forEach((n) => {
+      layoutNodes.forEach((n) => {
         const dd = depth.get(n.id) ?? maxD + 1;
         const list = byDepth.get(dd) ?? [];
         list.push(n.id);
@@ -390,7 +394,12 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
           pos.set(id, { x: X0 + dd * COL, y: Y0 + i * ROW }),
         );
       });
-      return prev.map((n) => ({ ...n, position: pos.get(n.id) ?? n.position }));
+      // 便签不在 pos 中：保留原 position 不动。
+      return prev.map((n) =>
+        n.type === "sticky-note"
+          ? n
+          : { ...n, position: pos.get(n.id) ?? n.position },
+      );
     });
     setDirty(true);
     onToast("已自动布局");

@@ -103,6 +103,7 @@ const NODE_LABELS: Record<WorkflowNodeKind, string> = {
   "question-classifier": "问题分类",
   "human-approval": "人工审批",
   custom: "自定义",
+  "sticky-note": "便签",
 };
 
 // ── 节点状态指示点 ────────────────────────────────────────────────────────
