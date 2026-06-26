@@ -342,6 +342,7 @@ export {
   STATUS_SYNONYMS,
   type TaskStatus,
 } from "./personal/docStatus";
+export { resolveEffectiveMode } from "./personal/resolveMode";
 export { deriveTags, topicOf, type Tag, type TagDim } from "./personal/docTags";
 export { buildLineage, extractOriginBasenames, type Lineage } from "./personal/docLineage";
 export {
