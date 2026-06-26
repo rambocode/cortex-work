@@ -23,6 +23,7 @@ import type {
   ThinkingLevel,
 } from "../desktop/types";
 import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
+import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-thinking";
 import type { DesktopBridge } from "../desktop/bridge";
 import { renderSkillBlock, resolveEnabledSkillRecords } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
@@ -1970,6 +1971,8 @@ export interface PersonalActions {
   compact: (sessionId: string, customInstructions?: string) => Promise<void>;
   // pi 运行时切模型:更新会话记忆 + 会话已开则实时下发（未开仅记忆,下次 open 生效）。
   setPiModel: (session: SessionMeta, providerId: string, model: string) => void;
+  // 通用思考强度:非 Pi 更新 effort;Pi 更新 thinkingLevel 并在会话已开时实时下发。
+  setThinking: (session: SessionMeta, value: AgentThinkingValue) => void;
   // pi 运行时切思考强度:更新会话记忆 + 会话已开则实时下发（不重开;未开仅记忆,下次 open 经 --thinking 生效）。
   setPiThinking: (session: SessionMeta, level: ThinkingLevel) => void;
   // 编辑重发:清除目标用户消息及其后的全部消息,以新文本重新发送。
@@ -2241,6 +2244,7 @@ export function usePersonalActions(): PersonalActions {
           cwd: projectPath,
           prompt: text,
           model: sendSession.model,
+          effort: sendSession.effort,
           resumeSessionId,
           appendSystemPrompt: appendWithSkills,
           useOwnSkills: sendSession.useOwnSkills,
@@ -2468,6 +2472,17 @@ export function usePersonalActions(): PersonalActions {
     [bridge, qc],
   );
 
+  const setThinking = useCallback<PersonalActions["setThinking"]>(
+    (session, value) => {
+      if (session.agent === "pi") {
+        setPiThinking(session, value as ThinkingLevel);
+        return;
+      }
+      usePersonalStore.getState().updateSession(session.id, mapThinkingForAgent(session.agent, value));
+    },
+    [setPiThinking],
+  );
+
   const clearView = useCallback<PersonalActions["clearView"]>(
     (sessionId) => {
       const messages = qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
@@ -2476,5 +2491,5 @@ export function usePersonalActions(): PersonalActions {
     [qc],
   );
 
-  return { send, stop, steer, compact, setPiModel, setPiThinking, editResend, clearView };
+  return { send, stop, steer, compact, setPiModel, setThinking, setPiThinking, editResend, clearView };
 }

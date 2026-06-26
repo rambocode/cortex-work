@@ -82,6 +82,8 @@ export interface SessionMeta {
   // agent 字段仍存其 base 内置值,使全仓 Record<AgentKind> 索引(模型/标签/头像/续接槽)无需放宽。
   derivedAgentId?: string;
   model?: string;
+  // Claude/Codex 推理强度:普通会话逐轮 fresh spawn,改值下一轮生效。缺省 = 不传原生参数。
+  effort?: ReasoningEffort;
   providerId?: string;
   piSessionFile?: string; // 阶段4 pi 会话恢复用磁盘 JSONL 路径（与 core 镜像）
   useOwnSkills?: boolean;

@@ -147,7 +147,7 @@ export function PersonalChatArea({
   const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
-  const { send, stop: stopRun, steer, compact, setPiModel, setPiThinking, editResend, clearView } =
+  const { send, stop: stopRun, steer, compact, setPiModel, setThinking, editResend, clearView } =
     usePersonalActions();
 
   // auto_open(仅环回,SSRF 收紧):**只信主信号**(最近一轮 assistant 正文)。process 流
@@ -376,6 +376,7 @@ export function PersonalChatArea({
     return {
       agent: session.agent,
       model: session.model,
+      effort: session.effort,
       cwd,
       permissionMode: session.permissionMode,
       tightenTools: !realProject,
@@ -387,6 +388,7 @@ export function PersonalChatArea({
     session?.id,
     session?.agent,
     session?.model,
+    session?.effort,
     session?.providerId,
     session?.permissionMode,
     session?.noProjectDir,
@@ -504,7 +506,7 @@ export function PersonalChatArea({
         onSteer={session.agent === "pi" ? (text) => void steer(session.id, text) : undefined}
         onChangeModel={(model) => updateSession(session.id, { model })}
         onChangePiModel={(providerId, model) => setPiModel(session, providerId, model)}
-        onChangePiThinking={(level) => setPiThinking(session, level)}
+        onChangeThinking={(value) => setThinking(session, value)}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}

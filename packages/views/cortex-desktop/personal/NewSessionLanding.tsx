@@ -6,15 +6,17 @@
 import { useState } from "react";
 import {
   DEFAULT_MODEL,
+  DEFAULT_AGENT_THINKING,
   DEFAULT_NEW_SESSION_PERMISSION_MODE,
   DEFAULT_PERMISSION_MODE,
   dayKey,
+  mapThinkingForAgent,
   resolveDefaultAgent,
   useDesktopBridge,
   usePersonalActions,
   usePersonalStore,
 } from "@cortex-work/core";
-import type { PendingDocFile, PendingImage, PermissionMode, PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import type { AgentThinkingValue, PendingDocFile, PendingImage, PermissionMode, PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
 import { GitBar } from "./GitBar";
@@ -48,6 +50,7 @@ export function NewSessionLanding({
       model: agent === "pi" ? providerSettings.defaultModel ?? provider?.models[0]?.id : DEFAULT_MODEL[agent],
       providerId: agent === "pi" ? providerSettings.defaultProviderId : undefined,
       useOwnSkills: false,
+      thinkingValue: agent === "pi" ? undefined : DEFAULT_AGENT_THINKING as AgentThinkingValue,
       permissionMode: DEFAULT_NEW_SESSION_PERMISSION_MODE as PermissionMode,
     };
   });
@@ -57,9 +60,11 @@ export function NewSessionLanding({
     const patch: Partial<SessionMeta> = {};
     if (draft.useOwnSkills) patch.useOwnSkills = true;
     if (draft.agent === "pi" && draft.providerId) patch.providerId = draft.providerId;
+    Object.assign(patch, mapThinkingForAgent(draft.agent, draft.thinkingValue));
     // 仅非默认档位才落盘(缺省 full-auto 由 DEFAULT_PERMISSION_MODE 回退,保持 SessionMeta 干净)。
     if (draft.permissionMode !== DEFAULT_PERMISSION_MODE) patch.permissionMode = draft.permissionMode;
     if (Object.keys(patch).length) updateSession(sess.id, patch);
+    return { ...sess, ...patch };
   };
 
   // GitBar 据此查 git/显示分支;undefined（未选 / 不使用项目）只显示项目选择器。
@@ -83,8 +88,7 @@ export function NewSessionLanding({
             onToast("项目不存在,请重新选择");
             return false;
           }
-          const sess = createSession(selectedProjectId, draft.agent, draft.model);
-          applyDraftPatch(sess);
+          const sess = applyDraftPatch(createSession(selectedProjectId, draft.agent, draft.model));
           return await send(sess, selectedProject.path, trimmed, attachments, undefined, images, undefined, docFiles);
         }
         // selectedProjectId 为 undefined = 不使用项目:在当天的无项目工作目录下新建会话。
@@ -93,8 +97,7 @@ export function NewSessionLanding({
           return false;
         }
         const dir = await bridge.ensureNoProjectDir(dayKey(Date.now()));
-        const sess = createSession(undefined, draft.agent, draft.model, { noProjectDir: dir });
-        applyDraftPatch(sess);
+        const sess = applyDraftPatch(createSession(undefined, draft.agent, draft.model, { noProjectDir: dir }));
         return await send(sess, dir, trimmed, attachments, undefined, images, undefined, docFiles);
       } catch (err) {
         onToast(`发送失败：${err instanceof Error ? err.message : String(err)}`);
@@ -125,6 +128,8 @@ export function NewSessionLanding({
         onSend={onSubmit}
         onChangeModel={(model) => setDraft((d) => ({ ...d, model }))}
         onChangePiModel={(providerId, model) => setDraft((d) => ({ ...d, providerId, model }))}
+        thinkingValue={draft.thinkingValue}
+        onChangeThinking={(thinkingValue) => setDraft((d) => ({ ...d, thinkingValue }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
         onOpenFlashNote={onOpenFlashNote}
         onToast={onToast}

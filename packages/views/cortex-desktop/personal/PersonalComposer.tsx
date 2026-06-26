@@ -2,8 +2,8 @@
 // (agent/model/providerId/useOwnSkills) 摊平后转交内核,并启用 slash 命令与文件预览
 // 「发送到 Chat」插入。
 
-import { usePiEnabledSkills } from "@cortex-work/core";
-import type { PendingDocFile, PendingImage, PersonalAttachment, SessionMeta, ThinkingLevel } from "@cortex-work/core";
+import { DEFAULT_AGENT_THINKING, usePiEnabledSkills } from "@cortex-work/core";
+import type { AgentThinkingValue, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { ComposerShell, type SlashCommand } from "./ComposerShell";
 
 // 内建 slash 命令(发送拦截在 PersonalChatArea.onSend）。kind:"builtin" = 选中即执行。
@@ -25,7 +25,7 @@ export function PersonalComposer({
   onSteer,
   onChangeModel,
   onChangePiModel,
-  onChangePiThinking,
+  onChangeThinking,
   onToggleSkills,
   onOpenFlashNote,
   onToast,
@@ -47,8 +47,8 @@ export function PersonalComposer({
   onChangeModel: (model: string) => void;
   // pi 多通道:同时切换通道与模型。
   onChangePiModel: (channelId: string, model: string) => void;
-  // pi 思考强度:会话级切换。
-  onChangePiThinking: (level: ThinkingLevel) => void;
+  // 思考强度:非 Pi 更新 effort;Pi 更新 thinkingLevel。
+  onChangeThinking: (value: AgentThinkingValue) => void;
   onToggleSkills: () => void;
   /** 闪记图标入口:唤起闪记浮层(由壳注入,web 端缺省 → 隐藏)。 */
   onOpenFlashNote?: () => void;
@@ -81,8 +81,8 @@ export function PersonalComposer({
       onSteer={onSteer}
       onChangeModel={onChangeModel}
       onChangePiModel={onChangePiModel}
-      thinkingLevel={session.thinkingLevel}
-      onChangePiThinking={onChangePiThinking}
+      thinkingValue={session.agent === "pi" ? session.thinkingLevel : (session.effort ?? DEFAULT_AGENT_THINKING)}
+      onChangeThinking={onChangeThinking}
       onToggleSkills={onToggleSkills}
       onOpenFlashNote={onOpenFlashNote}
       onCancelEdit={onCancelEdit}

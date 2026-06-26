@@ -68,6 +68,7 @@
     "noProvider": "未配置供应商（去设置 → 供应商）",
     "thinkingStrength": "思考强度",
     "thinkingLevel": {
+      "default": "思考·默认",
       "off": "思考·关闭",
       "minimal": "思考·极简",
       "low": "思考·低",
