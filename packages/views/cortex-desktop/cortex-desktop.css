@@ -4525,8 +4525,10 @@ button.sb-row {
 .pw-mt-trigger:disabled { cursor: default; opacity: 0.6; }
 .pw-mt-reason { color: var(--text-3); }
 .pw-mt-trigger .chev { color: var(--text-3); flex: 0 0 auto; }
-/* 合并 pill 的菜单左对齐(pw-tb-menu 默认 right:0)。显式 opaque 背景 + z-index 盖住 composer pill。 */
-.pw-mt-menu { left: 0; right: auto; min-width: 200px; background: var(--bg-app); z-index: 95; }
+/* 合并 pill 的菜单左对齐(pw-tb-menu 默认 right:0)。显式 opaque 背景 + z-index 盖住 composer pill。
+   用 .pw-mt-pill 前缀提升特异性:.pw-tb-menu 在本文件中定义更靠后,等特异性会反向覆盖,
+   故必须用 (0,2,0) 选择器确保左对齐/背景/层级生效。 */
+.pw-mt-pill .pw-mt-menu { left: 0; right: auto; min-width: 200px; background: var(--bg-app); z-index: 200; }
 /* 菜单分区表头(推理/模型)。 */
 .pw-tb-menu-head {
   padding: 4px 9px 2px;
@@ -4536,8 +4538,9 @@ button.sb-row {
 /* 模型行 → 右侧子菜单容器。 */
 .pw-submenu-wrap { position: relative; }
 /* 子菜单:必须复位 pw-tb-menu 继承来的 top/right(否则 top+bottom、left+right 同时生效 → 盒子
-   被拉伸错位、看起来「透明/破损」)。显式 opaque 背景 + 抬高 z-index 盖住下方 composer pill。 */
-.pw-mt-submenu {
+   被拉伸错位、看起来「透明/破损」)。.pw-tb-menu 定义更靠后,等特异性会反向覆盖,故用
+   (0,2,0) 选择器确保复位生效。显式 opaque 背景 + 抬高 z-index 盖住下方 composer pill。 */
+.pw-mt-pill .pw-mt-submenu {
   position: absolute;
   left: 100%;
   right: auto;
@@ -4546,7 +4549,7 @@ button.sb-row {
   margin-left: 2px;
   min-width: 200px;
   background: var(--bg-app);
-  z-index: 95;
+  z-index: 200;
 }
 .pw-agent-select {
   border: 1px solid var(--border);
