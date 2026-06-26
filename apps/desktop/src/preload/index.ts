@@ -133,8 +133,14 @@ const personal = {
     ipcRenderer.on("fs:dirChanged", listener);
     return () => ipcRenderer.removeListener("fs:dirChanged", listener);
   },
-  // 文件预览工具栏:系统打开 / 访达显示
-  openPath: (path: string): Promise<void> => ipcRenderer.invoke("shell:openPath", path),
+  // 文件预览工具栏:系统打开 / 访达显示。sessionId 可选 → 纳入会话目录授权(KTD6)。
+  openPath: (path: string, sessionId?: string): Promise<void> =>
+    ipcRenderer.invoke("shell:openPath", { path, sessionId }),
+  openablePathInfo: (
+    path: string,
+    sessionId?: string,
+  ): Promise<{ openable: boolean; isDirectory: boolean }> =>
+    ipcRenderer.invoke("shell:openablePathInfo", { path, sessionId }),
   revealInFolder: (path: string): Promise<void> => ipcRenderer.invoke("shell:revealInFolder", path),
   // Markdown 预览链接:系统默认浏览器打开（主进程校验 http/https）
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),

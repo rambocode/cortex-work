@@ -124,8 +124,12 @@ export interface DesktopBridge {
   unwatchDir?(id: string): void;
   onDirChanged?(cb: (id: string) => void): () => void;
   // 文件预览工具栏:用系统默认应用打开 / 在访达（文件管理器）中显示。
-  openPath?(path: string): Promise<void>;
+  // sessionId 可选:给定则纳入该会话的目录授权(打开 ~/.codex/generated_images 等授权目录,KTD6)。
+  openPath?(path: string, sessionId?: string): Promise<void>;
   revealInFolder?(path: string): Promise<void>;
+  // 统一判断路径(文件或目录)是否可打开/可读。sessionId 可选(纳入会话目录授权)。
+  // 渲染端只传 path + sessionId,主进程按自有授权注册表判定(绝不传目录列表,KTD6)。
+  openablePathInfo?(path: string, sessionId?: string): Promise<{ openable: boolean; isDirectory: boolean }>;
   // 项目「Open in」菜单:列出系统已装代码编辑器 / 用指定编辑器打开项目目录。
   // 可选（旧壳/web/非 macOS 没有或返回空列表,菜单降级为只剩访达）。
   listEditors?(): Promise<EditorInfo[]>;

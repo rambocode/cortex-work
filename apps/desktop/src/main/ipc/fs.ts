@@ -16,6 +16,7 @@ import type {
   PromptNode,
 } from "./types";
 import { getPersistedState } from "./store";
+import { sessionGrantedDirs } from "./grantsRegistry";
 import { expandTilde } from "../skills/locate";
 import { documentsCortexDir, noProjectSessionDir } from "../paths";
 import { countAddedLines, parseNumstat, parseUntracked, sumStats, synthUntrackedDiff } from "./git-info";
@@ -34,14 +35,19 @@ function isInside(parent: string, child: string): boolean {
 }
 
 // 信任白名单:promptRoot + Documents/cortex/<日期>(无项目会话读写处) + 各项目根。
-async function allowedRoots(): Promise<string[]> {
+// sessionId 给定时,叠加该会话目录授权扩展出的、主进程已规范化的目录(generated-images/custom,
+// 见 grantsRegistry)。授权目录仅放宽「打开/读取」,写/删仍走 assertAllowed 的基础白名单。
+async function allowedRoots(sessionId?: string): Promise<string[]> {
   const state = await getPersistedState();
-  return [state.promptRoot, documentsCortexDir(), ...state.projects.map((p) => p.path)].filter(
+  const base = [state.promptRoot, documentsCortexDir(), ...state.projects.map((p) => p.path)].filter(
     (r): r is string => !!r,
   );
+  if (!sessionId) return base;
+  return [...base, ...(await sessionGrantedDirs(sessionId))];
 }
 
 // 路径必须在白名单根内，否则拒绝。写/删等改动型操作及 watch.ts 等共用(严格)。
+// 不含会话授权目录:授权放宽只作用于打开/读取(assertOpenable),写/删不放宽(安全底线)。
 export async function assertAllowed(path: string): Promise<void> {
   const roots = await allowedRoots();
   if (!roots.some((root) => isInside(root, path))) {
@@ -49,11 +55,11 @@ export async function assertAllowed(path: string): Promise<void> {
   }
 }
 
-// 「打开/读取」放宽校验:白名单根内 → 放行;否则仅当目标是真实存在的文件才放行。
-// 用途:打开 agent 写到项目根之外的产物(如 outputs/ 落在项目外)。只读取与系统 open
-// 用此,写/删仍走严格 assertAllowed,避免越权写入项目外。目录/不存在路径一律拒。
-export async function assertOpenable(path: string): Promise<void> {
-  const roots = await allowedRoots();
+// 「打开/读取」放宽校验:白名单根(含 sessionId 的授权目录)内 → 放行(含目录本身);否则仅当
+// 目标是真实存在的文件才放行。用途:打开 agent 写到项目根之外的产物 + 已授权的目录
+//(如 ~/.codex/generated_images)。只读取与系统 open 用此,写/删仍走严格 assertAllowed。
+export async function assertOpenable(path: string, sessionId?: string): Promise<void> {
+  const roots = await allowedRoots(sessionId);
   if (roots.some((root) => isInside(root, path))) return;
   try {
     if ((await fsp.stat(path)).isFile()) return;
@@ -615,11 +621,36 @@ export function registerFsHandlers(): void {
 
   // 文件预览工具栏:用系统默认应用打开 / 在访达中显示。
   // openPath 放宽到 assertOpenable:支持打开 agent 写到项目外的产物(交 OS 处理,等同用户双击)。
-  ipcMain.handle("shell:openPath", async (_e, path: string) => {
-    await assertOpenable(path);
+  // 入参兼容两形态:旧调用传字符串路径(无会话上下文,退化为基础白名单 + 真实文件);新调用传
+  // { path, sessionId } 以纳入该会话的目录授权(KTD6:授权目录可打开,含目录本身)。
+  ipcMain.handle("shell:openPath", async (_e, arg: string | { path: string; sessionId?: string }) => {
+    const { path, sessionId } = typeof arg === "string" ? { path: arg, sessionId: undefined } : arg;
+    await assertOpenable(path, sessionId);
     const err = await shell.openPath(path);
     if (err) throw new Error(err);
   });
+
+  // 统一判断路径(文件**与目录**)是否可打开/可读(KTD6)。渲染端只传 path + 可选 sessionId,
+  // 主进程按 allowedRoots(sessionId)(含会话授权目录)判定——绝不接收渲染端传入的目录列表。
+  // 不抛:供 UI 预判是否渲染「可点击打开」入口。
+  ipcMain.handle(
+    "shell:openablePathInfo",
+    async (_e, arg: { path: string; sessionId?: string }): Promise<{ openable: boolean; isDirectory: boolean }> => {
+      const { path, sessionId } = arg;
+      let isDirectory = false;
+      try {
+        isDirectory = (await fsp.stat(path)).isDirectory();
+      } catch {
+        return { openable: false, isDirectory: false };
+      }
+      try {
+        await assertOpenable(path, sessionId);
+        return { openable: true, isDirectory };
+      } catch {
+        return { openable: false, isDirectory };
+      }
+    },
+  );
 
   ipcMain.handle("shell:revealInFolder", async (_e, path: string) => {
     await assertAllowed(path);
