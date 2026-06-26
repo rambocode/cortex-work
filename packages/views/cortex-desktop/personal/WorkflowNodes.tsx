@@ -240,8 +240,11 @@ function nodeSummary(node: {
 
 // ── 工具栏按钮样式 ────────────────────────────────────────────────────────
 
+// 尺寸/圆角/布局走 Tailwind(不被全局 button reset 抹平)；颜色与 hover 背景由未分层
+// .wf-node-tb 提供(Tailwind 的 hover:bg-*/text-* 会被 button reset 抹平，见其 CSS 注释)。
+// nodrag/nopan 仅作 xyflow 行为标记。删除按钮额外加 danger(hover 变红)。
 const TOOLBAR_BTN =
-  "nodrag nopan flex h-7 w-7 items-center justify-center rounded-md text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink";
+  "nodrag nopan flex h-[30px] w-[30px] items-center justify-center rounded-lg transition wf-node-tb";
 
 // ── 主节点组件（单一壳，渲染全部 25 种节点）──────────────────────────────────
 
@@ -298,7 +301,7 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
     >
       {/* 选中时展示节点操作工具栏（运行 / 禁用 / 删除）*/}
       <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
-        <div className="flex items-center gap-0.5 rounded-lg border border-ds-border bg-ds-card p-1 shadow-md">
+        <div className="flex items-center gap-1 rounded-lg border border-ds-border bg-ds-card p-1.5 shadow-md">
           {/* 触发器节点不支持单节点运行 */}
           {!isTrigger ? (
             <button
@@ -322,7 +325,7 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
           </button>
           <button
             type="button"
-            className={`${TOOLBAR_BTN} hover:bg-red-500/10 hover:text-red-600`}
+            className={`${TOOLBAR_BTN} danger`}
             title="删除节点"
             aria-label="删除节点"
             onClick={() => actions.deleteNode(id)}

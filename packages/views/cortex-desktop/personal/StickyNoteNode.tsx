@@ -36,9 +36,10 @@ import {
 // 便签是 WorkflowNode 中 type 为 sticky-note 的成员，narrow 后 config 即 WorkflowStickyNoteConfig。
 type StickyNode = Extract<WorkflowNode, { type: "sticky-note" }>;
 
-// 工具栏按钮（与 WorkflowNodes 的 TOOLBAR_BTN 同范式；nodrag/nopan 防止触发画布平移/拖动）。
+// 工具栏按钮：尺寸/布局走 Tailwind，颜色/hover 由未分层 .wf-node-tb 提供（与 WorkflowNodes
+// 同范式，避免全局 button reset 抹平 hover 工具类）；nodrag/nopan 防触发画布平移/拖动。
 const TB_BTN =
-  "nodrag nopan flex h-7 w-7 items-center justify-center rounded-md text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink";
+  "nodrag nopan flex h-[30px] w-[30px] items-center justify-center rounded-lg transition wf-node-tb";
 
 // Markdown 子元素轻量排版（无 prose 插件，仅按便签场景给标题/加粗/链接/列表最小样式）。
 const MD_CLASS =
@@ -140,7 +141,7 @@ export function StickyNoteNode({ id, data, selected }: NodeProps): ReactElement 
 
       {/* 选中工具栏：改色 / 删除（对齐设计稿 hover 工具条）。 */}
       <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
-        <div className="relative flex items-center gap-0.5 rounded-lg border border-ds-border bg-ds-card p-1 shadow-md">
+        <div className="relative flex items-center gap-1 rounded-lg border border-ds-border bg-ds-card p-1.5 shadow-md">
           <button
             type="button"
             className={TB_BTN}
@@ -152,7 +153,7 @@ export function StickyNoteNode({ id, data, selected }: NodeProps): ReactElement 
           </button>
           <button
             type="button"
-            className={`${TB_BTN} hover:bg-red-500/10 hover:text-red-600`}
+            className={`${TB_BTN} danger`}
             title="删除便签"
             aria-label="删除便签"
             onClick={() => actions.deleteNode(id)}
