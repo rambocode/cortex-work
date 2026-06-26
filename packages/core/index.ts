@@ -343,6 +343,12 @@ export {
   type TaskStatus,
 } from "./personal/docStatus";
 export { resolveEffectiveMode } from "./personal/resolveMode";
+export {
+  resolveGrantDirs,
+  clampByMode,
+  type ResolvedGrantDirs,
+  type ClampedGrantDirs,
+} from "./personal/resolveGrants";
 export { deriveTags, topicOf, type Tag, type TagDim } from "./personal/docTags";
 export { buildLineage, extractOriginBasenames, type Lineage } from "./personal/docLineage";
 export {
