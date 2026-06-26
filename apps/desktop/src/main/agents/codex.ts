@@ -16,7 +16,9 @@
 import type { CliStartRequest, CliStreamEvent } from "../ipc/types";
 import type { AgentDef } from "./index";
 
-function promptWithSkills(req: CliStartRequest): string {
+// appendSystemPrompt 以 <user_request> 包裹进 prompt。导出供 ws 路径(codex-ws-channel)复用,
+// 保证 exec 与 app-server 两条 codex 路径的 prompt 拼装一致。
+export function promptWithSkills(req: CliStartRequest): string {
   if (!req.appendSystemPrompt) return req.prompt;
   return `${req.appendSystemPrompt}\n\n<user_request>\n${req.prompt}\n</user_request>`;
 }
