@@ -96,6 +96,7 @@ export default interface Resources {
       "shared": "共享"
     },
     "composer": {
+      "attach": "添加附件",
       "attachment": "附件",
       "attachmentToast": "已附加截图",
       "cancel": "取消",

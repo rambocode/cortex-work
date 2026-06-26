@@ -63,6 +63,7 @@
     "micBusyTitle": "Transcribing",
     "micTitle": "Voice input",
     "flashNote": "Flash note",
+    "attach": "Attach",
     "uploadImage": "Upload image",
     "uploadDoc": "Upload document",
     "noProvider": "No provider configured (go to Settings → Providers)",

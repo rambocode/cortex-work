@@ -24,6 +24,7 @@ import type {
   PersonalAttachment,
 } from "@cortex-work/core";
 import { AgentSelect } from "./AgentSelect";
+import { useDismissableMenu } from "./useDismissableMenu";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
 import { FILE_DRAG_MIME } from "./FilesView";
@@ -172,6 +173,8 @@ export function ComposerShell({
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
+  // 上传入口合并:图片/文档两个触发器收进单个「附件」按钮的上弹菜单(复用 AgentSelect 同款关闭范式)。
+  const attachMenu = useDismissableMenu();
 
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   // 会话未单独设 thinkingLevel 时,下拉回退全局默认（与 sendPiTurn 的实际生效值一致,避免「显关闭、实际用默认」）。
@@ -762,15 +765,51 @@ export function ComposerShell({
               <Icon.Pin size={13} color="#7c5cff" />
             </button>
           ) : null}
-          <button
-            className="pill"
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            title={t("composer.uploadImage")}
-            aria-label={t("composer.uploadImage")}
+          {/* 图片/文档上传合并为单个「附件」按钮 + 上弹菜单;隐藏 input 与原 onChange 逻辑不变。 */}
+          <div
+            className="pw-tb-menu-wrap"
+            ref={attachMenu.wrapRef}
+            onMouseLeave={attachMenu.onMouseLeave}
+            onMouseEnter={attachMenu.onMouseEnter}
           >
-            <Icon.Image size={13} />
-          </button>
+            <button
+              className="pill"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={attachMenu.open}
+              onClick={() => attachMenu.setOpen((v) => !v)}
+              title={t("composer.attach")}
+              aria-label={t("composer.attach")}
+            >
+              <Icon.Paperclip size={13} />
+            </button>
+            {attachMenu.open ? (
+              <div className="pw-tb-menu pw-tb-menu--up" role="menu">
+                <button
+                  className="pw-tb-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    attachMenu.setOpen(false);
+                  }}
+                >
+                  <Icon.Image size={14} />
+                  <span>{t("composer.uploadImage")}</span>
+                </button>
+                <button
+                  className="pw-tb-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    docInputRef.current?.click();
+                    attachMenu.setOpen(false);
+                  }}
+                >
+                  <Icon.Paperclip size={14} />
+                  <span>{t("composer.uploadDoc")}</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -779,15 +818,6 @@ export function ComposerShell({
             style={{ display: "none" }}
             onChange={onPickFiles}
           />
-          <button
-            className="pill"
-            type="button"
-            onClick={() => docInputRef.current?.click()}
-            title={t("composer.uploadDoc")}
-            aria-label={t("composer.uploadDoc")}
-          >
-            <Icon.Paperclip size={13} />
-          </button>
           <input
             ref={docInputRef}
             type="file"

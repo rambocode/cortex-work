@@ -9,6 +9,7 @@ import { defaultAsrSettings, type AsrSettings } from "@cortex-work/core/desktop/
 import type { LocalWhisperModelStatus } from "@cortex-work/core/whisper/models";
 import { ComposerShell, type SlashCommand } from "./ComposerShell";
 import { FILE_DRAG_MIME } from "./FilesView";
+import { DOC_ACCEPT_ATTR } from "./docIntake";
 
 const bridge = { loadChat: async () => [], saveChat: async () => {} } as unknown as DesktopBridge;
 
@@ -231,9 +232,39 @@ function pickImage(container: HTMLElement, file: File) {
 }
 
 describe("ComposerShell 图片采集（U3）", () => {
-  it("上传按钮存在(aria-label 可达)", () => {
-    renderFull(() => true);
-    expect(screen.getByLabelText("上传图片")).toBeInTheDocument();
+  it("合并上传按钮:单个「添加附件」按钮存在,点击弹出图片/文档菜单", () => {
+    const { container } = renderFull(() => true);
+    // 工具栏只剩一个上传入口(aria-label「添加附件」),不再有独立的「上传图片/上传文档」按钮。
+    const trigger = screen.getByLabelText("添加附件");
+    expect(trigger).toBeInTheDocument();
+    expect(container.querySelector(".pw-tb-menu")).toBeNull(); // 默认收起
+    fireEvent.click(trigger);
+    // 菜单上弹(避免被 GitBar/终端遮挡),含「上传图片」「上传文档」两项。
+    expect(container.querySelector(".pw-tb-menu.pw-tb-menu--up")).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "上传图片" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "上传文档" })).toBeInTheDocument();
+  });
+
+  it("点击菜单「上传图片」→ 触发图片文件选择并收起菜单", () => {
+    const { container } = renderFull(() => true);
+    const imgInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const clickSpy = vi.spyOn(imgInput, "click").mockImplementation(() => {});
+    fireEvent.click(screen.getByLabelText("添加附件"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "上传图片" }));
+    expect(clickSpy).toHaveBeenCalled();
+    expect(container.querySelector(".pw-tb-menu")).toBeNull(); // 选完收起
+  });
+
+  it("点击菜单「上传文档」→ 触发文档文件选择(accept 保持文档类型)并收起菜单", () => {
+    const { container } = renderFull(() => true);
+    const inputs = container.querySelectorAll('input[type="file"]');
+    const docInput = inputs[1] as HTMLInputElement; // 第二个隐藏 input = 文档通道
+    expect(docInput.getAttribute("accept")).toBe(DOC_ACCEPT_ATTR);
+    const clickSpy = vi.spyOn(docInput, "click").mockImplementation(() => {});
+    fireEvent.click(screen.getByLabelText("添加附件"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "上传文档" }));
+    expect(clickSpy).toHaveBeenCalled();
+    expect(container.querySelector(".pw-tb-menu")).toBeNull();
   });
 
   it("选择图片 → 出现缩略图(alt + 移除按钮)", async () => {
