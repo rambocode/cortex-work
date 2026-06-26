@@ -27,6 +27,8 @@ import { resolveExistingFile } from "./resolveFileRef";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
+import { ModePill } from "./ModePill";
+import { DirectoryGrantPill } from "./DirectoryGrantPill";
 import { ModeBlockBanner } from "./ModeBlockBanner";
 import { PersonalComposer } from "./PersonalComposer";
 
@@ -512,11 +514,25 @@ export function PersonalChatArea({
         onToast={onToast}
       />
 
+      <div className="pw-composer-pills-bar">
+        <ModePill
+          permissionMode={session.permissionMode}
+          onChange={(mode) => updateSession(session.id, { permissionMode: mode })}
+          running={running}
+        />
+        <DirectoryGrantPill
+          grants={session.directoryGrants ?? []}
+          onChange={(grants) => updateSession(session.id, { directoryGrants: grants })}
+          permissionMode={session.permissionMode}
+          running={running}
+          agent={session.agent}
+          onToast={onToast}
+        />
+      </div>
+
       <GitBar
         project={realProject}
         projectValue={session.projectId}
-        permissionMode={session.permissionMode}
-        onChangeMode={(mode) => updateSession(session.id, { permissionMode: mode })}
         running={running}
         onSend={(text) => void send(session, project.path, text, [])}
         onToast={onToast}

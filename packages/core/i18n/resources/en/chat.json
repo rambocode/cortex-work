@@ -78,13 +78,32 @@
       "xhigh": "Thinking · Extra high"
     },
     "permissionMode": {
-      "label": "Run mode",
-      "plan": "Plan · read-only",
-      "accept-edits": "Auto-edit",
-      "full-auto": "Full auto",
+      "label": "Mode",
+      "plan": "Plan",
+      "accept-edits": "Edit automatically",
+      "full-auto": "Bypass permissions",
+      "auto": "Auto",
       "planHint": "Read-only analysis and planning; no file changes or write/exec tools",
       "acceptEditsHint": "Auto-accept file edits; bash and other exec commands stay restricted",
-      "fullAutoHint": "Skip all permissions; every tool runs immediately (default)"
+      "fullAutoHint": "Skip all permissions; every tool runs immediately (default)",
+      "autoHint": "App picks the mode per message: questions/planning → Plan, fix/implement/edit → Edit automatically; never auto-escalates to bypass"
+    },
+    "directoryGrant": {
+      "label": "Directories",
+      "workspace": "Workspace",
+      "generated-images": "Generated images",
+      "custom": "Custom…",
+      "all-files": "All files",
+      "workspaceHint": "Current project / working directory",
+      "generatedImagesHint": "Agent-generated images (~/.codex/generated_images)",
+      "customHint": "Pick extra directories the agent may access",
+      "allFilesHint": "Full filesystem access — only available in Bypass permissions",
+      "allFilesDisabled": "Switch to Bypass permissions to enable all-files access",
+      "allFilesConfirm": "Grant the agent read/write access to your entire filesystem? Only do this if you trust this task.",
+      "downgradePi": "Pi can't write to extra directories — app-side read/open only",
+      "addDir": "Add directory…",
+      "maxDirs": "Up to {{n}} custom directories",
+      "dupInWorkspace": "Already covered by the workspace grant"
     },
     "modeBlock": {
       "planEdit": "You're in Plan (read-only) mode — {{name}} was blocked from editing files. Switch mode and retry this turn?",
