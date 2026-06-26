@@ -58,8 +58,12 @@ export function ModelThinkingPill({
 
   const modelOpts = isPi ? piModelOptions : models;
   const currentModelValue = isPi ? piModelValue : model || models[0]?.value || "";
-  const currentModelOpt = modelOpts.find((o) => o.value === currentModelValue);
-  const currentModelLabel = currentModelOpt?.label ?? (isPi ? t("composer.noProvider") : "");
+  // 当前值找不到匹配项时回退到第一个选项(用户诉求:选默认/第一个);仅在真的无任何选项时才显示
+  // 「未配置供应商」。避免「已配 provider 但 value 未对齐」误显示未配置。
+  const currentModelOpt = modelOpts.find((o) => o.value === currentModelValue) ?? modelOpts[0];
+  const currentModelLabel =
+    currentModelOpt?.label ?? (isPi ? t("composer.noProvider") : "");
+  const effectiveModelValue = currentModelOpt?.value ?? currentModelValue;
 
   const currentThinking = thinkingOptions.find((o) => o.value === resolvedThinkingValue);
   const reasoningShort = currentThinking ? shortLabel(t(currentThinking.labelKey)) : "";
@@ -122,12 +126,8 @@ export function ModelThinkingPill({
               <div className="pw-tb-menu-sep" />
             </>
           ) : null}
-          {/* 模型:右侧子菜单(hover/点击展开)。 */}
-          <div
-            className="pw-submenu-wrap"
-            onMouseEnter={() => setModelSub(true)}
-            onMouseLeave={() => setModelSub(false)}
-          >
+          {/* 模型:右侧子菜单(点击展开;不用 hover 以免移向子菜单途中误关闭)。 */}
+          <div className="pw-submenu-wrap">
             <button
               type="button"
               className="pw-tb-menu-item"
@@ -152,11 +152,11 @@ export function ModelThinkingPill({
                       type="button"
                       className="pw-tb-menu-item"
                       role="menuitemradio"
-                      aria-checked={o.value === currentModelValue}
+                      aria-checked={o.value === effectiveModelValue}
                       onClick={() => selectModel(o.value)}
                     >
                       <span>{o.label}</span>
-                      {o.value === currentModelValue ? <Icon.Check size={14} /> : null}
+                      {o.value === effectiveModelValue ? <Icon.Check size={14} /> : null}
                     </button>
                   ))
                 )}

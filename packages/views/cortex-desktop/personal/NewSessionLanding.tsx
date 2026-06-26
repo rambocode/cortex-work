@@ -45,10 +45,11 @@ function draftDefaultsForAgent(
     // 合并 pill 找不到匹配项,误显示「未配置供应商」(即便实际已配 provider)。
     const enabled = providerSettings.providers.filter((p) => p.enabled);
     const provider = enabled.find((p) => p.id === providerSettings.defaultProviderId) ?? enabled[0];
-    return {
-      model: providerSettings.defaultModel ?? provider?.models[0]?.id,
-      providerId: provider?.id,
-    };
+    // model 必须属于所选 provider:否则 `providerId::model` 在合并 pill 选项里找不到匹配 → 误显示
+    // 「未配置供应商」。defaultModel 仅在它确属该 provider 时沿用,否则取该 provider 首个模型。
+    const model =
+      provider?.models.find((m) => m.id === providerSettings.defaultModel)?.id ?? provider?.models[0]?.id;
+    return { model, providerId: provider?.id };
   }
   return { model: DEFAULT_MODEL[base], providerId: undefined };
 }
