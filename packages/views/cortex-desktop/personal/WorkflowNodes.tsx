@@ -294,7 +294,7 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
 
   return (
     <div
-      className={`relative w-[216px] rounded-[13px] border bg-ds-card shadow-sm ${ring} ${disabled}`}
+      className={`relative w-[216px] rounded-[8px] border bg-ds-card shadow-sm ${ring} ${disabled}`}
     >
       {/* 选中时展示节点操作工具栏（运行 / 禁用 / 删除）*/}
       <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>

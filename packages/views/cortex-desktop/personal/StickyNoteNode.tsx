@@ -113,7 +113,7 @@ export function StickyNoteNode({ id, data, selected }: NodeProps): ReactElement 
 
   return (
     <div
-      className={`relative flex h-full w-full flex-col rounded-xl border p-3 shadow-sm transition ${
+      className={`relative flex h-full w-full flex-col border p-3 shadow-sm transition ${
         selected ? "border-accent ring-2 ring-accent/25" : "border-black/10"
       }`}
       style={{ background: color }}
