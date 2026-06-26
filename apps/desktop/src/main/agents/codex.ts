@@ -90,6 +90,14 @@ export const codexDef: AgentDef = {
     if (mode === "plan") common.push("-c", "sandbox_mode=read-only", "-c", "approval_policy=never");
     else if (mode === "accept-edits") common.push("-c", "sandbox_mode=workspace-write", "-c", "approval_policy=never");
     else common.push("--dangerously-bypass-approvals-and-sandbox");
+    // 目录授权(KTD4/KTD5):额外可写目录。codex `--add-dir` 仅顶层 exec 接受、exec resume 不认
+    //(同 -s 的踩坑),故走两分支通用的 `-c sandbox_workspace_write.writable_roots=[...]`(TOML 数组,
+    // 落 common 对 exec/exec resume 通用)。仅 accept-edits 档有值(plan 由 clamp 置空;full-auto 已全开)。
+    const writableDirs = req.writableExtraDirs ?? [];
+    if (writableDirs.length) {
+      const toml = `[${writableDirs.map((d) => JSON.stringify(d)).join(",")}]`;
+      common.push("-c", `sandbox_workspace_write.writable_roots=${toml}`);
+    }
     // MCP(U2):不再写死清空。关/无配置时不传 → codex 原生继承 ~/.codex 的 MCP;启用时公共管线经
     // mcpArgs 传入 `-c mcp_servers.<id>...`,放进 common(落在位置参数 threadId 之前)。
     if (mcpArgs?.length) common.push(...mcpArgs);

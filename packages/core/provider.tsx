@@ -20,6 +20,9 @@ export interface CoreContextValue {
   liveDataEnabled: boolean;
   // 桌面端能力桥（个人工作区）。web 端为 null。
   desktopBridge: DesktopBridge | null;
+  // 用户主目录绝对路径(桌面壳经 appInfo 注入)。core 不读 os/env,目录授权合成
+  // generated-images 路径(~/.codex/generated_images)需经此注入。web 端 undefined。
+  home?: string;
 }
 
 const CoreContext = createContext<CoreContextValue | null>(null);
@@ -30,10 +33,11 @@ export interface CoreProviderProps {
   apiConfig?: (Partial<ApiClientConfig> & { enabled?: boolean }) | null;
   queryClient?: QueryClient;
   desktopBridge?: DesktopBridge | null;
+  home?: string;
   children: ReactNode;
 }
 
-export function CoreProvider({ wsId, identity, apiConfig, queryClient, desktopBridge, children }: CoreProviderProps) {
+export function CoreProvider({ wsId, identity, apiConfig, queryClient, desktopBridge, home, children }: CoreProviderProps) {
   const [client] = useState(() => queryClient ?? createQueryClient());
   const apiClient = useMemo(() => {
     if (!apiConfig?.enabled || !apiConfig.baseUrl) return null;
@@ -59,7 +63,7 @@ export function CoreProvider({ wsId, identity, apiConfig, queryClient, desktopBr
   ]);
   return (
     <CoreContext.Provider
-      value={{ wsId, identity, apiClient, liveDataEnabled: !!apiClient, desktopBridge: desktopBridge ?? null }}
+      value={{ wsId, identity, apiClient, liveDataEnabled: !!apiClient, desktopBridge: desktopBridge ?? null, home }}
     >
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     </CoreContext.Provider>
@@ -69,6 +73,11 @@ export function CoreProvider({ wsId, identity, apiConfig, queryClient, desktopBr
 // 个人工作区的桌面能力入口。返回 null 即当前宿主（web）不支持。
 export function useDesktopBridge(): DesktopBridge | null {
   return useCoreContext().desktopBridge;
+}
+
+// 用户主目录(桌面壳注入)。web 端 / 旧壳为 undefined,调用方需兜底。
+export function useHome(): string | undefined {
+  return useCoreContext().home;
 }
 
 export function useCoreContext(): CoreContextValue {

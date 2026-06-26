@@ -13,6 +13,7 @@ import type { Message } from "../types";
 import type { AgentKind, CliStreamEvent, PermissionMode, ReasoningEffort } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 import { emptyFoldCursor, finalizeAgentLog, foldCliEvent, type FoldCursor } from "./messages";
+import { resolveEffectiveMode } from "./resolveMode";
 
 // 种子正文的正文级截断上限(KTD7):远大于 clipSummary 的 200 字摘要级——后者会砍残正文。
 // 8000 字符足以容纳绝大多数单条 assistant 回复,又防极端超长正文撑爆 prompt。
@@ -374,7 +375,8 @@ export function useFollowupAsk(seed: FollowupSeed, sessionCtx: FollowupSessionCt
             model: ctx.model,
             appendSystemPrompt,
             effort: ctx.effort,
-            permissionMode: ctx.permissionMode,
+            // auto 按当轮追问解析成具体档(adapter 不见 auto);追问不传目录授权(沿用打开/读取兜底)。
+            permissionMode: resolveEffectiveMode(ctx.permissionMode, q),
             tightenTools: ctx.tightenTools,
             provider: ctx.provider,
           })

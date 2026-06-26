@@ -85,6 +85,7 @@ export default function App() {
         os: window.desktopAPI?.appInfo.os,
       }}
       desktopBridge={desktopBridge}
+      home={typeof window !== "undefined" ? window.desktopAPI?.appInfo.home : undefined}
     >
       <CortexDesktopView nativeTitlebar={isMac} onOpenFlashNote={openFlashNote} />
     </CoreProvider>

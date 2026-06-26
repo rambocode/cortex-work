@@ -121,6 +121,28 @@ describe("codexDef.buildArgs", () => {
     }
   });
 
+  it("目录授权:writableExtraDirs → -c sandbox_workspace_write.writable_roots(TOML 数组);缺省不带", () => {
+    const { args } = codexDef.buildArgs({
+      ...baseReq,
+      permissionMode: "accept-edits",
+      writableExtraDirs: ["/a", "/b"],
+    });
+    expect(args.join(" ")).toContain('sandbox_workspace_write.writable_roots=["/a","/b"]');
+    expect(codexDef.buildArgs(baseReq).args.join(" ")).not.toContain("writable_roots");
+  });
+
+  it("目录授权:resume 分支同样走 -c writable_roots(不依赖 exec-only 的 --add-dir)", () => {
+    const { args } = codexDef.buildArgs({
+      ...baseReq,
+      permissionMode: "accept-edits",
+      resumeSessionId: "tid-1",
+      writableExtraDirs: ["/a"],
+    });
+    expect(args.slice(0, 2)).toEqual(["exec", "resume"]);
+    expect(args).not.toContain("--add-dir");
+    expect(args.join(" ")).toContain('sandbox_workspace_write.writable_roots=["/a"]');
+  });
+
   it("推理强度:effort → -c model_reasoning_effort=,缺省不带", () => {
     const { args } = codexDef.buildArgs({ ...baseReq, effort: "low" });
     const i = args.indexOf("model_reasoning_effort=low");

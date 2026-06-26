@@ -69,6 +69,8 @@ interface AppInfo {
   version: string;
   os: "macos" | "windows" | "linux" | "unknown";
   devMode?: boolean;
+  // 用户主目录绝对路径(主进程 os.homedir())。供渲染端目录授权合成 generated-images 路径。
+  home?: string;
 }
 
 interface RuntimeConfig {

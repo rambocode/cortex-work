@@ -1,5 +1,6 @@
 import { app, autoUpdater as electronAutoUpdater, BrowserWindow, globalShortcut, ipcMain, powerMonitor } from "electron";
 import { join } from "path";
+import { homedir } from "os";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import {
   registerIpcHandlers,
@@ -197,6 +198,9 @@ if (!app.requestSingleInstanceLock()) {
       version: getRuntimeAppVersion(),
       os: normalizedOS(),
       devMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"],
+      // home:供渲染端目录授权合成 generated-images 绝对路径(~/.codex/generated_images)。
+      // core 不得读 process.env/os,故经 appInfo 同步常量注入(CoreProvider → 合成层)。
+      home: homedir(),
     };
   });
 

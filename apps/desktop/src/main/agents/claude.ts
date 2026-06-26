@@ -91,6 +91,9 @@ export const claudeDef: AgentDef = {
     if (mode === "plan") args.push("--permission-mode", "plan");
     else if (mode === "accept-edits") args.push("--permission-mode", "acceptEdits");
     else args.push("--dangerously-skip-permissions");
+    // 目录授权(KTD4/KTD5):额外可写目录经 claude 原生 --add-dir 逐个追加(claude code 支持)。
+    // plan 档由 core clampByMode 保证 writableExtraDirs 为空;full-auto 已全开,--add-dir 实质 no-op。
+    for (const dir of req.writableExtraDirs ?? []) args.push("--add-dir", dir);
     if (req.model) args.push("--model", req.model);
     // 推理强度（claude 2.1.x 支持 --effort low|medium|high,-p 模式生效;不支持的
     // 模型自身回退）。

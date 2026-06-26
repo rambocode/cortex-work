@@ -1,6 +1,6 @@
 export * from "./types";
 export { createQueryClient } from "./query-client";
-export { CoreProvider, useCoreContext, useWorkspaceId, useDesktopBridge, type Identity } from "./provider";
+export { CoreProvider, useCoreContext, useWorkspaceId, useDesktopBridge, useHome, type Identity } from "./provider";
 export {
   DEFAULT_AGENT_THINKING,
   agentThinkingOptions,
