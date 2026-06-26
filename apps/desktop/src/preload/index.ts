@@ -248,6 +248,14 @@ const personal = {
     ipcRenderer.on("cli:exit", listener);
     return () => ipcRenderer.removeListener("cli:exit", listener);
   },
+  // ws 传输心跳(U5):codex app-server 长 MCP 工具静默期,主进程定期推此事件让渲染端重置
+  // 300s 静默看门狗(否则长工具会被误判超时)。仅活跃信号,不携带内容。
+  onCliKeepalive: (cb: (runId: string, sessionId?: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { runId: string; sessionId?: string }) =>
+      cb(payload.runId, payload.sessionId);
+    ipcRenderer.on("cli:keepalive", listener);
+    return () => ipcRenderer.removeListener("cli:keepalive", listener);
+  },
   onBrowserOpenPanel: (cb: (url: string) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, url: string) => cb(url);
     ipcRenderer.on("browser:open-panel", listener);

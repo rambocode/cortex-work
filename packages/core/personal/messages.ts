@@ -775,15 +775,26 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     return;
   }
 
-  if (ev.type === "thinking" || ev.type === "turn") {
-    // 思考增量 / 轮边界(R2):M1 仅采集并经事件透出(主进程 trace 已记录),UI 展示延后(与 usage 一致)。
-    // 显式忽略以表意「按设计暂不在主聊天流渲染」,而非遗漏。
+  if (ev.type === "turn") {
+    // 轮边界(R2):仅 trace,不渲染。
+    return;
+  }
+  if (ev.type === "thinking") {
+    // 思考/执行过程(codex reasoning + commentary、claude thinking)落**右侧运行过程流**(不进对话回复、
+    // 不落盘),与 pi 的 reasoning 折叠同一通道。用户要求:过程在右侧,回复只留 final answer。
+    // 阶段切换收尾:收到思考前先收尾打开的工具卡,使新思考块按时序追加到工具之后(think→tool→think
+    // 交错时不再把后段思考并回前一个思考块,保留完整的「思考→工具→再思考→再工具」时间线)。
+    usePetStore.getState().set("thinking");
+    finalizeProcessAgentLog(qc, sessionId, run);
+    foldReasoning(qc, run, ev.delta);
     return;
   }
 
   if (ev.type === "tool") {
     usePetStore.getState().set("working");
     updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
+    // 阶段切换收尾:收到工具前先收尾打开的思考块,使新工具卡按时序追加到思考之后(保留交错时间线)。
+    finalizeRunReasoning(qc, run);
     // 时间线：写类工具的 file_path 记为变更文件。
     const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
     if (changed) (run.changedFiles ??= new Set()).add(changed);
@@ -801,7 +812,8 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     dropMsg(qc, sessionId, run.typingUid);
     run.buffer += ev.delta; // 全轮文本累加（供 TTS / 时间线 summary），独立于块拆分
     run.sawText = true;
-    // 跨流收尾:上块是 tool 时,对 process key 收尾打开的 agentLog 并清 logUid（KTD6）。
+    // 跨流收尾:正文(final answer)开始时,收尾右侧过程流里仍 active 的 reasoning 块与 tool agentLog。
+    finalizeRunReasoning(qc, run);
     finalizeProcessAgentLog(qc, sessionId, run);
     foldTextIntoCache(qc, sessionId, run, ev.delta);
     return;
@@ -1688,10 +1700,17 @@ export function usePersonalCliEvents(): void {
     bridgeRef = bridge;
     const offEvent = bridge.onCliEvent((runId, ev, sessionId) => handleCliEvent(qc, runId, ev, sessionId));
     const offExit = bridge.onCliExit((exit) => handleCliExit(qc, exit.runId, exit.code, exit.error, exit.sessionId));
+    // ws 传输心跳(U5):codex app-server 长 MCP 工具静默期,主进程定期推 keepalive。仅刷新该 run 的
+    // lastEventAt(等同收到一次 cli:event 的活跃信号),让 300s 静默看门狗不误杀长工具;不改变其它状态。
+    const offKeepalive = bridge.onCliKeepalive?.((runId) => {
+      const run = runs.get(runId);
+      if (run) run.lastEventAt = Date.now();
+    });
     return () => {
       bridgeRef = null;
       offEvent();
       offExit();
+      offKeepalive?.();
     };
   }, [bridge, qc]);
 }

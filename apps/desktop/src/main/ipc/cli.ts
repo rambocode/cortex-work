@@ -20,8 +20,18 @@ import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capa
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
 import { loadWorkflows } from "../workflow/store";
 import { getPersistedState } from "./store";
+import { CodexServerManager } from "../agents/codex-app-server";
+import { startCodexWsRun, closeAllCodexChannels } from "./codex-ws-run";
 
 const running = new Map<string, AgentProcess>();
+
+// codex app-server 进程管理器(U2)。ws 传输(codex 主交互会话)经 startCodexWsRun → 此处 ensureServer。
+// 注入 spawn/env 原语(本模块的 startAgentProcess/buildEnv),故 codex-app-server.ts 对 cli.ts 仅 import type,
+// 运行时无循环依赖。app-server 为 per-session 长驻;ws 连接 per-run(每轮)。
+const codexServers = new CodexServerManager({
+  spawnProcess: (cmd, args, o) => startAgentProcess(cmd, args, o),
+  buildEnv,
+});
 // 已被显式取消(cli:kill / killAllCli)的 runId。安全重试用它判定「被取消」——不能只靠 code===null:
 // CLI 捕获 SIGTERM 后可能以非零码退出,此时仍属取消,绝不能重试(否则取消后复活子进程)。
 const cancelledRunIds = new Set<string>();
@@ -390,6 +400,10 @@ async function assertAgentAvailable(agent: string): Promise<void> {
 }
 
 export function registerCliHandlers(): void {
+  // 空闲驱逐(U2/KTD8):周期回收长时间无活跃 turn 的 app-server。放在 register 内(仅 app 启动调一次),
+  // 避免被测试 import cli.ts 时启动游离定时器。unref 不阻塞进程退出。
+  setInterval(() => codexServers.sweepIdle(), 5 * 60_000).unref();
+
   ipcMain.handle("cli:start", async (event, req: CliStartRequest) => {
     await assertAgentAvailable(req.agent);
     const sender = event.sender;
@@ -401,7 +415,11 @@ export function registerCliHandlers(): void {
     // 续接失败回退(U4):带 resumeSessionId 但该会话在本机已不存在(被清理/换机)→ 清除,改为干净新建,
     // 而非带错 id spawn 失败。pi 无外部会话文件,agentSessionExists 恒 true,不触发。新建后的 init 事件
     // 会让渲染端更新存储的 agentSessionId。
+    // ⚠️ ws 传输(codex app-server,U6)跳过此磁盘检查:thread 可能仅存在于 server 内存而磁盘 rollout
+    // 已不在,磁盘检查会误清仍可 resume 的 threadId。ws 路径的续接失败由 thread/resume 应答 + 归一化
+    // session-lost 错误处理(见 codex-ws-run),不靠 pre-flight 磁盘探测。
     if (
+      (adapter.transport ?? "spawn") !== "ws" &&
       req.resumeSessionId &&
       !req.continueSession &&
       !agentSessionExists({ agent: baseAgentKindOf(req.agent), agentSessionId: req.resumeSessionId })
@@ -465,8 +483,6 @@ export function registerCliHandlers(): void {
         mcpArgs = buildCodexMcpArgs(mcp);
       }
     }
-    const { cmd, args, stdin } = adapter.buildArgs(req, mcpArgs); // 未接入的 agent 在此抛错 → renderer 收到 rejection
-
     assertSpawnCwd(req.cwd);
 
     // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,仍能把事件归属到正确 session。
@@ -478,7 +494,40 @@ export function registerCliHandlers(): void {
     };
 
     const inactivityMs = resolveCliInactivityTimeoutMs();
+
+    // ── ws 传输分流(U5):codex 主交互会话走 app-server WebSocket,在 buildArgs/spawn 之前前置返回 ──
+    // ws 路径不调 buildArgs(那是 `codex exec` 的命令构造),直接把已算好的 mcpArgs 交给 server 管理器。
+    // 仅 cli:start 读 transport;oneshot/ask/automation/workflow-headless 不经此、恒走 spawn+`codex exec`。
+    if ((adapter.transport ?? "spawn") === "ws") {
+      const handle = startCodexWsRun({
+        req,
+        def: adapter,
+        mcpArgs,
+        manager: codexServers,
+        sendEvent,
+        // 终态:清 running/取消标记 + 清理本 session 的内置 MCP host 状态(镜像 spawn 路径 onExit),再 send cli:exit。
+        sendExit: (exit) => {
+          cancelledRunIds.delete(req.runId);
+          running.delete(req.runId);
+          if (req.sessionId) {
+            unregisterMediaGenSession(req.sessionId);
+            unregisterLoopWorkflowsSession(req.sessionId);
+          }
+          sendExit(exit);
+        },
+        // 心跳:长 MCP 工具静默期让渲染端重置 300s 看门狗(防误杀,见 codex-ws-run / messages.ts)。
+        sendKeepalive: () => {
+          if (!sender.isDestroyed())
+            sender.send("cli:keepalive", { runId: req.runId, sessionId: req.sessionId });
+        },
+        inactivityMs,
+      });
+      running.set(req.runId, handle);
+      return;
+    }
+
     const retryMax = DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS;
+    const { cmd, args, stdin } = adapter.buildArgs(req, mcpArgs); // 未接入的 agent 在此抛错 → renderer 收到 rejection
 
     // 单次 attempt(U7 安全重试):spawn + 流式管线 + 看门狗 + 收尾。attempt = 已重试次数(首跑 0)。
     // 顺序重试:旧 attempt 完全退出(onExit)后才发起下一次,故无并发在途事件、无需代际守卫;
@@ -862,6 +911,9 @@ export function killAllCli(): void {
   for (const runId of running.keys()) cancelledRunIds.add(runId);
   for (const proc of running.values()) proc.kill();
   running.clear();
+  // ws 传输:先关全部持久 ws 连接,再回收全部长驻 codex app-server 进程(整组 SIGTERM)。
+  closeAllCodexChannels();
+  codexServers.killAll();
 }
 
 // 供测试或诊断使用。

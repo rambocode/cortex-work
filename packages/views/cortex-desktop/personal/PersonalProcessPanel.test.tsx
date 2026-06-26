@@ -216,15 +216,19 @@ describe("PersonalProcessPanel 流式更新 / 默认收起 / 用户展开", () =
     });
   });
 
-  it("下一轮过程流替换后恢复默认收起", async () => {
+  it("下一轮(runId 变化)恢复默认收起", async () => {
+    // 真实「下一轮」= runId 变化(processResetKey 据此重置);不再靠 process[0].uid——否则本轮中途
+    // 出现首个过程项(如 reasoning)会误把用户刚展开的面板收起(闪烁)。
     const { view, qc, sessionId } = renderPanel({
+      running: true, // runId = run-1
       process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],
     });
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument());
     expandPanel(view.container);
     await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
-    // 下一轮：首步 uid 变（processResetKey 变）→ 恢复默认收起。
+    // 下一轮:runId 变为 run-2 + 过程流替换 → processResetKey 变 → 恢复默认收起。
     act(() => {
+      usePersonalStore.setState({ runningBySession: { [sessionId]: "run-2" } });
       qc.setQueryData(personalProcessKeys.detail(sessionId), [
         logMsg({ uid: "l2", active: true, items: [{ ic: "running", text: "Bash · pwd" }] }),
       ]);
@@ -233,6 +237,27 @@ describe("PersonalProcessPanel 流式更新 / 默认收起 / 用户展开", () =
       expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument();
       expect(view.container.querySelector(".pw-process-body")).toBeNull();
     });
+  });
+
+  it("本轮中途首个过程项出现不收起用户已展开的面板(防闪烁)", async () => {
+    // runId 稳定(同一轮),过程流从「仅工具」变为「reasoning 在前 + 工具」(首项 uid 变):
+    // 旧实现会因 process[0].uid 变化收起;新实现按 runId 稳定 → 保持展开。
+    const { view, qc, sessionId } = renderPanel({
+      running: true,
+      process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],
+    });
+    await waitFor(() => expect(view.container.querySelector(".pw-process.is-collapsed")).toBeInTheDocument());
+    expandPanel(view.container);
+    await waitFor(() => expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument());
+    act(() => {
+      qc.setQueryData(personalProcessKeys.detail(sessionId), [
+        { kind: "reasoning", who: "claude", time: "10:00", text: "先想想", active: true, uid: "re1" } as Message,
+        logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] }),
+      ]);
+    });
+    // 仍展开(未被首项变化打断)。
+    await new Promise((r) => setTimeout(r, 0));
+    expect(view.container.querySelector(".pw-process.is-expanded")).toBeInTheDocument();
   });
 });
 

@@ -15,7 +15,7 @@
 //  - 可达性：收起入口键盘可聚焦、role=button + aria-expanded；流式步骤容器 aria-live=polite；
 //    过程区出现不抢当前焦点（纯渲染，无 autoFocus/无 focus() 调用）。
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { usePersonalChat, usePersonalProcess, usePersonalStore } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
@@ -134,7 +134,9 @@ export function PersonalProcessPanel() {
     return `${name} 正在响应...`;
   }, [activeSession?.agent, allMessages, runId]);
   const active = useMemo(() => isProcessActive(process) || !!runId, [process, runId]);
-  const processResetKey = `${activeSessionId ?? ""}:${runId ?? ""}:${process[0]?.uid ?? ""}`;
+  // 每轮(runId)重置展开偏好;**不**含 process[0].uid —— 否则本轮第一个过程项(如 reasoning)出现时
+  // key 变化会把用户刚展开的面板重置回收起(表现为「关闭一次」闪烁,codex 发 reasoning 时尤为明显)。
+  const processResetKey = `${activeSessionId ?? ""}:${runId ?? ""}`;
 
   // 展开/收起：每轮新过程默认收起；用户手动展开/折叠覆盖默认，同一轮流式增量和完成态不重置。
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
@@ -145,6 +147,25 @@ export function PersonalProcessPanel() {
   // 同一轮内（processResetKey 不变）保持；下一轮 runId/首步变化时 useEffect 重置回默认收起。
   // 运行/完成的 icon 变化（转圈↔绿勾）即为用户的「执行感知」，点开才向下展开看步骤。
   const expanded = userOpen ?? false;
+
+  // 粘底自动滚动:流式步骤/思考增长时跟随到最新位置;但用户上滚阅读历史时不打扰(stick=false)。
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const onBodyScroll = () => {
+    const el = bodyRef.current;
+    if (!el) return;
+    // 距底 < 48px 视作「在底部」→ 继续跟随;否则用户在上方阅读 → 暂停跟随。
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  };
+  // 新一轮(processResetKey 变化)重置为跟随;展开瞬间也回到底部。
+  useEffect(() => {
+    stick.current = true;
+  }, [processResetKey]);
+  // 内容增量后(同步布局阶段)若处于跟随态则滚到底;依赖 process/statusText 的变化逐帧触发。
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  });
 
   // 门控：中栏非会话区 / 当前会话既无过程也无回复状态 → 不渲染。
   // 扩展命令轮且无过程步骤 → 不渲染（命令输出在消息流,过程面板无内容,避免空态闪现）。
@@ -201,8 +222,8 @@ export function PersonalProcessPanel() {
           <Icon.Chevron size={14} />
         </span>
       </div>
-      {/* 流式步骤容器：aria-live=polite 让辅助技术可感知增量步骤（R9）。 */}
-      <div className="pw-process-body" aria-live="polite">
+      {/* 流式步骤容器：aria-live=polite 让辅助技术可感知增量步骤（R9）。ref+onScroll 实现粘底自动滚动。 */}
+      <div className="pw-process-body" aria-live="polite" ref={bodyRef} onScroll={onBodyScroll}>
         {statusText ? <StatusStep text={statusText} active={!!runId} /> : null}
         {process.map((m, i) => (
           <ProcessStep key={m.uid ?? i} m={m} />

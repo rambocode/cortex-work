@@ -142,6 +142,9 @@ export function deriveAgentDef(base: AgentDef, profile: LocalAgentProfile): Agen
     ...base,
     id: profile.id,
     extraEnv,
+    // 传输为 ws 的 base(codex):ws 路径 spawn `codex app-server` 不经 buildArgs,
+    // 故 profile.bin 需同步到 serverCmd,否则自定义二进制在 ws 模式被静默忽略(RISK-7)。
+    serverCmd: profile.bin ?? base.serverCmd,
     buildArgs(req, mcpArgs) {
       const built = base.buildArgs(req, mcpArgs);
       return {
