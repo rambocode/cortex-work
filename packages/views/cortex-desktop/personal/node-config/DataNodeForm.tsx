@@ -79,13 +79,13 @@ function SetFieldsForm({
           cfg.fields.map((f, idx) => (
             <div key={idx} className="flex items-center gap-2">
               <input
-                className={`${INPUT_CLS} w-32 shrink-0 font-mono`}
+                className={`${INPUT_CLS} basis-32 shrink-0 font-mono`}
                 value={f.key}
                 placeholder="字段名"
                 onChange={(e) => updateField(idx, { key: e.target.value })}
               />
               <input
-                className={`${INPUT_CLS} flex-1 font-mono`}
+                className={`${INPUT_CLS} min-w-0 flex-1 font-mono`}
                 value={f.value}
                 placeholder="值或 {{表达式}}"
                 onChange={(e) => updateField(idx, { value: e.target.value })}

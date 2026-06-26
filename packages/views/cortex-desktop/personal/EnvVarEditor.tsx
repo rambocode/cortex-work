@@ -114,7 +114,7 @@ export function EnvVarEditor({ env, onChange, onClose }: Props) {
                 <div key={index} className="flex items-center gap-2">
                   {/* 变量名 */}
                   <input
-                    className={`${inputClass} w-36 shrink-0 font-mono`}
+                    className={`${inputClass} basis-36 shrink-0 font-mono`}
                     value={item.key}
                     placeholder="变量名"
                     onChange={(e) => update(index, { key: e.target.value })}
@@ -123,7 +123,7 @@ export function EnvVarEditor({ env, onChange, onClose }: Props) {
 
                   {/* 类型选择 */}
                   <select
-                    className={`${inputClass} w-20 shrink-0`}
+                    className={`${inputClass} basis-20 shrink-0`}
                     value={item.type ?? "string"}
                     onChange={(e) => {
                       const newType = e.target.value as WorkflowEnvVar["type"];

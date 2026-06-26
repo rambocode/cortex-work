@@ -142,13 +142,13 @@ function ManualTriggerForm({
             >
               <div className="flex items-center gap-2">
                 <input
-                  className={`${INPUT_CLS} flex-1 font-mono`}
+                  className={`${INPUT_CLS} min-w-0 flex-1 font-mono`}
                   value={f.key}
                   placeholder="字段 key"
                   onChange={(e) => updateField(idx, { key: e.target.value })}
                 />
                 <select
-                  className={`${INPUT_CLS} w-[90px] shrink-0`}
+                  className={`${INPUT_CLS} basis-[90px] shrink-0`}
                   value={f.type}
                   onChange={(e) =>
                     updateField(idx, { type: e.target.value as WorkflowInputFieldType })

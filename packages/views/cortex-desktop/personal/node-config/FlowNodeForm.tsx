@@ -87,13 +87,13 @@ function ConditionRow({
     <div className="flex flex-col gap-2">
       <div className="flex gap-2">
         <input
-          className={`${INPUT_CLS} flex-1 font-mono`}
+          className={`${INPUT_CLS} min-w-0 flex-1 font-mono`}
           value={leftExpr}
           placeholder="{{$input.text}}"
           onChange={(e) => onLeftExpr(e.target.value)}
         />
         <select
-          className={`${INPUT_CLS} w-[120px] shrink-0`}
+          className={`${INPUT_CLS} basis-[120px] shrink-0`}
           value={operator}
           onChange={(e) => onOperator(e.target.value as WorkflowConditionOperator)}
         >

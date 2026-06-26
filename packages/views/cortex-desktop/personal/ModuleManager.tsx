@@ -124,7 +124,7 @@ function ModuleFieldEditor({
             <div className="flex items-center gap-2">
               {/* key */}
               <input
-                className={`${inputClass} w-28 shrink-0 font-mono`}
+                className={`${inputClass} basis-28 shrink-0 font-mono`}
                 value={field.key}
                 placeholder="字段名"
                 onChange={(e) => updateField(index, { key: e.target.value })}
@@ -140,7 +140,7 @@ function ModuleFieldEditor({
               />
               {/* 类型 */}
               <select
-                className={`${inputClass} w-24 shrink-0`}
+                className={`${inputClass} basis-24 shrink-0`}
                 value={field.type}
                 onChange={(e) => updateField(index, { type: e.target.value as WorkflowModuleField["type"] })}
                 aria-label="字段类型"

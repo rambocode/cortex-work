@@ -441,6 +441,11 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
     [nodes, selectedNodeId],
   );
 
+  // 右侧面板内容存在性：选中了节点 或 本会话已触发过运行（activeRunId 非空）。
+  // 初始空画布（无选中 + 未运行）下整列隐藏，保持画布更宽敞；
+  // 点击「运行一次」→ setActiveRunId → 面板出现并自动切到运行日志 tab。
+  const hasRightContent = selectedNode !== null || activeRunId !== null;
+
   // ── 渲染 ──────────────────────────────────────────────────────────────────
 
   // 画布状态条数据（真实数据：上次运行状态/时间 + 触发类型 + 节点数；不杜撰「处理 N 条」）
@@ -769,35 +774,39 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
               )}
             </button>
 
-            {/* 右侧面板折叠/展开按钮 */}
-            <button
-              type="button"
-              onClick={() => setRightCollapsed((v) => !v)}
-              className="absolute right-0 top-1/2 z-10 flex h-12 w-5 -translate-y-1/2 items-center justify-center rounded-l-lg border border-r-0 border-ds-border bg-ds-card text-ds-faint shadow-sm transition hover:text-ds-ink"
-            >
-              {rightCollapsed ? (
-                <Icon.ChevronLeft size={16} sw={2} />
-              ) : (
-                <Icon.ChevronRight size={16} sw={2} />
-              )}
-            </button>
+            {/* 右侧面板折叠/展开按钮（无内容时一并隐藏，避免悬空切换按钮）*/}
+            {hasRightContent ? (
+              <button
+                type="button"
+                onClick={() => setRightCollapsed((v) => !v)}
+                className="absolute right-0 top-1/2 z-10 flex h-12 w-5 -translate-y-1/2 items-center justify-center rounded-l-lg border border-r-0 border-ds-border bg-ds-card text-ds-faint shadow-sm transition hover:text-ds-ink"
+              >
+                {rightCollapsed ? (
+                  <Icon.ChevronLeft size={16} sw={2} />
+                ) : (
+                  <Icon.ChevronRight size={16} sw={2} />
+                )}
+              </button>
+            ) : null}
           </div>
         </div>
 
-        {/* 右侧面板（U7 占位：配置 / 运行日志 tab）*/}
-        {!rightCollapsed ? (
-          <aside className="flex w-[320px] shrink-0 flex-col overflow-hidden border-l border-ds-border bg-ds-card/40">
-            {/* tab bar */}
-            <div className="flex shrink-0 items-center gap-1 border-b border-ds-border px-2 pt-2">
+        {/* 右侧面板（配置 / 运行日志 tab）：仅在有内容（选中节点或已运行）时渲染 */}
+        {hasRightContent && !rightCollapsed ? (
+          <aside className="flex w-[360px] shrink-0 flex-col overflow-hidden border-l border-ds-border bg-ds-card/40">
+            {/* tab bar：内边距/字号/文字色直接用 Tailwind 工具类——全局 button reset 已移入
+                @layer base（见 cortex-desktop.css），工具类(@layer utilities)可正常覆盖按钮，
+                无需再造未分层 .wf-* 绕过类。容器加 pb-2 让按钮不贴分隔线。 */}
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-ds-border px-3 pb-2 pt-3">
               {(["config", "log"] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
                   onClick={() => setRightTab(tab)}
-                  className={`relative flex items-center gap-1.5 px-3 py-2 text-[12.5px] font-medium transition ${
+                  className={`relative inline-flex items-center gap-1.5 rounded-[9px] px-3.5 py-2 text-[13px] font-semibold transition ${
                     rightTab === tab
                       ? "text-ds-ink"
-                      : "text-ds-faint hover:text-ds-muted"
+                      : "text-ds-faint hover:bg-ds-hover hover:text-ds-muted"
                   }`}
                 >
                   {tab === "config" ? "配置" : "运行日志"}
@@ -811,8 +820,8 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
               ))}
             </div>
 
-            {/* 面板内容（U7：NodeConfigPanel + WorkflowRunLogPanel）*/}
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+            {/* 面板内容（NodeConfigPanel + WorkflowRunLogPanel）*/}
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
               {rightTab === "config" ? (
                 // NodeConfigPanel：分发到各节点 form；无选中时提示
                 <NodeConfigPanel
@@ -928,13 +937,13 @@ function EnvVarsModal({
               return (
                 <div key={index} className="flex items-center gap-2">
                   <input
-                    className={`${inputClass} w-40 shrink-0 font-mono`}
+                    className={`${inputClass} basis-40 shrink-0 font-mono`}
                     value={item.key}
                     placeholder="变量名"
                     onChange={(e) => update({ key: e.target.value })}
                   />
                   <select
-                    className={`${inputClass} w-24 shrink-0`}
+                    className={`${inputClass} basis-24 shrink-0`}
                     value={item.type ?? "string"}
                     onChange={(e) =>
                       update({ type: e.target.value as WorkflowEnvVar["type"] })

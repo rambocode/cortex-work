@@ -131,7 +131,19 @@ html, body {
   zoom: var(--font-scale, 1);
 }
 
-button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
+/* button 视觉 reset 置于 @layer base，与 Tailwind v4 base 层对齐：让 <button> 上的
+   Tailwind 工具类(px- py- text- bg- hover:bg- 等)能正常覆盖。
+   背景：本文件经 globals.css 第 2 行(在 `@import "tailwindcss"` 之后)引入，整文件为未分层裸 CSS；
+   按 CSS 级联层规则「未分层规则恒胜分层规则(与特异性无关)」，裸 `button{}` reset 恒胜 Tailwind
+   的 @layer utilities 工具类，导致 <button> 上的工具类全部失效——历史上只能逐处用
+   .wf-tb- 、.btn 、.pill 等未分层类绕过。移入 base 层后工具类恢复覆盖，既有未分层绕过类仍恒胜、行为不变。
+   ⚠️ cursor:pointer 单列、保持未分层：按钮手型指针不应参与层叠覆盖。若随 padding 等一起进 base 层，
+   dev(@tailwindcss/vite)下跨模块 @layer 合并的顺序波动可能令 base 层整体指针失效、按钮变默认箭头；
+   未分层则恒定 pointer。需要非 pointer 指针的按钮用更高特异性的类覆盖(如 .ds-palette-node 的 grab)。 */
+@layer base {
+  button { font: inherit; color: inherit; background: none; border: none; padding: 0; }
+}
+button { cursor: pointer; }
 input, textarea { font: inherit; color: inherit; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
@@ -8461,6 +8473,15 @@ button.sb-row {
 }
 .ds-workflow-scope .ds-palette-node:hover {
   background: var(--bg-hover);
+}
+/* palette 节点为可拖拽项：抓手指针。须用未分层作用域类提供——上面未分层 `button{cursor:pointer}`
+   (特异性 0,0,1)会盖过 Tailwind 的 cursor-grab 工具类(@layer utilities)，这里用更高特异性
+   (0,2,0)的作用域类恢复 grab/grabbing(TSX 上的 cursor-grab/active:cursor-grabbing 仅作语义标注)。 */
+.ds-workflow-scope .ds-palette-node {
+  cursor: grab;
+}
+.ds-workflow-scope .ds-palette-node:active {
+  cursor: grabbing;
 }
 
 /* 顶栏操作按钮：全局 button reset(L134,未分层) 抹平 padding/border/background/color，

@@ -318,13 +318,13 @@ function ParameterExtractorForm({
           <div key={idx} className="rounded-xl border border-ds-border bg-ds-card/60 p-3 flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <input
-                className={`${INPUT_CLS} flex-1 font-mono`}
+                className={`${INPUT_CLS} min-w-0 flex-1 font-mono`}
                 value={f.key}
                 placeholder="字段 key"
                 onChange={(e) => updateField(idx, { key: e.target.value })}
               />
               <select
-                className={`${INPUT_CLS} w-[80px] shrink-0`}
+                className={`${INPUT_CLS} basis-[80px] shrink-0`}
                 value={f.type}
                 onChange={(e) => updateField(idx, { type: e.target.value as WorkflowInputFieldType })}
               >
@@ -345,7 +345,7 @@ function ParameterExtractorForm({
             {/* label + required(执行器据此在 schema 中标注必填，见 ai.ts) */}
             <div className="flex items-center gap-2">
               <input
-                className={`${INPUT_CLS} flex-1`}
+                className={`${INPUT_CLS} min-w-0 flex-1`}
                 value={f.label}
                 placeholder="显示标签"
                 onChange={(e) => updateField(idx, { label: e.target.value })}
@@ -493,13 +493,13 @@ function QuestionClassifierForm({
         {cfg.categories.map((cat, idx) => (
           <div key={idx} className="flex items-center gap-2">
             <input
-              className={`${INPUT_CLS} w-28 shrink-0 font-mono`}
+              className={`${INPUT_CLS} basis-28 shrink-0 font-mono`}
               value={cat.id}
               placeholder="cat_id"
               onChange={(e) => updateCategory(idx, { id: e.target.value })}
             />
             <input
-              className={`${INPUT_CLS} flex-1`}
+              className={`${INPUT_CLS} min-w-0 flex-1`}
               value={cat.label}
               placeholder="分类标签"
               onChange={(e) => updateCategory(idx, { label: e.target.value })}

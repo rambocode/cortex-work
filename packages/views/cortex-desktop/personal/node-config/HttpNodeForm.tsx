@@ -95,13 +95,15 @@ export function HttpNodeForm({ node, onChange }: Props) {
           cfg.headers.map((h, idx) => (
             <div key={idx} className="flex items-center gap-2">
               <input
-                className={`${INPUT_CLS} w-36 shrink-0 font-mono`}
+                className={`${INPUT_CLS} basis-36 shrink-0 font-mono`}
                 value={h.key}
                 placeholder="Header-Name"
                 onChange={(e) => updateHeader(idx, { key: e.target.value })}
               />
+              {/* min-w-0：input 默认 min-width:auto 不会收缩到内容宽度以下，
+                  不加会导致整行超出面板宽度、值输入框被右侧裁掉 */}
               <input
-                className={`${INPUT_CLS} flex-1 font-mono`}
+                className={`${INPUT_CLS} min-w-0 flex-1 font-mono`}
                 value={h.value}
                 placeholder="值或 {{表达式}}"
                 onChange={(e) => updateHeader(idx, { value: e.target.value })}

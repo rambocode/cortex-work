@@ -186,13 +186,13 @@ function CustomForm({
           valueEntries.map(([key, val]) => (
             <div key={key} className="flex items-center gap-2">
               <input
-                className={`${INPUT_CLS} w-32 shrink-0 font-mono`}
+                className={`${INPUT_CLS} basis-32 shrink-0 font-mono`}
                 value={key}
                 placeholder="参数名"
                 onChange={(e) => updateValueKey(key, e.target.value)}
               />
               <input
-                className={`${INPUT_CLS} flex-1 font-mono`}
+                className={`${INPUT_CLS} min-w-0 flex-1 font-mono`}
                 value={val}
                 placeholder="参数值或 {{表达式}}"
                 onChange={(e) => updateValueVal(key, e.target.value)}
