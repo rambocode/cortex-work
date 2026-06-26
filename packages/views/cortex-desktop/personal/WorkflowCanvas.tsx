@@ -39,6 +39,12 @@ import {
   type WorkflowFlowNode,
   type WorkflowFlowEdge,
 } from "./workflow-flow";
+import { WorkflowCanvasContextMenu } from "./WorkflowCanvasContextMenu";
+
+// 画布右键菜单 state：空白处=添加便签(带落点流坐标)；便签节点=改色/删除(带 nodeId)。
+type StickyMenuState =
+  | { mode: "add"; x: number; y: number; flowPos: { x: number; y: number } }
+  | { mode: "node"; x: number; y: number; nodeId: string };
 
 // ── 动态加载的 ReactFlow 和 WorkflowNodes 运行时类型（仅供 ref 存储）─────────
 
@@ -68,6 +74,8 @@ export type WorkflowCanvasProps = {
   onRunNode: (nodeId: string) => void;
   onToggleDisabled: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
+  /** 画布内节点编辑回调（便签双击改文本/改色），与右面板 onNodeChange 同语义。 */
+  onNodeChange: (node: WorkflowNode) => void;
 };
 
 // ── WorkflowCanvas ────────────────────────────────────────────────────────────
@@ -87,6 +95,7 @@ export function WorkflowCanvas({
   onRunNode,
   onToggleDisabled,
   onDeleteNode,
+  onNodeChange,
 }: WorkflowCanvasProps) {
   // 容器 ref（动态加载后 ReactFlow 挂载到此 div）
   const containerRef = useRef<HTMLDivElement>(null);
@@ -164,8 +173,24 @@ export function WorkflowCanvas({
         });
         onDeleteNode(nodeId);
       },
+      // 画布内编辑：替换匹配节点的 data.node（即时反映新文本/颜色）并回写父级。
+      updateNode: (updated: WorkflowNode) => {
+        setRfNodes((prev) => {
+          const next = prev.map((n) =>
+            n.id === updated.id
+              ? { ...n, data: { ...n.data, node: updated } }
+              : n,
+          );
+          setRfEdges((edges) => {
+            notifyChange(next, edges);
+            return edges;
+          });
+          return next;
+        });
+        onNodeChange(updated);
+      },
     }),
-    [onRunNode, onToggleDisabled, onDeleteNode, notifyChange],
+    [onRunNode, onToggleDisabled, onDeleteNode, onNodeChange, notifyChange],
   );
 
   // 带运行状态样式（running 边动画）的边。useMemo 仅依赖 rfEdges/runStatus：
@@ -192,6 +217,28 @@ export function WorkflowCanvas({
     sourceHandle: string;
     screenPos: { x: number; y: number };
   } | null>(null);
+
+  // 画布右键菜单 state（添加便签 / 便签节点改色删除）
+  const [stickyMenu, setStickyMenu] = useState<StickyMenuState | null>(null);
+
+  // 在画布落点(流坐标)创建便签并选中。用 toFlowNodes 生成 RF 节点，确保带上
+  // 便签所需的顶层 width/height 与 zIndex（见 toFlowNodes）。
+  const handleAddSticky = useCallback(
+    (flowPos: { x: number; y: number }) => {
+      const newNode = createWorkflowNode("sticky-note", flowPos);
+      const rfNode = toFlowNodes([newNode])[0]!;
+      setRfNodes((prev) => {
+        const next = [...prev, rfNode] as WorkflowFlowNode[];
+        setRfEdges((edges) => {
+          notifyChange(next, edges);
+          return edges;
+        });
+        return next;
+      });
+      onSelectNode(newNode.id);
+    },
+    [notifyChange, onSelectNode],
+  );
 
   // ── 动态加载 @xyflow/react + WorkflowNodes ────────────────────────────────
 
@@ -308,6 +355,7 @@ export function WorkflowCanvas({
               connectingRef={connectingRef}
               connectMenu={connectMenu}
               setConnectMenu={setConnectMenu}
+              setStickyMenu={setStickyMenu}
               onSelectNode={onSelectNode}
               onNodesChangeExternal={(changes) => {
                 setRfNodes((prev) => {
@@ -508,6 +556,55 @@ export function WorkflowCanvas({
           </div>
         </>
       ) : null}
+
+      {/* 画布右键菜单：添加便签 / 便签节点改色删除 */}
+      {stickyMenu
+        ? (() => {
+            if (stickyMenu.mode === "add") {
+              return (
+                <WorkflowCanvasContextMenu
+                  x={stickyMenu.x}
+                  y={stickyMenu.y}
+                  items={[
+                    {
+                      label: "添加便签",
+                      icon: Icon.StickyNote,
+                      onSelect: () => handleAddSticky(stickyMenu.flowPos),
+                    },
+                  ]}
+                  onClose={() => setStickyMenu(null)}
+                />
+              );
+            }
+            // node 模式：从 rfNodes 取出便签节点，提供改色 + 删除。
+            const node = rfNodes.find((n) => n.id === stickyMenu.nodeId)?.data
+              .node;
+            if (!node || node.type !== "sticky-note") return null;
+            return (
+              <WorkflowCanvasContextMenu
+                x={stickyMenu.x}
+                y={stickyMenu.y}
+                colorPicker={{
+                  current: node.config.color,
+                  onPick: (color) =>
+                    nodeActions.updateNode({
+                      ...node,
+                      config: { ...node.config, color },
+                    }),
+                }}
+                items={[
+                  {
+                    label: "删除便签",
+                    icon: Icon.Trash,
+                    danger: true,
+                    onSelect: () => nodeActions.deleteNode(stickyMenu.nodeId),
+                  },
+                ]}
+                onClose={() => setStickyMenu(null)}
+              />
+            );
+          })()
+        : null}
     </div>
   );
 }
@@ -540,6 +637,7 @@ type InnerProps = {
       screenPos: { x: number; y: number };
     } | null>
   >;
+  setStickyMenu: (m: StickyMenuState | null) => void;
   onSelectNode: (id: string | null) => void;
   onNodesChangeExternal: (
     changes: ReturnType<ReactFlowModule["applyNodeChanges"]> extends never[]
@@ -561,6 +659,7 @@ function ReactFlowInner({
   selectedNodeId: _selectedNodeId,
   connectingRef,
   setConnectMenu,
+  setStickyMenu,
   onSelectNode,
   onNodesChangeExternal,
   onEdgesChangeExternal,
@@ -623,6 +722,30 @@ function ReactFlowInner({
       onConnectEnd={onConnectEnd as never}
       onNodeClick={(_: unknown, node: { id: string }) => onSelectNode(node.id)}
       onPaneClick={() => onSelectNode(null)}
+      // 画布空白处右键 → 添加便签菜单（落点转流坐标）
+      onPaneContextMenu={((e: MouseEvent) => {
+        e.preventDefault();
+        setStickyMenu({
+          mode: "add",
+          x: e.clientX,
+          y: e.clientY,
+          flowPos: screenToFlowPosition({ x: e.clientX, y: e.clientY }),
+        });
+      }) as never}
+      // 便签节点右键 → 改色/删除菜单（仅便签，功能节点不拦截默认）
+      onNodeContextMenu={((
+        e: React.MouseEvent,
+        node: { id: string; type?: string },
+      ) => {
+        if (node.type !== "sticky-note") return;
+        e.preventDefault();
+        setStickyMenu({
+          mode: "node",
+          x: e.clientX,
+          y: e.clientY,
+          nodeId: node.id,
+        });
+      }) as never}
       fitView
       fitViewOptions={{ maxZoom: 1, padding: 0.2 }}
       minZoom={0.2}

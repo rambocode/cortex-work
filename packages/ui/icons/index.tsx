@@ -363,6 +363,13 @@ export const Icon = {
       <polygon points="13 2 4 14 11 14 10 22 20 9 13 9 13 2" />
     </IconBase>
   ),
+  // Power：电源开关（节点启用/禁用切换）。
+  Power: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+      <line x1="12" y1="2" x2="12" y2="12" />
+    </IconBase>
+  ),
   Code: (p: IconProps) => (
     <IconBase {...p}>
       <path d="M8 7l-5 5 5 5" />
@@ -373,6 +380,22 @@ export const Icon = {
     <IconBase {...p}>
       <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
       <path d="M14 3v6h6" />
+    </IconBase>
+  ),
+  // StickyNote：便签节点（折角便签卡片）。
+  StickyNote: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8l7-7V5a2 2 0 0 0-2-2z" />
+      <path d="M14 21v-5a2 2 0 0 1 2-2h5" />
+    </IconBase>
+  ),
+  // Palette：调色板（便签改色）。
+  Palette: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M12 21a9 9 0 1 1 0-18c4.97 0 9 3.58 9 8 0 2.5-2 4-4 4h-2a2 2 0 0 0-1.5 3.3A1.5 1.5 0 0 1 12 21z" />
+      <circle cx="7.5" cy="11" r="1" />
+      <circle cx="12" cy="7.5" r="1" />
+      <circle cx="16" cy="11" r="1" />
     </IconBase>
   ),
   Reply: (p: IconProps) => (

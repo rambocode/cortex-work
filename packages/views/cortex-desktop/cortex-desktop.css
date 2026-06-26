@@ -8545,6 +8545,22 @@ button.sb-row {
   opacity: 0.6;
 }
 
+/* 画布节点选中工具栏按钮（运行 / 启用禁用 / 删除）。
+   尺寸/圆角/布局走 Tailwind(h-/w-/rounded-/flex —— 不被全局 button reset 抹平)；
+   本未分层类只补 reset 会抹平的部分：默认色 + hover 背景/文字色(Tailwind 的 hover:bg-* 会被
+   未分层 button reset 抹平，故必须用未分层类)。.danger 用于删除按钮：hover 变红。 */
+.ds-workflow-scope .wf-node-tb {
+  color: var(--text-2);
+}
+.ds-workflow-scope .wf-node-tb:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.ds-workflow-scope .wf-node-tb.danger:hover {
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #ef4444;
+}
+
 /* ReactFlow 画布主题化（移植自 Kun workflow-canvas.css，--ds-* 改为本项目 CSS 变量）。
    通过 @xyflow/react v12 的 --xy-* 主题变量，使点阵/边/控件/minimap/handle 跟随亮暗主题。 */
 .ds-workflow-canvas {

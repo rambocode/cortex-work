@@ -539,11 +539,51 @@ describe("所有 25 种 kind 均不抛出", () => {
     "question-classifier",
     "human-approval",
     "custom",
+    "sticky-note",
   ] as const;
 
   allKinds.forEach((kind) => {
     it(`${kind} 空 config 不抛`, () => {
       expect(() => normalizeWorkflowNode(node(kind), 0)).not.toThrow();
     });
+  });
+});
+
+// ── 便签节点（sticky-note）─────────────────────────────────────────────────
+
+describe("normalizeWorkflowNode — 便签", () => {
+  it("往返保留 content/color/width/height", () => {
+    const n = normalizeWorkflowNode(
+      node("sticky-note", {
+        content: "# hi",
+        color: "#dbeafe",
+        width: 300,
+        height: 200,
+      }),
+      0,
+    );
+    expect(n?.type).toBe("sticky-note");
+    expect(n?.config).toMatchObject({
+      content: "# hi",
+      color: "#dbeafe",
+      width: 300,
+      height: 200,
+    });
+  });
+
+  it("缺字段填默认且不丢弃节点", () => {
+    const n = normalizeWorkflowNode(node("sticky-note", {}), 0);
+    expect(n).not.toBeNull();
+    expect(n?.type).toBe("sticky-note");
+    const c = n?.config as Record<string, unknown>;
+    expect(typeof c.content).toBe("string");
+    expect(c.color).toBe("#fde7ea");
+    expect(c.width).toBe(240);
+    expect(c.height).toBe(160);
+  });
+
+  it("非法颜色回落默认", () => {
+    const n = normalizeWorkflowNode(node("sticky-note", { color: "not-a-color" }), 0);
+    expect((n?.config as Record<string, unknown>).color).toBe("#fde7ea");
   });
 });

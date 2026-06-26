@@ -18,12 +18,14 @@ import {
 } from "@xyflow/react";
 import { Icon } from "@cortex-work/ui/icons";
 import type {
+  WorkflowNode,
   WorkflowNodeKind,
   WorkflowNodeRunStatus,
 } from "@cortex-work/core";
 import { WORKFLOW_NODE_KINDS } from "@cortex-work/core";
-import { NODE_ICONS, nodeCategory, CATEGORY_LABELS } from "./workflow-flow";
+import { NODE_ICONS, nodeCategory } from "./workflow-flow";
 import type { WorkflowFlowNodeData } from "./workflow-flow";
+import { StickyNoteNode } from "./StickyNoteNode";
 
 // ── Context：节点运行状态 & 操作回调 ─────────────────────────────────────────
 
@@ -36,12 +38,18 @@ export type WorkflowNodeActions = {
   runNode: (nodeId: string) => void;
   toggleDisabled: (nodeId: string) => void;
   deleteNode: (nodeId: string) => void;
+  /**
+   * 用整个更新后的节点替换原节点（画布内编辑用，目前便签的双击改文本/改色走此路）。
+   * 与右面板 NodeConfigPanel 的 onNodeChange 同语义，便签改完即时回写并随保存持久化。
+   */
+  updateNode: (node: WorkflowNode) => void;
 };
 
 export const WorkflowNodeActionsContext = createContext<WorkflowNodeActions>({
   runNode: () => {},
   toggleDisabled: () => {},
   deleteNode: () => {},
+  updateNode: () => {},
 });
 
 // ── 节点图标映射（对齐 Kun NODE_ICONS，25 种全覆盖）────────────────────────
@@ -103,6 +111,7 @@ const NODE_LABELS: Record<WorkflowNodeKind, string> = {
   "question-classifier": "问题分类",
   "human-approval": "人工审批",
   custom: "自定义",
+  "sticky-note": "便签",
 };
 
 // ── 节点状态指示点 ────────────────────────────────────────────────────────
@@ -231,8 +240,11 @@ function nodeSummary(node: {
 
 // ── 工具栏按钮样式 ────────────────────────────────────────────────────────
 
+// 尺寸/圆角/布局走 Tailwind(不被全局 button reset 抹平)；颜色与 hover 背景由未分层
+// .wf-node-tb 提供(Tailwind 的 hover:bg-*/text-* 会被 button reset 抹平，见其 CSS 注释)。
+// nodrag/nopan 仅作 xyflow 行为标记。删除按钮额外加 danger(hover 变红)。
 const TOOLBAR_BTN =
-  "nodrag nopan flex h-7 w-7 items-center justify-center rounded-md text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink";
+  "nodrag nopan flex h-[30px] w-[30px] items-center justify-center rounded-lg transition wf-node-tb";
 
 // ── 主节点组件（单一壳，渲染全部 25 种节点）──────────────────────────────────
 
@@ -254,14 +266,14 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
     config: node.config as AnyConfig,
   });
 
-  // 5 色分类：图标芯片用 .wf-cat-{category} 着色（对齐 mockup）。
+  // 5 色分类：图标芯片用 .wf-cat-{category} 着色（分类仅由图标颜色体现，不再显示文字标签）。
   const category = nodeCategory(node.type);
   const trimmedName = node.name.trim();
   const title = trimmedName || NODE_LABELS[node.type] || node.type;
-  // 标题已是自定义名时，副标题展示节点类型名；否则用分类名，避免与标题文字重复。
-  const kindLine = trimmedName
-    ? NODE_LABELS[node.type] || node.type
-    : CATEGORY_LABELS[category];
+  // 副标题：显示节点属性摘要(如 HTTP 的 GET、定时的 cron)，取代原「所属分类」文字。
+  // 无摘要时：标题为自定义名 → 回退展示节点类型名；默认名且无摘要 → 留空。
+  const subtitle =
+    summary || (trimmedName ? NODE_LABELS[node.type] || node.type : "");
 
   const ring = selected
     ? "border-accent ring-2 ring-accent/30"
@@ -285,11 +297,11 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
 
   return (
     <div
-      className={`relative w-[216px] rounded-[13px] border bg-ds-card shadow-sm ${ring} ${disabled}`}
+      className={`relative w-[216px] rounded-[8px] border bg-ds-card shadow-sm ${ring} ${disabled}`}
     >
       {/* 选中时展示节点操作工具栏（运行 / 禁用 / 删除）*/}
       <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
-        <div className="flex items-center gap-0.5 rounded-lg border border-ds-border bg-ds-card p-1 shadow-md">
+        <div className="flex items-center gap-1 rounded-lg border border-ds-border bg-ds-card p-1.5 shadow-md">
           {/* 触发器节点不支持单节点运行 */}
           {!isTrigger ? (
             <button
@@ -309,11 +321,11 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
             aria-label={node.disabled ? "启用节点" : "禁用节点"}
             onClick={() => actions.toggleDisabled(id)}
           >
-            <Icon.Lightning size={14} sw={1.9} />
+            <Icon.Power size={14} sw={1.9} />
           </button>
           <button
             type="button"
-            className={`${TOOLBAR_BTN} hover:bg-red-500/10 hover:text-red-600`}
+            className={`${TOOLBAR_BTN} danger`}
             title="删除节点"
             aria-label="删除节点"
             onClick={() => actions.deleteNode(id)}
@@ -339,22 +351,15 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
           <div className="truncate text-[13px] font-semibold text-ds-ink">
             {title}
           </div>
-          <div className="truncate text-[11px] text-ds-faint">{kindLine}</div>
+          {subtitle ? (
+            <div className="truncate text-[11px] text-ds-faint">{subtitle}</div>
+          ) : null}
         </div>
         {/* 运行状态指示点 */}
         <span
           className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(status)}`}
         />
       </div>
-
-      {/* 摘要行：与头部以细分隔线分隔；配置值用 mono 芯片呈现（对齐 mockup node-sub 的等宽值）*/}
-      {summary ? (
-        <div className="mx-3 flex items-center border-t border-ds-border/60 py-2">
-          <span className="truncate rounded-[5px] bg-ds-hover px-1.5 py-0.5 font-mono text-[10.5px] text-ds-ink">
-            {summary}
-          </span>
-        </div>
-      ) : null}
 
       {/* 输出 handle：按节点类型分支渲染 */}
       {node.type === "condition" ? (
@@ -471,6 +476,8 @@ const sharedNode = WorkflowCanvasNode as ComponentType<NodeProps>;
  * workflowNodeTypes：@xyflow/react 的 nodeTypes 映射。
  * 从 WORKFLOW_NODE_KINDS 派生，防止漏掉新增节点 kind（否则 RF 会用默认无样式节点渲染）。
  */
-export const workflowNodeTypes: NodeTypes = Object.fromEntries(
-  WORKFLOW_NODE_KINDS.map((kind) => [kind, sharedNode]),
-);
+export const workflowNodeTypes: NodeTypes = {
+  ...Object.fromEntries(WORKFLOW_NODE_KINDS.map((kind) => [kind, sharedNode])),
+  // 便签用专属组件（彩色卡片 + Markdown + 缩放 + 无 handle），覆盖共享壳。
+  "sticky-note": StickyNoteNode as ComponentType<NodeProps>,
+};

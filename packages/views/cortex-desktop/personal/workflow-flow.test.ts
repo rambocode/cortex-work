@@ -7,7 +7,15 @@ import {
   flowToWorkflowGraph,
   toFlowEdges,
   toFlowNodes,
+  nodeCategory,
+  WORKFLOW_PALETTE_GROUPS,
 } from "./workflow-flow";
+import {
+  STICKY_DEFAULT_COLOR,
+  STICKY_DEFAULT_CONTENT,
+  STICKY_DEFAULT_WIDTH,
+  STICKY_DEFAULT_HEIGHT,
+} from "./workflow-sticky";
 import type { WorkflowConnection } from "@cortex-work/core";
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────
@@ -196,5 +204,28 @@ describe("flowToWorkflowGraph", () => {
     const rfEdges = toFlowEdges([condConn]);
     const { connections } = flowToWorkflowGraph([], rfEdges);
     expect(connections[0]!.sourceHandle).toBe("true");
+  });
+});
+
+// ── 便签节点（sticky-note）─────────────────────────────────────────────────
+
+describe("便签节点", () => {
+  it("createWorkflowNode 生成默认文案/颜色/尺寸", () => {
+    const n = createWorkflowNode("sticky-note", { x: 12, y: 34 });
+    expect(n.type).toBe("sticky-note");
+    expect(n.position).toEqual({ x: 12, y: 34 });
+    if (n.type !== "sticky-note") throw new Error("type narrow");
+    expect(n.config.content).toBe(STICKY_DEFAULT_CONTENT);
+    expect(n.config.color).toBe(STICKY_DEFAULT_COLOR);
+    expect(n.config.width).toBe(STICKY_DEFAULT_WIDTH);
+    expect(n.config.height).toBe(STICKY_DEFAULT_HEIGHT);
+  });
+
+  it("不在任何 palette 分组中，分类兜底为 data", () => {
+    const inPalette = WORKFLOW_PALETTE_GROUPS.some((g) =>
+      g.kinds.includes("sticky-note"),
+    );
+    expect(inPalette).toBe(false);
+    expect(nodeCategory("sticky-note")).toBe("data");
   });
 });

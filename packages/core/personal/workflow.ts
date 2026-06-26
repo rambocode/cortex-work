@@ -168,6 +168,19 @@ export function useRunWorkflowNow() {
   });
 }
 
+/** 单节点运行（画布节点工具栏「运行」按钮）。返回该节点的执行结果。 */
+export function useRunWorkflowNode() {
+  const bridge = useDesktopBridge();
+  return useMutation({
+    mutationFn: (vars: { workflowId: string; nodeId: string; input?: unknown }) =>
+      bridge!.workflowNodeRun!(
+        vars.workflowId,
+        vars.nodeId,
+        vars.input ?? {},
+      ) as Promise<{ ok: boolean; output?: unknown; error?: string }>,
+  });
+}
+
 export function useStopWorkflowRun() {
   const bridge = useDesktopBridge();
   return useMutation({

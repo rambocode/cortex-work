@@ -16,6 +16,12 @@ import type {
   WorkflowConnection,
   WorkflowNodeRunStatus,
 } from "@cortex-work/core";
+import {
+  STICKY_DEFAULT_COLOR,
+  STICKY_DEFAULT_CONTENT,
+  STICKY_DEFAULT_WIDTH,
+  STICKY_DEFAULT_HEIGHT,
+} from "./workflow-sticky";
 
 // ── 节点 kind → 图标映射 ──────────────────────────────────────────────────────
 // 放在本 SSR 安全模块（仅 type-import xyflow），供 palette(WorkflowEditorView) 与
@@ -47,6 +53,7 @@ export const NODE_ICONS: Record<WorkflowNodeKind, NodeIconComponent> = {
   "question-classifier": Icon.Tags,
   "human-approval": Icon.Users,
   custom: Icon.Workflow,
+  "sticky-note": Icon.StickyNote,
 };
 
 // ── 类型别名 ────────────────────────────────────────────────────────────────
@@ -123,8 +130,10 @@ export const NODE_CATEGORY: Record<WorkflowNodeKind, WorkflowNodeCategory> =
         map[kind] = group.id as WorkflowNodeCategory;
       }
     }
-    // custom 不在任何 palette 分组中，兜底归 data。
+    // custom / sticky-note 不在任何 palette 分组中，兜底归 data。
+    // （便签自带 config.color 着色，分类仅影响 .wf-cat-* 图标芯片，兜底即可。）
     if (!map["custom"]) map["custom"] = "data";
+    if (!map["sticky-note"]) map["sticky-note"] = "data";
     return map;
   })();
 
@@ -395,6 +404,18 @@ export function createWorkflowNode(
     case "custom":
       return { ...base, type: "custom", config: { moduleId: "", values: {} } };
 
+    case "sticky-note":
+      return {
+        ...base,
+        type: "sticky-note",
+        config: {
+          content: STICKY_DEFAULT_CONTENT,
+          color: STICKY_DEFAULT_COLOR,
+          width: STICKY_DEFAULT_WIDTH,
+          height: STICKY_DEFAULT_HEIGHT,
+        },
+      };
+
     default: {
       // 防御：未知 kind 降级为 manual-trigger
       const _exhaustive: never = kind;
@@ -414,6 +435,15 @@ export function toFlowNodes(nodes: WorkflowNode[]): WorkflowFlowNode[] {
     // React Flow nodeTypes key 与 node.type 同名（workflowNodeTypes 映射保证覆盖全部 25 种）
     type: node.type,
     position: node.position,
+    // 便签是背景注释：zIndex 低于功能节点(0 vs 1)，避免遮挡连线/节点；
+    // 选中时 React Flow 的 elevateNodesOnSelect 会临时提升，便于编辑/缩放。
+    zIndex: node.type === "sticky-note" ? 0 : 1,
+    // 便签尺寸放到 RF 节点顶层 width/height（NodeResizer 管理的就是这两个；
+    // 不能用 style.width，否则内联样式会盖过缩放时的实时尺寸）。组件本体填充 100%，
+    // 缩放结束回写 config.width/height（见 StickyNoteNode.onResizeEnd）。
+    ...(node.type === "sticky-note"
+      ? { width: node.config.width, height: node.config.height }
+      : {}),
     data: { node },
   }));
 }
