@@ -10,8 +10,7 @@ const flush = async () => {
 
 // fake 通道:记录 opts,提供 emit/emitActivity/emitClose 驱动;startThread/resume 产 init。
 class FakeChannel {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  opts: any;
+  opts: { onEvent: (ev: CliStreamEvent) => void; onActivity?: () => void; onClose?: (i: { expected: boolean }) => void };
   resumeShouldThrow = false;
   connect = vi.fn(async () => {});
   startThread = vi.fn(async () => {
@@ -25,8 +24,7 @@ class FakeChannel {
   startTurn = vi.fn(async () => "turn_1");
   interrupt = vi.fn(async () => {});
   close = vi.fn();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  constructor(opts: any) {
+  constructor(opts: FakeChannel["opts"]) {
     this.opts = opts;
   }
   emit(ev: CliStreamEvent) {

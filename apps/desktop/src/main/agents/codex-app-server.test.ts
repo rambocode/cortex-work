@@ -12,8 +12,7 @@ function makeFakeProc() {
     stderr: {
       setEncoding: () => {},
       on: (_e: string, cb: (c: string) => void) => stderrHandlers.push(cb),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as unknown as NodeJS.ReadableStream,
     onExit: (cb) => {
       exitCb = cb;
     },

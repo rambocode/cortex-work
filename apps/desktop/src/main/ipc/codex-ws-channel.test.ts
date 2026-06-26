@@ -302,6 +302,35 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ code: 1006, expected: false }));
   });
 
+  it("端到端:完整 turn 通知序列 → 与 codex exec 契约等价的归一化事件流(U8)", async () => {
+    const { channel, fake, events } = connectedChannel();
+    const p = channel.connect();
+    fake.open();
+    await p;
+    await channel.startThread({ cwd: "/p", permissionMode: "full-auto" }); // → init
+    await channel.startTurn({ input: buildTurnInput({ prompt: "build it" }) });
+    // 回放实测 0.142.2 的一轮 turn 通知序列(含工具/推理/文本/usage/完成)。
+    fake.emit({ method: "thread/started", params: {} }); // 通道已自产 init,此通知映射为 null
+    fake.emit({ method: "turn/started", params: {} });
+    fake.emit({ method: "item/started", params: { item: { type: "reasoning" } } }); // 非工具 → null
+    fake.emit({ method: "item/started", params: { item: { type: "commandExecution", id: "c1", command: "npm i" } } });
+    fake.emit({ method: "item/agentMessage/delta", params: { delta: "Done" } });
+    fake.emit({ method: "item/completed", params: { item: { type: "agentMessage", text: "Done", phase: "final_answer" } } }); // item/completed 不单独映射 → null
+    fake.emit({
+      method: "thread/tokenUsage/updated",
+      params: { tokenUsage: { total: { inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 } } },
+    });
+    fake.emit({ method: "turn/completed", params: { turn: { status: "completed" } } });
+    // 归一化事件顺序:init(自产) → tool(Shell) → text → usage → result。与 codex exec parseLine 产物同构。
+    expect(events).toEqual([
+      { type: "init", sessionId: "thr_1" },
+      { type: "tool", name: "Shell", detail: "npm i", phase: "start", toolCallId: "c1" },
+      { type: "text", delta: "Done" },
+      { type: "usage", inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 },
+      { type: "result", ok: true },
+    ]);
+  });
+
   it("interrupt 发 turn/interrupt(带 threadId+turnId)", async () => {
     const { channel, fake } = connectedChannel();
     const p = channel.connect();
