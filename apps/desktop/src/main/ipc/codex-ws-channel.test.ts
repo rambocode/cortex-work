@@ -246,7 +246,7 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     expect(fake.sent.some((f) => f.method === "initialized" && f.id === undefined)).toBe(true);
   });
 
-  it("startThread → threadId,产出 init 事件,sandbox/approval 正确", async () => {
+  it("startThread → 返回 threadId,sandbox/approval 正确(init 由 run 发,不在通道)", async () => {
     const { channel, fake, events } = connectedChannel();
     const p = channel.connect();
     fake.open();
@@ -254,7 +254,7 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     const id = await channel.startThread({ cwd: "/proj", permissionMode: "plan" });
     expect(id).toBe("thr_1");
     expect(channel.threadId).toBe("thr_1");
-    expect(events).toContainEqual({ type: "init", sessionId: "thr_1" });
+    expect(events).not.toContainEqual({ type: "init", sessionId: "thr_1" }); // 通道不自发 init
     const ts = fake.sent.find((f) => f.method === "thread/start");
     expect(ts?.params).toMatchObject({ cwd: "/proj", sandbox: "read-only", approvalPolicy: "never" });
   });
@@ -274,14 +274,13 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     expect(t?.params).toMatchObject({ threadId: "thr_1", effort: "medium" });
   });
 
-  it("resumeThread 发 thread/resume 并产出 init", async () => {
-    const { channel, fake, events } = connectedChannel();
+  it("resumeThread 发 thread/resume(init 由 run 发)", async () => {
+    const { channel, fake } = connectedChannel();
     const p = channel.connect();
     fake.open();
     await p;
     await channel.resumeThread("thr_old", { permissionMode: "accept-edits" });
     expect(channel.threadId).toBe("thr_old");
-    expect(events).toContainEqual({ type: "init", sessionId: "thr_old" });
     const r = fake.sent.find((f) => f.method === "thread/resume");
     expect(r?.params).toMatchObject({ threadId: "thr_old", sandbox: "workspace-write" });
   });
@@ -384,7 +383,7 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     const p = channel.connect();
     fake.open();
     await p;
-    await channel.startThread({ cwd: "/p", permissionMode: "full-auto" }); // → init
+    await channel.startThread({ cwd: "/p", permissionMode: "full-auto" });
     await channel.startTurn({ input: buildTurnInput({ prompt: "build it" }) });
     // 回放实测 0.142.2 富 turn:推理 → commentary → 工具 → final_answer → usage → 完成。
     fake.emit({ method: "item/reasoning/summaryTextDelta", params: { delta: "分析需求" } }); // → thinking
@@ -395,9 +394,8 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     fake.emit({ method: "item/agentMessage/delta", params: { itemId: "f", delta: "这是答案" } }); // final → text
     fake.emit({ method: "thread/tokenUsage/updated", params: { tokenUsage: { total: { inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 } } } });
     fake.emit({ method: "turn/completed", params: { turn: { status: "completed" } } });
-    // 过程(thinking + tool)与回复(text)分流;init 自产在首。
+    // 过程(thinking + tool)与回复(text)分流;通道不自发 init(由 run 发,本测试直接驱动通道故无 init)。
     expect(events).toEqual([
-      { type: "init", sessionId: "thr_1" },
       { type: "thinking", delta: "分析需求" },
       { type: "thinking", delta: "我先看看目录" },
       { type: "tool", name: "Shell", detail: "ls", phase: "start", toolCallId: "c1" },

@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { startCodexWsRun, type CodexWsRunOpts } from "./codex-ws-run";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { startCodexWsRun, closeAllCodexChannels, type CodexWsRunOpts } from "./codex-ws-run";
 import type { CliStreamEvent, CliExitEvent, CliStartRequest } from "./types";
 import type { AgentDef } from "../agents";
 import type { CodexServerManager } from "../agents/codex-app-server";
@@ -8,18 +8,17 @@ const flush = async () => {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 };
 
-// fake 通道:记录 opts,提供 emit/emitActivity/emitClose 驱动;startThread/resume 产 init。
+// 持久连接是模块级注册表:每个用例后清掉,防跨用例复用(sessionId 复用会命中上一用例的连接)。
+afterEach(() => closeAllCodexChannels());
+
+// fake 通道:channel 不再自发 init(由 run 每轮发);emit 经委托 sink 投递到当前活跃 run。
 class FakeChannel {
   opts: { onEvent: (ev: CliStreamEvent) => void; onActivity?: () => void; onClose?: (i: { expected: boolean }) => void };
   resumeShouldThrow = false;
   connect = vi.fn(async () => {});
-  startThread = vi.fn(async () => {
-    this.opts.onEvent({ type: "init", sessionId: "thr_new" });
-    return "thr_new";
-  });
-  resumeThread = vi.fn(async (id: string) => {
+  startThread = vi.fn(async () => "thr_new");
+  resumeThread = vi.fn(async (_id: string) => {
     if (this.resumeShouldThrow) throw new Error("no rollout found for thread id");
-    this.opts.onEvent({ type: "init", sessionId: id });
   });
   startTurn = vi.fn(async () => "turn_1");
   interrupt = vi.fn(async () => {});
@@ -134,14 +133,38 @@ describe("startCodexWsRun(U5)", () => {
     expect(exits).toHaveLength(1);
   });
 
-  it("kill() → turn/interrupt + close + cli:exit(code null)", async () => {
+  it("kill() → turn/interrupt + cli:exit(code null),保留连接(不 close)", async () => {
     const h = harness();
     await flush();
     const ch = h.getChannel();
     h.handle.kill();
     expect(ch.interrupt).toHaveBeenCalled();
-    expect(ch.close).toHaveBeenCalled();
+    expect(ch.close).not.toHaveBeenCalled(); // 持久连接:取消只中断 turn,连接留给下轮
     expect(h.exits.some((e) => e.code === null)).toBe(true);
+  });
+
+  it("跨轮复用连接:第二轮不再 connect/startThread,仅 startTurn", async () => {
+    const h = harness();
+    await flush();
+    const ch = h.getChannel();
+    ch.emit({ type: "result", ok: true }); // 第一轮收尾
+    expect(ch.connect).toHaveBeenCalledTimes(1);
+    expect(ch.startThread).toHaveBeenCalledTimes(1);
+    // 第二轮:同 sessionId 再起一个 run(复用模块级持久连接)
+    startCodexWsRun({
+      req: { runId: "r2", sessionId: "s1", agent: "codex", cwd: "/proj", prompt: "again" } as CliStartRequest,
+      def: { id: "codex", transport: "ws" } as AgentDef,
+      manager: h.manager,
+      sendEvent: () => {},
+      sendExit: () => {},
+      inactivityMs: 1_000_000,
+      retryMax: 0,
+      createChannel: () => ch as unknown as ReturnType<NonNullable<CodexWsRunOpts["createChannel"]>>,
+    });
+    await flush();
+    expect(ch.connect).toHaveBeenCalledTimes(1); // 未重连
+    expect(ch.startThread).toHaveBeenCalledTimes(1); // 未重建 thread
+    expect(ch.startTurn).toHaveBeenCalledTimes(2); // 第二轮只发 turn
   });
 
   it("ensureServer 失败 + retryMax 0 → result ok:false + exit", async () => {

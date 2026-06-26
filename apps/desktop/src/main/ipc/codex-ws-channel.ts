@@ -288,11 +288,10 @@ export class CodexWsChannel {
     const id = res?.thread?.id;
     if (!id) throw new Error("thread/start 未返回 thread.id");
     this._threadId = id;
-    this.opts.onEvent({ type: "init", sessionId: id });
-    return id;
+    return id; // init 由 run 每轮发(持久连接复用时不会再调 startThread)
   }
 
-  /** thread/resume 续接已有 thread,并(幂等)产出 init 保持契约。 */
+  /** thread/resume 续接已有 thread。init 由 run 每轮发。 */
   async resumeThread(
     threadId: string,
     params: { cwd?: string; permissionMode?: PermissionMode; model?: string },
@@ -306,7 +305,6 @@ export class CodexWsChannel {
       ...(params.model ? { model: params.model } : {}),
     });
     this._threadId = threadId;
-    this.opts.onEvent({ type: "init", sessionId: threadId });
   }
 
   /** turn/start → turnId。实际工作经通知流式产出(thinking/text/tool/usage/result)。 */

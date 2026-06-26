@@ -21,7 +21,7 @@ import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } fro
 import { loadWorkflows } from "../workflow/store";
 import { getPersistedState } from "./store";
 import { CodexServerManager } from "../agents/codex-app-server";
-import { startCodexWsRun } from "./codex-ws-run";
+import { startCodexWsRun, closeAllCodexChannels } from "./codex-ws-run";
 
 const running = new Map<string, AgentProcess>();
 
@@ -911,7 +911,8 @@ export function killAllCli(): void {
   for (const runId of running.keys()) cancelledRunIds.add(runId);
   for (const proc of running.values()) proc.kill();
   running.clear();
-  // ws 传输:回收全部长驻 codex app-server 进程(整组 SIGTERM)。
+  // ws 传输:先关全部持久 ws 连接,再回收全部长驻 codex app-server 进程(整组 SIGTERM)。
+  closeAllCodexChannels();
   codexServers.killAll();
 }
 

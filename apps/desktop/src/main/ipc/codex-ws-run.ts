@@ -1,12 +1,15 @@
-// codex 主交互会话的 ws 运行编排(U5)。
+// codex 主交互会话的 ws 运行编排(U5,跨轮持久连接版)。
 //
-// 模型:app-server 进程 **per-session 长驻**(CodexServerManager 管理),ws 连接 **per-run**(每轮用户
-// 消息一条连接)。每轮:ensureServer → 连 ws → 首轮 thread/start / 续轮 thread/resume → turn/start →
-// 流式通知转发 → turn 终态 → 关 ws(server 保留,供下轮 resume,体现持久会话收益)。
+// 模型(已升级):app-server 进程 **per-session 长驻**(CodexServerManager),ws 连接 **per-session 持久**
+// —— 首轮:连接 + initialize + 建/续 thread;后续轮:**复用同一连接**,只发 turn/start(不再握手、不再
+// thread/resume)。这才吃满 app-server 相对 `codex exec` 的优势:轮间零进程冷启、零磁盘水合、零握手。
 //
-// 对外暴露一个实现 AgentProcess 接口的句柄,供 cli.ts 登记进 running map(cli:kill/killAllCli 统一)。
-// 与 spawn 路径对齐的不变量:任意路径(成功/失败/取消/超时/崩溃)**必产一个 cli:exit**;成功路径在
-// cli:exit 前先经通道转发一个 result(ok:true)。
+// 连接与 run 解耦:每个 sessionId 一个长驻 SessionConn(持有 channel + threadId);channel 的事件经
+// 委托(conn.onEvent 等)指向**当前活跃 run**,轮间切换。turn 结束只 detach run、**不关连接**;
+// 取消走 turn/interrupt(保连接);连接异常关闭/被驱逐 → 标记 dead,下轮惰性重建。
+//
+// 对外仍暴露一个实现 AgentProcess 接口的 per-run 句柄,供 cli.ts 登记进 running map。
+// 不变量:任意路径(成功/失败/取消/超时/崩溃)必产一个 cli:exit;成功路径先转发 result(ok:true)。
 
 import type { AgentProcess } from "./cli";
 import type { CliExitEvent, CliStartRequest, CliStreamEvent } from "./types";
@@ -20,34 +23,66 @@ export interface CodexWsRunOpts {
   def: AgentDef;
   mcpArgs?: string[];
   manager: CodexServerManager;
-  /** 转发归一化事件给渲染端(cli.ts 注入,内部带 runId/sessionId)。 */
   sendEvent: (ev: CliStreamEvent) => void;
-  /** 终态退出(cli.ts 注入:清理 running/MCP session 后 send cli:exit)。 */
   sendExit: (exit: CliExitEvent) => void;
-  /** 心跳:活跃期定期调用,渲染端据此重置 300s 静默看门狗(防长 MCP 工具误杀)。 */
   sendKeepalive?: () => void;
-  /** 主进程活跃看门狗阈值(ms)。 */
   inactivityMs: number;
-  /** 连接级失败的最大重试次数(默认 2,与 spawn 安全重试对齐)。 */
   retryMax?: number;
-  /** 通道工厂(默认真实 CodexWsChannel;测试注入 fake)。 */
   createChannel?: (opts: CodexWsChannelOpts) => CodexWsChannel;
-  /** 客户端版本(initialize.clientInfo.version)。 */
   clientVersion?: string;
 }
 
+// 每会话一个长驻连接。channel 事件经 onEvent/onActivity/onConnClose 委托到当前活跃 run。
+interface SessionConn {
+  channel: CodexWsChannel;
+  wsUrl: string;
+  threadId?: string;
+  dead: boolean;
+  onEvent?: (ev: CliStreamEvent) => void;
+  onActivity?: () => void;
+  onConnClose?: () => void;
+}
+
+const sessionConns = new Map<string, SessionConn>();
+
+/** 应用退出:关闭全部持久 codex ws 连接(配合 killAllCli 回收 server)。 */
+export function closeAllCodexChannels(): void {
+  for (const c of sessionConns.values()) {
+    c.dead = true;
+    try {
+      c.channel.close();
+    } catch {
+      /* 已关闭 */
+    }
+  }
+  sessionConns.clear();
+}
+
+/** 丢弃某会话的连接(server 被杀/驱逐时调,下轮惰性重建)。 */
+export function dropCodexChannel(sessionId: string): void {
+  const c = sessionConns.get(sessionId);
+  if (!c) return;
+  c.dead = true;
+  sessionConns.delete(sessionId);
+  try {
+    c.channel.close();
+  } catch {
+    /* 已关闭 */
+  }
+}
+
 const RETRY_BACKOFF_MS = 800;
-const KEEPALIVE_MIN_INTERVAL_MS = 50_000; // < 渲染端 300s 静默阈值,留足余量
+const KEEPALIVE_MIN_INTERVAL_MS = 50_000;
 
 export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
-  const { req, def, manager, sendEvent, sendExit } = opts;
+  const { req, def, manager } = opts;
   const retryMax = opts.retryMax ?? 2;
   const makeChannel = opts.createChannel ?? ((o) => new CodexWsChannel(o));
 
-  let channel: CodexWsChannel | null = null;
+  let conn: SessionConn | null = null;
   let settled = false;
   let cancelled = false;
-  let sawAnyVisible = false; // text/tool/result 任一 → 不再做连接级重试
+  let sawAnyVisible = false;
   let watchdog: ReturnType<typeof setTimeout> | undefined;
   let lastKeepaliveAt = 0;
   const exitCbs: ((code: number | null) => void)[] = [];
@@ -59,7 +94,6 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
     }
   };
 
-  // 任意 ws 活跃:重置主看门狗 + 节流心跳(渲染端长 MCP 工具静默期不被误杀)。
   const noteActivity = () => {
     clearWatchdog();
     watchdog = setTimeout(onWatchdogTrip, opts.inactivityMs);
@@ -81,28 +115,28 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
       agent: req.agent,
       data: { inactivityMs: opts.inactivityMs },
     });
-    // 长跑卡死:杀掉该会话 server(可能 wedged),给超时退出。
+    // 长跑卡死:杀会话 server 并丢弃连接(下轮重建),给超时退出。
     manager.killServer(req.sessionId);
+    dropCodexChannel(req.sessionId);
     finish({ code: null, error: `活跃超时:${Math.round(opts.inactivityMs / 1000)} 秒无输出,已终止` });
   }
 
-  // 终态收口(幂等):清看门狗、置 busy=false、关通道、回调 onExit、send cli:exit。
+  // 终态收口(幂等):清看门狗、置 busy=false、**detach 本 run 的连接回调(不关连接)**、回调 onExit、send cli:exit。
   function finish(exit: { code: number | null; error?: string }): void {
     if (settled) return;
     settled = true;
     clearWatchdog();
     manager.setBusy(req.sessionId, false);
-    try {
-      channel?.close();
-    } catch {
-      /* 已关闭 */
+    // 仅当连接的当前 sink 仍是本 run 时才摘除(避免摘掉下一 run 已挂上的回调)。
+    if (conn && conn.onEvent === forward) {
+      conn.onEvent = undefined;
+      conn.onActivity = undefined;
+      conn.onConnClose = undefined;
     }
     for (const cb of exitCbs) cb(exit.code);
-    sendExit({ runId: req.runId, sessionId: req.sessionId, code: exit.code, error: exit.error });
+    opts.sendExit({ runId: req.runId, sessionId: req.sessionId, code: exit.code, error: exit.error });
   }
 
-  // 转发归一化事件;text → recordStreamDelta,其余 → recordAgentTrace(对齐 spawn 管线)。
-  // 收到 result 即 turn 终态:转发后收口(成功/失败均如此)。
   function forward(ev: CliStreamEvent): void {
     if (settled) return;
     if (ev.type === "text") {
@@ -116,7 +150,6 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
         agent: req.agent,
       });
     } else {
-      // thinking(reasoning/commentary)也算可见输出:推理已流出后失败不再重试,避免重复。
       if (ev.type === "tool" || ev.type === "result" || ev.type === "thinking") sawAnyVisible = true;
       recordAgentTrace({
         scope: "cli",
@@ -128,14 +161,10 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
         data: { parsedEvent: ev },
       });
     }
-    sendEvent(ev);
-    if (ev.type === "result") {
-      // turn 终态:result 已转发,收口退出(server 保留供下轮 resume)。
-      finish({ code: ev.ok ? 0 : 0, error: ev.ok ? undefined : ev.error });
-    }
+    opts.sendEvent(ev);
+    if (ev.type === "result") finish({ code: 0, error: ev.ok ? undefined : ev.error });
   }
 
-  // 连接级失败:无可见输出 + 仍有重试额度 + 未取消 → 退避后重试;否则失败收口。
   function failConnection(attempt: number, error: string): void {
     if (settled) return;
     if (!cancelled && !sawAnyVisible && attempt < retryMax) {
@@ -148,7 +177,7 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
         agent: req.agent,
         data: { attempt: attempt + 1, error },
       });
-      sendEvent({ type: "retry", attempt: attempt + 1, maxAttempts: retryMax, reason: "connection" });
+      opts.sendEvent({ type: "retry", attempt: attempt + 1, maxAttempts: retryMax, reason: "connection" });
       setTimeout(() => {
         if (cancelled) {
           finish({ code: null });
@@ -158,14 +187,36 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
       }, RETRY_BACKOFF_MS);
       return;
     }
-    // 不可重试:转一个失败 result(渲染端唯一终态信号)+ 退出。
     forwardResultThenExit(false, error);
   }
 
   function forwardResultThenExit(ok: boolean, error?: string): void {
     if (settled) return;
-    sendEvent({ type: "result", ok, error });
+    opts.sendEvent({ type: "result", ok, error });
     finish({ code: 0, error: ok ? undefined : error });
+  }
+
+  // 获取或(重)建会话连接。dead 或 wsUrl 变化(server 重启/换端口)→ 重建。
+  function getOrCreateConn(wsUrl: string): { conn: SessionConn; fresh: boolean } {
+    let existing = sessionConns.get(req.sessionId);
+    if (existing && (existing.dead || existing.wsUrl !== wsUrl)) {
+      dropCodexChannel(req.sessionId);
+      existing = undefined;
+    }
+    if (existing) return { conn: existing, fresh: false };
+    const created: SessionConn = { channel: null as unknown as CodexWsChannel, wsUrl, dead: false };
+    created.channel = makeChannel({
+      wsUrl,
+      clientVersion: opts.clientVersion,
+      onEvent: (ev) => created.onEvent?.(ev),
+      onActivity: () => created.onActivity?.(),
+      onClose: ({ expected }) => {
+        created.dead = true;
+        if (!expected) created.onConnClose?.();
+      },
+    });
+    sessionConns.set(req.sessionId, created);
+    return { conn: created, fresh: true };
   }
 
   async function runAttempt(attempt: number): Promise<void> {
@@ -189,89 +240,76 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
         extraEnv: def.extraEnv,
       });
     } catch (e) {
-      // ensureServer 失败(就绪超时/旧版不支持)→ 连接级,可重试。
       failConnection(attempt, errMsg(e));
       return;
     }
     if (cancelled || settled) return;
 
-    const ch = makeChannel({
-      wsUrl: server.wsUrl,
-      clientVersion: opts.clientVersion,
-      onEvent: (ev) => forward(ev),
-      onActivity: () => noteActivity(),
-      onClose: ({ expected }) => {
-        // 非预期关闭(server 崩溃/网络断)且未收口 → 连接级失败(可重试)。
-        if (!expected && !settled) failConnection(attempt, "ws 连接意外关闭");
-      },
-      onError: () => {
-        /* 错误经 onClose / request reject 路由,这里不重复收口 */
-      },
-    });
-    channel = ch;
+    const { conn: c, fresh } = getOrCreateConn(server.wsUrl);
+    conn = c;
+    // 把本 run 接到该连接(委托 sink)。
+    c.onEvent = forward;
+    c.onActivity = noteActivity;
+    c.onConnClose = () => {
+      if (!settled) failConnection(attempt, "ws 连接意外关闭");
+    };
     noteActivity();
 
     try {
-      await ch.connect();
-      if (cancelled || settled) return;
-      // U6 续接:带 resumeSessionId/continueSession → thread/resume(失败=session-lost,不重试);
-      // 否则首轮 thread/start。
       const resumeId = resolveResumeThreadId(req);
-      if (resumeId) {
+      if (fresh) {
+        await c.channel.connect();
+        if (cancelled || settled) return;
+        if (resumeId) {
+          // 续接(失败=session-lost,归一化错误供渲染端清除 agentSessionId,不重试)。
+          try {
+            await c.channel.resumeThread(resumeId, { cwd: req.cwd, permissionMode: req.permissionMode, model: req.model });
+          } catch (e) {
+            forwardResultThenExit(false, `thread/resume failed: ${errMsg(e)}`);
+            return;
+          }
+          c.threadId = resumeId;
+        } else {
+          c.threadId = await c.channel.startThread({ cwd: req.cwd, permissionMode: req.permissionMode, model: req.model });
+        }
+      } else if (resumeId && resumeId !== c.threadId) {
+        // 复用连接但请求续到不同 thread(编辑重发/切历史):同连接上 resume 目标 thread。
         try {
-          await ch.resumeThread(resumeId, {
-            cwd: req.cwd,
-            permissionMode: req.permissionMode,
-            model: req.model,
-          });
+          await c.channel.resumeThread(resumeId, { cwd: req.cwd, permissionMode: req.permissionMode, model: req.model });
         } catch (e) {
-          // 续接失败:归一化为 isMissingAgentSessionError 可匹配的文本 → 渲染端清除 agentSessionId。
           forwardResultThenExit(false, `thread/resume failed: ${errMsg(e)}`);
           return;
         }
-      } else {
-        await ch.startThread({ cwd: req.cwd, permissionMode: req.permissionMode, model: req.model });
+        c.threadId = resumeId;
       }
       if (cancelled || settled) return;
-      await ch.startTurn({
-        input: buildTurnInput(req),
-        effort: req.effort,
-        model: req.model,
-      });
-      // 之后经通知流式产出,直至 result → finish。
+      // 每轮发 init(从 threadId):首轮新建/续接、后续轮复用,渲染端据此维护 agentSessionId。
+      if (c.threadId) forward({ type: "init", sessionId: c.threadId });
+      await c.channel.startTurn({ input: buildTurnInput(req), effort: req.effort, model: req.model });
+      // 之后经通知流式产出,直至 result → finish(连接保留供下轮)。
     } catch (e) {
-      // 握手/启动 turn 失败:连接级(可重试,前提无可见输出)。
       failConnection(attempt, errMsg(e));
     }
   }
 
-  // 启动首轮。
   void runAttempt(0);
 
-  // 返回 AgentProcess 句柄(供 running map + cli:kill)。
   return {
     pid: undefined,
     stdout: null,
     stderr: null,
     onExit: (cb) => exitCbs.push(cb),
-    onError: () => {
-      /* ws 路径错误经 result/exit 表达,无独立 error 通道 */
-    },
+    onError: () => {},
     kill: () => {
       if (settled) return;
       cancelled = true;
-      // 取消优先 turn/interrupt(OQ5),再关 ws;server 保留(下轮可 resume)。
-      void channel?.interrupt().finally(() => {
-        finish({ code: null });
-      });
-      // interrupt 可能挂起:即便上面未及时 finish,这里兜底(finish 幂等)。
-      finish({ code: null });
+      // 取消:turn/interrupt(OQ5)中断当前 turn,**保留连接**(下轮可继续);interrupt 尽力而为。
+      void conn?.channel.interrupt().finally(() => finish({ code: null }));
+      finish({ code: null }); // 幂等兜底
     },
   };
 }
 
-// resumeSessionId 优先;continueSession 复用 resumeSessionId(渲染端持久化的最近 threadId)。
-// app-server 无「--last」语义,故 continueSession 等价于「按已存 threadId 续接」,无则首轮新建。
 function resolveResumeThreadId(req: CliStartRequest): string | undefined {
   return req.resumeSessionId || undefined;
 }
