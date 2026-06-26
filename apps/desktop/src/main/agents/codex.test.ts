@@ -73,17 +73,19 @@ describe("codexDef.buildArgs", () => {
     expect(stdin).toContain("<user_request>\nhello\n</user_request>");
   });
 
-  it("运行模式:plan → -s read-only + approval_policy=never,无 bypass", () => {
+  it("运行模式:plan → sandbox_mode=read-only + approval_policy=never,无 bypass,无 -s", () => {
     const { args } = codexDef.buildArgs({ ...baseReq, permissionMode: "plan" });
-    expect(args.join(" ")).toContain("-s read-only");
+    expect(args).toContain("sandbox_mode=read-only");
     expect(args).toContain("approval_policy=never");
+    expect(args).not.toContain("-s"); // resume 子命令不接受 -s,sandbox 统一走 -c sandbox_mode
     expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
-  it("运行模式:accept-edits → -s workspace-write + approval_policy=never", () => {
+  it("运行模式:accept-edits → sandbox_mode=workspace-write + approval_policy=never,无 -s", () => {
     const { args } = codexDef.buildArgs({ ...baseReq, permissionMode: "accept-edits" });
-    expect(args.join(" ")).toContain("-s workspace-write");
+    expect(args).toContain("sandbox_mode=workspace-write");
     expect(args).toContain("approval_policy=never");
+    expect(args).not.toContain("-s");
     expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
@@ -101,9 +103,22 @@ describe("codexDef.buildArgs", () => {
 
   it("运行模式:resume 分支模式标志在 threadId 之前;prompt 走 stdin", () => {
     const { args, stdin } = codexDef.buildArgs({ ...baseReq, permissionMode: "plan", resumeSessionId: "tid-1" });
-    expect(args.indexOf("read-only")).toBeLessThan(args.indexOf("tid-1"));
+    expect(args.indexOf("sandbox_mode=read-only")).toBeLessThan(args.indexOf("tid-1"));
     expect(args.at(-1)).toBe("tid-1");
     expect(stdin).toBe("hello");
+  });
+
+  // 回归:`codex exec resume` 子命令不接受 -s(实测 `error: unexpected argument '-s' found`)。
+  // 续接 + 非 full-auto 模式必须只用 -c sandbox_mode,绝不出现 -s,否则 spawn 即报错。
+  it("回归:resume + plan/accept-edits 绝不出现 -s(走 exec resume 子命令)", () => {
+    for (const mode of ["plan", "accept-edits"] as const) {
+      const cont = codexDef.buildArgs({ ...baseReq, permissionMode: mode, continueSession: true }).args;
+      expect(cont.slice(0, 2)).toEqual(["exec", "resume"]);
+      expect(cont).not.toContain("-s");
+      const byId = codexDef.buildArgs({ ...baseReq, permissionMode: mode, resumeSessionId: "tid-1" }).args;
+      expect(byId.slice(0, 2)).toEqual(["exec", "resume"]);
+      expect(byId).not.toContain("-s");
+    }
   });
 
   it("推理强度:effort → -c model_reasoning_effort=,缺省不带", () => {

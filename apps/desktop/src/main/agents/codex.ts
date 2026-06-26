@@ -1,10 +1,12 @@
 // codex CLI adapter。
-// 命令形态（实测 codex-cli 0.139.x）：
+// 命令形态（实测 codex-cli 0.142.x）：
 //   codex exec --json --skip-git-repo-check
-//              [-s read-only|workspace-write -c approval_policy=never | --dangerously-bypass-approvals-and-sandbox]
+//              [-c sandbox_mode=read-only|workspace-write -c approval_policy=never | --dangerously-bypass-approvals-and-sandbox]
 //              --cd <cwd> [--model m] <prompt>
-//   codex exec resume --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox
+//   codex exec resume --json --skip-git-repo-check
+//              [-c sandbox_mode=… -c approval_policy=never | --dangerously-bypass-approvals-and-sandbox]
 //              [--model m] <threadId> <prompt>
+// 注:resume 子命令不接受 -s/--sandbox(仅顶层 exec 有);sandbox 统一走 -c sandbox_mode 两端通用。
 // JSONL 每行一个事件：
 //   {type:"thread.started",thread_id}                              → init
 //   {type:"item.started",item:{type:"command_execution",command}}  → tool
@@ -77,12 +79,16 @@ export const codexDef: AgentDef = {
     // 运行模式 → sandbox + 审批策略。codex exec 不接受 --ask-for-approval(顶层 TUI 才有),
     // 审批走 -c approval_policy;不用 --full-auto(= workspace-write + on-failure,on-failure 在
     // 无人审批的 print 模式会升级审批而卡住)。
-    //   plan        → -s read-only -c approval_policy=never（只读+无网,提权命令直接被拒不挂起）
-    //   accept-edits → -s workspace-write -c approval_policy=never（自动写 cwd,默认不联网）
-    //   full-auto/缺省 → --dangerously-bypass-approvals-and-sandbox（= danger-full-access 无审批,现用）
+    // sandbox 必须经 -c sandbox_mode=<mode>(而非 -s/--sandbox flag):common 数组对 `exec` 与
+    // `exec resume` 两分支通用,而 `codex exec resume` 子命令不接受 -s(实测 0.142.x:
+    // `error: unexpected argument '-s' found`),仅接受 -c 配置覆盖。-c sandbox_mode 等价于 -s 且
+    // 两端通吃,故续接非 full-auto 会话不再崩。
+    //   plan        → sandbox_mode=read-only + approval_policy=never（只读+无网,提权命令直接被拒不挂起）
+    //   accept-edits → sandbox_mode=workspace-write + approval_policy=never（自动写 cwd,默认不联网）
+    //   full-auto/缺省 → --dangerously-bypass-approvals-and-sandbox（= danger-full-access 无审批,resume 也接受）
     const mode = req.permissionMode ?? "full-auto";
-    if (mode === "plan") common.push("-s", "read-only", "-c", "approval_policy=never");
-    else if (mode === "accept-edits") common.push("-s", "workspace-write", "-c", "approval_policy=never");
+    if (mode === "plan") common.push("-c", "sandbox_mode=read-only", "-c", "approval_policy=never");
+    else if (mode === "accept-edits") common.push("-c", "sandbox_mode=workspace-write", "-c", "approval_policy=never");
     else common.push("--dangerously-bypass-approvals-and-sandbox");
     // MCP(U2):不再写死清空。关/无配置时不传 → codex 原生继承 ~/.codex 的 MCP;启用时公共管线经
     // mcpArgs 传入 `-c mcp_servers.<id>...`,放进 common(落在位置参数 threadId 之前)。
