@@ -984,6 +984,22 @@ describe("U1 过程流独立通道（CLI）", () => {
     expect(chatOf(qc).some((m) => m.kind === "agentLog")).toBe(false);
   });
 
+  it("thinking↔tool 交错:过程流按时序生成 [思考,工具,思考,工具] 多块,而非合并", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    // 真实 codex 轮:think → tool → think → tool。每次切换收尾对方的块,保留完整时间线。
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "先分析" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Shell", detail: "ls" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "再分析" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Shell", detail: "cat" }, "s1");
+    const proc = procOf(qc);
+    expect(proc.map((m) => m.kind)).toEqual(["reasoning", "agentLog", "reasoning", "agentLog"]);
+    // 两个思考块各自独立(不被合并),第一个已收尾、第二个仍活跃。
+    const reasonings = proc.filter((m) => m.kind === "reasoning");
+    expect(reasonings[0]).toMatchObject({ text: "先分析", active: false });
+    expect(reasonings[1]).toMatchObject({ text: "再分析" });
+  });
+
   it("tool 事件更新消息流里的 transient typing 占位,但不落盘", () => {
     const qc = new QueryClient();
     setupCliRun(qc);

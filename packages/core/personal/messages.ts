@@ -781,7 +781,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   if (ev.type === "thinking") {
     // 思考/执行过程(codex reasoning + commentary、claude thinking)落**右侧运行过程流**(不进对话回复、
     // 不落盘),与 pi 的 reasoning 折叠同一通道。用户要求:过程在右侧,回复只留 final answer。
+    // 阶段切换收尾:收到思考前先收尾打开的工具卡,使新思考块按时序追加到工具之后(think→tool→think
+    // 交错时不再把后段思考并回前一个思考块,保留完整的「思考→工具→再思考→再工具」时间线)。
     usePetStore.getState().set("thinking");
+    finalizeProcessAgentLog(qc, sessionId, run);
     foldReasoning(qc, run, ev.delta);
     return;
   }
@@ -789,6 +792,8 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   if (ev.type === "tool") {
     usePetStore.getState().set("working");
     updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
+    // 阶段切换收尾:收到工具前先收尾打开的思考块,使新工具卡按时序追加到思考之后(保留交错时间线)。
+    finalizeRunReasoning(qc, run);
     // 时间线：写类工具的 file_path 记为变更文件。
     const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
     if (changed) (run.changedFiles ??= new Set()).add(changed);
