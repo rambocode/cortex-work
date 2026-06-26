@@ -356,6 +356,7 @@ export {
   useSetWorkflowEnabled,
   useSetWorkflowCallableByAgent,
   useRunWorkflowNow,
+  useRunWorkflowNode,
   useStopWorkflowRun,
   useDeleteWorkflowRun,
   useImportWorkflow,

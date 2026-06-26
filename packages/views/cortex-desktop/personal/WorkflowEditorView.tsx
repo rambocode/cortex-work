@@ -31,6 +31,7 @@ import {
   useWorkflowRuns,
   useUpdateWorkflow,
   useRunWorkflowNow,
+  useRunWorkflowNode,
   useStopWorkflowRun,
   useWorkflows,
 } from "@cortex-work/core";
@@ -137,6 +138,7 @@ type Props = {
 export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
   const updateWorkflow = useUpdateWorkflow();
   const runNow = useRunWorkflowNow();
+  const runNode = useRunWorkflowNode();
   const stopRun = useStopWorkflowRun();
   const { data: runs = [] } = useWorkflowRuns(workflow.id);
   // 全量工作流列表（loop/subworkflow 选择器用）
@@ -291,12 +293,23 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
 
   // ── 节点操作（传给 WorkflowCanvas）──────────────────────────────────────
 
+  // 单节点运行：先保存当前编辑(后端按 workflowId+nodeId 从存储读取最新 config)，
+  // 再调 workflow:node:run，结果以 toast 反馈。
   const handleRunNode = useCallback(
-    (_nodeId: string) => {
-      // U6 阶段：单节点运行 IPC 待 U7 配置面板完成后配合，此处 toast 提示
-      onToast("单节点运行将在 U7 配置面板落地后支持");
+    async (nodeId: string) => {
+      await handleSave();
+      try {
+        const res = await runNode.mutateAsync({
+          workflowId: workflow.id,
+          nodeId,
+        });
+        if (res?.ok) onToast("节点运行完成");
+        else onToast(`节点运行失败：${res?.error ?? "未知错误"}`);
+      } catch (e) {
+        onToast(`节点运行失败：${e instanceof Error ? e.message : String(e)}`);
+      }
     },
-    [onToast],
+    [handleSave, runNode, workflow.id, onToast],
   );
 
   const handleToggleDisabled = useCallback((nodeId: string) => {

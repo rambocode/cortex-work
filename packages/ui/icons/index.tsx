@@ -363,6 +363,13 @@ export const Icon = {
       <polygon points="13 2 4 14 11 14 10 22 20 9 13 9 13 2" />
     </IconBase>
   ),
+  // Power：电源开关（节点启用/禁用切换）。
+  Power: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+      <line x1="12" y1="2" x2="12" y2="12" />
+    </IconBase>
+  ),
   Code: (p: IconProps) => (
     <IconBase {...p}>
       <path d="M8 7l-5 5 5 5" />

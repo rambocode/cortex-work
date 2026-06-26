@@ -23,7 +23,7 @@ import type {
   WorkflowNodeRunStatus,
 } from "@cortex-work/core";
 import { WORKFLOW_NODE_KINDS } from "@cortex-work/core";
-import { NODE_ICONS, nodeCategory, CATEGORY_LABELS } from "./workflow-flow";
+import { NODE_ICONS, nodeCategory } from "./workflow-flow";
 import type { WorkflowFlowNodeData } from "./workflow-flow";
 import { StickyNoteNode } from "./StickyNoteNode";
 
@@ -263,14 +263,14 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
     config: node.config as AnyConfig,
   });
 
-  // 5 色分类：图标芯片用 .wf-cat-{category} 着色（对齐 mockup）。
+  // 5 色分类：图标芯片用 .wf-cat-{category} 着色（分类仅由图标颜色体现，不再显示文字标签）。
   const category = nodeCategory(node.type);
   const trimmedName = node.name.trim();
   const title = trimmedName || NODE_LABELS[node.type] || node.type;
-  // 标题已是自定义名时，副标题展示节点类型名；否则用分类名，避免与标题文字重复。
-  const kindLine = trimmedName
-    ? NODE_LABELS[node.type] || node.type
-    : CATEGORY_LABELS[category];
+  // 副标题：显示节点属性摘要(如 HTTP 的 GET、定时的 cron)，取代原「所属分类」文字。
+  // 无摘要时：标题为自定义名 → 回退展示节点类型名；默认名且无摘要 → 留空。
+  const subtitle =
+    summary || (trimmedName ? NODE_LABELS[node.type] || node.type : "");
 
   const ring = selected
     ? "border-accent ring-2 ring-accent/30"
@@ -318,7 +318,7 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
             aria-label={node.disabled ? "启用节点" : "禁用节点"}
             onClick={() => actions.toggleDisabled(id)}
           >
-            <Icon.Lightning size={14} sw={1.9} />
+            <Icon.Power size={14} sw={1.9} />
           </button>
           <button
             type="button"
@@ -348,22 +348,15 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
           <div className="truncate text-[13px] font-semibold text-ds-ink">
             {title}
           </div>
-          <div className="truncate text-[11px] text-ds-faint">{kindLine}</div>
+          {subtitle ? (
+            <div className="truncate text-[11px] text-ds-faint">{subtitle}</div>
+          ) : null}
         </div>
         {/* 运行状态指示点 */}
         <span
           className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(status)}`}
         />
       </div>
-
-      {/* 摘要行：与头部以细分隔线分隔；配置值用 mono 芯片呈现（对齐 mockup node-sub 的等宽值）*/}
-      {summary ? (
-        <div className="mx-3 flex items-center border-t border-ds-border/60 py-2">
-          <span className="truncate rounded-[5px] bg-ds-hover px-1.5 py-0.5 font-mono text-[10.5px] text-ds-ink">
-            {summary}
-          </span>
-        </div>
-      ) : null}
 
       {/* 输出 handle：按节点类型分支渲染 */}
       {node.type === "condition" ? (

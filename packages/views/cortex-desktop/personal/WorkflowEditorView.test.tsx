@@ -18,6 +18,9 @@ vi.mock("@cortex-work/core", async (orig) => {
     useWorkflows: () => ({ data: h.workflows }),
     useUpdateWorkflow: () => ({ mutateAsync: h.updateWorkflow }),
     useRunWorkflowNow: () => ({ mutateAsync: h.runNow }),
+    useRunWorkflowNode: () => ({
+      mutateAsync: vi.fn().mockResolvedValue({ ok: true }),
+    }),
     useStopWorkflowRun: () => ({ mutateAsync: h.stopRun }),
   };
 });
