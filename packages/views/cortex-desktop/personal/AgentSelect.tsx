@@ -17,6 +17,7 @@ export function AgentSelect({
   agentsAvailable,
   derivedAgents,
   onSwitch,
+  menuPlacement = "down",
 }: {
   // 当前选中的内置 base agent（session.agent / draft.agent 始终存 base）。
   agent: AgentKind;
@@ -25,6 +26,8 @@ export function AgentSelect({
   agentsAvailable: Partial<Record<AgentKind, boolean>> | undefined;
   derivedAgents: DerivedAgentMeta[] | undefined;
   onSwitch: (agent: AgentKind, derived?: DerivedAgentMeta) => void;
+  // 菜单弹出方向：顶栏会话头默认向下;底部 composer 工具栏传 "up" 向上,避免被下方区域遮挡。
+  menuPlacement?: "down" | "up";
 }) {
   const menu = useDismissableMenu();
   // 当前选中键:派生优先(显示派生名/头像),否则内置 base。
@@ -59,7 +62,7 @@ export function AgentSelect({
           </span>
         </button>
         {menu.open ? (
-          <div className="pw-tb-menu" role="menu">
+          <div className={`pw-tb-menu ${menuPlacement === "up" ? "pw-tb-menu--up" : ""}`} role="menu">
             {(Object.keys(AGENT_MODELS) as AgentKind[]).map((a) => {
               // pi 是内置兜底,永不禁用;其余 agent 未探测到安装时禁用并标注。
               const unavailable = a !== "pi" && agentsAvailable?.[a] === false;

@@ -803,6 +803,7 @@ export function ComposerShell({
               agentsAvailable={agentsAvailable}
               derivedAgents={derivedAgents}
               onSwitch={onChangeAgent}
+              menuPlacement="up"
             />
           ) : null}
           <span className="pill pw-model-pill">

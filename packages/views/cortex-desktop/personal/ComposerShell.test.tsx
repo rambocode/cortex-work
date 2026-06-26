@@ -695,6 +695,8 @@ describe("ComposerShell agent 选择器(opt-in)", () => {
     const trigger = screen.getByRole("button", { name: /Claude Code/ });
     expect(trigger).toBeTruthy();
     fireEvent.click(trigger);
+    // composer 工具栏在底部 → 菜单向上弹出,避免被 GitBar/终端遮挡。
+    expect(document.querySelector(".pw-tb-menu.pw-tb-menu--up")).not.toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: /我的CX/ }));
     expect(onChangeAgent).toHaveBeenCalledWith("codex", { id: "my-cx", base: "codex", label: "我的CX" });
   });
