@@ -29,13 +29,15 @@ export function SpriteLayer({ kind, state, walking }: SpriteLayerProps) {
 
   if (!anim) return null;
 
-  // 单帧(frames<=1)无需逐帧动画:steps(0) 非法,退化为静态贴图。
+  // 单帧(frames<=1)无需逐帧动画:steps(<2,jump-none) 非法,退化为静态贴图。
   const animated = anim.frames > 1;
   const durSec = anim.fps > 0 ? anim.frames / anim.fps : 0;
 
   const style: SpriteStyle = {
     "--sprite-frames": String(anim.frames),
-    "--sprite-steps": String(Math.max(1, anim.frames - 1)),
+    // jump-none 在 0%→100% 上停 N 个位置(0, 1/(N-1), … 1),恰好命中 N 帧;
+    // 故步数 = 帧数 N(不是 N-1,否则会停在两帧中间,出现「半帧+半帧」鬼影)。
+    "--sprite-steps": String(Math.max(2, anim.frames)),
     "--sprite-dur": `${durSec}s`,
     // 双引号包裹:资产经打包器内联为 data: URI 时会含括号/引号,裸 url() 无法解析。
     backgroundImage: `url("${anim.src}")`,
