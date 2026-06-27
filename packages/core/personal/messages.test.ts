@@ -1079,6 +1079,8 @@ describe("U1 过程流独立通道（CLI）", () => {
     setupCliRun(qc);
     __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "", stage: "intent", stageLabel: "理解意图中…" }, "s1");
     __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "", stage: "subagent", stageLabel: "子 agent 执行中…" }, "s1");
+    // refine 段输出进聊天正文,过程面板其后无内容,不插标题(避免悬空"假进行中")。
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "", stage: "refine", stageLabel: "整理回复中…" }, "s1");
     const stages = procOf(qc).filter((m) => m.kind === "stageTitle");
     expect(stages.map((m) => (m as { label: string }).label)).toEqual(["理解意图中…", "子 agent 执行中…"]);
     // 空 delta 不得创建空 reasoning 块（段边界走 stageTitle 通道，不进 foldReasoning）。

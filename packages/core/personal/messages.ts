@@ -794,8 +794,13 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 会创建空 reasoning 块。普通 thinking 不带 stage/stageLabel,走下方原逻辑。
     if (ev.stage && ev.stageLabel) {
       usePetStore.getState().set("thinking");
+      // 先收尾上一段仍 active 的 reasoning/agentLog（强制下段开新块、及时打勾）。
       finalizeProcessAgentLog(qc, sessionId, run);
       finalizeRunReasoning(qc, run);
+      // refine（整理回复）段的输出直接进聊天正文，过程面板里其后没有任何内容——插段标题会悬空成
+      // 「假进行中」（与已完成 badge 矛盾，见用户反馈）。故只给 intent/subagent 两段（过程留在面板）
+      // 插标题；refine 段仅做上面的收尾，不插标题。
+      if (ev.stage === "refine") return;
       const stage = ev.stage;
       const label = ev.stageLabel;
       setProcessMessages(qc, sessionId, (prev) => [
