@@ -5373,9 +5373,13 @@ button.sb-row {
 
 /* 状态配件默认隐藏 */
 .pet-bubble, .pet-zzz, .pet-gear, .pet-sweat, .pet-heart, .pet-mouth-talk,
-.pet-eyes-happy, .pet-eyes-closed { opacity: 0; visibility: hidden; }
+.pet-eyes-happy, .pet-eyes-closed, .pet-typing { opacity: 0; visibility: hidden; }
 
-/* —— typing:耳朵竖起,瞳孔看左下,尾巴加速 —— */
+/* —— typing:耳朵竖起,瞳孔看左下,尾巴加速,头顶小铅笔写字 —— */
+.pet[data-state="typing"] .pet-typing { opacity: 1; visibility: visible; }
+.pet[data-state="typing"] .pet-typing { transform-origin: 119px 28px; animation: pet-write 0.5s ease-in-out infinite; }
+.pet[data-state="typing"] .pet-typing-marks .d1 { animation: pet-dot 0.9s ease-in-out infinite; }
+.pet[data-state="typing"] .pet-typing-marks .d2 { animation: pet-dot 0.9s ease-in-out 0.3s infinite; }
 .pet[data-state="typing"] .pet-ear-l { transform: rotate(8deg); animation: none; }
 .pet[data-state="typing"] .pet-ear-r { transform: rotate(-8deg); }
 .pet[data-state="typing"] .pet-pupils { transform: translate(-2.4px, 2px); }
@@ -5492,6 +5496,12 @@ button.sb-row {
 @keyframes pet-dot {
   0%, 100% { opacity: 0.25; transform: translateY(0); }
   35% { opacity: 1; transform: translateY(-1.6px); }
+}
+/* typing 铅笔:小幅写字摆动(轻转 + 微颤) */
+@keyframes pet-write {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  25% { transform: rotate(-7deg) translateY(0.6px); }
+  75% { transform: rotate(6deg) translateY(-0.4px); }
 }
 
 /* 宠物:拖动 + 伪 3D 视差 */

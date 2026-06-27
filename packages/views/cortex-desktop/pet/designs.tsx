@@ -60,6 +60,20 @@ export function Accessories() {
         d="M112 24 c-2.6 -5 -10 -3.2 -10 2 c0 4.4 6 7.6 10 10.4 c4 -2.8 10 -6 10 -10.4 c0 -5.2 -7.4 -7 -10 -2z"
         fill="var(--accent, #c96442)"
       />
+      {/* typing:头顶冒一支写字的小铅笔(用户正在输入时摆动)。 */}
+      <g className="pet-typing">
+        <g transform="rotate(34 119 20)">
+          <rect x="115" y="6" width="8" height="4" rx="1.2" fill="#f4a0b4" stroke={OUTLINE} strokeWidth="1.2" />
+          <rect x="115" y="10" width="8" height="2" fill="#cfcfcf" stroke={OUTLINE} strokeWidth="0.8" />
+          <rect x="115" y="12" width="8" height="13" fill="#f5c542" stroke={OUTLINE} strokeWidth="1.3" />
+          <path d="M115 25 h8 l-4 6 z" fill="#e8c08a" stroke={OUTLINE} strokeWidth="1.2" strokeLinejoin="round" />
+          <path d="M117.6 28.5 h2.8 l-1.4 2.5 z" fill={OUTLINE} />
+        </g>
+        <g className="pet-typing-marks" stroke="var(--accent, #c96442)" strokeWidth="1.6" strokeLinecap="round">
+          <path className="dot d1" d="M101 40 h6" />
+          <path className="dot d2" d="M101 44 h9" />
+        </g>
+      </g>
     </>
   );
 }
