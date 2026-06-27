@@ -780,7 +780,7 @@ export function ComposerShell({
               <Icon.Plus size={15} />
             </button>
             {attachMenu.open ? (
-              <div className="pw-tb-menu pw-tb-menu--up" role="menu">
+              <div className="pw-tb-menu pw-tb-menu--up pw-tb-menu--left" role="menu">
                 <button
                   className="pw-tb-menu-item"
                   role="menuitem"

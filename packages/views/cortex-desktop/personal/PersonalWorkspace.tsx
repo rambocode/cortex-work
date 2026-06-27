@@ -15,6 +15,7 @@ import {
   usePersonalStore,
   useSpotlightHandoff,
 } from "@cortex-work/core";
+import { useResponsiveLeftCollapsed } from "../useResponsiveLeftCollapsed";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { PersonalSidebar } from "./PersonalSidebar";
 import { PersonalChatArea } from "./PersonalChatArea";
@@ -83,6 +84,8 @@ export function PersonalWorkspace({
   useNotesChangeSubscription();
   // 进入落地页默认收起右栏（无项目不显示、选项目不自动弹出）。
   useCloseRightPanelOnHome(homeOpen);
+  // 窗口宽度 < 760pt 时自动收缩左栏；恢复宽度后自动展开。
+  useResponsiveLeftCollapsed();
 
   // 启动时探测本机已安装的 agent CLI（claude/codex…）,供新建会话默认值与
   // agent 下拉禁用态使用;探测失败静默,UI 退化为不标注未安装。

@@ -1406,6 +1406,11 @@ input, textarea { font: inherit; color: inherit; }
   flex-shrink: 0;
 }
 .composer {
+  /* 限制输入框可见宽度上限 728px 并在会话区居中:约束放在本体而非 .composer-wrap,
+     不受外层 padding 与密度变体影响,宽屏下两侧自动留白 */
+  width: 100%;
+  max-width: 728px;
+  margin-inline: auto;
   border: 1px solid var(--border);
   background: var(--bg-app);
   border-radius: 14px;
@@ -5237,6 +5242,11 @@ button.sb-row {
 .pw-tb-menu.pw-tb-menu--up {
   top: auto;
   bottom: calc(100% + 6px);
+}
+/* 左对齐变体:按钮在工具栏左侧时用,菜单从左边缘向右展开,避免被侧边栏遮挡。 */
+.pw-tb-menu.pw-tb-menu--left {
+  left: 0;
+  right: auto;
 }
 .pw-tb-menu-item {
   display: flex;
