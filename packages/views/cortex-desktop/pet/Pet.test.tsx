@@ -90,10 +90,10 @@ describe("Pet 行为模式", () => {
       vi.advanceTimersByTime(600);
     });
     expect(pet.classList.contains("is-walking")).toBe(false);
-    expect(pet.querySelector(".pet-shadow")).not.toBeNull();
+    expect(pet.querySelector(".pet-3d")).not.toBeNull();
   });
 
-  it("纯自由拖拽时根节点坐标更新,地面阴影跟随同一个拖拽根节点", () => {
+  it("纯自由拖拽时根节点坐标更新", () => {
     localStorage.setItem(PET_WALK_KEY, "0");
     const { container } = render(<Pet />);
     const pet = container.querySelector(".pet") as HTMLElement;
@@ -107,7 +107,6 @@ describe("Pet 行为模式", () => {
     expect(parseFloat(pet.style.left)).toBe(160);
     expect(parseFloat(pet.style.top)).toBe(240);
     expect(JSON.parse(localStorage.getItem("cortex_pet_pos")!)).toEqual({ x: 160, y: 240 });
-    expect(pet.querySelector(".pet-shadow")?.parentElement).toBe(pet);
   });
 
   it("宠物根节点有稳定视觉盒,避免阴影按过宽块级盒居中偏移", () => {

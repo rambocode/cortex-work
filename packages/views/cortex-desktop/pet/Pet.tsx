@@ -377,7 +377,6 @@ export function Pet() {
           </svg>
         )}
       </div>
-      <div className="pet-shadow" />
     </div>
   );
 }

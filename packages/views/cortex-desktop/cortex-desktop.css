@@ -5349,15 +5349,6 @@ button.sb-row {
   from { background-position-x: 0%; }
   to { background-position-x: 100%; }
 }
-.pet-shadow {
-  width: calc(64px * var(--pet-scale, 1));
-  height: 8px;
-  margin: -4px auto 0;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.10);
-  animation: pet-shadow-breathe 3.2s ease-in-out infinite;
-}
-
 /* —— 基础动画:呼吸 / 眨眼 / 甩尾 —— */
 .pet-body, .pet-head { animation: pet-breathe 3.2s ease-in-out infinite; transform-origin: 70px 92px; }
 .pet-head { transform-origin: 60px 60px; }
@@ -5444,7 +5435,6 @@ button.sb-row {
 /* —— keyframes —— */
 @keyframes pet-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.022, 1.035); } }
 @keyframes pet-breathe-deep { 0%, 100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.04, 1.07); } }
-@keyframes pet-shadow-breathe { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(1.05); opacity: 0.85; } }
 @keyframes pet-tail {
   0%, 100% { transform: rotate(0deg); }
   50% { transform: rotate(14deg); }
@@ -5565,7 +5555,6 @@ button.sb-row {
 .pet.is-walking .paw.p1 { animation: pet-paw 0.36s ease-in-out infinite; }
 .pet.is-walking .paw.p2 { animation: pet-paw 0.36s ease-in-out 0.18s infinite; }
 .pet.is-walking .pet-tail { animation: pet-tail 1.4s ease-in-out infinite; }
-.pet.is-walking .pet-shadow { animation: none; transform: scaleX(0.96); }
 @keyframes pet-waddle {
   0%, 100% { transform: rotate(-1.6deg) translateY(0); }
   25% { transform: rotate(0deg) translateY(-1.6px); }
