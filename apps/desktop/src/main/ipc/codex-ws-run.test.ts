@@ -167,6 +167,56 @@ describe("startCodexWsRun(U5)", () => {
     expect(ch.startTurn).toHaveBeenCalledTimes(2); // 第二轮只发 turn
   });
 
+  it("首轮建 thread 失败后,复用同连接的下一轮补建 thread(回归:startTurn 前必有 thread)", async () => {
+    // getOrCreateConn 在 startThread 之前就把 conn 存进注册表:首轮 startThread 失败后 conn 仍留存,
+    // 下一轮复用(fresh=false)却没有 thread。修复前按 fresh 跳过建 thread → startTurn 报「startTurn 前
+    // 需先 startThread」;修复后按 c.threadId 判定,会补建 thread。
+    const exits: CliExitEvent[] = [];
+    let channel: FakeChannel | undefined;
+    let startThreadCalls = 0;
+    const manager = {
+      ensureServer: vi.fn(async () => ({ wsUrl: "ws://x", port: 1, restarted: false })),
+      setBusy: vi.fn(),
+      killServer: vi.fn(),
+    } as unknown as CodexServerManager;
+    const mk = (runId: string, sink: CliStreamEvent[]) =>
+      startCodexWsRun({
+        req: { runId, sessionId: "sx", agent: "codex", cwd: "/p", prompt: "hi" } as CliStartRequest,
+        def: { id: "codex", transport: "ws" } as AgentDef,
+        manager,
+        sendEvent: (e) => sink.push(e),
+        sendExit: (e) => exits.push(e),
+        inactivityMs: 1_000_000,
+        retryMax: 0,
+        createChannel: (o) => {
+          // 仅首轮新建(下一轮复用持久 conn,不再调本工厂)。startThread 首次失败、之后成功。
+          channel = new FakeChannel(o);
+          channel.startThread = vi.fn(async () => {
+            startThreadCalls++;
+            if (startThreadCalls === 1) throw new Error("thread/start 失败");
+            return "thr_ok";
+          }) as unknown as FakeChannel["startThread"];
+          return channel as unknown as ReturnType<NonNullable<CodexWsRunOpts["createChannel"]>>;
+        },
+      });
+
+    // 首轮:startThread 抛 → result false,但 conn 留在注册表(未 drop)。
+    const e1: CliStreamEvent[] = [];
+    mk("r1", e1);
+    await flush();
+    expect(e1.find((e) => e.type === "result")).toMatchObject({ ok: false });
+    expect(startThreadCalls).toBe(1);
+
+    // 下一轮:同 sessionId 复用 conn(channel 无 thread)→ 必须补建 thread,startTurn 正常发出。
+    const e2: CliStreamEvent[] = [];
+    mk("r2", e2);
+    await flush();
+    expect(startThreadCalls).toBe(2); // 补建(修复前会跳过)
+    channel!.emit({ type: "result", ok: true });
+    expect(channel!.startTurn).toHaveBeenCalled();
+    expect(e2.find((e) => e.type === "result")).toMatchObject({ ok: true });
+  });
+
   it("ensureServer 失败 + retryMax 0 → result ok:false + exit", async () => {
     const h = harness({}, { createChannel: undefined });
     // 用一个会抛错的 manager 覆盖

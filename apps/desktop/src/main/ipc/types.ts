@@ -508,15 +508,20 @@ export interface AgentProjectInfo {
 // 现有消费端(if 链 / 无 default 的 switch)自然忽略未知 type;`foldCliEvent` 对非 text/tool 事件
 // 原样返回,故 usage/retry/thinking/turn 不破坏文本/工具折叠;tool 的新增可选字段不影响既有读取。
 // ⚠️ 跨包契约:本类型在 packages/core/desktop/types.ts 有逐字镜像,任何改动两处必须同步。
+// stage / stageLabel 说明（orchestrate.ts 三段编排用）：
+//   stage     — 编排阶段标注（"intent"意图理解/"subagent"子agent执行/"refine"二次加工），
+//               非编排 run 不带此字段，向后兼容。
+//   stageLabel — 段切换时的人可读提示文案（如「理解意图中…」），供渲染端更新 typing 占位，
+//               可选增强字段；渲染端未消费时自然忽略。
 export type CliStreamEvent =
-  | { type: "init"; sessionId: string }
-  | { type: "text"; delta: string }
-  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string }
-  | { type: "thinking"; delta: string } // 思考/推理增量(reasoning 模型),对齐 PiSessionEvent.reasoning
-  | { type: "turn"; stopReason?: string } // 一轮 assistant 结束(claude stop_reason:end_turn/tool_use/...)
-  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number } // 流式 usage/cost(补充磁盘来源,见 KTD3)
-  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string } // 安全重试发起(对齐 pi retry)
-  | { type: "result"; ok: boolean; text?: string; error?: string };
+  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
+  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
+  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
+  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 思考/推理增量(reasoning 模型),对齐 PiSessionEvent.reasoning
+  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 一轮 assistant 结束(claude stop_reason:end_turn/tool_use/...)
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 流式 usage/cost(补充磁盘来源,见 KTD3)
+  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 安全重试发起(对齐 pi retry)
+  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string };
 
 export interface CliExitEvent {
   runId: string;

@@ -58,6 +58,9 @@ import type {
   WorkflowRun,
   WorkflowRunEvent,
 } from "../main/ipc/types";
+// 方案 A：编排请求类型权威定义留在 orchestrate.ts，此处 type-only 引入（编译期擦除，
+// 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
+import type { OrchestrateStartRequest } from "../main/ipc/orchestrate";
 import type {
   LocalWhisperModelProgress,
   LocalWhisperModelStatus,
@@ -234,6 +237,14 @@ const personal = {
   listTtsVoices: (req: TtsListVoicesRequest): Promise<TtsVoiceOption[]> => ipcRenderer.invoke("tts:listVoices", req),
   asrTranscribe: (req: AsrTranscribeRequest): Promise<AsrTranscribeResponse> => ipcRenderer.invoke("asr:transcribe", req),
   killCli: (runId: string): Promise<void> => ipcRenderer.invoke("cli:kill", runId),
+  // 三段编排接入：start 走 invoke（等结果）；kill 走 send（fire-and-forget，对齐主进程
+  // ipcMain.on("orchestrate:kill")）。事件流复用 onCliEvent/onCliExit（runId=orchestrationRunId）。
+  startOrchestration: (req: OrchestrateStartRequest): Promise<void> =>
+    ipcRenderer.invoke("orchestrate:start", req),
+  killOrchestration: (runId: string): Promise<void> => {
+    ipcRenderer.send("orchestrate:kill", runId);
+    return Promise.resolve();
+  },
   agentSessionExists: (req: AgentSessionRequest): Promise<boolean> =>
     ipcRenderer.invoke("cli:agentSessionExists", req),
   trimAgentSession: (req: TrimSessionRequest): Promise<boolean> => ipcRenderer.invoke("cli:trimSession", req),
