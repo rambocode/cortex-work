@@ -115,7 +115,8 @@ export interface OrchestrateStartRequest {
   prompt: string;
   /** 模型 id（可选；缺省由 adapter 使用默认值） */
   model?: string;
-  /** 推理强度（可选；适配 CliStartRequest.effort） */
+  /** 推理强度（可选；适配 CliStartRequest.effort）。仅段2（真实执行）透传——段1/段3是轻量
+   *  提示词转换且仅 60s 超时，高 effort 反而易超时，故沿用 adapter 默认。 */
   effort?: string;
   /**
    * 访问范围/沙箱档（plan/accept-edits/full-auto/sandbox）。仅段2（真实执行）透传，
@@ -158,7 +159,8 @@ async function runStage(opts: {
   agent: string;
   cwd: string;
   model?: string;
-  /** 仅段2传入：访问范围/审批/系统提示词追加块（段1/段3省略 → adapter 默认）。 */
+  /** 仅段2传入：推理强度/访问范围/审批/系统提示词追加块（段1/段3省略 → adapter 默认）。 */
+  effort?: string;
   permissionMode?: string;
   approvalPolicy?: string;
   appendSystemPrompt?: string;
@@ -167,7 +169,7 @@ async function runStage(opts: {
   /** 每个非 result 事件的回调（调用方已注入 stage 字段） */
   onEvent: (ev: CliStreamEvent) => void;
 }): Promise<StageRunResult> {
-  const { stage, prompt, agent, cwd, model, permissionMode, approvalPolicy, appendSystemPrompt, signal, timeoutMs, onEvent } = opts;
+  const { stage, prompt, agent, cwd, model, effort, permissionMode, approvalPolicy, appendSystemPrompt, signal, timeoutMs, onEvent } = opts;
 
   // signal 提前取消时直接拒绝，避免无谓 spawn
   if (signal.aborted) {
@@ -186,7 +188,8 @@ async function runStage(opts: {
     prompt,
     model: model ?? undefined,
     // 仅段2会传这些（段1/段3为 undefined → adapter 走默认）：让子 agent 真实执行尊重会话的
-    // 访问范围/审批策略，并带上 skills/附件/项目等系统提示词上下文。
+    // 推理强度/访问范围/审批策略，并带上 skills/附件/项目等系统提示词上下文。
+    effort: effort as CliStartRequest["effort"],
     permissionMode: permissionMode as CliStartRequest["permissionMode"],
     approvalPolicy: approvalPolicy as CliStartRequest["approvalPolicy"],
     appendSystemPrompt,
@@ -299,7 +302,7 @@ export function registerOrchestrateHandlers(): void {
   // 渲染端经 cli:event / cli:exit 消费事件流（与普通 cli:start 共用同一通道，
   // 区别在于事件携带 stage 字段，且中间段 result 不触发 finalizeRun）。
   ipcMain.handle("orchestrate:start", async (event, req: OrchestrateStartRequest) => {
-    const { orchestrationRunId: runId, sessionId, agent, cwd, prompt, model, permissionMode, approvalPolicy, appendSystemPrompt } = req;
+    const { orchestrationRunId: runId, sessionId, agent, cwd, prompt, model, effort, permissionMode, approvalPolicy, appendSystemPrompt } = req;
 
     const sender = event.sender;
     const controller = new AbortController();
@@ -357,7 +360,8 @@ export function registerOrchestrateHandlers(): void {
       agent,
       cwd,
       model,
-      // 仅段2透传会话访问范围/审批/系统提示词上下文（段1/段3不传，见 OrchestrateStartRequest 注释）。
+      // 仅段2透传会话推理强度/访问范围/审批/系统提示词上下文（段1/段3不传，见 OrchestrateStartRequest 注释）。
+      effort,
       permissionMode,
       approvalPolicy,
       appendSystemPrompt,

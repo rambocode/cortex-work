@@ -254,6 +254,60 @@ describe("三段顺序执行与 prompt 串接", () => {
   });
 });
 
+// ── 会话上下文仅段2透传（effort / permissionMode / approvalPolicy） ──────────────
+// 回归保护：effort 曾在 handler 解构与 runStage 中漏接，导致段2用 adapter 默认推理强度而非会话设定。
+// 段1/段3是轻量提示词转换，必须沿用 adapter 默认（不透传），否则 plan 会话也会被允许写盘、
+// 高 effort 还会拖慢 60s 限时的轻量段。
+describe("会话上下文仅段2透传", () => {
+  it("effort/permissionMode/approvalPolicy 只进段2 buildArgs，段1/段3为 undefined", async () => {
+    const proc1 = new FakeProc();
+    const proc2 = new FakeProc();
+    const proc3 = new FakeProc();
+    const procs = [proc1, proc2, proc3];
+    startAgentProcessMock.mockImplementation(() => procs.shift());
+
+    const onLines: Array<(line: string) => void> = [];
+    pipeStdoutLinesMock.mockImplementation(
+      (_stdout: unknown, onLine: (line: string) => void) => {
+        onLines.push(onLine);
+        return () => {};
+      },
+    );
+
+    const sender = makeSender();
+    const event = makeEvent(sender);
+    const handler = ipcHandlers.get("orchestrate:start")!;
+    const req = { ...baseReq, effort: "high", permissionMode: "plan", approvalPolicy: "ask" };
+    const handlerP = handler(event, req) as Promise<void>;
+
+    // 段1
+    await flushAsync();
+    onLines[0](JSON.stringify({ type: "result", ok: true, text: "改写" }));
+    proc1.exit(0);
+    // 段2
+    await flushAsync();
+    onLines[1](JSON.stringify({ type: "result", ok: true, text: "执行结果" }));
+    proc2.exit(0);
+    // 段3
+    await flushAsync();
+    onLines[2](JSON.stringify({ type: "result", ok: true, text: "最终" }));
+    proc3.exit(0);
+    await handlerP;
+
+    const argFor = (i: number) =>
+      (fakeAdapter.buildArgs.mock.calls as unknown[][])[i]?.[0] as
+        | { effort?: string; permissionMode?: string; approvalPolicy?: string }
+        | undefined;
+    // 段2（subagent）透传会话设定。
+    expect(argFor(1)).toMatchObject({ effort: "high", permissionMode: "plan", approvalPolicy: "ask" });
+    // 段1（intent）/段3（refine）均为 undefined → adapter 默认。
+    expect(argFor(0)?.effort).toBeUndefined();
+    expect(argFor(0)?.permissionMode).toBeUndefined();
+    expect(argFor(2)?.effort).toBeUndefined();
+    expect(argFor(2)?.permissionMode).toBeUndefined();
+  });
+});
+
 // ── stage 字段正确注入 ────────────────────────────────────────────────────────
 
 describe("各段事件携带正确 stage", () => {
