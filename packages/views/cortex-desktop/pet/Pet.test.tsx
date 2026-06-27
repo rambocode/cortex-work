@@ -140,32 +140,12 @@ describe("Pet 行为模式", () => {
     expect(localStorage.getItem(PET_ENABLED_KEY)).toBe("0");
   });
 
-  it("perch 模式找不到输入框:回退全身造型(不带 is-perched)", () => {
+  it("perch 已退役:历史持久化的 perch 强制迁回 free(走 sprite,不进趴姿)", () => {
     localStorage.setItem(PET_MODE_KEY, "perch");
     const { container } = render(<Pet />);
-    const pet = container.querySelector(".pet")!;
-    expect(pet.getAttribute("data-mode")).toBe("perch");
+    const pet = container.querySelector(".pet") as HTMLElement;
+    expect(pet.getAttribute("data-mode")).toBe("free");
     expect(pet.classList.contains("is-perched")).toBe(false);
-  });
-
-  it("perch 模式锚定 .composer-wrap:渲染专属趴姿 + 前爪", () => {
-    localStorage.setItem(PET_MODE_KEY, "perch");
-    const anchor = document.createElement("div");
-    anchor.className = "composer-wrap";
-    anchor.getBoundingClientRect = () =>
-      ({ left: 100, top: 500, width: 400, height: 120, right: 500, bottom: 620, x: 100, y: 500, toJSON: () => ({}) }) as DOMRect;
-    document.body.appendChild(anchor);
-    try {
-      const { container } = render(<Pet />);
-      const pet = container.querySelector(".pet.is-perched");
-      expect(pet).not.toBeNull();
-      // 专属趴姿:两只垂搭前爪
-      expect(pet!.querySelectorAll(".perch-paw").length).toBe(2);
-      // 头部中心(x=60,比例 104/140)水平居中于 composer;框沿基线对齐输入框上沿
-      expect(parseFloat((pet as HTMLElement).style.left)).toBeCloseTo(100 + 200 - 60 * (104 / 140), 0);
-      expect(parseFloat((pet as HTMLElement).style.top)).toBeCloseTo(500 - 80 * (104 / 140), 0);
-    } finally {
-      anchor.remove();
-    }
+    expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull(); // 默认 cat,走 sprite
   });
 });

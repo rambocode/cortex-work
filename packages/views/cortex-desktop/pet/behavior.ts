@@ -10,13 +10,11 @@ export const PET_ENABLED_KEY = "cortex_pet_enabled";
 /** 闲时走动的触发阈值:10 分钟没有任何事件才开始散步。 */
 export const WALK_IDLE_DELAY_MS = 600_000;
 
-const MODES: PetMode[] = ["free", "perch"];
-
+// 行为设置已下线,宠物统一「自由放置」(free)。perch(趴输入框)是仅 SVG 的旧造型,
+// 已退役;这里清理历史持久化值(老用户可能卡在 perch → 一直显示旧 SVG),恒定返回 free。
 export function loadPetMode(): PetMode {
   try {
-    const m = localStorage.getItem(PET_MODE_KEY);
-    if (m && (MODES as string[]).includes(m)) return m as PetMode;
-    if (m === "walk") return "free"; // 旧版「底部走动」模式 → 自由放置 + 走动开关
+    if (localStorage.getItem(PET_MODE_KEY) !== null) localStorage.removeItem(PET_MODE_KEY);
   } catch {
     /* 忽略 */
   }
@@ -41,13 +39,6 @@ export function savePetWalk(walk: boolean): void {
   }
 }
 
-export function savePetMode(mode: PetMode): void {
-  try {
-    localStorage.setItem(PET_MODE_KEY, mode);
-  } catch {
-    /* 忽略 */
-  }
-}
 
 export function loadPetEnabled(): boolean {
   try {

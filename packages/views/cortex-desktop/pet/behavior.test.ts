@@ -7,7 +7,6 @@ import {
   loadPetMode,
   loadPetWalk,
   savePetEnabled,
-  savePetMode,
   savePetWalk,
   stepWalk,
 } from "./behavior";
@@ -58,17 +57,15 @@ describe("mode / walk / enabled 持久化", () => {
     expect(loadPetMode()).toBe("free");
   });
 
-  it("旧版「底部走动」模式值迁移为 free", () => {
+  it("行为已退役:任何历史持久化值(含 perch)都迁回 free 并被清理", () => {
+    localStorage.setItem(PET_MODE_KEY, "perch");
+    expect(loadPetMode()).toBe("free");
+    expect(localStorage.getItem(PET_MODE_KEY)).toBeNull(); // 清掉,老用户不再卡 perch
     localStorage.setItem(PET_MODE_KEY, "walk");
     expect(loadPetMode()).toBe("free");
   });
 
-  it("save / load 往返:mode / walk / enabled", () => {
-    savePetMode("perch");
-    expect(loadPetMode()).toBe("perch");
-    savePetMode("free");
-    expect(loadPetMode()).toBe("free");
-
+  it("save / load 往返:walk / enabled", () => {
     expect(loadPetWalk()).toBe(false); // 默认关(自由放置,不自动巡逻)
     savePetWalk(true);
     expect(loadPetWalk()).toBe(true);
