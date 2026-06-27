@@ -5329,6 +5329,26 @@ button.sb-row {
 .pet:hover { transform: scale(1.04); }
 .pet:active { transform: scale(0.96); }
 .pet svg { display: block; overflow: visible; }
+
+/* —— sprite 序列帧渲染层(SpriteLayer.tsx)——
+   百分比 sprite 法:sheet 缩放成 N 个容器宽,position-x 0%→100% 配 steps(N-1) 精确逐帧。
+   宽高比锁 110:100(与现有造型一致),随 .pet 的 --pet-scale 缩放,不依赖像素。 */
+.pet-sprite {
+  width: 100%;
+  aspect-ratio: 110 / 100;
+  background-repeat: no-repeat;
+  background-position: 0% 0%;
+  background-size: calc(var(--sprite-frames, 1) * 100%) 100%;
+  image-rendering: auto; /* 手绘资产用平滑采样;像素风资产可改 pixelated */
+  animation-name: pet-sprite-run;
+  animation-duration: var(--sprite-dur, 1s);
+  animation-timing-function: steps(var(--sprite-steps, 1), jump-none);
+  animation-iteration-count: infinite;
+}
+@keyframes pet-sprite-run {
+  from { background-position-x: 0%; }
+  to { background-position-x: 100%; }
+}
 .pet-shadow {
   width: calc(64px * var(--pet-scale, 1));
   height: 8px;
@@ -5512,7 +5532,8 @@ button.sb-row {
 
 /* —— 底部巡逻道(自由放置 + 走动开关):无聊散步 / 有事件平滑归位最右 —— */
 /* 行进朝向:向左走时整体水平翻转(暂停时保持朝向,避免突兀回正) */
-.pet[data-dir="left"] .pet-3d > svg { transform: scaleX(-1); }
+.pet[data-dir="left"] .pet-3d > svg,
+.pet[data-dir="left"] .pet-3d > .pet-sprite { transform: scaleX(-1); }
 .pet.is-gliding { transition: transform 0.15s ease, left 1.2s ease-in-out, top 0.4s ease; }
 .pet.is-walking:hover { transform: none; } /* 行走中不做悬停放大,避免与步态叠加抖动 */
 .pet.is-walking .pet-3d { transition: none; }

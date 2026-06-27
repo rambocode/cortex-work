@@ -1,0 +1,60 @@
+import { cleanup, render } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { afterEach, describe, expect, it } from "vitest";
+import { PET_SPRITES } from "./sprites";
+import { SpriteLayer } from "./SpriteLayer";
+
+const petCss = readFileSync("cortex-desktop/cortex-desktop.css", "utf8");
+
+describe("SpriteLayer", () => {
+  afterEach(cleanup);
+
+  it("有 sprite 的角色渲染 .pet-sprite 并注入帧数 / 时长 / 背景", () => {
+    const { container } = render(<SpriteLayer kind="cat" state="idle" walking={false} />);
+    const el = container.querySelector(".pet-sprite") as HTMLElement;
+    expect(el).not.toBeNull();
+    expect(el.style.getPropertyValue("--sprite-frames")).toBe("4");
+    expect(el.style.getPropertyValue("--sprite-steps")).toBe("3");
+    // dur = frames/fps = 4/5 = 0.8s
+    expect(el.style.getPropertyValue("--sprite-dur")).toBe("0.8s");
+    expect(el.style.backgroundImage).toContain(PET_SPRITES.cat!.idle!.src);
+  });
+
+  it("状态切换改变所选 anim(idle→happy)", () => {
+    const { container, rerender } = render(<SpriteLayer kind="cat" state="idle" walking={false} />);
+    let el = container.querySelector(".pet-sprite") as HTMLElement;
+    expect(el.getAttribute("data-anim-frames")).toBe("4");
+    expect(el.getAttribute("data-anim")).toBe("cat:idle:still");
+
+    rerender(<SpriteLayer kind="cat" state="happy" walking={false} />);
+    el = container.querySelector(".pet-sprite") as HTMLElement;
+    expect(el.getAttribute("data-anim-frames")).toBe("5"); // happy 5 帧
+    // happy loop:false → 播一次停末帧
+    expect(el.style.animationIterationCount).toBe("1");
+    expect(el.style.animationFillMode).toBe("forwards");
+  });
+
+  it("散步覆盖状态,选中 walk anim", () => {
+    const { container } = render(<SpriteLayer kind="cat" state="happy" walking={true} />);
+    const el = container.querySelector(".pet-sprite") as HTMLElement;
+    expect(el.getAttribute("data-anim")).toBe("cat:happy:walk");
+    expect(el.style.backgroundImage).toContain(PET_SPRITES.cat!.walk!.src);
+  });
+
+  it("sleeping 为 pingpong 往复", () => {
+    const { container } = render(<SpriteLayer kind="cat" state="sleeping" walking={false} />);
+    const el = container.querySelector(".pet-sprite") as HTMLElement;
+    expect(el.style.animationDirection).toBe("alternate");
+  });
+
+  it("无 sprite 资产的角色渲染 null(交由 Pet 回退 SVG)", () => {
+    const { container } = render(<SpriteLayer kind="shiba" state="idle" walking={false} />);
+    expect(container.querySelector(".pet-sprite")).toBeNull();
+  });
+
+  it("CSS 用 steps(...) 逐帧且声明百分比 sprite 尺寸", () => {
+    expect(petCss).toMatch(/\.pet-sprite\s*\{[^}]*background-size:\s*calc\(var\(--sprite-frames[^)]*\) \* 100%\) 100%/s);
+    expect(petCss).toMatch(/animation-timing-function:\s*steps\(var\(--sprite-steps, 1\), jump-none\)/s);
+    expect(petCss).toMatch(/@keyframes pet-sprite-run/s);
+  });
+});

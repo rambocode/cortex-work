@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="100" viewBox="0 0 440 100" shape-rendering="geometricPrecision"><!-- PLACEHOLDER sprite sheet (walk, 4 frames @ 110x100); replace via scripts/pet-sprites AI pipeline -->
+<g transform="translate(55 64) scale(1 1) translate(-55 -64)">
+    <ellipse cx="55" cy="81" rx="8" ry="6" fill="#c8783a"/>
+    <ellipse cx="75" cy="86" rx="8" ry="6" fill="#c8783a"/>
+    <ellipse cx="59" cy="64" rx="30" ry="26" fill="#f0a868"/>
+    <ellipse cx="59" cy="70" rx="17" ry="15" fill="#fcdcb6"/>
+    <path d="M 27 66 q -16 -6 -10 -20" stroke="#f0a868" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <g transform="rotate(-3 55 40)">
+      <path d="M 35 24 l -4 -16 l 16 8 Z" fill="#f0a868"/>
+      <path d="M 75 24 l 4 -16 l -16 8 Z" fill="#f0a868"/>
+      <circle cx="55" cy="40" r="20" fill="#f0a868"/>
+      <circle cx="46" cy="42" r="3.4" fill="#3a2a1a"/><circle cx="64" cy="42" r="3.4" fill="#3a2a1a"/>
+      <path d="M 50 51 q 5 4 10 0" stroke="#3a2a1a" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    </g>
+    
+  </g>
+<g transform="translate(165 62) scale(1 1) translate(-165 -62)">
+    <ellipse cx="165" cy="84" rx="8" ry="6" fill="#c8783a"/>
+    <ellipse cx="185" cy="84" rx="8" ry="6" fill="#c8783a"/>
+    <ellipse cx="169" cy="62" rx="30" ry="26" fill="#f0a868"/>
+    <ellipse cx="169" cy="68" rx="17" ry="15" fill="#fcdcb6"/>
+    <path d="M 137 64 q -16 -6 -10 -20" stroke="#f0a868" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <g transform="rotate(0 165 38)">
+      <path d="M 145 22 l -4 -16 l 16 8 Z" fill="#f0a868"/>
+      <path d="M 185 22 l 4 -16 l -16 8 Z" fill="#f0a868"/>
+      <circle cx="165" cy="38" r="20" fill="#f0a868"/>
+      <circle cx="156" cy="40" r="3.4" fill="#3a2a1a"/><circle cx="174" cy="40" r="3.4" fill="#3a2a1a"/>
+      <path d="M 160 49 q 5 4 10 0" stroke="#3a2a1a" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    </g>
+    
+  </g>
+<g transform="translate(275 64) scale(1 1) translate(-275 -64)">
+    <ellipse cx="275" cy="86" rx="8" ry="6" fill="#c8783a"/>
+    <ellipse cx="295" cy="81" rx="8" ry="6" fill="#c8783a"/>
+    <ellipse cx="279" cy="64" rx="30" ry="26" fill="#f0a868"/>
+    <ellipse cx="279" cy="70" rx="17" ry="15" fill="#fcdcb6"/>
+    <path d="M 247 66 q -16 -6 -10 -20" stroke="#f0a868" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <g transform="rotate(3 275 40)">
+      <path d="M 255 24 l -4 -16 l 16 8 Z" fill="#f0a868"/>
+      <path d="M 295 24 l 4 -16 l -16 8 Z" fill="#f0a868"/>
+      <circle cx="275" cy="40" r="20" fill="#f0a868"/>
+      <circle cx="266" cy="42" r="3.4" fill="#3a2a1a"/><circle cx="284" cy="42" r="3.4" fill="#3a2a1a"/>
+      <path d="M 270 51 q 5 4 10 0" stroke="#3a2a1a" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    </g>
+    
+  </g>
+<g transform="translate(385 62) scale(1 1) translate(-385 -62)">
+    <ellipse cx="385" cy="84" rx="8" ry="6" fill="#c8783a"/>
+    <ellipse cx="405" cy="84" rx="8" ry="6" fill="#c8783a"/>
+    <ellipse cx="389" cy="62" rx="30" ry="26" fill="#f0a868"/>
+    <ellipse cx="389" cy="68" rx="17" ry="15" fill="#fcdcb6"/>
+    <path d="M 357 64 q -16 -6 -10 -20" stroke="#f0a868" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <g transform="rotate(0 385 38)">
+      <path d="M 365 22 l -4 -16 l 16 8 Z" fill="#f0a868"/>
+      <path d="M 405 22 l 4 -16 l -16 8 Z" fill="#f0a868"/>
+      <circle cx="385" cy="38" r="20" fill="#f0a868"/>
+      <circle cx="376" cy="40" r="3.4" fill="#3a2a1a"/><circle cx="394" cy="40" r="3.4" fill="#3a2a1a"/>
+      <path d="M 380 49 q 5 4 10 0" stroke="#3a2a1a" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    </g>
+    
+  </g>
+</svg>

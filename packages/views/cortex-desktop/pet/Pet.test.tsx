@@ -4,6 +4,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePetStore } from "@cortex-work/core";
 import { PET_ENABLED_KEY, PET_MODE_KEY, PET_WALK_KEY, WALK_IDLE_DELAY_MS } from "./behavior";
+import { PET_KIND_KEY } from "./designs";
 import { Pet } from "./Pet";
 
 function resetStore() {
@@ -113,6 +114,21 @@ describe("Pet 行为模式", () => {
     expect(petCss).toMatch(/\.pet\s*\{[^}]*width:\s*calc\(110px \* var\(--pet-scale, 1\)\)/s);
     expect(petCss).toMatch(/\.pet\s*\{[^}]*height:\s*calc\(100px \* var\(--pet-scale, 1\)\)/s);
     expect(petCss).toMatch(/\.pet-3d\s*\{[^}]*width:\s*100%/s);
+  });
+
+  it("有 sprite 的角色(cat)走序列帧层,不渲染内联 SVG 造型", () => {
+    const { container } = render(<Pet />); // 默认 kind=cat
+    const pet = container.querySelector(".pet") as HTMLElement;
+    expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull();
+    expect(pet.querySelector(".pet-3d > svg")).toBeNull();
+  });
+
+  it("无 sprite 的角色(shiba)回退内联 SVG,不渲染 sprite 层", () => {
+    localStorage.setItem(PET_KIND_KEY, "shiba");
+    const { container } = render(<Pet />);
+    const pet = container.querySelector(".pet") as HTMLElement;
+    expect(pet.querySelector(".pet-3d > .pet-sprite")).toBeNull();
+    expect(pet.querySelector(".pet-3d > svg")).not.toBeNull();
   });
 
   it("点击 ✕ 隐藏宠物并持久化", () => {

@@ -18,6 +18,8 @@ import { useEffect, useRef, useState } from "react";
 import { usePetStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { PERCH_EDGE_Y, PET_DESIGNS, loadPetColor, loadPetKind, loadPetSize, petColorVars } from "./designs";
+import { hasSprites } from "./sprites";
+import { SpriteLayer } from "./SpriteLayer";
 import {
   WALK_IDLE_DELAY_MS,
   loadPetEnabled,
@@ -357,9 +359,15 @@ export function Pet() {
         className="pet-3d"
         style={tilt ? { transform: `rotateX(${tilt.rx.toFixed(1)}deg) rotateY(${tilt.ry.toFixed(1)}deg)` } : undefined}
       >
-        <svg viewBox="0 0 140 120" width={Math.round(SVG_W * size)} height={Math.round(SVG_H * size)} aria-hidden="true">
-          <Parts />
-        </svg>
+        {/* 角色级共存:有 sprite 资产走序列帧渲染层,否则回退现有内联 SVG 造型。
+            外围定位/巡逻/拖拽/节拍器与 sprite 层正交,均不受影响。 */}
+        {hasSprites(kind) ? (
+          <SpriteLayer kind={kind} state={state} walking={walking} />
+        ) : (
+          <svg viewBox="0 0 140 120" width={Math.round(SVG_W * size)} height={Math.round(SVG_H * size)} aria-hidden="true">
+            <Parts />
+          </svg>
+        )}
       </div>
       <div className="pet-shadow" />
     </div>
