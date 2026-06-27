@@ -69,11 +69,11 @@ describe("mode / walk / enabled 持久化", () => {
     savePetMode("free");
     expect(loadPetMode()).toBe("free");
 
-    expect(loadPetWalk()).toBe(true); // 默认开
-    savePetWalk(false);
-    expect(loadPetWalk()).toBe(false);
+    expect(loadPetWalk()).toBe(false); // 默认关(自由放置,不自动巡逻)
     savePetWalk(true);
     expect(loadPetWalk()).toBe(true);
+    savePetWalk(false);
+    expect(loadPetWalk()).toBe(false);
 
     expect(loadPetEnabled()).toBe(true); // 默认显示
     savePetEnabled(false);

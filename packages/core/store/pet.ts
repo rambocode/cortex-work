@@ -47,7 +47,7 @@ export const usePetStore = create<PetStore>((set) => ({
   state: "idle",
   kind: "cat",
   mode: "free",
-  walk: true,
+  walk: false,
   enabled: true,
   size: 1,
   color: null,

@@ -40,17 +40,17 @@ describe("Pet 行为模式", () => {
     expect(container.querySelector(".pet")).toBeNull();
   });
 
-  it("默认 free + 走动开:常驻巡逻道最右侧,但不立刻走动", () => {
-    const { container } = render(<Pet />);
+  it("默认自由放置:free 模式、不进巡逻道、不自动走动", () => {
+    const { container } = render(<Pet />); // 默认 walk 关
     const pet = container.querySelector(".pet") as HTMLElement;
     expect(pet.getAttribute("data-mode")).toBe("free");
     expect(pet.classList.contains("is-walking")).toBe(false);
-    expect(pet.classList.contains("is-gliding")).toBe(true);
-    expect(parseFloat(pet.style.left)).toBe(RIGHT_X);
+    expect(pet.classList.contains("is-gliding")).toBe(false);
   });
 
-  it("安静满 10 分钟才开始走动;一有事件平滑归位最右侧", () => {
+  it("显式开启走动:安静满 10 分钟才开始走动;一有事件平滑归位最右侧", () => {
     vi.useFakeTimers();
+    localStorage.setItem(PET_WALK_KEY, "1"); // 走动为隐藏能力,显式开启才生效
     const { container } = render(<Pet />);
     const pet = container.querySelector(".pet") as HTMLElement;
 

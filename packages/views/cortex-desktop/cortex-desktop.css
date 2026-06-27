@@ -6436,6 +6436,14 @@ button.sb-row {
 }
 /* 预览中隐藏状态配件,只展示本体 */
 .pet-preview { display: block; }
+/* 设置页造型预览:真实 sprite 的 idle 首帧(静态,停在第 0 帧) */
+.pet-preview-sprite {
+  display: block;
+  width: 84px;
+  aspect-ratio: 110 / 100;
+  background-repeat: no-repeat;
+  background-position: 0% 0%;
+}
 .pet-preview .pet-bubble,
 .pet-preview .pet-zzz,
 .pet-preview .pet-gear,

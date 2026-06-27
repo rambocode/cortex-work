@@ -30,7 +30,6 @@ import {
   usePetStore,
   useUpdateState,
   type PetKind,
-  type PetMode,
 } from "@cortex-work/core";
 import { UpdateDialog } from "../UpdateDialog";
 import type {
@@ -53,16 +52,9 @@ import type {
 } from "@cortex-work/core";
 import type { Density, FontScale, Palette, SidebarMode, ThemeMode } from "@cortex-work/core/types";
 import { useTranslation, type Locale } from "@cortex-work/core/i18n";
-import {
-  PET_COLOR_KEY,
-  PET_DESIGNS,
-  PET_KIND_KEY,
-  PET_SIZE_KEY,
-  PET_SIZE_MAX,
-  PET_SIZE_MIN,
-  petColorVars,
-} from "../pet/designs";
-import { savePetEnabled, savePetMode, savePetWalk } from "../pet/behavior";
+import { PET_DESIGNS, PET_KIND_KEY, PET_SIZE_KEY, PET_SIZE_MAX, PET_SIZE_MIN } from "../pet/designs";
+import { PET_SPRITES } from "../pet/sprites";
+import { savePetEnabled } from "../pet/behavior";
 import { BUILTIN_AVATARS } from "./avatars";
 import { PluginManager } from "./PluginManager";
 import { BrowserSettingsSection } from "./BrowserSettingsSection";
@@ -130,12 +122,6 @@ const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
   { groupKey: "tabGroups.automation", items: ["timeline", "push"] },
 ];
 
-// 颜色预设(主色;深/浅两档由 petColorVars 自动派生)。
-const PET_COLOR_PRESETS = ["#ecb98a", "#e8a3b2", "#a3c4e8", "#9fc7a8", "#c9b6e8", "#9a958a"];
-
-// 行为模式 ↔ 设置页展示文案 key(SegmentedRadio 以展示值为选项,即时翻译)。
-const PET_MODES: PetMode[] = ["free", "perch"];
-const PET_MODE_KEY: Record<PetMode, string> = { free: "pet.modeFree", perch: "pet.modePerch" };
 
 // 个人资料:昵称 + 内置头像（写入 personal store 的 profile 切片,随工作区落盘;
 // 会话中 who="me" 的气泡据此渲染,见 ChatArea MessageAvatar/MessageHeader）。
@@ -189,29 +175,13 @@ function PetSection() {
   const { t: tPet } = useTranslation("pet");
   const petKind = usePetStore((s) => s.kind);
   const setPetKind = usePetStore((s) => s.setKind);
-  const petMode = usePetStore((s) => s.mode);
-  const setPetMode = usePetStore((s) => s.setMode);
-  const petWalk = usePetStore((s) => s.walk);
-  const setPetWalk = usePetStore((s) => s.setWalk);
   const petEnabled = usePetStore((s) => s.enabled);
   const setPetEnabled = usePetStore((s) => s.setEnabled);
   const petSize = usePetStore((s) => s.size);
   const setPetSize = usePetStore((s) => s.setSize);
-  const petColor = usePetStore((s) => s.color);
-  const setPetColor = usePetStore((s) => s.setColor);
-  const pickMode = (label: string) => {
-    const m = PET_MODES.find((k) => t(PET_MODE_KEY[k]) === label);
-    if (!m) return;
-    setPetMode(m);
-    savePetMode(m);
-  };
   const pickEnabled = (v: boolean) => {
     setPetEnabled(v);
     savePetEnabled(v);
-  };
-  const pickWalk = (v: boolean) => {
-    setPetWalk(v);
-    savePetWalk(v);
   };
   const pick = (k: PetKind) => {
     setPetKind(k);
@@ -229,16 +199,6 @@ function PetSection() {
       /* 忽略 */
     }
   };
-  const pickColor = (c: string | null) => {
-    setPetColor(c);
-    try {
-      if (c) localStorage.setItem(PET_COLOR_KEY, c);
-      else localStorage.removeItem(PET_COLOR_KEY);
-    } catch {
-      /* 忽略 */
-    }
-  };
-  const colorVars = petColor ? petColorVars(petColor) : null;
   return (
     <>
       <div className="pw-dlg-title">{t("pet.title")}</div>
@@ -246,35 +206,30 @@ function PetSection() {
 
       <SettingCard title={t("pet.cardTitle")}>
         <SwitchRow label={t("pet.showPet")} value={petEnabled} onChange={pickEnabled} />
-        <SRow label={t("pet.behavior")} desc={t("pet.behaviorDesc")}>
-          <SegmentedRadio
-            value={t(PET_MODE_KEY[petMode])}
-            options={PET_MODES.map((m) => t(PET_MODE_KEY[m]))}
-            onChange={pickMode}
-          />
-        </SRow>
-        {petMode === "free" ? (
-          <SwitchRow
-            label={t("pet.walk")}
-            desc={t("pet.walkDesc")}
-            value={petWalk}
-            onChange={pickWalk}
-          />
-        ) : null}
       </SettingCard>
 
       <SettingCard title={t("pet.appearanceCard")}>
         <SBlock label={t("pet.design")}>
-          <div className="pw-pet-grid" style={colorVars as React.CSSProperties | undefined}>
+          <div className="pw-pet-grid">
             {PET_KINDS.map((k) => {
-              const d = PET_DESIGNS[k];
-              const Parts = d.Parts;
+              // 预览用真实 sprite 的 idle 首帧(静态:背景定位停在第 0 帧);
+              // 无 sprite 的角色回退内联 SVG 造型。
+              const idle = PET_SPRITES[k]?.idle;
+              const Parts = PET_DESIGNS[k].Parts;
               return (
                 <button key={k} className={`pw-pet-card ${k === petKind ? "is-active" : ""}`} onClick={() => pick(k)}>
                   <span className="pet-preview">
-                    <svg viewBox="0 0 140 120" width="84" height="72" aria-hidden="true">
-                      <Parts />
-                    </svg>
+                    {idle ? (
+                      <span
+                        className="pet-preview-sprite"
+                        style={{ backgroundImage: `url("${idle.src}")`, backgroundSize: `${idle.frames * 100}% 100%` }}
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <svg viewBox="0 0 140 120" width="84" height="72" aria-hidden="true">
+                        <Parts />
+                      </svg>
+                    )}
                   </span>
                   <span className="pw-pet-name">{tPet(`kind.${k}.name`)}</span>
                   <span className="pw-pet-desc">{tPet(`kind.${k}.desc`)}</span>
@@ -302,30 +257,6 @@ function PetSection() {
             ) : null}
           </div>
         </SRow>
-        <SBlock label={t("pet.color")} desc={t("pet.colorDesc")}>
-          <div className="pw-pet-colors">
-            <button
-              className={`pw-pet-color-chip is-default ${petColor ? "" : "is-active"}`}
-              title={t("pet.colorDefaultTitle")}
-              onClick={() => pickColor(null)}
-            >
-              {t("pet.colorDefault")}
-            </button>
-            {PET_COLOR_PRESETS.map((c) => (
-              <button
-                key={c}
-                className={`pw-pet-color-chip ${petColor?.toLowerCase() === c ? "is-active" : ""}`}
-                style={{ background: c }}
-                title={c}
-                onClick={() => pickColor(c)}
-              />
-            ))}
-            <label className="pw-pet-color-chip is-custom" title={t("pet.colorCustomTitle")}>
-              <input type="color" value={petColor ?? "#ecb98a"} onChange={(e) => pickColor(e.target.value)} />
-              <Icon.Plus size={12} />
-            </label>
-          </div>
-        </SBlock>
       </SettingCard>
     </>
   );

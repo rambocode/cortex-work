@@ -23,11 +23,13 @@ export function loadPetMode(): PetMode {
   return "free";
 }
 
+// 默认「自由放置」:不自动巡逻走动(walk 默认 false),宠物停在原地、可拖拽。
+// 闲时底部走动作为隐藏能力保留(仅当显式持久化为 "1" 时启用)。
 export function loadPetWalk(): boolean {
   try {
-    return localStorage.getItem(PET_WALK_KEY) !== "0";
+    return localStorage.getItem(PET_WALK_KEY) === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 
