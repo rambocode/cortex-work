@@ -116,11 +116,13 @@ describe("Pet 行为模式", () => {
     expect(petCss).toMatch(/\.pet-3d\s*\{[^}]*width:\s*100%/s);
   });
 
-  it("有 sprite 的角色(cat)走序列帧层,不渲染内联 SVG 造型", () => {
+  it("有 sprite 的角色(cat)走序列帧层 + 配件叠加层,不渲染内联 SVG 造型", () => {
     const { container } = render(<Pet />); // 默认 kind=cat
     const pet = container.querySelector(".pet") as HTMLElement;
     expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull();
-    expect(pet.querySelector(".pet-3d > svg")).toBeNull();
+    // 浮动配件叠加层存在(状态反馈),但没有 body 造型 svg
+    expect(pet.querySelector(".pet-3d > svg.pet-accessories")).not.toBeNull();
+    expect(pet.querySelector(".pet-3d > svg:not(.pet-accessories)")).toBeNull();
   });
 
   it("无 sprite 的角色(shiba)回退内联 SVG,不渲染 sprite 层", () => {

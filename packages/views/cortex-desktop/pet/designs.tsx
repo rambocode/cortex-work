@@ -9,7 +9,9 @@ import type { PetKind } from "@cortex-work/core";
 const OUTLINE = "#4a3f30";
 
 // ── 共享配件:思考泡泡 / 对话气泡 / Zzz / 齿轮 / 汗滴 / 爱心 ────────────────
-function Accessories() {
+// 也被 sprite 路径作为叠加层复用(Pet.tsx 的 .pet-accessories),让 sprite 角色
+// 在 thinking/working/replying/sleeping/happy 下仍有浮动状态反馈。
+export function Accessories() {
   return (
     <>
       <g className="pet-bubble pet-think">

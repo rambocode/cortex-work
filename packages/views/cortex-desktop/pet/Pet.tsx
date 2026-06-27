@@ -17,7 +17,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePetStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { PERCH_EDGE_Y, PET_DESIGNS, loadPetColor, loadPetKind, loadPetSize, petColorVars } from "./designs";
+import { Accessories, PERCH_EDGE_Y, PET_DESIGNS, loadPetColor, loadPetKind, loadPetSize, petColorVars } from "./designs";
 import { hasSprites } from "./sprites";
 import { SpriteLayer } from "./SpriteLayer";
 import {
@@ -362,7 +362,15 @@ export function Pet() {
         {/* 角色级共存:有 sprite 资产走序列帧渲染层,否则回退现有内联 SVG 造型。
             外围定位/巡逻/拖拽/节拍器与 sprite 层正交,均不受影响。 */}
         {hasSprites(kind) ? (
-          <SpriteLayer kind={kind} state={state} walking={walking} />
+          <>
+            <SpriteLayer kind={kind} state={state} walking={walking} />
+            {/* 浮动配件叠加层:sprite 本体不含状态语义,靠这层复用现有 SVG 配件
+                (思考泡/齿轮/汗滴/Zzz/对话泡/爱心),由 .pet[data-state] 驱动显隐,
+                让 thinking/working/replying/sleeping/happy 仍有可见反馈。 */}
+            <svg className="pet-accessories" viewBox="0 0 140 120" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <Accessories />
+            </svg>
+          </>
         ) : (
           <svg viewBox="0 0 140 120" width={Math.round(SVG_W * size)} height={Math.round(SVG_H * size)} aria-hidden="true">
             <Parts />
