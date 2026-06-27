@@ -114,6 +114,8 @@ export function ComposerShell({
   onChangePermissionMode,
   approvalPolicy,
   onChangeApprovalPolicy,
+  subagentOrchestration,
+  onToggleSubagentOrchestration,
   onToggleSkills,
   onCancelEdit,
   onToast,
@@ -163,6 +165,9 @@ export function ComposerShell({
   onChangePermissionMode?: (mode: PermissionMode) => void;
   approvalPolicy?: ApprovalPolicy;
   onChangeApprovalPolicy?: (p: ApprovalPolicy) => void;
+  // 子 agent 编排开关(会话级布尔,opt-in)。仅 claude/codex 生效,CustomizePill 内按 agent 门控。
+  subagentOrchestration?: boolean;
+  onToggleSubagentOrchestration?: () => void;
   onToggleSkills: () => void;
   onCancelEdit?: () => void;
   onToast: (text: string) => void;
@@ -819,13 +824,15 @@ export function ComposerShell({
           />
           {/* 「自定义」下拉(置于「+」之后):合并原先并排的「执行模式」+「工作区」两 pill。
               两组均 opt-in,至少有一个 onChange 时才渲染整个按钮。 */}
-          {onChangeApprovalPolicy || onChangePermissionMode ? (
+          {onChangeApprovalPolicy || onChangePermissionMode || onToggleSubagentOrchestration ? (
             <CustomizePill
               agent={agent}
               approvalPolicy={approvalPolicy}
               onChangeApprovalPolicy={onChangeApprovalPolicy}
               permissionMode={permissionMode}
               onChangePermissionMode={onChangePermissionMode}
+              subagentOrchestration={subagentOrchestration}
+              onToggleSubagentOrchestration={onToggleSubagentOrchestration}
               running={running}
             />
           ) : null}

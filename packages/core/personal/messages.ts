@@ -788,6 +788,22 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     return;
   }
   if (ev.type === "thinking") {
+    // 三段编排段边界信号:orchestrate.ts sendStageStart 发的 { delta:"", stage, stageLabel }。
+    // 在过程流插入一个段标题块,让用户一眼看出当前在「意图理解/子 agent 执行/整理回复」哪一段;
+    // 同时收尾上一段仍 active 的 reasoning/agentLog(强制下段开新块)。不进 foldReasoning——空 delta
+    // 会创建空 reasoning 块。普通 thinking 不带 stage/stageLabel,走下方原逻辑。
+    if (ev.stage && ev.stageLabel) {
+      usePetStore.getState().set("thinking");
+      finalizeProcessAgentLog(qc, sessionId, run);
+      finalizeRunReasoning(qc, run);
+      const stage = ev.stage;
+      const label = ev.stageLabel;
+      setProcessMessages(qc, sessionId, (prev) => [
+        ...prev,
+        { kind: "stageTitle", who: run.agent, time: realHHMM(), stage, label, uid: uid("stg") },
+      ]);
+      return;
+    }
     // 思考/执行过程(codex reasoning + commentary、claude thinking)落**右侧运行过程流**(不进对话回复、
     // 不落盘),与 pi 的 reasoning 折叠同一通道。用户要求:过程在右侧,回复只留 final answer。
     // 阶段切换收尾:收到思考前先收尾打开的工具卡,使新思考块按时序追加到工具之后(think→tool→think

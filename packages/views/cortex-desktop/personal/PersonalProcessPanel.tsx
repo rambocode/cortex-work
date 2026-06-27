@@ -33,6 +33,15 @@ function isProcessActive(process: Message[]): boolean {
 // 精简过程步骤渲染件（KTD9，不复用 ChatArea 私有件）。只渲染 agentLog（工具步骤列表）与
 // reasoning（思考流）两类——过程流里只会有这两类。
 function ProcessStep({ m }: { m: Message }) {
+  // 三段编排段标题：把过程流分隔成「意图理解 / 子 agent 执行 / 整理回复」三段，一眼可辨当前阶段。
+  if (m.kind === "stageTitle") {
+    return (
+      <div className="pw-process-stage" data-stage={m.stage}>
+        <span className="pw-process-stage-dot" aria-hidden="true" />
+        <span className="pw-process-stage-label">{m.label}</span>
+      </div>
+    );
+  }
   if (m.kind === "agentLog") {
     return (
       <div className="pw-process-step pw-process-log">

@@ -28,6 +28,7 @@ export function PersonalComposer({
   onChangeThinking,
   onChangePermissionMode,
   onChangeApprovalPolicy,
+  onToggleSubagentOrchestration,
   onToggleSkills,
   onToast,
 }: {
@@ -52,6 +53,7 @@ export function PersonalComposer({
   onChangeThinking: (value: AgentThinkingValue) => void;
   onChangePermissionMode: (mode: PermissionMode) => void;
   onChangeApprovalPolicy: (p: ApprovalPolicy) => void;
+  onToggleSubagentOrchestration: () => void;
   onToggleSkills: () => void;
   onToast: (text: string) => void;
 }) {
@@ -88,6 +90,8 @@ export function PersonalComposer({
       onChangePermissionMode={onChangePermissionMode}
       approvalPolicy={session.approvalPolicy}
       onChangeApprovalPolicy={onChangeApprovalPolicy}
+      subagentOrchestration={session.subagentOrchestration === true}
+      onToggleSubagentOrchestration={onToggleSubagentOrchestration}
       onToggleSkills={onToggleSkills}
       onCancelEdit={onCancelEdit}
       onToast={onToast}

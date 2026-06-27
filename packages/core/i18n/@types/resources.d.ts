@@ -156,6 +156,13 @@ export default interface Resources {
         "askHint": "写/执行类工具前询问(仅 Pi 生效)",
         "askDegraded": "「询问后执行」仅 Pi 生效;Claude/Codex 非交互无法中途询问,已降级为自动执行"
       },
+      "subagentOrchestration": {
+        "label": "子 agent 编排",
+        "on": "已开启",
+        "off": "已关闭",
+        "onHint": "本会话走「意图理解 → 子 agent 执行 → 整理回复」三段编排,过程面板按段展示(仅 Claude/Codex)",
+        "offHint": "单次直接发送(默认)。开启后改走三段编排,成本与延迟约 3 倍"
+      },
       "readAttachmentFailed": "读取附件失败：{{error}}",
       "readImageFailed": "读取图片失败：{{error}}",
       "readDocFailed": "读取文档失败：{{error}}",

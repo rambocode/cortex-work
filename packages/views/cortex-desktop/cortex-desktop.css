@@ -1121,6 +1121,28 @@ input, textarea { font: inherit; color: inherit; }
   line-height: 1.6;
   white-space: pre-wrap;
 }
+/* 三段编排段标题：过程流里用强调色小标分隔意图理解/子 agent 执行/整理回复三段。 */
+.pw-process-stage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.pw-process-stage-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+.pw-process-stage-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
 @keyframes pw-process-in {
   from { opacity: 0; transform: translateX(6px); }
   to { opacity: 1; transform: translateX(0); }
@@ -1319,7 +1341,7 @@ input, textarea { font: inherit; color: inherit; }
   font-size: 12px;
 }
 /* GitBar 紧贴输入框底部:上移吃掉 .composer-wrap 的底部内边距,贴近 composer 框。 */
-.composer-wrap + .pw-gitbar { margin-top: -10px; }
+.composer-wrap + .pw-gitbar { margin-top: -5px; }
 /* GitBar 行内的运行模式 / 项目选择器:去灰色填充底色,改透明底 + 描边(标注①),
    与顶部「自动执行」按钮风格统一。作用域限定在 .pw-gitbar 内,不影响工具栏里复用
    pw-model-pill 的模型/思考选择器。 */

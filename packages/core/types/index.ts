@@ -150,7 +150,18 @@ export type Message =
       uid?: string;
     }
   | { kind: "approve"; who: string; time: string; title: string; body: RichText; uid?: string }
-  | { kind: "typing"; who: string; text: string; uid?: string };
+  | { kind: "typing"; who: string; text: string; uid?: string }
+  | {
+      // 三段编排（orchestrate.ts）段边界标题，仅出现在过程流：把 intent/subagent/refine 三段
+      // 在右侧执行过程面板里分隔成可见小标题。由 sendStageStart 发的空 delta thinking 事件
+      // （携 stage/stageLabel）转化而来，无 active/累进语义（区别于 reasoning）。
+      kind: "stageTitle";
+      who: string;
+      time: string;
+      stage: "intent" | "subagent" | "refine";
+      label: string;
+      uid?: string;
+    };
 
 export interface HeaderStatus {
   dot: "working" | "review" | "online" | "idle";

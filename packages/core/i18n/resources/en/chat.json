@@ -103,6 +103,13 @@
       "askHint": "Prompt before write/exec tools (Pi only)",
       "askDegraded": "Ask-before-running only works on Pi; Claude/Codex are non-interactive and can't prompt mid-run, so it falls back to auto-execute"
     },
+    "subagentOrchestration": {
+      "label": "Sub-agent orchestration",
+      "on": "On",
+      "off": "Off",
+      "onHint": "This session runs the three-stage pipeline (intent -> sub-agent execution -> refine); the process panel shows each stage (Claude/Codex only)",
+      "offHint": "Send directly in one shot (default). When on, runs the three-stage pipeline at ~3x cost and latency"
+    },
     "modeBlock": {
       "planEdit": "You're in Read-only files access — {{name}} was blocked from editing files. Switch access and retry this turn?",
       "planExec": "You're in Read-only files access — {{name}} was blocked from running a command. Switch access and retry this turn?",

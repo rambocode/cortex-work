@@ -1073,6 +1073,19 @@ describe("U1 过程流独立通道（CLI）", () => {
     // 聊天正文只含 refine 段(最终回复),中间段被挡在过程流。
     expect(texts.map((m) => asText(m).text)).toEqual(["最终回复"]);
   });
+
+  it("编排段边界 thinking 事件(空 delta + stageLabel)在过程流插入 stageTitle 块、不产生空 reasoning", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "", stage: "intent", stageLabel: "理解意图中…" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "", stage: "subagent", stageLabel: "子 agent 执行中…" }, "s1");
+    const stages = procOf(qc).filter((m) => m.kind === "stageTitle");
+    expect(stages.map((m) => (m as { label: string }).label)).toEqual(["理解意图中…", "子 agent 执行中…"]);
+    // 空 delta 不得创建空 reasoning 块（段边界走 stageTitle 通道，不进 foldReasoning）。
+    expect(procOf(qc).some((m) => m.kind === "reasoning")).toBe(false);
+    // 段边界不落聊天正文。
+    expect(chatOf(qc).some((m) => m.kind === "text")).toBe(false);
+  });
 });
 
 describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () => {

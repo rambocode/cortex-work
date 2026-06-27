@@ -508,6 +508,9 @@ export function PersonalChatArea({
         onChangeThinking={(value) => setThinking(session, value)}
         onChangePermissionMode={(mode) => updateSession(session.id, { permissionMode: mode })}
         onChangeApprovalPolicy={(p) => updateSession(session.id, { approvalPolicy: p })}
+        onToggleSubagentOrchestration={() =>
+          updateSession(session.id, { subagentOrchestration: session.subagentOrchestration !== true })
+        }
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onToast={onToast}
       />
