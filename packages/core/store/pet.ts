@@ -13,7 +13,7 @@ export type PetState =
   | "happy"; // 被点击/任务完成的瞬时开心
 
 // 宠物造型（设置菜单中选择;持久化由 views 层 localStorage 负责）。
-export type PetKind = "cat" | "shiba" | "bunny" | "robot";
+export type PetKind = "cat" | "dog";
 
 // 行为模式:free 自由放置(可拖动;可叠加「闲时底部走动」开关) / perch 趴在输入框上。
 export type PetMode = "free" | "perch";

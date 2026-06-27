@@ -9,9 +9,9 @@
 // 字符串 URL;Next 对**位图**(.webp/.png)返回 `{ src, width, height }` 对象、对 .svg
 // 通常返回字符串。故统一经 `assetUrl()` 归一化,避免「Next 拿到对象当 URL」的坑。
 //
-// 当前为占位阶段:cat 指向 assets/cat/*.svg 占位 sheet(自包含、可真实渲染);真实
-// 美术由 scripts/pet-sprites/ 的 AI 管线产出 .webp 后,仅需替换下面的 import 与 src。
-// 其余 3 角色(shiba/bunny/robot)尚无 sprite → 走 Pet.tsx 的 SVG 兜底路径。
+// cat、dog 均为 AI 生成的真实 sprite(codex image_gen → 绿幕去背 → 等宽 WebP,
+// 见 .claude/skills/codex-image-assets)。dog 缺帧时由 Pet.tsx 回退 designs 的
+// SVG 兜底造型(原柴犬 SVG)。
 
 import type { PetKind, PetState } from "@cortex-work/core";
 
@@ -21,6 +21,10 @@ import catIdle from "./assets/cat/idle.webp";
 import catWalk from "./assets/cat/walk.webp";
 import catHappy from "./assets/cat/happy.webp";
 import catSleeping from "./assets/cat/sleeping.webp";
+import dogIdle from "./assets/dog/idle.webp";
+import dogWalk from "./assets/dog/walk.webp";
+import dogHappy from "./assets/dog/happy.webp";
+import dogSleeping from "./assets/dog/sleeping.webp";
 
 /** sprite 动画键。7 个 PetState 收敛到这 4 个核心动画(见 spriteKeyFor)。 */
 export type SpriteAnimKey = "idle" | "walk" | "happy" | "sleeping";
@@ -61,6 +65,12 @@ export const PET_SPRITES: Partial<Record<PetKind, Partial<Record<SpriteAnimKey, 
     walk: { src: assetUrl(catWalk), frames: 4, frameW: FW, frameH: FH, fps: 5, loop: true },
     happy: { src: assetUrl(catHappy), frames: 5, frameW: FW, frameH: FH, fps: 6, loop: false },
     sleeping: { src: assetUrl(catSleeping), frames: 3, frameW: FW, frameH: FH, fps: 1.5, loop: "pingpong" },
+  },
+  dog: {
+    idle: { src: assetUrl(dogIdle), frames: 4, frameW: FW, frameH: FH, fps: 2, loop: true },
+    walk: { src: assetUrl(dogWalk), frames: 4, frameW: FW, frameH: FH, fps: 5, loop: true },
+    happy: { src: assetUrl(dogHappy), frames: 5, frameW: FW, frameH: FH, fps: 6, loop: false },
+    sleeping: { src: assetUrl(dogSleeping), frames: 3, frameW: FW, frameH: FH, fps: 1.5, loop: "pingpong" },
   },
 };
 

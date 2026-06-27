@@ -676,19 +676,11 @@ export default interface Resources {
     "hideAria": "隐藏宠物",
     "hideTitle": "隐藏宠物(可在设置 → 宠物中重新打开)",
     "kind": {
-      "bunny": {
-        "desc": "兔子",
-        "name": "团子"
-      },
       "cat": {
         "desc": "橘猫",
         "name": "小柯"
       },
-      "robot": {
-        "desc": "机器人",
-        "name": "比特"
-      },
-      "shiba": {
+      "dog": {
         "desc": "柴犬",
         "name": "阿柴"
       }

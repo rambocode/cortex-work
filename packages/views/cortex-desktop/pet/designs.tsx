@@ -307,7 +307,7 @@ function CatPerch() {
 }
 
 // ── 阿柴 · 柴犬 ───────────────────────────────────────────────────────────
-function ShibaHead() {
+function DogHead() {
   return (
     <g className="pet-head" style={{ transformOrigin: "60px 60px" }}>
         <g className="pet-ear-l" style={{ transformOrigin: "40px 22px" }}>
@@ -353,7 +353,7 @@ function ShibaHead() {
   );
 }
 
-function ShibaParts() {
+function DogParts() {
   return (
     <>
       <Accessories />
@@ -375,180 +375,19 @@ function ShibaParts() {
         <ellipse className="paw p1" cx="48" cy="113" rx="10" ry="6" fill="var(--pet-light, #f8efdd)" stroke={OUTLINE} strokeWidth="2" />
         <ellipse className="paw p2" cx="76" cy="113" rx="10" ry="6" fill="var(--pet-light, #f8efdd)" stroke={OUTLINE} strokeWidth="2" />
       </g>
-      <ShibaHead />
+      <DogHead />
     </>
   );
 }
 
-function ShibaPerch() {
+function DogPerch() {
   return (
     <>
       <Accessories />
       <PerchChest fill="var(--pet-light, #f8efdd)" />
-      <ShibaHead />
+      <DogHead />
       <PerchPaw cx={32} side="pl" fill="var(--pet-light, #f8efdd)" />
       <PerchPaw cx={88} side="pr" fill="var(--pet-light, #f8efdd)" />
-    </>
-  );
-}
-
-// ── 团子 · 兔子 ───────────────────────────────────────────────────────────
-function BunnyHead() {
-  return (
-    <g className="pet-head" style={{ transformOrigin: "60px 60px" }}>
-        {/* 长竖耳 */}
-        <g className="pet-ear-l" style={{ transformOrigin: "47px 24px" }}>
-          <ellipse cx="44" cy="9" rx="8" ry="19" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" transform="rotate(-8 44 9)" />
-          <ellipse cx="44.5" cy="10" rx="4" ry="13" fill="#efb9c4" transform="rotate(-8 44.5 10)" />
-        </g>
-        <g className="pet-ear-r" style={{ transformOrigin: "73px 24px" }}>
-          <ellipse cx="76" cy="9" rx="8" ry="19" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" transform="rotate(8 76 9)" />
-          <ellipse cx="75.5" cy="10" rx="4" ry="13" fill="#efb9c4" transform="rotate(8 75.5 10)" />
-        </g>
-        <ellipse cx="60" cy="47" rx="33" ry="29" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" />
-        {/* 浅色口吻区 */}
-        <path d="M47 55 q4 -5.5 13 -5.5 q9 0 13 5.5 q-2.5 10.5 -13 10.5 q-10.5 0 -13 -10.5z" fill="var(--pet-light, #fffaf2)" opacity="0.95" />
-        <Eyes lidFill="var(--pet-main, #f3ece1)" iris="#9c6a4a" />
-        {/* 粉鼻 + 高光 */}
-        <path d="M60 51.6 q-3 0 -3.2 1.7 q-0.2 1.6 1.9 3 q0.9 0.6 1.3 0.6 q0.4 0 1.3 -0.6 q2.1 -1.4 1.9 -3 q-0.2 -1.7 -3.2 -1.7z" fill="#e8a3b2" stroke={OUTLINE} strokeWidth="1.3" strokeLinejoin="round" />
-        <circle cx="58.9" cy="52.7" r="0.6" fill="#fff" opacity="0.6" />
-        <path className="pet-mouth" d="M60 56.5 q-1 3.5 -5 3.2 M60 56.5 q1 3.5 5 3.2 M57.5 59.4 h5 v3.4 a2.5 2.5 0 0 1 -5 0 z" fill="#fff" stroke={OUTLINE} strokeWidth="1.4" strokeLinecap="round" />
-        <ellipse className="pet-mouth-talk" style={{ transformOrigin: "60px 61px" }} cx="60" cy="61" rx="3.4" ry="2.6" fill="#c96a74" />
-        {/* 颊须点 */}
-        <g fill={OUTLINE} opacity="0.6">
-          <circle cx="34" cy="50" r="1" />
-          <circle cx="31" cy="54" r="1" />
-          <circle cx="86" cy="50" r="1" />
-          <circle cx="89" cy="54" r="1" />
-        </g>
-        <g className="pet-blush" fill="#efb9c4" opacity="0">
-          <ellipse cx="36" cy="55" rx="5" ry="3" />
-          <ellipse cx="84" cy="55" rx="5" ry="3" />
-        </g>
-      </g>
-  );
-}
-
-function BunnyParts() {
-  return (
-    <>
-      <Accessories />
-      {/* 圆球尾(轻摆) */}
-      <circle
-        className="pet-tail"
-        style={{ transformOrigin: "110px 96px" }}
-        cx="112"
-        cy="94"
-        r="8.5"
-        fill="var(--pet-light, #fbf6ec)"
-        stroke={OUTLINE}
-        strokeWidth="2"
-      />
-      <g className="pet-body" style={{ transformOrigin: "70px 92px" }}>
-        <ellipse cx="70" cy="93" rx="44" ry="25" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" />
-        <ellipse cx="62" cy="99" rx="23" ry="13" fill="var(--pet-light, #fffaf2)" />
-      </g>
-      <g className="pet-paws">
-        <ellipse className="paw p1" cx="48" cy="113" rx="10" ry="6" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" />
-        <ellipse className="paw p2" cx="76" cy="113" rx="10" ry="6" fill="var(--pet-main, #f3ece1)" stroke={OUTLINE} strokeWidth="2" />
-      </g>
-      <BunnyHead />
-    </>
-  );
-}
-
-function BunnyPerch() {
-  return (
-    <>
-      <Accessories />
-      <PerchChest fill="var(--pet-light, #fffaf2)" />
-      <BunnyHead />
-      <PerchPaw cx={32} side="pl" fill="var(--pet-main, #f3ece1)" />
-      <PerchPaw cx={88} side="pr" fill="var(--pet-main, #f3ece1)" />
-    </>
-  );
-}
-
-// ── 比特 · 机器人 ─────────────────────────────────────────────────────────
-function RobotHead() {
-  return (
-    <g className="pet-head" style={{ transformOrigin: "60px 60px" }}>
-        {/* 天线(耳朵动画挂在天线上) */}
-        <g className="pet-ear-l" style={{ transformOrigin: "60px 18px" }}>
-          <path d="M60 18 v-9" stroke={OUTLINE} strokeWidth="2.4" strokeLinecap="round" />
-          <circle className="pet-antenna" cx="60" cy="6.5" r="3.4" fill="var(--accent, #c96442)" />
-        </g>
-        {/* 侧面螺栓 */}
-        <g className="pet-ear-r" style={{ transformOrigin: "60px 40px" }}>
-          <rect x="20" y="36" width="7" height="12" rx="3" fill="var(--pet-dark, #b8b2a3)" stroke={OUTLINE} strokeWidth="1.8" />
-          <rect x="93" y="36" width="7" height="12" rx="3" fill="var(--pet-dark, #b8b2a3)" stroke={OUTLINE} strokeWidth="1.8" />
-        </g>
-        {/* 方头 + 屏幕脸(扫描线 + 四角铆钉) */}
-        <rect x="26" y="18" width="68" height="48" rx="13" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
-        <rect x="33" y="25" width="54" height="34" rx="9" fill="#3a352b" />
-        <path d="M35 31 h50 M35 36 h50" stroke="#4a443a" strokeWidth="0.8" opacity="0.6" />
-        <g fill="var(--pet-dark, #b8b2a3)" stroke={OUTLINE} strokeWidth="0.8">
-          <circle cx="31.5" cy="23.5" r="1.3" /><circle cx="88.5" cy="23.5" r="1.3" />
-          <circle cx="31.5" cy="60.5" r="1.3" /><circle cx="88.5" cy="60.5" r="1.3" />
-        </g>
-        <Eyes lidFill="#3a352b" iris="#6fd6a8" />
-        <path className="pet-mouth" d="M52 55.5 h16" stroke="#9be8c4" strokeWidth="2.2" strokeLinecap="round" fill="none" />
-        <rect className="pet-mouth-talk" style={{ transformOrigin: "60px 55.5px" }} x="53" y="52.5" width="14" height="6" rx="2" fill="#9be8c4" />
-        <g className="pet-blush" fill="#e8848e" opacity="0">
-          <ellipse cx="40" cy="52" rx="4" ry="2.4" />
-          <ellipse cx="80" cy="52" rx="4" ry="2.4" />
-        </g>
-      </g>
-  );
-}
-
-function RobotParts() {
-  return (
-    <>
-      <Accessories />
-      {/* 尾部弹簧线 */}
-      <path
-        className="pet-tail"
-        style={{ transformOrigin: "108px 90px" }}
-        d="M108 90 q8 -1 9 -7 q1 -5 -4 -6 q-4 -0.8 -5 3 q-0.7 3 2.4 3.6"
-        fill="none"
-        stroke="var(--pet-dark, #8e887a)"
-        strokeWidth="4.5"
-        strokeLinecap="round"
-      />
-      <g className="pet-body" style={{ transformOrigin: "70px 92px" }}>
-        <rect x="32" y="72" width="76" height="40" rx="12" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
-        <rect x="42" y="80" width="56" height="24" rx="7" fill="var(--pet-light, #efe9da)" />
-        {/* 胸口指示灯 */}
-        <circle cx="58" cy="92" r="3.4" fill="var(--accent, #c96442)" />
-        <rect x="66" y="89" width="18" height="6" rx="3" fill="var(--pet-dark, #b8b2a3)" />
-      </g>
-      <g className="pet-paws">
-        <rect className="paw p1" x="40" y="108" width="18" height="9" rx="4" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
-        <rect className="paw p2" x="68" y="108" width="18" height="9" rx="4" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
-      </g>
-      <RobotHead />
-    </>
-  );
-}
-
-// 趴窗:颈柱 + 头 + 机械夹爪(直角风格,区别于肉爪)。
-function RobotPerch() {
-  const y = PERCH_EDGE_Y;
-  return (
-    <>
-      <Accessories />
-      {/* 颈柱补上头与框沿之间的空隙 */}
-      <rect x="48" y="60" width="24" height={y - 60} fill="var(--pet-dark, #b8b2a3)" stroke={OUTLINE} strokeWidth="2" />
-      <RobotHead />
-      <g className="perch-paw pl" style={{ transformOrigin: `32px ${y}px` }}>
-        <rect x="20" y={y} width="24" height="15" rx="5" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
-        <path d={`M 32 ${y + 6} v 6`} stroke={OUTLINE} strokeWidth="1.6" strokeLinecap="round" />
-      </g>
-      <g className="perch-paw pr" style={{ transformOrigin: `88px ${y}px` }}>
-        <rect x="76" y={y} width="24" height="15" rx="5" fill="var(--pet-main, #cfc9bb)" stroke={OUTLINE} strokeWidth="2" />
-        <path d={`M 88 ${y + 6} v 6`} stroke={OUTLINE} strokeWidth="1.6" strokeLinecap="round" />
-      </g>
     </>
   );
 }
@@ -563,9 +402,8 @@ export interface PetDesign {
 
 export const PET_DESIGNS: Record<PetKind, PetDesign> = {
   cat: { name: "小柯", desc: "橘猫", Parts: CatParts, Perch: CatPerch },
-  shiba: { name: "阿柴", desc: "柴犬", Parts: ShibaParts, Perch: ShibaPerch },
-  bunny: { name: "团子", desc: "兔子", Parts: BunnyParts, Perch: BunnyPerch },
-  robot: { name: "比特", desc: "机器人", Parts: RobotParts, Perch: RobotPerch },
+  // dog 的 Parts/Perch 复用原柴犬 SVG(作 sprite 缺失时的兜底 + perch 趴姿造型)。
+  dog: { name: "阿柴", desc: "柴犬", Parts: DogParts, Perch: DogPerch },
 };
 
 export const PET_KIND_KEY = "cortex_pet_kind";

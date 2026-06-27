@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { PetKind } from "@cortex-work/core";
 import { PET_SPRITES, hasSprites, resolveSpriteAnim, spriteKeyFor } from "./sprites";
 
 describe("sprites manifest", () => {
@@ -22,11 +23,9 @@ describe("sprites manifest", () => {
 });
 
 describe("hasSprites", () => {
-  it("cat 有 sprite,其余角色暂无", () => {
+  it("cat / dog 均有 sprite", () => {
     expect(hasSprites("cat")).toBe(true);
-    expect(hasSprites("shiba")).toBe(false);
-    expect(hasSprites("bunny")).toBe(false);
-    expect(hasSprites("robot")).toBe(false);
+    expect(hasSprites("dog")).toBe(true);
   });
 });
 
@@ -61,8 +60,13 @@ describe("resolveSpriteAnim", () => {
     expect(resolveSpriteAnim("cat", "working", false)).toBe(PET_SPRITES.cat?.idle);
   });
 
-  it("无 sprite 资产的角色返回 null(交由 SVG 兜底)", () => {
-    expect(resolveSpriteAnim("shiba", "idle", false)).toBeNull();
-    expect(resolveSpriteAnim("robot", "happy", true)).toBeNull();
+  it("dog 各状态解析到对应 anim", () => {
+    expect(resolveSpriteAnim("dog", "idle", false)?.frames).toBe(4);
+    expect(resolveSpriteAnim("dog", "happy", false)?.frames).toBe(5);
+  });
+
+  it("manifest 中无该角色时返回 null(防御性,交由 SVG 兜底)", () => {
+    // 真实角色(cat/dog)均有 sprite;用越界 kind 覆盖 `if (!map) return null` 分支
+    expect(resolveSpriteAnim("ghost" as PetKind, "idle", false)).toBeNull();
   });
 });

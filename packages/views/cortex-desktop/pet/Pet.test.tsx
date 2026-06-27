@@ -124,12 +124,12 @@ describe("Pet 行为模式", () => {
     expect(pet.querySelector(".pet-3d > svg:not(.pet-accessories)")).toBeNull();
   });
 
-  it("无 sprite 的角色(shiba)回退内联 SVG,不渲染 sprite 层", () => {
-    localStorage.setItem(PET_KIND_KEY, "shiba");
+  it("dog 角色同样走 sprite 序列帧层", () => {
+    localStorage.setItem(PET_KIND_KEY, "dog");
     const { container } = render(<Pet />);
     const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.querySelector(".pet-3d > .pet-sprite")).toBeNull();
-    expect(pet.querySelector(".pet-3d > svg")).not.toBeNull();
+    expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull();
+    expect(pet.querySelector(".pet-3d > svg:not(.pet-accessories)")).toBeNull();
   });
 
   it("点击 ✕ 隐藏宠物并持久化", () => {

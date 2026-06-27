@@ -15,17 +15,9 @@
       "name": "小柯",
       "desc": "橘猫"
     },
-    "shiba": {
+    "dog": {
       "name": "阿柴",
       "desc": "柴犬"
-    },
-    "bunny": {
-      "name": "团子",
-      "desc": "兔子"
-    },
-    "robot": {
-      "name": "比特",
-      "desc": "机器人"
     }
   }
 }

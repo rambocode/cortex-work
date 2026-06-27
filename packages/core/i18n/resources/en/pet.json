@@ -15,17 +15,9 @@
       "name": "Coco",
       "desc": "Orange cat"
     },
-    "shiba": {
+    "dog": {
       "name": "Shiba",
       "desc": "Shiba Inu"
-    },
-    "bunny": {
-      "name": "Dango",
-      "desc": "Bunny"
-    },
-    "robot": {
-      "name": "Bit",
-      "desc": "Robot"
     }
   }
 }

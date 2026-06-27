@@ -1,6 +1,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import type { PetKind } from "@cortex-work/core";
 import { PET_SPRITES } from "./sprites";
 import { SpriteLayer } from "./SpriteLayer";
 
@@ -48,8 +49,9 @@ describe("SpriteLayer", () => {
     expect(el.style.animationDirection).toBe("alternate");
   });
 
-  it("无 sprite 资产的角色渲染 null(交由 Pet 回退 SVG)", () => {
-    const { container } = render(<SpriteLayer kind="shiba" state="idle" walking={false} />);
+  it("manifest 中无该角色时渲染 null(交由 Pet 回退 SVG)", () => {
+    // cat/dog 均有 sprite;用越界 kind 触发 null 渲染分支
+    const { container } = render(<SpriteLayer kind={"ghost" as PetKind} state="idle" walking={false} />);
     expect(container.querySelector(".pet-sprite")).toBeNull();
   });
 
