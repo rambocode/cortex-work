@@ -16,6 +16,7 @@ import type {
   AutomationRunEvent,
   CliExitEvent,
   CliStartRequest,
+  OrchestrateStartRequest,
   CliStreamEvent,
   ContentSearchResult,
   DerivedAgentMeta,
@@ -219,6 +220,11 @@ export interface DesktopBridge {
   // ASR：OpenAI 兼容 /v1/audio/transcriptions 转写,返回文本。
   asrTranscribe(req: AsrTranscribeRequest): Promise<AsrTranscribeResponse>;
   killCli(runId: string): Promise<void>;
+  // ── 主 agent 编排子 agent 三段执行（chat「子 agent 编排」开关）。可选能力（web/旧壳无 → 渲染端
+  //    退回单发 startCli，开关 UI 降级隐藏）。事件流复用 onCliEvent/onCliExit（runId=orchestrationRunId，
+  //    事件带 stage 字段）；取消走 killOrchestration（不复用 killCli，编排子进程在主进程独立注册表）。 ──
+  startOrchestration?(req: OrchestrateStartRequest): Promise<void>;
+  killOrchestration?(runId: string): Promise<void>;
   // 发送前校验外部 agent 的 resume 会话文件是否仍在本机。可选能力;旧壳缺失时保持原行为。
   agentSessionExists?(req: AgentSessionRequest): Promise<boolean>;
   // 编辑重发:截断 agent CLI 会话记忆(可选能力,旧壳无此方法时退化为带旧记忆 resume)。

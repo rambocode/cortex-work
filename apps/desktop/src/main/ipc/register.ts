@@ -27,6 +27,7 @@ import { registerBrowserHandlers } from "./browser";
 import { registerAutomationHandlers } from "../automation/ipc";
 import { registerWorkflowHandlers } from "../workflow/ipc";
 import { registerSttHandlers } from "./stt";
+import { registerOrchestrateHandlers } from "./orchestrate";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -61,6 +62,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerAutomationHandlers();
   registerWorkflowHandlers(); // 节点式工作流（loop）IPC，紧挨 automation 注册
   registerSttHandlers();
+  registerOrchestrateHandlers(); // chat 三段编排调度器（U1）
 }
 
 export { killAllCli } from "./cli";
@@ -70,3 +72,5 @@ export { killAllPty } from "./pty";
 export { closeAllWatchers } from "./watch";
 export { killAllAutomations } from "../automation/runner";
 export { killAllWorkflows } from "../workflow/index";
+// 编排子进程回收：接入 app 退出钩子（与 killAllCli/killAllHeadlessPrompts 并列）
+export { killAllOrchestrations } from "./orchestrate";

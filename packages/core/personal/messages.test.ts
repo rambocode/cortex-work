@@ -1050,6 +1050,44 @@ describe("U1 过程流独立通道（CLI）", () => {
     expect(asLog(log!)).toMatchObject({ active: false, completed: true });
     expect(asLog(log!).items.every((it) => it.ic === "check")).toBe(true);
   });
+
+  // ── 三段编排:中间段 text(intent/subagent)进过程流、绝不落聊天正文 ────────────
+  // 回归保护:不按 stage 路由时，段1改写提示词 + 段2子执行输出会全部拼进聊天正文。
+  it("编排中间段 text(intent/subagent)进过程流,聊天正文为空", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "改写后的提示词", stage: "intent" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "子执行输出", stage: "subagent" }, "s1");
+    // 两段中间文本进过程流(与 reasoning 同通道、无工具打断时折叠为同一块),聊天正文不出现。
+    const reasonings = procOf(qc).filter((m) => m.kind === "reasoning");
+    expect(reasonings.map((m) => (m as { text: string }).text).join("")).toBe("改写后的提示词子执行输出");
+    expect(chatOf(qc).some((m) => m.kind === "text" && m.who === "claude")).toBe(false);
+  });
+
+  it("编排 refine 段 text 进聊天正文(最终回复)", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "过程", stage: "subagent" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "最终回复", stage: "refine" }, "s1");
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
+    // 聊天正文只含 refine 段(最终回复),中间段被挡在过程流。
+    expect(texts.map((m) => asText(m).text)).toEqual(["最终回复"]);
+  });
+
+  it("编排段边界 thinking 事件(空 delta + stageLabel)在过程流插入 stageTitle 块、不产生空 reasoning", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "", stage: "intent", stageLabel: "理解意图中…" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "", stage: "subagent", stageLabel: "子 agent 执行中…" }, "s1");
+    // refine 段输出进聊天正文,过程面板其后无内容,不插标题(避免悬空"假进行中")。
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "", stage: "refine", stageLabel: "整理回复中…" }, "s1");
+    const stages = procOf(qc).filter((m) => m.kind === "stageTitle");
+    expect(stages.map((m) => (m as { label: string }).label)).toEqual(["理解意图中…", "子 agent 执行中…"]);
+    // 空 delta 不得创建空 reasoning 块（段边界走 stageTitle 通道，不进 foldReasoning）。
+    expect(procOf(qc).some((m) => m.kind === "reasoning")).toBe(false);
+    // 段边界不落聊天正文。
+    expect(chatOf(qc).some((m) => m.kind === "text")).toBe(false);
+  });
 });
 
 describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () => {

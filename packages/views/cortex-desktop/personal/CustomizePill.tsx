@@ -31,14 +31,19 @@ export function CustomizePill({
   onChangeApprovalPolicy,
   permissionMode,
   onChangePermissionMode,
+  subagentOrchestration,
+  onToggleSubagentOrchestration,
   running,
 }: {
   agent: AgentKind;
-  // 两组均 opt-in:提供 onChange 才渲染对应分组。
+  // 各组均 opt-in:提供 onChange/onToggle 才渲染对应分组。
   approvalPolicy?: ApprovalPolicy;
   onChangeApprovalPolicy?: (p: ApprovalPolicy) => void;
   permissionMode?: PermissionMode;
   onChangePermissionMode?: (mode: PermissionMode) => void;
+  // 子 agent 编排开关(布尔)。仅 claude/codex 生效——pi 走 RPC 长驻不参与编排,故 pi 会话不渲染本组。
+  subagentOrchestration?: boolean;
+  onToggleSubagentOrchestration?: () => void;
   running: boolean;
 }) {
   const { t } = useTranslation("chat");
@@ -115,6 +120,26 @@ export function CustomizePill({
                   {m === mode ? <Icon.Check size={14} /> : null}
                 </button>
               ))}
+            </>
+          ) : null}
+          {/* 子 agent 编排组(布尔开关):仅 claude/codex 渲染。开启后该会话发送走主进程三段编排
+              (意图理解→子 agent 执行→整理回复),过程面板按段展示。 */}
+          {onToggleSubagentOrchestration && agent !== "pi" ? (
+            <>
+              {onChangeApprovalPolicy || onChangePermissionMode ? <div className="pw-tb-menu-sep" /> : null}
+              <div className="pw-tb-menu-group-h">{t("composer.subagentOrchestration.label")}</div>
+              <button
+                className={`pw-tb-menu-item ${subagentOrchestration ? "is-on" : ""}`}
+                role="menuitemcheckbox"
+                aria-checked={!!subagentOrchestration}
+                disabled={running}
+                title={t(subagentOrchestration ? "composer.subagentOrchestration.onHint" : "composer.subagentOrchestration.offHint")}
+                onClick={onToggleSubagentOrchestration}
+              >
+                <Icon.Sparkle size={14} />
+                <span>{t(subagentOrchestration ? "composer.subagentOrchestration.on" : "composer.subagentOrchestration.off")}</span>
+                {subagentOrchestration ? <Icon.Check size={14} /> : null}
+              </button>
             </>
           ) : null}
         </div>

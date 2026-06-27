@@ -39,6 +39,7 @@ function renderComposer(agent: "pi" | "claude", bridge: DesktopBridge): void {
       onChangeThinking={() => {}}
       onChangePermissionMode={() => {}}
       onChangeApprovalPolicy={() => {}}
+      onToggleSubagentOrchestration={() => {}}
       onToggleSkills={() => {}}
       onToast={() => {}}
     />
