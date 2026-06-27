@@ -174,6 +174,9 @@ interface RunState {
   blockedTool?: { name: string; category: "edit" | "exec" | "tool" };
   // 传输通道:cli=单发 startCli（claude/codex）;pi=RPC 长驻会话。pi 的看门狗绝不杀进程。
   transport?: "cli" | "pi";
+  // 本轮是否走主进程三段编排（orchestrate:start）。为 true 时取消/超时必须走 killOrchestration
+  // （编排子进程注册在主进程独立 Set，cli:kill 对其无效，会留孤儿进程）。
+  orchestrated?: boolean;
   // pi 思考流（reasoning）的折叠块（独立于 text/tool 游标:思考通常先于正文,累进同一块）。
   reasoningUid?: string;
   reasoningText?: string;
@@ -756,8 +759,13 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 进程已起来:启动中 → 思考中。
     run.phase = "thinking";
     updateTypingMsg(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0));
-    const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
-    if (sess) usePersonalStore.getState().updateSession(sessionId, agentSessionPatch(sess, run.agent, ev.sessionId));
+    // 编排子段（ev.stage 存在）的 init 携带的是一次性子会话 thread_id，绝不能写进主会话 resume id：
+    // 否则下一轮普通对话会 resume 到该编排子会话（只含单段上下文），丢失主对话历史。编排无状态、
+    // 各段 fresh spawn 不 resume，故 stage init 只推进 phase/typing，不落 session patch。
+    if (!ev.stage) {
+      const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
+      if (sess) usePersonalStore.getState().updateSession(sessionId, agentSessionPatch(sess, run.agent, ev.sessionId));
+    }
     return;
   }
 
@@ -808,6 +816,17 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   }
 
   if (ev.type === "text") {
+    // 三段编排的中间段文本是「过程」，必须进右侧过程流、绝不落聊天正文：
+    //   - intent（意图理解）：改写后的提示词
+    //   - subagent（子 agent 执行）：子任务的执行输出
+    // 只有 refine 段（或非编排 run，ev.stage 为 undefined）才是面向用户的最终回复。
+    // 不做这步则三段文本会全部拼进聊天正文，正文被污染——这是「接通渲染端」最关键的一步。
+    if (ev.stage === "intent" || ev.stage === "subagent") {
+      usePetStore.getState().set("thinking");
+      finalizeProcessAgentLog(qc, sessionId, run);
+      foldReasoning(qc, run, ev.delta); // 与 reasoning 同通道，进过程流
+      return;
+    }
     usePetStore.getState().set("replying");
     dropMsg(qc, sessionId, run.typingUid);
     run.buffer += ev.delta; // 全轮文本累加（供 TTS / 时间线 summary），独立于块拆分
@@ -2221,7 +2240,9 @@ export function usePersonalActions(): PersonalActions {
             cwd: cur.cwd,
             terminalFailure: true,
           });
-          void bridgeRef?.killCli(runId);
+          // 编排轮走 killOrchestration（编排子进程在主进程独立注册表，cli:kill 杀不到，会留孤儿进程）。
+          if (cur.orchestrated) void bridgeRef?.killOrchestration?.(runId);
+          else void bridgeRef?.killCli(runId);
           return;
         }
         // 仍在等首个输出:typing 占位上滚动显示已等待时长。
@@ -2256,24 +2277,46 @@ export function usePersonalActions(): PersonalActions {
         // 派生 agent(U7):spawn 用 derivedAgentId(后端 getAgentDef 按 id 解析),失效则回退 base(见
         // resolveSpawnAgentId 的 RISK-3 兜底)。
         const spawnAgent = resolveSpawnAgentId(sendSession, usePersonalStore.getState().derivedAgents);
-        await bridge.startCli({
-          runId,
-          sessionId: sendSession.id,
-          agent: spawnAgent,
-          cwd: projectPath,
-          prompt: text,
-          model: sendSession.model,
-          effort: sendSession.effort,
-          resumeSessionId,
-          appendSystemPrompt: appendWithSkills,
-          useOwnSkills: sendSession.useOwnSkills,
-          skillPaths: undefined,
-          images: cliImages,
-          // 访问范围 + 审批:claude/codex adapter 翻译成原生标志;缺省 full-auto/auto(历史默认)。
-          // 逐轮 fresh spawn,改值下一轮即生效,无需重开。
-          permissionMode: sendSession.permissionMode,
-          approvalPolicy: sendSession.approvalPolicy,
-        });
+        // 子 agent 编排（U1）：会话开关开启且 bridge 支持时，claude/codex 走主进程三段编排
+        // （意图理解→子 agent 执行→二次加工，见 orchestrate.ts）。编排无状态、各段 fresh spawn，
+        // 故不传 resumeSessionId；事件流复用 cli:event/cli:exit（runId 即 orchestrationRunId，事件带
+        // stage 字段），看门狗/stop 据 run.orchestrated 改走 killOrchestration（cli:kill 杀不到编排子进程）。
+        // 已知限制：本版编排不透传图片（images 仅单发支持）——开了编排又发图时，图片本轮不带入子 agent。
+        if (sendSession.subagentOrchestration && bridge.startOrchestration) {
+          run.orchestrated = true;
+          await bridge.startOrchestration({
+            orchestrationRunId: runId,
+            sessionId: sendSession.id,
+            agent: spawnAgent,
+            cwd: projectPath,
+            prompt: text,
+            model: sendSession.model,
+            effort: sendSession.effort,
+            // 仅段2透传：让子 agent 真实执行尊重会话访问范围/审批，并带 skills/附件/项目上下文。
+            permissionMode: sendSession.permissionMode,
+            approvalPolicy: sendSession.approvalPolicy,
+            appendSystemPrompt: appendWithSkills,
+          });
+        } else {
+          await bridge.startCli({
+            runId,
+            sessionId: sendSession.id,
+            agent: spawnAgent,
+            cwd: projectPath,
+            prompt: text,
+            model: sendSession.model,
+            effort: sendSession.effort,
+            resumeSessionId,
+            appendSystemPrompt: appendWithSkills,
+            useOwnSkills: sendSession.useOwnSkills,
+            skillPaths: undefined,
+            images: cliImages,
+            // 访问范围 + 审批:claude/codex adapter 翻译成原生标志;缺省 full-auto/auto(历史默认)。
+            // 逐轮 fresh spawn,改值下一轮即生效,无需重开。
+            permissionMode: sendSession.permissionMode,
+            approvalPolicy: sendSession.approvalPolicy,
+          });
+        }
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
         autoTitle(bridge, sendSession, text);
       } catch (err) {
@@ -2377,7 +2420,10 @@ export function usePersonalActions(): PersonalActions {
           /* 会话未就绪/已退出,忽略,靠下面兜底 */
         }
       } else {
-        await bridge.killCli(runId);
+        // 编排轮走 killOrchestration（独立注册表）；普通单发走 killCli。
+        const r = runs.get(runId);
+        if (r?.orchestrated) await bridge.killOrchestration?.(runId);
+        else await bridge.killCli(runId);
       }
       // 兜底:若 4 秒内没收到收尾事件（进程早已不在/事件丢失）,强制复位 UI。
       // 仅当本次捕获的 runId 仍是当前轮才清,且只删该 runId（不扫该会话全部 run,避免误掐

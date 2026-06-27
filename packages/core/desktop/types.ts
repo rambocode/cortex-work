@@ -79,6 +79,10 @@ export interface SessionMeta {
   permissionMode?: PermissionMode;
   // 执行/审批策略（与访问范围正交）:auto 自动执行 / ask 询问后执行。缺省 = auto（历史默认无审批）。
   approvalPolicy?: ApprovalPolicy;
+  // 子 agent 编排开关:开启后该会话的 claude/codex 发送走主进程三段编排（意图理解→子 agent 执行→
+  // 二次加工，见 orchestrate.ts），渲染端过程面板按 stage 展示。缺省/false = 走单发 startCli（历史默认）。
+  // 仅 claude/codex 生效（pi 走 RPC 长驻，不参与编排）；逐轮 fresh 决策，改值下一轮即生效。
+  subagentOrchestration?: boolean;
   // /clear 后默认隐藏到此游标为止的历史消息；消息文件本身仍完整保留。
   hiddenHistory?: HiddenHistoryMeta;
   // 归档时间戳;缺省 = 在会话列表。归档后默认从列表隐藏。
@@ -940,21 +944,50 @@ export interface TrimSessionRequest {
 // 标注 phase:"start"+toolCallId("end" 为承载能力预留)。现有消费端(handleCliEvent/applyFollowupEvent
 // 的 if 链、foldCliEvent 对非 text/tool 原样返回)自然忽略未知 type 与新增可选字段。
 // ⚠️ 跨包契约:与 apps/desktop/src/main/ipc/types.ts 的 CliStreamEvent 逐字镜像,改动两处必须同步。
+// stage / stageLabel 说明（orchestrate.ts 三段编排用）：
+//   stage     — 编排阶段标注（"intent"意图理解/"subagent"子agent执行/"refine"二次加工），
+//               非编排 run 不带此字段，向后兼容。
+//   stageLabel — 段切换时的人可读提示文案（如「理解意图中…」），供渲染端更新 typing 占位，
+//               可选增强字段；渲染端未消费时自然忽略。
 export type CliStreamEvent =
-  | { type: "init"; sessionId: string }
-  | { type: "text"; delta: string }
-  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string }
-  | { type: "thinking"; delta: string } // 思考/推理增量(reasoning 模型),对齐 PiSessionEvent.reasoning
-  | { type: "turn"; stopReason?: string } // 一轮 assistant 结束(claude stop_reason:end_turn/tool_use/...)
-  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number } // 流式 usage/cost(补充磁盘来源)
-  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string } // 安全重试发起(对齐 pi retry)
-  | { type: "result"; ok: boolean; text?: string; error?: string };
+  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
+  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
+  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
+  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 思考/推理增量(reasoning 模型),对齐 PiSessionEvent.reasoning
+  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 一轮 assistant 结束(claude stop_reason:end_turn/tool_use/...)
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 流式 usage/cost(补充磁盘来源)
+  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 安全重试发起(对齐 pi retry)
+  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string };
 
 export interface CliExitEvent {
   runId: string;
   sessionId?: string; // 回显,供 renderer 重载后兜底清理
   code: number | null;
   error?: string; // spawn 失败（如 ENOENT）等
+}
+
+// ── 主 agent 编排子 agent 三段式执行（chat「子 agent 编排」开关开启时走此通道） ────────
+// 与 apps/desktop/src/main/ipc/orchestrate.ts 的 OrchestrateStartRequest 镜像（core 不能依赖 app 包）。
+// 渲染端经 startOrchestration 发起；事件流复用 onCliEvent/onCliExit（runId = orchestrationRunId，
+// 事件携带 stage 字段区分意图/子执行/二次加工三段）。取消走 killOrchestration（不复用 killCli，
+// 主进程编排子进程注册在独立 Set，cli:kill 对其无效）。
+export interface OrchestrateStartRequest {
+  /** 编排链路唯一 id，渲染端用此 id 消费全部三段事件（等价于 CliStartRequest.runId）。 */
+  orchestrationRunId: string;
+  /** 渲染端会话 id，随事件回显，供刷新后兜底归属。 */
+  sessionId: string;
+  /** spawn 用 agent id（内置 claude/codex，或派生 id；pi 不走编排）。 */
+  agent: string;
+  /** 工作目录（项目路径或无项目会话的 Documents/cortex/<date>）。 */
+  cwd: string;
+  /** 用户原始输入（三段均引用）。 */
+  prompt: string;
+  model?: string;
+  effort?: string;
+  // 以下仅段2（真实执行）透传：让子 agent 尊重会话访问范围/审批，并带 skills/附件/项目上下文。
+  permissionMode?: PermissionMode;
+  approvalPolicy?: ApprovalPolicy;
+  appendSystemPrompt?: string;
 }
 
 // ── pi RPC 长驻会话（--mode rpc） ────────────────────────────────────────
