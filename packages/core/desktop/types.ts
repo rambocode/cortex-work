@@ -741,6 +741,7 @@ export interface PersistedState {
 // 落地页激励问候语的每日 LLM 生成快照（按天缓存）。
 export interface DailyEncouragement {
   day: string; // dayKey(ts) = YYYY-MM-DD
+  slot?: string; // 时段，如"深夜"/"清晨"/"上午"等；缺失时视为跨时段失效
   title: string;
   sub: string;
 }

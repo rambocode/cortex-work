@@ -7070,6 +7070,13 @@ button.sb-row {
   display: block;
   filter: drop-shadow(0 14px 30px color-mix(in srgb, #6a8bff 34%, transparent));
 }
+/* 文案包裹层：支持 fade 动画切换（30 分钟轮换时淡出→换内容→淡入） */
+.pw-hero-content {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+.pw-hero-content--out { opacity: 0; }
 .pw-hero-title {
   margin: 10px 0 0;
   font-size: 30px; font-weight: 800; letter-spacing: 0.3px;

@@ -82,10 +82,12 @@ export function useDailyEncouragement(): DailyEncouragement | null {
   // 未设置时始终回退静态文案池。
   const optedIn = usePersonalStore((s) => !!s.generalSettings.defaultAgent);
   const day = dayKey(Date.now());
-  const hasCache = cached?.day === day;
+  const currentSlot = timePhrase(new Date().getHours());
+  // 缓存同时校验「天」和「时段」：时段切换后重新生成，避免深夜文案全天显示
+  const hasCache = cached?.day === day && cached?.slot === currentSlot;
 
   const { data } = useQuery({
-    queryKey: encourageKeys.daily(day),
+    queryKey: [...encourageKeys.daily(day), currentSlot],
     enabled: !!bridge && optedIn && !hasCache,
     staleTime: Infinity,
     gcTime: Infinity,
@@ -95,7 +97,7 @@ export function useDailyEncouragement(): DailyEncouragement | null {
         const text = await completeWithDefaultAgent(bridge!, buildEncouragePrompt(new Date()));
         const parsed = parseEncouragement(text);
         if (!parsed) return null;
-        const value: DailyEncouragement = { day, ...parsed };
+        const value: DailyEncouragement = { day, slot: currentSlot, ...parsed };
         setDaily(value); // 成功才落盘;失败保持静态兜底（与「报错不落盘」约定一致）。
         return value;
       } catch {
