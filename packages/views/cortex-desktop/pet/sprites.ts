@@ -15,7 +15,9 @@
 
 import type { PetKind, PetState } from "@cortex-work/core";
 
-import catIdle from "./assets/cat/idle.svg";
+// idle 已替换为 AI 生成的真实序列帧(Nano/codex image_gen → 绿幕去背 → 等宽重排);
+// walk/happy/sleeping 仍为占位 SVG,待同管线产出后替换为 .webp。
+import catIdle from "./assets/cat/idle.webp";
 import catWalk from "./assets/cat/walk.svg";
 import catHappy from "./assets/cat/happy.svg";
 import catSleeping from "./assets/cat/sleeping.svg";
