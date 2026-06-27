@@ -15,12 +15,12 @@
 
 import type { PetKind, PetState } from "@cortex-work/core";
 
-// idle 已替换为 AI 生成的真实序列帧(Nano/codex image_gen → 绿幕去背 → 等宽重排);
-// walk/happy/sleeping 仍为占位 SVG,待同管线产出后替换为 .webp。
+// cat 四核心态均为 AI 生成的真实序列帧(codex image_gen,参考图锚定保持同一只猫
+// → 绿幕去背 → ImageMagick 统一缩放/基线对齐拼成等宽 2x sheet → WebP)。
 import catIdle from "./assets/cat/idle.webp";
-import catWalk from "./assets/cat/walk.svg";
-import catHappy from "./assets/cat/happy.svg";
-import catSleeping from "./assets/cat/sleeping.svg";
+import catWalk from "./assets/cat/walk.webp";
+import catHappy from "./assets/cat/happy.webp";
+import catSleeping from "./assets/cat/sleeping.webp";
 
 /** sprite 动画键。7 个 PetState 收敛到这 4 个核心动画(见 spriteKeyFor)。 */
 export type SpriteAnimKey = "idle" | "walk" | "happy" | "sleeping";
