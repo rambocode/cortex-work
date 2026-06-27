@@ -260,6 +260,13 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
       if (fresh) {
         await c.channel.connect();
         if (cancelled || settled) return;
+      }
+      // thread 初始化判据用「channel 是否已建好 thread」(c.threadId)而非 fresh:getOrCreateConn 在
+      // connect/startThread 之前就把 conn 存进 sessionConns,故首轮 startThread 失败/被取消后,重试会
+      // 复用同一 conn(fresh=false)却没有 thread。若仍按 fresh 跳过建 thread,startTurn 会因 channel
+      // 无 _threadId 抛「startTurn 前需先 startThread」。改用 c.threadId 判定可覆盖该重试/并发场景。
+      const wantResume = !!resumeId && resumeId !== c.threadId; // 续到不同 thread(编辑重发/切历史)
+      if (!c.threadId || wantResume) {
         if (resumeId) {
           // 续接(失败=session-lost,归一化错误供渲染端清除 agentSessionId,不重试)。
           try {
@@ -272,15 +279,6 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
         } else {
           c.threadId = await c.channel.startThread({ cwd: req.cwd, permissionMode: req.permissionMode, model: req.model });
         }
-      } else if (resumeId && resumeId !== c.threadId) {
-        // 复用连接但请求续到不同 thread(编辑重发/切历史):同连接上 resume 目标 thread。
-        try {
-          await c.channel.resumeThread(resumeId, { cwd: req.cwd, permissionMode: req.permissionMode, model: req.model });
-        } catch (e) {
-          forwardResultThenExit(false, `thread/resume failed: ${errMsg(e)}`);
-          return;
-        }
-        c.threadId = resumeId;
       }
       if (cancelled || settled) return;
       // 每轮发 init(从 threadId):首轮新建/续接、后续轮复用,渲染端据此维护 agentSessionId。
