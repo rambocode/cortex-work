@@ -53,11 +53,14 @@ const FH = 100;
  * 每个 anim 内同样 Partial,缺某动画键时由 resolveSpriteAnim 回退到 idle。
  */
 export const PET_SPRITES: Partial<Record<PetKind, Partial<Record<SpriteAnimKey, SpriteAnim>>>> = {
+  // fps 偏低是刻意的:这些是「姿态关键帧」而非补间动画,帧少、节奏要慢而柔,
+  // 否则像快放。dur = frames/fps:idle 2s 呼吸、walk 0.8s 步频、happy 0.83s 跳、
+  // sleeping 2s/帧(pingpong 往复约 4s)。
   cat: {
-    idle: { src: assetUrl(catIdle), frames: 4, frameW: FW, frameH: FH, fps: 5, loop: true },
-    walk: { src: assetUrl(catWalk), frames: 4, frameW: FW, frameH: FH, fps: 9, loop: true },
-    happy: { src: assetUrl(catHappy), frames: 5, frameW: FW, frameH: FH, fps: 13, loop: false },
-    sleeping: { src: assetUrl(catSleeping), frames: 3, frameW: FW, frameH: FH, fps: 3, loop: "pingpong" },
+    idle: { src: assetUrl(catIdle), frames: 4, frameW: FW, frameH: FH, fps: 2, loop: true },
+    walk: { src: assetUrl(catWalk), frames: 4, frameW: FW, frameH: FH, fps: 5, loop: true },
+    happy: { src: assetUrl(catHappy), frames: 5, frameW: FW, frameH: FH, fps: 6, loop: false },
+    sleeping: { src: assetUrl(catSleeping), frames: 3, frameW: FW, frameH: FH, fps: 1.5, loop: "pingpong" },
   },
 };
 

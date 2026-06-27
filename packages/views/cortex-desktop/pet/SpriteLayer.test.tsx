@@ -16,8 +16,8 @@ describe("SpriteLayer", () => {
     expect(el.style.getPropertyValue("--sprite-frames")).toBe("4");
     // steps = N(jump-none 命中 N 帧),非 N-1,否则 50% 落在两帧间出现重影
     expect(el.style.getPropertyValue("--sprite-steps")).toBe("4");
-    // dur = frames/fps = 4/5 = 0.8s
-    expect(el.style.getPropertyValue("--sprite-dur")).toBe("0.8s");
+    // dur = frames/fps = 4/2 = 2s
+    expect(el.style.getPropertyValue("--sprite-dur")).toBe("2s");
     expect(el.style.backgroundImage).toContain(PET_SPRITES.cat!.idle!.src);
   });
 
