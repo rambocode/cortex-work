@@ -239,6 +239,8 @@ async function __mcpBridgeMain(pi, servers) {
       client.notify("notifications/initialized", {});
       const list = await client.request("tools/list", {});
       const tools = list && Array.isArray(list.tools) ? list.tools : [];
+      // 诊断：连接成功 + 拿到的工具名（定位 delegate ask_<id> 是否真注册）。
+      try { process.stderr.write("[cortex-mcp-bridge] " + server.id + " connected tools=[" + tools.map(function (t) { return t && t.name; }).join(",") + "]\n"); } catch (e) {}
       clients.push(client);
       for (let j = 0; j < tools.length; j++) {
         const t = tools[j];
@@ -271,7 +273,7 @@ async function __mcpBridgeMain(pi, servers) {
     } catch (e) {
       // 单 server 失败不影响其它 server 与 pi 启动(fail-soft)。
       if (client && client.close) { try { client.close(); } catch (e2) {} }
-      try { console.warn("[cortex-mcp-bridge] server " + (server && server.id) + " 接入失败: " + String((e && e.message) || e)); } catch (e3) {}
+      try { process.stderr.write("[cortex-mcp-bridge] " + (server && server.id) + " FAILED: " + String((e && e.message) || e) + "\n"); } catch (e3) {}
     }
   }
   // 会话结束清理 stdio 子进程(best-effort;子进程本随 pi 退出而亡,显式关更干净)。

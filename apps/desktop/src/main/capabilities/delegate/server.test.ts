@@ -159,7 +159,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       expect(init.status).toBe(200);
       const list = await post(cfg, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
       expect(list.status).toBe(200);
-      // 响应可能是 SSE（data: {...}）或 JSON，body 里应含注册的 ask_codex 工具名。
+      // 真实 host 返回 SSE，body 含注册的工具名（端到端验证 tools/list 真返回 ask_codex）。
       expect(list.body).toContain("ask_codex");
     } finally {
       stopDelegateHost();
