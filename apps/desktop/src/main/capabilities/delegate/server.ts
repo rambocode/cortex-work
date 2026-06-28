@@ -166,6 +166,14 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
 export function startDelegateHost(): Promise<McpHostHandle> {
   return delegateHost.start((mcp, ctx) => {
     const state = ctx.sessionId ? sessionStateMap.get(ctx.sessionId) : undefined;
+    // 诊断：pi 桥接每次请求时，host 是否按 X-Cortex-Session 找到 session state（决定是否注册 ask_<id>）。
+    try {
+      process.stderr.write(
+        "[delegate-host] req session=" + ctx.sessionId +
+          " known=[" + Array.from(sessionStateMap.keys()).join(",") + "]" +
+          " state=" + (state ? "FOUND roles=" + state.roles.map((r) => r.id).join(",") : "NOT-FOUND") + "\n",
+      );
+    } catch (e) { /* 诊断写失败忽略 */ }
     if (!state) return;
     for (const role of state.roles) {
       registerAskTool(mcp, role, state);
