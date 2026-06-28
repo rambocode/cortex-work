@@ -5,6 +5,8 @@ import {
   unregisterDelegateSession,
   killAllDelegates,
   buildDelegateMcpServerConfig,
+  startDelegateHost,
+  stopDelegateHost,
   type DelegateSessionState,
 } from "./server";
 
@@ -52,6 +54,22 @@ describe("buildDelegateMcpServerConfig（注入配置纯函数）", () => {
 
   it("host 未启动（getHandle=null）→ null，避免给 agent 连不上的 url", () => {
     expect(buildDelegateMcpServerConfig("s1")).toBeNull();
+  });
+
+  it("startDelegateHost 后返回 http config（桥接注入的前提：host 可用）", async () => {
+    const handle = await startDelegateHost();
+    try {
+      expect(handle.serverAvailable).toBe(true);
+      expect(handle.port).toBeGreaterThan(0);
+      const cfg = buildDelegateMcpServerConfig("s1");
+      expect(cfg).not.toBeNull();
+      expect(cfg?.transport).toBe("http");
+      expect(cfg?.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+      expect(cfg?.headers?.["X-Cortex-Session"]).toBe("s1");
+    } finally {
+      stopDelegateHost();
+    }
+    expect(buildDelegateMcpServerConfig("s1")).toBeNull(); // stop 后回到 null
   });
 });
 
