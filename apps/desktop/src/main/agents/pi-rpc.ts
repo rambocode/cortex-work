@@ -43,8 +43,9 @@ function diagnosticsError(diagnostics: unknown): string | undefined {
 /**
  * 把 pi 的 AgentSessionEvent（stdout 事件行）映射为归一化 PiSessionEvent。
  * 无状态纯函数:无法识别 / 需忽略的事件（agent_start、turn_start、message_start、
- * text_start、text_end、toolcall_start/delta/end、auto_retry_end、response、以及正常收尾的
+ * text_start、text_end、toolcall_start/delta/end、auto_retry_end、response、以及 toolUse 中间收尾的
  * message_end）返回 null。run 失败的 message_end（stopReason=error|aborted）映射为 error 事件。
+ * 正常最终 message_end（stop/length）也映射为 result，兜住 pi 偶发缺 agent_end 的终态。
  */
 export function mapPiEvent(raw: unknown): PiSessionEvent | null {
   if (!raw || typeof raw !== "object") return null;
@@ -68,7 +69,8 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
     }
     case "message_end": {
       // run 的真实错误载体:assistant message 的 stopReason=error|aborted + errorMessage（与 pi.ts
-      // 100-113 同源）。正常收尾（stop/length/toolUse）不产出——turn-end / result 已表达。
+      // 100-113 同源）。toolUse 是工具调用中间边界,不能收尾;stop/length 是最终边界,
+      // 也产出 result,兜住 pi 偶发缺 agent_end 时 renderer 永久卡 running 的情况。
       const msg = o.message as Record<string, unknown> | undefined;
       const stopReason = msg?.stopReason;
       if (stopReason === "error" || stopReason === "aborted") {
@@ -77,6 +79,9 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
           diagnosticsError(msg?.diagnostics) ??
           String(stopReason);
         return { type: "error", error };
+      }
+      if (stopReason === "stop" || stopReason === "length") {
+        return { type: "result", willRetry: false };
       }
       return null;
     }
