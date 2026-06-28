@@ -400,7 +400,11 @@ function runDelegateSubAgent(
     },
   });
 
-  const proc = startAgentProcess(cmd, args, { cwd: parent.cwd, env: spawnEnvForDef(req, adapter), stdin });
+  // 临时诊断：给 codex 子 agent 开 RUST_LOG，让它把内部失败原因（WebSocket 连接 / 认证 / plugin
+  // 加载）写到 stderr——所有终端复现均成功，唯 Electron 主进程失败，需 codex 自身日志定位。
+  const subEnv = spawnEnvForDef(req, adapter);
+  if (role.agent === "codex" && !subEnv.RUST_LOG) subEnv.RUST_LOG = "info";
+  const proc = startAgentProcess(cmd, args, { cwd: parent.cwd, env: subEnv, stdin });
 
   return new Promise((resolve) => {
     let out = "";
