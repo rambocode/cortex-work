@@ -2288,6 +2288,9 @@ export function usePersonalActions(): PersonalActions {
         await sendPiTurn(qc, bridge, session, projectPath, text, appendSystemPrompt, { runId, typingUid }, imagePaths);
         return true;
       }
+      // pi 圆桌路径不走 sendPiTurn → piSendStarting 锁必须立即释放，
+      // 否则该 session 后续所有 send 都被 line 2162 守卫静默拒绝。
+      if (session.agent === "pi") piSendStarting.delete(session.id);
 
       const run: RunState = {
         sessionId: session.id,
