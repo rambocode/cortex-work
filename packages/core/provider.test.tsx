@@ -19,12 +19,15 @@ describe("CoreProvider 初始化埋点（U7）", () => {
   it("挂载时经注入 bridge 以 info 级记录一条初始化信息（含 wsId/liveData/bridge）", () => {
     const logMessage = vi.fn<(level: string, message: string) => Promise<void>>(async () => {});
     render(
-      React.createElement(CoreProvider, {
-        wsId: "ws-7",
-        identity: { userId: "u", name: "n" },
-        desktopBridge: makeBridge(logMessage),
-        children: null,
-      }),
+      React.createElement(
+        CoreProvider,
+        {
+          wsId: "ws-7",
+          identity: { userId: "u", name: "n" },
+          desktopBridge: makeBridge(logMessage),
+        },
+        null,
+      ),
     );
     expect(logMessage).toHaveBeenCalledTimes(1);
     const [level, message] = logMessage.mock.calls[0]!;
@@ -38,12 +41,15 @@ describe("CoreProvider 初始化埋点（U7）", () => {
   it("web 端 desktopBridge=null 时安全 no-op，不抛错", () => {
     expect(() =>
       render(
-        React.createElement(CoreProvider, {
-          wsId: "ws-web",
-          identity: { userId: "u", name: "n" },
-          desktopBridge: null,
-          children: null,
-        }),
+        React.createElement(
+          CoreProvider,
+          {
+            wsId: "ws-web",
+            identity: { userId: "u", name: "n" },
+            desktopBridge: null,
+          },
+          null,
+        ),
       ),
     ).not.toThrow();
   });
