@@ -4,8 +4,13 @@
 // 彻底脱离 Electron asar/node_modules 的依赖解析(pi 是纯 ESM、依赖闭包庞大,塞进 asar
 // 会反复出 minimatch/typebox/undici 这类解析问题;bun --compile 把依赖全 inline 进二进制)。
 //
-// 幂等:resources/pi/.pi-version 记录已编译的 pi 版本,版本未变且二进制存在则跳过(dev 启动
-// 每次跑也不会重编)。强制重编:node scripts/build-pi-binary.mjs --force
+// 幂等:resources/pi/.pi-version 记录已编译的 pi 版本+平台,版本未变且二进制存在则跳过(dev
+// 启动每次跑也不会重编)。强制重编:node scripts/build-pi-binary.mjs --force
+//
+// 跨平台构建:
+//   node scripts/build-pi-binary.mjs --platform darwin --arch x64
+//   node scripts/build-pi-binary.mjs --platform win32  --arch x64
+//   默认(无参数): darwin-arm64
 //
 // 依赖 bun(本机 ~/.bun/bin/bun 或 PATH;CI 打包需安装 bun)。
 
@@ -18,11 +23,26 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = dirname(here); // apps/desktop
 const piPkgDir = join(desktopRoot, "node_modules/@earendil-works/pi-coding-agent");
-const outDir = join(desktopRoot, "resources/pi");
-const binPath = join(outDir, "pi");
-const stampPath = join(outDir, ".pi-version");
 
 const log = (msg) => console.log(`[build-pi-binary] ${msg}`);
+
+// ── CLI 参数解析 ──────────────────────────────────────────────────────────────
+const argv = process.argv.slice(2);
+const flagVal = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+const targetPlatform = flagVal("--platform") ?? "darwin";
+const targetArch = flagVal("--arch") ?? "arm64";
+const force = argv.includes("--force");
+const isWindows = targetPlatform === "win32";
+
+// bun --compile target 映射（bun 用 "darwin"/"windows"/"linux"）
+const bunPlatform = targetPlatform === "win32" ? "windows" : targetPlatform;
+const bunTarget = `bun-${bunPlatform}-${targetArch}`;
+
+const outDir = join(desktopRoot, "resources/pi");
+const binName = isWindows ? "pi.exe" : "pi";
+const binPath = join(outDir, binName);
+const stampPath = join(outDir, ".pi-version");
+const stampKey = `${targetPlatform}-${targetArch}`;
 
 if (!existsSync(piPkgDir)) {
   console.error(`[build-pi-binary] 找不到 pi 包: ${piPkgDir}\n请先 pnpm install。`);
@@ -30,12 +50,11 @@ if (!existsSync(piPkgDir)) {
 }
 
 const piVersion = JSON.parse(readFileSync(join(piPkgDir, "package.json"), "utf-8")).version;
-const force = process.argv.includes("--force");
 
-// 幂等:版本未变且二进制在,直接跳过。
+// 幂等:版本+平台未变且二进制在,直接跳过。
 if (!force && existsSync(binPath) && existsSync(stampPath)) {
-  if (readFileSync(stampPath, "utf-8").trim() === piVersion) {
-    log(`pi@${piVersion} 二进制已最新,跳过(--force 强制重编)。`);
+  if (readFileSync(stampPath, "utf-8").trim() === `${piVersion}:${stampKey}`) {
+    log(`pi@${piVersion} (${stampKey}) 二进制已最新,跳过(--force 强制重编)。`);
     process.exit(0);
   }
 }
@@ -46,7 +65,7 @@ const bun =
     (b) => b && existsSync(b),
   ) || "bun";
 
-log(`编译 pi@${piVersion} → ${binPath}`);
+log(`编译 pi@${piVersion} → ${binPath} (target: ${bunTarget})`);
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
@@ -57,7 +76,7 @@ execFileSync(
     "build",
     "--compile",
     "--target",
-    "bun-darwin-arm64",
+    bunTarget,
     join(piPkgDir, "dist/bun/cli.js"),
     "--outfile",
     binPath,
@@ -89,5 +108,5 @@ try {
   log(`⚠️ 未拷 photon wasm(图片处理),不影响文本回路: ${e.message}`);
 }
 
-writeFileSync(stampPath, piVersion);
+writeFileSync(stampPath, `${piVersion}:${stampKey}`);
 log(`完成: ${binPath}`);
