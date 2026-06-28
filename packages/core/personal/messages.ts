@@ -2387,6 +2387,7 @@ export function usePersonalActions(): PersonalActions {
           await bridge.startRoundtable!({
             runId,
             sessionId: sendSession.id,
+            agent: sendSession.agent,
             cwd: projectPath,
             text,
             mentions: earlyMentions,

@@ -981,10 +981,12 @@ export interface CliExitEvent {
 }
 
 // 圆桌编排启动参数（渲染端 → roundtable:start）。
-// 与 OrchestrateStartRequest 类似但面向多角色 BFS 调度（KTD4：独立不复用 orchestrate）。
+// 管线式调度：主 agent 先执行用户 prompt，其输出作为 @mentioned agent 的上下文（KTD4）。
 export interface RoundtableStartRequest {
   runId: string;
   sessionId: string;
+  // 主会话 agent（管线第一段：先由它处理用户 prompt，输出再交给 @mentioned agent）。
+  agent: string;
   cwd: string;
   text: string;
   mentions: Array<{ mention: string; role: RoleConfig }>;

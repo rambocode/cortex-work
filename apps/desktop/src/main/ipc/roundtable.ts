@@ -306,7 +306,7 @@ function extractChainMentions(
 
 export function registerRoundtableHandlers(): void {
   ipcMain.handle("roundtable:start", async (event, req: RoundtableStartRequest) => {
-    const { runId, sessionId, cwd, text, mentions, roles, model, effort, permissionMode, approvalPolicy, appendSystemPrompt } = req;
+    const { runId, sessionId, agent, cwd, text, mentions, roles, model, effort, permissionMode, approvalPolicy, appendSystemPrompt } = req;
 
     const sender = event.sender;
     const controller = new AbortController();
@@ -326,17 +326,75 @@ export function registerRoundtableHandlers(): void {
     // 内置 agent id 集合（链条触发用）
     const builtinIds = new Set(["claude", "codex", "pi"]);
 
-    // BFS 队列初始化
-    const queue: QueueItem[] = mentions.map((m) => ({
-      role: m.role,
-      depth: 0,
-    }));
-
     // 访问计数（防循环）
     const visitCount = new Map<string, number>();
 
     // 本轮累积上下文（后续角色能看到前序角色的回复）
     const turnAccumulator: Array<{ roleId: string; roleLabel: string; text: string }> = [];
+
+    // ── 管线第一段：主 agent 先执行用户 prompt ──
+    // 主 agent（会话绑定的 agent）处理完整用户消息，其输出作为 @mentioned agent 的上下文。
+    // 仅当 @mentioned agent 与主 agent 不是同一个时才分两段；若用户在 codex 会话 @Codex，
+    // 跳过主 agent 直接走 BFS（避免同 agent 跑两次、prompt 重复）。
+    const mentionedIds = new Set(mentions.map((m) => m.role.id));
+    const skipPrimary = mentions.length === 1 && mentionedIds.has(agent);
+
+    if (!skipPrimary && !controller.signal.aborted) {
+      const primaryLabel = agent.charAt(0).toUpperCase() + agent.slice(1);
+      const primaryRole: RoleConfig = {
+        id: `__primary_${agent}`,
+        label: primaryLabel,
+        agent,
+        systemPrompt: "",
+        createdAt: "",
+        updatedAt: "",
+      };
+
+      // 角色开始信号
+      sendEvent({ type: "init", sessionId, roleId: primaryRole.id, stageLabel: primaryRole.label } as CliStreamEvent);
+
+      const primaryResult = await runRole({
+        role: primaryRole,
+        text,
+        cwd,
+        turnAccumulator,
+        model,
+        effort,
+        permissionMode,
+        approvalPolicy,
+        appendSystemPrompt,
+        signal: controller.signal,
+        onEvent: sendEvent,
+      });
+
+      if (!controller.signal.aborted) {
+        if (!primaryResult.ok) {
+          sendEvent({
+            type: "result",
+            ok: false,
+            error: primaryResult.error,
+            roleId: primaryRole.id,
+          } as CliStreamEvent);
+          turnAccumulator.push({
+            roleId: primaryRole.id,
+            roleLabel: primaryRole.label,
+            text: `[执行失败: ${primaryResult.error ?? "未知错误"}]`,
+          });
+        } else {
+          turnAccumulator.push({
+            roleId: primaryRole.id,
+            roleLabel: primaryRole.label,
+            text: primaryResult.text,
+          });
+        }
+      }
+    }
+
+    // ── 管线第二段：BFS 调度 @mentioned agents ──
+    const queue: QueueItem[] = mentions.map((m) => ({
+      role: m.role,
+      depth: 0,
+    }));
 
     while (queue.length > 0) {
       if (controller.signal.aborted) break;
