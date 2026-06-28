@@ -79,9 +79,9 @@ export interface SessionMeta {
   permissionMode?: PermissionMode;
   // 执行/审批策略（与访问范围正交）:auto 自动执行 / ask 询问后执行。缺省 = auto（历史默认无审批）。
   approvalPolicy?: ApprovalPolicy;
-  // 子 agent 编排开关:开启后该会话的 claude/codex 发送走主进程三段编排（意图理解→子 agent 执行→
+  // 子 agent 编排开关:开启后该会话发送走主进程三段编排（意图理解→子 agent 执行→
   // 二次加工，见 orchestrate.ts），渲染端过程面板按 stage 展示。缺省/false = 走单发 startCli（历史默认）。
-  // 仅 claude/codex 生效（pi 走 RPC 长驻，不参与编排）；逐轮 fresh 决策，改值下一轮即生效。
+  // Claude/Codex 走 CLI fresh spawn；Pi 走临时 RPC fresh 会话，不污染当前长驻 Pi 对话。逐轮 fresh 决策，改值下一轮即生效。
   subagentOrchestration?: boolean;
   // /clear 后默认隐藏到此游标为止的历史消息；消息文件本身仍完整保留。
   hiddenHistory?: HiddenHistoryMeta;
@@ -977,7 +977,7 @@ export interface OrchestrateStartRequest {
   orchestrationRunId: string;
   /** 渲染端会话 id，随事件回显，供刷新后兜底归属。 */
   sessionId: string;
-  /** spawn 用 agent id（内置 claude/codex，或派生 id；pi 不走编排）。 */
+  /** spawn 用 agent id（内置 claude/codex/pi，或派生 id）。 */
   agent: string;
   /** 工作目录（项目路径或无项目会话的 Documents/cortex/<date>）。 */
   cwd: string;
@@ -989,6 +989,8 @@ export interface OrchestrateStartRequest {
   permissionMode?: PermissionMode;
   approvalPolicy?: ApprovalPolicy;
   appendSystemPrompt?: string;
+  /** Pi 三段编排所需的 RPC open 参数；由 renderer 按普通 Pi 发送同源装配。 */
+  piOpen?: Omit<PiOpenRequest, "uiSessionId" | "cwd">;
 }
 
 // ── pi RPC 长驻会话（--mode rpc） ────────────────────────────────────────

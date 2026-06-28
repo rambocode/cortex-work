@@ -248,9 +248,9 @@ export interface PersonalState {
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
   // 设置/清空某会话的运行模式拦截提示（hint=undefined 清空,如切档/忽略/新发送）。
   setModeBlockHint: (sessionId: string, hint: ModeBlockHint | undefined) => void;
-  // pi extension UI 待确认请求:入队 / 按请求 id 出队 / 清某会话全部（会话退出/删除时）。
+  // pi extension UI 待确认请求:入队 / 按会话+请求 id 出队 / 清某会话全部（会话退出/删除时）。
   pushPiUiRequest: (item: { uiSessionId: string; request: PiUiRequest }) => void;
-  resolvePiUiRequest: (id: string) => void;
+  resolvePiUiRequest: (uiSessionId: string, id: string) => void;
   clearPiUiForSession: (uiSessionId: string) => void;
   toggleTerminal: () => void;
   // 发送文本到终端:暂存并确保终端面板打开,由 TerminalPanel 消费。
@@ -819,8 +819,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     set((s) => ({ modeBlockHints: { ...s.modeBlockHints, [sessionId]: hint } })),
 
   pushPiUiRequest: (item) => set((s) => ({ piUiPending: [...s.piUiPending, item] })),
-  resolvePiUiRequest: (id) =>
-    set((s) => ({ piUiPending: s.piUiPending.filter((p) => p.request.id !== id) })),
+  resolvePiUiRequest: (uiSessionId, id) =>
+    set((s) => ({ piUiPending: s.piUiPending.filter((p) => p.uiSessionId !== uiSessionId || p.request.id !== id) })),
   clearPiUiForSession: (uiSessionId) =>
     set((s) => ({ piUiPending: s.piUiPending.filter((p) => p.uiSessionId !== uiSessionId) })),
 

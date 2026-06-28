@@ -102,6 +102,8 @@ import {
   piSessionCount,
   filterLoadableExtensionPaths,
   __setPiExtStoreRootForTest,
+  registerTransientPiUiRequest,
+  clearTransientPiUiRequestsForSession,
 } from "./pi-session";
 
 // renderer 替身:可控的 isDestroyed + 记录 send + once(pi:open 监听 sender 'destroyed' 回收会话)。
@@ -406,6 +408,23 @@ describe("extension UI channel（阶段3 U2）", () => {
     const inst = h.instances[h.instances.length - 1]!;
     await h.handlers.get("pi:uiResponse")!({}, "u1", "x1", { confirmed: true });
     expect(inst.respondUi).toHaveBeenCalledWith("x1", { confirmed: true });
+  });
+
+  it("临时编排 UI response 按真实会话 + request id 路由,避免并行会话串台", async () => {
+    await open({ uiSessionId: "uA" });
+    const instA = h.instances[h.instances.length - 1]!;
+    await open({ uiSessionId: "uB" });
+    const instB = h.instances[h.instances.length - 1]!;
+    registerTransientPiUiRequest("uA", "same-id", instA);
+    registerTransientPiUiRequest("uB", "same-id", instB);
+
+    await h.handlers.get("pi:uiResponse")!({}, "uA", "same-id", { confirmed: true });
+    await h.handlers.get("pi:uiResponse")!({}, "uB", "same-id", { cancelled: true });
+
+    expect(instA.respondUi).toHaveBeenCalledWith("same-id", { confirmed: true });
+    expect(instB.respondUi).toHaveBeenCalledWith("same-id", { cancelled: true });
+    clearTransientPiUiRequestsForSession(instA);
+    clearTransientPiUiRequestsForSession(instB);
   });
 
   it("多会话:A 的 UI 请求只推给 A 的 sender", async () => {

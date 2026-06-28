@@ -89,4 +89,12 @@ describe("CustomizePill(自定义:执行模式 + 工作区)", () => {
     expect(auto.classList.contains("is-on")).toBe(true);
     expect(auto.getAttribute("aria-checked")).toBe("true");
   });
+
+  it("pi 也渲染子 agent 编排开关", () => {
+    const onToggleSubagentOrchestration = vi.fn();
+    renderPill({ agent: "pi", subagentOrchestration: false, onToggleSubagentOrchestration });
+    fireEvent.click(screen.getByLabelText("自定义"));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /已关闭/ }));
+    expect(onToggleSubagentOrchestration).toHaveBeenCalledTimes(1);
+  });
 });

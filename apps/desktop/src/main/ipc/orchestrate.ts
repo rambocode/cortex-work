@@ -34,12 +34,19 @@ import type { AgentProcess } from "./cli";
 import {
   assertSpawnCwd,
   pipeStdoutLines,
+  spawnEnvFor,
   spawnEnvForDef,
   startAgentProcess,
 } from "./cli";
 import { getAgentDef, parseLineEvents } from "../agents";
+import { buildRpcArgs, PiRpcSession, spawnPiRpc } from "../agents/pi-rpc";
 import { CODEX_MCP_CLEAR } from "./mcp-config";
-import type { CliExitEvent, CliStartRequest, CliStreamEvent } from "./types";
+import {
+  clearTransientPiUiRequestsForSession,
+  preparePiOpenRequest,
+  registerTransientPiUiRequest,
+} from "./pi-session";
+import type { CliExitEvent, CliStartRequest, CliStreamEvent, PiOpenRequest, PiSessionEvent, PiUiRequest } from "./types";
 
 // ── 分段超时常量 ────────────────────────────────────────────────────────────
 // 意图理解与二次加工属于「轻量 prompt 转换」，60s 足够，过长说明出问题。
@@ -58,6 +65,7 @@ type OrchestrateStage = "intent" | "subagent" | "refine";
 // orchestrationProcs: 所有在途子进程（跨链路），供 killAllOrchestrations 统一终止。
 const activeOrchestrations = new Map<string, AbortController>();
 const orchestrationProcs = new Set<AgentProcess>();
+const orchestrationPiSessions = new Set<PiRpcSession>();
 
 /**
  * 终止所有在途编排子进程（应用退出 / stop-run 时调用）。
@@ -71,8 +79,13 @@ export function killAllOrchestrations(): void {
   for (const proc of orchestrationProcs) {
     proc.kill();
   }
+  for (const session of orchestrationPiSessions) {
+    clearTransientPiUiRequestsForSession(session);
+    session.stop();
+  }
   activeOrchestrations.clear();
   orchestrationProcs.clear();
+  orchestrationPiSessions.clear();
 }
 
 // ── 系统提示词 ──────────────────────────────────────────────────────────────
@@ -131,6 +144,8 @@ export interface OrchestrateStartRequest {
    * 仅段2透传：子 agent 真实执行需要这些上下文；段1/段3用各自固定 system prompt，不叠加。
    */
   appendSystemPrompt?: string;
+  /** Pi 三段编排所需的 RPC open 参数（renderer 侧按普通 Pi 发送同源装配）。 */
+  piOpen?: Omit<PiOpenRequest, "uiSessionId" | "cwd">;
 }
 
 // ── 单段执行 ──────────────────────────────────────────────────────────────────
@@ -295,6 +310,139 @@ async function runStage(opts: {
   });
 }
 
+function piPromptWithAppend(prompt: string, appendSystemPrompt?: string): string {
+  return appendSystemPrompt ? `${appendSystemPrompt}\n\n${prompt}` : prompt;
+}
+
+function mapPiToCliEvent(ev: PiSessionEvent): CliStreamEvent | null {
+  switch (ev.type) {
+    case "text":
+      return { type: "text", delta: ev.delta };
+    case "reasoning":
+      return { type: "thinking", delta: ev.delta };
+    case "tool-start":
+      return { type: "tool", name: ev.name, detail: ev.detail, phase: "start", toolCallId: ev.toolCallId };
+    case "tool-end":
+      return { type: "tool", name: ev.name, phase: "end", toolCallId: ev.toolCallId };
+    case "retry":
+      return { type: "retry", attempt: ev.attempt, maxAttempts: ev.maxAttempts, reason: ev.error };
+    case "turn-end":
+      return { type: "turn" };
+    case "error":
+      return { type: "result", ok: false, error: ev.error };
+    case "crashed":
+      return { type: "result", ok: false, error: ev.error ?? "pi 进程已退出" };
+    case "result":
+      return ev.willRetry ? null : { type: "result", ok: true };
+    case "notify":
+      return ev.message ? { type: "text", delta: ev.message } : null;
+    case "compaction":
+    case "queue":
+    case "session-info":
+    case "thinking-level":
+      return null;
+  }
+}
+
+async function runPiStage(opts: {
+  stage: OrchestrateStage;
+  prompt: string;
+  cwd: string;
+  model?: string;
+  appendSystemPrompt?: string;
+  piOpen?: Omit<PiOpenRequest, "uiSessionId" | "cwd">;
+  signal: AbortSignal;
+  timeoutMs: number;
+  onEvent: (ev: CliStreamEvent) => void;
+  onUiRequest: (session: PiRpcSession, req: PiUiRequest) => void;
+}): Promise<StageRunResult> {
+  const { stage, prompt, cwd, model, appendSystemPrompt, piOpen, signal, timeoutMs, onEvent, onUiRequest } = opts;
+  if (signal.aborted) return { text: "", ok: false, error: "已取消" };
+
+  const spawnKey = randomUUID();
+  const uiSessionId = `orch-${spawnKey}`;
+  let out = "";
+  let settled = false;
+  let session: PiRpcSession | undefined;
+
+  return new Promise<StageRunResult>((resolve) => {
+    const settle = (result: StageRunResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      if (session) {
+        clearTransientPiUiRequestsForSession(session);
+        orchestrationPiSessions.delete(session);
+        session.stop();
+      }
+      resolve({ ...result, text: result.text.trim() });
+    };
+
+    const timer = setTimeout(() => {
+      settle({ text: out, ok: false, error: `段 ${stage} 超时（${Math.round(timeoutMs / 1000)}s），已终止` });
+    }, timeoutMs);
+
+    const onAbort = () => settle({ text: out, ok: false, error: "已取消" });
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    const handlePiEvent = (piEv: PiSessionEvent) => {
+      if (settled) return;
+      const ev = mapPiToCliEvent(piEv);
+      if (!ev) return;
+      if (ev.type === "text") {
+        if (out.length < MAX_STAGE_OUTPUT) out += ev.delta;
+        onEvent({ ...ev, stage } as CliStreamEvent);
+        return;
+      }
+      if (ev.type === "result") {
+        settle({ text: out, ok: ev.ok, error: ev.ok ? undefined : ev.error ?? "执行失败" });
+        return;
+      }
+      onEvent({ ...ev, stage } as CliStreamEvent);
+    };
+
+    void (async () => {
+      try {
+        const req = await preparePiOpenRequest({
+          ...(piOpen ?? {}),
+          uiSessionId,
+          cwd,
+          model: piOpen?.model ?? model,
+          appendSystemPrompt: stage === "subagent" ? piOpen?.appendSystemPrompt : undefined,
+        });
+        if (settled || signal.aborted) return;
+        const args = buildRpcArgs(req);
+        assertSpawnCwd(cwd);
+        const transport = spawnPiRpc(args, { cwd, env: spawnEnvFor({ agent: "pi", provider: req.provider }) });
+        if (settled || signal.aborted) {
+          transport.kill();
+          return;
+        }
+        session = new PiRpcSession(
+          transport,
+          (ev) => handlePiEvent(ev),
+          (uiReq) => {
+            if (!session) return;
+            onUiRequest(session, uiReq);
+          },
+          req.askQuestionSentinel,
+        );
+        orchestrationPiSessions.add(session);
+        await session.ready();
+        if (settled || signal.aborted) return;
+        const resp = await session.prompt(piPromptWithAppend(prompt, appendSystemPrompt), spawnKey);
+        if (settled || signal.aborted) return;
+        if (!resp.success) {
+          settle({ text: out, ok: false, error: resp.error ?? "pi prompt failed" });
+        }
+      } catch (e) {
+        settle({ text: out, ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    })();
+  });
+}
+
 // ── IPC Handler 注册 ─────────────────────────────────────────────────────────
 
 export function registerOrchestrateHandlers(): void {
@@ -302,7 +450,7 @@ export function registerOrchestrateHandlers(): void {
   // 渲染端经 cli:event / cli:exit 消费事件流（与普通 cli:start 共用同一通道，
   // 区别在于事件携带 stage 字段，且中间段 result 不触发 finalizeRun）。
   ipcMain.handle("orchestrate:start", async (event, req: OrchestrateStartRequest) => {
-    const { orchestrationRunId: runId, sessionId, agent, cwd, prompt, model, effort, permissionMode, approvalPolicy, appendSystemPrompt } = req;
+    const { orchestrationRunId: runId, sessionId, agent, cwd, prompt, model, effort, permissionMode, approvalPolicy, appendSystemPrompt, piOpen } = req;
 
     const sender = event.sender;
     const controller = new AbortController();
@@ -326,18 +474,55 @@ export function registerOrchestrateHandlers(): void {
     const sendStageStart = (stage: OrchestrateStage, stageLabel: string) => {
       sendEvent({ type: "thinking", delta: "", stage, stageLabel } as CliStreamEvent);
     };
+    const sendPiUiRequest = (piSession: PiRpcSession, request: PiUiRequest) => {
+      registerTransientPiUiRequest(sessionId, request.id, piSession);
+      if (!sender.isDestroyed()) {
+        sender.send("pi:uiRequest", { uiSessionId: sessionId, request });
+      }
+    };
+    const runAnyStage = (stageOpts: {
+      stage: OrchestrateStage;
+      prompt: string;
+      effort?: string;
+      permissionMode?: string;
+      approvalPolicy?: string;
+      appendSystemPrompt?: string;
+      timeoutMs: number;
+    }) =>
+      agent === "pi"
+        ? runPiStage({
+            stage: stageOpts.stage,
+            prompt: stageOpts.prompt,
+            cwd,
+            model,
+            appendSystemPrompt: stageOpts.appendSystemPrompt,
+            piOpen,
+            signal: controller.signal,
+            timeoutMs: stageOpts.timeoutMs,
+            onEvent: sendEvent,
+            onUiRequest: sendPiUiRequest,
+          })
+        : runStage({
+            stage: stageOpts.stage,
+            prompt: stageOpts.prompt,
+            agent,
+            cwd,
+            model,
+            effort: stageOpts.effort,
+            permissionMode: stageOpts.permissionMode,
+            approvalPolicy: stageOpts.approvalPolicy,
+            appendSystemPrompt: stageOpts.appendSystemPrompt,
+            signal: controller.signal,
+            timeoutMs: stageOpts.timeoutMs,
+            onEvent: sendEvent,
+          });
 
     // ══ 段1：意图理解 ══════════════════════════════════════════════════════════
     sendStageStart("intent", "理解意图中…");
-    const stage1Result = await runStage({
+    const stage1Result = await runAnyStage({
       stage: "intent",
       prompt: `${INTENT_SYSTEM_PROMPT}\n\n用户输入：${prompt}`,
-      agent,
-      cwd,
-      model,
-      signal: controller.signal,
       timeoutMs: INTENT_TIMEOUT_MS,
-      onEvent: sendEvent,
     });
 
     // 被取消：直接退出，不推终态（进程已被 kill，渲染端等待的 cli:exit 不会到来，
@@ -354,20 +539,15 @@ export function registerOrchestrateHandlers(): void {
 
     // ══ 段2：子 agent 执行 ══════════════════════════════════════════════════════
     sendStageStart("subagent", "子 agent 执行中…");
-    const stage2Result = await runStage({
+    const stage2Result = await runAnyStage({
       stage: "subagent",
       prompt: stage2Prompt,
-      agent,
-      cwd,
-      model,
       // 仅段2透传会话推理强度/访问范围/审批/系统提示词上下文（段1/段3不传，见 OrchestrateStartRequest 注释）。
       effort,
       permissionMode,
       approvalPolicy,
       appendSystemPrompt,
-      signal: controller.signal,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
-      onEvent: sendEvent,
     });
 
     if (controller.signal.aborted) {
@@ -407,15 +587,10 @@ export function registerOrchestrateHandlers(): void {
 
     // ══ 段3：二次加工 ══════════════════════════════════════════════════════════
     sendStageStart("refine", "整理回复中…");
-    const stage3Result = await runStage({
+    const stage3Result = await runAnyStage({
       stage: "refine",
       prompt: stage3Prompt,
-      agent,
-      cwd,
-      model,
-      signal: controller.signal,
       timeoutMs: REFINE_TIMEOUT_MS,
-      onEvent: sendEvent,
     });
 
     if (controller.signal.aborted) {

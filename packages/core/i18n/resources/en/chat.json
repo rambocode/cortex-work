@@ -107,7 +107,7 @@
       "label": "Sub-agent orchestration",
       "on": "On",
       "off": "Off",
-      "onHint": "This session runs the three-stage pipeline (intent -> sub-agent execution -> refine); the process panel shows each stage (Claude/Codex only)",
+      "onHint": "This session runs the three-stage pipeline (intent -> sub-agent execution -> refine); the process panel shows each stage",
       "offHint": "Send directly in one shot (default). When on, runs the three-stage pipeline at ~3x cost and latency"
     },
     "modeBlock": {

@@ -89,6 +89,7 @@ export interface SessionMeta {
   useOwnSkills?: boolean;
   permissionMode?: PermissionMode; // 访问范围（与 core 镜像;主进程仅 round-trip 持久化,不按字段消费）
   approvalPolicy?: ApprovalPolicy; // 执行/审批策略（与 core 镜像;round-trip）
+  subagentOrchestration?: boolean; // 子 agent 三段编排开关（与 core 镜像;round-trip）
   hiddenHistory?: HiddenHistoryMeta;
   archivedAt?: number;
   createdAt: number;
@@ -581,6 +582,8 @@ export interface PiOpenRequest {
   appendSystemPrompt?: string;
   // pi 思考强度初值（阶段5）:renderer 传,buildRpcArgs → --thinking（冷启设初值）。
   thinkingLevel?: string;
+  // 主进程内部填充:askquestion extension 的会话级 sentinel。renderer 不传。
+  askQuestionSentinel?: string;
 }
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。

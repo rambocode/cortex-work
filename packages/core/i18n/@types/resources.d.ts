@@ -160,7 +160,7 @@ export default interface Resources {
         "label": "子 agent 编排",
         "on": "已开启",
         "off": "已关闭",
-        "onHint": "本会话走「意图理解 → 子 agent 执行 → 整理回复」三段编排,过程面板按段展示(仅 Claude/Codex)",
+        "onHint": "本会话走「意图理解 → 子 agent 执行 → 整理回复」三段编排,过程面板按段展示",
         "offHint": "单次直接发送(默认)。开启后改走三段编排,成本与延迟约 3 倍"
       },
       "readAttachmentFailed": "读取附件失败：{{error}}",

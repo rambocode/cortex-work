@@ -165,7 +165,7 @@ export function ComposerShell({
   onChangePermissionMode?: (mode: PermissionMode) => void;
   approvalPolicy?: ApprovalPolicy;
   onChangeApprovalPolicy?: (p: ApprovalPolicy) => void;
-  // 子 agent 编排开关(会话级布尔,opt-in)。仅 claude/codex 生效,CustomizePill 内按 agent 门控。
+  // 子 agent 编排开关(会话级布尔,opt-in)。
   subagentOrchestration?: boolean;
   onToggleSubagentOrchestration?: () => void;
   onToggleSkills: () => void;
