@@ -256,6 +256,8 @@ async function __mcpBridgeMain(pi, servers) {
           description: typeof t.description === "string" ? t.description : "",
           parameters: schema,
           async execute(_toolCallId, params) {
+            // 临时诊断（委派 task 丢失排查）：记录 pi LLM 实际传入的工具参数到 stderr（经 cli.ts stderr trace 可见）。
+            try { process.stderr.write("[mcp-bridge] call " + toolName + " args=" + JSON.stringify(params || {}).slice(0, 400) + "\n"); } catch (e) {}
             try {
               const r = await callClient.request("tools/call", { name: toolName, arguments: params || {} });
               const content = r && Array.isArray(r.content) ? r.content : [{ type: "text", text: JSON.stringify(r) }];

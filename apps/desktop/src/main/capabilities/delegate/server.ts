@@ -112,11 +112,29 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
     {
       description:
         `把一个子任务委派给协作者「${role.label}」（底层 agent：${role.agent}）。${personaLine}` +
-        `传入要它独立完成的具体任务描述，它会执行并把结果返回给你，供你整合。`,
-      inputSchema: { task: z.string().min(1).describe(`交给协作者「${role.label}」完成的具体任务描述（自然语言）`) },
+        `⚠️ 协作者是一个独立进程，看不到你当前对话的任何上下文——你必须在 task 参数里写明完整的任务描述，` +
+        `并附上它完成任务所需的全部数据/材料（例如你已搜集到的内容）。它执行后会把结果返回给你，供你整合。`,
+      inputSchema: {
+        task: z
+          .string()
+          .min(1)
+          .describe(
+            `交给协作者「${role.label}」的完整任务描述，必须自包含：写清要做什么 + 附上所需的全部数据/材料` +
+              `（协作者看不到你的对话上下文，凡未写进 task 的信息它都拿不到）。`,
+          ),
+      },
     },
     async ({ task }: { task: string }): Promise<ToolResult> => {
       if (state.signal.aborted) return errorResult("已取消");
+      // task 自包含校验：空/纯空白直接返回明确错误，引导主 agent 重传——子 agent 是独立进程看不到主 agent
+      // 上下文，且 codex 等收到空 prompt 会直接 exit 1（"No prompt provided via stdin"）。
+      const taskText = typeof task === "string" ? task.trim() : "";
+      if (!taskText) {
+        return errorResult(
+          `委派给「${role.label}」失败：task 为空。请在 task 参数里提供完整的任务描述，并附上协作者所需的` +
+            `全部数据/材料——它是独立进程，看不到你当前对话的内容。`,
+        );
+      }
       // 调用次数护栏（R10）：超限拒绝，提示主 agent 整合已有结果或换协作者。
       const used = state.callCounts.get(role.id) ?? 0;
       if (used >= MAX_CALLS_PER_ROLE) {
@@ -132,7 +150,7 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
         state.pushEvent(ev);
         state.bumpWatchdog();
       };
-      const result = await state.runSubAgent(role, task, onEvent);
+      const result = await state.runSubAgent(role, taskText, onEvent);
       if (!result.ok) {
         return errorResult(`协作者「${role.label}」执行失败：${result.error ?? "未知错误"}`);
       }

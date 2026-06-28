@@ -2426,6 +2426,15 @@ export function usePersonalActions(): PersonalActions {
               ? { id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey, models: p.models.map((m) => ({ id: m.id, name: m.label })) }
               : undefined;
           }
+          // 委派引导（system prompt）：告知主 agent 本轮可委派的协作者 + task 必须自包含
+          //（子 agent 是独立进程，看不到主 agent 当前对话上下文，凡未写进 task 的信息都拿不到）。
+          const delegateGuide = hasDelegateMentions
+            ? `本轮你可以把子任务委派给以下协作者（调用对应的 ask_ 工具），它们各自独立执行并把结果返回给你供你整合：` +
+              earlyMentions.map((m) => `「${m.role.label}」`).join("、") +
+              `。重要：协作者是独立进程，看不到你当前对话的任何上下文——委派时必须在 task 参数里写清完整任务，并附上它所需的全部数据/材料。`
+            : undefined;
+          const appendWithDelegate =
+            [appendWithSkills, delegateGuide].filter(Boolean).join("\n\n") || undefined;
           await bridge.startCli({
             runId,
             sessionId: sendSession.id,
@@ -2436,7 +2445,7 @@ export function usePersonalActions(): PersonalActions {
             effort: sendSession.effort,
             // 委派 fresh spawn，不续接（per-turn 独立编排）；普通对话照常 resume。
             resumeSessionId: hasDelegateMentions ? undefined : resumeSessionId,
-            appendSystemPrompt: appendWithSkills,
+            appendSystemPrompt: appendWithDelegate,
             useOwnSkills: sendSession.useOwnSkills,
             skillPaths: undefined,
             images: cliImages,
