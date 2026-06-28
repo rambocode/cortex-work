@@ -39,6 +39,7 @@ const pipeStdoutLinesMock = vi.fn();
 vi.mock("./cli", () => ({
   startAgentProcess: (...args: unknown[]) => startAgentProcessMock(...args),
   pipeStdoutLines: (...args: unknown[]) => pipeStdoutLinesMock(...args),
+  spawnEnvFor: vi.fn(() => ({})),
   spawnEnvForDef: vi.fn(() => ({})),
   assertSpawnCwd: vi.fn(),
 }));
@@ -54,6 +55,75 @@ vi.mock("../agents", () => ({
 
 vi.mock("./mcp-config", () => ({
   CODEX_MCP_CLEAR: ["-c", "mcp_servers={}"],
+}));
+
+// Pi RPC 三段编排依赖。默认测试仍走 CLI adapter；Pi 专属测试用 fake session 驱动事件。
+const piMocks = vi.hoisted(() => {
+  const fakePiSessions: any[] = [];
+  const promptResults: Array<{ success: boolean; error?: string }> = [];
+  class FakePiSession {
+    ready = vi.fn(async () => ({ sessionId: "pi-ready", sessionFile: "/tmp/pi.jsonl" }));
+    prompt = vi.fn(async () => promptResults.shift() ?? { success: true });
+    stop = vi.fn();
+
+    constructor(
+      _transport: unknown,
+      private readonly onEvent: (ev: unknown, runId?: string) => void,
+      private readonly onUiRequest?: (req: unknown) => void,
+    ) {
+      fakePiSessions.push(this);
+    }
+
+    emit(ev: unknown) {
+      this.onEvent(ev, "pi-stage-run");
+    }
+
+    ui(req: unknown) {
+      this.onUiRequest?.(req);
+    }
+  }
+  return {
+    buildRpcArgsMock: vi.fn(),
+    spawnPiRpcMock: vi.fn(),
+    preparePiOpenRequestMock: vi.fn(),
+    registerTransientPiUiRequestMock: vi.fn(),
+    clearTransientPiUiRequestsForSessionMock: vi.fn(),
+    fakePiSessions,
+    promptResults,
+    FakePiSession,
+  };
+});
+
+const {
+  buildRpcArgsMock,
+  spawnPiRpcMock,
+  preparePiOpenRequestMock,
+  registerTransientPiUiRequestMock,
+  clearTransientPiUiRequestsForSessionMock,
+  fakePiSessions,
+  promptResults,
+} = piMocks;
+
+vi.mock("../agents/pi-rpc", () => ({
+  buildRpcArgs: (...args: unknown[]) => buildRpcArgsMock(...args),
+  spawnPiRpc: (...args: unknown[]) => spawnPiRpcMock(...args),
+  PiRpcSession: piMocks.FakePiSession,
+}));
+vi.mock("../agents/pi-rpc.js", () => ({
+  buildRpcArgs: (...args: unknown[]) => buildRpcArgsMock(...args),
+  spawnPiRpc: (...args: unknown[]) => spawnPiRpcMock(...args),
+  PiRpcSession: piMocks.FakePiSession,
+}));
+vi.mock("../agents/pi-rpc.ts", () => ({
+  buildRpcArgs: (...args: unknown[]) => buildRpcArgsMock(...args),
+  spawnPiRpc: (...args: unknown[]) => spawnPiRpcMock(...args),
+  PiRpcSession: piMocks.FakePiSession,
+}));
+
+vi.mock("./pi-session", () => ({
+  preparePiOpenRequest: (...args: unknown[]) => preparePiOpenRequestMock(...args),
+  registerTransientPiUiRequest: (...args: unknown[]) => registerTransientPiUiRequestMock(...args),
+  clearTransientPiUiRequestsForSession: (...args: unknown[]) => clearTransientPiUiRequestsForSessionMock(...args),
 }));
 
 // ── 测试工具类 ────────────────────────────────────────────────────────────────
@@ -175,6 +245,16 @@ beforeEach(() => {
       return [];
     }
   });
+  fakePiSessions.length = 0;
+  buildRpcArgsMock.mockReset();
+  spawnPiRpcMock.mockReset();
+  preparePiOpenRequestMock.mockReset();
+  registerTransientPiUiRequestMock.mockReset();
+  clearTransientPiUiRequestsForSessionMock.mockReset();
+  promptResults.length = 0;
+  buildRpcArgsMock.mockImplementation((req: { uiSessionId?: string }) => ["--mode", "rpc", req.uiSessionId ?? ""]);
+  spawnPiRpcMock.mockReturnValue({});
+  preparePiOpenRequestMock.mockImplementation(async (req: unknown) => req);
   // 注册 handler（每个 beforeEach 都重新注册，避免状态污染）
   registerOrchestrateHandlers();
 });
@@ -222,7 +302,7 @@ describe("三段顺序执行与 prompt 串接", () => {
     proc1.exit(0);
 
     // ── 段2 ──
-    await flushAsync();
+    await flushAsync(20);
     expect(onLines).toHaveLength(2);
 
     // 段2 prompt 应该是段1 text 输出
@@ -235,7 +315,7 @@ describe("三段顺序执行与 prompt 串接", () => {
     proc2.exit(0);
 
     // ── 段3 ──
-    await flushAsync();
+    await flushAsync(20);
     expect(onLines).toHaveLength(3);
 
     // 段3 prompt 应包含用户原始输入 + 段2结果
@@ -251,6 +331,187 @@ describe("三段顺序执行与 prompt 串接", () => {
 
     // 验证三次 buildArgs 调用（三段各一次）
     expect(fakeAdapter.buildArgs).toHaveBeenCalledTimes(3);
+  });
+
+  it("Pi 三段使用临时 RPC 会话执行并按 stage 转发事件", async () => {
+    const sender = makeSender();
+    const handlerP = (ipcHandlers.get("orchestrate:start")!)(makeEvent(sender), {
+      ...baseReq,
+      agent: "pi",
+      model: "pi-model",
+      effort: "high",
+      permissionMode: "plan",
+      approvalPolicy: "ask",
+      piOpen: {
+        model: "pi-model",
+        thinkingLevel: "high",
+        toolWhitelist: ["read", "grep"],
+      },
+    }) as Promise<void>;
+
+    await flushAsync(20);
+    expect(startAgentProcessMock).not.toHaveBeenCalled();
+    expect(preparePiOpenRequestMock).toHaveBeenCalled();
+    expect(buildRpcArgsMock).toHaveBeenCalled();
+    expect(spawnPiRpcMock).toHaveBeenCalled();
+    expect(fakePiSessions).toHaveLength(1);
+    expect(fakePiSessions[0]!.prompt).toHaveBeenCalledWith(
+      expect.stringContaining("用户输入：帮我写个排序算法"),
+      expect.any(String),
+    );
+    fakePiSessions[0]!.emit({ type: "text", delta: "优化后的提示词" });
+    fakePiSessions[0]!.emit({ type: "result", willRetry: false });
+
+    await flushAsync(20);
+    expect(fakePiSessions).toHaveLength(2);
+    expect(fakePiSessions[1]!.prompt).toHaveBeenCalledWith("优化后的提示词", expect.any(String));
+    fakePiSessions[1]!.emit({ type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    fakePiSessions[1]!.emit({ type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    fakePiSessions[1]!.emit({ type: "text", delta: "子执行结果" });
+    fakePiSessions[1]!.emit({ type: "result", willRetry: false });
+
+    await flushAsync(20);
+    expect(fakePiSessions).toHaveLength(3);
+    const refinePrompt = fakePiSessions[2]!.prompt.mock.calls[0]?.[0] as string;
+    expect(refinePrompt).toContain(baseReq.prompt);
+    expect(refinePrompt).toContain("子执行结果");
+    fakePiSessions[2]!.emit({ type: "text", delta: "最终回答" });
+    fakePiSessions[2]!.emit({ type: "result", willRetry: false });
+
+    await handlerP;
+
+    const events = cliEvents(sender.calls);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "text", delta: "优化后的提示词", stage: "intent" }),
+        expect.objectContaining({ type: "tool", name: "Bash", phase: "start", stage: "subagent" }),
+        expect.objectContaining({ type: "tool", name: "Bash", phase: "end", stage: "subagent" }),
+        expect.objectContaining({ type: "text", delta: "最终回答", stage: "refine" }),
+        expect.objectContaining({ type: "result", ok: true, stage: "refine" }),
+      ]),
+    );
+    expect(fakePiSessions.every((s) => s.stop.mock.calls.length === 1)).toBe(true);
+    expect(buildRpcArgsMock).toHaveBeenCalledTimes(3);
+    expect(preparePiOpenRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: "/proj",
+        model: "pi-model",
+        thinkingLevel: "high",
+        toolWhitelist: ["read", "grep"],
+      }),
+    );
+  });
+
+  it("Pi 临时 RPC UI 请求归属真实 chat session 并登记 response 路由", async () => {
+    const sender = makeSender();
+    const handlerP = (ipcHandlers.get("orchestrate:start")!)(makeEvent(sender), {
+      ...baseReq,
+      agent: "pi",
+      piOpen: {},
+    }) as Promise<void>;
+
+    await flushAsync(20);
+    fakePiSessions[0]!.emit({ type: "text", delta: "优化后的提示词" });
+    fakePiSessions[0]!.emit({ type: "result", willRetry: false });
+
+    await flushAsync();
+    const req = { type: "extension_ui_request", id: "confirm-1", method: "confirm", title: "T", message: "M" };
+    fakePiSessions[1]!.ui(req);
+    fakePiSessions[1]!.emit({ type: "text", delta: "子执行结果" });
+    fakePiSessions[1]!.emit({ type: "result", willRetry: false });
+
+    await flushAsync();
+    fakePiSessions[2]!.emit({ type: "text", delta: "最终回答" });
+    fakePiSessions[2]!.emit({ type: "result", willRetry: false });
+    await handlerP;
+
+    expect(sender.calls).toContainEqual({
+      channel: "pi:uiRequest",
+      payload: { uiSessionId: baseReq.sessionId, request: req },
+    });
+    expect(registerTransientPiUiRequestMock).toHaveBeenCalledWith(baseReq.sessionId, "confirm-1", fakePiSessions[1]);
+    expect(clearTransientPiUiRequestsForSessionMock).toHaveBeenCalledWith(fakePiSessions[1]);
+  });
+
+  it("Pi open 准备期间取消后不再 spawn 临时 RPC", async () => {
+    let resolvePrepare!: (value: unknown) => void;
+    preparePiOpenRequestMock.mockImplementationOnce(
+      (req: unknown) =>
+        new Promise((resolve) => {
+          resolvePrepare = () => resolve(req);
+        }),
+    );
+    const sender = makeSender();
+    const handlerP = (ipcHandlers.get("orchestrate:start")!)(makeEvent(sender), {
+      ...baseReq,
+      agent: "pi",
+      piOpen: {},
+    }) as Promise<void>;
+
+    await flushAsync();
+    expect(preparePiOpenRequestMock).toHaveBeenCalledTimes(1);
+
+    const killHandler = ipcOnHandlers.get("orchestrate:kill")!;
+    killHandler({} as unknown, baseReq.orchestrationRunId);
+    resolvePrepare({});
+    await handlerP;
+
+    expect(spawnPiRpcMock).not.toHaveBeenCalled();
+    expect(fakePiSessions).toHaveLength(0);
+    expect(cliExits(sender.calls)).toHaveLength(0);
+  });
+
+  it("Pi prompt 返回 success:false 时该段立即失败,不等超时", async () => {
+    promptResults.push({ success: false, error: "prompt rejected" }, { success: true }, { success: true });
+    const sender = makeSender();
+    const handlerP = (ipcHandlers.get("orchestrate:start")!)(makeEvent(sender), {
+      ...baseReq,
+      agent: "pi",
+      piOpen: {},
+    }) as Promise<void>;
+
+    await flushAsync(20);
+    expect(fakePiSessions).toHaveLength(2);
+    expect(fakePiSessions[0]!.stop).toHaveBeenCalledTimes(1);
+    expect(fakePiSessions[1]!.prompt).toHaveBeenCalledWith(expect.stringContaining(baseReq.prompt), expect.any(String));
+
+    fakePiSessions[1]!.emit({ type: "text", delta: "子执行结果" });
+    fakePiSessions[1]!.emit({ type: "result", willRetry: false });
+    await flushAsync(20);
+    fakePiSessions[2]!.emit({ type: "text", delta: "最终回答" });
+    fakePiSessions[2]!.emit({ type: "result", willRetry: false });
+    await handlerP;
+
+    expect(cliEvents(sender.calls)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "result", ok: true, stage: "refine" }),
+      ]),
+    );
+  });
+
+  it("Pi intent/refine 临时 open 不带持久 appendSystemPrompt,仅 subagent 段带", async () => {
+    const sender = makeSender();
+    const handlerP = (ipcHandlers.get("orchestrate:start")!)(makeEvent(sender), {
+      ...baseReq,
+      agent: "pi",
+      piOpen: { appendSystemPrompt: "持久 Pi 人设" },
+    }) as Promise<void>;
+
+    await flushAsync(20);
+    fakePiSessions[0]!.emit({ type: "text", delta: "优化后的提示词" });
+    fakePiSessions[0]!.emit({ type: "result", willRetry: false });
+    await flushAsync(20);
+    fakePiSessions[1]!.emit({ type: "text", delta: "子执行结果" });
+    fakePiSessions[1]!.emit({ type: "result", willRetry: false });
+    await flushAsync(20);
+    fakePiSessions[2]!.emit({ type: "text", delta: "最终回答" });
+    fakePiSessions[2]!.emit({ type: "result", willRetry: false });
+    await handlerP;
+
+    const openReqs = preparePiOpenRequestMock.mock.calls.map((call) => call[0] as { appendSystemPrompt?: string });
+    expect(openReqs[0]?.appendSystemPrompt).toBeUndefined();
+    expect(openReqs[1]?.appendSystemPrompt).toBe("持久 Pi 人设");
+    expect(openReqs[2]?.appendSystemPrompt).toBeUndefined();
   });
 });
 

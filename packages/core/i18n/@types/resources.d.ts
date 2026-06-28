@@ -186,7 +186,7 @@ export default interface Resources {
         "off": "已关闭",
         "offHint": "单次直接发送(默认)。开启后改走三段编排,成本与延迟约 3 倍",
         "on": "已开启",
-        "onHint": "本会话走「意图理解 → 子 agent 执行 → 整理回复」三段编排,过程面板按段展示(仅 Claude/Codex)"
+        "onHint": "本会话走「意图理解 → 子 agent 执行 → 整理回复」三段编排,过程面板按段展示"
       },
       "thinkingLevel": {
         "default": "思考·默认",

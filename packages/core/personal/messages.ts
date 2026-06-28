@@ -16,6 +16,7 @@ import type {
   PendingDocFile,
   PendingImage,
   PermissionMode,
+  PiOpenRequest,
   PiSessionEvent,
   PiUiResponsePayload,
   ProjectMeta,
@@ -1623,6 +1624,72 @@ function failPiTurn(qc: QueryClient, sessionId: string, runId: string, err: unkn
   flushChat(qc, sessionId);
 }
 
+async function buildPiOpenForSession(
+  bridge: DesktopBridge,
+  session: SessionMeta,
+  projectPath: string,
+): Promise<Omit<PiOpenRequest, "uiSessionId" | "cwd">> {
+  // provider/model 解析:复用单发 isPi 分支策略（只取已启用 provider;停用/失效落空走 pi 内置默认）。
+  const providerSettings = usePersonalStore.getState().providerSettings;
+  const provider = providerSettings.providers.find(
+    (p) => p.id === (session.providerId ?? providerSettings.defaultProviderId) && p.enabled,
+  );
+  const model = session.model ?? providerSettings.defaultModel ?? provider?.models[0]?.id;
+  // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
+  // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
+  const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
+  // 执行/目录两轴 → 线格式 → pi 能力派生:plan 收窄只读白名单;ask 注入审批 extension(写/执行类前审批);
+  // auto + 非 plan 沿用 piCustom。仅工作目录/外部沙箱 → confineToCwd 注入 cwd 路径闸。
+  // 切档/切审批经 extensionFingerprint 触发会话重开。
+  const piPerm = toAdapterPermissions(session.execPermission, session.dirPermission);
+  const piCaps = derivePiCapabilities(piPerm.permissionMode, piPerm.approvalPolicy, piCustom);
+  // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
+  // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
+  const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;
+  // 思考强度初值（阶段5）:会话级优先,缺省回退全局默认;再缺省 = 不传 --thinking = pi 内置默认。
+  const thinkingLevel = session.thinkingLevel ?? usePersonalStore.getState().generalSettings.piThinkingDefault;
+  // 插件 Skill（U5）:解析已启用 + 授信 + 去重的 skill 目录,经 --skill 注入;集合变化经
+  // extensionFingerprint 触发会话重开。useOwnSkills===false → 会话级一键关 → []。
+  const skillPaths = await resolveEnabledSkillPaths(bridge, projectPath, session.useOwnSkills, session.agent);
+  // 扩展市场（U3）:解析已启用+已授信的扩展 -e 路径;集合变化经 extensionFingerprint 触发重开。
+  const extensionPaths = resolveEnabledExtensionPaths(projectPath);
+  return {
+    model,
+    useOwnSkills: session.useOwnSkills,
+    skillPaths,
+    extensionPaths,
+    provider: provider
+      ? {
+          id: provider.id,
+          baseUrl: provider.baseUrl,
+          apiKey: provider.apiKey,
+          endpointFormat: provider.endpointFormat,
+          // ProviderModelOption 用 label,pi 端用 name → 此处映射;并带上 per-model 能力标记
+          // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置。
+          models: provider.models.map((m) => ({
+            id: m.id,
+            name: m.label,
+            reasoning: m.reasoning,
+            vision: m.vision,
+            contextTokens: m.contextTokens,
+          })),
+        }
+      : undefined,
+    // 审批开关/清单由运行模式派生（full-auto 档内部已沿用 piCustom 设置,故此处不再单独读）。
+    // 空数组 [] 原样穿透(=不审批任何工具),undefined→默认三件 是 renderApprovalExtension 的职责。
+    enableToolApproval: piCaps.enableToolApproval,
+    approvalTools: piCaps.approvalTools,
+    // plan 档只读工具白名单(缺省 undefined → 全工具)。经 buildRpcArgs → --tools 注入。
+    toolWhitelist: piCaps.toolWhitelist,
+    // 目录执行权限「仅工作目录」/「外部沙箱」→ pi:open 注入 cwd 路径闸 extension(pi 无原生沙箱)。
+    confineToCwd: piCaps.confineToCwd,
+    enableSampleTools: piCustom?.sampleTools || undefined,
+    enableSampleCommands: piCustom?.sampleCommands || undefined,
+    appendSystemPrompt: piSystemPrompt || undefined,
+    thinkingLevel,
+  };
+}
+
 // 发起一轮 pi RPC:beginPiRun（典型不杀进程的看门狗）+ 惰性 ensurePiSession（冷启就绪后翻
 // 「思考中」）+ promptPi。失败 → failPiTurn。调用方已 appendMsg 用户消息 + typing 占位。
 async function sendPiTurn(
@@ -1647,69 +1714,14 @@ async function sendPiTurn(
   });
   piSendStarting.delete(session.id); // running 已置位,发送在途锁交棒（之后并发 send 被 running 挡）。
 
-  // provider/model 解析:复用单发 isPi 分支策略（只取已启用 provider;停用/失效落空走 pi 内置默认）。
-  const providerSettings = usePersonalStore.getState().providerSettings;
-  const provider = providerSettings.providers.find(
-    (p) => p.id === (session.providerId ?? providerSettings.defaultProviderId) && p.enabled,
-  );
-  const model = session.model ?? providerSettings.defaultModel ?? provider?.models[0]?.id;
-
   try {
-    // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
-    // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
-    const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
-    // 执行/目录两轴 → 线格式 → pi 能力派生:plan 收窄只读白名单;ask 注入审批 extension(写/执行类前审批);
-    // auto + 非 plan 沿用 piCustom。切档/切审批经 extensionFingerprint 触发会话重开。
-    const piPerm = toAdapterPermissions(session.execPermission, session.dirPermission);
-    const piCaps = derivePiCapabilities(piPerm.permissionMode, piPerm.approvalPolicy, piCustom);
-    // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
-    // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
-    const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;
-    // 思考强度初值（阶段5）:会话级优先,缺省回退全局默认;再缺省 = 不传 --thinking = pi 内置默认。
-    const thinkingLevel = session.thinkingLevel ?? usePersonalStore.getState().generalSettings.piThinkingDefault;
-    // 插件 Skill（U5）:解析已启用 + 授信 + 去重的 skill 目录,经 --skill 注入;集合变化经
-    // extensionFingerprint 触发会话重开。useOwnSkills===false → 会话级一键关 → []。
-    const skillPaths = await resolveEnabledSkillPaths(bridge, projectPath, session.useOwnSkills, session.agent);
-    // 扩展市场（U3）:解析已启用+已授信的扩展 -e 路径;集合变化经 extensionFingerprint 触发重开。
-    const extensionPaths = resolveEnabledExtensionPaths(projectPath);
+    const piOpen = await buildPiOpenForSession(bridge, session, projectPath);
     const opened = await ensurePiSession(
       bridge,
       {
         uiSessionId: session.id,
         cwd: projectPath,
-        model,
-        useOwnSkills: session.useOwnSkills,
-        skillPaths,
-        extensionPaths,
-        provider: provider
-          ? {
-              id: provider.id,
-              baseUrl: provider.baseUrl,
-              apiKey: provider.apiKey,
-              endpointFormat: provider.endpointFormat,
-              // ProviderModelOption 用 label,pi 端用 name → 此处映射;并带上 per-model 能力标记
-              // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置。
-              models: provider.models.map((m) => ({
-                id: m.id,
-                name: m.label,
-                reasoning: m.reasoning,
-                vision: m.vision,
-                contextTokens: m.contextTokens,
-              })),
-            }
-          : undefined,
-        // 审批开关/清单由运行模式派生（full-auto 档内部已沿用 piCustom 设置,故此处不再单独读）。
-        // 空数组 [] 原样穿透(=不审批任何工具),undefined→默认三件 是 renderApprovalExtension 的职责。
-        enableToolApproval: piCaps.enableToolApproval,
-        approvalTools: piCaps.approvalTools,
-        // plan 档只读工具白名单(缺省 undefined → 全工具)。经 buildRpcArgs → --tools 注入。
-        toolWhitelist: piCaps.toolWhitelist,
-        // 目录执行权限「仅工作目录」/「外部沙箱」→ pi:open 注入 cwd 路径闸 extension(pi 无原生沙箱)。
-        confineToCwd: piCaps.confineToCwd,
-        enableSampleTools: piCustom?.sampleTools || undefined,
-        enableSampleCommands: piCustom?.sampleCommands || undefined,
-        appendSystemPrompt: piSystemPrompt || undefined,
-        thinkingLevel,
+        ...piOpen,
       },
       // 阶段4 恢复:此前持久化过 sessionFile（崩溃/空闲/LRU/app 重启后会话内存态没了）→
       // 重开后 switchSession 从磁盘 JSONL 恢复上下文（best-effort）。首轮全新会话无 file → 不恢复。
@@ -1880,8 +1892,15 @@ export function respondPiUi(
   id: string,
   payload: PiUiResponsePayload,
 ): void {
-  usePersonalStore.getState().resolvePiUiRequest(id);
+  usePersonalStore.getState().resolvePiUiRequest(uiSessionId, id);
   void bridge?.piUiResponse?.(uiSessionId, id, payload).catch(() => undefined);
+}
+
+function cancelPendingPiUiForSession(bridge: DesktopBridge | null | undefined, sessionId: string): void {
+  for (const p of usePersonalStore.getState().piUiPending.filter((x) => x.uiSessionId === sessionId)) {
+    respondPiUi(bridge ?? null, sessionId, p.request.id, { cancelled: true });
+  }
+  usePersonalStore.getState().clearPiUiForSession(sessionId);
 }
 
 // 把 AskQuestionCard 每组的选择（选项下标 或 自定义文本）按 KTD-5 互斥规则归一成 AskQuestionAnswers
@@ -2289,11 +2308,13 @@ export function usePersonalActions(): PersonalActions {
       // pi 分支 return 后再也走不到 delegate 注入。
       const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
       const hasDelegateMentions = earlyMentions.length > 0 && !!bridge.startCli;
+      // 三段编排开关（claude/codex/pi 通用，12790c0 起 pi 也参与）:开启后走下面统一 orchestrate 管线。
+      const useOrchestration = session.subagentOrchestration && bridge.startOrchestration;
 
-      // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。
-      // 有 @mention 时 pi 也切单发 startCli（per-turn delegate 工具集需每轮 fresh spawn，RPC 工具集
-      // 在 pi:open 时冻结无法逐轮变化）。
-      if (session.agent === "pi" && !hasDelegateMentions) {
+      // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。有 @mention 委派
+      // 或开启三段编排时,pi 也改走下面单发/编排管线（per-turn delegate 工具集 / 编排各段都需 fresh
+      // spawn，RPC 工具集在 pi:open 时冻结无法逐轮变化）。
+      if (session.agent === "pi" && !hasDelegateMentions && !useOrchestration) {
         await sendPiTurn(qc, bridge, session, projectPath, text, appendSystemPrompt, { runId, typingUid }, imagePaths);
         return true;
       }
@@ -2343,18 +2364,21 @@ export function usePersonalActions(): PersonalActions {
             uid: uid("err"),
           });
           usePersonalStore.getState().setRunning(cur.sessionId, undefined);
+          if (cur.orchestrated) cancelPendingPiUiForSession(bridge, cur.sessionId);
           usePetStore.getState().set("idle");
           flushChat(qc, cur.sessionId);
           // 深化:启动/静默超时属终态失败,回落该 session 的 deepening 闪记（普通会话 no-op）。
-          void applyDeepenFinalize(bridgeRef, {
+          void applyDeepenFinalize(bridge, {
             sessionId: cur.sessionId,
             cwd: cur.cwd,
             terminalFailure: true,
           });
           // 编排/圆桌轮走各自 kill 通道（子进程在主进程独立注册表，cli:kill 杀不到，会留孤儿进程）。
-          if (cur.roundtable) void bridgeRef?.killRoundtable?.(runId);
-          else if (cur.orchestrated) void bridgeRef?.killOrchestration?.(runId);
-          else void bridgeRef?.killCli(runId);
+          // 用 send 入参 bridge（闭包内可见,与相邻 applyDeepenFinalize/stop 路径一致;bridgeRef 仅 pi 事件
+          // 挂载后才有值,watchdog 里不可靠）。
+          if (cur.roundtable) void bridge.killRoundtable?.(runId);
+          else if (cur.orchestrated) void bridge.killOrchestration?.(runId);
+          else void bridge.killCli(runId);
           return;
         }
         // 仍在等首个输出:typing 占位上滚动显示已等待时长。
@@ -2363,6 +2387,7 @@ export function usePersonalActions(): PersonalActions {
         }
       }, 1000);
       usePersonalStore.getState().setRunning(session.id, runId);
+      if (session.agent === "pi") piSendStarting.delete(session.id); // Pi 编排轮已进入 runs/running 管线。
       usePetStore.getState().set("thinking");
 
       try {
@@ -2381,28 +2406,31 @@ export function usePersonalActions(): PersonalActions {
         // 执行/目录两轴 → 线格式:发送边界唯一派生点,编排(段2)与单发(claude/codex)两路共用。
         // adapter 据此翻译成各 CLI 原生标志;exec=plan→{plan,auto},否则 dir 定范围、exec 定审批。
         const adapterPerm = toAdapterPermissions(sendSession.execPermission, sendSession.dirPermission);
-        // 跨 agent skill 注入(U2):此分支仅 claude/codex(pi 已在上面 sendPiTurn 走 --skill 并 return)。
-        // 把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 两路互斥 → 不双注入(R3)。
-        // useOwnSkills 短路对 claude/codex 同样生效(RISK-2):resolveEnabledSkillRecords 据其早退。
-        const skillBlock = renderSkillBlock(
-          await resolveEnabledSkillRecords(bridge, projectPath, sendSession.useOwnSkills, sendSession.agent),
-        );
-        const appendWithSkills =
-          [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
         // 派生 agent(U7):spawn 用 derivedAgentId(后端 getAgentDef 按 id 解析),失效则回退 base(见
         // resolveSpawnAgentId 的 RISK-3 兜底)。
         const spawnAgent = resolveSpawnAgentId(sendSession, usePersonalStore.getState().derivedAgents);
-        // 子 agent 编排（U1）：会话开关开启、bridge 支持、且本轮无 @mention 委派时，claude/codex 走
-        // 主进程三段编排（意图理解→子 agent 执行→二次加工，见 orchestrate.ts）。编排无状态、各段
-        // fresh spawn，故不传 resumeSessionId；事件流复用 cli:event/cli:exit（runId 即
-        // orchestrationRunId，事件带 stage 字段），看门狗/stop 据 run.orchestrated 改走 killOrchestration。
+        // 子 agent 编排（U1）：会话开关开启、bridge 支持、且本轮无 @mention 委派时，走主进程三段编排
+        // （意图理解→子 agent 执行→二次加工，见 orchestrate.ts）。claude/codex/pi 通用——pi 经
+        // buildPiOpenForSession 提供 piOpen（含 --skill/cwd 路径闸/审批等）。delegate @mention 优先级更高,落 else 单发。
+        // 编排无状态、各段 fresh spawn，故不传 resumeSessionId；看门狗/stop 据 run.orchestrated 改走 killOrchestration。
         // 已知限制：本版编排不透传图片（images 仅单发支持）。
         if (sendSession.subagentOrchestration && bridge.startOrchestration && !hasDelegateMentions) {
           run.orchestrated = true;
+          const isPiOrchestration = sendSession.agent === "pi";
+          const piOpen = isPiOrchestration ? await buildPiOpenForSession(bridge, sendSession, projectPath) : undefined;
+          // 跨 agent skill 注入(U2):claude/codex 用 prose 注入;Pi 用 --skill 路径注入(piOpen.skillPaths),
+          // 不双注入(R3)。
+          const skillBlock = isPiOrchestration
+            ? undefined
+            : renderSkillBlock(
+                await resolveEnabledSkillRecords(bridge, projectPath, sendSession.useOwnSkills, sendSession.agent),
+              );
+          const appendWithSkills =
+            [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
           await bridge.startOrchestration({
             orchestrationRunId: runId,
             sessionId: sendSession.id,
-            agent: spawnAgent,
+            agent: isPiOrchestration ? "pi" : spawnAgent,
             cwd: projectPath,
             prompt: text,
             model: sendSession.model,
@@ -2411,8 +2439,17 @@ export function usePersonalActions(): PersonalActions {
             permissionMode: adapterPerm.permissionMode,
             approvalPolicy: adapterPerm.approvalPolicy,
             appendSystemPrompt: appendWithSkills,
+            piOpen,
           });
         } else {
+          // 跨 agent skill 注入(U2):此分支仅 claude/codex(Pi 非编排已在上面 sendPiTurn 走 --skill 并 return)。
+          // 把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 两路互斥 → 不双注入(R3)。
+          // useOwnSkills 短路对 claude/codex 同样生效(RISK-2):resolveEnabledSkillRecords 据其早退。
+          const skillBlock = renderSkillBlock(
+            await resolveEnabledSkillRecords(bridge, projectPath, sendSession.useOwnSkills, sendSession.agent),
+          );
+          const appendWithSkills =
+            [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
           // 委派（delegate，@mention 触发）：主 agent 单发 startCli + 注入 cortex-delegate 工具集，
           // 经 ask_<id> 自主委派给被 @ 的协作者。子 agent 事件带 roleId（渲染端 roleHeader 分隔），
           // 取消/超时走标准 killCli（主 agent 在 running map；onExit→abort 收口在途子 agent）。
@@ -2420,8 +2457,7 @@ export function usePersonalActions(): PersonalActions {
             run.delegate = true;
             run.roleCursors = new Map();
           }
-          // pi 委派走单发：解析 provider（apiKey 生成 provider extension）+ model（RPC 路径在 sendPiTurn
-          // 内解析，单发在此解析，仿上文 1651-1655）。claude/codex 不需要 provider。
+          // pi 委派走单发：解析 provider（apiKey 生成 provider extension）+ model。claude/codex 不需要 provider。
           let delegateProvider:
             | { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] }
             | undefined;
@@ -2556,13 +2592,15 @@ export function usePersonalActions(): PersonalActions {
       const runId = store.runningBySession[sessionId];
       if (!bridge || !runId) return;
       const session = store.sessions.find((x) => x.id === sessionId);
-      if (session?.agent === "pi") {
+      const r = runs.get(runId);
+      if (r?.orchestrated) {
+        cancelPendingPiUiForSession(bridge, sessionId);
+        await bridge.killOrchestration?.(runId);
+      } else if (session?.agent === "pi") {
         // 待答的 askquestion/confirm 卡:abort **不会** reject pi 端 ctx.ui 的 await（rpc-mode 仅在传 signal
         // 时挂 abort 监听）,故停止前必须对该会话每张待答卡显式回 {cancelled} 解锁 pi 的 execute 并出队,
         // 否则残卡 + pi 永久 await。待答期 stop 是唯一可达的中断路径（editResend 被 running 守卫挡住）。
-        for (const p of store.piUiPending.filter((x) => x.uiSessionId === sessionId)) {
-          respondPiUi(bridge, sessionId, p.request.id, { cancelled: true });
-        }
+        cancelPendingPiUiForSession(bridge, sessionId);
         // pi:优雅打断当前轮（不杀长驻进程;收尾由 error/result 事件驱动,下面 4 秒兜底复位）。
         // try/catch 兼顾同步抛（会话未就绪）与异步拒（会话已退出）,均靠兜底复位 UI。
         try {

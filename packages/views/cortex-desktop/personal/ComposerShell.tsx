@@ -166,7 +166,7 @@ export function ComposerShell({
   onChangeExecPermission?: (p: ExecPermission) => void;
   dirPermission?: DirPermission;
   onChangeDirPermission?: (d: DirPermission) => void;
-  // 子 agent 编排开关(会话级布尔,opt-in)。仅 claude/codex 生效,CustomizePill 内按 agent 门控。
+  // 子 agent 编排开关(会话级布尔,opt-in)。Claude/Codex 与 Pi 均可参与(CustomizePill 内按 agent 门控)。
   subagentOrchestration?: boolean;
   onToggleSubagentOrchestration?: () => void;
   onToggleSkills: () => void;

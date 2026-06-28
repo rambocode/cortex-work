@@ -1320,10 +1320,10 @@ describe("pi extension UI 待确认队列（阶段3 U5）", () => {
   it("push/resolve/clearForSession store 队列", () => {
     const st = usePersonalStore.getState();
     st.pushPiUiRequest({ uiSessionId: "sA", request: req("1") });
-    st.pushPiUiRequest({ uiSessionId: "sB", request: req("2") });
+    st.pushPiUiRequest({ uiSessionId: "sB", request: req("1") });
     expect(usePersonalStore.getState().piUiPending).toHaveLength(2);
-    st.resolvePiUiRequest("1");
-    expect(usePersonalStore.getState().piUiPending.map((p) => p.request.id)).toEqual(["2"]);
+    st.resolvePiUiRequest("sA", "1");
+    expect(usePersonalStore.getState().piUiPending.map((p) => `${p.uiSessionId}:${p.request.id}`)).toEqual(["sB:1"]);
     usePersonalStore.getState().pushPiUiRequest({ uiSessionId: "sB", request: req("3") });
     usePersonalStore.getState().clearPiUiForSession("sB");
     expect(usePersonalStore.getState().piUiPending).toHaveLength(0);

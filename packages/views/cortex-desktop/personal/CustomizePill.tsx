@@ -52,7 +52,7 @@ export function CustomizePill({
   onChangeExecPermission?: (p: ExecPermission) => void;
   dirPermission?: DirPermission;
   onChangeDirPermission?: (d: DirPermission) => void;
-  // 子 agent 编排开关(布尔)。仅 claude/codex 生效——pi 走 RPC 长驻不参与编排,故 pi 会话不渲染本组。
+  // 子 agent 编排开关(布尔)。Claude/Codex 走 CLI fresh spawn;Pi 走临时 RPC fresh 会话(12790c0 起 pi 也参与)。
   subagentOrchestration?: boolean;
   onToggleSubagentOrchestration?: () => void;
   running: boolean;
@@ -139,9 +139,9 @@ export function CustomizePill({
               })}
             </>
           ) : null}
-          {/* 子 agent 编排组(布尔开关):仅 claude/codex 渲染。开启后该会话发送走主进程三段编排
+          {/* 子 agent 编排组(布尔开关):开启后该会话发送走主进程三段编排
               (意图理解→子 agent 执行→整理回复),过程面板按段展示。 */}
-          {onToggleSubagentOrchestration && agent !== "pi" ? (
+          {onToggleSubagentOrchestration ? (
             <>
               {onChangeExecPermission || onChangeDirPermission ? <div className="pw-tb-menu-sep" /> : null}
               <div className="pw-tb-menu-group-h">{t("composer.subagentOrchestration.label")}</div>
