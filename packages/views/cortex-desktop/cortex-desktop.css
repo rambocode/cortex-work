@@ -8837,30 +8837,20 @@ button.sb-row {
 .pw-mention-agent { color: var(--text-3); font-size: 11px; flex-shrink: 0; }
 .pw-mention-builtin { color: var(--text-3); font-size: 10px; padding: 1px 4px; border: 1px solid var(--border); border-radius: 4px; }
 
-/* 角色管理设置 */
-.pw-roles-add { margin: 8px 0 12px; }
-.pw-roles-list { display: flex; flex-direction: column; gap: 8px; }
-.pw-role-card {
-  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-card);
-}
-.pw-role-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+/* 角色管理设置（遵循 .pw-scard/.pw-srow 设计系统） */
+.pw-role-add-btn { margin-left: auto; font-size: 12px; height: 28px; gap: 4px; }
+.pw-role-row-head { display: flex; align-items: center; gap: 6px; }
 .pw-role-avatar { font-size: 18px; line-height: 1; }
-.pw-role-label { font-weight: 600; font-size: 14px; }
-.pw-role-agent { color: var(--text-3); font-size: 12px; margin-left: auto; }
-.pw-role-prompt { color: var(--text-2); font-size: 12px; line-height: 1.4; margin-bottom: 6px; }
-.pw-role-card-actions { display: flex; gap: 8px; }
-.pw-role-action {
-  padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px;
-  background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer;
+.pw-role-del:hover { color: #ef4444; }
+.pw-role-builtin-badge {
+  font-size: 10px; color: var(--text-3); padding: 2px 6px;
+  border: 1px solid var(--border); border-radius: 4px;
 }
-.pw-role-action:hover { background: var(--bg-hover); }
-.pw-role-action.is-danger:hover { color: #ef4444; border-color: #ef4444; }
-.pw-role-editor { display: flex; flex-direction: column; gap: 12px; }
+.pw-role-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 .pw-role-colors { display: flex; gap: 6px; flex-wrap: wrap; }
 .pw-role-color-swatch {
   width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent;
   cursor: pointer; transition: border-color .15s;
 }
 .pw-role-color-swatch.is-active { border-color: var(--text-1); }
-.pw-role-avatar-input { width: 60px; text-align: center; font-size: 18px; }
+.pw-role-avatar-input { max-width: 60px !important; text-align: center; font-size: 18px; }

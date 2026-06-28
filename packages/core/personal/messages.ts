@@ -2277,8 +2277,14 @@ export function usePersonalActions(): PersonalActions {
       const appendSystemPrompt =
         [buildGlobalAppend(), extraSystemPrompt, attachmentPrompt, docPrompt].filter(Boolean).join("\n\n") || undefined;
 
+      // 圆桌 @mention 优先级高于 pi 专有路径：有 @mention 时任何 agent 的会话都走 roundtable，
+      // 不走 pi RPC。提前检测以避免 pi 分支 return 后再也走不到 roundtable 分支。
+      const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
+      const hasRoundtableMentions = earlyMentions.length > 0 && !!bridge.startRoundtable;
+
       // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。
-      if (session.agent === "pi") {
+      // 有圆桌 @mention 时跳过 pi 专有路径，统一走下面的 roundtable 分支。
+      if (session.agent === "pi" && !hasRoundtableMentions) {
         await sendPiTurn(qc, bridge, session, projectPath, text, appendSystemPrompt, { runId, typingUid }, imagePaths);
         return true;
       }
@@ -2372,16 +2378,15 @@ export function usePersonalActions(): PersonalActions {
         // 圆桌多角色编排（@mention 触发）：用户消息含 @mention 且 bridge 支持时，走 roundtable。
         // 圆桌无状态、各角色 fresh spawn，故不传 resumeSessionId。事件流复用 cli:event/cli:exit，
         // 事件带 roleId 字段区分角色。取消走 killRoundtable（cli:kill 杀不到圆桌子进程）。
-        const mentionTargets = parseMentions(text, usePersonalStore.getState().roles);
-        if (mentionTargets.length > 0 && bridge.startRoundtable) {
+        if (hasRoundtableMentions) {
           run.roundtable = true;
           run.roleCursors = new Map();
-          await bridge.startRoundtable({
+          await bridge.startRoundtable!({
             runId,
             sessionId: sendSession.id,
             cwd: projectPath,
             text,
-            mentions: mentionTargets,
+            mentions: earlyMentions,
             roles: usePersonalStore.getState().roles,
             model: sendSession.model,
             effort: sendSession.effort,

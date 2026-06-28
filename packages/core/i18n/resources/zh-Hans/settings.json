@@ -528,6 +528,8 @@
     "save": "保存",
     "create": "创建",
     "edit": "编辑",
-    "delete": "删除"
+    "delete": "删除",
+    "customTitle": "自定义角色",
+    "builtinTitle": "内置快捷角色"
   }
 }

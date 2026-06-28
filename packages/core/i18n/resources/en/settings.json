@@ -528,6 +528,8 @@
     "save": "Save",
     "create": "Create",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "customTitle": "Custom Roles",
+    "builtinTitle": "Built-in Shortcuts"
   }
 }
