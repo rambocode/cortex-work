@@ -62,19 +62,25 @@ describe("filterMentionOptions", () => {
 
 describe("applyMention", () => {
   it("替换 @query 为 @label + 空格", () => {
-    const { newText, newCursor } = applyMention("hello @cla", 6, 10, "Claude");
-    expect(newText).toBe("hello @Claude ");
+    const { newText, newCursor } = applyMention("hello @cla", 6, 10, { id: "claude", label: "Claude" });
+    expect(newText).toBe("hello @claude ");
     expect(newCursor).toBe(14);
   });
 
+  it("多词角色插入无空白 id，避免解析器只读到第一个词", () => {
+    const { newText, newCursor } = applyMention("ask @code", 4, 9, { id: "code-reviewer", label: "Code Reviewer" });
+    expect(newText).toBe("ask @code-reviewer ");
+    expect(newCursor).toBe(19);
+  });
+
   it("保留光标后的文本", () => {
-    const { newText } = applyMention("hey @co world", 4, 7, "Codex");
-    expect(newText).toBe("hey @Codex  world");
+    const { newText } = applyMention("hey @co world", 4, 7, { id: "codex", label: "Codex" });
+    expect(newText).toBe("hey @codex  world");
   });
 
   it("文本开头的 @ 也能处理", () => {
-    const { newText, newCursor } = applyMention("@pi", 0, 3, "Pi");
-    expect(newText).toBe("@Pi ");
+    const { newText, newCursor } = applyMention("@pi", 0, 3, { id: "pi", label: "Pi" });
+    expect(newText).toBe("@pi ");
     expect(newCursor).toBe(4);
   });
 });

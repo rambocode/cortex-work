@@ -21,7 +21,7 @@ import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp"
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
 import {
-  buildDelegateMcpServerConfig,
+  ensureDelegateMcpServerConfig,
   registerDelegateSession,
   unregisterDelegateSession,
   type DelegateSessionState,
@@ -647,7 +647,7 @@ export function registerCliHandlers(): void {
           buildLoopWorkflowsMcpServerConfig(workflowsForMcp, req.sessionId, req.cwd),
           // 委派（delegate）：本轮有被 @ 的协作者时注入 cortex-delegate server（仅 claude/codex 经此块；
           // pi 走 mcpInjection==="none" 不进本块，阶段2 另生成桥接）。工具集由下方 registerDelegateSession 注册。
-          req.delegateRoles?.length ? buildDelegateMcpServerConfig(req.sessionId) : null,
+          req.delegateRoles?.length ? await ensureDelegateMcpServerConfig(req.sessionId) : null,
         ].filter((s): s is McpServerConfig => s !== null);
         if (builtinServers.length) {
           const userServers = mcp.enabled ? mcp.servers : [];
@@ -700,7 +700,7 @@ export function registerCliHandlers(): void {
       // delegate 桥接扩展(per-session 文件名避免并发覆盖,R3),经 -e 注入(pi.ts buildArgs 收集 extraExtensionPaths)。
       // claude/codex 不进此分支(它们经 builtinServers + applyClaudeMcp/buildCodexMcpArgs 注入)。
       if (baseAgentKindOf(req.agent) === "pi") {
-        const delegateCfg = buildDelegateMcpServerConfig(req.sessionId);
+        const delegateCfg = await ensureDelegateMcpServerConfig(req.sessionId);
         // 诊断：pi delegate 桥接是否注入（host 不可用 → null → pi 缺 ask_<id> 工具，只剩内置工具）。
         recordAgentTrace({
           scope: "delegate", phase: "pi-bridge",

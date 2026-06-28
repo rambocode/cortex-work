@@ -38,6 +38,7 @@ const MAX_CALLS_PER_ROLE = 3;
 
 // 委派 MCP host 实例（独立 port/token，与 browser/doc-extract/media-gen 互不干扰）。
 const delegateHost = createMcpHost(DELEGATE_SERVER_ID);
+let delegateHostStartPromise: Promise<McpHostHandle> | null = null;
 
 // 子 agent 一次执行的结果。
 export interface SubAgentResult {
@@ -164,7 +165,9 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
 // per-request McpServer 在每次 HTTP 请求新建，回调按 ctx.sessionId 取本 session 的 roles。
 // 取不到 state（未注册 / 子 agent 的 fresh sessionId）→ 不注册任何 ask_<id>，只剩 ping（防递归）。
 export function startDelegateHost(): Promise<McpHostHandle> {
-  return delegateHost.start((mcp, ctx) => {
+  if (delegateHost.getHandle()) return delegateHost.start();
+  if (delegateHostStartPromise) return delegateHostStartPromise;
+  delegateHostStartPromise = delegateHost.start((mcp, ctx) => {
     const state = ctx.sessionId ? sessionStateMap.get(ctx.sessionId) : undefined;
     // 诊断：pi 桥接每次请求时，host 是否按 X-Cortex-Session 找到 session state（决定是否注册 ask_<id>）。
     try {
@@ -179,9 +182,14 @@ export function startDelegateHost(): Promise<McpHostHandle> {
       registerAskTool(mcp, role, state);
     }
   });
+  delegateHostStartPromise.finally(() => {
+    delegateHostStartPromise = null;
+  });
+  return delegateHostStartPromise;
 }
 
 export function stopDelegateHost(): void {
+  delegateHostStartPromise = null;
   delegateHost.stop();
 }
 
@@ -207,4 +215,14 @@ export function buildDelegateMcpServerConfig(sessionId: string | undefined): Mcp
       "X-Cortex-Session": sessionId,
     },
   };
+}
+
+export async function ensureDelegateMcpServerConfig(sessionId: string | undefined): Promise<McpServerConfig | null> {
+  if (!sessionId) return null;
+  let cfg = buildDelegateMcpServerConfig(sessionId);
+  if (cfg) return cfg;
+  const handle = await startDelegateHost();
+  if (!handle.serverAvailable) return null;
+  cfg = buildDelegateMcpServerConfig(sessionId);
+  return cfg;
 }

@@ -23,6 +23,7 @@ import {
   type PendingImage,
   type SessionMeta,
 } from "@cortex-work/core";
+import { __handleCliEventForTest } from "@cortex-work/core/personal/messages";
 
 function makeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
   return {
@@ -250,6 +251,26 @@ describe("send 分叉", () => {
     expect(req).toMatchObject({ agent: "claude", prompt: "你好" });
     expect(bridge.piOpen).not.toHaveBeenCalled();
     expect(bridge.piPrompt).not.toHaveBeenCalled();
+  });
+
+  it("@mention 委派轮次不把一次性 init session 写回主会话 resume id", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+
+    await act(async () => {
+      await result.current.send(claudeSession, "/proj", "@codex 看一下", []);
+    });
+
+    const req = (bridge.startCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(req.resumeSessionId).toBeUndefined();
+    expect(req.delegateRoles?.map((r: { id: string }) => r.id)).toEqual(["codex"]);
+
+    __handleCliEventForTest(qc, req.runId, { type: "init", sessionId: "delegate-temp-thread" }, claudeSession.id);
+
+    expect(usePersonalStore.getState().sessions.find((s) => s.id === claudeSession.id)?.agentSessionIds?.claude).toBe(
+      "c1",
+    );
   });
 
   it("claude 会话思考强度经 startCli.effort 下发", async () => {

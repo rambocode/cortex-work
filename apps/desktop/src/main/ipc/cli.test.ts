@@ -25,6 +25,8 @@ vi.mock("./mcp-config", () => ({
   applyClaudeMcp: m.applyClaudeMcp,
   buildCodexMcpArgs: m.buildCodexMcpArgs,
   CODEX_MCP_CLEAR: ["-c", "mcp_servers={}"],
+  effectiveEnv: () => undefined,
+  isValidServerId: () => true,
 }));
 vi.mock("./session-trim", () => ({
   agentSessionExists: m.agentSessionExists,
@@ -32,7 +34,7 @@ vi.mock("./session-trim", () => ({
 }));
 
 vi.mock("electron", () => ({
-  app: { getAppPath: () => "/fake/app", isPackaged: false },
+  app: { getAppPath: () => "/fake/app", getPath: () => "/tmp/cortex-test-userData", isPackaged: false },
   ipcMain: {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       ipcHandlers.set(channel, handler);
@@ -72,6 +74,7 @@ import {
   spawnEnvForDef,
 } from "./cli";
 import { PI_KEY_ENV } from "../agents/pi-providers";
+import { killAllDelegates, stopDelegateHost } from "../capabilities/delegate/server";
 
 // child_process.spawn 返回值的最小替身。
 function fakeChild() {
@@ -94,8 +97,15 @@ beforeEach(() => {
   m.applyClaudeMcp.mockReset().mockResolvedValue("skip");
   m.buildCodexMcpArgs.mockReset().mockReturnValue([]);
   m.agentSessionExists.mockReset().mockReturnValue(true);
+  killAllDelegates();
+  stopDelegateHost();
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  killAllDelegates();
+  stopDelegateHost();
 });
 
 // claude/codex 经 detect 探针(claude+codex --version)后才 spawn run;辅助:发起 cli:start,
@@ -194,6 +204,44 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
 });
 
 describe("cli:start trace", () => {
+  it("pi 委派轮次按需启动 delegate host 并注入 ask 工具桥接扩展", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-delegate-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    registerCliHandlers();
+    const send = vi.fn();
+
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        {
+          runId: "run-delegate",
+          sessionId: "session-delegate",
+          agent: "pi",
+          cwd,
+          prompt: "请 @Codex 总结",
+          delegateRoles: [
+            { id: "codex", label: "Codex", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" },
+          ],
+        },
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+
+    const args = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(args).toContain("-e");
+    expect(args.some((arg) => arg.includes("delegate-bridge-session-delegate.js"))).toBe(true);
+    expect(args).toContain("-a");
+    expect(traceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "delegate",
+        phase: "pi-bridge",
+        summary: "pi delegate bridge injected",
+      }),
+    );
+  });
+
   it("记录启动、解析事件、stderr 和退出 trace", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-cli-trace-"));
     const child = fakeChild();

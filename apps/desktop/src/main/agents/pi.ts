@@ -49,6 +49,16 @@ function diagnosticsError(diagnostics: unknown): string | undefined {
   return typeof err?.message === "string" ? err.message : undefined;
 }
 
+function safeDelegateToolId(id: string): string {
+  const s = id.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return s || "role";
+}
+
+function planToolWhitelist(req: CliStartRequest): string[] {
+  const delegateTools = (req.delegateRoles ?? []).map((role) => `ask_${safeDelegateToolId(role.id)}`);
+  return [...PI_PLAN_TOOL_WHITELIST, ...delegateTools];
+}
+
 export const piDef: AgentDef = {
   id: "pi",
   // 能力位:pi 是自包含二进制,prompt 走 argv 位置参数;不注入 MCP(走自身扩展);续接用 --session;
@@ -73,7 +83,7 @@ export const piDef: AgentDef = {
     // 运行模式 plan 档:只读工具白名单（pi 官方钦定 read-only 配方,物理上无 write/edit/bash）。
     // json 单发(ask 追问/oneshot)无 UI,审批 hook 失效,故只有 plan 的工具白名单有意义;
     // accept-edits/full-auto 在单发模式等价(不收窄工具)。RPC 长驻路径走 buildRpcArgs 的 toolWhitelist。
-    if (req.permissionMode === "plan") args.push("--tools", PI_PLAN_TOOL_WHITELIST.join(","));
+    if (req.permissionMode === "plan") args.push("--tools", planToolWhitelist(req).join(","));
     // 自定义供应商 + 委派桥接:cli.ts 已生成 extension 文件,这里多 `-e` 显式加载 + `-a` 整批信任
     //（实测 --no-extensions 与多个显式 -e 共存,-a 只加一次,仿 pi-rpc.ts buildRpcArgs）。
     //   · piExtensionPath = provider extension（apiKey 端点）

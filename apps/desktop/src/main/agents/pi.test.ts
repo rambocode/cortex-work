@@ -62,6 +62,22 @@ describe("piDef.buildArgs", () => {
     expect(args.at(-1)).toBe("hello");
   });
 
+  it("运行模式 plan + 委派:--tools 只读白名单保留 ask_<role> 工具", () => {
+    const { args } = piDef.buildArgs({
+      ...baseReq,
+      permissionMode: "plan",
+      delegateRoles: [
+        { id: "Codex", label: "Codex", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" },
+        { id: "Code Reviewer", label: "Code Reviewer", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" },
+      ],
+    });
+    const toolArg = args[args.indexOf("--tools") + 1];
+    expect(toolArg).toContain("read,grep,find,ls");
+    expect(toolArg).toContain("browser_navigate");
+    expect(toolArg).toContain("ask_codex");
+    expect(toolArg).toContain("ask_code-reviewer");
+  });
+
   it("多轮:model / resumeSessionId / appendSystemPrompt 各自透传,prompt 仍在末位", () => {
     const { args } = piDef.buildArgs({
       ...baseReq,

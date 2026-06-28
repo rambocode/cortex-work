@@ -58,14 +58,14 @@ export function filterMentionOptions(options: MentionOption[], query: string): M
   );
 }
 
-// 将选中的 mention 插入文本：替换 @query 为 @label 并加一个空格。
+// 将选中的 mention 插入文本：替换 @query 为无空白 id 并加一个空格。
 export function applyMention(
   text: string,
   start: number,
   cursorPos: number,
-  label: string,
+  option: Pick<MentionOption, "id" | "label">,
 ): { newText: string; newCursor: number } {
-  const replacement = `@${label} `;
+  const replacement = `@${option.id} `;
   const newText = text.slice(0, start) + replacement + text.slice(cursorPos);
   return { newText, newCursor: start + replacement.length };
 }
@@ -166,7 +166,7 @@ export function useMentionAutocomplete(
     (opt: MentionOption) => {
       if (!mentionState) return;
       const { newText, newCursor } = applyMention(
-        text, mentionState.start, mentionState.cursorPos, opt.label,
+        text, mentionState.start, mentionState.cursorPos, opt,
       );
       setText(newText);
       setMentionState(null);
