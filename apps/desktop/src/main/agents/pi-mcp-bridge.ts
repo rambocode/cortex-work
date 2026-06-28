@@ -295,11 +295,12 @@ export function renderMcpBridgeExtension(servers: BridgeServer[]): string {
   ].join("\n");
 }
 
-// 落盘扩展文件,返回绝对路径。固定文件名(每次 open 覆盖重写;token/session 每会话刷新)。
-export function writeMcpBridgeExtension(servers: BridgeServer[]): string {
+// 落盘扩展文件,返回绝对路径。fileName 缺省固定名(RPC 桥接每次 open 覆盖重写);委派单发传
+// per-session 名(delegate-bridge-<sid>.js)避免并发 pi 互相覆盖(R3)。token/session 每会话刷新烘焙进文件。
+export function writeMcpBridgeExtension(servers: BridgeServer[], fileName = "mcp-bridge.js"): string {
   const dir = join(app.getPath("userData"), "pi-extensions");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, "mcp-bridge.js");
+  const file = join(dir, fileName);
   writeFileSync(file, renderMcpBridgeExtension(servers), { mode: 0o600 });
   return file;
 }

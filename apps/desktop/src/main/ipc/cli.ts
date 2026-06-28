@@ -12,6 +12,7 @@ import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, Cli
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
+import { mcpServerToBridge, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
 import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
@@ -666,6 +667,20 @@ export function registerCliHandlers(): void {
         runSubAgent: (role, task, onEvent) => runDelegateSubAgent(req, role, task, onEvent, controller.signal),
       };
       registerDelegateSession(state);
+      // pi 主 agent 走单发,mcpInjection==="none" 不进上面 builtinServers 注入块,故在此单独生成
+      // delegate 桥接扩展(per-session 文件名避免并发覆盖,R3),经 -e 注入(pi.ts buildArgs 收集 extraExtensionPaths)。
+      // claude/codex 不进此分支(它们经 builtinServers + applyClaudeMcp/buildCodexMcpArgs 注入)。
+      if (baseAgentKindOf(req.agent) === "pi") {
+        const delegateCfg = buildDelegateMcpServerConfig(req.sessionId);
+        const bridge = delegateCfg ? mcpServerToBridge(delegateCfg) : null;
+        if (bridge) {
+          const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+          req.extraExtensionPaths = [
+            ...(req.extraExtensionPaths ?? []),
+            writeMcpBridgeExtension([bridge], `delegate-bridge-${safeSid}.js`),
+          ];
+        }
+      }
     }
 
     const inactivityMs = resolveCliInactivityTimeoutMs();
