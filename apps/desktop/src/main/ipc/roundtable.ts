@@ -28,6 +28,7 @@ import {
 } from "./cli";
 import { getAgentDef, parseLineEvents } from "../agents";
 import { CODEX_MCP_CLEAR } from "./mcp-config";
+import { recordAgentTrace } from "./agent-trace";
 import type { CliExitEvent, CliStartRequest, CliStreamEvent, RoleConfig, RoundtableStartRequest } from "./types";
 
 // ── 常量 ──
@@ -135,7 +136,19 @@ async function runRole(opts: {
 
   assertSpawnCwd(cwd);
 
-  const { cmd, args, stdin } = adapter.buildArgs(req, CODEX_MCP_CLEAR);
+  // codex 圆桌用 `codex exec`（不走 app-server ws），MCP 清空；claude 不受 mcpArgs 影响。
+  const mcpArgs = role.agent === "codex" ? CODEX_MCP_CLEAR : undefined;
+  const { cmd, args, stdin } = adapter.buildArgs(req, mcpArgs);
+
+  recordAgentTrace({
+    scope: "roundtable",
+    phase: "start",
+    summary: `${role.agent}[${role.label}] role start`,
+    runId: spawnKey,
+    agent: role.agent,
+    data: { cmd, cwd, argCount: args.length, roleId: role.id, promptPreview: context.slice(0, 200) },
+  });
+
   const proc = startAgentProcess(cmd, args, {
     cwd,
     env: spawnEnvForDef(req, adapter),
@@ -150,6 +163,7 @@ async function runRole(opts: {
     let timedOut = false;
     let resultFailed = false;
     let errorText = "";
+    let stderrBuf = "";
 
     const timer = setTimeout(() => {
       if (!settled) {
@@ -192,14 +206,27 @@ async function runRole(opts: {
     });
 
     proc.stderr?.setEncoding("utf8");
+    proc.stderr?.on("data", (chunk: string) => {
+      stderrBuf += chunk;
+      if (stderrBuf.length > 4000) stderrBuf = stderrBuf.slice(-4000);
+    });
 
     proc.onError((err) => {
+      recordAgentTrace({
+        scope: "roundtable", phase: "error", summary: `${role.agent}[${role.label}] spawn error`,
+        runId: spawnKey, agent: role.agent, data: { error: err.message, stderr: stderrBuf.slice(-500) },
+      });
       settle(() => resolve({ text: out.trim(), ok: false, error: err.message }));
     });
 
     proc.onExit((code) => {
       flushStdout();
       settle(() => {
+        recordAgentTrace({
+          scope: "roundtable", phase: "exit", summary: `${role.agent}[${role.label}] exit(${code})`,
+          runId: spawnKey, agent: role.agent,
+          data: { code, ok: !resultFailed && code === 0, stderr: stderrBuf.slice(-500), outLen: out.length },
+        });
         if (signal.aborted) {
           return resolve({ text: out.trim(), ok: false, error: "已取消" });
         }
@@ -211,14 +238,13 @@ async function runRole(opts: {
           });
         }
         if (resultFailed) {
-          return resolve({ text: out.trim(), ok: false, error: errorText });
+          // 拼接 stderr 补充诊断信息
+          const detail = stderrBuf.trim() ? `${errorText}\n${stderrBuf.trim().slice(-300)}` : errorText;
+          return resolve({ text: out.trim(), ok: false, error: detail });
         }
         if (code !== 0 && code !== null) {
-          return resolve({
-            text: out.trim(),
-            ok: false,
-            error: `${role.agent} 退出码 ${code}`,
-          });
+          const detail = stderrBuf.trim() ? `${role.agent} 退出码 ${code}\n${stderrBuf.trim().slice(-300)}` : `${role.agent} 退出码 ${code}`;
+          return resolve({ text: out.trim(), ok: false, error: detail });
         }
         resolve({ text: out.trim(), ok: true });
       });
