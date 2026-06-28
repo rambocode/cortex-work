@@ -28,6 +28,7 @@ import { registerAutomationHandlers } from "../automation/ipc";
 import { registerWorkflowHandlers } from "../workflow/ipc";
 import { registerSttHandlers } from "./stt";
 import { registerOrchestrateHandlers } from "./orchestrate";
+import { installIpcTrace } from "../log/ipc-trace";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -35,6 +36,8 @@ interface RegisterIpcHandlersOptions {
 }
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
+  // 须最先调用：幂等接管 ipcMain.handle，使其后所有 handler 注册都被可观测包裹（U5）。
+  installIpcTrace();
   registerFsHandlers();
   registerWatchHandlers();
   registerStoreHandlers();
