@@ -21,8 +21,14 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpHost, type McpHostHandle } from "../mcp-host/server";
-import { safeId } from "../../agents/pi-providers";
 import type { McpServerConfig, RoleConfig, CliStreamEvent } from "../../ipc/types";
+
+// 工具名安全化（与 pi-providers.safeId 同源逻辑，内联以解除 electron 依赖、便于单测）：
+// ask_<id> 须为合法 MCP 工具名（仅字母数字 - _）。
+export function safeToolId(id: string): string {
+  const s = id.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return s || "role";
+}
 
 // 注入用 server id（= MCP server 名）。须为 TOML 裸键安全（codex -c mcp_servers.<id>）。
 export const DELEGATE_SERVER_ID = "cortex-delegate";
@@ -98,7 +104,7 @@ function errorResult(text: string): ToolResult {
 
 // ── 单个 ask_<id> 工具注册 ────────────────────────────────────────────────────
 function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessionState): void {
-  const toolName = "ask_" + safeId(role.id);
+  const toolName = "ask_" + safeToolId(role.id);
   // description 带角色 persona，帮助主 agent 判断「这是谁、擅长什么、何时该委派给它」（R8）。
   const personaLine = role.systemPrompt ? `角色设定：${role.systemPrompt.slice(0, 240)}。` : "";
   mcp.registerTool(
