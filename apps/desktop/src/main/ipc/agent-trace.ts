@@ -1,4 +1,9 @@
 import { ipcMain, type WebContents } from "electron";
+import { MAX_STRING_LENGTH, redactObject } from "../log/redact";
+
+// 结构化事件脱敏统一走共享 log/redact（与 electron-log file transform 同源）。
+// 保留 sanitizeTraceData 导出名以兼容既有调用方与测试。
+export const sanitizeTraceData = redactObject;
 
 // 流式增量段类型:text=assistant 正文,reasoning=思考过程。各自合并为独立的一条段。
 export type TraceSegmentType = "text" | "reasoning";
@@ -40,7 +45,6 @@ export interface StreamDeltaInput {
 }
 
 const MAX_EVENTS = 500;
-const MAX_STRING_LENGTH = 4000;
 const traceEvents: AgentTraceEvent[] = [];
 const subscribers = new Set<WebContents>();
 let seq = 0;
@@ -69,34 +73,6 @@ function finalizeOpenSegment(key: string): void {
 function traceId(): string {
   seq += 1;
   return `trace-${Date.now()}-${seq}`;
-}
-
-function isSecretKey(key: string): boolean {
-  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return (
-    normalized === "authorization" ||
-    normalized === "cortexpikey" ||
-    normalized.includes("apikey") ||
-    normalized.includes("token") ||
-    normalized.includes("secret") ||
-    normalized.includes("password") ||
-    normalized.includes("credential")
-  );
-}
-
-function truncateString(value: string): string {
-  return value.length > MAX_STRING_LENGTH ? `${value.slice(0, MAX_STRING_LENGTH)}…` : value;
-}
-
-export function sanitizeTraceData(value: unknown): unknown {
-  if (typeof value === "string") return truncateString(value);
-  if (value == null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map((item) => sanitizeTraceData(item));
-  const out: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    out[key] = isSecretKey(key) ? "[redacted]" : sanitizeTraceData(item);
-  }
-  return out;
 }
 
 function emitTrace(event: AgentTraceEvent): void {

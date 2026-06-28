@@ -6,6 +6,7 @@ import { appendFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs
 import { join } from "path";
 import { logsDir } from "./paths";
 import { getPersistedState } from "./ipc/store";
+import { redactString } from "./log/redact";
 
 let enabled = true;
 let patched = false;
@@ -15,13 +16,8 @@ export function setLogEnabled(on: boolean): void {
   enabled = on;
 }
 
-// 敏感字段脱敏（apiKey/token/secret/authorization 形态的值用 *** 代替）。
-export function redactSensitive(line: string): string {
-  return line.replace(
-    /("?(?:api[_-]?key|apikey|token|secret|authorization)"?\s*[:=]\s*"?)([^",\s}]+)/gi,
-    "$1***",
-  );
-}
+// 敏感字段脱敏统一走共享 log/redact。保留 redactSensitive 导出名以兼容既有调用方与测试。
+export const redactSensitive = redactString;
 
 // 日志文件名（按本地日期）。
 export function logFileName(date: Date): string {
