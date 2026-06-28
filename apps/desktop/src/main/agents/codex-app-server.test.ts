@@ -1,4 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+
+// ../log 桩:断言 U4 盲区补点(就绪超时 / 旧版不支持 / LRU·空闲驱逐)经 scoped logger 落盘;
+// 同时避免加载真 electron-log/main。所有 scope 复用同一 logger 桩,便于跨用例断言。
+const logMocks = vi.hoisted(() => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), verbose: vi.fn(), debug: vi.fn(), silly: vi.fn() },
+}));
+vi.mock("../log", () => ({ createLogger: () => logMocks.logger, isDevEnv: () => true }));
+
 import { CodexServerManager, type CodexServerDeps } from "./codex-app-server";
 import type { AgentProcess } from "../ipc/cli";
 
@@ -200,5 +208,55 @@ describe("CodexServerManager 生命周期与回收", () => {
     expect(h.manager.has("b")).toBe(true);
     expect(h.manager.has("c")).toBe(true);
     expect(h.manager.size()).toBe(2);
+  });
+});
+
+describe("U4 盲区补点落盘", () => {
+  // 取某条 warn/debug 日志的第二参(结构化 data),便于断言落盘内容。
+  const warnArg = (msg: string) => logMocks.logger.warn.mock.calls.find((c) => c[0] === msg)?.[1];
+  const debugArg = (msg: string) => logMocks.logger.debug.mock.calls.find((c) => c[0] === msg)?.[1];
+
+  it("就绪超时 → 记一条 warn(含 sessionId/port/timeoutMs)", async () => {
+    logMocks.logger.warn.mockReset();
+    const h = makeHarness();
+    h.setReady(false);
+    const p = h.manager.ensureServer("s1", {});
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+      h.clock.advance(500);
+    }
+    await expect(p).rejects.toThrow(/就绪超时/);
+    expect(warnArg("codex app-server 就绪超时")).toMatchObject({ sessionId: "s1", timeoutMs: 1000 });
+  });
+
+  it("旧版不支持(启动即退出)→ 记一条 warn(unsupported=true)", async () => {
+    logMocks.logger.warn.mockReset();
+    const h = makeHarness({ probeReady: async () => false });
+    const p = h.manager.ensureServer("s1", {});
+    await Promise.resolve();
+    h.spawned[0].fake.emitStderr("error: unrecognized subcommand 'app-server'");
+    h.spawned[0].fake.triggerExit(2);
+    await expect(p).rejects.toThrow(/升级 codex/);
+    expect(warnArg("codex app-server 启动即退出")).toMatchObject({ sessionId: "s1", unsupported: true });
+  });
+
+  it("LRU 驱逐 → 记一条 debug(含被驱逐 sessionId)", async () => {
+    logMocks.logger.debug.mockReset();
+    const h = makeHarness({ maxServers: 2 });
+    await h.manager.ensureServer("a", {});
+    h.clock.advance(10);
+    await h.manager.ensureServer("b", {});
+    h.clock.advance(10);
+    await h.manager.ensureServer("c", {});
+    expect(debugArg("codex app-server LRU 驱逐")).toMatchObject({ sessionId: "a" });
+  });
+
+  it("空闲驱逐 → 记一条 debug(含被驱逐 sessionId)", async () => {
+    logMocks.logger.debug.mockReset();
+    const h = makeHarness({ idleEvictMs: 1000 });
+    await h.manager.ensureServer("idle", {});
+    h.clock.advance(2000);
+    h.manager.sweepIdle();
+    expect(debugArg("codex app-server 空闲驱逐")).toMatchObject({ sessionId: "idle" });
   });
 });

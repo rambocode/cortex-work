@@ -1,9 +1,20 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentDef } from "./index";
 import type { CliStartRequest } from "../ipc/types";
+
+// mock ../log:桩化 createLogger 以断言 parseLineEvents 的「无法识别行」盲区补点;
+// 避免加载真 electron-log/main(读 electron app)。工厂经 vi.hoisted 注入 vi.fn。
+const logMocks = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock("../log", () => ({
+  createLogger: () => ({ error: vi.fn(), warn: logMocks.warn, info: vi.fn(), verbose: vi.fn(), debug: vi.fn(), silly: vi.fn() }),
+  isDevEnv: () => true,
+}));
+
 import {
   baseAgentKindOf,
   getAgentDef,
   listAgentProfiles,
+  parseLineEvents,
   refreshLocalAgentProfiles,
   setLocalAgentProfilesLoader,
 } from "./index";
@@ -96,6 +107,38 @@ describe("refreshLocalAgentProfiles", () => {
     expect(listAgentProfiles().map((p) => p.id)).toEqual(["v1"]);
     refreshLocalAgentProfiles();
     expect(listAgentProfiles().map((p) => p.id)).toEqual(["v2"]);
+  });
+});
+
+describe("parseLineEvents 盲区补点(U4)", () => {
+  // 极简 fake def:parseLine 可控返回单事件 / 数组 / null,验证三态归一 + 空结果落日志。
+  function fakeDef(parseLine: AgentDef["parseLine"]): AgentDef {
+    return { id: "fake", parseLine } as unknown as AgentDef;
+  }
+
+  beforeEach(() => logMocks.warn.mockReset());
+
+  it("无法识别行(解析空)→ 记录一条 parse 警告(含脱敏后的原始行)", () => {
+    const def = fakeDef(() => null);
+    expect(parseLineEvents(def, 'x token=abc123 y')).toEqual([]);
+    expect(logMocks.warn).toHaveBeenCalledTimes(1);
+    const [msg, line] = logMocks.warn.mock.calls[0]!;
+    expect(msg).toContain("无法识别");
+    expect(line).toBe("x token=*** y"); // redactString 脱敏后落盘
+  });
+
+  it("空白行不落日志(正常分帧产物,免噪声)", () => {
+    const def = fakeDef(() => null);
+    expect(parseLineEvents(def, "   ")).toEqual([]);
+    expect(logMocks.warn).not.toHaveBeenCalled();
+  });
+
+  it("解析出事件(单/数组)→ 不落日志,返回行为不变", () => {
+    const single = fakeDef(() => ({ type: "text", delta: "a" }) as never);
+    expect(parseLineEvents(single, "ok")).toEqual([{ type: "text", delta: "a" }]);
+    const arr = fakeDef(() => [{ type: "text", delta: "a" }, { type: "result", ok: true }] as never);
+    expect(parseLineEvents(arr, "ok")).toHaveLength(2);
+    expect(logMocks.warn).not.toHaveBeenCalled();
   });
 });
 

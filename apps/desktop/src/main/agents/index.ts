@@ -27,6 +27,12 @@ import {
 import { claudeDef } from "./claude";
 import { codexDef } from "./codex";
 import { piDef } from "./pi";
+import { createLogger } from "../log";
+import { redactString } from "../log/redact";
+
+// 解析失败盲区专用 scope:无法识别的 stdout 行(JSON 坏帧 / 未映射事件类型)在此可观测。
+// 正是 Pi RPC 终态卡死类 bug 的盲区——adapter 静默 return null,排障时无从复盘原始行。
+const parseLog = createLogger("parse");
 
 export type PromptDelivery = "stdin-stream-json" | "stdin-eof" | "argv";
 export type McpInjection = "claude-mcp-json" | "codex-c" | "none";
@@ -68,7 +74,18 @@ export interface AgentDef {
 // 把 parseLine 的「单事件 | 数组 | null」三态归一为数组,供 spawn 管线统一迭代(cli.ts / ask.ts)。
 export function parseLineEvents(def: AgentDef, line: string): CliStreamEvent[] {
   const r = def.parseLine(line);
-  return Array.isArray(r) ? r : r ? [r] : [];
+  const events = Array.isArray(r) ? r : r ? [r] : [];
+  // 盲区补点(R10):非空白行解析为空 = adapter 无法识别该行(坏帧 / 未映射事件类型)。
+  // 原本被静默丢弃,现记录脱敏后的原始行便于复盘。空白行是正常分帧产物,跳过免噪声;
+  // 落盘失败 try/catch 吞掉,绝不阻断解析主流程(R14)。返回行为保持不变。
+  if (events.length === 0 && line.trim()) {
+    try {
+      parseLog.warn(`无法识别的 ${def.id} 输出行`, redactString(line));
+    } catch {
+      /* 日志失败不影响解析 */
+    }
+  }
+  return events;
 }
 
 const AGENT_DEFS: Record<string, AgentDef> = {

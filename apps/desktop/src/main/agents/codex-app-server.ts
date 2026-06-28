@@ -16,6 +16,11 @@
 import net from "node:net";
 import http from "node:http";
 import type { AgentProcess } from "../ipc/cli"; // 仅类型,运行时不引入 → 无循环依赖
+import { createLogger } from "../log";
+
+// codex app-server 进程侧盲区观测(U4):就绪超时 / 旧版不支持 / LRU·空闲驱逐 等
+// 会静默吞掉会话的节点在此落盘。埋点失败 try/catch 吞掉,不阻断进程管理主流程(R14)。
+const log = createLogger("codex-server");
 
 // ── 可注入依赖 ────────────────────────────────────────────────────────────
 export interface CodexServerDeps {
@@ -218,9 +223,17 @@ export class CodexServerManager {
     const t0 = this.now();
     for (;;) {
       if (exited) {
-        const hint = looksLikeUnsupported(stderrTail)
+        const unsupported = looksLikeUnsupported(stderrTail);
+        const hint = unsupported
           ? "codex 版本过旧或不支持 app-server,请升级 codex 后重试"
           : stderrTail.trim() || "codex app-server 启动即退出";
+        // 盲区补点(R10):启动即退出会被 cli.ts 降级为 result{ok:false},原因(尤其旧版不支持)
+        // 仅在弹窗一闪而过,落盘留证便于复盘。
+        try {
+          log.warn("codex app-server 启动即退出", { sessionId, unsupported, stderrTail: stderrTail.trim() || undefined });
+        } catch {
+          /* 日志失败不影响抛错降级 */
+        }
         throw new Error(hint);
       }
       if (await probe(port)) return server;
@@ -232,6 +245,12 @@ export class CodexServerManager {
         }
         server.dead = true;
         if (this.servers.get(sessionId) === server) this.servers.delete(sessionId);
+        // 盲区补点(R10):就绪轮询超时,记录端口 + 阈值便于定位是端口冲突还是启动慢。
+        try {
+          log.warn("codex app-server 就绪超时", { sessionId, port, timeoutMs });
+        } catch {
+          /* 日志失败不影响抛错降级 */
+        }
         throw new Error(`codex app-server 就绪超时(${Math.round(timeoutMs / 1000)}s)`);
       }
       await sleep(pollMs);
@@ -247,6 +266,13 @@ export class CodexServerManager {
     // 腾到上限以下(此次新建会 +1)
     while (this.servers.size >= this.maxServers && candidates.length) {
       const victim = candidates.shift()!;
+      // 盲区补点(R10):LRU 驱逐会静默杀掉一个会话的 server(下次该会话需重启),记录便于
+      // 排查「会话莫名重启」是否因并发上限触发。
+      try {
+        log.debug("codex app-server LRU 驱逐", { sessionId: victim.sessionId, size: this.servers.size, maxServers: this.maxServers });
+      } catch {
+        /* 日志失败不影响驱逐 */
+      }
       this.killServer(victim.sessionId);
     }
   }
@@ -255,7 +281,15 @@ export class CodexServerManager {
   sweepIdle(): void {
     const cutoff = this.now() - this.idleEvictMs;
     for (const s of [...this.servers.values()]) {
-      if (!s.busy && !s.dead && s.lastActiveAt < cutoff) this.killServer(s.sessionId);
+      if (!s.busy && !s.dead && s.lastActiveAt < cutoff) {
+        // 盲区补点(R10):空闲超阈值驱逐,记录便于排查「会话莫名重启」是否因长时间空闲触发。
+        try {
+          log.debug("codex app-server 空闲驱逐", { sessionId: s.sessionId, idleMs: this.now() - s.lastActiveAt });
+        } catch {
+          /* 日志失败不影响驱逐 */
+        }
+        this.killServer(s.sessionId);
+      }
     }
   }
 

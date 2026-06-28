@@ -1,9 +1,30 @@
 import { ipcMain, type WebContents } from "electron";
 import { MAX_STRING_LENGTH, redactObject } from "../log/redact";
+import { createLogger, isDevEnv } from "../log";
 
 // 结构化事件脱敏统一走共享 log/redact（与 electron-log file transform 同源）。
 // 保留 sanitizeTraceData 导出名以兼容既有调用方与测试。
 export const sanitizeTraceData = redactObject;
+
+// dev 下需镜像落盘的关键 phase:终态/异常类节点(排障高价值),把内存环形缓冲里的事件
+// 额外经 scoped logger 落到文件。普通高频流式 phase(event/stderr/start 等)不镜像,
+// 避免逐行增量噪声淹没日志(R10/R15);trace 内存缓冲仍保留全部 phase 供 dev 窗口查看。
+const MIRRORED_PHASES = new Set(["error", "exit", "watchdog", "retry", "crashed"]);
+
+// 把关键 trace phase 镜像进 scoped logger 文件日志(U4 桥接)。仅 dev、仅指定 phase。
+// 失败 try/catch 吞掉:agent-trace 是旁路观测,落盘失败绝不可反噬 trace/主链路(R14)。
+function mirrorTraceToLog(event: AgentTraceEvent): void {
+  if (!MIRRORED_PHASES.has(event.phase)) return;
+  // 整段 best-effort 包 try/catch:isDevEnv()/createLogger 任一环节抛错(如 transport 异常)
+  // 都静默吞,绝不反噬 trace/主链路(R14)。
+  try {
+    if (!isDevEnv()) return;
+    // event.data 已在 recordAgentTrace 内经 sanitizeTraceData 脱敏,直接复用,不二次处理。
+    createLogger(event.scope).debug(event.summary, event.data);
+  } catch {
+    // 落盘失败静默吞。
+  }
+}
 
 // 流式增量段类型:text=assistant 正文,reasoning=思考过程。各自合并为独立的一条段。
 export type TraceSegmentType = "text" | "reasoning";
@@ -117,6 +138,7 @@ export function recordAgentTrace(input: AgentTraceInput): AgentTraceEvent {
   };
   pushEvent(event);
   emitTrace(event);
+  mirrorTraceToLog(event); // dev 下把关键终态/异常 phase 镜像落盘(不改变返回值与既有行为)
   return event;
 }
 

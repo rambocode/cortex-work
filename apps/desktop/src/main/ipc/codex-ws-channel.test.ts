@@ -1,4 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+
+// ../log 桩:断言 U4 盲区补点(请求超时 / 意外断连)经 scoped logger 落盘;避免加载真 electron-log/main。
+const logMocks = vi.hoisted(() => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), verbose: vi.fn(), debug: vi.fn(), silly: vi.fn() },
+}));
+vi.mock("../log", () => ({ createLogger: () => logMocks.logger, isDevEnv: () => true }));
+
 import {
   buildTurnInput,
   CodexWsChannel,
@@ -415,5 +422,53 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     await channel.interrupt();
     const i = fake.sent.find((f) => f.method === "turn/interrupt");
     expect(i?.params).toEqual({ threadId: "thr_1", turnId: "turn_1" });
+  });
+});
+
+describe("U4 盲区补点落盘", () => {
+  // thread/resume 故意不放进 autoRespond → 触发请求超时;requestTimeoutMs 调短便于断言。
+  function makeForLog() {
+    const fake = new FakeWs();
+    fake.autoRespond = { initialize: { userAgent: "x" }, "thread/start": { thread: { id: "thr_1" } } };
+    const channel = new CodexWsChannel({
+      wsUrl: "ws://127.0.0.1:9/",
+      createWebSocket: () => fake,
+      onEvent: () => {},
+      requestTimeoutMs: 50,
+    });
+    return { channel, fake };
+  }
+
+  it("请求超时 → 记一条 warn(含 method 与阈值)", async () => {
+    logMocks.logger.warn.mockReset();
+    const { channel, fake } = makeForLog();
+    const p = channel.connect();
+    fake.open();
+    await p;
+    await expect(channel.resumeThread("thr_x", {})).rejects.toThrow(/请求超时/);
+    expect(logMocks.logger.warn).toHaveBeenCalledWith("codex ws 请求超时", { method: "thread/resume", timeoutMs: 50 });
+  });
+
+  it("意外断连(非主动 stop)→ 记一条 warn(含 code)", async () => {
+    logMocks.logger.warn.mockReset();
+    const { channel, fake } = makeForLog();
+    const p = channel.connect();
+    fake.open();
+    await p;
+    fake.triggerClose(1006);
+    expect(logMocks.logger.warn).toHaveBeenCalledWith(
+      "codex ws 意外断连",
+      expect.objectContaining({ code: 1006 }),
+    );
+  });
+
+  it("主动 close 不记意外断连(expected 不噪声)", async () => {
+    logMocks.logger.warn.mockReset();
+    const { channel, fake } = makeForLog();
+    const p = channel.connect();
+    fake.open();
+    await p;
+    channel.close(); // 置 stopped=true 后 ws.close → close 事件 expected
+    expect(logMocks.logger.warn).not.toHaveBeenCalledWith("codex ws 意外断连", expect.anything());
   });
 });

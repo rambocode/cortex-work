@@ -13,6 +13,7 @@ import { spawn } from "child_process";
 import { resolvePiBinary } from "./pi-locate";
 import { safeId } from "./pi-providers";
 import { recordAgentTrace } from "../ipc/agent-trace";
+import { createLogger } from "../log";
 import type {
   AskQuestionEnvelope,
   AskQuestionGroup,
@@ -22,6 +23,15 @@ import type {
   PiUiRequest,
   PiUiResponsePayload,
 } from "../ipc/types";
+
+// pi RPC 管线盲区观测 logger(U4):命令超时 / 未产终态 / 扩展命令补发 / crashed 等
+// 易静默卡死的节点在此落盘。埋点失败 try/catch 吞掉,绝不阻断 RPC 主流程(R14)。
+const log = createLogger("pi-rpc");
+
+// mapPiEvent 中已知会出现的 message_end.stopReason:error/aborted 映射为 error 事件,
+// stop/length/toolUse 正常收尾(终态由 turn-end / result 表达,故 return null)。其余取值
+// 视为「未映射」——可能是 pi 协议漂移引入的新 stopReason,会落入「无终态」黑洞,需可观测。
+const KNOWN_STOP_REASONS = new Set(["error", "aborted", "stop", "length", "toolUse"]);
 
 // 从工具入参里取一段可读 detail（命令 / 路径 / 模式 / URL），过长截断。与 pi.ts 对齐。
 function toolDetail(args: unknown): string | undefined {
@@ -77,6 +87,15 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
           diagnosticsError(msg?.diagnostics) ??
           String(stopReason);
         return { type: "error", error };
+      }
+      // 盲区补点(R10):非空的未知 stopReason → 不产任何终态事件,renderer 可能永久卡「思考中」。
+      // 记录原始值便于定位 pi 协议漂移;已知值(stop/length/toolUse)与缺省静默,不噪声。
+      if (stopReason != null && !KNOWN_STOP_REASONS.has(String(stopReason))) {
+        try {
+          log.warn("pi message_end 未映射的 stopReason(未产终态)", { stopReason });
+        } catch {
+          /* 日志失败不影响映射 */
+        }
       }
       return null;
     }
@@ -493,6 +512,13 @@ export class PiRpcSession {
     return new Promise<RpcResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        // 盲区补点(R10):命令级超时无终态事件,易表现为 renderer 静默卡死。记录命令类型 +
+        // 超时阈值便于定位是 pi 未应答还是阈值过短。仅观测,不改 reject 行为。
+        try {
+          log.warn("pi 命令超时", { command: String(command.type), timeoutMs });
+        } catch {
+          /* 日志失败不影响 reject */
+        }
         reject(new Error(`pi 命令超时: ${String(command.type)}`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
@@ -571,6 +597,13 @@ export class PiRpcSession {
     const finalize = (): void => {
       this.slashFinalizeTimer = undefined;
       if (this.slashSawAgentEvent || this.stopped || this.exited) return;
+      // 盲区补点(R10):扩展命令(/cmd)无 agent_end,这里补发 result 收尾。记录补发触发便于
+      // 区分「真扩展命令收尾」与「漏发 agent_end 的 bug」(sawNotify 反映命令是否有输出)。
+      try {
+        log.debug("扩展命令补发 result 收尾", { sawNotify: this.slashSawNotify });
+      } catch {
+        /* 日志失败不影响补发 */
+      }
       this.onEvent({ type: "result", willRetry: false }, rid);
     };
     if (this.slashSawNotify) finalize();
@@ -640,6 +673,12 @@ export class PiRpcSession {
     this.exitError = new Error(detail ?? `code=${code}`);
     this.rejectAllPending(this.exitError);
     if (!this.stopped) {
+      // 盲区补点(R10):非主动停止的退出 = 崩溃,记录退出码 + stderr 尾便于复盘。
+      try {
+        log.warn("pi 会话崩溃退出", { code, detail });
+      } catch {
+        /* 日志失败不影响 crashed 上报 */
+      }
       this.onEvent({ type: "crashed", error: detail });
     }
   }
@@ -649,7 +688,15 @@ export class PiRpcSession {
     this.exited = true;
     this.exitError = err;
     this.rejectAllPending(err);
-    if (!this.stopped) this.onEvent({ type: "crashed", error: err.message });
+    if (!this.stopped) {
+      // 盲区补点(R10):spawn/管道级错误,记录 error 信息。
+      try {
+        log.warn("pi 会话错误退出", { error: err.message });
+      } catch {
+        /* 日志失败不影响 crashed 上报 */
+      }
+      this.onEvent({ type: "crashed", error: err.message });
+    }
   }
 
   private rejectAllPending(err: Error): void {

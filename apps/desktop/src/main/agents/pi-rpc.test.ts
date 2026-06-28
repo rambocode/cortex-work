@@ -7,6 +7,11 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const spawnMock = vi.fn();
 const traceMock = vi.fn();
+// ../log 桩:断言 U4 盲区补点(命令超时 / 未产终态 / 补发 / crashed)经 scoped logger 落盘。
+const logMocks = vi.hoisted(() => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), verbose: vi.fn(), debug: vi.fn(), silly: vi.fn() },
+}));
+vi.mock("../log", () => ({ createLogger: () => logMocks.logger, isDevEnv: () => true }));
 vi.mock("./pi-locate", () => ({ resolvePiBinary: () => "/fake/resources/pi/pi" }));
 vi.mock("child_process", () => ({ spawn: (...args: unknown[]) => spawnMock(...args) }));
 // pi-rpc 经 ./pi-providers 引入 safeId,后者顶层 import electron app —— mock 掉避免加载真 electron。
@@ -32,6 +37,7 @@ beforeEach(() => {
   traceMock.mockReset();
   spawnMock.mockReset();
   spawnMock.mockImplementation(() => fakeChild());
+  for (const fn of Object.values(logMocks.logger)) fn.mockReset();
 });
 
 // 可控的 fake transport:记录写出的行,手动注入 stdout/exit/error。
@@ -977,5 +983,52 @@ describe("sanitizeAskQuestionEnvelope（入站校验）", () => {
       ],
     });
     expect(env!.groups.map((g) => g.id)).toEqual(["g0", "g1"]);
+  });
+});
+
+describe("U4 盲区补点落盘", () => {
+  it("mapPiEvent 未知 message_end.stopReason → 记一条 warn(未产终态),已知值静默", () => {
+    // 未映射的 stopReason:不产终态(返回 null)且落日志,便于定位 pi 协议漂移。
+    expect(mapPiEvent({ type: "message_end", message: { stopReason: "mystery" } })).toBeNull();
+    expect(logMocks.logger.warn).toHaveBeenCalledTimes(1);
+    expect(logMocks.logger.warn.mock.calls[0]![1]).toMatchObject({ stopReason: "mystery" });
+
+    // 已知正常收尾值不噪声。
+    logMocks.logger.warn.mockReset();
+    mapPiEvent({ type: "message_end", message: { stopReason: "stop" } });
+    mapPiEvent({ type: "message_end", message: { stopReason: "length" } });
+    mapPiEvent({ type: "message_end", message: { stopReason: "toolUse" } });
+    mapPiEvent({ type: "message_end" }); // 无 stopReason 也不噪声
+    expect(logMocks.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("send 超时 → 记一条命令超时 warn(含命令类型与阈值)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakeTransport();
+      const s = new PiRpcSession(f.transport, vi.fn());
+      const p = s.send({ type: "get_state" }, 100);
+      const assertion = expect(p).rejects.toThrow(/超时/);
+      await vi.advanceTimersByTimeAsync(100);
+      await assertion;
+      expect(logMocks.logger.warn).toHaveBeenCalledWith("pi 命令超时", { command: "get_state", timeoutMs: 100 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("非主动退出(崩溃)→ 记一条 crashed warn", () => {
+    const f = fakeTransport();
+    new PiRpcSession(f.transport, vi.fn());
+    f.exit(1, "boom");
+    expect(logMocks.logger.warn).toHaveBeenCalledWith("pi 会话崩溃退出", { code: 1, detail: "退出码 1: boom" });
+  });
+
+  it("主动 stop 后的退出不记 crashed(主动停止不噪声)", () => {
+    const f = fakeTransport();
+    const s = new PiRpcSession(f.transport, vi.fn());
+    s.stop();
+    f.exit(0);
+    expect(logMocks.logger.warn).not.toHaveBeenCalled();
   });
 });

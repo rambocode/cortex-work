@@ -3,6 +3,23 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   onMock: vi.fn(),
+  // scoped logger 桩:每个 scope 复用同一组 vi.fn,便于断言镜像落盘被调用。
+  loggerByScope: new Map<string, Record<string, ReturnType<typeof vi.fn>>>(),
+  isDev: true,
+}));
+
+// mock ../log:避免加载真 electron-log/main(它在测试环境读 electron app);同时把 createLogger
+// 桩化以断言 U4 的「关键 phase 镜像落盘」。工厂不能引用外部顶层变量,故经 vi.hoisted 注入。
+vi.mock("../log", () => ({
+  isDevEnv: () => mocks.isDev,
+  createLogger: (scope: string) => {
+    let entry = mocks.loggerByScope.get(scope);
+    if (!entry) {
+      entry = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), verbose: vi.fn(), debug: vi.fn(), silly: vi.fn() };
+      mocks.loggerByScope.set(scope, entry);
+    }
+    return entry;
+  },
 }));
 
 vi.mock("electron", () => ({
@@ -27,6 +44,8 @@ import {
 beforeEach(() => {
   mocks.handlers.clear();
   mocks.onMock.mockReset();
+  mocks.loggerByScope.clear();
+  mocks.isDev = true;
   __resetAgentTraceForTest();
 });
 
@@ -204,5 +223,39 @@ describe("registerAgentTraceHandlers", () => {
 
     await expect(mocks.handlers.get("agent-trace:list")?.({})).rejects.toThrow("Agent trace 仅在开发环境可用");
     await expect(mocks.handlers.get("agent-trace:clear")?.({})).rejects.toThrow("Agent trace 仅在开发环境可用");
+  });
+});
+
+describe("关键 phase 镜像落盘(U4 桥接)", () => {
+  const scopeLog = (scope: string) => mocks.loggerByScope.get(scope);
+
+  it("dev 下 error/exit/watchdog/retry/crashed 经 scoped logger.debug 落盘(脱敏后 data)", () => {
+    recordAgentTrace({ scope: "cli", phase: "exit", summary: "claude exit 0", agent: "claude", data: { apiKey: "sk-x", code: 0 } });
+    const debug = scopeLog("cli")?.debug;
+    expect(debug).toHaveBeenCalledTimes(1);
+    // 第二参为脱敏后的 data:敏感 key 被打码,普通字段保留。
+    expect(debug).toHaveBeenCalledWith("claude exit 0", { apiKey: "[redacted]", code: 0 });
+
+    recordAgentTrace({ scope: "pi-rpc", phase: "crashed", summary: "pi crashed" });
+    expect(scopeLog("pi-rpc")?.debug).toHaveBeenCalledTimes(1);
+  });
+
+  it("普通高频 phase(event/stderr/start)不镜像落盘", () => {
+    recordAgentTrace({ scope: "cli", phase: "event", summary: "tool" });
+    recordAgentTrace({ scope: "cli", phase: "stderr", summary: "warn", data: { chunk: "x" } });
+    recordAgentTrace({ scope: "cli", phase: "start", summary: "start" });
+    expect(scopeLog("cli")?.debug).toBeUndefined(); // createLogger("cli") 从未被调用
+  });
+
+  it("非 dev 环境不镜像落盘(prod 维持静默)", () => {
+    mocks.isDev = false;
+    recordAgentTrace({ scope: "cli", phase: "exit", summary: "exit" });
+    expect(scopeLog("cli")?.debug).toBeUndefined();
+  });
+
+  it("镜像落盘不改变 recordAgentTrace 返回值与缓冲行为", () => {
+    const ev = recordAgentTrace({ scope: "cli", phase: "exit", summary: "exit" });
+    expect(ev.phase).toBe("exit");
+    expect(agentTraceList()).toHaveLength(1);
   });
 });

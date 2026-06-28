@@ -11,6 +11,7 @@
 // 下无全局 WebSocket,故构造器可注入 fake(KTD3 修订)。
 
 import type { CliStreamEvent, CliStartRequest, PermissionMode } from "./types";
+import { createLogger } from "../log";
 import {
   CODEX_NOTIF,
   type AgentMessageDeltaParams,
@@ -34,6 +35,10 @@ export interface WsLike {
   addEventListener(type: "open" | "message" | "close" | "error", cb: (ev: unknown) => void): void;
 }
 export type WsFactory = (url: string) => WsLike;
+
+// codex ws 通道盲区观测(U4):请求超时 / 意外断连 等会静默卡死 turn 的节点在此落盘。
+// 埋点失败 try/catch 吞掉,不阻断 ws 主流程(R14)。
+const log = createLogger("codex-ws");
 
 const defaultWsFactory: WsFactory = (url) => {
   const Ctor = (globalThis as { WebSocket?: new (u: string) => WsLike }).WebSocket;
@@ -250,6 +255,15 @@ export class CodexWsChannel {
         const e = ev as { code?: number; reason?: string };
         this.rejectAllPending(new Error("ws 已关闭"));
         if (!opened) reject(new Error("ws 在握手前关闭"));
+        // 盲区补点(R10):非主动 stop() 的 close = app-server 意外断连(进程崩溃/被杀),
+        // 会让上层看门狗收尾本轮。记录 code/reason 便于复盘崩溃原因;主动关闭(expected)不噪声。
+        if (!this.stopped) {
+          try {
+            log.warn("codex ws 意外断连", { code: e?.code, reason: e?.reason, handshake: !opened });
+          } catch {
+            /* 日志失败不影响 close 回调 */
+          }
+        }
         this.opts.onClose?.({ code: e?.code, reason: e?.reason, expected: this.stopped });
       });
       ws.addEventListener("open", async () => {
@@ -361,7 +375,16 @@ export class CodexWsChannel {
     const timeoutMs = this.opts.requestTimeoutMs ?? 30_000;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        if (this.pending.delete(id)) reject(new Error(`请求超时:${method}`));
+        if (this.pending.delete(id)) {
+          // 盲区补点(R10):JSON-RPC 请求超时(thread/turn/interrupt 等),记录 method + 阈值
+          // 便于定位是 app-server 未响应还是阈值过短。仅观测,不改 reject 行为。
+          try {
+            log.warn("codex ws 请求超时", { method, timeoutMs });
+          } catch {
+            /* 日志失败不影响 reject */
+          }
+          reject(new Error(`请求超时:${method}`));
+        }
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       try {
