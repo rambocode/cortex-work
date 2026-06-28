@@ -434,6 +434,22 @@ const TypingMessage = memo(function TypingMessage({ m }: { m: Extract<Message, {
   );
 });
 
+// 圆桌编排角色切换分隔标题：显示当前发言角色名称与 emoji 头像，颜色对应角色标签色。
+const RoleHeaderMessage = memo(function RoleHeaderMessage({
+  m,
+}: {
+  m: Extract<Message, { kind: "roleHeader" }>;
+}) {
+  return (
+    <div className="pw-role-header-msg">
+      {m.roleAvatar && <span className="pw-role-header-avatar">{m.roleAvatar}</span>}
+      <span className="pw-role-header-label" style={m.roleColor ? { color: m.roleColor } : undefined}>
+        {m.roleLabel}
+      </span>
+    </div>
+  );
+});
+
 function DaySep({ label }: { label: string }) {
   return (
     <div className="day-sep">
@@ -617,6 +633,10 @@ export function MessageStream({
               return <ApproveMessage key={key} m={m} grouped={grouped} onApprove={onApprove} />;
             case "typing":
               return <TypingMessage key={key} m={m} />;
+            case "roleHeader":
+              return <RoleHeaderMessage key={key} m={m} />;
+            case "stageTitle":
+              return null;
             default:
               return null;
           }

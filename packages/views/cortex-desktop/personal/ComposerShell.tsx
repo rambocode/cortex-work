@@ -29,6 +29,7 @@ import { AgentSelect } from "./AgentSelect";
 import { CustomizePill } from "./CustomizePill";
 import { ModelThinkingPill } from "./ModelThinkingPill";
 import { useDismissableMenu } from "./useDismissableMenu";
+import { MentionDropdown, useMentionAutocomplete } from "./MentionAutocomplete";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
 import { FILE_DRAG_MIME } from "./FilesView";
@@ -190,6 +191,7 @@ export function ComposerShell({
   const attachInputRef = useRef<HTMLInputElement>(null);
   // 上传入口合并:文件上传 + Skills 开关收进单个「+」按钮的上弹菜单(复用 AgentSelect 同款关闭范式)。
   const attachMenu = useDismissableMenu();
+  const mention = useMentionAutocomplete(text, setText, taRef);
 
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   // 会话未单独设 thinkingLevel 时,下拉回退全局默认（与 sendPiTurn 的实际生效值一致,避免「显关闭、实际用默认」）。
@@ -480,6 +482,8 @@ export function ComposerShell({
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // @mention autocomplete 优先拦截
+    if (mention.handleMentionKeyDown(e)) return;
     if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       const n = slashMatches.length;
@@ -720,11 +724,21 @@ export function ComposerShell({
               </button>
             </span>
           ) : null}
+          {mention.isOpen && (
+            <MentionDropdown
+              options={mention.filtered}
+              activeIndex={mention.activeIdx}
+              onSelect={mention.selectMention}
+              anchorRect={mention.anchorRect}
+            />
+          )}
           <textarea
             ref={taRef}
             value={text}
             onChange={(e) => {
               setText(e.target.value);
+              // @mention autocomplete：文本变更时重新检测 @query
+              requestAnimationFrame(() => mention.updateMentionState());
               // 宠物:进入「看你打字」状态（停止输入后由节拍器衰减回 idle）。
               const pet = usePetStore.getState();
               if (pet.state === "idle" || pet.state === "sleeping" || pet.state === "typing") pet.set("typing");
