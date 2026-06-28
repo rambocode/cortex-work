@@ -4,10 +4,11 @@
 
 import { ipcMain, type WebContents } from "electron";
 import { spawn, type ChildProcess } from "child_process";
+import { randomUUID } from "crypto";
 import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, readdirSync, realpathSync, statSync } from "fs";
-import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpServerConfig, McpSettings, TrimSessionRequest } from "./types";
+import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpServerConfig, McpSettings, RoleConfig, TrimSessionRequest } from "./types";
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
@@ -18,6 +19,12 @@ import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
+import {
+  buildDelegateMcpServerConfig,
+  registerDelegateSession,
+  unregisterDelegateSession,
+  type DelegateSessionState,
+} from "../capabilities/delegate/server";
 import { loadWorkflows } from "../workflow/store";
 import { getPersistedState } from "./store";
 import { CodexServerManager } from "../agents/codex-app-server";
@@ -47,6 +54,15 @@ let detectedAgents: Promise<Record<AgentKind, boolean>> | null = null;
 // 避免子进程残留。两者不会双杀同一活跃 run。
 const DEFAULT_CLI_INACTIVITY_TIMEOUT_MS = 10 * 60_000;
 const MAX_CLI_INACTIVITY_TIMEOUT_MS = 24 * 60 * 60_000;
+
+// 委派（delegate）：主 agent run 的看门狗复位器注册表（runId → 本 attempt 的 noteActivity）。
+// delegate 工具 spawn 长子任务期间主 agent 自身 stdout 静默，主进程 inactivity 看门狗只看主 agent
+// stdout 会误杀（R2）；delegate handler 每个子 agent 事件经 bumpRunWatchdog 喂它。每 attempt 覆盖写、
+// run 终态时 delete。
+const runWatchdogBumpers = new Map<string, () => void>();
+export function bumpRunWatchdog(runId: string): void {
+  runWatchdogBumpers.get(runId)?.();
+}
 
 export function resolveCliInactivityTimeoutMs(): number {
   const raw = Number(process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS);
@@ -330,6 +346,141 @@ export function spawnEnvForDef(
   return env;
 }
 
+// ── 委派子 agent 执行（delegate handler 经 DelegateSessionState.runSubAgent 调用） ──
+//
+// 给定协作者 role 与主 agent 委派的 task,fresh spawn 子 agent;流式事件经 onEvent 推送(带 roleId),
+// 返回最终文本。子 agent 用 fresh sessionId(randomUUID)且**不注入** delegate server → tools/list
+// 取不到 state → 无 ask_<id> 工具 → 无法再委派(防递归核心不变量)。codex 子 agent 清空 MCP,
+// claude/pi 不注入 delegate(裸 spawn)。取消经 signal(主 agent run 的 AbortController)级联到子进程。
+const SUB_AGENT_TIMEOUT_MS = 30 * 60_000;
+const MAX_SUB_AGENT_OUTPUT = 200_000;
+
+function runDelegateSubAgent(
+  parent: CliStartRequest,
+  role: RoleConfig,
+  task: string,
+  onEvent: (ev: CliStreamEvent) => void,
+  signal: AbortSignal,
+): Promise<{ text: string; ok: boolean; error?: string }> {
+  if (signal.aborted) return Promise.resolve({ text: "", ok: false, error: "已取消" });
+
+  const adapter = getAgentDef(role.agent);
+  const spawnKey = randomUUID();
+  const req: CliStartRequest = {
+    runId: spawnKey,
+    sessionId: spawnKey, // fresh → 未注册 delegate → 防递归
+    agent: role.agent,
+    cwd: parent.cwd,
+    prompt: task,
+    model: parent.model,
+    effort: parent.effort,
+    permissionMode: parent.permissionMode,
+    approvalPolicy: parent.approvalPolicy,
+    // 协作者 persona 作为子 agent 系统提示(三端 adapter 原生支持 appendSystemPrompt)。
+    appendSystemPrompt: role.systemPrompt || undefined,
+    // 子 agent 若为 pi,复用主会话 provider(R6:主会话非 pi 时无 provider,pi 协作者走内置默认可能失败)。
+    provider: role.agent === "pi" ? parent.provider : undefined,
+  };
+  // pi 子 agent 需 provider extension(apiKey)才能调模型。
+  if (role.agent === "pi" && req.provider) {
+    req.piExtensionPath = writePiExtension(req.provider);
+  }
+  // codex 子 agent 清空 MCP(裸 spawn);claude/pi 不接 mcpArgs。
+  const mcpArgs = role.agent === "codex" ? CODEX_MCP_CLEAR : undefined;
+  const { cmd, args, stdin } = adapter.buildArgs(req, mcpArgs);
+
+  recordAgentTrace({
+    scope: "delegate", phase: "start", summary: `${role.agent}[${role.label}] sub start`,
+    runId: spawnKey, agent: role.agent,
+    data: { cwd: parent.cwd, roleId: role.id, taskPreview: promptPreview(task) },
+  });
+
+  const proc = startAgentProcess(cmd, args, { cwd: parent.cwd, env: spawnEnvForDef(req, adapter), stdin });
+
+  return new Promise((resolve) => {
+    let out = "";
+    let settled = false;
+    let timedOut = false;
+    let resultFailed = false;
+    let errorText = "";
+    let stderrBuf = "";
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        timedOut = true;
+        proc.kill();
+      }
+    }, SUB_AGENT_TIMEOUT_MS);
+
+    const onAbort = () => {
+      if (!settled) proc.kill();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      fn();
+    };
+
+    const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
+      for (const ev of parseLineEvents(adapter, line)) {
+        if (ev.type === "text") {
+          if (out.length < MAX_SUB_AGENT_OUTPUT) out += ev.delta;
+          onEvent({ ...ev, roleId: role.id });
+        } else if (ev.type === "result") {
+          // 子 agent 的 result 不外发(由本函数 resolve 收口);失败信息内部留存。
+          if (!ev.ok) {
+            resultFailed = true;
+            errorText = ev.error ?? "执行失败";
+          }
+        } else {
+          onEvent({ ...ev, roleId: role.id });
+        }
+      }
+    });
+
+    proc.stderr?.setEncoding("utf8");
+    proc.stderr?.on("data", (chunk: string) => {
+      stderrBuf += chunk;
+      if (stderrBuf.length > 4000) stderrBuf = stderrBuf.slice(-4000);
+    });
+
+    proc.onError((err) => {
+      recordAgentTrace({
+        scope: "delegate", phase: "error", summary: `${role.agent}[${role.label}] sub error`,
+        runId: spawnKey, agent: role.agent, data: { error: err.message, stderr: stderrBuf.slice(-500) },
+      });
+      settle(() => resolve({ text: out.trim(), ok: false, error: err.message }));
+    });
+
+    proc.onExit((code) => {
+      flushStdout();
+      settle(() => {
+        recordAgentTrace({
+          scope: "delegate", phase: "exit", summary: `${role.agent}[${role.label}] sub exit(${code})`,
+          runId: spawnKey, agent: role.agent, data: { code, stderr: stderrBuf.slice(-500), outLen: out.length },
+        });
+        if (signal.aborted) return resolve({ text: out.trim(), ok: false, error: "已取消" });
+        if (timedOut) {
+          return resolve({ text: out.trim(), ok: false, error: `协作者「${role.label}」超时（${Math.round(SUB_AGENT_TIMEOUT_MS / 1000)}s），已终止` });
+        }
+        if (resultFailed) {
+          const detail = stderrBuf.trim() ? `${errorText}\n${stderrBuf.trim().slice(-300)}` : errorText;
+          return resolve({ text: out.trim(), ok: false, error: detail });
+        }
+        if (code !== 0 && code !== null) {
+          const detail = stderrBuf.trim() ? `${role.agent} 退出码 ${code}\n${stderrBuf.trim().slice(-300)}` : `${role.agent} 退出码 ${code}`;
+          return resolve({ text: out.trim(), ok: false, error: detail });
+        }
+        resolve({ text: out.trim(), ok: true });
+      });
+    });
+  });
+}
+
 function verifyAgentCli(agent: Exclude<AgentKind, "pi">, env: NodeJS.ProcessEnv): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
@@ -465,6 +616,9 @@ export function registerCliHandlers(): void {
           buildMediaGenMcpServerConfig(persistedState.mediaGenSettings, req.sessionId, req.cwd),
           // loop 工作流 MCP 注入（U14）：无 enabled+callable 工作流时返回 null，不注入。
           buildLoopWorkflowsMcpServerConfig(workflowsForMcp, req.sessionId, req.cwd),
+          // 委派（delegate）：本轮有被 @ 的协作者时注入 cortex-delegate server（仅 claude/codex 经此块；
+          // pi 走 mcpInjection==="none" 不进本块，阶段2 另生成桥接）。工具集由下方 registerDelegateSession 注册。
+          req.delegateRoles?.length ? buildDelegateMcpServerConfig(req.sessionId) : null,
         ].filter((s): s is McpServerConfig => s !== null);
         if (builtinServers.length) {
           const userServers = mcp.enabled ? mcp.servers : [];
@@ -493,12 +647,35 @@ export function registerCliHandlers(): void {
       if (!sender.isDestroyed()) sender.send("cli:exit", exit);
     };
 
+    // ── 委派（delegate）：本轮被 @ 的协作者注册为主 agent 可调用的 ask_<id> 工具 ──
+    // 主 agent 经 cortex-delegate MCP server 自主调用 ask_<id> 委派子任务；handler 在主进程内
+    // spawn 子 agent(runDelegateSubAgent)、过程实时推渲染端(roleId)、结果作 tool_result 返回。
+    // AbortController 收口取消：主 agent 退出 / cli:kill → abort → 在途子 agent 被杀（见 onExit/onError）。
+    let delegateAbort: AbortController | undefined;
+    if (req.delegateRoles?.length) {
+      const controller = new AbortController();
+      delegateAbort = controller;
+      const state: DelegateSessionState = {
+        sessionId: req.sessionId,
+        runId: req.runId,
+        roles: req.delegateRoles,
+        signal: controller.signal,
+        abort: () => controller.abort(),
+        pushEvent: (ev) => sendEvent(ev),
+        bumpWatchdog: () => bumpRunWatchdog(req.runId),
+        runSubAgent: (role, task, onEvent) => runDelegateSubAgent(req, role, task, onEvent, controller.signal),
+      };
+      registerDelegateSession(state);
+    }
+
     const inactivityMs = resolveCliInactivityTimeoutMs();
 
     // ── ws 传输分流(U5):codex 主交互会话走 app-server WebSocket,在 buildArgs/spawn 之前前置返回 ──
     // ws 路径不调 buildArgs(那是 `codex exec` 的命令构造),直接把已算好的 mcpArgs 交给 server 管理器。
     // 仅 cli:start 读 transport;oneshot/ask/automation/workflow-headless 不经此、恒走 spawn+`codex exec`。
-    if ((adapter.transport ?? "spawn") === "ws") {
+    // 委派场景强制 codex 走单发 codex exec（非 ws）：ws app-server 长驻会缓存 tools/list，
+    // 破坏 per-turn 工具集（每轮 @mention 不同）。单发每轮 fresh exec 重新发现 delegate 工具。
+    if ((adapter.transport ?? "spawn") === "ws" && !req.delegateRoles?.length) {
       const handle = startCodexWsRun({
         req,
         def: adapter,
@@ -580,6 +757,8 @@ export function registerCliHandlers(): void {
         }, inactivityMs);
       };
       noteActivity();
+      // 委派:把本 attempt 的 noteActivity 暴露给 delegate handler 喂主进程看门狗(R2)。每 attempt 覆盖。
+      if (req.delegateRoles?.length) runWatchdogBumpers.set(req.runId, noteActivity);
 
       const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
         noteActivity(); // 任意 stdout 行(含未解析行)都算活跃,重置看门狗
@@ -645,6 +824,12 @@ export function registerCliHandlers(): void {
         proc.stdout?.removeAllListeners();
         proc.stderr?.removeAllListeners();
         running.delete(req.runId);
+        // 委派清理:取消所有在途子 agent + 注销 delegate session + 移除看门狗复位器。
+        if (delegateAbort) {
+          delegateAbort.abort();
+          unregisterDelegateSession(req.sessionId);
+        }
+        runWatchdogBumpers.delete(req.runId);
         sendExit({ runId: req.runId, code: null, error: err.message });
       });
 
@@ -707,6 +892,12 @@ export function registerCliHandlers(): void {
           // U14：清理 loop 工作流 session cwd 映射。
           unregisterLoopWorkflowsSession(req.sessionId);
         }
+        // 委派清理:取消所有在途子 agent + 注销 delegate session + 移除看门狗复位器。
+        if (delegateAbort) {
+          delegateAbort.abort();
+          unregisterDelegateSession(req.sessionId);
+        }
+        runWatchdogBumpers.delete(req.runId);
         cancelledRunIds.delete(req.runId);
         running.delete(req.runId);
         const timeoutError = watchdogTripped

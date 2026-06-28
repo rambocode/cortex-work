@@ -181,6 +181,10 @@ interface RunState {
   // 本轮是否走圆桌多角色编排（roundtable:start）。为 true 时取消走 killRoundtable。
   // 每个角色的输出各自有独立的消息块，由 roleCursors 跟踪。
   roundtable?: boolean;
+  // 本轮是否走委派（delegate）：主 agent 经 ask_<id> 工具自主委派给被 @ 的协作者。
+  // 主 agent 在 running map → 取消/超时走标准 killCli（不像 roundtable 需 killRoundtable）；
+  // 但子 agent 事件同样带 roleId，故渲染复用 roundtable 的 roleHeader/roleCursors 逻辑。
+  delegate?: boolean;
   // 圆桌模式下各角色的文本折叠游标（roleId → FoldCursor），每角色独立累积消息。
   roleCursors?: Map<string, FoldCursor>;
   // 当前活跃的角色 id（最近一个 init[roleId] 设定的），用于路由后续 text/tool/thinking 事件。
@@ -765,7 +769,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
 
   if (ev.type === "init") {
     // 圆桌编排：roleId 标注角色起始，在聊天流插入 roleHeader 分隔符，初始化该角色折叠游标。
-    if ("roleId" in ev && ev.roleId && run.roundtable) {
+    if ("roleId" in ev && ev.roleId && (run.roundtable || run.delegate)) {
       run.phase = "thinking";
       run.activeRoleId = ev.roleId;
       if (!run.roleCursors) run.roleCursors = new Map();
@@ -886,7 +890,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     }
     // 圆桌模式：文本折叠到当前活跃角色的独立游标，每个角色输出各自成独立消息块。
     // 临时交换 run.cursor 到角色游标，复用 foldTextIntoCache，结束后换回。
-    if (run.roundtable && run.activeRoleId && run.roleCursors) {
+    if ((run.roundtable || run.delegate) && run.activeRoleId && run.roleCursors) {
       const roleId = run.activeRoleId;
       const roleCursor = run.roleCursors.get(roleId) ?? emptyFoldCursor();
       const mainCursor = run.cursor;
@@ -916,7 +920,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   if (ev.type === "result") {
     // 圆桌编排：带 roleId 的 result 是单角色完成/失败信号，不触发 finalizeRun。
     // 失败时在聊天流追加该角色的错误标注，后续角色继续执行。
-    if ("roleId" in ev && ev.roleId && run.roundtable) {
+    if ("roleId" in ev && ev.roleId && (run.roundtable || run.delegate)) {
       finalizeProcessAgentLog(qc, sessionId, run);
       finalizeRunReasoning(qc, run);
       if (!ev.ok) {
@@ -2277,18 +2281,20 @@ export function usePersonalActions(): PersonalActions {
       const appendSystemPrompt =
         [buildGlobalAppend(), extraSystemPrompt, attachmentPrompt, docPrompt].filter(Boolean).join("\n\n") || undefined;
 
-      // 圆桌 @mention 优先级高于 pi 专有路径：有 @mention 时任何 agent 的会话都走 roundtable，
-      // 不走 pi RPC。提前检测以避免 pi 分支 return 后再也走不到 roundtable 分支。
+      // 委派（delegate）@mention 优先级高于 pi 专有路径：消息含 @mention 时任何 agent 都走单发
+      // startCli + delegate 工具注入（主 agent 经 ask_<id> 自主委派），不走 pi RPC。提前检测以避免
+      // pi 分支 return 后再也走不到 delegate 注入。
       const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
-      const hasRoundtableMentions = earlyMentions.length > 0 && !!bridge.startRoundtable;
+      const hasDelegateMentions = earlyMentions.length > 0 && !!bridge.startCli;
 
       // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。
-      // 有圆桌 @mention 时跳过 pi 专有路径，统一走下面的 roundtable 分支。
-      if (session.agent === "pi" && !hasRoundtableMentions) {
+      // 有 @mention 时 pi 也切单发 startCli（per-turn delegate 工具集需每轮 fresh spawn，RPC 工具集
+      // 在 pi:open 时冻结无法逐轮变化）。
+      if (session.agent === "pi" && !hasDelegateMentions) {
         await sendPiTurn(qc, bridge, session, projectPath, text, appendSystemPrompt, { runId, typingUid }, imagePaths);
         return true;
       }
-      // pi 圆桌路径不走 sendPiTurn → piSendStarting 锁必须立即释放，
+      // pi 委派路径不走 sendPiTurn → piSendStarting 锁必须立即释放，
       // 否则该 session 后续所有 send 都被 line 2162 守卫静默拒绝。
       if (session.agent === "pi") piSendStarting.delete(session.id);
 
@@ -2378,32 +2384,12 @@ export function usePersonalActions(): PersonalActions {
         // 派生 agent(U7):spawn 用 derivedAgentId(后端 getAgentDef 按 id 解析),失效则回退 base(见
         // resolveSpawnAgentId 的 RISK-3 兜底)。
         const spawnAgent = resolveSpawnAgentId(sendSession, usePersonalStore.getState().derivedAgents);
-        // 圆桌多角色编排（@mention 触发）：用户消息含 @mention 且 bridge 支持时，走 roundtable。
-        // 圆桌无状态、各角色 fresh spawn，故不传 resumeSessionId。事件流复用 cli:event/cli:exit，
-        // 事件带 roleId 字段区分角色。取消走 killRoundtable（cli:kill 杀不到圆桌子进程）。
-        if (hasRoundtableMentions) {
-          run.roundtable = true;
-          run.roleCursors = new Map();
-          await bridge.startRoundtable!({
-            runId,
-            sessionId: sendSession.id,
-            agent: sendSession.agent,
-            cwd: projectPath,
-            text,
-            mentions: earlyMentions,
-            roles: usePersonalStore.getState().roles,
-            model: sendSession.model,
-            effort: sendSession.effort,
-            permissionMode: sendSession.permissionMode,
-            approvalPolicy: sendSession.approvalPolicy,
-            appendSystemPrompt: appendWithSkills,
-          });
-        // 子 agent 编排（U1）：会话开关开启且 bridge 支持时，claude/codex 走主进程三段编排
-        // （意图理解→子 agent 执行→二次加工，见 orchestrate.ts）。编排无状态、各段 fresh spawn，
-        // 故不传 resumeSessionId；事件流复用 cli:event/cli:exit（runId 即 orchestrationRunId，事件带
-        // stage 字段），看门狗/stop 据 run.orchestrated 改走 killOrchestration（cli:kill 杀不到编排子进程）。
-        // 已知限制：本版编排不透传图片（images 仅单发支持）——开了编排又发图时，图片本轮不带入子 agent。
-        } else if (sendSession.subagentOrchestration && bridge.startOrchestration) {
+        // 子 agent 编排（U1）：会话开关开启、bridge 支持、且本轮无 @mention 委派时，claude/codex 走
+        // 主进程三段编排（意图理解→子 agent 执行→二次加工，见 orchestrate.ts）。编排无状态、各段
+        // fresh spawn，故不传 resumeSessionId；事件流复用 cli:event/cli:exit（runId 即
+        // orchestrationRunId，事件带 stage 字段），看门狗/stop 据 run.orchestrated 改走 killOrchestration。
+        // 已知限制：本版编排不透传图片（images 仅单发支持）。
+        if (sendSession.subagentOrchestration && bridge.startOrchestration && !hasDelegateMentions) {
           run.orchestrated = true;
           await bridge.startOrchestration({
             orchestrationRunId: runId,
@@ -2419,15 +2405,37 @@ export function usePersonalActions(): PersonalActions {
             appendSystemPrompt: appendWithSkills,
           });
         } else {
+          // 委派（delegate，@mention 触发）：主 agent 单发 startCli + 注入 cortex-delegate 工具集，
+          // 经 ask_<id> 自主委派给被 @ 的协作者。子 agent 事件带 roleId（渲染端 roleHeader 分隔），
+          // 取消/超时走标准 killCli（主 agent 在 running map；onExit→abort 收口在途子 agent）。
+          if (hasDelegateMentions) {
+            run.delegate = true;
+            run.roleCursors = new Map();
+          }
+          // pi 委派走单发：解析 provider（apiKey 生成 provider extension）+ model（RPC 路径在 sendPiTurn
+          // 内解析，单发在此解析，仿上文 1651-1655）。claude/codex 不需要 provider。
+          let delegateProvider:
+            | { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] }
+            | undefined;
+          let delegateModel = sendSession.model;
+          if (hasDelegateMentions && sendSession.agent === "pi") {
+            const ps = usePersonalStore.getState().providerSettings;
+            const p = ps.providers.find((x) => x.id === (sendSession.providerId ?? ps.defaultProviderId) && x.enabled);
+            delegateModel = sendSession.model ?? ps.defaultModel ?? p?.models[0]?.id;
+            delegateProvider = p
+              ? { id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey, models: p.models.map((m) => ({ id: m.id, name: m.label })) }
+              : undefined;
+          }
           await bridge.startCli({
             runId,
             sessionId: sendSession.id,
             agent: spawnAgent,
             cwd: projectPath,
             prompt: text,
-            model: sendSession.model,
+            model: delegateModel,
             effort: sendSession.effort,
-            resumeSessionId,
+            // 委派 fresh spawn，不续接（per-turn 独立编排）；普通对话照常 resume。
+            resumeSessionId: hasDelegateMentions ? undefined : resumeSessionId,
             appendSystemPrompt: appendWithSkills,
             useOwnSkills: sendSession.useOwnSkills,
             skillPaths: undefined,
@@ -2436,6 +2444,11 @@ export function usePersonalActions(): PersonalActions {
             // 逐轮 fresh spawn,改值下一轮即生效,无需重开。
             permissionMode: sendSession.permissionMode,
             approvalPolicy: sendSession.approvalPolicy,
+            // 委派：本轮被 @ 的协作者 → cli.ts 据此 per-turn 注册 ask_<id> 工具集（claude/codex 经
+            // builtinServers；pi 阶段2 另生成桥接）。无 @mention 时 undefined，正常单发。
+            delegateRoles: hasDelegateMentions ? earlyMentions.map((m) => m.role) : undefined,
+            // pi 委派单发的 provider（生成 provider extension）；claude/codex / 非委派为 undefined。
+            provider: delegateProvider,
           });
         }
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。

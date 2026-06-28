@@ -908,6 +908,11 @@ export interface CliStartRequest {
   };
   // 主进程内部填充:生成的 extension 文件绝对路径（renderer 不传,buildArgs 读取）。
   piExtensionPath?: string;
+  // 委派（delegate）：本轮被 @ 的协作者角色。非空时主进程注入 cortex-delegate MCP server
+  // （per-turn 工具集），主 agent 经 ask_<id> 工具自主委派子任务给这些协作者。与 ipc/types.ts 镜像。
+  delegateRoles?: RoleConfig[];
+  // pi 专属:除 piExtensionPath 外的额外 -e 扩展路径（如 delegate 桥接）。主进程内部填充。与 ipc/types.ts 镜像。
+  extraExtensionPaths?: string[];
 }
 
 // 历史消息追问的临时流式应答请求（与 apps/desktop/src/main/ipc/types.ts 镜像）。
