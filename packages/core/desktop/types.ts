@@ -87,11 +87,12 @@ export interface SessionMeta {
   // 是否加载 agent 自身的 skills（claude: 关闭时传 --disable-slash-commands）。
   // 缺省视为 true。
   useOwnSkills?: boolean;
-  // 访问范围（沙箱档):plan / accept-edits / full-auto / sandbox。缺省 = full-auto（历史默认）。
-  // claude/codex 逐轮 fresh spawn,改值下一轮即生效;pi RPC 长驻,改值触发会话重开。
-  permissionMode?: PermissionMode;
-  // 执行/审批策略（与访问范围正交）:auto 自动执行 / ask 询问后执行。缺省 = auto（历史默认无审批）。
-  approvalPolicy?: ApprovalPolicy;
+  // 执行权限(UI 单一真源之一):plan 计划/只读 · ask 询问后执行 · auto 自动执行。缺省回退 auto。
+  // 发送边界经 toAdapterPermissions 派生回 permissionMode+approvalPolicy 线格式;claude/codex 逐轮 fresh
+  // spawn,改值下一轮即生效;pi RPC 长驻,改值触发会话重开。
+  execPermission?: ExecPermission;
+  // 目录执行权限:workspace 仅工作目录 · all 所有文件 · sandbox 外部沙箱。exec=plan 时该轴无意义。缺省回退 all。
+  dirPermission?: DirPermission;
   // 子 agent 编排开关:开启后该会话的 claude/codex 发送走主进程三段编排（意图理解→子 agent 执行→
   // 二次加工，见 orchestrate.ts），渲染端过程面板按 stage 展示。缺省/false = 走单发 startCli（历史默认）。
   // 仅 claude/codex 生效（pi 走 RPC 长驻，不参与编排）；逐轮 fresh 决策，改值下一轮即生效。
@@ -1064,6 +1065,9 @@ export interface PiOpenRequest {
   // 运行模式 plan 档:只读工具白名单（renderer 由 permissionMode 派生）。存在则 buildRpcArgs
   // 注入 --tools <逗号拼接>;缺省 = 不传 = 全工具可用（accept-edits / full-auto）。
   toolWhitelist?: string[];
+  // 目录执行权限「仅工作目录」/「外部沙箱」→ true:pi:open 据此注入 cwd 路径闸 extension
+  // (writePathJailExtension,roots = cwd + skillPaths),把内置文件工具限制在工作目录内。缺省 = 不闸。
+  confineToCwd?: boolean;
   // 主进程内部填充:除 provider 外追加的 extension 路径。
   extraExtensionPaths?: string[];
   // pi 持久追加 system prompt（阶段4）:renderer 传,buildRpcArgs → --append-system-prompt。
@@ -1294,37 +1298,50 @@ export interface DocFileRaw {
 // `-c model_reasoning_effort=`;pi 无对应 flag,忽略。
 export type ReasoningEffort = "low" | "medium" | "high";
 
-// ── 运行控制:两个正交轴(本质即 codex 原生 sandbox_mode × approval_policy) ──
-// UI 上拆成 Composer 底部两个单选 pill:
-//   Pill 2「访问范围」= permissionMode(沿用历史字段名,值即 sandbox 范围)
-//   Pill 1「执行/审批」= approvalPolicy(新增)
+// ── 运行控制:adapter 线格式(wire format)+ UI 单一真源两层 ─────────────────
+// 【线格式】permissionMode × approvalPolicy(本质即 codex 原生 sandbox_mode × approval_policy)。
+// 三家 adapter(claude/codex/pi)、ws 通道、orchestrate、derivePiCapabilities 全部消费这两字段,
+// 行为已固化且有测试。SessionMeta 不再直接持有它们;改由下方 execPermission/dirPermission 两轴
+// 在发送边界经 toAdapterPermissions(见 personal/permissionMode.ts)派生得到,再塞进 CliStartRequest 等 DTO。
 //
-// 访问范围 permissionMode(从严到松 + 沙箱):内部值沿用历史 plan/accept-edits/full-auto
-// 不改名(零迁移),新增 sandbox。UI 显示名独立(见 i18n composer.permissionMode.*):
-//   plan         只读文件 —— 只读分析、不改文件/不跑写执行类工具
+// permissionMode(访问范围,从严到松 + 沙箱):
+//   plan         只读分析、不改文件/不跑写执行类工具
 //                (claude `--permission-mode plan`、codex `-c sandbox_mode=read-only`、pi 只读工具白名单)
-//   accept-edits 可写工作区 —— 自动写工作区,默认不联网/不出 cwd
+//   accept-edits 自动写工作区,默认不联网/不出 cwd
 //                (claude `--permission-mode acceptEdits`、codex `-c sandbox_mode=workspace-write`)
-//   full-auto    访问所有文件 —— 跳过全部权限/沙箱,全盘读写(= 历史默认行为)
+//   full-auto    跳过全部权限/沙箱,全盘读写(= 历史默认行为)
 //                (claude `--dangerously-skip-permissions`、codex `--dangerously-bypass-approvals-and-sandbox`)
-//   sandbox      外部沙箱 —— 在隔离沙箱内放开,限制对真实文件系统的影响。codex 走原生
-//                workspace-write 沙箱;claude/pi 无原生沙箱 → 降级映射(见各 adapter,UI 标注)。
+//   sandbox      在隔离沙箱内放开,限制对真实文件系统的影响。codex 走原生 workspace-write 沙箱;
+//                claude/pi 无原生沙箱 → 降级映射(见各 adapter,UI 标注)。
 export type PermissionMode = "plan" | "accept-edits" | "full-auto" | "sandbox";
-// 选择器展示顺序(对应 Image #1:可写工作区 / 只读文件 / 访问所有文件 / 外部沙箱)。
 export const PERMISSION_MODES: PermissionMode[] = ["accept-edits", "plan", "full-auto", "sandbox"];
-// 缺省回退:旧会话无 permissionMode 字段时按此处理,与历史「全自动」行为一致(adapter 同款兜底,
-// 不改它以免存量会话被静默收紧为只读)。
+// 缺省回退:派生入参缺失时按此处理,与历史「全自动」行为一致(adapter 同款兜底)。
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "full-auto";
-// 新建会话的默认档位:从可写工作区起步(与 Image #1 默认一致),不直接给全盘访问。
-export const DEFAULT_NEW_SESSION_PERMISSION_MODE: PermissionMode = "accept-edits";
 
-// 执行/审批策略(新增轴)。
+// 执行/审批策略(线格式第二轴)。
 //   auto 自动执行:不拦截,工具直接跑(approval_policy=never;pi 不注入审批 extension)。
 //   ask  询问后执行:写/执行类工具前审批。仅 pi RPC 有真交互审批回路;claude -p / codex exec
 //        是非交互 print 模式,无法中途询问 → 降级为「不放开额外权限」并由 UI 标注降级映射。
 export type ApprovalPolicy = "auto" | "ask";
 export const APPROVAL_POLICIES: ApprovalPolicy[] = ["auto", "ask"];
 export const DEFAULT_APPROVAL_POLICY: ApprovalPolicy = "auto";
+
+// ── UI 单一真源:执行权限 × 目录执行权限(两轴独立,经 toAdapterPermissions 派生成线格式) ──
+// execPermission 执行权限(管「工具调用/文件改写/写权限」),三档:
+//   plan 计划(只读)/ ask 询问后执行 / auto 自动执行。
+// dirPermission 目录执行权限(管「在哪个目录下有权限」),范围档位:
+//   workspace 仅工作目录 / all 所有文件 / sandbox 外部沙箱。exec=plan 时该轴无意义(UI 隐藏整组)。
+export type ExecPermission = "plan" | "ask" | "auto";
+export type DirPermission = "workspace" | "all" | "sandbox";
+// 选择器展示顺序(对齐用户口径:计划/询问/自动;仅工作目录/所有文件/外部沙箱)。
+export const EXEC_PERMISSIONS: ExecPermission[] = ["plan", "ask", "auto"];
+export const DIR_PERMISSIONS: DirPermission[] = ["workspace", "all", "sandbox"];
+// 新建会话默认:可写工作区 + 自动执行(派生 = {accept-edits, auto},与历史 landing 默认逐字节相同)。
+export const DEFAULT_NEW_SESSION_EXEC_PERMISSION: ExecPermission = "auto";
+export const DEFAULT_NEW_SESSION_DIR_PERMISSION: DirPermission = "workspace";
+// 缺省回退(字段缺失时,对齐历史 full-auto = exec=auto + dir=all)。
+export const DEFAULT_EXEC_PERMISSION: ExecPermission = "auto";
+export const DEFAULT_DIR_PERMISSION: DirPermission = "all";
 // 浏览器控制工具名(browser_*)。须与主进程 capabilities/browser/{tools,cdp}.ts 注册的工具名
 // 逐字一致(漂移由 capabilities/browser/tools.test.ts 守)。内置浏览器是沙箱 + URL 闸,
 // navigate/click/type 只动内置浏览器、不碰用户文件/系统,故纳入 plan 只读白名单(见下)。

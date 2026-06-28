@@ -10,6 +10,7 @@ import {
   speakText,
   stopSpeaking,
   subscribeTtsPlayback,
+  toAdapterPermissions,
   useCortexUIStore,
   useDesktopBridge,
   usePersonalActions,
@@ -370,13 +371,15 @@ export function PersonalChatArea({
     }
     // 无真实项目 = 无项目会话 → 收紧 tool(FIX-3,显式标志,主进程据此剥离跳审批/bypass)。
     // 运行模式沿用主会话档位,追问与主会话权限一致(与 tightenTools 叠加,更严者优先)。
+    // 执行/目录两轴 → 线格式:followup ctx 是 DTO 载体,派生在此构造处。
+    const { permissionMode, approvalPolicy } = toAdapterPermissions(session.execPermission, session.dirPermission);
     return {
       agent: session.agent,
       model: session.model,
       effort: session.effort,
       cwd,
-      permissionMode: session.permissionMode,
-      approvalPolicy: session.approvalPolicy,
+      permissionMode,
+      approvalPolicy,
       tightenTools: !realProject,
       provider,
     };
@@ -388,8 +391,8 @@ export function PersonalChatArea({
     session?.model,
     session?.effort,
     session?.providerId,
-    session?.permissionMode,
-    session?.approvalPolicy,
+    session?.execPermission,
+    session?.dirPermission,
     session?.noProjectDir,
     realProject?.path,
     realProject,
@@ -506,8 +509,8 @@ export function PersonalChatArea({
         onChangeModel={(model) => updateSession(session.id, { model })}
         onChangePiModel={(providerId, model) => setPiModel(session, providerId, model)}
         onChangeThinking={(value) => setThinking(session, value)}
-        onChangePermissionMode={(mode) => updateSession(session.id, { permissionMode: mode })}
-        onChangeApprovalPolicy={(p) => updateSession(session.id, { approvalPolicy: p })}
+        onChangeExecPermission={(p) => updateSession(session.id, { execPermission: p })}
+        onChangeDirPermission={(d) => updateSession(session.id, { dirPermission: d })}
         onToggleSubagentOrchestration={() =>
           updateSession(session.id, { subagentOrchestration: session.subagentOrchestration !== true })
         }

@@ -17,6 +17,7 @@ import {
   writeApprovalExtension,
   writeAskQuestionExtension,
   writeCustomToolExtension,
+  writePathJailExtension,
   writeSlashCommandExtension,
 } from "../agents/pi-extensions";
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
@@ -158,6 +159,9 @@ export function registerPiSessionHandlers(): void {
     // （与 provider extension 共存,provider 注入不动）。
     const extra: string[] = [];
     if (req.enableToolApproval) extra.push(writeApprovalExtension(req.approvalTools));
+    // 目录执行权限「仅工作目录」/「外部沙箱」:注入 cwd 路径闸 extension(pi 无原生沙箱)。allowed roots =
+    // cwd + 已启用 skill 目录(后者避免 skill references 在 cwd 外被误伤)。与审批 extension 共存(多 -e)。
+    if (req.confineToCwd) extra.push(writePathJailExtension([req.cwd, ...(req.skillPaths ?? [])]));
     if (req.enableSampleTools) extra.push(writeCustomToolExtension());
     if (req.enableSampleCommands) extra.push(writeSlashCommandExtension());
     // askquestion 常驻注入(KTD-4,无开关):每会话高熵 sentinel——extension 经它把信封塞进 input.title,

@@ -12,6 +12,7 @@ import type {
   GeneralSettings,
   MediaGenSettings,
   PermissionMode,
+  ApprovalPolicy,
   PersistedState,
   PersonalProfile,
   PiSkillSettings,
@@ -47,6 +48,7 @@ import {
   defaultAsrSettings,
 } from "../desktop/types";
 import { migratePiSettings, normalizeProviderProfile } from "../desktop/providers";
+import { fromAdapterPermissions } from "../personal/permissionMode";
 
 let seq = 0;
 function newId(prefix: string): string {
@@ -364,12 +366,23 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
   };
 }
 
-// 旧会话字段名 piChannelId → providerId（剥离旧名,避免死字段随快照回写）。
+// 老会话字段迁移（剥离旧名,避免死字段随快照回写）。field-presence 驱动,不 bump version。
 function migrateSession(sess: SessionMeta): SessionMeta {
-  const legacy = sess as SessionMeta & { piChannelId?: string };
-  if (legacy.piChannelId === undefined) return sess;
-  const { piChannelId, ...rest } = legacy;
-  return { ...rest, providerId: rest.providerId ?? piChannelId };
+  let s = sess;
+  // ① piChannelId → providerId。
+  const legacy = s as SessionMeta & { piChannelId?: string };
+  if (legacy.piChannelId !== undefined) {
+    const { piChannelId, ...rest } = legacy;
+    s = { ...rest, providerId: rest.providerId ?? piChannelId };
+  }
+  // ② 旧权限两轴 permissionMode/approvalPolicy → 新两轴 execPermission/dirPermission（无损,见
+  //    fromAdapterPermissions）。仅当老会话尚无新字段、且带旧字段时迁移;缺省老会话不动,运行时回退 auto/all。
+  const old = s as SessionMeta & { permissionMode?: PermissionMode; approvalPolicy?: ApprovalPolicy };
+  if (s.execPermission === undefined && (old.permissionMode !== undefined || old.approvalPolicy !== undefined)) {
+    const { permissionMode, approvalPolicy, ...rest } = old;
+    s = { ...rest, ...fromAdapterPermissions(permissionMode, approvalPolicy) };
+  }
+  return s;
 }
 
 export const usePersonalStore = create<PersonalState>((set, get) => ({

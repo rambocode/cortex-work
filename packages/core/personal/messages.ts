@@ -52,7 +52,7 @@ import {
   steerPi,
   touchPiSession,
 } from "./pi-session";
-import { derivePiCapabilities } from "./permissionMode";
+import { derivePiCapabilities, toAdapterPermissions } from "./permissionMode";
 import { speakText } from "./tts";
 import { parseMentions } from "./mention";
 
@@ -799,10 +799,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 进程已起来:启动中 → 思考中。
     run.phase = "thinking";
     updateTypingMsg(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0));
-    // 编排子段（ev.stage 存在）的 init 携带的是一次性子会话 thread_id，绝不能写进主会话 resume id：
-    // 否则下一轮普通对话会 resume 到该编排子会话（只含单段上下文），丢失主对话历史。编排无状态、
-    // 各段 fresh spawn 不 resume，故 stage init 只推进 phase/typing，不落 session patch。
-    if (!ev.stage) {
+    // 编排子段（ev.stage 存在）与委派轮次的 init 携带的是一次性子会话 thread_id，绝不能写进主会话
+    // resume id：否则下一轮普通对话会 resume 到该一次性上下文，丢失主对话历史。它们均 fresh spawn
+    // 不 resume，故只推进 phase/typing，不落 session patch。
+    if (!ev.stage && !run.delegate) {
       const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
       if (sess) usePersonalStore.getState().updateSession(sessionId, agentSessionPatch(sess, run.agent, ev.sessionId));
     }
@@ -1658,9 +1658,10 @@ async function sendPiTurn(
     // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
     // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
     const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
-    // 访问范围 + 审批 → pi 能力派生:plan 收窄只读白名单;ask 注入审批 extension(写/执行类前审批);
+    // 执行/目录两轴 → 线格式 → pi 能力派生:plan 收窄只读白名单;ask 注入审批 extension(写/执行类前审批);
     // auto + 非 plan 沿用 piCustom。切档/切审批经 extensionFingerprint 触发会话重开。
-    const piCaps = derivePiCapabilities(session.permissionMode, session.approvalPolicy, piCustom);
+    const piPerm = toAdapterPermissions(session.execPermission, session.dirPermission);
+    const piCaps = derivePiCapabilities(piPerm.permissionMode, piPerm.approvalPolicy, piCustom);
     // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
     // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
     const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;
@@ -1703,6 +1704,8 @@ async function sendPiTurn(
         approvalTools: piCaps.approvalTools,
         // plan 档只读工具白名单(缺省 undefined → 全工具)。经 buildRpcArgs → --tools 注入。
         toolWhitelist: piCaps.toolWhitelist,
+        // 目录执行权限「仅工作目录」/「外部沙箱」→ pi:open 注入 cwd 路径闸 extension(pi 无原生沙箱)。
+        confineToCwd: piCaps.confineToCwd,
         enableSampleTools: piCustom?.sampleTools || undefined,
         enableSampleCommands: piCustom?.sampleCommands || undefined,
         appendSystemPrompt: piSystemPrompt || undefined,
@@ -2312,7 +2315,9 @@ export function usePersonalActions(): PersonalActions {
         promptText: text,
         startedAt: Date.now(),
         cwd: projectPath,
-        permissionMode: session.permissionMode,
+        // 派生后的访问范围:供 restrictedToolForMode/maybeEmitModeBlockHint 判断受限工具与切档提示。
+        // session/sendSession 仅差 agentSessionId 清理 patch（不触权限两轴），故据 session 派生即可。
+        permissionMode: toAdapterPermissions(session.execPermission, session.dirPermission).permissionMode,
       };
       runs.set(runId, run);
       // 看门狗:每秒刷新 typing 等待时长;启动/静默超时则杀进程并提示重试。
@@ -2373,6 +2378,9 @@ export function usePersonalActions(): PersonalActions {
           }
         }
 
+        // 执行/目录两轴 → 线格式:发送边界唯一派生点,编排(段2)与单发(claude/codex)两路共用。
+        // adapter 据此翻译成各 CLI 原生标志;exec=plan→{plan,auto},否则 dir 定范围、exec 定审批。
+        const adapterPerm = toAdapterPermissions(sendSession.execPermission, sendSession.dirPermission);
         // 跨 agent skill 注入(U2):此分支仅 claude/codex(pi 已在上面 sendPiTurn 走 --skill 并 return)。
         // 把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 两路互斥 → 不双注入(R3)。
         // useOwnSkills 短路对 claude/codex 同样生效(RISK-2):resolveEnabledSkillRecords 据其早退。
@@ -2399,9 +2407,9 @@ export function usePersonalActions(): PersonalActions {
             prompt: text,
             model: sendSession.model,
             effort: sendSession.effort,
-            // 仅段2透传：让子 agent 真实执行尊重会话访问范围/审批，并带 skills/附件/项目上下文。
-            permissionMode: sendSession.permissionMode,
-            approvalPolicy: sendSession.approvalPolicy,
+            // 仅段2透传：让子 agent 真实执行尊重会话执行/目录权限，并带 skills/附件/项目上下文。
+            permissionMode: adapterPerm.permissionMode,
+            approvalPolicy: adapterPerm.approvalPolicy,
             appendSystemPrompt: appendWithSkills,
           });
         } else {
@@ -2449,10 +2457,10 @@ export function usePersonalActions(): PersonalActions {
             useOwnSkills: sendSession.useOwnSkills,
             skillPaths: undefined,
             images: cliImages,
-            // 访问范围 + 审批:claude/codex adapter 翻译成原生标志;缺省 full-auto/auto(历史默认)。
+            // 执行/目录权限派生的线格式:claude/codex adapter 翻译成原生标志;缺省 full-auto/auto(历史默认)。
             // 逐轮 fresh spawn,改值下一轮即生效,无需重开。
-            permissionMode: sendSession.permissionMode,
-            approvalPolicy: sendSession.approvalPolicy,
+            permissionMode: adapterPerm.permissionMode,
+            approvalPolicy: adapterPerm.approvalPolicy,
             // 委派：本轮被 @ 的协作者 → cli.ts 据此 per-turn 注册 ask_<id> 工具集（claude/codex 经
             // builtinServers；pi 阶段2 另生成桥接）。无 @mention 时 undefined，正常单发。
             delegateRoles: hasDelegateMentions ? earlyMentions.map((m) => m.role) : undefined,

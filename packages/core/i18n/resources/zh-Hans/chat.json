@@ -84,24 +84,25 @@
       "high": "思考·高",
       "xhigh": "思考·极高"
     },
-    "permissionMode": {
-      "label": "访问范围",
-      "plan": "只读文件",
-      "accept-edits": "可写工作区",
-      "full-auto": "访问所有文件",
-      "sandbox": "外部沙箱",
-      "planHint": "只读分析,不改文件、不跑写/执行类工具",
-      "acceptEditsHint": "自动写工作区,默认不出 cwd",
-      "fullAutoHint": "跳过全部权限/沙箱,全盘读写(默认)",
-      "sandboxHint": "在隔离沙箱内放开,限制对真实文件系统的影响(codex 原生沙箱;claude/pi 降级)"
-    },
-    "approval": {
-      "label": "执行",
-      "auto": "自动执行",
+    "execPermission": {
+      "label": "执行权限",
+      "plan": "计划",
       "ask": "询问后执行",
+      "auto": "自动执行",
+      "planHint": "计划模式:只读分析,不改文件、不跑写/执行类工具",
+      "askHint": "写/执行类工具前先询问(仅 Pi 生效)",
       "autoHint": "工具直接执行,不中途询问",
-      "askHint": "写/执行类工具前询问(仅 Pi 生效)",
       "askDegraded": "「询问后执行」仅 Pi 生效;Claude/Codex 非交互无法中途询问,已降级为自动执行"
+    },
+    "dirPermission": {
+      "label": "目录执行权限",
+      "workspace": "仅工作目录",
+      "all": "所有文件",
+      "sandbox": "外部沙箱",
+      "workspaceHint": "限制 agent 只在工作目录内操作(Pi 强制路径限制;Codex 仅限写、读不限;Claude 暂不强制)",
+      "allHint": "全盘读写,不限制目录(默认)",
+      "sandboxHint": "在隔离沙箱内放开,限制对真实文件系统的影响(codex 原生沙箱;claude/pi 降级)",
+      "sandboxDegraded": "「外部沙箱」仅 Codex 原生支持;Claude/Pi 无原生沙箱,已降级为普通目录访问"
     },
     "subagentOrchestration": {
       "label": "子 agent 编排",
@@ -111,9 +112,9 @@
       "offHint": "单次直接发送(默认)。开启后改走三段编排,成本与延迟约 3 倍"
     },
     "modeBlock": {
-      "planEdit": "当前是「只读文件」范围,{{name}} 想修改文件被拦下。切换访问范围并重试本轮?",
-      "planExec": "当前是「只读文件」范围,{{name}} 想执行命令被拦下。切换访问范围并重试本轮?",
-      "planTool": "当前是「只读文件」范围,{{name}} 想用受限工具(如扩展功能)被拦下。切到访问所有文件并重试本轮?",
+      "planEdit": "当前是「Plan（只读文件）」范围,{{name}} 想修改文件被拦下。切换访问范围并重试本轮?",
+      "planExec": "当前是「Plan（只读文件）」范围,{{name}} 想执行命令被拦下。切换访问范围并重试本轮?",
+      "planTool": "当前是「Plan（只读文件）」范围,{{name}} 想用受限工具(如扩展功能)被拦下。切到访问所有文件并重试本轮?",
       "acceptEditsExec": "当前是「可写工作区」范围,{{name}} 想执行命令被拦下。切到访问所有文件并重试本轮?",
       "switchAcceptEdits": "切到可写工作区并重试",
       "switchFullAuto": "切到访问所有文件并重试",

@@ -237,11 +237,18 @@ export {
   DEFAULT_PI_SKILLS,
   PERMISSION_MODES,
   DEFAULT_PERMISSION_MODE,
-  DEFAULT_NEW_SESSION_PERMISSION_MODE,
   type PermissionMode,
   APPROVAL_POLICIES,
   DEFAULT_APPROVAL_POLICY,
   type ApprovalPolicy,
+  EXEC_PERMISSIONS,
+  DIR_PERMISSIONS,
+  DEFAULT_NEW_SESSION_EXEC_PERMISSION,
+  DEFAULT_NEW_SESSION_DIR_PERMISSION,
+  DEFAULT_EXEC_PERMISSION,
+  DEFAULT_DIR_PERMISSION,
+  type ExecPermission,
+  type DirPermission,
   DEFAULT_PI_EXTENSIONS,
   type PiCustomizationSettings,
   type PiSkillSettings,
@@ -263,6 +270,8 @@ export {
   type MarketplaceSourceKind,
   type MarketplaceListResult,
 } from "./desktop/types";
+// 权限两轴 ↔ 线格式派生(发送边界 / 迁移 / ModeBlockBanner 重发用)。
+export { toAdapterPermissions, fromAdapterPermissions } from "./personal/permissionMode";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
 export { useUpdateState } from "./desktop/useUpdateState";
 export {

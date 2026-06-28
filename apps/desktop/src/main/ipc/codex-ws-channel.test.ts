@@ -211,6 +211,10 @@ describe("mapPermissionMode(KTD6)", () => {
       approvalPolicy: "never",
     });
   });
+
+  it("sandbox(外部沙箱)→ workspace-write/never,与 codex.ts exec 路径一致(不落 danger-full-access)", () => {
+    expect(mapPermissionMode("sandbox")).toEqual({ sandbox: "workspace-write", approvalPolicy: "never" });
+  });
 });
 
 describe("buildTurnInput", () => {

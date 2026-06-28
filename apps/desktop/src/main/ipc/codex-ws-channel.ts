@@ -48,7 +48,9 @@ export function mapPermissionMode(mode: PermissionMode | undefined): {
   approvalPolicy: CodexApprovalPolicy;
 } {
   if (mode === "plan") return { sandbox: "read-only", approvalPolicy: "never" };
-  if (mode === "accept-edits") return { sandbox: "workspace-write", approvalPolicy: "never" };
+  // accept-edits 与 sandbox(外部沙箱)同走原生 workspace-write 受限沙箱,与 codex.ts exec 路径一致
+  // (避免外部沙箱档在 WS 主交互路径反而落入 danger-full-access 拿到全盘权限的安全分叉)。
+  if (mode === "accept-edits" || mode === "sandbox") return { sandbox: "workspace-write", approvalPolicy: "never" };
   return { sandbox: "danger-full-access", approvalPolicy: "never" }; // full-auto / 缺省
 }
 
