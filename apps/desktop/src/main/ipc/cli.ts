@@ -373,7 +373,10 @@ function runDelegateSubAgent(
     agent: role.agent,
     cwd: parent.cwd,
     prompt: task,
-    model: parent.model,
+    // 子 agent 用各自 agent 的默认 model，绝不继承主会话 model：主会话 model 属于主 agent 的 provider
+    // 体系（如 pi 的 deepseek-v4-flash），传给 codex（ChatGPT 账号）会 400「model not supported」。
+    // pi 协作者例外：需 provider + 同体系 model，沿用主会话（仅当主会话也是 pi 时模型才匹配，R6）。
+    model: role.agent === "pi" ? parent.model : undefined,
     effort: parent.effort,
     permissionMode: parent.permissionMode,
     approvalPolicy: parent.approvalPolicy,
