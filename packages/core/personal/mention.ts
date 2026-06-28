@@ -62,7 +62,7 @@ function extractMentionTokens(text: string): string[] {
     const re = /@([\w\p{L}\p{N}_-]+)/gu;
     let match: RegExpExecArray | null;
     while ((match = re.exec(masked)) !== null) {
-      tokens.push(match[1]);
+      if (match[1]) tokens.push(match[1]);
     }
   }
 

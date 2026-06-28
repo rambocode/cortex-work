@@ -29,6 +29,7 @@ import { registerWorkflowHandlers } from "../workflow/ipc";
 import { registerSttHandlers } from "./stt";
 import { registerOrchestrateHandlers } from "./orchestrate";
 import { registerRoleHandlers } from "./roles";
+import { registerRoundtableHandlers } from "./roundtable";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -65,6 +66,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerSttHandlers();
   registerOrchestrateHandlers(); // chat 三段编排调度器（U1）
   registerRoleHandlers(); // 全局角色库 CRUD（圆桌会话）
+  registerRoundtableHandlers(); // 圆桌多角色 BFS 编排调度器
 }
 
 export { killAllCli } from "./cli";
@@ -76,3 +78,4 @@ export { killAllAutomations } from "../automation/runner";
 export { killAllWorkflows } from "../workflow/index";
 // 编排子进程回收：接入 app 退出钩子（与 killAllCli/killAllHeadlessPrompts 并列）
 export { killAllOrchestrations } from "./orchestrate";
+export { killAllRoundtables } from "./roundtable";

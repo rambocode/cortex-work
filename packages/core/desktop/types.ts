@@ -964,20 +964,36 @@ export interface TrimSessionRequest {
 //   stageLabel — 段切换时的人可读提示文案（如「理解意图中…」），供渲染端更新 typing 占位，
 //               可选增强字段；渲染端未消费时自然忽略。
 export type CliStreamEvent =
-  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
-  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
-  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
-  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 思考/推理增量(reasoning 模型),对齐 PiSessionEvent.reasoning
-  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 一轮 assistant 结束(claude stop_reason:end_turn/tool_use/...)
-  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 流式 usage/cost(补充磁盘来源)
-  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 安全重试发起(对齐 pi retry)
-  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string };
+  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string };
 
 export interface CliExitEvent {
   runId: string;
-  sessionId?: string; // 回显,供 renderer 重载后兜底清理
+  sessionId?: string;
   code: number | null;
-  error?: string; // spawn 失败（如 ENOENT）等
+  error?: string;
+}
+
+// 圆桌编排启动参数（渲染端 → roundtable:start）。
+// 与 OrchestrateStartRequest 类似但面向多角色 BFS 调度（KTD4：独立不复用 orchestrate）。
+export interface RoundtableStartRequest {
+  runId: string;
+  sessionId: string;
+  cwd: string;
+  text: string;
+  mentions: Array<{ mention: string; role: RoleConfig }>;
+  roles: RoleConfig[];
+  permissionMode?: string;
+  approvalPolicy?: string;
+  appendSystemPrompt?: string;
+  model?: string;
+  effort?: string;
 }
 
 // ── 主 agent 编排子 agent 三段式执行（chat「子 agent 编排」开关开启时走此通道） ────────

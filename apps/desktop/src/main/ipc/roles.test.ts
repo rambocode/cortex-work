@@ -62,11 +62,13 @@ describe("roles CRUD", () => {
     expect(loaded.avatar).toBe("🎨");
   });
 
-  it("updateRole 只更新指定字段", () => {
+  it("updateRole 只更新指定字段", async () => {
     const role = createRole(
       { label: "原始", agent: "claude", systemPrompt: "原始 prompt" },
       path,
     );
+    // 等待 2ms 确保 updatedAt 时间戳不同
+    await new Promise((r) => setTimeout(r, 2));
     const updated = updateRole(role.id, { label: "更新后" }, path);
     expect(updated).not.toBeNull();
     expect(updated!.label).toBe("更新后");

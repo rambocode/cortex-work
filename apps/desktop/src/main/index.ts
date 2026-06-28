@@ -10,6 +10,7 @@ import {
   closeAllWatchers,
   killAllAutomations,
   killAllOrchestrations,
+  killAllRoundtables,
 } from "./ipc/register";
 import { installBrowserWebviewGuards } from "./browser/webviewGuards";
 import { configureBrowserPartition } from "./browser/partition";
@@ -342,6 +343,7 @@ if (!app.requestSingleInstanceLock()) {
     killAllPty();
     closeAllWatchers();
     killAllOrchestrations(); // 编排链路随窗口关闭终止（chat 级进程，不同于 automation）
+    killAllRoundtables(); // 圆桌编排随窗口关闭终止
   });
 
   // 真正退出（托盘退出 / 系统关机）:停调度 + 终止所有自动化进程 + 常规清理。
@@ -357,6 +359,7 @@ if (!app.requestSingleInstanceLock()) {
     killAllAutomations();
     killAllWorkflows();
     killAllOrchestrations(); // 编排链路回收（真正退出时）
+    killAllRoundtables(); // 圆桌编排回收
     killAllCli();
     killAllAsk();
     killAllPiSessions();
