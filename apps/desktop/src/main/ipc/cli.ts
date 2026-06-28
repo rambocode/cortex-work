@@ -664,6 +664,7 @@ export function registerCliHandlers(): void {
         abort: () => controller.abort(),
         pushEvent: (ev) => sendEvent(ev),
         bumpWatchdog: () => bumpRunWatchdog(req.runId),
+        callCounts: new Map(),
         runSubAgent: (role, task, onEvent) => runDelegateSubAgent(req, role, task, onEvent, controller.signal),
       };
       registerDelegateSession(state);

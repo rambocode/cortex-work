@@ -27,6 +27,9 @@ import type { McpServerConfig, RoleConfig, CliStreamEvent } from "../../ipc/type
 // 注入用 server id（= MCP server 名）。须为 TOML 裸键安全（codex -c mcp_servers.<id>）。
 export const DELEGATE_SERVER_ID = "cortex-delegate";
 
+// 每协作者本轮调用次数上限：防主 agent 一轮内狂调同一 ask_<id>（R10 资源放大护栏）。
+const MAX_CALLS_PER_ROLE = 3;
+
 // 委派 MCP host 实例（独立 port/token，与 browser/doc-extract/media-gen 互不干扰）。
 const delegateHost = createMcpHost(DELEGATE_SERVER_ID);
 
@@ -55,6 +58,8 @@ export interface DelegateSessionState {
   pushEvent: (ev: CliStreamEvent) => void;
   // 喂主进程 inactivity 看门狗（cli.ts 的看门狗只看主 agent stdout，长子任务期间主 agent 静默会被误杀）。
   bumpWatchdog: () => void;
+  // 每角色本轮调用计数（roleId → 次数），防主 agent 一轮内狂调同一协作者（R10）。
+  callCounts: Map<string, number>;
   // cli.ts 注入：spawn 子 agent 执行 task。onEvent 实时推送（事件已带 roleId）；signal 由实现闭包捕获。
   runSubAgent: (role: RoleConfig, task: string, onEvent: (ev: CliStreamEvent) => void) => Promise<SubAgentResult>;
 }
@@ -106,6 +111,14 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
     },
     async ({ task }: { task: string }): Promise<ToolResult> => {
       if (state.signal.aborted) return errorResult("已取消");
+      // 调用次数护栏（R10）：超限拒绝，提示主 agent 整合已有结果或换协作者。
+      const used = state.callCounts.get(role.id) ?? 0;
+      if (used >= MAX_CALLS_PER_ROLE) {
+        return errorResult(
+          `协作者「${role.label}」本轮已被委派 ${used} 次（上限 ${MAX_CALLS_PER_ROLE}），请基于已有结果整合，或委派其他协作者。`,
+        );
+      }
+      state.callCounts.set(role.id, used + 1);
       // 先发 init（带 roleId/stageLabel）插入 roleHeader，渲染端据此把该协作者的过程独立成段。
       state.pushEvent({ type: "init", sessionId: state.sessionId, roleId: role.id, stageLabel: role.label });
       // 子 agent 每个事件：转发渲染端（已带 roleId）+ 喂主进程看门狗（防长子任务误杀主 agent，R2）。
