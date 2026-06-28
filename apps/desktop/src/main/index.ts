@@ -271,7 +271,14 @@ if (!app.requestSingleInstanceLock()) {
     }
     // 启动恢复桌面行为（登录项 + 供 ready-to-show 读 startMinimized）,须在建窗前。
     await initDesktopBehavior();
-    await initLogger();
+    // 日志初始化不得拖垮启动:initLogger 抛错(读设置/清理/electron-log 装配失败)若冒泡,
+    // whenReady 续体 reject → 建窗及后续永不执行 → 主窗口永不出现(reliability 评审指出)。
+    // console 接管已在更早的 patchConsole() 完成,故此处失败仅丢「读设置/清理」,降级继续。
+    try {
+      await initLogger();
+    } catch (err) {
+      console.error("[main] initLogger 失败,降级继续(不阻断建窗)", err);
+    }
     // 先建托盘:即使建窗失败也保留后台入口与调度。
     createTray({
       onShow: showMainWindow,

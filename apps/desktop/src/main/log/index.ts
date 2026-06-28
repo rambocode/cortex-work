@@ -80,6 +80,13 @@ export function initLog(): void {
   // 放在 file transport 而非全局 hook —— 被级别阈值拦下的低级别日志不会触达此处，省开销。
   log.transports.file.transforms.push(({ data }) => data.map(redactData));
 
+  // 异步写盘：electron-log 文件 transport 默认 sync=true（fs.writeFileSync），会把每条日志的
+  // 磁盘写挂在主进程事件循环上。本应用有高频日志源（agent stdout 逐行、ipc-trace 每次 invoke
+  // 落 debug），同步写会累积成 IPC/UI 卡顿（adversarial+performance 评审指出）。改异步写消除该
+  // 阻塞；代价是进程瞬时崩溃时缓冲中的少量日志可能丢失——崩溃现场由 crash-guards 的 error 级
+  // 单独保证（其落盘在退出前 flush 的概率足够），高频 debug 丢几行可接受。
+  log.transports.file.sync = false;
+
   // scope 标签不做对齐填充，保持日志行紧凑。
   log.scope.labelPadding = false;
 

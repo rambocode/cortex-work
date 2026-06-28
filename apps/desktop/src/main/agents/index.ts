@@ -27,11 +27,11 @@ import {
 import { claudeDef } from "./claude";
 import { codexDef } from "./codex";
 import { piDef } from "./pi";
-import { createLogger } from "../log";
+import { createLogger, isDevEnv } from "../log";
 import { redactString } from "../log/redact";
 
-// 解析失败盲区专用 scope:无法识别的 stdout 行(JSON 坏帧 / 未映射事件类型)在此可观测。
-// 正是 Pi RPC 终态卡死类 bug 的盲区——adapter 静默 return null,排障时无从复盘原始行。
+// 解析失败盲区专用 scope:未被映射的「结构化帧」(看似 JSON 却没解析出事件)在此可观测。
+// 正是 Pi RPC 终态卡死类 bug 的盲区——adapter 静默 return null,排障时无从复盘原始帧。
 const parseLog = createLogger("parse");
 
 export type PromptDelivery = "stdin-stream-json" | "stdin-eof" | "argv";
@@ -75,14 +75,21 @@ export interface AgentDef {
 export function parseLineEvents(def: AgentDef, line: string): CliStreamEvent[] {
   const r = def.parseLine(line);
   const events = Array.isArray(r) ? r : r ? [r] : [];
-  // 盲区补点(R10):非空白行解析为空 = adapter 无法识别该行(坏帧 / 未映射事件类型)。
-  // 原本被静默丢弃,现记录脱敏后的原始行便于复盘。空白行是正常分帧产物,跳过免噪声;
-  // 落盘失败 try/catch 吞掉,绝不阻断解析主流程(R14)。返回行为保持不变。
-  if (events.length === 0 && line.trim()) {
-    try {
-      parseLog.warn(`无法识别的 ${def.id} 输出行`, redactString(line));
-    } catch {
-      /* 日志失败不影响解析 */
+  // 盲区补点(R10):只对「看似结构化帧却没解析出事件」告警——即 trim 后以 `{` 开头的行。
+  // claude/codex 的 parseLine 对大量正常行(ping / content_block_start-stop / 纯文本块 /
+  // user-tool_result 等)也返回 null,若一律告警会在每次流式运行刷屏、淹没真正的协议漂移信号
+  // (correctness 评审指出),且 warn 非细粒度级别不受 scope 过滤、prod 也会落盘。故:
+  //  - 收窄到 `{` 开头(疑似 JSON 帧未被映射 = 真正值得关注的协议漂移);
+  //  - 降为 debug 级 + 仅 dev(prod 不落、dev 可经 CORTEX_DEBUG=parse 精确放行);
+  //  - 落盘失败 try/catch 吞掉,绝不阻断解析主流程(R14)。返回行为保持不变。
+  if (events.length === 0 && isDevEnv()) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        parseLog.debug(`未映射的 ${def.id} 输出帧`, redactString(line));
+      } catch {
+        /* 日志失败不影响解析 */
+      }
     }
   }
   return events;

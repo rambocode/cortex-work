@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentDef } from "./index";
 import type { CliStartRequest } from "../ipc/types";
 
-// mock ../log:桩化 createLogger 以断言 parseLineEvents 的「无法识别行」盲区补点;
+// mock ../log:桩化 createLogger 以断言 parseLineEvents 的「未映射帧」盲区补点;
 // 避免加载真 electron-log/main(读 electron app)。工厂经 vi.hoisted 注入 vi.fn。
-const logMocks = vi.hoisted(() => ({ warn: vi.fn() }));
+// isDevEnv 默认 true(dev);个别用例用 mockReturnValue(false) 验证 prod 不落。
+const logMocks = vi.hoisted(() => ({ debug: vi.fn(), isDev: vi.fn(() => true) }));
 vi.mock("../log", () => ({
-  createLogger: () => ({ error: vi.fn(), warn: logMocks.warn, info: vi.fn(), verbose: vi.fn(), debug: vi.fn(), silly: vi.fn() }),
-  isDevEnv: () => true,
+  createLogger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), verbose: vi.fn(), debug: logMocks.debug, silly: vi.fn() }),
+  isDevEnv: () => logMocks.isDev(),
 }));
 
 import {
@@ -116,21 +117,32 @@ describe("parseLineEvents 盲区补点(U4)", () => {
     return { id: "fake", parseLine } as unknown as AgentDef;
   }
 
-  beforeEach(() => logMocks.warn.mockReset());
-
-  it("无法识别行(解析空)→ 记录一条 parse 警告(含脱敏后的原始行)", () => {
-    const def = fakeDef(() => null);
-    expect(parseLineEvents(def, 'x token=abc123 y')).toEqual([]);
-    expect(logMocks.warn).toHaveBeenCalledTimes(1);
-    const [msg, line] = logMocks.warn.mock.calls[0]!;
-    expect(msg).toContain("无法识别");
-    expect(line).toBe("x token=*** y"); // redactString 脱敏后落盘
+  beforeEach(() => {
+    logMocks.debug.mockReset();
+    logMocks.isDev.mockReturnValue(true);
   });
 
-  it("空白行不落日志(正常分帧产物,免噪声)", () => {
+  it("未映射的 JSON 帧(解析空且以 { 开头)→ 记录一条 debug(含脱敏原始帧)", () => {
     const def = fakeDef(() => null);
+    expect(parseLineEvents(def, '{"type":"weird","token":"abc123"}')).toEqual([]);
+    expect(logMocks.debug).toHaveBeenCalledTimes(1);
+    const [msg, line] = logMocks.debug.mock.calls[0]!;
+    expect(msg).toContain("未映射");
+    expect(line).not.toContain("abc123"); // redactString 脱敏后落盘
+  });
+
+  it("正常被忽略的非 JSON 行(纯文本/ping)→ 不刷屏(只对 { 开头的疑似帧告警)", () => {
+    const def = fakeDef(() => null);
+    expect(parseLineEvents(def, "some plain assistant text")).toEqual([]);
     expect(parseLineEvents(def, "   ")).toEqual([]);
-    expect(logMocks.warn).not.toHaveBeenCalled();
+    expect(logMocks.debug).not.toHaveBeenCalled();
+  });
+
+  it("prod(非 dev)不落未映射帧日志", () => {
+    logMocks.isDev.mockReturnValue(false);
+    const def = fakeDef(() => null);
+    expect(parseLineEvents(def, '{"type":"weird"}')).toEqual([]);
+    expect(logMocks.debug).not.toHaveBeenCalled();
   });
 
   it("解析出事件(单/数组)→ 不落日志,返回行为不变", () => {
@@ -138,7 +150,7 @@ describe("parseLineEvents 盲区补点(U4)", () => {
     expect(parseLineEvents(single, "ok")).toEqual([{ type: "text", delta: "a" }]);
     const arr = fakeDef(() => [{ type: "text", delta: "a" }, { type: "result", ok: true }] as never);
     expect(parseLineEvents(arr, "ok")).toHaveLength(2);
-    expect(logMocks.warn).not.toHaveBeenCalled();
+    expect(logMocks.debug).not.toHaveBeenCalled();
   });
 });
 
