@@ -54,6 +54,7 @@ import {
 } from "./pi-session";
 import { derivePiCapabilities } from "./permissionMode";
 import { speakText } from "./tts";
+import { parseMentions } from "./mention";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
 // 供模块级缓存写入函数做消息落盘。
@@ -177,6 +178,13 @@ interface RunState {
   // 本轮是否走主进程三段编排（orchestrate:start）。为 true 时取消/超时必须走 killOrchestration
   // （编排子进程注册在主进程独立 Set，cli:kill 对其无效，会留孤儿进程）。
   orchestrated?: boolean;
+  // 本轮是否走圆桌多角色编排（roundtable:start）。为 true 时取消走 killRoundtable。
+  // 每个角色的输出各自有独立的消息块，由 roleCursors 跟踪。
+  roundtable?: boolean;
+  // 圆桌模式下各角色的文本折叠游标（roleId → FoldCursor），每角色独立累积消息。
+  roleCursors?: Map<string, FoldCursor>;
+  // 当前活跃的角色 id（最近一个 init[roleId] 设定的），用于路由后续 text/tool/thinking 事件。
+  activeRoleId?: string;
   // pi 思考流（reasoning）的折叠块（独立于 text/tool 游标:思考通常先于正文,累进同一块）。
   reasoningUid?: string;
   reasoningText?: string;
@@ -756,6 +764,34 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   run.lastEventAt = Date.now();
 
   if (ev.type === "init") {
+    // 圆桌编排：roleId 标注角色起始，在聊天流插入 roleHeader 分隔符，初始化该角色折叠游标。
+    if ("roleId" in ev && ev.roleId && run.roundtable) {
+      run.phase = "thinking";
+      run.activeRoleId = ev.roleId;
+      if (!run.roleCursors) run.roleCursors = new Map();
+      if (!run.roleCursors.has(ev.roleId)) {
+        run.roleCursors.set(ev.roleId, emptyFoldCursor());
+      }
+      // 收尾上一个角色仍 active 的过程块
+      finalizeProcessAgentLog(qc, sessionId, run);
+      finalizeRunReasoning(qc, run);
+      // 插入 roleHeader（角色分隔标题）
+      const roleLabel = ev.stageLabel ?? ev.roleId;
+      const roles = usePersonalStore.getState().roles;
+      const roleConfig = roles.find((r) => r.id === ev.roleId);
+      appendMsg(qc, sessionId, {
+        kind: "roleHeader" as Message["kind"],
+        who: run.agent,
+        time: realHHMM(),
+        uid: uid("rh"),
+        roleId: ev.roleId,
+        roleLabel,
+        roleColor: roleConfig?.color,
+        roleAvatar: roleConfig?.avatar,
+      } as Message);
+      updateTypingMsg(qc, sessionId, run.typingUid, `${roleLabel} 思考中…`);
+      return;
+    }
     // 进程已起来:启动中 → 思考中。
     run.phase = "thinking";
     updateTypingMsg(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0));
@@ -848,6 +884,24 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       foldReasoning(qc, run, ev.delta); // 与 reasoning 同通道，进过程流
       return;
     }
+    // 圆桌模式：文本折叠到当前活跃角色的独立游标，每个角色输出各自成独立消息块。
+    // 临时交换 run.cursor 到角色游标，复用 foldTextIntoCache，结束后换回。
+    if (run.roundtable && run.activeRoleId && run.roleCursors) {
+      const roleId = run.activeRoleId;
+      const roleCursor = run.roleCursors.get(roleId) ?? emptyFoldCursor();
+      const mainCursor = run.cursor;
+      run.cursor = roleCursor;
+      usePetStore.getState().set("replying");
+      dropMsg(qc, sessionId, run.typingUid);
+      run.buffer += ev.delta;
+      run.sawText = true;
+      finalizeRunReasoning(qc, run);
+      finalizeProcessAgentLog(qc, sessionId, run);
+      foldTextIntoCache(qc, sessionId, run, ev.delta);
+      run.roleCursors.set(roleId, run.cursor);
+      run.cursor = mainCursor;
+      return;
+    }
     usePetStore.getState().set("replying");
     dropMsg(qc, sessionId, run.typingUid);
     run.buffer += ev.delta; // 全轮文本累加（供 TTS / 时间线 summary），独立于块拆分
@@ -860,6 +914,22 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   }
 
   if (ev.type === "result") {
+    // 圆桌编排：带 roleId 的 result 是单角色完成/失败信号，不触发 finalizeRun。
+    // 失败时在聊天流追加该角色的错误标注，后续角色继续执行。
+    if ("roleId" in ev && ev.roleId && run.roundtable) {
+      finalizeProcessAgentLog(qc, sessionId, run);
+      finalizeRunReasoning(qc, run);
+      if (!ev.ok) {
+        appendMsg(qc, sessionId, {
+          kind: "text",
+          who: run.agent,
+          time: realHHMM(),
+          text: `⚠️ 角色执行失败: ${ev.error ?? "未知错误"}`,
+          uid: uid("rerr"),
+        });
+      }
+      return;
+    }
     run.gotResult = true;
     run.resultOk = ev.ok;
     // 收尾过程流当前打开的 agentLog：全部步骤打勾（被文本打断的旧卡片已在折叠时收尾）。
@@ -2261,8 +2331,9 @@ export function usePersonalActions(): PersonalActions {
             cwd: cur.cwd,
             terminalFailure: true,
           });
-          // 编排轮走 killOrchestration（编排子进程在主进程独立注册表，cli:kill 杀不到，会留孤儿进程）。
-          if (cur.orchestrated) void bridgeRef?.killOrchestration?.(runId);
+          // 编排/圆桌轮走各自 kill 通道（子进程在主进程独立注册表，cli:kill 杀不到，会留孤儿进程）。
+          if (cur.roundtable) void bridgeRef?.killRoundtable?.(runId);
+          else if (cur.orchestrated) void bridgeRef?.killOrchestration?.(runId);
           else void bridgeRef?.killCli(runId);
           return;
         }
@@ -2298,12 +2369,32 @@ export function usePersonalActions(): PersonalActions {
         // 派生 agent(U7):spawn 用 derivedAgentId(后端 getAgentDef 按 id 解析),失效则回退 base(见
         // resolveSpawnAgentId 的 RISK-3 兜底)。
         const spawnAgent = resolveSpawnAgentId(sendSession, usePersonalStore.getState().derivedAgents);
+        // 圆桌多角色编排（@mention 触发）：用户消息含 @mention 且 bridge 支持时，走 roundtable。
+        // 圆桌无状态、各角色 fresh spawn，故不传 resumeSessionId。事件流复用 cli:event/cli:exit，
+        // 事件带 roleId 字段区分角色。取消走 killRoundtable（cli:kill 杀不到圆桌子进程）。
+        const mentionTargets = parseMentions(text, usePersonalStore.getState().roles);
+        if (mentionTargets.length > 0 && bridge.startRoundtable) {
+          run.roundtable = true;
+          run.roleCursors = new Map();
+          await bridge.startRoundtable({
+            runId,
+            sessionId: sendSession.id,
+            cwd: projectPath,
+            text,
+            mentions: mentionTargets,
+            roles: usePersonalStore.getState().roles,
+            model: sendSession.model,
+            effort: sendSession.effort,
+            permissionMode: sendSession.permissionMode,
+            approvalPolicy: sendSession.approvalPolicy,
+            appendSystemPrompt: appendWithSkills,
+          });
         // 子 agent 编排（U1）：会话开关开启且 bridge 支持时，claude/codex 走主进程三段编排
         // （意图理解→子 agent 执行→二次加工，见 orchestrate.ts）。编排无状态、各段 fresh spawn，
         // 故不传 resumeSessionId；事件流复用 cli:event/cli:exit（runId 即 orchestrationRunId，事件带
         // stage 字段），看门狗/stop 据 run.orchestrated 改走 killOrchestration（cli:kill 杀不到编排子进程）。
         // 已知限制：本版编排不透传图片（images 仅单发支持）——开了编排又发图时，图片本轮不带入子 agent。
-        if (sendSession.subagentOrchestration && bridge.startOrchestration) {
+        } else if (sendSession.subagentOrchestration && bridge.startOrchestration) {
           run.orchestrated = true;
           await bridge.startOrchestration({
             orchestrationRunId: runId,
@@ -2441,9 +2532,10 @@ export function usePersonalActions(): PersonalActions {
           /* 会话未就绪/已退出,忽略,靠下面兜底 */
         }
       } else {
-        // 编排轮走 killOrchestration（独立注册表）；普通单发走 killCli。
+        // 编排/圆桌轮走各自 kill 通道（独立注册表）；普通单发走 killCli。
         const r = runs.get(runId);
-        if (r?.orchestrated) await bridge.killOrchestration?.(runId);
+        if (r?.roundtable) await bridge.killRoundtable?.(runId);
+        else if (r?.orchestrated) await bridge.killOrchestration?.(runId);
         else await bridge.killCli(runId);
       }
       // 兜底:若 4 秒内没收到收尾事件（进程早已不在/事件丢失）,强制复位 UI。

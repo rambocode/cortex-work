@@ -62,6 +62,7 @@ import type {
 // 方案 A：编排请求类型权威定义留在 orchestrate.ts，此处 type-only 引入（编译期擦除，
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
 import type { OrchestrateStartRequest } from "../main/ipc/orchestrate";
+import type { RoundtableStartRequest } from "../main/ipc/types";
 import type {
   LocalWhisperModelProgress,
   LocalWhisperModelStatus,
@@ -256,6 +257,13 @@ const personal = {
     ipcRenderer.invoke("orchestrate:start", req),
   killOrchestration: (runId: string): Promise<void> => {
     ipcRenderer.send("orchestrate:kill", runId);
+    return Promise.resolve();
+  },
+  // 圆桌多角色编排（@mention 触发）。事件流复用 onCliEvent/onCliExit（roleId 区分角色）。
+  startRoundtable: (req: RoundtableStartRequest): Promise<void> =>
+    ipcRenderer.invoke("roundtable:start", req),
+  killRoundtable: (runId: string): Promise<void> => {
+    ipcRenderer.send("roundtable:kill", runId);
     return Promise.resolve();
   },
   agentSessionExists: (req: AgentSessionRequest): Promise<boolean> =>
