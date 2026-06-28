@@ -7,6 +7,7 @@ import type {
   AgentKind,
   AsrSettings,
   DerivedAgentMeta,
+  RoleConfig,
   DailyEncouragement,
   GeneralSettings,
   MediaGenSettings,
@@ -168,6 +169,8 @@ export interface PersonalState {
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
   // 用户 JSON(agents.local.json)派生的 agent(主进程读盘,不持久化;启动时经 listAgentProfiles 回填,U7)。
   derivedAgents?: DerivedAgentMeta[];
+  // 圆桌角色库（主进程读 roles.json,不持久化到 PersistedState;经 IPC + roles:changed 广播回填）。
+  roles: RoleConfig[];
   // 供应商（Provider）注册表（持久化;pi 会话/自动化据此选端点）。
   providerSettings: ProviderSettings;
   // 通用设置（工作目录/桌面行为/通知/日志,持久化;主进程消费部分立即落盘）。
@@ -193,6 +196,7 @@ export interface PersonalState {
   archiveProject: (id: string) => void;
   setAgentsAvailable: (avail: Partial<Record<AgentKind, boolean>>) => void;
   setDerivedAgents: (agents: DerivedAgentMeta[]) => void;
+  setRoles: (roles: RoleConfig[]) => void;
   // 供应商注册表:整体 patch + provider 级增删改 + 设默认。
   setProviderSettings: (patch: Partial<ProviderSettings>) => void;
   addProvider: (provider: ProviderProfile) => void;
@@ -393,6 +397,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   providerSettings: DEFAULT_PROVIDER_SETTINGS,
   generalSettings: DEFAULT_GENERAL_SETTINGS,
   profile: {},
+  roles: [],
   hydrate: (s) =>
     set({
       hydrated: true,
@@ -471,6 +476,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setAgentsAvailable: (avail) => set({ agentsAvailable: avail }),
   setDerivedAgents: (agents) => set({ derivedAgents: agents }),
+  setRoles: (roles) => set({ roles }),
 
   setProviderSettings: (patch) => set((s) => ({ providerSettings: { ...s.providerSettings, ...patch } })),
 

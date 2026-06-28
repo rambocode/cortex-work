@@ -17,6 +17,7 @@ import type {
   CliStreamEvent,
   ContentSearchResult,
   DerivedAgentMeta,
+  RoleConfig,
   CronValidation,
   DocSaveRequest,
   DocSaveResult,
@@ -155,6 +156,18 @@ const personal = {
   // M3-A:列出用户 JSON(agents.local.json)派生/覆盖的 agent;reload 改文件后刷新缓存。
   listAgentProfiles: (): Promise<DerivedAgentMeta[]> => ipcRenderer.invoke("agents:profiles"),
   reloadAgentProfiles: (): Promise<DerivedAgentMeta[]> => ipcRenderer.invoke("agents:reloadProfiles"),
+  // 圆桌角色库 CRUD + 变更监听（对齐 agent profiles 模式）。
+  listRoles: (): Promise<RoleConfig[]> => ipcRenderer.invoke("roles:list"),
+  createRole: (payload: { label: string; agent: string; systemPrompt: string; color?: string; avatar?: string }): Promise<RoleConfig> =>
+    ipcRenderer.invoke("roles:create", payload),
+  updateRole: (id: string, patch: { label?: string; agent?: string; systemPrompt?: string; color?: string; avatar?: string }): Promise<RoleConfig | null> =>
+    ipcRenderer.invoke("roles:update", id, patch),
+  deleteRole: (id: string): Promise<boolean> => ipcRenderer.invoke("roles:delete", id),
+  onRolesChanged: (cb: (roles: RoleConfig[]) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, roles: RoleConfig[]) => cb(roles);
+    ipcRenderer.on("roles:changed", listener);
+    return () => ipcRenderer.removeListener("roles:changed", listener);
+  },
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
   loadChat: (sessionId: string): Promise<unknown[]> => ipcRenderer.invoke("chat:load", sessionId),

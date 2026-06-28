@@ -10,6 +10,19 @@ export interface DerivedAgentMeta {
   label?: string;
 }
 
+// 圆桌角色配置（全局角色库，~/.cortex-desktop/roles.json 持久化）。
+// agent 字段为字符串（接受 AgentKind 或 derivedAgentId），对齐 CliStartRequest.agent。
+export interface RoleConfig {
+  id: string;
+  label: string;
+  agent: string;
+  systemPrompt: string;
+  color?: string;
+  avatar?: string; // emoji avatar
+  createdAt: string; // ISO 8601
+  updatedAt: string;
+}
+
 // Prompt 库目录树节点（递归扫描 .md 的结果）。
 export interface PromptNode {
   name: string;

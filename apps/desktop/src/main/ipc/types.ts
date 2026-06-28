@@ -11,6 +11,18 @@ export interface DerivedAgentMeta {
   label?: string;
 }
 
+// 圆桌角色配置（全局角色库）。与 packages/core/desktop/types.ts 镜像同步。
+export interface RoleConfig {
+  id: string;
+  label: string;
+  agent: string;
+  systemPrompt: string;
+  color?: string;
+  avatar?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PromptNode {
   name: string;
   path: string;

@@ -17,6 +17,7 @@ import type {
   CliExitEvent,
   CliStartRequest,
   OrchestrateStartRequest,
+  RoleConfig,
   CliStreamEvent,
   ContentSearchResult,
   DerivedAgentMeta,
@@ -138,6 +139,13 @@ export interface DesktopBridge {
   // 可选,无此能力(Web 端 / 旧壳)时 renderer 当作无派生 agent。
   listAgentProfiles?(): Promise<DerivedAgentMeta[]>;
   reloadAgentProfiles?(): Promise<DerivedAgentMeta[]>;
+  // 圆桌角色库 CRUD（~/.cortex-desktop/roles.json 持久化）。可选,无此能力(Web 端 / 旧壳)时
+  // renderer 当作无自定义角色，仅内置 shortcut 可用。变更后主进程广播 roles:changed。
+  listRoles?(): Promise<RoleConfig[]>;
+  createRole?(payload: { label: string; agent: string; systemPrompt: string; color?: string; avatar?: string }): Promise<RoleConfig>;
+  updateRole?(id: string, patch: { label?: string; agent?: string; systemPrompt?: string; color?: string; avatar?: string }): Promise<RoleConfig | null>;
+  deleteRole?(id: string): Promise<boolean>;
+  onRolesChanged?(cb: (roles: RoleConfig[]) => void): () => void;
   // Markdown 预览里的链接:用系统默认浏览器打开（仅 http/https）。
   openExternal?(url: string): Promise<void>;
   // 内嵌浏览器面板「清除浏览数据」:清空 persist:browser-panel 分区的 cookie/缓存/storage。
