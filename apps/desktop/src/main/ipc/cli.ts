@@ -701,6 +701,13 @@ export function registerCliHandlers(): void {
       // claude/codex 不进此分支(它们经 builtinServers + applyClaudeMcp/buildCodexMcpArgs 注入)。
       if (baseAgentKindOf(req.agent) === "pi") {
         const delegateCfg = buildDelegateMcpServerConfig(req.sessionId);
+        // 诊断：pi delegate 桥接是否注入（host 不可用 → null → pi 缺 ask_<id> 工具，只剩内置工具）。
+        recordAgentTrace({
+          scope: "delegate", phase: "pi-bridge",
+          summary: `pi delegate bridge ${delegateCfg ? "injected" : "SKIPPED:host-unavailable"}`,
+          runId: req.runId, sessionId: req.sessionId, agent: req.agent,
+          data: { hostAvailable: !!delegateCfg, url: delegateCfg?.url, roles: req.delegateRoles?.map((r) => r.id) },
+        });
         const bridge = delegateCfg ? mcpServerToBridge(delegateCfg) : null;
         if (bridge) {
           const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
