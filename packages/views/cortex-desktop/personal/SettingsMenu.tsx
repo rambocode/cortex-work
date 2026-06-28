@@ -61,6 +61,7 @@ import { BrowserSettingsSection } from "./BrowserSettingsSection";
 import { ArchivedSessionsSection } from "./ArchivedSessionsSection";
 import { MediaGenSettingsSection } from "./MediaGenSettingsSection";
 import { SttSettingsSection } from "./SttSettingsSection";
+import { RolesSection } from "./RolesSettingsSection";
 import { BareSelect, SBlock, SRow, SecretField, SettingCard, SwitchRow } from "./settingsControls";
 
 const PALETTES: PaletteOption[] = [
@@ -89,7 +90,8 @@ type SettingsTab =
   | "timeline"
   | "push"
   | "voice"
-  | "stt";
+  | "stt"
+  | "roles";
 
 // 项元数据唯一来源：label 走 i18n（settings:tabs.*）,故此处只存 tabKey + icon,渲染时即时翻译。
 // 分组（NAV_GROUPS）只描述「哪些项归哪组 + 顺序」,不重复 icon/文案,避免双写漂移（KTD3）。
@@ -109,13 +111,14 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   timeline: { tabKey: "tabs.timeline", icon: <Icon.Clock size={14} /> },
   push: { tabKey: "tabs.push", icon: <Icon.Send size={14} /> },
   voice: { tabKey: "tabs.voice", icon: <Icon.Mic size={14} /> },
+  roles: { tabKey: "tabs.roles", icon: <Icon.Users size={14} /> },
 };
 
 // 设置左栏分组：组标题走 i18n（settings:tabGroups.*）,组内项按数组顺序渲染。
 // 「应用」组并列「插件」「浏览器」两项（用户确认的 IA）。
 const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
   { groupKey: "tabGroups.general", items: ["profile", "general", "archivedSessions"] },
-  { groupKey: "tabGroups.models", items: ["providers", "agent", "pi"] },
+  { groupKey: "tabGroups.models", items: ["providers", "agent", "pi", "roles"] },
   // 媒体生成挂「应用」组,语音转文字挂「个性化」组（同 pet/voice 并列,U2 新增）
   { groupKey: "tabGroups.apps", items: ["plugins", "browser", "mediaGen"] },
   { groupKey: "tabGroups.personalization", items: ["pet", "voice", "stt"] },
@@ -1932,6 +1935,8 @@ export function PersonalSettingsView() {
             <MediaGenSection />
           ) : tab === "stt" ? (
             <SttSection />
+          ) : tab === "roles" ? (
+            <RolesSection />
           ) : (
             <VoiceSection />
           )}

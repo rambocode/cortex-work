@@ -18,7 +18,8 @@
     "push": "推送",
     "voice": "语音",
     "mediaGen": "媒体生成",
-    "stt": "语音转文字"
+    "stt": "语音转文字",
+    "roles": "角色"
   },
   "tabGroups": {
     "general": "通用",
@@ -508,5 +509,25 @@
     "advancedCard": "高级",
     "timeoutLabel": "超时(ms)",
     "timeoutDesc": "单次转写请求的超时时间,单位毫秒。默认 60000。"
+  },
+  "roles": {
+    "title": "角色管理",
+    "desc": "创建和管理自定义角色。在聊天中 @角色名 即可调用对应 Agent 并注入角色人设。",
+    "add": "新增角色",
+    "empty": "暂无自定义角色。点击上方按钮创建。",
+    "createTitle": "创建角色",
+    "editTitle": "编辑角色",
+    "labelField": "角色名称",
+    "labelPlaceholder": "如：设计师、审查员",
+    "agentField": "绑定 Agent",
+    "promptField": "角色人设 (System Prompt)",
+    "promptPlaceholder": "描述这个角色的能力、风格和约束…",
+    "colorField": "标签颜色",
+    "avatarField": "Emoji 头像",
+    "cancel": "取消",
+    "save": "保存",
+    "create": "创建",
+    "edit": "编辑",
+    "delete": "删除"
   }
 }
