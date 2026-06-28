@@ -393,7 +393,11 @@ function runDelegateSubAgent(
   recordAgentTrace({
     scope: "delegate", phase: "start", summary: `${role.agent}[${role.label}] sub start`,
     runId: spawnKey, agent: role.agent,
-    data: { cwd: parent.cwd, roleId: role.id, taskPreview: promptPreview(task) },
+    data: {
+      cwd: parent.cwd, roleId: role.id, taskPreview: promptPreview(task),
+      // 诊断：确认 stdin 是否真带 task + 子 agent 实际 permissionMode（继承自主会话）。
+      stdinLen: stdin?.length ?? 0, permissionMode: req.permissionMode ?? "(full-auto)",
+    },
   });
 
   const proc = startAgentProcess(cmd, args, { cwd: parent.cwd, env: spawnEnvForDef(req, adapter), stdin });
@@ -405,6 +409,7 @@ function runDelegateSubAgent(
     let resultFailed = false;
     let errorText = "";
     let stderrBuf = "";
+    let rawOut = ""; // 诊断：原始 stdout（含非 text 事件，如 codex turn.failed / 认证错误，不计入 out）
 
     const timer = setTimeout(() => {
       if (!settled) {
@@ -427,6 +432,7 @@ function runDelegateSubAgent(
     };
 
     const flushStdout = pipeStdoutLines(proc.stdout, (line) => {
+      if (rawOut.length < 4000) rawOut += line + "\n"; // 诊断：保留原始 stdout
       for (const ev of parseLineEvents(adapter, line)) {
         if (ev.type === "text") {
           if (out.length < MAX_SUB_AGENT_OUTPUT) out += ev.delta;
@@ -462,7 +468,14 @@ function runDelegateSubAgent(
       settle(() => {
         recordAgentTrace({
           scope: "delegate", phase: "exit", summary: `${role.agent}[${role.label}] sub exit(${code})`,
-          runId: spawnKey, agent: role.agent, data: { code, stderr: stderrBuf.slice(-500), outLen: out.length },
+          runId: spawnKey, agent: role.agent,
+          data: {
+            code, outLen: out.length,
+            stderr: stderrBuf.slice(-2000),
+            rawStdout: rawOut.slice(0, 1500), // 诊断：codex 真实输出（turn.failed/认证错误在此）
+            permissionMode: req.permissionMode ?? "(full-auto)",
+            args,
+          },
         });
         if (signal.aborted) return resolve({ text: out.trim(), ok: false, error: "已取消" });
         if (timedOut) {
