@@ -1424,6 +1424,12 @@ export function __handlePiEventForTest(qc: QueryClient, sessionId: string, ev: P
 export function reapSessionRun(qc: QueryClient, sessionId: string): void {
   for (const [id, r] of runs) {
     if (r.sessionId === sessionId) {
+      // 核心路径埋点（U7）:强制回收一个仍在跑的 run（典型为删/关 pi 会话,看门狗无超时自杀）。
+      // 仅观测,经注入 logger 记录;web 端 bridgeRef=null 安全 no-op。
+      void bridgeRef?.logMessage?.(
+        "warn",
+        `[personal:reap] force-reclaim run=${id} agent=${r.agent} phase=${r.phase} transport=${r.transport ?? "cli"}`,
+      );
       stopRunTimers(r);
       runs.delete(id);
     }
@@ -2237,6 +2243,12 @@ export function usePersonalActions(): PersonalActions {
         const silent = Date.now() - cur.lastEventAt;
         const limit = cur.phase === "starting" ? RUN_START_TIMEOUT_MS : RUN_STALL_TIMEOUT_MS;
         if (!cur.gotResult && silent >= limit) {
+          // 核心路径埋点（U7）:看门狗超时（启动/静默）属终态失败,经注入 logger 记录以便排查
+          //（仅观测,不改回收/超时控制逻辑;web 端 bridgeRef=null 安全 no-op）。
+          void bridgeRef?.logMessage?.(
+            "warn",
+            `[personal:watchdog] timeout agent=${cur.agent} phase=${cur.phase} silentMs=${silent} limitMs=${limit} orchestrated=${!!cur.orchestrated}`,
+          );
           stopWatchdog(cur);
           runs.delete(runId);
           dropMsg(qc, cur.sessionId, cur.typingUid);

@@ -2,7 +2,7 @@
 // desktop) injects identity + workspace id; this builds the QueryClient and
 // exposes the workspace id via context so query hooks namespace their keys.
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "./query-client";
 import { ApiClient, type ApiClientConfig } from "./api/client";
@@ -57,9 +57,19 @@ export function CoreProvider({ wsId, identity, apiConfig, queryClient, desktopBr
     apiConfig?.workspaceSlug,
     wsId,
   ]);
+  const bridge = desktopBridge ?? null;
+  // 核心路径埋点（U7）:挂载时记一条初始化信息（wsId / 是否启用 liveData / 是否有桌面桥）。
+  // 只调注入抽象,dev/prod 级别 gating 由壳决定;web 端 bridge=null 即安全 no-op。
+  useEffect(() => {
+    void bridge?.logMessage?.(
+      "info",
+      `[core:provider] init wsId=${wsId} liveData=${!!apiClient} bridge=${!!bridge}`,
+    );
+    // 仅在挂载及关键标识变化时记录,避免每次 render 刷日志。
+  }, [bridge, wsId, apiClient]);
   return (
     <CoreContext.Provider
-      value={{ wsId, identity, apiClient, liveDataEnabled: !!apiClient, desktopBridge: desktopBridge ?? null }}
+      value={{ wsId, identity, apiClient, liveDataEnabled: !!apiClient, desktopBridge: bridge }}
     >
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     </CoreContext.Provider>

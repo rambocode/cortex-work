@@ -206,8 +206,9 @@ const personal = {
   },
   openLogsDir: (): Promise<void> => ipcRenderer.invoke("logs:open"),
   setLogEnabled: (on: boolean): Promise<void> => ipcRenderer.invoke("logs:setEnabled", on),
-  // 渲染端把不落盘的 agent 报错写入主进程文件日志（脱敏由主进程负责）。
-  logMessage: (level: "warn" | "error", message: string): Promise<void> =>
+  // 渲染端把不落盘的 agent 报错、核心路径埋点写入主进程文件日志（脱敏由主进程负责）。
+  // 级别放宽到 debug|info|warn|error；主进程 logLine 已按 level 路由（非法回退 info）。
+  logMessage: (level: "debug" | "info" | "warn" | "error", message: string): Promise<void> =>
     ipcRenderer.invoke("logs:write", level, message),
   // 改闪记全局热键:把主进程返回的 HotkeyRegistration 适配成 bridge 契约的 { ok, toast }。
   // ok = registered && !degraded(注册成功且未降级才算生效)。

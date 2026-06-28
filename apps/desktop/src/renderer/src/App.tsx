@@ -8,7 +8,21 @@ const isMac = typeof window !== "undefined" && window.desktopAPI?.appInfo.os ===
 const runtimeConfig = typeof window !== "undefined" ? window.desktopAPI?.runtimeConfig : undefined;
 const workspaceId = runtimeConfig?.workspaceId || "demo-workspace";
 // 个人工作区的桌面能力桥（preload personal 与 core DesktopBridge 形状一致）。
-const desktopBridge = typeof window !== "undefined" ? (window.desktopAPI?.personal ?? null) : null;
+const rawDesktopBridge = typeof window !== "undefined" ? (window.desktopAPI?.personal ?? null) : null;
+
+// 核心路径埋点的 dev/prod 级别 gating（U7）:dev/prod 判断只能留在壳（core/views 禁用 import.meta.env）。
+// dev 透传全部级别；prod 只透传 warn/error，丢弃 info/debug 以免高频核心路径埋点污染生产日志。
+// 仅包一层 logMessage，其余能力原样透传（壳就近装配，core 只调注入抽象）。
+const desktopBridge =
+  rawDesktopBridge && !import.meta.env.DEV
+    ? {
+        ...rawDesktopBridge,
+        logMessage: (level: "debug" | "info" | "warn" | "error", message: string): Promise<void> =>
+          level === "warn" || level === "error"
+            ? (rawDesktopBridge.logMessage?.(level, message) ?? Promise.resolve())
+            : Promise.resolve(),
+      }
+    : rawDesktopBridge;
 
 // 闪记浮层入口:壳就近注入(views 不直接碰 window.desktopAPI)。缺桥/旧壳无方法时 → undefined,
 // 透传到 composer 后隐藏图标(可选链兜底)。降级后此入口仍可用(不依赖全局热键)。

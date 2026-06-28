@@ -945,6 +945,29 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(() => __handlePiEventForTest(qc, "s1", { type: "text", delta: "晚到" })).not.toThrow();
     expect(cacheOf(qc).some((m) => m.kind === "text" && m.text === "晚到")).toBe(false);
   });
+
+  it("reapSessionRun:强制回收一个在跑的 run 时经注入 bridge 以 warn 级记录埋点（U7）", () => {
+    const qc = new QueryClient();
+    const logMessage = vi.fn<(level: string, message: string) => Promise<void>>(async () => {});
+    setupPiRun(qc);
+    __setBridgeForTest({ loadChat: async () => [], saveChat: async () => {}, logMessage } as unknown as Parameters<
+      typeof __setBridgeForTest
+    >[0]);
+    reapSessionRun(qc, "s1");
+    expect(logMessage).toHaveBeenCalledTimes(1);
+    const [level, message] = logMessage.mock.calls[0]!;
+    expect(level).toBe("warn");
+    expect(message).toContain("force-reclaim");
+    expect(message).toContain("agent=pi");
+    __setBridgeForTest(null);
+  });
+
+  it("reapSessionRun:web 端 bridge=null 时不抛错（埋点安全 no-op）", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __setBridgeForTest(null);
+    expect(() => reapSessionRun(qc, "s1")).not.toThrow();
+  });
 });
 
 // ── U1：过程流独立通道 + 不落盘 + 旧档迁移 ──────────────────────────────────
