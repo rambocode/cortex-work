@@ -85,6 +85,8 @@ export function NewSessionLanding({
       thinkingValue: agent === "pi" ? undefined : DEFAULT_AGENT_THINKING as AgentThinkingValue,
       execPermission: DEFAULT_NEW_SESSION_EXEC_PERMISSION as ExecPermission,
       dirPermission: DEFAULT_NEW_SESSION_DIR_PERMISSION as DirPermission,
+      // 子 agent 编排开关(默认关)。三个 agent(claude/codex/pi)均可在新会话落地页开启。
+      subagentOrchestration: false,
     };
   });
 
@@ -114,6 +116,8 @@ export function NewSessionLanding({
     if (draft.execPermission !== DEFAULT_EXEC_PERMISSION) patch.execPermission = draft.execPermission;
     // 目录执行权限:非默认(all 回退)才落盘。新会话默认 workspace,与 all 不同 → 会落盘。
     if (draft.dirPermission !== DEFAULT_DIR_PERMISSION) patch.dirPermission = draft.dirPermission;
+    // 子 agent 编排:开启才落盘(默认关)。落到会话后,首轮 send 即按编排管线走。
+    if (draft.subagentOrchestration) patch.subagentOrchestration = true;
     if (Object.keys(patch).length) updateSession(sess.id, patch);
     return { ...sess, ...patch };
   };
@@ -189,6 +193,8 @@ export function NewSessionLanding({
         onChangeExecPermission={(p) => setDraft((d) => ({ ...d, execPermission: p }))}
         dirPermission={draft.dirPermission}
         onChangeDirPermission={(dp) => setDraft((d) => ({ ...d, dirPermission: dp }))}
+        subagentOrchestration={draft.subagentOrchestration}
+        onToggleSubagentOrchestration={() => setDraft((d) => ({ ...d, subagentOrchestration: !d.subagentOrchestration }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
         onToast={onToast}
       />
