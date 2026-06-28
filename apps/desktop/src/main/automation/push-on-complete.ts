@@ -11,6 +11,9 @@ import { enabledPushTargets } from "@cortex-work/core/personal/push";
 import { getPersistedState } from "../ipc/store";
 import { sendPush } from "../ipc/push";
 import type { AutomationMeta, AutomationRun, PushChannelKind } from "../ipc/types";
+import { createLogger } from "../log";
+
+const log = createLogger("automation-push");
 
 // 完成后推送的终态:成功与各类失败都通知;running/skipped 不通知(并发去重非用户关心的终态)。
 const PUSH_STATUSES: ReadonlySet<AutomationRun["status"]> = new Set(["ok", "error", "timeout", "killed"]);
@@ -76,11 +79,11 @@ export async function dispatchAutomationPush(meta: AutomationMeta, run: Automati
         try {
           const res = await sendPush(target, payload);
           if (!res.ok) {
-            console.error(`[automation-push] ${meta.name} → ${label} 失败(${run.status}):${res.error ?? "未知"}`);
+            log.error(`${meta.name} → ${label} 失败(${run.status}):${res.error ?? "未知"}`);
           }
         } catch (err) {
-          console.error(
-            `[automation-push] ${meta.name} → ${label} 异常:${err instanceof Error ? err.message : String(err)}`,
+          log.error(
+            `${meta.name} → ${label} 异常:${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }),
@@ -91,6 +94,6 @@ export async function dispatchAutomationPush(meta: AutomationMeta, run: Automati
       showAutomationNotification(payload.subject, payload.text);
     }
   } catch (err) {
-    console.error(`[automation-push] ${meta.name} 推送调度异常:${err instanceof Error ? err.message : String(err)}`);
+    log.error(`${meta.name} 推送调度异常:${err instanceof Error ? err.message : String(err)}`);
   }
 }

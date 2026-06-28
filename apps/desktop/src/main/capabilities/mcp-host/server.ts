@@ -15,6 +15,9 @@ import http from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createLogger } from "../../log";
+
+const log = createLogger("mcp-host");
 
 export interface McpHostHandle {
   port: number;
@@ -110,7 +113,7 @@ export function createMcpHost(serverName: string): McpHost {
         void transport.handleRequest(req, res, parsed);
       });
     } catch (e) {
-      console.error(`[mcp-host:${serverName}] request error:`, e);
+      log.error(`${serverName} request error:`, e);
       if (!res.headersSent) res.writeHead(500).end();
     }
   }
@@ -124,7 +127,7 @@ export function createMcpHost(serverName: string): McpHost {
     return await new Promise<McpHostHandle>((resolve) => {
       httpServer.once("error", (err) => {
         // listen 失败(端口受限/网络沙箱)→ 降级,不崩主进程。
-        console.error(`[mcp-host:${serverName}] server listen failed:`, err);
+        log.error(`${serverName} server listen failed:`, err);
         current = null;
         resolve({ port: 0, token, serverAvailable: false });
       });

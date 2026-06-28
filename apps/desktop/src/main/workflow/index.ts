@@ -30,6 +30,9 @@ import { stopWorkflowScheduler, rescheduleWorkflows } from './scheduler'
 import { startWebhookServer, stopWebhookServer } from './webhook-server'
 import { killAllHeadlessPrompts } from './run-prompt-headless'
 import { registerModule } from './node-executors/modules.js'
+import { createLogger } from '../log'
+
+const log = createLogger('workflow')
 
 // ── 活跃 run 注册表 ────────────────────────────────────────────────────────────
 
@@ -241,7 +244,7 @@ async function runWorkflowInternal(
         phase: 'end',
       })
       broadcastWorkflowChanged(await loadWorkflows())
-      console.error(`[workflow] run ${run.id} 异常退出:`, err)
+      log.error(`run ${run.id} 异常退出:`, err)
     } finally {
       // 清理活跃 run 注册表。
       activeRuns.delete(run.id)

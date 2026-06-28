@@ -6,6 +6,9 @@ import { promises as fsp } from "fs";
 import { join } from "path";
 import { chatDocsDir, chatImagesDir, chatsDir, ensureMigrated } from "../paths";
 import { enqueue } from "./sessionWriteQueue";
+import { createLogger } from "../log";
+
+const log = createLogger("personal-chats");
 
 const SAFE_ID = /^[\w-]+$/;
 
@@ -42,7 +45,7 @@ export function registerChatHandlers(): void {
         await fsp.writeFile(tmp, JSON.stringify(messages), "utf8");
         await fsp.rename(tmp, path);
       } catch (err) {
-        console.error("[personal-chats] save failed:", err);
+        log.error("save failed:", err);
       }
     });
   });
@@ -57,7 +60,7 @@ export function registerChatHandlers(): void {
         await fsp.rm(chatImagesDir(sessionId), { recursive: true, force: true });
         await fsp.rm(chatDocsDir(sessionId), { recursive: true, force: true });
       } catch (err) {
-        console.error("[personal-chats] delete failed:", err);
+        log.error("delete failed:", err);
       }
     });
   });

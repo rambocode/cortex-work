@@ -6,6 +6,9 @@ import { promises as fsp } from "fs";
 import { dirname, join } from "path";
 import { automationRunsDir, automationsStorePath } from "../paths";
 import type { AutomationMeta, AutomationRun } from "../ipc/types";
+import { createLogger } from "../log";
+
+const log = createLogger("automation-store");
 
 const SAFE_ID = /^[\w-]+$/;
 // 运行历史保留上限。放宽到 200 以支撑前端「分页加载」（旧值 50 翻不了几页）;
@@ -59,7 +62,7 @@ function persist(list: AutomationMeta[]): Promise<void> {
       await fsp.writeFile(tmp, JSON.stringify({ version: 1, automations: list }, null, 2), "utf8");
       await fsp.rename(tmp, path);
     })
-    .catch((err) => console.error("[automation-store] save failed:", err));
+    .catch((err) => log.error("save failed:", err));
   return writeChain;
 }
 
@@ -136,7 +139,7 @@ function mutateRuns(
       await fsp.writeFile(tmp, JSON.stringify({ version: 1, runs: updated }), "utf8");
       await fsp.rename(tmp, path);
     })
-    .catch((err) => console.error("[automation-runs] save failed:", err));
+    .catch((err) => log.error("runs save failed:", err));
   runQueues.set(automationId, next);
   return next;
 }

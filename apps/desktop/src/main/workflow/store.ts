@@ -7,6 +7,9 @@ import { dirname, join } from "path";
 import { workflowRunsDir, workflowsStorePath } from "../paths";
 import type { WorkflowDef, WorkflowRun } from "./types";
 import { normalizeWorkflow } from "./normalize";
+import { createLogger } from "../log";
+
+const log = createLogger("workflow-store");
 
 // SAFE_ID 防路径穿越：workflow id / run id 只允许 [\w-] 字符，
 // 确保拼出的文件名 workflow-runs/<id>.json 不能跳出目标目录。
@@ -66,7 +69,7 @@ function persist(list: WorkflowDef[]): Promise<void> {
       await fsp.writeFile(tmp, JSON.stringify({ version: 1, workflows: list }, null, 2), "utf8");
       await fsp.rename(tmp, path);
     })
-    .catch((err) => console.error("[workflow-store] save failed:", err));
+    .catch((err) => log.error("save failed:", err));
   return writeChain;
 }
 
@@ -172,7 +175,7 @@ function mutateRuns(
       runsCache.set(workflowId, updated);
       await writeRunsFile(workflowId, updated);
     })
-    .catch((err) => console.error("[workflow-store] runs mutate failed:", err));
+    .catch((err) => log.error("runs mutate failed:", err));
   runsChain.set(workflowId, next);
   return next;
 }

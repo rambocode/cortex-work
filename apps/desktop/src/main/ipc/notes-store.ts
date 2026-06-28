@@ -14,6 +14,9 @@
 import { promises as fsp } from "fs";
 import { dirname } from "path";
 import type { NoteInput, NoteMeta, NotesFileData } from "./types";
+import { createLogger } from "../log";
+
+const log = createLogger("notes-store");
 
 // id 生成：note-<base36 时间>-<seq>-<random>（仿 automation/store.ts:uid）。
 let seq = 0;
@@ -62,7 +65,7 @@ export class NotesStore {
 
   // 串行执行一次「读-改-写」：在 writeQueue 上排队,确保后一个 mutation 看到前一个
   // 已落进内存镜像的最新数组（避免并发 add 都读空文件丢更新）。
-  // fn 返回 [新文件数据, 给调用方的结果]。写盘失败只 console.error（与
+  // fn 返回 [新文件数据, 给调用方的结果]。写盘失败只 log.error（与
   // store/timeline/chat 一致,v1 不向 renderer 上报）。
   private mutate<T>(fn: (data: NotesFileData) => [NotesFileData, T]): Promise<T> {
     const run = this.writeQueue.then(async () => {
@@ -76,7 +79,7 @@ export class NotesStore {
     this.writeQueue = run.then(
       () => undefined,
       (err) => {
-        console.error("[notes-store] save failed:", err);
+        log.error("save failed:", err);
       },
     );
     return run;

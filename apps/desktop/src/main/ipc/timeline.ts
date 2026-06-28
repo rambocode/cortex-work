@@ -5,6 +5,9 @@ import { ipcMain } from "electron";
 import { promises as fsp } from "fs";
 import { join } from "path";
 import { timelinesDir } from "../paths";
+import { createLogger } from "../log";
+
+const log = createLogger("personal-timeline");
 
 const SAFE_ID = /^[\w-]+$/;
 
@@ -37,7 +40,7 @@ export function registerTimelineHandlers(): void {
         await fsp.rename(tmp, path);
       })
       .catch((err) => {
-        console.error("[personal-timeline] save failed:", err);
+        log.error("save failed:", err);
       })
       // 队列 settle 后,若该 key 仍指向本 Promise 则删除,避免每个出现过的 projectId 永久驻留（防泄漏）。
       .finally(() => {

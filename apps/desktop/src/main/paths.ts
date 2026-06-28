@@ -8,6 +8,9 @@ import { app } from "electron";
 import { promises as fsp } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { createLogger } from "./log";
+
+const log = createLogger("paths");
 
 export function cortexHome(): string {
   return join(homedir(), ".cortex-desktop");
@@ -128,7 +131,7 @@ export function ensureMigrated(): Promise<void> {
       }
     }
   })().catch((err) => {
-    console.error("[cortex-desktop] 数据迁移失败:", err);
+    log.error("数据迁移失败:", err);
   });
   return migrated;
 }

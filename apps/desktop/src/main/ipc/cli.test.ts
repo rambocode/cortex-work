@@ -20,6 +20,20 @@ const m = vi.hoisted(() => ({
   agentSessionExists: vi.fn(() => true),
 }));
 
+// mock ../log:避免加载真 electron-log,并断言 scoped logger 承接了原 console 调用。
+const logMock = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  verbose: vi.fn(),
+  debug: vi.fn(),
+  silly: vi.fn(),
+}));
+vi.mock("../log", () => ({
+  createLogger: () => logMock,
+  isDevEnv: () => true,
+}));
+
 vi.mock("./store", () => ({ getPersistedState: m.getPersistedState }));
 vi.mock("./mcp-config", () => ({
   applyClaudeMcp: m.applyClaudeMcp,
@@ -498,12 +512,12 @@ describe("startAgentProcess", () => {
     const [, , opts] = spawnMock.mock.calls[0] as [unknown, unknown, { stdio: unknown[] }];
     expect(opts.stdio[0]).toBe("pipe");
     expect(child.stdin.end).toHaveBeenCalledWith("PAYLOAD", "utf8");
-    // U8:stdin EPIPE/EOF 静默吞掉(子进程提前退出),其余错误才告警。
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    // U8:stdin EPIPE/EOF 静默吞掉(子进程提前退出),其余错误才告警(经 scoped logger)。
+    logMock.warn.mockClear();
     child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(logMock.warn).not.toHaveBeenCalled();
     child.stdin.emit("error", Object.assign(new Error("boom"), { code: "EACCES" }));
-    expect(warnSpy).toHaveBeenCalled();
+    expect(logMock.warn).toHaveBeenCalled();
   });
 
   it("无 stdin 负载:stdio[0]=ignore(pi,prompt 在 argv)", () => {

@@ -6,6 +6,9 @@ import { existsSync, promises as fsp } from "fs";
 import { dirname } from "path";
 import type { PersistedState } from "./types";
 import { ensureMigrated, workspaceStorePath } from "../paths";
+import { createLogger } from "../log";
+
+const log = createLogger("personal-workspace");
 
 const EMPTY: PersistedState = { version: 1, projects: [], sessions: [] };
 
@@ -59,7 +62,7 @@ export function registerStoreHandlers(): void {
   ipcMain.handle("store:save", (_e, state: PersistedState) => {
     cached = state;
     writeQueue = writeQueue.then(() => savePersistedState(state)).catch((err) => {
-      console.error("[personal-workspace] save failed:", err);
+      log.error("save failed:", err);
     });
     return writeQueue;
   });

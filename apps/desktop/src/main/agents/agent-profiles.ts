@@ -15,6 +15,9 @@ import { readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import type { AgentDef } from "./index";
+import { createLogger } from "../log";
+
+const log = createLogger("agent-profiles");
 
 // 派生只能基于内置 def(它提供 parseLine 与能力位)。
 export const BUILT_IN_AGENT_IDS = ["claude", "codex", "pi"] as const;
@@ -90,11 +93,11 @@ export function parseLocalAgentProfiles(raw: unknown): LocalAgentProfile[] {
   for (const entry of list) {
     const p = validateProfile(entry);
     if (!p) {
-      console.warn("[agent-profiles] 跳过非法 agent 条目:", JSON.stringify(entry)?.slice(0, 200));
+      log.warn("跳过非法 agent 条目:", JSON.stringify(entry)?.slice(0, 200));
       continue;
     }
     if (seen.has(p.id)) {
-      console.warn(`[agent-profiles] 重复 agent id「${p.id}」,保留首个、忽略后续`);
+      log.warn(`重复 agent id「${p.id}」,保留首个、忽略后续`);
       continue;
     }
     seen.add(p.id);
@@ -110,7 +113,7 @@ export function readLocalAgentProfilesFile(path: string): LocalAgentProfile[] {
     text = readFileSync(path, "utf8");
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.warn(`[agent-profiles] 读取 ${path} 失败:`, (e as Error).message);
+      log.warn(`读取 ${path} 失败:`, (e as Error).message);
     }
     return [];
   }
@@ -118,7 +121,7 @@ export function readLocalAgentProfilesFile(path: string): LocalAgentProfile[] {
   try {
     raw = JSON.parse(text);
   } catch (e) {
-    console.warn(`[agent-profiles] 解析 ${path} 失败(非法 JSON):`, (e as Error).message);
+    log.warn(`解析 ${path} 失败(非法 JSON):`, (e as Error).message);
     return [];
   }
   return parseLocalAgentProfiles(raw);

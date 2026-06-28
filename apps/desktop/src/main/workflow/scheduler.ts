@@ -13,6 +13,9 @@ import { Cron } from 'croner'
 import { powerMonitor, powerSaveBlocker } from 'electron'
 import type { WorkflowDef } from './types'
 import { computeNextRun, scheduleToCron } from '../automation/schedule-cron'
+import { createLogger } from '../log'
+
+const log = createLogger('workflow-scheduler')
 
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
@@ -102,7 +105,7 @@ function scheduleOne(workflow: WorkflowDef): void {
         : new Cron(scheduleToCron(spec as Parameters<typeof scheduleToCron>[0]), timezone ? { timezone } : {}, cb)
     jobs.set(workflow.id, job)
   } catch (err) {
-    console.error(`[workflow-scheduler] 无法调度 ${workflow.id}:`, err)
+    log.error(`无法调度 ${workflow.id}:`, err)
   }
 }
 
@@ -231,9 +234,9 @@ powerMonitor.on('resume', () => {
         void rescheduleOnResume(workflows, _runFn)
       }
     }).catch((err) => {
-      console.error('[workflow-scheduler] resume 重排失败:', err)
+      log.error('resume 重排失败:', err)
     })
   }).catch((err) => {
-    console.error('[workflow-scheduler] resume 重排 store 加载失败:', err)
+    log.error('resume 重排 store 加载失败:', err)
   })
 })

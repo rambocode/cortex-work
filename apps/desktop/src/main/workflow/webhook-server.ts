@@ -25,6 +25,9 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { timingSafeEqual } from 'crypto'
 import type { WorkflowDef } from './types'
 import { loadWorkflows } from './store'
+import { createLogger } from '../log'
+
+const log = createLogger('webhook-server')
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 
@@ -382,16 +385,16 @@ export function startWebhookServer(port: number, runFn: RunFn): Promise<void> {
       _port = port
       server = createServer((req, res) => {
         handleRequest(req, res).catch((err) => {
-          console.error('[webhook-server] 处理请求异常:', err)
+          log.error('处理请求异常:', err)
           if (!res.headersSent) send(res, 500, JSON.stringify({ error: '服务器内部错误' }))
         })
       })
       server.listen(port, '127.0.0.1', () => {
-        console.log(`[webhook-server] 监听 127.0.0.1:${port}`)
+        log.info(`监听 127.0.0.1:${port}`)
         resolve()
       })
       server.on('error', (err) => {
-        console.error(`[webhook-server] 监听 127.0.0.1:${port} 失败:`, err)
+        log.error(`监听 127.0.0.1:${port} 失败:`, err)
         // 端口冲突：降级记录，不抛错（不阻断应用启动）。
         resolve()
       })

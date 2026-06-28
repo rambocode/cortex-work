@@ -8,6 +8,8 @@ const h = vi.hoisted(() => ({
   notificationShow: vi.fn(),
   isSupported: vi.fn(() => true),
   getAllWindows: vi.fn(() => [] as unknown[]),
+  // scoped logger 桩:迁移后推送失败走 log.error,断言其入参不泄漏密钥。
+  log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), verbose: vi.fn(), debug: vi.fn(), silly: vi.fn() },
 }));
 
 vi.mock("electron", () => {
@@ -29,6 +31,7 @@ vi.mock("electron", () => {
 });
 vi.mock("../ipc/store", () => ({ getPersistedState: h.getPersistedState }));
 vi.mock("../ipc/push", () => ({ sendPush: h.sendPush }));
+vi.mock("../log", () => ({ createLogger: () => h.log, isDevEnv: () => true }));
 
 import {
   dispatchAutomationPush,
@@ -193,13 +196,14 @@ describe("dispatchAutomationPush", () => {
   });
 
   it("渠道失败仅记日志,不抛;日志不含 webhookUrl/密钥", async () => {
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    h.log.error.mockClear();
     h.getPersistedState.mockResolvedValue({
       pushSettings: { feishu: { enabled: true, webhookUrl: "https://open.feishu.cn/SECRET_TOKEN", secret: "SIGN_SECRET_VALUE" } },
     });
     h.sendPush.mockResolvedValue({ ok: false, error: "sign match fail" });
     await expect(dispatchAutomationPush(meta(), run())).resolves.toBeUndefined();
-    const logged = spy.mock.calls.flat().join(" ");
+    expect(h.log.error).toHaveBeenCalled();
+    const logged = h.log.error.mock.calls.flat().join(" ");
     expect(logged).not.toContain("SECRET_TOKEN");
     expect(logged).not.toContain("SIGN_SECRET_VALUE");
   });

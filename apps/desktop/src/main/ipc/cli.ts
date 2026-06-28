@@ -22,6 +22,9 @@ import { loadWorkflows } from "../workflow/store";
 import { getPersistedState } from "./store";
 import { CodexServerManager } from "../agents/codex-app-server";
 import { startCodexWsRun, closeAllCodexChannels } from "./codex-ws-run";
+import { createLogger } from "../log";
+
+const log = createLogger("cli");
 
 const running = new Map<string, AgentProcess>();
 
@@ -185,7 +188,7 @@ export function startAgentProcess(
   if (opts.stdin !== undefined && child.stdin) {
     child.stdin.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code !== "EPIPE" && err.code !== "EOF") {
-        console.warn(`[cli] stdin write error: ${err.message}`);
+        log.warn(`stdin write error: ${err.message}`);
       }
     });
     child.stdin.end(opts.stdin, "utf8");
@@ -341,7 +344,7 @@ function verifyAgentCli(agent: Exclude<AgentKind, "pi">, env: NodeJS.ProcessEnv)
       clearTimeout(timer);
       proc.stdout?.removeAllListeners();
       proc.stderr?.removeAllListeners();
-      if (!ok) console.warn(`[agents:detect] ${agent} unavailable: ${reason ?? "verification failed"}`);
+      if (!ok) log.warn(`[agents:detect] ${agent} unavailable: ${reason ?? "verification failed"}`);
       resolve(ok);
     };
     const timer = setTimeout(() => {
@@ -377,7 +380,7 @@ async function detectAgentsOnce(): Promise<Record<AgentKind, boolean>> {
     codex,
     pi: true,
   };
-  console.info(`[agents:detect] claude=${result.claude} codex=${result.codex} pi=true`);
+  log.info(`[agents:detect] claude=${result.claude} codex=${result.codex} pi=true`);
   return result;
 }
 
@@ -477,7 +480,7 @@ export function registerCliHandlers(): void {
         try {
           await applyClaudeMcp(req.cwd, mcp);
         } catch (e) {
-          console.warn(`[cli] applyClaudeMcp failed: ${String(e)}`); // 注入失败不阻断启动
+          log.warn(`applyClaudeMcp failed: ${String(e)}`); // 注入失败不阻断启动
         }
       } else if (adapter.mcpInjection === "codex-c") {
         mcpArgs = buildCodexMcpArgs(mcp);
@@ -632,7 +635,7 @@ export function registerCliHandlers(): void {
         settled = true;
         clearWatchdog();
         cancelledRunIds.delete(req.runId);
-        console.error(`[cli] ${req.agent} spawn failed: ${err.message}`);
+        log.error(`${req.agent} spawn failed: ${err.message}`);
         recordAgentTrace({
           scope: "cli",
           phase: "error",
@@ -713,7 +716,7 @@ export function registerCliHandlers(): void {
           ? `活跃超时:${Math.round(inactivityMs / 1000)} 秒无输出,已终止`
           : undefined;
         const error = timeoutError ?? (code !== 0 && code !== null ? stderrTail.trim() || undefined : undefined);
-        if (error) console.error(`[cli] ${req.agent} exited with code ${code}: ${error}`);
+        if (error) log.error(`${req.agent} exited with code ${code}: ${error}`);
         recordAgentTrace({
           scope: "cli",
           phase: "exit",
@@ -850,7 +853,7 @@ export function registerCliHandlers(): void {
         });
         proc.onError((err) => {
           clearTimeout(timer);
-          console.error(`[cli:oneshot] ${agent} spawn failed: ${err.message}`);
+          log.error(`[oneshot] ${agent} spawn failed: ${err.message}`);
           recordAgentTrace({
             scope: "oneshot",
             phase: "error",
@@ -878,7 +881,7 @@ export function registerCliHandlers(): void {
           else if (code === 0) reject(new Error("oneshot 无输出"));
           else {
             const error = stderrTail.trim() || `oneshot 退出码 ${code}`;
-            console.error(`[cli:oneshot] ${agent} exited with code ${code}: ${error}`);
+            log.error(`[oneshot] ${agent} exited with code ${code}: ${error}`);
             reject(new Error(error));
           }
         });

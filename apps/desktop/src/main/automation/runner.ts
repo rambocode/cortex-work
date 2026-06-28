@@ -20,6 +20,9 @@ import { broadcastChanged, broadcastRunEvent } from "./events";
 import { computeNextRun } from "./schedule-cron";
 import { dispatchAutomationPush, isTerminalPushStatus, resolveNotifyChannels } from "./push-on-complete";
 import { appendRun, loadAutomations, newRunId, patchAutomation, updateRun } from "./store";
+import { createLogger } from "../log";
+
+const log = createLogger("automation-runner");
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_OUTPUT = 200_000;
@@ -91,6 +94,8 @@ async function finalize(meta: AutomationMeta, run: AutomationRun): Promise<void>
   });
   broadcastChanged(await loadAutomations());
   broadcastRunEvent({ automationId: meta.id, run, phase: "end" });
+  // 收尾埋点(info)：终态可观测,无头任务平时无声,这条是排查「跑没跑/什么结果」的锚点。
+  log.info(`finalize id=${meta.id} agent=${meta.agent} status=${run.status} runId=${run.id}`);
   // 完成后通知(opt-in):选中了渠道且终态(ok/error/timeout/killed)才分发。
   // fire-and-forget —— dispatchAutomationPush 内部已吞错,绝不影响 run 收尾。
   if (isTerminalPushStatus(run.status) && resolveNotifyChannels(meta).length > 0) {
@@ -119,6 +124,9 @@ export async function runAutomation(
   // 同步占位,杜绝后续 await 期间的并发重入。
   pending.add(meta.id);
 
+  // 启动埋点(debug)：标记一次执行的开始,与 finalize 配对界定单次 run 的时间窗。
+  log.debug(`start id=${meta.id} agent=${meta.agent} trigger=${trigger}`);
+
   const run = makeRun(meta, trigger);
   await appendRun(run);
   broadcastRunEvent({ automationId: meta.id, run: { ...run }, phase: "start" });
@@ -131,7 +139,7 @@ export async function runAutomation(
     run.status = "error";
     run.error = `${meta.agent === "claude" ? "Claude Code" : "Codex"} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Pi。`;
     run.endedAt = Date.now();
-    console.error(`[automation-runner] ${meta.agent} unavailable for ${meta.id}: ${run.error}`);
+    log.error(`${meta.agent} unavailable for ${meta.id}: ${run.error}`);
     await finalize(meta, run);
     return run;
   }
@@ -175,7 +183,7 @@ export async function runAutomation(
   } catch (err) {
     run.status = "error";
     run.error = err instanceof Error ? err.message : String(err);
-    console.error(`[automation-runner] ${meta.agent} launch failed for ${meta.id}: ${run.error}`);
+    log.error(`${meta.agent} launch failed for ${meta.id}: ${run.error}`);
     run.endedAt = Date.now();
     await finalize(meta, run);
     return run;
@@ -243,7 +251,7 @@ export async function runAutomation(
     settle(() => {
       run.status = "error";
       run.error = err.message;
-      console.error(`[automation-runner] ${meta.agent} spawn failed for ${meta.id}: ${err.message}`);
+      log.error(`${meta.agent} spawn failed for ${meta.id}: ${err.message}`);
     });
   });
 
@@ -253,16 +261,18 @@ export async function runAutomation(
       if (timedOut) {
         run.status = "timeout";
         run.error = `执行超过 ${Math.round(DEFAULT_TIMEOUT_MS / 60000)} 分钟,已终止`;
+        // 超时是无头任务最隐蔽的失败模式(看门狗 10min 后强杀),warn 单列便于排查。
+        log.warn(`${meta.agent} timeout for ${meta.id}: ${run.error}`);
       } else if (failed) {
         run.status = "error";
         run.error = failed;
-        console.error(`[automation-runner] ${meta.agent} failed for ${meta.id}: ${failed}`);
+        log.error(`${meta.agent} failed for ${meta.id}: ${failed}`);
       } else if (code === 0) {
         run.status = "ok";
       } else {
         run.status = "error";
         run.error = stderrTail.trim() || `退出码 ${code}`;
-        console.error(`[automation-runner] ${meta.agent} exited with code ${code} for ${meta.id}: ${run.error}`);
+        log.error(`${meta.agent} exited with code ${code} for ${meta.id}: ${run.error}`);
       }
     });
   });

@@ -24,6 +24,9 @@ import { normalizeWorkflow } from "./normalize";
 import type { WorkflowDef } from "./types";
 import { getWorkflowRuntime } from "./index";
 import { exportWorkflowDsl, parseWorkflowDsl, hasCodeNodes } from "./dsl";
+import { createLogger } from "../log";
+
+const log = createLogger("workflow-ipc");
 
 // ── 帮助函数 ──────────────────────────────────────────────────────────────────
 
@@ -217,7 +220,7 @@ export function registerWorkflowHandlers(): void {
 
     // 含 code/custom 节点时，记录到 console（安全提示由 UI 层在调用前展示）
     if (hasCodeNodes(result.workflow)) {
-      console.info(`[workflow:import] 工作流「${importName}」含可执行代码节点（code/custom），已通过安全确认`);
+      log.info(`工作流「${importName}」含可执行代码节点（code/custom），已通过安全确认`);
     }
 
     const def = normalizeWorkflow(

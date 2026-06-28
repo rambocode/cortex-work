@@ -9,6 +9,9 @@ import { broadcastChanged } from "./events";
 import { runAutomation } from "./runner";
 import { computeNextRun, scheduleToCron } from "./schedule-cron";
 import { loadAutomations, markOrphanRunsKilled, patchAutomation } from "./store";
+import { createLogger } from "../log";
+
+const log = createLogger("scheduler");
 
 const jobs = new Map<string, Cron>();
 
@@ -39,7 +42,7 @@ export function scheduleOne(meta: AutomationMeta): void {
         : new Cron(scheduleToCron(meta.schedule), options, cb);
     jobs.set(meta.id, job);
   } catch (err) {
-    console.error(`[scheduler] 无法调度 ${meta.id}:`, err);
+    log.error(`无法调度 ${meta.id}:`, err);
   }
 }
 

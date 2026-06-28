@@ -20,6 +20,9 @@ import { CODEX_MCP_CLEAR } from "./mcp-config";
 import { writePiExtension } from "../agents/pi-providers";
 import { type AgentProcess, pipeStdoutLines, spawnEnvForDef, startAgentProcess } from "./cli";
 import { recordAgentTrace } from "./agent-trace";
+import { createLogger } from "../log";
+
+const log = createLogger("ask");
 
 const running = new Map<string, AgentProcess>();
 
@@ -138,7 +141,7 @@ export function registerAskHandlers(): void {
     };
 
     proc.onError((err) => {
-      console.error(`[ask] ${req.agent} spawn failed: ${err.message}`);
+      log.error(`${req.agent} spawn failed: ${err.message}`);
       recordAgentTrace({
         scope: "ask",
         phase: "error",
@@ -174,7 +177,7 @@ export function registerAskHandlers(): void {
         sendEvent({ type: "result", ok: true });
       } else {
         const error = stderrTail.trim() || `退出码 ${code}`;
-        console.error(`[ask] ${req.agent} exited with code ${code}: ${error}`);
+        log.error(`${req.agent} exited with code ${code}: ${error}`);
         sendEvent({ type: "result", ok: false, error });
       }
     });

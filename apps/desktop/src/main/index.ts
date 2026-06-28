@@ -50,6 +50,9 @@ import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 import { getRuntimeAppVersion } from "./app-version";
 import { installGlobalCrashGuards } from "./crash-guards";
 import { installAppMenu } from "./app-menu";
+import { createLogger } from "./log";
+
+const log = createLogger("main");
 
 // 进程级崩溃兜底必须最先安装:历史崩溃为「异步 fs 扫描回调/漂浮 Promise 抛未捕获错误」
 // → 主进程整体 SIGTRAP 退出。装在所有初始化之前,确保后续任何未捕获异常/拒绝只记日志、
@@ -263,7 +266,7 @@ if (!app.requestSingleInstanceLock()) {
       configuredHotkey && isValidAccelerator(configuredHotkey) ? configuredHotkey : NOTES_HOTKEY_ACCELERATOR;
     const hotkey = registerNotesHotkey(startupAccelerator);
     if (hotkey.degraded && hotkey.toast) {
-      console.warn(`[notes] 全局热键注册失败: ${hotkey.toast}`);
+      log.warn(`[notes] 全局热键注册失败: ${hotkey.toast}`);
       notesHotkeyToast = hotkey.toast;
     }
     // 启动恢复桌面行为（登录项 + 供 ready-to-show 读 startMinimized）,须在建窗前。
@@ -285,7 +288,7 @@ if (!app.requestSingleInstanceLock()) {
     // P1 Fix-2：启动时标记残留的 running run 为 error（崩溃/强退后留下的孤儿 run）。
     // 对齐 automation/scheduler.ts initScheduler 中 markOrphanRunsKilled 的做法。
     markOrphanRunsKilled().catch((err) => {
-      console.error('[workflow] markOrphanRunsKilled 失败:', err)
+      log.error('[workflow] markOrphanRunsKilled 失败:', err)
     })
     loadWorkflows().then((workflows) => {
       // P1 Fix-9（去重调度）：只保留一条初始化路径——initWorkflowScheduler 负责 catch-up，
@@ -294,10 +297,10 @@ if (!app.requestSingleInstanceLock()) {
       // 修：initWorkflowScheduler 做 catch-up + 建 cron job，sync() 只管 webhook server。
       initWorkflowScheduler(workflows, workflowRuntime.runNow)
       workflowRuntime.sync().catch((err) => {
-        console.error('[workflow] sync 失败:', err)
+        log.error('[workflow] sync 失败:', err)
       })
     }).catch((err) => {
-      console.error('[workflow] loadWorkflows 失败:', err)
+      log.error('[workflow] loadWorkflows 失败:', err)
     })
     // 浏览器控制 MCP server:随主进程常驻(U2)。工具由 U5 注入;是否注入给 agent 由 U3 按总开关 gate。
     // fire-and-forget:listen 快且失败已内部降级,不阻塞建窗。

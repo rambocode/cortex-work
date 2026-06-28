@@ -8,6 +8,9 @@ import { chmodSync, existsSync } from "fs";
 import { dirname, join } from "path";
 import { execFile } from "child_process";
 import { buildEnv } from "./cli";
+import { createLogger } from "../log";
+
+const log = createLogger("pty");
 
 interface PtyProcess {
   pid: number;
@@ -72,7 +75,7 @@ function loadPty(): PtyModule | null {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     ptyModule = require("node-pty") as PtyModule;
   } catch (err) {
-    console.error("[pty] node-pty 加载失败:", err);
+    log.error("node-pty 加载失败:", err);
     ptyModule = null;
   }
   return ptyModule;
@@ -120,11 +123,14 @@ export function registerPtyHandlers(): void {
       }
     }
     terminals.set(req.id, proc);
+    // 生命周期埋点（dev debug）：内嵌终端无声起停,排查「终端打不开/莫名退出」靠这两条。
+    log.debug(`spawn 成功 id=${req.id} pid=${proc.pid} shell=${shell} cwd=${cwd}`);
     proc.onData((data) => {
       if (!sender.isDestroyed()) sender.send("pty:data", { id: req.id, data });
     });
     proc.onExit(({ exitCode }) => {
       terminals.delete(req.id);
+      log.debug(`onExit id=${req.id} exitCode=${exitCode}`);
       if (!sender.isDestroyed()) sender.send("pty:exit", { id: req.id, exitCode });
     });
     // renderer 只 reload 不关窗时,旧 WebContents 销毁但 Map 条目连同 sender 常驻——监听
@@ -192,6 +198,8 @@ export function registerPtyHandlers(): void {
 }
 
 export function killAllPty(): void {
+  // 退出/关窗统一回收:记录回收数量,便于核对是否有 PTY 子进程泄漏。
+  log.debug(`killAllPty 回收 ${terminals.size} 个终端`);
   for (const proc of terminals.values()) {
     try {
       proc.kill();

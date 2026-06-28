@@ -497,9 +497,9 @@ export class PiRpcSession {
         if (envelope) {
           return { type: "extension_ui_request", id: obj.id as string, method: "askquestion", envelope };
         }
-        console.warn("[pi-askquestion] 信封校验失败(空/越界/不可作答),透传为裸 input");
+        log.warn("[pi-askquestion] 信封校验失败(空/越界/不可作答),透传为裸 input");
       } catch {
-        console.warn("[pi-askquestion] 信封 JSON 解析失败,透传为裸 input");
+        log.warn("[pi-askquestion] 信封 JSON 解析失败,透传为裸 input");
       }
     }
     return obj as unknown as PiUiRequest;

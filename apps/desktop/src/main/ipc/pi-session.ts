@@ -26,6 +26,9 @@ import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp"
 import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
+import { createLogger } from "../log";
+
+const log = createLogger("pi-session");
 
 interface SessionEntry {
   session: PiRpcSession;
@@ -132,11 +135,11 @@ export function filterLoadableExtensionPaths(paths: string[] | undefined): strin
   if (!paths?.length) return [];
   return paths.filter((p) => {
     if (!isAbsolute(p) || !existsSync(p)) {
-      console.warn(`[pi-ext] 注入前跳过失效扩展 -e 路径: ${p}`);
+      log.warn(`[pi-ext] 注入前跳过失效扩展 -e 路径: ${p}`);
       return false;
     }
     if (!isInsideExtStoreRoot(p)) {
-      console.warn(`[pi-ext] 注入前跳过越界扩展 -e 路径(不在 pi 库存根内): ${p}`);
+      log.warn(`[pi-ext] 注入前跳过越界扩展 -e 路径(不在 pi 库存根内): ${p}`);
       return false;
     }
     return true;
@@ -177,7 +180,7 @@ export function registerPiSessionHandlers(): void {
       const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
       if (bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
     } catch (e) {
-      console.warn(`[pi-session] MCP 桥接扩展生成失败: ${String(e)}`);
+      log.warn(`MCP 桥接扩展生成失败: ${String(e)}`);
     }
     req.extraExtensionPaths = extra;
     // U7:市场扩展 -e 注入前剔除失效路径,避免单个坏路径让 pi fail-hard 拖垮整会话。

@@ -6,6 +6,9 @@ import { ipcMain } from "electron";
 import { watch, type FSWatcher } from "fs";
 import { assertAllowed } from "./fs";
 import { isNoisyChange } from "./watch-noise";
+import { createLogger } from "../log";
+
+const log = createLogger("watch");
 
 const DEBOUNCE_MS = 250;
 
@@ -44,11 +47,18 @@ export function registerWatchHandlers(): void {
           if (!sender.isDestroyed()) sender.send("fs:dirChanged", { id });
         }, DEBOUNCE_MS);
       });
-      // 根目录被删/重命名等导致 watcher 失效:静默关闭,保留手动刷新兜底。
-      watcher.on("error", () => closeWatcher(id));
+      // 根目录被删/重命名等导致 watcher 失效:关闭并 warn（原静默关闭,无从排查
+      // 「文件视图不自动刷新」）。保留手动刷新兜底。
+      watcher.on("error", (err) => {
+        log.warn(`watcher error id=${id} path=${path}: ${err instanceof Error ? err.message : String(err)}`);
+        closeWatcher(id);
+      });
       watchers.set(id, { watcher });
-    } catch {
-      /* 无权限/目录消失:不抛错,renderer 仍可手动刷新 */
+      // 生命周期埋点（dev debug）：watch 启动无声,排查自动刷新异常时确认是否挂上。
+      log.debug(`watchDir 启动 id=${id} path=${path} recursive=${recursive}`);
+    } catch (err) {
+      // 无权限/目录消失:不抛错,renderer 仍可手动刷新。warn 记录便于区分「没挂上」与「没事件」。
+      log.warn(`watchDir 启动失败 id=${id} path=${path}: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
 
@@ -56,5 +66,6 @@ export function registerWatchHandlers(): void {
 }
 
 export function closeAllWatchers(): void {
+  log.debug(`closeAllWatchers 关闭 ${watchers.size} 个 watcher`);
   for (const id of [...watchers.keys()]) closeWatcher(id);
 }
