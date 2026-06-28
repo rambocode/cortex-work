@@ -17,6 +17,7 @@ import log from "electron-log/main";
 import { app } from "electron";
 import { join } from "path";
 import { logsDir } from "../paths";
+import { redactData } from "./redact";
 
 // electron-log 的日志级别（高→低）。scope 过滤与级别阈值在 U3 接入 hooks。
 export type LogLevel = "error" | "warn" | "info" | "verbose" | "debug" | "silly";
@@ -75,6 +76,10 @@ export function initLog(): void {
   // 控制台 transport：dev 输出、prod 关闭。
   log.transports.console.level = consoleLevelFor(dev);
 
+  // 文件落盘脱敏：对每条日志的 data 数组就地脱敏（字符串走正则、对象走 key 级）。
+  // 放在 file transport 而非全局 hook —— 被级别阈值拦下的低级别日志不会触达此处，省开销。
+  log.transports.file.transforms.push(({ data }) => data.map(redactData));
+
   // scope 标签不做对齐填充，保持日志行紧凑。
   log.scope.labelPadding = false;
 
@@ -84,5 +89,11 @@ export function initLog(): void {
   Object.assign(console, log.functions);
 }
 
-// 暴露底层 logger，供 U3 的 logLine / logs:write handler 复用同一管线。
+// 文件落盘开关：映射到文件 transport 级别（关=false 彻底停写，开=恢复 dev/prod 阈值）。
+// 供 logger.setLogEnabled / logs:setEnabled 复用，承接既有「启用文件日志」设置项。
+export function setFileLogEnabled(on: boolean): void {
+  log.transports.file.level = on ? fileLevelFor(isDevEnv()) : false;
+}
+
+// 暴露底层 logger，供 logLine / logs:write handler 复用同一管线。
 export default log;

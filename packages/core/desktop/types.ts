@@ -487,6 +487,9 @@ export interface NotificationSettings {
 export interface LogSettings {
   enabled: boolean; // 主进程文件日志落盘开关
   retentionDays: number; // 日志保留天数
+  // dev 细粒度日志 scope 白名单：仅放行这些 scope 的 debug/verbose/silly（空=不额外过滤，
+  // 交给全局级别阈值）。与主进程 CORTEX_DEBUG 环境变量取并集。与 main/ipc/types.ts 逐字镜像。
+  debugScopes?: string[];
 }
 
 // 通用设置容器（与外观项 Tweaks 分属两套存储：这里随 personal-workspace.json 落盘）。

@@ -39,6 +39,12 @@ export function redactString(line: string): string {
   );
 }
 
+// 单条日志参数脱敏：字符串走正则、对象走 key 级。供 electron-log 的
+// transports.file.transforms 对 data 数组逐项就地脱敏（一条日志的每个实参）。
+export function redactData(item: unknown): unknown {
+  return typeof item === "string" ? redactString(item) : redactObject(item);
+}
+
 // 结构化对象脱敏：递归遍历，命中敏感 key 名的值替换为 [redacted]，其余字符串截断。
 // 用于打印 agent 流式事件 / RPC 载荷等结构化数据（不要把原始 JSON 直接喂给 logger）。
 export function redactObject(value: unknown): unknown {

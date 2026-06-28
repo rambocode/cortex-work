@@ -1,20 +1,51 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { appendLog, cleanupOldLogs, logFileName, redactSensitive } from "./logger";
+
+// electron-log / electron / 依赖模块整体 mock：logger.ts 现在是 electron-log 之上的契约层，
+// 这里验证 logLine 路由到对应级别、setLogEnabled 映射文件 transport 级别、纯函数行为。
+const { logFns } = vi.hoisted(() => ({
+  logFns: {
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    verbose: vi.fn(),
+    debug: vi.fn(),
+    silly: vi.fn(),
+    initialize: vi.fn(),
+    scope: vi.fn((n: string) => ({ name: n })),
+    functions: {},
+    hooks: [] as unknown[],
+    transports: { file: { level: "debug" as unknown, maxSize: 0, transforms: [] }, console: { level: "debug" as unknown } },
+  },
+}));
+vi.mock("electron", () => ({
+  app: { isPackaged: false },
+  ipcMain: { handle: vi.fn() },
+  shell: { openPath: vi.fn() },
+}));
+vi.mock("./paths", () => ({ logsDir: () => "/fake/logs" }));
+vi.mock("./ipc/store", () => ({ getPersistedState: vi.fn(async () => ({ generalSettings: { log: { enabled: true, retentionDays: 2 } } })) }));
+vi.mock("electron-log/main", () => ({ default: logFns }));
+
+import { cleanupOldLogs, logFileName, logLine, redactSensitive, setLogEnabled } from "./logger";
 
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "cortex-logs-"));
+  logFns.error.mockClear();
+  logFns.warn.mockClear();
+  logFns.info.mockClear();
+  logFns.debug.mockClear();
+  logFns.transports.file.level = "debug";
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("redactSensitive", () => {
-  it("脱敏 apiKey / token / secret 的值", () => {
-    expect(redactSensitive('apiKey: "sk-secret123"')).not.toContain("sk-secret123");
+describe("redactSensitive（再导出 redactString）", () => {
+  it("脱敏 apiKey / token 的值", () => {
     expect(redactSensitive('apiKey: "sk-secret123"')).toContain("***");
     expect(redactSensitive("token=abc.def")).toContain("***");
   });
@@ -29,20 +60,30 @@ describe("logFileName", () => {
   });
 });
 
-describe("appendLog", () => {
-  it("写入 logs/<date>.log 含级别与消息", () => {
-    const d = new Date(2026, 5, 14, 10);
-    appendLog(dir, true, "info", "启动", d);
-    expect(readFileSync(join(dir, logFileName(d)), "utf8")).toContain("[info] 启动");
+describe("logLine", () => {
+  it("按 level 路由到 electron-log 对应方法", () => {
+    logLine("error", "boom");
+    logLine("warn", "careful");
+    logLine("debug", "trace");
+    expect(logFns.error).toHaveBeenCalledWith("boom");
+    expect(logFns.warn).toHaveBeenCalledWith("careful");
+    expect(logFns.debug).toHaveBeenCalledWith("trace");
   });
-  it("on=false 不写文件", () => {
-    appendLog(dir, false, "info", "x", new Date(2026, 5, 14));
-    expect(readdirSync(dir)).toEqual([]);
+  it("非法 level 回退 info", () => {
+    logLine("bogus", "x");
+    expect(logFns.info).toHaveBeenCalledWith("x");
   });
-  it("写入时对敏感字段脱敏", () => {
-    const d = new Date(2026, 5, 14);
-    appendLog(dir, true, "error", 'apiKey="sk-xyz"', d);
-    expect(readFileSync(join(dir, logFileName(d)), "utf8")).not.toContain("sk-xyz");
+});
+
+describe("setLogEnabled", () => {
+  it("关=文件 transport 级别置 false", () => {
+    setLogEnabled(false);
+    expect(logFns.transports.file.level).toBe(false);
+  });
+  it("开=恢复 dev 级别 debug", () => {
+    setLogEnabled(false);
+    setLogEnabled(true);
+    expect(logFns.transports.file.level).toBe("debug");
   });
 });
 

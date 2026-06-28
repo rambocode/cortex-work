@@ -39,7 +39,12 @@ const { initializeMock, scopeFns, scopeMock, logStub } = vi.hoisted(() => {
     scope: scopeMock,
     functions: scopeFns,
     transports: {
-      file: { resolvePathFn: undefined as unknown, maxSize: 1048576, level: "silly" as unknown },
+      file: {
+        resolvePathFn: undefined as unknown,
+        maxSize: 1048576,
+        level: "silly" as unknown,
+        transforms: [] as Array<(arg: { data: unknown[] }) => unknown>,
+      },
       console: { level: "silly" as unknown },
     },
   };

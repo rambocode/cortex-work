@@ -157,6 +157,8 @@ export interface NotificationSettings {
 export interface LogSettings {
   enabled: boolean;
   retentionDays: number;
+  // dev 细粒度日志 scope 白名单（与 packages/core/desktop/types.ts 逐字镜像）。
+  debugScopes?: string[];
 }
 
 // MCP 注入配置(M2 U2,与 packages/core/desktop/types.ts 逐字镜像)。主进程消费(注入),
