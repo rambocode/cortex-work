@@ -367,23 +367,26 @@ function runDelegateSubAgent(
 
   const adapter = getAgentDef(role.agent);
   const spawnKey = randomUUID();
+  // 主会话 base agent 是否 pi：决定 pi 协作者能否继承主会话 model/provider（同 deepseek 体系才匹配）。
+  const parentIsPi = baseAgentKindOf(parent.agent) === "pi";
   const req: CliStartRequest = {
     runId: spawnKey,
     sessionId: spawnKey, // fresh → 未注册 delegate → 防递归
     agent: role.agent,
     cwd: parent.cwd,
     prompt: task,
-    // 子 agent 用各自 agent 的默认 model，绝不继承主会话 model：主会话 model 属于主 agent 的 provider
-    // 体系（如 pi 的 deepseek-v4-flash），传给 codex（ChatGPT 账号）会 400「model not supported」。
-    // pi 协作者例外：需 provider + 同体系 model，沿用主会话（仅当主会话也是 pi 时模型才匹配，R6）。
-    model: role.agent === "pi" ? parent.model : undefined,
+    // 子 agent 用各自 agent 的默认 model，绝不跨体系继承主会话 model：主会话 model 属于主 agent 的
+    // provider 体系——pi 的 deepseek 传给 codex（ChatGPT）会 400；反之 codex/claude 的 gpt/claude
+    // model 串给 pi 也不匹配 pi 的 provider。仅当「子是 pi 且主也是 pi」时同体系，才继承。
+    model: role.agent === "pi" && parentIsPi ? parent.model : undefined,
     effort: parent.effort,
     permissionMode: parent.permissionMode,
     approvalPolicy: parent.approvalPolicy,
     // 协作者 persona 作为子 agent 系统提示(三端 adapter 原生支持 appendSystemPrompt)。
     appendSystemPrompt: role.systemPrompt || undefined,
-    // 子 agent 若为 pi,复用主会话 provider(R6:主会话非 pi 时无 provider,pi 协作者走内置默认可能失败)。
-    provider: role.agent === "pi" ? parent.provider : undefined,
+    // 子 agent 若为 pi 且主会话也是 pi，复用主会话 provider；主会话非 pi 时 parent 无 pi provider，
+    // pi 协作者走内置默认（可能 deactivated，R6 已知限制——v1 协作者建议用 claude/codex）。
+    provider: role.agent === "pi" && parentIsPi ? parent.provider : undefined,
   };
   // pi 子 agent 需 provider extension(apiKey)才能调模型。
   if (role.agent === "pi" && req.provider) {
@@ -450,7 +453,12 @@ function runDelegateSubAgent(
             resultFailed = true;
             errorText = ev.error ?? "执行失败";
           }
+        } else if (ev.type === "init") {
+          // 子 agent 的 init（codex thread.started / claude session）不转发：delegate handler 已发过
+          // roleHeader 的 init（stageLabel=role.label），再转发会让渲染端插入第二个空 roleHeader
+          // （表现为大「Codex」空标题 + 小「codex」才有内容）。
         } else {
+          // thinking/tool/turn/usage/retry：带 roleId 转发，实时展示子 agent 过程。
           onEvent({ ...ev, roleId: role.id });
         }
       }
