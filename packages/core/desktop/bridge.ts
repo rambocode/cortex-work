@@ -17,6 +17,8 @@ import type {
   CliExitEvent,
   CliStartRequest,
   OrchestrateStartRequest,
+  RoleConfig,
+  RoundtableStartRequest,
   CliStreamEvent,
   ContentSearchResult,
   DerivedAgentMeta,
@@ -138,6 +140,13 @@ export interface DesktopBridge {
   // 可选,无此能力(Web 端 / 旧壳)时 renderer 当作无派生 agent。
   listAgentProfiles?(): Promise<DerivedAgentMeta[]>;
   reloadAgentProfiles?(): Promise<DerivedAgentMeta[]>;
+  // 圆桌角色库 CRUD（~/.cortex-desktop/roles.json 持久化）。可选,无此能力(Web 端 / 旧壳)时
+  // renderer 当作无自定义角色，仅内置 shortcut 可用。变更后主进程广播 roles:changed。
+  listRoles?(): Promise<RoleConfig[]>;
+  createRole?(payload: { label: string; agent: string; systemPrompt: string; color?: string; avatar?: string }): Promise<RoleConfig>;
+  updateRole?(id: string, patch: { label?: string; agent?: string; systemPrompt?: string; color?: string; avatar?: string }): Promise<RoleConfig | null>;
+  deleteRole?(id: string): Promise<boolean>;
+  onRolesChanged?(cb: (roles: RoleConfig[]) => void): () => void;
   // Markdown 预览里的链接:用系统默认浏览器打开（仅 http/https）。
   openExternal?(url: string): Promise<void>;
   // 内嵌浏览器面板「清除浏览数据」:清空 persist:browser-panel 分区的 cookie/缓存/storage。
@@ -226,6 +235,11 @@ export interface DesktopBridge {
   //    事件带 stage 字段）；取消走 killOrchestration（不复用 killCli，编排子进程在主进程独立注册表）。 ──
   startOrchestration?(req: OrchestrateStartRequest): Promise<void>;
   killOrchestration?(runId: string): Promise<void>;
+  // ── 圆桌多角色 BFS 编排（chat @mention 触发）。可选能力（web 端无 → 降级到 startCli）。
+  //    事件流复用 onCliEvent/onCliExit（runId=roundtableRunId，事件带 roleId 字段）；
+  //    取消走 killRoundtable（不复用 killCli，圆桌子进程在主进程独立注册表）。 ──
+  startRoundtable?(req: RoundtableStartRequest): Promise<void>;
+  killRoundtable?(runId: string): Promise<void>;
   // 发送前校验外部 agent 的 resume 会话文件是否仍在本机。可选能力;旧壳缺失时保持原行为。
   agentSessionExists?(req: AgentSessionRequest): Promise<boolean>;
   // 编辑重发:截断 agent CLI 会话记忆(可选能力,旧壳无此方法时退化为带旧记忆 resume)。

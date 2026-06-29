@@ -133,6 +133,18 @@ mac:
       arch: [arm64]
     - target: dmg
       arch: [arm64]
+win:
+  icon: assets/cortex-neuron-icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
 publish:
   provider: github
   owner: rambocode

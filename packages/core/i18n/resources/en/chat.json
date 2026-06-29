@@ -84,36 +84,37 @@
       "high": "Thinking · High",
       "xhigh": "Thinking · Extra high"
     },
-    "permissionMode": {
-      "label": "Access",
-      "plan": "Read-only files",
-      "accept-edits": "Writable workspace",
-      "full-auto": "Access all files",
-      "sandbox": "External sandbox",
-      "planHint": "Read-only analysis; no file changes or write/exec tools",
-      "acceptEditsHint": "Auto-write the workspace; stays within cwd by default",
-      "fullAutoHint": "Skip all permissions/sandbox; full read-write (default)",
-      "sandboxHint": "Unrestricted inside an isolated sandbox, limiting impact on the real filesystem (native to codex; degrades on claude/pi)"
-    },
-    "approval": {
-      "label": "Run",
-      "auto": "Auto-execute",
-      "ask": "Ask before running",
-      "autoHint": "Tools run immediately, no mid-run prompts",
+    "execPermission": {
+      "label": "Execution",
+      "plan": "Plan",
+      "ask": "Ask first",
+      "auto": "Auto-run",
+      "planHint": "Plan mode: read-only analysis; no file changes or write/exec tools",
       "askHint": "Prompt before write/exec tools (Pi only)",
-      "askDegraded": "Ask-before-running only works on Pi; Claude/Codex are non-interactive and can't prompt mid-run, so it falls back to auto-execute"
+      "autoHint": "Tools run immediately, no mid-run prompts",
+      "askDegraded": "Ask-first only works on Pi; Claude/Codex are non-interactive and can't prompt mid-run, so it falls back to auto-run"
+    },
+    "dirPermission": {
+      "label": "Directory access",
+      "workspace": "Workspace only",
+      "all": "All files",
+      "sandbox": "External sandbox",
+      "workspaceHint": "Confine the agent to the working directory (enforced on Pi; writes only on Codex; not enforced on Claude)",
+      "allHint": "Full read-write, no directory limit (default)",
+      "sandboxHint": "Unrestricted inside an isolated sandbox, limiting impact on the real filesystem (native to codex; degrades on claude/pi)",
+      "sandboxDegraded": "External sandbox is native to Codex only; Claude/Pi have no native sandbox and fall back to normal directory access"
     },
     "subagentOrchestration": {
       "label": "Sub-agent orchestration",
       "on": "On",
       "off": "Off",
-      "onHint": "This session runs the three-stage pipeline (intent -> sub-agent execution -> refine); the process panel shows each stage (Claude/Codex only)",
+      "onHint": "This session runs the three-stage pipeline (intent -> sub-agent execution -> refine); the process panel shows each stage",
       "offHint": "Send directly in one shot (default). When on, runs the three-stage pipeline at ~3x cost and latency"
     },
     "modeBlock": {
-      "planEdit": "You're in Read-only files access — {{name}} was blocked from editing files. Switch access and retry this turn?",
-      "planExec": "You're in Read-only files access — {{name}} was blocked from running a command. Switch access and retry this turn?",
-      "planTool": "You're in Read-only files access — {{name}} was blocked from using a restricted tool (e.g. an extension). Switch to Access all files and retry this turn?",
+      "planEdit": "You're in Plan (read-only files) access — {{name}} was blocked from editing files. Switch access and retry this turn?",
+      "planExec": "You're in Plan (read-only files) access — {{name}} was blocked from running a command. Switch access and retry this turn?",
+      "planTool": "You're in Plan (read-only files) access — {{name}} was blocked from using a restricted tool (e.g. an extension). Switch to Access all files and retry this turn?",
       "acceptEditsExec": "You're in Writable workspace access — {{name}} was blocked from running a command. Switch to Access all files and retry this turn?",
       "switchAcceptEdits": "Switch to Writable workspace & retry",
       "switchFullAuto": "Switch to Access all files & retry",

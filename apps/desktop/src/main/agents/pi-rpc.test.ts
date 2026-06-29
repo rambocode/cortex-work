@@ -134,8 +134,15 @@ describe("mapPiEvent", () => {
     });
   });
 
-  it("message_end 正常收尾（stop/length/toolUse / 无 message）→ null", () => {
-    expect(mapPiEvent({ type: "message_end", message: { stopReason: "stop" } })).toBeNull();
+  it("message_end 正常最终收尾（stop/length）→ result；toolUse 中间轮仍忽略", () => {
+    expect(mapPiEvent({ type: "message_end", message: { stopReason: "stop" } })).toEqual({
+      type: "result",
+      willRetry: false,
+    });
+    expect(mapPiEvent({ type: "message_end", message: { stopReason: "length" } })).toEqual({
+      type: "result",
+      willRetry: false,
+    });
     expect(mapPiEvent({ type: "message_end", message: { stopReason: "toolUse" } })).toBeNull();
     expect(mapPiEvent({ type: "message_end" })).toBeNull();
   });
@@ -369,6 +376,24 @@ describe("PiRpcSession", () => {
     new PiRpcSession(f.transport, onEvent);
     f.emit(JSON.stringify({ type: "agent_end", messages: [], willRetry: false }) + "\n");
     expect(onEvent).toHaveBeenCalledWith({ type: "result", willRetry: false }, undefined);
+  });
+
+  it("text_delta 后仅有 message_end(stop) 也会按当前 runId 发 result 收尾", () => {
+    const onEvent = vi.fn();
+    const f = fakeTransport();
+    const s = new PiRpcSession(f.transport, onEvent);
+    void s.prompt("需要思考的问题", "run-pi").catch(() => {});
+    f.emit(
+      JSON.stringify({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "最终答案", partial: {} },
+        message: {},
+      }) + "\n",
+    );
+    f.emit(JSON.stringify({ type: "message_end", message: { stopReason: "stop" } }) + "\n");
+    expect(onEvent).toHaveBeenCalledWith({ type: "text", delta: "最终答案" }, "run-pi");
+    expect(onEvent).toHaveBeenCalledWith({ type: "result", willRetry: false }, "run-pi");
+    s.stop();
   });
 
   it("notify 走事件流(非对话框回写通道),setStatus 丢弃", () => {

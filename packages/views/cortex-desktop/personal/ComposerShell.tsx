@@ -18,17 +18,18 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import type {
   AgentKind,
   AgentThinkingValue,
-  ApprovalPolicy,
   DerivedAgentMeta,
+  DirPermission,
+  ExecPermission,
   PendingDocFile,
   PendingImage,
-  PermissionMode,
   PersonalAttachment,
 } from "@cortex-work/core";
 import { AgentSelect } from "./AgentSelect";
 import { CustomizePill } from "./CustomizePill";
 import { ModelThinkingPill } from "./ModelThinkingPill";
 import { useDismissableMenu } from "./useDismissableMenu";
+import { MentionDropdown, useMentionAutocomplete } from "./MentionAutocomplete";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
 import { FILE_DRAG_MIME } from "./FilesView";
@@ -110,10 +111,10 @@ export function ComposerShell({
   onChangePiModel,
   thinkingValue,
   onChangeThinking,
-  permissionMode,
-  onChangePermissionMode,
-  approvalPolicy,
-  onChangeApprovalPolicy,
+  execPermission,
+  onChangeExecPermission,
+  dirPermission,
+  onChangeDirPermission,
   subagentOrchestration,
   onToggleSubagentOrchestration,
   onToggleSkills,
@@ -160,12 +161,12 @@ export function ComposerShell({
   // 思考强度:非 Pi 映射为 effort（下一轮生效）;Pi 映射为 thinkingLevel（运行时即时生效）。
   thinkingValue?: AgentThinkingValue;
   onChangeThinking?: (value: AgentThinkingValue) => void;
-  // 访问范围 + 执行/审批 两个 pill(会话级)。提供 onChange 才渲染对应 pill。
-  permissionMode?: PermissionMode;
-  onChangePermissionMode?: (mode: PermissionMode) => void;
-  approvalPolicy?: ApprovalPolicy;
-  onChangeApprovalPolicy?: (p: ApprovalPolicy) => void;
-  // 子 agent 编排开关(会话级布尔,opt-in)。仅 claude/codex 生效,CustomizePill 内按 agent 门控。
+  // 执行权限 + 目录执行权限 两个 pill(会话级)。提供 onChange 才渲染对应 pill。
+  execPermission?: ExecPermission;
+  onChangeExecPermission?: (p: ExecPermission) => void;
+  dirPermission?: DirPermission;
+  onChangeDirPermission?: (d: DirPermission) => void;
+  // 子 agent 编排开关(会话级布尔,opt-in)。Claude/Codex 与 Pi 均可参与(CustomizePill 内按 agent 门控)。
   subagentOrchestration?: boolean;
   onToggleSubagentOrchestration?: () => void;
   onToggleSkills: () => void;
@@ -190,6 +191,7 @@ export function ComposerShell({
   const attachInputRef = useRef<HTMLInputElement>(null);
   // 上传入口合并:文件上传 + Skills 开关收进单个「+」按钮的上弹菜单(复用 AgentSelect 同款关闭范式)。
   const attachMenu = useDismissableMenu();
+  const mention = useMentionAutocomplete(text, setText, taRef);
 
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   // 会话未单独设 thinkingLevel 时,下拉回退全局默认（与 sendPiTurn 的实际生效值一致,避免「显关闭、实际用默认」）。
@@ -480,6 +482,8 @@ export function ComposerShell({
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // @mention autocomplete 优先拦截
+    if (mention.handleMentionKeyDown(e)) return;
     if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       const n = slashMatches.length;
@@ -720,11 +724,21 @@ export function ComposerShell({
               </button>
             </span>
           ) : null}
+          {mention.isOpen && (
+            <MentionDropdown
+              options={mention.filtered}
+              activeIndex={mention.activeIdx}
+              onSelect={mention.selectMention}
+              anchorRect={mention.anchorRect}
+            />
+          )}
           <textarea
             ref={taRef}
             value={text}
             onChange={(e) => {
               setText(e.target.value);
+              // @mention autocomplete：文本变更时重新检测 @query
+              requestAnimationFrame(() => mention.updateMentionState());
               // 宠物:进入「看你打字」状态（停止输入后由节拍器衰减回 idle）。
               const pet = usePetStore.getState();
               if (pet.state === "idle" || pet.state === "sleeping" || pet.state === "typing") pet.set("typing");
@@ -822,15 +836,15 @@ export function ComposerShell({
             style={{ display: "none" }}
             onChange={onPickAttachments}
           />
-          {/* 「自定义」下拉(置于「+」之后):合并原先并排的「执行模式」+「工作区」两 pill。
+          {/* 「自定义」下拉(置于「+」之后):合并「执行权限」+「目录执行权限」两 pill。
               两组均 opt-in,至少有一个 onChange 时才渲染整个按钮。 */}
-          {onChangeApprovalPolicy || onChangePermissionMode || onToggleSubagentOrchestration ? (
+          {onChangeExecPermission || onChangeDirPermission || onToggleSubagentOrchestration ? (
             <CustomizePill
               agent={agent}
-              approvalPolicy={approvalPolicy}
-              onChangeApprovalPolicy={onChangeApprovalPolicy}
-              permissionMode={permissionMode}
-              onChangePermissionMode={onChangePermissionMode}
+              execPermission={execPermission}
+              onChangeExecPermission={onChangeExecPermission}
+              dirPermission={dirPermission}
+              onChangeDirPermission={onChangeDirPermission}
               subagentOrchestration={subagentOrchestration}
               onToggleSubagentOrchestration={onToggleSubagentOrchestration}
               running={running}

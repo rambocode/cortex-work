@@ -46,5 +46,12 @@ export function useDismissableMenu() {
   };
   const onMouseEnter = () => cancelCloseTimer();
 
-  return { open, setOpen, wrapRef, onMouseLeave, onMouseEnter };
+  // 对外暴露的 setOpen 先取消 mouseLeave 定时器再更新状态,
+  // 防止残留定时器与 onClick toggle 竞态导致菜单闪现即消失。
+  const setOpenSafe: typeof setOpen = (action) => {
+    cancelCloseTimer();
+    setOpen(action);
+  };
+
+  return { open, setOpen: setOpenSafe, wrapRef, onMouseLeave, onMouseEnter };
 }

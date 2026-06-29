@@ -18,7 +18,8 @@
     "push": "Push",
     "voice": "Voice",
     "mediaGen": "Media Generation",
-    "stt": "Speech to Text"
+    "stt": "Speech to Text",
+    "roles": "Roles"
   },
   "tabGroups": {
     "general": "General",
@@ -508,5 +509,27 @@
     "advancedCard": "Advanced",
     "timeoutLabel": "Timeout (ms)",
     "timeoutDesc": "Timeout for a single transcription request in milliseconds. Default 60000."
+  },
+  "roles": {
+    "title": "Role Management",
+    "desc": "Create and manage custom roles. Use @rolename in chat to invoke the bound Agent with a custom persona.",
+    "add": "New Role",
+    "empty": "No custom roles yet. Click above to create one.",
+    "createTitle": "Create Role",
+    "editTitle": "Edit Role",
+    "labelField": "Role Name",
+    "labelPlaceholder": "e.g. Designer, Reviewer",
+    "agentField": "Bound Agent",
+    "promptField": "Persona (System Prompt)",
+    "promptPlaceholder": "Describe this role's capabilities, style, and constraints…",
+    "colorField": "Label Color",
+    "avatarField": "Emoji Avatar",
+    "cancel": "Cancel",
+    "save": "Save",
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete",
+    "customTitle": "Custom Roles",
+    "builtinTitle": "Built-in Shortcuts"
   }
 }

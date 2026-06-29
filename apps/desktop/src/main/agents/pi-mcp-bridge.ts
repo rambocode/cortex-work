@@ -239,6 +239,8 @@ async function __mcpBridgeMain(pi, servers) {
       client.notify("notifications/initialized", {});
       const list = await client.request("tools/list", {});
       const tools = list && Array.isArray(list.tools) ? list.tools : [];
+      // 诊断：连接成功 + 拿到的工具名（定位 delegate ask_<id> 是否真注册）。
+      try { process.stderr.write("[cortex-mcp-bridge] " + server.id + " connected tools=[" + tools.map(function (t) { return t && t.name; }).join(",") + "]\n"); } catch (e) {}
       clients.push(client);
       for (let j = 0; j < tools.length; j++) {
         const t = tools[j];
@@ -256,6 +258,8 @@ async function __mcpBridgeMain(pi, servers) {
           description: typeof t.description === "string" ? t.description : "",
           parameters: schema,
           async execute(_toolCallId, params) {
+            // 临时诊断（委派 task 丢失排查）：记录 pi LLM 实际传入的工具参数到 stderr（经 cli.ts stderr trace 可见）。
+            try { process.stderr.write("[mcp-bridge] call " + toolName + " args=" + JSON.stringify(params || {}).slice(0, 400) + "\n"); } catch (e) {}
             try {
               const r = await callClient.request("tools/call", { name: toolName, arguments: params || {} });
               const content = r && Array.isArray(r.content) ? r.content : [{ type: "text", text: JSON.stringify(r) }];
@@ -269,7 +273,7 @@ async function __mcpBridgeMain(pi, servers) {
     } catch (e) {
       // 单 server 失败不影响其它 server 与 pi 启动(fail-soft)。
       if (client && client.close) { try { client.close(); } catch (e2) {} }
-      try { console.warn("[cortex-mcp-bridge] server " + (server && server.id) + " 接入失败: " + String((e && e.message) || e)); } catch (e3) {}
+      try { process.stderr.write("[cortex-mcp-bridge] " + (server && server.id) + " FAILED: " + String((e && e.message) || e) + "\n"); } catch (e3) {}
     }
   }
   // 会话结束清理 stdio 子进程(best-effort;子进程本随 pi 退出而亡,显式关更干净)。
@@ -295,11 +299,12 @@ export function renderMcpBridgeExtension(servers: BridgeServer[]): string {
   ].join("\n");
 }
 
-// 落盘扩展文件,返回绝对路径。固定文件名(每次 open 覆盖重写;token/session 每会话刷新)。
-export function writeMcpBridgeExtension(servers: BridgeServer[]): string {
+// 落盘扩展文件,返回绝对路径。fileName 缺省固定名(RPC 桥接每次 open 覆盖重写);委派单发传
+// per-session 名(delegate-bridge-<sid>.js)避免并发 pi 互相覆盖(R3)。token/session 每会话刷新烘焙进文件。
+export function writeMcpBridgeExtension(servers: BridgeServer[], fileName = "mcp-bridge.js"): string {
   const dir = join(app.getPath("userData"), "pi-extensions");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, "mcp-bridge.js");
+  const file = join(dir, fileName);
   writeFileSync(file, renderMcpBridgeExtension(servers), { mode: 0o600 });
   return file;
 }

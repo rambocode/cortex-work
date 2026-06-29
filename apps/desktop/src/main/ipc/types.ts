@@ -11,6 +11,18 @@ export interface DerivedAgentMeta {
   label?: string;
 }
 
+// 圆桌角色配置（全局角色库）。与 packages/core/desktop/types.ts 镜像同步。
+export interface RoleConfig {
+  id: string;
+  label: string;
+  agent: string;
+  systemPrompt: string;
+  color?: string;
+  avatar?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PromptNode {
   name: string;
   path: string;
@@ -87,8 +99,9 @@ export interface SessionMeta {
   providerId?: string;
   piSessionFile?: string; // 阶段4 pi 会话恢复用磁盘 JSONL 路径（与 core 镜像）
   useOwnSkills?: boolean;
-  permissionMode?: PermissionMode; // 访问范围（与 core 镜像;主进程仅 round-trip 持久化,不按字段消费）
-  approvalPolicy?: ApprovalPolicy; // 执行/审批策略（与 core 镜像;round-trip）
+  execPermission?: ExecPermission; // 执行权限（与 core 镜像;主进程仅 round-trip 持久化,不按字段消费）
+  dirPermission?: DirPermission; // 目录执行权限（与 core 镜像;round-trip）
+  subagentOrchestration?: boolean; // 子 agent 三段编排开关（与 core 镜像;round-trip）
   hiddenHistory?: HiddenHistoryMeta;
   archivedAt?: number;
   createdAt: number;
@@ -446,6 +459,12 @@ export interface CliStartRequest {
   };
   // 主进程内部填充:生成的 extension 文件绝对路径（buildArgs 读取）。
   piExtensionPath?: string;
+  // 委派（delegate）：本轮被 @ 的协作者角色。非空时 cli.ts 注入 cortex-delegate MCP server
+  // （per-turn 工具集），主 agent 经 ask_<id> 工具自主委派子任务给这些协作者。与 core 镜像。
+  delegateRoles?: RoleConfig[];
+  // pi 专属:除 piExtensionPath 外的额外 -e 扩展路径（如 delegate 桥接）。主进程内部填充，
+  // pi.ts buildArgs 逐个 -e 注入。与 core 镜像。
+  extraExtensionPaths?: string[];
 }
 
 // 历史消息追问的临时流式应答请求（与 core/desktop/types.ts 镜像）。
@@ -516,14 +535,32 @@ export interface AgentProjectInfo {
 //   stageLabel — 段切换时的人可读提示文案（如「理解意图中…」），供渲染端更新 typing 占位，
 //               可选增强字段；渲染端未消费时自然忽略。
 export type CliStreamEvent =
-  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
-  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
-  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string }
-  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 思考/推理增量(reasoning 模型),对齐 PiSessionEvent.reasoning
-  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 一轮 assistant 结束(claude stop_reason:end_turn/tool_use/...)
-  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 流式 usage/cost(补充磁盘来源,见 KTD3)
-  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string } // 安全重试发起(对齐 pi retry)
-  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string };
+  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string };
+
+// 圆桌编排启动参数（渲染端 → roundtable:start）。
+// 管线式调度：主 agent 先执行用户 prompt，其输出作为 @mentioned agent 的上下文（KTD4）。
+export interface RoundtableStartRequest {
+  runId: string;
+  sessionId: string;
+  // 主会话 agent（管线第一段：先由它处理用户 prompt，输出再交给 @mentioned agent）。
+  agent: string;
+  cwd: string;
+  text: string;
+  mentions: Array<{ mention: string; role: RoleConfig }>;
+  roles: RoleConfig[];
+  permissionMode?: string;
+  approvalPolicy?: string;
+  appendSystemPrompt?: string;
+  model?: string;
+  effort?: string;
+}
 
 export interface CliExitEvent {
   runId: string;
@@ -577,12 +614,17 @@ export interface PiOpenRequest {
   enableSampleCommands?: boolean;
   // 运行模式 plan 档:只读工具白名单。存在则 buildRpcArgs 注入 --tools <逗号拼接>;缺省 = 全工具。
   toolWhitelist?: string[];
+  // 目录执行权限「仅工作目录」/「外部沙箱」→ true:pi:open 据此注入 cwd 路径闸 extension
+  // (writePathJailExtension,roots = cwd + skillPaths),把内置文件工具限制在工作目录内。缺省 = 不闸。
+  confineToCwd?: boolean;
   // 主进程内部填充:除 provider 外追加的 extension 路径（审批/样例工具/命令），各加一个 -e。
   extraExtensionPaths?: string[];
   // pi 持久追加 system prompt（阶段4）:renderer 传,buildRpcArgs → --append-system-prompt。
   appendSystemPrompt?: string;
   // pi 思考强度初值（阶段5）:renderer 传,buildRpcArgs → --thinking（冷启设初值）。
   thinkingLevel?: string;
+  // 主进程内部填充:askquestion extension 的会话级 sentinel。renderer 不传。
+  askQuestionSentinel?: string;
 }
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。
@@ -853,10 +895,13 @@ export interface DocFileRaw {
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
-// 访问范围（沙箱档），与 core/desktop/types.ts 镜像。adapter 翻译成各 CLI 原生标志。
+// 访问范围（沙箱档），与 core/desktop/types.ts 镜像。adapter 翻译成各 CLI 原生标志(线格式)。
 export type PermissionMode = "plan" | "accept-edits" | "full-auto" | "sandbox";
-// 执行/审批策略（与访问范围正交），与 core 镜像。
+// 执行/审批策略（与访问范围正交），与 core 镜像(线格式)。
 export type ApprovalPolicy = "auto" | "ask";
+// UI 单一真源两轴(与 core 镜像;主进程仅 round-trip 持久化,不按字段消费——发送边界在渲染端派生成线格式)。
+export type ExecPermission = "plan" | "ask" | "auto";
+export type DirPermission = "workspace" | "all" | "sandbox";
 // pi plan 档只读工具白名单,与 core/desktop/types.ts 的 PI_PLAN_TOOL_WHITELIST 镜像。
 // 主进程 pi.ts 单发路径无法 import core barrel,故此处镜像一份供 adapter 引用(避免硬编码漂移)。
 // 浏览器控制工具(browser_*,沙箱 + URL 闸)并入,须与 core 镜像逐字一致。

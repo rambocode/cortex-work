@@ -9,10 +9,11 @@ import { app } from "electron";
 import { join } from "path";
 
 export function resolvePiBinary(): string {
-  // 打包态:extraResources 把 resources/pi 落到 Contents/Resources/pi。
+  const bin = process.platform === "win32" ? "pi.exe" : "pi";
+  // 打包态:extraResources 把 resources/pi 落到 Contents/Resources/pi（mac）或 resources/pi（win）。
   if (app.isPackaged) {
-    return join(process.resourcesPath, "pi", "pi");
+    return join(process.resourcesPath, "pi", bin);
   }
   // dev 态:electron-vite 的 app.getAppPath() = apps/desktop,二进制由 build-pi-binary.mjs 生成。
-  return join(app.getAppPath(), "resources", "pi", "pi");
+  return join(app.getAppPath(), "resources", "pi", bin);
 }

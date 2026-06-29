@@ -3,7 +3,7 @@
 // 「发送到 Chat」插入。
 
 import { DEFAULT_AGENT_THINKING, usePiEnabledSkills } from "@cortex-work/core";
-import type { AgentThinkingValue, ApprovalPolicy, PendingDocFile, PendingImage, PermissionMode, PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import type { AgentThinkingValue, DirPermission, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { ComposerShell, type SlashCommand } from "./ComposerShell";
 
 // 内建 slash 命令(发送拦截在 PersonalChatArea.onSend）。kind:"builtin" = 选中即执行。
@@ -26,8 +26,8 @@ export function PersonalComposer({
   onChangeModel,
   onChangePiModel,
   onChangeThinking,
-  onChangePermissionMode,
-  onChangeApprovalPolicy,
+  onChangeExecPermission,
+  onChangeDirPermission,
   onToggleSubagentOrchestration,
   onToggleSkills,
   onToast,
@@ -51,8 +51,8 @@ export function PersonalComposer({
   onChangePiModel: (channelId: string, model: string) => void;
   // 思考强度:非 Pi 更新 effort;Pi 更新 thinkingLevel。
   onChangeThinking: (value: AgentThinkingValue) => void;
-  onChangePermissionMode: (mode: PermissionMode) => void;
-  onChangeApprovalPolicy: (p: ApprovalPolicy) => void;
+  onChangeExecPermission: (p: ExecPermission) => void;
+  onChangeDirPermission: (d: DirPermission) => void;
   onToggleSubagentOrchestration: () => void;
   onToggleSkills: () => void;
   onToast: (text: string) => void;
@@ -86,10 +86,10 @@ export function PersonalComposer({
       onChangePiModel={onChangePiModel}
       thinkingValue={session.agent === "pi" ? session.thinkingLevel : (session.effort ?? DEFAULT_AGENT_THINKING)}
       onChangeThinking={onChangeThinking}
-      permissionMode={session.permissionMode}
-      onChangePermissionMode={onChangePermissionMode}
-      approvalPolicy={session.approvalPolicy}
-      onChangeApprovalPolicy={onChangeApprovalPolicy}
+      execPermission={session.execPermission}
+      onChangeExecPermission={onChangeExecPermission}
+      dirPermission={session.dirPermission}
+      onChangeDirPermission={onChangeDirPermission}
       subagentOrchestration={session.subagentOrchestration === true}
       onToggleSubagentOrchestration={onToggleSubagentOrchestration}
       onToggleSkills={onToggleSkills}

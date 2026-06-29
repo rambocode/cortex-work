@@ -117,6 +117,10 @@ export type Message =
       attachments?: MessageAttachmentRef[];
       images?: ChatImageRef[];
       files?: ChatFileRef[];
+      // 圆桌编排：标注本条消息来自哪个角色（渲染端据此显示角色标签/颜色）。
+      roleId?: string;
+      roleLabel?: string;
+      roleColor?: string;
       uid?: string;
     }
   | {
@@ -160,6 +164,18 @@ export type Message =
       time: string;
       stage: "intent" | "subagent" | "refine";
       label: string;
+      uid?: string;
+    }
+  | {
+      // 圆桌编排角色切换标题，出现在聊天正文流中（区别于 stageTitle 仅过程流）。
+      // 由 roundtable.ts 的 init[roleId] 事件转化，标记后续文本来自哪个角色。
+      kind: "roleHeader";
+      who: string;
+      time: string;
+      roleId: string;
+      roleLabel: string;
+      roleColor?: string;
+      roleAvatar?: string;
       uid?: string;
     };
 

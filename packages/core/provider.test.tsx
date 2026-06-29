@@ -6,7 +6,6 @@
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import React from "react";
 import type { DesktopBridge } from "./desktop/bridge";
 import { CoreProvider } from "./provider";
 
@@ -15,19 +14,15 @@ function makeBridge(logMessage: DesktopBridge["logMessage"]): DesktopBridge {
   return { loadChat: async () => [], saveChat: async () => {}, logMessage } as unknown as DesktopBridge;
 }
 
+const identity = { userId: "u", name: "n" };
+
 describe("CoreProvider 初始化埋点（U7）", () => {
   it("挂载时经注入 bridge 以 info 级记录一条初始化信息（含 wsId/liveData/bridge）", () => {
     const logMessage = vi.fn<(level: string, message: string) => Promise<void>>(async () => {});
     render(
-      React.createElement(
-        CoreProvider,
-        {
-          wsId: "ws-7",
-          identity: { userId: "u", name: "n" },
-          desktopBridge: makeBridge(logMessage),
-        },
-        null,
-      ),
+      <CoreProvider wsId="ws-7" identity={identity} desktopBridge={makeBridge(logMessage)}>
+        {null}
+      </CoreProvider>,
     );
     expect(logMessage).toHaveBeenCalledTimes(1);
     const [level, message] = logMessage.mock.calls[0]!;
@@ -41,15 +36,9 @@ describe("CoreProvider 初始化埋点（U7）", () => {
   it("web 端 desktopBridge=null 时安全 no-op，不抛错", () => {
     expect(() =>
       render(
-        React.createElement(
-          CoreProvider,
-          {
-            wsId: "ws-web",
-            identity: { userId: "u", name: "n" },
-            desktopBridge: null,
-          },
-          null,
-        ),
+        <CoreProvider wsId="ws-web" identity={identity} desktopBridge={null}>
+          {null}
+        </CoreProvider>,
       ),
     ).not.toThrow();
   });

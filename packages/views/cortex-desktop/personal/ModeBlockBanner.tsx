@@ -3,7 +3,7 @@
 // 数据源:usePersonalStore.modeBlockHints[sessionId]（瞬态,由 messages.ts 轮结束时写入）。
 
 import type { PermissionMode, SessionMeta } from "@cortex-work/core";
-import { usePersonalActions, usePersonalStore } from "@cortex-work/core";
+import { fromAdapterPermissions, usePersonalActions, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 
 const AGENT_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
@@ -36,10 +36,12 @@ export function ModeBlockBanner({ session, projectPath }: { session: SessionMeta
 
   const switchAndResend = (target: PermissionMode) => {
     const promptText = hint.promptText;
-    updateSession(session.id, { permissionMode: target });
+    // 目标线格式档 → 新两轴(exec/dir):离开 plan(exec=auto)并设目录范围(accept-edits→workspace /
+    // full-auto→all)。send 现从 session.exec/dirPermission 派生,旧式塞 permissionMode 会被忽略,故必须写新两轴。
+    const patch = fromAdapterPermissions(target, "auto");
+    updateSession(session.id, patch);
     setModeBlockHint(session.id, undefined);
-    // 用更新后的会话档重发本轮(send 读传入 session 的 permissionMode)。
-    void send({ ...session, permissionMode: target }, projectPath, promptText, []);
+    void send({ ...session, ...patch }, projectPath, promptText, []);
   };
 
   return (

@@ -7,10 +7,12 @@ import type {
   AgentKind,
   AsrSettings,
   DerivedAgentMeta,
+  RoleConfig,
   DailyEncouragement,
   GeneralSettings,
   MediaGenSettings,
   PermissionMode,
+  ApprovalPolicy,
   PersistedState,
   PersonalProfile,
   PiSkillSettings,
@@ -46,6 +48,7 @@ import {
   defaultAsrSettings,
 } from "../desktop/types";
 import { migratePiSettings, normalizeProviderProfile } from "../desktop/providers";
+import { fromAdapterPermissions } from "../personal/permissionMode";
 
 let seq = 0;
 function newId(prefix: string): string {
@@ -168,6 +171,8 @@ export interface PersonalState {
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
   // 用户 JSON(agents.local.json)派生的 agent(主进程读盘,不持久化;启动时经 listAgentProfiles 回填,U7)。
   derivedAgents?: DerivedAgentMeta[];
+  // 圆桌角色库（主进程读 roles.json,不持久化到 PersistedState;经 IPC + roles:changed 广播回填）。
+  roles: RoleConfig[];
   // 供应商（Provider）注册表（持久化;pi 会话/自动化据此选端点）。
   providerSettings: ProviderSettings;
   // 通用设置（工作目录/桌面行为/通知/日志,持久化;主进程消费部分立即落盘）。
@@ -193,6 +198,7 @@ export interface PersonalState {
   archiveProject: (id: string) => void;
   setAgentsAvailable: (avail: Partial<Record<AgentKind, boolean>>) => void;
   setDerivedAgents: (agents: DerivedAgentMeta[]) => void;
+  setRoles: (roles: RoleConfig[]) => void;
   // 供应商注册表:整体 patch + provider 级增删改 + 设默认。
   setProviderSettings: (patch: Partial<ProviderSettings>) => void;
   addProvider: (provider: ProviderProfile) => void;
@@ -248,9 +254,9 @@ export interface PersonalState {
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
   // 设置/清空某会话的运行模式拦截提示（hint=undefined 清空,如切档/忽略/新发送）。
   setModeBlockHint: (sessionId: string, hint: ModeBlockHint | undefined) => void;
-  // pi extension UI 待确认请求:入队 / 按请求 id 出队 / 清某会话全部（会话退出/删除时）。
+  // pi extension UI 待确认请求:入队 / 按会话+请求 id 出队 / 清某会话全部（会话退出/删除时）。
   pushPiUiRequest: (item: { uiSessionId: string; request: PiUiRequest }) => void;
-  resolvePiUiRequest: (id: string) => void;
+  resolvePiUiRequest: (uiSessionId: string, id: string) => void;
   clearPiUiForSession: (uiSessionId: string) => void;
   toggleTerminal: () => void;
   // 发送文本到终端:暂存并确保终端面板打开,由 TerminalPanel 消费。
@@ -360,12 +366,23 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
   };
 }
 
-// 旧会话字段名 piChannelId → providerId（剥离旧名,避免死字段随快照回写）。
+// 老会话字段迁移（剥离旧名,避免死字段随快照回写）。field-presence 驱动,不 bump version。
 function migrateSession(sess: SessionMeta): SessionMeta {
-  const legacy = sess as SessionMeta & { piChannelId?: string };
-  if (legacy.piChannelId === undefined) return sess;
-  const { piChannelId, ...rest } = legacy;
-  return { ...rest, providerId: rest.providerId ?? piChannelId };
+  let s = sess;
+  // ① piChannelId → providerId。
+  const legacy = s as SessionMeta & { piChannelId?: string };
+  if (legacy.piChannelId !== undefined) {
+    const { piChannelId, ...rest } = legacy;
+    s = { ...rest, providerId: rest.providerId ?? piChannelId };
+  }
+  // ② 旧权限两轴 permissionMode/approvalPolicy → 新两轴 execPermission/dirPermission（无损,见
+  //    fromAdapterPermissions）。仅当老会话尚无新字段、且带旧字段时迁移;缺省老会话不动,运行时回退 auto/all。
+  const old = s as SessionMeta & { permissionMode?: PermissionMode; approvalPolicy?: ApprovalPolicy };
+  if (s.execPermission === undefined && (old.permissionMode !== undefined || old.approvalPolicy !== undefined)) {
+    const { permissionMode, approvalPolicy, ...rest } = old;
+    s = { ...rest, ...fromAdapterPermissions(permissionMode, approvalPolicy) };
+  }
+  return s;
 }
 
 export const usePersonalStore = create<PersonalState>((set, get) => ({
@@ -393,6 +410,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   providerSettings: DEFAULT_PROVIDER_SETTINGS,
   generalSettings: DEFAULT_GENERAL_SETTINGS,
   profile: {},
+  roles: [],
   hydrate: (s) =>
     set({
       hydrated: true,
@@ -471,6 +489,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setAgentsAvailable: (avail) => set({ agentsAvailable: avail }),
   setDerivedAgents: (agents) => set({ derivedAgents: agents }),
+  setRoles: (roles) => set({ roles }),
 
   setProviderSettings: (patch) => set((s) => ({ providerSettings: { ...s.providerSettings, ...patch } })),
 
@@ -819,8 +838,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     set((s) => ({ modeBlockHints: { ...s.modeBlockHints, [sessionId]: hint } })),
 
   pushPiUiRequest: (item) => set((s) => ({ piUiPending: [...s.piUiPending, item] })),
-  resolvePiUiRequest: (id) =>
-    set((s) => ({ piUiPending: s.piUiPending.filter((p) => p.request.id !== id) })),
+  resolvePiUiRequest: (uiSessionId, id) =>
+    set((s) => ({ piUiPending: s.piUiPending.filter((p) => p.uiSessionId !== uiSessionId || p.request.id !== id) })),
   clearPiUiForSession: (uiSessionId) =>
     set((s) => ({ piUiPending: s.piUiPending.filter((p) => p.uiSessionId !== uiSessionId) })),
 

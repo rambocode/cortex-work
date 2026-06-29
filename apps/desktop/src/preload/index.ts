@@ -17,6 +17,7 @@ import type {
   CliStreamEvent,
   ContentSearchResult,
   DerivedAgentMeta,
+  RoleConfig,
   CronValidation,
   DocSaveRequest,
   DocSaveResult,
@@ -61,6 +62,7 @@ import type {
 // 方案 A：编排请求类型权威定义留在 orchestrate.ts，此处 type-only 引入（编译期擦除，
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
 import type { OrchestrateStartRequest } from "../main/ipc/orchestrate";
+import type { RoundtableStartRequest } from "../main/ipc/types";
 import type {
   LocalWhisperModelProgress,
   LocalWhisperModelStatus,
@@ -155,6 +157,18 @@ const personal = {
   // M3-A:列出用户 JSON(agents.local.json)派生/覆盖的 agent;reload 改文件后刷新缓存。
   listAgentProfiles: (): Promise<DerivedAgentMeta[]> => ipcRenderer.invoke("agents:profiles"),
   reloadAgentProfiles: (): Promise<DerivedAgentMeta[]> => ipcRenderer.invoke("agents:reloadProfiles"),
+  // 圆桌角色库 CRUD + 变更监听（对齐 agent profiles 模式）。
+  listRoles: (): Promise<RoleConfig[]> => ipcRenderer.invoke("roles:list"),
+  createRole: (payload: { label: string; agent: string; systemPrompt: string; color?: string; avatar?: string }): Promise<RoleConfig> =>
+    ipcRenderer.invoke("roles:create", payload),
+  updateRole: (id: string, patch: { label?: string; agent?: string; systemPrompt?: string; color?: string; avatar?: string }): Promise<RoleConfig | null> =>
+    ipcRenderer.invoke("roles:update", id, patch),
+  deleteRole: (id: string): Promise<boolean> => ipcRenderer.invoke("roles:delete", id),
+  onRolesChanged: (cb: (roles: RoleConfig[]) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, roles: RoleConfig[]) => cb(roles);
+    ipcRenderer.on("roles:changed", listener);
+    return () => ipcRenderer.removeListener("roles:changed", listener);
+  },
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
   loadChat: (sessionId: string): Promise<unknown[]> => ipcRenderer.invoke("chat:load", sessionId),
@@ -244,6 +258,13 @@ const personal = {
     ipcRenderer.invoke("orchestrate:start", req),
   killOrchestration: (runId: string): Promise<void> => {
     ipcRenderer.send("orchestrate:kill", runId);
+    return Promise.resolve();
+  },
+  // 圆桌多角色编排（@mention 触发）。事件流复用 onCliEvent/onCliExit（roleId 区分角色）。
+  startRoundtable: (req: RoundtableStartRequest): Promise<void> =>
+    ipcRenderer.invoke("roundtable:start", req),
+  killRoundtable: (runId: string): Promise<void> => {
+    ipcRenderer.send("roundtable:kill", runId);
     return Promise.resolve();
   },
   agentSessionExists: (req: AgentSessionRequest): Promise<boolean> =>

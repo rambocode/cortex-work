@@ -7,9 +7,10 @@ import { useState } from "react";
 import {
   DEFAULT_MODEL,
   DEFAULT_AGENT_THINKING,
-  DEFAULT_NEW_SESSION_PERMISSION_MODE,
-  DEFAULT_PERMISSION_MODE,
-  DEFAULT_APPROVAL_POLICY,
+  DEFAULT_NEW_SESSION_EXEC_PERMISSION,
+  DEFAULT_NEW_SESSION_DIR_PERMISSION,
+  DEFAULT_EXEC_PERMISSION,
+  DEFAULT_DIR_PERMISSION,
   dayKey,
   mapThinkingForAgent,
   resolveDefaultAgent,
@@ -20,11 +21,11 @@ import {
 import type {
   AgentThinkingValue,
   AgentKind,
-  ApprovalPolicy,
   DerivedAgentMeta,
+  DirPermission,
+  ExecPermission,
   PendingDocFile,
   PendingImage,
-  PermissionMode,
   PersonalAttachment,
   ProviderSettings,
   SessionMeta,
@@ -82,8 +83,10 @@ export function NewSessionLanding({
       ...draftDefaultsForAgent(agent, providerSettings),
       useOwnSkills: false,
       thinkingValue: agent === "pi" ? undefined : DEFAULT_AGENT_THINKING as AgentThinkingValue,
-      permissionMode: DEFAULT_NEW_SESSION_PERMISSION_MODE as PermissionMode,
-      approvalPolicy: DEFAULT_APPROVAL_POLICY as ApprovalPolicy,
+      execPermission: DEFAULT_NEW_SESSION_EXEC_PERMISSION as ExecPermission,
+      dirPermission: DEFAULT_NEW_SESSION_DIR_PERMISSION as DirPermission,
+      // 子 agent 编排开关(默认关)。三个 agent(claude/codex/pi)均可在新会话落地页开启。
+      subagentOrchestration: false,
     };
   });
 
@@ -98,7 +101,7 @@ export function NewSessionLanding({
     }));
   };
 
-  // 把草稿态里 createSession 不直接支持的字段(derivedAgentId/providerId/useOwnSkills/permissionMode)
+  // 把草稿态里 createSession 不直接支持的字段(derivedAgentId/providerId/useOwnSkills/exec/dirPermission)
   // 补到新建会话上,并返回合并后的会话。关键:updateSession 只改 store 里的会话,本地 sess 引用不变;
   // 而 send 是按「传入的会话对象」解析 spawn agent / skill(见 messages.ts resolveSpawnAgentId、
   // sendSession.useOwnSkills),故必须把合并结果传给 send,否则 derivedAgentId/useOwnSkills 到不了 spawn。
@@ -109,10 +112,12 @@ export function NewSessionLanding({
     if (draft.derivedAgentId) patch.derivedAgentId = draft.derivedAgentId;
     if (draft.agent === "pi" && draft.providerId) patch.providerId = draft.providerId;
     Object.assign(patch, mapThinkingForAgent(draft.agent, draft.thinkingValue));
-    // 访问范围:非默认(full-auto 回退)才落盘。新会话默认 accept-edits,与 full-auto 不同 → 会落盘。
-    if (draft.permissionMode !== DEFAULT_PERMISSION_MODE) patch.permissionMode = draft.permissionMode;
-    // 执行/审批:非 auto 默认才落盘。
-    if (draft.approvalPolicy !== DEFAULT_APPROVAL_POLICY) patch.approvalPolicy = draft.approvalPolicy;
+    // 执行权限:非默认(auto 回退)才落盘。新会话默认 auto,与回退同 → 通常不落盘(缺省派生即 auto)。
+    if (draft.execPermission !== DEFAULT_EXEC_PERMISSION) patch.execPermission = draft.execPermission;
+    // 目录执行权限:非默认(all 回退)才落盘。新会话默认 workspace,与 all 不同 → 会落盘。
+    if (draft.dirPermission !== DEFAULT_DIR_PERMISSION) patch.dirPermission = draft.dirPermission;
+    // 子 agent 编排:开启才落盘(默认关)。落到会话后,首轮 send 即按编排管线走。
+    if (draft.subagentOrchestration) patch.subagentOrchestration = true;
     if (Object.keys(patch).length) updateSession(sess.id, patch);
     return { ...sess, ...patch };
   };
@@ -184,10 +189,12 @@ export function NewSessionLanding({
         onChangePiModel={(providerId, model) => setDraft((d) => ({ ...d, providerId, model }))}
         thinkingValue={draft.thinkingValue}
         onChangeThinking={(thinkingValue) => setDraft((d) => ({ ...d, thinkingValue }))}
-        permissionMode={draft.permissionMode}
-        onChangePermissionMode={(mode) => setDraft((d) => ({ ...d, permissionMode: mode }))}
-        approvalPolicy={draft.approvalPolicy}
-        onChangeApprovalPolicy={(p) => setDraft((d) => ({ ...d, approvalPolicy: p }))}
+        execPermission={draft.execPermission}
+        onChangeExecPermission={(p) => setDraft((d) => ({ ...d, execPermission: p }))}
+        dirPermission={draft.dirPermission}
+        onChangeDirPermission={(dp) => setDraft((d) => ({ ...d, dirPermission: dp }))}
+        subagentOrchestration={draft.subagentOrchestration}
+        onToggleSubagentOrchestration={() => setDraft((d) => ({ ...d, subagentOrchestration: !d.subagentOrchestration }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
         onToast={onToast}
       />

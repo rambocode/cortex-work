@@ -32,7 +32,7 @@ export type TraceSegmentType = "text" | "reasoning";
 export interface AgentTraceEvent {
   id: string;
   ts: number;
-  scope: "cli" | "oneshot" | "ask" | "pi" | "pi-rpc";
+  scope: "cli" | "oneshot" | "ask" | "pi" | "pi-rpc" | "roundtable" | "delegate";
   phase: string;
   summary: string;
   runId?: string;

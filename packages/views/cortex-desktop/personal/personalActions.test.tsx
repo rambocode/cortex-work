@@ -8,6 +8,7 @@ import { renderHook, act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CoreProvider,
+  RUN_START_TIMEOUT_MS,
   cleanToolName,
   personalChatKeys,
   usePersonalActions,
@@ -23,12 +24,15 @@ import {
   type PendingImage,
   type SessionMeta,
 } from "@cortex-work/core";
+import { __handleCliEventForTest } from "@cortex-work/core/personal/messages";
 
 function makeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
   return {
     loadChat: vi.fn(async () => []),
     saveChat: vi.fn(async () => undefined),
     startCli: vi.fn(async () => undefined),
+    startOrchestration: vi.fn(async () => undefined),
+    killOrchestration: vi.fn(async () => undefined),
     killCli: vi.fn(async () => undefined),
     agentSessionExists: vi.fn(async () => true),
     trimAgentSession: vi.fn(async () => true),
@@ -135,6 +139,42 @@ describe("send 分叉", () => {
     expect(bridge.piOpen).toHaveBeenCalledTimes(1);
     expect(bridge.piPrompt).toHaveBeenCalledTimes(1);
     expect((bridge.piPrompt as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toBe("s-pi");
+    expect(bridge.startCli).not.toHaveBeenCalled();
+  });
+
+  it("pi 开启子 agent 编排时走 startOrchestration,不走长驻 piPrompt", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    const session: SessionMeta = {
+      ...piSession,
+      subagentOrchestration: true,
+      model: "pi-model",
+      thinkingLevel: "high",
+      execPermission: "plan",
+    };
+    await act(async () => {
+      await result.current.send(session, "/proj", "请分析代码", []);
+    });
+
+    expect(bridge.startOrchestration).toHaveBeenCalledTimes(1);
+    const req = (bridge.startOrchestration as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(req).toMatchObject({
+      sessionId: "s-pi",
+      agent: "pi",
+      cwd: "/proj",
+      prompt: "请分析代码",
+      model: "pi-model",
+      permissionMode: "plan",
+      approvalPolicy: "auto",
+      piOpen: expect.objectContaining({
+        model: "pi-model",
+        thinkingLevel: "high",
+        toolWhitelist: expect.arrayContaining(["read", "grep"]),
+      }),
+    });
+    expect(bridge.piOpen).not.toHaveBeenCalled();
+    expect(bridge.piPrompt).not.toHaveBeenCalled();
     expect(bridge.startCli).not.toHaveBeenCalled();
   });
 
@@ -252,6 +292,26 @@ describe("send 分叉", () => {
     expect(bridge.piPrompt).not.toHaveBeenCalled();
   });
 
+  it("@mention 委派轮次不把一次性 init session 写回主会话 resume id", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+
+    await act(async () => {
+      await result.current.send(claudeSession, "/proj", "@codex 看一下", []);
+    });
+
+    const req = (bridge.startCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(req.resumeSessionId).toBeUndefined();
+    expect(req.delegateRoles?.map((r: { id: string }) => r.id)).toEqual(["codex"]);
+
+    __handleCliEventForTest(qc, req.runId, { type: "init", sessionId: "delegate-temp-thread" }, claudeSession.id);
+
+    expect(usePersonalStore.getState().sessions.find((s) => s.id === claudeSession.id)?.agentSessionIds?.claude).toBe(
+      "c1",
+    );
+  });
+
   it("claude 会话思考强度经 startCli.effort 下发", async () => {
     const bridge = makeBridge();
     const qc = new QueryClient();
@@ -344,6 +404,57 @@ describe("stop 分叉", () => {
     expect(bridge.piUiResponse).toHaveBeenCalledWith("s-pi", "aq1", { cancelled: true });
     // 本会话待答卡出队;后台会话 s-other 的卡保留(隔离)。
     expect(usePersonalStore.getState().piUiPending.map((p) => p.request.id)).toEqual(["aq2"]);
+  });
+
+  it("pi 编排轮 stop → killOrchestration,不 piAbort", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    const session: SessionMeta = { ...piSession, subagentOrchestration: true };
+    await act(async () => {
+      await result.current.send(session, "/proj", "你好", []);
+    });
+    const runId = usePersonalStore.getState().runningBySession[piSession.id];
+    expect(bridge.startOrchestration).toHaveBeenCalledTimes(1);
+    expect(runId).toEqual(expect.any(String));
+    await act(async () => {
+      await result.current.stop(piSession.id);
+    });
+    expect(bridge.killOrchestration).toHaveBeenCalledWith(runId);
+    expect(bridge.piAbort).not.toHaveBeenCalled();
+  });
+
+  it("pi 编排轮 watchdog 超时会取消并出队本会话 UI 请求", async () => {
+    vi.useFakeTimers();
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    const session: SessionMeta = { ...piSession, subagentOrchestration: true };
+    await act(async () => {
+      await result.current.send(session, "/proj", "你好", []);
+    });
+    const runId = usePersonalStore.getState().runningBySession[piSession.id];
+    usePersonalStore.setState({
+      piUiPending: [
+        {
+          uiSessionId: piSession.id,
+          request: { type: "extension_ui_request", id: "same", method: "confirm", title: "T", message: "M" },
+        },
+        {
+          uiSessionId: "other",
+          request: { type: "extension_ui_request", id: "same", method: "confirm", title: "T", message: "M" },
+        },
+      ],
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RUN_START_TIMEOUT_MS + 1_000);
+    });
+
+    expect(bridge.piUiResponse).toHaveBeenCalledWith(piSession.id, "same", { cancelled: true });
+    expect(bridge.killOrchestration).toHaveBeenCalledWith(runId);
+    expect(usePersonalStore.getState().piUiPending.map((p) => p.uiSessionId)).toEqual(["other"]);
+    vi.useRealTimers();
   });
 
   it("claude running 中 stop → killCli,不 piAbort（R10）", async () => {

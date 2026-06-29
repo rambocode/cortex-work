@@ -17,6 +17,7 @@ import {
   writeApprovalExtension,
   writeAskQuestionExtension,
   writeCustomToolExtension,
+  writePathJailExtension,
   writeSlashCommandExtension,
 } from "../agents/pi-extensions";
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
@@ -36,6 +37,23 @@ interface SessionEntry {
 }
 
 const sessions = new Map<string, SessionEntry>();
+type TransientPiUiSession = Pick<PiRpcSession, "respondUi">;
+
+const transientUiSessions = new Map<string, TransientPiUiSession>();
+
+function transientUiKey(uiSessionId: string, requestId: string): string {
+  return `${uiSessionId}\0${requestId}`;
+}
+
+export function registerTransientPiUiRequest(uiSessionId: string, requestId: string, session: TransientPiUiSession): void {
+  transientUiSessions.set(transientUiKey(uiSessionId, requestId), session);
+}
+
+export function clearTransientPiUiRequestsForSession(session: TransientPiUiSession): void {
+  for (const [id, s] of transientUiSessions) {
+    if (s === session) transientUiSessions.delete(id);
+  }
+}
 
 // 推一条归一化事件给 renderer。crashed 顺带摘除注册表条目（进程已死,避免悬挂）。
 // 带 runId（阶段4 代际）:renderer 据此守卫丢弃迟到/串台事件。
@@ -146,6 +164,41 @@ export function filterLoadableExtensionPaths(paths: string[] | undefined): strin
   });
 }
 
+export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRequest> {
+  const prepared = req;
+  if (prepared.provider) prepared.piExtensionPath = writePiExtension(prepared.provider);
+
+  const extra: string[] = [...(prepared.extraExtensionPaths ?? [])];
+  if (prepared.enableToolApproval) extra.push(writeApprovalExtension(prepared.approvalTools));
+  // 目录执行权限「仅工作目录」/「外部沙箱」:注入 cwd 路径闸 extension(pi 无原生沙箱)。allowed roots =
+  // cwd + 已启用 skill 目录(后者避免 skill references 在 cwd 外被误伤)。与审批 extension 共存(多 -e)。
+  // 经 preparePiOpenRequest 注入,故 pi 主会话与三段编排子会话(同走此函数)均受路径闸约束。
+  if (prepared.confineToCwd) extra.push(writePathJailExtension([prepared.cwd, ...(prepared.skillPaths ?? [])]));
+  if (prepared.enableSampleTools) extra.push(writeCustomToolExtension());
+  if (prepared.enableSampleCommands) extra.push(writeSlashCommandExtension());
+
+  const askQuestionSentinel =
+    prepared.askQuestionSentinel ?? `@@CORTEX_ASKQ:${randomUUID()}@@`;
+  prepared.askQuestionSentinel = askQuestionSentinel;
+  extra.push(writeAskQuestionExtension(askQuestionSentinel));
+
+  try {
+    const gs = (await getPersistedState()).generalSettings;
+    const userServers = gs?.mcp?.enabled ? gs.mcp.servers : [];
+    const docServer = buildDocExtractMcpServerConfig(prepared.uiSessionId);
+    const bridgeInputs = docServer ? [...userServers, docServer] : userServers;
+    const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, prepared.uiSessionId);
+    const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
+    if (bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
+  } catch (e) {
+    log.warn(`MCP 桥接扩展生成失败: ${String(e)}`);
+  }
+
+  prepared.extraExtensionPaths = extra;
+  prepared.extensionPaths = filterLoadableExtensionPaths(prepared.extensionPaths);
+  return prepared;
+}
+
 export function registerPiSessionHandlers(): void {
   ipcMain.handle("pi:open", async (event, req: PiOpenRequest): Promise<PiOpenResult> => {
     // 同 uiSessionId 重开（renderer 重挂载）:先停旧会话,避免泄漏一个孤儿子进程。
@@ -155,76 +208,48 @@ export function registerPiSessionHandlers(): void {
       sessions.delete(req.uiSessionId);
     }
 
-    // 自定义供应商:先生成 extension 文件,把路径塞回 req 供 buildRpcArgs 加 -e（与 cli.ts 同策略）。
-    if (req.provider) req.piExtensionPath = writePiExtension(req.provider);
-    // 阶段3 深度定制:审批 / 自定义工具 / 斜杠命令样例各生成独立 extension,追加各一个 -e
-    // （与 provider extension 共存,provider 注入不动）。
-    const extra: string[] = [];
-    if (req.enableToolApproval) extra.push(writeApprovalExtension(req.approvalTools));
-    if (req.enableSampleTools) extra.push(writeCustomToolExtension());
-    if (req.enableSampleCommands) extra.push(writeSlashCommandExtension());
-    // askquestion 常驻注入(KTD-4,无开关):每会话高熵 sentinel——extension 经它把信封塞进 input.title,
-    // PiRpcSession.handleLine 据同一 sentinel 归一为 method:"askquestion"（防 LLM 在裸 input 的 title 伪造）。
-    const askQuestionSentinel = `@@CORTEX_ASKQ:${randomUUID()}@@`;
-    extra.push(writeAskQuestionExtension(askQuestionSentinel));
-    // pi MCP 桥接(系统默认集成):pi 核心不吃原生 MCP,改由 cortex 自写的桥接扩展把「用户已启用的 MCP
-    // server + 内置浏览器控制 server」异步发现并代理注册为 pi 工具(async factory 在 pi startup 前完成
-    // 连接 + tools/list + registerTool)。token/session 每会话烘焙当前值。无任何 server 时不生成(零副作用)。
-    try {
-      const gs = (await getPersistedState()).generalSettings;
-      const userServers = gs?.mcp?.enabled ? gs.mcp.servers : [];
-      // 文档抽取 server(v1 无开关,host 可用即注入)并入桥接;与用户 server 同走 mcpServerToBridge。
-      const docServer = buildDocExtractMcpServerConfig(req.uiSessionId);
-      const bridgeInputs = docServer ? [...userServers, docServer] : userServers;
-      const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, req.uiSessionId);
-      const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
-      if (bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
-    } catch (e) {
-      log.warn(`MCP 桥接扩展生成失败: ${String(e)}`);
-    }
-    req.extraExtensionPaths = extra;
-    // U7:市场扩展 -e 注入前剔除失效路径,避免单个坏路径让 pi fail-hard 拖垮整会话。
-    req.extensionPaths = filterLoadableExtensionPaths(req.extensionPaths);
-
-    const args = buildRpcArgs(req);
-    assertSpawnCwd(req.cwd);
+    // 扩展准备(provider / 审批 / cwd 路径闸 / askquestion / MCP 桥接 / 市场扩展)统一抽进
+    // preparePiOpenRequest —— pi 主会话与三段编排子会话同走此函数,路径闸/审批等一处定义两处复用。
+    const prepared = await preparePiOpenRequest(req);
+    const args = buildRpcArgs(prepared);
+    assertSpawnCwd(prepared.cwd);
     recordAgentTrace({
       scope: "pi",
       phase: "open",
       summary: "pi open",
-      sessionId: req.uiSessionId,
+      sessionId: prepared.uiSessionId,
       agent: "pi",
-      data: { cwd: req.cwd, argCount: args.length, providerId: req.provider?.id },
+      data: { cwd: prepared.cwd, argCount: args.length, providerId: prepared.provider?.id },
     });
     const transport = spawnPiRpc(args, {
-      cwd: req.cwd,
-      env: spawnEnvFor({ agent: "pi", provider: req.provider }),
+      cwd: prepared.cwd,
+      env: spawnEnvFor({ agent: "pi", provider: prepared.provider }),
     });
     const session = new PiRpcSession(
       transport,
-      (ev, runId) => emitEvent(req.uiSessionId, ev, runId),
-      (request) => emitUiRequest(req.uiSessionId, request),
-      askQuestionSentinel,
+      (ev, runId) => emitEvent(prepared.uiSessionId, ev, runId),
+      (request) => emitUiRequest(prepared.uiSessionId, request),
+      prepared.askQuestionSentinel,
     );
-    sessions.set(req.uiSessionId, { session, sender: event.sender });
+    sessions.set(prepared.uiSessionId, { session, sender: event.sender });
 
     // renderer 只 reload 不关窗时,旧 WebContents 销毁但 Map 条目连同 sender 常驻——监听
     // destroyed 主动回收:停子进程 + 摘条目。幂等:仅当条目仍是本会话时才清,避免与 crashed/
     // 重开（pi:open 顶部已 stop 旧会话）的清理重复（防泄漏）。
     event.sender.once("destroyed", () => {
-      if (sessions.get(req.uiSessionId)?.session === session) {
+      if (sessions.get(prepared.uiSessionId)?.session === session) {
         session.stop();
-        sessions.delete(req.uiSessionId);
+        sessions.delete(prepared.uiSessionId);
       }
     });
 
     try {
       // 就绪靠 get_state 轮询（冷启动 ~790ms,不能用固定 sleep）;顺带取 sessionFile 供恢复。
       const { sessionId, sessionFile } = await session.ready();
-      return { uiSessionId: req.uiSessionId, sessionId, sessionFile };
+      return { uiSessionId: prepared.uiSessionId, sessionId, sessionFile };
     } catch (e) {
       session.stop();
-      sessions.delete(req.uiSessionId);
+      sessions.delete(prepared.uiSessionId);
       throw e instanceof Error ? e : new Error(String(e));
     }
   });
@@ -286,6 +311,13 @@ export function registerPiSessionHandlers(): void {
   // extension UI 应答:回写到 pi stdin（fire-and-forget,不走 command 等 response）。
   // async 包一层:getSession 的同步抛（会话不存在）转成 rejection,与 renderer invoke 语义一致。
   ipcMain.handle("pi:uiResponse", async (_e, uiSessionId: string, id: string, payload: PiUiResponsePayload) => {
+    const key = transientUiKey(uiSessionId, id);
+    const transient = transientUiSessions.get(key);
+    if (transient) {
+      transientUiSessions.delete(key);
+      transient.respondUi(id, payload);
+      return;
+    }
     getSession(uiSessionId).respondUi(id, payload);
   });
 

@@ -100,3 +100,4 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 - **版本段正文面向用户，只写有感知的更新（新功能、可见的改进与修复），不展示无意义的细节**：跳过纯内部改动（重构、依赖 bump、CI / 构建脚本、版本号 bump 本身、格式化、注释、测试）；多条同类提交归并成一条用户视角的说明，不要逐条罗列 commit。
 - 该段正文是应用内「更新内容」与 GitHub Release body 的唯一来源：打包时 `scripts/extract-release-notes.mjs` 按 `version` 提取它 → 写入 `latest-mac.yml` 的 `releaseNotes`，运行时更新弹窗展示。
 - 缺段时：本地/非正式构建写安全占位、不阻断；CI `publish-release`（`CORTEX_NOTES_STRICT=1`）则**非零退出使发布失败**，刻意防止「忘写版本段 → 静默丢更新说明」。tag 仍须与 `package.json` 的 `version` 一致（CI 有强校验）。
+- 本地 ci 发布,`APPLE_ID`等信息在,`@.env`文件,可以直接执行,`@scripts/local-release-mac.sh`

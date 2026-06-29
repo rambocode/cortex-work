@@ -2,14 +2,69 @@
 // 验收点对应计划 U2 的 R3/R4/R5/R6 回归:无项目默认隐藏、选项目不自动弹出、
 // 显式打开不被复关、离开落地页不强制开关右栏。
 
+import type { ReactNode } from "react";
 import { renderHook, cleanup } from "@testing-library/react";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { useCortexUIStore } from "@cortex-work/core";
-import { useCloseRightPanelOnHome } from "./PersonalWorkspace";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { CoreProvider, useCortexUIStore, usePersonalStore, type DesktopBridge } from "@cortex-work/core";
+import type { RoleConfig } from "@cortex-work/core/desktop/types";
+import { useCloseRightPanelOnHome, usePersonalRolesLibrary } from "./PersonalWorkspace";
 
 describe("个人工作区右栏默认状态", () => {
   it("默认不展开右栏,避免启动后挤压新会话页", () => {
     expect(useCortexUIStore.getInitialState().rightOpen).toBe(false);
+  });
+});
+
+describe("usePersonalRolesLibrary 工作区入口角色加载", () => {
+  beforeEach(() => {
+    usePersonalStore.setState({ roles: [] });
+  });
+  afterEach(() => cleanup());
+
+  it("挂载 Personal workspace 时加载持久化角色并订阅变更", async () => {
+    let rolesChanged: ((roles: RoleConfig[]) => void) | undefined;
+    const off = vi.fn();
+    const bridge = {
+      listRoles: vi.fn(async () => [
+        {
+          id: "code-reviewer",
+          label: "Code Reviewer",
+          agent: "codex",
+          systemPrompt: "review",
+          createdAt: "2026-01-01",
+          updatedAt: "2026-01-01",
+        },
+      ]),
+      onRolesChanged: vi.fn((cb) => {
+        rolesChanged = cb;
+        return off;
+      }),
+    } as unknown as DesktopBridge;
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+        {children}
+      </CoreProvider>
+    );
+
+    const { unmount } = renderHook(() => usePersonalRolesLibrary(), { wrapper });
+    await vi.waitFor(() => {
+      expect(usePersonalStore.getState().roles.map((r) => r.id)).toEqual(["code-reviewer"]);
+    });
+
+    rolesChanged?.([
+      {
+        id: "designer",
+        label: "Designer",
+        agent: "claude",
+        systemPrompt: "design",
+        createdAt: "2026-01-01",
+        updatedAt: "2026-01-01",
+      },
+    ]);
+    expect(usePersonalStore.getState().roles.map((r) => r.id)).toEqual(["designer"]);
+
+    unmount();
+    expect(off).toHaveBeenCalledTimes(1);
   });
 });
 
