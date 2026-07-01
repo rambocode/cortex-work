@@ -9005,11 +9005,28 @@ button.sb-row {
 .pw-task-row.is-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 /* 行内 inspector（U6）：选中时在标题下展开的共享字段面板容器。 */
 .pw-task-inspector { margin-top: 4px; border-top: 1px solid var(--border-soft); }
-/* inline 布局：字段面板紧凑化，去掉 column 版的分隔边框/大内边距。 */
-.pw-task-fields.is-inline .pw-task-detail-meta { padding: 6px 4px; gap: 6px; border-bottom: 0; }
+/* inline 布局（U7）：字段横向流成属性栏（对齐图片单行 chips 观感），去掉 column 版分隔边框。
+   各 meta 行改为 inline-flex，整体 flex-wrap 横排；富字段区上方细分隔。 */
+.pw-task-fields.is-inline .pw-task-detail-meta {
+  flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  padding: 6px 4px; border-bottom: 0;
+}
+.pw-task-fields.is-inline .pw-task-meta-row { flex: 0 1 auto; gap: 4px; }
+.pw-task-fields.is-inline .pw-task-rich { border-top: 1px solid var(--border-soft); padding-top: 6px; }
 .pw-task-row-main { display: flex; align-items: center; gap: 8px; }
 .pw-task-row-main .spacer { flex: 1; }
-.pw-task-check { flex: 0 0 auto; width: 15px; height: 15px; accent-color: var(--accent); }
+/* 圆形完成勾选（U7，对齐图片 OmniFocus 圆圈）：appearance:none 自绘圆 + 选中打勾。 */
+.pw-task-check {
+  appearance: none; -webkit-appearance: none; margin: 0; position: relative;
+  flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%;
+  border: 1.5px solid var(--border); background: transparent; cursor: pointer;
+}
+.pw-task-check:hover { border-color: var(--accent); }
+.pw-task-check:checked { background: var(--accent); border-color: var(--accent); }
+.pw-task-check:checked::after {
+  content: ""; position: absolute; left: 5px; top: 2px;
+  width: 3px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
 /* 子任务缩进留白（U3）：按 depth 生成的固定宽占位。*/
 .pw-task-indent { flex: 0 0 auto; display: inline-block; }
 /* 折叠箭头（U3）：有子任务才渲染按钮，否则占位对齐。默认收起指向右，展开旋转向下。*/
