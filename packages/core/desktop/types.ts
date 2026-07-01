@@ -608,11 +608,13 @@ export type SkillScope = "global" | "workspace";
 export const DEFAULT_AGENT_SKILL_ROOTS: Record<AgentKind, string[]> = {
   claude: ["~/.claude/skills"],
   codex: ["~/.codex/skills"],
-  pi: ["~/.pi/agent/skills", "~/.agents/skills"],
+  pi: ["~/.pi/agent/skills"],
 };
 
-// 默认共享(all-agents)根:Cortex 自有跨端目录。代码拥有,恒并入 sharedRoots。
-export const DEFAULT_SHARED_SKILL_ROOTS: string[] = ["~/.cortex-desktop/skills"];
+// 默认共享(all-agents)根:对三端都扫。含 Cortex 自有目录 + ~/.agents/skills(Agent Skills 跨 agent 标准
+// 目录,三端可见)。注:pi 原生也会发现 ~/.agents/skills,故 pi 会话下该目录 skill 可能被 pi 原生 + Cortex
+// 注入各加载一次(pi 仅 warn 并保留先发现者,功能不受影响)——这是「~/.agents/skills 三端共享」的取舍。
+export const DEFAULT_SHARED_SKILL_ROOTS: string[] = ["~/.cortex-desktop/skills", "~/.agents/skills"];
 
 export const DEFAULT_PI_SKILLS: PiSkillSettings = {
   sharedRoots: DEFAULT_SHARED_SKILL_ROOTS,
