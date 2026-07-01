@@ -15,7 +15,7 @@ import {
   localDay,
 } from "@cortex-work/core/personal/tasks";
 import { descendantProjectIds } from "@cortex-work/core/personal/taskProjectTree";
-import { buildTaskTree, type TaskTreeNode } from "@cortex-work/core/personal/taskTree";
+import { buildTaskTree, taskDescendantIds, areAllChildrenDone, type TaskTreeNode } from "@cortex-work/core/personal/taskTree";
 import { useDelegateTask } from "@cortex-work/core/personal/taskDelegate";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
@@ -96,6 +96,8 @@ export function TaskListColumn({
   const toggleTaskCollapse = usePersonalStore((s) => s.toggleTaskCollapse);
 
   const [draft, setDraft] = useState("");
+  // 删除含子任务的父任务须两击确认（首击置 pending + toast，再击真删，KTD5）。
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const today = localDay(new Date());
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
@@ -168,6 +170,40 @@ export function TaskListColumn({
     updateTask.mutate({ id: t.id, patch: { status: to } });
   };
 
+  // 新建子任务（U4，用户核心诉求）：继承父项目、挂到父下；若父被折叠则展开使新子可见；
+  // 建后打开详情供改标题。默认标题占位，避免空标题任务。
+  const onAddSubtask = async (parent: TaskMeta) => {
+    if (collapsedTasks[parent.id]) toggleTaskCollapse(parent.id); // 展开父使新子可见
+    const created = await addTask.mutateAsync({
+      title: "新建子任务",
+      projectId: parent.projectId,
+      parentId: parent.id,
+      source: "manual",
+    });
+    onOpenTask(created.id);
+  };
+
+  // 删除（U4/KTD5）：含子任务时两击确认（一并级联删子树，删除在 store 层）；无子任务直接删。
+  const onDelete = (t: TaskMeta) => {
+    const childCount = taskDescendantIds(tasks, t.id).length;
+    if (childCount > 0 && pendingDelete !== t.id) {
+      setPendingDelete(t.id);
+      onToast(`此任务含 ${childCount} 个子任务，再次点击删除将一并删除`);
+      return;
+    }
+    setPendingDelete(null);
+    deleteTask.mutate(t.id);
+  };
+
+  // 完成 rollup 确认（U4/R5/KTD4）：全部子任务完成时父置 done（用户点击才触发，绝不自动）。
+  const onCompleteSuggested = (t: TaskMeta) => {
+    if (!canTransition(t.status, "done", "user")) {
+      onToast("无法在当前状态完成");
+      return;
+    }
+    updateTask.mutate({ id: t.id, patch: { status: "done" } });
+  };
+
   const emptyText =
     selection.kind === "today"
       ? "今天没有到期或已安排的任务。"
@@ -209,10 +245,14 @@ export function TaskListColumn({
                 onToggleCollapse={() => toggleTaskCollapse(t.id)}
                 // 分组头已显 project 名 → 组内行不再重复 project 徽标；无头（today/inbox/单组）才显。
                 projectName={!g.showHead ? projectById.get(effectiveProjectId(t) ?? "")?.name : undefined}
+                // 全部子任务完成 → 父行浮现「完成此任务」建议（派生，不自动 done，R5/KTD4）。
+                suggestComplete={areAllChildrenDone(tasks, t.id)}
                 onOpen={() => onOpenTask(t.id)}
                 onToggleDone={() => toggleDone(t)}
                 onToggleFlag={() => updateTask.mutate({ id: t.id, patch: { flagged: !t.flagged } })}
-                onDelete={() => deleteTask.mutate(t.id)}
+                onDelete={() => onDelete(t)}
+                onAddSubtask={() => onAddSubtask(t)}
+                onCompleteSuggested={() => onCompleteSuggested(t)}
                 // keepView：委派为后台动作，不关工作台；toast 由 delegate 内部反映目标 cwd。
                 onDelegate={() => delegate(t, onToast, { keepView: true })}
               />
@@ -233,11 +273,14 @@ function TaskListRow({
   hasChildren,
   collapsed,
   onToggleCollapse,
+  suggestComplete,
   projectName,
   onOpen,
   onToggleDone,
   onToggleFlag,
   onDelete,
+  onAddSubtask,
+  onCompleteSuggested,
   onDelegate,
 }: {
   task: TaskMeta;
@@ -246,11 +289,14 @@ function TaskListRow({
   hasChildren: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  suggestComplete: boolean;
   projectName?: string;
   onOpen: () => void;
   onToggleDone: () => void;
   onToggleFlag: () => void;
   onDelete: () => void;
+  onAddSubtask: () => void;
+  onCompleteSuggested: () => void;
   onDelegate: () => void;
 }) {
   const overdue = !!task.dueDate && task.dueDate < today;
@@ -297,7 +343,17 @@ function TaskListRow({
           </span>
         ))}
         {projectName && <span className="pw-task-badge is-proj">{projectName}</span>}
+        {/* 完成 rollup 建议（R5/KTD4）：全部子任务已完成时浮现，点击确认才置父 done（不自动）。*/}
+        {suggestComplete && task.status !== "done" && (
+          <button className="pw-task-badge is-suggest" title="全部子任务已完成，点击完成此任务" onClick={onCompleteSuggested}>
+            ✓ 完成此任务
+          </button>
+        )}
         <div className="spacer" />
+        {/* 添加子任务（U4）：新建子任务并打开详情供改标题。*/}
+        <button className="pw-icon-btn" title="添加子任务" onClick={onAddSubtask}>
+          <Icon.Plus size={13} />
+        </button>
         {/* 委派仅对 active 任务开放（waiting 已在跑，避免二次委派）。*/}
         {task.status === "active" && (
           <button className="pw-icon-btn" title="交给 agent 执行" onClick={onDelegate}>

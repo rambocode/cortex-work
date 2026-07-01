@@ -9033,6 +9033,12 @@ button.sb-row {
 .pw-task-badge.is-flag { color: var(--accent); background: transparent; padding: 0; }
 .pw-task-badge.is-wait,
 .pw-task-badge.is-run { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* 完成 rollup 建议按钮（U4）：全部子任务完成时浮现，绿色可点。*/
+.pw-task-badge.is-suggest {
+  color: var(--ok, #16a34a); background: color-mix(in srgb, var(--ok, #16a34a) 12%, transparent);
+  border: 0; cursor: pointer;
+}
+.pw-task-badge.is-suggest:hover { background: color-mix(in srgb, var(--ok, #16a34a) 20%, transparent); }
 
 .pw-task-flag { font-size: 13px; line-height: 1; }
 .pw-task-flag.is-on { color: var(--accent); }

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { CoreProvider } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
@@ -195,6 +195,64 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     expect(screen.queryByText("子任务")).toBeNull();
     fireEvent.click(twisty);
     expect(screen.getByText("子任务")).toBeTruthy();
+  });
+
+  it("添加子任务透传 parentId 并继承父项目", async () => {
+    const { bridge, calls } = fakeTasksBridge(
+      [task("parent", "父任务", { projectId: "p1" })],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderColumn(bridge, { kind: "project", id: "p1" });
+
+    await screen.findByText("父任务");
+    const parentRow = screen.getByText("父任务").closest(".pw-task-row")!;
+    fireEvent.click(within(parentRow as HTMLElement).getByTitle("添加子任务"));
+
+    await waitFor(() => expect(calls.added.length).toBe(1));
+    expect(calls.added[0]!.parentId).toBe("parent");
+    expect(calls.added[0]!.projectId).toBe("p1");
+  });
+
+  it("删除含子任务的父 → 首击确认 toast、再击才删", async () => {
+    const toasts: string[] = [];
+    const { bridge, calls } = fakeTasksBridge(
+      [
+        task("parent", "父任务", { projectId: "p1" }),
+        task("child", "子任务", { projectId: "p1", parentTaskId: "parent" }),
+      ],
+      [{ id: "p1", name: "项目一" }],
+    );
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+        <TaskListColumn selection={{ kind: "project", id: "p1" }} onOpenTask={() => {}} onToast={(t) => toasts.push(t)} />
+      </CoreProvider>,
+    );
+
+    await screen.findByText("父任务");
+    const parentRow = screen.getByText("父任务").closest(".pw-task-row")!;
+    const del = within(parentRow as HTMLElement).getByTitle("删除");
+    fireEvent.click(del); // 首击：仅确认
+    expect(calls.deleted.length).toBe(0);
+    expect(toasts.some((t) => t.includes("子任务"))).toBe(true);
+    fireEvent.click(del); // 再击：真删
+    await waitFor(() => expect(calls.deleted).toContain("parent"));
+  });
+
+  it("全部子任务完成 → 父浮现「完成此任务」建议，点击才置 done", async () => {
+    const { bridge, calls } = fakeTasksBridge(
+      [
+        task("parent", "父任务", { projectId: "p1" }),
+        task("child", "子任务", { projectId: "p1", parentTaskId: "parent", status: "done" }),
+      ],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderColumn(bridge, { kind: "project", id: "p1" });
+
+    // 父行浮现建议（子任务 done 被中列活动过滤，但 rollup 派生看全量）。
+    const suggest = await screen.findByText("✓ 完成此任务");
+    expect(calls.update.length).toBe(0); // 未自动 done
+    fireEvent.click(suggest);
+    await waitFor(() => expect(calls.update.some((u) => u.id === "parent" && u.patch.status === "done")).toBe(true));
   });
 
   it("Today 视图下父不在 scope → 子任务扁平（无缩进）", async () => {
