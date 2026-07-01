@@ -647,9 +647,16 @@ describe("buildRpcArgs", () => {
     expect(args).not.toContain("--session");
   });
 
-  it("插件 Skill:恒带 --no-skills（不再随 useOwnSkills 省略,UI 唯一真相源）", () => {
-    expect(buildRpcArgs({ ...base, useOwnSkills: true })).toContain("--no-skills");
+  it("插件 Skill:--no-skills 随 useOwnSkills gate（=true 时省略,放开 pi 原生发现,与 claude adapter 对齐）", () => {
+    expect(buildRpcArgs({ ...base, useOwnSkills: true })).not.toContain("--no-skills");
     expect(buildRpcArgs({ ...base, useOwnSkills: false })).toContain("--no-skills");
+    expect(buildRpcArgs(base)).toContain("--no-skills"); // 缺省 = 关
+  });
+
+  it("插件 Skill:useOwnSkills=true 时原生发现 + --skill 注入并存", () => {
+    const args = buildRpcArgs({ ...base, useOwnSkills: true, skillPaths: ["/a/code-review"] });
+    expect(args).not.toContain("--no-skills");
+    expect(args.join(" ")).toContain("--skill /a/code-review");
   });
 
   it("插件 Skill:skillPaths 逐个 --skill 注入；缺省仅 --no-skills", () => {
