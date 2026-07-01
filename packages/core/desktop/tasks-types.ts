@@ -69,6 +69,10 @@ export interface TaskMeta {
   createdAt: number;
   updatedAt: number;
   migratedFrom?: string; // 迁移自旧 TodoMeta.id（溯源/幂等）
+  // ── 子任务层级（U1）：parentTaskId 指向父 TaskMeta.id，缺省/悬空 = 顶层任务。
+  // 任意层级嵌套（无深度上限）；子任务是一等 TaskMeta，自带 projectId/dueDate/status。
+  // 建树在渲染层两遍 Map 法即时组装，父不在 scope 则子升顶层（计算视图自然扁平，见 personal/taskTree）。
+  parentTaskId?: string;
   // ── 富字段（U10-U13，全部可选、读时零迁移；详情渐进披露）──
   estimatedDuration?: number; // 预计时长（分钟，U10）
   completedAt?: number; // 置 done 时间戳（U10；权威由 main 状态迁移落点写）
@@ -83,6 +87,7 @@ export interface TaskInput {
   title: string;
   notes?: string;
   projectId?: string;
+  parentId?: string; // 父 TaskMeta.id（新建子任务，U2 store.add 透传落 parentTaskId）；缺省 = 顶层任务
   source?: TaskSource; // 缺省 manual
 }
 
