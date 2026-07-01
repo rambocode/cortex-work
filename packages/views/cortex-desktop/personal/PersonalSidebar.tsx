@@ -105,6 +105,49 @@ function SessionRow({
   );
 }
 
+// 单个分组内默认显示的会话条数上限。超过则默认只显示前 N 条,底部挂「展开显示」按钮。
+const DEFAULT_VISIBLE_SESSIONS = 5;
+
+// 分组会话列表:超过 DEFAULT_VISIBLE_SESSIONS 条时默认只显示前 N 条,底部「展开显示 (剩余数)」
+// 按钮展开全部,展开后按钮变「折叠显示」。避免会话多的项目把侧栏撑高、把其它项目/分组挤下去。
+// 展开态是各列表实例本地态(项目折叠/无项目分组各自独立),分组整体折叠时组件卸载即自然重置。
+export function SessionList({
+  sessions,
+  activeSessionId,
+  onSelect,
+  onToast,
+}: {
+  sessions: SessionMeta[];
+  activeSessionId: string | undefined;
+  onSelect: (id: string) => void;
+  onToast: (text: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const overflow = sessions.length > DEFAULT_VISIBLE_SESSIONS;
+  const visible = expanded || !overflow ? sessions : sessions.slice(0, DEFAULT_VISIBLE_SESSIONS);
+  return (
+    <>
+      {visible.map((sess) => (
+        <SessionRow
+          key={sess.id}
+          session={sess}
+          active={sess.id === activeSessionId}
+          onSelect={() => onSelect(sess.id)}
+          onToast={onToast}
+        />
+      ))}
+      {overflow ? (
+        <button className="pw-session-more" data-collapsed={!expanded} onClick={() => setExpanded((v) => !v)}>
+          <span className="chev">
+            <Icon.Chevron size={10} />
+          </span>
+          <span>{expanded ? "折叠显示" : `展开显示 (${sessions.length - DEFAULT_VISIBLE_SESSIONS})`}</span>
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 function ProjectBlock({
   project,
   archived,
@@ -200,17 +243,14 @@ function ProjectBlock({
           </button>
         </div>
       </div>
-      {!collapsed
-        ? liveList.map((sess) => (
-            <SessionRow
-              key={sess.id}
-              session={sess}
-              active={sess.id === activeSessionId}
-              onSelect={() => setActiveSession(sess.id)}
-              onToast={onToast}
-            />
-          ))
-        : null}
+      {!collapsed ? (
+        <SessionList
+          sessions={liveList}
+          activeSessionId={activeSessionId}
+          onSelect={setActiveSession}
+          onToast={onToast}
+        />
+      ) : null}
       {!collapsed && showArchived
         ? archivedList.map((sess) => (
             <SessionRow
@@ -391,17 +431,14 @@ export function PersonalSidebar({
               </span>
               <span>无项目 ({noProjectSessions.length})</span>
             </button>
-            {noProjectOpen
-              ? noProjectSessions.map((sess) => (
-                  <SessionRow
-                    key={sess.id}
-                    session={sess}
-                    active={sess.id === activeSessionId}
-                    onSelect={() => setActiveSession(sess.id)}
-                    onToast={onToast}
-                  />
-                ))
-              : null}
+            {noProjectOpen ? (
+              <SessionList
+                sessions={noProjectSessions}
+                activeSessionId={activeSessionId}
+                onSelect={setActiveSession}
+                onToast={onToast}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
