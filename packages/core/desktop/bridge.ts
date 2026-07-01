@@ -353,6 +353,8 @@ export interface DesktopBridge {
     //   提供 rootSpecs 时,主进程忽略下方 deprecated 扁平入参。
     rootSpecs?: { path: string; scope: "global" | "workspace"; origin: "shared" | "agent" }[];
     workspaceDir?: string;
+    // 会话 agent(Design B 增量):主进程据此追加该 agent 自带的插件/内置 skill 根(claude/codex CLI 自带)。
+    agent?: AgentKind;
     // U6:已启用插件的 skills 根（绝对路径，scope=global）。主进程 append 进扫描根，与第一方 skill 同链注入。
     pluginSkillDirs?: string[];
     /** @deprecated 过渡期扁平入参(Design B)。未迁移调用点(如 SkillPanel)仍用,消费点切完移除。 */

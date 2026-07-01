@@ -75,7 +75,8 @@ export function usePiEnabledSkills(session: SessionMeta | undefined): PiSlashSki
     // queryKey 必须并入 agent + 根签名,否则切 agent 命中旧缓存导致列表不变(本 bug 直接成因)。
     queryKey: ["pi-enabled-skills", agent ?? "", projectPath ?? "", rootSpecs.map((r) => `${r.origin}:${r.scope}:${r.path}`).join("|")],
     enabled: gateOpen,
-    queryFn: () => bridge!.piSkillsList!({ rootSpecs, workspaceDir: projectPath }),
+    // agent 透传:主进程据此追加该 agent 自带插件/内置 skill 根(Design B 增量)。
+    queryFn: () => bridge!.piSkillsList!({ rootSpecs, workspaceDir: projectPath, agent }),
     staleTime: Infinity,
     refetchOnWindowFocus: true, // 兜底:窗口重获焦点时重扫(skill 目录可能在外部增删)
   });

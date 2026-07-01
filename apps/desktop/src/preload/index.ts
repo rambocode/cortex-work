@@ -441,6 +441,7 @@ const personal = {
     // Design B(plan 002):按 agent 的扫描根规格(global 含 ~;workspace 为相对子目录)。见 bridge.ts。
     rootSpecs?: { path: string; scope: "global" | "workspace"; origin: "shared" | "agent" }[];
     workspaceDir?: string;
+    agent?: AgentKind; // Design B 增量:追加该 agent 自带插件/内置 skill 根
     pluginSkillDirs?: string[];
     // 过渡期 deprecated 扁平入参。
     globalRoots?: string[];

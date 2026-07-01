@@ -11,8 +11,9 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
 import { getSkill, listSkills, scanSkillRoots } from "../skills/registry";
 import { expandTilde, expandRootSpecs, pluginSkillRoots, type ScanRoot } from "../skills/locate";
+import { agentNativePluginRoots } from "../skills/agent-native";
 import { installedPluginsRoot } from "../plugins/locate";
-import type { PluginSkill, SkillMeta, SkillScope } from "./types";
+import type { AgentKind, PluginSkill, SkillMeta, SkillScope } from "./types";
 
 // pi-skills:list 入参(渲染端从 piSkills 配置拍平传入)。
 interface PiSkillsListArgs {
@@ -20,6 +21,9 @@ interface PiSkillsListArgs {
   // 下方 deprecated 扁平入参。global scope 含 ~(expandTilde);workspace scope 为相对子目录(join workspaceDir)。
   rootSpecs?: { path: string; scope: SkillScope; origin: "shared" | "agent" }[];
   workspaceDir?: string;
+  // 会话 agent(Design B 增量):主进程据此追加该 agent 自身「已装插件 / vendor 内置」skill 根
+  // (claude 读 installed_plugins.json、codex 扫 vendor/memories),使面板/下拉也展示 CLI 自带 skill。
+  agent?: AgentKind;
   // U6:已启用 ∩ 已授信插件的 skills 根（绝对路径）。渲染端按 store 过滤后传入（main 不读 store）;
   // 以 scope=global 并入扫描根，使插件内 skill 与第一方 skill 走同一注入链与去重。
   pluginSkillDirs?: string[];
@@ -87,6 +91,8 @@ export function registerSkillsHandlers(): void {
       const resolved = resolve(expandTilde(dir));
       if (isInside(pluginRoot, resolved)) roots.push({ path: resolved, scope: "global", origin: "shared" });
     }
+    // agent 自身「已装插件 / vendor 内置」skill 根(claude/codex CLI 自带)。绝对路径,直接并入。
+    if (args.agent) roots.push(...agentNativePluginRoots(args.agent));
     return scanSkillRoots(roots);
   });
 

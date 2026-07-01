@@ -178,7 +178,7 @@ export async function resolveEnabledSkillRecords(
   const pluginSkillDirs = await resolveEnabledPluginSkillDirs(bridge);
   let skills: PluginSkill[];
   try {
-    skills = await bridge.piSkillsList({ rootSpecs, workspaceDir: projectPath, pluginSkillDirs });
+    skills = await bridge.piSkillsList({ rootSpecs, workspaceDir: projectPath, pluginSkillDirs, agent });
   } catch {
     return [];
   }
