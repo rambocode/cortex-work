@@ -59,11 +59,17 @@ function planToolWhitelist(req: CliStartRequest): string[] {
   return [...PI_PLAN_TOOL_WHITELIST, ...delegateTools];
 }
 
+// agent_start/turn_start/turn_end/agent_end/message_start:已评审过、故意忽略的帧(见文件头
+// 注释第 15/150-151 行),不是 parseLineEvents 盲区补点想告警的"新协议漂移",故声明进
+// ignoredFrameTypes,让盲区补点跳过它们,不刷屏。
+const IGNORED_FRAME_TYPES = new Set(["agent_start", "turn_start", "turn_end", "agent_end", "message_start"]);
+
 export const piDef: AgentDef = {
   id: "pi",
   // 能力位:pi 是自包含二进制,prompt 走 argv 位置参数;不注入 MCP(走自身扩展);续接用 --session;
   // 无图片处理;appendSystemPrompt 原生 flag。
   promptDelivery: "argv",
+  ignoredFrameTypes: IGNORED_FRAME_TYPES,
   mcpInjection: "none",
   sessionResume: "resume-only",
   imageDelivery: "none",

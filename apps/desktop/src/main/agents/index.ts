@@ -59,6 +59,12 @@ export interface AgentDef {
   serverCmd?: string;
   // 注入子进程的额外环境变量(M3-A 派生 def 用;内置 def 为 undefined)。由 spawn 站点合并进 env。
   extraEnv?: Record<string, string>;
+  // 已知会被 parseLine 静默忽略、但**不是**盲区(已评审过、故意不产出事件)的帧 type 集合。
+  // 盲区补点(下方 parseLineEvents)只想告警"真正没被适配过的新帧",这些帧命中后即便解析出 []
+  // 也不应算作信号——否则每轮都刷屏,把该关注的协议漂移淹没在已知噪声里(见 pi.ts 的
+  // agent_start/turn_start/turn_end/agent_end/message_start)。缺省 undefined = 沿用现状,
+  // 所有空解析的 `{` 开头行都告警(claude/codex 未声明此位,行为不变)。
+  ignoredFrameTypes?: ReadonlySet<string>;
   // ── 两个纯函数 ──
   // 返回可执行名与参数(可执行名不带路径，由 cli.ts 结合 PATH 解析),以及可选的 stdin 负载。
   // stdin 存在时(claude/codex):prompt 经 stdin 投递、不进 argv,绕开命令行长度上限(E2BIG/ENAMETOOLONG);
@@ -84,7 +90,7 @@ export function parseLineEvents(def: AgentDef, line: string): CliStreamEvent[] {
   //  - 落盘失败 try/catch 吞掉,绝不阻断解析主流程(R14)。返回行为保持不变。
   if (events.length === 0 && isDevEnv()) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("{")) {
+    if (trimmed.startsWith("{") && !isKnownIgnoredFrame(def, trimmed)) {
       try {
         parseLog.debug(`未映射的 ${def.id} 输出帧`, redactString(line));
       } catch {
@@ -93,6 +99,18 @@ export function parseLineEvents(def: AgentDef, line: string): CliStreamEvent[] {
     }
   }
   return events;
+}
+
+// 命中 def.ignoredFrameTypes 的帧不算盲区(已评审、故意忽略),不告警。JSON 解析失败/无
+// type 字段/def 未声明该位 → 视为「不是已知忽略帧」,回退到现状告警(保守,不漏真正的盲区)。
+function isKnownIgnoredFrame(def: AgentDef, trimmedLine: string): boolean {
+  if (!def.ignoredFrameTypes) return false;
+  try {
+    const obj = JSON.parse(trimmedLine) as Record<string, unknown>;
+    return typeof obj?.type === "string" && def.ignoredFrameTypes.has(obj.type);
+  } catch {
+    return false;
+  }
 }
 
 const AGENT_DEFS: Record<string, AgentDef> = {

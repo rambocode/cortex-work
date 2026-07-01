@@ -216,6 +216,12 @@ describe("piDef.parseLine", () => {
     expect(piDef.parseLine(JSON.stringify({ type: "message_start" }))).toBeNull();
   });
 
+  it("已知故意忽略的帧 type 都声明进 ignoredFrameTypes(不算 parseLineEvents 盲区)", () => {
+    for (const t of ["agent_start", "turn_start", "turn_end", "agent_end", "message_start"]) {
+      expect(piDef.ignoredFrameTypes?.has(t)).toBe(true);
+    }
+  });
+
   it("非 JSON / 形状不符 → null 且不抛", () => {
     expect(piDef.parseLine("not json")).toBeNull();
     expect(piDef.parseLine(JSON.stringify({ type: "session" }))).toBeNull();
