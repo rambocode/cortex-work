@@ -6312,6 +6312,74 @@ button.sb-row {
   padding-top: 40px;
 }
 
+/* ── 全屏三栏「项目」工作台（U5）──────────────────────────────────────
+   仿 .pw-settings-page 的 fixed 全窗覆盖（z-index:200，须与 settings 同级、渲染在其前，
+   见 PersonalWorkspace）；内部自绘三列 flex：左项目树(固定宽) / 中任务清单(flex:1) /
+   右详情(固定宽)。不复用 .right/.pw-center-col（被 .body:has(.pw-main) 与 2 列 grid 绑死）。
+   叶子样式（任务行/徽标/详情结构栏/项目树行）整套复用现有 .pw-task-*/.pw-project*。 */
+.pw-projects-page {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+}
+.pw-projects-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag; /* 顶栏承担窗口拖拽 */
+}
+.pw-projects-head button {
+  -webkit-app-region: no-drag;
+}
+.pw-projects-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-1);
+}
+/* macOS 无边框窗口：整页覆盖盖住原让位区，顶栏左侧预留红绿灯宽度（同 settings 让位约定）。 */
+.app-frame[data-native-titlebar="mac"] .pw-projects-head {
+  padding-left: 82px;
+}
+.pw-projects-cols {
+  flex: 1;
+  display: flex;
+  min-height: 0; /* 允许子列各自滚动 */
+}
+.pw-projects-tree {
+  width: 260px;
+  min-width: 200px;
+  flex-shrink: 0;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 6px;
+}
+.pw-projects-list {
+  flex: 1;
+  min-width: 280px; /* 窄窗下中列优先保留可用宽度 */
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+.pw-projects-detail {
+  width: 380px;
+  min-width: 320px;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+.pw-projects-detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
 /* ── 设置页：浅色去暖统一白 + 排版精修 ───────────────────────────────────
    作用域全部限定在 .pw-settings-page,不影响 App 其它部分与复用 .pw-dlg-* 的弹窗。
    A 组(颜色)用 :root:not([data-theme="dark"]) 守卫,只动浅色模式;颜色统一走变量
