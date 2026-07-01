@@ -39,6 +39,9 @@ import type {
   NoteInput,
   NoteMeta,
   NoteStatus,
+  TaskInput,
+  TaskMeta,
+  TaskProject,
   OpenAiCompleteRequest,
   PersistedState,
   PiOpenRequest,
@@ -341,6 +344,16 @@ export interface DesktopBridge {
   notesUpdate?(id: string, patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] }): Promise<NoteMeta | null>;
   notesDelete?(id: string): Promise<void>;
   onNotesChanged?(cb: (list: NoteMeta[]) => void): () => void;
+  // 真任务系统（个人工作区，替换 doc 聚合 Tasks）：可选能力，web/旧壳无 → UI 降级隐藏。
+  // main 为 owner，与 apps/desktop/src/preload/index.ts 的 tasks* 逐字对齐（手工比对，无 satisfies）。
+  tasksList?(projectId?: string): Promise<TaskMeta[]>;
+  tasksListProjects?(): Promise<TaskProject[]>;
+  tasksAdd?(input: TaskInput): Promise<TaskMeta>;
+  tasksUpdate?(id: string, patch: Partial<Omit<TaskMeta, "id" | "createdAt">>): Promise<TaskMeta | null>;
+  tasksDelete?(id: string): Promise<void>;
+  tasksAddProject?(name: string): Promise<TaskProject>;
+  tasksDeleteProject?(projectId: string): Promise<void>;
+  onTasksChanged?(cb: (list: TaskMeta[]) => void): () => void;
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。可选:web/旧壳无此
   // 能力 → 深化入口降级 toast。第一阶段读内置 resources/skills,第二阶段叠加 userData/skills。
   skillGet?(name: string): Promise<SkillMeta | null>;

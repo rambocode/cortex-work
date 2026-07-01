@@ -22,7 +22,7 @@ describe("migrateLegacyTodos", () => {
     );
     expect(res.projects).toEqual([{ id: "proj-1", name: "工作" }]);
     expect(res.tasks).toHaveLength(1);
-    const t = res.tasks[0];
+    const t = res.tasks[0]!;
     expect(t.status).toBe("done");
     expect(t.projectId).toBe("proj-1");
     expect(t.notes).toBe("邮件正文");
@@ -32,12 +32,12 @@ describe("migrateLegacyTodos", () => {
 
   it("open → active", () => {
     const res = migrateLegacyTodos([todo({ status: "open" })], [], deps());
-    expect(res.tasks[0].status).toBe("active");
+    expect(res.tasks[0]!.status).toBe("active");
   });
 
   it("孤儿 projectId（不在 projects[]）→ 落 Inbox（projectId 置空）", () => {
     const res = migrateLegacyTodos([todo({ projectId: "ghost" })], [{ id: "p1", name: "工作" }], deps());
-    expect(res.tasks[0].projectId).toBeUndefined();
+    expect(res.tasks[0]!.projectId).toBeUndefined();
     expect(res.projects).toEqual([]);
   });
 
@@ -48,7 +48,7 @@ describe("migrateLegacyTodos", () => {
       deps(() => null),
     );
     expect(res.tasks).toHaveLength(2); // 单文件坏不阻断整体
-    expect(res.tasks[0].notes).toBeUndefined();
+    expect(res.tasks[0]!.notes).toBeUndefined();
   });
 
   it("同一旧 projectId 的多条 todo 复用同一 task-project（去重）", () => {
@@ -58,13 +58,13 @@ describe("migrateLegacyTodos", () => {
       deps(),
     );
     expect(res.projects).toHaveLength(1);
-    expect(res.tasks[0].projectId).toBe(res.tasks[1].projectId);
+    expect(res.tasks[0]!.projectId).toBe(res.tasks[1]!.projectId);
   });
 
   it("正文超长按 MAX_NOTE_CHARS 截断", () => {
     const big = "x".repeat(MAX_NOTE_CHARS + 500);
     const res = migrateLegacyTodos([todo({ detailPath: "/big.md" })], [], deps(() => big));
-    expect(res.tasks[0].notes!.length).toBe(MAX_NOTE_CHARS);
+    expect(res.tasks[0]!.notes!.length).toBe(MAX_NOTE_CHARS);
   });
 
   it("createdAt/updatedAt 保留；缺省回退 now", () => {
@@ -73,9 +73,9 @@ describe("migrateLegacyTodos", () => {
       [],
       deps(),
     );
-    expect(res.tasks[0].createdAt).toBe(5);
-    expect(res.tasks[0].updatedAt).toBe(9);
-    expect(res.tasks[1].createdAt).toBe(1000); // now 回退
+    expect(res.tasks[0]!.createdAt).toBe(5);
+    expect(res.tasks[0]!.updatedAt).toBe(9);
+    expect(res.tasks[1]!.createdAt).toBe(1000); // now 回退
   });
 
   it("空 todos → 空结果", () => {

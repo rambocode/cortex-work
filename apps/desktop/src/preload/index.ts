@@ -31,6 +31,9 @@ import type {
   GitOpResult,
   NoteInput,
   NoteMeta,
+  TaskInput,
+  TaskMeta,
+  TaskProject,
   NoteStatus,
   PersistedState,
   PiOpenRequest,
@@ -431,6 +434,23 @@ const personal = {
     const listener = (_e: IpcRendererEvent, list: NoteMeta[]) => cb(list);
     ipcRenderer.on("notes:changed", listener);
     return () => ipcRenderer.removeListener("notes:changed", listener);
+  },
+  // 真任务系统（个人工作区）。main 为 owner，IPC 透传 + 变更事件订阅。
+  // 形状与 DesktopBridge 的可选 tasks* 逐字对齐（手工比对，无 satisfies）。
+  tasksList: (projectId?: string): Promise<TaskMeta[]> => ipcRenderer.invoke("tasks:list", projectId),
+  tasksListProjects: (): Promise<TaskProject[]> => ipcRenderer.invoke("tasks:listProjects"),
+  tasksAdd: (input: TaskInput): Promise<TaskMeta> => ipcRenderer.invoke("tasks:add", input),
+  tasksUpdate: (
+    id: string,
+    patch: Partial<Omit<TaskMeta, "id" | "createdAt">>,
+  ): Promise<TaskMeta | null> => ipcRenderer.invoke("tasks:update", id, patch),
+  tasksDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:delete", id),
+  tasksAddProject: (name: string): Promise<TaskProject> => ipcRenderer.invoke("tasks:addProject", name),
+  tasksDeleteProject: (projectId: string): Promise<void> => ipcRenderer.invoke("tasks:deleteProject", projectId),
+  onTasksChanged: (cb: (list: TaskMeta[]) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, list: TaskMeta[]) => cb(list);
+    ipcRenderer.on("tasks:changed", listener);
+    return () => ipcRenderer.removeListener("tasks:changed", listener);
   },
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。形状与 DesktopBridge
   // 的可选 skillGet/skillsList 逐字对齐（手工比对,无 satisfies）。

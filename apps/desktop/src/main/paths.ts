@@ -79,6 +79,11 @@ export function notesStorePath(): string {
   return join(cortexHome(), "notes.json");
 }
 
+// 真任务系统：单文件全量（main-owned，version 独立于 personal-workspace.json）。
+export function tasksJsonPath(): string {
+  return join(cortexHome(), "tasks.json");
+}
+
 // 自动化执行历史：按 automationId 一文件（automation-runs/<id>.json）。
 export function automationRunsDir(): string {
   return join(cortexHome(), "automation-runs");

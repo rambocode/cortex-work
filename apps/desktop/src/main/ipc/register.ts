@@ -3,6 +3,7 @@
 import { registerFsHandlers } from "./fs";
 import { registerStoreHandlers } from "./store";
 import { registerNotesHandlers } from "./notes";
+import { registerTasksHandlers } from "./tasks";
 import { registerSkillsHandlers } from "./skills";
 import { registerPluginHandlers } from "./plugins";
 import { registerPiExtensionMarketHandlers } from "./pi-extensions-market";
@@ -44,6 +45,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerWatchHandlers();
   registerStoreHandlers();
   registerNotesHandlers();
+  registerTasksHandlers(); // 真任务系统（替换 doc 聚合 Tasks）
   registerSkillsHandlers();
   registerPluginHandlers();
   registerPiExtensionMarketHandlers();

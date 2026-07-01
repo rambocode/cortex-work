@@ -3,7 +3,11 @@
 // 纯函数无 React/IO 依赖，便于表驱动单测（见 tasks.test.ts）。
 // 数据类型定义在 ../desktop/types（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。
 
-import type { TaskMeta, TaskStatus } from "../desktop/types";
+import { useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { DesktopBridge } from "../desktop/bridge";
+import type { TaskInput, TaskMeta, TaskProject, TaskStatus } from "../desktop/types";
+import { useDesktopBridge } from "../provider";
 
 // 可执行的状态集：仅这两态视为「可用/可执行」，defer 门控叠加其上。
 const ACTIONABLE: readonly TaskStatus[] = ["active", "in-progress"];
@@ -71,4 +75,113 @@ export function canTransition(from: TaskStatus, to: TaskStatus, by: "user" | "ag
   if (from === to) return false;
   const table = by === "agent" ? AGENT_TRANSITIONS : USER_TRANSITIONS;
   return table[from].includes(to);
+}
+
+// ── React Query 读写 hooks（U4；main 是 owner，服务端态走 RQ 不复制进 Zustand）──────
+// query key 以 projectId 命名空间（桌面端无 wsId 概念，绝不用 wsId）。mutation 成功后
+// 只 invalidate、不 setQueryData，让 RQ 重拉 main 权威值（遵 CLAUDE.md 事件只触发 invalidation）。
+
+// 无归属占位段——绝不用 wsId。
+const NO_PROJECT = "no-project";
+
+export const tasksKeys = {
+  all: ["personal", "tasks"] as const,
+  byProject: (projectId: string) => ["personal", "tasks", projectId] as const,
+  projects: ["personal", "task-projects"] as const,
+};
+
+// 任务能力是否可用（无 bridge / web / 旧壳缺方法 → UI 隐藏 Tasks 入口）。
+export function tasksAvailable(bridge: DesktopBridge | null): boolean {
+  return !!bridge?.tasksList;
+}
+export function useTasksAvailable(): boolean {
+  return tasksAvailable(useDesktopBridge());
+}
+
+// 任务列表：无 projectId → 全部；有 → 该 project。
+export function useTasks(projectId?: string) {
+  const bridge = useDesktopBridge();
+  return useQuery<TaskMeta[]>({
+    queryKey: projectId === undefined ? tasksKeys.all : tasksKeys.byProject(projectId ?? NO_PROJECT),
+    enabled: !!bridge?.tasksList,
+    queryFn: () => bridge!.tasksList!(projectId),
+    staleTime: Infinity,
+    refetchOnWindowFocus: true, // 兜底事件丢失
+  });
+}
+
+export function useTaskProjects() {
+  const bridge = useDesktopBridge();
+  return useQuery<TaskProject[]>({
+    queryKey: tasksKeys.projects,
+    enabled: !!bridge?.tasksListProjects,
+    queryFn: () => bridge!.tasksListProjects!(),
+    staleTime: Infinity,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export type TaskPatch = Partial<Omit<TaskMeta, "id" | "createdAt">>;
+
+export function useAddTask() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<TaskMeta, Error, TaskInput>({
+    mutationFn: (input) => bridge!.tasksAdd!(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: tasksKeys.all }),
+  });
+}
+
+export function useUpdateTask() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<TaskMeta | null, Error, { id: string; patch: TaskPatch }>({
+    mutationFn: (v) => bridge!.tasksUpdate!(v.id, v.patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: tasksKeys.all }),
+  });
+}
+
+export function useDeleteTask() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => bridge!.tasksDelete!(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: tasksKeys.all }),
+  });
+}
+
+export function useAddTaskProject() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<TaskProject, Error, string>({
+    mutationFn: (name) => bridge!.tasksAddProject!(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: tasksKeys.projects }),
+  });
+}
+
+// 删除 task-project：其下任务 reparent 到 Inbox（KTD10）；任务与项目两个 key 都失效。
+export function useDeleteTaskProject() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (projectId) => bridge!.tasksDeleteProject!(projectId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: tasksKeys.all });
+      qc.invalidateQueries({ queryKey: tasksKeys.projects });
+    },
+  });
+}
+
+// tasks:changed 推全量快照，但这里只 invalidate（任务 + 项目两个 key），让 RQ 重拉权威值。
+// 工作区根部挂载一次；onTasksChanged 返回 removeListener，卸载即清。
+export function useTasksChangeSubscription(): void {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!bridge?.onTasksChanged) return;
+    return bridge.onTasksChanged(() => {
+      qc.invalidateQueries({ queryKey: tasksKeys.all });
+      qc.invalidateQueries({ queryKey: tasksKeys.projects });
+    });
+  }, [bridge, qc]);
 }
