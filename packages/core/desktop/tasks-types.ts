@@ -26,8 +26,19 @@ export interface TaskReminder {
 // 任务重复（U12）：完成后按周期滚动**同一任务**（顺延日期回 active），不新建实例、不留完成时间。
 // 「结束重复」= 先清 repeat（选「无」）再完成才真正 done（滚动任务恒 active、永不进归档，已知限制）。
 export interface TaskRepeat {
-  kind: "daily" | "weekly" | "monthly";
-  interval?: number; // 每几天/周/月，缺省 1
+  // 单位含子日粒度（分/时，与天/周/月同级，U14）：
+  //   minutely/hourly = 子日重复，锚在提醒时刻 reminder.at 按间隔顺延（纯日期无时分语义，故只能锚提醒）；
+  //   daily/weekly/monthly = 日期重复，顺延 dueDate/deferDate。
+  kind: "minutely" | "hourly" | "daily" | "weekly" | "monthly";
+  interval?: number; // 每几分/时/天/周/月，缺省 1
+  // ── 自定义重复（U14，全部可选；缺省/为空 → 按 interval 简单顺延，读时零迁移）──
+  // custom!==true 时忽略下列所有细则；仅 weekly/monthly 有意义。细则缺失/为空时滚动逻辑回退简单顺延（防呆）。
+  custom?: boolean;
+  weekdays?: number[]; // weekly+custom：命中的星期几集合（0=周日 .. 6=周六）
+  monthMode?: "day" | "weekday"; // monthly+custom 子模式：「月中的一天」/「周中的第 N 个星期几」
+  monthDays?: Array<number | "last">; // monthMode=day：几号（1..31，或 "last"=当月最后一天）
+  ordinal?: "1" | "2" | "3" | "4" | "5" | "last"; // monthMode=weekday：第几个
+  weekday?: number; // monthMode=weekday：星期几（0..6）
 }
 
 // 任务附件（U13）：复用聊天文档附件闸门（doc.ts saveDocInto/assertDocPath）落盘，仅换存储根为

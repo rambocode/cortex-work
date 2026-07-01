@@ -226,6 +226,8 @@ export class TasksStore {
         next.completedAt = undefined;
         next.dueDate = rolled.dueDate;
         next.deferDate = rolled.deferDate;
+        // U14 子日重复（分/时）：rollRepeat 把提醒时刻顺延一个间隔（清 firedAt 使重新触发）；日期类重复无此项。
+        if (rolled.reminder) next.reminder = rolled.reminder;
       }
       const tasks = data.tasks.slice();
       tasks[idx] = next;

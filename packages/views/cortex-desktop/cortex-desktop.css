@@ -6376,14 +6376,21 @@ button.sb-row {
   flex-shrink: 0;
   overflow-y: auto;
 }
+/* 右列空态（对齐设计稿检查器）：居中图标 + 两行提示，弱化呈现。 */
 .pw-projects-detail-empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   height: 100%;
-  color: var(--text-2);
+  padding: 40px;
+  color: var(--text-4);
   font-size: 13px;
+  text-align: center;
 }
+.pw-projects-detail-empty-icon { opacity: 0.5; }
+.pw-projects-detail-empty-text { line-height: 1.5; }
 
 /* U6 项目树：内置视图入口 / 折叠箭头占位对齐 / 就地新建·重命名输入。
    节点行、折叠、悬停操作整套复用 .pw-project*；这里只补树特有的少量样式。 */
@@ -9191,3 +9198,104 @@ button.sb-row {
 .pw-task-meta-tagrow .pw-task-badge { display: inline-flex; align-items: center; gap: 2px; }
 .pw-task-tag-x { font-size: 12px; color: var(--text-4); padding: 0 1px; }
 .pw-task-tag-x:hover { color: var(--accent); }
+
+/* ══ 右列检查器（对齐设计稿 OmniFocus INSPECTOR）══════════════════════════════
+   column 布局：字段纵向堆叠 —— 标签块独占一行（width:100%），控件在下一行横向流；
+   全用主题 token（--accent 本身即暖赭橙，天然贴合设计稿且随主题/暗色自适应）。 */
+.pw-task-fields.is-column .pw-task-detail-meta { padding: 12px 14px; gap: 12px; }
+.pw-task-fields.is-column .pw-task-meta-row { gap: 5px 8px; }
+/* 标签占满整行 → 独占一行，控件自然换到下一行。 */
+.pw-task-fields.is-column .pw-task-meta-label { width: 100%; font-size: 11px; color: var(--text-3); }
+/* 项目 select 撑满整行（设计稿：全宽下拉），旁留「＋新建」按钮同排；
+   只作用于项目下拉，避免误伤提醒字段的时/分下拉（同为 .pw-task-meta-select）。 */
+.pw-task-fields.is-column .pw-task-project-select { flex: 1 1 auto; width: auto; min-width: 0; }
+/* 提醒字段的时/分下拉在 column 下允许收窄（去掉基础 min-width:130 的过宽占位）。 */
+.pw-task-fields.is-column .pw-task-reminder .pw-task-meta-select { min-width: 0; }
+/* 标记行：标签在上、⚑ 按钮在下。 */
+.pw-task-fields.is-column .pw-task-meta-flagrow .pw-task-meta-btn { flex: 0 0 auto; }
+
+/* 富字段分区（时长/提醒/重复/附件）：整段上细分隔线，段间留白。 */
+.pw-task-fields.is-column .pw-task-rich { padding: 12px 14px; gap: 12px; border-top: 1px solid var(--border-soft); }
+/* 「＋添加属性」入口：虚线 pill（设计稿「＋添加…」affordance），弱化直到 hover。 */
+.pw-task-fields.is-column .pw-task-rich-add { gap: 6px; }
+.pw-task-fields.is-column .pw-task-rich-add .pw-task-meta-btn {
+  background: transparent; border: 1px dashed var(--border); color: var(--text-3);
+}
+.pw-task-fields.is-column .pw-task-rich-add .pw-task-meta-btn:hover {
+  border-color: var(--accent); color: var(--accent); background: var(--accent-soft);
+}
+
+/* 日期字段（推迟至/截止）：input 一行、快捷 chips 一行。 */
+.pw-task-datefield { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.pw-task-datefield-input { width: 100%; }
+.pw-task-date-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.pw-task-date-chip {
+  font-size: 11px; color: var(--text-2); background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.pw-task-date-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.pw-task-date-chip.is-clear { color: var(--text-4); background: transparent; border-color: var(--border-soft); }
+.pw-task-date-chip.is-clear:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 重复（U14）：单位/间隔/时刻一排 + 自定义（周几 chips / 月网格 / 第 N 个星期几）纵向堆叠。 */
+.pw-task-repeat { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; width: 100%; }
+.pw-task-repeat-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pw-task-repeat-lead { font-size: 12px; color: var(--text-3); }
+.pw-task-repeat-n { flex: 0 0 auto; width: 56px; min-width: 0; }
+.pw-task-repeat-unit { width: auto; min-width: 68px; }
+/* 自定开关 */
+.pw-task-repeat-custom-toggle {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); cursor: pointer;
+}
+.pw-task-repeat-custom-toggle input { accent-color: var(--accent); width: 14px; height: 14px; }
+/* 自定 · 周：星期几 chips（可多选） */
+.pw-task-weekday-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.pw-task-weekday-chip {
+  min-width: 30px; flex: 1 0 auto; padding: 5px 0; text-align: center; font-size: 12px; cursor: pointer;
+  color: var(--text-2); background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px;
+}
+.pw-task-weekday-chip:hover { border-color: var(--accent); color: var(--accent); }
+.pw-task-weekday-chip.is-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; font-weight: 600; }
+/* 自定 · 月 */
+.pw-task-month-custom { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.pw-task-month-tabs { display: flex; gap: 5px; width: 100%; }
+.pw-task-month-tab {
+  flex: 1; padding: 6px 0; font-size: 12px; cursor: pointer; border: 0; border-radius: 7px;
+  color: var(--text-2); background: var(--bg-chip);
+}
+.pw-task-month-tab.is-on { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.pw-task-monthday-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; width: 100%; }
+.pw-task-monthday {
+  padding: 5px 0; text-align: center; font-size: 12px; cursor: pointer;
+  color: var(--text-2); background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
+}
+.pw-task-monthday:hover { border-color: var(--accent); color: var(--accent); }
+.pw-task-monthday.is-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; font-weight: 600; }
+.pw-task-monthday-last { grid-column: span 7; }
+.pw-task-month-weekday { display: flex; gap: 7px; width: 100%; }
+.pw-task-month-weekday .pw-task-meta-select { flex: 1; min-width: 0; }
+
+/* 时长/提醒/附件：column 下横向流、占满整行。 */
+.pw-task-fields.is-column .pw-task-duration,
+.pw-task-fields.is-column .pw-task-reminder,
+.pw-task-fields.is-column .pw-task-attachments {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%;
+}
+.pw-task-duration-val { font-size: 12px; color: var(--text-2); margin-right: 2px; }
+
+/* 提醒 opt-in 关闭提示（设了提醒却不会弹）：暖警示色 + 一键开启。 */
+.pw-task-notif-warn { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; width: 100%; font-size: 11px; color: var(--accent); }
+.pw-task-notif-enable {
+  font-size: 11px; color: var(--accent); background: var(--accent-soft);
+  border: 0; border-radius: 6px; padding: 2px 8px; cursor: pointer;
+}
+.pw-task-notif-enable:hover { filter: brightness(0.96); }
+
+/* 备注分区标签（检查器末段）。 */
+.pw-task-note-label { display: block; padding: 10px 14px 4px; font-size: 11px; color: var(--text-3); }
+
+/* 工作台右列整块可滚动：备注编辑器有界高度（不再 flex 填满整列），头部吸顶；
+   仅作用于 .pw-projects-detail 内，TasksView 的详情态（.pw-todos.is-detail）保持编辑器填满不受影响。 */
+.pw-projects-detail .pw-task-detail-head { position: sticky; top: 0; z-index: 1; background: var(--bg-app); }
+.pw-projects-detail .pw-task-detail-body { flex: 0 0 auto; min-height: 300px; padding-bottom: 16px; }
+.pw-projects-detail .pw-task-detail-body > .pw-note-cm-host { min-height: 260px; }

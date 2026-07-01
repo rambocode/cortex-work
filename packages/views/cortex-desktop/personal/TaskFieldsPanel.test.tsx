@@ -83,4 +83,46 @@ describe("TaskFieldsPanel（U5）", () => {
     fireEvent.click(screen.getByTitle("添加预计时长"));
     expect(screen.getByText("预计时长")).toBeTruthy();
   });
+
+  it("日期快捷 chips：截止「今天」写入 dueDate（本地日历日），「清除」置空", async () => {
+    const { bridge, calls } = fakeBridge();
+    // 推迟至 / 截止 各一组 datefield，按 JSX 顺序 [0]=推迟至、[1]=截止。
+    const { container } = renderPanel(bridge, task());
+    const dueField = container.querySelectorAll(".pw-task-datefield")[1] as HTMLElement;
+    const isDate = (u: { patch: Record<string, unknown> }) =>
+      typeof u.patch.dueDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(u.patch.dueDate as string);
+    const todayBtn = [...dueField.querySelectorAll("button")].find((b) => b.textContent === "今天")!;
+    fireEvent.click(todayBtn);
+    await waitFor(() => expect(calls.update.some(isDate)).toBe(true));
+    // 「+1 月」走日历月推进（shiftMonth），同样产出合法本地日历日。
+    const monthBtn = [...dueField.querySelectorAll("button")].find((b) => b.textContent === "+1 月")!;
+    fireEvent.click(monthBtn);
+    await waitFor(() => expect(calls.update.filter(isDate).length).toBeGreaterThanOrEqual(2));
+
+    // 有值时出现「清除」→ 置 undefined。
+    const { container: c2 } = renderPanel(bridge, task({ dueDate: "2026-07-08" }));
+    const dueField2 = c2.querySelectorAll(".pw-task-datefield")[1] as HTMLElement;
+    const clearBtn = [...dueField2.querySelectorAll("button")].find((b) => b.textContent === "清除")!;
+    fireEvent.click(clearBtn);
+    await waitFor(() =>
+      expect(calls.update.some((u) => "dueDate" in u.patch && u.patch.dueDate === undefined)).toBe(true),
+    );
+  });
+
+  it("重复：已重复任务显示间隔 N 输入，改 N 写入 interval（夹到 >=1）", async () => {
+    const { bridge, calls } = fakeBridge();
+    // 直接给已重复任务（isSet → 富字段自动展开，跳过渐进披露）。
+    const { container } = renderPanel(bridge, task({ repeat: { kind: "weekly", interval: 1 } }));
+    const n = container.querySelector(".pw-task-repeat-n") as HTMLInputElement;
+    expect(n).toBeTruthy();
+    fireEvent.change(n, { target: { value: "3" } });
+    await waitFor(() =>
+      expect(calls.update.some((u) => (u.patch.repeat as { interval?: number } | undefined)?.interval === 3)).toBe(true),
+    );
+    // 非法 0 → 归 1（不产生「每 0 周」死循环滚动）。
+    fireEvent.change(n, { target: { value: "0" } });
+    await waitFor(() =>
+      expect(calls.update.some((u) => (u.patch.repeat as { interval?: number } | undefined)?.interval === 1)).toBe(true),
+    );
+  });
 });

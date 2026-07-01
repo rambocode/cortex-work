@@ -94,7 +94,15 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
           {selectedTask ? (
             <TaskDetail task={selectedTask} onBack={() => setSelectedTaskId(null)} onToast={onToast} />
           ) : (
-            <div className="pw-projects-detail-empty">从中间选择一个任务查看详情</div>
+            // 空态（对齐设计稿右列检查器）：居中图标 + 两行提示。
+            <div className="pw-projects-detail-empty">
+              <Icon.Task size={30} className="pw-projects-detail-empty-icon" />
+              <div className="pw-projects-detail-empty-text">
+                选择一个任务
+                <br />
+                查看详情
+              </div>
+            </div>
           )}
         </div>
       </div>

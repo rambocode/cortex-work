@@ -77,6 +77,9 @@ export function TaskDetail({
       <TaskFieldsPanel task={task} layout="column" onToast={onToast} />
 
       <div className="pw-task-detail-body">
+        {/* 备注分区标签（对齐设计稿右列检查器末段）。正文仍用 CodeMirror（较设计稿纯 textarea 更强：
+            实时预览 + 源码切换），在检查器内以有界高度呈现（滚动交给外层 .pw-projects-detail）。 */}
+        <span className="pw-task-note-label">备注</span>
         {loadFailed ? (
           <div className="pw-empty-hint">编辑器加载失败，可返回后重试。</div>
         ) : (

@@ -307,6 +307,33 @@ describe("TasksStore 重复滚动（U12）", () => {
     const done = await store.update(t.id, { status: "done" });
     expect(done!.status).toBe("done");
   });
+
+  it("U14 子日重复（每 30 分钟）：done 滚动时提醒时刻 +30 分、清 firedAt、回 active（日期不动）", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "r4" });
+    const at = new Date(2026, 7, 14, 9, 0, 0, 0).getTime();
+    await store.update(t.id, {
+      dueDate: "2026-08-14",
+      repeat: { kind: "minutely", interval: 30 },
+      reminder: { at, firedAt: 123 },
+    });
+    const done = await store.update(t.id, { status: "done" });
+    expect(done!.status).toBe("active");
+    expect(done!.dueDate).toBe("2026-08-14");
+    expect(done!.reminder).toEqual({ at: at + 30 * 60_000, firedAt: undefined });
+    expect(done!.completedAt).toBeUndefined();
+  });
+
+  it("U14 日期类重复（每天）+ 提醒：done 滚动时日期 +1 天、提醒同步平移一天、清 firedAt", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "r5" });
+    const at = new Date(2026, 6, 1, 9, 0, 0, 0).getTime(); // 2026-07-01 09:00
+    await store.update(t.id, { dueDate: "2026-07-01", repeat: { kind: "daily" }, reminder: { at, firedAt: 7 } });
+    const done = await store.update(t.id, { status: "done" });
+    expect(done!.status).toBe("active");
+    expect(done!.dueDate).toBe("2026-07-02");
+    expect(done!.reminder).toEqual({ at: new Date(2026, 6, 2, 9, 0, 0, 0).getTime(), firedAt: undefined });
+  });
 });
 
 describe("TasksStore 附件（U13）", () => {

@@ -4,6 +4,8 @@
 //（hour/minute <select> + dateStrToAt/toDateStr）；这里字段少，helper 就近内联而非跨文件导出。
 import { useState } from "react";
 import { useUpdateTask } from "@cortex-work/core/personal/tasks";
+import { useDesktopBridge } from "@cortex-work/core";
+import { usePersonalStore } from "@cortex-work/core/store/personal";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -25,6 +27,14 @@ function fmtReminder(ts: number): string {
 
 export function TaskReminderField({ task }: { task: TaskMeta }) {
   const updateTask = useUpdateTask();
+  // 通知 opt-in 门控（U11）：提醒由 main 调度器投递，但门控在「内部原生通知」总开关，默认关。
+  // 用户设了提醒却没开该开关 → 静默不弹（常见困惑「设置了提醒没有提醒」）。此处显式提示 + 一键开启。
+  // 仅桌面端有该门控（web 无原生通知调度）；toggle 经 store:save 钩子实时同步给 main 调度器（无需重启）。
+  const bridge = useDesktopBridge();
+  const pushSettings = usePersonalStore((s) => s.pushSettings);
+  const setPushSettings = usePersonalStore((s) => s.setPushSettings);
+  const notifOff = !!bridge && !pushSettings.internal?.enabled;
+  const enableNotif = () => setPushSettings({ internal: { ...(pushSettings.internal ?? {}), enabled: true } });
   const at = task.reminder?.at;
   // 编辑维度：日期默认今天（或已设提醒的日期），时刻默认 09:00（或已设提醒的时刻）。
   const [dateStr, setDateStr] = useState(() => (at != null ? toDateStr(new Date(at)) : todayStr()));
@@ -84,6 +94,15 @@ export function TaskReminderField({ task }: { task: TaskMeta }) {
         <button className="pw-task-meta-btn" title="清除提醒" onClick={clear}>
           清除
         </button>
+      )}
+      {/* opt-in 关时的提示：设了提醒也不会弹，给一键开启入口（直击「设置了提醒没有提醒」）。 */}
+      {notifOff && (
+        <span className="pw-task-notif-warn">
+          未开启系统通知，提醒不会弹出
+          <button type="button" className="pw-task-notif-enable" onClick={enableNotif}>
+            开启
+          </button>
+        </span>
       )}
     </span>
   );

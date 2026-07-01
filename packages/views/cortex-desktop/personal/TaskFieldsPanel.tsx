@@ -7,6 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useUpdateTask, useTaskProjects, useAddTaskProject, normalizeTag } from "@cortex-work/core/personal/tasks";
 import { onlyProjects } from "@cortex-work/core/personal/taskProjectTree";
 import { TaskStatusField } from "./TaskStatusField";
+import { TaskDateField } from "./TaskDateField";
 import { TaskDurationField } from "./TaskDurationField";
 import { TaskReminderField } from "./TaskReminderField";
 import { TaskRepeatField } from "./TaskRepeatField";
@@ -54,8 +55,6 @@ export function TaskFieldsPanel({
     setShowNewProject(false);
     onToast(`已归入项目「${name}」`);
   };
-  const setDue = (v: string) => updateTask.mutate({ id: task.id, patch: { dueDate: v || undefined } });
-  const setDefer = (v: string) => updateTask.mutate({ id: task.id, patch: { deferDate: v || undefined } });
   const toggleFlag = () => updateTask.mutate({ id: task.id, patch: { flagged: !task.flagged } });
   const addTag = () => {
     const norm = normalizeTag(tagDraft);
@@ -110,7 +109,7 @@ export function TaskFieldsPanel({
           ) : (
             <>
               <select
-                className="pw-task-meta-select"
+                className="pw-task-meta-select pw-task-project-select"
                 value={task.projectId ?? ""}
                 onChange={(e) => assignProject(e.target.value)}
               >
@@ -127,16 +126,6 @@ export function TaskFieldsPanel({
               </button>
             </>
           )}
-        </div>
-
-        <div className="pw-task-meta-row">
-          <span className="pw-task-meta-label">截止</span>
-          <input className="pw-task-meta-date" type="date" value={task.dueDate ?? ""} onChange={(e) => setDue(e.target.value)} />
-          <span className="pw-task-meta-label">延后</span>
-          <input className="pw-task-meta-date" type="date" value={task.deferDate ?? ""} onChange={(e) => setDefer(e.target.value)} />
-          <button className={`pw-task-meta-btn${task.flagged ? " is-on" : ""}`} onClick={toggleFlag}>
-            ⚑ {task.flagged ? "已标记" : "标记"}
-          </button>
         </div>
 
         <div className="pw-task-meta-row pw-task-meta-tagrow">
@@ -158,6 +147,24 @@ export function TaskFieldsPanel({
               if (e.key === "Enter") addTag();
             }}
           />
+        </div>
+
+        {/* 推迟至 / 截止：日期 + 快捷 chips（今天/+1天/+1周/+1月/清除），对齐设计稿右列检查器。 */}
+        <div className="pw-task-meta-row">
+          <span className="pw-task-meta-label">推迟至</span>
+          <TaskDateField task={task} kind="defer" />
+        </div>
+
+        <div className="pw-task-meta-row">
+          <span className="pw-task-meta-label">截止</span>
+          <TaskDateField task={task} kind="due" />
+        </div>
+
+        <div className="pw-task-meta-row pw-task-meta-flagrow">
+          <span className="pw-task-meta-label">标记</span>
+          <button className={`pw-task-meta-btn${task.flagged ? " is-on" : ""}`} onClick={toggleFlag}>
+            ⚑ {task.flagged ? "已标记" : "标记"}
+          </button>
         </div>
 
         {/* 已完成 / 已丢弃 时间戳：只读，仅在设置后显示（U10，非可添加字段故不入 richFields）。 */}
