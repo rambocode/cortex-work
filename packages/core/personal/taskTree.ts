@@ -41,6 +41,18 @@ export function buildTaskTree(tasks: TaskMeta[]): TaskTreeNode[] {
     for (const child of node.children) assignDepth(child, depth + 1);
   };
   for (const root of roots) assignDepth(root, 0);
+  // 兜底「绝不丢节点」+ 保证无环（code-review）：双向环（a↔b）里两节点都非根、从根不可达，会整体消失；
+  // 且其 children 数组仍互指成环，渲染层 DFS（无 seen 守卫）会无限循环。故把未访问节点提升为顶层根时，
+  // **断开回边**——从其父的 children 里摘除自身，使树严格无环，再回填 depth（assignDepth 的 seen 兜环）。
+  for (const t of tasks) {
+    const node = byId.get(t.id)!;
+    if (!seen.has(node.id)) {
+      const parent = t.parentTaskId ? byId.get(t.parentTaskId) : undefined;
+      if (parent) parent.children = parent.children.filter((c) => c.id !== node.id);
+      roots.push(node);
+      assignDepth(node, 0);
+    }
+  }
   return roots;
 }
 
@@ -91,13 +103,9 @@ export function areAllChildrenDone(tasks: TaskMeta[], parentId: string): boolean
   let hasChild = false;
   for (const t of tasks) {
     if (t.parentTaskId !== parentId) continue;
+    if (t.id === parentId) continue; // 自指父不算自身直属子（与 buildTaskTree 视自指为无子顶层一致，code-review）
     hasChild = true;
     if (!TERMINAL_STATUS.has(t.status)) return false;
   }
   return hasChild;
-}
-
-// 是否为某任务的直属父（有 ≥1 直属子）。供渲染层判定是否显示折叠箭头。
-export function hasChildren(tasks: TaskMeta[], id: string): boolean {
-  return tasks.some((t) => t.parentTaskId === id);
 }

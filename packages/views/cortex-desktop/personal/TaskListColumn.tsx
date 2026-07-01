@@ -1,7 +1,7 @@
 // 三栏项目工作台中列（U7）：按左树选择聚合任务清单 —— 分组 / 排序 / 快速新增 / 行内动作
 //（完成、flag、删除、委派、打开详情）。服务端态全部来自 core hooks（React Query，main 是 owner，
 // 不复制进 Zustand，KTD8）。委派走 keepView 后台模式，不关工作台（对抗研究 #3）。
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   useTasks,
@@ -101,6 +101,8 @@ export function TaskListColumn({
   const [draft, setDraft] = useState("");
   // 删除含子任务的父任务须两击确认（首击置 pending + toast，再击真删，KTD5）。
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  // 切换左树选择即清除待确认删除（code-review）：否则遗忘的首击会让下一次单击变成无二次确认的级联删除。
+  useEffect(() => setPendingDelete(null), [selection]);
   const today = localDay(new Date());
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
@@ -177,13 +179,18 @@ export function TaskListColumn({
   // 建后打开详情供改标题。默认标题占位，避免空标题任务。
   const onAddSubtask = async (parent: TaskMeta) => {
     if (collapsedTasks[parent.id]) toggleTaskCollapse(parent.id); // 展开父使新子可见
-    const created = await addTask.mutateAsync({
-      title: "新建子任务",
-      projectId: parent.projectId,
-      parentId: parent.id,
-      source: "manual",
-    });
-    onOpenTask(created.id);
+    // try/catch（code-review）：store 拒写（corrupt 态 / IPC 失败）时不产生 unhandled rejection，给用户反馈。
+    try {
+      const created = await addTask.mutateAsync({
+        title: "新建子任务",
+        projectId: parent.projectId,
+        parentId: parent.id,
+        source: "manual",
+      });
+      onOpenTask(created.id);
+    } catch {
+      onToast("新建子任务失败，请重试");
+    }
   };
 
   // 删除（U4/KTD5）：含子任务时两击确认（一并级联删子树，删除在 store 层）；无子任务直接删。

@@ -47,6 +47,24 @@ describe("TaskFieldsPanel（U5）", () => {
     await waitFor(() => expect(calls.update.some((u) => u.patch.status === "done")).toBe(true));
   });
 
+  it("状态控件遵守 canTransition：agent-only 的「进行中」置灰；waiting→done 非法被拒", async () => {
+    const { bridge, calls } = fakeBridge();
+    // active 任务：「进行中」（agent-only）应置灰不可点。
+    const { container, rerender } = renderPanel(bridge, task({ status: "active" }));
+    const optByLabel = (label: string) =>
+      [...container.querySelectorAll<HTMLButtonElement>(".pw-task-status-opt")].find((b) => b.textContent === label)!;
+    expect(optByLabel("进行中").disabled).toBe(true);
+    // waiting 任务：「已完成」非法（须先取消委派），点击不发 patch。
+    rerender(
+      <CoreProvider wsId="ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+        <TaskFieldsPanel task={task({ status: "waiting" })} layout="column" onToast={() => {}} />
+      </CoreProvider>,
+    );
+    expect(optByLabel("已完成").disabled).toBe(true);
+    fireEvent.click(optByLabel("已完成"));
+    expect(calls.update.some((u) => u.patch.status === "done")).toBe(false);
+  });
+
   it("项目下拉只列 project，过滤 folder", async () => {
     const { bridge } = fakeBridge([
       { id: "f1", name: "分组", kind: "folder" },

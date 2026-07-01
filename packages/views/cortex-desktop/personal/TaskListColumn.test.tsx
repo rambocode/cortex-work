@@ -238,6 +238,65 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     await waitFor(() => expect(calls.deleted).toContain("parent"));
   });
 
+  it("删除无子任务的叶子任务 → 立即删除、不弹确认", async () => {
+    const toasts: string[] = [];
+    const { bridge, calls } = fakeTasksBridge([task("a", "叶子", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+        <TaskListColumn selection={{ kind: "project", id: "p1" }} onOpenTask={() => {}} onToast={(t) => toasts.push(t)} />
+      </CoreProvider>,
+    );
+    await screen.findByText("叶子");
+    const row = screen.getByText("叶子").closest(".pw-task-row")!;
+    fireEvent.click(within(row as HTMLElement).getByTitle("删除"));
+    await waitFor(() => expect(calls.deleted).toContain("a"));
+    expect(toasts.some((t) => t.includes("子任务"))).toBe(false); // 无确认 toast
+  });
+
+  it("waiting 父（已委派）全部子完成 → 点「完成此任务」被 canTransition 拒绝、不置 done、toast", async () => {
+    const toasts: string[] = [];
+    const { bridge, calls } = fakeTasksBridge(
+      [
+        task("p", "已委派父", {
+          projectId: "p1",
+          status: "waiting",
+          delegation: { sessionId: "s1", state: "running" },
+        }),
+        task("c", "子", { projectId: "p1", parentTaskId: "p", status: "done" }),
+      ],
+      [{ id: "p1", name: "项目一" }],
+    );
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+        <TaskListColumn selection={{ kind: "project", id: "p1" }} onOpenTask={() => {}} onToast={(t) => toasts.push(t)} />
+      </CoreProvider>,
+    );
+    const suggest = await screen.findByText("✓ 完成此任务");
+    fireEvent.click(suggest);
+    // waiting→done 非用户合法迁移 → 不发 done patch、给 toast。
+    expect(calls.update.some((u) => u.patch.status === "done")).toBe(false);
+    expect(toasts.some((t) => t.includes("无法"))).toBe(true);
+  });
+
+  it("折叠父后点「添加子任务」→ 父自动展开、子可见", async () => {
+    const { bridge } = fakeTasksBridge(
+      [
+        task("p", "父", { projectId: "p1" }),
+        task("c", "既有子", { projectId: "p1", parentTaskId: "p" }),
+      ],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderColumn(bridge, { kind: "project", id: "p1" });
+    await screen.findByText("既有子");
+    const parentRow = () => screen.getByText("父").closest(".pw-task-row")!;
+    // 先折叠父 → 既有子隐藏。
+    fireEvent.click(parentRow().querySelector<HTMLButtonElement>(".pw-task-twisty")!);
+    expect(screen.queryByText("既有子")).toBeNull();
+    // 点「添加子任务」→ 父自动展开，既有子重新可见。
+    fireEvent.click(within(parentRow() as HTMLElement).getByTitle("添加子任务"));
+    await waitFor(() => expect(screen.queryByText("既有子")).not.toBeNull());
+  });
+
   it("全部子任务完成 → 父浮现「完成此任务」建议，点击才置 done", async () => {
     const { bridge, calls } = fakeTasksBridge(
       [

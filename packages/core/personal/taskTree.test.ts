@@ -1,12 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { TaskMeta, TaskStatus } from "../desktop/tasks-types";
-import {
-  areAllChildrenDone,
-  buildTaskTree,
-  hasChildren,
-  isTaskDescendant,
-  taskDescendantIds,
-} from "./taskTree";
+import { areAllChildrenDone, buildTaskTree, isTaskDescendant, taskDescendantIds } from "./taskTree";
 
 // 便捷构造：t(id, parentTaskId?, status?)。其余必填字段填默认。
 const t = (id: string, parentTaskId?: string, status: TaskStatus = "active"): TaskMeta => ({
@@ -72,6 +66,16 @@ describe("buildTaskTree", () => {
   it("空输入 → 空树", () => {
     expect(buildTaskTree([])).toEqual([]);
   });
+
+  it("双向环（a↔b）不丢节点：两节点仍出现（兜底提升为顶层）", () => {
+    const roots = buildTaskTree([t("a", "b"), t("b", "a")]);
+    // 节点守恒：a、b 都能从树里访问到（不因互指环整体消失）。
+    const ids = new Set<string>();
+    const walk = (ns: typeof roots) => ns.forEach((n) => { ids.add(n.id); walk(n.children); });
+    walk(roots);
+    expect(ids.has("a")).toBe(true);
+    expect(ids.has("b")).toBe(true);
+  });
 });
 
 describe("taskDescendantIds", () => {
@@ -123,12 +127,5 @@ describe("areAllChildrenDone（完成 rollup 派生）", () => {
     // root 的直属子 scan(active) 未完结 → false，即使 read 子树情况不同。
     const tasks: TaskMeta[] = [t("root"), t("scan", "root", "done"), t("read", "root", "active"), t("g", "read", "done")];
     expect(areAllChildrenDone(tasks, "root")).toBe(false);
-  });
-});
-
-describe("hasChildren", () => {
-  it("有直属子 → true，叶子 → false", () => {
-    expect(hasChildren(sample, "root")).toBe(true);
-    expect(hasChildren(sample, "solo")).toBe(false);
   });
 });

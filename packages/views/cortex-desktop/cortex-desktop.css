@@ -9122,6 +9122,7 @@ button.sb-row {
 }
 .pw-task-status-opt:hover { color: var(--text-1); }
 .pw-task-status-opt.is-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.pw-task-status-opt:disabled { opacity: 0.4; cursor: not-allowed; }
 .pw-task-meta-select,
 .pw-task-meta-input,
 .pw-task-meta-date {

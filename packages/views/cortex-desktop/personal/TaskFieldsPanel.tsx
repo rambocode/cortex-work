@@ -82,7 +82,7 @@ export function TaskFieldsPanel({
       <div className="pw-task-detail-meta">
         <div className="pw-task-meta-row">
           <span className="pw-task-meta-label">状态</span>
-          <TaskStatusField task={task} />
+          <TaskStatusField task={task} onToast={onToast} />
         </div>
 
         <div className="pw-task-meta-row">
