@@ -53,12 +53,13 @@ const RETRY_BACKOFF_MS = 800;
 const VERIFY_TIMEOUT_MS = 3000;
 let detectedAgents: Promise<Record<AgentKind, boolean>> | null = null;
 
-// 主进程活跃度看门狗(U5)。基于 stdout/事件活跃度(非 CPU)。默认 10 分钟,可被环境变量覆盖,
+// 主进程活跃度看门狗(U5)。基于 stdout/事件活跃度(非 CPU)。默认 40 分钟,可被环境变量覆盖,
 // 24 小时上限钳制(防 Node setTimeout 32-bit 溢出被静默降到 1ms)。它是**进程回收兜底**:
-// 渲染端 messages.ts 另有更短的 90s/300s per-run 看门狗负责面向用户的超时文案与 UI 清理,二者按
+// 渲染端 messages.ts 另有更短的 5min/30min per-run 看门狗负责面向用户的超时文案与 UI 清理,二者按
 // 阈值排序非冲突 —— 正常情况下渲染端先触发,主进程看门狗只在渲染端失联(刷新/重载)时兜底回收进程,
-// 避免子进程残留。两者不会双杀同一活跃 run。
-const DEFAULT_CLI_INACTIVITY_TIMEOUT_MS = 10 * 60_000;
+// 避免子进程残留。两者不会双杀同一活跃 run。默认值须 > 渲染端 RUN_STALL_TIMEOUT_MS(30 分钟),
+// 否则主进程会抢在渲染端前把长任务杀掉、破坏「渲染端先触发」不变量;放宽长任务阈值时须同步抬高本值。
+const DEFAULT_CLI_INACTIVITY_TIMEOUT_MS = 40 * 60_000;
 const MAX_CLI_INACTIVITY_TIMEOUT_MS = 24 * 60 * 60_000;
 
 // 委派（delegate）：主 agent run 的看门狗复位器注册表（runId → 本 attempt 的 noteActivity）。

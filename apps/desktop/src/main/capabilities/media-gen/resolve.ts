@@ -38,10 +38,10 @@ export interface ResolvedMediaGenConfig {
 // ── timeoutMs 上限（OQ1/KTD8） ───────────────────────────────────────────────
 //
 // 用户可在设置里把 timeoutMs 调到任意值，但必须钳制在看门狗阈值以下。
-// cli.ts 的主进程看门狗（RUN_STALL_TIMEOUT_MS）默认 300s（inactivityMs），
-// 若工具 timeoutMs > 300s，工具 AbortController 还未触发看门狗先把 session 杀掉，
-// 之后主进程 poll 循环继续悬挂，导致资源泄漏。
-// 留 10s 余量（290s），确保工具超时先于看门狗触发，poll 循环能正常退出。
+// 约束方是渲染端 per-run 静默看门狗：媒体生成工具执行期间无 CLI stdout 事件，lastEventAt 变旧，
+// 该看门狗到点会把整轮 session 杀掉、主进程 poll 循环继续悬挂导致资源泄漏。
+// 此处取 290s 这一保守上限即可安全：远低于渲染端 RUN_STALL_TIMEOUT_MS（现 30min）与主进程活跃度
+// 兜底（40min），确保工具超时先于任何看门狗触发、poll 循环能正常退出。放宽看门狗阈值时本值无需跟改。
 export const MAX_TIMEOUT_MS = 290_000;
 
 // ── 安全断言 ──────────────────────────────────────────────────────────────────

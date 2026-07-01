@@ -201,10 +201,13 @@ const runs = new Map<string, RunState>();
 // 防并发/抖动 send 同会话造孤儿 run + 永不自杀的看门狗。beginPiRun 置 running 后即交棒释放。
 const piSendStarting = new Set<string>();
 
-// 看门狗阈值:启动阶段(一个事件都没收到)90 秒;运行中静默 300 秒
-// (工具可能长时间执行不产生事件,放宽避免误杀)。
-export const RUN_START_TIMEOUT_MS = 90_000;
-export const RUN_STALL_TIMEOUT_MS = 300_000;
+// 看门狗阈值:启动阶段(一个事件都没收到)5 分钟;运行中静默 30 分钟
+// (长任务——尤其 pi 开「子 agent 编排」时走本 CLI 单发看门狗路径——可能长时间执行不产生
+// 事件,原 90s/300s 会把执行到一半的长任务误杀;大幅放宽,让长任务跑完,靠主进程活跃度看门狗
+// 兜底回收真正卡死的进程)。二者仍须 < cli.ts 的 DEFAULT_CLI_INACTIVITY_TIMEOUT_MS(40 分钟),
+// 保持「渲染端先触发友好文案、主进程只在渲染端失联时兜底」的分层不变量。
+export const RUN_START_TIMEOUT_MS = 5 * 60_000;
+export const RUN_STALL_TIMEOUT_MS = 30 * 60_000;
 export const RESULT_EXIT_GRACE_MS = 1_000;
 
 // 纯工具轮（本轮成功收尾但 agent 始终无任何文本输出）在中栏补的终态占位,
