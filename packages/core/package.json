@@ -39,6 +39,7 @@
     "./personal/notes": "./personal/notes.ts",
     "./personal/tasks": "./personal/tasks.ts",
     "./personal/taskMigrate": "./personal/taskMigrate.ts",
+    "./personal/taskStructure": "./personal/taskStructure.ts",
     "./personal/push": "./personal/push.ts",
     "./personal/extensions": "./personal/extensions.ts",
     "./personal/devPreviewUrl": "./personal/devPreviewUrl.ts",
