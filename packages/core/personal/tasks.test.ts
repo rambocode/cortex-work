@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { isAvailable, isTodayEligible, normalizeTag, canTransition, localDay } from "./tasks";
+import {
+  isAvailable,
+  isTodayEligible,
+  normalizeTag,
+  canTransition,
+  localDay,
+  shouldAcceptDelegationWriteback,
+} from "./tasks";
 import type { TaskMeta } from "../desktop/types";
 
 // 构造最小任务，仅覆盖被测字段。
@@ -90,6 +97,27 @@ describe("canTransition（状态机；in-progress 仅 agent 驱动到达）", ()
   });
   it("同态 → false", () => {
     expect(canTransition("active", "active", "user")).toBe(false);
+  });
+});
+
+describe("shouldAcceptDelegationWriteback（U12 数据安全核心）", () => {
+  const deleg = { sessionId: "s1", state: "running" as const };
+  it("waiting + sessionId 匹配 → 接受", () => {
+    expect(shouldAcceptDelegationWriteback({ status: "waiting", delegation: deleg }, "s1")).toBe(true);
+  });
+  it("in-progress + 匹配 → 接受", () => {
+    expect(shouldAcceptDelegationWriteback({ status: "in-progress", delegation: deleg }, "s1")).toBe(true);
+  });
+  it("任务已删(undefined) → 丢弃", () => {
+    expect(shouldAcceptDelegationWriteback(undefined, "s1")).toBe(false);
+  });
+  it("已 dropped/done/active(终态或回退) → 丢弃，不复活", () => {
+    expect(shouldAcceptDelegationWriteback({ status: "dropped", delegation: deleg }, "s1")).toBe(false);
+    expect(shouldAcceptDelegationWriteback({ status: "done", delegation: deleg }, "s1")).toBe(false);
+    expect(shouldAcceptDelegationWriteback({ status: "active", delegation: deleg }, "s1")).toBe(false);
+  });
+  it("sessionId 不符（后一次委派）→ 丢弃，不 clobber", () => {
+    expect(shouldAcceptDelegationWriteback({ status: "waiting", delegation: { sessionId: "s2", state: "running" } }, "s1")).toBe(false);
   });
 });
 

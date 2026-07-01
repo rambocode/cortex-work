@@ -77,6 +77,18 @@ export function canTransition(from: TaskStatus, to: TaskStatus, by: "user" | "ag
   return table[from].includes(to);
 }
 
+// 委派回写重校验（U12/研究 rank6/rank10 的数据安全核心）：agent 会话终态到达时，是否接受回写。
+// 谓词：任务仍存在 且 status ∈ {waiting, in-progress} 且 delegation.sessionId 与本次回写匹配。
+// 否则丢弃回写——不复活已删/已终态(done/dropped/active)任务、不 clobber 后一次委派(sessionId 不符)。
+export function shouldAcceptDelegationWriteback(
+  task: Pick<TaskMeta, "status" | "delegation"> | undefined,
+  sessionId: string,
+): boolean {
+  if (!task) return false;
+  if (task.status !== "waiting" && task.status !== "in-progress") return false;
+  return task.delegation?.sessionId === sessionId;
+}
+
 // ── React Query 读写 hooks（U4；main 是 owner，服务端态走 RQ 不复制进 Zustand）──────
 // query key 以 projectId 命名空间（桌面端无 wsId 概念，绝不用 wsId）。mutation 成功后
 // 只 invalidate、不 setQueryData，让 RQ 重拉 main 权威值（遵 CLAUDE.md 事件只触发 invalidation）。

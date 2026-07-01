@@ -23,6 +23,8 @@ import {
   localDay,
 } from "@cortex-work/core/personal/tasks";
 import { structureTask, type StructureSuggestion } from "@cortex-work/core/personal/taskStructure";
+import { useDelegateTask } from "@cortex-work/core/personal/taskDelegate";
+import { usePersonalStore } from "@cortex-work/core";
 import type { TaskMeta, TaskProject } from "@cortex-work/core/desktop/types";
 import { SuggestionChips } from "./SuggestionChips";
 
@@ -50,6 +52,8 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
   const deleteTask = useDeleteTask();
   const addProject = useAddTaskProject();
   const archiveTask = useArchiveTask();
+  const delegate = useDelegateTask();
+  const setActiveSession = usePersonalStore((s) => s.setActiveSession);
 
   const [view, setView] = useState<ViewMode>("today");
   const [showDone, setShowDone] = useState(false);
@@ -289,6 +293,10 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
                 const s = suggestions[t.id];
                 if (s) (Object.keys(s) as Array<keyof StructureSuggestion>).forEach((f) => acceptField(t, f));
               }}
+              onDelegate={() => delegate(t, onToast)}
+              onConfirmDone={() => updateTask.mutate({ id: t.id, patch: { status: "done", delegation: undefined } })}
+              onCancelDelegation={() => updateTask.mutate({ id: t.id, patch: { status: "active", delegation: undefined } })}
+              onViewSession={() => t.delegation && setActiveSession(t.delegation.sessionId)}
             />
           ))}
         </div>
@@ -341,6 +349,10 @@ function TaskRow({
   onDismiss,
   onDismissAll,
   onAcceptAll,
+  onDelegate,
+  onConfirmDone,
+  onCancelDelegation,
+  onViewSession,
 }: {
   task: TaskMeta;
   today: string;
@@ -353,6 +365,10 @@ function TaskRow({
   onDismiss: (field: keyof StructureSuggestion) => void;
   onDismissAll: () => void;
   onAcceptAll: () => void;
+  onDelegate: () => void;
+  onConfirmDone: () => void;
+  onCancelDelegation: () => void;
+  onViewSession: () => void;
 }) {
   const overdue = !!task.dueDate && task.dueDate < today;
   const delegated = task.status === "waiting" && !!task.delegation;
@@ -380,6 +396,24 @@ function TaskRow({
         ))}
         {projectName && <span className="pw-task-badge is-proj">{projectName}</span>}
         <div className="spacer" />
+        {task.status === "active" && (
+          <button className="pw-icon-btn" title="交给 agent 执行" onClick={onDelegate}>
+            <Icon.Bot size={13} />
+          </button>
+        )}
+        {delegated && (
+          <>
+            <button className="pw-icon-btn" title="查看会话" onClick={onViewSession}>
+              <Icon.Eye size={13} />
+            </button>
+            <button className="pw-icon-btn" title="确认完成" onClick={onConfirmDone}>
+              <Icon.Check size={13} />
+            </button>
+            <button className="pw-icon-btn" title="取消委派" onClick={onCancelDelegation}>
+              <Icon.XCircle size={13} />
+            </button>
+          </>
+        )}
         <button
           className={`pw-icon-btn pw-task-flag${task.flagged ? " is-on" : ""}`}
           title={task.flagged ? "取消标记" : "标记"}
