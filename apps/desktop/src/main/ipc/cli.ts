@@ -680,7 +680,12 @@ export function registerCliHandlers(): void {
     if (req.agent === "claude" && req.useOwnSkills === true && req.skillRecords?.length) {
       try {
         // 桥接根目录按 sessionId 命名、每轮覆盖重建,避免跨会话堆积(生命周期/GC 策略见 plan Deferred)。
-        const bridgeRootDir = join(app.getPath("userData"), "skill-bridge", req.sessionId);
+        // 安全(code review 修复):sessionId 是渲染端经 cli:start 传入的可控字段,拼路径前必须清洗
+        // (对齐下方 delegate 桥接扩展名 safeSid 的既有惯例)——否则含 `../` 的 sessionId 经 join
+        // 规范化可逃出 userData/skill-bridge,而 buildClaudeSkillBridge 对目标目录做的是
+        // rmSync({recursive:true, force:true}),逃逸后即是递归强删任意可写目录。
+        const safeSessionId = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const bridgeRootDir = join(app.getPath("userData"), "skill-bridge", safeSessionId);
         req.skillsBridgeDir = buildClaudeSkillBridge(req.skillRecords, bridgeRootDir);
       } catch (e) {
         log.warn(`buildClaudeSkillBridge failed: ${String(e)}`); // 桥接失败不阻断启动

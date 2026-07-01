@@ -47,6 +47,13 @@ vi.mock("./session-trim", () => ({
   trimAgentSession: vi.fn(async () => false),
 }));
 
+// U2 claude 桥接接线单测:mock 掉 buildClaudeSkillBridge 本体(其自身行为已由 claude-bridge.test.ts
+// 覆盖),这里只验证 cli.ts 的守卫条件/降级路径是否正确调用它、正确写回 req.skillsBridgeDir。
+const buildClaudeSkillBridgeMock = vi.hoisted(() => vi.fn());
+vi.mock("../skills/claude-bridge", () => ({
+  buildClaudeSkillBridge: (...args: unknown[]) => buildClaudeSkillBridgeMock(...args),
+}));
+
 vi.mock("electron", () => ({
   app: { getAppPath: () => "/fake/app", getPath: () => "/tmp/cortex-test-userData", isPackaged: false },
   ipcMain: {
@@ -111,6 +118,7 @@ beforeEach(() => {
   m.applyClaudeMcp.mockReset().mockResolvedValue("skip");
   m.buildCodexMcpArgs.mockReset().mockReturnValue([]);
   m.agentSessionExists.mockReset().mockReturnValue(true);
+  buildClaudeSkillBridgeMock.mockReset().mockReturnValue(undefined);
   killAllDelegates();
   stopDelegateHost();
   vi.spyOn(console, "info").mockImplementation(() => undefined);
@@ -293,6 +301,120 @@ describe("cli:start codex 原生 skill 分流(U4)", () => {
       const passed = startCodexWsRunMock.mock.calls[0]?.[0] as { req: Record<string, unknown> };
       expect(passed.req.prompt).toBe("hi");
       expect(passed.req.invokedSkill).toBeUndefined();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+// U2:claude 桥接目录构建的守卫条件 + 降级路径(buildClaudeSkillBridge 本体已由 claude-bridge.test.ts
+// 覆盖,这里只测 cli.ts 的接线是否在正确条件下调用它、正确写回 skillsBridgeDir、失败是否降级不阻断)。
+describe("cli:start claude 原生 skill 桥接接线(U2)", () => {
+  const skillRecords = [{ name: "agent-browser", dir: "/g/ab" }];
+
+  it("useOwnSkills===true 且 skillRecords 非空 → 调用 buildClaudeSkillBridge,--add-dir 追加桥接目录", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-claude-bridge-"));
+    buildClaudeSkillBridgeMock.mockReturnValue("/fake/bridge/dir");
+    try {
+      await startWithDetect(
+        "claude",
+        { runId: "cb1", sessionId: "s", cwd, prompt: "hi", useOwnSkills: true, skillRecords },
+        vi.fn(),
+      );
+      expect(buildClaudeSkillBridgeMock).toHaveBeenCalledWith(
+        skillRecords,
+        expect.stringContaining("skill-bridge"),
+      );
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs).toEqual(expect.arrayContaining(["--add-dir", "/fake/bridge/dir"]));
+      expect(runArgs).not.toContain("--disable-slash-commands");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("useOwnSkills!==true → 不构建桥接目录,不追加 --add-dir(回归现状)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-claude-bridge2-"));
+    try {
+      await startWithDetect("claude", { runId: "cb2", sessionId: "s", cwd, prompt: "hi", skillRecords }, vi.fn());
+      expect(buildClaudeSkillBridgeMock).not.toHaveBeenCalled();
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs).toContain("--disable-slash-commands");
+      expect(runArgs).not.toContain("--add-dir");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("agent !== claude(codex)→ 即使带 useOwnSkills/skillRecords 也不触发桥接构建", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-claude-bridge3-"));
+    startCodexWsRunMock.mockClear();
+    try {
+      await startWithDetect(
+        "codex",
+        { runId: "cb3", sessionId: "s", cwd, prompt: "hi", useOwnSkills: true, skillRecords },
+        vi.fn(),
+      );
+      expect(buildClaudeSkillBridgeMock).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("skillRecords 为空数组 → 不构建桥接目录(无需 --add-dir)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-claude-bridge4-"));
+    try {
+      await startWithDetect(
+        "claude",
+        { runId: "cb4", sessionId: "s", cwd, prompt: "hi", useOwnSkills: true, skillRecords: [] },
+        vi.fn(),
+      );
+      expect(buildClaudeSkillBridgeMock).not.toHaveBeenCalled();
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs).not.toContain("--add-dir");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("buildClaudeSkillBridge 抛错 → 仅 warn,继续正常发送、不追加 --add-dir(降级对齐 applyClaudeMcp)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-claude-bridge5-"));
+    buildClaudeSkillBridgeMock.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    try {
+      await startWithDetect(
+        "claude",
+        { runId: "cb5", sessionId: "s", cwd, prompt: "hi", useOwnSkills: true, skillRecords },
+        vi.fn(),
+      );
+      expect(logMock.warn).toHaveBeenCalledWith(expect.stringContaining("buildClaudeSkillBridge failed"));
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs).not.toContain("--add-dir");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("sessionId 含路径穿越字符 → 拼进桥接目录路径前被清洗(安全修复)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-claude-bridge6-"));
+    buildClaudeSkillBridgeMock.mockReturnValue("/fake/bridge/dir");
+    try {
+      await startWithDetect(
+        "claude",
+        {
+          runId: "cb6",
+          sessionId: "../../../etc",
+          cwd,
+          prompt: "hi",
+          useOwnSkills: true,
+          skillRecords,
+        },
+        vi.fn(),
+      );
+      const bridgeRootDir = buildClaudeSkillBridgeMock.mock.calls[0]?.[1] as string;
+      expect(bridgeRootDir).not.toContain("..");
+      expect(bridgeRootDir.startsWith("/tmp/cortex-test-userData")).toBe(true);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
