@@ -220,6 +220,30 @@ describe("SkillPanel", () => {
     expect(screen.getByText(/已扫描 1 个/)).toBeTruthy();
   });
 
+  // Design B(U7 修复):切 agent 后重置 activeDir,避免 targetDir/白名单指向上个 agent 的目录。
+  it("切换 agent → activeDir 重置为 all(防 stale targetDir)", async () => {
+    usePersonalStore.setState({
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        piSkills: { ...DEFAULT_PI_SKILLS, agentRoots: { ...DEFAULT_PI_SKILLS.agentRoots, claude: ["~/.claude/skills", "~/other"] } },
+      },
+      projects: [],
+      activeProjectId: undefined,
+    });
+    renderWith(fakeBridge([{ ...sk("a", "global", "/g/a"), rootPath: "/home/u/other" }]));
+    await screen.findByText("A");
+    // 选具体目录
+    const dirSel = screen.getByLabelText("选择 Skill 目录") as HTMLSelectElement;
+    fireEvent.change(dirSel, { target: { value: "~/other" } });
+    expect((screen.getByLabelText("选择 Skill 目录") as HTMLSelectElement).value).toBe("~/other");
+    // 展开管理并切 agent → activeDir 应重置为 all
+    fireEvent.click(screen.getByRole("button", { name: /管理/ }));
+    fireEvent.change(screen.getByLabelText("选择 agent"), { target: { value: "pi" } });
+    await waitFor(() =>
+      expect((screen.getByLabelText("选择 Skill 目录") as HTMLSelectElement).value).toBe("all"),
+    );
+  });
+
   it("bridge=null（web/旧壳）→ 降级空态", () => {
     renderWith(null);
     expect(screen.getByText(/当前环境不支持 Skill 扫描/)).toBeTruthy();

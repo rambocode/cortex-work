@@ -67,8 +67,8 @@ export function expandRootSpecs(
 // 据 piSkills 配置算出带 scope 的扫描根（已 expand 为绝对路径）：
 //   全局 = globalRoots ∪ userGlobalRoots（scope=global）;
 //   workspaceEnabled && workspaceDir → 追加 <workspaceDir>/.cortex-desktop/skills（scope=workspace）。
-// @deprecated 过渡期:未迁移调用点(如 SkillPanel 传扁平入参)走此路径,origin 一律标 shared。
-// 消费点切到 rootSpecs 后连同扁平入参一并移除。
+// @deprecated 过渡期:唯一未迁移调用点是 PluginDetail(取插件捆绑 skill 名,只传 pluginSkillDirs +
+// 空扁平字段),走此回退路径,origin 一律标 shared。该调用点切到 rootSpecs 后连同扁平入参一并移除。
 export function pluginSkillRoots(
   cfg: { globalRoots: string[]; userGlobalRoots?: string[]; workspaceEnabled: boolean },
   workspaceDir?: string,

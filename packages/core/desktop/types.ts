@@ -565,6 +565,11 @@ export interface GeneralSettings {
 // pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。
 // 安全模型:全局根 skill 默认启用（用户自有目录,可信）;工作区根 skill 默认禁用,需显式授信
 // （避免恶意仓库经 <项目>/.cortex-desktop/skills + -a 任意代码执行）。
+// ⚠️ Design B 信任边界(plan 002):trustedWorkspaceSkillDirs 授信闸只管 **Cortex 自己的**扫描/注入——
+// resolveEnabledSkillRecords 会先剔除未授信的 workspace skill,故 Cortex 绝不注入未授信项。但 Design B 让
+// 各 agent 放开自身原生发现(claude 去 --disable-slash-commands、pi 去 --no-skills),agent 会**自行**扫描项目级
+// 原生目录(.claude/skills / .pi/skills / .agents/skills)——这部分的项目信任由 **agent 自身**的信任门负责
+// (pi:仅项目 trusted 后才加载项目 skill;claude:文件夹信任),Cortex 的 trustedWorkspaceSkillDirs 不覆盖它。
 //
 // Design B(per-agent 根,plan 002):skill 扫描根从「一套 agent 无关全局根」改为「共享根 +
 // 每 agent 私有根」——每个 agent 只扫它自己的原生目录 + 共享根,使 /skill: 下拉与注入按会话

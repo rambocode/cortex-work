@@ -370,6 +370,9 @@ export function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBri
                 const a = e.target.value as AgentKind;
                 setSelectedAgent(a);
                 setNewRootTarget(a);
+                // 切 agent 后活动目录/白名单随之重算,重置 activeDir 避免 targetDir 仍指向上个 agent 的私有根
+                // (否则 createSkill/openDir 会命中新 agent 白名单外的旧目录被主进程拒绝)。
+                setActiveDir("all");
               }}
             >
               {AGENT_OPTIONS.map((o) => (

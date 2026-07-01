@@ -1353,6 +1353,19 @@ describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
     expect(twice.sharedRoots).toEqual(once.sharedRoots);
   });
 
+  it("只写了 sharedRoots(无 agentRoots)的档 → 仍识别为新结构,sharedRoots 不丢(哨兵修复)", () => {
+    const s = hydratePiSkills({
+      sharedRoots: ["~/.cortex-desktop/skills", "~/only-shared"],
+      // 无 agentRoots、无旧扁平字段
+      disabledSkills: [],
+      trustedWorkspaceSkillDirs: [],
+      workspaceEnabled: true,
+    });
+    expect(s.sharedRoots).toContain("~/only-shared"); // 不被当旧结构忽略
+    // agentRoots 缺失 → 补回默认原生根
+    expect(s.agentRoots.claude).toEqual(["~/.claude/skills"]);
+  });
+
   it("默认原生根恒并入:新结构档缺某 agent 默认根时补回(默认变更对老档生效)", () => {
     const s = hydratePiSkills({
       sharedRoots: ["~/.cortex-desktop/skills"],

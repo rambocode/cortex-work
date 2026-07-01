@@ -359,17 +359,20 @@ function dedupe(xs: string[]): string[] {
 // 幂等:重复加载不重复搬运、不叠加(默认恒并入 + dedupe,用户根只来自持久化的 sharedRoots/agentRoots)。
 function migratePiSkills(raw: Partial<PiSkillSettings> | undefined): PiSkillSettings {
   const base = { ...DEFAULT_PI_SKILLS, ...raw };
-  const isNewShape = !!raw?.agentRoots;
+  // 新结构哨兵:agentRoots 或 sharedRoots 任一存在即视为新结构。仅看 agentRoots 会漏掉「只写了
+  // sharedRoots(部分写入/手改)」的档,导致其 sharedRoots 被当旧结构忽略、用户共享根丢失(code review 修复)。
+  const isNewShape = raw?.agentRoots !== undefined || raw?.sharedRoots !== undefined;
 
-  // agentRoots:每 agent 恒并入默认原生根 + 保留已存的私有根(仅新结构档才有已存值)。
+  // agentRoots:每 agent 恒并入默认原生根 + 保留已存的私有根。`raw?.agentRoots?.[agent] ?? []` 在旧结构
+  // (agentRoots undefined)下自然为 [],无需再按 isNewShape 分支(等价,简化)。
   const agentRoots = {} as Record<AgentKind, string[]>;
   for (const agent of Object.keys(DEFAULT_AGENT_SKILL_ROOTS) as AgentKind[]) {
-    const stored = isNewShape ? (raw?.agentRoots?.[agent] ?? []) : [];
+    const stored = raw?.agentRoots?.[agent] ?? [];
     agentRoots[agent] = dedupe([...DEFAULT_AGENT_SKILL_ROOTS[agent], ...stored]);
   }
 
   // sharedRoots 种子:
-  //   · 新结构 → 已存的 sharedRoots;
+  //   · 新结构 → 已存的 sharedRoots(即使只写了 sharedRoots 也不丢);
   //   · 旧结构 → userGlobalRoots(用户自增) + globalRoots 里非旧默认的异常残留(兜底不丢)。
   const sharedSeed = isNewShape
     ? (raw?.sharedRoots ?? [])

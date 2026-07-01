@@ -23,7 +23,7 @@ interface PiSkillsListArgs {
   // U6:已启用 ∩ 已授信插件的 skills 根（绝对路径）。渲染端按 store 过滤后传入（main 不读 store）;
   // 以 scope=global 并入扫描根，使插件内 skill 与第一方 skill 走同一注入链与去重。
   pluginSkillDirs?: string[];
-  /** @deprecated 过渡期扁平入参(Design B),未迁移调用点(SkillPanel)仍用,消费点切完移除。 */
+  /** @deprecated 过渡期扁平入参(Design B),唯一未迁移调用点为 PluginDetail(传空扁平字段),消费点切完移除。 */
   globalRoots?: string[];
   /** @deprecated 过渡期扁平入参(Design B)。 */
   userGlobalRoots?: string[];
