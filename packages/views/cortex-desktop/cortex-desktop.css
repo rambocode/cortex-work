@@ -8942,3 +8942,22 @@ button.sb-row {
   width: 100%; text-align: left; padding: 6px 12px; font-size: 11px; font-weight: 600; color: var(--text-3);
 }
 .pw-task-done-toggle:hover { color: var(--text-1); }
+
+/* 任务标题按钮（点击打开详情 / 编辑正文）*/
+.pw-task-title-btn { text-align: left; }
+.pw-task-title-btn:hover { color: var(--accent); }
+
+/* 任务详情态：复用 markdown 编辑器（NoteCodeMirrorEditor）编辑内联正文 notes */
+.pw-task-detail { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pw-task-detail-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-bottom: 1px solid var(--border-soft);
+}
+.pw-task-detail-title {
+  flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: var(--text-1);
+  background: transparent; padding: 2px 4px; border-radius: 6px;
+}
+.pw-task-detail-title:focus { outline: none; background: var(--bg-hover); }
+.pw-task-detail-title::placeholder { color: var(--text-4); }
+.pw-task-detail-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pw-task-detail-body > .pw-note-cm-host { flex: 1; min-height: 0; }

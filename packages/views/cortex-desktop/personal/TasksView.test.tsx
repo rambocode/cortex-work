@@ -86,6 +86,20 @@ describe("TasksView", () => {
     await waitFor(() => expect(screen.getByText("买牛奶")).toBeTruthy());
   });
 
+  it("点击标题打开详情，编辑标题并返回 → tasksUpdate 落 title", async () => {
+    const now = Date.now();
+    const { bridge, calls } = fakeTasksBridge([
+      { id: "a", title: "写周报", status: "active", tags: [], source: "manual", createdAt: now, updatedAt: now },
+    ]);
+    renderView(bridge);
+    fireEvent.click(screen.getByText("收件箱")); // 无项目任务在收件箱
+    fireEvent.click(await screen.findByText("写周报"));
+    const input = await screen.findByPlaceholderText("任务标题");
+    fireEvent.change(input, { target: { value: "写月报" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(calls.update.some((c) => c.id === "a" && c.patch.title === "写月报")).toBe(true));
+  });
+
   it("勾选完成 → 调用 tasksUpdate 置 done", async () => {
     const now = Date.now();
     const { bridge, calls } = fakeTasksBridge([

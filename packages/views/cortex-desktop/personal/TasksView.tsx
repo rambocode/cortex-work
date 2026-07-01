@@ -27,6 +27,7 @@ import { useDelegateTask } from "@cortex-work/core/personal/taskDelegate";
 import { usePersonalStore } from "@cortex-work/core";
 import type { TaskMeta, TaskProject } from "@cortex-work/core/desktop/types";
 import { SuggestionChips } from "./SuggestionChips";
+import { TaskDetail } from "./TaskDetail";
 
 type ViewMode = "today" | "inbox" | "projects" | "tags";
 
@@ -57,6 +58,7 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
 
   const [view, setView] = useState<ViewMode>("today");
   const [showDone, setShowDone] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -195,6 +197,17 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
     [tasks],
   );
 
+  // 详情态：编辑任务正文（复用 markdown 编辑器）。放在所有 hooks 之后，避免提前 return 破坏 hooks 顺序。
+  // 根节点带 .is-detail，复用右栏「展宽 + 左缘拖拽」的既有 CSS 档位。
+  const selectedTask = selectedId ? tasks.find((t) => t.id === selectedId) : undefined;
+  if (selectedTask) {
+    return (
+      <div className="pw-rp-view pw-todos is-detail">
+        <TaskDetail task={selectedTask} onBack={() => setSelectedId(null)} onToast={onToast} />
+      </div>
+    );
+  }
+
   return (
     <div className="pw-rp-view pw-todos">
       {/* 视图切换 */}
@@ -297,6 +310,7 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
               onConfirmDone={() => updateTask.mutate({ id: t.id, patch: { status: "done", delegation: undefined } })}
               onCancelDelegation={() => updateTask.mutate({ id: t.id, patch: { status: "active", delegation: undefined } })}
               onViewSession={() => t.delegation && setActiveSession(t.delegation.sessionId)}
+              onOpen={() => setSelectedId(t.id)}
             />
           ))}
         </div>
@@ -353,6 +367,7 @@ function TaskRow({
   onConfirmDone,
   onCancelDelegation,
   onViewSession,
+  onOpen,
 }: {
   task: TaskMeta;
   today: string;
@@ -369,6 +384,7 @@ function TaskRow({
   onConfirmDone: () => void;
   onCancelDelegation: () => void;
   onViewSession: () => void;
+  onOpen: () => void;
 }) {
   const overdue = !!task.dueDate && task.dueDate < today;
   const delegated = task.status === "waiting" && !!task.delegation;
@@ -382,7 +398,9 @@ function TaskRow({
           onChange={onToggleDone}
           title="完成"
         />
-        <span className="pw-task-title">{task.title || "(无标题)"}</span>
+        <button className="pw-task-title pw-task-title-btn" title="打开详情 / 编辑正文" onClick={onOpen}>
+          {task.title || "(无标题)"}
+        </button>
         {/* 渐进披露：仅在有值时显示徽标 */}
         {task.flagged && <span className="pw-task-badge is-flag" title="已标记">⚑</span>}
         {delegated && <span className="pw-task-badge is-wait" title="已委派 agent">委派中</span>}
