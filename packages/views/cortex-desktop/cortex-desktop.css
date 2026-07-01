@@ -9013,6 +9013,46 @@ button.sb-row {
 }
 .pw-task-fields.is-inline .pw-task-meta-row { flex: 0 1 auto; gap: 4px; }
 .pw-task-fields.is-inline .pw-task-rich { border-top: 1px solid var(--border-soft); padding-top: 6px; }
+
+/* 行内可编辑标题（问题2）：无边框输入，视觉与文本一致；聚焦才现输入态；完成态删除线。 */
+.pw-task-title-input {
+  flex: 1; min-width: 0; font-size: 13px; color: var(--text-1);
+  background: transparent; border: 0; outline: none; padding: 2px 0;
+}
+.pw-task-title-input::placeholder { color: var(--text-4); }
+.pw-task-title-input:focus { border-bottom: 1px solid var(--accent); }
+.pw-task-row.is-done .pw-task-title-input { color: var(--text-3); text-decoration: line-through; }
+
+/* 完成度筛选分段（问题1）：紧凑三态，选中高亮。 */
+.pw-task-filter { display: inline-flex; gap: 2px; flex: 0 0 auto; }
+.pw-task-filter-opt {
+  font-size: 11px; color: var(--text-3); background: transparent; border: 0; border-radius: 6px;
+  padding: 2px 7px; cursor: pointer;
+}
+.pw-task-filter-opt:hover { color: var(--text-1); background: var(--bg-hover); }
+.pw-task-filter-opt.is-on { color: var(--accent); background: var(--accent-soft); }
+
+/* 行内紧凑属性栏（问题2，图 #2 OmniFocus 样式）：单行 chip，无值灰占位、有值高亮，点击就地展开编辑。 */
+.pw-task-inspect { padding: 6px 4px 4px; display: flex; flex-direction: column; gap: 6px; }
+.pw-task-inspect-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.pw-task-chip {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 11px;
+  color: var(--text-4); background: transparent; border: 0; border-radius: 6px; padding: 2px 6px; cursor: pointer;
+}
+.pw-task-chip:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-task-chip.is-set { color: var(--text-2); }
+.pw-task-chip.is-danger { color: var(--accent); }
+.pw-task-chip.is-editing { background: var(--accent-soft); color: var(--accent); }
+.pw-task-inspect-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-left: 2px; }
+.pw-task-note-toggle {
+  display: inline-flex; align-items: center; gap: 4px; align-self: flex-start;
+  font-size: 11px; color: var(--text-4); background: transparent; border: 0; cursor: pointer; padding: 2px 0;
+}
+.pw-task-note-toggle:hover { color: var(--text-1); }
+.pw-task-note-input {
+  width: 100%; min-height: 48px; resize: vertical; font-size: 12px; color: var(--text-1);
+  background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 6px; padding: 6px 8px;
+}
 .pw-task-row-main { display: flex; align-items: center; gap: 8px; }
 .pw-task-row-main .spacer { flex: 1; }
 /* 圆形完成勾选（U7，对齐图片 OmniFocus 圆圈）：appearance:none 自绘圆 + 选中打勾。 */

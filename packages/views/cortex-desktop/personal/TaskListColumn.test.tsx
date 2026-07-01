@@ -98,9 +98,10 @@ describe("TaskListColumn", () => {
     );
     renderColumn(bridge, { kind: "project", id: "p1" });
 
-    expect(await screen.findByText("属于p1")).toBeTruthy();
-    expect(screen.getByText("属于子项目")).toBeTruthy();
-    expect(screen.queryByText("无关任务")).toBeNull();
+    // 标题现为行内可编辑 input（问题2）→ 用 getByDisplayValue 断言。
+    expect(await screen.findByDisplayValue("属于p1")).toBeTruthy();
+    expect(screen.getByDisplayValue("属于子项目")).toBeTruthy();
+    expect(screen.queryByDisplayValue("无关任务")).toBeNull();
   });
 
   it("选中 folder 聚合其后代 project 任务，排除文件夹外任务", async () => {
@@ -115,8 +116,8 @@ describe("TaskListColumn", () => {
     );
     renderColumn(bridge, { kind: "folder", id: "f1" });
 
-    expect(await screen.findByText("组内任务")).toBeTruthy();
-    expect(screen.queryByText("组外任务")).toBeNull();
+    expect(await screen.findByDisplayValue("组内任务")).toBeTruthy();
+    expect(screen.queryByDisplayValue("组外任务")).toBeNull();
   });
 
   it("组内排序：flag → 逾期 → 有 due（升序）→ 无 due 末尾", async () => {
@@ -132,11 +133,41 @@ describe("TaskListColumn", () => {
     );
     const { container } = renderColumn(bridge, { kind: "project", id: "p1" });
 
-    await screen.findByText("无due");
-    const order = Array.from(container.querySelectorAll<HTMLElement>(".pw-task-title-btn")).map(
-      (el) => el.textContent,
+    await screen.findByDisplayValue("无due");
+    // 标题为行内 input（问题2）→ 按 DOM 顺序读各 input.value 即组内排序。
+    const order = Array.from(container.querySelectorAll<HTMLInputElement>(".pw-task-title-input")).map(
+      (el) => el.value,
     );
     expect(order).toEqual(["已标记", "逾期", "未逾期", "无due"]);
+  });
+
+  it("筛选：默认只显进行中；切「已完成」显 done/dropped（问题1）", async () => {
+    const { bridge } = fakeTasksBridge(
+      [
+        task("a", "活动任务", { projectId: "p1" }),
+        task("b", "完成任务", { projectId: "p1", status: "done" }),
+      ],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderColumn(bridge, { kind: "project", id: "p1" });
+
+    // 默认「进行中」：只见活动任务。
+    expect(await screen.findByDisplayValue("活动任务")).toBeTruthy();
+    expect(screen.queryByDisplayValue("完成任务")).toBeNull();
+    // 切「已完成」：结束的任务可被找回。
+    fireEvent.click(screen.getByText("已完成"));
+    expect(await screen.findByDisplayValue("完成任务")).toBeTruthy();
+    expect(screen.queryByDisplayValue("活动任务")).toBeNull();
+  });
+
+  it("行内直接编辑标题 → blur 保存（问题2）", async () => {
+    const { bridge, calls } = fakeTasksBridge([task("a", "原名", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
+    renderColumn(bridge, { kind: "project", id: "p1" });
+
+    const input = await screen.findByDisplayValue("原名");
+    fireEvent.change(input, { target: { value: "新名" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(calls.update.some((u) => u.id === "a" && u.patch.title === "新名")).toBe(true));
   });
 
   it("folder 快速新增落 Inbox（projectId 为空）", async () => {
@@ -169,9 +200,9 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     );
     renderColumn(bridge, { kind: "project", id: "p1" });
 
-    await screen.findByText("父任务");
-    const parentRow = screen.getByText("父任务").closest(".pw-task-row")!;
-    const childRow = screen.getByText("子任务").closest(".pw-task-row")!;
+    await screen.findByDisplayValue("父任务");
+    const parentRow = screen.getByDisplayValue("父任务").closest(".pw-task-row")!;
+    const childRow = screen.getByDisplayValue("子任务").closest(".pw-task-row")!;
     // 父行无缩进、子行有缩进占位。
     expect(parentRow.querySelector(".pw-task-indent")).toBeNull();
     expect(childRow.querySelector(".pw-task-indent")).not.toBeNull();
@@ -189,12 +220,12 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     );
     renderColumn(bridge, { kind: "project", id: "p1" });
 
-    await screen.findByText("子任务");
-    const twisty = screen.getByText("父任务").closest(".pw-task-row")!.querySelector<HTMLButtonElement>(".pw-task-twisty")!;
+    await screen.findByDisplayValue("子任务");
+    const twisty = screen.getByDisplayValue("父任务").closest(".pw-task-row")!.querySelector<HTMLButtonElement>(".pw-task-twisty")!;
     fireEvent.click(twisty);
-    expect(screen.queryByText("子任务")).toBeNull();
+    expect(screen.queryByDisplayValue("子任务")).toBeNull();
     fireEvent.click(twisty);
-    expect(screen.getByText("子任务")).toBeTruthy();
+    expect(screen.getByDisplayValue("子任务")).toBeTruthy();
   });
 
   it("添加子任务透传 parentId 并继承父项目", async () => {
@@ -204,8 +235,8 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     );
     renderColumn(bridge, { kind: "project", id: "p1" });
 
-    await screen.findByText("父任务");
-    const parentRow = screen.getByText("父任务").closest(".pw-task-row")!;
+    await screen.findByDisplayValue("父任务");
+    const parentRow = screen.getByDisplayValue("父任务").closest(".pw-task-row")!;
     fireEvent.click(within(parentRow as HTMLElement).getByTitle("添加子任务"));
 
     await waitFor(() => expect(calls.added.length).toBe(1));
@@ -228,8 +259,8 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
       </CoreProvider>,
     );
 
-    await screen.findByText("父任务");
-    const parentRow = screen.getByText("父任务").closest(".pw-task-row")!;
+    await screen.findByDisplayValue("父任务");
+    const parentRow = screen.getByDisplayValue("父任务").closest(".pw-task-row")!;
     const del = within(parentRow as HTMLElement).getByTitle("删除");
     fireEvent.click(del); // 首击：仅确认
     expect(calls.deleted.length).toBe(0);
@@ -246,8 +277,8 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
         <TaskListColumn selection={{ kind: "project", id: "p1" }} onOpenTask={() => {}} onToast={(t) => toasts.push(t)} />
       </CoreProvider>,
     );
-    await screen.findByText("叶子");
-    const row = screen.getByText("叶子").closest(".pw-task-row")!;
+    await screen.findByDisplayValue("叶子");
+    const row = screen.getByDisplayValue("叶子").closest(".pw-task-row")!;
     fireEvent.click(within(row as HTMLElement).getByTitle("删除"));
     await waitFor(() => expect(calls.deleted).toContain("a"));
     expect(toasts.some((t) => t.includes("子任务"))).toBe(false); // 无确认 toast
@@ -287,14 +318,14 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
       [{ id: "p1", name: "项目一" }],
     );
     renderColumn(bridge, { kind: "project", id: "p1" });
-    await screen.findByText("既有子");
-    const parentRow = () => screen.getByText("父").closest(".pw-task-row")!;
+    await screen.findByDisplayValue("既有子");
+    const parentRow = () => screen.getByDisplayValue("父").closest(".pw-task-row")!;
     // 先折叠父 → 既有子隐藏。
     fireEvent.click(parentRow().querySelector<HTMLButtonElement>(".pw-task-twisty")!);
-    expect(screen.queryByText("既有子")).toBeNull();
+    expect(screen.queryByDisplayValue("既有子")).toBeNull();
     // 点「添加子任务」→ 父自动展开，既有子重新可见。
     fireEvent.click(within(parentRow() as HTMLElement).getByTitle("添加子任务"));
-    await waitFor(() => expect(screen.queryByText("既有子")).not.toBeNull());
+    await waitFor(() => expect(screen.queryByDisplayValue("既有子")).not.toBeNull());
   });
 
   it("全部子任务完成 → 父浮现「完成此任务」建议，点击才置 done", async () => {
@@ -318,19 +349,19 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     const { bridge } = fakeTasksBridge([task("a", "被选中", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
     renderColumn(bridge, { kind: "project", id: "p1" }, "a");
 
-    await screen.findByText("被选中");
-    const row = screen.getByText("被选中").closest(".pw-task-row")!;
+    await screen.findByDisplayValue("被选中");
+    const row = screen.getByDisplayValue("被选中").closest(".pw-task-row")!;
     expect(row.classList.contains("is-selected")).toBe(true);
     // 行内 inspector 挂载（共享字段面板的状态控件出现）。
-    expect(row.querySelector(".pw-task-inspector .pw-task-status-seg")).not.toBeNull();
+    expect(row.querySelector(".pw-task-inspector .pw-task-inspect-bar")).not.toBeNull();
   });
 
   it("未选中任务不渲染行内 inspector", async () => {
     const { bridge } = fakeTasksBridge([task("a", "未选", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
     renderColumn(bridge, { kind: "project", id: "p1" }, null);
 
-    await screen.findByText("未选");
-    const row = screen.getByText("未选").closest(".pw-task-row")!;
+    await screen.findByDisplayValue("未选");
+    const row = screen.getByDisplayValue("未选").closest(".pw-task-row")!;
     expect(row.classList.contains("is-selected")).toBe(false);
     expect(row.querySelector(".pw-task-inspector")).toBeNull();
   });
@@ -346,9 +377,9 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     );
     renderColumn(bridge, { kind: "today" });
 
-    await screen.findByText("子任务");
+    await screen.findByDisplayValue("子任务");
     expect(screen.queryByText("父任务")).toBeNull();
-    const childRow = screen.getByText("子任务").closest(".pw-task-row")!;
+    const childRow = screen.getByDisplayValue("子任务").closest(".pw-task-row")!;
     expect(childRow.querySelector(".pw-task-indent")).toBeNull(); // depth 0，无缩进
   });
 });

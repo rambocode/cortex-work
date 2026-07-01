@@ -18,7 +18,7 @@ import { descendantProjectIds } from "@cortex-work/core/personal/taskProjectTree
 import { buildTaskTree, taskDescendantIds, areAllChildrenDone, type TaskTreeNode } from "@cortex-work/core/personal/taskTree";
 import { useDelegateTask } from "@cortex-work/core/personal/taskDelegate";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
-import { TaskFieldsPanel } from "./TaskFieldsPanel";
+import { TaskInlineInspector } from "./TaskInlineInspector";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
 
@@ -99,6 +99,8 @@ export function TaskListColumn({
   const toggleTaskCollapse = usePersonalStore((s) => s.toggleTaskCollapse);
 
   const [draft, setDraft] = useState("");
+  // 完成度筛选（问题1）：默认只看进行中；已完成/全部让用户能找回结束的任务（done/dropped）。
+  const [filter, setFilter] = useState<"active" | "done" | "all">("active");
   // 删除含子任务的父任务须两击确认（首击置 pending + toast，再击真删，KTD5）。
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   // 切换左树选择即清除待确认删除（code-review）：否则遗忘的首击会让下一次单击变成无二次确认的级联删除。
@@ -112,7 +114,10 @@ export function TaskListColumn({
 
   // 按左树选择聚合 + 分组 + 组内排序。
   const groups = useMemo<TaskGroup[]>(() => {
-    const active = tasks.filter(isActive);
+    // 完成度筛选（问题1）：active=仅进行中；done=仅已完成/已放弃；all=全部。
+    const inFilter = (t: TaskMeta) =>
+      filter === "all" ? true : filter === "done" ? !isActive(t) : isActive(t);
+    const active = tasks.filter(inFilter);
     const sort = (items: TaskMeta[]) => [...items].sort((a, b) => compareTasks(a, b, today));
 
     if (selection.kind === "today") {
@@ -144,7 +149,7 @@ export function TaskListColumn({
       }))
       .filter((g) => g.items.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, projects, selection, today]);
+  }, [tasks, projects, selection, today, filter]);
 
   const total = groups.reduce((n, g) => n + g.items.length, 0);
 
@@ -180,9 +185,10 @@ export function TaskListColumn({
   const onAddSubtask = async (parent: TaskMeta) => {
     if (collapsedTasks[parent.id]) toggleTaskCollapse(parent.id); // 展开父使新子可见
     // try/catch（code-review）：store 拒写（corrupt 态 / IPC 失败）时不产生 unhandled rejection，给用户反馈。
+    // 空标题创建（问题2）：行内标题显「未命名的动作」占位并自动聚焦，用户直接就地输入。
     try {
       const created = await addTask.mutateAsync({
-        title: "新建子任务",
+        title: "",
         projectId: parent.projectId,
         parentId: parent.id,
         source: "manual",
@@ -215,13 +221,15 @@ export function TaskListColumn({
   };
 
   const emptyText =
-    selection.kind === "today"
-      ? "今天没有到期或已安排的任务。"
-      : selection.kind === "inbox"
-        ? "收件箱已清空。"
-        : selection.kind === "folder"
-          ? "此分组下暂无任务。"
-          : "此项目下暂无任务。";
+    filter === "done"
+      ? "没有已完成或已放弃的任务。"
+      : selection.kind === "today"
+        ? "今天没有到期或已安排的任务。"
+        : selection.kind === "inbox"
+          ? "收件箱已清空。"
+          : selection.kind === "folder"
+            ? "此分组下暂无任务。"
+            : "此项目下暂无任务。";
 
   return (
     <div className="pw-projects-list">
@@ -236,6 +244,25 @@ export function TaskListColumn({
             if (e.key === "Enter") onQuickAdd();
           }}
         />
+        {/* 完成度筛选（问题1）：默认「进行中」，切「已完成/全部」可找回结束的任务。*/}
+        <div className="pw-task-filter" role="radiogroup" aria-label="筛选">
+          {([
+            ["active", "进行中"],
+            ["done", "已完成"],
+            ["all", "全部"],
+          ] as const).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={filter === v}
+              className={`pw-task-filter-opt${filter === v ? " is-on" : ""}`}
+              onClick={() => setFilter(v)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {total === 0 ? (
@@ -260,6 +287,7 @@ export function TaskListColumn({
                 // 全部子任务完成 → 父行浮现「完成此任务」建议（派生，不自动 done，R5/KTD4）。
                 suggestComplete={areAllChildrenDone(tasks, t.id)}
                 onOpen={() => onOpenTask(t.id)}
+                onRename={(title) => updateTask.mutate({ id: t.id, patch: { title } })}
                 onToggleDone={() => toggleDone(t)}
                 onToggleFlag={() => updateTask.mutate({ id: t.id, patch: { flagged: !t.flagged } })}
                 onDelete={() => onDelete(t)}
@@ -290,6 +318,7 @@ function TaskListRow({
   suggestComplete,
   projectName,
   onOpen,
+  onRename,
   onToggleDone,
   onToggleFlag,
   onDelete,
@@ -308,6 +337,7 @@ function TaskListRow({
   suggestComplete: boolean;
   projectName?: string;
   onOpen: () => void;
+  onRename: (title: string) => void;
   onToggleDone: () => void;
   onToggleFlag: () => void;
   onDelete: () => void;
@@ -317,8 +347,9 @@ function TaskListRow({
 }) {
   const overdue = !!task.dueDate && task.dueDate < today;
   const delegated = task.status === "waiting" && !!task.delegation;
+  const done = task.status === "done";
   return (
-    <div className={`pw-task-row${isSelected ? " is-selected" : ""}`}>
+    <div className={`pw-task-row${isSelected ? " is-selected" : ""}${done ? " is-done" : ""}`}>
       <div className="pw-task-row-main">
         {/* 子任务缩进：按 depth 留白（U3；U7 视觉细调）。*/}
         {depth > 0 && <span className="pw-task-indent" style={{ width: depth * INDENT_STEP }} aria-hidden />}
@@ -335,38 +366,37 @@ function TaskListRow({
         ) : (
           <span className="pw-task-twisty pw-task-twisty-spacer" aria-hidden />
         )}
-        <input type="checkbox" className="pw-task-check" checked={false} onChange={onToggleDone} title="完成" />
-        <button className="pw-task-title pw-task-title-btn" title="打开详情" onClick={onOpen}>
-          {task.title || "(无标题)"}
-        </button>
-        {/* 渐进披露：仅在有值时显示徽标（无日期/标签/项目的任务只渲染一行标题）。*/}
-        {task.flagged && (
-          <span className="pw-task-badge is-flag" title="已标记">
-            ⚑
-          </span>
+        <input
+          type="checkbox"
+          className="pw-task-check"
+          checked={done}
+          onChange={onToggleDone}
+          title={done ? "取消完成" : "完成"}
+        />
+        {/* 行内可编辑标题（问题2）：空标题显「未命名的动作」占位；聚焦即选中该行（展开 inspector）。*/}
+        <TaskTitleInput taskId={task.id} value={task.title} done={done} onFocus={onOpen} onSave={onRename} />
+        {/* 未选中时显示紧凑徽标（快速一览）；选中时属性交由行内 inspector 编辑，避免重复。*/}
+        {!isSelected && (
+          <>
+            {task.flagged && <span className="pw-task-badge is-flag" title="已标记">⚑</span>}
+            {delegated && <span className="pw-task-badge is-wait" title="已委派 agent">委派中</span>}
+            {task.status === "in-progress" && <span className="pw-task-badge is-run">进行中</span>}
+            {task.dueDate && <span className={`pw-task-badge is-due${overdue ? " is-overdue" : ""}`}>截止 {task.dueDate}</span>}
+            {task.deferDate && !isAvailable(task, today) && <span className="pw-task-badge is-defer">延后 {task.deferDate}</span>}
+            {task.tags.map((tag) => (
+              <span key={tag} className="pw-task-badge is-tag">{tag}</span>
+            ))}
+            {projectName && <span className="pw-task-badge is-proj">{projectName}</span>}
+          </>
         )}
-        {delegated && (
-          <span className="pw-task-badge is-wait" title="已委派 agent">
-            委派中
-          </span>
-        )}
-        {task.status === "in-progress" && <span className="pw-task-badge is-run">进行中</span>}
-        {task.dueDate && <span className={`pw-task-badge is-due${overdue ? " is-overdue" : ""}`}>截止 {task.dueDate}</span>}
-        {task.deferDate && !isAvailable(task, today) && <span className="pw-task-badge is-defer">延后 {task.deferDate}</span>}
-        {task.tags.map((tag) => (
-          <span key={tag} className="pw-task-badge is-tag">
-            {tag}
-          </span>
-        ))}
-        {projectName && <span className="pw-task-badge is-proj">{projectName}</span>}
         {/* 完成 rollup 建议（R5/KTD4）：全部子任务已完成时浮现，点击确认才置父 done（不自动）。*/}
-        {suggestComplete && task.status !== "done" && (
+        {suggestComplete && !done && (
           <button className="pw-task-badge is-suggest" title="全部子任务已完成，点击完成此任务" onClick={onCompleteSuggested}>
             ✓ 完成此任务
           </button>
         )}
         <div className="spacer" />
-        {/* 添加子任务（U4）：新建子任务并打开详情供改标题。*/}
+        {/* 添加子任务（U4）。*/}
         <button className="pw-icon-btn" title="添加子任务" onClick={onAddSubtask}>
           <Icon.Plus size={13} />
         </button>
@@ -387,13 +417,54 @@ function TaskListRow({
           <Icon.Trash size={13} />
         </button>
       </div>
-      {/* 行内 inspector（U6）：选中时在标题行下展开共享字段面板（inline 布局），作为主编辑面；
-          右列 TaskDetail 仍随同一 selectedTaskId 显示，两处经同一 useUpdateTask + RQ cache 同步。 */}
+      {/* 行内 inspector（问题2）：选中时在标题行下展开紧凑属性栏（图 #2 样式），作为主编辑面；
+          右列 TaskDetail 仍随同一 selectedTaskId 显示完整面板，两处经同一 useUpdateTask + RQ cache 同步。 */}
       {isSelected && (
         <div className="pw-task-inspector" style={depth > 0 ? { marginLeft: depth * INDENT_STEP } : undefined}>
-          <TaskFieldsPanel task={task} layout="inline" onToast={onToast} />
+          <TaskInlineInspector task={task} today={today} onToast={onToast} />
         </div>
       )}
     </div>
+  );
+}
+
+// 行内可编辑标题：受控草稿，切换任务（taskId 变）时重置；失焦 / 回车保存。聚焦即选中该行。
+function TaskTitleInput({
+  taskId,
+  value,
+  done,
+  onFocus,
+  onSave,
+}: {
+  taskId: string;
+  value: string;
+  done: boolean;
+  onFocus: () => void;
+  onSave: (title: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  // 切到另一条任务时同步草稿（同 id 内不被后台 invalidate 冲掉正在输入的值）。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setDraft(value), [taskId]);
+  const save = () => {
+    const t = draft.trim();
+    if (t !== value) onSave(t);
+  };
+  return (
+    <input
+      className={`pw-task-title-input${done ? " is-done" : ""}`}
+      value={draft}
+      placeholder="未命名的动作"
+      autoFocus={!value}
+      onFocus={onFocus}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          save();
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+    />
   );
 }
