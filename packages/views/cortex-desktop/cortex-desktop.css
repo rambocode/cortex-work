@@ -8855,3 +8855,90 @@ button.sb-row {
 }
 .pw-role-color-swatch.is-active { border-color: var(--text-1); }
 .pw-role-avatar-input { max-width: 60px !important; text-align: center; font-size: 18px; }
+
+/* ── 真任务系统（TasksView / SuggestionChips，替换文档聚合式 Tasks）───────────── */
+.pw-todos .pw-task-tabs {
+  display: flex; gap: 2px; padding: 6px 8px 6px; border-bottom: 1px solid var(--border-soft);
+}
+.pw-task-tab {
+  flex: 0 0 auto; padding: 4px 10px; font-size: 12px; font-weight: 500;
+  color: var(--text-3); border-radius: 6px;
+}
+.pw-task-tab:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-task-tab.is-active { background: var(--bg-active); color: var(--text-1); }
+
+.pw-task-add { padding: 8px; }
+.pw-task-add-input {
+  width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13px;
+  color: var(--text-1); background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.pw-task-add-input::placeholder { color: var(--text-4); }
+.pw-task-add-input:focus { outline: none; border-color: var(--accent); }
+
+.pw-task-taglist { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 10px 8px; }
+.pw-task-tagchip {
+  font-size: 12px; color: var(--text-2); background: var(--bg-chip);
+  padding: 3px 10px; border-radius: 12px;
+}
+.pw-task-tagchip:hover { background: var(--bg-active); color: var(--text-1); }
+
+.pw-task-back { padding: 4px 12px; font-size: 12px; color: var(--text-3); align-self: flex-start; }
+.pw-task-back:hover { color: var(--accent); }
+
+.pw-task-group { padding: 2px 0; }
+.pw-task-group-head {
+  padding: 8px 12px 4px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3);
+}
+.pw-task-open-project { padding: 0 12px 6px; font-size: 11px; color: var(--text-4); }
+.pw-task-open-project:hover { color: var(--accent); }
+
+.pw-task-row { padding: 5px 8px; border-radius: 8px; margin: 1px 4px; }
+.pw-task-row:hover { background: var(--bg-hover); }
+.pw-task-row-main { display: flex; align-items: center; gap: 8px; }
+.pw-task-row-main .spacer { flex: 1; }
+.pw-task-check { flex: 0 0 auto; width: 15px; height: 15px; accent-color: var(--accent); }
+.pw-task-title {
+  font-size: 13px; color: var(--text-1); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pw-task-row.is-done .pw-task-title { color: var(--text-3); text-decoration: line-through; }
+
+/* 渐进披露徽标：仅有值才渲染，故只需样式不需隐藏逻辑 */
+.pw-task-badge {
+  flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--text-2);
+  background: var(--bg-chip); padding: 1px 7px; border-radius: 6px; white-space: nowrap;
+}
+.pw-task-badge.is-tag { color: var(--text-3); }
+.pw-task-badge.is-proj { color: var(--text-3); background: var(--bg-active); }
+.pw-task-badge.is-defer { color: var(--text-3); }
+.pw-task-badge.is-due.is-overdue { color: var(--accent); background: var(--accent-soft); }
+.pw-task-badge.is-flag { color: var(--accent); background: transparent; padding: 0; }
+.pw-task-badge.is-wait,
+.pw-task-badge.is-run { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+.pw-task-flag { font-size: 13px; line-height: 1; }
+.pw-task-flag.is-on { color: var(--accent); }
+
+/* 结构化建议 chips（非破坏性、虚线框以示"建议"）*/
+.pw-task-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 3px 0 3px 23px; }
+.pw-task-suggest-hint { font-size: 11px; color: var(--text-4); }
+.pw-task-suggest-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent) 38%, transparent);
+  border-radius: 12px; padding: 1px 3px 1px 8px;
+}
+.pw-chip-accept { font-size: 11px; color: var(--accent); }
+.pw-chip-dismiss { font-size: 12px; color: var(--text-4); padding: 0 3px; }
+.pw-chip-dismiss:hover { color: var(--text-2); }
+.pw-chip-all { font-size: 11px; color: var(--text-3); padding: 1px 5px; }
+.pw-chip-all:hover { color: var(--accent); }
+
+/* 已完成/已放弃折叠区 */
+.pw-task-done-section { margin-top: 8px; border-top: 1px solid var(--border-soft); padding-top: 2px; }
+.pw-task-done-toggle {
+  width: 100%; text-align: left; padding: 6px 12px; font-size: 11px; font-weight: 600; color: var(--text-3);
+}
+.pw-task-done-toggle:hover { color: var(--text-1); }
