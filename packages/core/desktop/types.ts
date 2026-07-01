@@ -58,6 +58,71 @@ export interface TodoMeta {
   updatedAt: number;
 }
 
+// ── 真任务系统 v2（替换 doc 聚合式 Tasks，见 docs/plans/2026-07-01-002-feat-personal-tasks-agent-native-plan.md）──
+// 与 apps/desktop/src/main/ipc/types.ts 逐字镜像（镜像漂移是头号坑，改一处必改另一处）。
+// 状态枚举：inbox 是「无 project 且未分诊」的计算态，不入此枚举。
+export type TaskStatus = "active" | "in-progress" | "waiting" | "done" | "dropped";
+// 任务来源：手动新建 / 快速捕获 / agent 产出。
+export type TaskSource = "manual" | "capture" | "agent";
+
+// 当前委派子结构。sessionId 供回写归属重校验；runId 供 killCli 取消（runId≠sessionId）。
+export interface TaskDelegation {
+  sessionId: string;
+  runId?: string;
+  state: "running" | "awaiting-confirm" | "failed";
+  error?: string;
+}
+
+// task-project 是 tasks.json 内自持的一等分组实体，独立于工作区代码工程（v1 无路径）。
+export interface TaskProject {
+  id: string;
+  name: string;
+}
+
+// 一条任务。deferDate/dueDate 以本地日历日 YYYY-MM-DD 存储与比较。
+export interface TaskMeta {
+  id: string;
+  title: string;
+  notes?: string; // 正文内联（不为新任务建 tasks/<id>.md）
+  status: TaskStatus;
+  deferDate?: string; // YYYY-MM-DD 本地日历日
+  dueDate?: string; // YYYY-MM-DD 本地日历日
+  tags: string[]; // 已规范化
+  projectId?: string; // 指向 TaskProject.id；缺省/悬空 = Inbox
+  flagged?: boolean;
+  source: TaskSource;
+  delegation?: TaskDelegation;
+  createdAt: number;
+  updatedAt: number;
+  migratedFrom?: string; // 迁移自旧 TodoMeta.id（溯源/幂等）
+}
+
+// 新建入参（id/时间戳由 store 生成）。
+export interface TaskInput {
+  title: string;
+  notes?: string;
+  projectId?: string;
+  source?: TaskSource; // 缺省 manual
+}
+
+// 归档条目（done/dropped 压缩摘要，U13 产出）。
+export interface ArchivedTask {
+  id: string;
+  title: string;
+  summary: string;
+  originalStatus: "done" | "dropped";
+  archivedAt: number;
+}
+
+// tasks.json 全量形状（main-owned；version 独立于 personal-workspace.json）。
+export interface TasksFileData {
+  version: number;
+  migratedAt?: number; // 迁移幂等闸门
+  tasks: TaskMeta[];
+  projects: TaskProject[];
+  archived: ArchivedTask[];
+}
+
 export interface SessionMeta {
   id: string; // 应用内 uuid
   // 关联项目;缺省 = 不使用项目（会话在 Documents/cortex/<日期> 工作）。
