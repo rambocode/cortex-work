@@ -187,7 +187,7 @@ export function PersonalWorkspace({
       </div>
       {/* 全屏三栏「项目」工作台：须在 settings 覆盖层**之前**，二者同 z-index:200，
           openSettings 不清 projectsOpen，故工作台内叠开设置时设置渲染在后（盖住工作台）。 */}
-      {projectsOpen ? <ProjectsWorkbench /> : null}
+      {projectsOpen ? <ProjectsWorkbench onToast={onToast} /> : null}
       {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
       <SessionSearchDialog />

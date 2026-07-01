@@ -7,6 +7,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { usePersonalStore } from "@cortex-work/core";
 import { useTasksChangeSubscription } from "@cortex-work/core/personal/tasks";
 import { ProjectTree } from "./ProjectTree";
+import { TaskListColumn } from "./TaskListColumn";
 
 // 左树当前选择：内置视图（今日 / 收件箱）或某个 project/folder 节点。
 // U6 ProjectTree 产出、U7 TaskListColumn 消费（folder/project 统一走 descendantProjectIds 聚合）。
@@ -16,7 +17,9 @@ export type WorkbenchSelection =
   | { kind: "project"; id: string }
   | { kind: "folder"; id: string };
 
-export function ProjectsWorkbench() {
+// onToast 由 PersonalWorkspace 透传（工作台内委派/新建等动作需给用户反馈，而工作台是 fixed
+// 覆盖层、盖住底层的 toast 宿主，故须自持 toast 通道）。
+export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void }) {
   const closeProjects = usePersonalStore((s) => s.closeProjects);
   // 根挂载订阅：后台结构化 / agent 委派回写 → invalidate 刷新三栏（KTD8；历史 notes 零挂载 bug 在先）。
   useTasksChangeSubscription();
@@ -53,10 +56,8 @@ export function ProjectsWorkbench() {
             }}
           />
         </div>
-        {/* 中列：任务清单。U7 替换为 <TaskListColumn selection onOpenTask={setSelectedTaskId} />。 */}
-        <div className="pw-projects-list">
-          <div className="pw-empty-hint">任务清单建设中（U7）。当前选择：{selection.kind}</div>
-        </div>
+        {/* 中列：任务清单（U7）。按左树选择聚合，行内动作直达；点标题 → 右列详情（U8）。 */}
+        <TaskListColumn selection={selection} onOpenTask={setSelectedTaskId} onToast={onToast} />
         {/* 右列：任务详情。U8 接入 <TaskDetail task=… onBack=… />（渐进披露富字段）。 */}
         <div className="pw-projects-detail">
           {selectedTaskId ? (

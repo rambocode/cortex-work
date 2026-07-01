@@ -17,13 +17,23 @@ import { dayKey } from "./timeline";
 import { useUpdateTask } from "./tasks";
 import type { TaskMeta } from "../desktop/types";
 
-export function useDelegateTask(): (task: TaskMeta, onToast: (text: string) => void) => Promise<void> {
+// 委派选项。keepView：把委派当「后台动作」——不切视图、不把用户拽出当前界面。
+// 场景：全屏项目工作台（U7 中列）里点「交给 agent」。默认（右栏 TasksView）为 false，切到会话。
+export interface DelegateOptions {
+  keepView?: boolean;
+}
+
+export function useDelegateTask(): (
+  task: TaskMeta,
+  onToast: (text: string) => void,
+  opts?: DelegateOptions,
+) => Promise<void> {
   const bridge = useDesktopBridge();
   const { send } = usePersonalActions();
   const updateTask = useUpdateTask();
 
   return useCallback(
-    async (task, onToast) => {
+    async (task, onToast, opts) => {
       if (!bridge) {
         onToast("当前环境不支持委派（缺少桌面能力）");
         return;
@@ -35,6 +45,9 @@ export function useDelegateTask(): (task: TaskMeta, onToast: (text: string) => v
       }
 
       const st = usePersonalStore.getState();
+      // 委派前的前台导航快照（仅 keepView 用于恢复）：createSession 与 setActiveSession 都会
+      // 清 projectsOpen 并切走 activeSession（U4 视图互斥），后台委派不应触发这层切换。
+      const prevNav = { projectsOpen: st.projectsOpen, activeSessionId: st.activeSessionId };
       const projectId = st.activeProjectId;
       const proj = projectId ? st.projects.find((p) => p.id === projectId) : undefined;
 
@@ -56,7 +69,16 @@ export function useDelegateTask(): (task: TaskMeta, onToast: (text: string) => v
         patch: { status: "waiting", delegation: { sessionId: sess.id, state: "running" } },
       });
 
-      st.setActiveSession(sess.id);
+      if (opts?.keepView) {
+        // 后台委派：会话已创建并将跑起来、任务已记 delegation，但恢复 createSession 顺手清掉的
+        // 前台导航（projectsOpen / activeSessionId），把用户留在原视图（工作台，对抗研究 #3）。
+        usePersonalStore.setState(prevNav);
+        onToast(`已交给 agent 执行（cwd: ${cwd}）`);
+      } else {
+        // 默认：切到新会话观察 agent 执行（右栏 TasksView 现有行为）。
+        st.setActiveSession(sess.id);
+      }
+
       const context = task.notes?.trim() ? `${task.title}\n\n${task.notes}` : task.title;
       await send(sess, cwd, `请完成这个任务：\n\n${context}`, [], undefined);
     },
