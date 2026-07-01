@@ -17,7 +17,6 @@
 // 降级风格对齐 mcp-config.applyClaudeMcp:任何一步失败都不抛出未捕获异常、不阻断发送 —— 整体失败返回
 // undefined(不追加 --add-dir),单条失败只跳过该条。
 
-import { createHash } from "crypto";
 import { existsSync, mkdirSync, rmSync, statSync, symlinkSync } from "fs";
 import { join } from "path";
 
@@ -37,8 +36,15 @@ export function slugifyClaudeSkillName(name: string): string {
 }
 
 // 原始 name 的 8 位短 hash,用于:slug 为空的兜底名、同批次命名碰撞的消歧后缀。
+// ⚠️ 跨进程契约(code review 修复):必须与渲染端 packages/core/personal/skill-injection.ts 的
+// 同名函数逐字算法一致——否则渲染端 renderClaudeSkillSlash 推导出的裸 slash 会跟这里实际建的
+// symlink 目录名不一致(空 slug 兜底/碰撞消歧场景下 claude 收到 Unknown command 或点错 skill)。
+// 用纯算术哈希而非 crypto:core 端不能依赖 Node crypto(需可在渲染端/浏览器运行),故两侧统一改用
+// 同一份无依赖实现,而不是「主进程用 sha256、渲染端用别的」各自发明。
 function shortHash(s: string): string {
-  return createHash("sha256").update(s, "utf8").digest("hex").slice(0, 8);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
+  return (h >>> 0).toString(16).padStart(8, "0").slice(0, 8);
 }
 
 // 为一条记录算出「本批次内不冲突」的目录名。清洗后为空 → 用短 hash 兜底;与已占用名冲突(如

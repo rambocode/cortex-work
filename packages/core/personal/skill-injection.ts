@@ -47,6 +47,19 @@ export function renderSkillBlock(skills: InjectableSkill[]): string {
   ].join("\n");
 }
 
+// U6(修复):单发/圆桌编排路由判断的单一来源。原先 messages.ts 内联判断与
+// PersonalChatArea.tsx 各写一份「subagentOrchestration && startOrchestration && !hasDelegateMentions」,
+// 靠注释手工保持一致——一旦其中一处的路由条件调整,另一处会静默漂移,导致「该走原生 skill 调用的
+// 组合悄悄退回 prose」或「该退回 prose 的组合却发了裸 slash/invokedSkill 到编排路径」(见 code review:
+// maintainability/agent-native 交叉确认)。现在两处都从这里导入,不再各自复刻判断逻辑。
+export function isOrchestrationSend(
+  subagentOrchestration: boolean | undefined,
+  hasStartOrchestration: boolean,
+  hasDelegateMentions: boolean,
+): boolean {
+  return subagentOrchestration === true && hasStartOrchestration && !hasDelegateMentions;
+}
+
 // 解析输入是否为「/skill:<name> [args]」形态(claude/codex 的 slash skill 触发)。命中返回
 // { name, args };否则 null。pi 会话不用它(pi CLI 自行展开 /skill:name),仅 claude/codex 发送侧
 // 拦截后转定向 prompt(见 renderSkillInvocation / PersonalChatArea onSend)。
@@ -57,26 +70,67 @@ export function parseSkillSlash(text: string): { name: string; args: string } | 
   return { name, args: (m[2] ?? "").trim() };
 }
 
-// U5:claude 原生 slash 命令名清洗。claude 的 `/<name>` 展开取自 skill 目录名 —— 桥接层(U1)以
-// sanitize 后的名字建 symlink 目录,渲染端(renderClaudeSkillSlash)据同一算法生成裸 slash,两处必须
-// 一致,否则「菜单显示名」与「claude 实际认得的命令名」漂移,用户点了却不触发(R7)。
-// 规则:小写化 + 换行/空格/路径分隔符/`..`/控制字符等一切非 [a-z0-9] 归一为连字符 + 折叠并去首尾连字符;
-// 全部被清空(如纯非 ASCII 名)时兜底 "skill",避免产出空 slash。
-// ⚠️ 跨进程契约:U1 的 symlink 目录命名必须复现同一算法(主进程不能 import core,故各持一份逻辑)。
-export function sanitizeSkillCommandName(name: string): string {
-  const cleaned = name
+// U5:claude 原生 slash 命令名的「纯 slug 化」步骤(无兜底/无碰撞消歧)。规则:小写化 + 换行/空格/
+// 路径分隔符/`..`/控制字符等一切非 [a-z0-9] 归一为连字符 + 折叠并去首尾连字符。可能产出空串
+// (如纯非 ASCII 名),空串兜底与同批次碰撞消歧交给 resolveClaudeSlashName(不能在此处独立兜底——
+// 见下方修复说明)。
+function slugifyClaudeSkillName(name: string): string {
+  return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return cleaned || "skill";
+}
+// 向后兼容导出(单测/外部若已引用旧名):等价于 slugifyClaudeSkillName。
+export const sanitizeSkillCommandName = slugifyClaudeSkillName;
+
+// 不依赖 Node crypto(core 需可在浏览器/渲染端运行):纯算术短哈希,仅用于「空 slug 兜底」与「同批次
+// 命名碰撞消歧」的后缀,不要求密码学强度,只要求确定性——且必须与主进程
+// apps/desktop/src/main/skills/claude-bridge.ts 的同名函数逐字算法一致(⚠️ 跨进程契约,见下)。
+function shortHash(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
+  return (h >>> 0).toString(16).padStart(8, "0").slice(0, 8);
+}
+
+// 为一条记录算出「本批次内不冲突」的命令名——逐字复现主进程 claude-bridge.ts 的 resolveLinkName:
+// 空 slug 兜底为 `skill-<hash>`;与已占用名冲突(如 `my/skill` 与 `my-skill` 都归一到 `my-skill`)
+// 对后到者追加短 hash 后缀消歧;极端同名多次再叠加递增序号。
+function resolveCommandName(name: string, used: Set<string>): string {
+  const base = slugifyClaudeSkillName(name) || `skill-${shortHash(name)}`;
+  if (!used.has(base)) return base;
+  const suffixed = `${base}-${shortHash(name)}`;
+  if (!used.has(suffixed)) return suffixed;
+  let i = 2;
+  while (used.has(`${suffixed}-${i}`)) i++;
+  return `${suffixed}-${i}`;
+}
+
+// U5(修复):claude 桥接目录的 symlink 命名(主进程 buildClaudeSkillBridge)按 records 顺序做
+// 「空 slug 兜底 + 同批次碰撞消歧」,单条 sanitizeSkillCommandName(skill.name) 无法复现这一批次级
+// 结果——之前渲染端只对单条 skill 独立清洗,在(a)清洗后为空(纯非 ASCII/纯符号名)、(b)两条 skill
+// 归一到同一 slug 这两种边界下,产出的裸 slash 与桥接目录名不一致,导致 claude 侧「Unknown command」
+// 或「点了 A 却触发 B」(见 code review:correctness/maintainability/adversarial 交叉确认)。
+// 修复:按与主进程完全相同的算法,基于同一批 records(渲染端与主进程各自调用
+// resolveEnabledSkillRecords 取到的应为同一确定性排序结果)逐条推导命令名,取 target 命中的那个。
+export function resolveClaudeSlashName(records: InjectableSkill[], target: InjectableSkill): string {
+  const used = new Set<string>();
+  let matched: string | undefined;
+  for (const rec of records) {
+    const commandName = resolveCommandName(rec.name, used);
+    used.add(commandName);
+    if (rec === target || (rec.name === target.name && rec.dir === target.dir)) matched = commandName;
+  }
+  // 兜底:target 若不在 records 里(理论不达,调用方应保证 target ∈ records),独立推导一个安全命令名。
+  return matched ?? resolveCommandName(target.name, used);
 }
 
 // U5:把「/skill:<name> [args]」渲染成 claude CLI 认得的裸 slash「/<command-name> [args]」。
 // claude 在 CLI 输入层原生展开 `/<name>`(前提:桥接目录已让它发现该 skill,见 U1/U2),cortex 不再
-// 把 skill 改写成「请自行 Read SKILL.md」的 prose。name 经 sanitizeSkillCommandName 对齐 claude 的
-// 命令名派生(R7);args 是用户输入(本就要发给 agent),不清洗。无 args → 无尾随空格。
-export function renderClaudeSkillSlash(skill: InjectableSkill, args: string): string {
-  const name = sanitizeSkillCommandName(skill.name);
+// 把 skill 改写成「请自行 Read SKILL.md」的 prose。name 经 resolveClaudeSlashName 对齐主进程桥接目录
+// 的实际命名(R7,含批次级碰撞消歧,见上);args 是用户输入(本就要发给 agent),不清洗。无 args →
+// 无尾随空格。allRecords 须是本轮已启用的完整 skill 记录集(与 cli.ts 建桥接目录用的同一份数据源)。
+export function renderClaudeSkillSlash(skill: InjectableSkill, args: string, allRecords: InjectableSkill[]): string {
+  const name = resolveClaudeSlashName(allRecords, skill);
   const trimmed = args.trim();
   return trimmed ? `/${name} ${trimmed}` : `/${name}`;
 }

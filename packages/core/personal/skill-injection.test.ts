@@ -2,7 +2,17 @@
 // resolveEnabledSkillRecords 的过滤/去重/降级由 skillResolve.test.ts 覆盖(经委托的
 // resolveEnabledSkillPaths 间接验证),此处聚焦渲染纯函数与防注入清洗。
 import { describe, expect, it } from "vitest";
-import { parseSkillSlash, renderClaudeSkillSlash, renderSkillBlock, renderSkillInvocation, resolveEnabledPluginSkillDirs, sanitizeSkillCommandName, type InjectableSkill } from "./skill-injection";
+import {
+  isOrchestrationSend,
+  parseSkillSlash,
+  renderClaudeSkillSlash,
+  renderSkillBlock,
+  renderSkillInvocation,
+  resolveClaudeSlashName,
+  resolveEnabledPluginSkillDirs,
+  sanitizeSkillCommandName,
+  type InjectableSkill,
+} from "./skill-injection";
 import type { DesktopBridge } from "../desktop/bridge";
 import type { InstalledPlugin } from "../desktop/types";
 import { usePersonalStore } from "../store/personal";
@@ -98,7 +108,7 @@ describe("renderSkillInvocation", () => {
   });
 });
 
-describe("sanitizeSkillCommandName（U5 claude 命令名清洗，R7）", () => {
+describe("sanitizeSkillCommandName（U5 claude 命令名清洗，纯 slug 化，无兜底）", () => {
   it("小写化 + 空格/特殊字符归一为连字符", () => {
     expect(sanitizeSkillCommandName("My Skill!")).toBe("my-skill");
     expect(sanitizeSkillCommandName("Deploy_To Prod")).toBe("deploy-to-prod");
@@ -112,21 +122,71 @@ describe("sanitizeSkillCommandName（U5 claude 命令名清洗，R7）", () => {
     expect(sanitizeSkillCommandName("my/skill")).toBe("my-skill");
     expect(sanitizeSkillCommandName("  spaced  ")).toBe("spaced");
   });
-  it("全部被清空（纯非 ASCII）→ 兜底 skill,不产出空 slash", () => {
-    expect(sanitizeSkillCommandName("我的技能")).toBe("skill");
-    expect(sanitizeSkillCommandName("!!!")).toBe("skill");
+  // code review 修复:纯清洗步骤不再自带 "skill" 兜底——兜底与同批次碰撞消歧必须一起做才有意义
+  // (否则会跟主进程 claude-bridge.ts 的批次级兜底/消歧结果不一致),已下沉到 resolveClaudeSlashName。
+  it("全部被清空（纯非 ASCII / 纯符号）→ 返回空串,兜底交给 resolveClaudeSlashName", () => {
+    expect(sanitizeSkillCommandName("我的技能")).toBe("");
+    expect(sanitizeSkillCommandName("!!!")).toBe("");
   });
 });
 
-describe("renderClaudeSkillSlash（U5 裸 slash 渲染）", () => {
-  it("含参数 → /<sanitized-name> args", () => {
-    expect(renderClaudeSkillSlash(mk("My Skill!", undefined, "/g/s"), "foo bar")).toBe("/my-skill foo bar");
+describe("resolveClaudeSlashName（U5 修复:与主进程 buildClaudeSkillBridge 一致的批次级命名）", () => {
+  it("单条记录、清洗后非空 → 直接用 slug", () => {
+    const skill = mk("My Skill!", undefined, "/g/s");
+    expect(resolveClaudeSlashName([skill], skill)).toBe("my-skill");
+  });
+  it("单条记录、清洗后为空（纯非 ASCII）→ 兜底为 skill-<hash>,不是裸 'skill'", () => {
+    const skill = mk("我的技能", undefined, "/g/s");
+    const name = resolveClaudeSlashName([skill], skill);
+    expect(name).toMatch(/^skill-[0-9a-f]{8}$/);
+  });
+  it("两条不同 name 归一化后同 slug → 各自算出不同命令名(先到裸 slug,后到带消歧后缀)", () => {
+    const a = mk("my/skill", undefined, "/a");
+    const b = mk("my-skill", undefined, "/b");
+    const nameA = resolveClaudeSlashName([a, b], a);
+    const nameB = resolveClaudeSlashName([a, b], b);
+    expect(nameA).toBe("my-skill");
+    expect(nameB).not.toBe(nameA);
+    expect(nameB.startsWith("my-skill-")).toBe(true);
+  });
+});
+
+describe("renderClaudeSkillSlash（U5 裸 slash 渲染,含 allRecords 批次一致性）", () => {
+  it("含参数 → /<command-name> args", () => {
+    const skill = mk("My Skill!", undefined, "/g/s");
+    expect(renderClaudeSkillSlash(skill, "foo bar", [skill])).toBe("/my-skill foo bar");
   });
   it("无参数 → /<name>，无尾随空格", () => {
-    expect(renderClaudeSkillSlash(mk("deploy", undefined, "/g/d"), "")).toBe("/deploy");
+    const skill = mk("deploy", undefined, "/g/d");
+    expect(renderClaudeSkillSlash(skill, "", [skill])).toBe("/deploy");
   });
   it("参数首尾空白被裁剪", () => {
-    expect(renderClaudeSkillSlash(mk("deploy", undefined, "/g/d"), "  x  ")).toBe("/deploy x");
+    const skill = mk("deploy", undefined, "/g/d");
+    expect(renderClaudeSkillSlash(skill, "  x  ", [skill])).toBe("/deploy x");
+  });
+  it("同批次碰撞时,产出的裸 slash 随批次消歧结果变化(而非固定裸 slug)", () => {
+    const a = mk("my/skill", undefined, "/a");
+    const b = mk("my-skill", undefined, "/b");
+    const outA = renderClaudeSkillSlash(a, "", [a, b]);
+    const outB = renderClaudeSkillSlash(b, "", [a, b]);
+    expect(outA).toBe("/my-skill");
+    expect(outB).not.toBe(outA);
+  });
+});
+
+describe("isOrchestrationSend（U6 修复:单发/编排路由单一来源,与 messages.ts 共用）", () => {
+  it("开启编排 + 支持 startOrchestration + 无 @mention 委派 → 走圆桌编排", () => {
+    expect(isOrchestrationSend(true, true, false)).toBe(true);
+  });
+  it("未开启编排 → 单发", () => {
+    expect(isOrchestrationSend(false, true, false)).toBe(false);
+    expect(isOrchestrationSend(undefined, true, false)).toBe(false);
+  });
+  it("壳不支持 startOrchestration → 单发(即使开关开着)", () => {
+    expect(isOrchestrationSend(true, false, false)).toBe(false);
+  });
+  it("开启编排但本条带 @mention 委派 → 实际走单发", () => {
+    expect(isOrchestrationSend(true, true, true)).toBe(false);
   });
 });
 
