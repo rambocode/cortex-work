@@ -1554,6 +1554,9 @@ export interface PluginSkill {
   dir: string; // skill 根目录绝对路径（即 --skill 注入值）
   rootPath: string; // 来源根（已 expand 的绝对路径）
   scope: SkillScope; // global | workspace
+  // Design B(plan 002):根来源——"shared"(共享,对三端)/"agent"(该 agent 私有原生根)。
+  // 供 U6 去重:agent 私有原生根下的 skill 由 agent 自身发现,Cortex 不重复注入。缺省(旧扫描)= 视为 shared。
+  origin?: "shared" | "agent";
   enabled: boolean; // 是否启用（渲染端据 disabledSkills 叠加）
   trusted: boolean; // 工作区 skill 是否已授信（global 恒 true）
   shadowedBy?: string; // 被同名覆盖时的覆盖来源 scope（UI 标注用）

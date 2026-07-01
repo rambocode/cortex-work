@@ -1072,6 +1072,7 @@ export interface PluginSkill {
   dir: string; // skill 根目录绝对路径（即 --skill 注入值）
   rootPath: string; // 来源根（已 expand 的绝对路径）
   scope: SkillScope; // global | workspace
+  origin?: "shared" | "agent"; // Design B(plan 002):shared/agent 私有原生根;缺省=shared
   enabled: boolean;
   trusted: boolean;
   shadowedBy?: string;

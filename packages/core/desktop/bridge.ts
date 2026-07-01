@@ -348,12 +348,19 @@ export interface DesktopBridge {
   // 插件管理（U3）:按 piSkills 配置扫描多根 → PluginSkill[];打开/创建范围根（白名单校验）。
   // 可选:web/旧壳无此能力 → 插件管理器降级空态。
   piSkillsList?(args: {
-    globalRoots: string[];
-    userGlobalRoots?: string[];
-    workspaceEnabled: boolean;
+    // Design B(plan 002):按会话 agent 解析的扫描根规格(resolveAgentSkillRoots 产出)。
+    //   global scope 根含 ~(主进程 expandTilde);workspace scope 根为相对子目录(主进程 join workspaceDir)。
+    //   提供 rootSpecs 时,主进程忽略下方 deprecated 扁平入参。
+    rootSpecs?: { path: string; scope: "global" | "workspace"; origin: "shared" | "agent" }[];
     workspaceDir?: string;
     // U6:已启用插件的 skills 根（绝对路径，scope=global）。主进程 append 进扫描根，与第一方 skill 同链注入。
     pluginSkillDirs?: string[];
+    /** @deprecated 过渡期扁平入参(Design B)。未迁移调用点(如 SkillPanel)仍用,消费点切完移除。 */
+    globalRoots?: string[];
+    /** @deprecated 过渡期扁平入参(Design B)。 */
+    userGlobalRoots?: string[];
+    /** @deprecated 过渡期扁平入参(Design B)。 */
+    workspaceEnabled?: boolean;
   }): Promise<PluginSkill[]>;
   openSkillDir?(args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }>;
   // 在选定根下新建 skill（写 <dir>/<name>/SKILL.md）。白名单 + 名称校验,返回结果。
