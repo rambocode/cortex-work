@@ -13,6 +13,7 @@ import {
   useUpdateTask,
   useDeleteTask,
   useAddTaskProject,
+  useArchiveTask,
   useTasksChangeSubscription,
   tasksAvailable,
   isTodayEligible,
@@ -48,8 +49,10 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
   const addProject = useAddTaskProject();
+  const archiveTask = useArchiveTask();
 
   const [view, setView] = useState<ViewMode>("today");
+  const [showDone, setShowDone] = useState(false);
   const [draft, setDraft] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -182,6 +185,11 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
   }, [tasks, projects, view, selectedTag, selectedProjectId, today]);
 
   const totalShown = groups.reduce((n, g) => n + g.items.length, 0);
+  // 已完成/已放弃（可归档/恢复，U13/R27）。
+  const finished = useMemo(
+    () => tasks.filter((t) => t.status === "done" || t.status === "dropped"),
+    [tasks],
+  );
 
   return (
     <div className="pw-rp-view pw-todos">
@@ -285,6 +293,37 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
           ))}
         </div>
       ))}
+
+      {/* 已完成 / 已放弃：可归档（摘要落 archived）或恢复为进行（U13/R27）*/}
+      {finished.length > 0 && (
+        <div className="pw-task-done-section">
+          <button className="pw-task-done-toggle" onClick={() => setShowDone((v) => !v)}>
+            {showDone ? "▾" : "▸"} 已完成/已放弃（{finished.length}）
+          </button>
+          {showDone &&
+            finished.map((t) => (
+              <div key={t.id} className="pw-task-row is-done">
+                <span className="pw-task-title">{t.title || "(无标题)"}</span>
+                <span className="pw-task-badge">{t.status === "done" ? "已完成" : "已放弃"}</span>
+                <div className="spacer" />
+                <button
+                  className="pw-icon-btn"
+                  title="恢复为进行"
+                  onClick={() => updateTask.mutate({ id: t.id, patch: { status: "active" } })}
+                >
+                  ↩
+                </button>
+                <button
+                  className="pw-icon-btn"
+                  title="归档"
+                  onClick={() => archiveTask.mutate({ id: t.id, summary: t.notes?.trim()?.slice(0, 200) || t.title })}
+                >
+                  <Icon.Archive size={13} />
+                </button>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   );
 }

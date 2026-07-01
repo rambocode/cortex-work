@@ -31,6 +31,7 @@ import type {
   GitOpResult,
   NoteInput,
   NoteMeta,
+  ArchivedTask,
   TaskInput,
   TaskMeta,
   TaskProject,
@@ -447,6 +448,8 @@ const personal = {
   tasksDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:delete", id),
   tasksAddProject: (name: string): Promise<TaskProject> => ipcRenderer.invoke("tasks:addProject", name),
   tasksDeleteProject: (projectId: string): Promise<void> => ipcRenderer.invoke("tasks:deleteProject", projectId),
+  tasksArchive: (id: string, summary: string): Promise<boolean> => ipcRenderer.invoke("tasks:archive", id, summary),
+  tasksListArchived: (): Promise<ArchivedTask[]> => ipcRenderer.invoke("tasks:listArchived"),
   onTasksChanged: (cb: (list: TaskMeta[]) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, list: TaskMeta[]) => cb(list);
     ipcRenderer.on("tasks:changed", listener);

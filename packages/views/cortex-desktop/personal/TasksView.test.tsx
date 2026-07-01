@@ -1,7 +1,8 @@
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, afterEach } from "vitest";
 import { CoreProvider } from "@cortex-work/core";
-import type { DesktopBridge, TaskInput, TaskMeta } from "@cortex-work/core";
+import type { DesktopBridge } from "@cortex-work/core";
+import type { TaskInput, TaskMeta } from "@cortex-work/core/desktop/types";
 import { TasksView } from "./TasksView";
 
 // 内存任务桥：tasksList/add/update/delete/listProjects/onTasksChanged。

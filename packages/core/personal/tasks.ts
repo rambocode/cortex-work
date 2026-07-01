@@ -6,7 +6,7 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { TaskInput, TaskMeta, TaskProject, TaskStatus } from "../desktop/types";
+import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskStatus } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 
 // 可执行的状态集：仅这两态视为「可用/可执行」，defer 门控叠加其上。
@@ -169,6 +169,30 @@ export function useDeleteTaskProject() {
       qc.invalidateQueries({ queryKey: tasksKeys.all });
       qc.invalidateQueries({ queryKey: tasksKeys.projects });
     },
+  });
+}
+
+// 归档 done/dropped 任务（U13/R27）。summary 由调用方生成（best-effort 摘要或标题兜底）。
+export function useArchiveTask() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<boolean, Error, { id: string; summary: string }>({
+    mutationFn: (v) => bridge!.tasksArchive!(v.id, v.summary),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: tasksKeys.all });
+      qc.invalidateQueries({ queryKey: ["personal", "tasks-archived"] });
+    },
+  });
+}
+
+export function useArchivedTasks() {
+  const bridge = useDesktopBridge();
+  return useQuery<ArchivedTask[]>({
+    queryKey: ["personal", "tasks-archived"],
+    enabled: !!bridge?.tasksListArchived,
+    queryFn: () => bridge!.tasksListArchived!(),
+    staleTime: Infinity,
+    refetchOnWindowFocus: true,
   });
 }
 

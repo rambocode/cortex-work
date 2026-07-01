@@ -39,6 +39,7 @@ import type {
   NoteInput,
   NoteMeta,
   NoteStatus,
+  ArchivedTask,
   TaskInput,
   TaskMeta,
   TaskProject,
@@ -353,6 +354,8 @@ export interface DesktopBridge {
   tasksDelete?(id: string): Promise<void>;
   tasksAddProject?(name: string): Promise<TaskProject>;
   tasksDeleteProject?(projectId: string): Promise<void>;
+  tasksArchive?(id: string, summary: string): Promise<boolean>;
+  tasksListArchived?(): Promise<ArchivedTask[]>;
   onTasksChanged?(cb: (list: TaskMeta[]) => void): () => void;
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。可选:web/旧壳无此
   // 能力 → 深化入口降级 toast。第一阶段读内置 resources/skills,第二阶段叠加 userData/skills。

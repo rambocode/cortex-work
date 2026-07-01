@@ -203,9 +203,26 @@ export class TasksStore {
     });
   }
 
-  // 归档条目追加（供 U13 归档流程使用）。
-  appendArchived(entry: ArchivedTask): Promise<void> {
-    return this.mutate<void>((data) => [{ ...data, archived: [...data.archived, entry] }, undefined]);
+  // 归档一条 done/dropped 任务：摘要落 archived[]，从活动列表移除（U13/R27）。返回是否归档。
+  // 仅 done/dropped 可归档（active/waiting/in-progress 拒绝，防误归档在办任务）。
+  archive(id: string, summary: string): Promise<boolean> {
+    return this.mutate<boolean>((data) => {
+      const t = data.tasks.find((x) => x.id === id);
+      if (!t || (t.status !== "done" && t.status !== "dropped")) return [data, false];
+      const entry: ArchivedTask = {
+        id: t.id,
+        title: t.title,
+        summary,
+        originalStatus: t.status,
+        archivedAt: Date.now(),
+      };
+      return [{ ...data, tasks: data.tasks.filter((x) => x.id !== id), archived: [...data.archived, entry] }, true];
+    });
+  }
+
+  async listArchived(): Promise<ArchivedTask[]> {
+    const data = await this.getData();
+    return data.archived.slice();
   }
 
   // 迁移专用（U3）：仅当尚无 migratedAt 时以给定全量数据初始化并盖章，幂等 no-op。

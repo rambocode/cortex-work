@@ -147,6 +147,24 @@ describe("TasksStore project（KTD10 reparent→Inbox）", () => {
   });
 });
 
+describe("TasksStore archive（U13/R27）", () => {
+  it("done 任务归档：落 archived、从活动列表移除；active 拒绝归档", async () => {
+    const store = makeStore();
+    const a = await store.add({ title: "已完成事" });
+    await store.update(a.id, { status: "done" });
+    expect(await store.archive(a.id, "摘要：做完了")).toBe(true);
+    expect(await store.list()).toHaveLength(0); // 移出活动列表
+    const arch = await store.listArchived();
+    expect(arch).toHaveLength(1);
+    expect(arch[0]!.summary).toBe("摘要：做完了");
+    expect(arch[0]!.originalStatus).toBe("done");
+
+    const b = await store.add({ title: "在办" }); // active
+    expect(await store.archive(b.id, "x")).toBe(false); // 拒绝归档在办任务
+    expect(await store.list()).toHaveLength(1);
+  });
+});
+
 describe("TasksStore migrateOnce（幂等）", () => {
   it("首次执行 build 并盖 migratedAt；二次为纯 no-op 返回 false", async () => {
     const store = makeStore();

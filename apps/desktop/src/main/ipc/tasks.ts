@@ -7,7 +7,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { tasksJsonPath } from "../paths";
 import { TasksStore } from "./tasks-store";
-import type { TaskInput, TaskMeta, TaskProject } from "./types";
+import type { ArchivedTask, TaskInput, TaskMeta, TaskProject } from "./types";
 
 // 单例存储（迁移/委派观察者与 handlers 共用同一实例）。
 export const tasksStore = new TasksStore({ tasksStorePath: tasksJsonPath });
@@ -60,4 +60,12 @@ export function registerTasksHandlers(): void {
     await tasksStore.deleteProject(projectId);
     await emitChanged();
   });
+
+  // 归档 done/dropped 任务（摘要落 archived[]，从活动列表移除，U13/R27）。
+  ipcMain.handle("tasks:archive", async (_e, id: string, summary: string): Promise<boolean> => {
+    const ok = await tasksStore.archive(id, summary);
+    if (ok) await emitChanged();
+    return ok;
+  });
+  ipcMain.handle("tasks:listArchived", (): Promise<ArchivedTask[]> => tasksStore.listArchived());
 }
