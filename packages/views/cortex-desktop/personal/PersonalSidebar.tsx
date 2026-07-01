@@ -257,6 +257,9 @@ export function PersonalSidebar({
   // loop 工作流视图状态（bridge.workflowList 有值时才渲染入口，web 端 bridge 为 null 自动降级）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
   const openWorkflow = usePersonalStore((s) => s.openWorkflow);
+  // 全屏三栏「项目」工作台入口（能力门控 bridge.tasksListProjects；web/旧壳缺省 → 隐藏）。
+  const projectsOpen = usePersonalStore((s) => s.projectsOpen);
+  const openProjects = usePersonalStore((s) => s.openProjects);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
@@ -338,6 +341,17 @@ export function PersonalSidebar({
         >
           <Icon.GitBranch size={14} />
           <span>Loop 工作流</span>
+        </button>
+      ) : null}
+      {/* 项目工作台入口：全屏三栏（左项目树/中任务清单/右详情）。门控 tasksListProjects。 */}
+      {bridge?.tasksListProjects ? (
+        <button
+          className={`pw-home-btn ${projectsOpen ? "is-active" : ""}`}
+          onClick={openProjects}
+          title="项目工作台（三栏：项目树 / 任务清单 / 详情）"
+        >
+          <Icon.Folder size={14} />
+          <span>项目</span>
         </button>
       ) : null}
       <div className="pw-section-h">

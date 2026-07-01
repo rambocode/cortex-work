@@ -150,6 +150,10 @@ export interface PersonalState {
   // 主区 loop 工作流视图（节点式工作流列表/编辑器）。不持久化,优先级最高。
   // 与 automationOpen/homeOpen/timelineProjectId/noteEditorId 互斥。
   workflowOpen: boolean;
+  // 全屏三栏「项目」工作台（左项目树/中任务清单/右详情）。瞬态,不持久化,与其它全屏主区视图互斥。
+  // 与 settings 是栈式关系：openProjects 清 settingsOpen,但设置侧不反向清 projectsOpen,
+  // 故工作台内可叠开设置（须渲染在 settings 覆盖层之前,见 PersonalWorkspace）。
+  projectsOpen: boolean;
   // 设置整页视图（全屏覆盖层接管整窗、隐藏侧栏;底层工作区不卸载以保活终端）。
   // 瞬态,不持久化;与其它主区视图互斥（其它 open 入口清它,它不清底层视图标志,
   // 故 closeSettings 后回到打开设置前的视图）。
@@ -293,6 +297,9 @@ export interface PersonalState {
   // 打开/关闭 loop 工作流主区视图（优先级最高,互斥清其它视图标志）。
   openWorkflow: () => void;
   closeWorkflow: () => void;
+  // 打开/关闭全屏三栏「项目」工作台（互斥清其它视图标志）。
+  openProjects: () => void;
+  closeProjects: () => void;
   // 打开/关闭设置整页（settingsOpen 瞬态;openSettings 不清底层视图标志,见实现注释）。
   openSettings: () => void;
   closeSettings: () => void;
@@ -401,6 +408,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   homeOpen: true,
   automationOpen: false,
   workflowOpen: false,
+  projectsOpen: false,
   settingsOpen: false,
   timelineSettings: DEFAULT_TIMELINE_SETTINGS,
   pushSettings: DEFAULT_PUSH_SETTINGS,
@@ -726,6 +734,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       homeOpen: false,
       automationOpen: false,
       workflowOpen: false,
+      projectsOpen: false,
       settingsOpen: false,
       // 记忆本次选择（下次 Spotlight/新会话默认沿用;用 sess.* 取已 resolve 的值）。
       lastAgent: agent,
@@ -802,6 +811,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         homeOpen: false,
         automationOpen: false,
         workflowOpen: false,
+        projectsOpen: false,
         noteEditorId: undefined,
         settingsOpen: false,
       };
@@ -816,6 +826,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       homeOpen: false,
       automationOpen: false,
       workflowOpen: false,
+      projectsOpen: false,
       noteEditorId: undefined,
       settingsOpen: false,
     }),
@@ -919,25 +930,31 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
 
   openTimeline: (projectId) =>
-    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, workflowOpen: false, noteEditorId: undefined, settingsOpen: false }),
+    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, workflowOpen: false, projectsOpen: false, noteEditorId: undefined, settingsOpen: false }),
   closeTimeline: () => set({ timelineProjectId: undefined }),
 
   // 回首页时右栏同步切回 todos（全部项目列表）——项目内的文件/Skills 面板
   // 是项目上下文,不应停留在首页。
-  openHome: () => set({ homeOpen: true, automationOpen: false, workflowOpen: false, timelineProjectId: undefined, noteEditorId: undefined, settingsOpen: false, rightView: "todos" }),
+  openHome: () => set({ homeOpen: true, automationOpen: false, workflowOpen: false, projectsOpen: false, timelineProjectId: undefined, noteEditorId: undefined, settingsOpen: false, rightView: "todos" }),
 
   // 进入自动化主区视图（互斥清其它视图字段）。
   openAutomation: () =>
-    set({ automationOpen: true, workflowOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ automationOpen: true, workflowOpen: false, projectsOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
 
   // 进入 loop 工作流主区视图（优先级最高,互斥清其它视图字段）。
   openWorkflow: () =>
-    set({ workflowOpen: true, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ workflowOpen: true, projectsOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
   closeWorkflow: () => set({ workflowOpen: false }),
+
+  // 进入全屏三栏「项目」工作台（互斥清其它主区视图；清 settingsOpen 关掉残留设置。
+  // 反向不清：openSettings 不清 projectsOpen,故工作台内可叠开设置，closeSettings 回工作台）。
+  openProjects: () =>
+    set({ projectsOpen: true, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+  closeProjects: () => set({ projectsOpen: false }),
 
   // 点击闪记进入中心区写作面：互斥清其它中心视图;noteEditorId 瞬态,不进 toPersistedState。
   openNoteEditor: (noteId) =>
-    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, workflowOpen: false, timelineProjectId: undefined, settingsOpen: false }),
+    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, workflowOpen: false, projectsOpen: false, timelineProjectId: undefined, settingsOpen: false }),
   closeNoteEditor: () => set({ noteEditorId: undefined }),
 
   // 设置整页：openSettings 仅置 settingsOpen（不清 homeOpen/timelineProjectId 等底层标志,

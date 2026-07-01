@@ -31,6 +31,7 @@ import { FlashNoteEditor } from "./FlashNoteEditor";
 import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
 import { PersonalSettingsView } from "./SettingsMenu";
 import { SessionSearchDialog } from "./SessionSearchDialog";
+import { ProjectsWorkbench } from "./ProjectsWorkbench";
 
 // 进入落地页(homeOpen 转真,含首屏挂载)即收起右栏:无项目时默认不显示,选项目
 // 不自动弹出。依赖只含 homeOpen,故 rightOpen 在落地页内被显式置真(点 Task / 顶栏
@@ -80,6 +81,8 @@ export function PersonalWorkspace({
   const automationOpen = usePersonalStore((s) => s.automationOpen);
   // loop 工作流主区视图（优先级最高；bridge.workflowList 为 null 时不可能为 true）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
+  // 全屏三栏「项目」工作台（fixed 覆盖层，渲染在 settings 之前，见下方 render）。
+  const projectsOpen = usePersonalStore((s) => s.projectsOpen);
   // 设置整页：全屏覆盖层叠加在工作区之上（不卸载 pw-main → 终端 PTY 存活）。
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
@@ -182,6 +185,9 @@ export function PersonalWorkspace({
         </div>
         <TerminalPanel onToast={onToast} />
       </div>
+      {/* 全屏三栏「项目」工作台：须在 settings 覆盖层**之前**，二者同 z-index:200，
+          openSettings 不清 projectsOpen，故工作台内叠开设置时设置渲染在后（盖住工作台）。 */}
+      {projectsOpen ? <ProjectsWorkbench /> : null}
       {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
       <SessionSearchDialog />
