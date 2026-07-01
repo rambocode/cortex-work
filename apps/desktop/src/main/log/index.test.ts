@@ -43,7 +43,11 @@ const { initializeMock, scopeFns, scopeMock, logStub } = vi.hoisted(() => {
         resolvePathFn: undefined as unknown,
         maxSize: 1048576,
         level: "silly" as unknown,
-        transforms: [] as Array<(arg: { data: unknown[] }) => unknown>,
+        // 用两个占位内置 transform 模拟真实 electron-log 的 [removeStyles, ..., toString]
+        // 顺序，验证脱敏 transform 是 unshift 到最前而非 push 到末尾。
+        transforms: [
+          () => "builtin-placeholder",
+        ] as Array<(arg: { data: unknown[] }) => unknown>,
       },
       console: { level: "silly" as unknown },
     },
@@ -69,6 +73,7 @@ beforeEach(() => {
   logStub.transports.file.maxSize = 1048576;
   logStub.transports.file.level = "silly";
   logStub.transports.console.level = "silly";
+  logStub.transports.file.transforms = [() => "builtin-placeholder"];
 });
 
 describe("resolveLogFilePath", () => {
@@ -118,6 +123,12 @@ describe("initLog", () => {
     expect(typeof logStub.transports.file.resolvePathFn).toBe("function");
     const p = (logStub.transports.file.resolvePathFn as () => string)();
     expect(p).toMatch(/\/fake\/logs\/cortex-\d{4}-\d{2}-\d{2}\.log$/);
+
+    // 脱敏 transform 必须排在内置 transforms 最前面（unshift 而非 push）：内置的最后一步
+    // 会把 data 数组拼成字符串，若脱敏排在其后对字符串调 .map 会抛错（见 index.ts 注释）。
+    expect(logStub.transports.file.transforms.length).toBe(2);
+    const redactTransform = logStub.transports.file.transforms[0];
+    expect(redactTransform({ data: ["hello", "token=abc123"] })).toEqual(["hello", "token=***"]);
   });
 
   it("幂等：重复调用不重复 initialize", () => {

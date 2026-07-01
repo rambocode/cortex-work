@@ -78,7 +78,13 @@ export function initLog(): void {
 
   // 文件落盘脱敏：对每条日志的 data 数组就地脱敏（字符串走正则、对象走 key 级）。
   // 放在 file transport 而非全局 hook —— 被级别阈值拦下的低级别日志不会触达此处，省开销。
-  log.transports.file.transforms.push(({ data }) => data.map(redactData));
+  // 必须 unshift 到最前而非 push 到末尾：electron-log 内置 transforms 顺序是
+  // [removeStyles, format, concatFirstStringElements, toString]，跑完 toString 后
+  // data 已被 util.formatWithOptions 拼成单个字符串——此时再对它调 .map 会抛
+  // "data.map is not a function"（曾在生产触发，见 electron-log 的
+  // processInternalErrorFn 兜底打印为 "Unhandled electron-log error"）。脱敏必须在
+  // data 还是原始参数数组时进行，故排在内置 transforms 最前面。
+  log.transports.file.transforms.unshift(({ data }) => data.map(redactData));
 
   // 异步写盘：electron-log 文件 transport 默认 sync=true（fs.writeFileSync），会把每条日志的
   // 磁盘写挂在主进程事件循环上。本应用有高频日志源（agent stdout 逐行、ipc-trace 每次 invoke
