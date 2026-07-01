@@ -8961,3 +8961,33 @@ button.sb-row {
 .pw-task-detail-title::placeholder { color: var(--text-4); }
 .pw-task-detail-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .pw-task-detail-body > .pw-note-cm-host { flex: 1; min-height: 0; }
+
+/* 详情结构栏（项目/日期/标记/标签，U8 手动编辑控件）*/
+.pw-task-detail-meta {
+  padding: 8px 10px; border-bottom: 1px solid var(--border-soft);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.pw-task-meta-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.pw-task-meta-label { font-size: 11px; color: var(--text-3); flex: 0 0 auto; min-width: 28px; }
+.pw-task-meta-select,
+.pw-task-meta-input,
+.pw-task-meta-date {
+  font-size: 12px; color: var(--text-1); background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px;
+}
+.pw-task-meta-select { min-width: 130px; }
+.pw-task-meta-input { flex: 1; min-width: 110px; }
+.pw-task-meta-taginput { flex: 0 1 130px; }
+.pw-task-meta-date { color: var(--text-2); }
+.pw-task-meta-select:focus,
+.pw-task-meta-input:focus,
+.pw-task-meta-date:focus { outline: none; border-color: var(--accent); }
+.pw-task-meta-btn {
+  font-size: 12px; color: var(--text-2); background: var(--bg-chip);
+  padding: 3px 10px; border-radius: 6px; flex: 0 0 auto;
+}
+.pw-task-meta-btn:hover { background: var(--bg-active); color: var(--text-1); }
+.pw-task-meta-btn.is-on { color: var(--accent); background: var(--accent-soft); }
+.pw-task-meta-tagrow .pw-task-badge { display: inline-flex; align-items: center; gap: 2px; }
+.pw-task-tag-x { font-size: 12px; color: var(--text-4); padding: 0 1px; }
+.pw-task-tag-x:hover { color: var(--accent); }

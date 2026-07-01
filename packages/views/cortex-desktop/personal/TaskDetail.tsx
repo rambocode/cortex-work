@@ -1,10 +1,11 @@
-// 任务详情态：编辑任务的内联正文（TaskMeta.notes，KTD8）与标题。
-// 复用与闪记同一套 markdown 编辑器 NoteCodeMirrorEditor（CM6 + 实时预览），value/onChange 受控，
-// Cmd/Ctrl+S 或点返回即保存（updateTask 落 notes/title）。详情态根节点在 TasksView 侧带
-// .pw-todos.is-detail，复用右栏「展宽 + 左缘拖拽」的既有 CSS 档位。
+// 任务详情态：编辑任务的结构（项目/日期/标记/标签，U8 手动编辑控件）与内联正文
+//（TaskMeta.notes，KTD8）。正文复用与闪记同一套 markdown 编辑器 NoteCodeMirrorEditor
+//（CM6 + 实时预览），value/onChange 受控，Cmd/Ctrl+S 或点返回即保存。
+// 移动收件箱任务到项目 = 在此选项目（或新建）→ 落 projectId；选「收件箱（无项目）」即移出项目。
+// 详情态根节点在 TasksView 侧带 .pw-todos.is-detail，复用右栏「展宽 + 左缘拖拽」的既有 CSS 档位。
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { useUpdateTask } from "@cortex-work/core/personal/tasks";
+import { useUpdateTask, useTaskProjects, useAddTaskProject, normalizeTag } from "@cortex-work/core/personal/tasks";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import { NoteCodeMirrorEditor, type NoteEditorAppearance } from "./editor/NoteCodeMirrorEditor";
 
@@ -18,15 +19,25 @@ export function TaskDetail({
   onToast: (text: string) => void;
 }) {
   const updateTask = useUpdateTask();
+  const { data: projectData } = useTaskProjects();
+  const addProject = useAddTaskProject();
+  const projects = projectData ?? [];
+
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes ?? "");
   const [mode, setMode] = useState<NoteEditorAppearance>("live");
   const [loadFailed, setLoadFailed] = useState(false);
+  const [newProject, setNewProject] = useState("");
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [tagDraft, setTagDraft] = useState("");
 
-  // 切换到另一条任务时重置草稿（同 id 时保留正在编辑的草稿，不被后台 invalidate 冲掉）。
+  // 切换到另一条任务时重置草稿（同 id 保留正在编辑的草稿，不被后台 invalidate 冲掉）。
   useEffect(() => {
     setTitle(task.title);
     setNotes(task.notes ?? "");
+    setShowNewProject(false);
+    setNewProject("");
+    setTagDraft("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id]);
 
@@ -42,6 +53,31 @@ export function TaskDetail({
     saveNotes();
     onBack();
   };
+
+  // ── 结构编辑（U8）─────────────────────────────────────────────────────────
+  const assignProject = (val: string) => updateTask.mutate({ id: task.id, patch: { projectId: val || undefined } });
+  const createAndAssign = async () => {
+    const name = newProject.trim();
+    if (!name) {
+      setShowNewProject(false);
+      return;
+    }
+    const proj = await addProject.mutateAsync(name);
+    updateTask.mutate({ id: task.id, patch: { projectId: proj.id } });
+    setNewProject("");
+    setShowNewProject(false);
+    onToast(`已归入项目「${name}」`);
+  };
+  const setDue = (v: string) => updateTask.mutate({ id: task.id, patch: { dueDate: v || undefined } });
+  const setDefer = (v: string) => updateTask.mutate({ id: task.id, patch: { deferDate: v || undefined } });
+  const toggleFlag = () => updateTask.mutate({ id: task.id, patch: { flagged: !task.flagged } });
+  const addTag = () => {
+    const norm = normalizeTag(tagDraft);
+    if (norm && !task.tags.includes(norm)) updateTask.mutate({ id: task.id, patch: { tags: [...task.tags, norm] } });
+    setTagDraft("");
+  };
+  const removeTag = (tag: string) =>
+    updateTask.mutate({ id: task.id, patch: { tags: task.tags.filter((t) => t !== tag) } });
 
   return (
     <div className="pw-task-detail">
@@ -70,6 +106,84 @@ export function TaskDetail({
           <Icon.Eye size={14} />
         </button>
       </div>
+
+      {/* 结构栏：项目 / 日期 / 标记 / 标签 */}
+      <div className="pw-task-detail-meta">
+        <div className="pw-task-meta-row">
+          <span className="pw-task-meta-label">项目</span>
+          {showNewProject ? (
+            <>
+              <input
+                className="pw-task-meta-input"
+                autoFocus
+                value={newProject}
+                onChange={(e) => setNewProject(e.target.value)}
+                placeholder="新项目名，回车创建并归入"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void createAndAssign();
+                  if (e.key === "Escape") setShowNewProject(false);
+                }}
+              />
+              <button className="pw-task-meta-btn" onClick={() => void createAndAssign()}>
+                创建
+              </button>
+              <button className="pw-task-meta-btn" onClick={() => setShowNewProject(false)}>
+                取消
+              </button>
+            </>
+          ) : (
+            <>
+              <select
+                className="pw-task-meta-select"
+                value={task.projectId ?? ""}
+                onChange={(e) => assignProject(e.target.value)}
+              >
+                <option value="">收件箱（无项目）</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <button className="pw-task-meta-btn" title="新建项目并归入" onClick={() => setShowNewProject(true)}>
+                ＋新建
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="pw-task-meta-row">
+          <span className="pw-task-meta-label">截止</span>
+          <input className="pw-task-meta-date" type="date" value={task.dueDate ?? ""} onChange={(e) => setDue(e.target.value)} />
+          <span className="pw-task-meta-label">延后</span>
+          <input className="pw-task-meta-date" type="date" value={task.deferDate ?? ""} onChange={(e) => setDefer(e.target.value)} />
+          <button className={`pw-task-meta-btn${task.flagged ? " is-on" : ""}`} onClick={toggleFlag}>
+            ⚑ {task.flagged ? "已标记" : "标记"}
+          </button>
+        </div>
+
+        <div className="pw-task-meta-row pw-task-meta-tagrow">
+          <span className="pw-task-meta-label">标签</span>
+          {task.tags.map((tag) => (
+            <span key={tag} className="pw-task-badge is-tag">
+              {tag}
+              <button className="pw-task-tag-x" title="移除标签" onClick={() => removeTag(tag)}>
+                ×
+              </button>
+            </span>
+          ))}
+          <input
+            className="pw-task-meta-input pw-task-meta-taginput"
+            value={tagDraft}
+            onChange={(e) => setTagDraft(e.target.value)}
+            placeholder="加标签，回车"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addTag();
+            }}
+          />
+        </div>
+      </div>
+
       <div className="pw-task-detail-body">
         {loadFailed ? (
           <div className="pw-empty-hint">编辑器加载失败，可返回后重试。</div>

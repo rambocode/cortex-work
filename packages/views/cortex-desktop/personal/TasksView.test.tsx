@@ -6,7 +6,7 @@ import type { TaskInput, TaskMeta } from "@cortex-work/core/desktop/types";
 import { TasksView } from "./TasksView";
 
 // 内存任务桥：tasksList/add/update/delete/listProjects/onTasksChanged。
-function fakeTasksBridge(initial: TaskMeta[] = []) {
+function fakeTasksBridge(initial: TaskMeta[] = [], initialProjects: Array<{ id: string; name: string }> = []) {
   const store = new Map<string, TaskMeta>(initial.map((t) => [t.id, t]));
   let idc = 0;
   const calls = { update: [] as Array<{ id: string; patch: Record<string, unknown> }>, deleted: [] as string[] };
@@ -15,7 +15,7 @@ function fakeTasksBridge(initial: TaskMeta[] = []) {
       const all = [...store.values()];
       return pid === undefined ? all : all.filter((t) => t.projectId === pid);
     },
-    tasksListProjects: async () => [],
+    tasksListProjects: async () => initialProjects,
     tasksAdd: async (input: TaskInput) => {
       const id = `t${++idc}`;
       const now = Date.now();
@@ -98,6 +98,20 @@ describe("TasksView", () => {
     fireEvent.change(input, { target: { value: "写月报" } });
     fireEvent.blur(input);
     await waitFor(() => expect(calls.update.some((c) => c.id === "a" && c.patch.title === "写月报")).toBe(true));
+  });
+
+  it("详情里把收件箱任务归入项目 → tasksUpdate 落 projectId", async () => {
+    const now = Date.now();
+    const { bridge, calls } = fakeTasksBridge(
+      [{ id: "a", title: "买菜", status: "active", tags: [], source: "manual", createdAt: now, updatedAt: now }],
+      [{ id: "p1", name: "生活" }],
+    );
+    renderView(bridge);
+    fireEvent.click(screen.getByText("收件箱"));
+    fireEvent.click(await screen.findByText("买菜"));
+    const select = await screen.findByDisplayValue("收件箱（无项目）");
+    fireEvent.change(select, { target: { value: "p1" } });
+    await waitFor(() => expect(calls.update.some((c) => c.id === "a" && c.patch.projectId === "p1")).toBe(true));
   });
 
   it("勾选完成 → 调用 tasksUpdate 置 done", async () => {
