@@ -338,6 +338,7 @@ export { usePiEnabledSkills, filterEnabledPiSkills, type PiSlashSkill } from "./
 export {
   resolveEnabledSkillRecords,
   renderSkillInvocation,
+  renderClaudeSkillSlash,
   parseSkillSlash,
   type InjectableSkill,
 } from "./personal/skill-injection";

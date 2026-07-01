@@ -11,8 +11,10 @@ import {
 } from "@cortex-work/core";
 import type { DesktopBridge, SessionMeta } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
+import { renderClaudeSkillSlash, renderSkillInvocation } from "@cortex-work/core";
+import type { InjectableSkill } from "@cortex-work/core";
 import { MessageStream } from "../ChatArea";
-import { PersonalChatArea } from "./PersonalChatArea";
+import { PersonalChatArea, isOrchestrationSend, resolveSkillDispatch } from "./PersonalChatArea";
 
 const NOW = Date.now();
 
@@ -968,5 +970,59 @@ describe("PersonalChatArea 追问收尾语义(FIX-1 / FIX-6)", () => {
     // 旧 error 文案消失(被替换),问题文本仍只出现一次。
     await waitFor(() => expect(screen.queryByText("炸了")).toBeNull());
     expect(screen.getAllByText("会失败的问")).toHaveLength(1);
+  });
+});
+
+// U6:/skill:name 发送侧派发(纯函数,onSend 内组装并调用它们)。
+describe("PersonalChatArea /skill 发送派发（U6）", () => {
+  const skill: InjectableSkill = { name: "My Skill!", description: "干活", dir: "/g/s" };
+
+  describe("isOrchestrationSend 路由判断", () => {
+    it("开启编排 + 支持 startOrchestration + 无 @mention 委派 → 走圆桌编排", () => {
+      expect(isOrchestrationSend(true, true, false)).toBe(true);
+    });
+    it("未开启编排 → 单发", () => {
+      expect(isOrchestrationSend(false, true, false)).toBe(false);
+      expect(isOrchestrationSend(undefined, true, false)).toBe(false);
+    });
+    it("壳不支持 startOrchestration → 单发(即使开关开着)", () => {
+      expect(isOrchestrationSend(true, false, false)).toBe(false);
+    });
+    it("开启编排但本条带 @mention 委派 → 实际走单发(与 messages.ts 完整路由对齐)", () => {
+      expect(isOrchestrationSend(true, true, true)).toBe(false);
+    });
+  });
+
+  describe("resolveSkillDispatch 三路改写", () => {
+    it("claude 单发 → 裸 slash,不带 invokedSkill", () => {
+      const d = resolveSkillDispatch("claude", "/skill:my-skill foo bar", "foo bar", skill, false);
+      expect(d.outText).toBe(renderClaudeSkillSlash(skill, "foo bar"));
+      expect(d.outText.startsWith("/")).toBe(true);
+      expect(d.invokedSkill).toBeUndefined();
+    });
+
+    it("codex 单发 → 文本保留 args + 结构化 invokedSkill{name,path=dir}", () => {
+      const d = resolveSkillDispatch("codex", "/skill:my-skill foo bar", "foo bar", skill, false);
+      expect(d.outText).toBe("foo bar");
+      expect(d.invokedSkill).toEqual({ name: "My Skill!", path: "/g/s" });
+    });
+
+    it("codex 单发 + 空 args → 文本为空但仍带 invokedSkill(不丢原生触发)", () => {
+      const d = resolveSkillDispatch("codex", "/skill:my-skill", "", skill, false);
+      expect(d.outText).toBe("");
+      expect(d.invokedSkill).toEqual({ name: "My Skill!", path: "/g/s" });
+    });
+
+    it("claude 走圆桌编排 → 维持现状 prose,不带 invokedSkill", () => {
+      const d = resolveSkillDispatch("claude", "/skill:my-skill foo", "foo", skill, true);
+      expect(d.outText).toBe(renderSkillInvocation(skill, "foo"));
+      expect(d.invokedSkill).toBeUndefined();
+    });
+
+    it("codex 走圆桌编排 → 维持现状 prose,不带 invokedSkill", () => {
+      const d = resolveSkillDispatch("codex", "/skill:my-skill foo", "foo", skill, true);
+      expect(d.outText).toBe(renderSkillInvocation(skill, "foo"));
+      expect(d.invokedSkill).toBeUndefined();
+    });
   });
 });

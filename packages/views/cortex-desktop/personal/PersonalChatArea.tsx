@@ -7,6 +7,7 @@ import {
   resolveDefaultAgent,
   getTtsPlaybackState,
   parseSkillSlash,
+  renderClaudeSkillSlash,
   renderSkillInvocation,
   resolveEnabledSkillRecords,
   resolveProjectFileRef,
@@ -21,9 +22,10 @@ import {
   usePersonalStore,
   useRenderWindow,
 } from "@cortex-work/core";
-import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
+import type { AgentKind, FollowupSessionCtx, InjectableSkill, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Conversation, Message } from "@cortex-work/core/types";
 import { extractLatestTurnAutoOpenDevPreviewUrls } from "@cortex-work/core/personal/devPreviewDetection";
+import { parseMentions } from "@cortex-work/core/personal/mention";
 import { MessageStream } from "../ChatArea";
 import { agentContact } from "./agentMeta";
 import { isOpenExternalLike } from "./fileIcons";
@@ -36,6 +38,45 @@ import { PersonalComposer } from "./PersonalComposer";
 
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
 const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
+
+// U6:发送侧 /skill:name 派发结果。outText 是最终发给 send() 的文本;invokedSkill 仅 codex 单发
+// 原生触发时非空(随请求落到 CliStartRequest.invokedSkill,主进程按 transport 决定 ws/exec)。
+interface SkillDispatch {
+  outText: string;
+  invokedSkill?: { name: string; path: string };
+}
+
+// U6:复现 messages.ts 的单发/编排路由,判断本轮是否走圆桌编排(bridge.startOrchestration)。
+// 条件必须与 messages.ts 完整对齐(subagentOrchestration && startOrchestration && !hasDelegateMentions)——
+// 只看 subagentOrchestration 一个字段会把「开了编排 + 本条带 @mention 委派」误判为编排,而 messages.ts
+// 实际把它路由到单发 startCli,导致本该原生调用的组合悄悄退回 prose。
+export function isOrchestrationSend(
+  subagentOrchestration: boolean | undefined,
+  hasStartOrchestration: boolean,
+  hasDelegateMentions: boolean,
+): boolean {
+  return subagentOrchestration === true && hasStartOrchestration && !hasDelegateMentions;
+}
+
+// U6:把命中的 /skill:name 按 agent + 路由改写成三路(纯函数,便于单测)。
+//  - 圆桌编排(useOrchestration=true):claude/codex 都维持现状 renderSkillInvocation prose——编排
+//    路径(startOrchestration)绕开 cli:start,没有原生 skill 挂点(见 U5/U6 编排分支不改动)。
+//  - 单发 + claude:转 claude CLI 认得的裸 slash,claude 自身在输入层原生展开(桥接目录见 U1/U2)。
+//  - 单发 + codex:文本保留用户 args,并置 invokedSkill 结构化字段;prose 由主进程按 transport 决定
+//    (ws 不注入 prose、exec 委派回退才 renderSkillInvocation,见 cli.ts U4)。
+//  - 其它(理论不达,pi 已在调用前排除):原样透传,不阻断。
+export function resolveSkillDispatch(
+  agent: AgentKind,
+  originalText: string,
+  parsedArgs: string,
+  skill: InjectableSkill,
+  useOrchestration: boolean,
+): SkillDispatch {
+  if (useOrchestration) return { outText: renderSkillInvocation(skill, parsedArgs) };
+  if (agent === "claude") return { outText: renderClaudeSkillSlash(skill, parsedArgs) };
+  if (agent === "codex") return { outText: parsedArgs, invokedSkill: { name: skill.name, path: skill.dir } };
+  return { outText: originalText };
+}
 
 function EmptyState({ text, hint }: { text: string; hint?: string }) {
   return (
@@ -505,19 +546,35 @@ export function PersonalChatArea({
             void compact(session.id);
             return false;
           }
-          // claude/codex 的 /skill:name 无原生 slash 展开 → 发送前转「定向调用单个 skill」的 prompt
-          //(让 agent 读该 SKILL.md 再执行 + 带用户参数)。pi 保持透传(pi CLI 自行展开)。找不到对应
-          // skill(未启用 / 不适用当前 agent / 无桥)时原样发送,不阻断——与菜单侧 supportedAgents 过滤一致。
+          // /skill:name 派发(U6):按 agent + 路由三路分支。pi 透传(pi CLI 自行展开);claude 单发转
+          // 裸 slash(claude 原生展开,桥接目录见 U1/U2);codex 单发置 invokedSkill 结构化字段(主进程
+          // 按 transport 走 ws 原生触发 / exec prose 回退)。圆桌编排路径无原生挂点 → claude/codex 都维持
+          // 现状 renderSkillInvocation prose(与 messages.ts 编排分支不改动对齐)。找不到对应 skill
+          //(未启用 / 不适用当前 agent / 无桥)时原样发送,不阻断——与菜单侧 supportedAgents 过滤一致。
           let outText = text;
+          let invokedSkill: { name: string; path: string } | undefined;
           if (session.agent !== "pi" && bridge) {
             const parsed = parseSkillSlash(text);
             if (parsed) {
               const records = await resolveEnabledSkillRecords(bridge, project.path, session.useOwnSkills, session.agent);
               const skill = records.find((s) => s.name === parsed.name);
-              if (skill) outText = renderSkillInvocation(skill, parsed.args);
+              if (skill) {
+                // 路由判断须与 messages.ts 完整对齐:@mention 委派时任何 agent 都走单发 startCli,故
+                // hasDelegateMentions 参与判断,不能只看 subagentOrchestration。
+                const hasDelegateMentions =
+                  parseMentions(text, usePersonalStore.getState().roles).length > 0 && !!bridge.startCli;
+                const useOrchestration = isOrchestrationSend(
+                  session.subagentOrchestration,
+                  !!bridge.startOrchestration,
+                  hasDelegateMentions,
+                );
+                const dispatch = resolveSkillDispatch(session.agent, text, parsed.args, skill, useOrchestration);
+                outText = dispatch.outText;
+                invokedSkill = dispatch.invokedSkill;
+              }
             }
           }
-          return send(session, project.path, outText, attachments, undefined, images, undefined, docFiles);
+          return send(session, project.path, outText, attachments, undefined, images, undefined, docFiles, invokedSkill);
         }}
         onStop={() => void stopRun(session.id)}
         onSteer={session.agent === "pi" ? (text) => void steer(session.id, text) : undefined}
