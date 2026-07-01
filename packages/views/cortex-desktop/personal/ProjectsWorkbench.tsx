@@ -61,7 +61,12 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
           />
         </div>
         {/* 中列：任务清单（U7）。按左树选择聚合，行内动作直达；点标题 → 右列详情（U8）。 */}
-        <TaskListColumn selection={selection} onOpenTask={setSelectedTaskId} onToast={onToast} />
+        <TaskListColumn
+          selection={selection}
+          selectedTaskId={selectedTaskId}
+          onOpenTask={setSelectedTaskId}
+          onToast={onToast}
+        />
         {/* 右列：任务详情（U8）。复用 TaskDetail（结构编辑 + 渐进披露富字段）；onBack 清空选中回空态。 */}
         <div className="pw-projects-detail">
           {selectedTask ? (

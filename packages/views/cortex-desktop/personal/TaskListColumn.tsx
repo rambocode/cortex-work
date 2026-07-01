@@ -18,6 +18,7 @@ import { descendantProjectIds } from "@cortex-work/core/personal/taskProjectTree
 import { buildTaskTree, taskDescendantIds, areAllChildrenDone, type TaskTreeNode } from "@cortex-work/core/personal/taskTree";
 import { useDelegateTask } from "@cortex-work/core/personal/taskDelegate";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
+import { TaskFieldsPanel } from "./TaskFieldsPanel";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
 
@@ -79,10 +80,12 @@ interface TaskGroup {
 
 export function TaskListColumn({
   selection,
+  selectedTaskId,
   onOpenTask,
   onToast,
 }: {
   selection: WorkbenchSelection;
+  selectedTaskId?: string | null;
   onOpenTask: (id: string) => void;
   onToast: (text: string) => void;
 }) {
@@ -243,6 +246,8 @@ export function TaskListColumn({
                 hasChildren={hasChildren}
                 collapsed={!!collapsedTasks[t.id]}
                 onToggleCollapse={() => toggleTaskCollapse(t.id)}
+                isSelected={t.id === selectedTaskId}
+                onToast={onToast}
                 // 分组头已显 project 名 → 组内行不再重复 project 徽标；无头（today/inbox/单组）才显。
                 projectName={!g.showHead ? projectById.get(effectiveProjectId(t) ?? "")?.name : undefined}
                 // 全部子任务完成 → 父行浮现「完成此任务」建议（派生，不自动 done，R5/KTD4）。
@@ -273,6 +278,8 @@ function TaskListRow({
   hasChildren,
   collapsed,
   onToggleCollapse,
+  isSelected,
+  onToast,
   suggestComplete,
   projectName,
   onOpen,
@@ -289,6 +296,8 @@ function TaskListRow({
   hasChildren: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  isSelected: boolean;
+  onToast: (text: string) => void;
   suggestComplete: boolean;
   projectName?: string;
   onOpen: () => void;
@@ -302,7 +311,7 @@ function TaskListRow({
   const overdue = !!task.dueDate && task.dueDate < today;
   const delegated = task.status === "waiting" && !!task.delegation;
   return (
-    <div className="pw-task-row">
+    <div className={`pw-task-row${isSelected ? " is-selected" : ""}`}>
       <div className="pw-task-row-main">
         {/* 子任务缩进：按 depth 留白（U3；U7 视觉细调）。*/}
         {depth > 0 && <span className="pw-task-indent" style={{ width: depth * INDENT_STEP }} aria-hidden />}
@@ -371,6 +380,13 @@ function TaskListRow({
           <Icon.Trash size={13} />
         </button>
       </div>
+      {/* 行内 inspector（U6）：选中时在标题行下展开共享字段面板（inline 布局），作为主编辑面；
+          右列 TaskDetail 仍随同一 selectedTaskId 显示，两处经同一 useUpdateTask + RQ cache 同步。 */}
+      {isSelected && (
+        <div className="pw-task-inspector" style={depth > 0 ? { marginLeft: depth * INDENT_STEP } : undefined}>
+          <TaskFieldsPanel task={task} layout="inline" onToast={onToast} />
+        </div>
+      )}
     </div>
   );
 }

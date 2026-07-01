@@ -56,10 +56,10 @@ function fakeTasksBridge(initial: TaskMeta[] = [], initialProjects: TaskProject[
   return { bridge, store, calls };
 }
 
-function renderColumn(bridge: DesktopBridge, selection: WorkbenchSelection) {
+function renderColumn(bridge: DesktopBridge, selection: WorkbenchSelection, selectedTaskId?: string | null) {
   return render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-      <TaskListColumn selection={selection} onOpenTask={() => {}} onToast={() => {}} />
+      <TaskListColumn selection={selection} selectedTaskId={selectedTaskId} onOpenTask={() => {}} onToast={() => {}} />
     </CoreProvider>,
   );
 }
@@ -253,6 +253,27 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     expect(calls.update.length).toBe(0); // 未自动 done
     fireEvent.click(suggest);
     await waitFor(() => expect(calls.update.some((u) => u.id === "parent" && u.patch.status === "done")).toBe(true));
+  });
+
+  it("选中任务 → 行高亮 + 行内展开 inspector（含状态控件）", async () => {
+    const { bridge } = fakeTasksBridge([task("a", "被选中", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
+    renderColumn(bridge, { kind: "project", id: "p1" }, "a");
+
+    await screen.findByText("被选中");
+    const row = screen.getByText("被选中").closest(".pw-task-row")!;
+    expect(row.classList.contains("is-selected")).toBe(true);
+    // 行内 inspector 挂载（共享字段面板的状态控件出现）。
+    expect(row.querySelector(".pw-task-inspector .pw-task-status-seg")).not.toBeNull();
+  });
+
+  it("未选中任务不渲染行内 inspector", async () => {
+    const { bridge } = fakeTasksBridge([task("a", "未选", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
+    renderColumn(bridge, { kind: "project", id: "p1" }, null);
+
+    await screen.findByText("未选");
+    const row = screen.getByText("未选").closest(".pw-task-row")!;
+    expect(row.classList.contains("is-selected")).toBe(false);
+    expect(row.querySelector(".pw-task-inspector")).toBeNull();
   });
 
   it("Today 视图下父不在 scope → 子任务扁平（无缩进）", async () => {
