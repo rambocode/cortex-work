@@ -61,10 +61,10 @@ function showTasksNotification(task: TaskMeta): void {
   n.show();
 }
 
-// 单例提醒调度器（注入真依赖）。markFired 用 tasksStore.update 落 firedAt 后 broadcast——
+// 单例提醒调度器（注入真依赖）。markFired 走 `markReminderFired`（store 锁内条件写）落 firedAt 后 broadcast——
 // **走裸 broadcast 而非 emitChanged**：emitChanged 会再调 scheduler.sync，形成
 // 「写 firedAt → sync → …」回路；裸 broadcast 只推 renderer，不回灌调度器，从源头断环
-//（叠加 firedAt 已置的任务不再建 Cron 的天然收敛，双保险）。
+//（叠加 firedAt 已置的任务不再建 Cron 的天然收敛 + 调度器 firedThisSession 闸门，多重保险）。
 export const tasksReminderScheduler = new TasksReminderScheduler({
   now: () => Date.now(),
   createCron: (at, cb) => new Cron(at, cb),
@@ -72,9 +72,12 @@ export const tasksReminderScheduler = new TasksReminderScheduler({
   markFired: (task, firedAt) => {
     const rem = task.reminder;
     if (!rem) return;
+    // 锁内条件写：提醒仍存在且 at 匹配才写 firedAt（防「删提醒瞬间触发」复活已删提醒）；写入才广播。
     void tasksStore
-      .update(task.id, { reminder: { ...rem, firedAt } })
-      .then(async () => broadcastTasksChanged(await tasksStore.list()))
+      .markReminderFired(task.id, rem.at, firedAt)
+      .then(async (wrote) => {
+        if (wrote) broadcastTasksChanged(await tasksStore.list());
+      })
       .catch((err) => log.error("写 firedAt 失败:", err));
   },
   powerSaveBlocker: {

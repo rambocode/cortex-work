@@ -195,3 +195,41 @@ describe("TasksReminderScheduler — 未来提醒到点触发", () => {
     expect(crons[0]!.stopped).toBe(true);
   });
 });
+
+describe("TasksReminderScheduler — 并发/竞态闸门（correctness 复核 P2）", () => {
+  it("并发第二个 sync 仍持 firedAt=null 陈旧 list → firedThisSession 闸门拦住，不重复补触发", () => {
+    const { deps, notify } = makeDeps();
+    const s = new TasksReminderScheduler(deps);
+    s.setEnabled(true);
+    s.sync([makeTask({ id: "t1", reminder: { at: NOW - 1000 } })]);
+    expect(notify).toHaveBeenCalledTimes(1);
+    // 模拟并发第二个 emitChanged：markFired 落盘前，仍是 firedAt=null 的**新**陈旧对象
+    //（会覆盖 fire 就地标记的本地快照 → 只剩 firedThisSession 这道跨 sync 闸门拦它）。
+    s.sync([makeTask({ id: "t1", reminder: { at: NOW - 1000 } })]);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("删提醒瞬间旧 Cron 触发：fire 复核发现提醒已删 → no-op（不弹、不写 firedAt、不复活）", () => {
+    const { deps, crons, notify, markFired } = makeDeps();
+    const s = new TasksReminderScheduler(deps);
+    s.setEnabled(true);
+    s.sync([makeTask({ id: "t1", reminder: { at: NOW + 60_000 } })]);
+    const oldCron = crons[0]!;
+    // 用户删除提醒 → sync 拆旧 Cron；保留 oldCron 引用模拟「拆除窗口内旧 Cron 仍触发」。
+    s.sync([makeTask({ id: "t1", reminder: undefined })]);
+    oldCron.cb();
+    expect(notify).not.toHaveBeenCalled();
+    expect(markFired).not.toHaveBeenCalled();
+  });
+
+  it("用户改提醒时间：重设的新 at 能再次触发（prune 清掉旧闸门）", () => {
+    const { deps, notify } = makeDeps();
+    const s = new TasksReminderScheduler(deps);
+    s.setEnabled(true);
+    s.sync([makeTask({ id: "t1", reminder: { at: NOW - 1000 } })]); // 补触发 #1
+    expect(notify).toHaveBeenCalledTimes(1);
+    // 用户把提醒改到另一个过去时刻（新 at，firedAt 清空）→ 应能再补触发。
+    s.sync([makeTask({ id: "t1", reminder: { at: NOW - 500 } })]);
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+});

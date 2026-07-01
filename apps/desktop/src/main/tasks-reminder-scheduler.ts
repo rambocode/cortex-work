@@ -64,6 +64,11 @@ export class TasksReminderScheduler {
   // 最近一次 sync 的任务快照：opt-in 变化时用它重排；补触发后就地更新其 firedAt，
   // 使 setEnabled(false→true) 不会因快照陈旧而重复补触发（详见 fire）。
   private lastTasks: TaskMeta[] = [];
+  // 跨 sync 存活的「本会话已触发」闸门（taskId → 已触发的 at）：不被 this.lastTasks 覆盖影响。
+  // 补住并发窗口——两个 emitChanged 各持一份 markFired 落盘前的陈旧 list（firedAt 仍 null），
+  // 前者 fire 后就地标记的本地快照会被后者 `this.lastTasks = tasks.slice()` 覆盖，导致重复补触发
+  //（correctness 复核 P2）。本 Map 是不被覆盖的第三重闸门；prune 时随提醒删除/改时而清。
+  private firedThisSession = new Map<string, number>();
 
   constructor(private readonly deps: TasksReminderSchedulerDeps) {}
 
@@ -95,6 +100,7 @@ export class TasksReminderScheduler {
   // opt-in 开则逐条建 Cron / 补触发，最后按有无待触发 job 更新 blocker。
   private applySync(): void {
     this.unscheduleAll();
+    this.pruneFiredGate();
     if (!this.enabled) {
       this.releaseBlocker();
       return;
@@ -103,6 +109,7 @@ export class TasksReminderScheduler {
     for (const task of this.lastTasks) {
       const rem = task.reminder;
       if (!rem || rem.firedAt != null) continue; // 无提醒 / 已触发（幂等闸门）→ 跳过
+      if (this.firedThisSession.get(task.id) === rem.at) continue; // 本会话已触发同一 at（跨 sync 闸门）
       if (!ACTIVE_STATUSES.has(task.status)) continue; // 已完结 → 跳过
       // at 校验：非法/越界 → 跳过该条，绝不让整个 sync 抛错（保护同批其它提醒）。
       if (!reminderAtInRange(rem.at, now)) {
@@ -127,19 +134,45 @@ export class TasksReminderScheduler {
   }
 
   // 投递 + 写 firedAt（幂等闸门）。fire 是唯一触发出口（补跑 & 到点 Cron 都经此）。
+  // task 可能是 Cron 闭包捕获的**陈旧快照**（用户在触发前删了提醒/改了时间/任务完结），
+  // 或并发 sync 的陈旧 list——故投递前必须以当前权威快照 + firedThisSession 闸门复核（correctness 复核 P2）。
   private fire(task: TaskMeta, firedAt: number): void {
-    // 通知投递（opt-in 已在 applySync 门控，故此处无需再判）。
-    this.deps.notify(task);
-    // 停掉并移除该任务的 Cron（到点触发路径；补跑路径无 job，delete 为 no-op）。
-    this.jobs.get(task.id)?.stop();
-    this.jobs.delete(task.id);
-    // 持久化 firedAt（main 注入：tasksStore.update + 广播；不经 emitChanged，避免再触发 sync 成环）。
-    this.deps.markFired(task, firedAt);
-    // 就地把本地快照该条标 firedAt（不改共享 store 对象，做浅拷贝）：
-    // 防 setEnabled(false→true) 用陈旧快照重复补触发（markFired 的落盘异步，快照不会自动刷新）。
-    const next: TaskReminder = { ...(task.reminder as TaskReminder), firedAt };
-    this.lastTasks = this.lastTasks.map((t) => (t.id === task.id ? { ...t, reminder: next } : t));
+    const id = task.id;
+    const at = task.reminder?.at;
+    // 先停掉该任务的 Cron（无论后续是否投递，防重复触发；补跑路径无 job，delete 为 no-op）。
+    this.jobs.get(id)?.stop();
+    this.jobs.delete(id);
+    // 以当前快照复核：提醒已删/改时/已触发、任务已完结、或本会话已触发同一 at → no-op（不弹、不写 firedAt，
+    // 杜绝「删提醒瞬间 Cron 触发」误弹 + 并发重复弹）。markFired 侧还有 store 锁内二次守卫（不复活已删提醒）。
+    const cur = this.lastTasks.find((t) => t.id === id);
+    const stale =
+      at == null ||
+      !cur ||
+      !cur.reminder ||
+      cur.reminder.at !== at ||
+      cur.reminder.firedAt != null ||
+      !ACTIVE_STATUSES.has(cur.status) ||
+      this.firedThisSession.get(id) === at;
+    if (stale) {
+      this.updateBlocker();
+      return;
+    }
+    this.firedThisSession.set(id, at); // 先占闸门，再投递（并发第二个 sync 命中即跳过）
+    this.deps.notify(cur);
+    // 持久化 firedAt（main 注入：store 锁内条件写 + 广播；不经 emitChanged，避免再触发 sync 成环）。
+    this.deps.markFired(cur, firedAt);
+    // 就地把本地快照该条标 firedAt（不改共享 store 对象，做浅拷贝）：防陈旧快照重复补触发。
+    const next: TaskReminder = { ...(cur.reminder as TaskReminder), firedAt };
+    this.lastTasks = this.lastTasks.map((t) => (t.id === id ? { ...t, reminder: next } : t));
     this.updateBlocker();
+  }
+
+  // 清理失效的 fired 闸门（提醒被删 / 改时 / 任务消失）：防 Map 无限增长，并让重设的提醒能再次触发。
+  private pruneFiredGate(): void {
+    for (const [id, at] of this.firedThisSession) {
+      const t = this.lastTasks.find((x) => x.id === id);
+      if (!t || !t.reminder || t.reminder.at !== at) this.firedThisSession.delete(id);
+    }
   }
 
   // 有待触发 Cron 且 opt-in 开 → 持有 blocker；否则释放。

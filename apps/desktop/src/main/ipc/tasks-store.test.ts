@@ -361,3 +361,37 @@ describe("TasksStore 附件（U13）", () => {
     expect(await store.removeAttachment("nope", "/root/x.pdf")).toBeNull();
   });
 });
+
+describe("TasksStore markReminderFired（U11 锁内条件写，防复活 correctness P2）", () => {
+  it("提醒仍存在且 at 匹配且未触发 → 写 firedAt 返回 true", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "r" });
+    await store.update(t.id, { reminder: { at: 1000 } });
+    expect(await store.markReminderFired(t.id, 1000, 5000)).toBe(true);
+    expect((await store.list()).find((x) => x.id === t.id)!.reminder!.firedAt).toBe(5000);
+  });
+
+  it("提醒已删（删除瞬间旧 Cron 触发）→ no-op false，绝不复活", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "r2" });
+    await store.update(t.id, { reminder: { at: 1000 } });
+    await store.update(t.id, { reminder: undefined }); // 用户删提醒
+    expect(await store.markReminderFired(t.id, 1000, 5000)).toBe(false);
+    expect((await store.list()).find((x) => x.id === t.id)!.reminder).toBeUndefined(); // 未复活
+  });
+
+  it("at 不匹配（用户改了时间）或已 firedAt → no-op false", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "r3" });
+    await store.update(t.id, { reminder: { at: 2000 } });
+    expect(await store.markReminderFired(t.id, 1000, 5000)).toBe(false); // 旧 at 不匹配
+    await store.markReminderFired(t.id, 2000, 5000); // 正常写一次
+    expect(await store.markReminderFired(t.id, 2000, 9000)).toBe(false); // 已 firedAt → 不再写
+    expect((await store.list()).find((x) => x.id === t.id)!.reminder!.firedAt).toBe(5000);
+  });
+
+  it("任务不存在 → false", async () => {
+    const store = makeStore();
+    expect(await store.markReminderFired("nope", 1000, 5000)).toBe(false);
+  });
+});

@@ -258,6 +258,22 @@ export class TasksStore {
     return this.mutate<void>((data) => [{ ...data, tasks: data.tasks.filter((t) => t.id !== id) }, undefined]);
   }
 
+  // U11：在 mutate 锁内条件写提醒 firedAt——仅当该任务的提醒**仍存在、at 匹配、且未触发**才写。
+  // 这是「删提醒瞬间 Cron 触发」的权威守卫：调度器 fire 用的是陈旧闭包快照，若用普通 update
+  // 会以旧 reminder 把用户刚删的提醒复活；本方法读锁内当前值，提醒已删/改时则 no-op。返回是否写入。
+  markReminderFired(id: string, at: number, firedAt: number): Promise<boolean> {
+    return this.mutate<boolean>((data) => {
+      const idx = data.tasks.findIndex((t) => t.id === id);
+      if (idx < 0) return [data, false];
+      const t = data.tasks[idx];
+      if (!t.reminder || t.reminder.at !== at || t.reminder.firedAt != null) return [data, false];
+      const next = { ...t, reminder: { ...t.reminder, firedAt }, updatedAt: Date.now() };
+      const tasks = data.tasks.slice();
+      tasks[idx] = next;
+      return [{ ...data, tasks }, true];
+    });
+  }
+
   // 新建 task-project（U2 加层级）：opts.parentId 挂到父下（父须存在，否则降级为顶层）；
   // opts.kind 缺省 "project"（folder 需显式传入）。
   addProject(name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject> {
