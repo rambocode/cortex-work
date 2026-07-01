@@ -43,6 +43,10 @@ export interface TaskMeta {
   createdAt: number;
   updatedAt: number;
   migratedFrom?: string; // 迁移自旧 TodoMeta.id（溯源/幂等）
+  // ── 富字段（U10-U13，全部可选、读时零迁移；详情渐进披露）──
+  estimatedDuration?: number; // 预计时长（分钟，U10）
+  completedAt?: number; // 置 done 时间戳（U10；权威由 main 状态迁移落点写）
+  droppedAt?: number; // 置 dropped 时间戳（U10）
 }
 
 // 新建入参（id/时间戳由 store 生成）。

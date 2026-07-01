@@ -7,6 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useUpdateTask, useTaskProjects, useAddTaskProject, normalizeTag } from "@cortex-work/core/personal/tasks";
 import { onlyProjects } from "@cortex-work/core/personal/taskProjectTree";
+import { TaskDurationField } from "./TaskDurationField";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import { NoteCodeMirrorEditor, type NoteEditorAppearance } from "./editor/NoteCodeMirrorEditor";
 
@@ -88,7 +89,12 @@ export function TaskDetail({
   // 已填(isSet)或用户点开(revealed)才渲染其区块——绝不把空字段堆一屏（防 AI slop）。
   // U10-U13 往 richFields 追加条目；richFields 为空时本段不渲染任何内容。
   const richFields: Array<{ key: string; label: string; isSet: boolean; node: ReactNode }> = [
-    // U10: { key: "duration", label: "预计时长", isSet: task.estimatedDuration != null, node: <TaskDurationField task={task} /> },
+    {
+      key: "duration",
+      label: "预计时长",
+      isSet: task.estimatedDuration != null,
+      node: <TaskDurationField task={task} />,
+    },
     // U11: reminder；U12: repeat；U13: attachments
   ];
   const shownRich = richFields.filter((f) => f.isSet || revealed.has(f.key));
@@ -198,6 +204,20 @@ export function TaskDetail({
             }}
           />
         </div>
+
+        {/* 已完成 / 已丢弃 时间戳：只读，仅在设置后显示（U10，非可添加字段故不入 richFields）。 */}
+        {task.completedAt != null && (
+          <div className="pw-task-meta-row">
+            <span className="pw-task-meta-label">已完成</span>
+            <span className="pw-task-meta-ro">{new Date(task.completedAt).toLocaleString()}</span>
+          </div>
+        )}
+        {task.droppedAt != null && (
+          <div className="pw-task-meta-row">
+            <span className="pw-task-meta-label">已丢弃</span>
+            <span className="pw-task-meta-ro">{new Date(task.droppedAt).toLocaleString()}</span>
+          </div>
+        )}
       </div>
 
       {/* 富字段区（渐进披露，U8 脚手架）：richFields 为空时整段不渲染，绝不显空字段。 */}

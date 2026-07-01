@@ -6412,6 +6412,11 @@ button.sb-row {
 .pw-ptree-input:focus { outline: none; }
 .pw-ptree-empty { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
 
+/* 富字段轻样式（U10+）：时长 chips 行 / 只读时间戳。 */
+.pw-task-duration { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pw-task-duration-val,
+.pw-task-meta-ro { font-size: 12px; color: var(--text-2); }
+
 /* ── 设置页：浅色去暖统一白 + 排版精修 ───────────────────────────────────
    作用域全部限定在 .pw-settings-page,不影响 App 其它部分与复用 .pw-dlg-* 的弹窗。
    A 组(颜色)用 :root:not([data-theme="dark"]) 守卫,只动浅色模式;颜色统一走变量

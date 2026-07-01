@@ -185,13 +185,20 @@ export class TasksStore {
     return this.mutate<TaskMeta | null>((data) => {
       const idx = data.tasks.findIndex((t) => t.id === id);
       if (idx < 0) return [data, null];
+      const prev = data.tasks[idx];
       const next: TaskMeta = {
-        ...data.tasks[idx],
+        ...prev,
         ...patch,
-        id: data.tasks[idx].id,
-        createdAt: data.tasks[idx].createdAt,
+        id: prev.id,
+        createdAt: prev.createdAt,
         updatedAt: Date.now(),
       };
+      // U10：完成/丢弃时间戳（权威在 main）。仅在 status 实际变化时按新状态写/清——
+      // 进入 done→写 completedAt；进入 dropped→写 droppedAt；离开则对应清空（恢复 active 等）。
+      if (patch.status && patch.status !== prev.status) {
+        next.completedAt = next.status === "done" ? Date.now() : undefined;
+        next.droppedAt = next.status === "dropped" ? Date.now() : undefined;
+      }
       const tasks = data.tasks.slice();
       tasks[idx] = next;
       return [{ ...data, tasks }, next];

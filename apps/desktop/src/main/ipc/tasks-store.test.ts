@@ -249,3 +249,31 @@ describe("TasksStore 层级（U2）", () => {
     expect((await store.list()).find((t) => t.id === task.id)!.projectId).toBeUndefined();
   });
 });
+
+describe("TasksStore 完成/丢弃时间戳（U10）", () => {
+  it("置 done 写 completedAt；恢复 active 清空", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "x" });
+    const done = await store.update(t.id, { status: "done" });
+    expect(done!.completedAt).toBeGreaterThan(0);
+    const back = await store.update(t.id, { status: "active" });
+    expect(back!.completedAt).toBeUndefined();
+  });
+
+  it("done→dropped：清 completedAt、写 droppedAt", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "y" });
+    await store.update(t.id, { status: "done" });
+    const dropped = await store.update(t.id, { status: "dropped" });
+    expect(dropped!.droppedAt).toBeGreaterThan(0);
+    expect(dropped!.completedAt).toBeUndefined();
+  });
+
+  it("非状态变更的 update 不动时间戳", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "z" });
+    await store.update(t.id, { status: "done" });
+    const renamed = await store.update(t.id, { title: "z2" });
+    expect(renamed!.completedAt).toBeGreaterThan(0); // 仍保留
+  });
+});
