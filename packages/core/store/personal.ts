@@ -214,8 +214,9 @@ export interface PersonalState {
   // 插件 Skill 配置 setter（U6）:逐项启用/禁用（scope:name 复合键）、工作区授信、全局根增删。
   togglePiSkill: (scope: string, name: string, enabled: boolean) => void;
   trustWorkspaceSkill: (dir: string, trusted: boolean) => void;
-  addGlobalSkillRoot: (path: string) => void;
-  removeGlobalSkillRoot: (path: string) => void;
+  // Design B(plan 002):根增删按目标类别——"shared"(共享,对三端) / 具体 AgentKind(该 agent 私有根)。
+  addGlobalSkillRoot: (path: string, target: "shared" | AgentKind) => void;
+  removeGlobalSkillRoot: (path: string, target: "shared" | AgentKind) => void;
   // pi 扩展市场 setter（U2）:装≠启用——enabled/trusted 默认空,opt-in;溯源安装时持久化。复合键 `${scope}:${ref}`。
   recordInstalledExtension: (record: InstalledExtensionRecord) => void; // 安装成功后 upsert 溯源
   removeInstalledExtension: (scope: string, ref: string) => void; // 卸载:清溯源 + 启用 + 信任
@@ -603,29 +604,39 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       return { generalSettings: { ...s.generalSettings, piSkills: { ...cur, trustedWorkspaceSkillDirs } } };
     }),
 
-  addGlobalSkillRoot: (path) =>
+  // Design B:target="shared" → 写 sharedRoots(对三端);target=AgentKind → 写 agentRoots[target](该 agent 私有)。
+  addGlobalSkillRoot: (path, target) =>
     set((s) => {
       const cur: PiSkillSettings = { ...DEFAULT_PI_SKILLS, ...s.generalSettings.piSkills };
       const trimmed = path.trim();
-      // 已是内置默认根或已加过 → 不重复。
-      if (!trimmed || cur.globalRoots.includes(trimmed) || cur.userGlobalRoots.includes(trimmed)) return {};
+      if (!trimmed) return {};
+      if (target === "shared") {
+        if (cur.sharedRoots.includes(trimmed)) return {}; // 已存(含内置默认)→ 不重复
+        return { generalSettings: { ...s.generalSettings, piSkills: { ...cur, sharedRoots: [...cur.sharedRoots, trimmed] } } };
+      }
+      const existing = cur.agentRoots[target] ?? [];
+      if (existing.includes(trimmed)) return {};
       return {
         generalSettings: {
           ...s.generalSettings,
-          piSkills: { ...cur, userGlobalRoots: [...cur.userGlobalRoots, trimmed] },
+          piSkills: { ...cur, agentRoots: { ...cur.agentRoots, [target]: [...existing, trimmed] } },
         },
       };
     }),
 
-  removeGlobalSkillRoot: (path) =>
+  removeGlobalSkillRoot: (path, target) =>
     set((s) => {
       const cur: PiSkillSettings = { ...DEFAULT_PI_SKILLS, ...s.generalSettings.piSkills };
-      // 仅允许删用户自增根;内置默认根不可删。
-      if (!cur.userGlobalRoots.includes(path)) return {};
+      if (target === "shared") {
+        if (DEFAULT_SHARED_SKILL_ROOTS.includes(path)) return {}; // 内置默认共享根不可删(迁移恒并入)
+        return { generalSettings: { ...s.generalSettings, piSkills: { ...cur, sharedRoots: cur.sharedRoots.filter((r) => r !== path) } } };
+      }
+      if ((DEFAULT_AGENT_SKILL_ROOTS[target] ?? []).includes(path)) return {}; // 内置默认原生根不可删
+      const existing = cur.agentRoots[target] ?? [];
       return {
         generalSettings: {
           ...s.generalSettings,
-          piSkills: { ...cur, userGlobalRoots: cur.userGlobalRoots.filter((r) => r !== path) },
+          piSkills: { ...cur, agentRoots: { ...cur.agentRoots, [target]: existing.filter((r) => r !== path) } },
         },
       };
     }),

@@ -1113,28 +1113,35 @@ describe("插件 Skill 配置（piSkills）", () => {
     expect(usePersonalStore.getState().generalSettings.piSkills!.trustedWorkspaceSkillDirs).toHaveLength(0);
   });
 
-  it("addGlobalSkillRoot 追加 userGlobalRoots；内置根不可加/不可删", () => {
+  // Design B(plan 002 U7):add/remove 按目标类别(shared / agent)。内置默认根不可删。
+  it("addGlobalSkillRoot 按目标写 sharedRoots / agentRoots；内置默认根不可加/不可删", () => {
     usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().addGlobalSkillRoot("~/my/skills");
-    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/my/skills");
-    // 加内置默认根 → 无效（不重复）
-    usePersonalStore.getState().addGlobalSkillRoot("~/.agents/skills");
-    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).not.toContain("~/.agents/skills");
-    // 删内置根 → 无效（仅删 userGlobalRoots）
-    usePersonalStore.getState().removeGlobalSkillRoot("~/.agents/skills");
-    expect(usePersonalStore.getState().generalSettings.piSkills!.globalRoots).toEqual(DEFAULT_PI_SKILLS.globalRoots);
+    // 加到共享
+    usePersonalStore.getState().addGlobalSkillRoot("~/my/shared", "shared");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.sharedRoots).toContain("~/my/shared");
+    // 加到 claude 私有
+    usePersonalStore.getState().addGlobalSkillRoot("~/my/claude", "claude");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.agentRoots.claude).toContain("~/my/claude");
+    // 加内置默认共享根 → 无效(不重复)
+    usePersonalStore.getState().addGlobalSkillRoot("~/.cortex-desktop/skills", "shared");
+    expect(
+      usePersonalStore.getState().generalSettings.piSkills!.sharedRoots.filter((r) => r === "~/.cortex-desktop/skills"),
+    ).toHaveLength(1);
+    // 删内置默认原生根 → 无效(仍在)
+    usePersonalStore.getState().removeGlobalSkillRoot("~/.claude/skills", "claude");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.agentRoots.claude).toContain("~/.claude/skills");
     // 删用户根 → 生效
-    usePersonalStore.getState().removeGlobalSkillRoot("~/my/skills");
-    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).not.toContain("~/my/skills");
+    usePersonalStore.getState().removeGlobalSkillRoot("~/my/claude", "claude");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.agentRoots.claude).not.toContain("~/my/claude");
   });
 
   it("toPersistedState 往返保留 piSkills 子字段", () => {
     usePersonalStore.getState().hydrate(base);
     usePersonalStore.getState().togglePiSkill("global", "x", false);
-    usePersonalStore.getState().addGlobalSkillRoot("~/extra");
+    usePersonalStore.getState().addGlobalSkillRoot("~/extra", "shared");
     const persisted = toPersistedState(usePersonalStore.getState());
     expect(persisted.generalSettings!.piSkills!.disabledSkills).toContain("global:x");
-    expect(persisted.generalSettings!.piSkills!.userGlobalRoots).toContain("~/extra");
+    expect(persisted.generalSettings!.piSkills!.sharedRoots).toContain("~/extra");
   });
 });
 
