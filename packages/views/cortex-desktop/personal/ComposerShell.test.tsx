@@ -355,6 +355,28 @@ describe("ComposerShell 图片采集（U3）", () => {
 });
 
 // composerInsert 的 submit 标志:tasks「插入并运行」自动提交（U2）。
+describe("ComposerShell 发送即乐观清空（问题1回归）", () => {
+  // 回归:回车发送后必须「发送瞬间」清空输入框,不能等 onSend 的 Promise resolve。
+  // core 的 send 直到 agent 本轮流式结束才 resolve,若把 setText("") 留到 await 之后,
+  // 输入框文字会滞留到本轮 agent 跑完(用户报告的 bug)。此处 onSend 返回一个「挂起」的
+  // Promise 模拟 agent 仍在跑,断言 textarea 在其 resolve 前就已清空。
+  it("回车后立即清空输入框,不等 onSend(agent 本轮)结束", async () => {
+    let resolveSend!: (v: boolean) => void;
+    const onSend = vi.fn(() => new Promise<boolean>((r) => (resolveSend = r)));
+    renderFull(onSend);
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "还在跑的问题" } });
+    expect(ta.value).toBe("还在跑的问题");
+    fireEvent.keyDown(ta, { key: "Enter" });
+    // onSend 已被调用(消息已发出),但其 Promise 尚未 resolve(agent 仍在跑)。
+    await waitFor(() => expect(onSend).toHaveBeenCalled());
+    // 核心断言:此刻输入框已清空(乐观清空);修复前 setText 在 await 之后 → 这里仍是原文,断言失败。
+    expect(ta.value).toBe("");
+    // 收尾:resolve 掉挂起的 Promise,避免悬挂 / act 警告。
+    await act(async () => resolveSend(true));
+  });
+});
+
 describe("ComposerShell 插入并运行（submit 标志）", () => {
   function renderInsert(opts: {
     onSend: (t: string, a: PersonalAttachment[], imgs?: PendingImage[]) => void | boolean | Promise<void | boolean>;

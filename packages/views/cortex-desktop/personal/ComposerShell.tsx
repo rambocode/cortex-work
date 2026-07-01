@@ -226,17 +226,20 @@ export function ComposerShell({
     // 纯图 / 纯文档(无文本)也允许发送。
     if ((!textToSend.trim() && images.length === 0 && docFiles.length === 0) || running || sending) return;
     setSending(true);
+    // 乐观清空输入框:发送瞬间即清文本/附件 pill/插件 pill,不等本轮 agent 跑完。
+    // 依据:core 的 send 在 await 整轮流式(drainCliStream / sendPiTurn)之前,已同步 pushMessages
+    //(用户气泡上屏)+ setRunning(true),「消息已受理」在发送瞬间即成立。若把清空留到 await onSend
+    // 之后,而 onSend 的 Promise 直到 agent 本轮结束才 resolve,输入框文字会滞留到本轮结束(bug)。
+    // 待发图/文档仍按 consumed 在 await 后清(保留「未消费则留待重试」语义):先存快照再传参,
+    // React setter 不改当前闭包已绑定的 attachments/images/docFiles,本次入参不受上面清空影响。
+    const sentImages = images.length ? images : undefined;
+    const sentDocs = docFiles.length ? docFiles : undefined;
+    setText("");
+    setAttachments([]);
+    setTryPlugin(null); // 发送后清插件试用 pill
     try {
       // onSend 返回「是否已消费」(真正发出);未消费(/clear、pi 不可用、落盘失败)则保留待发图/文档供重试。
-      const consumed = await onSend(
-        textToSend,
-        attachments,
-        images.length ? images : undefined,
-        docFiles.length ? docFiles : undefined,
-      );
-      setText("");
-      setAttachments([]);
-      setTryPlugin(null); // 发送后清插件试用 pill
+      const consumed = await onSend(textToSend, attachments, sentImages, sentDocs);
       if (consumed) {
         setImages([]); // 仅真正消费才清待发图/文档
         setDocFiles([]);
