@@ -56,24 +56,31 @@ describe("agentNativePluginRoots — claude", () => {
 });
 
 describe("agentNativePluginRoots — codex", () => {
-  it("产出存在的 vendor .curated 与 memories/skills 根", () => {
+  it("产出 .system(系统内置,如 imagegen)、.curated、memories 三个固定根", () => {
+    const sys = join(home, ".codex", "skills", ".system");
     const curated = join(home, ".codex", "vendor_imports", "skills", "skills", ".curated");
     const memories = join(home, ".codex", "memories", "skills");
+    mkdirSync(join(sys, "imagegen"), { recursive: true }); // .system/imagegen
     mkdirSync(curated, { recursive: true });
     mkdirSync(memories, { recursive: true });
-    const roots = agentNativePluginRoots("codex", home);
-    expect(roots).toEqual([
-      { path: curated, scope: "global", origin: "shared" },
-      { path: memories, scope: "global", origin: "shared" },
-    ]);
+    const paths = agentNativePluginRoots("codex", home).map((r) => r.path);
+    expect(paths).toContain(sys);
+    expect(paths).toContain(curated);
+    expect(paths).toContain(memories);
   });
 
-  it("目录缺失 → 只产出存在的那个", () => {
-    const memories = join(home, ".codex", "memories", "skills");
-    mkdirSync(memories, { recursive: true });
-    expect(agentNativePluginRoots("codex", home)).toEqual([
-      { path: memories, scope: "global", origin: "shared" },
-    ]);
+  it("已装插件 cache/<catalog>/<plugin>/<version>/skills 经 glob 收集", () => {
+    const skillsDir = join(home, ".codex", "plugins", "cache", "openai-curated", "canva", "3fdeeb49", "skills");
+    mkdirSync(skillsDir, { recursive: true });
+    // node_modules 不应被深入误收
+    mkdirSync(join(home, ".codex", "plugins", "cache", "x", "y", "z", "node_modules", "skills"), { recursive: true });
+    const paths = agentNativePluginRoots("codex", home).map((r) => r.path);
+    expect(paths).toContain(skillsDir);
+    expect(paths.some((p) => p.includes("node_modules"))).toBe(false);
+  });
+
+  it("全部源缺失 → [](容错)", () => {
+    expect(agentNativePluginRoots("codex", home)).toEqual([]);
   });
 });
 
