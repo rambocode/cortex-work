@@ -32,6 +32,11 @@ files:
   - "!**/*.map"
   # pi 改用 resources/pi 下的 bun 自包含二进制（extraResources）,npm 包不必进 asar,排除省体积。
   - "!**/node_modules/@earendil-works/**"
+  # node-pty 自带 prebuilds/<platform-arch> 全架构预编译二进制,运行时按 platform/arch 自动选择;
+  # 但本机 pnpm onlyBuiltDependencies 触发的 node-gyp 编译会在 build/Release 生成仅本机架构的
+  # pty.node,其加载优先级高于 prebuilds(见 node-pty/lib/utils.js)。排除 build/ 强制统一走
+  # prebuilds,避免打 x64/win 包时误带本机(arm64)编译产物、运行时加载错误架构崩溃。
+  - "!**/node_modules/node-pty/build/**"
   # —— 以下 node_modules 仅 renderer 使用。renderer 未启用 externalizeDepsPlugin,electron-vite
   # 已把它们 bundle 进 out/，asar 里这份完整源码纯属冗余（monaco 一家就 93.5MB）。
   # main/preload 走 externalizeDepsPlugin,只 external 其实际 require 的
@@ -127,12 +132,18 @@ mac:
   # 本字段覆盖 Electron 默认（通常为空或泛型描述），提供产品级用户文案。
   extendInfo:
     NSMicrophoneUsageDescription: "Cortex 需要访问麦克风以使用语音转文字功能，将您的语音实时转为文字输入。"
+  # 显式覆盖命名模板,强制所有架构文件名都带 ${arch}。electron-builder 默认把 x64 当"默认架构"、
+  # 文件名不带 arch 后缀(如 Cortex-x.dmg),与 arm64 的 Cortex-x-arm64.dmg 长得不对称、极易看混——
+  # 这正是此前 v0.1.27 发布事故里 x64 产物被误当 arm64 上传覆盖的根源之一。
+  artifactName: ${productName}-${version}-${arch}.${ext}
   target:
-    # 自动更新走 zip,人工分发用 dmg
+    # 自动更新走 zip,人工分发用 dmg。arch 数组仅声明"允许构建的架构";实际构建每次只用
+    # CLI --arm64/--x64 精确指定单一架构,禁止一次命令内产出双架构(resources/pi 是单一共享目录,
+    # 后一个架构会复用前一个架构编译出的错误 pi 二进制,见 scripts/build-pi-binary.mjs)。
     - target: zip
-      arch: [arm64]
+      arch: [arm64, x64]
     - target: dmg
-      arch: [arm64]
+      arch: [arm64, x64]
 win:
   icon: assets/cortex-neuron-icon.png
   target:

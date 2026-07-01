@@ -1,7 +1,7 @@
 {
   "name": "@cortex-work/desktop",
   "productName": "Cortex",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
@@ -20,13 +20,13 @@
     "dist:dir": "pnpm run build:pi && electron-vite build && electron-builder --mac --dir --publish never -c.mac.identity=null -c.mac.notarize=false",
     "dist:zip": "pnpm run prebuild:notes && pnpm run build:pi && electron-vite build && electron-builder --mac zip --publish never -c.mac.identity=null -c.mac.notarize=false",
     "dist:dmg": "pnpm run prebuild:notes && pnpm run build:pi && electron-vite build && electron-builder --mac dmg --publish never -c.mac.identity=null -c.mac.notarize=false",
-    "prepackage:mac": "pnpm run prebuild:notes && pnpm run build:pi && pnpm run build:whisper && electron-vite build",
+    "prepackage:mac-arm64": "pnpm run prebuild:notes && node scripts/build-pi-binary.mjs --platform darwin --arch arm64 && pnpm run build:whisper && electron-vite build",
     "prepackage:mac-x64": "pnpm run prebuild:notes && node scripts/build-pi-binary.mjs --platform darwin --arch x64 && electron-vite build",
-    "prepackage:win": "pnpm run prebuild:notes && node scripts/build-pi-binary.mjs --platform win32 --arch x64 && electron-vite build",
-    "build:mac": "electron-builder --mac --publish never",
-    "build:mac-x64": "electron-builder --mac zip dmg --x64 --publish never",
-    "build:win": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --publish never",
-    "release:mac": "electron-builder --mac --publish always"
+    "prepackage:win-x64": "pnpm run prebuild:notes && node scripts/build-pi-binary.mjs --platform win32 --arch x64 && electron-vite build",
+    "build:mac-arm64": "electron-builder --mac --arm64 --publish never",
+    "build:mac-x64": "electron-builder --mac --x64 --publish never",
+    "build:win-x64": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --x64 --publish never",
+    "merge:mac-manifest": "node scripts/merge-mac-update-manifest.mjs"
   },
   "dependencies": {
     "@cortex-work/core": "workspace:*",
@@ -56,10 +56,12 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "builder-util": "^26.15.0",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "eslint": "^9.28.0",
+    "js-yaml": "^4.1.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwindcss": "catalog:",
