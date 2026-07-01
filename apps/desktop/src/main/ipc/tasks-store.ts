@@ -13,7 +13,7 @@
 
 import { promises as fsp } from "fs";
 import { dirname } from "path";
-import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TasksFileData } from "./types";
+import type { ArchivedTask, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TasksFileData } from "./types";
 // 防环复用 core 纯函数（与 U1 树逻辑同源；main 已有 import core 纯模块先例 taskMigrate）。
 import { isDescendant } from "@cortex-work/core/personal/taskProjectTree";
 // 重复任务「完成即滚动」的日期推进纯逻辑（U12）。
@@ -210,6 +210,43 @@ export class TasksStore {
         next.dueDate = rolled.dueDate;
         next.deferDate = rolled.deferDate;
       }
+      const tasks = data.tasks.slice();
+      tasks[idx] = next;
+      return [{ ...data, tasks }, next];
+    });
+  }
+
+  // U13 附件：把落盘引用 append 进任务 attachments。**读-改-写在 mutate 锁内完成**——
+  // 若在 handler 侧「先读任务再 update 整个数组」，并发添加会互相覆盖丢引用（lost update）；
+  // 放进 store 的串行队列里以当前最新数组为基准 append，杜绝该竞争。任务不存在返回 null。
+  addAttachment(id: string, ref: TaskAttachment): Promise<TaskMeta | null> {
+    return this.mutate<TaskMeta | null>((data) => {
+      const idx = data.tasks.findIndex((t) => t.id === id);
+      if (idx < 0) return [data, null];
+      const prev = data.tasks[idx];
+      const next: TaskMeta = {
+        ...prev,
+        attachments: [...(prev.attachments ?? []), ref],
+        updatedAt: Date.now(),
+      };
+      const tasks = data.tasks.slice();
+      tasks[idx] = next;
+      return [{ ...data, tasks }, next];
+    });
+  }
+
+  // U13 附件：按落盘 path 从任务 attachments 移除一条引用（磁盘文件由调用方 assertDocPath 后 unlink）。
+  // 同样在 mutate 锁内做，避免与并发 add/remove 竞争。任务不存在返回 null。
+  removeAttachment(id: string, path: string): Promise<TaskMeta | null> {
+    return this.mutate<TaskMeta | null>((data) => {
+      const idx = data.tasks.findIndex((t) => t.id === id);
+      if (idx < 0) return [data, null];
+      const prev = data.tasks[idx];
+      const next: TaskMeta = {
+        ...prev,
+        attachments: (prev.attachments ?? []).filter((a) => a.path !== path),
+        updatedAt: Date.now(),
+      };
       const tasks = data.tasks.slice();
       tasks[idx] = next;
       return [{ ...data, tasks }, next];

@@ -308,3 +308,56 @@ describe("TasksStore 重复滚动（U12）", () => {
     expect(done!.status).toBe("done");
   });
 });
+
+describe("TasksStore 附件（U13）", () => {
+  const ref = (path: string) => ({ path, name: "a.pdf", mimeType: "application/pdf", sizeBytes: 3 });
+
+  it("新任务读取 attachments 为 undefined（旧档零迁移，不填默认）", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "无附件" });
+    expect(t.attachments).toBeUndefined();
+    const [got] = await store.list();
+    expect(got.attachments).toBeUndefined();
+  });
+
+  it("addAttachment 追加引用（写回 attachments + 刷新 updatedAt）", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "带附件" });
+    const a = await store.addAttachment(t.id, ref("/root/task/x1.pdf"));
+    expect(a!.attachments).toEqual([ref("/root/task/x1.pdf")]);
+    const b = await store.addAttachment(t.id, ref("/root/task/x2.pdf"));
+    expect(b!.attachments?.map((x) => x.path)).toEqual(["/root/task/x1.pdf", "/root/task/x2.pdf"]);
+    expect(b!.updatedAt).toBeGreaterThanOrEqual(t.updatedAt);
+  });
+
+  it("并发 addAttachment 不丢引用（mutate 串行锁内 append）", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "并发" });
+    await Promise.all([
+      store.addAttachment(t.id, ref("/root/task/a.pdf")),
+      store.addAttachment(t.id, ref("/root/task/b.pdf")),
+      store.addAttachment(t.id, ref("/root/task/c.pdf")),
+    ]);
+    const [got] = await store.list();
+    expect(got.attachments?.map((x) => x.path).sort()).toEqual([
+      "/root/task/a.pdf",
+      "/root/task/b.pdf",
+      "/root/task/c.pdf",
+    ]);
+  });
+
+  it("removeAttachment 按 path 移除，仅去目标引用", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "移除" });
+    await store.addAttachment(t.id, ref("/root/task/keep.pdf"));
+    await store.addAttachment(t.id, ref("/root/task/drop.pdf"));
+    const r = await store.removeAttachment(t.id, "/root/task/drop.pdf");
+    expect(r!.attachments?.map((x) => x.path)).toEqual(["/root/task/keep.pdf"]);
+  });
+
+  it("任务不存在时 add/removeAttachment 返回 null", async () => {
+    const store = makeStore();
+    expect(await store.addAttachment("nope", ref("/root/x.pdf"))).toBeNull();
+    expect(await store.removeAttachment("nope", "/root/x.pdf")).toBeNull();
+  });
+});

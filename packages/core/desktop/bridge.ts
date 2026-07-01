@@ -40,6 +40,7 @@ import type {
   NoteMeta,
   NoteStatus,
   ArchivedTask,
+  TaskAttachment,
   TaskInput,
   TaskMeta,
   TaskProject,
@@ -358,6 +359,11 @@ export interface DesktopBridge {
   tasksDeleteProject?(projectId: string): Promise<void>;
   tasksArchive?(id: string, summary: string): Promise<boolean>;
   tasksListArchived?(): Promise<ArchivedTask[]>;
+  // 任务附件（U13）：复用聊天文档附件闸门落盘（仅文档类型 pdf/docx/xlsx/pptx/csv/txt/md，图片延后），
+  // 返回落盘引用（main 写回 TaskMeta.attachments 并广播 tasks:changed）；delete 按 path 删磁盘 + 清引用。
+  // 可选能力（web/旧壳无 → TaskAttachments 降级隐藏「添加/移除」，仅只读列出既有附件）。
+  taskDocSave?(taskId: string, file: { name: string; mimeType: string; srcPath?: string; data?: ArrayBuffer }): Promise<TaskAttachment>;
+  taskDocDelete?(taskId: string, path: string): Promise<void>;
   onTasksChanged?(cb: (list: TaskMeta[]) => void): () => void;
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。可选:web/旧壳无此
   // 能力 → 深化入口降级 toast。第一阶段读内置 resources/skills,第二阶段叠加 userData/skills。

@@ -32,6 +32,7 @@ import type {
   NoteInput,
   NoteMeta,
   ArchivedTask,
+  TaskAttachment,
   TaskInput,
   TaskMeta,
   TaskProject,
@@ -456,6 +457,12 @@ const personal = {
   tasksDeleteProject: (projectId: string): Promise<void> => ipcRenderer.invoke("tasks:deleteProject", projectId),
   tasksArchive: (id: string, summary: string): Promise<boolean> => ipcRenderer.invoke("tasks:archive", id, summary),
   tasksListArchived: (): Promise<ArchivedTask[]> => ipcRenderer.invoke("tasks:listArchived"),
+  // 任务附件（U13）：落盘（优先 srcPath 直拷，避免 50MB ArrayBuffer 过 IPC）返回引用 / 按 path 删除。
+  taskDocSave: (
+    taskId: string,
+    file: { name: string; mimeType: string; srcPath?: string; data?: ArrayBuffer },
+  ): Promise<TaskAttachment> => ipcRenderer.invoke("task-doc:save", taskId, file),
+  taskDocDelete: (taskId: string, path: string): Promise<void> => ipcRenderer.invoke("task-doc:delete", taskId, path),
   onTasksChanged: (cb: (list: TaskMeta[]) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, list: TaskMeta[]) => cb(list);
     ipcRenderer.on("tasks:changed", listener);

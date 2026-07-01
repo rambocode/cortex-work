@@ -30,6 +30,16 @@ export interface TaskRepeat {
   interval?: number; // 每几天/周/月，缺省 1
 }
 
+// 任务附件（U13）：复用聊天文档附件闸门（doc.ts saveDocInto/assertDocPath）落盘，仅换存储根为
+// task-docs。引用形状与聊天文档落盘结果一致（path 为 task-docs 根内绝对路径）。
+// 本期仅收文档类型（pdf/docx/xlsx/pptx/csv/txt/md，由 extToDocExt allowlist 控制），图片附件延后。
+export interface TaskAttachment {
+  path: string; // 落盘绝对路径（taskDocsRoot()/<taskId>/<uuid>.<ext>），删除时经 assertDocPath 校验根边界
+  name: string; // 原始文件名（仅显示，不参与落盘路径构造）
+  mimeType: string;
+  sizeBytes: number; // 主进程按真实字节数写入（非渲染端上报值）
+}
+
 // task-project 的层级类型：folder 仅作分组容器、不直接容纳任务；project 可容纳任务、可再嵌子项目。
 export type TaskProjectKind = "folder" | "project";
 
@@ -65,6 +75,7 @@ export interface TaskMeta {
   droppedAt?: number; // 置 dropped 时间戳（U10）
   reminder?: TaskReminder; // 定时提醒（U11；到点由 main 调度器投递原生通知，门控在「内部原生通知」opt-in）
   repeat?: TaskRepeat; // 重复（U12；完成即滚动同一任务顺延日期回 active）
+  attachments?: TaskAttachment[]; // 附件引用（U13；复用文档附件闸门落盘，仅文档类型。旧档无此字段读为 undefined）
 }
 
 // 新建入参（id/时间戳由 store 生成）。

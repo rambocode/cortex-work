@@ -6,13 +6,26 @@
 
 import { BrowserWindow, Notification, ipcMain, powerSaveBlocker } from "electron";
 import { Cron } from "croner";
-import { tasksJsonPath } from "../paths";
+import { tasksJsonPath, taskDocsRoot, taskDocsDir } from "../paths";
 import { TasksStore } from "./tasks-store";
+import { saveTaskDoc, deleteTaskDoc } from "./task-doc";
 import { TasksReminderScheduler } from "../tasks-reminder-scheduler";
-import type { ArchivedTask, PersistedState, TaskInput, TaskMeta, TaskProject, TaskProjectKind } from "./types";
+import type { ArchivedTask, PersistedState, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind } from "./types";
 import { createLogger } from "../log";
 
 const log = createLogger("tasks-reminder");
+// 附件专用 scope（与提醒日志分流）。task-doc:* 的错误日志经此记录，脱敏见 logTaskDocError。
+const taskDocLog = createLogger("task-doc");
+
+// task-doc:* 错误日志脱敏（KTD9）：只记 op + 错误类型/code，**绝不原样打印用户 fileName 或
+// taskDocsRoot 绝对路径**——saveDocInto/assertDocPath 的 err.message 会内嵌文件名/绝对路径，
+// 直接落日志会泄露。createLogger 走 electron-log：文件 transport 已 redact + sync=false，
+// console 仅 dev 输出，双重满足「脱敏 + 异步 + dev-gate」。
+function logTaskDocError(op: string, err: unknown): void {
+  const name = err instanceof Error ? err.name : "Error";
+  const code = (err as NodeJS.ErrnoException)?.code;
+  taskDocLog.error(`${op} 失败: ${code ? `${name}(${code})` : name}`);
+}
 
 // 单例存储（迁移/委派观察者与 handlers 共用同一实例）。
 export const tasksStore = new TasksStore({ tasksStorePath: tasksJsonPath });
@@ -137,4 +150,42 @@ export function registerTasksHandlers(): void {
     return ok;
   });
   ipcMain.handle("tasks:listArchived", (): Promise<ArchivedTask[]> => tasksStore.listArchived());
+
+  // ── 任务附件（U13）：复用聊天文档附件闸门（doc.ts），只换存储根为 task-docs + 写回 attachments。──
+  // 保存：saveDocInto 落盘（扩展名 allowlist/magic-bytes/50MB/原子写）→ addAttachment 在 store
+  // 串行锁内 append 引用（防并发丢更新）→ emitChanged 广播。返回落盘引用供 renderer 乐观展示。
+  ipcMain.handle(
+    "task-doc:save",
+    async (
+      _e,
+      taskId: string,
+      file: { name: string; mimeType: string; srcPath?: string; data?: ArrayBuffer },
+    ): Promise<TaskAttachment> => {
+      try {
+        const ref = await saveTaskDoc(taskDocsRoot(), taskId, file);
+        // meta null = 任务已被并发删除：落盘文件成孤儿（无引用指向），无害，不阻断 renderer。
+        const meta = await tasksStore.addAttachment(taskId, ref);
+        if (meta) await emitChanged();
+        return ref;
+      } catch (err) {
+        logTaskDocError("task-doc:save", err); // 日志脱敏；原始 message（含用户自己的文件名）向上抛给 toast
+        throw err;
+      }
+    },
+  );
+
+  // 删除：assertDocPath 校验根边界（拒符号链接/越界）后 unlink 真实路径 → removeAttachment 清引用。
+  // 文件已不在磁盘（ENOENT）视为已删，仍继续清引用；越界/符号链接等拒绝错误向上抛（不清引用）。
+  ipcMain.handle("task-doc:delete", async (_e, taskId: string, path: string): Promise<void> => {
+    try {
+      await deleteTaskDoc(taskDocsDir(taskId), path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        logTaskDocError("task-doc:delete", err);
+        throw err;
+      }
+    }
+    const meta = await tasksStore.removeAttachment(taskId, path);
+    if (meta) await emitChanged();
+  });
 }
