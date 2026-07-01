@@ -6,6 +6,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import {
   resolveDefaultAgent,
   getTtsPlaybackState,
+  isOrchestrationSend,
   parseSkillSlash,
   renderClaudeSkillSlash,
   renderSkillInvocation,
@@ -46,17 +47,8 @@ interface SkillDispatch {
   invokedSkill?: { name: string; path: string };
 }
 
-// U6:复现 messages.ts 的单发/编排路由,判断本轮是否走圆桌编排(bridge.startOrchestration)。
-// 条件必须与 messages.ts 完整对齐(subagentOrchestration && startOrchestration && !hasDelegateMentions)——
-// 只看 subagentOrchestration 一个字段会把「开了编排 + 本条带 @mention 委派」误判为编排,而 messages.ts
-// 实际把它路由到单发 startCli,导致本该原生调用的组合悄悄退回 prose。
-export function isOrchestrationSend(
-  subagentOrchestration: boolean | undefined,
-  hasStartOrchestration: boolean,
-  hasDelegateMentions: boolean,
-): boolean {
-  return subagentOrchestration === true && hasStartOrchestration && !hasDelegateMentions;
-}
+// isOrchestrationSend 改从 @cortex-work/core 导入(code review 修复):与 messages.ts 共用单一
+// 路由判断来源,避免两处各写一份、静默漂移(见 core/personal/skill-injection.ts 的注释)。
 
 // U6:把命中的 /skill:name 按 agent + 路由改写成三路(纯函数,便于单测)。
 //  - 圆桌编排(useOrchestration=true):claude/codex 都维持现状 renderSkillInvocation prose——编排
@@ -71,9 +63,13 @@ export function resolveSkillDispatch(
   parsedArgs: string,
   skill: InjectableSkill,
   useOrchestration: boolean,
+  allRecords: InjectableSkill[],
 ): SkillDispatch {
   if (useOrchestration) return { outText: renderSkillInvocation(skill, parsedArgs) };
-  if (agent === "claude") return { outText: renderClaudeSkillSlash(skill, parsedArgs) };
+  // claude 的裸 slash 命令名需按「本批次已启用 skill 集合」推导(碰撞消歧/空 slug 兜底与主进程建
+  // 桥接目录时的算法一致,见 renderClaudeSkillSlash/resolveClaudeSlashName 注释),故传入 allRecords
+  // 而非只传中选的这一条——否则会跟桥接目录的实际命名漂移(R7)。
+  if (agent === "claude") return { outText: renderClaudeSkillSlash(skill, parsedArgs, allRecords) };
   if (agent === "codex") return { outText: parsedArgs, invokedSkill: { name: skill.name, path: skill.dir } };
   return { outText: originalText };
 }
@@ -568,7 +564,7 @@ export function PersonalChatArea({
                   !!bridge.startOrchestration,
                   hasDelegateMentions,
                 );
-                const dispatch = resolveSkillDispatch(session.agent, text, parsed.args, skill, useOrchestration);
+                const dispatch = resolveSkillDispatch(session.agent, text, parsed.args, skill, useOrchestration, records);
                 outText = dispatch.outText;
                 invokedSkill = dispatch.invokedSkill;
               }

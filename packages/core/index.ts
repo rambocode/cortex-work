@@ -340,6 +340,7 @@ export {
   renderSkillInvocation,
   renderClaudeSkillSlash,
   parseSkillSlash,
+  isOrchestrationSend,
   type InjectableSkill,
 } from "./personal/skill-injection";
 export {

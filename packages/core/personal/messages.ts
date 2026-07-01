@@ -26,7 +26,7 @@ import type {
 import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-thinking";
 import type { DesktopBridge } from "../desktop/bridge";
-import { renderSkillBlock, resolveEnabledSkillRecords, type InjectableSkill } from "./skill-injection";
+import { isOrchestrationSend, renderSkillBlock, resolveEnabledSkillRecords, type InjectableSkill } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
@@ -2450,7 +2450,14 @@ export function usePersonalActions(): PersonalActions {
         // buildPiOpenForSession 提供 piOpen（含 --skill/cwd 路径闸/审批等）。delegate @mention 优先级更高,落 else 单发。
         // 编排无状态、各段 fresh spawn，故不传 resumeSessionId；看门狗/stop 据 run.orchestrated 改走 killOrchestration。
         // 已知限制：本版编排不透传图片（images 仅单发支持）。
-        if (sendSession.subagentOrchestration && bridge.startOrchestration && !hasDelegateMentions) {
+        // 路由判断收敛到 isOrchestrationSend(code review 修复):PersonalChatArea.tsx 的 skill 派发
+        // 也据此函数判断走原生调用还是 prose 回退,单一来源避免两处条件手工同步、静默漂移。
+        // bridge.startOrchestration 的 truthy 已经过 isOrchestrationSend 的 hasStartOrchestration 参数
+        // 校验,但 TS 无法跨函数边界做该窄化,故此处补一次直接判空(不改变判断逻辑,只为类型收窄)。
+        if (
+          isOrchestrationSend(sendSession.subagentOrchestration, !!bridge.startOrchestration, hasDelegateMentions) &&
+          bridge.startOrchestration
+        ) {
           run.orchestrated = true;
           const isPiOrchestration = sendSession.agent === "pi";
           const piOpen = isPiOrchestration ? await buildPiOpenForSession(bridge, sendSession, projectPath) : undefined;
