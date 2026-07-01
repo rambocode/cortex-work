@@ -9004,6 +9004,17 @@ button.sb-row {
 .pw-task-row-main { display: flex; align-items: center; gap: 8px; }
 .pw-task-row-main .spacer { flex: 1; }
 .pw-task-check { flex: 0 0 auto; width: 15px; height: 15px; accent-color: var(--accent); }
+/* 子任务缩进留白（U3）：按 depth 生成的固定宽占位。*/
+.pw-task-indent { flex: 0 0 auto; display: inline-block; }
+/* 折叠箭头（U3）：有子任务才渲染按钮，否则占位对齐。默认收起指向右，展开旋转向下。*/
+.pw-task-twisty {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; color: var(--text-3); background: none; border: 0; cursor: pointer; padding: 0;
+}
+.pw-task-twisty svg { transition: transform 0.12s; transform: rotate(-90deg); }
+.pw-task-twisty.is-open svg { transform: none; }
+.pw-task-twisty:hover { color: var(--text-1); }
+.pw-task-twisty-spacer { cursor: default; }
 .pw-task-title {
   font-size: 13px; color: var(--text-1); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

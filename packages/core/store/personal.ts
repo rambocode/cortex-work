@@ -92,6 +92,9 @@ export interface PersonalState {
   activeProjectId?: string;
   activeSessionId?: string;
   collapsedProjects: Record<string, boolean>;
+  // 工作台中列子任务折叠态（U3）：taskId → 是否折叠（缺省展开）。会话内存态、不进 toPersistedState
+  // （与 collapsedProjects 同款），故进出工作台不塌回、重启才重置。
+  collapsedTasks: Record<string, boolean>;
   // 每个 session 是否有正在运行的 CLI 轮次（runId），用于 UI 禁用发送等。
   runningBySession: Record<string, string | undefined>;
   // pi RPC 会话运行时状态（瞬态,不持久化;由 handlePiEvent 写,头部/composer 读）:
@@ -253,6 +256,7 @@ export interface PersonalState {
   // 激活项目但不选会话（左栏点击项目名;项目无 session 时中间区显示新建聊天引导）。
   activateProject: (projectId: string) => void;
   toggleProjectCollapse: (id: string) => void;
+  toggleTaskCollapse: (id: string) => void;
   setRunning: (sessionId: string, runId: string | undefined) => void;
   // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
@@ -398,6 +402,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   sessions: [],
   todos: [],
   collapsedProjects: {},
+  collapsedTasks: {},
   runningBySession: {},
   piRuntimeBySession: {},
   modeBlockHints: {},
@@ -833,6 +838,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   toggleProjectCollapse: (id) =>
     set((s) => ({ collapsedProjects: { ...s.collapsedProjects, [id]: !s.collapsedProjects[id] } })),
+  toggleTaskCollapse: (id) =>
+    set((s) => ({ collapsedTasks: { ...s.collapsedTasks, [id]: !s.collapsedTasks[id] } })),
 
   setRunning: (sessionId, runId) =>
     set((s) => ({ runningBySession: { ...s.runningBySession, [sessionId]: runId } })),

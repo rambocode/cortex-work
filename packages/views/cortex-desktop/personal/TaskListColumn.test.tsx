@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { CoreProvider } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 import type { TaskInput, TaskMeta, TaskProject } from "@cortex-work/core/desktop/types";
+import { usePersonalStore } from "@cortex-work/core/store/personal";
 import { TaskListColumn } from "./TaskListColumn";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
 
@@ -76,6 +77,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  // 折叠态是模块级 Zustand 单例，重置防跨用例串扰。
+  usePersonalStore.setState({ collapsedTasks: {} });
 });
 
 describe("TaskListColumn", () => {
@@ -152,5 +155,62 @@ describe("TaskListColumn", () => {
     const added = calls.added[0]!;
     expect(added.title).toBe("买菜");
     expect(added.projectId).toBeUndefined();
+  });
+});
+
+describe("TaskListColumn 子任务嵌套（U3）", () => {
+  it("项目视图下子任务缩进渲染在父下", async () => {
+    const { bridge } = fakeTasksBridge(
+      [
+        task("parent", "父任务", { projectId: "p1" }),
+        task("child", "子任务", { projectId: "p1", parentTaskId: "parent" }),
+      ],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderColumn(bridge, { kind: "project", id: "p1" });
+
+    await screen.findByText("父任务");
+    const parentRow = screen.getByText("父任务").closest(".pw-task-row")!;
+    const childRow = screen.getByText("子任务").closest(".pw-task-row")!;
+    // 父行无缩进、子行有缩进占位。
+    expect(parentRow.querySelector(".pw-task-indent")).toBeNull();
+    expect(childRow.querySelector(".pw-task-indent")).not.toBeNull();
+    // 父行有折叠箭头（有子任务）。
+    expect(parentRow.querySelector(".pw-task-twisty:not(.pw-task-twisty-spacer)")).not.toBeNull();
+  });
+
+  it("折叠父任务 → 子任务隐藏，再展开 → 恢复", async () => {
+    const { bridge } = fakeTasksBridge(
+      [
+        task("parent", "父任务", { projectId: "p1" }),
+        task("child", "子任务", { projectId: "p1", parentTaskId: "parent" }),
+      ],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderColumn(bridge, { kind: "project", id: "p1" });
+
+    await screen.findByText("子任务");
+    const twisty = screen.getByText("父任务").closest(".pw-task-row")!.querySelector<HTMLButtonElement>(".pw-task-twisty")!;
+    fireEvent.click(twisty);
+    expect(screen.queryByText("子任务")).toBeNull();
+    fireEvent.click(twisty);
+    expect(screen.getByText("子任务")).toBeTruthy();
+  });
+
+  it("Today 视图下父不在 scope → 子任务扁平（无缩进）", async () => {
+    const { bridge } = fakeTasksBridge(
+      [
+        // 父无 due → 不进 Today；子 due=今天 → 进 Today，父不在 scope 故子升顶层。
+        task("parent", "父任务", { projectId: "p1" }),
+        task("child", "子任务", { projectId: "p1", parentTaskId: "parent", dueDate: "2026-07-01" }),
+      ],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderColumn(bridge, { kind: "today" });
+
+    await screen.findByText("子任务");
+    expect(screen.queryByText("父任务")).toBeNull();
+    const childRow = screen.getByText("子任务").closest(".pw-task-row")!;
+    expect(childRow.querySelector(".pw-task-indent")).toBeNull(); // depth 0，无缩进
   });
 });

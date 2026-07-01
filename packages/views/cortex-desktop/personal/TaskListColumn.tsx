@@ -15,9 +15,37 @@ import {
   localDay,
 } from "@cortex-work/core/personal/tasks";
 import { descendantProjectIds } from "@cortex-work/core/personal/taskProjectTree";
+import { buildTaskTree, type TaskTreeNode } from "@cortex-work/core/personal/taskTree";
 import { useDelegateTask } from "@cortex-work/core/personal/taskDelegate";
+import { usePersonalStore } from "@cortex-work/core/store/personal";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
+
+// 子任务缩进步距（px）。每深一层左移一档，OmniFocus 风格（U3；U7 视觉细调）。
+const INDENT_STEP = 22;
+
+// 渲染行：任务 + 缩进深度 + 是否有子（决定折叠箭头）。
+interface FlatRow {
+  task: TaskMeta;
+  depth: number;
+  hasChildren: boolean;
+}
+
+// 把一组（已排序的）任务按 parentTaskId 建树后 DFS 展平为渲染行，尊重折叠态。
+// 折叠（collapsed[id]===true）的节点不展开其子。父不在本组 scope 的子由 buildTaskTree 自动升顶层
+// （计算视图 Today/Inbox 天然扁平，KTD2）。带 seen 由 buildTaskTree 的 depth 回填保证不死循环。
+function flattenForRender(items: TaskMeta[], collapsed: Record<string, boolean>): FlatRow[] {
+  const out: FlatRow[] = [];
+  const walk = (nodes: TaskTreeNode[]) => {
+    for (const n of nodes) {
+      const kids = n.children;
+      out.push({ task: n, depth: n.depth, hasChildren: kids.length > 0 });
+      if (kids.length > 0 && !collapsed[n.id]) walk(kids);
+    }
+  };
+  walk(buildTaskTree(items));
+  return out;
+}
 
 // 活动态（未 done/dropped）——中列只展示这些。已完成/已放弃在右栏详情/归档处理。
 function isActive(t: TaskMeta): boolean {
@@ -64,6 +92,8 @@ export function TaskListColumn({
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
   const delegate = useDelegateTask();
+  const collapsedTasks = usePersonalStore((s) => s.collapsedTasks);
+  const toggleTaskCollapse = usePersonalStore((s) => s.toggleTaskCollapse);
 
   const [draft, setDraft] = useState("");
   const today = localDay(new Date());
@@ -168,11 +198,15 @@ export function TaskListColumn({
         groups.map((g) => (
           <div key={g.key} className="pw-task-group">
             {g.showHead ? <div className="pw-task-group-head">{g.label}</div> : null}
-            {g.items.map((t) => (
+            {flattenForRender(g.items, collapsedTasks).map(({ task: t, depth, hasChildren }) => (
               <TaskListRow
                 key={t.id}
                 task={t}
                 today={today}
+                depth={depth}
+                hasChildren={hasChildren}
+                collapsed={!!collapsedTasks[t.id]}
+                onToggleCollapse={() => toggleTaskCollapse(t.id)}
                 // 分组头已显 project 名 → 组内行不再重复 project 徽标；无头（today/inbox/单组）才显。
                 projectName={!g.showHead ? projectById.get(effectiveProjectId(t) ?? "")?.name : undefined}
                 onOpen={() => onOpenTask(t.id)}
@@ -195,6 +229,10 @@ export function TaskListColumn({
 function TaskListRow({
   task,
   today,
+  depth,
+  hasChildren,
+  collapsed,
+  onToggleCollapse,
   projectName,
   onOpen,
   onToggleDone,
@@ -204,6 +242,10 @@ function TaskListRow({
 }: {
   task: TaskMeta;
   today: string;
+  depth: number;
+  hasChildren: boolean;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   projectName?: string;
   onOpen: () => void;
   onToggleDone: () => void;
@@ -216,6 +258,21 @@ function TaskListRow({
   return (
     <div className="pw-task-row">
       <div className="pw-task-row-main">
+        {/* 子任务缩进：按 depth 留白（U3；U7 视觉细调）。*/}
+        {depth > 0 && <span className="pw-task-indent" style={{ width: depth * INDENT_STEP }} aria-hidden />}
+        {/* 折叠箭头：有子任务才显，否则占位对齐。*/}
+        {hasChildren ? (
+          <button
+            className={`pw-task-twisty${collapsed ? "" : " is-open"}`}
+            title={collapsed ? "展开子任务" : "折叠子任务"}
+            aria-expanded={!collapsed}
+            onClick={onToggleCollapse}
+          >
+            <Icon.Chevron size={11} />
+          </button>
+        ) : (
+          <span className="pw-task-twisty pw-task-twisty-spacer" aria-hidden />
+        )}
         <input type="checkbox" className="pw-task-check" checked={false} onChange={onToggleDone} title="完成" />
         <button className="pw-task-title pw-task-title-btn" title="打开详情" onClick={onOpen}>
           {task.title || "(无标题)"}
