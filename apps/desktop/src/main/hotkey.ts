@@ -5,6 +5,11 @@
 // 默认闪记热键键位(契约 8.5 / 待解问题 5)。register 与降级判定共用此常量,避免漂移。
 export const NOTES_HOTKEY_ACCELERATOR = "CommandOrControl+Shift+N";
 
+// 默认任务快速捕获热键键位(真任务系统 U5/KTD5)。**必须与闪记键不同**,否则两个全局键打架。
+// 兜底键经 rebindCandidates 的 defaultAcc 入参传入,避免任务捕获降级时误注册成闪记键(研究 rank11)。
+// 确切默认键位是 Open Question，可由用户设置覆盖。
+export const TASKS_HOTKEY_ACCELERATOR = "CommandOrControl+Shift+K";
+
 // register 失败(被占用)时给用户的提示文案。降级到仅窗口图标入口仍可用。
 export const NOTES_HOTKEY_OCCUPIED_TOAST = "闪记热键被占用,改用窗口图标入口";
 
@@ -119,8 +124,14 @@ export function resolveRebind(oldAcc: string, newAcc: string, newOk: boolean): R
 // 的 accelerator 列表。去重(保持首次出现的优先序)、跳过空串与非法值(旧键可能为空
 // 或脏数据)。调用方按此列表逐个 register,首个成功即停。
 // 注意:新键合法性由调用方先行 isValidAccelerator 校验;此处仅负责构造去重后的候选序列。
-export function rebindCandidates(newAcc: string, oldAcc: string): string[] {
-  const ordered = [newAcc, oldAcc, NOTES_HOTKEY_ACCELERATOR];
+// defaultAcc 为末级兜底键,缺省闪记键;任务捕获须传 TASKS_HOTKEY_ACCELERATOR,避免降级误注册成
+// 闪记键(研究 rank11)。
+export function rebindCandidates(
+  newAcc: string,
+  oldAcc: string,
+  defaultAcc: string = NOTES_HOTKEY_ACCELERATOR,
+): string[] {
+  const ordered = [newAcc, oldAcc, defaultAcc];
   const seen = new Set<string>();
   const out: string[] = [];
   for (const acc of ordered) {
