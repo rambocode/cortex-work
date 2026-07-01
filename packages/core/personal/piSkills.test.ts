@@ -56,6 +56,15 @@ describe("filterEnabledPiSkills", () => {
     expect(out[0]?.argumentHint).toBe("<url>");
   });
 
+  it("按 supportedAgents 过滤:声明了且不含当前 agent → 剔除;不传 agent → 不过滤", () => {
+    const piOnly = { ...sk("pi-only", "global", "/g/po"), supportedAgents: ["pi"] } as PluginSkill;
+    const anyAgent = sk("any-agent", "global", "/g/aa"); // 无 supportedAgents = 全 agent
+    // claude 会话:pi-only 剔除,any-agent 保留。
+    expect(filterEnabledPiSkills([piOnly, anyAgent], cfg(), "claude").map((s) => s.name)).toEqual(["any-agent"]);
+    // 不传 agent(向后兼容旧调用):两者都在(localeCompare 排序)。
+    expect(filterEnabledPiSkills([piOnly, anyAgent], cfg()).map((s) => s.name)).toEqual(["any-agent", "pi-only"]);
+  });
+
   it("空输入 → 空数组(R7 降级路径的纯函数侧)", () => {
     expect(filterEnabledPiSkills([], cfg())).toEqual([]);
   });

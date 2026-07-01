@@ -334,6 +334,13 @@ export {
   type NextSkill,
 } from "./personal/docTasks";
 export { usePiEnabledSkills, filterEnabledPiSkills, type PiSlashSkill } from "./personal/piSkills";
+// skill 注入 / slash 调用(claude/codex 的 /skill:name 转定向 prompt 供 views 发送侧用)。
+export {
+  resolveEnabledSkillRecords,
+  renderSkillInvocation,
+  parseSkillSlash,
+  type InjectableSkill,
+} from "./personal/skill-injection";
 export {
   parseDocMeta,
   type DocKind,

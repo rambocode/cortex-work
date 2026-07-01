@@ -6,6 +6,9 @@ import { Icon } from "@cortex-work/ui/icons";
 import {
   resolveDefaultAgent,
   getTtsPlaybackState,
+  parseSkillSlash,
+  renderSkillInvocation,
+  resolveEnabledSkillRecords,
   resolveProjectFileRef,
   speakText,
   stopSpeaking,
@@ -479,7 +482,7 @@ export function PersonalChatArea({
         running={running}
         editing={editing}
         onCancelEdit={() => setEditing(null)}
-        onSend={(text, attachments, images, docFiles) => {
+        onSend={async (text, attachments, images, docFiles) => {
           // 编辑重发:截断目标消息及其后内容,按新文本重发(复用原消息已落盘图,见 editResend)。
           // 本期编辑态不增删图,composer 的待发 images 忽略;返回 true 让 composer 清空。
           if (editing) {
@@ -502,7 +505,19 @@ export function PersonalChatArea({
             void compact(session.id);
             return false;
           }
-          return send(session, project.path, text, attachments, undefined, images, undefined, docFiles);
+          // claude/codex 的 /skill:name 无原生 slash 展开 → 发送前转「定向调用单个 skill」的 prompt
+          //(让 agent 读该 SKILL.md 再执行 + 带用户参数)。pi 保持透传(pi CLI 自行展开)。找不到对应
+          // skill(未启用 / 不适用当前 agent / 无桥)时原样发送,不阻断——与菜单侧 supportedAgents 过滤一致。
+          let outText = text;
+          if (session.agent !== "pi" && bridge) {
+            const parsed = parseSkillSlash(text);
+            if (parsed) {
+              const records = await resolveEnabledSkillRecords(bridge, project.path, session.useOwnSkills, session.agent);
+              const skill = records.find((s) => s.name === parsed.name);
+              if (skill) outText = renderSkillInvocation(skill, parsed.args);
+            }
+          }
+          return send(session, project.path, outText, attachments, undefined, images, undefined, docFiles);
         }}
         onStop={() => void stopRun(session.id)}
         onSteer={session.agent === "pi" ? (text) => void steer(session.id, text) : undefined}

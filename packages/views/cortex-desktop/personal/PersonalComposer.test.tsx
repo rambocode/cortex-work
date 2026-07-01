@@ -1,5 +1,6 @@
-// PersonalComposer 动态 slash 菜单(U4):pi 会话把已启用 skills 注入为 /skill:<name>,
-// claude/codex 不注入(R6),选中 skill 插入待填参(R5)。
+// PersonalComposer 动态 slash 菜单(U4):pi/claude/codex 会话把已启用 skills 注入为 /skill:<name>
+//(claude/codex 发送侧转定向 prompt,推翻旧 R6「不为 claude/codex 做 slash skill」),按 supportedAgents
+// 过滤(与调用侧一致),选中 skill 插入待填参(R5)。
 import type { ReactElement } from "react";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,13 +72,20 @@ describe("PersonalComposer 动态 slash 菜单", () => {
     expect(screen.getByText("/clear")).toBeTruthy();
   });
 
-  it("claude 会话:菜单只含内建,不含 skills(R6)", async () => {
-    renderComposer("claude", fakeBridge([sk("agent-browser")]));
+  it("claude 会话:菜单也含 skills(推翻旧 R6:claude/codex 现支持 /skill 定向调用)", async () => {
+    renderComposer("claude", fakeBridge([sk("agent-browser", "<url>")]));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "/" } });
-    expect(await screen.findByText("/clear")).toBeTruthy();
-    // 给异步 query 一拍,确认 skills 始终不出现。
-    await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByText("/skill:agent-browser")).toBeNull();
+    await waitFor(() => expect(screen.getByText("/skill:agent-browser")).toBeTruthy());
+    expect(screen.getByText("<url>")).toBeTruthy();
+    expect(screen.getByText("/clear")).toBeTruthy(); // 内建仍在(claude 无 /compact)
+  });
+
+  it("claude 会话:supportedAgents 不含 claude 的 skill 不出现(与调用侧过滤一致)", async () => {
+    const piOnly = { ...sk("pi-only"), supportedAgents: ["pi"] } as PluginSkill;
+    renderComposer("claude", fakeBridge([piOnly, sk("agent-browser")]));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/" } });
+    await waitFor(() => expect(screen.getByText("/skill:agent-browser")).toBeTruthy());
+    expect(screen.queryByText("/skill:pi-only")).toBeNull();
   });
 
   it("pi 会话:禁用的 skill 不出现在菜单(R3)", async () => {

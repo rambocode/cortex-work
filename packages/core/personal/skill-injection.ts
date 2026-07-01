@@ -47,6 +47,32 @@ export function renderSkillBlock(skills: InjectableSkill[]): string {
   ].join("\n");
 }
 
+// 解析输入是否为「/skill:<name> [args]」形态(claude/codex 的 slash skill 触发)。命中返回
+// { name, args };否则 null。pi 会话不用它(pi CLI 自行展开 /skill:name),仅 claude/codex 发送侧
+// 拦截后转定向 prompt(见 renderSkillInvocation / PersonalChatArea onSend)。
+export function parseSkillSlash(text: string): { name: string; args: string } | null {
+  const m = text.trim().match(/^\/skill:(\S+)\s*([\s\S]*)$/);
+  const name = m?.[1];
+  if (!name) return null; // 不匹配 / 无 name(\S+ 理论保证非空,此处兜底满足类型收窄)
+  return { name, args: (m[2] ?? "").trim() };
+}
+
+// 渲染「定向调用单个 skill」的 prompt:claude/codex 无原生 /skill 展开时,发送侧用它把 /skill:name
+// 替换成一段让 agent「读该 SKILL.md 再执行」的指令。复用 renderSkillBlock 的「元数据 + 路径自读」
+// 范式,只针对被选中的这一个 skill + 用户附带参数。name/description/dir 经 sanitize 防注入;
+// args 是用户自己的输入(本就要发给 agent),不清洗。
+export function renderSkillInvocation(skill: InjectableSkill, args: string): string {
+  const name = sanitize(skill.name);
+  const desc = sanitize(skill.description);
+  const dir = skill.dir.replace(/[\r\n]+/g, " ");
+  const lines = [
+    `请使用 skill「${name}」完成本次任务${desc ? `(${desc})` : ""}。`,
+    `指令文件:${dir}/SKILL.md —— 请先用 Read 工具查看完整指令,再据此执行。`,
+  ];
+  if (args) lines.push(`本次参数:${args}`);
+  return lines.join("\n");
+}
+
 // 解析已启用 skill 的注入记录(U2)。复用与 resolveEnabledSkillPaths 同一过滤链:
 // 禁用(`scope:name`) + 工作区未授信剔除 → 按 supportedAgents 过滤(U5) → name 去重(全局覆盖
 // 工作区,防恶意工作区同名劫持) → 按 dir 排序(与旧 resolveEnabledSkillPaths 输出一致)。

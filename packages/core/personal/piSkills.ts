@@ -10,7 +10,7 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { DEFAULT_PI_SKILLS, type PiSkillSettings, type PluginSkill, type SessionMeta } from "../desktop/types";
+import { DEFAULT_PI_SKILLS, type AgentKind, type PiSkillSettings, type PluginSkill, type SessionMeta } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 
@@ -21,12 +21,15 @@ export type PiSlashSkill = { name: string; description: string; argumentHint?: s
  * 纯函数:把 piSkillsList 扫描结果过滤为「已启用」展示集。规则与 resolveEnabledSkillPaths 完全一致——
  * 唯一事实来源在 messages.ts,这里复刻规则(勿各自漂移)。core 约定只对纯函数做单测,故抽出此函数。
  */
-export function filterEnabledPiSkills(skills: PluginSkill[], cfg: PiSkillSettings): PiSlashSkill[] {
+export function filterEnabledPiSkills(skills: PluginSkill[], cfg: PiSkillSettings, agent?: AgentKind): PiSlashSkill[] {
   const disabled = new Set(cfg.disabledSkills);
   const trusted = new Set(cfg.trustedWorkspaceSkillDirs);
   const enabled = skills.filter((s) => {
     if (disabled.has(`${s.scope}:${s.name}`)) return false; // 已禁用
     if (s.scope === "workspace" && !trusted.has(s.dir)) return false; // 工作区未授信不注入
+    // 按 supportedAgents 过滤,与注入侧 resolveEnabledSkillRecords 完全一致:claude/codex 菜单不出现
+    // 不适用的 skill,否则选中后发送侧转不出定向 prompt、变成「看着能选其实没用」。缺省=全 agent。
+    if (agent && s.supportedAgents && !s.supportedAgents.includes(agent)) return false;
     return true;
   });
   // name 去重:先放工作区、后放全局覆盖 → 同名时全局胜出(防恶意工作区同名劫持)。
@@ -53,8 +56,12 @@ export function usePiEnabledSkills(session: SessionMeta | undefined): PiSlashSki
 
   const cfg = useMemo<PiSkillSettings>(() => ({ ...DEFAULT_PI_SKILLS, ...piSkills }), [piSkills]);
 
-  // 仅 pi 会话 + 未会话级关 skills + 有 piSkillsList 才扫(R6 / 门控 / R7 降级)。
-  const gateOpen = session?.agent === "pi" && session?.useOwnSkills !== false && !!bridge?.piSkillsList;
+  // pi/claude/codex 会话 + 未会话级关 skills + 有 piSkillsList 才扫。claude/codex 无原生 /skill 展开,
+  // 发送侧把 /skill:name 转定向 prompt(见 PersonalChatArea onSend + renderSkillInvocation),故菜单同样放行。
+  const gateOpen =
+    (session?.agent === "pi" || session?.agent === "claude" || session?.agent === "codex") &&
+    session?.useOwnSkills !== false &&
+    !!bridge?.piSkillsList;
 
   const { data } = useQuery<PluginSkill[]>({
     queryKey: [
@@ -76,5 +83,8 @@ export function usePiEnabledSkills(session: SessionMeta | undefined): PiSlashSki
     refetchOnWindowFocus: true, // 兜底:窗口重获焦点时重扫(skill 目录可能在外部增删)
   });
 
-  return useMemo(() => (gateOpen ? filterEnabledPiSkills(data ?? [], cfg) : []), [gateOpen, data, cfg]);
+  return useMemo(
+    () => (gateOpen ? filterEnabledPiSkills(data ?? [], cfg, session?.agent) : []),
+    [gateOpen, data, cfg, session?.agent],
+  );
 }
