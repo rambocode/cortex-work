@@ -57,6 +57,30 @@ export function parseSkillSlash(text: string): { name: string; args: string } | 
   return { name, args: (m[2] ?? "").trim() };
 }
 
+// U5:claude 原生 slash 命令名清洗。claude 的 `/<name>` 展开取自 skill 目录名 —— 桥接层(U1)以
+// sanitize 后的名字建 symlink 目录,渲染端(renderClaudeSkillSlash)据同一算法生成裸 slash,两处必须
+// 一致,否则「菜单显示名」与「claude 实际认得的命令名」漂移,用户点了却不触发(R7)。
+// 规则:小写化 + 换行/空格/路径分隔符/`..`/控制字符等一切非 [a-z0-9] 归一为连字符 + 折叠并去首尾连字符;
+// 全部被清空(如纯非 ASCII 名)时兜底 "skill",避免产出空 slash。
+// ⚠️ 跨进程契约:U1 的 symlink 目录命名必须复现同一算法(主进程不能 import core,故各持一份逻辑)。
+export function sanitizeSkillCommandName(name: string): string {
+  const cleaned = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned || "skill";
+}
+
+// U5:把「/skill:<name> [args]」渲染成 claude CLI 认得的裸 slash「/<command-name> [args]」。
+// claude 在 CLI 输入层原生展开 `/<name>`(前提:桥接目录已让它发现该 skill,见 U1/U2),cortex 不再
+// 把 skill 改写成「请自行 Read SKILL.md」的 prose。name 经 sanitizeSkillCommandName 对齐 claude 的
+// 命令名派生(R7);args 是用户输入(本就要发给 agent),不清洗。无 args → 无尾随空格。
+export function renderClaudeSkillSlash(skill: InjectableSkill, args: string): string {
+  const name = sanitizeSkillCommandName(skill.name);
+  const trimmed = args.trim();
+  return trimmed ? `/${name} ${trimmed}` : `/${name}`;
+}
+
 // 渲染「定向调用单个 skill」的 prompt:claude/codex 无原生 /skill 展开时,发送侧用它把 /skill:name
 // 替换成一段让 agent「读该 SKILL.md 再执行」的指令。复用 renderSkillBlock 的「元数据 + 路径自读」
 // 范式,只针对被选中的这一个 skill + 用户附带参数。name/description/dir 经 sanitize 防注入;

@@ -26,7 +26,7 @@ import type {
 import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-thinking";
 import type { DesktopBridge } from "../desktop/bridge";
-import { renderSkillBlock, resolveEnabledSkillRecords } from "./skill-injection";
+import { renderSkillBlock, resolveEnabledSkillRecords, type InjectableSkill } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
@@ -1550,6 +1550,24 @@ export async function resolveEnabledSkillPaths(
   return (await resolveEnabledSkillRecords(bridge, projectPath, useOwnSkills, agent)).map((s) => s.dir);
 }
 
+// U5:单发(bridge.startCli)路径的 skill 注入分派。两 agent 走两条本质不同的机制:
+//  - claude:走原生目录发现 —— 把已启用 skill 记录经 startCli 的 skillRecords 交主进程建桥接目录
+//    (U2 buildClaudeSkillBridge + --add-dir),claude 自己加载/展开 `/<name>`。故**不再**把 skill
+//    列表渲染成 prose 并入 appendSystemPrompt(R5),appendWithSkills 只保留原始 appendSystemPrompt。
+//  - codex:无目录桥接,维持现状 —— renderSkillBlock 渲染成 prose 并入 appendSystemPrompt,不带 skillRecords。
+// ⚠️ 仅用于单发分支;圆桌编排(bridge.startOrchestration)分支不走此函数,继续沿用现状批量 prose
+// 注入(见 System-Wide Impact / U5 Approach)。纯函数,便于单测。
+export function buildSingleSendSkillInjection(
+  agent: string,
+  appendSystemPrompt: string | undefined,
+  records: InjectableSkill[],
+): { appendWithSkills: string | undefined; skillRecords: InjectableSkill[] | undefined } {
+  const useClaudeNativeSkills = agent === "claude";
+  const skillBlock = useClaudeNativeSkills ? "" : renderSkillBlock(records);
+  const appendWithSkills = [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
+  return { appendWithSkills, skillRecords: useClaudeNativeSkills ? records : undefined };
+}
+
 // 扩展市场（U3）:据 piExtensions 配置解析出注入 pi 的 -e 路径集合。
 // 装≠启用 + 信任门:仅「在 enabled 且 在 trusted」的已装扩展才注入（启用集是 -e 的唯一来源,
 // pi settings 自动发现已被 --no-extensions 抑制）。路径取持久化的 record.path（pi list 给出、安装时存）。
@@ -2122,6 +2140,10 @@ export interface PersonalActions {
     presavedImages?: ChatImageRef[],
     // 待发文档(send 内逐个落盘;内容不进消息,由 agent 经 extract_document 按需读取)。
     docFiles?: PendingDocFile[],
+    // U6:codex 单发原生 skill 触发。发送侧解析 /skill:name 命中已启用 codex skill 时填入
+    // { name, path },随请求落到 CliStartRequest.invokedSkill,主进程按 transport 决定 ws 结构化
+    // 触发 / exec prose 回退(见 cli.ts U4)。claude 走裸 slash(不用此字段)、pi 透传时恒 undefined。
+    invokedSkill?: { name: string; path: string },
     // 返回是否「已消费」(真正发出/已落定):composer 据此决定是否清空待发图/文档(未消费则保留供重试)。
   ) => Promise<boolean>;
   stop: (sessionId: string) => Promise<void>;
@@ -2153,11 +2175,13 @@ export function usePersonalActions(): PersonalActions {
   const qc = useQueryClient();
 
   const send = useCallback<PersonalActions["send"]>(
-    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles) => {
+    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles, invokedSkill) => {
       if (!bridge) return false;
       const hasImages = !!(images?.length || presavedImages?.length);
       const hasDocs = !!docFiles?.length;
-      if (!text.trim() && !hasImages && !hasDocs) return false; // 纯图/纯文档(无文本)允许发送;皆空才拒
+      // U6:codex `/skill:name`(无 args)时文本被收窄为空,但 invokedSkill 本身即本轮内容 →
+      // 不能按「皆空」拒发,否则原生 skill 触发被静默丢弃(相较现状 prose 改写是回归)。
+      if (!text.trim() && !hasImages && !hasDocs && !invokedSkill) return false; // 纯图/纯文档(无文本)允许发送;皆空才拒
       // 新一轮发送 → 清掉上一轮可能留下的运行模式拦截提示(用户已切档自动重发,或手动重发/换话题)。
       usePersonalStore.getState().setModeBlockHint(session.id, undefined);
       if (session.agent !== "pi" && usePersonalStore.getState().agentsAvailable?.[session.agent] === false) {
@@ -2454,14 +2478,21 @@ export function usePersonalActions(): PersonalActions {
             piOpen,
           });
         } else {
-          // 跨 agent skill 注入(U2):此分支仅 claude/codex(Pi 非编排已在上面 sendPiTurn 走 --skill 并 return)。
-          // 把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 两路互斥 → 不双注入(R3)。
+          // 跨 agent skill 注入:此分支仅 claude/codex(Pi 非编排已在上面 sendPiTurn 走 --skill 并 return)。
           // useOwnSkills 短路对 claude/codex 同样生效(RISK-2):resolveEnabledSkillRecords 据其早退。
-          const skillBlock = renderSkillBlock(
-            await resolveEnabledSkillRecords(bridge, projectPath, sendSession.useOwnSkills, sendSession.agent),
+          // 派发(U5):claude 走原生目录发现(记录经 skillRecords 交主进程建桥接目录,不再 prose 注入),
+          // codex 仍把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 互斥 → 不双注入(R3)。
+          const enabledSkillRecords = await resolveEnabledSkillRecords(
+            bridge,
+            projectPath,
+            sendSession.useOwnSkills,
+            sendSession.agent,
           );
-          const appendWithSkills =
-            [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
+          const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection(
+            sendSession.agent,
+            appendSystemPrompt,
+            enabledSkillRecords,
+          );
           // 委派（delegate，@mention 触发）：主 agent 单发 startCli + 注入 cortex-delegate 工具集，
           // 经 ask_<id> 自主委派给被 @ 的协作者。子 agent 事件带 roleId（渲染端 roleHeader 分隔），
           // 取消/超时走标准 killCli（主 agent 在 running map；onExit→abort 收口在途子 agent）。
@@ -2504,6 +2535,12 @@ export function usePersonalActions(): PersonalActions {
             appendSystemPrompt: appendWithDelegate,
             useOwnSkills: sendSession.useOwnSkills,
             skillPaths: undefined,
+            // U5:claude 走原生目录发现时把已启用 skill 记录交主进程建桥接目录(U2);codex 为 undefined
+            // (走上面 appendWithSkills 的 prose 注入,无目录桥接)。
+            skillRecords,
+            // U6:codex 单发原生 skill 触发(发送侧解析 /skill:name 命中时填入)。主进程按 transport
+            // 决定 ws 结构化触发 / exec prose 回退(cli.ts U4);claude/pi 及非 skill 发送恒 undefined。
+            invokedSkill,
             images: cliImages,
             // 执行/目录权限派生的线格式:claude/codex adapter 翻译成原生标志;缺省 full-auto/auto(历史默认)。
             // 逐轮 fresh spawn,改值下一轮即生效,无需重开。

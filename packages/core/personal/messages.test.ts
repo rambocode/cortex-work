@@ -24,6 +24,7 @@ import {
   agentSessionPatch,
   buildAttachmentSystemPrompt,
   buildGlobalAppend,
+  buildSingleSendSkillInjection,
   piEntryMatchesText,
   clearAgentSessionPatch,
   createHiddenHistory,
@@ -1852,5 +1853,45 @@ describe("resolveSpawnAgentId（U7）", () => {
   it("derivedAgentId 已失效(不在列表)→ 回退 base(RISK-3)", () => {
     expect(resolveSpawnAgentId({ agent: "codex", derivedAgentId: "gone" }, derived)).toBe("codex");
     expect(resolveSpawnAgentId({ agent: "codex", derivedAgentId: "my-codex" }, undefined)).toBe("codex");
+  });
+});
+
+describe("buildSingleSendSkillInjection（U5 单发 skill 注入分派）", () => {
+  const records = [
+    { name: "alpha", description: "做 A", dir: "/g/alpha" },
+    { name: "beta", description: "做 B", dir: "/g/beta" },
+  ];
+
+  it("claude:不 prose 注入,appendWithSkills 等于原始 appendSystemPrompt,记录经 skillRecords 下发", () => {
+    const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection("claude", "全局指令", records);
+    expect(appendWithSkills).toBe("全局指令"); // 不含「## 已启用的 Skills」段
+    expect(appendWithSkills).not.toContain("已启用的 Skills");
+    expect(skillRecords).toBe(records); // 原样交主进程建桥接目录
+  });
+
+  it("claude:无 appendSystemPrompt → undefined,仍带 skillRecords", () => {
+    const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection("claude", undefined, records);
+    expect(appendWithSkills).toBeUndefined();
+    expect(skillRecords).toBe(records);
+  });
+
+  it("codex:仍把已启用 skill 渲染成 prose 并入 appendSystemPrompt,不带 skillRecords（回归现状）", () => {
+    const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection("codex", "全局指令", records);
+    expect(appendWithSkills).toContain("全局指令");
+    expect(appendWithSkills).toContain("## 已启用的 Skills");
+    expect(appendWithSkills).toContain("- **alpha** — 做 A");
+    expect(skillRecords).toBeUndefined();
+  });
+
+  it("codex:无启用 skill + 无 appendSystemPrompt → undefined", () => {
+    const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection("codex", undefined, []);
+    expect(appendWithSkills).toBeUndefined();
+    expect(skillRecords).toBeUndefined();
+  });
+
+  it("claude:空记录也走原生路径(skillRecords 为空数组,不 prose)", () => {
+    const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection("claude", undefined, []);
+    expect(appendWithSkills).toBeUndefined();
+    expect(skillRecords).toEqual([]);
   });
 });

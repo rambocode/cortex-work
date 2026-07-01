@@ -890,6 +890,16 @@ export interface CliStartRequest {
   useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildArgs 逐个 --skill 注入。
   skillPaths?: string[];
+  // U5:claude 原生 skill 目录发现用的已启用 skill 记录（renderer 填充,main 无 store/bridge 拿不到,
+  // 必须渲染端算好传过来）。main 侧 cli.ts 据此建桥接目录(buildClaudeSkillBridge)。形状镜像
+  // InjectableSkill（core/personal/skill-injection.ts），避免 types 反向依赖 personal。
+  skillRecords?: { name: string; description?: string; dir: string }[];
+  // U2:claude skill 桥接目录绝对路径（**主进程内部填充**,renderer 不传）。cli.ts 据 skillRecords
+  // 建目录后写入,claude.ts buildArgs 追加 --add-dir 让 claude 原生发现 `.claude/skills/`。
+  skillsBridgeDir?: string;
+  // U4/U6:codex app-server(ws)原生 skill input item（renderer 填充）。存在时 buildTurnInput 追加
+  // { type:"skill", name, path } 交 turn/start 原生注入;非 ws(exec)路径改渲染 prose 回退。
+  invokedSkill?: { name: string; path: string };
   // 用户上传的图片（**仅 claude/codex 消费**:claude 把绝对路径 + 读取指令前置进 prompt,
   // codex 每张作 -i 参数;pi 不读此字段,图片走 piPrompt 独立参数）。
   images?: CliImageRef[];

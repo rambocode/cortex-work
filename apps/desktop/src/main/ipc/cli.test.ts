@@ -217,6 +217,88 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
   });
 });
 
+describe("cli:start codex 原生 skill 分流(U4)", () => {
+  it("codex ws + invokedSkill → 透传给 startCodexWsRun,不改写 prompt(原生触发)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-skill-ws-"));
+    startCodexWsRunMock.mockClear();
+    try {
+      await startWithDetect(
+        "codex",
+        { runId: "sk-ws", sessionId: "s", cwd, prompt: "打开 x.com", invokedSkill: { name: "agent-browser", path: "/g/ab" } },
+        vi.fn(),
+      );
+      // ws 路径:invokedSkill 原样交给 ws 编排(buildTurnInput 转原生 skill input item),prompt 未被 prose 改写。
+      expect(startCodexWsRunMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          req: expect.objectContaining({
+            invokedSkill: { name: "agent-browser", path: "/g/ab" },
+            prompt: "打开 x.com",
+          }),
+        }),
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("codex 委派(exec)+ invokedSkill → 不走 ws,prompt 改写为 prose 回退(R3 不倒退)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-skill-exec-"));
+    const claudeProbe = fakeChild();
+    const codexProbe = fakeChild();
+    // exec 路径经 stdin 投递 prompt(codex.ts:promptDelivery=stdin-eof),用带 stdin 的替身捕获。
+    const run = Object.assign(new EventEmitter(), {
+      pid: 42,
+      stdout: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
+      stderr: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
+      stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),
+      kill: vi.fn(),
+    });
+    spawnMock.mockReturnValueOnce(claudeProbe).mockReturnValueOnce(codexProbe).mockReturnValueOnce(run);
+    startCodexWsRunMock.mockClear();
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      const p = ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        {
+          agent: "codex",
+          runId: "sk-exec",
+          sessionId: "s",
+          cwd,
+          prompt: "打开 x.com",
+          invokedSkill: { name: "agent-browser", path: "/g/ab" },
+          delegateRoles: [{ id: "codex", label: "Codex", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" }],
+        },
+      );
+      claudeProbe.emit("close", 0);
+      codexProbe.emit("close", 0);
+      await p;
+      // 委派 → 非 ws,不进 startCodexWsRun。
+      expect(startCodexWsRunMock).not.toHaveBeenCalled();
+      // prose 回退经 stdin 投递:含定向文案 + SKILL.md 路径 + 用户参数(与现状等价)。
+      const stdinPayload = (run.stdin.end as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+      expect(stdinPayload).toContain("请使用 skill「agent-browser」");
+      expect(stdinPayload).toContain("/g/ab/SKILL.md");
+      expect(stdinPayload).toContain("打开 x.com");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("codex ws 无 invokedSkill → 行为与改动前一致(prompt 不改写,invokedSkill 不出现)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-skill-none-"));
+    startCodexWsRunMock.mockClear();
+    try {
+      await startWithDetect("codex", { runId: "sk-none", sessionId: "s", cwd, prompt: "hi" }, vi.fn());
+      const passed = startCodexWsRunMock.mock.calls[0]?.[0] as { req: Record<string, unknown> };
+      expect(passed.req.prompt).toBe("hi");
+      expect(passed.req.invokedSkill).toBeUndefined();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("cli:start trace", () => {
   it("pi 委派轮次按需启动 delegate host 并注入 ask 工具桥接扩展", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-delegate-"));
