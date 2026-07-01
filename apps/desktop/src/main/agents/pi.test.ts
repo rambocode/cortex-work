@@ -38,10 +38,13 @@ describe("piDef.buildArgs", () => {
     expect(args).not.toContain("--append-system-prompt");
   });
 
-  it("插件 Skill:恒带 --no-skills（不再随 useOwnSkills 省略,UI 唯一真相源）", () => {
+  it("插件 Skill:--no-skills 随 useOwnSkills gate（=true 时省略,放开 pi 原生发现,与 claude adapter 对齐）", () => {
+    // 缺省 / false → 关掉 pi 原生发现(与 claude 缺省加 --disable-slash-commands 同语义)。
     expect(piDef.buildArgs(baseReq).args).toContain("--no-skills");
     expect(piDef.buildArgs({ ...baseReq, useOwnSkills: false }).args).toContain("--no-skills");
-    expect(piDef.buildArgs({ ...baseReq, useOwnSkills: true }).args).toContain("--no-skills");
+    // true → 不加 --no-skills,pi 走自身原生 skill 发现(~/.pi/agent/skills、~/.agents/skills、
+    // 项目 .pi/skills / .agents/skills),与 claude/codex「各用自家原生目录」一致。
+    expect(piDef.buildArgs({ ...baseReq, useOwnSkills: true }).args).not.toContain("--no-skills");
   });
 
   it("插件 Skill:skillPaths 逐个 --skill 注入；缺省仅 --no-skills", () => {
@@ -51,6 +54,12 @@ describe("piDef.buildArgs", () => {
     const joined = args.join(" ");
     expect(joined).toContain("--skill /a/code-review");
     expect(joined).toContain("--skill /b/bug-hunt");
+  });
+
+  it("插件 Skill:useOwnSkills=true 时原生发现 + --skill 注入并存（混合,与 claude 桥接同款）", () => {
+    const { args } = piDef.buildArgs({ ...baseReq, useOwnSkills: true, skillPaths: ["/a/code-review"] });
+    expect(args).not.toContain("--no-skills"); // 原生发现放开
+    expect(args.join(" ")).toContain("--skill /a/code-review"); // Cortex 已启用集合仍附加注入
   });
 
   it("运行模式 plan:json 单发注入 --tools 只读白名单,prompt 仍末位;非 plan 不注入", () => {

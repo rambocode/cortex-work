@@ -49,6 +49,36 @@ describe("claudeDef.buildArgs", () => {
     expect(claudeDef.buildArgs({ ...baseReq, useOwnSkills: true }).args).not.toContain("--disable-slash-commands");
   });
 
+  it("原生 skill(U3):useOwnSkills=true 且 skillsBridgeDir 有值 → --add-dir <dir>,不带 --disable-slash-commands", () => {
+    const { args } = claudeDef.buildArgs({
+      ...baseReq,
+      useOwnSkills: true,
+      skillsBridgeDir: "/tmp/skill-bridge/s1",
+    });
+    expect(args.join(" ")).toContain("--add-dir /tmp/skill-bridge/s1");
+    expect(args).not.toContain("--disable-slash-commands");
+  });
+
+  it("原生 skill(U3):useOwnSkills!==true → --disable-slash-commands,不带 --add-dir(回归)", () => {
+    // 即便误传了 skillsBridgeDir,关闭开关时也不应追加 --add-dir
+    const off = claudeDef.buildArgs({ ...baseReq, skillsBridgeDir: "/tmp/skill-bridge/s1" }).args;
+    expect(off).toContain("--disable-slash-commands");
+    expect(off).not.toContain("--add-dir");
+    const explicitOff = claudeDef.buildArgs({
+      ...baseReq,
+      useOwnSkills: false,
+      skillsBridgeDir: "/tmp/skill-bridge/s1",
+    }).args;
+    expect(explicitOff).toContain("--disable-slash-commands");
+    expect(explicitOff).not.toContain("--add-dir");
+  });
+
+  it("原生 skill(U3):useOwnSkills=true 但无 skillsBridgeDir(无已启用 skill) → 既不 --add-dir 也不 --disable-slash-commands", () => {
+    const { args } = claudeDef.buildArgs({ ...baseReq, useOwnSkills: true });
+    expect(args).not.toContain("--add-dir");
+    expect(args).not.toContain("--disable-slash-commands");
+  });
+
   it("续接(U4):continueSession → --continue;与 resume 互斥优先", () => {
     expect(claudeDef.buildArgs({ ...baseReq, continueSession: true }).args).toContain("--continue");
     // continue 优先于 resume id

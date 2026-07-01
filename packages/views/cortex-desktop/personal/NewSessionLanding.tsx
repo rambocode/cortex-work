@@ -3,7 +3,7 @@
 // 默认选最近活跃项目。选项目(或不使用项目) + 输入 → createSession(带草稿 model/skills) →
 // send → 自动跳会话页。createSession 已置 homeOpen:false + activeSessionId,渲染自动切会话页。
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   DEFAULT_MODEL,
   DEFAULT_AGENT_THINKING,
@@ -32,6 +32,7 @@ import type {
 } from "@cortex-work/core";
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
+import { useSlashCommands } from "./useSlashCommands";
 import { GitBar } from "./GitBar";
 
 // 按目标 agent 解析草稿默认 model/provider：pi 用默认 provider + 默认模型(或 provider 首模型);
@@ -81,7 +82,7 @@ export function NewSessionLanding({
       agent,
       derivedAgentId: undefined as string | undefined,
       ...draftDefaultsForAgent(agent, providerSettings),
-      useOwnSkills: false,
+      useOwnSkills: true, // Skills 默认打开(用户要求),可在 composer 里关
       thinkingValue: agent === "pi" ? undefined : DEFAULT_AGENT_THINKING as AgentThinkingValue,
       execPermission: DEFAULT_NEW_SESSION_EXEC_PERMISSION as ExecPermission,
       dirPermission: DEFAULT_NEW_SESSION_DIR_PERMISSION as DirPermission,
@@ -89,6 +90,14 @@ export function NewSessionLanding({
       subagentOrchestration: false,
     };
   });
+
+  // 落地页 slash:用草稿 agent/useOwnSkills + 选中项目构造最小会话对象喂 useSlashCommands
+  //(usePiEnabledSkills 仅读 agent/useOwnSkills/projectId)。与会话页共用同一 hook,保证 slash 一致。
+  const draftSession = useMemo(
+    () => ({ agent: draft.agent, useOwnSkills: draft.useOwnSkills, projectId: selectedProjectId }) as SessionMeta,
+    [draft.agent, draft.useOwnSkills, selectedProjectId],
+  );
+  const slashCommands = useSlashCommands(draftSession);
 
   // 切换 agent(内置或派生):agent 落 base,派生另记 id,model/provider 按目标重置默认(R4)。
   const onChangeAgent = (a: AgentKind, derived?: DerivedAgentMeta) => {
@@ -107,7 +116,8 @@ export function NewSessionLanding({
   // sendSession.useOwnSkills),故必须把合并结果传给 send,否则 derivedAgentId/useOwnSkills 到不了 spawn。
   const applyDraftPatch = (sess: SessionMeta): SessionMeta => {
     const patch: Partial<SessionMeta> = {};
-    if (draft.useOwnSkills) patch.useOwnSkills = true;
+    // 始终携带草稿值(createSession 现默认 useOwnSkills=true):用户在落地页关掉时也能覆盖为 false。
+    patch.useOwnSkills = draft.useOwnSkills;
     // 派生 agent:落 derivedAgentId,spawn 端经 resolveSpawnAgentId 取派生 id 发给后端(R2)。
     if (draft.derivedAgentId) patch.derivedAgentId = draft.derivedAgentId;
     if (draft.agent === "pi" && draft.providerId) patch.providerId = draft.providerId;
@@ -176,7 +186,7 @@ export function NewSessionLanding({
         providerId={draft.providerId}
         useOwnSkills={draft.useOwnSkills}
         running={false}
-        slashCommands={[]}
+        slashCommands={slashCommands}
         className="pw-landing-composer"
         placeholder="输入消息开启新会话,Enter 发送 · Shift+Enter 换行"
         // 订阅 composerInsert:插件「在对话中试用」在无活动会话时落到新会话落地页的输入框

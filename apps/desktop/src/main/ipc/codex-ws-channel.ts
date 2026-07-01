@@ -184,11 +184,33 @@ function wrapPrompt(req: Pick<CliStartRequest, "prompt" | "appendSystemPrompt">)
   return `${req.appendSystemPrompt}\n\n<user_request>\n${req.prompt}\n</user_request>`;
 }
 export function buildTurnInput(
-  req: Pick<CliStartRequest, "prompt" | "appendSystemPrompt" | "images">,
+  req: Pick<CliStartRequest, "prompt" | "appendSystemPrompt" | "images" | "invokedSkill">,
 ): CodexUserInput[] {
   const input: CodexUserInput[] = [{ type: "text", text: wrapPrompt(req), text_elements: [] }];
   for (const img of req.images ?? []) input.push({ type: "localImage", path: img.path });
+  // U4:codex 原生 skill 触发。选中 skill 时把它作为 turn/start 的原生 skill input item 显式带上,
+  // 由 app-server 注入完整 skill 指令(不再由 cortex 改写 prose)。缺省(未选 skill)时不追加,
+  // input 数组与改动前逐字一致(向后兼容,不误伤既有调用点)。
+  if (req.invokedSkill)
+    input.push({ type: "skill", name: req.invokedSkill.name, path: req.invokedSkill.path });
   return input;
+}
+
+// U4:codex `codex exec`(非 ws)回退时的定向 prose。codex 的 slash→内容 替换只在交互式 TUI 输入层
+// 生效,`codex exec`(委派等退回 exec 的场景)一律把 /name 当纯文本(见 plan KTD2)—— 故 ws 走原生
+// skill input item,exec 退回把选中 skill 渲染成「读 SKILL.md 再执行」的定向 prompt,与本次改动前
+// codex 单发 skill 的 prose 行为等价(R3 不倒退)。
+// ⚠️ 跨进程契约:文案须与 core 的 renderSkillInvocation 对齐(主进程不能 import core 运行时,故各持
+// 一份逻辑);invokedSkill 仅带 name/path,description 段落随之省略。name/path 去换行防越界注入。
+export function renderCodexSkillFallback(skill: { name: string; path: string }, args: string): string {
+  const name = skill.name.replace(/[\r\n]+/g, " ").replace(/^#+\s*/, "").trim();
+  const dir = skill.path.replace(/[\r\n]+/g, " ");
+  const lines = [
+    `请使用 skill「${name}」完成本次任务。`,
+    `指令文件:${dir}/SKILL.md —— 请先用 Read 工具查看完整指令,再据此执行。`,
+  ];
+  if (args) lines.push(`本次参数:${args}`);
+  return lines.join("\n");
 }
 
 // ── U3:通道 ──────────────────────────────────────────────────────────────────

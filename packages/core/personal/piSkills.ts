@@ -10,12 +10,20 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { DEFAULT_PI_SKILLS, type AgentKind, type PiSkillSettings, type PluginSkill, type SessionMeta } from "../desktop/types";
+import { DEFAULT_PI_SKILLS, type AgentKind, type PiSkillSettings, type PluginSkill, type SessionMeta, type SkillScope } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
+import { resolveAgentSkillRoots } from "./skill-roots";
 
-/** slash 菜单展示用的已启用 skill 元数据(取自 PluginSkill)。 */
-export type PiSlashSkill = { name: string; description: string; argumentHint?: string };
+/** slash 菜单展示用的已启用 skill 元数据(取自 PluginSkill)。scope + system 供菜单渲染来源标签。 */
+export type PiSlashSkill = {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  scope: SkillScope;
+  // CLI 自带系统内置(如 codex ~/.codex/skills/.system)。据来源根路径判定,供「系统」标签。
+  system: boolean;
+};
 
 /**
  * 纯函数:把 piSkillsList 扫描结果过滤为「已启用」展示集。规则与 resolveEnabledSkillPaths 完全一致——
@@ -38,7 +46,14 @@ export function filterEnabledPiSkills(skills: PluginSkill[], cfg: PiSkillSetting
   for (const s of enabled) if (s.scope === "global") byName.set(s.name, s);
   return [...byName.values()]
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((s) => ({ name: s.name, description: s.description, argumentHint: s.argumentHint }));
+    .map((s) => ({
+      name: s.name,
+      description: s.description,
+      argumentHint: s.argumentHint,
+      scope: s.scope,
+      // 系统内置判定:来源根路径含 /.system(codex ~/.codex/skills/.system)。启发式,随 codex 布局。
+      system: s.rootPath.includes("/.system"),
+    }));
 }
 
 /**
@@ -58,33 +73,30 @@ export function usePiEnabledSkills(session: SessionMeta | undefined): PiSlashSki
 
   // pi/claude/codex 会话 + 未会话级关 skills + 有 piSkillsList 才扫。claude/codex 无原生 /skill 展开,
   // 发送侧把 /skill:name 转定向 prompt(见 PersonalChatArea onSend + renderSkillInvocation),故菜单同样放行。
+  const agent = session?.agent;
   const gateOpen =
-    (session?.agent === "pi" || session?.agent === "claude" || session?.agent === "codex") &&
+    (agent === "pi" || agent === "claude" || agent === "codex") &&
     session?.useOwnSkills !== false &&
     !!bridge?.piSkillsList;
 
+  // Design B(plan 002 U3):按会话 agent 解析扫描根,使下拉随 agent 变化。gate 关时不解析。
+  const rootSpecs = useMemo(
+    () => (gateOpen && agent ? resolveAgentSkillRoots(cfg, agent, projectPath) : []),
+    [gateOpen, agent, cfg, projectPath],
+  );
+
   const { data } = useQuery<PluginSkill[]>({
-    queryKey: [
-      "pi-enabled-skills",
-      projectPath ?? "",
-      cfg.globalRoots.join("|"),
-      cfg.userGlobalRoots.join("|"),
-      cfg.workspaceEnabled,
-    ],
+    // queryKey 必须并入 agent + 根签名,否则切 agent 命中旧缓存导致列表不变(本 bug 直接成因)。
+    queryKey: ["pi-enabled-skills", agent ?? "", projectPath ?? "", rootSpecs.map((r) => `${r.origin}:${r.scope}:${r.path}`).join("|")],
     enabled: gateOpen,
-    queryFn: () =>
-      bridge!.piSkillsList!({
-        globalRoots: cfg.globalRoots,
-        userGlobalRoots: cfg.userGlobalRoots,
-        workspaceEnabled: cfg.workspaceEnabled,
-        workspaceDir: projectPath,
-      }),
+    // agent 透传:主进程据此追加该 agent 自带插件/内置 skill 根(Design B 增量)。
+    queryFn: () => bridge!.piSkillsList!({ rootSpecs, workspaceDir: projectPath, agent }),
     staleTime: Infinity,
     refetchOnWindowFocus: true, // 兜底:窗口重获焦点时重扫(skill 目录可能在外部增删)
   });
 
   return useMemo(
-    () => (gateOpen ? filterEnabledPiSkills(data ?? [], cfg, session?.agent) : []),
-    [gateOpen, data, cfg, session?.agent],
+    () => (gateOpen ? filterEnabledPiSkills(data ?? [], cfg, agent) : []),
+    [gateOpen, data, cfg, agent],
   );
 }

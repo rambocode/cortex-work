@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePersonalStore, type AgentKind, type DerivedAgentMeta, type DesktopBridge, type PendingImage, type PersonalAttachment } from "@cortex-work/core";
 import { defaultAsrSettings, type AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
 import type { LocalWhisperModelStatus } from "@cortex-work/core/whisper/models";
-import { ComposerShell, type SlashCommand } from "./ComposerShell";
+import { ComposerShell, matchSlashCommands, rankSlashMatch, type SlashCommand } from "./ComposerShell";
 import { FILE_DRAG_MIME } from "./FilesView";
 import { DOC_ACCEPT_ATTR } from "./docIntake";
 
@@ -47,6 +47,41 @@ function renderShell(props: {
 afterEach(() => {
   cleanup();
   usePersonalStore.setState({ providerSettings: { providers: [], defaultProviderId: undefined, defaultModel: undefined } });
+});
+
+describe("slash 模糊匹配 rankSlashMatch / matchSlashCommands", () => {
+  const CMDS: SlashCommand[] = [
+    { cmd: "/clear", desc: "清屏" },
+    { cmd: "/compact", desc: "压缩" },
+    { cmd: "/skill:agent-browser", desc: "浏览器" },
+    { cmd: "/skill:code-review", desc: "评审" },
+  ];
+
+  it("rankSlashMatch:前缀=0、去斜杠子串=1、子序列=2、不匹配=-1", () => {
+    expect(rankSlashMatch("/cl", "/clear")).toBe(0); // 前缀
+    expect(rankSlashMatch("/browser", "/skill:agent-browser")).toBe(1); // 去斜杠子串 "browser"
+    expect(rankSlashMatch("/agbr", "/skill:agent-browser")).toBe(2); // 子序列 /,a,g,b,r
+    expect(rankSlashMatch("/xyz", "/clear")).toBe(-1);
+    expect(rankSlashMatch("/", "/clear")).toBe(0); // 裸 / → 前缀命中全部
+  });
+
+  it("matchSlashCommands:'/br' 命中 agent-browser(旧前缀匹配匹配不到)", () => {
+    const out = matchSlashCommands("/br", CMDS).map((c) => c.cmd);
+    expect(out).toContain("/skill:agent-browser");
+    expect(out).not.toContain("/clear");
+  });
+
+  it("matchSlashCommands:按档位排序,前缀命中排在子串/子序列前", () => {
+    // "/c" 前缀命中 /clear /compact /skill:code-review? "/c" 前缀:/clear /compact(是),/skill:code-review 否(前缀是 /s)
+    // 但 code-review 含 "c" 子串 → 档 1。前缀两项应排前。
+    const out = matchSlashCommands("/c", CMDS).map((c) => c.cmd);
+    expect(out.slice(0, 2)).toEqual(["/clear", "/compact"]);
+    expect(out).toContain("/skill:code-review");
+  });
+
+  it("matchSlashCommands:裸 / → 保留全部原顺序", () => {
+    expect(matchSlashCommands("/", CMDS).map((c) => c.cmd)).toEqual(CMDS.map((c) => c.cmd));
+  });
 });
 
 describe("ComposerShell slash 键盘导航", () => {
@@ -99,10 +134,10 @@ describe("ComposerShell slash 键盘导航", () => {
   });
 });
 
-describe("ComposerShell slash skill 项(argHint + 插入模式 + KTD7)", () => {
+describe("ComposerShell slash skill 项(argHint + pill 模式 + KTD7)", () => {
   const SKILL_CMDS: SlashCommand[] = [
     { cmd: "/clear", desc: "清屏", kind: "builtin" },
-    { cmd: "/skill:agent-browser", desc: "浏览器自动化", argHint: "<url>", kind: "skill" },
+    { cmd: "/skill:agent-browser", displayName: "Agent Browser", desc: "浏览器自动化", argHint: "<url>", kind: "skill" },
   ];
 
   it("R4:skill 项渲染 argHint;内建项不渲染 argHint", () => {
@@ -113,19 +148,41 @@ describe("ComposerShell slash skill 项(argHint + 插入模式 + KTD7)", () => {
     expect(args[0]?.textContent).toBe("<url>");
   });
 
-  it("R5:选 skill 项 → 插入 '/skill:name '、不发送、菜单关闭(KTD7),随后 Enter 发送", () => {
+  it("R5(选项1):选 skill 项 → 显示 pill、清空输入、不发送;填参后 Enter 拼回 /skill:name args", () => {
     const onSend = vi.fn();
     const { container } = renderShell({ agent: "pi", running: false, onSend, slashCommands: SKILL_CMDS });
     const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "/skill" } });
     fireEvent.keyDown(ta, { key: "Enter" }); // 选中高亮的 skill 项
     expect(onSend).not.toHaveBeenCalled(); // skill 不立即发送
-    expect(ta.value).toBe("/skill:agent-browser "); // 插入带尾随空格
-    expect(container.querySelector(".pw-slash-item")).toBeNull(); // 有空格 → 菜单关闭
-    // 模拟填参后回车发送。
-    fireEvent.change(ta, { target: { value: "/skill:agent-browser https://x.com" } });
+    expect(container.querySelector(".pw-skill-pill")).not.toBeNull(); // 显示 skill pill
+    expect(screen.getByText("Agent Browser")).toBeTruthy(); // 友好名
+    expect(ta.value).toBe(""); // 输入框清空供填参(不再插入 /skill:name 文本)
+    expect(container.querySelector(".pw-slash-item")).toBeNull(); // 菜单关闭
+    // 填参后回车 → pill 的 cmd 与参数拼回 /skill:name args。
+    fireEvent.change(ta, { target: { value: "https://x.com" } });
     fireEvent.keyDown(ta, { key: "Enter" });
-    expect(onSend).toHaveBeenCalledWith("/skill:agent-browser https://x.com");
+    expect(onSend.mock.calls.at(-1)?.[0]).toBe("/skill:agent-browser https://x.com");
+  });
+
+  it("del:参数为空时 Backspace 删除已选 skill chip", () => {
+    const { container } = renderShell({ agent: "pi", running: false, slashCommands: SKILL_CMDS });
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "/skill" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(container.querySelector(".pw-skill-pill")).not.toBeNull();
+    fireEvent.keyDown(ta, { key: "Backspace" }); // 空参数 + 退格 → 移除 chip
+    expect(container.querySelector(".pw-skill-pill")).toBeNull();
+  });
+
+  it("无参数直接 Enter → 仅发送 /skill:name", () => {
+    const onSend = vi.fn();
+    renderShell({ agent: "pi", running: false, onSend, slashCommands: SKILL_CMDS });
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "/skill" } });
+    fireEvent.keyDown(ta, { key: "Enter" }); // 选中 → pill
+    fireEvent.keyDown(ta, { key: "Enter" }); // 空参数直接发送
+    expect(onSend.mock.calls.at(-1)?.[0]).toBe("/skill:agent-browser");
   });
 
   it("KTD4:高亮 skill 项动作提示为「插入」,内建为「执行/运行」", () => {

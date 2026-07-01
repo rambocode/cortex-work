@@ -438,11 +438,15 @@ const personal = {
   skillsList: (): Promise<SkillMeta[]> => ipcRenderer.invoke("skills:list"),
   // 插件管理（U3）:扫描多根 / 打开范围根。形状与 DesktopBridge 的可选方法逐字对齐。
   piSkillsList: (args: {
-    globalRoots: string[];
-    userGlobalRoots?: string[];
-    workspaceEnabled: boolean;
+    // Design B(plan 002):按 agent 的扫描根规格(global 含 ~;workspace 为相对子目录)。见 bridge.ts。
+    rootSpecs?: { path: string; scope: "global" | "workspace"; origin: "shared" | "agent" }[];
     workspaceDir?: string;
+    agent?: AgentKind; // Design B 增量:追加该 agent 自带插件/内置 skill 根
     pluginSkillDirs?: string[];
+    // 过渡期 deprecated 扁平入参。
+    globalRoots?: string[];
+    userGlobalRoots?: string[];
+    workspaceEnabled?: boolean;
   }): Promise<PluginSkill[]> => ipcRenderer.invoke("pi-skills:list", args),
   openSkillDir: (args: { dir: string; allowedRoots: string[] }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("pi-skills:open-dir", args),

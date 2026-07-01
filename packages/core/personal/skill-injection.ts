@@ -11,12 +11,16 @@
 import type { DesktopBridge } from "../desktop/bridge";
 import { DEFAULT_PI_SKILLS, DEFAULT_PLUGIN_ENABLE, type AgentKind, type PluginSkill } from "../desktop/types";
 import { usePersonalStore } from "../store/personal";
+import { resolveAgentSkillRoots } from "./skill-roots";
 
 // 注入用的精简 skill 记录(name/description/dir)。
 export interface InjectableSkill {
   name: string;
   description?: string;
   dir: string; // skill 根目录绝对路径
+  // Design B(plan 002):根来源。"agent" = 来自会话 agent 私有原生根(agent 自身会发现,U6 去重时不重复注入);
+  // "shared"/缺省 = 共享根 / 插件根 / 旧扫描(仍需 Cortex 注入)。
+  origin?: "shared" | "agent";
 }
 
 // 安全清洗(RISK-5):name/description 来自工作区 SKILL.md frontmatter,是进入 claude/codex
@@ -47,6 +51,19 @@ export function renderSkillBlock(skills: InjectableSkill[]): string {
   ].join("\n");
 }
 
+// U6(修复):单发/圆桌编排路由判断的单一来源。原先 messages.ts 内联判断与
+// PersonalChatArea.tsx 各写一份「subagentOrchestration && startOrchestration && !hasDelegateMentions」,
+// 靠注释手工保持一致——一旦其中一处的路由条件调整,另一处会静默漂移,导致「该走原生 skill 调用的
+// 组合悄悄退回 prose」或「该退回 prose 的组合却发了裸 slash/invokedSkill 到编排路径」(见 code review:
+// maintainability/agent-native 交叉确认)。现在两处都从这里导入,不再各自复刻判断逻辑。
+export function isOrchestrationSend(
+  subagentOrchestration: boolean | undefined,
+  hasStartOrchestration: boolean,
+  hasDelegateMentions: boolean,
+): boolean {
+  return subagentOrchestration === true && hasStartOrchestration && !hasDelegateMentions;
+}
+
 // 解析输入是否为「/skill:<name> [args]」形态(claude/codex 的 slash skill 触发)。命中返回
 // { name, args };否则 null。pi 会话不用它(pi CLI 自行展开 /skill:name),仅 claude/codex 发送侧
 // 拦截后转定向 prompt(见 renderSkillInvocation / PersonalChatArea onSend)。
@@ -55,6 +72,71 @@ export function parseSkillSlash(text: string): { name: string; args: string } | 
   const name = m?.[1];
   if (!name) return null; // 不匹配 / 无 name(\S+ 理论保证非空,此处兜底满足类型收窄)
   return { name, args: (m[2] ?? "").trim() };
+}
+
+// U5:claude 原生 slash 命令名的「纯 slug 化」步骤(无兜底/无碰撞消歧)。规则:小写化 + 换行/空格/
+// 路径分隔符/`..`/控制字符等一切非 [a-z0-9] 归一为连字符 + 折叠并去首尾连字符。可能产出空串
+// (如纯非 ASCII 名),空串兜底与同批次碰撞消歧交给 resolveClaudeSlashName(不能在此处独立兜底——
+// 见下方修复说明)。
+function slugifyClaudeSkillName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+// 向后兼容导出(单测/外部若已引用旧名):等价于 slugifyClaudeSkillName。
+export const sanitizeSkillCommandName = slugifyClaudeSkillName;
+
+// 不依赖 Node crypto(core 需可在浏览器/渲染端运行):纯算术短哈希,仅用于「空 slug 兜底」与「同批次
+// 命名碰撞消歧」的后缀,不要求密码学强度,只要求确定性——且必须与主进程
+// apps/desktop/src/main/skills/claude-bridge.ts 的同名函数逐字算法一致(⚠️ 跨进程契约,见下)。
+function shortHash(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
+  return (h >>> 0).toString(16).padStart(8, "0").slice(0, 8);
+}
+
+// 为一条记录算出「本批次内不冲突」的命令名——逐字复现主进程 claude-bridge.ts 的 resolveLinkName:
+// 空 slug 兜底为 `skill-<hash>`;与已占用名冲突(如 `my/skill` 与 `my-skill` 都归一到 `my-skill`)
+// 对后到者追加短 hash 后缀消歧;极端同名多次再叠加递增序号。
+function resolveCommandName(name: string, used: Set<string>): string {
+  const base = slugifyClaudeSkillName(name) || `skill-${shortHash(name)}`;
+  if (!used.has(base)) return base;
+  const suffixed = `${base}-${shortHash(name)}`;
+  if (!used.has(suffixed)) return suffixed;
+  let i = 2;
+  while (used.has(`${suffixed}-${i}`)) i++;
+  return `${suffixed}-${i}`;
+}
+
+// U5(修复):claude 桥接目录的 symlink 命名(主进程 buildClaudeSkillBridge)按 records 顺序做
+// 「空 slug 兜底 + 同批次碰撞消歧」,单条 sanitizeSkillCommandName(skill.name) 无法复现这一批次级
+// 结果——之前渲染端只对单条 skill 独立清洗,在(a)清洗后为空(纯非 ASCII/纯符号名)、(b)两条 skill
+// 归一到同一 slug 这两种边界下,产出的裸 slash 与桥接目录名不一致,导致 claude 侧「Unknown command」
+// 或「点了 A 却触发 B」(见 code review:correctness/maintainability/adversarial 交叉确认)。
+// 修复:按与主进程完全相同的算法,基于同一批 records(渲染端与主进程各自调用
+// resolveEnabledSkillRecords 取到的应为同一确定性排序结果)逐条推导命令名,取 target 命中的那个。
+export function resolveClaudeSlashName(records: InjectableSkill[], target: InjectableSkill): string {
+  const used = new Set<string>();
+  let matched: string | undefined;
+  for (const rec of records) {
+    const commandName = resolveCommandName(rec.name, used);
+    used.add(commandName);
+    if (rec === target || (rec.name === target.name && rec.dir === target.dir)) matched = commandName;
+  }
+  // 兜底:target 若不在 records 里(理论不达,调用方应保证 target ∈ records),独立推导一个安全命令名。
+  return matched ?? resolveCommandName(target.name, used);
+}
+
+// U5:把「/skill:<name> [args]」渲染成 claude CLI 认得的裸 slash「/<command-name> [args]」。
+// claude 在 CLI 输入层原生展开 `/<name>`(前提:桥接目录已让它发现该 skill,见 U1/U2),cortex 不再
+// 把 skill 改写成「请自行 Read SKILL.md」的 prose。name 经 resolveClaudeSlashName 对齐主进程桥接目录
+// 的实际命名(R7,含批次级碰撞消歧,见上);args 是用户输入(本就要发给 agent),不清洗。无 args →
+// 无尾随空格。allRecords 须是本轮已启用的完整 skill 记录集(与 cli.ts 建桥接目录用的同一份数据源)。
+export function renderClaudeSkillSlash(skill: InjectableSkill, args: string, allRecords: InjectableSkill[]): string {
+  const name = resolveClaudeSlashName(allRecords, skill);
+  const trimmed = args.trim();
+  return trimmed ? `/${name} ${trimmed}` : `/${name}`;
 }
 
 // 渲染「定向调用单个 skill」的 prompt:claude/codex 无原生 /skill 展开时,发送侧用它把 /skill:name
@@ -88,18 +170,15 @@ export async function resolveEnabledSkillRecords(
   if (useOwnSkills === false) return [];
   if (!bridge.piSkillsList) return [];
   const cfg = { ...DEFAULT_PI_SKILLS, ...usePersonalStore.getState().generalSettings.piSkills };
+  // Design B(plan 002 U4):按会话 agent 解析扫描根(与下拉 usePiEnabledSkills 共用 resolveAgentSkillRoots),
+  // 保证「菜单可见 == 实际注入」。主进程据 rootSpecs 扫描,PluginSkill 带回 origin 供 U6 去重。
+  const rootSpecs = resolveAgentSkillRoots(cfg, agent, projectPath);
   // U6:已启用 ∩ 已授信插件的 skills 根作为额外全局扫描根并入（主进程 append 进 scanSkillRoots）。
   // 插件级启停/信任是注入 gate——在这里按 store 过滤要送哪些根，主进程不读 store（KTD3）。
   const pluginSkillDirs = await resolveEnabledPluginSkillDirs(bridge);
   let skills: PluginSkill[];
   try {
-    skills = await bridge.piSkillsList({
-      globalRoots: cfg.globalRoots,
-      userGlobalRoots: cfg.userGlobalRoots,
-      workspaceEnabled: cfg.workspaceEnabled,
-      workspaceDir: projectPath,
-      pluginSkillDirs,
-    });
+    skills = await bridge.piSkillsList({ rootSpecs, workspaceDir: projectPath, pluginSkillDirs, agent });
   } catch {
     return [];
   }
@@ -113,7 +192,7 @@ export async function resolveEnabledSkillRecords(
   });
   // name 去重:先放工作区、后放全局覆盖 → 同名时全局胜出。
   const byName = new Map<string, InjectableSkill>();
-  const put = (s: PluginSkill) => byName.set(s.name, { name: s.name, description: s.description, dir: s.dir });
+  const put = (s: PluginSkill) => byName.set(s.name, { name: s.name, description: s.description, dir: s.dir, origin: s.origin });
   for (const s of enabled) if (s.scope === "workspace") put(s);
   for (const s of enabled) if (s.scope === "global") put(s);
   // 按 dir 字典序排序(与旧实现的 [...paths].sort() 等价,保持调用方稳定顺序)。

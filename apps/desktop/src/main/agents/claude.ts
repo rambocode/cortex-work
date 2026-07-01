@@ -108,6 +108,11 @@ export const claudeDef: AgentDef = {
     if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
     // skills 默认禁用,仅当用户在 composer 显式打开(useOwnSkills === true)时才加载。
     if (req.useOwnSkills !== true) args.push("--disable-slash-commands");
+    // U3:原生 skill 目录发现。开启原生 skill 且主进程已建好桥接目录(cli.ts 的 cli:start handler 内
+    // 由 buildClaudeSkillBridge 填充 skillsBridgeDir)时,追加 --add-dir 让 claude 自动加载该目录下的
+    // .claude/skills/,由 claude 自身原生展开 /<name>。无桥接目录(无已启用 skill / 构建失败降级)时
+    // 不追加,不阻断发送。claude 的 slash 展开发生在 CLI 输入层,buildArgs 无需处理 prompt 文本。
+    if (req.useOwnSkills === true && req.skillsBridgeDir) args.push("--add-dir", req.skillsBridgeDir);
     return { cmd: "claude", args, stdin: buildClaudeStdin(req) };
   },
 

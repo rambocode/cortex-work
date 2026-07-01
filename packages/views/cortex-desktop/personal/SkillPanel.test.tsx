@@ -135,37 +135,48 @@ describe("SkillPanel", () => {
   });
 
 
-  it("管理面板:添加全局目录 → 写 userGlobalRoots", async () => {
+  // Design B(U7):默认新增目标 = 当前 agent(无活动会话 → claude),写 agentRoots.claude。
+  it("管理面板:添加目录(默认当前 agent)→ 写 agentRoots.claude", async () => {
     renderWith(fakeBridge([]));
     await screen.findByText("未发现 Skill");
     fireEvent.click(screen.getByRole("button", { name: /管理/ })); // 展开管理面板
-    fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/my/skills" } });
+    fireEvent.change(screen.getByLabelText("新增目录"), { target: { value: "~/my/skills" } });
     fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
-    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/my/skills");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.agentRoots.claude).toContain("~/my/skills");
   });
 
-  it("添加全局目录:validateDir 返回 false → 报错且不写入", async () => {
+  it("添加目录:归属选「共享」→ 写 sharedRoots", async () => {
+    renderWith(fakeBridge([]));
+    await screen.findByText("未发现 Skill");
+    fireEvent.click(screen.getByRole("button", { name: /管理/ }));
+    fireEvent.change(screen.getByLabelText("新增目录归属"), { target: { value: "shared" } });
+    fireEvent.change(screen.getByLabelText("新增目录"), { target: { value: "~/shared/skills" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
+    expect(usePersonalStore.getState().generalSettings.piSkills!.sharedRoots).toContain("~/shared/skills");
+  });
+
+  it("添加目录:validateDir 返回 false → 报错且不写入", async () => {
     const bridge = fakeBridge([]);
     (bridge as unknown as { validateDir: () => Promise<boolean> }).validateDir = vi.fn(async () => false);
     renderWith(bridge);
     await screen.findByText("未发现 Skill");
     fireEvent.click(screen.getByRole("button", { name: /管理/ }));
-    fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/not/exist" } });
+    fireEvent.change(screen.getByLabelText("新增目录"), { target: { value: "~/not/exist" } });
     fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
     await screen.findByRole("alert");
-    expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).not.toContain("~/not/exist");
+    expect(usePersonalStore.getState().generalSettings.piSkills!.agentRoots.claude).not.toContain("~/not/exist");
   });
 
-  it("添加全局目录:validateDir 返回 true → 写入 userGlobalRoots", async () => {
+  it("添加目录:validateDir 返回 true → 写入 agentRoots.claude", async () => {
     const bridge = fakeBridge([]);
     (bridge as unknown as { validateDir: () => Promise<boolean> }).validateDir = vi.fn(async () => true);
     renderWith(bridge);
     await screen.findByText("未发现 Skill");
     fireEvent.click(screen.getByRole("button", { name: /管理/ }));
-    fireEvent.change(screen.getByLabelText("新增全局目录"), { target: { value: "~/real/skills" } });
+    fireEvent.change(screen.getByLabelText("新增目录"), { target: { value: "~/real/skills" } });
     fireEvent.click(screen.getByRole("button", { name: "添加目录" }));
     await waitFor(() =>
-      expect(usePersonalStore.getState().generalSettings.piSkills!.userGlobalRoots).toContain("~/real/skills"),
+      expect(usePersonalStore.getState().generalSettings.piSkills!.agentRoots.claude).toContain("~/real/skills"),
     );
   });
 
@@ -189,20 +200,48 @@ describe("SkillPanel", () => {
     usePersonalStore.setState({
       generalSettings: {
         ...DEFAULT_GENERAL_SETTINGS,
-        piSkills: { ...DEFAULT_PI_SKILLS, globalRoots: ["~/.agents/skills", "~/other"] },
+        // Design B:当前 agent(默认 claude)私有根含一个自增根 ~/other,共享根为默认。
+        piSkills: {
+          ...DEFAULT_PI_SKILLS,
+          agentRoots: { ...DEFAULT_PI_SKILLS.agentRoots, claude: ["~/.claude/skills", "~/other"] },
+        },
       },
       projects: [],
       activeProjectId: undefined,
     });
     // 两个 skill,rootPath 落在不同根。
-    const a: PluginSkill = { ...sk("a", "global", "/g/a"), rootPath: "/home/u/.agents/skills" };
+    const a: PluginSkill = { ...sk("a", "global", "/g/a"), rootPath: "/home/u/.claude/skills" };
     const b: PluginSkill = { ...sk("b", "global", "/o/b"), rootPath: "/home/u/other" };
     renderWith(fakeBridge([a, b]));
     await screen.findByText("A");
     expect(screen.getByText(/已扫描 2 个/)).toBeTruthy();
-    // 选 ~/.agents/skills → 只数尾段匹配的那 1 个。
-    fireEvent.change(screen.getByLabelText("选择 Skill 目录"), { target: { value: "~/.agents/skills" } });
+    // 选 ~/.claude/skills → 只数尾段匹配的那 1 个。
+    fireEvent.change(screen.getByLabelText("选择 Skill 目录"), { target: { value: "~/.claude/skills" } });
     expect(screen.getByText(/已扫描 1 个/)).toBeTruthy();
+  });
+
+  // Design B(U7 修复):切 agent 后重置 activeDir,避免 targetDir/白名单指向上个 agent 的目录。
+  it("切换 agent → activeDir 重置为 all(防 stale targetDir)", async () => {
+    usePersonalStore.setState({
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        piSkills: { ...DEFAULT_PI_SKILLS, agentRoots: { ...DEFAULT_PI_SKILLS.agentRoots, claude: ["~/.claude/skills", "~/other"] } },
+      },
+      projects: [],
+      activeProjectId: undefined,
+    });
+    renderWith(fakeBridge([{ ...sk("a", "global", "/g/a"), rootPath: "/home/u/other" }]));
+    await screen.findByText("A");
+    // 选具体目录
+    const dirSel = screen.getByLabelText("选择 Skill 目录") as HTMLSelectElement;
+    fireEvent.change(dirSel, { target: { value: "~/other" } });
+    expect((screen.getByLabelText("选择 Skill 目录") as HTMLSelectElement).value).toBe("~/other");
+    // 展开管理并切 agent → activeDir 应重置为 all
+    fireEvent.click(screen.getByRole("button", { name: /管理/ }));
+    fireEvent.change(screen.getByLabelText("选择 agent"), { target: { value: "pi" } });
+    await waitFor(() =>
+      expect((screen.getByLabelText("选择 Skill 目录") as HTMLSelectElement).value).toBe("all"),
+    );
   });
 
   it("bridge=null（web/旧壳）→ 降级空态", () => {

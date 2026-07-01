@@ -225,9 +225,12 @@ export interface RpcTransport {
  */
 export function buildRpcArgs(req: PiOpenRequest): string[] {
   const args = ["--mode", "rpc", "--no-extensions"];
-  // 插件管理（U4）:恒带 --no-skills 关掉 pi 自动发现,UI 为唯一真相源;已启用的 skill 由装配层
-  // 解析为 skillPaths,逐个 --skill 注入（与单发 pi.ts 同策略;实测 --no-skills 与显式 --skill 共存）。
-  args.push("--no-skills");
+  // 插件管理:--no-skills 随 useOwnSkills gate（与单发 pi.ts / claude adapter 对齐）。
+  //   · useOwnSkills!==true → 加 --no-skills 关掉 pi 原生自动发现;
+  //   · useOwnSkills===true → 省略,放开 pi 自身原生 skill 发现(~/.pi/agent/skills、~/.agents/skills、
+  //     项目 .pi/skills / .agents/skills),让 pi 用「各自原生目录」,与 claude/codex 一致。
+  // 无论开关,Cortex 已启用集合仍逐个 --skill 附加注入（实测 --no-skills 与显式 --skill 共存）。
+  if (req.useOwnSkills !== true) args.push("--no-skills");
   for (const p of req.skillPaths ?? []) args.push("--skill", p);
   // 运行模式 plan 档:只读工具白名单（renderer 由 permissionMode 派生为 toolWhitelist）。--tools 是
   // 全局 CLI flag,与 --mode rpc 正交,可与 --no-skills/--skill/-e 共存;缺省不传 = 全工具可用

@@ -114,10 +114,10 @@ async function scanRoot(root: string): Promise<Map<string, SkillMeta>> {
 // enabled 恒 true（渲染端据 disabledSkills 叠加）;trusted = scope==="global"
 // （工作区由 trustedWorkspaceSkillDirs 在装配 / UI 层覆盖）。注入前去重在 U5 装配层做。
 export async function scanSkillRoots(
-  roots: { path: string; scope: SkillScope }[],
+  roots: { path: string; scope: SkillScope; origin?: "shared" | "agent" }[],
 ): Promise<PluginSkill[]> {
   const out: PluginSkill[] = [];
-  for (const { path, scope } of roots) {
+  for (const { path, scope, origin } of roots) {
     for (const s of await readRoot(path)) {
       out.push({
         name: s.name,
@@ -127,6 +127,7 @@ export async function scanSkillRoots(
         dir: s.dir,
         rootPath: path,
         scope,
+        origin: origin ?? "shared", // Design B(plan 002):缺省视为 shared(旧扫描/插件根)
         enabled: true,
         trusted: scope === "global",
         docs: s.docs,

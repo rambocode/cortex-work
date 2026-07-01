@@ -11,8 +11,10 @@ import {
 } from "@cortex-work/core";
 import type { DesktopBridge, SessionMeta } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
+import { isOrchestrationSend, renderClaudeSkillSlash, renderSkillInvocation } from "@cortex-work/core";
+import type { InjectableSkill } from "@cortex-work/core";
 import { MessageStream } from "../ChatArea";
-import { PersonalChatArea } from "./PersonalChatArea";
+import { PersonalChatArea, resolveSkillDispatch } from "./PersonalChatArea";
 
 const NOW = Date.now();
 
@@ -968,5 +970,74 @@ describe("PersonalChatArea 追问收尾语义(FIX-1 / FIX-6)", () => {
     // 旧 error 文案消失(被替换),问题文本仍只出现一次。
     await waitFor(() => expect(screen.queryByText("炸了")).toBeNull());
     expect(screen.getAllByText("会失败的问")).toHaveLength(1);
+  });
+});
+
+// U6:/skill:name 发送侧派发(纯函数,onSend 内组装并调用它们)。
+describe("PersonalChatArea /skill 发送派发（U6）", () => {
+  const skill: InjectableSkill = { name: "My Skill!", description: "干活", dir: "/g/s" };
+
+  describe("isOrchestrationSend 路由判断", () => {
+    it("开启编排 + 支持 startOrchestration + 无 @mention 委派 → 走圆桌编排", () => {
+      expect(isOrchestrationSend(true, true, false)).toBe(true);
+    });
+    it("未开启编排 → 单发", () => {
+      expect(isOrchestrationSend(false, true, false)).toBe(false);
+      expect(isOrchestrationSend(undefined, true, false)).toBe(false);
+    });
+    it("壳不支持 startOrchestration → 单发(即使开关开着)", () => {
+      expect(isOrchestrationSend(true, false, false)).toBe(false);
+    });
+    it("开启编排但本条带 @mention 委派 → 实际走单发(与 messages.ts 完整路由对齐)", () => {
+      expect(isOrchestrationSend(true, true, true)).toBe(false);
+    });
+  });
+
+  describe("resolveSkillDispatch 三路改写", () => {
+    // allRecords 传本批次全部已启用 skill(此处只有一条),供 claude 分支推导跨进程一致的命令名。
+    const allRecords = [skill];
+
+    it("claude 单发 → 裸 slash,不带 invokedSkill", () => {
+      const d = resolveSkillDispatch("claude", "/skill:my-skill foo bar", "foo bar", skill, false, allRecords);
+      expect(d.outText).toBe(renderClaudeSkillSlash(skill, "foo bar", allRecords));
+      expect(d.outText.startsWith("/")).toBe(true);
+      expect(d.invokedSkill).toBeUndefined();
+    });
+
+    it("codex 单发 → 文本保留 args + 结构化 invokedSkill{name,path=dir}", () => {
+      const d = resolveSkillDispatch("codex", "/skill:my-skill foo bar", "foo bar", skill, false, allRecords);
+      expect(d.outText).toBe("foo bar");
+      expect(d.invokedSkill).toEqual({ name: "My Skill!", path: "/g/s" });
+    });
+
+    it("codex 单发 + 空 args → 文本为空但仍带 invokedSkill(不丢原生触发)", () => {
+      const d = resolveSkillDispatch("codex", "/skill:my-skill", "", skill, false, allRecords);
+      expect(d.outText).toBe("");
+      expect(d.invokedSkill).toEqual({ name: "My Skill!", path: "/g/s" });
+    });
+
+    it("claude 走圆桌编排 → 维持现状 prose,不带 invokedSkill", () => {
+      const d = resolveSkillDispatch("claude", "/skill:my-skill foo", "foo", skill, true, allRecords);
+      expect(d.outText).toBe(renderSkillInvocation(skill, "foo"));
+      expect(d.invokedSkill).toBeUndefined();
+    });
+
+    it("codex 走圆桌编排 → 维持现状 prose,不带 invokedSkill", () => {
+      const d = resolveSkillDispatch("codex", "/skill:my-skill foo", "foo", skill, true, allRecords);
+      expect(d.outText).toBe(renderSkillInvocation(skill, "foo"));
+      expect(d.invokedSkill).toBeUndefined();
+    });
+
+    it("同批次命名碰撞时,裸 slash 与主进程桥接目录的消歧命名一致(code review 修复)", () => {
+      // 两条 skill 归一化后同 slug("my/skill" 与 "my-skill" 都 → "my-skill")。
+      const a: InjectableSkill = { name: "my/skill", dir: "/a" };
+      const b: InjectableSkill = { name: "my-skill", dir: "/b" };
+      const dispatchA = resolveSkillDispatch("claude", "/skill:a", "", a, false, [a, b]);
+      const dispatchB = resolveSkillDispatch("claude", "/skill:b", "", b, false, [a, b]);
+      // 先到者(a)拿裸 slug,后到者(b)必须拿到消歧后缀,两者裸 slash 不能相同——否则点 b 会误触发 a。
+      expect(dispatchA.outText).toBe("/my-skill");
+      expect(dispatchB.outText).not.toBe("/my-skill");
+      expect(dispatchB.outText.startsWith("/my-skill-")).toBe(true);
+    });
   });
 });

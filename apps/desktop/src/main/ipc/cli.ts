@@ -2,7 +2,7 @@
 // → webContents.send 推给 renderer。每个 runId 一个子进程，支持 kill；
 // 应用退出前统一清理。
 
-import { ipcMain, type WebContents } from "electron";
+import { app, ipcMain, type WebContents } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "crypto";
 import { delimiter, dirname, isAbsolute, join } from "path";
@@ -30,6 +30,8 @@ import { loadWorkflows } from "../workflow/store";
 import { getPersistedState } from "./store";
 import { CodexServerManager } from "../agents/codex-app-server";
 import { startCodexWsRun, closeAllCodexChannels } from "./codex-ws-run";
+import { renderCodexSkillFallback } from "./codex-ws-channel";
+import { buildClaudeSkillBridge } from "../skills/claude-bridge";
 import { createLogger } from "../log";
 
 const log = createLogger("cli");
@@ -669,6 +671,27 @@ export function registerCliHandlers(): void {
         mcpArgs = buildCodexMcpArgs(mcp);
       }
     }
+
+    // claude 原生 skill 目录桥接(U2/KTD5):仅 claude 且会话开启 useOwnSkills 且渲染端传来非空 skillRecords
+    // 时,把这些 skill 物化成 claude 能自动发现的 `.claude/skills/` 目录(symlink),写回 req.skillsBridgeDir
+    // 供 claude.ts buildArgs 追加 --add-dir。开关语义与 --disable-slash-commands 一致(KTD4),不影响
+    // codex/pi 及 oneshot/ask/automation 等不设 skillRecords 的调用点。降级对齐 applyClaudeMcp:构建失败
+    // 只 warn、不阻断发送(skillsBridgeDir 保持 undefined → 不追加 --add-dir,退回现状)。
+    if (req.agent === "claude" && req.useOwnSkills === true && req.skillRecords?.length) {
+      try {
+        // 桥接根目录按 sessionId 命名、每轮覆盖重建,避免跨会话堆积(生命周期/GC 策略见 plan Deferred)。
+        // 安全(code review 修复):sessionId 是渲染端经 cli:start 传入的可控字段,拼路径前必须清洗
+        // (对齐下方 delegate 桥接扩展名 safeSid 的既有惯例)——否则含 `../` 的 sessionId 经 join
+        // 规范化可逃出 userData/skill-bridge,而 buildClaudeSkillBridge 对目标目录做的是
+        // rmSync({recursive:true, force:true}),逃逸后即是递归强删任意可写目录。
+        const safeSessionId = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const bridgeRootDir = join(app.getPath("userData"), "skill-bridge", safeSessionId);
+        req.skillsBridgeDir = buildClaudeSkillBridge(req.skillRecords, bridgeRootDir);
+      } catch (e) {
+        log.warn(`buildClaudeSkillBridge failed: ${String(e)}`); // 桥接失败不阻断启动
+      }
+    }
+
     assertSpawnCwd(req.cwd);
 
     // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,仍能把事件归属到正确 session。
@@ -729,7 +752,19 @@ export function registerCliHandlers(): void {
     // 仅 cli:start 读 transport;oneshot/ask/automation/workflow-headless 不经此、恒走 spawn+`codex exec`。
     // 委派场景强制 codex 走单发 codex exec（非 ws）：ws app-server 长驻会缓存 tools/list，
     // 破坏 per-turn 工具集（每轮 @mention 不同）。单发每轮 fresh exec 重新发现 delegate 工具。
-    if ((adapter.transport ?? "spawn") === "ws" && !req.delegateRoles?.length) {
+    const goesWs = (adapter.transport ?? "spawn") === "ws" && !req.delegateRoles?.length;
+
+    // codex 原生 skill(U4):ws 主交互路径把 invokedSkill 作为 turn/start 的原生 skill input item
+    // 显式注入(见 buildTurnInput);但因委派等原因退回 `codex exec`(非 ws)时,exec 没有输入层做
+    // slash→内容 替换,退回现状 prose 回退(R3):把 invokedSkill 渲染成「读 SKILL.md 再执行」的
+    // 定向 prompt 写回 req.prompt(与改动前 codex 单发 skill 行为等价),并清空 invokedSkill(已消费,
+    // 避免 exec 下游误读)。ws 分支不在此处理,留给 buildTurnInput。
+    if (req.agent === "codex" && req.invokedSkill && !goesWs) {
+      req.prompt = renderCodexSkillFallback(req.invokedSkill, req.prompt);
+      req.invokedSkill = undefined;
+    }
+
+    if (goesWs) {
       const handle = startCodexWsRun({
         req,
         def: adapter,

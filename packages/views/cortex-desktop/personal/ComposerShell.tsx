@@ -87,7 +87,51 @@ function deriveSkillName(path: string, fileName: string, content: string): strin
  *  - "skill":选中插入 `cmd ` 到输入框、保留焦点、不发送,供用户填 argHint 参数后再发。
  * argHint 为 pi skill frontmatter 的 argument-hint(如 `<url>` / `[branch]`),展示在命令名后。
  */
-export type SlashCommand = { cmd: string; desc: string; argHint?: string; kind?: "builtin" | "skill" };
+export type SlashCommand = {
+  cmd: string;
+  desc: string;
+  argHint?: string;
+  kind?: "builtin" | "skill";
+  // 菜单展示用友好名(Title Case,如 Image Gen);缺省回退展示 cmd。匹配时 cmd 与 displayName 都参与。
+  displayName?: string;
+  // 来源标签(个人/系统/工作区),展示在菜单项右侧。
+  tag?: string;
+};
+
+// slash 命令模糊匹配打分:输入 "/br" 也能命中 "/skill:agent-browser"。返回档位(越小越优),-1 = 不匹配。
+//   0 前缀命中(旧行为,最优);1 去斜杠子串命中;2 子序列命中(q 的字符按序出现在 cmd 中)。
+// query 与 cmd 均小写比较,去斜杠子串让 "/browser" 命中 "/skill:agent-browser"。
+export function rankSlashMatch(query: string, cmd: string): number {
+  const q = query.toLowerCase();
+  const c = cmd.toLowerCase();
+  if (c.startsWith(q)) return 0;
+  const sub = q.startsWith("/") ? q.slice(1) : q;
+  if (sub && c.includes(sub)) return 1;
+  let qi = 0;
+  for (let ci = 0; ci < c.length && qi < q.length; ci++) if (c[ci] === q[qi]) qi++;
+  return qi === q.length ? 2 : -1;
+}
+
+// 一条命令的最优档位:cmd 与 displayName(若有)都参与匹配,取更优(更小)者;都不匹配 = -1。
+// 让「/imag」「image gen」都能命中 Image Gen(displayName)与 /skill:image-gen(cmd)。
+function bestSlashRank(query: string, c: SlashCommand): number {
+  let best = -1;
+  for (const target of [c.cmd, c.displayName]) {
+    if (!target) continue;
+    const r = rankSlashMatch(query, target);
+    if (r >= 0 && (best === -1 || r < best)) best = r;
+  }
+  return best;
+}
+
+// 按打分过滤 + 排序 slash 命令:档位升序,同档保持原顺序(builtins 在前、skill 按名),稳定不打乱。
+export function matchSlashCommands(query: string, commands: SlashCommand[]): SlashCommand[] {
+  return commands
+    .map((c, i) => ({ c, i, r: bestSlashRank(query, c) }))
+    .filter((x) => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.c);
+}
 
 export function ComposerShell({
   agent,
@@ -186,6 +230,8 @@ export function ComposerShell({
   const [slashDismissed, setSlashDismissed] = useState(false);
   // 插件「在对话中试用」上下文:输入框前渲染的插件 pill（composerIcon 图标+名称）。发送或手动移除即清。
   const [tryPlugin, setTryPlugin] = useState<{ id: string; name: string; icon?: string } | null>(null);
+  // 选项1(图2):选中 skill 后在输入框上方显示的 pill(icon + 友好名);textarea 只留参数,发送时拼回 cmd。
+  const [selectedSkill, setSelectedSkill] = useState<{ cmd: string; displayName: string } | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   // 上传入口合并:图片/文档共用单个隐藏 input,经「+」菜单「文件」项触发,onChange 按 MIME 分流。
   const attachInputRef = useRef<HTMLInputElement>(null);
@@ -237,6 +283,7 @@ export function ComposerShell({
     setText("");
     setAttachments([]);
     setTryPlugin(null); // 发送后清插件试用 pill
+    setSelectedSkill(null); // 发送后清已选 skill pill(选项1)
     try {
       // onSend 返回「是否已消费」(真正发出);未消费(/clear、pi 不可用、落盘失败)则保留待发图/文档供重试。
       const consumed = await onSend(textToSend, attachments, sentImages, sentDocs);
@@ -248,7 +295,12 @@ export function ComposerShell({
       setSending(false);
     }
   };
-  const send = () => sendText(text);
+  // 已选 skill 时:把 pill 的 cmd 与输入的参数拼回 `/skill:name args`(无参数则仅 cmd)交发送路径解析。
+  const send = () => {
+    const args = text.trim();
+    const outText = selectedSkill ? (args ? `${selectedSkill.cmd} ${args}` : selectedSkill.cmd) : text;
+    void sendText(outText);
+  };
 
   // 采集图片:格式/大小校验(toast 原因)→ 读成 PendingImage → 去重 + 张数上限以 prev 为准
   // (放进 setImages 函数式更新,避免快速连续采集时过期闭包 images 导致越限/漏去重)。
@@ -465,7 +517,8 @@ export function ComposerShell({
     slashCommands.length > 0 && afterSlash.startsWith("/") && !afterSlash.includes(" ") && !afterSlash.includes("\n")
       ? afterSlash
       : null;
-  const slashMatches = slashQuery ? slashCommands.filter((c) => c.cmd.startsWith(slashQuery)) : [];
+  // 模糊匹配(子序列 + 排序):输入 "/br" 也能命中 "/skill:agent-browser"(见 matchSlashCommands)。
+  const slashMatches = slashQuery ? matchSlashCommands(slashQuery, slashCommands) : [];
   const slashOpen = !!slashQuery && slashMatches.length > 0 && !slashDismissed;
   // 查询变化（输入/删除字符）→ 高亮回到首项并撤销 Esc 收起;纯方向键导航不改 query,选择得以保持。
   useEffect(() => {
@@ -473,10 +526,12 @@ export function ComposerShell({
     setSlashDismissed(false);
   }, [slashQuery]);
 
-  // 选中命令:内建立即执行;skill 插入 `cmd ` 并保留焦点供填参(KTD4)。
+  // 选中命令:内建立即执行;skill 选中后在输入框上方显示 pill(选项1/图2),textarea 清空供填参,
+  // 发送时由 send() 把 pill 的 cmd 与参数拼回 `/skill:name args`。菜单随 text 清空自动关闭。
   const runCommand = (c: SlashCommand) => {
     if (c.kind === "skill") {
-      setText(`${c.cmd} `);
+      setSelectedSkill({ cmd: c.cmd, displayName: c.displayName ?? c.cmd });
+      setText("");
       taRef.current?.focus();
       return;
     }
@@ -487,6 +542,12 @@ export function ComposerShell({
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // @mention autocomplete 优先拦截
     if (mention.handleMentionKeyDown(e)) return;
+    // 已选 skill chip 在输入框最前:参数为空时按 Backspace/Delete 即删除该 chip(退格移除前置 chip 的直觉)。
+    if (selectedSkill && text === "" && (e.key === "Backspace" || e.key === "Delete") && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      setSelectedSkill(null);
+      return;
+    }
     if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       const n = slashMatches.length;
@@ -681,10 +742,20 @@ export function ComposerShell({
                     runCommand(c);
                   }}
                 >
-                  <code>{c.cmd}</code>
+                  {/* skill 项:图标 + Title-Case 友好名(如 Image Gen);内建命令仍展示原始 /cmd。 */}
+                  {c.displayName ? (
+                    <>
+                      <Icon.Sparkle size={14} className="pw-slash-icon" />
+                      <span className="pw-slash-name">{c.displayName}</span>
+                    </>
+                  ) : (
+                    <code>{c.cmd}</code>
+                  )}
                   {c.argHint ? <span className="pw-slash-arg">{c.argHint}</span> : null}
                   {/* 描述单行省略:skill 的 SKILL.md 描述可能很长,全显会撑爆菜单(title 给悬停全文)。 */}
                   <span className="pw-slash-desc" title={c.desc}>{c.desc}</span>
+                  {/* 来源标签(个人/系统/工作区),右侧弱化展示。 */}
+                  {c.tag ? <span className="pw-slash-tag">{c.tag}</span> : null}
                   {/* 动作提示按 kind 区分(KTD4):skill 为「插入」(选中填参),内建为「运行」(立即执行)。 */}
                   {active ? (
                     <kbd className="pw-slash-kbd">
@@ -722,6 +793,26 @@ export function ComposerShell({
                 className="pw-try-pill-x"
                 aria-label={t("composer.remove")}
                 onClick={() => setTryPlugin(null)}
+              >
+                <Icon.X size={11} />
+              </button>
+            </span>
+          ) : null}
+          {/* 选项1(图2):已选 skill pill —— 图标 + 友好名 + ×;textarea 里只填参数,发送时拼回 /skill:name。 */}
+          {selectedSkill ? (
+            <span className="pw-try-pill pw-skill-pill" title={selectedSkill.displayName}>
+              <span className="pw-try-pill-ico">
+                <Icon.Sparkle size={12} />
+              </span>
+              <span className="pw-try-pill-name">{selectedSkill.displayName}</span>
+              <button
+                type="button"
+                className="pw-try-pill-x"
+                aria-label={t("composer.remove")}
+                onClick={() => {
+                  setSelectedSkill(null);
+                  taRef.current?.focus();
+                }}
               >
                 <Icon.X size={11} />
               </button>

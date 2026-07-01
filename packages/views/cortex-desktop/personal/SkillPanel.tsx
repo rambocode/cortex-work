@@ -6,9 +6,26 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { DEFAULT_PI_SKILLS, useDesktopBridge, usePersonalStore, type PluginSkill } from "@cortex-work/core";
+import {
+  DEFAULT_PI_SKILLS,
+  DEFAULT_AGENT_SKILL_ROOTS,
+  DEFAULT_SHARED_SKILL_ROOTS,
+  resolveAgentSkillRoots,
+  useDesktopBridge,
+  usePersonalStore,
+  type AgentKind,
+  type PluginSkill,
+} from "@cortex-work/core";
+import { skillTitleCase } from "./skillDisplay";
 
 type StatusFilter = "all" | "enabled" | "disabled";
+
+// Design B(plan 002 U7):面板按 agent 管理各自私有根 + 共享根。选择器候选。
+const AGENT_OPTIONS: { value: AgentKind; label: string }[] = [
+  { value: "claude", label: "Claude" },
+  { value: "codex", label: "Codex" },
+  { value: "pi", label: "Pi" },
+];
 type LoadState =
   | { kind: "loading" }
   | { kind: "error"; error: string }
@@ -30,6 +47,8 @@ export function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBri
   const addGlobalSkillRoot = usePersonalStore((s) => s.addGlobalSkillRoot);
   const removeGlobalSkillRoot = usePersonalStore((s) => s.removeGlobalSkillRoot);
   const workspaceDir = usePersonalStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
+  // Design B(plan 002 U7):面板按 agent 展示/管理。默认取活动会话 agent,无则 claude;用户可用选择器切换。
+  const activeAgent = usePersonalStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.agent);
 
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [query, setQuery] = useState("");
@@ -37,32 +56,42 @@ export function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBri
   const [activeDir, setActiveDir] = useState<string>("all"); // 当前活动目录（创建/打开/统计焦点）
   const [newRoot, setNewRoot] = useState("");
   const [newRootErr, setNewRootErr] = useState<string | null>(null); // 手填根的存在性校验反馈
+  // 新增根的目标类别:"shared"(共享,对三端) / 当前所选 agent(私有)。默认加到当前 agent。
+  const [selectedAgent, setSelectedAgent] = useState<AgentKind>(
+    activeAgent === "claude" || activeAgent === "codex" || activeAgent === "pi" ? activeAgent : "claude",
+  );
+  const [newRootTarget, setNewRootTarget] = useState<"shared" | AgentKind>(selectedAgent);
   const [showCreate, setShowCreate] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", body: "" });
   const [createMsg, setCreateMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const { globalRoots, userGlobalRoots, workspaceEnabled, disabledSkills, trustedWorkspaceSkillDirs } = piSkills;
-  // open-dir/create 白名单 = 全部已配置根（含工作区根,若启用）。
+  const { workspaceEnabled, disabledSkills, trustedWorkspaceSkillDirs } = piSkills;
+  // 当前 agent 视图下的全局根:共享 + 该 agent 私有(用于白名单/下拉/管理展示)。
+  const sharedRoots = piSkills.sharedRoots;
+  const agentPrivateRoots = useMemo(() => piSkills.agentRoots[selectedAgent] ?? [], [piSkills.agentRoots, selectedAgent]);
+
+  // open-dir/create 白名单 = 当前 agent 视图下全部已配置根（含工作区根,若启用）。
   const allowedRoots = useMemo(() => {
-    const roots = [...globalRoots, ...userGlobalRoots];
+    const roots = [...sharedRoots, ...agentPrivateRoots];
     if (workspaceEnabled && workspaceDir) roots.push(`${workspaceDir}/.cortex-desktop/skills`);
     return roots;
-  }, [globalRoots, userGlobalRoots, workspaceEnabled, workspaceDir]);
+  }, [sharedRoots, agentPrivateRoots, workspaceEnabled, workspaceDir]);
 
-  // 目录下拉选项:全部 + 各配置根（带 全局/工作区 scope 标签）。
+  // 目录下拉选项:全部 + 各配置根（带 共享/<agent>/工作区 scope 标签）。
   const dirOptions = useMemo(() => {
     const opts: { value: string; label: string }[] = [{ value: "all", label: "全部目录" }];
-    for (const r of [...globalRoots, ...userGlobalRoots]) opts.push({ value: r, label: `全局 · ${r}` });
+    for (const r of sharedRoots) opts.push({ value: r, label: `共享 · ${r}` });
+    for (const r of agentPrivateRoots) opts.push({ value: r, label: `${selectedAgent} · ${r}` });
     if (workspaceEnabled && workspaceDir) {
       const wp = `${workspaceDir}/.cortex-desktop/skills`;
       opts.push({ value: wp, label: `工作区 · ${wp}` });
     }
     return opts;
-  }, [globalRoots, userGlobalRoots, workspaceEnabled, workspaceDir]);
+  }, [sharedRoots, agentPrivateRoots, selectedAgent, workspaceEnabled, workspaceDir]);
 
-  // 创建/打开的目标根:选定具体目录则用之,否则回退首个全局根。
-  const targetDir = activeDir !== "all" ? activeDir : globalRoots[0];
+  // 创建/打开的目标根:选定具体目录则用之,否则回退首个共享根。
+  const targetDir = activeDir !== "all" ? activeDir : sharedRoots[0];
 
   const refresh = useCallback(async () => {
     if (!bridge?.piSkillsList) {
@@ -71,12 +100,14 @@ export function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBri
     }
     setState({ kind: "loading" });
     try {
-      const skills = await bridge.piSkillsList({ globalRoots, userGlobalRoots, workspaceEnabled, workspaceDir });
+      // Design B:按所选 agent 解析扫描根,面板列表随 agent 变化(与 composer 下拉同源)。
+      const rootSpecs = resolveAgentSkillRoots(piSkills, selectedAgent, workspaceDir);
+      const skills = await bridge.piSkillsList({ rootSpecs, workspaceDir });
       setState({ kind: "ready", skills });
     } catch (e) {
       setState({ kind: "error", error: e instanceof Error ? e.message : String(e) });
     }
-  }, [bridge, globalRoots, userGlobalRoots, workspaceEnabled, workspaceDir]);
+  }, [bridge, piSkills, selectedAgent, workspaceDir]);
 
   useEffect(() => {
     void refresh();
@@ -144,10 +175,10 @@ export function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBri
         return;
       }
     }
-    addGlobalSkillRoot(root);
+    addGlobalSkillRoot(root, newRootTarget);
     setNewRoot("");
     setNewRootErr(null);
-  }, [bridge, newRoot, addGlobalSkillRoot]);
+  }, [bridge, newRoot, newRootTarget, addGlobalSkillRoot]);
 
   const submitCreate = useCallback(async () => {
     if (!bridge?.createSkill || !targetDir) return;
@@ -178,8 +209,9 @@ export function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBri
       {/* 作用域说明(R9):skill 现对三端生效——pi 走 --skill,claude/codex 经 appendSystemPrompt
           把 skill 附加到系统提示(见 core skill-injection)。取代旧的「仅对 pi 生效」说明。 */}
       <div className="pw-plugins-hint pw-plugins-scope-note" role="note">
-        开关对 <b>claude</b> / <b>codex</b> / <b>pi</b> 三端均生效：pi 走 <code>--skill</code> 注入，
-        claude / codex 将 skill 附加到系统提示。工作区 skill 需先「信任」才注入。
+        skill 按 <b>各 agent 各自原生目录</b>发现（claude=<code>~/.claude/skills</code>、
+        codex=<code>~/.codex/skills</code>、pi=<code>~/.pi/agent/skills</code> 等），另加<b>共享目录</b>对
+        <b>claude</b> / <b>codex</b> / <b>pi</b> 三端均生效。下方「管理」可按 agent 增删专属目录；工作区 skill 需先「信任」才注入。
       </div>
 
       {/* 顶部操作:管理目录 + 创建。 */}
@@ -307,31 +339,83 @@ export function SkillPanel({ bridge }: { bridge: ReturnType<typeof useDesktopBri
         </div>
       ) : null}
 
-      {/* 管理目录（管理按钮展开,R3 增删全局根）。内置默认根不可删。 */}
+      {/* 管理目录（管理按钮展开,Design B:共享根 + 各 agent 私有根,按 agent 切视图）。内置默认根不可删。 */}
       {showManage ? (
         <div className="pw-plugins-roots">
-          <div className="pw-plugins-roots-title">全局目录</div>
-          {[
-            ...globalRoots.map((r) => ({ r, builtin: true })),
-            ...userGlobalRoots.map((r) => ({ r, builtin: false })),
-          ].map(({ r, builtin }) => (
-            <div key={r} className="pw-plugins-root-row">
-              <span className="pw-plugins-root-path">{r}</span>
-              <button type="button" className="pw-btn-sm" onClick={() => openDir(r)} disabled={noBridge}>
-                打开目录
-              </button>
-              {!builtin ? (
-                <button type="button" className="pw-btn-sm" onClick={() => removeGlobalSkillRoot(r)}>
-                  删除
+          {/* 共享(所有 agent)根:对三端都扫。内置默认(~/.cortex-desktop/skills)不可删。 */}
+          <div className="pw-plugins-roots-title">共享目录（所有 agent）</div>
+          {sharedRoots.map((r) => {
+            const builtin = DEFAULT_SHARED_SKILL_ROOTS.includes(r);
+            return (
+              <div key={`shared:${r}`} className="pw-plugins-root-row">
+                <span className="pw-plugins-root-path">{r}</span>
+                <button type="button" className="pw-btn-sm" onClick={() => openDir(r)} disabled={noBridge}>
+                  打开目录
                 </button>
-              ) : null}
-            </div>
-          ))}
+                {!builtin ? (
+                  <button type="button" className="pw-btn-sm" onClick={() => removeGlobalSkillRoot(r, "shared")}>
+                    删除
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+
+          {/* 当前 agent 私有原生根:仅该 agent 扫。agent 选择器切换视图。内置默认原生根不可删。 */}
+          <div className="pw-plugins-roots-title" style={{ marginTop: 12 }}>
+            <select
+              className="pw-select"
+              aria-label="选择 agent"
+              value={selectedAgent}
+              onChange={(e) => {
+                const a = e.target.value as AgentKind;
+                setSelectedAgent(a);
+                setNewRootTarget(a);
+                // 切 agent 后活动目录/白名单随之重算,重置 activeDir 避免 targetDir 仍指向上个 agent 的私有根
+                // (否则 createSkill/openDir 会命中新 agent 白名单外的旧目录被主进程拒绝)。
+                setActiveDir("all");
+              }}
+            >
+              {AGENT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>{" "}
+            专属目录
+          </div>
+          {agentPrivateRoots.map((r) => {
+            const builtin = (DEFAULT_AGENT_SKILL_ROOTS[selectedAgent] ?? []).includes(r);
+            return (
+              <div key={`${selectedAgent}:${r}`} className="pw-plugins-root-row">
+                <span className="pw-plugins-root-path">{r}</span>
+                <button type="button" className="pw-btn-sm" onClick={() => openDir(r)} disabled={noBridge}>
+                  打开目录
+                </button>
+                {!builtin ? (
+                  <button type="button" className="pw-btn-sm" onClick={() => removeGlobalSkillRoot(r, selectedAgent)}>
+                    删除
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+
+          {/* 新增目录:选目标类别(共享 / 当前 agent)后添加。 */}
           <div className="pw-plugins-root-add">
+            <select
+              className="pw-select"
+              aria-label="新增目录归属"
+              value={newRootTarget}
+              onChange={(e) => setNewRootTarget(e.target.value as "shared" | AgentKind)}
+            >
+              <option value="shared">共享</option>
+              <option value={selectedAgent}>{selectedAgent} 专属</option>
+            </select>
             <input
               className="pw-input"
-              placeholder="新增全局目录，如 ~/my/skills"
-              aria-label="新增全局目录"
+              placeholder="新增目录，如 ~/my/skills"
+              aria-label="新增目录"
               value={newRoot}
               onChange={(e) => {
                 setNewRoot(e.target.value);
@@ -444,15 +528,6 @@ function SkillGroup({
   );
 }
 
-// frontmatter name（kebab/小写）→ 展示用标题大小写（如 agent-browser → Agent Browser）。
-function titleCase(name: string): string {
-  return name
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
 function SkillCard({
   skill,
   onToggle,
@@ -469,7 +544,7 @@ function SkillCard({
     <div className={`pw-plugins-card ${skill.shadowedBy ? "is-shadowed" : ""}`}>
       <div className="pw-plugins-card-main">
         <div className="pw-plugins-card-title">
-          <span className="pw-plugins-card-name">{titleCase(skill.name)}</span>
+          <span className="pw-plugins-card-name">{skillTitleCase(skill.name)}</span>
           <span className="pw-tag">{skill.scope === "workspace" ? "工作区" : "全局"}</span>
           {skill.shadowedBy ? <span className="pw-tag">已被全局同名覆盖</span> : null}
           {untrustedWorkspace ? <span className="pw-tag">未信任</span> : null}

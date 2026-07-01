@@ -26,7 +26,7 @@ import type {
 import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-thinking";
 import type { DesktopBridge } from "../desktop/bridge";
-import { renderSkillBlock, resolveEnabledSkillRecords } from "./skill-injection";
+import { isOrchestrationSend, renderSkillBlock, resolveEnabledSkillRecords, type InjectableSkill } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
@@ -1541,13 +1541,39 @@ export function buildGlobalAppend(): string | undefined {
 // 插件 Skill:解析注入 pi 的 --skill 目录集合。过滤/去重逻辑(禁用、工作区未授信、name 去重、
 // useOwnSkills 短路、降级)已下沉到 skill-injection.ts 的 resolveEnabledSkillRecords(唯一实现、
 // 跨 agent 共用),此处取其 dir 维持 pi 路径与既有调用方/测试的 string[] 契约不变。
+//
+// U6 去重(KTD5):pi 在 useOwnSkills===true 时会 drop --no-skills 放开自身原生发现(commit d1a0bec),
+// 此时 pi 私有原生根(origin==="agent",如 ~/.pi/agent/skills、~/.agents/skills)下的 skill 由 pi 自己
+// 发现——若再 --skill 显式注入同目录会触发 pi name collision 警告(保留先发现者,功能不坏但有噪)。
+// 故 useOwnSkills===true 时剔除 origin==="agent" 的记录,只 --skill 注入共享根/插件根(pi 原生不扫);
+// useOwnSkills!==true(原生关,恒带 --no-skills)时保留全部,否则 agent 原生根 skill 会彻底丢失。
 export async function resolveEnabledSkillPaths(
   bridge: DesktopBridge,
   projectPath: string,
   useOwnSkills: boolean | undefined,
   agent?: AgentKind,
 ): Promise<string[]> {
-  return (await resolveEnabledSkillRecords(bridge, projectPath, useOwnSkills, agent)).map((s) => s.dir);
+  const records = await resolveEnabledSkillRecords(bridge, projectPath, useOwnSkills, agent);
+  const deduped = useOwnSkills === true ? records.filter((s) => s.origin !== "agent") : records;
+  return deduped.map((s) => s.dir);
+}
+
+// U5:单发(bridge.startCli)路径的 skill 注入分派。两 agent 走两条本质不同的机制:
+//  - claude:走原生目录发现 —— 把已启用 skill 记录经 startCli 的 skillRecords 交主进程建桥接目录
+//    (U2 buildClaudeSkillBridge + --add-dir),claude 自己加载/展开 `/<name>`。故**不再**把 skill
+//    列表渲染成 prose 并入 appendSystemPrompt(R5),appendWithSkills 只保留原始 appendSystemPrompt。
+//  - codex:无目录桥接,维持现状 —— renderSkillBlock 渲染成 prose 并入 appendSystemPrompt,不带 skillRecords。
+// ⚠️ 仅用于单发分支;圆桌编排(bridge.startOrchestration)分支不走此函数,继续沿用现状批量 prose
+// 注入(见 System-Wide Impact / U5 Approach)。纯函数,便于单测。
+export function buildSingleSendSkillInjection(
+  agent: string,
+  appendSystemPrompt: string | undefined,
+  records: InjectableSkill[],
+): { appendWithSkills: string | undefined; skillRecords: InjectableSkill[] | undefined } {
+  const useClaudeNativeSkills = agent === "claude";
+  const skillBlock = useClaudeNativeSkills ? "" : renderSkillBlock(records);
+  const appendWithSkills = [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
+  return { appendWithSkills, skillRecords: useClaudeNativeSkills ? records : undefined };
 }
 
 // 扩展市场（U3）:据 piExtensions 配置解析出注入 pi 的 -e 路径集合。
@@ -2122,6 +2148,10 @@ export interface PersonalActions {
     presavedImages?: ChatImageRef[],
     // 待发文档(send 内逐个落盘;内容不进消息,由 agent 经 extract_document 按需读取)。
     docFiles?: PendingDocFile[],
+    // U6:codex 单发原生 skill 触发。发送侧解析 /skill:name 命中已启用 codex skill 时填入
+    // { name, path },随请求落到 CliStartRequest.invokedSkill,主进程按 transport 决定 ws 结构化
+    // 触发 / exec prose 回退(见 cli.ts U4)。claude 走裸 slash(不用此字段)、pi 透传时恒 undefined。
+    invokedSkill?: { name: string; path: string },
     // 返回是否「已消费」(真正发出/已落定):composer 据此决定是否清空待发图/文档(未消费则保留供重试)。
   ) => Promise<boolean>;
   stop: (sessionId: string) => Promise<void>;
@@ -2153,11 +2183,13 @@ export function usePersonalActions(): PersonalActions {
   const qc = useQueryClient();
 
   const send = useCallback<PersonalActions["send"]>(
-    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles) => {
+    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles, invokedSkill) => {
       if (!bridge) return false;
       const hasImages = !!(images?.length || presavedImages?.length);
       const hasDocs = !!docFiles?.length;
-      if (!text.trim() && !hasImages && !hasDocs) return false; // 纯图/纯文档(无文本)允许发送;皆空才拒
+      // U6:codex `/skill:name`(无 args)时文本被收窄为空,但 invokedSkill 本身即本轮内容 →
+      // 不能按「皆空」拒发,否则原生 skill 触发被静默丢弃(相较现状 prose 改写是回归)。
+      if (!text.trim() && !hasImages && !hasDocs && !invokedSkill) return false; // 纯图/纯文档(无文本)允许发送;皆空才拒
       // 新一轮发送 → 清掉上一轮可能留下的运行模式拦截提示(用户已切档自动重发,或手动重发/换话题)。
       usePersonalStore.getState().setModeBlockHint(session.id, undefined);
       if (session.agent !== "pi" && usePersonalStore.getState().agentsAvailable?.[session.agent] === false) {
@@ -2426,7 +2458,14 @@ export function usePersonalActions(): PersonalActions {
         // buildPiOpenForSession 提供 piOpen（含 --skill/cwd 路径闸/审批等）。delegate @mention 优先级更高,落 else 单发。
         // 编排无状态、各段 fresh spawn，故不传 resumeSessionId；看门狗/stop 据 run.orchestrated 改走 killOrchestration。
         // 已知限制：本版编排不透传图片（images 仅单发支持）。
-        if (sendSession.subagentOrchestration && bridge.startOrchestration && !hasDelegateMentions) {
+        // 路由判断收敛到 isOrchestrationSend(code review 修复):PersonalChatArea.tsx 的 skill 派发
+        // 也据此函数判断走原生调用还是 prose 回退,单一来源避免两处条件手工同步、静默漂移。
+        // bridge.startOrchestration 的 truthy 已经过 isOrchestrationSend 的 hasStartOrchestration 参数
+        // 校验,但 TS 无法跨函数边界做该窄化,故此处补一次直接判空(不改变判断逻辑,只为类型收窄)。
+        if (
+          isOrchestrationSend(sendSession.subagentOrchestration, !!bridge.startOrchestration, hasDelegateMentions) &&
+          bridge.startOrchestration
+        ) {
           run.orchestrated = true;
           const isPiOrchestration = sendSession.agent === "pi";
           const piOpen = isPiOrchestration ? await buildPiOpenForSession(bridge, sendSession, projectPath) : undefined;
@@ -2454,14 +2493,21 @@ export function usePersonalActions(): PersonalActions {
             piOpen,
           });
         } else {
-          // 跨 agent skill 注入(U2):此分支仅 claude/codex(Pi 非编排已在上面 sendPiTurn 走 --skill 并 return)。
-          // 把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 两路互斥 → 不双注入(R3)。
+          // 跨 agent skill 注入:此分支仅 claude/codex(Pi 非编排已在上面 sendPiTurn 走 --skill 并 return)。
           // useOwnSkills 短路对 claude/codex 同样生效(RISK-2):resolveEnabledSkillRecords 据其早退。
-          const skillBlock = renderSkillBlock(
-            await resolveEnabledSkillRecords(bridge, projectPath, sendSession.useOwnSkills, sendSession.agent),
+          // 派发(U5):claude 走原生目录发现(记录经 skillRecords 交主进程建桥接目录,不再 prose 注入),
+          // codex 仍把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 互斥 → 不双注入(R3)。
+          const enabledSkillRecords = await resolveEnabledSkillRecords(
+            bridge,
+            projectPath,
+            sendSession.useOwnSkills,
+            sendSession.agent,
           );
-          const appendWithSkills =
-            [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
+          const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection(
+            sendSession.agent,
+            appendSystemPrompt,
+            enabledSkillRecords,
+          );
           // 委派（delegate，@mention 触发）：主 agent 单发 startCli + 注入 cortex-delegate 工具集，
           // 经 ask_<id> 自主委派给被 @ 的协作者。子 agent 事件带 roleId（渲染端 roleHeader 分隔），
           // 取消/超时走标准 killCli（主 agent 在 running map；onExit→abort 收口在途子 agent）。
@@ -2504,6 +2550,12 @@ export function usePersonalActions(): PersonalActions {
             appendSystemPrompt: appendWithDelegate,
             useOwnSkills: sendSession.useOwnSkills,
             skillPaths: undefined,
+            // U5:claude 走原生目录发现时把已启用 skill 记录交主进程建桥接目录(U2);codex 为 undefined
+            // (走上面 appendWithSkills 的 prose 注入,无目录桥接)。
+            skillRecords,
+            // U6:codex 单发原生 skill 触发(发送侧解析 /skill:name 命中时填入)。主进程按 transport
+            // 决定 ws 结构化触发 / exec prose 回退(cli.ts U4);claude/pi 及非 skill 发送恒 undefined。
+            invokedSkill,
             images: cliImages,
             // 执行/目录权限派生的线格式:claude/codex adapter 翻译成原生标志;缺省 full-auto/auto(历史默认)。
             // 逐轮 fresh spawn,改值下一轮即生效,无需重开。

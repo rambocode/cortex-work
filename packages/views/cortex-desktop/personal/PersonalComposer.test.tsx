@@ -62,12 +62,15 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("PersonalComposer 动态 slash 菜单", () => {
-  it("pi 会话:slash 菜单含 /skill:<name> + argHint + 描述(R3/R4)", async () => {
+  it("pi 会话:slash 菜单含 skill(Title-Case 名)+ argHint + 描述(R3/R4)", async () => {
     renderComposer("pi", fakeBridge([sk("agent-browser", "<url>")]));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "/" } });
-    await waitFor(() => expect(screen.getByText("/skill:agent-browser")).toBeTruthy());
+    // 菜单展示 Title-Case 友好名(Agent Browser),不再是原始 /skill:agent-browser。
+    await waitFor(() => expect(screen.getByText("Agent Browser")).toBeTruthy());
     expect(screen.getByText("<url>")).toBeTruthy();
     expect(screen.getByText("agent-browser 描述")).toBeTruthy();
+    // 来源标签:用户目录 skill → 个人。
+    expect(screen.getByText("个人")).toBeTruthy();
     // 内建命令仍在。
     expect(screen.getByText("/clear")).toBeTruthy();
   });
@@ -75,7 +78,7 @@ describe("PersonalComposer 动态 slash 菜单", () => {
   it("claude 会话:菜单也含 skills(推翻旧 R6:claude/codex 现支持 /skill 定向调用)", async () => {
     renderComposer("claude", fakeBridge([sk("agent-browser", "<url>")]));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "/" } });
-    await waitFor(() => expect(screen.getByText("/skill:agent-browser")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Agent Browser")).toBeTruthy());
     expect(screen.getByText("<url>")).toBeTruthy();
     expect(screen.getByText("/clear")).toBeTruthy(); // 内建仍在(claude 无 /compact)
   });
@@ -84,8 +87,8 @@ describe("PersonalComposer 动态 slash 菜单", () => {
     const piOnly = { ...sk("pi-only"), supportedAgents: ["pi"] } as PluginSkill;
     renderComposer("claude", fakeBridge([piOnly, sk("agent-browser")]));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "/" } });
-    await waitFor(() => expect(screen.getByText("/skill:agent-browser")).toBeTruthy());
-    expect(screen.queryByText("/skill:pi-only")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Agent Browser")).toBeTruthy());
+    expect(screen.queryByText("Pi Only")).toBeNull();
   });
 
   it("pi 会话:禁用的 skill 不出现在菜单(R3)", async () => {
@@ -99,8 +102,8 @@ describe("PersonalComposer 动态 slash 菜单", () => {
     });
     renderComposer("pi", fakeBridge([sk("agent-browser"), sk("code-review")]));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "/" } });
-    await waitFor(() => expect(screen.getByText("/skill:code-review")).toBeTruthy());
-    expect(screen.queryByText("/skill:agent-browser")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Code Review")).toBeTruthy());
+    expect(screen.queryByText("Agent Browser")).toBeNull();
   });
 
   it("pi 会话:无 piSkillsList(web/旧壳)→ 仅内建,无报错(R7)", async () => {
@@ -109,5 +112,32 @@ describe("PersonalComposer 动态 slash 菜单", () => {
     expect(await screen.findByText("/clear")).toBeTruthy();
     expect(screen.getByText("/compact")).toBeTruthy(); // pi 内建仍在
     expect(screen.queryByText(/\/skill:/)).toBeNull();
+  });
+
+  // Design B(plan 002 U3):切 agent 传给 piSkillsList 的 rootSpecs 应不同(下拉随 agent 变化的根源)。
+  it("pi 会话:piSkillsList 收到 pi 私有原生根 rootSpecs,不含 claude 原生根", async () => {
+    const bridge = fakeBridge([sk("x")]);
+    renderComposer("pi", bridge);
+    const fn = bridge.piSkillsList as unknown as {
+      mock: { calls: { rootSpecs: { path: string }[]; workspaceDir?: string }[][] };
+    };
+    await waitFor(() => expect(fn.mock.calls.length).toBeGreaterThan(0));
+    const paths = fn.mock.calls[0]![0]!.rootSpecs.map((r) => r.path);
+    expect(paths).toContain("~/.pi/agent/skills");
+    expect(paths).toContain("~/.agents/skills");
+    expect(paths).not.toContain("~/.claude/skills");
+    expect(fn.mock.calls[0]![0]!.workspaceDir).toBe("/proj");
+  });
+
+  it("claude 会话:piSkillsList 收到 claude 私有原生根 rootSpecs,不含 pi 原生根", async () => {
+    const bridge = fakeBridge([sk("x")]);
+    renderComposer("claude", bridge);
+    const fn = bridge.piSkillsList as unknown as {
+      mock: { calls: { rootSpecs: { path: string }[] }[][] };
+    };
+    await waitFor(() => expect(fn.mock.calls.length).toBeGreaterThan(0));
+    const paths = fn.mock.calls[0]![0]!.rootSpecs.map((r) => r.path);
+    expect(paths).toContain("~/.claude/skills");
+    expect(paths).not.toContain("~/.pi/agent/skills");
   });
 });

@@ -81,10 +81,15 @@ export const piDef: AgentDef = {
       "-p",
       "--no-extensions",
     ];
-    // 插件管理（U4）:恒带 --no-skills 关掉 pi 自动发现,UI 为唯一真相源;已启用的 skill
-    // 由装配层解析为 skillPaths,逐个 --skill 注入（实测 --no-skills 与显式 --skill 共存,
-    // resource-loader.js noSkills 仍 merge cliEnabledSkills/additionalSkillPaths）。
-    args.push("--no-skills");
+    // 插件管理:--no-skills 随 useOwnSkills gate,与 claude adapter 的 --disable-slash-commands 对齐。
+    //   · useOwnSkills!==true(缺省/关闭）→ 加 --no-skills 关掉 pi 原生自动发现(会话级一键关);
+    //   · useOwnSkills===true → 省略 --no-skills,放开 pi 自身原生 skill 发现(~/.pi/agent/skills、
+    //     ~/.agents/skills、项目 .pi/skills / .agents/skills),让 pi 用「各自原生目录」,与
+    //     claude/codex 放开各自 CLI 原生发现的行为一致(修复三端不一致:此前 pi 恒关原生、只被
+    //     强喂系统配置目录路径,claude/codex 却已放开原生 → 表现为「pi 用系统配置、claude/codex 用自带」)。
+    // 无论开关,Cortex 已启用集合仍逐个 --skill 附加注入（实测 --no-skills 与显式 --skill 共存;
+    // 开启原生时二者并存 = 原生发现 + Cortex 桥接,与 claude「原生 + --add-dir 桥接」混合模型同构）。
+    if (req.useOwnSkills !== true) args.push("--no-skills");
     for (const p of req.skillPaths ?? []) args.push("--skill", p);
     // 运行模式 plan 档:只读工具白名单（pi 官方钦定 read-only 配方,物理上无 write/edit/bash）。
     // json 单发(ask 追问/oneshot)无 UI,审批 hook 失效,故只有 plan 的工具白名单有意义;

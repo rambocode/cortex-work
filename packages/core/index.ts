@@ -235,6 +235,8 @@ export {
   PI_THINKING_LEVELS,
   PI_THINKING_LABELS,
   DEFAULT_PI_SKILLS,
+  DEFAULT_AGENT_SKILL_ROOTS,
+  DEFAULT_SHARED_SKILL_ROOTS,
   PERMISSION_MODES,
   DEFAULT_PERMISSION_MODE,
   type PermissionMode,
@@ -338,9 +340,17 @@ export { usePiEnabledSkills, filterEnabledPiSkills, type PiSlashSkill } from "./
 export {
   resolveEnabledSkillRecords,
   renderSkillInvocation,
+  renderClaudeSkillSlash,
   parseSkillSlash,
+  isOrchestrationSend,
   type InjectableSkill,
 } from "./personal/skill-injection";
+// per-agent skill 扫描根解析(Design B,plan 002):下拉与注入共用的单一实现。
+export {
+  resolveAgentSkillRoots,
+  type AgentSkillRoot,
+  type SkillRootOrigin,
+} from "./personal/skill-roots";
 export {
   parseDocMeta,
   type DocKind,

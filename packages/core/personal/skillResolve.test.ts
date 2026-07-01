@@ -68,6 +68,22 @@ describe("resolveEnabledSkillPaths", () => {
     const bridge = { piSkillsList: vi.fn(async () => { throw new Error("boom"); }) } as unknown as DesktopBridge;
     expect(await resolveEnabledSkillPaths(bridge, "/proj", undefined)).toEqual([]);
   });
+
+  // U6 去重(KTD5):useOwnSkills===true 时 pi 放开原生发现(d1a0bec),剔除 origin==="agent" 的 --skill;
+  // useOwnSkills!==true(原生关)时保留全部,否则 agent 原生根 skill 丢失。
+  it("useOwnSkills===true:剔除 agent 原生根 skill(pi 自发现),保留共享根", async () => {
+    const agentSkill: PluginSkill = { ...skill("na", "global", "/pi/na"), origin: "agent" };
+    const sharedSkill: PluginSkill = { ...skill("sh", "global", "/shared/sh"), origin: "shared" };
+    const bridge = bridgeWith([agentSkill, sharedSkill]);
+    expect(await resolveEnabledSkillPaths(bridge, "/proj", true, "pi")).toEqual(["/shared/sh"]);
+  });
+
+  it("useOwnSkills===undefined(原生关):保留 agent 原生根 skill(否则丢失)", async () => {
+    const agentSkill: PluginSkill = { ...skill("na", "global", "/pi/na"), origin: "agent" };
+    const sharedSkill: PluginSkill = { ...skill("sh", "global", "/shared/sh"), origin: "shared" };
+    const bridge = bridgeWith([agentSkill, sharedSkill]);
+    expect((await resolveEnabledSkillPaths(bridge, "/proj", undefined, "pi")).sort()).toEqual(["/pi/na", "/shared/sh"]);
+  });
 });
 
 // resolveEnabledSkillRecords(U2):claude/codex prose 注入的记录源。与 resolveEnabledSkillPaths
@@ -105,6 +121,30 @@ describe("resolveEnabledSkillRecords", () => {
     expect(await dirs("claude")).toEqual(["/g/uni"]); // pi-only 被过滤
     expect(await dirs("pi")).toEqual(["/g/pi-only", "/g/uni"]); // 两者
     expect(await dirs()).toEqual(["/g/pi-only", "/g/uni"]); // 不传 agent → 不过滤
+  });
+
+  // Design B(plan 002 U4):注入解析按 agent 传不同 rootSpecs(与下拉共用 resolveAgentSkillRoots)。
+  it("按 agent 传不同 rootSpecs 给 piSkillsList(与下拉同源)", async () => {
+    const fn = vi.fn(async (_args: { rootSpecs: { path: string }[] }) => [] as PluginSkill[]);
+    const bridge = { piSkillsList: fn } as unknown as DesktopBridge;
+    await resolveEnabledSkillRecords(bridge, "/proj", undefined, "claude");
+    const claudePaths = fn.mock.calls[0]![0].rootSpecs.map((r) => r.path);
+    expect(claudePaths).toContain("~/.claude/skills");
+    expect(claudePaths).not.toContain("~/.pi/agent/skills");
+    fn.mockClear();
+    await resolveEnabledSkillRecords(bridge, "/proj", undefined, "pi");
+    const piPaths = fn.mock.calls[0]![0].rootSpecs.map((r) => r.path);
+    expect(piPaths).toContain("~/.pi/agent/skills");
+    expect(piPaths).not.toContain("~/.claude/skills");
+  });
+
+  it("origin 从 PluginSkill 透传到记录(供 U6 去重)", async () => {
+    const agentSkill: PluginSkill = { ...skill("x", "global", "/g/x"), origin: "agent" };
+    const sharedSkill: PluginSkill = { ...skill("y", "global", "/g/y"), origin: "shared" };
+    const bridge = bridgeWith([agentSkill, sharedSkill]);
+    const recs = await resolveEnabledSkillRecords(bridge, "/proj", undefined, "pi");
+    expect(recs.find((r) => r.dir === "/g/x")?.origin).toBe("agent");
+    expect(recs.find((r) => r.dir === "/g/y")?.origin).toBe("shared");
   });
 });
 

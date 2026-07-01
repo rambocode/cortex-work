@@ -2,18 +2,10 @@
 // (agent/model/providerId/useOwnSkills) 摊平后转交内核,并启用 slash 命令与文件预览
 // 「发送到 Chat」插入。
 
-import { DEFAULT_AGENT_THINKING, usePiEnabledSkills } from "@cortex-work/core";
+import { DEFAULT_AGENT_THINKING } from "@cortex-work/core";
 import type { AgentThinkingValue, DirPermission, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
-import { ComposerShell, type SlashCommand } from "./ComposerShell";
-
-// 内建 slash 命令(发送拦截在 PersonalChatArea.onSend）。kind:"builtin" = 选中即执行。
-// /compact 仅 pi 会话有（压缩走 pi RPC）。
-const SLASH_COMMANDS: SlashCommand[] = [
-  { cmd: "/clear", desc: "隐藏当前历史记录（可展开）", kind: "builtin" },
-];
-const PI_SLASH_COMMANDS: SlashCommand[] = [
-  { cmd: "/compact", desc: "压缩当前会话上下文", kind: "builtin" },
-];
+import { ComposerShell } from "./ComposerShell";
+import { useSlashCommands } from "./useSlashCommands";
 
 export function PersonalComposer({
   session,
@@ -57,17 +49,8 @@ export function PersonalComposer({
   onToggleSkills: () => void;
   onToast: (text: string) => void;
 }) {
-  // pi 风格动态 skills(U4):仅 pi 会话非空(hook 内按 agent/useOwnSkills/桥门控)。
-  // 映射为 /skill:<name>(kind:"skill" → 选中插入待填参,KTD4),排在内建命令之后(减少异步弹入位移)。
-  const piSkills = usePiEnabledSkills(session);
-  const skillCommands: SlashCommand[] = piSkills.map((s) => ({
-    cmd: `/skill:${s.name}`,
-    desc: s.description,
-    argHint: s.argumentHint,
-    kind: "skill",
-  }));
-  const builtins = session.agent === "pi" ? [...SLASH_COMMANDS, ...PI_SLASH_COMMANDS] : SLASH_COMMANDS;
-  const slashCommands = [...builtins, ...skillCommands];
+  // slash 命令(内建 + 已启用 skill),与新会话落地页共用同一 hook(见 useSlashCommands)。
+  const slashCommands = useSlashCommands(session);
 
   return (
     <ComposerShell

@@ -565,22 +565,59 @@ export interface GeneralSettings {
 // pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。
 // 安全模型:全局根 skill 默认启用（用户自有目录,可信）;工作区根 skill 默认禁用,需显式授信
 // （避免恶意仓库经 <项目>/.cortex-desktop/skills + -a 任意代码执行）。
+// ⚠️ Design B 信任边界(plan 002):trustedWorkspaceSkillDirs 授信闸只管 **Cortex 自己的**扫描/注入——
+// resolveEnabledSkillRecords 会先剔除未授信的 workspace skill,故 Cortex 绝不注入未授信项。但 Design B 让
+// 各 agent 放开自身原生发现(claude 去 --disable-slash-commands、pi 去 --no-skills),agent 会**自行**扫描项目级
+// 原生目录(.claude/skills / .pi/skills / .agents/skills)——这部分的项目信任由 **agent 自身**的信任门负责
+// (pi:仅项目 trusted 后才加载项目 skill;claude:文件夹信任),Cortex 的 trustedWorkspaceSkillDirs 不覆盖它。
+//
+// Design B(per-agent 根,plan 002):skill 扫描根从「一套 agent 无关全局根」改为「共享根 +
+// 每 agent 私有根」——每个 agent 只扫它自己的原生目录 + 共享根,使 /skill: 下拉与注入按会话
+// agent 分流。旧扁平字段 globalRoots/userGlobalRoots 处于过渡期(见 @deprecated),待所有消费点
+// (piSkills.ts / skill-injection.ts / SkillPanel / ipc)切到 sharedRoots/agentRoots 后移除。
 export interface PiSkillSettings {
-  // 内置默认全局根（含 ~,主进程 expand）。不可删,作为「可信」来源。
+  // 共享(all-agents)根:对三端都扫。含 ~,主进程 expand。默认含 Cortex 自有目录;老用户自增的
+  // userGlobalRoots 迁移到此(见 store migratePiSkills)。内置默认部分由代码拥有(恒并入,不可删)。
+  sharedRoots: string[];
+  // 每个 agent 的私有原生根(含 ~,主进程 expand)。默认 = 该 agent 原生 skill 目录:
+  //   claude=~/.claude/skills;codex=~/.codex/skills(约定,codex-cli 官方个人目录);
+  //   pi=~/.pi/agent/skills + ~/.agents/skills。用户可在管理 UI 为当前 agent 增删私有根。
+  agentRoots: Record<AgentKind, string[]>;
+  /**
+   * @deprecated 过渡期兼容字段(Design B)。旧「内置默认全局根」,agent 无关。消费点全部切到
+   * sharedRoots/agentRoots 后由收尾单元移除。迁移后仍填充以保证未迁移消费点行为不变。
+   */
   globalRoots: string[];
-  // 用户自增的全局根（需一次信任确认;可删）。与 globalRoots 区分以支持信任与删除策略。
+  /**
+   * @deprecated 过渡期兼容字段(Design B)。旧「用户自增全局根」。迁移时其内容并入 sharedRoots;
+   * 消费点切换完成后移除。
+   */
   userGlobalRoots: string[];
   // 已禁用 skill 的复合键集合,键 = `${scope}:${name}`（非绝对目录,目录移动后禁用态仍生效）。
+  // Design B 决策:保持全局键、不按 agent 拆分(按 name 一处禁用处处生效,向后兼容)。
   disabledSkills: string[];
-  // 已授信的工作区 skill 绝对目录集合（仅其中的工作区 skill 才进入注入集）。
+  // 已授信的工作区 skill 绝对目录集合（仅其中的工作区 skill 才进入注入集）。全局键,不按 agent 拆分。
   trustedWorkspaceSkillDirs: string[];
-  // 是否扫描 / 注入工作区根 <项目>/.cortex-desktop/skills。
+  // 是否扫描 / 注入工作区根（各 agent 的工作区子目录 + 共享 <项目>/.cortex-desktop/skills）。
   workspaceEnabled: boolean;
 }
 
 export type SkillScope = "global" | "workspace";
 
+// 每个 agent 的默认私有原生根(Design B)。代码拥有——迁移/加载时恒并入 agentRoots,使默认变更对老档生效。
+export const DEFAULT_AGENT_SKILL_ROOTS: Record<AgentKind, string[]> = {
+  claude: ["~/.claude/skills"],
+  codex: ["~/.codex/skills"],
+  pi: ["~/.pi/agent/skills", "~/.agents/skills"],
+};
+
+// 默认共享(all-agents)根:Cortex 自有跨端目录。代码拥有,恒并入 sharedRoots。
+export const DEFAULT_SHARED_SKILL_ROOTS: string[] = ["~/.cortex-desktop/skills"];
+
 export const DEFAULT_PI_SKILLS: PiSkillSettings = {
+  sharedRoots: DEFAULT_SHARED_SKILL_ROOTS,
+  agentRoots: DEFAULT_AGENT_SKILL_ROOTS,
+  // 过渡期兼容:保留旧默认值,未迁移消费点行为不变(见 @deprecated)。
   globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills"],
   userGlobalRoots: [],
   disabledSkills: [],
@@ -890,6 +927,17 @@ export interface CliStartRequest {
   useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildArgs 逐个 --skill 注入。
   skillPaths?: string[];
+  // U5:claude 原生 skill 目录发现用的已启用 skill 记录（renderer 填充,main 无 store/bridge 拿不到,
+  // 必须渲染端算好传过来）。main 侧 cli.ts 据此建桥接目录(buildClaudeSkillBridge)。形状镜像
+  // InjectableSkill（core/personal/skill-injection.ts），避免 types 反向依赖 personal。
+  // Design B(plan 002):origin 供 U6 去重(agent 私有原生根下的 skill claude 自发现,桥接不再重复)。
+  skillRecords?: { name: string; description?: string; dir: string; origin?: "shared" | "agent" }[];
+  // U2:claude skill 桥接目录绝对路径（**主进程内部填充**,renderer 不传）。cli.ts 据 skillRecords
+  // 建目录后写入,claude.ts buildArgs 追加 --add-dir 让 claude 原生发现 `.claude/skills/`。
+  skillsBridgeDir?: string;
+  // U4/U6:codex app-server(ws)原生 skill input item（renderer 填充）。存在时 buildTurnInput 追加
+  // { type:"skill", name, path } 交 turn/start 原生注入;非 ws(exec)路径改渲染 prose 回退。
+  invokedSkill?: { name: string; path: string };
   // 用户上传的图片（**仅 claude/codex 消费**:claude 把绝对路径 + 读取指令前置进 prompt,
   // codex 每张作 -i 参数;pi 不读此字段,图片走 piPrompt 独立参数）。
   images?: CliImageRef[];
@@ -1512,6 +1560,9 @@ export interface PluginSkill {
   dir: string; // skill 根目录绝对路径（即 --skill 注入值）
   rootPath: string; // 来源根（已 expand 的绝对路径）
   scope: SkillScope; // global | workspace
+  // Design B(plan 002):根来源——"shared"(共享,对三端)/"agent"(该 agent 私有原生根)。
+  // 供 U6 去重:agent 私有原生根下的 skill 由 agent 自身发现,Cortex 不重复注入。缺省(旧扫描)= 视为 shared。
+  origin?: "shared" | "agent";
   enabled: boolean; // 是否启用（渲染端据 disabledSkills 叠加）
   trusted: boolean; // 工作区 skill 是否已授信（global 恒 true）
   shadowedBy?: string; // 被同名覆盖时的覆盖来源 scope（UI 标注用）

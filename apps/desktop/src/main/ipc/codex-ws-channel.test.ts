@@ -11,6 +11,7 @@ import {
   CodexWsChannel,
   mapPermissionMode,
   parseAppServerEvent,
+  renderCodexSkillFallback,
   type WsLike,
 } from "./codex-ws-channel";
 import type { CliStreamEvent } from "./types";
@@ -240,6 +241,49 @@ describe("buildTurnInput", () => {
   });
   it("无 appendSystemPrompt 时原样文本", () => {
     expect(buildTurnInput({ prompt: "hi" })[0]).toEqual({ type: "text", text: "hi", text_elements: [] });
+  });
+  // U4:原生 skill input item(ws 主交互路径显式触发)。
+  it("invokedSkill 存在 → 追加 {type:'skill',name,path},文本项不含 prose 改写文案", () => {
+    const input = buildTurnInput({ prompt: "打开 x.com", invokedSkill: { name: "agent-browser", path: "/g/ab" } });
+    expect(input[0]).toEqual({ type: "text", text: "打开 x.com", text_elements: [] });
+    expect(input).toContainEqual({ type: "skill", name: "agent-browser", path: "/g/ab" });
+    // 文本项是用户原始 args,不含「请用 Read 工具」之类 prose。
+    expect((input[0] as { text: string }).text).not.toContain("SKILL.md");
+  });
+  it("invokedSkill 与 images 同时存在 → 两者互不影响,input 同时含 localImage 与 skill 项", () => {
+    const input = buildTurnInput({
+      prompt: "hi",
+      images: [{ path: "/tmp/a.png", mimeType: "image/png" }],
+      invokedSkill: { name: "deploy", path: "/g/deploy" },
+    });
+    expect(input).toContainEqual({ type: "localImage", path: "/tmp/a.png" });
+    expect(input).toContainEqual({ type: "skill", name: "deploy", path: "/g/deploy" });
+  });
+  it("invokedSkill 缺省 → input 逐字与改动前一致(仅 text + localImage,向后兼容)", () => {
+    const input = buildTurnInput({ prompt: "hi", images: [{ path: "/tmp/a.png", mimeType: "image/png" }] });
+    expect(input).toEqual([
+      { type: "text", text: "hi", text_elements: [] },
+      { type: "localImage", path: "/tmp/a.png" },
+    ]);
+  });
+});
+
+// U4:codex exec(非 ws)回退 prose,须与 core 的 renderSkillInvocation 文案对齐(R3 不倒退)。
+describe("renderCodexSkillFallback", () => {
+  it("渲染「读 SKILL.md 再执行」定向 prompt,含 name/路径/参数", () => {
+    const out = renderCodexSkillFallback({ name: "agent-browser", path: "/g/ab" }, "打开 x.com");
+    expect(out).toContain("请使用 skill「agent-browser」完成本次任务。");
+    expect(out).toContain("/g/ab/SKILL.md");
+    expect(out).toContain("本次参数:打开 x.com");
+  });
+  it("无参数时不追加「本次参数」行", () => {
+    const out = renderCodexSkillFallback({ name: "deploy", path: "/g/deploy" }, "");
+    expect(out).not.toContain("本次参数");
+  });
+  it("name/path 含换行 → 去换行防越界注入", () => {
+    const out = renderCodexSkillFallback({ name: "x\n## injected", path: "/g/x\n## bad" }, "arg");
+    expect(out).not.toContain("\n## injected");
+    expect(out).not.toContain("\n## bad");
   });
 });
 
