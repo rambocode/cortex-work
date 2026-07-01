@@ -565,22 +565,54 @@ export interface GeneralSettings {
 // pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。
 // 安全模型:全局根 skill 默认启用（用户自有目录,可信）;工作区根 skill 默认禁用,需显式授信
 // （避免恶意仓库经 <项目>/.cortex-desktop/skills + -a 任意代码执行）。
+//
+// Design B(per-agent 根,plan 002):skill 扫描根从「一套 agent 无关全局根」改为「共享根 +
+// 每 agent 私有根」——每个 agent 只扫它自己的原生目录 + 共享根,使 /skill: 下拉与注入按会话
+// agent 分流。旧扁平字段 globalRoots/userGlobalRoots 处于过渡期(见 @deprecated),待所有消费点
+// (piSkills.ts / skill-injection.ts / SkillPanel / ipc)切到 sharedRoots/agentRoots 后移除。
 export interface PiSkillSettings {
-  // 内置默认全局根（含 ~,主进程 expand）。不可删,作为「可信」来源。
+  // 共享(all-agents)根:对三端都扫。含 ~,主进程 expand。默认含 Cortex 自有目录;老用户自增的
+  // userGlobalRoots 迁移到此(见 store migratePiSkills)。内置默认部分由代码拥有(恒并入,不可删)。
+  sharedRoots: string[];
+  // 每个 agent 的私有原生根(含 ~,主进程 expand)。默认 = 该 agent 原生 skill 目录:
+  //   claude=~/.claude/skills;codex=~/.codex/skills(约定,codex-cli 官方个人目录);
+  //   pi=~/.pi/agent/skills + ~/.agents/skills。用户可在管理 UI 为当前 agent 增删私有根。
+  agentRoots: Record<AgentKind, string[]>;
+  /**
+   * @deprecated 过渡期兼容字段(Design B)。旧「内置默认全局根」,agent 无关。消费点全部切到
+   * sharedRoots/agentRoots 后由收尾单元移除。迁移后仍填充以保证未迁移消费点行为不变。
+   */
   globalRoots: string[];
-  // 用户自增的全局根（需一次信任确认;可删）。与 globalRoots 区分以支持信任与删除策略。
+  /**
+   * @deprecated 过渡期兼容字段(Design B)。旧「用户自增全局根」。迁移时其内容并入 sharedRoots;
+   * 消费点切换完成后移除。
+   */
   userGlobalRoots: string[];
   // 已禁用 skill 的复合键集合,键 = `${scope}:${name}`（非绝对目录,目录移动后禁用态仍生效）。
+  // Design B 决策:保持全局键、不按 agent 拆分(按 name 一处禁用处处生效,向后兼容)。
   disabledSkills: string[];
-  // 已授信的工作区 skill 绝对目录集合（仅其中的工作区 skill 才进入注入集）。
+  // 已授信的工作区 skill 绝对目录集合（仅其中的工作区 skill 才进入注入集）。全局键,不按 agent 拆分。
   trustedWorkspaceSkillDirs: string[];
-  // 是否扫描 / 注入工作区根 <项目>/.cortex-desktop/skills。
+  // 是否扫描 / 注入工作区根（各 agent 的工作区子目录 + 共享 <项目>/.cortex-desktop/skills）。
   workspaceEnabled: boolean;
 }
 
 export type SkillScope = "global" | "workspace";
 
+// 每个 agent 的默认私有原生根(Design B)。代码拥有——迁移/加载时恒并入 agentRoots,使默认变更对老档生效。
+export const DEFAULT_AGENT_SKILL_ROOTS: Record<AgentKind, string[]> = {
+  claude: ["~/.claude/skills"],
+  codex: ["~/.codex/skills"],
+  pi: ["~/.pi/agent/skills", "~/.agents/skills"],
+};
+
+// 默认共享(all-agents)根:Cortex 自有跨端目录。代码拥有,恒并入 sharedRoots。
+export const DEFAULT_SHARED_SKILL_ROOTS: string[] = ["~/.cortex-desktop/skills"];
+
 export const DEFAULT_PI_SKILLS: PiSkillSettings = {
+  sharedRoots: DEFAULT_SHARED_SKILL_ROOTS,
+  agentRoots: DEFAULT_AGENT_SKILL_ROOTS,
+  // 过渡期兼容:保留旧默认值,未迁移消费点行为不变(见 @deprecated)。
   globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills"],
   userGlobalRoots: [],
   disabledSkills: [],

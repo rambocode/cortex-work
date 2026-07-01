@@ -229,8 +229,14 @@ export interface BrowserControlSettings {
 }
 
 // pi 插件 Skill 配置（与 packages/core/desktop/types.ts 逐字镜像）。
+// Design B(plan 002):新增 sharedRoots + agentRoots(per-agent 私有根);globalRoots/userGlobalRoots
+// 为过渡期 deprecated 字段,待消费点切换完成后与 core 一并移除。
 export interface PiSkillSettings {
+  sharedRoots: string[];
+  agentRoots: Record<AgentKind, string[]>;
+  /** @deprecated 过渡期兼容字段(Design B),消费点切换完成后移除 */
   globalRoots: string[];
+  /** @deprecated 过渡期兼容字段(Design B),消费点切换完成后移除 */
   userGlobalRoots: string[];
   disabledSkills: string[];
   trustedWorkspaceSkillDirs: string[];

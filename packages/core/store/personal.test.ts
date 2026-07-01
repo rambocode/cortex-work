@@ -1079,14 +1079,14 @@ describe("插件 Skill 配置（piSkills）", () => {
       ...base,
       generalSettings: {
         ...DEFAULT_GENERAL_SETTINGS,
-        // 模拟老档:旧默认根 + 用户自增根 + 一个禁用项。
+        // 模拟老档:旧默认根 + 用户自增根 + 一个禁用项(旧扁平 shape,故 cast 绕过新必填字段)。
         piSkills: {
           globalRoots: ["~/.agent/skills", "~/.cortex-desktop/skills"],
           userGlobalRoots: ["~/mine"],
           disabledSkills: ["global:foo"],
           trustedWorkspaceSkillDirs: [],
           workspaceEnabled: true,
-        },
+        } as unknown as typeof DEFAULT_PI_SKILLS,
       },
     });
     const pi = usePersonalStore.getState().generalSettings.piSkills!;
@@ -1278,5 +1278,100 @@ describe("hydrate 会话权限迁移(旧 permissionMode/approvalPolicy → 新 e
     const s = usePersonalStore.getState().sessions[0];
     expect(s?.execPermission).toBe("plan");
     expect(s?.dirPermission).toBe("all");
+  });
+});
+
+describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
+  // hydrate 一个自定义 piSkills(用 any 绕过新类型,模拟旧档/部分档),读回迁移结果。
+  const hydratePiSkills = (piSkills: unknown) => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: piSkills as any },
+    });
+    return usePersonalStore.getState().generalSettings.piSkills!;
+  };
+
+  it("全新档(无 piSkills)→ 三端默认原生根 + 默认共享根", () => {
+    usePersonalStore.getState().hydrate({ ...base, generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: undefined } });
+    const s = usePersonalStore.getState().generalSettings.piSkills!;
+    expect(s.agentRoots.claude).toEqual(["~/.claude/skills"]);
+    expect(s.agentRoots.codex).toEqual(["~/.codex/skills"]);
+    expect(s.agentRoots.pi).toEqual(["~/.pi/agent/skills", "~/.agents/skills"]);
+    expect(s.sharedRoots).toEqual(["~/.cortex-desktop/skills"]);
+  });
+
+  it("旧扁平结构(globalRoots+userGlobalRoots)迁移:~/.agents/skills→pi 原生;~/.cortex-desktop/skills→共享;自增根→共享", () => {
+    const s = hydratePiSkills({
+      globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills"],
+      userGlobalRoots: ["~/x"],
+      disabledSkills: ["global:foo"],
+      trustedWorkspaceSkillDirs: ["/proj/.cortex-desktop/skills"],
+      workspaceEnabled: true,
+    });
+    // ~/.agents/skills 现为 pi 默认原生根(恒并入),无需显式搬运
+    expect(s.agentRoots.pi).toEqual(["~/.pi/agent/skills", "~/.agents/skills"]);
+    // ~/.cortex-desktop/skills 为共享默认;用户自增 ~/x 并入共享;旧默认不重复搬到共享
+    expect(s.sharedRoots).toContain("~/.cortex-desktop/skills");
+    expect(s.sharedRoots).toContain("~/x");
+    expect(s.sharedRoots).not.toContain("~/.agents/skills");
+  });
+
+  it("旧结构里非默认 globalRoots 残留兜底并入共享(不丢)", () => {
+    const s = hydratePiSkills({
+      globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills", "~/weird-root"],
+      userGlobalRoots: [],
+      disabledSkills: [],
+      trustedWorkspaceSkillDirs: [],
+      workspaceEnabled: true,
+    });
+    expect(s.sharedRoots).toContain("~/weird-root");
+  });
+
+  it("新结构再加载幂等:保留用户自增私有/共享根,不重复默认、不叠加", () => {
+    const migrated = {
+      sharedRoots: ["~/.cortex-desktop/skills", "~/shared-extra"],
+      agentRoots: { claude: ["~/.claude/skills", "~/claude-extra"], codex: ["~/.codex/skills"], pi: ["~/.pi/agent/skills", "~/.agents/skills"] },
+      globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills"],
+      userGlobalRoots: [],
+      disabledSkills: [],
+      trustedWorkspaceSkillDirs: [],
+      workspaceEnabled: true,
+    };
+    const once = hydratePiSkills(migrated);
+    expect(once.agentRoots.claude).toEqual(["~/.claude/skills", "~/claude-extra"]);
+    expect(once.sharedRoots).toEqual(["~/.cortex-desktop/skills", "~/shared-extra"]);
+    // 二次加载幂等:结构逐字不变
+    const twice = hydratePiSkills(once);
+    expect(twice.agentRoots).toEqual(once.agentRoots);
+    expect(twice.sharedRoots).toEqual(once.sharedRoots);
+  });
+
+  it("默认原生根恒并入:新结构档缺某 agent 默认根时补回(默认变更对老档生效)", () => {
+    const s = hydratePiSkills({
+      sharedRoots: ["~/.cortex-desktop/skills"],
+      agentRoots: { claude: ["~/only-custom"], codex: [], pi: [] }, // 缺默认根
+      globalRoots: [],
+      userGlobalRoots: [],
+      disabledSkills: [],
+      trustedWorkspaceSkillDirs: [],
+      workspaceEnabled: true,
+    });
+    expect(s.agentRoots.claude).toEqual(["~/.claude/skills", "~/only-custom"]);
+    expect(s.agentRoots.codex).toEqual(["~/.codex/skills"]);
+    expect(s.agentRoots.pi).toEqual(["~/.pi/agent/skills", "~/.agents/skills"]);
+  });
+
+  it("disabledSkills / trustedWorkspaceSkillDirs 迁移前后逐字不变", () => {
+    const s = hydratePiSkills({
+      globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills"],
+      userGlobalRoots: [],
+      disabledSkills: ["global:a", "workspace:b"],
+      trustedWorkspaceSkillDirs: ["/p/.cortex-desktop/skills"],
+      workspaceEnabled: false,
+    });
+    expect(s.disabledSkills).toEqual(["global:a", "workspace:b"]);
+    expect(s.trustedWorkspaceSkillDirs).toEqual(["/p/.cortex-desktop/skills"]);
+    expect(s.workspaceEnabled).toBe(false);
   });
 });

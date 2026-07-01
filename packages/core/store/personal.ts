@@ -34,6 +34,8 @@ import type {
   TtsSettings,
 } from "../desktop/types";
 import {
+  DEFAULT_AGENT_SKILL_ROOTS,
+  DEFAULT_SHARED_SKILL_ROOTS,
   DEFAULT_GENERAL_SETTINGS,
   DEFAULT_MODEL,
   DEFAULT_PI_SKILLS,
@@ -340,6 +342,53 @@ function resolveProviderSettings(s: PersistedState): ProviderSettings {
   return DEFAULT_PROVIDER_SETTINGS;
 }
 
+// 旧扁平根默认值(Design B 迁移前的 DEFAULT_PI_SKILLS.globalRoots)。迁移时用它识别「老档 globalRoots
+// 里哪些是内置默认(无需搬去 sharedRoots,因为新默认已覆盖)、哪些是异常残留(并入 sharedRoots 兜底)」。
+const LEGACY_DEFAULT_GLOBAL_ROOTS = ["~/.agents/skills", "~/.cortex-desktop/skills"];
+
+function dedupe(xs: string[]): string[] {
+  return [...new Set(xs)];
+}
+
+// Skill 根配置迁移(Design B,plan 002 U1)。把旧扁平结构 {globalRoots,userGlobalRoots} 幂等迁移为
+// {sharedRoots, agentRoots},并保证「内置默认根」恒并入(代码拥有,默认变更对老档即时生效)。
+//   · 已是新结构(有 agentRoots)→ 逐 agent/共享并入默认,保留用户自增根;
+//   · 旧结构(无 agentRoots)→ userGlobalRoots + 非默认 globalRoots 并入 sharedRoots,agentRoots 用默认;
+//   · 过渡期 deprecated 字段(globalRoots/userGlobalRoots)继续填充,未迁移消费点行为不变。
+// 幂等:重复加载不重复搬运、不叠加(默认恒并入 + dedupe,用户根只来自持久化的 sharedRoots/agentRoots)。
+function migratePiSkills(raw: Partial<PiSkillSettings> | undefined): PiSkillSettings {
+  const base = { ...DEFAULT_PI_SKILLS, ...raw };
+  const isNewShape = !!raw?.agentRoots;
+
+  // agentRoots:每 agent 恒并入默认原生根 + 保留已存的私有根(仅新结构档才有已存值)。
+  const agentRoots = {} as Record<AgentKind, string[]>;
+  for (const agent of Object.keys(DEFAULT_AGENT_SKILL_ROOTS) as AgentKind[]) {
+    const stored = isNewShape ? (raw?.agentRoots?.[agent] ?? []) : [];
+    agentRoots[agent] = dedupe([...DEFAULT_AGENT_SKILL_ROOTS[agent], ...stored]);
+  }
+
+  // sharedRoots 种子:
+  //   · 新结构 → 已存的 sharedRoots;
+  //   · 旧结构 → userGlobalRoots(用户自增) + globalRoots 里非旧默认的异常残留(兜底不丢)。
+  const sharedSeed = isNewShape
+    ? (raw?.sharedRoots ?? [])
+    : [
+        ...(raw?.userGlobalRoots ?? []),
+        ...(raw?.globalRoots ?? []).filter((r) => !LEGACY_DEFAULT_GLOBAL_ROOTS.includes(r)),
+      ];
+  const sharedRoots = dedupe([...DEFAULT_SHARED_SKILL_ROOTS, ...sharedSeed]);
+
+  return {
+    ...base,
+    sharedRoots,
+    agentRoots,
+    // 过渡期 deprecated:保留旧默认 globalRoots + 迁移后的 userGlobalRoots(=已并入 sharedRoots 的用户根),
+    // 未迁移消费点仍读旧字段、行为不变。消费点全部切换后由收尾单元连同字段一并移除。
+    globalRoots: DEFAULT_PI_SKILLS.globalRoots,
+    userGlobalRoots: raw?.userGlobalRoots ?? [],
+  };
+}
+
 // 通用设置 hydrate：完整透传顶层字段（workspaceRoot / notesHotkey / piCustomization /
 // piThinkingDefault / piSystemPrompt 等），再以 DEFAULT_GENERAL_SETTINGS 逐层补全嵌套子对象。
 // 注意：务必整体 spread `...g` 而非逐字段重建——后者会静默丢掉任何未显式列出的字段（可选字段连
@@ -353,10 +402,9 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     desktopBehavior: { ...DEFAULT_GENERAL_SETTINGS.desktopBehavior, ...g.desktopBehavior },
     notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
     log: { ...DEFAULT_GENERAL_SETTINGS.log, ...g.log },
-    // 插件 Skill 配置:旧档无 piSkills 或缺子字段时,逐字段兜 DEFAULT_PI_SKILLS（U6）。
-    // globalRoots 是「内置默认根」、用户不可编辑（setter 只动 userGlobalRoots）,故恒由代码
-    // 拥有——强制覆盖持久化值,使默认根变更（如 ~/.agent → ~/.agents）对老档即时生效。
-    piSkills: { ...DEFAULT_PI_SKILLS, ...g.piSkills, globalRoots: DEFAULT_PI_SKILLS.globalRoots },
+    // 插件 Skill 配置(Design B):经 migratePiSkills 把旧扁平根幂等迁移为「共享根 + 每 agent 私有根」,
+    // 并恒并入代码拥有的默认原生根,使默认变更对老档即时生效(见 migratePiSkills)。
+    piSkills: migratePiSkills(g.piSkills),
     // pi 扩展市场:旧档无 piExtensions 或缺子字段时兜 DEFAULT_PI_EXTENSIONS（U2）。
     piExtensions: { ...DEFAULT_PI_EXTENSIONS, ...g.piExtensions },
     // 插件市场启停/信任:旧档无 plugins 或缺子字段时兜 DEFAULT_PLUGIN_ENABLE（U5）。
