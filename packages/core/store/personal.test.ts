@@ -1289,12 +1289,11 @@ describe("hydrate 会话权限迁移(旧 permissionMode/approvalPolicy → 新 e
 });
 
 describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
-  // hydrate 一个自定义 piSkills(用 any 绕过新类型,模拟旧档/部分档),读回迁移结果。
+  // hydrate 一个自定义 piSkills(cast 绕过新类型,模拟旧档/部分档),读回迁移结果。
   const hydratePiSkills = (piSkills: unknown) => {
     usePersonalStore.getState().hydrate({
       ...base,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: piSkills as any },
+      generalSettings: { ...DEFAULT_GENERAL_SETTINGS, piSkills: piSkills as typeof DEFAULT_PI_SKILLS },
     });
     return usePersonalStore.getState().generalSettings.piSkills!;
   };
