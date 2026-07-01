@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePersonalStore, type AgentKind, type DerivedAgentMeta, type DesktopBridge, type PendingImage, type PersonalAttachment } from "@cortex-work/core";
 import { defaultAsrSettings, type AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
 import type { LocalWhisperModelStatus } from "@cortex-work/core/whisper/models";
-import { ComposerShell, type SlashCommand } from "./ComposerShell";
+import { ComposerShell, matchSlashCommands, rankSlashMatch, type SlashCommand } from "./ComposerShell";
 import { FILE_DRAG_MIME } from "./FilesView";
 import { DOC_ACCEPT_ATTR } from "./docIntake";
 
@@ -47,6 +47,41 @@ function renderShell(props: {
 afterEach(() => {
   cleanup();
   usePersonalStore.setState({ providerSettings: { providers: [], defaultProviderId: undefined, defaultModel: undefined } });
+});
+
+describe("slash 模糊匹配 rankSlashMatch / matchSlashCommands", () => {
+  const CMDS: SlashCommand[] = [
+    { cmd: "/clear", desc: "清屏" },
+    { cmd: "/compact", desc: "压缩" },
+    { cmd: "/skill:agent-browser", desc: "浏览器" },
+    { cmd: "/skill:code-review", desc: "评审" },
+  ];
+
+  it("rankSlashMatch:前缀=0、去斜杠子串=1、子序列=2、不匹配=-1", () => {
+    expect(rankSlashMatch("/cl", "/clear")).toBe(0); // 前缀
+    expect(rankSlashMatch("/browser", "/skill:agent-browser")).toBe(1); // 去斜杠子串 "browser"
+    expect(rankSlashMatch("/agbr", "/skill:agent-browser")).toBe(2); // 子序列 /,a,g,b,r
+    expect(rankSlashMatch("/xyz", "/clear")).toBe(-1);
+    expect(rankSlashMatch("/", "/clear")).toBe(0); // 裸 / → 前缀命中全部
+  });
+
+  it("matchSlashCommands:'/br' 命中 agent-browser(旧前缀匹配匹配不到)", () => {
+    const out = matchSlashCommands("/br", CMDS).map((c) => c.cmd);
+    expect(out).toContain("/skill:agent-browser");
+    expect(out).not.toContain("/clear");
+  });
+
+  it("matchSlashCommands:按档位排序,前缀命中排在子串/子序列前", () => {
+    // "/c" 前缀命中 /clear /compact /skill:code-review? "/c" 前缀:/clear /compact(是),/skill:code-review 否(前缀是 /s)
+    // 但 code-review 含 "c" 子串 → 档 1。前缀两项应排前。
+    const out = matchSlashCommands("/c", CMDS).map((c) => c.cmd);
+    expect(out.slice(0, 2)).toEqual(["/clear", "/compact"]);
+    expect(out).toContain("/skill:code-review");
+  });
+
+  it("matchSlashCommands:裸 / → 保留全部原顺序", () => {
+    expect(matchSlashCommands("/", CMDS).map((c) => c.cmd)).toEqual(CMDS.map((c) => c.cmd));
+  });
 });
 
 describe("ComposerShell slash 键盘导航", () => {

@@ -89,6 +89,29 @@ function deriveSkillName(path: string, fileName: string, content: string): strin
  */
 export type SlashCommand = { cmd: string; desc: string; argHint?: string; kind?: "builtin" | "skill" };
 
+// slash 命令模糊匹配打分:输入 "/br" 也能命中 "/skill:agent-browser"。返回档位(越小越优),-1 = 不匹配。
+//   0 前缀命中(旧行为,最优);1 去斜杠子串命中;2 子序列命中(q 的字符按序出现在 cmd 中)。
+// query 与 cmd 均小写比较,去斜杠子串让 "/browser" 命中 "/skill:agent-browser"。
+export function rankSlashMatch(query: string, cmd: string): number {
+  const q = query.toLowerCase();
+  const c = cmd.toLowerCase();
+  if (c.startsWith(q)) return 0;
+  const sub = q.startsWith("/") ? q.slice(1) : q;
+  if (sub && c.includes(sub)) return 1;
+  let qi = 0;
+  for (let ci = 0; ci < c.length && qi < q.length; ci++) if (c[ci] === q[qi]) qi++;
+  return qi === q.length ? 2 : -1;
+}
+
+// 按打分过滤 + 排序 slash 命令:档位升序,同档保持原顺序(builtins 在前、skill 按名),稳定不打乱。
+export function matchSlashCommands(query: string, commands: SlashCommand[]): SlashCommand[] {
+  return commands
+    .map((c, i) => ({ c, i, r: rankSlashMatch(query, c.cmd) }))
+    .filter((x) => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.c);
+}
+
 export function ComposerShell({
   agent,
   derivedAgentId,
@@ -465,7 +488,8 @@ export function ComposerShell({
     slashCommands.length > 0 && afterSlash.startsWith("/") && !afterSlash.includes(" ") && !afterSlash.includes("\n")
       ? afterSlash
       : null;
-  const slashMatches = slashQuery ? slashCommands.filter((c) => c.cmd.startsWith(slashQuery)) : [];
+  // 模糊匹配(子序列 + 排序):输入 "/br" 也能命中 "/skill:agent-browser"(见 matchSlashCommands)。
+  const slashMatches = slashQuery ? matchSlashCommands(slashQuery, slashCommands) : [];
   const slashOpen = !!slashQuery && slashMatches.length > 0 && !slashDismissed;
   // 查询变化（输入/删除字符）→ 高亮回到首项并撤销 Esc 收起;纯方向键导航不改 query,选择得以保持。
   useEffect(() => {
