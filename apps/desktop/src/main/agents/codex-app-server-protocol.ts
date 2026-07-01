@@ -15,10 +15,14 @@ export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-ac
 /** approvalPolicy 取值(AskForApproval 的常用子集);本项目恒用 "never"。 */
 export type CodexApprovalPolicy = "never" | "on-request" | "on-failure" | "untrusted";
 
-/** turn/start 输入项(UserInput 子集:文本与本地图片)。 */
+/** turn/start 输入项(UserInput 子集:文本、本地图片与原生 skill)。 */
+// skill 项(U4):ws 主交互路径显式触发已选中的 skill,app-server 据 name+path 注入完整 skill 指令
+// (不依赖 codex 自身目录发现,也不再由 cortex 改写 prose)。字段名 name+path 按 codex-cli 0.142.x
+// app-server generate-json-schema 的 UserInput::Skill 变体(path = skill 目录)。
 export type CodexUserInput =
   | { type: "text"; text: string; text_elements: [] }
-  | { type: "localImage"; path: string };
+  | { type: "localImage"; path: string }
+  | { type: "skill"; name: string; path: string };
 
 /** 出站请求方法名(本项目使用的)。 */
 export type CodexRequestMethod =
