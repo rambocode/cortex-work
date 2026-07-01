@@ -110,4 +110,29 @@ describe("PersonalComposer 动态 slash 菜单", () => {
     expect(screen.getByText("/compact")).toBeTruthy(); // pi 内建仍在
     expect(screen.queryByText(/\/skill:/)).toBeNull();
   });
+
+  // Design B(plan 002 U3):切 agent 传给 piSkillsList 的 rootSpecs 应不同(下拉随 agent 变化的根源)。
+  it("pi 会话:piSkillsList 收到 pi 私有原生根 rootSpecs,不含 claude 原生根", async () => {
+    const bridge = fakeBridge([sk("x")]);
+    renderComposer("pi", bridge);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fn = bridge.piSkillsList as any;
+    await waitFor(() => expect(fn.mock.calls.length).toBeGreaterThan(0));
+    const paths = fn.mock.calls[0][0].rootSpecs.map((r: { path: string }) => r.path);
+    expect(paths).toContain("~/.pi/agent/skills");
+    expect(paths).toContain("~/.agents/skills");
+    expect(paths).not.toContain("~/.claude/skills");
+    expect(fn.mock.calls[0][0].workspaceDir).toBe("/proj");
+  });
+
+  it("claude 会话:piSkillsList 收到 claude 私有原生根 rootSpecs,不含 pi 原生根", async () => {
+    const bridge = fakeBridge([sk("x")]);
+    renderComposer("claude", bridge);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fn = bridge.piSkillsList as any;
+    await waitFor(() => expect(fn.mock.calls.length).toBeGreaterThan(0));
+    const paths = fn.mock.calls[0][0].rootSpecs.map((r: { path: string }) => r.path);
+    expect(paths).toContain("~/.claude/skills");
+    expect(paths).not.toContain("~/.pi/agent/skills");
+  });
 });
