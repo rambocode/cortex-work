@@ -777,6 +777,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
           : model ?? DEFAULT_MODEL[agent],
       // 只挂启用的默认 provider（provider 已按 enabled 过滤;停用/无则留空走 pi 内置）。
       providerId: agent === "pi" ? provider?.id : undefined,
+      // Skills 默认打开(用户要求):新会话即启用 skill 发现/注入,可在 composer 里关。
+      useOwnSkills: true,
       createdAt: now,
       updatedAt: now,
     };

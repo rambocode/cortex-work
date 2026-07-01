@@ -70,6 +70,22 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     expect(container.querySelector(".pw-landing-composer")).not.toBeNull();
   });
 
+  it("落地页 slash(修复):输入 / 显示内建命令(之前落地页 slashCommands 为空、无提示)", async () => {
+    renderLanding(fakeBridge());
+    fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "/" } });
+    expect(await screen.findByText("/clear")).toBeTruthy();
+  });
+
+  it("落地页 slash:Skills 默认开 → 输入 / 直接显示已启用 skill(Title-Case 名)", async () => {
+    const piSkillsList = vi.fn(async () => [
+      { name: "image-gen", description: "生成图片", dir: "/g/image-gen", rootPath: "/g", scope: "global", enabled: true, trusted: true, docs: [] },
+    ]);
+    renderLanding(fakeBridge({ piSkillsList } as unknown as Partial<DesktopBridge>));
+    // useOwnSkills 默认打开,无需先点 Skills 开关。
+    fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "/" } });
+    expect(await screen.findByText("Image Gen")).toBeTruthy();
+  });
+
   it("默认不使用项目:发送走 ensureNoProjectDir 建无项目会话", async () => {
     const ensureNoProjectDir = vi.fn(async () => "/docs/cortex/2026-06-17");
     renderLanding(fakeBridge({ ensureNoProjectDir }));
