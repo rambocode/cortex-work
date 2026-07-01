@@ -2,7 +2,7 @@
 // 由 PersonalWorkspace 在 settings 覆盖层**之前**渲染（栈式：工作台内可叠开设置）。
 // 薄容器：持有 UI 瞬态选中态（选中节点 / 选中任务，不复制服务端态，KTD8）+ 根挂订阅；
 // 三列由 U6 ProjectTree（左）/ U7 TaskListColumn（中）/ U8 TaskDetail（右）填充。
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { usePersonalStore } from "@cortex-work/core";
 import { useTasks, useTasksChangeSubscription } from "@cortex-work/core/personal/tasks";
@@ -22,8 +22,28 @@ export type WorkbenchSelection =
 // 覆盖层、盖住底层的 toast 宿主，故须自持 toast 通道）。
 export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void }) {
   const closeProjects = usePersonalStore((s) => s.closeProjects);
+  const detailWidth = usePersonalStore((s) => s.projectsDetailWidth) ?? 380;
+  const setDetailWidth = usePersonalStore((s) => s.setProjectsDetailWidth);
   // 根挂载订阅：后台结构化 / agent 委派回写 → invalidate 刷新三栏（KTD8；历史 notes 零挂载 bug 在先）。
   useTasksChangeSubscription();
+
+  // 右列拖拽调宽：详情是最右列，故宽 = 窗口右缘到鼠标 x 的距离；夹在 [320, 720]。
+  // 拖动期间全局监听 mousemove/up，禁选中文本；松手写入持久客户端态。
+  const onResizeStart = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.min(720, Math.max(320, window.innerWidth - ev.clientX));
+      setDetailWidth(w);
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.userSelect = "";
+    };
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
 
   const [selection, setSelection] = useState<WorkbenchSelection>({ kind: "today" });
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -67,8 +87,10 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
           onOpenTask={setSelectedTaskId}
           onToast={onToast}
         />
+        {/* 右列拖拽调宽手柄：在详情列左缘。*/}
+        <div className="pw-col-resize" onMouseDown={onResizeStart} title="拖动调整详情宽度" />
         {/* 右列：任务详情（U8）。复用 TaskDetail（结构编辑 + 渐进披露富字段）；onBack 清空选中回空态。 */}
-        <div className="pw-projects-detail">
+        <div className="pw-projects-detail" style={{ width: detailWidth }}>
           {selectedTask ? (
             <TaskDetail task={selectedTask} onBack={() => setSelectedTaskId(null)} onToast={onToast} />
           ) : (

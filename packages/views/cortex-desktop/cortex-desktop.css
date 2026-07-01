@@ -6365,8 +6365,13 @@ button.sb-row {
   overflow-y: auto;
   border-right: 1px solid var(--border);
 }
+/* 右列拖拽调宽手柄：夹在中列与详情之间的细条，hover 显色。 */
+.pw-col-resize {
+  flex: 0 0 auto; width: 5px; margin-left: -3px; cursor: col-resize; background: transparent; z-index: 1;
+}
+.pw-col-resize:hover { background: var(--accent-soft); }
 .pw-projects-detail {
-  width: 380px;
+  width: 380px; /* 默认；被 ProjectsWorkbench 的内联宽度（持久客户端态）覆盖 */
   min-width: 320px;
   flex-shrink: 0;
   overflow-y: auto;
@@ -9002,7 +9007,8 @@ button.sb-row {
 .pw-task-row { padding: 5px 8px; border-radius: 8px; margin: 1px 4px; }
 .pw-task-row:hover { background: var(--bg-hover); }
 /* 选中行（U6）：淡蓝底 + 左缘蓝条（借鉴 IFocus / 对齐图片灰蓝选中态）。 */
-.pw-task-row.is-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+/* 选中行：不加背景色（用户偏好），仅保留细左缘条作轻提示（内联 inspector 展开本身也标示选中）。 */
+.pw-task-row.is-selected { box-shadow: inset 2px 0 0 var(--accent); }
 /* 行内 inspector（U6）：选中时在标题下展开的共享字段面板容器。 */
 .pw-task-inspector { margin-top: 4px; border-top: 1px solid var(--border-soft); }
 /* inline 布局（U7）：字段横向流成属性栏（对齐图片单行 chips 观感），去掉 column 版分隔边框。

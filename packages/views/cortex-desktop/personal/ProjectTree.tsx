@@ -99,7 +99,7 @@ function AddMenu({
         <Icon.Plus size={13} />
       </button>
       {open ? (
-        <div className="pw-tb-menu pw-tb-menu--left" role="menu">
+        <div className="pw-tb-menu" role="menu">
           <button
             className="pw-tb-menu-item"
             role="menuitem"
@@ -171,7 +171,7 @@ function MoveMenu({
         <Icon.Fwd size={13} />
       </button>
       {open ? (
-        <div className="pw-tb-menu pw-tb-menu--left" role="menu">
+        <div className="pw-tb-menu" role="menu">
           {showTop ? (
             <button
               className="pw-tb-menu-item"

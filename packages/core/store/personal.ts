@@ -143,6 +143,8 @@ export interface PersonalState {
   rightView: RightView;
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
   rightPanelWidth?: number;
+  // 项目工作台右列详情宽度（px,拖拽调整,持久化）;undefined 走 CSS 默认 380。
+  projectsDetailWidth?: number;
   // 主区时间线视图：非空时主区显示该项目的时间线（替代会话区）。
   timelineProjectId?: string;
   // 主区首页视图（热力图/项目检索/全局日总结）。启动默认落地首页;不持久化。
@@ -294,6 +296,7 @@ export interface PersonalState {
   setRightView: (view: RightView) => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
+  setProjectsDetailWidth: (width: number | undefined) => void;
   openTimeline: (projectId: string) => void;
   closeTimeline: () => void;
   openHome: () => void;
@@ -449,6 +452,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 旧存档无 profile 字段 → 回退空对象（会话渲染走默认昵称/头像）。
       profile: s.profile ?? {},
       rightPanelWidth: s.rightPanelWidth,
+      projectsDetailWidth: s.projectsDetailWidth,
       lastAgent: s.lastAgent,
       lastModel: s.lastModel,
       // 旧档字段名 lastPiChannelId → lastProviderId。
@@ -935,6 +939,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setRightView: (view) => set({ rightView: view }),
 
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
+  setProjectsDetailWidth: (width) => set({ projectsDetailWidth: width }),
 
   openTimeline: (projectId) =>
     set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, workflowOpen: false, projectsOpen: false, noteEditorId: undefined, settingsOpen: false }),
@@ -1010,6 +1015,7 @@ export function toPersistedState(s: PersonalState): PersistedState {
     generalSettings: s.generalSettings,
     profile: s.profile,
     rightPanelWidth: s.rightPanelWidth,
+    projectsDetailWidth: s.projectsDetailWidth,
     lastAgent: s.lastAgent,
     lastModel: s.lastModel,
     lastProviderId: s.lastProviderId,

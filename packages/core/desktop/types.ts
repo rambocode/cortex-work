@@ -750,6 +750,8 @@ export interface PersistedState {
   profile?: PersonalProfile;
   // 右侧面板自定义宽度（px）;未设置时按视图走 CSS 自动档位。
   rightPanelWidth?: number;
+  // 项目工作台右列详情宽度（px）;未设置走 CSS 默认 380。
+  projectsDetailWidth?: number;
   // 「最后一次使用」记忆（Spotlight/新会话默认沿用;读取回退见 initialAgent）。
   lastAgent?: AgentKind;
   lastModel?: string;
