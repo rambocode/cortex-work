@@ -5,9 +5,10 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { usePersonalStore } from "@cortex-work/core";
-import { useTasksChangeSubscription } from "@cortex-work/core/personal/tasks";
+import { useTasks, useTasksChangeSubscription } from "@cortex-work/core/personal/tasks";
 import { ProjectTree } from "./ProjectTree";
 import { TaskListColumn } from "./TaskListColumn";
+import { TaskDetail } from "./TaskDetail";
 
 // 左树当前选择：内置视图（今日 / 收件箱）或某个 project/folder 节点。
 // U6 ProjectTree 产出、U7 TaskListColumn 消费（folder/project 统一走 descendantProjectIds 聚合）。
@@ -26,6 +27,9 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
 
   const [selection, setSelection] = useState<WorkbenchSelection>({ kind: "today" });
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  // 右列详情：把选中 id 解析为任务对象（已删/悬空 → undefined，右列回空态）。
+  const { data: tasksData } = useTasks();
+  const selectedTask = selectedTaskId ? (tasksData ?? []).find((t) => t.id === selectedTaskId) : undefined;
 
   // ESC 关闭工作台（回到打开前的底层视图）。
   useEffect(() => {
@@ -58,10 +62,10 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
         </div>
         {/* 中列：任务清单（U7）。按左树选择聚合，行内动作直达；点标题 → 右列详情（U8）。 */}
         <TaskListColumn selection={selection} onOpenTask={setSelectedTaskId} onToast={onToast} />
-        {/* 右列：任务详情。U8 接入 <TaskDetail task=… onBack=… />（渐进披露富字段）。 */}
+        {/* 右列：任务详情（U8）。复用 TaskDetail（结构编辑 + 渐进披露富字段）；onBack 清空选中回空态。 */}
         <div className="pw-projects-detail">
-          {selectedTaskId ? (
-            <div className="pw-empty-hint">详情建设中（U8）：{selectedTaskId}</div>
+          {selectedTask ? (
+            <TaskDetail task={selectedTask} onBack={() => setSelectedTaskId(null)} onToast={onToast} />
           ) : (
             <div className="pw-projects-detail-empty">从中间选择一个任务查看详情</div>
           )}
