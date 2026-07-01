@@ -381,7 +381,7 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
     img({ node: _node, src, alt, ...rest }) {
       if (typeof src === "string" && isLocalImagePath(src)) {
         return (
-          <ChatInlineImage src={src} alt={typeof alt === "string" ? alt : ""} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
+          <ChatInlineImage key={src} src={src} alt={typeof alt === "string" ? alt : ""} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
         );
       }
       return <img {...rest} src={src} alt={typeof alt === "string" ? alt : ""} />;
@@ -464,7 +464,7 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
       // agent 常用链接语法 `[name](path)` 给图片(而非 `![]()`)→ 命中本地图片路径则内联渲染图片。
       if (!external && href && isLocalImagePath(href)) {
         return (
-          <ChatInlineImage src={href} alt={textOf(children)} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
+          <ChatInlineImage key={href} src={href} alt={textOf(children)} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
         );
       }
       if (!external && href && isOpenableFile(href)) {

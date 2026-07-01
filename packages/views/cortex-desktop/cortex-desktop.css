@@ -1595,7 +1595,10 @@ input, textarea { font: inherit; color: inherit; }
 }
 .chat-inline-img:hover { border-color: var(--border-strong); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12); }
 .chat-inline-img--loading {
-  width: 180px; height: 120px;
+  /* 占位盒宽度贴近真实图(与 .chat-inline-img 的 max-width 同量级)、高度取近似值,收敛加载完成时的
+     单次 layout shift;反复 remount 的往返闪烁已由 dataURL 缓存消除。按图片自然尺寸精确预留需
+     IPC 返回宽高(根治项,本期低成本组合未做)。 */
+  width: min(320px, 100%); height: 200px;
   cursor: default;
   opacity: 0.55;
 }

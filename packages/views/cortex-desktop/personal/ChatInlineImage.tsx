@@ -21,18 +21,32 @@ function baseName(p: string): string {
   return p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p;
 }
 
+// 模块级 dataURL 缓存:同一绝对路径回读一次即复用。codex 流式正文持续增长会让 react-markdown
+// 反复重解析、ChatInlineImage 反复 remount;无缓存时每次 remount 都回到 loading 占位 + 重新
+// imageReadAny —— 表现为「图片多次渲染闪烁」+ loading↔loaded 高度往返「抖动」。本地盘图片在
+// 一次进程内内容稳定,故用进程级 Map 复用、无需失效(见 ChatInlineImage.test)。
+const dataUrlCache = new Map<string, string>();
+
 export function ChatInlineImage({ src, alt, projectPath, bridge, onOpenFile }: ChatInlineImageProps) {
   // 绝对路径直用;相对路径拼到项目根(图片 ref 是真实相对路径,无需 resolveProjectFile 的裸名搜索)。
   const abs = useMemo(
     () => (src.startsWith("/") ? src : resolveProjectFileRef(projectPath, src).abs),
     [src, projectPath],
   );
-  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  // 初始 state 即从缓存取:remount 时首帧就是图片、不闪 loading 占位。
+  const [dataUrl, setDataUrl] = useState<string | null>(() => dataUrlCache.get(abs) ?? null);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState(false);
 
   useEffect(() => {
     let alive = true;
+    // 命中模块缓存 → 同步复用,不回 loading 占位、不重复 imageReadAny(消除重解析 remount 的闪烁/抖动)。
+    const cached = dataUrlCache.get(abs);
+    if (cached) {
+      setDataUrl(cached);
+      setFailed(false);
+      return;
+    }
     const read = bridge?.imageReadAny;
     if (!read) {
       setFailed(true); // 无回读能力(web/旧壳)→ 降级链接
@@ -41,7 +55,11 @@ export function ChatInlineImage({ src, alt, projectPath, bridge, onOpenFile }: C
     setFailed(false);
     setDataUrl(null);
     read(abs).then(
-      (r) => alive && setDataUrl(r.dataUrl),
+      (r) => {
+        if (!alive) return;
+        dataUrlCache.set(abs, r.dataUrl); // 读成功写缓存,供后续 remount 同步命中
+        setDataUrl(r.dataUrl);
+      },
       () => alive && setFailed(true),
     );
     return () => {
