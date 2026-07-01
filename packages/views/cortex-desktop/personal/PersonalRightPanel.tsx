@@ -11,6 +11,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
 import { PromptPanel } from "./PromptPanel";
+import { TasksView } from "./TasksView";
 import { TasksDocsView } from "./TasksDocsView";
 import { NotesView } from "./NotesView";
 import { BrowserView } from "./BrowserView";
@@ -20,6 +21,7 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
   files: "文件",
   skills: "Skills",
   todos: "Tasks",
+  pipeline: "产物流水线",
   notes: "闪记",
   browser: "浏览器",
 };
@@ -114,6 +116,8 @@ export function PersonalRightPanel({
       {view === "files" ? (
         <FilesView onToast={onToast} />
       ) : view === "todos" ? (
+        <TasksView onToast={onToast} />
+      ) : view === "pipeline" ? (
         <TasksDocsView onToast={onToast} />
       ) : view === "notes" ? (
         <NotesView onToast={onToast} />
