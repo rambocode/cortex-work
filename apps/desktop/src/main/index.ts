@@ -1,6 +1,7 @@
 import { app, autoUpdater as electronAutoUpdater, BrowserWindow, globalShortcut, ipcMain, powerMonitor } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
+import { runTaskMigration } from "./ipc/tasks-migrate";
 import {
   registerIpcHandlers,
   killAllCli,
@@ -250,6 +251,10 @@ if (!app.requestSingleInstanceLock()) {
     // 内嵌浏览器 <webview> 安全闸门须在任何 webview 可能 attach 之前装好(建窗之前)。
     installBrowserWebviewGuards();
     configureBrowserPartition();
+    // 真任务系统 v1→v2 迁移：必须在 registerIpcHandlers（store:load/save/tasks:*）之前 eager+await，
+    // 使 renderer 的一切 store 访问都排在迁移之后处理，从根上消除「renderer 首个 save 先于迁移
+    // 抹掉源 todos」的竞态（数据安全，见 U3/KTD2）。migratedAt 幂等，已迁移则纯 no-op。
+    await runTaskMigration();
     registerIpcHandlers({
       update: { beforeInstall: markRealQuit },
       agentTraceDevMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"],
