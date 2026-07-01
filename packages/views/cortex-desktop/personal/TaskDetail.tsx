@@ -8,6 +8,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useUpdateTask, useTaskProjects, useAddTaskProject, normalizeTag } from "@cortex-work/core/personal/tasks";
 import { onlyProjects } from "@cortex-work/core/personal/taskProjectTree";
 import { TaskDurationField } from "./TaskDurationField";
+import { TaskReminderField } from "./TaskReminderField";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import { NoteCodeMirrorEditor, type NoteEditorAppearance } from "./editor/NoteCodeMirrorEditor";
 
@@ -95,7 +96,13 @@ export function TaskDetail({
       isSet: task.estimatedDuration != null,
       node: <TaskDurationField task={task} />,
     },
-    // U11: reminder；U12: repeat；U13: attachments
+    {
+      key: "reminder",
+      label: "提醒",
+      isSet: task.reminder?.at != null,
+      node: <TaskReminderField task={task} />,
+    },
+    // U12: repeat；U13: attachments
   ];
   const shownRich = richFields.filter((f) => f.isSet || revealed.has(f.key));
   const addableRich = richFields.filter((f) => !f.isSet && !revealed.has(f.key));

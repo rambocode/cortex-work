@@ -14,6 +14,15 @@ export interface TaskDelegation {
   error?: string;
 }
 
+// 任务提醒（U11）：到点触发一次原生桌面通知。
+// at = 绝对 epoch ms 触发时刻；firedAt = 已触发时间戳（幂等闸门，避免重启/重排重复触发）。
+// firedAt 是「只触发一次 / 只补跑一次」的唯一持久化闸门（automation 靠 enabled/lastRunAt，
+// 任务侧无此语义，必须自建）。重设提醒时须清 firedAt 使其能再次触发。
+export interface TaskReminder {
+  at: number;
+  firedAt?: number;
+}
+
 // task-project 的层级类型：folder 仅作分组容器、不直接容纳任务；project 可容纳任务、可再嵌子项目。
 export type TaskProjectKind = "folder" | "project";
 
@@ -47,6 +56,7 @@ export interface TaskMeta {
   estimatedDuration?: number; // 预计时长（分钟，U10）
   completedAt?: number; // 置 done 时间戳（U10；权威由 main 状态迁移落点写）
   droppedAt?: number; // 置 dropped 时间戳（U10）
+  reminder?: TaskReminder; // 定时提醒（U11；到点由 main 调度器投递原生通知，门控在「内部原生通知」opt-in）
 }
 
 // 新建入参（id/时间戳由 store 生成）。

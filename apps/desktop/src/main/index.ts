@@ -17,6 +17,7 @@ import { installBrowserWebviewGuards } from "./browser/webviewGuards";
 import { configureBrowserPartition } from "./browser/partition";
 import { ensureMigrated } from "./paths";
 import { initScheduler, rescheduleAll, stopScheduler } from "./automation/scheduler";
+import { tasksStore, tasksReminderScheduler, isTasksReminderOptInEnabled } from "./ipc/tasks";
 import { startMcpHost, stopMcpHost } from "./capabilities/mcp-host/server";
 import { registerBrowserTools } from "./capabilities/browser/tools";
 import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extract/mcp";
@@ -296,6 +297,13 @@ if (!app.requestSingleInstanceLock()) {
       onToggleSpotlight: toggleSpotlight,
     });
     await initScheduler();
+    // 任务提醒调度器（U11）：读初始 opt-in（内部原生通知）+ 当前任务快照建 Cron/补跑错过项。
+    // setEnabled 先行（此时快照空，为 no-op），再 sync 真实任务；开机补跑「只补一次」靠 firedAt 闸门。
+    {
+      const state = await getPersistedState();
+      tasksReminderScheduler.setEnabled(isTasksReminderOptInEnabled(state));
+      tasksReminderScheduler.sync(await tasksStore.list());
+    }
     // 工作流运行时（loop 引擎）：独立于 automation，与之并列。
     // fire-and-forget：调度器初始化快，失败已内部降级，不阻塞建窗。
     const workflowRuntime = initWorkflowRuntime()
@@ -371,6 +379,7 @@ if (!app.requestSingleInstanceLock()) {
     realQuitCleanupStarted = true;
     markRealQuit();
     stopScheduler();
+    tasksReminderScheduler.stop(); // 停任务提醒 Cron + 释放 powerSaveBlocker
     stopMcpHost();
     stopDocExtractHost();
     stopMediaGenHost();

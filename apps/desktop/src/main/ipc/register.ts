@@ -3,7 +3,7 @@
 import { registerFsHandlers } from "./fs";
 import { registerStoreHandlers } from "./store";
 import { registerNotesHandlers } from "./notes";
-import { registerTasksHandlers } from "./tasks";
+import { registerTasksHandlers, tasksReminderScheduler, isTasksReminderOptInEnabled } from "./tasks";
 import { registerSkillsHandlers } from "./skills";
 import { registerPluginHandlers } from "./plugins";
 import { registerPiExtensionMarketHandlers } from "./pi-extensions-market";
@@ -43,7 +43,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   installIpcTrace();
   registerFsHandlers();
   registerWatchHandlers();
-  registerStoreHandlers();
+  // 设置落盘后同步任务提醒 opt-in（pushSettings.internal.enabled 变化 → 调度器建/拆 Cron）。
+  registerStoreHandlers((state) => tasksReminderScheduler.setEnabled(isTasksReminderOptInEnabled(state)));
   registerNotesHandlers();
   registerTasksHandlers(); // 真任务系统（替换 doc 聚合 Tasks）
   registerSkillsHandlers();

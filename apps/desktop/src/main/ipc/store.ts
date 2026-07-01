@@ -57,10 +57,14 @@ async function savePersistedState(state: PersistedState): Promise<void> {
   await fsp.rename(tmp, path);
 }
 
-export function registerStoreHandlers(): void {
+// onSaved：每次 renderer 全量落设置后同步调用（cached 已更新）。用于让 main 侧订阅方即时
+// 反应设置变更——当前唯一订阅方是任务提醒调度器（读 pushSettings.internal.enabled opt-in 变化，
+// off→on 建 Cron/补跑、on→off 拆全部）。回调抛错不阻断落盘（调用方自行兜底）。
+export function registerStoreHandlers(onSaved?: (state: PersistedState) => void): void {
   ipcMain.handle("store:load", () => getPersistedState());
   ipcMain.handle("store:save", (_e, state: PersistedState) => {
     cached = state;
+    onSaved?.(state);
     writeQueue = writeQueue.then(() => savePersistedState(state)).catch((err) => {
       log.error("save failed:", err);
     });
