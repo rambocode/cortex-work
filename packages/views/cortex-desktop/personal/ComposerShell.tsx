@@ -230,6 +230,8 @@ export function ComposerShell({
   const [slashDismissed, setSlashDismissed] = useState(false);
   // 插件「在对话中试用」上下文:输入框前渲染的插件 pill（composerIcon 图标+名称）。发送或手动移除即清。
   const [tryPlugin, setTryPlugin] = useState<{ id: string; name: string; icon?: string } | null>(null);
+  // 选项1(图2):选中 skill 后在输入框上方显示的 pill(icon + 友好名);textarea 只留参数,发送时拼回 cmd。
+  const [selectedSkill, setSelectedSkill] = useState<{ cmd: string; displayName: string } | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   // 上传入口合并:图片/文档共用单个隐藏 input,经「+」菜单「文件」项触发,onChange 按 MIME 分流。
   const attachInputRef = useRef<HTMLInputElement>(null);
@@ -281,6 +283,7 @@ export function ComposerShell({
     setText("");
     setAttachments([]);
     setTryPlugin(null); // 发送后清插件试用 pill
+    setSelectedSkill(null); // 发送后清已选 skill pill(选项1)
     try {
       // onSend 返回「是否已消费」(真正发出);未消费(/clear、pi 不可用、落盘失败)则保留待发图/文档供重试。
       const consumed = await onSend(textToSend, attachments, sentImages, sentDocs);
@@ -292,7 +295,12 @@ export function ComposerShell({
       setSending(false);
     }
   };
-  const send = () => sendText(text);
+  // 已选 skill 时:把 pill 的 cmd 与输入的参数拼回 `/skill:name args`(无参数则仅 cmd)交发送路径解析。
+  const send = () => {
+    const args = text.trim();
+    const outText = selectedSkill ? (args ? `${selectedSkill.cmd} ${args}` : selectedSkill.cmd) : text;
+    void sendText(outText);
+  };
 
   // 采集图片:格式/大小校验(toast 原因)→ 读成 PendingImage → 去重 + 张数上限以 prev 为准
   // (放进 setImages 函数式更新,避免快速连续采集时过期闭包 images 导致越限/漏去重)。
@@ -518,10 +526,12 @@ export function ComposerShell({
     setSlashDismissed(false);
   }, [slashQuery]);
 
-  // 选中命令:内建立即执行;skill 插入 `cmd ` 并保留焦点供填参(KTD4)。
+  // 选中命令:内建立即执行;skill 选中后在输入框上方显示 pill(选项1/图2),textarea 清空供填参,
+  // 发送时由 send() 把 pill 的 cmd 与参数拼回 `/skill:name args`。菜单随 text 清空自动关闭。
   const runCommand = (c: SlashCommand) => {
     if (c.kind === "skill") {
-      setText(`${c.cmd} `);
+      setSelectedSkill({ cmd: c.cmd, displayName: c.displayName ?? c.cmd });
+      setText("");
       taRef.current?.focus();
       return;
     }
@@ -532,6 +542,12 @@ export function ComposerShell({
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // @mention autocomplete 优先拦截
     if (mention.handleMentionKeyDown(e)) return;
+    // 已选 skill chip 在输入框最前:参数为空时按 Backspace/Delete 即删除该 chip(退格移除前置 chip 的直觉)。
+    if (selectedSkill && text === "" && (e.key === "Backspace" || e.key === "Delete") && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      setSelectedSkill(null);
+      return;
+    }
     if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       const n = slashMatches.length;
@@ -777,6 +793,26 @@ export function ComposerShell({
                 className="pw-try-pill-x"
                 aria-label={t("composer.remove")}
                 onClick={() => setTryPlugin(null)}
+              >
+                <Icon.X size={11} />
+              </button>
+            </span>
+          ) : null}
+          {/* 选项1(图2):已选 skill pill —— 图标 + 友好名 + ×;textarea 里只填参数,发送时拼回 /skill:name。 */}
+          {selectedSkill ? (
+            <span className="pw-try-pill pw-skill-pill" title={selectedSkill.displayName}>
+              <span className="pw-try-pill-ico">
+                <Icon.Sparkle size={12} />
+              </span>
+              <span className="pw-try-pill-name">{selectedSkill.displayName}</span>
+              <button
+                type="button"
+                className="pw-try-pill-x"
+                aria-label={t("composer.remove")}
+                onClick={() => {
+                  setSelectedSkill(null);
+                  taRef.current?.focus();
+                }}
               >
                 <Icon.X size={11} />
               </button>

@@ -8446,6 +8446,9 @@ button.sb-row {
   font-size: 11px; font-weight: 700; color: var(--text-1);
 }
 .pw-try-pill-name { line-height: 1; }
+/* 已选 skill pill(选项1):图标用强调色、无方块底,与 chip 语义一致。 */
+.pw-skill-pill .pw-try-pill-ico { color: var(--accent); background: transparent; }
+.pw-skill-pill .pw-try-pill-name { color: var(--accent); }
 .pw-try-pill-x {
   display: inline-flex; align-items: center; justify-content: center;
   border: none; background: transparent; color: var(--text-3); cursor: pointer; padding: 0 1px;
