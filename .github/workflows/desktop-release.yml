@@ -453,6 +453,7 @@ jobs:
       - name: Stage release assets
         run: |
           set -euo pipefail
+          shopt -s nullglob # win zip 目标没有 blockmap(只随 nsis .exe 生成),未匹配的 glob 应消失而非让 cp 报错中止
           arm_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-arm64"
           x64_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-x64"
           win_dir="artifacts/cortex-desktop-${BUILD_TAG}-windows-x64"
@@ -465,10 +466,12 @@ jobs:
           cp "$win_dir"/*.zip "$win_dir"/*.zip.blockmap staging/
           cp "$win_dir/latest.yml" staging/
 
-          # G6 护栏:mac 双架构资产必须同时存在,少一个直接中止(不依赖上面 cp 的隐式失败退出码,
-          # glob 在某些 shell 设置下匹配不到文件时不会非零退出,这里显式点名断言更可靠)。
+          # G6 护栏:mac 双架构资产必须同时存在,少一个直接中止。用数组长度判断而非 ls 是否成功——
+          # nullglob 已开启,未匹配的 pattern 展开为空、`ls staging/` 会退化成列出整个目录、总是成功,
+          # 不能反映某个具体 pattern 有没有真的匹配到文件。
           for pattern in "*-arm64.dmg" "*-arm64.zip" "*-x64.dmg" "*-x64.zip"; do
-            if ! ls staging/$pattern >/dev/null 2>&1; then
+            matches=(staging/$pattern)
+            if [[ ${#matches[@]} -eq 0 ]]; then
               echo "Missing mac release asset matching: $pattern" >&2
               exit 1
             fi
