@@ -9091,6 +9091,14 @@ button.sb-row {
 }
 .pw-task-meta-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .pw-task-meta-label { font-size: 11px; color: var(--text-3); flex: 0 0 auto; min-width: 28px; }
+/* 状态分段控件（U5）：5 态按钮 row，选中态高亮。 */
+.pw-task-status-seg { display: inline-flex; gap: 2px; flex-wrap: wrap; }
+.pw-task-status-opt {
+  font-size: 11px; color: var(--text-3); background: var(--bg-input);
+  border: 1px solid var(--border-soft); border-radius: 6px; padding: 2px 8px; cursor: pointer;
+}
+.pw-task-status-opt:hover { color: var(--text-1); }
+.pw-task-status-opt.is-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .pw-task-meta-select,
 .pw-task-meta-input,
 .pw-task-meta-date {
