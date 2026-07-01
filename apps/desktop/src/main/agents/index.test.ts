@@ -145,6 +145,19 @@ describe("parseLineEvents 盲区补点(U4)", () => {
     expect(logMocks.debug).not.toHaveBeenCalled();
   });
 
+  it("命中 def.ignoredFrameTypes 的帧 → 即使解析空、以 { 开头,也不告警(已评审的故意忽略,非盲区)", () => {
+    const def = {
+      ...fakeDef(() => null),
+      ignoredFrameTypes: new Set(["turn_end", "agent_end"]),
+    };
+    expect(parseLineEvents(def, '{"type":"turn_end","message":{}}')).toEqual([]);
+    expect(parseLineEvents(def, '{"type":"agent_end","willRetry":false}')).toEqual([]);
+    expect(logMocks.debug).not.toHaveBeenCalled();
+    // 未在忽略集合里的 type 仍正常告警,不会被这个位"一刀切"消音。
+    expect(parseLineEvents(def, '{"type":"totally_new_frame"}')).toEqual([]);
+    expect(logMocks.debug).toHaveBeenCalledTimes(1);
+  });
+
   it("解析出事件(单/数组)→ 不落日志,返回行为不变", () => {
     const single = fakeDef(() => ({ type: "text", delta: "a" }) as never);
     expect(parseLineEvents(single, "ok")).toEqual([{ type: "text", delta: "a" }]);
