@@ -6316,7 +6316,7 @@ button.sb-row {
    仿 .pw-settings-page 的 fixed 全窗覆盖（z-index:200，须与 settings 同级、渲染在其前，
    见 PersonalWorkspace）；内部自绘三列 flex：左项目树(固定宽) / 中任务清单(flex:1) /
    右详情(固定宽)。不复用 .right/.pw-center-col（被 .body:has(.pw-main) 与 2 列 grid 绑死）。
-   叶子样式（任务行/徽标/详情结构栏/项目树行）整套复用现有 .pw-task-*/.pw-project*。 */
+   叶子样式（任务行/徽标/详情结构栏/项目树行）整套复用现有 .pw-task 与 .pw-project 系列类。 */
 .pw-projects-page {
   position: fixed;
   inset: 0;
