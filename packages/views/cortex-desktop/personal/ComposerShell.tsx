@@ -87,7 +87,16 @@ function deriveSkillName(path: string, fileName: string, content: string): strin
  *  - "skill":选中插入 `cmd ` 到输入框、保留焦点、不发送,供用户填 argHint 参数后再发。
  * argHint 为 pi skill frontmatter 的 argument-hint(如 `<url>` / `[branch]`),展示在命令名后。
  */
-export type SlashCommand = { cmd: string; desc: string; argHint?: string; kind?: "builtin" | "skill" };
+export type SlashCommand = {
+  cmd: string;
+  desc: string;
+  argHint?: string;
+  kind?: "builtin" | "skill";
+  // 菜单展示用友好名(Title Case,如 Image Gen);缺省回退展示 cmd。匹配时 cmd 与 displayName 都参与。
+  displayName?: string;
+  // 来源标签(个人/系统/工作区),展示在菜单项右侧。
+  tag?: string;
+};
 
 // slash 命令模糊匹配打分:输入 "/br" 也能命中 "/skill:agent-browser"。返回档位(越小越优),-1 = 不匹配。
 //   0 前缀命中(旧行为,最优);1 去斜杠子串命中;2 子序列命中(q 的字符按序出现在 cmd 中)。
@@ -103,10 +112,22 @@ export function rankSlashMatch(query: string, cmd: string): number {
   return qi === q.length ? 2 : -1;
 }
 
+// 一条命令的最优档位:cmd 与 displayName(若有)都参与匹配,取更优(更小)者;都不匹配 = -1。
+// 让「/imag」「image gen」都能命中 Image Gen(displayName)与 /skill:image-gen(cmd)。
+function bestSlashRank(query: string, c: SlashCommand): number {
+  let best = -1;
+  for (const target of [c.cmd, c.displayName]) {
+    if (!target) continue;
+    const r = rankSlashMatch(query, target);
+    if (r >= 0 && (best === -1 || r < best)) best = r;
+  }
+  return best;
+}
+
 // 按打分过滤 + 排序 slash 命令:档位升序,同档保持原顺序(builtins 在前、skill 按名),稳定不打乱。
 export function matchSlashCommands(query: string, commands: SlashCommand[]): SlashCommand[] {
   return commands
-    .map((c, i) => ({ c, i, r: rankSlashMatch(query, c.cmd) }))
+    .map((c, i) => ({ c, i, r: bestSlashRank(query, c) }))
     .filter((x) => x.r >= 0)
     .sort((a, b) => a.r - b.r || a.i - b.i)
     .map((x) => x.c);
@@ -705,10 +726,20 @@ export function ComposerShell({
                     runCommand(c);
                   }}
                 >
-                  <code>{c.cmd}</code>
+                  {/* skill 项:图标 + Title-Case 友好名(如 Image Gen);内建命令仍展示原始 /cmd。 */}
+                  {c.displayName ? (
+                    <>
+                      <Icon.Sparkle size={14} className="pw-slash-icon" />
+                      <span className="pw-slash-name">{c.displayName}</span>
+                    </>
+                  ) : (
+                    <code>{c.cmd}</code>
+                  )}
                   {c.argHint ? <span className="pw-slash-arg">{c.argHint}</span> : null}
                   {/* 描述单行省略:skill 的 SKILL.md 描述可能很长,全显会撑爆菜单(title 给悬停全文)。 */}
                   <span className="pw-slash-desc" title={c.desc}>{c.desc}</span>
+                  {/* 来源标签(个人/系统/工作区),右侧弱化展示。 */}
+                  {c.tag ? <span className="pw-slash-tag">{c.tag}</span> : null}
                   {/* 动作提示按 kind 区分(KTD4):skill 为「插入」(选中填参),内建为「运行」(立即执行)。 */}
                   {active ? (
                     <kbd className="pw-slash-kbd">

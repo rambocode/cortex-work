@@ -6517,6 +6517,25 @@ button.sb-row {
   font-weight: 600;
   color: var(--accent);
 }
+/* skill 项图标(Title-Case 友好名前),弱化色。 */
+.pw-slash-icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+/* skill 友好名(Title Case,如 Image Gen):加粗、不换行,取代原始 /cmd 展示。 */
+.pw-slash-name {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-1);
+}
+/* 来源标签(个人/系统/工作区):右侧弱化 pill。 */
+.pw-slash-tag {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+}
 /* 描述占据剩余宽度并单行省略;min-width:0 让 flex 子项可收缩到省略号生效。 */
 .pw-slash-desc {
   flex: 1;

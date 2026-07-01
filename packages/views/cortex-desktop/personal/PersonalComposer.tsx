@@ -5,6 +5,7 @@
 import { DEFAULT_AGENT_THINKING, usePiEnabledSkills } from "@cortex-work/core";
 import type { AgentThinkingValue, DirPermission, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { ComposerShell, type SlashCommand } from "./ComposerShell";
+import { skillTitleCase, skillSourceTag } from "./skillDisplay";
 
 // 内建 slash 命令(发送拦截在 PersonalChatArea.onSend）。kind:"builtin" = 选中即执行。
 // /compact 仅 pi 会话有（压缩走 pi RPC）。
@@ -62,6 +63,9 @@ export function PersonalComposer({
   const piSkills = usePiEnabledSkills(session);
   const skillCommands: SlashCommand[] = piSkills.map((s) => ({
     cmd: `/skill:${s.name}`,
+    // 菜单展示 Title-Case 友好名 + 来源标签(个人/系统/工作区),cmd 仍保留供匹配/插入。
+    displayName: skillTitleCase(s.name),
+    tag: skillSourceTag(s.scope, s.system),
     desc: s.description,
     argHint: s.argumentHint,
     kind: "skill",

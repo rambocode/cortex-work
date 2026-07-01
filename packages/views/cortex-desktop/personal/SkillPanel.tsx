@@ -16,6 +16,7 @@ import {
   type AgentKind,
   type PluginSkill,
 } from "@cortex-work/core";
+import { skillTitleCase } from "./skillDisplay";
 
 type StatusFilter = "all" | "enabled" | "disabled";
 
@@ -527,15 +528,6 @@ function SkillGroup({
   );
 }
 
-// frontmatter name（kebab/小写）→ 展示用标题大小写（如 agent-browser → Agent Browser）。
-function titleCase(name: string): string {
-  return name
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
 function SkillCard({
   skill,
   onToggle,
@@ -552,7 +544,7 @@ function SkillCard({
     <div className={`pw-plugins-card ${skill.shadowedBy ? "is-shadowed" : ""}`}>
       <div className="pw-plugins-card-main">
         <div className="pw-plugins-card-title">
-          <span className="pw-plugins-card-name">{titleCase(skill.name)}</span>
+          <span className="pw-plugins-card-name">{skillTitleCase(skill.name)}</span>
           <span className="pw-tag">{skill.scope === "workspace" ? "工作区" : "全局"}</span>
           {skill.shadowedBy ? <span className="pw-tag">已被全局同名覆盖</span> : null}
           {untrustedWorkspace ? <span className="pw-tag">未信任</span> : null}

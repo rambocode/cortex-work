@@ -10,13 +10,20 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { DEFAULT_PI_SKILLS, type AgentKind, type PiSkillSettings, type PluginSkill, type SessionMeta } from "../desktop/types";
+import { DEFAULT_PI_SKILLS, type AgentKind, type PiSkillSettings, type PluginSkill, type SessionMeta, type SkillScope } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { resolveAgentSkillRoots } from "./skill-roots";
 
-/** slash 菜单展示用的已启用 skill 元数据(取自 PluginSkill)。 */
-export type PiSlashSkill = { name: string; description: string; argumentHint?: string };
+/** slash 菜单展示用的已启用 skill 元数据(取自 PluginSkill)。scope + system 供菜单渲染来源标签。 */
+export type PiSlashSkill = {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  scope: SkillScope;
+  // CLI 自带系统内置(如 codex ~/.codex/skills/.system)。据来源根路径判定,供「系统」标签。
+  system: boolean;
+};
 
 /**
  * 纯函数:把 piSkillsList 扫描结果过滤为「已启用」展示集。规则与 resolveEnabledSkillPaths 完全一致——
@@ -39,7 +46,14 @@ export function filterEnabledPiSkills(skills: PluginSkill[], cfg: PiSkillSetting
   for (const s of enabled) if (s.scope === "global") byName.set(s.name, s);
   return [...byName.values()]
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((s) => ({ name: s.name, description: s.description, argumentHint: s.argumentHint }));
+    .map((s) => ({
+      name: s.name,
+      description: s.description,
+      argumentHint: s.argumentHint,
+      scope: s.scope,
+      // 系统内置判定:来源根路径含 /.system(codex ~/.codex/skills/.system)。启发式,随 codex 布局。
+      system: s.rootPath.includes("/.system"),
+    }));
 }
 
 /**
