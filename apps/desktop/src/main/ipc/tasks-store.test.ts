@@ -395,3 +395,49 @@ describe("TasksStore markReminderFired（U11 锁内条件写，防复活 correct
     expect(await store.markReminderFired("nope", 1000, 5000)).toBe(false);
   });
 });
+
+describe("子任务层级（U2）", () => {
+  it("add 带 parentId 落 parentTaskId；父不存在则降级顶层", async () => {
+    const store = makeStore();
+    const parent = await store.add({ title: "父" });
+    const child = await store.add({ title: "子", parentId: parent.id });
+    expect(child.parentTaskId).toBe(parent.id);
+    // 父不存在 → 降级顶层（parentTaskId undefined），不悬空
+    const orphan = await store.add({ title: "游离", parentId: "ghost" });
+    expect(orphan.parentTaskId).toBeUndefined();
+  });
+
+  it("update 改 parentTaskId 到合法父 → 变；到自身后代 → 拒绝、数据不变", async () => {
+    const store = makeStore();
+    const a = await store.add({ title: "A" });
+    const b = await store.add({ title: "B", parentId: a.id });
+    const c = await store.add({ title: "C" });
+    // 合法：C 挂到 A 下
+    const moved = await store.update(c.id, { parentTaskId: a.id });
+    expect(moved!.parentTaskId).toBe(a.id);
+    // 成环：把 A 挂到它的后代 B 下 → 拒绝
+    await expect(store.update(a.id, { parentTaskId: b.id })).rejects.toThrow(/自身或其子级/);
+    expect((await store.list()).find((x) => x.id === a.id)!.parentTaskId).toBeUndefined();
+    // 父不存在 → 拒绝
+    await expect(store.update(c.id, { parentTaskId: "ghost" })).rejects.toThrow(/不存在/);
+    // 提升到顶层：parentTaskId undefined 合法、无需校验
+    const promoted = await store.update(b.id, { parentTaskId: undefined });
+    expect(promoted!.parentTaskId).toBeUndefined();
+  });
+
+  it("delete 父 → 级联删整棵后代子树；删叶子仅删自身", async () => {
+    const store = makeStore();
+    const root = await store.add({ title: "root" });
+    const child = await store.add({ title: "child", parentId: root.id });
+    const grand = await store.add({ title: "grand", parentId: child.id });
+    const solo = await store.add({ title: "solo" });
+    await store.delete(root.id);
+    const ids = (await store.list()).map((t) => t.id);
+    expect(ids).toEqual([solo.id]); // root/child/grand 全删，solo 留
+    expect(ids).not.toContain(child.id);
+    expect(ids).not.toContain(grand.id);
+    // 删叶子仅删自身
+    await store.delete(solo.id);
+    expect(await store.list()).toHaveLength(0);
+  });
+});

@@ -16,6 +16,8 @@ import { dirname } from "path";
 import type { ArchivedTask, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TasksFileData } from "./types";
 // 防环复用 core 纯函数（与 U1 树逻辑同源；main 已有 import core 纯模块先例 taskMigrate）。
 import { isDescendant } from "@cortex-work/core/personal/taskProjectTree";
+// 子任务层级：改父防环 + 删父级联删子树（U2，与渲染层建树同源纯函数）。
+import { isTaskDescendant, taskDescendantIds } from "@cortex-work/core/personal/taskTree";
 // 重复任务「完成即滚动」的日期推进纯逻辑（U12）。
 import { canRoll, rollRepeat } from "@cortex-work/core/personal/taskRepeat";
 import { createLogger } from "../log";
@@ -166,6 +168,9 @@ export class TasksStore {
   add(input: TaskInput): Promise<TaskMeta> {
     return this.mutate((data) => {
       const now = Date.now();
+      // 子任务（U2）：parentId 指向的父任务须存在，否则降级为顶层（不悬空）。
+      const parentTaskId =
+        input.parentId && data.tasks.some((t) => t.id === input.parentId) ? input.parentId : undefined;
       const meta: TaskMeta = {
         id: newTaskId(),
         title: input.title.trim(),
@@ -173,6 +178,7 @@ export class TasksStore {
         status: "active",
         tags: [],
         projectId: input.projectId,
+        parentTaskId,
         source: input.source ?? "manual",
         createdAt: now,
         updatedAt: now,
@@ -188,6 +194,17 @@ export class TasksStore {
       const idx = data.tasks.findIndex((t) => t.id === id);
       if (idx < 0) return [data, null];
       const prev = data.tasks[idx];
+      // 子任务改父级（U2）：patch.parentTaskId 为 string 时须校验——父存在且不成环
+      // （把任务挂到自身或其后代下）。undefined = 提升为顶层/不改，无需校验。
+      // 抛错供 handler 捕获给 UI toast，绝不落成环数据。
+      if (patch.parentTaskId !== undefined) {
+        if (!data.tasks.some((t) => t.id === patch.parentTaskId)) {
+          throw new Error("目标父任务不存在");
+        }
+        if (isTaskDescendant(data.tasks, id, patch.parentTaskId)) {
+          throw new Error("不能把任务移到自身或其子级之下");
+        }
+      }
       const next: TaskMeta = {
         ...prev,
         ...patch,
@@ -254,8 +271,13 @@ export class TasksStore {
   }
 
   // 物理删除（不可恢复，区别于 dropped 软标记，见计划 U4/U13）。
+  // 子任务级联（U2/KTD5）：删含子任务的父 → 连同整棵后代子树一并删除（区别于 deleteProject 的「上提」——
+  // 项目是容器故保命上提，子任务是父动作的子步骤故随父删除）。UI 侧对有子任务的删除先弹确认（U4）。
   delete(id: string): Promise<void> {
-    return this.mutate<void>((data) => [{ ...data, tasks: data.tasks.filter((t) => t.id !== id) }, undefined]);
+    return this.mutate<void>((data) => {
+      const toRemove = new Set<string>([id, ...taskDescendantIds(data.tasks, id)]);
+      return [{ ...data, tasks: data.tasks.filter((t) => !toRemove.has(t.id)) }, undefined];
+    });
   }
 
   // U11：在 mutate 锁内条件写提醒 firedAt——仅当该任务的提醒**仍存在、at 匹配、且未触发**才写。
