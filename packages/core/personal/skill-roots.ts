@@ -36,21 +36,22 @@ const AGENT_WORKSPACE_SUBDIRS: Record<AgentKind, string[]> = {
 const SHARED_WORKSPACE_SUBDIR = ".cortex-desktop/skills";
 
 // 解析某 agent 的扫描根规格。projectPath 缺省 / workspaceEnabled=false → 不产出任何 workspace scope 根。
+// agent 缺省(理论上的无 agent 调用点)→ 只产出共享根,不产出任何 agent 私有根(防串场)。
 export function resolveAgentSkillRoots(
   cfg: PiSkillSettings,
-  agent: AgentKind,
+  agent?: AgentKind,
   projectPath?: string,
 ): AgentSkillRoot[] {
   const roots: AgentSkillRoot[] = [];
 
   // 全局根:共享(shared)在前、agent 私有(agent)在后。scope 均为 global(主进程 expandTilde)。
   for (const path of cfg.sharedRoots) roots.push({ path, scope: "global", origin: "shared" });
-  for (const path of cfg.agentRoots[agent] ?? []) roots.push({ path, scope: "global", origin: "agent" });
+  if (agent) for (const path of cfg.agentRoots[agent] ?? []) roots.push({ path, scope: "global", origin: "agent" });
 
   // 工作区根:仅在开启且有项目时产出。相对子目录,主进程 join(workspaceDir, path)。
   if (cfg.workspaceEnabled && projectPath) {
     roots.push({ path: SHARED_WORKSPACE_SUBDIR, scope: "workspace", origin: "shared" });
-    for (const sub of AGENT_WORKSPACE_SUBDIRS[agent] ?? []) {
+    if (agent) for (const sub of AGENT_WORKSPACE_SUBDIRS[agent] ?? []) {
       roots.push({ path: sub, scope: "workspace", origin: "agent" });
     }
   }

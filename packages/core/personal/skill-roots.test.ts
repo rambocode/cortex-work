@@ -59,6 +59,13 @@ describe("resolveAgentSkillRoots（Design B, plan 002 U2）", () => {
     expect(lastSharedIdx).toBeLessThan(firstAgentIdx);
   });
 
+  it("agent 缺省 → 只产出共享根(无 agent 私有根,防串场)", () => {
+    const roots = resolveAgentSkillRoots(cfg, undefined, "/proj");
+    expect(roots.every((r) => r.origin === "shared")).toBe(true);
+    expect(roots.some((r) => r.scope === "global")).toBe(true);
+    expect(roots.some((r) => r.scope === "workspace")).toBe(true);
+  });
+
   it("空 agentRoots[agent] → 只产出共享根,不报错", () => {
     const empty: PiSkillSettings = { ...cfg, agentRoots: { claude: [], codex: [], pi: [] } };
     const roots = resolveAgentSkillRoots(empty, "claude", "/proj");

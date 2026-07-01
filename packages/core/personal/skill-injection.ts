@@ -11,12 +11,16 @@
 import type { DesktopBridge } from "../desktop/bridge";
 import { DEFAULT_PI_SKILLS, DEFAULT_PLUGIN_ENABLE, type AgentKind, type PluginSkill } from "../desktop/types";
 import { usePersonalStore } from "../store/personal";
+import { resolveAgentSkillRoots } from "./skill-roots";
 
 // 注入用的精简 skill 记录(name/description/dir)。
 export interface InjectableSkill {
   name: string;
   description?: string;
   dir: string; // skill 根目录绝对路径
+  // Design B(plan 002):根来源。"agent" = 来自会话 agent 私有原生根(agent 自身会发现,U6 去重时不重复注入);
+  // "shared"/缺省 = 共享根 / 插件根 / 旧扫描(仍需 Cortex 注入)。
+  origin?: "shared" | "agent";
 }
 
 // 安全清洗(RISK-5):name/description 来自工作区 SKILL.md frontmatter,是进入 claude/codex
@@ -166,18 +170,15 @@ export async function resolveEnabledSkillRecords(
   if (useOwnSkills === false) return [];
   if (!bridge.piSkillsList) return [];
   const cfg = { ...DEFAULT_PI_SKILLS, ...usePersonalStore.getState().generalSettings.piSkills };
+  // Design B(plan 002 U4):按会话 agent 解析扫描根(与下拉 usePiEnabledSkills 共用 resolveAgentSkillRoots),
+  // 保证「菜单可见 == 实际注入」。主进程据 rootSpecs 扫描,PluginSkill 带回 origin 供 U6 去重。
+  const rootSpecs = resolveAgentSkillRoots(cfg, agent, projectPath);
   // U6:已启用 ∩ 已授信插件的 skills 根作为额外全局扫描根并入（主进程 append 进 scanSkillRoots）。
   // 插件级启停/信任是注入 gate——在这里按 store 过滤要送哪些根，主进程不读 store（KTD3）。
   const pluginSkillDirs = await resolveEnabledPluginSkillDirs(bridge);
   let skills: PluginSkill[];
   try {
-    skills = await bridge.piSkillsList({
-      globalRoots: cfg.globalRoots,
-      userGlobalRoots: cfg.userGlobalRoots,
-      workspaceEnabled: cfg.workspaceEnabled,
-      workspaceDir: projectPath,
-      pluginSkillDirs,
-    });
+    skills = await bridge.piSkillsList({ rootSpecs, workspaceDir: projectPath, pluginSkillDirs });
   } catch {
     return [];
   }
@@ -191,7 +192,7 @@ export async function resolveEnabledSkillRecords(
   });
   // name 去重:先放工作区、后放全局覆盖 → 同名时全局胜出。
   const byName = new Map<string, InjectableSkill>();
-  const put = (s: PluginSkill) => byName.set(s.name, { name: s.name, description: s.description, dir: s.dir });
+  const put = (s: PluginSkill) => byName.set(s.name, { name: s.name, description: s.description, dir: s.dir, origin: s.origin });
   for (const s of enabled) if (s.scope === "workspace") put(s);
   for (const s of enabled) if (s.scope === "global") put(s);
   // 按 dir 字典序排序(与旧实现的 [...paths].sort() 等价,保持调用方稳定顺序)。

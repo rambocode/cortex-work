@@ -106,6 +106,30 @@ describe("resolveEnabledSkillRecords", () => {
     expect(await dirs("pi")).toEqual(["/g/pi-only", "/g/uni"]); // 两者
     expect(await dirs()).toEqual(["/g/pi-only", "/g/uni"]); // 不传 agent → 不过滤
   });
+
+  // Design B(plan 002 U4):注入解析按 agent 传不同 rootSpecs(与下拉共用 resolveAgentSkillRoots)。
+  it("按 agent 传不同 rootSpecs 给 piSkillsList(与下拉同源)", async () => {
+    const fn = vi.fn(async (_args: { rootSpecs: { path: string }[] }) => [] as PluginSkill[]);
+    const bridge = { piSkillsList: fn } as unknown as DesktopBridge;
+    await resolveEnabledSkillRecords(bridge, "/proj", undefined, "claude");
+    const claudePaths = fn.mock.calls[0]![0].rootSpecs.map((r) => r.path);
+    expect(claudePaths).toContain("~/.claude/skills");
+    expect(claudePaths).not.toContain("~/.pi/agent/skills");
+    fn.mockClear();
+    await resolveEnabledSkillRecords(bridge, "/proj", undefined, "pi");
+    const piPaths = fn.mock.calls[0]![0].rootSpecs.map((r) => r.path);
+    expect(piPaths).toContain("~/.pi/agent/skills");
+    expect(piPaths).not.toContain("~/.claude/skills");
+  });
+
+  it("origin 从 PluginSkill 透传到记录(供 U6 去重)", async () => {
+    const agentSkill: PluginSkill = { ...skill("x", "global", "/g/x"), origin: "agent" };
+    const sharedSkill: PluginSkill = { ...skill("y", "global", "/g/y"), origin: "shared" };
+    const bridge = bridgeWith([agentSkill, sharedSkill]);
+    const recs = await resolveEnabledSkillRecords(bridge, "/proj", undefined, "pi");
+    expect(recs.find((r) => r.dir === "/g/x")?.origin).toBe("agent");
+    expect(recs.find((r) => r.dir === "/g/y")?.origin).toBe("shared");
+  });
 });
 
 // resolveEnabledExtensionPaths（U3）:仅 enabled∩trusted 的 global 已装扩展注入 -e;装≠启用、信任门。
