@@ -68,6 +68,22 @@ describe("resolveEnabledSkillPaths", () => {
     const bridge = { piSkillsList: vi.fn(async () => { throw new Error("boom"); }) } as unknown as DesktopBridge;
     expect(await resolveEnabledSkillPaths(bridge, "/proj", undefined)).toEqual([]);
   });
+
+  // U6 去重(KTD5):useOwnSkills===true 时 pi 放开原生发现(d1a0bec),剔除 origin==="agent" 的 --skill;
+  // useOwnSkills!==true(原生关)时保留全部,否则 agent 原生根 skill 丢失。
+  it("useOwnSkills===true:剔除 agent 原生根 skill(pi 自发现),保留共享根", async () => {
+    const agentSkill: PluginSkill = { ...skill("na", "global", "/pi/na"), origin: "agent" };
+    const sharedSkill: PluginSkill = { ...skill("sh", "global", "/shared/sh"), origin: "shared" };
+    const bridge = bridgeWith([agentSkill, sharedSkill]);
+    expect(await resolveEnabledSkillPaths(bridge, "/proj", true, "pi")).toEqual(["/shared/sh"]);
+  });
+
+  it("useOwnSkills===undefined(原生关):保留 agent 原生根 skill(否则丢失)", async () => {
+    const agentSkill: PluginSkill = { ...skill("na", "global", "/pi/na"), origin: "agent" };
+    const sharedSkill: PluginSkill = { ...skill("sh", "global", "/shared/sh"), origin: "shared" };
+    const bridge = bridgeWith([agentSkill, sharedSkill]);
+    expect((await resolveEnabledSkillPaths(bridge, "/proj", undefined, "pi")).sort()).toEqual(["/pi/na", "/shared/sh"]);
+  });
 });
 
 // resolveEnabledSkillRecords(U2):claude/codex prose 注入的记录源。与 resolveEnabledSkillPaths

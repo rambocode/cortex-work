@@ -1541,13 +1541,21 @@ export function buildGlobalAppend(): string | undefined {
 // 插件 Skill:解析注入 pi 的 --skill 目录集合。过滤/去重逻辑(禁用、工作区未授信、name 去重、
 // useOwnSkills 短路、降级)已下沉到 skill-injection.ts 的 resolveEnabledSkillRecords(唯一实现、
 // 跨 agent 共用),此处取其 dir 维持 pi 路径与既有调用方/测试的 string[] 契约不变。
+//
+// U6 去重(KTD5):pi 在 useOwnSkills===true 时会 drop --no-skills 放开自身原生发现(commit d1a0bec),
+// 此时 pi 私有原生根(origin==="agent",如 ~/.pi/agent/skills、~/.agents/skills)下的 skill 由 pi 自己
+// 发现——若再 --skill 显式注入同目录会触发 pi name collision 警告(保留先发现者,功能不坏但有噪)。
+// 故 useOwnSkills===true 时剔除 origin==="agent" 的记录,只 --skill 注入共享根/插件根(pi 原生不扫);
+// useOwnSkills!==true(原生关,恒带 --no-skills)时保留全部,否则 agent 原生根 skill 会彻底丢失。
 export async function resolveEnabledSkillPaths(
   bridge: DesktopBridge,
   projectPath: string,
   useOwnSkills: boolean | undefined,
   agent?: AgentKind,
 ): Promise<string[]> {
-  return (await resolveEnabledSkillRecords(bridge, projectPath, useOwnSkills, agent)).map((s) => s.dir);
+  const records = await resolveEnabledSkillRecords(bridge, projectPath, useOwnSkills, agent);
+  const deduped = useOwnSkills === true ? records.filter((s) => s.origin !== "agent") : records;
+  return deduped.map((s) => s.dir);
 }
 
 // U5:单发(bridge.startCli)路径的 skill 注入分派。两 agent 走两条本质不同的机制:

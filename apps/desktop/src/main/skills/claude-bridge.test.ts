@@ -128,4 +128,25 @@ describe("buildClaudeSkillBridge", () => {
     expect(out).toBe(bridgeRoot);
     expect(readdirSync(join(bridgeRoot, skillsSub))).toEqual(["second"]);
   });
+
+  // U6 去重(KTD5):claude 私有原生根(origin==="agent")下的 skill 由 claude 自发现,桥接不再重复建链。
+  it("origin==='agent' 的记录不进桥接(claude 自发现),只桥接 shared/缺省", () => {
+    const nativeDir = makeSkillDir("native");
+    const sharedDir = makeSkillDir("shared");
+    const out = buildClaudeSkillBridge(
+      [
+        { name: "native", dir: nativeDir, origin: "agent" },
+        { name: "shared", dir: sharedDir, origin: "shared" },
+      ],
+      bridgeRoot,
+    );
+    expect(out).toBe(bridgeRoot);
+    expect(readdirSync(join(bridgeRoot, skillsSub))).toEqual(["shared"]);
+  });
+
+  it("全部为 origin==='agent' → 无桥接内容,返回 undefined(全交 claude 原生发现)", () => {
+    const d = makeSkillDir("only-native");
+    const out = buildClaudeSkillBridge([{ name: "only-native", dir: d, origin: "agent" }], bridgeRoot);
+    expect(out).toBeUndefined();
+  });
 });

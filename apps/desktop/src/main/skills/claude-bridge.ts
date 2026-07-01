@@ -65,7 +65,12 @@ function resolveLinkName(name: string, used: Set<string>): string {
 // 非空:清空 <bridgeRootDir>/.claude/skills/ 旧内容后,为每条记录建一个指向 record.dir 的 symlink,
 // 返回 bridgeRootDir 供 --add-dir。全部建链失败(无有效链接)同样返回 undefined。
 export function buildClaudeSkillBridge(records: InjectableSkill[], bridgeRootDir: string): string | undefined {
-  if (!records.length) return undefined;
+  // U6 去重(KTD5):桥接仅在 useOwnSkills===true 时构建(cli.ts gate),此时 claude 未传
+  // --disable-slash-commands,会自行原生发现 ~/.claude/skills 与项目 .claude/skills(即 origin==="agent"
+  // 的 claude 私有原生根)。为这些再建桥接 symlink + --add-dir 会与 claude 原生发现重复(name collision)。
+  // 故只为 origin!=="agent"(共享根/插件根/旧扫描)的记录建桥接;claude 原生根 skill 交给 claude 自己。
+  const bridged = records.filter((r) => r.origin !== "agent");
+  if (!bridged.length) return undefined;
 
   const skillsDir = join(bridgeRootDir, ".claude", "skills");
   // 整目录删除重建:确保上一轮遗留的旧 symlink 不残留(重复调用场景),只保留本轮记录。
@@ -80,7 +85,7 @@ export function buildClaudeSkillBridge(records: InjectableSkill[], bridgeRootDir
 
   const used = new Set<string>(); // 本批次已占用的目录名
   let linked = 0;
-  for (const rec of records) {
+  for (const rec of bridged) {
     try {
       // 目标必须存在且为目录(skill 被手动删除等)→ 跳过该条,不影响其余。
       if (!rec.dir || !existsSync(rec.dir) || !statSync(rec.dir).isDirectory()) continue;

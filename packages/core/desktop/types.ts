@@ -925,7 +925,8 @@ export interface CliStartRequest {
   // U5:claude 原生 skill 目录发现用的已启用 skill 记录（renderer 填充,main 无 store/bridge 拿不到,
   // 必须渲染端算好传过来）。main 侧 cli.ts 据此建桥接目录(buildClaudeSkillBridge)。形状镜像
   // InjectableSkill（core/personal/skill-injection.ts），避免 types 反向依赖 personal。
-  skillRecords?: { name: string; description?: string; dir: string }[];
+  // Design B(plan 002):origin 供 U6 去重(agent 私有原生根下的 skill claude 自发现,桥接不再重复)。
+  skillRecords?: { name: string; description?: string; dir: string; origin?: "shared" | "agent" }[];
   // U2:claude skill 桥接目录绝对路径（**主进程内部填充**,renderer 不传）。cli.ts 据 skillRecords
   // 建目录后写入,claude.ts buildArgs 追加 --add-dir 让 claude 原生发现 `.claude/skills/`。
   skillsBridgeDir?: string;
