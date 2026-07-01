@@ -6380,6 +6380,38 @@ button.sb-row {
   font-size: 13px;
 }
 
+/* U6 项目树：内置视图入口 / 折叠箭头占位对齐 / 就地新建·重命名输入。
+   节点行、折叠、悬停操作整套复用 .pw-project*；这里只补树特有的少量样式。 */
+.pw-ptree-views { display: flex; flex-direction: column; gap: 1px; padding: 2px; }
+/* 内置视图入口复用 .pw-task-tab，但改为整行左对齐 + 图标间距（tab 默认是横排 pill）。 */
+.pw-ptree-view {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; text-align: left;
+}
+.pw-ptree-head {
+  display: flex; align-items: center;
+  padding: 8px 4px 4px 10px;
+}
+.pw-ptree-head-title {
+  flex: 1;
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-4);
+}
+.pw-ptree-body { padding-bottom: 8px; }
+/* 无子节点时占位，宽度对齐折叠箭头按钮（padding-left 8 + icon 11），使同层节点名对齐。 */
+.pw-ptree-chev-spacer { display: inline-block; width: 19px; flex-shrink: 0; }
+/* 就地输入：占满行内剩余宽度，强调色描边以示编辑态。 */
+.pw-ptree-input {
+  flex: 1; min-width: 0;
+  padding: 4px 6px; margin: 2px 6px 2px 0;
+  font-size: 13px; color: var(--text-1);
+  background: var(--bg-input);
+  border: 1px solid var(--accent); border-radius: 6px;
+}
+.pw-ptree-input:focus { outline: none; }
+.pw-ptree-empty { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+
 /* ── 设置页：浅色去暖统一白 + 排版精修 ───────────────────────────────────
    作用域全部限定在 .pw-settings-page,不影响 App 其它部分与复用 .pw-dlg-* 的弹窗。
    A 组(颜色)用 :root:not([data-theme="dark"]) 守卫,只动浅色模式;颜色统一走变量

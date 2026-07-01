@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { usePersonalStore } from "@cortex-work/core";
 import { useTasksChangeSubscription } from "@cortex-work/core/personal/tasks";
+import { ProjectTree } from "./ProjectTree";
 
 // 左树当前选择：内置视图（今日 / 收件箱）或某个 project/folder 节点。
 // U6 ProjectTree 产出、U7 TaskListColumn 消费（folder/project 统一走 descendantProjectIds 聚合）。
@@ -32,11 +33,6 @@ export function ProjectsWorkbench() {
     return () => window.removeEventListener("keydown", onKey);
   }, [closeProjects]);
 
-  const pickView = (kind: "today" | "inbox") => {
-    setSelection({ kind });
-    setSelectedTaskId(null);
-  };
-
   return (
     <div className="pw-projects-page">
       <div className="pw-projects-head">
@@ -47,22 +43,15 @@ export function ProjectsWorkbench() {
         </button>
       </div>
       <div className="pw-projects-cols">
-        {/* 左列：项目树。U6 替换此占位为 <ProjectTree selection onSelect />；
-            当前提供内置视图入口（今日 / 收件箱）作最小可用骨架。 */}
+        {/* 左列：项目树（U6）。切换节点/内置视图时清空右列选中任务（KTD8：选中态是 UI 瞬态）。 */}
         <div className="pw-projects-tree">
-          <button
-            className={`pw-task-tab${selection.kind === "today" ? " is-active" : ""}`}
-            onClick={() => pickView("today")}
-          >
-            今日
-          </button>
-          <button
-            className={`pw-task-tab${selection.kind === "inbox" ? " is-active" : ""}`}
-            onClick={() => pickView("inbox")}
-          >
-            收件箱
-          </button>
-          <div className="pw-empty-hint">项目树建设中（U6）。</div>
+          <ProjectTree
+            selection={selection}
+            onSelect={(sel) => {
+              setSelection(sel);
+              setSelectedTaskId(null);
+            }}
+          />
         </div>
         {/* 中列：任务清单。U7 替换为 <TaskListColumn selection onOpenTask={setSelectedTaskId} />。 */}
         <div className="pw-projects-list">
