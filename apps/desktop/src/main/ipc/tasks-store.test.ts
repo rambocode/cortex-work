@@ -176,3 +176,76 @@ describe("TasksStore migrateOnce（幂等）", () => {
     expect((await store.listProjects()).map((p) => p.name)).toEqual(["旧"]);
   });
 });
+
+describe("TasksStore 层级（U2）", () => {
+  // 写一份含旧格式（无 kind）project 的 tasks.json，触发读时归一化。
+  async function seedRaw(projects: unknown[]): Promise<TasksStore> {
+    await fsp.writeFile(file, JSON.stringify({ version: 1, tasks: [], projects, archived: [] }), "utf8");
+    return makeStore();
+  }
+
+  it("normalizeData：旧 project 无 kind 读后为 project；已有 kind 不覆盖；幂等", async () => {
+    const store = await seedRaw([
+      { id: "a", name: "旧" }, // 无 kind
+      { id: "b", name: "夹", kind: "folder" }, // 已有 kind
+    ]);
+    const projs = await store.listProjects();
+    expect(projs.find((p) => p.id === "a")!.kind).toBe("project");
+    expect(projs.find((p) => p.id === "b")!.kind).toBe("folder");
+    // 幂等：再读一次结果不变
+    expect((await store.listProjects()).find((p) => p.id === "a")!.kind).toBe("project");
+  });
+
+  it("addProject 带 parentId/kind 落库；parentId 指向不存在 → 降级顶层", async () => {
+    const store = makeStore();
+    const folder = await store.addProject("公司", { kind: "folder" });
+    expect(folder.kind).toBe("folder");
+    const child = await store.addProject("鲁尔", { parentId: folder.id, kind: "project" });
+    expect(child.parentId).toBe(folder.id);
+    const orphan = await store.addProject("野", { parentId: "ghost" });
+    expect(orphan.parentId).toBeUndefined(); // 降级顶层
+  });
+
+  it("updateProject：rename 生效；reparent 到合法父生效", async () => {
+    const store = makeStore();
+    const a = await store.addProject("A", { kind: "folder" });
+    const b = await store.addProject("B");
+    const renamed = await store.updateProject(b.id, { name: "B2" });
+    expect(renamed!.name).toBe("B2");
+    const moved = await store.updateProject(b.id, { parentId: a.id });
+    expect(moved!.parentId).toBe(a.id);
+    // 提升到顶层
+    const promoted = await store.updateProject(b.id, { parentId: null });
+    expect(promoted!.parentId).toBeUndefined();
+  });
+
+  it("updateProject：reparent 成自身后代被拒、数据不变；不存在返回 null", async () => {
+    const store = makeStore();
+    const parent = await store.addProject("父", { kind: "folder" });
+    const child = await store.addProject("子", { parentId: parent.id });
+    await expect(store.updateProject(parent.id, { parentId: child.id })).rejects.toThrow();
+    // 数据未变：父仍在顶层
+    expect((await store.listProjects()).find((p) => p.id === parent.id)!.parentId).toBeUndefined();
+    expect(await store.updateProject("ghost", { name: "x" })).toBeNull();
+  });
+
+  it("deleteProject（folder 含子项目 + 孙任务）：子项目上提到父级、任务回 Inbox、无悬空 parentId", async () => {
+    const store = makeStore();
+    const top = await store.addProject("顶层夹", { kind: "folder" });
+    const mid = await store.addProject("中层夹", { parentId: top.id, kind: "folder" });
+    const leaf = await store.addProject("叶项目", { parentId: mid.id, kind: "project" });
+    const task = await store.add({ title: "t", projectId: leaf.id });
+
+    // 删中层 folder → 叶项目上提到顶层夹（mid 的父）
+    await store.deleteProject(mid.id);
+    const projs = await store.listProjects();
+    expect(projs.some((p) => p.id === mid.id)).toBe(false);
+    expect(projs.find((p) => p.id === leaf.id)!.parentId).toBe(top.id); // 上提、无悬空
+    // 叶项目仍在、任务仍挂它（删的是 folder、不含任务）
+    expect((await store.list()).find((t) => t.id === task.id)!.projectId).toBe(leaf.id);
+
+    // 删叶项目 → 其任务回 Inbox
+    await store.deleteProject(leaf.id);
+    expect((await store.list()).find((t) => t.id === task.id)!.projectId).toBeUndefined();
+  });
+});

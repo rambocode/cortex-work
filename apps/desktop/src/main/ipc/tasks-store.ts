@@ -13,7 +13,9 @@
 
 import { promises as fsp } from "fs";
 import { dirname } from "path";
-import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TasksFileData } from "./types";
+import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TasksFileData } from "./types";
+// 防环复用 core 纯函数（与 U1 树逻辑同源；main 已有 import core 纯模块先例 taskMigrate）。
+import { isDescendant } from "@cortex-work/core/personal/taskProjectTree";
 import { createLogger } from "../log";
 
 const log = createLogger("tasks-store");
@@ -35,6 +37,20 @@ function isValidTasksFile(v: unknown): v is TasksFileData {
   if (!v || typeof v !== "object") return false;
   const d = v as Record<string, unknown>;
   return d.version === 1 && Array.isArray(d.tasks) && Array.isArray(d.projects) && Array.isArray(d.archived);
+}
+
+// 读时归一化（U2/KTD4）：为旧档补 kind 默认（folder 需显式标注，其余视为 project），
+// 使下游可可靠依赖 kind 存在。幂等：无缺省字段时原样返回、不产生新对象。
+function normalizeData(data: TasksFileData): TasksFileData {
+  let changed = false;
+  const projects = data.projects.map((p) => {
+    if (p.kind === undefined) {
+      changed = true;
+      return { ...p, kind: "project" as TaskProjectKind };
+    }
+    return p;
+  });
+  return changed ? { ...data, projects } : data;
 }
 
 export interface TasksStoreDeps {
@@ -77,8 +93,10 @@ export class TasksStore {
       throw new Error("tasks.json 解析失败，已隔离到 tasks.json.corrupt");
     }
     if (isValidTasksFile(parsed)) {
-      this.cached = parsed;
-      return parsed;
+      // 归一化补 kind 默认（幂等）；结果进缓存，下次 saveTasksFile 自然把升级形状落盘。
+      const normalized = normalizeData(parsed);
+      this.cached = normalized;
+      return normalized;
     }
     await this.quarantine();
     throw new Error("tasks.json 结构非法，已隔离到 tasks.json.corrupt");
@@ -185,19 +203,68 @@ export class TasksStore {
     return this.mutate<void>((data) => [{ ...data, tasks: data.tasks.filter((t) => t.id !== id) }, undefined]);
   }
 
-  addProject(name: string): Promise<TaskProject> {
+  // 新建 task-project（U2 加层级）：opts.parentId 挂到父下（父须存在，否则降级为顶层）；
+  // opts.kind 缺省 "project"（folder 需显式传入）。
+  addProject(name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject> {
     return this.mutate((data) => {
-      const proj: TaskProject = { id: newTaskId("proj"), name: name.trim() };
+      const parentId =
+        opts?.parentId && data.projects.some((p) => p.id === opts.parentId) ? opts.parentId : undefined;
+      const proj: TaskProject = {
+        id: newTaskId("proj"),
+        name: name.trim(),
+        parentId,
+        kind: opts?.kind ?? "project",
+      };
       return [{ ...data, projects: [...data.projects, proj] }, proj];
     });
   }
 
-  // 删除 task-project：其下任务 reparent 到 Inbox（projectId 置空），不删任务（KTD10）。
+  // 更新 task-project（U2）：rename（name）+ reparent（parentId）。
+  // parentId 语义：省略 = 不改；null = 提升到顶层；string = 挂到该父下（父须存在 + 防环）。
+  // 防环用 isDescendant（把节点挂到自身或其后代下）→ 抛错供 UI 捕获给 toast；项目不存在返回 null。
+  updateProject(id: string, patch: { name?: string; parentId?: string | null }): Promise<TaskProject | null> {
+    return this.mutate<TaskProject | null>((data) => {
+      const idx = data.projects.findIndex((p) => p.id === id);
+      if (idx < 0) return [data, null];
+      const cur = data.projects[idx];
+      let parentId = cur.parentId;
+      if (patch.parentId !== undefined) {
+        if (patch.parentId === null) {
+          parentId = undefined; // 提升到顶层
+        } else {
+          if (!data.projects.some((p) => p.id === patch.parentId)) {
+            throw new Error("目标父项目不存在");
+          }
+          if (isDescendant(data.projects, id, patch.parentId)) {
+            throw new Error("不能把项目移到自身或其子级之下");
+          }
+          parentId = patch.parentId;
+        }
+      }
+      const next: TaskProject = {
+        ...cur,
+        name: patch.name !== undefined ? patch.name.trim() : cur.name,
+        parentId,
+      };
+      const projects = data.projects.slice();
+      projects[idx] = next;
+      return [{ ...data, projects }, next];
+    });
+  }
+
+  // 删除 task-project（层级安全，U2/KTD2，替换旧扁平语义）：
+  //   - 直属子节点（folder/project）提升到被删节点的父级（无父则顶层），不级联删整棵子树；
+  //   - 直属任务（projectId === id）回 Inbox（projectId 置空），不删任务。
   deleteProject(projectId: string): Promise<void> {
     return this.mutate<void>((data) => {
-      const projects = data.projects.filter((p) => p.id !== projectId);
+      const target = data.projects.find((p) => p.id === projectId);
+      const newParent = target?.parentId; // 提升到父级（undefined = 顶层）
+      const now = Date.now();
+      const projects = data.projects
+        .filter((p) => p.id !== projectId)
+        .map((p) => (p.parentId === projectId ? { ...p, parentId: newParent } : p));
       const tasks = data.tasks.map((t) =>
-        t.projectId === projectId ? { ...t, projectId: undefined, updatedAt: Date.now() } : t,
+        t.projectId === projectId ? { ...t, projectId: undefined, updatedAt: now } : t,
       );
       return [{ ...data, projects, tasks }, undefined];
     });
