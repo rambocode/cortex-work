@@ -23,6 +23,13 @@ export interface TaskReminder {
   firedAt?: number;
 }
 
+// 任务重复（U12）：完成后按周期滚动**同一任务**（顺延日期回 active），不新建实例、不留完成时间。
+// 「结束重复」= 先清 repeat（选「无」）再完成才真正 done（滚动任务恒 active、永不进归档，已知限制）。
+export interface TaskRepeat {
+  kind: "daily" | "weekly" | "monthly";
+  interval?: number; // 每几天/周/月，缺省 1
+}
+
 // task-project 的层级类型：folder 仅作分组容器、不直接容纳任务；project 可容纳任务、可再嵌子项目。
 export type TaskProjectKind = "folder" | "project";
 
@@ -57,6 +64,7 @@ export interface TaskMeta {
   completedAt?: number; // 置 done 时间戳（U10；权威由 main 状态迁移落点写）
   droppedAt?: number; // 置 dropped 时间戳（U10）
   reminder?: TaskReminder; // 定时提醒（U11；到点由 main 调度器投递原生通知，门控在「内部原生通知」opt-in）
+  repeat?: TaskRepeat; // 重复（U12；完成即滚动同一任务顺延日期回 active）
 }
 
 // 新建入参（id/时间戳由 store 生成）。

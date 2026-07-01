@@ -277,3 +277,34 @@ describe("TasksStore 完成/丢弃时间戳（U10）", () => {
     expect(renamed!.completedAt).toBeGreaterThan(0); // 仍保留
   });
 });
+
+describe("TasksStore 重复滚动（U12）", () => {
+  it("done 且有 repeat+due → 顺延日期回 active、不落 done、无 completedAt", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "r" });
+    await store.update(t.id, { dueDate: "2026-07-01", deferDate: "2026-06-30", repeat: { kind: "daily" } });
+    const done = await store.update(t.id, { status: "done" });
+    expect(done!.status).toBe("active");
+    expect(done!.dueDate).toBe("2026-07-02");
+    expect(done!.deferDate).toBe("2026-07-01");
+    expect(done!.completedAt).toBeUndefined();
+  });
+
+  it("结束重复（清 repeat）后 done → 正常完成留 completedAt", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "r2" });
+    await store.update(t.id, { dueDate: "2026-07-01", repeat: { kind: "daily" } });
+    await store.update(t.id, { repeat: undefined });
+    const done = await store.update(t.id, { status: "done" });
+    expect(done!.status).toBe("done");
+    expect(done!.completedAt).toBeGreaterThan(0);
+  });
+
+  it("repeat 但无日期锚点 → 落正常 done（无从滚动）", async () => {
+    const store = makeStore();
+    const t = await store.add({ title: "r3" });
+    await store.update(t.id, { repeat: { kind: "daily" } });
+    const done = await store.update(t.id, { status: "done" });
+    expect(done!.status).toBe("done");
+  });
+});

@@ -40,6 +40,7 @@
     "./personal/notes": "./personal/notes.ts",
     "./personal/tasks": "./personal/tasks.ts",
     "./personal/taskProjectTree": "./personal/taskProjectTree.ts",
+    "./personal/taskRepeat": "./personal/taskRepeat.ts",
     "./personal/taskMigrate": "./personal/taskMigrate.ts",
     "./personal/taskStructure": "./personal/taskStructure.ts",
     "./personal/taskDelegate": "./personal/taskDelegate.ts",

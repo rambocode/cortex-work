@@ -9,6 +9,7 @@ import { useUpdateTask, useTaskProjects, useAddTaskProject, normalizeTag } from 
 import { onlyProjects } from "@cortex-work/core/personal/taskProjectTree";
 import { TaskDurationField } from "./TaskDurationField";
 import { TaskReminderField } from "./TaskReminderField";
+import { TaskRepeatField } from "./TaskRepeatField";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import { NoteCodeMirrorEditor, type NoteEditorAppearance } from "./editor/NoteCodeMirrorEditor";
 
@@ -102,7 +103,13 @@ export function TaskDetail({
       isSet: task.reminder?.at != null,
       node: <TaskReminderField task={task} />,
     },
-    // U12: repeat；U13: attachments
+    {
+      key: "repeat",
+      label: "重复",
+      isSet: task.repeat != null,
+      node: <TaskRepeatField task={task} />,
+    },
+    // U13: attachments
   ];
   const shownRich = richFields.filter((f) => f.isSet || revealed.has(f.key));
   const addableRich = richFields.filter((f) => !f.isSet && !revealed.has(f.key));

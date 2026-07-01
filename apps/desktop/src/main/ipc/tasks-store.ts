@@ -16,6 +16,8 @@ import { dirname } from "path";
 import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TasksFileData } from "./types";
 // 防环复用 core 纯函数（与 U1 树逻辑同源；main 已有 import core 纯模块先例 taskMigrate）。
 import { isDescendant } from "@cortex-work/core/personal/taskProjectTree";
+// 重复任务「完成即滚动」的日期推进纯逻辑（U12）。
+import { canRoll, rollRepeat } from "@cortex-work/core/personal/taskRepeat";
 import { createLogger } from "../log";
 
 const log = createLogger("tasks-store");
@@ -198,6 +200,15 @@ export class TasksStore {
       if (patch.status && patch.status !== prev.status) {
         next.completedAt = next.status === "done" ? Date.now() : undefined;
         next.droppedAt = next.status === "dropped" ? Date.now() : undefined;
+      }
+      // U12：重复任务「完成即滚动」——置 done 且仍有 repeat + 日期锚点 → 不落 done，顺延日期回 active、
+      // 不留 completedAt（对抗 #4 已知限制）。「结束重复」= 先清 repeat 再完成（届时 canRoll 假，走正常 done）。
+      if (patch.status === "done" && prev.status !== "done" && canRoll(next)) {
+        const rolled = rollRepeat(next);
+        next.status = "active";
+        next.completedAt = undefined;
+        next.dueDate = rolled.dueDate;
+        next.deferDate = rolled.deferDate;
       }
       const tasks = data.tasks.slice();
       tasks[idx] = next;
