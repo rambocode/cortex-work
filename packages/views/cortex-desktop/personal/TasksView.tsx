@@ -22,6 +22,7 @@ import {
   normalizeTag,
   localDay,
 } from "@cortex-work/core/personal/tasks";
+import { onlyProjects } from "@cortex-work/core/personal/taskProjectTree";
 import { structureTask, type StructureSuggestion } from "@cortex-work/core/personal/taskStructure";
 import { useDelegateTask } from "@cortex-work/core/personal/taskDelegate";
 import { usePersonalStore } from "@cortex-work/core";
@@ -127,10 +128,12 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
       const merged = Array.from(new Set([...t.tags, ...s.tags.map((x) => normalizeTag(x)).filter((x): x is string => !!x)]));
       updateTask.mutate({ id: t.id, patch: { tags: merged } });
     } else if (field === "projectName" && s.projectName) {
-      const existing = projects.find((p) => p.name.toLowerCase() === s.projectName!.toLowerCase());
+      // 只在可容纳任务的 project 中匹配（排除同名 folder）——否则模型建议命中同名 folder 会把任务
+      // 写成 projectId=folderId，在中列聚合与右栏 Projects tab 双双不可见（对抗 #1）。
+      const existing = onlyProjects(projects).find((p) => p.name.toLowerCase() === s.projectName!.toLowerCase());
       if (existing) updateTask.mutate({ id: t.id, patch: { projectId: existing.id } });
       else {
-        const created = await addProject.mutateAsync(s.projectName);
+        const created = await addProject.mutateAsync(s.projectName); // kind 默认 project
         updateTask.mutate({ id: t.id, patch: { projectId: created.id } });
       }
     }
@@ -180,7 +183,8 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
       const items = active.filter((t) => effectiveProjectId(t) === selectedProjectId);
       return [{ key: selectedProjectId, label: projectName.get(selectedProjectId) ?? "项目", items }];
     }
-    const byProject = projects.map((p) => ({
+    // 右栏扁平 Projects tab 只列可容纳任务的 project（过滤 folder；folder/子树是全屏工作台的概念）。
+    const byProject = onlyProjects(projects).map((p) => ({
       key: p.id,
       label: p.name,
       items: active.filter((t) => effectiveProjectId(t) === p.id),

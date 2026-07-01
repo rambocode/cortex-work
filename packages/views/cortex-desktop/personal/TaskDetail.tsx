@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useUpdateTask, useTaskProjects, useAddTaskProject, normalizeTag } from "@cortex-work/core/personal/tasks";
+import { onlyProjects } from "@cortex-work/core/personal/taskProjectTree";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import { NoteCodeMirrorEditor, type NoteEditorAppearance } from "./editor/NoteCodeMirrorEditor";
 
@@ -139,7 +140,8 @@ export function TaskDetail({
                 onChange={(e) => assignProject(e.target.value)}
               >
                 <option value="">收件箱（无项目）</option>
-                {projects.map((p) => (
+                {/* 只列 project（过滤 folder，任务不挂 folder，KTD2）。 */}
+                {onlyProjects(projects).map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
