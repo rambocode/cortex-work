@@ -6,7 +6,7 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskStatus } from "../desktop/types";
+import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskStatus } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 
 // 可执行的状态集：仅这两态视为「可用/可执行」，defer 门控叠加其上。
@@ -162,12 +162,30 @@ export function useDeleteTask() {
   });
 }
 
+// 新建 task-project（U3 加层级）：入参兼容 string（旧字符串调用点）与对象 {name,parentId?,kind?}。
+export type AddTaskProjectVars = string | { name: string; parentId?: string; kind?: TaskProjectKind };
 export function useAddTaskProject() {
   const bridge = useDesktopBridge();
   const qc = useQueryClient();
-  return useMutation<TaskProject, Error, string>({
-    mutationFn: (name) => bridge!.tasksAddProject!(name),
+  return useMutation<TaskProject, Error, AddTaskProjectVars>({
+    mutationFn: (v) => {
+      const input = typeof v === "string" ? { name: v } : v;
+      return bridge!.tasksAddProject!(input.name, { parentId: input.parentId, kind: input.kind });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: tasksKeys.projects }),
+  });
+}
+
+// 更新 task-project（U3）：rename + reparent。reparent 影响任务归属 → 同时失效 tasks + projects 两个 key。
+export function useUpdateTaskProject() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<TaskProject | null, Error, { id: string; patch: { name?: string; parentId?: string | null } }>({
+    mutationFn: (v) => bridge!.tasksUpdateProject!(v.id, v.patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: tasksKeys.all });
+      qc.invalidateQueries({ queryKey: tasksKeys.projects });
+    },
   });
 }
 

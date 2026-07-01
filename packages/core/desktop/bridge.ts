@@ -43,6 +43,7 @@ import type {
   TaskInput,
   TaskMeta,
   TaskProject,
+  TaskProjectKind,
   OpenAiCompleteRequest,
   PersistedState,
   PiOpenRequest,
@@ -352,7 +353,8 @@ export interface DesktopBridge {
   tasksAdd?(input: TaskInput): Promise<TaskMeta>;
   tasksUpdate?(id: string, patch: Partial<Omit<TaskMeta, "id" | "createdAt">>): Promise<TaskMeta | null>;
   tasksDelete?(id: string): Promise<void>;
-  tasksAddProject?(name: string): Promise<TaskProject>;
+  tasksAddProject?(name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject>;
+  tasksUpdateProject?(id: string, patch: { name?: string; parentId?: string | null }): Promise<TaskProject | null>;
   tasksDeleteProject?(projectId: string): Promise<void>;
   tasksArchive?(id: string, summary: string): Promise<boolean>;
   tasksListArchived?(): Promise<ArchivedTask[]>;

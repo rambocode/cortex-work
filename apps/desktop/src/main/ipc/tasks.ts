@@ -7,7 +7,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { tasksJsonPath } from "../paths";
 import { TasksStore } from "./tasks-store";
-import type { ArchivedTask, TaskInput, TaskMeta, TaskProject } from "./types";
+import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskProjectKind } from "./types";
 
 // 单例存储（迁移/委派观察者与 handlers 共用同一实例）。
 export const tasksStore = new TasksStore({ tasksStorePath: tasksJsonPath });
@@ -49,13 +49,26 @@ export function registerTasksHandlers(): void {
     await emitChanged();
   });
 
-  ipcMain.handle("tasks:addProject", async (_e, name: string): Promise<TaskProject> => {
-    const p = await tasksStore.addProject(name);
-    await emitChanged();
-    return p;
-  });
+  ipcMain.handle(
+    "tasks:addProject",
+    async (_e, name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject> => {
+      const p = await tasksStore.addProject(name, opts);
+      await emitChanged();
+      return p;
+    },
+  );
 
-  // 删除 task-project：其下任务 reparent 到 Inbox（不删任务，KTD10）。
+  // 更新 task-project：rename + reparent（防环在 store，成环 reject → renderer toast）。返回 null=不存在。
+  ipcMain.handle(
+    "tasks:updateProject",
+    async (_e, id: string, patch: { name?: string; parentId?: string | null }): Promise<TaskProject | null> => {
+      const p = await tasksStore.updateProject(id, patch);
+      if (p) await emitChanged();
+      return p;
+    },
+  );
+
+  // 删除 task-project：直属子节点上提到父级、其下任务回 Inbox（U2 层级安全）。
   ipcMain.handle("tasks:deleteProject", async (_e, projectId: string): Promise<void> => {
     await tasksStore.deleteProject(projectId);
     await emitChanged();

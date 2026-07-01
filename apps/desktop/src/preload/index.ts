@@ -35,6 +35,7 @@ import type {
   TaskInput,
   TaskMeta,
   TaskProject,
+  TaskProjectKind,
   NoteStatus,
   PersistedState,
   PiOpenRequest,
@@ -446,7 +447,12 @@ const personal = {
     patch: Partial<Omit<TaskMeta, "id" | "createdAt">>,
   ): Promise<TaskMeta | null> => ipcRenderer.invoke("tasks:update", id, patch),
   tasksDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:delete", id),
-  tasksAddProject: (name: string): Promise<TaskProject> => ipcRenderer.invoke("tasks:addProject", name),
+  tasksAddProject: (name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject> =>
+    ipcRenderer.invoke("tasks:addProject", name, opts),
+  tasksUpdateProject: (
+    id: string,
+    patch: { name?: string; parentId?: string | null },
+  ): Promise<TaskProject | null> => ipcRenderer.invoke("tasks:updateProject", id, patch),
   tasksDeleteProject: (projectId: string): Promise<void> => ipcRenderer.invoke("tasks:deleteProject", projectId),
   tasksArchive: (id: string, summary: string): Promise<boolean> => ipcRenderer.invoke("tasks:archive", id, summary),
   tasksListArchived: (): Promise<ArchivedTask[]> => ipcRenderer.invoke("tasks:listArchived"),
