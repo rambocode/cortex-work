@@ -343,6 +343,12 @@ export {
   isOrchestrationSend,
   type InjectableSkill,
 } from "./personal/skill-injection";
+// per-agent skill 扫描根解析(Design B,plan 002):下拉与注入共用的单一实现。
+export {
+  resolveAgentSkillRoots,
+  type AgentSkillRoot,
+  type SkillRootOrigin,
+} from "./personal/skill-roots";
 export {
   parseDocMeta,
   type DocKind,
