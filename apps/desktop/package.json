@@ -23,8 +23,8 @@
     "prepackage:mac-arm64": "pnpm run prebuild:notes && node scripts/build-pi-binary.mjs --platform darwin --arch arm64 && pnpm run build:whisper && electron-vite build",
     "prepackage:mac-x64": "pnpm run prebuild:notes && node scripts/build-pi-binary.mjs --platform darwin --arch x64 && electron-vite build",
     "prepackage:win-x64": "pnpm run prebuild:notes && node scripts/build-pi-binary.mjs --platform win32 --arch x64 && electron-vite build",
-    "build:mac-arm64": "electron-builder --mac --arm64 --publish never",
-    "build:mac-x64": "electron-builder --mac --x64 --publish never",
+    "build:mac-arm64": "electron-builder --mac zip dmg --arm64 --publish never",
+    "build:mac-x64": "electron-builder --mac zip dmg --x64 --publish never",
     "build:win-x64": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --x64 --publish never",
     "merge:mac-manifest": "node scripts/merge-mac-update-manifest.mjs"
   },

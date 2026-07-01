@@ -137,9 +137,14 @@ mac:
   # 这正是此前 v0.1.27 发布事故里 x64 产物被误当 arm64 上传覆盖的根源之一。
   artifactName: ${productName}-${version}-${arch}.${ext}
   target:
-    # 自动更新走 zip,人工分发用 dmg。arch 数组仅声明"允许构建的架构";实际构建每次只用
-    # CLI --arm64/--x64 精确指定单一架构,禁止一次命令内产出双架构(resources/pi 是单一共享目录,
-    # 后一个架构会复用前一个架构编译出的错误 pi 二进制,见 scripts/build-pi-binary.mjs)。
+    # 自动更新走 zip,人工分发用 dmg。arch 数组仅声明"允许构建的架构";每次实际构建只应产出
+    # 单一架构,禁止一次命令内产出双架构(resources/pi 是单一共享目录,后一个架构会复用前一个
+    # 架构编译出的错误 pi 二进制,见 scripts/build-pi-binary.mjs)。
+    # ⚠️ 单架构靠 CLI 精确控制,踩过坑:必须显式带上目标类型名(如 `--mac zip dmg --arm64`),
+    #   光传 `--mac --arm64` 不够——electron-builder 的 CLI 只有在显式列出 zip/dmg 等类型名时才会
+    #   忽略本文件里这份 arch 数组、只按 --arm64/--x64 构建单一架构;不带类型名时会退回到按
+    #   这里声明的 arch 数组全量展开,--arm64/--x64 形同虚设,一次命令会把 arm64+x64 都编译进去
+    #   (见 apps/desktop/package.json 的 build:mac-arm64/build:mac-x64 脚本写法)。
     - target: zip
       arch: [arm64, x64]
     - target: dmg
