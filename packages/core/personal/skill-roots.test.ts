@@ -5,11 +5,12 @@ import { resolveAgentSkillRoots } from "./skill-roots";
 // 基准 cfg:默认原生根 + 默认共享根 + 一个用户自增共享根 + 一个 claude 私有自增根。
 const cfg: PiSkillSettings = {
   ...DEFAULT_PI_SKILLS,
-  sharedRoots: ["~/.cortex-desktop/skills", "~/shared-extra"],
+  // ~/.agents/skills 为跨 agent 标准目录 → 共享(三端)。
+  sharedRoots: ["~/.cortex-desktop/skills", "~/.agents/skills", "~/shared-extra"],
   agentRoots: {
     claude: ["~/.claude/skills", "~/claude-extra"],
     codex: ["~/.codex/skills"],
-    pi: ["~/.pi/agent/skills", "~/.agents/skills"],
+    pi: ["~/.pi/agent/skills"],
   },
 };
 
@@ -18,20 +19,26 @@ describe("resolveAgentSkillRoots（Design B, plan 002 U2）", () => {
     const roots = resolveAgentSkillRoots(cfg, "claude", "/proj");
     expect(roots).toEqual([
       { path: "~/.cortex-desktop/skills", scope: "global", origin: "shared" },
+      { path: "~/.agents/skills", scope: "global", origin: "shared" },
       { path: "~/shared-extra", scope: "global", origin: "shared" },
       { path: "~/.claude/skills", scope: "global", origin: "agent" },
       { path: "~/claude-extra", scope: "global", origin: "agent" },
       { path: ".cortex-desktop/skills", scope: "workspace", origin: "shared" },
+      { path: ".agents/skills", scope: "workspace", origin: "shared" },
       { path: ".claude/skills", scope: "workspace", origin: "agent" },
     ]);
   });
 
-  it("pi → 私有全局含 ~/.pi/agent/skills 与 ~/.agents/skills;工作区含 .pi/skills 与 .agents/skills", () => {
+  it("pi → 私有全局仅 ~/.pi/agent/skills(工作区 .pi/skills);~/.agents/skills 归共享", () => {
     const roots = resolveAgentSkillRoots(cfg, "pi", "/proj");
     const agentGlobal = roots.filter((r) => r.scope === "global" && r.origin === "agent").map((r) => r.path);
-    expect(agentGlobal).toEqual(["~/.pi/agent/skills", "~/.agents/skills"]);
+    expect(agentGlobal).toEqual(["~/.pi/agent/skills"]);
     const agentWs = roots.filter((r) => r.scope === "workspace" && r.origin === "agent").map((r) => r.path);
-    expect(agentWs).toEqual([".pi/skills", ".agents/skills"]);
+    expect(agentWs).toEqual([".pi/skills"]);
+    // ~/.agents/skills 与项目 .agents/skills 都是共享,pi 也能看到(与 claude/codex 一致)。
+    const shared = roots.filter((r) => r.origin === "shared").map((r) => r.path);
+    expect(shared).toContain("~/.agents/skills");
+    expect(shared).toContain(".agents/skills");
   });
 
   it("codex → 私有全局含 ~/.codex/skills;工作区含 .codex/skills", () => {

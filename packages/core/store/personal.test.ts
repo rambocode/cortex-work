@@ -1303,11 +1303,12 @@ describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
     const s = usePersonalStore.getState().generalSettings.piSkills!;
     expect(s.agentRoots.claude).toEqual(["~/.claude/skills"]);
     expect(s.agentRoots.codex).toEqual(["~/.codex/skills"]);
-    expect(s.agentRoots.pi).toEqual(["~/.pi/agent/skills", "~/.agents/skills"]);
-    expect(s.sharedRoots).toEqual(["~/.cortex-desktop/skills"]);
+    expect(s.agentRoots.pi).toEqual(["~/.pi/agent/skills"]);
+    // ~/.agents/skills 为跨 agent 标准目录 → 共享默认(三端)。
+    expect(s.sharedRoots).toEqual(["~/.cortex-desktop/skills", "~/.agents/skills"]);
   });
 
-  it("旧扁平结构(globalRoots+userGlobalRoots)迁移:~/.agents/skills→pi 原生;~/.cortex-desktop/skills→共享;自增根→共享", () => {
+  it("旧扁平结构(globalRoots+userGlobalRoots)迁移:~/.agents/skills 与 ~/.cortex-desktop/skills→共享;自增根→共享", () => {
     const s = hydratePiSkills({
       globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills"],
       userGlobalRoots: ["~/x"],
@@ -1315,12 +1316,12 @@ describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
       trustedWorkspaceSkillDirs: ["/proj/.cortex-desktop/skills"],
       workspaceEnabled: true,
     });
-    // ~/.agents/skills 现为 pi 默认原生根(恒并入),无需显式搬运
-    expect(s.agentRoots.pi).toEqual(["~/.pi/agent/skills", "~/.agents/skills"]);
-    // ~/.cortex-desktop/skills 为共享默认;用户自增 ~/x 并入共享;旧默认不重复搬到共享
+    // pi 私有根仅 ~/.pi/agent/skills;~/.agents/skills 归共享。
+    expect(s.agentRoots.pi).toEqual(["~/.pi/agent/skills"]);
+    // 两个旧默认根都是共享默认(恒并入);用户自增 ~/x 也并入共享。
     expect(s.sharedRoots).toContain("~/.cortex-desktop/skills");
+    expect(s.sharedRoots).toContain("~/.agents/skills");
     expect(s.sharedRoots).toContain("~/x");
-    expect(s.sharedRoots).not.toContain("~/.agents/skills");
   });
 
   it("旧结构里非默认 globalRoots 残留兜底并入共享(不丢)", () => {
@@ -1336,8 +1337,8 @@ describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
 
   it("新结构再加载幂等:保留用户自增私有/共享根,不重复默认、不叠加", () => {
     const migrated = {
-      sharedRoots: ["~/.cortex-desktop/skills", "~/shared-extra"],
-      agentRoots: { claude: ["~/.claude/skills", "~/claude-extra"], codex: ["~/.codex/skills"], pi: ["~/.pi/agent/skills", "~/.agents/skills"] },
+      sharedRoots: ["~/.cortex-desktop/skills", "~/.agents/skills", "~/shared-extra"],
+      agentRoots: { claude: ["~/.claude/skills", "~/claude-extra"], codex: ["~/.codex/skills"], pi: ["~/.pi/agent/skills"] },
       globalRoots: ["~/.agents/skills", "~/.cortex-desktop/skills"],
       userGlobalRoots: [],
       disabledSkills: [],
@@ -1346,7 +1347,7 @@ describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
     };
     const once = hydratePiSkills(migrated);
     expect(once.agentRoots.claude).toEqual(["~/.claude/skills", "~/claude-extra"]);
-    expect(once.sharedRoots).toEqual(["~/.cortex-desktop/skills", "~/shared-extra"]);
+    expect(once.sharedRoots).toEqual(["~/.cortex-desktop/skills", "~/.agents/skills", "~/shared-extra"]);
     // 二次加载幂等:结构逐字不变
     const twice = hydratePiSkills(once);
     expect(twice.agentRoots).toEqual(once.agentRoots);
@@ -1378,7 +1379,7 @@ describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
     });
     expect(s.agentRoots.claude).toEqual(["~/.claude/skills", "~/only-custom"]);
     expect(s.agentRoots.codex).toEqual(["~/.codex/skills"]);
-    expect(s.agentRoots.pi).toEqual(["~/.pi/agent/skills", "~/.agents/skills"]);
+    expect(s.agentRoots.pi).toEqual(["~/.pi/agent/skills"]);
   });
 
   it("disabledSkills / trustedWorkspaceSkillDirs 迁移前后逐字不变", () => {

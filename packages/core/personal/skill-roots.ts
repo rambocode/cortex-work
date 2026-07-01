@@ -24,16 +24,16 @@ export interface AgentSkillRoot {
 }
 
 // 每 agent 的工作区级私有子目录(相对项目根)。与 DEFAULT_AGENT_SKILL_ROOTS 的全局原生根对应:
-//   claude → .claude/skills;codex → .codex/skills;pi → .pi/skills + .agents/skills。
-// 共享工作区子目录(.cortex-desktop/skills)单列(见 SHARED_WORKSPACE_SUBDIR),不随 agent 变。
+//   claude → .claude/skills;codex → .codex/skills;pi → .pi/skills。
+// .agents/skills(项目级 Agent Skills 标准目录)与全局 ~/.agents/skills 一样三端共享,见 SHARED_WORKSPACE_SUBDIRS。
 const AGENT_WORKSPACE_SUBDIRS: Record<AgentKind, string[]> = {
   claude: [".claude/skills"],
   codex: [".codex/skills"],
-  pi: [".pi/skills", ".agents/skills"],
+  pi: [".pi/skills"],
 };
 
-// 共享工作区子目录(Cortex 自有,对三端生效)。沿用现状 pluginSkillRoots 的 <项目>/.cortex-desktop/skills。
-const SHARED_WORKSPACE_SUBDIR = ".cortex-desktop/skills";
+// 共享工作区子目录(对三端生效):Cortex 自有 .cortex-desktop/skills + .agents/skills(跨 agent 标准)。
+const SHARED_WORKSPACE_SUBDIRS = [".cortex-desktop/skills", ".agents/skills"];
 
 // 解析某 agent 的扫描根规格。projectPath 缺省 / workspaceEnabled=false → 不产出任何 workspace scope 根。
 // agent 缺省(理论上的无 agent 调用点)→ 只产出共享根,不产出任何 agent 私有根(防串场)。
@@ -50,7 +50,7 @@ export function resolveAgentSkillRoots(
 
   // 工作区根:仅在开启且有项目时产出。相对子目录,主进程 join(workspaceDir, path)。
   if (cfg.workspaceEnabled && projectPath) {
-    roots.push({ path: SHARED_WORKSPACE_SUBDIR, scope: "workspace", origin: "shared" });
+    for (const sub of SHARED_WORKSPACE_SUBDIRS) roots.push({ path: sub, scope: "workspace", origin: "shared" });
     if (agent) for (const sub of AGENT_WORKSPACE_SUBDIRS[agent] ?? []) {
       roots.push({ path: sub, scope: "workspace", origin: "agent" });
     }
