@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { ChatFileRef, ChatImageRef, Message } from "../types";
+import type { ChatFileRef, ChatImageRef, Message, TypingActivity } from "../types";
 import type {
   AgentKind,
   AskQuestionAnswers,
@@ -193,6 +193,9 @@ interface RunState {
   // pi 思考流（reasoning）的折叠块（独立于 text/tool 游标:思考通常先于正文,累进同一块）。
   reasoningUid?: string;
   reasoningText?: string;
+  // typing 活动行(TypingActivity)的进度状态:本轮已完成工具步数 / 当前工具起始时刻。
+  stepCount?: number;
+  toolStartedAt?: number;
 }
 
 const runs = new Map<string, RunState>();
@@ -334,10 +337,37 @@ function stopRunTimers(run: RunState): void {
 }
 
 // typing 是瞬态消息(sanitizeForSave 会丢弃),只改缓存不调度落盘,避免每秒空写。
+// 纯文本更新同时清 activity:走到这条路径(看门狗滚动等待、纯工具轮终态占位、CLI 分支)都意味着
+// 回到「非结构化」状态,残留 activity 会让渲染层继续显示过期的工具/思考行。
 function updateTypingMsg(qc: QueryClient, sessionId: string, typingUid: string, text: string): void {
   qc.setQueryData<Message[]>(personalChatKeys.detail(sessionId), (prev) =>
-    (prev ?? []).map((m) => (m.uid === typingUid && m.kind === "typing" ? { ...m, text } : m)),
+    (prev ?? []).map((m) => (m.uid === typingUid && m.kind === "typing" ? { ...m, text, activity: undefined } : m)),
   );
+}
+
+// typing 活动行的结构化更新:一次 setQueryData 同写 text(aria/回退)与 activity(渲染层排版)。
+// 与 updateTypingMsg 同为瞬态只写缓存,不调度落盘。
+function setTypingActivity(
+  qc: QueryClient,
+  sessionId: string,
+  typingUid: string,
+  text: string,
+  activity: TypingActivity,
+): void {
+  qc.setQueryData<Message[]>(personalChatKeys.detail(sessionId), (prev) =>
+    (prev ?? []).map((m) => (m.uid === typingUid && m.kind === "typing" ? { ...m, text, activity } : m)),
+  );
+}
+
+// thinking 尾部片段:取最后 2 个非空行压平为单行,再截尾到 140 字 —— 活动行只展示「正在想什么」
+// 的最新一瞥,完整思考流在执行过程面板里。
+export function thinkingSnippet(full: string): string {
+  const lines = full
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const tail = lines.slice(-2).join(" ").replace(/\s+/g, " ");
+  return tail.length > 140 ? tail.slice(-140) : tail;
 }
 
 export function sessionResumeId(session: SessionMeta): string | undefined {
@@ -1417,8 +1447,14 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
   switch (ev.type) {
     case "reasoning":
       usePetStore.getState().set("thinking");
-      updateTypingMsg(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0));
+      // 先折叠再取片段:snippet 从累进后的 reasoningText 尾部派生,活动行与过程面板同步。
       foldReasoning(qc, run, ev.delta);
+      setTypingActivity(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0), {
+        phase: "thinking",
+        snippet: thinkingSnippet(run.reasoningText ?? ""),
+        stepCount: run.stepCount,
+        startedAt: run.startedAt,
+      });
       return;
     case "text":
       usePetStore.getState().set("replying");
@@ -1432,16 +1468,33 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       return;
     case "tool-start": {
       usePetStore.getState().set("working");
-      updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
       finalizeRunReasoning(qc, run);
       const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
       if (changed) (run.changedFiles ??= new Set()).add(changed);
       foldToolIntoProcess(qc, sessionId, run, { type: "tool", name: ev.name, detail: ev.detail });
+      // 活动行进入工具相:记起始时刻供渲染层做慢工具「已运行 Ns」心跳。
+      run.toolStartedAt = Date.now();
+      setTypingActivity(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail), {
+        phase: "tool",
+        toolName: cleanToolName(ev.name),
+        detail: ev.detail,
+        stepCount: run.stepCount ?? 0,
+        startedAt: run.startedAt,
+        toolStartedAt: run.toolStartedAt,
+      });
       return;
     }
     case "tool-end":
-      updateTypingMsg(qc, sessionId, run.typingUid, typingToolDoneText(run.agent, ev.name));
       finalizeLastToolItem(qc, run, ev.isError);
+      // 短暂 ✓ 完成态:被下一个 reasoning/tool/text 事件覆盖;若直接 result 则由占位/正文兜底。
+      run.stepCount = (run.stepCount ?? 0) + 1;
+      run.toolStartedAt = undefined;
+      setTypingActivity(qc, sessionId, run.typingUid, typingToolDoneText(run.agent, ev.name), {
+        phase: "toolDone",
+        toolName: cleanToolName(ev.name),
+        stepCount: run.stepCount,
+        startedAt: run.startedAt,
+      });
       return;
     case "turn-end":
       finalizeProcessAgentLog(qc, sessionId, run);
@@ -1472,6 +1525,9 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         run.processCursor = emptyProcessCursor();
         run.buffer = "";
         run.sawText = false;
+        // 活动行进度同步复位:重试是重新执行本轮,步数/工具计时不应从上次尝试续算。
+        run.stepCount = undefined;
+        run.toolStartedAt = undefined;
         return;
       }
       finalizeRunReasoning(qc, run);
@@ -1723,6 +1779,35 @@ async function buildPiOpenForSession(
     appendSystemPrompt: piSystemPrompt || undefined,
     thinkingLevel,
   };
+}
+
+// 会话预热:用户在输入框敲下首字符时提前拉起 pi 进程,消除首轮冷启 ~800ms 的「启动中」等待。
+// 只做 ensurePiSession(惰性去重内建,与随后的 send 并发安全);**不** beginPiRun、不 setRunning、
+// 不发 prompt —— 绝不污染 runningBySession/过程面板门控。失败静默(尽力而为,send 时会正常重试并报错)。
+export async function prewarmPiSession(
+  _qc: QueryClient, // 预留:与 sendPiTurn 签名对齐,当前预热不写缓存
+  bridge: DesktopBridge,
+  session: SessionMeta,
+  projectPath: string,
+): Promise<void> {
+  if (session.agent !== "pi" || !piRpcAvailable(bridge)) return;
+  if (isPiSessionOpen(session.id) || piSendStarting.has(session.id)) return;
+  if (usePersonalStore.getState().runningBySession[session.id]) return;
+  try {
+    const piOpen = await buildPiOpenForSession(bridge, session, projectPath);
+    const opened = await ensurePiSession(
+      bridge,
+      { uiSessionId: session.id, cwd: projectPath, ...piOpen },
+      { resumeFrom: session.piSessionFile },
+    );
+    // 与 sendPiTurn 同口径持久 sessionFile,保证后续任何重开都能恢复上下文。
+    if (opened.sessionFile && opened.sessionFile !== session.piSessionFile) {
+      usePersonalStore.getState().updateSession(session.id, { piSessionFile: opened.sessionFile });
+    }
+    touchPiSession(bridge, session.id); // 预热即活跃,启动空闲回收计时。
+  } catch {
+    // 预热失败静默:不打扰输入,真正 send 会重走 ensurePiSession 并正常报错。
+  }
 }
 
 // 发起一轮 pi RPC:beginPiRun（典型不杀进程的看门狗）+ 惰性 ensurePiSession（冷启就绪后翻

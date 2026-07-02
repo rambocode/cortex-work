@@ -416,19 +416,102 @@ const ApproveMessage = memo(function ApproveMessage({
   );
 });
 
-const TypingMessage = memo(function TypingMessage({ m }: { m: Extract<Message, { kind: "typing" }> }) {
+// 秒级心跳:仅当传入起始时刻时启动 1s ticker,返回已流逝秒数。ticker 局部在 TypingMessage
+// 内部,只重渲这一条消息,不放大到整条消息流。
+function useElapsedSecs(since: number | undefined): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since === undefined) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [since]);
+  return since === undefined ? 0 : Math.max(0, Math.floor((now - since) / 1000));
+}
+
+// 慢工具心跳阈值:工具运行超过该秒数才显示「已运行 Ns」,短工具不闪计时噪音。
+const SLOW_TOOL_HEARTBEAT_SECS = 8;
+// 思考耗时显示阈值:与 typingText 的「已等待 5 秒」口径一致,避免一闪而过的数字。
+const THINKING_ELAPSED_SECS = 5;
+
+// typing 占位/活动行:无结构化 activity 时回退 dots+text(团队侧/CLI 零回归);有 activity 时
+// 按 phase 排版 —— 思考尾部片段 / 当前工具+步数+慢工具心跳 / ✓ 工具完成。整行可点击展开
+// 执行过程面板(onOpenProcess 由个人工作区注入,团队侧不传则不可点)。
+const TypingMessage = memo(function TypingMessage({
+  m,
+  onOpenProcess,
+}: {
+  m: Extract<Message, { kind: "typing" }>;
+  onOpenProcess?: () => void;
+}) {
+  const { t } = useTranslation("chat");
+  const a = m.activity;
+  const thinkingSecs = useElapsedSecs(a?.phase === "thinking" ? a.startedAt : undefined);
+  const toolSecs = useElapsedSecs(a?.phase === "tool" ? a.toolStartedAt : undefined);
+
+  let body: ReactNode;
+  if (a?.phase === "thinking") {
+    body = (
+      <span className="ta-row is-thinking">
+        <Icon.Sparkle size={12} />
+        <span className="ta-snippet">{a.snippet || m.text}</span>
+        {thinkingSecs >= THINKING_ELAPSED_SECS ? (
+          <span className="ta-meta">{t("core.typing.thinkingFor", { secs: thinkingSecs })}</span>
+        ) : null}
+      </span>
+    );
+  } else if (a?.phase === "tool") {
+    body = (
+      <span className="ta-row is-tool">
+        <span className="spinner" />
+        <span className="ta-tool">{a.toolName}</span>
+        {a.detail ? <span className="ta-detail">· {a.detail}</span> : null}
+        <span className="ta-meta">{t("core.typing.stepN", { n: (a.stepCount ?? 0) + 1 })}</span>
+        {toolSecs >= SLOW_TOOL_HEARTBEAT_SECS ? (
+          <span className="ta-meta">· {t("core.typing.toolRunning", { secs: toolSecs })}</span>
+        ) : null}
+      </span>
+    );
+  } else if (a?.phase === "toolDone") {
+    body = (
+      <span className="ta-row is-done">
+        <Icon.Check size={12} />
+        <span className="ta-tool">{t("core.typing.toolDoneShort", { tool: a.toolName ?? "" })}</span>
+        {a.stepCount ? <span className="ta-meta">{t("core.typing.stepN", { n: a.stepCount })}</span> : null}
+      </span>
+    );
+  } else {
+    body = (
+      <>
+        <span className="dots">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span>{m.text}</span>
+      </>
+    );
+  }
+
+  // aria:结构化视觉块对读屏隐藏,统一以 text 字段作为可读文本(role=status 由外层容器承担)。
+  const content = (
+    <div className="typing" role="status" aria-label={m.text}>
+      <span aria-hidden="true" style={{ display: "contents" }}>
+        {body}
+      </span>
+    </div>
+  );
+
   return (
     <div className="msg">
       <MessageAvatar who={m.who} />
       <div className="m-body">
-        <div className="typing">
-          <span className="dots">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span>{m.text}</span>
-        </div>
+        {a && onOpenProcess ? (
+          <button type="button" className="ta-open-btn" onClick={onOpenProcess} title={t("core.typing.openProcess")}>
+            {content}
+          </button>
+        ) : (
+          content
+        )}
       </div>
     </div>
   );
@@ -475,6 +558,7 @@ export function MessageStream({
   projectPath,
   stickToBottomKey,
   preserveAnchorKey,
+  onActivityClick,
 }: {
   contact: Contact;
   convo: Conversation | null | undefined;
@@ -497,6 +581,8 @@ export function MessageStream({
   //  - preserveAnchorKey 变 → 头部插入了更早历史,保持视觉锚点(补偿新增高度)而非贴底。
   stickToBottomKey?: unknown;
   preserveAnchorKey?: unknown;
+  // 个人工作区:点 typing 活动行展开「执行过程」面板。团队侧不传 → 活动行不可点,零回归。
+  onActivityClick?: () => void;
 }) {
   const { t } = useTranslation("chat");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -632,7 +718,7 @@ export function MessageStream({
             case "approve":
               return <ApproveMessage key={key} m={m} grouped={grouped} onApprove={onApprove} />;
             case "typing":
-              return <TypingMessage key={key} m={m} />;
+              return <TypingMessage key={key} m={m} onOpenProcess={onActivityClick} />;
             case "roleHeader":
               return <RoleHeaderMessage key={key} m={m} />;
             case "stageTitle":

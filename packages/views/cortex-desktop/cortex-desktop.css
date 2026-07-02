@@ -1305,6 +1305,46 @@ input, textarea { font: inherit; color: inherit; }
 .typing .dots i:nth-child(3) { animation-delay: 0.3s; }
 @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-3px); opacity: 1; } }
 
+/* Typing 活动行:实时透出思考片段/当前工具进度(结构化 activity 渲染) */
+.ta-open-btn {
+  display: block;
+  border: none; background: none; padding: 0; margin: 0;
+  text-align: left; cursor: pointer; font: inherit; color: inherit;
+}
+.ta-open-btn:hover .typing { background: var(--bg-hover, var(--bg-card)); }
+.typing .ta-row { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.typing .ta-row svg { flex: none; color: var(--text-3); }
+.typing .ta-row.is-done svg { color: var(--green); }
+.typing .ta-row .spinner { flex: none; }
+.typing .ta-snippet {
+  /* 思考尾部片段:单行截断,shimmer 渐变扫过传达「正在思考」 */
+  max-width: 420px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-2);
+  background: linear-gradient(90deg, var(--text-2) 0%, var(--text-2) 40%, var(--text-3) 50%, var(--text-2) 60%, var(--text-2) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: ta-shimmer 2.2s linear infinite;
+}
+.typing .ta-tool { font-weight: 500; color: var(--text-1); }
+.typing .ta-detail {
+  max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-3);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11.5px;
+}
+.typing .ta-meta { flex: none; color: var(--text-3); font-size: 11.5px; }
+@keyframes ta-shimmer { 0% { background-position: 200% 0; } 100% { background-position: 0% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .typing .ta-snippet {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
 /* Approval card (in chat) */
 .approve-card {
   margin: 8px 0;

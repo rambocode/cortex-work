@@ -158,7 +158,12 @@
       "workingDetail": "{{name}} is running {{tool}} · {{detail}}",
       "toolDone": "{{name}} finished {{tool}}",
       "waited": " · waited {{secs}}s",
-      "startHint": " (startup is slow; if there is no response for a while, you can click \"Abort deepening\" in the flash note detail and retry, or switch to another agent)"
+      "startHint": " (startup is slow; if there is no response for a while, you can click \"Abort deepening\" in the flash note detail and retry, or switch to another agent)",
+      "stepN": "step {{n}}",
+      "toolRunning": "running for {{secs}}s",
+      "thinkingFor": "thinking for {{secs}}s",
+      "toolDoneShort": "{{tool}} done",
+      "openProcess": "Expand run process"
     },
     "agentLogExecuting": "Agent is running",
     "agentLogDone": "Agent run complete",

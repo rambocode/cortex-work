@@ -424,6 +424,7 @@ export {
   usePersonalCliEvents,
   usePersonalPiEvents,
   usePersonalPiUi,
+  prewarmPiSession,
   respondPiUi,
   serializeAskQuestionAnswers,
   truncateForEdit,

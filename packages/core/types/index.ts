@@ -106,6 +106,19 @@ export interface ChatFileRef {
   sizeBytes?: number;
 }
 
+// typing 占位消息的结构化实时活动:把折叠面板里的思考/工具进度透出到聊天流的活动行。
+// text 字段仍保留(aria-live 可读文本 + 无 activity 时的回退渲染);渲染层按 phase 自行排版。
+// 随 typing 一并为瞬态(sanitizeForSave 丢弃整条 typing),不落盘。
+export interface TypingActivity {
+  phase: "thinking" | "tool" | "toolDone";
+  toolName?: string; // cleanToolName 后的展示名
+  detail?: string; // 工具 detail 摘要(来源已截断)
+  snippet?: string; // thinking 最新尾部片段(≤2 行、~140 字)
+  stepCount?: number; // 本轮已完成工具步数
+  startedAt?: number; // 本轮起始时刻 —— 渲染层算「已思考 Ns」
+  toolStartedAt?: number; // 当前工具起始时刻 —— 渲染层算慢工具「已运行 Ns」心跳
+}
+
 export type Message =
   | { kind: "day"; label: string; uid?: string }
   | {
@@ -154,7 +167,7 @@ export type Message =
       uid?: string;
     }
   | { kind: "approve"; who: string; time: string; title: string; body: RichText; uid?: string }
-  | { kind: "typing"; who: string; text: string; uid?: string }
+  | { kind: "typing"; who: string; text: string; activity?: TypingActivity; uid?: string }
   | {
       // 三段编排（orchestrate.ts）段边界标题，仅出现在过程流：把 intent/subagent/refine 三段
       // 在右侧执行过程面板里分隔成可见小标题。由 sendStageStart 发的空 delta thinking 事件
