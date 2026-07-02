@@ -196,6 +196,16 @@ describe("TasksStore 层级（U2）", () => {
     expect((await store.listProjects()).find((p) => p.id === "a")!.kind).toBe("project");
   });
 
+  it("normalizeData：旧 project 无 mode 读后补 parallel；已有 mode 不覆盖（U8/KTD5）", async () => {
+    const store = await seedRaw([
+      { id: "a", name: "旧", kind: "project" }, // 无 mode → 默认 parallel（旧档兼容）
+      { id: "b", name: "顺序", kind: "project", mode: "sequential" }, // 已有 mode 保留
+    ]);
+    const projs = await store.listProjects();
+    expect(projs.find((p) => p.id === "a")!.mode).toBe("parallel");
+    expect(projs.find((p) => p.id === "b")!.mode).toBe("sequential");
+  });
+
   it("addProject 带 parentId/kind 落库；parentId 指向不存在 → 降级顶层", async () => {
     const store = makeStore();
     const folder = await store.addProject("公司", { kind: "folder" });
@@ -217,6 +227,20 @@ describe("TasksStore 层级（U2）", () => {
     // 提升到顶层
     const promoted = await store.updateProject(b.id, { parentId: null });
     expect(promoted!.parentId).toBeUndefined();
+  });
+
+  it("updateProject：切换 mode 落库，省略 mode 时不动既有值（U8/KTD5）", async () => {
+    const store = makeStore();
+    const b = await store.addProject("B"); // 新建默认无 mode（读为 parallel）
+    const seq = await store.updateProject(b.id, { mode: "sequential" });
+    expect(seq!.mode).toBe("sequential");
+    // 仅改名（省略 mode）→ mode 保持 sequential 不被清
+    const renamed = await store.updateProject(b.id, { name: "B2" });
+    expect(renamed!.name).toBe("B2");
+    expect(renamed!.mode).toBe("sequential");
+    // 切回并行
+    const par = await store.updateProject(b.id, { mode: "parallel" });
+    expect(par!.mode).toBe("parallel");
   });
 
   it("updateProject：reparent 成自身后代被拒、数据不变；不存在返回 null", async () => {

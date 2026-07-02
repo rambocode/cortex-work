@@ -6,7 +6,8 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskStatus } from "../desktop/types";
+import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode, TaskStatus } from "../desktop/types";
+import { buildTaskTree, type TaskTreeNode } from "./taskTree";
 import { useDesktopBridge } from "../provider";
 
 // 可执行的状态集：仅这两态视为「可用/可执行」，defer 门控叠加其上。
@@ -42,6 +43,37 @@ export function isTodayEligible(
   // defer 到未来：只有已逾期/今天到期的 due 能压过它，否则整条任务被 defer 压住不进 Today。
   if (deferInFuture) return dueReached;
   return dueReached || deferReached || !!task.flagged;
+}
+
+// ── 项目执行模式与顺序可用集（U8/KTD5，R23）────────────────────────────────
+// mode 读时默认 parallel（与 store normalizeData 补默认一致；纯函数对旧档 undefined 容错）。
+export function projectMode(p: Pick<TaskProject, "mode">): TaskProjectMode {
+  return p.mode ?? "parallel";
+}
+
+// 终态：done/dropped 视为已完结，顺序项目「队首」跳过之。
+const TERMINAL_STATUS: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["done", "dropped"]);
+
+// 顺序项目可用集（R23）：入参为**同一项目**下的全部任务（含子任务），须已按显示顺序排好。
+// 语义（对齐 OmniFocus 顺序项目）：
+//   1) 按顶层任务显示顺序取第一个非 done/dropped 者为「队首」；无（全部完结）→ 空集。
+//   2) 队首被 defer 压到未来（deferDate > today）→ 整个项目阻塞、返回空集
+//      （后续任务不得因自身无 defer 抢跑，与 OmniFocus 一致）。
+//   3) 否则可用集 = 队首及其后代子树中各自 isAvailable 的任务 id
+//      （子任务组内仍并行——action-group 级顺序/并行本期延后，见 Scope Boundaries）。
+// 返回 id 集合，供 U5 四档过滤按 mode 派生消费。纯函数、无 IO。
+export function sequentialAvailableIds(tasks: TaskMeta[], today: string): Set<string> {
+  const out = new Set<string>();
+  const roots = buildTaskTree(tasks);
+  const front = roots.find((r) => !TERMINAL_STATUS.has(r.status));
+  if (!front) return out; // 顶层任务全部完结 → 无可用
+  if (front.deferDate && front.deferDate > today) return out; // 队首被 defer 压住 → 整体阻塞
+  const visit = (node: TaskTreeNode) => {
+    if (isAvailable(node, today)) out.add(node.id);
+    for (const child of node.children) visit(child);
+  };
+  visit(front);
+  return out;
 }
 
 // 标签规范化：trim + 小写归一；空/纯空白返回 null（调用方据此丢弃）。
@@ -176,11 +208,17 @@ export function useAddTaskProject() {
   });
 }
 
-// 更新 task-project（U3）：rename + reparent。reparent 影响任务归属 → 同时失效 tasks + projects 两个 key。
+// 更新 task-project（U3/U8）：rename + reparent + 切换 mode（并行/顺序，KTD5）。
+// reparent 影响任务归属 → 同时失效 tasks + projects 两个 key；mode 改变可用性派生同理需刷新 tasks。
+// mode 随 patch 经既有 tasks:updateProject IPC 透传（无新 IPC），store.updateProject 落库。
 export function useUpdateTaskProject() {
   const bridge = useDesktopBridge();
   const qc = useQueryClient();
-  return useMutation<TaskProject | null, Error, { id: string; patch: { name?: string; parentId?: string | null } }>({
+  return useMutation<
+    TaskProject | null,
+    Error,
+    { id: string; patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode } }
+  >({
     mutationFn: (v) => bridge!.tasksUpdateProject!(v.id, v.patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: tasksKeys.all });

@@ -54,6 +54,11 @@ export interface TaskAttachment {
 // task-project 的层级类型：folder 仅作分组容器、不直接容纳任务；project 可容纳任务、可再嵌子项目。
 export type TaskProjectKind = "folder" | "project";
 
+// project 的执行模式（U8/KTD5）：parallel = 任务各自按 isAvailable 可用；
+// sequential = 仅首个未完结顶层任务及其子树可用、其余阻塞（对齐 OmniFocus 顺序项目）。
+// 可选字段，读时默认 parallel（store normalizeData 补默认，version 保持 1、零迁移）。
+export type TaskProjectMode = "parallel" | "sequential";
+
 // task-project 是 tasks.json 内自持的一等分组实体，独立于工作区代码工程（v1 无路径）。
 // 层级（U1）：parentId 指向父节点（folder 或 project 均可为父），缺省 = 顶层；
 // kind 缺省视为 "project"（读时由 store normalizeData 补默认，见 U2）。
@@ -62,6 +67,7 @@ export interface TaskProject {
   name: string;
   parentId?: string; // 父 TaskProject.id；缺省/悬空 = 顶层
   kind?: TaskProjectKind; // 缺省 = project（folder 需显式标注）
+  mode?: TaskProjectMode; // 缺省 = parallel（U8；仅对可容纳任务的 project 有意义，folder 忽略）
 }
 
 // 一条任务。deferDate/dueDate 以本地日历日 YYYY-MM-DD 存储与比较。

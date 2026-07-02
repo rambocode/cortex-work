@@ -13,7 +13,7 @@
 
 import { promises as fsp } from "fs";
 import { dirname } from "path";
-import type { ArchivedTask, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TasksFileData } from "./types";
+import type { ArchivedTask, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode, TasksFileData } from "./types";
 // 防环复用 core 纯函数（与 U1 树逻辑同源；main 已有 import core 纯模块先例 taskMigrate）。
 import { isDescendant } from "@cortex-work/core/personal/taskProjectTree";
 // 子任务层级：改父防环 + 删父级联删子树（U2，与渲染层建树同源纯函数）。
@@ -43,16 +43,17 @@ function isValidTasksFile(v: unknown): v is TasksFileData {
   return d.version === 1 && Array.isArray(d.tasks) && Array.isArray(d.projects) && Array.isArray(d.archived);
 }
 
-// 读时归一化（U2/KTD4）：为旧档补 kind 默认（folder 需显式标注，其余视为 project），
-// 使下游可可靠依赖 kind 存在。幂等：无缺省字段时原样返回、不产生新对象。
+// 读时归一化（U2/KTD4、U8/KTD5）：为旧档补 kind（folder 需显式标注，其余 project）与 mode（缺省 parallel）默认，
+// 使下游可可靠依赖两字段存在。幂等：无缺省字段时原样返回、不产生新对象。
 function normalizeData(data: TasksFileData): TasksFileData {
   let changed = false;
   const projects = data.projects.map((p) => {
-    if (p.kind === undefined) {
-      changed = true;
-      return { ...p, kind: "project" as TaskProjectKind };
-    }
-    return p;
+    const patch: Partial<TaskProject> = {};
+    if (p.kind === undefined) patch.kind = "project" as TaskProjectKind;
+    if (p.mode === undefined) patch.mode = "parallel" as TaskProjectMode;
+    if (Object.keys(patch).length === 0) return p;
+    changed = true;
+    return { ...p, ...patch };
   });
   return changed ? { ...data, projects } : data;
 }
@@ -314,10 +315,15 @@ export class TasksStore {
     });
   }
 
-  // 更新 task-project（U2）：rename（name）+ reparent（parentId）。
+  // 更新 task-project（U2）：rename（name）+ reparent（parentId）+ 切换执行模式（mode，U8/KTD5）。
   // parentId 语义：省略 = 不改；null = 提升到顶层；string = 挂到该父下（父须存在 + 防环）。
+  // mode 语义（U8）：省略 = 不改；"parallel"/"sequential" = 切换。复用既有 tasks:updateProject IPC 通道
+  // （mode 随 patch 对象经 IPC 序列化透传，无新 IPC）；模式只影响可用性派生（纯前端），无级联落库。
   // 防环用 isDescendant（把节点挂到自身或其后代下）→ 抛错供 UI 捕获给 toast；项目不存在返回 null。
-  updateProject(id: string, patch: { name?: string; parentId?: string | null }): Promise<TaskProject | null> {
+  updateProject(
+    id: string,
+    patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode },
+  ): Promise<TaskProject | null> {
     return this.mutate<TaskProject | null>((data) => {
       const idx = data.projects.findIndex((p) => p.id === id);
       if (idx < 0) return [data, null];
@@ -340,6 +346,7 @@ export class TasksStore {
         ...cur,
         name: patch.name !== undefined ? patch.name.trim() : cur.name,
         parentId,
+        mode: patch.mode !== undefined ? patch.mode : cur.mode,
       };
       const projects = data.projects.slice();
       projects[idx] = next;

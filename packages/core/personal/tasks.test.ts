@@ -6,6 +6,8 @@ import {
   canTransition,
   localDay,
   shouldAcceptDelegationWriteback,
+  projectMode,
+  sequentialAvailableIds,
 } from "./tasks";
 import type { TaskMeta } from "../desktop/types";
 
@@ -63,6 +65,71 @@ describe("isTodayEligible（KTD7：状态门控 + defer>due→due 优先）", ()
   });
   it("flagged 的 active → 进", () => {
     expect(isTodayEligible(task({ flagged: true }), TODAY)).toBe(true);
+  });
+});
+
+describe("projectMode（U8/KTD5：读时默认 parallel、旧档兼容）", () => {
+  it("无 mode → parallel", () => {
+    expect(projectMode({})).toBe("parallel");
+    expect(projectMode({ mode: undefined })).toBe("parallel");
+  });
+  it("显式 mode 原样返回", () => {
+    expect(projectMode({ mode: "sequential" })).toBe("sequential");
+    expect(projectMode({ mode: "parallel" })).toBe("parallel");
+  });
+});
+
+describe("sequentialAvailableIds（U8/R23：顺序项目可用集收窄）", () => {
+  it("[A,B,C] 全 active → 仅队首 A 可用（AE7）", () => {
+    const ids = sequentialAvailableIds([task({ id: "A" }), task({ id: "B" }), task({ id: "C" })], TODAY);
+    expect([...ids]).toEqual(["A"]);
+  });
+  it("队首 A 完成后 → 可用集解锁到 B（AE7）", () => {
+    const ids = sequentialAvailableIds(
+      [task({ id: "A", status: "done" }), task({ id: "B" }), task({ id: "C" })],
+      TODAY,
+    );
+    expect([...ids]).toEqual(["B"]);
+  });
+  it("队首及其子树可用（子任务组内并行），后续顶层任务阻塞", () => {
+    const ids = sequentialAvailableIds(
+      [
+        task({ id: "A" }),
+        task({ id: "A1", parentTaskId: "A" }),
+        task({ id: "A2", parentTaskId: "A" }),
+        task({ id: "B" }),
+      ],
+      TODAY,
+    );
+    expect(ids.has("A")).toBe(true);
+    expect(ids.has("A1")).toBe(true);
+    expect(ids.has("A2")).toBe(true);
+    expect(ids.has("B")).toBe(false);
+  });
+  it("队首 defer 未到 → 整体阻塞（空集），后续任务不抢跑", () => {
+    const ids = sequentialAvailableIds(
+      [task({ id: "A", deferDate: "2026-07-02" }), task({ id: "B" }), task({ id: "C" })],
+      TODAY,
+    );
+    expect(ids.size).toBe(0);
+  });
+  it("顶层任务全部完结（done/dropped）→ 空集", () => {
+    const ids = sequentialAvailableIds(
+      [task({ id: "A", status: "done" }), task({ id: "B", status: "dropped" })],
+      TODAY,
+    );
+    expect(ids.size).toBe(0);
+  });
+  it("队首子树内 defer 未到的子任务被排除，队首仍可用", () => {
+    const ids = sequentialAvailableIds(
+      [task({ id: "A" }), task({ id: "A1", parentTaskId: "A", deferDate: "2026-07-02" })],
+      TODAY,
+    );
+    expect(ids.has("A")).toBe(true);
+    expect(ids.has("A1")).toBe(false);
+  });
+  it("空任务列表 → 空集", () => {
+    expect(sequentialAvailableIds([], TODAY).size).toBe(0);
   });
 });
 

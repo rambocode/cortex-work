@@ -11,6 +11,7 @@ import {
   useAddTaskProject,
   useUpdateTaskProject,
   useDeleteTaskProject,
+  projectMode,
 } from "@cortex-work/core/personal/tasks";
 import {
   buildProjectTree,
@@ -18,7 +19,7 @@ import {
   isDescendant,
   type TaskProjectNode,
 } from "@cortex-work/core/personal/taskProjectTree";
-import type { TaskProject, TaskProjectKind } from "@cortex-work/core/desktop/types";
+import type { TaskProject, TaskProjectKind, TaskProjectMode } from "@cortex-work/core/desktop/types";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
 
 // 每层缩进步长（px）。折叠箭头 / 占位固定宽，保证同层节点名对齐。
@@ -209,6 +210,64 @@ function MoveMenu({
   );
 }
 
+// 「执行模式」上下文菜单（U8/KTD5）：仅 project 节点提供（folder 不容纳任务、模式无意义）。
+// 并行 = 任务各自可用；顺序 = 仅首个未完结顶层任务及其子树可用。当前档打勾。
+function ModeMenu({ mode, onPick }: { mode: TaskProjectMode; onPick: (mode: TaskProjectMode) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+  return (
+    <div className="pw-tb-menu-wrap" ref={wrapRef}>
+      <button
+        className={`pw-icon-btn ${open ? "is-active" : ""}`}
+        title="执行模式（并行 / 顺序）"
+        tabIndex={-1}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      >
+        {mode === "sequential" ? <Icon.Sort size={13} /> : <Icon.Split size={13} />}
+      </button>
+      {open ? (
+        <div className="pw-tb-menu" role="menu">
+          <button
+            className="pw-tb-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onPick("parallel");
+              setOpen(false);
+            }}
+          >
+            <Icon.Split size={14} />
+            <span>并行</span>
+            {mode === "parallel" ? <Icon.Check size={13} /> : null}
+          </button>
+          <button
+            className="pw-tb-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onPick("sequential");
+              setOpen(false);
+            }}
+          >
+            <Icon.Sort size={14} />
+            <span>顺序</span>
+            {mode === "sequential" ? <Icon.Check size={13} /> : null}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // 树节点上下文：集中透传给递归 TreeNode，避免逐层重复声明一长串 props。
 interface NodeCtx {
   selection: WorkbenchSelection;
@@ -225,6 +284,7 @@ interface NodeCtx {
   submitRename: (id: string, name: string) => void;
   cancelRename: () => void;
   moveNode: (id: string, parentId: string | null) => void;
+  setMode: (id: string, mode: TaskProjectMode) => void;
   deleteNode: (id: string) => void;
   onNodeKeyDown: (e: React.KeyboardEvent, node: TaskProjectNode) => void;
 }
@@ -233,6 +293,9 @@ function TreeNode({ node, depth, ctx }: { node: TaskProjectNode; depth: number; 
   // 删除就地二次确认（首点变红 ✓，再点真删；鼠标移开重置），复用 SessionRow 的范式，不弹对话框。
   const [confirming, setConfirming] = useState(false);
   const isFolder = projectKind(node) === "folder";
+  // 执行模式仅对 project 有意义（folder 不容纳任务）；顺序项目在树节点上打标识（U8/R24）。
+  const mode = projectMode(node);
+  const isSequential = !isFolder && mode === "sequential";
   const hasChildren = node.children.length > 0;
   const isExpanded = !!ctx.expanded[node.id];
   const selKind: "folder" | "project" = isFolder ? "folder" : "project";
@@ -284,6 +347,12 @@ function TreeNode({ node, depth, ctx }: { node: TaskProjectNode; depth: number; 
           >
             {isFolder ? <Icon.Folder size={14} /> : <Icon.Task size={14} />}
             <span className="pw-project-name">{node.name}</span>
+            {/* 顺序项目标识：与中栏组头模式标识呼应（U8/R24） */}
+            {isSequential ? (
+              <span className="pw-project-mode" title="顺序项目（仅首个可用）" aria-label="顺序项目">
+                <Icon.Sort size={11} />
+              </span>
+            ) : null}
           </button>
         )}
         {!editing ? (
@@ -293,6 +362,8 @@ function TreeNode({ node, depth, ctx }: { node: TaskProjectNode; depth: number; 
             <button className="pw-icon-btn" title="重命名" tabIndex={-1} onClick={() => ctx.beginRename(node.id)}>
               <Icon.Edit size={13} />
             </button>
+            {/* 执行模式切换仅 project 可用（folder 不容纳任务、模式无意义） */}
+            {!isFolder ? <ModeMenu mode={mode} onPick={(m) => ctx.setMode(node.id, m)} /> : null}
             <MoveMenu node={node} projects={ctx.projects} onPick={(pid) => ctx.moveNode(node.id, pid)} />
             <button
               className={`pw-icon-btn pw-session-act ${confirming ? "is-danger" : ""}`}
@@ -389,6 +460,13 @@ export function ProjectTree({
       { onError: () => onToast?.("不能移到自身或其子级") },
     );
   };
+  // 切换执行模式（U8/KTD5）：复用 updateProject 写回，广播后中栏「可用/首先可用」档即时收窄/放宽。
+  const setMode = (id: string, mode: TaskProjectMode) => {
+    const cur = projects.find((p) => p.id === id);
+    if (cur && projectMode(cur) === mode) return; // 同档不写，避免多余 mutate
+    updateProject.mutate({ id, patch: { mode } });
+    onToast?.(mode === "sequential" ? "已设为顺序项目" : "已设为并行项目");
+  };
   const deleteNode = (id: string) => {
     // store 已做「子节点上提 + 任务回 Inbox」（KTD10），UI 无需额外处理。
     deleteProject.mutate(id);
@@ -454,6 +532,7 @@ export function ProjectTree({
     submitRename,
     cancelRename: () => setEditingId(null),
     moveNode,
+    setMode,
     deleteNode,
     onNodeKeyDown,
   };

@@ -10,13 +10,15 @@ vi.mock("@cortex-work/core/personal/tasks", () => {
   const projects = [
     { id: "a", name: "文件夹A", kind: "folder" },
     { id: "b", name: "项目B", kind: "project", parentId: "a" },
-    { id: "c", name: "项目C", kind: "project", parentId: "b" },
+    { id: "c", name: "项目C", kind: "project", parentId: "b", mode: "sequential" },
   ];
   return {
     useTaskProjects: () => ({ data: projects }),
     useAddTaskProject: () => ({ mutate }),
     useUpdateTaskProject: () => ({ mutate }),
     useDeleteTaskProject: () => ({ mutate }),
+    // projectMode 是纯函数，mock 里照实现（读时默认 parallel）供节点标识 / 同档去重用。
+    projectMode: (p: { mode?: string }) => p.mode ?? "parallel",
   };
 });
 
@@ -65,5 +67,32 @@ describe("ProjectTree", () => {
     expect(onSelect).toHaveBeenCalledWith({ kind: "today" });
     fireEvent.click(screen.getByText("收件箱"));
     expect(onSelect).toHaveBeenCalledWith({ kind: "inbox" });
+  });
+
+  it("folder 节点不渲染执行模式菜单（U8：模式仅 project 有意义）", () => {
+    renderTree();
+    // 仅根 A（folder）可见 → 无执行模式按钮
+    expect(screen.queryByTitle("执行模式（并行 / 顺序）")).toBeNull();
+  });
+
+  it("project 节点切「顺序」经 useUpdateTaskProject 写回 patch.mode（U8/R24）", () => {
+    renderTree();
+    fireEvent.click(screen.getByTitle("展开")); // 展开 A 露出 project B（默认 parallel）
+    fireEvent.click(screen.getByTitle("执行模式（并行 / 顺序）"));
+    fireEvent.click(screen.getByText("顺序"));
+    expect(mutate).toHaveBeenCalledWith({ id: "b", patch: { mode: "sequential" } });
+  });
+
+  it("顺序项目在树节点显示模式标识；点当前档不重复写回（同档去重）", () => {
+    renderTree();
+    fireEvent.click(screen.getByTitle("展开")); // A → B
+    fireEvent.click(screen.getByTitle("展开")); // B → C（sequential）
+    // 顺序项目 C 有模式标识；并行项目 B 无
+    expect(screen.getByLabelText("顺序项目")).toBeTruthy();
+    // 打开 C 的模式菜单（DOM 末位）点「顺序」→ 同档、不 mutate
+    const menus = screen.getAllByTitle("执行模式（并行 / 顺序）");
+    fireEvent.click(menus[menus.length - 1]!);
+    fireEvent.click(screen.getByText("顺序"));
+    expect(mutate).not.toHaveBeenCalled();
   });
 });
