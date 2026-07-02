@@ -436,7 +436,6 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
         onDisplayFieldsChange={setDisplayFields}
         editFields={editFields}
         onEditFieldsChange={setEditFields}
-        onOpenSettings={() => setSettingsOpen(true)}
       />
       {/* 全局设置视图（阶段模板 / 项目资源）：覆盖三列、保留工具栏。 */}
       {settingsOpen ? <WorkbenchSettingsView onClose={() => setSettingsOpen(false)} onToast={onToast} /> : null}
@@ -454,13 +453,24 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
             focus 非空时只渲染焦点子树（工具栏「聚焦」）。 */}
         {sidebarVisible ? (
           <div className="pw-projects-tree">
-            <ProjectTree
-              selection={selection}
-              onSelect={navigateTo}
-              onToast={onToast}
-              showInbox={viewOptions.showInbox}
-              focus={focus}
-            />
+            <div className="pw-projects-tree-scroll">
+              <ProjectTree
+                selection={selection}
+                onSelect={navigateTo}
+                onToast={onToast}
+                showInbox={viewOptions.showInbox}
+                focus={focus}
+              />
+            </div>
+            {/* 全局设置入口（阶段模板 / 项目资源）：常驻边栏底部（自顶部工具栏迁入）。 */}
+            <button
+              className="pw-ptree-settings"
+              title="设置（阶段模板 / 项目资源）"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Icon.Settings size={14} />
+              <span>设置</span>
+            </button>
           </div>
         ) : null}
         {/* 中列：任务清单（U7）。按左树选择聚合，四档过滤（U5），行内动作直达；点标题 → 右列详情（U8）。

@@ -122,6 +122,7 @@ export interface TaskMeta {
   // ── 项目管理扩展（参照 IFocus，全部可选、读时零迁移）──
   stageId?: string; // 所属项目阶段 ProjectStage.id；缺省/悬空 = 未归阶段（阶段 tab「全部」仍可见）
   memberIds?: string[]; // 分配的团队成员 Member.id 列表；缺省 = 未分配
+  memberHours?: Record<string, number>; // 成员工时分配（memberId → 预估小时数）；仅对 memberIds 内成员有意义
 }
 
 // 新建入参（id/时间戳由 store 生成）。

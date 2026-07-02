@@ -9827,3 +9827,29 @@ button.sb-row {
 .pw-task-members { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
 .pw-task-member-chip { display: inline-flex; align-items: center; gap: 4px; }
 .pw-task-member-add { max-width: 110px; }
+
+/* ── 边栏底部设置入口 + 成员工时输入 + 项目模板选择（迭代 2）───────────────────── */
+/* 边栏变纵向 flex：树区滚动、设置按钮常驻底部（原 overflow 迁到 .pw-projects-tree-scroll）。 */
+.pw-projects-tree { display: flex; flex-direction: column; overflow: hidden; }
+.pw-projects-tree-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.pw-ptree-settings {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 4px; padding: 7px 10px; border-radius: 7px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12px; color: var(--text-3); background: transparent;
+  flex-shrink: 0; width: 100%; text-align: left;
+}
+.pw-ptree-settings:hover { background: var(--bg-hover); color: var(--text-1); }
+/* 成员 chip 内工时输入（小时）。 */
+.pw-task-member-hours {
+  width: 40px; height: 18px; padding: 0 4px;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-input, var(--bg-app));
+  font-size: 11px; color: var(--text-1);
+  -moz-appearance: textfield; appearance: textfield;
+}
+.pw-task-member-hours::-webkit-inner-spin-button { display: none; }
+.pw-task-member-hours:focus { outline: none; border-color: var(--accent); }
+.pw-task-member-hours-unit { font-size: 11px; color: var(--text-4); margin-left: -2px; }
+/* 项目设置面板的模板下拉占满行宽。 */
+.pw-proj-settings-tpl { flex: 1; min-width: 0; }

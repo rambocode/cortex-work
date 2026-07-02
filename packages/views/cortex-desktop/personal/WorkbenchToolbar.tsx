@@ -44,9 +44,6 @@ export interface WorkbenchToolbarProps {
   onDisplayFieldsChange?: (next: DisplayFieldPrefs) => void;
   editFields?: EditFieldPrefs;
   onEditFieldsChange?: (next: EditFieldPrefs) => void;
-  // 工作台全局设置（阶段模板 / 项目资源）：唤起全窗口覆盖设置视图，开关归容器。
-  // 可选：未注入时不渲染入口（独立渲染/测试 seam，与 viewOptions 同款降级策略）。
-  onOpenSettings?: () => void;
 }
 
 export function WorkbenchToolbar({
@@ -67,7 +64,6 @@ export function WorkbenchToolbar({
   onDisplayFieldsChange,
   editFields,
   onEditFieldsChange,
-  onOpenSettings,
 }: WorkbenchToolbarProps) {
   return (
     <div className="pw-wb-toolbar ds-drag">
@@ -152,13 +148,6 @@ export function WorkbenchToolbar({
             <Icon.Edit size={16} />
           </button>
         )}
-        {/* 工作台全局设置（阶段模板 / 项目资源）：唤起全窗口覆盖设置视图。 */}
-        {onOpenSettings ? (
-          <button className="pw-wb-btn ds-no-drag" title="设置（阶段模板 / 项目资源）" onClick={onOpenSettings}>
-            <Icon.Users size={16} />
-            <span className="pw-wb-btn-label">设置</span>
-          </button>
-        ) : null}
       </div>
     </div>
   );

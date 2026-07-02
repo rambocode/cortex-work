@@ -11,6 +11,7 @@ const deleteProject = vi.fn();
 vi.mock("@cortex-work/core/personal/tasks", () => ({
   useUpdateTaskProject: () => ({ mutate: updateProject }),
   useDeleteTaskProject: () => ({ mutate: deleteProject }),
+  useStageTemplates: () => ({ data: [] }), // 自定义模板空；内置模板由 mergeTemplates 真实合并
 }));
 
 const project: TaskProject = { id: "p1", name: "发布计划", kind: "project", note: "第一行描述\n第二行" };
@@ -55,6 +56,32 @@ describe("ProjectSettingsPanel", () => {
     expect(unlocked.disabled).toBe(false);
     fireEvent.click(unlocked);
     expect(deleteProject).toHaveBeenCalledWith("p1", expect.anything());
+  });
+
+  it("应用阶段模板：无阶段项目直接应用（实例化 not-started 阶段整表提交）", () => {
+    render(<ProjectSettingsPanel project={project} onClose={vi.fn()} onToast={vi.fn()} />);
+    const select = screen.getByLabelText("选择阶段模板") as HTMLSelectElement;
+    const applyBtn = screen.getByText("应用") as HTMLButtonElement;
+    expect(applyBtn.disabled).toBe(true); // 未选模板不可应用
+
+    fireEvent.change(select, { target: { value: "tpl-builtin-product" } }); // 产品设计（4 阶段）
+    fireEvent.click(screen.getByText("应用"));
+    const arg = updateProject.mock.calls[0]![0] as { id: string; patch: { stages: Array<Record<string, unknown>> } };
+    expect(arg.id).toBe("p1");
+    expect(arg.patch.stages.map((s) => s.name)).toEqual(["调研", "设计", "开发", "发布"]);
+    expect(arg.patch.stages.every((s) => s.status === "not-started")).toBe(true);
+  });
+
+  it("已有阶段的项目应用模板需两步确认（首击不提交）", () => {
+    const staged = { ...project, stages: [{ id: "s1", name: "旧阶段", status: "active" as const, order: 0 }] };
+    render(<ProjectSettingsPanel project={staged} onClose={vi.fn()} onToast={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("选择阶段模板"), { target: { value: "tpl-builtin-simple" } });
+    fireEvent.click(screen.getByText("应用"));
+    expect(updateProject).not.toHaveBeenCalled(); // 首击只进确认态
+    expect(screen.getByText(/将替换现有 1 个阶段/)).toBeTruthy();
+    fireEvent.click(screen.getByText("确认替换"));
+    const arg = updateProject.mock.calls[0]![0] as { patch: { stages: Array<{ name: string }> } };
+    expect(arg.patch.stages.map((s) => s.name)).toEqual(["待办"]);
   });
 
   it("状态 chips 点击发 status patch；备注失焦发 note patch", () => {

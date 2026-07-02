@@ -66,11 +66,29 @@ describe("TaskMemberField", () => {
     expect(updateTask).toHaveBeenCalledWith({ id: "t1", patch: { memberIds: ["m1", "m2"] } });
   });
 
-  it("移除唯一成员 → memberIds 置 undefined（清字段而非留空数组）", () => {
+  it("移除唯一成员 → memberIds 置 undefined（清字段而非留空数组），其工时分配一并清除", () => {
     members = [{ id: "m1", name: "jone" }];
-    render(<TaskMemberField task={task({ memberIds: ["m1"] })} />);
+    render(<TaskMemberField task={task({ memberIds: ["m1"], memberHours: { m1: 8 } })} />);
     fireEvent.click(screen.getByTitle("移除成员 jone"));
-    expect(updateTask).toHaveBeenCalledWith({ id: "t1", patch: { memberIds: undefined } });
+    expect(updateTask).toHaveBeenCalledWith({ id: "t1", patch: { memberIds: undefined, memberHours: undefined } });
+  });
+
+  it("工时输入失焦提交 memberHours（小时）；清空/非法值清除该成员分配", () => {
+    members = [
+      { id: "m1", name: "jone" },
+      { id: "m2", name: "mike" },
+    ];
+    render(<TaskMemberField task={task({ memberIds: ["m1", "m2"], memberHours: { m2: 4 } })} />);
+    const input = screen.getByLabelText("jone 的工时（小时）");
+    fireEvent.change(input, { target: { value: "8" } });
+    fireEvent.blur(input);
+    expect(updateTask).toHaveBeenCalledWith({ id: "t1", patch: { memberHours: { m1: 8, m2: 4 } } });
+
+    // 清空 m2 的工时（task prop 里只有 m2:4）→ 分配表清空为 undefined。
+    const input2 = screen.getByLabelText("mike 的工时（小时）");
+    fireEvent.change(input2, { target: { value: "" } });
+    fireEvent.blur(input2);
+    expect(updateTask).toHaveBeenLastCalledWith({ id: "t1", patch: { memberHours: undefined } });
   });
 
   it("悬空成员 id（已删）不渲染 chip", () => {

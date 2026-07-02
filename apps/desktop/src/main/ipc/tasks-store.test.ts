@@ -512,20 +512,27 @@ describe("TasksStore 团队成员（资源管理）", () => {
     expect(await store.updateMember("member-nope", { name: "x" })).toBeNull();
   });
 
-  it("deleteMember 级联把任务 memberIds 里的该 id 移除（防悬空引用）", async () => {
+  it("deleteMember 级联把任务 memberIds 与工时分配 memberHours 里的该 id 一并移除（防悬空引用）", async () => {
     const store = makeStore();
     const a = await store.addMember({ name: "a" });
     const b = await store.addMember({ name: "b" });
     const t1 = await store.add({ title: "t1" });
     const t2 = await store.add({ title: "t2" });
-    await store.update(t1.id, { memberIds: [a.id, b.id] });
+    await store.update(t1.id, { memberIds: [a.id, b.id], memberHours: { [a.id]: 8, [b.id]: 4 } });
     await store.update(t2.id, { memberIds: [b.id] });
 
     await store.deleteMember(a.id);
     expect((await store.listMembers()).map((m) => m.id)).toEqual([b.id]);
     const tasks = await store.list();
     expect(tasks.find((t) => t.id === t1.id)!.memberIds).toEqual([b.id]);
+    expect(tasks.find((t) => t.id === t1.id)!.memberHours).toEqual({ [b.id]: 4 }); // a 的工时被清
     expect(tasks.find((t) => t.id === t2.id)!.memberIds).toEqual([b.id]); // 未引用者不动
+
+    // 删掉 b 后 t1 的工时分配表整体清空（不留空对象）。
+    await store.deleteMember(b.id);
+    const after = await store.list();
+    expect(after.find((t) => t.id === t1.id)!.memberHours).toBeUndefined();
+    expect(after.find((t) => t.id === t1.id)!.memberIds).toEqual([]);
   });
 });
 

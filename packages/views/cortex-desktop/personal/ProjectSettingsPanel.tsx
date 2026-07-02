@@ -1,9 +1,16 @@
-// 项目设置面板（参照 IFocus 项目详情齿轮弹出）：编辑名称 / 状态 / 备注，删除项目需输入项目名精确
-// 匹配才可执行（防误删；删除语义沿用 store deleteProject——子节点上提、任务回收件箱）。
-// 定位挂在齿轮按钮下方（useDismissableMenu 外点/Esc 关闭 + useMenuViewportClamp 收敛回视口）。
+// 项目设置面板（参照 IFocus 项目详情齿轮弹出）：编辑名称 / 状态 / 备注 / 应用阶段模板，删除项目
+// 需输入项目名精确匹配才可执行（防误删；删除语义沿用 store deleteProject——子节点上提、任务回收件箱）。
+// 应用模板 = 复制实例化替换现有 stages（与模板解耦；被删阶段的任务 stageId 由 store 同锁清理），
+// 已有阶段时两步确认防误替换。定位挂在齿轮按钮下方（useDismissableMenu + viewport clamp）。
 import { useState } from "react";
-import { useDeleteTaskProject, useUpdateTaskProject } from "@cortex-work/core/personal/tasks";
+import { useDeleteTaskProject, useStageTemplates, useUpdateTaskProject } from "@cortex-work/core/personal/tasks";
+import { instantiateStages, mergeTemplates } from "@cortex-work/core/personal/stageTemplates";
 import type { TaskProject, TaskProjectStatus } from "@cortex-work/core/desktop/types";
+
+// 渲染端阶段实例 id 生成（与 ProjectStagesBar/ProjectTree 同形）。
+function newStageId(): string {
+  return `stage-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 // 项目状态四态元数据（与 TaskProjectStatus 对齐；缺省视为 active）。
 const PROJECT_STATUS_META: readonly { value: TaskProjectStatus; label: string }[] = [
@@ -24,10 +31,15 @@ export function ProjectSettingsPanel({
 }) {
   const updateProject = useUpdateTaskProject();
   const deleteProject = useDeleteTaskProject();
+  const templates = mergeTemplates(useStageTemplates().data ?? []);
   const [name, setName] = useState(project.name);
   const [note, setNote] = useState(project.note ?? "");
   const [deleteDraft, setDeleteDraft] = useState("");
+  // 应用阶段模板：选中的模板 id + 已有阶段时的两步确认态。
+  const [templateId, setTemplateId] = useState("");
+  const [confirmingApply, setConfirmingApply] = useState(false);
   const status = project.status ?? "active";
+  const hasStages = (project.stages?.length ?? 0) > 0;
   // 删除按钮解锁条件：输入与项目名**精确**一致（不 trim 两侧空格差异之外的内容）。
   const deleteUnlocked = deleteDraft.trim() === project.name;
 
@@ -83,6 +95,51 @@ export function ProjectSettingsPanel({
         onChange={(e) => setNote(e.target.value)}
         onBlur={commitNote}
       />
+
+      {/* 应用阶段模板：复制实例化替换现有 stages（与模板解耦）。已有阶段时两步确认——
+          替换会清掉任务上指向被删阶段的 stageId（store 同锁级联）。 */}
+      <div className="pw-ps-field-label">阶段模板</div>
+      <div className="pw-proj-settings-danger-row">
+        <select
+          className="pw-ps-input pw-proj-settings-tpl"
+          aria-label="选择阶段模板"
+          value={templateId}
+          onChange={(e) => {
+            setTemplateId(e.target.value);
+            setConfirmingApply(false);
+          }}
+        >
+          <option value="">选择模板…</option>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+              {t.stages.length ? `（${t.stages.length} 个阶段）` : "（无阶段）"}
+            </option>
+          ))}
+        </select>
+        <button
+          className={`pw-ps-btn${confirmingApply ? " pw-ps-btn--danger" : " pw-ps-btn--primary"}`}
+          disabled={!templateId}
+          onClick={() => {
+            const tpl = templates.find((t) => t.id === templateId);
+            if (!tpl) return;
+            // 已有阶段：首击进入确认态（替换会移除现有阶段并清任务归属），再击才执行。
+            if (hasStages && !confirmingApply) {
+              setConfirmingApply(true);
+              return;
+            }
+            setConfirmingApply(false);
+            setTemplateId("");
+            patch({ stages: instantiateStages(tpl.stages, newStageId) });
+            onToast(`已按「${tpl.name}」应用阶段模板`);
+          }}
+        >
+          {confirmingApply ? "确认替换" : "应用"}
+        </button>
+      </div>
+      {confirmingApply ? (
+        <div className="pw-proj-settings-danger-hint">将替换现有 {project.stages!.length} 个阶段，任务的阶段归属会被清空。</div>
+      ) : null}
 
       {/* 危险区：输入项目名精确匹配才解锁删除（删除后子节点上提、任务回收件箱）。 */}
       <div className="pw-proj-settings-danger">

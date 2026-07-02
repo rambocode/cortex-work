@@ -467,15 +467,27 @@ export class TasksStore {
     });
   }
 
-  // 删除成员：同一锁内级联把任务 memberIds 里的该 id 移除（防悬空引用；handler 侧需连带刷新任务）。
+  // 删除成员：同一锁内级联把任务 memberIds 里的该 id 与其工时分配 memberHours[id] 一并移除
+  // （防悬空引用；handler 侧需连带刷新任务）。
   deleteMember(id: string): Promise<void> {
     return this.mutate<void>((data) => {
       const now = Date.now();
-      const tasks = data.tasks.map((t) =>
-        t.memberIds?.includes(id)
-          ? { ...t, memberIds: t.memberIds.filter((m) => m !== id), updatedAt: now }
-          : t,
-      );
+      const tasks = data.tasks.map((t) => {
+        const inIds = t.memberIds?.includes(id) ?? false;
+        const inHours = t.memberHours != null && id in t.memberHours;
+        if (!inIds && !inHours) return t;
+        let memberHours = t.memberHours;
+        if (inHours) {
+          const { [id]: _removed, ...rest } = t.memberHours!;
+          memberHours = Object.keys(rest).length ? rest : undefined;
+        }
+        return {
+          ...t,
+          memberIds: inIds ? t.memberIds!.filter((m) => m !== id) : t.memberIds,
+          memberHours,
+          updatedAt: now,
+        };
+      });
       return [{ ...data, members: (data.members ?? []).filter((m) => m.id !== id), tasks }, undefined];
     });
   }
