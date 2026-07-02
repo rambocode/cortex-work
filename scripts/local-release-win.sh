@@ -9,7 +9,7 @@
 # 用法：
 #   bash scripts/local-release-win.sh            # 追加发布当前 package.json 版本对应的 tag
 set -euo pipefail
-shopt -s nullglob # win zip 目标不产出 blockmap(blockmap 只随 nsis .exe 生成),未匹配的 glob 应直接消失而非报错
+shopt -s nullglob # 下方产物护栏用数组长度判断 pattern 是否命中,依赖未匹配的 glob 展开为空
 cd "$(dirname "$0")/.."
 
 PKG_VERSION="$(node -p "require('./apps/desktop/package.json').version")"
@@ -34,14 +34,13 @@ pnpm --filter @cortex-work/desktop run build:win-x64
 SRC="apps/desktop/dist"
 # 必须存在的产物(nullglob 下未匹配的 pattern 展开为空数组,用长度判断而非 ls 是否成功——
 # ls "$SRC"/ 本身在目录存在时总会成功,不能反映某个 pattern 是否真的匹配到文件)。
-for pattern in "*.exe" "*.zip" "latest.yml"; do
+# win 只出 nsis .exe(zip 目标已从 electron-builder.yml 移除,不再生成/发布)。
+for pattern in "*.exe" "latest.yml"; do
   matches=("$SRC"/$pattern)
   [[ ${#matches[@]} -gt 0 ]] || { echo "✗ 缺产物: $pattern" >&2; exit 1; }
 done
 
 export GH_TOKEN="$GH_TOKEN_VAL"
-# *.zip.blockmap 不在上传清单里:electron-builder 只给 nsis .exe(自动更新消费的产物)生成
-# blockmap,plain zip 目标没有,这里用 nullglob 让未匹配的 pattern 自然消失,不强行要求存在。
 gh release upload "$BUILD_TAG" --repo "$REPO" --clobber \
-  "$SRC"/*.exe "$SRC"/*.exe.blockmap "$SRC"/*.zip "$SRC"/*.zip.blockmap "$SRC/latest.yml"
+  "$SRC"/*.exe "$SRC"/*.exe.blockmap "$SRC/latest.yml"
 echo "✓ 已追加发布 ${BUILD_TAG} 的 Windows x64 产物到 https://github.com/$REPO/releases/tag/$BUILD_TAG"
