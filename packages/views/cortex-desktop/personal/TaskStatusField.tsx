@@ -10,14 +10,15 @@ import { useUpdateTask, canTransition } from "@cortex-work/core/personal/tasks";
 import type { TaskMeta, TaskStatus } from "@cortex-work/core/desktop/types";
 
 // 枚举 + 中文标签 + icon（inbox 是计算态、不入枚举，故不在此）。
-// icon 取 @cortex-work/ui/icons 的圆形状态族，对齐设计稿：空心圆=活动/未开始、圆心点=进行中、
-// 时钟=等待、勾圈=已完成、叉圈=已放弃。label 文本保留（可访问性 + 分档语义），icon 只作视觉前缀。
+// 控件只显 icon（U11 补充）：label 文本不再可见，改经 title/aria-label 在悬停时以 tooltip 呈现，
+// 同时保住可访问性（radio 的可读名）。icon 取 @cortex-work/ui/icons 的圆形状态族，对齐设计稿：
+// 空心圆=未开始、圆心点=进行中、时钟=等待中、勾圈=已完成、叉圈=已丢弃。
 const STATUS_OPTIONS: Array<{ value: TaskStatus; label: string; icon: ComponentType<IconProps> }> = [
-  { value: "active", label: "活动", icon: Icon.Circle },
+  { value: "active", label: "未开始", icon: Icon.Circle },
   { value: "in-progress", label: "进行中", icon: Icon.CircleDot },
-  { value: "waiting", label: "等待", icon: Icon.Clock },
+  { value: "waiting", label: "等待中", icon: Icon.Clock },
   { value: "done", label: "已完成", icon: Icon.CheckCircle },
-  { value: "dropped", label: "已放弃", icon: Icon.XCircle },
+  { value: "dropped", label: "已丢弃", icon: Icon.XCircle },
 ];
 
 export function TaskStatusField({ task, onToast }: { task: TaskMeta; onToast?: (text: string) => void }) {
@@ -35,6 +36,8 @@ export function TaskStatusField({ task, onToast }: { task: TaskMeta; onToast?: (
             type="button"
             role="radio"
             aria-checked={isCurrent}
+            aria-label={o.label}
+            title={o.label}
             disabled={!allowed}
             className={`pw-task-status-opt${isCurrent ? " is-on" : ""}`}
             onClick={() => {
@@ -46,9 +49,8 @@ export function TaskStatusField({ task, onToast }: { task: TaskMeta; onToast?: (
               updateTask.mutate({ id: task.id, patch: { status: o.value } });
             }}
           >
-            {/* icon 在前、label 在后；不引入空白文本节点，保持 button.textContent 恰为标签文本。 */}
-            <StatusIcon size={13} />
-            <span className="pw-task-status-opt-label">{o.label}</span>
+            {/* 仅显 icon；状态文字经 title/aria-label 悬停呈现（U11 补充）。 */}
+            <StatusIcon size={14} />
           </button>
         );
       })}

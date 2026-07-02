@@ -37,15 +37,20 @@ afterEach(() => {
 });
 
 describe("TaskFieldsPanel（U5）", () => {
-  it("状态控件渲染 5 态、当前高亮，点击切换发 patch", async () => {
+  it("状态控件仅渲染 icon、无可见文字，状态名走 title/tooltip；当前高亮，点击切换发 patch（U11）", async () => {
     const { bridge, calls } = fakeBridge();
     const { container } = renderPanel(bridge, task({ status: "active" }));
-    const opts = container.querySelectorAll(".pw-task-status-opt");
+    const opts = [...container.querySelectorAll<HTMLButtonElement>(".pw-task-status-opt")];
     expect(opts.length).toBe(5);
-    // 每档以 icon（svg）作视觉前缀，label 文本保留（可访问性 + textContent 契约不变）。
-    opts.forEach((o) => expect(o.querySelector("svg")).toBeTruthy());
-    expect(container.querySelector(".pw-task-status-opt.is-on")!.textContent).toBe("活动");
-    fireEvent.click(screen.getByText("已完成"));
+    // 每档只有 icon（svg）、无可见文字；状态名经 title/aria-label（悬停 tooltip）呈现。
+    opts.forEach((o) => {
+      expect(o.querySelector("svg")).toBeTruthy();
+      expect(o.textContent).toBe("");
+      expect(o.getAttribute("title")).toBeTruthy();
+    });
+    // 当前态 active → 高亮档 title 为「未开始」。
+    expect(container.querySelector(".pw-task-status-opt.is-on")!.getAttribute("title")).toBe("未开始");
+    fireEvent.click(screen.getByTitle("已完成"));
     await waitFor(() => expect(calls.update.some((u) => u.patch.status === "done")).toBe(true));
   });
 
@@ -53,8 +58,9 @@ describe("TaskFieldsPanel（U5）", () => {
     const { bridge, calls } = fakeBridge();
     // active 任务：「进行中」（agent-only）应置灰不可点。
     const { container, rerender } = renderPanel(bridge, task({ status: "active" }));
+    // 仅 icon 渲染，故按 title（状态名）定位选项。
     const optByLabel = (label: string) =>
-      [...container.querySelectorAll<HTMLButtonElement>(".pw-task-status-opt")].find((b) => b.textContent === label)!;
+      [...container.querySelectorAll<HTMLButtonElement>(".pw-task-status-opt")].find((b) => b.getAttribute("title") === label)!;
     expect(optByLabel("进行中").disabled).toBe(true);
     // waiting 任务：「已完成」非法（须先取消委派），点击不发 patch。
     rerender(
