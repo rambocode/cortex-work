@@ -9139,8 +9139,8 @@ button.sb-row {
 .pw-task-add-input::placeholder { color: var(--text-4); }
 .pw-task-add-input:focus { outline: none; border-color: var(--accent); }
 
-/* 行内元数据 chips（U6/R16 → U9）：已设置字段常显实色（is-set），未设置字段常显弱灰占位
-   （is-placeholder，不再仅悬停/选中行渲染，对齐 OmniFocus 默认态）。
+/* 行内元数据 chips（U6/R16 → U10）：未选中行只读精简态——仅渲染「已设置」字段的实色 chip（is-set），
+   无灰占位、不可点击编辑（点击经行级 onClick 选中该行）；未设置字段的占位与就地编辑交由选中行的行内 inspector。
    置于标题与右侧动作之间，横向流、可换行。复用 .pw-task-chip（行内 inspector 同款）。 */
 .pw-task-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; min-width: 0; }
 .pw-task-chip.is-placeholder { color: var(--text-4); }
@@ -9211,6 +9211,10 @@ button.sb-row {
 .pw-task-title-input.is-struck,
 .pw-task-row.is-done .pw-task-title-input,
 .pw-task-row.is-dropped .pw-task-title-input { color: var(--text-3); text-decoration: line-through; }
+/* U10 未选中行只读标题：纯文本 span 复用 .pw-task-title-input 的排版，与 input 视觉一致避免选中瞬间跳动；
+   空标题显灰占位色（同 input::placeholder）。整行由 role=button 承接点击选中，标题本身不拦截。 */
+.pw-task-title-static { cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pw-task-title-static.is-empty { color: var(--text-4); }
 
 /* 上下文补行（U5/R15）：父被过滤档滤掉但其子命中时灰显父作层级上下文，不可交互。 */
 .pw-task-row.is-context { opacity: 0.55; pointer-events: none; }

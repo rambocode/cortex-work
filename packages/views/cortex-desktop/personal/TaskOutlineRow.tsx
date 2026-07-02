@@ -95,27 +95,44 @@ export function TaskOutlineRow({
   // 标题左缘偏移：inspector / 备注预览据此与标题文字左对齐（U9）。
   const lead = titleLeadOffset(depth);
 
-  // 行内 chip（R16）：已设置 = is-set 高亮；未设置占位 = is-placeholder 灰显。
-  // 点击一律 onOpen 选中该行 → 展开行内 inspector 就地编辑该字段（选中态由 inspector 承接编辑）。
-  const chip = (key: string, icon: React.ReactNode, label: string, isSet: boolean, danger?: boolean) => (
-    <button
-      key={key}
-      type="button"
-      className={`pw-task-chip${isSet ? " is-set" : " is-placeholder"}${danger ? " is-danger" : ""}`}
-      onClick={onOpen}
-      title={label}
-    >
+  // 只读 chip（U10 未选中行）：纯展示已设置字段的实色 chip，无交互；点击由行级 onClick 选中该行。
+  const roChip = (key: string, icon: React.ReactNode, label: string, danger?: boolean) => (
+    <span key={key} className={`pw-task-chip is-set${danger ? " is-danger" : ""}`} title={label}>
       {icon}
       <span>{label}</span>
-    </button>
+    </span>
   );
+
+  // U10：未选中行点击行任意处 = 选中该行；各交互控件（折叠/勾选/动作按钮）用此包裹 onClick，
+  // stopPropagation 保留自身行为、不冒泡触发选中（选中行无行级 onClick，包裹无副作用）。
+  const stop = (handler: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    handler();
+  };
 
   return (
     <div
       className={`pw-task-row${isSelected ? " is-selected" : ""}${done ? " is-done" : ""}${dropped ? " is-dropped" : ""}`}
       data-task-id={task.id}
     >
-      <div className="pw-task-row-main">
+      {/* U10 未选中 = 只读精简态：整行可点击选中（含标题/空白/只读 chip）；选中行不挂行级 onClick，
+          交由内部 input / inspector 编辑。role/tabIndex/键盘让整行在未选中态可聚焦并回车/空格选中。 */}
+      <div
+        className="pw-task-row-main"
+        {...(isSelected
+          ? {}
+          : {
+              role: "button",
+              tabIndex: 0,
+              onClick: onOpen,
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpen();
+                }
+              },
+            })}
+      >
         {/* 子任务缩进：按 depth 留白（U3；U6 视觉细调）。*/}
         {depth > 0 && <span className="pw-task-indent" style={{ width: depth * INDENT_STEP }} aria-hidden />}
         {/* 折叠箭头：有子任务才显，否则占位对齐。*/}
@@ -124,7 +141,7 @@ export function TaskOutlineRow({
             className={`pw-task-twisty${collapsed ? "" : " is-open"}`}
             title={collapsed ? "展开子任务" : "折叠子任务"}
             aria-expanded={!collapsed}
-            onClick={onToggleCollapse}
+            onClick={stop(onToggleCollapse)}
           >
             <Icon.Chevron size={11} />
           </button>
@@ -136,37 +153,38 @@ export function TaskOutlineRow({
           className="pw-task-check"
           checked={done}
           onChange={onToggleDone}
+          onClick={(e) => e.stopPropagation()}
           title={done ? "取消完成" : "完成"}
         />
-        {/* 行内可编辑标题（问题2）：空标题显「未命名的动作」占位；聚焦即选中该行（展开 inspector）。*/}
-        <TaskTitleInput taskId={task.id} value={task.title} struck={done || dropped} onFocus={onOpen} onSave={onRename} />
-        {/* 元数据 chips（R16 → U9）：未选中行常显已设置字段（is-set 实色），未设置字段常显灰占位
-            （is-placeholder，弱灰视觉），对齐 OmniFocus「自定义流体」默认态。占位不再仅悬停出现。
-            选中行的字段编辑交由行内 inspector（下方），此处不重复渲染，避免双份 chip。 */}
+        {/* U10 标题：选中行 = 可编辑 input（草稿 hook，聚焦即选中）；未选中行 = 纯文本，
+            点击经行级 onClick 选中该行而不进入编辑，视觉与 input 保持一致避免选中瞬间跳动。 */}
+        {isSelected ? (
+          <TaskTitleInput taskId={task.id} value={task.title} struck={done || dropped} onFocus={onOpen} onSave={onRename} />
+        ) : (
+          <span
+            className={`pw-task-title-input pw-task-title-static${done || dropped ? " is-struck" : ""}${task.title ? "" : " is-empty"}`}
+          >
+            {task.title || "未命名的动作"}
+          </span>
+        )}
+        {/* U10 元数据 chips：仅未选中行渲染，且只显示「已设置」字段的实色 chip（无灰占位、不可点击编辑，
+            点击经行级 onClick 选中该行）。选中行的字段编辑交由下方行内 inspector（含占位 + 就地编辑）。 */}
         {!isSelected && (
           <div className="pw-task-chips">
-            {!groupedByProject && projectName && chip("project", <Icon.Task size={11} />, projectName, true)}
-            {task.tags.length > 0 && chip("tags", <Icon.Tags size={11} />, task.tags.join("、"), true)}
-            {task.estimatedDuration != null && chip("duration", <Icon.Clock size={11} />, fmtDur(task.estimatedDuration), true)}
-            {task.deferDate && chip("defer", <Icon.Fwd size={11} />, `推迟 ${task.deferDate}`, true)}
-            {task.dueDate && chip("due", <Icon.Clock size={11} />, `截止 ${task.dueDate}`, true, overdue)}
-            {task.repeat != null && chip("repeat", <Icon.Retry size={11} />, "重复", true)}
-            {task.reminder?.at != null && chip("reminder", <Icon.Bell size={11} />, "已设提醒", true)}
+            {!groupedByProject && projectName && roChip("project", <Icon.Task size={11} />, projectName)}
+            {task.tags.length > 0 && roChip("tags", <Icon.Tags size={11} />, task.tags.join("、"))}
+            {task.estimatedDuration != null && roChip("duration", <Icon.Clock size={11} />, fmtDur(task.estimatedDuration))}
+            {task.deferDate && roChip("defer", <Icon.Fwd size={11} />, `推迟 ${task.deferDate}`)}
+            {task.dueDate && roChip("due", <Icon.Clock size={11} />, `截止 ${task.dueDate}`, overdue)}
+            {task.repeat != null && roChip("repeat", <Icon.Retry size={11} />, "重复")}
+            {task.reminder?.at != null && roChip("reminder", <Icon.Bell size={11} />, "已设提醒")}
             {delegated && <span className="pw-task-chip is-set is-wait">委派中</span>}
             {task.status === "in-progress" && <span className="pw-task-chip is-set is-run">进行中</span>}
-            {/* 未设置字段的灰占位（U9）：默认常显，点击即进入对应字段编辑（选中行展开 inspector）。*/}
-            {!groupedByProject && !projectName && chip("project-ph", <Icon.Task size={11} />, "项目", false)}
-            {task.tags.length === 0 && chip("tags-ph", <Icon.Tags size={11} />, "标签", false)}
-            {task.estimatedDuration == null && chip("duration-ph", <Icon.Clock size={11} />, "持续时间", false)}
-            {!task.deferDate && chip("defer-ph", <Icon.Fwd size={11} />, "推迟至", false)}
-            {!task.dueDate && chip("due-ph", <Icon.Clock size={11} />, "截止", false)}
-            {task.repeat == null && chip("repeat-ph", <Icon.Retry size={11} />, "重复", false)}
-            {task.reminder?.at == null && chip("reminder-ph", <Icon.Bell size={11} />, "通知", false)}
           </div>
         )}
         {/* 完成 rollup 建议（R5/KTD4）：全部子任务已完成时浮现，点击确认才置父 done（不自动）。*/}
         {suggestComplete && !done && (
-          <button className="pw-task-badge is-suggest" title="全部子任务已完成，点击完成此任务" onClick={onCompleteSuggested}>
+          <button className="pw-task-badge is-suggest" title="全部子任务已完成，点击完成此任务" onClick={stop(onCompleteSuggested)}>
             ✓ 完成此任务
           </button>
         )}
@@ -178,12 +196,12 @@ export function TaskOutlineRow({
           </span>
         )}
         {/* 添加子任务（U4）。*/}
-        <button className="pw-icon-btn" title="添加子任务" onClick={onAddSubtask}>
+        <button className="pw-icon-btn" title="添加子任务" onClick={stop(onAddSubtask)}>
           <Icon.Plus size={13} />
         </button>
         {/* 委派仅对 active 任务开放（waiting 已在跑，避免二次委派）。*/}
         {task.status === "active" && (
-          <button className="pw-icon-btn" title="交给 agent 执行" onClick={onDelegate}>
+          <button className="pw-icon-btn" title="交给 agent 执行" onClick={stop(onDelegate)}>
             <Icon.Bot size={13} />
           </button>
         )}
@@ -191,11 +209,11 @@ export function TaskOutlineRow({
         <button
           className={`pw-icon-btn pw-task-flag${task.flagged ? " is-on" : ""}`}
           title={task.flagged ? "取消标记" : "标记"}
-          onClick={onToggleFlag}
+          onClick={stop(onToggleFlag)}
         >
           ⚑
         </button>
-        <button className="pw-icon-btn" title="删除" onClick={onDelete}>
+        <button className="pw-icon-btn" title="删除" onClick={stop(onDelete)}>
           <Icon.Trash size={13} />
         </button>
       </div>
