@@ -19,6 +19,7 @@ import { buildTaskTree, taskDescendantIds, areAllChildrenDone, type TaskTreeNode
 import { useDelegateTask } from "@cortex-work/core/personal/taskDelegate";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
 import { TaskInlineInspector } from "./TaskInlineInspector";
+import { useTaskDraftField } from "./useTaskDraftField";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
 
@@ -428,7 +429,8 @@ function TaskListRow({
   );
 }
 
-// 行内可编辑标题：受控草稿，切换任务（taskId 变）时重置；失焦 / 回车保存。聚焦即选中该行。
+// 行内可编辑标题：受控草稿走共享守卫 hook（U1/KTD6）——切任务重置、未聚焦时跟随外部值
+// （跨列/跨窗口热更）、聚焦中不被冲掉。失焦 / 回车保存（trim 归一）。聚焦即选中该行。
 function TaskTitleInput({
   taskId,
   value,
@@ -442,26 +444,27 @@ function TaskTitleInput({
   onFocus: () => void;
   onSave: (title: string) => void;
 }) {
-  const [draft, setDraft] = useState(value);
-  // 切到另一条任务时同步草稿（同 id 内不被后台 invalidate 冲掉正在输入的值）。
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setDraft(value), [taskId]);
-  const save = () => {
-    const t = draft.trim();
-    if (t !== value) onSave(t);
-  };
+  const draft = useTaskDraftField({
+    taskId,
+    external: value,
+    onCommit: onSave,
+    normalize: (v) => v.trim(),
+  });
   return (
     <input
       className={`pw-task-title-input${done ? " is-done" : ""}`}
-      value={draft}
+      value={draft.value}
       placeholder="未命名的动作"
       autoFocus={!value}
-      onFocus={onFocus}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={save}
+      onFocus={() => {
+        draft.onFocus();
+        onFocus();
+      }}
+      onChange={(e) => draft.setValue(e.target.value)}
+      onBlur={draft.onBlur}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
-          save();
+          draft.commit();
           (e.target as HTMLInputElement).blur();
         }
       }}

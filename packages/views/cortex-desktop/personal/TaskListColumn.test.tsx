@@ -1,9 +1,10 @@
-import { cleanup, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { CoreProvider } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 import type { TaskInput, TaskMeta, TaskProject } from "@cortex-work/core/desktop/types";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
+import { useTasksChangeSubscription } from "@cortex-work/core/personal/tasks";
 import { TaskListColumn } from "./TaskListColumn";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
 
@@ -67,6 +68,58 @@ function renderColumn(bridge: DesktopBridge, selection: WorkbenchSelection, sele
 // 造一条活动任务的便捷工厂。
 function task(id: string, title: string, extra: Partial<TaskMeta> = {}): TaskMeta {
   return { id, title, status: "active", tags: [], source: "manual", createdAt: 0, updatedAt: 0, ...extra };
+}
+
+// 「活」任务桥：捕获 onTasksChanged 监听器 + 记录 tasksList 调用次数，用于模拟另一列/另一窗口
+// 落库后经 main 广播的 tasks:changed（emitExternal 改 store 后触发监听 → React Query invalidate 重拉）。
+function liveTasksBridge(initial: TaskMeta[] = [], initialProjects: TaskProject[] = []) {
+  const store = new Map<string, TaskMeta>(initial.map((t) => [t.id, t]));
+  let listener: (() => void) | null = null;
+  let listCalls = 0;
+  const bridge = {
+    tasksList: async (pid?: string) => {
+      listCalls++;
+      const all = [...store.values()];
+      return pid === undefined ? all : all.filter((t) => t.projectId === pid);
+    },
+    tasksListProjects: async () => initialProjects,
+    tasksUpdate: async (id: string, patch: Record<string, unknown>) => {
+      const cur = store.get(id);
+      if (!cur) return null;
+      const next = { ...cur, ...patch, updatedAt: Date.now() } as TaskMeta;
+      store.set(id, next);
+      return next;
+    },
+    onTasksChanged: (cb: () => void) => {
+      listener = cb;
+      return () => {
+        listener = null;
+      };
+    },
+  } as unknown as DesktopBridge;
+  // 模拟外部（另一列/窗口/后台委派回写）改动 + main 广播。
+  const emitExternal = (id: string, patch: Partial<TaskMeta>) => {
+    const cur = store.get(id);
+    if (cur) store.set(id, { ...cur, ...patch, updatedAt: Date.now() });
+    listener?.();
+  };
+  return { bridge, store, emitExternal, listCount: () => listCalls };
+}
+
+// 工作台根挂 useTasksChangeSubscription（订阅 tasks:changed → invalidate）；中列本身不挂，
+// 故测试里补一个订阅探针，复刻真实窗口根的挂载点。
+function Sub() {
+  useTasksChangeSubscription();
+  return null;
+}
+
+function renderLiveColumn(bridge: DesktopBridge, selection: WorkbenchSelection, selectedTaskId?: string | null) {
+  return render(
+    <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+      <Sub />
+      <TaskListColumn selection={selection} selectedTaskId={selectedTaskId} onOpenTask={() => {}} onToast={() => {}} />
+    </CoreProvider>,
+  );
 }
 
 // 只 fake Date（冻结「今天」为 2026-07-01），保留真实 setTimeout 让 RTL findBy/waitFor 正常工作。
@@ -364,6 +417,56 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     const row = screen.getByDisplayValue("未选").closest(".pw-task-row")!;
     expect(row.classList.contains("is-selected")).toBe(false);
     expect(row.querySelector(".pw-task-inspector")).toBeNull();
+  });
+
+  // ── U1 跨列编辑同步：中列标题/备注草稿守卫回归 ──────────────────────────────
+  it("外部改标题（模拟另一列 blur 落库 + tasks:changed）→ 中列同任务标题 input 跟随更新", async () => {
+    const { bridge, emitExternal } = liveTasksBridge(
+      [task("a", "原名", { projectId: "p1" })],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderLiveColumn(bridge, { kind: "project", id: "p1" });
+
+    expect(await screen.findByDisplayValue("原名")).toBeTruthy();
+    // 另一列（右栏/另一窗口）改了标题并落库 → main 广播 tasks:changed。
+    act(() => emitExternal("a", { title: "改后" }));
+    // 修复前：中列 input 因草稿仅按 task.id 冻结而停留「原名」；修复后跟随外部值。
+    expect(await screen.findByDisplayValue("改后")).toBeTruthy();
+    expect(screen.queryByDisplayValue("原名")).toBeNull();
+  });
+
+  it("中列标题聚焦输入中 → 外部 tasks:changed 到达，草稿不被覆盖（AE2）", async () => {
+    const { bridge, emitExternal, listCount } = liveTasksBridge(
+      [task("a", "原名", { projectId: "p1" })],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderLiveColumn(bridge, { kind: "project", id: "p1" });
+
+    const input = (await screen.findByDisplayValue("原名")) as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "编辑中未保存" } });
+    const before = listCount();
+    act(() => emitExternal("a", { title: "外部改" }));
+    // 等 refetch 真正落地（tasksList 再次被调用），确保断言发生在外部更新已到达之后。
+    await waitFor(() => expect(listCount()).toBeGreaterThan(before));
+    // 聚焦中 → 草稿保护：仍是用户正在输入的文本，未被外部「外部改」覆盖。
+    expect(input.value).toBe("编辑中未保存");
+  });
+
+  it("外部改备注 → 选中行内联检查器 note 文本跟随（TaskInlineInspector noteDraft）", async () => {
+    const { bridge, emitExternal } = liveTasksBridge(
+      [task("a", "任务", { projectId: "p1" })],
+      [{ id: "p1", name: "项目一" }],
+    );
+    renderLiveColumn(bridge, { kind: "project", id: "p1" }, "a");
+
+    await screen.findByDisplayValue("任务");
+    // 展开就地备注编辑器。
+    fireEvent.click(screen.getByText("添加备注"));
+    const ta = (await screen.findByPlaceholderText("备注…")) as HTMLTextAreaElement;
+    fireEvent.blur(ta); // 确保未聚焦（autoFocus 会置聚焦态，聚焦中会正当地忽略外部更新）
+    act(() => emitExternal("a", { notes: "右栏写的备注" }));
+    await waitFor(() => expect(ta.value).toBe("右栏写的备注"));
   });
 
   it("Today 视图下父不在 scope → 子任务扁平（无缩进）", async () => {

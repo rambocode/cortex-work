@@ -10,6 +10,7 @@ import { onlyProjects } from "@cortex-work/core/personal/taskProjectTree";
 import { TaskDurationField } from "./TaskDurationField";
 import { TaskReminderField } from "./TaskReminderField";
 import { TaskRepeatField } from "./TaskRepeatField";
+import { useTaskDraftField } from "./useTaskDraftField";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 
 // 当前就地展开编辑的字段（一次一个；再次点同一 chip 收起）。
@@ -32,7 +33,13 @@ export function TaskInlineInspector({
 
   const [field, setField] = useState<Field>(null);
   const [tagDraft, setTagDraft] = useState("");
-  const [noteDraft, setNoteDraft] = useState(task.notes ?? "");
+  // 备注走共享草稿守卫（U1/KTD6）：原先无重置 effect，切任务/外部改备注都不刷新——
+  // 换 hook 后切任务重置、未聚焦时跟随外部值、聚焦中不被冲掉、blur 提交。
+  const noteDraft = useTaskDraftField({
+    taskId: task.id,
+    external: task.notes ?? "",
+    onCommit: (n) => updateTask.mutate({ id: task.id, patch: { notes: n } }),
+  });
 
   const toggle = (f: Exclude<Field, null>) => setField((cur) => (cur === f ? null : f));
   const overdue = !!task.dueDate && task.dueDate < today;
@@ -54,9 +61,6 @@ export function TaskInlineInspector({
       return;
     }
     updateTask.mutate({ id: task.id, patch: { status: to } });
-  };
-  const saveNotes = () => {
-    if (noteDraft !== (task.notes ?? "")) updateTask.mutate({ id: task.id, patch: { notes: noteDraft } });
   };
   const projectName = task.projectId ? projects.find((p) => p.id === task.projectId)?.name : undefined;
 
@@ -152,10 +156,11 @@ export function TaskInlineInspector({
         <textarea
           className="pw-task-note-input"
           autoFocus
-          value={noteDraft}
+          value={noteDraft.value}
           placeholder="备注…"
-          onChange={(e) => setNoteDraft(e.target.value)}
-          onBlur={saveNotes}
+          onFocus={noteDraft.onFocus}
+          onChange={(e) => noteDraft.setValue(e.target.value)}
+          onBlur={noteDraft.onBlur}
         />
       )}
     </div>
