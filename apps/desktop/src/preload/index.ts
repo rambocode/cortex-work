@@ -38,6 +38,10 @@ import type {
   TaskProject,
   TaskProjectKind,
   TaskProjectMode,
+  TaskProjectStatus,
+  ProjectStage,
+  StageTemplate,
+  Member,
   NoteStatus,
   PersistedState,
   PiOpenRequest,
@@ -450,15 +454,47 @@ const personal = {
     patch: Partial<Omit<TaskMeta, "id" | "createdAt">>,
   ): Promise<TaskMeta | null> => ipcRenderer.invoke("tasks:update", id, patch),
   tasksDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:delete", id),
-  tasksAddProject: (name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject> =>
-    ipcRenderer.invoke("tasks:addProject", name, opts),
+  tasksAddProject: (
+    name: string,
+    opts?: { parentId?: string; kind?: TaskProjectKind; stages?: ProjectStage[]; note?: string; status?: TaskProjectStatus },
+  ): Promise<TaskProject> => ipcRenderer.invoke("tasks:addProject", name, opts),
   tasksUpdateProject: (
     id: string,
-    patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode },
+    patch: {
+      name?: string;
+      parentId?: string | null;
+      mode?: TaskProjectMode;
+      note?: string;
+      status?: TaskProjectStatus;
+      stages?: ProjectStage[];
+    },
   ): Promise<TaskProject | null> => ipcRenderer.invoke("tasks:updateProject", id, patch),
   tasksDeleteProject: (projectId: string): Promise<void> => ipcRenderer.invoke("tasks:deleteProject", projectId),
   tasksArchive: (id: string, summary: string): Promise<boolean> => ipcRenderer.invoke("tasks:archive", id, summary),
   tasksListArchived: (): Promise<ArchivedTask[]> => ipcRenderer.invoke("tasks:listArchived"),
+  // 团队成员 / 岗位标签 / 阶段模板（项目管理扩展）。形状与 DesktopBridge 的可选方法逐字对齐。
+  membersList: (): Promise<Member[]> => ipcRenderer.invoke("tasks:listMembers"),
+  membersAdd: (input: { name: string; role?: string }): Promise<Member> =>
+    ipcRenderer.invoke("tasks:addMember", input),
+  membersUpdate: (id: string, patch: { name?: string; role?: string }): Promise<Member | null> =>
+    ipcRenderer.invoke("tasks:updateMember", id, patch),
+  membersDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:deleteMember", id),
+  jobTypesList: (): Promise<string[] | undefined> => ipcRenderer.invoke("tasks:listJobTypes"),
+  jobTypesSet: (next: string[]): Promise<string[]> => ipcRenderer.invoke("tasks:setJobTypes", next),
+  stageTemplatesList: (): Promise<StageTemplate[]> => ipcRenderer.invoke("tasks:listStageTemplates"),
+  stageTemplatesAdd: (input: { name: string; description?: string; stages: string[] }): Promise<StageTemplate> =>
+    ipcRenderer.invoke("tasks:addStageTemplate", input),
+  stageTemplatesUpdate: (
+    id: string,
+    patch: { name?: string; description?: string; stages?: string[] },
+  ): Promise<StageTemplate | null> => ipcRenderer.invoke("tasks:updateStageTemplate", id, patch),
+  stageTemplatesDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:deleteStageTemplate", id),
+  // 资源变更轻量订阅：main 只发信号不塞快照，renderer invalidate 后重拉。
+  onTaskResourcesChanged: (cb: () => void): (() => void) => {
+    const listener = () => cb();
+    ipcRenderer.on("tasks:resources-changed", listener);
+    return () => ipcRenderer.removeListener("tasks:resources-changed", listener);
+  },
   // 任务附件（U13）：落盘（优先 srcPath 直拷，避免 50MB ArrayBuffer 过 IPC）返回引用 / 按 path 删除。
   taskDocSave: (
     taskId: string,

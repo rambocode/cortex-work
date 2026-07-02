@@ -6,7 +6,7 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { ArchivedTask, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode, TaskStatus } from "../desktop/types";
+import type { ArchivedTask, Member, ProjectStage, StageTemplate, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode, TaskProjectStatus, TaskStatus } from "../desktop/types";
 import { buildTaskTree, type TaskTreeNode } from "./taskTree";
 import { useDesktopBridge } from "../provider";
 
@@ -262,30 +262,43 @@ export function useDeleteTask() {
 }
 
 // 新建 task-project（U3 加层级）：入参兼容 string（旧字符串调用点）与对象 {name,parentId?,kind?}。
-export type AddTaskProjectVars = string | { name: string; parentId?: string; kind?: TaskProjectKind };
+// stages 承接「创建项目时选模板」的实例化结果（instantiateStages 产出），随 addProject 一次落库。
+export type AddTaskProjectVars =
+  | string
+  | { name: string; parentId?: string; kind?: TaskProjectKind; stages?: ProjectStage[]; note?: string; status?: TaskProjectStatus };
 export function useAddTaskProject() {
   const bridge = useDesktopBridge();
   const qc = useQueryClient();
   return useMutation<TaskProject, Error, AddTaskProjectVars>({
     mutationFn: (v) => {
       const input = typeof v === "string" ? { name: v } : v;
-      return bridge!.tasksAddProject!(input.name, { parentId: input.parentId, kind: input.kind });
+      return bridge!.tasksAddProject!(input.name, {
+        parentId: input.parentId,
+        kind: input.kind,
+        stages: input.stages,
+        note: input.note,
+        status: input.status,
+      });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: tasksKeys.projects }),
   });
 }
 
-// 更新 task-project（U3/U8）：rename + reparent + 切换 mode（并行/顺序，KTD5）。
-// reparent 影响任务归属 → 同时失效 tasks + projects 两个 key；mode 改变可用性派生同理需刷新 tasks。
-// mode 随 patch 经既有 tasks:updateProject IPC 透传（无新 IPC），store.updateProject 落库。
+// 更新 task-project（U3/U8）：rename + reparent + 切换 mode（并行/顺序，KTD5）+
+// note/status/stages（项目设置面板与阶段管理）。替换 stages 时 store 同锁清孤儿 stageId、
+// 可能改任务，故 tasks + projects 两个 key 都失效。
+export type UpdateTaskProjectPatch = {
+  name?: string;
+  parentId?: string | null;
+  mode?: TaskProjectMode;
+  note?: string;
+  status?: TaskProjectStatus;
+  stages?: ProjectStage[];
+};
 export function useUpdateTaskProject() {
   const bridge = useDesktopBridge();
   const qc = useQueryClient();
-  return useMutation<
-    TaskProject | null,
-    Error,
-    { id: string; patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode } }
-  >({
+  return useMutation<TaskProject | null, Error, { id: string; patch: UpdateTaskProjectPatch }>({
     mutationFn: (v) => bridge!.tasksUpdateProject!(v.id, v.patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: tasksKeys.all });
@@ -341,6 +354,134 @@ export function useTasksChangeSubscription(): void {
     return bridge.onTasksChanged(() => {
       qc.invalidateQueries({ queryKey: tasksKeys.all });
       qc.invalidateQueries({ queryKey: tasksKeys.projects });
+    });
+  }, [bridge, qc]);
+}
+
+// ── 团队成员 / 岗位标签 / 阶段模板 hooks（项目管理扩展，参照 IFocus）────────────────
+// 与 tasks 同一约定：mutation 成功只 invalidate；跨窗口同步靠 useTaskResourcesSubscription。
+
+export const membersKey = ["personal", "task-members"] as const;
+export const jobTypesKey = ["personal", "task-job-types"] as const;
+export const stageTemplatesKey = ["personal", "task-stage-templates"] as const;
+
+export function useMembers() {
+  const bridge = useDesktopBridge();
+  return useQuery<Member[]>({
+    queryKey: membersKey,
+    enabled: !!bridge?.membersList,
+    queryFn: () => bridge!.membersList!(),
+    staleTime: Infinity,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useAddMember() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<Member, Error, { name: string; role?: string }>({
+    mutationFn: (input) => bridge!.membersAdd!(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: membersKey }),
+  });
+}
+
+export function useUpdateMember() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<Member | null, Error, { id: string; patch: { name?: string; role?: string } }>({
+    mutationFn: (v) => bridge!.membersUpdate!(v.id, v.patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: membersKey }),
+  });
+}
+
+// 删成员会级联清任务 memberIds（store 同锁），故 tasks key 一并失效。
+export function useDeleteMember() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => bridge!.membersDelete!(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: membersKey });
+      qc.invalidateQueries({ queryKey: tasksKeys.all });
+    },
+  });
+}
+
+// 岗位标签库：undefined = 用户从未编辑（消费端经 resolveJobTypes 取默认表）。
+export function useJobTypes() {
+  const bridge = useDesktopBridge();
+  return useQuery<string[] | undefined>({
+    queryKey: jobTypesKey,
+    enabled: !!bridge?.jobTypesList,
+    queryFn: () => bridge!.jobTypesList!(),
+    staleTime: Infinity,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useSetJobTypes() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<string[], Error, string[]>({
+    mutationFn: (next) => bridge!.jobTypesSet!(next),
+    onSuccess: () => qc.invalidateQueries({ queryKey: jobTypesKey }),
+  });
+}
+
+// 自定义阶段模板（内置模板由消费端 mergeTemplates 合并，不走查询）。
+export function useStageTemplates() {
+  const bridge = useDesktopBridge();
+  return useQuery<StageTemplate[]>({
+    queryKey: stageTemplatesKey,
+    enabled: !!bridge?.stageTemplatesList,
+    queryFn: () => bridge!.stageTemplatesList!(),
+    staleTime: Infinity,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useAddStageTemplate() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<StageTemplate, Error, { name: string; description?: string; stages: string[] }>({
+    mutationFn: (input) => bridge!.stageTemplatesAdd!(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: stageTemplatesKey }),
+  });
+}
+
+export function useUpdateStageTemplate() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<
+    StageTemplate | null,
+    Error,
+    { id: string; patch: { name?: string; description?: string; stages?: string[] } }
+  >({
+    mutationFn: (v) => bridge!.stageTemplatesUpdate!(v.id, v.patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: stageTemplatesKey }),
+  });
+}
+
+export function useDeleteStageTemplate() {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => bridge!.stageTemplatesDelete!(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: stageTemplatesKey }),
+  });
+}
+
+// tasks:resources-changed 轻量信号 → 三个资源 key 全部 invalidate（跨窗口同步）。
+// 与 useTasksChangeSubscription 并列挂在工作台/工作区根部。
+export function useTaskResourcesSubscription(): void {
+  const bridge = useDesktopBridge();
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!bridge?.onTaskResourcesChanged) return;
+    return bridge.onTaskResourcesChanged(() => {
+      qc.invalidateQueries({ queryKey: membersKey });
+      qc.invalidateQueries({ queryKey: jobTypesKey });
+      qc.invalidateQueries({ queryKey: stageTemplatesKey });
     });
   }, [bridge, qc]);
 }

@@ -59,6 +59,24 @@ export type TaskProjectKind = "folder" | "project";
 // 可选字段，读时默认 parallel（store normalizeData 补默认，version 保持 1、零迁移）。
 export type TaskProjectMode = "parallel" | "sequential";
 
+// 项目阶段状态：not-started=未开始（灰）/ active=进行中（蓝）/ done=已完成（绿）。
+export type ProjectStageStatus = "not-started" | "active" | "done";
+
+// 项目阶段实例（参照 IFocus）：从阶段模板复制实例化而来、与模板解耦（改/删模板不影响已建项目）。
+// startDate/dueDate 与任务日期同语义（本地日历日 YYYY-MM-DD）；order 决定 tab 顺序与 timeline 行序。
+export interface ProjectStage {
+  id: string;
+  name: string;
+  status: ProjectStageStatus;
+  startDate?: string; // YYYY-MM-DD 本地日历日
+  dueDate?: string; // YYYY-MM-DD 本地日历日
+  order: number;
+}
+
+// 项目状态（项目设置面板）：active=进行中 / on-hold=暂停 / done=已完成 / dropped=已丢弃。
+// 可选字段，缺省视为 active（读时不 backfill，消费端 ?? "active"）。
+export type TaskProjectStatus = "active" | "on-hold" | "done" | "dropped";
+
 // task-project 是 tasks.json 内自持的一等分组实体，独立于工作区代码工程（v1 无路径）。
 // 层级（U1）：parentId 指向父节点（folder 或 project 均可为父），缺省 = 顶层；
 // kind 缺省视为 "project"（读时由 store normalizeData 补默认，见 U2）。
@@ -68,6 +86,10 @@ export interface TaskProject {
   parentId?: string; // 父 TaskProject.id；缺省/悬空 = 顶层
   kind?: TaskProjectKind; // 缺省 = project（folder 需显式标注）
   mode?: TaskProjectMode; // 缺省 = parallel（U8；仅对可容纳任务的 project 有意义，folder 忽略）
+  // ── 项目管理扩展（参照 IFocus，全部可选、读时零迁移）──
+  note?: string; // 描述/备注（项目设置面板编辑；头部显示摘要）
+  status?: TaskProjectStatus; // 项目状态（缺省 active）
+  stages?: ProjectStage[]; // 项目阶段实例（缺省 = 无阶段项目）
 }
 
 // 一条任务。deferDate/dueDate 以本地日历日 YYYY-MM-DD 存储与比较。
@@ -97,6 +119,9 @@ export interface TaskMeta {
   reminder?: TaskReminder; // 定时提醒（U11；到点由 main 调度器投递原生通知，门控在「内部原生通知」opt-in）
   repeat?: TaskRepeat; // 重复（U12；完成即滚动同一任务顺延日期回 active）
   attachments?: TaskAttachment[]; // 附件引用（U13；复用文档附件闸门落盘，仅文档类型。旧档无此字段读为 undefined）
+  // ── 项目管理扩展（参照 IFocus，全部可选、读时零迁移）──
+  stageId?: string; // 所属项目阶段 ProjectStage.id；缺省/悬空 = 未归阶段（阶段 tab「全部」仍可见）
+  memberIds?: string[]; // 分配的团队成员 Member.id 列表；缺省 = 未分配
 }
 
 // 新建入参（id/时间戳由 store 生成）。
@@ -117,6 +142,24 @@ export interface ArchivedTask {
   archivedAt: number;
 }
 
+// ── 阶段模板（参照 IFocus）：仅自定义模板落盘；内置模板是 core 常量（builtin=true、
+// id 前缀 tpl-builtin-），渲染时合并展示。创建项目时按模板**复制实例化**为项目 stages
+// （见 core/personal/stageTemplates.instantiateStages），此后与模板解耦。──
+export interface StageTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  stages: string[]; // 阶段名列表（有序）
+  builtin?: boolean; // 仅内置常量为 true（不落盘）；UI 据此加锁、禁编辑/删除
+}
+
+// ── 团队成员（资源管理）：全局成员库。头像底色由 name hash 派生（core/personal/members），不落盘。──
+export interface Member {
+  id: string;
+  name: string;
+  role?: string; // 岗位标签（引用 jobTypes 之一或自由文本）
+}
+
 // tasks.json 全量形状（main-owned；version 独立于 personal-workspace.json）。
 export interface TasksFileData {
   version: number;
@@ -124,4 +167,8 @@ export interface TasksFileData {
   tasks: TaskMeta[];
   projects: TaskProject[];
   archived: ArchivedTask[];
+  // ── 项目管理扩展（全部可选、version 保持 1、读时零迁移；isValidTasksFile 不校验新字段）──
+  members?: Member[]; // 全局团队成员库
+  jobTypes?: string[]; // 岗位标签库；undefined = 用 DEFAULT_JOB_TYPES（刻意不 backfill 落盘，默认表随 App 升级演进）
+  stageTemplates?: StageTemplate[]; // 自定义阶段模板（内置模板为 core 常量、不落盘）
 }

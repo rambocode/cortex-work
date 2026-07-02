@@ -10,7 +10,7 @@ import { tasksJsonPath, taskDocsRoot, taskDocsDir } from "../paths";
 import { TasksStore } from "./tasks-store";
 import { saveTaskDoc, deleteTaskDoc } from "./task-doc";
 import { TasksReminderScheduler } from "../tasks-reminder-scheduler";
-import type { ArchivedTask, PersistedState, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode } from "./types";
+import type { ArchivedTask, Member, PersistedState, ProjectStage, StageTemplate, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode, TaskProjectStatus } from "./types";
 import { createLogger } from "../log";
 
 const log = createLogger("tasks-reminder");
@@ -96,6 +96,14 @@ async function emitChanged(): Promise<void> {
   tasksReminderScheduler.sync(list);
 }
 
+// 资源（成员/岗位/模板）变更轻量广播：不塞快照，renderer 收到只 invalidate 重拉——
+// 三类资源低频且体量小，与 tasks:changed 的全量快照通道分流，跨窗口（工作台/主窗）同步一致。
+function broadcastResourcesChanged(): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send("tasks:resources-changed");
+  }
+}
+
 export function registerTasksHandlers(): void {
   ipcMain.handle("tasks:list", (_e, projectId?: string): Promise<TaskMeta[]> => tasksStore.list(projectId));
   ipcMain.handle("tasks:listProjects", (): Promise<TaskProject[]> => tasksStore.listProjects());
@@ -123,17 +131,33 @@ export function registerTasksHandlers(): void {
 
   ipcMain.handle(
     "tasks:addProject",
-    async (_e, name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject> => {
+    async (
+      _e,
+      name: string,
+      opts?: { parentId?: string; kind?: TaskProjectKind; stages?: ProjectStage[]; note?: string; status?: TaskProjectStatus },
+    ): Promise<TaskProject> => {
       const p = await tasksStore.addProject(name, opts);
       await emitChanged();
       return p;
     },
   );
 
-  // 更新 task-project：rename + reparent（防环在 store，成环 reject → renderer toast）。返回 null=不存在。
+  // 更新 task-project：rename + reparent（防环在 store，成环 reject → renderer toast）+
+  // note/status/stages（项目设置面板与阶段管理，替换 stages 时 store 同锁清孤儿 stageId）。返回 null=不存在。
   ipcMain.handle(
     "tasks:updateProject",
-    async (_e, id: string, patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode }): Promise<TaskProject | null> => {
+    async (
+      _e,
+      id: string,
+      patch: {
+        name?: string;
+        parentId?: string | null;
+        mode?: TaskProjectMode;
+        note?: string;
+        status?: TaskProjectStatus;
+        stages?: ProjectStage[];
+      },
+    ): Promise<TaskProject | null> => {
       const p = await tasksStore.updateProject(id, patch);
       if (p) await emitChanged();
       return p;
@@ -153,6 +177,58 @@ export function registerTasksHandlers(): void {
     return ok;
   });
   ipcMain.handle("tasks:listArchived", (): Promise<ArchivedTask[]> => tasksStore.listArchived());
+
+  // ── 团队成员 / 岗位标签 / 阶段模板（项目管理扩展，参照 IFocus 设置页）────────────
+  // CRUD 后 broadcastResourcesChanged 轻量通知各窗口 invalidate；deleteMember 会级联改任务
+  // memberIds（store 同锁清理），故额外 emitChanged 刷任务快照。
+  ipcMain.handle("tasks:listMembers", (): Promise<Member[]> => tasksStore.listMembers());
+  ipcMain.handle("tasks:addMember", async (_e, input: { name: string; role?: string }): Promise<Member> => {
+    const m = await tasksStore.addMember(input);
+    broadcastResourcesChanged();
+    return m;
+  });
+  ipcMain.handle(
+    "tasks:updateMember",
+    async (_e, id: string, patch: { name?: string; role?: string }): Promise<Member | null> => {
+      const m = await tasksStore.updateMember(id, patch);
+      if (m) broadcastResourcesChanged();
+      return m;
+    },
+  );
+  ipcMain.handle("tasks:deleteMember", async (_e, id: string): Promise<void> => {
+    await tasksStore.deleteMember(id);
+    broadcastResourcesChanged();
+    await emitChanged(); // 级联清了任务 memberIds → 任务快照也要刷
+  });
+
+  ipcMain.handle("tasks:listJobTypes", (): Promise<string[] | undefined> => tasksStore.listJobTypes());
+  ipcMain.handle("tasks:setJobTypes", async (_e, next: string[]): Promise<string[]> => {
+    const list = await tasksStore.setJobTypes(next);
+    broadcastResourcesChanged();
+    return list;
+  });
+
+  ipcMain.handle("tasks:listStageTemplates", (): Promise<StageTemplate[]> => tasksStore.listStageTemplates());
+  ipcMain.handle(
+    "tasks:addStageTemplate",
+    async (_e, input: { name: string; description?: string; stages: string[] }): Promise<StageTemplate> => {
+      const tpl = await tasksStore.addStageTemplate(input);
+      broadcastResourcesChanged();
+      return tpl;
+    },
+  );
+  ipcMain.handle(
+    "tasks:updateStageTemplate",
+    async (_e, id: string, patch: { name?: string; description?: string; stages?: string[] }): Promise<StageTemplate | null> => {
+      const tpl = await tasksStore.updateStageTemplate(id, patch);
+      if (tpl) broadcastResourcesChanged();
+      return tpl;
+    },
+  );
+  ipcMain.handle("tasks:deleteStageTemplate", async (_e, id: string): Promise<void> => {
+    await tasksStore.deleteStageTemplate(id);
+    broadcastResourcesChanged();
+  });
 
   // ── 任务附件（U13）：复用聊天文档附件闸门（doc.ts），只换存储根为 task-docs + 写回 attachments。──
   // 保存：saveDocInto 落盘（扩展名 allowlist/magic-bytes/50MB/原子写）→ addAttachment 在 store

@@ -13,7 +13,7 @@
 
 import { promises as fsp } from "fs";
 import { dirname } from "path";
-import type { ArchivedTask, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode, TasksFileData } from "./types";
+import type { ArchivedTask, Member, ProjectStage, StageTemplate, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode, TaskProjectStatus, TasksFileData } from "./types";
 // 防环复用 core 纯函数（与 U1 树逻辑同源；main 已有 import core 纯模块先例 taskMigrate）。
 import { isDescendant } from "@cortex-work/core/personal/taskProjectTree";
 // 子任务层级：改父防环 + 删父级联删子树（U2，与渲染层建树同源纯函数）。
@@ -24,9 +24,11 @@ import { createLogger } from "../log";
 
 const log = createLogger("tasks-store");
 
-// id 生成：task-<base36 时间>-<seq>-<random>（仿 notes-store.ts:newNoteId）。
+// id 生成：<prefix>-<base36 时间>-<seq>-<random>（仿 notes-store.ts:newNoteId）。
+// 前缀扩展：member=团队成员 / tpl=自定义阶段模板 / stage=项目阶段实例
+// （tpl 自带时间段，天然不撞内置模板的 tpl-builtin- 前缀）。
 let seq = 0;
-export function newTaskId(prefix: "task" | "proj" = "task"): string {
+export function newTaskId(prefix: "task" | "proj" | "member" | "tpl" | "stage" = "task"): string {
   seq += 1;
   return `${prefix}-${Date.now().toString(36)}-${seq}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -45,12 +47,18 @@ function isValidTasksFile(v: unknown): v is TasksFileData {
 
 // 读时归一化（U2/KTD4、U8/KTD5）：为旧档补 kind（folder 需显式标注，其余 project）与 mode（缺省 parallel）默认，
 // 使下游可可靠依赖两字段存在。幂等：无缺省字段时原样返回、不产生新对象。
+// 阶段扩展：project.stages 存在时补每条的 status（缺省 not-started）/ order（缺省数组下标），
+// 供 timeline/tab 可靠排序。members/jobTypes/stageTemplates 刻意不 backfill（undefined 由
+// core resolve 默认，落盘固化会阻断默认表随 App 升级演进）。
 function normalizeData(data: TasksFileData): TasksFileData {
   let changed = false;
   const projects = data.projects.map((p) => {
     const patch: Partial<TaskProject> = {};
     if (p.kind === undefined) patch.kind = "project" as TaskProjectKind;
     if (p.mode === undefined) patch.mode = "parallel" as TaskProjectMode;
+    if (p.stages?.some((s) => s.status === undefined || s.order === undefined)) {
+      patch.stages = p.stages.map((s, i) => ({ ...s, status: s.status ?? "not-started", order: s.order ?? i }));
+    }
     if (Object.keys(patch).length === 0) return p;
     changed = true;
     return { ...p, ...patch };
@@ -301,7 +309,12 @@ export class TasksStore {
 
   // 新建 task-project（U2 加层级）：opts.parentId 挂到父下（父须存在，否则降级为顶层）；
   // opts.kind 缺省 "project"（folder 需显式传入）。
-  addProject(name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject> {
+  // 阶段扩展：opts.stages 承接「创建项目时选模板」的实例化结果（renderer 侧 instantiateStages 产出），
+  // 一次落库避免 add 后再 update 两跳；note/status 同理透传。
+  addProject(
+    name: string,
+    opts?: { parentId?: string; kind?: TaskProjectKind; stages?: ProjectStage[]; note?: string; status?: TaskProjectStatus },
+  ): Promise<TaskProject> {
     return this.mutate((data) => {
       const parentId =
         opts?.parentId && data.projects.some((p) => p.id === opts.parentId) ? opts.parentId : undefined;
@@ -310,6 +323,9 @@ export class TasksStore {
         name: name.trim(),
         parentId,
         kind: opts?.kind ?? "project",
+        stages: opts?.stages,
+        note: opts?.note,
+        status: opts?.status,
       };
       return [{ ...data, projects: [...data.projects, proj] }, proj];
     });
@@ -320,9 +336,18 @@ export class TasksStore {
   // mode 语义（U8）：省略 = 不改；"parallel"/"sequential" = 切换。复用既有 tasks:updateProject IPC 通道
   // （mode 随 patch 对象经 IPC 序列化透传，无新 IPC）；模式只影响可用性派生（纯前端），无级联落库。
   // 防环用 isDescendant（把节点挂到自身或其后代下）→ 抛错供 UI 捕获给 toast；项目不存在返回 null。
+  // 阶段/设置扩展：note/status/stages 随 patch 透传（省略 = 不改）。**替换 stages 时在同一锁内
+  // 清孤儿引用**——被删阶段 id 若仍被任务 stageId 引用，把这些任务的 stageId 置空（防悬空指向）。
   updateProject(
     id: string,
-    patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode },
+    patch: {
+      name?: string;
+      parentId?: string | null;
+      mode?: TaskProjectMode;
+      note?: string;
+      status?: TaskProjectStatus;
+      stages?: ProjectStage[];
+    },
   ): Promise<TaskProject | null> {
     return this.mutate<TaskProject | null>((data) => {
       const idx = data.projects.findIndex((p) => p.id === id);
@@ -347,10 +372,26 @@ export class TasksStore {
         name: patch.name !== undefined ? patch.name.trim() : cur.name,
         parentId,
         mode: patch.mode !== undefined ? patch.mode : cur.mode,
+        note: patch.note !== undefined ? patch.note : cur.note,
+        status: patch.status !== undefined ? patch.status : cur.status,
+        stages: patch.stages !== undefined ? patch.stages : cur.stages,
       };
       const projects = data.projects.slice();
       projects[idx] = next;
-      return [{ ...data, projects }, next];
+      // 阶段收缩的孤儿清理：仅当 stages 实际被替换时，找出「旧有、新无」的阶段 id，
+      // 把该项目下仍引用它们的任务 stageId 清空。
+      let tasks = data.tasks;
+      if (patch.stages !== undefined) {
+        const kept = new Set(patch.stages.map((s) => s.id));
+        const removed = new Set((cur.stages ?? []).map((s) => s.id).filter((sid) => !kept.has(sid)));
+        if (removed.size > 0) {
+          const now = Date.now();
+          tasks = data.tasks.map((t) =>
+            t.stageId && removed.has(t.stageId) ? { ...t, stageId: undefined, updatedAt: now } : t,
+          );
+        }
+      }
+      return [{ ...data, projects, tasks }, next];
     });
   }
 
@@ -392,6 +433,116 @@ export class TasksStore {
   async listArchived(): Promise<ArchivedTask[]> {
     const data = await this.getData();
     return data.archived.slice();
+  }
+
+  // ── 团队成员（资源管理，参照 IFocus）────────────────────────────────────────
+  // 顶层 members 可选：undefined 视为空库（读侧 ?? []），首次 add 才落盘该字段。
+
+  async listMembers(): Promise<Member[]> {
+    const data = await this.getData();
+    return (data.members ?? []).slice();
+  }
+
+  addMember(input: { name: string; role?: string }): Promise<Member> {
+    return this.mutate((data) => {
+      const m: Member = { id: newTaskId("member"), name: input.name.trim(), role: input.role?.trim() || undefined };
+      return [{ ...data, members: [...(data.members ?? []), m] }, m];
+    });
+  }
+
+  updateMember(id: string, patch: { name?: string; role?: string }): Promise<Member | null> {
+    return this.mutate<Member | null>((data) => {
+      const members = data.members ?? [];
+      const idx = members.findIndex((m) => m.id === id);
+      if (idx < 0) return [data, null];
+      const next: Member = {
+        ...members[idx],
+        name: patch.name !== undefined ? patch.name.trim() : members[idx].name,
+        // role 传空串 = 清除岗位（与 undefined「不改」区分）。
+        role: patch.role !== undefined ? patch.role.trim() || undefined : members[idx].role,
+      };
+      const list = members.slice();
+      list[idx] = next;
+      return [{ ...data, members: list }, next];
+    });
+  }
+
+  // 删除成员：同一锁内级联把任务 memberIds 里的该 id 移除（防悬空引用；handler 侧需连带刷新任务）。
+  deleteMember(id: string): Promise<void> {
+    return this.mutate<void>((data) => {
+      const now = Date.now();
+      const tasks = data.tasks.map((t) =>
+        t.memberIds?.includes(id)
+          ? { ...t, memberIds: t.memberIds.filter((m) => m !== id), updatedAt: now }
+          : t,
+      );
+      return [{ ...data, members: (data.members ?? []).filter((m) => m.id !== id), tasks }, undefined];
+    });
+  }
+
+  // ── 岗位标签库 ──────────────────────────────────────────────────────────────
+  // 整表替换（低频、单编辑面）。首次 set 即落盘固化（含删空 []）；此前 undefined 由 core
+  // resolveJobTypes 补默认——刻意不在读侧 backfill，保持默认表随 App 升级可演进。
+
+  async listJobTypes(): Promise<string[] | undefined> {
+    const data = await this.getData();
+    return data.jobTypes?.slice();
+  }
+
+  setJobTypes(next: string[]): Promise<string[]> {
+    return this.mutate((data) => {
+      const cleaned = next.map((s) => s.trim()).filter((s) => s.length > 0);
+      return [{ ...data, jobTypes: cleaned }, cleaned];
+    });
+  }
+
+  // ── 自定义阶段模板 ──────────────────────────────────────────────────────────
+  // 仅自定义模板落盘；内置模板是 core 常量（渲染时合并），故此处 CRUD 天然触不到内置。
+
+  async listStageTemplates(): Promise<StageTemplate[]> {
+    const data = await this.getData();
+    return (data.stageTemplates ?? []).slice();
+  }
+
+  addStageTemplate(input: { name: string; description?: string; stages: string[] }): Promise<StageTemplate> {
+    return this.mutate((data) => {
+      const tpl: StageTemplate = {
+        id: newTaskId("tpl"),
+        name: input.name.trim(),
+        description: input.description?.trim() || undefined,
+        stages: input.stages.map((s) => s.trim()).filter((s) => s.length > 0),
+      };
+      return [{ ...data, stageTemplates: [...(data.stageTemplates ?? []), tpl] }, tpl];
+    });
+  }
+
+  updateStageTemplate(
+    id: string,
+    patch: { name?: string; description?: string; stages?: string[] },
+  ): Promise<StageTemplate | null> {
+    return this.mutate<StageTemplate | null>((data) => {
+      const list = data.stageTemplates ?? [];
+      const idx = list.findIndex((t) => t.id === id);
+      if (idx < 0) return [data, null];
+      const cur = list[idx];
+      const next: StageTemplate = {
+        ...cur,
+        name: patch.name !== undefined ? patch.name.trim() : cur.name,
+        description: patch.description !== undefined ? patch.description.trim() || undefined : cur.description,
+        stages:
+          patch.stages !== undefined ? patch.stages.map((s) => s.trim()).filter((s) => s.length > 0) : cur.stages,
+      };
+      const templates = list.slice();
+      templates[idx] = next;
+      return [{ ...data, stageTemplates: templates }, next];
+    });
+  }
+
+  // 删模板不影响已实例化项目（stages 是复制品、与模板解耦），仅从模板库消失。
+  deleteStageTemplate(id: string): Promise<void> {
+    return this.mutate<void>((data) => {
+      return [{ ...data, stageTemplates: (data.stageTemplates ?? []).filter((t) => t.id !== id) }, undefined];
+    });
   }
 
   // 迁移专用（U3）：仅当尚无 migratedAt 时以给定全量数据初始化并盖章，幂等 no-op。

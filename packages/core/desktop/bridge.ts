@@ -46,6 +46,10 @@ import type {
   TaskProject,
   TaskProjectKind,
   TaskProjectMode,
+  TaskProjectStatus,
+  ProjectStage,
+  StageTemplate,
+  Member,
   OpenAiCompleteRequest,
   PersistedState,
   PiOpenRequest,
@@ -356,11 +360,39 @@ export interface DesktopBridge {
   tasksAdd?(input: TaskInput): Promise<TaskMeta>;
   tasksUpdate?(id: string, patch: Partial<Omit<TaskMeta, "id" | "createdAt">>): Promise<TaskMeta | null>;
   tasksDelete?(id: string): Promise<void>;
-  tasksAddProject?(name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject>;
-  tasksUpdateProject?(id: string, patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode }): Promise<TaskProject | null>;
+  tasksAddProject?(
+    name: string,
+    opts?: { parentId?: string; kind?: TaskProjectKind; stages?: ProjectStage[]; note?: string; status?: TaskProjectStatus },
+  ): Promise<TaskProject>;
+  tasksUpdateProject?(
+    id: string,
+    patch: {
+      name?: string;
+      parentId?: string | null;
+      mode?: TaskProjectMode;
+      note?: string;
+      status?: TaskProjectStatus;
+      stages?: ProjectStage[];
+    },
+  ): Promise<TaskProject | null>;
   tasksDeleteProject?(projectId: string): Promise<void>;
   tasksArchive?(id: string, summary: string): Promise<boolean>;
   tasksListArchived?(): Promise<ArchivedTask[]>;
+  // 团队成员 / 岗位标签 / 阶段模板（项目管理扩展，参照 IFocus）：可选能力，web/旧壳无 → UI 降级隐藏。
+  // 与 apps/desktop/src/preload/index.ts 的同名方法逐字对齐（手工比对，无 satisfies）。
+  // 岗位标签 jobTypesList 返回 undefined = 用户从未编辑过（消费端经 resolveJobTypes 取默认表）。
+  membersList?(): Promise<Member[]>;
+  membersAdd?(input: { name: string; role?: string }): Promise<Member>;
+  membersUpdate?(id: string, patch: { name?: string; role?: string }): Promise<Member | null>;
+  membersDelete?(id: string): Promise<void>;
+  jobTypesList?(): Promise<string[] | undefined>;
+  jobTypesSet?(next: string[]): Promise<string[]>;
+  stageTemplatesList?(): Promise<StageTemplate[]>;
+  stageTemplatesAdd?(input: { name: string; description?: string; stages: string[] }): Promise<StageTemplate>;
+  stageTemplatesUpdate?(id: string, patch: { name?: string; description?: string; stages?: string[] }): Promise<StageTemplate | null>;
+  stageTemplatesDelete?(id: string): Promise<void>;
+  // 资源变更轻量订阅（成员/岗位/模板 CRUD 后 main 广播信号，renderer invalidate 重拉）。
+  onTaskResourcesChanged?(cb: () => void): () => void;
   // 任务附件（U13）：复用聊天文档附件闸门落盘（仅文档类型 pdf/docx/xlsx/pptx/csv/txt/md，图片延后），
   // 返回落盘引用（main 写回 TaskMeta.attachments 并广播 tasks:changed）；delete 按 path 删磁盘 + 清引用。
   // 可选能力（web/旧壳无 → TaskAttachments 降级隐藏「添加/移除」，仅只读列出既有附件）。

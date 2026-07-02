@@ -492,3 +492,145 @@ describe("子任务层级（U2）", () => {
     expect(await store.list()).toHaveLength(0);
   });
 });
+
+// ── 项目管理扩展（参照 IFocus）：成员/岗位/模板 CRUD、阶段孤儿清理、旧档兼容 ──────────
+describe("TasksStore 团队成员（资源管理）", () => {
+  it("成员 CRUD：add trim 姓名/岗位、update 局部改、role 空串清除岗位", async () => {
+    const store = makeStore();
+    expect(await store.listMembers()).toEqual([]); // 旧档无 members → 空库
+
+    const m = await store.addMember({ name: "  jone ", role: " 开发 " });
+    expect(m.id.startsWith("member-")).toBe(true);
+    expect(m).toMatchObject({ name: "jone", role: "开发" });
+
+    const renamed = await store.updateMember(m.id, { name: "jone2" });
+    expect(renamed).toMatchObject({ name: "jone2", role: "开发" }); // role 省略不改
+
+    const cleared = await store.updateMember(m.id, { role: "" });
+    expect(cleared!.role).toBeUndefined(); // 空串 = 清除岗位
+
+    expect(await store.updateMember("member-nope", { name: "x" })).toBeNull();
+  });
+
+  it("deleteMember 级联把任务 memberIds 里的该 id 移除（防悬空引用）", async () => {
+    const store = makeStore();
+    const a = await store.addMember({ name: "a" });
+    const b = await store.addMember({ name: "b" });
+    const t1 = await store.add({ title: "t1" });
+    const t2 = await store.add({ title: "t2" });
+    await store.update(t1.id, { memberIds: [a.id, b.id] });
+    await store.update(t2.id, { memberIds: [b.id] });
+
+    await store.deleteMember(a.id);
+    expect((await store.listMembers()).map((m) => m.id)).toEqual([b.id]);
+    const tasks = await store.list();
+    expect(tasks.find((t) => t.id === t1.id)!.memberIds).toEqual([b.id]);
+    expect(tasks.find((t) => t.id === t2.id)!.memberIds).toEqual([b.id]); // 未引用者不动
+  });
+});
+
+describe("TasksStore 岗位标签库", () => {
+  it("未 set 时 listJobTypes 为 undefined（默认表由 core resolve，不落盘）", async () => {
+    const store = makeStore();
+    expect(await store.listJobTypes()).toBeUndefined();
+  });
+
+  it("setJobTypes 整表替换（trim + 去空项）并落盘，含删空 []", async () => {
+    const store = makeStore();
+    expect(await store.setJobTypes([" 开发 ", "", "运营"])).toEqual(["开发", "运营"]);
+    expect(await store.listJobTypes()).toEqual(["开发", "运营"]);
+    await store.setJobTypes([]);
+    expect(await store.listJobTypes()).toEqual([]); // 删空是有效状态，不回退 undefined
+  });
+});
+
+describe("TasksStore 自定义阶段模板", () => {
+  it("模板 CRUD：add 清洗阶段名、update 局部改、delete 移除", async () => {
+    const store = makeStore();
+    const tpl = await store.addStageTemplate({ name: " 我的模板 ", description: "", stages: [" a ", "", "b"] });
+    expect(tpl.id.startsWith("tpl-")).toBe(true);
+    expect(tpl).toMatchObject({ name: "我的模板", stages: ["a", "b"] });
+    expect(tpl.description).toBeUndefined(); // 空串描述归 undefined
+
+    const updated = await store.updateStageTemplate(tpl.id, { stages: ["x"] });
+    expect(updated!.stages).toEqual(["x"]);
+    expect(updated!.name).toBe("我的模板"); // 省略不改
+
+    await store.deleteStageTemplate(tpl.id);
+    expect(await store.listStageTemplates()).toEqual([]);
+    expect(await store.updateStageTemplate(tpl.id, { name: "x" })).toBeNull();
+  });
+});
+
+describe("TasksStore 项目阶段（stages）", () => {
+  const mkStages = (ids: string[]) =>
+    ids.map((id, i) => ({ id, name: id, status: "not-started" as const, order: i }));
+
+  it("addProject 带 stages/note/status 一次落库", async () => {
+    const store = makeStore();
+    const p = await store.addProject("发布计划", { stages: mkStages(["s1", "s2"]), note: "描述", status: "active" });
+    const got = (await store.listProjects()).find((x) => x.id === p.id)!;
+    expect(got.stages!.map((s) => s.id)).toEqual(["s1", "s2"]);
+    expect(got.note).toBe("描述");
+    expect(got.status).toBe("active");
+  });
+
+  it("updateProject 替换 stages 收缩时清孤儿 stageId（同锁级联）", async () => {
+    const store = makeStore();
+    const p = await store.addProject("p", { stages: mkStages(["s1", "s2"]) });
+    const t1 = await store.add({ title: "t1", projectId: p.id });
+    const t2 = await store.add({ title: "t2", projectId: p.id });
+    await store.update(t1.id, { stageId: "s1" });
+    await store.update(t2.id, { stageId: "s2" });
+
+    await store.updateProject(p.id, { stages: mkStages(["s2"]) }); // 删掉 s1
+    const tasks = await store.list();
+    expect(tasks.find((t) => t.id === t1.id)!.stageId).toBeUndefined(); // 孤儿清空
+    expect(tasks.find((t) => t.id === t2.id)!.stageId).toBe("s2"); // 幸存阶段不动
+  });
+
+  it("updateProject 省略 stages/note/status 时不动既有值", async () => {
+    const store = makeStore();
+    const p = await store.addProject("p", { stages: mkStages(["s1"]), note: "n", status: "on-hold" });
+    const next = await store.updateProject(p.id, { name: "p2" });
+    expect(next!.stages!.map((s) => s.id)).toEqual(["s1"]);
+    expect(next!.note).toBe("n");
+    expect(next!.status).toBe("on-hold");
+  });
+
+  it("normalizeData 为缺 status/order 的旧 stages 补默认（读时零迁移）", async () => {
+    await fsp.writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        tasks: [],
+        projects: [{ id: "p1", name: "旧项目", stages: [{ id: "s1", name: "调研" }, { id: "s2", name: "开发" }] }],
+        archived: [],
+      }),
+      "utf8",
+    );
+    const store = makeStore();
+    const p = (await store.listProjects())[0];
+    expect(p.stages).toEqual([
+      { id: "s1", name: "调研", status: "not-started", order: 0 },
+      { id: "s2", name: "开发", status: "not-started", order: 1 },
+    ]);
+  });
+});
+
+describe("TasksStore 旧档兼容（无项目管理扩展字段）", () => {
+  it("version=1 且无 members/jobTypes/stageTemplates 的旧档合法读取、不判损坏", async () => {
+    await fsp.writeFile(
+      file,
+      JSON.stringify({ version: 1, tasks: [], projects: [{ id: "p", name: "p" }], archived: [] }),
+      "utf8",
+    );
+    const store = makeStore();
+    expect(await store.listMembers()).toEqual([]);
+    expect(await store.listJobTypes()).toBeUndefined();
+    expect(await store.listStageTemplates()).toEqual([]);
+    expect((await store.listProjects())[0].stages).toBeUndefined();
+    // 未触发任何 mutation 前不应生成 .corrupt。
+    await expect(fsp.stat(file + ".corrupt")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
