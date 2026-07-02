@@ -12,7 +12,9 @@ import { TASK_VIEW_FILTERS, type TaskViewFilter } from "@cortex-work/core/person
 export interface ViewOptions {
   filter: TaskViewFilter;
   showInbox: boolean; // 左树收件箱入口显隐（R10；关闭且 inbox 选中 → 容器重定向今日）
-  showFolders: boolean; // 中栏是否按 folder 层级出组头（消费在 U6 大纲升级，本单元只做控制面）
+  // 中栏是否按 folder 层级出组头。渲染侧尚未消费（无实装），故 UI 上以 disabled + 「即将推出」
+  // 占位（对齐 WorkbenchToolbar R12 灰态），避免用户切到无效开关。字段先留占位，待实装再放开。
+  showFolders: boolean;
 }
 
 export function ViewOptionsPopover({
@@ -77,14 +79,18 @@ export function ViewOptionsPopover({
               <span className="pw-view-option-check">{value.showInbox ? <Icon.Check size={13} /> : null}</span>
               <span className="pw-view-option-label">显示收件箱</span>
             </button>
+            {/* 未实装占位（R12 灰态）：渲染侧尚无 folder 组头逻辑消费 showFolders，故 disabled +
+                「即将推出」tooltip，避免用户切到无效开关。实装后去掉 disabled 并接回 onChange。 */}
             <button
               type="button"
               role="menuitemcheckbox"
-              aria-checked={value.showFolders}
-              className={`pw-view-option${value.showFolders ? " is-on" : ""}`}
-              onClick={() => onChange({ ...value, showFolders: !value.showFolders })}
+              aria-checked={false}
+              aria-disabled
+              disabled
+              className="pw-view-option is-soon"
+              title="在大纲中显示文件夹（即将推出）"
             >
-              <span className="pw-view-option-check">{value.showFolders ? <Icon.Check size={13} /> : null}</span>
+              <span className="pw-view-option-check" />
               <span className="pw-view-option-label">在大纲中显示文件夹</span>
             </button>
           </div>

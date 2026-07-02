@@ -129,6 +129,24 @@ describe("useDelegateIntentListener（主窗口侧）", () => {
     expect(sendMock.mock.calls[0]![2]).toContain("写周报");
   });
 
+  it("冷窗口 pending：mount 时 consumeTaskDelegateIntent 返回意图 → 解析并执行委派", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(tasksKeys.all, [task()]);
+    // 主窗口冷启动兜底：live 订阅前先 consume main 暂存的 pending 意图（仿 spotlightHandoff）。
+    const { bridge } = fakeBridge({ consumeTaskDelegateIntent: async () => ({ taskId: "t1" }) });
+    const toast = vi.fn();
+
+    await act(async () => {
+      renderHook(() => useDelegateIntentListener(toast), { wrapper: wrapper(bridge, qc) });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const st = usePersonalStore.getState();
+    expect(st.sessions).toHaveLength(1);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
   it("意图指向缓存中不存在的任务 → toast 报错、不起会话", async () => {
     const qc = new QueryClient();
     qc.setQueryData(tasksKeys.all, [] as TaskMeta[]);

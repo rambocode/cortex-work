@@ -50,7 +50,9 @@ function flattenForRender(
     for (const n of nodes) {
       const kids = n.children;
       out.push({ task: n, depth: n.depth, hasChildren: kids.length > 0, isContext: !matchedIds.has(n.id) });
-      if (kids.length > 0 && !collapsed[n.id]) walk(kids);
+      // 折叠只对命中父生效：上下文补行（未命中父）无展开三角，若也遵折叠态会把命中子行永久藏死、不可达。
+      // 故未命中父始终下钻子级，只有命中且折叠的父才停下（R15）。
+      if (kids.length > 0 && (!matchedIds.has(n.id) || !collapsed[n.id])) walk(kids);
     }
   };
   walk(buildTaskTree(items));
@@ -162,7 +164,10 @@ export function TaskListColumn({
 
   // 按左树选择聚合 + 分组 + 组内排序。scope 不再按完成度预筛（改由命中集决定），
   // 但需保留 scope 内全部任务（含未命中）供 R15 上下文补行。
-  const groups = useMemo<TaskGroup[]>(() => {
+  // 返回同时带 scopeTotal=**剪枝前** scope 任务总数（R26）：groupByProject / 多项目分支会丢弃
+  // matchedItems 为空的组，若从剪枝后的 groups 汇总，today/多项目视图全滤空时 scopeTotal 会误算成 0，
+  // 让空态文案错显「暂无任务」（实际应为「无匹配动作」）。故在此按未剪枝的 scope 集直接给出总数。
+  const { groups, scopeTotal } = useMemo<{ groups: TaskGroup[]; scopeTotal: number }>(() => {
     const sort = (items: TaskMeta[]) => [...items].sort((a, b) => compareTasks(a, b, today));
     const mk = (key: string, label: string, showHead: boolean, scope: TaskMeta[]): TaskGroup => ({
       key,
@@ -194,11 +199,13 @@ export function TaskListColumn({
 
     if (selection.kind === "today") {
       // Today scope：today-eligible（状态门控到 active/in-progress，命中集在其上再收窄）→ 按项目分组（R25）。
-      return groupByProject(tasks.filter((t) => isTodayEligible(t, today)));
+      const scope = tasks.filter((t) => isTodayEligible(t, today));
+      return { groups: groupByProject(scope), scopeTotal: scope.length };
     }
     if (selection.kind === "inbox") {
       // Inbox 视图全是无项目任务 → 单「收件箱」组，无头（顶部大标题已表明视图）。
-      return [mk("inbox", "收件箱", false, tasks.filter((t) => !effectiveProjectId(t)))];
+      const scope = tasks.filter((t) => !effectiveProjectId(t));
+      return { groups: [mk("inbox", "收件箱", false, scope)], scopeTotal: scope.length };
     }
 
     // project / folder：统一走 descendantProjectIds 聚合子树内全部 project 的任务。
@@ -211,18 +218,18 @@ export function TaskListColumn({
     // 单 project（或空子树）→ 单组无头；多 project 子树 → 按 project 分组（组头=project 名，
     // 组间顺序沿用 useTaskProjects 的项目列表顺序）。
     if (ids.length <= 1) {
-      return [mk(ids[0] ?? "single", "", false, scoped)];
+      return { groups: [mk(ids[0] ?? "single", "", false, scoped)], scopeTotal: scoped.length };
     }
-    return projects
+    const multi = projects
       .filter((p) => idSet.has(p.id))
       .map<TaskGroup>((p) => mk(p.id, p.name, true, scoped.filter((t) => effectiveProjectId(t) === p.id)))
       .filter((g) => g.matchedItems.length > 0);
+    return { groups: multi, scopeTotal: scoped.length };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, projects, selection, today, matched]);
 
-  // 统计口径（R13/R26）：total=命中行数（不含上下文补行）；scopeTotal=scope 内任务总数（区分空态文案）。
+  // 统计口径（R13/R26）：total=命中行数（不含上下文补行）；scopeTotal 由 groups memo 按剪枝前 scope 给出（见上）。
   const total = groups.reduce((n, g) => n + g.matchedItems.length, 0);
-  const scopeTotal = groups.reduce((n, g) => n + g.scopeById.size, 0);
 
   // 顶部大标题（R13）：视图名——今日/收件箱为固定名，project/folder 取其节点名（悬空兜底）。
   const viewTitle =

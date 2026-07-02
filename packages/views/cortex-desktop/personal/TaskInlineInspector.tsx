@@ -11,12 +11,11 @@ import { TaskDurationField } from "./TaskDurationField";
 import { TaskReminderField } from "./TaskReminderField";
 import { TaskRepeatField } from "./TaskRepeatField";
 import { useTaskDraftField } from "./useTaskDraftField";
+import { fmtDur } from "./taskFormat";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 
 // 当前就地展开编辑的字段（一次一个；再次点同一 chip 收起）。
 type Field = "project" | "tags" | "duration" | "defer" | "due" | "repeat" | "reminder" | "notes" | "done" | null;
-
-const fmtDur = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 
 export function TaskInlineInspector({
   task,

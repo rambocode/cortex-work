@@ -196,6 +196,32 @@ describe("matchedTaskIds（U5/R10：四档过滤纯函数）", () => {
     expect([...matchedTaskIds(tasks, SEQ, "first-available", TODAY)]).toEqual(["A"]);
   });
 
+  it("首先可用（并行）：子任务因排序先于父时仍取顶层任务（队首=顶层动作，非抢跑的子）", () => {
+    // 子 flagged → 组内排序可能排到父之前；first-available 应取顶层父，而非子（对齐 OmniFocus 队首语义）。
+    const tasks = [
+      task({ id: "child", projectId: "p1", parentTaskId: "parent", flagged: true }),
+      task({ id: "parent", projectId: "p1" }),
+    ];
+    expect([...matchedTaskIds(tasks, P, "first-available", TODAY)]).toEqual(["parent"]);
+  });
+
+  it("首先可用（顺序）：子任务排序先于父时仍取顶层队首", () => {
+    const tasks = [
+      task({ id: "child", projectId: "q1", parentTaskId: "parent", flagged: true }),
+      task({ id: "parent", projectId: "q1" }),
+    ];
+    expect([...matchedTaskIds(tasks, SEQ, "first-available", TODAY)]).toEqual(["parent"]);
+  });
+
+  it("首先可用：桶内无顶层可用（仅子可用）时回退取首个可用子", () => {
+    // 父被 defer 压住不可用，仅子可用 → 无顶层可用 → 回退到首个可用项（子）。
+    const tasks = [
+      task({ id: "parent", projectId: "p1", deferDate: "2026-07-05" }),
+      task({ id: "child", projectId: "p1", parentTaskId: "parent" }),
+    ];
+    expect([...matchedTaskIds(tasks, P, "first-available", TODAY)]).toEqual(["child"]);
+  });
+
   it("可用（顺序项目）：仅队首及其子树，后续顶层阻塞（AE7）", () => {
     const tasks = [
       task({ id: "A", projectId: "q1" }),

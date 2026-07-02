@@ -131,10 +131,13 @@ export function matchedTaskIds(
     }
   }
   if (filter === "available") return available;
-  // first-available：每桶按显示顺序取可用集首项（每项目至多一条）。
+  // first-available：每桶取「队首」可用项（每项目至多一条）。
+  // 队首语义对齐 OmniFocus——是顶层动作，而非因 flagged/更早 due 排到前面的子任务：
+  // 故优先取桶内首个可用的顶层任务（parentTaskId 为空）；无顶层可用时才回退到首个可用项。
   const out = new Set<string>();
   for (const [, items] of buckets) {
-    const first = items.find((t) => available.has(t.id));
+    const firstTop = items.find((t) => !t.parentTaskId && available.has(t.id));
+    const first = firstTop ?? items.find((t) => available.has(t.id));
     if (first) out.add(first.id);
   }
   return out;

@@ -6452,6 +6452,9 @@ button.sb-row {
 }
 .pw-view-option:hover { background: var(--bg-hover); }
 .pw-view-option.is-on { color: var(--accent); }
+/* 未实装占位（R12 灰态）：disabled 项灰显、悬停无高亮，提示即将推出。 */
+.pw-view-option.is-soon { opacity: 0.4; cursor: not-allowed; }
+.pw-view-option.is-soon:hover { background: transparent; }
 .pw-view-option-check {
   flex: 0 0 auto;
   width: 14px;

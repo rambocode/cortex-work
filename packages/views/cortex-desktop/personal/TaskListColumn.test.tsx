@@ -569,6 +569,38 @@ describe("TaskListColumn 四档过滤（U5）", () => {
     expect(screen.getByDisplayValue("首个可用")).toBeTruthy();
   });
 
+  it("P2：父被过滤成上下文补行且此前被折叠 → 命中子行仍渲染（补行无展开三角，不能藏死子）", async () => {
+    const { bridge } = fakeTasksBridge(
+      [
+        // 父 defer 到未来（available 档被滤 → 仅作上下文补行）；子无 defer（available 命中）。
+        task("parent", "父任务", { projectId: "p1", deferDate: "2026-07-05" }),
+        task("child", "子任务", { projectId: "p1", parentTaskId: "parent" }),
+      ],
+      [{ id: "p1", name: "项目一", mode: "parallel" }],
+    );
+    // 预置父为折叠态：修复前折叠会连带把命中子行藏死（补行无三角，永久不可达）。
+    usePersonalStore.setState({ collapsedTasks: { parent: true } });
+    const { container } = renderColumn(bridge, { kind: "project", id: "p1" }, undefined, { filter: "available" });
+
+    // 命中子行仍应渲染。
+    expect(await screen.findByDisplayValue("子任务")).toBeTruthy();
+    // 父仍作上下文补行呈现（灰显、不可编辑）。
+    expect(container.querySelector(".pw-task-row.is-context")?.textContent).toContain("父任务");
+  });
+
+  it("P3：today 视图 scope 非空但全被过滤 → 空态文案为「无匹配动作」（不误显「暂无任务」）", async () => {
+    const { bridge } = fakeTasksBridge(
+      [
+        // due=今天 → 进 Today scope；同时 defer 到未来 → available 档不可用 → 全滤空。
+        task("a", "今天到期但被推迟", { projectId: "p1", dueDate: "2026-07-01", deferDate: "2026-07-05" }),
+      ],
+      [{ id: "p1", name: "项目一" }],
+    );
+    const { container } = renderColumn(bridge, { kind: "today" }, undefined, { filter: "available" });
+    // scope 有 1 条（today-eligible），但 available 档全滤空 → 应走「无匹配动作」分支，而非今日「暂无任务」。
+    await waitFor(() => expect(container.querySelector(".pw-empty-hint")?.textContent).toContain("无匹配动作"));
+  });
+
   it("R26 空态双文案：scope 有任务但全被过滤 → 「无匹配动作」；scope 空 → 「暂无任务」", async () => {
     // scope 有一条 done 任务，但 remaining 档全滤掉 → 无匹配动作。
     const { bridge } = fakeTasksBridge(

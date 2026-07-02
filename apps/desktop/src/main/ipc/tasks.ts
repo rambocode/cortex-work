@@ -10,7 +10,7 @@ import { tasksJsonPath, taskDocsRoot, taskDocsDir } from "../paths";
 import { TasksStore } from "./tasks-store";
 import { saveTaskDoc, deleteTaskDoc } from "./task-doc";
 import { TasksReminderScheduler } from "../tasks-reminder-scheduler";
-import type { ArchivedTask, PersistedState, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind } from "./types";
+import type { ArchivedTask, PersistedState, TaskAttachment, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode } from "./types";
 import { createLogger } from "../log";
 
 const log = createLogger("tasks-reminder");
@@ -133,7 +133,7 @@ export function registerTasksHandlers(): void {
   // 更新 task-project：rename + reparent（防环在 store，成环 reject → renderer toast）。返回 null=不存在。
   ipcMain.handle(
     "tasks:updateProject",
-    async (_e, id: string, patch: { name?: string; parentId?: string | null }): Promise<TaskProject | null> => {
+    async (_e, id: string, patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode }): Promise<TaskProject | null> => {
       const p = await tasksStore.updateProject(id, patch);
       if (p) await emitChanged();
       return p;

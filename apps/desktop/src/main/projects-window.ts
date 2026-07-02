@@ -35,6 +35,33 @@ const FLUSH_TIMEOUT_MS = 2500;
 // 阻断整个退出流程；故退出时放行关闭，草稿改由 renderer 的 beforeunload 同步兜底（见 projects-window.tsx）。
 let appQuitting = false;
 
+// 关窗 flush 握手的可取消状态（提升为模块级，KTD6 复开竞态）：握手拦截 close 后 win 尚未销毁，
+// 用户此时可再次打开项目窗口而复用同一 win；若不取消在途握手，其回执/超时的 finish() 会 destroy 掉
+// 刚重开的窗口。故 showProjectsWindow() 复用现有 win 前先 cancelFlushHandshake()。
+let flushSettled = false;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let flushOnDone: ((e: IpcMainEvent) => void) | null = null;
+
+// 委派意图冷窗口兜底（KTD10，仿 spotlight）：主窗口被 close-to-tray 隐藏或冷启动加载中时，
+// live send 会在 renderer 注册 listener 前发丢；暖窗口才即时转发，否则存 pending 待主窗口 mount
+// 时经 task-delegate:consumePending 消费。
+let pendingDelegateIntent: { taskId: string } | null = null;
+
+// 清理并作废在途 flush 握手：停超时定时器、摘回执监听、令在途 finish() 成为 no-op，并复位 closing
+// （复用窗口后下次 close 须能重新发起握手，否则会被当作「握手中」而直接放行丢草稿）。
+function cancelFlushHandshake(): void {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (flushOnDone) {
+    ipcMain.removeListener("projects-window:flush-done", flushOnDone);
+    flushOnDone = null;
+  }
+  flushSettled = true;
+  closing = false;
+}
+
 // prod 下 html 可能落在 flat(../renderer/projects.html)或 nested(../renderer/src/projects.html)：
 // 双路径 existsSync 探测兜底（漏抄会打包后白屏）。仿 agent-trace-window.ts。
 function projectsHtml(): string {
@@ -89,20 +116,20 @@ function initialBounds(): WindowBounds {
 // 回执（flush-done）→ 销毁；无响应则 FLUSH_TIMEOUT_MS 后强制销毁。仅接受本窗口 webContents 的回执，
 // 避免其它窗口的同名事件误触发；settled 保证「回执」与「超时」只生效一次。
 function beginFlushHandshake(target: BrowserWindow): void {
-  let settled = false;
-  const onDone = (e: IpcMainEvent): void => {
+  flushSettled = false;
+  flushOnDone = (e: IpcMainEvent): void => {
     if (!target.isDestroyed() && e.sender === target.webContents) finish();
   };
-  // finish 用函数声明（提升）：可在 timer 声明之前被 onDone 引用，实际调用均发生在 timer 初始化之后。
+  // finish 用函数声明（提升）：可在 flushTimer 赋值之前被 flushOnDone 引用，实际调用均发生在其后。
+  // 收尾走 cancelFlushHandshake（停 timer + 摘监听 + settled 置真），再销毁窗口；settled 保证
+  //「回执」「超时」「重开取消」三者只生效一次。
   function finish(): void {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    ipcMain.removeListener("projects-window:flush-done", onDone);
+    if (flushSettled) return;
+    cancelFlushHandshake();
     if (win && !win.isDestroyed()) win.destroy();
   }
-  ipcMain.on("projects-window:flush-done", onDone);
-  const timer = setTimeout(finish, FLUSH_TIMEOUT_MS);
+  ipcMain.on("projects-window:flush-done", flushOnDone);
+  flushTimer = setTimeout(finish, FLUSH_TIMEOUT_MS);
   if (!target.isDestroyed()) target.webContents.send("projects-window:flush-request");
   else finish();
 }
@@ -156,7 +183,11 @@ function create(): BrowserWindow {
 
 // 打开（或聚焦）项目管理窗口：单例——已存在则 restore + focus，不再创建第二个实例。
 export function showProjectsWindow(): void {
-  const w = win && !win.isDestroyed() ? win : create();
+  const existing = win && !win.isDestroyed() ? win : null;
+  // 复用在途 flush 握手中的窗口前先取消握手：否则该窗口刚被重新 show，握手的回执/超时 finish()
+  // 会把它 destroy 掉（KTD6 复开竞态）。cancelFlushHandshake 同时复位 closing，使下次 close 能重发起握手。
+  if (existing) cancelFlushHandshake();
+  const w = existing ?? create();
   if (w.isMinimized()) w.restore();
   w.show();
   w.focus();
@@ -185,16 +216,36 @@ export function registerProjectsWindowHandlers(): void {
 
 // 委派意图跨窗口中继（KTD10）：项目管理窗口的 sessions 是 renderer 本地 Zustand、不跨窗口，
 // 故委派不能在项目窗口本地起会话——项目窗口只发意图（send），main 在此显式定位并唤起主窗口
-// （不用 getAllWindows()[0]，避免误命中项目/浮层等其它窗口），再把意图转发给主窗口 renderer 执行。
+// （不用 getAllWindows()[0]，避免误命中项目/浮层等其它窗口），暖窗口即时转发给主窗口 renderer 执行；
+// 冷启动/隐藏加载中的主窗口则存 pending，待其 mount 时 consume（仿 spotlight，避免 listener 注册前发丢）。
 // 与 registerProjectsWindowHandlers 分开：本函数需要主窗口引用，从 index.ts 传入（仿 spotlight）。
 export function registerProjectsDelegateRelay(opts: {
   showMainWindow: () => void;
   getMainWindow: () => BrowserWindow | null;
 }): void {
-  ipcMain.on("task-delegate:intent", (_e, intent: { taskId: string }) => {
+  ipcMain.on("task-delegate:intent", (e: IpcMainEvent, intent: { taskId: string }) => {
+    // sender 校验（security）：只接受本项目管理窗口 webContents 发来、且 taskId 为 string 的意图，
+    // 拒绝其它窗口/渲染进程伪造的同名事件（参照 beginFlushHandshake 的 flush-done sender 校验）。
+    if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
+    if (typeof intent?.taskId !== "string") return;
+    // 暖/冷窗口分流（仿 spotlight:submit）：先算 warm——主窗口存在、未销毁、已加载完（listener 已注册）；
+    // 唤起动作会改变加载态，故 warm 必须在 showMainWindow() 之前算。
+    const existing = opts.getMainWindow();
+    const warm = !!existing && !existing.isDestroyed() && !existing.webContents.isLoading();
     // 主窗口可能被 close-to-tray 隐藏，先 show()+focus() 唤起（参照 push-on-complete 的窗口唤醒式样）。
     opts.showMainWindow();
-    const win = opts.getMainWindow();
-    if (win && !win.isDestroyed()) win.webContents.send("task-delegate:intent", intent);
+    const main = opts.getMainWindow();
+    if (warm && main && !main.isDestroyed()) {
+      main.webContents.send("task-delegate:intent", intent);
+    } else {
+      // 冷启动/加载中：存 pending，主窗口 mount 时 consumeTaskDelegateIntent 兜底（避免在 listener 注册前发丢）。
+      pendingDelegateIntent = intent;
+    }
+  });
+  // 主窗口 mount 时消费冷窗口暂存的委派意图（仿 spotlight:consumePending）：取出并清空。
+  ipcMain.handle("task-delegate:consumePending", () => {
+    const i = pendingDelegateIntent;
+    pendingDelegateIntent = null;
+    return i;
   });
 }

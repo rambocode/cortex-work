@@ -37,6 +37,7 @@ import type {
   TaskMeta,
   TaskProject,
   TaskProjectKind,
+  TaskProjectMode,
   NoteStatus,
   PersistedState,
   PiOpenRequest,
@@ -453,7 +454,7 @@ const personal = {
     ipcRenderer.invoke("tasks:addProject", name, opts),
   tasksUpdateProject: (
     id: string,
-    patch: { name?: string; parentId?: string | null },
+    patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode },
   ): Promise<TaskProject | null> => ipcRenderer.invoke("tasks:updateProject", id, patch),
   tasksDeleteProject: (projectId: string): Promise<void> => ipcRenderer.invoke("tasks:deleteProject", projectId),
   tasksArchive: (id: string, summary: string): Promise<boolean> => ipcRenderer.invoke("tasks:archive", id, summary),
@@ -478,6 +479,9 @@ const personal = {
     ipcRenderer.on("task-delegate:intent", listener);
     return () => ipcRenderer.removeListener("task-delegate:intent", listener);
   },
+  // 冷窗口兜底：主窗口 mount 时 consume main 暂存的委派意图（形状与 DesktopBridge 逐字对齐）。
+  consumeTaskDelegateIntent: (): Promise<TaskDelegateIntent | null> =>
+    ipcRenderer.invoke("task-delegate:consumePending"),
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。形状与 DesktopBridge
   // 的可选 skillGet/skillsList 逐字对齐（手工比对,无 satisfies）。
   skillGet: (name: string): Promise<SkillMeta | null> => ipcRenderer.invoke("skills:get", name),

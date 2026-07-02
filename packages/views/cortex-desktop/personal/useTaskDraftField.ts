@@ -102,7 +102,13 @@ export function useTaskDraftField(opts: {
     const norm = normalizeRef.current;
     const raw = valueRef.current;
     const next = norm ? norm(raw) : raw;
-    if (next !== externalRef.current) onCommitRef.current(next);
+    // 双守卫，抑制 Enter 保存的重复提交（P2）：Enter 处理里会 commit() 后再 blur()，
+    // blur 触发 onBlur → 第二次 commit()——两次 next 相同。首次 commit 末尾把 baseline 置为 next，
+    // 故第二次「next === baseline」被挡掉，避免同一 mutation 触发两次。
+    //   - external 守卫：草稿 == 权威值时无空写（非乐观窗口期 external 尚未回灌，靠 baseline 兜底）。
+    //   - baseline 守卫：仅挡「刚提交过的同值」；合法重复提交（外部改到中间值后又编辑回旧值）不会误伤——
+    //     未聚焦跟随外部时 effect(:94-97) 已把 baseline 同步为该外部值，聚焦编辑回旧值时 next ≠ baseline 仍会提交。
+    if (next !== externalRef.current && next !== baselineRef.current) onCommitRef.current(next);
     baselineRef.current = next;
     if (next !== raw) setValue(next); // 归一化改写了草稿（如 trim）时同步显示值
   }, [setValue]);

@@ -45,6 +45,7 @@ import type {
   TaskMeta,
   TaskProject,
   TaskProjectKind,
+  TaskProjectMode,
   OpenAiCompleteRequest,
   PersistedState,
   PiOpenRequest,
@@ -356,7 +357,7 @@ export interface DesktopBridge {
   tasksUpdate?(id: string, patch: Partial<Omit<TaskMeta, "id" | "createdAt">>): Promise<TaskMeta | null>;
   tasksDelete?(id: string): Promise<void>;
   tasksAddProject?(name: string, opts?: { parentId?: string; kind?: TaskProjectKind }): Promise<TaskProject>;
-  tasksUpdateProject?(id: string, patch: { name?: string; parentId?: string | null }): Promise<TaskProject | null>;
+  tasksUpdateProject?(id: string, patch: { name?: string; parentId?: string | null; mode?: TaskProjectMode }): Promise<TaskProject | null>;
   tasksDeleteProject?(projectId: string): Promise<void>;
   tasksArchive?(id: string, summary: string): Promise<boolean>;
   tasksListArchived?(): Promise<ArchivedTask[]>;
@@ -373,6 +374,9 @@ export interface DesktopBridge {
   // 可选能力（web/旧壳无 → 项目管理窗口不存在，两端都用不到）。
   sendTaskDelegateIntent?(intent: TaskDelegateIntent): void;
   onTaskDelegateIntent?(cb: (intent: TaskDelegateIntent) => void): () => void;
+  // 冷窗口兜底（仿 consumeSpotlightIntent）：主窗口被隐藏/冷启动时 live 意图会在 listener 注册前发丢，
+  // main 存 pending；主窗口 mount 时先 consume 一次再订阅 live，避免丢派发。
+  consumeTaskDelegateIntent?(): Promise<TaskDelegateIntent | null>;
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。可选:web/旧壳无此
   // 能力 → 深化入口降级 toast。第一阶段读内置 resources/skills,第二阶段叠加 userData/skills。
   skillGet?(name: string): Promise<SkillMeta | null>;

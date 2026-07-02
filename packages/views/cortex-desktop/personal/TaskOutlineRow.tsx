@@ -6,13 +6,11 @@ import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { TaskInlineInspector } from "./TaskInlineInspector";
 import { useTaskDraftField } from "./useTaskDraftField";
+import { fmtDur } from "./taskFormat";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 
 // 子任务缩进步距（px）。每深一层左移一档，OmniFocus 风格（U3；U6 视觉细调）。
 export const INDENT_STEP = 22;
-
-// 时长展示：≥60min 折算 h/m，否则纯分钟（与行内 inspector 口径一致）。
-const fmtDur = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 
 // 备注首行预览（R17）：取第一条非空白行的纯文本；空则返回空串（调用方据此不渲染）。
 function noteFirstLine(notes?: string): string {

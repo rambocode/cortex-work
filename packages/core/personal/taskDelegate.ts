@@ -104,7 +104,8 @@ export function useDelegateIntentListener(onToast: (text: string) => void): void
   ref.current = { delegate, onToast, qc };
   useEffect(() => {
     if (!bridge?.onTaskDelegateIntent) return;
-    return bridge.onTaskDelegateIntent((intent: TaskDelegateIntent) => {
+    // 意图解析：从 main-owned 任务缓存（跨窗口广播一致）据 taskId 定位任务并本地执行委派。
+    const handle = (intent: TaskDelegateIntent) => {
       const list = ref.current.qc.getQueryData<TaskMeta[]>(tasksKeys.all) ?? [];
       const task = list.find((t) => t.id === intent.taskId);
       if (!task) {
@@ -112,6 +113,13 @@ export function useDelegateIntentListener(onToast: (text: string) => void): void
         return;
       }
       void ref.current.delegate(task, ref.current.onToast);
+    };
+    // 冷窗口兜底（仿 spotlightHandoff）：主窗口冷启动/隐藏时 live 意图在订阅前发丢，先 consume 一次
+    // main 暂存的 pending，再订阅 live。注意：consume 落库缓存可能尚未 hydrate，找不到任务会 toast，
+    // 但项目窗口委派前主窗口通常已运行过，缓存已就绪；此处兜底优先保证不静默丢派发。
+    void bridge.consumeTaskDelegateIntent?.().then((intent) => {
+      if (intent) handle(intent);
     });
+    return bridge.onTaskDelegateIntent(handle);
   }, [bridge]);
 }

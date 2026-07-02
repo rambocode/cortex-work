@@ -176,27 +176,96 @@ describe("关窗草稿 flush 握手（R21/KTD6）", () => {
     expect(e.preventDefault).not.toHaveBeenCalled();
     expect(h.webContents.send).not.toHaveBeenCalled();
   });
+
+  it("握手中重新打开窗口 → 取消在途握手，回执/超时不再销毁复用的窗口（KTD6 复开竞态）", () => {
+    const close = openWindow();
+    close({ preventDefault: vi.fn() }); // 发起握手：win 未销毁，等回执/超时
+    // 用户在握手期间重新打开项目窗口 → showProjectsWindow 复用同一 win 并取消在途握手。
+    h.handlers.get("projects-window:open")?.({});
+    // 复用而非新建（仍是同一 BrowserWindow 实例）。
+    expect(vi.mocked(BrowserWindow)).toHaveBeenCalledTimes(1);
+    // 取消后：回执监听已摘除（get 返回 undefined → no-op），超时定时器已清，均不再销毁窗口。
+    h.onHandlers.get("projects-window:flush-done")?.({ sender: h.webContents });
+    vi.advanceTimersByTime(3000);
+    expect(h.destroy).not.toHaveBeenCalled();
+  });
 });
 
 describe("registerProjectsDelegateRelay（委派意图中继，KTD10）", () => {
-  it("收到项目窗口意图 → 显式唤起主窗口(showMainWindow)并转发给主窗口 renderer", () => {
+  // 委派意图由项目管理窗口 renderer 发出，故中继前必须先打开项目窗口——sender 校验依赖其 webContents。
+  function openProjects() {
+    registerProjectsWindowHandlers();
+    h.handlers.get("projects-window:open")?.({});
+  }
+  // 暖主窗口：未销毁 + 已加载完（isLoading false，listener 已注册），走 live 转发。
+  function warmMain(send: (...a: unknown[]) => unknown) {
+    return { isDestroyed: () => false, webContents: { send, isLoading: () => false } } as never;
+  }
+  const consume = () => h.handlers.get("task-delegate:consumePending")?.();
+
+  it("暖主窗口 → 唤起并 live 转发意图，不落 pending", () => {
+    openProjects();
     const showMainWindow = vi.fn();
     const send = vi.fn();
-    // 显式定位的 mainWindow（不用 getAllWindows()[0]）。
-    const mainWindow = { isDestroyed: () => false, webContents: { send } } as never;
-    registerProjectsDelegateRelay({ showMainWindow, getMainWindow: () => mainWindow });
+    registerProjectsDelegateRelay({ showMainWindow, getMainWindow: () => warmMain(send) });
 
-    h.onHandlers.get("task-delegate:intent")?.({}, { taskId: "t9" });
+    h.onHandlers.get("task-delegate:intent")?.({ sender: h.webContents }, { taskId: "t9" });
 
     expect(showMainWindow).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith("task-delegate:intent", { taskId: "t9" });
+    expect(consume()).toBeNull(); // 暖路径不落 pending
   });
 
-  it("主窗口不存在（已销毁/未建）时唤起但不转发（不抛错）", () => {
+  it("冷/加载中主窗口 → 存 pending，consume 取出后清空（冷窗口丢派发修复）", () => {
+    openProjects();
+    const showMainWindow = vi.fn();
+    const send = vi.fn();
+    // 冷窗口：isLoading true → 未 warm，不能 live 发（会在 renderer 注册 listener 前发丢）。
+    const mainWindow = { isDestroyed: () => false, webContents: { send, isLoading: () => true } } as never;
+    registerProjectsDelegateRelay({ showMainWindow, getMainWindow: () => mainWindow });
+
+    h.onHandlers.get("task-delegate:intent")?.({ sender: h.webContents }, { taskId: "t9" });
+
+    expect(showMainWindow).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(consume()).toEqual({ taskId: "t9" }); // 主窗口 mount 时取到
+    expect(consume()).toBeNull(); // 取后清空，不重复派发
+  });
+
+  it("sender 校验：非项目窗口 webContents 的意图被拒（不唤起/不转发/不落 pending）", () => {
+    openProjects();
+    const showMainWindow = vi.fn();
+    const send = vi.fn();
+    registerProjectsDelegateRelay({ showMainWindow, getMainWindow: () => warmMain(send) });
+
+    h.onHandlers.get("task-delegate:intent")?.({ sender: { send: vi.fn() } }, { taskId: "t9" });
+
+    expect(showMainWindow).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(consume()).toBeNull();
+  });
+
+  it("taskId 非 string → 拒绝（不唤起/不转发）", () => {
+    openProjects();
+    const showMainWindow = vi.fn();
+    const send = vi.fn();
+    registerProjectsDelegateRelay({ showMainWindow, getMainWindow: () => warmMain(send) });
+
+    h.onHandlers.get("task-delegate:intent")?.({ sender: h.webContents }, { taskId: 123 });
+
+    expect(showMainWindow).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("主窗口不存在（getMainWindow null）→ 唤起但走冷路径存 pending，不抛错", () => {
+    openProjects();
     const showMainWindow = vi.fn();
     registerProjectsDelegateRelay({ showMainWindow, getMainWindow: () => null });
 
-    expect(() => h.onHandlers.get("task-delegate:intent")?.({}, { taskId: "t9" })).not.toThrow();
+    expect(() =>
+      h.onHandlers.get("task-delegate:intent")?.({ sender: h.webContents }, { taskId: "t9" }),
+    ).not.toThrow();
     expect(showMainWindow).toHaveBeenCalledTimes(1);
+    expect(consume()).toEqual({ taskId: "t9" });
   });
 });

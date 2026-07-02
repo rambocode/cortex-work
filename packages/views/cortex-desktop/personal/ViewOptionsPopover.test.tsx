@@ -30,12 +30,18 @@ describe("ViewOptionsPopover（U5）", () => {
     expect(onChange).toHaveBeenCalledWith({ filter: "all", showInbox: true, showFolders: false });
   });
 
-  it("结构开关：显示收件箱 / 在大纲中显示文件夹 各自翻转回调", () => {
+  it("显示收件箱开关：翻转回调", () => {
     const { onChange } = renderPopover({ showInbox: true, showFolders: false });
     fireEvent.click(screen.getByText("显示收件箱"));
     expect(onChange).toHaveBeenCalledWith({ filter: "remaining", showInbox: false, showFolders: false });
-    fireEvent.click(screen.getByText("在大纲中显示文件夹"));
-    expect(onChange).toHaveBeenCalledWith({ filter: "remaining", showInbox: true, showFolders: true });
+  });
+
+  it("在大纲中显示文件夹：未实装占位（disabled + 即将推出 tooltip，点击不回调）", () => {
+    const { onChange } = renderPopover({ showFolders: false });
+    const btn = screen.getByTitle("在大纲中显示文件夹（即将推出）") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("outside mousedown 关闭弹层", () => {
