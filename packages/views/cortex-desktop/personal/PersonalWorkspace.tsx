@@ -31,6 +31,7 @@ import { FlashNoteEditor } from "./FlashNoteEditor";
 import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
 import { PersonalSettingsView } from "./SettingsMenu";
 import { SessionSearchDialog } from "./SessionSearchDialog";
+import { useDelegateIntentListener } from "@cortex-work/core/personal/taskDelegate";
 
 // 进入落地页(homeOpen 转真,含首屏挂载)即收起右栏:无项目时默认不显示,选项目
 // 不自动弹出。依赖只含 homeOpen,故 rightOpen 在落地页内被显式置真(点 Task / 顶栏
@@ -67,10 +68,14 @@ export function usePersonalRolesLibrary(): void {
 export function PersonalWorkspace({
   onToast,
   onOpenFlashNote,
+  onOpenProjectsWindow,
 }: {
   onToast: (text: string) => void;
   // 闪记浮层入口(壳注入,透传给 composer 图标;web/旧壳缺省 → 隐藏)。
   onOpenFlashNote?: () => void;
+  // 「项目管理」独立窗口入口（壳注入 window.desktopAPI.projectsWindow.open；web/旧壳缺省 → 隐藏入口）。
+  // 由壳就近注入，views 不直接触碰 window.desktopAPI（遵 core/views 硬边界，KTD2）。
+  onOpenProjectsWindow?: () => void;
 }) {
   const bridge = useDesktopBridge();
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
@@ -105,6 +110,9 @@ export function PersonalWorkspace({
   // 订阅 notes:changed（闪记浮层/后台落盘 → invalidate 刷新收件箱与时间线）。漏挂会导致
   // 浮层新增的闪记在主窗口「有时候没显示」，须重获焦点才刷新。bridge 缺方法时内部空转。
   useNotesChangeSubscription();
+  // 监听「项目管理」独立窗口经 main 转发来的委派意图：主窗口本地 createSession+send 并导航到会话
+  // （sessions 是 renderer 本地 Zustand、不跨窗口，故委派必须在主窗口这一侧执行，KTD10）。
+  useDelegateIntentListener(onToast);
   // 进入落地页默认收起右栏（无项目不显示、选项目不自动弹出）。
   useCloseRightPanelOnHome(homeOpen);
   // 窗口宽度 < 760pt 时自动收缩左栏；恢复宽度后自动展开。
@@ -154,7 +162,13 @@ export function PersonalWorkspace({
   return (
     <>
       {/* 折叠态隐藏左栏菜单；折叠/搜索控制改由中栏顶栏渲染（见 PersonalCenterHeader）。 */}
-      {leftCollapsed ? null : <PersonalSidebar onToast={onToast} onOpenFlashNote={onOpenFlashNote} />}
+      {leftCollapsed ? null : (
+        <PersonalSidebar
+          onToast={onToast}
+          onOpenFlashNote={onOpenFlashNote}
+          onOpenProjectsWindow={onOpenProjectsWindow}
+        />
+      )}
       <div className="pw-main">
         <div className="pw-upper">
           <div className="pw-center-col">
@@ -182,6 +196,8 @@ export function PersonalWorkspace({
         </div>
         <TerminalPanel onToast={onToast} />
       </div>
+      {/* 「项目管理」三栏工作台已迁为独立桌面窗口（projects.html，见 projects-window.ts），
+          不再在主窗口内以覆盖层渲染（U3）。 */}
       {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
       <SessionSearchDialog />

@@ -59,7 +59,7 @@ function newId(prefix: string): string {
 }
 
 // 右栏当前视图（顶栏下拉选择）。后续新增视图只需扩此联合,不必逐处改字面量。
-export type RightView = "files" | "skills" | "todos" | "notes" | "browser";
+export type RightView = "files" | "skills" | "todos" | "pipeline" | "notes" | "browser";
 
 // 运行模式拦截提示（瞬态,不持久化）。当 plan/accept-edits 模式下 agent 尝试被该模式禁止的
 // 工具(写/执行)时,在 composer 上方提示用户切档并自动重发本轮。category 决定可切到哪些档:
@@ -94,6 +94,9 @@ export interface PersonalState {
   activeProjectId?: string;
   activeSessionId?: string;
   collapsedProjects: Record<string, boolean>;
+  // 工作台中列子任务折叠态（U3）：taskId → 是否折叠（缺省展开）。会话内存态、不进 toPersistedState
+  // （与 collapsedProjects 同款），故进出工作台不塌回、重启才重置。
+  collapsedTasks: Record<string, boolean>;
   // 每个 session 是否有正在运行的 CLI 轮次（runId），用于 UI 禁用发送等。
   runningBySession: Record<string, string | undefined>;
   // pi RPC 会话运行时状态（瞬态,不持久化;由 handlePiEvent 写,头部/composer 读）:
@@ -142,6 +145,8 @@ export interface PersonalState {
   rightView: RightView;
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
   rightPanelWidth?: number;
+  // 项目工作台右列详情宽度（px,拖拽调整,持久化）;undefined 走 CSS 默认 380。
+  projectsDetailWidth?: number;
   // 主区时间线视图：非空时主区显示该项目的时间线（替代会话区）。
   timelineProjectId?: string;
   // 主区首页视图（热力图/项目检索/全局日总结）。启动默认落地首页;不持久化。
@@ -252,6 +257,7 @@ export interface PersonalState {
   // 激活项目但不选会话（左栏点击项目名;项目无 session 时中间区显示新建聊天引导）。
   activateProject: (projectId: string) => void;
   toggleProjectCollapse: (id: string) => void;
+  toggleTaskCollapse: (id: string) => void;
   setRunning: (sessionId: string, runId: string | undefined) => void;
   // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
@@ -289,6 +295,7 @@ export interface PersonalState {
   setRightView: (view: RightView) => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
+  setProjectsDetailWidth: (width: number | undefined) => void;
   openTimeline: (projectId: string) => void;
   closeTimeline: () => void;
   openHome: () => void;
@@ -443,6 +450,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   sessions: [],
   todos: [],
   collapsedProjects: {},
+  collapsedTasks: {},
   runningBySession: {},
   piRuntimeBySession: {},
   modeBlockHints: {},
@@ -488,6 +496,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 旧存档无 profile 字段 → 回退空对象（会话渲染走默认昵称/头像）。
       profile: s.profile ?? {},
       rightPanelWidth: s.rightPanelWidth,
+      projectsDetailWidth: s.projectsDetailWidth,
       lastAgent: s.lastAgent,
       lastModel: s.lastModel,
       // 旧档字段名 lastPiChannelId → lastProviderId。
@@ -886,6 +895,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   toggleProjectCollapse: (id) =>
     set((s) => ({ collapsedProjects: { ...s.collapsedProjects, [id]: !s.collapsedProjects[id] } })),
+  toggleTaskCollapse: (id) =>
+    set((s) => ({ collapsedTasks: { ...s.collapsedTasks, [id]: !s.collapsedTasks[id] } })),
 
   setRunning: (sessionId, runId) =>
     set((s) => ({ runningBySession: { ...s.runningBySession, [sessionId]: runId } })),
@@ -981,6 +992,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setRightView: (view) => set({ rightView: view }),
 
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
+  setProjectsDetailWidth: (width) => set({ projectsDetailWidth: width }),
 
   openTimeline: (projectId) =>
     set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, workflowOpen: false, noteEditorId: undefined, settingsOpen: false }),
@@ -1050,6 +1062,7 @@ export function toPersistedState(s: PersonalState): PersistedState {
     generalSettings: s.generalSettings,
     profile: s.profile,
     rightPanelWidth: s.rightPanelWidth,
+    projectsDetailWidth: s.projectsDetailWidth,
     lastAgent: s.lastAgent,
     lastModel: s.lastModel,
     lastProviderId: s.lastProviderId,

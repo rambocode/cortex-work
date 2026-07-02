@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { Icon } from "@cortex-work/ui/icons";
 import type { ProjectMeta } from "@cortex-work/core";
+import { useMenuViewportClamp } from "./useMenuViewportClamp";
 
 export function MoveToProjectMenu({
   projects,
@@ -25,6 +26,8 @@ export function MoveToProjectMenu({
   const { t } = useTranslation("notes");
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // right:0 菜单在触发按钮靠近窗口左缘时会溢出 → 打开后按 rect 收敛回视口。
+  const { menuRef, clampStyle } = useMenuViewportClamp(open);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelCloseTimer = () => {
@@ -69,7 +72,7 @@ export function MoveToProjectMenu({
         <Icon.Chevron size={9} />
       </button>
       {open ? (
-        <div className="pw-tb-menu" role="menu">
+        <div className="pw-tb-menu" role="menu" ref={menuRef} style={clampStyle}>
           {!hasOptions ? (
             <div className="pw-archive-empty">{t("group.noArchivableProject")}</div>
           ) : (

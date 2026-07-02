@@ -58,6 +58,11 @@ export interface TodoMeta {
   updatedAt: number;
 }
 
+// ── 真任务系统 v2 类型 → 已抽到 ./tasks-types.ts（U1/KTD3：本文件逾 1200 行上限）──
+// 与 apps/desktop/src/main/ipc/tasks-types.ts 逐字镜像。
+// 原导入路径 @cortex-work/core/desktop/types 经此 re-export 保持不变。
+export * from "./tasks-types";
+
 export interface SessionMeta {
   id: string; // 应用内 uuid
   // 关联项目;缺省 = 不使用项目（会话在 Documents/cortex/<日期> 工作）。
@@ -784,6 +789,8 @@ export interface PersistedState {
   profile?: PersonalProfile;
   // 右侧面板自定义宽度（px）;未设置时按视图走 CSS 自动档位。
   rightPanelWidth?: number;
+  // 项目工作台右列详情宽度（px）;未设置走 CSS 默认 380。
+  projectsDetailWidth?: number;
   // 「最后一次使用」记忆（Spotlight/新会话默认沿用;读取回退见 initialAgent）。
   lastAgent?: AgentKind;
   lastModel?: string;
@@ -1219,6 +1226,13 @@ export interface SpotlightIntent {
   model?: string;
   providerId?: string; // pi 选中供应商
   projectId?: string; // 缺省 = 不使用项目
+}
+
+// 「项目管理」独立窗口 → 主进程 → 主窗口接力的委派意图（KTD10）。sessions 是 renderer 本地
+// Zustand、不跨窗口同步，故项目窗口不能本地起会话，只发意图；主窗口据 taskId 从 React Query
+// 缓存（main-owned，跨窗口广播一致）解析任务并执行 createSession+send。
+export interface TaskDelegateIntent {
+  taskId: string;
 }
 
 // ── 内嵌终端（PTY） ───────────────────────────────────────────────────────

@@ -1395,3 +1395,8 @@ describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
     expect(s.workspaceEnabled).toBe(false);
   });
 });
+
+// 「项目管理」工作台已从主窗口内的全屏覆盖层（projectsOpen 视图态）迁为独立桌面窗口（U3）：
+// store 不再持有该视图态，入口打开独立 BrowserWindow（desktopAPI.projectsWindow.open）。
+// 故原 projectsOpen 全屏互斥断言随状态删除一并移除；openSettings 栈式语义仍由上方
+// 「设置整页视图态(settingsOpen)」用例覆盖。

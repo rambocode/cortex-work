@@ -39,6 +39,17 @@ import type {
   NoteInput,
   NoteMeta,
   NoteStatus,
+  ArchivedTask,
+  TaskAttachment,
+  TaskInput,
+  TaskMeta,
+  TaskProject,
+  TaskProjectKind,
+  TaskProjectMode,
+  TaskProjectStatus,
+  ProjectStage,
+  StageTemplate,
+  Member,
   OpenAiCompleteRequest,
   PersistedState,
   PiOpenRequest,
@@ -57,6 +68,7 @@ import type {
   PushTarget,
   SkillMeta,
   SpotlightIntent,
+  TaskDelegateIntent,
   PtySpawnRequest,
   PtySpawnResult,
   ReadFileResult,
@@ -341,6 +353,62 @@ export interface DesktopBridge {
   notesUpdate?(id: string, patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] }): Promise<NoteMeta | null>;
   notesDelete?(id: string): Promise<void>;
   onNotesChanged?(cb: (list: NoteMeta[]) => void): () => void;
+  // 真任务系统（个人工作区，替换 doc 聚合 Tasks）：可选能力，web/旧壳无 → UI 降级隐藏。
+  // main 为 owner，与 apps/desktop/src/preload/index.ts 的 tasks* 逐字对齐（手工比对，无 satisfies）。
+  tasksList?(projectId?: string): Promise<TaskMeta[]>;
+  tasksListProjects?(): Promise<TaskProject[]>;
+  tasksAdd?(input: TaskInput): Promise<TaskMeta>;
+  tasksUpdate?(id: string, patch: Partial<Omit<TaskMeta, "id" | "createdAt">>): Promise<TaskMeta | null>;
+  tasksDelete?(id: string): Promise<void>;
+  tasksAddProject?(
+    name: string,
+    opts?: { parentId?: string; kind?: TaskProjectKind; stages?: ProjectStage[]; note?: string; status?: TaskProjectStatus },
+  ): Promise<TaskProject>;
+  tasksUpdateProject?(
+    id: string,
+    patch: {
+      name?: string;
+      parentId?: string | null;
+      mode?: TaskProjectMode;
+      note?: string;
+      status?: TaskProjectStatus;
+      stages?: ProjectStage[];
+    },
+  ): Promise<TaskProject | null>;
+  tasksDeleteProject?(projectId: string): Promise<void>;
+  tasksArchive?(id: string, summary: string): Promise<boolean>;
+  tasksListArchived?(): Promise<ArchivedTask[]>;
+  // 团队成员 / 岗位标签 / 阶段模板（项目管理扩展，参照 IFocus）：可选能力，web/旧壳无 → UI 降级隐藏。
+  // 与 apps/desktop/src/preload/index.ts 的同名方法逐字对齐（手工比对，无 satisfies）。
+  // 岗位标签 jobTypesList 返回 undefined = 用户从未编辑过（消费端经 resolveJobTypes 取默认表）。
+  membersList?(): Promise<Member[]>;
+  membersAdd?(input: { name: string; role?: string }): Promise<Member>;
+  membersUpdate?(id: string, patch: { name?: string; role?: string }): Promise<Member | null>;
+  membersDelete?(id: string): Promise<void>;
+  jobTypesList?(): Promise<string[] | undefined>;
+  jobTypesSet?(next: string[]): Promise<string[]>;
+  stageTemplatesList?(): Promise<StageTemplate[]>;
+  stageTemplatesAdd?(input: { name: string; description?: string; stages: string[] }): Promise<StageTemplate>;
+  stageTemplatesUpdate?(id: string, patch: { name?: string; description?: string; stages?: string[] }): Promise<StageTemplate | null>;
+  stageTemplatesDelete?(id: string): Promise<void>;
+  // 资源变更轻量订阅（成员/岗位/模板 CRUD 后 main 广播信号，renderer invalidate 重拉）。
+  onTaskResourcesChanged?(cb: () => void): () => void;
+  // 任务附件（U13）：复用聊天文档附件闸门落盘（仅文档类型 pdf/docx/xlsx/pptx/csv/txt/md，图片延后），
+  // 返回落盘引用（main 写回 TaskMeta.attachments 并广播 tasks:changed）；delete 按 path 删磁盘 + 清引用。
+  // 可选能力（web/旧壳无 → TaskAttachments 降级隐藏「添加/移除」，仅只读列出既有附件）。
+  taskDocSave?(taskId: string, file: { name: string; mimeType: string; srcPath?: string; data?: ArrayBuffer }): Promise<TaskAttachment>;
+  taskDocDelete?(taskId: string, path: string): Promise<void>;
+  onTasksChanged?(cb: (list: TaskMeta[]) => void): () => void;
+  // 委派意图跨窗口中继（KTD10）：sessions 是 renderer 本地 Zustand、不跨窗口，故「项目管理」
+  // 独立窗口委派不能本地起会话——只发意图给 main。main 唤起主窗口并把意图转发过去。
+  //  - sendTaskDelegateIntent：项目管理窗口 renderer 调用（发送端）。
+  //  - onTaskDelegateIntent：主窗口 renderer 订阅（接收端，解析任务后 createSession+send）。
+  // 可选能力（web/旧壳无 → 项目管理窗口不存在，两端都用不到）。
+  sendTaskDelegateIntent?(intent: TaskDelegateIntent): void;
+  onTaskDelegateIntent?(cb: (intent: TaskDelegateIntent) => void): () => void;
+  // 冷窗口兜底（仿 consumeSpotlightIntent）：主窗口被隐藏/冷启动时 live 意图会在 listener 注册前发丢，
+  // main 存 pending；主窗口 mount 时先 consume 一次再订阅 live，避免丢派发。
+  consumeTaskDelegateIntent?(): Promise<TaskDelegateIntent | null>;
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。可选:web/旧壳无此
   // 能力 → 深化入口降级 toast。第一阶段读内置 resources/skills,第二阶段叠加 userData/skills。
   skillGet?(name: string): Promise<SkillMeta | null>;

@@ -31,6 +31,17 @@ import type {
   GitOpResult,
   NoteInput,
   NoteMeta,
+  ArchivedTask,
+  TaskAttachment,
+  TaskInput,
+  TaskMeta,
+  TaskProject,
+  TaskProjectKind,
+  TaskProjectMode,
+  TaskProjectStatus,
+  ProjectStage,
+  StageTemplate,
+  Member,
   NoteStatus,
   PersistedState,
   PiOpenRequest,
@@ -46,6 +57,7 @@ import type {
   ReadFileResult,
   SkillMeta,
   SpotlightIntent,
+  TaskDelegateIntent,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
   TaskFilesResult,
@@ -432,6 +444,80 @@ const personal = {
     ipcRenderer.on("notes:changed", listener);
     return () => ipcRenderer.removeListener("notes:changed", listener);
   },
+  // 真任务系统（个人工作区）。main 为 owner，IPC 透传 + 变更事件订阅。
+  // 形状与 DesktopBridge 的可选 tasks* 逐字对齐（手工比对，无 satisfies）。
+  tasksList: (projectId?: string): Promise<TaskMeta[]> => ipcRenderer.invoke("tasks:list", projectId),
+  tasksListProjects: (): Promise<TaskProject[]> => ipcRenderer.invoke("tasks:listProjects"),
+  tasksAdd: (input: TaskInput): Promise<TaskMeta> => ipcRenderer.invoke("tasks:add", input),
+  tasksUpdate: (
+    id: string,
+    patch: Partial<Omit<TaskMeta, "id" | "createdAt">>,
+  ): Promise<TaskMeta | null> => ipcRenderer.invoke("tasks:update", id, patch),
+  tasksDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:delete", id),
+  tasksAddProject: (
+    name: string,
+    opts?: { parentId?: string; kind?: TaskProjectKind; stages?: ProjectStage[]; note?: string; status?: TaskProjectStatus },
+  ): Promise<TaskProject> => ipcRenderer.invoke("tasks:addProject", name, opts),
+  tasksUpdateProject: (
+    id: string,
+    patch: {
+      name?: string;
+      parentId?: string | null;
+      mode?: TaskProjectMode;
+      note?: string;
+      status?: TaskProjectStatus;
+      stages?: ProjectStage[];
+    },
+  ): Promise<TaskProject | null> => ipcRenderer.invoke("tasks:updateProject", id, patch),
+  tasksDeleteProject: (projectId: string): Promise<void> => ipcRenderer.invoke("tasks:deleteProject", projectId),
+  tasksArchive: (id: string, summary: string): Promise<boolean> => ipcRenderer.invoke("tasks:archive", id, summary),
+  tasksListArchived: (): Promise<ArchivedTask[]> => ipcRenderer.invoke("tasks:listArchived"),
+  // 团队成员 / 岗位标签 / 阶段模板（项目管理扩展）。形状与 DesktopBridge 的可选方法逐字对齐。
+  membersList: (): Promise<Member[]> => ipcRenderer.invoke("tasks:listMembers"),
+  membersAdd: (input: { name: string; role?: string }): Promise<Member> =>
+    ipcRenderer.invoke("tasks:addMember", input),
+  membersUpdate: (id: string, patch: { name?: string; role?: string }): Promise<Member | null> =>
+    ipcRenderer.invoke("tasks:updateMember", id, patch),
+  membersDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:deleteMember", id),
+  jobTypesList: (): Promise<string[] | undefined> => ipcRenderer.invoke("tasks:listJobTypes"),
+  jobTypesSet: (next: string[]): Promise<string[]> => ipcRenderer.invoke("tasks:setJobTypes", next),
+  stageTemplatesList: (): Promise<StageTemplate[]> => ipcRenderer.invoke("tasks:listStageTemplates"),
+  stageTemplatesAdd: (input: { name: string; description?: string; stages: string[] }): Promise<StageTemplate> =>
+    ipcRenderer.invoke("tasks:addStageTemplate", input),
+  stageTemplatesUpdate: (
+    id: string,
+    patch: { name?: string; description?: string; stages?: string[] },
+  ): Promise<StageTemplate | null> => ipcRenderer.invoke("tasks:updateStageTemplate", id, patch),
+  stageTemplatesDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:deleteStageTemplate", id),
+  // 资源变更轻量订阅：main 只发信号不塞快照，renderer invalidate 后重拉。
+  onTaskResourcesChanged: (cb: () => void): (() => void) => {
+    const listener = () => cb();
+    ipcRenderer.on("tasks:resources-changed", listener);
+    return () => ipcRenderer.removeListener("tasks:resources-changed", listener);
+  },
+  // 任务附件（U13）：落盘（优先 srcPath 直拷，避免 50MB ArrayBuffer 过 IPC）返回引用 / 按 path 删除。
+  taskDocSave: (
+    taskId: string,
+    file: { name: string; mimeType: string; srcPath?: string; data?: ArrayBuffer },
+  ): Promise<TaskAttachment> => ipcRenderer.invoke("task-doc:save", taskId, file),
+  taskDocDelete: (taskId: string, path: string): Promise<void> => ipcRenderer.invoke("task-doc:delete", taskId, path),
+  onTasksChanged: (cb: (list: TaskMeta[]) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, list: TaskMeta[]) => cb(list);
+    ipcRenderer.on("tasks:changed", listener);
+    return () => ipcRenderer.removeListener("tasks:changed", listener);
+  },
+  // 委派意图跨窗口中继（KTD10）。形状与 DesktopBridge 的 sendTaskDelegateIntent/onTaskDelegateIntent
+  // 逐字对齐（手工比对，无 satisfies）。send：项目管理窗口发送；on：主窗口订阅 main 转发的意图。
+  sendTaskDelegateIntent: (intent: TaskDelegateIntent): void =>
+    ipcRenderer.send("task-delegate:intent", intent),
+  onTaskDelegateIntent: (cb: (intent: TaskDelegateIntent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, intent: TaskDelegateIntent) => cb(intent);
+    ipcRenderer.on("task-delegate:intent", listener);
+    return () => ipcRenderer.removeListener("task-delegate:intent", listener);
+  },
+  // 冷窗口兜底：主窗口 mount 时 consume main 暂存的委派意图（形状与 DesktopBridge 逐字对齐）。
+  consumeTaskDelegateIntent: (): Promise<TaskDelegateIntent | null> =>
+    ipcRenderer.invoke("task-delegate:consumePending"),
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。形状与 DesktopBridge
   // 的可选 skillGet/skillsList 逐字对齐（手工比对,无 satisfies）。
   skillGet: (name: string): Promise<SkillMeta | null> => ipcRenderer.invoke("skills:get", name),
@@ -635,6 +721,21 @@ const notification = {
   },
 };
 
+// 「项目管理」独立窗口专用桥（侧栏入口调用，不属于 DesktopBridge；对齐 spotlight/notesOverlay 惯例）。
+// open：打开或聚焦项目管理窗口（main 侧单例，见 projects-window.ts）。
+const projectsWindow = {
+  open: (): Promise<void> => ipcRenderer.invoke("projects-window:open"),
+  // 关窗草稿 flush 握手（R21/KTD6）：main 拦截 close → 发 flush-request；renderer 提交 pending
+  // 草稿并等 mutation 落库 → flushDone 回执 → main 销毁窗口。title/notes 仅在 blur 落库，销毁
+  // renderer 不触发 blur，若不 flush 会静默丢数据。含超时兜底（见 projects-window.ts）避免关不掉窗。
+  onFlushRequest: (cb: () => void): (() => void) => {
+    const listener = (): void => cb();
+    ipcRenderer.on("projects-window:flush-request", listener);
+    return () => ipcRenderer.removeListener("projects-window:flush-request", listener);
+  },
+  flushDone: (): void => ipcRenderer.send("projects-window:flush-done"),
+};
+
 const desktopAPI = {
   appInfo: fetchAppInfo(),
   runtimeConfig: {
@@ -647,6 +748,7 @@ const desktopAPI = {
   spotlight,
   notesOverlay,
   notification,
+  projectsWindow,
   consumeNotesHotkeyDegraded,
 };
 

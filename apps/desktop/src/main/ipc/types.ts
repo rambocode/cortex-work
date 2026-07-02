@@ -49,6 +49,11 @@ export interface SpotlightIntent {
   projectId?: string;
 }
 
+// 「项目管理」独立窗口 → 主窗口的委派意图（KTD10；与 packages/core/desktop/types.ts 镜像）。
+export interface TaskDelegateIntent {
+  taskId: string;
+}
+
 // 独立通知窗体的提醒载荷(主窗渲染端 → 主进程 → 通知窗体)。镜像 core 的 Toast 子集,
 // 但跨进程经 IPC 传输,故只含可序列化的纯数据(无函数/图标组件,iconName 为名字字符串)。
 export interface NotificationPayload {
@@ -79,6 +84,11 @@ export interface TodoMeta {
   createdAt: number;
   updatedAt: number;
 }
+
+// ── 真任务系统 v2 类型 → 已抽到 ./tasks-types.ts（U1/KTD3）──
+// 与 packages/core/desktop/tasks-types.ts 逐字镜像。
+// 原导入路径 ./types 经此 re-export 保持不变。
+export * from "./tasks-types";
 
 export interface SessionMeta {
   id: string;

@@ -3,6 +3,7 @@
 import { registerFsHandlers } from "./fs";
 import { registerStoreHandlers } from "./store";
 import { registerNotesHandlers } from "./notes";
+import { registerTasksHandlers, tasksReminderScheduler, isTasksReminderOptInEnabled } from "./tasks";
 import { registerSkillsHandlers } from "./skills";
 import { registerPluginHandlers } from "./plugins";
 import { registerPiExtensionMarketHandlers } from "./pi-extensions-market";
@@ -23,6 +24,7 @@ import { registerUpdateHandlers, type RegisterUpdateHandlersOptions } from "./up
 import { registerEditorHandlers } from "./editors";
 import { registerAppHandlers } from "./app";
 import { registerAgentTraceHandlers } from "./agent-trace";
+import { registerProjectsWindowHandlers } from "../projects-window";
 import { registerBrowserHandlers } from "./browser";
 import { registerAutomationHandlers } from "../automation/ipc";
 import { registerWorkflowHandlers } from "../workflow/ipc";
@@ -42,8 +44,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   installIpcTrace();
   registerFsHandlers();
   registerWatchHandlers();
-  registerStoreHandlers();
+  // 设置落盘后同步任务提醒 opt-in（pushSettings.internal.enabled 变化 → 调度器建/拆 Cron）。
+  registerStoreHandlers((state) => tasksReminderScheduler.setEnabled(isTasksReminderOptInEnabled(state)));
   registerNotesHandlers();
+  registerTasksHandlers(); // 真任务系统（替换 doc 聚合 Tasks）
   registerSkillsHandlers();
   registerPluginHandlers();
   registerPiExtensionMarketHandlers();
@@ -63,6 +67,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerEditorHandlers();
   registerAppHandlers();
   registerAgentTraceHandlers({ devMode: options.agentTraceDevMode ?? false });
+  registerProjectsWindowHandlers(); // 「项目管理」独立窗口 open 通道（U2）
   registerBrowserHandlers();
   registerAutomationHandlers();
   registerWorkflowHandlers(); // 节点式工作流（loop）IPC，紧挨 automation 注册

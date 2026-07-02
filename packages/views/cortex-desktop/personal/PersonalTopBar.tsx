@@ -157,7 +157,7 @@ function PersonalPanelControls() {
 
   const menu = useDismissableMenu();
 
-  const pick = (view: "files" | "skills" | "todos" | "notes" | "browser") => {
+  const pick = (view: "files" | "skills" | "todos" | "pipeline" | "notes" | "browser") => {
     setRightView(view);
     if (!rightOpen) setRightOpen(true);
     menu.setOpen(false);
@@ -203,6 +203,11 @@ function PersonalPanelControls() {
               <Icon.Task size={14} />
               <span>Tasks</span>
               {rightOpen && rightView === "todos" ? <Icon.Check size={13} /> : null}
+            </button>
+            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("pipeline")}>
+              <Icon.Workflow size={14} />
+              <span>产物流水线</span>
+              {rightOpen && rightView === "pipeline" ? <Icon.Check size={13} /> : null}
             </button>
             <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("notes")}>
               <Icon.Pin size={14} />

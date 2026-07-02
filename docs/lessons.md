@@ -106,3 +106,21 @@ ELECTRON_RUN_AS_NODE=1 "/tmp/Test.app/Contents/MacOS/<App>" \
 2. `Cannot find module 'X/sub'` 先判断是「整个包没打进去」还是「子路径缺失」:`node -e "require('@electron/asar').listPackage(asar).filter(p=>p.includes('node_modules/X/'))"` 数条目,0 条=整包没进(报错里的子路径只是原始 specifier)。
 3. **打包问题必须仓库外验证**:改完跑 `dist:dir`(跳签名),再用 `@electron/asar` listPackage 确认目标文件(如 `zod/v3/index.cjs`)真在 asar 里,别只改配置就发版。
 4. peerDependency 不会被 electron-builder 自动收;靠消费方(desktop)把它列进 `dependencies` 才打包——但若被 `files` 显式排除,列了也没用。
+
+---
+
+## CSS 注释里的 `*/` 提前闭合 → Tailwind v4 / Lightning CSS 静默丢规则（postcss 却容忍）
+
+**现象**：新加的一整块 CSS 规则在运行时「像没写」——本例 `.pw-projects-page{position:fixed;inset:0}`（全屏三栏工作台的覆盖层）未生效，导致该覆盖层退化为 `.body`（flex row）的**在流子元素**，把侧栏/落地页挤成窄列、字符竖排、底层 UI 透出，整个界面错乱。dev 与打包**都坏**（不是 stale HMR）。
+
+**根因**：CSS 注释里出现了非预期的 `*/`，**提前闭合注释**。本例注释文案写了类名通配 `.pw-task-*/.pw-project*`，其中 `*` 紧跟 `/` 构成 `*/` → 注释在此结束，后面 `.pw-project*。 */ .pw-projects-page {…}` 被当成 CSS，变成畸形选择器。**Tailwind v4 用 Lightning CSS**（`globals.css` 里 `@import "tailwindcss"`，dev server 与 `electron-vite build` 同一引擎），**严格丢弃畸形规则**；而 `postcss.parse` 宽松、能「解析通过」——所以只用 postcss 验证语法会漏掉。
+
+**为何隐蔽**：源文件 `grep`/`postcss` 都显示规则在、语法 OK；只有看**构建产物**才发现规则没进去。相邻的其它注释（如 `.pw-project*；` 后接全角 `；` 不构成 `*/`）安然无恙，更易误判为「只有这块坏」。
+
+**解法**：注释里避免 `*/`——引用带通配的类名时不要写成 `.a-*/.b-*`，改用「与」「/」加空格或去掉斜杠（`.pw-task 与 .pw-project 系列类`）。
+
+**排查套路**：
+1. 症状是「某块 CSS 整体失效 + 布局塌成窄列/竖排」→ 先怀疑该块**前面的注释**里有 `*/`。
+2. **验产物而非源**：`electron-vite build` 后 `grep -c '<class>' out/renderer/assets/globals-*.css`，与一个「已知在」的类（如 `pw-settings-page`）对照计数；0 = 被丢。
+3. 全文件扫隐患：找注释体内的 `*/`（如 `grep -nE '\*/[^ ]' file.css`），排除正常的行尾 `*/`。
+4. `postcss.parse` 通过**不代表** Lightning CSS 会保留——两者宽严不同，CSS 正确性以构建产物为准。

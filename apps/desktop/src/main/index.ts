@@ -1,6 +1,7 @@
 import { app, autoUpdater as electronAutoUpdater, BrowserWindow, globalShortcut, ipcMain, powerMonitor } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
+import { runTaskMigration } from "./ipc/tasks-migrate";
 import {
   registerIpcHandlers,
   killAllCli,
@@ -16,6 +17,7 @@ import { installBrowserWebviewGuards } from "./browser/webviewGuards";
 import { configureBrowserPartition } from "./browser/partition";
 import { ensureMigrated } from "./paths";
 import { initScheduler, rescheduleAll, stopScheduler } from "./automation/scheduler";
+import { tasksStore, tasksReminderScheduler, isTasksReminderOptInEnabled } from "./ipc/tasks";
 import { startMcpHost, stopMcpHost } from "./capabilities/mcp-host/server";
 import { registerBrowserTools } from "./capabilities/browser/tools";
 import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extract/mcp";
@@ -28,6 +30,7 @@ import { initWorkflowScheduler } from "./workflow/scheduler";
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
+import { registerProjectsDelegateRelay } from "./projects-window";
 import { toggleNotesOverlay, destroyNotesOverlay, getNotesOverlayWindow } from "./notes-overlay";
 import { registerNotesOverlayHandlers } from "./ipc/notes-overlay";
 import { destroyNotificationWindow, clearNotifications } from "./notification-window";
@@ -250,6 +253,10 @@ if (!app.requestSingleInstanceLock()) {
     // 内嵌浏览器 <webview> 安全闸门须在任何 webview 可能 attach 之前装好(建窗之前)。
     installBrowserWebviewGuards();
     configureBrowserPartition();
+    // 真任务系统 v1→v2 迁移：必须在 registerIpcHandlers（store:load/save/tasks:*）之前 eager+await，
+    // 使 renderer 的一切 store 访问都排在迁移之后处理，从根上消除「renderer 首个 save 先于迁移
+    // 抹掉源 todos」的竞态（数据安全，见 U3/KTD2）。migratedAt 幂等，已迁移则纯 no-op。
+    await runTaskMigration();
     registerIpcHandlers({
       update: { beforeInstall: markRealQuit },
       agentTraceDevMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"],
@@ -258,6 +265,8 @@ if (!app.requestSingleInstanceLock()) {
     registerDesktopHandlers();
     registerLogHandlers();
     registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });
+    // 「项目管理」独立窗口 → 主窗口的委派意图中继（KTD10）。lazy getMainWindow：建窗在后（见下方 createWindow）。
+    registerProjectsDelegateRelay({ showMainWindow, getMainWindow: () => mainWindow });
     registerNotesOverlayHandlers();
     registerNotificationWindowHandlers();
     // 全局热键唤起闪记浮层(全仓首次用 globalShortcut)。读用户配置的 notesHotkey,
@@ -291,6 +300,13 @@ if (!app.requestSingleInstanceLock()) {
       onToggleSpotlight: toggleSpotlight,
     });
     await initScheduler();
+    // 任务提醒调度器（U11）：读初始 opt-in（内部原生通知）+ 当前任务快照建 Cron/补跑错过项。
+    // setEnabled 先行（此时快照空，为 no-op），再 sync 真实任务；开机补跑「只补一次」靠 firedAt 闸门。
+    {
+      const state = await getPersistedState();
+      tasksReminderScheduler.setEnabled(isTasksReminderOptInEnabled(state));
+      tasksReminderScheduler.sync(await tasksStore.list());
+    }
     // 工作流运行时（loop 引擎）：独立于 automation，与之并列。
     // fire-and-forget：调度器初始化快，失败已内部降级，不阻塞建窗。
     const workflowRuntime = initWorkflowRuntime()
@@ -366,6 +382,7 @@ if (!app.requestSingleInstanceLock()) {
     realQuitCleanupStarted = true;
     markRealQuit();
     stopScheduler();
+    tasksReminderScheduler.stop(); // 停任务提醒 Cron + 释放 powerSaveBlocker
     stopMcpHost();
     stopDocExtractHost();
     stopMediaGenHost();

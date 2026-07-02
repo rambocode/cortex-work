@@ -9,6 +9,7 @@ import {
   NOTES_HOTKEY_INVALID_TOAST,
   NOTES_HOTKEY_UNAVAILABLE_TOAST,
   NOTES_HOTKEY_ACCELERATOR,
+  TASKS_HOTKEY_ACCELERATOR,
 } from "./hotkey";
 
 describe("resolveHotkeyRegistration", () => {
@@ -147,6 +148,13 @@ describe("rebindCandidates 三级兜底候选链(去重、跳过非法、保持�
     expect(rebindCandidates(NOTES_HOTKEY_ACCELERATOR, NOTES_HOTKEY_ACCELERATOR)).toEqual([
       NOTES_HOTKEY_ACCELERATOR,
     ]);
+  });
+
+  it("任务捕获传自定义 defaultAcc → 末级兜底是任务键，绝不降级成闪记键（研究 rank11）", () => {
+    const cands = rebindCandidates("Cmd+Alt+Space", "", TASKS_HOTKEY_ACCELERATOR);
+    expect(cands).toEqual(["Cmd+Alt+Space", TASKS_HOTKEY_ACCELERATOR]);
+    expect(cands).not.toContain(NOTES_HOTKEY_ACCELERATOR);
+    expect(TASKS_HOTKEY_ACCELERATOR).not.toBe(NOTES_HOTKEY_ACCELERATOR);
   });
 });
 

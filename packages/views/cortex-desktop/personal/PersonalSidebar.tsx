@@ -282,10 +282,13 @@ function ProjectBlock({
 export function PersonalSidebar({
   onToast,
   onOpenFlashNote,
+  onOpenProjectsWindow,
 }: {
   onToast: (text: string) => void;
   // 闪记浮层入口(壳注入 window.desktopAPI.notesOverlay.show;web/旧壳缺省 → 隐藏入口)。
   onOpenFlashNote?: () => void;
+  // 「项目管理」独立窗口入口(壳注入 window.desktopAPI.projectsWindow.open;web/旧壳缺省 → 隐藏入口)。
+  onOpenProjectsWindow?: () => void;
 }) {
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
@@ -442,6 +445,15 @@ export function PersonalSidebar({
           </div>
         ) : null}
       </div>
+      {/* 「项目管理」独立窗口入口：位列底部「设置」正上方（与「设置」等全局入口同定位）。
+          双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow（壳注入窗口能力）；
+          web/旧壳缺任一 → 隐藏（R1/R6，KTD2：窗口打开经壳注入回调，views 不碰 window.desktopAPI）。 */}
+      {bridge?.tasksListProjects && onOpenProjectsWindow ? (
+        <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
+          <Icon.Folder size={14} />
+          <span>项目管理</span>
+        </button>
+      ) : null}
       <SettingsMenu />
     </aside>
   );

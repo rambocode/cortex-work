@@ -50,6 +50,21 @@ export function chatDocsDir(sessionId: string): string {
   return join(chatDocsRoot(), sessionId);
 }
 
+// 任务附件落盘根:~/.cortex-desktop/task-docs/（per-task 子目录，U13）。
+// 复用聊天文档附件闸门（doc.ts saveDocInto/assertDocPath），仅换存储根。
+// 专用根，**刻意不纳入** fs.ts 的 allowedRoots()（同 chat-docs）——因 assertOpenable 有
+// 「任意真实文件即放行」兜底会击穿限制；读/删侧以此根经 assertDocPath 做严格边界。
+export function taskDocsRoot(): string {
+  return join(cortexHome(), "task-docs");
+}
+
+// 单任务附件目录:task-docs/<taskId>/。taskId 经 SAFE_SESSION_ID 校验防路径穿越
+//（taskId 形如 task-<base36>-<seq>-<random>，字符集恒落在 [\w-] 内）。
+export function taskDocsDir(taskId: string): string {
+  if (!SAFE_SESSION_ID.test(taskId)) throw new Error(`非法 task id: ${taskId}`);
+  return join(taskDocsRoot(), taskId);
+}
+
 export function timelinesDir(): string {
   return join(cortexHome(), "timelines");
 }
@@ -77,6 +92,11 @@ export function automationsStorePath(): string {
 // 闪记：单文件全量（元数据 + 正文内联）。
 export function notesStorePath(): string {
   return join(cortexHome(), "notes.json");
+}
+
+// 真任务系统：单文件全量（main-owned，version 独立于 personal-workspace.json）。
+export function tasksJsonPath(): string {
+  return join(cortexHome(), "tasks.json");
 }
 
 // 自动化执行历史：按 automationId 一文件（automation-runs/<id>.json）。
