@@ -1,7 +1,8 @@
-// 三栏项目工作台中列（U7）：按左树选择聚合任务清单 —— 分组 / 排序 / 快速新增 / 行内动作
-//（完成、flag、删除、委派、打开详情）。服务端态全部来自 core hooks（React Query，main 是 owner，
-// 不复制进 Zustand，KTD8）。本列运行在「项目管理」独立窗口：委派经 useDelegateTaskRelay 只发意图
-// 给主窗口执行（sessions 不跨窗口，KTD10），不本地起会话、不关窗。
+// 三栏项目工作台中列（U6 OmniFocus 大纲式）：顶部大标题 + 统计条「N 个动作，M 个项目」+「已选择」条；
+// 按左树选择聚合任务清单 —— 分组（项目/文件夹；今日·收件箱按所属项目分组，R25）/ 组头（名称·计数·折叠·
+// 顺序模式标识，R14）/ 组内排序 / 快速新增 / 行内动作。行渲染拆到 TaskOutlineRow（防单文件超 1200 行）。
+// 服务端态全部来自 core hooks（React Query，main 是 owner，不复制进 Zustand，KTD8）。本列运行在「项目管理」
+// 独立窗口：委派经 useDelegateTaskRelay 只发意图给主窗口执行（sessions 不跨窗口，KTD10），不本地起会话、不关窗。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
@@ -11,23 +12,19 @@ import {
   useUpdateTask,
   useDeleteTask,
   isTodayEligible,
-  isAvailable,
   canTransition,
   localDay,
   matchedTaskIds,
+  projectMode,
   type TaskViewFilter,
 } from "@cortex-work/core/personal/tasks";
 import { descendantProjectIds } from "@cortex-work/core/personal/taskProjectTree";
 import { buildTaskTree, taskDescendantIds, areAllChildrenDone, type TaskTreeNode } from "@cortex-work/core/personal/taskTree";
 import { useDelegateTaskRelay } from "@cortex-work/core/personal/taskDelegate";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
-import { TaskInlineInspector } from "./TaskInlineInspector";
-import { useTaskDraftField } from "./useTaskDraftField";
+import { TaskOutlineRow, ContextRow } from "./TaskOutlineRow";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
-
-// 子任务缩进步距（px）。每深一层左移一档，OmniFocus 风格（U3；U7 视觉细调）。
-const INDENT_STEP = 22;
 
 // 渲染行：任务 + 缩进深度 + 是否有子（决定折叠箭头）+ 是否为「上下文补行」。
 // isContext（R15）：父任务被过滤档滤掉、但其子任务命中时，补一行灰显父作上下文——
@@ -99,9 +96,9 @@ function compareTasks(a: TaskMeta, b: TaskMeta, today: string): number {
 }
 
 interface TaskGroup {
-  key: string;
+  key: string; // project 组 = project id（供组头查 mode / 折叠态）；今日无项目组 = "inbox"
   label: string;
-  showHead: boolean; // 多 project 子树才显分组头；today/inbox/单 project 无头
+  showHead: boolean; // 多 project 子树 / 今日跨项目才显分组头；inbox / 单 project 无头
   matchedItems: TaskMeta[]; // 命中当前过滤档的任务（已排序），统计与渲染基
   scopeById: Map<string, TaskMeta>; // 组 scope 内全部任务（含未命中），供 R15 补上下文父行
 }
@@ -125,7 +122,7 @@ export function TaskListColumn({
   onOpenTask: (id: string) => void;
   // 新建任务（快速新增 / 子任务）→ 通知容器选中并置为 forcedVisible（R11）。
   onCreated: (id: string) => void;
-  // 选中任务离开命中集（切档 / 完成而隐藏，R18）→ 通知容器清选中回空态。
+  // 选中任务离开命中集（切档 / 完成而隐藏，R18）→ 通知容器清选中回空态；亦作「已选择」条清除入口（R13）。
   onSelectedHidden: () => void;
   onToast: (text: string) => void;
 }) {
@@ -141,6 +138,10 @@ export function TaskListColumn({
   const [draft, setDraft] = useState("");
   // 删除含子任务的父任务须两击确认（首击置 pending + toast，再击真删，KTD5）。
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  // 组头折叠态（R14）：窗口内 UI 瞬态（本单元不落库；KTD9 持久化归窗口专属 KV，超本单元 Files 范围）。
+  // 折叠仅隐藏该组行，不影响统计（统计按过滤命中而非可见性）。
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const toggleGroup = (key: string) => setCollapsedGroups((m) => ({ ...m, [key]: !m[key] }));
   // 切换左树选择即清除待确认删除（code-review）：否则遗忘的首击会让下一次单击变成无二次确认的级联删除。
   useEffect(() => setPendingDelete(null), [selection]);
   const today = localDay(new Date());
@@ -171,11 +172,32 @@ export function TaskListColumn({
       scopeById: new Map(scope.map((t) => [t.id, t])),
     });
 
+    // 按所属项目分组（R25）：非项目视图（今日）用；scope 内任务按 effectiveProjectId 分桶——
+    // 有项目 → 组头=项目名（按项目列表顺序）；无项目 → 「收件箱」组（置末，平铺）。
+    const groupByProject = (scope: TaskMeta[]): TaskGroup[] => {
+      const byPid = new Map<string, TaskMeta[]>();
+      for (const t of scope) {
+        const pid = effectiveProjectId(t) ?? "";
+        const arr = byPid.get(pid);
+        if (arr) arr.push(t);
+        else byPid.set(pid, [t]);
+      }
+      const out: TaskGroup[] = [];
+      for (const p of projects) {
+        const items = byPid.get(p.id);
+        if (items && items.length) out.push(mk(p.id, p.name, true, items));
+      }
+      const inboxItems = byPid.get("");
+      if (inboxItems && inboxItems.length) out.push(mk("inbox", "收件箱", true, inboxItems));
+      return out.filter((g) => g.matchedItems.length > 0);
+    };
+
     if (selection.kind === "today") {
-      // Today scope：today-eligible（状态门控到 active/in-progress，命中集在其上再收窄）。
-      return [mk("today", "今日", false, tasks.filter((t) => isTodayEligible(t, today)))];
+      // Today scope：today-eligible（状态门控到 active/in-progress，命中集在其上再收窄）→ 按项目分组（R25）。
+      return groupByProject(tasks.filter((t) => isTodayEligible(t, today)));
     }
     if (selection.kind === "inbox") {
+      // Inbox 视图全是无项目任务 → 单「收件箱」组，无头（顶部大标题已表明视图）。
       return [mk("inbox", "收件箱", false, tasks.filter((t) => !effectiveProjectId(t)))];
     }
 
@@ -198,9 +220,39 @@ export function TaskListColumn({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, projects, selection, today, matched]);
 
-  // 统计口径（R15/R26）：total=命中行数（不含上下文补行）；scopeTotal=scope 内任务总数（区分空态文案）。
+  // 统计口径（R13/R26）：total=命中行数（不含上下文补行）；scopeTotal=scope 内任务总数（区分空态文案）。
   const total = groups.reduce((n, g) => n + g.matchedItems.length, 0);
   const scopeTotal = groups.reduce((n, g) => n + g.scopeById.size, 0);
+
+  // 顶部大标题（R13）：视图名——今日/收件箱为固定名，project/folder 取其节点名（悬空兜底）。
+  const viewTitle =
+    selection.kind === "today"
+      ? "今日"
+      : selection.kind === "inbox"
+        ? "收件箱"
+        : projectById.get(selection.id)?.name ?? (selection.kind === "folder" ? "分组" : "项目");
+
+  // 顺序项目模式标识（R14/R24）：单选一个顺序 project 时在大标题旁标注（多项目组头各自标注，见下）。
+  const titleSequential =
+    selection.kind === "project" && projectMode(projectById.get(selection.id) ?? {}) === "sequential";
+
+  // 统计条项目数 M（R13）：项目/文件夹视图取选择范围内 project 节点数；
+  // 今日/收件箱等非项目视图取命中任务所属去重项目数（无项目任务不计）。
+  const projectCount = useMemo(() => {
+    if (selection.kind === "project" || selection.kind === "folder") {
+      return descendantProjectIds(projects, selection.id).length;
+    }
+    const s = new Set<string>();
+    for (const g of groups) for (const t of g.matchedItems) {
+      const pid = effectiveProjectId(t);
+      if (pid) s.add(pid);
+    }
+    return s.size;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, projects, groups]);
+
+  // 「已选择」条（R13）：选中任务仍存在时呈现清除入口。已删/加载中不误显。
+  const hasSelection = !!selectedTaskId && tasks.some((t) => t.id === selectedTaskId);
 
   // R18：选中任务存在于 tasks 但离开命中集（切档 / 完成而隐藏）→ 通知容器清选中。
   // 仅在任务仍存在时触发（已删/加载中不误清；forcedVisibleId 已并入 matched 故新建不误伤）。
@@ -307,6 +359,27 @@ export function TaskListColumn({
 
   return (
     <div className="pw-projects-list" ref={listRef}>
+      {/* 顶部大标题 + 统计条（R13）：视图名 + 「N 个动作，M 个项目」；选中时右侧「已选择」条（含清除）。 */}
+      <div className="pw-outline-head">
+        <div className="pw-outline-title">
+          <span className="pw-outline-title-text">{viewTitle}</span>
+          {titleSequential && <span className="pw-outline-mode" title="顺序项目">顺序</span>}
+        </div>
+        <div className="pw-outline-stats">
+          <span className="pw-outline-count">
+            {total} 个动作，{projectCount} 个项目
+          </span>
+          {hasSelection && (
+            <span className="pw-outline-selected">
+              已选择
+              <button className="pw-outline-clear" title="清除选中" onClick={onSelectedHidden}>
+                <Icon.Chevron size={10} /> 清除
+              </button>
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* 快速新增：归属按当前 selection 推导（见 onQuickAdd）。三态筛选已迁至工具栏「显示」弹层（U5）。*/}
       <div className="pw-task-add">
         <input
@@ -323,227 +396,65 @@ export function TaskListColumn({
       {total === 0 ? (
         <div className="pw-empty-hint">{emptyText}</div>
       ) : (
-        groups.map((g) => (
-          <div key={g.key} className="pw-task-group">
-            {g.showHead ? <div className="pw-task-group-head">{g.label}</div> : null}
-            {flattenForRender(withContextRows(g.matchedItems, g.scopeById), collapsedTasks, matched).map(
-              ({ task: t, depth, hasChildren, isContext }) =>
-                isContext ? (
-                  // R15 上下文补行：灰显父标题，不可勾选、不参与统计、不可选中。
-                  <ContextRow key={t.id} task={t} depth={depth} />
-                ) : (
-                  <TaskListRow
-                    key={t.id}
-                    task={t}
-                    today={today}
-                    depth={depth}
-                    hasChildren={hasChildren}
-                    collapsed={!!collapsedTasks[t.id]}
-                    onToggleCollapse={() => toggleTaskCollapse(t.id)}
-                    isSelected={t.id === selectedTaskId}
-                    onToast={onToast}
-                    // 分组头已显 project 名 → 组内行不再重复 project 徽标；无头（today/inbox/单组）才显。
-                    projectName={!g.showHead ? projectById.get(effectiveProjectId(t) ?? "")?.name : undefined}
-                    // 全部子任务完成 → 父行浮现「完成此任务」建议（派生，不自动 done，R5/KTD4）。
-                    suggestComplete={areAllChildrenDone(tasks, t.id)}
-                    onOpen={() => onOpenTask(t.id)}
-                    onRename={(title) => updateTask.mutate({ id: t.id, patch: { title } })}
-                    onToggleDone={() => toggleDone(t)}
-                    onToggleFlag={() => updateTask.mutate({ id: t.id, patch: { flagged: !t.flagged } })}
-                    onDelete={() => onDelete(t)}
-                    onAddSubtask={() => onAddSubtask(t)}
-                    onCompleteSuggested={() => onCompleteSuggested(t)}
-                    // 委派只发意图给主窗口执行（sessions 不跨窗口，KTD10）；本地即时 toast。
-                    onDelegate={() => delegate(t, onToast)}
-                  />
-                ),
-            )}
-          </div>
-        ))
+        groups.map((g) => {
+          // 组头顺序标识（R14）：project 组按其 mode 标注；今日无项目组（key="inbox"）无 project → 无标识。
+          const groupSequential = projectMode(projectById.get(g.key) ?? {}) === "sequential";
+          const groupCollapsed = !!collapsedGroups[g.key];
+          return (
+            <div key={g.key} className="pw-task-group">
+              {g.showHead ? (
+                // 组头（R14）：折叠三角 + 名称 + 计数 + 顺序模式标识。折叠只隐藏本组行，统计不变。
+                <button
+                  className="pw-task-group-head"
+                  aria-expanded={!groupCollapsed}
+                  onClick={() => toggleGroup(g.key)}
+                >
+                  <span className={`pw-task-group-twisty${groupCollapsed ? "" : " is-open"}`} aria-hidden>
+                    <Icon.Chevron size={10} />
+                  </span>
+                  <span className="pw-task-group-name">{g.label}</span>
+                  <span className="pw-task-group-count">{g.matchedItems.length}</span>
+                  {groupSequential && <span className="pw-outline-mode" title="顺序项目">顺序</span>}
+                </button>
+              ) : null}
+              {!groupCollapsed &&
+                flattenForRender(withContextRows(g.matchedItems, g.scopeById), collapsedTasks, matched).map(
+                  ({ task: t, depth, hasChildren, isContext }) =>
+                    isContext ? (
+                      // R15 上下文补行：灰显父标题，不可勾选、不参与统计、不可选中。
+                      <ContextRow key={t.id} task={t} depth={depth} />
+                    ) : (
+                      <TaskOutlineRow
+                        key={t.id}
+                        task={t}
+                        today={today}
+                        depth={depth}
+                        hasChildren={hasChildren}
+                        collapsed={!!collapsedTasks[t.id]}
+                        onToggleCollapse={() => toggleTaskCollapse(t.id)}
+                        isSelected={t.id === selectedTaskId}
+                        onToast={onToast}
+                        // 分组头已显 project 名 → 组内行隐藏项目 chip（含占位），避免重复（R16）。
+                        groupedByProject={g.showHead}
+                        projectName={!g.showHead ? projectById.get(effectiveProjectId(t) ?? "")?.name : undefined}
+                        // 全部子任务完成 → 父行浮现「完成此任务」建议（派生，不自动 done，R5/KTD4）。
+                        suggestComplete={areAllChildrenDone(tasks, t.id)}
+                        onOpen={() => onOpenTask(t.id)}
+                        onRename={(title) => updateTask.mutate({ id: t.id, patch: { title } })}
+                        onToggleDone={() => toggleDone(t)}
+                        onToggleFlag={() => updateTask.mutate({ id: t.id, patch: { flagged: !t.flagged } })}
+                        onDelete={() => onDelete(t)}
+                        onAddSubtask={() => onAddSubtask(t)}
+                        onCompleteSuggested={() => onCompleteSuggested(t)}
+                        // 委派只发意图给主窗口执行（sessions 不跨窗口，KTD10）；本地即时 toast。
+                        onDelegate={() => delegate(t, onToast)}
+                      />
+                    ),
+                )}
+            </div>
+          );
+        })
       )}
     </div>
-  );
-}
-
-// R15 上下文补行：父被过滤档滤掉但其子命中时，灰显父标题占位以保留缩进层级。
-// 无勾选、无操作、不可选中；纯上下文，避免误改被滤父。补行不承担折叠——其命中子由
-// buildTaskTree 直接嵌在其下逐行渲染，无需在补行上再挂折叠箭头。
-function ContextRow({ task, depth }: { task: TaskMeta; depth: number }) {
-  return (
-    <div className="pw-task-row is-context" aria-hidden>
-      <div className="pw-task-row-main">
-        {depth > 0 && <span className="pw-task-indent" style={{ width: depth * INDENT_STEP }} aria-hidden />}
-        <span className="pw-task-twisty pw-task-twisty-spacer" aria-hidden />
-        <span className="pw-task-check pw-task-check-ghost" aria-hidden />
-        <span className="pw-task-title-input pw-task-context-title">{task.title || "未命名的动作"}</span>
-      </div>
-    </div>
-  );
-}
-
-// 精简任务行：完成勾选 + 标题按钮（点开详情）+ 渐进披露徽标（有值才显）+ flag/删除/委派。
-// 相比 TasksView 的 TaskRow 去掉结构化建议 chips（工作台不做捕获结构化，那是右栏主界面的职责）。
-function TaskListRow({
-  task,
-  today,
-  depth,
-  hasChildren,
-  collapsed,
-  onToggleCollapse,
-  isSelected,
-  onToast,
-  suggestComplete,
-  projectName,
-  onOpen,
-  onRename,
-  onToggleDone,
-  onToggleFlag,
-  onDelete,
-  onAddSubtask,
-  onCompleteSuggested,
-  onDelegate,
-}: {
-  task: TaskMeta;
-  today: string;
-  depth: number;
-  hasChildren: boolean;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
-  isSelected: boolean;
-  onToast: (text: string) => void;
-  suggestComplete: boolean;
-  projectName?: string;
-  onOpen: () => void;
-  onRename: (title: string) => void;
-  onToggleDone: () => void;
-  onToggleFlag: () => void;
-  onDelete: () => void;
-  onAddSubtask: () => void;
-  onCompleteSuggested: () => void;
-  onDelegate: () => void;
-}) {
-  const overdue = !!task.dueDate && task.dueDate < today;
-  const delegated = task.status === "waiting" && !!task.delegation;
-  const done = task.status === "done";
-  return (
-    <div className={`pw-task-row${isSelected ? " is-selected" : ""}${done ? " is-done" : ""}`} data-task-id={task.id}>
-      <div className="pw-task-row-main">
-        {/* 子任务缩进：按 depth 留白（U3；U7 视觉细调）。*/}
-        {depth > 0 && <span className="pw-task-indent" style={{ width: depth * INDENT_STEP }} aria-hidden />}
-        {/* 折叠箭头：有子任务才显，否则占位对齐。*/}
-        {hasChildren ? (
-          <button
-            className={`pw-task-twisty${collapsed ? "" : " is-open"}`}
-            title={collapsed ? "展开子任务" : "折叠子任务"}
-            aria-expanded={!collapsed}
-            onClick={onToggleCollapse}
-          >
-            <Icon.Chevron size={11} />
-          </button>
-        ) : (
-          <span className="pw-task-twisty pw-task-twisty-spacer" aria-hidden />
-        )}
-        <input
-          type="checkbox"
-          className="pw-task-check"
-          checked={done}
-          onChange={onToggleDone}
-          title={done ? "取消完成" : "完成"}
-        />
-        {/* 行内可编辑标题（问题2）：空标题显「未命名的动作」占位；聚焦即选中该行（展开 inspector）。*/}
-        <TaskTitleInput taskId={task.id} value={task.title} done={done} onFocus={onOpen} onSave={onRename} />
-        {/* 未选中时显示紧凑徽标（快速一览）；选中时属性交由行内 inspector 编辑，避免重复。*/}
-        {!isSelected && (
-          <>
-            {task.flagged && <span className="pw-task-badge is-flag" title="已标记">⚑</span>}
-            {delegated && <span className="pw-task-badge is-wait" title="已委派 agent">委派中</span>}
-            {task.status === "in-progress" && <span className="pw-task-badge is-run">进行中</span>}
-            {task.dueDate && <span className={`pw-task-badge is-due${overdue ? " is-overdue" : ""}`}>截止 {task.dueDate}</span>}
-            {task.deferDate && !isAvailable(task, today) && <span className="pw-task-badge is-defer">延后 {task.deferDate}</span>}
-            {task.tags.map((tag) => (
-              <span key={tag} className="pw-task-badge is-tag">{tag}</span>
-            ))}
-            {projectName && <span className="pw-task-badge is-proj">{projectName}</span>}
-          </>
-        )}
-        {/* 完成 rollup 建议（R5/KTD4）：全部子任务已完成时浮现，点击确认才置父 done（不自动）。*/}
-        {suggestComplete && !done && (
-          <button className="pw-task-badge is-suggest" title="全部子任务已完成，点击完成此任务" onClick={onCompleteSuggested}>
-            ✓ 完成此任务
-          </button>
-        )}
-        <div className="spacer" />
-        {/* 添加子任务（U4）。*/}
-        <button className="pw-icon-btn" title="添加子任务" onClick={onAddSubtask}>
-          <Icon.Plus size={13} />
-        </button>
-        {/* 委派仅对 active 任务开放（waiting 已在跑，避免二次委派）。*/}
-        {task.status === "active" && (
-          <button className="pw-icon-btn" title="交给 agent 执行" onClick={onDelegate}>
-            <Icon.Bot size={13} />
-          </button>
-        )}
-        <button
-          className={`pw-icon-btn pw-task-flag${task.flagged ? " is-on" : ""}`}
-          title={task.flagged ? "取消标记" : "标记"}
-          onClick={onToggleFlag}
-        >
-          ⚑
-        </button>
-        <button className="pw-icon-btn" title="删除" onClick={onDelete}>
-          <Icon.Trash size={13} />
-        </button>
-      </div>
-      {/* 行内 inspector（问题2）：选中时在标题行下展开紧凑属性栏（图 #2 样式），作为主编辑面；
-          右列 TaskDetail 仍随同一 selectedTaskId 显示完整面板，两处经同一 useUpdateTask + RQ cache 同步。 */}
-      {isSelected && (
-        <div className="pw-task-inspector" style={depth > 0 ? { marginLeft: depth * INDENT_STEP } : undefined}>
-          <TaskInlineInspector task={task} today={today} onToast={onToast} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// 行内可编辑标题：受控草稿走共享守卫 hook（U1/KTD6）——切任务重置、未聚焦时跟随外部值
-// （跨列/跨窗口热更）、聚焦中不被冲掉。失焦 / 回车保存（trim 归一）。聚焦即选中该行。
-function TaskTitleInput({
-  taskId,
-  value,
-  done,
-  onFocus,
-  onSave,
-}: {
-  taskId: string;
-  value: string;
-  done: boolean;
-  onFocus: () => void;
-  onSave: (title: string) => void;
-}) {
-  const draft = useTaskDraftField({
-    taskId,
-    external: value,
-    onCommit: onSave,
-    normalize: (v) => v.trim(),
-  });
-  return (
-    <input
-      className={`pw-task-title-input${done ? " is-done" : ""}`}
-      value={draft.value}
-      placeholder="未命名的动作"
-      autoFocus={!value}
-      onFocus={() => {
-        draft.onFocus();
-        onFocus();
-      }}
-      onChange={(e) => draft.setValue(e.target.value)}
-      onBlur={draft.onBlur}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          draft.commit();
-          (e.target as HTMLInputElement).blur();
-        }
-      }}
-    />
   );
 }

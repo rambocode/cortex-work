@@ -9101,6 +9101,32 @@ button.sb-row {
 .pw-task-tab:hover { background: var(--bg-hover); color: var(--text-1); }
 .pw-task-tab.is-active { background: var(--bg-active); color: var(--text-1); }
 
+/* 顶部大标题 + 统计条（U6/R13）：视图名（大字重）+「N 个动作，M 个项目」+「已选择」条。 */
+.pw-outline-head { padding: 12px 12px 6px; border-bottom: 1px solid var(--border-soft); }
+.pw-outline-title { display: flex; align-items: center; gap: 8px; }
+.pw-outline-title-text {
+  font-size: 18px; font-weight: 700; color: var(--text-1);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 顺序项目模式标识（R14/R24）：大标题旁 / 组头处的小徽标。 */
+.pw-outline-mode {
+  flex: 0 0 auto; font-size: 10px; font-weight: 600; color: var(--accent);
+  background: var(--accent-soft); border-radius: 4px; padding: 1px 5px; letter-spacing: 0;
+  text-transform: none;
+}
+.pw-outline-stats {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 3px;
+}
+.pw-outline-count { font-size: 11.5px; color: var(--text-3); }
+.pw-outline-selected {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--accent);
+}
+.pw-outline-clear {
+  display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: var(--text-3);
+  background: var(--bg-chip); border: 0; border-radius: 6px; padding: 1px 6px; cursor: pointer;
+}
+.pw-outline-clear:hover { color: var(--accent); background: var(--accent-soft); }
+
 .pw-task-add { padding: 8px; }
 .pw-task-add-input {
   width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13px;
@@ -9109,6 +9135,20 @@ button.sb-row {
 }
 .pw-task-add-input::placeholder { color: var(--text-4); }
 .pw-task-add-input:focus { outline: none; border-color: var(--accent); }
+
+/* 行内元数据 chips（U6/R16）：已设置字段常显（is-set），未设置灰占位（is-placeholder，仅悬停/选中行渲染）。
+   置于标题与右侧动作之间，横向流、可换行。复用 .pw-task-chip（行内 inspector 同款）。 */
+.pw-task-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; min-width: 0; }
+.pw-task-chip.is-placeholder { color: var(--text-4); }
+.pw-task-chip.is-placeholder:hover { color: var(--text-2); background: var(--bg-hover); }
+.pw-task-chip.is-wait, .pw-task-chip.is-run { color: var(--accent); }
+/* 备注图标（R17）：有备注时右侧常显作指示（非按钮，纯提示）。 */
+.pw-task-note-flag { flex: 0 0 auto; display: inline-flex; align-items: center; color: var(--text-4); }
+/* 备注首行预览（R17）：标题下弱化一行，单行省略。 */
+.pw-task-note-preview {
+  font-size: 11.5px; color: var(--text-4); padding: 1px 8px 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 .pw-task-taglist { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 10px 8px; }
 .pw-task-tagchip {
@@ -9121,10 +9161,21 @@ button.sb-row {
 .pw-task-back:hover { color: var(--accent); }
 
 .pw-task-group { padding: 2px 0; }
+/* 组头（U6/R14）：折叠三角 + 名称 + 计数 + 顺序模式标识，整行可点折叠该组。 */
 .pw-task-group-head {
+  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
   padding: 8px 12px 4px; font-size: 11px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3);
+  background: none; border: 0; cursor: pointer;
 }
+.pw-task-group-head:hover { color: var(--text-2); }
+.pw-task-group-twisty {
+  display: inline-flex; align-items: center; justify-content: center; color: var(--text-4);
+}
+.pw-task-group-twisty svg { transition: transform 0.12s; transform: rotate(-90deg); }
+.pw-task-group-twisty.is-open svg { transform: none; }
+.pw-task-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-task-group-count { color: var(--text-4); font-weight: 500; }
 .pw-task-open-project { padding: 0 12px 6px; font-size: 11px; color: var(--text-4); }
 .pw-task-open-project:hover { color: var(--accent); }
 
@@ -9151,7 +9202,10 @@ button.sb-row {
 }
 .pw-task-title-input::placeholder { color: var(--text-4); }
 .pw-task-title-input:focus { border-bottom: 1px solid var(--accent); }
-.pw-task-row.is-done .pw-task-title-input { color: var(--text-3); text-decoration: line-through; }
+/* 完成/丢弃标题划线（R17）：is-struck 由行组件按 done||dropped 置；行级 class 兜底同款。 */
+.pw-task-title-input.is-struck,
+.pw-task-row.is-done .pw-task-title-input,
+.pw-task-row.is-dropped .pw-task-title-input { color: var(--text-3); text-decoration: line-through; }
 
 /* 上下文补行（U5/R15）：父被过滤档滤掉但其子命中时灰显父作层级上下文，不可交互。 */
 .pw-task-row.is-context { opacity: 0.55; pointer-events: none; }
