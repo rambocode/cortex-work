@@ -2,7 +2,6 @@
 // OmniFocus 式任务行 —— 圆形完成勾选 + 行内可编辑标题 + 元数据 chips（R16）+ 备注预览/图标 + 旗标（R17）
 // + 折叠三角（子任务）+ 行内 inspector（选中时）。以及 R15 上下文补行 ContextRow。
 // 服务端态经上层 hooks 写回（useUpdateTask / RQ cache），本组件只渲染与转发回调，无本地服务端副本。
-import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { TaskInlineInspector } from "./TaskInlineInspector";
 import { useTaskDraftField } from "./useTaskDraftField";
@@ -11,6 +10,15 @@ import type { TaskMeta } from "@cortex-work/core/desktop/types";
 
 // 子任务缩进步距（px）。每深一层左移一档，OmniFocus 风格（U3；U6 视觉细调）。
 export const INDENT_STEP = 22;
+
+// 标题输入左缘相对「行内容起点」的固定偏移（px）：折叠三角(16) + gap(8) + 勾选圈(16) + gap(8)。
+// 供行内 inspector / 备注预览左缘与标题文字对齐（U9）。depth>0 时再叠加缩进档宽 + 其后一档 flex gap。
+const TITLE_LEAD = 48;
+
+// 计算某深度行的标题左缘偏移：depth==0 只有三角+勾选(48)；depth>0 前置缩进 span 及其 flex gap。
+function titleLeadOffset(depth: number): number {
+  return depth > 0 ? depth * INDENT_STEP + 8 + TITLE_LEAD : TITLE_LEAD;
+}
 
 // 备注首行预览（R17）：取第一条非空白行的纯文本；空则返回空串（调用方据此不渲染）。
 function noteFirstLine(notes?: string): string {
@@ -84,8 +92,8 @@ export function TaskOutlineRow({
   const done = task.status === "done";
   const dropped = task.status === "dropped";
   const notePreview = noteFirstLine(task.notes);
-  // 悬停态（R16）：未设置字段的灰占位 chip 仅在选中或悬停行出现，避免全列表 DOM 膨胀。
-  const [hovered, setHovered] = useState(false);
+  // 标题左缘偏移：inspector / 备注预览据此与标题文字左对齐（U9）。
+  const lead = titleLeadOffset(depth);
 
   // 行内 chip（R16）：已设置 = is-set 高亮；未设置占位 = is-placeholder 灰显。
   // 点击一律 onOpen 选中该行 → 展开行内 inspector 就地编辑该字段（选中态由 inspector 承接编辑）。
@@ -106,8 +114,6 @@ export function TaskOutlineRow({
     <div
       className={`pw-task-row${isSelected ? " is-selected" : ""}${done ? " is-done" : ""}${dropped ? " is-dropped" : ""}`}
       data-task-id={task.id}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
       <div className="pw-task-row-main">
         {/* 子任务缩进：按 depth 留白（U3；U6 视觉细调）。*/}
@@ -134,7 +140,8 @@ export function TaskOutlineRow({
         />
         {/* 行内可编辑标题（问题2）：空标题显「未命名的动作」占位；聚焦即选中该行（展开 inspector）。*/}
         <TaskTitleInput taskId={task.id} value={task.title} struck={done || dropped} onFocus={onOpen} onSave={onRename} />
-        {/* 元数据 chips（R16）：未选中行常显已设置字段；悬停时补未设置字段的灰占位。
+        {/* 元数据 chips（R16 → U9）：未选中行常显已设置字段（is-set 实色），未设置字段常显灰占位
+            （is-placeholder，弱灰视觉），对齐 OmniFocus「自定义流体」默认态。占位不再仅悬停出现。
             选中行的字段编辑交由行内 inspector（下方），此处不重复渲染，避免双份 chip。 */}
         {!isSelected && (
           <div className="pw-task-chips">
@@ -147,18 +154,14 @@ export function TaskOutlineRow({
             {task.reminder?.at != null && chip("reminder", <Icon.Bell size={11} />, "已设提醒", true)}
             {delegated && <span className="pw-task-chip is-set is-wait">委派中</span>}
             {task.status === "in-progress" && <span className="pw-task-chip is-set is-run">进行中</span>}
-            {/* 未设置字段的灰占位（R16）：仅悬停行渲染，点击即进入对应字段编辑（选中行展开 inspector）。*/}
-            {hovered && (
-              <>
-                {!groupedByProject && !projectName && chip("project-ph", <Icon.Task size={11} />, "项目", false)}
-                {task.tags.length === 0 && chip("tags-ph", <Icon.Tags size={11} />, "标签", false)}
-                {task.estimatedDuration == null && chip("duration-ph", <Icon.Clock size={11} />, "持续时间", false)}
-                {!task.deferDate && chip("defer-ph", <Icon.Fwd size={11} />, "推迟至", false)}
-                {!task.dueDate && chip("due-ph", <Icon.Clock size={11} />, "截止", false)}
-                {task.repeat == null && chip("repeat-ph", <Icon.Retry size={11} />, "重复", false)}
-                {task.reminder?.at == null && chip("reminder-ph", <Icon.Bell size={11} />, "通知", false)}
-              </>
-            )}
+            {/* 未设置字段的灰占位（U9）：默认常显，点击即进入对应字段编辑（选中行展开 inspector）。*/}
+            {!groupedByProject && !projectName && chip("project-ph", <Icon.Task size={11} />, "项目", false)}
+            {task.tags.length === 0 && chip("tags-ph", <Icon.Tags size={11} />, "标签", false)}
+            {task.estimatedDuration == null && chip("duration-ph", <Icon.Clock size={11} />, "持续时间", false)}
+            {!task.deferDate && chip("defer-ph", <Icon.Fwd size={11} />, "推迟至", false)}
+            {!task.dueDate && chip("due-ph", <Icon.Clock size={11} />, "截止", false)}
+            {task.repeat == null && chip("repeat-ph", <Icon.Retry size={11} />, "重复", false)}
+            {task.reminder?.at == null && chip("reminder-ph", <Icon.Bell size={11} />, "通知", false)}
           </div>
         )}
         {/* 完成 rollup 建议（R5/KTD4）：全部子任务已完成时浮现，点击确认才置父 done（不自动）。*/}
@@ -196,16 +199,17 @@ export function TaskOutlineRow({
           <Icon.Trash size={13} />
         </button>
       </div>
-      {/* 备注首行预览（R17）：标题下弱化一行；选中行由 inspector 承接备注编辑，仍保留预览作上下文。*/}
+      {/* 备注首行预览（R17）：标题下弱化一行，左缘与标题文字对齐（U9）；选中行由 inspector 承接备注编辑，仍保留预览作上下文。*/}
       {notePreview && (
-        <div className="pw-task-note-preview" style={depth > 0 ? { marginLeft: depth * INDENT_STEP + 24 } : undefined}>
+        <div className="pw-task-note-preview" style={{ marginLeft: lead }}>
           {notePreview}
         </div>
       )}
       {/* 行内 inspector（问题2）：选中时在标题行下展开紧凑属性栏（图 #2 样式），作为主编辑面；
+          左缘与标题文字对齐（U9：marginLeft=标题左缘偏移，含子任务缩进层级）。
           右列 TaskDetail 仍随同一 selectedTaskId 显示完整面板，两处经同一 useUpdateTask + RQ cache 同步。 */}
       {isSelected && (
-        <div className="pw-task-inspector" style={depth > 0 ? { marginLeft: depth * INDENT_STEP } : undefined}>
+        <div className="pw-task-inspector" style={{ marginLeft: lead }}>
           <TaskInlineInspector task={task} today={today} onToast={onToast} />
         </div>
       )}

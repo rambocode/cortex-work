@@ -9139,7 +9139,8 @@ button.sb-row {
 .pw-task-add-input::placeholder { color: var(--text-4); }
 .pw-task-add-input:focus { outline: none; border-color: var(--accent); }
 
-/* 行内元数据 chips（U6/R16）：已设置字段常显（is-set），未设置灰占位（is-placeholder，仅悬停/选中行渲染）。
+/* 行内元数据 chips（U6/R16 → U9）：已设置字段常显实色（is-set），未设置字段常显弱灰占位
+   （is-placeholder，不再仅悬停/选中行渲染，对齐 OmniFocus 默认态）。
    置于标题与右侧动作之间，横向流、可换行。复用 .pw-task-chip（行内 inspector 同款）。 */
 .pw-task-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; min-width: 0; }
 .pw-task-chip.is-placeholder { color: var(--text-4); }
@@ -9187,7 +9188,8 @@ button.sb-row {
 /* 选中行（U6）：淡蓝底 + 左缘蓝条（借鉴 IFocus / 对齐图片灰蓝选中态）。 */
 /* 选中行：不加背景色（用户偏好），仅保留细左缘条作轻提示（内联 inspector 展开本身也标示选中）。 */
 .pw-task-row.is-selected { box-shadow: inset 2px 0 0 var(--accent); }
-/* 行内 inspector（U6）：选中时在标题下展开的共享字段面板容器。 */
+/* 行内 inspector（U6）：选中时在标题下展开的共享字段面板容器。
+   左缘偏移（marginLeft）由行组件按标题左缘（缩进 + 三角 + 勾选圈宽）动态注入（U9），此处不写死。 */
 .pw-task-inspector { margin-top: 4px; border-top: 1px solid var(--border-soft); }
 /* inline 布局（U7）：字段横向流成属性栏（对齐图片单行 chips 观感），去掉 column 版分隔边框。
    各 meta 行改为 inline-flex，整体 flex-wrap 横排；富字段区上方细分隔。 */
@@ -9216,9 +9218,12 @@ button.sb-row {
 /* 补行完成勾选占位：仅占位对齐，不渲染可点圆圈。 */
 .pw-task-check-ghost { visibility: hidden; }
 
-/* 行内紧凑属性栏（问题2，图 #2 OmniFocus 样式）：单行 chip，无值灰占位、有值高亮，点击就地展开编辑。 */
-.pw-task-inspect { padding: 6px 4px 4px; display: flex; flex-direction: column; gap: 6px; }
-.pw-task-inspect-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+/* 行内紧凑属性栏（问题2，图 #2 OmniFocus 样式）：单行 chip，无值灰占位、有值高亮，点击就地展开编辑。
+   左内边距归零（U9）：容器左缘已由行组件对齐到标题文字左缘，内部内容不再额外右移。 */
+.pw-task-inspect { padding: 6px 4px 4px 0; display: flex; flex-direction: column; gap: 6px; }
+/* 负左边距抵消首个 chip 自身的左内边距（.pw-task-chip 的 padding-left 6px），
+   使 chip 图标/文字左缘与标题文字精确对齐（U9）。 */
+.pw-task-inspect-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-left: -6px; }
 .pw-task-chip {
   display: inline-flex; align-items: center; gap: 3px; font-size: 11px;
   color: var(--text-4); background: transparent; border: 0; border-radius: 6px; padding: 2px 6px; cursor: pointer;

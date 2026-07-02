@@ -682,23 +682,17 @@ describe("TaskListColumn 大纲式（U6）", () => {
     expect(row.querySelector(".pw-task-note-preview")?.textContent).toBe("首行预览");
   });
 
-  it("未设置字段占位 chips 仅在悬停行出现，点击进入编辑（R16）", async () => {
+  it("未设置字段占位 chips 默认常显，点击进入编辑（U9）", async () => {
     const onOpenTask = vi.fn();
     const { bridge } = fakeTasksBridge([task("a", "空字段", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
     const { container } = renderColumn(bridge, { kind: "project", id: "p1" }, null, { onOpenTask });
-    const row = (await screen.findByDisplayValue("空字段")).closest(".pw-task-row")!;
-    // 未悬停 → 无占位 chip。
-    expect(container.querySelectorAll(".pw-task-chip.is-placeholder").length).toBe(0);
-    // 悬停 → 占位 chip 出现（tags/时长/推迟/截止/重复/通知）。
-    fireEvent.mouseEnter(row);
+    await screen.findByDisplayValue("空字段");
+    // 无需悬停 → 占位 chip 默认渲染（tags/时长/推迟/截止/重复/通知），对齐 OmniFocus 默认态。
     const placeholders = container.querySelectorAll(".pw-task-chip.is-placeholder");
     expect(placeholders.length).toBeGreaterThan(0);
     // 点击占位 chip → 选中该行（进入编辑面）。
     fireEvent.click(placeholders[0]!);
     expect(onOpenTask).toHaveBeenCalledWith("a");
-    // 移出 → 占位 chip 收起。
-    fireEvent.mouseLeave(row);
-    expect(container.querySelectorAll(".pw-task-chip.is-placeholder").length).toBe(0);
   });
 
   it("折叠组头后该组行隐藏、统计不变（R14）", async () => {
