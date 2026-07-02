@@ -34,16 +34,20 @@ import {
   isMissingAgentSessionError,
   personalChatKeys,
   personalProcessKeys,
+  prewarmPiSession,
   resolveSpawnAgentId,
   restrictedToolForMode,
   sanitizeForSave,
   sessionResumeId,
   sameTextOrdinal,
   splitPersonalMessages,
+  thinkingSnippet,
   truncateForEdit,
   typingText,
   windowTailMessages,
 } from "./messages";
+import { __resetPiSessionsForTest, isPiSessionOpen } from "./pi-session";
+import type { DesktopBridge } from "../desktop/bridge";
 import type { Message } from "../types";
 
 const baseSession: SessionMeta = {
@@ -1893,5 +1897,213 @@ describe("buildSingleSendSkillInjection（U5 单发 skill 注入分派）", () =
     const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection("claude", undefined, []);
     expect(appendWithSkills).toBeUndefined();
     expect(skillRecords).toEqual([]);
+  });
+});
+
+// ── pi typing 活动行(结构化 activity 字段,实时透出思考/工具进度到聊天流) ──────────
+describe("pi typing 活动行(activity)", () => {
+  const piSession: SessionMeta = { ...baseSession, agent: "pi", agentSessionIds: {} };
+
+  function setupPiRun(qc: QueryClient, sessionId = "s1", runId = "prun-1"): string {
+    usePersonalStore.setState({
+      sessions: [{ ...piSession, id: sessionId }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId, sessionId, typingUid: `typ-${sessionId}`, cwd: "/proj", promptText: "hi" });
+    // 模拟 send 侧创建的 typing 占位(beginPiRun 不负责 appendMsg)。
+    qc.setQueryData<Message[]>(personalChatKeys.detail(sessionId), (prev) => [
+      ...(prev ?? []),
+      { kind: "typing", who: "pi", text: "启动中", uid: `typ-${sessionId}` },
+    ]);
+    return runId;
+  }
+
+  function typingOf(qc: QueryClient, sessionId = "s1") {
+    const m = (qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? []).find(
+      (x) => x.kind === "typing",
+    );
+    return m?.kind === "typing" ? m : undefined;
+  }
+
+  it("reasoning 事件 → activity 进入 thinking 相并携带尾部片段", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "先想想" });
+    const t = typingOf(qc);
+    expect(t?.activity).toMatchObject({ phase: "thinking", snippet: "先想想" });
+    expect(typeof t?.activity?.startedAt).toBe("number");
+  });
+
+  it("reasoning 累计后 snippet 只保留尾部(截断,不含开头)", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: `开头${"甲".repeat(200)}` });
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "结尾片段" });
+    const snippet = typingOf(qc)?.activity?.snippet ?? "";
+    expect(snippet.endsWith("结尾片段")).toBe(true);
+    expect(snippet.length).toBeLessThanOrEqual(140);
+    expect(snippet.includes("开头")).toBe(false);
+  });
+
+  it("tool-start → phase:tool + 工具名/detail/toolStartedAt,首个工具 stepCount 0", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    const a = typingOf(qc)?.activity;
+    expect(a).toMatchObject({ phase: "tool", toolName: "Bash", detail: "ls", stepCount: 0 });
+    expect(typeof a?.toolStartedAt).toBe("number");
+  });
+
+  it("tool-end → phase:toolDone 且 stepCount 累加;下个工具 stepCount 随之推进", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    expect(typingOf(qc)?.activity).toMatchObject({ phase: "toolDone", toolName: "Bash", stepCount: 1 });
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Read", toolCallId: "t2" });
+    expect(typingOf(qc)?.activity).toMatchObject({ phase: "tool", toolName: "Read", stepCount: 1 });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Read", toolCallId: "t2", isError: false });
+    expect(typingOf(qc)?.activity).toMatchObject({ phase: "toolDone", stepCount: 2 });
+  });
+
+  it("MCP 工具名清洗后展示(mcp__server__tool → tool)", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", {
+      type: "tool-start",
+      name: "mcp__doc__extract_document",
+      toolCallId: "t1",
+    });
+    expect(typingOf(qc)?.activity?.toolName).toBe("extract_document");
+  });
+
+  it("正文首 token 到达 → typing(连同 activity)被移除", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "想" });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "答案" });
+    expect(typingOf(qc)).toBeUndefined();
+  });
+
+  it("代际守卫:旧 runId 的事件不改新轮 activity", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc, "s1", "prun-new");
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "新轮思考" }, "prun-new");
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1" }, "prun-old");
+    expect(typingOf(qc)?.activity).toMatchObject({ phase: "thinking", snippet: "新轮思考" });
+  });
+
+  it("result 收尾 → typing(连同 activity)整条移除,无过期活动行残留", () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    expect(typingOf(qc)).toBeUndefined();
+    vi.useRealTimers();
+  });
+});
+
+describe("thinkingSnippet 尾部片段派生", () => {
+  it("多行取最后两行并压平空白", () => {
+    expect(thinkingSnippet("第一行\n第二行\n第三行")).toBe("第二行 第三行");
+  });
+  it("超长截尾至 140 字以内", () => {
+    const s = thinkingSnippet("x".repeat(500));
+    expect(s.length).toBeLessThanOrEqual(140);
+    expect(s.endsWith("x")).toBe(true);
+  });
+  it("空串与纯空白返回空", () => {
+    expect(thinkingSnippet("")).toBe("");
+    expect(thinkingSnippet("  \n  ")).toBe("");
+  });
+});
+
+// ── 会话预热(prewarmPiSession):输入首字符时提前拉起 pi 进程,消除首轮冷启 ~800ms ──────
+describe("prewarmPiSession 会话预热", () => {
+  const piSession: SessionMeta = { ...baseSession, agent: "pi", agentSessionIds: {} };
+
+  function prewarmBridge(over: Record<string, unknown> = {}) {
+    return {
+      piOpen: vi.fn(async (req: { uiSessionId: string }) => ({
+        uiSessionId: req.uiSessionId,
+        sessionId: "pi-warm",
+        sessionFile: "/sessions/warm.jsonl",
+      })),
+      piPrompt: vi.fn(async () => undefined),
+      onPiEvent: vi.fn(() => () => undefined),
+      ...over,
+    } as unknown as DesktopBridge;
+  }
+
+  beforeEach(() => {
+    __resetPiSessionsForTest();
+    usePersonalStore.setState({ sessions: [piSession], runningBySession: {}, piRuntimeBySession: {} });
+  });
+
+  it("并发预热只 spawn 一次,且绝不 setRunning", async () => {
+    const qc = new QueryClient();
+    const bridge = prewarmBridge();
+    await Promise.all([
+      prewarmPiSession(qc, bridge, piSession, "/proj"),
+      prewarmPiSession(qc, bridge, piSession, "/proj"),
+    ]);
+    expect((bridge.piOpen as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+    expect(usePersonalStore.getState().runningBySession["s1"]).toBeUndefined();
+    expect(isPiSessionOpen("s1")).toBe(true);
+  });
+
+  it("已开启的温会话 no-op(不重复 spawn)", async () => {
+    const qc = new QueryClient();
+    const bridge = prewarmBridge();
+    await prewarmPiSession(qc, bridge, piSession, "/proj");
+    await prewarmPiSession(qc, bridge, piSession, "/proj");
+    expect((bridge.piOpen as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+  });
+
+  it("非 pi 会话 no-op", async () => {
+    const qc = new QueryClient();
+    const bridge = prewarmBridge();
+    await prewarmPiSession(qc, bridge, { ...piSession, agent: "claude" }, "/proj");
+    expect((bridge.piOpen as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it("piOpen 失败静默:不抛错、不写错误消息进聊天流", async () => {
+    const qc = new QueryClient();
+    const bridge = prewarmBridge({ piOpen: vi.fn(async () => Promise.reject(new Error("spawn 失败"))) });
+    await expect(prewarmPiSession(qc, bridge, piSession, "/proj")).resolves.toBeUndefined();
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+    expect(msgs).toHaveLength(0);
+  });
+
+  it("预热成功后把 sessionFile 持久到 SessionMeta(供后续重开恢复)", async () => {
+    const qc = new QueryClient();
+    const bridge = prewarmBridge();
+    await prewarmPiSession(qc, bridge, piSession, "/proj");
+    const sess = usePersonalStore.getState().sessions.find((s) => s.id === "s1");
+    expect(sess?.piSessionFile).toBe("/sessions/warm.jsonl");
+  });
+});
+
+describe("pi typing 活动行:重试复位", () => {
+  it("result(willRetry:true) 后步数复位,重试轮工具从第 1 步重计", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId: "prun-r", sessionId: "s1", typingUid: "typ-s1", cwd: "/proj", promptText: "hi" });
+    qc.setQueryData<Message[]>(personalChatKeys.detail("s1"), [
+      { kind: "typing", who: "pi", text: "启动中", uid: "typ-s1" },
+    ]);
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true });
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Read", toolCallId: "t2" });
+    const typing = (qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? []).find((m) => m.kind === "typing");
+    expect(typing?.kind === "typing" && typing.activity).toMatchObject({ phase: "tool", stepCount: 0 });
   });
 });

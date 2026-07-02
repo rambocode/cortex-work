@@ -164,6 +164,7 @@ export function ComposerShell({
   onToggleSkills,
   onCancelEdit,
   onToast,
+  onPrewarm,
 }: {
   agent: AgentKind;
   // agent 选择器(opt-in,仅新会话落地页用):选中的派生 id + 候选/门控数据 + 切换回调。
@@ -216,6 +217,9 @@ export function ComposerShell({
   onToggleSkills: () => void;
   onCancelEdit?: () => void;
   onToast: (text: string) => void;
+  // 会话预热(opt-in):输入非空文本时触发,供个人工作区提前拉起 pi 进程消除首轮冷启。
+  // 每次非空变更都会调用,幂等/去重由调用方负责;团队侧不传 → no-op。
+  onPrewarm?: () => void;
 }) {
   const { t } = useTranslation("chat");
   const bridge = useDesktopBridge();
@@ -831,6 +835,8 @@ export function ComposerShell({
             value={text}
             onChange={(e) => {
               setText(e.target.value);
+              // 会话预热:敲下首个字符即预拉起 agent 进程(去重在调用方),发送时省掉冷启等待。
+              if (e.target.value.trim()) onPrewarm?.();
               // @mention autocomplete：文本变更时重新检测 @query
               requestAnimationFrame(() => mention.updateMentionState());
               // 宠物:进入「看你打字」状态（停止输入后由节拍器衰减回 idle）。

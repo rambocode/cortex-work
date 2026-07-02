@@ -239,10 +239,15 @@ export default interface Resources {
       "switchModelFailed": "⚠️ 切换模型失败,已回滚到原模型。",
       "switchThinkingFailed": "⚠️ 切换思考强度失败,已回滚。",
       "typing": {
+        "openProcess": "展开执行过程",
         "startHint": "（启动较慢,若长时间无响应可在闪记详情点「放弃深化」后重试,或切换其它 agent）",
         "starting": "正在启动 {{name}}…",
+        "stepN": "第 {{n}} 步",
         "thinking": "{{name}} 正在思考…",
+        "thinkingFor": "已思考 {{secs}} 秒",
         "toolDone": "{{name}} 已完成 {{tool}}",
+        "toolDoneShort": "{{tool}} 完成",
+        "toolRunning": "已运行 {{secs}} 秒",
         "waited": "已等待 {{secs}} 秒",
         "working": "{{name}} 正在执行 {{tool}}…",
         "workingDetail": "{{name}} 正在执行 {{tool}} · {{detail}}"

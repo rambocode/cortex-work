@@ -152,6 +152,13 @@ export function PersonalProcessPanel() {
   useEffect(() => {
     setUserOpen(null);
   }, [processResetKey]);
+  // 外部展开请求(点聊天流 typing 活动行):nonce 变化即展开一次。不整体提升 userOpen ——
+  // 保留「每轮默认收起」;用户随后手动收起也不会被同一请求重复打开(nonce 不再变化)。
+  const openReq = usePersonalStore((s) => s.processPanelOpenReq);
+  useEffect(() => {
+    if (openReq && openReq.sessionId === activeSessionId) setUserOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openReq?.nonce]);
   // 默认收起为圆形 icon（运行中也收起，不自动撑开整块面板，避免抢焦）：userOpen 为用户手动覆盖，
   // 同一轮内（processResetKey 不变）保持；下一轮 runId/首步变化时 useEffect 重置回默认收起。
   // 运行/完成的 icon 变化（转圈↔绿勾）即为用户的「执行感知」，点开才向下展开看步骤。

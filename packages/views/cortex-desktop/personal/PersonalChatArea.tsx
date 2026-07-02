@@ -292,6 +292,12 @@ export function PersonalChatArea({
     [realProject, bridge, requestFilePreview, setRightOpen, onToast],
   );
 
+  // 点 typing 活动行 → 请求展开右侧「执行过程」面板(store nonce 信号,面板侧消费)。
+  const handleActivityClick = useCallback(() => {
+    const sid = usePersonalStore.getState().activeSessionId;
+    if (sid) usePersonalStore.getState().requestOpenProcessPanel(sid);
+  }, []);
+
   // 消息底部行:时间常驻(撑起固定高度,避免悬停露出图标时抖动)+ 悬停淡入的操作。
   const renderTextTail = useCallback(
     (m: Extract<Message, { kind: "text" }>) => {
@@ -497,6 +503,7 @@ export function PersonalChatArea({
         renderTextTail={renderTextTail}
         stickToBottomKey={scrollStickKey}
         preserveAnchorKey={win.expandNonce}
+        onActivityClick={handleActivityClick}
         leadingContent={
           showHiddenHistory ? (
             <HiddenHistoryGate count={hiddenCount} expanded onToggle={() => setShowHiddenHistory(false)} />

@@ -137,6 +137,9 @@ export interface PersonalState {
   // 在内嵌浏览器打开某 URL 的请求(卡片点击 / auto_open)。BrowserView 监听 nonce 变化
   // 后加载;nonce 让「同 URL 再次请求」也能触发重载。瞬态,不进 toPersistedState。
   browserUrlRequest?: { url: string; nonce: number };
+  // 展开「执行过程」面板的请求(点聊天流 typing 活动行触发)。nonce 让同会话重复点击也能触发;
+  // 用请求信号而非提升面板 userOpen,保留面板「每轮默认收起」的既有逻辑。瞬态,不进 toPersistedState。
+  processPanelOpenReq?: { sessionId: string; nonce: number };
   // 已 auto_open 自动打开过的「会话:URL」键集合。防探测结果在重渲染/多会话来回切换中
   // 反复自动弹面板(同键不再触发)。用数组而非单槽,否则切到别的会话再切回会重复弹
   // (安全/正确性评审)。瞬态,不进 toPersistedState。
@@ -261,6 +264,8 @@ export interface PersonalState {
   setRunning: (sessionId: string, runId: string | undefined) => void;
   // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
+  // 请求展开「执行过程」面板(nonce 递增触发,面板侧 useEffect 消费)。
+  requestOpenProcessPanel: (sessionId: string) => void;
   // 设置/清空某会话的运行模式拦截提示（hint=undefined 清空,如切档/忽略/新发送）。
   setModeBlockHint: (sessionId: string, hint: ModeBlockHint | undefined) => void;
   // pi extension UI 待确认请求:入队 / 按会话+请求 id 出队 / 清某会话全部（会话退出/删除时）。
@@ -908,6 +913,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         [sessionId]: patch === undefined ? undefined : { ...s.piRuntimeBySession[sessionId], ...patch },
       },
     })),
+
+  // nonce 用「上个值 +1」而非时间戳:同会话快速连点也保证变化,且不依赖时钟。
+  requestOpenProcessPanel: (sessionId) =>
+    set((s) => ({ processPanelOpenReq: { sessionId, nonce: (s.processPanelOpenReq?.nonce ?? 0) + 1 } })),
 
   setModeBlockHint: (sessionId, hint) =>
     set((s) => ({ modeBlockHints: { ...s.modeBlockHints, [sessionId]: hint } })),
