@@ -65,6 +65,11 @@ export interface AgentDef {
   // agent_start/turn_start/turn_end/agent_end/message_start)。缺省 undefined = 沿用现状,
   // 所有空解析的 `{` 开头行都告警(claude/codex 未声明此位,行为不变)。
   ignoredFrameTypes?: ReadonlySet<string>;
+  // 细粒度已知忽略判定(可选,与 ignoredFrameTypes 是「或」关系)。集合只能按顶层 type 一刀切,
+  // 而 pi 的 message_update/message_end 是「同 type 下部分子事件已适配、其余故意忽略」——把顶层
+  // type 整个塞进集合会连未来真正的子事件协议漂移(如新 stopReason 落入终态黑洞)一并消音。
+  // 此钩子拿到整帧 JSON 对象按内容判定;返回 true = 已评审的故意忽略,盲区补点不告警。
+  isIgnoredFrame?(frame: Record<string, unknown>): boolean;
   // ── 两个纯函数 ──
   // 返回可执行名与参数(可执行名不带路径，由 cli.ts 结合 PATH 解析),以及可选的 stdin 负载。
   // stdin 存在时(claude/codex):prompt 经 stdin 投递、不进 argv,绕开命令行长度上限(E2BIG/ENAMETOOLONG);
@@ -101,13 +106,16 @@ export function parseLineEvents(def: AgentDef, line: string): CliStreamEvent[] {
   return events;
 }
 
-// 命中 def.ignoredFrameTypes 的帧不算盲区(已评审、故意忽略),不告警。JSON 解析失败/无
-// type 字段/def 未声明该位 → 视为「不是已知忽略帧」,回退到现状告警(保守,不漏真正的盲区)。
+// 命中 def.ignoredFrameTypes(按顶层 type)或 def.isIgnoredFrame(按整帧内容)的帧不算盲区
+// (已评审、故意忽略),不告警。JSON 解析失败/无 type 字段/def 未声明这两位 → 视为「不是已知
+// 忽略帧」,回退到现状告警(保守,不漏真正的盲区)。
 function isKnownIgnoredFrame(def: AgentDef, trimmedLine: string): boolean {
-  if (!def.ignoredFrameTypes) return false;
+  if (!def.ignoredFrameTypes && !def.isIgnoredFrame) return false;
   try {
     const obj = JSON.parse(trimmedLine) as Record<string, unknown>;
-    return typeof obj?.type === "string" && def.ignoredFrameTypes.has(obj.type);
+    if (!obj || typeof obj !== "object") return false;
+    if (typeof obj.type === "string" && def.ignoredFrameTypes?.has(obj.type)) return true;
+    return def.isIgnoredFrame?.(obj) ?? false;
   } catch {
     return false;
   }

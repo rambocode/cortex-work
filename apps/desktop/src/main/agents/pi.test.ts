@@ -152,6 +152,15 @@ describe("piDef.parseLine", () => {
     expect(piDef.parseLine(line)).toEqual({ type: "text", delta: "Hello" });
   });
 
+  it("message_update thinking_delta → thinking 增量(reasoning 模型,与 claude adapter 对齐)", () => {
+    const line = JSON.stringify({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "The user", partial: {} },
+      message: {},
+    });
+    expect(piDef.parseLine(line)).toEqual({ type: "thinking", delta: "The user" });
+  });
+
   it("tool_execution_start → tool 事件(detail 取 command)", () => {
     const line = JSON.stringify({
       type: "tool_execution_start",
@@ -234,5 +243,33 @@ describe("piDef.parseLine", () => {
   it("非 JSON / 形状不符 → null 且不抛", () => {
     expect(piDef.parseLine("not json")).toBeNull();
     expect(piDef.parseLine(JSON.stringify({ type: "session" }))).toBeNull();
+  });
+});
+
+describe("piDef.isIgnoredFrame(细粒度已知忽略,防止盲区补点刷屏)", () => {
+  // reasoning 模型(deepseek 等)每个 token 都发 thinking/text 生命周期子帧,若不声明为
+  // 已知忽略,dev 启动时 parse 日志会被「未映射的 pi 输出帧」刷屏(实测复现)。
+  it("message_update 的生命周期/toolcall 子帧 → 已知忽略", () => {
+    for (const sub of ["text_start", "text_end", "thinking_start", "thinking_end", "toolcall_start", "toolcall_delta", "toolcall_end"]) {
+      expect(piDef.isIgnoredFrame?.({ type: "message_update", assistantMessageEvent: { type: sub } })).toBe(true);
+    }
+  });
+
+  it("message_update 未知子帧 → 不忽略(保留协议漂移告警)", () => {
+    expect(piDef.isIgnoredFrame?.({ type: "message_update", assistantMessageEvent: { type: "brand_new_sub" } })).toBe(false);
+    expect(piDef.isIgnoredFrame?.({ type: "message_update" })).toBe(false);
+  });
+
+  it("message_end:user 回显 / assistant toolUse 中间轮 → 已知忽略", () => {
+    expect(piDef.isIgnoredFrame?.({ type: "message_end", message: { role: "user", content: [] } })).toBe(true);
+    expect(piDef.isIgnoredFrame?.({ type: "message_end", message: { role: "assistant", stopReason: "toolUse" } })).toBe(true);
+  });
+
+  it("message_end:assistant 未知 stopReason → 不忽略(终态卡死类漂移必须可观测)", () => {
+    expect(piDef.isIgnoredFrame?.({ type: "message_end", message: { role: "assistant", stopReason: "mystery" } })).toBe(false);
+  });
+
+  it("其它顶层 type → 不忽略(交由 ignoredFrameTypes 集合判定)", () => {
+    expect(piDef.isIgnoredFrame?.({ type: "agent_end" })).toBe(false);
   });
 });

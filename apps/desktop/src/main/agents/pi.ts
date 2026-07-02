@@ -10,9 +10,12 @@
 // --mode json 输出 JSONL,每行一个事件：
 //   {type:"session",id}                                              → init
 //   {type:"message_update",assistantMessageEvent:{type:"text_delta",delta}} → text 增量
+//   {type:"message_update",assistantMessageEvent:{type:"thinking_delta",delta}} → thinking 增量
 //   {type:"tool_execution_start",toolName,args}                      → tool 步骤
 //   {type:"message_end",message:{role:"assistant",stopReason,...}}   → 收尾(result)
-//   另有 agent_start/turn_start/turn_end/agent_end/message_start 等,一律忽略。
+//   另有 agent_start/turn_start/turn_end/agent_end/message_start 等,一律忽略;
+//   message_update 的 text/thinking start-end、toolcall_* 子帧与 user 回显的 message_end
+//   也是已知忽略(见 isIgnoredFrame),与 pi-rpc.ts mapPiEvent 的忽略清单同源。
 // ⚠️ 陷阱：provider 失败时进程仍 exit 0,错误只体现在 message_end 的 stopReason:"error"
 //    + errorMessage/diagnostics 上。故 result 由最后一条 assistant message_end 发出,
 //    agent_end 不发,避免覆盖掉这条错误结果。
@@ -64,12 +67,40 @@ function planToolWhitelist(req: CliStartRequest): string[] {
 // ignoredFrameTypes,让盲区补点跳过它们,不刷屏。
 const IGNORED_FRAME_TYPES = new Set(["agent_start", "turn_start", "turn_end", "agent_end", "message_start"]);
 
+// message_update 里已知无归一化映射的子事件:text/thinking 的 start-end 只是流边界标记,
+// toolcall_* 增量已由顶层 tool_execution_start 帧覆盖。与 pi-rpc.ts mapPiEvent 的忽略清单同源。
+// (text_delta/thinking_delta 会产事件,不在此列。)
+const IGNORED_MESSAGE_UPDATE_SUBTYPES = new Set([
+  "text_start",
+  "text_end",
+  "thinking_start",
+  "thinking_end",
+  "toolcall_start",
+  "toolcall_delta",
+  "toolcall_end",
+]);
+
 export const piDef: AgentDef = {
   id: "pi",
   // 能力位:pi 是自包含二进制,prompt 走 argv 位置参数;不注入 MCP(走自身扩展);续接用 --session;
   // 无图片处理;appendSystemPrompt 原生 flag。
   promptDelivery: "argv",
   ignoredFrameTypes: IGNORED_FRAME_TYPES,
+  // 细粒度已知忽略(盲区补点跳过,不刷屏):message_update 的生命周期/toolcall 子帧、user 回显
+  // 与 toolUse 中间轮的 message_end。assistant 的未知 stopReason 刻意**不**忽略——那是终态卡死
+  // 类协议漂移,必须保持可观测(与 pi-rpc.ts:101 的 warn 同一类信号)。
+  isIgnoredFrame(frame: Record<string, unknown>): boolean {
+    if (frame.type === "message_update") {
+      const ev = frame.assistantMessageEvent as Record<string, unknown> | undefined;
+      return typeof ev?.type === "string" && IGNORED_MESSAGE_UPDATE_SUBTYPES.has(ev.type);
+    }
+    if (frame.type === "message_end") {
+      const message = frame.message as Record<string, unknown> | undefined;
+      // --mode json 会回吐 user message 的 message_end(回显),非 assistant 一律已知忽略。
+      return message?.role !== "assistant" || message.stopReason === "toolUse";
+    }
+    return false;
+  },
   mcpInjection: "none",
   sessionResume: "resume-only",
   imageDelivery: "none",
@@ -132,6 +163,11 @@ export const piDef: AgentDef = {
       const ev = obj.assistantMessageEvent as Record<string, unknown> | undefined;
       if (ev?.type === "text_delta" && typeof ev.delta === "string") {
         return { type: "text", delta: ev.delta };
+      }
+      // 思考增量:reasoning 模型(deepseek 等)的 thinking_delta 归一化为 thinking 事件,
+      // 与 claude adapter / pi-rpc(reasoning)对齐;丢弃会让渲染端在长思考期间无任何反馈。
+      if (ev?.type === "thinking_delta" && typeof ev.delta === "string") {
+        return { type: "thinking", delta: ev.delta };
       }
       return null;
     }

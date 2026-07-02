@@ -158,6 +158,21 @@ describe("parseLineEvents 盲区补点(U4)", () => {
     expect(logMocks.debug).toHaveBeenCalledTimes(1);
   });
 
+  it("def.isIgnoredFrame 命中的帧 → 不告警;未命中 → 仍告警(细粒度忽略与集合是「或」关系)", () => {
+    const def = {
+      ...fakeDef(() => null),
+      ignoredFrameTypes: new Set(["turn_end"]),
+      isIgnoredFrame: (f: Record<string, unknown>) =>
+        f.type === "message_update" && (f.sub as string) === "known",
+    };
+    // 细粒度命中 → 静默;同帧 type 但子形状未命中 → 告警;集合命中仍生效。
+    expect(parseLineEvents(def, '{"type":"message_update","sub":"known"}')).toEqual([]);
+    expect(parseLineEvents(def, '{"type":"turn_end"}')).toEqual([]);
+    expect(logMocks.debug).not.toHaveBeenCalled();
+    expect(parseLineEvents(def, '{"type":"message_update","sub":"new"}')).toEqual([]);
+    expect(logMocks.debug).toHaveBeenCalledTimes(1);
+  });
+
   it("解析出事件(单/数组)→ 不落日志,返回行为不变", () => {
     const single = fakeDef(() => ({ type: "text", delta: "a" }) as never);
     expect(parseLineEvents(single, "ok")).toEqual([{ type: "text", delta: "a" }]);
