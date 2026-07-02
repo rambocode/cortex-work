@@ -63,6 +63,7 @@ import type {
   PushTarget,
   SkillMeta,
   SpotlightIntent,
+  TaskDelegateIntent,
   PtySpawnRequest,
   PtySpawnResult,
   ReadFileResult,
@@ -365,6 +366,13 @@ export interface DesktopBridge {
   taskDocSave?(taskId: string, file: { name: string; mimeType: string; srcPath?: string; data?: ArrayBuffer }): Promise<TaskAttachment>;
   taskDocDelete?(taskId: string, path: string): Promise<void>;
   onTasksChanged?(cb: (list: TaskMeta[]) => void): () => void;
+  // 委派意图跨窗口中继（KTD10）：sessions 是 renderer 本地 Zustand、不跨窗口，故「项目管理」
+  // 独立窗口委派不能本地起会话——只发意图给 main。main 唤起主窗口并把意图转发过去。
+  //  - sendTaskDelegateIntent：项目管理窗口 renderer 调用（发送端）。
+  //  - onTaskDelegateIntent：主窗口 renderer 订阅（接收端，解析任务后 createSession+send）。
+  // 可选能力（web/旧壳无 → 项目管理窗口不存在，两端都用不到）。
+  sendTaskDelegateIntent?(intent: TaskDelegateIntent): void;
+  onTaskDelegateIntent?(cb: (intent: TaskDelegateIntent) => void): () => void;
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。可选:web/旧壳无此
   // 能力 → 深化入口降级 toast。第一阶段读内置 resources/skills,第二阶段叠加 userData/skills。
   skillGet?(name: string): Promise<SkillMeta | null>;

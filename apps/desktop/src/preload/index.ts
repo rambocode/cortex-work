@@ -52,6 +52,7 @@ import type {
   ReadFileResult,
   SkillMeta,
   SpotlightIntent,
+  TaskDelegateIntent,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
   TaskFilesResult,
@@ -467,6 +468,15 @@ const personal = {
     const listener = (_e: IpcRendererEvent, list: TaskMeta[]) => cb(list);
     ipcRenderer.on("tasks:changed", listener);
     return () => ipcRenderer.removeListener("tasks:changed", listener);
+  },
+  // 委派意图跨窗口中继（KTD10）。形状与 DesktopBridge 的 sendTaskDelegateIntent/onTaskDelegateIntent
+  // 逐字对齐（手工比对，无 satisfies）。send：项目管理窗口发送；on：主窗口订阅 main 转发的意图。
+  sendTaskDelegateIntent: (intent: TaskDelegateIntent): void =>
+    ipcRenderer.send("task-delegate:intent", intent),
+  onTaskDelegateIntent: (cb: (intent: TaskDelegateIntent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, intent: TaskDelegateIntent) => cb(intent);
+    ipcRenderer.on("task-delegate:intent", listener);
+    return () => ipcRenderer.removeListener("task-delegate:intent", listener);
   },
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。形状与 DesktopBridge
   // 的可选 skillGet/skillsList 逐字对齐（手工比对,无 satisfies）。

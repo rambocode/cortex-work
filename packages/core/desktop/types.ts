@@ -1178,6 +1178,13 @@ export interface SpotlightIntent {
   projectId?: string; // 缺省 = 不使用项目
 }
 
+// 「项目管理」独立窗口 → 主进程 → 主窗口接力的委派意图（KTD10）。sessions 是 renderer 本地
+// Zustand、不跨窗口同步，故项目窗口不能本地起会话，只发意图；主窗口据 taskId 从 React Query
+// 缓存（main-owned，跨窗口广播一致）解析任务并执行 createSession+send。
+export interface TaskDelegateIntent {
+  taskId: string;
+}
+
 // ── 内嵌终端（PTY） ───────────────────────────────────────────────────────
 
 export interface PtySpawnRequest {

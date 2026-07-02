@@ -30,6 +30,7 @@ import { initWorkflowScheduler } from "./workflow/scheduler";
 import { createTray, destroyTray } from "./automation/tray";
 import { toggleSpotlight, destroySpotlight, getSpotlightWindow } from "./spotlight";
 import { registerSpotlightHandlers } from "./ipc/spotlight";
+import { registerProjectsDelegateRelay } from "./projects-window";
 import { toggleNotesOverlay, destroyNotesOverlay, getNotesOverlayWindow } from "./notes-overlay";
 import { registerNotesOverlayHandlers } from "./ipc/notes-overlay";
 import { destroyNotificationWindow, clearNotifications } from "./notification-window";
@@ -264,6 +265,8 @@ if (!app.requestSingleInstanceLock()) {
     registerDesktopHandlers();
     registerLogHandlers();
     registerSpotlightHandlers({ showMainWindow, getMainWindow: () => mainWindow });
+    // 「项目管理」独立窗口 → 主窗口的委派意图中继（KTD10）。lazy getMainWindow：建窗在后（见下方 createWindow）。
+    registerProjectsDelegateRelay({ showMainWindow, getMainWindow: () => mainWindow });
     registerNotesOverlayHandlers();
     registerNotificationWindowHandlers();
     // 全局热键唤起闪记浮层(全仓首次用 globalShortcut)。读用户配置的 notesHotkey,

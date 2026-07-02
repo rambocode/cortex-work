@@ -1,8 +1,8 @@
-// 全屏三栏「项目」工作台容器（U5）。fixed 全窗覆盖层（.pw-projects-page，见 cortex-desktop.css），
-// 由 PersonalWorkspace 在 settings 覆盖层**之前**渲染（栈式：工作台内可叠开设置）。
+// 三栏「项目」工作台容器。自 U3 起运行在「项目管理」独立桌面窗口（projects.html）的根，
+// 不再是主窗口内的 fixed 覆盖层；关窗交给系统红绿灯（KTD8：ESC 不再关窗、头部 X 已退役）。
 // 薄容器：持有 UI 瞬态选中态（选中节点 / 选中任务，不复制服务端态，KTD8）+ 根挂订阅；
-// 三列由 U6 ProjectTree（左）/ U7 TaskListColumn（中）/ U8 TaskDetail（右）填充。
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+// 三列由 ProjectTree（左）/ TaskListColumn（中）/ TaskDetail（右）填充。
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { usePersonalStore } from "@cortex-work/core";
 import { useTasks, useTasksChangeSubscription } from "@cortex-work/core/personal/tasks";
@@ -21,7 +21,6 @@ export type WorkbenchSelection =
 // onToast 由 PersonalWorkspace 透传（工作台内委派/新建等动作需给用户反馈，而工作台是 fixed
 // 覆盖层、盖住底层的 toast 宿主，故须自持 toast 通道）。
 export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void }) {
-  const closeProjects = usePersonalStore((s) => s.closeProjects);
   const detailWidth = usePersonalStore((s) => s.projectsDetailWidth) ?? 380;
   const setDetailWidth = usePersonalStore((s) => s.setProjectsDetailWidth);
   // 根挂载订阅：后台结构化 / agent 委派回写 → invalidate 刷新三栏（KTD8；历史 notes 零挂载 bug 在先）。
@@ -51,23 +50,12 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
   const { data: tasksData } = useTasks();
   const selectedTask = selectedTaskId ? (tasksData ?? []).find((t) => t.id === selectedTaskId) : undefined;
 
-  // ESC 关闭工作台（回到打开前的底层视图）。
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeProjects();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [closeProjects]);
-
   return (
     <div className="pw-projects-page">
+      {/* 顶部标题栏（暂留，U4 换成 OmniFocus 自绘工具栏）：hiddenInset 窗口红绿灯避让 + 拖拽区。 */}
       <div className="pw-projects-head">
         <span className="pw-projects-title">项目</span>
         <div className="spacer" />
-        <button className="pw-icon-btn" title="关闭（Esc）" onClick={closeProjects}>
-          <Icon.X size={16} />
-        </button>
       </div>
       <div className="pw-projects-cols">
         {/* 左列：项目树（U6）。切换节点/内置视图时清空右列选中任务（KTD8：选中态是 UI 瞬态）。 */}

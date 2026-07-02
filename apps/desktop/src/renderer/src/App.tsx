@@ -31,6 +31,13 @@ const openFlashNote =
     ? () => window.desktopAPI?.notesOverlay?.show?.()
     : undefined;
 
+// 「项目管理」独立窗口入口:壳就近注入(views 不直接碰 window.desktopAPI,KTD2)。缺桥/旧壳无
+// projectsWindow 能力时 → undefined,透传到侧栏后隐藏入口(与任务能力门控 tasksListProjects 双门控)。
+const openProjectsWindow =
+  typeof window !== "undefined" && window.desktopAPI?.projectsWindow?.open
+    ? () => void window.desktopAPI?.projectsWindow?.open?.()
+    : undefined;
+
 export default function App() {
   // macOS:主进程已给主窗口启用原生「sidebar」vibrancy(见 main/index.ts)。此处在 <html> 挂
   // data-vibrancy="sidebar",驱动共享样式表把左侧菜单栏背后的背景链打透、透出磨砂材质
@@ -100,7 +107,7 @@ export default function App() {
       }}
       desktopBridge={desktopBridge}
     >
-      <CortexDesktopView nativeTitlebar={isMac} onOpenFlashNote={openFlashNote} />
+      <CortexDesktopView nativeTitlebar={isMac} onOpenFlashNote={openFlashNote} onOpenProjectsWindow={openProjectsWindow} />
     </CoreProvider>
   );
 }

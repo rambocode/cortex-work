@@ -1,6 +1,7 @@
 // 三栏项目工作台中列（U7）：按左树选择聚合任务清单 —— 分组 / 排序 / 快速新增 / 行内动作
 //（完成、flag、删除、委派、打开详情）。服务端态全部来自 core hooks（React Query，main 是 owner，
-// 不复制进 Zustand，KTD8）。委派走 keepView 后台模式，不关工作台（对抗研究 #3）。
+// 不复制进 Zustand，KTD8）。本列运行在「项目管理」独立窗口：委派经 useDelegateTaskRelay 只发意图
+// 给主窗口执行（sessions 不跨窗口，KTD10），不本地起会话、不关窗。
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
@@ -16,7 +17,7 @@ import {
 } from "@cortex-work/core/personal/tasks";
 import { descendantProjectIds } from "@cortex-work/core/personal/taskProjectTree";
 import { buildTaskTree, taskDescendantIds, areAllChildrenDone, type TaskTreeNode } from "@cortex-work/core/personal/taskTree";
-import { useDelegateTask } from "@cortex-work/core/personal/taskDelegate";
+import { useDelegateTaskRelay } from "@cortex-work/core/personal/taskDelegate";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
 import { TaskInlineInspector } from "./TaskInlineInspector";
 import { useTaskDraftField } from "./useTaskDraftField";
@@ -95,7 +96,7 @@ export function TaskListColumn({
   const addTask = useAddTask();
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
-  const delegate = useDelegateTask();
+  const delegate = useDelegateTaskRelay();
   const collapsedTasks = usePersonalStore((s) => s.collapsedTasks);
   const toggleTaskCollapse = usePersonalStore((s) => s.toggleTaskCollapse);
 
@@ -294,8 +295,8 @@ export function TaskListColumn({
                 onDelete={() => onDelete(t)}
                 onAddSubtask={() => onAddSubtask(t)}
                 onCompleteSuggested={() => onCompleteSuggested(t)}
-                // keepView：委派为后台动作，不关工作台；toast 由 delegate 内部反映目标 cwd。
-                onDelegate={() => delegate(t, onToast, { keepView: true })}
+                // 委派只发意图给主窗口执行（sessions 不跨窗口，KTD10）；本地即时 toast。
+                onDelegate={() => delegate(t, onToast)}
               />
             ))}
           </div>

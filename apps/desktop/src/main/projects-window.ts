@@ -137,3 +137,19 @@ export function registerProjectsWindowHandlers(): void {
     showProjectsWindow();
   });
 }
+
+// 委派意图跨窗口中继（KTD10）：项目管理窗口的 sessions 是 renderer 本地 Zustand、不跨窗口，
+// 故委派不能在项目窗口本地起会话——项目窗口只发意图（send），main 在此显式定位并唤起主窗口
+// （不用 getAllWindows()[0]，避免误命中项目/浮层等其它窗口），再把意图转发给主窗口 renderer 执行。
+// 与 registerProjectsWindowHandlers 分开：本函数需要主窗口引用，从 index.ts 传入（仿 spotlight）。
+export function registerProjectsDelegateRelay(opts: {
+  showMainWindow: () => void;
+  getMainWindow: () => BrowserWindow | null;
+}): void {
+  ipcMain.on("task-delegate:intent", (_e, intent: { taskId: string }) => {
+    // 主窗口可能被 close-to-tray 隐藏，先 show()+focus() 唤起（参照 push-on-complete 的窗口唤醒式样）。
+    opts.showMainWindow();
+    const win = opts.getMainWindow();
+    if (win && !win.isDestroyed()) win.webContents.send("task-delegate:intent", intent);
+  });
+}

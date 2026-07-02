@@ -1281,49 +1281,7 @@ describe("hydrate 会话权限迁移(旧 permissionMode/approvalPolicy → 新 e
   });
 });
 
-describe("projectsOpen 全屏互斥（U4）", () => {
-  it("openProjects 置真并清其它全屏主区视图标志", () => {
-    usePersonalStore.getState().openWorkflow();
-    usePersonalStore.getState().openProjects();
-    const st = usePersonalStore.getState();
-    expect(st.projectsOpen).toBe(true);
-    expect(st.workflowOpen).toBe(false);
-    expect(st.automationOpen).toBe(false);
-    expect(st.homeOpen).toBe(false);
-    expect(st.settingsOpen).toBe(false);
-    expect(st.timelineProjectId).toBeUndefined();
-    expect(st.noteEditorId).toBeUndefined();
-    expect(st.activeSessionId).toBeUndefined();
-  });
-
-  it("其它全屏入口回来会清 projectsOpen（互斥站点抽样：home/automation/workflow/activateProject）", () => {
-    const store = usePersonalStore.getState();
-    store.openProjects();
-    store.openHome();
-    expect(usePersonalStore.getState().projectsOpen).toBe(false);
-    store.openProjects();
-    store.openAutomation();
-    expect(usePersonalStore.getState().projectsOpen).toBe(false);
-    store.openProjects();
-    store.openWorkflow();
-    expect(usePersonalStore.getState().projectsOpen).toBe(false);
-    store.openProjects();
-    store.activateProject("p-x");
-    expect(usePersonalStore.getState().projectsOpen).toBe(false);
-  });
-
-  it("openSettings 有意不清 projectsOpen（栈式覆盖例外）；closeSettings 回工作台", () => {
-    usePersonalStore.getState().openProjects();
-    usePersonalStore.getState().openSettings();
-    expect(usePersonalStore.getState().projectsOpen).toBe(true);
-    expect(usePersonalStore.getState().settingsOpen).toBe(true);
-    usePersonalStore.getState().closeSettings();
-    expect(usePersonalStore.getState().projectsOpen).toBe(true);
-  });
-
-  it("projectsOpen 不进 toPersistedState（瞬态）", () => {
-    usePersonalStore.getState().openProjects();
-    const persisted = toPersistedState(usePersonalStore.getState());
-    expect("projectsOpen" in persisted).toBe(false);
-  });
-});
+// 「项目管理」工作台已从主窗口内的全屏覆盖层（projectsOpen 视图态）迁为独立桌面窗口（U3）：
+// store 不再持有该视图态，入口打开独立 BrowserWindow（desktopAPI.projectsWindow.open）。
+// 故原 projectsOpen 全屏互斥断言随状态删除一并移除；openSettings 栈式语义仍由上方
+// 「设置整页视图态(settingsOpen)」用例覆盖。

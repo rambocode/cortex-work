@@ -242,10 +242,13 @@ function ProjectBlock({
 export function PersonalSidebar({
   onToast,
   onOpenFlashNote,
+  onOpenProjectsWindow,
 }: {
   onToast: (text: string) => void;
   // 闪记浮层入口(壳注入 window.desktopAPI.notesOverlay.show;web/旧壳缺省 → 隐藏入口)。
   onOpenFlashNote?: () => void;
+  // 「项目管理」独立窗口入口(壳注入 window.desktopAPI.projectsWindow.open;web/旧壳缺省 → 隐藏入口)。
+  onOpenProjectsWindow?: () => void;
 }) {
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
@@ -257,9 +260,6 @@ export function PersonalSidebar({
   // loop 工作流视图状态（bridge.workflowList 有值时才渲染入口，web 端 bridge 为 null 自动降级）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
   const openWorkflow = usePersonalStore((s) => s.openWorkflow);
-  // 全屏三栏「项目」工作台入口（能力门控 bridge.tasksListProjects；web/旧壳缺省 → 隐藏）。
-  const projectsOpen = usePersonalStore((s) => s.projectsOpen);
-  const openProjects = usePersonalStore((s) => s.openProjects);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
@@ -343,17 +343,6 @@ export function PersonalSidebar({
           <span>Loop 工作流</span>
         </button>
       ) : null}
-      {/* 项目工作台入口：全屏三栏（左项目树/中任务清单/右详情）。门控 tasksListProjects。 */}
-      {bridge?.tasksListProjects ? (
-        <button
-          className={`pw-home-btn ${projectsOpen ? "is-active" : ""}`}
-          onClick={openProjects}
-          title="项目工作台（三栏：项目树 / 任务清单 / 详情）"
-        >
-          <Icon.Folder size={14} />
-          <span>项目</span>
-        </button>
-      ) : null}
       <div className="pw-section-h">
         <span>项目</span>
         <button className="pw-icon-btn" title="添加项目（选择本地文件夹）" onClick={pickProject} disabled={!bridge}>
@@ -419,6 +408,15 @@ export function PersonalSidebar({
           </div>
         ) : null}
       </div>
+      {/* 「项目管理」独立窗口入口：位列底部「设置」正上方（与「设置」等全局入口同定位）。
+          双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow（壳注入窗口能力）；
+          web/旧壳缺任一 → 隐藏（R1/R6，KTD2：窗口打开经壳注入回调，views 不碰 window.desktopAPI）。 */}
+      {bridge?.tasksListProjects && onOpenProjectsWindow ? (
+        <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
+          <Icon.Folder size={14} />
+          <span>项目管理</span>
+        </button>
+      ) : null}
       <SettingsMenu />
     </aside>
   );

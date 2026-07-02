@@ -39,9 +39,11 @@ export interface CortexDesktopViewProps {
   // 闪记浮层入口(桌面端由壳注入 window.desktopAPI.notesOverlay.show;web 端缺省 → 隐藏入口)。
   // 由壳就近注入,views 不直接触碰 window.desktopAPI(遵 core/views 硬边界)。
   onOpenFlashNote?: () => void;
+  // 「项目管理」独立窗口入口(桌面端由壳注入 window.desktopAPI.projectsWindow.open;web 端缺省 → 隐藏)。
+  onOpenProjectsWindow?: () => void;
 }
 
-export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote }: CortexDesktopViewProps) {
+export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onOpenProjectsWindow }: CortexDesktopViewProps) {
   const { t } = useTranslation();
   const wsId = useWorkspaceId();
   const { apiClient } = useCoreContext();
@@ -115,7 +117,7 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote }: C
           {personal ? (
             // 个人工作区:取消贯穿全宽的标题栏,三栏各自顶天、各有自己的顶部头。
             <div className="body">
-              <PersonalWorkspace onToast={pushToast} onOpenFlashNote={onOpenFlashNote} />
+              <PersonalWorkspace onToast={pushToast} onOpenFlashNote={onOpenFlashNote} onOpenProjectsWindow={onOpenProjectsWindow} />
             </div>
           ) : (
           <>
