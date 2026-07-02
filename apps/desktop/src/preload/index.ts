@@ -681,6 +681,15 @@ const notification = {
 // open：打开或聚焦项目管理窗口（main 侧单例，见 projects-window.ts）。
 const projectsWindow = {
   open: (): Promise<void> => ipcRenderer.invoke("projects-window:open"),
+  // 关窗草稿 flush 握手（R21/KTD6）：main 拦截 close → 发 flush-request；renderer 提交 pending
+  // 草稿并等 mutation 落库 → flushDone 回执 → main 销毁窗口。title/notes 仅在 blur 落库，销毁
+  // renderer 不触发 blur，若不 flush 会静默丢数据。含超时兜底（见 projects-window.ts）避免关不掉窗。
+  onFlushRequest: (cb: () => void): (() => void) => {
+    const listener = (): void => cb();
+    ipcRenderer.on("projects-window:flush-request", listener);
+    return () => ipcRenderer.removeListener("projects-window:flush-request", listener);
+  },
+  flushDone: (): void => ipcRenderer.send("projects-window:flush-done"),
 };
 
 const desktopAPI = {

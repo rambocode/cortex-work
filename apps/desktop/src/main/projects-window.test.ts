@@ -1,24 +1,37 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // electron / paths mock：让窗口单例逻辑脱离真实 BrowserWindow / screen / 文件系统可测。
-const h = vi.hoisted(() => ({
-  handlers: new Map<string, (...args: unknown[]) => unknown>(),
-  // ipcMain.on 通道（委派意图中继用）：event 首参在真实 electron 里是 IpcMainEvent，测试传 {}。
-  onHandlers: new Map<string, (...args: unknown[]) => unknown>(),
-  loadURL: vi.fn(),
-  loadFile: vi.fn(),
-  show: vi.fn(),
-  focus: vi.fn(),
-  restore: vi.fn(),
-  destroy: vi.fn(),
-  on: vi.fn(),
-  isDestroyed: vi.fn(() => false),
-  isMinimized: vi.fn(() => false),
-  getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1000, height: 700 })),
-  isFullScreen: vi.fn(() => false),
-}));
+const h = vi.hoisted(() => {
+  // 窗口 webContents（send + 单例引用）：flush 握手回执须校验 e.sender === win.webContents，
+  // 故测试里 event.sender 传这同一对象即可命中。
+  const webContents = { send: vi.fn() };
+  return {
+    handlers: new Map<string, (...args: unknown[]) => unknown>(),
+    // ipcMain.on 通道（委派意图中继 + flush 握手回执）：event 首参在真实 electron 里是 IpcMainEvent。
+    onHandlers: new Map<string, (...args: unknown[]) => unknown>(),
+    // app.on 通道（before-quit）。
+    appHandlers: new Map<string, (...args: unknown[]) => unknown>(),
+    // window.on 通道（close/closed）：捕获以便测试主动触发 close 走 flush 握手。
+    winHandlers: new Map<string, (...args: unknown[]) => unknown>(),
+    webContents,
+    loadURL: vi.fn(),
+    loadFile: vi.fn(),
+    show: vi.fn(),
+    focus: vi.fn(),
+    restore: vi.fn(),
+    destroy: vi.fn(),
+    on: vi.fn((channel: string, fn: (...args: unknown[]) => unknown) => h.winHandlers.set(channel, fn)),
+    isDestroyed: vi.fn(() => false),
+    isMinimized: vi.fn(() => false),
+    getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1000, height: 700 })),
+    isFullScreen: vi.fn(() => false),
+  };
+});
 
 vi.mock("electron", () => ({
+  app: {
+    on: (channel: string, fn: (...args: unknown[]) => unknown) => h.appHandlers.set(channel, fn),
+  },
   BrowserWindow: vi.fn(
     class BrowserWindow {
       loadURL = h.loadURL;
@@ -32,11 +45,13 @@ vi.mock("electron", () => ({
       isMinimized = h.isMinimized;
       getNormalBounds = h.getNormalBounds;
       isFullScreen = h.isFullScreen;
+      webContents = h.webContents;
     },
   ),
   ipcMain: {
     handle: (channel: string, fn: (...args: unknown[]) => unknown) => h.handlers.set(channel, fn),
     on: (channel: string, fn: (...args: unknown[]) => unknown) => h.onHandlers.set(channel, fn),
+    removeListener: (channel: string) => h.onHandlers.delete(channel),
   },
   screen: {
     getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 1440, height: 900 } }],
@@ -57,8 +72,13 @@ import {
 } from "./projects-window";
 
 beforeEach(() => {
+  // 先销毁上一个测试遗留的单例窗口，再清 mock —— 否则 destroyProjectsWindow 内部的 win.destroy()
+  // 会算进本测试的 destroy 计数（flush 握手用例对 destroy 次数敏感）。
+  destroyProjectsWindow();
   h.handlers.clear();
   h.onHandlers.clear();
+  h.appHandlers.clear();
+  h.winHandlers.clear();
   h.loadURL.mockClear();
   h.loadFile.mockClear();
   h.show.mockClear();
@@ -66,10 +86,10 @@ beforeEach(() => {
   h.restore.mockClear();
   h.destroy.mockClear();
   h.on.mockClear();
+  h.webContents.send.mockClear();
   h.isDestroyed.mockReturnValue(false);
   h.isMinimized.mockReturnValue(false);
   vi.mocked(BrowserWindow).mockClear();
-  destroyProjectsWindow();
 });
 
 describe("registerProjectsWindowHandlers", () => {
@@ -101,6 +121,60 @@ describe("registerProjectsWindowHandlers", () => {
       | undefined;
     expect(options?.titleBarStyle).toBe("hiddenInset");
     expect(options).toHaveProperty("trafficLightPosition");
+  });
+});
+
+describe("关窗草稿 flush 握手（R21/KTD6）", () => {
+  // 全程假定时器：握手会挂一个 FLUSH_TIMEOUT_MS 的 setTimeout，用假时器隔离，避免真定时器
+  // 在后续测试期间触发 finish→destroy 造成跨用例污染；超时用例显式 advance。
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  function openWindow() {
+    registerProjectsWindowHandlers();
+    h.handlers.get("projects-window:open")?.({});
+    return h.winHandlers.get("close")!;
+  }
+
+  it("close 拦截 → preventDefault + 向 renderer 发 flush-request，未回执前不销毁", () => {
+    const close = openWindow();
+    const e = { preventDefault: vi.fn() };
+    close(e);
+    expect(e.preventDefault).toHaveBeenCalledTimes(1);
+    expect(h.webContents.send).toHaveBeenCalledWith("projects-window:flush-request");
+    expect(h.destroy).not.toHaveBeenCalled();
+  });
+
+  it("收到 flush-done 回执（来自本窗口 webContents）→ 销毁窗口", () => {
+    const close = openWindow();
+    close({ preventDefault: vi.fn() });
+    // renderer 提交完 pending 草稿并等 mutation 落库后回执。
+    h.onHandlers.get("projects-window:flush-done")?.({ sender: h.webContents });
+    expect(h.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("其它窗口的同名回执不误触发销毁（sender 校验）", () => {
+    const close = openWindow();
+    close({ preventDefault: vi.fn() });
+    h.onHandlers.get("projects-window:flush-done")?.({ sender: { send: vi.fn() } });
+    expect(h.destroy).not.toHaveBeenCalled();
+  });
+
+  it("超时兜底：renderer 无回执，FLUSH_TIMEOUT_MS 后强制销毁", () => {
+    const close = openWindow();
+    close({ preventDefault: vi.fn() });
+    expect(h.destroy).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(3000);
+    expect(h.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("app 退出路径（before-quit 后）：close 放行、不拦截、不发 flush-request（草稿由 beforeunload 兜底）", () => {
+    const close = openWindow();
+    h.appHandlers.get("before-quit")?.();
+    const e = { preventDefault: vi.fn() };
+    close(e);
+    expect(e.preventDefault).not.toHaveBeenCalled();
+    expect(h.webContents.send).not.toHaveBeenCalled();
   });
 });
 
