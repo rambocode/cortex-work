@@ -6,6 +6,7 @@ import {
   isDescendant,
   onlyProjects,
   projectKind,
+  subtreeNodeIds,
 } from "./taskProjectTree";
 
 // 便捷构造：p(id, parentId?, kind?)。
@@ -75,6 +76,41 @@ describe("descendantProjectIds", () => {
     const cyclic: TaskProject[] = [p("a", "b", "project"), p("b", "a", "project")];
     // 不抛错、返回有限集合。
     expect(() => descendantProjectIds(cyclic, "a")).not.toThrow();
+  });
+});
+
+describe("subtreeNodeIds", () => {
+  it("单 project（无子孙）→ 仅自身", () => {
+    expect(subtreeNodeIds(sample, "luer")).toEqual(new Set(["luer"]));
+  });
+
+  it("folder 含多层子孙 → 含自身 + 全部 folder/project 后代", () => {
+    // 临时(folder) 子树：linshi + zhihui(folder) + v032/v030(project)。
+    expect(subtreeNodeIds(sample, "linshi")).toEqual(
+      new Set(["linshi", "zhihui", "v032", "v030"]),
+    );
+  });
+
+  it("悬空 parentId 不影响子树收集", () => {
+    const withOrphan: TaskProject[] = [
+      p("root", undefined, "folder"),
+      p("child", "root", "project"),
+      p("ghostchild", "does-not-exist", "project"), // 悬空父，不应混入 root 子树
+    ];
+    expect(subtreeNodeIds(withOrphan, "root")).toEqual(new Set(["root", "child"]));
+  });
+
+  it("parentId 成环 → 止损不死循环", () => {
+    const cyclic: TaskProject[] = [p("a", "b", "project"), p("b", "a", "project")];
+    let result: Set<string> | undefined;
+    expect(() => {
+      result = subtreeNodeIds(cyclic, "a");
+    }).not.toThrow();
+    expect(result).toEqual(new Set(["a", "b"]));
+  });
+
+  it("id 不存在 → 空集", () => {
+    expect(subtreeNodeIds(sample, "nope")).toEqual(new Set<string>());
   });
 });
 

@@ -1,6 +1,7 @@
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { WorkbenchToolbar, type WorkbenchToolbarProps } from "./WorkbenchToolbar";
+import { DEFAULT_DISPLAY_FIELDS, DEFAULT_EDIT_FIELDS } from "./workbenchFieldPrefs";
 
 afterEach(() => cleanup());
 
@@ -13,6 +14,10 @@ function renderToolbar(overrides: Partial<WorkbenchToolbarProps> = {}) {
     onBack: vi.fn(),
     onForward: vi.fn(),
     onNewAction: vi.fn(),
+    onQuickOpen: vi.fn(),
+    focusActive: false,
+    canFocus: false,
+    onToggleFocus: vi.fn(),
     ...overrides,
   };
   const utils = render(<WorkbenchToolbar {...props} />);
@@ -38,11 +43,51 @@ describe("WorkbenchToolbar（U4）", () => {
     expect(props.onForward).toHaveBeenCalledTimes(1);
   });
 
-  it("占位项（快速入口/聚焦/设置显示字段/设置编辑字段）渲染为 disabled", () => {
+  it("快速入口：点击回调 onQuickOpen（⌘O 由容器 window 级监听，不在本组件断言）", () => {
+    const { props } = renderToolbar();
+    fireEvent.click(screen.getByTitle("快速入口（⌘O）"));
+    expect(props.onQuickOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("聚焦：canFocus=false 时 disabled；可聚焦时点击回调；聚焦态高亮且 title 变「取消聚焦」", () => {
+    // 未选中 project/folder：按钮禁用。
+    renderToolbar({ canFocus: false });
+    expect((screen.getByTitle("聚焦") as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    // 可聚焦：点击回调 onToggleFocus。
+    const { props } = renderToolbar({ canFocus: true });
+    const btn = screen.getByTitle("聚焦") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    expect(props.onToggleFocus).toHaveBeenCalledTimes(1);
+    cleanup();
+    // 聚焦态：title 翻转 + is-on 高亮 + aria-pressed。
+    renderToolbar({ canFocus: true, focusActive: true });
+    const on = screen.getByTitle("取消聚焦");
+    expect(on.className).toContain("is-on");
+    expect(on.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("字段设置：未注入受控值时降级为 disabled 占位（独立渲染 seam）", () => {
     renderToolbar();
-    for (const title of ["快速入口（即将推出）", "聚焦（即将推出）", "设置显示字段（即将推出）", "设置编辑字段（即将推出）"]) {
-      expect((screen.getByTitle(title) as HTMLButtonElement).disabled).toBe(true);
-    }
+    expect((screen.getByTitle("设置显示字段") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTitle("设置编辑字段") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("字段设置：注入受控值时为可展开的勾选弹层，切换某字段回调完整 next 对象", () => {
+    const onDisplayFieldsChange = vi.fn();
+    renderToolbar({
+      displayFields: DEFAULT_DISPLAY_FIELDS,
+      onDisplayFieldsChange,
+      editFields: DEFAULT_EDIT_FIELDS,
+      onEditFieldsChange: vi.fn(),
+    });
+    const trigger = screen.getByTitle("设置显示字段") as HTMLButtonElement;
+    expect(trigger.disabled).toBe(false);
+    fireEvent.click(trigger);
+    // 展开后勾掉「截止日期」→ 回调 next 中 due=false、其余保持。
+    fireEvent.click(screen.getByText("截止日期"));
+    expect(onDisplayFieldsChange).toHaveBeenCalledWith({ ...DEFAULT_DISPLAY_FIELDS, due: false });
   });
 
   it("边栏切换按钮反映显隐态并回调", () => {

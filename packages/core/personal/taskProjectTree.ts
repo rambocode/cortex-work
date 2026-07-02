@@ -56,6 +56,29 @@ export function descendantProjectIds(projects: TaskProject[], id: string): strin
   return [...out];
 }
 
+// 聚焦子树全部节点 id 集合（含自身 + 所有后代 folder/project），供「聚焦某节点」时统一收拢整棵子树。
+// 与 descendantProjectIds 的区别：后者只返回可容纳任务的 project 后代（排除 folder、按选中类型决定是否含自身）；
+// 本函数不区分 kind，返回自身 + 全部后代（folder 与 project 都计入）的 id。
+// DFS + seen 环止损；对悬空/自指 parentId 天然容错（childrenOf 不含自指边，悬空父不产生子边）。id 不存在返回空集。
+export function subtreeNodeIds(projects: TaskProject[], id: string): Set<string> {
+  const childrenOf = new Map<string, TaskProject[]>();
+  for (const p of projects) {
+    if (!p.parentId || p.parentId === p.id) continue; // 自指边忽略，避免自成环
+    const arr = childrenOf.get(p.parentId);
+    if (arr) arr.push(p);
+    else childrenOf.set(p.parentId, [p]);
+  }
+  const out = new Set<string>();
+  if (!projects.some((p) => p.id === id)) return out; // id 不存在 → 空集
+  const visit = (nodeId: string) => {
+    if (out.has(nodeId)) return; // 已收录即已访问，兼作环止损
+    out.add(nodeId);
+    for (const child of childrenOf.get(nodeId) ?? []) visit(child.id);
+  };
+  visit(id);
+  return out;
+}
+
 // reparent 防环（U2/U6）：把 nodeId 挂到 candidateParentId 之下是否会成环。
 // 成环当且仅当 candidateParentId 是 nodeId 自身或其后代——等价于从 candidate 向上走能抵达 nodeId。
 // 从 candidate 沿 parentId 上溯到根，若途经 nodeId 则拒绝。带 seen 防已损坏的环。

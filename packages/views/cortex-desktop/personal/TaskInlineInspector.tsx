@@ -12,6 +12,7 @@ import { TaskReminderField } from "./TaskReminderField";
 import { TaskRepeatField } from "./TaskRepeatField";
 import { useTaskDraftField } from "./useTaskDraftField";
 import { fmtDur } from "./taskFormat";
+import type { EditFieldPrefs } from "./workbenchFieldPrefs";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 
 // 当前就地展开编辑的字段（一次一个；再次点同一 chip 收起）。
@@ -21,10 +22,14 @@ export function TaskInlineInspector({
   task,
   today,
   onToast,
+  editFields,
 }: {
   task: TaskMeta;
   today: string;
   onToast: (text: string) => void;
+  // 编辑字段显隐偏好（工具栏「设置编辑字段」）：控制属性栏各 chip 及其编辑器与备注区。
+  // 缺省（未注入）一律视为全开，旧调用零回归。
+  editFields?: EditFieldPrefs;
 }) {
   const updateTask = useUpdateTask();
   const { data: projectData } = useTaskProjects();
@@ -42,6 +47,8 @@ export function TaskInlineInspector({
 
   const toggle = (f: Exclude<Field, null>) => setField((cur) => (cur === f ? null : f));
   const overdue = !!task.dueDate && task.dueDate < today;
+  // 字段显隐判定：未注入偏好时一律开启。chip 与其就地编辑器同 gate——中途关掉某字段时编辑器一并收起。
+  const showField = (k: keyof EditFieldPrefs) => editFields?.[k] !== false;
 
   const setDue = (v: string) => updateTask.mutate({ id: task.id, patch: { dueDate: v || undefined } });
   const setDefer = (v: string) => updateTask.mutate({ id: task.id, patch: { deferDate: v || undefined } });
@@ -84,18 +91,19 @@ export function TaskInlineInspector({
   return (
     <div className="pw-task-inspect">
       <div className="pw-task-inspect-bar">
-        {chip("project", <Icon.Task size={12} />, !!projectName, projectName ?? "项目")}
-        {chip("tags", <Icon.Tags size={12} />, task.tags.length > 0, task.tags.length ? task.tags.join("、") : "标签")}
-        {chip("duration", <Icon.Clock size={12} />, task.estimatedDuration != null, task.estimatedDuration != null ? fmtDur(task.estimatedDuration) : "持续时间")}
-        {chip("defer", <Icon.Fwd size={12} />, !!task.deferDate, task.deferDate ?? "推迟至")}
-        {chip("due", <Icon.Clock size={12} />, !!task.dueDate, task.dueDate ?? "截止", { danger: overdue })}
-        {chip("done", <Icon.Check size={12} />, task.status === "done", "已完成", { onClick: toggleDone })}
-        {chip("repeat", <Icon.Retry size={12} />, task.repeat != null, task.repeat ? "重复中" : "重复")}
-        {chip("reminder", <Icon.Bell size={12} />, task.reminder?.at != null, task.reminder?.at != null ? "已设提醒" : "通知")}
+        {/* 各 chip 先过 showField 编辑字段偏好（工具栏「设置编辑字段」），全关时属性栏可为空、不崩。 */}
+        {showField("project") && chip("project", <Icon.Task size={12} />, !!projectName, projectName ?? "项目")}
+        {showField("tags") && chip("tags", <Icon.Tags size={12} />, task.tags.length > 0, task.tags.length ? task.tags.join("、") : "标签")}
+        {showField("duration") && chip("duration", <Icon.Clock size={12} />, task.estimatedDuration != null, task.estimatedDuration != null ? fmtDur(task.estimatedDuration) : "持续时间")}
+        {showField("defer") && chip("defer", <Icon.Fwd size={12} />, !!task.deferDate, task.deferDate ?? "推迟至")}
+        {showField("due") && chip("due", <Icon.Clock size={12} />, !!task.dueDate, task.dueDate ?? "截止", { danger: overdue })}
+        {showField("done") && chip("done", <Icon.Check size={12} />, task.status === "done", "已完成", { onClick: toggleDone })}
+        {showField("repeat") && chip("repeat", <Icon.Retry size={12} />, task.repeat != null, task.repeat ? "重复中" : "重复")}
+        {showField("reminder") && chip("reminder", <Icon.Bell size={12} />, task.reminder?.at != null, task.reminder?.at != null ? "已设提醒" : "通知")}
       </div>
 
-      {/* 就地编辑区：一次展开一个字段的编辑器。*/}
-      {field === "project" && (
+      {/* 就地编辑区：一次展开一个字段的编辑器。与对应 chip 同 gate（字段被关时编辑器一并收起）。*/}
+      {showField("project") && field === "project" && (
         <div className="pw-task-inspect-edit">
           <select className="pw-task-meta-select" value={task.projectId ?? ""} onChange={(e) => assignProject(e.target.value)}>
             <option value="">收件箱（无项目）</option>
@@ -105,7 +113,7 @@ export function TaskInlineInspector({
           </select>
         </div>
       )}
-      {field === "tags" && (
+      {showField("tags") && field === "tags" && (
         <div className="pw-task-inspect-edit pw-task-meta-tagrow">
           {task.tags.map((tag) => (
             <span key={tag} className="pw-task-badge is-tag">
@@ -123,35 +131,37 @@ export function TaskInlineInspector({
           />
         </div>
       )}
-      {field === "duration" && (
+      {showField("duration") && field === "duration" && (
         <div className="pw-task-inspect-edit"><TaskDurationField task={task} /></div>
       )}
-      {field === "defer" && (
+      {showField("defer") && field === "defer" && (
         <div className="pw-task-inspect-edit">
           <input className="pw-task-meta-date" type="date" autoFocus value={task.deferDate ?? ""} onChange={(e) => setDefer(e.target.value)} />
         </div>
       )}
-      {field === "due" && (
+      {showField("due") && field === "due" && (
         <div className="pw-task-inspect-edit">
           <input className="pw-task-meta-date" type="date" autoFocus value={task.dueDate ?? ""} onChange={(e) => setDue(e.target.value)} />
         </div>
       )}
-      {field === "repeat" && (
+      {showField("repeat") && field === "repeat" && (
         <div className="pw-task-inspect-edit"><TaskRepeatField task={task} /></div>
       )}
-      {field === "reminder" && (
+      {showField("reminder") && field === "reminder" && (
         <div className="pw-task-inspect-edit"><TaskReminderField task={task} /></div>
       )}
 
-      {/* 添加备注：点开就地 textarea，失焦保存。*/}
-      <button
-        type="button"
-        className={`pw-task-note-toggle${field === "notes" ? " is-editing" : ""}`}
-        onClick={() => toggle("notes")}
-      >
-        <Icon.Comment size={12} /> {task.notes ? "备注" : "添加备注"}
-      </button>
-      {field === "notes" && (
+      {/* 添加备注：点开就地 textarea，失焦保存。同受「设置编辑字段」的 notes 开关控制。*/}
+      {showField("notes") && (
+        <button
+          type="button"
+          className={`pw-task-note-toggle${field === "notes" ? " is-editing" : ""}`}
+          onClick={() => toggle("notes")}
+        >
+          <Icon.Comment size={12} /> {task.notes ? "备注" : "添加备注"}
+        </button>
+      )}
+      {showField("notes") && field === "notes" && (
         <textarea
           className="pw-task-note-input"
           autoFocus

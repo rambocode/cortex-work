@@ -6,6 +6,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { TaskInlineInspector } from "./TaskInlineInspector";
 import { useTaskDraftField } from "./useTaskDraftField";
 import { fmtDur } from "./taskFormat";
+import type { DisplayFieldPrefs, EditFieldPrefs } from "./workbenchFieldPrefs";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 
 // 子任务缩进步距（px）。每深一层左移一档，OmniFocus 风格（U3；U6 视觉细调）。
@@ -66,6 +67,8 @@ export function TaskOutlineRow({
   onCompleteSuggested,
   onDelegate,
   onTitleBlur,
+  displayFields,
+  editFields,
 }: {
   task: TaskMeta;
   today: string;
@@ -89,12 +92,18 @@ export function TaskOutlineRow({
   onDelegate: () => void;
   // U12 空白新建撤销：标题失焦时上报（去空格后的标题, 焦点是否转入本行其它控件），供中列判定撤销刚新建的空白任务。
   onTitleBlur?: (title: string, toInsideRow: boolean) => void;
+  // 字段显隐偏好（工具栏「设置显示 / 编辑字段」）：display 管本行精简态 chips/备注/状态提示，
+  // edit 透传给行内 inspector。缺省（未注入）一律视为全开，保证旧调用零回归。
+  displayFields?: DisplayFieldPrefs;
+  editFields?: EditFieldPrefs;
 }) {
   const overdue = !!task.dueDate && task.dueDate < today;
   const delegated = task.status === "waiting" && !!task.delegation;
   const done = task.status === "done";
   const dropped = task.status === "dropped";
-  const notePreview = noteFirstLine(task.notes);
+  // 字段显隐判定：未注入偏好（displayFields 为 undefined）时一律视为开启（全开缺省）。
+  const showField = (k: keyof DisplayFieldPrefs) => displayFields?.[k] !== false;
+  const notePreview = showField("note") ? noteFirstLine(task.notes) : "";
   // 标题左缘偏移：inspector / 备注预览据此与标题文字左对齐（U9）。
   const lead = titleLeadOffset(depth);
 
@@ -174,15 +183,16 @@ export function TaskOutlineRow({
             点击经行级 onClick 选中该行）。选中行的字段编辑交由下方行内 inspector（含占位 + 就地编辑）。 */}
         {!isSelected && (
           <div className="pw-task-chips">
-            {!groupedByProject && projectName && roChip("project", <Icon.Task size={11} />, projectName)}
-            {task.tags.length > 0 && roChip("tags", <Icon.Tags size={11} />, task.tags.join("、"))}
-            {task.estimatedDuration != null && roChip("duration", <Icon.Clock size={11} />, fmtDur(task.estimatedDuration))}
-            {task.deferDate && roChip("defer", <Icon.Fwd size={11} />, `推迟 ${task.deferDate}`)}
-            {task.dueDate && roChip("due", <Icon.Clock size={11} />, `截止 ${task.dueDate}`, overdue)}
-            {task.repeat != null && roChip("repeat", <Icon.Retry size={11} />, "重复")}
-            {task.reminder?.at != null && roChip("reminder", <Icon.Bell size={11} />, "已设提醒")}
-            {delegated && <span className="pw-task-chip is-set is-wait">委派中</span>}
-            {task.status === "in-progress" && <span className="pw-task-chip is-set is-run">进行中</span>}
+            {/* 各 chip 先过 showField 字段显隐偏好（工具栏「设置显示字段」），再按「已设置」实值判定。 */}
+            {showField("project") && !groupedByProject && projectName && roChip("project", <Icon.Task size={11} />, projectName)}
+            {showField("tags") && task.tags.length > 0 && roChip("tags", <Icon.Tags size={11} />, task.tags.join("、"))}
+            {showField("duration") && task.estimatedDuration != null && roChip("duration", <Icon.Clock size={11} />, fmtDur(task.estimatedDuration))}
+            {showField("defer") && task.deferDate && roChip("defer", <Icon.Fwd size={11} />, `推迟 ${task.deferDate}`)}
+            {showField("due") && task.dueDate && roChip("due", <Icon.Clock size={11} />, `截止 ${task.dueDate}`, overdue)}
+            {showField("repeat") && task.repeat != null && roChip("repeat", <Icon.Retry size={11} />, "重复")}
+            {showField("reminder") && task.reminder?.at != null && roChip("reminder", <Icon.Bell size={11} />, "已设提醒")}
+            {showField("status") && delegated && <span className="pw-task-chip is-set is-wait">委派中</span>}
+            {showField("status") && task.status === "in-progress" && <span className="pw-task-chip is-set is-run">进行中</span>}
           </div>
         )}
         {/* 完成 rollup 建议（R5/KTD4）：全部子任务已完成时浮现，点击确认才置父 done（不自动）。*/}
@@ -231,7 +241,7 @@ export function TaskOutlineRow({
           右列 TaskDetail 仍随同一 selectedTaskId 显示完整面板，两处经同一 useUpdateTask + RQ cache 同步。 */}
       {isSelected && (
         <div className="pw-task-inspector" style={{ marginLeft: lead }}>
-          <TaskInlineInspector task={task} today={today} onToast={onToast} />
+          <TaskInlineInspector task={task} today={today} onToast={onToast} editFields={editFields} />
         </div>
       )}
     </div>

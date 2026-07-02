@@ -90,14 +90,6 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
     }
   }, [tasks, bridge, today]);
 
-  if (!tasksAvailable(bridge)) {
-    return (
-      <div className="pw-rp-view pw-todos">
-        <div className="pw-empty-hint">任务系统在当前环境不可用。</div>
-      </div>
-    );
-  }
-
   const onQuickAdd = () => {
     const title = draft.trim();
     if (!title) return;
@@ -200,6 +192,16 @@ export function TasksView({ onToast }: { onToast: (text: string) => void }) {
     () => tasks.filter((t) => t.status === "done" || t.status === "dropped"),
     [tasks],
   );
+
+  // 环境不可用兜底：放在所有 hooks 之后再早退,否则条件 return 会破坏 hooks 调用顺序
+  // （react-hooks/rules-of-hooks）——bridge 可用性在会话内翻转时会导致 hooks 错位崩溃。
+  if (!tasksAvailable(bridge)) {
+    return (
+      <div className="pw-rp-view pw-todos">
+        <div className="pw-empty-hint">任务系统在当前环境不可用。</div>
+      </div>
+    );
+  }
 
   // 详情态：编辑任务正文（复用 markdown 编辑器）。放在所有 hooks 之后，避免提前 return 破坏 hooks 顺序。
   // 根节点带 .is-detail，复用右栏「展宽 + 左缘拖拽」的既有 CSS 档位。

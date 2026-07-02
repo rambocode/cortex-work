@@ -99,6 +99,47 @@ describe("ProjectTree", () => {
     expect(mutate).toHaveBeenCalledWith({ id: "b", patch: { mode: "sequential" } });
   });
 
+  it("聚焦 folder：只渲染焦点子树，今日/收件箱入口与顶层「＋」隐藏", () => {
+    render(
+      <ProjectTree
+        selection={{ kind: "folder", id: "a" }}
+        onSelect={vi.fn()}
+        focus={{ kind: "folder", id: "a" }}
+      />,
+    );
+    // 焦点子树（A 及其子孙）完整可见。
+    expect(screen.getByText("文件夹A")).toBeTruthy();
+    expect(screen.getByText("项目B")).toBeTruthy();
+    expect(screen.getByText("项目C")).toBeTruthy();
+    // 内置视图入口与顶层「＋」在聚焦态隐藏（焦点外内容不可达；顶层新建会落焦点外）。
+    expect(screen.queryByText("今日")).toBeNull();
+    expect(screen.queryByText("收件箱")).toBeNull();
+    expect(screen.queryByTitle("新建项目 / 文件夹")).toBeNull();
+  });
+
+  it("聚焦 project：只渲染该项目及其子项目，兄弟与祖先不显示", () => {
+    render(
+      <ProjectTree
+        selection={{ kind: "project", id: "b" }}
+        onSelect={vi.fn()}
+        focus={{ kind: "project", id: "b" }}
+      />,
+    );
+    // 焦点根 B 及其子 C 可见；祖先 folder A 不再渲染。
+    expect(screen.getByText("项目B")).toBeTruthy();
+    expect(screen.getByText("项目C")).toBeTruthy();
+    expect(screen.queryByText("文件夹A")).toBeNull();
+  });
+
+  it("聚焦目标不存在（已删竞态帧）：渲染空树且不显示「还没有项目」引导", () => {
+    render(
+      <ProjectTree selection={{ kind: "today" }} onSelect={vi.fn()} focus={{ kind: "project", id: "gone" }} />,
+    );
+    expect(screen.queryByText("文件夹A")).toBeNull();
+    // 空态引导只属于「真没有项目」，聚焦竞态帧不该引导新建。
+    expect(screen.queryByText("还没有项目")).toBeNull();
+  });
+
   it("顺序项目在树节点显示模式标识；点当前档不重复写回（同档去重）", () => {
     renderTree();
     // 默认全展开，B、C 均可见。顺序项目 C 有模式标识；并行项目 B 无。

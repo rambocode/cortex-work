@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { TASK_VIEW_FILTERS, type TaskViewFilter } from "@cortex-work/core/personal/tasks";
+import { useMenuViewportClamp } from "./useMenuViewportClamp";
 
 // 弹层受控值：四档过滤 + 两个结构开关。容器持久化，故这里不含默认逻辑。
 export interface ViewOptions {
@@ -26,6 +27,8 @@ export function ViewOptionsPopover({
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // 浮层 left:0 向右展开,窄窗口下可能溢出右缘 → 打开后按 rect 收敛回视口。
+  const { menuRef, clampStyle } = useMenuViewportClamp(open);
   // outside mousedown 关闭（浮层内的点击不关闭，便于连续切换多个开关）。
   useEffect(() => {
     if (!open) return;
@@ -49,7 +52,7 @@ export function ViewOptionsPopover({
         <span className="pw-wb-btn-label">显示</span>
       </button>
       {open ? (
-        <div className="pw-view-options" role="menu" aria-label="显示选项">
+        <div className="pw-view-options" role="menu" aria-label="显示选项" ref={menuRef} style={clampStyle}>
           {/* ① 四档过滤单选：当前档打勾。 */}
           <div className="pw-view-options-group" role="radiogroup" aria-label="过滤">
             {TASK_VIEW_FILTERS.map(({ value: v, label }) => (
