@@ -24,6 +24,7 @@ import { registerUpdateHandlers, type RegisterUpdateHandlersOptions } from "./up
 import { registerEditorHandlers } from "./editors";
 import { registerAppHandlers } from "./app";
 import { registerAgentTraceHandlers } from "./agent-trace";
+import { registerProjectsWindowHandlers } from "../projects-window";
 import { registerBrowserHandlers } from "./browser";
 import { registerAutomationHandlers } from "../automation/ipc";
 import { registerWorkflowHandlers } from "../workflow/ipc";
@@ -66,6 +67,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerEditorHandlers();
   registerAppHandlers();
   registerAgentTraceHandlers({ devMode: options.agentTraceDevMode ?? false });
+  registerProjectsWindowHandlers(); // 「项目管理」独立窗口 open 通道（U2）
   registerBrowserHandlers();
   registerAutomationHandlers();
   registerWorkflowHandlers(); // 节点式工作流（loop）IPC，紧挨 automation 注册

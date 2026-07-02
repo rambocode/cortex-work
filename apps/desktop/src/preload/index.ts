@@ -667,6 +667,12 @@ const notification = {
   },
 };
 
+// 「项目管理」独立窗口专用桥（侧栏入口调用，不属于 DesktopBridge；对齐 spotlight/notesOverlay 惯例）。
+// open：打开或聚焦项目管理窗口（main 侧单例，见 projects-window.ts）。
+const projectsWindow = {
+  open: (): Promise<void> => ipcRenderer.invoke("projects-window:open"),
+};
+
 const desktopAPI = {
   appInfo: fetchAppInfo(),
   runtimeConfig: {
@@ -679,6 +685,7 @@ const desktopAPI = {
   spotlight,
   notesOverlay,
   notification,
+  projectsWindow,
   consumeNotesHotkeyDegraded,
 };
 
