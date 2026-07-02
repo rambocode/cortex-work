@@ -8,6 +8,7 @@
 // 「显示」按钮本单元只渲染入口，过滤弹层内容归 U5；未实装项以 disabled + tooltip 呈现。
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
+import { ViewOptionsPopover, type ViewOptions } from "./ViewOptionsPopover";
 
 export interface WorkbenchToolbarProps {
   // 边栏显隐（R8）：容器持久化（KTD9 窗口专属窄通道），工具栏只反映态并回调切换。
@@ -18,8 +19,10 @@ export interface WorkbenchToolbarProps {
   canGoForward: boolean;
   onBack: () => void;
   onForward: () => void;
-  // 「显示」过滤弹层入口：U4 只渲染按钮，弹层内容 U5 实现（缺省无操作）。
-  onOpenViewOptions?: () => void;
+  // 「显示」过滤弹层（U5）：容器持久化的四档过滤 + 结构开关受控值与回调。
+  // 未提供时降级为占位「显示」按钮（保留 U4 seam；便于工具栏在无容器时独立渲染/测试）。
+  viewOptions?: ViewOptions;
+  onViewOptionsChange?: (next: ViewOptions) => void;
   // 新建动作（任务）：落点语义 U5 完善。
   onNewAction: () => void;
   // 新建项目：隐藏态自动展开边栏由容器处理（R8）。
@@ -88,7 +91,8 @@ export function WorkbenchToolbar({
   canGoForward,
   onBack,
   onForward,
-  onOpenViewOptions,
+  viewOptions,
+  onViewOptionsChange,
   onNewAction,
   onNewProject,
 }: WorkbenchToolbarProps) {
@@ -113,16 +117,15 @@ export function WorkbenchToolbar({
             <Icon.Fwd size={16} />
           </button>
         </div>
-        {/* 「显示」过滤弹层入口（U4 渲染入口，弹层内容 U5）。 */}
-        <button
-          className="pw-wb-btn ds-no-drag"
-          title="显示"
-          aria-haspopup="menu"
-          onClick={() => onOpenViewOptions?.()}
-        >
-          <Icon.Filter size={16} />
-          <span className="pw-wb-btn-label">显示</span>
-        </button>
+        {/* 「显示」过滤弹层（U5）：容器注入受控值时挂 ViewOptionsPopover；否则降级为占位按钮。 */}
+        {viewOptions && onViewOptionsChange ? (
+          <ViewOptionsPopover value={viewOptions} onChange={onViewOptionsChange} />
+        ) : (
+          <button className="pw-wb-btn ds-no-drag" title="显示" aria-haspopup="menu" disabled>
+            <Icon.Filter size={16} />
+            <span className="pw-wb-btn-label">显示</span>
+          </button>
+        )}
       </div>
       {/* 中间可拖拽空白填充（drag 区）。 */}
       <div className="pw-wb-spacer" />

@@ -8,8 +8,9 @@ import {
   shouldAcceptDelegationWriteback,
   projectMode,
   sequentialAvailableIds,
+  matchedTaskIds,
 } from "./tasks";
-import type { TaskMeta } from "../desktop/types";
+import type { TaskMeta, TaskProject } from "../desktop/types";
 
 // 构造最小任务，仅覆盖被测字段。
 function task(partial: Partial<TaskMeta>): TaskMeta {
@@ -130,6 +131,90 @@ describe("sequentialAvailableIds（U8/R23：顺序项目可用集收窄）", () 
   });
   it("空任务列表 → 空集", () => {
     expect(sequentialAvailableIds([], TODAY).size).toBe(0);
+  });
+});
+
+describe("matchedTaskIds（U5/R10：四档过滤纯函数）", () => {
+  const P: TaskProject[] = [{ id: "p1", name: "并行", mode: "parallel" }];
+  const SEQ: TaskProject[] = [{ id: "q1", name: "顺序", mode: "sequential" }];
+
+  it("全部：含 done/dropped 一并命中", () => {
+    const tasks = [
+      task({ id: "a", projectId: "p1" }),
+      task({ id: "b", projectId: "p1", status: "done" }),
+      task({ id: "c", projectId: "p1", status: "dropped" }),
+    ];
+    expect([...matchedTaskIds(tasks, P, "all", TODAY)].sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("剩余：排除 done/dropped，保留 defer 未到的任务", () => {
+    const tasks = [
+      task({ id: "a", projectId: "p1" }),
+      task({ id: "d", projectId: "p1", deferDate: "2026-07-02" }),
+      task({ id: "b", projectId: "p1", status: "done" }),
+    ];
+    expect([...matchedTaskIds(tasks, P, "remaining", TODAY)].sort()).toEqual(["a", "d"]);
+  });
+
+  it("可用：defer 未到的任务被排除（在剩余出现、在可用消失）", () => {
+    const tasks = [
+      task({ id: "a", projectId: "p1" }),
+      task({ id: "d", projectId: "p1", deferDate: "2026-07-02" }),
+    ];
+    expect([...matchedTaskIds(tasks, P, "remaining", TODAY)].sort()).toEqual(["a", "d"]);
+    expect([...matchedTaskIds(tasks, P, "available", TODAY)]).toEqual(["a"]);
+  });
+
+  it("首先可用（并行）：跳过 defer 未到的队首，取首个可用项（AE5）", () => {
+    // A defer 未到、B/C 可用 → 首先可用仅 B。
+    const tasks = [
+      task({ id: "A", projectId: "p1", deferDate: "2026-07-02" }),
+      task({ id: "B", projectId: "p1" }),
+      task({ id: "C", projectId: "p1" }),
+    ];
+    expect([...matchedTaskIds(tasks, P, "first-available", TODAY)]).toEqual(["B"]);
+  });
+
+  it("首先可用：每项目至多一条", () => {
+    const projects: TaskProject[] = [
+      { id: "p1", name: "一", mode: "parallel" },
+      { id: "p2", name: "二", mode: "parallel" },
+    ];
+    const tasks = [
+      task({ id: "a1", projectId: "p1" }),
+      task({ id: "a2", projectId: "p1" }),
+      task({ id: "b1", projectId: "p2" }),
+    ];
+    expect([...matchedTaskIds(tasks, projects, "first-available", TODAY)].sort()).toEqual(["a1", "b1"]);
+  });
+
+  it("首先可用（顺序）：为项目顺序首个可用项（AE7 派生）", () => {
+    const tasks = [
+      task({ id: "A", projectId: "q1" }),
+      task({ id: "B", projectId: "q1" }),
+    ];
+    expect([...matchedTaskIds(tasks, SEQ, "first-available", TODAY)]).toEqual(["A"]);
+  });
+
+  it("可用（顺序项目）：仅队首及其子树，后续顶层阻塞（AE7）", () => {
+    const tasks = [
+      task({ id: "A", projectId: "q1" }),
+      task({ id: "B", projectId: "q1" }),
+    ];
+    expect([...matchedTaskIds(tasks, SEQ, "available", TODAY)]).toEqual(["A"]);
+    // A 完成 → 可用集解锁到 B。
+    const after = [task({ id: "A", projectId: "q1", status: "done" }), task({ id: "B", projectId: "q1" })];
+    expect([...matchedTaskIds(after, SEQ, "available", TODAY)]).toEqual(["B"]);
+  });
+
+  it("无项目（收件箱）任务按并行处理：可用取各自 isAvailable", () => {
+    const tasks = [
+      task({ id: "i1" }),
+      task({ id: "i2", deferDate: "2026-07-02" }),
+    ];
+    expect([...matchedTaskIds(tasks, [], "available", TODAY)]).toEqual(["i1"]);
+    // 首先可用：收件箱桶取首个可用项。
+    expect([...matchedTaskIds(tasks, [], "first-available", TODAY)]).toEqual(["i1"]);
   });
 });
 

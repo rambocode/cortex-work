@@ -161,3 +161,32 @@ describe("ProjectsWorkbench 边栏 / ESC（U4）", () => {
     expect(document.activeElement).not.toBe(input); // 已 blur 退出编辑
   });
 });
+
+// ── U5：显示弹层选档持久化 / 显示收件箱联动重定向 ──────────────────────────────
+describe("ProjectsWorkbench 显示弹层（U5）", () => {
+  it("选档经 localStorage 窄通道持久化（KTD9）：切「全部」后重挂仍为「全部」", () => {
+    const { bridge } = fakeBridge();
+    const first = renderWorkbench(bridge);
+    fireEvent.click(screen.getByTitle("显示"));
+    fireEvent.click(screen.getByText("全部"));
+    first.unmount();
+    // 全新挂载读回 localStorage → 打开弹层「全部」应为选中态。
+    renderWorkbench(bridge);
+    fireEvent.click(screen.getByTitle("显示"));
+    const on = document.querySelector(".pw-view-option.is-on")!;
+    expect(on.textContent).toContain("全部");
+  });
+
+  it("关闭「显示收件箱」且正选中收件箱 → 重定向今日、隐藏收件箱入口（R10/R18）", () => {
+    const { bridge } = fakeBridge();
+    renderWorkbench(bridge);
+    // 先选中收件箱。
+    fireEvent.click(screen.getByRole("tab", { name: "收件箱" }));
+    expect(screen.getByRole("tab", { name: "收件箱" }).getAttribute("aria-selected")).toBe("true");
+    // 打开弹层关闭「显示收件箱」→ 重定向今日、收件箱入口消失。
+    fireEvent.click(screen.getByTitle("显示"));
+    fireEvent.click(screen.getByText("显示收件箱"));
+    expect(screen.queryByRole("tab", { name: "收件箱" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "今日" }).getAttribute("aria-selected")).toBe("true");
+  });
+});

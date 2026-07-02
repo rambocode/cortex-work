@@ -18,6 +18,7 @@ import { ProjectTree } from "./ProjectTree";
 import { TaskListColumn } from "./TaskListColumn";
 import { TaskDetail } from "./TaskDetail";
 import { WorkbenchToolbar } from "./WorkbenchToolbar";
+import type { ViewOptions } from "./ViewOptionsPopover";
 
 // 左树当前选择：内置视图（今日 / 收件箱）或某个 project/folder 节点。
 // U6 ProjectTree 产出、U7 TaskListColumn 消费（folder/project 统一走 descendantProjectIds 聚合）。
@@ -93,6 +94,27 @@ function readSidebarVisible(): boolean {
   }
 }
 
+// ── 显示弹层视图态窄通道（KTD9）───────────────────────────────────────────────
+// 四档过滤 + 结构开关同属窗口专属视图态，用同款 localStorage 窄通道读写（不进 toPersistedState，
+// 避免双窗口 clobber）。缺省：剩余档（对齐旧「进行中」直觉）、显示收件箱、不展开文件夹组头。
+const VIEW_OPTIONS_KEY = "cortex.projects.viewOptions";
+const DEFAULT_VIEW_OPTIONS: ViewOptions = { filter: "remaining", showInbox: true, showFolders: false };
+function readViewOptions(): ViewOptions {
+  try {
+    const raw = window.localStorage.getItem(VIEW_OPTIONS_KEY);
+    if (!raw) return DEFAULT_VIEW_OPTIONS;
+    const parsed = JSON.parse(raw) as Partial<ViewOptions>;
+    // 逐字段补默认：容忍旧结构/缺字段，避免坏值致空档。
+    return {
+      filter: parsed.filter ?? DEFAULT_VIEW_OPTIONS.filter,
+      showInbox: parsed.showInbox ?? DEFAULT_VIEW_OPTIONS.showInbox,
+      showFolders: parsed.showFolders ?? DEFAULT_VIEW_OPTIONS.showFolders,
+    };
+  } catch {
+    return DEFAULT_VIEW_OPTIONS;
+  }
+}
+
 // onToast 由窗口根透传（工作台内委派/新建等动作需给用户反馈）。
 export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void }) {
   const detailWidth = usePersonalStore((s) => s.projectsDetailWidth) ?? 380;
@@ -126,6 +148,18 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
   const [hist, setHist] = useState<SelectionHistory>({ entries: [{ kind: "today" }], index: 0 });
   const selection = hist.entries[hist.index] ?? { kind: "today" };
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  // R11：刚新建任务的 id——无视当前过滤强制可见并选中。用户切档/换选/导航即失效（见下）。
+  const [forcedVisibleId, setForcedVisibleId] = useState<string | null>(null);
+
+  // 选中语义分两路：普通选中（行点击）受过滤（R18 可将其清除）；新建选中强制可见（R11）。
+  const selectTask = (id: string | null) => {
+    setSelectedTaskId(id);
+    setForcedVisibleId(null);
+  };
+  const selectCreated = (id: string) => {
+    setSelectedTaskId(id);
+    setForcedVisibleId(id);
+  };
 
   // projects 变化即剪除历史死条目（KTD7）：删除项目后后退不落到空组。
   useEffect(() => {
@@ -134,18 +168,18 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
 
   // 用户主动选择左树节点/内置视图 → 入栈；切换选择即清空右列选中任务（选中态是 UI 瞬态，KTD8）。
   const navigateTo = (sel: WorkbenchSelection) => {
-    setSelectedTaskId(null);
+    selectTask(null);
     setHist((h) => pushSelection(h, sel));
   };
   const canGoBack = hist.index > 0;
   const canGoForward = hist.index < hist.entries.length - 1;
   // 后退 / 前进只挪 index（不 push），并清空右列选中（切换了浏览位置）。
   const goBack = () => {
-    setSelectedTaskId(null);
+    selectTask(null);
     setHist(goBackHistory);
   };
   const goForward = () => {
-    setSelectedTaskId(null);
+    selectTask(null);
     setHist(goForwardHistory);
   };
 
@@ -159,12 +193,38 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
     }
   }, [sidebarVisible]);
 
-  // 新建动作（R11 落点语义 U5 完善）：project 选中 → 落该 project；否则落收件箱。建后选中打开详情。
+  // 显示弹层视图态（KTD9 窄通道）：四档过滤 + 结构开关。初值读 localStorage，变化即回写。
+  const [viewOptions, setViewOptions] = useState<ViewOptions>(readViewOptions);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VIEW_OPTIONS_KEY, JSON.stringify(viewOptions));
+    } catch {
+      // 同 sidebar：无本地存储不阻断，仅丢失本次持久化。
+    }
+  }, [viewOptions]);
+
+  // 切换过滤档即撤销「强制可见」（R11/R18 边界）：新建任务的过滤豁免只在当前档有效；
+  // 用户切档后该任务回归常规过滤，若因此隐藏则由中栏 onSelectedHidden 走 R18 清除。
+  useEffect(() => {
+    setForcedVisibleId(null);
+  }, [viewOptions.filter]);
+
+  // 「显示收件箱」关闭且正选中收件箱 → 重定向今日（R10/R18 同款悬空处理）。
+  // ProjectTree 关闭态已隐藏 inbox 入口，此处兜住「在 inbox 时关开关」的即时重定向。
+  useEffect(() => {
+    if (!viewOptions.showInbox && selection.kind === "inbox") {
+      selectTask(null);
+      setHist((h) => pushSelection(h, { kind: "today" }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewOptions.showInbox, selection]);
+
+  // 新建动作（R11）：project 选中 → 落该 project；否则落收件箱。建后强制可见选中、标题进入编辑态。
   const onNewAction = async () => {
     const projectId = selection.kind === "project" ? selection.id : undefined;
     try {
       const created = await addTask.mutateAsync({ title: "", projectId, source: "manual" });
-      setSelectedTaskId(created.id);
+      selectCreated(created.id);
     } catch {
       onToast("新建任务失败，请重试");
     }
@@ -193,7 +253,7 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
       active!.blur();
       return;
     }
-    if (selectedTaskId) setSelectedTaskId(null);
+    if (selectedTaskId) selectTask(null);
   };
 
   // 右列详情：把选中 id 解析为任务对象（已删/悬空 → undefined，右列回空态）。
@@ -210,21 +270,27 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
         canGoForward={canGoForward}
         onBack={goBack}
         onForward={goForward}
+        viewOptions={viewOptions}
+        onViewOptionsChange={setViewOptions}
         onNewAction={onNewAction}
         onNewProject={onNewProject}
       />
       <div className="pw-projects-cols">
-        {/* 左列：项目树（U6）。边栏隐藏态下不渲染此列（R8）。 */}
+        {/* 左列：项目树（U6）。边栏隐藏态下不渲染此列（R8）；showInbox 控制收件箱入口显隐（R10）。 */}
         {sidebarVisible ? (
           <div className="pw-projects-tree">
-            <ProjectTree selection={selection} onSelect={navigateTo} onToast={onToast} />
+            <ProjectTree selection={selection} onSelect={navigateTo} onToast={onToast} showInbox={viewOptions.showInbox} />
           </div>
         ) : null}
-        {/* 中列：任务清单（U7）。按左树选择聚合，行内动作直达；点标题 → 右列详情（U8）。 */}
+        {/* 中列：任务清单（U7）。按左树选择聚合，四档过滤（U5），行内动作直达；点标题 → 右列详情（U8）。 */}
         <TaskListColumn
           selection={selection}
           selectedTaskId={selectedTaskId}
-          onOpenTask={setSelectedTaskId}
+          filter={viewOptions.filter}
+          forcedVisibleId={forcedVisibleId}
+          onOpenTask={selectTask}
+          onCreated={selectCreated}
+          onSelectedHidden={() => selectTask(null)}
           onToast={onToast}
         />
         {/* 右列拖拽调宽手柄：在详情列左缘。*/}
@@ -232,7 +298,7 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
         {/* 右列：任务详情（U8）。复用 TaskDetail（结构编辑 + 渐进披露富字段）；onBack 清空选中回空态。 */}
         <div className="pw-projects-detail" style={{ width: detailWidth }}>
           {selectedTask ? (
-            <TaskDetail task={selectedTask} onBack={() => setSelectedTaskId(null)} onToast={onToast} />
+            <TaskDetail task={selectedTask} onBack={() => selectTask(null)} onToast={onToast} />
           ) : (
             // 空态（对齐设计稿右列检查器）：居中图标 + 两行提示。
             <div className="pw-projects-detail-empty">

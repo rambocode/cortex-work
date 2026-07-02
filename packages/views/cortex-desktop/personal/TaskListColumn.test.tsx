@@ -7,6 +7,7 @@ import { usePersonalStore } from "@cortex-work/core/store/personal";
 import { useTasksChangeSubscription } from "@cortex-work/core/personal/tasks";
 import { TaskListColumn } from "./TaskListColumn";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
+import type { TaskViewFilter } from "@cortex-work/core/personal/tasks";
 
 // 内存任务桥：tasksList/add/update/delete/listProjects/onTasksChanged，并记录新增入参（快速新增归属断言用）。
 function fakeTasksBridge(initial: TaskMeta[] = [], initialProjects: TaskProject[] = []) {
@@ -57,10 +58,30 @@ function fakeTasksBridge(initial: TaskMeta[] = [], initialProjects: TaskProject[
   return { bridge, store, calls };
 }
 
-function renderColumn(bridge: DesktopBridge, selection: WorkbenchSelection, selectedTaskId?: string | null) {
+// 四档过滤缺省 remaining（对齐旧「进行中」直觉）；opts 可覆盖 filter 与选中回调用于断言。
+function renderColumn(
+  bridge: DesktopBridge,
+  selection: WorkbenchSelection,
+  selectedTaskId?: string | null,
+  opts: {
+    filter?: TaskViewFilter;
+    forcedVisibleId?: string | null;
+    onCreated?: (id: string) => void;
+    onSelectedHidden?: () => void;
+  } = {},
+) {
   return render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-      <TaskListColumn selection={selection} selectedTaskId={selectedTaskId} onOpenTask={() => {}} onToast={() => {}} />
+      <TaskListColumn
+        selection={selection}
+        selectedTaskId={selectedTaskId}
+        filter={opts.filter ?? "remaining"}
+        forcedVisibleId={opts.forcedVisibleId}
+        onOpenTask={() => {}}
+        onCreated={opts.onCreated ?? (() => {})}
+        onSelectedHidden={opts.onSelectedHidden ?? (() => {})}
+        onToast={() => {}}
+      />
     </CoreProvider>,
   );
 }
@@ -117,7 +138,15 @@ function renderLiveColumn(bridge: DesktopBridge, selection: WorkbenchSelection, 
   return render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
       <Sub />
-      <TaskListColumn selection={selection} selectedTaskId={selectedTaskId} onOpenTask={() => {}} onToast={() => {}} />
+      <TaskListColumn
+        selection={selection}
+        selectedTaskId={selectedTaskId}
+        filter="remaining"
+        onOpenTask={() => {}}
+        onCreated={() => {}}
+        onSelectedHidden={() => {}}
+        onToast={() => {}}
+      />
     </CoreProvider>,
   );
 }
@@ -194,23 +223,22 @@ describe("TaskListColumn", () => {
     expect(order).toEqual(["已标记", "逾期", "未逾期", "无due"]);
   });
 
-  it("筛选：默认只显进行中；切「已完成」显 done/dropped（问题1）", async () => {
-    const { bridge } = fakeTasksBridge(
-      [
-        task("a", "活动任务", { projectId: "p1" }),
-        task("b", "完成任务", { projectId: "p1", status: "done" }),
-      ],
-      [{ id: "p1", name: "项目一" }],
-    );
-    renderColumn(bridge, { kind: "project", id: "p1" });
-
-    // 默认「进行中」：只见活动任务。
+  it("四档过滤（U5）：remaining 隐藏 done；all 显 done/dropped", async () => {
+    const tasks = [
+      task("a", "活动任务", { projectId: "p1" }),
+      task("b", "完成任务", { projectId: "p1", status: "done" }),
+    ];
+    // remaining：只见活动任务（done 隐藏）。
+    const { bridge } = fakeTasksBridge(tasks, [{ id: "p1", name: "项目一" }]);
+    renderColumn(bridge, { kind: "project", id: "p1" }, undefined, { filter: "remaining" });
     expect(await screen.findByDisplayValue("活动任务")).toBeTruthy();
     expect(screen.queryByDisplayValue("完成任务")).toBeNull();
-    // 切「已完成」：结束的任务可被找回。
-    fireEvent.click(screen.getByText("已完成"));
+    cleanup();
+    // all：done/dropped 可被找回。
+    const { bridge: b2 } = fakeTasksBridge(tasks, [{ id: "p1", name: "项目一" }]);
+    renderColumn(b2, { kind: "project", id: "p1" }, undefined, { filter: "all" });
     expect(await screen.findByDisplayValue("完成任务")).toBeTruthy();
-    expect(screen.queryByDisplayValue("活动任务")).toBeNull();
+    expect(screen.getByDisplayValue("活动任务")).toBeTruthy();
   });
 
   it("行内直接编辑标题 → blur 保存（问题2）", async () => {
@@ -308,7 +336,7 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     );
     render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-        <TaskListColumn selection={{ kind: "project", id: "p1" }} onOpenTask={() => {}} onToast={(t) => toasts.push(t)} />
+        <TaskListColumn selection={{ kind: "project", id: "p1" }} filter="remaining" onOpenTask={() => {}} onCreated={() => {}} onSelectedHidden={() => {}} onToast={(t) => toasts.push(t)} />
       </CoreProvider>,
     );
 
@@ -327,7 +355,7 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     const { bridge, calls } = fakeTasksBridge([task("a", "叶子", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
     render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-        <TaskListColumn selection={{ kind: "project", id: "p1" }} onOpenTask={() => {}} onToast={(t) => toasts.push(t)} />
+        <TaskListColumn selection={{ kind: "project", id: "p1" }} filter="remaining" onOpenTask={() => {}} onCreated={() => {}} onSelectedHidden={() => {}} onToast={(t) => toasts.push(t)} />
       </CoreProvider>,
     );
     await screen.findByDisplayValue("叶子");
@@ -352,7 +380,7 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     );
     render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-        <TaskListColumn selection={{ kind: "project", id: "p1" }} onOpenTask={() => {}} onToast={(t) => toasts.push(t)} />
+        <TaskListColumn selection={{ kind: "project", id: "p1" }} filter="remaining" onOpenTask={() => {}} onCreated={() => {}} onSelectedHidden={() => {}} onToast={(t) => toasts.push(t)} />
       </CoreProvider>,
     );
     const suggest = await screen.findByText("✓ 完成此任务");
@@ -484,5 +512,74 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     expect(screen.queryByText("父任务")).toBeNull();
     const childRow = screen.getByDisplayValue("子任务").closest(".pw-task-row")!;
     expect(childRow.querySelector(".pw-task-indent")).toBeNull(); // depth 0，无缩进
+  });
+});
+
+// ── U5 四档过滤 / 上下文补行 / 强制可见 / R18 ─────────────────────────────────
+describe("TaskListColumn 四档过滤（U5）", () => {
+  it("父被 defer 滤掉、子可用：子显示 + 灰显父上下文行（不可编辑标题）", async () => {
+    const { bridge } = fakeTasksBridge(
+      [
+        // 父 defer 到未来（available 档下被滤）；子无 defer（available 命中）。
+        task("parent", "父任务", { projectId: "p1", deferDate: "2026-07-05" }),
+        task("child", "子任务", { projectId: "p1", parentTaskId: "parent" }),
+      ],
+      [{ id: "p1", name: "项目一", mode: "parallel" }],
+    );
+    const { container } = renderColumn(bridge, { kind: "project", id: "p1" }, undefined, { filter: "available" });
+
+    // 命中子的行内标题可编辑（input）。
+    expect(await screen.findByDisplayValue("子任务")).toBeTruthy();
+    // 父作上下文补行：灰显、无可编辑 input（标题为纯文本 span），且不计入命中（无 checkbox input）。
+    const ctx = container.querySelector(".pw-task-row.is-context")!;
+    expect(ctx).not.toBeNull();
+    expect(ctx.textContent).toContain("父任务");
+    expect(ctx.querySelector("input")).toBeNull(); // 补行不可勾选/不可编辑
+    // 父不出现为可编辑 input（未被当作命中行渲染）。
+    expect(screen.queryByDisplayValue("父任务")).toBeNull();
+  });
+
+  it("R18：选中任务完成后离开命中集 → 触发 onSelectedHidden", async () => {
+    const onSelectedHidden = vi.fn();
+    const { bridge } = fakeTasksBridge([task("a", "被选中", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
+    renderColumn(bridge, { kind: "project", id: "p1" }, "a", { filter: "remaining", onSelectedHidden });
+
+    const row = (await screen.findByDisplayValue("被选中")).closest(".pw-task-row")!;
+    // 勾选完成 → status done → remaining 档不再命中 → 通知容器清选中。
+    fireEvent.click(row.querySelector<HTMLInputElement>(".pw-task-check")!);
+    await waitFor(() => expect(onSelectedHidden).toHaveBeenCalled());
+  });
+
+  it("R11：forcedVisibleId 使新建任务无视「首先可用」过滤仍可见", async () => {
+    const tasks = [
+      task("a1", "首个可用", { projectId: "p1" }),
+      task("x", "新建任务", { projectId: "p1" }),
+    ];
+    // 无 forced：first-available 每项目至多一条 → 仅「首个可用」。
+    const { bridge } = fakeTasksBridge(tasks, [{ id: "p1", name: "项目一", mode: "parallel" }]);
+    renderColumn(bridge, { kind: "project", id: "p1" }, undefined, { filter: "first-available" });
+    expect(await screen.findByDisplayValue("首个可用")).toBeTruthy();
+    expect(screen.queryByDisplayValue("新建任务")).toBeNull();
+    cleanup();
+    // forcedVisibleId=x：新建任务被强制并入命中，两条都可见。
+    const { bridge: b2 } = fakeTasksBridge(tasks, [{ id: "p1", name: "项目一", mode: "parallel" }]);
+    renderColumn(b2, { kind: "project", id: "p1" }, "x", { filter: "first-available", forcedVisibleId: "x" });
+    expect(await screen.findByDisplayValue("新建任务")).toBeTruthy();
+    expect(screen.getByDisplayValue("首个可用")).toBeTruthy();
+  });
+
+  it("R26 空态双文案：scope 有任务但全被过滤 → 「无匹配动作」；scope 空 → 「暂无任务」", async () => {
+    // scope 有一条 done 任务，但 remaining 档全滤掉 → 无匹配动作。
+    const { bridge } = fakeTasksBridge(
+      [task("d", "已完成", { projectId: "p1", status: "done" })],
+      [{ id: "p1", name: "项目一" }],
+    );
+    const { container } = renderColumn(bridge, { kind: "project", id: "p1" }, undefined, { filter: "remaining" });
+    await waitFor(() => expect(container.querySelector(".pw-empty-hint")?.textContent).toContain("无匹配动作"));
+    cleanup();
+    // scope 本就空 → 项目暂无任务文案。
+    const { bridge: b2 } = fakeTasksBridge([], [{ id: "p1", name: "项目一" }]);
+    const { container: c2 } = renderColumn(b2, { kind: "project", id: "p1" }, undefined, { filter: "remaining" });
+    await waitFor(() => expect(c2.querySelector(".pw-empty-hint")?.textContent).toContain("暂无任务"));
   });
 });

@@ -6420,6 +6420,48 @@ button.sb-row {
 .pw-wb-menu-item:hover {
   background: var(--bg-hover);
 }
+/* 「显示」弹层（U5）：复用 pw-wb-menu 定位体系，内含四档单选 + 结构开关。 */
+.pw-view-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  min-width: 190px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-menu, var(--bg-app));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.pw-view-options-group { display: flex; flex-direction: column; }
+.pw-view-options-sep { height: 1px; background: var(--border-soft); margin: 4px 2px; }
+/* 单选 / 开关行：左侧固定宽 check 位（选中/开启才显勾）+ 标签。 */
+.pw-view-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--text-1);
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+}
+.pw-view-option:hover { background: var(--bg-hover); }
+.pw-view-option.is-on { color: var(--accent); }
+.pw-view-option-check {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+.pw-view-option-label { flex: 1; }
 .pw-projects-cols {
   flex: 1;
   display: flex;
@@ -9111,14 +9153,11 @@ button.sb-row {
 .pw-task-title-input:focus { border-bottom: 1px solid var(--accent); }
 .pw-task-row.is-done .pw-task-title-input { color: var(--text-3); text-decoration: line-through; }
 
-/* 完成度筛选分段（问题1）：紧凑三态，选中高亮。 */
-.pw-task-filter { display: inline-flex; gap: 2px; flex: 0 0 auto; }
-.pw-task-filter-opt {
-  font-size: 11px; color: var(--text-3); background: transparent; border: 0; border-radius: 6px;
-  padding: 2px 7px; cursor: pointer;
-}
-.pw-task-filter-opt:hover { color: var(--text-1); background: var(--bg-hover); }
-.pw-task-filter-opt.is-on { color: var(--accent); background: var(--accent-soft); }
+/* 上下文补行（U5/R15）：父被过滤档滤掉但其子命中时灰显父作层级上下文，不可交互。 */
+.pw-task-row.is-context { opacity: 0.55; pointer-events: none; }
+.pw-task-context-title { color: var(--text-3); }
+/* 补行完成勾选占位：仅占位对齐，不渲染可点圆圈。 */
+.pw-task-check-ghost { visibility: hidden; }
 
 /* 行内紧凑属性栏（问题2，图 #2 OmniFocus 样式）：单行 chip，无值灰占位、有值高亮，点击就地展开编辑。 */
 .pw-task-inspect { padding: 6px 4px 4px; display: flex; flex-direction: column; gap: 6px; }

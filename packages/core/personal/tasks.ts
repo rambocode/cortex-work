@@ -76,6 +76,70 @@ export function sequentialAvailableIds(tasks: TaskMeta[], today: string): Set<st
   return out;
 }
 
+// ── 显示弹层四档过滤（U5/KTD5，R10）─────────────────────────────────────────
+// 四档语义（对齐 OmniFocus「显示」弹层）：
+//   all             = 全部任务（含 done/dropped）
+//   remaining       = 未完成未丢弃（剩余）
+//   available       = remaining 中按所属项目模式「可用」（并行走 isAvailable / 顺序走收窄集）
+//   first-available = 每个项目可用集在显示顺序中的首项（每项目至多一条）
+export type TaskViewFilter = "first-available" | "available" | "remaining" | "all";
+
+// 弹层单选项元数据（值 + 中文标签），供 UI 渲染与遍历，避免各处硬编码顺序。
+export const TASK_VIEW_FILTERS: readonly { value: TaskViewFilter; label: string }[] = [
+  { value: "first-available", label: "首先可用" },
+  { value: "available", label: "可用" },
+  { value: "remaining", label: "剩余" },
+  { value: "all", label: "全部" },
+];
+
+// 「剩余」谓词：未完结（非 done/dropped）。
+function isRemaining(task: Pick<TaskMeta, "status">): boolean {
+  return task.status !== "done" && task.status !== "dropped";
+}
+
+// 计算某过滤档下「直接命中」的任务 id 集合（不含被滤父的孤儿上下文补行——那由视图层 R15 另补）。
+// 关键契约：`tasks` 须为**全量任务**且已按显示顺序排好——「首先可用」按数组顺序取每桶首个可用项，
+// 顺序（sequential）项目的「队首」也依赖输入顺序（sequentialAvailableIds 以输入序建树）。
+// `projects` 仅用于查项目 mode（缺省 parallel）。纯函数、无 IO，供中栏过滤与统计共用一份派生结果。
+export function matchedTaskIds(
+  tasks: TaskMeta[],
+  projects: Pick<TaskProject, "id" | "mode">[],
+  filter: TaskViewFilter,
+  today: string,
+): Set<string> {
+  if (filter === "all") return new Set(tasks.map((t) => t.id));
+  if (filter === "remaining") return new Set(tasks.filter(isRemaining).map((t) => t.id));
+
+  // available / first-available：按所属项目分桶，按 mode 派生可用集。
+  // 悬空/无项目（不在项目表）归入空串桶，按并行处理（收件箱无顺序语义）。
+  const modeById = new Map(projects.map((p) => [p.id, projectMode(p)]));
+  const knownIds = new Set(projects.map((p) => p.id));
+  const buckets = new Map<string, TaskMeta[]>();
+  for (const t of tasks) {
+    const pid = t.projectId && knownIds.has(t.projectId) ? t.projectId : "";
+    const arr = buckets.get(pid);
+    if (arr) arr.push(t);
+    else buckets.set(pid, [t]);
+  }
+  const available = new Set<string>();
+  for (const [pid, items] of buckets) {
+    const mode = pid ? (modeById.get(pid) ?? "parallel") : "parallel";
+    if (mode === "sequential") {
+      for (const id of sequentialAvailableIds(items, today)) available.add(id);
+    } else {
+      for (const t of items) if (isAvailable(t, today)) available.add(t.id);
+    }
+  }
+  if (filter === "available") return available;
+  // first-available：每桶按显示顺序取可用集首项（每项目至多一条）。
+  const out = new Set<string>();
+  for (const [, items] of buckets) {
+    const first = items.find((t) => available.has(t.id));
+    if (first) out.add(first.id);
+  }
+  return out;
+}
+
 // 标签规范化：trim + 小写归一；空/纯空白返回 null（调用方据此丢弃）。
 // 归一是为了 @Email 与 @email 视为同一标签、Tags 视图不被近重复撑爆。
 export function normalizeTag(raw: string): string | null {

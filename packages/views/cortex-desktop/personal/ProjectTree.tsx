@@ -407,11 +407,14 @@ export function ProjectTree({
   selection,
   onSelect,
   onToast,
+  showInbox = true,
 }: {
   selection: WorkbenchSelection;
   onSelect: (sel: WorkbenchSelection) => void;
   // 无 toast 宿主时静默（容器暂未接 toast）。
   onToast?: (text: string) => void;
+  // 「显示收件箱」结构开关（U5/R10）：关闭时隐藏收件箱入口（容器负责重定向已选中的 inbox）。
+  showInbox?: boolean;
 }) {
   const projects = useTaskProjects().data ?? [];
   const addProject = useAddTaskProject();
@@ -550,15 +553,17 @@ export function ProjectTree({
           <Icon.Clock size={14} />
           <span>今日</span>
         </button>
-        <button
-          className={`pw-task-tab pw-ptree-view${selection.kind === "inbox" ? " is-active" : ""}`}
-          role="tab"
-          aria-selected={selection.kind === "inbox"}
-          onClick={() => onSelect({ kind: "inbox" })}
-        >
-          <Icon.StickyNote size={14} />
-          <span>收件箱</span>
-        </button>
+        {showInbox ? (
+          <button
+            className={`pw-task-tab pw-ptree-view${selection.kind === "inbox" ? " is-active" : ""}`}
+            role="tab"
+            aria-selected={selection.kind === "inbox"}
+            onClick={() => onSelect({ kind: "inbox" })}
+          >
+            <Icon.StickyNote size={14} />
+            <span>收件箱</span>
+          </button>
+        ) : null}
       </div>
       {/* 项目区标题 + 常驻「＋」：不依赖选中即可建顶层 folder / project */}
       <div className="pw-ptree-head">
