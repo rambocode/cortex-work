@@ -6325,25 +6325,100 @@ button.sb-row {
   flex-direction: column;
   background: var(--bg-app);
 }
-.pw-projects-head {
+/* OmniFocus 式自绘工具栏（U4）：整条 -webkit-app-region: drag 承担 hiddenInset 窗口拖拽
+   （.ds-drag），交互子元素挂 .ds-no-drag 恢复点击；左侧 84px 让位 mac 红绿灯（R7）。 */
+.pw-wb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-app);
+  flex-shrink: 0;
+}
+/* 左侧红绿灯让位（trafficLightPosition x=16）：纯 drag 区，无交互。 */
+.pw-wb-traffic-safe {
+  width: 76px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+.pw-wb-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pw-wb-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* 中间可拖拽空白填充：把左右两组推向两端，空白区继承工具栏 drag。 */
+.pw-wb-spacer {
+  flex: 1;
+  align-self: stretch;
+  min-width: 12px;
+}
+/* 工具栏按钮：图标 +（可选）标签横排，OmniFocus 灰态；hover 高亮、disabled 弱化。 */
+.pw-wb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  color: var(--text-2);
+  background: transparent;
+  font-size: 12px;
+  cursor: default;
+}
+.pw-wb-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.pw-wb-btn.is-on,
+.pw-wb-btn.is-active {
+  background: var(--bg-active);
+  color: var(--text-1);
+}
+.pw-wb-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pw-wb-btn-label {
+  white-space: nowrap;
+}
+/* 「新建」下拉：定位锚点 + 浮层菜单（照 ProjectTree 的 pw-tb-menu 体系）。 */
+.pw-wb-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.pw-wb-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-menu, var(--bg-app));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.pw-wb-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag; /* 顶栏承担窗口拖拽 */
-}
-.pw-projects-head button {
-  -webkit-app-region: no-drag;
-}
-.pw-projects-title {
-  font-weight: 600;
-  font-size: 14px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
   color: var(--text-1);
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
 }
-/* macOS 无边框窗口：整页覆盖盖住原让位区，顶栏左侧预留红绿灯宽度（同 settings 让位约定）。 */
-.app-frame[data-native-titlebar="mac"] .pw-projects-head {
-  padding-left: 82px;
+.pw-wb-menu-item:hover {
+  background: var(--bg-hover);
 }
 .pw-projects-cols {
   flex: 1;
