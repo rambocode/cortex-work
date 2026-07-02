@@ -26,7 +26,9 @@ export function ProjectWorkspaceHeader({
   onToast: (text: string) => void;
 }) {
   const { done, total, percent } = projectProgress(tasks);
-  const { open, setOpen, wrapRef, onMouseEnter, onMouseLeave } = useDismissableMenu();
+  // 表单型浮层：不挂 hover 自动收起、不随 window blur 关闭（编辑中途鼠标移出/系统弹层抢焦点
+  // 不应把半填的表单关掉；与 ProjectStagesBar 的阶段编辑浮层同款约定）。
+  const { open, setOpen, wrapRef } = useDismissableMenu({ closeOnWindowBlur: false });
   const { menuRef, clampStyle } = useMenuViewportClamp(open);
   const statusBadge = project.status ? STATUS_BADGE[project.status] : undefined;
   // 描述摘要：单行截断（完整内容在设置面板编辑）。
@@ -49,7 +51,7 @@ export function ProjectWorkspaceHeader({
           <div className="pw-proj-header-progress-fill" style={{ width: `${percent}%` }} />
         </div>
       </div>
-      <div className="pw-wb-menu-wrap" ref={wrapRef} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+      <div className="pw-wb-menu-wrap" ref={wrapRef}>
         <button
           className={`pw-ps-icon-btn${open ? " is-on" : ""}`}
           title="项目设置"

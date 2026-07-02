@@ -125,8 +125,10 @@ export function ProjectStagesBar({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   // 单开的阶段编辑浮层（editingStageId 定位到某 tab 下方）。
+  // 表单型浮层（含原生 date input）：不挂 hover 自动收起、不随 window blur 关闭——
+  // 原生日期日历是系统弹层（DOM 外且抢窗口焦点），否则鼠标一进日历浮层就消失（bug 报告）。
   const [editingStageId, setEditingStageId] = useState<string | null>(null);
-  const { open, setOpen, wrapRef, onMouseEnter, onMouseLeave } = useDismissableMenu();
+  const { open, setOpen, wrapRef } = useDismissableMenu({ closeOnWindowBlur: false });
   const { menuRef, clampStyle } = useMenuViewportClamp(open && editingStageId != null);
   // 浮层被外点/Esc 关闭后同步清 editingStageId（open 是 useDismissableMenu 内部态）。
   useEffect(() => {
@@ -161,7 +163,7 @@ export function ProjectStagesBar({
   return (
     <div className="pw-stages-bar">
       <div className="pw-stages-label">阶段</div>
-      <div className="pw-stages-tabs" ref={wrapRef} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+      <div className="pw-stages-tabs" ref={wrapRef}>
         <button
           className={`pw-stage-tab${activeStageId === null ? " is-on" : ""}`}
           onClick={() => onStageChange(null)}

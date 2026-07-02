@@ -166,6 +166,39 @@ describe("ProjectStagesBar", () => {
     expect(arg.patch.stages[2]).toMatchObject({ name: "测试", status: "not-started", order: 2 });
   });
 
+  it("阶段编辑浮层是表单型：鼠标移出与 window blur 都不自动关闭（原生日期日历会移出 DOM 且抢焦点）", async () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(
+        <ProjectStagesBar
+          project={staged}
+          activeStageId={null}
+          onStageChange={vi.fn()}
+          view="list"
+          onViewChange={vi.fn()}
+          onToast={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByTitle("编辑阶段「调研」"));
+      expect(screen.getByRole("dialog", { name: "编辑阶段「调研」" })).toBeTruthy();
+
+      // 鼠标移出 tabs 区（原生日历悬停等价场景）→ 过 220ms 收起定时器窗口后仍在。
+      fireEvent.mouseLeave(container.querySelector(".pw-stages-tabs")!);
+      vi.advanceTimersByTime(500);
+      expect(screen.getByRole("dialog", { name: "编辑阶段「调研」" })).toBeTruthy();
+
+      // 原生日历弹层抢走窗口焦点（window blur）→ 仍在。
+      fireEvent.blur(window);
+      expect(screen.getByRole("dialog", { name: "编辑阶段「调研」" })).toBeTruthy();
+
+      // Esc 仍可关闭（关闭通路保留：外点 / Esc / 关闭按钮）。
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.queryByRole("dialog", { name: "编辑阶段「调研」" })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("阶段编辑浮层：改状态 patch 只动目标阶段；删除两步确认且当前过滤指向被删阶段时回「全部」", () => {
     const onStageChange = vi.fn();
     render(
