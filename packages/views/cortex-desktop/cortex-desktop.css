@@ -9350,6 +9350,7 @@ button.sb-row {
 /* 状态分段控件（U5）：5 态按钮 row，选中态高亮。 */
 .pw-task-status-seg { display: inline-flex; gap: 2px; flex-wrap: wrap; }
 .pw-task-status-opt {
+  display: inline-flex; align-items: center; gap: 4px;
   font-size: 11px; color: var(--text-3); background: var(--bg-input);
   border: 1px solid var(--border-soft); border-radius: 6px; padding: 2px 8px; cursor: pointer;
 }
@@ -9479,3 +9480,9 @@ button.sb-row {
 .pw-projects-detail .pw-task-detail-head { position: sticky; top: 0; z-index: 1; background: var(--bg-app); }
 .pw-projects-detail .pw-task-detail-body { flex: 0 0 auto; min-height: 300px; padding-bottom: 16px; }
 .pw-projects-detail .pw-task-detail-body > .pw-note-cm-host { min-height: 260px; }
+
+/* 备注编辑器紧凑内边距（U11）：NoteCodeMirrorEditor 内置的写作版心 padding（clamp 28~56px / 左右 70px）
+   是为闪记写作面设计的，在任务详情检查器里过宽。此处仅在任务详情作用域收窄横向留白，使正文左缘与
+   左侧字段区（padding-left 14px）/ 备注标题对齐；选择器比 CM 注入主题的 `.cm-content` 更具体（三段类），
+   无需 !important。不触碰闪记等其它 NoteCodeMirrorEditor 使用处。 */
+.pw-task-detail-body .pw-note-cm-host .cm-content { padding: 6px 14px 16px; }

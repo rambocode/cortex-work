@@ -31,24 +31,41 @@ function renderTree(selection: WorkbenchSelection = { kind: "today" }) {
 afterEach(() => {
   cleanup();
   mutate.mockClear();
+  // 折叠态经 localStorage 窄通道持久化，测试间清理避免串场。
+  try {
+    window.localStorage.clear();
+  } catch {
+    /* noop */
+  }
 });
 
 describe("ProjectTree", () => {
-  it("三层树逐级折叠/展开：默认只见根，展开后依次露出子孙", () => {
+  it("默认全展开：三层全部可见；折叠某节点后其子孙隐藏、再展开恢复（U11）", () => {
     renderTree();
-    // 默认全收起 → 只有根节点可见
+    // 默认全展开 → 三层节点均可见
     expect(screen.getByText("文件夹A")).toBeTruthy();
+    expect(screen.getByText("项目B")).toBeTruthy();
+    expect(screen.getByText("项目C")).toBeTruthy();
+
+    // 折叠 A（展开态标题为「折叠」，DOM 首个即 A）→ 子孙 B、C 隐藏
+    fireEvent.click(screen.getAllByTitle("折叠")[0]!);
     expect(screen.queryByText("项目B")).toBeNull();
     expect(screen.queryByText("项目C")).toBeNull();
 
-    // 展开 A（此时唯一带「展开」标题的箭头）→ 露出 B
+    // A 现为「折叠」态，箭头标题变「展开」→ 再点恢复
     fireEvent.click(screen.getByTitle("展开"));
     expect(screen.getByText("项目B")).toBeTruthy();
-    expect(screen.queryByText("项目C")).toBeNull();
-
-    // A 现为「折叠」，剩下 B 的「展开」箭头 → 展开 B 露出 C
-    fireEvent.click(screen.getByTitle("展开"));
     expect(screen.getByText("项目C")).toBeTruthy();
+  });
+
+  it("折叠态经 localStorage 窄通道持久化：重挂后保持折叠（U11）", () => {
+    const first = render(<ProjectTree selection={{ kind: "today" }} onSelect={vi.fn()} />);
+    fireEvent.click(first.getAllByTitle("折叠")[0]!); // 折叠 A
+    expect(first.queryByText("项目B")).toBeNull();
+    first.unmount();
+    // 全新挂载读回 localStorage → A 仍折叠、B 不可见。
+    const second = render(<ProjectTree selection={{ kind: "today" }} onSelect={vi.fn()} />);
+    expect(second.queryByText("项目B")).toBeNull();
   });
 
   it("点节点名触发 onSelect：folder → kind folder，project → kind project", () => {
@@ -56,8 +73,7 @@ describe("ProjectTree", () => {
     fireEvent.click(screen.getByText("文件夹A"));
     expect(onSelect).toHaveBeenCalledWith({ kind: "folder", id: "a" });
 
-    fireEvent.click(screen.getByTitle("展开")); // 展开 A 才能点到 B
-    fireEvent.click(screen.getByText("项目B"));
+    fireEvent.click(screen.getByText("项目B")); // 默认全展开，B 直接可见
     expect(onSelect).toHaveBeenCalledWith({ kind: "project", id: "b" });
   });
 
@@ -71,23 +87,21 @@ describe("ProjectTree", () => {
 
   it("folder 节点不渲染执行模式菜单（U8：模式仅 project 有意义）", () => {
     renderTree();
-    // 仅根 A（folder）可见 → 无执行模式按钮
-    expect(screen.queryByTitle("执行模式（并行 / 顺序）")).toBeNull();
+    // 全展开后可见 folder A + project B + project C；模式菜单只应有 2 个（B、C），folder A 无。
+    expect(screen.getAllByTitle("执行模式（并行 / 顺序）").length).toBe(2);
   });
 
   it("project 节点切「顺序」经 useUpdateTaskProject 写回 patch.mode（U8/R24）", () => {
     renderTree();
-    fireEvent.click(screen.getByTitle("展开")); // 展开 A 露出 project B（默认 parallel）
-    fireEvent.click(screen.getByTitle("执行模式（并行 / 顺序）"));
+    // 默认全展开，project B（默认 parallel）为首个模式菜单。
+    fireEvent.click(screen.getAllByTitle("执行模式（并行 / 顺序）")[0]!);
     fireEvent.click(screen.getByText("顺序"));
     expect(mutate).toHaveBeenCalledWith({ id: "b", patch: { mode: "sequential" } });
   });
 
   it("顺序项目在树节点显示模式标识；点当前档不重复写回（同档去重）", () => {
     renderTree();
-    fireEvent.click(screen.getByTitle("展开")); // A → B
-    fireEvent.click(screen.getByTitle("展开")); // B → C（sequential）
-    // 顺序项目 C 有模式标识；并行项目 B 无
+    // 默认全展开，B、C 均可见。顺序项目 C 有模式标识；并行项目 B 无。
     expect(screen.getByLabelText("顺序项目")).toBeTruthy();
     // 打开 C 的模式菜单（DOM 末位）点「顺序」→ 同档、不 mutate
     const menus = screen.getAllByTitle("执行模式（并行 / 顺序）");

@@ -13,7 +13,6 @@ function renderToolbar(overrides: Partial<WorkbenchToolbarProps> = {}) {
     onBack: vi.fn(),
     onForward: vi.fn(),
     onNewAction: vi.fn(),
-    onNewProject: vi.fn(),
     ...overrides,
   };
   const utils = render(<WorkbenchToolbar {...props} />);
@@ -58,15 +57,15 @@ describe("WorkbenchToolbar（U4）", () => {
     expect(off.className).not.toContain("is-on");
   });
 
-  it("新建菜单：动作 / 项目两项分别回调 onNewAction / onNewProject", () => {
+  it("新建为单一按钮：点击直接回调 onNewAction，无下拉（U11）", () => {
     const { props } = renderToolbar();
-    fireEvent.click(screen.getByTitle("新建"));
-    fireEvent.click(screen.getByText("新建动作"));
+    const btn = screen.getByTitle("新建动作") as HTMLButtonElement;
+    // 单一按钮而非菜单触发器：无 aria-haspopup，点击即建动作。
+    expect(btn.getAttribute("aria-haspopup")).toBeNull();
+    fireEvent.click(btn);
     expect(props.onNewAction).toHaveBeenCalledTimes(1);
-    // 菜单选后自动关闭，需重新打开。
-    fireEvent.click(screen.getByTitle("新建"));
-    fireEvent.click(screen.getByText("新建项目"));
-    expect(props.onNewProject).toHaveBeenCalledTimes(1);
+    // 「新建项目」入口已从工具栏移除（改由左树承担）。
+    expect(screen.queryByText("新建项目")).toBeNull();
   });
 
   it("拖拽契约：工具栏为 drag 区，交互元素挂 ds-no-drag", () => {

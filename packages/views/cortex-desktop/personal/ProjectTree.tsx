@@ -1,8 +1,10 @@
 // 左列多层项目树（U6）。可折叠嵌套 + 内置视图入口（今日 / 收件箱）+ 新建 / 重命名 / reparent / 删除。
 // 服务端态（projects）走 React Query（useTaskProjects），本组件只持有 UI 瞬态：
-//   展开态 / 正在新建 / 正在重命名。展开态本轮用组件内 useState（工作台挂载期间保持；
-//   跨开关重置为已知 minor polish，不落 store——见 U6 交接说明，KTD8「不复制服务端态」不受影响）。
-// reparent 防环由 store 层强制拒绝并 reject，UI 只在候选列表用 isDescendant 预筛 + mutate onError 兜底提示，
+//   展开态 / 正在新建 / 正在重命名。
+// 展开态语义（U11）：默认**全部展开**——存储只记「被用户折叠的节点 id 集合」（collapsed），
+//   未记录的节点一律视为展开，故新建项目 / 文件夹天然展开、无需登记。折叠态经 localStorage 窄通道
+//   持久化（同 ProjectsWorkbench 的 sidebar/viewOptions 通道；views 层可用浏览器 API），跨开窗记忆。
+// reparent 防环由 store 层强制拒绝并 reject，UI 只在候选列表用 isDescendant 预筛 + mutate onError 兜底提示,
 //   绝不自行判定成环（防 UI/store 判定漂移）。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
@@ -24,6 +26,22 @@ import type { WorkbenchSelection } from "./ProjectsWorkbench";
 
 // 每层缩进步长（px）。折叠箭头 / 占位固定宽，保证同层节点名对齐。
 const INDENT = 16;
+
+// ── 折叠态窄通道（U11）───────────────────────────────────────────────────────
+// 默认全展开：只持久化「被用户折叠的节点 id」集合，未记录即展开（新项目天然展开）。
+// 用 localStorage 作窗口专属窄通道（同 ProjectsWorkbench 的 SIDEBAR_KEY / VIEW_OPTIONS_KEY 惯例），
+// 不进 store 全量持久化，避免双窗口 clobber。
+const COLLAPSED_KEY = "cortex.projects.collapsedNodes";
+function readCollapsed(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as unknown;
+    return new Set(Array.isArray(arr) ? (arr.filter((x) => typeof x === "string") as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
 
 // 就地输入框：新建 / 重命名共用。Enter 提交、Esc 取消、失焦即提交（空则调用方丢弃）。
 // doneRef 去重：Enter 提交后 input 卸载会再触发一次 blur，若不拦截会重复提交（新建将建两条）。
@@ -273,7 +291,8 @@ interface NodeCtx {
   selection: WorkbenchSelection;
   onSelect: (sel: WorkbenchSelection) => void;
   projects: TaskProject[];
-  expanded: Record<string, boolean>;
+  // 折叠态集合（U11）：含于集合 = 被折叠，否则展开（默认全展开）。
+  collapsed: Set<string>;
   toggle: (id: string) => void;
   creating: { parentId: string | null; kind: TaskProjectKind } | null;
   editingId: string | null;
@@ -297,7 +316,8 @@ function TreeNode({ node, depth, ctx }: { node: TaskProjectNode; depth: number; 
   const mode = projectMode(node);
   const isSequential = !isFolder && mode === "sequential";
   const hasChildren = node.children.length > 0;
-  const isExpanded = !!ctx.expanded[node.id];
+  // 默认展开：仅当节点被登记进 collapsed 才视为折叠。
+  const isExpanded = !ctx.collapsed.has(node.id);
   const selKind: "folder" | "project" = isFolder ? "folder" : "project";
   const active =
     (ctx.selection.kind === "folder" || ctx.selection.kind === "project") && ctx.selection.id === node.id;
@@ -421,7 +441,15 @@ export function ProjectTree({
   const updateProject = useUpdateTaskProject();
   const deleteProject = useDeleteTaskProject();
 
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // 折叠态集合（U11）：默认全展开，仅记被用户折叠的节点；初值读 localStorage 窄通道，变化即回写。
+  const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
+    } catch {
+      // 无本地存储（隐私模式等）不阻断交互，仅丢失本次持久化。
+    }
+  }, [collapsed]);
   // 同一时刻只允许一个新建输入 / 一个重命名输入，避免多输入并存的焦点争抢。
   const [creating, setCreating] = useState<{ parentId: string | null; kind: TaskProjectKind } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -429,10 +457,25 @@ export function ProjectTree({
 
   const roots = useMemo(() => buildProjectTree(projects), [projects]);
 
-  const toggle = (id: string) => setExpanded((m) => ({ ...m, [id]: !m[id] }));
+  // 折叠 ⇄ 展开：在 collapsed 集合中增删该 id（含 = 折叠）。
+  const toggle = (id: string) =>
+    setCollapsed((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  // 确保某节点展开（从 collapsed 移除）；已展开则原样返回，避免多余渲染。
+  const expand = (id: string) =>
+    setCollapsed((s) => {
+      if (!s.has(id)) return s;
+      const next = new Set(s);
+      next.delete(id);
+      return next;
+    });
 
   const beginCreate = (parentId: string | null, kind: TaskProjectKind) => {
-    if (parentId) setExpanded((m) => ({ ...m, [parentId]: true })); // 展开父节点，露出新建输入
+    if (parentId) expand(parentId); // 展开父节点，露出新建输入
     setEditingId(null);
     setCreating({ parentId, kind });
   };
@@ -492,7 +535,7 @@ export function ProjectTree({
   const onNodeKeyDown = (e: React.KeyboardEvent, node: TaskProjectNode) => {
     const el = e.currentTarget as HTMLElement;
     const hasChildren = node.children.length > 0;
-    const isExpanded = !!expanded[node.id];
+    const isExpanded = !collapsed.has(node.id);
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
@@ -524,7 +567,7 @@ export function ProjectTree({
     selection,
     onSelect,
     projects,
-    expanded,
+    collapsed,
     toggle,
     creating,
     editingId,

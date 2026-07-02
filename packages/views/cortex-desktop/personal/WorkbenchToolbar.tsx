@@ -1,12 +1,12 @@
 // 「项目管理」独立窗口顶部自绘工具栏（U4，OmniFocus 式）。
-// 布局对齐参考截图：左 = 边栏切换 / 后退 / 前进 / 显示；右 = 新建（动作 / 项目菜单）+ 未实装占位
+// 布局对齐参考截图：左 = 边栏切换 / 后退 / 前进 / 显示；右 = 新建（单击直接新建动作）+ 未实装占位
 //（快速入口 / 聚焦 / 设置显示字段 / 设置编辑字段，R12 灰态）。
+// 「新建」是单一按钮、点击即建动作（U11 简化）；新建项目改由左树「＋」入口承担，不再进本工具栏下拉。
 //
 // 跨进程契约（KTD8 / R7）：本窗口是 hiddenInset 无边框窗口，整条工具栏 `-webkit-app-region: drag`
 // 承担窗口拖拽，所有交互子元素挂 `.ds-no-drag` 恢复点击（照 .ds-drag 与 TitleBar 惯例）；左侧 84px
 // 让位 mac 红绿灯（trafficLightPosition x=16，见 projects-window.ts）。
 // 「显示」按钮本单元只渲染入口，过滤弹层内容归 U5；未实装项以 disabled + tooltip 呈现。
-import { useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { ViewOptionsPopover, type ViewOptions } from "./ViewOptionsPopover";
 
@@ -25,63 +25,6 @@ export interface WorkbenchToolbarProps {
   onViewOptionsChange?: (next: ViewOptions) => void;
   // 新建动作（任务）：落点语义 U5 完善。
   onNewAction: () => void;
-  // 新建项目：隐藏态自动展开边栏由容器处理（R8）。
-  onNewProject: () => void;
-}
-
-// 「新建」下拉菜单：动作（任务）/ 项目两个入口，对齐 OmniFocus 新建按钮的子菜单。
-// outside mousedown 关闭，与 ProjectTree 的 AddMenu 一致。
-function NewMenu({ onNewAction, onNewProject }: { onNewAction: () => void; onNewProject: () => void }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-  return (
-    <div className="pw-wb-menu-wrap ds-no-drag" ref={wrapRef}>
-      <button
-        className={`pw-wb-btn${open ? " is-active" : ""}`}
-        title="新建"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Icon.Plus size={16} />
-        <span className="pw-wb-btn-label">新建</span>
-      </button>
-      {open ? (
-        <div className="pw-wb-menu" role="menu">
-          <button
-            className="pw-wb-menu-item"
-            role="menuitem"
-            onClick={() => {
-              onNewAction();
-              setOpen(false);
-            }}
-          >
-            <Icon.Task size={14} />
-            <span>新建动作</span>
-          </button>
-          <button
-            className="pw-wb-menu-item"
-            role="menuitem"
-            onClick={() => {
-              onNewProject();
-              setOpen(false);
-            }}
-          >
-            <Icon.Folder size={14} />
-            <span>新建项目</span>
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 export function WorkbenchToolbar({
@@ -94,7 +37,6 @@ export function WorkbenchToolbar({
   viewOptions,
   onViewOptionsChange,
   onNewAction,
-  onNewProject,
 }: WorkbenchToolbarProps) {
   return (
     <div className="pw-wb-toolbar ds-drag">
@@ -130,7 +72,11 @@ export function WorkbenchToolbar({
       {/* 中间可拖拽空白填充（drag 区）。 */}
       <div className="pw-wb-spacer" />
       <div className="pw-wb-group">
-        <NewMenu onNewAction={onNewAction} onNewProject={onNewProject} />
+        {/* 「新建」单一按钮：点击直接新建动作（U11）；新建项目走左树「＋」入口。 */}
+        <button className="pw-wb-btn ds-no-drag" title="新建动作" onClick={onNewAction}>
+          <Icon.Plus size={16} />
+          <span className="pw-wb-btn-label">新建</span>
+        </button>
         {/* 未实装占位（对齐参考截图灰态，R12）：disabled + tooltip 提示即将推出。 */}
         <button className="pw-wb-btn ds-no-drag" title="快速入口（即将推出）" disabled>
           <Icon.Search size={16} />

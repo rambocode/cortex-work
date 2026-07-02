@@ -81,11 +81,14 @@ describe("ProjectsWorkbench 历史栈（U4/KTD7）", () => {
 
 // ── 组件级：边栏显隐 / 自动展开 / ESC ───────────────────────────────────────
 function fakeBridge(projects: TaskProject[] = []) {
-  const calls = { addProject: 0 };
+  const calls = { addProject: 0, addTask: 0 };
   const bridge = {
     tasksList: async () => [],
     tasksListProjects: async () => projects,
-    tasksAdd: async () => ({ id: "new-task", title: "", status: "active", tags: [], source: "manual", createdAt: 0, updatedAt: 0 }),
+    tasksAdd: async () => {
+      calls.addTask += 1;
+      return { id: "new-task", title: "", status: "active", tags: [], source: "manual", createdAt: 0, updatedAt: 0 };
+    },
     tasksAddProject: async (name: string) => {
       calls.addProject += 1;
       return { id: "new-proj", name, kind: "project" };
@@ -140,15 +143,15 @@ describe("ProjectsWorkbench 边栏 / ESC（U4）", () => {
     expect(second.container.querySelector(".pw-projects-tree")).toBeNull();
   });
 
-  it("隐藏态下新建项目自动展开边栏（R8）", async () => {
+  it("工具栏「新建」为单一按钮，点击直接新建动作、无下拉（U11）", async () => {
     const { bridge, calls } = fakeBridge();
-    const { container } = renderWorkbench(bridge);
-    fireEvent.click(screen.getByTitle("隐藏边栏"));
-    expect(container.querySelector(".pw-projects-tree")).toBeNull();
-    fireEvent.click(screen.getByTitle("新建"));
-    fireEvent.click(screen.getByText("新建项目"));
-    await waitFor(() => expect(container.querySelector(".pw-projects-tree")).not.toBeNull());
-    expect(calls.addProject).toBe(1);
+    renderWorkbench(bridge);
+    const btn = screen.getByTitle("新建动作");
+    // 单一按钮：不再是菜单触发器（无 aria-haspopup），点击即建任务、不弹「新建项目/动作」子菜单。
+    expect(btn.getAttribute("aria-haspopup")).toBeNull();
+    fireEvent.click(btn);
+    await waitFor(() => expect(calls.addTask).toBe(1));
+    expect(calls.addProject).toBe(0);
   });
 
   it("ESC：行内编辑聚焦中按 ESC 退出编辑（blur），不关窗", () => {

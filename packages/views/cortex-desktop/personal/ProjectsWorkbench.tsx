@@ -10,7 +10,6 @@ import {
   useTasks,
   useTasksChangeSubscription,
   useAddTask,
-  useAddTaskProject,
   useTaskProjects,
 } from "@cortex-work/core/personal/tasks";
 import type { TaskProject } from "@cortex-work/core/desktop/types";
@@ -117,21 +116,23 @@ function readViewOptions(): ViewOptions {
 
 // onToast 由窗口根透传（工作台内委派/新建等动作需给用户反馈）。
 export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void }) {
-  const detailWidth = usePersonalStore((s) => s.projectsDetailWidth) ?? 380;
+  // 详情列宽：默认 322，并把持久化旧值夹进 [322,720]——老用户可能存过 <322 的宽度（旧下限 320），
+  // 读回时统一抬到新下限，避免残留过窄。
+  const storedDetailWidth = usePersonalStore((s) => s.projectsDetailWidth);
+  const detailWidth = Math.min(720, Math.max(322, storedDetailWidth ?? 322));
   const setDetailWidth = usePersonalStore((s) => s.setProjectsDetailWidth);
   // 根挂载订阅：后台结构化 / agent 委派回写 → invalidate 刷新三栏（KTD8；历史 notes 零挂载 bug 在先）。
   useTasksChangeSubscription();
 
   const projects = useTaskProjects().data ?? [];
   const addTask = useAddTask();
-  const addProject = useAddTaskProject();
 
-  // 右列拖拽调宽：详情是最右列，故宽 = 窗口右缘到鼠标 x 的距离；夹在 [320, 720]。
+  // 右列拖拽调宽：详情是最右列，故宽 = 窗口右缘到鼠标 x 的距离；夹在 [322, 720]。
   // 拖动期间全局监听 mousemove/up，禁选中文本；松手写入持久客户端态。
   const onResizeStart = (e: ReactMouseEvent) => {
     e.preventDefault();
     const onMove = (ev: MouseEvent) => {
-      const w = Math.min(720, Math.max(320, window.innerWidth - ev.clientX));
+      const w = Math.min(720, Math.max(322, window.innerWidth - ev.clientX));
       setDetailWidth(w);
     };
     const onUp = () => {
@@ -230,18 +231,6 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
     }
   };
 
-  // 新建项目（R8）：隐藏态先自动展开边栏（使新项目可见/可命名），再建顶层 project 并选中。
-  // inline 命名 UX 归后续单元，本单元建默认名占位、用户可在左树重命名。
-  const onNewProject = async () => {
-    setSidebarVisible(true);
-    try {
-      const created = await addProject.mutateAsync({ name: "新项目", kind: "project" });
-      navigateTo({ kind: "project", id: created.id });
-    } catch {
-      onToast("新建项目失败，请重试");
-    }
-  };
-
   // ESC 语义（KTD8）：行内编辑中 → 退出编辑（blur 当前输入）；无编辑时 → 清除选中回空态；绝不关窗。
   // keydown 由子输入冒泡至根（ProjectTree 的 InlineInput 自行拦截 ESC 并 stopPropagation，走各自取消）。
   const onRootKeyDown = (e: ReactKeyboardEvent) => {
@@ -273,7 +262,6 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
         viewOptions={viewOptions}
         onViewOptionsChange={setViewOptions}
         onNewAction={onNewAction}
-        onNewProject={onNewProject}
       />
       <div className="pw-projects-cols">
         {/* 左列：项目树（U6）。边栏隐藏态下不渲染此列（R8）；showInbox 控制收件箱入口显隐（R10）。 */}

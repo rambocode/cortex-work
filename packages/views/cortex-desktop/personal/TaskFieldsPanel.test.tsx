@@ -42,6 +42,8 @@ describe("TaskFieldsPanel（U5）", () => {
     const { container } = renderPanel(bridge, task({ status: "active" }));
     const opts = container.querySelectorAll(".pw-task-status-opt");
     expect(opts.length).toBe(5);
+    // 每档以 icon（svg）作视觉前缀，label 文本保留（可访问性 + textContent 契约不变）。
+    opts.forEach((o) => expect(o.querySelector("svg")).toBeTruthy());
     expect(container.querySelector(".pw-task-status-opt.is-on")!.textContent).toBe("活动");
     fireEvent.click(screen.getByText("已完成"));
     await waitFor(() => expect(calls.update.some((u) => u.patch.status === "done")).toBe(true));

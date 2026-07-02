@@ -285,6 +285,19 @@ export const Icon = {
       <path d="M8 12l3 3 5-5" />
     </IconBase>
   ),
+  // Circle：空心圆（任务「活动 / 未开始」状态标识，圆形状态族之首）
+  Circle: (p: IconProps) => (
+    <IconBase {...p}>
+      <circle cx="12" cy="12" r="9" />
+    </IconBase>
+  ),
+  // CircleDot：带实心圆心的圆（任务「进行中」状态标识，与空心圆区分「已开始」）
+  CircleDot: (p: IconProps) => (
+    <IconBase {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none" />
+    </IconBase>
+  ),
   X: (p: IconProps) => (
     <IconBase {...p}>
       <path d="M6 6l12 12" />
