@@ -21,8 +21,16 @@ import {
   isDescendant,
   type TaskProjectNode,
 } from "@cortex-work/core/personal/taskProjectTree";
+import { instantiateStages } from "@cortex-work/core/personal/stageTemplates";
 import type { TaskProject, TaskProjectKind, TaskProjectMode } from "@cortex-work/core/desktop/types";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
+import { useMenuViewportClamp } from "./useMenuViewportClamp";
+import { StageTemplatePicker } from "./StageTemplatePicker";
+
+// 渲染端阶段实例 id 生成（与 ProjectStagesBar.newStageId 同形；main 侧另有 newTaskId("stage")）。
+function newStageId(): string {
+  return `stage-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 // 每层缩进步长（px）。折叠箭头 / 占位固定宽，保证同层节点名对齐。
 const INDENT = 16;
@@ -63,7 +71,8 @@ function InlineInput({
   const finish = (submit: boolean) => {
     if (doneRef.current) return;
     doneRef.current = true;
-    submit ? onSubmit(value) : onCancel();
+    if (submit) onSubmit(value);
+    else onCancel();
   };
   return (
     <input
@@ -96,6 +105,8 @@ function AddMenu({
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // 菜单 right:0 向左展开,窄侧栏内触发按钮靠左时会溢出窗口左缘 → 打开后按 rect 收敛回视口。
+  const { menuRef, clampStyle } = useMenuViewportClamp(open);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -118,7 +129,7 @@ function AddMenu({
         <Icon.Plus size={13} />
       </button>
       {open ? (
-        <div className="pw-tb-menu" role="menu">
+        <div className="pw-tb-menu" role="menu" ref={menuRef} style={clampStyle}>
           <button
             className="pw-tb-menu-item"
             role="menuitem"
@@ -162,6 +173,8 @@ function MoveMenu({
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // 同 AddMenu:窄侧栏内 right:0 菜单可能溢出窗口左缘,打开后收敛回视口。
+  const { menuRef, clampStyle } = useMenuViewportClamp(open);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -190,7 +203,7 @@ function MoveMenu({
         <Icon.Fwd size={13} />
       </button>
       {open ? (
-        <div className="pw-tb-menu" role="menu">
+        <div className="pw-tb-menu" role="menu" ref={menuRef} style={clampStyle}>
           {showTop ? (
             <button
               className="pw-tb-menu-item"
@@ -233,6 +246,8 @@ function MoveMenu({
 function ModeMenu({ mode, onPick }: { mode: TaskProjectMode; onPick: (mode: TaskProjectMode) => void }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // 同 AddMenu:窄侧栏内 right:0 菜单可能溢出窗口左缘,打开后收敛回视口。
+  const { menuRef, clampStyle } = useMenuViewportClamp(open);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -255,7 +270,7 @@ function ModeMenu({ mode, onPick }: { mode: TaskProjectMode; onPick: (mode: Task
         {mode === "sequential" ? <Icon.Sort size={13} /> : <Icon.Split size={13} />}
       </button>
       {open ? (
-        <div className="pw-tb-menu" role="menu">
+        <div className="pw-tb-menu" role="menu" ref={menuRef} style={clampStyle}>
           <button
             className="pw-tb-menu-item"
             role="menuitem"
@@ -428,6 +443,7 @@ export function ProjectTree({
   onSelect,
   onToast,
   showInbox = true,
+  focus = null,
 }: {
   selection: WorkbenchSelection;
   onSelect: (sel: WorkbenchSelection) => void;
@@ -435,6 +451,9 @@ export function ProjectTree({
   onToast?: (text: string) => void;
   // 「显示收件箱」结构开关（U5/R10）：关闭时隐藏收件箱入口（容器负责重定向已选中的 inbox）。
   showInbox?: boolean;
+  // 聚焦（工具栏「聚焦」，OmniFocus 语义）：非空时只渲染焦点节点为唯一根，并隐藏今日/收件箱入口。
+  // 焦点节点被删的竞态由容器解焦 effect 兜底，本组件只按当前 props 渲染。
+  focus?: { kind: "project" | "folder"; id: string } | null;
 }) {
   const projects = useTaskProjects().data ?? [];
   const addProject = useAddTaskProject();
@@ -455,7 +474,22 @@ export function ProjectTree({
   const [editingId, setEditingId] = useState<string | null>(null);
   const treeRef = useRef<HTMLDivElement>(null);
 
-  const roots = useMemo(() => buildProjectTree(projects), [projects]);
+  // 聚焦态下只渲染焦点节点为唯一根（含其子孙）：在全量树上 DFS 定位焦点节点。
+  // 找不到（刚被删的竞态帧）返回空数组渲染空树，容器的解焦 effect 会随即清 focus 恢复全树。
+  const roots = useMemo(() => {
+    const all = buildProjectTree(projects);
+    if (!focus) return all;
+    const find = (nodes: TaskProjectNode[]): TaskProjectNode | null => {
+      for (const n of nodes) {
+        if (n.id === focus.id) return n;
+        const hit = find(n.children);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    const hit = find(all);
+    return hit ? [hit] : [];
+  }, [projects, focus]);
 
   // 折叠 ⇄ 展开：在 collapsed 集合中增删该 id（含 = 折叠）。
   const toggle = (id: string) =>
@@ -479,11 +513,18 @@ export function ProjectTree({
     setEditingId(null);
     setCreating({ parentId, kind });
   };
+  // 新建 project 二段式（参照 IFocus）：先输入名称，再弹阶段模板选择——选中模板即实例化 stages
+  // 随 addProject 一次落库；Esc/遮罩取消整次新建。folder 无阶段语义，仍走一段式直建。
+  const [pendingTemplate, setPendingTemplate] = useState<{ name: string; parentId?: string } | null>(null);
   const submitCreate = (name: string) => {
     const trimmed = name.trim();
     if (trimmed && creating) {
-      addProject.mutate({ name: trimmed, parentId: creating.parentId ?? undefined, kind: creating.kind });
-      onToast?.(`已新建${creating.kind === "folder" ? "文件夹" : "项目"} ${trimmed}`);
+      if (creating.kind === "project") {
+        setPendingTemplate({ name: trimmed, parentId: creating.parentId ?? undefined });
+      } else {
+        addProject.mutate({ name: trimmed, parentId: creating.parentId ?? undefined, kind: creating.kind });
+        onToast?.(`已新建文件夹 ${trimmed}`);
+      }
     }
     setCreating(null);
   };
@@ -585,33 +626,36 @@ export function ProjectTree({
 
   return (
     <div className="pw-ptree">
-      {/* 内置视图入口：今日 / 收件箱（固定，置于项目树上方） */}
-      <div className="pw-ptree-views" role="tablist" aria-label="内置视图">
-        <button
-          className={`pw-task-tab pw-ptree-view${selection.kind === "today" ? " is-active" : ""}`}
-          role="tab"
-          aria-selected={selection.kind === "today"}
-          onClick={() => onSelect({ kind: "today" })}
-        >
-          <Icon.Clock size={14} />
-          <span>今日</span>
-        </button>
-        {showInbox ? (
+      {/* 内置视图入口：今日 / 收件箱（固定，置于项目树上方）。聚焦态整区隐藏（焦点外内容不可达）。 */}
+      {!focus ? (
+        <div className="pw-ptree-views" role="tablist" aria-label="内置视图">
           <button
-            className={`pw-task-tab pw-ptree-view${selection.kind === "inbox" ? " is-active" : ""}`}
+            className={`pw-task-tab pw-ptree-view${selection.kind === "today" ? " is-active" : ""}`}
             role="tab"
-            aria-selected={selection.kind === "inbox"}
-            onClick={() => onSelect({ kind: "inbox" })}
+            aria-selected={selection.kind === "today"}
+            onClick={() => onSelect({ kind: "today" })}
           >
-            <Icon.StickyNote size={14} />
-            <span>收件箱</span>
+            <Icon.Clock size={14} />
+            <span>今日</span>
           </button>
-        ) : null}
-      </div>
-      {/* 项目区标题 + 常驻「＋」：不依赖选中即可建顶层 folder / project */}
+          {showInbox ? (
+            <button
+              className={`pw-task-tab pw-ptree-view${selection.kind === "inbox" ? " is-active" : ""}`}
+              role="tab"
+              aria-selected={selection.kind === "inbox"}
+              onClick={() => onSelect({ kind: "inbox" })}
+            >
+              <Icon.StickyNote size={14} />
+              <span>收件箱</span>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {/* 项目区标题 + 常驻「＋」：不依赖选中即可建顶层 folder / project。
+          聚焦态隐藏顶层「＋」——顶层新建会落在焦点子树外而不可见，误导；焦点内新建走节点级「＋」。 */}
       <div className="pw-ptree-head">
         <span className="pw-ptree-head-title">项目</span>
-        <AddMenu allowFolder title="新建项目 / 文件夹" onPick={(k) => beginCreate(null, k)} />
+        {!focus ? <AddMenu allowFolder title="新建项目 / 文件夹" onPick={(k) => beginCreate(null, k)} /> : null}
       </div>
       <div className="pw-ptree-body" role="tree" aria-label="项目树" ref={treeRef}>
         {creating && creating.parentId === null ? (
@@ -626,7 +670,8 @@ export function ProjectTree({
         {roots.map((n) => (
           <TreeNode key={n.id} node={n} depth={0} ctx={ctx} />
         ))}
-        {roots.length === 0 && !creating ? (
+        {/* 空态引导仅在非聚焦时显示：聚焦下空树只是解焦前的竞态帧，不该引导「新建项目」。 */}
+        {roots.length === 0 && !creating && !focus ? (
           <div className="pw-ptree-empty">
             <div className="pw-empty-hint">还没有项目</div>
             <button className="pw-task-tab pw-ptree-view" onClick={() => beginCreate(null, "project")}>
@@ -636,6 +681,24 @@ export function ProjectTree({
           </div>
         ) : null}
       </div>
+      {/* 新建 project 第二段：阶段模板选择（选中即实例化 stages 一次落库；取消 = 放弃本次新建）。 */}
+      {pendingTemplate ? (
+        <StageTemplatePicker
+          projectName={pendingTemplate.name}
+          onCancel={() => setPendingTemplate(null)}
+          onPick={(tpl) => {
+            const stages = instantiateStages(tpl.stages, newStageId);
+            addProject.mutate({
+              name: pendingTemplate.name,
+              parentId: pendingTemplate.parentId,
+              kind: "project",
+              stages: stages.length ? stages : undefined,
+            });
+            onToast?.(`已按「${tpl.name}」新建项目 ${pendingTemplate.name}`);
+            setPendingTemplate(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

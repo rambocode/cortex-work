@@ -4,7 +4,7 @@
 //（时长 / 提醒 / 重复 / 附件）。全部 {task} prop + useUpdateTask 直驱，无 selection 依赖。
 // layout 仅切外层类（is-inline / is-column），不分叉逻辑；具体紧凑排布样式见 CSS（U6/U7）。
 import { useEffect, useState, type ReactNode } from "react";
-import { useUpdateTask, useTaskProjects, useAddTaskProject, normalizeTag } from "@cortex-work/core/personal/tasks";
+import { useUpdateTask, useTaskProjects, useAddTaskProject, useMembers, normalizeTag } from "@cortex-work/core/personal/tasks";
 import { onlyProjects } from "@cortex-work/core/personal/taskProjectTree";
 import { TaskStatusField } from "./TaskStatusField";
 import { TaskDateField } from "./TaskDateField";
@@ -12,6 +12,8 @@ import { TaskDurationField } from "./TaskDurationField";
 import { TaskReminderField } from "./TaskReminderField";
 import { TaskRepeatField } from "./TaskRepeatField";
 import { TaskAttachments } from "./TaskAttachments";
+import { StageSelectField } from "./StageSelectField";
+import { TaskMemberField } from "./TaskMemberField";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 
 export function TaskFieldsPanel({
@@ -27,6 +29,8 @@ export function TaskFieldsPanel({
   const { data: projectData } = useTaskProjects();
   const addProject = useAddTaskProject();
   const projects = projectData ?? [];
+  // 成员库（决定「成员」行是否渲染；旧壳无能力时 query disabled → undefined → 隐藏）。
+  const { data: membersData } = useMembers();
 
   const [newProject, setNewProject] = useState("");
   const [showNewProject, setShowNewProject] = useState(false);
@@ -127,6 +131,26 @@ export function TaskFieldsPanel({
             </>
           )}
         </div>
+
+        {/* 阶段（项目阶段管理）：仅当所属 project 定义了 stages 才显示（无阶段项目不堆空字段）。 */}
+        {(() => {
+          const proj = task.projectId ? projects.find((p) => p.id === task.projectId) : undefined;
+          return proj?.stages && proj.stages.length > 0 ? (
+            <div className="pw-task-meta-row">
+              <span className="pw-task-meta-label">阶段</span>
+              <StageSelectField task={task} stages={proj.stages} />
+            </div>
+          ) : null;
+        })()}
+
+        {/* 成员（资源管理）：多选分配全局成员。成员库为空且任务未分配时整行不渲染
+            （旧壳无 members 能力 / 未建库时不堆空字段；已分配但库空的悬空态仍显示以便移除）。 */}
+        {(membersData?.length ?? 0) > 0 || (task.memberIds?.length ?? 0) > 0 ? (
+          <div className="pw-task-meta-row pw-task-meta-tagrow">
+            <span className="pw-task-meta-label">成员</span>
+            <TaskMemberField task={task} />
+          </div>
+        ) : null}
 
         <div className="pw-task-meta-row pw-task-meta-tagrow">
           <span className="pw-task-meta-label">标签</span>

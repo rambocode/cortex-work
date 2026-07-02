@@ -1,14 +1,21 @@
 // 「项目管理」独立窗口顶部自绘工具栏（U4，OmniFocus 式）。
-// 布局对齐参考截图：左 = 边栏切换 / 后退 / 前进 / 显示；右 = 新建（单击直接新建动作）+ 未实装占位
-//（快速入口 / 聚焦 / 设置显示字段 / 设置编辑字段，R12 灰态）。
+// 布局对齐参考截图：左 = 边栏切换 / 后退 / 前进 / 显示；右 = 新建（单击直接新建动作）/ 快速入口
+//（命令面板，⌘O）/ 聚焦（OmniFocus 语义）/ 设置显示字段 / 设置编辑字段（后二者为字段勾选弹层）。
 // 「新建」是单一按钮、点击即建动作（U11 简化）；新建项目改由左树「＋」入口承担，不再进本工具栏下拉。
 //
 // 跨进程契约（KTD8 / R7）：本窗口是 hiddenInset 无边框窗口，整条工具栏 `-webkit-app-region: drag`
 // 承担窗口拖拽，所有交互子元素挂 `.ds-no-drag` 恢复点击（照 .ds-drag 与 TitleBar 惯例）；左侧 84px
 // 让位 mac 红绿灯（trafficLightPosition x=16，见 projects-window.ts）。
-// 「显示」按钮本单元只渲染入口，过滤弹层内容归 U5；未实装项以 disabled + tooltip 呈现。
+// 「显示」按钮本单元只渲染入口，过滤弹层内容归 U5；快速入口/聚焦的语义（面板开关、焦点态）归容器。
 import { Icon } from "@cortex-work/ui/icons";
 import { ViewOptionsPopover, type ViewOptions } from "./ViewOptionsPopover";
+import { FieldsPopover } from "./FieldsPopover";
+import {
+  DISPLAY_FIELDS,
+  EDIT_FIELDS,
+  type DisplayFieldPrefs,
+  type EditFieldPrefs,
+} from "./workbenchFieldPrefs";
 
 export interface WorkbenchToolbarProps {
   // 边栏显隐（R8）：容器持久化（KTD9 窗口专属窄通道），工具栏只反映态并回调切换。
@@ -25,6 +32,21 @@ export interface WorkbenchToolbarProps {
   onViewOptionsChange?: (next: ViewOptions) => void;
   // 新建动作（任务）：落点语义 U5 完善。
   onNewAction: () => void;
+  // 快速入口（命令面板）：面板开关与跳转语义归容器（⌘O 亦由容器在 window 级监听），本处只发唤起回调。
+  onQuickOpen: () => void;
+  // 聚焦（OmniFocus 语义）：选中 project/folder 才可进入（canFocus）；聚焦中高亮并可再点退出。
+  focusActive: boolean;
+  canFocus: boolean;
+  onToggleFocus: () => void;
+  // 字段显隐偏好（设置显示 / 编辑字段）：容器经 KTD9 窄通道持久化的受控值与回调。
+  // 未提供时降级为 disabled 占位按钮（同 viewOptions 的独立渲染 seam）。
+  displayFields?: DisplayFieldPrefs;
+  onDisplayFieldsChange?: (next: DisplayFieldPrefs) => void;
+  editFields?: EditFieldPrefs;
+  onEditFieldsChange?: (next: EditFieldPrefs) => void;
+  // 工作台全局设置（阶段模板 / 项目资源）：唤起全窗口覆盖设置视图，开关归容器。
+  // 可选：未注入时不渲染入口（独立渲染/测试 seam，与 viewOptions 同款降级策略）。
+  onOpenSettings?: () => void;
 }
 
 export function WorkbenchToolbar({
@@ -37,6 +59,15 @@ export function WorkbenchToolbar({
   viewOptions,
   onViewOptionsChange,
   onNewAction,
+  onQuickOpen,
+  focusActive,
+  canFocus,
+  onToggleFocus,
+  displayFields,
+  onDisplayFieldsChange,
+  editFields,
+  onEditFieldsChange,
+  onOpenSettings,
 }: WorkbenchToolbarProps) {
   return (
     <div className="pw-wb-toolbar ds-drag">
@@ -77,21 +108,57 @@ export function WorkbenchToolbar({
           <Icon.Plus size={16} />
           <span className="pw-wb-btn-label">新建</span>
         </button>
-        {/* 未实装占位（对齐参考截图灰态，R12）：disabled + tooltip 提示即将推出。 */}
-        <button className="pw-wb-btn ds-no-drag" title="快速入口（即将推出）" disabled>
+        {/* 快速入口（命令面板）：点击唤起容器持有的搜索面板；⌘O 由容器 window 级监听，同门唤起。 */}
+        <button className="pw-wb-btn ds-no-drag" title="快速入口（⌘O）" onClick={onQuickOpen}>
           <Icon.Search size={16} />
           <span className="pw-wb-btn-label">快速入口</span>
         </button>
-        <button className="pw-wb-btn ds-no-drag" title="聚焦（即将推出）" disabled>
+        {/* 聚焦（OmniFocus 语义）：选中 project/folder 才可进入；聚焦态高亮、title 变「取消聚焦」。 */}
+        <button
+          className={`pw-wb-btn ds-no-drag${focusActive ? " is-on" : ""}`}
+          title={focusActive ? "取消聚焦" : "聚焦"}
+          aria-pressed={focusActive}
+          disabled={!canFocus}
+          onClick={onToggleFocus}
+        >
           <Icon.Eye size={16} />
           <span className="pw-wb-btn-label">聚焦</span>
         </button>
-        <button className="pw-wb-btn ds-no-drag" title="设置显示字段（即将推出）" disabled>
-          <Icon.Settings size={16} />
-        </button>
-        <button className="pw-wb-btn ds-no-drag" title="设置编辑字段（即将推出）" disabled>
-          <Icon.Edit size={16} />
-        </button>
+        {/* 设置显示 / 编辑字段：容器注入受控值时挂 FieldsPopover 勾选弹层；未注入降级为 disabled 占位
+            （同 viewOptions 的独立渲染 seam，便于工具栏在无容器时单独渲染/测试）。 */}
+        {displayFields && onDisplayFieldsChange ? (
+          <FieldsPopover
+            icon={<Icon.Settings size={16} />}
+            title="设置显示字段"
+            options={DISPLAY_FIELDS}
+            value={displayFields}
+            onChange={onDisplayFieldsChange}
+          />
+        ) : (
+          <button className="pw-wb-btn ds-no-drag" title="设置显示字段" disabled>
+            <Icon.Settings size={16} />
+          </button>
+        )}
+        {editFields && onEditFieldsChange ? (
+          <FieldsPopover
+            icon={<Icon.Edit size={16} />}
+            title="设置编辑字段"
+            options={EDIT_FIELDS}
+            value={editFields}
+            onChange={onEditFieldsChange}
+          />
+        ) : (
+          <button className="pw-wb-btn ds-no-drag" title="设置编辑字段" disabled>
+            <Icon.Edit size={16} />
+          </button>
+        )}
+        {/* 工作台全局设置（阶段模板 / 项目资源）：唤起全窗口覆盖设置视图。 */}
+        {onOpenSettings ? (
+          <button className="pw-wb-btn ds-no-drag" title="设置（阶段模板 / 项目资源）" onClick={onOpenSettings}>
+            <Icon.Users size={16} />
+            <span className="pw-wb-btn-label">设置</span>
+          </button>
+        ) : null}
       </div>
     </div>
   );

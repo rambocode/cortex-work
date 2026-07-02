@@ -9,14 +9,28 @@ import { usePersonalStore } from "@cortex-work/core";
 import {
   useTasks,
   useTasksChangeSubscription,
+  useTaskResourcesSubscription,
   useAddTask,
   useTaskProjects,
 } from "@cortex-work/core/personal/tasks";
+import { subtreeNodeIds, descendantProjectIds } from "@cortex-work/core/personal/taskProjectTree";
 import type { TaskProject } from "@cortex-work/core/desktop/types";
 import { ProjectTree } from "./ProjectTree";
 import { TaskListColumn } from "./TaskListColumn";
 import { TaskDetail } from "./TaskDetail";
+import { ProjectWorkspaceHeader } from "./ProjectWorkspaceHeader";
+import { ProjectStagesBar, type StageViewMode } from "./ProjectStagesBar";
+import { StageTimeline } from "./StageTimeline";
 import { WorkbenchToolbar } from "./WorkbenchToolbar";
+import { WorkbenchSettingsView } from "./WorkbenchSettingsView";
+import { QuickOpenDialog } from "./QuickOpenDialog";
+import type { QuickOpenResult } from "./quickOpenSearch";
+import {
+  parseDisplayFields,
+  parseEditFields,
+  type DisplayFieldPrefs,
+  type EditFieldPrefs,
+} from "./workbenchFieldPrefs";
 import type { ViewOptions } from "./ViewOptionsPopover";
 
 // 左树当前选择：内置视图（今日 / 收件箱）或某个 project/folder 节点。
@@ -85,6 +99,8 @@ export function pruneHistory(hist: SelectionHistory, projects: TaskProject[]): S
 // 边栏显隐是纯窗口视图态，用本窗口 localStorage 作专属窄通道读写，不进 toPersistedState。
 // 跨进程 KV 通道未建立前，localStorage 是最小、隔离且够用的落点（views 层可用浏览器 API）。
 const SIDEBAR_KEY = "cortex.projects.sidebarVisible";
+// 项目详情「列表 / timeline」视图偏好（同款窗口专属窄通道）。
+const STAGE_VIEW_KEY = "cortex.projects.stageView";
 function readSidebarVisible(): boolean {
   try {
     return window.localStorage.getItem(SIDEBAR_KEY) !== "0"; // 缺省（首开）显示边栏
@@ -114,6 +130,31 @@ function readViewOptions(): ViewOptions {
   }
 }
 
+// ── 字段显隐偏好窄通道（KTD9）──────────────────────────────────────────────
+// 「设置显示字段 / 设置编辑字段」同属窗口专属视图态，沿用同款 localStorage 窄通道
+// （不进 toPersistedState，避免双窗口 clobber）。容错解析在 workbenchFieldPrefs 纯函数中。
+const DISPLAY_FIELDS_KEY = "cortex.projects.displayFields";
+const EDIT_FIELDS_KEY = "cortex.projects.editFields";
+// localStorage 本身可能抛（隐私模式等），与坏 JSON 一样兜底回全默认。
+function readDisplayFields(): DisplayFieldPrefs {
+  try {
+    return parseDisplayFields(window.localStorage.getItem(DISPLAY_FIELDS_KEY));
+  } catch {
+    return parseDisplayFields(null);
+  }
+}
+function readEditFields(): EditFieldPrefs {
+  try {
+    return parseEditFields(window.localStorage.getItem(EDIT_FIELDS_KEY));
+  } catch {
+    return parseEditFields(null);
+  }
+}
+
+// 聚焦目标（工具栏「聚焦」，OmniFocus 语义）：左树只显示该节点子树。窗口级瞬态，刻意不持久化——
+// 重启即回全树（持久化会带来「我的项目怎么没了」困惑与启动期焦点存活校验）。
+export type WorkbenchFocus = { kind: "project" | "folder"; id: string } | null;
+
 // onToast 由窗口根透传（工作台内委派/新建等动作需给用户反馈）。
 export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void }) {
   // 详情列宽：默认 322，并把持久化旧值夹进 [322,720]——老用户可能存过 <322 的宽度（旧下限 320），
@@ -123,6 +164,8 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
   const setDetailWidth = usePersonalStore((s) => s.setProjectsDetailWidth);
   // 根挂载订阅：后台结构化 / agent 委派回写 → invalidate 刷新三栏（KTD8；历史 notes 零挂载 bug 在先）。
   useTasksChangeSubscription();
+  // 资源（成员/岗位/模板）变更订阅：跨窗口 CRUD 后 invalidate 重拉（设置视图与任务字段共用）。
+  useTaskResourcesSubscription();
 
   const projects = useTaskProjects().data ?? [];
   const addTask = useAddTask();
@@ -191,6 +234,33 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
     setHist(goForwardHistory);
   };
 
+  // ── 聚焦（工具栏「聚焦」，OmniFocus 语义）────────────────────────────────
+  // 窗口级瞬态（见 WorkbenchFocus 注释）。进入条件：当前选中 project/folder；聚焦中可再点退出。
+  const [focus, setFocus] = useState<WorkbenchFocus>(null);
+  const canFocus = focus != null || selection.kind === "project" || selection.kind === "folder";
+  const onToggleFocus = () => {
+    if (focus) {
+      setFocus(null);
+      return;
+    }
+    if (selection.kind === "project" || selection.kind === "folder") {
+      setFocus({ kind: selection.kind, id: selection.id });
+    }
+  };
+  // 焦点目标被删 → 自动解焦（历史死条目由 pruneHistory 独立剪除，二者互不依赖）。
+  useEffect(() => {
+    if (focus && !projects.some((p) => p.id === focus.id)) setFocus(null);
+  }, [projects, focus]);
+  // 聚焦态下 selection 漂出焦点子树（后退/前进、showInbox 重定向等）→ 拉回焦点根。
+  // pushSelection 对相同选择原样返回，setHist 收敛，不会形成更新循环。
+  useEffect(() => {
+    if (!focus) return;
+    const sub = subtreeNodeIds(projects, focus.id);
+    const inside = (selection.kind === "project" || selection.kind === "folder") && sub.has(selection.id);
+    if (!inside) setHist((h) => pushSelection(h, { kind: focus.kind, id: focus.id }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, selection, projects]);
+
   // 边栏显隐（KTD9 窄通道）：初值读 localStorage，变化即回写。
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(readSidebarVisible);
   useEffect(() => {
@@ -210,6 +280,24 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
       // 同 sidebar：无本地存储不阻断，仅丢失本次持久化。
     }
   }, [viewOptions]);
+
+  // 字段显隐偏好（KTD9 窄通道）：设置显示 / 编辑字段。初值读 localStorage，变化即回写。
+  const [displayFields, setDisplayFields] = useState<DisplayFieldPrefs>(readDisplayFields);
+  const [editFields, setEditFields] = useState<EditFieldPrefs>(readEditFields);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DISPLAY_FIELDS_KEY, JSON.stringify(displayFields));
+    } catch {
+      // 同 sidebar：无本地存储不阻断，仅丢失本次持久化。
+    }
+  }, [displayFields]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(EDIT_FIELDS_KEY, JSON.stringify(editFields));
+    } catch {
+      // 同上。
+    }
+  }, [editFields]);
 
   // 切换过滤档即撤销「强制可见」（R11/R18 边界）：新建任务的过滤豁免只在当前档有效；
   // 用户切档后该任务回归常规过滤，若因此隐藏则由中栏 onSelectedHidden 走 R18 清除。
@@ -256,9 +344,80 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
   const { data: tasksData } = useTasks();
   const selectedTask = selectedTaskId ? (tasksData ?? []).find((t) => t.id === selectedTaskId) : undefined;
 
+  // 项目详情态：选中 project 时中列换渲染「头部 + 阶段栏 + 列表/timeline」。
+  // 头部进度的分母 = 项目子树（含子项目）全部任务，与 IFocus「done/总数」口径一致。
+  const selectedProject = selection.kind === "project" ? projects.find((p) => p.id === selection.id) : undefined;
+  const projectScopeTasks = (() => {
+    if (!selectedProject) return [];
+    const ids = new Set(descendantProjectIds(projects, selectedProject.id));
+    return (tasksData ?? []).filter((t) => t.projectId && ids.has(t.projectId));
+  })();
+
+  // 工作台全局设置视图（阶段模板 / 项目资源）：全窗口覆盖，窗口级瞬态不持久化。
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // ── 项目详情（选中 project 时中列 = 项目头部 + 阶段栏 + 列表/timeline）──────────
+  // 阶段过滤（null=全部）是选中项目内的瞬态：换选即回「全部」。
+  const [activeStageId, setActiveStageId] = useState<string | null>(null);
+  useEffect(() => setActiveStageId(null), [selection]);
+  // 列表/timeline 视图偏好：跨项目共享的窗口视图态，走 localStorage 窄通道（同 sidebar）。
+  const [stageView, setStageView] = useState<StageViewMode>(() => {
+    try {
+      return window.localStorage.getItem(STAGE_VIEW_KEY) === "timeline" ? "timeline" : "list";
+    } catch {
+      return "list";
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(STAGE_VIEW_KEY, stageView);
+    } catch {
+      // 同 sidebar：无本地存储不阻断。
+    }
+  }, [stageView]);
+
+  // ── 快速入口（工具栏「快速入口」/ ⌘O，命令面板）──────────────────────────
+  const [quickOpen, setQuickOpen] = useState(false);
+  // ⌘O / Ctrl+O 全局唤起：根 onKeyDown 只在焦点落在容器内时触发，故挂 window 级监听；
+  // preventDefault 拦掉浏览器默认「打开文件」。输入框聚焦中也可唤起（快速入口是全局导航）。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        setQuickOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  // 快速入口跳转落点：
+  //   project/folder → 左树导航到该节点；
+  //   task → 导航到所属存活项目；无项目（或项目已删）落**收件箱**（刻意不落「今日」——今日 scope 按
+  //     isTodayEligible 过滤，forcedVisibleId 只并入命中集不扩 scope，落今日会渲染不出），
+  //     收件箱被「显示」开关隐藏时自动开启；随后 selectCreated(id,false) 复用 R11 强制可见通道选中。
+  //   目标落在聚焦子树外 → 先退出聚焦（否则拉回 effect 会把跳转顶掉）。
+  const revealFromQuickOpen = (r: QuickOpenResult) => {
+    const exitFocusIfOutside = (nodeId: string | undefined) => {
+      if (!focus) return;
+      const sub = subtreeNodeIds(projects, focus.id);
+      if (!nodeId || !sub.has(nodeId)) setFocus(null);
+    };
+    if (r.kind === "task") {
+      const t = (tasksData ?? []).find((x) => x.id === r.id);
+      const pid = t?.projectId && projects.some((p) => p.id === t.projectId) ? t.projectId : undefined;
+      exitFocusIfOutside(pid);
+      if (!pid && !viewOptions.showInbox) setViewOptions((v) => ({ ...v, showInbox: true }));
+      setHist((h) => pushSelection(h, pid ? { kind: "project", id: pid } : { kind: "inbox" }));
+      selectCreated(r.id, false);
+    } else {
+      exitFocusIfOutside(r.id);
+      navigateTo({ kind: r.kind, id: r.id });
+    }
+  };
+
   return (
     <div className="pw-projects-page" onKeyDown={onRootKeyDown}>
-      {/* 顶部 OmniFocus 式自绘工具栏（U4）：drag 区 + 红绿灯让位 + 边栏/历史/新建/占位。 */}
+      {/* 顶部 OmniFocus 式自绘工具栏（U4）：drag 区 + 红绿灯让位 + 边栏/历史/显示/新建/快速入口/聚焦/字段设置。 */}
       <WorkbenchToolbar
         sidebarVisible={sidebarVisible}
         onToggleSidebar={() => setSidebarVisible((v) => !v)}
@@ -269,27 +428,92 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
         viewOptions={viewOptions}
         onViewOptionsChange={setViewOptions}
         onNewAction={onNewAction}
+        onQuickOpen={() => setQuickOpen(true)}
+        focusActive={focus != null}
+        canFocus={canFocus}
+        onToggleFocus={onToggleFocus}
+        displayFields={displayFields}
+        onDisplayFieldsChange={setDisplayFields}
+        editFields={editFields}
+        onEditFieldsChange={setEditFields}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+      {/* 全局设置视图（阶段模板 / 项目资源）：覆盖三列、保留工具栏。 */}
+      {settingsOpen ? <WorkbenchSettingsView onClose={() => setSettingsOpen(false)} onToast={onToast} /> : null}
+      {/* 快速入口命令面板：跳转语义见 revealFromQuickOpen；选中后关闭面板。 */}
+      <QuickOpenDialog
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        onPick={(r) => {
+          revealFromQuickOpen(r);
+          setQuickOpen(false);
+        }}
       />
       <div className="pw-projects-cols">
-        {/* 左列：项目树（U6）。边栏隐藏态下不渲染此列（R8）；showInbox 控制收件箱入口显隐（R10）。 */}
+        {/* 左列：项目树（U6）。边栏隐藏态下不渲染此列（R8）；showInbox 控制收件箱入口显隐（R10）；
+            focus 非空时只渲染焦点子树（工具栏「聚焦」）。 */}
         {sidebarVisible ? (
           <div className="pw-projects-tree">
-            <ProjectTree selection={selection} onSelect={navigateTo} onToast={onToast} showInbox={viewOptions.showInbox} />
+            <ProjectTree
+              selection={selection}
+              onSelect={navigateTo}
+              onToast={onToast}
+              showInbox={viewOptions.showInbox}
+              focus={focus}
+            />
           </div>
         ) : null}
-        {/* 中列：任务清单（U7）。按左树选择聚合，四档过滤（U5），行内动作直达；点标题 → 右列详情（U8）。 */}
-        <TaskListColumn
-          selection={selection}
-          selectedTaskId={selectedTaskId}
-          filter={viewOptions.filter}
-          forcedVisibleId={forcedVisibleId}
-          pendingNewTaskId={pendingNewTaskId}
-          onOpenTask={selectTask}
-          onCreated={selectCreated}
-          onPendingConsumed={() => setPendingNewTaskId(null)}
-          onSelectedHidden={() => selectTask(null)}
-          onToast={onToast}
-        />
+        {/* 中列：任务清单（U7）。按左树选择聚合，四档过滤（U5），行内动作直达；点标题 → 右列详情（U8）。
+            选中 project 时升级为项目详情（参照 IFocus）：头部（名称/进度/齿轮）+ 阶段栏（tab 过滤 +
+            列表/timeline 切换）+ 主体（列表内嵌 hideHead，或阶段 timeline）。 */}
+        {selectedProject ? (
+          <div className="pw-projects-center">
+            <ProjectWorkspaceHeader project={selectedProject} tasks={projectScopeTasks} onToast={onToast} />
+            <ProjectStagesBar
+              project={selectedProject}
+              activeStageId={activeStageId}
+              onStageChange={setActiveStageId}
+              view={stageView}
+              onViewChange={setStageView}
+              onToast={onToast}
+            />
+            {stageView === "timeline" ? (
+              <StageTimeline stages={selectedProject.stages ?? []} activeStageId={activeStageId} />
+            ) : (
+              <TaskListColumn
+                selection={selection}
+                selectedTaskId={selectedTaskId}
+                filter={viewOptions.filter}
+                forcedVisibleId={forcedVisibleId}
+                pendingNewTaskId={pendingNewTaskId}
+                onOpenTask={selectTask}
+                onCreated={selectCreated}
+                onPendingConsumed={() => setPendingNewTaskId(null)}
+                onSelectedHidden={() => selectTask(null)}
+                onToast={onToast}
+                displayFields={displayFields}
+                editFields={editFields}
+                hideHead
+                stageFilter={activeStageId}
+              />
+            )}
+          </div>
+        ) : (
+          <TaskListColumn
+            selection={selection}
+            selectedTaskId={selectedTaskId}
+            filter={viewOptions.filter}
+            forcedVisibleId={forcedVisibleId}
+            pendingNewTaskId={pendingNewTaskId}
+            onOpenTask={selectTask}
+            onCreated={selectCreated}
+            onPendingConsumed={() => setPendingNewTaskId(null)}
+            onSelectedHidden={() => selectTask(null)}
+            onToast={onToast}
+            displayFields={displayFields}
+            editFields={editFields}
+          />
+        )}
         {/* 右列拖拽调宽手柄：在详情列左缘。*/}
         <div className="pw-col-resize" onMouseDown={onResizeStart} title="拖动调整详情宽度" />
         {/* 右列：任务详情（U8）。复用 TaskDetail（结构编辑 + 渐进披露富字段）；onBack 清空选中回空态。 */}

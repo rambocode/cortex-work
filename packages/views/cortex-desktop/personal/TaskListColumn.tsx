@@ -23,6 +23,7 @@ import { buildTaskTree, taskDescendantIds, areAllChildrenDone, type TaskTreeNode
 import { useDelegateTaskRelay } from "@cortex-work/core/personal/taskDelegate";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
 import { TaskOutlineRow, ContextRow } from "./TaskOutlineRow";
+import type { DisplayFieldPrefs, EditFieldPrefs } from "./workbenchFieldPrefs";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import type { WorkbenchSelection } from "./ProjectsWorkbench";
 
@@ -133,6 +134,10 @@ export function TaskListColumn({
   onPendingConsumed,
   onSelectedHidden,
   onToast,
+  displayFields,
+  editFields,
+  hideHead,
+  stageFilter,
 }: {
   selection: WorkbenchSelection;
   selectedTaskId?: string | null;
@@ -151,6 +156,13 @@ export function TaskListColumn({
   // 选中任务离开命中集（切档 / 完成而隐藏，R18）→ 通知容器清选中回空态；亦作「已选择」条清除入口（R13）。
   onSelectedHidden: () => void;
   onToast: (text: string) => void;
+  // 字段显隐偏好（工具栏「设置显示 / 编辑字段」）：容器经窄通道持久化后下发，本列只透传给行。
+  displayFields?: DisplayFieldPrefs;
+  editFields?: EditFieldPrefs;
+  // 项目详情内嵌模式：容器已渲染项目头部（名称/进度）→ 隐藏本列大标题+统计条，避免重复。
+  hideHead?: boolean;
+  // 阶段过滤（项目阶段 tab）：undefined/null = 全部；string = 仅该 stageId 的任务（仅项目视图有意义）。
+  stageFilter?: string | null;
 }) {
   const tasks = useTasks().data ?? [];
   const projects = useTaskProjects().data ?? [];
@@ -235,10 +247,12 @@ export function TaskListColumn({
     // project / folder：统一走 descendantProjectIds 聚合子树内全部 project 的任务。
     const ids = descendantProjectIds(projects, selection.id);
     const idSet = new Set(ids);
-    const scoped = tasks.filter((t) => {
+    let scoped = tasks.filter((t) => {
       const pid = effectiveProjectId(t);
       return !!pid && idSet.has(pid);
     });
+    // 阶段 tab 过滤（项目详情内嵌模式）：收窄到指定 stageId（悬空/未归阶段任务只在「全部」档可见）。
+    if (stageFilter) scoped = scoped.filter((t) => t.stageId === stageFilter);
     // 单 project（或空子树）→ 单组无头；多 project 子树 → 按 project 分组（组头=project 名，
     // 组间顺序沿用 useTaskProjects 的项目列表顺序）。
     if (ids.length <= 1) {
@@ -250,7 +264,7 @@ export function TaskListColumn({
       .filter((g) => g.matchedItems.length > 0);
     return { groups: multi, scopeTotal: scoped.length };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, projects, selection, today, matched]);
+  }, [tasks, projects, selection, today, matched, stageFilter]);
 
   // 统计口径（R13/R26）：total=命中行数（不含上下文补行）；scopeTotal 由 groups memo 按剪枝前 scope 给出（见上）。
   const total = groups.reduce((n, g) => n + g.matchedItems.length, 0);
@@ -405,7 +419,9 @@ export function TaskListColumn({
 
   return (
     <div className="pw-projects-list" ref={listRef}>
-      {/* 顶部大标题 + 统计条（R13）：视图名 + 「N 个动作，M 个项目」；选中时右侧「已选择」条（含清除）。 */}
+      {/* 顶部大标题 + 统计条（R13）：视图名 + 「N 个动作，M 个项目」；选中时右侧「已选择」条（含清除）。
+          hideHead（项目详情内嵌模式）：容器已渲染 ProjectWorkspaceHeader → 跳过，避免项目名重复两遍。 */}
+      {hideHead ? null : (
       <div className="pw-outline-head">
         <div className="pw-outline-title">
           <span className="pw-outline-title-text">{viewTitle}</span>
@@ -425,6 +441,7 @@ export function TaskListColumn({
           )}
         </div>
       </div>
+      )}
 
       {/* 快速新增：归属按当前 selection 推导（见 onQuickAdd）。三态筛选已迁至工具栏「显示」弹层（U5）。*/}
       <div className="pw-task-add">
@@ -496,6 +513,8 @@ export function TaskListColumn({
                         onDelegate={() => delegate(t, onToast)}
                         // U12 标题失焦上报（撤销刚新建的空白任务）。
                         onTitleBlur={(title, toInsideRow) => onPendingTitleBlur(t, title, toInsideRow)}
+                        displayFields={displayFields}
+                        editFields={editFields}
                       />
                     ),
                 )}
