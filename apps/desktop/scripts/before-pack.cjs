@@ -12,6 +12,11 @@
 const { execFileSync } = require("node:child_process");
 const { existsSync, readdirSync, rmSync } = require("node:fs");
 const { join } = require("node:path");
+// 从 builder-util 直接导入 Arch 枚举,而不是硬编码数值——这个包的枚举顺序在不同大版本间
+// 变过(当前 26.x 是 ia32=0/x64=1/armv7l=2/arm64=3/universal=4),之前这里硬编码"0=x64,1=arm64"
+// 是过时/错误的映射,只是因为单架构(仅 arm64)流水线从未真正触发 x64 分支才没暴露:
+// 该 bug 会导致 x64 目标被误判成 arm64,把 arm64 的 whisper-cli 错误打进 x64 包。
+const { Arch } = require("builder-util");
 
 /**
  * @param {import("electron-builder").PackagerContext} context
@@ -19,13 +24,11 @@ const { join } = require("node:path");
 exports.default = async function beforePack(context) {
   const desktopRoot = join(__dirname, ".."); // apps/desktop/
   const targetPlatform = context.packager.platform.name; // "mac" | "win" | "linux"
-  const targetArch = context.arch;                       // 0=x64, 1=arm64, 2=universal, ...
+  const targetArch = context.arch;                       // Arch 枚举数值,含义见上方 require 处的说明
 
-  // electron-builder Arch enum: 0=x64, 1=arm64, 2=universal（及其他未来值）。
-  // 参考：https://www.electron.build/api/electron-builder#arch
-  // ⚠️ 当 archName 无法确定（如 universal=2 或未来新 arch），
-  //    步骤 2 的 prune 绝不执行——宁可多打文件也不能删错源码目录（不可逆）。
-  const archName = targetArch === 1 ? "arm64" : targetArch === 0 ? "x64" : null;
+  // ⚠️ 当 archName 无法确定(如 universal 或未来新增的 arch),
+  //    步骤 2 的 prune 绝不执行——宁可多打文件也不能删错源码目录(不可逆)。
+  const archName = targetArch === Arch.arm64 ? "arm64" : targetArch === Arch.x64 ? "x64" : null;
   const platformName = targetPlatform === "mac" ? "darwin"
     : targetPlatform === "windows" ? "win32"
     : targetPlatform === "linux" ? "linux"
@@ -63,7 +66,7 @@ exports.default = async function beforePack(context) {
   // ⚠️ 破坏性警告：rmSync 删除的是源码树（resources/whisper/），而非构建产物。
   //   一旦误删将永久丢失二进制，git 恢复也需要重新构建。
   //   因此只在 archName 明确（arm64/x64）时才执行 prune；
-  //   archName 为 null（universal=2 等未知 arch）时跳过，打印警告，宁可多带文件。
+  //   archName 为 null（universal 等其它 arch）时跳过，打印警告，宁可多带文件。
   if (archName === null) {
     console.warn(
       `[before-pack] ⚠ 无法确定目标 arch（targetArch=${targetArch}），` +

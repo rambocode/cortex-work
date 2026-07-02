@@ -1,16 +1,25 @@
 name: Desktop Release
 run-name: Desktop Release ${{ github.ref_name }}
 
-# 私有库(闭源)的 macOS 构建/发布流水线。按 mode 分档,门槛递增:
+# 私有库(闭源)的多架构构建/发布流水线。三个构建 job(macOS arm64 / macOS x64 / Windows x64)
+# 各自独立产出,互不依赖;发布(publish)job 汇总三份产物、合并 macOS 双架构的 latest-mac.yml,
+# 校验通过后统一发布一次。按 mode 分档,门槛递增:
 #  - build-unsigned(默认 dispatch):只构建未签名包(bun/pnpm/electron-vite/electron-builder 打包),
 #    **不需要任何 secret**。用于先验证闭源库的自动构建链能否在 CI 跑通。
 #  - build-signed:构建 + Developer ID 签名 + Apple 公证 + 仓库外校验,不发布。需 5 个签名 secret。
 #  - publish-self(dispatch):构建 + 签名 + 公证 + 发到**本仓库** rambocode/cortex-work 的 Release。
 #    用默认 GITHUB_TOKEN(同仓库写,需 permissions: contents: write),无需 PAT;只需 5 个签名 secret。
 #    本仓库为私有库,Release 仅维护者可下载——自取后转发分发(如官网/网盘)。
-#  - publish-draft / publish-release(dispatch):electron-builder --publish always 跨库发到
-#    公开库 rambocode/cortex-work-release(见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
+#  - publish-draft / publish-release(dispatch):跨库发到公开库 rambocode/cortex-work-release
+#    (见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
 #  - tag push:自动构建、签名、公证,并发布到 rambocode/cortex-work-release。
+# Windows 不签名(CSC_IDENTITY_AUTO_DISCOVERY=false 现状不变),故 build-windows-x64 job
+# 不需要任何 Apple/签名 secret,始终按同一套流程构建,只是否发布仍受 MODE 控制。
+#
+# ⚠️ v0.1.27 发布事故复盘:此前只有 arm64 一条流水线,latest-mac.yml 被人手动跑 x64 构建后
+#   误覆盖成只含 x64 条目,electron-updater 的 MacUpdater 在清单只有一种架构时不做机器架构过滤,
+#   导致 arm64 用户升级后被误装 x64(Rosetta)版本。本次改造新增的双重护栏(merge 脚本内置断言 +
+#   publish job 独立 --verify 复核)专门针对这个失败模式,任一护栏不过直接中止发布。
 # 设计见 docs/plans/2026-06-16-002-feat-desktop-release-automation-plan.md。
 
 on:
@@ -122,16 +131,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # prepackage 链含 prebuild:notes:从 CHANGELOG 提取当前版本段 → build/release-notes.md,
-      # 供后续 electron-builder（写入 latest-mac.yml）与 gh release（--notes-file）共用。
+      # 供后续 electron-builder（写入 latest-mac.yml）与 publish job 的 gh release（--notes-file）共用。
       # 仅 publish-release 严格:CHANGELOG 无当前版本段时让脚本非零退出、中止发布,避免静默丢 notes。
-      - name: Prepackage (build pi binary + renderer/main)
+      - name: Prepackage (build pi binary + renderer/main, arch=arm64)
         env:
           CORTEX_NOTES_STRICT: ${{ env.MODE == 'publish-release' && '1' || '' }}
-        run: pnpm --filter @cortex-work/desktop run prepackage:mac
+        run: pnpm --filter @cortex-work/desktop run prepackage:mac-arm64
 
       # —— 打包步:按 mode 决定是否签名。electron-builder 从已构建的 out/ 打包,
       # npmRebuild: false 使其不在本步跑 node-gyp 原生编译。签名凭据仅此步注入。
-      # GitHub Release 由后续 gh release 步统一发布,避免 zip/dmg 两个 publisher 并发创建 release。
+      # 发布统一由 publish job 的 gh release 步完成,本 job 从不 --publish,避免多个 publisher 并发建 release。
       - name: Build (and sign per mode)
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -140,50 +149,30 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # 两类发布 token 都注入,运行时按 mode 选用:publish-self 用默认 GITHUB_TOKEN(本仓库);
-          # publish-draft/release 用 PAT(跨库公开 release 仓库)。GH_TOKEN 是 electron-builder 读取的固定变量名,
-          # 故不在此处静态赋值,改在脚本内按 mode export,避免把错的 token 喂给跨库发布。
-          SELF_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
-          case "$MODE" in
-            build-unsigned)
-              echo "build-unsigned:构建未签名包(验证构建链,无需 secret)"
-              pnpm --filter @cortex-work/desktop run build:mac -- -c.mac.identity=null -c.mac.notarize=false
-              ;;
-            build-signed)
-              echo "build-signed:构建 + 签名 + 公证(不发布)"
-              pnpm --filter @cortex-work/desktop run build:mac
-              ;;
-            publish-self)
-              echo "publish-self:构建 + 签名 + 公证,后续发到本仓库 rambocode/cortex-work 的 Release"
-              pnpm --filter @cortex-work/desktop run build:mac
-              ;;
-            *)
-              rt="release"
-              if [[ "$MODE" == "publish-draft" ]]; then
-                rt="draft"
-              fi
-              echo "publish(mode=$MODE):releaseType=$rt,构建 + 签名 + 公证,后续发到公开 release 仓库"
-              pnpm --filter @cortex-work/desktop run build:mac
-              ;;
-          esac
+          if [[ "$MODE" == "build-unsigned" ]]; then
+            echo "build-unsigned:构建未签名包(验证构建链,无需 secret)"
+            pnpm --filter @cortex-work/desktop run build:mac-arm64 -- -c.mac.identity=null -c.mac.notarize=false
+          else
+            echo "mode=$MODE:构建 + 签名 + 公证"
+            pnpm --filter @cortex-work/desktop run build:mac-arm64
+          fi
 
       # 仅签名档校验签名/公证(未签名包跑 codesign 必失败);在仓库外副本上做,规避仓库 node_modules 假通过。
       - name: Verify signed app and dmg (outside repo)
         if: ${{ env.MODE != 'build-unsigned' }}
         run: |
-          src="apps/desktop/dist"
+          src="apps/desktop/dist/mac-arm64"
           work="$(mktemp -d)"
           product_name="$(node -p "require('./apps/desktop/package.json').productName")"
-          app="$src/mac-arm64/${product_name}.app"
+          app="$src/${product_name}.app"
           app_copy="$work/${product_name}.app"
           ditto "$app" "$app_copy"
           codesign --verify --deep --strict --verbose=2 "$app_copy"
           codesign -dv --verbose=4 "$app_copy"
           spctl --assess --type execute --verbose "$app_copy"
           xcrun stapler validate "$app_copy"
-          dmg="$(ls -1 "$src"/*-arm64.dmg | head -n 1)"
+          dmg="$(ls -1 apps/desktop/dist/*-arm64.dmg | head -n 1)"
           cp "$dmg" "$work/"
           dmg_copy="$work/$(basename "$dmg")"
           # dmg 为人工分发容器:app 已签名+公证+staple(上面是硬门)。dmg 本身是否独立签名/公证取决于
@@ -193,8 +182,305 @@ jobs:
           xcrun stapler validate "$dmg_copy" \
             || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
 
+      # latest-mac.yml 重命名为 latest-mac-arm64.yml 上传,避免和 macos-x64 job 的同名文件在
+      # publish job 下载多份 artifact 时撞名(两者都叫 latest-mac.yml)。
+      - name: Rename manifest for artifact upload
+        run: cp apps/desktop/dist/latest-mac.yml apps/desktop/dist/latest-mac-arm64.yml
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: cortex-desktop-${{ env.BUILD_TAG }}-macos-arm64
+          if-no-files-found: error
+          path: |
+            apps/desktop/dist/*-arm64.dmg
+            apps/desktop/dist/*-arm64.dmg.blockmap
+            apps/desktop/dist/*-arm64.zip
+            apps/desktop/dist/*-arm64.zip.blockmap
+            apps/desktop/dist/latest-mac-arm64.yml
+            apps/desktop/build/release-notes.md
+
+  build-macos-x64:
+    name: Build (sign/publish per mode) — macOS x64
+    # arm64 硬件上交叉产出 x64:node-pty 自带 darwin-x64 prebuilds、pi 用 bun --target bun-darwin-x64
+    # 交叉编译,故不需要真正的 Intel runner。
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: production-release
+    env:
+      MODE: ${{ (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-unsigned' }}
+      BUILD_TAG: ${{ github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.28.2 --activate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - name: Verify secrets
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: |
+          case "$MODE" in
+            build-unsigned)            required="" ;;
+            build-signed|publish-self) required="APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD" ;;
+            *)                         required="APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD RELEASE_GH_TOKEN" ;;
+          esac
+          if [[ -z "$required" ]]; then
+            echo "mode=$MODE:无需 secret"
+            exit 0
+          fi
+          missing=()
+          for name in $required; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing required secrets for mode=$MODE: ${missing[*]}" >&2
+            exit 1
+          fi
+          echo "Secrets OK for mode=$MODE"
+
+      - name: Assert tag matches package.json version
+        if: github.event_name == 'push'
+        run: |
+          pkg_version="$(node -p "require('./apps/desktop/package.json').version")"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [[ "$pkg_version" != "$tag_version" ]]; then
+            echo "Tag ($tag_version) does not match apps/desktop/package.json version ($pkg_version)" >&2
+            exit 1
+          fi
+          echo "Version match: $pkg_version"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # x64 包不含本地 Whisper 功能(prepare-whisper-runner.mjs v1 仅支持 darwin-arm64,
+      # before-pack.cjs 已对此优雅降级、只告警不阻断),这是已知可接受的功能差异。
+      - name: Prepackage (build pi binary + renderer/main, arch=x64)
+        env:
+          CORTEX_NOTES_STRICT: ${{ env.MODE == 'publish-release' && '1' || '' }}
+        run: pnpm --filter @cortex-work/desktop run prepackage:mac-x64
+
+      - name: Build (and sign per mode)
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_NAME: "Jiangwei Lan (HQ537XMLJY)"
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ "$MODE" == "build-unsigned" ]]; then
+            echo "build-unsigned:构建未签名包(验证构建链,无需 secret)"
+            pnpm --filter @cortex-work/desktop run build:mac-x64 -- -c.mac.identity=null -c.mac.notarize=false
+          else
+            echo "mode=$MODE:构建 + 签名 + 公证"
+            pnpm --filter @cortex-work/desktop run build:mac-x64
+          fi
+
+      # x64 的 electron-builder 默认输出目录是 dist/mac(不是 dist/mac-arm64),
+      # 与 arm64 job 的路径不同,校验步骤必须分别指向各自目录。
+      - name: Verify signed app and dmg (outside repo)
+        if: ${{ env.MODE != 'build-unsigned' }}
+        run: |
+          src="apps/desktop/dist/mac"
+          work="$(mktemp -d)"
+          product_name="$(node -p "require('./apps/desktop/package.json').productName")"
+          app="$src/${product_name}.app"
+          app_copy="$work/${product_name}.app"
+          ditto "$app" "$app_copy"
+          codesign --verify --deep --strict --verbose=2 "$app_copy"
+          codesign -dv --verbose=4 "$app_copy"
+          spctl --assess --type execute --verbose "$app_copy"
+          xcrun stapler validate "$app_copy"
+          dmg="$(ls -1 apps/desktop/dist/*-x64.dmg | head -n 1)"
+          cp "$dmg" "$work/"
+          dmg_copy="$work/$(basename "$dmg")"
+          spctl --assess --type open --context context:primary-signature --verbose "$dmg_copy" \
+            || echo "DMG 无独立代码签名/公证 — 可接受(挂载后 app 已公证,Gatekeeper 认 app)。"
+          xcrun stapler validate "$dmg_copy" \
+            || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
+
+      - name: Rename manifest for artifact upload
+        run: cp apps/desktop/dist/latest-mac.yml apps/desktop/dist/latest-mac-x64.yml
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: cortex-desktop-${{ env.BUILD_TAG }}-macos-x64
+          if-no-files-found: error
+          path: |
+            apps/desktop/dist/*-x64.dmg
+            apps/desktop/dist/*-x64.dmg.blockmap
+            apps/desktop/dist/*-x64.zip
+            apps/desktop/dist/*-x64.zip.blockmap
+            apps/desktop/dist/latest-mac-x64.yml
+
+  build-windows-x64:
+    name: Build — Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+    # 不签名(CSC_IDENTITY_AUTO_DISCOVERY=false 现状不变),无需任何 Apple/签名 secret,
+    # 也无需 production-release environment 门禁——始终构建,发布与否仍受 publish job 的 MODE 控制。
+    env:
+      BUILD_TAG: ${{ github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.28.2 --activate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - name: Assert tag matches package.json version
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          pkg_version="$(node -p "require('./apps/desktop/package.json').version")"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [[ "$pkg_version" != "$tag_version" ]]; then
+            echo "Tag ($tag_version) does not match apps/desktop/package.json version ($pkg_version)" >&2
+            exit 1
+          fi
+          echo "Version match: $pkg_version"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Windows 包同样没有本地 Whisper 功能(v1 仅支持 darwin-arm64),已知可接受降级。
+      - name: Prepackage (build pi binary + renderer/main, arch=win32-x64)
+        run: pnpm --filter @cortex-work/desktop run prepackage:win-x64
+
+      - name: Build (unsigned)
+        run: pnpm --filter @cortex-work/desktop run build:win-x64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: cortex-desktop-${{ env.BUILD_TAG }}-windows-x64
+          if-no-files-found: error
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.exe.blockmap
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.zip.blockmap
+            apps/desktop/dist/latest.yml
+
+  publish:
+    name: Publish merged release (macOS arm64 + x64, Windows x64)
+    needs: [build-macos-arm64, build-macos-x64, build-windows-x64]
+    if: ${{ contains(fromJSON('["publish-self", "publish-draft", "publish-release"]'), (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-unsigned') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production-release
+    env:
+      MODE: ${{ (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-unsigned' }}
+      BUILD_TAG: ${{ github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.28.2 --activate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      # 只为跑 merge-mac-update-manifest.mjs(依赖 js-yaml),不需要构建工具链。
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: artifacts
+          pattern: cortex-desktop-${{ env.BUILD_TAG }}-*
+
+      # 第一道护栏:merge 脚本内置断言,任一份清单"名不副实"或合并结果非双架构直接 abort。
+      - name: Merge macOS update manifests (arm64 + x64)
+        run: |
+          mkdir -p staging
+          node apps/desktop/scripts/merge-mac-update-manifest.mjs \
+            --arm64 "artifacts/cortex-desktop-${BUILD_TAG}-macos-arm64/latest-mac-arm64.yml" \
+            --x64 "artifacts/cortex-desktop-${BUILD_TAG}-macos-x64/latest-mac-x64.yml" \
+            --out staging/latest-mac.yml
+
+      # 第二道护栏(独立复核):重新解析即将上传的最终清单,复用同一份断言逻辑,
+      # 防止 staging 目录被手动改动或误放入单架构文件。
+      - name: Verify merged manifest is multi-arch (independent guard)
+        run: node apps/desktop/scripts/merge-mac-update-manifest.mjs --verify staging/latest-mac.yml
+
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          shopt -s nullglob # win zip 目标没有 blockmap(只随 nsis .exe 生成),未匹配的 glob 应消失而非让 cp 报错中止
+          arm_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-arm64"
+          x64_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-x64"
+          win_dir="artifacts/cortex-desktop-${BUILD_TAG}-windows-x64"
+
+          cp "$arm_dir"/*-arm64.dmg "$arm_dir"/*-arm64.dmg.blockmap staging/
+          cp "$arm_dir"/*-arm64.zip "$arm_dir"/*-arm64.zip.blockmap staging/
+          cp "$x64_dir"/*-x64.dmg "$x64_dir"/*-x64.dmg.blockmap staging/
+          cp "$x64_dir"/*-x64.zip "$x64_dir"/*-x64.zip.blockmap staging/
+          cp "$win_dir"/*.exe "$win_dir"/*.exe.blockmap staging/
+          cp "$win_dir"/*.zip "$win_dir"/*.zip.blockmap staging/
+          cp "$win_dir/latest.yml" staging/
+
+          # G6 护栏:mac 双架构资产必须同时存在,少一个直接中止。用数组长度判断而非 ls 是否成功——
+          # nullglob 已开启,未匹配的 pattern 展开为空、`ls staging/` 会退化成列出整个目录、总是成功,
+          # 不能反映某个具体 pattern 有没有真的匹配到文件。
+          for pattern in "*-arm64.dmg" "*-arm64.zip" "*-x64.dmg" "*-x64.zip"; do
+            matches=(staging/$pattern)
+            if [[ ${#matches[@]} -eq 0 ]]; then
+              echo "Missing mac release asset matching: $pattern" >&2
+              exit 1
+            fi
+          done
+
+          echo "Staged assets:"
+          ls -la staging/
+
       - name: Publish GitHub release
-        if: ${{ env.MODE == 'publish-self' || env.MODE == 'publish-draft' || env.MODE == 'publish-release' }}
         env:
           SELF_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
@@ -223,24 +509,8 @@ jobs:
             fi
           fi
 
-          src="apps/desktop/dist"
-          files=(
-            "$src"/*-arm64.dmg
-            "$src"/*-arm64.dmg.blockmap
-            "$src"/*-arm64-mac.zip
-            "$src"/*-arm64-mac.zip.blockmap
-            "$src/latest-mac.yml"
-          )
-
-          for file in "${files[@]}"; do
-            if [[ ! -f "$file" ]]; then
-              echo "Missing release asset: $file" >&2
-              exit 1
-            fi
-          done
-
-          # Release body 与应用内更新弹窗同源:用 prepackage 生成的 build/release-notes.md。
-          notes_file="apps/desktop/build/release-notes.md"
+          # Release body 与应用内更新弹窗同源:用 arm64 job 里 prepackage 生成的 release-notes.md。
+          notes_file="artifacts/cortex-desktop-${BUILD_TAG}-macos-arm64/build/release-notes.md"
           if [[ ! -f "$notes_file" ]]; then
             echo "Missing release notes file: $notes_file" >&2
             exit 1
@@ -261,17 +531,6 @@ jobs:
             fi
           fi
 
-          gh release upload "$BUILD_TAG" --repo "$repo" --clobber "${files[@]}"
-
-      # 构建产物 artifact:build 档取回产物的通道(也确认产物确实生成);publish 档作冗余备份。
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: cortex-desktop-${{ env.BUILD_TAG }}-macos-arm64
-          if-no-files-found: error
-          path: |
-            apps/desktop/dist/*-arm64.dmg
-            apps/desktop/dist/*-arm64.dmg.blockmap
-            apps/desktop/dist/*-arm64-mac.zip
-            apps/desktop/dist/*-arm64-mac.zip.blockmap
-            apps/desktop/dist/latest-mac.yml
+          # 只上传 staging/ 里合并后的最终产物;per-arch 的 latest-mac-arm64.yml/latest-mac-x64.yml
+          # 从未被 copy 进 staging,结构上保证不会被误传。
+          gh release upload "$BUILD_TAG" --repo "$repo" --clobber staging/*
