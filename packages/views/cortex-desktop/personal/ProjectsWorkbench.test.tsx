@@ -2,7 +2,7 @@ import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/re
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { CoreProvider } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
-import type { TaskProject } from "@cortex-work/core/desktop/types";
+import type { TaskMeta, TaskProject } from "@cortex-work/core/desktop/types";
 import {
   ProjectsWorkbench,
   pushSelection,
@@ -191,5 +191,80 @@ describe("ProjectsWorkbench 显示弹层（U5）", () => {
     fireEvent.click(screen.getByText("显示收件箱"));
     expect(screen.queryByRole("tab", { name: "收件箱" })).toBeNull();
     expect(screen.getByRole("tab", { name: "今日" }).getAttribute("aria-selected")).toBe("true");
+  });
+});
+
+// ── U12 新建动作空白离焦撤销（整链路：新建 → 选中聚焦 → ESC/离焦 → 撤销）─────────────
+// 用有状态桥（tasksList 读回真实 store），复刻新建后任务真的出现在中列并进入标题编辑的时序。
+function statefulTasksBridge() {
+  const store = new Map<string, TaskMeta>();
+  let idc = 0;
+  const calls = { deleted: [] as string[] };
+  const bridge = {
+    tasksList: async () => [...store.values()],
+    tasksListProjects: async () => [],
+    tasksAdd: async (input: { title: string; projectId?: string; source?: string }) => {
+      const id = `t${++idc}`;
+      const now = Date.now();
+      const m: TaskMeta = {
+        id,
+        title: input.title,
+        status: "active",
+        tags: [],
+        projectId: input.projectId,
+        source: (input.source as TaskMeta["source"]) ?? "manual",
+        createdAt: now,
+        updatedAt: now,
+      };
+      store.set(id, m);
+      return m;
+    },
+    tasksUpdate: async (id: string, patch: Record<string, unknown>) => {
+      const cur = store.get(id);
+      if (!cur) return null;
+      const next = { ...cur, ...patch, updatedAt: Date.now() } as TaskMeta;
+      store.set(id, next);
+      return next;
+    },
+    tasksDelete: async (id: string) => {
+      calls.deleted.push(id);
+      store.delete(id);
+    },
+    tasksAddProject: async (name: string) => ({ id: "np", name, kind: "project" }),
+    tasksUpdateProject: async () => null,
+    tasksDeleteProject: async () => undefined,
+    onTasksChanged: () => () => {},
+    sendTaskDelegateIntent: () => {},
+  } as unknown as DesktopBridge;
+  return { bridge, store, calls };
+}
+
+describe("ProjectsWorkbench 空白新建离焦撤销（U12）", () => {
+  it("新建动作后未输入即 ESC → 撤销该空白任务", async () => {
+    const { bridge, calls } = statefulTasksBridge();
+    renderWorkbench(bridge);
+    // 切到收件箱视图：新建的空白任务落收件箱、在该视图 scope 内可见（今日视图新建的无到期任务不在 scope）。
+    fireEvent.click(screen.getByRole("tab", { name: "收件箱" }));
+    // 工具栏「新建动作」→ 建空白任务并进入标题编辑。
+    fireEvent.click(screen.getByTitle("新建动作"));
+    const input = (await screen.findByPlaceholderText("未命名的动作")) as HTMLInputElement;
+    input.focus(); // 确保 activeElement 为标题输入（autoFocus 的确定化）
+    // ESC 由根 keydown 处理 → blur 当前输入 → 空白且无其它信息 → 撤销。
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(calls.deleted.length).toBe(1));
+  });
+
+  it("新建动作后输入标题再 ESC → 保留（不撤销）", async () => {
+    const { bridge, calls } = statefulTasksBridge();
+    renderWorkbench(bridge);
+    fireEvent.click(screen.getByRole("tab", { name: "收件箱" }));
+    fireEvent.click(screen.getByTitle("新建动作"));
+    const input = (await screen.findByPlaceholderText("未命名的动作")) as HTMLInputElement;
+    input.focus();
+    fireEvent.change(input, { target: { value: "写周报" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    // 有标题 → 不撤销；行仍选中（ESC 仅 blur 不清选中），标题落库为「写周报」，任务仍在。
+    expect(await screen.findByDisplayValue("写周报")).toBeTruthy();
+    expect(calls.deleted.length).toBe(0);
   });
 });

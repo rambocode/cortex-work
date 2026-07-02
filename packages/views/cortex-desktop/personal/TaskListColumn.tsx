@@ -97,6 +97,23 @@ function compareTasks(a: TaskMeta, b: TaskMeta, today: string): number {
   return 0;
 }
 
+// U12 新建期空白任务撤销判定：任务除标题外是否「未被设置任何用户信息」——
+// 无标签 / 日期(推迟·截止) / 时长 / 重复 / 提醒 / 旗标 / 备注 / 附件 / 子任务即为空白。
+// projectId·parentTaskId 是新建时继承的归属，不算用户「设置的信息」，故不计入。
+// 标题是否为空由调用方按失焦时的即时输入判定（不读缓存——非乐观更新下标题尚未回灌，读缓存会误判为空），此处只校验其它字段。
+export function taskHasNoUserInfoBesidesTitle(t: TaskMeta, all: TaskMeta[]): boolean {
+  if (t.tags.length > 0) return false;
+  if (t.dueDate || t.deferDate) return false;
+  if (t.estimatedDuration != null) return false;
+  if (t.repeat != null) return false;
+  if (t.reminder?.at != null) return false;
+  if (t.flagged) return false;
+  if (t.notes && t.notes.trim() !== "") return false;
+  if (t.attachments && t.attachments.length > 0) return false;
+  if (all.some((x) => x.parentTaskId === t.id)) return false; // 已建子任务 → 视为已设置信息，不撤销
+  return true;
+}
+
 interface TaskGroup {
   key: string; // project 组 = project id（供组头查 mode / 折叠态）；今日无项目组 = "inbox"
   label: string;
@@ -110,8 +127,10 @@ export function TaskListColumn({
   selectedTaskId,
   filter,
   forcedVisibleId,
+  pendingNewTaskId,
   onOpenTask,
   onCreated,
+  onPendingConsumed,
   onSelectedHidden,
   onToast,
 }: {
@@ -121,9 +140,14 @@ export function TaskListColumn({
   filter: TaskViewFilter;
   // 刚新建的任务 id（R11）：无视当前过滤强制可见（否则「首先可用」等档下新建可能立即隐身）。
   forcedVisibleId?: string | null;
+  // U12 新建期空白任务 id：由容器在「新建动作 / 新建子任务」时记住；本列在其标题失焦时判定是否撤销。
+  pendingNewTaskId?: string | null;
   onOpenTask: (id: string) => void;
   // 新建任务（快速新增 / 子任务）→ 通知容器选中并置为 forcedVisible（R11）。
-  onCreated: (id: string) => void;
+  // pending=true 表示新建的是空白任务（U12）：容器据此记为 pendingNewTaskId 以启用离焦撤销。
+  onCreated: (id: string, pending?: boolean) => void;
+  // U12 一次性判定后回调容器清除 pendingNewTaskId（无论是否撤销，本次判定后不再是「新建期」）。
+  onPendingConsumed: () => void;
   // 选中任务离开命中集（切档 / 完成而隐藏，R18）→ 通知容器清选中回空态；亦作「已选择」条清除入口（R13）。
   onSelectedHidden: () => void;
   onToast: (text: string) => void;
@@ -325,9 +349,24 @@ export function TaskListColumn({
         parentId: parent.id,
         source: "manual",
       });
-      onCreated(created.id); // R11：无视过滤选中 + 强制可见
+      onCreated(created.id, true); // R11 选中 + 强制可见；U12 空白子任务 → 标记新建期，离焦可撤销
     } catch {
       onToast("新建子任务失败，请重试");
+    }
+  };
+
+  // U12 空白新建离焦撤销：标题失焦时若这是「新建期」任务、标题去空格为空、且未设置任何其它信息，
+  // 则删除该任务并清空右列选中（回空态）。判定一次性——无论删否都消费 pending（此后不再是新建期）。
+  //   - title：失焦时输入框的即时去空格值（不读缓存，避免非乐观更新下标题尚未回灌而误判为空）。
+  //   - toInsideRow：焦点转入本行其它控件（行内 inspector）→ 用户在继续编辑本任务，保留不撤销。
+  const onPendingTitleBlur = (t: TaskMeta, title: string, toInsideRow: boolean) => {
+    if (t.id !== pendingNewTaskId) return;
+    onPendingConsumed();
+    if (toInsideRow || title !== "") return;
+    const fresh = tasks.find((x) => x.id === t.id) ?? t;
+    if (taskHasNoUserInfoBesidesTitle(fresh, tasks)) {
+      deleteTask.mutate(fresh.id);
+      onSelectedHidden(); // 选中态 + forcedVisibleId 一并清理（经容器 selectTask(null)）
     }
   };
 
@@ -455,6 +494,8 @@ export function TaskListColumn({
                         onCompleteSuggested={() => onCompleteSuggested(t)}
                         // 委派只发意图给主窗口执行（sessions 不跨窗口，KTD10）；本地即时 toast。
                         onDelegate={() => delegate(t, onToast)}
+                        // U12 标题失焦上报（撤销刚新建的空白任务）。
+                        onTitleBlur={(title, toInsideRow) => onPendingTitleBlur(t, title, toInsideRow)}
                       />
                     ),
                 )}

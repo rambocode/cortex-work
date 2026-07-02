@@ -151,15 +151,22 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   // R11：刚新建任务的 id——无视当前过滤强制可见并选中。用户切档/换选/导航即失效（见下）。
   const [forcedVisibleId, setForcedVisibleId] = useState<string | null>(null);
+  // U12：新建期空白任务 id——其标题失焦（含 ESC）时若仍空白且未设其它信息，则由中列撤销该新建。
+  const [pendingNewTaskId, setPendingNewTaskId] = useState<string | null>(null);
 
   // 选中语义分两路：普通选中（行点击）受过滤（R18 可将其清除）；新建选中强制可见（R11）。
   const selectTask = (id: string | null) => {
     setSelectedTaskId(id);
     setForcedVisibleId(null);
+    // 仅当换选到「别的任务」或清空时放弃新建期判定；重选当前 pending 任务须保留——
+    // 空白新建后标题 autoFocus 会经 onFocus→onOpenTask 回选自身，若无条件清除会在用户失焦前就抹掉 pending。
+    setPendingNewTaskId((cur) => (cur === id ? cur : null));
   };
-  const selectCreated = (id: string) => {
+  // pending=true（U12）表示新建的是空白任务：记为 pendingNewTaskId 以启用离焦撤销；有标题的快速新增传 false。
+  const selectCreated = (id: string, pending = false) => {
     setSelectedTaskId(id);
     setForcedVisibleId(id);
+    setPendingNewTaskId(pending ? id : null);
   };
 
   // projects 变化即剪除历史死条目（KTD7）：删除项目后后退不落到空组。
@@ -225,7 +232,7 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
     const projectId = selection.kind === "project" ? selection.id : undefined;
     try {
       const created = await addTask.mutateAsync({ title: "", projectId, source: "manual" });
-      selectCreated(created.id);
+      selectCreated(created.id, true); // U12：空白新建 → 标记新建期，标题离焦仍空白即撤销
     } catch {
       onToast("新建任务失败，请重试");
     }
@@ -276,8 +283,10 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
           selectedTaskId={selectedTaskId}
           filter={viewOptions.filter}
           forcedVisibleId={forcedVisibleId}
+          pendingNewTaskId={pendingNewTaskId}
           onOpenTask={selectTask}
           onCreated={selectCreated}
+          onPendingConsumed={() => setPendingNewTaskId(null)}
           onSelectedHidden={() => selectTask(null)}
           onToast={onToast}
         />

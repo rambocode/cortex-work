@@ -80,7 +80,9 @@ function renderColumn(
   opts: {
     filter?: TaskViewFilter;
     forcedVisibleId?: string | null;
-    onCreated?: (id: string) => void;
+    pendingNewTaskId?: string | null;
+    onCreated?: (id: string, pending?: boolean) => void;
+    onPendingConsumed?: () => void;
     onSelectedHidden?: () => void;
     onOpenTask?: (id: string) => void;
   } = {},
@@ -92,8 +94,10 @@ function renderColumn(
         selectedTaskId={selectedTaskId}
         filter={opts.filter ?? "remaining"}
         forcedVisibleId={opts.forcedVisibleId}
+        pendingNewTaskId={opts.pendingNewTaskId}
         onOpenTask={opts.onOpenTask ?? (() => {})}
         onCreated={opts.onCreated ?? (() => {})}
+        onPendingConsumed={opts.onPendingConsumed ?? (() => {})}
         onSelectedHidden={opts.onSelectedHidden ?? (() => {})}
         onToast={() => {}}
       />
@@ -159,6 +163,7 @@ function renderLiveColumn(bridge: DesktopBridge, selection: WorkbenchSelection, 
         filter="remaining"
         onOpenTask={() => {}}
         onCreated={() => {}}
+        onPendingConsumed={() => {}}
         onSelectedHidden={() => {}}
         onToast={() => {}}
       />
@@ -365,7 +370,7 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     );
     render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-        <TaskListColumn selection={{ kind: "project", id: "p1" }} filter="remaining" onOpenTask={() => {}} onCreated={() => {}} onSelectedHidden={() => {}} onToast={(t) => toasts.push(t)} />
+        <TaskListColumn selection={{ kind: "project", id: "p1" }} filter="remaining" onOpenTask={() => {}} onCreated={() => {}} onPendingConsumed={() => {}} onSelectedHidden={() => {}} onToast={(t) => toasts.push(t)} />
       </CoreProvider>,
     );
 
@@ -384,7 +389,7 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     const { bridge, calls } = fakeTasksBridge([task("a", "叶子", { projectId: "p1" })], [{ id: "p1", name: "项目一" }]);
     render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-        <TaskListColumn selection={{ kind: "project", id: "p1" }} filter="remaining" onOpenTask={() => {}} onCreated={() => {}} onSelectedHidden={() => {}} onToast={(t) => toasts.push(t)} />
+        <TaskListColumn selection={{ kind: "project", id: "p1" }} filter="remaining" onOpenTask={() => {}} onCreated={() => {}} onPendingConsumed={() => {}} onSelectedHidden={() => {}} onToast={(t) => toasts.push(t)} />
       </CoreProvider>,
     );
     await findTitle("叶子");
@@ -409,7 +414,7 @@ describe("TaskListColumn 子任务嵌套（U3）", () => {
     );
     render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-        <TaskListColumn selection={{ kind: "project", id: "p1" }} filter="remaining" onOpenTask={() => {}} onCreated={() => {}} onSelectedHidden={() => {}} onToast={(t) => toasts.push(t)} />
+        <TaskListColumn selection={{ kind: "project", id: "p1" }} filter="remaining" onOpenTask={() => {}} onCreated={() => {}} onPendingConsumed={() => {}} onSelectedHidden={() => {}} onToast={(t) => toasts.push(t)} />
       </CoreProvider>,
     );
     const suggest = await screen.findByText("✓ 完成此任务");
@@ -780,6 +785,70 @@ describe("TaskListColumn 大纲式（U6）", () => {
     // 组头名为项目名。
     expect(screen.getByText("项目一")).toBeTruthy();
     expect(screen.getByText("项目三")).toBeTruthy();
+  });
+
+  // ── U12 新建动作空白离焦撤销 ───────────────────────────────────────────────
+  describe("空白新建离焦撤销（U12）", () => {
+    it("空标题 blur → 删除该新建任务并清选中（onSelectedHidden）", async () => {
+      const onSelectedHidden = vi.fn();
+      const { bridge, calls } = fakeTasksBridge(
+        [task("new", "", { projectId: "p1" })],
+        [{ id: "p1", name: "项目一" }],
+      );
+      renderColumn(bridge, { kind: "project", id: "p1" }, "new", { pendingNewTaskId: "new", onSelectedHidden });
+
+      const input = await screen.findByPlaceholderText("未命名的动作");
+      fireEvent.blur(input); // relatedTarget 为空 → 焦点离开本行，空白判定
+      await waitFor(() => expect(calls.deleted).toContain("new"));
+      expect(onSelectedHidden).toHaveBeenCalled();
+    });
+
+    it("输入标题后 blur → 保留（落库标题、不删除）", async () => {
+      const { bridge, calls } = fakeTasksBridge(
+        [task("new", "", { projectId: "p1" })],
+        [{ id: "p1", name: "项目一" }],
+      );
+      renderColumn(bridge, { kind: "project", id: "p1" }, "new", { pendingNewTaskId: "new" });
+
+      const input = await screen.findByPlaceholderText("未命名的动作");
+      fireEvent.change(input, { target: { value: "买菜" } });
+      fireEvent.blur(input);
+      await waitFor(() => expect(calls.update.some((u) => u.id === "new" && u.patch.title === "买菜")).toBe(true));
+      expect(calls.deleted).not.toContain("new");
+    });
+
+    it("新建后先设截止、再清空标题 blur → 保留（已设置其它信息）", async () => {
+      const { bridge, calls } = fakeTasksBridge(
+        // 模拟用户已在检查器设了截止日期后又把标题清空。
+        [task("new", "", { projectId: "p1", dueDate: "2026-07-10" })],
+        [{ id: "p1", name: "项目一" }],
+      );
+      renderColumn(bridge, { kind: "project", id: "p1" }, "new", { pendingNewTaskId: "new" });
+
+      const input = await screen.findByPlaceholderText("未命名的动作");
+      fireEvent.blur(input);
+      // 标题虽空，但已设截止 → 不撤销。
+      expect(calls.deleted).not.toContain("new");
+    });
+
+    it("焦点转入本行其它控件（inspector）→ 不撤销，仅消费 pending", async () => {
+      const onSelectedHidden = vi.fn();
+      const { bridge, calls } = fakeTasksBridge(
+        [task("new", "", { projectId: "p1" })],
+        [{ id: "p1", name: "项目一" }],
+      );
+      const { container } = renderColumn(bridge, { kind: "project", id: "p1" }, "new", {
+        pendingNewTaskId: "new",
+        onSelectedHidden,
+      });
+
+      const input = await screen.findByPlaceholderText("未命名的动作");
+      // relatedTarget 落在本行内（行内 inspector）→ 视为用户仍在编辑本任务，不撤销。
+      const inspector = container.querySelector<HTMLElement>(".pw-task-inspector *");
+      fireEvent.blur(input, { relatedTarget: inspector });
+      expect(calls.deleted).not.toContain("new");
+      expect(onSelectedHidden).not.toHaveBeenCalled();
+    });
   });
 
   it("今日视图无项目任务归「收件箱」组（R25）", async () => {

@@ -65,6 +65,7 @@ export function TaskOutlineRow({
   onAddSubtask,
   onCompleteSuggested,
   onDelegate,
+  onTitleBlur,
 }: {
   task: TaskMeta;
   today: string;
@@ -86,6 +87,8 @@ export function TaskOutlineRow({
   onAddSubtask: () => void;
   onCompleteSuggested: () => void;
   onDelegate: () => void;
+  // U12 空白新建撤销：标题失焦时上报（去空格后的标题, 焦点是否转入本行其它控件），供中列判定撤销刚新建的空白任务。
+  onTitleBlur?: (title: string, toInsideRow: boolean) => void;
 }) {
   const overdue = !!task.dueDate && task.dueDate < today;
   const delegated = task.status === "waiting" && !!task.delegation;
@@ -159,7 +162,7 @@ export function TaskOutlineRow({
         {/* U10 标题：选中行 = 可编辑 input（草稿 hook，聚焦即选中）；未选中行 = 纯文本，
             点击经行级 onClick 选中该行而不进入编辑，视觉与 input 保持一致避免选中瞬间跳动。 */}
         {isSelected ? (
-          <TaskTitleInput taskId={task.id} value={task.title} struck={done || dropped} onFocus={onOpen} onSave={onRename} />
+          <TaskTitleInput taskId={task.id} value={task.title} struck={done || dropped} onFocus={onOpen} onSave={onRename} onTitleBlur={onTitleBlur} />
         ) : (
           <span
             className={`pw-task-title-input pw-task-title-static${done || dropped ? " is-struck" : ""}${task.title ? "" : " is-empty"}`}
@@ -243,6 +246,7 @@ function TaskTitleInput({
   struck,
   onFocus,
   onSave,
+  onTitleBlur,
 }: {
   taskId: string;
   value: string;
@@ -250,6 +254,7 @@ function TaskTitleInput({
   struck: boolean;
   onFocus: () => void;
   onSave: (title: string) => void;
+  onTitleBlur?: (title: string, toInsideRow: boolean) => void;
 }) {
   const draft = useTaskDraftField({
     taskId,
@@ -268,7 +273,15 @@ function TaskTitleInput({
         onFocus();
       }}
       onChange={(e) => draft.setValue(e.target.value)}
-      onBlur={draft.onBlur}
+      onBlur={(e) => {
+        draft.onBlur();
+        // U12 空白新建撤销：失焦后把「去空格标题」与「焦点是否转入本行其它控件」上报给中列判定。
+        // relatedTarget 落在本行内（如行内 inspector 的按钮）→ 用户仍在编辑本任务，中列据此不撤销；
+        // 焦点真正离开本行（切别的行/空白），或 ESC 编程式 blur（relatedTarget 为空）才进入撤销判定。
+        const row = e.currentTarget.closest(".pw-task-row");
+        const toInsideRow = e.relatedTarget instanceof Node && !!row?.contains(e.relatedTarget);
+        onTitleBlur?.(e.currentTarget.value.trim(), toInsideRow);
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           draft.commit();
