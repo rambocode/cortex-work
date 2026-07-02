@@ -39,15 +39,17 @@ afterEach(() => {
 });
 
 describe("WorkbenchSettingsView", () => {
-  it("默认显示阶段模板 tab，可切到项目资源，关闭回调触发", () => {
+  it("左侧菜单导航：默认阶段模板分区，可切到项目资源；左上「返回」触发关闭", () => {
     const onClose = vi.fn();
     render(<WorkbenchSettingsView onClose={onClose} onToast={vi.fn()} />);
     expect(screen.getByText("创建项目时可选择的阶段模板")).toBeTruthy();
+    // 左侧导航为 tablist（返回按钮在其上方）。
+    expect(screen.getByRole("tablist", { name: "设置分区" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "项目资源" }));
     expect(screen.getByText("团队成员")).toBeTruthy();
 
-    fireEvent.click(screen.getByTitle("关闭设置"));
+    fireEvent.click(screen.getByTitle("返回工作台"));
     expect(onClose).toHaveBeenCalled();
   });
 });
