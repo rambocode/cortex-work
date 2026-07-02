@@ -151,10 +151,9 @@ mac:
       arch: [arm64, x64]
 win:
   icon: assets/cortex-neuron-icon.png
+  # 只出 nsis:Windows 自动更新(NsisUpdater)与人工分发都用 .exe,zip 纯冗余,已移除不再生成/发布。
   target:
     - target: nsis
-      arch: [x64]
-    - target: zip
       arch: [x64]
 nsis:
   oneClick: true

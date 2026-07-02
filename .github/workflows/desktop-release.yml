@@ -396,8 +396,6 @@ jobs:
           path: |
             apps/desktop/dist/*.exe
             apps/desktop/dist/*.exe.blockmap
-            apps/desktop/dist/*.zip
-            apps/desktop/dist/*.zip.blockmap
             apps/desktop/dist/latest.yml
 
   publish:
@@ -453,7 +451,8 @@ jobs:
       - name: Stage release assets
         run: |
           set -euo pipefail
-          shopt -s nullglob # win zip 目标没有 blockmap(只随 nsis .exe 生成),未匹配的 glob 应消失而非让 cp 报错中止
+          # nullglob:下方 G6 护栏用数组长度判断 pattern 是否命中,依赖未匹配的 glob 展开为空。
+          shopt -s nullglob
           arm_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-arm64"
           x64_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-x64"
           win_dir="artifacts/cortex-desktop-${BUILD_TAG}-windows-x64"
@@ -463,7 +462,6 @@ jobs:
           cp "$x64_dir"/*-x64.dmg "$x64_dir"/*-x64.dmg.blockmap staging/
           cp "$x64_dir"/*-x64.zip "$x64_dir"/*-x64.zip.blockmap staging/
           cp "$win_dir"/*.exe "$win_dir"/*.exe.blockmap staging/
-          cp "$win_dir"/*.zip "$win_dir"/*.zip.blockmap staging/
           cp "$win_dir/latest.yml" staging/
 
           # G6 护栏:mac 双架构资产必须同时存在,少一个直接中止。用数组长度判断而非 ls 是否成功——
