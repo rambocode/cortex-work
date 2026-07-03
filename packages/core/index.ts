@@ -53,6 +53,13 @@ export {
   type ArchivedPartition,
 } from "./store/archivedSessions";
 export { usePetStore, type PetState, type PetKind, type PetMode, type PetStore } from "./store/pet";
+// 快捷回复助手（reply）客户端态 store（U5/U9）。持久化经 usePersonalPersistence 合并进 PersistedState。
+export {
+  useReplyStore,
+  replyToPersisted,
+  replySaveUrgency,
+  type ReplyStore,
+} from "./store/reply";
 export type { DesktopBridge } from "./desktop/bridge";
 export {
   AGENT_MODELS,

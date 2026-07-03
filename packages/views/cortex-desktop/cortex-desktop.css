@@ -9951,3 +9951,35 @@ button.sb-row {
 .pw-task-member-hours-unit { font-size: 11px; color: var(--text-4); margin-left: -2px; }
 /* 项目设置面板的模板下拉占满行宽。 */
 .pw-proj-settings-tpl { flex: 1; min-width: 0; }
+
+/* ── 快捷回复设置分区（U9）─────────────────────────────────────────────────────
+   权限徽标按三态着色；记忆分区用轻量 segmented；渠道卡片与调试记录为紧凑列表。 */
+.pw-perm-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); color: var(--text-2); background: var(--bg-app); }
+.pw-perm-badge.is-granted { color: var(--green, #2e7d32); border-color: color-mix(in srgb, var(--green, #2e7d32) 40%, var(--border)); background: color-mix(in srgb, var(--green, #2e7d32) 10%, transparent); }
+.pw-perm-badge.is-denied { color: var(--red, #c0392b); border-color: color-mix(in srgb, var(--red, #c0392b) 40%, var(--border)); background: color-mix(in srgb, var(--red, #c0392b) 8%, transparent); }
+.pw-perm-badge.is-notDetermined, .pw-perm-badge.is-unknown { color: var(--text-3); }
+
+.pw-reply-scopes { display: flex; gap: 4px; flex-wrap: wrap; padding: 4px; border-radius: 12px; background: var(--bg-sunken, var(--bg-app)); margin: 8px 0; }
+.pw-reply-scope { padding: 5px 12px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--text-2); font-size: 13px; cursor: pointer; }
+.pw-reply-scope:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-reply-scope.is-active { background: var(--bg-app); border-color: var(--border); color: var(--text-1); }
+
+.pw-reply-memo { width: 100%; min-height: 96px; resize: vertical; }
+.pw-reply-auto { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.pw-reply-auto-body { margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-sunken, var(--bg-app)); color: var(--text-2); font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; }
+.pw-reply-auto-body.is-error { color: var(--red, #c0392b); }
+
+.pw-reply-channel { padding: 12px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.pw-reply-channel:first-of-type { border-top: none; }
+.pw-reply-channel-head { display: flex; align-items: center; gap: 8px; }
+.pw-reply-channel-name { font-weight: 600; color: var(--text-1); }
+.pw-reply-channel-acct { font-size: 13px; color: var(--text-2); }
+.pw-reply-channel-err { font-size: 12px; color: var(--red, #c0392b); }
+
+.pw-reply-dbg { border-top: 1px solid var(--border); }
+.pw-reply-dbg-empty { padding: 12px 0; color: var(--text-3); font-size: 13px; }
+.pw-reply-dbg-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 0; background: transparent; border: none; cursor: pointer; color: var(--text-2); font-size: 13px; }
+.pw-reply-dbg-src { font-weight: 600; color: var(--text-1); }
+.pw-reply-dbg-time { color: var(--text-3); }
+.pw-reply-dbg-toggle { margin-left: auto; color: var(--accent); }
+.pw-reply-dbg-body { display: flex; flex-direction: column; gap: 4px; padding: 0 0 10px; }

@@ -61,6 +61,7 @@ import { BrowserSettingsSection } from "./BrowserSettingsSection";
 import { ArchivedSessionsSection } from "./ArchivedSessionsSection";
 import { MediaGenSettingsSection } from "./MediaGenSettingsSection";
 import { SttSettingsSection } from "./SttSettingsSection";
+import { ReplySettingsSection } from "./ReplySettingsSection";
 import { RolesSection } from "./RolesSettingsSection";
 import { BareSelect, SBlock, SRow, SecretField, SettingCard, SwitchRow } from "./settingsControls";
 
@@ -91,6 +92,7 @@ type SettingsTab =
   | "push"
   | "voice"
   | "stt"
+  | "reply"
   | "roles";
 
 // 项元数据唯一来源：label 走 i18n（settings:tabs.*）,故此处只存 tabKey + icon,渲染时即时翻译。
@@ -107,6 +109,8 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   // 媒体生成 / 语音转文字（U2 新增,U3/U6 填充真实表单）
   mediaGen: { tabKey: "tabs.mediaGen", icon: <Icon.Image size={14} /> },
   stt: { tabKey: "tabs.stt", icon: <Icon.Mic size={14} /> },
+  // 快捷回复助手（U9，macOS-only；非 mac / Web 端由 replyAvailable 过滤隐藏）
+  reply: { tabKey: "tabs.reply", icon: <Icon.Send size={14} /> },
   pet: { tabKey: "tabs.pet", icon: <Icon.Sparkle size={14} /> },
   timeline: { tabKey: "tabs.timeline", icon: <Icon.Clock size={14} /> },
   push: { tabKey: "tabs.push", icon: <Icon.Send size={14} /> },
@@ -121,7 +125,7 @@ const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
   { groupKey: "tabGroups.models", items: ["providers", "agent", "pi", "roles"] },
   // 媒体生成挂「应用」组,语音转文字挂「个性化」组（同 pet/voice 并列,U2 新增）
   { groupKey: "tabGroups.apps", items: ["plugins", "browser", "mediaGen"] },
-  { groupKey: "tabGroups.personalization", items: ["pet", "voice", "stt"] },
+  { groupKey: "tabGroups.personalization", items: ["pet", "voice", "stt", "reply"] },
   { groupKey: "tabGroups.automation", items: ["timeline", "push"] },
 ];
 
@@ -1860,11 +1864,27 @@ function SttSection() {
   );
 }
 
+// 快捷回复分区薄壳（U9）：真实表单在 ReplySettingsSection，自带非 mac / Web 守卫返回 null。
+function ReplySection() {
+  const { t } = useTranslation("settings");
+  return (
+    <>
+      <div className="pw-dlg-title">{t("reply.title")}</div>
+      <div className="pw-dlg-desc">{t("reply.desc")}</div>
+      <ReplySettingsSection />
+    </>
+  );
+}
+
 export function PersonalSettingsView() {
   const { t } = useTranslation("settings");
   const closeSettings = usePersonalStore((s) => s.closeSettings);
+  const bridge = useDesktopBridge();
   const [tab, setTab] = useState<SettingsTab>("profile");
   const backRef = useRef<HTMLButtonElement>(null);
+
+  // 快捷回复分区仅 macOS + 桥接可用时出现（非 mac / Web 隐藏整分区，含左栏入口）。
+  const replyAvailable = useMemo(() => detectIsMac() && !!bridge?.replyGetPermissions, [bridge]);
 
   // 挂载时把焦点移入覆盖层（返回按钮）,避免键盘焦点停在被遮挡但仍在 DOM 的底层控件上。
   useEffect(() => {
@@ -1893,7 +1913,9 @@ export function PersonalSettingsView() {
         {NAV_GROUPS.map((group) => (
           <div key={group.groupKey} className="pw-dlg-nav-group">
             <div className="pw-dlg-nav-h">{t(group.groupKey)}</div>
-            {group.items.map((id) => (
+            {group.items
+              .filter((id) => id !== "reply" || replyAvailable)
+              .map((id) => (
               <button
                 key={id}
                 className={`pw-dlg-nav-item ${tab === id ? "is-active" : ""}`}
@@ -1935,6 +1957,8 @@ export function PersonalSettingsView() {
             <MediaGenSection />
           ) : tab === "stt" ? (
             <SttSection />
+          ) : tab === "reply" ? (
+            <ReplySection />
           ) : tab === "roles" ? (
             <RolesSection />
           ) : (
