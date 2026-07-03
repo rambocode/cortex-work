@@ -14,5 +14,11 @@ coverage/
 # pi 的 bun 编译产物(二进制 + 旁置资产),由 apps/desktop/scripts/build-pi-binary.mjs 生成
 apps/desktop/resources/pi/
 
+# reply-helper 的 swift 编译产物,由 apps/desktop/scripts/build-reply-helper.mjs 生成
+apps/desktop/resources/reply-helper/
+
+# reply-helper Swift 包的 SwiftPM 构建缓存
+apps/desktop/native/reply-helper/.build/
+
 # Compound Engineering 本地配置
 .compound-engineering/*.local.yaml

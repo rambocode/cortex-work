@@ -91,6 +91,12 @@ extraResources:
   # 生成；落到 <App>/Contents/Resources/pi/,pi-locate.resolvePiBinary 打包态指向这里。
   - from: resources/pi
     to: pi
+  # reply-helper（快捷回复的 macOS 原生伴生二进制:AX/CGEventPost/Vision OCR/EventKit/事件 tap）,
+  # 由 scripts/build-reply-helper.mjs 用 swift build -c release 生成；落到
+  # <App>/Contents/Resources/reply-helper/,主进程 helper-client(U4)spawn 它。
+  # 签名随 mac 段 hardenedRuntime/notarize 整体处理(与 pi 二进制同模式,无独立 binaries 列表)。
+  - from: resources/reply-helper
+    to: reply-helper
   # 内置 skills（compound-engineering vendoring，纯文本）,落到 <App>/Contents/Resources/skills/,
   # skills/locate.builtinSkillsRoot 打包态指向这里；第二阶段下载的官方库走 userData/skills 优先覆盖。
   - from: resources/skills
