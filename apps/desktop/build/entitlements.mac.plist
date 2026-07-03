@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- electron-builder 默认模板三条:JIT + 可写可执行内存(Electron/V8 需要)+ 关闭库校验
+       (加载 node-pty / node-mac-permissions 等第三方原生 .node 需要)。缺一不可,保留。 -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!-- hardened runtime 下访问麦克风(语音转文字)必须声明,否则系统直接拒绝、不会弹 TCC/入列表。 -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+
+  <!-- hardened runtime 下访问日历(EventKit 读忙碌时间,快捷回复的日程感知)必须声明。 -->
+  <key>com.apple.security.personal-information.calendars</key>
+  <true/>
+</dict>
+</plist>

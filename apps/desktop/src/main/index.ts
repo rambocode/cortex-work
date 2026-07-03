@@ -158,7 +158,7 @@ async function syncReplyInputMode(): Promise<void> {
   let granted = false;
   try {
     const helper = replyHelper;
-    const perms = await queryReplyPermissions(() => helper.permissions());
+    const perms = await queryReplyPermissions(() => helper.permissions(), process.platform, undefined, log);
     granted = perms.accessibility === "granted";
   } catch (err) {
     log.warn("[reply] 权限查询失败,降级到兜底热键", err);

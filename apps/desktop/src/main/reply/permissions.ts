@@ -6,6 +6,12 @@
 //
 // 关键约束:node-mac-permissions 是可选原生依赖,**必须动态 import + try/catch**——
 // 非 mac 平台 / 打包缺失时不得在 import 期崩溃(core/views 边界之外,但仍守「非 mac 不崩」)。
+//
+// 可观测性:此前加载失败是完全静默的(catch 不留日志),生产环境一旦该模块因架构/ABI 问题
+// 加载失败,四项权限永远不会被主动注册进系统列表,却没有任何日志线索可查——排查过一次真实
+// 故障后补上:所有 catch 分支都经可选注入的 logger 留痕(默认 no-op,保持本模块 electron-free)。
+
+import type { HelperLogger } from "./helper-client";
 
 /** 归一化三态,与 helper Permissions.swift 的 stateString 对齐。 */
 export type PermissionState = "granted" | "denied" | "notDetermined";
@@ -92,7 +98,10 @@ const defaultNativeLoader: NativeModuleLoader = () => import("node-mac-permissio
  * 交由调用方回退 helper。整体 try/catch 保证非 mac / 缺失依赖 / electron ABI 不匹配时不崩
  * (ABI 不匹配是本原生模块在 npmRebuild:false 下的已知风险,靠回退 helper 兜底,见 KTD2)。
  */
-async function queryViaNodeMacPermissions(loader: NativeModuleLoader): Promise<ReplyPermissions | null> {
+async function queryViaNodeMacPermissions(
+  loader: NativeModuleLoader,
+  logger?: HelperLogger,
+): Promise<ReplyPermissions | null> {
   try {
     const perms = await loader();
     if (typeof perms.getAuthStatus !== "function") return null;
@@ -104,7 +113,8 @@ async function queryViaNodeMacPermissions(loader: NativeModuleLoader): Promise<R
       microphone: mapAuthStatus(perms.getAuthStatus(NMP_TYPES.microphone)),
       speechRecognition: mapAuthStatus(perms.getAuthStatus(NMP_TYPES.speech)),
     };
-  } catch {
+  } catch (err) {
+    logger?.warn("[reply] node-mac-permissions 加载/查询失败,回退 helper 兜底", err);
     return null;
   }
 }
@@ -132,18 +142,19 @@ export async function queryReplyPermissions(
   helperFallback?: HelperPermissionsFn,
   platform: NodeJS.Platform = process.platform,
   nativeLoader: NativeModuleLoader = defaultNativeLoader,
+  logger?: HelperLogger,
 ): Promise<ReplyPermissions> {
   if (platform !== "darwin") return unknownPermissions();
 
-  const viaNode = await queryViaNodeMacPermissions(nativeLoader);
+  const viaNode = await queryViaNodeMacPermissions(nativeLoader, logger);
   if (viaNode) return viaNode;
 
   if (helperFallback) {
     try {
       const res = await helperFallback();
       if (res && res.ok !== false) return parseHelperPermissions(res);
-    } catch {
-      /* 落到最终兜底 */
+    } catch (err) {
+      logger?.warn("[reply] helper permissions 兜底查询失败", err);
     }
   }
   return unknownPermissions();
@@ -172,6 +183,7 @@ export async function requestReplyPermissionAccess(
   kind: ReplyPermissionRequestKind,
   platform: NodeJS.Platform = process.platform,
   nativeLoader: NativeModuleLoader = defaultNativeLoader,
+  logger?: HelperLogger,
 ): Promise<boolean> {
   if (platform !== "darwin") return false;
   try {
@@ -201,7 +213,8 @@ export async function requestReplyPermissionAccess(
         await perms.askForSpeechRecognitionAccess();
         return true;
     }
-  } catch {
+  } catch (err) {
+    logger?.warn(`[reply] 权限请求失败(kind=${kind})`, err);
     return false;
   }
 }
@@ -221,6 +234,7 @@ export async function requestReplyPermissionAccess(
 export async function requestAccessibilityAccess(
   platform: NodeJS.Platform = process.platform,
   nativeLoader: NativeModuleLoader = defaultNativeLoader,
+  logger?: HelperLogger,
 ): Promise<boolean> {
-  return requestReplyPermissionAccess("accessibility", platform, nativeLoader);
+  return requestReplyPermissionAccess("accessibility", platform, nativeLoader, logger);
 }

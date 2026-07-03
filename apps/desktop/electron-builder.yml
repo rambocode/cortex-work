@@ -134,6 +134,12 @@ mac:
   category: public.app-category.productivity
   icon: assets/cortex-neuron-icon.png
   hardenedRuntime: true
+  # 覆盖 electron-builder 默认 entitlements 模板(只含 JIT/内存/库校验三条,缺麦克风/日历)。
+  # hardened runtime 下访问这些资源必须有对应 entitlement,否则系统直接拒绝、不会弹 TCC/入权限列表。
+  # entitlementsInherit 同一份文件,覆盖 extraResources 里的 Cortex_Helper(EventKit 读日历)
+  # 及 Electron 自身 Renderer/GPU 子进程签名——只设 entitlements 会漏掉这些嵌套可执行文件。
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   gatekeeperAssess: false
   identity: "Jiangwei Lan (HQ537XMLJY)"
   notarize: true
