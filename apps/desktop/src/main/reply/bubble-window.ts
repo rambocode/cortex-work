@@ -33,6 +33,13 @@ let sessionOpen = false;
 // 本会话内用户是否手动拖动过气泡（renderer 侧 -webkit-app-region: drag）。拖动后锚点更新与
 // 高度重报都不再重定位（否则 setBounds 会把窗口拉回锚点,拖动等于白拖）;新会话开启时复位。
 let userMoved = false;
+// 显示门控:deferShow 打开会话时置 false——捕获期间即使 renderer 已上报高度也不显示,
+// 等锚点就绪(下一次不带 deferShow 的 openReplyBubble)才显示到位。否则气泡先按鼠标兜底位
+// 闪现、捕获完成后再跳到光标处,即用户观察到的「定位漂移」。
+let showGate = true;
+// 本会话是否已收到 renderer 高度上报:门控放行时若还没有本会话高度,不能用上一会话的旧高度
+// 显示(内容不同高度不同,会闪错尺寸),交给随后到达的 resize 上报来显示。
+let heightReported = false;
 // 正在执行程序侧 setBounds 的标志:Electron 的 "move" 事件对程序移动同样触发,
 // 用它区分「用户拖动」与「我们自己的重定位」,避免自触发误置 userMoved。
 let applyingBounds = false;
@@ -139,19 +146,33 @@ function reposition(height: number): void {
 
 /// 打开气泡会话：记录锚定输入框 frame 与窗口 frame（输入框缺失时用窗口 frame 兜底，都缺→鼠标兜底），
 /// 创建窗口但先不显示——等 renderer 首次 resize 上报真实高度后再定位并 showInactive，避免透明窗闪现错误尺寸。
-export function openReplyBubble(anchorFrame: ReplyRect | null, windowFrame: ReplyRect | null = null): void {
+/// opts.deferShow：锚点尚未就绪（捕获进行中）,本次调用不放行显示;待锚点就绪后再次调用（不带
+/// deferShow）时定位并显示,消除「先按兜底位显示、再跳到锚点」的定位漂移。
+export function openReplyBubble(
+  anchorFrame: ReplyRect | null,
+  windowFrame: ReplyRect | null = null,
+  opts: { deferShow?: boolean } = {},
+): void {
   anchor = anchorFrame;
   windowAnchor = windowFrame;
-  // 仅「关闭 → 重新打开」的新会话复位拖动标志;会话中的锚点更新调用保持 userMoved,
+  // 仅「关闭 → 重新打开」的新会话复位拖动/高度标志;会话中的锚点更新调用保持 userMoved,
   // 否则捕获完成后的锚点补报会把用户刚拖走的气泡又拉回去。
-  if (!sessionOpen) userMoved = false;
+  if (!sessionOpen) {
+    userMoved = false;
+    heightReported = false;
+  }
   sessionOpen = true;
+  showGate = !opts.deferShow;
   const w = win && !win.isDestroyed() ? win : create();
   if (process.platform === "darwin")
     w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-  // 会话中锚点更新（起草先以 null 弹「生成中」，捕获完成后才拿到输入框/窗口 frame）：
-  // 窗口已可见时立即按新锚点重定位，不等下一次 renderer resize——否则生成期间气泡一直停在鼠标兜底位。
+  // 会话中锚点更新（起草先以 deferShow 打开，捕获完成后才拿到光标/输入框/窗口 frame）：
+  // 已可见 → 立即按新锚点重定位;门控刚放行且本会话高度已知 → 定位后首次显示（定位好再显示）。
   if (w.isVisible()) reposition(lastHeight);
+  else if (showGate && heightReported) {
+    reposition(lastHeight);
+    w.showInactive();
+  }
 }
 
 /// 推送气泡可视状态到 renderer（窗口未建则先建）。webContents 尚在加载则等 did-finish-load 再发，
@@ -173,13 +194,15 @@ export function sendReplyBubbleVoice(command: ReplyBubbleVoiceCommand): void {
 }
 
 /// renderer 实测高度上报：夹取最小值后重定位并（必要时）showInactive 显示。
-/// 仅会话打开态允许显示——关闭后迟到的 resize 上报绝不能复活气泡（见 sessionOpen 注释）。
+/// 仅会话打开态允许显示——关闭后迟到的 resize 上报绝不能复活气泡（见 sessionOpen 注释）;
+/// 显示还需 showGate 放行——锚点未就绪时保持隐藏,由锚点就绪的 openReplyBubble 调用显示。
 export function resizeReplyBubble(height: number): void {
   if (!win || win.isDestroyed()) return;
   lastHeight = Math.max(1, Math.round(height));
   if (!sessionOpen) return;
+  heightReported = true;
   reposition(lastHeight);
-  if (!win.isVisible()) win.showInactive();
+  if (!win.isVisible() && showGate) win.showInactive();
 }
 
 /// 关闭气泡（隐藏，不销毁——下次唤起复用窗口，避免重建开销与闪现）。
@@ -187,6 +210,8 @@ export function closeReplyBubble(): void {
   sessionOpen = false;
   anchor = null;
   windowAnchor = null;
+  showGate = true;
+  heightReported = false;
   if (win && !win.isDestroyed() && win.isVisible()) win.hide();
 }
 
@@ -200,4 +225,6 @@ export function destroyReplyBubbleWindow(): void {
   anchor = null;
   windowAnchor = null;
   sessionOpen = false;
+  showGate = true;
+  heightReported = false;
 }

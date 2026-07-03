@@ -261,13 +261,17 @@ export class ReplyController {
     this.flipBusy = false;
     // 吞键在会话全程开启：generating 期的 esc 也需被吞掉才能取消生成。
     this.helper.setIntercept(true);
-    openReplyBubble(null);
+    // 定位好再显示（deferShow）：捕获期间不显示气泡——否则会先按鼠标兜底位闪现、
+    // 捕获完成后再跳到光标处（用户观察到的定位漂移）。语音「聆听中」除外（无锚可等,即时反馈优先）。
+    openReplyBubble(null, null, { deferShow: true });
     this.pushGenerating();
 
     const capture = await this.capture(token);
     if (!this.session.isCurrent(token)) return; // 重入/取消：本轮回调过期
     if (!capture) {
       // 捕获失败 / 权限缺失：不静默回 idle，推错误态引导（R2）。
+      // 无锚可用——放行显示门控,错误气泡按鼠标兜底位显示（否则错误态永远不可见）。
+      openReplyBubble(null);
       this.pushError("generationFailed", "未能读取当前窗口内容，请确认已授权辅助功能 / 屏幕录制。");
       return;
     }
