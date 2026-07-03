@@ -74,5 +74,9 @@ func runOCR(pid: pid_t?) {
         ]
     }
 
-    emitJSON(["ok": true, "blocks": blocks])
+    // 被截窗口的屏幕 bounds(左上原点、point):AX 拿不到任何 frame 时,主进程用它锚定气泡窗,
+    // 避免退化到鼠标位置(复用 AXCapture 的 CGWindowList 兜底,坐标系契约一致)。
+    var payload: [String: Any] = ["ok": true, "blocks": blocks]
+    payload["windowBounds"] = cgWindowBounds(pid: targetPID) ?? NSNull()
+    emitJSON(payload)
 }

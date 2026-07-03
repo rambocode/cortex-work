@@ -106,6 +106,31 @@ private func meaningfulConversation(_ text: String) -> Bool {
     return trimmed.contains("\n") || trimmed.contains("：") || trimmed.contains(":") || trimmed.count >= 30
 }
 
+/// CGWindowList 兜底读取指定 pid 的前台可见窗口 bounds(屏幕左上原点、point,同 axFrame 坐标系)。
+/// 微信等 AX 支持不完整的应用常取不到 AX windowFrame,但 kCGWindowBounds 不需要屏幕录制权限、
+/// 总能拿到——供气泡窗锚定兜底,避免退化到「鼠标位置」而远离真实输入框。
+func cgWindowBounds(pid: pid_t) -> [String: Double]? {
+    guard let info = CGWindowListCopyWindowInfo(
+        [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+    ) as? [[String: Any]] else {
+        return nil
+    }
+    // 与 ScreenOCR 的窗口筛选判据一致:layer 0(普通窗口)且非全透明,取 z 序最前一个
+    let window = info.first { entry in
+        guard let ownerPID = entry[kCGWindowOwnerPID as String] as? pid_t,
+              let layer = entry[kCGWindowLayer as String] as? Int,
+              let alpha = entry[kCGWindowAlpha as String] as? Double else {
+            return false
+        }
+        return ownerPID == pid && layer == 0 && alpha > 0
+    }
+    guard let dict = window?[kCGWindowBounds as String] as? NSDictionary,
+          let rect = CGRect(dictionaryRepresentation: dict) else {
+        return nil
+    }
+    return ["x": Double(rect.origin.x), "y": Double(rect.origin.y), "width": Double(rect.size.width), "height": Double(rect.size.height)]
+}
+
 /// ax-capture:读取前台应用对话文本 + 焦点输入框 frame + pid + appBundleId。
 /// 辅助功能未授权时返回结构化错误(而非崩溃),由主进程走 OCR 降级或引导授权。
 func runAXCapture() {
@@ -146,7 +171,8 @@ func runAXCapture() {
 
     // 焦点窗口 frame：微信等 AX 不完整、取不到焦点输入框 frame 时，气泡窗改用窗口 frame 兜底锚定
     // （聊天 app 输入框在窗口底部，比锚到鼠标位置贴合得多）。坐标系同 focusedFrame（左上原点）。
-    let windowFrame = focusedWindow.flatMap(axFrame(of:))
+    // AX 窗口 frame 也取不到（微信常见）→ 再兜底 CGWindowList bounds，尽量不退化到鼠标位置。
+    let windowFrame = focusedWindow.flatMap(axFrame(of:)) ?? cgWindowBounds(pid: pid)
 
     let merged = mergeContext(windowText: windowText, focusedText: focusedText)
 

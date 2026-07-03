@@ -303,7 +303,8 @@ export class ReplyController {
 
     const pid = typeof axRes?.pid === "number" ? (axRes.pid as number) : null;
     const frame = parseRect(axRes?.focusedFrame);
-    const windowFrame = parseRect(axRes?.windowFrame);
+    // 可变:AX 取不到窗口 frame 时,后面用 OCR 返回的被截窗口 bounds 兜底(坐标系一致,左上原点 point)。
+    let windowFrame = parseRect(axRes?.windowFrame);
     const appName = typeof axRes?.appName === "string" ? (axRes.appName as string) : "";
     const appBundleId = typeof axRes?.appBundleId === "string" ? (axRes.appBundleId as string) : "";
     const axText =
@@ -327,6 +328,10 @@ export class ReplyController {
       this.log.warn("[reply] ocr 失败", err);
     }
     if (!this.session.isCurrent(token)) return null;
+
+    // AX 连窗口 frame 都拿不到（微信常见）→ 用 OCR 被截窗口的 bounds 兜底,
+    // 让气泡仍能贴着目标会话窗口锚定,而不是退化到鼠标位置(用户反馈「离输入框偏移很大」)。
+    if (!windowFrame) windowFrame = parseRect(ocrRes?.windowBounds);
 
     if (ocrRes?.ok === true && Array.isArray(ocrRes.blocks)) {
       const blocks = parseOcrBlocks(ocrRes.blocks);
@@ -420,8 +425,9 @@ export class ReplyController {
         );
         if (!this.session.isCurrent(token)) return;
         this.recordDebug(pending, prompt, text, null);
-        this.session.appendPreGenerated(text);
-        this.pushPresenting();
+        // 仅真正入列（presenting 且非重复）才推状态：写回/取消后到达的旧回调若无条件推
+        // presenting,会把已关闭的气泡复活（appendPreGenerated 在非 presenting 阶段拒收）。
+        if (this.session.appendPreGenerated(text)) this.pushPresenting();
       } catch (err) {
         if (this.session.isCurrent(token)) {
           const message = err instanceof Error ? err.message : String(err);
@@ -460,6 +466,9 @@ export class ReplyController {
       );
       if (!this.session.isCurrent(token)) return;
       this.recordDebug(pending, prompt, text, null);
+      // 翻牌回调落地前再验 phase：token 不变但阶段已离开 presenting（写回中）时丢弃,
+      // 避免向 writing 期追加候选并复活已关闭的气泡（appendFlip 本身无阶段门控）。
+      if (this.session.phase !== "presenting") return;
       this.session.appendFlip(text);
       this.pushPresenting();
     } catch (err) {
@@ -520,6 +529,10 @@ export class ReplyController {
     const pending = this.pending;
 
     this.session.toWriting();
+    // 杀掉在途预生成/翻牌 CLI：写回后候选列表即将作废,残余生成毫无意义;更关键的是,
+    // 写回窗口期(延迟 + pid 探测)内返回的旧回调若推 presenting 状态,会经 renderer 的
+    // resize 上报把刚关闭的气泡重新顶出来(bug：回车后气泡不消失)。
+    this.abortInFlight();
     closeReplyBubble();
     this.helper.setIntercept(false);
     await delay(WRITE_BACK_DELAY_MS);

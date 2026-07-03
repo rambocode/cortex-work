@@ -26,6 +26,10 @@ let anchor: ReplyRect | null = null;
 let windowAnchor: ReplyRect | null = null;
 // 最近一次 renderer 上报的内容高度（用于锚点变化时无需等下一次 resize 也能重定位）。
 let lastHeight = 120;
+// 气泡会话是否处于打开态。resize 上报只允许在打开态显示窗口：closeReplyBubble 之后,
+// 迟到的渲染端状态推送（如写回窗口期内返回的预生成回调）仍会触发 resize 上报,
+// 若无此闸门会把已关闭的气泡重新 showInactive（bug：回车写回后气泡不消失）。
+let sessionOpen = false;
 
 // 气泡渲染端鼠标动作的处理器：U6 仅提供可注入注册表，U7 controller 接管真正的翻牌/重试/关闭逻辑。
 let actionHandler: ((action: ReplyBubbleAction) => void) | null = null;
@@ -113,9 +117,13 @@ function reposition(height: number): void {
 export function openReplyBubble(anchorFrame: ReplyRect | null, windowFrame: ReplyRect | null = null): void {
   anchor = anchorFrame;
   windowAnchor = windowFrame;
+  sessionOpen = true;
   const w = win && !win.isDestroyed() ? win : create();
   if (process.platform === "darwin")
     w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  // 会话中锚点更新（起草先以 null 弹「生成中」，捕获完成后才拿到输入框/窗口 frame）：
+  // 窗口已可见时立即按新锚点重定位，不等下一次 renderer resize——否则生成期间气泡一直停在鼠标兜底位。
+  if (w.isVisible()) reposition(lastHeight);
 }
 
 /// 推送气泡可视状态到 renderer（窗口未建则先建）。webContents 尚在加载则等 did-finish-load 再发，
@@ -137,16 +145,20 @@ export function sendReplyBubbleVoice(command: ReplyBubbleVoiceCommand): void {
 }
 
 /// renderer 实测高度上报：夹取最小值后重定位并（必要时）showInactive 显示。
+/// 仅会话打开态允许显示——关闭后迟到的 resize 上报绝不能复活气泡（见 sessionOpen 注释）。
 export function resizeReplyBubble(height: number): void {
   if (!win || win.isDestroyed()) return;
   lastHeight = Math.max(1, Math.round(height));
+  if (!sessionOpen) return;
   reposition(lastHeight);
   if (!win.isVisible()) win.showInactive();
 }
 
 /// 关闭气泡（隐藏，不销毁——下次唤起复用窗口，避免重建开销与闪现）。
 export function closeReplyBubble(): void {
+  sessionOpen = false;
   anchor = null;
+  windowAnchor = null;
   if (win && !win.isDestroyed() && win.isVisible()) win.hide();
 }
 
@@ -158,4 +170,6 @@ export function destroyReplyBubbleWindow(): void {
   if (win && !win.isDestroyed()) win.destroy();
   win = null;
   anchor = null;
+  windowAnchor = null;
+  sessionOpen = false;
 }
