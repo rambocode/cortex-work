@@ -45,6 +45,15 @@ describe("ReplyBubble - presenting", () => {
     fireEvent.click(container.querySelectorAll(".rb-dot")[1]);
     expect(onAction).toHaveBeenCalledWith({ type: "select", index: 1 });
   });
+
+  it("右上角 hover 热区关闭按钮上行 close 动作", () => {
+    const onAction = vi.fn();
+    const { container } = render(
+      <ReplyBubble state={{ phase: "presenting", candidates: ["x"], currentIndex: 0 }} onAction={onAction} />,
+    );
+    fireEvent.click(container.querySelector(".rb-close-zone .rb-close")!);
+    expect(onAction).toHaveBeenCalledWith({ type: "close" });
+  });
 });
 
 describe("ReplyBubble - generating / recording", () => {
@@ -52,6 +61,15 @@ describe("ReplyBubble - generating / recording", () => {
     render(<ReplyBubble state={{ phase: "generating", candidates: [], currentIndex: 0 }} onAction={() => {}} />);
     expect(screen.getByText("正在生成回复...")).toBeTruthy();
     expect(screen.queryByLabelText("翻牌")).toBeNull();
+  });
+
+  it("生成中也有关闭热区,点击上行 close(放弃本次生成)", () => {
+    const onAction = vi.fn();
+    const { container } = render(
+      <ReplyBubble state={{ phase: "generating", candidates: [], currentIndex: 0 }} onAction={onAction} />,
+    );
+    fireEvent.click(container.querySelector(".rb-close-zone .rb-close")!);
+    expect(onAction).toHaveBeenCalledWith({ type: "close" });
   });
 
   it("录音态显示聆听中占位", () => {

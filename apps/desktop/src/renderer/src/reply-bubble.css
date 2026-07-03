@@ -208,6 +208,36 @@ body {
   background: #b8583a;
 }
 
+/* 拖动:整卡为拖动区(窗口 movable + frameless,-webkit-app-region 由窗口服务器接管拖拽)。
+   Chromium 拖动区内不派发鼠标事件也无可靠 :hover,故一切可交互元素(按钮/圆点/关闭热区)
+   必须显式 no-drag;草稿正文属拖动区,文本不可选(窗口本就 focusable:false,无选择场景)。 */
+.rb-card {
+  position: relative;
+  -webkit-app-region: drag;
+}
+.rb-card button,
+.rb-dots,
+.rb-close-zone {
+  -webkit-app-region: no-drag;
+}
+
+/* hover 关闭热区:右上角独立 no-drag 小区(拖动区内 :hover 不触发,须独立热区),
+   鼠标移入才显影关闭按钮(参考应用交互);错误态的 rb-close 不包热区、常显。 */
+.rb-close-zone {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 36px;
+  height: 32px;
+}
+.rb-close-zone .rb-close {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.rb-close-zone:hover .rb-close {
+  opacity: 1;
+}
+
 /* 右上角关闭。 */
 .rb-close {
   position: absolute;

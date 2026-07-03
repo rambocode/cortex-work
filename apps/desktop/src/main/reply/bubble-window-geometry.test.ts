@@ -28,8 +28,8 @@ describe("displayContaining", () => {
   });
 });
 
-describe("bubbleWindowBounds - 下方锚定（默认）", () => {
-  it("输入框下方留白放置，宽度固定，左缘对齐输入框", () => {
+describe("bubbleWindowBounds - 上方锚定（默认,R5/参考应用）", () => {
+  it("输入框上方留白放置，宽度固定，左缘对齐输入框", () => {
     const frame = { x: 300, y: 400, width: 400, height: 40 };
     const b = bubbleWindowBounds({
       frame,
@@ -39,24 +39,24 @@ describe("bubbleWindowBounds - 下方锚定（默认）", () => {
     });
     expect(b.width).toBe(BUBBLE_WIDTH);
     expect(b.height).toBe(100);
-    // 下方：y = frame.y + frame.height + gap
-    expect(b.y).toBe(400 + 40 + BUBBLE_GAP);
+    // 上方：y = frame.y - height - gap
+    expect(b.y).toBe(400 - 100 - BUBBLE_GAP);
     // 左缘对齐（-6 视觉抵消），在屏内不被 clamp
     expect(b.x).toBe(300 - 6);
   });
 });
 
-describe("bubbleWindowBounds - 底部溢出翻转上方", () => {
-  it("下方放不下时翻到输入框上方", () => {
-    const frame = { x: 300, y: 850, width: 400, height: 40 };
+describe("bubbleWindowBounds - 顶部溢出翻转下方", () => {
+  it("上方放不下（顶出工作区顶部）时翻到输入框下方", () => {
+    const frame = { x: 300, y: 60, width: 400, height: 40 };
     const b = bubbleWindowBounds({
       frame,
       bubbleHeight: 120,
       displays: [PRIMARY],
       cursor: { x: 0, y: 0 },
     });
-    // below = 850 + 40 + 8 = 898；+120 溢出底部（>900-12）→ 翻上方：y = frame.y - height - gap
-    expect(b.y).toBe(850 - 120 - BUBBLE_GAP);
+    // above = 60 - 120 - 8 = -68 < 顶部留白 12 → 翻下方：y = frame.y + frame.height + gap
+    expect(b.y).toBe(60 + 40 + BUBBLE_GAP);
   });
 });
 
@@ -96,8 +96,8 @@ describe("bubbleWindowBounds - 窗口 frame 兜底锚定", () => {
       displays: [PRIMARY],
       cursor: { x: 0, y: 0 }, // 鼠标兜底不应生效
     });
-    // 合成输入条锚 y = 100 + 500*0.72 = 460，height = 500*0.2 = 100；下方：y = 460 + 100 + 8 = 568
-    expect(b.y).toBe(460 + 100 + BUBBLE_GAP);
+    // 合成输入条锚 y = 100 + 500*0.72 = 460；上方：y = 460 - 100(气泡高) - 8 = 352(贴输入区上沿)
+    expect(b.y).toBe(460 - 100 - BUBBLE_GAP);
     // 左缘对齐窗口左缘（-6）
     expect(b.x).toBe(100 - 6);
   });

@@ -53,9 +53,15 @@ export function ReplyBubble({
   onAction: (action: BubbleAction) => void;
 }): React.ReactElement {
   // 生成中：彩虹描边胶囊 + 「正在生成回复...」（描边流动动画在 css 里做 hue-rotate）。
+  // 同样提供 hover 关闭热区:鼠标用户无需 esc 即可放弃本次生成(controller 会 abort 在途请求)。
   if (state.phase === "generating") {
     return (
       <div className="rb-card rb-pill" role="status" aria-live="polite">
+        <div className="rb-close-zone">
+          <button className="rb-close" aria-label="关闭" onClick={() => onAction({ type: "close" })}>
+            ×
+          </button>
+        </div>
         <span className="rb-pill-glow" aria-hidden="true" />
         <span className="rb-pill-text">正在生成回复...</span>
       </div>
@@ -113,10 +119,15 @@ export function ReplyBubble({
     );
   }
 
-  // presenting：候选卡片 + 操作行 + 翻页圆点。
+  // presenting：候选卡片 + 操作行 + 翻页圆点。卡片本体是拖动区;右上角 hover 热区显影关闭。
   const draft = state.candidates[state.currentIndex] ?? "";
   return (
     <div className="rb-card">
+      <div className="rb-close-zone">
+        <button className="rb-close" aria-label="关闭" onClick={() => onAction({ type: "close" })}>
+          ×
+        </button>
+      </div>
       <div className="rb-draft">{draft}</div>
       <div className="rb-actions rb-actions-row">
         {/* 翻牌是唯一显式鼠标按钮（追加一条避重候选）；填入/关走键盘为主，此处 chip 仅提示。 */}

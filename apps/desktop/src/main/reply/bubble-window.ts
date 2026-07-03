@@ -30,6 +30,12 @@ let lastHeight = 120;
 // 迟到的渲染端状态推送（如写回窗口期内返回的预生成回调）仍会触发 resize 上报,
 // 若无此闸门会把已关闭的气泡重新 showInactive（bug：回车写回后气泡不消失）。
 let sessionOpen = false;
+// 本会话内用户是否手动拖动过气泡（renderer 侧 -webkit-app-region: drag）。拖动后锚点更新与
+// 高度重报都不再重定位（否则 setBounds 会把窗口拉回锚点,拖动等于白拖）;新会话开启时复位。
+let userMoved = false;
+// 正在执行程序侧 setBounds 的标志:Electron 的 "move" 事件对程序移动同样触发,
+// 用它区分「用户拖动」与「我们自己的重定位」,避免自触发误置 userMoved。
+let applyingBounds = false;
 
 // 气泡渲染端鼠标动作的处理器：U6 仅提供可注入注册表，U7 controller 接管真正的翻牌/重试/关闭逻辑。
 let actionHandler: ((action: ReplyBubbleAction) => void) | null = null;
@@ -72,7 +78,8 @@ function create(): BrowserWindow {
     frame: false,
     transparent: true,
     resizable: false,
-    movable: false,
+    movable: true, // 允许拖动:renderer 用 -webkit-app-region: drag 把卡片做成拖动区
+
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -100,16 +107,31 @@ function create(): BrowserWindow {
   win.on("closed", () => {
     win = null;
   });
+  // 用户拖动检测:非程序侧 setBounds 引发的移动即视为用户拖动,本会话内停止自动重定位。
+  win.on("move", () => {
+    if (!applyingBounds && sessionOpen) userMoved = true;
+  });
   return win;
 }
 
 // 依当前锚点 + 高度算 bounds 并 setBounds（不负责 show/hide，交调用方决定时机）。
+// 用户拖动过（userMoved）→ 保持当前位置只更新高度,绝不拉回锚点。
 function reposition(height: number): void {
   if (!win || win.isDestroyed()) return;
-  const cursor = screen.getCursorScreenPoint();
-  // Electron display.workArea 与 ax frame 同为左上原点 point/DIP（几何契约，见 geometry 注释）。
-  const displays = screen.getAllDisplays().map((d) => d.workArea as ReplyRect);
-  win.setBounds(bubbleWindowBounds({ frame: anchor, windowFrame: windowAnchor, bubbleHeight: height, displays, cursor }));
+  applyingBounds = true;
+  try {
+    if (userMoved) {
+      const cur = win.getBounds();
+      win.setBounds({ x: cur.x, y: cur.y, width: BUBBLE_WIDTH, height: Math.max(1, Math.round(height)) });
+      return;
+    }
+    const cursor = screen.getCursorScreenPoint();
+    // Electron display.workArea 与 ax frame 同为左上原点 point/DIP（几何契约，见 geometry 注释）。
+    const displays = screen.getAllDisplays().map((d) => d.workArea as ReplyRect);
+    win.setBounds(bubbleWindowBounds({ frame: anchor, windowFrame: windowAnchor, bubbleHeight: height, displays, cursor }));
+  } finally {
+    applyingBounds = false;
+  }
 }
 
 /// 打开气泡会话：记录锚定输入框 frame 与窗口 frame（输入框缺失时用窗口 frame 兜底，都缺→鼠标兜底），
@@ -117,6 +139,9 @@ function reposition(height: number): void {
 export function openReplyBubble(anchorFrame: ReplyRect | null, windowFrame: ReplyRect | null = null): void {
   anchor = anchorFrame;
   windowAnchor = windowFrame;
+  // 仅「关闭 → 重新打开」的新会话复位拖动标志;会话中的锚点更新调用保持 userMoved,
+  // 否则捕获完成后的锚点补报会把用户刚拖走的气泡又拉回去。
+  if (!sessionOpen) userMoved = false;
   sessionOpen = true;
   const w = win && !win.isDestroyed() ? win : create();
   if (process.platform === "darwin")
