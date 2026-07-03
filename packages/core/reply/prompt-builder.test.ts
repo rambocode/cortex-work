@@ -70,6 +70,28 @@ describe("buildReplyPrompt", () => {
     expect(idxAvoid).toBeLessThan(idxClosing);
   });
 
+  it("counterpartName 非空时随可见对话段注入对方身份", () => {
+    const prompt = buildReplyPrompt({
+      conversation: "对方：在吗？\n我：在的",
+      counterpartName: "张玲玲-财务",
+    });
+    expect(prompt.user).toContain('the other person "对方" is: 张玲玲-财务');
+    // 仍在可见对话段内，不新增独立 section（段落序契约不变）
+    expect(prompt.user).toContain("Visible conversation (the other person");
+  });
+
+  it("counterpartName 空白时退回泛化 Visible conversation 段头", () => {
+    const prompt = buildReplyPrompt({ conversation: "对方：ping", counterpartName: "  " });
+    expect(prompt.user).toContain("Visible conversation:");
+    expect(prompt.user).not.toContain("the other person");
+  });
+
+  it("system 强调最新话题优先，避免回到已了结的旧话题", () => {
+    const prompt = buildReplyPrompt({ conversation: "对方：ping" });
+    expect(prompt.system).toContain("most recent message");
+    expect(prompt.system).toContain("settled topics");
+  });
+
   it("无日历 / 无档案时静默跳过对应段落", () => {
     const prompt = buildReplyPrompt({ conversation: "Them: ping" });
     expect(prompt.user).not.toContain("User profile:");

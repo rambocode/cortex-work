@@ -135,6 +135,15 @@ func runAXCapture() {
         ? (windowRef as! AXUIElement) : nil
     let windowText = focusedWindow.map { collectText(from: $0, depth: 0).joined(separator: "\n") } ?? ""
 
+    // 焦点窗口标题：IM（微信等）的会话窗口标题通常即当前对话对象名（如「张玲玲-财务」），
+    // 供主进程解析「对方」身份注入 prompt；取不到 / 与应用名无区分时由主进程侧过滤。
+    var titleRef: CFTypeRef?
+    let windowTitle: String =
+        focusedWindow.flatMap { win -> String? in
+            AXUIElementCopyAttributeValue(win, kAXTitleAttribute as CFString, &titleRef) == .success
+                ? (titleRef as? String) : nil
+        } ?? ""
+
     let merged = mergeContext(windowText: windowText, focusedText: focusedText)
 
     emitJSON([
@@ -142,6 +151,7 @@ func runAXCapture() {
         "text": merged,
         "meaningful": meaningfulConversation(merged),
         "focusedFrame": focusedFrame ?? NSNull(),
+        "windowTitle": windowTitle,
         "pid": Int(pid),
         "appName": app.localizedName ?? "",
         "appBundleId": app.bundleIdentifier ?? ""

@@ -72,6 +72,8 @@ interface CaptureResult {
   frame: ReplyRect | null;
   appName: string;
   appBundleId: string;
+  /** 对方身份（窗口标题解析，如「张玲玲-财务」）；无则空串，prompt 退回泛化「对方」。 */
+  counterpart: string;
   source: "ax" | "ocr";
   axText: string;
   ocrText: string;
@@ -302,10 +304,14 @@ export class ReplyController {
     const appBundleId = typeof axRes?.appBundleId === "string" ? (axRes.appBundleId as string) : "";
     const axText =
       axRes?.ok === true && typeof axRes.text === "string" ? (axRes.text as string) : "";
+    // 对方身份：窗口标题去空白后，仅当非空且与应用名不同才采用——IM 会话窗标题即联系人名
+    // （如「张玲玲-财务」），但若标题就是应用名（如「微信」）则无区分度，视为无对方名。
+    const rawTitle = typeof axRes?.windowTitle === "string" ? (axRes.windowTitle as string).trim() : "";
+    const counterpart = rawTitle.length > 0 && rawTitle !== appName.trim() ? rawTitle : "";
 
     // AX 文本「像对话」（helper 侧已算 meaningful）→ 直接采用
     if (axRes?.ok === true && axRes.meaningful === true) {
-      return { conversation: axText, pid, frame, appName, appBundleId, source: "ax", axText, ocrText: "" };
+      return { conversation: axText, pid, frame, appName, appBundleId, counterpart, source: "ax", axText, ocrText: "" };
     }
 
     // 降级 OCR：截屏 + Vision → U1 对话重建
@@ -326,13 +332,13 @@ export class ReplyController {
       }).transcript(blocks);
       ocrText = transcript;
       if (looksLikeConversation(transcript)) {
-        return { conversation: transcript, pid, frame, appName, appBundleId, source: "ocr", axText, ocrText };
+        return { conversation: transcript, pid, frame, appName, appBundleId, counterpart, source: "ocr", axText, ocrText };
       }
     }
 
     // AX 与 OCR 都不像对话：回退 AX 文本（有内容才用），否则彻底失败。
     if (axText.trim().length > 0) {
-      return { conversation: axText, pid, frame, appName, appBundleId, source: "ax", axText, ocrText };
+      return { conversation: axText, pid, frame, appName, appBundleId, counterpart, source: "ax", axText, ocrText };
     }
     return null;
   }
@@ -486,6 +492,7 @@ export class ReplyController {
   private buildPrompt(pending: PendingContext, avoidReplies: string[]): ReplyPrompt {
     return buildReplyPrompt({
       conversation: pending.conversation,
+      counterpartName: pending.capture.counterpart,
       voiceIntent: pending.voiceIntent,
       calendarContext: pending.calendarContext,
       userProfile: pending.composedProfile,
