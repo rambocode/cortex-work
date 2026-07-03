@@ -282,16 +282,22 @@ stateDiagram-v2
 借鉴源项目 ReplyClone 把记忆/历史落应用数据目录的形态,记忆与历史数据迁至
 `~/.cortex-desktop/reply/`(main-owned 原子 JSON,仿 automation/store.ts 三件套):
 
-- **KTD8 边界修订**:新增回复历史 `history.json`——只存「已采纳写回」的会话,含对话
-  原文与当轮全部候选(明文本地),受新设置项 `replySettings.historyEnabled` 门控
-  (默认开),设置页数据清理可清空;蒸馏样本仍不落盘。头注见 `core/reply/history.ts`、
-  `main/reply/history-store.ts`。
-- **KTD6 修订**:全局 5 分区记忆从 `personal-workspace.json` 的 `replyMemory` 分片
-  迁至 `memory.json`(仍非 markdown),main 成为唯一写者:蒸馏产出直写 memory-store
-  (消除 `reply:memoryLearned` 回推迂回,该通道已删),设置页经 `reply:getMemory` /
-  `reply:setMemoryFile` / `reply:clearMemory` 读写,`reply:memoryChanged` 推送刷新
-  渲染端只读缓存;首启自动从旧分片搬运(旧分片保留只读兜底,下版删)。`ReplySyncSnapshot`
-  不再携带 memory。头注见 `main/reply/memory-store.ts`。
+- **KTD8 边界修订**:新增回复历史——只存「已采纳写回」的会话,含对话原文与当轮全部
+  候选(明文本地),受新设置项 `replySettings.historyEnabled` 门控(默认开),设置页
+  数据清理可清空;蒸馏样本仍不额外落盘(「立即重新学习」以历史为样本来源)。
+  存储形态(二次修订,借鉴 Reply.app):`events/<bundleId>__<appName>/<id>.json`,
+  每事件一文件按应用分目录,每应用保留 200 条;上一版单文件 `history.json` 启动时
+  拆分迁移后改名 `.migrated`。头注见 `core/reply/history.ts`、`main/reply/history-store.ts`。
+- **KTD6 修订(二次,记忆最终回归 markdown)**:全局 5 分区记忆从 `personal-workspace.json`
+  的 `replyMemory` 分片迁出,最终形态为 `memory/profile/profile.md` +
+  `memory/voice/{core,im,email,public}.md`(借鉴 Reply.app;推翻初版「不落 markdown」
+  决策,经用户确认)——用户可在 Finder 直接编辑,`## ⟨auto⟩` 标记行上方手写/下方自动
+  学习区,HTML 注释为引导模板、组装 prompt 时剥离(`core/reply/memory-files.ts`)。
+  main 为唯一写者:蒸馏产出直写 memory-store(`reply:memoryLearned` 通道已删),
+  设置页经 `reply:getMemory` / `reply:setMemoryFile` / `reply:clearMemory` 读写,
+  `reply:memoryChanged` 推送刷新渲染端只读缓存;读不驻缓存(Finder 编辑下次起草即
+  生效)。迁移链:中间版 `memory.json` → md(改名 `.migrated`),更早的 replyMemory
+  分片 → md。`ReplySyncSnapshot` 不再携带 memory。头注见 `main/reply/memory-store.ts`。
 - **新增能力(KTD 未覆盖)**:对话级记忆 `conversation-memory.json`——按
   `bundleId|counterpart` 分桶(counterpart 空则不分桶,退回全局记忆),存最近 5 条
   采纳回复 + 后台蒸馏的对象事实/偏好要点(`main/reply/conversation-learner.ts`,

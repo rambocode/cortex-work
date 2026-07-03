@@ -120,7 +120,13 @@ export function replyDataDir(): string {
   return join(cortexHome(), "reply");
 }
 
-// 回复历史：单文件全量（newest-first，上限截断见 core/reply/history.ts）。
+// 回复历史：events/<bundleId>__<appName>/<id>.json,每事件一文件按应用分目录
+//（借鉴 Reply.app 形态,见 reply/history-store.ts）。
+export function replyEventsDir(): string {
+  return join(replyDataDir(), "events");
+}
+
+// 【遗留迁移源】上一版单文件回复历史;ensureMaterialized 拆分为 events 后改名 .migrated。
 export function replyHistoryPath(): string {
   return join(replyDataDir(), "history.json");
 }
@@ -130,7 +136,13 @@ export function replyConversationMemoryPath(): string {
   return join(replyDataDir(), "conversation-memory.json");
 }
 
-// 全局 5 分区记忆：单文件全量（main 唯一写者；首启从 personal-workspace.json 分片搬运）。
+// 全局 5 分区记忆：memory/profile/profile.md + memory/voice/*.md,每分区一个 markdown
+//（借鉴 Reply.app 形态,用户可 Finder 直接编辑,见 reply/memory-store.ts）。
+export function replyMemoryDir(): string {
+  return join(replyDataDir(), "memory");
+}
+
+// 【遗留迁移源】上一版单文件记忆;ensureMaterialized 拆分为 md 后改名 .migrated。
 export function replyMemoryPath(): string {
   return join(replyDataDir(), "memory.json");
 }

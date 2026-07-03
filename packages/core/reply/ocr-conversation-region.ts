@@ -36,16 +36,16 @@ const KNOWN_MULTI_PANE_IM_PATTERNS = [
 
 const IM_TOP_CHROME_MIN_MID_Y = 0.86;
 const IM_BOTTOM_TOOLBAR_MAX_MID_Y = 0.16;
+const IM_BOTTOM_ACTION_TOOLBAR_MAX_MID_Y = 0.28;
 const WATERMARK_SEPARATORS = /[@＠◎○◉◯]/gu;
 const BOTTOM_TOOLBAR_LABELS = [
   "快速会议",
   "看待办",
   "看闲忙",
   "试试灵动回复",
-  "发送",
-  "换行",
-  "Aa",
+  "灵动回复",
 ] as const;
+const INPUT_CHROME_LABELS = ["发送", "换行", "Aa"] as const;
 const READ_RECEIPT_LABELS = ["已读", "未读"] as const;
 
 /** 对已知 IM 主窗口，只保留右侧打开对话区；非 IM 或未识别出多栏结构时返回原数组。 */
@@ -170,9 +170,18 @@ function looksLikeTopChromeBlock(block: OCRTextBlock): boolean {
 }
 
 function looksLikeBottomToolbarBlock(block: OCRTextBlock): boolean {
-  if (boxMidY(block.boundingBox) > IM_BOTTOM_TOOLBAR_MAX_MID_Y) return false;
   const compact = compactText(block.text).replace(/[^\p{L}\p{N}]/gu, "");
-  return BOTTOM_TOOLBAR_LABELS.some((label) => compact.includes(label));
+  const midY = boxMidY(block.boundingBox);
+  if (
+    midY <= IM_BOTTOM_ACTION_TOOLBAR_MAX_MID_Y &&
+    BOTTOM_TOOLBAR_LABELS.some((label) => compact.includes(label))
+  ) {
+    return true;
+  }
+  return (
+    midY <= IM_BOTTOM_TOOLBAR_MAX_MID_Y &&
+    INPUT_CHROME_LABELS.some((label) => compact.includes(label))
+  );
 }
 
 function looksLikeReadReceiptBlock(block: OCRTextBlock): boolean {

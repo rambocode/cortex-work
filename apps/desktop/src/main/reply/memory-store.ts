@@ -1,17 +1,18 @@
-// 全局 5 分区记忆存储（不依赖 electron）——同 history-store.ts 的单文件三件套。
-// 文件 ~/.cortex-desktop/reply/memory.json,结构 {version:1, memory: MemoryState}。
+// 全局 5 分区记忆存储（不依赖 electron）——KTD6 二次修订（借鉴 Reply.app 数据形态,经用户确认）：
+// 每分区一个 markdown 文件,用户可直接在 Finder 查看/编辑：
+//   memory/profile/profile.md                    档案(你是谁)
+//   memory/voice/{core,im,email,public}.md       四个语气分区
+// 文件格式（parse/render 在 core/reply/memory-files.ts）：「## ⟨auto⟩」标记行上方手写、
+// 下方自动学习区;HTML 注释为引导模板,组装 prompt 时剥离。
 //
-// KTD6 修订（借鉴源项目 ReplyClone 的数据目录形态,经用户确认）：记忆从
-// personal-workspace.json 的 replyMemory 分片迁出,改为 main-owned 独立文件——
-// main 成为记忆唯一写者,蒸馏产出直写本存储（消除原先 main→renderer→store:save 的
-// 回推迂回）,渲染端设置页改经 reply:getMemory / reply:setMemoryFile IPC 读写。
-// 首启迁移：memory.json 缺失时经 deps.loadLegacy 读旧分片搬运一次并落盘;
-// 旧分片本版保留只读兜底,不再由渲染端写入。
-// 损坏处理：隔离 .corrupt 后回空态,刻意**不**回落旧分片（旧分片是迁移前快照,
-// 复活它会静默丢掉迁移后学到的全部要点,不如从空重学）。
+// 读不落缓存：文件是用户可编辑的真源,每次 getMemory 现读（5 个小文件,毫秒级）,
+// Finder 里的修改下次起草即生效。写经单 writeQueue 串行 + tmp+rename 原子写。
+// 迁移链（ensureMaterialized 内完成,一次性）：
+//   memory.json（上一版单文件）→ 拆分为 md 后改名 .migrated;
+//   更早的 personal-workspace.json replyMemory 分片 → 经 deps.loadLegacy 读入。
 
 import { promises as fsp } from "fs";
-import { dirname } from "path";
+import { dirname, join } from "path";
 import {
   emptyMemoryState,
   MEMORY_SCOPES,
@@ -19,15 +20,22 @@ import {
   type MemoryScope,
   type MemoryState,
 } from "@cortex-work/core/reply/memory";
+import {
+  memoryFileTemplate,
+  parseMemoryMarkdown,
+  renderMemoryMarkdown,
+} from "@cortex-work/core/reply/memory-files";
 
-/// 落盘文件结构。
-interface MemoryFileData {
-  version: 1;
-  memory: MemoryState;
-}
+/// 分区 → 相对 memory/ 目录的文件路径（目录结构对齐源项目 Reply.app）。
+const SCOPE_FILES: Record<MemoryScope, string> = {
+  profile: "profile/profile.md",
+  core: "voice/core.md",
+  im: "voice/im.md",
+  email: "voice/email.md",
+  publicVoice: "voice/public.md",
+};
 
-/// 字段级兜底归一：scope 缺失补空分区、manual/auto 缺失补空串
-///（下游 composeUserProfile 直接 .trim()，undefined 会抛，契约同 store/reply.ts mergeMemory）。
+/// 字段级兜底归一（迁移源可能半缺,契约同 store/reply.ts mergeMemory）。
 function normalizeMemory(memory: Partial<MemoryState> | undefined): MemoryState {
   const base = emptyMemoryState();
   if (!memory) return base;
@@ -41,131 +49,153 @@ function normalizeMemory(memory: Partial<MemoryState> | undefined): MemoryState 
 }
 
 export interface ReplyMemoryStoreDeps {
-  /// 单文件路径解析（主进程注入 paths.replyMemoryPath；测试注入临时文件）。
-  storePath: () => string;
-  /// 首启迁移源：读 personal-workspace.json 的 replyMemory 旧分片（无则 undefined）。
+  /// 记忆根目录（~/.cortex-desktop/reply/memory）;测试注入临时目录。
+  memoryDir: () => string;
+  /// 迁移源 1：上一版单文件 memory.json 路径（存在则拆分为 md 后改名 .migrated）。
+  legacyJsonPath?: () => string;
+  /// 迁移源 2：更早的 personal-workspace.json replyMemory 分片。
   loadLegacy?: () => Promise<MemoryState | undefined>;
   logger?: { warn(...args: unknown[]): void; info?(...args: unknown[]): void };
 }
 
 export class ReplyMemoryStore {
-  private cached: MemoryState | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
-  // 迁移单飞：并发 getMemory 只触发一次 loadLegacy（Promise 复用）。
-  private loading: Promise<MemoryState> | null = null;
 
   constructor(private readonly deps: ReplyMemoryStoreDeps) {}
 
-  /// 读全部分区（含首启迁移）。恒返回字段完整的 MemoryState。
-  getMemory(): Promise<MemoryState> {
-    if (this.cached) return Promise.resolve(this.cached);
-    this.loading ??= this.loadOnce();
-    return this.loading;
+  private scopePath(scope: MemoryScope): string {
+    return join(this.deps.memoryDir(), SCOPE_FILES[scope]);
   }
 
-  // 三分支：文件在 → 归一读入;损坏 → 隔离回空态;缺失 → 旧分片搬运（有则落盘固化）。
-  private async loadOnce(): Promise<MemoryState> {
-    const path = this.deps.storePath();
-    let raw: string | null = null;
+  // 读单分区文件；缺失返回 null（区别于空内容）。
+  private async readScope(scope: MemoryScope): Promise<MemoryFile | null> {
     try {
-      raw = await fsp.readFile(path, "utf8");
+      return parseMemoryMarkdown(await fsp.readFile(this.scopePath(scope), "utf8"));
     } catch {
-      raw = null; // 文件还不存在 → 走迁移分支
+      return null;
     }
+  }
 
-    if (raw !== null) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed?.version === 1 && parsed.memory && typeof parsed.memory === "object") {
-          this.cached = normalizeMemory(parsed.memory);
-          return this.cached;
-        }
-        throw new Error("结构不符");
-      } catch (err) {
-        this.deps.logger?.warn("[reply] memory.json 损坏,隔离为 .corrupt 回空态", err);
-        try {
-          await fsp.rename(path, path + ".corrupt");
-        } catch {
-          // 隔离失败不阻断
-        }
-        this.cached = emptyMemoryState();
-        return this.cached;
-      }
-    }
-
-    // 首启迁移：读旧分片（读失败视为无旧数据）填入内存。注意本方法**只读不写**——
-    // loadOnce 可能在写队列任务内部被 await（mutate → getMemory），此处再 enqueue 会
-    // 造成队列自等待死锁；落盘固化统一由 ensureMaterialized()（独立队列任务）完成。
-    let legacy: MemoryState | undefined;
+  // 读迁移源 1（memory.json）；缺失/损坏返回 undefined。
+  private async readLegacyJson(): Promise<MemoryState | undefined> {
+    const path = this.deps.legacyJsonPath?.();
+    if (!path) return undefined;
     try {
-      legacy = await this.deps.loadLegacy?.();
+      const parsed = JSON.parse(await fsp.readFile(path, "utf8"));
+      if (parsed?.version === 1 && parsed.memory && typeof parsed.memory === "object") {
+        return parsed.memory as MemoryState;
+      }
+    } catch {
+      // 缺失或损坏：视为无迁移源
+    }
+    return undefined;
+  }
+
+  // 读迁移源 2（旧分片）；读失败视为无。
+  private async readLegacyShard(): Promise<MemoryState | undefined> {
+    try {
+      return await this.deps.loadLegacy?.();
     } catch (err) {
-      this.deps.logger?.warn("[reply] 读取旧记忆分片失败,按空记忆初始化", err);
+      this.deps.logger?.warn("[reply] 读取旧记忆分片失败,按空记忆处理", err);
+      return undefined;
     }
-    const memory = normalizeMemory(legacy);
-    this.cached = memory;
-    if (legacy) {
-      this.deps.logger?.info?.("[reply] 记忆已从 personal-workspace.json 分片读入,待物化到 memory.json");
+  }
+
+  /// 读全部分区（每次现读文件,Finder 编辑即时生效）。md 文件一个都不存在时回落迁移源
+  /// （物化前的读取也能看到旧数据）。恒返回字段完整的 MemoryState。
+  async getMemory(): Promise<MemoryState> {
+    const files = await Promise.all(MEMORY_SCOPES.map((scope) => this.readScope(scope)));
+    if (files.every((file) => file === null)) {
+      const legacy = (await this.readLegacyJson()) ?? (await this.readLegacyShard());
+      return normalizeMemory(legacy);
     }
+    const memory = emptyMemoryState();
+    MEMORY_SCOPES.forEach((scope, i) => {
+      const file = files[i];
+      if (file) memory[scope] = file;
+    });
     return memory;
   }
 
-  /// 启动物化：文件缺失时把当前记忆（含刚迁移的旧分片内容,空态也写）落盘,
-  /// 让 memory.json 启动即存在、数据目录自解释。已存在则不动。
+  /// 写单分区的手写区/自动区：读-改-写该分区文件（其余文件不动,保留用户手写与注释）。
+  setFile(scope: MemoryScope, patch: Partial<MemoryFile>): Promise<void> {
+    return this.enqueue(async () => {
+      const current = (await this.readScope(scope)) ?? { manual: "", auto: "" };
+      await this.writeScope(scope, renderMemoryMarkdown({ ...current, ...patch }));
+    });
+  }
+
+  /// 清空全部记忆：所有分区重置为引导模板（手写+自动一并清除）。
+  clearAll(): Promise<void> {
+    return this.enqueue(async () => {
+      for (const scope of MEMORY_SCOPES) {
+        await this.writeScope(scope, memoryFileTemplate(scope));
+      }
+    });
+  }
+
+  /// 只清全部分区的自动学习要点，保留手写区（含用户注释）原样。
+  clearAuto(): Promise<void> {
+    return this.enqueue(async () => {
+      for (const scope of MEMORY_SCOPES) {
+        const current = await this.readScope(scope);
+        if (!current || current.auto.length === 0) continue;
+        await this.writeScope(scope, renderMemoryMarkdown({ manual: current.manual, auto: "" }));
+      }
+    });
+  }
+
+  /// 启动物化 + 一次性迁移：md 一个都没有时从迁移源拆分写入（旧 memory.json 改名
+  /// .migrated 防重复迁移）;个别文件缺失补引导模板。已有文件一律不动。
   ensureMaterialized(): Promise<void> {
     return this.enqueue(async () => {
-      try {
-        await fsp.access(this.deps.storePath());
-      } catch {
-        await this.save(await this.getMemory());
+      const existing = await Promise.all(MEMORY_SCOPES.map((scope) => this.readScope(scope)));
+      const noneExists = existing.every((file) => file === null);
+
+      let migrated: MemoryState | undefined;
+      let renameLegacyJson = false;
+      if (noneExists) {
+        migrated = await this.readLegacyJson();
+        renameLegacyJson = migrated !== undefined;
+        migrated ??= await this.readLegacyShard();
+        if (migrated) {
+          this.deps.logger?.info?.("[reply] 记忆已迁移为 memory/ 下的 markdown 分区文件");
+        }
+      }
+      const source = normalizeMemory(migrated);
+
+      for (let i = 0; i < MEMORY_SCOPES.length; i++) {
+        const scope = MEMORY_SCOPES[i]!;
+        if (existing[i] !== null) continue; // 已有文件不动
+        const file = source[scope];
+        const content =
+          file.manual.trim().length === 0 && file.auto.trim().length === 0
+            ? memoryFileTemplate(scope)
+            : renderMemoryMarkdown(file);
+        await this.writeScope(scope, content);
+      }
+
+      if (renameLegacyJson) {
+        const path = this.deps.legacyJsonPath!();
+        try {
+          await fsp.rename(path, path + ".migrated");
+        } catch {
+          // 改名失败不阻断（下次启动 md 已存在,不会重复迁移）
+        }
       }
     });
   }
 
-  /// 写单分区的手写区/自动区（其余分区不动）。
-  setFile(scope: MemoryScope, patch: Partial<MemoryFile>): Promise<void> {
-    return this.mutate((memory) => ({
-      ...memory,
-      [scope]: { ...memory[scope], ...patch },
-    }));
-  }
-
-  /// 清空全部记忆（手写 + 自动）。
-  clearAll(): Promise<void> {
-    return this.mutate(() => emptyMemoryState());
-  }
-
-  /// 只清全部分区的自动学习要点，保留手写笔记。
-  clearAuto(): Promise<void> {
-    return this.mutate((memory) => {
-      const next = emptyMemoryState();
-      for (const scope of MEMORY_SCOPES) {
-        next[scope] = { manual: memory[scope].manual, auto: "" };
-      }
-      return next;
-    });
-  }
-
-  // 读-改-写整段串行。
-  private mutate(fn: (memory: MemoryState) => MemoryState): Promise<void> {
-    return this.enqueue(async () => {
-      const memory = await this.getMemory();
-      const next = fn(memory);
-      await this.save(next);
-    });
-  }
-
-  // 原子写 + 刷新缓存。
-  private async save(memory: MemoryState): Promise<void> {
-    const path = this.deps.storePath();
+  // 原子写单分区文件（mkdir + tmp + rename）。
+  private async writeScope(scope: MemoryScope, content: string): Promise<void> {
+    const path = this.scopePath(scope);
     await fsp.mkdir(dirname(path), { recursive: true });
     const tmp = path + ".tmp";
-    await fsp.writeFile(tmp, JSON.stringify({ version: 1, memory } satisfies MemoryFileData, null, 2), "utf8");
+    await fsp.writeFile(tmp, content, "utf8");
     await fsp.rename(tmp, path);
-    this.cached = memory;
   }
 
-  // 单条失败只警告，不断链。
+  // 写操作串行；单条失败只警告，不断链。
   private enqueue(job: () => Promise<void>): Promise<void> {
     const next = this.writeQueue.then(job).catch((err) => {
       this.deps.logger?.warn("[reply] 记忆写入失败", err);

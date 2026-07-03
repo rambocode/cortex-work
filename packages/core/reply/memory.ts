@@ -4,6 +4,9 @@
 // 因此源项目「## ⟨auto⟩」标记的 parse/render 往返不迁移——每个分区直接用 `{manual, auto}` 双字段结构承载,
 // 顺带修复源项目多个自动区共用同一变量的缺陷(此处每个分区独立字段,天然隔离)。
 
+// memory-files 只从本模块引类型（type import 编译期擦除）,此处运行时单向依赖,无环。
+import { stripMemoryComments } from "./memory-files";
+
 /// 记忆分区:档案(你是谁)+ 四个语气分区(通用/IM/邮件/公开)。
 /// 手写补充(manual)优先级高于自动学到(auto),注入 prompt 时显式标注。
 export type MemoryScope = "profile" | "core" | "im" | "email" | "publicVoice";
@@ -164,6 +167,7 @@ export function channelScopeForCapturedApp(app: {
 
 /// 组合 prompt 的 user profile:基础档案 + 记忆分区(档案/通用恒注入,IM/邮件按捕获应用二选一)。
 /// 每个分区手写在前、自动学到的在后;手写内容明确标注「优先级最高」,冲突时让模型以手写为准。
+/// 手写/自动区先剥离 HTML 注释（md 文件里的引导模板与用户注释不进模型,见 memory-files.ts）。
 export function composeUserProfile(params: {
   userProfile?: string;
   memory: MemoryState;
@@ -179,8 +183,8 @@ export function composeUserProfile(params: {
   const scopes: MemoryScope[] = ["profile", "core", channelScopeForCapturedApp(capturedApp)];
   for (const scope of scopes) {
     const file = memory[scope];
-    const manual = file.manual.trim();
-    const auto = file.auto.trim();
+    const manual = stripMemoryComments(file.manual);
+    const auto = stripMemoryComments(file.auto);
     if (manual.length > 0) {
       parts.push(
         `「${scopeChineseName(scope)}」手写补充（优先级最高，与其他信息冲突时以此为准）：\n${manual}`,

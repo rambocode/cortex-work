@@ -26,7 +26,14 @@ import { promises as fsp } from "fs";
 import { ReplyHistoryStore } from "../reply/history-store";
 import { ReplyConversationStore } from "../reply/conversation-store";
 import { ReplyMemoryStore } from "../reply/memory-store";
-import { replyConversationMemoryPath, replyDataDir, replyHistoryPath, replyMemoryPath } from "../paths";
+import {
+  replyConversationMemoryPath,
+  replyDataDir,
+  replyEventsDir,
+  replyHistoryPath,
+  replyMemoryDir,
+  replyMemoryPath,
+} from "../paths";
 import { getPersistedState } from "./store";
 import type { MemoryFile, MemoryScope, MemoryState } from "./reply-types";
 import { createLogger } from "../log";
@@ -138,9 +145,10 @@ export function setReplyHelperPermissionsSource(fn: HelperPermissionsFn): void {
 
 const log = createLogger("reply-ipc");
 
-// 回复历史存储单例：ipc handler（读/清）与 index.ts 的写回 sink 共用（单写队列保证串行）。
+// 回复历史存储单例（events 按应用分目录）：ipc handler（读/清）与 index.ts 的写回 sink 共用。
 export const replyHistoryStore = new ReplyHistoryStore({
-  historyPath: replyHistoryPath,
+  eventsDir: replyEventsDir,
+  legacyJsonPath: replyHistoryPath,
   logger: log,
 });
 
@@ -150,10 +158,11 @@ export const replyConversationStore = new ReplyConversationStore({
   logger: log,
 });
 
-// 全局分区记忆存储单例（KTD6 修订）：main 唯一写者。首启从 personal-workspace.json 的
-// replyMemory 旧分片搬运（旧分片保留只读兜底，渲染端不再写入）。
+// 全局分区记忆存储单例（KTD6 二次修订：markdown 分区文件）：main 唯一写者。
+// 迁移链：memory.json（上一版）→ md;更早的 personal-workspace.json replyMemory 分片 → md。
 export const replyMemoryStore = new ReplyMemoryStore({
-  storePath: replyMemoryPath,
+  memoryDir: replyMemoryDir,
+  legacyJsonPath: replyMemoryPath,
   loadLegacy: async () => (await getPersistedState()).replyMemory as MemoryState | undefined,
   logger: log,
 });

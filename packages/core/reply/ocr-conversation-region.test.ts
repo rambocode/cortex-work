@@ -260,6 +260,56 @@ describe("filterOcrBlocksForVisibleConversation", () => {
     expect(text).toContain("订单创建了");
   });
 
+  it("钉钉输入框上方工具栏较高时仍会剔除", () => {
+    const filtered = filterOcrBlocksForVisibleConversation(
+      [
+        block("您方便提交个未支付订单吗", ocrBox(0.52, 0.78, 0.24, 0.04)),
+        block("我给您申请优惠", ocrBox(0.52, 0.66, 0.16, 0.04)),
+        block("改天吧", ocrBox(0.86, 0.54, 0.07, 0.04)),
+        block("订单创建了", ocrBox(0.82, 0.28, 0.11, 0.04)),
+        block("好的", ocrBox(0.52, 0.22, 0.05, 0.04)),
+        block("［ 看待办", ocrBox(0.44, 0.2, 0.09, 0.04)),
+        block("勹看闲忙", ocrBox(0.54, 0.19, 0.1, 0.04)),
+        block("试试灵动回复（⌘+D）", ocrBox(0.66, 0.18, 0.2, 0.04)),
+        block("试试灵动回复（86+D）", ocrBox(0.03, 0.07, 0.18, 0.04)),
+      ],
+      { name: "钉钉", bundleId: "com.alibaba.DingTalkMac" },
+      { inputAnchor: { x: 0.08, y: 0.88, leftPadding: 0.05 } },
+    );
+    const text = filtered.map((b) => b.text).join("\n");
+
+    expect(text).not.toContain("看待办");
+    expect(text).not.toContain("看闲忙");
+    expect(text).not.toContain("灵动回复");
+    expect(text).toContain("您方便提交个未支付订单吗");
+    expect(text).toContain("订单创建了");
+    expect(text).toContain("好的");
+  });
+
+  it("钉钉底部辅助按钮没有左侧头像语境时不会当成对方消息", () => {
+    const filtered = filterOcrBlocksForVisibleConversation(
+      [
+        block("您方便提交个未支付订单吗", ocrBox(0.52, 0.78, 0.24, 0.04)),
+        block("我给您申请优惠", ocrBox(0.52, 0.66, 0.16, 0.04)),
+        block("改天吧", ocrBox(0.86, 0.54, 0.07, 0.04)),
+        block("订单创建了", ocrBox(0.82, 0.35, 0.11, 0.04)),
+        block("好的", ocrBox(0.52, 0.28, 0.05, 0.04)),
+        block("［ 看待办", ocrBox(0.03, 0.3, 0.09, 0.04)),
+        block("囟看闲忙", ocrBox(0.14, 0.3, 0.1, 0.04)),
+      ],
+      { name: "钉钉", bundleId: "com.alibaba.DingTalkMac" },
+      { inputAnchor: { x: 0.52, y: 0.88, leftPadding: 0.05 } },
+    );
+
+    const transcript = new ConversationLayoutBuilder().transcript(filtered);
+
+    expect(transcript).not.toContain("看待办");
+    expect(transcript).not.toContain("看闲忙");
+    expect(transcript).toContain("对方：您方便提交个未支付订单吗");
+    expect(transcript).toContain("我：订单创建了");
+    expect(transcript).toContain("对方：好的");
+  });
+
   it("非 IM 应用不做裁剪", () => {
     expect(
       shouldPreferOcrForVisibleConversation({
