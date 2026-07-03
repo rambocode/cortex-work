@@ -47,8 +47,20 @@ import {
   isValidAccelerator,
   NOTES_HOTKEY_ACCELERATOR,
   NOTES_HOTKEY_INVALID_TOAST,
+  REPLY_HOTKEY_ACCELERATOR,
   type HotkeyRegistration,
 } from "./hotkey";
+// 快捷回复助手（reply，U7）：仅 macOS 接线（AX / CGEventTap / Vision / EventKit 均为 macOS 专属）。
+import { ReplyHelperClient } from "./reply/helper-client";
+import { resolveReplyHelperBinary } from "./reply/helper-locate";
+import { queryReplyPermissions } from "./reply/permissions";
+import {
+  initReplyController,
+  getReplyController,
+  triggerReplyDraft,
+  disposeReplyController,
+} from "./reply/controller";
+import { getLastReplySnapshot } from "./ipc/reply";
 import { getPersistedState } from "./ipc/store";
 import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
@@ -96,6 +108,69 @@ function registerNotesHotkey(accelerator: string): HotkeyRegistration {
   const ok = globalShortcut.register(accelerator, toggleNotesOverlay);
   if (ok) currentNotesAccelerator = accelerator;
   return resolveHotkeyRegistration(ok);
+}
+
+// ── 快捷回复助手（reply，U7）生命周期 ─────────────────────────────────────────────
+// 仅 macOS：非 mac 平台完全不 spawn helper、不注册任何 reply 入口（守卫在 initReply 调用处）。
+let replyHelper: ReplyHelperClient | null = null;
+let replyFallbackRegistered = false;
+
+// 注册 reply 兜底 accelerator（KTD7）：辅助功能未授权 / helper 降级时以此组合键手动触发起草。幂等。
+function registerReplyFallbackHotkey(): void {
+  if (replyFallbackRegistered) return;
+  const ok = globalShortcut.register(REPLY_HOTKEY_ACCELERATOR, triggerReplyDraft);
+  if (ok) replyFallbackRegistered = true;
+  else log.warn(`[reply] 兜底热键 ${REPLY_HOTKEY_ACCELERATOR} 被占用,无法降级到快捷键入口`);
+}
+
+// 精确解绑 reply 兜底键（切回手势模式时）。
+function unregisterReplyFallbackHotkey(): void {
+  if (!replyFallbackRegistered) return;
+  try {
+    globalShortcut.unregister(REPLY_HOTKEY_ACCELERATOR);
+  } catch {
+    // 忽略（可能本就未注册）。
+  }
+  replyFallbackRegistered = false;
+}
+
+// 依辅助功能授权在「手势模式」与「兜底 accelerator」间切换（KTD7）：
+// 授权 → 起 events 长驻 tap（双击起草键手势）并撤兜底键；未授权 → 只挂兜底键、不 spawn events
+// （免在未授权时反复建 tap → 立即降级的空转）。授权后再次调用（如 resume）即自动切回手势。
+async function syncReplyInputMode(): Promise<void> {
+  if (!replyHelper) return;
+  let granted = false;
+  try {
+    const helper = replyHelper;
+    const perms = await queryReplyPermissions(() => helper.permissions());
+    granted = perms.accessibility === "granted";
+  } catch (err) {
+    log.warn("[reply] 权限查询失败,降级到兜底热键", err);
+  }
+  if (granted) {
+    unregisterReplyFallbackHotkey();
+    replyHelper.startEvents();
+  } else {
+    registerReplyFallbackHotkey();
+  }
+}
+
+// 初始化 reply 编排器 + helper 生命周期（仅 macOS 调用）。
+async function initReply(): Promise<void> {
+  replyHelper = new ReplyHelperClient({
+    binaryPath: resolveReplyHelperBinary(),
+    logger: createLogger("reply-helper"),
+    onEvent: (event) => getReplyController()?.handleEvent(event),
+    // tap 不可用 / events 连续崩溃超上限 → 兜底 accelerator 接管（helper-client 内部触发）。
+    onDegrade: () => registerReplyFallbackHotkey(),
+  });
+  initReplyController({
+    helper: replyHelper,
+    getSnapshot: getLastReplySnapshot,
+    onOpenSettings: showMainWindow,
+    logger: createLogger("reply"),
+  });
+  await syncReplyInputMode();
 }
 
 function normalizedOS(): "macos" | "windows" | "linux" | "unknown" {
@@ -347,6 +422,12 @@ if (!app.requestSingleInstanceLock()) {
     installAppMenu();
     createWindow();
 
+    // 快捷回复助手（U7）：仅 macOS 接线（非 mac 完全不 spawn helper / 不注册 reply 入口）。
+    // fire-and-forget：权限查询 + helper spawn 失败已内部降级到兜底热键，不阻塞建窗。
+    if (process.platform === "darwin") {
+      void initReply().catch((err) => log.error("[reply] 初始化失败:", err));
+    }
+
     app.on("activate", () => {
       // 排除 Spotlight / 闪记浮层:避免「主窗口已关、只剩浮窗」时点 Dock 不重建主窗口。
       const real = BrowserWindow.getAllWindows().filter(
@@ -359,6 +440,8 @@ if (!app.requestSingleInstanceLock()) {
     // 休眠唤醒后补漏 + 重建定时器（内存定时器在睡眠期间会漂移/错过）。
     powerMonitor.on("resume", () => {
       void rescheduleAll();
+      // 唤醒后重估 reply 输入模式：睡眠期间用户可能刚授权辅助功能 → 自动切回手势（KTD7）。
+      if (process.platform === "darwin") void syncReplyInputMode();
     });
   });
 
@@ -403,6 +486,11 @@ if (!app.requestSingleInstanceLock()) {
     destroyNotesOverlay();
     destroyAgentTraceWindow();
     destroyNotificationWindow();
+    // reply（U7）：停 events 长驻进程 + 释放编排器 + 解绑兜底键（气泡窗随窗口体系统一销毁）。
+    disposeReplyController();
+    replyHelper?.stopEvents();
+    replyHelper = null;
+    unregisterReplyFallbackHotkey();
     globalShortcut.unregisterAll();
   };
   app.on("before-quit", onRealQuit);

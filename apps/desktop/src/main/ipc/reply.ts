@@ -19,6 +19,8 @@ import type {
 } from "./reply-types";
 import { UNKNOWN_REPLY_PERMISSIONS } from "./reply-types";
 import { resizeReplyBubble, dispatchReplyBubbleAction } from "../reply/bubble-window";
+// U7 controller 填实起草触发与调试记录读取（controller 单例不依赖本模块，单向引用无环）。
+import { triggerReplyDraft, getReplyDebugEntries } from "../reply/controller";
 // 渠道请求构造/响应解析纯函数在 core（app 可依赖 core，反向禁止）。
 import type { ChannelRequest, VerifiedIdentity } from "@cortex-work/core/reply/channels";
 import {
@@ -135,13 +137,12 @@ export function registerReplyHandlers(): void {
     // safeStorage 只做加解密、不持久化；密文清除在渲染端 store（disconnectChannel）完成。
   });
 
-  // 调试记录：U5 返回空数组，U7 接环形缓冲（最近 20 条，仅内存）。
-  ipcMain.handle("reply:getDebugLog", (): ReplyDebugEntry[] => []);
+  // 调试记录：读 controller 的环形缓冲（最近 20 条，仅内存，进程退出即清）。
+  ipcMain.handle("reply:getDebugLog", (): ReplyDebugEntry[] => getReplyDebugEntries());
 
-  // 手动触发起草：U5 空实现，U7 接 controller.startDraftSession（兜底 accelerator / 调试入口）。
-  ipcMain.handle("reply:triggerDraft", (): void => {
-    // no-op（U7 填实）
-  });
+  // 手动触发起草：转 controller.startDraftSession（兜底 accelerator / 设置页调试入口共用）。
+  // controller 未初始化（非 mac / 尚未接线）时安全 no-op。
+  ipcMain.handle("reply:triggerDraft", (): void => triggerReplyDraft());
 
   // 设置快照推送：U5 仅缓存最近值供 U7 读取；不做副作用。
   ipcMain.handle("reply:syncSettings", (_e, snapshot: ReplySyncSnapshot): void => {

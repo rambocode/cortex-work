@@ -10,6 +10,11 @@ export const NOTES_HOTKEY_ACCELERATOR = "CommandOrControl+Shift+N";
 // 确切默认键位是 Open Question，可由用户设置覆盖。
 export const TASKS_HOTKEY_ACCELERATOR = "CommandOrControl+Shift+K";
 
+// 快捷回复助手兜底热键(KTD7):辅助功能未授权 / helper 加载失败时,以此组合键兜底触发起草,
+// 授权后自动切回修饰键手势。**必须与闪记 / 任务键不同**,避免多个全局键打架。复用本模块的
+// isValidAccelerator / resolveRebindChain 兜底链(与闪记同一套占用降级模型)。
+export const REPLY_HOTKEY_ACCELERATOR = "CommandOrControl+Shift+R";
+
 // register 失败(被占用)时给用户的提示文案。降级到仅窗口图标入口仍可用。
 export const NOTES_HOTKEY_OCCUPIED_TOAST = "闪记热键被占用,改用窗口图标入口";
 
