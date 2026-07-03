@@ -24,6 +24,13 @@ function makeFetch(content: string, opts?: { onCall?: (url: string, init: Reques
   }) as unknown as typeof fetch;
 }
 
+describe("REPLY_TEMPERATURES 温度分层", () => {
+  it("锁定源项目契约值 0.3/0.9/0.2,漂移即报红", async () => {
+    const { REPLY_TEMPERATURES } = await import("./draft-generator");
+    expect(REPLY_TEMPERATURES).toEqual({ first: 0.3, variant: 0.9, distill: 0.2 });
+  });
+});
+
 describe("generateDraft 请求构造", () => {
   it("拼 chat completions URL、带 Authorization、system+user 两条消息与 temperature 透传", async () => {
     let url = "";

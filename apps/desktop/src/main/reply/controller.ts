@@ -389,7 +389,15 @@ export class ReplyController {
     const pending = this.pending;
     if (!pending) return;
     // 每次唤起现解析模型（读最新 reply 设置 + providerSettings）：设置变更即时生效。
-    const target = await this.resolveModel();
+    // resolveModel 读持久化态理论上可抛（迁移/读盘异常）；不保护会让气泡永久卡 generating 转圈。
+    let target: Awaited<ReturnType<typeof this.resolveModel>>;
+    try {
+      target = await this.resolveModel();
+    } catch (err) {
+      if (!this.session.isCurrent(token)) return;
+      this.pushError("generationFailed", err instanceof Error ? err.message : String(err));
+      return;
+    }
     if (!this.session.isCurrent(token)) return; // 解析期间重入 / 取消：本轮过期
     if (!target) {
       // 未配置生成模型：推错误态引导去设置（不静默回 idle，不回退 agent CLI）。
@@ -463,7 +471,16 @@ export class ReplyController {
     if (this.flipBusy) return;
     this.flipBusy = true;
     const token = this.session.token;
-    const target = await this.resolveModel();
+    // 与 generateFirst 同理：resolveModel 抛错须复位 flipBusy 并给出错误态，避免翻牌永久失效。
+    let target: Awaited<ReturnType<typeof this.resolveModel>>;
+    try {
+      target = await this.resolveModel();
+    } catch (err) {
+      this.flipBusy = false;
+      if (!this.session.isCurrent(token)) return;
+      this.pushError("generationFailed", err instanceof Error ? err.message : String(err));
+      return;
+    }
     if (!this.session.isCurrent(token)) {
       this.flipBusy = false;
       return; // 解析期间重入 / 取消：本轮过期

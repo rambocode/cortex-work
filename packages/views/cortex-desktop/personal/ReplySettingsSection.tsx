@@ -471,10 +471,12 @@ function ReplyModelSelector() {
   const setSettings = useReplyStore((s) => s.setSettings);
 
   // 候选供应商：enabled 且 chat_completions（其余 endpointFormat 本期不支持直连）。
+  // 另过滤空 models[] 的供应商：选中它模型下拉必为空、main 侧 tryResolve 也解析不出,
+  // 提供出来只会造成「UI 显示已选 X、实际落默认链」的静默分歧。
   const chatProviders = useMemo(
     () =>
       (providerSettings?.providers ?? []).filter(
-        (p) => p.enabled && p.endpointFormat === "chat_completions",
+        (p) => p.enabled && p.endpointFormat === "chat_completions" && p.models.length > 0,
       ),
     [providerSettings],
   );

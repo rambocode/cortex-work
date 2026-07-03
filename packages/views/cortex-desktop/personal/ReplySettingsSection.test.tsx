@@ -132,6 +132,7 @@ describe("ReplySettingsSection 生成模型选择器", () => {
           chatProvider({ id: "p1", name: "ChatOne" }),
           chatProvider({ id: "p2", name: "DisabledOne", enabled: false }),
           chatProvider({ id: "p3", name: "RespOne", endpointFormat: "responses" }),
+          chatProvider({ id: "p4", name: "EmptyModels", models: [] }),
         ],
       },
     });
@@ -143,9 +144,10 @@ describe("ReplySettingsSection 生成模型选择器", () => {
       .map((o) => o.textContent);
     expect(optionTexts).toContain("跟随供应商默认");
     expect(optionTexts).toContain("ChatOne");
-    // 禁用 / 非 chat_completions 的供应商不出现。
+    // 禁用 / 非 chat_completions / 空模型列表 的供应商不出现(空模型选中后 UI 与 main 解析会静默分歧)。
     expect(optionTexts).not.toContain("DisabledOne");
     expect(optionTexts).not.toContain("RespOne");
+    expect(optionTexts).not.toContain("EmptyModels");
   });
 
   it("选择供应商写入 reply store 并默认取首个模型；再改模型下拉写入所选", () => {
