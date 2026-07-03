@@ -62,8 +62,8 @@ import {
 } from "./reply/controller";
 import { getLastReplySnapshot } from "./ipc/reply";
 import { ReplyDistiller } from "./reply/distill";
-import { resolveReplyProviderId } from "./reply/draft-generator";
-import { runPromptHeadless, resolveDefaultWorkspaceRoot } from "./workflow/run-prompt-headless";
+import { chatComplete, REPLY_TEMPERATURES } from "./reply/draft-generator";
+import { resolveReplyModel } from "./reply/resolve-model";
 import { getPersistedState } from "./ipc/store";
 import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
@@ -167,23 +167,19 @@ async function initReply(): Promise<void> {
     // tap 不可用 / events 连续崩溃超上限 → 兜底 accelerator 接管（helper-client 内部触发）。
     onDegrade: () => registerReplyFallbackHotkey(),
   });
-  // 语气蒸馏（U10 / R11）：写回成功 → 采样 → 后台默认 agent 蒸馏 → 分区 auto 要点回推渲染端持久化。
-  // generate 闭包直接跑 runPromptHeadless 取原始输出（不套 cleanAgentOutput，交 cleanDistilledRules 过滤）；
-  // 默认 agent 未配置时抛错，被蒸馏器 catch 后静默跳过。
+  // reply 生成模型解析（KTD3）：每次唤起/蒸馏时现解析——最新 reply 设置（快照）+ 持久化
+  // providerSettings 走回退链（专属 → 供应商默认 → null）。现解析保证设置变更即时生效，无需快照同步机制。
+  const resolveModel = async () =>
+    resolveReplyModel(getLastReplySnapshot()?.settings ?? null, (await getPersistedState()).providerSettings ?? null);
+  // 语气蒸馏（U10 / R11）：写回成功 → 采样 → 后台模型直连蒸馏（温度 0.2）→ 分区 auto 要点回推渲染端持久化。
+  // generate 闭包走 chatComplete 取原始输出（不套 cleanAgentOutput，交 cleanDistilledRules 过滤）；
+  // 生成模型未配置时抛错，被蒸馏器 catch 后静默跳过。
   const distiller = new ReplyDistiller({
     getSnapshot: getLastReplySnapshot,
     generate: async (prompt) => {
-      const snapshot = getLastReplySnapshot();
-      const providerId = snapshot ? resolveReplyProviderId(snapshot) : null;
-      if (!providerId) throw new Error("reply: 默认 agent 未配置，跳过蒸馏");
-      const workspaceRoot = await resolveDefaultWorkspaceRoot();
-      const { text } = await runPromptHeadless({
-        prompt: `${prompt.system}\n\n${prompt.user}`,
-        workspaceRoot,
-        providerId,
-        model: snapshot?.model,
-      });
-      return text;
+      const target = await resolveModel();
+      if (!target) throw new Error("reply: 生成模型未配置，跳过蒸馏");
+      return chatComplete({ prompt, target, temperature: REPLY_TEMPERATURES.distill });
     },
     // 持久化 sink：把分区蒸馏产出的 auto 要点推给渲染端 store（reply:memoryLearned），由 store 分片落盘。
     // 只推要点、不推样本（KTD8：样本不落盘）。渲染端为唯一持久化真源，避免 main 直写造成双源漂移。
@@ -194,6 +190,8 @@ async function initReply(): Promise<void> {
   initReplyController({
     helper: replyHelper,
     getSnapshot: getLastReplySnapshot,
+    // 生成模型解析（KTD3 回退链）：null → 气泡 modelNotConfigured 错误态引导去设置，不回退 agent CLI。
+    resolveModel,
     // 语音意图转写用的 ASR 配置：从个人工作区持久化态读取（内存镜像，store:save 即时刷新）。
     getAsrSettings: async () => (await getPersistedState()).asrSettings ?? null,
     // 写回成功 → 交蒸馏器采样并触发后台学习（学习开关关闭时蒸馏器内部零副作用）。

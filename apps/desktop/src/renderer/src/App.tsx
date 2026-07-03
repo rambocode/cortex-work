@@ -4,7 +4,6 @@ import {
   useCortexUIStore,
   usePersonalStore,
   useReplyStore,
-  resolveDefaultAgent,
 } from "@cortex-work/core";
 import { CortexDesktopView } from "@cortex-work/views/cortex-desktop";
 
@@ -54,33 +53,23 @@ export default function App() {
     document.documentElement.setAttribute("data-vibrancy", "sidebar");
   }, []);
 
-  // 快捷回复设置快照 → 主进程（KTD3）：起草在主进程用「默认 Agent」单发生成，但 defaultAgent /
-  // reply 设置 / 记忆都活在渲染端 store。此处把它们推给主进程缓存（getLastReplySnapshot），否则
-  // 主进程侧恒无快照 → 气泡永远报「未配置默认 Agent」。用 key 去重,避免 personal store 高频变更
-  // （聊天流等）触发 IPC 风暴——只有 defaultAgent / settings / memory 真变了才推。壳就近接线。
+  // 快捷回复设置快照 → 主进程（KTD3）：起草在主进程组装 prompt 需要最新 reply 设置（含专属
+  // providerId/model 与 userProfile）与分区记忆,它们活在渲染端 store。此处推给主进程缓存
+  // （getLastReplySnapshot）;生成模型的回退链解析在 main 侧做（resolveReplyModel 读持久化
+  // providerSettings）,快照不再携带 defaultAgent。用 key 去重避免 IPC 风暴。壳就近接线。
   useEffect(() => {
     const sync = window.desktopAPI?.personal?.replySyncSettings;
     if (!sync) return;
     let lastKey = "";
     const push = (): void => {
       const reply = useReplyStore.getState();
-      const personal = usePersonalStore.getState();
-      const defaultAgent = resolveDefaultAgent({
-        generalSettings: personal.generalSettings,
-        agentsAvailable: personal.agentsAvailable,
-      });
-      const key = JSON.stringify({ s: reply.settings, m: reply.memory, a: defaultAgent });
+      const key = JSON.stringify({ s: reply.settings, m: reply.memory });
       if (key === lastKey) return;
       lastKey = key;
-      void sync({ settings: reply.settings, memory: reply.memory, defaultAgent });
+      void sync({ settings: reply.settings, memory: reply.memory });
     };
     push(); // 挂载即推一次,保证首次起草前主进程已有快照。
-    const unsubReply = useReplyStore.subscribe(push);
-    const unsubPersonal = usePersonalStore.subscribe(push);
-    return () => {
-      unsubReply();
-      unsubPersonal();
-    };
+    return useReplyStore.subscribe(push);
   }, []);
 
   // 快捷回复气泡「去设置」：主进程发 reply:openSettings → 打开设置整页并跳到快捷回复分区。

@@ -17,9 +17,6 @@ function makeSnapshot(params: {
       userProfile: "",
     },
     memory: params.memory ?? emptyMemoryState(),
-    defaultAgent: "claude",
-    providerId: undefined,
-    model: undefined,
   };
 }
 

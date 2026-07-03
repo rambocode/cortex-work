@@ -5,7 +5,7 @@
 // 主进程当前只把三分片随 PersistedState 透明落盘（store.ts round-trip），不深读；
 // U7/U9 会真正消费这些类型。
 
-import type { AgentKind, AsrSettings } from "./types";
+import type { AsrSettings } from "./types";
 
 // ── core/reply/memory.ts 镜像子集 ──────────────────────────────────────────────
 
@@ -47,6 +47,11 @@ export interface ReplySettings {
   voiceTrigger: ReplyVoiceTriggerKey;
   learningEnabled: boolean;
   userProfile: string;
+  /// reply 专属生成供应商 id（KTD3）：空=跟随 providerSettings.defaultProviderId/defaultModel 回退链。
+  /// 只存 id 引用，baseUrl/apiKey 由 main 侧从 providerSettings 现解析，凭据不落入本设置分片。
+  providerId?: string;
+  /// reply 专属模型 id（配合 providerId）：空则取该供应商 models[0]，仍空则落默认链。
+  model?: string;
 }
 
 export type ReplyMemoryState = MemoryState;
@@ -105,12 +110,12 @@ export interface ReplyDebugEntry {
   error?: string;
 }
 
+/// renderer→main 设置快照：main 侧起草时取最新 settings（含 reply 专属 providerId/model 与 userProfile）
+/// 与分区记忆组装 prompt。KTD3：模型解析（回退链 + 供应商校验）改在 main 侧做（resolveReplyModel 读
+/// 持久化 providerSettings），故快照不再带 defaultAgent/providerId/model，只携业务上下文。
 export interface ReplySyncSnapshot {
   settings: ReplySettings;
   memory: ReplyMemoryState;
-  defaultAgent: AgentKind;
-  providerId?: string;
-  model?: string;
 }
 
 /// main→renderer 语气蒸馏产出推送（U10 / R11）：某分区蒸馏出的 auto 要点，渲染端 store 应用后落盘。
@@ -137,8 +142,8 @@ export interface ReplyRect {
 /// 气泡会话阶段（与 controller 状态机的可视子集对应）。
 export type ReplyBubblePhase = "generating" | "presenting" | "recording" | "error";
 
-/// 错误态细分：agentNotConfigured → 引导去设置；generationFailed/emptyCandidates → 原因+重试/关闭。
-export type ReplyBubbleErrorKind = "agentNotConfigured" | "generationFailed" | "emptyCandidates";
+/// 错误态细分：modelNotConfigured → 未配置生成模型，引导去设置；generationFailed/emptyCandidates → 原因+重试/关闭。
+export type ReplyBubbleErrorKind = "modelNotConfigured" | "generationFailed" | "emptyCandidates";
 
 /// 主进程 → 气泡渲染端的完整可视状态（每次变更整体推送，渲染端无本地态可言）。
 export interface ReplyBubbleState {
@@ -161,7 +166,7 @@ export type ReplyBubbleAction =
   | { type: "retry" } // 错误态重试生成
   | { type: "close" } // 关闭气泡
   | { type: "select"; index: number } // 点击圆点直接切到某候选
-  | { type: "openSettings" }; // agentNotConfigured 引导去设置
+  | { type: "openSettings" }; // modelNotConfigured 引导去设置
 
 // ── 语音意图录音通道（U8，R1 后半 / R9）─────────────────────────────────────────────
 // 「按住语音键说话」由 helper 判定手势 → controller 令气泡渲染端启动 MediaRecorder（录音只能在

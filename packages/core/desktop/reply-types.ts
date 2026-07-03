@@ -6,7 +6,6 @@
 //
 // 数据类型复用 core/reply 纯逻辑层（memory.ts / channels.ts），避免二次定义漂移。
 
-import type { AgentKind } from "./types";
 import type { MemoryState, MemoryScope } from "../reply/memory";
 import type { ChannelId, ChannelConnectionState, ChannelVerifyErrorKind } from "../reply/channels";
 
@@ -27,6 +26,11 @@ export interface ReplySettings {
   learningEnabled: boolean;
   /// 用户档案自由文本（composeUserProfile 的 base；与分区记忆的 profile scope 并列注入 prompt）。
   userProfile: string;
+  /// reply 专属生成供应商 id（KTD3）：空=跟随 providerSettings.defaultProviderId/defaultModel 回退链。
+  /// 只存 id 引用，baseUrl/apiKey 由 main 侧从 providerSettings 现解析，凭据不落入本设置分片。
+  providerId?: string;
+  /// reply 专属模型 id（配合 providerId）：空则取该供应商 models[0]，仍空则落默认链。
+  model?: string;
 }
 
 export const DEFAULT_REPLY_SETTINGS: ReplySettings = {
@@ -115,16 +119,12 @@ export interface ReplyDebugEntry {
   error?: string;
 }
 
-/// renderer→main 设置快照：draft-generator 需默认 agent 与分区记忆才能生成候选，
-/// 故设置变更时渲染端把此快照推送到 main 缓存（KTD3：providerId 由调用方传，main 不自行解析默认 agent）。
+/// renderer→main 设置快照：main 侧起草时取最新 settings（含 reply 专属 providerId/model 与 userProfile）
+/// 与分区记忆组装 prompt。KTD3：模型解析（回退链 + 供应商校验）改在 main 侧做（resolveReplyModel 读
+/// 持久化 providerSettings），故快照不再带 defaultAgent/providerId/model，只携业务上下文。
 export interface ReplySyncSnapshot {
   settings: ReplySettings;
   memory: ReplyMemoryState;
-  /// 已解析的默认 agent（resolveDefaultAgent 结果）。
-  defaultAgent: AgentKind;
-  /// pi 供应商 id 与模型（默认 agent 为 pi 时有意义，其余忽略）。
-  providerId?: string;
-  model?: string;
 }
 
 /// main→renderer 语气蒸馏产出推送（U10 / R11）：某分区蒸馏出的 auto 要点。

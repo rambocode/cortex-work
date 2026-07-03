@@ -1,11 +1,11 @@
-// 语气蒸馏接线（U10 / R10、R11）：写回成功 → 采样 →（学习开关开）后台默认 agent 蒸馏 →
+// 语气蒸馏接线（U10 / R10、R11）：写回成功 → 采样 →（学习开关开）后台模型直连蒸馏（温度 0.2）→
 // 清洗 → 覆盖分区 auto 区 → 持久化（仅要点落盘，样本不落盘，KTD8）。
 //
 // 与源项目（ReplyClone AppState.learnFromAcceptedDraft / distillMemory）的差异：
 //   - 样本采集扩充为「当次对话『我：』侧样本 + 已接受草稿」（源项目只采纳草稿一条）；
 //   - 样本仅内存驻留、不落盘（KTD8 隐私边界收紧），只有蒸馏产出的 auto 要点经 store 分片持久化；
 //   - 单飞：蒸馏进行中再次写回 → 排队合并（把新样本并进队列，当前轮结束后再蒸馏），绝不并发；
-//   - 蒸馏失败 / 默认 agent 未配置 / 清洗后为空 → 一律静默（学习是锦上添花，不打扰主流程），下次写回再试。
+//   - 蒸馏失败 / 生成模型未配置 / 清洗后为空 → 一律静默（学习是锦上添花，不打扰主流程），下次写回再试。
 //
 // 分区路由（channelScopeForCapturedApp）与 prompt 注入路由一致：自动样本只落 im/email 两个分区，
 // publicVoice 本期不自动命中（Scope Boundaries）。
@@ -42,12 +42,12 @@ export function extractMineSamples(conversation: string): string[] {
 
 /** 蒸馏器依赖注入口（单测注入假 generate / persist / snapshot，隔离 electron 与网络）。 */
 export interface ReplyDistillerDeps {
-  /** 读渲染端最近推送的设置快照（学习开关 / 分区记忆 auto / 默认 agent + model）。 */
+  /** 读渲染端最近推送的设置快照（学习开关 / 分区记忆 auto / userProfile）。 */
   getSnapshot: () => ReplySyncSnapshot | null;
   /**
-   * 后台跑蒸馏 prompt（默认 agent 单发，返回原始文本）。
-   * 由 index.ts 注入的闭包内部解析 providerId/model 并调 runPromptHeadless；默认 agent 未配置时应 throw
-   * （被本模块 catch 后静默跳过，不打扰）。
+   * 后台跑蒸馏 prompt（模型直连单发，返回原始文本）。
+   * 由 index.ts 注入的闭包内部解析生成模型（resolveReplyModel）并直连 chat completions（温度 0.2）；
+   * 生成模型未配置时应 throw（被本模块 catch 后静默跳过，不打扰）。
    */
   generate: (prompt: DistillPrompt) => Promise<string>;
   /** 持久化 sink：把某分区蒸馏产出的 auto 要点写回 store 分片（main→renderer push → 渲染端 store 落盘）。 */
@@ -121,7 +121,7 @@ export class ReplyDistiller {
   }
 
   /**
-   * 蒸馏单个分区：读队列样本 + 现有 auto → 蒸馏 prompt → 默认 agent → 清洗 → 覆盖 auto 并持久化。
+   * 蒸馏单个分区：读队列样本 + 现有 auto → 蒸馏 prompt → 模型直连 → 清洗 → 覆盖 auto 并持久化。
    * 任一环节不满足（无样本 / 开关已关 / 生成失败 / 清洗后为空）→ 静默保留旧规则，不抛。
    */
   private async distillScope(scope: MemoryScope): Promise<void> {
@@ -145,7 +145,7 @@ export class ReplyDistiller {
       this.localAuto.set(scope, rules);
       this.deps.persistLearned(scope, rules);
     } catch (err) {
-      // 生成失败 / 默认 agent 未配置：静默放弃（学习锦上添花），下次写回再试。
+      // 生成失败 / 生成模型未配置：静默放弃（学习锦上添花），下次写回再试。
       this.deps.logger?.warn("[reply] 语气蒸馏失败", err);
     }
   }

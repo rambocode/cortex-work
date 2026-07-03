@@ -16,7 +16,7 @@ import "./reply-bubble.css";
 
 // 与 main/ipc/reply-types.ts 的契约同形（跨 tsconfig 不直接 import 主进程类型，结构兼容即可）。
 type Phase = "generating" | "presenting" | "recording" | "error";
-type ErrorKind = "agentNotConfigured" | "generationFailed" | "emptyCandidates";
+type ErrorKind = "modelNotConfigured" | "generationFailed" | "emptyCandidates";
 interface BubbleState {
   phase: Phase;
   candidates: string[];
@@ -74,16 +74,16 @@ export function ReplyBubble({
 
   // 错误态：两类分流。
   if (state.phase === "error") {
-    const isAgent = state.errorKind === "agentNotConfigured";
+    const isModelMissing = state.errorKind === "modelNotConfigured";
     return (
       <div className="rb-card rb-error" role="alert">
         <button className="rb-close" aria-label="关闭" onClick={() => onAction({ type: "close" })}>
           ×
         </button>
-        {isAgent ? (
+        {isModelMissing ? (
           <>
-            <div className="rb-error-title">尚未配置默认 Agent</div>
-            <div className="rb-error-desc">请先在设置中选择用于生成回复的默认 Agent。</div>
+            <div className="rb-error-title">尚未配置生成模型</div>
+            <div className="rb-error-desc">请先在设置中添加模型供应商,并为快捷回复选择生成模型。</div>
             <div className="rb-actions">
               <button className="rb-btn rb-btn-primary" onClick={() => onAction({ type: "openSettings" })}>
                 去设置

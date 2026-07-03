@@ -1,10 +1,10 @@
-// reply 会话编排器（U7）：把 helper 事件 → 捕获 → 对话重建 → prompt 组装 → 默认 agent 生成 →
+// reply 会话编排器（U7）：把 helper 事件 → 捕获 → 对话重建 → prompt 组装 → 模型直连生成 →
 // 候选气泡 → 写回 的全链路串起来，围绕 ReplySession 的世代 token 做并发裁决（R1-R7、R14）。
 //
 // 分工：纯状态机 / token / 捕获与输出判据在 controller-state.ts（可单测）；本文件只做副作用编排
-// （spawn helper 命令、推气泡、kill 在途 CLI、写回），故不单测，靠 controller-state + 手测覆盖。
+// （spawn helper 命令、推气泡、abort 在途生成请求、写回），故不单测，靠 controller-state + 手测覆盖。
 //
-// 跨状态回调（AX/OCR/日历/CLI 输出）一律在返回后先 session.isCurrent(token) 校验：token 因重入/
+// 跨状态回调（AX/OCR/日历/生成输出）一律在返回后先 session.isCurrent(token) 校验：token 因重入/
 // 取消递增即静默丢弃——这是 R7 并发安全的唯一裁决点。
 
 import { ReplyHelperClient, type HelperEvent } from "./helper-client";
@@ -22,11 +22,8 @@ import {
   looksLikeConversation,
   shouldAbortWriteBack,
 } from "./controller-state";
-import {
-  generateDraft,
-  resolveReplyProviderId,
-  EmptyDraftError,
-} from "./draft-generator";
+import { generateDraft, EmptyDraftError, REPLY_TEMPERATURES } from "./draft-generator";
+import type { ResolvedReplyModel } from "./resolve-model";
 import { replyDebugLog } from "./debug-log";
 import { buildReplyPrompt, type ReplyPrompt } from "@cortex-work/core/reply/prompt-builder";
 import { ConversationLayoutBuilder } from "@cortex-work/core/reply/conversation-layout";
@@ -106,8 +103,13 @@ export interface ReplyControllerLogger {
 export interface ReplyControllerDeps {
   /** events + one-shot 的 helper 客户端（U4）。 */
   helper: ReplyHelperClient;
-  /** 默认 agent / 记忆 / 触发键快照（renderer 经 reply:syncSettings 推送，main 侧缓存）。 */
+  /** 设置 / 记忆 / 触发键快照（renderer 经 reply:syncSettings 推送，main 侧缓存），供 prompt 组装用。 */
   getSnapshot: () => ReplySyncSnapshot | null;
+  /**
+   * 解析当前 reply 生成模型（KTD3）：每次唤起时现解析（读最新 reply 设置 + 持久化 providerSettings），
+   * 设置变更即时生效；null → 未配置生成模型，推「modelNotConfigured」气泡引导去设置（不回退 agent CLI）。
+   */
+  resolveModel: () => Promise<ResolvedReplyModel | null>;
   /**
    * 读当前 ASR 配置（U8 语音意图转写用；从持久化态异步读取）。返回 null / 未提供 → 语音不可用，
    * onVoiceStart 直接提示。与 getSnapshot 分开注入：ASR 属独立设置分片，避免塞进 reply 快照。
@@ -115,7 +117,7 @@ export interface ReplyControllerDeps {
   getAsrSettings?: () => Promise<AsrSettings | null>;
   /** 写回成功后的学习回调（U10 蒸馏接线；默认 no-op）。 */
   onDraftAccepted?: (info: DraftAcceptedInfo) => void;
-  /** 「去设置」动作（agentNotConfigured 引导）：聚焦主窗口。 */
+  /** 「去设置」动作（modelNotConfigured 引导）：聚焦主窗口。 */
   onOpenSettings?: () => void;
   logger?: ReplyControllerLogger;
 }
@@ -133,13 +135,14 @@ function delay(ms: number): Promise<void> {
 export class ReplyController {
   private readonly helper: ReplyHelperClient;
   private readonly getSnapshot: () => ReplySyncSnapshot | null;
+  private readonly resolveModel: () => Promise<ResolvedReplyModel | null>;
   private readonly getAsrSettings?: () => Promise<AsrSettings | null>;
   private readonly onDraftAccepted?: (info: DraftAcceptedInfo) => void;
   private readonly onOpenSettings?: () => void;
   private readonly log: ReplyControllerLogger;
 
   private readonly session = new ReplySession();
-  // 当前在途生成的 abort（esc / 重入时 abort → kill 在途 CLI）。
+  // 当前在途生成的 abort（esc / 重入时 abort → 中止在途直连请求）。
   private abort: AbortController | null = null;
   // 当前会话已捕获的上下文（生成/翻牌/重试复用）。
   private pending: PendingContext | null = null;
@@ -157,6 +160,7 @@ export class ReplyController {
   constructor(deps: ReplyControllerDeps) {
     this.helper = deps.helper;
     this.getSnapshot = deps.getSnapshot;
+    this.resolveModel = deps.resolveModel;
     this.getAsrSettings = deps.getAsrSettings;
     this.onDraftAccepted = deps.onDraftAccepted;
     this.onOpenSettings = deps.onOpenSettings;
@@ -245,7 +249,7 @@ export class ReplyController {
   // ── 起草主链路 ────────────────────────────────────────────────────────────────
 
   /**
-   * 起草手势 / 兜底快捷键 / 语音意图入口。重入即取消旧会话（abort 在途 CLI + beginCapture 递增
+   * 起草手势 / 兜底快捷键 / 语音意图入口。重入即取消旧会话（abort 在途请求 + beginCapture 递增
    * token）后重捕获。voiceIntent 存在时作为「口述意图」注入 prompt。
    */
   async startDraftSession(voiceIntent?: string): Promise<void> {
@@ -380,29 +384,33 @@ export class ReplyController {
 
   // ── 生成 ──────────────────────────────────────────────────────────────────────
 
-  /** 首条候选：默认 agent 单发 → presenting → 后台预生成 2 条避重候选。 */
+  /** 首条候选：现解析生成模型 → 直连单发（首条温度 0.3）→ presenting → 后台预生成 2 条避重候选。 */
   private async generateFirst(token: number): Promise<void> {
     const pending = this.pending;
     if (!pending) return;
-    const snapshot = this.getSnapshot();
-    const providerId = resolveReplyProviderId(snapshot);
-    if (!providerId) {
-      // 默认 agent 未配置：推错误态引导去设置（不静默回 idle）。
-      this.pushError("agentNotConfigured");
+    // 每次唤起现解析模型（读最新 reply 设置 + providerSettings）：设置变更即时生效。
+    const target = await this.resolveModel();
+    if (!this.session.isCurrent(token)) return; // 解析期间重入 / 取消：本轮过期
+    if (!target) {
+      // 未配置生成模型：推错误态引导去设置（不静默回 idle，不回退 agent CLI）。
+      this.pushError("modelNotConfigured");
       return;
     }
     const prompt = this.buildPrompt(pending, []);
     this.abort = new AbortController();
     try {
-      const text = await generateDraft(
-        { prompt, providerId, model: snapshot?.model, signal: this.abort.signal },
-      );
+      const text = await generateDraft({
+        prompt,
+        target,
+        temperature: REPLY_TEMPERATURES.first,
+        signal: this.abort.signal,
+      });
       if (!this.session.isCurrent(token)) return;
       this.recordDebug(pending, prompt, text, null);
       this.session.presentFirst(text);
       this.preGenActive = true;
       this.pushPresenting();
-      void this.pregenerate(token, providerId, snapshot?.model);
+      void this.pregenerate(token, target);
     } catch (err) {
       if (!this.session.isCurrent(token)) return; // 过期（重入 / esc）静默丢弃
       const message = err instanceof Error ? err.message : String(err);
@@ -412,17 +420,20 @@ export class ReplyController {
     }
   }
 
-  /** 后台串行预生成翻牌候选（每条避开已有全部候选）；过期 / 非展示态 / 失败即停。 */
-  private async pregenerate(token: number, providerId: string, model?: string): Promise<void> {
+  /** 后台串行预生成翻牌候选（每条避开已有全部候选，温度 0.9 求多样）；过期 / 非展示态 / 失败即停。 */
+  private async pregenerate(token: number, target: ResolvedReplyModel): Promise<void> {
     for (let i = 0; i < PREGENERATE_COUNT; i += 1) {
       if (!this.session.isCurrent(token) || this.session.phase !== "presenting") break;
       const pending = this.pending;
       if (!pending) break;
       const prompt = this.buildPrompt(pending, this.session.avoidList());
       try {
-        const text = await generateDraft(
-          { prompt, providerId, model, signal: this.abort?.signal },
-        );
+        const text = await generateDraft({
+          prompt,
+          target,
+          temperature: REPLY_TEMPERATURES.variant,
+          signal: this.abort?.signal,
+        });
         if (!this.session.isCurrent(token)) return;
         this.recordDebug(pending, prompt, text, null);
         // 仅真正入列（presenting 且非重复）才推状态：写回/取消后到达的旧回调若无条件推
@@ -452,18 +463,24 @@ export class ReplyController {
     if (this.flipBusy) return;
     this.flipBusy = true;
     const token = this.session.token;
-    const snapshot = this.getSnapshot();
-    const providerId = resolveReplyProviderId(snapshot);
-    if (!providerId) {
+    const target = await this.resolveModel();
+    if (!this.session.isCurrent(token)) {
       this.flipBusy = false;
-      this.pushError("agentNotConfigured");
+      return; // 解析期间重入 / 取消：本轮过期
+    }
+    if (!target) {
+      this.flipBusy = false;
+      this.pushError("modelNotConfigured");
       return;
     }
     const prompt = this.buildPrompt(pending, this.session.avoidList());
     try {
-      const text = await generateDraft(
-        { prompt, providerId, model: snapshot?.model, signal: this.abort?.signal },
-      );
+      const text = await generateDraft({
+        prompt,
+        target,
+        temperature: REPLY_TEMPERATURES.variant,
+        signal: this.abort?.signal,
+      });
       if (!this.session.isCurrent(token)) return;
       this.recordDebug(pending, prompt, text, null);
       // 翻牌回调落地前再验 phase：token 不变但阶段已离开 presenting（写回中）时丢弃,
@@ -482,14 +499,14 @@ export class ReplyController {
   }
 
   /**
-   * 错误态重试：已捕获上下文存在（生成失败 / 空候选 / 未配置 agent）→ 复用上下文重生成，不重捕获；
+   * 错误态重试：已捕获上下文存在（生成失败 / 空候选 / 未配置模型）→ 复用上下文重生成，不重捕获；
    * 捕获失败态无上下文 → 整轮重来（重新捕获）。
    */
   private async retry(): Promise<void> {
     if (this.session.phase === "idle") return;
-    // 连点重试单飞：先 abort 在途生成（kill 在途 CLI），再递增世代 token 作废旧回调，
+    // 连点重试单飞：先 abort 在途生成（中止在途直连请求），再递增世代 token 作废旧回调，
     // 确保同一时刻只有一个生成在跑——否则 pushError 不改 phase、retry 不递增 token，
-    // N 次点击会派生 N 个未取消的 CLI 子进程且回调全部命中，造成候选竞态。
+    // N 次点击会派生 N 个未取消的在途请求且回调全部命中，造成候选竞态。
     this.abortInFlight();
     if (!this.pending) {
       // 捕获失败态无上下文 → 整轮重来（startDraftSession 自身 beginCapture 递增 token）。
@@ -529,7 +546,7 @@ export class ReplyController {
     const pending = this.pending;
 
     this.session.toWriting();
-    // 杀掉在途预生成/翻牌 CLI：写回后候选列表即将作废,残余生成毫无意义;更关键的是,
+    // 中止在途预生成/翻牌请求：写回后候选列表即将作废,残余生成毫无意义;更关键的是,
     // 写回窗口期(延迟 + pid 探测)内返回的旧回调若推 presenting 状态,会经 renderer 的
     // resize 上报把刚关闭的气泡重新顶出来(bug：回车后气泡不消失)。
     this.abortInFlight();
@@ -671,7 +688,7 @@ export class ReplyController {
 
   // ── 收尾 / 取消 ───────────────────────────────────────────────────────────────
 
-  /** esc / 关闭：abort 在途 CLI、回 idle、关吞键、关气泡。 */
+  /** esc / 关闭：abort 在途请求、回 idle、关吞键、关气泡。 */
   cancel(): void {
     this.abortInFlight();
     this.session.reset();
@@ -684,7 +701,7 @@ export class ReplyController {
     this.voicePendingStopToken = null;
   }
 
-  /** abort 当前在途生成（kill 在途 CLI）。 */
+  /** abort 当前在途生成（中止在途直连请求）。 */
   private abortInFlight(): void {
     this.abort?.abort();
     this.abort = null;

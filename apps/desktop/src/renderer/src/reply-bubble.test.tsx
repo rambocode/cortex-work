@@ -61,15 +61,15 @@ describe("ReplyBubble - generating / recording", () => {
 });
 
 describe("ReplyBubble - error", () => {
-  it("默认 agent 未配置：引导去设置", () => {
+  it("生成模型未配置：引导去设置", () => {
     const onAction = vi.fn();
     render(
       <ReplyBubble
-        state={{ phase: "error", candidates: [], currentIndex: 0, errorKind: "agentNotConfigured" }}
+        state={{ phase: "error", candidates: [], currentIndex: 0, errorKind: "modelNotConfigured" }}
         onAction={onAction}
       />,
     );
-    expect(screen.getByText("尚未配置默认 Agent")).toBeTruthy();
+    expect(screen.getByText("尚未配置生成模型")).toBeTruthy();
     fireEvent.click(screen.getByText("去设置"));
     expect(onAction).toHaveBeenCalledWith({ type: "openSettings" });
   });
