@@ -79,6 +79,14 @@ export class ReplyDistiller {
   }
 
   /**
+   * 失效本地 auto 覆盖（「立即重新学习」整体重建 auto 后调用）：否则下一轮后台蒸馏会以
+   * 重学前的陈旧 localAuto 作为 existingAuto 合并，静默吞掉重学产出。
+   */
+  resetLocalAuto(): void {
+    this.localAuto.clear();
+  }
+
+  /**
    * 写回成功回调入口（controller.onDraftAccepted）。学习开关关闭 → 直接返回，零副作用（不采样、不蒸馏）。
    * 开启时按捕获应用类别路由分区，采「我：」侧样本 + 已接受草稿入队，随后触发（或排队）后台蒸馏。
    */

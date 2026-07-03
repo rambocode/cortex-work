@@ -17,14 +17,16 @@ import type {
   ReplyDebugEntry,
   ReplyPermissionKind,
   ReplyPermissionState,
+  ReplyRelearnResult,
   ReplySyncSnapshot,
 } from "./reply-types";
 // 回复历史 / 对话级记忆 / 全局分区记忆存储（main-owned 文件，~/.cortex-desktop/reply/ 下；
 // 写入方为 index.ts 的 onDraftAccepted sink 与蒸馏管线，此处注册读写/清空 handler，共用单例）。
+import { promises as fsp } from "fs";
 import { ReplyHistoryStore } from "../reply/history-store";
 import { ReplyConversationStore } from "../reply/conversation-store";
 import { ReplyMemoryStore } from "../reply/memory-store";
-import { replyConversationMemoryPath, replyHistoryPath, replyMemoryPath } from "../paths";
+import { replyConversationMemoryPath, replyDataDir, replyHistoryPath, replyMemoryPath } from "../paths";
 import { getPersistedState } from "./store";
 import type { MemoryFile, MemoryScope, MemoryState } from "./reply-types";
 import { createLogger } from "../log";
@@ -156,6 +158,15 @@ export const replyMemoryStore = new ReplyMemoryStore({
   logger: log,
 });
 
+// 「立即重新学习」实现由 index.ts 注入（需要模型解析 + chatComplete 闭包，与蒸馏管线同源）；
+// 未注入（非 mac / 未初始化）时 handler 返回 unavailable。
+let relearnHandler: (() => Promise<ReplyRelearnResult>) | null = null;
+
+/// 注入重新学习编排（initReply 建好蒸馏依赖后调用）。
+export function setReplyRelearnHandler(fn: () => Promise<ReplyRelearnResult>): void {
+  relearnHandler = fn;
+}
+
 // U5 stub：设置快照最近值只驻内存（进程退出即弃）。U7 draft-generator 会从此处读默认 agent。
 let lastSyncedSnapshot: ReplySyncSnapshot | null = null;
 
@@ -216,6 +227,20 @@ export function registerReplyHandlers(): void {
 
   // 清空对话级记忆（设置页数据清理）。
   ipcMain.handle("reply:clearConversationMemory", (): Promise<void> => replyConversationStore.clear());
+
+  // 在 Finder 显示数据文件夹（记忆/历史/对话记忆均为本机 JSON，供用户直接查看备份）。
+  // 首次点击时目录可能还不存在（尚无任何落盘），先 mkdir 兜底再打开。
+  ipcMain.handle("reply:openDataFolder", async (): Promise<void> => {
+    await fsp.mkdir(replyDataDir(), { recursive: true });
+    await shell.openPath(replyDataDir());
+  });
+
+  // 立即重新学习（源项目 relearn 恢复版）：依据已落盘回复历史重建语气要点。
+  ipcMain.handle(
+    "reply:relearn",
+    (): Promise<ReplyRelearnResult> =>
+      relearnHandler ? relearnHandler() : Promise.resolve({ ok: false, error: "unavailable" }),
+  );
 
   // ── 全局分区记忆（KTD6 修订：main-owned memory.json，设置页经此读写）────────────────
 

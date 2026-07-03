@@ -362,6 +362,64 @@ function MemoryManager() {
           />
         ) : null}
       </div>
+
+      {/* 数据文件工具行（源项目「打开文件夹 / 立即重新学习」）：紧凑单排，Web 端 bridge 缺失时整行隐藏 */}
+      {bridge?.replyOpenDataFolder || bridge?.replyRelearn ? <MemoryTools /> : null}
+    </div>
+  );
+}
+
+/**
+ * 记忆数据工具行：在 Finder 打开数据文件夹 + 立即重新学习（依据已落盘回复历史重建语气要点）。
+ * relearn 结果以一行小字反馈（成功/无历史/未配置模型/失败原因），错误码映射见 ReplyRelearnResult；
+ * 重学后的要点刷新由 main 的 reply:memoryChanged 推送 → 记忆缓存 hydrate 自动完成。
+ */
+function MemoryTools() {
+  const { t } = useTranslation("settings");
+  const bridge = useDesktopBridge();
+  const [relearnBusy, setRelearnBusy] = useState(false);
+  const [relearnMsg, setRelearnMsg] = useState<string | null>(null);
+
+  const handleRelearn = useCallback(async () => {
+    if (!bridge?.replyRelearn || relearnBusy) return;
+    setRelearnBusy(true);
+    setRelearnMsg(null);
+    try {
+      const result = await bridge.replyRelearn();
+      if (result.ok) {
+        setRelearnMsg(t("reply.relearnDone"));
+      } else if (result.error === "no-history" || result.error === "no-samples") {
+        setRelearnMsg(t("reply.relearnNoHistory"));
+      } else if (result.error === "model-not-configured") {
+        setRelearnMsg(t("reply.relearnNoModel"));
+      } else {
+        setRelearnMsg(t("reply.relearnFailed", { detail: result.error ?? "" }));
+      }
+    } catch {
+      setRelearnMsg(t("reply.relearnFailed", { detail: "" }));
+    } finally {
+      setRelearnBusy(false);
+    }
+  }, [bridge, relearnBusy, t]);
+
+  return (
+    <div className="pw-reply-memory-tools">
+      <span className="pw-srow-desc">{t("reply.memoryFilesDesc")}</span>
+      {bridge?.replyOpenDataFolder ? (
+        <button
+          type="button"
+          className="pw-btn-sm"
+          onClick={() => void bridge.replyOpenDataFolder?.()}
+        >
+          {t("reply.openDataFolder")}
+        </button>
+      ) : null}
+      {bridge?.replyRelearn ? (
+        <button type="button" className="pw-btn-sm" disabled={relearnBusy} onClick={() => void handleRelearn()}>
+          {relearnBusy ? t("reply.relearnBusy") : t("reply.relearnNow")}
+        </button>
+      ) : null}
+      {relearnMsg ? <span className="pw-srow-desc">{relearnMsg}</span> : null}
     </div>
   );
 }

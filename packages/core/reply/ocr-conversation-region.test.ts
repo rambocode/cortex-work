@@ -180,6 +180,62 @@ describe("filterOcrBlocksForVisibleConversation", () => {
     expect(transcript).toContain("我：订单创建了");
   });
 
+  it("钉钉主窗口 OCR 会剔除左侧会话列表，只保留打开的对话", () => {
+    const filtered = filterOcrBlocksForVisibleConversation(
+      [
+        block("2021级1班（家校", ocrBox(0.07, 0.82, 0.18, 0.03)),
+        block("巨匠：恭喜大家毕业啦！", ocrBox(0.07, 0.78, 0.24, 0.03)),
+        block("AI 助理", ocrBox(0.07, 0.7, 0.08, 0.03)),
+        block("聊聊新话题", ocrBox(0.07, 0.66, 0.1, 0.03)),
+        block("钉钉安全助手", ocrBox(0.07, 0.58, 0.13, 0.03)),
+        block("账号安全提醒", ocrBox(0.07, 0.54, 0.12, 0.03)),
+        block("洪园社区", ocrBox(0.07, 0.46, 0.09, 0.03)),
+        block("王晨轩 王梓萱妈妈今日在钉钉…", ocrBox(0.07, 0.42, 0.28, 0.03)),
+        block("多协信⋯.", ocrBox(0.07, 0.34, 0.09, 0.03)),
+        block("云服务通知：【云监控】云服务器⋯.", ocrBox(0.07, 0.3, 0.3, 0.03)),
+        block("giterlab...", ocrBox(0.07, 0.2, 0.1, 0.03)),
+        block("培训）17:39", ocrBox(0.07, 0.16, 0.11, 0.03)),
+        block("您方便提交个未支付订单吗", ocrBox(0.52, 0.78, 0.24, 0.04)),
+        block("我给您申请优惠", ocrBox(0.52, 0.66, 0.16, 0.04)),
+        block("改天吧", ocrBox(0.86, 0.54, 0.07, 0.04)),
+        block("江伟", ocrBox(0.95, 0.54, 0.04, 0.04)),
+        block("已读", ocrBox(0.9, 0.49, 0.04, 0.03)),
+        block("好的，您方便了跟我说", ocrBox(0.52, 0.39, 0.22, 0.04)),
+        block("今天 13:41", ocrBox(0.68, 0.31, 0.08, 0.03)),
+        block("订单创建了", ocrBox(0.82, 0.2, 0.11, 0.04)),
+        block("江伟", ocrBox(0.95, 0.2, 0.04, 0.04)),
+        block("已读", ocrBox(0.9, 0.15, 0.04, 0.03)),
+        block("好的", ocrBox(0.52, 0.08, 0.05, 0.04)),
+        block("［ 看待办", ocrBox(0.44, 0.02, 0.09, 0.03)),
+        block("囟看闲忙", ocrBox(0.54, 0.02, 0.1, 0.03)),
+        block("试试灵动回复（⌘+D）", ocrBox(0.66, 0.02, 0.2, 0.03)),
+      ],
+      { name: "钉钉", bundleId: "com.alibaba.DingTalkMac" },
+    );
+    const text = filtered.map((b) => b.text).join("\n");
+
+    expect(text).not.toContain("2021级1班");
+    expect(text).not.toContain("钉钉安全助手");
+    expect(text).not.toContain("洪园社区");
+    expect(text).not.toContain("giterlab");
+    expect(text).not.toContain("江伟");
+    expect(text).not.toContain("已读");
+    expect(text).not.toContain("看待办");
+    expect(text).not.toContain("灵动回复");
+    expect(text).toContain("您方便提交个未支付订单吗");
+    expect(text).toContain("我给您申请优惠");
+    expect(text).toContain("改天吧");
+    expect(text).toContain("订单创建了");
+
+    const transcript = new ConversationLayoutBuilder().transcript(filtered);
+    expect(transcript).not.toContain("2021级1班");
+    expect(transcript).not.toContain("钉钉安全助手");
+    expect(transcript).toContain("对方：您方便提交个未支付订单吗");
+    expect(transcript).toContain("对方：我给您申请优惠");
+    expect(transcript).toContain("我：改天吧");
+    expect(transcript).toContain("我：订单创建了");
+  });
+
   it("非 IM 应用不做裁剪", () => {
     expect(
       shouldPreferOcrForVisibleConversation({

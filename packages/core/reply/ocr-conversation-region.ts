@@ -24,7 +24,16 @@ const KNOWN_MULTI_PANE_IM_PATTERNS = [
 const IM_TOP_CHROME_MIN_MID_Y = 0.86;
 const IM_BOTTOM_TOOLBAR_MAX_MID_Y = 0.16;
 const WATERMARK_SEPARATORS = /[@＠◎○◉◯]/gu;
-const BOTTOM_TOOLBAR_LABELS = ["快速会议"] as const;
+const BOTTOM_TOOLBAR_LABELS = [
+  "快速会议",
+  "看待办",
+  "看闲忙",
+  "试试灵动回复",
+  "发送",
+  "换行",
+  "Aa",
+] as const;
+const READ_RECEIPT_LABELS = ["已读", "未读"] as const;
 
 /** 对已知 IM 主窗口，只保留右侧打开对话区；非 IM 或未识别出多栏结构时返回原数组。 */
 export function filterOcrBlocksForVisibleConversation(
@@ -49,7 +58,7 @@ export function shouldPreferOcrForVisibleConversation(capturedApp: CapturedAppIn
 
 function estimateConversationPanelMinX(blocks: readonly OCRTextBlock[]): number | null {
   const candidates = [...new Set(blocks.map((block) => round3(boxMinX(block.boundingBox))))]
-    .filter((x) => x >= 0.24 && x <= 0.46)
+    .filter((x) => x >= 0.24 && x <= 0.62)
     .sort((a, b) => a - b);
 
   for (const splitX of candidates) {
@@ -66,7 +75,7 @@ function looksLikeSidebar(blocks: readonly OCRTextBlock[], splitX: number): bool
   const confined = blocks.filter(
     (block) => boxMinX(block.boundingBox) < 0.24 && boxMaxX(block.boundingBox) <= splitX + 0.04,
   );
-  if (confined.length < 4) return false;
+  if (confined.length < 6) return false;
   const top = Math.max(...confined.map((block) => block.boundingBox.y));
   const bottom = Math.min(...confined.map((block) => block.boundingBox.y));
   return top - bottom >= 0.35;
@@ -82,13 +91,15 @@ function looksLikeConversationPanel(blocks: readonly OCRTextBlock[]): boolean {
 }
 
 function filterKnownImNoiseBlocks(blocks: readonly OCRTextBlock[]): readonly OCRTextBlock[] {
-  const watermarkHints = collectWatermarkHints(blocks);
+  const noiseHints = collectImNoiseHints(blocks);
   let changed = false;
   const filtered = blocks.filter((block) => {
     if (
       !looksLikeTopChromeBlock(block) &&
       !looksLikeBottomToolbarBlock(block) &&
-      !looksLikeBackgroundWatermark(block.text, watermarkHints)
+      !looksLikeReadReceiptBlock(block) &&
+      !looksLikeCurrentUserNameBadge(block, noiseHints) &&
+      !looksLikeBackgroundWatermark(block.text, noiseHints)
     ) {
       return true;
     }
@@ -98,19 +109,27 @@ function filterKnownImNoiseBlocks(blocks: readonly OCRTextBlock[]): readonly OCR
   return changed ? filtered : blocks;
 }
 
-interface WatermarkHints {
+interface ImNoiseHints {
   readonly personPrefixes: ReadonlySet<string>;
+  readonly currentUserNameBadges: ReadonlySet<string>;
 }
 
-function collectWatermarkHints(blocks: readonly OCRTextBlock[]): WatermarkHints {
+function collectImNoiseHints(blocks: readonly OCRTextBlock[]): ImNoiseHints {
   const personPrefixes = new Set<string>();
+  const currentUserNameBadges = new Set<string>();
   for (const block of blocks) {
     const parsed = parseFullWatermark(block.text);
-    if (!parsed) continue;
-    const prefix = parsed.person.slice(0, 2);
-    if (prefix.length >= 2) personPrefixes.add(prefix);
+    if (parsed) {
+      const prefix = parsed.person.slice(0, 2);
+      if (prefix.length >= 2) personPrefixes.add(prefix);
+    }
+
+    const badge = currentUserNameBadgeText(block);
+    if (badge && hasMessageBlockToLeftOnSameRow(blocks, block)) {
+      currentUserNameBadges.add(badge);
+    }
   }
-  return { personPrefixes };
+  return { personPrefixes, currentUserNameBadges };
 }
 
 function looksLikeTopChromeBlock(block: OCRTextBlock): boolean {
@@ -119,12 +138,47 @@ function looksLikeTopChromeBlock(block: OCRTextBlock): boolean {
 
 function looksLikeBottomToolbarBlock(block: OCRTextBlock): boolean {
   if (boxMidY(block.boundingBox) > IM_BOTTOM_TOOLBAR_MAX_MID_Y) return false;
-  if (boxMinX(block.boundingBox) < 0.72) return false;
   const compact = compactText(block.text).replace(/[^\p{L}\p{N}]/gu, "");
-  return BOTTOM_TOOLBAR_LABELS.some((label) => compact === label);
+  return BOTTOM_TOOLBAR_LABELS.some((label) => compact.includes(label));
 }
 
-function looksLikeBackgroundWatermark(text: string, hints: WatermarkHints): boolean {
+function looksLikeReadReceiptBlock(block: OCRTextBlock): boolean {
+  if (boxMinX(block.boundingBox) < 0.72) return false;
+  const compact = compactText(block.text).replace(/[^\p{L}\p{N}]/gu, "");
+  return READ_RECEIPT_LABELS.some((label) => compact === label);
+}
+
+function looksLikeCurrentUserNameBadge(block: OCRTextBlock, hints: ImNoiseHints): boolean {
+  const badge = currentUserNameBadgeText(block);
+  return badge != null && hints.currentUserNameBadges.has(badge);
+}
+
+function currentUserNameBadgeText(block: OCRTextBlock): string | null {
+  if (boxMinX(block.boundingBox) < 0.88) return null;
+  const compact = compactText(block.text);
+  if (compact.length < 2 || compact.length > 4) return null;
+  if (!/^\p{Script=Han}+$/u.test(compact)) return null;
+  return compact;
+}
+
+function hasMessageBlockToLeftOnSameRow(
+  blocks: readonly OCRTextBlock[],
+  candidate: OCRTextBlock,
+): boolean {
+  const candidateMidY = boxMidY(candidate.boundingBox);
+  const candidateMinX = boxMinX(candidate.boundingBox);
+  return blocks.some((block) => {
+    if (block === candidate) return false;
+    const verticalDistance = Math.abs(boxMidY(block.boundingBox) - candidateMidY);
+    const rowTolerance = Math.max(block.boundingBox.height, candidate.boundingBox.height) * 0.75;
+    if (verticalDistance > rowTolerance) return false;
+
+    const gap = candidateMinX - boxMaxX(block.boundingBox);
+    return boxMinX(block.boundingBox) >= 0.55 && gap >= 0.008 && gap <= 0.08;
+  });
+}
+
+function looksLikeBackgroundWatermark(text: string, hints: ImNoiseHints): boolean {
   const trimmed = text.trim();
   if (trimmed.length < 2 || trimmed.length > 48) return false;
 
@@ -174,7 +228,7 @@ function looksLikeWatermarkPersonWithSeparatorOnly(text: string): boolean {
   return looksLikeWatermarkNamePart(person, 12);
 }
 
-function looksLikeWatermarkPersonFragment(text: string, hints: WatermarkHints): boolean {
+function looksLikeWatermarkPersonFragment(text: string, hints: ImNoiseHints): boolean {
   if (hints.personPrefixes.size === 0) return false;
   const compact = compactText(text);
   if (compact.length < 2 || compact.length > 4) return false;

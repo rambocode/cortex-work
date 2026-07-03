@@ -183,7 +183,7 @@ function conversationPanelBlocks(blocks: readonly OCRTextBlock[]): readonly OCRT
     if (!gapColumn || !panelColumn) continue;
     const gapStart = gapColumn.upper;
     const panelLower = panelColumn.lower;
-    if (gapStart > 0.4) continue;
+    if (gapStart > 0.3) continue;
     const leftSpan = gapStart - first.lower;
     const rightSpan = last.upper - panelLower;
     if (leftSpan <= 0.35 && rightSpan >= 0.45) {

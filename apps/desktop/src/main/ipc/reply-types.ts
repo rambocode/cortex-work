@@ -125,6 +125,16 @@ export interface ReplyDataSummary {
   conversationCount: number;
 }
 
+/// 「立即重新学习」结果。error 为稳定错误码（渲染端映射 i18n 文案）：
+/// no-history=无历史 / no-samples=历史无可用样本 / model-not-configured=未配置生成模型，
+/// 其余字符串为底层错误详情。
+export interface ReplyRelearnResult {
+  ok: boolean;
+  /// 成功重建的分区数（im/email 至多 2）。
+  learned?: number;
+  error?: string;
+}
+
 // ── 候选气泡窗契约（U6，KTD5）──────────────────────────────────────────────────────
 // 气泡窗是独立不抢焦 BrowserWindow（仿 notification）。主进程 → 气泡渲染端只推 ReplyBubbleState；
 // 气泡渲染端 → 主进程只上报实测高度与鼠标动作（ReplyBubbleAction）。键盘不走 DOM：←/→/↩/esc/Tab

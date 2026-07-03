@@ -64,12 +64,16 @@ import {
 import {
   getLastReplySnapshot,
   setReplyHelperPermissionsSource,
+  setReplyRelearnHandler,
   replyHistoryStore,
   replyConversationStore,
   replyMemoryStore,
 } from "./ipc/reply";
 import { newReplyHistoryId } from "./reply/history-store";
 import { ConversationLearner } from "./reply/conversation-learner";
+import { collectRelearnSamples } from "./reply/relearn";
+import { buildDistillPrompt, cleanDistilledRules } from "@cortex-work/core/reply/memory";
+import type { ReplyRelearnResult } from "./ipc/reply-types";
 import { ReplyDistiller } from "./reply/distill";
 import { chatComplete, REPLY_TEMPERATURES } from "./reply/draft-generator";
 import { resolveReplyModel } from "./reply/resolve-model";
@@ -206,6 +210,37 @@ async function initReply(): Promise<void> {
     },
     logger: createLogger("reply-distill"),
   });
+  // 「立即重新学习」（源项目 relearn 恢复版）：依据已落盘回复历史（KTD8 修订后的样本来源）
+  // 重建 im/email 分区的语气要点——existingAuto 传空串是刻意的：relearn 语义是从头重建而非
+  // 增量合并。成功后失效蒸馏器 localAuto 缓存并推送记忆刷新。用户显式点击即为授权，不受
+  // learningEnabled 后台开关门控。
+  const relearnFromHistory = async (): Promise<ReplyRelearnResult> => {
+    const entries = await replyHistoryStore.list();
+    if (entries.length === 0) return { ok: false, error: "no-history" };
+    const buckets = collectRelearnSamples(entries);
+    if (buckets.size === 0) return { ok: false, error: "no-samples" };
+    const target = await resolveModel();
+    if (!target) return { ok: false, error: "model-not-configured" };
+    let learned = 0;
+    for (const [scope, samples] of buckets) {
+      try {
+        const prompt = buildDistillPrompt(scope, samples, "");
+        const output = await chatComplete({ prompt, target, temperature: REPLY_TEMPERATURES.distill });
+        const rules = cleanDistilledRules(output);
+        if (rules.length === 0) continue; // 模型只吐解释：该分区跳过，不清空原有要点
+        await replyMemoryStore.setFile(scope, { auto: rules });
+        learned += 1;
+      } catch (err) {
+        log.warn("[reply] 重新学习失败:", err);
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+    distiller.resetLocalAuto();
+    mainWindow?.webContents.send("reply:memoryChanged", await replyMemoryStore.getMemory());
+    return { ok: true, learned };
+  };
+  setReplyRelearnHandler(relearnFromHistory);
+
   // 对话级记忆蒸馏器：写回成功 → 后台蒸馏「关于对话对象的事实/偏好」→ 写回 conversation-store。
   // 与 ReplyDistiller 共用同一 generate 通道（供应商直连，温度 0.2），互不缠绕（分桶键/采集目标不同）。
   const conversationLearner = new ConversationLearner({

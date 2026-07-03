@@ -76,6 +76,7 @@ import type {
   ReplyChannelVerifyResult,
   ReplyDataSummary,
   ReplyDebugEntry,
+  ReplyRelearnResult,
   ReplySyncSnapshot,
   MemoryScope,
   MemoryFile,
@@ -709,6 +710,9 @@ const personal = {
   replyGetDataSummary: (): Promise<ReplyDataSummary> => ipcRenderer.invoke("reply:getDataSummary"),
   replyClearHistory: (): Promise<void> => ipcRenderer.invoke("reply:clearHistory"),
   replyClearConversationMemory: (): Promise<void> => ipcRenderer.invoke("reply:clearConversationMemory"),
+  // 数据文件夹与重新学习（记忆管理工具行）。
+  replyOpenDataFolder: (): Promise<void> => ipcRenderer.invoke("reply:openDataFolder"),
+  replyRelearn: (): Promise<ReplyRelearnResult> => ipcRenderer.invoke("reply:relearn"),
   // 全局分区记忆（KTD6 修订：main-owned memory.json，设置页经此读写）。
   replyGetMemory: (): Promise<MemoryState> => ipcRenderer.invoke("reply:getMemory"),
   replySetMemoryFile: (scope: MemoryScope, patch: Partial<MemoryFile>): Promise<void> =>

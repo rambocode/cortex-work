@@ -86,6 +86,7 @@ import type {
   ReplyChannelVerifyResult,
   ReplyDataSummary,
   ReplyDebugEntry,
+  ReplyRelearnResult,
   ReplySyncSnapshot,
 } from "./types";
 import type { ChannelId } from "../reply/channels";
@@ -550,6 +551,10 @@ export interface DesktopBridge {
   replyClearHistory?(): Promise<void>;
   /** 清空对话级记忆（conversation-memory.json，数据清理）。 */
   replyClearConversationMemory?(): Promise<void>;
+  /** 在 Finder 显示 ~/.cortex-desktop/reply/ 数据文件夹（记忆/历史均为本机 JSON）。 */
+  replyOpenDataFolder?(): Promise<void>;
+  /** 立即重新学习：依据已落盘回复历史重建 im/email 语气要点（源项目 relearn）。 */
+  replyRelearn?(): Promise<ReplyRelearnResult>;
   /** 读全局分区记忆（KTD6 修订：main-owned memory.json，含首启从旧分片迁移）。 */
   replyGetMemory?(): Promise<MemoryState>;
   /** 写单分区手写区/自动区（设置页 MemoryManager 编辑）。 */
