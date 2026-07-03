@@ -5,7 +5,7 @@
 // 主进程当前只把三分片随 PersistedState 透明落盘（store.ts round-trip），不深读；
 // U7/U9 会真正消费这些类型。
 
-import type { AgentKind } from "./types";
+import type { AgentKind, AsrSettings } from "./types";
 
 // ── core/reply/memory.ts 镜像子集 ──────────────────────────────────────────────
 
@@ -155,3 +155,20 @@ export type ReplyBubbleAction =
   | { type: "close" } // 关闭气泡
   | { type: "select"; index: number } // 点击圆点直接切到某候选
   | { type: "openSettings" }; // agentNotConfigured 引导去设置
+
+// ── 语音意图录音通道（U8，R1 后半 / R9）─────────────────────────────────────────────
+// 「按住语音键说话」由 helper 判定手势 → controller 令气泡渲染端启动 MediaRecorder（录音只能在
+// 渲染端做）。主进程 → 气泡：voice start/stop 指令（start 携带 asrSettings，转写走统一入口）；
+// 气泡 → 主进程：转写结果（文本作为口述意图触发起草，或空/失败让 controller 提示后回 idle）。
+
+/// 主进程 → 气泡的录音指令。start 携带转写配置（main 从持久化态读取；null=未配置，气泡将回失败）。
+export type ReplyBubbleVoiceCommand =
+  | { command: "start"; asr: AsrSettings | null }
+  | { command: "stop" };
+
+/// 气泡 → 主进程的转写结果。ok+text 非空 → 起草；ok 但空文本 → 未识别；!ok → 失败（reason 供提示）。
+export interface ReplyBubbleVoiceResult {
+  ok: boolean;
+  text?: string;
+  reason?: string;
+}

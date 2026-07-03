@@ -9,6 +9,9 @@
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
+import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
+// 录音采集 + 16kHz WAV + 统一转写核心与 ComposerShell 共用（U8，见 voiceRecorder 文件头注释）。
+import { VoiceCapture, transcribeRecording } from "@cortex-work/views/cortex-desktop/voice-recorder";
 import "./reply-bubble.css";
 
 // 与 main/ipc/reply-types.ts 的契约同形（跨 tsconfig 不直接 import 主进程类型，结构兼容即可）。
@@ -140,17 +143,89 @@ export function ReplyBubble({
   );
 }
 
-/// 宿主：订阅主进程状态推送、上报实测高度、上行鼠标动作。
+/// 宿主：订阅主进程状态推送、上报实测高度、上行鼠标动作、承载语音录音（U8）。
 function ReplyBubbleHost(): React.ReactElement {
   const api = typeof window !== "undefined" ? window.desktopAPI : undefined;
   const [state, setState] = useState<BubbleState>(INITIAL_STATE);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  // 进行中的录音会话与其 ASR 配置（onVoice start 携带；stop 时用于转写）。
+  const captureRef = useRef<VoiceCapture | null>(null);
+  const asrRef = useRef<AsrSettings | null>(null);
 
   useEffect(() => {
     const bubble = api?.replyBubble;
     if (!bubble) return;
     const off = bubble.onState((s) => setState(s));
     return off;
+  }, [api]);
+
+  // ── 语音意图录音（U8，R1 后半 / R9）─────────────────────────────────────────────
+  // 录音只能在渲染端做：主进程下发 voice start/stop；stop 时重采样 WAV → 统一转写入口 → 回传文本。
+  // 结果（成功文本 / 失败原因）经 submitVoiceResult 回 controller，由其决定起草或提示后回 idle。
+  useEffect(() => {
+    const bubble = api?.replyBubble;
+    if (!bubble?.onVoice) return;
+
+    const submit = (result: { ok: boolean; text?: string; reason?: string }): void =>
+      bubble.submitVoiceResult?.(result);
+    const reasonOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+    // start：申请麦克风并开始录音；失败即回传（controller 提示后回 idle）。
+    const startVoice = async (asr: AsrSettings | null): Promise<void> => {
+      asrRef.current = asr;
+      try {
+        const capture = new VoiceCapture();
+        await capture.start();
+        captureRef.current = capture;
+      } catch (err) {
+        captureRef.current = null;
+        submit({ ok: false, reason: reasonOf(err) });
+      }
+    };
+
+    // stop：停止录音 → 取音频 → 转写 → 回传文本。空录音 / 未配置 ASR / 转写失败均回传失败原因。
+    const stopVoice = async (): Promise<void> => {
+      const capture = captureRef.current;
+      captureRef.current = null;
+      if (!capture) {
+        submit({ ok: false, reason: "录音未启动" });
+        return;
+      }
+      let blob: Blob | null = null;
+      try {
+        blob = await capture.stop();
+      } catch (err) {
+        submit({ ok: false, reason: reasonOf(err) });
+        return;
+      }
+      if (!blob) {
+        submit({ ok: false, reason: "没有录到音频" });
+        return;
+      }
+      const asr = asrRef.current;
+      if (!asr) {
+        submit({ ok: false, reason: "未配置语音识别" });
+        return;
+      }
+      try {
+        // transcribe 复用统一转写入口（stt:transcribe），气泡端只经 replyBubble 桥不触碰 personal。
+        const text = await transcribeRecording({ transcribeSpeech: bubble.transcribe }, asr, blob);
+        submit({ ok: true, text });
+      } catch (err) {
+        submit({ ok: false, reason: reasonOf(err) });
+      }
+    };
+
+    const off = bubble.onVoice((cmd) => {
+      if (cmd.command === "start") void startVoice(cmd.asr);
+      else void stopVoice();
+    });
+    return () => {
+      off();
+      // 窗口复用、effect 清理：释放麦克风，避免录音悬挂。
+      captureRef.current?.dispose();
+      captureRef.current = null;
+    };
   }, [api]);
 
   // 实测内容高度上报：主进程据此重定位并显示（避免透明窗闪现错误尺寸）。+2 抵消子像素取整。

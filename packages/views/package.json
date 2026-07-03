@@ -10,7 +10,8 @@
   },
   "exports": {
     "./cortex-desktop": "./cortex-desktop/index.ts",
-    "./cortex-desktop/styles.css": "./cortex-desktop/cortex-desktop.css"
+    "./cortex-desktop/styles.css": "./cortex-desktop/cortex-desktop.css",
+    "./cortex-desktop/voice-recorder": "./cortex-desktop/personal/voiceRecorder.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.0",

@@ -30,6 +30,37 @@ describe("ReplySession 状态机转移", () => {
     expect(s.phase).toBe("capturing");
   });
 
+  it("beginRecording 递增 token 并清空上一轮候选（每次按住语音键都是新会话）", () => {
+    const s = new ReplySession();
+    s.beginCapture();
+    s.presentFirst("旧候选");
+    s.setCapturedPid(42);
+    const t = s.beginRecording();
+    expect(t).toBe(2); // beginCapture(1) → beginRecording(2)
+    expect(s.phase).toBe("recording");
+    expect(s.candidates).toEqual([]);
+    expect(s.currentIndex).toBe(0);
+    expect(s.capturedPid).toBeNull();
+  });
+
+  it("连续两次 beginRecording：旧 token 失效（作废上一轮遗留提示定时器）", () => {
+    const s = new ReplySession();
+    const t1 = s.beginRecording();
+    const t2 = s.beginRecording();
+    expect(t2).toBe(t1 + 1);
+    expect(s.isCurrent(t1)).toBe(false); // 上一轮语音会话的过期回调/定时器被丢弃
+    expect(s.isCurrent(t2)).toBe(true);
+  });
+
+  it("recording→idle：空识别 / 失败经 reset 回 idle 并作废在途 token", () => {
+    const s = new ReplySession();
+    const t = s.beginRecording();
+    expect(s.phase).toBe("recording");
+    s.reset(); // 提示后回 idle
+    expect(s.phase).toBe("idle");
+    expect(s.isCurrent(t)).toBe(false);
+  });
+
   it("beginCapture 递增 token 并清空上一轮候选", () => {
     const s = new ReplySession();
     s.beginCapture();

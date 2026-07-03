@@ -13,7 +13,10 @@ import {
   pushReplyBubbleState,
   closeReplyBubble,
   setReplyBubbleActionHandler,
+  setReplyBubbleVoiceResultHandler,
+  sendReplyBubbleVoice,
 } from "./bubble-window";
+import { decideVoiceIntent, VOICE_PROMPT_DISMISS_MS } from "./voice-intent";
 import {
   ReplySession,
   looksLikeConversation,
@@ -34,10 +37,12 @@ import type {
   ReplyBubbleAction,
   ReplyBubbleErrorKind,
   ReplyBubbleState,
+  ReplyBubbleVoiceResult,
   ReplyDebugEntry,
   ReplyRect,
   ReplySyncSnapshot,
 } from "../ipc/reply-types";
+import type { AsrSettings } from "../ipc/types";
 
 // ── OCR 对话重建的噪声表（移植源项目 ScreenTextReader 微信噪声 / 系统事件前缀）───────────────
 // 输入框占位符 / 语音时长 / 系统事件气泡等在重建前剔除，避免污染「对方/我」分说话人。
@@ -99,6 +104,11 @@ export interface ReplyControllerDeps {
   helper: ReplyHelperClient;
   /** 默认 agent / 记忆 / 触发键快照（renderer 经 reply:syncSettings 推送，main 侧缓存）。 */
   getSnapshot: () => ReplySyncSnapshot | null;
+  /**
+   * 读当前 ASR 配置（U8 语音意图转写用；从持久化态异步读取）。返回 null / 未提供 → 语音不可用，
+   * onVoiceStart 直接提示。与 getSnapshot 分开注入：ASR 属独立设置分片，避免塞进 reply 快照。
+   */
+  getAsrSettings?: () => Promise<AsrSettings | null>;
   /** 写回成功后的学习回调（U10 蒸馏接线；默认 no-op）。 */
   onDraftAccepted?: (info: DraftAcceptedInfo) => void;
   /** 「去设置」动作（agentNotConfigured 引导）：聚焦主窗口。 */
@@ -119,6 +129,7 @@ function delay(ms: number): Promise<void> {
 export class ReplyController {
   private readonly helper: ReplyHelperClient;
   private readonly getSnapshot: () => ReplySyncSnapshot | null;
+  private readonly getAsrSettings?: () => Promise<AsrSettings | null>;
   private readonly onDraftAccepted?: (info: DraftAcceptedInfo) => void;
   private readonly onOpenSettings?: () => void;
   private readonly log: ReplyControllerLogger;
@@ -132,10 +143,13 @@ export class ReplyController {
   private preGenActive = false;
   // 翻牌单飞：避免同一会话并发追加多条。
   private flipBusy = false;
+  // 语音录音是否已真正在气泡端启动（ASR 缺失时不录音，voice-end 松开应被忽略）。
+  private voiceActive = false;
 
   constructor(deps: ReplyControllerDeps) {
     this.helper = deps.helper;
     this.getSnapshot = deps.getSnapshot;
+    this.getAsrSettings = deps.getAsrSettings;
     this.onDraftAccepted = deps.onDraftAccepted;
     this.onOpenSettings = deps.onOpenSettings;
     this.log = deps.logger ?? NOOP_LOGGER;
@@ -150,7 +164,7 @@ export class ReplyController {
         void this.startDraftSession();
         break;
       case "voice-start":
-        this.onVoiceStart();
+        void this.onVoiceStart();
         break;
       case "voice-end":
         this.onVoiceEnd();
@@ -524,33 +538,65 @@ export class ReplyController {
     }
   }
 
-  // ── 语音（U8 在此基础上接转写）────────────────────────────────────────────────
+  // ── 语音意图（U8，R1 后半 / R9）──────────────────────────────────────────────
+  // 录音只能在渲染端做：voice-start → 弹「聆听中」气泡 + 令气泡启动 MediaRecorder（携 ASR 配置）；
+  // voice-end → 令气泡停止 → 转写 → 结果经 reply-bubble:voice-result → handleVoiceResult。
 
-  /** voice-start：进入 recording，弹「聆听中」气泡（转写在渲染端由 U8 驱动）。 */
-  private onVoiceStart(): void {
+  /**
+   * voice-start：进入 recording 并弹气泡。同步开吞键 + 弹「聆听中」以即时反馈，随后读 ASR 配置：
+   * 缺失（未配置语音）→ 不真正录音、提示后回 idle；就绪 → 令气泡启动录音。
+   */
+  private async onVoiceStart(): Promise<void> {
     this.abortInFlight();
-    this.session.beginRecording();
+    const token = this.session.beginRecording();
     this.helper.setIntercept(true);
     openReplyBubble(null);
     this.pushRecording();
+    // 读 ASR 配置（异步）：读完后校验 token——期间可能被新手势/取消抢占，过期则不再启动录音。
+    const asr = (await this.getAsrSettings?.()) ?? null;
+    if (!this.session.isCurrent(token)) return;
+    if (!asr) {
+      // 未注入 / 返回 null → 语音不可用，提示后回 idle（不静默）。
+      this.voiceActive = false;
+      this.pushVoicePrompt("未配置语音识别，请先在设置中开启语音功能");
+      return;
+    }
+    this.voiceActive = true;
+    sendReplyBubbleVoice({ command: "start", asr });
+  }
+
+  /** voice-end：松开语音键 → 令气泡停止录音并转写（未真正录音则忽略）。保持 recording 态等结果。 */
+  private onVoiceEnd(): void {
+    if (!this.voiceActive) return;
+    this.voiceActive = false;
+    sendReplyBubbleVoice({ command: "stop" });
   }
 
   /**
-   * voice-end：录音停止与转写在气泡渲染端（U8），转写文本经 submitVoiceIntent 回来触发起草。
-   * U7 侧保持 recording 态等待，不在此转 idle（避免抢在 U8 转写前提前收尾）。
+   * 气泡转写结果回调（reply-bubble:voice-result）：文本非空 → 作为口述意图起草；
+   * 空识别 / 失败 → 气泡提示后回 idle（R1：不允许静默回 idle）。
    */
-  private onVoiceEnd(): void {
-    // 由 U8 接线：voice-end → 渲染端停止 MediaRecorder → 转写 → submitVoiceIntent。
-  }
-
-  /** 语音转写结果回填（U8 调用）：非空作为口述意图起草，空则提示后回 idle。 */
-  submitVoiceIntent(text: string): void {
-    const trimmed = text.trim();
-    if (trimmed.length === 0) {
-      this.cancel();
+  handleVoiceResult(result: ReplyBubbleVoiceResult): void {
+    const decision = decideVoiceIntent(result);
+    if (decision.action === "draft") {
+      void this.startDraftSession(decision.text);
       return;
     }
-    void this.startDraftSession(trimmed);
+    this.pushVoicePrompt(
+      decision.action === "empty" ? "没有识别到语音，请重试" : `语音转写失败：${decision.reason}`,
+    );
+  }
+
+  /**
+   * 语音失败/空识别提示：复用错误气泡展示 detail，并在停留片刻后自动回 idle（token 守卫，
+   * 若期间用户已发起新会话则不误伤）。用 generationFailed 类型让用户可即时重试或关闭。
+   */
+  private pushVoicePrompt(detail: string): void {
+    this.pushError("generationFailed", detail);
+    const token = this.session.token;
+    setTimeout(() => {
+      if (this.session.isCurrent(token)) this.cancel();
+    }, VOICE_PROMPT_DISMISS_MS);
   }
 
   // ── 收尾 / 取消 ───────────────────────────────────────────────────────────────
@@ -564,6 +610,7 @@ export class ReplyController {
     this.pending = null;
     this.preGenActive = false;
     this.flipBusy = false;
+    this.voiceActive = false;
   }
 
   /** abort 当前在途生成（kill 在途 CLI）。 */
@@ -675,10 +722,11 @@ function parseOcrBlocks(raw: unknown[]): OCRTextBlock[] {
 
 let controller: ReplyController | null = null;
 
-/** 创建 reply 编排器单例并接管气泡动作分发（index.ts 在 mac 平台调用）。 */
+/** 创建 reply 编排器单例并接管气泡动作 / 语音结果分发（index.ts 在 mac 平台调用）。 */
 export function initReplyController(deps: ReplyControllerDeps): ReplyController {
   controller = new ReplyController(deps);
   setReplyBubbleActionHandler((action) => controller?.handleBubbleAction(action));
+  setReplyBubbleVoiceResultHandler((result) => controller?.handleVoiceResult(result));
   return controller;
 }
 
@@ -702,4 +750,5 @@ export function disposeReplyController(): void {
   controller?.dispose();
   controller = null;
   setReplyBubbleActionHandler(null);
+  setReplyBubbleVoiceResultHandler(null);
 }

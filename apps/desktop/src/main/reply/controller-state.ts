@@ -70,9 +70,17 @@ export class ReplySession {
     return this._token;
   }
 
-  /** voice-start：idle→recording（等待松开语音键）。 */
-  beginRecording(): void {
+  /**
+   * voice-start：进入 recording（等待松开语音键）。递增 token 作废上一轮遗留回调 / 提示定时器，
+   * 清空候选与捕获目标——每次按住语音键都是一轮全新会话。返回新 token。
+   */
+  beginRecording(): number {
+    this._token += 1;
     this._phase = "recording";
+    this._candidates = [];
+    this._index = 0;
+    this._capturedPid = null;
+    return this._token;
   }
 
   /** 记录捕获到的目标应用 pid（写回前 pid 校验用；AX 取不到时为 null）。 */

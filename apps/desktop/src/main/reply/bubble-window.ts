@@ -10,7 +10,13 @@ import { BrowserWindow, screen } from "electron";
 import { join } from "path";
 import { existsSync } from "fs";
 import { is } from "@electron-toolkit/utils";
-import type { ReplyBubbleState, ReplyBubbleAction, ReplyRect } from "../ipc/reply-types";
+import type {
+  ReplyBubbleState,
+  ReplyBubbleAction,
+  ReplyBubbleVoiceCommand,
+  ReplyBubbleVoiceResult,
+  ReplyRect,
+} from "../ipc/reply-types";
 import { bubbleWindowBounds, BUBBLE_WIDTH } from "./bubble-window-geometry";
 
 let win: BrowserWindow | null = null;
@@ -21,6 +27,8 @@ let lastHeight = 120;
 
 // 气泡渲染端鼠标动作的处理器：U6 仅提供可注入注册表，U7 controller 接管真正的翻牌/重试/关闭逻辑。
 let actionHandler: ((action: ReplyBubbleAction) => void) | null = null;
+// 气泡渲染端语音转写结果的处理器（U8 controller 注入）。
+let voiceResultHandler: ((result: ReplyBubbleVoiceResult) => void) | null = null;
 
 /// 注入气泡鼠标动作处理器（U7 controller 调用；未注入时动作被安全忽略）。
 export function setReplyBubbleActionHandler(handler: ((action: ReplyBubbleAction) => void) | null): void {
@@ -30,6 +38,18 @@ export function setReplyBubbleActionHandler(handler: ((action: ReplyBubbleAction
 /// 分发一条气泡动作到已注入的处理器（供 ipc/reply.ts 的 reply-bubble:action 通道调用）。
 export function dispatchReplyBubbleAction(action: ReplyBubbleAction): void {
   actionHandler?.(action);
+}
+
+/// 注入气泡语音结果处理器（U8 controller 调用；未注入时结果被安全忽略）。
+export function setReplyBubbleVoiceResultHandler(
+  handler: ((result: ReplyBubbleVoiceResult) => void) | null,
+): void {
+  voiceResultHandler = handler;
+}
+
+/// 分发一条气泡语音转写结果（供 ipc/reply.ts 的 reply-bubble:voice-result 通道调用）。
+export function dispatchReplyBubbleVoiceResult(result: ReplyBubbleVoiceResult): void {
+  voiceResultHandler?.(result);
 }
 
 // prod 下 html 可能落在 flat / nested，双路径探测兜底（漏抄会白屏）。仿 notification-window.ts。
@@ -100,6 +120,15 @@ export function openReplyBubble(anchorFrame: ReplyRect | null): void {
 export function pushReplyBubbleState(state: ReplyBubbleState): void {
   const w = win && !win.isDestroyed() ? win : create();
   const send = (): void => w.webContents.send("reply-bubble:state", state);
+  if (w.webContents.isLoading()) w.webContents.once("did-finish-load", send);
+  else send();
+}
+
+/// 主进程 → 气泡渲染端下发录音指令（voice start/stop，U8）。窗口尚在加载则等 did-finish-load 再发，
+/// 避免指令早于 renderer 的 onVoice 监听丢失（同 pushReplyBubbleState 的时序守卫）。
+export function sendReplyBubbleVoice(command: ReplyBubbleVoiceCommand): void {
+  const w = win && !win.isDestroyed() ? win : create();
+  const send = (): void => w.webContents.send("reply-bubble:voice", command);
   if (w.webContents.isLoading()) w.webContents.once("did-finish-load", send);
   else send();
 }

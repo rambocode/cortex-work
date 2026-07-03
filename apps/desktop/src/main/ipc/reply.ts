@@ -11,6 +11,7 @@ import { ipcMain, safeStorage, shell } from "electron";
 import type {
   ChannelId,
   ReplyBubbleAction,
+  ReplyBubbleVoiceResult,
   ReplyChannelVerifyResult,
   ReplyDebugEntry,
   ReplyPermissionKind,
@@ -18,7 +19,11 @@ import type {
   ReplySyncSnapshot,
 } from "./reply-types";
 import { UNKNOWN_REPLY_PERMISSIONS } from "./reply-types";
-import { resizeReplyBubble, dispatchReplyBubbleAction } from "../reply/bubble-window";
+import {
+  resizeReplyBubble,
+  dispatchReplyBubbleAction,
+  dispatchReplyBubbleVoiceResult,
+} from "../reply/bubble-window";
 // U7 controller 填实起草触发与调试记录读取（controller 单例不依赖本模块，单向引用无环）。
 import { triggerReplyDraft, getReplyDebugEntries } from "../reply/controller";
 // 渠道请求构造/响应解析纯函数在 core（app 可依赖 core，反向禁止）。
@@ -159,4 +164,9 @@ export function registerReplyHandlers(): void {
 
   // 气泡鼠标动作（翻牌/重试/关闭/选择/去设置）→ 分发到 U7 注入的处理器（未注入则安全忽略）。
   ipcMain.on("reply-bubble:action", (_e, action: ReplyBubbleAction) => dispatchReplyBubbleAction(action));
+
+  // 气泡语音转写结果（U8）→ 分发到 controller 注入的处理器（口述意图起草 / 空失败提示）。
+  ipcMain.on("reply-bubble:voice-result", (_e, result: ReplyBubbleVoiceResult) =>
+    dispatchReplyBubbleVoiceResult(result),
+  );
 }

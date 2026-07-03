@@ -167,6 +167,8 @@ async function initReply(): Promise<void> {
   initReplyController({
     helper: replyHelper,
     getSnapshot: getLastReplySnapshot,
+    // 语音意图转写用的 ASR 配置：从个人工作区持久化态读取（内存镜像，store:save 即时刷新）。
+    getAsrSettings: async () => (await getPersistedState()).asrSettings ?? null,
     onOpenSettings: showMainWindow,
     logger: createLogger("reply"),
   });

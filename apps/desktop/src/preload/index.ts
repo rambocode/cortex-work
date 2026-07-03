@@ -78,6 +78,8 @@ import type {
   ReplySyncSnapshot,
   ReplyBubbleState,
   ReplyBubbleAction,
+  ReplyBubbleVoiceCommand,
+  ReplyBubbleVoiceResult,
 } from "../main/ipc/types";
 // 方案 A：编排请求类型权威定义留在 orchestrate.ts，此处 type-only 引入（编译期擦除，
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
@@ -770,6 +772,18 @@ const replyBubble = {
   },
   resize: (height: number): void => ipcRenderer.send("reply-bubble:resize", height),
   action: (action: ReplyBubbleAction): void => ipcRenderer.send("reply-bubble:action", action),
+  // ── 语音意图录音（U8）──────────────────────────────────────────────────────────
+  // onVoice：接收主进程 start/stop 指令（录音只能在渲染端做）；submitVoiceResult：回传转写结果；
+  // transcribe：复用统一转写入口（stt:transcribe），使气泡渲染端只依赖 replyBubble 桥。
+  onVoice: (cb: (command: ReplyBubbleVoiceCommand) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, command: ReplyBubbleVoiceCommand) => cb(command);
+    ipcRenderer.on("reply-bubble:voice", listener);
+    return () => ipcRenderer.removeListener("reply-bubble:voice", listener);
+  },
+  submitVoiceResult: (result: ReplyBubbleVoiceResult): void =>
+    ipcRenderer.send("reply-bubble:voice-result", result),
+  transcribe: (req: AsrTranscribeRequest, asrSettings: AsrSettings): Promise<AsrTranscribeResponse> =>
+    ipcRenderer.invoke("stt:transcribe", { ...req, asrSettings }),
 };
 
 const desktopAPI = {

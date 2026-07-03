@@ -17,18 +17,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DesktopBridge } from "@cortex-work/core";
 import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
 import type { LocalWhisperModelStatus } from "@cortex-work/core/whisper/models";
-import { encodeBlobAsWav } from "./encodeWav";
-
-/** MediaRecorder MIME 优先顺序，webm/opus 压缩比最佳。 */
-const RECORDER_MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
-
-function pickRecordingMimeType(): string {
-  if (typeof MediaRecorder === "undefined") return "";
-  for (const type of RECORDER_MIME_CANDIDATES) {
-    if (MediaRecorder.isTypeSupported(type)) return type;
-  }
-  return "";
-}
+// 录音采集 + 16kHz WAV + 统一转写核心抽到 voiceRecorder（与 reply 气泡共用，见其文件头注释）。
+import { VoiceCapture, transcribeRecording } from "./voiceRecorder";
 
 // ── 按钮可用条件（R11）─────────────────────────────────────────────────────────
 
@@ -93,10 +83,9 @@ export function useComposerVoice({
   /** 本地 whisper 模型状态（只在 local-whisper 协议时订阅）。 */
   const [localModelStatus, setLocalModelStatus] = useState<LocalWhisperModelStatus | null>(null);
 
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
-  // 使用 ref 镜像 asrSettings 与 callbacks，避免 onstop 闭包捕获旧值
+  // 进行中的录音会话（VoiceCapture 封装 MediaRecorder/MediaStream 生命周期）。
+  const captureRef = useRef<VoiceCapture | null>(null);
+  // 使用 ref 镜像 asrSettings 与 callbacks，避免异步回调闭包捕获旧值
   const asrSettingsRef = useRef(asrSettings);
   const onTranscriptRef = useRef(onTranscript);
   const onToastRef = useRef(onToast);
@@ -163,10 +152,8 @@ export function useComposerVoice({
   // ── 组件卸载时停止录音 ────────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      if (recorderRef.current && recorderRef.current.state !== "inactive") {
-        recorderRef.current.stop();
-      }
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      captureRef.current?.dispose();
+      captureRef.current = null;
     };
   }, []);
 
@@ -177,22 +164,7 @@ export function useComposerVoice({
       const asr = asrSettingsRef.current;
       setTranscribing(true);
       try {
-        // 重采样为 16kHz 单声道 WAV（whisper-cli 需要；在线接口也接受 WAV）
-        const audio = await encodeBlobAsWav(blob);
-        const result = await bridge.transcribeSpeech(
-          {
-            baseUrl: asr.baseUrl,
-            apiKey: asr.apiKey || undefined,
-            model: asr.model,
-            // language 空串/"auto" → 不传（让服务端自动检测；OpenAI 兼容接口省略 language 表示 auto）
-            language: asr.language && asr.language !== "auto" ? asr.language : undefined,
-            fileName: `recording.wav`,
-            mimeType: "audio/wav",
-            audio,
-          },
-          asr,
-        );
-        onTranscriptRef.current(result.text);
+        onTranscriptRef.current(await transcribeRecording(bridge, asr, blob));
       } catch (err) {
         // 区分本地运行器退出码与网络/配置错误：
         // - 退出码错误通常含 "exit code" 字样（由主进程 whisper-cli runner 抛出）
@@ -208,67 +180,42 @@ export function useComposerVoice({
   );
 
   // ── 录音状态机 ────────────────────────────────────────────────────────────────
-  const stopRecording = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      recorderRef.current.stop();
+  // 停止录音 → 取回 Blob → 空则提示、非空转写。VoiceCapture.stop 异步 resolve 最终音频。
+  const stopRecording = useCallback(async () => {
+    const capture = captureRef.current;
+    if (!capture) return;
+    captureRef.current = null;
+    setRecording(false);
+    const blob = await capture.stop();
+    if (!blob) {
+      onToastRef.current("没有录到音频");
+      return;
     }
-  }, []);
+    void transcribeBlob(blob);
+  }, [transcribeBlob]);
 
   const startRecording = useCallback(async () => {
     if (!bridge || !bridge.transcribeSpeech) {
       onToastRef.current("当前环境不支持语音输入");
       return;
     }
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      onToastRef.current("当前浏览器不支持录音");
-      return;
-    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      chunksRef.current = [];
-      const mimeType = pickRecordingMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      recorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      };
-
-      recorder.onstop = () => {
-        // 停止麦克风轨道，释放系统录音权限指示灯
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        recorderRef.current = null;
-        setRecording(false);
-
-        const type = recorder.mimeType || mimeType || "audio/webm";
-        const blob = new Blob(chunksRef.current, { type });
-        chunksRef.current = [];
-
-        if (blob.size === 0) {
-          onToastRef.current("没有录到音频");
-          return;
-        }
-        // type 仅用于 Blob 构建，encodeBlobAsWav 内部重采样后输出 WAV
-        void transcribeBlob(blob);
-      };
-
-      recorder.start();
+      const capture = new VoiceCapture();
+      await capture.start();
+      captureRef.current = capture;
       setRecording(true);
     } catch (err) {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      recorderRef.current = null;
+      captureRef.current?.dispose();
+      captureRef.current = null;
       setRecording(false);
       const msg = err instanceof Error ? err.message : String(err);
       onToastRef.current(`录音失败：${msg}`);
     }
-  }, [bridge, transcribeBlob]);
+  }, [bridge]);
 
   const toggleRecording = useCallback(() => {
     if (runningOrSending || transcribing) return;
-    if (recording) stopRecording();
+    if (recording) void stopRecording();
     else void startRecording();
   }, [runningOrSending, transcribing, recording, stopRecording, startRecording]);
 
