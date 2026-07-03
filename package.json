@@ -29,7 +29,8 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "electron",
-      "node-pty"
+      "node-pty",
+      "node-mac-permissions"
     ],
     "overrides": {
       "@types/react": "catalog:",

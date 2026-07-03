@@ -118,6 +118,9 @@ importers:
       electron-updater:
         specifier: ^6.6.2
         version: 6.8.9
+      node-mac-permissions:
+        specifier: ^2.5.0
+        version: 2.5.0
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
@@ -2703,6 +2706,9 @@ packages:
   bignumber.js@9.3.1:
     resolution: {integrity: sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==}
 
+  bindings@1.5.0:
+    resolution: {integrity: sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ==}
+
   bluebird@3.7.2:
     resolution: {integrity: sha512-XpNj6GDQzdfW+r2Wnn7xiSAd7TM3jzkxGXBGTtWKuSXv1xUV+azxAm8jdWZN06QTQk+2N2XB9jRDkvbmQmcRtg==}
 
@@ -3553,6 +3559,9 @@ packages:
   file-type@22.0.1:
     resolution: {integrity: sha512-ww5Mhre0EE+jmBvOXTmXAbEMuZE7uX4a3+oRCQFNj8w++g3ev913N6tXQz0XTXbueQ5TWQfm6BdaViEHHn8bhA==}
     engines: {node: '>=22'}
+
+  file-uri-to-path@1.0.0:
+    resolution: {integrity: sha512-0Zt+s3L7Vf1biwWZ29aARiVYLx7iMGnEUl9x33fbB/j3jR81u/O2LbqK+Bm1CDSNDKVtJ/YjwY7TUd5SkeLQLw==}
 
   filelist@1.0.6:
     resolution: {integrity: sha512-5giy2PkLYY1cP39p17Ech+2xlpTRL9HLspOfEgm0L6CwBXBTgsK5ou0JtzYuepxkaQ/tvhCFIJ5uXo0OrM2DxA==}
@@ -4629,6 +4638,10 @@ packages:
 
   node-int64@0.4.0:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
+
+  node-mac-permissions@2.5.0:
+    resolution: {integrity: sha512-zR8SVCaN3WqV1xwWd04XVAdzm3UTdjbxciLrZtB0Cc7F2Kd34AJfhPD4hm1HU0YH3oGUZO4X9OBLY5ijSTHsGw==}
+    os: [darwin]
 
   node-pty@1.1.0:
     resolution: {integrity: sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg==}
@@ -8404,6 +8417,10 @@ snapshots:
 
   bignumber.js@9.3.1: {}
 
+  bindings@1.5.0:
+    dependencies:
+      file-uri-to-path: 1.0.0
+
   bluebird@3.7.2: {}
 
   bmp-js@0.1.0: {}
@@ -9472,6 +9489,8 @@ snapshots:
       uint8array-extras: 1.5.0
     transitivePeerDependencies:
       - supports-color
+
+  file-uri-to-path@1.0.0: {}
 
   filelist@1.0.6:
     dependencies:
@@ -10805,6 +10824,11 @@ snapshots:
       which: 6.0.1
 
   node-int64@0.4.0: {}
+
+  node-mac-permissions@2.5.0:
+    dependencies:
+      bindings: 1.5.0
+      node-addon-api: 7.1.1
 
   node-pty@1.1.0:
     dependencies:
