@@ -60,7 +60,7 @@ import {
   triggerReplyDraft,
   disposeReplyController,
 } from "./reply/controller";
-import { getLastReplySnapshot } from "./ipc/reply";
+import { getLastReplySnapshot, setReplyHelperPermissionsSource } from "./ipc/reply";
 import { ReplyDistiller } from "./reply/distill";
 import { chatComplete, REPLY_TEMPERATURES } from "./reply/draft-generator";
 import { resolveReplyModel } from "./reply/resolve-model";
@@ -167,6 +167,9 @@ async function initReply(): Promise<void> {
     // tap 不可用 / events 连续崩溃超上限 → 兜底 accelerator 接管（helper-client 内部触发）。
     onDegrade: () => registerReplyFallbackHotkey(),
   });
+  // 权限中心 IPC（reply:getPermissions）的 helper 兜底源：与 syncReplyInputMode 用同一 one-shot 命令。
+  const helperForPerms = replyHelper;
+  setReplyHelperPermissionsSource(() => helperForPerms.permissions());
   // reply 生成模型解析（KTD3）：每次唤起/蒸馏时现解析——最新 reply 设置（快照）+ 持久化
   // providerSettings 走回退链（专属 → 供应商默认 → null）。现解析保证设置变更即时生效，无需快照同步机制。
   const resolveModel = async () =>

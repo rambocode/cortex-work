@@ -71,9 +71,10 @@ const NMP_TYPES = {
   speech: "speech-recognition",
 } as const;
 
-/** node-mac-permissions 的最小依赖形状(只用到 getAuthStatus)。 */
+/** node-mac-permissions 的最小依赖形状(getAuthStatus 查询 + askForAccessibilityAccess 触发注册)。 */
 interface MacPermissionsModule {
   getAuthStatus(type: string): string;
+  askForAccessibilityAccess?(): void;
 }
 
 /** 原生模块加载器签名。默认动态 import;测试注入以确定性模拟「可用 / 加载失败」。 */
@@ -142,4 +143,31 @@ export async function queryReplyPermissions(
     }
   }
   return unknownPermissions();
+}
+
+/**
+ * 主动触发「辅助功能」的系统注册(U9 权限中心「去授权」按钮消费)。
+ *
+ * 关键背景:辅助功能与其余四项不同——只读查询(AXIsProcessTrusted / helper 的
+ * runPermissions)不会把本应用写入 系统设置 › 隐私与安全性 › 辅助功能 的列表,只有调用
+ * AXIsProcessTrustedWithOptions(哪怕 prompt 传 false)才会让 macOS 把调用进程自注册进该
+ * 列表(未勾选,等用户手动开)。此前只做只读查询 + 单纯跳转系统设置面板,面板里永远没有条目
+ * 可勾——形成"要授权先得进列表、要进列表先得触发注册"的死锁,用户看到空列表。
+ * node-mac-permissions.askForAccessibilityAccess() 内部即调用该 API(见其 permissions.mm),
+ * 未授权时还会顺带打开系统设置面板,故此处只需转调、不必再重复 shell.openExternal。
+ * 非 mac / 模块加载失败时静默忽略,由调用方（reply.ts）回退到普通的 shell.openExternal。
+ */
+export async function requestAccessibilityAccess(
+  platform: NodeJS.Platform = process.platform,
+  nativeLoader: NativeModuleLoader = defaultNativeLoader,
+): Promise<boolean> {
+  if (platform !== "darwin") return false;
+  try {
+    const perms = await nativeLoader();
+    if (typeof perms.askForAccessibilityAccess !== "function") return false;
+    perms.askForAccessibilityAccess();
+    return true;
+  } catch {
+    return false;
+  }
 }

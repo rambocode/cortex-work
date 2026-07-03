@@ -1,12 +1,18 @@
-// 快捷回复助手（reply）设置分区（U9）。
+// 快捷回复助手（reply）设置分区（U9，视觉重构对齐设计稿「快捷回复设置.dc.html」）。
 //
-// 结构：触发键 → 权限中心 → 记忆管理（分区 segmented + 手写笔记 + 学习开关）→
-//       渠道连接（Slack/Gmail/Lark 粘贴 token 校验）→ 数据清理 → 调试记录。
+// 结构：sticky 头（标题 + 说明 + 分段导航,滚动 spy 高亮）→
+//       生成模型 → 触发键 → 权限中心（进度条 + 状态点）→
+//       记忆管理（分区 segmented + 学习要点可编辑 + 学习开关 + 可折叠手写笔记）→
+//       渠道连接（暂隐藏，SHOW_REPLY_CHANNELS）→ 数据清理 → 调试记录（仅 devMode）。
 //
 // macOS-only：非 mac 平台或 bridge.reply* 能力缺失（Web 端）时整分区隐藏（返回 null）。
 // 与 SttSettingsSection 同构：数据走 useReplyStore（客户端态）+ DesktopBridge（原生能力）。
+//
+// 注：设计稿首分区为「生成 Agent」（复用应用默认 Agent），那是迁移前源项目的行为；
+// 本仓库 main 侧按 KTD3 走「供应商直连 chat_completions」回退链（见 main/reply/resolve-model.ts），
+// 故此处保留功能一致的「生成模型」选择器，仅套用设计稿的版式。
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDesktopBridge, usePersonalStore, useReplyStore } from "@cortex-work/core";
 import type { ProviderSettings } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
@@ -21,7 +27,7 @@ import type {
 import { MEMORY_SCOPES, type MemoryScope } from "@cortex-work/core/reply/memory";
 import { CHANNEL_DESCRIPTORS, type ChannelId } from "@cortex-work/core/reply/channels";
 
-import { BareSelect, SecretField, SettingCard, SRow, SwitchRow } from "./settingsControls";
+import { BareSelect, SettingCard, SRow } from "./settingsControls";
 import { detectIsMac } from "./platform";
 
 // 译函数最小签名（与 SettingsMenu 一致，避免引入 react-i18next 的 TFunction 泛型）。
@@ -29,10 +35,32 @@ type TFunc = (key: string, opts?: Record<string, unknown>) => string;
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 
+// 渠道连接分区暂隐藏（缓迁 KTD9）；恢复时改 true 并同步单测 NAV 期望。
+export const SHOW_REPLY_CHANNELS = false;
+
 // 起草触发键选项（源项目 draftTrigger 默认 ⌘）。
 const DRAFT_TRIGGER_KEYS: ReplyDraftTriggerKey[] = ["cmd", "option", "fn"];
 // 语音触发键选项（源项目 voiceTrigger 默认 Fn）。
 const VOICE_TRIGGER_KEYS: ReplyVoiceTriggerKey[] = ["fn", "rightOption", "cmd"];
+
+// 分段导航的分区定义：id 同时用作 DOM 锚点（pw-reply-sec-<id>）与 spy 标识，顺序即页面顺序。
+type ReplySectionId = "model" | "triggers" | "permissions" | "memory" | "channels" | "data" | "logs";
+
+function buildNavSections(opts: { channels: boolean; debug: boolean }): { id: ReplySectionId; labelKey: string }[] {
+  return [
+    { id: "model", labelKey: "reply.navModel" },
+    { id: "triggers", labelKey: "reply.navTriggers" },
+    { id: "permissions", labelKey: "reply.navPermissions" },
+    { id: "memory", labelKey: "reply.navMemory" },
+    ...(opts.channels ? [{ id: "channels" as const, labelKey: "reply.navChannels" }] : []),
+    { id: "data", labelKey: "reply.navData" },
+    ...(opts.debug ? [{ id: "logs" as const, labelKey: "reply.navDebug" }] : []),
+  ];
+}
+
+// spy 判定线（px，相对滚动容器顶部）：略大于 sticky 头高度，与 .pw-reply-sec 的
+// scroll-margin-top 配套——锚点跳转落位后目标分区顶部恰在判定线内。
+const SPY_OFFSET = 130;
 
 // 触发键 i18n key（cmd/option/fn/rightOption 共用一套「keyXxx」文案）。
 function triggerKeyLabel(t: TFunc, key: string): string {
@@ -86,6 +114,15 @@ function channelErrorText(t: TFunc, result: ReplyChannelVerifyResult): string {
   }
 }
 
+// 分区外壳：提供锚点 id 与 data 标记（spy 扫描用）+ scroll-margin（sticky 头让位）。
+function ReplySection({ id, children }: { id: ReplySectionId; children: React.ReactNode }) {
+  return (
+    <section id={`pw-reply-sec-${id}`} data-reply-section={id} className="pw-reply-sec">
+      {children}
+    </section>
+  );
+}
+
 // ── 权限中心 ──────────────────────────────────────────────────────────────────
 
 function PermissionCenter() {
@@ -94,50 +131,84 @@ function PermissionCenter() {
 
   // 权限态经 bridge 异步查询；查询失败时保持空（渲染为「未知」）。
   const [perms, setPerms] = useState<Record<string, ReplyPermissionStatus>>({});
+  // 查询进行中：驱动头部「刷新」按钮的可见反馈，避免用户点击后界面毫无变化、误以为无响应。
+  const [refreshing, setRefreshing] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!bridge?.replyGetPermissions) return;
+    setRefreshing(true);
     try {
       const next = await bridge.replyGetPermissions();
       setPerms(next);
     } catch {
-      /* 查询失败保持旧值 */
+      // 查询失败保持旧值（多为 IPC 未就绪等瞬时问题）；不因此卡住用户——
+      // 各行仍展示「去授权」直达系统设置，不依赖本次查询结果才能操作。
+    } finally {
+      setRefreshing(false);
     }
   }, [bridge]);
 
-  // 进入设置分区即拉一次权限态（授权后用「刷新」按钮重查）。
+  // 进入设置分区即拉一次；窗口重获焦点（从系统设置授权回来）时自动重查，免手动刷新。
   useEffect(() => {
     void refresh();
+    const onFocus = () => void refresh();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
+  const grantedCount = PERMISSION_ITEMS.filter(({ kind }) => perms[kind] === "granted").length;
+  const total = PERMISSION_ITEMS.length;
+
   return (
-    <SettingCard title={t("reply.permissionsCard")}>
-      <div className="pw-srow-desc">{t("reply.permissionsDesc")}</div>
+    // 不用 SettingCard：设计稿的授权进度（计数 + 绿条）与卡片标题同行右对齐，需自定义卡片头。
+    <div className="pw-scard">
+      <div className="pw-reply-perm-head">
+        <div>
+          <div className="pw-scard-t">{t("reply.permissionsCard")}</div>
+          <div className="pw-srow-desc">{t("reply.permissionsDesc")}</div>
+        </div>
+        <div className="pw-reply-perm-progress">
+          <span className="pw-reply-perm-count">
+            {t("reply.permSummary", { granted: grantedCount, total })}
+          </span>
+          <span className="pw-reply-perm-bar">
+            <i style={{ width: `${(grantedCount / total) * 100}%` }} />
+          </span>
+          {/* 手动重查入口：查询失败时行内按钮已足够操作（直达系统设置），此按钮只用于
+              显式重新拉取真实状态（如已在系统设置里授权、回到本页想立即刷新）。 */}
+          <button type="button" className="pw-btn-sm" disabled={refreshing} onClick={() => void refresh()}>
+            {t("reply.refreshPermissions")}
+          </button>
+        </div>
+      </div>
       {PERMISSION_ITEMS.map(({ kind, labelKey }) => {
         const status = perms[kind] ?? "unknown";
         return (
-          <SRow key={kind} label={t(labelKey)} end>
-            <span className={`pw-perm-badge is-${status}`} data-status={status}>
-              {permStatusLabel(t, status)}
+          <div key={kind} className="pw-reply-perm-row">
+            <span className="pw-reply-perm-name">
+              <i className={`pw-reply-dot is-${status}`} />
+              {t(labelKey)}
             </span>
-            {status !== "granted" ? (
-              <button
-                type="button"
-                className="pw-btn-sm"
-                onClick={() => void bridge?.replyOpenPermissionSettings?.(kind)}
-              >
-                {t("reply.grantButton")}
-              </button>
-            ) : null}
-          </SRow>
+            <span className="pw-reply-perm-actions">
+              <span className={`pw-reply-perm-status is-${status}`}>{permStatusLabel(t, status)}</span>
+              {status === "granted" ? null : (
+                // 未授权 / 未设置 / 未知(查询失败兜底) 统一给「去授权」直达系统设置——
+                // "unknown" 只在查询失败时出现，此时把用户卡在「检查」死循环里没有意义，
+                // 直接跳系统设置总是可行的下一步（授权状态回到本页会经 focus 监听自动重查）。
+                <button
+                  type="button"
+                  className="pw-reply-btn-primary"
+                  onClick={() => void bridge?.replyOpenPermissionSettings?.(kind)}
+                >
+                  {t("reply.grantButton")}
+                </button>
+              )}
+            </span>
+          </div>
         );
       })}
-      <SRow label="" end>
-        <button type="button" className="pw-btn-sm" onClick={() => void refresh()}>
-          {t("reply.refreshPermissions")}
-        </button>
-      </SRow>
-    </SettingCard>
+      <p className="pw-reply-perm-foot">{t("reply.permissionsFoot")}</p>
+    </div>
   );
 }
 
@@ -152,11 +223,37 @@ function MemoryManager() {
 
   // 当前编辑的记忆分区（本地 UI 态，默认档案）。
   const [scope, setScope] = useState<MemoryScope>("profile");
+  // 手写笔记默认折叠，减少首屏噪音；学习要点更常需要查看/微调。
+  const [manualOpen, setManualOpen] = useState(false);
   const file = memory[scope];
 
   return (
-    <SettingCard title={t("reply.memoryCard")}>
-      <div className="pw-srow-desc">{t("reply.memoryDesc")}</div>
+    // 不用 SettingCard：学习开关与标题同行右对齐（对齐设计稿），仿权限中心自定义卡片头。
+    <div className="pw-scard">
+      <div className="pw-reply-memory-head">
+        <div>
+          <div className="pw-scard-t">{t("reply.memoryCard")}</div>
+          <div className="pw-srow-desc">{t("reply.memoryDesc")}</div>
+        </div>
+        {/* 学习开关置顶右：仅开启时才蒸馏（KTD8） */}
+        <div className="pw-reply-memory-learning">
+          <div className="pw-reply-memory-learning-text">
+            <span className="pw-srow-lbl">{t("reply.learningLabel")}</span>
+            <span className="pw-srow-desc">{t("reply.learningDesc")}</span>
+          </div>
+          <button
+            type="button"
+            className="twk-toggle"
+            data-on={learningEnabled ? "1" : "0"}
+            role="switch"
+            aria-checked={learningEnabled}
+            aria-label={t("reply.learningLabel")}
+            onClick={() => setSettings({ learningEnabled: !learningEnabled })}
+          >
+            <i />
+          </button>
+        </div>
+      </div>
 
       {/* 分区切换：本地化名的 segmented 按钮组 */}
       <div className="pw-reply-scopes" role="tablist" aria-label={t("reply.memoryCard")}>
@@ -174,34 +271,42 @@ function MemoryManager() {
         ))}
       </div>
 
-      {/* 手写笔记（优先级最高，注入 prompt 时标注冲突以此为准） */}
+      {/* 学习要点：可编辑（蒸馏管线写入，也允许用户手动校正） */}
       <label className="pw-set-field">
-        <span className="pw-set-lbl">{t("reply.manualLabel")}</span>
+        <span className="pw-set-lbl">{t("reply.autoLabel")}</span>
         <textarea
           className="pw-ta pw-reply-memo"
           rows={5}
-          value={file.manual}
-          placeholder={t("reply.manualPlaceholder")}
-          onChange={(e) => setMemoryFile(scope, { manual: e.target.value })}
+          value={file.auto}
+          placeholder={t("reply.autoEmpty")}
+          onChange={(e) => setMemoryFile(scope, { auto: e.target.value })}
         />
       </label>
 
-      {/* 自动学习要点：只读展示（由 U10 蒸馏管线写入 auto 区） */}
-      <div className="pw-reply-auto">
-        <span className="pw-set-lbl">{t("reply.autoLabel")}</span>
-        <pre className="pw-reply-auto-body">
-          {file.auto.trim().length > 0 ? file.auto : t("reply.autoEmpty")}
-        </pre>
+      {/* 手写笔记（优先级最高；默认折叠，位于学习要点之下） */}
+      <div className="pw-reply-manual">
+        <button
+          type="button"
+          className="pw-reply-manual-toggle"
+          aria-expanded={manualOpen}
+          onClick={() => setManualOpen((o) => !o)}
+        >
+          <span className="pw-set-lbl">{t("reply.manualLabel")}</span>
+          <span className="pw-reply-manual-action">
+            {manualOpen ? t("reply.manualCollapse") : t("reply.manualExpand")}
+          </span>
+        </button>
+        {manualOpen ? (
+          <textarea
+            className="pw-ta pw-reply-memo"
+            rows={5}
+            value={file.manual}
+            placeholder={t("reply.manualPlaceholder")}
+            onChange={(e) => setMemoryFile(scope, { manual: e.target.value })}
+          />
+        ) : null}
       </div>
-
-      {/* 学习开关：仅开启时才蒸馏（KTD8） */}
-      <SwitchRow
-        label={t("reply.learningLabel")}
-        desc={t("reply.learningDesc")}
-        value={learningEnabled}
-        onChange={(v) => setSettings({ learningEnabled: v })}
-      />
-    </SettingCard>
+    </div>
   );
 }
 
@@ -219,6 +324,7 @@ function ChannelCard({ id, displayName, detail }: { id: ChannelId; displayName: 
   const setChannelNote = useReplyStore((s) => s.setChannelNote);
 
   const [token, setToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -269,36 +375,53 @@ function ChannelCard({ id, displayName, detail }: { id: ChannelId; displayName: 
 
   return (
     <div className="pw-reply-channel">
+      {/* 头行：名称 + 说明在左，连接态胶囊（状态点 + 文案）在右 */}
       <div className="pw-reply-channel-head">
-        <span className="pw-reply-channel-name">{displayName}</span>
-        {connected ? <span className="pw-perm-badge is-granted">{t("reply.statusGranted")}</span> : null}
+        <div className="pw-reply-channel-titles">
+          <span className="pw-reply-channel-name">{displayName}</span>
+          <span className="pw-srow-desc">{detail}</span>
+        </div>
+        <span className={`pw-reply-pill ${connected ? "is-on" : "is-off"}`}>
+          <i />
+          {connected ? t("reply.statusConnected") : t("reply.statusDisconnected")}
+        </span>
       </div>
-      <div className="pw-srow-desc">{detail}</div>
 
       {connected ? (
-        <>
-          <div className="pw-reply-channel-acct">{t("reply.connectedAs", { name: accountText })}</div>
+        <div className="pw-reply-channel-acct-row">
+          <span className="pw-reply-channel-acct">{t("reply.connectedAs", { name: accountText })}</span>
           <button type="button" className="pw-btn-sm" onClick={() => void handleDisconnect()}>
             {t("reply.disconnectButton")}
           </button>
-        </>
+        </div>
       ) : (
         <>
-          <SecretField
-            label={t("reply.tokenLabel")}
-            value={token}
-            onChange={setToken}
-            placeholder={t("reply.tokenPlaceholder")}
-          />
+          {/* token 行：输入 + 显隐切换 + 主按钮「连接」（设计稿同排三件套） */}
+          <label className="pw-set-field">
+            <span className="pw-set-lbl">{t("reply.tokenLabel")}</span>
+            <span className="pw-secret-wrap">
+              <input
+                className="pw-set-input"
+                type={showToken ? "text" : "password"}
+                value={token}
+                placeholder={t("reply.tokenPlaceholder")}
+                spellCheck={false}
+                onChange={(e) => setToken(e.target.value)}
+              />
+              <button type="button" className="pw-secret-toggle" onClick={() => setShowToken((s) => !s)}>
+                {showToken ? t("providers.secretHide") : t("providers.secretShow")}
+              </button>
+              <button
+                type="button"
+                className="pw-reply-btn-primary"
+                disabled={busy || token.trim().length === 0}
+                onClick={() => void handleConnect()}
+              >
+                {busy ? t("reply.connecting") : t("reply.connectButton")}
+              </button>
+            </span>
+          </label>
           {error ? <div className="pw-reply-channel-err">{error}</div> : null}
-          <button
-            type="button"
-            className="pw-btn-sm"
-            disabled={busy || token.trim().length === 0}
-            onClick={() => void handleConnect()}
-          >
-            {busy ? t("reply.connecting") : t("reply.connectButton")}
-          </button>
         </>
       )}
 
@@ -339,24 +462,22 @@ function DataCleanup() {
   const clearAllMemory = useReplyStore((s) => s.clearAllMemory);
   const clearAutoRules = useReplyStore((s) => s.clearAutoRules);
   const clearChannelNotes = useReplyStore((s) => s.clearChannelNotes);
+  // 三行同构：标签 + 影响范围说明在左，危险按钮在右（设计稿逐行说明版式）。
+  const rows: { labelKey: string; descKey: string; onClear: () => void }[] = [
+    { labelKey: "reply.clearMemory", descKey: "reply.clearMemoryDesc", onClear: clearAllMemory },
+    { labelKey: "reply.clearAutoRules", descKey: "reply.clearAutoRulesDesc", onClear: clearAutoRules },
+    { labelKey: "reply.clearChannelNotes", descKey: "reply.clearChannelNotesDesc", onClear: clearChannelNotes },
+  ];
   return (
     <SettingCard title={t("reply.cleanupCard")}>
       <div className="pw-srow-desc">{t("reply.cleanupDesc")}</div>
-      <SRow label={t("reply.clearMemory")} end>
-        <button type="button" className="pw-btn-sm pw-btn-sm--danger" onClick={() => clearAllMemory()}>
-          {t("reply.clearMemory")}
-        </button>
-      </SRow>
-      <SRow label={t("reply.clearAutoRules")} end>
-        <button type="button" className="pw-btn-sm pw-btn-sm--danger" onClick={() => clearAutoRules()}>
-          {t("reply.clearAutoRules")}
-        </button>
-      </SRow>
-      <SRow label={t("reply.clearChannelNotes")} end>
-        <button type="button" className="pw-btn-sm pw-btn-sm--danger" onClick={() => clearChannelNotes()}>
-          {t("reply.clearChannelNotes")}
-        </button>
-      </SRow>
+      {rows.map(({ labelKey, descKey, onClear }) => (
+        <SRow key={labelKey} label={t(labelKey)} desc={t(descKey)} end>
+          <button type="button" className="pw-btn-sm pw-btn-sm--danger" onClick={onClear}>
+            {t(labelKey)}
+          </button>
+        </SRow>
+      ))}
     </SettingCard>
   );
 }
@@ -368,13 +489,21 @@ function DebugEntryRow({ entry }: { entry: ReplyDebugEntry }) {
   const [open, setOpen] = useState(false);
   const sourceLabel = entry.source === "ocr" ? t("reply.debugSourceOcr") : t("reply.debugSourceAx");
   const time = new Date(entry.ts).toLocaleTimeString();
+  // 有 error 字段即视为失败调用（与 main 侧 debug-log 写入约定一致）。
+  const ok = !entry.error;
   return (
     <div className="pw-reply-dbg">
-      <button type="button" className="pw-reply-dbg-head" onClick={() => setOpen((o) => !o)}>
-        <span className="pw-reply-dbg-src">{sourceLabel}</span>
+      <div className="pw-reply-dbg-row">
+        <span className={`pw-reply-dbg-badge is-${entry.source}`}>{sourceLabel}</span>
         <span className="pw-reply-dbg-time">{time}</span>
-        <span className="pw-reply-dbg-toggle">{open ? t("reply.debugCollapse") : t("reply.debugExpand")}</span>
-      </button>
+        <span className={`pw-reply-dbg-status ${ok ? "" : "is-fail"}`}>
+          <i />
+          {ok ? t("reply.debugStatusOk") : t("reply.debugStatusFail")}
+        </span>
+        <button type="button" className="pw-reply-dbg-toggle" onClick={() => setOpen((o) => !o)}>
+          {open ? t("reply.debugCollapse") : t("reply.debugExpand")}
+        </button>
+      </div>
       {open ? (
         <div className="pw-reply-dbg-body">
           {entry.systemPrompt || entry.userPrompt ? (
@@ -421,12 +550,13 @@ function DebugLog() {
 
   return (
     <SettingCard title={t("reply.debugCard")}>
-      <div className="pw-srow-desc">{t("reply.debugDesc")}</div>
-      <SRow label="" end>
+      {/* 头行：说明在左，「刷新」在右（设计稿卡片头右侧按钮） */}
+      <div className="pw-reply-perm-top">
+        <div className="pw-srow-desc">{t("reply.debugDesc")}</div>
         <button type="button" className="pw-btn-sm" onClick={() => void refresh()}>
           {t("reply.debugRefresh")}
         </button>
-      </SRow>
+      </div>
       {entries.length === 0 ? (
         <div className="pw-reply-dbg-empty">{t("reply.debugEmpty")}</div>
       ) : (
@@ -558,36 +688,115 @@ export function ReplySettingsSection() {
 
   // 平台守卫：非 mac 或 bridge.reply 能力缺失（Web 端）→ 整分区隐藏。
   const available = detectIsMac() && !!bridge?.replyGetPermissions;
+  // 调试记录仅开发包可见（与 SettingsMenu Agent Trace 同判据：bridge.appInfo.devMode）。
+  const showDebugLog = bridge?.appInfo?.devMode === true;
+  const navSections = useMemo(
+    () => buildNavSections({ channels: SHOW_REPLY_CHANNELS, debug: showDebugLog }),
+    [showDebugLog],
+  );
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [activeSection, setActiveSection] = useState<ReplySectionId>("model");
+
+  // 滚动 spy：设置页滚动容器是外层 .pw-dlg-body（本组件不自带滚动），故经 closest 向上取。
+  // 判定规则同设计稿：取顶部进入判定线（SPY_OFFSET）内的最后一个分区；滚到底则强制取最后
+  // 一个分区（否则短尾分区永远到不了判定线、导航点不亮）。
+  useEffect(() => {
+    if (!available) return;
+    const root = rootRef.current;
+    const scroller = root?.closest(".pw-dlg-body");
+    if (!root || !scroller) return;
+    const onScroll = () => {
+      const sections = Array.from(root.querySelectorAll<HTMLElement>("[data-reply-section]"));
+      if (sections.length === 0) return;
+      let cur = sections[0]!.dataset.replySection as ReplySectionId;
+      const base = scroller.getBoundingClientRect().top;
+      for (const el of sections) {
+        if (el.getBoundingClientRect().top - base <= SPY_OFFSET) {
+          cur = el.dataset.replySection as ReplySectionId;
+        }
+      }
+      if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4) {
+        cur = sections[sections.length - 1]!.dataset.replySection as ReplySectionId;
+      }
+      setActiveSection(cur);
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, [available]);
+
+  // 导航跳转：先亮再滚（点击即时反馈）；落位后 spy 会收敛到同一分区。
+  const jumpTo = (id: ReplySectionId) => {
+    setActiveSection(id);
+    document.getElementById(`pw-reply-sec-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   if (!available) return null;
 
   return (
-    <>
+    <div ref={rootRef} className="pw-reply-root">
+      {/* sticky 头：标题 + 说明 + 分段导航（滚动时吸附在滚动容器顶部） */}
+      <div className="pw-reply-head">
+        <div className="pw-dlg-title">{t("reply.title")}</div>
+        <div className="pw-dlg-desc">{t("reply.desc")}</div>
+        <div className="pw-reply-nav">
+          {navSections.map(({ id, labelKey }) => (
+            <button
+              key={id}
+              type="button"
+              className={`pw-reply-nav-item ${activeSection === id ? "is-active" : ""}`}
+              onClick={() => jumpTo(id)}
+            >
+              {t(labelKey)}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* 生成模型：reply 专属供应商 + 模型直连（KTD3），空=跟随 providerSettings 默认回退链 */}
-      <ReplyModelSelector />
+      <ReplySection id="model">
+        <ReplyModelSelector />
+      </ReplySection>
 
       {/* 触发键 */}
-      <SettingCard title={t("reply.triggersCard")}>
-        <SRow label={t("reply.draftTriggerLabel")} desc={t("reply.draftTriggerDesc")} end>
-          <BareSelect
-            value={draftTrigger}
-            options={DRAFT_TRIGGER_KEYS.map((k) => ({ label: triggerKeyLabel(t, k), value: k }))}
-            onChange={(v) => setSettings({ draftTrigger: v as ReplyDraftTriggerKey })}
-          />
-        </SRow>
-        <SRow label={t("reply.voiceTriggerLabel")} desc={t("reply.voiceTriggerDesc")} end>
-          <BareSelect
-            value={voiceTrigger}
-            options={VOICE_TRIGGER_KEYS.map((k) => ({ label: triggerKeyLabel(t, k), value: k }))}
-            onChange={(v) => setSettings({ voiceTrigger: v as ReplyVoiceTriggerKey })}
-          />
-        </SRow>
-      </SettingCard>
+      <ReplySection id="triggers">
+        <SettingCard title={t("reply.triggersCard")}>
+          <SRow label={t("reply.draftTriggerLabel")} desc={t("reply.draftTriggerDesc")} end>
+            <BareSelect
+              value={draftTrigger}
+              options={DRAFT_TRIGGER_KEYS.map((k) => ({ label: triggerKeyLabel(t, k), value: k }))}
+              onChange={(v) => setSettings({ draftTrigger: v as ReplyDraftTriggerKey })}
+            />
+          </SRow>
+          <SRow label={t("reply.voiceTriggerLabel")} desc={t("reply.voiceTriggerDesc")} end>
+            <BareSelect
+              value={voiceTrigger}
+              options={VOICE_TRIGGER_KEYS.map((k) => ({ label: triggerKeyLabel(t, k), value: k }))}
+              onChange={(v) => setSettings({ voiceTrigger: v as ReplyVoiceTriggerKey })}
+            />
+          </SRow>
+        </SettingCard>
+      </ReplySection>
 
-      <PermissionCenter />
-      <MemoryManager />
-      <ChannelsSection />
-      <DataCleanup />
-      <DebugLog />
-    </>
+      <ReplySection id="permissions">
+        <PermissionCenter />
+      </ReplySection>
+      <ReplySection id="memory">
+        <MemoryManager />
+      </ReplySection>
+      {SHOW_REPLY_CHANNELS ? (
+        <ReplySection id="channels">
+          <ChannelsSection />
+        </ReplySection>
+      ) : null}
+      <ReplySection id="data">
+        <DataCleanup />
+      </ReplySection>
+      {showDebugLog ? (
+        <ReplySection id="logs">
+          <DebugLog />
+        </ReplySection>
+      ) : null}
+    </div>
   );
 }

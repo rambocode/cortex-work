@@ -10,7 +10,7 @@ import type { DesktopBridge, ProviderProfile } from "@cortex-work/core";
 import { DEFAULT_REPLY_SETTINGS } from "@cortex-work/core/desktop/types";
 import { emptyMemoryState } from "@cortex-work/core/reply/memory";
 
-import { ReplySettingsSection } from "./ReplySettingsSection";
+import { ReplySettingsSection, SHOW_REPLY_CHANNELS } from "./ReplySettingsSection";
 
 // 组件平台守卫读 navigator.platform；jsdom 默认空串，需伪装成 mac 才渲染。
 beforeAll(() => {
@@ -41,6 +41,22 @@ function makeBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridge {
     replyGetDebugLog: vi.fn().mockResolvedValue([]),
     ...overrides,
   } as unknown as DesktopBridge;
+}
+
+// 开发模式 bridge（调试记录分区可见）。
+function makeDevBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridge {
+  return makeBridge({
+    appInfo: { version: "0.0.0", os: "macos", devMode: true },
+    ...overrides,
+  });
+}
+
+function expectedNavLabels(includeDebug: boolean): string[] {
+  const labels = ["生成模型", "触发键", "权限", "记忆"];
+  if (SHOW_REPLY_CHANNELS) labels.push("渠道");
+  labels.push("数据");
+  if (includeDebug) labels.push("调试");
+  return labels;
 }
 
 beforeEach(() => {
@@ -84,25 +100,79 @@ describe("ReplySettingsSection 平台守卫", () => {
   });
 });
 
+describe("ReplySettingsSection 分段导航", () => {
+  it("渲染分区导航；点击立即高亮目标项", () => {
+    // jsdom 未实现 scrollIntoView，打桩避免导航点击抛错。
+    Element.prototype.scrollIntoView = vi.fn();
+    const { container } = renderUI(<ReplySettingsSection />, makeBridge());
+    const items = container.querySelectorAll(".pw-reply-nav-item");
+    const expectedNav = expectedNavLabels(false);
+    expect(Array.from(items).map((b) => b.textContent)).toEqual(expectedNav);
+    // 默认高亮首项；点击「数据」后高亮切换（先亮再滚，spy 落位后收敛）。
+    expect(items[0]!.className).toContain("is-active");
+    const dataIdx = expectedNav.indexOf("数据");
+    fireEvent.click(items[dataIdx]!);
+    expect(items[dataIdx]!.className).toContain("is-active");
+    expect(items[0]!.className).not.toContain("is-active");
+  });
+
+  it("开发模式下渲染调试导航项", () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const { container } = renderUI(<ReplySettingsSection />, makeDevBridge());
+    const items = container.querySelectorAll(".pw-reply-nav-item");
+    expect(Array.from(items).map((b) => b.textContent)).toEqual(expectedNavLabels(true));
+  });
+
+  it("每个导航项都有对应的锚点分区", () => {
+    const { container } = renderUI(<ReplySettingsSection />, makeBridge());
+    const sectionIds = ["model", "triggers", "permissions", "memory", ...(SHOW_REPLY_CHANNELS ? ["channels"] : []), "data"];
+    for (const id of sectionIds) {
+      expect(container.querySelector(`#pw-reply-sec-${id}`)).not.toBeNull();
+    }
+    expect(container.querySelector("#pw-reply-sec-logs")).toBeNull();
+  });
+
+  it("开发模式下存在调试记录锚点分区", () => {
+    const { container } = renderUI(<ReplySettingsSection />, makeDevBridge());
+    expect(container.querySelector("#pw-reply-sec-logs")).not.toBeNull();
+  });
+});
+
 describe("ReplySettingsSection 权限中心", () => {
-  it("渲染五项状态；非 granted 项出现「去授权」按钮", async () => {
+  it("渲染授权进度汇总（granted 计数 / 总数）", async () => {
+    renderUI(<ReplySettingsSection />, makeBridge());
+    // makeBridge 默认 5 项中 2 项 granted（accessibility/speechRecognition）。
+    await waitFor(() => expect(screen.getByText("2 / 5 已授权")).toBeInTheDocument());
+  });
+
+  it("渲染五项状态；denied/notDetermined/unknown 项统一出现「去授权」", async () => {
     renderUI(<ReplySettingsSection />, makeBridge());
     // granted / denied / notDetermined / unknown 各态文案
     await waitFor(() => expect(screen.getAllByText("已授权").length).toBeGreaterThanOrEqual(1));
-    expect(screen.getByText("已拒绝")).toBeInTheDocument();
+    expect(screen.getByText("未授权")).toBeInTheDocument();
     expect(screen.getByText("未设置")).toBeInTheDocument();
     expect(screen.getByText("未知")).toBeInTheDocument();
-    // 三个非 granted 项（screen/calendar/mic）各一个去授权按钮
+    // denied（screen）/ notDetermined（calendar）/ unknown（mic）各出现一个「去授权」按钮——
+    // unknown 只在查询失败时出现，不该把用户卡在「检查」死循环里，统一直达系统设置。
     expect(screen.getAllByText("去授权")).toHaveLength(3);
   });
 
-  it("点击「去授权」调用 replyOpenPermissionSettings", async () => {
+  it("点击「去授权」调用 replyOpenPermissionSettings（含 unknown 态）", async () => {
     const bridge = makeBridge();
     renderUI(<ReplySettingsSection />, bridge);
     // 先等权限异步加载完成（denied 徽标出现），再取稳定的按钮节点点击，避免命中加载前会被替换的节点。
-    await screen.findByText("已拒绝");
+    await screen.findByText("未授权");
     fireEvent.click(screen.getAllByText("去授权")[0]!);
     expect(bridge.replyOpenPermissionSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("头部「刷新」按钮重新拉取权限状态", async () => {
+    const bridge = makeBridge();
+    renderUI(<ReplySettingsSection />, bridge);
+    await waitFor(() => expect(bridge.replyGetPermissions).toHaveBeenCalledTimes(1));
+    // 调试记录卡片头也有个「刷新」按钮（reply.debugRefresh），同页两处同文案——取第一个（权限中心先渲染）。
+    fireEvent.click(screen.getAllByText("刷新")[0]!);
+    await waitFor(() => expect(bridge.replyGetPermissions).toHaveBeenCalledTimes(2));
   });
 });
 
@@ -198,24 +268,27 @@ describe("ReplySettingsSection 生成模型选择器", () => {
 });
 
 describe("ReplySettingsSection 记忆管理", () => {
-  it("编辑手写笔记写入当前分区 manual", async () => {
+  it("展开手写笔记后编辑写入当前分区 manual", async () => {
     renderUI(<ReplySettingsSection />, makeBridge());
+    fireEvent.click(screen.getByText("展开"));
     const memo = screen.getByPlaceholderText(/我是 X 项目的产品经理/);
     fireEvent.change(memo, { target: { value: "简短、无寒暄" } });
     // 默认分区 profile
     expect(useReplyStore.getState().memory.profile.manual).toBe("简短、无寒暄");
   });
 
-  it("展示分区 auto 学习要点（U10 蒸馏产出）", async () => {
+  it("展示并可编辑分区 auto 学习要点", async () => {
     useReplyStore.setState((s) => ({
       memory: { ...s.memory, profile: { manual: "", auto: "- 语气随意" } },
     }));
     renderUI(<ReplySettingsSection />, makeBridge());
-    expect(screen.getByText("- 语气随意")).toBeInTheDocument();
+    const auto = screen.getByDisplayValue("- 语气随意");
+    fireEvent.change(auto, { target: { value: "- 更正式" } });
+    expect(useReplyStore.getState().memory.profile.auto).toBe("- 更正式");
   });
 });
 
-describe("ReplySettingsSection 渠道连接", () => {
+(SHOW_REPLY_CHANNELS ? describe : describe.skip)("ReplySettingsSection 渠道连接", () => {
   it("校验成功 → 显示账号名+团队，写入连接态", async () => {
     const bridge = makeBridge({
       replyVerifyChannel: vi
@@ -264,8 +337,13 @@ describe("ReplySettingsSection 渠道连接", () => {
 });
 
 describe("ReplySettingsSection 调试记录", () => {
-  it("空态渲染提示", async () => {
+  it("正式包（非 devMode）不渲染调试分区", () => {
     renderUI(<ReplySettingsSection />, makeBridge());
+    expect(screen.queryByText("暂无调用记录。")).not.toBeInTheDocument();
+  });
+
+  it("空态渲染提示", async () => {
+    renderUI(<ReplySettingsSection />, makeDevBridge());
     await waitFor(() => expect(screen.getByText("暂无调用记录。")).toBeInTheDocument());
   });
 
@@ -278,7 +356,7 @@ describe("ReplySettingsSection 调试记录", () => {
       userPrompt: `usr-${i}`,
       output: `out-${i}`,
     }));
-    const bridge = makeBridge({ replyGetDebugLog: vi.fn().mockResolvedValue(entries) });
+    const bridge = makeDevBridge({ replyGetDebugLog: vi.fn().mockResolvedValue(entries) });
     renderUI(<ReplySettingsSection />, bridge);
     // 20 条各一个「详情」展开按钮
     await waitFor(() => expect(screen.getAllByText("详情")).toHaveLength(20));

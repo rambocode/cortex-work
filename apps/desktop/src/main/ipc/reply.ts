@@ -18,7 +18,8 @@ import type {
   ReplyPermissionState,
   ReplySyncSnapshot,
 } from "./reply-types";
-import { UNKNOWN_REPLY_PERMISSIONS } from "./reply-types";
+// 权限真实查询（node-mac-permissions → helper 兜底 → 全未决），U9 权限中心消费。
+import { queryReplyPermissions, requestAccessibilityAccess, type HelperPermissionsFn } from "../reply/permissions";
 import {
   resizeReplyBubble,
   dispatchReplyBubbleAction,
@@ -122,6 +123,16 @@ async function verifyChannel(channelId: ChannelId, token: string): Promise<Reply
   }
 }
 
+// helper permissions one-shot 兜底源：main/index.ts 建好 ReplyHelperClient 后注入
+// （node-mac-permissions 加载失败时 queryReplyPermissions 用它兜底）。未注入也可查——
+// 只是少一级兜底，最终落全 notDetermined。
+let helperPermissionsSource: HelperPermissionsFn | undefined;
+
+/// 注入 helper permissions 命令作为权限查询兜底（initReply 建好 helper 后调用）。
+export function setReplyHelperPermissionsSource(fn: HelperPermissionsFn): void {
+  helperPermissionsSource = fn;
+}
+
 // U5 stub：设置快照最近值只驻内存（进程退出即弃）。U7 draft-generator 会从此处读默认 agent。
 let lastSyncedSnapshot: ReplySyncSnapshot | null = null;
 
@@ -132,11 +143,21 @@ export function getLastReplySnapshot(): ReplySyncSnapshot | null {
 
 /// 注册 reply IPC 域。U5 为骨架：全部返回安全默认，不触碰任何原生能力。
 export function registerReplyHandlers(): void {
-  // 权限查询：U5 一律回「未知」，U4/U7 接 node-mac-permissions + helper permissions 命令后返回真实态。
-  ipcMain.handle("reply:getPermissions", (): ReplyPermissionState => UNKNOWN_REPLY_PERMISSIONS);
+  // 权限查询：node-mac-permissions 优先，失败走注入的 helper permissions 兜底，再失败全未决。
+  // ReplyPermissions 三态是 ReplyPermissionStatus（含 unknown）的子集，可直接作为 IPC 返回。
+  ipcMain.handle(
+    "reply:getPermissions",
+    (): Promise<ReplyPermissionState> => queryReplyPermissions(helperPermissionsSource),
+  );
 
   // 打开系统权限设置面板：直达对应隐私子页（授权引导）。
-  ipcMain.handle("reply:openPermissionSettings", (_e, kind: ReplyPermissionKind): Promise<void> => {
+  ipcMain.handle("reply:openPermissionSettings", async (_e, kind: ReplyPermissionKind): Promise<void> => {
+    if (kind === "accessibility") {
+      // 辅助功能特殊：单纯跳转设置面板时列表里没有本应用条目可勾（见 requestAccessibilityAccess
+      // 注释）。改为先触发 AXIsProcessTrustedWithOptions 自注册；该调用内部已含跳转面板，
+      // 成功时无需再跳一次。失败（非 mac / 模块缺失）才回退普通跳转，保证至少能打开面板。
+      if (await requestAccessibilityAccess()) return;
+    }
     const url = PERMISSION_SETTINGS_URL[kind];
     return url ? shell.openExternal(url) : Promise.resolve();
   });

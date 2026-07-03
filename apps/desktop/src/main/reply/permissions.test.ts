@@ -4,6 +4,7 @@ import {
   parseHelperPermissions,
   unknownPermissions,
   queryReplyPermissions,
+  requestAccessibilityAccess,
 } from "./permissions";
 
 describe("mapAuthStatus", () => {
@@ -111,5 +112,35 @@ describe("queryReplyPermissions", () => {
   it("无 helper 兜底且 node 不可用 → 全未决", async () => {
     const perms = await queryReplyPermissions(undefined, "darwin", failingLoader);
     expect(perms).toEqual(unknownPermissions());
+  });
+});
+
+describe("requestAccessibilityAccess", () => {
+  it("非 mac 平台不加载原生模块，直接返回 false", async () => {
+    const loader = vi.fn();
+    const ok = await requestAccessibilityAccess("win32", loader);
+    expect(ok).toBe(false);
+    expect(loader).not.toHaveBeenCalled();
+  });
+
+  it("mac 上模块可用 → 调用 askForAccessibilityAccess 触发自注册，返回 true", async () => {
+    const ask = vi.fn();
+    const loader = () =>
+      Promise.resolve({ getAuthStatus: () => "authorized", askForAccessibilityAccess: ask });
+    const ok = await requestAccessibilityAccess("darwin", loader);
+    expect(ok).toBe(true);
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+
+  it("模块加载失败 → 静默返回 false（由调用方回退普通跳转）", async () => {
+    const loader = () => Promise.reject(new Error("MODULE_NOT_FOUND"));
+    const ok = await requestAccessibilityAccess("darwin", loader);
+    expect(ok).toBe(false);
+  });
+
+  it("模块无 askForAccessibilityAccess（旧版本/ABI 不匹配）→ 返回 false", async () => {
+    const loader = () => Promise.resolve({ getAuthStatus: () => "authorized" });
+    const ok = await requestAccessibilityAccess("darwin", loader);
+    expect(ok).toBe(false);
   });
 });

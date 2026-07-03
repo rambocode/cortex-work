@@ -1860,15 +1860,9 @@ function SttSection() {
 }
 
 // 快捷回复分区薄壳（U9）：真实表单在 ReplySettingsSection，自带非 mac / Web 守卫返回 null。
+// 标题/说明由 ReplySettingsSection 的 sticky 头承载（分段导航滚动 spy），此处不再重复渲染。
 function ReplySection() {
-  const { t } = useTranslation("settings");
-  return (
-    <>
-      <div className="pw-dlg-title">{t("reply.title")}</div>
-      <div className="pw-dlg-desc">{t("reply.desc")}</div>
-      <ReplySettingsSection />
-    </>
-  );
+  return <ReplySettingsSection />;
 }
 
 export function PersonalSettingsView() {
