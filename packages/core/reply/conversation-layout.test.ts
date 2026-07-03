@@ -120,6 +120,27 @@ describe("ConversationLayoutBuilder", () => {
     expect(transcript).toBe("对方：周会改到几点？\n我：三点，会议室不变");
   });
 
+  it("宽的对方长消息不因中心越过面板中线被误判为「我」（左边缘判据）", () => {
+    // 复现真实踩坑：对方一条很长的请求横跨到中线右侧、且恰是最右内容；旧「中心右于面板中线即我方」
+    // 判据会把它错分成自己说的，导致 AI 以为是用户本人要资料。左边缘判据（贴左即对方）修复此问题。
+    const blocks = [
+      block("好吧", ocrBox(0.04, 0.72, 0.08, 0.04)),
+      block(
+        "这几年你那技术培训方面的（给公司，给你部门员工培训 都行）能发些给我吗？说要最少七份，拜托了，谢谢",
+        ocrBox(0.05, 0.62, 0.7, 0.04),
+      ),
+      block("这个平时没做ppt 也没记录，都是即兴讲的", ocrBox(0.3, 0.52, 0.45, 0.04)),
+      block("可以让ai生成几分，但是用量可能不够", ocrBox(0.45, 0.4, 0.3, 0.04)),
+    ];
+    const transcript = new ConversationLayoutBuilder().transcript(blocks);
+    expect(transcript).toBe(
+      "对方：好吧\n" +
+        "对方：这几年你那技术培训方面的（给公司，给你部门员工培训 都行）能发些给我吗？说要最少七份，拜托了，谢谢\n" +
+        "我：这个平时没做ppt 也没记录，都是即兴讲的\n" +
+        "我：可以让ai生成几分，但是用量可能不够",
+    );
+  });
+
   it("无可辨认结构时返回空串", () => {
     expect(new ConversationLayoutBuilder().transcript([])).toBe("");
   });

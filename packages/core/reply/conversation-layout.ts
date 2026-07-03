@@ -3,6 +3,11 @@
 
 import { boxMaxX, boxMidY, boxMinX, type OCRTextBlock } from "./types";
 
+// 说话人归属阈值：气泡左边缘相对面板宽度的归一化留白 > 此值即判为「我」（右对齐），否则「对方」。
+// 取 0.2——现有语料中「对方」气泡恒贴面板左内边距（leftMargin≈0），「我」气泡左边缘最小约 0.27，
+// 0.2 落在二者之间留足余量。
+export const SPEAKER_LEFT_MARGIN_THRESHOLD = 0.2;
+
 /** 对话重建的可选启发式参数（噪声标记 / 系统事件前缀）。 */
 export interface ConversationLayoutOptions {
   /** 含这些标记的文本块（如输入框占位符）在重建前直接过滤。 */
@@ -93,8 +98,10 @@ export class ConversationLayoutBuilder {
         if (stamp.length > 0) lines.push(`[${stamp}]`);
         continue;
       }
-      // 气泡更贴近哪一侧边缘就归属哪一方：右对齐是「我」，左对齐是「对方」
-      const mine = rightMargin < leftMargin;
+      // 归属判定用「左边缘是否贴面板左内边距」，而非旧的「中心在面板中线右侧即我方」：
+      // 对方气泡恒左对齐、左边缘贴 panelMinX（leftMargin≈0），我方气泡恒右对齐、左边缘明显右移。
+      // 旧的中心判据对宽的对方长消息不稳——长请求中心越过中线会被误判成自己说的（真实踩坑）。
+      const mine = leftMargin > SPEAKER_LEFT_MARGIN_THRESHOLD;
       lines.push(`${mine ? "我" : "对方"}：${text}`);
     }
     return lines.join("\n");
