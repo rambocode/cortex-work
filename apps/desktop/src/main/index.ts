@@ -198,7 +198,12 @@ async function initReply(): Promise<void> {
     getAsrSettings: async () => (await getPersistedState()).asrSettings ?? null,
     // 写回成功 → 交蒸馏器采样并触发后台学习（学习开关关闭时蒸馏器内部零副作用）。
     onDraftAccepted: (info) => distiller.onDraftAccepted(info),
-    onOpenSettings: showMainWindow,
+    // 气泡「去设置」：显示主窗 + 通知渲染端打开设置页并跳到快捷回复分区（仅 showMainWindow 时窗口
+    // 已可见则看似无反应，故须再发导航事件）。渲染端监听 reply:openSettings 调 openSettings("reply")。
+    onOpenSettings: () => {
+      showMainWindow();
+      mainWindow?.webContents.send("reply:openSettings");
+    },
     logger: createLogger("reply"),
   });
   await syncReplyInputMode();

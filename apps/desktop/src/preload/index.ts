@@ -710,6 +710,12 @@ const personal = {
     ipcRenderer.on("reply:memoryLearned", listener);
     return () => ipcRenderer.removeListener("reply:memoryLearned", listener);
   },
+  // 订阅 main 的「打开设置到快捷回复分区」指令（气泡「去设置」触发）：壳据此打开设置页并跳转。返回退订函数。
+  onReplyOpenSettings: (cb: () => void): (() => void) => {
+    const listener = (): void => cb();
+    ipcRenderer.on("reply:openSettings", listener);
+    return () => ipcRenderer.removeListener("reply:openSettings", listener);
+  },
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

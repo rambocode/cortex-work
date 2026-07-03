@@ -309,7 +309,10 @@ export interface PersonalState {
   openWorkflow: () => void;
   closeWorkflow: () => void;
   // 打开/关闭设置整页（settingsOpen 瞬态;openSettings 不清底层视图标志,见实现注释）。
-  openSettings: () => void;
+  // 可选 tab：外部入口（如快捷回复气泡「去设置」）指定要跳转的分区，SettingsMenu 据此切换。
+  openSettings: (tab?: string) => void;
+  // 设置整页要跳转到的目标分区 id（undefined = 沿用当前/默认）；SettingsMenu 消费后行为见其实现。
+  settingsTab?: string;
   closeSettings: () => void;
   // 点击某条闪记进入中心区宽写作面;互斥清理其他中心视图。closeNoteEditor 返回列表态。
   openNoteEditor: (noteId: string) => void;
@@ -467,6 +470,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   automationOpen: false,
   workflowOpen: false,
   settingsOpen: false,
+  settingsTab: undefined,
   timelineSettings: DEFAULT_TIMELINE_SETTINGS,
   pushSettings: DEFAULT_PUSH_SETTINGS,
   ttsSettings: DEFAULT_TTS_SETTINGS,
@@ -1027,7 +1031,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   // 设置整页：openSettings 仅置 settingsOpen（不清 homeOpen/timelineProjectId 等底层标志,
   // 故 closeSettings 后自然回到打开设置前的视图）;互斥由各 open 入口清 settingsOpen 保证。
-  openSettings: () => set({ settingsOpen: true }),
+  openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab }),
   closeSettings: () => set({ settingsOpen: false }),
 
   setTimelineSettings: (patch) =>

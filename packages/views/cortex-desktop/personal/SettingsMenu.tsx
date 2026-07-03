@@ -1874,12 +1874,22 @@ function ReplySection() {
 export function PersonalSettingsView() {
   const { t } = useTranslation("settings");
   const closeSettings = usePersonalStore((s) => s.closeSettings);
+  // 外部入口（快捷回复气泡「去设置」等）指定的目标分区；变化时跳转到对应 tab。
+  const settingsTab = usePersonalStore((s) => s.settingsTab);
   const bridge = useDesktopBridge();
   const [tab, setTab] = useState<SettingsTab>("profile");
   const backRef = useRef<HTMLButtonElement>(null);
 
   // 快捷回复分区仅 macOS + 桥接可用时出现（非 mac / Web 隐藏整分区，含左栏入口）。
   const replyAvailable = useMemo(() => detectIsMac() && !!bridge?.replyGetPermissions, [bridge]);
+
+  // 消费 store 的目标分区跳转（openSettings(tab) 设入）：合法且可见的 tab 才切换。
+  // 依赖 replyAvailable 保证 reply 分区在门控通过后才跳转，避免跳到被隐藏的分区。
+  useEffect(() => {
+    if (!settingsTab) return;
+    if (settingsTab === "reply" && !replyAvailable) return;
+    if (settingsTab in TAB_META) setTab(settingsTab as SettingsTab);
+  }, [settingsTab, replyAvailable]);
 
   // 挂载时把焦点移入覆盖层（返回按钮）,避免键盘焦点停在被遮挡但仍在 DOM 的底层控件上。
   useEffect(() => {
@@ -1970,7 +1980,7 @@ export function SettingsMenu() {
   const openSettings = usePersonalStore((s) => s.openSettings);
   return (
     <div className="sb-foot">
-      <button className="sb-row is-mute" onClick={openSettings}>
+      <button className="sb-row is-mute" onClick={() => openSettings()}>
         <Icon.Settings size={15} />
         <span className="label">{t("sidebar.settings")}</span>
       </button>

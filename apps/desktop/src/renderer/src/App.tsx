@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { CoreProvider, useCortexUIStore } from "@cortex-work/core";
+import { CoreProvider, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { CortexDesktopView } from "@cortex-work/views/cortex-desktop";
 
 // macOS uses a frameless window (titleBarStyle: hiddenInset) so the app's
@@ -46,6 +46,14 @@ export default function App() {
   useEffect(() => {
     if (!isMac) return;
     document.documentElement.setAttribute("data-vibrancy", "sidebar");
+  }, []);
+
+  // 快捷回复气泡「去设置」：主进程发 reply:openSettings → 打开设置整页并跳到快捷回复分区。
+  // 壳就近订阅(views/core 不直接碰 window.desktopAPI);旧壳无此方法则静默。返回退订清理。
+  useEffect(() => {
+    return window.desktopAPI?.personal?.onReplyOpenSettings?.(() => {
+      usePersonalStore.getState().openSettings("reply");
+    });
   }, []);
 
   // 全局热键被占用时拉取一次主进程的降级提示 → 浮层 toast(consume-pending,旧壳无此方法则静默)。
