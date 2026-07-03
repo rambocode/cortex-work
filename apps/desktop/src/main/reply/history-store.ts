@@ -111,6 +111,17 @@ export class ReplyHistoryStore {
     return this.enqueue(() => this.save({ version: 1, entries: [] }));
   }
 
+  /// 启动物化：文件缺失时写入空结构，让数据目录启动即自解释（已存在则不动）。
+  ensureMaterialized(): Promise<void> {
+    return this.enqueue(async () => {
+      try {
+        await fsp.access(this.deps.historyPath());
+      } catch {
+        await this.save({ version: 1, entries: [] });
+      }
+    });
+  }
+
   // 串行化写操作；单条失败只警告,不让队列断链（后续写照常）。
   private enqueue(job: () => Promise<void>): Promise<void> {
     const next = this.writeQueue.then(job).catch((err) => {

@@ -441,6 +441,8 @@ export class ReplyController {
       const blocks = filterOcrBlocksForVisibleConversation(parseOcrBlocks(ocrRes.blocks), {
         bundleId: appBundleId,
         name: appName,
+      }, {
+        inputAnchor: ocrInputAnchor(caretFrame ?? inputAnchorFrame ?? frame, windowFrame),
       });
       const transcript = new ConversationLayoutBuilder({
         noiseMarkers: OCR_NOISE_MARKERS as unknown as string[],
@@ -983,6 +985,20 @@ function parseRect(value: unknown): ReplyRect | null {
     return { x: r.x, y: r.y, width: r.width, height: r.height };
   }
   return null;
+}
+
+function ocrInputAnchor(
+  anchorFrame: ReplyRect | null,
+  windowFrame: ReplyRect | null,
+): { x: number; y: number; leftPadding: number } | null {
+  if (!anchorFrame || !windowFrame) return null;
+  if (windowFrame.width <= 0 || windowFrame.height <= 0) return null;
+
+  return {
+    x: (anchorFrame.x - windowFrame.x) / windowFrame.width,
+    y: (anchorFrame.y - windowFrame.y) / windowFrame.height,
+    leftPadding: 50 / windowFrame.width,
+  };
 }
 
 /** 把 helper 输出的 OCR blocks 解析为 U1 的 OCRTextBlock[]（脏项丢弃）。 */

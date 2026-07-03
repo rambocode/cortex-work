@@ -70,6 +70,15 @@ describe("ReplyConversationStore", () => {
     expect(await fsp.readFile(file + ".corrupt", "utf8")).toBe("not json");
   });
 
+  it("ensureMaterialized：缺失时写空结构，已有数据不动", async () => {
+    const store = makeStore();
+    await store.ensureMaterialized();
+    expect(JSON.parse(await fsp.readFile(file, "utf8"))).toEqual({ version: 1, conversations: {} });
+    await store.recordAccepted({ ...WECHAT, counterpart: "张玲玲", draft: "好的", now: 1 });
+    await store.ensureMaterialized();
+    expect(await store.count()).toBe(1);
+  });
+
   it("clear 清空全部对话记忆", async () => {
     const store = makeStore();
     await store.recordAccepted({ ...WECHAT, counterpart: "张玲玲", draft: "好的", now: 1 });

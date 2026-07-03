@@ -25,12 +25,16 @@ afterEach(async () => {
 });
 
 describe("ReplyMemoryStore", () => {
-  it("文件缺失且无旧分片 → 全空分区", async () => {
-    const memory = await makeStore().getMemory();
-    expect(memory).toEqual(emptyMemoryState());
+  it("文件缺失且无旧分片 → 全空分区；ensureMaterialized 写空结构物化（目录自解释）", async () => {
+    const store = makeStore();
+    expect(await store.getMemory()).toEqual(emptyMemoryState());
+    await store.ensureMaterialized();
+    const raw = JSON.parse(await fsp.readFile(file, "utf8"));
+    expect(raw.version).toBe(1);
+    expect(raw.memory).toEqual(emptyMemoryState());
   });
 
-  it("首启从旧分片搬运并落盘（loadLegacy 只调一次）", async () => {
+  it("首启从旧分片搬运,ensureMaterialized 落盘固化（loadLegacy 只调一次）", async () => {
     const legacy: MemoryState = {
       ...emptyMemoryState(),
       core: { manual: "简短", auto: "- 爱用语气词" },
@@ -41,8 +45,16 @@ describe("ReplyMemoryStore", () => {
     await store.getMemory();
     expect(loadLegacy).toHaveBeenCalledTimes(1);
 
-    // 已落盘：新实例（不带 legacy）能直接读到
+    // ensureMaterialized 把迁移内容落盘：新实例（不带 legacy）能直接读到
+    await store.ensureMaterialized();
     expect((await makeStore().getMemory()).core.manual).toBe("简短");
+  });
+
+  it("ensureMaterialized 对已有文件不动（不覆盖既有内容）", async () => {
+    const store = makeStore();
+    await store.setFile("core", { manual: "已有" });
+    await store.ensureMaterialized();
+    expect((await makeStore().getMemory()).core.manual).toBe("已有");
   });
 
   it("旧分片半缺字段 → 字段级兜底为空串（下游 .trim() 安全）", async () => {

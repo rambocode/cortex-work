@@ -262,7 +262,12 @@ export function registerReplyHandlers(): void {
   // 启动即触发首启迁移（时序关键）：渲染端改版后整表 store:save 不再携带 replyMemory，
   // 一旦其首次保存先于迁移执行，旧分片会随整表覆盖从磁盘消失。本注册函数在窗口创建前
   // 运行，而渲染端保存最早也要等 loadState+变更节流之后，故此处触发可稳定赢得该时序。
-  void replyMemoryStore.getMemory();
+  // ensureMaterialized 内部先 getMemory（触发旧分片读入）再落盘物化（无旧分片也写空结构）；
+  // 历史/对话记忆同样启动物化——三个文件启动即存在，数据目录对用户自解释
+  // （不再出现「打开文件夹是空的」）。
+  void replyMemoryStore.ensureMaterialized();
+  void replyHistoryStore.ensureMaterialized();
+  void replyConversationStore.ensureMaterialized();
 
   // ── 候选气泡窗通道（U6）──────────────────────────────────────────────────────────
   // 气泡渲染端 → 主进程（单向 send，非 invoke）：实测高度上报 + 鼠标动作上行。

@@ -152,6 +152,17 @@ export class ReplyConversationStore {
     return this.enqueue(() => this.save({ version: 1, conversations: {} }));
   }
 
+  /// 启动物化：文件缺失时写入空结构，让数据目录启动即自解释（已存在则不动）。
+  ensureMaterialized(): Promise<void> {
+    return this.enqueue(async () => {
+      try {
+        await fsp.access(this.deps.storePath());
+      } catch {
+        await this.save({ version: 1, conversations: {} });
+      }
+    });
+  }
+
   // 读-改-写整段串行；改后统一过 LRU 裁剪。
   private mutate(fn: (conversations: ConversationMemoryMap) => ConversationMemoryMap): Promise<void> {
     return this.enqueue(async () => {

@@ -8,6 +8,19 @@ export interface CapturedAppInfo {
   bundleId?: string | null;
 }
 
+export interface ConversationInputAnchor {
+  /** 相对 OCR 窗口的 x，0~1，左上原点。 */
+  x: number;
+  /** 相对 OCR 窗口的 y，0~1，左上原点。 */
+  y: number;
+  /** 输入框左侧额外向左保留的归一化宽度；调用方按 50px / windowWidth 传入。 */
+  leftPadding?: number;
+}
+
+export interface OcrConversationRegionOptions {
+  inputAnchor?: ConversationInputAnchor | null;
+}
+
 const KNOWN_MULTI_PANE_IM_PATTERNS = [
   /wechat/i,
   /wework/i,
@@ -39,9 +52,12 @@ const READ_RECEIPT_LABELS = ["已读", "未读"] as const;
 export function filterOcrBlocksForVisibleConversation(
   blocks: readonly OCRTextBlock[],
   capturedApp: CapturedAppInfo,
+  options: OcrConversationRegionOptions = {},
 ): readonly OCRTextBlock[] {
   if (!shouldPreferOcrForVisibleConversation(capturedApp)) return blocks;
   const cleaned = filterKnownImNoiseBlocks(blocks);
+  const anchorBlocks = filterByInputAnchor(cleaned, options.inputAnchor);
+  if (anchorBlocks) return anchorBlocks;
   const splitX = estimateConversationPanelMinX(cleaned);
   const conversationBlocks =
     splitX == null
@@ -88,6 +104,23 @@ function looksLikeConversationPanel(blocks: readonly OCRTextBlock[]): boolean {
   const top = Math.max(...blocks.map((block) => block.boundingBox.y));
   const bottom = Math.min(...blocks.map((block) => block.boundingBox.y));
   return maxX - minX >= 0.25 && top - bottom >= 0.25;
+}
+
+function filterByInputAnchor(
+  blocks: readonly OCRTextBlock[],
+  anchor: ConversationInputAnchor | null | undefined,
+): readonly OCRTextBlock[] | null {
+  if (!anchor) return null;
+  if (!Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)) return null;
+
+  const minX = clamp01(anchor.x - (anchor.leftPadding ?? 0));
+  const maxTopY = clamp01(anchor.y + 0.02);
+  const filtered = blocks.filter((block) => {
+    const topY = 1 - (block.boundingBox.y + block.boundingBox.height);
+    return boxMinX(block.boundingBox) >= minX && topY <= maxTopY;
+  });
+
+  return looksLikeConversationPanel(filtered) ? filtered : null;
 }
 
 function filterKnownImNoiseBlocks(blocks: readonly OCRTextBlock[]): readonly OCRTextBlock[] {
@@ -251,4 +284,10 @@ function looksLikeWatermarkNamePart(value: string, maxLength: number): boolean {
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function clamp01(value: number): number {
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
 }

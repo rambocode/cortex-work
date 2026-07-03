@@ -80,6 +80,16 @@ describe("ReplyHistoryStore", () => {
     expect(await store.count()).toBe(1);
   });
 
+  it("ensureMaterialized：缺失时写空结构，已有数据不动", async () => {
+    const store = makeStore();
+    await store.ensureMaterialized();
+    expect(JSON.parse(await fsp.readFile(file, "utf8"))).toEqual({ version: 1, entries: [] });
+    // 已有数据再调不清空
+    await store.append(entry("a", 1));
+    await store.ensureMaterialized();
+    expect(await store.count()).toBe(1);
+  });
+
   it("clear 清空并落盘", async () => {
     const store = makeStore();
     await store.append(entry("a", 1));

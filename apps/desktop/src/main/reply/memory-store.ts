@@ -93,7 +93,9 @@ export class ReplyMemoryStore {
       }
     }
 
-    // 首启迁移：读旧分片（读失败视为无旧数据）,有内容才落盘固化。
+    // 首启迁移：读旧分片（读失败视为无旧数据）填入内存。注意本方法**只读不写**——
+    // loadOnce 可能在写队列任务内部被 await（mutate → getMemory），此处再 enqueue 会
+    // 造成队列自等待死锁；落盘固化统一由 ensureMaterialized()（独立队列任务）完成。
     let legacy: MemoryState | undefined;
     try {
       legacy = await this.deps.loadLegacy?.();
@@ -103,10 +105,21 @@ export class ReplyMemoryStore {
     const memory = normalizeMemory(legacy);
     this.cached = memory;
     if (legacy) {
-      this.deps.logger?.info?.("[reply] 记忆已从 personal-workspace.json 分片迁移到 memory.json");
-      await this.enqueue(() => this.save(memory));
+      this.deps.logger?.info?.("[reply] 记忆已从 personal-workspace.json 分片读入,待物化到 memory.json");
     }
     return memory;
+  }
+
+  /// 启动物化：文件缺失时把当前记忆（含刚迁移的旧分片内容,空态也写）落盘,
+  /// 让 memory.json 启动即存在、数据目录自解释。已存在则不动。
+  ensureMaterialized(): Promise<void> {
+    return this.enqueue(async () => {
+      try {
+        await fsp.access(this.deps.storePath());
+      } catch {
+        await this.save(await this.getMemory());
+      }
+    });
   }
 
   /// 写单分区的手写区/自动区（其余分区不动）。

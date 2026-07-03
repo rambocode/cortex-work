@@ -236,6 +236,30 @@ describe("filterOcrBlocksForVisibleConversation", () => {
     expect(transcript).toContain("我：订单创建了");
   });
 
+  it("输入框锚点存在时优先按锚点左移 50px 裁剪当前对话区", () => {
+    const filtered = filterOcrBlocksForVisibleConversation(
+      [
+        block("钉钉安全助手", ocrBox(0.07, 0.7, 0.13, 0.03)),
+        block("账号安全提醒", ocrBox(0.07, 0.66, 0.12, 0.03)),
+        block("洪园社区", ocrBox(0.07, 0.46, 0.09, 0.03)),
+        block("giterlab...", ocrBox(0.07, 0.2, 0.1, 0.03)),
+        block("您方便提交个未支付订单吗", ocrBox(0.52, 0.78, 0.24, 0.04)),
+        block("我给您申请优惠", ocrBox(0.52, 0.66, 0.16, 0.04)),
+        block("改天吧", ocrBox(0.86, 0.54, 0.07, 0.04)),
+        block("订单创建了", ocrBox(0.82, 0.2, 0.11, 0.04)),
+      ],
+      { name: "钉钉", bundleId: "com.alibaba.DingTalkMac" },
+      { inputAnchor: { x: 0.55, y: 0.92, leftPadding: 0.05 } },
+    );
+    const text = filtered.map((b) => b.text).join("\n");
+
+    expect(text).not.toContain("钉钉安全助手");
+    expect(text).not.toContain("洪园社区");
+    expect(text).not.toContain("giterlab");
+    expect(text).toContain("您方便提交个未支付订单吗");
+    expect(text).toContain("订单创建了");
+  });
+
   it("非 IM 应用不做裁剪", () => {
     expect(
       shouldPreferOcrForVisibleConversation({
