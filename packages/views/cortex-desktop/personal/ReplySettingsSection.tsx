@@ -534,9 +534,10 @@ function DataCleanup() {
     refreshSummary();
   }, [refreshSummary]);
 
-  // 行同构：标签 + 影响范围说明在左，危险按钮在右（设计稿逐行说明版式）。
+  // 紧凑版式：不再每项一行（标签+描述+按钮太占高度），全部收成一排小危险按钮，
+  // 影响范围说明折叠进按钮的 hover title。
   // 记忆清空（KTD6 修订）：真源在 main（bridge.replyClearMemory），本地缓存同步清以即时反馈。
-  const rows: { labelKey: string; descKey: string; onClear: () => void }[] = [
+  const actions: { labelKey: string; descKey: string; onClear: () => void }[] = [
     {
       labelKey: "reply.clearMemory",
       descKey: "reply.clearMemoryDesc",
@@ -557,7 +558,7 @@ function DataCleanup() {
   ];
   // 历史 / 对话记忆清空走 main 侧文件存储（清完即刷新摘要计数）。
   if (bridge?.replyClearHistory) {
-    rows.push({
+    actions.push({
       labelKey: "reply.clearHistory",
       descKey: "reply.clearHistoryDesc",
       onClear: () => {
@@ -566,7 +567,7 @@ function DataCleanup() {
     });
   }
   if (bridge?.replyClearConversationMemory) {
-    rows.push({
+    actions.push({
       labelKey: "reply.clearConversations",
       descKey: "reply.clearConversationsDesc",
       onClear: () => {
@@ -577,22 +578,28 @@ function DataCleanup() {
 
   return (
     <SettingCard title={t("reply.cleanupCard")}>
-      <div className="pw-srow-desc">{t("reply.cleanupDesc")}</div>
-      {summary ? (
-        <div className="pw-srow-desc">
-          {t("reply.dataSummary", {
-            history: summary.historyCount,
-            conversations: summary.conversationCount,
-          })}
-        </div>
-      ) : null}
-      {rows.map(({ labelKey, descKey, onClear }) => (
-        <SRow key={labelKey} label={t(labelKey)} desc={t(descKey)} end>
-          <button type="button" className="pw-btn-sm pw-btn-sm--danger" onClick={onClear}>
+      <div className="pw-srow-desc">
+        {t("reply.cleanupDesc")}
+        {summary
+          ? ` ${t("reply.dataSummary", {
+              history: summary.historyCount,
+              conversations: summary.conversationCount,
+            })}`
+          : null}
+      </div>
+      <div className="pw-reply-cleanup-actions">
+        {actions.map(({ labelKey, descKey, onClear }) => (
+          <button
+            key={labelKey}
+            type="button"
+            className="pw-btn-sm pw-btn-sm--danger"
+            title={t(descKey)}
+            onClick={onClear}
+          >
             {t(labelKey)}
           </button>
-        </SRow>
-      ))}
+        ))}
+      </div>
     </SettingCard>
   );
 }

@@ -9982,6 +9982,8 @@ button.sb-row {
    .pw-reply-perm-top 同时给调试记录卡片头（说明 + 右侧刷新按钮）复用。 */
 .pw-reply-perm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
 .pw-reply-perm-head > div:first-child { flex: 1; min-width: 0; }
+/* 数据清理：紧凑单排小按钮（影响范围说明折叠进按钮 title），替代逐行 SRow 版式。 */
+.pw-reply-cleanup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 /* 记忆管理：标题/说明在左，学习开关在右（与权限中心头行同构）。 */
 .pw-reply-memory-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
 .pw-reply-memory-head > div:first-child { flex: 1; min-width: 0; }
