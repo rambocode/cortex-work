@@ -20,8 +20,10 @@ import type {
 import { bubbleWindowBounds, BUBBLE_WIDTH } from "./bubble-window-geometry";
 
 let win: BrowserWindow | null = null;
-// 当前会话锚定的输入框 frame（controller 在 open 时提供；null = AX 取不到，走鼠标兜底）。
+// 当前会话锚定的输入框 frame（controller 在 open 时提供；null = AX 取不到，走窗口 frame / 鼠标兜底）。
 let anchor: ReplyRect | null = null;
+// 焦点窗口 frame（输入框 frame 缺失时的兜底锚，使气泡贴当前会话窗口底部而非鼠标位置）。
+let windowAnchor: ReplyRect | null = null;
 // 最近一次 renderer 上报的内容高度（用于锚点变化时无需等下一次 resize 也能重定位）。
 let lastHeight = 120;
 
@@ -103,13 +105,14 @@ function reposition(height: number): void {
   const cursor = screen.getCursorScreenPoint();
   // Electron display.workArea 与 ax frame 同为左上原点 point/DIP（几何契约，见 geometry 注释）。
   const displays = screen.getAllDisplays().map((d) => d.workArea as ReplyRect);
-  win.setBounds(bubbleWindowBounds({ frame: anchor, bubbleHeight: height, displays, cursor }));
+  win.setBounds(bubbleWindowBounds({ frame: anchor, windowFrame: windowAnchor, bubbleHeight: height, displays, cursor }));
 }
 
-/// 打开气泡会话：记录锚定输入框 frame（null=AX 缺失→鼠标兜底），创建窗口但先不显示——
-/// 等 renderer 首次 resize 上报真实高度后再定位并 showInactive，避免透明窗闪现错误尺寸。
-export function openReplyBubble(anchorFrame: ReplyRect | null): void {
+/// 打开气泡会话：记录锚定输入框 frame 与窗口 frame（输入框缺失时用窗口 frame 兜底，都缺→鼠标兜底），
+/// 创建窗口但先不显示——等 renderer 首次 resize 上报真实高度后再定位并 showInactive，避免透明窗闪现错误尺寸。
+export function openReplyBubble(anchorFrame: ReplyRect | null, windowFrame: ReplyRect | null = null): void {
   anchor = anchorFrame;
+  windowAnchor = windowFrame;
   const w = win && !win.isDestroyed() ? win : create();
   if (process.platform === "darwin")
     w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });

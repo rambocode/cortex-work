@@ -144,18 +144,26 @@ func runAXCapture() {
                 ? (titleRef as? String) : nil
         } ?? ""
 
+    // 焦点窗口 frame：微信等 AX 不完整、取不到焦点输入框 frame 时，气泡窗改用窗口 frame 兜底锚定
+    // （聊天 app 输入框在窗口底部，比锚到鼠标位置贴合得多）。坐标系同 focusedFrame（左上原点）。
+    let windowFrame = focusedWindow.flatMap(axFrame(of:))
+
     let merged = mergeContext(windowText: windowText, focusedText: focusedText)
 
-    emitJSON([
+    // 显式标注 [String: Any] 并分步赋值：混合类型（String/Bool/NSNull/Int/嵌套字典）的大字典字面量
+    // 会让 Swift 类型推断超时（"unable to type-check in reasonable time"），显式类型可消除该开销。
+    var payload: [String: Any] = [
         "ok": true,
         "text": merged,
         "meaningful": meaningfulConversation(merged),
-        "focusedFrame": focusedFrame ?? NSNull(),
         "windowTitle": windowTitle,
         "pid": Int(pid),
         "appName": app.localizedName ?? "",
         "appBundleId": app.bundleIdentifier ?? ""
-    ])
+    ]
+    payload["focusedFrame"] = focusedFrame ?? NSNull()
+    payload["windowFrame"] = windowFrame ?? NSNull()
+    emitJSON(payload)
 }
 
 /// ax-activate <pid>:把捕获时的目标应用重新激活到前台,为随后的 paste ⌘V 铺垫。

@@ -10,7 +10,11 @@ import type { ReplyRect } from "../ipc/reply-types";
 export const BUBBLE_WIDTH = 372; // 卡片 360 + 左右各 6 留白（与 reply-bubble.css 的 .rb-root padding 对齐）
 export const BUBBLE_GAP = 8; // 气泡与输入框之间的间隙
 export const BUBBLE_EDGE_MARGIN = 12; // 气泡离屏幕工作区边缘的最小留白
-export const BUBBLE_FALLBACK_BOTTOM_RATIO = 0.68; // frame 缺失兜底：置于鼠标所在屏「中下方」的纵向位置比例
+export const BUBBLE_FALLBACK_BOTTOM_RATIO = 0.68; // 无任何 frame 兜底：置于鼠标所在屏「中下方」的纵向位置比例
+// 窗口 frame 兜底锚：聊天 app 输入框大致落在窗口纵向 72%~92% 处，据此在窗口内合成一个「输入条」锚点，
+// 使拿不到精确输入框 frame 时气泡仍贴着当前会话窗口底部，而非飘到鼠标位置。
+export const WINDOW_INPUT_TOP_RATIO = 0.72;
+export const WINDOW_INPUT_BOTTOM_RATIO = 0.92;
 
 /// 判断点是否落在某工作区内（含左闭右开边界，避免相邻屏重复命中）。
 function contains(area: ReplyRect, px: number, py: number): boolean {
@@ -39,23 +43,37 @@ function clampToArea(area: ReplyRect, x: number, y: number, width: number, heigh
   };
 }
 
-/// 依焦点输入框 frame 计算气泡窗 bounds。
-/// - 默认锚定输入框「上方」、左缘对齐输入框左缘（留 BUBBLE_GAP）；
-/// - 上方溢出所在屏顶部 → 翻转到输入框「下方」；
-/// - 最终按输入框所在屏工作区 clamp（跨屏/边缘不越界）；
-/// - frame 缺失（AX 取不到）→ 兜底到鼠标所在屏「中下方」。
+/// 依焦点输入框 frame 计算气泡窗 bounds。锚点优先级：精确输入框 frame > 窗口 frame 合成的「输入条」> 鼠标。
+/// - 默认锚定输入框「下方」、左缘对齐输入框左缘；下方溢出工作区底部 → 翻转到「上方」；
+/// - 无精确输入框但有窗口 frame（微信等 AX 不完整）→ 用窗口纵向 72%~92% 合成输入条锚点，
+///   使气泡贴着当前会话窗口底部（而非飘到鼠标位置）；
+/// - 最终按锚点所在屏工作区 clamp（跨屏/边缘不越界）；
+/// - 两种 frame 都缺失 → 兜底到鼠标所在屏「中下方」。
 export function bubbleWindowBounds(input: {
   frame: ReplyRect | null;
+  windowFrame?: ReplyRect | null;
   bubbleHeight: number;
   displays: ReplyRect[];
   cursor: { x: number; y: number };
 }): ReplyRect {
-  const { frame, bubbleHeight, displays, cursor } = input;
+  const { frame, windowFrame, bubbleHeight, displays, cursor } = input;
   const height = Math.max(1, Math.round(bubbleHeight));
   const width = BUBBLE_WIDTH;
 
-  // 兜底：无输入框 frame（如微信 AX 不完整）→ 鼠标所在屏中下方居中。
-  if (!frame) {
+  // 锚点解析：优先精确输入框；否则用窗口 frame 合成一个「底部输入条」矩形作为锚。
+  const anchor: ReplyRect | null =
+    frame ??
+    (windowFrame
+      ? {
+          x: windowFrame.x,
+          y: windowFrame.y + windowFrame.height * WINDOW_INPUT_TOP_RATIO,
+          width: windowFrame.width,
+          height: windowFrame.height * (WINDOW_INPUT_BOTTOM_RATIO - WINDOW_INPUT_TOP_RATIO),
+        }
+      : null);
+
+  // 兜底：无任何 frame（AX 完全不可用）→ 鼠标所在屏中下方居中。
+  if (!anchor) {
     const area = displayContaining(displays, cursor.x, cursor.y);
     const x = area.x + (area.width - width) / 2;
     const y = area.y + area.height * BUBBLE_FALLBACK_BOTTOM_RATIO;
@@ -63,14 +81,14 @@ export function bubbleWindowBounds(input: {
     return { x: c.x, y: c.y, width, height };
   }
 
-  // 输入框所在屏：以输入框中心判定，避免跨屏输入框归错屏。
-  const area = displayContaining(displays, frame.x + frame.width / 2, frame.y + frame.height / 2);
+  // 锚点所在屏：以锚点中心判定，避免跨屏锚点归错屏。
+  const area = displayContaining(displays, anchor.x + anchor.width / 2, anchor.y + anchor.height / 2);
 
-  const x = frame.x - 6; // 左缘略微外扩，与卡片左内边距对齐视觉（-6 抵消 root padding）
-  const above = frame.y - height - BUBBLE_GAP;
-  // 上方放不下（溢出工作区顶部）→ 翻转到输入框下方。
-  const overflowTop = above < area.y + BUBBLE_EDGE_MARGIN;
-  const y = overflowTop ? frame.y + frame.height + BUBBLE_GAP : above;
+  const x = anchor.x - 6; // 左缘略微外扩，与卡片左内边距对齐视觉（-6 抵消 root padding）
+  // 默认锚定输入框「下方」（用户偏好）；下方放不下（溢出工作区底部）→ 翻转到上方。
+  const below = anchor.y + anchor.height + BUBBLE_GAP;
+  const overflowBottom = below + height > area.y + area.height - BUBBLE_EDGE_MARGIN;
+  const y = overflowBottom ? anchor.y - height - BUBBLE_GAP : below;
 
   const c = clampToArea(area, x, y, width, height);
   return { x: c.x, y: c.y, width, height };

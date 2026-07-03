@@ -28,9 +28,9 @@ describe("displayContaining", () => {
   });
 });
 
-describe("bubbleWindowBounds - 上方锚定", () => {
-  it("输入框上方留白放置，宽度固定，左缘对齐输入框", () => {
-    const frame = { x: 300, y: 500, width: 400, height: 40 };
+describe("bubbleWindowBounds - 下方锚定（默认）", () => {
+  it("输入框下方留白放置，宽度固定，左缘对齐输入框", () => {
+    const frame = { x: 300, y: 400, width: 400, height: 40 };
     const b = bubbleWindowBounds({
       frame,
       bubbleHeight: 100,
@@ -39,24 +39,24 @@ describe("bubbleWindowBounds - 上方锚定", () => {
     });
     expect(b.width).toBe(BUBBLE_WIDTH);
     expect(b.height).toBe(100);
-    // 上方：y = frame.y - height - gap
-    expect(b.y).toBe(500 - 100 - BUBBLE_GAP);
+    // 下方：y = frame.y + frame.height + gap
+    expect(b.y).toBe(400 + 40 + BUBBLE_GAP);
     // 左缘对齐（-6 视觉抵消），在屏内不被 clamp
     expect(b.x).toBe(300 - 6);
   });
 });
 
-describe("bubbleWindowBounds - 顶部溢出翻转下方", () => {
-  it("上方放不下时翻到输入框下方", () => {
-    const frame = { x: 300, y: 30, width: 400, height: 40 };
+describe("bubbleWindowBounds - 底部溢出翻转上方", () => {
+  it("下方放不下时翻到输入框上方", () => {
+    const frame = { x: 300, y: 850, width: 400, height: 40 };
     const b = bubbleWindowBounds({
       frame,
       bubbleHeight: 120,
       displays: [PRIMARY],
       cursor: { x: 0, y: 0 },
     });
-    // above = 30 - 120 - 8 = -98 < 边距 → 翻下方：y = frame.y + frame.height + gap
-    expect(b.y).toBe(30 + 40 + BUBBLE_GAP);
+    // below = 850 + 40 + 8 = 898；+120 溢出底部（>900-12）→ 翻上方：y = frame.y - height - gap
+    expect(b.y).toBe(850 - 120 - BUBBLE_GAP);
   });
 });
 
@@ -86,8 +86,25 @@ describe("bubbleWindowBounds - 跨屏与边缘 clamp", () => {
   });
 });
 
-describe("bubbleWindowBounds - frame 缺失兜底", () => {
-  it("无 frame 时置于鼠标所在屏中下方居中", () => {
+describe("bubbleWindowBounds - 窗口 frame 兜底锚定", () => {
+  it("无输入框 frame 但有窗口 frame 时贴窗口底部输入区（微信等 AX 不完整）", () => {
+    const windowFrame = { x: 100, y: 100, width: 600, height: 500 };
+    const b = bubbleWindowBounds({
+      frame: null,
+      windowFrame,
+      bubbleHeight: 100,
+      displays: [PRIMARY],
+      cursor: { x: 0, y: 0 }, // 鼠标兜底不应生效
+    });
+    // 合成输入条锚 y = 100 + 500*0.72 = 460，height = 500*0.2 = 100；下方：y = 460 + 100 + 8 = 568
+    expect(b.y).toBe(460 + 100 + BUBBLE_GAP);
+    // 左缘对齐窗口左缘（-6）
+    expect(b.x).toBe(100 - 6);
+  });
+});
+
+describe("bubbleWindowBounds - 两 frame 皆缺兜底鼠标", () => {
+  it("无 frame 且无窗口 frame 时置于鼠标所在屏中下方居中", () => {
     const b = bubbleWindowBounds({
       frame: null,
       bubbleHeight: 100,
