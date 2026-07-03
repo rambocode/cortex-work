@@ -8,11 +8,11 @@ date: 2026-07-03
 
 ## Summary
 
-把 ReplyClone(macOS 原生 SwiftUI 回复助手)的功能迁移进 `apps/desktop`:全局修饰键手势唤起 → 读取前台第三方应用对话(AX 优先、截屏 OCR 降级)→ 组装 prompt → 用应用默认 agent 单发生成多条候选 → 不抢焦的浮动候选气泡翻牌 / 回车写回目标输入框。记忆系统(分区手写笔记 + 语气蒸馏)在本项目首次真正落地。原生能力统一收口到一个 Swift helper 伴生二进制。
+把 ReplyClone(macOS 原生 SwiftUI 回复助手)的功能迁移进 `apps/desktop`:全局修饰键手势唤起 → 读取前台第三方应用对话(AX 优先、截屏 OCR 降级)→ 组装 prompt → 用 reply 专属模型(复用应用既有模型供应商体系,主进程 OpenAI 兼容直连)单发生成多条候选 → 不抢焦的浮动候选气泡翻牌 / 回车写回目标输入框。记忆系统(分区手写笔记 + 语气蒸馏)在本项目首次真正落地。原生能力统一收口到一个 Swift helper 伴生二进制。
 
 ## Problem Frame
 
-ReplyClone 是独立的 Swift 应用,验证了「在任意 app 上快捷起草回复」的交互,但模型层是自配 OpenAI-compatible 端点、记忆只有设计未接线、且与 cortex-desktop 的 agent 生态割裂。迁移后由 cortex-desktop 的默认 agent(claude/codex/pi)承担生成,复用其 STT、浮窗、设置、持久化基建;Swift 侧只保留 Electron 做不到的系统能力。这是重实现,不是代码移植——但 ReplyClone 的纯逻辑模块(对话重建、prompt 构建、日历空闲)带有完整测试,行为契约可原样搬运。
+ReplyClone 是独立的 Swift 应用,验证了「在任意 app 上快捷起草回复」的交互,但模型层是自配 OpenAI-compatible 端点、记忆只有设计未接线、且与 cortex-desktop 的生态割裂。迁移后生成通道改为复用 cortex-desktop 既有的模型供应商体系(`ProviderSettings` 主进程直连,reply 单独选模型,不再自配端点)——agent CLI(claude/codex/pi)面向编码类长任务,冷启动数百 ms~秒级,与快捷回复的秒回诉求不符,不作为生成通道;同时复用应用的 STT、浮窗、设置、持久化基建,Swift 侧只保留 Electron 做不到的系统能力。这是重实现,不是代码移植——但 ReplyClone 的纯逻辑模块(对话重建、prompt 构建、日历空闲)带有完整测试,行为契约可原样搬运。
 
 ---
 
@@ -23,10 +23,10 @@ ReplyClone 是独立的 Swift 应用,验证了「在任意 app 上快捷起草�
 - R1. 双击起草修饰键(默认 ⌘,间隔 < 0.35s)在任意前台 app 触发起草;按住语音键(默认 Fn)说话、松开后以转写文本为意图触发起草。辅助功能未授权或原生层不可用时,降级为普通组合快捷键入口(accelerator)仍可起草。
 - R2. 捕获前台应用文本:AX 树读取优先;文本「不像对话」时降级为窗口截屏 + Vision OCR;OCR 文本块经对话重建输出「对方：/我：/[时间戳]」结构化文稿,行为契约与 ReplyClone 既有测试一致(左右对齐分说话人、同侧合并、剔除侧栏/标题栏/噪声/纯符号块、居中块转时间戳行)。
 - R3. prompt 按固定段落序组装:用户档案与分区记忆(手写标注最高优先级)→ 可见对话 → 键入或语音意图(typed 优先,标注 highest priority)→ 日历空闲 → 翻牌避重列表 → 收尾指令;system prompt 语义与 ReplyClone 一致(以「我」侧续写、只回应对方、只输出回复正文、匹配对话语言、绝不自动发送)。
-- R4. 草稿由默认 agent(`GeneralSettings.defaultAgent`)单发生成,无会话;首条候选到达即展示,随后后台预生成 2 条翻牌候选,左右切换零等待。
+- R4. 草稿由 reply 专属模型单发生成,无会话、不经 agent CLI:设置中从已配置的模型供应商(`ProviderSettings.providers`)单独选择 provider+model;未单独选择时回退供应商默认(`defaultProviderId`/`defaultModel`),仍缺失则气泡错误态引导去设置。首条候选到达即展示,随后后台预生成 2 条翻牌候选,左右切换零等待。
 - R5. 候选气泡:无边框、不抢焦、锚定目标输入框上方;生成中有动画;←/→ 循环切换候选、↩ 写回、esc 关闭、「翻牌」追加一条避开已有候选的新草稿;气泡激活期间这四个键被吞掉,不落入目标 app。
 - R6. 写回:重新激活捕获时的目标 app → 多格式备份剪贴板 → 写草稿 → 模拟 ⌘V → 延迟恢复剪贴板;写回前校验目标 app 未变(pid),变了则中止并提示,绝不盲粘。
-- R7. 并发安全:每次唤起分配递增 session 世代 token;生成中重入 = 取消旧会话(kill 在途 CLI)重新捕获;esc 关闭时 kill 在途生成;过期回调按 token 丢弃。
+- R7. 并发安全:每次唤起分配递增 session 世代 token;生成中重入 = 取消旧会话(abort 在途补全请求)重新捕获;esc 关闭时 abort 在途生成;过期回调按 token 丢弃。
 
 **上下文注入**
 
@@ -36,11 +36,11 @@ ReplyClone 是独立的 Swift 应用,验证了「在任意 app 上快捷起草�
 **记忆系统(ReplyClone 设计的首次落地)**
 
 - R10. 分区记忆(档案 / 通用 / IM / 邮件 / 公开):每分区独立的自动学习区 + 手写补充区(修复 ReplyClone 自动区共用一个变量的缺陷);手写内容注入 prompt 时标注「优先级最高,冲突以此为准」。
-- R11. 语气蒸馏:「从我发出的消息学习语气」开关开启时,把当次捕获对话的「我：」侧样本喂给蒸馏 prompt(走默认 agent),输出 ≤10 条「- 」风格要点,与已学规则合并后按分区持久化;原始对话样本不落盘。
+- R11. 语气蒸馏:「从我发出的消息学习语气」开关开启时,把当次捕获对话的「我：」侧样本喂给蒸馏 prompt(走 R4 同款 reply 模型通道),输出 ≤10 条「- 」风格要点,与已学规则合并后按分区持久化;原始对话样本不落盘。
 
 **设置、权限与外围**
 
-- R12. 设置新增 reply 分区:起草/语音触发键选择、权限中心(辅助功能 / 屏幕录制 / 麦克风 / 语音识别 / 日历五项状态 + 授权引导)、记忆管理入口、数据清理(清空记忆 / 学习要点 / 渠道备注)。
+- R12. 设置新增 reply 分区:起草/语音触发键选择、模型选择(从已启用供应商及其模型中单独指定,R4)、权限中心(辅助功能 / 屏幕录制 / 麦克风 / 语音识别 / 日历五项状态 + 授权引导)、记忆管理入口、数据清理(清空记忆 / 学习要点 / 渠道备注)。
 - R13. 渠道连接:Slack / Gmail / Lark 粘贴 token + 凭据校验(Slack `auth.test`、Lark `user_info`、Google `tokeninfo`,Gmail 另支持 env 凭据文件),连接状态展示与断开清除;token 用 `safeStorage` 加密存储。
 - R14. 调试记录:最近 20 次调用(捕获来源 / AX 原文 / OCR 原文 / system+user prompt / 输出或错误),仅内存驻留,应用退出即清。
 
@@ -50,12 +50,12 @@ ReplyClone 是独立的 Swift 应用,验证了「在任意 app 上快捷起草�
 
 - KTD1. **原生能力统一收口单个 Swift helper CLI**(one-shot JSON 命令承载 AX 读写 / CGEventPost ⌘V / Vision OCR / EventKit 日历;长驻 event-tap 模式承载修饰键手势与气泡吞键):吞键需要 active CGEventTap(被动监听库做不到),Fn 键在 libuiohook 系不可靠,nut-js 已转商业收费、robotjs 停维护;单二进制把 ABI/prebuild/签名的横切风险压到最小,是社区验证过的架构(Orbit)。手势判定(双击时间窗、按住阈值)放在 helper 原生侧,JS 只收 `draft-gesture / voice-start / voice-end` 高层事件。
 - KTD2. **helper 打包仿 pi 二进制链**:构建脚本 → `extraResources`(不进 asar)→ 主进程 `spawn`;签名随 `mac` 段 hardenedRuntime/notarize 整体处理(现有 `apps/desktop/electron-builder.yml` 无独立 binaries 列表,pi 二进制即此模式),产物验证必须 `ditto` 到 `/tmp` 仓库外执行(`docs/lessons.md` 铁律)。权限查询引入 `node-mac-permissions`(覆盖 accessibility/screen/calendar/microphone/speech-recognition),新原生依赖须核对 `electron-builder.yml` 的 `files` 黑名单、`pnpm.onlyBuiltDependencies`,并确认 `npmRebuild:false` 下在 install 步完成重建。
-- KTD3. **生成通道 = 默认 agent CLI 单发**,复用/仿写 `runPromptHeadless`(Promise 式、独立进程注册表、支持 abort;注意它不自行解析默认 agent,须由调用方传 `providerId`,默认 agent 的解析逻辑在 `packages/core/store/personal.ts` 的 `resolveDefaultAgent`):用户明确指定「利用默认的 agent」,不走 `llm:openaiComplete` 直连。agent CLI 无 temperature 参数,ReplyClone 的 0.3/0.9 温度分层改用 prompt 避重列表实现多样性;冷启动延迟(数百 ms~秒级)靠「先弹气泡再生成 + 后台预生成翻牌」掩盖。
+- KTD3. **生成通道 = 供应商直连单发**(主进程 OpenAI 兼容 chat completions,复用 `ProviderSettings` 体系与 `llm:openaiComplete` 同款请求构造 `chatCompletionsUrl`/`authHeaders`;controller 在 main 侧直接函数调用,不绕 IPC):agent CLI 面向编码类长任务,冷启动数百 ms~秒级、无 temperature 参数,与快捷回复的秒回诉求不符,弃用。现有 `llm:openaiComplete` 仅支持单 user message、无温度、不可中途取消,不够用——reply 新建主进程共享补全函数,支持 system+user 消息、temperature、`AbortSignal`(取消 = AbortController 直接砍 fetch,比 kill CLI 简洁可靠)。直连恢复源项目温度分层(首选 0.3 / 翻牌 0.9 / 蒸馏 0.2),避重列表保留为多样性补充。模型解析回退链:reply 专属 provider+model(R12)→ `defaultProviderId`/`defaultModel` → 均缺失气泡错误态引导去设置,任何情况不回退 agent CLI。本期仅支持 `endpointFormat === "chat_completions"` 的供应商(预置模板全量覆盖),messages/responses 协议缓做;main 侧读配置直接 `getPersistedState()`(`run-prompt-headless.ts` 先例),无需快照同步机制。
 - KTD4. **分层落位**:纯逻辑(对话重建 / prompt 构建 / 日历空闲 / 蒸馏合并 / 渠道校验解析)落 `packages/core/reply/` 并新增 exports 子路径 `@cortex-work/core/reply`;系统能力与编排落 `apps/desktop/src/main/reply/` + 新 `reply` IPC 域。IPC 契约三处同步(`main/ipc/types.ts` → preload → `packages/core/desktop/types.ts`),`DesktopBridge` 新方法全部可选(`?:`,Web 端为 null 降级)。
 - KTD5. **气泡窗采用 notification-window 的不抢焦模式**(`focusable:false` + `showInactive()`),而非 spotlight 的抢焦+blur 隐藏模式——抢焦即丢失目标输入框焦点。窗口配方沿用仓库 panel 惯例(`type:"panel"`、`setAlwaysOnTop("screen-saver")`、`setVisibleOnAllWorkspaces(..., skipTransformProcessType:true)`);新 renderer 入口注册进 `electron.vite.config` 多入口;高度由 renderer 实测回传后 `setBounds`。
 - KTD6. **持久化走 `store` 域 `PersistedState` 新分片**(`replySettings` / `replyMemory` / `replyChannels`),不建 markdown 文件夹(ReplyClone 的 Finder 打开文件夹交互不保留);新分片必须加入 `usePersonalPersistence` 的节流分支,否则「会话内生效、重启丢失」;Zustand 分片新建独立 store 文件(`personal.ts` 已 1149 行,逼近 1200 硬上限,禁止再塞)。
 - KTD7. **快捷键降级链**:辅助功能未授权 / helper 加载失败 → 用 `hotkey.ts` 既有 accelerator 工具注册组合键兜底(默认 `CommandOrControl+Shift+R`),授权后自动切回手势;复用其三级兜底与占用降级模型。
-- KTD8. **隐私边界**:对话原文、OCR 原文、蒸馏样本一律不落盘(调试记录仅内存);持久化仅限手写笔记与蒸馏产出的风格要点;蒸馏由「学习开关」显式启用,注入 prompt 与蒸馏调用都走用户自选的默认 agent,不引入额外出网通道。
+- KTD8. **隐私边界**:对话原文、OCR 原文、蒸馏样本一律不落盘(调试记录仅内存);持久化仅限手写笔记与蒸馏产出的风格要点;蒸馏由「学习开关」显式启用,注入 prompt 与蒸馏调用都走用户自选的供应商模型端点(KTD3 回退链),不引入额外出网通道。
 - KTD9. **渠道范围**:本期只迁「粘贴 token + 凭据校验 + 状态管理」;Lark 扫码设备流(RFC 8628,含品牌切换/addons 编码)复杂度高且不阻塞主链路,缓迁(见 Scope Boundaries)。
 
 ---
@@ -73,7 +73,7 @@ flowchart TB
   subgraph main["Electron 主进程"]
     HC[helper-client<br/>spawn + JSON stdio]
     CTRL["reply controller<br/>会话状态机 + 世代 token"]
-    GEN["draft-generator<br/>runPromptHeadless × 默认 agent"]
+    GEN["draft-generator<br/>供应商直连 chat completions"]
     BW[bubble-window 管理]
     DBG[debug-log 环形缓冲 20 条]
     IPC[reply IPC 域]
@@ -110,16 +110,16 @@ stateDiagram-v2
   capturing --> generating: 捕获完成(AX 或 OCR+重建)
   capturing --> idle: 捕获失败/权限缺失(提示引导)
   generating --> presenting: 首条候选到达(展示+后台预生成2条)
-  generating --> idle: esc(kill 在途 CLI)/生成失败
+  generating --> idle: esc(abort 在途请求)/生成失败
   presenting --> presenting: ←/→ 切换 · 翻牌(追加避重生成)
   presenting --> writing: ↩ 写回
-  presenting --> idle: esc(kill 在途预生成)
+  presenting --> idle: esc(abort 在途预生成)
   writing --> idle: 写回完成(触发学习管线)/目标 pid 变更中止提示
   generating --> capturing: 重入手势=取消旧会话(token+1)重捕获
   presenting --> capturing: 重入手势=取消旧会话(token+1)重捕获
 ```
 
-所有跨状态回调(CLI 输出、OCR 结果、转写结果)携带世代 token,与当前 token 不符即静默丢弃——这是并发安全(R7)的唯一裁决机制。
+所有跨状态回调(补全响应、OCR 结果、转写结果)携带世代 token,与当前 token 不符即静默丢弃——这是并发安全(R7)的唯一裁决机制。
 
 ---
 
@@ -129,7 +129,7 @@ stateDiagram-v2
 
 - **关系(relationship)tab**:用户明确排除;源项目中本就是纯占位视图(无模型、无存储、按钮 no-op)。
 - **待办(OwedItem)**:用户明确排除;源项目仅手动增删,UI 宣称的「自动从对话整理待还」并无实现。
-- **模型设置面**(Provider 预设 / oMLX 本机模型自动发现 / 模型列表 Picker / API URL+Key / 测试本地模型 / temperature 与 maxTokens 调参):被 KTD3「默认 agent 生成」决策整体取代——本应用的模型能力由 agent 设置统一管理,不再自配端点。
+- **模型设置面**(Provider 预设 / oMLX 本机模型自动发现 / 模型列表 Picker / API URL+Key / 测试本地模型 / temperature 与 maxTokens 调参):被 KTD3「供应商直连」决策整体取代——不迁 ReplyClone 的自配端点/模型列表/调参 UI,模型选择复用本应用供应商体系,reply 设置分区只留一个 provider+model 选择(R4/R12);temperature/maxTokens 不暴露 UI,按场景取代码内常量(KTD3 温度分层)。
 - **Lark 日历 / Google 日历渠道卡片**:源项目只有渠道目录定义,无对应 reader,连接后也不产生忙闲上下文(空壳);本期日历上下文仅本地日历(EventKit,经 helper)。
 
 ### Deferred to Follow-Up Work
@@ -204,7 +204,7 @@ stateDiagram-v2
 **Requirements**:R10、R12、R13(数据面)。
 **Dependencies**:U2(数据类型)。
 **Files**:`packages/core/desktop/types.ts`(`PersistedState` 加 `replySettings`/`replyMemory`/`replyChannels` + 类型)、`packages/core/store/reply.ts(+.test.ts)`(独立 zustand store,仿 `pet.ts`/`ui.ts`——`personal.ts` 已 1149 行禁止再塞)、`packages/core/desktop/usePersonalPersistence.ts`(saveUrgency 分支 + 订阅接入)、`packages/core/desktop/bridge.ts`(新增 `reply` 能力方法,全部 `?:` 可选,Web 端 null 降级)、`apps/desktop/src/main/ipc/types.ts`、`apps/desktop/src/preload/index.ts`(`desktopAPI.reply`)、`apps/desktop/src/main/ipc/reply.ts`(域 handler 骨架)。
-**Approach**:分片状态放独立 reply store,`usePersonalPersistence` 扩展为同时订阅 reply store 并合并进 `PersistedState` 序列化(具体接法——合并序列化 vs 独立节流通道——实现期定,倾向前者少动持久化管线);`saveUrgency`:replySettings/replyChannels 为 throttled,replyMemory 为 throttled;hydrate 对缺失分片给空默认。渠道 token 经 `safeStorage` 在 main 侧加解密,store 内只存密文与连接状态。reply IPC 域注册仿 `notification-window` 先例(在 `apps/desktop/src/main/index.ts` 单独调用或并入 `register.ts`,取后者保持惯例)。
+**Approach**:`replySettings` 含触发键选择与 reply 模型选择(`providerId`/`model`,均可空=跟随供应商默认,KTD3 回退链;只存 id 引用,apiKey 由 main 侧从 `providerSettings` 解析,沿 `pi` 会话 `providerId` 先例)。分片状态放独立 reply store,`usePersonalPersistence` 扩展为同时订阅 reply store 并合并进 `PersistedState` 序列化(具体接法——合并序列化 vs 独立节流通道——实现期定,倾向前者少动持久化管线);`saveUrgency`:replySettings/replyChannels 为 throttled,replyMemory 为 throttled;hydrate 对缺失分片给空默认。渠道 token 经 `safeStorage` 在 main 侧加解密,store 内只存密文与连接状态。reply IPC 域注册仿 `notification-window` 先例(在 `apps/desktop/src/main/index.ts` 单独调用或并入 `register.ts`,取后者保持惯例)。
 **Test scenarios**:saveUrgency 对三个新分片变更返回 throttled、无变更返回 none;hydrate 空/半缺分片兜底不抛;reply store 的设置更新/记忆分区写入/渠道状态流转 reducer 行为;`toPersistedState` 序列化含新分片且字段完整往返。
 **Verification**:core + desktop typecheck;`pnpm --filter @cortex-work/core test`;手测:改设置→重启→仍生效(防「会话内生效、重启丢失」)。
 
@@ -214,19 +214,20 @@ stateDiagram-v2
 **Requirements**:R5。
 **Dependencies**:U5(IPC 契约)。
 **Files**:`apps/desktop/src/main/reply/bubble-window.ts`、`apps/desktop/src/main/reply/bubble-window-geometry.ts(+.test.ts)`、`apps/desktop/src/renderer/reply.html`、`apps/desktop/src/renderer/src/reply-bubble.tsx`(+样式)、`apps/desktop/electron.vite.config.ts`(renderer input 加 `reply`)。
-**Approach**:窗口配方照抄 `notification-window.ts`(`frame:false, transparent:true, focusable:false, skipTaskbar:true`、macOS `type:"panel"`、`setAlwaysOnTop(true,"screen-saver")`、`setVisibleOnAllWorkspaces(...,{skipTransformProcessType:true})`、`showInactive()`);preload 复用主 `index.js`(notification/spotlight 先例,无需改 preload input)。锚定:AX 焦点输入框 frame 上方,坐标换算与屏幕边缘 clamp 抽 geometry 纯函数;frame 不可得时兜底鼠标所在屏中下方。renderer 实测内容高度回传 `setBounds`。候选状态(列表/当前索引/生成中/错误)经 reply IPC 推送;键盘事件不走 DOM(窗口永不聚焦),由 helper 吞键 `key-event` → controller → IPC 推送驱动 UI。UI 含生成中动画、翻牌按钮、错误态(默认 agent 未配置时引导去设置)。
+**Approach**:窗口配方照抄 `notification-window.ts`(`frame:false, transparent:true, focusable:false, skipTaskbar:true`、macOS `type:"panel"`、`setAlwaysOnTop(true,"screen-saver")`、`setVisibleOnAllWorkspaces(...,{skipTransformProcessType:true})`、`showInactive()`);preload 复用主 `index.js`(notification/spotlight 先例,无需改 preload input)。锚定:AX 焦点输入框 frame 上方,坐标换算与屏幕边缘 clamp 抽 geometry 纯函数;frame 不可得时兜底鼠标所在屏中下方。renderer 实测内容高度回传 `setBounds`。候选状态(列表/当前索引/生成中/错误)经 reply IPC 推送;键盘事件不走 DOM(窗口永不聚焦),由 helper 吞键 `key-event` → controller → IPC 推送驱动 UI。UI 含生成中动画、翻牌按钮、错误态(reply 模型不可用——KTD3 回退链到底仍缺失时——引导去设置)。
 **Test scenarios**:geometry——输入框 frame → 气泡 bounds(上方留白)、屏幕顶部溢出翻转到下方、跨屏 clamp、frame 缺失兜底;组件——候选切换渲染当前项与序号、生成中态显示动画且禁写回、错误态渲染引导文案。
 **Verification**:组件/geometry 单测绿;手测:气泡出现时目标 app 焦点不丢、输入框仍可继续打字。
 
 ### U7. reply controller 编排 + 兜底快捷键 + 调试记录
 
-**Goal**:会话状态机落地(上图),打通 手势→捕获→重建→prompt→默认 agent 生成→候选→写回 全链;调试环形缓冲。
+**Goal**:会话状态机落地(上图),打通 手势→捕获→重建→prompt→供应商直连生成→候选→写回 全链;调试环形缓冲。
 **Requirements**:R1、R2、R3、R4、R6、R7、R14。
 **Dependencies**:U1、U4、U5、U6。
-**Files**:`apps/desktop/src/main/reply/controller-state.ts(+.test.ts)`(状态机与 token 纯逻辑)、`apps/desktop/src/main/reply/controller.ts`、`apps/desktop/src/main/reply/draft-generator.ts`、`apps/desktop/src/main/reply/debug-log.ts(+.test.ts)`、`apps/desktop/src/main/ipc/reply.ts`(handler 填实)、`apps/desktop/src/main/index.ts`(启动接线)、`apps/desktop/src/main/hotkey.ts`(加 `REPLY_HOTKEY_ACCELERATOR = CommandOrControl+Shift+R` 与既有 resolve 链复用)。
-**Approach**:`draft-generator` 封装 `runPromptHeadless`(传 `signal` 支持取消;`providerId` 取自默认 agent——设置变更时由 renderer 经 IPC 推送快照到 main 侧缓存,具体机制实现期定);首条候选到即推气泡,随后串行预生成 2 条避重候选;翻牌=避重列表追加后再生成一条。捕获策略:AX 文本「像对话」直接用,否则 `ocr` + U1 重建(「像对话」判定移植源项目启发式)。写回:`ax-activate(pid)` 前校验 pid 未变→`paste`。agent 输出清洗(剥离常见 markdown 围栏/前后缀)兜底 prompt 约束。调试记录:环形 20 条,内存驻留,含捕获来源/AX 原文/OCR 原文/prompt/输出或错误。兜底 accelerator 按 KTD7 注册,辅助功能授权后自动切手势。
+**Files**:`apps/desktop/src/main/reply/controller-state.ts(+.test.ts)`(状态机与 token 纯逻辑)、`apps/desktop/src/main/reply/controller.ts`、`apps/desktop/src/main/reply/draft-generator.ts`(直连补全封装)、`apps/desktop/src/main/reply/resolve-model.ts(+.test.ts)`(KTD3 模型解析回退链纯逻辑)、`apps/desktop/src/main/reply/debug-log.ts(+.test.ts)`、`apps/desktop/src/main/ipc/reply.ts`(handler 填实)、`apps/desktop/src/main/index.ts`(启动接线)、`apps/desktop/src/main/hotkey.ts`(加 `REPLY_HOTKEY_ACCELERATOR = CommandOrControl+Shift+R` 与既有 resolve 链复用)。
+**Approach**:`draft-generator` 为主进程直连补全封装(KTD3:复用 `chatCompletionsUrl`/`authHeaders` 构造请求,支持 system+user、temperature、`AbortSignal`;不经 `runPromptHeadless`/agent CLI);模型解析走 `resolve-model` 回退链(reply 专属 → 供应商默认 → 不可用错误),配置经 `getPersistedState()` 读取,每次唤起时解析(设置变更即时生效,无需快照同步);首条候选温度 0.3,预生成与翻牌 0.9 并带避重列表,首条到即推气泡,随后串行预生成 2 条避重候选;翻牌=避重列表追加后再生成一条。捕获策略:AX 文本「像对话」直接用,否则 `ocr` + U1 重建(「像对话」判定移植源项目启发式)。写回:`ax-activate(pid)` 前校验 pid 未变→`paste`。模型输出清洗(剥离常见 markdown 围栏/前后缀)兜底 prompt 约束。调试记录:环形 20 条,内存驻留,含捕获来源/AX 原文/OCR 原文/prompt/输出或错误。兜底 accelerator 按 KTD7 注册,辅助功能授权后自动切手势。
 **Test scenarios**:
-- 状态机纯逻辑:每条上图转移;过期 token 回调(CLI 输出/OCR/转写)静默丢弃;generating/presenting 中重入→旧会话取消标志置位且 token 递增;esc 在 generating→kill 在途;写回时 pid 变更→中止并产出提示事件,不粘贴。
+- 状态机纯逻辑:每条上图转移;过期 token 回调(补全响应/OCR/转写)静默丢弃;generating/presenting 中重入→旧会话取消标志置位且 token 递增;esc 在 generating→abort 在途请求;写回时 pid 变更→中止并产出提示事件,不粘贴。
+- 模型解析回退链:reply 专属 provider+model 存在且供应商启用→选中;专属缺失→供应商默认;默认亦缺失或供应商被禁用→不可用错误(供气泡错误态);解析结果含 baseUrl/apiKey/model 完整拍平。
 - 候选管理:首条到达即 presenting;预生成候选追加不打断当前索引;翻牌带全部已有候选为避重列表。
 - 调试缓冲:第 21 条写入淘汰最旧;记录含错误分支;进程内存态(无持久化调用)。
 - 输出清洗:带 ``` 围栏/前缀寒暄的模型输出→纯正文。
@@ -248,17 +249,17 @@ stateDiagram-v2
 **Requirements**:R12、R13、R14。
 **Dependencies**:U5(数据契约);U2(校验纯函数);U4(权限查询)。
 **Files**:`packages/views/cortex-desktop/personal/ReplySettingsSection.tsx(+.test.tsx)`(独立文件,仿 `SttSettingsSection`——`SettingsMenu.tsx` 已 1960 行,只允许加 `SettingsTab` 成员/`TAB_META`/`NAV_GROUPS`/渲染分支四处注册行)、`packages/core/i18n/resources/en/settings.json`、`packages/core/i18n/resources/zh-Hans/settings.json`、`apps/desktop/src/main/ipc/reply.ts`(渠道校验 fetch handler:调 U2 纯函数构造请求/解析响应,token `safeStorage` 加密入 store)。
-**Approach**:分区内容——起草触发键(⌘/⌥/Fn)与语音触发键(Fn/右⌥/⌘)选择;权限中心五项状态徽标 + 「去授权」引导(打开系统设置对应页);记忆管理(5 分区手写笔记编辑、学习开关、清空记忆/学习要点);渠道卡片(Slack/Gmail/Lark:粘贴 token→校验→显示账号身份→断开清除);数据清理;调试记录列表(展开看 prompt 与输出)。非 mac 平台或 bridge.reply 缺失→整个分区隐藏(Web 端天然降级)。
-**Test scenarios**:权限五项各状态(granted/denied/unknown)渲染与引导按钮出现;渠道卡片:校验成功显示账号名+团队、`ok:false` 显示错误、断开清除状态;触发键选择变更调用设置更新;学习开关切换写入 store;调试记录空态与 20 条渲染。
+**Approach**:分区内容——起草触发键(⌘/⌥/Fn)与语音触发键(Fn/右⌥/⌘)选择;模型选择(供应商+模型二级选择,数据源 `providerSettings`,仅列 `enabled` 且 `endpointFormat === "chat_completions"` 的供应商;未选择时显示「跟随供应商默认」及将回退到的具体模型,KTD3 回退链);权限中心五项状态徽标 + 「去授权」引导(打开系统设置对应页);记忆管理(5 分区手写笔记编辑、学习开关、清空记忆/学习要点);渠道卡片(Slack/Gmail/Lark:粘贴 token→校验→显示账号身份→断开清除);数据清理;调试记录列表(展开看 prompt 与输出)。非 mac 平台或 bridge.reply 缺失→整个分区隐藏(Web 端天然降级)。
+**Test scenarios**:权限五项各状态(granted/denied/unknown)渲染与引导按钮出现;渠道卡片:校验成功显示账号名+团队、`ok:false` 显示错误、断开清除状态;触发键选择变更调用设置更新;模型选择——下拉仅列启用的 chat_completions 供应商、选择写入 `replySettings`、未选择时展示回退目标、无任何可用供应商时提示去供应商设置;学习开关切换写入 store;调试记录空态与 20 条渲染。
 **Verification**:`pnpm --filter @cortex-work/views test`(新文件)+ typecheck + lint;手测设置页导航与 i18n 中英文案。
 
 ### U10. 语气蒸馏接线
 
-**Goal**:写回成功→样本采集→默认 agent 蒸馏→分区 auto 区合并持久化(R11 首次真正落地)。
+**Goal**:写回成功→样本采集→reply 模型蒸馏→分区 auto 区合并持久化(R11 首次真正落地)。
 **Requirements**:R10、R11。
 **Dependencies**:U2、U7。
 **Files**:`apps/desktop/src/main/reply/distill.ts(+.test.ts 可测部分)`。
-**Approach**:写回完成事件→若学习开关开启:当次捕获对话「我:」侧样本 + 已接受草稿追加进该分区内存样本队列(路由按捕获应用类别 im/email,与注入路由一致)→ 后台低优先级调 `runPromptHeadless` 跑 U2 蒸馏 prompt → 清洗 → 覆盖该分区 auto 区 → 经 store 持久化(仅要点落盘,样本不落盘,KTD8)。蒸馏失败静默(不打扰),下次写回再试。
+**Approach**:写回完成事件→若学习开关开启:当次捕获对话「我:」侧样本 + 已接受草稿追加进该分区内存样本队列(路由按捕获应用类别 im/email,与注入路由一致)→ 后台低优先级走 U7 `draft-generator` 直连补全(温度 0.2,KTD3)跑 U2 蒸馏 prompt → 清洗 → 覆盖该分区 auto 区 → 经 store 持久化(仅要点落盘,样本不落盘,KTD8)。蒸馏失败静默(不打扰),下次写回再试。
 **Test scenarios**:开关关闭→零副作用;写回成功且开关开→样本入队且分区路由正确;蒸馏输出经清洗后覆盖 auto 区、手写区不动;蒸馏进行中再次写回→排队不并发(单飞);持久化调用仅含 auto 要点不含样本原文。
 **Verification**:单测绿;手测:连续接受几条草稿后,设置页记忆分区 auto 要点出现且重启保留。
 
@@ -268,8 +269,8 @@ stateDiagram-v2
 
 - **CGEventTap 稳定性**(高):active tap 会被系统在 secure input(密码框)或超时后禁用。缓解:仅气泡激活期间开吞键缩小暴露面;helper 内建 tap 失效检测与重建(源项目已有此契约);彻底失效时降级 KTD7 兜底 accelerator。
 - **TCC 权限归属**(高):helper 作为子进程,AX/屏幕录制权限提示的 responsible process 归属需真机验证签名产物(未签名 dev 态与签名产物行为可能不同)。计划应对:U3 验证清单强制含签名产物 `/tmp` 外执行的权限弹窗归属检查;若归属到 helper 而非宿主 app,权限引导文案与授权列表条目要相应指向。
-- **agent CLI 输出纯净度**(中):候选可能带围栏/寒暄/思考残留。prompt 收尾硬约束 + U7 输出清洗兜底;调试记录留原始输出便于迭代清洗规则。
-- **冷启动延迟**(中):agent CLI 数百 ms~秒级。先弹气泡(生成中动画)再等首条 + 后台预生成掩盖;默认 agent 未配置→气泡错误态引导。
+- **模型输出纯净度**(低):直连 + 温度 0.3 + prompt 收尾硬约束下,围栏/寒暄残留概率低于 agent CLI,但仍以 U7 输出清洗兜底;调试记录留原始输出便于迭代清洗规则。
+- **生成延迟**(低):供应商直连无进程冷启动,首响应通常数百 ms 内;仍保留「先弹气泡(生成中动画)再等首条 + 后台预生成」作为体感缓冲;模型不可用(KTD3 回退链到底)→气泡错误态引导。若线上供应商整条返回体感偏慢,再引入 SSE 流式渐显(见 Deferred)。
 - **大文件红线**(确定):`SettingsMenu.tsx`(1960 行)与 `personal.ts`(1149 行)只允许加注册行,新逻辑一律独立文件(U5/U9 已按此拆)。
 - **原生依赖构建链**(中):`node-mac-permissions` 在 `npmRebuild:false` 下须 install 期完成 electron ABI 重建,并核对 files 黑名单与 `pnpm.onlyBuiltDependencies`(KTD2)。
 - **多屏/缩放几何**(低):OCR 归一化坐标与气泡锚定在多屏、Retina 缩放下的换算;geometry 纯函数单测覆盖 + 手测清单含双屏用例。
@@ -279,7 +280,9 @@ stateDiagram-v2
 ## Deferred Implementation Notes(实现期再定,不假装已决)
 
 - helper NDJSON 协议的具体字段命名与版本协商方式。
-- 默认 agent 快照同步到 main 的机制(IPC push vs main 读持久化文件)。
+- 直连补全的 SSE 流式渐显:本期整条候选返回后展示(候选是短文本,收益有限);若体感慢再引入。
+- `endpointFormat` 为 messages/responses 的供应商支持(本期仅 chat_completions,KTD3)。
+- 直连补全的超时取值(快捷场景应短于 `llm:openaiComplete` 的 60s,具体阈值实现期调)。
 - 「像对话」启发式的阈值移植细节(源项目 `AccessibilityBridge` 判定)。
 - 写回双路径:本期仅 ⌘V 粘贴(R6);AX `setValue` 直写作为后续优化项。
 - 持久化接线取合并序列化还是独立节流通道(U5 内定,倾向合并)。
@@ -290,5 +293,5 @@ stateDiagram-v2
 ## Sources & Research
 
 - **源项目**:`/Users/mike/source/project/ai/ReplyClone`(macOS SwiftUI 原型,单 commit;`ReplyCore` 纯逻辑层带完整测试,是 U1/U2 的行为契约来源;`ReplyCloneApp` 系统集成层是 U3 helper 的移植参照)。关键参照文件(相对该仓库根):`Sources/ReplyCore/ConversationLayoutBuilder.swift`、`ReplyPromptBuilder.swift`、`CalendarSlotFormatter.swift`、`MemoryStore.swift`、`MemoryDistillPromptBuilder.swift`、`ChannelCredentialVerifier.swift`、`GmailEnvCredentials.swift`;`Sources/ReplyCloneApp/AccessibilityBridge.swift`、`ScreenTextReader.swift`、`HotkeyMonitor.swift`、`CandidateKeyInterceptor.swift`、`CalendarReader.swift`、`PermissionCenter.swift`、`AppState.swift`;`Tests/` 全部。
-- **本仓库机制核实**(KTD 引用均已落到实际文件):`apps/desktop/src/main/workflow/run-prompt-headless.ts`、`apps/desktop/src/main/hotkey.ts`、`apps/desktop/src/main/notification-window.ts`(对比 `spotlight.ts`)、`apps/desktop/electron.vite.config.ts`、`apps/desktop/src/main/ipc/register.ts`、`packages/core/desktop/usePersonalPersistence.ts`、`apps/desktop/scripts/build-pi-binary.mjs` + `electron-builder.yml`、`apps/desktop/src/main/capabilities/whisper/` + `packages/views/cortex-desktop/personal/useComposerVoice.ts`、`packages/views/cortex-desktop/personal/SettingsMenu.tsx`、`packages/core/store/pet.ts`。
-- **关键常量沿源项目**:双击窗口 0.35s、日历 3 天/30 分钟/8 段、蒸馏 ≤10 条、样本上限 30、调试记录 20 条、回填延迟 150ms、候选预生成 2 条;源项目 temperature 分层(0.3/0.9/0.2)不可迁(agent CLI 无该参数),以避重列表替代多样性(KTD3)。
+- **本仓库机制核实**(KTD 引用均已落到实际文件):`apps/desktop/src/main/ipc/llm.ts`(`llm:openaiComplete` 直连先例与 `chatCompletionsUrl`/`authHeaders` 请求构造)、`apps/desktop/src/main/ipc/provider.ts`(供应商探测)、`packages/core/desktop/types.ts`(`ProviderSettings`/`ProviderProfile`/`PROVIDER_PRESETS`,`PersistedState.providerSettings`)、`apps/desktop/src/main/workflow/run-prompt-headless.ts`(main 侧 `getPersistedState()` 读 providerSettings 先例)、`apps/desktop/src/main/hotkey.ts`、`apps/desktop/src/main/notification-window.ts`(对比 `spotlight.ts`)、`apps/desktop/electron.vite.config.ts`、`apps/desktop/src/main/ipc/register.ts`、`packages/core/desktop/usePersonalPersistence.ts`、`apps/desktop/scripts/build-pi-binary.mjs` + `electron-builder.yml`、`apps/desktop/src/main/capabilities/whisper/` + `packages/views/cortex-desktop/personal/useComposerVoice.ts`、`packages/views/cortex-desktop/personal/SettingsMenu.tsx`、`packages/core/store/pet.ts`。
+- **关键常量沿源项目**:双击窗口 0.35s、日历 3 天/30 分钟/8 段、蒸馏 ≤10 条、样本上限 30、调试记录 20 条、回填延迟 150ms、候选预生成 2 条;源项目 temperature 分层(0.3/0.9/0.2)经供应商直连恢复,避重列表保留为多样性补充(KTD3)。
