@@ -8,6 +8,25 @@ import { boxMaxX, boxMidY, boxMinX, type OCRTextBlock } from "./types";
 // 0.2 落在二者之间留足余量。
 export const SPEAKER_LEFT_MARGIN_THRESHOLD = 0.2;
 
+// 微信/企微对话区时间戳形态：以 HH:MM 结尾（可带日期/星期/时段前缀），或纯日期。
+// 注意刻意**不**匹配纯「星期四」「昨天」——它们可能是真实回复（「哪天有空?」「星期四」），
+// 纯星期/相对日碎片只在「居中块」位置语义下剔除（见 transcript 居中分支）。
+const TIMESTAMP_TEXT_RE =
+  /^(?:(?:\d{2,4}年)?\d{1,2}月\d{1,2}日|(?:\d{2,4}\/)?\d{1,2}\/\d{1,2}|星期[一二三四五六日天]|周[一二三四五六日天]|昨天|今天|前天)?(?:上午|下午|凌晨|晚上|中午|早上)?\d{1,2}:\d{2}$|^(?:\d{2,4}年)?\d{1,2}月\d{1,2}日$|^(?:\d{2,4}\/)?\d{1,2}\/\d{1,2}$/;
+
+// 纯星期 / 相对日（OCR 把「星期四 18:57」拆块后的残片形态）——仅居中位置时按时间戳碎片剔除。
+const WEEKDAY_ONLY_RE = /^(?:星期[一二三四五六日天]|周[一二三四五六日天]|昨天|今天|前天)$/;
+
+/**
+ * 是否为微信式时间戳文本（整块匹配；用户确认时间信息为纯噪声，重建前一律剔除）。
+ * 先去两端符号残渣（OCR 常在尾部误读出 "|"）再去内部空白后匹配。
+ */
+export function isTimestampText(text: string): boolean {
+  const compact = trimToAlphanumericEdges(text.trim()).replace(/\s+/g, "");
+  if (compact.length === 0) return false;
+  return TIMESTAMP_TEXT_RE.test(compact);
+}
+
 /** 对话重建的可选启发式参数（噪声标记 / 系统事件前缀）。 */
 export interface ConversationLayoutOptions {
   /** 含这些标记的文本块（如输入框占位符）在重建前直接过滤。 */
@@ -39,6 +58,9 @@ export class ConversationLayoutBuilder {
     const cleaned = blocks.filter((block) => {
       const text = block.text.trim();
       if (text.length === 0 || !containsMeaningfulText(text)) return false;
+      // 时间戳（「星期四 18:57」「昨天 23:26」「6月3日」…）不论位置一律剔除：
+      // 它们参与说话人交替会彻底搅乱重建（用户实测反馈），对候选生成也无信息量。
+      if (isTimestampText(text)) return false;
       // 窗口最顶部是标题栏（联系人名 / 工具条），不属于会话内容
       if (boxMidY(block.boundingBox) >= 0.95) return false;
       if (
@@ -95,7 +117,11 @@ export class ConversationLayoutBuilder {
       if (Math.abs(leftMargin - rightMargin) < 0.25 && Math.min(leftMargin, rightMargin) > 0.18) {
         // 去掉两端被 OCR 误读的符号残渣（如尾部的 "|"）
         const stamp = trimToAlphanumericEdges(text);
-        if (stamp.length > 0) lines.push(`[${stamp}]`);
+        // 居中的纯「星期X/昨天」是时间戳被 OCR 拆块后的残片（数字半块已被无意义过滤剔除），
+        // 位置语义足以判定非消息——静默丢弃；其余居中提示仍保留为分隔行。
+        if (stamp.length > 0 && !WEEKDAY_ONLY_RE.test(stamp.replace(/\s+/g, ""))) {
+          lines.push(`[${stamp}]`);
+        }
         continue;
       }
       // 归属判定用「左边缘是否贴面板左内边距」，而非旧的「中心在面板中线右侧即我方」：

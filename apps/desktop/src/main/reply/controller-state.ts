@@ -236,13 +236,20 @@ export function shouldAbortWriteBack(
   return currentPid !== capturedPid;
 }
 
-/** 气泡锚点优先级：真实光标 > helper 推断输入首行 > 焦点元素 frame。 */
+/**
+ * 气泡锚点优先级：真实光标 > helper 推断输入首行 > 焦点元素 frame > OCR 输入框锚。
+ * OCR 锚（placeholder 行 / 分栏合成）排最后：AX 锚存在时更实时精确；微信 4.x 等
+ * AX 内容树为空的应用前三者必为 null，OCR 锚成为唯一贴住输入框的信号。
+ */
 export function selectReplyAnchorFrame(input: {
   caretFrame: ReplyRect | null;
   inputAnchorFrame: ReplyRect | null;
   focusedFrame: ReplyRect | null;
+  ocrAnchorFrame?: ReplyRect | null;
 }): ReplyRect | null {
-  return input.caretFrame ?? input.inputAnchorFrame ?? input.focusedFrame;
+  return (
+    input.caretFrame ?? input.inputAnchorFrame ?? input.focusedFrame ?? input.ocrAnchorFrame ?? null
+  );
 }
 
 // ── agent 输出清洗 ────────────────────────────────────────────────────────────

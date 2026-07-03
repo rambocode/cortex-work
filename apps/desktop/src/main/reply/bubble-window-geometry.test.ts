@@ -7,6 +7,7 @@ import {
   BUBBLE_WIDTH,
   BUBBLE_GAP,
   BUBBLE_EDGE_MARGIN,
+  WINDOW_INPUT_BAR_BOTTOM_OFFSET,
 } from "./bubble-window-geometry";
 
 const PRIMARY = { x: 0, y: 0, width: 1440, height: 900 };
@@ -96,10 +97,23 @@ describe("bubbleWindowBounds - 窗口 frame 兜底锚定", () => {
       displays: [PRIMARY],
       cursor: { x: 0, y: 0 }, // 鼠标兜底不应生效
     });
-    // 合成输入首行锚 y = 100 + 500*0.82;下方:y = 510 + 8 = 518
-    expect(b.y).toBe(100 + 500 * 0.82 + BUBBLE_GAP);
+    // 合成输入首行锚 y = 窗口底缘(600) - 固定输入区偏移(120) = 480;下方:480 + 8 = 488
+    expect(b.y).toBe(100 + 500 - WINDOW_INPUT_BAR_BOTTOM_OFFSET + BUBBLE_GAP);
     // 左缘对齐窗口左缘（-6）
     expect(b.x).toBe(100 - 6);
+  });
+
+  it("矮窗口时合成锚 clamp 到窗口中线,不侵入消息区上半部", () => {
+    const windowFrame = { x: 100, y: 100, width: 600, height: 180 };
+    const b = bubbleWindowBounds({
+      frame: null,
+      windowFrame,
+      bubbleHeight: 60,
+      displays: [PRIMARY],
+      cursor: { x: 0, y: 0 },
+    });
+    // 底缘-120 = 160 高于中线 190 → clamp 到中线;下方:190 + 8 = 198
+    expect(b.y).toBe(100 + 180 / 2 + BUBBLE_GAP);
   });
 
   it("仅有窗口 frame 时不随鼠标移动改变位置", () => {

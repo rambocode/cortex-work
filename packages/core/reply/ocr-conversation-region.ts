@@ -19,6 +19,12 @@ export interface ConversationInputAnchor {
 
 export interface OcrConversationRegionOptions {
   inputAnchor?: ConversationInputAnchor | null;
+  /**
+   * 被截窗口的物理高度（pt）。用于把「顶部标题栏」判定从归一化比例换算成物理高度：
+   * 固定比例（0.86）在高窗口下会把顶部 ~100pt 内的第一条消息误杀（用户实测「爷爷去吧…」丢失）。
+   * 不传时退回旧比例行为。
+   */
+  windowHeightPt?: number | null;
 }
 
 const KNOWN_MULTI_PANE_IM_PATTERNS = [
@@ -35,6 +41,8 @@ const KNOWN_MULTI_PANE_IM_PATTERNS = [
 ];
 
 const IM_TOP_CHROME_MIN_MID_Y = 0.86;
+// 已知 IM 标题栏（联系人名 + 工具条）的物理高度上界（pt）。微信实测 ~50pt，留余量取 56。
+const IM_TOP_CHROME_HEIGHT_PT = 56;
 const IM_BOTTOM_TOOLBAR_MAX_MID_Y = 0.16;
 const IM_BOTTOM_ACTION_TOOLBAR_MAX_MID_Y = 0.38;
 const WATERMARK_SEPARATORS = /[@＠◎○◉◯]/gu;
@@ -55,7 +63,7 @@ export function filterOcrBlocksForVisibleConversation(
   options: OcrConversationRegionOptions = {},
 ): readonly OCRTextBlock[] {
   if (!shouldPreferOcrForVisibleConversation(capturedApp)) return blocks;
-  const cleaned = filterKnownImNoiseBlocks(blocks);
+  const cleaned = filterKnownImNoiseBlocks(blocks, topChromeMinMidY(options.windowHeightPt));
   const anchorBlocks = filterByInputAnchor(cleaned, options.inputAnchor);
   if (anchorBlocks) return anchorBlocks;
   const splitX = estimateConversationPanelMinX(cleaned);
@@ -72,12 +80,21 @@ export function shouldPreferOcrForVisibleConversation(capturedApp: CapturedAppIn
   return KNOWN_MULTI_PANE_IM_PATTERNS.some((pattern) => pattern.test(haystack));
 }
 
-function estimateConversationPanelMinX(blocks: readonly OCRTextBlock[]): number | null {
+/** 估计多栏 IM 的「右侧对话区」左缘分栏线（归一化 x）；识别不出返回 null。ocr-input-anchor 复用。 */
+export function estimateConversationPanelMinX(blocks: readonly OCRTextBlock[]): number | null {
   const candidates = [...new Set(blocks.map((block) => round3(boxMinX(block.boundingBox))))]
     .filter((x) => x >= 0.24 && x <= 0.62)
     .sort((a, b) => a - b);
 
   for (const splitX of candidates) {
+    // 真实分栏线两侧必有纵向空隙：任何块横跨候选线即排除。否则会把会话列表内部的
+    // 时间/徽章列当成分栏线（被列表长文本横跨），残留「星期四」「xx天备考」等列表右缘噪声
+    // 进入对话区（用户实测重建错乱的直接根因）。
+    const crossed = blocks.some(
+      (block) =>
+        boxMinX(block.boundingBox) < splitX - 0.012 && boxMaxX(block.boundingBox) > splitX + 0.012,
+    );
+    if (crossed) continue;
     const leftBlocks = blocks.filter((block) => boxMinX(block.boundingBox) < splitX - 0.012);
     const rightBlocks = blocks.filter((block) => boxMinX(block.boundingBox) >= splitX - 0.006);
     if (!looksLikeSidebar(leftBlocks, splitX)) continue;
@@ -85,6 +102,15 @@ function estimateConversationPanelMinX(blocks: readonly OCRTextBlock[]): number 
     return splitX;
   }
   return null;
+}
+
+/**
+ * 顶部标题栏判定阈值：有窗口物理高度时按 56pt 换算（高窗口下不误杀顶部第一条消息），
+ * 否则退回旧比例。取 max 保证阈值只会比旧行为更温和（永不更激进地剔除）。
+ */
+function topChromeMinMidY(windowHeightPt: number | null | undefined): number {
+  if (!windowHeightPt || windowHeightPt <= 0) return IM_TOP_CHROME_MIN_MID_Y;
+  return Math.max(IM_TOP_CHROME_MIN_MID_Y, 1 - IM_TOP_CHROME_HEIGHT_PT / windowHeightPt);
 }
 
 function looksLikeSidebar(blocks: readonly OCRTextBlock[], splitX: number): boolean {
@@ -123,12 +149,15 @@ function filterByInputAnchor(
   return looksLikeConversationPanel(filtered) ? filtered : null;
 }
 
-function filterKnownImNoiseBlocks(blocks: readonly OCRTextBlock[]): readonly OCRTextBlock[] {
+function filterKnownImNoiseBlocks(
+  blocks: readonly OCRTextBlock[],
+  topChromeThreshold: number = IM_TOP_CHROME_MIN_MID_Y,
+): readonly OCRTextBlock[] {
   const noiseHints = collectImNoiseHints(blocks);
   let changed = false;
   const filtered = blocks.filter((block) => {
     if (
-      !looksLikeTopChromeBlock(block) &&
+      !looksLikeTopChromeBlock(block, topChromeThreshold) &&
       !looksLikeBottomToolbarBlock(block) &&
       !looksLikeReadReceiptBlock(block) &&
       !looksLikeCurrentUserNameBadge(block, noiseHints) &&
@@ -165,8 +194,11 @@ function collectImNoiseHints(blocks: readonly OCRTextBlock[]): ImNoiseHints {
   return { personPrefixes, currentUserNameBadges };
 }
 
-function looksLikeTopChromeBlock(block: OCRTextBlock): boolean {
-  return boxMidY(block.boundingBox) >= IM_TOP_CHROME_MIN_MID_Y;
+function looksLikeTopChromeBlock(
+  block: OCRTextBlock,
+  threshold: number = IM_TOP_CHROME_MIN_MID_Y,
+): boolean {
+  return boxMidY(block.boundingBox) >= threshold;
 }
 
 function looksLikeBottomToolbarBlock(block: OCRTextBlock): boolean {

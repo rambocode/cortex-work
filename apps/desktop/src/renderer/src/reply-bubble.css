@@ -44,7 +44,7 @@ body {
   overflow: hidden;
 }
 
-/* root：窗口宽 372 = 卡片 360 + 左右各 6 留白（与 BUBBLE_WIDTH 契约对齐）。 */
+/* root：窗口宽 412 = 卡片 400 + 左右各 6 留白（与 BUBBLE_WIDTH 契约对齐）。 */
 .rb-root {
   padding: 6px;
   font-family:
@@ -52,7 +52,7 @@ body {
 }
 
 .rb-card {
-  width: 360px;
+  width: 400px;
   box-sizing: border-box;
   /* 参考气泡视觉:无描边,上下渐变(顶部略亮),层次交给阴影。 */
   background: linear-gradient(180deg, var(--card-bg-top) 0%, var(--card-bg-bottom) 100%);
@@ -68,12 +68,16 @@ body {
   animation: rbIn 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 草稿正文（最多 3 行，超出省略）。参考气泡:常规字重、字号收小;深色主题纯白字。 */
+/* 草稿正文（最多 3 行，超出省略）。参考气泡:常规字重、字号收小;深色主题纯白字。
+   右侧额外留 20px（= rb-close-zone 宽度 36px − 卡片右内边距 16px）：hover 关闭热区
+   absolute 定位在卡片右上角、层叠于正文之上，若无这段留白，首行较长的候选文本会被
+   热区盖住甚至被 hover 出的 × 遮挡，参考气泡无此问题——故正文整体让出这块区域。 */
 .rb-draft {
   font-size: 13px;
   font-weight: 400;
   line-height: 1.45;
   color: var(--draft-text);
+  padding-right: 20px;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;

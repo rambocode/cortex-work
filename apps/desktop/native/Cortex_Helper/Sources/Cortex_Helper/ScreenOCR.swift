@@ -26,7 +26,10 @@ private func captureFrontmostWindow(pid: pid_t) -> CGImage? {
     guard let windowNumber = window?[kCGWindowNumber as String] as? UInt32 else {
         return nil
     }
-    return CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(windowNumber), [.bestResolution])
+    // boundsIgnoreFraming 去掉窗口阴影边距(实测缺它时图像每边多 ~34pt)——
+    // 否则 Vision 归一化坐标相对「含阴影画布」,与 kCGWindowBounds(无阴影)换算屏幕坐标会系统性偏移,
+    // 气泡锚定 / 会话区分栏判定都被拖偏。
+    return CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(windowNumber), [.bestResolution, .boundsIgnoreFraming])
 }
 
 /// ocr [pid]:未传 pid 时取当前前台应用。屏幕录制未授权时返回结构化错误(不弹窗、不崩溃)。

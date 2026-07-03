@@ -40,6 +40,7 @@ import {
   filterOcrBlocksForVisibleConversation,
   shouldPreferOcrForVisibleConversation,
 } from "@cortex-work/core/reply/ocr-conversation-region";
+import { ocrInputBarAnchor } from "@cortex-work/core/reply/ocr-input-anchor";
 import type { OCRTextBlock } from "@cortex-work/core/reply/types";
 import { availabilityContext } from "@cortex-work/core/reply/calendar-slots";
 import { composeUserProfile, emptyMemoryState, type MemoryState } from "@cortex-work/core/reply/memory";
@@ -89,6 +90,8 @@ interface CaptureResult {
   caretFrame: ReplyRect | null;
   /** helper 在 AX 树中推断的输入首行锚点；微信等拿不到光标时优先于 focusedFrame。 */
   inputAnchorFrame: ReplyRect | null;
+  /** OCR 反推的输入框锚（placeholder 行 / 分栏合成）：微信 4.x AX 内容树为空时唯一的贴框信号。 */
+  ocrAnchorFrame: ReplyRect | null;
   /** 焦点窗口 frame；输入框 frame 缺失时气泡兜底锚定到窗口底部（微信等 AX 不完整场景）。 */
   windowFrame: ReplyRect | null;
   appName: string;
@@ -328,12 +331,14 @@ export class ReplyController {
     this.session.setCapturedPid(capture.pid);
     // 拿到焦点输入框 frame 后重锚定气泡；输入框 frame 缺失（微信等 AX 不完整）时用窗口 frame 兜底锚定
     // 到窗口底部输入区，仍取不到才回落鼠标位置。
-    // 锚点链:光标插入点(输入法式,最精确)→ helper 推断输入首行 → 焦点输入框 frame → 窗口 frame。
+    // 锚点链:光标插入点(输入法式,最精确)→ helper 推断输入首行 → 焦点输入框 frame
+    // → OCR 输入框锚(微信 4.x AX 内容树为空的唯一贴框信号)→ 窗口 frame。
     openReplyBubble(
       selectReplyAnchorFrame({
         caretFrame: capture.caretFrame,
         inputAnchorFrame: capture.inputAnchorFrame,
         focusedFrame: capture.frame,
+        ocrAnchorFrame: capture.ocrAnchorFrame,
       }),
       capture.windowFrame,
     );
@@ -420,7 +425,7 @@ export class ReplyController {
     // 企业微信/钉钉/飞书等多栏 IM 的 AX 可能返回整窗文本（含左侧会话列表），因此必须走 OCR
     // 当前对话区裁剪，避免把未打开的会话写进 Visible conversation。
     if (!preferOcr && axRes?.ok === true && axRes.meaningful === true) {
-      return { conversation: axText, pid, frame, caretFrame, inputAnchorFrame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText: "" };
+      return { conversation: axText, pid, frame, caretFrame, inputAnchorFrame, ocrAnchorFrame: null, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText: "" };
     }
 
     // 降级 OCR：截屏 + Vision → U1 对话重建
@@ -435,14 +440,23 @@ export class ReplyController {
 
     // AX 连窗口 frame 都拿不到（微信常见）→ 用 OCR 被截窗口的 bounds 兜底,
     // 让气泡仍能贴着目标会话窗口锚定,而不是退化到鼠标位置(用户反馈「离输入框偏移很大」)。
-    if (!windowFrame) windowFrame = parseRect(ocrRes?.windowBounds);
+    const ocrWindowBounds = parseRect(ocrRes?.windowBounds);
+    if (!windowFrame) windowFrame = ocrWindowBounds;
+
+    // OCR 反推输入框锚：必须用「原始 blocks + OCR 自己的 windowBounds」——
+    // filter 会把 placeholder 行当噪声剔除；AX windowFrame 与被截窗口可能不是同一个矩形。
+    let ocrAnchorFrame: ReplyRect | null = null;
 
     if (ocrRes?.ok === true && Array.isArray(ocrRes.blocks)) {
-      const blocks = filterOcrBlocksForVisibleConversation(parseOcrBlocks(ocrRes.blocks), {
+      const rawBlocks = parseOcrBlocks(ocrRes.blocks);
+      ocrAnchorFrame = ocrWindowBounds ? ocrInputBarAnchor(rawBlocks, ocrWindowBounds) : null;
+      const blocks = filterOcrBlocksForVisibleConversation(rawBlocks, {
         bundleId: appBundleId,
         name: appName,
       }, {
         inputAnchor: ocrInputAnchor(caretFrame ?? inputAnchorFrame ?? frame, windowFrame),
+        // 顶部标题栏按窗口物理高度换算（高窗口下 0.86 比例会误杀顶部第一条消息）。
+        windowHeightPt: ocrWindowBounds?.height ?? windowFrame?.height ?? null,
       });
       const transcript = new ConversationLayoutBuilder({
         noiseMarkers: OCR_NOISE_MARKERS as unknown as string[],
@@ -450,13 +464,14 @@ export class ReplyController {
       }).transcript(blocks);
       ocrText = transcript;
       if (looksLikeConversation(transcript)) {
-        return { conversation: transcript, pid, frame, caretFrame, inputAnchorFrame, windowFrame, appName, appBundleId, counterpart, source: "ocr", axText, ocrText };
+        return { conversation: transcript, pid, frame, caretFrame, inputAnchorFrame, ocrAnchorFrame, windowFrame, appName, appBundleId, counterpart, source: "ocr", axText, ocrText };
       }
     }
 
     // AX 与 OCR 都不像对话：回退 AX 文本（有内容才用），否则彻底失败。
+    // OCR 锚若已算得仍随行携带——内容不可用不代表定位信号无效。
     if (!preferOcr && axText.trim().length > 0) {
-      return { conversation: axText, pid, frame, caretFrame, inputAnchorFrame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText };
+      return { conversation: axText, pid, frame, caretFrame, inputAnchorFrame, ocrAnchorFrame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText };
     }
     return null;
   }
@@ -549,7 +564,7 @@ export class ReplyController {
         llmMs: Date.now() - generateStartedAt,
         model: target.model,
       });
-      this.recordDebug(pending, prompt, debugDraftText(draft), null);
+      this.recordDebug("first", pending, prompt, debugDraftText(draft), null);
       // 首条是推荐回复，气泡恒不显示立场 chip；解析出的立场只用于编排决策：
       // 非 null ⇒ 对方最新消息是决策点 ⇒ 后台改为定向生成三档立场候选。
       // 流结束后用最终清洗文本替换流式中间态（未流出任何增量时走 presentFirst 兜底）。
@@ -562,7 +577,7 @@ export class ReplyController {
       this.firstStreaming = false;
       if (!this.session.isCurrent(token)) return; // 过期（重入 / esc）静默丢弃
       const message = err instanceof Error ? err.message : String(err);
-      this.recordDebug(pending, prompt, "", message);
+      this.recordDebug("first", pending, prompt, "", message);
       if (err instanceof EmptyDraftError) this.pushError("emptyCandidates");
       else this.pushError("generationFailed", message);
     }
@@ -602,14 +617,14 @@ export class ReplyController {
             });
             if (!this.session.isCurrent(token)) return;
             const candidate: ReplyCandidate = { text: draft.text, stance };
-            this.recordDebug(pending, prompt, debugDraftText(candidate), null);
+            this.recordDebug("pregenerate", pending, prompt, debugDraftText(candidate), null);
             // 仅真正入列（presenting 且非重复）才推状态：写回/取消后到达的旧回调若无条件推
             // presenting,会把已关闭的气泡复活（appendPreGenerated 在非 presenting 阶段拒收）。
             if (this.session.appendPreGenerated(candidate)) this.pushPresenting();
           } catch (err) {
             if (this.session.isCurrent(token)) {
               const message = err instanceof Error ? err.message : String(err);
-              this.recordDebug(pending, prompt, "", message);
+              this.recordDebug("pregenerate", pending, prompt, "", message);
             }
           }
         }),
@@ -664,7 +679,7 @@ export class ReplyController {
       });
       if (!this.session.isCurrent(token)) return;
       const candidate: ReplyCandidate = { text: draft.text, stance };
-      this.recordDebug(pending, prompt, debugDraftText(candidate), null);
+      this.recordDebug("flip", pending, prompt, debugDraftText(candidate), null);
       // 翻牌回调落地前再验 phase：token 不变但阶段已离开 presenting（写回中）时丢弃,
       // 避免向 writing 期追加候选并复活已关闭的气泡（appendFlip 本身无阶段门控）。
       if (this.session.phase !== "presenting") return;
@@ -673,7 +688,7 @@ export class ReplyController {
     } catch (err) {
       if (this.session.isCurrent(token)) {
         const message = err instanceof Error ? err.message : String(err);
-        this.recordDebug(pending, prompt, "", message);
+        this.recordDebug("flip", pending, prompt, "", message);
       }
     } finally {
       this.flipBusy = false;
@@ -945,6 +960,7 @@ export class ReplyController {
   // ── 调试记录 ──────────────────────────────────────────────────────────────────
 
   private recordDebug(
+    kind: ReplyDebugEntry["kind"],
     pending: PendingContext,
     prompt: ReplyPrompt,
     output: string,
@@ -953,6 +969,7 @@ export class ReplyController {
     const entry: ReplyDebugEntry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       ts: Date.now(),
+      kind,
       source: pending.capture.source,
       axText: pending.capture.axText || undefined,
       ocrText: pending.capture.ocrText || undefined,

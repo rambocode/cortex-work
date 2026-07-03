@@ -3,7 +3,7 @@ import { ReplyDebugLog, REPLY_DEBUG_LIMIT } from "./debug-log";
 import type { ReplyDebugEntry } from "../ipc/reply-types";
 
 function entry(id: string, over: Partial<ReplyDebugEntry> = {}): ReplyDebugEntry {
-  return { id, ts: Number(id), source: "ax", ...over };
+  return { id, ts: Number(id), kind: "first", source: "ax", ...over };
 }
 
 describe("ReplyDebugLog 环形缓冲", () => {

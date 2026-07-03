@@ -7,13 +7,14 @@
 
 import type { ReplyRect } from "../ipc/reply-types";
 
-export const BUBBLE_WIDTH = 372; // 卡片 360 + 左右各 6 留白（与 reply-bubble.css 的 .rb-root padding 对齐）
+export const BUBBLE_WIDTH = 412; // 卡片 400 + 左右各 6 留白（与 reply-bubble.css 的 .rb-root padding 对齐）
 export const BUBBLE_GAP = 8; // 气泡与输入框之间的间隙
 export const BUBBLE_EDGE_MARGIN = 12; // 气泡离屏幕工作区边缘的最小留白
 export const BUBBLE_FALLBACK_BOTTOM_RATIO = 0.68; // 无任何 frame 兜底：置于鼠标所在屏「中下方」的纵向位置比例
-// 窗口 frame 兜底锚：聊天 app 输入首行大致落在窗口纵向 82% 处，据此在窗口内合成一个稳定锚点，
-// 使拿不到精确输入框 frame 时气泡贴近输入首行，而非落到工具栏附近或随鼠标漂移。
-export const WINDOW_INPUT_LINE_RATIO = 0.82;
+// 窗口 frame 兜底锚：聊天 app 输入区（文本行+工具条）物理高度 ~120-160pt 且**不随窗口高度
+// 等比缩放**——旧实现按窗口纵向 82% 比例合成锚，高窗口下会漂进消息区（实测 727pt 高窗口
+// 输入框顶距底缘 ≈122pt，而 1000pt 高窗口 82% 处偏上 ~60pt）。改为底缘固定偏移。
+export const WINDOW_INPUT_BAR_BOTTOM_OFFSET = 120;
 
 /// 判断点是否落在某工作区内（含左闭右开边界，避免相邻屏重复命中）。
 function contains(area: ReplyRect, px: number, py: number): boolean {
@@ -43,9 +44,14 @@ function clampToArea(area: ReplyRect, x: number, y: number, width: number, heigh
 }
 
 function windowFallbackAnchor(windowFrame: ReplyRect): ReplyRect {
+  // 矮窗口保护：合成锚不高于窗口中线（与 core ocr-input-anchor 的 L2 clamp 语义一致）。
+  const anchorY = Math.max(
+    windowFrame.y + windowFrame.height - WINDOW_INPUT_BAR_BOTTOM_OFFSET,
+    windowFrame.y + windowFrame.height / 2,
+  );
   return {
     x: windowFrame.x,
-    y: windowFrame.y + windowFrame.height * WINDOW_INPUT_LINE_RATIO,
+    y: anchorY,
     width: windowFrame.width,
     height: 0,
   };

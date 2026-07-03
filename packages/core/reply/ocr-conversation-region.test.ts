@@ -29,6 +29,68 @@ const commonMainWindowBlocks = [
   block("这个和张姐说过了，让她问陈琦要一下培训资料吧", ocrBox(0.33, 0.2, 0.34, 0.04)),
 ];
 
+// 用户实测错乱案例回归（微信 902x727 主窗，2026-07-04 截图标定）：
+// 列表长文本横跨 0.24~0.34 一带 → 分栏线曾被错选在列表内部的时间/徽章列（~0.29），
+// 列表右缘「星期四」「0天备考..」残留进对话区；顶部第一条消息（midY≈0.92）曾被 0.86 阈值误杀。
+const wechatMisparseBlocks = [
+  // 左侧会话列表（主文字列 + 右缘时间列）
+  block("搜索", ocrBox(0.08, 0.955, 0.1, 0.025)),
+  block("老婆", ocrBox(0.13, 0.86, 0.06, 0.03)),
+  block("具体什么报错。", ocrBox(0.13, 0.8, 0.16, 0.028)),
+  block("文件传输助手", ocrBox(0.13, 0.72, 0.14, 0.03)),
+  block("201室的小伙伴们", ocrBox(0.13, 0.62, 0.15, 0.03)),
+  block("养猪经验交流", ocrBox(0.13, 0.5, 0.13, 0.03)),
+  block("公众号", ocrBox(0.13, 0.3, 0.08, 0.03)),
+  block("西溪之星 36-47 幢", ocrBox(0.13, 0.2, 0.16, 0.03)),
+  block("昨天 23:01", ocrBox(0.3, 0.86, 0.07, 0.025)),
+  block("星期四", ocrBox(0.31, 0.72, 0.05, 0.025)),
+  block("星期四", ocrBox(0.31, 0.62, 0.05, 0.025)),
+  block("昨天 23:26", ocrBox(0.3, 0.2, 0.07, 0.025)),
+  // 横跨 0.24~0.31 候选线的列表长文本 + 徽章残片
+  block("浙商大 胡晓慧老师: 考前3", ocrBox(0.13, 0.12, 0.21, 0.028)),
+  block("0天备考..", ocrBox(0.24, 0.115, 0.1, 0.028)),
+  // 右侧对话区（顶部第一条是我方消息，midY≈0.92）
+  block("爷爷去吧,我明天下午约的去开中药", ocrBox(0.65, 0.905, 0.28, 0.035)),
+  block("星期四 18:57", ocrBox(0.53, 0.85, 0.13, 0.025)),
+  block("升级了，你更新一下试试，看看那个新功能", ocrBox(0.56, 0.76, 0.36, 0.035)),
+  block("星期四 19:12", ocrBox(0.53, 0.68, 0.13, 0.025)),
+  block("这么快", ocrBox(0.45, 0.6, 0.07, 0.03)),
+  block("星期四 19:54", ocrBox(0.53, 0.52, 0.13, 0.025)),
+  block("没看到有提示更新啊", ocrBox(0.45, 0.44, 0.16, 0.03)),
+  block("星期四 19:56", ocrBox(0.53, 0.36, 0.13, 0.025)),
+  block("暑期课的上课时间是:", ocrBox(0.46, 0.28, 0.17, 0.03)),
+  block("周二、周五，下午1-2点。", ocrBox(0.46, 0.24, 0.2, 0.03)),
+  block("7月3号-8月14号，一周2次课。", ocrBox(0.46, 0.17, 0.24, 0.03)),
+  block("总共上13次课，一节课60分钟，100元一节。", ocrBox(0.46, 0.1, 0.34, 0.03)),
+];
+
+describe("微信 OCR 重建错乱回归（用户实测案例）", () => {
+  it("列表残留/时间戳全剔除，说话人归属正确，顶部第一条消息不丢", () => {
+    const filtered = filterOcrBlocksForVisibleConversation(
+      wechatMisparseBlocks,
+      { name: "微信", bundleId: "com.tencent.xinWeChat" },
+      { windowHeightPt: 727 },
+    );
+    const transcript = new ConversationLayoutBuilder().transcript(filtered);
+
+    // 左列表内容（含右缘时间列与徽章残片）不得进入重建
+    expect(transcript).not.toContain("星期四");
+    expect(transcript).not.toContain("昨天");
+    expect(transcript).not.toContain("备考");
+    expect(transcript).not.toContain("文件传输助手");
+    // 对话区时间戳整块剔除
+    expect(transcript).not.toContain("18:57");
+    expect(transcript).not.toContain("19:12");
+    // 顶部第一条我方消息保留且归属正确
+    expect(transcript).toContain("我：爷爷去吧,我明天下午约的去开中药");
+    expect(transcript).toContain("我：升级了，你更新一下试试，看看那个新功能");
+    // 对方消息不被误标为「我」、不被误判居中
+    expect(transcript).toContain("对方：这么快");
+    expect(transcript).toContain("对方：没看到有提示更新啊");
+    expect(transcript).toContain("对方：暑期课的上课时间是:");
+  });
+});
+
 describe("filterOcrBlocksForVisibleConversation", () => {
   it.each([
     ["微信", { name: "微信", bundleId: "com.tencent.xinWeChat" }],

@@ -664,9 +664,18 @@ function DataCleanup() {
 
 // ── 调试记录 ──────────────────────────────────────────────────────────────────
 
+// 1 次唤起会触发 1 条 first + N 条 pregenerate/flip 生成调用，但都复用同一次 capture 结果；
+// 徽章展示"调用阶段"（kind）而非 capture 来源（source），避免用户把多次生成误读成多次 OCR/AX 调用。
+const DEBUG_KIND_LABEL_KEYS: Record<ReplyDebugEntry["kind"], string> = {
+  first: "reply.debugKindFirst",
+  pregenerate: "reply.debugKindPregenerate",
+  flip: "reply.debugKindFlip",
+};
+
 function DebugEntryRow({ entry }: { entry: ReplyDebugEntry }) {
   const { t } = useTranslation("settings");
   const [open, setOpen] = useState(false);
+  const kindLabel = t(DEBUG_KIND_LABEL_KEYS[entry.kind]);
   const sourceLabel = entry.source === "ocr" ? t("reply.debugSourceOcr") : t("reply.debugSourceAx");
   const time = new Date(entry.ts).toLocaleTimeString();
   // 有 error 字段即视为失败调用（与 main 侧 debug-log 写入约定一致）。
@@ -674,7 +683,8 @@ function DebugEntryRow({ entry }: { entry: ReplyDebugEntry }) {
   return (
     <div className="pw-reply-dbg">
       <div className="pw-reply-dbg-row">
-        <span className={`pw-reply-dbg-badge is-${entry.source}`}>{sourceLabel}</span>
+        <span className={`pw-reply-dbg-badge is-${entry.kind}`}>{kindLabel}</span>
+        <span className="pw-reply-dbg-src">{sourceLabel}</span>
         <span className="pw-reply-dbg-time">{time}</span>
         <span className={`pw-reply-dbg-status ${ok ? "" : "is-fail"}`}>
           <i />

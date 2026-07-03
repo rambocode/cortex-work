@@ -62,24 +62,42 @@ describe("ConversationLayoutBuilder", () => {
     expect(transcript).toBe("对方：在家吗\n我：在的");
   });
 
-  it("居中时间戳转 [分隔行] 并清尾部残渣", () => {
+  it("时间戳块整块剔除（用户确认纯噪声，不再输出 [分隔行]）", () => {
     const blocks = [
       block("文档周五前发你", ocrBox(0.05, 0.8, 0.3, 0.04)),
       block("6月3日 22:17|", ocrBox(0.35, 0.7, 0.3, 0.03)),
       block("收到，辛苦", ocrBox(0.65, 0.6, 0.3, 0.04)),
     ];
     const transcript = new ConversationLayoutBuilder().transcript(blocks);
-    expect(transcript).toBe("对方：文档周五前发你\n[6月3日 22:17]\n我：收到，辛苦");
+    expect(transcript).toBe("对方：文档周五前发你\n我：收到，辛苦");
   });
 
-  it("面板偏斜时时间戳容差 0.25 仍识别为分隔行", () => {
+  it("时间戳不论位置（居中/贴边）一律剔除；纯「星期X」仅居中时剔（贴边可能是真实回复）", () => {
     const blocks = [
       block("在我朋友家里住，我妈刚才给我打电话了", ocrBox(0.1, 0.8, 0.55, 0.04)),
       block("星期日 11:45|", ocrBox(0.44, 0.7, 0.18, 0.03)),
-      block("嗯", ocrBox(0.84, 0.6, 0.06, 0.04)),
+      // OCR 有时把「星期四 18:57」拆成两块——纯「星期四」碎片居中出现时也应剔除
+      block("星期四", ocrBox(0.42, 0.64, 0.08, 0.03)),
+      block("昨天 23:26", ocrBox(0.05, 0.55, 0.12, 0.03)),
+      block("嗯", ocrBox(0.84, 0.45, 0.06, 0.04)),
+      // 贴左的纯「星期四」是对「哪天上课?」式提问的真实回复，不得误杀
+      block("哪天有空来一趟？", ocrBox(0.1, 0.35, 0.4, 0.04)),
+      block("星期四", ocrBox(0.84, 0.25, 0.08, 0.04)),
     ];
     const transcript = new ConversationLayoutBuilder().transcript(blocks);
-    expect(transcript).toBe("对方：在我朋友家里住，我妈刚才给我打电话了\n[星期日 11:45]\n我：嗯");
+    expect(transcript).toBe(
+      "对方：在我朋友家里住，我妈刚才给我打电话了\n我：嗯\n对方：哪天有空来一趟？\n我：星期四",
+    );
+  });
+
+  it("非时间戳的居中提示仍转 [分隔行]", () => {
+    const blocks = [
+      block("文档周五前发你", ocrBox(0.05, 0.8, 0.3, 0.04)),
+      block("以下为新消息", ocrBox(0.38, 0.7, 0.24, 0.03)),
+      block("收到，辛苦", ocrBox(0.65, 0.6, 0.3, 0.04)),
+    ];
+    const transcript = new ConversationLayoutBuilder().transcript(blocks);
+    expect(transcript).toBe("对方：文档周五前发你\n[以下为新消息]\n我：收到，辛苦");
   });
 
   it("系统事件气泡（已取消 + 残字）按前缀整块剔除", () => {

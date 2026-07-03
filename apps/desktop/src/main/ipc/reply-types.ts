@@ -103,6 +103,8 @@ export interface ReplyChannelVerifyResult {
 export interface ReplyDebugEntry {
   id: string;
   ts: number;
+  /** 本条记录对应的调用阶段：首条流式生成 / 后台并发预生成翻牌候选 / 用户手动翻牌——避免与 source 混淆成"触发了几次 OCR/AX"。 */
+  kind: "first" | "pregenerate" | "flip";
   source: "ax" | "ocr";
   axText?: string;
   ocrText?: string;

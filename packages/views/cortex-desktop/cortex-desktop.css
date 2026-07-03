@@ -10044,11 +10044,13 @@ button.sb-row {
 .pw-reply-pill.is-on { color: var(--green, #2e7d32); border-color: color-mix(in srgb, var(--green, #2e7d32) 40%, var(--border)); background: color-mix(in srgb, var(--green, #2e7d32) 10%, transparent); }
 .pw-reply-pill.is-off { color: var(--amber, #b07a12); border-color: color-mix(in srgb, var(--amber, #e0a92b) 40%, var(--border)); background: color-mix(in srgb, var(--amber, #e0a92b) 10%, transparent); }
 
-/* 调试记录:徽标(来源着色) + 等宽时间 + 状态点 + 「详情」展开。 */
+/* 调试记录:徽标(调用阶段着色) + 来源小字 + 等宽时间 + 状态点 + 「详情」展开。 */
 .pw-reply-dbg-empty { padding: 12px 0 14px; color: var(--text-3); font-size: 13px; }
 .pw-reply-dbg-row { display: flex; align-items: center; gap: 14px; padding: 9px 0; border-top: 1px solid var(--border); }
 .pw-reply-dbg-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 84px; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; flex: none; color: #4a76ad; background: color-mix(in srgb, currentColor 12%, transparent); }
-.pw-reply-dbg-badge.is-ax { color: #7a5fa8; }
+.pw-reply-dbg-badge.is-pregenerate { color: #7a5fa8; }
+.pw-reply-dbg-badge.is-flip { color: #b07a12; }
+.pw-reply-dbg-src { flex: none; font-size: 11.5px; color: var(--text-3); }
 .pw-reply-dbg-time { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text-3); }
 .pw-reply-dbg-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); flex: none; min-width: 52px; }
 .pw-reply-dbg-status > i { width: 7px; height: 7px; border-radius: 50%; background: var(--green, #34c759); flex: none; }

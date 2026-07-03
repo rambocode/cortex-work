@@ -113,6 +113,9 @@ export interface ReplyChannelVerifyResult {
 export interface ReplyDebugEntry {
   id: string;
   ts: number;
+  /// 调用阶段：首条流式生成 / 后台并发预生成翻牌候选 / 用户手动翻牌（每次唤起 1 条 first + N 条
+  /// pregenerate，均复用同一次 capture 结果——kind 与 source 分开标注，避免面板把多次生成误读成多次 OCR/AX 调用）。
+  kind: "first" | "pregenerate" | "flip";
   /// 捕获来源：AX 树读取 / 截屏 OCR。
   source: "ax" | "ocr";
   axText?: string;

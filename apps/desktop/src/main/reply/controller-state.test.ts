@@ -325,6 +325,19 @@ describe("selectReplyAnchorFrame 气泡锚点优先级", () => {
     expect(selectReplyAnchorFrame({ caretFrame: null, inputAnchorFrame: null, focusedFrame })).toBe(focusedFrame);
     expect(selectReplyAnchorFrame({ caretFrame: null, inputAnchorFrame: null, focusedFrame: null })).toBeNull();
   });
+
+  it("AX 三级全空（微信 4.x）时回退 OCR 输入框锚；AX 锚存在时 OCR 锚不越位", () => {
+    const ocrAnchorFrame = { x: 1095, y: 700, width: 235, height: 21 };
+    expect(
+      selectReplyAnchorFrame({ caretFrame: null, inputAnchorFrame: null, focusedFrame: null, ocrAnchorFrame }),
+    ).toBe(ocrAnchorFrame);
+    expect(
+      selectReplyAnchorFrame({ caretFrame, inputAnchorFrame: null, focusedFrame: null, ocrAnchorFrame }),
+    ).toBe(caretFrame);
+    expect(
+      selectReplyAnchorFrame({ caretFrame: null, inputAnchorFrame: null, focusedFrame: null, ocrAnchorFrame: null }),
+    ).toBeNull();
+  });
 });
 
 describe("cleanAgentOutput 输出清洗", () => {
