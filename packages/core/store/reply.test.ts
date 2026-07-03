@@ -84,6 +84,27 @@ describe("useReplyStore 设置更新", () => {
     expect(s.voiceTrigger).toBe("fn");
     expect(s.userProfile).toBe("");
   });
+
+  it("setSettings({providerId,model}) 局部更新不丢其它字段", () => {
+    // 先写入非默认的触发键/档案，再单独更新 reply 专属 providerId/model。
+    useReplyStore.getState().setSettings({ draftTrigger: "fn", userProfile: "PM" });
+    useReplyStore.getState().setSettings({ providerId: "deepseek", model: "deepseek-chat" });
+    const s = useReplyStore.getState().settings;
+    expect(s.providerId).toBe("deepseek");
+    expect(s.model).toBe("deepseek-chat");
+    // 其它字段不受影响。
+    expect(s.draftTrigger).toBe("fn");
+    expect(s.userProfile).toBe("PM");
+    expect(s.learningEnabled).toBe(true);
+  });
+
+  it("setSettings 清空 providerId/model 回落跟随默认（undefined）", () => {
+    useReplyStore.getState().setSettings({ providerId: "deepseek", model: "deepseek-chat" });
+    useReplyStore.getState().setSettings({ providerId: undefined, model: undefined });
+    const s = useReplyStore.getState().settings;
+    expect(s.providerId).toBeUndefined();
+    expect(s.model).toBeUndefined();
+  });
 });
 
 describe("useReplyStore 记忆分区写入", () => {
@@ -158,6 +179,9 @@ describe("replyToPersisted / replySaveUrgency", () => {
     store.setMemoryFile("core", { auto: "- 简洁" });
     store.setChannelCredential("lark", { ciphertext: "x" });
 
+    // reply 专属生成模型选择也应随设置往返保留。
+    store.setSettings({ providerId: "deepseek", model: "deepseek-chat" });
+
     const persisted = replyToPersisted(useReplyStore.getState());
     // 往返：把序列化结果重新 hydrate 到新状态应等价。
     useReplyStore.setState({
@@ -170,6 +194,8 @@ describe("replyToPersisted / replySaveUrgency", () => {
     const roundTripped = useReplyStore.getState();
     expect(roundTripped.settings.draftTrigger).toBe("fn");
     expect(roundTripped.settings.userProfile).toBe("PM");
+    expect(roundTripped.settings.providerId).toBe("deepseek");
+    expect(roundTripped.settings.model).toBe("deepseek-chat");
     expect(roundTripped.memory.core.auto).toBe("- 简洁");
     expect(roundTripped.channels.credentials.lark?.ciphertext).toBe("x");
   });

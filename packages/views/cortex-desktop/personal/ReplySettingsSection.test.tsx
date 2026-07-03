@@ -1,12 +1,12 @@
 // ReplySettingsSection（U9）单测：平台守卫、权限中心、触发键、记忆、渠道校验、调试记录。
 // 断言优先落在 locale 无关的插值值（账号名/错误 detail）与结构角色上，静态文案按默认 locale（zh-Hans）。
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CoreProvider, useReplyStore } from "@cortex-work/core";
-import type { DesktopBridge } from "@cortex-work/core";
+import { CoreProvider, usePersonalStore, useReplyStore } from "@cortex-work/core";
+import type { DesktopBridge, ProviderProfile } from "@cortex-work/core";
 import { DEFAULT_REPLY_SETTINGS } from "@cortex-work/core/desktop/types";
 import { emptyMemoryState } from "@cortex-work/core/reply/memory";
 
@@ -51,7 +51,23 @@ beforeEach(() => {
     memory: emptyMemoryState(),
     channels: { connections: {}, credentials: {}, notes: {} },
   });
+  // 生成模型选择器读 usePersonalStore.providerSettings（跨测试单例）；每例复位为空，避免串态。
+  usePersonalStore.setState({ providerSettings: { providers: [] } });
 });
+
+// 生成一个 chat_completions 供应商（模型选择器测试用）。
+function chatProvider(over: Partial<ProviderProfile> = {}): ProviderProfile {
+  return {
+    id: "p1",
+    name: "ChatOne",
+    baseUrl: "https://api.example.com",
+    apiKey: "sk",
+    endpointFormat: "chat_completions",
+    models: [{ id: "m1", label: "Model One" }],
+    enabled: true,
+    ...over,
+  };
+}
 
 describe("ReplySettingsSection 平台守卫", () => {
   it("bridge 缺 reply 能力（Web 端）→ 整分区返回 null", () => {
@@ -93,9 +109,9 @@ describe("ReplySettingsSection 权限中心", () => {
 describe("ReplySettingsSection 触发键与学习开关", () => {
   it("修改起草触发键写入 store", async () => {
     renderUI(<ReplySettingsSection />, makeBridge());
-    // 第一个下拉 = 起草触发键
+    // combobox[0] = 生成模型供应商下拉（无 provider 时仅「跟随默认」），故起草触发键为 combobox[1]。
     const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0]!, { target: { value: "option" } });
+    fireEvent.change(selects[1]!, { target: { value: "option" } });
     expect(useReplyStore.getState().settings.draftTrigger).toBe("option");
   });
 
@@ -105,6 +121,77 @@ describe("ReplySettingsSection 触发键与学习开关", () => {
     const toggle = screen.getByRole("switch", { name: "从我发出的消息学习语气" });
     fireEvent.click(toggle);
     expect(useReplyStore.getState().settings.learningEnabled).toBe(false);
+  });
+});
+
+describe("ReplySettingsSection 生成模型选择器", () => {
+  it("供应商下拉仅列 enabled 且 chat_completions 的供应商", () => {
+    usePersonalStore.setState({
+      providerSettings: {
+        providers: [
+          chatProvider({ id: "p1", name: "ChatOne" }),
+          chatProvider({ id: "p2", name: "DisabledOne", enabled: false }),
+          chatProvider({ id: "p3", name: "RespOne", endpointFormat: "responses" }),
+        ],
+      },
+    });
+    renderUI(<ReplySettingsSection />, makeBridge());
+    // combobox[0] = 供应商下拉。
+    const providerSelect = screen.getAllByRole("combobox")[0]!;
+    const optionTexts = within(providerSelect)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(optionTexts).toContain("跟随供应商默认");
+    expect(optionTexts).toContain("ChatOne");
+    // 禁用 / 非 chat_completions 的供应商不出现。
+    expect(optionTexts).not.toContain("DisabledOne");
+    expect(optionTexts).not.toContain("RespOne");
+  });
+
+  it("选择供应商写入 reply store 并默认取首个模型；再改模型下拉写入所选", () => {
+    usePersonalStore.setState({
+      providerSettings: {
+        providers: [
+          chatProvider({
+            id: "p1",
+            name: "ChatOne",
+            models: [
+              { id: "m1", label: "Model One" },
+              { id: "m2", label: "Model Two" },
+            ],
+          }),
+        ],
+      },
+    });
+    renderUI(<ReplySettingsSection />, makeBridge());
+    // 选供应商 → providerId + 首个模型 id 一并写入。
+    fireEvent.change(screen.getAllByRole("combobox")[0]!, { target: { value: "p1" } });
+    expect(useReplyStore.getState().settings.providerId).toBe("p1");
+    expect(useReplyStore.getState().settings.model).toBe("m1");
+    // 选具体供应商后出现模型下拉（combobox[1]），改为第二个模型。
+    fireEvent.change(screen.getAllByRole("combobox")[1]!, { target: { value: "m2" } });
+    expect(useReplyStore.getState().settings.model).toBe("m2");
+  });
+
+  it("「跟随默认」态展示实际回退目标（供应商 + 模型）", () => {
+    usePersonalStore.setState({
+      providerSettings: {
+        providers: [chatProvider({ id: "p1", name: "ChatOne", models: [{ id: "m1" }] })],
+        defaultProviderId: "p1",
+        defaultModel: "m1",
+      },
+    });
+    // reply 未选专属供应商（默认 providerId undefined）→ 展示回退目标。
+    renderUI(<ReplySettingsSection />, makeBridge());
+    expect(screen.getByText(/将使用「ChatOne」的 m1/)).toBeInTheDocument();
+  });
+
+  it("无可用供应商/无默认 → 渲染警示与「去配置供应商」按钮，点击跳转 providers 分区", () => {
+    // providerSettings 为空（beforeEach 已复位）。
+    renderUI(<ReplySettingsSection />, makeBridge());
+    expect(screen.getByText("未配置可用模型")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("去配置供应商"));
+    expect(usePersonalStore.getState().settingsTab).toBe("providers");
   });
 });
 

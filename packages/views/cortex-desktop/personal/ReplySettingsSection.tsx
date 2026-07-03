@@ -7,7 +7,8 @@
 // 与 SttSettingsSection 同构：数据走 useReplyStore（客户端态）+ DesktopBridge（原生能力）。
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useDesktopBridge, useReplyStore } from "@cortex-work/core";
+import { useDesktopBridge, usePersonalStore, useReplyStore } from "@cortex-work/core";
+import type { ProviderSettings } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type {
   ReplyDraftTriggerKey,
@@ -435,6 +436,114 @@ function DebugLog() {
   );
 }
 
+// ── 生成模型选择器 ─────────────────────────────────────────────────────────────
+
+/**
+ * 展示用「跟随供应商默认」回退目标解析：语义与 main 侧 resolve-model.ts 的默认分支（第 2 级）一致——
+ * defaultProviderId 对应供应商须「存在 + enabled + endpointFormat==='chat_completions'」，
+ * model 取 defaultModel?.trim() 或该供应商 models[0]?.id。任一不成立返回 null（推「未配置可用模型」警示）。
+ * 仅用于 UI 呈现回退目标，真正的解析仍在 main 侧起草时执行。
+ */
+function resolveFollowDefault(
+  ps: ProviderSettings | undefined,
+): { providerName: string; model: string } | null {
+  const providers = ps?.providers ?? [];
+  const defaultId = ps?.defaultProviderId?.trim();
+  if (!defaultId) return null;
+  const p = providers.find((x) => x.id === defaultId);
+  if (!p || !p.enabled || p.endpointFormat !== "chat_completions") return null;
+  const model = ps?.defaultModel?.trim() || p.models[0]?.id?.trim();
+  if (!model) return null;
+  return { providerName: p.name, model };
+}
+
+// reply 专属生成模型选择器（KTD3）：供应商 + 模型直连，空供应商=跟随 providerSettings 默认回退链。
+// 只列 enabled 且 chat_completions 的供应商（与 resolve-model 候选校验一致）；「跟随默认」展示实际回退目标。
+function ReplyModelSelector() {
+  const { t } = useTranslation("settings");
+
+  // 取全部 providers（不在 selector 内 filter，避免每次返回新数组触发 Zustand 无限循环，同 SttSettingsSection）。
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const openSettings = usePersonalStore((s) => s.openSettings);
+
+  const providerId = useReplyStore((s) => s.settings.providerId);
+  const model = useReplyStore((s) => s.settings.model);
+  const setSettings = useReplyStore((s) => s.setSettings);
+
+  // 候选供应商：enabled 且 chat_completions（其余 endpointFormat 本期不支持直连）。
+  const chatProviders = useMemo(
+    () =>
+      (providerSettings?.providers ?? []).filter(
+        (p) => p.enabled && p.endpointFormat === "chat_completions",
+      ),
+    [providerSettings],
+  );
+
+  // 选中的具体供应商；stored providerId 已失效（供应商被删/禁用/改协议）时按「跟随默认」呈现——
+  // 与 main 侧回退运行时行为一致（该候选 tryResolve 失败即落默认链），也避免受控 select 值不匹配任何 option。
+  const selectedProvider = providerId
+    ? chatProviders.find((p) => p.id === providerId)
+    : undefined;
+
+  const followTarget = useMemo(() => resolveFollowDefault(providerSettings), [providerSettings]);
+
+  // 供应商下拉：首项「跟随默认」（空值）+ 各 chat 供应商（显示 name）。
+  const providerOptions = useMemo(
+    () => [
+      { label: t("reply.modelFollowDefault"), value: "" },
+      ...chatProviders.map((p) => ({ label: p.name, value: p.id })),
+    ],
+    [chatProviders, t],
+  );
+
+  // 切供应商：选空=跟随默认（清专属选择）；选具体供应商则默认取其首个模型 id 一并写入。
+  const handleProviderChange = (v: string) => {
+    if (!v) {
+      setSettings({ providerId: undefined, model: undefined });
+      return;
+    }
+    const p = chatProviders.find((x) => x.id === v);
+    setSettings({ providerId: v, model: p?.models[0]?.id });
+  };
+
+  return (
+    <SettingCard title={t("reply.modelCard")}>
+      <div className="pw-srow-desc">{t("reply.modelDesc")}</div>
+
+      <SRow label={t("reply.modelProviderLabel")} end>
+        <BareSelect
+          value={selectedProvider ? selectedProvider.id : ""}
+          options={providerOptions}
+          onChange={handleProviderChange}
+        />
+      </SRow>
+
+      {selectedProvider ? (
+        // 具体供应商：列该供应商 models（label 优先，缺省显示 id）。
+        <SRow label={t("reply.modelModelLabel")} end>
+          <BareSelect
+            value={model ?? selectedProvider.models[0]?.id ?? ""}
+            options={selectedProvider.models.map((m) => ({ label: m.label ?? m.id, value: m.id }))}
+            onChange={(v) => setSettings({ providerId: selectedProvider.id, model: v })}
+          />
+        </SRow>
+      ) : followTarget ? (
+        // 跟随默认且可解析：展示实际回退目标（供应商 + 模型）。
+        <div className="pw-srow-desc">
+          {t("reply.modelFollowTarget", { provider: followTarget.providerName, model: followTarget.model })}
+        </div>
+      ) : (
+        // 跟随默认但无可用供应商/默认：警示 + 引导去「模型供应商」分区配置。
+        <SRow label={t("reply.modelNoneWarn")} end>
+          <button type="button" className="pw-btn-sm" onClick={() => openSettings("providers")}>
+            {t("reply.modelGotoProviders")}
+          </button>
+        </SRow>
+      )}
+    </SettingCard>
+  );
+}
+
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 
 export function ReplySettingsSection() {
@@ -451,11 +560,8 @@ export function ReplySettingsSection() {
 
   return (
     <>
-      {/* 生成 Agent 说明：回复复用应用「默认 Agent」（KTD3），无 reply 专属选择器；
-          指向 Agent 分区配置，并提示 pi 内置后端可能不可用（建议 claude / codex）。 */}
-      <SettingCard title={t("reply.agentCard")}>
-        <div className="pw-srow-desc">{t("reply.agentDesc")}</div>
-      </SettingCard>
+      {/* 生成模型：reply 专属供应商 + 模型直连（KTD3），空=跟随 providerSettings 默认回退链 */}
+      <ReplyModelSelector />
 
       {/* 触发键 */}
       <SettingCard title={t("reply.triggersCard")}>
