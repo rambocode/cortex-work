@@ -102,10 +102,19 @@ export function usePersonalPersistence(): void {
     const unsubPersonal = usePersonalStore.subscribe((s, prev) => scheduleSave(saveUrgency(s, prev)));
     const unsubReply = useReplyStore.subscribe((s, prev) => scheduleSave(replySaveUrgency(s, prev)));
 
+    // U10：main 语气蒸馏产出（分区 auto 要点）回推 → 应用到 reply store 对应分区。写入触发上面的
+    // reply 订阅（replySaveUrgency→throttled）走同一节流管线落盘——渲染端是持久化唯一真源，
+    // main 不直写磁盘，避免双源漂移（macOS-only；bridge 无此方法时为 undefined）。
+    const unsubMemoryLearned =
+      bridge.onReplyMemoryLearned?.(({ scope, auto }) => {
+        useReplyStore.getState().setMemoryFile(scope, { auto });
+      }) ?? (() => {});
+
     return () => {
       cancelled = true;
       unsubPersonal();
       unsubReply();
+      unsubMemoryLearned();
       if (timer.current) {
         clearTimeout(timer.current);
         // 卸载前冲刷一次，避免丢最后一笔变更。

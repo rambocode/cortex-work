@@ -76,6 +76,7 @@ import type {
   ReplyChannelVerifyResult,
   ReplyDebugEntry,
   ReplySyncSnapshot,
+  ReplyMemoryLearned,
   ReplyBubbleState,
   ReplyBubbleAction,
   ReplyBubbleVoiceCommand,
@@ -703,6 +704,12 @@ const personal = {
   replyTriggerDraft: (): Promise<void> => ipcRenderer.invoke("reply:triggerDraft"),
   replySyncSettings: (snapshot: ReplySyncSnapshot): Promise<void> =>
     ipcRenderer.invoke("reply:syncSettings", snapshot),
+  // 订阅 main 语气蒸馏产出（U10）：分区 auto 要点回推 → 渲染端 store 应用并落盘。返回退订函数。
+  onReplyMemoryLearned: (cb: (payload: ReplyMemoryLearned) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: ReplyMemoryLearned) => cb(payload);
+    ipcRenderer.on("reply:memoryLearned", listener);
+    return () => ipcRenderer.removeListener("reply:memoryLearned", listener);
+  },
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

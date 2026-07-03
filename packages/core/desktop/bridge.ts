@@ -86,6 +86,7 @@ import type {
   ReplyChannelVerifyResult,
   ReplyDebugEntry,
   ReplySyncSnapshot,
+  ReplyMemoryLearned,
 } from "./types";
 import type { ChannelId } from "../reply/channels";
 import type {
@@ -546,4 +547,9 @@ export interface DesktopBridge {
   replyTriggerDraft?(): Promise<void>;
   /** 渲染端把「设置 + 记忆 + 默认 agent」快照推送到 main（供 draft-generator 生成候选）。 */
   replySyncSettings?(snapshot: ReplySyncSnapshot): Promise<void>;
+  /**
+   * 订阅 main 的语气蒸馏产出（U10 / R11）：写回后台蒸馏出的分区 auto 要点回推渲染端，
+   * 由渲染端 store 应用到该分区并落盘（渲染端是持久化唯一真源）。返回退订函数。
+   */
+  onReplyMemoryLearned?(cb: (payload: ReplyMemoryLearned) => void): () => void;
 }

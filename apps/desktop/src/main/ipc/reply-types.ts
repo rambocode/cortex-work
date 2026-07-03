@@ -113,6 +113,13 @@ export interface ReplySyncSnapshot {
   model?: string;
 }
 
+/// main→renderer 语气蒸馏产出推送（U10 / R11）：某分区蒸馏出的 auto 要点，渲染端 store 应用后落盘。
+/// 与 core/desktop/reply-types.ts 逐字镜像。
+export interface ReplyMemoryLearned {
+  scope: MemoryScope;
+  auto: string;
+}
+
 // ── 候选气泡窗契约（U6，KTD5）──────────────────────────────────────────────────────
 // 气泡窗是独立不抢焦 BrowserWindow（仿 notification）。主进程 → 气泡渲染端只推 ReplyBubbleState；
 // 气泡渲染端 → 主进程只上报实测高度与鼠标动作（ReplyBubbleAction）。键盘不走 DOM：←/→/↩/esc/Tab

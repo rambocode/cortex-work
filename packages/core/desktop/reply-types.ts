@@ -7,7 +7,7 @@
 // 数据类型复用 core/reply 纯逻辑层（memory.ts / channels.ts），避免二次定义漂移。
 
 import type { AgentKind } from "./types";
-import type { MemoryState } from "../reply/memory";
+import type { MemoryState, MemoryScope } from "../reply/memory";
 import type { ChannelId, ChannelConnectionState, ChannelVerifyErrorKind } from "../reply/channels";
 
 // ── 设置分片（replySettings）───────────────────────────────────────────────────
@@ -125,4 +125,12 @@ export interface ReplySyncSnapshot {
   /// pi 供应商 id 与模型（默认 agent 为 pi 时有意义，其余忽略）。
   providerId?: string;
   model?: string;
+}
+
+/// main→renderer 语气蒸馏产出推送（U10 / R11）：某分区蒸馏出的 auto 要点。
+/// 渲染端 store 应用到对应分区的 auto 字段后由 usePersonalPersistence 落盘——渲染端是持久化唯一真源，
+/// main 不直写磁盘，避免与渲染端 store 双源漂移。只推要点、不含样本原文（KTD8）。
+export interface ReplyMemoryLearned {
+  scope: MemoryScope;
+  auto: string;
 }
