@@ -59,8 +59,17 @@ import {
   getReplyController,
   triggerReplyDraft,
   disposeReplyController,
+  type DraftAcceptedInfo,
 } from "./reply/controller";
-import { getLastReplySnapshot, setReplyHelperPermissionsSource } from "./ipc/reply";
+import {
+  getLastReplySnapshot,
+  setReplyHelperPermissionsSource,
+  replyHistoryStore,
+  replyConversationStore,
+  replyMemoryStore,
+} from "./ipc/reply";
+import { newReplyHistoryId } from "./reply/history-store";
+import { ConversationLearner } from "./reply/conversation-learner";
 import { ReplyDistiller } from "./reply/distill";
 import { chatComplete, REPLY_TEMPERATURES } from "./reply/draft-generator";
 import { resolveReplyModel } from "./reply/resolve-model";
@@ -162,7 +171,7 @@ async function syncReplyInputMode(): Promise<void> {
 async function initReply(): Promise<void> {
   replyHelper = new ReplyHelperClient({
     binaryPath: resolveReplyHelperBinary(),
-    logger: createLogger("reply-helper"),
+    logger: createLogger("Cortex_Helper"),
     onEvent: (event) => getReplyController()?.handleEvent(event),
     // tap 不可用 / events 连续崩溃超上限 → 兜底 accelerator 接管（helper-client 内部触发）。
     onDegrade: () => registerReplyFallbackHotkey(),
@@ -184,12 +193,57 @@ async function initReply(): Promise<void> {
       if (!target) throw new Error("reply: 生成模型未配置，跳过蒸馏");
       return chatComplete({ prompt, target, temperature: REPLY_TEMPERATURES.distill });
     },
-    // 持久化 sink：把分区蒸馏产出的 auto 要点推给渲染端 store（reply:memoryLearned），由 store 分片落盘。
-    // 只推要点、不推样本（KTD8：样本不落盘）。渲染端为唯一持久化真源，避免 main 直写造成双源漂移。
-    persistLearned: (scope, auto) =>
-      mainWindow?.webContents.send("reply:memoryLearned", { scope, auto }),
+    // 读某分区已学 auto 要点（KTD6 修订：main-owned memory-store 为唯一真源）。
+    getExistingAuto: async (scope) => (await replyMemoryStore.getMemory())[scope].auto,
+    // 持久化 sink（KTD6 修订）：直写 memory-store（main 唯一写者），随后推全量记忆给渲染端
+    // 刷新设置页缓存。只落要点、不落样本（KTD8：样本不落盘）。
+    persistLearned: (scope, auto) => {
+      void replyMemoryStore
+        .setFile(scope, { auto })
+        .then(async () =>
+          mainWindow?.webContents.send("reply:memoryChanged", await replyMemoryStore.getMemory()),
+        );
+    },
     logger: createLogger("reply-distill"),
   });
+  // 对话级记忆蒸馏器：写回成功 → 后台蒸馏「关于对话对象的事实/偏好」→ 写回 conversation-store。
+  // 与 ReplyDistiller 共用同一 generate 通道（供应商直连，温度 0.2），互不缠绕（分桶键/采集目标不同）。
+  const conversationLearner = new ConversationLearner({
+    getSnapshot: getLastReplySnapshot,
+    generate: async (prompt) => {
+      const target = await resolveModel();
+      if (!target) throw new Error("reply: 生成模型未配置，跳过对话记忆蒸馏");
+      return chatComplete({ prompt, target, temperature: REPLY_TEMPERATURES.distill });
+    },
+    getExistingSummary: (bundleId, counterpart) => replyConversationStore.getSummary(bundleId, counterpart),
+    persistSummary: (update) =>
+      replyConversationStore.setSummary({
+        appBundleId: update.appBundleId,
+        appName: update.appName,
+        counterpart: update.counterpart,
+        summary: update.summary,
+        now: Date.now(),
+      }),
+    logger: createLogger("reply-conv-learner"),
+  });
+  // 历史存档 sink（KTD8 边界修订，经用户确认）：只记已采纳写回的会话，含对话原文与
+  // 当轮全部候选，落 ~/.cortex-desktop/reply/history.json。historyEnabled 关（或快照
+  // 缺失）→ 零副作用；append 内部串行落盘且吞错，不阻塞、不打扰写回主流程。
+  const recordReplyHistory = (info: DraftAcceptedInfo): void => {
+    const settings = getLastReplySnapshot()?.settings;
+    if (!settings?.historyEnabled) return;
+    void replyHistoryStore.append({
+      id: newReplyHistoryId(),
+      ts: Date.now(),
+      appName: info.appName,
+      appBundleId: info.appBundleId,
+      counterpart: info.counterpart,
+      conversation: info.conversation,
+      candidates: info.candidates,
+      acceptedIndex: info.acceptedIndex,
+      acceptedText: info.draft,
+    });
+  };
   initReplyController({
     helper: replyHelper,
     getSnapshot: getLastReplySnapshot,
@@ -197,8 +251,26 @@ async function initReply(): Promise<void> {
     resolveModel,
     // 语音意图转写用的 ASR 配置：从个人工作区持久化态读取（内存镜像，store:save 即时刷新）。
     getAsrSettings: async () => (await getPersistedState()).asrSettings ?? null,
-    // 写回成功 → 交蒸馏器采样并触发后台学习（学习开关关闭时蒸馏器内部零副作用）。
-    onDraftAccepted: (info) => distiller.onDraftAccepted(info),
+    // 写回成功 → fan-out 给三个消费者：语气蒸馏（学习开关门控）+ 历史存档（历史开关门控）
+    // + 对话级记忆（学习开关门控：最近回复即时记录，摘要走 learner 后台蒸馏）。
+    onDraftAccepted: (info) => {
+      distiller.onDraftAccepted(info);
+      recordReplyHistory(info);
+      if (getLastReplySnapshot()?.settings.learningEnabled) {
+        void replyConversationStore.recordAccepted({
+          appBundleId: info.appBundleId,
+          appName: info.appName,
+          counterpart: info.counterpart,
+          draft: info.draft,
+          now: Date.now(),
+        });
+        conversationLearner.onDraftAccepted(info);
+      }
+    },
+    // 起草时按 app+counterpart 注入对话级记忆段（无记录 → 空串跳段）。
+    getConversationMemory: (bundleId, counterpart) => replyConversationStore.getComposed(bundleId, counterpart),
+    // 全局分区记忆现读（KTD6 修订：main-owned memory.json，快照不再携带 memory）。
+    getMemoryState: () => replyMemoryStore.getMemory(),
     // 气泡「去设置」：显示主窗 + 通知渲染端打开设置页并跳到快捷回复分区（仅 showMainWindow 时窗口
     // 已可见则看似无反应，故须再发导航事件）。渲染端监听 reply:openSettings 调 openSettings("reply")。
     onOpenSettings: () => {

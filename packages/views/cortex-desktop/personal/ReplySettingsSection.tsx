@@ -22,9 +22,10 @@ import type {
   ReplyPermissionKind,
   ReplyPermissionStatus,
   ReplyChannelVerifyResult,
+  ReplyDataSummary,
   ReplyDebugEntry,
 } from "@cortex-work/core/desktop/types";
-import { MEMORY_SCOPES, type MemoryScope } from "@cortex-work/core/reply/memory";
+import { MEMORY_SCOPES, type MemoryFile, type MemoryScope } from "@cortex-work/core/reply/memory";
 import { CHANNEL_DESCRIPTORS, type ChannelId } from "@cortex-work/core/reply/channels";
 
 import { BareSelect, SettingCard, SRow } from "./settingsControls";
@@ -216,10 +217,49 @@ function PermissionCenter() {
 
 function MemoryManager() {
   const { t } = useTranslation("settings");
+  const bridge = useDesktopBridge();
   const memory = useReplyStore((s) => s.memory);
   const setMemoryFile = useReplyStore((s) => s.setMemoryFile);
   const learningEnabled = useReplyStore((s) => s.settings.learningEnabled);
+  const historyEnabled = useReplyStore((s) => s.settings.historyEnabled);
   const setSettings = useReplyStore((s) => s.setSettings);
+
+  // 编辑落盘（KTD6 修订）：本地缓存即时更新保证输入流畅；真源写入（bridge.replySetMemoryFile）
+  // 按「分区+字段」防抖 400ms 合并连续击键。卸载时冲刷未落盘的最后一笔，避免丢字。
+  const pendingWrites = useRef(new Map<string, { scope: MemoryScope; patch: Partial<MemoryFile> }>());
+  const writeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const updateMemoryFile = useCallback(
+    (targetScope: MemoryScope, patch: Partial<MemoryFile>) => {
+      setMemoryFile(targetScope, patch);
+      if (!bridge?.replySetMemoryFile) return;
+      const key = `${targetScope}:${Object.keys(patch).join(",")}`;
+      pendingWrites.current.set(key, { scope: targetScope, patch });
+      const existing = writeTimers.current.get(key);
+      if (existing) clearTimeout(existing);
+      writeTimers.current.set(
+        key,
+        setTimeout(() => {
+          writeTimers.current.delete(key);
+          const pending = pendingWrites.current.get(key);
+          pendingWrites.current.delete(key);
+          if (pending) void bridge.replySetMemoryFile?.(pending.scope, pending.patch);
+        }, 400),
+      );
+    },
+    [bridge, setMemoryFile],
+  );
+  useEffect(
+    () => () => {
+      // 卸载冲刷：清计时器并把未发送的最后一笔立即写真源。
+      for (const timer of writeTimers.current.values()) clearTimeout(timer);
+      writeTimers.current.clear();
+      for (const { scope: s, patch } of pendingWrites.current.values()) {
+        void bridge?.replySetMemoryFile?.(s, patch);
+      }
+      pendingWrites.current.clear();
+    },
+    [bridge],
+  );
 
   // 当前编辑的记忆分区（本地 UI 态，默认档案）。
   const [scope, setScope] = useState<MemoryScope>("profile");
@@ -255,6 +295,22 @@ function MemoryManager() {
         </div>
       </div>
 
+      {/* 保存回复历史开关（KTD8 边界修订）：开启时已采纳会话（含对话原文与候选）落本机
+          history.json；与学习开关独立门控，数据分区可清空。 */}
+      <SRow label={t("reply.historyLabel")} desc={t("reply.historyDesc")} end>
+        <button
+          type="button"
+          className="twk-toggle"
+          data-on={historyEnabled ? "1" : "0"}
+          role="switch"
+          aria-checked={historyEnabled}
+          aria-label={t("reply.historyLabel")}
+          onClick={() => setSettings({ historyEnabled: !historyEnabled })}
+        >
+          <i />
+        </button>
+      </SRow>
+
       {/* 分区切换：本地化名的 segmented 按钮组 */}
       <div className="pw-reply-scopes" role="tablist" aria-label={t("reply.memoryCard")}>
         {MEMORY_SCOPES.map((s) => (
@@ -279,7 +335,7 @@ function MemoryManager() {
           rows={5}
           value={file.auto}
           placeholder={t("reply.autoEmpty")}
-          onChange={(e) => setMemoryFile(scope, { auto: e.target.value })}
+          onChange={(e) => updateMemoryFile(scope, { auto: e.target.value })}
         />
       </label>
 
@@ -302,7 +358,7 @@ function MemoryManager() {
             rows={5}
             value={file.manual}
             placeholder={t("reply.manualPlaceholder")}
-            onChange={(e) => setMemoryFile(scope, { manual: e.target.value })}
+            onChange={(e) => updateMemoryFile(scope, { manual: e.target.value })}
           />
         ) : null}
       </div>
@@ -459,18 +515,77 @@ function ChannelsSection() {
 
 function DataCleanup() {
   const { t } = useTranslation("settings");
+  const bridge = useDesktopBridge();
   const clearAllMemory = useReplyStore((s) => s.clearAllMemory);
   const clearAutoRules = useReplyStore((s) => s.clearAutoRules);
   const clearChannelNotes = useReplyStore((s) => s.clearChannelNotes);
-  // 三行同构：标签 + 影响范围说明在左，危险按钮在右（设计稿逐行说明版式）。
+
+  // 落盘数据摘要（历史/对话记忆条数）：main 侧统计 ~/.cortex-desktop/reply/；bridge 缺失
+  //（Web / 旧 preload）时隐藏摘要与对应清理行，天然降级。
+  const [summary, setSummary] = useState<ReplyDataSummary | null>(null);
+  const refreshSummary = useCallback(() => {
+    if (!bridge?.replyGetDataSummary) return;
+    bridge
+      .replyGetDataSummary()
+      .then(setSummary)
+      .catch(() => {});
+  }, [bridge]);
+  useEffect(() => {
+    refreshSummary();
+  }, [refreshSummary]);
+
+  // 行同构：标签 + 影响范围说明在左，危险按钮在右（设计稿逐行说明版式）。
+  // 记忆清空（KTD6 修订）：真源在 main（bridge.replyClearMemory），本地缓存同步清以即时反馈。
   const rows: { labelKey: string; descKey: string; onClear: () => void }[] = [
-    { labelKey: "reply.clearMemory", descKey: "reply.clearMemoryDesc", onClear: clearAllMemory },
-    { labelKey: "reply.clearAutoRules", descKey: "reply.clearAutoRulesDesc", onClear: clearAutoRules },
+    {
+      labelKey: "reply.clearMemory",
+      descKey: "reply.clearMemoryDesc",
+      onClear: () => {
+        clearAllMemory();
+        void bridge?.replyClearMemory?.("all");
+      },
+    },
+    {
+      labelKey: "reply.clearAutoRules",
+      descKey: "reply.clearAutoRulesDesc",
+      onClear: () => {
+        clearAutoRules();
+        void bridge?.replyClearMemory?.("auto");
+      },
+    },
     { labelKey: "reply.clearChannelNotes", descKey: "reply.clearChannelNotesDesc", onClear: clearChannelNotes },
   ];
+  // 历史 / 对话记忆清空走 main 侧文件存储（清完即刷新摘要计数）。
+  if (bridge?.replyClearHistory) {
+    rows.push({
+      labelKey: "reply.clearHistory",
+      descKey: "reply.clearHistoryDesc",
+      onClear: () => {
+        void bridge.replyClearHistory?.().then(refreshSummary);
+      },
+    });
+  }
+  if (bridge?.replyClearConversationMemory) {
+    rows.push({
+      labelKey: "reply.clearConversations",
+      descKey: "reply.clearConversationsDesc",
+      onClear: () => {
+        void bridge.replyClearConversationMemory?.().then(refreshSummary);
+      },
+    });
+  }
+
   return (
     <SettingCard title={t("reply.cleanupCard")}>
       <div className="pw-srow-desc">{t("reply.cleanupDesc")}</div>
+      {summary ? (
+        <div className="pw-srow-desc">
+          {t("reply.dataSummary", {
+            history: summary.historyCount,
+            conversations: summary.conversationCount,
+          })}
+        </div>
+      ) : null}
       {rows.map(({ labelKey, descKey, onClear }) => (
         <SRow key={labelKey} label={t(labelKey)} desc={t(descKey)} end>
           <button type="button" className="pw-btn-sm pw-btn-sm--danger" onClick={onClear}>

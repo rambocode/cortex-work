@@ -61,3 +61,88 @@ export async function postChatCompletion(params: PostChatCompletionParams): Prom
   if (typeof content !== "string" || !content.trim()) throw new Error("模型未返回内容");
   return content;
 }
+
+/**
+ * 流式 chat completions（SSE）：每收到一段增量就以「累计全文」回调 onDelta，结束返回完整原始
+ * 输出（不 trim、不清洗，契约同 postChatCompletion）。reply 首条候选用它做边生成边展示。
+ * 容错：供应商无视 stream:true 返回普通 JSON 时，回退解析 choices[0].message.content。
+ */
+export async function postChatCompletionStream(
+  params: PostChatCompletionParams & { onDelta?: (accumulated: string) => void },
+): Promise<string> {
+  const fetchFn = params.fetchFn ?? globalThis.fetch;
+  const timeoutSignal = AbortSignal.timeout(params.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const signal = params.signal ? AbortSignal.any([params.signal, timeoutSignal]) : timeoutSignal;
+
+  const res = await fetchFn(chatCompletionsUrl(params.baseUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders(params.baseUrl, params.apiKey)),
+    },
+    body: JSON.stringify({
+      model: params.model,
+      messages: params.messages,
+      ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+      stream: true,
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`模型接口 HTTP ${res.status}${body ? `:${body.slice(0, 200)}` : ""}`);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("模型未返回内容");
+  const decoder = new TextDecoder();
+  let acc = ""; // 已累计的正文
+  let raw = ""; // 原始响应全文（非 SSE 回退解析用）
+  let lineBuf = ""; // 跨 chunk 的半行缓冲（SSE 事件可能被网络分包截断）
+  const consumeLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return;
+    const payload = trimmed.slice(5).trim();
+    if (payload === "[DONE]") return;
+    try {
+      const evt = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
+      const delta = evt.choices?.[0]?.delta?.content;
+      if (typeof delta === "string" && delta.length > 0) {
+        acc += delta;
+        params.onDelta?.(acc);
+      }
+    } catch {
+      // 非 JSON 的 data 行（心跳/注释）忽略
+    }
+  };
+  // 逐行消费 SSE：await reader.read() 期间 signal 触发会使下一次 read 抛 AbortError，向上冒泡。
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    raw += chunk;
+    lineBuf += chunk;
+    for (;;) {
+      const nl = lineBuf.indexOf("\n");
+      if (nl < 0) break;
+      consumeLine(lineBuf.slice(0, nl));
+      lineBuf = lineBuf.slice(nl + 1);
+    }
+  }
+  consumeLine(lineBuf);
+
+  if (acc.trim().length > 0) return acc;
+  // 回退：部分兼容供应商无视 stream:true 直接回普通 JSON
+  try {
+    const data = JSON.parse(raw) as { choices?: { message?: { content?: string } }[] };
+    const content = data.choices?.[0]?.message?.content;
+    if (typeof content === "string" && content.trim()) {
+      params.onDelta?.(content);
+      return content;
+    }
+  } catch {
+    // 非 JSON：落入统一「无内容」错误
+  }
+  throw new Error("模型未返回内容");
+}

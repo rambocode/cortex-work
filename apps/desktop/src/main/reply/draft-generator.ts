@@ -13,8 +13,10 @@
 //     抛 EmptyDraftError，由 controller 推气泡错误态（不静默回 idle）。
 
 import type { ReplyPrompt } from "@cortex-work/core/reply/prompt-builder";
+import type { ReplyStance } from "@cortex-work/core/reply/stance";
+import { parseStanceLine } from "@cortex-work/core/reply/stance";
 import type { ResolvedReplyModel } from "./resolve-model";
-import { postChatCompletion } from "../ipc/openai-chat";
+import { postChatCompletion, postChatCompletionStream } from "../ipc/openai-chat";
 import { cleanAgentOutput } from "./controller-state";
 
 /** 清洗后草稿为空（模型只吐了围栏 / 寒暄 / 空白）。controller 据此推「空候选」错误态。 */
@@ -82,16 +84,77 @@ export async function chatComplete(
   });
 }
 
+/** 带立场的候选草稿：stance=null 表示非决策点或模型未按协议输出标记（宽松降级）。 */
+export interface StancedDraft {
+  text: string;
+  stance: ReplyStance | null;
+}
+
 /**
- * 单发生成一条候选草稿：chatComplete 直连 → cleanAgentOutput 清洗（剥围栏/寒暄/引号）→
- * 非空返回，空则抛 EmptyDraftError（controller 推「空候选」错误态）。
+ * 单发生成一条候选草稿：chatComplete 直连 → cleanAgentOutput 清洗（剥围栏/寒暄/引号，
+ * 保证围栏内的立场标记行可见）→ parseStanceLine 剥首行立场标记 → 剩余正文再清洗一次
+ * （处理正文整体被引号包裹等外壳）→ 非空返回 StancedDraft，空则抛 EmptyDraftError
+ * （controller 推「空候选」错误态）。定向立场调用（requestedStance）由 controller 用
+ * 请求立场覆盖返回的 stance，不依赖模型回显。
  */
 export async function generateDraft(
   params: ChatCompleteParams,
   deps: ChatCompleteDeps = {},
-): Promise<string> {
+): Promise<StancedDraft> {
   const content = await chatComplete(params, deps);
-  const cleaned = cleanAgentOutput(content);
-  if (cleaned.length === 0) throw new EmptyDraftError();
-  return cleaned;
+  return finalizeDraft(content);
+}
+
+/** 完整原始输出 → 最终候选：清洗 → 剥立场行 → 正文再清洗；空正文抛 EmptyDraftError。 */
+function finalizeDraft(content: string): StancedDraft {
+  const { stance, body } = parseStanceLine(cleanAgentOutput(content));
+  const text = cleanAgentOutput(body);
+  if (text.length === 0) throw new EmptyDraftError();
+  return { text, stance };
+}
+
+/**
+ * 流式增量 → 可外显文本（纯函数，导出便于单测）：剥立场标记行 + 去开头围栏行 + trim。
+ * 返回 null 表示当前累计还不宜外显——首行未完整且疑似标记/围栏前缀时按住，
+ * 避免气泡闪现半截 `[stan...` / ` ``` ` 再被替换（瞬态毛刺）。完整清洗仍在流结束后统一做。
+ */
+export function displayableStreamText(accumulated: string): string | null {
+  const t = accumulated.replace(/^\s+/, "");
+  if (t.length === 0) return null;
+  // 首行未完整（还没换行）且以标记/围栏开头 → 等首行收齐再外显
+  if (!t.includes("\n") && /^(\[|【|`)/.test(t)) return null;
+  const { body } = parseStanceLine(t);
+  const text = body.replace(/^\s*```[^\n]*\n?/, "").trim();
+  return text.length > 0 ? text : null;
+}
+
+/**
+ * 流式生成一条候选草稿（reply 首条用）：每有增量即回调 onUpdate 已剥标记的可外显文本与
+ * 当前已解析立场（未解析出为 null）；流结束后走与 generateDraft 相同的最终清洗管线返回。
+ * 展示文本是轻清洗（毛刺兜底见 displayableStreamText），最终 text 会替换流式中间态。
+ */
+export async function generateDraftStream(
+  params: ChatCompleteParams,
+  onUpdate: (partialText: string, stance: ReplyStance | null) => void,
+  deps: ChatCompleteDeps = {},
+): Promise<StancedDraft> {
+  const { target, prompt } = params;
+  const content = await postChatCompletionStream({
+    baseUrl: target.baseUrl,
+    apiKey: target.apiKey,
+    model: target.model,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user },
+    ],
+    temperature: params.temperature,
+    signal: params.signal,
+    timeoutMs: REQUEST_TIMEOUT_MS,
+    fetchFn: deps.fetchFn,
+    onDelta: (accumulated) => {
+      const text = displayableStreamText(accumulated);
+      if (text != null) onUpdate(text, parseStanceLine(accumulated).stance);
+    },
+  });
+  return finalizeDraft(content);
 }

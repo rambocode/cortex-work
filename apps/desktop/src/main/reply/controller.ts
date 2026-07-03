@@ -21,15 +21,28 @@ import {
   ReplySession,
   looksLikeConversation,
   shouldAbortWriteBack,
+  selectReplyAnchorFrame,
+  type ReplyCandidate,
 } from "./controller-state";
-import { generateDraft, EmptyDraftError, REPLY_TEMPERATURES } from "./draft-generator";
+import {
+  generateDraft,
+  generateDraftStream,
+  EmptyDraftError,
+  REPLY_TEMPERATURES,
+  type StancedDraft,
+} from "./draft-generator";
+import type { ReplyStance } from "@cortex-work/core/reply/stance";
 import type { ResolvedReplyModel } from "./resolve-model";
 import { replyDebugLog } from "./debug-log";
 import { buildReplyPrompt, type ReplyPrompt } from "@cortex-work/core/reply/prompt-builder";
 import { ConversationLayoutBuilder } from "@cortex-work/core/reply/conversation-layout";
+import {
+  filterOcrBlocksForVisibleConversation,
+  shouldPreferOcrForVisibleConversation,
+} from "@cortex-work/core/reply/ocr-conversation-region";
 import type { OCRTextBlock } from "@cortex-work/core/reply/types";
 import { availabilityContext } from "@cortex-work/core/reply/calendar-slots";
-import { composeUserProfile, emptyMemoryState } from "@cortex-work/core/reply/memory";
+import { composeUserProfile, emptyMemoryState, type MemoryState } from "@cortex-work/core/reply/memory";
 import type {
   ReplyBubbleAction,
   ReplyBubbleErrorKind,
@@ -59,8 +72,13 @@ const OCR_SYSTEM_EVENT_PREFIXES = [
 
 /** 写回后回填延迟（源项目 150ms）：等被吞的回车事件结束再粘贴，避免焦点竞争。 */
 const WRITE_BACK_DELAY_MS = 150;
-/** 后台预生成翻牌候选条数（源项目常量）。 */
+/** 非决策场景的后台预生成翻牌候选条数（源项目常量）。 */
 const PREGENERATE_COUNT = 2;
+/**
+ * 决策点场景的定向立场预生成序（首条推荐回复解析出立场 ⇒ 后台按此固定序各生成一条带 chip 候选）。
+ * 固定序保证圆点顺序稳定可预期；多样性由立场定向保证，故温度用低温 first 求表达质量。
+ */
+const STANCE_PREGENERATE_ORDER: readonly ReplyStance[] = ["agree", "reject", "unsure"];
 
 /** 一次捕获的归一化结果（AX 或 OCR 重建）。 */
 interface CaptureResult {
@@ -69,6 +87,8 @@ interface CaptureResult {
   frame: ReplyRect | null;
   /** 光标插入点矩形（输入法候选窗同款锚点,AXBoundsForRange）：比元素 frame 更精确,优先用于气泡锚定。 */
   caretFrame: ReplyRect | null;
+  /** helper 在 AX 树中推断的输入首行锚点；微信等拿不到光标时优先于 focusedFrame。 */
+  inputAnchorFrame: ReplyRect | null;
   /** 焦点窗口 frame；输入框 frame 缺失时气泡兜底锚定到窗口底部（微信等 AX 不完整场景）。 */
   windowFrame: ReplyRect | null;
   appName: string;
@@ -86,15 +106,23 @@ interface PendingContext {
   voiceIntent?: string;
   calendarContext: string;
   composedProfile: string;
+  /** 对话级记忆段（唤起时按 app+counterpart 读一次，一轮内恒定——前缀缓存安全）。 */
+  conversationMemory: string;
   capture: CaptureResult;
 }
 
-/** 写回成功后回调 U10 学习管线的信息。 */
+/** 写回成功后回调下游消费者（U10 学习管线 / 历史落盘 / 对话记忆）的信息。 */
 export interface DraftAcceptedInfo {
   draft: string;
   conversation: string;
   appName: string;
   appBundleId: string;
+  /** 对方身份（窗口标题解析；IM 常为空串）——对话级记忆按 app+counterpart 分桶。 */
+  counterpart: string;
+  /** 当轮全部候选草稿快照（含翻牌追加的），历史存档用。 */
+  candidates: { text: string; stance: ReplyStance | null }[];
+  /** 被采纳候选在 candidates 中的下标。 */
+  acceptedIndex: number;
 }
 
 export interface ReplyControllerLogger {
@@ -119,6 +147,16 @@ export interface ReplyControllerDeps {
   getAsrSettings?: () => Promise<AsrSettings | null>;
   /** 写回成功后的学习回调（U10 蒸馏接线；默认 no-op）。 */
   onDraftAccepted?: (info: DraftAcceptedInfo) => void;
+  /**
+   * 读对话级记忆的注入段（conversation-store.getComposed；未接线 / 无记录 → 空串跳段）。
+   * 每次唤起按捕获到的 app+counterpart 现读，保证设置页清空后即时生效。
+   */
+  getConversationMemory?: (appBundleId: string, counterpart: string) => Promise<string>;
+  /**
+   * 读全局分区记忆（KTD6 修订：main-owned memory-store，快照不再携带 memory）。
+   * 未接线 / 读失败 → 空记忆降级（prompt 只少记忆段，不阻断起草）。
+   */
+  getMemoryState?: () => Promise<MemoryState>;
   /** 「去设置」动作（modelNotConfigured 引导）：聚焦主窗口。 */
   onOpenSettings?: () => void;
   logger?: ReplyControllerLogger;
@@ -140,6 +178,8 @@ export class ReplyController {
   private readonly resolveModel: () => Promise<ResolvedReplyModel | null>;
   private readonly getAsrSettings?: () => Promise<AsrSettings | null>;
   private readonly onDraftAccepted?: (info: DraftAcceptedInfo) => void;
+  private readonly getConversationMemory?: (appBundleId: string, counterpart: string) => Promise<string>;
+  private readonly getMemoryState?: () => Promise<MemoryState>;
   private readonly onOpenSettings?: () => void;
   private readonly log: ReplyControllerLogger;
 
@@ -152,6 +192,8 @@ export class ReplyController {
   private preGenActive = false;
   // 翻牌单飞：避免同一会话并发追加多条。
   private flipBusy = false;
+  // 首条正在流式输出：期间正文是中间态，↩ 写回与翻牌被门控（避免粘贴半截草稿 / 避重列表含半截文本）。
+  private firstStreaming = false;
   // 语音录音是否已真正在气泡端启动（ASR 缺失时不录音，voice-end 松开应被忽略）。
   private voiceActive = false;
   // 语音「启动窗口内到达的松开」标记（与录音会话 token 绑定）：onVoiceStart 在 await getAsrSettings
@@ -165,6 +207,8 @@ export class ReplyController {
     this.resolveModel = deps.resolveModel;
     this.getAsrSettings = deps.getAsrSettings;
     this.onDraftAccepted = deps.onDraftAccepted;
+    this.getConversationMemory = deps.getConversationMemory;
+    this.getMemoryState = deps.getMemoryState;
     this.onOpenSettings = deps.onOpenSettings;
     this.log = deps.logger ?? NOOP_LOGGER;
   }
@@ -259,6 +303,7 @@ export class ReplyController {
     const token = this.session.beginCapture();
     this.pending = null;
     this.flipBusy = false;
+    this.firstStreaming = false;
     // 吞键在会话全程开启：generating 期的 esc 也需被吞掉才能取消生成。
     this.helper.setIntercept(true);
     // 定位好再显示（deferShow）：捕获期间不显示气泡——否则会先按鼠标兜底位闪现、
@@ -266,7 +311,12 @@ export class ReplyController {
     openReplyBubble(null, null, { deferShow: true });
     this.pushGenerating();
 
+    // 日历查询与捕获并行：两者互不依赖，且 one-shot 命令各自独立 spawn helper 进程；
+    // 串行会让首条候选白等 EventKit（可达数百 ms）。await 挪到捕获成功之后。
+    const startedAt = Date.now();
+    const calendarPromise = this.calendarContext(token);
     const capture = await this.capture(token);
+    const captureMs = Date.now() - startedAt;
     if (!this.session.isCurrent(token)) return; // 重入/取消：本轮回调过期
     if (!capture) {
       // 捕获失败 / 权限缺失：不静默回 idle，推错误态引导（R2）。
@@ -278,18 +328,53 @@ export class ReplyController {
     this.session.setCapturedPid(capture.pid);
     // 拿到焦点输入框 frame 后重锚定气泡；输入框 frame 缺失（微信等 AX 不完整）时用窗口 frame 兜底锚定
     // 到窗口底部输入区，仍取不到才回落鼠标位置。
-    // 锚点链:光标插入点(输入法式,最精确)→ 焦点输入框 frame → 窗口 frame(bubble-window 内兜底)。
-    openReplyBubble(capture.caretFrame ?? capture.frame, capture.windowFrame);
+    // 锚点链:光标插入点(输入法式,最精确)→ helper 推断输入首行 → 焦点输入框 frame → 窗口 frame。
+    openReplyBubble(
+      selectReplyAnchorFrame({
+        caretFrame: capture.caretFrame,
+        inputAnchorFrame: capture.inputAnchorFrame,
+        focusedFrame: capture.frame,
+      }),
+      capture.windowFrame,
+    );
 
-    const calendarContext = await this.calendarContext(token);
+    const calendarContext = await calendarPromise;
     if (!this.session.isCurrent(token)) return;
+    // 分段耗时（诊断「响应慢」用）：capture 含 AX + 可能的 OCR 降级；calendarWait 是并行后的净等待。
+    this.log.info("[reply] 起草前置耗时", {
+      captureMs,
+      calendarWaitMs: Date.now() - startedAt - captureMs,
+      source: capture.source,
+    });
 
     const snapshot = this.getSnapshot();
+    // 全局分区记忆：KTD6 修订后由 main-owned memory-store 现读（快照不携带 memory）。
+    // 读失败降级空记忆——prompt 只少记忆段，不阻断起草。
+    let memoryState = emptyMemoryState();
+    if (this.getMemoryState) {
+      try {
+        memoryState = await this.getMemoryState();
+      } catch (err) {
+        this.log.warn("[reply] 读分区记忆失败，按空记忆组装", err);
+      }
+      if (!this.session.isCurrent(token)) return; // 读盘期间重入/取消：本轮过期
+    }
     const composedProfile = composeUserProfile({
       userProfile: snapshot?.settings.userProfile,
-      memory: snapshot?.memory ?? emptyMemoryState(),
+      memory: memoryState,
       capturedApp: { bundleId: capture.appBundleId, name: capture.appName },
     });
+
+    // 对话级记忆：按捕获到的 app+counterpart 读注入段（本地文件读，毫秒级；失败不阻断起草）。
+    let conversationMemory = "";
+    if (this.getConversationMemory) {
+      try {
+        conversationMemory = await this.getConversationMemory(capture.appBundleId, capture.counterpart);
+      } catch (err) {
+        this.log.warn("[reply] 读对话记忆失败，跳过注入", err);
+      }
+      if (!this.session.isCurrent(token)) return; // 读盘期间重入/取消：本轮过期
+    }
 
     this.session.toGenerating();
     this.pending = {
@@ -297,6 +382,7 @@ export class ReplyController {
       voiceIntent,
       calendarContext,
       composedProfile,
+      conversationMemory,
       capture,
     };
     await this.generateFirst(token);
@@ -316,6 +402,8 @@ export class ReplyController {
     const frame = parseRect(axRes?.focusedFrame);
     // 光标矩形与焦点元素 frame 独立解析:AX 文本不像对话走 OCR 时,光标锚点依旧有效。
     const caretFrame = parseRect(axRes?.caretFrame);
+    // Swift helper 主动扫描 AX 树推断的输入首行锚点:微信拿不到 caret/focusedFrame 时仍可贴输入框。
+    const inputAnchorFrame = parseRect(axRes?.inputAnchorFrame);
     // 可变:AX 取不到窗口 frame 时,后面用 OCR 返回的被截窗口 bounds 兜底(坐标系一致,左上原点 point)。
     let windowFrame = parseRect(axRes?.windowFrame);
     const appName = typeof axRes?.appName === "string" ? (axRes.appName as string) : "";
@@ -326,10 +414,13 @@ export class ReplyController {
     // （如「张玲玲-财务」），但若标题就是应用名（如「微信」）则无区分度，视为无对方名。
     const rawTitle = typeof axRes?.windowTitle === "string" ? (axRes.windowTitle as string).trim() : "";
     const counterpart = rawTitle.length > 0 && rawTitle !== appName.trim() ? rawTitle : "";
+    const preferOcr = shouldPreferOcrForVisibleConversation({ bundleId: appBundleId, name: appName });
 
     // AX 文本「像对话」（helper 侧已算 meaningful）→ 直接采用
-    if (axRes?.ok === true && axRes.meaningful === true) {
-      return { conversation: axText, pid, frame, caretFrame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText: "" };
+    // 企业微信/钉钉/飞书等多栏 IM 的 AX 可能返回整窗文本（含左侧会话列表），因此必须走 OCR
+    // 当前对话区裁剪，避免把未打开的会话写进 Visible conversation。
+    if (!preferOcr && axRes?.ok === true && axRes.meaningful === true) {
+      return { conversation: axText, pid, frame, caretFrame, inputAnchorFrame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText: "" };
     }
 
     // 降级 OCR：截屏 + Vision → U1 对话重建
@@ -347,20 +438,23 @@ export class ReplyController {
     if (!windowFrame) windowFrame = parseRect(ocrRes?.windowBounds);
 
     if (ocrRes?.ok === true && Array.isArray(ocrRes.blocks)) {
-      const blocks = parseOcrBlocks(ocrRes.blocks);
+      const blocks = filterOcrBlocksForVisibleConversation(parseOcrBlocks(ocrRes.blocks), {
+        bundleId: appBundleId,
+        name: appName,
+      });
       const transcript = new ConversationLayoutBuilder({
         noiseMarkers: OCR_NOISE_MARKERS as unknown as string[],
         systemEventPrefixes: OCR_SYSTEM_EVENT_PREFIXES as unknown as string[],
       }).transcript(blocks);
       ocrText = transcript;
       if (looksLikeConversation(transcript)) {
-        return { conversation: transcript, pid, frame, caretFrame, windowFrame, appName, appBundleId, counterpart, source: "ocr", axText, ocrText };
+        return { conversation: transcript, pid, frame, caretFrame, inputAnchorFrame, windowFrame, appName, appBundleId, counterpart, source: "ocr", axText, ocrText };
       }
     }
 
     // AX 与 OCR 都不像对话：回退 AX 文本（有内容才用），否则彻底失败。
-    if (axText.trim().length > 0) {
-      return { conversation: axText, pid, frame, caretFrame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText };
+    if (!preferOcr && axText.trim().length > 0) {
+      return { conversation: axText, pid, frame, caretFrame, inputAnchorFrame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText };
     }
     return null;
   }
@@ -393,7 +487,11 @@ export class ReplyController {
 
   // ── 生成 ──────────────────────────────────────────────────────────────────────
 
-  /** 首条候选：现解析生成模型 → 直连单发（首条温度 0.3）→ presenting → 后台预生成 2 条避重候选。 */
+  /**
+   * 首条候选：现解析生成模型 → 直连**流式**生成（首条温度 0.3）——有增量就先上屏
+   * （presentFirst 部分文本 + 持续 updateFirstText），流结束后用最终清洗文本替换，
+   * 再并发预生成翻牌候选。流式期间 firstStreaming 置位，写回/翻牌被门控（见各自入口）。
+   */
   private async generateFirst(token: number): Promise<void> {
     const pending = this.pending;
     if (!pending) return;
@@ -415,20 +513,51 @@ export class ReplyController {
     }
     const prompt = this.buildPrompt(pending, []);
     this.abort = new AbortController();
+    const generateStartedAt = Date.now();
+    let firstTokenMs: number | null = null;
+    let presented = false;
     try {
-      const text = await generateDraft({
-        prompt,
-        target,
-        temperature: REPLY_TEMPERATURES.first,
-        signal: this.abort.signal,
-      });
+      const draft = await generateDraftStream(
+        {
+          prompt,
+          target,
+          temperature: REPLY_TEMPERATURES.first,
+          signal: this.abort.signal,
+        },
+        (partialText) => {
+          // 流式增量上屏：首个可外显片段即 presentFirst（气泡从「生成中」切候选卡），
+          // 后续增量持续覆盖首条正文。过期回调（重入/esc）静默丢弃。
+          if (!this.session.isCurrent(token)) return;
+          if (firstTokenMs == null) firstTokenMs = Date.now() - generateStartedAt;
+          if (!presented) {
+            presented = true;
+            this.firstStreaming = true;
+            this.session.presentFirst(partialText);
+          } else {
+            this.session.updateFirstText(partialText);
+          }
+          this.pushPresenting();
+        },
+      );
+      this.firstStreaming = false;
       if (!this.session.isCurrent(token)) return;
-      this.recordDebug(pending, prompt, text, null);
-      this.session.presentFirst(text);
+      // 首条 LLM 直连耗时（诊断「响应慢」用）：首 token 是体感关键，总时长慢时先查供应商/模型。
+      this.log.info("[reply] 首条生成耗时", {
+        firstTokenMs,
+        llmMs: Date.now() - generateStartedAt,
+        model: target.model,
+      });
+      this.recordDebug(pending, prompt, debugDraftText(draft), null);
+      // 首条是推荐回复，气泡恒不显示立场 chip；解析出的立场只用于编排决策：
+      // 非 null ⇒ 对方最新消息是决策点 ⇒ 后台改为定向生成三档立场候选。
+      // 流结束后用最终清洗文本替换流式中间态（未流出任何增量时走 presentFirst 兜底）。
+      if (presented) this.session.updateFirstText(draft.text);
+      else this.session.presentFirst(draft.text);
       this.preGenActive = true;
       this.pushPresenting();
-      void this.pregenerate(token, target);
+      void this.pregenerate(token, target, draft.stance);
     } catch (err) {
+      this.firstStreaming = false;
       if (!this.session.isCurrent(token)) return; // 过期（重入 / esc）静默丢弃
       const message = err instanceof Error ? err.message : String(err);
       this.recordDebug(pending, prompt, "", message);
@@ -437,32 +566,52 @@ export class ReplyController {
     }
   }
 
-  /** 后台串行预生成翻牌候选（每条避开已有全部候选，温度 0.9 求多样）；过期 / 非展示态 / 失败即停。 */
-  private async pregenerate(token: number, target: ResolvedReplyModel): Promise<void> {
-    for (let i = 0; i < PREGENERATE_COUNT; i += 1) {
-      if (!this.session.isCurrent(token) || this.session.phase !== "presenting") break;
-      const pending = this.pending;
-      if (!pending) break;
-      const prompt = this.buildPrompt(pending, this.session.avoidList());
-      try {
-        const text = await generateDraft({
-          prompt,
-          target,
-          temperature: REPLY_TEMPERATURES.variant,
-          signal: this.abort?.signal,
-        });
-        if (!this.session.isCurrent(token)) return;
-        this.recordDebug(pending, prompt, text, null);
-        // 仅真正入列（presenting 且非重复）才推状态：写回/取消后到达的旧回调若无条件推
-        // presenting,会把已关闭的气泡复活（appendPreGenerated 在非 presenting 阶段拒收）。
-        if (this.session.appendPreGenerated(text)) this.pushPresenting();
-      } catch (err) {
-        if (this.session.isCurrent(token)) {
-          const message = err instanceof Error ? err.message : String(err);
-          this.recordDebug(pending, prompt, "", message);
-        }
-        break; // 预生成失败静默放弃，不打扰主流程
-      }
+  /**
+   * 后台**并发**预生成翻牌候选：全部请求同时发起，谁先生成完谁先入列上屏
+   * （串行版让第 3、4 张卡白等前一条完成，用户反馈等待过久）。两种模式：
+   *   - 决策点（decisionStance 非 null）：定向生成 同意/拒绝/不确定 三档候选（带 chip），
+   *     多样性由立场定向保证，温度用低温 first 求表达质量；候选立场以请求方指定为准，不信模型回显。
+   *   - 非决策：2 条高温（variant 0.9）换角度变体，无 chip。
+   * 并发的取舍：avoidReplies 只含发起时已有候选（首条），失去串行的链式避重——
+   * 决策点模式立场天然互斥不受影响；非决策模式靠高温 + 入列按正文去重兜底。
+   * 单条失败静默丢弃（不打扰主流程），其余请求照常。
+   */
+  private async pregenerate(
+    token: number,
+    target: ResolvedReplyModel,
+    decisionStance: ReplyStance | null,
+  ): Promise<void> {
+    const stances: readonly (ReplyStance | null)[] =
+      decisionStance != null
+        ? STANCE_PREGENERATE_ORDER
+        : Array.from({ length: PREGENERATE_COUNT }, () => null);
+    const pending = this.pending;
+    if (pending && this.session.isCurrent(token) && this.session.phase === "presenting") {
+      const avoid = this.session.avoidList();
+      await Promise.all(
+        stances.map(async (stance) => {
+          const prompt = this.buildPrompt(pending, avoid, stance);
+          try {
+            const draft = await generateDraft({
+              prompt,
+              target,
+              temperature: stance != null ? REPLY_TEMPERATURES.first : REPLY_TEMPERATURES.variant,
+              signal: this.abort?.signal,
+            });
+            if (!this.session.isCurrent(token)) return;
+            const candidate: ReplyCandidate = { text: draft.text, stance };
+            this.recordDebug(pending, prompt, debugDraftText(candidate), null);
+            // 仅真正入列（presenting 且非重复）才推状态：写回/取消后到达的旧回调若无条件推
+            // presenting,会把已关闭的气泡复活（appendPreGenerated 在非 presenting 阶段拒收）。
+            if (this.session.appendPreGenerated(candidate)) this.pushPresenting();
+          } catch (err) {
+            if (this.session.isCurrent(token)) {
+              const message = err instanceof Error ? err.message : String(err);
+              this.recordDebug(pending, prompt, "", message);
+            }
+          }
+        }),
+      );
     }
     this.preGenActive = false;
     if (this.session.isCurrent(token) && this.session.phase === "presenting") this.pushPresenting();
@@ -471,6 +620,7 @@ export class ReplyController {
   /** 「翻牌」：追加一条避开已有候选的新草稿并聚焦；会话捕获为空则退化为重新起草。 */
   private async flip(): Promise<void> {
     if (this.session.phase !== "presenting") return;
+    if (this.firstStreaming) return; // 首条流式中：正文是中间态，避重列表不可用，忽略翻牌
     const pending = this.pending;
     if (!pending) return;
     if (pending.conversation.trim().length === 0) {
@@ -499,20 +649,24 @@ export class ReplyController {
       this.pushError("modelNotConfigured");
       return;
     }
-    const prompt = this.buildPrompt(pending, this.session.avoidList());
+    // 翻牌定向跟随当前展示候选的立场：在「拒绝」卡上翻牌 = 换个说法的拒绝（chip 延续）；
+    // 当前卡无立场（首条推荐 / 普通变体）则维持既有换角度语义（无定向、无 chip）。
+    const stance = this.session.currentStance;
+    const prompt = this.buildPrompt(pending, this.session.avoidList(), stance);
     try {
-      const text = await generateDraft({
+      const draft = await generateDraft({
         prompt,
         target,
-        temperature: REPLY_TEMPERATURES.variant,
+        temperature: stance != null ? REPLY_TEMPERATURES.first : REPLY_TEMPERATURES.variant,
         signal: this.abort?.signal,
       });
       if (!this.session.isCurrent(token)) return;
-      this.recordDebug(pending, prompt, text, null);
+      const candidate: ReplyCandidate = { text: draft.text, stance };
+      this.recordDebug(pending, prompt, debugDraftText(candidate), null);
       // 翻牌回调落地前再验 phase：token 不变但阶段已离开 presenting（写回中）时丢弃,
       // 避免向 writing 期追加候选并复活已关闭的气泡（appendFlip 本身无阶段门控）。
       if (this.session.phase !== "presenting") return;
-      this.session.appendFlip(text);
+      this.session.appendFlip(candidate);
       this.pushPresenting();
     } catch (err) {
       if (this.session.isCurrent(token)) {
@@ -545,14 +699,21 @@ export class ReplyController {
     await this.generateFirst(token);
   }
 
-  private buildPrompt(pending: PendingContext, avoidReplies: string[]): ReplyPrompt {
+  /** 组装 prompt；requestedStance 非空 = 决策点定向候选（prompt 尾部追加「按此立场写」指令）。 */
+  private buildPrompt(
+    pending: PendingContext,
+    avoidReplies: string[],
+    requestedStance: ReplyStance | null = null,
+  ): ReplyPrompt {
     return buildReplyPrompt({
       conversation: pending.conversation,
       counterpartName: pending.capture.counterpart,
       voiceIntent: pending.voiceIntent,
       calendarContext: pending.calendarContext,
       userProfile: pending.composedProfile,
+      conversationMemory: pending.conversationMemory,
       avoidReplies,
+      requestedStance,
     });
   }
 
@@ -561,6 +722,7 @@ export class ReplyController {
   /** ↩ 写回：关气泡 + 关吞键 → 延迟 → pid 校验（变则中止）→ ax-activate + paste → 学习回调。 */
   private async writeBack(): Promise<void> {
     if (this.session.phase !== "presenting") return;
+    if (this.firstStreaming) return; // 首条流式中：避免把半截草稿粘贴出去，等流结束再 ↩
     const draft = this.session.currentDraft;
     if (draft.trim().length === 0) return;
     // 世代守卫：捕获本轮 token。writeBack 全程有 delay / frontmostPid 两处 await，期间新
@@ -570,6 +732,10 @@ export class ReplyController {
     const token = this.session.token;
     const capturedPid = this.session.capturedPid;
     const pending = this.pending;
+    // 候选集快照须在 toWriting/reset 之前取（reset 会清空 _candidates），供写回成功后的
+    // 历史存档回调使用。
+    const candidatesSnapshot = this.session.candidates.map((c) => ({ ...c }));
+    const acceptedIndex = this.session.currentIndex;
 
     this.session.toWriting();
     // 中止在途预生成/翻牌请求：写回后候选列表即将作废,残余生成毫无意义;更关键的是,
@@ -603,13 +769,16 @@ export class ReplyController {
     }
     if (!this.session.isCurrent(token)) return; // paste 后再校验:期间抢占则不 reset/清 pending
 
-    // 写回成功 → 触发学习管线（U10；未接线时为 no-op）。
+    // 写回成功 → 触发下游消费（U10 学习管线 / 历史落盘 / 对话记忆；未接线时为 no-op）。
     if (pending) {
       this.onDraftAccepted?.({
         draft,
         conversation: pending.conversation,
         appName: pending.capture.appName,
         appBundleId: pending.capture.appBundleId,
+        counterpart: pending.capture.counterpart,
+        candidates: candidatesSnapshot,
+        acceptedIndex,
       });
     }
     this.session.reset();
@@ -795,6 +964,11 @@ export class ReplyController {
 }
 
 // ── 数值解析辅助 ──────────────────────────────────────────────────────────────
+
+/** 调试日志用的候选文本：带立场时前缀 `[stance]`，便于在调试面板分辨定向候选。 */
+function debugDraftText(draft: StancedDraft | ReplyCandidate): string {
+  return draft.stance ? `[${draft.stance}] ${draft.text}` : draft.text;
+}
 
 /** 把 helper 输出的 focusedFrame（可能为 null）解析为 ReplyRect；缺字段返回 null。 */
 function parseRect(value: unknown): ReplyRect | null {

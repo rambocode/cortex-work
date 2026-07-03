@@ -1,22 +1,18 @@
 import { describe, it, expect, vi } from "vitest";
 import { ReplyDistiller, extractMineSamples } from "./distill";
-import { emptyMemoryState, type MemoryState } from "@cortex-work/core/reply/memory";
 import type { ReplySyncSnapshot } from "../ipc/reply-types";
 import type { DraftAcceptedInfo } from "./controller";
 
-// 构造一个最小 ReplySyncSnapshot：可控学习开关与分区 memory。
-function makeSnapshot(params: {
-  learningEnabled: boolean;
-  memory?: MemoryState;
-}): ReplySyncSnapshot {
+// 构造一个最小 ReplySyncSnapshot：可控学习开关（KTD6 修订后快照不再携带 memory）。
+function makeSnapshot(params: { learningEnabled: boolean }): ReplySyncSnapshot {
   return {
     settings: {
       draftTrigger: "cmd",
       voiceTrigger: "fn",
       learningEnabled: params.learningEnabled,
       userProfile: "",
+      historyEnabled: true,
     },
-    memory: params.memory ?? emptyMemoryState(),
   };
 }
 
@@ -27,6 +23,9 @@ function imDraft(overrides: Partial<DraftAcceptedInfo> = {}): DraftAcceptedInfo 
     conversation: "对方：明天有空吗？\n我：应该可以\n对方：那约上午",
     appName: "WeChat",
     appBundleId: "com.tencent.xinWeChat",
+    counterpart: "张玲玲",
+    candidates: [{ text: "好的，明天见", stance: null }],
+    acceptedIndex: 0,
     ...overrides,
   };
 }
@@ -58,6 +57,7 @@ describe("ReplyDistiller.onDraftAccepted", () => {
     const distiller = new ReplyDistiller({
       getSnapshot: () => makeSnapshot({ learningEnabled: false }),
       generate,
+      getExistingAuto: async () => "",
       persistLearned,
     });
     distiller.onDraftAccepted(imDraft());
@@ -76,6 +76,7 @@ describe("ReplyDistiller.onDraftAccepted", () => {
     const distiller = new ReplyDistiller({
       getSnapshot: () => makeSnapshot({ learningEnabled: true }),
       generate,
+      getExistingAuto: async () => "",
       persistLearned,
     });
 
@@ -99,6 +100,7 @@ describe("ReplyDistiller.onDraftAccepted", () => {
     const distiller = new ReplyDistiller({
       getSnapshot: () => makeSnapshot({ learningEnabled: true }),
       generate,
+      getExistingAuto: async () => "",
       persistLearned,
     });
     distiller.onDraftAccepted(
@@ -114,6 +116,7 @@ describe("ReplyDistiller.onDraftAccepted", () => {
     const distiller = new ReplyDistiller({
       getSnapshot: () => makeSnapshot({ learningEnabled: true }),
       generate,
+      getExistingAuto: async () => "",
       persistLearned,
     });
     distiller.onDraftAccepted(imDraft());
@@ -132,6 +135,7 @@ describe("ReplyDistiller.onDraftAccepted", () => {
     const distiller = new ReplyDistiller({
       getSnapshot: () => makeSnapshot({ learningEnabled: true }),
       generate,
+      getExistingAuto: async () => "",
       persistLearned,
       logger: { warn },
     });
@@ -155,6 +159,7 @@ describe("ReplyDistiller.onDraftAccepted", () => {
     const distiller = new ReplyDistiller({
       getSnapshot: () => makeSnapshot({ learningEnabled: true }),
       generate,
+      getExistingAuto: async () => "",
       persistLearned,
     });
 
@@ -193,6 +198,7 @@ describe("ReplyDistiller.onDraftAccepted", () => {
     const distiller = new ReplyDistiller({
       getSnapshot: () => makeSnapshot({ learningEnabled: true }),
       generate,
+      getExistingAuto: async () => "",
       persistLearned,
     });
 

@@ -6,7 +6,7 @@
 //
 // 数据类型复用 core/reply 纯逻辑层（memory.ts / channels.ts），避免二次定义漂移。
 
-import type { MemoryState, MemoryScope } from "../reply/memory";
+import type { MemoryState } from "../reply/memory";
 import type { ChannelId, ChannelConnectionState, ChannelVerifyErrorKind } from "../reply/channels";
 
 // ── 设置分片（replySettings）───────────────────────────────────────────────────
@@ -24,6 +24,9 @@ export interface ReplySettings {
   voiceTrigger: ReplyVoiceTriggerKey;
   /// 「从我发出的消息学习语气」开关，默认开（KTD8：仅开启时才蒸馏，且样本不落盘）。
   learningEnabled: boolean;
+  /// 「保存回复历史」开关，默认开（KTD8 边界修订：开启时已采纳会话的对话原文与候选
+  /// 明文落 ~/.cortex-desktop/reply/history.json，关闭则零落盘；数据清理可整体清空）。
+  historyEnabled: boolean;
   /// 用户档案自由文本（composeUserProfile 的 base；与分区记忆的 profile scope 并列注入 prompt）。
   userProfile: string;
   /// reply 专属生成供应商 id（KTD3）：空=跟随 providerSettings.defaultProviderId/defaultModel 回退链。
@@ -37,6 +40,7 @@ export const DEFAULT_REPLY_SETTINGS: ReplySettings = {
   draftTrigger: "cmd",
   voiceTrigger: "fn",
   learningEnabled: true,
+  historyEnabled: true,
   userProfile: "",
 };
 
@@ -119,18 +123,18 @@ export interface ReplyDebugEntry {
   error?: string;
 }
 
-/// renderer→main 设置快照：main 侧起草时取最新 settings（含 reply 专属 providerId/model 与 userProfile）
-/// 与分区记忆组装 prompt。KTD3：模型解析（回退链 + 供应商校验）改在 main 侧做（resolveReplyModel 读
-/// 持久化 providerSettings），故快照不再带 defaultAgent/providerId/model，只携业务上下文。
+/// renderer→main 设置快照：main 侧起草时取最新 settings（含 reply 专属 providerId/model 与
+/// userProfile）组装 prompt。KTD3：模型解析在 main 侧做；KTD6 修订：分区记忆已迁 main-owned
+/// memory.json（reply/memory-store.ts），main 直接读文件，快照不再携带 memory。
 export interface ReplySyncSnapshot {
   settings: ReplySettings;
-  memory: ReplyMemoryState;
 }
 
-/// main→renderer 语气蒸馏产出推送（U10 / R11）：某分区蒸馏出的 auto 要点。
-/// 渲染端 store 应用到对应分区的 auto 字段后由 usePersonalPersistence 落盘——渲染端是持久化唯一真源，
-/// main 不直写磁盘，避免与渲染端 store 双源漂移。只推要点、不含样本原文（KTD8）。
-export interface ReplyMemoryLearned {
-  scope: MemoryScope;
-  auto: string;
+/// 设置页「数据」分区的只读摘要（main 侧统计 ~/.cortex-desktop/reply/ 下的落盘数据）。
+export interface ReplyDataSummary {
+  /// 回复历史条数（history.json）。
+  historyCount: number;
+  /// 对话级记忆条数（conversation-memory.json，按 app+联系人 key 计）。
+  conversationCount: number;
 }
+

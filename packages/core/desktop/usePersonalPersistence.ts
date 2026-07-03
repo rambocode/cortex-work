@@ -80,8 +80,16 @@ export function usePersonalPersistence(): void {
       .then(async (state) => {
         if (cancelled) return;
         usePersonalStore.getState().hydrate(state);
-        // reply 三分片一并 hydrate（缺失/半缺分片由 store 内部补空默认）。
+        // reply 持久化分片一并 hydrate（缺失/半缺分片由 store 内部补空默认）。
         useReplyStore.getState().hydrateReply(state);
+        // 分区记忆缓存装填（KTD6 修订）：真源在 main 侧 memory.json（含首启旧分片迁移），
+        // 经 IPC 读入渲染端只读缓存；bridge 无此方法（Web/旧壳）则保持空缓存。
+        void bridge
+          .replyGetMemory?.()
+          .then((memory) => {
+            if (!cancelled) useReplyStore.getState().hydrateMemory(memory);
+          })
+          .catch(() => {});
         // 启动时重扫 prompt 树（不持久化树本身）。
         if (state.promptRoot) {
           try {
@@ -102,19 +110,18 @@ export function usePersonalPersistence(): void {
     const unsubPersonal = usePersonalStore.subscribe((s, prev) => scheduleSave(saveUrgency(s, prev)));
     const unsubReply = useReplyStore.subscribe((s, prev) => scheduleSave(replySaveUrgency(s, prev)));
 
-    // U10：main 语气蒸馏产出（分区 auto 要点）回推 → 应用到 reply store 对应分区。写入触发上面的
-    // reply 订阅（replySaveUrgency→throttled）走同一节流管线落盘——渲染端是持久化唯一真源，
-    // main 不直写磁盘，避免双源漂移（macOS-only；bridge 无此方法时为 undefined）。
-    const unsubMemoryLearned =
-      bridge.onReplyMemoryLearned?.(({ scope, auto }) => {
-        useReplyStore.getState().setMemoryFile(scope, { auto });
+    // U10 / KTD6 修订：main 蒸馏直写 memory-store 后推全量记忆 → 刷新渲染端只读缓存。
+    // 缓存变更不触发保存（replySaveUrgency 不看 memory），持久化真源在 main。
+    const unsubMemoryChanged =
+      bridge.onReplyMemoryChanged?.((memory) => {
+        useReplyStore.getState().hydrateMemory(memory);
       }) ?? (() => {});
 
     return () => {
       cancelled = true;
       unsubPersonal();
       unsubReply();
-      unsubMemoryLearned();
+      unsubMemoryChanged();
       if (timer.current) {
         clearTimeout(timer.current);
         // 卸载前冲刷一次，避免丢最后一笔变更。

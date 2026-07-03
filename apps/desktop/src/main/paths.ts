@@ -114,6 +114,27 @@ export function workflowRunsDir(): string {
   return join(cortexHome(), "workflow-runs");
 }
 
+// 快捷回复助手数据目录：~/.cortex-desktop/reply/（main-owned，借鉴源项目 ReplyClone
+// 把记忆/历史落应用数据目录的形态；KTD6/KTD8 修订见 reply/history-store.ts 头注）。
+export function replyDataDir(): string {
+  return join(cortexHome(), "reply");
+}
+
+// 回复历史：单文件全量（newest-first，上限截断见 core/reply/history.ts）。
+export function replyHistoryPath(): string {
+  return join(replyDataDir(), "history.json");
+}
+
+// 对话级记忆：单文件全量（按 app+联系人 key 索引，LRU 淘汰）。
+export function replyConversationMemoryPath(): string {
+  return join(replyDataDir(), "conversation-memory.json");
+}
+
+// 全局 5 分区记忆：单文件全量（main 唯一写者；首启从 personal-workspace.json 分片搬运）。
+export function replyMemoryPath(): string {
+  return join(replyDataDir(), "memory.json");
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await fsp.access(path);

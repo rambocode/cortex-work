@@ -75,6 +75,10 @@ const NMP_TYPES = {
 interface MacPermissionsModule {
   getAuthStatus(type: string): string;
   askForAccessibilityAccess?(): void;
+  askForCalendarAccess?(accessType?: "write-only" | "full"): Promise<unknown>;
+  askForMicrophoneAccess?(): Promise<unknown>;
+  askForSpeechRecognitionAccess?(): Promise<unknown>;
+  askForScreenCaptureAccess?(openPreferences?: boolean): void;
 }
 
 /** 原生模块加载器签名。默认动态 import;测试注入以确定性模拟「可用 / 加载失败」。 */
@@ -145,6 +149,63 @@ export async function queryReplyPermissions(
   return unknownPermissions();
 }
 
+export type ReplyPermissionRequestKind = keyof ReplyPermissions;
+
+function safeGetAuthStatus(perms: MacPermissionsModule, type: string): string | null {
+  try {
+    return perms.getAuthStatus(type);
+  } catch {
+    return null;
+  }
+}
+
+function needsSettingsFallback(status: string | null): boolean {
+  return status === "denied" || status === "restricted";
+}
+
+/**
+ * 主动触发一项 macOS TCC 授权请求。只打开系统设置页不会让 notDetermined 应用出现在列表里；
+ * 日历/语音识别等必须由主应用先调用对应 request API，macOS 才会把 Cortex 注册到授权数据库。
+ * 返回 true 表示请求流程已由系统弹窗/API 处理；返回 false 时调用方应回退打开对应设置页。
+ */
+export async function requestReplyPermissionAccess(
+  kind: ReplyPermissionRequestKind,
+  platform: NodeJS.Platform = process.platform,
+  nativeLoader: NativeModuleLoader = defaultNativeLoader,
+): Promise<boolean> {
+  if (platform !== "darwin") return false;
+  try {
+    const perms = await nativeLoader();
+    switch (kind) {
+      case "accessibility":
+        if (typeof perms.askForAccessibilityAccess !== "function") return false;
+        perms.askForAccessibilityAccess();
+        return true;
+      case "calendar":
+        if (typeof perms.askForCalendarAccess !== "function") return false;
+        if (needsSettingsFallback(safeGetAuthStatus(perms, NMP_TYPES.calendar))) return false;
+        await perms.askForCalendarAccess("full");
+        return true;
+      case "microphone":
+        if (typeof perms.askForMicrophoneAccess !== "function") return false;
+        if (needsSettingsFallback(safeGetAuthStatus(perms, NMP_TYPES.microphone))) return false;
+        await perms.askForMicrophoneAccess();
+        return true;
+      case "screenRecording":
+        if (typeof perms.askForScreenCaptureAccess !== "function") return false;
+        perms.askForScreenCaptureAccess(true);
+        return true;
+      case "speechRecognition":
+        if (typeof perms.askForSpeechRecognitionAccess !== "function") return false;
+        if (needsSettingsFallback(safeGetAuthStatus(perms, NMP_TYPES.speech))) return false;
+        await perms.askForSpeechRecognitionAccess();
+        return true;
+    }
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 主动触发「辅助功能」的系统注册(U9 权限中心「去授权」按钮消费)。
  *
@@ -161,13 +222,5 @@ export async function requestAccessibilityAccess(
   platform: NodeJS.Platform = process.platform,
   nativeLoader: NativeModuleLoader = defaultNativeLoader,
 ): Promise<boolean> {
-  if (platform !== "darwin") return false;
-  try {
-    const perms = await nativeLoader();
-    if (typeof perms.askForAccessibilityAccess !== "function") return false;
-    perms.askForAccessibilityAccess();
-    return true;
-  } catch {
-    return false;
-  }
+  return requestReplyPermissionAccess("accessibility", platform, nativeLoader);
 }

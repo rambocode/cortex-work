@@ -84,11 +84,12 @@ import type {
   ReplyPermissionKind,
   ReplyPermissionState,
   ReplyChannelVerifyResult,
+  ReplyDataSummary,
   ReplyDebugEntry,
   ReplySyncSnapshot,
-  ReplyMemoryLearned,
 } from "./types";
 import type { ChannelId } from "../reply/channels";
+import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
 import type {
   LocalWhisperModelStatus,
   LocalWhisperModelProgress,
@@ -543,13 +544,25 @@ export interface DesktopBridge {
   replyDisconnectChannel?(channelId: ChannelId): Promise<void>;
   /** 拉取内存调试记录（最近 20 条，进程退出即清）。 */
   replyGetDebugLog?(): Promise<ReplyDebugEntry[]>;
+  /** 拉取 ~/.cortex-desktop/reply/ 落盘数据摘要（历史/对话记忆条数，设置页展示）。 */
+  replyGetDataSummary?(): Promise<ReplyDataSummary>;
+  /** 清空回复历史（history.json，数据清理）。 */
+  replyClearHistory?(): Promise<void>;
+  /** 清空对话级记忆（conversation-memory.json，数据清理）。 */
+  replyClearConversationMemory?(): Promise<void>;
+  /** 读全局分区记忆（KTD6 修订：main-owned memory.json，含首启从旧分片迁移）。 */
+  replyGetMemory?(): Promise<MemoryState>;
+  /** 写单分区手写区/自动区（设置页 MemoryManager 编辑）。 */
+  replySetMemoryFile?(scope: MemoryScope, patch: Partial<MemoryFile>): Promise<void>;
+  /** 清空记忆：all=手写+自动；auto=仅自动学习要点。 */
+  replyClearMemory?(kind: "all" | "auto"): Promise<void>;
   /** 手动触发一次起草（兜底 accelerator / 调试入口）。 */
   replyTriggerDraft?(): Promise<void>;
   /** 渲染端把「设置 + 记忆 + 默认 agent」快照推送到 main（供 draft-generator 生成候选）。 */
   replySyncSettings?(snapshot: ReplySyncSnapshot): Promise<void>;
   /**
-   * 订阅 main 的语气蒸馏产出（U10 / R11）：写回后台蒸馏出的分区 auto 要点回推渲染端，
-   * 由渲染端 store 应用到该分区并落盘（渲染端是持久化唯一真源）。返回退订函数。
+   * 订阅 main 的记忆变更（KTD6 修订）：蒸馏直写 memory-store 后推全量记忆，渲染端刷新
+   * 设置页缓存（持久化真源在 main，渲染端只持只读缓存）。返回退订函数。
    */
-  onReplyMemoryLearned?(cb: (payload: ReplyMemoryLearned) => void): () => void;
+  onReplyMemoryChanged?(cb: (memory: MemoryState) => void): () => void;
 }

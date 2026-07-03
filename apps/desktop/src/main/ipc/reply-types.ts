@@ -46,6 +46,8 @@ export interface ReplySettings {
   draftTrigger: ReplyDraftTriggerKey;
   voiceTrigger: ReplyVoiceTriggerKey;
   learningEnabled: boolean;
+  /// 「保存回复历史」开关，默认开（KTD8 边界修订：仅开启时已采纳会话落 history.json）。
+  historyEnabled: boolean;
   userProfile: string;
   /// reply 专属生成供应商 id（KTD3）：空=跟随 providerSettings.defaultProviderId/defaultModel 回退链。
   /// 只存 id 引用，baseUrl/apiKey 由 main 侧从 providerSettings 现解析，凭据不落入本设置分片。
@@ -110,19 +112,17 @@ export interface ReplyDebugEntry {
   error?: string;
 }
 
-/// renderer→main 设置快照：main 侧起草时取最新 settings（含 reply 专属 providerId/model 与 userProfile）
-/// 与分区记忆组装 prompt。KTD3：模型解析（回退链 + 供应商校验）改在 main 侧做（resolveReplyModel 读
-/// 持久化 providerSettings），故快照不再带 defaultAgent/providerId/model，只携业务上下文。
+/// renderer→main 设置快照：main 侧起草时取最新 settings（含 reply 专属 providerId/model 与
+/// userProfile）组装 prompt。KTD3：模型解析在 main 侧做；KTD6 修订：分区记忆已迁 main-owned
+/// memory.json（reply/memory-store.ts），main 直接读文件，快照不再携带 memory。
 export interface ReplySyncSnapshot {
   settings: ReplySettings;
-  memory: ReplyMemoryState;
 }
 
-/// main→renderer 语气蒸馏产出推送（U10 / R11）：某分区蒸馏出的 auto 要点，渲染端 store 应用后落盘。
-/// 与 core/desktop/reply-types.ts 逐字镜像。
-export interface ReplyMemoryLearned {
-  scope: MemoryScope;
-  auto: string;
+/// 设置页「数据」分区的只读摘要（main 侧统计 ~/.cortex-desktop/reply/ 下的落盘数据）。
+export interface ReplyDataSummary {
+  historyCount: number;
+  conversationCount: number;
 }
 
 // ── 候选气泡窗契约（U6，KTD5）──────────────────────────────────────────────────────
@@ -145,11 +145,21 @@ export type ReplyBubblePhase = "generating" | "presenting" | "recording" | "erro
 /// 错误态细分：modelNotConfigured → 未配置生成模型，引导去设置；generationFailed/emptyCandidates → 原因+重试/关闭。
 export type ReplyBubbleErrorKind = "modelNotConfigured" | "generationFailed" | "emptyCandidates";
 
+/// 候选立场三档（决策点场景的定向候选；与 core/reply/stance.ts 的 ReplyStance 同形）。
+export type ReplyBubbleStance = "agree" | "reject" | "unsure";
+
+/// 单条候选：正文 + 立场。stance 非 null 时气泡在正文下方渲染中文立场 chip
+/// （同意/拒绝/不确定）；首条推荐回复与非决策变体恒为 null（不显示 chip）。
+export interface ReplyBubbleCandidate {
+  text: string;
+  stance: ReplyBubbleStance | null;
+}
+
 /// 主进程 → 气泡渲染端的完整可视状态（每次变更整体推送，渲染端无本地态可言）。
 export interface ReplyBubbleState {
   phase: ReplyBubblePhase;
   /// 已到达的候选草稿（presenting 阶段渲染 candidates[currentIndex]）。
-  candidates: string[];
+  candidates: ReplyBubbleCandidate[];
   /// 当前展示的候选下标（←/→/Tab 由 controller 改后重推）。
   currentIndex: number;
   /// 是否仍在后台预生成翻牌候选（控制圆点「逐个出现」的动画语义）。

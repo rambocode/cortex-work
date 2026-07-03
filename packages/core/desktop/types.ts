@@ -807,9 +807,10 @@ export interface PersistedState {
   mediaGenSettings?: MediaGenSettings;
   // 语音识别设置（旧 JSON 无此字段时 hydrate 回落工厂默认）。
   asrSettings?: AsrSettings;
-  // 快捷回复助手三分片（U5/KTD6）：旧档无此字段时 hydrate 回落空默认。
-  //   replySettings — 触发键 / 学习开关 / 用户档案；
-  //   replyMemory   — 5 分区手写 + 自动学习要点（原始样本不落盘，KTD8）；
+  // 快捷回复助手分片（U5/KTD6）：旧档无此字段时 hydrate 回落空默认。
+  //   replySettings — 触发键 / 学习与历史开关 / 用户档案；
+  //   replyMemory   — 【遗留只读】KTD6 修订后记忆已迁 main-owned ~/.cortex-desktop/reply/
+  //                   memory.json；本字段仅作首启迁移源保留，渲染端不再写入，下版可删；
   //   replyChannels — 渠道连接态 + safeStorage 加密凭据 + 备注。
   replySettings?: ReplySettings;
   replyMemory?: ReplyMemoryState;

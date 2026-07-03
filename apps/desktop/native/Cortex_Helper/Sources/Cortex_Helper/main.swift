@@ -1,6 +1,6 @@
 import Foundation
 
-// reply-helper 入口:按 argv[1] 分发子命令。one-shot 命令输出单行 JSON 后退出;
+// Cortex_Helper 入口:按 argv[1] 分发子命令。one-shot 命令输出单行 JSON 后退出;
 // events 为长驻模式,进 CFRunLoop 常驻直到 stdin 关闭或收到 quit。
 // 协议详见各命令实现文件顶部注释。
 

@@ -91,12 +91,12 @@ extraResources:
   # 生成；落到 <App>/Contents/Resources/pi/,pi-locate.resolvePiBinary 打包态指向这里。
   - from: resources/pi
     to: pi
-  # reply-helper（快捷回复的 macOS 原生伴生二进制:AX/CGEventPost/Vision OCR/EventKit/事件 tap）,
-  # 由 scripts/build-reply-helper.mjs 用 swift build -c release 生成；落到
-  # <App>/Contents/Resources/reply-helper/,主进程 helper-client(U4)spawn 它。
+  # Cortex_Helper（快捷回复的 macOS 原生伴生二进制:AX/CGEventPost/Vision OCR/EventKit/事件 tap）,
+  # 由 scripts/build-cortex-helper.mjs 用 swift build -c release 生成；落到
+  # <App>/Contents/Resources/Cortex_Helper/Cortex_Helper,主进程 helper-client(U4)spawn 它。
   # 签名随 mac 段 hardenedRuntime/notarize 整体处理(与 pi 二进制同模式,无独立 binaries 列表)。
-  - from: resources/reply-helper
-    to: reply-helper
+  - from: resources/Cortex_Helper
+    to: Cortex_Helper
   # 内置 skills（compound-engineering vendoring，纯文本）,落到 <App>/Contents/Resources/skills/,
   # skills/locate.builtinSkillsRoot 打包态指向这里；第二阶段下载的官方库走 userData/skills 优先覆盖。
   - from: resources/skills
@@ -142,6 +142,9 @@ mac:
   # 本字段覆盖 Electron 默认（通常为空或泛型描述），提供产品级用户文案。
   extendInfo:
     NSMicrophoneUsageDescription: "Cortex 需要访问麦克风以使用语音转文字功能，将您的语音实时转为文字输入。"
+    NSSpeechRecognitionUsageDescription: "Cortex 需要访问语音识别权限，以便在快捷回复中将语音输入转换为文字。"
+    NSCalendarsUsageDescription: "Cortex 需要读取日历忙碌时间，用于在快捷回复中生成更合适的日程回复建议。"
+    NSCalendarsFullAccessUsageDescription: "Cortex 需要读取日历忙碌时间，用于在快捷回复中生成更合适的日程回复建议。"
   # 显式覆盖命名模板,强制所有架构文件名都带 ${arch}。electron-builder 默认把 x64 当"默认架构"、
   # 文件名不带 arch 后缀(如 Cortex-x.dmg),与 arm64 的 Cortex-x-arm64.dmg 长得不对称、极易看混——
   # 这正是此前 v0.1.27 发布事故里 x64 产物被误当 arm64 上传覆盖的根源之一。

@@ -15,6 +15,9 @@
   /* 草稿正文色:浅色主题用主文本色(白底上白字不可读),深色主题为纯白(见 dark 覆盖)。 */
   --draft-text: #1a1916;
   --chip-bg: rgba(0, 0, 0, 0.07);
+  /* 立场 chip(同意/拒绝/不确定):橙字浅橙底小胶囊(参考视觉),三档同色。 */
+  --stance-text: #d95f10;
+  --stance-bg: rgba(232, 100, 27, 0.14);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -27,6 +30,9 @@
     --card-bg-bottom: rgba(36, 35, 33, 0.95);
     --draft-text: #ffffff;
     --chip-bg: rgba(255, 255, 255, 0.1);
+    /* 深色主题:文字调亮、底色加深,保证暗底可读。 */
+    --stance-text: #f1934d;
+    --stance-bg: rgba(232, 100, 27, 0.22);
   }
 }
 
@@ -74,6 +80,21 @@ body {
   overflow: hidden;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 立场 chip(决策点定向候选:正文下方、操作行上方的橙色小胶囊)。 */
+.rb-stance {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--stance-text);
+  background: var(--stance-bg);
+  border-radius: 6px;
 }
 
 /* 操作行。 */

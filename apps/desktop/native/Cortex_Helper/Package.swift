@@ -1,5 +1,5 @@
 // swift-tools-version: 6.2
-// reply-helper:Cortex Desktop「快捷回复」功能的 macOS 原生伴生二进制。
+// Cortex_Helper:Cortex Desktop「快捷回复」功能的 macOS 原生伴生二进制。
 // 承载 Electron 做不到的系统能力(辅助功能读写 / CGEventPost ⌘V / Vision OCR /
 // EventKit 日历 / 全局修饰键手势与条件吞键),经 stdin/stdout NDJSON 协议与主进程通信。
 //
@@ -10,13 +10,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "reply-helper",
+    name: "Cortex_Helper",
     platforms: [
         .macOS(.v14)
     ],
+    products: [
+        .executable(
+            name: "Cortex_Helper",
+            targets: ["Cortex_Helper"]
+        )
+    ],
     targets: [
         .executableTarget(
-            name: "reply-helper",
+            name: "Cortex_Helper",
+            path: "Sources/Cortex_Helper",
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ],

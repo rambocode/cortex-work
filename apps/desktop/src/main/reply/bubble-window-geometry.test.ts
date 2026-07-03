@@ -87,7 +87,7 @@ describe("bubbleWindowBounds - 跨屏与边缘 clamp", () => {
 });
 
 describe("bubbleWindowBounds - 窗口 frame 兜底锚定", () => {
-  it("无输入框 frame 但有窗口 frame 时贴窗口底部输入区（微信等 AX 不完整）", () => {
+  it("无输入框 frame 但有窗口 frame 时贴近窗口底部输入首行（微信等 AX 不完整）", () => {
     const windowFrame = { x: 100, y: 100, width: 600, height: 500 };
     const b = bubbleWindowBounds({
       frame: null,
@@ -96,10 +96,29 @@ describe("bubbleWindowBounds - 窗口 frame 兜底锚定", () => {
       displays: [PRIMARY],
       cursor: { x: 0, y: 0 }, // 鼠标兜底不应生效
     });
-    // 合成输入条锚 y = 100 + 500*0.72 = 460,高 100;下方:y = 460 + 100 + 8 = 568(贴输入区下沿)
-    expect(b.y).toBe(460 + 100 + BUBBLE_GAP);
+    // 合成输入首行锚 y = 100 + 500*0.82;下方:y = 510 + 8 = 518
+    expect(b.y).toBe(100 + 500 * 0.82 + BUBBLE_GAP);
     // 左缘对齐窗口左缘（-6）
     expect(b.x).toBe(100 - 6);
+  });
+
+  it("仅有窗口 frame 时不随鼠标移动改变位置", () => {
+    const windowFrame = { x: 0, y: 0, width: 1680, height: 1340 };
+    const base = {
+      frame: null,
+      windowFrame,
+      bubbleHeight: 140,
+      displays: [{ x: 0, y: 0, width: 1680, height: 1340 }],
+    };
+    const b1 = bubbleWindowBounds({
+      ...base,
+      cursor: { x: 120, y: 1240 },
+    });
+    const b2 = bubbleWindowBounds({
+      ...base,
+      cursor: { x: 940, y: 1240 },
+    });
+    expect(b2).toEqual(b1);
   });
 });
 

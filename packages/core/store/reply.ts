@@ -17,25 +17,30 @@ import type { MemoryScope, MemoryFile } from "../reply/memory";
 import { emptyMemoryState, MEMORY_SCOPES } from "../reply/memory";
 import type { ChannelId, ChannelConnectionState } from "../reply/channels";
 
-/// 从 PersistedState 中读取的三分片子集（hydrate 入参）。全部可选：旧档/缺失时回落默认。
-type ReplyPersisted = Pick<PersistedState, "replySettings" | "replyMemory" | "replyChannels">;
+/// 从 PersistedState 中读取的分片子集（hydrate 入参）。全部可选：旧档/缺失时回落默认。
+/// KTD6 修订：replyMemory 已迁 main-owned memory.json，不再随 PersistedState 往返。
+type ReplyPersisted = Pick<PersistedState, "replySettings" | "replyChannels">;
 
 export interface ReplyStore {
   /// 是否已从磁盘 hydrate；未 hydrate 前不触发保存，避免空态覆盖磁盘。
   hydrated: boolean;
   settings: ReplySettings;
+  /// 分区记忆的**只读缓存**（KTD6 修订）：真源在 main 侧 memory.json，经 bridge.replyGetMemory
+  /// 装填、onReplyMemoryChanged 刷新；本 store 的 memory 变更不触发持久化保存。
   memory: ReplyMemoryState;
   channels: ReplyChannelsState;
 
   /// 从 PersistedState 装填（缺失/半缺分片补空默认，往返安全）。
   hydrateReply: (s: ReplyPersisted) => void;
+  /// 装填/刷新记忆缓存（来源：bridge.replyGetMemory 或 onReplyMemoryChanged 推送）。
+  hydrateMemory: (memory: ReplyMemoryState) => void;
   /// 合并式更新设置（触发键 / 学习开关 / 档案）。
   setSettings: (patch: Partial<ReplySettings>) => void;
-  /// 写入某分区的手写区或自动区（其余分区不动，修复源项目自动区共用变量的缺陷）。
+  /// 写入某分区手写区/自动区的本地缓存（真源写入由设置页同步调 bridge.replySetMemoryFile）。
   setMemoryFile: (scope: MemoryScope, patch: Partial<MemoryFile>) => void;
-  /// 清空全部记忆（手写 + 自动，数据清理用）。
+  /// 清空全部记忆的本地缓存（真源清空由设置页调 bridge.replyClearMemory("all")）。
   clearAllMemory: () => void;
-  /// 只清全部分区的自动学习要点，保留手写笔记（数据清理「清空学习要点」）。
+  /// 只清自动学习要点的本地缓存（真源清空由设置页调 bridge.replyClearMemory("auto")）。
   clearAutoRules: () => void;
   /// 渠道连接态流转：校验成功后写入身份/连接时间。
   setChannelConnection: (id: ChannelId, connection: ChannelConnectionState) => void;
@@ -89,10 +94,14 @@ export const useReplyStore = create<ReplyStore>((set) => ({
   hydrateReply: (s) =>
     set({
       hydrated: true,
-      settings: s.replySettings ?? DEFAULT_REPLY_SETTINGS,
-      memory: mergeMemory(s.replyMemory),
+      // 字段级兜底：旧档缺新字段（如后加的 historyEnabled）时回落默认，避免 undefined
+      // 被当 false 误关功能。
+      settings: { ...DEFAULT_REPLY_SETTINGS, ...s.replySettings },
       channels: mergeChannels(s.replyChannels),
     }),
+
+  // 记忆缓存装填：来自 main 的数据同样过字段级兜底（防旧版 main 推来半缺结构）。
+  hydrateMemory: (memory) => set({ memory: mergeMemory(memory) }),
 
   setSettings: (patch) => set((state) => ({ settings: { ...state.settings, ...patch } })),
 
@@ -143,16 +152,17 @@ export const useReplyStore = create<ReplyStore>((set) => ({
 
 // ── 持久化辅助（纯函数，供 usePersonalPersistence 合并序列化与节流判定）──────────────
 
-/// 把 reply store 三分片投影为 PersistedState 子集（合并进整体序列化）。
+/// 把 reply store 持久化分片投影为 PersistedState 子集（合并进整体序列化）。
+/// KTD6 修订：memory 是 main-owned 缓存，不入投影（personal-workspace.json 不再写 replyMemory）。
 export function replyToPersisted(s: ReplyStore): ReplyPersisted {
-  return { replySettings: s.settings, replyMemory: s.memory, replyChannels: s.channels };
+  return { replySettings: s.settings, replyChannels: s.channels };
 }
 
-/// reply 分片的保存紧迫度：三分片均为节流（无 fs 白名单类即时落盘需求）。
-/// 未 hydrate 或无分片引用变化时返回 none。
+/// reply 分片的保存紧迫度：持久化分片均为节流（无 fs 白名单类即时落盘需求）。
+/// memory 缓存变化不触发保存（真源在 main）。未 hydrate 或无分片引用变化时返回 none。
 export function replySaveUrgency(s: ReplyStore, prev: ReplyStore): "none" | "throttled" {
   if (!s.hydrated) return "none";
-  if (s.settings !== prev.settings || s.memory !== prev.memory || s.channels !== prev.channels) {
+  if (s.settings !== prev.settings || s.channels !== prev.channels) {
     return "throttled";
   }
   return "none";

@@ -4,7 +4,15 @@ import {
   looksLikeConversation,
   shouldAbortWriteBack,
   cleanAgentOutput,
+  selectReplyAnchorFrame,
 } from "./controller-state";
+import type { ReplyCandidate } from "./controller-state";
+
+/** 候选构造快捷方式（多数用例不关心立场，缺省 null）。 */
+const cand = (text: string, stance: ReplyCandidate["stance"] = null): ReplyCandidate => ({
+  text,
+  stance,
+});
 
 describe("ReplySession 状态机转移", () => {
   it("idle→capturing→generating→presenting 主链路", () => {
@@ -17,7 +25,7 @@ describe("ReplySession 状态机转移", () => {
     expect(s.phase).toBe("generating");
     s.presentFirst("你好");
     expect(s.phase).toBe("presenting");
-    expect(s.candidates).toEqual(["你好"]);
+    expect(s.candidates).toEqual([cand("你好")]);
     expect(s.currentIndex).toBe(0);
     expect(s.currentDraft).toBe("你好");
   });
@@ -65,8 +73,8 @@ describe("ReplySession 状态机转移", () => {
     const s = new ReplySession();
     s.beginCapture();
     s.presentFirst("a");
-    s.appendFlip("b");
-    expect(s.candidates).toEqual(["a", "b"]);
+    s.appendFlip(cand("b"));
+    expect(s.candidates).toEqual([cand("a"), cand("b")]);
     const t2 = s.beginCapture();
     expect(t2).toBe(2);
     expect(s.candidates).toEqual([]);
@@ -141,7 +149,7 @@ describe("ReplySession 状态机转移", () => {
     const t1 = s.beginCapture();
     s.setCapturedPid(77);
     s.presentFirst("旧候选");
-    s.appendFlip("旧候选2");
+    s.appendFlip(cand("旧候选2"));
     const t2 = s.beginRegenerate();
     expect(t2).toBe(t1 + 1);
     expect(s.phase).toBe("generating");
@@ -181,9 +189,9 @@ describe("ReplySession 候选管理", () => {
     const s = new ReplySession();
     s.beginCapture();
     s.presentFirst("first");
-    expect(s.appendPreGenerated("second")).toBe(true);
-    expect(s.appendPreGenerated("second")).toBe(false); // 重复忽略
-    expect(s.candidates).toEqual(["first", "second"]);
+    expect(s.appendPreGenerated(cand("second"))).toBe(true);
+    expect(s.appendPreGenerated(cand("second"))).toBe(false); // 重复忽略
+    expect(s.candidates).toEqual([cand("first"), cand("second")]);
     expect(s.currentIndex).toBe(0); // 用户正看的候选不被移动
   });
 
@@ -191,7 +199,7 @@ describe("ReplySession 候选管理", () => {
     const s = new ReplySession();
     s.beginCapture();
     s.toGenerating();
-    expect(s.appendPreGenerated("x")).toBe(false);
+    expect(s.appendPreGenerated(cand("x"))).toBe(false);
     expect(s.candidates).toEqual([]);
   });
 
@@ -199,17 +207,64 @@ describe("ReplySession 候选管理", () => {
     const s = new ReplySession();
     s.beginCapture();
     s.presentFirst("a");
-    s.appendFlip("b");
-    expect(s.candidates).toEqual(["a", "b"]);
+    s.appendFlip(cand("b"));
+    expect(s.candidates).toEqual([cand("a"), cand("b")]);
     expect(s.currentIndex).toBe(1);
     expect(s.currentDraft).toBe("b");
+  });
+
+  it("首条是推荐回复：立场恒为 null（气泡不显示 chip）", () => {
+    const s = new ReplySession();
+    s.beginCapture();
+    s.presentFirst("first");
+    expect(s.candidates).toEqual([cand("first", null)]);
+    expect(s.currentStance).toBeNull();
+  });
+
+  it("定向候选携带立场，currentStance 跟随当前索引（翻牌定向依据）", () => {
+    const s = new ReplySession();
+    s.beginCapture();
+    s.presentFirst("first");
+    s.appendPreGenerated(cand("接了", "agree"));
+    s.appendPreGenerated(cand("接不了", "reject"));
+    expect(s.currentStance).toBeNull(); // 仍停在首条
+    s.setIndex(2);
+    expect(s.currentStance).toBe("reject");
+    expect(s.currentDraft).toBe("接不了");
+  });
+
+  it("预生成去重按正文判定，与立场无关", () => {
+    const s = new ReplySession();
+    s.beginCapture();
+    s.presentFirst("same");
+    expect(s.appendPreGenerated(cand("same", "agree"))).toBe(false);
+  });
+
+  it("流式首条：updateFirstText 覆盖首条正文，立场保持 null", () => {
+    const s = new ReplySession();
+    s.beginCapture();
+    s.presentFirst("好，");
+    s.updateFirstText("好，这块我们来承接。");
+    expect(s.candidates).toEqual([cand("好，这块我们来承接。", null)]);
+    expect(s.currentIndex).toBe(0);
+  });
+
+  it("updateFirstText 在非 presenting 阶段 / 无候选时为 no-op（晚到流式回调被门控）", () => {
+    const s = new ReplySession();
+    s.beginCapture();
+    s.updateFirstText("x"); // capturing 且无候选
+    expect(s.candidates).toEqual([]);
+    s.presentFirst("draft");
+    s.toWriting();
+    s.updateFirstText("y"); // writing 期晚到的流式回调
+    expect(s.currentDraft).toBe("draft");
   });
 
   it("翻牌避重列表含当前全部候选", () => {
     const s = new ReplySession();
     s.beginCapture();
     s.presentFirst("a");
-    s.appendPreGenerated("b");
+    s.appendPreGenerated(cand("b"));
     expect(s.avoidList()).toEqual(["a", "b"]);
   });
 
@@ -217,8 +272,8 @@ describe("ReplySession 候选管理", () => {
     const s = new ReplySession();
     s.beginCapture();
     s.presentFirst("a");
-    s.appendPreGenerated("b");
-    s.appendPreGenerated("c");
+    s.appendPreGenerated(cand("b"));
+    s.appendPreGenerated(cand("c"));
     // 预生成不移动索引，仍在 a
     expect(s.currentIndex).toBe(0);
     s.cycle(-1); // 向左环绕到末尾
@@ -253,6 +308,22 @@ describe("shouldAbortWriteBack pid 校验", () => {
     expect(shouldAbortWriteBack(123, 123)).toBe(false);
     expect(shouldAbortWriteBack(123, 456)).toBe(true);
     expect(shouldAbortWriteBack(123, null)).toBe(true);
+  });
+});
+
+describe("selectReplyAnchorFrame 气泡锚点优先级", () => {
+  const caretFrame = { x: 10, y: 10, width: 0, height: 22 };
+  const inputAnchorFrame = { x: 20, y: 20, width: 300, height: 0 };
+  const focusedFrame = { x: 30, y: 30, width: 300, height: 120 };
+
+  it("优先使用光标；没有光标时使用 Swift helper 推断的输入区锚点", () => {
+    expect(selectReplyAnchorFrame({ caretFrame, inputAnchorFrame, focusedFrame })).toBe(caretFrame);
+    expect(selectReplyAnchorFrame({ caretFrame: null, inputAnchorFrame, focusedFrame })).toBe(inputAnchorFrame);
+  });
+
+  it("没有光标和输入区锚点时回退 focusedFrame", () => {
+    expect(selectReplyAnchorFrame({ caretFrame: null, inputAnchorFrame: null, focusedFrame })).toBe(focusedFrame);
+    expect(selectReplyAnchorFrame({ caretFrame: null, inputAnchorFrame: null, focusedFrame: null })).toBeNull();
   });
 });
 

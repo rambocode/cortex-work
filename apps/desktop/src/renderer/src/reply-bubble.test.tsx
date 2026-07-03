@@ -7,13 +7,19 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { ReplyBubble } from "./reply-bubble";
 
+/** 候选构造快捷方式（多数用例不关心立场，缺省 null）。 */
+const cand = (text: string, stance: "agree" | "reject" | "unsure" | null = null) => ({
+  text,
+  stance,
+});
+
 afterEach(() => cleanup());
 
 describe("ReplyBubble - presenting", () => {
   it("渲染当前候选文本与对应数量圆点，当前项高亮", () => {
     const { container } = render(
       <ReplyBubble
-        state={{ phase: "presenting", candidates: ["草稿A", "草稿B", "草稿C"], currentIndex: 1 }}
+        state={{ phase: "presenting", candidates: [cand("草稿A"), cand("草稿B"), cand("草稿C")], currentIndex: 1 }}
         onAction={() => {}}
       />,
     );
@@ -28,7 +34,7 @@ describe("ReplyBubble - presenting", () => {
   it("点击翻牌按钮上行 flip 动作", () => {
     const onAction = vi.fn();
     render(
-      <ReplyBubble state={{ phase: "presenting", candidates: ["x"], currentIndex: 0 }} onAction={onAction} />,
+      <ReplyBubble state={{ phase: "presenting", candidates: [cand("x")], currentIndex: 0 }} onAction={onAction} />,
     );
     fireEvent.click(screen.getByLabelText("翻牌"));
     expect(onAction).toHaveBeenCalledWith({ type: "flip" });
@@ -38,7 +44,7 @@ describe("ReplyBubble - presenting", () => {
     const onAction = vi.fn();
     const { container } = render(
       <ReplyBubble
-        state={{ phase: "presenting", candidates: ["a", "b"], currentIndex: 0 }}
+        state={{ phase: "presenting", candidates: [cand("a"), cand("b")], currentIndex: 0 }}
         onAction={onAction}
       />,
     );
@@ -49,10 +55,54 @@ describe("ReplyBubble - presenting", () => {
   it("右上角 hover 热区关闭按钮上行 close 动作", () => {
     const onAction = vi.fn();
     const { container } = render(
-      <ReplyBubble state={{ phase: "presenting", candidates: ["x"], currentIndex: 0 }} onAction={onAction} />,
+      <ReplyBubble state={{ phase: "presenting", candidates: [cand("x")], currentIndex: 0 }} onAction={onAction} />,
     );
     fireEvent.click(container.querySelector(".rb-close-zone .rb-close")!);
     expect(onAction).toHaveBeenCalledWith({ type: "close" });
+  });
+});
+
+describe("ReplyBubble - 立场 chip", () => {
+  it("当前候选带立场时渲染对应中文 chip", () => {
+    const { container } = render(
+      <ReplyBubble
+        state={{
+          phase: "presenting",
+          candidates: [cand("推荐回复"), cand("好，接了。", "agree")],
+          currentIndex: 1,
+        }}
+        onAction={() => {}}
+      />,
+    );
+    const chip = container.querySelector(".rb-stance");
+    expect(chip?.textContent).toBe("同意");
+  });
+
+  it.each([
+    ["reject", "拒绝"],
+    ["unsure", "不确定"],
+  ] as const)("立场 %s 映射为「%s」", (stance, label) => {
+    const { container } = render(
+      <ReplyBubble
+        state={{ phase: "presenting", candidates: [cand("x", stance)], currentIndex: 0 }}
+        onAction={() => {}}
+      />,
+    );
+    expect(container.querySelector(".rb-stance")?.textContent).toBe(label);
+  });
+
+  it("当前候选无立场（首条推荐）不渲染 chip", () => {
+    const { container } = render(
+      <ReplyBubble
+        state={{
+          phase: "presenting",
+          candidates: [cand("推荐回复"), cand("好，接了。", "agree")],
+          currentIndex: 0,
+        }}
+        onAction={() => {}}
+      />,
+    );
+    expect(container.querySelector(".rb-stance")).toBeNull();
   });
 });
 

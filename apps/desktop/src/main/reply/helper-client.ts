@@ -1,10 +1,10 @@
-// reply-helper 的主进程封装:对单个 Swift 伴生二进制的 spawn / NDJSON 协议 / 生命周期管理。
+// Cortex_Helper 的主进程封装:对单个 Swift 伴生二进制的 spawn / NDJSON 协议 / 生命周期管理。
 //
-// 两种运行形态(见 native/reply-helper/Sources/reply-helper/main.swift):
-//   1) events 长驻模式:`reply-helper events` 常驻进程,stdout 逐行推 draft-gesture /
+// 两种运行形态(见 native/Cortex_Helper/Sources/Cortex_Helper/main.swift):
+//   1) events 长驻模式:`Cortex_Helper events` 常驻进程,stdout 逐行推 draft-gesture /
 //      voice-start / voice-end / key-event 等高层事件;stdin 收 intercept / config / quit 命令。
 //      进程崩溃 → 指数退避重启;连续失败超上限 → 置降级标志(供 KTD7 兜底 accelerator 接管)。
-//   2) one-shot 命令:`reply-helper ax-capture | ax-activate <pid> | paste <text> | ocr | calendar |
+//   2) one-shot 命令:`Cortex_Helper ax-capture | ax-activate <pid> | paste <text> | ocr | calendar |
 //      permissions`,每命令独立 spawn、带超时,读单行 JSON 响应后进程自然退出。
 //
 // 设计约束(务必遵守):本文件**不 import electron**——协议编解码、NDJSON 缓冲、退避序列
@@ -151,7 +151,7 @@ export interface ReplyHelperClientOptions {
 }
 
 /**
- * reply-helper 客户端。管理 events 长驻进程(崩溃退避重启 + 降级)与 one-shot 命令 spawn。
+ * Cortex_Helper 客户端。管理 events 长驻进程(崩溃退避重启 + 降级)与 one-shot 命令 spawn。
  * 所有可测纯逻辑已抽为上方独立函数;本类只做进程编排与副作用。
  */
 export class ReplyHelperClient {
@@ -206,7 +206,7 @@ export class ReplyHelperClient {
       proc = this.spawnFn(this.binaryPath, ["events"]);
     } catch (err) {
       // spawn 本身抛错(二进制缺失 / 权限)——按一次崩溃计入退避。
-      this.log.warn("[reply-helper] events spawn 失败", err);
+      this.log.warn("[Cortex_Helper] events spawn 失败", err);
       this.scheduleRestart();
       return;
     }
@@ -220,10 +220,10 @@ export class ReplyHelperClient {
       }
     });
     proc.stderr?.on("data", (chunk) => {
-      this.log.debug("[reply-helper] events stderr", chunk.toString());
+      this.log.debug("[Cortex_Helper] events stderr", chunk.toString());
     });
     proc.on("error", (err) => {
-      this.log.warn("[reply-helper] events 进程错误", err);
+      this.log.warn("[Cortex_Helper] events 进程错误", err);
     });
     proc.on("exit", (code, signal) => {
       this.eventsProc = null;
@@ -232,7 +232,7 @@ export class ReplyHelperClient {
       // 则保持计数累加,直到触发降级(而非被无条件复位绕过 MAX_RESTART_ATTEMPTS 安全网)。
       this.resetBackoffIfStable();
       this.spawnedAt = 0;
-      this.log.warn(`[reply-helper] events 退出 code=${code} signal=${signal},准备重启`);
+      this.log.warn(`[Cortex_Helper] events 退出 code=${code} signal=${signal},准备重启`);
       this.scheduleRestart();
     });
   }
@@ -274,12 +274,12 @@ export class ReplyHelperClient {
     if (this.stopped) return;
     this.restartAttempts += 1;
     if (shouldDegrade(this.restartAttempts)) {
-      this.log.warn(`[reply-helper] events 连续崩溃 ${this.restartAttempts} 次,降级到兜底 accelerator`);
+      this.log.warn(`[Cortex_Helper] events 连续崩溃 ${this.restartAttempts} 次,降级到兜底 accelerator`);
       this.markDegraded();
       return;
     }
     const delay = backoffDelayMs(this.restartAttempts);
-    this.log.info(`[reply-helper] ${delay}ms 后第 ${this.restartAttempts} 次重启 events`);
+    this.log.info(`[Cortex_Helper] ${delay}ms 后第 ${this.restartAttempts} 次重启 events`);
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       if (!this.stopped) this.spawnEvents();
@@ -312,7 +312,7 @@ export class ReplyHelperClient {
     try {
       stdin.write(encodeCommand(cmd));
     } catch (err) {
-      this.log.warn("[reply-helper] 写 stdin 失败", err);
+      this.log.warn("[Cortex_Helper] 写 stdin 失败", err);
     }
   }
 
@@ -364,7 +364,7 @@ export class ReplyHelperClient {
         } catch {
           /* 忽略 */
         }
-        reject(new Error(`reply-helper 命令超时(${timeoutMs}ms): ${args[0]}`));
+        reject(new Error(`Cortex_Helper 命令超时(${timeoutMs}ms): ${args[0]}`));
       }, timeoutMs);
 
       const finish = (fn: () => void) => {
@@ -386,7 +386,7 @@ export class ReplyHelperClient {
       proc.on("exit", () => {
         finish(() => {
           if (result) resolve(result);
-          else reject(new Error(`reply-helper 命令无有效输出: ${args[0]}`));
+          else reject(new Error(`Cortex_Helper 命令无有效输出: ${args[0]}`));
         });
       });
     });

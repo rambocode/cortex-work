@@ -277,6 +277,30 @@ stateDiagram-v2
 
 ---
 
+## KTD 修订记录(2026-07-03,经用户确认)
+
+借鉴源项目 ReplyClone 把记忆/历史落应用数据目录的形态,记忆与历史数据迁至
+`~/.cortex-desktop/reply/`(main-owned 原子 JSON,仿 automation/store.ts 三件套):
+
+- **KTD8 边界修订**:新增回复历史 `history.json`——只存「已采纳写回」的会话,含对话
+  原文与当轮全部候选(明文本地),受新设置项 `replySettings.historyEnabled` 门控
+  (默认开),设置页数据清理可清空;蒸馏样本仍不落盘。头注见 `core/reply/history.ts`、
+  `main/reply/history-store.ts`。
+- **KTD6 修订**:全局 5 分区记忆从 `personal-workspace.json` 的 `replyMemory` 分片
+  迁至 `memory.json`(仍非 markdown),main 成为唯一写者:蒸馏产出直写 memory-store
+  (消除 `reply:memoryLearned` 回推迂回,该通道已删),设置页经 `reply:getMemory` /
+  `reply:setMemoryFile` / `reply:clearMemory` 读写,`reply:memoryChanged` 推送刷新
+  渲染端只读缓存;首启自动从旧分片搬运(旧分片保留只读兜底,下版删)。`ReplySyncSnapshot`
+  不再携带 memory。头注见 `main/reply/memory-store.ts`。
+- **新增能力(KTD 未覆盖)**:对话级记忆 `conversation-memory.json`——按
+  `bundleId|counterpart` 分桶(counterpart 空则不分桶,退回全局记忆),存最近 5 条
+  采纳回复 + 后台蒸馏的对象事实/偏好要点(`main/reply/conversation-learner.ts`,
+  受学习开关门控),起草时注入 prompt(`userProfile` 之后、可见对话之前,轮内恒定
+  不破坏前缀缓存);桶上限 200 按 updatedAt LRU。纯逻辑见
+  `core/reply/conversation-memory.ts`。
+
+---
+
 ## Deferred Implementation Notes(实现期再定,不假装已决)
 
 - helper NDJSON 协议的具体字段命名与版本协商方式。

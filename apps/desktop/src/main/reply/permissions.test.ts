@@ -5,6 +5,7 @@ import {
   unknownPermissions,
   queryReplyPermissions,
   requestAccessibilityAccess,
+  requestReplyPermissionAccess,
 } from "./permissions";
 
 describe("mapAuthStatus", () => {
@@ -142,5 +143,49 @@ describe("requestAccessibilityAccess", () => {
     const loader = () => Promise.resolve({ getAuthStatus: () => "authorized" });
     const ok = await requestAccessibilityAccess("darwin", loader);
     expect(ok).toBe(false);
+  });
+});
+
+describe("requestReplyPermissionAccess", () => {
+  it("日历授权由主应用请求 full access，使 Cortex 出现在系统日历权限列表", async () => {
+    const askCalendar = vi.fn().mockResolvedValue("authorized");
+    const loader = () =>
+      Promise.resolve({
+        getAuthStatus: () => "not determined",
+        askForCalendarAccess: askCalendar,
+      });
+
+    const ok = await requestReplyPermissionAccess("calendar", "darwin", loader);
+
+    expect(ok).toBe(true);
+    expect(askCalendar).toHaveBeenCalledWith("full");
+  });
+
+  it("语音识别授权由主应用触发 SFSpeechRecognizer 请求", async () => {
+    const askSpeech = vi.fn().mockResolvedValue("authorized");
+    const loader = () =>
+      Promise.resolve({
+        getAuthStatus: () => "not determined",
+        askForSpeechRecognitionAccess: askSpeech,
+      });
+
+    const ok = await requestReplyPermissionAccess("speechRecognition", "darwin", loader);
+
+    expect(ok).toBe(true);
+    expect(askSpeech).toHaveBeenCalledTimes(1);
+  });
+
+  it("已有拒绝态交给调用方回退打开系统设置页", async () => {
+    const askCalendar = vi.fn();
+    const loader = () =>
+      Promise.resolve({
+        getAuthStatus: () => "denied",
+        askForCalendarAccess: askCalendar,
+      });
+
+    const ok = await requestReplyPermissionAccess("calendar", "darwin", loader);
+
+    expect(ok).toBe(false);
+    expect(askCalendar).not.toHaveBeenCalled();
   });
 });

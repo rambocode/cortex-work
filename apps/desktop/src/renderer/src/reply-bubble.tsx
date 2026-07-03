@@ -14,12 +14,20 @@ import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
 import { VoiceCapture, transcribeRecording } from "@cortex-work/views/cortex-desktop/voice-recorder";
 import "./reply-bubble.css";
 
+// 立场 chip 的中文标签映射（core 纯逻辑，唯一映射源）。
+import { REPLY_STANCE_LABELS, type ReplyStance } from "@cortex-work/core/reply/stance";
+
 // 与 main/ipc/reply-types.ts 的契约同形（跨 tsconfig 不直接 import 主进程类型，结构兼容即可）。
 type Phase = "generating" | "presenting" | "recording" | "error";
 type ErrorKind = "modelNotConfigured" | "generationFailed" | "emptyCandidates";
+/** 单条候选：stance 非 null 时在正文下方渲染立场 chip（首条推荐回复恒为 null）。 */
+interface BubbleCandidate {
+  text: string;
+  stance: ReplyStance | null;
+}
 interface BubbleState {
   phase: Phase;
-  candidates: string[];
+  candidates: BubbleCandidate[];
   currentIndex: number;
   preGenerating?: boolean;
   errorKind?: ErrorKind;
@@ -134,8 +142,9 @@ export function ReplyBubble({
     );
   }
 
-  // presenting：候选卡片 + 操作行 + 翻页圆点。卡片本体是拖动区;右上角 hover 热区显影关闭。
-  const draft = state.candidates[state.currentIndex] ?? "";
+  // presenting：候选卡片（正文 + 可选立场 chip）+ 操作行 + 翻页圆点。
+  // 卡片本体是拖动区;右上角 hover 热区显影关闭。
+  const current = state.candidates[state.currentIndex];
   return (
     <div className="rb-card">
       <div className="rb-close-zone">
@@ -143,7 +152,9 @@ export function ReplyBubble({
           ×
         </button>
       </div>
-      <div className="rb-draft">{draft}</div>
+      <div className="rb-draft">{current?.text ?? ""}</div>
+      {/* 立场 chip：仅决策点场景的定向候选携带（首条推荐回复无）。 */}
+      {current?.stance ? <span className="rb-stance">{REPLY_STANCE_LABELS[current.stance]}</span> : null}
       <div className="rb-actions rb-actions-row">
         {/* 翻牌是唯一显式鼠标按钮（追加一条避重候选）；填入/关走键盘为主，此处 chip 仅提示。 */}
         <button className="rb-flip" onClick={() => onAction({ type: "flip" })} aria-label="翻牌">

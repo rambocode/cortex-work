@@ -74,9 +74,12 @@ import type {
   ReplyPermissionKind,
   ReplyPermissionState,
   ReplyChannelVerifyResult,
+  ReplyDataSummary,
   ReplyDebugEntry,
   ReplySyncSnapshot,
-  ReplyMemoryLearned,
+  MemoryScope,
+  MemoryFile,
+  MemoryState,
   ReplyBubbleState,
   ReplyBubbleAction,
   ReplyBubbleVoiceCommand,
@@ -702,13 +705,22 @@ const personal = {
     ipcRenderer.invoke("reply:disconnectChannel", channelId),
   replyGetDebugLog: (): Promise<ReplyDebugEntry[]> => ipcRenderer.invoke("reply:getDebugLog"),
   replyTriggerDraft: (): Promise<void> => ipcRenderer.invoke("reply:triggerDraft"),
+  // 数据摘要与清理（~/.cortex-desktop/reply/ 落盘数据，main-owned）。
+  replyGetDataSummary: (): Promise<ReplyDataSummary> => ipcRenderer.invoke("reply:getDataSummary"),
+  replyClearHistory: (): Promise<void> => ipcRenderer.invoke("reply:clearHistory"),
+  replyClearConversationMemory: (): Promise<void> => ipcRenderer.invoke("reply:clearConversationMemory"),
+  // 全局分区记忆（KTD6 修订：main-owned memory.json，设置页经此读写）。
+  replyGetMemory: (): Promise<MemoryState> => ipcRenderer.invoke("reply:getMemory"),
+  replySetMemoryFile: (scope: MemoryScope, patch: Partial<MemoryFile>): Promise<void> =>
+    ipcRenderer.invoke("reply:setMemoryFile", scope, patch),
+  replyClearMemory: (kind: "all" | "auto"): Promise<void> => ipcRenderer.invoke("reply:clearMemory", kind),
   replySyncSettings: (snapshot: ReplySyncSnapshot): Promise<void> =>
     ipcRenderer.invoke("reply:syncSettings", snapshot),
-  // 订阅 main 语气蒸馏产出（U10）：分区 auto 要点回推 → 渲染端 store 应用并落盘。返回退订函数。
-  onReplyMemoryLearned: (cb: (payload: ReplyMemoryLearned) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, payload: ReplyMemoryLearned) => cb(payload);
-    ipcRenderer.on("reply:memoryLearned", listener);
-    return () => ipcRenderer.removeListener("reply:memoryLearned", listener);
+  // 订阅 main 记忆变更（KTD6 修订）：蒸馏直写 memory-store 后推全量记忆 → 渲染端刷新缓存。返回退订函数。
+  onReplyMemoryChanged: (cb: (memory: MemoryState) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, memory: MemoryState) => cb(memory);
+    ipcRenderer.on("reply:memoryChanged", listener);
+    return () => ipcRenderer.removeListener("reply:memoryChanged", listener);
   },
   // 订阅 main 的「打开设置到快捷回复分区」指令（气泡「去设置」触发）：壳据此打开设置页并跳转。返回退订函数。
   onReplyOpenSettings: (cb: () => void): (() => void) => {

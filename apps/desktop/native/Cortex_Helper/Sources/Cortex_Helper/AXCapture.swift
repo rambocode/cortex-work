@@ -64,6 +64,126 @@ private func axFrame(of element: AXUIElement) -> [String: Double]? {
     return ["x": Double(point.x), "y": Double(point.y), "width": Double(size.width), "height": Double(size.height)]
 }
 
+private func axStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+        return nil
+    }
+    return value as? String
+}
+
+private func axBoolAttribute(_ element: AXUIElement, _ attribute: String) -> Bool? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+        return nil
+    }
+    return value as? Bool
+}
+
+private func hasRangeBoundsAttribute(_ element: AXUIElement) -> Bool {
+    var namesRef: CFArray?
+    guard AXUIElementCopyParameterizedAttributeNames(element, &namesRef) == .success,
+          let names = namesRef as? [String] else {
+        return false
+    }
+    return names.contains(kAXBoundsForRangeParameterizedAttribute as String)
+}
+
+private func rect(from frame: [String: Double]?) -> CGRect? {
+    guard let frame,
+          let x = frame["x"],
+          let y = frame["y"],
+          let width = frame["width"],
+          let height = frame["height"],
+          x.isFinite,
+          y.isFinite,
+          width.isFinite,
+          height.isFinite,
+          width > 0,
+          height > 0 else {
+        return nil
+    }
+    return CGRect(x: x, y: y, width: width, height: height)
+}
+
+private struct InputAnchorCandidate {
+    let anchor: [String: Double]
+    let score: Double
+}
+
+/// 微信等应用有时不给 focused/caret，但 AX 树里仍有真正输入框。这里主动寻找底部输入控件，
+/// 输出“输入首行”锚点（height=0），供主进程按候选窗语义放到它下方。
+private func inputAnchor(from frame: [String: Double], windowRect: CGRect?) -> InputAnchorCandidate? {
+    guard let rect = rect(from: frame), rect.width >= 80, rect.height >= 14 else { return nil }
+    if let windowRect {
+        guard windowRect.intersects(rect) else { return nil }
+        // 输入框通常位于聊天窗口下半部分；过滤顶部搜索框、标题栏、消息列表里的文本元素。
+        guard rect.midY >= windowRect.minY + windowRect.height * 0.52 else { return nil }
+        guard rect.height <= max(260, windowRect.height * 0.45) else { return nil }
+    }
+
+    let topInset = min(12, max(0, rect.height * 0.12))
+    let anchor = [
+        "x": Double(rect.minX),
+        "y": Double(rect.minY + topInset),
+        "width": Double(rect.width),
+        "height": 0.0
+    ]
+    let windowRelativeY = windowRect.map { (rect.maxY - $0.minY) / max(1, $0.height) } ?? rect.maxY / 1000
+    let widthScore = min(rect.width, 900) / 900
+    let heightPenalty = rect.height > 180 ? 0.2 : 0
+    return InputAnchorCandidate(anchor: anchor, score: windowRelativeY * 10 + widthScore - heightPenalty)
+}
+
+private func isLikelyInputElement(_ element: AXUIElement) -> Bool {
+    let role = axStringAttribute(element, kAXRoleAttribute)
+    let subrole = axStringAttribute(element, kAXSubroleAttribute)
+    if role == "AXTextArea" || role == "AXTextField" || role == "AXComboBox" {
+        return true
+    }
+    if subrole == "AXSecureTextField" {
+        return true
+    }
+    // 一些非标准 AX 实现只暴露 editable + range bounds，不给标准 role。
+    return axBoolAttribute(element, "AXEditable") == true && hasRangeBoundsAttribute(element)
+}
+
+private func collectInputAnchors(
+    from element: AXUIElement,
+    depth: Int,
+    windowRect: CGRect?,
+    out: inout [InputAnchorCandidate]
+) {
+    guard depth < 8 else { return }
+    if isLikelyInputElement(element), let candidate = inputAnchor(from: axFrame(of: element) ?? [:], windowRect: windowRect) {
+        out.append(candidate)
+    }
+    var childrenRef: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+          let children = childrenRef as? [AXUIElement] else {
+        return
+    }
+    for child in children.prefix(100) {
+        collectInputAnchors(from: child, depth: depth + 1, windowRect: windowRect, out: &out)
+    }
+}
+
+private func inputAnchorFrame(
+    focusedElement: AXUIElement?,
+    focusedWindow: AXUIElement?,
+    windowFrame: [String: Double]?
+) -> [String: Double]? {
+    let windowRect = rect(from: windowFrame)
+    var candidates: [InputAnchorCandidate] = []
+    if let focusedElement {
+        collectInputAnchors(from: focusedElement, depth: 0, windowRect: windowRect, out: &candidates)
+    }
+    if candidates.isEmpty, let focusedWindow {
+        collectInputAnchors(from: focusedWindow, depth: 0, windowRect: windowRect, out: &candidates)
+    }
+    return candidates.max(by: { $0.score < $1.score })?.anchor
+}
+
 /// 读取焦点文本元素的光标(文本插入点)屏幕矩形——输入法候选窗的定位方式:
 /// AXSelectedTextRange → kAXBoundsForRangeParameterizedAttribute。坐标系同 axFrame(主屏左上原点)。
 /// 纯光标(空选区)常见返回零宽矩形,属正常;取不到或全零垃圾值返回 nil,
@@ -216,6 +336,12 @@ func runAXCapture() {
     payload["focusedFrame"] = focusedFrame ?? NSNull()
     // 光标插入点矩形(输入法式精确锚点):优先于 focusedFrame 供气泡锚定,元素 frame 漂移时仍指向真实输入位置。
     payload["caretFrame"] = focusedElement.flatMap(axCaretFrame(of:)) ?? NSNull()
+    // 微信等 AX 不完整场景：主动扫描窗口 AX 树里的底部文本输入控件，输出输入首行锚点。
+    payload["inputAnchorFrame"] = inputAnchorFrame(
+        focusedElement: focusedElement,
+        focusedWindow: focusedWindow,
+        windowFrame: windowFrame
+    ) ?? NSNull()
     payload["windowFrame"] = windowFrame ?? NSNull()
     emitJSON(payload)
 }

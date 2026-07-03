@@ -8,6 +8,9 @@
 // 回调（AX/OCR/日历/CLI 输出）在 spawn 时记住当时 token，回来时用 isCurrent(token) 校验，
 // 不符即静默丢弃。见 High-Level Technical Design 的状态机图。
 
+import type { ReplyStance } from "@cortex-work/core/reply/stance";
+import type { ReplyRect } from "../ipc/reply-types";
+
 /** 会话阶段（与气泡可视子集对应；idle 表示无进行中的会话）。 */
 export type ReplyPhase =
   | "idle"
@@ -18,13 +21,22 @@ export type ReplyPhase =
   | "writing";
 
 /**
+ * 会话候选：正文 + 立场。首条推荐回复与非决策变体的 stance 为 null（气泡不显示 chip），
+ * 决策点场景的定向候选携带调用方指定的立场（气泡渲染中文 chip）。
+ */
+export interface ReplyCandidate {
+  text: string;
+  stance: ReplyStance | null;
+}
+
+/**
  * 单个 reply 会话的纯状态容器。持有当前阶段、世代 token、候选列表与捕获目标 pid，
  * 并暴露状态机转移方法。所有转移都不产生副作用，只改内部状态并（必要时）返回 token。
  */
 export class ReplySession {
   private _phase: ReplyPhase = "idle";
   private _token = 0;
-  private _candidates: string[] = [];
+  private _candidates: ReplyCandidate[] = [];
   private _index = 0;
   private _capturedPid: number | null = null;
 
@@ -34,7 +46,7 @@ export class ReplySession {
   get token(): number {
     return this._token;
   }
-  get candidates(): readonly string[] {
+  get candidates(): readonly ReplyCandidate[] {
     return this._candidates;
   }
   get currentIndex(): number {
@@ -42,7 +54,11 @@ export class ReplySession {
   }
   /** 当前展示（并将被写回）的草稿正文；无候选时为空串。 */
   get currentDraft(): string {
-    return this._candidates[this._index] ?? "";
+    return this._candidates[this._index]?.text ?? "";
+  }
+  /** 当前展示候选的立场（翻牌定向用：立场卡上翻牌 = 同立场换说法）；无候选/无立场为 null。 */
+  get currentStance(): ReplyStance | null {
+    return this._candidates[this._index]?.stance ?? null;
   }
   get capturedPid(): number | null {
     return this._capturedPid;
@@ -107,21 +123,31 @@ export class ReplySession {
     this._phase = "generating";
   }
 
-  /** 首条候选到达→presenting（候选置为单元素、索引归零）。 */
+  /** 首条候选到达→presenting（候选置为单元素、索引归零）。首条是推荐回复，恒无立场 chip。 */
   presentFirst(text: string): void {
-    this._candidates = [text];
+    this._candidates = [{ text, stance: null }];
     this._index = 0;
     this._phase = "presenting";
   }
 
   /**
-   * 后台预生成候选追加：去重、**不移动当前索引**（用户正看的候选不被打断）。
+   * 流式首条：用最新累计文本覆盖第 0 条候选正文（stance 保持 null，首条恒无 chip）。
+   * 仅 presenting 且首条存在时生效——流式回调晚到时被 phase 门控丢弃。
+   */
+  updateFirstText(text: string): void {
+    if (this._phase !== "presenting") return;
+    if (this._candidates.length === 0) return;
+    this._candidates[0] = { text, stance: null };
+  }
+
+  /**
+   * 后台预生成候选追加：按正文去重、**不移动当前索引**（用户正看的候选不被打断）。
    * 仅在 presenting 阶段接受；返回是否真正入列（重复则忽略）。
    */
-  appendPreGenerated(text: string): boolean {
+  appendPreGenerated(candidate: ReplyCandidate): boolean {
     if (this._phase !== "presenting") return false;
-    if (this._candidates.includes(text)) return false;
-    this._candidates.push(text);
+    if (this._candidates.some((c) => c.text === candidate.text)) return false;
+    this._candidates.push(candidate);
     return true;
   }
 
@@ -129,8 +155,8 @@ export class ReplySession {
    * 「翻牌」候选追加：入列并把当前索引移到新候选（避重由 prompt 侧 avoidReplies 保证，
    * 故此处不去重——即便偶发雷同也让用户看到「翻了一张」的反馈）。
    */
-  appendFlip(text: string): void {
-    this._candidates.push(text);
+  appendFlip(candidate: ReplyCandidate): void {
+    this._candidates.push(candidate);
     this._index = this._candidates.length - 1;
   }
 
@@ -146,9 +172,9 @@ export class ReplySession {
     this._index = (((this._index + delta) % n) + n) % n;
   }
 
-  /** 翻牌避重列表 = 当前所有候选（要求模型换角度重写）。 */
+  /** 翻牌避重列表 = 当前所有候选正文（要求模型换角度重写）。 */
   avoidList(): string[] {
-    return [...this._candidates];
+    return this._candidates.map((c) => c.text);
   }
 
   /** ↩ 写回：presenting→writing（写回期间 token 不变，pre-gen 回调仍可被 phase 门控丢弃）。 */
@@ -208,6 +234,15 @@ export function shouldAbortWriteBack(
 ): boolean {
   if (capturedPid == null) return true;
   return currentPid !== capturedPid;
+}
+
+/** 气泡锚点优先级：真实光标 > helper 推断输入首行 > 焦点元素 frame。 */
+export function selectReplyAnchorFrame(input: {
+  caretFrame: ReplyRect | null;
+  inputAnchorFrame: ReplyRect | null;
+  focusedFrame: ReplyRect | null;
+}): ReplyRect | null {
+  return input.caretFrame ?? input.inputAnchorFrame ?? input.focusedFrame;
 }
 
 // ── agent 输出清洗 ────────────────────────────────────────────────────────────

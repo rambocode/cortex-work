@@ -28,11 +28,11 @@ describe("useReplyStore hydrate", () => {
     expect(s.channels).toEqual({ connections: {}, credentials: {}, notes: {} });
   });
 
-  it("半缺记忆分片 hydrate 补齐缺失 scope（不抛）", () => {
-    // 只给 profile，其余 4 分区缺失。
-    useReplyStore.getState().hydrateReply({
-      replyMemory: { profile: { manual: "我是产品经理", auto: "" } } as never,
-    });
+  it("半缺记忆缓存 hydrateMemory 补齐缺失 scope（不抛）", () => {
+    // 只给 profile，其余 4 分区缺失（模拟旧版 main 推来的半缺结构）。
+    useReplyStore
+      .getState()
+      .hydrateMemory({ profile: { manual: "我是产品经理", auto: "" } } as never);
     const memory = useReplyStore.getState().memory;
     expect(memory.profile.manual).toBe("我是产品经理");
     // 缺失分区补空默认。
@@ -43,14 +43,12 @@ describe("useReplyStore hydrate", () => {
     }
   });
 
-  it("字段级半缺 MemoryFile hydrate 补齐 manual/auto 且 .trim() 安全", () => {
-    // 分区存在但只有 manual（auto 缺失）/ 只有 auto（manual 缺失），模拟旧档半缺字段。
-    useReplyStore.getState().hydrateReply({
-      replyMemory: {
-        profile: { manual: "我是产品经理" },
-        core: { auto: "- 简洁" },
-      } as never,
-    });
+  it("字段级半缺 MemoryFile hydrateMemory 补齐 manual/auto 且 .trim() 安全", () => {
+    // 分区存在但只有 manual（auto 缺失）/ 只有 auto（manual 缺失），模拟半缺字段。
+    useReplyStore.getState().hydrateMemory({
+      profile: { manual: "我是产品经理" },
+      core: { auto: "- 简洁" },
+    } as never);
     const memory = useReplyStore.getState().memory;
     // 缺失字段补空串，保证下游 composeUserProfile 的 .trim() 不抛 TypeError。
     expect(memory.profile).toEqual({ manual: "我是产品经理", auto: "" });
@@ -172,7 +170,7 @@ describe("useReplyStore 渠道状态流转", () => {
 });
 
 describe("replyToPersisted / replySaveUrgency", () => {
-  it("replyToPersisted 序列化含三分片且字段完整往返", () => {
+  it("replyToPersisted 序列化含持久化分片且字段完整往返（memory 不入投影，KTD6 修订）", () => {
     const store = useReplyStore.getState();
     store.hydrateReply({});
     store.setSettings({ draftTrigger: "fn", userProfile: "PM" });
@@ -183,6 +181,8 @@ describe("replyToPersisted / replySaveUrgency", () => {
     store.setSettings({ providerId: "deepseek", model: "deepseek-chat" });
 
     const persisted = replyToPersisted(useReplyStore.getState());
+    // memory 是 main-owned 缓存，不进 PersistedState（personal-workspace.json 不再写 replyMemory）。
+    expect(persisted).not.toHaveProperty("replyMemory");
     // 往返：把序列化结果重新 hydrate 到新状态应等价。
     useReplyStore.setState({
       hydrated: false,
@@ -196,7 +196,6 @@ describe("replyToPersisted / replySaveUrgency", () => {
     expect(roundTripped.settings.userProfile).toBe("PM");
     expect(roundTripped.settings.providerId).toBe("deepseek");
     expect(roundTripped.settings.model).toBe("deepseek-chat");
-    expect(roundTripped.memory.core.auto).toBe("- 简洁");
     expect(roundTripped.channels.credentials.lark?.ciphertext).toBe("x");
   });
 
@@ -206,15 +205,15 @@ describe("replyToPersisted / replySaveUrgency", () => {
     expect(replySaveUrgency(next, prev)).toBe("none");
   });
 
-  it("hydrate 后任一分片引用变化返回 throttled，无变化返回 none", () => {
+  it("hydrate 后持久化分片引用变化返回 throttled；memory 缓存变化不触发保存", () => {
     useReplyStore.getState().hydrateReply({});
     const prev = useReplyStore.getState();
     // 无变化。
     expect(replySaveUrgency({ ...prev }, prev)).toBe("none");
     // settings 引用变化。
     expect(replySaveUrgency({ ...prev, settings: { ...prev.settings } }, prev)).toBe("throttled");
-    // memory 引用变化。
-    expect(replySaveUrgency({ ...prev, memory: { ...prev.memory } }, prev)).toBe("throttled");
+    // memory 是 main-owned 只读缓存：引用变化不应触发保存（KTD6 修订）。
+    expect(replySaveUrgency({ ...prev, memory: { ...prev.memory } }, prev)).toBe("none");
     // channels 引用变化。
     expect(replySaveUrgency({ ...prev, channels: { ...prev.channels } }, prev)).toBe("throttled");
   });

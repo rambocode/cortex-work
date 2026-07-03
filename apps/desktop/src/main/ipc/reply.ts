@@ -13,13 +13,24 @@ import type {
   ReplyBubbleAction,
   ReplyBubbleVoiceResult,
   ReplyChannelVerifyResult,
+  ReplyDataSummary,
   ReplyDebugEntry,
   ReplyPermissionKind,
   ReplyPermissionState,
   ReplySyncSnapshot,
 } from "./reply-types";
+// 回复历史 / 对话级记忆 / 全局分区记忆存储（main-owned 文件，~/.cortex-desktop/reply/ 下；
+// 写入方为 index.ts 的 onDraftAccepted sink 与蒸馏管线，此处注册读写/清空 handler，共用单例）。
+import { ReplyHistoryStore } from "../reply/history-store";
+import { ReplyConversationStore } from "../reply/conversation-store";
+import { ReplyMemoryStore } from "../reply/memory-store";
+import { replyConversationMemoryPath, replyHistoryPath, replyMemoryPath } from "../paths";
+import { getPersistedState } from "./store";
+import type { MemoryFile, MemoryScope, MemoryState } from "./reply-types";
+import { createLogger } from "../log";
 // 权限真实查询（node-mac-permissions → helper 兜底 → 全未决），U9 权限中心消费。
-import { queryReplyPermissions, requestAccessibilityAccess, type HelperPermissionsFn } from "../reply/permissions";
+import { queryReplyPermissions, requestReplyPermissionAccess, type HelperPermissionsFn } from "../reply/permissions";
+import { openReplyPermissionSettings } from "../reply/permission-settings";
 import {
   resizeReplyBubble,
   dispatchReplyBubbleAction,
@@ -38,16 +49,6 @@ import {
   parseGoogle,
   ChannelVerifyError,
 } from "@cortex-work/core/reply/channels";
-
-// ── 权限设置面板 URL（源项目 PermissionCenter 的 x-apple.systempreferences 深链）──────
-// 五项权限逐一映射到系统设置「隐私与安全性」对应子页，「去授权」按钮直达。
-const PERMISSION_SETTINGS_URL: Record<ReplyPermissionKind, string> = {
-  accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-  screenRecording: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-  calendar: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
-  microphone: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
-  speechRecognition: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
-};
 
 // ── 渠道校验（构造请求 + 解析响应，纯函数在 core；此处只做网络往返与错误归一化）──────
 
@@ -133,6 +134,28 @@ export function setReplyHelperPermissionsSource(fn: HelperPermissionsFn): void {
   helperPermissionsSource = fn;
 }
 
+const log = createLogger("reply-ipc");
+
+// 回复历史存储单例：ipc handler（读/清）与 index.ts 的写回 sink 共用（单写队列保证串行）。
+export const replyHistoryStore = new ReplyHistoryStore({
+  historyPath: replyHistoryPath,
+  logger: log,
+});
+
+// 对话级记忆存储单例：controller 注入读取、learner 写摘要、ipc handler 清空，三方共用。
+export const replyConversationStore = new ReplyConversationStore({
+  storePath: replyConversationMemoryPath,
+  logger: log,
+});
+
+// 全局分区记忆存储单例（KTD6 修订）：main 唯一写者。首启从 personal-workspace.json 的
+// replyMemory 旧分片搬运（旧分片保留只读兜底，渲染端不再写入）。
+export const replyMemoryStore = new ReplyMemoryStore({
+  storePath: replyMemoryPath,
+  loadLegacy: async () => (await getPersistedState()).replyMemory as MemoryState | undefined,
+  logger: log,
+});
+
 // U5 stub：设置快照最近值只驻内存（进程退出即弃）。U7 draft-generator 会从此处读默认 agent。
 let lastSyncedSnapshot: ReplySyncSnapshot | null = null;
 
@@ -152,14 +175,10 @@ export function registerReplyHandlers(): void {
 
   // 打开系统权限设置面板：直达对应隐私子页（授权引导）。
   ipcMain.handle("reply:openPermissionSettings", async (_e, kind: ReplyPermissionKind): Promise<void> => {
-    if (kind === "accessibility") {
-      // 辅助功能特殊：单纯跳转设置面板时列表里没有本应用条目可勾（见 requestAccessibilityAccess
-      // 注释）。改为先触发 AXIsProcessTrustedWithOptions 自注册；该调用内部已含跳转面板，
-      // 成功时无需再跳一次。失败（非 mac / 模块缺失）才回退普通跳转，保证至少能打开面板。
-      if (await requestAccessibilityAccess()) return;
-    }
-    const url = PERMISSION_SETTINGS_URL[kind];
-    return url ? shell.openExternal(url) : Promise.resolve();
+    return openReplyPermissionSettings(kind, {
+      requestAccess: requestReplyPermissionAccess,
+      openExternal: (url) => shell.openExternal(url),
+    });
   });
 
   // 渠道凭据校验：core 纯函数构造请求/解析响应，main fetch + safeStorage 加密 token。
@@ -185,6 +204,40 @@ export function registerReplyHandlers(): void {
   ipcMain.handle("reply:syncSettings", (_e, snapshot: ReplySyncSnapshot): void => {
     lastSyncedSnapshot = snapshot;
   });
+
+  // 数据摘要：设置页「数据」分区展示落盘数据规模。
+  ipcMain.handle("reply:getDataSummary", async (): Promise<ReplyDataSummary> => ({
+    historyCount: await replyHistoryStore.count(),
+    conversationCount: await replyConversationStore.count(),
+  }));
+
+  // 清空回复历史（设置页数据清理）。
+  ipcMain.handle("reply:clearHistory", (): Promise<void> => replyHistoryStore.clear());
+
+  // 清空对话级记忆（设置页数据清理）。
+  ipcMain.handle("reply:clearConversationMemory", (): Promise<void> => replyConversationStore.clear());
+
+  // ── 全局分区记忆（KTD6 修订：main-owned memory.json，设置页经此读写）────────────────
+
+  // 读全部分区（含首启迁移旧分片；恒返回字段完整的 MemoryState）。
+  ipcMain.handle("reply:getMemory", (): Promise<MemoryState> => replyMemoryStore.getMemory());
+
+  // 写单分区手写区/自动区（设置页 MemoryManager 编辑）。
+  ipcMain.handle(
+    "reply:setMemoryFile",
+    (_e, scope: MemoryScope, patch: Partial<MemoryFile>): Promise<void> =>
+      replyMemoryStore.setFile(scope, patch),
+  );
+
+  // 清空记忆：all=手写+自动；auto=仅自动学习要点（设置页数据清理）。
+  ipcMain.handle("reply:clearMemory", (_e, kind: "all" | "auto"): Promise<void> =>
+    kind === "auto" ? replyMemoryStore.clearAuto() : replyMemoryStore.clearAll(),
+  );
+
+  // 启动即触发首启迁移（时序关键）：渲染端改版后整表 store:save 不再携带 replyMemory，
+  // 一旦其首次保存先于迁移执行，旧分片会随整表覆盖从磁盘消失。本注册函数在窗口创建前
+  // 运行，而渲染端保存最早也要等 loadState+变更节流之后，故此处触发可稳定赢得该时序。
+  void replyMemoryStore.getMemory();
 
   // ── 候选气泡窗通道（U6）──────────────────────────────────────────────────────────
   // 气泡渲染端 → 主进程（单向 send，非 invoke）：实测高度上报 + 鼠标动作上行。

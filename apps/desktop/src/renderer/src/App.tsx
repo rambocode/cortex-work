@@ -54,19 +54,20 @@ export default function App() {
   }, []);
 
   // 快捷回复设置快照 → 主进程（KTD3）：起草在主进程组装 prompt 需要最新 reply 设置（含专属
-  // providerId/model 与 userProfile）与分区记忆,它们活在渲染端 store。此处推给主进程缓存
+  // providerId/model 与 userProfile），它们活在渲染端 store。此处推给主进程缓存
   // （getLastReplySnapshot）;生成模型的回退链解析在 main 侧做（resolveReplyModel 读持久化
-  // providerSettings）,快照不再携带 defaultAgent。用 key 去重避免 IPC 风暴。壳就近接线。
+  // providerSettings）。KTD6 修订：分区记忆已迁 main-owned memory.json，快照不再携带 memory。
+  // 用 key 去重避免 IPC 风暴。壳就近接线。
   useEffect(() => {
     const sync = window.desktopAPI?.personal?.replySyncSettings;
     if (!sync) return;
     let lastKey = "";
     const push = (): void => {
       const reply = useReplyStore.getState();
-      const key = JSON.stringify({ s: reply.settings, m: reply.memory });
+      const key = JSON.stringify(reply.settings);
       if (key === lastKey) return;
       lastKey = key;
-      void sync({ settings: reply.settings, memory: reply.memory });
+      void sync({ settings: reply.settings });
     };
     push(); // 挂载即推一次,保证首次起草前主进程已有快照。
     return useReplyStore.subscribe(push);

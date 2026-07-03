@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// 把 apps/desktop/native/reply-helper(Swift 可执行包)用 `swift build -c release` 编译成
-// 单个原生二进制,产出到 apps/desktop/resources/reply-helper/reply-helper。
-// Cortex 打包时经 electron-builder 的 extraResources 落到 <App>/Contents/Resources/reply-helper/,
+// 把 apps/desktop/native/Cortex_Helper(Swift 可执行包)用 `swift build -c release` 编译成
+// 单个原生二进制,产出到 apps/desktop/resources/Cortex_Helper/Cortex_Helper。
+// Cortex 打包时经 electron-builder 的 extraResources 落到 <App>/Contents/Resources/Cortex_Helper/,
 // 主进程 helper-client(U4)spawn 它。仿 build-pi-binary.mjs 的结构(幂等 stamp + 跨架构 + --force)。
 //
 // 平台:reply 功能是 macOS 专属(AX / CGEventTap / Vision / EventKit),仅在 darwin 上构建;
 // 非 darwin 直接跳过(prepackage:win-x64 不挂本脚本)。
 //
 // 架构:
-//   node scripts/build-reply-helper.mjs --arch arm64   (默认)
-//   node scripts/build-reply-helper.mjs --arch x64
+//   node scripts/build-cortex-helper.mjs --arch arm64   (默认)
+//   node scripts/build-cortex-helper.mjs --arch x64
 // 强制重编:--force
 
 import { execFileSync } from "node:child_process";
@@ -20,17 +20,17 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = dirname(here); // apps/desktop
-const pkgDir = join(desktopRoot, "native/reply-helper");
-const outDir = join(desktopRoot, "resources/reply-helper");
-const binName = "reply-helper";
+const pkgDir = join(desktopRoot, "native/Cortex_Helper");
+const outDir = join(desktopRoot, "resources/Cortex_Helper");
+const binName = "Cortex_Helper";
 const binPath = join(outDir, binName);
-const stampPath = join(outDir, ".reply-helper-version");
+const stampPath = join(outDir, ".Cortex_Helper-version");
 
-const log = (msg) => console.log(`[build-reply-helper] ${msg}`);
+const log = (msg) => console.log(`[build-cortex-helper] ${msg}`);
 
 // ── 平台守卫:仅 macOS 构建 ────────────────────────────────────────────────────
 if (process.platform !== "darwin") {
-  log(`当前平台 ${process.platform} 非 macOS,reply-helper 为 macOS 专属,跳过。`);
+  log(`当前平台 ${process.platform} 非 macOS,Cortex_Helper 为 macOS 专属,跳过。`);
   process.exit(0);
 }
 
@@ -44,7 +44,7 @@ const swiftArch = targetArch === "x64" ? "x86_64" : "arm64";
 const stampKey = swiftArch;
 
 if (!existsSync(pkgDir)) {
-  console.error(`[build-reply-helper] 找不到 Swift 包: ${pkgDir}`);
+  console.error(`[build-cortex-helper] 找不到 Swift 包: ${pkgDir}`);
   process.exit(1);
 }
 
@@ -53,6 +53,8 @@ if (!existsSync(pkgDir)) {
 function hashSources() {
   const hash = createHash("sha256");
   const files = [];
+  hash.update(binName);
+  hash.update(readFileSync(join(pkgDir, "Package.swift")));
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
@@ -79,13 +81,13 @@ const stamp = `${sourceHash}:${stampKey}`;
 
 if (!force && existsSync(binPath) && existsSync(stampPath)) {
   if (readFileSync(stampPath, "utf-8").trim() === stamp) {
-    log(`reply-helper (${stampKey}) 已最新,跳过(--force 强制重编)。`);
+    log(`Cortex_Helper (${stampKey}) 已最新,跳过(--force 强制重编)。`);
     process.exit(0);
   }
 }
 
 // ── 编译 ──────────────────────────────────────────────────────────────────────
-log(`编译 reply-helper → ${binPath} (arch: ${swiftArch})`);
+log(`编译 Cortex_Helper → ${binPath} (arch: ${swiftArch})`);
 const swiftArgs = ["build", "-c", "release", "--arch", swiftArch, "--package-path", pkgDir];
 execFileSync("swift", swiftArgs, { stdio: "inherit" });
 
@@ -93,11 +95,11 @@ execFileSync("swift", swiftArgs, { stdio: "inherit" });
 const binDir = execFileSync("swift", [...swiftArgs, "--show-bin-path"], { encoding: "utf-8" }).trim();
 const builtBin = join(binDir, binName);
 if (!existsSync(builtBin)) {
-  console.error(`[build-reply-helper] 编译产物缺失: ${builtBin}`);
+  console.error(`[build-cortex-helper] 编译产物缺失: ${builtBin}`);
   process.exit(1);
 }
 
-// ── 拷贝到 resources/reply-helper ─────────────────────────────────────────────
+// ── 拷贝到 resources/Cortex_Helper ─────────────────────────────────────────────
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 cpSync(builtBin, binPath);

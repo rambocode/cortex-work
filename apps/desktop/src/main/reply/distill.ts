@@ -1,5 +1,7 @@
 // 语气蒸馏接线（U10 / R10、R11）：写回成功 → 采样 →（学习开关开）后台模型直连蒸馏（温度 0.2）→
 // 清洗 → 覆盖分区 auto 区 → 持久化（仅要点落盘，样本不落盘，KTD8）。
+// KTD6 修订：持久化 sink 已从「回推渲染端 store 落盘」改为直写 main-owned memory-store
+// （persistLearned 由 index.ts 注入直写 + reply:memoryChanged 推送渲染端刷新缓存）。
 //
 // 与源项目（ReplyClone AppState.learnFromAcceptedDraft / distillMemory）的差异：
 //   - 样本采集扩充为「当次对话『我：』侧样本 + 已接受草稿」（源项目只采纳草稿一条）；
@@ -42,15 +44,17 @@ export function extractMineSamples(conversation: string): string[] {
 
 /** 蒸馏器依赖注入口（单测注入假 generate / persist / snapshot，隔离 electron 与网络）。 */
 export interface ReplyDistillerDeps {
-  /** 读渲染端最近推送的设置快照（学习开关 / 分区记忆 auto / userProfile）。 */
+  /** 读渲染端最近推送的设置快照（学习开关 / userProfile；KTD6 修订后不再携带 memory）。 */
   getSnapshot: () => ReplySyncSnapshot | null;
+  /** 读某分区已学到的 auto 要点（KTD6 修订：main-owned memory-store，蒸馏合并旧规则用）。 */
+  getExistingAuto: (scope: MemoryScope) => Promise<string>;
   /**
    * 后台跑蒸馏 prompt（模型直连单发，返回原始文本）。
    * 由 index.ts 注入的闭包内部解析生成模型（resolveReplyModel）并直连 chat completions（温度 0.2）；
    * 生成模型未配置时应 throw（被本模块 catch 后静默跳过，不打扰）。
    */
   generate: (prompt: DistillPrompt) => Promise<string>;
-  /** 持久化 sink：把某分区蒸馏产出的 auto 要点写回 store 分片（main→renderer push → 渲染端 store 落盘）。 */
+  /** 持久化 sink：把某分区蒸馏产出的 auto 要点直写 memory-store（并推送渲染端刷新缓存）。 */
   persistLearned: (scope: MemoryScope, auto: string) => void;
   logger?: { warn(...args: unknown[]): void };
 }
@@ -132,12 +136,10 @@ export class ReplyDistiller {
     const snapshot = this.deps.getSnapshot();
     if (!snapshot || !snapshot.settings.learningEnabled) return;
 
-    // 现有 auto 以本地覆盖优先（连续蒸馏未回推快照时仍能累积），回落快照 memory。
-    const existingAuto =
-      this.localAuto.get(scope) ?? snapshot.memory[scope]?.auto ?? "";
-    const prompt = buildDistillPrompt(scope, samples, existingAuto);
-
     try {
+      // 现有 auto 以本地覆盖优先（连续蒸馏时无需等落盘往返即可累积），回落 memory-store 读取。
+      const existingAuto = this.localAuto.get(scope) ?? (await this.deps.getExistingAuto(scope));
+      const prompt = buildDistillPrompt(scope, samples, existingAuto);
       const output = await this.deps.generate(prompt);
       const rules = cleanDistilledRules(output);
       // 清洗后为空（模型只吐解释 / 空白）→ 保留旧规则，不覆盖。

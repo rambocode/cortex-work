@@ -35,14 +35,14 @@ describe("appendHistoryEntry", () => {
   it("按 id 去重：重复追加同 id 只保留最新一条", () => {
     const list = appendHistoryEntry([entry("a", 1), entry("b", 2)], entry("a", 3));
     expect(list.map((e) => e.id)).toEqual(["a", "b"]);
-    expect(list[0].ts).toBe(3);
+    expect(list[0]!.ts).toBe(3);
   });
 
   it("超过保留上限时截断最旧的", () => {
     const many = Array.from({ length: HISTORY_KEEP }, (_, i) => entry(`e${i}`, i));
     const list = appendHistoryEntry(many, entry("newest", 9999));
     expect(list).toHaveLength(HISTORY_KEEP);
-    expect(list[0].id).toBe("newest");
+    expect(list[0]!.id).toBe("newest");
     // 尾部（最旧）被挤出
     expect(list.some((e) => e.id === `e${HISTORY_KEEP - 1}`)).toBe(false);
   });

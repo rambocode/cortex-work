@@ -151,7 +151,7 @@ describe("ReplyHelperClient events", () => {
       return p;
     };
     const onDegrade = vi.fn();
-    const client = new ReplyHelperClient({ binaryPath: "/x/reply-helper", spawnFn, onDegrade });
+    const client = new ReplyHelperClient({ binaryPath: "/x/Cortex_Helper", spawnFn, onDegrade });
     client.startEvents();
 
     // 反复:崩溃 → 定时器到点重启 → 再崩,直到超过 MAX_RESTART_ATTEMPTS。

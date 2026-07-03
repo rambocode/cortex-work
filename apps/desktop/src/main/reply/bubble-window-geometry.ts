@@ -11,10 +11,9 @@ export const BUBBLE_WIDTH = 372; // 卡片 360 + 左右各 6 留白（与 reply-
 export const BUBBLE_GAP = 8; // 气泡与输入框之间的间隙
 export const BUBBLE_EDGE_MARGIN = 12; // 气泡离屏幕工作区边缘的最小留白
 export const BUBBLE_FALLBACK_BOTTOM_RATIO = 0.68; // 无任何 frame 兜底：置于鼠标所在屏「中下方」的纵向位置比例
-// 窗口 frame 兜底锚：聊天 app 输入框大致落在窗口纵向 72%~92% 处，据此在窗口内合成一个「输入条」锚点，
-// 使拿不到精确输入框 frame 时气泡仍贴着当前会话窗口底部，而非飘到鼠标位置。
-export const WINDOW_INPUT_TOP_RATIO = 0.72;
-export const WINDOW_INPUT_BOTTOM_RATIO = 0.92;
+// 窗口 frame 兜底锚：聊天 app 输入首行大致落在窗口纵向 82% 处，据此在窗口内合成一个稳定锚点，
+// 使拿不到精确输入框 frame 时气泡贴近输入首行，而非落到工具栏附近或随鼠标漂移。
+export const WINDOW_INPUT_LINE_RATIO = 0.82;
 
 /// 判断点是否落在某工作区内（含左闭右开边界，避免相邻屏重复命中）。
 function contains(area: ReplyRect, px: number, py: number): boolean {
@@ -43,12 +42,21 @@ function clampToArea(area: ReplyRect, x: number, y: number, width: number, heigh
   };
 }
 
+function windowFallbackAnchor(windowFrame: ReplyRect): ReplyRect {
+  return {
+    x: windowFrame.x,
+    y: windowFrame.y + windowFrame.height * WINDOW_INPUT_LINE_RATIO,
+    width: windowFrame.width,
+    height: 0,
+  };
+}
+
 /// 依锚点矩形（光标插入点 / 输入框 frame）计算气泡窗 bounds。锚点优先级：光标 > 输入框 frame >
-/// 窗口 frame 合成的「输入条」> 鼠标。
+/// 窗口 frame 合成的「输入首行」锚点 > 鼠标。
 /// - 默认锚定在锚点「下方」、左缘对齐锚点左缘——输入法候选窗语义：候选出现在光标行正下方,
 ///   不遮挡光标所在行与上方对话（用户确认的期望行为）；下方放不下（溢出工作区底部）→ 翻转到「上方」；
-/// - 无精确输入框但有窗口 frame（微信等 AX 不完整）→ 用窗口纵向 72%~92% 合成输入条锚点，
-///   使气泡贴着当前会话窗口底部（而非飘到鼠标位置）；
+/// - 无精确输入框但有窗口 frame（微信等 AX 不完整）→ 用窗口纵向 82% 合成输入首行锚点，
+///   使气泡贴着当前会话输入区（而非飘到鼠标位置或落到工具栏附近）；
 /// - 最终按锚点所在屏工作区 clamp（跨屏/边缘不越界）；
 /// - 两种 frame 都缺失 → 兜底到鼠标所在屏「中下方」。
 export function bubbleWindowBounds(input: {
@@ -62,17 +70,10 @@ export function bubbleWindowBounds(input: {
   const height = Math.max(1, Math.round(bubbleHeight));
   const width = BUBBLE_WIDTH;
 
-  // 锚点解析：优先精确输入框；否则用窗口 frame 合成一个「底部输入条」矩形作为锚。
+  // 锚点解析：优先精确输入框；否则用窗口 frame 合成一个稳定的「输入首行」锚点。
   const anchor: ReplyRect | null =
     frame ??
-    (windowFrame
-      ? {
-          x: windowFrame.x,
-          y: windowFrame.y + windowFrame.height * WINDOW_INPUT_TOP_RATIO,
-          width: windowFrame.width,
-          height: windowFrame.height * (WINDOW_INPUT_BOTTOM_RATIO - WINDOW_INPUT_TOP_RATIO),
-        }
-      : null);
+    (windowFrame ? windowFallbackAnchor(windowFrame) : null);
 
   // 兜底：无任何 frame（AX 完全不可用）→ 鼠标所在屏中下方居中。
   if (!anchor) {
