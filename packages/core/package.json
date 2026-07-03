@@ -56,7 +56,8 @@
     "./personal/browserErrorInfo": "./personal/browserErrorInfo.ts",
     "./personal/browserOrigin": "./personal/browserOrigin.ts",
     "./personal/annotationPayload": "./personal/annotationPayload.ts",
-    "./whisper/models": "./whisper/models.ts"
+    "./whisper/models": "./whisper/models.ts",
+    "./reply/*": "./reply/*.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",
