@@ -60,6 +60,7 @@ export default defineConfig({
           agentTrace: resolve("src/renderer/agent-trace.html"),
           notification: resolve("src/renderer/notification.html"),
           projects: resolve("src/renderer/projects.html"),
+          reply: resolve("src/renderer/reply.html"),
         },
       },
     },

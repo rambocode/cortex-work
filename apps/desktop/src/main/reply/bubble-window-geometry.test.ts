@@ -1,0 +1,105 @@
+// 候选气泡窗几何纯函数单测：上方锚定 / 顶部溢出翻转下方 / 跨屏 clamp / frame 缺失兜底。
+
+import { describe, it, expect } from "vitest";
+import {
+  bubbleWindowBounds,
+  displayContaining,
+  BUBBLE_WIDTH,
+  BUBBLE_GAP,
+  BUBBLE_EDGE_MARGIN,
+} from "./bubble-window-geometry";
+
+const PRIMARY = { x: 0, y: 0, width: 1440, height: 900 };
+// 右侧副屏（不同尺寸，用于跨屏归属测试）。
+const SECONDARY = { x: 1440, y: 0, width: 1920, height: 1080 };
+
+describe("displayContaining", () => {
+  it("命中包含点的工作区", () => {
+    expect(displayContaining([PRIMARY, SECONDARY], 1500, 200)).toBe(SECONDARY);
+    expect(displayContaining([PRIMARY, SECONDARY], 100, 100)).toBe(PRIMARY);
+  });
+
+  it("无命中回落第一个（主屏）", () => {
+    expect(displayContaining([PRIMARY, SECONDARY], 5000, 5000)).toBe(PRIMARY);
+  });
+
+  it("空 displays 返回安全默认屏", () => {
+    expect(displayContaining([], 0, 0)).toEqual({ x: 0, y: 0, width: 1440, height: 900 });
+  });
+});
+
+describe("bubbleWindowBounds - 上方锚定", () => {
+  it("输入框上方留白放置，宽度固定，左缘对齐输入框", () => {
+    const frame = { x: 300, y: 500, width: 400, height: 40 };
+    const b = bubbleWindowBounds({
+      frame,
+      bubbleHeight: 100,
+      displays: [PRIMARY],
+      cursor: { x: 0, y: 0 },
+    });
+    expect(b.width).toBe(BUBBLE_WIDTH);
+    expect(b.height).toBe(100);
+    // 上方：y = frame.y - height - gap
+    expect(b.y).toBe(500 - 100 - BUBBLE_GAP);
+    // 左缘对齐（-6 视觉抵消），在屏内不被 clamp
+    expect(b.x).toBe(300 - 6);
+  });
+});
+
+describe("bubbleWindowBounds - 顶部溢出翻转下方", () => {
+  it("上方放不下时翻到输入框下方", () => {
+    const frame = { x: 300, y: 30, width: 400, height: 40 };
+    const b = bubbleWindowBounds({
+      frame,
+      bubbleHeight: 120,
+      displays: [PRIMARY],
+      cursor: { x: 0, y: 0 },
+    });
+    // above = 30 - 120 - 8 = -98 < 边距 → 翻下方：y = frame.y + frame.height + gap
+    expect(b.y).toBe(30 + 40 + BUBBLE_GAP);
+  });
+});
+
+describe("bubbleWindowBounds - 跨屏与边缘 clamp", () => {
+  it("输入框贴近右缘时气泡右侧不越界", () => {
+    const frame = { x: 1380, y: 500, width: 60, height: 40 };
+    const b = bubbleWindowBounds({
+      frame,
+      bubbleHeight: 100,
+      displays: [PRIMARY],
+      cursor: { x: 0, y: 0 },
+    });
+    expect(b.x + b.width).toBeLessThanOrEqual(PRIMARY.x + PRIMARY.width - BUBBLE_EDGE_MARGIN);
+  });
+
+  it("输入框在副屏时按副屏工作区定位与 clamp", () => {
+    const frame = { x: 1500, y: 300, width: 400, height: 40 };
+    const b = bubbleWindowBounds({
+      frame,
+      bubbleHeight: 100,
+      displays: [PRIMARY, SECONDARY],
+      cursor: { x: 0, y: 0 },
+    });
+    // 归属副屏：x 起点在副屏范围内
+    expect(b.x).toBeGreaterThanOrEqual(SECONDARY.x + BUBBLE_EDGE_MARGIN - 1);
+    expect(b.x + b.width).toBeLessThanOrEqual(SECONDARY.x + SECONDARY.width - BUBBLE_EDGE_MARGIN);
+  });
+});
+
+describe("bubbleWindowBounds - frame 缺失兜底", () => {
+  it("无 frame 时置于鼠标所在屏中下方居中", () => {
+    const b = bubbleWindowBounds({
+      frame: null,
+      bubbleHeight: 100,
+      displays: [PRIMARY, SECONDARY],
+      cursor: { x: 1600, y: 400 }, // 鼠标在副屏
+    });
+    // 归属副屏且水平居中附近
+    const expectedX = Math.round(SECONDARY.x + (SECONDARY.width - BUBBLE_WIDTH) / 2);
+    expect(b.x).toBe(expectedX);
+    // 中下方：y 大于副屏中线
+    expect(b.y).toBeGreaterThan(SECONDARY.y + SECONDARY.height / 2);
+    // 不越出底部
+    expect(b.y + b.height).toBeLessThanOrEqual(SECONDARY.y + SECONDARY.height - BUBBLE_EDGE_MARGIN);
+  });
+});

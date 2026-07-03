@@ -112,3 +112,46 @@ export interface ReplySyncSnapshot {
   providerId?: string;
   model?: string;
 }
+
+// ── 候选气泡窗契约（U6，KTD5）──────────────────────────────────────────────────────
+// 气泡窗是独立不抢焦 BrowserWindow（仿 notification）。主进程 → 气泡渲染端只推 ReplyBubbleState；
+// 气泡渲染端 → 主进程只上报实测高度与鼠标动作（ReplyBubbleAction）。键盘不走 DOM：←/→/↩/esc/Tab
+// 由 helper 吞键 → controller，再以更新后的 state 重新推送驱动 UI（窗口 focusable:false，永不聚焦）。
+
+/// 屏幕坐标矩形（左上原点、单位 point）。ax-capture 输出的焦点输入框 frame 即此系；
+/// Electron setBounds / screen 亦为左上原点 DIP，主显示器上 point≈DIP 直接对应（几何契约）。
+export interface ReplyRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/// 气泡会话阶段（与 controller 状态机的可视子集对应）。
+export type ReplyBubblePhase = "generating" | "presenting" | "recording" | "error";
+
+/// 错误态细分：agentNotConfigured → 引导去设置；generationFailed/emptyCandidates → 原因+重试/关闭。
+export type ReplyBubbleErrorKind = "agentNotConfigured" | "generationFailed" | "emptyCandidates";
+
+/// 主进程 → 气泡渲染端的完整可视状态（每次变更整体推送，渲染端无本地态可言）。
+export interface ReplyBubbleState {
+  phase: ReplyBubblePhase;
+  /// 已到达的候选草稿（presenting 阶段渲染 candidates[currentIndex]）。
+  candidates: string[];
+  /// 当前展示的候选下标（←/→/Tab 由 controller 改后重推）。
+  currentIndex: number;
+  /// 是否仍在后台预生成翻牌候选（控制圆点「逐个出现」的动画语义）。
+  preGenerating?: boolean;
+  /// 错误态类型（phase==="error" 时有效）。
+  errorKind?: ReplyBubbleErrorKind;
+  /// 错误明细（generationFailed 时透出原因，便于用户判断是否重试）。
+  errorDetail?: string;
+}
+
+/// 气泡渲染端 → 主进程的鼠标动作（键盘动作不走此通道）。
+export type ReplyBubbleAction =
+  | { type: "flip" } // 翻牌：追加一条避重候选
+  | { type: "retry" } // 错误态重试生成
+  | { type: "close" } // 关闭气泡
+  | { type: "select"; index: number } // 点击圆点直接切到某候选
+  | { type: "openSettings" }; // agentNotConfigured 引导去设置

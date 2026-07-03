@@ -76,6 +76,8 @@ import type {
   ReplyChannelVerifyResult,
   ReplyDebugEntry,
   ReplySyncSnapshot,
+  ReplyBubbleState,
+  ReplyBubbleAction,
 } from "../main/ipc/types";
 // 方案 A：编排请求类型权威定义留在 orchestrate.ts，此处 type-only 引入（编译期擦除，
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
@@ -757,6 +759,19 @@ const projectsWindow = {
   flushDone: (): void => ipcRenderer.send("projects-window:flush-done"),
 };
 
+// 候选气泡窗专用桥（U6）：气泡渲染端直接调用，不属于 DesktopBridge（与 notification/spotlight 同为
+// desktopAPI 顶层能力）。onState 接收主进程推的可视状态；resize 上报实测高度；action 上行鼠标动作。
+// 键盘不走此桥（窗口 focusable:false，键由 helper 吞键 → controller 驱动状态重推）。
+const replyBubble = {
+  onState: (cb: (state: ReplyBubbleState) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, state: ReplyBubbleState) => cb(state);
+    ipcRenderer.on("reply-bubble:state", listener);
+    return () => ipcRenderer.removeListener("reply-bubble:state", listener);
+  },
+  resize: (height: number): void => ipcRenderer.send("reply-bubble:resize", height),
+  action: (action: ReplyBubbleAction): void => ipcRenderer.send("reply-bubble:action", action),
+};
+
 const desktopAPI = {
   appInfo: fetchAppInfo(),
   runtimeConfig: {
@@ -769,6 +784,7 @@ const desktopAPI = {
   spotlight,
   notesOverlay,
   notification,
+  replyBubble,
   projectsWindow,
   consumeNotesHotkeyDegraded,
 };
