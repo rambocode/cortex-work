@@ -95,6 +95,33 @@ describe("ReplyHistoryStore（events 目录）", () => {
     expect(ids).toContain("m"); // 邮件桶不受影响
   });
 
+  it("Reply.app 源事件文件直接拷入即可读（schema 归一化）", async () => {
+    const dir = join(eventsDir, "com.tencent.xinWeChat__微信");
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(
+      join(dir, "E3D11331-3B1A-4786-967B-3F8643BD3053.json"),
+      JSON.stringify({
+        appBundleID: "com.tencent.xinWeChat",
+        appName: "微信",
+        at: "2026-07-02T14:09:30Z",
+        candidates: ["好的，代码发你参考一下"],
+        channel: "im",
+        contextPreview: "我: 实现查询分析 对方: 的加载",
+        id: "E3D11331-3B1A-4786-967B-3F8643BD3053",
+        insertedText: "好的，代码发你参考一下",
+        outcome: "inserted",
+        pickedIndex: 0,
+        schemaVersion: 1,
+      }),
+      "utf8",
+    );
+    const list = await makeStore().list();
+    expect(list).toHaveLength(1);
+    expect(list[0]!.acceptedText).toBe("好的，代码发你参考一下");
+    expect(list[0]!.ts).toBe(Date.parse("2026-07-02T14:09:30Z"));
+    expect(list[0]!.appBundleId).toBe("com.tencent.xinWeChat");
+  });
+
   it("单个事件文件损坏 → list 跳过该条不抛", async () => {
     const store = makeStore();
     await store.append(entry("a", 1));

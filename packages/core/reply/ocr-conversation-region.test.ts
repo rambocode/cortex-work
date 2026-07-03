@@ -274,7 +274,7 @@ describe("filterOcrBlocksForVisibleConversation", () => {
         block("试试灵动回复（86+D）", ocrBox(0.03, 0.07, 0.18, 0.04)),
       ],
       { name: "钉钉", bundleId: "com.alibaba.DingTalkMac" },
-      { inputAnchor: { x: 0.08, y: 0.88, leftPadding: 0.05 } },
+      { inputAnchor: { x: 0.52, y: 0.88, leftPadding: 0.05 } },
     );
     const text = filtered.map((b) => b.text).join("\n");
 
@@ -289,16 +289,16 @@ describe("filterOcrBlocksForVisibleConversation", () => {
   it("钉钉底部辅助按钮没有左侧头像语境时不会当成对方消息", () => {
     const filtered = filterOcrBlocksForVisibleConversation(
       [
-        block("您方便提交个未支付订单吗", ocrBox(0.52, 0.78, 0.24, 0.04)),
-        block("我给您申请优惠", ocrBox(0.52, 0.66, 0.16, 0.04)),
+        block("您方便提交个未支付订单吗", ocrBox(0.08, 0.78, 0.24, 0.04)),
+        block("我给您申请优惠", ocrBox(0.08, 0.66, 0.16, 0.04)),
         block("改天吧", ocrBox(0.86, 0.54, 0.07, 0.04)),
         block("订单创建了", ocrBox(0.82, 0.35, 0.11, 0.04)),
-        block("好的", ocrBox(0.52, 0.28, 0.05, 0.04)),
+        block("好的", ocrBox(0.08, 0.28, 0.05, 0.04)),
         block("［ 看待办", ocrBox(0.03, 0.3, 0.09, 0.04)),
         block("囟看闲忙", ocrBox(0.14, 0.3, 0.1, 0.04)),
       ],
       { name: "钉钉", bundleId: "com.alibaba.DingTalkMac" },
-      { inputAnchor: { x: 0.52, y: 0.88, leftPadding: 0.05 } },
+      { inputAnchor: { x: 0.08, y: 0.88, leftPadding: 0.05 } },
     );
 
     const transcript = new ConversationLayoutBuilder().transcript(filtered);
@@ -308,6 +308,22 @@ describe("filterOcrBlocksForVisibleConversation", () => {
     expect(transcript).toContain("对方：您方便提交个未支付订单吗");
     expect(transcript).toContain("我：订单创建了");
     expect(transcript).toContain("对方：好的");
+  });
+
+  it("钉钉底部真实消息包含辅助按钮词时仍会保留", () => {
+    const filtered = filterOcrBlocksForVisibleConversation(
+      [
+        block("您方便提交个未支付订单吗", ocrBox(0.08, 0.78, 0.24, 0.04)),
+        block("订单创建了", ocrBox(0.82, 0.54, 0.11, 0.04)),
+        block("看待办了吗", ocrBox(0.08, 0.3, 0.12, 0.04)),
+      ],
+      { name: "钉钉", bundleId: "com.alibaba.DingTalkMac" },
+      { inputAnchor: { x: 0.08, y: 0.88, leftPadding: 0.05 } },
+    );
+
+    const transcript = new ConversationLayoutBuilder().transcript(filtered);
+
+    expect(transcript).toContain("对方：看待办了吗");
   });
 
   it("非 IM 应用不做裁剪", () => {

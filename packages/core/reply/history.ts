@@ -44,3 +44,73 @@ export function appendHistoryEntry(
   const deduped = [entry, ...entries.filter((e) => e.id !== entry.id)];
   return deduped.slice(0, keep);
 }
+
+const VALID_STANCES: readonly string[] = ["agree", "reject", "unsure"];
+
+/// 宽松取字符串字段（缺失/非字符串归空串）。
+function str(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+/// 归一化磁盘事件 JSON → ReplyHistoryEntry。兼容两种 schema（源文件可直接拷入 events 目录使用）：
+///   1. 本项目事件：id + ts(number) + 结构化 candidates;
+///   2. Reply.app 源事件：id + at(ISO 时间) + appBundleID / insertedText / pickedIndex /
+///      contextPreview / candidates(string[])——字段逐一映射,counterpart 源无此概念归空串。
+/// 无法识别（缺 id / 缺时间 / 时间非法）返回 null,由调用方跳过。
+export function normalizeHistoryEvent(raw: unknown): ReplyHistoryEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) return null;
+
+  // 本项目 schema：ts 为毫秒数。
+  if (typeof r.ts === "number") {
+    const candidates = Array.isArray(r.candidates)
+      ? r.candidates
+          .filter((c): c is { text: string; stance?: unknown } =>
+            !!c && typeof (c as { text?: unknown }).text === "string",
+          )
+          .map((c) => ({
+            text: c.text,
+            stance: (typeof c.stance === "string" && VALID_STANCES.includes(c.stance)
+              ? c.stance
+              : null) as ReplyStance | null,
+          }))
+      : [];
+    return {
+      id: r.id,
+      ts: r.ts,
+      appName: str(r.appName),
+      appBundleId: str(r.appBundleId),
+      counterpart: str(r.counterpart),
+      conversation: str(r.conversation),
+      candidates,
+      acceptedIndex: typeof r.acceptedIndex === "number" ? r.acceptedIndex : 0,
+      acceptedText: str(r.acceptedText),
+    };
+  }
+
+  // Reply.app 源 schema：at 为 ISO 时间字符串。
+  if (typeof r.at === "string") {
+    const ts = Date.parse(r.at);
+    if (Number.isNaN(ts)) return null;
+    const candidates = Array.isArray(r.candidates)
+      ? r.candidates
+          .filter((c): c is string => typeof c === "string")
+          .map((text) => ({ text, stance: null as ReplyStance | null }))
+      : [];
+    const acceptedIndex = typeof r.pickedIndex === "number" ? r.pickedIndex : 0;
+    return {
+      id: r.id,
+      ts,
+      appName: str(r.appName),
+      appBundleId: str(r.appBundleID),
+      counterpart: "",
+      conversation: str(r.contextPreview),
+      candidates,
+      acceptedIndex,
+      acceptedText: str(r.insertedText) || candidates[acceptedIndex]?.text || "",
+    };
+  }
+
+  return null;
+}

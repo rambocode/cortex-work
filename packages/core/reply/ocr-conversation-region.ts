@@ -36,7 +36,7 @@ const KNOWN_MULTI_PANE_IM_PATTERNS = [
 
 const IM_TOP_CHROME_MIN_MID_Y = 0.86;
 const IM_BOTTOM_TOOLBAR_MAX_MID_Y = 0.16;
-const IM_BOTTOM_ACTION_TOOLBAR_MAX_MID_Y = 0.28;
+const IM_BOTTOM_ACTION_TOOLBAR_MAX_MID_Y = 0.38;
 const WATERMARK_SEPARATORS = /[@＠◎○◉◯]/gu;
 const BOTTOM_TOOLBAR_LABELS = [
   "快速会议",
@@ -172,15 +172,25 @@ function looksLikeTopChromeBlock(block: OCRTextBlock): boolean {
 function looksLikeBottomToolbarBlock(block: OCRTextBlock): boolean {
   const compact = compactText(block.text).replace(/[^\p{L}\p{N}]/gu, "");
   const midY = boxMidY(block.boundingBox);
-  if (
-    midY <= IM_BOTTOM_ACTION_TOOLBAR_MAX_MID_Y &&
-    BOTTOM_TOOLBAR_LABELS.some((label) => compact.includes(label))
-  ) {
+  if (midY <= IM_BOTTOM_ACTION_TOOLBAR_MAX_MID_Y && looksLikeBottomActionLabel(compact)) {
     return true;
   }
   return (
     midY <= IM_BOTTOM_TOOLBAR_MAX_MID_Y &&
     INPUT_CHROME_LABELS.some((label) => compact.includes(label))
+  );
+}
+
+function looksLikeBottomActionLabel(compact: string): boolean {
+  const exactOrIconPrefixed = BOTTOM_TOOLBAR_LABELS.some((label) => {
+    if (compact === label) return true;
+    if (compact.endsWith(label) && compact.length <= label.length + 1) return true;
+    return false;
+  });
+  if (exactOrIconPrefixed) return true;
+
+  return ["试试灵动回复", "灵动回复"].some(
+    (label) => compact.startsWith(label) && compact.length <= label.length + 6,
   );
 }
 

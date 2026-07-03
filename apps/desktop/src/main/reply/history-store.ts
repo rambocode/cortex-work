@@ -10,7 +10,11 @@
 
 import { promises as fsp } from "fs";
 import { join } from "path";
-import { HISTORY_KEEP, type ReplyHistoryEntry } from "@cortex-work/core/reply/history";
+import {
+  HISTORY_KEEP,
+  normalizeHistoryEvent,
+  type ReplyHistoryEntry,
+} from "@cortex-work/core/reply/history";
 
 // id 生成：rh-<base36 时间>-<seq>-<random>（字符集恒落 [\w-]，可安全作文件名）。
 let seq = 0;
@@ -64,17 +68,14 @@ export class ReplyHistoryStore {
     }
   }
 
-  // 读单个事件文件；损坏/结构不符返回 null（list 时静默跳过,不因一条坏数据废全部）。
+  // 读单个事件文件；经 normalizeHistoryEvent 归一（原生兼容 Reply.app 源事件 schema——
+  // 源文件可直接拷入 events 目录使用）。损坏/结构不符返回 null（list 时静默跳过）。
   private async readEvent(path: string): Promise<ReplyHistoryEntry | null> {
     try {
-      const parsed = JSON.parse(await fsp.readFile(path, "utf8"));
-      if (parsed && typeof parsed.id === "string" && typeof parsed.ts === "number") {
-        return parsed as ReplyHistoryEntry;
-      }
+      return normalizeHistoryEvent(JSON.parse(await fsp.readFile(path, "utf8")));
     } catch {
-      // 坏文件：跳过
+      return null; // 坏文件：跳过
     }
-    return null;
   }
 
   /// 读全部历史（跨应用聚合,newest-first）。
