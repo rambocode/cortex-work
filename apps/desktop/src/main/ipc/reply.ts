@@ -190,13 +190,14 @@ export function registerReplyHandlers(): void {
   // ReplyPermissions 三态是 ReplyPermissionStatus（含 unknown）的子集，可直接作为 IPC 返回。
   ipcMain.handle(
     "reply:getPermissions",
-    (): Promise<ReplyPermissionState> => queryReplyPermissions(helperPermissionsSource),
+    (): Promise<ReplyPermissionState> =>
+      queryReplyPermissions(helperPermissionsSource, process.platform, undefined, log),
   );
 
   // 打开系统权限设置面板：直达对应隐私子页（授权引导）。
   ipcMain.handle("reply:openPermissionSettings", async (_e, kind: ReplyPermissionKind): Promise<void> => {
     return openReplyPermissionSettings(kind, {
-      requestAccess: requestReplyPermissionAccess,
+      requestAccess: (k) => requestReplyPermissionAccess(k, process.platform, undefined, log),
       openExternal: (url) => shell.openExternal(url),
     });
   });

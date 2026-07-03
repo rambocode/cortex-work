@@ -182,6 +182,9 @@ importers:
       js-yaml:
         specifier: ^4.1.0
         version: 4.1.1
+      node-gyp:
+        specifier: ^12.4.0
+        version: 12.4.0
       react:
         specifier: 'catalog:'
         version: 19.2.3
