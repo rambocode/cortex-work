@@ -34,8 +34,23 @@ type BubbleAction =
 
 const INITIAL_STATE: BubbleState = { phase: "generating", candidates: [], currentIndex: 0 };
 
-/// 键盘提示 chip + 说明（纯展示；实际键由 helper 吞键驱动，此处只作可视提示）。
-function KeyHint({ chip, label }: { chip: string; label: string }): React.ReactElement {
+/// 翻牌 chip 的紧凑左右箭头:字体箭头字形(←→)过宽,SVG 定宽定高与参考视觉一致。
+function FlipArrows(): React.ReactElement {
+  return (
+    <svg width="16" height="9" viewBox="0 0 16 9" aria-hidden="true" fill="none">
+      <path
+        d="M6.5 4.5H1M1 4.5L3.4 2.2M1 4.5L3.4 6.8M9.5 4.5H15M15 4.5L12.6 2.2M15 4.5L12.6 6.8"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/// 键盘提示 chip + 说明（纯展示；实际键由 helper 吞键驱动，此处只作可视提示）。chip 可传节点（SVG 图标）。
+function KeyHint({ chip, label }: { chip: React.ReactNode; label: string }): React.ReactElement {
   return (
     <span className="rb-hint">
       <span className="rb-hint-chip">{chip}</span>
@@ -132,8 +147,7 @@ export function ReplyBubble({
       <div className="rb-actions rb-actions-row">
         {/* 翻牌是唯一显式鼠标按钮（追加一条避重候选）；填入/关走键盘为主，此处 chip 仅提示。 */}
         <button className="rb-flip" onClick={() => onAction({ type: "flip" })} aria-label="翻牌">
-          {/* 紧凑箭头(无空格 + chip 收紧字距):双箭头 chip 过宽会挤占操作行。 */}
-          <KeyHint chip="←→" label="翻牌" />
+          <KeyHint chip={<FlipArrows />} label="翻牌" />
         </button>
         <KeyHint chip="↩" label="填入" />
         <button className="rb-close-inline" onClick={() => onAction({ type: "close" })} aria-label="关闭">
