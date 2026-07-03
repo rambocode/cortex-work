@@ -67,6 +67,8 @@ interface CaptureResult {
   conversation: string;
   pid: number | null;
   frame: ReplyRect | null;
+  /** 光标插入点矩形（输入法候选窗同款锚点,AXBoundsForRange）：比元素 frame 更精确,优先用于气泡锚定。 */
+  caretFrame: ReplyRect | null;
   /** 焦点窗口 frame；输入框 frame 缺失时气泡兜底锚定到窗口底部（微信等 AX 不完整场景）。 */
   windowFrame: ReplyRect | null;
   appName: string;
@@ -272,7 +274,8 @@ export class ReplyController {
     this.session.setCapturedPid(capture.pid);
     // 拿到焦点输入框 frame 后重锚定气泡；输入框 frame 缺失（微信等 AX 不完整）时用窗口 frame 兜底锚定
     // 到窗口底部输入区，仍取不到才回落鼠标位置。
-    openReplyBubble(capture.frame, capture.windowFrame);
+    // 锚点链:光标插入点(输入法式,最精确)→ 焦点输入框 frame → 窗口 frame(bubble-window 内兜底)。
+    openReplyBubble(capture.caretFrame ?? capture.frame, capture.windowFrame);
 
     const calendarContext = await this.calendarContext(token);
     if (!this.session.isCurrent(token)) return;
@@ -307,6 +310,8 @@ export class ReplyController {
 
     const pid = typeof axRes?.pid === "number" ? (axRes.pid as number) : null;
     const frame = parseRect(axRes?.focusedFrame);
+    // 光标矩形与焦点元素 frame 独立解析:AX 文本不像对话走 OCR 时,光标锚点依旧有效。
+    const caretFrame = parseRect(axRes?.caretFrame);
     // 可变:AX 取不到窗口 frame 时,后面用 OCR 返回的被截窗口 bounds 兜底(坐标系一致,左上原点 point)。
     let windowFrame = parseRect(axRes?.windowFrame);
     const appName = typeof axRes?.appName === "string" ? (axRes.appName as string) : "";
@@ -320,7 +325,7 @@ export class ReplyController {
 
     // AX 文本「像对话」（helper 侧已算 meaningful）→ 直接采用
     if (axRes?.ok === true && axRes.meaningful === true) {
-      return { conversation: axText, pid, frame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText: "" };
+      return { conversation: axText, pid, frame, caretFrame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText: "" };
     }
 
     // 降级 OCR：截屏 + Vision → U1 对话重建
@@ -345,13 +350,13 @@ export class ReplyController {
       }).transcript(blocks);
       ocrText = transcript;
       if (looksLikeConversation(transcript)) {
-        return { conversation: transcript, pid, frame, windowFrame, appName, appBundleId, counterpart, source: "ocr", axText, ocrText };
+        return { conversation: transcript, pid, frame, caretFrame, windowFrame, appName, appBundleId, counterpart, source: "ocr", axText, ocrText };
       }
     }
 
     // AX 与 OCR 都不像对话：回退 AX 文本（有内容才用），否则彻底失败。
     if (axText.trim().length > 0) {
-      return { conversation: axText, pid, frame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText };
+      return { conversation: axText, pid, frame, caretFrame, windowFrame, appName, appBundleId, counterpart, source: "ax", axText, ocrText };
     }
     return null;
   }

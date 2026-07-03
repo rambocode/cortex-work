@@ -85,6 +85,9 @@ function create(): BrowserWindow {
     fullscreenable: false,
     skipTaskbar: true,
     focusable: false, // 永不抢焦：目标 app 输入焦点不被打断（本功能核心约束）
+    // 首击直达内容:没有它,点击未激活窗口的第一下会被 macOS 当「激活点击」消费——
+    // 既丢一次点击,又激活本应用把主窗口带到前台(panel 非激活语义被绕过)。
+    acceptFirstMouse: true,
     show: false,
     hasShadow: false,
     backgroundColor: "#00000000",

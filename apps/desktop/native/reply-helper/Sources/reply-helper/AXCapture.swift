@@ -64,6 +64,32 @@ private func axFrame(of element: AXUIElement) -> [String: Double]? {
     return ["x": Double(point.x), "y": Double(point.y), "width": Double(size.width), "height": Double(size.height)]
 }
 
+/// 读取焦点文本元素的光标(文本插入点)屏幕矩形——输入法候选窗的定位方式:
+/// AXSelectedTextRange → kAXBoundsForRangeParameterizedAttribute。坐标系同 axFrame(主屏左上原点)。
+/// 纯光标(空选区)常见返回零宽矩形,属正常;取不到或全零垃圾值返回 nil,
+/// 由主进程按 caret → 输入框 frame → 窗口 frame → 鼠标 的链条兜底。
+private func axCaretFrame(of element: AXUIElement) -> [String: Double]? {
+    var rangeRef: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+          let rangeValue = rangeRef else {
+        return nil
+    }
+    var boundsRef: CFTypeRef?
+    guard AXUIElementCopyParameterizedAttributeValue(
+        element,
+        kAXBoundsForRangeParameterizedAttribute as CFString,
+        rangeValue,
+        &boundsRef
+    ) == .success, let boundsValue = boundsRef else {
+        return nil
+    }
+    var rect = CGRect.zero
+    guard AXValueGetValue((boundsValue as! AXValue), .cgRect, &rect) else { return nil }
+    // 部分应用对空光标返回全零矩形——视为无效(真实光标至少有行高;(0,0) 顶角零尺寸不可能是插入点)。
+    if rect.origin.x == 0, rect.origin.y == 0, rect.size.width == 0, rect.size.height == 0 { return nil }
+    return ["x": Double(rect.origin.x), "y": Double(rect.origin.y), "width": Double(rect.size.width), "height": Double(rect.size.height)]
+}
+
 /// 深度优先收集元素子树的所有文本。深度上限 8、每层子节点上限 80——
 /// 微信等应用的 AX 树极深且宽,不设上限会在超大窗口上卡死;这两个常量沿用 ReplyClone 契约。
 private func collectText(from element: AXUIElement, depth: Int) -> [String] {
@@ -188,6 +214,8 @@ func runAXCapture() {
         "appBundleId": app.bundleIdentifier ?? ""
     ]
     payload["focusedFrame"] = focusedFrame ?? NSNull()
+    // 光标插入点矩形(输入法式精确锚点):优先于 focusedFrame 供气泡锚定,元素 frame 漂移时仍指向真实输入位置。
+    payload["caretFrame"] = focusedElement.flatMap(axCaretFrame(of:)) ?? NSNull()
     payload["windowFrame"] = windowFrame ?? NSNull()
     emitJSON(payload)
 }
