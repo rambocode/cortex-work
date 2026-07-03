@@ -6,17 +6,15 @@
 //   - 温度分层（源项目契约经直连恢复）：首条候选 0.3、预生成/翻牌 0.9、语气蒸馏 0.2；由调用方按场景传入。
 //     避重列表机制（buildReplyPrompt.avoidReplies）保留不动，与温度叠加提升多样性。
 //   - system 走独立消息通道（直连支持 system role，不再拼接进 user）。
-//   - 请求构造复用既有工具：chatCompletionsUrl（../ipc/push-sign）+ authHeaders（whisper/transcribe-auth），
-//     与 ipc/llm.ts 的 llm:openaiComplete handler 写法一致（apiKey 不出 main，规避 renderer CORS）。
-//   - 超时 30s（快捷场景比 llm.ts 的 60s 短，避免用户久等）；与调用方 signal 用 AbortSignal.any 组合，
-//     controller 在 esc / 重入时 abort 即中止在途请求（Electron 的 Node ≥20 支持 AbortSignal.any）。
+//   - 请求发送/解析/错误契约收敛在 ../ipc/openai-chat.ts（与 llm:openaiComplete 共用真源，
+//     apiKey 不出 main）；本文件只补 reply 场景差异：30s 超时（比 llm.ts 的 60s 短，避免用户久等）、
+//     调用方取消信号（controller esc / 重入时 abort 即中止在途请求）。
 //   - 输出经 cleanAgentOutput 清洗（剥围栏 / 特殊 token / 开场白 / 引号）后返回；清洗后为空视为「空候选」
 //     抛 EmptyDraftError，由 controller 推气泡错误态（不静默回 idle）。
 
-import { chatCompletionsUrl } from "../ipc/push-sign";
-import { authHeaders } from "../capabilities/whisper/transcribe-auth";
 import type { ReplyPrompt } from "@cortex-work/core/reply/prompt-builder";
 import type { ResolvedReplyModel } from "./resolve-model";
+import { postChatCompletion } from "../ipc/openai-chat";
 import { cleanAgentOutput } from "./controller-state";
 
 /** 清洗后草稿为空（模型只吐了围栏 / 寒暄 / 空白）。controller 据此推「空候选」错误态。 */
@@ -42,12 +40,13 @@ export const REPLY_TEMPERATURES = {
   distill: 0.2,
 } as const;
 
-/** 生成器依赖注入口（测试可替换 fetchFn，默认走全局 fetch，从不真发网络请求）。 */
-export interface DraftGeneratorDeps {
+/** 依赖注入口（测试可替换 fetchFn，默认走全局 fetch，从不真发网络请求）。 */
+export interface ChatCompleteDeps {
   fetchFn?: typeof fetch;
 }
 
-export interface GenerateDraftParams {
+/** chatComplete/generateDraft 共用入参（蒸馏也走 chatComplete，故命名不限于 draft）。 */
+export interface ChatCompleteParams {
   prompt: ReplyPrompt;
   /** 已解析的直连目标（供应商 baseUrl/apiKey/model；由 resolveReplyModel 产出）。 */
   target: ResolvedReplyModel;
@@ -63,44 +62,24 @@ export interface GenerateDraftParams {
  * cleanAgentOutput 误伤）；候选生成走下方 generateDraft 包装。非 2xx / 无内容抛错。
  */
 export async function chatComplete(
-  params: GenerateDraftParams,
-  deps: DraftGeneratorDeps = {},
+  params: ChatCompleteParams,
+  deps: ChatCompleteDeps = {},
 ): Promise<string> {
-  const fetchFn = deps.fetchFn ?? globalThis.fetch;
-  const { target, prompt, temperature } = params;
-
-  const url = chatCompletionsUrl(target.baseUrl);
-  // 组合调用方 signal 与超时 signal：任一触发即中止（AbortSignal.any 短路，Node ≥20）。
-  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  const signal = params.signal ? AbortSignal.any([params.signal, timeoutSignal]) : timeoutSignal;
-
-  const res = await fetchFn(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(await authHeaders(target.baseUrl, target.apiKey)),
-    },
-    body: JSON.stringify({
-      model: target.model,
-      // system 走独立消息（直连有 system 通道，不再拼接进 user）。
-      messages: [
-        { role: "system", content: prompt.system },
-        { role: "user", content: prompt.user },
-      ],
-      temperature,
-      stream: false,
-    }),
-    signal,
+  const { target, prompt } = params;
+  return postChatCompletion({
+    baseUrl: target.baseUrl,
+    apiKey: target.apiKey,
+    model: target.model,
+    // system 走独立消息（直连有 system 通道，不再拼接进 user）。
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user },
+    ],
+    temperature: params.temperature,
+    signal: params.signal,
+    timeoutMs: REQUEST_TIMEOUT_MS,
+    fetchFn: deps.fetchFn,
   });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`模型接口 HTTP ${res.status}${body ? `:${body.slice(0, 200)}` : ""}`);
-  }
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  const content = data.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim()) throw new Error("模型未返回内容");
-  return content;
 }
 
 /**
@@ -108,8 +87,8 @@ export async function chatComplete(
  * 非空返回，空则抛 EmptyDraftError（controller 推「空候选」错误态）。
  */
 export async function generateDraft(
-  params: GenerateDraftParams,
-  deps: DraftGeneratorDeps = {},
+  params: ChatCompleteParams,
+  deps: ChatCompleteDeps = {},
 ): Promise<string> {
   const content = await chatComplete(params, deps);
   const cleaned = cleanAgentOutput(content);

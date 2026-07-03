@@ -535,7 +535,7 @@
   },
   "reply": {
     "title": "快捷回复",
-    "desc": "在任意应用里用快捷键起草回复 —— 捕获对话、用默认 agent 生成候选、不抢焦写回。仅 macOS。",
+    "desc": "在任意应用里用快捷键起草回复 —— 捕获对话、直连所选模型供应商生成候选、不抢焦写回。仅 macOS。",
     "modelCard": "生成模型",
     "modelDesc": "快捷回复直连所选模型供应商生成候选。选「跟随供应商默认」则复用应用的默认模型。仅支持 OpenAI 兼容(chat_completions)协议的供应商。",
     "modelProviderLabel": "供应商",

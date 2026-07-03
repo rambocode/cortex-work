@@ -11,7 +11,8 @@ import type {
   TtsStreamEvent,
   TtsVoiceOption,
 } from "./types";
-import { audioSpeechPayload, audioSpeechUrl, audioVoiceUrls, chatCompletionsUrl } from "./push-sign";
+import { audioSpeechPayload, audioSpeechUrl, audioVoiceUrls } from "./push-sign";
+import { postChatCompletion } from "./openai-chat";
 // OQ4：在线转写逻辑已抽取为共享函数（capabilities/whisper/online-transcribe.ts），
 // asr:transcribe（旧入口）与 stt:transcribe 在线分支（新入口）均调用它，
 // 确保 MAX_BYTES 约束与行为一致。
@@ -65,27 +66,15 @@ function parseVoiceOptions(data: unknown): TtsVoiceOption[] {
 
 export function registerLlmHandlers(): void {
   ipcMain.handle("llm:openaiComplete", async (_e, req: OpenAiCompleteRequest) => {
-    const url = chatCompletionsUrl(req.baseUrl);
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(await authHeaders(req.baseUrl, req.apiKey)),
-      },
-      body: JSON.stringify({
-        model: req.model,
-        messages: [{ role: "user", content: req.prompt }],
-        stream: false,
-      }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+    // 请求/解析/错误契约收敛在 openai-chat.ts（与 reply 直连生成共用真源）；
+    // 本入口保持旧行为：单 user 消息、不传 temperature、60s 超时、trim 后返回。
+    const content = await postChatCompletion({
+      baseUrl: req.baseUrl,
+      apiKey: req.apiKey,
+      model: req.model,
+      messages: [{ role: "user", content: req.prompt }],
+      timeoutMs: TIMEOUT_MS,
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`模型接口 HTTP ${res.status}${body ? `:${body.slice(0, 200)}` : ""}`);
-    }
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const content = data.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) throw new Error("模型未返回内容");
     return content.trim();
   });
 
