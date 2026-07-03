@@ -132,7 +132,8 @@ export function ReplyBubble({
       <div className="rb-actions rb-actions-row">
         {/* 翻牌是唯一显式鼠标按钮（追加一条避重候选）；填入/关走键盘为主，此处 chip 仅提示。 */}
         <button className="rb-flip" onClick={() => onAction({ type: "flip" })} aria-label="翻牌">
-          <KeyHint chip="← →" label="翻牌" />
+          {/* 紧凑箭头(无空格 + chip 收紧字距):双箭头 chip 过宽会挤占操作行。 */}
+          <KeyHint chip="←→" label="翻牌" />
         </button>
         <KeyHint chip="↩" label="填入" />
         <button className="rb-close-inline" onClick={() => onAction({ type: "close" })} aria-label="关闭">

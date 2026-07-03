@@ -101,6 +101,8 @@ body {
   background: var(--chip-bg);
   border-radius: 4px;
   color: var(--text-2);
+  /* 收紧字距:「←→」这类多字符 chip 不再占过宽位(参考气泡的紧凑角标)。 */
+  letter-spacing: -1px;
 }
 .rb-hint-label {
   font-size: 11px;
