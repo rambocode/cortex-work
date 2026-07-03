@@ -1,0 +1,175 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  useReplyStore,
+  replyToPersisted,
+  replySaveUrgency,
+  type ReplyStore,
+} from "./reply";
+import { DEFAULT_REPLY_SETTINGS } from "../desktop/types";
+import { emptyMemoryState, MEMORY_SCOPES } from "../reply/memory";
+
+// 每个用例前复位到未 hydrate 的工厂初值，避免跨用例串态。
+beforeEach(() => {
+  useReplyStore.setState({
+    hydrated: false,
+    settings: DEFAULT_REPLY_SETTINGS,
+    memory: emptyMemoryState(),
+    channels: { connections: {}, credentials: {}, notes: {} },
+  });
+});
+
+describe("useReplyStore hydrate", () => {
+  it("空分片 hydrate 回落全默认，不抛", () => {
+    useReplyStore.getState().hydrateReply({});
+    const s = useReplyStore.getState();
+    expect(s.hydrated).toBe(true);
+    expect(s.settings).toEqual(DEFAULT_REPLY_SETTINGS);
+    expect(s.memory).toEqual(emptyMemoryState());
+    expect(s.channels).toEqual({ connections: {}, credentials: {}, notes: {} });
+  });
+
+  it("半缺记忆分片 hydrate 补齐缺失 scope（不抛）", () => {
+    // 只给 profile，其余 4 分区缺失。
+    useReplyStore.getState().hydrateReply({
+      replyMemory: { profile: { manual: "我是产品经理", auto: "" } } as never,
+    });
+    const memory = useReplyStore.getState().memory;
+    expect(memory.profile.manual).toBe("我是产品经理");
+    // 缺失分区补空默认。
+    for (const scope of MEMORY_SCOPES) {
+      expect(memory[scope]).toBeDefined();
+      expect(typeof memory[scope].manual).toBe("string");
+      expect(typeof memory[scope].auto).toBe("string");
+    }
+  });
+
+  it("半缺渠道分片 hydrate 补齐三个子表", () => {
+    useReplyStore.getState().hydrateReply({
+      replyChannels: { connections: { slack: { id: "slack", isConnected: true } } } as never,
+    });
+    const channels = useReplyStore.getState().channels;
+    expect(channels.connections.slack?.isConnected).toBe(true);
+    expect(channels.credentials).toEqual({});
+    expect(channels.notes).toEqual({});
+  });
+});
+
+describe("useReplyStore 设置更新", () => {
+  it("setSettings 合并式更新，未传字段保持不变", () => {
+    useReplyStore.getState().setSettings({ draftTrigger: "option", learningEnabled: false });
+    const s = useReplyStore.getState().settings;
+    expect(s.draftTrigger).toBe("option");
+    expect(s.learningEnabled).toBe(false);
+    // 未改字段保持默认。
+    expect(s.voiceTrigger).toBe("fn");
+    expect(s.userProfile).toBe("");
+  });
+});
+
+describe("useReplyStore 记忆分区写入", () => {
+  it("setMemoryFile 只改目标分区，其余分区不受影响（修复源项目共用变量缺陷）", () => {
+    useReplyStore.getState().setMemoryFile("im", { manual: "IM 简短" });
+    useReplyStore.getState().setMemoryFile("email", { auto: "- 邮件要有署名" });
+    const memory = useReplyStore.getState().memory;
+    expect(memory.im.manual).toBe("IM 简短");
+    expect(memory.im.auto).toBe(""); // 只改了 manual
+    expect(memory.email.auto).toBe("- 邮件要有署名");
+    expect(memory.email.manual).toBe("");
+    // 其余分区仍空。
+    expect(memory.core).toEqual({ manual: "", auto: "" });
+  });
+
+  it("clearAllMemory 清空手写与自动", () => {
+    useReplyStore.getState().setMemoryFile("core", { manual: "m", auto: "a" });
+    useReplyStore.getState().clearAllMemory();
+    expect(useReplyStore.getState().memory).toEqual(emptyMemoryState());
+  });
+
+  it("clearAutoRules 只清自动区，保留手写区", () => {
+    useReplyStore.getState().setMemoryFile("core", { manual: "手写保留", auto: "- 自动要点" });
+    useReplyStore.getState().setMemoryFile("im", { manual: "", auto: "- IM 要点" });
+    useReplyStore.getState().clearAutoRules();
+    const memory = useReplyStore.getState().memory;
+    expect(memory.core.manual).toBe("手写保留");
+    expect(memory.core.auto).toBe("");
+    expect(memory.im.auto).toBe("");
+  });
+});
+
+describe("useReplyStore 渠道状态流转", () => {
+  it("setChannelConnection + setChannelCredential 写入后 disconnect 同时清连接与凭据、留备注", () => {
+    const store = useReplyStore.getState();
+    store.setChannelConnection("slack", {
+      id: "slack",
+      isConnected: true,
+      accountName: "alice",
+      accountDetail: "acme",
+      connectedAt: 123,
+    });
+    store.setChannelCredential("slack", { ciphertext: "enc==" });
+    store.setChannelNote("slack", "工作号");
+
+    let channels = useReplyStore.getState().channels;
+    expect(channels.connections.slack?.accountName).toBe("alice");
+    expect(channels.credentials.slack?.ciphertext).toBe("enc==");
+    expect(channels.notes.slack).toBe("工作号");
+
+    useReplyStore.getState().disconnectChannel("slack");
+    channels = useReplyStore.getState().channels;
+    expect(channels.connections.slack).toBeUndefined();
+    expect(channels.credentials.slack).toBeUndefined();
+    // 备注保留，便于重连沿用。
+    expect(channels.notes.slack).toBe("工作号");
+  });
+
+  it("clearChannelNotes 清空全部备注", () => {
+    useReplyStore.getState().setChannelNote("slack", "a");
+    useReplyStore.getState().setChannelNote("gmail", "b");
+    useReplyStore.getState().clearChannelNotes();
+    expect(useReplyStore.getState().channels.notes).toEqual({});
+  });
+});
+
+describe("replyToPersisted / replySaveUrgency", () => {
+  it("replyToPersisted 序列化含三分片且字段完整往返", () => {
+    const store = useReplyStore.getState();
+    store.hydrateReply({});
+    store.setSettings({ draftTrigger: "fn", userProfile: "PM" });
+    store.setMemoryFile("core", { auto: "- 简洁" });
+    store.setChannelCredential("lark", { ciphertext: "x" });
+
+    const persisted = replyToPersisted(useReplyStore.getState());
+    // 往返：把序列化结果重新 hydrate 到新状态应等价。
+    useReplyStore.setState({
+      hydrated: false,
+      settings: DEFAULT_REPLY_SETTINGS,
+      memory: emptyMemoryState(),
+      channels: { connections: {}, credentials: {}, notes: {} },
+    });
+    useReplyStore.getState().hydrateReply(persisted);
+    const roundTripped = useReplyStore.getState();
+    expect(roundTripped.settings.draftTrigger).toBe("fn");
+    expect(roundTripped.settings.userProfile).toBe("PM");
+    expect(roundTripped.memory.core.auto).toBe("- 简洁");
+    expect(roundTripped.channels.credentials.lark?.ciphertext).toBe("x");
+  });
+
+  it("未 hydrate 时返回 none（避免空态覆盖磁盘）", () => {
+    const prev = useReplyStore.getState();
+    const next: ReplyStore = { ...prev, hydrated: false, settings: { ...prev.settings } };
+    expect(replySaveUrgency(next, prev)).toBe("none");
+  });
+
+  it("hydrate 后任一分片引用变化返回 throttled，无变化返回 none", () => {
+    useReplyStore.getState().hydrateReply({});
+    const prev = useReplyStore.getState();
+    // 无变化。
+    expect(replySaveUrgency({ ...prev }, prev)).toBe("none");
+    // settings 引用变化。
+    expect(replySaveUrgency({ ...prev, settings: { ...prev.settings } }, prev)).toBe("throttled");
+    // memory 引用变化。
+    expect(replySaveUrgency({ ...prev, memory: { ...prev.memory } }, prev)).toBe("throttled");
+    // channels 引用变化。
+    expect(replySaveUrgency({ ...prev, channels: { ...prev.channels } }, prev)).toBe("throttled");
+  });
+});

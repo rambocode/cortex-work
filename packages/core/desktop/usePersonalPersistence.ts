@@ -5,6 +5,8 @@
 import { useEffect, useRef } from "react";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore, toPersistedState, type PersonalState } from "../store/personal";
+import { useReplyStore, replyToPersisted, replySaveUrgency } from "../store/reply";
+import type { PersistedState } from "./types";
 
 const SAVE_THROTTLE_MS = 500;
 
@@ -51,11 +53,35 @@ export function usePersonalPersistence(): void {
     if (!bridge) return;
     let cancelled = false;
 
+    // 合并序列化（KTD6 内定「倾向前者」）：个人分片 + reply 三分片同写一份 PersistedState，
+    // 复用既有单条 store:save 通道，避免另建独立节流管线。
+    const buildPersisted = (): PersistedState => ({
+      ...toPersistedState(usePersonalStore.getState()),
+      ...replyToPersisted(useReplyStore.getState()),
+    });
+
+    // 两个 store 的订阅共用同一节流计时器与保存例程；urgency 由各自的判定函数给出。
+    const scheduleSave = (urgency: SaveUrgency): void => {
+      if (urgency === "none") return;
+      if (timer.current) clearTimeout(timer.current);
+      if (urgency === "immediate") {
+        // 立即发起保存（含全部切片）,同源 IPC 按序处理,保证先于后续 fs 调用。
+        timer.current = null;
+        void bridge.saveState(buildPersisted());
+        return;
+      }
+      timer.current = setTimeout(() => {
+        void bridge.saveState(buildPersisted());
+      }, SAVE_THROTTLE_MS);
+    };
+
     bridge
       .loadState()
       .then(async (state) => {
         if (cancelled) return;
         usePersonalStore.getState().hydrate(state);
+        // reply 三分片一并 hydrate（缺失/半缺分片由 store 内部补空默认）。
+        useReplyStore.getState().hydrateReply(state);
         // 启动时重扫 prompt 树（不持久化树本身）。
         if (state.promptRoot) {
           try {
@@ -67,31 +93,23 @@ export function usePersonalPersistence(): void {
         }
       })
       .catch(() => {
-        if (!cancelled) usePersonalStore.getState().hydrate({ version: 1, projects: [], sessions: [] });
+        if (!cancelled) {
+          usePersonalStore.getState().hydrate({ version: 1, projects: [], sessions: [] });
+          useReplyStore.getState().hydrateReply({});
+        }
       });
 
-    const unsub = usePersonalStore.subscribe((s, prev) => {
-      const urgency = saveUrgency(s, prev);
-      if (urgency === "none") return;
-      if (timer.current) clearTimeout(timer.current);
-      if (urgency === "immediate") {
-        // 立即发起保存（含全部切片）,同源 IPC 按序处理,保证先于后续 fs 调用。
-        timer.current = null;
-        void bridge.saveState(toPersistedState(usePersonalStore.getState()));
-        return;
-      }
-      timer.current = setTimeout(() => {
-        void bridge.saveState(toPersistedState(usePersonalStore.getState()));
-      }, SAVE_THROTTLE_MS);
-    });
+    const unsubPersonal = usePersonalStore.subscribe((s, prev) => scheduleSave(saveUrgency(s, prev)));
+    const unsubReply = useReplyStore.subscribe((s, prev) => scheduleSave(replySaveUrgency(s, prev)));
 
     return () => {
       cancelled = true;
-      unsub();
+      unsubPersonal();
+      unsubReply();
       if (timer.current) {
         clearTimeout(timer.current);
         // 卸载前冲刷一次，避免丢最后一笔变更。
-        void bridge.saveState(toPersistedState(usePersonalStore.getState()));
+        void bridge.saveState(buildPersisted());
       }
     };
   }, [bridge]);

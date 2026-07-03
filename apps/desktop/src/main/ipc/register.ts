@@ -33,6 +33,7 @@ import { registerOrchestrateHandlers } from "./orchestrate";
 import { installIpcTrace } from "../log/ipc-trace";
 import { registerRoleHandlers } from "./roles";
 import { registerRoundtableHandlers } from "./roundtable";
+import { registerReplyHandlers } from "./reply";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -75,6 +76,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerOrchestrateHandlers(); // chat 三段编排调度器（U1）
   registerRoleHandlers(); // 全局角色库 CRUD（圆桌会话）
   registerRoundtableHandlers(); // 圆桌多角色 BFS 编排调度器
+  registerReplyHandlers(); // 快捷回复助手 IPC 域（U5 骨架，U7/U9 填实）
 }
 
 export { killAllCli } from "./cli";

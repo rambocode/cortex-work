@@ -70,6 +70,12 @@ import type {
   WorkflowDef,
   WorkflowRun,
   WorkflowRunEvent,
+  ChannelId,
+  ReplyPermissionKind,
+  ReplyPermissionState,
+  ReplyChannelVerifyResult,
+  ReplyDebugEntry,
+  ReplySyncSnapshot,
 } from "../main/ipc/types";
 // 方案 A：编排请求类型权威定义留在 orchestrate.ts，此处 type-only 引入（编译期擦除，
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
@@ -678,6 +684,21 @@ const personal = {
     ipcRenderer.on("workflow:run-event", listener);
     return () => ipcRenderer.removeListener("workflow:run-event", listener);
   },
+
+  // ── 快捷回复助手（reply）IPC 透传 ─────────────────────────────────────────────
+  // 形状与 packages/core/desktop/bridge.ts 的 DesktopBridge reply* 方法一一对应。
+  // macOS-only；主进程 U5 为骨架（返回安全默认），U7/U9 填实。
+  replyGetPermissions: (): Promise<ReplyPermissionState> => ipcRenderer.invoke("reply:getPermissions"),
+  replyOpenPermissionSettings: (kind: ReplyPermissionKind): Promise<void> =>
+    ipcRenderer.invoke("reply:openPermissionSettings", kind),
+  replyVerifyChannel: (channelId: ChannelId, token: string): Promise<ReplyChannelVerifyResult> =>
+    ipcRenderer.invoke("reply:verifyChannel", channelId, token),
+  replyDisconnectChannel: (channelId: ChannelId): Promise<void> =>
+    ipcRenderer.invoke("reply:disconnectChannel", channelId),
+  replyGetDebugLog: (): Promise<ReplyDebugEntry[]> => ipcRenderer.invoke("reply:getDebugLog"),
+  replyTriggerDraft: (): Promise<void> => ipcRenderer.invoke("reply:triggerDraft"),
+  replySyncSettings: (snapshot: ReplySyncSnapshot): Promise<void> =>
+    ipcRenderer.invoke("reply:syncSettings", snapshot),
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

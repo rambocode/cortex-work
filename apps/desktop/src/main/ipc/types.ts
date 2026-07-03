@@ -90,6 +90,10 @@ export interface TodoMeta {
 // 原导入路径 ./types 经此 re-export 保持不变。
 export * from "./tasks-types";
 
+// 快捷回复助手（reply）分片与桥接契约（U5）→ ./reply-types.ts。与 core 镜像。
+export * from "./reply-types";
+import type { ReplySettings, ReplyMemoryState, ReplyChannelsState } from "./reply-types";
+
 export interface SessionMeta {
   id: string;
   // 关联项目;缺省 = 不使用项目（会话在 Documents/cortex/<日期> 工作）。
@@ -435,6 +439,11 @@ export interface PersistedState {
   // 媒体生成/ASR 设置（renderer 全量写入;主进程透传持久化;U4/U7/U9 读取路由）。
   mediaGenSettings?: MediaGenSettings;
   asrSettings?: AsrSettings;
+  // 快捷回复助手三分片（U5/KTD6）：renderer 全量写入，主进程透明落盘（U7/U9 消费）。
+  // 与 packages/core/desktop/types.ts 镜像。
+  replySettings?: ReplySettings;
+  replyMemory?: ReplyMemoryState;
+  replyChannels?: ReplyChannelsState;
 }
 
 export interface ReadFileResult {

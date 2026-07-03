@@ -81,7 +81,13 @@ import type {
   TtsVoiceOption,
   AppInfo,
   UpdateState,
+  ReplyPermissionKind,
+  ReplyPermissionState,
+  ReplyChannelVerifyResult,
+  ReplyDebugEntry,
+  ReplySyncSnapshot,
 } from "./types";
+import type { ChannelId } from "../reply/channels";
 import type {
   LocalWhisperModelStatus,
   LocalWhisperModelProgress,
@@ -522,4 +528,22 @@ export interface DesktopBridge {
   onWorkflowChanged?(cb: (list: WorkflowDef[]) => void): () => void;
   /** 订阅单次运行阶段事件（start/end，运行时 U8/U9 推送；返回退订函数）。 */
   onWorkflowRunEvent?(cb: (event: WorkflowRunEvent) => void): () => void;
+
+  // ── 快捷回复助手（reply）────────────────────────────────────────────────────
+  // macOS-only：Web / 非 mac 端这些方法为 undefined，UI 据此隐藏整个设置分区（沿 transcribeSpeech
+  // 先例，全部 `?:` 可选）。跨进程契约见 apps/desktop/src/main/ipc/reply.ts（U5 stub，U7/U9 填实）。
+  /** 查询五项系统权限状态（accessibility/screen/calendar/mic/speech）。 */
+  replyGetPermissions?(): Promise<ReplyPermissionState>;
+  /** 打开指定权限的系统设置面板（授权引导）。 */
+  replyOpenPermissionSettings?(kind: ReplyPermissionKind): Promise<void>;
+  /** 校验渠道凭据：main 发 fetch + safeStorage 加密，成功回带账号身份与密文。 */
+  replyVerifyChannel?(channelId: ChannelId, token: string): Promise<ReplyChannelVerifyResult>;
+  /** 断开渠道：main 侧清除 safeStorage 密文（store 连接态由渲染端清）。 */
+  replyDisconnectChannel?(channelId: ChannelId): Promise<void>;
+  /** 拉取内存调试记录（最近 20 条，进程退出即清）。 */
+  replyGetDebugLog?(): Promise<ReplyDebugEntry[]>;
+  /** 手动触发一次起草（兜底 accelerator / 调试入口）。 */
+  replyTriggerDraft?(): Promise<void>;
+  /** 渲染端把「设置 + 记忆 + 默认 agent」快照推送到 main（供 draft-generator 生成候选）。 */
+  replySyncSettings?(snapshot: ReplySyncSnapshot): Promise<void>;
 }

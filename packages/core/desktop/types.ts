@@ -772,6 +772,10 @@ import type { MediaGenSettings, AsrSettings } from "./media-gen-types";
 // 工作流（loop）类型定义集中在 ./workflow-types 以遵守单文件 1200 行上限。
 export * from "./workflow-types";
 
+// 快捷回复助手（reply）分片与桥接契约集中在 ./reply-types（同为 1200 行上限的拆分）。
+export * from "./reply-types";
+import type { ReplySettings, ReplyMemoryState, ReplyChannelsState } from "./reply-types";
+
 // 主进程 userData JSON 中持久化的全量状态。
 export interface PersistedState {
   version: 1;
@@ -803,6 +807,13 @@ export interface PersistedState {
   mediaGenSettings?: MediaGenSettings;
   // 语音识别设置（旧 JSON 无此字段时 hydrate 回落工厂默认）。
   asrSettings?: AsrSettings;
+  // 快捷回复助手三分片（U5/KTD6）：旧档无此字段时 hydrate 回落空默认。
+  //   replySettings — 触发键 / 学习开关 / 用户档案；
+  //   replyMemory   — 5 分区手写 + 自动学习要点（原始样本不落盘，KTD8）；
+  //   replyChannels — 渠道连接态 + safeStorage 加密凭据 + 备注。
+  replySettings?: ReplySettings;
+  replyMemory?: ReplyMemoryState;
+  replyChannels?: ReplyChannelsState;
 }
 
 // 落地页激励问候语的每日 LLM 生成快照（按天缓存）。
