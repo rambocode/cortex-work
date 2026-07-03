@@ -536,6 +536,8 @@
   "reply": {
     "title": "快捷回复",
     "desc": "在任意应用里用快捷键起草回复 —— 捕获对话、用默认 agent 生成候选、不抢焦写回。仅 macOS。",
+    "agentCard": "生成 Agent",
+    "agentDesc": "快捷回复复用应用的「默认 Agent」生成候选,没有单独的回复 Agent 选项。请在「Agent」分区设置默认 Agent;建议选 claude 或 codex —— pi 的内置后端可能不可用(报 deactivated_workspace)。",
     "triggersCard": "触发键",
     "draftTriggerLabel": "起草触发键",
     "draftTriggerDesc": "在任意应用双击该修饰键即开始起草。",

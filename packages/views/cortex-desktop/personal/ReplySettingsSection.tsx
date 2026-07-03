@@ -451,6 +451,12 @@ export function ReplySettingsSection() {
 
   return (
     <>
+      {/* 生成 Agent 说明：回复复用应用「默认 Agent」（KTD3），无 reply 专属选择器；
+          指向 Agent 分区配置，并提示 pi 内置后端可能不可用（建议 claude / codex）。 */}
+      <SettingCard title={t("reply.agentCard")}>
+        <div className="pw-srow-desc">{t("reply.agentDesc")}</div>
+      </SettingCard>
+
       {/* 触发键 */}
       <SettingCard title={t("reply.triggersCard")}>
         <SRow label={t("reply.draftTriggerLabel")} desc={t("reply.draftTriggerDesc")} end>

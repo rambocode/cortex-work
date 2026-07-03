@@ -536,6 +536,8 @@
   "reply": {
     "title": "Quick Reply",
     "desc": "Draft replies in any app with a hotkey — capture the conversation, generate candidates with your default agent, and write back without stealing focus. macOS only.",
+    "agentCard": "Generation agent",
+    "agentDesc": "Quick reply reuses the app's default agent to generate candidates — there is no separate reply agent. Set the default agent in the Agent section; prefer claude or codex, as pi's built-in backend may be unavailable (deactivated_workspace).",
     "triggersCard": "Trigger keys",
     "draftTriggerLabel": "Draft trigger",
     "draftTriggerDesc": "Double-tap this modifier in any app to start drafting.",
