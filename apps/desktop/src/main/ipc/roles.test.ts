@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync } from "fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { loadRoles, createRole, updateRole, deleteRole } from "./roles";
@@ -22,7 +22,6 @@ describe("roles CRUD", () => {
   });
 
   it("loadRoles 在非法 JSON 时返回 []", () => {
-    const { writeFileSync } = require("fs");
     writeFileSync(path, "not json", "utf8");
     expect(loadRoles(path)).toEqual([]);
   });
@@ -92,7 +91,6 @@ describe("roles CRUD", () => {
   });
 
   it("loadRoles 跳过非法条目并保留合法条目", () => {
-    const { writeFileSync } = require("fs");
     writeFileSync(
       path,
       JSON.stringify([
@@ -109,7 +107,6 @@ describe("roles CRUD", () => {
   });
 
   it("loadRoles 去重保留首个", () => {
-    const { writeFileSync } = require("fs");
     writeFileSync(
       path,
       JSON.stringify([
