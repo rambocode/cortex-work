@@ -50,6 +50,10 @@ const PERMISSION_SETTINGS_URL: Record<ReplyPermissionKind, string> = {
 
 // ── 渠道校验（构造请求 + 解析响应，纯函数在 core；此处只做网络往返与错误归一化）──────
 
+// 渠道校验 fetch 超时（毫秒）：主进程 fetch 无默认超时，对端「连上但不回包」时
+// Promise 永不 settle，渲染端连接中无限转圈。用 AbortSignal.timeout 兜底强制中止。
+const CHANNEL_VERIFY_TIMEOUT_MS = 10_000;
+
 /// 按渠道分派请求构造 + 响应解析器；不支持的渠道（日历类）返回 null。
 function channelVerifier(
   channelId: ChannelId,
@@ -81,6 +85,8 @@ async function verifyChannel(channelId: ChannelId, token: string): Promise<Reply
       method: request.method,
       headers: request.headers,
       body: request.body,
+      // 超时兜底：到点由 AbortSignal.timeout 抛 TimeoutError 中止 fetch（见下方 catch 归一化）。
+      signal: AbortSignal.timeout(CHANNEL_VERIFY_TIMEOUT_MS),
     });
     // 非 2xx 先于解析抛 httpStatus（Slack/Lark 的业务错误走 200，不会落这里）。
     if (!res.ok) {
@@ -102,7 +108,12 @@ async function verifyChannel(channelId: ChannelId, token: string): Promise<Reply
     if (err instanceof ChannelVerifyError) {
       return { ok: false, errorKind: err.kind, errorDetail: err.detail };
     }
-    // 网络层异常（DNS/超时/离线）归为 httpStatus，携带原始信息便于诊断。
+    // 超时/中止（AbortSignal.timeout 抛 TimeoutError，手动 abort 抛 AbortError）：
+    // 归一化为可读文案，不透传底层 message（底层文案含义模糊，渲染端无法直呈用户）。
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      return { ok: false, errorKind: "httpStatus", errorDetail: "校验请求超时，请检查网络后重试" };
+    }
+    // 其它网络层异常(DNS/离线等)归为 httpStatus，携带原始信息便于诊断。
     return {
       ok: false,
       errorKind: "httpStatus",

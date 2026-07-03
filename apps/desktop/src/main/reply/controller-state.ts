@@ -83,6 +83,20 @@ export class ReplySession {
     return this._token;
   }
 
+  /**
+   * 错误态重试重生成：递增 token 作废在途回调，回到 generating 并清空候选，
+   * 但**保留 capturedPid**——与 beginCapture 的唯一区别。错误态 retry 复用 controller 侧
+   * 已捕获的 pending 上下文与本会话 capturedPid，不重新捕获；递增 token 是重试单飞的裁决点：
+   * 连点重试时旧一轮生成回调因 token 过期被丢弃，配合 controller 的 abortInFlight 只留一个在跑。
+   */
+  beginRegenerate(): number {
+    this._token += 1;
+    this._phase = "generating";
+    this._candidates = [];
+    this._index = 0;
+    return this._token;
+  }
+
   /** 记录捕获到的目标应用 pid（写回前 pid 校验用；AX 取不到时为 null）。 */
   setCapturedPid(pid: number | null): void {
     this._capturedPid = pid;

@@ -43,6 +43,26 @@ describe("useReplyStore hydrate", () => {
     }
   });
 
+  it("字段级半缺 MemoryFile hydrate 补齐 manual/auto 且 .trim() 安全", () => {
+    // 分区存在但只有 manual（auto 缺失）/ 只有 auto（manual 缺失），模拟旧档半缺字段。
+    useReplyStore.getState().hydrateReply({
+      replyMemory: {
+        profile: { manual: "我是产品经理" },
+        core: { auto: "- 简洁" },
+      } as never,
+    });
+    const memory = useReplyStore.getState().memory;
+    // 缺失字段补空串，保证下游 composeUserProfile 的 .trim() 不抛 TypeError。
+    expect(memory.profile).toEqual({ manual: "我是产品经理", auto: "" });
+    expect(memory.core).toEqual({ manual: "", auto: "- 简洁" });
+    // 每个分区两字段均为 string，可安全 .trim()。
+    for (const scope of MEMORY_SCOPES) {
+      expect(typeof memory[scope].manual).toBe("string");
+      expect(typeof memory[scope].auto).toBe("string");
+      expect(() => memory[scope].manual.trim() + memory[scope].auto.trim()).not.toThrow();
+    }
+  });
+
   it("半缺渠道分片 hydrate 补齐三个子表", () => {
     useReplyStore.getState().hydrateReply({
       replyChannels: { connections: { slack: { id: "slack", isConnected: true } } } as never,

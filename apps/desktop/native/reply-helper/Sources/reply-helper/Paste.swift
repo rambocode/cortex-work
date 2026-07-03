@@ -50,10 +50,13 @@ func runPaste(text: String) {
     let pasteboard = NSPasteboard.general
     let savedItems = snapshotPasteboard(pasteboard)
 
-    // defer 保证任何提前 return 后都能还原用户剪贴板(隐私 / 体验硬约束)
+    // defer 保证任何提前 return 后都能还原用户剪贴板(隐私 / 体验硬约束)。
+    // 原始剪贴板非空 → 写回原内容;原始为空 → 必须 clearContents() 显式抹掉草稿。
+    // 空分支不能省略:否则「刚重启 / 刚清空剪贴板」这一最常见场景下,line 62 写入的
+    // AI 草稿正文会永久残留在系统剪贴板,对所有本地 app / 剪贴板历史管理器可读,违背隐私硬约束。
     defer {
+        pasteboard.clearContents()
         if !savedItems.isEmpty {
-            pasteboard.clearContents()
             pasteboard.writeObjects(savedItems)
         }
     }

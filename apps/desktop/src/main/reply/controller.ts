@@ -145,6 +145,10 @@ export class ReplyController {
   private flipBusy = false;
   // 语音录音是否已真正在气泡端启动（ASR 缺失时不录音，voice-end 松开应被忽略）。
   private voiceActive = false;
+  // 语音「启动窗口内到达的松开」标记（与录音会话 token 绑定）：onVoiceStart 在 await getAsrSettings
+  // 期间 voiceActive 仍为 false，此窗口内到达的 voice-end 无法立即停麦，先在此登记其 token；
+  // onVoiceStart await 返回后据此判定「快按快松」，不启动录音，干净回到非录音态（修复麦克风常开竞态）。
+  private voicePendingStopToken: number | null = null;
 
   constructor(deps: ReplyControllerDeps) {
     this.helper = deps.helper;
@@ -464,11 +468,19 @@ export class ReplyController {
    */
   private async retry(): Promise<void> {
     if (this.session.phase === "idle") return;
+    // 连点重试单飞：先 abort 在途生成（kill 在途 CLI），再递增世代 token 作废旧回调，
+    // 确保同一时刻只有一个生成在跑——否则 pushError 不改 phase、retry 不递增 token，
+    // N 次点击会派生 N 个未取消的 CLI 子进程且回调全部命中，造成候选竞态。
+    this.abortInFlight();
     if (!this.pending) {
+      // 捕获失败态无上下文 → 整轮重来（startDraftSession 自身 beginCapture 递增 token）。
       await this.startDraftSession();
       return;
     }
-    await this.generateFirst(this.session.token);
+    // 复用已捕获上下文重生成：beginRegenerate 递增 token 但保留 capturedPid（写回目标不变）。
+    const token = this.session.beginRegenerate();
+    this.pushGenerating();
+    await this.generateFirst(token);
   }
 
   private buildPrompt(pending: PendingContext, avoidReplies: string[]): ReplyPrompt {
@@ -488,6 +500,11 @@ export class ReplyController {
     if (this.session.phase !== "presenting") return;
     const draft = this.session.currentDraft;
     if (draft.trim().length === 0) return;
+    // 世代守卫：捕获本轮 token。writeBack 全程有 delay / frontmostPid 两处 await，期间新
+    // draft-gesture 可能起新会话（beginCapture 递增 token）。凡在 await 之后、及执行 reset() /
+    // 清 pending / paste 之前，都用 isCurrent(token) 校验：token 已被重入递增则放弃写回——
+    // 绝不 reset、绝不清 pending、绝不 paste，否则会作废刚接管的新会话（R7）。
+    const token = this.session.token;
     const capturedPid = this.session.capturedPid;
     const pending = this.pending;
 
@@ -495,9 +512,11 @@ export class ReplyController {
     closeReplyBubble();
     this.helper.setIntercept(false);
     await delay(WRITE_BACK_DELAY_MS);
+    if (!this.session.isCurrent(token)) return; // 延迟期间新会话抢占 → 放弃,不动新会话状态
 
     // pid 校验（R6）：目标 app 变更则中止，绝不盲粘。
     const currentPid = await this.frontmostPid();
+    if (!this.session.isCurrent(token)) return; // 探测 pid 期间新会话抢占 → 放弃
     if (shouldAbortWriteBack(capturedPid, currentPid)) {
       this.log.warn("[reply] 目标应用已变更，中止写回", { capturedPid, currentPid });
       this.session.reset();
@@ -509,11 +528,13 @@ export class ReplyController {
       if (capturedPid != null) await this.helper.axActivate(capturedPid);
       await this.helper.paste(draft);
     } catch (err) {
+      if (!this.session.isCurrent(token)) return; // 写回过程被新会话抢占 → 不动新会话状态
       this.log.warn("[reply] 写回失败", err);
       this.session.reset();
       this.pending = null;
       return;
     }
+    if (!this.session.isCurrent(token)) return; // paste 后再校验:期间抢占则不 reset/清 pending
 
     // 写回成功 → 触发学习管线（U10；未接线时为 no-op）。
     if (pending) {
@@ -549,27 +570,52 @@ export class ReplyController {
   private async onVoiceStart(): Promise<void> {
     this.abortInFlight();
     const token = this.session.beginRecording();
+    // 新一轮录音：清掉上一轮遗留的「启动窗口松开」标记，避免误判本轮为快按快松。
+    this.voicePendingStopToken = null;
+    this.voiceActive = false;
     this.helper.setIntercept(true);
     openReplyBubble(null);
     this.pushRecording();
     // 读 ASR 配置（异步）：读完后校验 token——期间可能被新手势/取消抢占，过期则不再启动录音。
     const asr = (await this.getAsrSettings?.()) ?? null;
-    if (!this.session.isCurrent(token)) return;
+    if (!this.session.isCurrent(token)) {
+      // token 过期（重入/取消）：本轮作废，一并清理可能登记在本轮的 pending stop 标记。
+      if (this.voicePendingStopToken === token) this.voicePendingStopToken = null;
+      return;
+    }
     if (!asr) {
       // 未注入 / 返回 null → 语音不可用，提示后回 idle（不静默）。
       this.voiceActive = false;
+      this.voicePendingStopToken = null;
       this.pushVoicePrompt("未配置语音识别，请先在设置中开启语音功能");
+      return;
+    }
+    // 快按快松竞态修复：ASR 读取窗口内用户已松开（voice-end 登记了本轮 token）→ 别再开麦，
+    // 干净取消回到非录音态，否则会启动一个再无 stop 事件的录音、麦克风常开、状态机卡 recording。
+    if (this.voicePendingStopToken === token) {
+      this.voicePendingStopToken = null;
+      this.cancel();
       return;
     }
     this.voiceActive = true;
     sendReplyBubbleVoice({ command: "start", asr });
   }
 
-  /** voice-end：松开语音键 → 令气泡停止录音并转写（未真正录音则忽略）。保持 recording 态等结果。 */
+  /**
+   * voice-end：松开语音键 → 令气泡停止录音并转写（未真正录音则忽略）。保持 recording 态等结果。
+   * 若在 onVoiceStart 的 ASR 读取窗口内到达（此时 voiceActive 仍为 false 但会话处于 recording），
+   * 登记本轮 token 为 pending stop，交由 onVoiceStart await 返回后消费——修复快按快松麦克风常开。
+   */
   private onVoiceEnd(): void {
-    if (!this.voiceActive) return;
-    this.voiceActive = false;
-    sendReplyBubbleVoice({ command: "stop" });
+    if (this.voiceActive) {
+      this.voiceActive = false;
+      sendReplyBubbleVoice({ command: "stop" });
+      return;
+    }
+    // 录音启动窗口内的松开：麦尚未真正启动，先登记 token，onVoiceStart 据此放弃启动录音。
+    if (this.session.phase === "recording") {
+      this.voicePendingStopToken = this.session.token;
+    }
   }
 
   /**
@@ -611,6 +657,7 @@ export class ReplyController {
     this.preGenActive = false;
     this.flipBusy = false;
     this.voiceActive = false;
+    this.voicePendingStopToken = null;
   }
 
   /** abort 当前在途生成（kill 在途 CLI）。 */

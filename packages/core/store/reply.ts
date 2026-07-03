@@ -14,7 +14,7 @@ import type {
 } from "../desktop/types";
 import { DEFAULT_REPLY_SETTINGS, DEFAULT_REPLY_CHANNELS } from "../desktop/types";
 import type { MemoryScope, MemoryFile } from "../reply/memory";
-import { emptyMemoryState } from "../reply/memory";
+import { emptyMemoryState, MEMORY_SCOPES } from "../reply/memory";
 import type { ChannelId, ChannelConnectionState } from "../reply/channels";
 
 /// 从 PersistedState 中读取的三分片子集（hydrate 入参）。全部可选：旧档/缺失时回落默认。
@@ -49,11 +49,25 @@ export interface ReplyStore {
   clearChannelNotes: () => void;
 }
 
-// 记忆分片兜底合并：先铺满 5 分区空默认，再覆盖已有分区，处理「半缺分片」（某些 scope 缺失）不抛。
+// 记忆分片兜底合并：逐分区深合并，处理两级「半缺」——
+//  1) scope 级缺失（某些分区整块不存在）；
+//  2) 字段级半缺（某分区只有 manual 或只有 auto，另一字段为 undefined）。
+// 必须做字段级兜底：下游 main 侧 composeUserProfile 对 file.auto/manual 直接 .trim()，
+// 若字段为 undefined 会抛 TypeError，故此处保证每个 MemoryFile 的 manual/auto 恒为字符串。
 function mergeMemory(memory: ReplyMemoryState | undefined): ReplyMemoryState {
   const base = emptyMemoryState();
   if (!memory) return base;
-  return { ...base, ...memory };
+  for (const scope of MEMORY_SCOPES) {
+    const file = memory[scope] as Partial<MemoryFile> | undefined;
+    if (file) {
+      // 字段级兜底：缺失的 manual/auto 回落空串，保证下游 .trim() 安全。
+      base[scope] = {
+        manual: file.manual ?? "",
+        auto: file.auto ?? "",
+      };
+    }
+  }
+  return base;
 }
 
 // 渠道分片兜底合并：三个子表各自缺失时补空对象。

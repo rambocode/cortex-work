@@ -64,6 +64,7 @@ import { SttSettingsSection } from "./SttSettingsSection";
 import { ReplySettingsSection } from "./ReplySettingsSection";
 import { RolesSection } from "./RolesSettingsSection";
 import { BareSelect, SBlock, SRow, SecretField, SettingCard, SwitchRow } from "./settingsControls";
+import { detectIsMac } from "./platform";
 
 const PALETTES: PaletteOption[] = [
   { id: "clay", name: "Clay", colors: ["#c96442", "#f3e7df", "#1a1916"] },
@@ -303,12 +304,6 @@ function updateStatusText(state: UpdateState, t: TFunction): string {
 
 // 闪记默认全局热键(与主进程 NOTES_HOTKEY_ACCELERATOR 同步;notesHotkey 留空即走此默认）。
 const DEFAULT_NOTES_HOTKEY = "CommandOrControl+Shift+N";
-
-// 显示用 isMac:views 不直接读 window,经 navigator 即时探测(ComposerShell / FilesView 等亦如此)。
-function detectIsMac(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
-}
 
 function GeneralSection() {
   // tc: common 命名空间(语言切换器复用 common.language.*,U3);t: settings 命名空间(本区其余文案)。

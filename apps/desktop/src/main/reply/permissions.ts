@@ -10,23 +10,32 @@
 /** 归一化三态,与 helper Permissions.swift 的 stateString 对齐。 */
 export type PermissionState = "granted" | "denied" | "notDetermined";
 
-/** 五项权限状态快照(键名与 helper permissions 输出、U9 UI 一致)。 */
+/**
+ * 五项权限状态快照。
+ *
+ * 键名契约(重要):字段名对齐 IPC/UI 契约 `ReplyPermissionKind`
+ * (ipc/reply-types.ts:`screenRecording` / `speechRecognition`),而非底层数据源的原始键——
+ * helper permissions 命令输出用 `screen` / `speech`(见 Permissions.swift),
+ * node-mac-permissions 的 AuthType 用 `screen` / `speech-recognition`。
+ * 这两处原始键只出现在「读取侧」(parseHelperPermissions / NMP_TYPES),读入后即映射到本契约键,
+ * 保证本模块「输出」的键与 IPC/UI 一致,日后接线权限中心 UI 时不会漏映射。
+ */
 export interface ReplyPermissions {
   accessibility: PermissionState;
-  screen: PermissionState;
+  screenRecording: PermissionState;
   calendar: PermissionState;
   microphone: PermissionState;
-  speech: PermissionState;
+  speechRecognition: PermissionState;
 }
 
 /** 全部未决(非 mac / 查询完全失败时的安全默认)。 */
 export function unknownPermissions(): ReplyPermissions {
   return {
     accessibility: "notDetermined",
-    screen: "notDetermined",
+    screenRecording: "notDetermined",
     calendar: "notDetermined",
     microphone: "notDetermined",
-    speech: "notDetermined",
+    speechRecognition: "notDetermined",
   };
 }
 
@@ -82,12 +91,13 @@ async function queryViaNodeMacPermissions(loader: NativeModuleLoader): Promise<R
   try {
     const perms = await loader();
     if (typeof perms.getAuthStatus !== "function") return null;
+    // 读取侧用 NMP 原始 AuthType 键,写入侧映射到 IPC 契约键(screenRecording/speechRecognition)。
     return {
       accessibility: mapAuthStatus(perms.getAuthStatus(NMP_TYPES.accessibility)),
-      screen: mapAuthStatus(perms.getAuthStatus(NMP_TYPES.screen)),
+      screenRecording: mapAuthStatus(perms.getAuthStatus(NMP_TYPES.screen)),
       calendar: mapAuthStatus(perms.getAuthStatus(NMP_TYPES.calendar)),
       microphone: mapAuthStatus(perms.getAuthStatus(NMP_TYPES.microphone)),
-      speech: mapAuthStatus(perms.getAuthStatus(NMP_TYPES.speech)),
+      speechRecognition: mapAuthStatus(perms.getAuthStatus(NMP_TYPES.speech)),
     };
   } catch {
     return null;
@@ -96,12 +106,13 @@ async function queryViaNodeMacPermissions(loader: NativeModuleLoader): Promise<R
 
 /** 解析 helper permissions 命令的 JSON 响应为三态快照。 */
 export function parseHelperPermissions(res: Record<string, unknown>): ReplyPermissions {
+  // helper JSON 用原始键 screen/speech(Permissions.swift),读入后映射到 IPC 契约键。
   return {
     accessibility: normalizeHelperState(res.accessibility),
-    screen: normalizeHelperState(res.screen),
+    screenRecording: normalizeHelperState(res.screen),
     calendar: normalizeHelperState(res.calendar),
     microphone: normalizeHelperState(res.microphone),
-    speech: normalizeHelperState(res.speech),
+    speechRecognition: normalizeHelperState(res.speech),
   };
 }
 

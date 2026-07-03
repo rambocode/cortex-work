@@ -31,12 +31,13 @@ describe("parseHelperPermissions", () => {
       microphone: "granted",
       // speech 缺失
     };
+    // 输出键对齐 IPC 契约(screenRecording/speechRecognition),读取仍认 helper 原始键 screen/speech。
     expect(parseHelperPermissions(res)).toEqual({
       accessibility: "granted",
-      screen: "denied",
+      screenRecording: "denied",
       calendar: "notDetermined",
       microphone: "granted",
-      speech: "notDetermined",
+      speechRecognition: "notDetermined",
     });
   });
   it("非法值 → notDetermined", () => {
@@ -73,10 +74,10 @@ describe("queryReplyPermissions", () => {
     expect(fallback).not.toHaveBeenCalled();
     expect(perms).toEqual({
       accessibility: "granted",
-      screen: "denied",
+      screenRecording: "denied",
       calendar: "denied",
       microphone: "granted",
-      speech: "notDetermined",
+      speechRecognition: "notDetermined",
     });
   });
 

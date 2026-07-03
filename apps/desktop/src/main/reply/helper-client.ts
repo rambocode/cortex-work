@@ -121,6 +121,18 @@ export function shouldDegrade(attempt: number, max = MAX_RESTART_ATTEMPTS): bool
   return attempt > max;
 }
 
+/**
+ * events 进程被视为「已稳定存活」的最短时长(ms)。仅当进程存活超过此阈值,才认为它真正
+ * 建起并稳住了 tap,可安全复位退避计数。取值为最大退避间隔(30s)量级,确保跨过一整个
+ * 退避窗口的存活才算稳定。
+ *
+ * 为什么需要它:events 进程可能「ready → 立刻崩溃」反复循环。若一见 ready 就无条件复位
+ * 退避计数,计数永远清零、恒以最短间隔重启,MAX_RESTART_ATTEMPTS / 降级安全网被彻底绕过,
+ * 形成每约 500ms 一次的 spawn/tap 风暴且永不切兜底 accelerator(KTD7)。故复位条件收紧为
+ * 「存活超过本阈值」——短命的 ready→崩溃循环保持计数累加,直到触发降级。
+ */
+export const STABLE_UPTIME_MS = 30_000;
+
 // ── events 长驻客户端 ──────────────────────────────────────────────────────
 
 export interface ReplyHelperClientOptions {
@@ -134,6 +146,8 @@ export interface ReplyHelperClientOptions {
   onEvent?: (event: HelperEvent) => void;
   /** 降级(连续崩溃超上限 / tap 不可用)回调,供切换兜底 accelerator。 */
   onDegrade?: () => void;
+  /** 当前时间源(ms),默认 Date.now;测试注入以控制存活时长判定,避免真实 sleep。 */
+  nowFn?: () => number;
 }
 
 /**
@@ -146,10 +160,15 @@ export class ReplyHelperClient {
   private readonly log: HelperLogger;
   private readonly onEvent?: (event: HelperEvent) => void;
   private readonly onDegrade?: () => void;
+  private readonly now: () => number;
 
   private eventsProc: SpawnedProcess | null = null;
   private eventsBuffer = new NdjsonBuffer();
   private restartAttempts = 0;
+  // 当前 events 进程的 spawn 时间戳(ms,来自注入的时间源);进程不在时为 0。
+  // 用于判断进程是否「稳定存活」——只有存活超过 STABLE_UPTIME_MS 才复位退避计数,
+  // 从而识别并拦截 ready→崩溃风暴(见 resetBackoffIfStable)。
+  private spawnedAt = 0;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   // 显式停止(stopEvents)后不再自动重启;区分「主动关」与「崩溃」。
   private stopped = false;
@@ -165,6 +184,7 @@ export class ReplyHelperClient {
     this.log = opts.logger ?? NOOP_LOGGER;
     this.onEvent = opts.onEvent;
     this.onDegrade = opts.onDegrade;
+    this.now = opts.nowFn ?? (() => Date.now());
   }
 
   /** 是否已降级(events 不可用)。true 时调用方应改用兜底 accelerator。 */
@@ -191,6 +211,7 @@ export class ReplyHelperClient {
       return;
     }
     this.eventsProc = proc;
+    this.spawnedAt = this.now(); // 记录起始时刻,供稳定存活判定
     this.eventsBuffer = new NdjsonBuffer();
 
     proc.stdout?.on("data", (chunk) => {
@@ -207,6 +228,10 @@ export class ReplyHelperClient {
     proc.on("exit", (code, signal) => {
       this.eventsProc = null;
       if (this.stopped) return; // 主动关闭,不重启
+      // 崩溃前若已稳定存活足够久,视为偶发崩溃 → 复位退避计数;短命的 ready→崩溃循环
+      // 则保持计数累加,直到触发降级(而非被无条件复位绕过 MAX_RESTART_ATTEMPTS 安全网)。
+      this.resetBackoffIfStable();
+      this.spawnedAt = 0;
       this.log.warn(`[reply-helper] events 退出 code=${code} signal=${signal},准备重启`);
       this.scheduleRestart();
     });
@@ -216,8 +241,10 @@ export class ReplyHelperClient {
   private handleEventObject(obj: Record<string, unknown>): void {
     const event = obj as HelperEvent;
     if (event.event === "ready") {
-      // 成功建起 tap:复位退避计数,重放配置与 intercept 状态。
-      this.restartAttempts = 0;
+      // 成功建起 tap:仅当进程已稳定存活超过阈值才复位退避计数——否则「ready→崩溃」风暴会
+      // 借每轮 ready 把计数清零、绕过降级安全网(见 STABLE_UPTIME_MS)。重放配置与 intercept
+      // 状态不受此限制(新进程无论新旧都需恢复到期望配置)。
+      this.resetBackoffIfStable();
       if (this.lastConfig) this.sendConfig(this.lastConfig);
       if (this.interceptOn) this.setIntercept(true);
       return;
@@ -228,6 +255,18 @@ export class ReplyHelperClient {
       return;
     }
     this.onEvent?.(event);
+  }
+
+  /**
+   * 若当前 events 进程已稳定存活超过 STABLE_UPTIME_MS,则复位退避计数。
+   * 这是修复「ready→崩溃风暴」的关键:短命进程(存活不足阈值)不复位,计数持续累加至降级;
+   * 只有真正稳住的进程才把计数清零,恢复到最短退避起点。
+   */
+  private resetBackoffIfStable(): void {
+    if (this.spawnedAt === 0) return; // 无有效 spawn 时间(未启动 / 已清空),不复位
+    if (this.now() - this.spawnedAt >= STABLE_UPTIME_MS) {
+      this.restartAttempts = 0;
+    }
   }
 
   /** 安排一次退避重启;超上限则降级、不再重启。 */

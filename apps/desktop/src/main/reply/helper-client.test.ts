@@ -6,6 +6,7 @@ import {
   backoffDelayMs,
   shouldDegrade,
   MAX_RESTART_ATTEMPTS,
+  STABLE_UPTIME_MS,
   ReplyHelperClient,
   type SpawnedProcess,
   type SpawnFn,
@@ -165,7 +166,10 @@ describe("ReplyHelperClient events", () => {
     expect(procs.length).toBe(MAX_RESTART_ATTEMPTS + 1);
   });
 
-  it("ready 事件复位退避计数(偶发崩溃不累积到降级)", () => {
+  it("ready 后长时间稳定存活的偶发崩溃复位退避计数,不累积到降级", () => {
+    // 注入可控时间源:每轮让进程「稳定存活」超过 STABLE_UPTIME_MS 再崩溃,
+    // 崩溃时 uptime >= 阈值 → 复位退避计数,故连续多次偶发崩溃也永不降级。
+    let now = 1_000_000; // 非零基准,避开 spawnedAt===0 哨兵
     const procs: FakeProc[] = [];
     const spawnFn: SpawnFn = () => {
       const p = new FakeProc();
@@ -173,17 +177,46 @@ describe("ReplyHelperClient events", () => {
       return p;
     };
     const onDegrade = vi.fn();
-    const client = new ReplyHelperClient({ binaryPath: "/x", spawnFn, onDegrade });
+    const client = new ReplyHelperClient({ binaryPath: "/x", spawnFn, onDegrade, nowFn: () => now });
     client.startEvents();
 
-    // 崩溃几次但每次重启后都收到 ready,计数被复位,永不降级。
     for (let i = 0; i < MAX_RESTART_ATTEMPTS + 3; i++) {
-      procs[procs.length - 1].emitExit(1, null);
-      vi.runOnlyPendingTimers();
-      procs[procs.length - 1].emitStdout('{"event":"ready"}\n');
+      const cur = procs[procs.length - 1];
+      cur.emitStdout('{"event":"ready"}\n'); // 建起 tap
+      now += STABLE_UPTIME_MS + 1; // 稳定存活超过阈值
+      cur.emitExit(1, null); // 之后偶发崩溃 → 崩溃时 uptime>=阈值 → 复位退避计数
+      vi.runOnlyPendingTimers(); // 触发重启,spawn 新进程(spawnedAt=now)
     }
     expect(onDegrade).not.toHaveBeenCalled();
     expect(client.isDegraded()).toBe(false);
+  });
+
+  it("ready→立即崩溃反复循环最终触发降级(短命 ready 不复位退避,不绕过安全网)", () => {
+    // 回归防护(KTD7):每轮进程都发过 ready 但随即崩溃、存活远不足 STABLE_UPTIME_MS。
+    // 旧实现「ready 无条件复位」会让计数永远清零、恒以最短间隔重启、永不降级;
+    // 修复后短命 ready 不复位,计数持续累加,最终越过 MAX_RESTART_ATTEMPTS 触发降级。
+    let now = 1_000_000;
+    const procs: FakeProc[] = [];
+    const spawnFn: SpawnFn = () => {
+      const p = new FakeProc();
+      procs.push(p);
+      return p;
+    };
+    const onDegrade = vi.fn();
+    const client = new ReplyHelperClient({ binaryPath: "/x", spawnFn, onDegrade, nowFn: () => now });
+    client.startEvents();
+
+    for (let i = 0; i < MAX_RESTART_ATTEMPTS + 1; i++) {
+      const cur = procs[procs.length - 1];
+      cur.emitStdout('{"event":"ready"}\n'); // 每轮都发过 ready
+      now += 10; // 仅存活极短,远不足稳定阈值
+      cur.emitExit(1, null);
+      vi.runOnlyPendingTimers();
+    }
+    expect(onDegrade).toHaveBeenCalledTimes(1);
+    expect(client.isDegraded()).toBe(true);
+    // 初次 + MAX 次重启后,第 MAX+1 次崩溃降级、不再 spawn。
+    expect(procs.length).toBe(MAX_RESTART_ATTEMPTS + 1);
   });
 
   it("tap-unavailable 事件立即降级", () => {

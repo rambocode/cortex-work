@@ -121,6 +121,50 @@ describe("ReplySession 状态机转移", () => {
     expect(s.phase).toBe("idle");
     expect(s.capturedPid).toBeNull();
   });
+
+  it("写回世代守卫：writing 期间 beginCapture 递增 token 使写回旧 token 失效（不作废新会话）", () => {
+    const s = new ReplySession();
+    s.beginCapture();
+    s.presentFirst("draft");
+    const writeToken = s.token; // writeBack 进入时捕获的 token
+    s.toWriting();
+    // 写回 await 期间新 draft-gesture 起新会话
+    const newToken = s.beginCapture();
+    expect(newToken).toBe(writeToken + 1);
+    // 旧写回回来时 isCurrent 应为 false → controller 据此放弃 reset/清 pending
+    expect(s.isCurrent(writeToken)).toBe(false);
+    expect(s.isCurrent(newToken)).toBe(true);
+  });
+
+  it("beginRegenerate：递增 token、回 generating、清空候选，但保留 capturedPid（错误态重试复用捕获）", () => {
+    const s = new ReplySession();
+    const t1 = s.beginCapture();
+    s.setCapturedPid(77);
+    s.presentFirst("旧候选");
+    s.appendFlip("旧候选2");
+    const t2 = s.beginRegenerate();
+    expect(t2).toBe(t1 + 1);
+    expect(s.phase).toBe("generating");
+    expect(s.candidates).toEqual([]);
+    expect(s.currentIndex).toBe(0);
+    // 与 beginCapture 的关键区别：capturedPid 保留（写回目标 pid 不变）
+    expect(s.capturedPid).toBe(77);
+    // 旧一轮生成回调过期被丢弃（重试单飞裁决点）
+    expect(s.isCurrent(t1)).toBe(false);
+    expect(s.isCurrent(t2)).toBe(true);
+  });
+
+  it("连点重试：连续 beginRegenerate 使前一轮 token 失效（单飞，只留最后一个生成）", () => {
+    const s = new ReplySession();
+    s.beginCapture();
+    s.setCapturedPid(5);
+    const r1 = s.beginRegenerate();
+    const r2 = s.beginRegenerate();
+    expect(r2).toBe(r1 + 1);
+    expect(s.isCurrent(r1)).toBe(false); // 上一轮重试的在途 CLI 回调被丢弃
+    expect(s.isCurrent(r2)).toBe(true);
+    expect(s.capturedPid).toBe(5); // 全程保留写回目标
+  });
 });
 
 describe("ReplySession 候选管理", () => {

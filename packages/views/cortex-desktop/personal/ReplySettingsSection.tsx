@@ -21,17 +21,10 @@ import { MEMORY_SCOPES, type MemoryScope } from "@cortex-work/core/reply/memory"
 import { CHANNEL_DESCRIPTORS, type ChannelId } from "@cortex-work/core/reply/channels";
 
 import { BareSelect, SecretField, SettingCard, SRow, SwitchRow } from "./settingsControls";
+import { detectIsMac } from "./platform";
 
 // 译函数最小签名（与 SettingsMenu 一致，避免引入 react-i18next 的 TFunction 泛型）。
 type TFunc = (key: string, opts?: Record<string, unknown>) => string;
-
-// ── 平台守卫 ──────────────────────────────────────────────────────────────────
-
-// 显示用 isMac：views 不直接读 window，经 navigator 即时探测（与 SettingsMenu detectIsMac 同源）。
-function detectIsMac(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
-}
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 
