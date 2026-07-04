@@ -778,6 +778,10 @@ export * from "./workflow-types";
 export * from "./reply-types";
 import type { ReplySettings, ReplyMemoryState, ReplyChannelsState } from "./reply-types";
 
+// 设计工作台（design）设置/文档索引/画布 UI 态 → ./design-types.ts。与主进程侧镜像。
+export * from "./design-types";
+import type { DesignSettings, DesignDocMeta, DesignUiState } from "./design-types";
+
 // 主进程 userData JSON 中持久化的全量状态。
 export interface PersistedState {
   version: 1;
@@ -817,6 +821,12 @@ export interface PersistedState {
   replySettings?: ReplySettings;
   replyMemory?: ReplyMemoryState;
   replyChannels?: ReplyChannelsState;
+  // 设计工作台分片（旧 JSON 无字段时 hydrate 回落工厂默认/空）：
+  //   designSettings — 设置页「设计」分区；designDocs — 设计稿索引（重数据在工作区磁盘）；
+  //   designUi — 画布 UI 态 KV（替代 Kun localStorage，core 禁用 localStorage）。
+  designSettings?: DesignSettings;
+  designDocs?: DesignDocMeta[];
+  designUi?: DesignUiState;
 }
 
 // 落地页激励问候语的每日 LLM 生成快照（按天缓存）。

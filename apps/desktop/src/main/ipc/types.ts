@@ -94,6 +94,10 @@ export * from "./tasks-types";
 export * from "./reply-types";
 import type { ReplySettings, ReplyMemoryState, ReplyChannelsState } from "./reply-types";
 
+// 设计工作台（design）设置/文档索引/画布 UI 态 → ./design-types.ts。与 core 镜像。
+export * from "./design-types";
+import type { DesignSettings, DesignDocMeta, DesignUiState } from "./design-types";
+
 export interface SessionMeta {
   id: string;
   // 关联项目;缺省 = 不使用项目（会话在 Documents/cortex/<日期> 工作）。
@@ -445,6 +449,10 @@ export interface PersistedState {
   replySettings?: ReplySettings;
   replyMemory?: ReplyMemoryState;
   replyChannels?: ReplyChannelsState;
+  // 设计工作台分片（renderer 全量写入，主进程透明落盘）。与 packages/core/desktop/types.ts 镜像。
+  designSettings?: DesignSettings;
+  designDocs?: DesignDocMeta[];
+  designUi?: DesignUiState;
 }
 
 export interface ReadFileResult {
