@@ -99,6 +99,11 @@ export function tasksJsonPath(): string {
   return join(cortexHome(), "tasks.json");
 }
 
+// 桌面宠物 pet-overlay 窗口的拖拽落点：单文件全量（main-owned，重启后恢复位置）。
+export function petPositionPath(): string {
+  return join(cortexHome(), "pet-position.json");
+}
+
 // 自动化执行历史：按 automationId 一文件（automation-runs/<id>.json）。
 export function automationRunsDir(): string {
   return join(cortexHome(), "automation-runs");

@@ -1,0 +1,17 @@
+/* 宠物 overlay 窗口专用样式入口。只引入 Pet 组件需要的 .pet* 规则(来自共享的
+   cortex-desktop.css),但覆盖掉该表里给"主应用窗口"用的不透明 html/body 背景——
+   否则 Electron 的 transparent:true 窗口会被这层不透明背景整个盖住,变成一块挡住
+   桌面/其它应用的白板(不透明必须在 CSS 层也显式声明,窗口级 transparent 只是前提)。
+   不引入 globals.css 里的 Tailwind(Pet 组件不用 Tailwind 类,没必要多打一份)。 */
+@import "@cortex-work/views/cortex-desktop/styles.css";
+
+html,
+body,
+#root {
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}

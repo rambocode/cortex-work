@@ -85,6 +85,7 @@ import type {
   ReplyBubbleAction,
   ReplyBubbleVoiceCommand,
   ReplyBubbleVoiceResult,
+  PetStateSnapshot,
 } from "../main/ipc/types";
 // 方案 A：编排请求类型权威定义留在 orchestrate.ts，此处 type-only 引入（编译期擦除，
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
@@ -731,6 +732,18 @@ const personal = {
     const listener = (): void => cb();
     ipcRenderer.on("reply:openSettings", listener);
     return () => ipcRenderer.removeListener("reply:openSettings", listener);
+  },
+  // ── 桌面宠物脱离主窗体(独立 pet-overlay 窗口)──────────────────────────────
+  // 主窗口 PetBridge 用 reportPetState 转发 usePetStore 变化;pet-overlay 窗口用
+  // onPetSyncState 订阅镜像 + requestPetSync 应对挂载顺序竞态。位置持久化不走 IPC——
+  // overlay 窗口靠原生 app-region 拖拽移动,主进程监听窗口自身 moved 事件直接落盘
+  // (见 main/pet-overlay-window.ts),渲染端不需要上报/查询位置。
+  reportPetState: (snapshot: PetStateSnapshot): void => ipcRenderer.send("pet:report-state", snapshot),
+  requestPetSync: (): void => ipcRenderer.send("pet:request-sync"),
+  onPetSyncState: (cb: (snapshot: PetStateSnapshot) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, snapshot: PetStateSnapshot) => cb(snapshot);
+    ipcRenderer.on("pet:sync-state", listener);
+    return () => ipcRenderer.removeListener("pet:sync-state", listener);
   },
 };
 

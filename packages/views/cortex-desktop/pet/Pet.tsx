@@ -61,7 +61,23 @@ function clampPos(p: { x: number; y: number }, size: number): { x: number; y: nu
   };
 }
 
-export function Pet() {
+// 独立 pet-overlay 窗口的固定尺寸(windowFollowsPet 模式下把宠物居中定位在这个尺寸里)。
+// 必须与 apps/desktop/src/main/pet-overlay-window.ts 里的同名常量保持一致——那边是
+// 窗口的真实像素尺寸,这边只是拿来算居中偏移,两处对不上宠物会在窗口里显示偏移。
+const OVERLAY_WINDOW_W = 260;
+const OVERLAY_WINDOW_H = 240;
+
+export interface PetProps {
+  /** 独立 pet-overlay 窗口专用:true 时宠物固定居中在一个刚好包住它的小窗口里,
+   * 不做 CSS position:fixed 拖拽定位——挪动宠物改用 `-webkit-app-region: drag` 让
+   * 操作系统直接移动这扇窗口本身(见 pet-overlay-window.ts 头部注释——多显示器下,
+   * 靠 CSS 在一个铺满全屏的透明窗口内挪动会被 macOS 裁剪,原生窗口拖拽不受此限)。
+   * 巡逻走动在此模式下禁用(移动窗口本身走动是后续工作项,当前先禁用而非假装支持)。
+   * 主窗口内嵌场景(Web/桌面主窗口)不传,行为与此前完全一致。 */
+  windowFollowsPet?: boolean;
+}
+
+export function Pet({ windowFollowsPet = false }: PetProps = {}) {
   const { t } = useTranslation("pet");
   const state = usePetStore((s) => s.state);
   const kind = usePetStore((s) => s.kind);
@@ -78,7 +94,9 @@ export function Pet() {
   const setEnabled = usePetStore((s) => s.setEnabled);
   const setSize = usePetStore((s) => s.setSize);
   const setColor = usePetStore((s) => s.setColor);
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => loadPos(loadPetSize()));
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() =>
+    windowFollowsPet ? null : loadPos(loadPetSize()),
+  );
   const [tilt, setTilt] = useState<{ rx: number; ry: number } | null>(null);
   // 安静满 10 分钟(WALK_IDLE_DELAY_MS)→ 无聊,可以开始散步;由节拍器驱动。
   const [bored, setBored] = useState(false);
@@ -119,7 +137,9 @@ export function Pet() {
   }, [set, wake]);
 
   // ---- 底部巡逻道(free + 走动开关):常驻底边,无聊时散步,有事件归位最右 ----
-  const lane = enabled && mode === "free" && walk;
+  // windowFollowsPet 模式下禁用:巡逻要挪的是窗口本身(屏幕坐标),不是窗口内的 CSS
+  // 位置,现有 rAF 直改 style 的实现搬不过来,留作后续工作项而非假装支持。
+  const lane = !windowFollowsPet && enabled && mode === "free" && walk;
   const walking = lane && bored && state === "idle";
 
   // 进入/退出巡逻道:贴底定位(初始停在最右侧),窗口缩放跟随;退出时清理内联样式。
@@ -199,8 +219,10 @@ export function Pet() {
   }, [enabled, mode, size]);
 
   // 拖动(仅 free 且未开走动开关;pointer capture,移动超过阈值视为拖,否则当点击)。
+  // windowFollowsPet 模式下整个跳过——挪动窗口交给 `-webkit-app-region: drag` 原生处理,
+  // dragRef 永远不会被设置,onPointerUp 里的 `d?.moved` 判断天然落到"当作点击"分支。
   const onPointerDown = (e: React.PointerEvent) => {
-    if (mode !== "free" || lane) return;
+    if (windowFollowsPet || mode !== "free" || lane) return;
     const el = rootRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -285,21 +307,34 @@ export function Pet() {
   } as React.CSSProperties;
 
   const perched = mode === "perch" && perch !== null;
-  // 定位:巡逻道(lane)由 effect 直改 style;perch 用锚定坐标;
+  // 定位:windowFollowsPet 模式下固定居中在 overlay 窗口里(挪动窗口本身,不挪 CSS);
+  // 其余情况:巡逻道(lane)由 effect 直改 style,perch 用锚定坐标,
   // 纯 free(未开走动)用记忆位置(无则 CSS 默认右下)。
-  const posStyle = lane
-    ? null
-    : perched
-      ? { left: perch.left, top: perch.top, right: "auto" as const, bottom: "auto" as const }
-      : mode === "free" && pos
-        ? { left: pos.x, top: pos.y, right: "auto" as const, bottom: "auto" as const }
-        : null;
+  const posStyle = windowFollowsPet
+    ? {
+        left: (OVERLAY_WINDOW_W - PET_W * size) / 2,
+        top: (OVERLAY_WINDOW_H - PET_H * size) / 2,
+        right: "auto" as const,
+        bottom: "auto" as const,
+      }
+    : lane
+      ? null
+      : perched
+        ? { left: perch.left, top: perch.top, right: "auto" as const, bottom: "auto" as const }
+        : mode === "free" && pos
+          ? { left: pos.x, top: pos.y, right: "auto" as const, bottom: "auto" as const }
+          : null;
+  // 原生窗口拖拽区域(仅 windowFollowsPet 模式):关闭按钮要单独标 no-drag,否则点它会
+  // 被当成拖拽手势的一部分,点不到。
+  const dragRegionStyle = windowFollowsPet ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
+  const noDragRegionStyle = windowFollowsPet ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
   const closeBtn = (
     <button
       className="pet-x"
       title={t("hideTitle")}
       aria-label={t("hideAria")}
+      style={noDragRegionStyle}
       onPointerDown={(e) => e.stopPropagation()}
       onPointerUp={(e) => e.stopPropagation()}
       onClick={(e) => {
@@ -320,7 +355,7 @@ export function Pet() {
         data-state={state}
         data-mode="perch"
         title={stateLabel}
-        style={{ ...styleVars, ...posStyle }}
+        style={{ ...styleVars, ...posStyle, ...dragRegionStyle }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -348,7 +383,7 @@ export function Pet() {
       data-state={state}
       data-mode={mode}
       title={stateLabel}
-      style={{ ...styleVars, ...posStyle }}
+      style={{ ...styleVars, ...posStyle, ...dragRegionStyle }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

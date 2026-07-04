@@ -88,6 +88,7 @@ import type {
   ReplyDebugEntry,
   ReplyRelearnResult,
   ReplySyncSnapshot,
+  PetStateSnapshot,
 } from "./types";
 import type { ChannelId } from "../reply/channels";
 import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
@@ -570,4 +571,19 @@ export interface DesktopBridge {
    * 设置页缓存（持久化真源在 main，渲染端只持只读缓存）。返回退订函数。
    */
   onReplyMemoryChanged?(cb: (memory: MemoryState) => void): () => void;
+
+  // ── 桌面宠物脱离主窗体(独立 overlay 窗口)────────────────────────────────────
+  // 宠物渲染从主窗口内嵌 <Pet/> 迁到独立 transparent/alwaysOnTop 的 pet-overlay 窗口
+  // (窗口尺寸刚好包住宠物,靠原生 `-webkit-app-region: drag` 让 OS 直接移动窗口本身,
+  // 而不是在一个铺满全屏的透明窗口内用 CSS 挪动——后者在多显示器下会被 macOS 裁剪,
+  // 宠物拖到第二块屏幕就找不到了,详见 pet-overlay-window.ts 头部注释)。
+  // 主窗口(PetBridge 组件)只订阅 usePetStore 转发状态,不再渲染宠物本体;overlay 窗口
+  // 镜像收到的状态并原样复用 <Pet windowFollowsPet/> 渲染。位置持久化由主进程监听窗口
+  // 自身的 moved 事件完成,不经这条 IPC 契约(渲染端不需要感知/上报位置)。
+  /** 主窗口 usePetStore 变化时转发给主进程,再广播给宠物 overlay 窗口。 */
+  reportPetState?(snapshot: PetStateSnapshot): void;
+  /** overlay 窗口挂载时主动请求一次当前快照(应对"谁先挂载"的时序竞态)。 */
+  requestPetSync?(): void;
+  /** 订阅主进程广播的宠物状态快照(overlay 窗口用)。返回退订函数。 */
+  onPetSyncState?(cb: (snapshot: PetStateSnapshot) => void): () => void;
 }

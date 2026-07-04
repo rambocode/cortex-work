@@ -278,6 +278,7 @@ export {
   type MarketplaceEntry,
   type MarketplaceSourceKind,
   type MarketplaceListResult,
+  type PetStateSnapshot,
 } from "./desktop/types";
 // 权限两轴 ↔ 线格式派生(发送边界 / 迁移 / ModeBlockBanner 重发用)。
 export { toAdapterPermissions, fromAdapterPermissions } from "./personal/permissionMode";

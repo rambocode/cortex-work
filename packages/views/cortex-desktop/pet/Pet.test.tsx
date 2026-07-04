@@ -148,4 +148,45 @@ describe("Pet 行为模式", () => {
     expect(pet.classList.contains("is-perched")).toBe(false);
     expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull(); // 默认 cat,走 sprite
   });
+
+  // 独立 pet-overlay 窗口专用模式:宠物固定居中在一个刚好包住它的小窗口里,挪动窗口本身
+  // (原生 app-region:drag)而不是在窗口内部用 CSS 拖拽——多显示器下靠 CSS 在一个铺满全屏
+  // 的透明窗口内挪动会被 macOS 裁剪,原生窗口拖拽不受此限(见 Pet.tsx/pet-overlay-window.ts
+  // 头部注释)。
+  describe("windowFollowsPet(独立 pet-overlay 窗口)", () => {
+    it("固定居中显示,不读取/写入 localStorage 记忆位置", () => {
+      localStorage.setItem("cortex_pet_pos", JSON.stringify({ x: 1, y: 2 }));
+      const { container } = render(<Pet windowFollowsPet />);
+      const pet = container.querySelector(".pet") as HTMLElement;
+      // OVERLAY_WINDOW_W/H = 260/240,size=1 时宠物 110x100,居中偏移 = (260-110)/2, (240-100)/2
+      expect(parseFloat(pet.style.left)).toBe(75);
+      expect(parseFloat(pet.style.top)).toBe(70);
+    });
+
+    // 根节点应标 -webkit-app-region:drag、关闭按钮标 no-drag(原生窗口拖拽,不接管点击的
+    // CSS 依据),但 jsdom 的 CSSStyleDeclaration 用 cssstyle 包做属性名校验,不认识这个
+    // 非标准属性,赋值会被静默丢弃(真实 Chromium/Electron 环境没有这个问题)——单测校验不
+    // 到,只能靠打包后手动验证:悬停宠物应能原生拖拽窗口,悬停关闭按钮不触发拖拽。
+
+    it("巡逻走动禁用:即使开着走动开关、安静超过 10 分钟也不进巡逻道", () => {
+      vi.useFakeTimers();
+      act(() => usePetStore.setState({ walk: true }));
+      const { container } = render(<Pet windowFollowsPet />);
+      const pet = container.querySelector(".pet") as HTMLElement;
+      act(() => {
+        usePetStore.setState({ lastActivity: Date.now() - (WALK_IDLE_DELAY_MS + 1000) });
+        vi.advanceTimersByTime(600);
+      });
+      expect(pet.classList.contains("is-walking")).toBe(false);
+      expect(pet.classList.contains("is-gliding")).toBe(false);
+    });
+
+    it("点击仍触发 happy(未经自定义拖拽判定,onPointerDown 整个跳过)", () => {
+      const { container } = render(<Pet windowFollowsPet />);
+      const pet = container.querySelector(".pet") as HTMLElement;
+      fireEvent.pointerDown(pet, { clientX: 10, clientY: 10, pointerId: 1 });
+      fireEvent.pointerUp(pet, { clientX: 10, clientY: 10, pointerId: 1 });
+      expect(usePetStore.getState().state).toBe("happy");
+    });
+  });
 });

@@ -40,6 +40,8 @@ import {
   getAgentTraceWindow,
   registerAgentTraceWindowHandlers,
 } from "./agent-trace-window";
+import { ensurePetOverlayWindow, destroyPetOverlayWindow, getPetOverlayWindow } from "./pet-overlay-window";
+import { registerPetHandlers } from "./ipc/pet";
 import {
   resolveHotkeyRegistration,
   rebindCandidates,
@@ -488,6 +490,7 @@ if (!app.requestSingleInstanceLock()) {
     registerProjectsDelegateRelay({ showMainWindow, getMainWindow: () => mainWindow });
     registerNotesOverlayHandlers();
     registerNotificationWindowHandlers();
+    registerPetHandlers();
     // 全局热键唤起闪记浮层(全仓首次用 globalShortcut)。读用户配置的 notesHotkey,
     // 无效或缺失则回退默认 NOTES_HOTKEY_ACCELERATOR。register 返回 false = 被占用 →
     // 不抛错,降级到仅窗口图标入口,并把提示文案在主窗口就绪后 best-effort 推给渲染端 toast。
@@ -565,6 +568,8 @@ if (!app.requestSingleInstanceLock()) {
     // 安装自定义主菜单(去除 macOS View 菜单重复的全屏项),须在建窗前就位。
     installAppMenu();
     createWindow();
+    // 桌面宠物 overlay 窗口:懒加载单例,随主窗口一起起(不等用户触发,宠物默认显示)。
+    ensurePetOverlayWindow();
 
     // 快捷回复助手（U7）：仅 macOS 接线（非 mac 完全不 spawn helper / 不注册 reply 入口）。
     // fire-and-forget：权限查询 + helper spawn 失败已内部降级到兜底热键，不阻塞建窗。
@@ -573,9 +578,13 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     app.on("activate", () => {
-      // 排除 Spotlight / 闪记浮层:避免「主窗口已关、只剩浮窗」时点 Dock 不重建主窗口。
+      // 排除 Spotlight / 闪记浮层 / 宠物 overlay:避免「主窗口已关、只剩浮窗」时点 Dock 不重建主窗口。
       const real = BrowserWindow.getAllWindows().filter(
-        (w) => w !== getSpotlightWindow() && w !== getNotesOverlayWindow() && w !== getAgentTraceWindow(),
+        (w) =>
+          w !== getSpotlightWindow() &&
+          w !== getNotesOverlayWindow() &&
+          w !== getAgentTraceWindow() &&
+          w !== getPetOverlayWindow(),
       );
       if (real.length === 0) createWindow();
       else showMainWindow();
@@ -630,6 +639,7 @@ if (!app.requestSingleInstanceLock()) {
     destroyNotesOverlay();
     destroyAgentTraceWindow();
     destroyNotificationWindow();
+    destroyPetOverlayWindow();
     // reply（U7）：停 events 长驻进程 + 释放编排器 + 解绑兜底键（气泡窗随窗口体系统一销毁）。
     disposeReplyController();
     replyHelper?.stopEvents();

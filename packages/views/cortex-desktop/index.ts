@@ -13,3 +13,7 @@ export type { ProjectsFlushApi } from "./personal/ProjectsFlushBridge";
 // 全局提醒卡片(应用内 + 独立通知窗体共用,见 notification-window.tsx)。
 export { NotificationCard } from "./NotificationCard";
 export type { NotificationCardProps } from "./NotificationCard";
+// 桌面宠物:独立 pet-overlay 窗口(apps/desktop pet-overlay.tsx)复用同一个 <Pet/>;
+// PetBridge 挂在主窗口 CortexDesktopView 里,只转发 usePetStore 变化,不渲染宠物本体。
+export { Pet } from "./pet/Pet";
+export { PetBridge } from "./pet/PetBridge";

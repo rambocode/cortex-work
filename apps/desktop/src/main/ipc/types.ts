@@ -1110,3 +1110,18 @@ export * from "./plugin-types";
 // 工作流（loop）类型。集中在 ../workflow/types 以遵守单文件 1200 行上限。
 // ⚠️ 与 packages/core/desktop/workflow-types.ts 逐字镜像（KTD5 双写契约）。
 export * from "../workflow/types";
+
+// 桌面宠物脱离主窗体(独立 overlay 窗口)状态快照。与 packages/core/desktop/types.ts 镜像同步
+// (core 不能依赖 app 包,两侧各持一份;联合类型字面量须与 packages/core/store/pet.ts 保持一致)。
+export type PetState = "idle" | "typing" | "thinking" | "working" | "replying" | "sleeping" | "happy";
+export type PetKind = "cat" | "dog" | "mint";
+export type PetMode = "free" | "perch";
+export interface PetStateSnapshot {
+  state: PetState;
+  kind: PetKind;
+  mode: PetMode;
+  walk: boolean;
+  enabled: boolean;
+  size: number;
+  color: string | null;
+}

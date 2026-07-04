@@ -10,6 +10,7 @@ import {
   useCoreContext,
   useCortexActions,
   useCortexUIStore,
+  useDesktopBridge,
   useSpotlightIntentRouter,
   useWorkspaceId,
 } from "@cortex-work/core";
@@ -23,6 +24,7 @@ import { ToastStack } from "./ToastStack";
 import { SectionPage } from "./Sections";
 import { PersonalWorkspace } from "./personal/PersonalWorkspace";
 import { Pet } from "./pet/Pet";
+import { PetBridge } from "./pet/PetBridge";
 import { useTweaksPersistence } from "./useTweaksPersistence";
 
 const SECTION_TITLE_KEY: Partial<Record<string, string>> = {
@@ -47,6 +49,7 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
   const { t } = useTranslation();
   const wsId = useWorkspaceId();
   const { apiClient } = useCoreContext();
+  const desktopBridge = useDesktopBridge();
   const qc = useQueryClient();
   // 始终挂载:接收菜单栏 Spotlight 发起意图,切到个人工作区并暂存待 handoff 消费。
   useSpotlightIntentRouter();
@@ -181,7 +184,10 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
           </>
           )}
           <ToastStack items={toasts} />
-          <Pet />
+          {/* 桌面端:宠物本体挪去独立 pet-overlay 窗口(脱离主窗体,可在整个屏幕任意位置显示),
+              这里只挂 PetBridge 转发 usePetStore 变化。Web 端 desktopBridge 为 null,
+              仍渲染内嵌 <Pet/>,行为不变。 */}
+          {desktopBridge ? <PetBridge /> : <Pet />}
         </div>
       </div>
     </div>
