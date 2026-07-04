@@ -118,7 +118,9 @@ export function DesignWorkspace(): ReactElement {
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      {/* 左栏固定宽度(DesignSidebar 内部是 w-full,需外层约束,否则铺满挤没画布)。 */}
       {leftCollapsed ? null : (
+        <div className="grid min-h-0 w-[260px] shrink-0">
         <DesignSidebar
           onCodeOpen={closeDesign}
           onWriteOpen={closeDesign}
@@ -131,6 +133,7 @@ export function DesignWorkspace(): ReactElement {
             el.setAttribute("data-theme", el.getAttribute("data-theme") === "dark" ? "light" : "dark");
           }}
         />
+        </div>
       )}
       <DesignWorkspaceView
         leftSidebarCollapsed={leftCollapsed}
@@ -142,7 +145,9 @@ export function DesignWorkspace(): ReactElement {
         onRuntimeQualityFindings={promptController.handleDesignRuntimeQualityFindings}
         onRequestQualityRepair={promptController.handleDesignQualityRepairRequest}
       />
+      {/* 右栏(设计对话)固定宽度;DesignAIRail 内部 aside 无宽度,需外层约束。 */}
       {assistantOpen ? (
+        <div className="grid min-h-0 w-[360px] shrink-0">
         <DesignAIRail
           input={input}
           setInput={setInput}
@@ -170,6 +175,7 @@ export function DesignWorkspace(): ReactElement {
           onSwitchThread={() => {}}
           onCollapse={() => setAssistantOpen(false)}
         />
+        </div>
       ) : null}
       {error ? (
         <div className="absolute bottom-3 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#c0392b] px-3 py-1.5 text-xs text-white shadow-lg">
