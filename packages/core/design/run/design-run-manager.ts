@@ -160,6 +160,20 @@ export async function sendDesignMessage(
   const turnId = uid("turn");
   const userBlockId = uid("u");
 
+  // 注册/激活会话线程:DesignAIRail 用 designThreads.find(id===activeThreadId) 决定是否
+  // 渲染 blocks,缺这条线程则聊天面板永远显示空态(即使镜像里已有消息)。
+  if (!mirror.threads.some((t) => t.id === sessionId)) {
+    mirror.setThreads([
+      ...mirror.threads,
+      {
+        id: sessionId,
+        title: "",
+        updatedAt: new Date().toISOString(),
+        model: personal.designSettings.model || personal.lastModel || "",
+        mode: "agent",
+      } as NormalizedThread,
+    ]);
+  }
   mirror.setActiveThread(sessionId);
   mirror.pushBlock({
     kind: "user",

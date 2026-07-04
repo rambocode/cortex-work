@@ -69,6 +69,8 @@ export function DesignWorkspace(): ReactElement {
   const blocks = useChatStore((s) => s.blocks);
   const liveAssistant = useChatStore((s) => s.liveAssistant);
   const activeThreadId = useChatStore((s) => s.activeThreadId);
+  // 设计会话线程(由 sendDesignMessage 注册);DesignAIRail 用它 gate 消息渲染,不能传空数组。
+  const designThreads = useChatStore((s) => s.threads);
 
   const assistantOpen = useDesignWorkspaceStore((s) => s.canvasAssistantOpen);
   const setAssistantOpen = useDesignWorkspaceStore((s) => s.setCanvasAssistantOpen);
@@ -194,7 +196,7 @@ export function DesignWorkspace(): ReactElement {
           onRetryConnection={() => installDesignRuntime(bridge)}
           onOpenSettings={() => openSettings("design")}
           onNewConversation={() => useChatStore.getState().resetMirror()}
-          designThreads={[]}
+          designThreads={designThreads}
           onSwitchThread={() => {}}
           onCollapse={() => setAssistantOpen(false)}
         />
