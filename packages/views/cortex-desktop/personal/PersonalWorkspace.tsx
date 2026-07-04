@@ -178,8 +178,6 @@ export function PersonalWorkspace({
             <PersonalCenterHeader />
             {workflowOpen ? (
               <WorkflowView onToast={onToast} />
-            ) : designOpen ? (
-              <DesignWorkspace />
             ) : automationOpen ? (
               <AutomationView onToast={onToast} />
             ) : noteEditorId ? (
@@ -203,6 +201,8 @@ export function PersonalWorkspace({
       </div>
       {/* 「项目管理」三栏工作台已迁为独立桌面窗口（projects.html，见 projects-window.ts），
           不再在主窗口内以覆盖层渲染（U3）。 */}
+      {/* 设计工作台:整窗覆盖层(fixed inset-0),接管个人工作区侧栏,自成三栏。与 settings 同级。 */}
+      {designOpen ? <DesignWorkspace /> : null}
       {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
       <SessionSearchDialog />

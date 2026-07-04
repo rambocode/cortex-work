@@ -31,10 +31,29 @@ export function DesignWorkspace(): ReactElement {
   const projects = usePersonalStore((s) => s.projects);
   const addProject = usePersonalStore((s) => s.addProject);
 
-  // 挂载即装配运行时(幂等;bridge 为 null 时 design 树各能力自动降级)。
+  const setDesignWorkspaceRoot = useDesignWorkspaceStore((s) => s.setWorkspaceRoot);
+  const loadDesignSettings = useDesignWorkspaceStore((s) => s.loadDesignSettings);
+
+  // 挂载引导:装配运行时 → 解析设计工作区根(设置值优先,否则默认 Documents/cortex/design)
+  // → 同步进 design store 的 workspaceRoot(画布 board 加载依赖它,否则卡在 Loading)
+  // → loadDesignSettings 把 settingsLoaded 置真。顺序关键:root 必须先于 board 加载就位。
   useEffect(() => {
     installDesignRuntime(bridge);
-  }, [bridge]);
+    void (async () => {
+      const st = usePersonalStore.getState();
+      let root = st.designSettings.defaultWorkspaceRoot;
+      if (!root && bridge?.designWorkspaceRoot) {
+        try {
+          root = await bridge.designWorkspaceRoot();
+          st.setDesignSettings({ defaultWorkspaceRoot: root });
+        } catch {
+          /* 拿不到默认根:留空,发送时再兜底提示 */
+        }
+      }
+      if (root) setDesignWorkspaceRoot(root);
+      await loadDesignSettings();
+    })();
+  }, [bridge, setDesignWorkspaceRoot, loadDesignSettings]);
 
   // composer 本地态(输入/模式/模型档位)。模型缺省沿用设计设置。
   const [input, setInput] = useState("");
@@ -117,22 +136,26 @@ export function DesignWorkspace(): ReactElement {
   );
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-      {/* 左栏固定宽度(DesignSidebar 内部是 w-full,需外层约束,否则铺满挤没画布)。 */}
+    // 设计模式整窗接管:fixed 覆盖层盖住个人工作区侧栏,自成左(设计稿树)/中(画布)/右(对话)三栏。
+    <div className="fixed inset-0 z-40 flex min-h-0 min-w-0 overflow-hidden bg-ds-main">
+      {/* 左栏固定宽度(DesignSidebar 内部是 w-full,需外层约束,否则铺满挤没画布)。
+          整窗覆盖时顶部避让 macOS 红绿灯(pt-7)并作拖拽区(ds-drag)。 */}
       {leftCollapsed ? null : (
-        <div className="grid min-h-0 w-[260px] shrink-0">
-        <DesignSidebar
-          onCodeOpen={closeDesign}
-          onWriteOpen={closeDesign}
-          onDesignOpen={() => {}}
-          onOpenSettings={() => openSettings("design")}
-          // cortex 的主题由宿主壳统一管理;这里沿用 Kun 语义翻转 data-theme,
-          // DesignSidebar 自带 MutationObserver 会同步图标态。
-          onToggleTheme={() => {
-            const el = document.documentElement;
-            el.setAttribute("data-theme", el.getAttribute("data-theme") === "dark" ? "light" : "dark");
-          }}
-        />
+        <div className="ds-drag grid min-h-0 w-[260px] shrink-0 bg-ds-sidebar pt-7">
+          <div className="ds-no-drag grid min-h-0 overflow-hidden">
+            <DesignSidebar
+              onCodeOpen={closeDesign}
+              onWriteOpen={closeDesign}
+              onDesignOpen={() => {}}
+              onOpenSettings={() => openSettings("design")}
+              // cortex 的主题由宿主壳统一管理;这里沿用 Kun 语义翻转 data-theme,
+              // DesignSidebar 自带 MutationObserver 会同步图标态。
+              onToggleTheme={() => {
+                const el = document.documentElement;
+                el.setAttribute("data-theme", el.getAttribute("data-theme") === "dark" ? "light" : "dark");
+              }}
+            />
+          </div>
         </div>
       )}
       <DesignWorkspaceView
