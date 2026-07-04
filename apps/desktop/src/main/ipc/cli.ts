@@ -26,6 +26,12 @@ import {
   unregisterDelegateSession,
   type DelegateSessionState,
 } from "../capabilities/delegate/server";
+import {
+  ensureDesignDelegateMcpServerConfig,
+  registerDesignDelegateSession,
+  unregisterDesignDelegateSession,
+  type DesignDelegateSessionState,
+} from "../capabilities/design-delegate/server";
 import { loadWorkflows } from "../workflow/store";
 import { getPersistedState } from "./store";
 import { CodexServerManager } from "../agents/codex-app-server";
@@ -658,6 +664,9 @@ export function registerCliHandlers(): void {
           // 委派（delegate）：本轮有被 @ 的协作者时注入 cortex-delegate server（仅 claude/codex 经此块；
           // pi 走 mcpInjection==="none" 不进本块，阶段2 另生成桥接）。工具集由下方 registerDelegateSession 注册。
           req.delegateRoles?.length ? await ensureDelegateMcpServerConfig(req.sessionId) : null,
+          // 设计委派（design-delegate）：设计工作台回合(runId 前缀 design:)注入通用 delegate_task 工具,
+          // 让父设计 agent 并行 fanout 逐页生成。工具集由下方 registerDesignDelegateSession 注册。
+          req.runId.startsWith("design:") ? await ensureDesignDelegateMcpServerConfig(req.sessionId) : null,
         ].filter((s): s is McpServerConfig => s !== null);
         if (builtinServers.length) {
           const userServers = mcp.enabled ? mcp.servers : [];
@@ -750,6 +759,54 @@ export function registerCliHandlers(): void {
       }
     }
 
+    // ── 设计委派（design-delegate）：设计回合(runId 前缀 design:)注册 delegate_task 会话 ──
+    // 父设计 agent 经该工具并行 fanout 逐页生成;每次调用在主进程内 spawn 一个子 agent
+    // (父 agent 同款底层 agent、fresh sessionId、跑该页 prompt),事件带 label(page:<artifactId>)
+    // 实时推渲染端。子 agent 用 fresh sessionId 不注册本 session → 无 delegate_task 工具 → 防递归。
+    let designDelegateAbort: AbortController | undefined;
+    if (req.runId.startsWith("design:")) {
+      const controller = new AbortController();
+      designDelegateAbort = controller;
+      const state: DesignDelegateSessionState = {
+        sessionId: req.sessionId,
+        runId: req.runId,
+        signal: controller.signal,
+        abort: () => controller.abort(),
+        pushEvent: (ev) => sendEvent(ev),
+        bumpWatchdog: () => bumpRunWatchdog(req.runId),
+        callCount: { n: 0 },
+        // 合成一个无 persona 的 role(agent=父 agent),复用 runDelegateSubAgent 的子 agent spawn 全套逻辑。
+        runSubAgent: (label, prompt, onEvent) =>
+          runDelegateSubAgent(
+            req,
+            {
+              id: label,
+              label,
+              agent: req.agent,
+              systemPrompt: "",
+              createdAt: "",
+              updatedAt: "",
+            },
+            prompt,
+            onEvent,
+            controller.signal,
+          ),
+      };
+      registerDesignDelegateSession(state);
+      // pi 主 agent 走单发、mcpInjection==="none" 不进 builtinServers 注入块,故在此单独经 -e 桥接注入。
+      if (baseAgentKindOf(req.agent) === "pi") {
+        const designCfg = await ensureDesignDelegateMcpServerConfig(req.sessionId);
+        const bridge = designCfg ? mcpServerToBridge(designCfg) : null;
+        if (bridge) {
+          const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+          req.extraExtensionPaths = [
+            ...(req.extraExtensionPaths ?? []),
+            writeMcpBridgeExtension([bridge], `design-delegate-bridge-${safeSid}.js`),
+          ];
+        }
+      }
+    }
+
     const inactivityMs = resolveCliInactivityTimeoutMs();
 
     // ── ws 传输分流(U5):codex 主交互会话走 app-server WebSocket,在 buildArgs/spawn 之前前置返回 ──
@@ -757,7 +814,10 @@ export function registerCliHandlers(): void {
     // 仅 cli:start 读 transport;oneshot/ask/automation/workflow-headless 不经此、恒走 spawn+`codex exec`。
     // 委派场景强制 codex 走单发 codex exec（非 ws）：ws app-server 长驻会缓存 tools/list，
     // 破坏 per-turn 工具集（每轮 @mention 不同）。单发每轮 fresh exec 重新发现 delegate 工具。
-    const goesWs = (adapter.transport ?? "spawn") === "ws" && !req.delegateRoles?.length;
+    // 委派场景强制走单发(非 ws):ws app-server 长驻缓存 tools/list,破坏 per-turn delegate 工具集。
+    // 设计回合的 design-delegate 同理需 per-turn 工具,故设计回合也不走 ws。
+    const goesWs =
+      (adapter.transport ?? "spawn") === "ws" && !req.delegateRoles?.length && !req.runId.startsWith("design:");
 
     // codex 原生 skill(U4):ws 主交互路径把 invokedSkill 作为 turn/start 的原生 skill input item
     // 显式注入(见 buildTurnInput);但因委派等原因退回 `codex exec`(非 ws)时,exec 没有输入层做
@@ -923,6 +983,10 @@ export function registerCliHandlers(): void {
           delegateAbort.abort();
           unregisterDelegateSession(req.sessionId);
         }
+        if (designDelegateAbort) {
+          designDelegateAbort.abort();
+          unregisterDesignDelegateSession(req.sessionId);
+        }
         runWatchdogBumpers.delete(req.runId);
         sendExit({ runId: req.runId, code: null, error: err.message });
       });
@@ -990,6 +1054,10 @@ export function registerCliHandlers(): void {
         if (delegateAbort) {
           delegateAbort.abort();
           unregisterDelegateSession(req.sessionId);
+        }
+        if (designDelegateAbort) {
+          designDelegateAbort.abort();
+          unregisterDesignDelegateSession(req.sessionId);
         }
         runWatchdogBumpers.delete(req.runId);
         cancelledRunIds.delete(req.runId);

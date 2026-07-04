@@ -35,6 +35,15 @@ function uid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// 工具 input 序列化(循环引用兜底为空对象),供 delegate_task 的 label 落进 detail 供 per-page 映射。
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 // 设计 run 的 runId 前缀契约(与 messages.ts 的 phantom-run 守卫、事件过滤共同依赖)。
 export const DESIGN_RUN_PREFIX = "design:";
 
@@ -67,17 +76,27 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
       if (ev.phase !== "end") {
         // 工具开始前先把已流出的正文落定,保持时间线顺序(文本→工具→文本)。
         mirror.foldLiveAssistant(run.turnId);
+        // detail 存入 input 的 JSON:多页并行的 deriveParallelDesignPageStatesFromBlocks 靠
+        // toolName==='delegate_task' + detail.label(page:<artifactId>)把子 agent 进度回映到对应页。
+        const inputJson =
+          ev.input !== undefined
+            ? typeof ev.input === "string"
+              ? ev.input
+              : safeStringify(ev.input)
+            : undefined;
         mirror.pushBlock({
           kind: "tool",
           id: toolId,
-          summary: ev.detail ? `${ev.name} · ${ev.detail}` : ev.name,
+          summary: ev.name,
           status: "running",
-          meta: ev.input ? { input: ev.input } : undefined,
+          detail: inputJson,
+          // toolName 供 delegate_task 识别;child.childLabel 兜底另一条映射路径。
+          meta: { toolName: ev.name, ...(ev.input ? { input: ev.input } : {}) },
         } as ChatBlock);
       } else {
+        // 落定时不覆写 detail(保留 input 里的 label,供 per-page 状态映射);只更新状态。
         mirror.patchBlock(toolId, {
           status: ev.isError ? "error" : "success",
-          detail: typeof ev.output === "string" ? ev.output.slice(0, 4000) : undefined,
         } as Partial<ChatBlock>);
       }
       return;
