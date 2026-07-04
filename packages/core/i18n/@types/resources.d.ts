@@ -526,6 +526,10 @@ export default interface Resources {
       "title": "发现新版本 v{{version}}"
     }
   },
+  "design": {
+    "designDefaultDocTitle": "我的设计",
+    "untitledThread": "新会话"
+  },
   "files": {
     "allChanges": "全部变更",
     "binaryNotice": "二进制文件,不支持文本预览",

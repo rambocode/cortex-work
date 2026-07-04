@@ -132,6 +132,9 @@ export interface DesktopBridge {
   resolveProjectFile?(root: string, ref: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
   deleteFile(path: string): Promise<void>;
+  // 设计工作台(design):建目录 / 递归删除条目(文件或目录)。可选——web/旧壳无 → 对应功能降级。
+  mkdir?(path: string): Promise<void>;
+  deleteEntry?(path: string): Promise<void>;
   createTaskFile(projectRoot: string, todoId: string, title: string): Promise<string>;
   // Tasks 面板:列出项目 tasks/ 与 tasks/archive/ 顶层 .md（带 mtime）。
   // 可选（旧壳没有;无此能力时面板退化为只显示已登记 todo）。

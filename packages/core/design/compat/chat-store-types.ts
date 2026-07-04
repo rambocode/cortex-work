@@ -34,6 +34,8 @@ export type QueuedUserMessage = {
 // sendMessage 的覆盖参数（模型/供应商/附件等按回合覆盖）。
 export type SendMessageOverrides = {
   queued?: QueuedUserMessage;
+  // 回合模式标记(Kun 语义;design-assistant 派发时透传)。
+  mode?: string;
   model?: string;
   providerId?: string;
   modelLabel?: string;

@@ -34,9 +34,10 @@ export function builtinDesignWorkspaceRoot(): string {
 }
 
 export function defaultDocumentTitle(): string {
-  // 移植说明:Kun 的该键在 common 命名空间,cortex 侧统一收进 design 命名空间。
+  // 移植说明:Kun 的该键在 common 命名空间,cortex 侧统一收进 design 命名空间;
+  // key 已由生成类型保证存在,Kun 原有的"裸 key 回退"守卫不再需要。
   const label = i18n.t('design:designDefaultDocTitle')
-  return label && label !== 'designDefaultDocTitle' ? label : 'My design'
+  return label || 'My design'
 }
 
 /**

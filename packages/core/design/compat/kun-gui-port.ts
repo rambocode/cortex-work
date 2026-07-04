@@ -26,6 +26,8 @@ import type {
 // design 树实际消费的 kunGui 能力子集（签名与 Kun kun-gui-api 保持一致）。
 export interface KunGuiPort {
   homeDir?: string;
+  // 运行平台标识("darwin"/"win32"/"linux");路径默认值推导用,未注入时按非 linux 处理。
+  platform?: string;
   readWorkspaceFile: (options: WorkspaceFileTarget) => Promise<WorkspaceFileReadResult>;
   writeWorkspaceFile: (payload: WorkspaceFileWritePayload) => Promise<WorkspaceFileWriteResult>;
   readWorkspaceImage: (options: WorkspaceFileTarget) => Promise<WorkspaceImageReadResult>;

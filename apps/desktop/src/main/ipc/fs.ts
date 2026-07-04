@@ -507,6 +507,18 @@ export function registerFsHandlers(): void {
     await fsp.rm(path, { force: true });
   });
 
+  // 设计工作台(design)需要的目录能力:建目录 / 递归删除条目(文件或目录)。
+  // 与其它 fs handler 一致走 assertAllowed 白名单;deleteEntry 是破坏性操作,只对白名单内路径生效。
+  ipcMain.handle("fs:mkdir", async (_e, path: string) => {
+    await assertAllowed(path);
+    await fsp.mkdir(path, { recursive: true });
+  });
+
+  ipcMain.handle("fs:deleteEntry", async (_e, path: string) => {
+    await assertAllowed(path);
+    await fsp.rm(path, { recursive: true, force: true });
+  });
+
   ipcMain.handle("fs:createTaskFile", async (_e, projectRoot: string, todoId: string, title: string) => {
     await assertAllowed(projectRoot);
     const taskDir = join(projectRoot, "tasks");
