@@ -17,8 +17,22 @@ import { expandTilde } from "../skills/locate";
 // 会话级已授权 file:// URL 集合。webviewGuards 经 isAuthorizedFileUrl 查询。
 const authorizedFileUrls = new Set<string>();
 
+// 匹配前剥掉 query/hash:设计画布实时刷新用 `?rev=N` 强制 webview 重载同一文件,
+// query 变体指向的仍是已授权的那个物理文件,不构成新的放行面;路径本身仍须先经
+// resolveLocalHtml 全套校验(允许根/realpath/.html/真实文件)进入集合。
+function normalizeFileUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 export function isAuthorizedFileUrl(url: string): boolean {
-  return authorizedFileUrls.has(url);
+  return authorizedFileUrls.has(normalizeFileUrl(url));
 }
 
 const HTML_EXT_RE = /\.html?$/i;

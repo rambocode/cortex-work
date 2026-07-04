@@ -33,12 +33,19 @@ function isInside(parent: string, child: string): boolean {
   return c === p || c.startsWith(p + sep);
 }
 
-// 信任白名单:promptRoot + Documents/cortex/<日期>(无项目会话读写处) + 各项目根。
+// 信任白名单:promptRoot + Documents/cortex/<日期>(无项目会话读写处) + 各项目根
+// + 设计工作台根(自定义 defaultWorkspaceRoot 与各设计稿 workspaceRoot;默认根在
+// Documents/cortex 下已被覆盖,这里只为用户自定义目录兜底。localHtml 预览授权同样
+// 复用本白名单,故设计产物 HTML 的 webview 预览无需另开口子)。
 async function allowedRoots(): Promise<string[]> {
   const state = await getPersistedState();
-  return [state.promptRoot, documentsCortexDir(), ...state.projects.map((p) => p.path)].filter(
-    (r): r is string => !!r,
-  );
+  return [
+    state.promptRoot,
+    documentsCortexDir(),
+    ...state.projects.map((p) => p.path),
+    state.designSettings?.defaultWorkspaceRoot,
+    ...(state.designDocs ?? []).map((d) => d.workspaceRoot),
+  ].filter((r): r is string => !!r);
 }
 
 // 路径必须在白名单根内，否则拒绝。写/删等改动型操作及 watch.ts 等共用(严格)。
