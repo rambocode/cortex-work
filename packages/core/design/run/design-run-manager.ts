@@ -30,8 +30,6 @@ type DesignRunContext = {
 let installedBridge: DesktopBridge | null = null;
 let unsubscribes: Array<() => void> = [];
 const activeRuns = new Map<string, DesignRunContext>();
-// agent 原生会话 id(init 事件回传),按逻辑会话记忆用于 --resume 多轮续接。
-const agentSessionBySession = new Map<string, string>();
 
 function uid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -56,8 +54,7 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
   const mirror = useChatStore.getState();
   switch (ev.type) {
     case "init":
-      // 记住 agent 原生会话 id,同 doc 的下一回合据此 --resume。
-      if (ev.sessionId) agentSessionBySession.set(run.sessionId, ev.sessionId);
+      // 设计回合不续接,init 仅标记会话已启动(不记录 sessionId)。
       return;
     case "text":
       mirror.appendLiveAssistant(ev.delta);
@@ -185,8 +182,10 @@ export async function sendDesignMessage(
   } as ChatBlock);
   mirror.beginTurn(turnId, userBlockId);
 
-  // agent/model:设计设置显式指定优先,否则沿用个人工作区「最后一次使用」。
-  const agent = personal.lastAgent ?? "claude";
+  // agent:设计回合默认 claude——它最擅长「只改指定文件、单文件完整 HTML」的多文件写入契约
+  // (计划 v1 决策;codex/pi 对该契约遵循度低、且 pi 的 session 语义此前引发 resume 失败)。
+  // model:设计设置显式指定优先,否则沿用个人工作区「最后一次使用」。
+  const agent = "claude";
   const model = personal.designSettings.model || personal.lastModel;
   const req: CliStartRequest = {
     runId,
@@ -200,9 +199,9 @@ export async function sendDesignMessage(
     // 不放开任意命令;print 模式无交互审批,approvalPolicy 必须 auto。
     permissionMode: "accept-edits",
     approvalPolicy: "auto",
-    ...(agentSessionBySession.has(sessionId)
-      ? { resumeSessionId: agentSessionBySession.get(sessionId) }
-      : {}),
+    // 不做 session 续接:设计各回合(spec/系统/logo/每页)彼此独立,上下文靠磁盘上的
+    // design.md / DESIGN_SYSTEM.md / 兄弟页清单传递,不依赖 agent 对话记忆。续接反而
+    // 会因 agent 未持久化上一回合会话而报「No session found」直接失败(pi 尤甚)。
   };
 
   activeRuns.set(runId, { sessionId, docId, turnId });
