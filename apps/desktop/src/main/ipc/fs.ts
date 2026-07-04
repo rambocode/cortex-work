@@ -526,6 +526,13 @@ export function registerFsHandlers(): void {
     await fsp.rm(path, { recursive: true, force: true });
   });
 
+  // 设计工作台默认根:Documents/cortex/design(天然在白名单内,零配置可用)。调用即确保存在。
+  ipcMain.handle("fs:designWorkspaceRoot", async () => {
+    const dir = join(documentsCortexDir(), "design");
+    await fsp.mkdir(dir, { recursive: true });
+    return dir;
+  });
+
   ipcMain.handle("fs:createTaskFile", async (_e, projectRoot: string, todoId: string, title: string) => {
     await assertAllowed(projectRoot);
     const taskDir = join(projectRoot, "tasks");

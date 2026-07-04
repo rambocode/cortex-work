@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
 import { createEmptyDocument } from '../canvas/canvas-types'
 import { useCanvasSelectionStore } from '../canvas/canvas-selection-store'
 import { useCanvasShapeStore } from '../canvas/canvas-shape-store'
@@ -36,6 +37,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  setKunGuiPort(null)
 })
 
 describe('design.generate_directions tool executor', () => {
@@ -45,7 +47,9 @@ describe('design.generate_directions tool executor', () => {
       path: request.path,
       savedAt: '2026-07-02T00:00:00.000Z'
     }))
-    vi.stubGlobal('window', { kunGui: { writeWorkspaceFile } })
+    // 草稿写入 api 解析仍以 `typeof window !== 'undefined'` 作为浏览器环境判据；node 环境补一个占位 window。
+    vi.stubGlobal('window', {})
+    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
     useDesignWorkspaceStore.setState({ workspaceRoot: '/workspace' })
 
     const result = executeDesignToolInvocation({

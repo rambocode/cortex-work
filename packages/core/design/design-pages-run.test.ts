@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setKunGuiPort, type KunGuiPort } from './compat/kun-gui-port'
 import { useChatStore } from './compat/chat-store'
 import { useDesignWorkspaceStore } from './design-workspace-store'
 import { runDesignPages } from './design-pages-run'
@@ -38,7 +39,10 @@ describe('runDesignPages parallel fanout', () => {
   const writeWorkspaceFile = vi.fn(async (_payload: { path?: string }) => ({ ok: true as const }))
 
   beforeEach(() => {
-    vi.stubGlobal('window', { kunGui: { writeWorkspaceFile } })
+    // 源码 writeWorkspaceTextFile 仍以 `typeof window !== 'undefined'` 作为“浏览器环境”判据；
+    // node 测试环境无 window，需给一个占位 window（kunGui 能力仍由注入端口提供，不放在 window 上）。
+    vi.stubGlobal('window', {})
+    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
     writeWorkspaceFile.mockClear()
     useChatStore.setState({
       blocks: [],
@@ -69,6 +73,7 @@ describe('runDesignPages parallel fanout', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+    setKunGuiPort(null)
   })
 
   it('pre-creates all pages and sends one fanout turn for page generation', async () => {

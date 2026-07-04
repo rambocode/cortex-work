@@ -43,6 +43,12 @@ export interface DesignChatMirrorState {
   setActiveThread: (threadId: string | null) => void;
   setBlocks: (blocks: ChatBlock[]) => void;
   appendLiveAssistant: (delta: string) => void;
+  // 追加一个块到时间线尾部。
+  pushBlock: (block: ChatBlock) => void;
+  // 按 id 打补丁(工具块 start→end 状态翻转用);不存在则忽略。
+  patchBlock: (id: string, patch: Partial<ChatBlock>) => void;
+  // 把流式中的 liveAssistant 落定成一个 assistant 块并清空(回合收尾/工具间隔用)。
+  foldLiveAssistant: (turnId?: string) => void;
   beginTurn: (turnId: string, userBlockId: string) => void;
   endTurn: () => void;
   resetMirror: () => void;
@@ -61,6 +67,23 @@ export const useChatStore = create<DesignChatMirrorState>((set) => ({
   setActiveThread: (activeThreadId) => set({ activeThreadId }),
   setBlocks: (blocks) => set({ blocks }),
   appendLiveAssistant: (delta) => set((s) => ({ liveAssistant: s.liveAssistant + delta })),
+  pushBlock: (block) => set((s) => ({ blocks: [...s.blocks, block] })),
+  patchBlock: (id, patch) =>
+    set((s) => ({
+      blocks: s.blocks.map((b) => (b.id === id ? ({ ...b, ...patch } as ChatBlock) : b)),
+    })),
+  foldLiveAssistant: (turnId) =>
+    set((s) => {
+      const text = s.liveAssistant;
+      if (!text.trim()) return { liveAssistant: "" };
+      return {
+        liveAssistant: "",
+        blocks: [
+          ...s.blocks,
+          { kind: "assistant", id: `a_${Date.now()}_${s.blocks.length}`, turnId, text },
+        ],
+      };
+    }),
   // 开始一个回合：busy 置位并记录 turn/user 块 id（use-apply-shape-ops-live 以此界定回合边界）。
   beginTurn: (turnId, userBlockId) =>
     set({ busy: true, currentTurnId: turnId, currentTurnUserId: userBlockId, liveAssistant: "" }),

@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setKunGuiPort, type KunGuiPort } from './compat/kun-gui-port'
+import { setDesignStorage } from './compat/browser-storage'
 import type { ChatBlock } from './compat/agent-types'
 import type { BrowserStorageLike } from './compat/browser-storage'
 import {
@@ -31,6 +33,10 @@ class MemoryStorage implements BrowserStorageLike {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  setKunGuiPort(null)
+  // 源码内部的 registry 读写走默认 browserStorage()（注入端口），非测试显式传入的 storage；
+  // 卸载注入避免用例间共享进程内 Map 造成串场。
+  setDesignStorage(null)
 })
 
 describe('design-chat-transcript', () => {
@@ -67,21 +73,19 @@ describe('design-chat-transcript', () => {
 
   it('persists per-design chat meta from the design thread registry', async () => {
     const storage = new MemoryStorage()
+    setDesignStorage(storage)
     saveDesignThreadRegistry(
       markDesignThread('/workspace/app', 'doc', 'thr_1', emptyDesignThreadRegistry()),
       storage
     )
     const writes: Array<{ path: string; content: string }> = []
-    vi.stubGlobal('window', {
-      localStorage: storage,
-      kunGui: {
-        readWorkspaceFile: vi.fn(async () => ({ ok: false as const, error: 'missing' })),
-        writeWorkspaceFile: vi.fn(async (payload: { path: string; content: string }) => {
-          writes.push(payload)
-          return { ok: true as const, path: payload.path, size: payload.content.length }
-        })
-      }
-    })
+    setKunGuiPort({
+      readWorkspaceFile: vi.fn(async () => ({ ok: false as const, error: 'missing' })),
+      writeWorkspaceFile: vi.fn(async (payload: { path: string; content: string }) => {
+        writes.push(payload)
+        return { ok: true as const, path: payload.path, size: payload.content.length }
+      })
+    } as unknown as KunGuiPort)
 
     await expect(
       persistDesignChatMetaForDoc({
@@ -102,20 +106,18 @@ describe('design-chat-transcript', () => {
 
   it('hydrates the design thread registry from chat meta in the design document directory', async () => {
     const storage = new MemoryStorage()
-    vi.stubGlobal('window', {
-      localStorage: storage,
-      kunGui: {
-        readWorkspaceFile: vi.fn(async () => ({
-          ok: true as const,
-          path: '.cortex-design/doc/chat/meta.json',
-          content: JSON.stringify({
-            version: 1,
-            activeThreadId: 'thr_new',
-            threads: [{ id: 'thr_old' }, { id: 'thr_new' }]
-          })
-        }))
-      }
-    })
+    setDesignStorage(storage)
+    setKunGuiPort({
+      readWorkspaceFile: vi.fn(async () => ({
+        ok: true as const,
+        path: '.cortex-design/doc/chat/meta.json',
+        content: JSON.stringify({
+          version: 1,
+          activeThreadId: 'thr_new',
+          threads: [{ id: 'thr_old' }, { id: 'thr_new' }]
+        })
+      }))
+    } as unknown as KunGuiPort)
 
     await expect(
       hydrateDesignChatMetaForDoc({
@@ -133,21 +135,19 @@ describe('design-chat-transcript', () => {
 
   it('writes transcript and updates chat meta together', async () => {
     const storage = new MemoryStorage()
+    setDesignStorage(storage)
     saveDesignThreadRegistry(
       markDesignThread('/workspace/app', 'doc', 'thr_1', emptyDesignThreadRegistry()),
       storage
     )
     const writes: Array<{ path: string; content: string }> = []
-    vi.stubGlobal('window', {
-      localStorage: storage,
-      kunGui: {
-        readWorkspaceFile: vi.fn(async () => ({ ok: false as const, error: 'missing' })),
-        writeWorkspaceFile: vi.fn(async (payload: { path: string; content: string }) => {
-          writes.push(payload)
-          return { ok: true as const, path: payload.path, size: payload.content.length }
-        })
-      }
-    })
+    setKunGuiPort({
+      readWorkspaceFile: vi.fn(async () => ({ ok: false as const, error: 'missing' })),
+      writeWorkspaceFile: vi.fn(async (payload: { path: string; content: string }) => {
+        writes.push(payload)
+        return { ok: true as const, path: payload.path, size: payload.content.length }
+      })
+    } as unknown as KunGuiPort)
 
     await expect(
       writeDesignChatTranscriptForThread({

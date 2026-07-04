@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultDesignSettings, type AppSettingsV1 } from './compat/app-settings'
 import { rendererRuntimeClient } from './compat/runtime-client'
+import { setKunGuiPort, type KunGuiPort } from './compat/kun-gui-port'
+import { setDesignStorage } from './compat/browser-storage'
 import { useDesignWorkspaceStore } from './design-workspace-store'
 import { buildHtmlSiblingManifest } from './design-pages'
 import type { DesignArtifact, DesignDocument } from './design-types'
@@ -54,7 +56,8 @@ function stubLocalStorage() {
       storage.delete(key)
     })
   }
-  vi.stubGlobal('localStorage', localStorage)
+  // 源码持久化已改走注入式 browserStorage()，把桩存储注入端口而非挂全局 localStorage。
+  setDesignStorage(localStorage)
   return { storage, localStorage }
 }
 
@@ -63,7 +66,7 @@ describe('design workspace store', () => {
 
   beforeEach(() => {
     writeWorkspaceFile.mockClear()
-    vi.stubGlobal('window', { kunGui: { writeWorkspaceFile } })
+    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
     const canvas = artifact('canvas', 'canvas')
     const screen = artifact('screen', 'html')
     const doc: DesignDocument = {
@@ -91,6 +94,9 @@ describe('design workspace store', () => {
     rendererRuntimeClient.invalidateSettings()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+    // 清理注入式端口，避免用例间串桩（源码已由 window.kunGui/localStorage 改走端口）。
+    setKunGuiPort(null)
+    setDesignStorage(null)
   })
 
   it('can append an HTML version without activating that artifact', () => {
@@ -370,8 +376,8 @@ describe('design workspace store', () => {
   })
 
   it('persists the design target from both quick toggle and context updates', () => {
-    const { storage, localStorage } = stubLocalStorage()
-    vi.stubGlobal('window', { kunGui: { writeWorkspaceFile }, localStorage })
+    const { storage } = stubLocalStorage()
+    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
 
     useDesignWorkspaceStore.getState().setDesignTarget('app')
 
@@ -522,9 +528,7 @@ describe('design workspace store', () => {
       path: request.path,
       createdAt
     }))
-    vi.stubGlobal('window', {
-      kunGui: { writeWorkspaceFile, createWorkspaceDirectory }
-    })
+    setKunGuiPort({ writeWorkspaceFile, createWorkspaceDirectory } as unknown as KunGuiPort)
 
     const id = useDesignWorkspaceStore.getState().createDocument('Second')
     await Promise.resolve()
@@ -536,9 +540,12 @@ describe('design workspace store', () => {
 
   it('opens the canvas assistant by default unless the user collapsed it', async () => {
     const { storage, localStorage } = stubLocalStorage()
-    vi.stubGlobal('window', { kunGui: { writeWorkspaceFile }, localStorage })
+    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
 
     vi.resetModules()
+    // vi.resetModules() 会重置注入式 browserStorage 的模块级状态（旧世界靠 localStorage
+    // 全局桩跨重置存活，注入端口不会），故对重置后的新实例重新注入同一桩存储。
+    ;(await import('./compat/browser-storage')).setDesignStorage(localStorage)
     const { useDesignWorkspaceStore: freshStore } = await import('./design-workspace-store')
 
     expect(freshStore.getState().canvasAssistantOpen).toBe(true)
@@ -547,14 +554,15 @@ describe('design workspace store', () => {
     expect(storage.get('kun.design.canvasAssistantOpen.v1')).toBe('0')
 
     vi.resetModules()
+    ;(await import('./compat/browser-storage')).setDesignStorage(localStorage)
     const { useDesignWorkspaceStore: collapsedStore } = await import('./design-workspace-store')
 
     expect(collapsedStore.getState().canvasAssistantOpen).toBe(false)
   })
 
   it('toggles the canvas assistant open state and persists the collapsed mirror key', () => {
-    const { storage, localStorage } = stubLocalStorage()
-    vi.stubGlobal('window', { kunGui: { writeWorkspaceFile }, localStorage })
+    const { storage } = stubLocalStorage()
+    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
     useDesignWorkspaceStore.setState({ canvasAssistantOpen: true, aiRailCollapsed: false })
 
     useDesignWorkspaceStore.getState().toggleCanvasAssistantOpen()
@@ -618,9 +626,7 @@ describe('design workspace store', () => {
       }
       return { ok: true as const, entries: [] as Array<{ name: string; type: 'file' | 'directory' }> }
     })
-    vi.stubGlobal('window', {
-      kunGui: { writeWorkspaceFile, readWorkspaceFile, listWorkspaceDirectory }
-    })
+    setKunGuiPort({ writeWorkspaceFile, readWorkspaceFile, listWorkspaceDirectory } as unknown as KunGuiPort)
 
     await useDesignWorkspaceStore.getState().rehydrateArtifacts()
 
@@ -666,9 +672,7 @@ describe('design workspace store', () => {
     vi.spyOn(rendererRuntimeClient, 'getSettings').mockResolvedValue(
       settingsWithDesign({ defaultWorkspaceRoot: '/workspace' })
     )
-    vi.stubGlobal('window', {
-      kunGui: { writeWorkspaceFile, readWorkspaceFile, listWorkspaceDirectory }
-    })
+    setKunGuiPort({ writeWorkspaceFile, readWorkspaceFile, listWorkspaceDirectory } as unknown as KunGuiPort)
     useDesignWorkspaceStore.setState({
       workspaceRoot: '',
       documents: [],

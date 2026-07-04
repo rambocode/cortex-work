@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
 import {
   canvasDocumentKey,
   canvasDocPath,
@@ -222,12 +223,13 @@ describe('persistCanvasDocument debounce', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    setKunGuiPort(null)
   })
 
   it('does not let one canvas save cancel another canvas save', () => {
     vi.useFakeTimers()
     const writeWorkspaceFile = vi.fn(async () => ({ ok: true as const }))
-    vi.stubGlobal('window', { kunGui: { writeWorkspaceFile } })
+    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
 
     const designDoc = createEmptyDocument()
     const codeDoc = createEmptyDocument()
@@ -252,7 +254,7 @@ describe('persistCanvasDocument debounce', () => {
   it('keeps debouncing repeated saves for the same canvas', () => {
     vi.useFakeTimers()
     const writeWorkspaceFile = vi.fn(async () => ({ ok: true as const }))
-    vi.stubGlobal('window', { kunGui: { writeWorkspaceFile } })
+    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
 
     const firstDoc = createEmptyDocument()
     const latestDoc = createEmptyDocument()

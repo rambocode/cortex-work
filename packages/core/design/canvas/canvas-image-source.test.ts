@@ -3,10 +3,13 @@ import {
   isAbsoluteLocalImagePath,
   loadWorkspaceImageDataUrl
 } from './canvas-image-source'
+import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
 
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  // 源码已改走注入式端口，清理注入避免用例间串桩。
+  setKunGuiPort(null)
 })
 
 describe('canvas image source loading', () => {
@@ -15,7 +18,7 @@ describe('canvas image source loading', () => {
     const readWorkspaceImage = vi.fn()
       .mockResolvedValueOnce({ ok: false, message: 'File not found' })
       .mockResolvedValueOnce({ ok: true, dataUrl, path: '/ws/img/flaky.png', mimeType: 'image/png', size: 2 })
-    vi.stubGlobal('window', { kunGui: { readWorkspaceImage } })
+    setKunGuiPort({ readWorkspaceImage } as unknown as KunGuiPort)
 
     await expect(loadWorkspaceImageDataUrl('/ws', 'img/flaky-retry.png')).resolves.toBeNull()
     await expect(loadWorkspaceImageDataUrl('/ws', 'img/flaky-retry.png')).resolves.toBe(dataUrl)
@@ -31,7 +34,7 @@ describe('canvas image source loading', () => {
       mimeType: 'image/png',
       size: 2
     }))
-    vi.stubGlobal('window', { kunGui: { readWorkspaceImage } })
+    setKunGuiPort({ readWorkspaceImage } as unknown as KunGuiPort)
 
     await expect(loadWorkspaceImageDataUrl('/Users/zxy/.kun/design-workspace', absolutePath))
       .resolves.toBe('data:image/png;base64,ok')

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
 import {
   createDefaultShape,
   createEmptyDocument,
@@ -80,6 +81,11 @@ const tokensByArtifact: Record<string, DerivedTokens> = {
     }]
   }
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  setKunGuiPort(null)
+})
 
 describe('design turn prompt payload', () => {
   it('builds a design canvas prompt with the design mode workflow context', async () => {
@@ -169,7 +175,9 @@ describe('design turn prompt payload', () => {
         ? ''
         : '<!doctype html><html><body><main><button>Click</button></main></body></html>'
     }))
-    vi.stubGlobal('window', { kunGui: { readWorkspaceFile } })
+    // 源码 readDesignHtmlQualityFindings 仍以 `typeof window !== 'undefined'` 作为浏览器环境判据；node 环境补占位 window。
+    vi.stubGlobal('window', {})
+    setKunGuiPort({ readWorkspaceFile } as unknown as KunGuiPort)
 
     const findings = await readDesignHtmlQualityFindings({
       workspaceRoot: '/workspace',
@@ -179,7 +187,6 @@ describe('design turn prompt payload', () => {
 
     expect(readWorkspaceFile).toHaveBeenCalled()
     expect(findings.length).toBeGreaterThan(0)
-    vi.unstubAllGlobals()
   })
 
   it('passes selected canvas images as context locations', async () => {

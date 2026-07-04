@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
 import { useCanvasSelectionStore } from './canvas-selection-store'
 import {
   computeImportedImagePlacement,
@@ -16,11 +17,11 @@ beforeEach(() => {
   useCanvasSelectionStore.getState().clearSelection()
   useCanvasViewportStore.getState().setVbox({ x: -500, y: -300, width: 1000, height: 600 })
   useCanvasViewportStore.getState().setActiveTool('hand')
-  vi.stubGlobal('window', {
-    kunGui: {
-      pickWorkspaceImage: vi.fn()
-    }
-  })
+  setKunGuiPort({ pickWorkspaceImage: vi.fn() } as unknown as KunGuiPort)
+})
+
+afterEach(() => {
+  setKunGuiPort(null)
 })
 
 describe('computeImportedImagePlacement', () => {
@@ -59,7 +60,7 @@ describe('importWorkspaceImageToCanvas', () => {
       height: 800,
       createdAt: '2026-06-22T00:00:00.000Z'
     })
-    vi.stubGlobal('window', { kunGui: { pickWorkspaceImage } })
+    setKunGuiPort({ pickWorkspaceImage } as unknown as KunGuiPort)
 
     const result = await importWorkspaceImageToCanvas({
       workspaceRoot: '/workspace',
@@ -85,11 +86,9 @@ describe('importWorkspaceImageToCanvas', () => {
   })
 
   it('does not mutate the canvas when the picker is canceled', async () => {
-    vi.stubGlobal('window', {
-      kunGui: {
-        pickWorkspaceImage: vi.fn().mockResolvedValue({ ok: false, canceled: true })
-      }
-    })
+    setKunGuiPort({
+      pickWorkspaceImage: vi.fn().mockResolvedValue({ ok: false, canceled: true })
+    } as unknown as KunGuiPort)
 
     const result = await importWorkspaceImageToCanvas({
       workspaceRoot: '/workspace',
@@ -114,7 +113,7 @@ describe('pasteClipboardImageToCanvas', () => {
       width: 800,
       height: 600
     })
-    vi.stubGlobal('window', { kunGui: { readClipboardImage } })
+    setKunGuiPort({ readClipboardImage } as unknown as KunGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: -500, y: -300, width: 1000, height: 600 }
@@ -137,14 +136,12 @@ describe('pasteClipboardImageToCanvas', () => {
   })
 
   it('returns failure when clipboard has no image', async () => {
-    vi.stubGlobal('window', {
-      kunGui: {
-        readClipboardImage: vi.fn().mockResolvedValue({
-          ok: false,
-          message: 'Clipboard does not currently contain an image.'
-        })
-      }
-    })
+    setKunGuiPort({
+      readClipboardImage: vi.fn().mockResolvedValue({
+        ok: false,
+        message: 'Clipboard does not currently contain an image.'
+      })
+    } as unknown as KunGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 }
@@ -171,9 +168,7 @@ describe('pasteClipboardImageToCanvas', () => {
       markdownPath: '.deepseekgui-images/img-y.png',
       createdAt: '2026-06-23T00:00:00.000Z'
     })
-    vi.stubGlobal('window', {
-      kunGui: { readClipboardImage, saveWorkspaceClipboardImage }
-    })
+    setKunGuiPort({ readClipboardImage, saveWorkspaceClipboardImage } as unknown as KunGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 },
@@ -213,9 +208,7 @@ describe('pasteClipboardImageToCanvas', () => {
       markdownPath: 'ws/.deepseekgui-images/img-z.png',
       createdAt: '2026-06-23T00:00:00.000Z'
     })
-    vi.stubGlobal('window', {
-      kunGui: { readClipboardImage, saveWorkspaceClipboardImage }
-    })
+    setKunGuiPort({ readClipboardImage, saveWorkspaceClipboardImage } as unknown as KunGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 },
@@ -240,7 +233,7 @@ describe('pasteClipboardImageToCanvas', () => {
       width: 800,
       height: 600
     })
-    vi.stubGlobal('window', { kunGui: { readClipboardImage } })
+    setKunGuiPort({ readClipboardImage } as unknown as KunGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 }
@@ -253,18 +246,16 @@ describe('pasteClipboardImageToCanvas', () => {
   })
 
   it('falls back to default name when clipboard image has no name', async () => {
-    vi.stubGlobal('window', {
-      kunGui: {
-        readClipboardImage: vi.fn().mockResolvedValue({
-          ok: true,
-          name: '',
-          localFilePath: '/tmp/clipboard/1234.png',
-          mimeType: 'image/png',
-          dataBase64: 'AAAA',
-          byteSize: 3
-        })
-      }
-    })
+    setKunGuiPort({
+      readClipboardImage: vi.fn().mockResolvedValue({
+        ok: true,
+        name: '',
+        localFilePath: '/tmp/clipboard/1234.png',
+        mimeType: 'image/png',
+        dataBase64: 'AAAA',
+        byteSize: 3
+      })
+    } as unknown as KunGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
 import {
   designSystemPath,
   parseDesignSystem,
@@ -33,12 +34,13 @@ describe('design-system-persistence', () => {
     afterEach(() => {
       vi.useRealTimers()
       vi.unstubAllGlobals()
+      setKunGuiPort(null)
     })
 
     it('does not let one design-system file cancel another design-system save', () => {
       vi.useFakeTimers()
       const writeWorkspaceFile = vi.fn(async () => ({ ok: true as const }))
-      vi.stubGlobal('window', { kunGui: { writeWorkspaceFile } })
+      setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
       const designSystem: DesignSystem = {
         tokens: {
           'brand/primary': { name: 'brand/primary', kind: 'color', value: '#3b82d8' }
@@ -72,7 +74,7 @@ describe('design-system-persistence', () => {
     it('keeps debouncing repeated saves for the same design-system file', () => {
       vi.useFakeTimers()
       const writeWorkspaceFile = vi.fn(async () => ({ ok: true as const }))
-      vi.stubGlobal('window', { kunGui: { writeWorkspaceFile } })
+      setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
       const firstSystem = createEmptyDesignSystem()
       const latestSystem: DesignSystem = {
         tokens: {
