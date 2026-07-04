@@ -22,6 +22,33 @@ function toolDetail(input: unknown): string | undefined {
   return candidate.length > 80 ? candidate.slice(0, 80) + "…" : candidate;
 }
 
+// 工具输出截断上限:防止超大输出(如 cat 大文件)撑爆 IPC 消息与渲染端内存。
+const MAX_TOOL_OUTPUT = 8_000;
+
+// 归一化 tool_result 的 content 为展示用文本:string 原样;content block 数组拼接其中的
+// text 块;其余形态(对象/数字等)JSON 序列化兜底。超限截断。
+function normalizeToolResultContent(content: unknown): string {
+  let text: string;
+  if (typeof content === "string") {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content
+      .map((b) => {
+        const block = b as Record<string, unknown>;
+        return block?.type === "text" && typeof block.text === "string" ? block.text : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  } else {
+    try {
+      text = JSON.stringify(content);
+    } catch {
+      text = String(content);
+    }
+  }
+  return text.length > MAX_TOOL_OUTPUT ? text.slice(0, MAX_TOOL_OUTPUT) + "…" : text;
+}
+
 // 图片:claude Read 工具原生支持看图(--dangerously-skip-permissions 下可读任意绝对路径)。
 // 官方推荐「绝对路径 + 显式读取指令」;图片引用置于用户文本之前(视觉效果更好,降低误读)。
 function buildClaudePrompt(req: CliStartRequest): string {
@@ -60,11 +87,65 @@ function buildClaudeStdin(req: CliStartRequest): string {
   });
 }
 
+// ── 已知忽略帧声明(盲区补点降噪,见 index.ts parseLineEvents)────────────────────
+// dev 实测:每轮流式运行,stream_event 生命周期子帧 / system 信息性子类型 / 无 tool_use 的
+// assistant / 无 tool_result 的 user 会把 parse 日志刷屏成「未映射的 claude 输出帧」,
+// 淹没真正的协议漂移信号。以下清单为已评审的故意忽略;未列出的子类型保持告警。
+
+// 顶层 type 一刀切忽略:assistant/user 帧仅当**未**解析出 tool 事件时才会走到盲区判定
+// (解析出事件的帧不进此路径),此时即「无 tool_use 的 assistant(text 已由 delta 覆盖)」
+// 与「无 tool_result 的 user(skill 注入等回灌)」,均为设计内忽略;rate_limit_event 为信息帧。
+const IGNORED_FRAME_TYPES = new Set(["assistant", "user", "rate_limit_event"]);
+
+// stream_event 里纯生命周期边界子帧:不携带需归一化的内容。
+// (text_delta/thinking_delta/message_delta 会产事件,不在此列。)
+const IGNORED_STREAM_EVENT_TYPES = new Set([
+  "content_block_start",
+  "content_block_stop",
+  "message_start",
+  "message_stop",
+]);
+
+// content_block_delta 中已知无需映射的增量:签名增量无展示价值;工具入参增量(input_json_delta)
+// 是碎片 JSON,完整 input 由 assistant 帧的 tool_use 块承载。
+const IGNORED_DELTA_TYPES = new Set(["signature_delta", "input_json_delta"]);
+
+// system 信息性子类型:状态心跳 / 思考 token 计数 / hook 与 task 生命周期通知,均无归一化事件对应。
+// (init 会产 init 事件,不进此路径。)
+const IGNORED_SYSTEM_SUBTYPES = new Set([
+  "status",
+  "thinking_tokens",
+  "hook_started",
+  "hook_response",
+  "hook_progress",
+  "task_started",
+  "task_notification",
+]);
+
 export const claudeDef: AgentDef = {
   id: "claude",
   // 能力位:claude 走 stream-json stdin;MCP 写 cwd .mcp.json(U2);续接支持 --continue+resume(U4);
   // 图片拼进 prompt 文本、appendSystemPrompt 用原生 flag(U5)。
   promptDelivery: "stdin-stream-json",
+  ignoredFrameTypes: IGNORED_FRAME_TYPES,
+  // 细粒度已知忽略:stream_event 与 system 下「部分子事件已适配、其余故意忽略」,不能按顶层
+  // type 一刀切——否则未来新增子帧(新 delta 类型 / 新 system 子类型)的协议漂移会被一并消音。
+  isIgnoredFrame(frame: Record<string, unknown>): boolean {
+    if (frame.type === "stream_event") {
+      const event = frame.event as Record<string, unknown> | undefined;
+      if (typeof event?.type !== "string") return false;
+      if (IGNORED_STREAM_EVENT_TYPES.has(event.type)) return true;
+      if (event.type === "content_block_delta") {
+        const delta = event.delta as Record<string, unknown> | undefined;
+        return typeof delta?.type === "string" && IGNORED_DELTA_TYPES.has(delta.type);
+      }
+      return false;
+    }
+    if (frame.type === "system") {
+      return typeof frame.subtype === "string" && IGNORED_SYSTEM_SUBTYPES.has(frame.subtype);
+    }
+    return false;
+  },
   mcpInjection: "claude-mcp-json",
   sessionResume: "continue+resume",
   imageDelivery: "prompt-text",
@@ -156,19 +237,40 @@ export const claudeDef: AgentDef = {
     if (obj.type === "assistant") {
       const message = obj.message as Record<string, unknown> | undefined;
       const content = Array.isArray(message?.content) ? (message!.content as Record<string, unknown>[]) : [];
-      const tool = content.find((b) => b.type === "tool_use");
-      if (tool && typeof tool.name === "string") {
-        // R2:标注 phase:"start" 与 toolCallId(承载能力);只产起始事件,不产 end(避免重复 tool 事件
-        // 污染渲染端 agentLog 折叠)。
-        return {
-          type: "tool",
-          name: tool.name,
-          detail: toolDetail(tool.input),
-          phase: "start",
-          toolCallId: typeof tool.id === "string" ? tool.id : undefined,
-        };
-      }
-      return null;
+      // 一条 assistant 消息可含多个 tool_use 块(并行工具调用):逐块产出 start 事件,
+      // 各带完整 input(运行过程详情视图展示)与 toolCallId(与 tool_result 配对)。
+      const tools = content.filter(
+        (b): b is Record<string, unknown> & { name: string } => b.type === "tool_use" && typeof b.name === "string",
+      );
+      if (tools.length === 0) return null;
+      const events = tools.map<CliStreamEvent>((tool) => ({
+        type: "tool",
+        name: tool.name,
+        detail: toolDetail(tool.input),
+        input: tool.input,
+        phase: "start",
+        toolCallId: typeof tool.id === "string" ? tool.id : undefined,
+      }));
+      return events.length === 1 ? events[0]! : events;
+    }
+
+    // tool_result:claude 把工具执行结果作为 user 消息回灌。产出 phase:"end" 事件,靠
+    // toolCallId(=tool_use_id)与 start 配对;name 在结果帧不可得,置空字符串由消费端配对补齐。
+    // 渲染端 agentLog 折叠对 phase:"end" 有守卫(messages.ts/followup.ts),不会翻倍。
+    if (obj.type === "user") {
+      const message = obj.message as Record<string, unknown> | undefined;
+      const content = Array.isArray(message?.content) ? (message!.content as Record<string, unknown>[]) : [];
+      const results = content.filter((b) => b.type === "tool_result" && typeof b.tool_use_id === "string");
+      if (results.length === 0) return null;
+      const events = results.map<CliStreamEvent>((block) => ({
+        type: "tool",
+        name: "",
+        phase: "end",
+        toolCallId: block.tool_use_id as string,
+        output: normalizeToolResultContent(block.content),
+        isError: block.is_error === true,
+      }));
+      return events.length === 1 ? events[0]! : events;
     }
 
     if (obj.type === "result") {

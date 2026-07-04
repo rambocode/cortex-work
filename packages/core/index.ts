@@ -420,11 +420,13 @@ export {
 export {
   personalChatKeys,
   personalProcessKeys,
+  personalRunEventsKeys,
   buildAttachmentSystemPrompt,
   buildProjectSystemPrompt,
   cleanToolName,
   usePersonalChat,
   usePersonalProcess,
+  usePersonalRunEvents,
   useRenderWindow,
   windowTailMessages,
   usePersonalActions,
@@ -445,6 +447,7 @@ export {
   type PromptAttachment,
   type TodoAttachment,
   type PersonalActions,
+  type RunEvent,
 } from "./personal/messages";
 export {
   useFollowupAsk,

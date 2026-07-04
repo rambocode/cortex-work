@@ -151,6 +151,29 @@ describe("applyFollowupEvent", () => {
     expect(next.turns[0]!.messages).toHaveLength(0);
   });
 
+  it("tool phase:end(工具完成帧)被忽略,不重复折叠 agentLog 项", () => {
+    const c = ctxSeq();
+    let state = initState([streamingTurn("a", "问")]);
+    state = applyFollowupEvent(
+      state,
+      "a",
+      "a",
+      { type: "tool", name: "Bash", detail: "ls", phase: "start", toolCallId: "t1" },
+      c,
+    );
+    const afterStart = state;
+    state = applyFollowupEvent(
+      state,
+      "a",
+      "a",
+      { type: "tool", name: "", phase: "end", toolCallId: "t1", output: "a.txt" },
+      c,
+    );
+    expect(state).toBe(afterStart); // 引用相等 = end 被守卫忽略
+    const log = state.turns[0]!.messages.find((m) => m.kind === "agentLog");
+    expect(log && "items" in log ? log.items : []).toHaveLength(1);
+  });
+
   it("折叠 text→tool→text 产出三段(不退化两块)", () => {
     const c = ctxSeq();
     let state = initState([streamingTurn("a", "问")]);

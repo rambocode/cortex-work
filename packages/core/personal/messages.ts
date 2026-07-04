@@ -72,6 +72,23 @@ export const personalProcessKeys = {
   detail: (sessionId: string) => ["personal", "process", sessionId] as const,
 };
 
+// 瞬态「运行事件流」query key:原始 CliStreamEvent 按会话累积(跨多轮),供运行过程详情弹层
+// (AgentTranscriptDialog)展示工具输入/输出与统计。与折叠后的 process 流分离:process 只留摘要
+// 且成功轮收起/下一轮即清,而详情视图需要完整原始事件。**永不落盘**,内存上限见 MAX_RUN_EVENTS。
+export const personalRunEventsKeys = {
+  detail: (sessionId: string) => ["personal", "runEvents", sessionId] as const,
+};
+
+// 运行事件流单条记录:原始归一化事件 + 归属 runId + 到达时间(统计耗时用)。
+export interface RunEvent {
+  runId: string;
+  ts: number;
+  ev: CliStreamEvent;
+}
+
+// 运行事件流内存上限(环形):超限丢最旧。与 adapter 侧 output 8KB 截断双保险,防长会话内存膨胀。
+const MAX_RUN_EVENTS = 1000;
+
 export interface PromptAttachment {
   id: string;
   name: string;
@@ -542,6 +559,69 @@ function setProcessMessages(qc: QueryClient, sessionId: string, updater: (prev: 
   qc.setQueryData<Message[]>(personalProcessKeys.detail(sessionId), (prev) => updater(prev ?? []));
 }
 
+// 运行事件流单段正文上限:text/thinking 增量合并段超过该长度即截断(防超长回复撑爆内存)。
+const MAX_RUN_SEGMENT = 8_000;
+
+// 追加一条原始运行事件到瞬态运行事件流(免落盘,仿 setProcessMessages):超过 MAX_RUN_EVENTS
+// 丢最旧。text/thinking 是逐 token 增量,逐条记会挤掉工具事件——合并进「段」:与末条同
+// runId 同类型时原地追加 delta(截断上限内),异类/新轮才另起一条,保留 思考→工具→回复 的时间线。
+function recordRunEvent(qc: QueryClient, sessionId: string, runId: string, ev: CliStreamEvent): void {
+  qc.setQueryData<RunEvent[]>(personalRunEventsKeys.detail(sessionId), (prev) => {
+    const arr = prev ?? [];
+    if (ev.type === "text" || ev.type === "thinking") {
+      if (!ev.delta) return arr; // 空增量(如编排段边界信号)不产段
+      const last = arr[arr.length - 1];
+      if (last && last.runId === runId && last.ev.type === ev.type) {
+        // 命中同类型打开段:原地合并(替换末条,保持数组长度,不触发环形裁剪)。
+        const prevDelta = (last.ev as { delta: string }).delta;
+        const combined =
+          prevDelta.length >= MAX_RUN_SEGMENT
+            ? prevDelta
+            : (prevDelta + ev.delta).length > MAX_RUN_SEGMENT
+              ? (prevDelta + ev.delta).slice(0, MAX_RUN_SEGMENT) + "…"
+              : prevDelta + ev.delta;
+        const next = arr.slice();
+        next[next.length - 1] = { ...last, ts: Date.now(), ev: { type: ev.type, delta: combined } };
+        return next;
+      }
+      const opened = [...arr, { runId, ts: Date.now(), ev: { type: ev.type, delta: ev.delta } }];
+      return opened.length > MAX_RUN_EVENTS ? opened.slice(opened.length - MAX_RUN_EVENTS) : opened;
+    }
+    const next = [...arr, { runId, ts: Date.now(), ev }];
+    return next.length > MAX_RUN_EVENTS ? next.slice(next.length - MAX_RUN_EVENTS) : next;
+  });
+}
+
+// 立即清空某会话的运行事件流(会话删除/editResend 截断出口用)。运行事件跨轮累积,故普通
+// 「下一轮开始」不清(与 clearProcess 生命周期不同);只在历史被重写/会话消亡时整条移除。
+function clearRunEvents(qc: QueryClient, sessionId: string): void {
+  qc.removeQueries({ queryKey: personalRunEventsKeys.detail(sessionId), exact: true });
+}
+
+// pi RPC 事件 → 运行事件流记录:转成与 claude/codex 同形态的 CliStreamEvent,落同一通道,
+// 详情弹层无需区分 agent。text/reasoning 增量转 text/thinking(recordRunEvent 内合并成段);
+// 状态类事件(queue/compaction 等)不记。
+// result:失败轮的失败已由 error 事件记录(ok:false),此处跳过避免重复终态行。
+function piEventToRunRecord(ev: PiSessionEvent, resultOk: boolean): CliStreamEvent | null {
+  switch (ev.type) {
+    case "text":
+      return { type: "text", delta: ev.delta };
+    case "reasoning":
+      return { type: "thinking", delta: ev.delta };
+    case "tool-start":
+      return { type: "tool", name: ev.name, detail: ev.detail, input: ev.input, phase: "start", toolCallId: ev.toolCallId };
+    case "tool-end":
+      return { type: "tool", name: ev.name, phase: "end", toolCallId: ev.toolCallId, output: ev.output, isError: ev.isError };
+    case "error":
+      return { type: "result", ok: false, error: ev.error };
+    case "result":
+      if (ev.willRetry) return null;
+      return resultOk ? { type: "result", ok: true } : null;
+    default:
+      return null;
+  }
+}
+
 // 立即清空某会话的过程流（异常终态/会话删除/editResend 截断出口用，KTD8）。先取消该 session 任何
 // 游离的延迟清理 timer（杜绝 timer 复活已删/已清会话的 process key），再整条移除 process query
 // （removeQueries 而非写空数组:彻底回收,不留 inactive 空缓存;活跃 observer 会读回 EMPTY_MESSAGES）。
@@ -800,6 +880,8 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   }
   const { sessionId } = run;
   run.lastEventAt = Date.now();
+  // 运行事件流采集(详情弹层数据源):所有事件类型统一在此入口记录一次(text/thinking 在内部跳过)。
+  recordRunEvent(qc, sessionId, runId, ev);
 
   if (ev.type === "init") {
     // 圆桌编排：roleId 标注角色起始，在聊天流插入 roleHeader 分隔符，初始化该角色折叠游标。
@@ -894,6 +976,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   }
 
   if (ev.type === "tool") {
+    // phase:"end"(工具完成帧)只进上面的运行事件流,不进 agentLog 折叠——否则每个工具在过程
+    // 面板出现两次(start+end 各折一条)。同时跳过 typing/变更文件/拦截检测等 start 专属副作用。
+    // 也修复既有潜伏 bug:orchestrate 的 pi 路径(mapPiToCliEvent)一直在产 end 事件并被翻倍折叠。
+    if (ev.phase === "end") return;
     usePetStore.getState().set("working");
     updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
     // 阶段切换收尾:收到工具前先收尾打开的思考块,使新工具卡按时序追加到思考之后(保留交错时间线)。
@@ -1387,6 +1473,14 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       return;
     case "retry":
       store.setPiRuntime(sessionId, { retry: { attempt: ev.attempt, max: ev.maxAttempts } });
+      // 重试也进运行事件流(详情弹层的重试可见性)。
+      if (activeRunId) {
+        recordRunEvent(qc, sessionId, activeRunId, {
+          type: "retry",
+          attempt: ev.attempt,
+          maxAttempts: ev.maxAttempts,
+        });
+      }
       return;
     case "thinking-level":
       store.setPiRuntime(sessionId, { thinkingLevel: ev.level });
@@ -1443,6 +1537,9 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
   const { runId, run } = active;
   run.lastEventAt = Date.now();
   if (run.phase === "starting") run.phase = "thinking";
+  // 运行事件流采集(详情弹层数据源):pi 事件转成与 claude/codex 同形态的记录后统一入通道。
+  const runRecord = piEventToRunRecord(ev, run.resultOk !== false);
+  if (runRecord) recordRunEvent(qc, sessionId, runId, runRecord);
 
   switch (ev.type) {
     case "reasoning":
@@ -1575,6 +1672,8 @@ export function reapSessionRun(qc: QueryClient, sessionId: string): void {
   clearTransient(qc, sessionId);
   // 删会话立即清空过程流并取消任何游离的延迟清理 timer（杜绝 timer 复活已删会话 process key，KTD8）。
   clearProcess(qc, sessionId);
+  // 运行事件流随会话消亡整条回收(跨轮累积的数据只在此与 editResend 出口清)。
+  clearRunEvents(qc, sessionId);
 }
 
 // pi:prompt 只收 message 字符串,无 appendSystemPrompt 通道（与单发 startCli 不同）。
@@ -2146,6 +2245,21 @@ export function usePersonalProcess(sessionId: string | undefined): Message[] {
   return useThrottledValue(all, CHAT_RENDER_THROTTLE_MS);
 }
 
+// 瞬态运行事件流(原始 CliStreamEvent,详情弹层数据源)。生命周期同 usePersonalProcess:
+// 不落盘、恒初始为空、gcTime Infinity(回收由 clearRunEvents 出口闭环负责)。事件已在写入侧
+// 过滤掉逐 token 增量(text/thinking),频率低,套同款渲染节流足够。
+const EMPTY_RUN_EVENTS: RunEvent[] = [];
+export function usePersonalRunEvents(sessionId: string | undefined): RunEvent[] {
+  const { data } = useQuery<RunEvent[]>({
+    queryKey: personalRunEventsKeys.detail(sessionId ?? "none"),
+    queryFn: () => EMPTY_RUN_EVENTS,
+    enabled: !!sessionId,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+  return useThrottledValue(data ?? EMPTY_RUN_EVENTS, CHAT_RENDER_THROTTLE_MS);
+}
+
 // 渲染窗口默认尺寸与每次「展开更多」步长。
 export const RENDER_WINDOW_INITIAL = 20;
 export const RENDER_WINDOW_STEP = 20;
@@ -2683,6 +2797,8 @@ export function usePersonalActions(): PersonalActions {
       // editResend **不走** clearTransient（KTD8 单独处理）:它被 running 守卫(:1951),不存在「运行中
       // 过程残留」,故截断前显式清掉上一轮收起的残留过程入口（避免旧轮过程入口在新一轮前误闪现）。
       clearProcess(qc, session.id);
+      // 历史被截断重写 → 运行事件流与新历史不再对应,整条清掉重新累积。
+      clearRunEvents(qc, session.id);
       // 复用被编辑消息自身的已落盘图片引用(不重新落盘、不删旧文件),随重发带回 agent。
       const editedMsg = prev.find((m) => m.uid === msgUid);
       const originalImages = editedMsg?.kind === "text" ? editedMsg.images : undefined;

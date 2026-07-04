@@ -1044,7 +1044,9 @@ export interface TrimSessionRequest {
 export type CliStreamEvent =
   | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
   | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "tool"; name: string; detail?: string; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  // tool 事件:phase:"start" 带 input(完整调用参数,原始 JSON);phase:"end" 带 output(工具输出文本,
+  // adapter 侧已截断)+ isError。start/end 靠 toolCallId 配对(运行过程详情视图用)。
+  | { type: "tool"; name: string; detail?: string; input?: unknown; output?: string; isError?: boolean; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
   | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
   | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
   | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
@@ -1166,8 +1168,10 @@ export interface PiOpenResult {
 export type PiSessionEvent =
   | { type: "text"; delta: string } // assistant 正文增量
   | { type: "reasoning"; delta: string } // 思考增量（仅 reasoning 模型）
-  | { type: "tool-start"; name: string; toolCallId: string; detail?: string }
-  | { type: "tool-end"; name: string; toolCallId: string; isError: boolean }
+  // tool-start.input = 完整调用参数(pi tool_execution_start.args);tool-end.output = 工具输出文本
+  // (tool_execution_end.result 归一化,主进程已截断)。供运行过程详情视图展示。
+  | { type: "tool-start"; name: string; toolCallId: string; detail?: string; input?: unknown }
+  | { type: "tool-end"; name: string; toolCallId: string; isError: boolean; output?: string }
   | { type: "turn-end" } // 一轮（含工具）结束
   | { type: "error"; error: string } // assistant stopReason=error/aborted
   | { type: "result"; willRetry: boolean } // 一次 run 结束（agent_end）

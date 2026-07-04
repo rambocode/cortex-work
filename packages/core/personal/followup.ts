@@ -229,6 +229,8 @@ export function applyFollowupEvent(
   const { turns, cursors } = state;
 
   if (event.type === "text" || event.type === "tool") {
+    // tool phase:"end"(工具完成帧)不折叠——否则每个工具在轮内出现两次(start+end 各折一条)。
+    if (event.type === "tool" && event.phase === "end") return state;
     const cursor = cursors[askId] ?? emptyFoldCursor();
     let nextCursor = cursor;
     const nextTurns = turns.map((t) => {

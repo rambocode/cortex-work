@@ -121,10 +121,17 @@ describe("parseAppServerEvent(U4)", () => {
     expect(parseAppServerEvent("item/reasoning/summaryTextDelta", { delta: "" })).toBeNull();
   });
 
-  it("item/started 各工具类型 → 正确 tool 名 + detail + toolCallId", () => {
+  it("item/started 各工具类型 → 正确 tool 名 + detail + toolCallId + input", () => {
     expect(
       parseAppServerEvent("item/started", { item: { type: "commandExecution", id: "i1", command: "ls -la" } }),
-    ).toEqual({ type: "tool", name: "Shell", detail: "ls -la", phase: "start", toolCallId: "i1" });
+    ).toEqual({
+      type: "tool",
+      name: "Shell",
+      detail: "ls -la",
+      input: { type: "commandExecution", id: "i1", command: "ls -la" },
+      phase: "start",
+      toolCallId: "i1",
+    });
     expect(parseAppServerEvent("item/started", { item: { type: "mcpToolCall", server: "memory" } })).toMatchObject({
       name: "MCP",
       detail: "memory",
@@ -161,9 +168,66 @@ describe("parseAppServerEvent(U4)", () => {
     });
   });
 
-  it("item/completed 非图片类型(agentMessage/commandExecution) → null", () => {
+  it("item/completed 非图片非工具类型(agentMessage) → null;工具类型 → tool phase:end", () => {
     expect(parseAppServerEvent("item/completed", { item: { type: "agentMessage", text: "hi" } })).toBeNull();
-    expect(parseAppServerEvent("item/completed", { item: { type: "commandExecution", command: "ls" } })).toBeNull();
+    // 工具完成帧:带输出与失败标记,toolCallId 与 start 配对。
+    expect(
+      parseAppServerEvent("item/completed", {
+        item: { type: "commandExecution", id: "i1", command: "ls", aggregatedOutput: "a.txt\n", exitCode: 0 },
+      }),
+    ).toEqual({
+      type: "tool",
+      name: "Shell",
+      detail: "ls",
+      // end 帧 input = 完成 item 剔除输出正文(aggregatedOutput 可能极大,已走 output 截断透出)。
+      input: { type: "commandExecution", id: "i1", command: "ls", exitCode: 0 },
+      phase: "end",
+      toolCallId: "i1",
+      output: "a.txt\n",
+      isError: false,
+    });
+    expect(
+      parseAppServerEvent("item/completed", {
+        item: { type: "commandExecution", id: "i2", exitCode: 1, aggregatedOutput: "boom" },
+      }),
+    ).toMatchObject({ phase: "end", isError: true, output: "boom" });
+    expect(
+      parseAppServerEvent("item/completed", { item: { type: "fileChange", id: "i3", status: "failed" } }),
+    ).toMatchObject({ type: "tool", name: "Edit", phase: "end", isError: true, output: undefined });
+  });
+
+  it("item/completed webSearch → end 帧带 detail/input,并合成输出(查询词+去向说明)", () => {
+    const ev = parseAppServerEvent("item/completed", {
+      item: { type: "webSearch", id: "ws1", query: "AI news 2026-07", action: { type: "search" } },
+    }) as { output?: string };
+    expect(ev).toMatchObject({
+      type: "tool",
+      name: "WebSearch",
+      phase: "end",
+      toolCallId: "ws1",
+      detail: "AI news 2026-07",
+      // 完成帧 input 带最终查询词,供渲染端覆盖调用行的空 query 快照。
+      input: { type: "webSearch", id: "ws1", query: "AI news 2026-07", action: { type: "search" } },
+    });
+    // OpenAI 不回传搜索结果原文 → 合成输出,不再显示「无输出」。
+    expect(ev.output).toContain("查询: AI news 2026-07");
+    expect(ev.output).toContain("注入模型上下文");
+  });
+
+  it("item/completed webSearch 多路查询(action.queries)+ sources → 输出逐条列出", () => {
+    const ev = parseAppServerEvent("item/completed", {
+      item: {
+        type: "webSearch",
+        id: "ws2",
+        query: "q1",
+        action: { type: "search", query: "q1", queries: ["q1", "q2"], sources: ["https://a.com", { url: "https://b.com" }] },
+      },
+    }) as { output?: string };
+    expect(ev.output).toContain("共 2 路查询:");
+    expect(ev.output).toContain("1. q1");
+    expect(ev.output).toContain("2. q2");
+    expect(ev.output).toContain("- https://a.com");
+    expect(ev.output).toContain("- https://b.com");
   });
 
   it("item/started 非工具类型(reasoning/agentMessage/userMessage) → null", () => {
@@ -453,7 +517,14 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     expect(events).toEqual([
       { type: "thinking", delta: "分析需求" },
       { type: "thinking", delta: "我先看看目录" },
-      { type: "tool", name: "Shell", detail: "ls", phase: "start", toolCallId: "c1" },
+      {
+        type: "tool",
+        name: "Shell",
+        detail: "ls",
+        input: { type: "commandExecution", id: "c1", command: "ls" },
+        phase: "start",
+        toolCallId: "c1",
+      },
       { type: "text", delta: "这是答案" },
       { type: "usage", inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 },
       { type: "result", ok: true },

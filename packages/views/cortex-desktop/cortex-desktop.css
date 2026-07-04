@@ -982,30 +982,20 @@ input, textarea { font: inherit; color: inherit; }
 }
 
 /* —— 右侧执行过程区（PersonalProcessPanel, U4）—— */
-/* 执行过程区（设计稿）：贯穿整列高度的右侧浮卡,头部贴顶与顶栏齐平。grid 第二列占位,
-   会话区自然变窄,不覆盖消息或输入框。 */
+/* 执行过程入口：中栏右侧的圆形状态 icon（grid 第二列占位）。运行中转圈/完成绿勾即「执行感知」,
+   点击打开运行过程详情弹层(AgentTranscriptDialog)。旧「展开步骤卡片」形态已移除,仅保留 icon 态。 */
 .pw-process {
   grid-column: 2;
   grid-row: 1 / -1;
-  align-self: stretch;
   position: relative;
   z-index: 40;
-  width: clamp(320px, 30vw, 418px);
-  max-width: 38vw;
-  min-height: 0;
   margin: 14px;
-  display: flex;
-  flex-direction: column;
   background: var(--bg-card-2);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: 0 18px 40px -16px rgba(45, 38, 26, 0.26), 0 6px 16px -8px rgba(45, 38, 26, 0.12);
   font-size: 12.5px;
   overflow: hidden;
   animation: pw-process-in 0.18s ease-out;
 }
-/* 收起态：整卡塌成一个圆形 icon 按钮（可重开入口），覆盖 .pw-process 的 width clamp，
-   使 grid 第二列塌窄、会话区变宽。 */
 .pw-process.is-collapsed {
   align-self: start;
   width: 40px;
@@ -1025,8 +1015,8 @@ input, textarea { font: inherit; color: inherit; }
 .pw-process-fab-ic { display: inline-flex; align-items: center; justify-content: center; }
 .pw-process.is-collapsed[data-active="true"] .pw-process-fab-ic { color: var(--amber); }
 .pw-process.is-collapsed[data-active="false"] .pw-process-fab-ic { color: var(--green); }
-/* 收起态 FAB 里的运行中转圈：.spinner 无基础尺寸（仅在特定父级下才有），须在此显式给尺寸/边框，
-   否则运行中收起态零尺寸不可见（只在完成态 CheckCircle 才看得到 icon）。 */
+/* icon 里的运行中转圈：.spinner 无基础尺寸（仅在特定父级下才有），须在此显式给尺寸/边框，
+   否则运行中零尺寸不可见（只在完成态 CheckCircle 才看得到 icon）。 */
 .pw-process.is-collapsed .pw-process-fab-ic .spinner {
   width: 16px; height: 16px;
   border: 2px solid var(--border-strong);
@@ -1034,122 +1024,11 @@ input, textarea { font: inherit; color: inherit; }
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
-.pw-process-head {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 16px 22px;
-  border-bottom: 1px solid var(--border);
-  flex: none;
-  cursor: pointer;
-  outline: none;
-}
-.pw-process-head:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); }
-.pw-process-head-title { font-size: 14.5px; font-weight: 700; color: var(--text-1); }
-/* 状态徽标：已完成 → 绿药丸；运行中 → 琥珀药丸。 */
-.pw-process-badge {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 9px;
-  border-radius: 6px;
-}
-.pw-process-badge.is-done { color: var(--green); background: var(--green-soft); }
-.pw-process-badge.is-active { color: var(--amber); background: var(--amber-soft); }
-.pw-process-chev {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-3);
-  transition: transform 0.18s;
-  transform: rotate(-90deg);
-}
-.pw-process-chev.is-open { transform: rotate(0deg); }
-.pw-process-body {
-  padding: 18px 22px 28px;
-  overflow-y: auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-.pw-process-step-h {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 13px; color: var(--text-2);
-  margin-bottom: 8px;
-}
-.pw-process-step-title { color: var(--text-1); font-weight: 700; }
-.pw-process-step-meta { color: var(--text-3); font-weight: 400; }
-/* 思考过程：✦ 暖橙,标题灰；正文斜体 + 左边框（设计稿）。 */
-.pw-process-reasoning .pw-process-step-h { color: var(--text-2); }
-.pw-process-reasoning .pw-process-step-h > svg:first-child { color: var(--accent); }
-.pw-process-reasoning .pw-process-step-title { color: var(--text-2); font-weight: 600; }
-.pw-process-step-h .spinner {
-  width: 11px; height: 11px;
-  border: 1.5px solid var(--border-strong);
-  border-top-color: var(--amber);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-.pw-process-check { color: var(--green); display: inline-flex; }
-.pw-process-items { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.pw-process-items li {
-  display: flex; align-items: flex-start; gap: 7px;
-  font-size: 12px; color: var(--text-2);
-}
-.pw-process-items li .ic {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 13px;
-  margin-top: 2px;
-  color: var(--text-3);
-}
-.pw-process-items li.is-active { color: var(--text-1); }
-.pw-process-item-text { min-width: 0; word-break: break-word; }
-.pw-process-reasoning-body {
-  font-size: 13px;
-  color: var(--text-3);
-  line-height: 1.75;
-  white-space: pre-wrap;
-  font-style: italic;
-  border-left: 2px solid var(--border-soft);
-  padding-left: 12px;
-  margin-left: 6px;
-}
-.pw-process-status-body {
-  font-size: 13px;
-  color: var(--text-2);
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-/* 三段编排段标题：过程流里用强调色小标分隔意图理解/子 agent 执行/整理回复三段。 */
-.pw-process-stage {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 10px 0 2px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-soft);
-}
-.pw-process-stage-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex: none;
-}
-.pw-process-stage-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: 0.02em;
-}
 @keyframes pw-process-in {
   from { opacity: 0; transform: translateX(6px); }
   to { opacity: 1; transform: translateX(0); }
 }
-/* 无障碍:减少动态偏好下出入场/收起动画与步骤 spinner 静默（R9）。 */
+/* 无障碍:减少动态偏好下出入场动画与 spinner 静默（R9）。 */
 @media (prefers-reduced-motion: reduce) {
   .pw-process { animation: none; }
   .pw-process .spinner { animation: none; }
@@ -10059,3 +9938,117 @@ button.sb-row {
 .pw-reply-dbg-toggle { border: none; background: transparent; padding: 0; color: var(--accent); font-size: 13px; cursor: pointer; flex: none; }
 .pw-reply-dbg-toggle:hover { text-decoration: underline; }
 .pw-reply-dbg-body { display: flex; flex-direction: column; gap: 4px; padding: 0 0 10px; }
+
+/* ---------- 个人工作区:运行过程详情弹层(AgentTranscriptDialog) ---------- */
+/* 复用 .pw-dlg-overlay/.pw-dlg 骨架,改纵向布局:头部(标题+筛选+关闭) → 统计栏 → 滚动事件列表。 */
+.pw-transcript-dlg { flex-direction: column; }
+.pw-transcript-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.pw-transcript-title { font-size: 14px; font-weight: 600; color: var(--text-1); flex: 1; }
+.pw-transcript-filter { position: relative; }
+.pw-tl-gen.is-active { background: var(--accent-soft); }
+.pw-transcript-filter-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
+  min-width: 180px; max-height: 300px; overflow-y: auto;
+  background: var(--bg-app); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.pw-transcript-filter-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 6px;
+  font-size: 12.5px; color: var(--text-1); cursor: pointer;
+}
+.pw-transcript-filter-item:hover { background: var(--bg-hover); }
+.pw-transcript-filter-clear {
+  margin-top: 4px; padding: 5px 8px;
+  border: none; border-top: 1px solid var(--border); background: transparent;
+  font-size: 12px; color: var(--accent); cursor: pointer; text-align: left;
+}
+.pw-transcript-stats {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 14px;
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2, var(--bg-app));
+  font-size: 12px; color: var(--text-2);
+}
+.pw-transcript-stat { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+/* 运行中呼吸点:统计栏耗时旁的实时指示。 */
+.pw-transcript-live {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent);
+  animation: pw-transcript-pulse 1.2s ease-in-out infinite;
+}
+@keyframes pw-transcript-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.pw-transcript-list { flex: 1; overflow-y: auto; padding: 8px 12px 14px; }
+.pw-transcript-empty { padding: 40px 0; text-align: center; font-size: 13px; color: var(--text-3, var(--text-2)); }
+.pw-transcript-row { border-bottom: 1px solid var(--border-soft, var(--border)); }
+.pw-transcript-row:last-child { border-bottom: none; }
+.pw-transcript-row-main {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 6px;
+  border: none; background: transparent; cursor: pointer;
+  font-size: 12.5px; color: var(--text-1); text-align: left;
+}
+.pw-transcript-row-main:hover { background: var(--bg-hover); border-radius: 6px; }
+.pw-transcript-row.is-misc {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 6px; font-size: 12.5px; color: var(--text-2);
+}
+.pw-transcript-row.is-misc.is-error { color: var(--red, #c0392b); }
+.pw-transcript-time { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-3, var(--text-2)); flex: none; }
+.pw-transcript-badge {
+  flex: none; padding: 1.5px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  background: var(--accent-soft); color: var(--accent);
+}
+/* 工具调用/结果分行分色(multica 风格):调用蓝系徽章,结果灰系徽章 + 灰色输出正文。 */
+.pw-transcript-badge[data-kind="tool"] { background: rgba(59, 130, 246, 0.12); color: var(--blue, #3b82f6); }
+.pw-transcript-badge[data-kind="tool-result"] { background: var(--bg-hover); color: var(--text-2); }
+.pw-transcript-badge[data-kind="retry"] { background: var(--bg-hover); color: var(--text-2); }
+.pw-transcript-badge[data-kind="result"] { background: var(--bg-hover); color: var(--text-2); }
+/* 模型输出段:回复绿系、思考灰系,与工具蓝系区分。 */
+.pw-transcript-badge[data-kind="text"] { background: var(--green-soft, var(--bg-hover)); color: var(--green, #2e9e5b); }
+.pw-transcript-badge[data-kind="thinking"] { background: var(--bg-hover); color: var(--text-3, var(--text-2)); }
+.pw-transcript-row.is-seg .pw-transcript-summary { font-family: inherit; }
+/* 结果行摘要与展开输出正文均为灰色(借鉴 multica:结果内容弱化,视线聚焦调用)。 */
+.pw-transcript-row.is-tool-result .pw-transcript-summary { color: var(--text-3, var(--text-2)); }
+.pw-transcript-block.is-output pre { color: var(--text-2); }
+.pw-transcript-summary {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--text-2);
+}
+.pw-transcript-status { flex: none; display: inline-flex; align-items: center; }
+.pw-transcript-status[data-status="done"] { color: var(--green, #2e9e5b); }
+.pw-transcript-status[data-status="failed"] { color: var(--red, #c0392b); }
+.pw-transcript-chev { flex: none; display: inline-flex; transition: transform 0.15s ease; color: var(--text-3, var(--text-2)); }
+.pw-transcript-chev.is-open { transform: rotate(180deg); }
+/* 展开详情:输入参数 / 输出两个块,等宽字体 + 横向滚动,块高上限内滚动。 */
+.pw-transcript-detail { padding: 2px 6px 10px 6px; display: flex; flex-direction: column; gap: 8px; }
+.pw-transcript-block {
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-2, var(--bg-app));
+  overflow: hidden;
+}
+.pw-transcript-block-h {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 10px;
+  font-size: 11px; font-weight: 600; color: var(--text-2);
+  border-bottom: 1px solid var(--border-soft, var(--border));
+}
+.pw-transcript-block pre {
+  margin: 0; padding: 8px 10px;
+  max-height: 260px; overflow: auto;
+  font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.5;
+  color: var(--text-1); white-space: pre-wrap; word-break: break-all;
+  user-select: text;
+}
+.pw-transcript-noout { padding: 8px 10px; font-size: 11.5px; color: var(--text-3, var(--text-2)); }

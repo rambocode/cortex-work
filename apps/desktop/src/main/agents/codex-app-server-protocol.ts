@@ -96,12 +96,24 @@ export interface CodexItem {
   command?: string;
   path?: string; // imageView: 图片绝对路径;fileChange: 文件路径
   query?: string;
+  // webSearch 完成帧的动作元数据:{ type: "search"|"other", query, queries?, sources? }。
+  // OpenAI 不回传搜索结果原文,queries/sources 是客户端能拿到的全部结果信息(合成输出用)。
+  action?: unknown;
   server?: string;
   tool?: string;
   // imageGeneration(imagegen skill 产物):savedPath 为生成图片的绝对路径,渲染端经 ![](savedPath)
   // + ChatInlineImage(bridge.imageReadAny)内联显示;revisedPrompt 为模型改写后的提示词。
   savedPath?: string;
   revisedPrompt?: string;
+  // 工具项完成帧(item/completed)的输出与状态:commandExecution 带 aggregatedOutput/exitCode;
+  // status=failed 表示工具执行失败。供 tool phase:"end" 事件透出输出详情。
+  // snake_case 变体是防御性兜底:`codex exec` JSONL 实测为 snake_case(aggregated_output/exit_code),
+  // app-server 侧按 camelCase 假设、未实测,两种拼写都读避免协议差异丢输出。
+  aggregatedOutput?: string;
+  exitCode?: number;
+  status?: string;
+  aggregated_output?: string;
+  exit_code?: number;
 }
 
 /** thread/tokenUsage/updated 通知:token 嵌套在 tokenUsage.total 下。 */

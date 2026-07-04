@@ -147,27 +147,58 @@ describe("mapPiEvent", () => {
     expect(mapPiEvent({ type: "message_end" })).toBeNull();
   });
 
-  it("tool_execution_start → tool-start（name/toolCallId/detail）", () => {
+  it("tool_execution_start → tool-start（name/toolCallId/detail + 完整 input）", () => {
     expect(
       mapPiEvent({ type: "tool_execution_start", toolName: "bash", toolCallId: "call_0", args: { command: "echo hi" } }),
-    ).toEqual({ type: "tool-start", name: "bash", toolCallId: "call_0", detail: "echo hi" });
+    ).toEqual({
+      type: "tool-start",
+      name: "bash",
+      toolCallId: "call_0",
+      detail: "echo hi",
+      input: { command: "echo hi" },
+    });
   });
 
-  it("tool_execution_start 无可读 args → detail 省略", () => {
+  it("tool_execution_start 无可读 args → detail 省略(input 仍透传)", () => {
     expect(mapPiEvent({ type: "tool_execution_start", toolName: "bash", toolCallId: "call_1", args: {} })).toEqual({
       type: "tool-start",
       name: "bash",
       toolCallId: "call_1",
+      input: {},
     });
   });
 
-  it("tool_execution_end → tool-end（isError 归一为布尔）", () => {
+  it("tool_execution_end → tool-end（isError 归一为布尔;空 result 无 output）", () => {
     expect(
       mapPiEvent({ type: "tool_execution_end", toolName: "bash", toolCallId: "call_0", result: {}, isError: false }),
     ).toEqual({ type: "tool-end", name: "bash", toolCallId: "call_0", isError: false });
     expect(
       mapPiEvent({ type: "tool_execution_end", toolName: "edit", toolCallId: "call_2", isError: true }),
     ).toEqual({ type: "tool-end", name: "edit", toolCallId: "call_2", isError: true });
+  });
+
+  it("tool_execution_end result 归一化为 output:string 原样、content 数组拼 text 块、超长截断", () => {
+    expect(
+      mapPiEvent({ type: "tool_execution_end", toolName: "bash", toolCallId: "c1", result: "raw out", isError: false }),
+    ).toMatchObject({ output: "raw out" });
+    expect(
+      mapPiEvent({
+        type: "tool_execution_end",
+        toolName: "bash",
+        toolCallId: "c2",
+        result: { content: [{ type: "text", text: "line1" }, { type: "text", text: "line2" }] },
+        isError: false,
+      }),
+    ).toMatchObject({ output: "line1\nline2" });
+    const long = mapPiEvent({
+      type: "tool_execution_end",
+      toolName: "bash",
+      toolCallId: "c3",
+      result: "z".repeat(20_000),
+      isError: false,
+    }) as { output: string };
+    expect(long.output.length).toBe(8_001); // 8000 + 截断省略号
+    expect(long.output.endsWith("…")).toBe(true);
   });
 
   it("turn_end → turn-end", () => {

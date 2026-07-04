@@ -12,6 +12,7 @@
 
 import type { CliStreamEvent, CliStartRequest, PermissionMode } from "./types";
 import { createLogger } from "../log";
+import { codexWebSearchOutput } from "../agents/codex";
 import {
   CODEX_NOTIF,
   type AgentMessageDeltaParams,
@@ -76,6 +77,13 @@ function clip(s: unknown): string | undefined {
   return s.length > 100 ? s.slice(0, 100) + "…" : s;
 }
 
+// 工具输出截断上限(与 claude/codex exec adapter 同值):防超大输出撑爆 IPC 与渲染端内存。
+const MAX_TOOL_OUTPUT = 8_000;
+function clipToolOutput(s: unknown): string | undefined {
+  if (typeof s !== "string" || !s) return undefined;
+  return s.length > MAX_TOOL_OUTPUT ? s.slice(0, MAX_TOOL_OUTPUT) + "…" : s;
+}
+
 function toolDetail(item: NonNullable<ItemNotificationParams["item"]>): string | undefined {
   if (item.type === "commandExecution") return clip(item.command);
   return clip(item.path ?? item.query ?? item.tool ?? item.server);
@@ -117,12 +125,39 @@ export function parseAppServerEvent(
     case CODEX_NOTIF.itemCompleted: {
       // 图片产物在完成时透出:imageGeneration(imagegen skill)/imageView → 以 markdown 图片插入回复,
       // 渲染端 chatMarkdown + ChatInlineImage(bridge.imageReadAny)内联显示绝对路径图片。
-      // 其它 item 类型的完成不在此产事件(text 走 delta、tool 走 item/started)。
+      // 工具项完成 → phase:"end" 事件(输出正文 + 失败标记,toolCallId 与 start 配对,
+      // 运行过程详情视图消费;agentLog 折叠对 end 有守卫不翻倍)。text 仍走 delta。
       const item = (params as ItemNotificationParams)?.item;
       if (item?.type === "imageGeneration" && item.savedPath)
         return { type: "text", delta: `\n\n![生成的图片](${item.savedPath})\n\n` };
       if (item?.type === "imageView" && item.path)
         return { type: "text", delta: `\n\n![图片](${item.path})\n\n` };
+      if (item && typeof item.type === "string" && WS_TOOL_TYPES.has(item.type)) {
+        // 输出/退出码双拼写兜底:app-server 按 camelCase 假设,exec JSONL 实测 snake_case,都读。
+        const exitCode = item.exitCode ?? item.exit_code;
+        // end 帧的 input = 完成 item 剔除输出正文字段:webSearch 等的最终查询词只在完成帧才有,
+        // 渲染端用它覆盖调用行 started 时 query:"" 的快照;输出正文可能极大,另走 output 截断透出。
+        const itemMeta: Record<string, unknown> = { ...item };
+        delete itemMeta.aggregatedOutput;
+        delete itemMeta.aggregated_output;
+        return {
+          type: "tool",
+          name: WS_TOOL_NAMES[item.type],
+          // end 帧也透出 detail:webSearch 的查询词在 item/started 时常为空(服务端尚未生成),
+          // 完成帧才带上 → 渲染端靠它回填调用行/结果行摘要,否则整条搜索呈现为「空调用+无输出」。
+          detail: toolDetail(item),
+          input: itemMeta,
+          phase: "end",
+          toolCallId: typeof item.id === "string" ? item.id : undefined,
+          // webSearch 无结果正文回传(OpenAI 服务端注入模型上下文)→ 用查询词/来源合成输出;
+          // 其余工具照常读 aggregatedOutput。
+          output:
+            item.type === "webSearch"
+              ? clipToolOutput(codexWebSearchOutput(item))
+              : clipToolOutput(item.aggregatedOutput ?? item.aggregated_output),
+          isError: (typeof exitCode === "number" && exitCode !== 0) || item.status === "failed",
+        };
+      }
       return null;
     }
     case CODEX_NOTIF.itemStarted: {
@@ -132,6 +167,8 @@ export function parseAppServerEvent(
         type: "tool",
         name: WS_TOOL_NAMES[item.type],
         detail: toolDetail(item),
+        // 完整调用参数(运行过程详情视图展示):item 本身即调用描述,原样透出。
+        input: item,
         phase: "start",
         toolCallId: typeof item.id === "string" ? item.id : undefined,
       };

@@ -177,20 +177,19 @@ describe("codexDef.parseLine", () => {
     });
   });
 
-  it("command_execution item.started → tool 事件(归一化名 Shell + phase/toolCallId,R2)", () => {
-    const line = JSON.stringify({
-      type: "item.started",
-      item: {
-        id: "item_0",
-        type: "command_execution",
-        command: "/opt/homebrew/bin/zsh -lc pwd",
-        status: "in_progress",
-      },
-    });
+  it("command_execution item.started → tool 事件(归一化名 Shell + phase/toolCallId + input,R2)", () => {
+    const item = {
+      id: "item_0",
+      type: "command_execution",
+      command: "/opt/homebrew/bin/zsh -lc pwd",
+      status: "in_progress",
+    };
+    const line = JSON.stringify({ type: "item.started", item });
     expect(codexDef.parseLine(line)).toEqual({
       type: "tool",
       name: "Shell",
       detail: "/opt/homebrew/bin/zsh -lc pwd",
+      input: item,
       phase: "start",
       toolCallId: "item_0",
     });
@@ -203,11 +202,93 @@ describe("codexDef.parseLine", () => {
       type: "tool",
       name: "Edit",
       detail: "/a/b.ts",
+      input: { id: "i1", type: "file_change", path: "/a/b.ts" },
       phase: "start",
       toolCallId: "i1",
     });
     expect(ev({ id: "i2", type: "web_search", query: "vitest" })).toMatchObject({ name: "WebSearch", detail: "vitest" });
     expect(ev({ id: "i3", type: "mcp_tool_call", tool: "fs.read" })).toMatchObject({ name: "MCP", detail: "fs.read" });
+  });
+
+  it("工具 item.completed → tool phase:end 带 aggregated_output/isError", () => {
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: {
+        id: "item_0",
+        type: "command_execution",
+        command: "pwd",
+        aggregated_output: "/Users/me\n",
+        exit_code: 0,
+        status: "completed",
+      },
+    });
+    expect(codexDef.parseLine(line)).toEqual({
+      type: "tool",
+      name: "Shell",
+      detail: "pwd",
+      // end 帧 input = 完成 item 剔除输出正文(aggregated_output 可能极大,已走 output 截断透出)。
+      input: { id: "item_0", type: "command_execution", command: "pwd", exit_code: 0, status: "completed" },
+      phase: "end",
+      toolCallId: "item_0",
+      output: "/Users/me\n",
+      isError: false,
+    });
+  });
+
+  it("web_search item.completed → end 帧带 detail/input,并合成输出(单查询)", () => {
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: { id: "ws1", type: "web_search", query: "vitest coverage" },
+    });
+    const ev = codexDef.parseLine(line) as { output?: string };
+    expect(ev).toMatchObject({
+      type: "tool",
+      name: "WebSearch",
+      phase: "end",
+      toolCallId: "ws1",
+      detail: "vitest coverage",
+      input: { id: "ws1", type: "web_search", query: "vitest coverage" },
+    });
+    // OpenAI 不回传搜索结果原文 → 合成输出:查询词 + 结果去向说明,不再显示「无输出」。
+    expect(ev.output).toContain("查询: vitest coverage");
+    expect(ev.output).toContain("注入模型上下文");
+  });
+
+  it("web_search 多路查询(action.queries)→ 输出逐条列出并去重", () => {
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: {
+        id: "ws2",
+        type: "web_search",
+        query: "q1",
+        action: { type: "search", query: "q1", queries: ["q1", "q2", "q3"] },
+      },
+    });
+    const ev = codexDef.parseLine(line) as { output?: string };
+    expect(ev.output).toContain("共 3 路查询:");
+    expect(ev.output).toContain("1. q1");
+    expect(ev.output).toContain("2. q2");
+    expect(ev.output).toContain("3. q3");
+  });
+
+  it("工具 item.completed 失败(exit_code 非零 / status=failed)→ isError=true;超长输出截断", () => {
+    const failed = codexDef.parseLine(
+      JSON.stringify({
+        type: "item.completed",
+        item: { id: "i1", type: "command_execution", aggregated_output: "boom", exit_code: 1 },
+      }),
+    );
+    expect(failed).toMatchObject({ type: "tool", phase: "end", isError: true, output: "boom" });
+
+    const long = "y".repeat(20_000);
+    const truncated = codexDef.parseLine(
+      JSON.stringify({
+        type: "item.completed",
+        item: { id: "i2", type: "command_execution", aggregated_output: long, exit_code: 0 },
+      }),
+    ) as { output: string };
+    expect(truncated.output.length).toBe(8_001); // 8000 + 截断省略号
+    expect(truncated.output.endsWith("…")).toBe(true);
   });
 
   it("未知工具类型不当作 tool(reasoning/agent_message 不产 tool 事件)", () => {

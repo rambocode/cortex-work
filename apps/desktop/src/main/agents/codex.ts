@@ -52,6 +52,64 @@ function codexToolDetail(item: Record<string, unknown>): string | undefined {
 // 避免把 reasoning / agent_message 等误当工具。
 const CODEX_TOOL_TYPES = new Set(Object.keys(CODEX_TOOL_NAMES));
 
+// 工具输出截断上限(与 claude adapter 同值):防超大输出撑爆 IPC 与渲染端内存。
+const MAX_TOOL_OUTPUT = 8_000;
+
+// codex tool 项完成帧的输出文本:command_execution 带 aggregated_output(实测 0.142.x JSONL);
+// 兼容 camelCase 拼写与通用 output 字段,均缺失时返回 undefined(end 事件仍产出,仅无输出正文)。
+function codexToolOutput(item: Record<string, unknown>): string | undefined {
+  const candidate = item.aggregated_output ?? item.aggregatedOutput ?? item.output;
+  if (typeof candidate !== "string" || !candidate) return undefined;
+  return candidate.length > MAX_TOOL_OUTPUT ? candidate.slice(0, MAX_TOOL_OUTPUT) + "…" : candidate;
+}
+
+// web_search 完成帧合成输出正文(exec 与 ws 两路共用):OpenAI 服务端搜索工具**不回传结果原文**
+// (结果在服务端直接注入模型上下文,任何客户端都拿不到),事件里只有查询词/来源元数据 →
+// 把它们整理成可读输出并注明结果去向,避免详情面板呈现「无输出内容」的断链观感。
+export function codexWebSearchOutput(item: { query?: unknown; action?: unknown }): string | undefined {
+  const action = (item.action ?? {}) as { query?: unknown; queries?: unknown; sources?: unknown };
+  // 查询词归集去重:action.queries(多路)优先,兜底 action.query / item.query(三处常同值)。
+  const queries: string[] = [];
+  const pushQuery = (v: unknown) => {
+    if (typeof v === "string" && v.trim() && !queries.includes(v)) queries.push(v);
+  };
+  if (Array.isArray(action.queries)) action.queries.forEach(pushQuery);
+  pushQuery(action.query);
+  pushQuery(item.query);
+  const lines: string[] = [];
+  if (queries.length === 1) lines.push(`查询: ${queries[0]}`);
+  else if (queries.length > 1) {
+    lines.push(`共 ${queries.length} 路查询:`);
+    queries.forEach((q, i) => lines.push(`${i + 1}. ${q}`));
+  }
+  // 来源列表(部分 codex 版本在 action.sources 提供,字符串或 {url} 两种形状都尽力读)。
+  if (Array.isArray(action.sources)) {
+    const urls = action.sources
+      .map((s) =>
+        typeof s === "string"
+          ? s
+          : s && typeof s === "object" && typeof (s as { url?: unknown }).url === "string"
+            ? (s as { url: string }).url
+            : "",
+      )
+      .filter(Boolean);
+    if (urls.length > 0) {
+      lines.push("来源:");
+      urls.forEach((u) => lines.push(`- ${u}`));
+    }
+  }
+  if (lines.length === 0) return undefined;
+  lines.push("(搜索结果由服务端直接注入模型上下文,引用见回复正文)");
+  return lines.join("\n");
+}
+
+// codex tool 项是否失败:exit_code 非零或 status=failed(两种拼写兼容)。
+function codexToolIsError(item: Record<string, unknown>): boolean {
+  const exitCode = item.exit_code ?? item.exitCode;
+  if (typeof exitCode === "number" && exitCode !== 0) return true;
+  return item.status === "failed";
+}
+
 // codex turn.completed.usage → 归一化 usage 事件。codex 无 cost 字段(仅 token);字段缺失/类型
 // 异常一律降级为不产出(返回 null),不抛错。codex 磁盘 rollout 不带 per-event token 历史,
 // 故这条流式 usage 是 codex 唯一的 token 来源(补充信号,见 KTD3)。
@@ -150,6 +208,8 @@ export const codexDef: AgentDef = {
         type: "tool",
         name: codexToolName(item.type),
         detail: codexToolDetail(item),
+        // 完整调用参数(运行过程详情视图展示):codex item 本身就是调用描述,原样透出。
+        input: item,
         phase: "start",
         toolCallId: typeof item.id === "string" ? item.id : undefined,
       };
@@ -157,6 +217,30 @@ export const codexDef: AgentDef = {
 
     if (item?.type === "agent_message" && obj.type === "item.completed" && typeof item.text === "string") {
       return { type: "text", delta: item.text };
+    }
+
+    // 工具完成帧 → phase:"end" 事件:带输出正文(aggregated_output)与失败标记,靠 toolCallId
+    // 与 start 配对。渲染端 agentLog 折叠对 end 有守卫,不会翻倍。
+    if (obj.type === "item.completed" && typeof item?.type === "string" && CODEX_TOOL_TYPES.has(item.type)) {
+      // end 帧的 input = 完成 item 剔除输出正文字段:web_search 的最终查询词只在完成帧才有,
+      // 渲染端用它覆盖调用行 started 时 query:"" 的快照;输出正文可能极大,另走 output 截断透出。
+      const itemMeta: Record<string, unknown> = { ...item };
+      delete itemMeta.aggregated_output;
+      delete itemMeta.aggregatedOutput;
+      delete itemMeta.output;
+      return {
+        type: "tool",
+        name: codexToolName(item.type),
+        // end 帧也带 detail:web_search 的查询词在 item.started 时常为空,完成帧才有 →
+        // 供渲染端回填调用行/结果行摘要(与 ws 路径 parseAppServerEvent 行为对齐)。
+        detail: codexToolDetail(item),
+        input: itemMeta,
+        phase: "end",
+        toolCallId: typeof item.id === "string" ? item.id : undefined,
+        // web_search 无结果正文回传 → 用查询词/来源合成输出;其余工具照常读 aggregated_output。
+        output: item.type === "web_search" ? codexWebSearchOutput(item) : codexToolOutput(item),
+        isError: codexToolIsError(item),
+      };
     }
 
     if (obj.type === "turn.completed") {

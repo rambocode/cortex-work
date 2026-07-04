@@ -189,7 +189,7 @@ describe("claudeDef.parseLine", () => {
     expect(claudeDef.parseLine(toolUse)).toEqual({ type: "turn", stopReason: "tool_use" });
   });
 
-  it("assistant 完整消息:只取 tool_use(text 已由 delta 覆盖,避免重复)+ phase/toolCallId", () => {
+  it("assistant 完整消息:只取 tool_use(text 已由 delta 覆盖,避免重复)+ phase/toolCallId + 完整 input", () => {
     const textMsg = JSON.stringify({
       type: "assistant",
       message: { content: [{ type: "text", text: "1+1 等于 2。" }] },
@@ -204,9 +204,87 @@ describe("claudeDef.parseLine", () => {
       type: "tool",
       name: "Bash",
       detail: "ls -la",
+      input: { command: "ls -la" },
       phase: "start",
       toolCallId: "toolu_1",
     });
+  });
+
+  it("assistant 消息含多个 tool_use(并行调用)→ 逐块产出 start 事件数组", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", id: "toolu_a", name: "Read", input: { file_path: "/a.ts" } },
+          { type: "tool_use", id: "toolu_b", name: "Grep", input: { pattern: "foo" } },
+        ],
+      },
+    });
+    expect(claudeDef.parseLine(line)).toEqual([
+      { type: "tool", name: "Read", detail: "/a.ts", input: { file_path: "/a.ts" }, phase: "start", toolCallId: "toolu_a" },
+      { type: "tool", name: "Grep", detail: "foo", input: { pattern: "foo" }, phase: "start", toolCallId: "toolu_b" },
+    ]);
+  });
+
+  it("user tool_result(string content)→ tool phase:end 带输出与 toolCallId", () => {
+    const line = JSON.stringify({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "total 8\ndrwxr-xr-x" }] },
+    });
+    expect(claudeDef.parseLine(line)).toEqual({
+      type: "tool",
+      name: "",
+      phase: "end",
+      toolCallId: "toolu_1",
+      output: "total 8\ndrwxr-xr-x",
+      isError: false,
+    });
+  });
+
+  it("user tool_result(content block 数组)→ 拼接 text 块;is_error 透出", () => {
+    const line = JSON.stringify({
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_2",
+            is_error: true,
+            content: [
+              { type: "text", text: "line1" },
+              { type: "text", text: "line2" },
+            ],
+          },
+        ],
+      },
+    });
+    expect(claudeDef.parseLine(line)).toEqual({
+      type: "tool",
+      name: "",
+      phase: "end",
+      toolCallId: "toolu_2",
+      output: "line1\nline2",
+      isError: true,
+    });
+  });
+
+  it("user 消息不含 tool_result(纯文本回灌)→ null;超长输出截断到 8000", () => {
+    const textOnly = JSON.stringify({
+      type: "user",
+      message: { content: [{ type: "text", text: "hello" }] },
+    });
+    expect(claudeDef.parseLine(textOnly)).toBeNull();
+
+    const long = "x".repeat(20_000);
+    const line = JSON.stringify({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "toolu_3", content: long }] },
+    });
+    const ev = claudeDef.parseLine(line);
+    expect(ev).toMatchObject({ type: "tool", phase: "end", toolCallId: "toolu_3" });
+    const output = (ev as { output: string }).output;
+    expect(output.length).toBe(8_001); // 8000 + 截断省略号
+    expect(output.endsWith("…")).toBe(true);
   });
 
   it("result success → ok 事件带最终文本", () => {
@@ -243,5 +321,68 @@ describe("claudeDef.parseLine", () => {
   it("非 JSON / 未知行忽略且不抛", () => {
     expect(claudeDef.parseLine("not json")).toBeNull();
     expect(claudeDef.parseLine(JSON.stringify({ type: "rate_limit_event" }))).toBeNull();
+  });
+});
+
+// 已知忽略帧声明:dev 启动实测「未映射的 claude 输出帧」被 stream_event 生命周期子帧、
+// system 信息性子类型、assistant/user 非工具帧刷屏,声明为已知忽略以降噪;
+// 未知子类型保持可观测(协议漂移告警)。
+describe("claudeDef 已知忽略帧(盲区补点降噪)", () => {
+  it("ignoredFrameTypes:assistant/user/rate_limit_event 按顶层 type 已知忽略", () => {
+    // assistant 无 tool_use(text/thinking 已由 stream 增量覆盖)与 user 无 tool_result
+    // (skill 注入等回灌)本就 return null,属已评审忽略;rate_limit_event 为信息性帧。
+    for (const t of ["assistant", "user", "rate_limit_event"]) {
+      expect(claudeDef.ignoredFrameTypes?.has(t)).toBe(true);
+    }
+  });
+
+  it("stream_event 生命周期子帧(content_block_start/stop、message_start/stop)→ 已知忽略", () => {
+    for (const sub of ["content_block_start", "content_block_stop", "message_start", "message_stop"]) {
+      expect(claudeDef.isIgnoredFrame?.({ type: "stream_event", event: { type: sub } })).toBe(true);
+    }
+  });
+
+  it("content_block_delta 的 signature_delta / input_json_delta → 已知忽略(完整 input 由 assistant 帧承载)", () => {
+    for (const dt of ["signature_delta", "input_json_delta"]) {
+      expect(
+        claudeDef.isIgnoredFrame?.({ type: "stream_event", event: { type: "content_block_delta", delta: { type: dt } } }),
+      ).toBe(true);
+    }
+  });
+
+  it("content_block_delta 未知 delta 类型 → 不忽略(保留协议漂移告警)", () => {
+    expect(
+      claudeDef.isIgnoredFrame?.({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "brand_new" } } }),
+    ).toBe(false);
+    expect(claudeDef.isIgnoredFrame?.({ type: "stream_event", event: { type: "content_block_delta" } })).toBe(false);
+  });
+
+  it("stream_event 未知子帧 / 无 stop_reason 的 message_delta → 不忽略", () => {
+    expect(claudeDef.isIgnoredFrame?.({ type: "stream_event", event: { type: "brand_new_event" } })).toBe(false);
+    expect(claudeDef.isIgnoredFrame?.({ type: "stream_event", event: { type: "message_delta", delta: {} } })).toBe(false);
+    expect(claudeDef.isIgnoredFrame?.({ type: "stream_event" })).toBe(false);
+  });
+
+  it("system 信息性子类型(status/thinking_tokens/hook_*/task_*)→ 已知忽略", () => {
+    for (const sub of [
+      "status",
+      "thinking_tokens",
+      "hook_started",
+      "hook_response",
+      "hook_progress",
+      "task_started",
+      "task_notification",
+    ]) {
+      expect(claudeDef.isIgnoredFrame?.({ type: "system", subtype: sub })).toBe(true);
+    }
+  });
+
+  it("system 未知子类型 → 不忽略(新协议帧保持可观测)", () => {
+    expect(claudeDef.isIgnoredFrame?.({ type: "system", subtype: "brand_new_subtype" })).toBe(false);
+    expect(claudeDef.isIgnoredFrame?.({ type: "system" })).toBe(false);
+  });
+
+  it("其它顶层 type → 不忽略(交由 ignoredFrameTypes 集合判定)", () => {
+    expect(claudeDef.isIgnoredFrame?.({ type: "result" })).toBe(false);
   });
 });

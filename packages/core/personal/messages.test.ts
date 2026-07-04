@@ -34,6 +34,8 @@ import {
   isMissingAgentSessionError,
   personalChatKeys,
   personalProcessKeys,
+  personalRunEventsKeys,
+  type RunEvent,
   prewarmPiSession,
   resolveSpawnAgentId,
   restrictedToolForMode,
@@ -2105,5 +2107,109 @@ describe("pi typing 活动行:重试复位", () => {
     __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Read", toolCallId: "t2" });
     const typing = (qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? []).find((m) => m.kind === "typing");
     expect(typing?.kind === "typing" && typing.activity).toMatchObject({ phase: "tool", stepCount: 0 });
+  });
+});
+
+describe("运行事件流(personalRunEventsKeys)采集与 tool phase:end 守卫", () => {
+  const procOf = (qc: QueryClient, sessionId = "s1"): Message[] =>
+    qc.getQueryData<Message[]>(personalProcessKeys.detail(sessionId)) ?? [];
+  const runEventsOf = (qc: QueryClient, sessionId = "s1"): RunEvent[] =>
+    qc.getQueryData<RunEvent[]>(personalRunEventsKeys.detail(sessionId)) ?? [];
+
+  function setupCliRun(qc: QueryClient, sessionId = "s1", runId = "run-c1"): void {
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: sessionId, agent: "claude", agentSessionIds: {} }],
+      runningBySession: {},
+    });
+    __handleCliEventForTest(qc, runId, { type: "init", sessionId: "claude-sess" }, sessionId);
+  }
+
+  it("tool phase:end 不折叠进过程流 agentLog(不翻倍),但记入运行事件流", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(
+      qc,
+      "run-c1",
+      { type: "tool", name: "Bash", detail: "ls", input: { command: "ls" }, phase: "start", toolCallId: "t1" },
+      "s1",
+    );
+    const itemsAfterStart = (procOf(qc).find((m) => m.kind === "agentLog") as { items: unknown[] }).items.length;
+    __handleCliEventForTest(
+      qc,
+      "run-c1",
+      { type: "tool", name: "", phase: "end", toolCallId: "t1", output: "a.txt", isError: false },
+      "s1",
+    );
+    // 过程流 agentLog 条目数不变(end 被守卫忽略)。
+    const itemsAfterEnd = (procOf(qc).find((m) => m.kind === "agentLog") as { items: unknown[] }).items.length;
+    expect(itemsAfterEnd).toBe(itemsAfterStart);
+    // 运行事件流:start 与 end 都在(供详情弹层按 toolCallId 配对)。
+    const toolEvents = runEventsOf(qc).filter((r) => r.ev.type === "tool");
+    expect(toolEvents).toHaveLength(2);
+    expect(toolEvents[1]!.ev).toMatchObject({ phase: "end", output: "a.txt" });
+  });
+
+  it("运行事件流全链路记录:tool/usage/result + text/thinking 增量合并成段,且带 runId", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "先想" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "thinking", delta: "再想" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "tool", name: "Read", detail: "x", phase: "start" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "回" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "复" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "usage", inputTokens: 10, outputTokens: 2 }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "result", ok: true, text: "done" }, "s1");
+    const recs = runEventsOf(qc);
+    // 连续同类增量合并为单段,时间线保序:init → 思考段 → tool → 回复段 → usage → result。
+    expect(recs.map((r) => r.ev.type)).toEqual(["init", "thinking", "tool", "text", "usage", "result"]);
+    expect(recs[1]!.ev).toMatchObject({ type: "thinking", delta: "先想再想" });
+    expect(recs[3]!.ev).toMatchObject({ type: "text", delta: "回复" });
+    expect(recs.every((r) => r.runId === "run-c1")).toBe(true);
+  });
+
+  it("运行事件流环形上限 1000:超限丢最旧", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    for (let i = 0; i < 1005; i++) {
+      __handleCliEventForTest(qc, "run-c1", { type: "tool", name: `T${i}`, phase: "start" }, "s1");
+    }
+    const events = runEventsOf(qc);
+    expect(events).toHaveLength(1000);
+    // 最旧的(init + 前几条 tool)已被挤出,末条是最新的。
+    const last = events[events.length - 1]!.ev;
+    expect(last).toMatchObject({ type: "tool", name: "T1004" });
+  });
+
+  it("pi RPC 事件也进运行事件流:tool-start/end 转 CliStreamEvent 形态,reasoning 合并为思考段", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId: "prun-1", sessionId: "s1", typingUid: "typ-1", cwd: "/p", promptText: "hi" });
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "想想" });
+    __handlePiEventForTest(qc, "s1", {
+      type: "tool-start",
+      name: "bash",
+      toolCallId: "c1",
+      detail: "ls",
+      input: { command: "ls" },
+    });
+    __handlePiEventForTest(qc, "s1", {
+      type: "tool-end",
+      name: "bash",
+      toolCallId: "c1",
+      isError: false,
+      output: "a.txt",
+    });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    const recs = runEventsOf(qc);
+    expect(recs.map((r) => r.ev.type)).toEqual(["thinking", "tool", "tool", "result"]);
+    expect(recs[0]!.ev).toMatchObject({ type: "thinking", delta: "想想" });
+    expect(recs[1]!.ev).toMatchObject({ type: "tool", phase: "start", input: { command: "ls" }, toolCallId: "c1" });
+    expect(recs[2]!.ev).toMatchObject({ type: "tool", phase: "end", output: "a.txt", isError: false });
+    expect(recs[3]!.ev).toMatchObject({ type: "result", ok: true });
+    expect(recs.every((r) => r.runId === "prun-1")).toBe(true);
   });
 });

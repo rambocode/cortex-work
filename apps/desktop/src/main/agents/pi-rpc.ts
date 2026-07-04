@@ -42,6 +42,39 @@ function toolDetail(args: unknown): string | undefined {
   return candidate.length > 80 ? candidate.slice(0, 80) + "…" : candidate;
 }
 
+// 工具输出截断上限(与 claude/codex adapter 同值):防超大输出撑爆 IPC 与渲染端内存。
+const MAX_TOOL_OUTPUT = 8_000;
+
+// 归一化 tool_execution_end.result 为展示用文本:string 原样;{content:[{type:"text",text}]}
+// (AgentToolResult 形态)拼接 text 块;其余 JSON 序列化兜底。超限截断。
+function normalizeToolResult(result: unknown): string | undefined {
+  if (result == null) return undefined;
+  let text: string;
+  if (typeof result === "string") {
+    text = result;
+  } else {
+    const content = (result as Record<string, unknown>).content;
+    if (Array.isArray(content)) {
+      text = content
+        .map((b) => {
+          const block = b as Record<string, unknown>;
+          return block?.type === "text" && typeof block.text === "string" ? block.text : "";
+        })
+        .filter(Boolean)
+        .join("\n");
+    } else {
+      try {
+        text = JSON.stringify(result);
+      } catch {
+        text = String(result);
+      }
+    }
+  }
+  // 空串或空对象序列化("{}")没有展示价值,视作无输出。
+  if (!text || text === "{}") return undefined;
+  return text.length > MAX_TOOL_OUTPUT ? text.slice(0, MAX_TOOL_OUTPUT) + "…" : text;
+}
+
 // diagnostics 最后一项里的错误信息（provider_transport_failure 等）。与 pi.ts 对齐。
 function diagnosticsError(diagnostics: unknown): string | undefined {
   if (!Array.isArray(diagnostics) || diagnostics.length === 0) return undefined;
@@ -114,11 +147,22 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
       };
       const detail = toolDetail(o.args);
       if (detail) out.detail = detail;
+      // 完整调用参数(运行过程详情视图展示)。
+      if (o.args !== undefined) out.input = o.args;
       return out;
     }
     case "tool_execution_end": {
       if (typeof o.toolName !== "string" || typeof o.toolCallId !== "string") return null;
-      return { type: "tool-end", name: o.toolName, toolCallId: o.toolCallId, isError: !!o.isError };
+      const out: Extract<PiSessionEvent, { type: "tool-end" }> = {
+        type: "tool-end",
+        name: o.toolName,
+        toolCallId: o.toolCallId,
+        isError: !!o.isError,
+      };
+      // 工具输出正文(截断后透出,运行过程详情视图展示)。
+      const output = normalizeToolResult(o.result);
+      if (output !== undefined) out.output = output;
+      return out;
     }
     case "turn_end":
       return { type: "turn-end" };
