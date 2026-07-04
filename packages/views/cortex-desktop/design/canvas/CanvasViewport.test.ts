@@ -163,7 +163,7 @@ describe('CanvasViewport surface behavior', () => {
     const surviving = createDefaultShape('frame', 0, 0)
     doc.objects[surviving.id] = { ...surviving, parentId: doc.rootId }
     doc.objects[doc.rootId] = {
-      ...doc.objects[doc.rootId]!!,
+      ...doc.objects[doc.rootId]!,
       children: [surviving.id]
     }
 
