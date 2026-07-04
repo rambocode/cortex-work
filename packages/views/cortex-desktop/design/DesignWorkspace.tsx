@@ -10,6 +10,7 @@ import {
   installDesignRuntime,
   sendDesignMessage,
 } from "@cortex-work/core/design/run/design-run-manager";
+import { implementDesignInProject } from "@cortex-work/core/design/run/design-implement";
 import { useChatStore } from "@cortex-work/core/design/compat/chat-store";
 import { useCanvasShapeStore } from "@cortex-work/core/design/canvas/canvas-shape-store";
 import { useCanvasSelectionStore } from "@cortex-work/core/design/canvas/canvas-selection-store";
@@ -27,6 +28,8 @@ export function DesignWorkspace(): ReactElement {
   const closeDesign = usePersonalStore((s) => s.closeDesign);
   const openSettings = usePersonalStore((s) => s.openSettings);
   const designSettings = usePersonalStore((s) => s.designSettings);
+  const projects = usePersonalStore((s) => s.projects);
+  const addProject = usePersonalStore((s) => s.addProject);
 
   // 挂载即装配运行时(幂等;bridge 为 null 时 design 树各能力自动降级)。
   useEffect(() => {
@@ -88,12 +91,29 @@ export function DesignWorkspace(): ReactElement {
     clearHtmlElementContext: () => contextState.handleDesignHtmlElementAsContext(null),
   });
 
-  // 「用代码实现」入口在批8 接线;先给出可见但明确的占位提示,避免静默无响应。
+  // 「用代码实现」:选目标项目(单项目直接用/多项目取活跃或第一个/无项目则 pickDirectory
+  // 顺手注册),把设计产物拷进项目并经 SpotlightIntent handoff 起实现会话。
   const onImplementDesign = useMemo(
-    () => (_artifact: DesignArtifact) => {
-      setError("「用代码实现」流程尚未接线(开发中)");
+    () => async (artifact: DesignArtifact) => {
+      if (!bridge) {
+        setError("用代码实现需要桌面端环境");
+        return;
+      }
+      const activeProjectId = usePersonalStore.getState().activeProjectId;
+      let project =
+        projects.find((p) => p.id === activeProjectId && !p.archivedAt) ??
+        projects.find((p) => !p.archivedAt);
+      if (!project) {
+        // 无可用项目:让用户选一个文件夹作为实现目标并注册为项目。
+        const dir = await bridge.pickDirectory();
+        if (!dir) return;
+        project = addProject(dir);
+      }
+      const result = await implementDesignInProject({ bridge, artifact, project });
+      if (!result.ok) setError(result.error);
+      // 成功时 closeDesign 已在函数内触发,handoff 会切到实现会话。
     },
-    [],
+    [bridge, projects, addProject],
   );
 
   return (
