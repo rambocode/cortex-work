@@ -11,6 +11,14 @@ export type DesignThreadDetail = {
   blocks: ChatBlock[];
 } & Record<string, unknown>;
 
+// 上传结果:Kun provider 返回带媒体元数据的附件引用(画布自动附件消费 name/mimeType/尺寸)。
+export type DesignUploadedAttachment = AttachmentReference & {
+  name: string;
+  mimeType: string;
+  width?: number;
+  height?: number;
+};
+
 export interface DesignRuntimeProvider {
   createThread: (input?: Record<string, unknown>) => Promise<NormalizedThread>;
   sendUserMessage: (
@@ -18,7 +26,7 @@ export interface DesignRuntimeProvider {
     text: string,
     overrides?: SendMessageOverrides,
   ) => Promise<Record<string, unknown> | void>;
-  uploadAttachment: (payload: Record<string, unknown>) => Promise<AttachmentReference>;
+  uploadAttachment: (payload: Record<string, unknown>) => Promise<DesignUploadedAttachment>;
   getThreadDetail: (threadId: string) => Promise<DesignThreadDetail>;
 }
 

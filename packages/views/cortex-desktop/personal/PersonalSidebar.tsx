@@ -300,6 +300,9 @@ export function PersonalSidebar({
   // loop 工作流视图状态（bridge.workflowList 有值时才渲染入口，web 端 bridge 为 null 自动降级）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
   const openWorkflow = usePersonalStore((s) => s.openWorkflow);
+  // 设计工作台(AI 设计画布);desktop-only,bridge 为 null(web 端)自动降级隐藏。
+  const designOpen = usePersonalStore((s) => s.designOpen);
+  const openDesign = usePersonalStore((s) => s.openDesign);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
@@ -381,6 +384,17 @@ export function PersonalSidebar({
         >
           <Icon.GitBranch size={14} />
           <span>Loop 工作流</span>
+        </button>
+      ) : null}
+      {/* 设计工作台入口:依赖 startCli/文件系统桥接,web 端(bridge=null)降级隐藏。 */}
+      {bridge ? (
+        <button
+          className={`pw-home-btn ${designOpen ? "is-active" : ""}`}
+          onClick={() => openDesign()}
+          title="设计（AI 设计画布）"
+        >
+          <Icon.Palette size={14} />
+          <span>设计</span>
         </button>
       ) : null}
       <div className="pw-section-h">
