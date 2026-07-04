@@ -39,15 +39,15 @@ describe('DesignToolRunsPanel', () => {
       selectedIds: new Set([card.id])
     }))
 
-    expect(html).toContain('Design tools')
-    expect(html).toContain('Plan next')
-    expect(html).toContain('Critique canvas')
-    expect(html).toContain('Repair findings')
+    expect(html).toContain('设计工具')
+    expect(html).toContain('规划下一步')
+    expect(html).toContain('审查画布')
+    expect(html).toContain('修复问题')
     expect(html).toContain('design.plan')
     expect(html).toContain('design.critique')
     expect(html).toContain('design.repair')
-    expect(html).toContain('1 objects')
-    expect(html).toContain('1 findings')
+    expect(html).toContain('1 个对象')
+    expect(html).toContain('1 个问题')
   })
 
   it('shows disabled hints without canvas content', () => {
@@ -57,7 +57,7 @@ describe('DesignToolRunsPanel', () => {
       selectedIds: new Set<string>()
     }))
 
-    expect(html).toContain('Create canvas content first.')
-    expect(html).toContain('No repairable findings yet.')
+    expect(html).toContain('请先创建画布内容。')
+    expect(html).toContain('暂无可修复问题。')
   })
 })

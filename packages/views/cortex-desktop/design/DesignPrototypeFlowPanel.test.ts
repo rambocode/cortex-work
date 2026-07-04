@@ -50,13 +50,13 @@ describe('DesignPrototypeFlowPanel', () => {
       onSeedPrompt: () => {}
     }))
 
-    expect(html).toContain('Prototype flow')
+    expect(html).toContain('原型流程')
     expect(html).toContain('Home -&gt; Signup')
-    expect(html).toContain('Explicit')
-    expect(html).toContain('Fallback')
-    expect(html).toContain('2 screens')
-    expect(html).toContain('1 links')
-    expect(html).toContain('Connect prototype flow')
+    expect(html).toContain('显式链接')
+    expect(html).toContain('兜底连接')
+    expect(html).toContain('2 个 screen')
+    expect(html).toContain('1 条链接')
+    expect(html).toContain('连接原型流程')
   })
 
   it('renders nothing without visible screens', () => {

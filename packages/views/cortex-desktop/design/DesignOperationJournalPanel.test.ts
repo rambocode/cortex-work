@@ -57,12 +57,12 @@ describe('DesignOperationJournalPanel', () => {
       selectedIds: new Set([card.id])
     }))
 
-    expect(html).toContain('designOperationJournalTitle')
+    expect(html).toContain('操作日志')
     expect(html).toContain('Apply brand token')
     expect(html).toContain('Create hero card')
     expect(html).toContain('apply_token')
     expect(html).toContain('Hero card')
-    expect(html).toContain('designOperationJournalSummary')
+    expect(html).toContain('2 条记录 · 1 条已应用 · 1 条部分应用')
   })
 
   it('renders nothing without journal entries', () => {

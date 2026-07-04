@@ -59,21 +59,21 @@ describe('DesignSystemPanel', () => {
       onSeedPrompt: () => {}
     }))
 
-    expect(html).toContain('Design system')
-    expect(html).toContain('Update system')
-    expect(html).toContain('Validate system')
-    expect(html).toContain('Apply to selection')
+    expect(html).toContain('设计系统')
+    expect(html).toContain('更新系统')
+    expect(html).toContain('校验系统')
+    expect(html).toContain('应用到选择区')
     expect(html).toContain('design.system')
-    expect(html).toContain('1 tokens')
-    expect(html).toContain('1 bound uses')
-    expect(html).toContain('1 selected')
+    expect(html).toContain('1 个 token')
+    expect(html).toContain('1 个绑定使用')
+    expect(html).toContain('1 个选中')
   })
 
   it('shows disabled guidance when there is no canvas content or system', () => {
     const html = renderToStaticMarkup(createElement(DesignSystemPanel, { onSeedPrompt: () => {} }))
 
-    expect(html).toContain('Create system')
-    expect(html).toContain('Create canvas content first.')
-    expect(html).toContain('Select canvas objects first.')
+    expect(html).toContain('创建系统')
+    expect(html).toContain('请先创建画布内容。')
+    expect(html).toContain('请先选择画布对象。')
   })
 })

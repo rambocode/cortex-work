@@ -50,8 +50,8 @@ describe('DesignModeSurfacePanel', () => {
       })
     )
 
-    expect(html).toContain('aria-label="Run recommended next step"')
-    expect(html).toContain('Next: plan-directions · design.plan')
+    expect(html).toContain('aria-label="执行推荐下一步"')
+    expect(html).toContain('下一步：plan-directions · design.plan')
     expect(html).toContain('goal: Plan named design directions')
     expect(html).toContain('generate-first-screen')
     expect(html).toContain('0 direction(s) and 0 screen(s) in the active design.')

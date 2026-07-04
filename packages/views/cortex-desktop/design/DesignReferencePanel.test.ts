@@ -60,13 +60,13 @@ describe('DesignReferencePanel', () => {
       onSeedPrompt: () => {}
     }))
 
-    expect(html).toContain('Project memory')
+    expect(html).toContain('项目记忆')
     expect(html).toContain('Hero reference')
     expect(html).toContain('Home')
-    expect(html).toContain('Workspace')
-    expect(html).toContain('1 images')
-    expect(html).toContain('1 screens')
-    expect(html).toContain('Use project memory')
+    expect(html).toContain('工作区')
+    expect(html).toContain('1 张图片')
+    expect(html).toContain('1 个 screen')
+    expect(html).toContain('使用项目记忆')
   })
 
   it('renders nothing without references', () => {

@@ -27,7 +27,7 @@ describe('DesignGeneratorLanePanel', () => {
   it('renders OpenUI actions with their design tool protocol ids', () => {
     const html = renderToStaticMarkup(createElement(DesignGeneratorLanePanel, { onSeedPrompt: () => {} }))
 
-    expect(html).toContain('Generator lane')
+    expect(html).toContain('生成器 Lane')
     expect(html).toContain('design.generate_screen')
     expect(html).toContain('design.generate_directions')
     expect(html).toContain('design.critique')

@@ -37,11 +37,11 @@ describe('DesignAgentManagerPanel', () => {
       })
     )
 
-    expect(html).toContain('Agent manager')
-    expect(html).toContain('Systemizer')
+    expect(html).toContain('Agent 管理器')
+    expect(html).toContain('系统化 Agent')
     expect(html).toContain('extract-design-system · design.system')
-    expect(html).toContain('aria-label="Run this design agent"')
-    expect(html).toContain('aria-label="This design agent is unavailable"')
+    expect(html).toContain('aria-label="运行这个设计 Agent"')
+    expect(html).toContain('aria-label="这个设计 Agent 当前不可用"')
   })
 
   it('renders nothing without an active design document', () => {

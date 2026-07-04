@@ -38,9 +38,9 @@ describe('DesignContractPanel', () => {
       })
     )
 
-    expect(html).toContain('Design contract')
-    expect(html).toContain('Project DESIGN.md')
-    expect(html).toContain('Prepare handoff package')
+    expect(html).toContain('设计合同')
+    expect(html).toContain('项目 DESIGN.md')
+    expect(html).toContain('准备交付包')
     expect(html).toContain('design.export')
   })
 

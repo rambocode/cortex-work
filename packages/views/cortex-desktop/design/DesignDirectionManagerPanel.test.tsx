@@ -52,7 +52,7 @@ describe('DesignDirectionManagerPanel', () => {
       })
     )
 
-    expect(html).toContain('Directions')
+    expect(html).toContain('设计方向')
     expect(html).toContain('Critique direction · design.critique')
     expect(html).toContain('aria-label="Critique direction"')
   })

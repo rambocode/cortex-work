@@ -27,9 +27,9 @@ describe('DesignContextPopover', () => {
     expect(html).toContain('>Web</button>')
     expect(html).toContain('>App</button>')
     expect(html).toContain('aria-pressed="true"')
-    expect(html).toContain('Design target switching is locked while the design agent is working')
+    expect(html).toContain('设计 Agent 工作中会暂时锁定目标类型')
     expect(html).toContain(
-      'aria-label="Web: Default 1280 x 800 web frame. Design target switching is locked while the design agent is working"'
+      'aria-label="Web: 默认 1280 x 800 Web 画布. 设计 Agent 工作中会暂时锁定目标类型"'
     )
     expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(2)
   })

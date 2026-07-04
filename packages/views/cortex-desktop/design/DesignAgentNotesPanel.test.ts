@@ -38,10 +38,10 @@ describe('DesignAgentNotesPanel', () => {
       onSeedPrompt: () => {}
     }))
 
-    expect(html).toContain('Review notes')
+    expect(html).toContain('审阅批注')
     expect(html).toContain('CTA contrast is too low.')
     expect(html).toContain('design.repair')
-    expect(html).toContain('aria-label="Repair this note"')
+    expect(html).toContain('aria-label="修复这条批注"')
   })
 
   it('renders nothing when there are no agent notes', () => {

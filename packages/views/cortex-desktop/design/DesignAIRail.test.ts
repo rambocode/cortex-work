@@ -109,17 +109,17 @@ describe('DesignAIRail target toggle', () => {
     expect(html).not.toContain('old document answer')
     expect(html).not.toContain('old live reasoning')
     expect(html).not.toContain('old live answer')
-    expect(html).toContain('Describe the UI you want to design. The assistant will generate it for you.')
+    expect(html).toContain('描述你想设计的界面，助手会为你生成。')
   })
 
   it('shows the design target toggle with Web selected by default', () => {
     const html = renderToStaticMarkup(createElement(DesignAIRail, props()))
 
-    expect(html).toContain('Choose whether the design agent defaults to web pages or mobile app screens')
-    expect(html).toContain('aria-label="Web: Default 1280 x 800 web frame"')
-    expect(html).toContain('aria-label="App: Default 390 x 844 app frame"')
-    expect(html).toContain('Agent context')
-    expect(html).toContain('aria-label="Agent context: Web - Default 1280 x 800 web frame"')
+    expect(html).toContain('选择设计 Agent 默认生成网页还是移动 App 页面')
+    expect(html).toContain('aria-label="Web: 默认 1280 x 800 Web 画布"')
+    expect(html).toContain('aria-label="App: 默认 390 x 844 App 画布"')
+    expect(html).toContain('Agent 上下文')
+    expect(html).toContain('aria-label="Agent 上下文: Web - 默认 1280 x 800 Web 画布"')
     expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[\s\S]*?Web<\/button>/)
     expect(html).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[\s\S]*?App<\/button>/)
   })
@@ -129,19 +129,19 @@ describe('DesignAIRail target toggle', () => {
       createElement(DesignTargetToggle, {
         designTarget: 'app',
         disabled: true,
-        disabledReason: 'Design target switching is locked while the design agent is working',
+        disabledReason: '设计 Agent 工作中会暂时锁定目标类型',
         onChange: () => {}
       })
     )
 
     expect(html).toMatch(/<button[^>]*aria-pressed="false"[^>]*disabled=""[^>]*>[\s\S]*?Web<\/button>/)
     expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*disabled=""[^>]*>[\s\S]*?App<\/button>/)
-    expect(html).toContain('aria-label="Design target switching is locked while the design agent is working"')
+    expect(html).toContain('aria-label="设计 Agent 工作中会暂时锁定目标类型"')
     expect(html).toContain(
-      'aria-label="App: Default 390 x 844 app frame. Design target switching is locked while the design agent is working"'
+      'aria-label="App: 默认 390 x 844 App 画布. 设计 Agent 工作中会暂时锁定目标类型"'
     )
     expect(html).toContain(
-      'title="Default 390 x 844 app frame. Design target switching is locked while the design agent is working"'
+      'title="默认 390 x 844 App 画布. 设计 Agent 工作中会暂时锁定目标类型"'
     )
   })
 
@@ -159,9 +159,9 @@ describe('DesignAIRail target toggle', () => {
       }]
     })))
 
-    expect(html).toContain('Design target switching is locked while the design agent is working')
+    expect(html).toContain('设计 Agent 工作中会暂时锁定目标类型')
     expect(html).toContain(
-      'aria-label="Web: Default 1280 x 800 web frame. Design target switching is locked while the design agent is working"'
+      'aria-label="Web: 默认 1280 x 800 Web 画布. 设计 Agent 工作中会暂时锁定目标类型"'
     )
   })
 })

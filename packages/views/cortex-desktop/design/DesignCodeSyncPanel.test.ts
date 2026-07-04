@@ -25,10 +25,10 @@ describe('DesignCodeSyncPanel', () => {
       onSeedPrompt: () => {}
     }))
 
-    expect(html).toContain('Code bridge')
-    expect(html).toContain('Prepare code bindings')
+    expect(html).toContain('代码桥')
+    expect(html).toContain('准备代码绑定')
     expect(html).toContain('design.bind_code')
-    expect(html).toContain('1 live app frames')
+    expect(html).toContain('1 个 live app frame')
   })
 
   it('renders nothing when there is no code bridge state', () => {
