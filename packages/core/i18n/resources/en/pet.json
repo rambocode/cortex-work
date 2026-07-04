@@ -18,6 +18,10 @@
     "dog": {
       "name": "Shiba",
       "desc": "Shiba Inu"
+    },
+    "mint": {
+      "name": "Mint",
+      "desc": "Droplet sprite"
     }
   }
 }

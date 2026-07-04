@@ -20,12 +20,19 @@ describe("sprites manifest", () => {
   it("cat 含四个核心态资产", () => {
     expect(Object.keys(PET_SPRITES.cat ?? {}).sort()).toEqual(["happy", "idle", "sleeping", "walk"]);
   });
+
+  it("mint 含四个核心态资产,帧数比 cat/dog 少但仍合法", () => {
+    expect(Object.keys(PET_SPRITES.mint ?? {}).sort()).toEqual(["happy", "idle", "sleeping", "walk"]);
+    expect(PET_SPRITES.mint?.idle?.frames).toBe(3);
+    expect(PET_SPRITES.mint?.walk?.frames).toBe(2);
+  });
 });
 
 describe("hasSprites", () => {
-  it("cat / dog 均有 sprite", () => {
+  it("cat / dog / mint 均有 sprite", () => {
     expect(hasSprites("cat")).toBe(true);
     expect(hasSprites("dog")).toBe(true);
+    expect(hasSprites("mint")).toBe(true);
   });
 });
 
@@ -63,6 +70,13 @@ describe("resolveSpriteAnim", () => {
   it("dog 各状态解析到对应 anim", () => {
     expect(resolveSpriteAnim("dog", "idle", false)?.frames).toBe(4);
     expect(resolveSpriteAnim("dog", "happy", false)?.frames).toBe(5);
+  });
+
+  it("mint 各状态解析到对应 anim(帧数较少但结构一致)", () => {
+    expect(resolveSpriteAnim("mint", "idle", false)?.frames).toBe(3);
+    expect(resolveSpriteAnim("mint", "idle", true)?.frames).toBe(2); // walking=true → walk anim
+    expect(resolveSpriteAnim("mint", "happy", false)).toBe(PET_SPRITES.mint?.happy);
+    expect(resolveSpriteAnim("mint", "sleeping", false)).toBe(PET_SPRITES.mint?.sleeping);
   });
 
   it("manifest 中无该角色时返回 null(防御性,交由 SVG 兜底)", () => {

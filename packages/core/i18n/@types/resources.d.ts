@@ -728,6 +728,10 @@ export default interface Resources {
       "dog": {
         "desc": "柴犬",
         "name": "阿柴"
+      },
+      "mint": {
+        "desc": "水滴精灵",
+        "name": "薄荷"
       }
     },
     "state": {

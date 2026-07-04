@@ -3,11 +3,24 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   PET_COLOR_KEY,
+  PET_DESIGNS,
   PET_SIZE_KEY,
   loadPetColor,
   loadPetSize,
   petColorVars,
 } from "./designs";
+
+describe("PET_DESIGNS", () => {
+  it("cat / dog / mint 均有完整造型(name/desc/Parts/Perch)", () => {
+    for (const kind of ["cat", "dog", "mint"] as const) {
+      const design = PET_DESIGNS[kind];
+      expect(design.name, `${kind}.name`).toBeTruthy();
+      expect(design.desc, `${kind}.desc`).toBeTruthy();
+      expect(typeof design.Parts, `${kind}.Parts`).toBe("function");
+      expect(typeof design.Perch, `${kind}.Perch`).toBe("function");
+    }
+  });
+});
 
 describe("petColorVars", () => {
   it("由主色派生 main/dark/light 三档", () => {

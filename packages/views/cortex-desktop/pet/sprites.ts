@@ -25,6 +25,12 @@ import dogIdle from "./assets/dog/idle.webp";
 import dogWalk from "./assets/dog/walk.webp";
 import dogHappy from "./assets/dog/happy.webp";
 import dogSleeping from "./assets/dog/sleeping.webp";
+// mint 帧数比 cat/dog 少(idle 3、walk 2、happy 3、sleeping 2),是首版可行性验证产出,
+// 后续可用同一条 codex image_gen 流水线补齐到同等帧数而不影响这里的接线。
+import mintIdle from "./assets/mint/idle.webp";
+import mintWalk from "./assets/mint/walk.webp";
+import mintHappy from "./assets/mint/happy.webp";
+import mintSleeping from "./assets/mint/sleeping.webp";
 
 /** sprite 动画键。7 个 PetState 收敛到这 4 个核心动画(见 spriteKeyFor)。 */
 export type SpriteAnimKey = "idle" | "walk" | "happy" | "sleeping";
@@ -71,6 +77,14 @@ export const PET_SPRITES: Partial<Record<PetKind, Partial<Record<SpriteAnimKey, 
     walk: { src: assetUrl(dogWalk), frames: 4, frameW: FW, frameH: FH, fps: 5, loop: true },
     happy: { src: assetUrl(dogHappy), frames: 5, frameW: FW, frameH: FH, fps: 6, loop: false },
     sleeping: { src: assetUrl(dogSleeping), frames: 3, frameW: FW, frameH: FH, fps: 1.5, loop: "pingpong" },
+  },
+  // mint 帧数比 cat/dog 少,fps 相应调低,使每个动画的播放时长(dur = frames/fps)
+  // 与 cat/dog 保持一致的节奏感(idle 2s、walk 0.8s、happy 0.83s、sleeping 单程 2s)。
+  mint: {
+    idle: { src: assetUrl(mintIdle), frames: 3, frameW: FW, frameH: FH, fps: 1.5, loop: true },
+    walk: { src: assetUrl(mintWalk), frames: 2, frameW: FW, frameH: FH, fps: 2.5, loop: true },
+    happy: { src: assetUrl(mintHappy), frames: 3, frameW: FW, frameH: FH, fps: 3.6, loop: false },
+    sleeping: { src: assetUrl(mintSleeping), frames: 2, frameW: FW, frameH: FH, fps: 1, loop: "pingpong" },
   },
 };
 

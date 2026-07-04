@@ -392,6 +392,80 @@ function DogPerch() {
   );
 }
 
+// ── 薄荷 · 水滴精灵 ────────────────────────────────────────────────────────
+// mint 主渲染路径走 sprite(见 sprites.ts 的 PET_SPRITES.mint),这里的 SVG 只在
+// 两处兜底生效:①趴窗(perch)模式恒用 SVG,不判断 hasSprites;②sprite 资源本身
+// 加载失败等极端兜底。造型是无耳、无独立头身分界的圆润水滴形,故不复用
+// FurTufts/耳朵,只复用共享的 Eyes/Accessories/PerchPaw/PerchChest。
+function MintHead() {
+  return (
+    <g className="pet-head" style={{ transformOrigin: "60px 55px" }}>
+      {/* 头顶小犄角 */}
+      <path d="M60 6 q6 10 5 18 h-10 q-1 -8 5 -18z" fill="var(--pet-main, #9fe0b0)" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
+      {/* 水滴形头部(顶窄底宽,与下方 body 重叠融合成一体) */}
+      <path
+        d="M60 20 q34 0 34 46 q0 20 -34 20 q-34 0 -34 -20 q0 -46 34 -46z"
+        fill="var(--pet-main, #9fe0b0)"
+        stroke={OUTLINE}
+        strokeWidth="2"
+      />
+      <Eyes lidFill="var(--pet-main, #9fe0b0)" iris="#3a2a1c" />
+      <path className="pet-mouth" d="M60 57.6 q-0.8 3.8 -5.4 3.4 M60 57.6 q0.8 3.8 5.4 3.4" fill="none" stroke={OUTLINE} strokeWidth="1.6" strokeLinecap="round" />
+      <ellipse className="pet-mouth-talk" style={{ transformOrigin: "60px 61.5px" }} cx="60" cy="61.5" rx="3.6" ry="2.8" fill="#3a6b46" />
+      <g className="pet-blush" fill="#f3a9b7" opacity="0">
+        <ellipse cx="36" cy="56" rx="5" ry="3" />
+        <ellipse cx="84" cy="56" rx="5" ry="3" />
+      </g>
+      {/* 常显腮红(参考造型自带腮红,非仅 happy 态才显示) */}
+      <g fill="#f3b8c4" opacity="0.85">
+        <ellipse cx="36" cy="56" rx="5.5" ry="3.4" />
+        <ellipse cx="84" cy="56" rx="5.5" ry="3.4" />
+      </g>
+    </g>
+  );
+}
+
+function MintParts() {
+  return (
+    <>
+      <Accessories />
+      {/* 卷成螺旋的尾巴,贴在身体右后方 */}
+      <path
+        className="pet-tail"
+        style={{ transformOrigin: "112px 90px" }}
+        d="M108 94 q18 2 20 -10 q1.4 -9 -7 -11 q-7 -1.6 -8 5.4 q-0.8 5 5.4 5.6"
+        fill="none"
+        stroke="var(--pet-main, #9fe0b0)"
+        strokeWidth="9"
+        strokeLinecap="round"
+      />
+      <g className="pet-body" style={{ transformOrigin: "62px 96px" }}>
+        {/* 左右两只短小手臂 */}
+        <ellipse cx="22" cy="92" rx="9" ry="15" fill="var(--pet-main, #9fe0b0)" stroke={OUTLINE} strokeWidth="2" transform="rotate(-12 22 92)" />
+        <ellipse cx="102" cy="92" rx="9" ry="15" fill="var(--pet-main, #9fe0b0)" stroke={OUTLINE} strokeWidth="2" transform="rotate(12 102 92)" />
+        <ellipse cx="62" cy="96" rx="42" ry="24" fill="var(--pet-main, #9fe0b0)" stroke={OUTLINE} strokeWidth="2" />
+      </g>
+      <g className="pet-paws">
+        <ellipse className="paw p1" cx="44" cy="114" rx="9" ry="6" fill="var(--pet-main, #9fe0b0)" stroke={OUTLINE} strokeWidth="2" />
+        <ellipse className="paw p2" cx="80" cy="114" rx="9" ry="6" fill="var(--pet-main, #9fe0b0)" stroke={OUTLINE} strokeWidth="2" />
+      </g>
+      <MintHead />
+    </>
+  );
+}
+
+function MintPerch() {
+  return (
+    <>
+      <Accessories />
+      <PerchChest fill="var(--pet-main, #9fe0b0)" />
+      <MintHead />
+      <PerchPaw cx={32} side="pl" fill="var(--pet-main, #9fe0b0)" />
+      <PerchPaw cx={88} side="pr" fill="var(--pet-main, #9fe0b0)" />
+    </>
+  );
+}
+
 export interface PetDesign {
   name: string;
   desc: string;
@@ -404,6 +478,8 @@ export const PET_DESIGNS: Record<PetKind, PetDesign> = {
   cat: { name: "小柯", desc: "橘猫", Parts: CatParts, Perch: CatPerch },
   // dog 的 Parts/Perch 复用原柴犬 SVG(作 sprite 缺失时的兜底 + perch 趴姿造型)。
   dog: { name: "阿柴", desc: "柴犬", Parts: DogParts, Perch: DogPerch },
+  // mint 主渲染路径走 sprite;Parts 仅作兜底,Perch 恒定使用(perch 模式不判断 hasSprites)。
+  mint: { name: "薄荷", desc: "水滴精灵", Parts: MintParts, Perch: MintPerch },
 };
 
 export const PET_KIND_KEY = "cortex_pet_kind";
