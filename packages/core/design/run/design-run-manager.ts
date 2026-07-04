@@ -82,8 +82,19 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
       }
       return;
     }
-    case "result":
+    case "result": {
+      // 有的 agent(尤其 pi)不走流式 text 事件,最终输出只在 result.text 里。若本回合没有
+      // 流式文本累积(liveAssistant 空),把 result.text 补成一条 assistant 块,否则聊天看不到回复。
+      const hadStreamed = useChatStore.getState().liveAssistant.trim().length > 0;
       mirror.foldLiveAssistant(run.turnId);
+      if (ev.ok && !hadStreamed && ev.text?.trim()) {
+        mirror.pushBlock({
+          kind: "assistant",
+          id: uid("a"),
+          turnId: run.turnId,
+          text: ev.text,
+        } as ChatBlock);
+      }
       if (!ev.ok && ev.error) {
         mirror.pushBlock({
           kind: "system",
@@ -93,6 +104,7 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
         } as ChatBlock);
       }
       return;
+    }
     default:
       return;
   }
