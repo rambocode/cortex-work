@@ -79,6 +79,16 @@ export function DesignWorkspace(): ReactElement {
   const canvasDocument = useCanvasShapeStore((s) => s.document);
   const selectedIds = useCanvasSelectionStore((s) => s.selectedIds);
 
+  // 每个设计稿是独立会话(sessionId=design-<docId>)。切换/新建/删除后落到不同设计稿时,
+  // 清空聊天镜像——否则上一稿的对话消息会跨稿累积在右侧面板。仅当镜像已绑定到别的
+  // 设计稿会话时才清(初次挂载 activeThreadId 为空,不误清)。
+  useEffect(() => {
+    if (!activeDocumentId) return;
+    const wantThread = `design-${activeDocumentId}`;
+    const cur = useChatStore.getState().activeThreadId;
+    if (cur && cur !== wantThread) useChatStore.getState().resetMirror();
+  }, [activeDocumentId]);
+
   const contextState = useDesignComposerContextState({
     route: "design",
     canvasDocument,
