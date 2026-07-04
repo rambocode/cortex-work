@@ -8,7 +8,10 @@ import { setKunGuiPort, type KunGuiPort } from "../compat/kun-gui-port";
 import type {
   WorkspaceDirectoryTarget,
   WorkspaceEntry,
+  WorkspaceFileChangePayload,
   WorkspaceFileTarget,
+  WorkspaceFileWatchPayload,
+  WorkspaceFileWatchResult,
 } from "../compat/workspace-file";
 
 // Kun 的 workspace 语义：path 可以是绝对路径，也可以是相对 workspaceRoot 的相对路径。
@@ -18,6 +21,56 @@ function resolveWorkspacePath(target: { path?: string; workspaceRoot?: string })
   const root = (target.workspaceRoot ?? "").replace(/\/+$/, "");
   if (!root) return path;
   return path ? `${root}/${path.replace(/^\/+/, "")}` : root;
+}
+
+function dirOf(abs: string): string {
+  const i = abs.lastIndexOf("/");
+  return i <= 0 ? abs : abs.slice(0, i);
+}
+
+// 设计画布「实时刷新」用的按文件内容监听。cortex 只有目录级 watchDir(仅回调 id、不带
+// 文件名),故：watch 一个文件 = 监听其所在目录 + 目录变化时重读该文件、内容变了才推送。
+// 单一全局 onDirChanged 订阅按 watchId 分发到各文件监听。
+type DesignFileWatch = {
+  watchId: string;
+  absPath: string;
+  workspaceRoot: string;
+  relPath: string;
+  lastContent: string;
+};
+
+const fileWatches = new Map<string, DesignFileWatch>();
+const changeHandlers = new Set<(payload: WorkspaceFileChangePayload) => void>();
+let dirChangedUnsub: (() => void) | null = null;
+let watchSeq = 0;
+
+// 首次监听时挂载唯一的 onDirChanged 订阅：目录变 → 重读该 watch 的文件 → 内容有变才推变更。
+function ensureDirChangedSubscription(bridge: DesktopBridge): void {
+  if (dirChangedUnsub || !bridge.onDirChanged) return;
+  dirChangedUnsub = bridge.onDirChanged((id) => {
+    const w = fileWatches.get(id);
+    if (!w) return;
+    void (async () => {
+      try {
+        const r = await bridge.readFile(w.absPath);
+        if (r.content === w.lastContent) return; // 目录内其它文件变化,本文件未变
+        w.lastContent = r.content;
+        const payload: WorkspaceFileChangePayload = {
+          ok: true,
+          watchId: w.watchId,
+          workspaceRoot: w.workspaceRoot,
+          path: w.relPath,
+          content: r.content,
+          size: r.content.length,
+          truncated: r.truncated,
+          changedAt: new Date().toISOString(),
+        };
+        for (const h of changeHandlers) h(payload);
+      } catch {
+        /* 文件被删/暂不可读:忽略,下次变化再试 */
+      }
+    })();
+  });
 }
 
 function extOf(name: string): string {
@@ -115,6 +168,48 @@ export function createBridgeKunGuiPort(bridge: DesktopBridge): KunGuiPort {
       } catch (err) {
         return { ok: false as const, message: message(err) };
       }
+    },
+    // —— 实时刷新的按文件监听（用 cortex watchDir + readFile 实现）——
+    watchWorkspaceFile: async (payload: WorkspaceFileWatchPayload): Promise<WorkspaceFileWatchResult> => {
+      const abs = resolveWorkspacePath(payload);
+      if (!bridge.watchDir || !bridge.onDirChanged) {
+        return { ok: false as const, message: "directory watch unavailable" };
+      }
+      try {
+        const initial = await bridge.readFile(abs).catch(() => ({ content: "", truncated: false }));
+        const watchId = `designwatch-${(watchSeq += 1)}`;
+        ensureDirChangedSubscription(bridge);
+        await bridge.watchDir(watchId, dirOf(abs));
+        fileWatches.set(watchId, {
+          watchId,
+          absPath: abs,
+          workspaceRoot: payload.workspaceRoot,
+          relPath: payload.path,
+          lastContent: initial.content,
+        });
+        return {
+          ok: true as const,
+          watchId,
+          path: payload.path,
+          content: initial.content,
+          size: initial.content.length,
+          truncated: initial.truncated,
+          startedAt: new Date().toISOString(),
+        };
+      } catch (err) {
+        return { ok: false as const, message: message(err) };
+      }
+    },
+    unwatchWorkspaceFile: async (watchId: string): Promise<boolean> => {
+      const w = fileWatches.get(watchId);
+      if (!w) return false;
+      fileWatches.delete(watchId);
+      bridge.unwatchDir?.(watchId);
+      return true;
+    },
+    onWorkspaceFileChanged: (handler: (payload: WorkspaceFileChangePayload) => void): (() => void) => {
+      changeHandlers.add(handler);
+      return () => changeHandlers.delete(handler);
     },
   };
 }

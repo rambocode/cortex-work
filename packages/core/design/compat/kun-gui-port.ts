@@ -12,8 +12,11 @@ import type {
   WorkspaceEntryDeleteResult,
   WorkspaceClipboardImageSavePayload,
   WorkspaceClipboardImageSaveResult,
+  WorkspaceFileChangePayload,
   WorkspaceFileReadResult,
   WorkspaceFileTarget,
+  WorkspaceFileWatchPayload,
+  WorkspaceFileWatchResult,
   WorkspaceFileWritePayload,
   WorkspaceFileWriteResult,
   WorkspaceImageBytesSavePayload,
@@ -49,6 +52,10 @@ export interface KunGuiPort {
     path: string;
     workspaceRoot: string;
   }) => Promise<{ ok: true; absolutePath: string; fileUrl: string } | { ok: false; message: string }>;
+  // 实时刷新的按文件监听（可选：宿主 bridge 无目录监听时不装配 → design 回退到仅终态刷新）。
+  watchWorkspaceFile?: (payload: WorkspaceFileWatchPayload) => Promise<WorkspaceFileWatchResult>;
+  unwatchWorkspaceFile?: (watchId: string) => Promise<boolean>;
+  onWorkspaceFileChanged?: (handler: (payload: WorkspaceFileChangePayload) => void) => () => void;
 }
 
 let installed: KunGuiPort | null = null;
