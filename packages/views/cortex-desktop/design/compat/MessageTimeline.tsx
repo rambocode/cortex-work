@@ -16,9 +16,15 @@ export function MessageTimeline(props: MessageTimelineProps) {
     <div className="flex flex-col gap-3 text-sm">
       {blocks.map((block) => {
         if (block.kind === "user") {
+          // 设计回合的 block.text 是完整 prompt(很长),气泡优先展示简短的 displayText。
+          const display =
+            (block.meta?.displayText as string | undefined)?.trim() || block.text;
           return (
-            <div key={block.id} className="self-end rounded-lg bg-black/5 px-3 py-2 dark:bg-white/10">
-              {block.text}
+            <div
+              key={block.id}
+              className="max-w-[85%] self-end whitespace-pre-wrap break-words rounded-lg bg-black/5 px-3 py-2 dark:bg-white/10"
+            >
+              {display}
             </div>
           );
         }
