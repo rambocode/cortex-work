@@ -9,7 +9,7 @@
 //   3) 取消/收尾:killCli + 镜像回合状态复位。
 import type { DesktopBridge } from "../../desktop/bridge";
 import type { CliStartRequest, CliStreamEvent } from "../../desktop/types";
-import { usePersonalStore } from "../../store/personal";
+import { usePersonalStore, resolveDefaultAgent } from "../../store/personal";
 import { setDesignRuntimeClient } from "../compat/runtime-client";
 import { setDesignRuntimeProvider } from "../compat/agent-registry";
 import { useChatStore } from "../compat/chat-store";
@@ -182,11 +182,28 @@ export async function sendDesignMessage(
   } as ChatBlock);
   mirror.beginTurn(turnId, userBlockId);
 
-  // agent:设计回合默认 claude——它最擅长「只改指定文件、单文件完整 HTML」的多文件写入契约
-  // (计划 v1 决策;codex/pi 对该契约遵循度低、且 pi 的 session 语义此前引发 resume 失败)。
-  // model:设计设置显式指定优先,否则沿用个人工作区「最后一次使用」。
-  const agent = "claude";
-  const model = personal.designSettings.model || personal.lastModel;
+  // agent:跟随系统「新会话默认 Agent」(设置→Agent);未设置/不可用则按安装派生(claude>codex>pi)。
+  // provider:pi 需要供应商 extension 才能调模型,这里挂上默认供应商(与新会话一致)。
+  const agent = resolveDefaultAgent(personal);
+  // model:只用设计设置里显式指定的 model,绝不继承个人工作区 lastModel——lastModel 绑定
+  // 上一个 agent(如 pi/DeepSeek),把它当 --model 传给 claude 会因未知模型名瞬间退出;
+  // 留空则各 agent 用自己的默认模型,跨 agent 切换也安全。
+  const model = personal.designSettings.model || undefined;
+  // pi 走供应商 extension(apiKey);claude/codex 用各自 CLI 自带鉴权,无需 provider。
+  const providerProfile =
+    agent === "pi"
+      ? personal.providerSettings?.providers?.find(
+          (p) => p.id === (personal.designSettings.providerId || personal.lastProviderId),
+        ) ?? personal.providerSettings?.providers?.[0]
+      : undefined;
+  const provider = providerProfile
+    ? {
+        id: providerProfile.id,
+        baseUrl: providerProfile.baseUrl,
+        apiKey: providerProfile.apiKey,
+        models: providerProfile.models.map((m) => ({ id: m.id, name: m.label })),
+      }
+    : undefined;
   const req: CliStartRequest = {
     runId,
     sessionId,
@@ -194,6 +211,7 @@ export async function sendDesignMessage(
     cwd,
     prompt: text,
     ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
     ...(overrides?.reasoningEffort ? {} : {}),
     // accept-edits:免审批写工作区文件(设计回合只需 Write/Edit HTML+MD),
     // 不放开任意命令;print 模式无交互审批,approvalPolicy 必须 auto。

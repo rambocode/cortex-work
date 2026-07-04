@@ -591,6 +591,10 @@ export function registerCliHandlers(): void {
   setInterval(() => codexServers.sweepIdle(), 5 * 60_000).unref();
 
   ipcMain.handle("cli:start", async (event, req: CliStartRequest) => {
+    // 设计工作台回合的诊断日志(runId 前缀 design:):便于排查 agent 是否真被拉起、传了什么。
+    if (req.runId.startsWith("design:")) {
+      log.info(`[design] cli:start agent=${req.agent} model=${req.model ?? "(default)"} cwd=${req.cwd} runId=${req.runId}`);
+    }
     await assertAgentAvailable(req.agent);
     const sender = event.sender;
     const adapter = getAgentDef(req.agent);
