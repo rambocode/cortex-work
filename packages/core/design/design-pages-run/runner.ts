@@ -444,5 +444,8 @@ export async function runDesignPages(deps: RunDesignPagesDeps): Promise<void> {
   } finally {
     finishDesignPagesRun(signal)
     useDesignWorkspaceStore.getState().setPagesRun(null)
+    // 清空各页并行状态:run 结束后页面真实内容已落盘(经 watch 刷新),残留的 'queued'/'running'
+    // 会让页卡一直显示「AI 排队中/正在绘制」overlay。此前只清 pagesRun、漏清 parallelPageStates。
+    useDesignWorkspaceStore.getState().clearParallelPageStates()
   }
 }
