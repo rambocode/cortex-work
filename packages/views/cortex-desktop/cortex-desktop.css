@@ -598,6 +598,22 @@ input, textarea { font: inherit; color: inherit; }
   border-top: none;
   padding-top: 2px;
 }
+/* 设计 + 项目管理 并排一行:等宽平分,按钮内容居中不撑满。 */
+.pw-footer-row {
+  display: flex;
+  gap: 4px;
+  padding: 0 6px;
+}
+.pw-footer-row > .pw-home-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: center;
+}
+.pw-footer-row > .pw-home-btn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .settings-menu-wrap {
   position: relative;
 }

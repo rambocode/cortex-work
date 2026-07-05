@@ -451,25 +451,28 @@ export function PersonalSidebar({
       {/* 底部全局入口组（项目管理 / 设置）：整组包一层 .pw-sidebar-footer,顶部一条分隔线
           + 微弱底色,与上方会话/项目列表拉开区分度（组内 .sb-foot 去掉自带 border-top 避免双线）。 */}
       <div className="pw-sidebar-footer">
-        {/* 设计工作台入口:依赖 startCli/文件系统桥接,web 端(bridge=null)降级隐藏。位列底部全局入口组。 */}
-        {bridge ? (
-          <button
-            className={`pw-home-btn ${designOpen ? "is-active" : ""}`}
-            onClick={() => openDesign()}
-            title="设计（AI 设计画布）"
-          >
-            <Icon.Palette size={14} />
-            <span>设计</span>
-          </button>
-        ) : null}
-        {/* 「项目管理」独立窗口入口：双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow
-            （壳注入窗口能力）；web/旧壳缺任一 → 隐藏（KTD2：窗口打开经壳注入回调,views 不碰 window.desktopAPI）。 */}
-        {bridge?.tasksListProjects && onOpenProjectsWindow ? (
-          <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
-            <Icon.Folder size={14} />
-            <span>项目管理</span>
-          </button>
-        ) : null}
+        {/* 设计 + 项目管理 并排一行(各占一半);下方为设置。web/旧壳缺桥接时对应入口降级隐藏。 */}
+        <div className="pw-footer-row">
+          {/* 设计工作台入口:依赖 startCli/文件系统桥接,web 端(bridge=null)降级隐藏。 */}
+          {bridge ? (
+            <button
+              className={`pw-home-btn ${designOpen ? "is-active" : ""}`}
+              onClick={() => openDesign()}
+              title="设计（AI 设计画布）"
+            >
+              <Icon.Palette size={14} />
+              <span>设计</span>
+            </button>
+          ) : null}
+          {/* 「项目管理」独立窗口入口：双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow
+              （壳注入窗口能力）；web/旧壳缺任一 → 隐藏（KTD2：窗口打开经壳注入回调,views 不碰 window.desktopAPI）。 */}
+          {bridge?.tasksListProjects && onOpenProjectsWindow ? (
+            <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
+              <Icon.Folder size={14} />
+              <span>项目管理</span>
+            </button>
+          ) : null}
+        </div>
         <SettingsMenu />
       </div>
     </aside>
