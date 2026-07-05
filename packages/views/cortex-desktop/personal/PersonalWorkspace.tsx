@@ -201,8 +201,10 @@ export function PersonalWorkspace({
       </div>
       {/* 「项目管理」三栏工作台已迁为独立桌面窗口（projects.html，见 projects-window.ts），
           不再在主窗口内以覆盖层渲染（U3）。 */}
-      {/* 设计工作台:整窗覆盖层(fixed inset-0),接管个人工作区侧栏,自成三栏。与 settings 同级。 */}
-      {designOpen ? <DesignWorkspace /> : null}
+      {/* 设计工作台:整窗覆盖层(fixed inset-0),接管个人工作区侧栏,自成三栏。与 settings 同级。
+          settingsOpen 时不渲染(否则 z-40 覆盖层盖在设置页上拦截点击,设置的「返回」点不到);
+          设计 run 由 design-run-manager 独立持有,卸载不中断,返回后设计恢复。 */}
+      {designOpen && !settingsOpen ? <DesignWorkspace /> : null}
       {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
       <SessionSearchDialog />
