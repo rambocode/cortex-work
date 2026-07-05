@@ -73,32 +73,37 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
       return;
     case "tool": {
       const toolId = ev.toolCallId ?? `${runId}:${ev.name}`;
-      if (ev.phase !== "end") {
-        // 工具开始前先把已流出的正文落定,保持时间线顺序(文本→工具→文本)。
-        mirror.foldLiveAssistant(run.turnId);
-        // detail 存入 input 的 JSON:多页并行的 deriveParallelDesignPageStatesFromBlocks 靠
-        // toolName==='delegate_task' + detail.label(page:<artifactId>)把子 agent 进度回映到对应页。
-        const inputJson =
-          ev.input !== undefined
-            ? typeof ev.input === "string"
-              ? ev.input
-              : safeStringify(ev.input)
-            : undefined;
-        mirror.pushBlock({
-          kind: "tool",
-          id: toolId,
-          summary: ev.name,
-          status: "running",
-          detail: inputJson,
-          // toolName 供 delegate_task 识别;child.childLabel 兜底另一条映射路径。
-          meta: { toolName: ev.name, ...(ev.input ? { input: ev.input } : {}) },
-        } as ChatBlock);
-      } else {
+      if (ev.phase === "end") {
         // 落定时不覆写 detail(保留 input 里的 label,供 per-page 状态映射);只更新状态。
         mirror.patchBlock(toolId, {
           status: ev.isError ? "error" : "success",
         } as Partial<ChatBlock>);
+        return;
       }
+      // 工具开始前先把已流出的正文落定,保持时间线顺序(文本→工具→文本)。
+      mirror.foldLiveAssistant(run.turnId);
+      // detail 存入 input 的 JSON:多页并行的 deriveParallelDesignPageStatesFromBlocks 靠
+      // toolName==='delegate_task' + detail.label(page:<artifactId>)把子 agent 进度回映到对应页。
+      // claude/codex 带 input(对象,序列化后含 delegate_task 的 label 供 per-page 映射);
+      // pi 只带 detail(已提取的路径/命令字符串)。两者都存进 detail 供聊天面板展示。
+      const inputJson =
+        ev.input !== undefined
+          ? typeof ev.input === "string"
+            ? ev.input
+            : safeStringify(ev.input)
+          : ev.detail;
+      // pi adapter 只发 tool start(无 phase),没有对应的 end 事件 → 状态直接落定为 success,
+      // 否则芯片永远停在 running(琥珀);claude/codex 有 phase:start 才先置 running、等 end 翻转。
+      const initialStatus: "running" | "success" = ev.phase === "start" ? "running" : "success";
+      mirror.pushBlock({
+        kind: "tool",
+        id: toolId,
+        summary: ev.name,
+        status: initialStatus,
+        detail: inputJson,
+        // toolName 供 delegate_task 识别;child.childLabel 兜底另一条映射路径。
+        meta: { toolName: ev.name, ...(ev.input ? { input: ev.input } : {}) },
+      } as ChatBlock);
       return;
     }
     case "result": {
