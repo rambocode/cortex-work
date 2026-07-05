@@ -857,6 +857,10 @@ function clearStoredAgentSessionId(sessionId: string, agent: AgentKind): void {
 }
 
 function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sessionIdHint?: string): void {
+  // 设计工作台的 run(runId 前缀 design:)由 design-run-manager 独立消费,绝不能进入
+  // 下面的 recovered-run 重建路径——否则会以 sessionIdHint 伪造个人会话运行态
+  // (phantom run),污染会话列表与过程流。
+  if (runId.startsWith("design:")) return;
   let run = runs.get(runId);
   if (!run) {
     // renderer 被 HMR/刷新重载,内存注册表丢失 —— 用主进程回显的 sessionId 重建,
@@ -1232,6 +1236,10 @@ function handleCliExit(
   error?: string,
   sessionIdHint?: string,
 ): void {
+  // 与 handleCliEvent 的守卫对称:design run 的退出由 design-run-manager 处理,
+  // 不得走 finalizeRun 的 sessionIdHint 兜底(会对 design-<docId> 会话 flushChat,
+  // 用个人消息缓存覆写设计转录)。
+  if (runId.startsWith("design:")) return;
   finalizeRun(qc, runId, code, error, sessionIdHint);
 }
 

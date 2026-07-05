@@ -27,6 +27,7 @@ import { TimelineView } from "./TimelineView";
 import { NewSessionLanding } from "./NewSessionLanding";
 import { AutomationView } from "./AutomationView";
 import { WorkflowView } from "./WorkflowView";
+import { DesignWorkspace } from "../design/DesignWorkspace";
 import { FlashNoteEditor } from "./FlashNoteEditor";
 import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
 import { PersonalSettingsView } from "./SettingsMenu";
@@ -85,6 +86,8 @@ export function PersonalWorkspace({
   const automationOpen = usePersonalStore((s) => s.automationOpen);
   // loop 工作流主区视图（优先级最高；bridge.workflowList 为 null 时不可能为 true）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
+  // 设计工作台主区视图(desktop-only;侧栏入口按 bridge 存在性 gate)。
+  const designOpen = usePersonalStore((s) => s.designOpen);
   // 设置整页：全屏覆盖层叠加在工作区之上（不卸载 pw-main → 终端 PTY 存活）。
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
@@ -191,13 +194,17 @@ export function PersonalWorkspace({
                 由组件自身依据「中栏显示会话区 + 当前会话有过程」判定是否渲染。 */}
             <PersonalProcessPanel />
           </div>
-          {/* 工作流和自动化视图时隐藏右栏（画布编辑器不需要辅助面板）。*/}
-          {!workflowOpen && !automationOpen && rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}
+          {/* 工作流/自动化/设计视图时隐藏右栏（画布编辑器自带右栏,不需要辅助面板）。*/}
+          {!workflowOpen && !automationOpen && !designOpen && rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}
         </div>
         <TerminalPanel onToast={onToast} />
       </div>
       {/* 「项目管理」三栏工作台已迁为独立桌面窗口（projects.html，见 projects-window.ts），
           不再在主窗口内以覆盖层渲染（U3）。 */}
+      {/* 设计工作台:整窗覆盖层(fixed inset-0),接管个人工作区侧栏,自成三栏。与 settings 同级。
+          settingsOpen 时不渲染(否则 z-40 覆盖层盖在设置页上拦截点击,设置的「返回」点不到);
+          设计 run 由 design-run-manager 独立持有,卸载不中断,返回后设计恢复。 */}
+      {designOpen && !settingsOpen ? <DesignWorkspace /> : null}
       {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
       <SessionSearchDialog />

@@ -32,7 +32,12 @@ import type {
   TimelineSettings,
   TodoMeta,
   TtsSettings,
+  DesignSettings,
+  DesignDocMeta,
+  DesignUiState,
 } from "../desktop/types";
+// 设计设置的默认值/归一化逻辑在 design compat 层(移植自 Kun,与类型分离)。
+import { defaultDesignSettings, normalizeDesignSettings } from "../design/compat/app-settings";
 import {
   DEFAULT_AGENT_SKILL_ROOTS,
   DEFAULT_SHARED_SKILL_ROOTS,
@@ -160,6 +165,10 @@ export interface PersonalState {
   // 主区 loop 工作流视图（节点式工作流列表/编辑器）。不持久化,优先级最高。
   // 与 automationOpen/homeOpen/timelineProjectId/noteEditorId 互斥。
   workflowOpen: boolean;
+  // 主区设计工作台视图（AI 设计画布,desktop-only）。不持久化;与其它主区视图互斥。
+  designOpen: boolean;
+  // 当前打开的设计稿 id（进入设计视图时可指定;undefined = 设计首页/最近设计稿）。
+  activeDesignDocId?: string;
   // 设置整页视图（全屏覆盖层接管整窗、隐藏侧栏;底层工作区不卸载以保活终端）。
   // 瞬态,不持久化;与其它主区视图互斥（其它 open 入口清它,它不清底层视图标志,
   // 故 closeSettings 后回到打开设置前的视图）。
@@ -175,6 +184,11 @@ export interface PersonalState {
   ttsSettings: TtsSettings;
   // 媒体生成设置（四模态:图片/语音/音乐/视频,持久化;与 PersistedState.mediaGenSettings 镜像）。
   mediaGenSettings: MediaGenSettings;
+  // 设计工作台三切片（持久化;与 PersistedState.designSettings/designDocs/designUi 镜像）:
+  // designUi 是画布 UI 态 KV(替代 Kun localStorage,经 storage 适配器供 design 树读写)。
+  designSettings: DesignSettings;
+  designDocs: DesignDocMeta[];
+  designUi: DesignUiState;
   // 语音识别设置（持久化;与 PersistedState.asrSettings 镜像）。
   asrSettings: AsrSettings;
   // 各 agent 是否可用（主进程探测,不持久化;启动时回填）。
@@ -308,6 +322,9 @@ export interface PersonalState {
   // 打开/关闭 loop 工作流主区视图（优先级最高,互斥清其它视图标志）。
   openWorkflow: () => void;
   closeWorkflow: () => void;
+  // 打开/关闭设计工作台主区视图（互斥清其它视图标志;可指定要打开的设计稿）。
+  openDesign: (docId?: string) => void;
+  closeDesign: () => void;
   // 打开/关闭设置整页（settingsOpen 瞬态;openSettings 不清底层视图标志,见实现注释）。
   // 可选 tab：外部入口（如快捷回复气泡「去设置」）指定要跳转的分区，SettingsMenu 据此切换。
   openSettings: (tab?: string) => void;
@@ -324,6 +341,13 @@ export interface PersonalState {
   setMediaGenSettings: (patch: Partial<MediaGenSettings>) => void;
   // 语音识别设置 patch（浅合并;与 setTtsSettings 模式一致）。
   setAsrSettings: (patch: Partial<AsrSettings>) => void;
+  // 设计工作台：设置 patch（合并后经归一化,拒绝脏数据落盘）。
+  setDesignSettings: (patch: Partial<DesignSettings>) => void;
+  // 设计稿索引 upsert/移除（重数据在工作区磁盘,这里只维护轻量索引）。
+  upsertDesignDoc: (doc: DesignDocMeta) => void;
+  removeDesignDoc: (docId: string) => void;
+  // 画布 UI 态 KV 写入（value 为 null 表示删除;design 树经 storage 适配器调用）。
+  setDesignUiItem: (key: string, value: string | null) => void;
   // 用户资料 patch（浅合并;允许只改昵称或只改头像）。
   setProfile: (patch: Partial<PersonalProfile>) => void;
 }
@@ -469,6 +493,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   homeOpen: true,
   automationOpen: false,
   workflowOpen: false,
+  designOpen: false,
   settingsOpen: false,
   settingsTab: undefined,
   timelineSettings: DEFAULT_TIMELINE_SETTINGS,
@@ -476,6 +501,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   ttsSettings: DEFAULT_TTS_SETTINGS,
   mediaGenSettings: defaultMediaGenSettings(),
   asrSettings: defaultAsrSettings(),
+  designSettings: defaultDesignSettings(),
+  designDocs: [],
+  designUi: {},
   providerSettings: DEFAULT_PROVIDER_SETTINGS,
   generalSettings: DEFAULT_GENERAL_SETTINGS,
   profile: {},
@@ -498,6 +526,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 各模态子字段全量覆盖（无 deep merge），旧档缺字段时整体回落工厂对象。
       mediaGenSettings: s.mediaGenSettings ?? defaultMediaGenSettings(),
       asrSettings: s.asrSettings ?? defaultAsrSettings(),
+      // 设计工作台：设置经归一化兜底（旧档/脏数据回落默认）,索引与 UI 态缺省为空。
+      designSettings: normalizeDesignSettings(s.designSettings),
+      designDocs: s.designDocs ?? [],
+      designUi: s.designUi ?? {},
       // providerSettings：新档直接用；旧档 piSettings.channels 迁移；都没有则空。
       providerSettings: resolveProviderSettings(s),
       // 通用设置：嵌套子对象逐层以默认值补全。
@@ -808,6 +840,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       homeOpen: false,
       automationOpen: false,
       workflowOpen: false,
+      designOpen: false,
       settingsOpen: false,
       // 记忆本次选择（下次 Spotlight/新会话默认沿用;用 sess.* 取已 resolve 的值）。
       lastAgent: agent,
@@ -884,6 +917,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         homeOpen: false,
         automationOpen: false,
         workflowOpen: false,
+        designOpen: false,
         noteEditorId: undefined,
         settingsOpen: false,
       };
@@ -898,6 +932,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       homeOpen: false,
       automationOpen: false,
       workflowOpen: false,
+      designOpen: false,
       noteEditorId: undefined,
       settingsOpen: false,
     }),
@@ -1008,25 +1043,30 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setProjectsDetailWidth: (width) => set({ projectsDetailWidth: width }),
 
   openTimeline: (projectId) =>
-    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, workflowOpen: false, noteEditorId: undefined, settingsOpen: false }),
+    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, workflowOpen: false, designOpen: false, noteEditorId: undefined, settingsOpen: false }),
   closeTimeline: () => set({ timelineProjectId: undefined }),
 
   // 回首页时右栏同步切回 todos（全部项目列表）——项目内的文件/Skills 面板
   // 是项目上下文,不应停留在首页。
-  openHome: () => set({ homeOpen: true, automationOpen: false, workflowOpen: false, timelineProjectId: undefined, noteEditorId: undefined, settingsOpen: false, rightView: "todos" }),
+  openHome: () => set({ homeOpen: true, automationOpen: false, workflowOpen: false, designOpen: false, timelineProjectId: undefined, noteEditorId: undefined, settingsOpen: false, rightView: "todos" }),
 
   // 进入自动化主区视图（互斥清其它视图字段）。
   openAutomation: () =>
-    set({ automationOpen: true, workflowOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ automationOpen: true, workflowOpen: false, designOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
 
   // 进入 loop 工作流主区视图（优先级最高,互斥清其它视图字段）。
   openWorkflow: () =>
-    set({ workflowOpen: true, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ workflowOpen: true, automationOpen: false, designOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
   closeWorkflow: () => set({ workflowOpen: false }),
+
+  // 进入设计工作台主区视图（互斥清其它视图字段;docId 缺省沿用上次打开的设计稿）。
+  openDesign: (docId) =>
+    set((s) => ({ designOpen: true, activeDesignDocId: docId ?? s.activeDesignDocId, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false })),
+  closeDesign: () => set({ designOpen: false, homeOpen: true }),
 
   // 点击闪记进入中心区写作面：互斥清其它中心视图;noteEditorId 瞬态,不进 toPersistedState。
   openNoteEditor: (noteId) =>
-    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, workflowOpen: false, timelineProjectId: undefined, settingsOpen: false }),
+    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, workflowOpen: false, designOpen: false, timelineProjectId: undefined, settingsOpen: false }),
   closeNoteEditor: () => set({ noteEditorId: undefined }),
 
   // 设置整页：openSettings 仅置 settingsOpen（不清 homeOpen/timelineProjectId 等底层标志,
@@ -1048,6 +1088,28 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setAsrSettings: (patch) =>
     set((s) => ({ asrSettings: { ...s.asrSettings, ...patch } })),
+
+  // 设计设置：合并后整体归一化(枚举/长度上限兜底),避免脏值经 UI 写穿到磁盘。
+  setDesignSettings: (patch) =>
+    set((s) => ({ designSettings: normalizeDesignSettings({ ...s.designSettings, ...patch }) })),
+
+  upsertDesignDoc: (doc) =>
+    set((s) => ({
+      designDocs: s.designDocs.some((d) => d.id === doc.id)
+        ? s.designDocs.map((d) => (d.id === doc.id ? { ...d, ...doc } : d))
+        : [...s.designDocs, doc],
+    })),
+
+  removeDesignDoc: (docId) =>
+    set((s) => ({ designDocs: s.designDocs.filter((d) => d.id !== docId) })),
+
+  setDesignUiItem: (key, value) =>
+    set((s) => {
+      const next = { ...s.designUi };
+      if (value === null) delete next[key];
+      else next[key] = value;
+      return { designUi: next };
+    }),
 
   setProfile: (patch) =>
     set((s) => ({ profile: { ...s.profile, ...patch } })),
@@ -1071,6 +1133,9 @@ export function toPersistedState(s: PersonalState): PersistedState {
     ttsSettings: s.ttsSettings,
     mediaGenSettings: s.mediaGenSettings,
     asrSettings: s.asrSettings,
+    designSettings: s.designSettings,
+    designDocs: s.designDocs,
+    designUi: s.designUi,
     providerSettings: s.providerSettings,
     generalSettings: s.generalSettings,
     profile: s.profile,

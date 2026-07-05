@@ -24,6 +24,7 @@ import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extr
 import { startMediaGenHost, stopMediaGenHost } from "./capabilities/media-gen/server";
 import { startLoopWorkflowsHost, stopLoopWorkflowsHost } from "./capabilities/loop-workflows/server";
 import { startDelegateHost, stopDelegateHost, killAllDelegates } from "./capabilities/delegate/server";
+import { startDesignDelegateHost, stopDesignDelegateHost, killAllDesignDelegates } from "./capabilities/design-delegate/server";
 import { initWorkflowRuntime, killAllWorkflows } from "./workflow/index";
 import { loadWorkflows, markOrphanRunsKilled } from "./workflow/store";
 import { initWorkflowScheduler } from "./workflow/scheduler";
@@ -565,6 +566,8 @@ if (!app.requestSingleInstanceLock()) {
     void startLoopWorkflowsHost();
     // 委派 MCP host:独立实例,常驻;本轮无被 @ 协作者时注入侧返回 null。主 agent 经 ask_<id> 自主委派。
     void startDelegateHost();
+    // 设计委派 MCP host:给设计工作台多页并行提供 delegate_task 工具。
+    void startDesignDelegateHost();
     // 安装自定义主菜单(去除 macOS View 菜单重复的全屏项),须在建窗前就位。
     installAppMenu();
     createWindow();
@@ -610,6 +613,7 @@ if (!app.requestSingleInstanceLock()) {
     killAllOrchestrations(); // 编排链路随窗口关闭终止（chat 级进程，不同于 automation）
     killAllRoundtables(); // 圆桌编排随窗口关闭终止
     killAllDelegates(); // 委派编排随窗口关闭终止
+    killAllDesignDelegates(); // 设计委派随窗口关闭终止
   });
 
   // 真正退出（托盘退出 / 系统关机）:停调度 + 终止所有自动化进程 + 常规清理。
@@ -624,11 +628,13 @@ if (!app.requestSingleInstanceLock()) {
     stopMediaGenHost();
     stopLoopWorkflowsHost();
     stopDelegateHost();
+    stopDesignDelegateHost();
     killAllAutomations();
     killAllWorkflows();
     killAllOrchestrations(); // 编排链路回收（真正退出时）
     killAllRoundtables(); // 圆桌编排回收
     killAllDelegates(); // 委派编排回收
+    killAllDesignDelegates(); // 设计委派回收
     killAllCli();
     killAllAsk();
     killAllPiSessions();

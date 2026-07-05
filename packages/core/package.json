@@ -53,6 +53,8 @@
     "./personal/extensions": "./personal/extensions.ts",
     "./personal/devPreviewUrl": "./personal/devPreviewUrl.ts",
     "./personal/devPreviewDetection": "./personal/devPreviewDetection.ts",
+    "./desktop/design-types": "./desktop/design-types.ts",
+    "./design/*": "./design/*.ts",
     "./personal/browserErrorInfo": "./personal/browserErrorInfo.ts",
     "./personal/browserOrigin": "./personal/browserOrigin.ts",
     "./personal/annotationPayload": "./personal/annotationPayload.ts",
@@ -62,6 +64,7 @@
   "dependencies": {
     "@tanstack/react-query": "catalog:",
     "i18next": "catalog:",
+    "zod": "^4.4.3",
     "zustand": "catalog:"
   },
   "peerDependencies": {
@@ -72,8 +75,10 @@
     "@cortex-work/eslint-config": "workspace:*",
     "@cortex-work/tsconfig": "workspace:*",
     "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "eslint": "^9.28.0",
     "react": "catalog:",
+    "react-dom": "catalog:",
     "react-i18next": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

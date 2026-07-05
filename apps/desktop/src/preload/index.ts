@@ -150,6 +150,10 @@ const personal = {
     ipcRenderer.invoke("fs:resolveProjectFile", root, ref),
   writeFile: (path: string, content: string): Promise<void> => ipcRenderer.invoke("fs:writeFile", path, content),
   deleteFile: (path: string): Promise<void> => ipcRenderer.invoke("fs:deleteFile", path),
+  // 设计工作台:建目录 / 递归删除条目 / 默认设计根(与 DesktopBridge 同名方法对齐)。
+  mkdir: (path: string): Promise<void> => ipcRenderer.invoke("fs:mkdir", path),
+  deleteEntry: (path: string): Promise<void> => ipcRenderer.invoke("fs:deleteEntry", path),
+  designWorkspaceRoot: (): Promise<string> => ipcRenderer.invoke("fs:designWorkspaceRoot"),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),

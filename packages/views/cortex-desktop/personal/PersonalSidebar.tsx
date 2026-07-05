@@ -300,6 +300,9 @@ export function PersonalSidebar({
   // loop 工作流视图状态（bridge.workflowList 有值时才渲染入口，web 端 bridge 为 null 自动降级）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
   const openWorkflow = usePersonalStore((s) => s.openWorkflow);
+  // 设计工作台(AI 设计画布);desktop-only,bridge 为 null(web 端)自动降级隐藏。
+  const designOpen = usePersonalStore((s) => s.designOpen);
+  const openDesign = usePersonalStore((s) => s.openDesign);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
@@ -445,16 +448,33 @@ export function PersonalSidebar({
           </div>
         ) : null}
       </div>
-      {/* 「项目管理」独立窗口入口：位列底部「设置」正上方（与「设置」等全局入口同定位）。
-          双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow（壳注入窗口能力）；
-          web/旧壳缺任一 → 隐藏（R1/R6，KTD2：窗口打开经壳注入回调，views 不碰 window.desktopAPI）。 */}
-      {bridge?.tasksListProjects && onOpenProjectsWindow ? (
-        <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
-          <Icon.Folder size={14} />
-          <span>项目管理</span>
-        </button>
-      ) : null}
-      <SettingsMenu />
+      {/* 底部全局入口组（项目管理 / 设置）：整组包一层 .pw-sidebar-footer,顶部一条分隔线
+          + 微弱底色,与上方会话/项目列表拉开区分度（组内 .sb-foot 去掉自带 border-top 避免双线）。 */}
+      <div className="pw-sidebar-footer">
+        {/* 设计 + 项目管理 并排一行(各占一半);下方为设置。web/旧壳缺桥接时对应入口降级隐藏。 */}
+        <div className="pw-footer-row">
+          {/* 设计工作台入口:依赖 startCli/文件系统桥接,web 端(bridge=null)降级隐藏。 */}
+          {bridge ? (
+            <button
+              className={`pw-home-btn ${designOpen ? "is-active" : ""}`}
+              onClick={() => openDesign()}
+              title="设计（AI 设计画布）"
+            >
+              <Icon.Palette size={14} />
+              <span>设计</span>
+            </button>
+          ) : null}
+          {/* 「项目管理」独立窗口入口：双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow
+              （壳注入窗口能力）；web/旧壳缺任一 → 隐藏（KTD2：窗口打开经壳注入回调,views 不碰 window.desktopAPI）。 */}
+          {bridge?.tasksListProjects && onOpenProjectsWindow ? (
+            <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
+              <Icon.Folder size={14} />
+              <span>项目管理</span>
+            </button>
+          ) : null}
+        </div>
+        <SettingsMenu />
+      </div>
     </aside>
   );
 }

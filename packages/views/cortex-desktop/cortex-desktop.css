@@ -54,6 +54,18 @@
   --bg-sidebar-glass: color-mix(in srgb, var(--bg-sidebar) 36%, transparent);
 
   --mono: "SF Mono", "JetBrains Mono", "Menlo", ui-monospace, "Cascadia Mono", monospace;
+
+  /* 设计工作台（移植自 Kun）直接以 var(--ds-*) 引用的侧栏/画布变量。用 cortex base 变量
+     取值,自动跟随明暗主题。缺这些 → 侧栏行 hover/选中态、字段底、分隔线全透明。 */
+  --ds-accent: var(--accent);
+  --ds-sidebar-row-hover: var(--bg-hover);
+  --ds-sidebar-row-active: var(--bg-card);
+  --ds-sidebar-row-ring: var(--border);
+  --ds-sidebar-divider: var(--border);
+  --ds-sidebar-field-bg: var(--bg-card);
+  --ds-sidebar-field-focus: var(--bg-app);
+  /* 设计视图嵌在个人工作区中栏(非整窗),无需红绿灯避让。 */
+  --ds-window-controls-safe-inset: 0px;
 }
 
 /* 明暗主题基础 token（通用设置 主题 → documentElement[data-theme]）。覆盖中性色,
@@ -573,6 +585,36 @@ input, textarea { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+/* 侧栏底部全局入口组（项目管理 / 设置）：整组顶部一条分隔线 + 微弱底色,与上方会话/项目列表
+   拉开区分度。组内的 .sb-foot 去掉自带 border-top,避免与本组分隔线形成双线。 */
+.pw-sidebar-footer {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.pw-sidebar-footer .sb-foot {
+  border-top: none;
+  padding-top: 6px;
+}
+/* 设计 + 项目管理 并排一行:等宽平分,内容左对齐(与下方「设置」的图标/文字左缘对齐);
+   行底部一条分割线,与「设置」行分开。 */
+.pw-footer-row {
+  display: flex;
+  gap: 4px;
+  padding: 0 6px 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pw-footer-row > .pw-home-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: flex-start;
+}
+.pw-footer-row > .pw-home-btn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .settings-menu-wrap {
   position: relative;
@@ -8794,6 +8836,14 @@ button.sb-row {
   /* 主操作按钮（运行一次）：复用 accent 作底、白字。 */
   --color-ds-userbubble: var(--accent);
   --color-ds-userbubbleFg: #ffffff;
+  /* 设计工作台（移植自 Kun）补充的 ds-* token：画布/侧栏面用。映射到 cortex 自己的
+     base 变量,自动跟随亮/暗主题(无需另维护色值)。缺这些 → 画布背景透明、边框失效。 */
+  --color-ds-canvas: var(--bg-app);
+  --color-ds-sidebar: var(--bg-sidebar);
+  --color-ds-elevated: var(--bg-hover);
+  --color-ds-subtle: var(--bg-card);
+  --color-ds-surface-subtle: var(--bg-card);
+  --color-ds-border-muted: var(--border);
 }
 
 /* macOS 无边框窗口的标题栏拖拽区与红绿灯安全占位（Loop 编辑器为全屏 fixed overlay，

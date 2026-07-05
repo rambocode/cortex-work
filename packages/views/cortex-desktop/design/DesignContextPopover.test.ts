@@ -1,0 +1,67 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
+import {
+  DesignContextPopover,
+  designContextPatchForTargetLock
+} from './DesignContextPopover'
+
+beforeEach(() => {
+  useDesignWorkspaceStore.setState({
+    designContext: { designTarget: 'web' },
+    workspaceRoot: ''
+  })
+})
+
+describe('DesignContextPopover', () => {
+  it('renders disabled target buttons while design generation is locked', () => {
+    const html = renderToStaticMarkup(
+      createElement(DesignContextPopover, {
+        open: true,
+        onClose: () => {},
+        designTargetDisabled: true
+      })
+    )
+
+    expect(html).toContain('>Web</button>')
+    expect(html).toContain('>App</button>')
+    expect(html).toContain('aria-pressed="true"')
+    expect(html).toContain('设计 Agent 工作中会暂时锁定目标类型')
+    expect(html).toContain(
+      'aria-label="Web: 默认 1280 x 800 Web 画布. 设计 Agent 工作中会暂时锁定目标类型"'
+    )
+    expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('keeps target buttons editable when generation is not locked', () => {
+    const html = renderToStaticMarkup(
+      createElement(DesignContextPopover, {
+        open: true,
+        onClose: () => {}
+      })
+    )
+
+    expect(html).toContain('>Web</button>')
+    expect(html).toContain('>App</button>')
+    expect(html.match(/disabled=""/g) ?? []).toHaveLength(0)
+  })
+
+  it('preserves the current target when importing context while target switching is locked', () => {
+    expect(
+      designContextPatchForTargetLock(
+        { designTarget: 'app', brandColor: '#2563eb', designSystemPreset: 'shadcn' },
+        true
+      )
+    ).toEqual({ brandColor: '#2563eb', designSystemPreset: 'shadcn' })
+  })
+
+  it('allows imported context to change the target when target switching is editable', () => {
+    expect(
+      designContextPatchForTargetLock(
+        { designTarget: 'app', brandColor: '#2563eb' },
+        false
+      )
+    ).toEqual({ designTarget: 'app', brandColor: '#2563eb' })
+  })
+})
