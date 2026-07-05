@@ -596,18 +596,20 @@ input, textarea { font: inherit; color: inherit; }
 }
 .pw-sidebar-footer .sb-foot {
   border-top: none;
-  padding-top: 2px;
+  padding-top: 6px;
 }
-/* 设计 + 项目管理 并排一行:等宽平分,按钮内容居中不撑满。 */
+/* 设计 + 项目管理 并排一行:等宽平分,内容左对齐(与下方「设置」的图标/文字左缘对齐);
+   行底部一条分割线,与「设置」行分开。 */
 .pw-footer-row {
   display: flex;
   gap: 4px;
-  padding: 0 6px;
+  padding: 0 6px 4px;
+  border-bottom: 1px solid var(--border-soft);
 }
 .pw-footer-row > .pw-home-btn {
   flex: 1 1 0;
   min-width: 0;
-  justify-content: center;
+  justify-content: flex-start;
 }
 .pw-footer-row > .pw-home-btn > span {
   overflow: hidden;
