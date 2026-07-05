@@ -214,18 +214,23 @@ export async function sendDesignMessage(
   mirror.beginTurn(turnId, userBlockId);
 
   // agent:跟随系统「新会话默认 Agent」(设置→Agent);未设置/不可用则按安装派生(claude>codex>pi)。
-  // provider:pi 需要供应商 extension 才能调模型,这里挂上默认供应商(与新会话一致)。
   const agent = resolveDefaultAgent(personal);
-  // model:只用设计设置里显式指定的 model,绝不继承个人工作区 lastModel——lastModel 绑定
-  // 上一个 agent(如 pi/DeepSeek),把它当 --model 传给 claude 会因未知模型名瞬间退出;
-  // 留空则各 agent 用自己的默认模型,跨 agent 切换也安全。
-  const model = personal.designSettings.model || undefined;
-  // pi 走供应商 extension(apiKey);claude/codex 用各自 CLI 自带鉴权,无需 provider。
+  // model + provider 必须**与解析出的 agent 配对**(mirror initialModelDraft):
+  //   · pi:选一个已启用供应商(设计设置 > lastProviderId > defaultProviderId > 首个),并**必须**配上
+  //     该供应商的一个模型(设计设置 > 同为 pi 时的 lastModel > 供应商默认模型 > 首个模型)——
+  //     pi 缺 model 会回落到内置默认 openai-codex(常 deactivated),LLM 调用直接失败、一个文件都不写。
+  //   · claude/codex:用各自 CLI 自带鉴权,不挂 provider;model 仅取设计设置显式值(否则用 CLI 默认,
+  //     绝不继承 lastModel——那可能是 pi 的模型名,传给 claude 会因未知模型瞬间退出)。
+  const enabledProviders = (personal.providerSettings?.providers ?? []).filter((p) => p.enabled !== false);
   const providerProfile =
     agent === "pi"
-      ? personal.providerSettings?.providers?.find(
-          (p) => p.id === (personal.designSettings.providerId || personal.lastProviderId),
-        ) ?? personal.providerSettings?.providers?.[0]
+      ? enabledProviders.find(
+          (p) =>
+            p.id ===
+            (personal.designSettings.providerId ||
+              personal.lastProviderId ||
+              personal.providerSettings?.defaultProviderId),
+        ) ?? enabledProviders[0]
       : undefined;
   const provider = providerProfile
     ? {
@@ -235,6 +240,14 @@ export async function sendDesignMessage(
         models: providerProfile.models.map((m) => ({ id: m.id, name: m.label })),
       }
     : undefined;
+  const model =
+    agent === "pi"
+      ? personal.designSettings.model ||
+        (personal.lastAgent === "pi" ? personal.lastModel : undefined) ||
+        personal.providerSettings?.defaultModel ||
+        providerProfile?.models?.[0]?.id ||
+        undefined
+      : personal.designSettings.model || undefined;
   const req: CliStartRequest = {
     runId,
     sessionId,
