@@ -1,6 +1,10 @@
-// Kun chat/MessageTimeline 的替身：渲染设计右栏的对话转录。用户气泡靠右、助手文本靠左,
-// 工具调用折叠成一行紧凑的状态芯片(图标 + 名称 + 状态点),流式尾巴接在末尾。
+// Kun chat/MessageTimeline 的替身：渲染设计右栏的对话转录。用户气泡靠右、助手文本靠左(渲染
+// markdown:标题/列表/表格/代码块,复用宿主 .md-body 样式),工具调用折叠成紧凑状态芯片,流式尾巴接末尾。
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatBlock } from "@cortex-work/core/design/compat/agent-types";
+
+const MD_PLUGINS = [remarkGfm];
 
 type MessageTimelineProps = {
   blocks: ChatBlock[];
@@ -53,8 +57,8 @@ export function MessageTimeline(props: MessageTimelineProps) {
         }
         if (block.kind === "assistant" && block.text.trim()) {
           return (
-            <div key={block.id} className="whitespace-pre-wrap break-words px-0.5 text-ds-ink">
-              {block.text}
+            <div key={block.id} className="md-body px-0.5 text-ds-ink">
+              <Markdown remarkPlugins={MD_PLUGINS}>{block.text}</Markdown>
             </div>
           );
         }
@@ -87,7 +91,9 @@ export function MessageTimeline(props: MessageTimelineProps) {
         return null;
       })}
       {live?.trim() ? (
-        <div className="whitespace-pre-wrap break-words px-0.5 text-ds-ink opacity-80">{live}</div>
+        <div className="md-body px-0.5 text-ds-ink opacity-80">
+          <Markdown remarkPlugins={MD_PLUGINS}>{live}</Markdown>
+        </div>
       ) : null}
     </div>
   );
