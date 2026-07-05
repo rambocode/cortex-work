@@ -586,6 +586,18 @@ input, textarea { font: inherit; color: inherit; }
   flex-direction: column;
   gap: 2px;
 }
+/* 侧栏底部全局入口组（项目管理 / 设置）：整组顶部一条分隔线 + 微弱底色,与上方会话/项目列表
+   拉开区分度。组内的 .sb-foot 去掉自带 border-top,避免与本组分隔线形成双线。 */
+.pw-sidebar-footer {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.pw-sidebar-footer .sb-foot {
+  border-top: none;
+  padding-top: 2px;
+}
 .settings-menu-wrap {
   position: relative;
 }

@@ -459,16 +459,19 @@ export function PersonalSidebar({
           </div>
         ) : null}
       </div>
-      {/* 「项目管理」独立窗口入口：位列底部「设置」正上方（与「设置」等全局入口同定位）。
-          双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow（壳注入窗口能力）；
-          web/旧壳缺任一 → 隐藏（R1/R6，KTD2：窗口打开经壳注入回调，views 不碰 window.desktopAPI）。 */}
-      {bridge?.tasksListProjects && onOpenProjectsWindow ? (
-        <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
-          <Icon.Folder size={14} />
-          <span>项目管理</span>
-        </button>
-      ) : null}
-      <SettingsMenu />
+      {/* 底部全局入口组（项目管理 / 设置）：整组包一层 .pw-sidebar-footer,顶部一条分隔线
+          + 微弱底色,与上方会话/项目列表拉开区分度（组内 .sb-foot 去掉自带 border-top 避免双线）。 */}
+      <div className="pw-sidebar-footer">
+        {/* 「项目管理」独立窗口入口：双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow
+            （壳注入窗口能力）；web/旧壳缺任一 → 隐藏（KTD2：窗口打开经壳注入回调,views 不碰 window.desktopAPI）。 */}
+        {bridge?.tasksListProjects && onOpenProjectsWindow ? (
+          <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
+            <Icon.Folder size={14} />
+            <span>项目管理</span>
+          </button>
+        ) : null}
+        <SettingsMenu />
+      </div>
     </aside>
   );
 }
