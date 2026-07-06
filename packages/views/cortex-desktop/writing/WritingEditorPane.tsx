@@ -1,0 +1,321 @@
+// 写作工作区中栏:文件版三档 Markdown 编辑器(源码 / 实时预览 / 仅预览)。
+// 与闪记编辑器同构,但主键是「文件绝对路径」而非闪记 id:
+//   - 加载:path 变化时经 bridge.readFile 读盘 → 建立磁盘基线(baseline.setBaseline);
+//   - 保存:复用 useNoteAutosave(500ms 去抖 + 切文件/卸载 flush + 防回灌),onSave=bridge.writeFile,
+//           保存成功后更新基线并记自写 hash(baseline.recordSelfWrite,供归因抑制自回声);
+//   - 命令式钩子(useImperativeHandle,供 U8/U9 调用):
+//       flushNow()             发送前 flush 保存(U8);
+//       handleExternalChange() 收到「盘上被改」信号 → 干净静默刷新 / 脏转交冲突审阅(U9→U6);
+//       markDeleted()          当前文件被删信号 → deleted 态(提示+另存+停自动保存)。
+// 编辑器内核 NoteCodeMirrorEditor 走 CM6 动态 import(views 被 Next.js 双打包),本壳不改其本体。
+
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
+import { useDesktopBridge } from "@cortex-work/core/provider";
+import {
+  getBaseline,
+  isSelfEcho,
+  recordSelfWrite,
+  setBaseline,
+} from "@cortex-work/core/writing/baseline";
+import { MarkdownView } from "../personal/MarkdownView";
+import {
+  NoteCodeMirrorEditor,
+  type NoteEditorAppearance,
+} from "../personal/editor/NoteCodeMirrorEditor";
+import { useNoteAutosave } from "../personal/useNoteAutosave";
+
+type Mode = "source" | "live" | "preview";
+
+const MODE_LABEL: Record<Mode, string> = {
+  live: "实时预览",
+  preview: "仅预览",
+  source: "源码",
+};
+const MODE_ORDER: Mode[] = ["live", "preview", "source"];
+
+const SAVE_HINT: Record<ReturnType<typeof useNoteAutosave>["status"], string> = {
+  idle: "已保存",
+  dirty: "未保存",
+  saving: "保存中…",
+  saved: "已保存",
+  error: "保存失败",
+};
+
+// handleExternalChange 的归因结果(U9 据此决定后续动作;也便于单测断言分支)。
+export type ExternalChangeStatus =
+  | "no-file" // 无打开文件
+  | "no-bridge" // 环境无 readFile 能力
+  | "read-error" // 读盘失败
+  | "ignored-echo" // 自写回声,忽略
+  | "unchanged" // 盘上内容与基线一致,无变化
+  | "refreshed" // 编辑器干净:已静默重读刷新
+  | "conflict"; // 编辑器脏:已转交冲突审阅(onConflict)
+
+export interface ExternalChangeResult {
+  status: ExternalChangeStatus;
+  disk?: string;
+}
+
+// 命令式句柄:供 U8(发送前 flush)与 U9(归因回路)在组件外驱动编辑器。
+export interface WritingEditorPaneHandle {
+  // 立即 flush 挂起的自动保存(发送前调用,确保 agent 读到最新盘面)。
+  flushNow: () => Promise<void>;
+  // 收到「当前文件盘上被改」信号:干净静默刷新 / 脏转交冲突审阅。返回归因结果。
+  handleExternalChange: () => Promise<ExternalChangeResult>;
+  // 当前文件被删信号:进入 deleted 态并停自动保存。
+  markDeleted: () => void;
+}
+
+interface Props {
+  // 当前打开文件绝对路径(树节点 key);null 表示无打开文件。
+  path: string | null;
+  // 脏态遇外部改动时的冲突审阅入口(U6 接):基线=编辑器当前内容,新版=盘上内容。
+  onConflict?: (info: { path: string; baseline: string; disk: string }) => void;
+  // 审阅态(U6)需要冻结编辑;deleted 态由内部管理,两者取或。
+  readOnly?: boolean;
+  onToast?: (msg: string) => void;
+}
+
+export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
+  function WritingEditorPane({ path, onConflict, readOnly, onToast }, ref): ReactElement {
+    const bridge = useDesktopBridge();
+
+    const [mode, setMode] = useState<Mode>("live");
+    // CodeMirror 动态装载失败 → 强制只读「仅预览」(复用 MarkdownView,不依赖 CM)。
+    const [editorLoadFailed, setEditorLoadFailed] = useState(false);
+    // 当前已加载文件内容(异步读盘结果);null 表示尚未加载(loading)或无文件。
+    const [loaded, setLoaded] = useState<{ path: string; content: string } | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    // 当前文件被删:提示 + 另存 + 冻结,避免静默丢未保存内容(R8)。
+    const [deleted, setDeleted] = useState(false);
+
+    // path 变化:重置 deleted/error,读盘并建立磁盘基线。旧文件的 flush 由 useNoteAutosave 的
+    // noteId(=path)切换 effect 兜底,不在此处重复处理。
+    useEffect(() => {
+      setDeleted(false);
+      setLoadError(null);
+      if (!path) {
+        setLoaded(null);
+        return;
+      }
+      if (!bridge?.readFile) {
+        setLoadError("当前环境不支持读取文件");
+        setLoaded(null);
+        return;
+      }
+      let cancelled = false;
+      // 立即置 loading:避免短暂显示上一个文件的旧内容。
+      setLoaded(null);
+      void bridge
+        .readFile(path)
+        .then((res) => {
+          if (cancelled) return;
+          setLoaded({ path, content: res.content });
+          setBaseline(path, res.content); // 加载即建立/刷新基线
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setLoadError(err instanceof Error ? err.message : String(err));
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [path, bridge]);
+
+    // 自动保存(去抖 500ms + 切文件/卸载 flush + 防回灌)。onSave 写盘成功后更新基线并记自写 hash。
+    const { draft, setDraft, save, cancel, status } = useNoteAutosave({
+      noteId: path ?? "",
+      content: loaded?.content ?? "",
+      onSave: async (content) => {
+        if (!path || !bridge?.writeFile) return;
+        await bridge.writeFile(path, content);
+        // 保存成功:基线推进到已落盘内容,并记自写 hash(watch 回声抑制,见 baseline.isSelfEcho)。
+        setBaseline(path, content);
+        recordSelfWrite(path, content);
+      },
+      onError: (err) => onToast?.(`保存失败：${err instanceof Error ? err.message : String(err)}`),
+    });
+
+    // draft/path 走 ref,供命令式句柄读取「最新已提交值」(句柄在渲染间被外部调用)。
+    const draftRef = useRef(draft);
+    const pathRef = useRef(path);
+    const saveRef = useRef(save);
+    const cancelRef = useRef(cancel);
+    draftRef.current = draft;
+    pathRef.current = path;
+    saveRef.current = save;
+    cancelRef.current = cancel;
+
+    // onConflict 走 ref,避免句柄依赖其引用变化。
+    const onConflictRef = useRef(onConflict);
+    onConflictRef.current = onConflict;
+    const bridgeRef = useRef(bridge);
+    bridgeRef.current = bridge;
+
+    useImperativeHandle(
+      ref,
+      (): WritingEditorPaneHandle => ({
+        flushNow: () => saveRef.current(),
+        markDeleted: () => {
+          cancelRef.current(); // 取消挂起去抖保存,避免 flush 写回已删文件
+          setDeleted(true);
+        },
+        handleExternalChange: async (): Promise<ExternalChangeResult> => {
+          const p = pathRef.current;
+          if (!p) return { status: "no-file" };
+          const b = bridgeRef.current;
+          if (!b?.readFile) return { status: "no-bridge" };
+          let disk: string;
+          try {
+            disk = (await b.readFile(p)).content;
+          } catch {
+            return { status: "read-error" };
+          }
+          // ① 自写回声:盘上内容 = 本端上次所写 → 忽略(不刷新/不审阅)。
+          if (isSelfEcho(p, disk)) return { status: "ignored-echo" };
+          const bl = getBaseline(p);
+          // ② 与基线一致:外部信号但内容没变,忽略。
+          if (bl && bl.content === disk) return { status: "unchanged" };
+          const draftNow = draftRef.current;
+          const baselineContent = bl?.content ?? draftNow;
+          const clean = draftNow === baselineContent;
+          if (clean) {
+            // ③ 干净:静默重读刷新(NoteCodeMirrorEditor 经 externalSync 保光标),基线同步盘面。
+            setLoaded({ path: p, content: disk });
+            setBaseline(p, disk);
+            return { status: "refreshed", disk };
+          }
+          // ④ 脏:不静默覆盖,转交冲突审阅(基线=编辑器当前内容,新版=盘上内容;复用 diff 通道)。
+          onConflictRef.current?.({ path: p, baseline: draftNow, disk });
+          return { status: "conflict", disk };
+        },
+      }),
+      [],
+    );
+
+    // 另存为:文件被删后保住未保存内容。经系统目录选择器选目标目录,写入同名文件。
+    const saveAs = async (): Promise<void> => {
+      if (!bridge?.pickDirectory || !bridge?.writeFile) {
+        onToast?.("当前环境不支持另存");
+        return;
+      }
+      const dir = await bridge.pickDirectory();
+      if (!dir) return; // 用户取消
+      const name = path ? path.split(/[/\\]/).pop() || "untitled.md" : "untitled.md";
+      const dest = `${dir.replace(/[/\\]+$/, "")}/${name}`;
+      try {
+        await bridge.writeFile(dest, draftRef.current);
+        onToast?.(`已另存到 ${dest}`);
+      } catch (err) {
+        onToast?.(`另存失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+
+    const effectiveMode: Mode = editorLoadFailed ? "preview" : mode;
+    // deleted 或外部审阅态都冻结编辑。
+    const frozen = deleted || !!readOnly;
+
+    if (!path) {
+      return (
+        <div className="pw-writing-editor is-empty">
+          <div className="pw-writing-editor-empty">从左侧选择或新建一个文件开始写作</div>
+        </div>
+      );
+    }
+
+    if (loadError) {
+      return (
+        <div className="pw-writing-editor is-empty">
+          <div className="pw-writing-editor-empty">读取失败：{loadError}</div>
+        </div>
+      );
+    }
+
+    if (!loaded) {
+      return (
+        <div className="pw-writing-editor is-empty">
+          <div className="pw-writing-editor-empty">加载中…</div>
+        </div>
+      );
+    }
+
+    const fileName = path.split(/[/\\]/).pop() || path;
+
+    return (
+      <div className="pw-writing-editor">
+        <header className="pw-writing-editor-h">
+          <span className="pw-writing-editor-name" title={path}>
+            {fileName}
+          </span>
+          {deleted ? <span className="pw-note-badge" data-status="deleted">已删除</span> : null}
+          <div className="spacer" />
+          {/* 三档切换。装载失败时源码/实时预览禁用(强制仅预览)。 */}
+          <div className="pw-note-mode" role="group" aria-label="编辑模式">
+            {MODE_ORDER.map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={`pw-note-mode-btn ${effectiveMode === m ? "is-on" : ""}`}
+                aria-pressed={effectiveMode === m}
+                disabled={editorLoadFailed && m !== "preview"}
+                onClick={() => setMode(m)}
+              >
+                {MODE_LABEL[m]}
+              </button>
+            ))}
+          </div>
+          <span className="pw-note-save" data-status={status} title="保存状态">
+            {SAVE_HINT[status]}
+          </span>
+        </header>
+
+        {deleted ? (
+          <div className="pw-writing-deleted-bar" role="alert">
+            <span>文件已被删除,未保存内容仍在编辑器中。</span>
+            <button type="button" className="pw-tl-gen" onClick={() => void saveAs()}>
+              另存为…
+            </button>
+          </div>
+        ) : null}
+
+        <div className="pw-note-editor-body">
+          {effectiveMode === "preview" ? (
+            <div className="pw-writing-editor-preview">
+              {editorLoadFailed ? (
+                <div className="pw-empty-hint">编辑器加载失败,当前仅可预览。</div>
+              ) : null}
+              {draft.trim() ? (
+                <div className="pw-todo-md pw-note-md">
+                  <MarkdownView content={draft} />
+                </div>
+              ) : (
+                <div className="pw-empty-hint">空白文件</div>
+              )}
+            </div>
+          ) : (
+            <NoteCodeMirrorEditor
+              // key 含 path:切文件重建实例,避免旧文档残留(与闪记按 noteId 重建同理)。
+              key={path}
+              value={draft}
+              appearance={effectiveMode as NoteEditorAppearance}
+              readOnly={frozen}
+              onChange={setDraft}
+              onSave={() => void save()}
+              onLoadError={() => {
+                setEditorLoadFailed(true);
+                onToast?.("编辑器加载失败,已切换到仅预览");
+              }}
+            />
+          )}
+        </div>
+      </div>
+    );
+  },
+);
