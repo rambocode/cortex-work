@@ -72,6 +72,11 @@ export function WritingRichEditor({
   const [activeEditor, setActiveEditor] = useState<Editor | null>(null);
   const [selRect, setSelRect] = useState<{ top: number; left: number } | null>(null);
   const [selRev, setSelRev] = useState(0);
+  // 是否正在用鼠标拖拽选择:拖拽过程中不显示工具条(否则跟随选区实时移动会抖动),
+  // 待 pointerup(松开鼠标)或双击结束后再一次性定位显示。
+  const pointerSelectingRef = useRef(false);
+  // pointer 监听的卸载器(在异步建编辑器时装上,effect 清理时调用)。
+  const pointerCleanupRef = useRef<(() => void) | null>(null);
 
   // 回调与最新 props 走 ref,避免把它们塞进编辑器重建依赖。
   const readOnlyRef = useRef(readOnly);
@@ -94,28 +99,44 @@ export function WritingRichEditor({
   const fileKey = fileKeyOf(filePath);
   const eligible = gate?.fileKey === fileKey ? gate.eligible : null;
 
-  // 选区变化:①上报选区(空选区传 null;富文本无廉价的文档全局行号,startLine 近似 1、endLine 近似 1+换行数);
-  //          ②更新浮动工具条锚点(选区上方视口坐标,空选区隐藏)。
+  // 计算工具条锚点(选区上方居中的视口坐标);空选区或坐标不可得时回 null。
+  const computeSelRect = (editor: Editor): { top: number; left: number } | null => {
+    const { from, to } = editor.state.selection;
+    if (from === to) return null;
+    const text = editor.state.doc.textBetween(from, to, "\n", " ");
+    if (!text) return null;
+    try {
+      const start = editor.view.coordsAtPos(from);
+      const end = editor.view.coordsAtPos(to);
+      return { top: Math.min(start.top, end.top), left: (start.left + end.right) / 2 };
+    } catch {
+      return null;
+    }
+  };
+
+  // 选区浮层定位:拖拽选择中隐藏(避免实时抖动),非拖拽(键盘选择/双击/程序化)才更新锚点。
+  const updateToolbarAnchor = (editor: Editor): void => {
+    if (pointerSelectingRef.current) {
+      setSelRect(null);
+      return;
+    }
+    setSelRect(computeSelRect(editor));
+    setSelRev((v) => v + 1);
+  };
+
+  // 选区变化:①上报选区(即时,供润色/引用;不产生视觉抖动;富文本无廉价全局行号,startLine 近似 1、
+  //           endLine 近似 1+换行数);②更新工具条锚点(拖拽中隐藏,松开/双击后显示)。
   const emitSelection = (editor: Editor): void => {
     const cb = onSelectionChangeRef.current;
     const { from, to } = editor.state.selection;
     const text = from === to ? "" : editor.state.doc.textBetween(from, to, "\n", " ");
     if (!text) {
       cb?.(null);
-      setSelRect(null);
-      return;
+    } else {
+      const nl = text.match(/\n/g)?.length ?? 0;
+      cb?.({ text, from, to, startLine: 1, endLine: 1 + nl });
     }
-    const nl = text.match(/\n/g)?.length ?? 0;
-    cb?.({ text, from, to, startLine: 1, endLine: 1 + nl });
-    // 工具条锚点:取选区两端坐标,置于上方居中。coordsAtPos 在视图拆卸/无布局时会抛,吞掉即不显。
-    try {
-      const start = editor.view.coordsAtPos(from);
-      const end = editor.view.coordsAtPos(to);
-      setSelRect({ top: Math.min(start.top, end.top), left: (start.left + end.right) / 2 });
-    } catch {
-      setSelRect(null);
-    }
-    setSelRev((v) => v + 1);
+    updateToolbarAnchor(editor);
   };
 
   // 审计每一份「外部来源」的内容(开档 / 盘上被改)。本端自己序列化的输出天然无损,不重复审计。
@@ -232,10 +253,32 @@ export function WritingRichEditor({
       setActiveEditor(editor);
       lastEmittedValueRef.current = value;
       emitSelection(editor);
+
+      // 鼠标拖拽选择:按下即进入拖拽态并隐藏工具条;松开(pointerup 挂 window,鼠标可能在编辑器外抬起)
+      // 后退出拖拽态并对最终选区定位显示。双击选词也会走 pointerdown→pointerup,于抬起时显示。
+      const onPointerDown = (): void => {
+        pointerSelectingRef.current = true;
+        setSelRect(null);
+      };
+      const onPointerUp = (): void => {
+        if (!pointerSelectingRef.current) return;
+        pointerSelectingRef.current = false;
+        const inst = editorRef.current;
+        if (inst && !inst.isDestroyed) updateToolbarAnchor(inst);
+      };
+      editor.view.dom.addEventListener("pointerdown", onPointerDown);
+      window.addEventListener("pointerup", onPointerUp);
+      pointerCleanupRef.current = () => {
+        editor.view.dom.removeEventListener("pointerdown", onPointerDown);
+        window.removeEventListener("pointerup", onPointerUp);
+      };
     })();
 
     return () => {
       disposed = true;
+      pointerCleanupRef.current?.();
+      pointerCleanupRef.current = null;
+      pointerSelectingRef.current = false;
       const editor = built ?? editorRef.current;
       editor?.destroy();
       editorRef.current = null;
