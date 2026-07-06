@@ -857,10 +857,12 @@ function clearStoredAgentSessionId(sessionId: string, agent: AgentKind): void {
 }
 
 function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sessionIdHint?: string): void {
-  // 设计工作台的 run(runId 前缀 design:)由 design-run-manager 独立消费,绝不能进入
-  // 下面的 recovered-run 重建路径——否则会以 sessionIdHint 伪造个人会话运行态
-  // (phantom run),污染会话列表与过程流。
-  if (runId.startsWith("design:")) return;
+  // 设计工作台(design:)与写作工作台(writing:/writing-)的 run 由各自的 run-manager
+  // 独立消费,绝不能进入下面的 recovered-run 重建路径——否则会以 sessionIdHint 伪造
+  // 个人会话运行态(phantom run),污染会话列表与过程流。writing- 一并挡是防御:
+  // 写作 runId 恒为 writing: 前缀,但 sessionId 用 writing- 前缀,守卫两者杜绝任何漏网。
+  if (runId.startsWith("design:") || runId.startsWith("writing:") || runId.startsWith("writing-"))
+    return;
   let run = runs.get(runId);
   if (!run) {
     // renderer 被 HMR/刷新重载,内存注册表丢失 —— 用主进程回显的 sessionId 重建,
@@ -1236,10 +1238,11 @@ function handleCliExit(
   error?: string,
   sessionIdHint?: string,
 ): void {
-  // 与 handleCliEvent 的守卫对称:design run 的退出由 design-run-manager 处理,
-  // 不得走 finalizeRun 的 sessionIdHint 兜底(会对 design-<docId> 会话 flushChat,
-  // 用个人消息缓存覆写设计转录)。
-  if (runId.startsWith("design:")) return;
+  // 与 handleCliEvent 的守卫对称:design run 与 writing run(writing:/writing-)的退出
+  // 由各自的 run-manager 处理,不得走 finalizeRun 的 sessionIdHint 兜底(会对
+  // design-<docId> / writing-<threadUuid> 会话 flushChat,用个人消息缓存覆写工作台转录)。
+  if (runId.startsWith("design:") || runId.startsWith("writing:") || runId.startsWith("writing-"))
+    return;
   finalizeRun(qc, runId, code, error, sessionIdHint);
 }
 
