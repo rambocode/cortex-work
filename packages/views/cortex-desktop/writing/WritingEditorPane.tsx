@@ -30,6 +30,7 @@ import {
   useWritingReviewStore,
 } from "@cortex-work/core/writing/review-manager";
 import { relativeWritingPath } from "@cortex-work/core/writing/prompt";
+import { imageExtFromMime, relativeImageLink } from "@cortex-work/core/writing/paste-image";
 import {
   WRITING_FONT_SIZE_DEFAULT,
   type WritingPreviewMode,
@@ -53,6 +54,15 @@ type Mode = WritingPreviewMode;
 // 故含少量 Markdown 语法字符,数值略高于 Kun。属可接受近似(见回报)。
 function countVisibleChars(text: string): number {
   return Array.from(text.replace(/\s+/g, "")).length;
+}
+
+// Blob → base64(U1 粘贴图片过 IPC 用)。浏览器无直接 API,逐字节拼再 btoa;
+// core 禁 node Buffer,故编码放在 views(浏览器环境,btoa 恒可用)。图片体量有限,逐字节可接受。
+async function blobToBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
 
 const SAVE_HINT: Record<ReturnType<typeof useNoteAutosave>["status"], string> = {
@@ -367,6 +377,27 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
           }
         : undefined;
 
+    // 粘贴图片落盘(U1):把剪贴板图片写入空间 <spaceRoot>/img/,返回相对当前 md 的链接文本供插入。
+    // 需同时具备:打开的文件(算相对路径基准)、空间根(落盘目标)、bridge.writingSaveImage(主进程能力)。
+    // 任一缺失 → undefined,rich/CM 粘贴处理不启用,放行默认粘贴(无空间/web 端不拦截)。
+    const onPasteImage =
+      path && spaceRoot && bridge?.writingSaveImage
+        ? async (file: File): Promise<string | null> => {
+            try {
+              const bytesBase64 = await blobToBase64(file);
+              const abs = await bridge.writingSaveImage!({
+                spaceRoot,
+                bytesBase64,
+                ext: imageExtFromMime(file.type),
+              });
+              return relativeImageLink(path, abs);
+            } catch (err) {
+              onToast?.(`粘贴图片失败：${err instanceof Error ? err.message : String(err)}`);
+              return null;
+            }
+          }
+        : undefined;
+
     const toolbar = (
       <WritingToolbar
         fileName={fileName}
@@ -402,6 +433,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
         onChange={setDraft}
         onSelectionChange={onSelectionChange}
         onSave={() => void save()}
+        onPasteImage={onPasteImage}
         onLoadError={() => {
           setEditorLoadFailed(true);
           onToast?.("编辑器加载失败,已切换到仅预览");
@@ -455,6 +487,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
                   onToast?.("富文本编辑器加载失败,已切换到仅预览");
                 }}
                 resolveImageSrc={resolveImageSrc}
+                onPasteImage={onPasteImage}
                 fallback={renderCmEditor("live")}
               />
             ) : effectiveMode === "preview" ? (

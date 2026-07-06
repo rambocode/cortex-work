@@ -7,6 +7,7 @@
 // 类型用 `import type`(运行期擦除,不进打包图)。
 
 import { useEffect, useRef } from "react";
+import { extractClipboardImageFile } from "@cortex-work/core/writing/paste-image";
 import type { AnnotationType, Compartment, Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
@@ -34,6 +35,9 @@ type Props = {
   onLoadError?: (err: unknown) => void;
   // 选区变化上报(可选):有选区传快照,空选区传 null。不传则不做选区计算(闪记无此需求)。
   onSelectionChange?: (selection: NoteEditorSelection | null) => void;
+  // 粘贴图片落盘(U1,可选):写作 live/source 档注入。给剪贴板图片 File,返回要插入的相对 md 链接
+  // (调用方已换算好,如 img/x.png);返回 null → 保存失败不插入。闪记不传该 prop → 零改动,走默认粘贴。
+  onPasteImage?: (file: File) => Promise<string | null>;
 };
 
 export function NoteCodeMirrorEditor({
@@ -44,6 +48,7 @@ export function NoteCodeMirrorEditor({
   onSave,
   onLoadError,
   onSelectionChange,
+  onPasteImage,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -67,6 +72,7 @@ export function NoteCodeMirrorEditor({
   const lastEmittedValueRef = useRef<string | null>(null);
   const onLoadErrorRef = useRef(onLoadError);
   const onSelectionChangeRef = useRef(onSelectionChange);
+  const onPasteImageRef = useRef(onPasteImage);
   // 上次上报的选区签名(from:to),避免同一选区重复派发(光标移动会触发大量 selectionSet)。
   const lastSelectionKeyRef = useRef<string | null>(null);
   onChangeRef.current = onChange;
@@ -76,6 +82,7 @@ export function NoteCodeMirrorEditor({
   valueRef.current = value;
   onLoadErrorRef.current = onLoadError;
   onSelectionChangeRef.current = onSelectionChange;
+  onPasteImageRef.current = onPasteImage;
 
   // 挂载一次:动态装载 CodeMirror + 本地扩展,建编辑器实例。
   useEffect(() => {
@@ -221,6 +228,32 @@ export function NoteCodeMirrorEditor({
             const next = update.state.doc.toString();
             lastEmittedValueRef.current = next;
             onChangeRef.current(next);
+          }),
+          // 粘贴图片(U1):仅在注入了 onPasteImage(写作 live/source)且剪贴板含图片文件时拦截。
+          // 落盘后把 ![](相对链接) 插到当前选区(经 updateListener 触发 onChange→自动保存)。
+          // 只读 / 无 handler / 非图片粘贴 → return false 放行默认粘贴,不影响文本粘贴与闪记(零改动)。
+          EditorView.domEventHandlers({
+            paste: (event, view) => {
+              const handler = onPasteImageRef.current;
+              if (readOnlyRef.current || !handler) return false;
+              const picked = extractClipboardImageFile(event.clipboardData?.items);
+              if (!picked) return false;
+              event.preventDefault();
+              void handler(picked.file)
+                .then((rel) => {
+                  if (!rel || view.dom.isConnected === false) return;
+                  const snippet = `![](${rel})`;
+                  const { from, to } = view.state.selection.main;
+                  view.dispatch({
+                    changes: { from, to, insert: snippet },
+                    selection: { anchor: from + snippet.length },
+                  });
+                })
+                .catch(() => {
+                  /* 保存失败:静默(上层经 bridge 调用处 toast),不阻断编辑 */
+                });
+              return true;
+            },
           }),
         ],
       });

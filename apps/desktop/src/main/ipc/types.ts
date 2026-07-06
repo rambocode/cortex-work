@@ -467,6 +467,15 @@ export interface ReadFileResult {
   truncated: boolean;
 }
 
+// 写作工作区：粘贴/生成图片落盘入参（fs:writingSaveImage，与 core/desktop/types.ts 镜像）。
+// bytesBase64 = 图片原始字节的 base64；ext = 落盘扩展名（不含点，主进程会再净化）。
+// 落 <spaceRoot>/img/pasted-<ts>-<rand>.<ext>，返回落盘绝对路径（供渲染端换算相对链接）。
+export interface WritingSaveImagePayload {
+  spaceRoot: string;
+  bytesBase64: string;
+  ext: string;
+}
+
 export interface CliStartRequest {
   runId: string;
   sessionId: string;

@@ -72,6 +72,7 @@ import type {
   PtySpawnRequest,
   PtySpawnResult,
   ReadFileResult,
+  WritingSaveImagePayload,
   TrimSessionRequest,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
@@ -140,6 +141,10 @@ export interface DesktopBridge {
   // 写作产物默认根(Documents/cortex/writing,调用即建目录);首次进入写作工作区建默认空间用。
   // 可选——web/旧壳无此能力时写作入口降级隐藏。
   writingWorkspaceRoot?(): Promise<string>;
+  // 写作工作区:粘贴/生成图片落盘(U1)。写入 <spaceRoot>/img/pasted-<ts>-<rand>.<ext>,
+  // 返回落盘绝对路径,渲染端换算相对当前 md 的链接插入正文。
+  // 可选——web/旧壳无此能力时粘贴图片降级(不拦截默认粘贴)。
+  writingSaveImage?(payload: WritingSaveImagePayload): Promise<string>;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
   // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。
   renameEntry?(from: string, to: string): Promise<void>;

@@ -849,6 +849,15 @@ export interface ReadFileResult {
   truncated: boolean;
 }
 
+// 写作工作区：粘贴/生成图片落盘入参（fs:writingSaveImage，与主进程 ipc/types.ts 镜像）。
+// bytesBase64 = 图片原始字节的 base64；ext = 落盘扩展名（不含点，主进程会再净化）。
+// 主进程落 <spaceRoot>/img/pasted-<ts>-<rand>.<ext>，返回落盘绝对路径。
+export interface WritingSaveImagePayload {
+  spaceRoot: string;
+  bytesBase64: string;
+  ext: string;
+}
+
 // 项目变更文件（git status;非 git 仓库回退为最近修改文件）。
 export interface ChangedFile {
   path: string; // 绝对路径

@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Editor } from "@tiptap/core";
+import { extractClipboardImageFile } from "@cortex-work/core/writing/paste-image";
 import type { NoteEditorSelection } from "../../personal/editor/NoteCodeMirrorEditor";
 import type { WriteRichFidelity } from "./markdown-manager";
 import { WritingRichToolbar } from "./WritingRichToolbar";
@@ -38,6 +39,9 @@ interface Props {
   // 本地图片显示解析:把原始(相对)src 解析成可渲染 URL(相对路径 → 绝对 → bridge.imageRead → data URL)。
   // 只影响显示,不影响序列化(节点仍存原始 src),故不破坏往返安全。
   resolveImageSrc?: (rawSrc: string) => Promise<string | null>;
+  // 粘贴图片落盘(U1):把剪贴板图片 File 存到空间 img/,返回相对当前 md 的链接文本(如 img/x.png)。
+  // 返回 null → 保存失败,不插入。未传该 prop(无 bridge/无空间)→ 不拦截默认粘贴。
+  onPasteImage?: (file: File) => Promise<string | null>;
   // 审计不通过时渲染的回落编辑器(通常是 CM live)。
   fallback?: ReactNode;
 }
@@ -59,6 +63,7 @@ export function WritingRichEditor({
   onToast,
   onLoadError,
   resolveImageSrc,
+  onPasteImage,
   fallback,
 }: Props): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -87,6 +92,7 @@ export function WritingRichEditor({
   const onToastRef = useRef(onToast);
   const onLoadErrorRef = useRef(onLoadError);
   const resolveImageSrcRef = useRef(resolveImageSrc);
+  const onPasteImageRef = useRef(onPasteImage);
   readOnlyRef.current = readOnly;
   onChangeRef.current = onChange;
   onSelectionChangeRef.current = onSelectionChange;
@@ -95,6 +101,7 @@ export function WritingRichEditor({
   onToastRef.current = onToast;
   onLoadErrorRef.current = onLoadError;
   resolveImageSrcRef.current = resolveImageSrc;
+  onPasteImageRef.current = onPasteImage;
 
   const fileKey = fileKeyOf(filePath);
   const eligible = gate?.fileKey === fileKey ? gate.eligible : null;
@@ -224,6 +231,26 @@ export function WritingRichEditor({
             class: "write-rich-editor",
             "data-write-editor-mode": "rich",
             spellcheck: readOnlyRef.current ? "false" : "true",
+          },
+          // 粘贴图片(U1):剪贴板含图片文件且注入了 onPasteImage 时拦截,落盘后插入 image 节点(src=相对链接);
+          // 只读、无 handler、或非图片粘贴一律 return false 放行默认粘贴(不影响文本/其它内容粘贴)。
+          handlePaste: (_view, event) => {
+            const handler = onPasteImageRef.current;
+            if (readOnlyRef.current || !handler) return false;
+            const picked = extractClipboardImageFile(event.clipboardData?.items);
+            if (!picked) return false;
+            void handler(picked.file)
+              .then((rel) => {
+                if (!rel) return;
+                const inst = editorRef.current;
+                if (inst && !inst.isDestroyed) inst.chain().focus().setImage({ src: rel, alt: "" }).run();
+              })
+              .catch((err) => {
+                onToastRef.current?.(
+                  `粘贴图片失败：${err instanceof Error ? err.message : String(err)}`,
+                );
+              });
+            return true;
           },
         },
         onUpdate({ editor: instance, transaction }) {

@@ -14,6 +14,7 @@ import type {
   GitInfoResult,
   GitOpResult,
   PromptNode,
+  WritingSaveImagePayload,
 } from "./types";
 import { getPersistedState } from "./store";
 import { expandTilde } from "../skills/locate";
@@ -210,6 +211,43 @@ async function getFileIndex(root: string, now: number): Promise<Map<string, stri
   const index = await buildFileIndex(root);
   fileIndexCache.set(root, { at: now, index });
   return index;
+}
+
+// ── 写作工作区图片落盘(fs:writingSaveImage,U1)─────────────────────────────
+// 与 Kun WORKSPACE_IMAGE_DIR 对齐:粘贴/生成图片统一落到空间根下的 img/ 子目录。
+export const WRITING_IMAGE_DIR = "img";
+
+// 落盘扩展名净化:去点、小写,只接受 1-8 位字母数字,否则回落 png。
+// 防止渲染端把畸形 mime / 后缀塞进文件名造成路径异常或穿越。导出供单测。
+export function normalizeWritingImageExt(ext: string): string {
+  const cleaned = ext.trim().replace(/^\.+/, "").toLowerCase();
+  return /^[a-z0-9]{1,8}$/.test(cleaned) ? cleaned : "png";
+}
+
+// 首选图片文件名 pasted-<紧凑时间戳>-<短随机>.<ext>(rand 防同毫秒粘贴撞名)。now 注入便于测试。
+// 导出供单测断言命名形状。
+export function buildWritingImageName(ext: string, now: Date = new Date(), rand?: string): string {
+  const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
+  const suffix = rand ?? Math.random().toString(36).slice(2, 8);
+  return `pasted-${stamp}-${suffix}.${normalizeWritingImageExt(ext)}`;
+}
+
+// 目标已存在时按 <base>-1.<ext> / <base>-2.<ext> 递增找空位(粘贴撞名极少见,兜底不覆盖)。
+// 用 stat 探测:ENOENT 即空位。上限防御性设 10000 次,超出直接返回最后候选。导出供单测。
+export async function resolveNonCollidingPath(dir: string, fileName: string): Promise<string> {
+  const dot = fileName.lastIndexOf(".");
+  const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const ext = dot > 0 ? fileName.slice(dot) : "";
+  let candidate = join(dir, fileName);
+  for (let i = 1; i < 10000; i += 1) {
+    try {
+      await fsp.stat(candidate);
+    } catch {
+      return candidate; // 不存在 → 可用
+    }
+    candidate = join(dir, `${base}-${i}${ext}`);
+  }
+  return candidate;
 }
 
 export function registerFsHandlers(): void {
@@ -541,6 +579,24 @@ export function registerFsHandlers(): void {
     const dir = join(documentsCortexDir(), "writing");
     await fsp.mkdir(dir, { recursive: true });
     return dir;
+  });
+
+  // 写作工作区:粘贴/生成图片落盘(U1)。落 <spaceRoot>/img/pasted-<ts>-<rand>.<ext>,
+  // 返回落盘绝对路径,渲染端据此换算相对当前 md 的链接插入正文。
+  // 安全:img 目录与最终目标都过严格 assertAllowed(必须在已注册空间根内),越权即抛。
+  // 重名递增(resolveNonCollidingPath)兜底不覆盖已有文件。
+  ipcMain.handle("fs:writingSaveImage", async (_e, payload: WritingSaveImagePayload): Promise<string> => {
+    const { spaceRoot, bytesBase64, ext } = payload;
+    if (!spaceRoot?.trim()) throw new Error("缺少写作空间根");
+    const buf = Buffer.from(bytesBase64 ?? "", "base64");
+    if (!buf.length) throw new Error("图片数据为空");
+    const imgDir = join(spaceRoot, WRITING_IMAGE_DIR);
+    await assertAllowed(imgDir);
+    await fsp.mkdir(imgDir, { recursive: true });
+    const target = await resolveNonCollidingPath(imgDir, buildWritingImageName(ext));
+    await assertAllowed(target);
+    await fsp.writeFile(target, buf);
+    return target;
   });
 
   // 写作工作区:重命名文件/目录(文件树重命名 + 空间内改名共用)。

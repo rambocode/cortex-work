@@ -55,6 +55,7 @@ import type {
   PiExtInstallResult,
   PromptNode,
   ReadFileResult,
+  WritingSaveImagePayload,
   SkillMeta,
   SpotlightIntent,
   TaskDelegateIntent,
@@ -156,6 +157,9 @@ const personal = {
   designWorkspaceRoot: (): Promise<string> => ipcRenderer.invoke("fs:designWorkspaceRoot"),
   // 写作工作区:默认根(确保存在)/ 重命名条目(同目录重名预检,不覆盖)。
   writingWorkspaceRoot: (): Promise<string> => ipcRenderer.invoke("fs:writingWorkspaceRoot"),
+  // 写作粘贴/生成图片落盘(U1):返回落盘绝对路径,渲染端换算相对链接。
+  writingSaveImage: (payload: WritingSaveImagePayload): Promise<string> =>
+    ipcRenderer.invoke("fs:writingSaveImage", payload),
   renameEntry: (from: string, to: string): Promise<void> => ipcRenderer.invoke("fs:renameEntry", from, to),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
