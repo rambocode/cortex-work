@@ -7,6 +7,7 @@ import { useDesktopBridge } from "@cortex-work/core/provider";
 import type { DesktopBridge, PromptNode } from "@cortex-work/core";
 import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
 import { useWritingWorkspaceStore } from "@cortex-work/core/writing/workspace-store";
+import { useWritingReviewStore } from "@cortex-work/core/writing/review-manager";
 import {
   basename,
   createDir,
@@ -67,6 +68,7 @@ function TreeNode({
   node,
   depth,
   currentFile,
+  pendingPaths,
   renaming,
   renameName,
   setRenameName,
@@ -79,6 +81,8 @@ function TreeNode({
   node: PromptNode;
   depth: number;
   currentFile: string | null;
+  // 待审阅文件集合(绝对路径 → 记录);命中则文件行显示徽标(U6)。
+  pendingPaths: Record<string, unknown>;
   renaming: string | null;
   renameName: string;
   setRenameName: (v: string) => void;
@@ -91,6 +95,7 @@ function TreeNode({
   const [collapsed, setCollapsed] = useState(depth > 0);
   const pad = { paddingLeft: 12 + depth * 14 } as const;
   const isActive = node.kind === "file" && node.path === currentFile;
+  const hasPending = node.kind === "file" && node.path in pendingPaths;
 
   if (renaming === node.path) {
     return <RenameInput value={renameName} onChange={setRenameName} onCommit={commitRename} onCancel={cancelRename} />;
@@ -135,6 +140,15 @@ function TreeNode({
       >
         <Icon.File size={13} />
         <span className="pw-tree-name">{node.name}</span>
+        {hasPending ? (
+          <span
+            className="pw-writing-pending-badge"
+            title="有待审阅的改动"
+            aria-label="有待审阅的改动"
+          >
+            ●
+          </span>
+        ) : null}
         {actions}
       </div>
     );
@@ -156,6 +170,7 @@ function TreeNode({
               node={c}
               depth={depth + 1}
               currentFile={currentFile}
+              pendingPaths={pendingPaths}
               renaming={renaming}
               renameName={renameName}
               setRenameName={setRenameName}
@@ -178,6 +193,9 @@ export function WritingSidebar({ onToast }: { onToast?: (msg: string) => void })
   const addSpace = useWritingSpacesStore((s) => s.addSpace);
   const removeSpace = useWritingSpacesStore((s) => s.removeSpace);
   const setActiveSpace = useWritingSpacesStore((s) => s.setActiveSpace);
+
+  // 待审阅文件集合(U6):订阅 review-manager,pending 文件在树上显示徽标。
+  const pendingPaths = useWritingReviewStore((s) => s.pending);
 
   const currentFile = useWritingWorkspaceStore((s) => s.currentFile);
   const setCurrentFile = useWritingWorkspaceStore((s) => s.setCurrentFile);
@@ -396,6 +414,7 @@ export function WritingSidebar({ onToast }: { onToast?: (msg: string) => void })
               node={c}
               depth={0}
               currentFile={currentFile}
+              pendingPaths={pendingPaths}
               renaming={renaming}
               renameName={renameName}
               setRenameName={setRenameName}

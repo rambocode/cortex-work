@@ -24,12 +24,17 @@ import {
   recordSelfWrite,
   setBaseline,
 } from "@cortex-work/core/writing/baseline";
+import {
+  resolveWritingReview,
+  useWritingReviewStore,
+} from "@cortex-work/core/writing/review-manager";
 import { MarkdownView } from "../personal/MarkdownView";
 import {
   NoteCodeMirrorEditor,
   type NoteEditorAppearance,
 } from "../personal/editor/NoteCodeMirrorEditor";
 import { useNoteAutosave } from "../personal/useNoteAutosave";
+import { WritingDiffReview } from "./WritingDiffReview";
 
 type Mode = "source" | "live" | "preview";
 
@@ -95,6 +100,9 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     const [loadError, setLoadError] = useState<string | null>(null);
     // 当前文件被删:提示 + 另存 + 冻结,避免静默丢未保存内容(R8)。
     const [deleted, setDeleted] = useState(false);
+    // 当前文件的 diff 审阅记录(U6,模块级 review-manager)。存在即切审阅态:只读 + 冻结自动保存。
+    // 订阅 store 使 agent/外部在覆盖层外入队的 pending 也能在切回该文件时响应式恢复审阅。
+    const pendingReview = useWritingReviewStore((s) => (path ? s.pending[path] : undefined));
 
     // path 变化:重置 deleted/error,读盘并建立磁盘基线。旧文件的 flush 由 useNoteAutosave 的
     // noteId(=path)切换 effect 兜底,不在此处重复处理。
@@ -218,9 +226,32 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
       }
     };
 
+    // 进入审阅态:取消挂起的自动保存(冻结),避免审阅期间写盘覆盖 agent 改动。
+    useEffect(() => {
+      if (pendingReview) cancelRef.current();
+    }, [pendingReview]);
+
+    // 裁决落盘:按用户选定内容写盘 → 推进基线 → 清 pending(解冻);随后把编辑器内容同步到裁决结果。
+    const resolveReview = async (accepted: string): Promise<void> => {
+      const p = pathRef.current;
+      if (!p) return;
+      const b = bridgeRef.current;
+      if (!b?.writeFile) {
+        onToast?.("当前环境不支持写入文件");
+        return;
+      }
+      try {
+        await resolveWritingReview(p, accepted, (fp, c) => b.writeFile(fp, c));
+        // 同步编辑器内容到裁决结果(loaded 变更经 useNoteAutosave 的 content prop 回灌 draft)。
+        setLoaded({ path: p, content: accepted });
+      } catch (err) {
+        onToast?.(`落盘失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+
     const effectiveMode: Mode = editorLoadFailed ? "preview" : mode;
-    // deleted 或外部审阅态都冻结编辑。
-    const frozen = deleted || !!readOnly;
+    // deleted / 外部只读 / 审阅态都冻结编辑。
+    const frozen = deleted || !!readOnly || !!pendingReview;
 
     if (!path) {
       return (
@@ -286,7 +317,16 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
         ) : null}
 
         <div className="pw-note-editor-body">
-          {effectiveMode === "preview" ? (
+          {pendingReview ? (
+            // 审阅态:红绿 diff 逐块裁决(基线 → 新版)。裁决完毕经 resolveReview 落盘并解冻。
+            <WritingDiffReview
+              key={`${path}:review`}
+              path={path}
+              baseline={pendingReview.baseline}
+              next={pendingReview.next}
+              onResolve={(accepted) => void resolveReview(accepted)}
+            />
+          ) : effectiveMode === "preview" ? (
             <div className="pw-writing-editor-preview">
               {editorLoadFailed ? (
                 <div className="pw-empty-hint">编辑器加载失败,当前仅可预览。</div>
