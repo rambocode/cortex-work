@@ -4,6 +4,18 @@
 
 ---
 
+## Electron 拖拽带隔着 fixed 覆盖层吞点击:`-webkit-app-region: drag` 命中与 z-index 无关
+
+**现象**:整窗覆盖层(如写作工作区 `.pw-writing-root`,fixed inset-0 z-40)顶部一条横带内的按钮**点不中**,只有露在该带之下的部分可点;覆盖层其余区域正常。
+
+**根因**:被盖住的底层 UI(个人工作区列头 `.pw-col-head`/`.titlebar`)带 `-webkit-app-region: drag`。Electron 的拖拽区命中是**窗口级**判定,不走 DOM 事件、**不受 z-index/遮挡影响**——覆盖层盖住它也照样在窗口顶端 ~40px 全宽生效,把覆盖层同位置的点击吞成「拖窗口」。
+
+**解法**:覆盖层根元素显式 `-webkit-app-region: no-drag` 整体抵消底层拖拽带,再在覆盖层内自己需要的位置(如左栏贴顶条)重新划 `drag` 区(内部交互元素记得 `no-drag`)。
+
+**排查套路**:覆盖层里「只有顶部一条带点不中/一点就拖动窗口」→ 先怀疑底层 app-region,搜 `app-region: drag`/`.ds-drag` 看底层谁在同一屏幕位置;新建整窗覆盖层时默认给根元素 `no-drag` + 自划拖拽条。
+
+---
+
 ## electron-builder 摊平 pnpm 多版本依赖 → 纯 ESM 第三方包命名导入崩溃
 
 **现象**：开发态正常，**打包后**第三方包(如 pi `@earendil-works/pi-coding-agent`)启动即报：

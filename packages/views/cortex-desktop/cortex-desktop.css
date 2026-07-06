@@ -10130,6 +10130,11 @@ button.sb-row {
   display: flex; flex-direction: column;
   min-height: 0; min-width: 0; overflow: hidden;
   background: var(--bg-app);
+  /* 写作 overlay 覆盖在个人工作区之上,但后者顶部的列头拖拽带(.pw-col-head/.titlebar 的
+     -webkit-app-region: drag)是「窗口级」的、与 z-index 无关,仍在窗口顶端生效,会吞掉本 overlay
+     顶部(中/右栏工具栏)的点击 —— 只有露在拖拽带之下的部分可点。整个 root 显式 no-drag 抵消它;
+     窗口拖拽仅由左栏贴顶条(.pw-writing-left-titlebar.ds-drag)重新划出。 */
+  -webkit-app-region: no-drag;
 
   /* 写作工作区「完全复制」Kun 写作台冷蓝视觉,不跟随 cortex 暖色主题。作用域上移到 root,
      供左栏与中栏顶栏共用。以下 --w-* 为 Kun 亮色字面量(源:Kun styles/base-shell.css :root 与
