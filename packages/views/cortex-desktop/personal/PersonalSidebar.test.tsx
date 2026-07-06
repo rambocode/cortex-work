@@ -37,18 +37,22 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("PersonalSidebar 顶部三入口（U2）", () => {
-  it("bridge 完整时渲染会话 / 写作 / 项目管理三入口", () => {
-    renderSidebar(bridgeWith(true), () => {});
-    expect(screen.getByText("新会话")).toBeTruthy();
-    expect(screen.getByText("写作")).toBeTruthy();
-    expect(screen.getByText("项目管理")).toBeTruthy();
+  it("bridge 完整时渲染会话 / 写作 / 项目管理三入口(同一行)", () => {
+    const { container } = renderSidebar(bridgeWith(true), () => {});
+    const row = container.querySelector(".pw-top-nav-row")!;
+    expect(row).toBeTruthy();
+    // 三入口须同处一行容器内。
+    expect(row.textContent).toContain("会话");
+    expect(row.textContent).toContain("写作");
+    expect(row.textContent).toContain("项目管理");
+    expect(row.querySelectorAll(".pw-home-btn").length).toBe(3);
   });
 
   it("点击「会话」触发 openHome（homeOpen=true、writingOpen 复位）", () => {
     // 从写作态起步,验证点击会话确实切回首页并清写作态。
     usePersonalStore.setState({ homeOpen: false, writingOpen: true });
     renderSidebar(bridgeWith(true), () => {});
-    fireEvent.click(screen.getByText("新会话"));
+    fireEvent.click(screen.getByText("会话"));
     expect(usePersonalStore.getState().homeOpen).toBe(true);
     expect(usePersonalStore.getState().writingOpen).toBe(false);
   });
@@ -69,11 +73,11 @@ describe("PersonalSidebar 顶部三入口（U2）", () => {
 
   it("bridge=null（web/旧壳）→ 写作、项目管理降级隐藏，会话仍在", () => {
     const { container } = renderSidebar(null, () => {});
-    expect(screen.getByText("新会话")).toBeTruthy();
+    expect(screen.getByText("会话")).toBeTruthy();
     expect(screen.queryByText("写作")).toBeNull();
     expect(container.querySelector(".pw-projects-entry")).toBeNull();
-    // bridge 缺失时整个「写作 + 项目管理」并排行都不渲染。
-    expect(container.querySelector(".pw-top-nav-row")).toBeNull();
+    // 行容器仍在(承载会话入口),但只剩会话一个按钮。
+    expect(container.querySelector(".pw-top-nav-row")!.querySelectorAll(".pw-home-btn").length).toBe(1);
   });
 
   it("缺任务能力（bridge 无 tasksListProjects）→ 项目管理隐藏，写作仍在（双门控臂一）", () => {

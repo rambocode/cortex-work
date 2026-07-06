@@ -355,18 +355,15 @@ export function PersonalSidebar({
         <SidebarLeftControls />
       </div>
       <WorkspaceTabs />
-      {/* 顶部三入口组:会话(主 CTA,保留 ⌘N 语义)/ 写作 / 项目管理。
-          写作与项目管理并排一行、按桥接能力降级隐藏(web 端 bridge=null、旧壳缺方法时不渲染)。 */}
-      <button className={`pw-home-btn pw-home-btn--primary ${homeOpen ? "is-active" : ""}`} onClick={openHome} title="新会话（看板·选项目·开聊）">
-        <Icon.Plus size={15} />
-        <span>新会话</span>
-        <span className="pw-home-btn__kbd">⌘N</span>
-      </button>
-      {/* 写作 + 项目管理并排一行:整行仅在 bridge 存在时渲染(两入口都依赖桌面桥接);
-          单臂缺失时另一入口 flex:1 占满整行。 */}
-      {bridge ? (
-        <div className="pw-top-nav-row">
-          {/* 写作工作区入口:依赖 startCli/文件系统桥接,web 端(bridge=null)已在整行门控外降级隐藏。 */}
+      {/* 顶部三入口同一行:会话(主 CTA,⌘N 快捷键保留,徽标并入 title 提示以省横向空间)/ 写作 / 项目管理。
+          写作/项目管理按桥接能力降级隐藏(web 端 bridge=null、旧壳缺方法时不渲染),缺臂时余下入口 flex 均分整行。 */}
+      <div className="pw-top-nav-row">
+        <button className={`pw-home-btn pw-home-btn--primary ${homeOpen ? "is-active" : ""}`} onClick={openHome} title="会话（看板·选项目·开聊,⌘N）">
+          <Icon.Plus size={15} />
+          <span>会话</span>
+        </button>
+        {/* 写作工作区入口:依赖 startCli/文件系统桥接,web 端(bridge=null)降级隐藏。 */}
+        {bridge ? (
           <button
             className={`pw-home-btn ${writingOpen ? "is-active" : ""}`}
             onClick={openWriting}
@@ -375,16 +372,16 @@ export function PersonalSidebar({
             <Icon.Edit size={14} />
             <span>写作</span>
           </button>
-          {/* 「项目管理」独立窗口入口：双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow
-              （壳注入窗口能力）；旧壳缺任一 → 隐藏（KTD2：窗口打开经壳注入回调,views 不碰 window.desktopAPI）。 */}
-          {bridge?.tasksListProjects && onOpenProjectsWindow ? (
-            <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
-              <Icon.Folder size={14} />
-              <span>项目管理</span>
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+        ) : null}
+        {/* 「项目管理」独立窗口入口：双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow
+            （壳注入窗口能力）；旧壳缺任一 → 隐藏（KTD2：窗口打开经壳注入回调,views 不碰 window.desktopAPI）。 */}
+        {bridge?.tasksListProjects && onOpenProjectsWindow ? (
+          <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
+            <Icon.Folder size={14} />
+            <span>项目管理</span>
+          </button>
+        ) : null}
+      </div>
       {/* 闪记入口:从输入框工具栏迁来,壳注入 onOpenFlashNote 时才渲染(web/旧壳缺省 → 隐藏)。 */}
       {onOpenFlashNote ? (
         <button className="pw-home-btn" onClick={onOpenFlashNote} title="闪记（速记浮层）">
