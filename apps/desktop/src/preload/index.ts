@@ -154,6 +154,9 @@ const personal = {
   mkdir: (path: string): Promise<void> => ipcRenderer.invoke("fs:mkdir", path),
   deleteEntry: (path: string): Promise<void> => ipcRenderer.invoke("fs:deleteEntry", path),
   designWorkspaceRoot: (): Promise<string> => ipcRenderer.invoke("fs:designWorkspaceRoot"),
+  // 写作工作区:默认根(确保存在)/ 重命名条目(同目录重名预检,不覆盖)。
+  writingWorkspaceRoot: (): Promise<string> => ipcRenderer.invoke("fs:writingWorkspaceRoot"),
+  renameEntry: (from: string, to: string): Promise<void> => ipcRenderer.invoke("fs:renameEntry", from, to),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),

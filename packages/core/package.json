@@ -55,6 +55,7 @@
     "./personal/devPreviewDetection": "./personal/devPreviewDetection.ts",
     "./desktop/design-types": "./desktop/design-types.ts",
     "./design/*": "./design/*.ts",
+    "./writing/*": "./writing/*.ts",
     "./personal/browserErrorInfo": "./personal/browserErrorInfo.ts",
     "./personal/browserOrigin": "./personal/browserOrigin.ts",
     "./personal/annotationPayload": "./personal/annotationPayload.ts",
