@@ -30,6 +30,10 @@ import {
   useWritingReviewStore,
 } from "@cortex-work/core/writing/review-manager";
 import { relativeWritingPath } from "@cortex-work/core/writing/prompt";
+import {
+  computeWritingDocumentStats,
+  isMarkdownFile,
+} from "@cortex-work/core/writing/doc-stats";
 import { imageExtFromMime, relativeImageLink } from "@cortex-work/core/writing/paste-image";
 import {
   WRITING_FONT_SIZE_DEFAULT,
@@ -48,13 +52,6 @@ import { WritingToolbar } from "./WritingToolbar";
 import { WritingRichEditor } from "./rich/WritingRichEditor";
 
 type Mode = WritingPreviewMode;
-
-// 字数统计(对齐 Kun computeWriteDocumentStats 的口径:去掉所有空白后按 code point 计数)。
-// 差异:Kun 会先把 Markdown 解析成可见文本再去空白;本仓库无 tiptap 解析器,直接按原文去空白计,
-// 故含少量 Markdown 语法字符,数值略高于 Kun。属可接受近似(见回报)。
-function countVisibleChars(text: string): number {
-  return Array.from(text.replace(/\s+/g, "")).length;
-}
 
 // Blob → base64(U1 粘贴图片过 IPC 用)。浏览器无直接 API,逐字节拼再 btoa;
 // core 禁 node Buffer,故编码放在 views(浏览器环境,btoa 恒可用)。图片体量有限,逐字节可接受。
@@ -323,10 +320,15 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     const hasTextFile = !!path;
     const fileName = path ? path.split(/[/\\]/).pop() || path : "写作台";
     const fileLabel = path ? relativeWritingPath(spaceRoot ?? "", path) : "尚未打开文件";
-    // 字数:仅在有文件时展示;从当前草稿实时计。
+    // 字数:仅在有文件时展示;从当前草稿实时计。口径对齐 Kun computeWriteDocumentStats——
+    // Markdown 文件先归一为可见文本(剥语法标记、丢链接 URL 与图片 alt)再去空白按 code point 计;
+    // 非 Markdown 文件直接按原文去空白计。rich 档编辑的也是同一份 markdown draft,故口径统一。
     const charCount = useMemo(
-      () => (hasTextFile ? countVisibleChars(draft) : null),
-      [hasTextFile, draft],
+      () =>
+        hasTextFile
+          ? computeWritingDocumentStats(draft, isMarkdownFile(path ?? "")).characterCount
+          : null,
+      [hasTextFile, draft, path],
     );
     // 保存禁用:无文件 / 冻结(删除·审阅·只读)/ 无写盘能力。
     const saveDisabled = !path || frozen || !bridge?.writeFile;
