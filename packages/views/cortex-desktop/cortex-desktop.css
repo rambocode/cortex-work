@@ -616,6 +616,24 @@ input, textarea { font: inherit; color: inherit; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 顶部三入口组的「写作 + 项目管理」并排行:等宽平分、内容左对齐,与主 CTA「新会话」
+   同一左右边距;单臂缺失时另一入口 flex:1 占满整行。 */
+.pw-top-nav-row {
+  display: flex;
+  gap: 4px;
+  margin: 6px 10px 0;
+}
+.pw-top-nav-row > .pw-home-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  justify-content: flex-start;
+}
+.pw-top-nav-row > .pw-home-btn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .settings-menu-wrap {
   position: relative;
 }
@@ -10102,3 +10120,506 @@ button.sb-row {
   user-select: text;
 }
 .pw-transcript-noout { padding: 8px 10px; font-size: 11.5px; color: var(--text-3, var(--text-2)); }
+
+/* ============================================================
+   写作工作区(writing)整窗覆盖层。与设计工作台同构:fixed 覆盖,
+   顶部窄条作拖拽区,下方左/中/右三栏。仅 desktop 渲染。
+   ============================================================ */
+.pw-writing-root {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; flex-direction: column;
+  min-height: 0; min-width: 0; overflow: hidden;
+  background: var(--bg-app);
+  /* 写作 overlay 覆盖在个人工作区之上,但后者顶部的列头拖拽带(.pw-col-head/.titlebar 的
+     -webkit-app-region: drag)是「窗口级」的、与 z-index 无关,仍在窗口顶端生效,会吞掉本 overlay
+     顶部(中/右栏工具栏)的点击 —— 只有露在拖拽带之下的部分可点。整个 root 显式 no-drag 抵消它;
+     窗口拖拽仅由左栏贴顶条(.pw-writing-left-titlebar.ds-drag)重新划出。 */
+  -webkit-app-region: no-drag;
+
+  /* 写作工作区「完全复制」Kun 写作台冷蓝视觉,不跟随 cortex 暖色主题。作用域上移到 root,
+     供左栏与中栏顶栏共用。以下 --w-* 为 Kun 亮色字面量(源:Kun styles/base-shell.css :root 与
+     tailwind ds.* / SidebarPrimitives)。仅被 pw-writing-left / pw-wt-* 引用,不影响中栏编辑器内核配色。 */
+  --w-accent: #3b82d8;                       /* Kun --ds-accent(选中/强调) */
+  --w-accent-soft: rgba(59, 130, 216, 0.12); /* Kun bg-accent/10-12(文件图标底/激活项底) */
+  --w-panel-bg: #eef2fa;                      /* Kun --bg-sidebar(侧栏底) */
+  --w-ink: #343434;                           /* Kun 行文字 text-[#343434] */
+  --w-ink-strong: #1f1f1f;                    /* Kun hover/选中文字 text-[#1f1f1f] */
+  --w-muted: #54678c;                         /* Kun --ds-text-muted */
+  --w-faint: #8492b1;                         /* Kun --ds-text-faint */
+  --w-section: #9aa5b5;                       /* Kun SidebarSectionHeader 文字 */
+  --w-icon: #9a9a9a;                          /* Kun SidebarIconButton 默认图标色 */
+  --w-row-hover: rgba(108, 162, 221, 0.1);    /* Kun --ds-sidebar-row-hover */
+  --w-row-active: rgba(216, 232, 249, 0.85);  /* Kun --ds-sidebar-row-active(浅蓝胶囊底) */
+  --w-row-ring: rgba(108, 162, 221, 0.2);     /* Kun --ds-sidebar-row-ring(胶囊内描边) */
+  --w-border: rgba(20, 47, 95, 0.13);         /* Kun --border-soft */
+  --w-menu-bg: #ffffff;                       /* Kun 下拉菜单底(bg-white) */
+  --w-danger: #d6493f;                        /* Kun --ds-danger(删除 hover) */
+  --w-danger-soft: rgba(214, 73, 63, 0.1);
+}
+/* 暗色主题:照 Kun 暗色 token 覆盖(源:base-shell.css [data-theme="dark"]),保持写作栏 theme-aware。 */
+[data-theme="dark"] .pw-writing-root {
+  --w-accent: #6fb0e8;
+  --w-accent-soft: rgba(111, 176, 232, 0.16);
+  --w-panel-bg: #121829;
+  --w-ink: rgba(255, 255, 255, 0.75);
+  --w-ink-strong: #ffffff;
+  --w-muted: #bdc9de;
+  --w-faint: #8593b1;
+  --w-section: rgba(255, 255, 255, 0.35);
+  --w-icon: rgba(255, 255, 255, 0.45);
+  --w-row-hover: rgba(151, 192, 235, 0.09);
+  --w-row-active: rgba(151, 192, 235, 0.13);
+  --w-row-ring: rgba(151, 192, 235, 0.1);
+  --w-border: rgba(151, 192, 235, 0.13);
+  --w-menu-bg: #131722;                       /* Kun 暗色菜单底 */
+  --w-danger: #f8736a;
+  --w-danger-soft: rgba(248, 115, 106, 0.12);
+}
+/* 通栏:body 占满整窗,三栏各自贯穿到顶(无横跨三栏的顶栏)。 */
+.pw-writing-body { flex: 1; display: flex; min-height: 0; min-width: 0; overflow: hidden; }
+/* 左栏贴顶拖拽条:避让 macOS 红绿灯(左侧留白),右侧放返回按钮。 */
+.pw-writing-left-titlebar {
+  display: flex; align-items: center; justify-content: flex-end;
+  height: 40px; flex-shrink: 0;
+  padding: 0 8px 0 78px;
+}
+.pw-writing-back {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 7px;
+  font-size: 12.5px; color: var(--w-muted); cursor: pointer;
+  border: none; background: transparent;
+}
+.pw-writing-back:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+/* 左栏:布局 + Kun 冷蓝底/描边(--w-* 定义在 .pw-writing-root)。折叠时隐藏。 */
+.pw-writing-left {
+  width: 260px; flex-shrink: 0;
+  display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--w-border);
+  background: var(--w-panel-bg);
+}
+.pw-writing-left.is-collapsed { display: none; }
+.pw-writing-center { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.pw-writing-right {
+  width: 360px; flex-shrink: 0;
+  display: flex; flex-direction: column; min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-right);
+}
+.pw-writing-right.is-hidden { display: none; }
+
+/* 左栏(视觉逐像素复刻 Kun WriteSidebar):顶部两整行命令 + 写作空间分组标题 + 可折叠空间列表。
+   全部尺寸/色值取自 Kun 源码(SidebarPrimitives 的 Tailwind className + ds.* token),
+   经 .pw-writing-left 上的 --w-* 变量落地。h-4=16px、h-3.5=14px、h-3=12px。 */
+.pw-writing-sidebar { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+
+/* 顶部两个整行命令(Kun SidebarCommandRow:min-h-34 gap-2.5 rounded-8 px-3 py-1.5 text-13 font-normal,透明底 hover 行底) */
+.pw-writing-top { display: flex; flex-direction: column; gap: 2px; padding: 6px 6px 2px; flex-shrink: 0; }
+.pw-writing-newbtn, .pw-writing-addbtn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 34px; padding: 6px 12px; border-radius: 8px;
+  font-size: 13px; font-weight: 400; cursor: pointer; text-align: left;
+  background: transparent; border: none;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-writing-cmd-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex-shrink: 0;   /* Kun icon span h-5 w-5 */
+}
+.pw-writing-newbtn { color: var(--w-ink-strong); }         /* Kun accent 变体文字 #1f1f1f */
+.pw-writing-addbtn { color: var(--w-ink); }                /* Kun flat 变体文字 #343434 */
+.pw-writing-newbtn:hover, .pw-writing-addbtn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-writing-newbtn:disabled { opacity: 0.55; cursor: not-allowed; background: transparent; color: var(--w-ink); }
+
+/* 「写作空间」分组标题行(Kun SidebarSectionHeader:px-2.5 pt-5 pb-2,label text-12 #9aa5b5) */
+.pw-writing-spaces-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 10px 8px; flex-shrink: 0;
+}
+.pw-writing-spaces-title { font-size: 12px; font-weight: 400; color: var(--w-section); }
+/* 分组标题右侧图标按钮(Kun SidebarIconButton:h-7 w-7 rounded-md #9a9a9a hover 行底) */
+.pw-writing-head-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px;
+  color: var(--w-icon); cursor: pointer; border: 1px solid transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-writing-head-btn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+
+/* 空间列表(Kun 容器 px-1 pb-2 overflow-y-auto) */
+.pw-writing-spaces { flex: 1; overflow-y: auto; padding: 0 4px 8px; min-height: 0; }
+.pw-writing-space-group { margin-bottom: 4px; }
+
+/* 空间行(Kun SidebarTreeRow:min-h-36 rounded-8 gap-2 px-2.5 py-2 text-13;活跃=浅蓝胶囊 + 内描边环) */
+.pw-writing-space-row {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 36px; padding: 4px 6px 4px 10px; border-radius: 8px;
+  font-size: 13px; font-weight: 400; color: var(--w-ink);
+  cursor: pointer; transition: background 0.12s, color 0.12s;
+}
+.pw-writing-space-row:hover { background: var(--w-row-hover); }
+.pw-writing-space-row.is-active {
+  background: var(--w-row-active); color: var(--w-ink-strong);
+  box-shadow: inset 0 0 0 1px var(--w-row-ring);   /* Kun shadow-[inset_0_0_0_1px_row-ring] */
+}
+.pw-w-chev { flex-shrink: 0; color: var(--w-faint); }    /* Kun chevron text-ds-faint */
+.pw-w-folder { flex-shrink: 0; color: var(--w-muted); }  /* Kun folder text-ds-muted */
+
+/* 默认空间副标(Kun px-2.5 pb-1 text-11.5 ds-faint,外层 pl-3 缩进) */
+.pw-writing-space-sub { padding: 1px 10px 2px 30px; font-size: 11.5px; color: var(--w-faint); }
+
+/* 空间展开体(Kun 外层 mt-1 pl-3 = 12px 缩进) */
+.pw-writing-space-body { padding: 2px 0 4px 12px; }
+
+/* 内联输入(就地重命名 / 新建目录;cortex 保留的内联编辑,非 Kun 弹窗) */
+.pw-writing-inline-input { display: flex; align-items: center; gap: 4px; margin: 2px 8px; }
+.pw-writing-inline-input input {
+  flex: 1; min-width: 0; padding: 4px 8px; border-radius: 7px;
+  border: 1px solid var(--w-accent); background: var(--w-panel-bg);
+  font-size: 12.5px; color: var(--w-ink-strong); outline: none;
+}
+
+/* 文件树行(Kun SidebarTreeRow min-h-34;paddingLeft 由 JSX inline 提供 10+depth*14) */
+.pw-writing-space-body .pw-tree-row {
+  min-height: 34px; padding: 4px 6px; border-radius: 8px; gap: 8px;
+  font-size: 13px; font-weight: 400; color: var(--w-ink);
+  transition: background 0.12s, color 0.12s;
+}
+.pw-writing-space-body .pw-tree-row.is-file { cursor: pointer; }   /* 覆盖 prompt 库的 grab 拖拽光标 */
+.pw-writing-space-body .pw-tree-row:hover { background: var(--w-row-hover); color: var(--w-ink); }
+.pw-writing-space-body .pw-tree-row.is-active {
+  background: var(--w-row-active); color: var(--w-ink-strong);
+  box-shadow: inset 0 0 0 1px var(--w-row-ring);
+}
+/* 文件行左侧占位(对齐目录行 chevron 宽度;Kun h-3 w-3=12px) */
+.pw-writing-space-body .pw-tree-lead { width: 12px; flex-shrink: 0; }
+/* 文件图标(Kun FileText:未选 ds-faint,选中 accent 蓝) */
+.pw-writing-space-body .pw-w-file { flex-shrink: 0; color: var(--w-faint); }
+.pw-writing-space-body .pw-tree-row.is-active .pw-w-file { color: var(--w-accent); }
+
+/* 树节点/空间行内动作组(Kun actionsVisibility 'subtle':常显 opacity-55,行 hover → 100;
+   按钮 SidebarIconButton h-7 w-7 rounded-md #9a9a9a,gap-0.5) */
+.pw-writing-node-actions {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: auto;
+  opacity: 0.55; transition: opacity 0.12s;
+}
+.pw-writing-space-row:hover .pw-writing-node-actions,
+.pw-writing-space-body .pw-tree-row:hover .pw-writing-node-actions { opacity: 1; }
+.pw-writing-node-actions button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px;
+  color: var(--w-icon); cursor: pointer; border: 1px solid transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-writing-node-actions button:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+/* 删除 / 移除空间:danger tone(Kun hover:bg-red-500/10 hover:text-red-600) */
+.pw-writing-node-actions button.is-danger:hover { background: var(--w-danger-soft); color: var(--w-danger); }
+
+/* pending 徽标:待审阅文件的小圆点(accent 蓝) */
+.pw-writing-pending-badge { margin-left: 4px; color: var(--w-accent); font-size: 10px; line-height: 1; flex-shrink: 0; }
+
+/* 中/右栏占位(U5/U8 替换实现) */
+.pw-writing-placeholder {
+  flex: 1; display: flex; flex-direction: column; min-height: 0;
+}
+.pw-writing-editor-head {
+  padding: 8px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px; font-weight: 600; color: var(--text-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pw-writing-placeholder-body {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 24px; text-align: center;
+  font-size: 12.5px; color: var(--text-4);
+}
+
+/* 中栏文件编辑器(U5)。三档切换/保存状态复用闪记的 pw-note-mode / pw-note-save / pw-note-editor-body */
+.pw-writing-editor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* 顶栏之下的主体区(编辑器/预览/审阅/空态) */
+.pw-writing-editor-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 无文件/加载/读取失败:主体居中提示 */
+.pw-writing-editor.is-bodyempty .pw-writing-editor-main { align-items: center; justify-content: center; }
+.pw-writing-editor-empty {
+  padding: 24px; text-align: center;
+  font-size: 12.5px; color: var(--text-4);
+}
+/* 字号:顶栏步进 → --pw-writing-font-size(WritingWorkspace 内联在中栏)→ CM 内容 + 仅预览。
+   作用于 .cm-content(直接设定,覆盖 CM 主题在编辑器根的继承值)与预览 markdown 容器。
+   预览复用闪记的 .pw-note-editor-preview(其默认 16px),这里在写作中栏作用域内改为跟随步进字号。 */
+.pw-writing-center { --pw-writing-font-size: 16px; }
+.pw-writing-center .pw-note-cm-host .cm-content { font-size: var(--pw-writing-font-size); }
+.pw-writing-center .pw-note-editor-preview .pw-todo-md { font-size: var(--pw-writing-font-size); }
+
+/* ── 中栏顶部工具栏(视觉对齐 Kun WriteWorkspaceToolbar;色值经 .pw-writing-root 的 --w-*)── */
+.pw-wt {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 56px; padding: 8px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--w-border);
+  background: transparent;
+}
+/* 左栏折叠时,中栏移到窗口最左 → 左侧让位 macOS 红绿灯。 */
+.pw-wt.is-inset { padding-left: 84px; }
+.pw-wt-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+/* 图标按钮(折叠/助手/保存):Kun toolbarIconButtonClass h-8 w-8 无边框,hover 行底 */
+.pw-wt-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  color: var(--w-faint); cursor: pointer; border: none; background: transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-wt-icon-btn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-wt-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
+.pw-wt-icon-btn.is-on { background: var(--w-accent-soft); color: var(--w-accent); }
+/* 文件图标:Kun h-8 w-8 rounded-lg bg-accent/10 text-accent */
+.pw-wt-file-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  background: var(--w-accent-soft); color: var(--w-accent);
+}
+.pw-wt-file-meta { min-width: 0; flex: 1; line-height: 1; }
+.pw-wt-file-name {
+  font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--w-ink-strong);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pw-wt-file-sub {
+  margin-top: 4px; display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--w-faint); min-width: 0;
+}
+.pw-wt-file-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 字数 badge:Kun rounded-full bg-ds-hover text-11 ds-muted */
+.pw-wt-count {
+  flex-shrink: 0; border-radius: 999px; padding: 1px 8px;
+  font-size: 11px; font-weight: 500; color: var(--w-muted); background: var(--w-row-hover);
+}
+
+/* 视图模式 pill + 下拉(Kun modeButtonClass:h-8 rounded-lg,容器带边框) */
+.pw-wt-modes { position: relative; flex-shrink: 0; }
+.pw-wt-mode-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 10px; border-radius: 8px;
+  font-size: 13px; color: var(--w-ink); cursor: pointer;
+  border: 1px solid var(--w-border); background: transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-wt-mode-pill:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-wt-mode-pill:disabled { opacity: 0.45; cursor: not-allowed; background: transparent; }
+.pw-wt-mode-label { font-weight: 500; }
+.pw-wt-mode-pill svg.is-open { transform: rotate(180deg); }
+
+/* 通用下拉菜单(模式 / 导出) */
+.pw-wt-menu {
+  position: absolute; top: 100%; margin-top: 8px; z-index: 30;
+  min-width: 184px; padding: 6px; border-radius: 12px;
+  border: 1px solid var(--w-border); background: var(--w-menu-bg);
+  box-shadow: 0 18px 40px rgba(20, 47, 95, 0.14);
+}
+.pw-wt-mode-menu { left: 0; }
+.pw-wt-export-menu { right: 0; min-width: 200px; }
+.pw-wt-menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; padding: 8px 12px; border-radius: 8px;
+  font-size: 13px; color: var(--w-ink); text-align: left; cursor: pointer;
+  border: none; background: transparent; transition: background 0.12s, color 0.12s;
+}
+.pw-wt-menu-item:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-wt-menu-item.is-active { background: var(--w-accent-soft); color: var(--w-accent); }
+.pw-wt-menu-item:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
+.pw-wt-menu-item-l { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.pw-wt-menu-item-icon { color: var(--w-faint); }
+.pw-wt-menu-on { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--w-accent); }
+.pw-wt-menu-item-tag {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--w-faint);
+}
+
+/* 右侧动作组 */
+.pw-wt-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+/* 字号步进器(Kun rounded-xl border) */
+.pw-wt-font {
+  display: inline-flex; align-items: center; gap: 2px;
+  border: 1px solid var(--w-border); border-radius: 10px; padding: 2px 4px;
+}
+.pw-wt-font-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px;
+  color: var(--w-ink); cursor: pointer; border: none; background: transparent;
+  transition: background 0.12s;
+}
+.pw-wt-font-btn:hover { background: var(--w-row-hover); }
+.pw-wt-font-btn:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
+.pw-wt-font-val {
+  min-width: 28px; text-align: center; font-size: 12px; font-weight: 600;
+  color: var(--w-ink-strong); font-variant-numeric: tabular-nums;
+}
+
+/* 保存状态字(绿=已保存,照 Kun 分状态配色) */
+.pw-wt-save {
+  min-width: 60px; text-align: center; border-radius: 8px;
+  padding: 3px 10px; font-size: 11.5px; font-weight: 600; flex-shrink: 0;
+}
+.pw-wt-save[data-status="saved"], .pw-wt-save[data-status="idle"] {
+  background: rgba(16, 163, 74, 0.12); color: #15803d;
+}
+.pw-wt-save[data-status="dirty"] { background: rgba(217, 119, 6, 0.12); color: #b45309; }
+.pw-wt-save[data-status="saving"] { background: rgba(2, 132, 199, 0.12); color: #0369a1; }
+.pw-wt-save[data-status="error"] { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+
+/* 导出下拉按钮(Kun toolbarMenuButtonClass:无边框) */
+.pw-wt-export { position: relative; flex-shrink: 0; }
+.pw-wt-menu-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 32px; padding: 0 10px; border-radius: 8px;
+  font-size: 12.5px; font-weight: 500; color: var(--w-faint); cursor: pointer;
+  border: none; background: transparent; transition: background 0.12s, color 0.12s;
+}
+.pw-wt-menu-btn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-wt-menu-btn svg.is-open { transform: rotate(180deg); }
+.pw-wt-export-label { white-space: nowrap; }
+/* 文件被删提示条:红底告警,右侧另存入口 */
+.pw-writing-deleted-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 14px; flex-shrink: 0;
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--text-1);
+}
+.pw-writing-deleted-bar .spacer { flex: 1; }
+
+/* 覆盖层内 toast(错误/提示) */
+.pw-writing-toast {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  z-index: 50;
+  padding: 6px 12px; border-radius: 8px;
+  background: var(--bg-sidebar); border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  font-size: 12px; color: var(--text-1);
+}
+.pw-writing-toast button { color: inherit; cursor: pointer; }
+
+/* 右栏写作助手(U8):顶栏(会话切换/新建 + 当前文件)+ 时间线/空态 + composer */
+.pw-writing-assistant {
+  flex: 1; display: flex; flex-direction: column; min-height: 0;
+}
+.pw-wa-head {
+  flex-shrink: 0; padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.pw-wa-head-row { display: flex; align-items: center; gap: 6px; }
+.pw-wa-thread-pill {
+  display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;
+  padding: 5px 10px; border-radius: 999px; cursor: pointer;
+  background: var(--bg-app); color: var(--text-1);
+}
+.pw-wa-thread-pill:hover { background: var(--bg-hover); }
+.pw-wa-thread-title {
+  min-width: 0; flex: 1; text-align: left;
+  font-size: 12.5px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pw-wa-thread-menu { min-width: 200px; max-height: 300px; overflow-y: auto; }
+.pw-wa-thread-menu-title {
+  min-width: 0; flex: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pw-wa-thread-empty, .pw-wa-thread-menu-foot {
+  padding: 6px 10px; font-size: 12px; color: var(--text-4);
+}
+.pw-wa-thread-menu-foot { border-top: 1px solid var(--border); padding: 4px; }
+.pw-wa-file {
+  margin-top: 6px; padding: 4px 10px; border-radius: 999px;
+  background: var(--bg-app); color: var(--text-3);
+  font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pw-wa-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; flex-shrink: 0;
+  border-radius: 8px; color: var(--text-3); cursor: pointer;
+}
+.pw-wa-icon-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-wa-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.pw-wa-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
+.pw-wa-empty { display: flex; flex-direction: column; gap: 12px; }
+.pw-wa-empty-card {
+  padding: 16px; border-radius: 16px;
+  border: 1px solid var(--border); background: var(--bg-app);
+}
+.pw-wa-empty-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent);
+}
+.pw-wa-empty-title { margin-top: 12px; font-size: 16px; font-weight: 600; color: var(--text-1); }
+.pw-wa-empty-sub { margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--text-3); }
+.pw-wa-cards { display: grid; gap: 8px; }
+.pw-wa-card {
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+  padding: 10px 12px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-app);
+}
+.pw-wa-card:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: var(--bg-hover); }
+.pw-wa-card:disabled { opacity: 0.5; cursor: not-allowed; }
+.pw-wa-card-t { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.pw-wa-card-s { font-size: 11.5px; color: var(--text-4); }
+
+.pw-wa-timeline { display: flex; flex-direction: column; gap: 10px; }
+.pw-wa-msg { font-size: 13px; line-height: 1.6; }
+.pw-wa-msg.is-user {
+  align-self: flex-end; max-width: 90%;
+  padding: 8px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text-1);
+  white-space: pre-wrap; word-break: break-word;
+}
+.pw-wa-msg.is-assistant { color: var(--text-1); }
+.pw-wa-msg.is-tool {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 8px;
+  background: var(--bg-app); color: var(--text-3); font-size: 11.5px;
+}
+.pw-wa-msg.is-tool[data-status="error"] { color: var(--red); }
+.pw-wa-tool-name { font-family: var(--mono, monospace); }
+.pw-wa-tool-dot { color: var(--text-4); }
+.pw-wa-msg.is-system {
+  padding: 6px 10px; border-radius: 8px; font-size: 12px;
+  background: color-mix(in srgb, var(--red) 10%, transparent); color: var(--red);
+  white-space: pre-wrap; word-break: break-word;
+}
+
+.pw-wa-composer {
+  flex-shrink: 0; padding: 8px 10px 10px;
+  border-top: 1px solid var(--border);
+}
+.pw-wa-blocked {
+  margin-bottom: 8px; padding: 6px 10px; border-radius: 8px; font-size: 12px;
+  background: color-mix(in srgb, var(--amber, orange) 14%, transparent); color: var(--text-1);
+}
+.pw-wa-quotes { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.pw-wa-quote {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: 8px; font-size: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--text-3);
+}
+.pw-wa-quote-label { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pw-wa-quote-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px; border-radius: 5px; color: var(--text-4); cursor: pointer;
+}
+.pw-wa-quote-x:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-wa-input {
+  width: 100%; resize: none; box-sizing: border-box;
+  padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg-app);
+  font-size: 13px; line-height: 1.5; color: var(--text-1); outline: none;
+}
+.pw-wa-input:focus { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.pw-wa-toolbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.pw-wa-toolbar .spacer { flex: 1; }
+.pw-wa-send {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: 8px; cursor: pointer;
+  background: var(--accent); color: #fff;
+}
+.pw-wa-send:disabled { opacity: 0.4; cursor: not-allowed; }
+.pw-wa-send.is-stop { background: var(--red); }

@@ -28,6 +28,7 @@ import { NewSessionLanding } from "./NewSessionLanding";
 import { AutomationView } from "./AutomationView";
 import { WorkflowView } from "./WorkflowView";
 import { DesignWorkspace } from "../design/DesignWorkspace";
+import { WritingWorkspace } from "../writing/WritingWorkspace";
 import { FlashNoteEditor } from "./FlashNoteEditor";
 import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
 import { PersonalSettingsView } from "./SettingsMenu";
@@ -88,6 +89,8 @@ export function PersonalWorkspace({
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
   // 设计工作台主区视图(desktop-only;侧栏入口按 bridge 存在性 gate)。
   const designOpen = usePersonalStore((s) => s.designOpen);
+  // 写作工作区整窗覆盖层(desktop-only;瞬态,与设计/设置同级 z-40)。
+  const writingOpen = usePersonalStore((s) => s.writingOpen);
   // 设置整页：全屏覆盖层叠加在工作区之上（不卸载 pw-main → 终端 PTY 存活）。
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
@@ -205,6 +208,9 @@ export function PersonalWorkspace({
           settingsOpen 时不渲染(否则 z-40 覆盖层盖在设置页上拦截点击,设置的「返回」点不到);
           设计 run 由 design-run-manager 独立持有,卸载不中断,返回后设计恢复。 */}
       {designOpen && !settingsOpen ? <DesignWorkspace /> : null}
+      {/* 写作工作区:整窗覆盖层,与设计同构。settingsOpen 时不渲染(同设计,避免 z-40 覆盖层
+          盖住设置页拦截点击);写作 run 由 writing-run-manager 独立持有(U7),卸载不中断。 */}
+      {writingOpen && !settingsOpen ? <WritingWorkspace /> : null}
       {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
       <SessionSearchDialog />

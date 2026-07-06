@@ -14,11 +14,11 @@
     "./cortex-desktop/voice-recorder": "./cortex-desktop/personal/voiceRecorder.ts"
   },
   "dependencies": {
-    "@xyflow/react": "^12.11.0",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language": "^6.12.3",
     "@codemirror/language-data": "^6.5.2",
+    "@codemirror/merge": "^6.12.2",
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.43.0",
     "@cortex-work/core": "workspace:*",
@@ -26,6 +26,7 @@
     "@lezer/highlight": "^1.2.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "@xyflow/react": "^12.11.0",
     "lucide-react": "^0.544.0",
     "mermaid": "^11.15.0",
     "monaco-editor": "^0.52.2",

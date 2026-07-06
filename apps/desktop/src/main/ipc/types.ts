@@ -98,6 +98,10 @@ import type { ReplySettings, ReplyMemoryState, ReplyChannelsState } from "./repl
 export * from "./design-types";
 import type { DesignSettings, DesignDocMeta, DesignUiState } from "./design-types";
 
+// 写作工作区（writing）空间列表/活跃空间 → ./writing-types.ts。与 core 镜像。
+export * from "./writing-types";
+import type { WritingUiState } from "./writing-types";
+
 export interface SessionMeta {
   id: string;
   // 关联项目;缺省 = 不使用项目（会话在 Documents/cortex/<日期> 工作）。
@@ -453,6 +457,9 @@ export interface PersistedState {
   designSettings?: DesignSettings;
   designDocs?: DesignDocMeta[];
   designUi?: DesignUiState;
+  // 写作工作区分片（renderer 全量写入，主进程透明落盘）。与 packages/core/desktop/types.ts 镜像。
+  // 主进程 fs.allowedRoots 读取 spaces[].root 兜底放行白名单外的自定义空间根。
+  writingUi?: WritingUiState;
 }
 
 export interface ReadFileResult {

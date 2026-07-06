@@ -1,0 +1,118 @@
+// composeWritingPrompt / quoteFromSelection / 反解析 单测(U8):
+// 拼装含/不含引用、含当前文件相对路径;改稿约定恒在;引用快照冻结;哨兵反解析对称。
+import { describe, expect, it } from "vitest";
+import {
+  WRITING_CONTEXT_HEADING,
+  WRITING_QUOTE_HEADING,
+  WRITING_REVISION_HEADING,
+  WRITING_REVISION_RULE,
+  composeWritingPrompt,
+  parseWritingPromptForDisplay,
+  quoteFromSelection,
+  relativeWritingPath,
+  type WritingQuote,
+} from "./prompt";
+
+const ROOT = "/space";
+const FILE = "/space/sub/a.md";
+
+describe("relativeWritingPath", () => {
+  it("命中根前缀截相对路径,否则回落 basename", () => {
+    expect(relativeWritingPath(ROOT, FILE)).toBe("sub/a.md");
+    expect(relativeWritingPath(ROOT, "/other/b.md")).toBe("b.md");
+    // 反斜杠归一化
+    expect(relativeWritingPath("C:\\space", "C:\\space\\c.md")).toBe("c.md");
+  });
+});
+
+describe("composeWritingPrompt", () => {
+  it("不含引用:上下文(当前文件)+ 改稿约定 + 用户正文", () => {
+    const out = composeWritingPrompt("帮我改改", [], { workspaceRoot: ROOT, activeFilePath: FILE });
+    expect(out).toContain(`${WRITING_CONTEXT_HEADING}\n当前文件: sub/a.md`);
+    expect(out).toContain(`${WRITING_REVISION_HEADING}\n${WRITING_REVISION_RULE}`);
+    expect(out.trimEnd().endsWith("帮我改改")).toBe(true);
+    // 无引用时不出现引用哨兵
+    expect(out).not.toContain(WRITING_QUOTE_HEADING);
+  });
+
+  it("含引用:引用片段块携带行号/字数/路径与原文", () => {
+    const quote: WritingQuote = {
+      id: "q1",
+      text: "被引用的原文",
+      sourceTitle: "sub/a.md",
+      sourceFilePath: FILE,
+      lineStart: 3,
+      lineEnd: 5,
+      charCount: 6,
+      createdAt: 0,
+    };
+    const out = composeWritingPrompt("润色这段", [quote], { workspaceRoot: ROOT, activeFilePath: FILE });
+    expect(out).toContain(`${WRITING_QUOTE_HEADING} sub/a.md（第3-5行，共6字）路径: ${FILE}`);
+    expect(out).toContain("[引用原文]\n被引用的原文\n[/引用原文]");
+    expect(out).toContain("润色这段");
+  });
+
+  it("改稿约定恒在:即便无正文无引用也带约定", () => {
+    const out = composeWritingPrompt("", [], {});
+    expect(out).toContain(WRITING_REVISION_RULE);
+  });
+
+  it("无当前文件时省略上下文块,仍有改稿约定与正文", () => {
+    const out = composeWritingPrompt("写点东西", [], {});
+    expect(out).not.toContain(WRITING_CONTEXT_HEADING);
+    expect(out).toContain(WRITING_REVISION_RULE);
+    expect(out.trimEnd().endsWith("写点东西")).toBe(true);
+  });
+});
+
+describe("quoteFromSelection", () => {
+  it("从选区快照构造冻结引用(相对标题 + 行号 + 字数)", () => {
+    const q = quoteFromSelection(
+      { text: "  选中文本  ", charCount: 4, lineStart: 2, lineEnd: 2 },
+      FILE,
+      ROOT,
+      1000,
+    );
+    expect(q).not.toBeNull();
+    expect(q!.text).toBe("选中文本"); // trim
+    expect(q!.sourceTitle).toBe("sub/a.md");
+    expect(q!.sourceFilePath).toBe(FILE);
+    expect(q!.lineStart).toBe(2);
+    expect(q!.charCount).toBe(4);
+  });
+
+  it("空选区返回 null", () => {
+    expect(quoteFromSelection({ text: "   ", charCount: 0 }, FILE, ROOT)).toBeNull();
+  });
+});
+
+describe("parseWritingPromptForDisplay(哨兵反解析)", () => {
+  it("反解析回用户正文 + 当前文件 + 引用,丢弃改稿约定", () => {
+    const quote: WritingQuote = {
+      id: "q1",
+      text: "原文片段",
+      sourceTitle: "sub/a.md",
+      sourceFilePath: FILE,
+      lineStart: 1,
+      lineEnd: 2,
+      charCount: 4,
+      createdAt: 0,
+    };
+    const prompt = composeWritingPrompt("请改这里", [quote], {
+      workspaceRoot: ROOT,
+      activeFilePath: FILE,
+    });
+    const display = parseWritingPromptForDisplay(prompt);
+    expect(display).not.toBeNull();
+    expect(display!.userInput).toBe("请改这里");
+    expect(display!.activeFile).toBe("sub/a.md");
+    expect(display!.quotes).toHaveLength(1);
+    expect(display!.quotes[0]!.text).toBe("原文片段");
+    expect(display!.quotes[0]!.lineStart).toBe(1);
+    expect(display!.quotes[0]!.lineEnd).toBe(2);
+  });
+
+  it("裸文本(无哨兵)返回 null", () => {
+    expect(parseWritingPromptForDisplay("普通一句话")).toBeNull();
+  });
+});

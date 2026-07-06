@@ -45,6 +45,8 @@ async function allowedRoots(): Promise<string[]> {
     ...state.projects.map((p) => p.path),
     state.designSettings?.defaultWorkspaceRoot,
     ...(state.designDocs ?? []).map((d) => d.workspaceRoot),
+    // 写作工作区：默认根在 Documents/cortex/writing（已被上面覆盖），此处只为用户自定义空间根兜底放行。
+    ...(state.writingUi?.spaces ?? []).map((s) => s.root),
   ].filter((r): r is string => !!r);
 }
 
@@ -531,6 +533,32 @@ export function registerFsHandlers(): void {
     const dir = join(documentsCortexDir(), "design");
     await fsp.mkdir(dir, { recursive: true });
     return dir;
+  });
+
+  // 写作工作区默认根:Documents/cortex/writing(天然在白名单内,零配置可用)。调用即确保存在。
+  // 仿 fs:designWorkspaceRoot;首次进入写作工作区时据此建立默认空间。
+  ipcMain.handle("fs:writingWorkspaceRoot", async () => {
+    const dir = join(documentsCortexDir(), "writing");
+    await fsp.mkdir(dir, { recursive: true });
+    return dir;
+  });
+
+  // 写作工作区:重命名文件/目录(文件树重命名 + 空间内改名共用)。
+  // 同目录重名预检:fs.rename 在 POSIX 下会静默覆盖已存在的目标,故先 stat 目标——
+  // 已存在则拒绝、不覆盖,避免重命名把另一文件顶掉。from/to 均须在白名单内。
+  ipcMain.handle("fs:renameEntry", async (_e, from: string, to: string) => {
+    await assertAllowed(from);
+    await assertAllowed(to);
+    try {
+      await fsp.stat(to);
+      // stat 成功 = 目标已存在,拒绝重命名。
+      throw new Error(`目标已存在: ${to}`);
+    } catch (err) {
+      // 仅在「目标不存在(ENOENT)」时放行;其余错误(含上面主动抛的重名错误)向上抛。
+      if (!(err instanceof Error) || !("code" in err) || err.code !== "ENOENT") throw err;
+    }
+    await fsp.mkdir(dirname(to), { recursive: true });
+    await fsp.rename(from, to);
   });
 
   ipcMain.handle("fs:createTaskFile", async (_e, projectRoot: string, todoId: string, title: string) => {

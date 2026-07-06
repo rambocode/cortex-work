@@ -14,6 +14,16 @@ type EditorSelectionFactory = typeof import("@codemirror/state").EditorSelection
 
 export type NoteEditorAppearance = "source" | "live";
 
+// 编辑器选区快照:文本 + 字符偏移(from/to)+ 1-based 起止行号。空选区(from===to)上报 null。
+// 写作工作区据此解禁「引用选中/润色」(R11);闪记等既有调用方不传该 prop,零改动。
+export interface NoteEditorSelection {
+  text: string;
+  from: number;
+  to: number;
+  startLine: number;
+  endLine: number;
+}
+
 type Props = {
   value: string;
   appearance: NoteEditorAppearance;
@@ -22,6 +32,8 @@ type Props = {
   onSave: () => void;
   // CodeMirror 动态装载失败时回调(弱网/损坏分包等)。调用方据此降级(如切到仅预览 + 提示)。
   onLoadError?: (err: unknown) => void;
+  // 选区变化上报(可选):有选区传快照,空选区传 null。不传则不做选区计算(闪记无此需求)。
+  onSelectionChange?: (selection: NoteEditorSelection | null) => void;
 };
 
 export function NoteCodeMirrorEditor({
@@ -31,6 +43,7 @@ export function NoteCodeMirrorEditor({
   onChange,
   onSave,
   onLoadError,
+  onSelectionChange,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -53,12 +66,16 @@ export function NoteCodeMirrorEditor({
   const valueRef = useRef(value);
   const lastEmittedValueRef = useRef<string | null>(null);
   const onLoadErrorRef = useRef(onLoadError);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  // 上次上报的选区签名(from:to),避免同一选区重复派发(光标移动会触发大量 selectionSet)。
+  const lastSelectionKeyRef = useRef<string | null>(null);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   appearanceRef.current = appearance;
   readOnlyRef.current = readOnly;
   valueRef.current = value;
   onLoadErrorRef.current = onLoadError;
+  onSelectionChangeRef.current = onSelectionChange;
 
   // 挂载一次:动态装载 CodeMirror + 本地扩展,建编辑器实例。
   useEffect(() => {
@@ -178,6 +195,26 @@ export function NoteCodeMirrorEditor({
             },
           ]),
           EditorView.updateListener.of((update) => {
+            // 选区上报:文档或选区变化时都重算。空选区(from===to)上报 null,同一选区去重不重复派发。
+            if (onSelectionChangeRef.current && (update.selectionSet || update.docChanged)) {
+              const { from, to } = update.state.selection.main;
+              const key = `${from}:${to}`;
+              if (key !== lastSelectionKeyRef.current) {
+                lastSelectionKeyRef.current = key;
+                if (from === to) {
+                  onSelectionChangeRef.current(null);
+                } else {
+                  const doc = update.state.doc;
+                  onSelectionChangeRef.current({
+                    text: doc.sliceString(from, to),
+                    from,
+                    to,
+                    startLine: doc.lineAt(from).number, // 1-based
+                    endLine: doc.lineAt(to).number,
+                  });
+                }
+              }
+            }
             if (!update.docChanged) return;
             const isExternalSync = update.transactions.some((t) => t.annotation(externalSyncAnnotation));
             if (isExternalSync) return;

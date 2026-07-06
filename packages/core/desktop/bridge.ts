@@ -137,6 +137,12 @@ export interface DesktopBridge {
   deleteEntry?(path: string): Promise<void>;
   // 设计产物默认根(Documents/cortex/design,调用即建目录);用户未自定义工作目录时的回落值。
   designWorkspaceRoot?(): Promise<string>;
+  // 写作产物默认根(Documents/cortex/writing,调用即建目录);首次进入写作工作区建默认空间用。
+  // 可选——web/旧壳无此能力时写作入口降级隐藏。
+  writingWorkspaceRoot?(): Promise<string>;
+  // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
+  // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。
+  renameEntry?(from: string, to: string): Promise<void>;
   createTaskFile(projectRoot: string, todoId: string, title: string): Promise<string>;
   // Tasks 面板:列出项目 tasks/ 与 tasks/archive/ 顶层 .md（带 mtime）。
   // 可选（旧壳没有;无此能力时面板退化为只显示已登记 todo）。

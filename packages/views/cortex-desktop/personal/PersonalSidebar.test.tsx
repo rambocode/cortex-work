@@ -1,6 +1,7 @@
-// U3 侧栏「项目管理」独立窗口入口的门控与定位测试（R1/R6，KTD2）。
-// 入口双门控：bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow（壳注入窗口能力）；
-// 位置在底部「设置」（.sb-foot）正上方；点击调用注入的 onOpenProjectsWindow（views 不碰 window.desktopAPI）。
+// U2 侧栏顶部三入口（会话 / 写作 / 项目管理）与底部项目管理移除的门控测试（R1/R2/R3、KTD2）。
+// - 会话=openHome、写作=openWriting（均以 store 状态断言真实行为）；
+// - 项目管理=双门控 bridge.tasksListProjects + 注入的 onOpenProjectsWindow（views 不碰 window.desktopAPI）；
+// - bridge=null（web/旧壳）时写作、项目管理降级隐藏，会话仍在；底部 footer 不再渲染项目管理。
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore } from "@cortex-work/core";
@@ -29,38 +30,86 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  // 干净的项目/会话集，避免上一例残留影响渲染。
-  usePersonalStore.setState({ projects: [], sessions: [] });
+  // 干净的项目/会话集与视图态,避免上一例残留影响渲染与断言。
+  usePersonalStore.setState({ projects: [], sessions: [], homeOpen: true, writingOpen: false });
 });
 
 afterEach(() => cleanup());
 
-describe("PersonalSidebar 「项目管理」入口（U3）", () => {
-  it("有任务能力 + 注入窗口回调 → 渲染「项目管理」，位于底部「设置」正上方", () => {
+describe("PersonalSidebar 顶部三入口（U2）", () => {
+  it("bridge 完整时渲染会话 / 写作 / 项目管理三入口(同一行)", () => {
     const { container } = renderSidebar(bridgeWith(true), () => {});
-    const entry = container.querySelector(".pw-projects-entry");
-    expect(entry).toBeTruthy();
-    expect(entry!.textContent).toContain("项目管理");
-    // 定位：入口在 .sb-foot（设置）之前（DOM 先序 → 视觉在上方）。
-    const foot = container.querySelector(".sb-foot")!;
-    expect(entry!.compareDocumentPosition(foot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const row = container.querySelector(".pw-top-nav-row")!;
+    expect(row).toBeTruthy();
+    // 三入口须同处一行容器内。
+    expect(row.textContent).toContain("会话");
+    expect(row.textContent).toContain("写作");
+    expect(row.textContent).toContain("项目管理");
+    expect(row.querySelectorAll(".pw-home-btn").length).toBe(3);
   });
 
-  it("点击入口调用注入的 onOpenProjectsWindow（不碰 window.desktopAPI）", () => {
+  it("点击「会话」触发 openHome（homeOpen=true、writingOpen 复位）", () => {
+    // 从写作态起步,验证点击会话确实切回首页并清写作态。
+    usePersonalStore.setState({ homeOpen: false, writingOpen: true });
+    renderSidebar(bridgeWith(true), () => {});
+    fireEvent.click(screen.getByText("会话"));
+    expect(usePersonalStore.getState().homeOpen).toBe(true);
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+  });
+
+  it("点击「写作」触发 openWriting（writingOpen=true、homeOpen 清空）", () => {
+    renderSidebar(bridgeWith(true), () => {});
+    fireEvent.click(screen.getByText("写作"));
+    expect(usePersonalStore.getState().writingOpen).toBe(true);
+    expect(usePersonalStore.getState().homeOpen).toBe(false);
+  });
+
+  it("点击「项目管理」调用注入的 onOpenProjectsWindow（不碰 window.desktopAPI）", () => {
     const open = vi.fn();
     renderSidebar(bridgeWith(true), open);
     fireEvent.click(screen.getByText("项目管理"));
     expect(open).toHaveBeenCalledTimes(1);
   });
 
-  it("缺窗口能力回调（web/旧壳）→ 隐藏入口", () => {
-    const { container } = renderSidebar(bridgeWith(true), undefined);
+  it("bridge=null（web/旧壳）→ 写作、项目管理降级隐藏，会话仍在", () => {
+    const { container } = renderSidebar(null, () => {});
+    expect(screen.getByText("会话")).toBeTruthy();
+    expect(screen.queryByText("写作")).toBeNull();
+    expect(container.querySelector(".pw-projects-entry")).toBeNull();
+    // 行容器仍在(承载会话入口),但只剩会话一个按钮。
+    expect(container.querySelector(".pw-top-nav-row")!.querySelectorAll(".pw-home-btn").length).toBe(1);
+  });
+
+  it("缺任务能力（bridge 无 tasksListProjects）→ 项目管理隐藏，写作仍在（双门控臂一）", () => {
+    const { container } = renderSidebar(bridgeWith(false), () => {});
+    expect(screen.getByText("写作")).toBeTruthy();
     expect(container.querySelector(".pw-projects-entry")).toBeNull();
   });
 
-  it("缺任务能力（bridge 无 tasksListProjects）→ 隐藏入口", () => {
-    const { container } = renderSidebar(bridgeWith(false), () => {});
+  it("缺窗口回调（onOpenProjectsWindow 未注入）→ 项目管理隐藏，写作仍在（双门控臂二）", () => {
+    const { container } = renderSidebar(bridgeWith(true), undefined);
+    expect(screen.getByText("写作")).toBeTruthy();
     expect(container.querySelector(".pw-projects-entry")).toBeNull();
+  });
+
+  it("项目管理入口位于顶部（在底部「设置」之前的 DOM 先序）", () => {
+    const { container } = renderSidebar(bridgeWith(true), () => {});
+    const entry = container.querySelector(".pw-projects-entry")!;
+    const foot = container.querySelector(".sb-foot")!;
+    expect(entry.compareDocumentPosition(foot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 顶部三入口组:项目管理在「写作 + 项目管理」并排行内。
+    expect(container.querySelector(".pw-top-nav-row")!.contains(entry)).toBe(true);
+  });
+});
+
+describe("PersonalSidebar 底部 footer（U2）", () => {
+  it("底部不再渲染项目管理，仍渲染设计入口与设置", () => {
+    const { container } = renderSidebar(bridgeWith(true), () => {});
+    const footer = container.querySelector(".pw-sidebar-footer")!;
+    // 底部只剩设计与设置:项目管理入口不在 footer 内。
+    expect(footer.querySelector(".pw-projects-entry")).toBeNull();
+    expect(screen.getByText("设计")).toBeTruthy();
+    expect(container.querySelector(".sb-foot")).toBeTruthy();
   });
 
   it("顶部旧「项目工作台」按钮已退役（不再渲染）", () => {
