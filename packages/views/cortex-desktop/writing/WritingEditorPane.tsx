@@ -32,6 +32,7 @@ import { MarkdownView } from "../personal/MarkdownView";
 import {
   NoteCodeMirrorEditor,
   type NoteEditorAppearance,
+  type NoteEditorSelection,
 } from "../personal/editor/NoteCodeMirrorEditor";
 import { useNoteAutosave } from "../personal/useNoteAutosave";
 import { WritingDiffReview } from "./WritingDiffReview";
@@ -85,11 +86,13 @@ interface Props {
   onConflict?: (info: { path: string; baseline: string; disk: string }) => void;
   // 审阅态(U6)需要冻结编辑;deleted 态由内部管理,两者取或。
   readOnly?: boolean;
+  // 编辑器选区变化上报(R11):有选区传快照,空选区/非编辑态传 null。上层据此解禁「引用选中/润色」。
+  onSelectionChange?: (selection: NoteEditorSelection | null) => void;
   onToast?: (msg: string) => void;
 }
 
 export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
-  function WritingEditorPane({ path, onConflict, readOnly, onToast }, ref): ReactElement {
+  function WritingEditorPane({ path, onConflict, readOnly, onSelectionChange, onToast }, ref): ReactElement {
     const bridge = useDesktopBridge();
 
     const [mode, setMode] = useState<Mode>("live");
@@ -252,6 +255,15 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     const effectiveMode: Mode = editorLoadFailed ? "preview" : mode;
     // deleted / 外部只读 / 审阅态都冻结编辑。
     const frozen = deleted || !!readOnly || !!pendingReview;
+    // CM 编辑器是否在场:仅 source/live 且非审阅态才挂载。preview / diff 审阅无 CM,选区不可用。
+    const editorMounted = !!path && !!loaded && !loadError && !pendingReview && effectiveMode !== "preview";
+
+    // 编辑器不在场(切 preview / 进审阅 / 无文件)时把选区收敛为 null,避免上层残留旧选区。
+    const onSelectionChangeRef = useRef(onSelectionChange);
+    onSelectionChangeRef.current = onSelectionChange;
+    useEffect(() => {
+      if (!editorMounted) onSelectionChangeRef.current?.(null);
+    }, [editorMounted]);
 
     if (!path) {
       return (
@@ -347,6 +359,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
               appearance={effectiveMode as NoteEditorAppearance}
               readOnly={frozen}
               onChange={setDraft}
+              onSelectionChange={onSelectionChange}
               onSave={() => void save()}
               onLoadError={() => {
                 setEditorLoadFailed(true);

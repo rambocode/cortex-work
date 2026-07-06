@@ -66,7 +66,8 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
     const root = normalizeRoot(await bridge.writingWorkspaceRoot());
     // 理论上空列表不会撞根，仍防御去重（避免并发调用重复追加）。
     if (get().spaces.some((s) => normalizeRoot(s.root) === root)) return null;
-    const space: WritingSpace = { id: genSpaceId(), name: deriveName(root), root };
+    // isDefault:true —— 这是零配置默认空间，UI 据此在其行下渲染「默认写作空间」副标。
+    const space: WritingSpace = { id: genSpaceId(), name: deriveName(root), root, isDefault: true };
     set((s) => ({ spaces: [...s.spaces, space], activeSpaceId: space.id }));
     return space;
   },

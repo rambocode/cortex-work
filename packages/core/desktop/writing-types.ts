@@ -4,10 +4,13 @@
 // 用户可经系统目录选择器添加空间（根落在白名单外时由 fs.allowedRoots 兜底放行）。
 
 // 单个写作空间：id（内部稳定标识）、name（展示名，默认取根目录 basename）、root（绝对路径）。
+// isDefault：ensureDefaultSpace 建的那个空间为 true，UI 在其行下渲染「默认写作空间」副标。
+// 缺省（旧档 / 用户手动添加的空间）视为 false。
 export interface WritingSpace {
   id: string;
   name: string;
   root: string;
+  isDefault?: boolean;
 }
 
 // 一条写作助手会话的元数据（U8）：id（threadUuid，参与 sessionId 组装）、title（展示名，

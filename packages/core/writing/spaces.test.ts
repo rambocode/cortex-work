@@ -20,6 +20,7 @@ describe("useWritingSpacesStore.addSpace", () => {
     expect(space).not.toBeNull();
     expect(space?.root).toBe("/tmp/writing/alpha");
     expect(space?.name).toBe("alpha"); // basename 派生展示名
+    expect(space?.isDefault).toBeFalsy(); // 用户手动添加的空间不是默认空间
     const s = useWritingSpacesStore.getState();
     expect(s.spaces).toHaveLength(1);
     expect(s.activeSpaceId).toBe(space?.id);
@@ -114,6 +115,7 @@ describe("useWritingSpacesStore.ensureDefaultSpace", () => {
     expect(space).not.toBeNull();
     expect(space?.root).toBe("/home/me/Documents/cortex/writing");
     expect(space?.name).toBe("writing");
+    expect(space?.isDefault).toBe(true); // 默认空间标记，UI 据此渲染副标
     const s = useWritingSpacesStore.getState();
     expect(s.spaces).toHaveLength(1);
     expect(s.activeSpaceId).toBe(space?.id);

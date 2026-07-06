@@ -16,6 +16,8 @@ import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
 import { useWritingWorkspaceStore } from "@cortex-work/core/writing/workspace-store";
 import { useWritingReviewStore } from "@cortex-work/core/writing/review-manager";
 import { createWritingAttribution } from "@cortex-work/core/writing/attribution";
+import type { WritingSelectionSnapshot } from "@cortex-work/core/writing/prompt";
+import type { NoteEditorSelection } from "../personal/editor/NoteCodeMirrorEditor";
 import { WritingSidebar } from "./WritingSidebar";
 import { WritingEditorPane, type WritingEditorPaneHandle } from "./WritingEditorPane";
 import { WritingAssistantPanel } from "./WritingAssistantPanel";
@@ -29,6 +31,9 @@ export function WritingWorkspace(): ReactElement {
   const currentFile = useWritingWorkspaceStore((s) => s.currentFile);
 
   const [toast, setToast] = useState<string | null>(null);
+  // 编辑器实时选区(R11):CM onSelectionChange → 此 state → 助手面板 selection prop。
+  // 空选区/非编辑态为 null,润色卡与「引用选中」据此解禁。
+  const [selection, setSelection] = useState<WritingSelectionSnapshot | null>(null);
   const activeSpace = spaces.find((s) => s.id === activeSpaceId) ?? null;
 
   // 当前打开文件是否有未处理审阅(禁发新回合 R13;传给助手面板做发送门控)。
@@ -134,6 +139,19 @@ export function WritingWorkspace(): ReactElement {
             ref={editorRef}
             path={currentFile}
             onToast={setToast}
+            // CM 选区 → WritingSelectionSnapshot(charCount 取选中文本长度;空选区传 null)。
+            onSelectionChange={(sel: NoteEditorSelection | null) =>
+              setSelection(
+                sel
+                  ? {
+                      text: sel.text,
+                      charCount: sel.text.length,
+                      lineStart: sel.startLine,
+                      lineEnd: sel.endLine,
+                    }
+                  : null,
+              )
+            }
             // 脏态遇外部改动的冲突审阅入口:基线=编辑器当前内容,新版=盘上内容(复用同一 diff 通道)。
             onConflict={({ path, baseline, disk }) =>
               useWritingReviewStore
@@ -146,8 +164,8 @@ export function WritingWorkspace(): ReactElement {
           <WritingAssistantPanel
             space={activeSpace}
             activeFilePath={currentFile}
-            // 选区引用的实时选区源(编辑器 onSelectionChange)属二期,暂不接入 → 润色卡/引用按钮降级禁用。
-            selection={null}
+            // 编辑器实时选区(R11):有选区时润色卡/引用按钮解禁。
+            selection={selection}
             hasPendingReview={hasPendingReview}
             onFlushBeforeSend={() => editorRef.current?.flushNow()}
             onToast={setToast}

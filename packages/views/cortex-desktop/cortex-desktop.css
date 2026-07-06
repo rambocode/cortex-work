@@ -10160,46 +10160,89 @@ button.sb-row {
   background: var(--bg-right);
 }
 
-/* 左栏:空间选择条 + 树工具栏 + 文件树 */
+/* 左栏(对齐 Kun):顶部两整行按钮 + 写作空间分组标题 + 可折叠空间列表 */
 .pw-writing-sidebar { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.pw-writing-space-bar {
+
+/* 顶部两个整行按钮 */
+.pw-writing-top { display: flex; flex-direction: column; gap: 4px; padding: 10px 10px 6px; flex-shrink: 0; }
+.pw-writing-newbtn, .pw-writing-addbtn {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 10px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; cursor: pointer; text-align: left;
+  border: 1px solid transparent;
+}
+.pw-writing-newbtn { background: var(--accent); color: #fff; }
+.pw-writing-newbtn:hover { filter: brightness(1.06); }
+.pw-writing-newbtn:disabled { opacity: 0.5; cursor: default; filter: none; }
+.pw-writing-addbtn { background: transparent; color: var(--text-2); border-color: var(--border); }
+.pw-writing-addbtn:hover { background: var(--bg-hover); color: var(--text-1); }
+
+/* 「写作空间」分组标题行 */
+.pw-writing-spaces-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px 4px; flex-shrink: 0;
+}
+.pw-writing-spaces-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+/* 空间列表(可滚动) */
+.pw-writing-spaces { flex: 1; overflow-y: auto; padding: 2px 6px 8px; min-height: 0; }
+.pw-writing-space-group { margin-bottom: 2px; }
+
+/* 空间行 */
+.pw-writing-space-row {
   display: flex; align-items: center; gap: 6px;
-  padding: 8px 10px; flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
+  padding: 6px 8px; border-radius: 7px;
+  font-size: 13px; font-weight: 500; color: var(--text-1);
+  cursor: pointer;
 }
-.pw-writing-space-select {
-  flex: 1; min-width: 0;
-  padding: 4px 6px; border-radius: 7px;
-  border: 1px solid var(--border); background: var(--bg-app);
-  font-size: 12.5px; color: var(--text-1);
+.pw-writing-space-row:hover { background: var(--bg-hover); }
+.pw-writing-space-row.is-active { background: var(--bg-active); }
+.pw-writing-space-row .chev { display: inline-flex; color: var(--text-3); transition: transform 0.12s; flex-shrink: 0; }
+.pw-writing-space-row .chev[data-collapsed="true"] { transform: rotate(-90deg); }
+.pw-writing-space-row > svg { flex-shrink: 0; color: var(--text-3); }
+
+/* 空间行悬浮动作组(hover 出现) */
+.pw-writing-space-actions { display: none; align-items: center; gap: 2px; margin-left: auto; }
+.pw-writing-space-row:hover .pw-writing-space-actions { display: inline-flex; }
+.pw-writing-space-actions button {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 3px; border-radius: 5px; color: var(--text-3); cursor: pointer;
 }
-.pw-writing-tree-tools {
-  display: flex; align-items: center; gap: 4px;
-  padding: 6px 10px; flex-shrink: 0;
-}
-.pw-writing-tree-tools .spacer { flex: 1; }
-.pw-writing-inline-input {
-  display: flex; align-items: center; gap: 4px;
-  margin: 2px 10px; padding: 2px 4px;
-}
+.pw-writing-space-actions button:hover { background: var(--bg-app); color: var(--text-1); }
+
+/* 默认空间副标 */
+.pw-writing-space-sub { padding: 0 8px 2px 34px; font-size: 11px; color: var(--text-4); }
+
+/* 空间展开体 */
+.pw-writing-space-body { padding: 2px 0 4px; }
+
+/* 内联输入(就地重命名 / 新建目录) */
+.pw-writing-inline-input { display: flex; align-items: center; gap: 4px; margin: 2px 8px; }
 .pw-writing-inline-input input {
-  flex: 1; min-width: 0;
-  padding: 4px 8px; border-radius: 7px;
+  flex: 1; min-width: 0; padding: 4px 8px; border-radius: 7px;
   border: 1px solid var(--accent); background: var(--bg-app);
   font-size: 12.5px; color: var(--text-1); outline: none;
 }
-.pw-writing-tree { flex: 1; overflow-y: auto; }
-.pw-tree-row.is-active { background: var(--bg-hover); color: var(--text-1); }
-/* 每行悬浮动作(重命名/删除):默认隐藏,hover 行时出现 */
-.pw-writing-node-actions {
-  display: none; align-items: center; gap: 2px; margin-left: auto;
-}
-.pw-tree-row:hover .pw-writing-node-actions { display: inline-flex; }
+
+/* 文件行左侧占位(对齐目录行 chevron 宽度) */
+.pw-tree-lead { width: 11px; flex-shrink: 0; }
+
+/* 选中文件行高亮 */
+.pw-tree-row.is-active { background: var(--bg-active); color: var(--text-1); }
+
+/* 树节点行内动作:常显浅灰,hover 加深(对齐 Kun,不再纯悬浮出现) */
+.pw-writing-node-actions { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; color: var(--text-4); }
 .pw-writing-node-actions button {
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 2px; border-radius: 5px; color: var(--text-3); cursor: pointer;
+  padding: 2px; border-radius: 5px; color: var(--text-4); cursor: pointer;
 }
 .pw-writing-node-actions button:hover { background: var(--bg-app); color: var(--text-1); }
+
+/* pending 徽标:待审阅文件的小圆点 */
+.pw-writing-pending-badge { margin-left: 4px; color: var(--accent); font-size: 10px; line-height: 1; flex-shrink: 0; }
 
 /* 中/右栏占位(U5/U8 替换实现) */
 .pw-writing-placeholder {

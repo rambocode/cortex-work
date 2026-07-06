@@ -18,14 +18,31 @@ import { __resetWritingThreadsForTest } from "@cortex-work/core/writing/threads"
 import { WritingWorkspace } from "./WritingWorkspace";
 
 // CM 内核 / Markdown / diff 视图桩:整窗集成关注编排,编辑器内核用受控 textarea 替身即可确定性驱动。
+// CM 桩:受控 textarea + 两个按钮驱动 onSelectionChange(jsdom 下无法真跑 CM 选区,用桩确定性触发)。
 vi.mock("../personal/editor/NoteCodeMirrorEditor", () => ({
   NoteCodeMirrorEditor: ({
     value,
     onChange,
+    onSelectionChange,
   }: {
     value: string;
     onChange: (v: string) => void;
-  }) => <textarea data-testid="cm" value={value} onChange={(e) => onChange(e.target.value)} />,
+    onSelectionChange?: (sel: { text: string; from: number; to: number; startLine: number; endLine: number } | null) => void;
+  }) => (
+    <div>
+      <textarea data-testid="cm" value={value} onChange={(e) => onChange(e.target.value)} />
+      <button
+        type="button"
+        data-testid="cm-select"
+        onClick={() => onSelectionChange?.({ text: "选中段", from: 0, to: 3, startLine: 1, endLine: 1 })}
+      >
+        select
+      </button>
+      <button type="button" data-testid="cm-deselect" onClick={() => onSelectionChange?.(null)}>
+        deselect
+      </button>
+    </div>
+  ),
 }));
 vi.mock("../personal/MarkdownView", () => ({
   MarkdownView: ({ content }: { content: string }) => <div data-testid="md">{content}</div>,
@@ -119,30 +136,15 @@ describe("WritingWorkspace(U4)", () => {
     expect(usePersonalStore.getState().homeOpen).toBe(true);
   });
 
-  it("树渲染 scanDirTree 结果;新建重名被拒并提示", async () => {
-    const bridge = makeBridge({ fileExists: vi.fn(async () => true) }); // 目标已存在
-    renderWs(bridge);
-    await screen.findByText("a1.md");
-    // 打开新建文件输入,输入一个已存在的名字并提交
-    fireEvent.click(screen.getByLabelText("新建文件"));
-    const input = screen.getByLabelText("新建文件名");
-    fireEvent.change(input, { target: { value: "dup.md" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    // toast 提示重名,且未写盘
-    expect(await screen.findByText("已存在同名文件或目录")).toBeTruthy();
-    expect(bridge.writeFile).not.toHaveBeenCalled();
-  });
-
-  it("新建文件成功 → 写空文件并打开", async () => {
+  it("顶部「新建文件」→ 在活跃空间根建 untitled.md 并打开", async () => {
     const bridge = makeBridge();
     renderWs(bridge);
-    await screen.findByText("a1.md");
-    fireEvent.click(screen.getByLabelText("新建文件"));
-    const input = screen.getByLabelText("新建文件名");
-    fireEvent.change(input, { target: { value: "fresh.md" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(bridge.writeFile).toHaveBeenCalledWith("/w/alpha/fresh.md", ""));
-    await waitFor(() => expect(useWritingWorkspaceStore.getState().currentFile).toBe("/w/alpha/fresh.md"));
+    await screen.findByText("a1.md"); // 活跃空间 alpha 自动展开
+    fireEvent.click(screen.getByRole("button", { name: "新建文件" }));
+    await waitFor(() => expect(bridge.writeFile).toHaveBeenCalledWith("/w/alpha/untitled.md", ""));
+    await waitFor(() =>
+      expect(useWritingWorkspaceStore.getState().currentFile).toBe("/w/alpha/untitled.md"),
+    );
   });
 
   it("删除当前打开文件触发确认;确认后 currentFile 清空(deleted 信号)", async () => {
@@ -173,19 +175,41 @@ describe("WritingWorkspace(U4)", () => {
     confirmSpy.mockRestore();
   });
 
-  it("切空间:重扫树 + watch 新根 / unwatch 旧根", async () => {
+  it("展开非活跃空间:扫描 + watch 其根;点其文件切活跃空间;折叠 → unwatch", async () => {
     const bridge = makeBridge();
     renderWs(bridge);
-    // 初始订阅 alpha
+    // 活跃空间 alpha 自动展开 → 扫描 + watch
     await waitFor(() => expect(bridge.watchDir).toHaveBeenCalledWith(SPACE_A.id, SPACE_A.root));
     await screen.findByText("a1.md");
-    // 切到 beta
-    fireEvent.change(screen.getByLabelText("写作空间"), { target: { value: SPACE_B.id } });
-    await screen.findByText("b1.md"); // 树切换为 beta
+    // 展开 beta(点其空间行,标题=空间名)→ 扫描 + watch beta;两空间同时展开
+    fireEvent.click(screen.getByText("beta"));
+    await screen.findByText("b1.md");
     expect(bridge.scanDirTree).toHaveBeenCalledWith(SPACE_B.root);
     await waitFor(() => expect(bridge.watchDir).toHaveBeenCalledWith(SPACE_B.id, SPACE_B.root));
-    expect(bridge.unwatchDir).toHaveBeenCalledWith(SPACE_A.id);
+    // alpha 仍展开 → 未被 unwatch
+    expect(bridge.unwatchDir).not.toHaveBeenCalledWith(SPACE_A.id);
+    // 点 beta 的文件 → 切活跃空间 + 打开
+    fireEvent.click(screen.getByText("b1.md"));
     expect(useWritingSpacesStore.getState().activeSpaceId).toBe(SPACE_B.id);
+    expect(useWritingWorkspaceStore.getState().currentFile).toBe("/w/beta/b1.md");
+    // 折叠 beta(再点其空间行)→ unwatch beta
+    fireEvent.click(screen.getByText("beta"));
+    await waitFor(() => expect(bridge.unwatchDir).toHaveBeenCalledWith(SPACE_B.id));
+  });
+
+  it("编辑器选区上报 → 助手面板润色卡解禁;取消选区后重新禁用(R11)", async () => {
+    useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
+    renderWs(makeBridge());
+    await screen.findByTestId("cm");
+    // 无选区:润色卡禁用
+    const polish = screen.getByText("润色选中文本").closest("button")!;
+    expect(polish).toBeDisabled();
+    // 上报选区 → 解禁
+    fireEvent.click(screen.getByTestId("cm-select"));
+    await waitFor(() => expect(screen.getByText("润色选中文本").closest("button")!).not.toBeDisabled());
+    // 取消选区 → 重新禁用
+    fireEvent.click(screen.getByTestId("cm-deselect"));
+    await waitFor(() => expect(screen.getByText("润色选中文本").closest("button")!).toBeDisabled());
   });
 
   // U9 端到端:模拟 WritingWorkspace 的归因接线闭环。
