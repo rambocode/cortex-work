@@ -1400,3 +1400,98 @@ describe("piSkills per-agent 迁移（Design B, plan 002 U1）", () => {
 // store 不再持有该视图态，入口打开独立 BrowserWindow（desktopAPI.projectsWindow.open）。
 // 故原 projectsOpen 全屏互斥断言随状态删除一并移除；openSettings 栈式语义仍由上方
 // 「设置整页视图态(settingsOpen)」用例覆盖。
+
+// 写作工作台整窗覆盖层视图态(writingOpen,U1)：与其它中心视图互斥、瞬态不持久化。
+describe("写作工作台整窗视图态(writingOpen)", () => {
+  it("openWriting 置 writingOpen 并互斥清空其它中心视图标志", () => {
+    usePersonalStore.getState().hydrate(base);
+    // 预置一批「脏」视图态,验证 openWriting 全部清空。
+    usePersonalStore.setState({
+      homeOpen: true,
+      designOpen: true,
+      automationOpen: true,
+      workflowOpen: true,
+      settingsOpen: true,
+      noteEditorId: "n1",
+      timelineProjectId: "p1",
+    });
+    usePersonalStore.getState().openWriting();
+    const s = usePersonalStore.getState();
+    expect(s.writingOpen).toBe(true);
+    expect(s.homeOpen).toBe(false);
+    expect(s.designOpen).toBe(false);
+    expect(s.automationOpen).toBe(false);
+    expect(s.workflowOpen).toBe(false);
+    expect(s.settingsOpen).toBe(false);
+    expect(s.noteEditorId).toBeUndefined();
+    expect(s.timelineProjectId).toBeUndefined();
+  });
+
+  it("closeWriting 复位 writingOpen 并回落首页", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openWriting();
+    usePersonalStore.getState().closeWriting();
+    const s = usePersonalStore.getState();
+    expect(s.writingOpen).toBe(false);
+    expect(s.homeOpen).toBe(true);
+  });
+
+  // 每个既有 openXxx / 切会话 / 切项目入口都必须清 writingOpen(互斥,最易漏点)。
+  it("切到其它任一视图入口时清空 writingOpen(让位)", () => {
+    const seed = () => {
+      usePersonalStore.getState().hydrate({
+        ...base,
+        sessions: [{ id: "c1", title: "会话", agent: "claude", createdAt: 1, updatedAt: 1 }],
+        projects: [proj({ id: "p1" })],
+      });
+      usePersonalStore.getState().openWriting();
+      expect(usePersonalStore.getState().writingOpen).toBe(true);
+    };
+
+    seed();
+    usePersonalStore.getState().openHome();
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openDesign();
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openAutomation();
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openWorkflow();
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openSettings();
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openNoteEditor("n1");
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openTimeline("p1");
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().setActiveSession("c1");
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().activateProject("p1");
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().createSession(undefined, "claude");
+    expect(usePersonalStore.getState().writingOpen).toBe(false);
+  });
+
+  it("writingOpen 不进 toPersistedState(瞬态,重启不残留 → 消掉 web 恢复白屏)", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openWriting();
+    expect("writingOpen" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  });
+});
