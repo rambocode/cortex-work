@@ -38,6 +38,7 @@ import { registerWritingRetrievalHandlers } from "./writing-retrieval";
 import { registerWritingInfographicHandlers } from "./writing-infographic";
 import { registerWritingExportHandlers } from "./writing-export";
 import { registerWritingLlmHandlers } from "./writing-llm";
+import { registerWritingPdfHandlers } from "./writing-pdf";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -85,6 +86,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerWritingInfographicHandlers(); // 写作信息图生成(对接 media-gen）IPC 域（U7）
   registerWritingExportHandlers(); // 写作重型导出(DOCX/PDF/PNG/HTML/复制富文本）IPC 域（U6）
   registerWritingLlmHandlers(); // 写作 LLM(ghost text 续写 + Cmd-K 就地改写）IPC 域（U3）
+  registerWritingPdfHandlers(); // 写作 PDF 阅读(取原始字节交渲染端 pdfjs 渲染）IPC 域（U5）
 }
 
 export { killAllCli } from "./cli";

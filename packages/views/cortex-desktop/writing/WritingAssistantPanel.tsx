@@ -481,7 +481,11 @@ export function WritingAssistantPanel({
                 <Icon.Comment size={13} />
                 <span className="pw-wa-quote-label">
                   {q.sourceTitle}
-                  {q.lineStart != null && q.lineEnd != null ? ` · ${q.lineStart}-${q.lineEnd}行` : ""}
+                  {q.sourceKind === "pdf" && q.pageStart != null
+                    ? ` · 第${q.pageEnd != null && q.pageEnd !== q.pageStart ? `${q.pageStart}-${q.pageEnd}` : q.pageStart}页`
+                    : q.lineStart != null && q.lineEnd != null
+                      ? ` · ${q.lineStart}-${q.lineEnd}行`
+                      : ""}
                 </span>
                 <button
                   type="button"

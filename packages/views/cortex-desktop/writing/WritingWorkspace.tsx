@@ -117,6 +117,11 @@ export function WritingWorkspace(): ReactElement {
     void ensureDefaultSpace(bridge);
   }, [bridge, ensureDefaultSpace]);
 
+  // 切文件时清空选区(U5):PDF↔文本、文件↔文件切换后旧选区快照失效,由新档编辑器/阅读器重新上报。
+  useEffect(() => {
+    setSelection(null);
+  }, [currentFile]);
+
   // toast 自动消失(3s)。
   useEffect(() => {
     if (!toast) return;
@@ -180,6 +185,8 @@ export function WritingWorkspace(): ReactElement {
                   : null,
               )
             }
+            // PDF 文本层选区(U5):直接给写作选区快照(sourceKind=pdf + 页码),与 CM 选区汇入同一 state。
+            onPdfSelectionChange={setSelection}
             // 脏态遇外部改动的冲突审阅入口:基线=编辑器当前内容,新版=盘上内容(复用同一 diff 通道)。
             onConflict={({ path, baseline, disk }) =>
               useWritingReviewStore

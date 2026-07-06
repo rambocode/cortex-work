@@ -110,6 +110,8 @@ import type {
   WritingInlineEditResult,
   WritingLlmStatus,
 } from "./writing-llm-types";
+// 写作 PDF 阅读(U5）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-pdf-types.ts 镜像）。
+import type { WritingPdfDataRequest, WritingPdfDataResult } from "./writing-pdf-types";
 import type { ChannelId } from "../reply/channels";
 import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
 import type {
@@ -192,6 +194,10 @@ export interface DesktopBridge {
   writingLlmStatus?(): Promise<WritingLlmStatus>;
   writingComplete?(req: WritingCompletionRequest): Promise<WritingCompletionResult>;
   writingInlineEdit?(req: WritingInlineEditRequest): Promise<WritingInlineEditResult>;
+  // ── 写作 PDF 阅读(U5）────────────────────────────────────────────────────
+  // 读 PDF 原始字节(base64)交渲染端 pdfjs 阅读器渲染;失败给结构化 message(渲染端展示错误占位)。
+  // 可选——web/旧壳无此能力时 .pdf 无法在写作台打开(阅读器降级为不支持提示)。
+  writingReadPdf?(req: WritingPdfDataRequest): Promise<WritingPdfDataResult>;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
   // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。
   renameEntry?(from: string, to: string): Promise<void>;

@@ -35,15 +35,21 @@ export const WRITING_REVISION_RULE =
 
 // ── 选区引用模型 ──────────────────────────────────────────────────────────
 // 编辑器选区快照:创建引用时冻结,后续文档变动不影响已建引用(快照语义,R11)。
+// 来源分两类(sourceKind):文本档(text,默认)用 1-based 行号定位;PDF 档(U5)用 1-based 页码定位。
 export interface WritingSelectionSnapshot {
   text: string;
   charCount: number;
   // 1-based 起止行号(纯文本选区);缺省时省略行号展示。
   lineStart?: number;
   lineEnd?: number;
+  // 选区来源:缺省视为 text(文本档);pdf 表示来自 PDF 阅读器文本层(用 pageStart/pageEnd 定位,无行号)。
+  sourceKind?: "text" | "pdf";
+  // 1-based 起止页码(仅 sourceKind=pdf)。
+  pageStart?: number;
+  pageEnd?: number;
 }
 
-// 一条冻结的引用片段:承载文本 + 来源(相对标题 + 绝对路径)+ 行号 + 字数。
+// 一条冻结的引用片段:承载文本 + 来源(相对标题 + 绝对路径)+ 行号/页码 + 字数。
 export interface WritingQuote {
   id: string;
   text: string;
@@ -51,6 +57,10 @@ export interface WritingQuote {
   sourceFilePath: string; // 绝对路径(agent 定位用)
   lineStart?: number;
   lineEnd?: number;
+  // PDF 引用(U5):sourceKind=pdf 时用页码定位,展示与 prompt 均标页码而非行号。
+  sourceKind?: "text" | "pdf";
+  pageStart?: number;
+  pageEnd?: number;
   charCount: number;
   createdAt: number;
 }
@@ -91,17 +101,31 @@ export function quoteFromSelection(
     sourceFilePath: filePath,
     ...(selection.lineStart != null ? { lineStart: selection.lineStart } : {}),
     ...(selection.lineEnd != null ? { lineEnd: selection.lineEnd } : {}),
+    // PDF 选区(U5):冻结来源类型与页码,formatQuoteForPrompt / 展示据此标页码。
+    ...(selection.sourceKind ? { sourceKind: selection.sourceKind } : {}),
+    ...(selection.pageStart != null ? { pageStart: selection.pageStart } : {}),
+    ...(selection.pageEnd != null ? { pageEnd: selection.pageEnd } : {}),
     charCount: selection.charCount,
     createdAt: now,
   };
 }
 
-// 单条引用格式化为 prompt 片段(标题含行号/字数元信息,文本包裹在原文哨兵之间)。
+// 把页码区间格式化为「第x页」或「第x-y页」(pdf 引用元信息用)。
+function formatPageRange(pageStart: number, pageEnd?: number): string {
+  return pageEnd != null && pageEnd !== pageStart
+    ? `第${pageStart}-${pageEnd}页`
+    : `第${pageStart}页`;
+}
+
+// 单条引用格式化为 prompt 片段(标题含行号/页码/字数元信息,文本包裹在原文哨兵之间)。
+// PDF 引用无行号,改标页码;文本引用维持行号(与既有格式向后兼容)。
 function formatQuoteForPrompt(quote: WritingQuote): string {
   const meta =
-    quote.lineStart != null && quote.lineEnd != null
-      ? `（第${quote.lineStart}-${quote.lineEnd}行，共${quote.charCount}字）`
-      : `（共${quote.charCount}字）`;
+    quote.sourceKind === "pdf" && quote.pageStart != null
+      ? `（${formatPageRange(quote.pageStart, quote.pageEnd)}，共${quote.charCount}字）`
+      : quote.lineStart != null && quote.lineEnd != null
+        ? `（第${quote.lineStart}-${quote.lineEnd}行，共${quote.charCount}字）`
+        : `（共${quote.charCount}字）`;
   return [
     `${WRITING_QUOTE_HEADING} ${quote.sourceTitle}${meta}路径: ${quote.sourceFilePath}`,
     WRITING_QUOTE_ORIGINAL_START,
@@ -185,6 +209,10 @@ export interface WritingPromptDisplayQuote {
   sourceFilePath?: string;
   lineStart?: number;
   lineEnd?: number;
+  // PDF 引用(U5)反解析出的页码定位;sourceKind=pdf 时置。
+  sourceKind?: "text" | "pdf";
+  pageStart?: number;
+  pageEnd?: number;
   charCount?: number;
   text: string;
 }
@@ -195,22 +223,32 @@ export interface WritingPromptDisplay {
   quotes: WritingPromptDisplayQuote[];
 }
 
-// 解析引用头行,取出标题/路径/行号/字数(与 formatQuoteForPrompt 的格式严格对称)。
+// 解析引用头行,取出标题/路径/行号或页码/字数(与 formatQuoteForPrompt 的格式严格对称)。
+// 单位「行」→ 文本引用(lineStart/lineEnd);单位「页」→ PDF 引用(pageStart/pageEnd + sourceKind=pdf)。
 function parseQuoteHeader(header: string): Omit<WritingPromptDisplayQuote, "text"> {
   const body = header.replace(WRITING_QUOTE_HEADING, "").trim();
   const pathSplit = body.match(/^(.*?)\s*路径:\s*(.+)$/);
   const titleAndMeta = (pathSplit?.[1] ?? body).trim();
   const sourceFilePath = pathSplit?.[2]?.trim();
-  const metaMatch = titleAndMeta.match(/^(.*?)（(?:第(\d+)-(\d+)行，)?共(\d+)字）$/);
+  const metaMatch = titleAndMeta.match(/^(.*?)（(?:第(\d+)(?:-(\d+))?(行|页)，)?共(\d+)字）$/);
   const sourceTitle = (metaMatch?.[1] ?? titleAndMeta).trim();
-  const lineStart = metaMatch?.[2] ? Number.parseInt(metaMatch[2], 10) : undefined;
-  const lineEnd = metaMatch?.[3] ? Number.parseInt(metaMatch[3], 10) : undefined;
-  const charCount = metaMatch?.[4] ? Number.parseInt(metaMatch[4], 10) : undefined;
+  const start = metaMatch?.[2] ? Number.parseInt(metaMatch[2], 10) : undefined;
+  const end = metaMatch?.[3] ? Number.parseInt(metaMatch[3], 10) : undefined;
+  const unit = metaMatch?.[4];
+  const charCount = metaMatch?.[5] ? Number.parseInt(metaMatch[5], 10) : undefined;
+  const isPdf = unit === "页";
+  const lineStart = !isPdf && start != null ? start : undefined;
+  const lineEnd = !isPdf && start != null ? (end ?? start) : undefined;
+  const pageStart = isPdf && start != null ? start : undefined;
+  const pageEnd = isPdf && start != null ? (end ?? start) : undefined;
   return {
     sourceTitle,
     ...(sourceFilePath ? { sourceFilePath } : {}),
     ...(lineStart != null ? { lineStart } : {}),
     ...(lineEnd != null ? { lineEnd } : {}),
+    ...(isPdf ? { sourceKind: "pdf" as const } : {}),
+    ...(pageStart != null ? { pageStart } : {}),
+    ...(pageEnd != null ? { pageEnd } : {}),
     ...(charCount != null ? { charCount } : {}),
   };
 }

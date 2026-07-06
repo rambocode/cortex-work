@@ -44,12 +44,27 @@ export interface WritingRetrievalIndex {
   documentFrequency: Map<string, number>;
 }
 
-// 待索引文件的原始输入(fs 层读好后喂给纯核心;核心不碰 fs)。
-export interface WritingIndexInput {
+// 待索引文件的原始输入(fs 层读好后喂给纯核心;核心不碰 fs)。文本档给整篇 content;
+// PDF(U5)给逐页文本 pdfPages —— 两者切块策略与定位(行号 vs 页码)不同,故用判别联合区分。
+export interface WritingTextIndexInput {
   path: string;
   relativePath: string;
   content: string;
 }
+
+// PDF 单页文本(1-based 页码);由主进程 readWritePdfText 抽取后喂入。
+export interface WritingPdfPageText {
+  page: number;
+  text: string;
+}
+
+export interface WritingPdfIndexInput {
+  path: string;
+  relativePath: string;
+  pdfPages: WritingPdfPageText[];
+}
+
+export type WritingIndexInput = WritingTextIndexInput | WritingPdfIndexInput;
 
 // 查询模型:归一化查询文本 + 排序好的词项 + 各词权重(供 BM25 加权)。
 interface QueryModel {
@@ -200,12 +215,37 @@ export function chunkWritingMarkdown(path: string, relativePath: string, content
   return chunks;
 }
 
+// 把一篇 PDF 的逐页文本切块(U5):一页一块,location 用页码区间(pageStart=pageEnd=页),
+// 块 title 标注「文件名 第N页」便于检索命中时展示定位。太短的页(< MIN_CHUNK_CHARS)由 buildChunk 丢弃。
+export function chunkWritingPdf(
+  path: string,
+  relativePath: string,
+  pages: WritingPdfPageText[],
+): WritingIndexedChunk[] {
+  const base = basenameOf(relativePath);
+  const chunks: WritingIndexedChunk[] = [];
+  for (const { page, text } of pages) {
+    if (!compactText(text)) continue;
+    const chunk = buildChunk(path, relativePath, `${base} 第${page}页`, [text], {
+      kind: "pdf",
+      pageStart: page,
+      pageEnd: page,
+    });
+    if (chunk) chunks.push(chunk);
+  }
+  return chunks;
+}
+
 // 由已读好的文件列表构造内存索引:切块 + 汇总文档频率与平均块长(BM25 所需统计量)。
+// 按输入类型分派:含 pdfPages 走 PDF 页切块(页码定位),否则走 Markdown/文本切块(行号定位)。
 export function buildWritingIndex(inputs: WritingIndexInput[]): WritingRetrievalIndex {
   const chunks: WritingIndexedChunk[] = [];
   let indexedFiles = 0;
   for (const input of inputs) {
-    const fileChunks = chunkWritingMarkdown(input.path, input.relativePath, input.content);
+    const fileChunks =
+      "pdfPages" in input
+        ? chunkWritingPdf(input.path, input.relativePath, input.pdfPages)
+        : chunkWritingMarkdown(input.path, input.relativePath, input.content);
     if (fileChunks.length > 0) indexedFiles += 1;
     chunks.push(...fileChunks);
   }

@@ -45,6 +45,11 @@ files:
   - "!**/node_modules/monaco-editor/**"        # 93.5MB 代码编辑器
   - "!**/node_modules/@xterm/**"               # 5.6MB  终端 UI
   - "!**/node_modules/@codemirror/**"          # 2.8MB  编辑器组件
+  # pdfjs-dist(写作 PDF 阅读 U5):renderer 阅读器 bundle 进 out/;主进程文本抽取用 legacy build,
+  # 但它是 packages/views 的依赖、不在 apps/desktop 的 dependencies,externalizeDepsPlugin 不 external 它,
+  # 故主进程那次 dynamic import 也 bundle 进 out/main。两端都不 require asar 这份,排除即纯省体积。
+  # 发版前按本段抬头「打包后启动应用,控制台无 Cannot find module」核查一次(尤其 PDF 打开 + 检索索引路径)。
+  - "!**/node_modules/pdfjs-dist/**"           # 12MB+  PDF 渲染/解析(renderer+main 均已 bundle）
   - "!**/node_modules/highlight.js/**"         # 1.6MB  代码高亮
   - "!**/node_modules/marked/**"               # markdown 渲染
   - "!**/node_modules/tailwind-merge/**"

@@ -108,6 +108,65 @@ describe("quoteFromSelection", () => {
   it("空选区返回 null", () => {
     expect(quoteFromSelection({ text: "   ", charCount: 0 }, FILE, ROOT)).toBeNull();
   });
+
+  // PDF 选区(U5):sourceKind=pdf + 页码定位,quote 冻结来源类型与页码。
+  it("从 PDF 选区快照构造引用(sourceKind=pdf + 页码)", () => {
+    const q = quoteFromSelection(
+      { text: "PDF 里选中的一段", charCount: 8, sourceKind: "pdf", pageStart: 3, pageEnd: 4 },
+      "/space/docs/paper.pdf",
+      ROOT,
+      2000,
+    );
+    expect(q).not.toBeNull();
+    expect(q!.sourceKind).toBe("pdf");
+    expect(q!.pageStart).toBe(3);
+    expect(q!.pageEnd).toBe(4);
+    expect(q!.lineStart).toBeUndefined();
+    expect(q!.sourceTitle).toBe("docs/paper.pdf");
+  });
+});
+
+describe("PDF 引用(U5)prompt 拼装与反解析", () => {
+  const PDF = "/space/docs/paper.pdf";
+
+  it("跨页引用:prompt 段标「第x-y页」而非行号", () => {
+    const quote: WritingQuote = {
+      id: "q1",
+      text: "跨页原文",
+      sourceTitle: "docs/paper.pdf",
+      sourceFilePath: PDF,
+      sourceKind: "pdf",
+      pageStart: 3,
+      pageEnd: 4,
+      charCount: 4,
+      createdAt: 0,
+    };
+    const out = composeWritingPrompt("总结这段", [quote], { workspaceRoot: ROOT, activeFilePath: FILE });
+    expect(out).toContain(`${WRITING_QUOTE_HEADING} docs/paper.pdf（第3-4页，共4字）路径: ${PDF}`);
+  });
+
+  it("单页引用:标「第x页」;反解析回页码 + sourceKind=pdf", () => {
+    const quote: WritingQuote = {
+      id: "q2",
+      text: "单页原文",
+      sourceTitle: "docs/paper.pdf",
+      sourceFilePath: PDF,
+      sourceKind: "pdf",
+      pageStart: 5,
+      pageEnd: 5,
+      charCount: 4,
+      createdAt: 0,
+    };
+    const out = composeWritingPrompt("解释", [quote], { workspaceRoot: ROOT, activeFilePath: FILE });
+    expect(out).toContain("（第5页，共4字）");
+    const display = parseWritingPromptForDisplay(out);
+    expect(display).not.toBeNull();
+    const dq = display!.quotes[0]!;
+    expect(dq.sourceKind).toBe("pdf");
+    expect(dq.pageStart).toBe(5);
+    expect(dq.pageEnd).toBe(5);
+    expect(dq.lineStart).toBeUndefined();
+  });
 });
 
 describe("parseWritingPromptForDisplay(哨兵反解析)", () => {

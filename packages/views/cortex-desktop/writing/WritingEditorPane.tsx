@@ -31,6 +31,7 @@ import {
   useWritingReviewStore,
 } from "@cortex-work/core/writing/review-manager";
 import { relativeWritingPath } from "@cortex-work/core/writing/prompt";
+import type { WritingSelectionSnapshot } from "@cortex-work/core/writing/prompt";
 import {
   computeWritingDocumentStats,
   isMarkdownFile,
@@ -57,6 +58,13 @@ import { WritingDiffReview } from "./WritingDiffReview";
 import { WritingToolbar } from "./WritingToolbar";
 // 富文本编辑器:本组件顶层无 tiptap(全动态 import),故可静态引用,tiptap 不会被卷进 web 产物。
 import { WritingRichEditor } from "./rich/WritingRichEditor";
+// PDF 阅读器(U5):顶层仅 `import type` pdfjs(全动态 import),故可静态引用,pdfjs 不会被卷进 web 产物。
+import { WritingPdfViewer } from "./pdf/WritingPdfViewer";
+
+// PDF 文件判定(U5):按扩展名分派到只读阅读器,旁路文本档的读盘/自动保存/审阅逻辑。
+function isPdfFile(path: string | null): boolean {
+  return !!path && /\.pdf$/i.test(path);
+}
 
 type Mode = WritingPreviewMode;
 
@@ -111,6 +119,9 @@ interface Props {
   readOnly?: boolean;
   // 编辑器选区变化上报(R11):有选区传快照,空选区/非编辑态传 null。上层据此解禁「引用选中/润色」。
   onSelectionChange?: (selection: NoteEditorSelection | null) => void;
+  // PDF 文本层选区上报(U5):独立于 CM 选区通道,直接给写作选区快照(sourceKind=pdf + 页码)。
+  // 上层(WritingWorkspace)与 CM 通道汇入同一 selection state,故 PDF 选区也能被「引用当前选区」采用。
+  onPdfSelectionChange?: (selection: WritingSelectionSnapshot | null) => void;
   onToast?: (msg: string) => void;
   // ── 中栏工具栏接线(WritingWorkspace 注入;standalone 编辑器测试不传则相应控件降级)──
   // 活跃空间根:用于顶栏相对路径展示。
@@ -135,6 +146,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
       onConflict,
       readOnly,
       onSelectionChange,
+      onPdfSelectionChange,
       onToast,
       spaceRoot,
       mode: modeProp,
@@ -149,6 +161,8 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     ref,
   ): ReactElement {
     const bridge = useDesktopBridge();
+    // PDF 档(U5):按扩展名分派到只读阅读器。isPdf 时旁路文本档全部逻辑——不读盘为文本、不自动保存、不审阅。
+    const isPdf = isPdfFile(path);
 
     // 视图档位:优先受控(WritingWorkspace 持久化),否则回落内部 state(standalone)。
     const [internalMode, setInternalMode] = useState<Mode>("live");
@@ -189,7 +203,8 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     useEffect(() => {
       setDeleted(false);
       setLoadError(null);
-      if (!path) {
+      // PDF 不走文本读盘(二进制),交阅读器分支渲染;这里直接置空文本态。
+      if (!path || isPdf) {
         setLoaded(null);
         return;
       }
@@ -215,12 +230,13 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
       return () => {
         cancelled = true;
       };
-    }, [path, bridge]);
+    }, [path, bridge, isPdf]);
 
     // 自动保存(去抖 500ms + 切文件/卸载 flush + 防回灌)。onSave 写盘成功后更新基线并记自写 hash。
+    // PDF 档以空 noteId + 空内容彻底脱离自动保存链路,杜绝把空文本 flush 覆盖二进制 PDF 的风险。
     const { draft, setDraft, save, cancel, status } = useNoteAutosave({
-      noteId: path ?? "",
-      content: loaded?.content ?? "",
+      noteId: isPdf ? "" : (path ?? ""),
+      content: isPdf ? "" : (loaded?.content ?? ""),
       onSave: async (content) => {
         if (!path || !bridge?.writeFile) return;
         await bridge.writeFile(path, content);
@@ -648,6 +664,36 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
         setCmdkBusy(false);
       }
     };
+
+    // ── PDF 档(U5):只读阅读器分支 ─────────────────────────────────────────
+    // 复用 WritingToolbar 外壳(hasTextFile=false → 隐藏字号/导出、禁用模式与保存),下方渲染 pdfjs 阅读器。
+    // 选区经 onPdfSelectionChange 直报上层,与文本档选区汇入同一 selection state(引用/页码链路复用)。
+    if (isPdf && path) {
+      return (
+        <div className="pw-writing-editor">
+          <WritingToolbar
+            fileName={fileName}
+            fileLabel={fileLabel}
+            charCount={null}
+            hasTextFile={false}
+            mode={mode}
+            onModeChange={setMode}
+            fontSizePx={fontSizePx ?? WRITING_FONT_SIZE_DEFAULT}
+            saveStatus="saved"
+            saveLabel="PDF"
+            onSave={() => {}}
+            saveDisabled
+            leftCollapsed={leftCollapsed}
+            onToggleLeft={onToggleLeft}
+            assistantOpen={assistantOpen}
+            onToggleAssistant={onToggleAssistant}
+          />
+          <div className="pw-writing-editor-main" style={{ position: "relative" }}>
+            <WritingPdfViewer key={path} filePath={path} onSelectionChange={onPdfSelectionChange} />
+          </div>
+        </div>
+      );
+    }
 
     const toolbar = (
       <WritingToolbar

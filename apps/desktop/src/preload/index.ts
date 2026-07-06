@@ -117,6 +117,11 @@ import type {
   WritingInlineEditResult,
   WritingLlmStatus,
 } from "../main/ipc/writing-llm-types";
+// 写作 PDF 阅读(U5）IPC 契约类型(type-only,编译期擦除;与 core/desktop/writing-pdf-types.ts 镜像）。
+import type {
+  WritingPdfDataRequest,
+  WritingPdfDataResult,
+} from "../main/ipc/writing-pdf-types";
 import type {
   LocalWhisperModelProgress,
   LocalWhisperModelStatus,
@@ -213,6 +218,10 @@ const personal = {
     ipcRenderer.invoke("writing:complete", req),
   writingInlineEdit: (req: WritingInlineEditRequest): Promise<WritingInlineEditResult> =>
     ipcRenderer.invoke("writing:edit", req),
+  // ── 写作 PDF 阅读(U5）──────────────────────────────────────────────────
+  // writingReadPdf：读 PDF 原始字节(base64)交渲染端 pdfjs 阅读器渲染;失败给结构化 message,不抛。
+  writingReadPdf: (req: WritingPdfDataRequest): Promise<WritingPdfDataResult> =>
+    ipcRenderer.invoke("writing:pdfData", req),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),
