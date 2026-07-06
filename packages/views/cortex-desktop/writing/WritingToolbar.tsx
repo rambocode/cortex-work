@@ -60,6 +60,12 @@ export interface WritingToolbarProps {
   onToggleAssistant?: () => void;
   onCopyMarkdown?: () => void;
   onExportMarkdownCopy?: () => void;
+  // 重型导出(U6):各项由 WritingEditorPane 注入(bridge 具备对应能力时才传;缺则该项不渲染)。
+  onExportDocx?: () => void;
+  onExportPdf?: () => void;
+  onExportHtml?: () => void;
+  onExportPng?: () => void;
+  onCopyRichText?: () => void;
 }
 
 export function WritingToolbar({
@@ -82,12 +88,19 @@ export function WritingToolbar({
   onToggleAssistant,
   onCopyMarkdown,
   onExportMarkdownCopy,
+  onExportDocx,
+  onExportPdf,
+  onExportHtml,
+  onExportPng,
+  onCopyRichText,
 }: WritingToolbarProps): ReactElement {
   const modeMenu = useDismissableMenu();
   const exportMenu = useDismissableMenu();
   const current = MODE_ITEMS.find((m) => m.mode === mode) ?? MODE_ITEMS[0]!;
   const modeDisabled = !hasTextFile || modeLocked;
-  const canExport = hasTextFile && (onCopyMarkdown || onExportMarkdownCopy);
+  // 有任一导出/复制能力即展示导出下拉;各项在菜单内按注入与否单独渲染。
+  const hasHeavyExport = !!(onExportDocx || onExportPdf || onExportHtml || onExportPng || onCopyRichText);
+  const canExport = hasTextFile && (onCopyMarkdown || onExportMarkdownCopy || hasHeavyExport);
 
   return (
     // 左栏折叠时,中栏工具栏移到窗口最左 → 加红绿灯安全内缩(is-inset)。
@@ -273,6 +286,77 @@ export function WritingToolbar({
                   >
                     <span className="pw-wt-menu-item-l">导出 .md 副本…</span>
                     <span className="pw-wt-menu-item-tag">md</span>
+                  </button>
+                ) : null}
+                {/* 重型导出(U6):复制富文本 + DOCX/PDF/HTML/PNG。各项 bridge 具备时才注入渲染。 */}
+                {onCopyRichText ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="pw-wt-menu-item"
+                    onClick={() => {
+                      onCopyRichText();
+                      exportMenu.setOpen(false);
+                    }}
+                  >
+                    <span className="pw-wt-menu-item-l">复制富文本</span>
+                    <Copy size={14} strokeWidth={1.9} className="pw-wt-menu-item-icon" />
+                  </button>
+                ) : null}
+                {onExportDocx ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="pw-wt-menu-item"
+                    onClick={() => {
+                      onExportDocx();
+                      exportMenu.setOpen(false);
+                    }}
+                  >
+                    <span className="pw-wt-menu-item-l">导出 Word…</span>
+                    <span className="pw-wt-menu-item-tag">docx</span>
+                  </button>
+                ) : null}
+                {onExportPdf ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="pw-wt-menu-item"
+                    onClick={() => {
+                      onExportPdf();
+                      exportMenu.setOpen(false);
+                    }}
+                  >
+                    <span className="pw-wt-menu-item-l">导出 PDF…</span>
+                    <span className="pw-wt-menu-item-tag">pdf</span>
+                  </button>
+                ) : null}
+                {onExportHtml ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="pw-wt-menu-item"
+                    onClick={() => {
+                      onExportHtml();
+                      exportMenu.setOpen(false);
+                    }}
+                  >
+                    <span className="pw-wt-menu-item-l">导出 HTML…</span>
+                    <span className="pw-wt-menu-item-tag">html</span>
+                  </button>
+                ) : null}
+                {onExportPng ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="pw-wt-menu-item"
+                    onClick={() => {
+                      onExportPng();
+                      exportMenu.setOpen(false);
+                    }}
+                  >
+                    <span className="pw-wt-menu-item-l">导出图片…</span>
+                    <span className="pw-wt-menu-item-tag">png</span>
                   </button>
                 ) : null}
               </div>
