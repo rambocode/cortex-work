@@ -10129,14 +10129,14 @@ button.sb-row {
   position: fixed; inset: 0; z-index: 40;
   display: flex; flex-direction: column;
   min-height: 0; min-width: 0; overflow: hidden;
-  background: var(--bg-1);
+  background: var(--bg-app);
 }
 .pw-writing-topbar {
   display: flex; align-items: center; gap: 10px;
   height: 40px; flex-shrink: 0;
   padding: 0 12px 0 84px; /* 左侧让位 macOS 红绿灯 */
   border-bottom: 1px solid var(--border);
-  background: var(--bg-2);
+  background: var(--bg-sidebar);
 }
 .pw-writing-back {
   display: inline-flex; align-items: center; gap: 5px;
@@ -10150,14 +10150,14 @@ button.sb-row {
   width: 260px; flex-shrink: 0;
   display: flex; flex-direction: column; min-height: 0;
   border-right: 1px solid var(--border);
-  background: var(--bg-2);
+  background: var(--bg-sidebar);
 }
 .pw-writing-center { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .pw-writing-right {
   width: 360px; flex-shrink: 0;
   display: flex; flex-direction: column; min-height: 0;
   border-left: 1px solid var(--border);
-  background: var(--bg-2);
+  background: var(--bg-right);
 }
 
 /* 左栏:空间选择条 + 树工具栏 + 文件树 */
@@ -10170,7 +10170,7 @@ button.sb-row {
 .pw-writing-space-select {
   flex: 1; min-width: 0;
   padding: 4px 6px; border-radius: 7px;
-  border: 1px solid var(--border); background: var(--bg-1);
+  border: 1px solid var(--border); background: var(--bg-app);
   font-size: 12.5px; color: var(--text-1);
 }
 .pw-writing-tree-tools {
@@ -10185,7 +10185,7 @@ button.sb-row {
 .pw-writing-inline-input input {
   flex: 1; min-width: 0;
   padding: 4px 8px; border-radius: 7px;
-  border: 1px solid var(--accent); background: var(--bg-1);
+  border: 1px solid var(--accent); background: var(--bg-app);
   font-size: 12.5px; color: var(--text-1); outline: none;
 }
 .pw-writing-tree { flex: 1; overflow-y: auto; }
@@ -10199,7 +10199,7 @@ button.sb-row {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 2px; border-radius: 5px; color: var(--text-3); cursor: pointer;
 }
-.pw-writing-node-actions button:hover { background: var(--bg-1); color: var(--text-1); }
+.pw-writing-node-actions button:hover { background: var(--bg-app); color: var(--text-1); }
 
 /* 中/右栏占位(U5/U8 替换实现) */
 .pw-writing-placeholder {
@@ -10250,7 +10250,7 @@ button.sb-row {
   position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
   z-index: 50;
   padding: 6px 12px; border-radius: 8px;
-  background: var(--bg-2); border: 1px solid var(--border);
+  background: var(--bg-sidebar); border: 1px solid var(--border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   font-size: 12px; color: var(--text-1);
 }
@@ -10268,7 +10268,7 @@ button.sb-row {
 .pw-wa-thread-pill {
   display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;
   padding: 5px 10px; border-radius: 999px; cursor: pointer;
-  background: var(--bg-1); color: var(--text-1);
+  background: var(--bg-app); color: var(--text-1);
 }
 .pw-wa-thread-pill:hover { background: var(--bg-hover); }
 .pw-wa-thread-title {
@@ -10287,7 +10287,7 @@ button.sb-row {
 .pw-wa-thread-menu-foot { border-top: 1px solid var(--border); padding: 4px; }
 .pw-wa-file {
   margin-top: 6px; padding: 4px 10px; border-radius: 999px;
-  background: var(--bg-1); color: var(--text-3);
+  background: var(--bg-app); color: var(--text-3);
   font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pw-wa-icon-btn {
@@ -10302,7 +10302,7 @@ button.sb-row {
 .pw-wa-empty { display: flex; flex-direction: column; gap: 12px; }
 .pw-wa-empty-card {
   padding: 16px; border-radius: 16px;
-  border: 1px solid var(--border); background: var(--bg-1);
+  border: 1px solid var(--border); background: var(--bg-app);
 }
 .pw-wa-empty-icon {
   display: inline-flex; align-items: center; justify-content: center;
@@ -10315,7 +10315,7 @@ button.sb-row {
 .pw-wa-card {
   display: flex; flex-direction: column; gap: 2px; text-align: left;
   padding: 10px 12px; border-radius: 12px; cursor: pointer;
-  border: 1px solid var(--border); background: var(--bg-1);
+  border: 1px solid var(--border); background: var(--bg-app);
 }
 .pw-wa-card:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: var(--bg-hover); }
 .pw-wa-card:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -10334,7 +10334,7 @@ button.sb-row {
 .pw-wa-msg.is-tool {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 8px; border-radius: 8px;
-  background: var(--bg-1); color: var(--text-3); font-size: 11.5px;
+  background: var(--bg-app); color: var(--text-3); font-size: 11.5px;
 }
 .pw-wa-msg.is-tool[data-status="error"] { color: var(--red); }
 .pw-wa-tool-name { font-family: var(--mono, monospace); }
@@ -10369,7 +10369,7 @@ button.sb-row {
 .pw-wa-input {
   width: 100%; resize: none; box-sizing: border-box;
   padding: 8px 10px; border-radius: 10px;
-  border: 1px solid var(--border); background: var(--bg-1);
+  border: 1px solid var(--border); background: var(--bg-app);
   font-size: 13px; line-height: 1.5; color: var(--text-1); outline: none;
 }
 .pw-wa-input:focus { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
