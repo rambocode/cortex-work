@@ -10343,14 +10343,12 @@ button.sb-row {
   padding: 24px; text-align: center;
   font-size: 12.5px; color: var(--text-4);
 }
-.pw-writing-editor-preview { flex: 1; overflow-y: auto; }
-
 /* 字号:顶栏步进 → --pw-writing-font-size(WritingWorkspace 内联在中栏)→ CM 内容 + 仅预览。
-   作用于 .cm-content(直接设定,覆盖 CM 主题在编辑器根的继承值)与预览 markdown 容器。 */
+   作用于 .cm-content(直接设定,覆盖 CM 主题在编辑器根的继承值)与预览 markdown 容器。
+   预览复用闪记的 .pw-note-editor-preview(其默认 16px),这里在写作中栏作用域内改为跟随步进字号。 */
 .pw-writing-center { --pw-writing-font-size: 16px; }
 .pw-writing-center .pw-note-cm-host .cm-content { font-size: var(--pw-writing-font-size); }
-.pw-writing-center .pw-writing-editor-preview .pw-note-md,
-.pw-writing-center .pw-writing-editor-preview .pw-todo-md { font-size: var(--pw-writing-font-size); }
+.pw-writing-center .pw-note-editor-preview .pw-todo-md { font-size: var(--pw-writing-font-size); }
 
 /* ── 中栏顶部工具栏(视觉对齐 Kun WriteWorkspaceToolbar;色值经 .pw-writing-root 的 --w-*)── */
 .pw-wt {

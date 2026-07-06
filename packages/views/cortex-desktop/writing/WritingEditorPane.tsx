@@ -404,7 +404,9 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
                 onResolve={(accepted) => void resolveReview(accepted)}
               />
             ) : effectiveMode === "preview" ? (
-              <div className="pw-writing-editor-preview">
+              // 复用闪记同款「仅预览」容器 .pw-note-editor-preview:70px 版心 + 对齐 Kun 的文档排版
+              // (标题层级/间距/代码块),避免写作预览沿用紧凑的 .pw-todo-md 详情卡样式导致混乱。
+              <div className="pw-note-editor-preview">
                 {editorLoadFailed ? (
                   <div className="pw-empty-hint">编辑器加载失败,当前仅可预览。</div>
                 ) : null}
