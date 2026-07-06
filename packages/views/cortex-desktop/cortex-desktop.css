@@ -616,6 +616,24 @@ input, textarea { font: inherit; color: inherit; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 顶部三入口组的「写作 + 项目管理」并排行:等宽平分、内容左对齐,与主 CTA「新会话」
+   同一左右边距;单臂缺失时另一入口 flex:1 占满整行。 */
+.pw-top-nav-row {
+  display: flex;
+  gap: 4px;
+  margin: 6px 10px 0;
+}
+.pw-top-nav-row > .pw-home-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  justify-content: flex-start;
+}
+.pw-top-nav-row > .pw-home-btn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .settings-menu-wrap {
   position: relative;
 }
