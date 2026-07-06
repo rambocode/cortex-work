@@ -68,7 +68,7 @@ export interface WritingSpacesState {
 export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   spaces: [],
   activeSpaceId: null,
-  previewMode: "live",
+  previewMode: "rich",
   fontSizePx: WRITING_FONT_SIZE_DEFAULT,
 
   setPreviewMode: (mode) => set({ previewMode: mode }),
@@ -125,7 +125,7 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       spaces: state?.spaces ?? [],
       activeSpaceId: state?.activeSpaceId ?? null,
       // 缺字段回落默认（兼容旧档）；字号夹取到合法区间。
-      previewMode: state?.previewMode ?? "live",
+      previewMode: state?.previewMode ?? "rich",
       fontSizePx: clampFontSize(state?.fontSizePx),
     }),
 }));

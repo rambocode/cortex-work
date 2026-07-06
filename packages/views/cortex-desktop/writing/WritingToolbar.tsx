@@ -18,6 +18,7 @@ import {
   Plus,
   Save,
   Sparkles,
+  Type,
 } from "lucide-react";
 import {
   WRITING_FONT_SIZE_MAX,
@@ -26,8 +27,9 @@ import {
 } from "@cortex-work/core/writing/spaces";
 import { useDismissableMenu } from "../personal/useDismissableMenu";
 
-// 三档视图的图标 + 展示名(顺序与 WritingEditorPane MODE_ORDER 一致)。
+// 四档视图的图标 + 展示名(rich 富文本置首,默认档)。
 const MODE_ITEMS: { mode: WritingPreviewMode; label: string; icon: ReactElement }[] = [
+  { mode: "rich", label: "富文本", icon: <Type size={16} strokeWidth={1.85} /> },
   { mode: "live", label: "实时预览", icon: <FilePenLine size={16} strokeWidth={1.85} /> },
   { mode: "preview", label: "仅预览", icon: <Eye size={16} strokeWidth={1.85} /> },
   { mode: "source", label: "源码", icon: <FileCode2 size={16} strokeWidth={1.85} /> },

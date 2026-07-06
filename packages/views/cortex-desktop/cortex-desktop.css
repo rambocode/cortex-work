@@ -10350,6 +10350,71 @@ button.sb-row {
 .pw-writing-center .pw-note-cm-host .cm-content { font-size: var(--pw-writing-font-size); }
 .pw-writing-center .pw-note-editor-preview .pw-todo-md { font-size: var(--pw-writing-font-size); }
 
+/* ── 富文本(rich)编辑器:所见即所得,文档式排版(70px 版心,与源码/预览同列宽),字号跟随顶栏步进 ── */
+.pw-writing-rich-host {
+  flex: 1; min-height: 0; min-width: 0; overflow-y: auto;
+  padding: clamp(28px, 5vh, 56px) 0 120px;
+}
+.pw-writing-center .write-rich-editor {
+  max-width: none; padding: 0 70px; outline: none;
+  font-size: var(--pw-writing-font-size, 16px); line-height: 1.75; color: var(--text-1);
+}
+.write-rich-editor > :first-child { margin-top: 0; }
+.write-rich-editor h1 { font-size: 1.7em; font-weight: 700; margin: 1.4em 0 0.5em; letter-spacing: -0.01em; }
+.write-rich-editor h2 { font-size: 1.4em; font-weight: 700; margin: 1.3em 0 0.4em; }
+.write-rich-editor h3 { font-size: 1.2em; font-weight: 700; margin: 1.1em 0 0.3em; }
+.write-rich-editor h4 { font-size: 1.05em; font-weight: 700; margin: 1em 0 0.3em; }
+.write-rich-editor p { margin: 0.6em 0; }
+.write-rich-editor ul, .write-rich-editor ol { margin: 0.6em 0; padding-left: 1.6em; }
+.write-rich-editor li { margin: 0.2em 0; }
+.write-rich-editor blockquote { margin: 0.8em 0; padding-left: 1em; border-left: 3px solid var(--border-strong); color: var(--text-2); }
+.write-rich-editor pre {
+  margin: 0.8em 0; padding: 12px 14px; border-radius: 8px;
+  background: var(--bg-card); overflow-x: auto; font-family: var(--mono); font-size: 0.9em;
+}
+.write-rich-editor code { font-family: var(--mono); font-size: 0.9em; background: var(--bg-chip); padding: 0.1em 0.3em; border-radius: 4px; }
+.write-rich-editor pre code { background: transparent; padding: 0; }
+.write-rich-editor a { color: var(--link); text-decoration: underline; }
+.write-rich-editor img { max-width: 100%; height: auto; border-radius: 6px; }
+.write-rich-editor hr { border: 0; border-top: 1px solid var(--border); margin: 1.4em 0; }
+.write-rich-editor table { border-collapse: collapse; margin: 0.8em 0; }
+.write-rich-editor th, .write-rich-editor td { border: 1px solid var(--border); padding: 6px 10px; }
+.write-rich-editor th { background: var(--bg-card); font-weight: 600; }
+/* 任务列表(TaskList/TaskItem 渲染为 ul[data-type=taskList]) */
+.write-rich-editor ul[data-type="taskList"] { list-style: none; padding-left: 0.2em; }
+.write-rich-editor ul[data-type="taskList"] li { display: flex; gap: 0.5em; align-items: flex-start; }
+.write-rich-editor ul[data-type="taskList"] li > label { margin-top: 0.2em; }
+/* 光标聚焦时无边框 */
+.write-rich-editor.ProseMirror-focused { outline: none; }
+
+/* 保真审计不通过的回落:顶部黄条提示 + 下方回落编辑器(CM live) */
+.pw-writing-rich-fallback { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.pw-writing-rich-fallback-note {
+  flex-shrink: 0; padding: 8px 14px; font-size: 12.5px;
+  color: #92400e; background: rgba(217, 119, 6, 0.1);
+  border-bottom: 1px solid rgba(217, 119, 6, 0.25);
+}
+.pw-writing-rich-fallback-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* 富文本选区浮动工具条(fixed,锚在选区上方居中) */
+.pw-writing-rich-tb {
+  position: fixed; z-index: 50;
+  transform: translate(-50%, calc(-100% - 8px));
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px; border-radius: 10px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(20, 18, 12, 0.16);
+}
+.pw-writing-rich-tb-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px;
+  color: var(--text-2); cursor: pointer; border: none; background: transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-writing-rich-tb-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-writing-rich-tb-btn.is-active { background: var(--accent-soft); color: var(--accent); }
+.pw-writing-rich-tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+
 /* ── 中栏顶部工具栏(视觉对齐 Kun WriteWorkspaceToolbar;色值经 .pw-writing-root 的 --w-*)── */
 .pw-wt {
   display: flex; align-items: center; gap: 12px;
