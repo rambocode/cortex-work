@@ -12,6 +12,7 @@ import {
   List,
   ListOrdered,
   Quote,
+  Sparkles,
   Strikethrough,
 } from "lucide-react";
 import type { Editor } from "@tiptap/core";
@@ -23,6 +24,10 @@ interface Props {
   left: number;
   // 选区变化后强制重算 isActive 高亮的信号(WritingRichEditor 每次选区更新自增)。
   revision: number;
+  // 信息图生成入口(U7):仅当 media-gen 已配置且环境支持时由上层注入,否则不渲染该按钮。
+  // 点击 → 上层用当前选区文本生成信息图并在光标处插入图片。生成中由上层 disabled 兜底(此处只发起)。
+  onInfographic?: () => void;
+  infographicBusy?: boolean;
 }
 
 // 单个工具按钮:onMouseDown 阻止默认,避免点击时编辑器失焦/选区塌陷。
@@ -52,7 +57,14 @@ function TB({
   );
 }
 
-export function WritingRichToolbar({ editor, top, left, revision }: Props): ReactElement {
+export function WritingRichToolbar({
+  editor,
+  top,
+  left,
+  revision,
+  onInfographic,
+  infographicBusy,
+}: Props): ReactElement {
   // revision 仅用于让 React 在选区变化时重渲染(读取最新 isActive);本体不直接用其值。
   void revision;
   const chain = () => editor.chain().focus();
@@ -105,6 +117,23 @@ export function WritingRichToolbar({ editor, top, left, revision }: Props): Reac
       <TB active={editor.isActive("codeBlock")} title="代码块" onRun={() => chain().toggleCodeBlock().run()}>
         <Code size={15} strokeWidth={2} />
       </TB>
+      {/* 信息图生成(U7):仅当上层注入 onInfographic(media-gen 已配置)时出现;生成中禁用防重复发起。*/}
+      {onInfographic ? (
+        <>
+          <span className="pw-writing-rich-tb-sep" aria-hidden />
+          <button
+            type="button"
+            className="pw-writing-rich-tb-btn"
+            title={infographicBusy ? "信息图生成中…" : "用选中文字生成信息图"}
+            aria-label="生成信息图"
+            disabled={infographicBusy}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onInfographic}
+          >
+            <Sparkles size={15} strokeWidth={2} />
+          </button>
+        </>
+      ) : null}
     </div>
   );
 }

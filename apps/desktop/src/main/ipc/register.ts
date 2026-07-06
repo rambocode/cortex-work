@@ -35,6 +35,7 @@ import { registerRoleHandlers } from "./roles";
 import { registerRoundtableHandlers } from "./roundtable";
 import { registerReplyHandlers } from "./reply";
 import { registerWritingRetrievalHandlers } from "./writing-retrieval";
+import { registerWritingInfographicHandlers } from "./writing-infographic";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -79,6 +80,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerRoundtableHandlers(); // 圆桌多角色 BFS 编排调度器
   registerReplyHandlers(); // 快捷回复助手 IPC 域（U5 骨架，U7/U9 填实）
   registerWritingRetrievalHandlers(); // 写作检索(工作区级轻量 RAG）IPC 域（U4）
+  registerWritingInfographicHandlers(); // 写作信息图生成(对接 media-gen）IPC 域（U7）
 }
 
 export { killAllCli } from "./cli";

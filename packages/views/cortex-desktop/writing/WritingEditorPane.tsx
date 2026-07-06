@@ -154,6 +154,13 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     const [loadError, setLoadError] = useState<string | null>(null);
     // 当前文件被删:提示 + 另存 + 冻结,避免静默丢未保存内容(R8)。
     const [deleted, setDeleted] = useState(false);
+    // ── 信息图生成(U7,对接 media-gen)──────────────────────────────────────
+    // available:media-gen 图片模态是否已配置(异步探测,未配置则隐藏信息图入口);
+    // busy:生成中(跨进程长任务),用于禁用按钮 + 提示;cmSelection:CM 档当前选区(渲染入口按钮 + 定位插入)。
+    const [infographicAvailable, setInfographicAvailable] = useState(false);
+    const [infographicBusy, setInfographicBusy] = useState(false);
+    const infographicBusyRef = useRef(false); // 单飞守卫(同步读,避免并发双发)
+    const [cmSelection, setCmSelection] = useState<NoteEditorSelection | null>(null);
     // 当前文件的 diff 审阅记录(U6,模块级 review-manager)。存在即切审阅态:只读 + 冻结自动保存。
     // 订阅 store 使 agent/外部在覆盖层外入队的 pending 也能在切回该文件时响应式恢复审阅。
     const pendingReview = useWritingReviewStore((s) => (path ? s.pending[path] : undefined));
@@ -309,12 +316,38 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     // CM 编辑器是否在场:仅 source/live 且非审阅态才挂载。preview / diff 审阅无 CM,选区不可用。
     const editorMounted = !!path && !!loaded && !loadError && !pendingReview && effectiveMode !== "preview";
 
+    // 选区变化:既上报给上层(引用/润色),也存本地(U7 CM 档信息图入口按钮 + 定位插入)。
+    const handleSelectionChange = (sel: NoteEditorSelection | null): void => {
+      setCmSelection(sel);
+      onSelectionChange?.(sel);
+    };
     // 编辑器不在场(切 preview / 进审阅 / 无文件)时把选区收敛为 null,避免上层残留旧选区。
-    const onSelectionChangeRef = useRef(onSelectionChange);
-    onSelectionChangeRef.current = onSelectionChange;
+    const handleSelectionChangeRef = useRef(handleSelectionChange);
+    handleSelectionChangeRef.current = handleSelectionChange;
     useEffect(() => {
-      if (!editorMounted) onSelectionChangeRef.current?.(null);
+      if (!editorMounted) handleSelectionChangeRef.current(null);
     }, [editorMounted]);
+
+    // 信息图可用性探测(U7):media-gen 图片模态是否已配置。异步一次性探测,未配置或无能力 → 隐藏入口。
+    // 依赖 bridge:壳注入变化(极少)时重探;探测失败一律按未配置(不误显不可用按钮)。
+    useEffect(() => {
+      const probe = bridge?.writingInfographicAvailable;
+      if (!probe) {
+        setInfographicAvailable(false);
+        return;
+      }
+      let cancelled = false;
+      void probe()
+        .then((ok) => {
+          if (!cancelled) setInfographicAvailable(ok);
+        })
+        .catch(() => {
+          if (!cancelled) setInfographicAvailable(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [bridge]);
 
     // ── 顶栏展示数据 ──────────────────────────────────────────────────────
     const hasTextFile = !!path;
@@ -400,6 +433,56 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
           }
         : undefined;
 
+    // 信息图生成(U7):选区文本 → 主进程 media-gen 生成 PNG 落 <spaceRoot>/img/ → 返回相对当前 md 的链接。
+    // 需同时具备:已配置(available)、打开的文件(相对路径基准)、空间根(落盘目标)、bridge.writingInfographic。
+    // 任一缺失 → undefined,rich/CM 入口不出现(未配置/web 端隐藏)。单飞守卫防并发双发;生成中 toast 提示。
+    // rich 与 CM 共用此函数:rich 由 WritingRichEditor 拿返回链接插 image 节点;CM 由 runCmInfographic 插入 draft。
+    const onInfographic =
+      infographicAvailable && path && spaceRoot && bridge?.writingInfographic
+        ? async (text: string): Promise<string | null> => {
+            if (infographicBusyRef.current) return null; // 一次只生成一张
+            const t = text.trim();
+            if (!t) {
+              onToast?.("请先选中要生成信息图的文字");
+              return null;
+            }
+            infographicBusyRef.current = true;
+            setInfographicBusy(true);
+            onToast?.("信息图生成中…");
+            try {
+              const res = await bridge.writingInfographic!({ spaceRoot, text: t });
+              if (!res.ok) {
+                onToast?.(`信息图生成失败：${res.message}`);
+                return null;
+              }
+              onToast?.("信息图已插入");
+              return relativeImageLink(path, res.absolutePath);
+            } catch (err) {
+              onToast?.(`信息图生成失败：${err instanceof Error ? err.message : String(err)}`);
+              return null;
+            } finally {
+              infographicBusyRef.current = false;
+              setInfographicBusy(false);
+            }
+          }
+        : undefined;
+
+    // CM 档(source/live)信息图:用当前选区文本生成 → 把图片链接插入 draft 的光标末端(sel.to)。
+    // 竞态:生成为异步长任务,期间用户可能继续编辑使 draft 变短,故插入位置对当前 draft 长度做夹取,避免越界。
+    const runCmInfographic = async (): Promise<void> => {
+      const sel = cmSelection;
+      if (!sel?.text || !onInfographic) return;
+      const at = sel.to;
+      const rel = await onInfographic(sel.text);
+      if (!rel) return;
+      const cur = draftRef.current;
+      const pos = Math.min(Math.max(at, 0), cur.length);
+      setDraft(`${cur.slice(0, pos)}![信息图](${rel})${cur.slice(pos)}`);
+    };
+    // CM 信息图入口按钮可见性:已配 available + 有 CM 选区 + 处于 CM 档(rich 走浮动工具条自带按钮,不重复)。
+    const cmInfographicVisible =
+      !!onInfographic && editorMounted && effectiveMode !== "rich" && !!cmSelection?.text;
+
     const toolbar = (
       <WritingToolbar
         fileName={fileName}
@@ -433,7 +516,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
         appearance={appearance}
         readOnly={frozen}
         onChange={setDraft}
-        onSelectionChange={onSelectionChange}
+        onSelectionChange={handleSelectionChange}
         onSave={() => void save()}
         onPasteImage={onPasteImage}
         onLoadError={() => {
@@ -481,7 +564,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
                 filePath={path}
                 readOnly={frozen}
                 onChange={setDraft}
-                onSelectionChange={onSelectionChange}
+                onSelectionChange={handleSelectionChange}
                 onSaveShortcut={() => void save()}
                 onToast={onToast}
                 onLoadError={() => {
@@ -490,6 +573,8 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
                 }}
                 resolveImageSrc={resolveImageSrc}
                 onPasteImage={onPasteImage}
+                onInfographic={onInfographic}
+                infographicBusy={infographicBusy}
                 fallback={renderCmEditor("live")}
               />
             ) : effectiveMode === "preview" ? (
@@ -518,7 +603,22 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     return (
       <div className={`pw-writing-editor${!loaded || !path || loadError ? " is-bodyempty" : ""}`}>
         {toolbar}
-        <div className="pw-writing-editor-main">{body}</div>
+        {/* position:relative 供 CM 信息图入口按钮绝对定位(rich 档用浮动工具条自带按钮,不在此渲染)。*/}
+        <div className="pw-writing-editor-main" style={{ position: "relative" }}>
+          {body}
+          {cmInfographicVisible ? (
+            <button
+              type="button"
+              className="pw-tl-gen"
+              style={{ position: "absolute", right: 16, bottom: 16, zIndex: 5 }}
+              title="用选中文字生成信息图"
+              disabled={infographicBusy}
+              onClick={() => void runCmInfographic()}
+            >
+              {infographicBusy ? "信息图生成中…" : "生成信息图"}
+            </button>
+          ) : null}
+        </div>
       </div>
     );
   },

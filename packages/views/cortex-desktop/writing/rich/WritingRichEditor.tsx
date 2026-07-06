@@ -42,6 +42,11 @@ interface Props {
   // 粘贴图片落盘(U1):把剪贴板图片 File 存到空间 img/,返回相对当前 md 的链接文本(如 img/x.png)。
   // 返回 null → 保存失败,不插入。未传该 prop(无 bridge/无空间)→ 不拦截默认粘贴。
   onPasteImage?: (file: File) => Promise<string | null>;
+  // 信息图生成(U7):给选区文本,上层生成 PNG 落盘并返回相对当前 md 的链接(如 img/infographic-x.png);
+  // 本组件据此在光标处插入 image 节点。返回 null → 失败/未配置,不插入。未传(未配置/无空间)→ 工具条不显该按钮。
+  onInfographic?: (selectionText: string) => Promise<string | null>;
+  // 信息图生成中:工具条按钮禁用(防重复发起)。由上层维护(生成为跨进程长任务)。
+  infographicBusy?: boolean;
   // 审计不通过时渲染的回落编辑器(通常是 CM live)。
   fallback?: ReactNode;
 }
@@ -64,6 +69,8 @@ export function WritingRichEditor({
   onLoadError,
   resolveImageSrc,
   onPasteImage,
+  onInfographic,
+  infographicBusy,
   fallback,
 }: Props): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -102,6 +109,8 @@ export function WritingRichEditor({
   onLoadErrorRef.current = onLoadError;
   resolveImageSrcRef.current = resolveImageSrc;
   onPasteImageRef.current = onPasteImage;
+  const onInfographicRef = useRef(onInfographic);
+  onInfographicRef.current = onInfographic;
 
   const fileKey = fileKeyOf(filePath);
   const eligible = gate?.fileKey === fileKey ? gate.eligible : null;
@@ -323,6 +332,26 @@ export function WritingRichEditor({
     editor.setEditable(!readOnly);
   }, [readOnly]);
 
+  // 信息图生成(U7):取当前选区纯文本 → 上层生成落盘 → 在光标处插入 image 节点(src=相对链接)。
+  // 与粘贴图片同款:插入前复查实例存活(生成为异步长任务,期间可能切文件/销毁编辑器)。
+  const runInfographic = (): void => {
+    const editor = editorRef.current;
+    const handler = onInfographicRef.current;
+    if (!editor || editor.isDestroyed || !handler) return;
+    const { from, to } = editor.state.selection;
+    const text = from === to ? "" : editor.state.doc.textBetween(from, to, "\n", " ");
+    if (!text) return;
+    void handler(text)
+      .then((rel) => {
+        if (!rel) return; // 失败/未配置 → 上层已 toast,不插入
+        const inst = editorRef.current;
+        if (inst && !inst.isDestroyed) inst.chain().focus().setImage({ src: rel, alt: "信息图" }).run();
+      })
+      .catch((err) => {
+        onToastRef.current?.(`信息图生成失败：${err instanceof Error ? err.message : String(err)}`);
+      });
+  };
+
   // 审计不通过:顶部黄条提示 + 回落编辑器(CM live)。
   if (eligible === false) {
     return (
@@ -345,6 +374,8 @@ export function WritingRichEditor({
           top={selRect.top}
           left={selRect.left}
           revision={selRev}
+          onInfographic={onInfographic ? runInfographic : undefined}
+          infographicBusy={infographicBusy}
         />
       ) : null}
     </>

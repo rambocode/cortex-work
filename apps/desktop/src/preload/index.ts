@@ -97,6 +97,11 @@ import type {
   WritingRetrievalRequest,
   WritingRetrievalResult,
 } from "../main/ipc/writing-retrieval-types";
+// 写作信息图(U7）IPC 契约类型(type-only,编译期擦除;与 core/desktop/writing-infographic-types.ts 镜像）。
+import type {
+  WritingInfographicRequest,
+  WritingInfographicResult,
+} from "../main/ipc/writing-infographic-types";
 import type {
   LocalWhisperModelProgress,
   LocalWhisperModelStatus,
@@ -173,6 +178,12 @@ const personal = {
     ipcRenderer.invoke("writing:retrieve", req),
   writingRetrievalInvalidate: (root: string): void =>
     ipcRenderer.send("writing:retrievalInvalidate", root),
+  // ── 写作信息图(U7，对接 media-gen）─────────────────────────────────────
+  // writingInfographic：选区文本 → 生成 PNG → 落 <spaceRoot>/img/,返回落盘绝对路径(渲染端换算相对链接);
+  // writingInfographicAvailable：media-gen 图片模态是否已配置,未配置渲染端隐藏入口。
+  writingInfographic: (req: WritingInfographicRequest): Promise<WritingInfographicResult> =>
+    ipcRenderer.invoke("writing:infographic", req),
+  writingInfographicAvailable: (): Promise<boolean> => ipcRenderer.invoke("writing:infographicAvailable"),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),

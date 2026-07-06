@@ -93,6 +93,8 @@ import type {
 } from "./types";
 // 写作检索(U4）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-retrieval-types.ts 镜像）。
 import type { WritingRetrievalRequest, WritingRetrievalResult } from "./writing-retrieval-types";
+// 写作信息图(U7）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-infographic-types.ts 镜像）。
+import type { WritingInfographicRequest, WritingInfographicResult } from "./writing-infographic-types";
 import type { ChannelId } from "../reply/channels";
 import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
 import type {
@@ -153,6 +155,13 @@ export interface DesktopBridge {
   writingRetrieve?(req: WritingRetrievalRequest): Promise<WritingRetrievalResult>;
   // 失效某空间根的检索索引(WritingWorkspace 的 watch dirChanged 触发):下次检索重建。fire-and-forget。
   writingRetrievalInvalidate?(root: string): void;
+  // ── 写作信息图(U7,对接 media-gen）───────────────────────────────────────
+  // 选区文本 → Kun 信息图提示词 → media-gen 生成 PNG → 落 <spaceRoot>/img/,返回落盘绝对路径。
+  // 渲染端据 absolutePath 复用 U1 relativeImageLink 换算相对当前 md 的链接插入。失败给可读 message。
+  // 可选——web/旧壳无此能力时信息图入口降级隐藏。
+  writingInfographic?(req: WritingInfographicRequest): Promise<WritingInfographicResult>;
+  // media-gen 图片模态是否已配置:未配置返回 false → 渲染端隐藏信息图入口(不暴露不可用按钮)。
+  writingInfographicAvailable?(): Promise<boolean>;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
   // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。
   renameEntry?(from: string, to: string): Promise<void>;
