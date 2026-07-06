@@ -10130,6 +10130,45 @@ button.sb-row {
   display: flex; flex-direction: column;
   min-height: 0; min-width: 0; overflow: hidden;
   background: var(--bg-app);
+
+  /* 写作工作区「完全复制」Kun 写作台冷蓝视觉,不跟随 cortex 暖色主题。作用域上移到 root,
+     供左栏与中栏顶栏共用。以下 --w-* 为 Kun 亮色字面量(源:Kun styles/base-shell.css :root 与
+     tailwind ds.* / SidebarPrimitives)。仅被 pw-writing-left / pw-wt-* 引用,不影响中栏编辑器内核配色。 */
+  --w-accent: #3b82d8;                       /* Kun --ds-accent(选中/强调) */
+  --w-accent-soft: rgba(59, 130, 216, 0.12); /* Kun bg-accent/10-12(文件图标底/激活项底) */
+  --w-panel-bg: #eef2fa;                      /* Kun --bg-sidebar(侧栏底) */
+  --w-ink: #343434;                           /* Kun 行文字 text-[#343434] */
+  --w-ink-strong: #1f1f1f;                    /* Kun hover/选中文字 text-[#1f1f1f] */
+  --w-muted: #54678c;                         /* Kun --ds-text-muted */
+  --w-faint: #8492b1;                         /* Kun --ds-text-faint */
+  --w-section: #9aa5b5;                       /* Kun SidebarSectionHeader 文字 */
+  --w-icon: #9a9a9a;                          /* Kun SidebarIconButton 默认图标色 */
+  --w-row-hover: rgba(108, 162, 221, 0.1);    /* Kun --ds-sidebar-row-hover */
+  --w-row-active: rgba(216, 232, 249, 0.85);  /* Kun --ds-sidebar-row-active(浅蓝胶囊底) */
+  --w-row-ring: rgba(108, 162, 221, 0.2);     /* Kun --ds-sidebar-row-ring(胶囊内描边) */
+  --w-border: rgba(20, 47, 95, 0.13);         /* Kun --border-soft */
+  --w-menu-bg: #ffffff;                       /* Kun 下拉菜单底(bg-white) */
+  --w-danger: #d6493f;                        /* Kun --ds-danger(删除 hover) */
+  --w-danger-soft: rgba(214, 73, 63, 0.1);
+}
+/* 暗色主题:照 Kun 暗色 token 覆盖(源:base-shell.css [data-theme="dark"]),保持写作栏 theme-aware。 */
+[data-theme="dark"] .pw-writing-root {
+  --w-accent: #6fb0e8;
+  --w-accent-soft: rgba(111, 176, 232, 0.16);
+  --w-panel-bg: #121829;
+  --w-ink: rgba(255, 255, 255, 0.75);
+  --w-ink-strong: #ffffff;
+  --w-muted: #bdc9de;
+  --w-faint: #8593b1;
+  --w-section: rgba(255, 255, 255, 0.35);
+  --w-icon: rgba(255, 255, 255, 0.45);
+  --w-row-hover: rgba(151, 192, 235, 0.09);
+  --w-row-active: rgba(151, 192, 235, 0.13);
+  --w-row-ring: rgba(151, 192, 235, 0.1);
+  --w-border: rgba(151, 192, 235, 0.13);
+  --w-menu-bg: #131722;                       /* Kun 暗色菜单底 */
+  --w-danger: #f8736a;
+  --w-danger-soft: rgba(248, 115, 106, 0.12);
 }
 .pw-writing-topbar {
   display: flex; align-items: center; gap: 10px;
@@ -10146,46 +10185,14 @@ button.sb-row {
 .pw-writing-back:hover { background: var(--bg-hover); color: var(--text-1); }
 .pw-writing-title { font-size: 12.5px; font-weight: 600; color: var(--text-3); }
 .pw-writing-body { flex: 1; display: flex; min-height: 0; min-width: 0; overflow: hidden; }
+/* 左栏:布局 + Kun 冷蓝底/描边(--w-* 定义在 .pw-writing-root)。折叠时隐藏。 */
 .pw-writing-left {
   width: 260px; flex-shrink: 0;
   display: flex; flex-direction: column; min-height: 0;
   border-right: 1px solid var(--w-border);
   background: var(--w-panel-bg);
-
-  /* 写作左栏「完全复制」Kun 写作台冷蓝视觉,不跟随 cortex 暖色主题。
-     以下 --w-* 为 Kun 亮色字面量(源:Kun styles/base-shell.css :root 与 tailwind ds.* / SidebarPrimitives)。 */
-  --w-accent: #3b82d8;                       /* Kun --ds-accent(选中文件图标/强调) */
-  --w-panel-bg: #eef2fa;                      /* Kun --bg-sidebar(侧栏底) */
-  --w-ink: #343434;                           /* Kun 行文字 text-[#343434] */
-  --w-ink-strong: #1f1f1f;                    /* Kun hover/选中文字 text-[#1f1f1f] */
-  --w-muted: #54678c;                         /* Kun --ds-text-muted(folder 图标) */
-  --w-faint: #8492b1;                         /* Kun --ds-text-faint(chevron) */
-  --w-section: #9aa5b5;                       /* Kun SidebarSectionHeader 文字 */
-  --w-icon: #9a9a9a;                          /* Kun SidebarIconButton 默认图标色 */
-  --w-row-hover: rgba(108, 162, 221, 0.1);    /* Kun --ds-sidebar-row-hover */
-  --w-row-active: rgba(216, 232, 249, 0.85);  /* Kun --ds-sidebar-row-active(浅蓝胶囊底) */
-  --w-row-ring: rgba(108, 162, 221, 0.2);     /* Kun --ds-sidebar-row-ring(胶囊内描边) */
-  --w-border: rgba(20, 47, 95, 0.13);         /* Kun --border-soft */
-  --w-danger: #d6493f;                        /* Kun --ds-danger(删除 hover) */
-  --w-danger-soft: rgba(214, 73, 63, 0.1);
 }
-/* 暗色主题:照 Kun 暗色 token 覆盖(源:base-shell.css [data-theme="dark"]),保持写作栏 theme-aware。 */
-[data-theme="dark"] .pw-writing-left {
-  --w-accent: #6fb0e8;
-  --w-panel-bg: #121829;
-  --w-ink: rgba(255, 255, 255, 0.75);
-  --w-ink-strong: #ffffff;
-  --w-muted: #bdc9de;
-  --w-faint: #8593b1;
-  --w-section: rgba(255, 255, 255, 0.35);
-  --w-icon: rgba(255, 255, 255, 0.45);
-  --w-row-hover: rgba(151, 192, 235, 0.09);
-  --w-row-active: rgba(151, 192, 235, 0.13);
-  --w-row-ring: rgba(151, 192, 235, 0.1);
-  --w-border: rgba(151, 192, 235, 0.13);
-  --w-danger: #f8736a;
-  --w-danger-soft: rgba(248, 115, 106, 0.12);
-}
+.pw-writing-left.is-collapsed { display: none; }
 .pw-writing-center { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .pw-writing-right {
   width: 360px; flex-shrink: 0;
@@ -10193,6 +10200,7 @@ button.sb-row {
   border-left: 1px solid var(--border);
   background: var(--bg-right);
 }
+.pw-writing-right.is-hidden { display: none; }
 
 /* 左栏(视觉逐像素复刻 Kun WriteSidebar):顶部两整行命令 + 写作空间分组标题 + 可折叠空间列表。
    全部尺寸/色值取自 Kun 源码(SidebarPrimitives 的 Tailwind className + ds.* token),
@@ -10322,22 +10330,146 @@ button.sb-row {
 
 /* 中栏文件编辑器(U5)。三档切换/保存状态复用闪记的 pw-note-mode / pw-note-save / pw-note-editor-body */
 .pw-writing-editor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.pw-writing-editor.is-empty { align-items: center; justify-content: center; }
+/* 顶栏之下的主体区(编辑器/预览/审阅/空态) */
+.pw-writing-editor-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 无文件/加载/读取失败:主体居中提示 */
+.pw-writing-editor.is-bodyempty .pw-writing-editor-main { align-items: center; justify-content: center; }
 .pw-writing-editor-empty {
   padding: 24px; text-align: center;
   font-size: 12.5px; color: var(--text-4);
 }
-.pw-writing-editor-h {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 14px; flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-}
-.pw-writing-editor-h .spacer { flex: 1; }
-.pw-writing-editor-name {
-  font-size: 12.5px; font-weight: 600; color: var(--text-1);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%;
-}
 .pw-writing-editor-preview { flex: 1; overflow-y: auto; }
+
+/* 字号:顶栏步进 → --pw-writing-font-size(WritingWorkspace 内联在中栏)→ CM 内容 + 仅预览。
+   作用于 .cm-content(直接设定,覆盖 CM 主题在编辑器根的继承值)与预览 markdown 容器。 */
+.pw-writing-center { --pw-writing-font-size: 16px; }
+.pw-writing-center .pw-note-cm-host .cm-content { font-size: var(--pw-writing-font-size); }
+.pw-writing-center .pw-writing-editor-preview .pw-note-md,
+.pw-writing-center .pw-writing-editor-preview .pw-todo-md { font-size: var(--pw-writing-font-size); }
+
+/* ── 中栏顶部工具栏(视觉对齐 Kun WriteWorkspaceToolbar;色值经 .pw-writing-root 的 --w-*)── */
+.pw-wt {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 56px; padding: 8px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--w-border);
+  background: transparent;
+}
+.pw-wt-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+/* 图标按钮(折叠/助手/保存):Kun toolbarIconButtonClass h-8 w-8 无边框,hover 行底 */
+.pw-wt-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  color: var(--w-faint); cursor: pointer; border: none; background: transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-wt-icon-btn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-wt-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
+.pw-wt-icon-btn.is-on { background: var(--w-accent-soft); color: var(--w-accent); }
+/* 文件图标:Kun h-8 w-8 rounded-lg bg-accent/10 text-accent */
+.pw-wt-file-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  background: var(--w-accent-soft); color: var(--w-accent);
+}
+.pw-wt-file-meta { min-width: 0; flex: 1; line-height: 1; }
+.pw-wt-file-name {
+  font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--w-ink-strong);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pw-wt-file-sub {
+  margin-top: 4px; display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--w-faint); min-width: 0;
+}
+.pw-wt-file-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 字数 badge:Kun rounded-full bg-ds-hover text-11 ds-muted */
+.pw-wt-count {
+  flex-shrink: 0; border-radius: 999px; padding: 1px 8px;
+  font-size: 11px; font-weight: 500; color: var(--w-muted); background: var(--w-row-hover);
+}
+
+/* 视图模式 pill + 下拉(Kun modeButtonClass:h-8 rounded-lg,容器带边框) */
+.pw-wt-modes { position: relative; flex-shrink: 0; }
+.pw-wt-mode-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 10px; border-radius: 8px;
+  font-size: 13px; color: var(--w-ink); cursor: pointer;
+  border: 1px solid var(--w-border); background: transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.pw-wt-mode-pill:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-wt-mode-pill:disabled { opacity: 0.45; cursor: not-allowed; background: transparent; }
+.pw-wt-mode-label { font-weight: 500; }
+.pw-wt-mode-pill svg.is-open { transform: rotate(180deg); }
+
+/* 通用下拉菜单(模式 / 导出) */
+.pw-wt-menu {
+  position: absolute; top: 100%; margin-top: 8px; z-index: 30;
+  min-width: 184px; padding: 6px; border-radius: 12px;
+  border: 1px solid var(--w-border); background: var(--w-menu-bg);
+  box-shadow: 0 18px 40px rgba(20, 47, 95, 0.14);
+}
+.pw-wt-mode-menu { left: 0; }
+.pw-wt-export-menu { right: 0; min-width: 200px; }
+.pw-wt-menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; padding: 8px 12px; border-radius: 8px;
+  font-size: 13px; color: var(--w-ink); text-align: left; cursor: pointer;
+  border: none; background: transparent; transition: background 0.12s, color 0.12s;
+}
+.pw-wt-menu-item:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-wt-menu-item.is-active { background: var(--w-accent-soft); color: var(--w-accent); }
+.pw-wt-menu-item:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
+.pw-wt-menu-item-l { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.pw-wt-menu-item-icon { color: var(--w-faint); }
+.pw-wt-menu-on { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--w-accent); }
+.pw-wt-menu-item-tag {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--w-faint);
+}
+
+/* 右侧动作组 */
+.pw-wt-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+/* 字号步进器(Kun rounded-xl border) */
+.pw-wt-font {
+  display: inline-flex; align-items: center; gap: 2px;
+  border: 1px solid var(--w-border); border-radius: 10px; padding: 2px 4px;
+}
+.pw-wt-font-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px;
+  color: var(--w-ink); cursor: pointer; border: none; background: transparent;
+  transition: background 0.12s;
+}
+.pw-wt-font-btn:hover { background: var(--w-row-hover); }
+.pw-wt-font-btn:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
+.pw-wt-font-val {
+  min-width: 28px; text-align: center; font-size: 12px; font-weight: 600;
+  color: var(--w-ink-strong); font-variant-numeric: tabular-nums;
+}
+
+/* 保存状态字(绿=已保存,照 Kun 分状态配色) */
+.pw-wt-save {
+  min-width: 60px; text-align: center; border-radius: 8px;
+  padding: 3px 10px; font-size: 11.5px; font-weight: 600; flex-shrink: 0;
+}
+.pw-wt-save[data-status="saved"], .pw-wt-save[data-status="idle"] {
+  background: rgba(16, 163, 74, 0.12); color: #15803d;
+}
+.pw-wt-save[data-status="dirty"] { background: rgba(217, 119, 6, 0.12); color: #b45309; }
+.pw-wt-save[data-status="saving"] { background: rgba(2, 132, 199, 0.12); color: #0369a1; }
+.pw-wt-save[data-status="error"] { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+
+/* 导出下拉按钮(Kun toolbarMenuButtonClass:无边框) */
+.pw-wt-export { position: relative; flex-shrink: 0; }
+.pw-wt-menu-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 32px; padding: 0 10px; border-radius: 8px;
+  font-size: 12.5px; font-weight: 500; color: var(--w-faint); cursor: pointer;
+  border: none; background: transparent; transition: background 0.12s, color 0.12s;
+}
+.pw-wt-menu-btn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-wt-menu-btn svg.is-open { transform: rotate(180deg); }
+.pw-wt-export-label { white-space: nowrap; }
 /* 文件被删提示条:红底告警,右侧另存入口 */
 .pw-writing-deleted-bar {
   display: flex; align-items: center; gap: 10px;

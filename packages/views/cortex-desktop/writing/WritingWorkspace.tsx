@@ -8,7 +8,7 @@
 //     外部改动      → 编辑器句柄 handleExternalChange(干净静默刷新 / 脏走 onConflict → beginReview);
 //     非当前文件改动 → 刷新文件树(经 sidebar 注册的 refresh)。
 //   发送前 flush 由助手面板经 editorRef.flushNow 触发(确保 agent 读到最新盘面)。
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge } from "@cortex-work/core/provider";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
@@ -30,7 +30,16 @@ export function WritingWorkspace(): ReactElement {
   const ensureDefaultSpace = useWritingSpacesStore((s) => s.ensureDefaultSpace);
   const currentFile = useWritingWorkspaceStore((s) => s.currentFile);
 
+  // 编辑器视图偏好(持久化在 spaces store,跨空间共享):视图档位 + 字号。
+  const previewMode = useWritingSpacesStore((s) => s.previewMode);
+  const setPreviewMode = useWritingSpacesStore((s) => s.setPreviewMode);
+  const fontSizePx = useWritingSpacesStore((s) => s.fontSizePx);
+  const setFontSizePx = useWritingSpacesStore((s) => s.setFontSizePx);
+
   const [toast, setToast] = useState<string | null>(null);
+  // 左栏折叠 / 右侧助手栏开合(顶栏两个按钮控制;瞬态,不持久化)。
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(true);
   // 编辑器实时选区(R11):CM onSelectionChange → 此 state → 助手面板 selection prop。
   // 空选区/非编辑态为 null,润色卡与「引用选中」据此解禁。
   const [selection, setSelection] = useState<WritingSelectionSnapshot | null>(null);
@@ -126,7 +135,7 @@ export function WritingWorkspace(): ReactElement {
       </div>
 
       <div className="pw-writing-body">
-        <div className="pw-writing-left">
+        <div className={`pw-writing-left${leftCollapsed ? " is-collapsed" : ""}`}>
           <WritingSidebar
             onToast={setToast}
             onRegisterRefresh={(fn) => {
@@ -134,11 +143,24 @@ export function WritingWorkspace(): ReactElement {
             }}
           />
         </div>
-        <div className="pw-writing-center">
+        <div
+          className="pw-writing-center"
+          // 字号 CSS 变量作用于 CM 内容与仅预览(顶栏步进 → 此变量 → 编辑器/预览字号)。
+          style={{ ["--pw-writing-font-size" as string]: `${fontSizePx}px` } as CSSProperties}
+        >
           <WritingEditorPane
             ref={editorRef}
             path={currentFile}
             onToast={setToast}
+            spaceRoot={activeSpace?.root}
+            mode={previewMode}
+            onModeChange={setPreviewMode}
+            fontSizePx={fontSizePx}
+            onFontSizeChange={setFontSizePx}
+            leftCollapsed={leftCollapsed}
+            onToggleLeft={() => setLeftCollapsed((v) => !v)}
+            assistantOpen={assistantOpen}
+            onToggleAssistant={() => setAssistantOpen((v) => !v)}
             // CM 选区 → WritingSelectionSnapshot(charCount 取选中文本长度;空选区传 null)。
             onSelectionChange={(sel: NoteEditorSelection | null) =>
               setSelection(
@@ -160,7 +182,7 @@ export function WritingWorkspace(): ReactElement {
             }
           />
         </div>
-        <div className="pw-writing-right">
+        <div className={`pw-writing-right${assistantOpen ? "" : " is-hidden"}`}>
           <WritingAssistantPanel
             space={activeSpace}
             activeFilePath={currentFile}

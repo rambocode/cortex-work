@@ -13,6 +13,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
@@ -28,6 +29,11 @@ import {
   resolveWritingReview,
   useWritingReviewStore,
 } from "@cortex-work/core/writing/review-manager";
+import { relativeWritingPath } from "@cortex-work/core/writing/prompt";
+import {
+  WRITING_FONT_SIZE_DEFAULT,
+  type WritingPreviewMode,
+} from "@cortex-work/core/writing/spaces";
 import { MarkdownView } from "../personal/MarkdownView";
 import {
   NoteCodeMirrorEditor,
@@ -36,15 +42,16 @@ import {
 } from "../personal/editor/NoteCodeMirrorEditor";
 import { useNoteAutosave } from "../personal/useNoteAutosave";
 import { WritingDiffReview } from "./WritingDiffReview";
+import { WritingToolbar } from "./WritingToolbar";
 
-type Mode = "source" | "live" | "preview";
+type Mode = WritingPreviewMode;
 
-const MODE_LABEL: Record<Mode, string> = {
-  live: "实时预览",
-  preview: "仅预览",
-  source: "源码",
-};
-const MODE_ORDER: Mode[] = ["live", "preview", "source"];
+// 字数统计(对齐 Kun computeWriteDocumentStats 的口径:去掉所有空白后按 code point 计数)。
+// 差异:Kun 会先把 Markdown 解析成可见文本再去空白;本仓库无 tiptap 解析器,直接按原文去空白计,
+// 故含少量 Markdown 语法字符,数值略高于 Kun。属可接受近似(见回报)。
+function countVisibleChars(text: string): number {
+  return Array.from(text.replace(/\s+/g, "")).length;
+}
 
 const SAVE_HINT: Record<ReturnType<typeof useNoteAutosave>["status"], string> = {
   idle: "已保存",
@@ -89,13 +96,48 @@ interface Props {
   // 编辑器选区变化上报(R11):有选区传快照,空选区/非编辑态传 null。上层据此解禁「引用选中/润色」。
   onSelectionChange?: (selection: NoteEditorSelection | null) => void;
   onToast?: (msg: string) => void;
+  // ── 中栏工具栏接线(WritingWorkspace 注入;standalone 编辑器测试不传则相应控件降级)──
+  // 活跃空间根:用于顶栏相对路径展示。
+  spaceRoot?: string;
+  // 视图档位受控(持久化在 spaces store);缺省时回落组件内部 state(standalone)。
+  mode?: WritingPreviewMode;
+  onModeChange?: (mode: WritingPreviewMode) => void;
+  // 字号 px(顶栏步进,持久化);缺省 16。
+  fontSizePx?: number;
+  onFontSizeChange?: (px: number) => void;
+  // 左栏折叠 / 右侧助手栏开合(顶栏两个按钮),由 WritingWorkspace 持有。
+  leftCollapsed?: boolean;
+  onToggleLeft?: () => void;
+  assistantOpen?: boolean;
+  onToggleAssistant?: () => void;
 }
 
 export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
-  function WritingEditorPane({ path, onConflict, readOnly, onSelectionChange, onToast }, ref): ReactElement {
+  function WritingEditorPane(
+    {
+      path,
+      onConflict,
+      readOnly,
+      onSelectionChange,
+      onToast,
+      spaceRoot,
+      mode: modeProp,
+      onModeChange,
+      fontSizePx,
+      onFontSizeChange,
+      leftCollapsed,
+      onToggleLeft,
+      assistantOpen,
+      onToggleAssistant,
+    }: Props,
+    ref,
+  ): ReactElement {
     const bridge = useDesktopBridge();
 
-    const [mode, setMode] = useState<Mode>("live");
+    // 视图档位:优先受控(WritingWorkspace 持久化),否则回落内部 state(standalone)。
+    const [internalMode, setInternalMode] = useState<Mode>("live");
+    const mode: Mode = modeProp ?? internalMode;
+    const setMode = onModeChange ?? setInternalMode;
     // CodeMirror 动态装载失败 → 强制只读「仅预览」(复用 MarkdownView,不依赖 CM)。
     const [editorLoadFailed, setEditorLoadFailed] = useState(false);
     // 当前已加载文件内容(异步读盘结果);null 表示尚未加载(loading)或无文件。
@@ -265,109 +307,140 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
       if (!editorMounted) onSelectionChangeRef.current?.(null);
     }, [editorMounted]);
 
+    // ── 顶栏展示数据 ──────────────────────────────────────────────────────
+    const hasTextFile = !!path;
+    const fileName = path ? path.split(/[/\\]/).pop() || path : "写作台";
+    const fileLabel = path ? relativeWritingPath(spaceRoot ?? "", path) : "尚未打开文件";
+    // 字数:仅在有文件时展示;从当前草稿实时计。
+    const charCount = useMemo(
+      () => (hasTextFile ? countVisibleChars(draft) : null),
+      [hasTextFile, draft],
+    );
+    // 保存禁用:无文件 / 冻结(删除·审阅·只读)/ 无写盘能力。
+    const saveDisabled = !path || frozen || !bridge?.writeFile;
+
+    // 导出:复制全文到剪贴板;导出 .md 副本(选目录写同名文件)。均复用当前草稿 + bridge,低成本等价 Kun 导出。
+    const onCopyMarkdown = path
+      ? async (): Promise<void> => {
+          try {
+            if (typeof navigator === "undefined" || !navigator.clipboard) {
+              onToast?.("当前环境不支持复制");
+              return;
+            }
+            await navigator.clipboard.writeText(draftRef.current);
+            onToast?.("已复制全文到剪贴板");
+          } catch (err) {
+            onToast?.(`复制失败：${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      : undefined;
+    const onExportMarkdownCopy =
+      path && bridge?.pickDirectory && bridge?.writeFile
+        ? async (): Promise<void> => {
+            const dir = await bridge.pickDirectory!();
+            if (!dir) return;
+            const name = path.split(/[/\\]/).pop() || "untitled.md";
+            const dest = `${dir.replace(/[/\\]+$/, "")}/${name}`;
+            try {
+              await bridge.writeFile!(dest, draftRef.current);
+              onToast?.(`已导出到 ${dest}`);
+            } catch (err) {
+              onToast?.(`导出失败：${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+        : undefined;
+
+    const toolbar = (
+      <WritingToolbar
+        fileName={fileName}
+        fileLabel={fileLabel}
+        charCount={charCount}
+        hasTextFile={hasTextFile}
+        mode={mode}
+        onModeChange={setMode}
+        modeLocked={editorLoadFailed}
+        fontSizePx={fontSizePx ?? WRITING_FONT_SIZE_DEFAULT}
+        onFontSizeChange={onFontSizeChange}
+        saveStatus={status}
+        saveLabel={SAVE_HINT[status]}
+        onSave={() => void save()}
+        saveDisabled={saveDisabled}
+        leftCollapsed={leftCollapsed}
+        onToggleLeft={onToggleLeft}
+        assistantOpen={assistantOpen}
+        onToggleAssistant={onToggleAssistant}
+        onCopyMarkdown={onCopyMarkdown}
+        onExportMarkdownCopy={onExportMarkdownCopy}
+      />
+    );
+
+    // ── 主体:无文件 / 读取失败 / 加载中 / 编辑器(+ deleted 条)。工具栏恒显于顶部(照 Kun)。──
+    let body: ReactElement;
     if (!path) {
-      return (
-        <div className="pw-writing-editor is-empty">
-          <div className="pw-writing-editor-empty">从左侧选择或新建一个文件开始写作</div>
-        </div>
+      body = <div className="pw-writing-editor-empty">从左侧选择或新建一个文件开始写作</div>;
+    } else if (loadError) {
+      body = <div className="pw-writing-editor-empty">读取失败：{loadError}</div>;
+    } else if (!loaded) {
+      body = <div className="pw-writing-editor-empty">加载中…</div>;
+    } else {
+      body = (
+        <>
+          {deleted ? (
+            <div className="pw-writing-deleted-bar" role="alert">
+              <span>文件已被删除,未保存内容仍在编辑器中。</span>
+              <button type="button" className="pw-tl-gen" onClick={() => void saveAs()}>
+                另存为…
+              </button>
+            </div>
+          ) : null}
+          <div className="pw-note-editor-body">
+            {pendingReview ? (
+              // 审阅态:红绿 diff 逐块裁决(基线 → 新版)。裁决完毕经 resolveReview 落盘并解冻。
+              <WritingDiffReview
+                key={`${path}:review`}
+                path={path}
+                baseline={pendingReview.baseline}
+                next={pendingReview.next}
+                onResolve={(accepted) => void resolveReview(accepted)}
+              />
+            ) : effectiveMode === "preview" ? (
+              <div className="pw-writing-editor-preview">
+                {editorLoadFailed ? (
+                  <div className="pw-empty-hint">编辑器加载失败,当前仅可预览。</div>
+                ) : null}
+                {draft.trim() ? (
+                  <div className="pw-todo-md pw-note-md">
+                    <MarkdownView content={draft} />
+                  </div>
+                ) : (
+                  <div className="pw-empty-hint">空白文件</div>
+                )}
+              </div>
+            ) : (
+              <NoteCodeMirrorEditor
+                // key 含 path:切文件重建实例,避免旧文档残留(与闪记按 noteId 重建同理)。
+                key={path}
+                value={draft}
+                appearance={effectiveMode as NoteEditorAppearance}
+                readOnly={frozen}
+                onChange={setDraft}
+                onSelectionChange={onSelectionChange}
+                onSave={() => void save()}
+                onLoadError={() => {
+                  setEditorLoadFailed(true);
+                  onToast?.("编辑器加载失败,已切换到仅预览");
+                }}
+              />
+            )}
+          </div>
+        </>
       );
     }
-
-    if (loadError) {
-      return (
-        <div className="pw-writing-editor is-empty">
-          <div className="pw-writing-editor-empty">读取失败：{loadError}</div>
-        </div>
-      );
-    }
-
-    if (!loaded) {
-      return (
-        <div className="pw-writing-editor is-empty">
-          <div className="pw-writing-editor-empty">加载中…</div>
-        </div>
-      );
-    }
-
-    const fileName = path.split(/[/\\]/).pop() || path;
 
     return (
-      <div className="pw-writing-editor">
-        <header className="pw-writing-editor-h">
-          <span className="pw-writing-editor-name" title={path}>
-            {fileName}
-          </span>
-          {deleted ? <span className="pw-note-badge" data-status="deleted">已删除</span> : null}
-          <div className="spacer" />
-          {/* 三档切换。装载失败时源码/实时预览禁用(强制仅预览)。 */}
-          <div className="pw-note-mode" role="group" aria-label="编辑模式">
-            {MODE_ORDER.map((m) => (
-              <button
-                key={m}
-                type="button"
-                className={`pw-note-mode-btn ${effectiveMode === m ? "is-on" : ""}`}
-                aria-pressed={effectiveMode === m}
-                disabled={editorLoadFailed && m !== "preview"}
-                onClick={() => setMode(m)}
-              >
-                {MODE_LABEL[m]}
-              </button>
-            ))}
-          </div>
-          <span className="pw-note-save" data-status={status} title="保存状态">
-            {SAVE_HINT[status]}
-          </span>
-        </header>
-
-        {deleted ? (
-          <div className="pw-writing-deleted-bar" role="alert">
-            <span>文件已被删除,未保存内容仍在编辑器中。</span>
-            <button type="button" className="pw-tl-gen" onClick={() => void saveAs()}>
-              另存为…
-            </button>
-          </div>
-        ) : null}
-
-        <div className="pw-note-editor-body">
-          {pendingReview ? (
-            // 审阅态:红绿 diff 逐块裁决(基线 → 新版)。裁决完毕经 resolveReview 落盘并解冻。
-            <WritingDiffReview
-              key={`${path}:review`}
-              path={path}
-              baseline={pendingReview.baseline}
-              next={pendingReview.next}
-              onResolve={(accepted) => void resolveReview(accepted)}
-            />
-          ) : effectiveMode === "preview" ? (
-            <div className="pw-writing-editor-preview">
-              {editorLoadFailed ? (
-                <div className="pw-empty-hint">编辑器加载失败,当前仅可预览。</div>
-              ) : null}
-              {draft.trim() ? (
-                <div className="pw-todo-md pw-note-md">
-                  <MarkdownView content={draft} />
-                </div>
-              ) : (
-                <div className="pw-empty-hint">空白文件</div>
-              )}
-            </div>
-          ) : (
-            <NoteCodeMirrorEditor
-              // key 含 path:切文件重建实例,避免旧文档残留(与闪记按 noteId 重建同理)。
-              key={path}
-              value={draft}
-              appearance={effectiveMode as NoteEditorAppearance}
-              readOnly={frozen}
-              onChange={setDraft}
-              onSelectionChange={onSelectionChange}
-              onSave={() => void save()}
-              onLoadError={() => {
-                setEditorLoadFailed(true);
-                onToast?.("编辑器加载失败,已切换到仅预览");
-              }}
-            />
-          )}
-        </div>
+      <div className={`pw-writing-editor${!loaded || !path || loadError ? " is-bodyempty" : ""}`}>
+        {toolbar}
+        <div className="pw-writing-editor-main">{body}</div>
       </div>
     );
   },

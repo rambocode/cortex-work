@@ -103,6 +103,28 @@ describe("useWritingSpacesStore 持久化 roundtrip", () => {
     const s = useWritingSpacesStore.getState();
     expect(s.spaces).toEqual([]);
     expect(s.activeSpaceId).toBeNull();
+    // 编辑器视图偏好回落默认。
+    expect(s.previewMode).toBe("live");
+    expect(s.fontSizePx).toBe(16);
+  });
+
+  it("previewMode / fontSizePx 进 serialize 分片并 roundtrip；字号越界夹取", () => {
+    useWritingSpacesStore.getState().setPreviewMode("source");
+    useWritingSpacesStore.getState().setFontSizePx(22);
+    const snap = useWritingSpacesStore.getState().serialize();
+    expect(snap.previewMode).toBe("source");
+    expect(snap.fontSizePx).toBe(22);
+
+    // setFontSizePx 越界即时夹取（>48 → 48，<10 → 10）。
+    useWritingSpacesStore.getState().setFontSizePx(999);
+    expect(useWritingSpacesStore.getState().fontSizePx).toBe(48);
+    useWritingSpacesStore.getState().setFontSizePx(2);
+    expect(useWritingSpacesStore.getState().fontSizePx).toBe(10);
+
+    // hydrate 缺字段回默认 + 脏字号夹取。
+    useWritingSpacesStore.getState().hydrate({ spaces: [], activeSpaceId: null, fontSizePx: 9999 });
+    expect(useWritingSpacesStore.getState().previewMode).toBe("live");
+    expect(useWritingSpacesStore.getState().fontSizePx).toBe(48);
   });
 });
 

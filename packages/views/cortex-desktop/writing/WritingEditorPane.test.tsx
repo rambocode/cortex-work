@@ -89,12 +89,17 @@ describe("WritingEditorPane", () => {
     await waitFor(() => expect(cm.value).toBe("初始正文"));
     expect(getBaseline(A)?.content).toBe("初始正文");
 
-    // 源码 → 仅预览(MarkdownView 回显同内容) → 实时预览,内容始终一致。
-    fireEvent.click(screen.getByRole("button", { name: "源码" }));
+    // 顶栏模式 pill 下拉切换:源码 → 仅预览(MarkdownView 回显同内容) → 实时预览,内容始终一致。
+    // pickMode:打开模式下拉(pill 名称含当前档),再点目标档菜单项。
+    const pickMode = (name: string): void => {
+      fireEvent.click(screen.getByTitle("视图模式"));
+      fireEvent.click(screen.getByRole("menuitem", { name }));
+    };
+    pickMode("源码");
     expect((screen.getByTestId("cm") as HTMLTextAreaElement).value).toBe("初始正文");
-    fireEvent.click(screen.getByRole("button", { name: "仅预览" }));
+    pickMode("仅预览");
     expect(screen.getByTestId("md").textContent).toBe("初始正文");
-    fireEvent.click(screen.getByRole("button", { name: "实时预览" }));
+    pickMode("实时预览");
     expect((screen.getByTestId("cm") as HTMLTextAreaElement).value).toBe("初始正文");
   });
 

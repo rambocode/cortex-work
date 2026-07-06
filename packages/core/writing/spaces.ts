@@ -6,7 +6,21 @@
 
 import { create } from "zustand";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { WritingSpace, WritingUiState } from "../desktop/writing-types";
+import type { WritingPreviewMode, WritingSpace, WritingUiState } from "../desktop/writing-types";
+
+// 便于 views 经本子路径直接取用编辑器视图档位类型(core 主入口未导出 writing-types)。
+export type { WritingPreviewMode } from "../desktop/writing-types";
+
+// 编辑器字号步进边界（与 Kun WRITE_EDITOR_FONT_SIZE_MIN/MAX/DEFAULT 一致）。
+export const WRITING_FONT_SIZE_MIN = 10;
+export const WRITING_FONT_SIZE_MAX = 48;
+export const WRITING_FONT_SIZE_DEFAULT = 16;
+
+// 字号夹取到合法区间；非数值/越界回落默认（兼容旧档脏值）。
+function clampFontSize(px: number | undefined): number {
+  if (typeof px !== "number" || !Number.isFinite(px)) return WRITING_FONT_SIZE_DEFAULT;
+  return Math.min(WRITING_FONT_SIZE_MAX, Math.max(WRITING_FONT_SIZE_MIN, Math.round(px)));
+}
 
 // 单调递增序号，配合时间戳生成稳定空间 id（core 跨端，避免依赖 crypto.randomUUID）。
 let idSeq = 0;
@@ -28,6 +42,14 @@ function deriveName(root: string): string {
 export interface WritingSpacesState {
   spaces: WritingSpace[];
   activeSpaceId: string | null;
+  // 中栏编辑器视图偏好（跨空间共享，由中栏工具栏切换/步进；随 WritingUiState 分片持久化）。
+  previewMode: WritingPreviewMode;
+  fontSizePx: number;
+
+  // 编辑器视图档位切换（source/live/preview）。
+  setPreviewMode: (mode: WritingPreviewMode) => void;
+  // 字号设置（自动夹取到 10–48）。
+  setFontSizePx: (px: number) => void;
 
   // 经系统目录选择器添加空间：取消（pickDirectory 返回 null）不加并回 null；
   // 根已存在则拒绝、不加第二条并回 null；成功则追加、设为活跃并回该空间。
@@ -46,6 +68,11 @@ export interface WritingSpacesState {
 export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   spaces: [],
   activeSpaceId: null,
+  previewMode: "live",
+  fontSizePx: WRITING_FONT_SIZE_DEFAULT,
+
+  setPreviewMode: (mode) => set({ previewMode: mode }),
+  setFontSizePx: (px) => set({ fontSizePx: clampFontSize(px) }),
 
   addSpace: async (bridge) => {
     // web/旧壳无目录选择器能力时直接放弃（入口本应已降级隐藏，这里做防御）。
@@ -85,12 +112,20 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
 
   serialize: () => {
     const s = get();
-    return { spaces: s.spaces, activeSpaceId: s.activeSpaceId };
+    return {
+      spaces: s.spaces,
+      activeSpaceId: s.activeSpaceId,
+      previewMode: s.previewMode,
+      fontSizePx: s.fontSizePx,
+    };
   },
 
   hydrate: (state) =>
     set({
       spaces: state?.spaces ?? [],
       activeSpaceId: state?.activeSpaceId ?? null,
+      // 缺字段回落默认（兼容旧档）；字号夹取到合法区间。
+      previewMode: state?.previewMode ?? "live",
+      fontSizePx: clampFontSize(state?.fontSizePx),
     }),
 }));

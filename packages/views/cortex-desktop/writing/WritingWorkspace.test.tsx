@@ -112,8 +112,13 @@ function renderWs(bridge: DesktopBridge): ReturnType<typeof render> {
 }
 
 beforeEach(() => {
-  // 预置两个空间(activeSpace=alpha),避免 ensureDefaultSpace 触发默认建空间。
-  useWritingSpacesStore.setState({ spaces: [SPACE_A, SPACE_B], activeSpaceId: SPACE_A.id });
+  // 预置两个空间(activeSpace=alpha),避免 ensureDefaultSpace 触发默认建空间;复位视图偏好。
+  useWritingSpacesStore.setState({
+    spaces: [SPACE_A, SPACE_B],
+    activeSpaceId: SPACE_A.id,
+    previewMode: "live",
+    fontSizePx: 16,
+  });
   useWritingWorkspaceStore.setState({ currentFile: null });
   usePersonalStore.setState({ writingOpen: true, homeOpen: false });
   // 复位写作模块级态,避免用例间串场(基线 / 审阅 / run / 会话)。
@@ -152,13 +157,12 @@ describe("WritingWorkspace(U4)", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const bridge = makeBridge();
     renderWs(bridge);
-    const row = await screen.findByText("a1.md");
-    // 删除该文件(行内删除按钮 aria-label 含文件名)
+    // 等左栏树渲染(文件名同时出现在顶栏,故用行内删除按钮 aria-label 定位,避免多匹配)。
+    await screen.findByLabelText("删除 a1.md");
     fireEvent.click(screen.getByLabelText("删除 a1.md"));
     expect(confirmSpy).toHaveBeenCalled();
     await waitFor(() => expect(bridge.deleteEntry).toHaveBeenCalledWith("/w/alpha/a1.md"));
     await waitFor(() => expect(useWritingWorkspaceStore.getState().currentFile).toBeNull());
-    expect(row).toBeTruthy();
     confirmSpy.mockRestore();
   });
 
@@ -167,7 +171,7 @@ describe("WritingWorkspace(U4)", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const bridge = makeBridge();
     renderWs(bridge);
-    await screen.findByText("a1.md");
+    await screen.findByLabelText("删除 a1.md");
     fireEvent.click(screen.getByLabelText("删除 a1.md"));
     expect(confirmSpy).toHaveBeenCalled();
     expect(bridge.deleteEntry).not.toHaveBeenCalled();
@@ -260,5 +264,66 @@ describe("WritingWorkspace(U4)", () => {
     await waitFor(() => expect(bridge.writeFile).toHaveBeenCalledWith(FILE, "agent-v2"));
     await waitFor(() => expect(getPendingReview(FILE)).toBeUndefined());
     expect(getBaseline(FILE)?.content).toBe("agent-v2");
+  });
+});
+
+describe("WritingWorkspace 中栏工具栏", () => {
+  it("折叠左栏:点折叠按钮 → 左栏隐藏,按钮切「展开侧栏」", async () => {
+    const { container } = renderWs(makeBridge());
+    await screen.findByLabelText("删除 a1.md"); // 左栏已渲染
+    expect(container.querySelector(".pw-writing-left.is-collapsed")).toBeNull();
+    fireEvent.click(screen.getByLabelText("折叠侧栏"));
+    expect(container.querySelector(".pw-writing-left.is-collapsed")).not.toBeNull();
+    expect(screen.getByLabelText("展开侧栏")).toBeTruthy();
+  });
+
+  it("视图模式下拉切换 → 持久化到 store", async () => {
+    useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
+    renderWs(makeBridge());
+    await screen.findByTestId("cm");
+    fireEvent.click(screen.getByTitle("视图模式"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "源码" }));
+    expect(useWritingSpacesStore.getState().previewMode).toBe("source");
+  });
+
+  it("字号步进:增大/减小改 store,边界禁用", async () => {
+    useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
+    renderWs(makeBridge());
+    await screen.findByTestId("cm");
+    // 默认 16 → 增大到 17
+    fireEvent.click(screen.getByLabelText("增大字号"));
+    expect(useWritingSpacesStore.getState().fontSizePx).toBe(17);
+    // 拉到上界 48:增大按钮禁用
+    act(() => useWritingSpacesStore.setState({ fontSizePx: 48 }));
+    expect(screen.getByLabelText("增大字号")).toBeDisabled();
+    // 拉到下界 10:减小按钮禁用
+    act(() => useWritingSpacesStore.setState({ fontSizePx: 10 }));
+    expect(screen.getByLabelText("减小字号")).toBeDisabled();
+  });
+
+  it("手动保存:编辑后点保存立即落盘(flush)", async () => {
+    useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
+    const bridge = makeBridge();
+    renderWs(bridge);
+    const cm = (await screen.findByTestId("cm")) as HTMLTextAreaElement;
+    fireEvent.change(cm, { target: { value: "手动保存内容" } });
+    fireEvent.click(screen.getByLabelText("保存"));
+    await waitFor(() =>
+      expect(bridge.writeFile).toHaveBeenCalledWith("/w/alpha/a1.md", "手动保存内容"),
+    );
+  });
+
+  it("字数统计:去空白后按字符计(顶栏 badge)", async () => {
+    useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
+    renderWs(makeBridge());
+    const cm = (await screen.findByTestId("cm")) as HTMLTextAreaElement;
+    fireEvent.change(cm, { target: { value: "a b c" } }); // 去空白 → "abc" = 3
+    await waitFor(() => expect(screen.getByText("字数 3")).toBeTruthy());
+  });
+
+  it("无打开文件:顶栏显示占位名与「尚未打开文件」", () => {
+    renderWs(makeBridge());
+    expect(screen.getByText("写作台")).toBeTruthy();
+    expect(screen.getByText("尚未打开文件")).toBeTruthy();
   });
 });

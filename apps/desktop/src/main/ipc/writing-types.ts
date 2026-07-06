@@ -25,7 +25,11 @@ export interface WritingThreadMeta {
   updatedAt: number;
 }
 
-// 写作空间 UI/持久化态：空间列表 + 活跃空间 id（无空间时为 null）+ 会话元数据。
+// 中栏编辑器视图档位：source（源码）/ live（实时预览）/ preview（仅预览）。
+// 对应 Kun WritePreviewMode 的子集（Kun 另有 rich/split，本仓库不支持）。
+export type WritingPreviewMode = "source" | "live" | "preview";
+
+// 写作空间 UI/持久化态：空间列表 + 活跃空间 id（无空间时为 null）+ 会话元数据 + 编辑器视图偏好。
 // 替代 Kun 侧 localStorage（core 禁用 localStorage），经 PersistedState.writingUi 分片落盘。
 export interface WritingUiState {
   spaces: WritingSpace[];
@@ -34,4 +38,8 @@ export interface WritingUiState {
   threads?: WritingThreadMeta[];
   // 每空间最后活跃的会话 id（重进恢复上次会话）。缺省视为空。
   activeThreadBySpace?: Record<string, string | null>;
+  // 编辑器视图档位（跨空间共享，中栏工具栏切换）。缺省视为 "live"（兼容旧档）。
+  previewMode?: WritingPreviewMode;
+  // 编辑器字号 px（中栏工具栏步进，Kun 口径 10–48，默认 16）。缺省回落默认（兼容旧档）。
+  fontSizePx?: number;
 }
