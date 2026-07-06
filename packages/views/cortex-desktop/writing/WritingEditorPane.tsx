@@ -16,6 +16,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
 } from "react";
 import { useDesktopBridge } from "@cortex-work/core/provider";
@@ -36,9 +37,15 @@ import {
 } from "@cortex-work/core/writing/doc-stats";
 import { imageExtFromMime, relativeImageLink } from "@cortex-work/core/writing/paste-image";
 import {
+  buildWritingInlineEditRequest,
+  buildWritingInlineEditReviewInput,
+  canRunWritingInlineEdit,
+} from "@cortex-work/core/writing/inline-edit";
+import {
   WRITING_FONT_SIZE_DEFAULT,
   type WritingPreviewMode,
 } from "@cortex-work/core/writing/spaces";
+import { buildWritingGhostTextExtension } from "./completion/ghost-text";
 import { MarkdownView } from "../personal/MarkdownView";
 import {
   NoteCodeMirrorEditor,
@@ -161,6 +168,18 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     const [infographicBusy, setInfographicBusy] = useState(false);
     const infographicBusyRef = useRef(false); // 单飞守卫(同步读,避免并发双发)
     const [cmSelection, setCmSelection] = useState<NoteEditorSelection | null>(null);
+    // ── 写作 LLM 续写/改写(U3)──────────────────────────────────────────────
+    // llmStatus:写作模型配置态(异步探测)。configured 决定 Cmd-K 与 ghost text 是否可用,
+    // completionEnabled 单独门控 ghost text。未配置时两者入口全隐藏(降级)。
+    const [llmStatus, setLlmStatus] = useState<{ configured: boolean; completionEnabled: boolean }>({
+      configured: false,
+      completionEnabled: false,
+    });
+    // Cmd-K 就地改写:cmdk 记录待改写的选区快照(from/to/text),非空时渲染指令输入条;busy 防并发双发。
+    const [cmdk, setCmdk] = useState<{ from: number; to: number; text: string } | null>(null);
+    const [cmdkInstruction, setCmdkInstruction] = useState("");
+    const [cmdkBusy, setCmdkBusy] = useState(false);
+    const cmdkBusyRef = useRef(false);
     // 当前文件的 diff 审阅记录(U6,模块级 review-manager)。存在即切审阅态:只读 + 冻结自动保存。
     // 订阅 store 使 agent/外部在覆盖层外入队的 pending 也能在切回该文件时响应式恢复审阅。
     const pendingReview = useWritingReviewStore((s) => (path ? s.pending[path] : undefined));
@@ -227,6 +246,9 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     onConflictRef.current = onConflict;
     const bridgeRef = useRef(bridge);
     bridgeRef.current = bridge;
+    // 写作 LLM 配置态走 ref:供 ghost text 扩展工厂(挂载时建一次)读取最新值,配置改动即时生效不重挂。
+    const llmStatusRef = useRef(llmStatus);
+    llmStatusRef.current = llmStatus;
 
     useImperativeHandle(
       ref,
@@ -349,6 +371,61 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
       };
     }, [bridge]);
 
+    // 写作 LLM 配置态探测(U3):写作模型是否配置 + ghost text 开关。异步探测,未配置/无能力 → 全隐藏入口。
+    // 依赖 bridge:壳注入变化时重探;探测失败一律按未配置(不误显不可用的续写/改写)。
+    useEffect(() => {
+      const probe = bridge?.writingLlmStatus;
+      if (!probe) {
+        setLlmStatus({ configured: false, completionEnabled: false });
+        return;
+      }
+      let cancelled = false;
+      void probe()
+        .then((s) => {
+          if (!cancelled) setLlmStatus(s);
+        })
+        .catch(() => {
+          if (!cancelled) setLlmStatus({ configured: false, completionEnabled: false });
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [bridge]);
+
+    // ghost text 续写扩展工厂(U3):挂载时以 CM 命名空间构建;isEnabled/requestCompletion 读 ref 取最新配置,
+    // 故配置改动即时生效、无需重挂编辑器。仅在 CM 档(live/source)经 NoteCodeMirrorEditor 注入,rich 档不挂。
+    // useMemo([]) 保证工厂稳定引用(NoteCodeMirrorEditor 挂载时读一次即可)。
+    const buildGhostTextExtensions = useMemo(
+      () =>
+        (mods: Parameters<typeof buildWritingGhostTextExtension>[0]) =>
+          [
+            buildWritingGhostTextExtension(mods, {
+              // 启用条件:已配置 + ghost text 开关开(读 ref 取最新)。
+              isEnabled: () =>
+                llmStatusRef.current.configured && llmStatusRef.current.completionEnabled,
+              requestCompletion: async (prefix, suffix) => {
+                const call = bridgeRef.current?.writingComplete;
+                if (!call) return null;
+                try {
+                  const res = await call({ prefix, suffix });
+                  return res.ok ? res.completion : null;
+                } catch {
+                  return null;
+                }
+              },
+            }),
+          ],
+      [],
+    );
+
+    // 切文件/进审阅/失去 CM 编辑器时,关闭未提交的 Cmd-K 改写输入条(避免选区偏移错位残留)。
+    useEffect(() => {
+      if (!editorMounted || pendingReview) {
+        setCmdk(null);
+        setCmdkInstruction("");
+      }
+    }, [editorMounted, pendingReview, path]);
+
     // ── 顶栏展示数据 ──────────────────────────────────────────────────────
     const hasTextFile = !!path;
     const fileName = path ? path.split(/[/\\]/).pop() || path : "写作台";
@@ -393,6 +470,41 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
               onToast?.(`已导出到 ${dest}`);
             } catch (err) {
               onToast?.(`导出失败：${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+        : undefined;
+
+    // 重型导出(U6):当前文档 → 主进程同源渲染 → 弹保存框落盘(DOCX/PDF/HTML/PNG)。
+    // 统一走 bridge.writingExport;取消静默、失败 toast、成功 toast 落盘路径。用 draftRef.current
+    // 取最新草稿(未落盘也能导出)。任一前置缺失(无 path / 无 bridge 能力)→ 各导出项不渲染。
+    const makeHeavyExport = (format: "docx" | "pdf" | "html" | "png"): (() => Promise<void>) | undefined =>
+      path && bridge?.writingExport
+        ? async (): Promise<void> => {
+            try {
+              const res = await bridge.writingExport!({ path, content: draftRef.current, format });
+              if (res.ok) {
+                onToast?.(`已导出到 ${res.path}`);
+              } else if (!res.canceled) {
+                onToast?.(`导出失败：${res.message}`);
+              }
+            } catch (err) {
+              onToast?.(`导出失败：${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+        : undefined;
+    const onExportDocx = makeHeavyExport("docx");
+    const onExportPdf = makeHeavyExport("pdf");
+    const onExportHtml = makeHeavyExport("html");
+    const onExportPng = makeHeavyExport("png");
+    // 复制富文本(U6):渲染成 HTML 写入系统剪贴板(html + text 双写)。
+    const onCopyRichText =
+      path && bridge?.writingCopyRichText
+        ? async (): Promise<void> => {
+            try {
+              const res = await bridge.writingCopyRichText!({ path, content: draftRef.current });
+              onToast?.(res.ok ? "已复制富文本到剪贴板" : `复制失败：${res.message}`);
+            } catch (err) {
+              onToast?.(`复制失败：${err instanceof Error ? err.message : String(err)}`);
             }
           }
         : undefined;
@@ -483,6 +595,60 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     const cmInfographicVisible =
       !!onInfographic && editorMounted && effectiveMode !== "rich" && !!cmSelection?.text;
 
+    // ── Cmd-K 就地改写(U3)──────────────────────────────────────────────────
+    // 编辑器区捕获 ⌘K/Ctrl-K:已配置且有非空选区时打开指令输入条(捕获选区快照);否则不拦截(no-op)。
+    const onEditorKeyDown = (e: ReactKeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "k") return;
+      if (!editorMounted || !canRunWritingInlineEdit(llmStatus.configured, cmSelection?.text)) return;
+      e.preventDefault();
+      const sel = cmSelection!;
+      setCmdk({ from: sel.from, to: sel.to, text: sel.text });
+      setCmdkInstruction("");
+    };
+    // 执行改写:以提交时刻的 draft 快照 + 选区偏移构造请求 → 主进程改写 → 组合全文 next → 复用既有 beginReview
+    // 红绿 diff 审阅(不新建第二套 diff,不进聊天历史)。空替换/失败给 toast 不进审阅。
+    const runCmdkEdit = async (): Promise<void> => {
+      const target = cmdk;
+      const p = pathRef.current;
+      if (!target || !p || cmdkBusyRef.current) return;
+      const instruction = cmdkInstruction.trim();
+      if (!instruction) {
+        onToast?.("请输入改写指令");
+        return;
+      }
+      const call = bridgeRef.current?.writingInlineEdit;
+      if (!call) {
+        onToast?.("当前环境不支持就地改写");
+        return;
+      }
+      const content = draftRef.current; // 提交时刻快照:偏移与之匹配,避免 await 期间 draft 变动错位
+      cmdkBusyRef.current = true;
+      setCmdkBusy(true);
+      try {
+        const req = buildWritingInlineEditRequest(content, target.from, target.to, instruction);
+        const res = await call(req);
+        if (!res.ok) {
+          onToast?.(`改写失败：${res.message}`);
+          return;
+        }
+        if (!res.replacement) {
+          onToast?.("模型未给出有效改写");
+          return;
+        }
+        // 组合全文并入队审阅:baseline=改写前全文、next=改写后全文、origin=agent(既有允许值)。
+        const review = buildWritingInlineEditReviewInput(content, target.from, target.to, res.replacement);
+        const entered = useWritingReviewStore.getState().beginReview({ path: p, ...review });
+        if (!entered) onToast?.("改写结果与原文一致");
+        setCmdk(null);
+        setCmdkInstruction("");
+      } catch (err) {
+        onToast?.(`改写失败：${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        cmdkBusyRef.current = false;
+        setCmdkBusy(false);
+      }
+    };
+
     const toolbar = (
       <WritingToolbar
         fileName={fileName}
@@ -504,6 +670,11 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
         onToggleAssistant={onToggleAssistant}
         onCopyMarkdown={onCopyMarkdown}
         onExportMarkdownCopy={onExportMarkdownCopy}
+        onExportDocx={onExportDocx}
+        onExportPdf={onExportPdf}
+        onExportHtml={onExportHtml}
+        onExportPng={onExportPng}
+        onCopyRichText={onCopyRichText}
       />
     );
 
@@ -519,6 +690,8 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
         onSelectionChange={handleSelectionChange}
         onSave={() => void save()}
         onPasteImage={onPasteImage}
+        // ghost text 续写扩展(U3):CM 档注入;isEnabled/请求读 ref,未配置/关闭时扩展内部自门控不显不请求。
+        buildExtraExtensions={buildGhostTextExtensions}
         onLoadError={() => {
           setEditorLoadFailed(true);
           onToast?.("编辑器加载失败,已切换到仅预览");
@@ -603,9 +776,73 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     return (
       <div className={`pw-writing-editor${!loaded || !path || loadError ? " is-bodyempty" : ""}`}>
         {toolbar}
-        {/* position:relative 供 CM 信息图入口按钮绝对定位(rich 档用浮动工具条自带按钮,不在此渲染)。*/}
-        <div className="pw-writing-editor-main" style={{ position: "relative" }}>
+        {/* position:relative 供 CM 信息图入口按钮绝对定位(rich 档用浮动工具条自带按钮,不在此渲染)。
+            onKeyDownCapture 捕获 ⌘K/Ctrl-K 就地改写:在 CM 处理前拦截,有选区+已配置才生效。*/}
+        <div
+          className="pw-writing-editor-main"
+          style={{ position: "relative" }}
+          onKeyDownCapture={onEditorKeyDown}
+        >
           {body}
+          {/* Cmd-K 改写指令输入条:选区改写时浮现在编辑器顶部。Enter 提交 / Esc 关闭。 */}
+          {cmdk ? (
+            <div
+              className="pw-writing-cmdk"
+              style={{
+                position: "absolute",
+                left: 16,
+                right: 16,
+                top: 12,
+                zIndex: 6,
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                padding: 8,
+                borderRadius: 8,
+                background: "var(--surface-1, #fff)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+              }}
+            >
+              <input
+                className="pw-set-input"
+                autoFocus
+                style={{ flex: 1 }}
+                value={cmdkInstruction}
+                placeholder="输入改写指令,如「更正式」「精简一半」…"
+                disabled={cmdkBusy}
+                onChange={(e) => setCmdkInstruction(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void runCmdkEdit();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setCmdk(null);
+                    setCmdkInstruction("");
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="pw-tl-gen"
+                disabled={cmdkBusy || !cmdkInstruction.trim()}
+                onClick={() => void runCmdkEdit()}
+              >
+                {cmdkBusy ? "改写中…" : "改写"}
+              </button>
+              <button
+                type="button"
+                className="pw-btn-sm"
+                disabled={cmdkBusy}
+                onClick={() => {
+                  setCmdk(null);
+                  setCmdkInstruction("");
+                }}
+              >
+                取消
+              </button>
+            </div>
+          ) : null}
           {cmInfographicVisible ? (
             <button
               type="button"

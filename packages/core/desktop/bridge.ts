@@ -95,6 +95,21 @@ import type {
 import type { WritingRetrievalRequest, WritingRetrievalResult } from "./writing-retrieval-types";
 // 写作信息图(U7）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-infographic-types.ts 镜像）。
 import type { WritingInfographicRequest, WritingInfographicResult } from "./writing-infographic-types";
+// 写作重型导出(U6）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-export-types.ts 镜像）。
+import type {
+  WritingExportRequest,
+  WritingExportResult,
+  WritingCopyRichTextRequest,
+  WritingCopyRichTextResult,
+} from "./writing-export-types";
+// 写作 LLM(U3,续写 + Cmd-K 改写）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-llm-types.ts 镜像）。
+import type {
+  WritingCompletionRequest,
+  WritingCompletionResult,
+  WritingInlineEditRequest,
+  WritingInlineEditResult,
+  WritingLlmStatus,
+} from "./writing-llm-types";
 import type { ChannelId } from "../reply/channels";
 import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
 import type {
@@ -162,6 +177,21 @@ export interface DesktopBridge {
   writingInfographic?(req: WritingInfographicRequest): Promise<WritingInfographicResult>;
   // media-gen 图片模态是否已配置:未配置返回 false → 渲染端隐藏信息图入口(不暴露不可用按钮)。
   writingInfographicAvailable?(): Promise<boolean>;
+  // ── 写作重型导出(U6,DOCX/PDF/PNG/HTML/复制富文本）─────────────────────────
+  // 当前文档(path + content + format)→ 主进程同源渲染 HTML → 弹系统保存框落盘。
+  // 结果:ok(落盘路径)/ canceled=true(用户取消,渲染端静默)/ message(失败,渲染端 toast)。
+  // 可选——web/旧壳无此能力时导出菜单对应项降级隐藏。
+  writingExport?(req: WritingExportRequest): Promise<WritingExportResult>;
+  // 把当前文档渲染成富文本写入系统剪贴板(html + 纯文本双写)。失败给可读 message。
+  writingCopyRichText?(req: WritingCopyRichTextRequest): Promise<WritingCopyRichTextResult>;
+  // ── 写作 LLM(U3,ghost text 续写 + Cmd-K 就地改写）─────────────────────────
+  // writingLlmStatus:探测写作模型配置态(configured/completionEnabled),渲染端据此决定挂载/隐藏入口。
+  // writingComplete:打字续写,给前后缀窗口 → 返回可插入文本(ok.completion 可为空串=无续写)。
+  // writingInlineEdit:Cmd-K 改写,给前后缀 + 选区原文 + 指令 → 返回替换文本(经既有 beginReview 审阅落盘)。
+  // 可选——web/旧壳或未配置时续写/改写入口全降级隐藏(依 writingLlmStatus)。
+  writingLlmStatus?(): Promise<WritingLlmStatus>;
+  writingComplete?(req: WritingCompletionRequest): Promise<WritingCompletionResult>;
+  writingInlineEdit?(req: WritingInlineEditRequest): Promise<WritingInlineEditResult>;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
   // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。
   renameEntry?(from: string, to: string): Promise<void>;

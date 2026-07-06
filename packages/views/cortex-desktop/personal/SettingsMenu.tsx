@@ -64,6 +64,7 @@ import { SttSettingsSection } from "./SttSettingsSection";
 import { ReplySettingsSection } from "./ReplySettingsSection";
 import { RolesSection } from "./RolesSettingsSection";
 import { DesignSettingsSection } from "./DesignSettingsSection";
+import { WritingSettingsSection } from "./WritingSettingsSection";
 import { BareSelect, SBlock, SRow, SecretField, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "./platform";
 
@@ -96,7 +97,8 @@ type SettingsTab =
   | "stt"
   | "reply"
   | "roles"
-  | "design";
+  | "design"
+  | "writing";
 
 // 项元数据唯一来源：label 走 i18n（settings:tabs.*）,故此处只存 tabKey + icon,渲染时即时翻译。
 // 分组（NAV_GROUPS）只描述「哪些项归哪组 + 顺序」,不重复 icon/文案,避免双写漂移（KTD3）。
@@ -121,6 +123,8 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   roles: { tabKey: "tabs.roles", icon: <Icon.Users size={14} /> },
   // 设计工作台（AI 设计画布,desktop-only）
   design: { tabKey: "tabs.design", icon: <Icon.Palette size={14} /> },
+  // 写作续写/改写（U3，ghost text + Cmd-K 就地改写的独立模型配置）
+  writing: { tabKey: "tabs.writing", icon: <Icon.Edit size={14} /> },
 };
 
 // 设置左栏分组：组标题走 i18n（settings:tabGroups.*）,组内项按数组顺序渲染。
@@ -129,7 +133,7 @@ const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
   { groupKey: "tabGroups.general", items: ["profile", "general", "archivedSessions"] },
   { groupKey: "tabGroups.models", items: ["providers", "agent", "pi", "roles"] },
   // 媒体生成挂「应用」组,语音转文字挂「个性化」组（同 pet/voice 并列,U2 新增）
-  { groupKey: "tabGroups.apps", items: ["plugins", "browser", "mediaGen", "design"] },
+  { groupKey: "tabGroups.apps", items: ["plugins", "browser", "mediaGen", "design", "writing"] },
   { groupKey: "tabGroups.personalization", items: ["pet", "voice", "stt", "reply"] },
   { groupKey: "tabGroups.automation", items: ["timeline", "push"] },
 ];
@@ -1966,6 +1970,8 @@ export function PersonalSettingsView() {
             <RolesSection />
           ) : tab === "design" ? (
             <DesignSettingsSection />
+          ) : tab === "writing" ? (
+            <WritingSettingsSection />
           ) : (
             <VoiceSection />
           )}

@@ -34,6 +34,7 @@ export function saveUrgency(s: PersonalState, prev: PersonalState): SaveUrgency 
     s.ttsSettings !== prev.ttsSettings ||
     s.mediaGenSettings !== prev.mediaGenSettings ||
     s.asrSettings !== prev.asrSettings ||
+    s.writingLlmSettings !== prev.writingLlmSettings ||
     s.providerSettings !== prev.providerSettings ||
     s.profile !== prev.profile ||
     s.rightPanelWidth !== prev.rightPanelWidth ||

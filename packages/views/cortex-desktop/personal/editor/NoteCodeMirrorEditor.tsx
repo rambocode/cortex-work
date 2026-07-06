@@ -38,7 +38,16 @@ type Props = {
   // 粘贴图片落盘(U1,可选):写作 live/source 档注入。给剪贴板图片 File,返回要插入的相对 md 链接
   // (调用方已换算好,如 img/x.png);返回 null → 保存失败不插入。闪记不传该 prop → 零改动,走默认粘贴。
   onPasteImage?: (file: File) => Promise<string | null>;
+  // 额外 CM 扩展工厂(U3,可选):挂载时以已动态 import 的 CM 命名空间调用,返回要并入的扩展数组。
+  // 写作 live/source 档注入 ghost text 续写扩展;闪记不传 → 零改动。仅挂载时读一次(读 ref 取最新)。
+  buildExtraExtensions?: (mods: WritingCmMods) => Extension[];
 };
+
+// buildExtraExtensions 收到的 CM 运行期命名空间(state / view),供扩展工厂用其构造 StateField/Decoration 等。
+export interface WritingCmMods {
+  state: typeof import("@codemirror/state");
+  view: typeof import("@codemirror/view");
+}
 
 export function NoteCodeMirrorEditor({
   value,
@@ -49,6 +58,7 @@ export function NoteCodeMirrorEditor({
   onLoadError,
   onSelectionChange,
   onPasteImage,
+  buildExtraExtensions,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -73,6 +83,7 @@ export function NoteCodeMirrorEditor({
   const onLoadErrorRef = useRef(onLoadError);
   const onSelectionChangeRef = useRef(onSelectionChange);
   const onPasteImageRef = useRef(onPasteImage);
+  const buildExtraExtensionsRef = useRef(buildExtraExtensions);
   // 上次上报的选区签名(from:to),避免同一选区重复派发(光标移动会触发大量 selectionSet)。
   const lastSelectionKeyRef = useRef<string | null>(null);
   onChangeRef.current = onChange;
@@ -83,6 +94,7 @@ export function NoteCodeMirrorEditor({
   onLoadErrorRef.current = onLoadError;
   onSelectionChangeRef.current = onSelectionChange;
   onPasteImageRef.current = onPasteImage;
+  buildExtraExtensionsRef.current = buildExtraExtensions;
 
   // 挂载一次:动态装载 CodeMirror + 本地扩展,建编辑器实例。
   useEffect(() => {
@@ -255,6 +267,18 @@ export function NoteCodeMirrorEditor({
               return true;
             },
           }),
+          // 额外扩展(U3 ghost text 续写):以已加载的 CM 命名空间调用工厂,并入其返回的扩展。
+          // 仅挂载时读一次;写作档注入,闪记不传则为空数组(零影响)。工厂异常不阻断编辑器建立。
+          ...(() => {
+            const factory = buildExtraExtensionsRef.current;
+            if (!factory) return [] as Extension[];
+            try {
+              return factory({ state: mods.state, view: mods.view });
+            } catch (err) {
+              console.error("[notes] buildExtraExtensions 失败,已跳过额外扩展", err);
+              return [] as Extension[];
+            }
+          })(),
         ],
       });
 

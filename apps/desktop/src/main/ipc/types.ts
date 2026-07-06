@@ -102,6 +102,10 @@ import type { DesignSettings, DesignDocMeta, DesignUiState } from "./design-type
 export * from "./writing-types";
 import type { WritingUiState } from "./writing-types";
 
+// 写作 LLM(U3,续写 + Cmd-K 改写）配置契约 → ./writing-llm-types.ts。与 core 镜像。
+export * from "./writing-llm-types";
+import type { WritingLlmSettings } from "./writing-llm-types";
+
 export interface SessionMeta {
   id: string;
   // 关联项目;缺省 = 不使用项目（会话在 Documents/cortex/<日期> 工作）。
@@ -460,6 +464,8 @@ export interface PersistedState {
   // 写作工作区分片（renderer 全量写入，主进程透明落盘）。与 packages/core/desktop/types.ts 镜像。
   // 主进程 fs.allowedRoots 读取 spaces[].root 兜底放行白名单外的自定义空间根。
   writingUi?: WritingUiState;
+  // 写作续写/改写(U3)独立模型配置。主进程 writing-llm handler 经 getPersistedState 读取。
+  writingLlmSettings?: WritingLlmSettings;
 }
 
 export interface ReadFileResult {

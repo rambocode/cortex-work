@@ -53,7 +53,9 @@ import {
   DEFAULT_TTS_SETTINGS,
   defaultMediaGenSettings,
   defaultAsrSettings,
+  DEFAULT_WRITING_LLM_SETTINGS,
 } from "../desktop/types";
+import type { WritingLlmSettings } from "../desktop/types";
 import { migratePiSettings, normalizeProviderProfile } from "../desktop/providers";
 import { fromAdapterPermissions } from "../personal/permissionMode";
 
@@ -194,6 +196,8 @@ export interface PersonalState {
   designUi: DesignUiState;
   // 语音识别设置（持久化;与 PersistedState.asrSettings 镜像）。
   asrSettings: AsrSettings;
+  // 写作续写/改写(U3)独立模型配置（持久化;与 PersistedState.writingLlmSettings 镜像）。
+  writingLlmSettings: WritingLlmSettings;
   // 各 agent 是否可用（主进程探测,不持久化;启动时回填）。
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
   // 用户 JSON(agents.local.json)派生的 agent(主进程读盘,不持久化;启动时经 listAgentProfiles 回填,U7)。
@@ -347,6 +351,8 @@ export interface PersonalState {
   setMediaGenSettings: (patch: Partial<MediaGenSettings>) => void;
   // 语音识别设置 patch（浅合并;与 setTtsSettings 模式一致）。
   setAsrSettings: (patch: Partial<AsrSettings>) => void;
+  // 写作续写/改写模型配置 patch（浅合并;设置页「写作」分区编辑）。
+  setWritingLlmSettings: (patch: Partial<WritingLlmSettings>) => void;
   // 设计工作台：设置 patch（合并后经归一化,拒绝脏数据落盘）。
   setDesignSettings: (patch: Partial<DesignSettings>) => void;
   // 设计稿索引 upsert/移除（重数据在工作区磁盘,这里只维护轻量索引）。
@@ -508,6 +514,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   ttsSettings: DEFAULT_TTS_SETTINGS,
   mediaGenSettings: defaultMediaGenSettings(),
   asrSettings: defaultAsrSettings(),
+  writingLlmSettings: DEFAULT_WRITING_LLM_SETTINGS,
   designSettings: defaultDesignSettings(),
   designDocs: [],
   designUi: {},
@@ -533,6 +540,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 各模态子字段全量覆盖（无 deep merge），旧档缺字段时整体回落工厂对象。
       mediaGenSettings: s.mediaGenSettings ?? defaultMediaGenSettings(),
       asrSettings: s.asrSettings ?? defaultAsrSettings(),
+      // 写作续写/改写模型配置：旧档无字段时回落工厂默认（ghost text 默认开、端点空=未配置）。
+      writingLlmSettings: s.writingLlmSettings ?? DEFAULT_WRITING_LLM_SETTINGS,
       // 设计工作台：设置经归一化兜底（旧档/脏数据回落默认）,索引与 UI 态缺省为空。
       designSettings: normalizeDesignSettings(s.designSettings),
       designDocs: s.designDocs ?? [],
@@ -1107,6 +1116,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setAsrSettings: (patch) =>
     set((s) => ({ asrSettings: { ...s.asrSettings, ...patch } })),
 
+  setWritingLlmSettings: (patch) =>
+    set((s) => ({ writingLlmSettings: { ...s.writingLlmSettings, ...patch } })),
+
   // 设计设置：合并后整体归一化(枚举/长度上限兜底),避免脏值经 UI 写穿到磁盘。
   setDesignSettings: (patch) =>
     set((s) => ({ designSettings: normalizeDesignSettings({ ...s.designSettings, ...patch }) })),
@@ -1151,6 +1163,7 @@ export function toPersistedState(s: PersonalState): PersistedState {
     ttsSettings: s.ttsSettings,
     mediaGenSettings: s.mediaGenSettings,
     asrSettings: s.asrSettings,
+    writingLlmSettings: s.writingLlmSettings,
     designSettings: s.designSettings,
     designDocs: s.designDocs,
     designUi: s.designUi,

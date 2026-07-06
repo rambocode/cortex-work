@@ -102,6 +102,21 @@ import type {
   WritingInfographicRequest,
   WritingInfographicResult,
 } from "../main/ipc/writing-infographic-types";
+// 写作重型导出(U6）IPC 契约类型(type-only,编译期擦除;与 core/desktop/writing-export-types.ts 镜像）。
+import type {
+  WritingExportRequest,
+  WritingExportResult,
+  WritingCopyRichTextRequest,
+  WritingCopyRichTextResult,
+} from "../main/ipc/writing-export-types";
+// 写作 LLM(U3,续写 + Cmd-K 改写）IPC 契约类型(type-only,编译期擦除;与 core/desktop/writing-llm-types.ts 镜像）。
+import type {
+  WritingCompletionRequest,
+  WritingCompletionResult,
+  WritingInlineEditRequest,
+  WritingInlineEditResult,
+  WritingLlmStatus,
+} from "../main/ipc/writing-llm-types";
 import type {
   LocalWhisperModelProgress,
   LocalWhisperModelStatus,
@@ -184,6 +199,20 @@ const personal = {
   writingInfographic: (req: WritingInfographicRequest): Promise<WritingInfographicResult> =>
     ipcRenderer.invoke("writing:infographic", req),
   writingInfographicAvailable: (): Promise<boolean> => ipcRenderer.invoke("writing:infographicAvailable"),
+  // ── 写作重型导出(U6，DOCX/PDF/PNG/HTML/复制富文本）───────────────────────
+  // writingExport：当前文档 → 主进程同源渲染 → 弹保存框落盘(取消/失败回结构化结果,不抛);
+  // writingCopyRichText：把文档渲染成富文本写入系统剪贴板(html + text 双写)。
+  writingExport: (req: WritingExportRequest): Promise<WritingExportResult> =>
+    ipcRenderer.invoke("writing:export", req),
+  writingCopyRichText: (req: WritingCopyRichTextRequest): Promise<WritingCopyRichTextResult> =>
+    ipcRenderer.invoke("writing:copyRichText", req),
+  // ── 写作 LLM(U3,ghost text 续写 + Cmd-K 就地改写）─────────────────────────
+  // writingLlmStatus：探测配置态(未配置渲染端隐藏入口);writingComplete：续写;writingInlineEdit：改写。
+  writingLlmStatus: (): Promise<WritingLlmStatus> => ipcRenderer.invoke("writing:llmStatus"),
+  writingComplete: (req: WritingCompletionRequest): Promise<WritingCompletionResult> =>
+    ipcRenderer.invoke("writing:complete", req),
+  writingInlineEdit: (req: WritingInlineEditRequest): Promise<WritingInlineEditResult> =>
+    ipcRenderer.invoke("writing:edit", req),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),

@@ -21,7 +21,8 @@
     "stt": "Speech to Text",
     "roles": "Roles",
     "reply": "Quick Reply",
-    "design": "Design"
+    "design": "Design",
+    "writing": "Writing"
   },
   "tabGroups": {
     "general": "General",
@@ -29,6 +30,24 @@
     "apps": "Apps",
     "personalization": "Personalization",
     "automation": "Automation"
+  },
+  "writing": {
+    "title": "Writing Autocomplete & Rewrite",
+    "desc": "Configure a dedicated completion/rewrite model (OpenAI-compatible endpoint) for the writing workspace. Get ghost-text suggestions while typing, and rewrite a selection in place with ⌘K. Independent of the chat agent and daily report models.",
+    "modelCard": "Completion / Rewrite Model",
+    "configuredHint": "Configured: autocomplete and ⌘K rewrite are enabled.",
+    "notConfiguredHint": "Not configured yet: fill in the endpoint and model below to enable autocomplete and ⌘K rewrite.",
+    "baseUrl": "Base URL",
+    "baseUrlPlaceholder": "https://api.example.com/v1",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Leave empty for local endpoints",
+    "model": "Model",
+    "modelPlaceholder": "e.g. gpt-4o-mini / deepseek-chat",
+    "completionCard": "Typing Autocomplete",
+    "completionLabel": "Enable typing autocomplete",
+    "completionDesc": "After a pause while typing, show a ghost-text suggestion. Tab to accept; Esc or keep typing to dismiss.",
+    "inlineEditLabel": "⌘K In-place Rewrite",
+    "inlineEditDesc": "Select text and press ⌘K to enter a rewrite instruction; the result goes through the red/green diff review before saving. Available once a model is configured."
   },
   "archivedSessions": {
     "title": "Archived conversations",

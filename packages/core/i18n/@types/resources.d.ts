@@ -1889,7 +1889,26 @@ export default interface Resources {
       "roles": "角色",
       "stt": "语音转文字",
       "timeline": "时间线",
-      "voice": "语音"
+      "voice": "语音",
+      "writing": "写作"
+    },
+    "writing": {
+      "title": "写作续写与改写",
+      "desc": "为写作台配置独立的续写/改写模型（OpenAI 兼容端点）。打字时给灰字续写建议，选中文字后按 ⌘K 就地改写。此配置独立于对话 Agent 与日报模型。",
+      "modelCard": "续写/改写模型",
+      "configuredHint": "已配置：续写与 ⌘K 改写已启用。",
+      "notConfiguredHint": "尚未配置：填写下方接口地址与模型后，续写与 ⌘K 改写才会出现。",
+      "baseUrl": "接口地址",
+      "baseUrlPlaceholder": "https://api.example.com/v1",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "本地端点可留空",
+      "model": "模型",
+      "modelPlaceholder": "如 gpt-4o-mini / deepseek-chat",
+      "completionCard": "打字续写",
+      "completionLabel": "启用打字续写",
+      "completionDesc": "打字停顿后以灰字给出续写建议，Tab 采纳、Esc 或继续输入取消。",
+      "inlineEditLabel": "⌘K 就地改写",
+      "inlineEditDesc": "选中文字后按 ⌘K 输入改写指令，结果经红绿 diff 审阅后落盘。已配置模型即可用。"
     },
     "thinkingLevel": {
       "high": "高",

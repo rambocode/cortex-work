@@ -36,6 +36,8 @@ import { registerRoundtableHandlers } from "./roundtable";
 import { registerReplyHandlers } from "./reply";
 import { registerWritingRetrievalHandlers } from "./writing-retrieval";
 import { registerWritingInfographicHandlers } from "./writing-infographic";
+import { registerWritingExportHandlers } from "./writing-export";
+import { registerWritingLlmHandlers } from "./writing-llm";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -81,6 +83,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerReplyHandlers(); // 快捷回复助手 IPC 域（U5 骨架，U7/U9 填实）
   registerWritingRetrievalHandlers(); // 写作检索(工作区级轻量 RAG）IPC 域（U4）
   registerWritingInfographicHandlers(); // 写作信息图生成(对接 media-gen）IPC 域（U7）
+  registerWritingExportHandlers(); // 写作重型导出(DOCX/PDF/PNG/HTML/复制富文本）IPC 域（U6）
+  registerWritingLlmHandlers(); // 写作 LLM(ghost text 续写 + Cmd-K 就地改写）IPC 域（U3）
 }
 
 export { killAllCli } from "./cli";
