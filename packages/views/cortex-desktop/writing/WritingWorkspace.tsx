@@ -1,47 +1,24 @@
 // 写作工作区整窗覆盖层(fixed inset-0):cortex 侧对 Kun「写作台」的对等物,与设计工作台同构。
-// 组装左(WritingSidebar 空间+文件树)/ 中(编辑器,U5 接入)/ 右(写作助手,U8 接入)三栏。
+// 组装左(WritingSidebar 空间+文件树)/ 中(WritingEditorPane 三档编辑)/ 右(WritingAssistantPanel 助手)三栏。
 // 照 DesignWorkspace 的覆盖层与卸载语义:writingOpen 为瞬态,返回按钮 closeWriting 回落首页。
-// 挂载时 ensureDefaultSpace:首次进入以 fs:writingWorkspaceRoot 建默认空间(Documents/cortex/writing)。
-import { useEffect, useState, type ReactElement } from "react";
+//
+// U9 全链接线:本容器是 agent 改稿回路的编排点——
+//   run-manager 事件(bridge.onCliEvent/onCliExit)+ watch dirChanged → attribution 归因 →
+//     agent 改动    → review-manager.beginReview(编辑器 pendingReview 订阅后自动切审阅态并冻结自动保存);
+//     外部改动      → 编辑器句柄 handleExternalChange(干净静默刷新 / 脏走 onConflict → beginReview);
+//     非当前文件改动 → 刷新文件树(经 sidebar 注册的 refresh)。
+//   发送前 flush 由助手面板经 editorRef.flushNow 触发(确保 agent 读到最新盘面)。
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge } from "@cortex-work/core/provider";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
-import { useWritingSpacesStore, type WritingSpacesState } from "@cortex-work/core/writing/spaces";
+import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
 import { useWritingWorkspaceStore } from "@cortex-work/core/writing/workspace-store";
+import { useWritingReviewStore } from "@cortex-work/core/writing/review-manager";
+import { createWritingAttribution } from "@cortex-work/core/writing/attribution";
 import { WritingSidebar } from "./WritingSidebar";
-
-// 从空间 store 状态派生空间元素类型,避免为 WritingSpace 单独加 core 导出。
-type WritingSpace = WritingSpacesState["spaces"][number];
-
-// 中/右栏在 U4 为占位。留好稳定 props 接口供 U5(编辑器)/U8(助手)替换实现,
-// 避免后续单元反复改 WritingWorkspace 的组装。
-
-// 中栏编辑器占位:U5 换成 WritingEditorPane(三档编辑 + 自动保存 + 磁盘基线)。
-function WritingEditorPanePlaceholder({ filePath }: { filePath: string | null }): ReactElement {
-  return (
-    <div className="pw-writing-editor pw-writing-placeholder">
-      {filePath ? (
-        <div className="pw-writing-editor-head" title={filePath}>
-          {filePath.split(/[/\\]/).pop()}
-        </div>
-      ) : null}
-      <div className="pw-writing-placeholder-body">
-        {filePath ? "编辑器占位(U5 接入三档编辑)" : "从左侧选择或新建一个文件开始写作"}
-      </div>
-    </div>
-  );
-}
-
-// 右栏写作助手占位:U8 换成 WritingAssistantPanel(快捷动作 + 选中引用 + 发送/中断 + 会话管理)。
-function WritingAssistantPanelPlaceholder({ space }: { space: WritingSpace | null }): ReactElement {
-  return (
-    <div className="pw-writing-assistant pw-writing-placeholder">
-      <div className="pw-writing-placeholder-body">
-        {space ? "写作助手占位(U8 接入)" : "先选择一个写作空间"}
-      </div>
-    </div>
-  );
-}
+import { WritingEditorPane, type WritingEditorPaneHandle } from "./WritingEditorPane";
+import { WritingAssistantPanel } from "./WritingAssistantPanel";
 
 export function WritingWorkspace(): ReactElement {
   const bridge = useDesktopBridge();
@@ -53,6 +30,65 @@ export function WritingWorkspace(): ReactElement {
 
   const [toast, setToast] = useState<string | null>(null);
   const activeSpace = spaces.find((s) => s.id === activeSpaceId) ?? null;
+
+  // 当前打开文件是否有未处理审阅(禁发新回合 R13;传给助手面板做发送门控)。
+  const hasPendingReview = useWritingReviewStore((s) =>
+    currentFile ? currentFile in s.pending : false,
+  );
+
+  // 编辑器命令式句柄(flushNow / handleExternalChange / markDeleted)。
+  const editorRef = useRef<WritingEditorPaneHandle | null>(null);
+  // sidebar 注册进来的「重扫文件树」;归因命中非当前文件时调用。
+  const refreshTreeRef = useRef<(() => void) | null>(null);
+  // currentFile / bridge 走 ref,供归因控制器的稳定回调读最新值(控制器仅创建一次)。
+  const currentFileRef = useRef(currentFile);
+  currentFileRef.current = currentFile;
+  const bridgeRef = useRef(bridge);
+  bridgeRef.current = bridge;
+
+  // 归因控制器:整窗生命周期内单实例(懒建),卸载时 dispose。回调经 ref/getState 读最新,保持稳定。
+  const attributionRef = useRef<ReturnType<typeof createWritingAttribution> | null>(null);
+  if (!attributionRef.current) {
+    attributionRef.current = createWritingAttribution({
+      getCurrentFile: () => currentFileRef.current,
+      readFile: async (p) => {
+        const b = bridgeRef.current;
+        if (!b?.readFile) throw new Error("no readFile");
+        return (await b.readFile(p)).content;
+      },
+      // agent 改动:入队审阅(编辑器订阅 pending 后自动切审阅态 + 冻结自动保存)。
+      onAgentChange: ({ path, baseline, disk }) =>
+        useWritingReviewStore
+          .getState()
+          .beginReview({ path, baseline, next: disk, origin: "agent" }),
+      // 外部改动:交编辑器句柄自判干净刷新 / 脏冲突(脏走 onConflict)。
+      onExternalChange: () => void editorRef.current?.handleExternalChange(),
+      // 非当前文件:刷新文件树。
+      onTreeRefresh: () => refreshTreeRef.current?.(),
+    });
+  }
+
+  // 订阅 CLI 事件流 + 目录变化,转发给归因控制器(与 run-manager / sidebar 的订阅并存互不干扰)。
+  useEffect(() => {
+    if (!bridge) return;
+    const ctrl = attributionRef.current;
+    if (!ctrl) return;
+    const offEvent = bridge.onCliEvent((runId, event) => ctrl.handleCliEvent(runId, event));
+    const offExit = bridge.onCliExit((exit) => ctrl.handleCliExit(exit));
+    const offDir = bridge.onDirChanged?.(() => ctrl.handleDirChanged());
+    return () => {
+      offEvent();
+      offExit();
+      offDir?.();
+    };
+  }, [bridge]);
+
+  // 卸载(关覆盖层)时 dispose 归因控制器,停止后续异步回调。
+  useEffect(() => {
+    return () => {
+      attributionRef.current?.dispose();
+    };
+  }, []);
 
   // 首次进入:无空间时以默认根建一个空间(已有空间则 no-op)。仅挂载时跑一次。
   useEffect(() => {
@@ -86,13 +122,36 @@ export function WritingWorkspace(): ReactElement {
 
       <div className="pw-writing-body">
         <div className="pw-writing-left">
-          <WritingSidebar onToast={setToast} />
+          <WritingSidebar
+            onToast={setToast}
+            onRegisterRefresh={(fn) => {
+              refreshTreeRef.current = fn;
+            }}
+          />
         </div>
         <div className="pw-writing-center">
-          <WritingEditorPanePlaceholder filePath={currentFile} />
+          <WritingEditorPane
+            ref={editorRef}
+            path={currentFile}
+            onToast={setToast}
+            // 脏态遇外部改动的冲突审阅入口:基线=编辑器当前内容,新版=盘上内容(复用同一 diff 通道)。
+            onConflict={({ path, baseline, disk }) =>
+              useWritingReviewStore
+                .getState()
+                .beginReview({ path, baseline, next: disk, origin: "conflict" })
+            }
+          />
         </div>
         <div className="pw-writing-right">
-          <WritingAssistantPanelPlaceholder space={activeSpace} />
+          <WritingAssistantPanel
+            space={activeSpace}
+            activeFilePath={currentFile}
+            // 选区引用的实时选区源(编辑器 onSelectionChange)属二期,暂不接入 → 润色卡/引用按钮降级禁用。
+            selection={null}
+            hasPendingReview={hasPendingReview}
+            onFlushBeforeSend={() => editorRef.current?.flushNow()}
+            onToast={setToast}
+          />
         </div>
       </div>
 

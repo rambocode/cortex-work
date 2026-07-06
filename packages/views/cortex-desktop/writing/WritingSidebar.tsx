@@ -186,7 +186,15 @@ function TreeNode({
   );
 }
 
-export function WritingSidebar({ onToast }: { onToast?: (msg: string) => void }): ReactElement {
+export function WritingSidebar({
+  onToast,
+  onRegisterRefresh,
+}: {
+  onToast?: (msg: string) => void;
+  // U9 归因接线:把「重扫文件树」能力注册给上层(WritingWorkspace),供 agent 改「非当前文件」时
+  // 即时刷新树(不必等 watch 去抖)。可选——未注入时树仍由本组件的 dirChanged 订阅自刷新。
+  onRegisterRefresh?: (refresh: () => void) => void;
+}): ReactElement {
   const bridge = useDesktopBridge();
   const spaces = useWritingSpacesStore((s) => s.spaces);
   const activeSpaceId = useWritingSpacesStore((s) => s.activeSpaceId);
@@ -231,6 +239,11 @@ export function WritingSidebar({ onToast }: { onToast?: (msg: string) => void })
     setRenaming(null);
     void refresh();
   }, [refresh]);
+
+  // 把最新的 refresh 注册给上层(归因命中非当前文件时即时刷新树)。refresh 变化即重注册。
+  useEffect(() => {
+    onRegisterRefresh?.(() => void refresh());
+  }, [onRegisterRefresh, refresh]);
 
   // 目录实时监听:watchId = 空间 id,切空间时 cleanup 自动 unwatch 旧根、订阅新根。
   // 主进程已做噪声过滤 + 250ms 去抖,收到信号直接重扫(U9 将在此基础上接入 agent 改动归因)。
