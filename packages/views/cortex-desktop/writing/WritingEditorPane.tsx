@@ -43,6 +43,8 @@ import {
 import { useNoteAutosave } from "../personal/useNoteAutosave";
 import { WritingDiffReview } from "./WritingDiffReview";
 import { WritingToolbar } from "./WritingToolbar";
+// 富文本编辑器:本组件顶层无 tiptap(全动态 import),故可静态引用,tiptap 不会被卷进 web 产物。
+import { WritingRichEditor } from "./rich/WritingRichEditor";
 
 type Mode = WritingPreviewMode;
 
@@ -350,6 +352,21 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
           }
         : undefined;
 
+    // 富文本本地图片显示解析:相对路径按当前 .md 目录拼绝对(不做 ../ 折叠,常见 ./x 足够),
+    // 再经 bridge.imageReadAny 读成 data URL;绝对/远程直接由节点视图使用,不进这里。
+    const resolveImageSrc =
+      path && bridge?.imageReadAny
+        ? async (rawSrc: string): Promise<string | null> => {
+            const dir = path.replace(/[/\\][^/\\]*$/, "");
+            const abs = rawSrc.startsWith("/") ? rawSrc : `${dir}/${rawSrc.replace(/^\.\//, "")}`;
+            try {
+              return (await bridge.imageReadAny!(abs)).dataUrl;
+            } catch {
+              return null;
+            }
+          }
+        : undefined;
+
     const toolbar = (
       <WritingToolbar
         fileName={fileName}
@@ -371,6 +388,24 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
         onToggleAssistant={onToggleAssistant}
         onCopyMarkdown={onCopyMarkdown}
         onExportMarkdownCopy={onExportMarkdownCopy}
+      />
+    );
+
+    // CM 编辑器(source/live);也作为 rich 审计不通过时的回落。抽成函数以便两处复用。
+    const renderCmEditor = (appearance: NoteEditorAppearance): ReactElement => (
+      <NoteCodeMirrorEditor
+        // key 含 path:切文件重建实例,避免旧文档残留(与闪记按 noteId 重建同理)。
+        key={path}
+        value={draft}
+        appearance={appearance}
+        readOnly={frozen}
+        onChange={setDraft}
+        onSelectionChange={onSelectionChange}
+        onSave={() => void save()}
+        onLoadError={() => {
+          setEditorLoadFailed(true);
+          onToast?.("编辑器加载失败,已切换到仅预览");
+        }}
       />
     );
 
@@ -396,12 +431,31 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
           <div className="pw-note-editor-body">
             {pendingReview ? (
               // 审阅态:红绿 diff 逐块裁决(基线 → 新版)。裁决完毕经 resolveReview 落盘并解冻。
+              // 任意档位进入审阅都让位给 diff 视图(rich 也退出),裁决完再回到原档。
               <WritingDiffReview
                 key={`${path}:review`}
                 path={path}
                 baseline={pendingReview.baseline}
                 next={pendingReview.next}
                 onResolve={(accepted) => void resolveReview(accepted)}
+              />
+            ) : effectiveMode === "rich" ? (
+              // 富文本(所见即所得)。审计不通过时组件内部渲染 fallback(CM live),保护原文不被静默改写。
+              <WritingRichEditor
+                key={`${path}:rich`}
+                value={draft}
+                filePath={path}
+                readOnly={frozen}
+                onChange={setDraft}
+                onSelectionChange={onSelectionChange}
+                onSaveShortcut={() => void save()}
+                onToast={onToast}
+                onLoadError={() => {
+                  setEditorLoadFailed(true);
+                  onToast?.("富文本编辑器加载失败,已切换到仅预览");
+                }}
+                resolveImageSrc={resolveImageSrc}
+                fallback={renderCmEditor("live")}
               />
             ) : effectiveMode === "preview" ? (
               // 复用闪记同款「仅预览」容器 .pw-note-editor-preview:70px 版心 + 对齐 Kun 的文档排版
@@ -419,20 +473,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
                 )}
               </div>
             ) : (
-              <NoteCodeMirrorEditor
-                // key 含 path:切文件重建实例,避免旧文档残留(与闪记按 noteId 重建同理)。
-                key={path}
-                value={draft}
-                appearance={effectiveMode as NoteEditorAppearance}
-                readOnly={frozen}
-                onChange={setDraft}
-                onSelectionChange={onSelectionChange}
-                onSave={() => void save()}
-                onLoadError={() => {
-                  setEditorLoadFailed(true);
-                  onToast?.("编辑器加载失败,已切换到仅预览");
-                }}
-              />
+              renderCmEditor(effectiveMode as NoteEditorAppearance)
             )}
           </div>
         </>

@@ -25,9 +25,9 @@ export interface WritingThreadMeta {
   updatedAt: number;
 }
 
-// 中栏编辑器视图档位：source（源码）/ live（实时预览）/ preview（仅预览）。
-// 对应 Kun WritePreviewMode 的子集（Kun 另有 rich/split，本仓库不支持）。
-export type WritingPreviewMode = "source" | "live" | "preview";
+// 中栏编辑器视图档位：rich（富文本所见即所得）/ source（源码）/ live（实时预览）/ preview（仅预览）。
+// 对应 Kun WritePreviewMode 的子集（Kun 另有 split 分屏，本仓库不支持）。
+export type WritingPreviewMode = "rich" | "source" | "live" | "preview";
 
 // 写作空间 UI/持久化态：空间列表 + 活跃空间 id（无空间时为 null）+ 会话元数据 + 编辑器视图偏好。
 // 替代 Kun 侧 localStorage（core 禁用 localStorage），经 PersistedState.writingUi 分片落盘。

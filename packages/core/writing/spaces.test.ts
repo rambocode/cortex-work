@@ -104,7 +104,7 @@ describe("useWritingSpacesStore 持久化 roundtrip", () => {
     expect(s.spaces).toEqual([]);
     expect(s.activeSpaceId).toBeNull();
     // 编辑器视图偏好回落默认。
-    expect(s.previewMode).toBe("live");
+    expect(s.previewMode).toBe("rich");
     expect(s.fontSizePx).toBe(16);
   });
 
@@ -123,7 +123,7 @@ describe("useWritingSpacesStore 持久化 roundtrip", () => {
 
     // hydrate 缺字段回默认 + 脏字号夹取。
     useWritingSpacesStore.getState().hydrate({ spaces: [], activeSpaceId: null, fontSizePx: 9999 });
-    expect(useWritingSpacesStore.getState().previewMode).toBe("live");
+    expect(useWritingSpacesStore.getState().previewMode).toBe("rich");
     expect(useWritingSpacesStore.getState().fontSizePx).toBe(48);
   });
 });
