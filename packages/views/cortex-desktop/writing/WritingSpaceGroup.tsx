@@ -1,11 +1,24 @@
-// 写作左栏的单个「写作空间」可折叠块(对齐 Kun WriteSidebar 的空间分组形态):
-//   空间行 = chevron + folder 图标 + 名字(ellipsis) + 悬浮动作组(新建文件/新建目录/刷新/移除);活跃空间高亮。
+// 写作左栏的单个「写作空间」可折叠块(视觉逐像素对齐 Kun WriteSidebar 的空间分组形态):
+//   空间行 = chevron + folder 图标 + 名字(ellipsis) + 常显浅灰动作组(新建文件/新建目录/刷新/移除);活跃空间高亮胶囊。
 //   默认空间(isDefault)在空间行下渲染灰字副标「默认写作空间」。
 //   展开时列出该空间的文件树(TreeNode 递归);折叠时不渲染树(扫描/监听由父组件按展开态驱动)。
-// 纯展示组件:树状态、展开态、创建/重命名态与全部动作回调都由父 WritingSidebar 注入,便于集中管理
-// 每空间的扫描 + watch/unwatch 生命周期。
+// 图标全部用 lucide-react,与 Kun 源码逐个对齐(FilePlus2/FolderPlus/RefreshCw/Pencil/Trash2/FileText/
+//   Folder/FolderOpen/ChevronRight/ChevronDown),尺寸/描边照 Kun className(h-3=12px、h-3.5=14px)映射到 size prop。
+// 纯展示组件:树状态、展开态、创建/重命名态与全部动作回调都由父 WritingSidebar 注入。
 import { useState, type ReactElement } from "react";
-import { Icon } from "@cortex-work/ui/icons";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FilePlus2,
+  FileText,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Pencil,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import type { PromptNode } from "@cortex-work/core";
 import type { WritingSpacesState } from "@cortex-work/core/writing/spaces";
 
@@ -42,7 +55,7 @@ function InlineInput({
         }}
       />
       <button type="button" className="pw-ftb-btn is-primary" onClick={onCommit} aria-label="确认">
-        <Icon.Check size={12} />
+        <Check size={14} strokeWidth={1.9} />
       </button>
     </div>
   );
@@ -83,7 +96,8 @@ function TreeNode({
 }): ReactElement {
   // 目录默认折叠(depth>0 的深层目录);顶层目录也折叠,由用户点开。
   const [collapsed, setCollapsed] = useState(true);
-  const pad = { paddingLeft: 12 + depth * 14 } as const;
+  // Kun WriteFileTree:buttonStyle={{ paddingLeft: 10 + depth * 14 }}。
+  const pad = { paddingLeft: 10 + depth * 14 } as const;
   const isActive = node.kind === "file" && node.path === currentFile;
   const hasPending = node.kind === "file" && node.path in pendingPaths;
 
@@ -99,7 +113,7 @@ function TreeNode({
     );
   }
 
-  // 文件行动作:重命名 + 删除;目录行额外前置 新建文件 / 新建目录。
+  // 文件行动作:重命名 + 删除;目录行额外前置 新建文件 / 新建目录。图标尺寸对齐 Kun h-3.5 w-3.5=14px。
   const actions = (
     <span className="pw-writing-node-actions">
       {node.kind === "dir" ? (
@@ -113,7 +127,7 @@ function TreeNode({
               onCreateFileInDir(node.path);
             }}
           >
-            <Icon.Plus size={12} />
+            <FilePlus2 size={14} strokeWidth={1.8} />
           </button>
           <button
             type="button"
@@ -124,7 +138,7 @@ function TreeNode({
               onCreateDirInDir(node.path);
             }}
           >
-            <Icon.FolderPlus size={12} />
+            <FolderPlus size={14} strokeWidth={1.8} />
           </button>
         </>
       ) : null}
@@ -137,10 +151,11 @@ function TreeNode({
           onRename(node.path);
         }}
       >
-        <Icon.Edit size={12} />
+        <Pencil size={14} strokeWidth={1.85} />
       </button>
       <button
         type="button"
+        className="is-danger"
         title="删除"
         aria-label={`删除 ${node.name}`}
         onClick={(e) => {
@@ -148,7 +163,7 @@ function TreeNode({
           onDelete(node.path, node.kind === "dir");
         }}
       >
-        <Icon.Trash size={12} />
+        <Trash2 size={14} strokeWidth={1.85} />
       </button>
     </span>
   );
@@ -164,7 +179,7 @@ function TreeNode({
         tabIndex={0}
       >
         <span className="pw-tree-lead" aria-hidden />
-        <Icon.File size={13} />
+        <FileText size={14} strokeWidth={1.8} className="pw-w-file" />
         <span className="pw-tree-name">{node.name}</span>
         {hasPending ? (
           <span
@@ -188,10 +203,12 @@ function TreeNode({
         role="button"
         tabIndex={0}
       >
-        <span className="chev" data-collapsed={collapsed}>
-          <Icon.Chevron size={11} />
-        </span>
-        <Icon.Folder size={13} />
+        {collapsed ? (
+          <ChevronRight size={12} strokeWidth={2} className="pw-w-chev" />
+        ) : (
+          <ChevronDown size={12} strokeWidth={2} className="pw-w-chev" />
+        )}
+        <Folder size={14} strokeWidth={1.75} className="pw-w-folder" />
         <span className="pw-tree-name">{node.name}</span>
         {actions}
       </div>
@@ -280,7 +297,7 @@ export function WritingSpaceGroup({
 
   return (
     <div className="pw-writing-space-group">
-      {/* 空间行:chevron + folder + 名字 + 悬浮动作组;活跃高亮 */}
+      {/* 空间行:chevron + folder + 名字 + 常显浅灰动作组;活跃高亮胶囊 */}
       <div
         className={`pw-writing-space-row${active ? " is-active" : ""}`}
         onClick={onToggleExpand}
@@ -288,12 +305,18 @@ export function WritingSpaceGroup({
         tabIndex={0}
         title={space.root}
       >
-        <span className="chev" data-collapsed={!expanded}>
-          <Icon.Chevron size={11} />
-        </span>
-        <Icon.Folder size={14} />
+        {expanded ? (
+          <ChevronDown size={12} strokeWidth={2} className="pw-w-chev" />
+        ) : (
+          <ChevronRight size={12} strokeWidth={2} className="pw-w-chev" />
+        )}
+        {expanded ? (
+          <FolderOpen size={14} strokeWidth={1.75} className="pw-w-folder" />
+        ) : (
+          <Folder size={14} strokeWidth={1.75} className="pw-w-folder" />
+        )}
         <span className="pw-tree-name">{space.name}</span>
-        <span className="pw-writing-space-actions">
+        <span className="pw-writing-node-actions pw-writing-space-actions">
           <button
             type="button"
             title="新建文件"
@@ -303,7 +326,7 @@ export function WritingSpaceGroup({
               onCreateFile(space.root);
             }}
           >
-            <Icon.Plus size={13} />
+            <FilePlus2 size={14} strokeWidth={1.75} />
           </button>
           <button
             type="button"
@@ -314,7 +337,7 @@ export function WritingSpaceGroup({
               onCreateDir(space.root);
             }}
           >
-            <Icon.FolderPlus size={13} />
+            <FolderPlus size={14} strokeWidth={1.75} />
           </button>
           <button
             type="button"
@@ -325,11 +348,12 @@ export function WritingSpaceGroup({
               onRefresh();
             }}
           >
-            <Icon.Retry size={13} />
+            <RefreshCw size={14} strokeWidth={1.75} />
           </button>
           {canRemove ? (
             <button
               type="button"
+              className="is-danger"
               title="移除空间"
               aria-label={`移除空间 ${space.name}`}
               onClick={(e) => {
@@ -337,7 +361,7 @@ export function WritingSpaceGroup({
                 onRemove();
               }}
             >
-              <Icon.X size={13} />
+              <Trash2 size={14} strokeWidth={1.85} />
             </button>
           ) : null}
         </span>

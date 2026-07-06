@@ -10,7 +10,7 @@
 //   - core/views 硬边界:不直接碰 window.desktopAPI,一律经注入的 DesktopBridge(useDesktopBridge)。
 //   - 点击任意空间的文件 → setActiveSpace(该空间) + setCurrentFile(path),修复「非活跃空间文件点不到」。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Icon } from "@cortex-work/ui/icons";
+import { FilePlus2, FolderOpen, Plus } from "lucide-react";
 import { useDesktopBridge } from "@cortex-work/core/provider";
 import type { DesktopBridge, PromptNode } from "@cortex-work/core";
 import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
@@ -323,12 +323,18 @@ export function WritingSidebar({
           onClick={onTopCreateFile}
           disabled={!b}
         >
-          <Icon.Plus size={15} />
+          {/* Kun writeCreateFile:FilePlus2 h-4 w-4(16px) strokeWidth 1.9 */}
+          <span className="pw-writing-cmd-icon">
+            <FilePlus2 size={16} strokeWidth={1.9} />
+          </span>
           <span>新建文件</span>
         </button>
         {b?.pickDirectory ? (
           <button type="button" className="pw-writing-addbtn" onClick={() => void onAddSpace()}>
-            <Icon.Folder size={15} />
+            {/* Kun writeAddWorkspace:FolderOpen h-4 w-4(16px) strokeWidth 1.75 */}
+            <span className="pw-writing-cmd-icon">
+              <FolderOpen size={16} strokeWidth={1.75} />
+            </span>
             <span>添加写作空间</span>
           </button>
         ) : null}
@@ -340,12 +346,13 @@ export function WritingSidebar({
         {b?.pickDirectory ? (
           <button
             type="button"
-            className="pw-icon-btn"
+            className="pw-writing-head-btn"
             title="添加写作空间"
             aria-label="添加写作空间"
             onClick={() => void onAddSpace()}
           >
-            <Icon.Plus size={14} />
+            {/* Kun SidebarSectionHeader 右侧 SidebarIconButton:Plus h-3.5 w-3.5(14px) strokeWidth 1.75 */}
+            <Plus size={14} strokeWidth={1.75} />
           </button>
         ) : null}
       </div>

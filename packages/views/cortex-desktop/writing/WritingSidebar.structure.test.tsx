@@ -100,7 +100,8 @@ describe("WritingSidebar 新结构", () => {
   it("「添加写作空间」调用 pickDirectory", async () => {
     const bridge = makeBridge();
     renderSidebar(bridge);
-    fireEvent.click(screen.getAllByRole("button", { name: "添加写作空间" })[0]);
+    const addButtons = screen.getAllByRole("button", { name: "添加写作空间" });
+    fireEvent.click(addButtons[0]!);
     await waitFor(() => expect(bridge.pickDirectory).toHaveBeenCalled());
   });
 
