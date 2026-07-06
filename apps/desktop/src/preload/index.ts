@@ -92,6 +92,11 @@ import type {
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
 import type { OrchestrateStartRequest } from "../main/ipc/orchestrate";
 import type { RoundtableStartRequest } from "../main/ipc/types";
+// 写作检索(U4）IPC 契约类型(type-only,编译期擦除;与 core/desktop/writing-retrieval-types.ts 镜像）。
+import type {
+  WritingRetrievalRequest,
+  WritingRetrievalResult,
+} from "../main/ipc/writing-retrieval-types";
 import type {
   LocalWhisperModelProgress,
   LocalWhisperModelStatus,
@@ -161,6 +166,13 @@ const personal = {
   writingSaveImage: (payload: WritingSaveImagePayload): Promise<string> =>
     ipcRenderer.invoke("fs:writingSaveImage", payload),
   renameEntry: (from: string, to: string): Promise<void> => ipcRenderer.invoke("fs:renameEntry", from, to),
+  // ── 写作检索(U4，工作区级轻量 RAG）─────────────────────────────────────
+  // writingRetrieve：按空间根查询 top-k 片段(主进程按 root 维护内存索引);
+  // writingRetrievalInvalidate：watch dirChanged 时失效索引,下次检索重建(fire-and-forget)。
+  writingRetrieve: (req: WritingRetrievalRequest): Promise<WritingRetrievalResult> =>
+    ipcRenderer.invoke("writing:retrieve", req),
+  writingRetrievalInvalidate: (root: string): void =>
+    ipcRenderer.send("writing:retrievalInvalidate", root),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),

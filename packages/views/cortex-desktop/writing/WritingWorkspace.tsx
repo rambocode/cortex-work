@@ -59,6 +59,9 @@ export function WritingWorkspace(): ReactElement {
   currentFileRef.current = currentFile;
   const bridgeRef = useRef(bridge);
   bridgeRef.current = bridge;
+  // 当前活跃空间根走 ref:供 dirChanged 回调失效检索索引时读最新值(订阅回调闭包只建一次)。
+  const activeSpaceRootRef = useRef<string | null>(activeSpace?.root ?? null);
+  activeSpaceRootRef.current = activeSpace?.root ?? null;
 
   // 归因控制器:整窗生命周期内单实例(懒建),卸载时 dispose。回调经 ref/getState 读最新,保持稳定。
   const attributionRef = useRef<ReturnType<typeof createWritingAttribution> | null>(null);
@@ -89,7 +92,12 @@ export function WritingWorkspace(): ReactElement {
     if (!ctrl) return;
     const offEvent = bridge.onCliEvent((runId, event) => ctrl.handleCliEvent(runId, event));
     const offExit = bridge.onCliExit((exit) => ctrl.handleCliExit(exit));
-    const offDir = bridge.onDirChanged?.(() => ctrl.handleDirChanged());
+    // 目录变化:归因控制器处理 + 失效当前空间的检索索引(U4),下次助手发送重建索引读到最新内容。
+    const offDir = bridge.onDirChanged?.(() => {
+      ctrl.handleDirChanged();
+      const root = activeSpaceRootRef.current;
+      if (root) bridge.writingRetrievalInvalidate?.(root);
+    });
     return () => {
       offEvent();
       offExit();

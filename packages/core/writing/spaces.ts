@@ -45,11 +45,16 @@ export interface WritingSpacesState {
   // 中栏编辑器视图偏好（跨空间共享，由中栏工具栏切换/步进；随 WritingUiState 分片持久化）。
   previewMode: WritingPreviewMode;
   fontSizePx: number;
+  // 工作区级检索上下文开关（U4，跨空间共享）：开启时助手发送按用户正文检索 top-k 片段注入 prompt。
+  // 默认 true；关闭或检索失败/超时时静默不注入。
+  retrievalEnabled: boolean;
 
   // 编辑器视图档位切换（source/live/preview）。
   setPreviewMode: (mode: WritingPreviewMode) => void;
   // 字号设置（自动夹取到 10–48）。
   setFontSizePx: (px: number) => void;
+  // 检索上下文开关切换（面板顶部/composer 工具栏)。
+  setRetrievalEnabled: (enabled: boolean) => void;
 
   // 经系统目录选择器添加空间：取消（pickDirectory 返回 null）不加并回 null；
   // 根已存在则拒绝、不加第二条并回 null；成功则追加、设为活跃并回该空间。
@@ -70,9 +75,11 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   activeSpaceId: null,
   previewMode: "rich",
   fontSizePx: WRITING_FONT_SIZE_DEFAULT,
+  retrievalEnabled: true,
 
   setPreviewMode: (mode) => set({ previewMode: mode }),
   setFontSizePx: (px) => set({ fontSizePx: clampFontSize(px) }),
+  setRetrievalEnabled: (enabled) => set({ retrievalEnabled: enabled }),
 
   addSpace: async (bridge) => {
     // web/旧壳无目录选择器能力时直接放弃（入口本应已降级隐藏，这里做防御）。
@@ -117,6 +124,7 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       activeSpaceId: s.activeSpaceId,
       previewMode: s.previewMode,
       fontSizePx: s.fontSizePx,
+      retrievalEnabled: s.retrievalEnabled,
     };
   },
 
@@ -127,5 +135,7 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       // 缺字段回落默认（兼容旧档）；字号夹取到合法区间。
       previewMode: state?.previewMode ?? "rich",
       fontSizePx: clampFontSize(state?.fontSizePx),
+      // 缺省视为开启（默认 true）：旧档没有该字段时保持检索启用。
+      retrievalEnabled: state?.retrievalEnabled ?? true,
     }),
 }));

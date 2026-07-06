@@ -91,6 +91,8 @@ import type {
   ReplySyncSnapshot,
   PetStateSnapshot,
 } from "./types";
+// 写作检索(U4）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-retrieval-types.ts 镜像）。
+import type { WritingRetrievalRequest, WritingRetrievalResult } from "./writing-retrieval-types";
 import type { ChannelId } from "../reply/channels";
 import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
 import type {
@@ -145,6 +147,12 @@ export interface DesktopBridge {
   // 返回落盘绝对路径,渲染端换算相对当前 md 的链接插入正文。
   // 可选——web/旧壳无此能力时粘贴图片降级(不拦截默认粘贴)。
   writingSaveImage?(payload: WritingSaveImagePayload): Promise<string>;
+  // 写作检索(U4，工作区级轻量 RAG）:按空间根查询与用户正文相关的 top-k 片段。
+  // 主进程按 root 维护内存索引(md/txt 全量读);查询返回 ok+context(null=无命中,静默不注入)或失败。
+  // 可选——web/旧壳无此能力时,助手发送编排跳过检索注入(不阻断发送)。
+  writingRetrieve?(req: WritingRetrievalRequest): Promise<WritingRetrievalResult>;
+  // 失效某空间根的检索索引(WritingWorkspace 的 watch dirChanged 触发):下次检索重建。fire-and-forget。
+  writingRetrievalInvalidate?(root: string): void;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
   // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。
   renameEntry?(from: string, to: string): Promise<void>;

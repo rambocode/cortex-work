@@ -5,7 +5,7 @@ import { useWritingSpacesStore } from "./spaces";
 
 // 每个用例前重置 store 到空态（模块级 singleton）。
 beforeEach(() => {
-  useWritingSpacesStore.setState({ spaces: [], activeSpaceId: null });
+  useWritingSpacesStore.setState({ spaces: [], activeSpaceId: null, retrievalEnabled: true });
 });
 
 // 构造最小 bridge stub：只桩接本单元用到的 pickDirectory / writingWorkspaceRoot。
@@ -158,5 +158,25 @@ describe("useWritingSpacesStore.ensureDefaultSpace", () => {
   it("bridge 无 writingWorkspaceRoot（web/旧壳）→ 回 null", async () => {
     const space = await useWritingSpacesStore.getState().ensureDefaultSpace(makeBridge({}));
     expect(space).toBeNull();
+  });
+});
+
+describe("retrievalEnabled 检索开关（U4）", () => {
+  it("默认开启（true）", () => {
+    expect(useWritingSpacesStore.getState().retrievalEnabled).toBe(true);
+  });
+
+  it("setRetrievalEnabled 切换并进 serialize()", () => {
+    useWritingSpacesStore.getState().setRetrievalEnabled(false);
+    expect(useWritingSpacesStore.getState().retrievalEnabled).toBe(false);
+    expect(useWritingSpacesStore.getState().serialize().retrievalEnabled).toBe(false);
+  });
+
+  it("hydrate 回灌:显式 false 生效,旧档缺字段回落 true", () => {
+    useWritingSpacesStore.getState().hydrate({ spaces: [], activeSpaceId: null, retrievalEnabled: false });
+    expect(useWritingSpacesStore.getState().retrievalEnabled).toBe(false);
+    // 旧档没有该字段 → 缺省回落 true(检索默认启用)。
+    useWritingSpacesStore.getState().hydrate({ spaces: [], activeSpaceId: null });
+    expect(useWritingSpacesStore.getState().retrievalEnabled).toBe(true);
   });
 });

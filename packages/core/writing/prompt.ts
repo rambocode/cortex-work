@@ -10,12 +10,17 @@
 //   <用户正文>
 // 段与段之间以空行分隔;空段自动省略(filter(Boolean))。
 
+import type { WritingRetrievalContext, WritingRetrievalSnippet } from "../desktop/writing-retrieval-types";
+
 // ── 哨兵常量(拼装 + 反解析共用)──────────────────────────────────────────
 export const WRITING_CONTEXT_HEADING = "[写作上下文]";
 export const WRITING_QUOTE_HEADING = "[引用片段]";
 export const WRITING_QUOTE_ORIGINAL_START = "[引用原文]";
 export const WRITING_QUOTE_ORIGINAL_END = "[/引用原文]";
 export const WRITING_REVISION_HEADING = "[改稿约定]";
+// 检索上下文(U4)哨兵:片段正文可能含空行,故用成对起止标记框定,展示反解析据此整块剥离。
+export const WRITING_RETRIEVAL_HEADING = "[相关文献上下文]";
+export const WRITING_RETRIEVAL_END = "[/相关文献上下文]";
 
 // 改稿约定正文:恒定注入,框定 agent 的落盘行为(R12 的 prompt 级契约,非强制沙箱)。
 // 三条要点:① 用 Edit/Write 工具把改动直接写盘,不要只在回复里贴改后文本;② 只改写作空间内文件;
@@ -108,6 +113,44 @@ function formatQuoteForPrompt(quote: WritingQuote): string {
 export interface WritingPromptContext {
   workspaceRoot?: string;
   activeFilePath?: string | null;
+  // 工作区级检索命中的相关片段(U4);为空/未开启检索时省略该段。
+  retrieval?: WritingRetrievalContext | null;
+}
+
+// ── 检索上下文格式化(U4)──────────────────────────────────────────────────
+// 单条片段的来源定位:文本档给「路径:行号(区间)」,PDF 给「路径 第x页(区间)」,供 agent 溯源。
+function formatRetrievalLocation(snippet: WritingRetrievalSnippet): string {
+  if (snippet.location.kind === "pdf") {
+    const page =
+      snippet.location.pageStart === snippet.location.pageEnd
+        ? `第${snippet.location.pageStart}页`
+        : `第${snippet.location.pageStart}-${snippet.location.pageEnd}页`;
+    return `${snippet.path} ${page}`;
+  }
+  return snippet.location.lineStart === snippet.location.lineEnd
+    ? `${snippet.path}:${snippet.location.lineStart}`
+    : `${snippet.path}:${snippet.location.lineStart}-${snippet.location.lineEnd}`;
+}
+
+// 把检索命中格式化为 prompt 段(含起止哨兵)。无片段返回空串(由 filter(Boolean) 省略整段)。
+// 收尾哨兵是关键:片段正文可能含空行,有它才能让展示反解析无歧义地整块剥离该段(见 stripRetrievalBlock)。
+export function formatWritingRetrievalForPrompt(
+  retrieval: WritingRetrievalContext | null | undefined,
+): string {
+  if (!retrieval?.snippets.length) return "";
+  const lines = [
+    WRITING_RETRIEVAL_HEADING,
+    `检索来源: ${retrieval.source}; 查询关键词: ${retrieval.keywords.join(", ")}`,
+  ];
+  retrieval.snippets.forEach((snippet, index) => {
+    lines.push("");
+    lines.push(`[${index + 1}] ${formatRetrievalLocation(snippet)}`);
+    if (snippet.title) lines.push(`标题: ${snippet.title}`);
+    lines.push(`匹配: ${snippet.keywords.join(", ")}`);
+    lines.push(snippet.text);
+  });
+  lines.push(WRITING_RETRIEVAL_END);
+  return lines.join("\n");
 }
 
 // 拼装完整 prompt:上下文块(当前文件相对路径)+ 引用片段(0..n)+ 改稿约定 + 用户正文。
@@ -128,8 +171,10 @@ export function composeWritingPrompt(
     ? `${WRITING_CONTEXT_HEADING}\n${contextLines.join("\n")}`
     : "";
   const quoteText = quotes.map(formatQuoteForPrompt).join("\n\n");
+  // 检索片段紧随引用之后、改稿约定之前:作为参考材料先于「怎么改」的约定与用户正文出现。
+  const retrievalText = formatWritingRetrievalForPrompt(context.retrieval);
   const revisionText = `${WRITING_REVISION_HEADING}\n${WRITING_REVISION_RULE}`;
-  return [contextText, quoteText, revisionText, body].filter(Boolean).join("\n\n");
+  return [contextText, quoteText, retrievalText, revisionText, body].filter(Boolean).join("\n\n");
 }
 
 // ── 展示层反解析(哨兵驱动)──────────────────────────────────────────────
@@ -170,16 +215,29 @@ function parseQuoteHeader(header: string): Omit<WritingPromptDisplayQuote, "text
   };
 }
 
+// 整块剥离检索上下文段(起止哨兵之间,含哨兵):检索片段正文可能含空行,若不先整块剥离,
+// 后续按空行切段会把片段正文误并入用户正文。检索为静默注入,展示层本就不该显示它。
+function stripRetrievalBlock(text: string): string {
+  const start = text.indexOf(WRITING_RETRIEVAL_HEADING);
+  if (start < 0) return text;
+  const endMarker = text.indexOf(WRITING_RETRIEVAL_END, start);
+  const end = endMarker >= 0 ? endMarker + WRITING_RETRIEVAL_END.length : text.length;
+  return `${text.slice(0, start)}${text.slice(end)}`.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 // 反解析完整 prompt。无任何哨兵时返回 null(说明是裸文本,展示层直显即可)。
 export function parseWritingPromptForDisplay(text: string): WritingPromptDisplay | null {
-  const normalized = text.replace(/\r\n?/g, "\n").trim();
+  const raw = text.replace(/\r\n?/g, "\n").trim();
   if (
-    !normalized.includes(WRITING_CONTEXT_HEADING) &&
-    !normalized.includes(WRITING_QUOTE_HEADING) &&
-    !normalized.includes(WRITING_REVISION_HEADING)
+    !raw.includes(WRITING_CONTEXT_HEADING) &&
+    !raw.includes(WRITING_QUOTE_HEADING) &&
+    !raw.includes(WRITING_REVISION_HEADING) &&
+    !raw.includes(WRITING_RETRIEVAL_HEADING)
   ) {
     return null;
   }
+  // 先剥离检索段(含内部空行),再按空行切段,避免检索片段污染用户正文。
+  const normalized = stripRetrievalBlock(raw);
   // 以「空行」切段;逐段按哨兵归类,未命中哨兵的连续尾段合成用户正文。
   const segments = normalized.split(/\n{2,}/);
   let activeFile: string | undefined;

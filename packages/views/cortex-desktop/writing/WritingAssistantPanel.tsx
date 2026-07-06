@@ -33,6 +33,12 @@ import type {
   ProviderSettings,
 } from "@cortex-work/core";
 import type { WritingSpacesState } from "@cortex-work/core/writing/spaces";
+import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
+import type {
+  WritingRetrievalContext,
+  WritingRetrievalRequest,
+} from "@cortex-work/core/desktop/writing-retrieval-types";
+import type { DesktopBridge } from "@cortex-work/core/desktop/bridge";
 import {
   cancelRunsForSpace,
   getResumeSessionId,
@@ -102,6 +108,28 @@ function resolveAgentDispatch(
   };
 }
 
+// 检索注入参数(U4):top-k 片段数 + 硬超时。检索是「锦上添花」,不得拖慢发送,故 2s 未回即放弃。
+const RETRIEVAL_TOP_K = 4;
+const RETRIEVAL_TIMEOUT_MS = 2_000;
+
+// 带超时的检索:成功回 context(可为 null),失败/超时/无 bridge 一律回 null → 静默不注入(R6)。
+// 任何异常都吞掉:检索绝不能阻断或报错打断发送回合。
+async function retrieveContextWithTimeout(
+  bridge: DesktopBridge | null,
+  req: WritingRetrievalRequest,
+): Promise<WritingRetrievalContext | null> {
+  if (!bridge?.writingRetrieve || !req.root || !req.query.trim()) return null;
+  const call = bridge.writingRetrieve(req);
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), RETRIEVAL_TIMEOUT_MS));
+  try {
+    const result = await Promise.race([call, timeout]);
+    if (!result || result.ok !== true) return null;
+    return result.context;
+  } catch {
+    return null;
+  }
+}
+
 export function WritingAssistantPanel({
   space,
   activeFilePath,
@@ -115,6 +143,11 @@ export function WritingAssistantPanel({
   const derivedAgents = usePersonalStore((s) => s.derivedAgents);
   const generalSettings = usePersonalStore((s) => s.generalSettings);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
+
+  // 检索上下文开关(U4,跨空间共享,持久化在 spaces store)。仅当 bridge 具备检索能力时展示开关入口。
+  const retrievalEnabled = useWritingSpacesStore((s) => s.retrievalEnabled);
+  const setRetrievalEnabled = useWritingSpacesStore((s) => s.setRetrievalEnabled);
+  const retrievalAvailable = !!bridge?.writingRetrieve;
 
   const spaceId = space?.id ?? null;
 
@@ -220,13 +253,21 @@ export function WritingAssistantPanel({
   }, [spaceId, createThread, threadMenu]);
 
   // 最新态走 ref,避免 doSend 依赖频繁变化的闭包(发送是异步多步,期间不重建回调)。
-  const stateRef = useRef({ input, quotes, agent, derivedAgentId, space, activeFilePath });
-  stateRef.current = { input, quotes, agent, derivedAgentId, space, activeFilePath };
+  // 含检索开关与 bridge:发送时按最新值决定是否检索注入(检索能力/开关随时可变)。
+  const stateRef = useRef({ input, quotes, agent, derivedAgentId, space, activeFilePath, retrievalEnabled, bridge });
+  stateRef.current = { input, quotes, agent, derivedAgentId, space, activeFilePath, retrievalEnabled, bridge };
 
   // 发送一个回合:拼 prompt → flush 编辑器 → sendWritingMessage。成功后清输入框与引用条。
   const doSend = useCallback(async (): Promise<void> => {
-    const { input: curInput, quotes: curQuotes, agent: curAgent, space: curSpace, activeFilePath: curFile } =
-      stateRef.current;
+    const {
+      input: curInput,
+      quotes: curQuotes,
+      agent: curAgent,
+      space: curSpace,
+      activeFilePath: curFile,
+      retrievalEnabled: curRetrievalEnabled,
+      bridge: curBridge,
+    } = stateRef.current;
     if (!curSpace) return;
     const body = curInput.trim();
     if (!body && curQuotes.length === 0) return;
@@ -238,9 +279,21 @@ export function WritingAssistantPanel({
     const existing = useWritingRunStore.getState().messagesByThread[thread.id] ?? [];
     if (existing.length === 0 && body) setThreadTitle(thread.id, deriveThreadTitle(body));
 
+    // 检索上下文(U4):开关开启且有正文时,以用户正文查询 top-k 片段注入 prompt。
+    // 超时/失败/无命中一律回 null → 静默不注入,绝不阻断发送(见 retrieveContextWithTimeout)。
+    const retrieval =
+      curRetrievalEnabled && body
+        ? await retrieveContextWithTimeout(curBridge, {
+            root: curSpace.root,
+            query: body,
+            k: RETRIEVAL_TOP_K,
+          })
+        : null;
+
     const prompt = composeWritingPrompt(body, curQuotes, {
       workspaceRoot: curSpace.root,
       activeFilePath: curFile,
+      retrieval,
     });
     // 关键时序:先 flush 编辑器自动保存,再起 run —— 否则 agent 读到旧盘面,改动基线错位。
     try {
@@ -462,6 +515,19 @@ export function WritingAssistantPanel({
           >
             <Icon.Comment size={15} />
           </button>
+          {/* 检索上下文开关(U4):仅当 bridge 具备检索能力时展示;开启态高亮。 */}
+          {retrievalAvailable ? (
+            <button
+              type="button"
+              className={`pw-wa-icon-btn ${retrievalEnabled ? "is-active" : ""}`}
+              title={retrievalEnabled ? "检索上下文:已开启(发送时注入相关文献)" : "检索上下文:已关闭"}
+              aria-label="检索上下文开关"
+              aria-pressed={retrievalEnabled}
+              onClick={() => setRetrievalEnabled(!retrievalEnabled)}
+            >
+              <Icon.Search size={15} />
+            </button>
+          ) : null}
           <AgentSelect
             agent={agent}
             derivedAgentId={derivedAgentId}

@@ -42,4 +42,6 @@ export interface WritingUiState {
   previewMode?: WritingPreviewMode;
   // 编辑器字号 px（中栏工具栏步进，Kun 口径 10–48，默认 16）。缺省回落默认（兼容旧档）。
   fontSizePx?: number;
+  // 工作区级检索上下文开关（U4，跨空间共享）。缺省视为开启（默认 true，兼容旧档）。
+  retrievalEnabled?: boolean;
 }

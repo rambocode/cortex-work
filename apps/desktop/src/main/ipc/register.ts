@@ -34,6 +34,7 @@ import { installIpcTrace } from "../log/ipc-trace";
 import { registerRoleHandlers } from "./roles";
 import { registerRoundtableHandlers } from "./roundtable";
 import { registerReplyHandlers } from "./reply";
+import { registerWritingRetrievalHandlers } from "./writing-retrieval";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -77,6 +78,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerRoleHandlers(); // 全局角色库 CRUD（圆桌会话）
   registerRoundtableHandlers(); // 圆桌多角色 BFS 编排调度器
   registerReplyHandlers(); // 快捷回复助手 IPC 域（U5 骨架，U7/U9 填实）
+  registerWritingRetrievalHandlers(); // 写作检索(工作区级轻量 RAG）IPC 域（U4）
 }
 
 export { killAllCli } from "./cli";

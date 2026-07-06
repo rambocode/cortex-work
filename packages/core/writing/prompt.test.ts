@@ -4,14 +4,38 @@ import { describe, expect, it } from "vitest";
 import {
   WRITING_CONTEXT_HEADING,
   WRITING_QUOTE_HEADING,
+  WRITING_RETRIEVAL_HEADING,
   WRITING_REVISION_HEADING,
   WRITING_REVISION_RULE,
   composeWritingPrompt,
+  formatWritingRetrievalForPrompt,
   parseWritingPromptForDisplay,
   quoteFromSelection,
   relativeWritingPath,
   type WritingQuote,
 } from "./prompt";
+import type { WritingRetrievalContext } from "../desktop/writing-retrieval-types";
+
+// 构造一个含单条文本片段的检索上下文(U4)。
+function makeRetrieval(): WritingRetrievalContext {
+  return {
+    source: "bm25-keyword",
+    query: "光合作用",
+    keywords: ["光合作用", "叶绿素"],
+    snippets: [
+      {
+        path: "notes/bio.md",
+        title: "光合作用",
+        text: "光合作用把光能转化为化学能。\n\n叶绿素在其中吸收光。",
+        score: 1.23,
+        keywords: ["光合作用"],
+        location: { kind: "text", lineStart: 3, lineEnd: 6 },
+      },
+    ],
+    indexedFiles: 1,
+    indexedChunks: 2,
+  };
+}
 
 const ROOT = "/space";
 const FILE = "/space/sub/a.md";
@@ -114,5 +138,51 @@ describe("parseWritingPromptForDisplay(哨兵反解析)", () => {
 
   it("裸文本(无哨兵)返回 null", () => {
     expect(parseWritingPromptForDisplay("普通一句话")).toBeNull();
+  });
+});
+
+describe("检索上下文注入(U4)", () => {
+  it("无检索(null)→ 不出现检索哨兵(开关关闭/失败降级等价于不注入)", () => {
+    const prompt = composeWritingPrompt("请改这里", [], {
+      workspaceRoot: ROOT,
+      activeFilePath: FILE,
+      retrieval: null,
+    });
+    expect(prompt).not.toContain(WRITING_RETRIEVAL_HEADING);
+    // 用户正文与改稿约定仍在。
+    expect(prompt).toContain("请改这里");
+    expect(prompt).toContain(WRITING_REVISION_HEADING);
+  });
+
+  it("空片段列表 → 不注入", () => {
+    const empty: WritingRetrievalContext = { ...makeRetrieval(), snippets: [] };
+    expect(formatWritingRetrievalForPrompt(empty)).toBe("");
+    const prompt = composeWritingPrompt("正文", [], { retrieval: empty });
+    expect(prompt).not.toContain(WRITING_RETRIEVAL_HEADING);
+  });
+
+  it("有片段 → 注入检索段(含起止哨兵、来源定位与片段正文)", () => {
+    const prompt = composeWritingPrompt("请改这里", [], {
+      workspaceRoot: ROOT,
+      activeFilePath: FILE,
+      retrieval: makeRetrieval(),
+    });
+    expect(prompt).toContain(WRITING_RETRIEVAL_HEADING);
+    expect(prompt).toContain("notes/bio.md:3-6"); // 文本档来源定位
+    expect(prompt).toContain("光合作用把光能转化为化学能");
+  });
+
+  it("展示反解析:整块剥离检索段(含内部空行),不污染用户正文", () => {
+    const prompt = composeWritingPrompt("请润色这一段", [], {
+      workspaceRoot: ROOT,
+      activeFilePath: FILE,
+      retrieval: makeRetrieval(),
+    });
+    const display = parseWritingPromptForDisplay(prompt);
+    expect(display).not.toBeNull();
+    // 用户正文干净,不含检索片段正文(片段含空行,若剥离不当会并入 userInput)。
+    expect(display!.userInput).toBe("请润色这一段");
+    expect(display!.userInput).not.toContain("叶绿素");
+    expect(display!.activeFile).toBe("sub/a.md");
   });
 });
