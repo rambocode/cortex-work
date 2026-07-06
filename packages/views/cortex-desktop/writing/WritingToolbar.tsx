@@ -88,7 +88,8 @@ export function WritingToolbar({
   const canExport = hasTextFile && (onCopyMarkdown || onExportMarkdownCopy);
 
   return (
-    <header className="pw-wt">
+    // 左栏折叠时,中栏工具栏移到窗口最左 → 加红绿灯安全内缩(is-inset)。
+    <header className={`pw-wt${leftCollapsed && onToggleLeft ? " is-inset" : ""}`}>
       <div className="pw-wt-left">
         {onToggleLeft ? (
           <button

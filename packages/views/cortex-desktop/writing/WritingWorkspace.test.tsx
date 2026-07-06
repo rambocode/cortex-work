@@ -132,8 +132,8 @@ afterEach(() => cleanup());
 describe("WritingWorkspace(U4)", () => {
   it("渲染覆盖层三栏 + 返回按钮调用 closeWriting", async () => {
     renderWs(makeBridge());
-    // 覆盖层标题 + 左栏树内容渲染
-    expect(screen.getByText("写作")).toBeTruthy();
+    // 通栏设计:无横跨顶栏;返回按钮在左栏贴顶条,左栏树内容渲染。
+    expect(screen.getByLabelText("返回")).toBeTruthy();
     expect(await screen.findByText("a1.md")).toBeTruthy();
     // 点返回 → closeWriting:writingOpen 复位、homeOpen 回落
     fireEvent.click(screen.getByLabelText("返回"));

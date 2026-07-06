@@ -10170,21 +10170,21 @@ button.sb-row {
   --w-danger: #f8736a;
   --w-danger-soft: rgba(248, 115, 106, 0.12);
 }
-.pw-writing-topbar {
-  display: flex; align-items: center; gap: 10px;
+/* 通栏:body 占满整窗,三栏各自贯穿到顶(无横跨三栏的顶栏)。 */
+.pw-writing-body { flex: 1; display: flex; min-height: 0; min-width: 0; overflow: hidden; }
+/* 左栏贴顶拖拽条:避让 macOS 红绿灯(左侧留白),右侧放返回按钮。 */
+.pw-writing-left-titlebar {
+  display: flex; align-items: center; justify-content: flex-end;
   height: 40px; flex-shrink: 0;
-  padding: 0 12px 0 84px; /* 左侧让位 macOS 红绿灯 */
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-sidebar);
+  padding: 0 8px 0 78px;
 }
 .pw-writing-back {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 4px 10px; border-radius: 7px;
-  font-size: 12.5px; color: var(--text-2); cursor: pointer;
+  font-size: 12.5px; color: var(--w-muted); cursor: pointer;
+  border: none; background: transparent;
 }
-.pw-writing-back:hover { background: var(--bg-hover); color: var(--text-1); }
-.pw-writing-title { font-size: 12.5px; font-weight: 600; color: var(--text-3); }
-.pw-writing-body { flex: 1; display: flex; min-height: 0; min-width: 0; overflow: hidden; }
+.pw-writing-back:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
 /* 左栏:布局 + Kun 冷蓝底/描边(--w-* 定义在 .pw-writing-root)。折叠时隐藏。 */
 .pw-writing-left {
   width: 260px; flex-shrink: 0;
@@ -10354,6 +10354,8 @@ button.sb-row {
   border-bottom: 1px solid var(--w-border);
   background: transparent;
 }
+/* 左栏折叠时,中栏移到窗口最左 → 左侧让位 macOS 红绿灯。 */
+.pw-wt.is-inset { padding-left: 84px; }
 .pw-wt-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 /* 图标按钮(折叠/助手/保存):Kun toolbarIconButtonClass h-8 w-8 无边框,hover 行底 */
 .pw-wt-icon-btn {

@@ -117,25 +117,23 @@ export function WritingWorkspace(): ReactElement {
   }, [toast]);
 
   return (
-    // 整窗接管:fixed 覆盖层盖住个人工作区侧栏,自成左/中/右三栏。与 settings 同级(z-40)。
+    // 整窗接管:fixed 覆盖层盖住个人工作区侧栏,自成左/中/右三栏(通栏:各列贯穿到顶,无横跨三栏的顶栏)。
     <div className="pw-writing-root">
-      {/* 顶部窄条:作拖拽区(避让 macOS 红绿灯)并放返回按钮。ds-drag/ds-no-drag 复用设计工作台既有类 */}
-      <div className="pw-writing-topbar ds-drag">
-        <button
-          type="button"
-          className="pw-writing-back ds-no-drag"
-          title="返回"
-          aria-label="返回"
-          onClick={() => closeWriting()}
-        >
-          <Icon.Back size={15} />
-          <span>返回</span>
-        </button>
-        <span className="pw-writing-title ds-no-drag">写作</span>
-      </div>
-
       <div className="pw-writing-body">
         <div className={`pw-writing-left${leftCollapsed ? " is-collapsed" : ""}`}>
+          {/* 左栏顶部贴顶拖拽条(避让 macOS 红绿灯)+ 返回按钮。取代原横跨三栏的顶栏。 */}
+          <div className="pw-writing-left-titlebar ds-drag">
+            <button
+              type="button"
+              className="pw-writing-back ds-no-drag"
+              title="返回"
+              aria-label="返回"
+              onClick={() => closeWriting()}
+            >
+              <Icon.Back size={15} />
+              <span>返回</span>
+            </button>
+          </div>
           <WritingSidebar
             onToast={setToast}
             onRegisterRefresh={(fn) => {
