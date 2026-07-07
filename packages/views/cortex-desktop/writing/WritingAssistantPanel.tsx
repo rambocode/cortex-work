@@ -1,7 +1,7 @@
-// 写作工作区右栏:写作助手面板。一个自足的对话回合承载体——
-//   顶栏:新建会话 / 会话切换下拉 + 当前文件相对路径;
+// 写作工作区右栏:写作助手面板(布局对齐 Kun WriteAssistantPanel)。一个自足的对话回合承载体——
+//   顶栏:折叠按钮 + 「写作助手」标题 pill + 会话历史(文件夹图标下拉)+ 新建会话;下行为当前文件 pill;
 //   时间线:渲染 run-manager 折叠出的轻量消息(user/assistant/tool/system);
-//   空态三卡:总结当前文档 / 拟一个大纲 / 润色选中文本(点击填输入框、不自动发;润色无选区禁用);
+//   空态:待命卡置顶 + 固定三卡贴底(总结/大纲/润色,见 WritingEmptyState);
 //   引用条:编辑器选区快照 chip(创建时冻结文本+行号,可移除);
 //   composer:textarea + 发送/中断 + AgentSelect(claude/codex/pi)。
 //
@@ -64,9 +64,12 @@ import {
   type WritingSelectionSnapshot,
 } from "@cortex-work/core/writing/prompt";
 import { Icon } from "@cortex-work/ui/icons";
+// 顶栏图标用 lucide-react,与写作模块其余组件(WritingToolbar/WritingSidebar)对齐 Kun 的惯例一致。
+import { FolderOpen, PanelRightClose, Plus, Sparkles } from "lucide-react";
 import { AgentSelect } from "../personal/AgentSelect";
 import { MarkdownView } from "../personal/MarkdownView";
 import { useDismissableMenu } from "../personal/useDismissableMenu";
+import { WritingEmptyState } from "./WritingEmptyState";
 
 type WritingSpace = WritingSpacesState["spaces"][number];
 
@@ -87,6 +90,8 @@ interface Props {
   // edit 类快捷指令:对当前选区就地改写(→ 编辑器红绿 diff 审阅)。返回结果供面板提示。
   onRunInlineEdit?: (instruction: string) => Promise<{ ok: boolean; reason?: string }>;
   onToast?: (msg: string) => void;
+  // 折叠右栏(顶栏折叠按钮,对齐 Kun PanelRightClose);由 WritingWorkspace 注入。
+  onCollapse?: () => void;
 }
 
 // 按选定 agent 解析发送用的 model / provider:pi 从 providerSettings 取默认供应商 + 其模型并拍平
@@ -145,6 +150,7 @@ export function WritingAssistantPanel({
   onFlushBeforeSend,
   onRunInlineEdit,
   onToast,
+  onCollapse,
 }: Props): ReactElement {
   const bridge = useDesktopBridge();
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
@@ -395,23 +401,37 @@ export function WritingAssistantPanel({
 
   return (
     <aside className="pw-writing-assistant">
-      {/* 顶栏:会话切换下拉 + 新建会话 + 当前文件路径 */}
+      {/* 顶栏(对齐 Kun):折叠 | 「写作助手」标题 pill | 会话历史(文件夹)| 新建会话;下行为文件 pill */}
       <div className="pw-wa-head">
         <div className="pw-wa-head-row">
+          <button
+            type="button"
+            className="pw-wa-icon-btn"
+            title="收起写作助手"
+            aria-label="收起写作助手"
+            onClick={onCollapse}
+            disabled={!onCollapse}
+          >
+            <PanelRightClose size={16} strokeWidth={1.85} />
+          </button>
+          <div className="pw-wa-title-pill">
+            <Sparkles size={15} strokeWidth={1.8} />
+            <span className="pw-wa-title-text">写作助手</span>
+          </div>
+          {/* 会话历史下拉:Kun 此处是「更换 AI 工作目录」;cortex 空间管理在左栏,
+              该位置映射为会话历史入口(原 thread pill 下拉迁移至此)。 */}
           <div className="pw-tb-menu-wrap" ref={threadMenu.wrapRef}>
             <button
               type="button"
-              className="pw-wa-thread-pill"
+              className={`pw-wa-icon-btn${threadMenu.open ? " is-active" : ""}`}
+              title="会话历史"
+              aria-label="会话历史"
               aria-haspopup="menu"
               aria-expanded={threadMenu.open}
               onClick={() => threadMenu.setOpen((v) => !v)}
-              title="切换会话"
+              disabled={!space}
             >
-              <Icon.Sparkle size={14} />
-              <span className="pw-wa-thread-title">{activeThread?.title ?? "写作助手"}</span>
-              <span className={`pw-sh-chev ${threadMenu.open ? "is-open" : ""}`}>
-                <Icon.Chevron size={11} />
-              </span>
+              <FolderOpen size={16} strokeWidth={1.85} />
             </button>
             {threadMenu.open ? (
               <div className="pw-tb-menu pw-wa-thread-menu" role="menu">
@@ -451,7 +471,7 @@ export function WritingAssistantPanel({
             onClick={newConversation}
             disabled={!space}
           >
-            <Icon.Plus size={15} />
+            <Plus size={16} strokeWidth={2.1} />
           </button>
         </div>
         <div className="pw-wa-file" title={activeFilePath ?? undefined}>
@@ -462,42 +482,9 @@ export function WritingAssistantPanel({
       {/* 时间线 / 空态三卡 */}
       <div className="pw-wa-body">
         {showEmptyState ? (
-          <div className="pw-wa-empty">
-            <div className="pw-wa-empty-card">
-              <div className="pw-wa-empty-icon">
-                <Icon.Sparkle size={18} />
-              </div>
-              <h3 className="pw-wa-empty-title">写作助手</h3>
-              <p className="pw-wa-empty-sub">让 agent 直接改稿,改动以行级红绿 diff 逐块审阅。</p>
-            </div>
-            {/* 建议卡从快捷指令配置渲染(设置 → 写作 → 快捷指令)。edit 类无选区时禁用。 */}
-            <div className="pw-wa-cards">
-              {resolvedActions.map((action) => {
-                const editDisabled = action.mode === "edit" && !hasSelection;
-                return (
-                  <button
-                    key={action.id}
-                    type="button"
-                    className="pw-wa-card"
-                    disabled={editDisabled}
-                    title={editDisabled ? "先在编辑器里选中一段文字" : undefined}
-                    onClick={() => runQuickAction(action)}
-                  >
-                    <span className="pw-wa-card-t">{action.label}</span>
-                    <span className="pw-wa-card-s">
-                      {action.mode === "edit"
-                        ? editDisabled
-                          ? "选中文字后就地改写"
-                          : "就地改写(红绿 diff 审阅)"
-                        : hasSelection
-                          ? "引用选中并填入指令"
-                          : "填入输入框待发送"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          // 空态对齐 Kun:待命卡置顶 + 固定三卡(总结/大纲/润色)贴底;其余快捷指令
+          // 属于选区操作,由下方选区 chip 条(有选区即显示)承载,不进空态卡。
+          <WritingEmptyState actions={resolvedActions} onRun={runQuickAction} />
         ) : (
           <div className="pw-wa-timeline">
             {messages.map((m) => (
@@ -509,8 +496,9 @@ export function WritingAssistantPanel({
 
       {/* composer:引用条 + 输入框 + 工具栏(引用选区 / AgentSelect / 发送·中断)*/}
       <div className="pw-wa-composer">
-        {/* 选区动作条:有消息时(空态已在建议卡)+ 有选区 → 快捷指令 chip(edit 就地改写 / chat 引用+填入)。 */}
-        {!showEmptyState && hasSelection && resolvedActions.length > 0 ? (
+        {/* 选区动作条:有选区即显示全部快捷指令 chip(edit 就地改写 / chat 引用+填入)。
+            空态也显示——空态卡已收敛为固定三卡,explain/reformat 等选区操作靠此条可达。 */}
+        {hasSelection && resolvedActions.length > 0 ? (
           <div className="pw-wa-selbar" role="group" aria-label="选区快捷指令">
             {resolvedActions.map((action) => (
               <button
@@ -559,7 +547,7 @@ export function WritingAssistantPanel({
         <textarea
           className="pw-wa-input"
           value={input}
-          placeholder="让写作助手改稿…Enter 发送 · Shift+Enter 换行"
+          placeholder="向智能体提问…"
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onComposerKeyDown}
           rows={3}

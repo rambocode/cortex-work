@@ -59,19 +59,34 @@ describe("WritingAssistantPanel", () => {
     useWritingSpacesStore.setState({ quickActions: defaultWritingQuickActions() });
   });
 
-  it("建议卡(chat)点击填入输入框且不自动发送;无选区时 edit 类卡禁用", () => {
+  it("空态固定三卡(对齐 Kun):chat 卡点击填入输入框且不自动发送;其余快捷指令不进空态", () => {
     const { bridge, startCalls } = fakeBridge();
     renderPanel(bridge);
 
+    // 待命卡文案(Kun 形态)
+    expect(screen.getByText("写作助手待命中")).toBeInTheDocument();
     // 内置 summarize(chat):填入输入框、不发送。
     fireEvent.click(screen.getByText("总结当前文档"));
     const input = screen.getByRole("textbox") as HTMLTextAreaElement;
     expect(input.value).toContain("请总结当前文档");
     expect(startCalls).toHaveLength(0); // 只填充,不发送
 
-    // 无选区:edit 类卡(重新格式化)禁用。
-    const reformat = screen.getByText("重新格式化").closest("button")!;
-    expect(reformat).toBeDisabled();
+    // 空态收敛为固定三卡:选区类快捷指令(如 reformat)不再渲染空态卡(无选区时选区 chip 条也不显示)。
+    expect(screen.queryByText("重新格式化")).not.toBeInTheDocument();
+  });
+
+  it("顶栏:固定标题「写作助手」+ 折叠按钮回调;会话历史挂文件夹按钮", () => {
+    const { bridge } = fakeBridge();
+    const onCollapse = vi.fn();
+    renderPanel(bridge, { onCollapse });
+
+    expect(screen.getByText("写作助手")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("收起写作助手"));
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+
+    // 文件夹按钮展开会话历史菜单(含新建会话入口)
+    fireEvent.click(screen.getByLabelText("会话历史"));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
   });
 
   it("edit 类建议卡(有选区)→ 调 onRunInlineEdit(就地改写链路)", async () => {

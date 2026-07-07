@@ -10629,15 +10629,15 @@ button.sb-row {
   border-bottom: 1px solid var(--border);
 }
 .pw-wa-head-row { display: flex; align-items: center; gap: 6px; }
-.pw-wa-thread-pill {
-  display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;
-  padding: 5px 10px; border-radius: 999px; cursor: pointer;
-  background: var(--bg-app); color: var(--text-1);
+/* 顶栏中央「写作助手」标题 pill(对齐 Kun:accent 星标 + 中性浅底) */
+.pw-wa-title-pill {
+  display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1;
+  padding: 6px 12px; border-radius: 12px;
+  background: var(--bg-app); color: var(--w-accent, var(--accent));
 }
-.pw-wa-thread-pill:hover { background: var(--bg-hover); }
-.pw-wa-thread-title {
+.pw-wa-title-text {
   min-width: 0; flex: 1; text-align: left;
-  font-size: 12.5px; font-weight: 600;
+  font-size: 13px; font-weight: 600; color: var(--text-1);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pw-wa-thread-menu { min-width: 200px; max-height: 300px; overflow-y: auto; }
@@ -10665,28 +10665,46 @@ button.sb-row {
 .pw-wa-icon-btn.is-active { background: var(--accent-soft, var(--bg-hover)); color: var(--accent, var(--text-1)); }
 
 .pw-wa-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
-.pw-wa-empty { display: flex; flex-direction: column; gap: 12px; }
+/* 空态(对齐 Kun):待命卡置顶,三卡由 margin-top:auto 推到贴底;min-height 撑满滚动容器。 */
+.pw-wa-empty { display: flex; flex-direction: column; gap: 12px; min-height: 100%; }
 .pw-wa-empty-card {
-  padding: 16px; border-radius: 16px;
+  padding: 16px; border-radius: 20px; margin-bottom: auto;
   border: 1px solid var(--border); background: var(--bg-app);
 }
 .pw-wa-empty-icon {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px; border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent);
+  width: 44px; height: 44px; border-radius: 14px;
+  background: color-mix(in srgb, var(--w-accent, var(--accent)) 12%, transparent);
+  color: var(--w-accent, var(--accent));
 }
-.pw-wa-empty-title { margin-top: 12px; font-size: 16px; font-weight: 600; color: var(--text-1); }
-.pw-wa-empty-sub { margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--text-3); }
+.pw-wa-empty-title { margin-top: 14px; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-1); }
+.pw-wa-empty-sub { margin-top: 7px; font-size: 12.5px; line-height: 1.7; color: var(--text-3); }
 .pw-wa-cards { display: grid; gap: 8px; }
+/* 快捷卡横排(对齐 Kun):彩色圆角图标 + 标题/副标题两行 */
 .pw-wa-card {
-  display: flex; flex-direction: column; gap: 2px; text-align: left;
-  padding: 10px 12px; border-radius: 12px; cursor: pointer;
+  display: flex; align-items: center; gap: 11px; text-align: left;
+  padding: 11px 12px; border-radius: 16px; cursor: pointer;
   border: 1px solid var(--border); background: var(--bg-app);
 }
-.pw-wa-card:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: var(--bg-hover); }
+.pw-wa-card:hover:not(:disabled) { border-color: color-mix(in srgb, var(--w-accent, var(--accent)) 28%, transparent); background: var(--bg-hover); }
 .pw-wa-card:disabled { opacity: 0.5; cursor: not-allowed; }
-.pw-wa-card-t { font-size: 13px; font-weight: 600; color: var(--text-1); }
-.pw-wa-card-s { font-size: 11.5px; color: var(--text-4); }
+.pw-wa-card-ic {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; flex-shrink: 0; border-radius: 12px;
+}
+/* 三卡图标配色照 Kun tailwind:sky/emerald/amber 的 500/10 底 + 600 前景(暗色 300 前景) */
+.pw-wa-card-ic[data-tone="sky"] { background: rgba(14, 165, 233, 0.1); color: #0284c7; }
+.pw-wa-card-ic[data-tone="emerald"] { background: rgba(16, 185, 129, 0.1); color: #059669; }
+.pw-wa-card-ic[data-tone="amber"] { background: rgba(245, 158, 11, 0.1); color: #d97706; }
+[data-theme="dark"] .pw-wa-card-ic[data-tone="sky"] { color: #7dd3fc; }
+[data-theme="dark"] .pw-wa-card-ic[data-tone="emerald"] { color: #6ee7b7; }
+[data-theme="dark"] .pw-wa-card-ic[data-tone="amber"] { color: #fcd34d; }
+.pw-wa-card-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pw-wa-card-t { font-size: 13.5px; font-weight: 600; color: var(--text-1); }
+.pw-wa-card-s {
+  font-size: 12px; color: var(--text-4);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* 选区动作条:composer 顶部,有选区时的快捷指令 chip */
 .pw-wa-selbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }

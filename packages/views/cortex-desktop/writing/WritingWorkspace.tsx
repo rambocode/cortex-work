@@ -221,6 +221,8 @@ export function WritingWorkspace(): ReactElement {
               Promise.resolve({ ok: false, reason: "no-editor" })
             }
             onToast={setToast}
+            // 面板顶栏折叠按钮(对齐 Kun):与工具栏 sparkles 开关共用同一 assistantOpen。
+            onCollapse={() => setAssistantOpen(false)}
           />
         </div>
       </div>
