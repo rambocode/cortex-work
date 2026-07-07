@@ -67,9 +67,9 @@ import { Icon } from "@cortex-work/ui/icons";
 // 顶栏图标用 lucide-react,与写作模块其余组件(WritingToolbar/WritingSidebar)对齐 Kun 的惯例一致。
 import { FolderOpen, PanelRightClose, Plus, Sparkles } from "lucide-react";
 import { AgentSelect } from "../personal/AgentSelect";
-import { MarkdownView } from "../personal/MarkdownView";
 import { useDismissableMenu } from "../personal/useDismissableMenu";
 import { WritingEmptyState } from "./WritingEmptyState";
+import { WritingMessageRow } from "./WritingMessageRow";
 
 type WritingSpace = WritingSpacesState["spaces"][number];
 
@@ -602,37 +602,3 @@ export function WritingAssistantPanel({
   );
 }
 
-// 单条消息渲染:user/assistant 走文本(assistant 用 Markdown),tool 显示名+状态,system 显示错误。
-function WritingMessageRow({ message }: { message: WritingMessage }): ReactElement {
-  if (message.role === "user") {
-    return (
-      <div className="pw-wa-msg is-user">
-        <div className="pw-wa-msg-body">{message.displayText ?? message.text}</div>
-      </div>
-    );
-  }
-  if (message.role === "assistant") {
-    return (
-      <div className="pw-wa-msg is-assistant">
-        <div className="pw-wa-msg-body pw-note-md">
-          <MarkdownView content={message.text} />
-        </div>
-      </div>
-    );
-  }
-  if (message.role === "tool") {
-    return (
-      <div className="pw-wa-msg is-tool" data-status={message.status}>
-        <Icon.Terminal size={12} />
-        <span className="pw-wa-tool-name">{message.name}</span>
-        {message.status === "running" ? <span className="pw-wa-tool-dot">运行中</span> : null}
-      </div>
-    );
-  }
-  // system(错误)
-  return (
-    <div className="pw-wa-msg is-system" data-severity={message.severity}>
-      {message.text}
-    </div>
-  );
-}

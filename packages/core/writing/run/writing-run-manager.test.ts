@@ -171,6 +171,59 @@ describe("writing-run-manager", () => {
     expect(writingSpaceBusy("ws-a")).toBe(false);
   });
 
+  it("thinking 流折叠为独立块:正文开流即落定,顺序 思考→正文→工具", async () => {
+    const m = makeMockBridge();
+    installWritingRuntime(m.bridge);
+    await sendWritingMessage({ spaceId: "ws-a", threadId: "t1", cwd: "/a", prompt: "改", agent: "claude" });
+    const runId = m.startCalls[0]!.runId;
+    m.emitEvent(runId, { type: "thinking", delta: "先想" });
+    m.emitEvent(runId, { type: "thinking", delta: "一下" });
+    // thinking 累积中:streaming=true
+    let msgs = useWritingRunStore.getState().messagesByThread.t1!;
+    expect(msgs.find((x) => x.role === "thinking")).toMatchObject({ text: "先想一下", streaming: true });
+
+    m.emitEvent(runId, { type: "text", delta: "答复" });
+    m.emitEvent(runId, { type: "tool", name: "Edit", phase: "start", toolCallId: "tc1" });
+    m.emitEvent(runId, { type: "tool", name: "Edit", phase: "end", toolCallId: "tc1" });
+    m.emitEvent(runId, { type: "result", ok: true });
+
+    msgs = useWritingRunStore.getState().messagesByThread.t1!;
+    const roles = msgs.map((x) => x.role);
+    // 顺序:user → thinking → assistant → tool
+    expect(roles).toEqual(["user", "thinking", "assistant", "tool"]);
+    // 正文开流后 thinking 落定;result 后 assistant 也落定(不残留打字光标)。
+    expect(msgs[1]).toMatchObject({ role: "thinking", streaming: false });
+    expect(msgs[2]).toMatchObject({ role: "assistant", text: "答复", streaming: false });
+  });
+
+  it("中断(cancelRunsForSpace)落定残留流式块,不留永久打字/思考态", async () => {
+    const m = makeMockBridge();
+    installWritingRuntime(m.bridge);
+    await sendWritingMessage({ spaceId: "ws-a", threadId: "t1", cwd: "/a", prompt: "改", agent: "claude" });
+    const runId = m.startCalls[0]!.runId;
+    m.emitEvent(runId, { type: "thinking", delta: "推理中" });
+    m.emitEvent(runId, { type: "text", delta: "写到一半" });
+
+    await cancelRunsForSpace("ws-a");
+    const msgs = useWritingRunStore.getState().messagesByThread.t1!;
+    for (const msg of msgs) {
+      if (msg.role === "assistant" || msg.role === "thinking") {
+        expect(msg.streaming).toBe(false);
+      }
+    }
+  });
+
+  it("pi 纯 result 路径:无 thinking/流式文本,补单条 assistant 且无 thinking 块", async () => {
+    const m = makeMockBridge();
+    installWritingRuntime(m.bridge);
+    await sendWritingMessage({ spaceId: "ws-a", threadId: "t1", cwd: "/a", prompt: "q", agent: "pi" });
+    const runId = m.startCalls[0]!.runId;
+    m.emitEvent(runId, { type: "result", ok: true, text: "最终" });
+    const msgs = useWritingRunStore.getState().messagesByThread.t1!;
+    expect(msgs.filter((x) => x.role === "assistant")).toHaveLength(1);
+    expect(msgs.some((x) => x.role === "thinking")).toBe(false);
+  });
+
   it("异常退出(code≠0)追加系统错误消息", async () => {
     const m = makeMockBridge();
     installWritingRuntime(m.bridge);

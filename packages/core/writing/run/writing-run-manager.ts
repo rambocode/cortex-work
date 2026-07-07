@@ -23,9 +23,13 @@ export function isWritingRunId(runId: string): boolean {
 }
 
 // ── 轻量消息模型:折叠 CliStreamEvent 供右栏面板渲染(精简自 design compat/chat-store 思路)──
+// streaming 标志:assistant/thinking 块在流式累积中为 true,块结束(下一个工具/正文/回合落定)翻 false,
+// 供面板渲染打字光标与「思考中/已思考」态。
 export type WritingMessage =
   | { id: string; role: "user"; text: string; displayText?: string }
-  | { id: string; role: "assistant"; text: string }
+  | { id: string; role: "assistant"; text: string; streaming?: boolean }
+  // thinking:agent 推理流(claude/codex 的 thinking 事件),面板渲染为可折叠块;pi 不发此事件。
+  | { id: string; role: "thinking"; text: string; streaming?: boolean }
   | { id: string; role: "tool"; name: string; detail?: string; status: "running" | "success" | "error" }
   | { id: string; role: "system"; text: string; severity?: "error" };
 
@@ -37,8 +41,10 @@ export interface WritingRunStoreState {
 
   // 追加一条消息到指定 thread(用户/工具/系统块)。
   pushMessage: (threadId: string, msg: WritingMessage) => void;
-  // 更新某条消息的文本(assistant 流式累积用;找不到 id 则忽略)。
+  // 更新某条流式消息(assistant/thinking)的文本(流式累积用;找不到 id 则忽略)。
   updateMessageText: (threadId: string, id: string, text: string) => void;
+  // 把某条流式消息(assistant/thinking)的 streaming 置 false(块结束落定;找不到则忽略)。
+  markStreamDone: (threadId: string, id: string) => void;
   // 更新某条 tool 消息的状态(phase:end 落定 success/error;找不到则忽略)。
   patchToolStatus: (threadId: string, id: string, status: "running" | "success" | "error") => void;
   // 空间活跃 run 计数增减(delta ±1);降到 0 以下夹到 0。
@@ -66,7 +72,25 @@ export const useWritingRunStore = create<WritingRunStoreState>((set) => ({
       return {
         messagesByThread: {
           ...s.messagesByThread,
-          [threadId]: list.map((m) => (m.id === id && m.role === "assistant" ? { ...m, text } : m)),
+          [threadId]: list.map((m) =>
+            m.id === id && (m.role === "assistant" || m.role === "thinking") ? { ...m, text } : m,
+          ),
+        },
+      };
+    }),
+
+  markStreamDone: (threadId, id) =>
+    set((s) => {
+      const list = s.messagesByThread[threadId];
+      if (!list) return {};
+      return {
+        messagesByThread: {
+          ...s.messagesByThread,
+          [threadId]: list.map((m) =>
+            m.id === id && (m.role === "assistant" || m.role === "thinking") && m.streaming
+              ? { ...m, streaming: false }
+              : m,
+          ),
         },
       };
     }),
@@ -96,14 +120,33 @@ export const useWritingRunStore = create<WritingRunStoreState>((set) => ({
 }));
 
 // ── 模块级运行态(组件卸载不丢)────────────────────────────────────────────
-// 单个写作 run 的上下文;liveMsgId 为当前流式 assistant 块的 id(未开流时 undefined)。
+// 单个写作 run 的上下文;liveMsgId / liveThinkingId 为当前流式 assistant / thinking 块的 id
+// (未开流时 undefined)。thinking 与正文互斥推进:任一方开流即落定另一方。
 type WritingRunContext = {
   spaceId: string;
   threadId: string;
   sessionId: string;
   liveMsgId?: string;
+  liveThinkingId?: string;
   sawStreamedText: boolean;
 };
+
+// 落定 run 的流式块(assistant 和/或 thinking):streaming 翻 false 并清 live id。
+// 工具/正文/回合结束/退出等「块边界」统一走这里,保证不残留永久打字光标。
+function finalizeLiveBlocks(
+  run: WritingRunContext,
+  which: { text?: boolean; thinking?: boolean },
+): void {
+  const store = useWritingRunStore.getState();
+  if (which.text && run.liveMsgId) {
+    store.markStreamDone(run.threadId, run.liveMsgId);
+    run.liveMsgId = undefined;
+  }
+  if (which.thinking && run.liveThinkingId) {
+    store.markStreamDone(run.threadId, run.liveThinkingId);
+    run.liveThinkingId = undefined;
+  }
+}
 
 let installedBridge: DesktopBridge | null = null;
 let unsubscribes: Array<() => void> = [];
@@ -152,11 +195,18 @@ function handleWritingCliEvent(runId: string, ev: CliStreamEvent): void {
       if (ev.sessionId) resumeByThread.set(run.threadId, ev.sessionId);
       return;
     case "text": {
+      // 正文开流即视为推理结束:先落定 thinking 块(时间线顺序 思考→正文)。
+      finalizeLiveBlocks(run, { thinking: true });
       // 流式正文累积进当前 assistant 块(无则新建)。
       run.sawStreamedText = true;
       if (!run.liveMsgId) {
         run.liveMsgId = uid("a");
-        store.pushMessage(run.threadId, { id: run.liveMsgId, role: "assistant", text: ev.delta });
+        store.pushMessage(run.threadId, {
+          id: run.liveMsgId,
+          role: "assistant",
+          text: ev.delta,
+          streaming: true,
+        });
         return;
       }
       const list = useWritingRunStore.getState().messagesByThread[run.threadId] ?? [];
@@ -165,9 +215,24 @@ function handleWritingCliEvent(runId: string, ev: CliStreamEvent): void {
       store.updateMessageText(run.threadId, run.liveMsgId, prevText + ev.delta);
       return;
     }
-    case "thinking":
-      // v1 不单独展示推理流,刻意丢弃。
+    case "thinking": {
+      // 推理流累积进当前 thinking 块(无则新建;面板渲染为可折叠块)。pi 不发此事件。
+      if (!run.liveThinkingId) {
+        run.liveThinkingId = uid("t");
+        store.pushMessage(run.threadId, {
+          id: run.liveThinkingId,
+          role: "thinking",
+          text: ev.delta,
+          streaming: true,
+        });
+        return;
+      }
+      const list = useWritingRunStore.getState().messagesByThread[run.threadId] ?? [];
+      const prev = list.find((m) => m.id === run.liveThinkingId);
+      const prevText = prev && prev.role === "thinking" ? prev.text : "";
+      store.updateMessageText(run.threadId, run.liveThinkingId, prevText + ev.delta);
       return;
+    }
     case "tool": {
       const toolId = ev.toolCallId ?? `${runId}:${ev.name}`;
       if (ev.phase === "end") {
@@ -175,8 +240,8 @@ function handleWritingCliEvent(runId: string, ev: CliStreamEvent): void {
         store.patchToolStatus(run.threadId, toolId, ev.isError ? "error" : "success");
         return;
       }
-      // 工具开始:先结束当前流式正文块(保持时间线顺序 文本→工具→文本)。
-      run.liveMsgId = undefined;
+      // 工具开始:先落定当前流式正文/thinking 块(保持时间线顺序 思考→文本→工具→文本)。
+      finalizeLiveBlocks(run, { text: true, thinking: true });
       // claude/codex 带结构化 input(序列化展示);pi 只带已提取的 detail 字符串。
       const detail =
         ev.input !== undefined
@@ -193,7 +258,7 @@ function handleWritingCliEvent(runId: string, ev: CliStreamEvent): void {
     case "result": {
       // 有的 agent(尤其 pi)不走流式 text,最终输出只在 result.text 里。若本回合没有流式文本,
       // 把 result.text 补成一条 assistant 块,否则面板看不到回复。
-      run.liveMsgId = undefined;
+      finalizeLiveBlocks(run, { text: true, thinking: true });
       if (ev.ok && !run.sawStreamedText && ev.text?.trim()) {
         store.pushMessage(run.threadId, { id: uid("a"), role: "assistant", text: ev.text });
       }
@@ -217,6 +282,8 @@ function handleWritingCliExit(runId: string, code: number | null, error?: string
   if (!run) return;
   activeRuns.delete(runId);
   const store = useWritingRunStore.getState();
+  // 进程退出(含中断 kill):落定残留流式块,避免面板永久停在打字/思考中态。
+  finalizeLiveBlocks(run, { text: true, thinking: true });
   if (code !== 0 && (code !== null || error)) {
     store.pushMessage(run.threadId, {
       id: uid("exit"),
@@ -311,11 +378,14 @@ export async function sendWritingMessage(params: SendWritingMessageParams): Prom
 export async function cancelRunsForSpace(spaceId: string): Promise<void> {
   const bridge = installedBridge;
   if (!bridge) return;
-  const ids = [...activeRuns.entries()]
-    .filter(([, ctx]) => ctx.spaceId === spaceId)
-    .map(([id]) => id);
-  await Promise.allSettled(ids.map((id) => bridge.killCli(id)));
-  for (const id of ids) activeRuns.delete(id);
+  const entries = [...activeRuns.entries()].filter(([, ctx]) => ctx.spaceId === spaceId);
+  await Promise.allSettled(entries.map(([id]) => bridge.killCli(id)));
+  for (const [id, ctx] of entries) {
+    // 这里先于 exit 事件删除 run 上下文,exit 到达时已查不到 → 必须在此落定流式块,
+    // 否则中断后面板残留永久打字/思考中态。
+    finalizeLiveBlocks(ctx, { text: true, thinking: true });
+    activeRuns.delete(id);
+  }
   useWritingRunStore.getState().resetSpaceRunning(spaceId);
 }
 

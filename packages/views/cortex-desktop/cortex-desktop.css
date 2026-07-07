@@ -10724,9 +10724,37 @@ button.sb-row {
   white-space: pre-wrap; word-break: break-word;
 }
 .pw-wa-msg.is-assistant { color: var(--text-1); }
+/* 流式打字光标:assistant 正文尾部闪烁竖条,streaming 落定即移除 */
+.pw-wa-cursor {
+  display: inline-block; width: 2px; height: 1em; margin-left: 2px;
+  vertical-align: text-bottom; border-radius: 1px;
+  background: var(--w-accent, var(--accent));
+  animation: pw-wa-blink 1s steps(2, start) infinite;
+}
+@keyframes pw-wa-blink { 50% { opacity: 0; } }
+/* thinking 可折叠推理块(对齐 Kun 紧凑卡:细边圆角 + 弱化文字) */
+.pw-wa-msg.is-thinking {
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-app); overflow: hidden;
+}
+.pw-wa-think-head {
+  display: flex; align-items: center; gap: 5px; width: 100%;
+  padding: 5px 9px; cursor: pointer;
+  font-size: 11.5px; color: var(--text-4); text-align: left;
+}
+.pw-wa-think-head:hover { background: var(--bg-hover); color: var(--text-3); }
+.pw-wa-msg.is-thinking[data-streaming="1"] .pw-wa-think-label { color: var(--w-accent, var(--accent)); }
+.pw-wa-think-chev { display: inline-flex; transition: transform 0.15s ease; }
+.pw-wa-think-chev.is-open { transform: rotate(90deg); }
+.pw-wa-think-body {
+  padding: 2px 10px 8px 26px;
+  font-size: 12px; line-height: 1.6; color: var(--text-4);
+  white-space: pre-wrap; word-break: break-word;
+}
 .pw-wa-msg.is-tool {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 8px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+  padding: 4px 9px; border-radius: 9px;
+  border: 1px solid var(--border);
   background: var(--bg-app); color: var(--text-3); font-size: 11.5px;
 }
 .pw-wa-msg.is-tool[data-status="error"] { color: var(--red); }
