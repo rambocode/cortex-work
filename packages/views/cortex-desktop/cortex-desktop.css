@@ -7292,6 +7292,16 @@ button.sb-row {
 .pw-set-field { display: flex; flex-direction: column; gap: 4px; }
 .pw-set-lbl { font-size: 11.5px; color: var(--text-3); }
 
+/* 写作排版设置:字体下拉 + 字号/行距滑杆 */
+.pw-wty-select { width: auto; max-width: 200px; }
+.pw-wty-slider { display: flex; align-items: center; gap: 10px; min-width: 200px; }
+.pw-wty-slider input[type="range"] { flex: 1; min-width: 120px; }
+.pw-wty-val { min-width: 44px; text-align: right; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.pw-wty-num { width: 90px; }
+.pw-wty-advanced { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+.pw-wty-advanced > summary { cursor: pointer; font-size: 12.5px; color: var(--text-2); user-select: none; }
+.pw-wty-advanced > summary:hover { color: var(--text-1); }
+
 /* 写作快捷指令编辑器:每条一块(label 行 + prompt 文本域);禁用的内置项整块变淡 */
 .pw-wqa-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 10px; }
 .pw-wqa-row { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card-2); }
@@ -10358,9 +10368,23 @@ button.sb-row {
 /* 字号:顶栏步进 → --pw-writing-font-size(WritingWorkspace 内联在中栏)→ CM 内容 + 仅预览。
    作用于 .cm-content(直接设定,覆盖 CM 主题在编辑器根的继承值)与预览 markdown 容器。
    预览复用闪记的 .pw-note-editor-preview(其默认 16px),这里在写作中栏作用域内改为跟随步进字号。 */
-.pw-writing-center { --pw-writing-font-size: 16px; }
-.pw-writing-center .pw-note-cm-host .cm-content { font-size: var(--pw-writing-font-size); }
-.pw-writing-center .pw-note-editor-preview .pw-todo-md { font-size: var(--pw-writing-font-size); }
+.pw-writing-center {
+  --pw-writing-font-size: 16px;
+  --pw-writing-font-family: inherit;
+  --pw-writing-line-height: 1.75;
+}
+/* 字号 + 字体 + 行距(设置节「排版与字体」/顶栏步进 → 变量 → 四档)。字体/行距作用于四档正文;
+   字号见既有作用点。四档:CM 内容(源码/live)、仅预览、rich。 */
+.pw-writing-center .pw-note-cm-host .cm-content {
+  font-size: var(--pw-writing-font-size);
+  font-family: var(--pw-writing-font-family);
+  line-height: var(--pw-writing-line-height);
+}
+.pw-writing-center .pw-note-editor-preview .pw-todo-md {
+  font-size: var(--pw-writing-font-size);
+  font-family: var(--pw-writing-font-family);
+  line-height: var(--pw-writing-line-height);
+}
 
 /* ── 富文本(rich)编辑器:所见即所得,文档式排版(70px 版心,与源码/预览同列宽),字号跟随顶栏步进 ── */
 .pw-writing-rich-host {
@@ -10369,7 +10393,10 @@ button.sb-row {
 }
 .pw-writing-center .write-rich-editor {
   max-width: none; padding: 0 70px; outline: none;
-  font-size: var(--pw-writing-font-size, 16px); line-height: 1.75; color: var(--text-1);
+  font-size: var(--pw-writing-font-size, 16px);
+  font-family: var(--pw-writing-font-family, inherit);
+  line-height: var(--pw-writing-line-height, 1.75);
+  color: var(--text-1);
 }
 .write-rich-editor > :first-child { margin-top: 0; }
 .write-rich-editor h1 { font-size: 1.7em; font-weight: 700; margin: 1.4em 0 0.5em; letter-spacing: -0.01em; }

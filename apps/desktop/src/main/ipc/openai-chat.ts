@@ -18,6 +18,8 @@ export interface PostChatCompletionParams {
   messages: ChatMessage[];
   /** 采样温度;不传则不下发该字段(沿用供应商默认,保持 llm:openaiComplete 旧行为)。 */
   temperature?: number;
+  /** 最大生成 tokens;不传则不下发 max_tokens(沿用供应商默认)。写作续写用它约束建议长度。 */
+  maxTokens?: number;
   /** 调用方取消信号;与超时信号 AbortSignal.any 组合,任一触发即中止(Node ≥20)。 */
   signal?: AbortSignal;
   /** 超时毫秒数,默认 60s(reply 快捷场景传更短值)。 */
@@ -47,6 +49,7 @@ export async function postChatCompletion(params: PostChatCompletionParams): Prom
       model: params.model,
       messages: params.messages,
       ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+      ...(params.maxTokens !== undefined ? { max_tokens: params.maxTokens } : {}),
       stream: false,
     }),
     signal,

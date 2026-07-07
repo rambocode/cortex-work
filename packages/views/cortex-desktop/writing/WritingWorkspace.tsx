@@ -13,6 +13,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge } from "@cortex-work/core/provider";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
 import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
+import { writingFontStackFor } from "@cortex-work/core/writing/typography";
 import { useWritingWorkspaceStore } from "@cortex-work/core/writing/workspace-store";
 import { useWritingReviewStore } from "@cortex-work/core/writing/review-manager";
 import { createWritingAttribution } from "@cortex-work/core/writing/attribution";
@@ -35,6 +36,11 @@ export function WritingWorkspace(): ReactElement {
   const setPreviewMode = useWritingSpacesStore((s) => s.setPreviewMode);
   const fontSizePx = useWritingSpacesStore((s) => s.fontSizePx);
   const setFontSizePx = useWritingSpacesStore((s) => s.setFontSizePx);
+  // 排版：字体预设/custom → CSS font-family 栈;行距无单位。作用于中栏四档(CM/预览/rich)。
+  const fontPreset = useWritingSpacesStore((s) => s.fontPreset);
+  const customFontFamily = useWritingSpacesStore((s) => s.customFontFamily);
+  const lineHeight = useWritingSpacesStore((s) => s.lineHeight);
+  const fontFamily = writingFontStackFor(fontPreset, customFontFamily);
 
   const [toast, setToast] = useState<string | null>(null);
   // 左栏折叠 / 右侧助手栏开合(顶栏两个按钮控制;瞬态,不持久化)。
@@ -156,8 +162,14 @@ export function WritingWorkspace(): ReactElement {
         </div>
         <div
           className="pw-writing-center"
-          // 字号 CSS 变量作用于 CM 内容与仅预览(顶栏步进 → 此变量 → 编辑器/预览字号)。
-          style={{ ["--pw-writing-font-size" as string]: `${fontSizePx}px` } as CSSProperties}
+          // 排版 CSS 变量:字号/字体/行距经此作用于中栏四档编辑器与预览(设置节/顶栏步进 → 变量 → 生效)。
+          style={
+            {
+              ["--pw-writing-font-size" as string]: `${fontSizePx}px`,
+              ["--pw-writing-font-family" as string]: fontFamily,
+              ["--pw-writing-line-height" as string]: `${lineHeight}`,
+            } as CSSProperties
+          }
         >
           <WritingEditorPane
             ref={editorRef}

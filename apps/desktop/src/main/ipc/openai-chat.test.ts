@@ -54,6 +54,22 @@ describe("postChatCompletion", () => {
     expect(body.temperature).toBe(0.3);
   });
 
+  it("maxTokens:未传不含 max_tokens;传入时下发(写作续写长度约束)", async () => {
+    const { fetchFn: f1, calls: c1 } = fakeFetch({ body: OK_BODY });
+    await postChatCompletion({ baseUrl: "https://x/v1", model: "m1", messages: [], fetchFn: f1 });
+    expect("max_tokens" in (JSON.parse(String(c1[0].init.body)) as Record<string, unknown>)).toBe(false);
+
+    const { fetchFn: f2, calls: c2 } = fakeFetch({ body: OK_BODY });
+    await postChatCompletion({
+      baseUrl: "https://x/v1",
+      model: "m1",
+      messages: [],
+      maxTokens: 96,
+      fetchFn: f2,
+    });
+    expect((JSON.parse(String(c2[0].init.body)) as Record<string, unknown>).max_tokens).toBe(96);
+  });
+
   it("返回原始 content,不 trim(trim 责任在调用方)", async () => {
     const { fetchFn } = fakeFetch({ body: OK_BODY });
     const out = await postChatCompletion({

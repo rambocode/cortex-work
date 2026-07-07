@@ -540,8 +540,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 各模态子字段全量覆盖（无 deep merge），旧档缺字段时整体回落工厂对象。
       mediaGenSettings: s.mediaGenSettings ?? defaultMediaGenSettings(),
       asrSettings: s.asrSettings ?? defaultAsrSettings(),
-      // 写作续写/改写模型配置：旧档无字段时回落工厂默认（ghost text 默认开、端点空=未配置）。
-      writingLlmSettings: s.writingLlmSettings ?? DEFAULT_WRITING_LLM_SETTINGS,
+      // 写作续写/改写模型配置：旧档缺字段（如新增的 debounceMs/maxTokens）由默认补齐，展开合并。
+      writingLlmSettings: { ...DEFAULT_WRITING_LLM_SETTINGS, ...s.writingLlmSettings },
       // 设计工作台：设置经归一化兜底（旧档/脏数据回落默认）,索引与 UI 态缺省为空。
       designSettings: normalizeDesignSettings(s.designSettings),
       designDocs: s.designDocs ?? [],

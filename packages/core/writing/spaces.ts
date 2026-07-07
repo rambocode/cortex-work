@@ -7,12 +7,19 @@
 import { create } from "zustand";
 import type { DesktopBridge } from "../desktop/bridge";
 import type {
+  WritingFontPreset,
   WritingPreviewMode,
   WritingQuickAction,
   WritingSpace,
   WritingUiState,
 } from "../desktop/writing-types";
 import { defaultWritingQuickActions, normalizeWritingQuickActions } from "./quick-actions";
+import {
+  DEFAULT_WRITING_FONT_PRESET,
+  WRITING_LINE_HEIGHT_DEFAULT,
+  clampWritingLineHeight,
+  normalizeWritingFontPreset,
+} from "./typography";
 
 // 便于 views 经本子路径直接取用编辑器视图档位类型(core 主入口未导出 writing-types)。
 export type { WritingPreviewMode } from "../desktop/writing-types";
@@ -51,6 +58,10 @@ export interface WritingSpacesState {
   // 中栏编辑器视图偏好（跨空间共享，由中栏工具栏切换/步进；随 WritingUiState 分片持久化）。
   previewMode: WritingPreviewMode;
   fontSizePx: number;
+  // 排版（设置节「排版与字体」）：字体预设 + custom 字体 + 行距。字号复用 fontSizePx（与工具栏同源）。
+  fontPreset: WritingFontPreset;
+  customFontFamily: string;
+  lineHeight: number;
   // 工作区级检索上下文开关（U4，跨空间共享）：开启时助手发送按用户正文检索 top-k 片段注入 prompt。
   // 默认 true；关闭或检索失败/超时时静默不注入。
   retrievalEnabled: boolean;
@@ -59,8 +70,13 @@ export interface WritingSpacesState {
 
   // 编辑器视图档位切换（source/live/preview）。
   setPreviewMode: (mode: WritingPreviewMode) => void;
-  // 字号设置（自动夹取到 10–48）。
+  // 字号设置（自动夹取到 10–48；工具栏与设置滑杆共用）。
   setFontSizePx: (px: number) => void;
+  // 排版设置（字体预设 / custom 字体 / 行距）+ 一键重置排版为默认。
+  setFontPreset: (preset: WritingFontPreset) => void;
+  setCustomFontFamily: (family: string) => void;
+  setLineHeight: (lineHeight: number) => void;
+  resetTypography: () => void;
   // 检索上下文开关切换（写作设置节;单一真源）。
   setRetrievalEnabled: (enabled: boolean) => void;
   // 覆盖快捷指令配置（设置编辑器增删改后整表写入，写入即归一化）。
@@ -85,11 +101,24 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   activeSpaceId: null,
   previewMode: "rich",
   fontSizePx: WRITING_FONT_SIZE_DEFAULT,
+  fontPreset: DEFAULT_WRITING_FONT_PRESET,
+  customFontFamily: "",
+  lineHeight: WRITING_LINE_HEIGHT_DEFAULT,
   retrievalEnabled: true,
   quickActions: defaultWritingQuickActions(),
 
   setPreviewMode: (mode) => set({ previewMode: mode }),
   setFontSizePx: (px) => set({ fontSizePx: clampFontSize(px) }),
+  setFontPreset: (preset) => set({ fontPreset: normalizeWritingFontPreset(preset) }),
+  setCustomFontFamily: (family) => set({ customFontFamily: family.slice(0, 200) }),
+  setLineHeight: (lineHeight) => set({ lineHeight: clampWritingLineHeight(lineHeight) }),
+  resetTypography: () =>
+    set({
+      fontSizePx: WRITING_FONT_SIZE_DEFAULT,
+      fontPreset: DEFAULT_WRITING_FONT_PRESET,
+      customFontFamily: "",
+      lineHeight: WRITING_LINE_HEIGHT_DEFAULT,
+    }),
   setRetrievalEnabled: (enabled) => set({ retrievalEnabled: enabled }),
   setQuickActions: (actions) => set({ quickActions: normalizeWritingQuickActions(actions) }),
 
@@ -136,6 +165,9 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       activeSpaceId: s.activeSpaceId,
       previewMode: s.previewMode,
       fontSizePx: s.fontSizePx,
+      fontPreset: s.fontPreset,
+      customFontFamily: s.customFontFamily,
+      lineHeight: s.lineHeight,
       retrievalEnabled: s.retrievalEnabled,
       quickActions: s.quickActions,
     };
@@ -148,6 +180,10 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       // 缺字段回落默认（兼容旧档）；字号夹取到合法区间。
       previewMode: state?.previewMode ?? "rich",
       fontSizePx: clampFontSize(state?.fontSizePx),
+      // 排版：预设/字体/行距缺省或脏值回落默认。
+      fontPreset: normalizeWritingFontPreset(state?.fontPreset),
+      customFontFamily: typeof state?.customFontFamily === "string" ? state.customFontFamily.slice(0, 200) : "",
+      lineHeight: clampWritingLineHeight(state?.lineHeight),
       // 缺省视为开启（默认 true）：旧档没有该字段时保持检索启用。
       retrievalEnabled: state?.retrievalEnabled ?? true,
       // 缺字段（旧档）→ 归一化空输入即得内置默认集；有档则补齐内置 + 夹取自定义。

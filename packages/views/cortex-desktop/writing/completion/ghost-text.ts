@@ -27,7 +27,9 @@ export interface WritingGhostTextConfig {
   isEnabled: () => boolean;
   // 发起续写:给前后缀,返回续写文本或 null(无续写/失败)。由上层经 bridge.writingComplete 实现。
   requestCompletion: (prefix: string, suffix: string) => Promise<string | null>;
+  // 触发去抖(ms):静态值;或用 getDebounceMs 读 ref 取最新(设置改动即时生效)。缺省回落硬编码默认。
   debounceMs?: number;
+  getDebounceMs?: () => number;
 }
 
 type GhostState = { text: string; anchor: number } | null;
@@ -127,7 +129,8 @@ export function buildWritingGhostTextExtension(
         this.timer = window.setTimeout(() => {
           this.timer = null;
           void this.run(reqId, anchor, prefix, suffix);
-        }, config.debounceMs ?? WRITING_COMPLETION_DEBOUNCE_MS);
+          // 去抖:优先读 getDebounceMs(设置即时生效),回落静态 debounceMs / 硬编码默认。
+        }, config.getDebounceMs?.() ?? config.debounceMs ?? WRITING_COMPLETION_DEBOUNCE_MS);
       }
       private async run(reqId: number, anchor: number, prefix: string, suffix: string): Promise<void> {
         let text: string | null = null;

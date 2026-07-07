@@ -5,19 +5,46 @@
 
 // 写作 LLM 配置：ghost text 打字续写与 Cmd-K 就地改写共用同一端点。
 // completionEnabled 只门控 ghost text（打字续写）；Cmd-K 改写只取决于「是否配置」，不受此开关影响。
+// 高级调优（对齐 Kun）：debounceMs=触发节奏（真正接进 ghost-text 去抖）；maxTokens=续写最大长度（传给续写请求）。
 export interface WritingLlmSettings {
   baseUrl: string;
   apiKey: string;
   model: string;
   completionEnabled: boolean;
+  // 续写触发去抖（ms，Kun 口径 150–5000，默认 650）。替代渲染端硬编码 600ms。
+  debounceMs: number;
+  // 续写最大长度（tokens，Kun 口径 16–512，默认 96）。传给续写请求的 max_tokens。
+  maxTokens: number;
 }
+
+// 调优参数范围/默认（对齐 Kun WRITE_INLINE_COMPLETION_* schema）。
+export const WRITING_LLM_DEBOUNCE_MIN = 150;
+export const WRITING_LLM_DEBOUNCE_MAX = 5_000;
+export const WRITING_LLM_DEBOUNCE_DEFAULT = 650;
+export const WRITING_LLM_MAX_TOKENS_MIN = 16;
+export const WRITING_LLM_MAX_TOKENS_MAX = 512;
+export const WRITING_LLM_MAX_TOKENS_DEFAULT = 96;
 
 export const DEFAULT_WRITING_LLM_SETTINGS: WritingLlmSettings = {
   baseUrl: "",
   apiKey: "",
   model: "",
   completionEnabled: true,
+  debounceMs: WRITING_LLM_DEBOUNCE_DEFAULT,
+  maxTokens: WRITING_LLM_MAX_TOKENS_DEFAULT,
 };
+
+// 调优参数夹取（非数值/越界回落默认）。渲染端与主进程消费前都过一遍，兼容旧档缺字段。
+export function clampWritingDebounceMs(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return WRITING_LLM_DEBOUNCE_DEFAULT;
+  return Math.round(Math.max(WRITING_LLM_DEBOUNCE_MIN, Math.min(WRITING_LLM_DEBOUNCE_MAX, n)));
+}
+export function clampWritingMaxTokens(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return WRITING_LLM_MAX_TOKENS_DEFAULT;
+  return Math.round(Math.max(WRITING_LLM_MAX_TOKENS_MIN, Math.min(WRITING_LLM_MAX_TOKENS_MAX, n)));
+}
 
 // 是否已配置：baseUrl 与 model 均非空（apiKey 对本地端点可空）。
 // 未配置 → 渲染端隐藏续写/改写入口（降级），主进程 handler 也据此直接回失败（双重兜底）。

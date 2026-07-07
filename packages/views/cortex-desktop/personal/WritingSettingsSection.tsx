@@ -9,33 +9,82 @@
 // Kun 有而 cortex 无对应能力、故本节未做的字段(排版预设/行距、快捷指令编辑器、写作 Agent 人设、
 //   补全去抖/接受分/长度调优、provider 继承)见交付说明,均因缺底层能力而不做,不造空壳。
 
+import { useMemo } from "react";
 import { usePersonalStore } from "@cortex-work/core";
-import { isWritingLlmConfigured } from "@cortex-work/core/desktop/types";
+import {
+  isWritingLlmConfigured,
+  clampWritingDebounceMs,
+  clampWritingMaxTokens,
+  WRITING_LLM_MAX_TOKENS_MAX,
+  WRITING_LLM_MAX_TOKENS_MIN,
+} from "@cortex-work/core/desktop/types";
 import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
 import { useTranslation } from "@cortex-work/core/i18n";
 
-import { SettingCard, SwitchRow, SecretField } from "./settingsControls";
+import { SettingCard, SwitchRow, SecretField, BareSelect } from "./settingsControls";
 import { WritingQuickActionsEditor } from "./WritingQuickActionsEditor";
+import { WritingTypographySection } from "./WritingTypographySection";
+
+// 去抖候选(对齐 Kun 的离散档位)。
+const DEBOUNCE_OPTIONS = [300, 650, 1000, 1500] as const;
 
 export function WritingSettingsSection() {
   const { t } = useTranslation("settings");
   const settings = usePersonalStore((s) => s.writingLlmSettings);
   const setSettings = usePersonalStore((s) => s.setWritingLlmSettings);
-  // 检索开关的单一真源(WritingUiState 分片,跨空间共享;助手面板同读此状态)。
+  // 已配置且启用的供应商(provider 注册表):用于「从已配置供应商填充」端点候选。
+  // 注意:selector 直选原始数组(稳定引用),过滤放 useMemo,否则每渲染新数组会触发无限更新。
+  const allProviders = usePersonalStore((s) => s.providerSettings.providers);
+  const providers = useMemo(
+    () => allProviders.filter((p) => p.enabled && p.baseUrl.trim()),
+    [allProviders],
+  );
+  // 检索开关的单一真源(WritingUiState 分片,跨空间共享;设置节为唯一入口)。
   const retrievalEnabled = useWritingSpacesStore((s) => s.retrievalEnabled);
   const setRetrievalEnabled = useWritingSpacesStore((s) => s.setRetrievalEnabled);
   const configured = isWritingLlmConfigured(settings);
+
+  // 「从已配置供应商填充」:选中某供应商 → 把其 baseUrl/apiKey/首个模型填进续写端点(快照式,
+  // cortex 续写为独立端点、无 Kun 的 live 继承,故做成快速填充候选;端点仍以下方输入为真源)。
+  const fillFromProvider = (id: string): void => {
+    const p = providers.find((x) => x.id === id);
+    if (!p) return;
+    setSettings({
+      baseUrl: p.baseUrl ?? "",
+      apiKey: p.apiKey ?? "",
+      model: p.models?.[0]?.id ?? settings.model,
+    });
+  };
 
   return (
     <div>
       <div className="pw-dlg-title">{t("writing.title")}</div>
       <div className="pw-dlg-desc">{t("writing.desc")}</div>
 
+      {/* 排版与字体(对齐 Kun,置于写作建议前)。 */}
+      <WritingTypographySection />
+
       <SettingCard title={t("writing.modelCard")}>
         {/* 配置态提示：未配置 → 续写/改写入口在编辑器侧全隐藏（此处点明原因，避免用户以为功能缺失）。 */}
         <div className="pw-srow-desc">
           {configured ? t("writing.configuredHint") : t("writing.notConfiguredHint")}
         </div>
+        {/* 从已配置供应商快速填充端点(候选);选后仍以下方输入为真源。无供应商则不显。 */}
+        {providers.length > 0 ? (
+          <div className="pw-srow">
+            <div className="pw-srow-l">
+              <span className="pw-srow-lbl">{t("writing.providerFillLabel")}</span>
+            </div>
+            <BareSelect
+              value=""
+              onChange={(v) => v && fillFromProvider(v)}
+              options={[
+                { label: t("writing.providerFillCustom"), value: "" },
+                ...providers.map((p) => ({ label: p.name || p.id, value: p.id })),
+              ]}
+            />
+          </div>
+        ) : null}
         <label className="pw-set-field">
           <span className="pw-set-lbl">{t("writing.baseUrl")}</span>
           <input
@@ -62,6 +111,50 @@ export function WritingSettingsSection() {
             onChange={(e) => setSettings({ model: e.target.value })}
           />
         </label>
+
+        {/* 高级调优(可折叠,对齐 Kun):去抖(真接进 ghost-text)+ 短建议最大长度(传主进程 max_tokens)。 */}
+        <details className="pw-wty-advanced">
+          <summary>{t("writing.advancedTitle")}</summary>
+          <div className="pw-srow-desc">{t("writing.advancedDesc")}</div>
+          <div className="pw-srow">
+            <div className="pw-srow-l">
+              <span className="pw-srow-lbl">{t("writing.debounceLabel")}</span>
+              <span className="pw-srow-desc">{t("writing.debounceDesc")}</span>
+            </div>
+            <BareSelect
+              value={String(clampWritingDebounceMs(settings.debounceMs))}
+              onChange={(v) => setSettings({ debounceMs: clampWritingDebounceMs(Number(v)) })}
+              options={DEBOUNCE_OPTIONS.map((ms) => ({
+                label: t(
+                  ms === 300
+                    ? "writing.debounceFast"
+                    : ms === 650
+                      ? "writing.debounceBalanced"
+                      : ms === 1000
+                        ? "writing.debounceRelaxed"
+                        : "writing.debounceQuiet",
+                ),
+                value: String(ms),
+              }))}
+            />
+          </div>
+          <div className="pw-srow">
+            <div className="pw-srow-l">
+              <span className="pw-srow-lbl">{t("writing.maxTokensLabel")}</span>
+              <span className="pw-srow-desc">{t("writing.maxTokensDesc")}</span>
+            </div>
+            <input
+              type="number"
+              className="pw-set-input pw-wty-num"
+              min={WRITING_LLM_MAX_TOKENS_MIN}
+              max={WRITING_LLM_MAX_TOKENS_MAX}
+              step={8}
+              value={clampWritingMaxTokens(settings.maxTokens)}
+              aria-label={t("writing.maxTokensLabel")}
+              onChange={(e) => setSettings({ maxTokens: clampWritingMaxTokens(Number(e.target.value)) })}
+            />
+          </div>
+        </details>
       </SettingCard>
 
       <SettingCard title={t("writing.completionCard")}>

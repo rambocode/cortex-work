@@ -55,4 +55,43 @@ describe("WritingSettingsSection", () => {
     fireEvent.change(input, { target: { value: "https://api.test/v1" } });
     expect(usePersonalStore.getState().writingLlmSettings.baseUrl).toBe("https://api.test/v1");
   });
+
+  it("高级调优:去抖下拉写 debounceMs;maxTokens 输入写 maxTokens", () => {
+    renderUI();
+    // 去抖下拉(默认选中「均衡 · 650ms」)。
+    const debounce = screen.getByDisplayValue("均衡 · 650ms") as HTMLSelectElement;
+    fireEvent.change(debounce, { target: { value: "1000" } });
+    expect(usePersonalStore.getState().writingLlmSettings.debounceMs).toBe(1000);
+    // maxTokens 数字输入(aria-label)。
+    const maxTokens = screen.getByLabelText("短建议最大长度") as HTMLInputElement;
+    fireEvent.change(maxTokens, { target: { value: "200" } });
+    expect(usePersonalStore.getState().writingLlmSettings.maxTokens).toBe(200);
+  });
+
+  it("从已配置供应商填充:选供应商 → 填 baseUrl/model", () => {
+    usePersonalStore.setState({
+      providerSettings: {
+        providers: [
+          {
+            id: "deepseek",
+            name: "DeepSeek",
+            baseUrl: "https://api.deepseek.com/v1",
+            apiKey: "sk-x",
+            endpointFormat: "chat_completions",
+            models: [{ id: "deepseek-chat" }],
+            enabled: true,
+          },
+        ],
+        defaultProviderId: undefined,
+        defaultModel: undefined,
+      },
+    });
+    renderUI();
+    // provider 填充下拉(默认选中「自定义端点」)。
+    const fill = screen.getByDisplayValue("自定义端点") as HTMLSelectElement;
+    fireEvent.change(fill, { target: { value: "deepseek" } });
+    const llm = usePersonalStore.getState().writingLlmSettings;
+    expect(llm.baseUrl).toBe("https://api.deepseek.com/v1");
+    expect(llm.model).toBe("deepseek-chat");
+  });
 });

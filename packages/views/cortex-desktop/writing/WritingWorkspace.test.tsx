@@ -118,6 +118,9 @@ beforeEach(() => {
     activeSpaceId: SPACE_A.id,
     previewMode: "live",
     fontSizePx: 16,
+    fontPreset: "system",
+    customFontFamily: "",
+    lineHeight: 1.75,
   });
   useWritingWorkspaceStore.setState({ currentFile: null });
   usePersonalStore.setState({ writingOpen: true, homeOpen: false });
@@ -199,6 +202,20 @@ describe("WritingWorkspace(U4)", () => {
     // 折叠 beta(再点其空间行)→ unwatch beta
     fireEvent.click(screen.getByText("beta"));
     await waitFor(() => expect(bridge.unwatchDir).toHaveBeenCalledWith(SPACE_B.id));
+  });
+
+  it("排版设置 → 中栏 CSS 变量(字号/字体/行距)生效", async () => {
+    useWritingSpacesStore.setState({
+      fontSizePx: 20,
+      fontPreset: "kaiti",
+      customFontFamily: "",
+      lineHeight: 2.0,
+    });
+    const { container } = renderWs(makeBridge());
+    const center = container.querySelector(".pw-writing-center") as HTMLElement;
+    expect(center.style.getPropertyValue("--pw-writing-font-size")).toBe("20px");
+    expect(center.style.getPropertyValue("--pw-writing-font-family")).toContain("KaiTi");
+    expect(center.style.getPropertyValue("--pw-writing-line-height")).toBe("2");
   });
 
   it("编辑器选区上报 → 助手面板 edit 类建议卡解禁;取消选区后重新禁用(R11)", async () => {

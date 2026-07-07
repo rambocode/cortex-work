@@ -29,6 +29,17 @@ export interface WritingThreadMeta {
 // 对应 Kun WritePreviewMode 的子集（Kun 另有 split 分屏，本仓库不支持）。
 export type WritingPreviewMode = "rich" | "source" | "live" | "preview";
 
+// 编辑器字体预设（对齐 Kun WriteFontPreset）：system=系统默认；其余为具体中文字体；custom=用户自填 CSS font-family。
+export type WritingFontPreset =
+  | "system"
+  | "sourceHanSans"
+  | "yahei"
+  | "pingfang"
+  | "simhei"
+  | "simsun"
+  | "kaiti"
+  | "custom";
+
 // 选中文字工具栏「快捷指令」处理方式：chat=把 prompt 填进助手输入框（不自动发送）；
 // edit=对选区就地改写（走 ⌘K 同款 inline-edit → 红绿 diff 审阅链路）。
 export type WritingQuickActionMode = "chat" | "edit";
@@ -55,8 +66,14 @@ export interface WritingUiState {
   activeThreadBySpace?: Record<string, string | null>;
   // 编辑器视图档位（跨空间共享，中栏工具栏切换）。缺省视为 "live"（兼容旧档）。
   previewMode?: WritingPreviewMode;
-  // 编辑器字号 px（中栏工具栏步进，Kun 口径 10–48，默认 16）。缺省回落默认（兼容旧档）。
+  // 编辑器字号 px（中栏工具栏步进 + 设置滑杆同一状态源，Kun 口径 10–48，默认 16）。缺省回落默认（兼容旧档）。
   fontSizePx?: number;
+  // 编辑器字体预设（设置节「排版与字体」）。缺省视为 system（兼容旧档）。
+  fontPreset?: WritingFontPreset;
+  // 预设为 custom 时的 CSS font-family。缺省空串。
+  customFontFamily?: string;
+  // 正文行距（无单位，Kun 口径 1.4–2.2，默认 1.75）。缺省回落默认（兼容旧档）。
+  lineHeight?: number;
   // 工作区级检索上下文开关（U4，跨空间共享）。缺省视为开启（默认 true，兼容旧档）。
   retrievalEnabled?: boolean;
   // 选中文字工具栏「快捷指令」配置（跨空间共享，对齐 Kun selectionAssist.quickActions）。

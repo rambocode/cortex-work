@@ -11,6 +11,7 @@
 import { ipcMain } from "electron";
 import { postChatCompletion, type ChatMessage } from "./openai-chat";
 import {
+  clampWritingMaxTokens,
   isWritingLlmConfigured,
   type WritingCompletionRequest,
   type WritingCompletionResult,
@@ -210,6 +211,8 @@ export function registerWritingLlmHandlers(): void {
           apiKey: s!.apiKey || undefined,
           model: s!.model,
           messages: buildWritingCompletionMessages(req),
+          // 续写长度上限由设置的 maxTokens 决定（夹取兜底），对齐 Kun 短建议长度。
+          maxTokens: clampWritingMaxTokens(s!.maxTokens),
           timeoutMs: COMPLETION_TIMEOUT_MS,
         });
         return { ok: true, completion: parseWritingCompletionResponse(raw) };

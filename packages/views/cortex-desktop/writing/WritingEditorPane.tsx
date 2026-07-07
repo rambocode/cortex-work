@@ -20,6 +20,8 @@ import {
   type ReactElement,
 } from "react";
 import { useDesktopBridge } from "@cortex-work/core/provider";
+import { usePersonalStore } from "@cortex-work/core";
+import { clampWritingDebounceMs } from "@cortex-work/core/desktop/types";
 import {
   getBaseline,
   isSelfEcho,
@@ -269,6 +271,10 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     const bridgeRef = useRef(bridge);
     bridgeRef.current = bridge;
     // 写作 LLM 配置态走 ref:供 ghost text 扩展工厂(挂载时建一次)读取最新值,配置改动即时生效不重挂。
+    // 续写去抖(ms)读设置的 debounceMs(高级调优),经 ref 供 ghost-text 即时读取(设置改动即时生效)。
+    const writingDebounceMs = usePersonalStore((s) => s.writingLlmSettings.debounceMs);
+    const writingDebounceMsRef = useRef(writingDebounceMs);
+    writingDebounceMsRef.current = writingDebounceMs;
     const llmStatusRef = useRef(llmStatus);
     llmStatusRef.current = llmStatus;
 
@@ -451,6 +457,8 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
               // 启用条件:已配置 + ghost text 开关开(读 ref 取最新)。
               isEnabled: () =>
                 llmStatusRef.current.configured && llmStatusRef.current.completionEnabled,
+              // 去抖读设置的 debounceMs(高级调优),替代硬编码 600ms;设置改动即时生效。
+              getDebounceMs: () => clampWritingDebounceMs(writingDebounceMsRef.current),
               requestCompletion: async (prefix, suffix) => {
                 const call = bridgeRef.current?.writingComplete;
                 if (!call) return null;
