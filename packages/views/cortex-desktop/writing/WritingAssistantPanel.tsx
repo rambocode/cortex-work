@@ -34,6 +34,11 @@ import type {
 } from "@cortex-work/core";
 import type { WritingSpacesState } from "@cortex-work/core/writing/spaces";
 import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
+import {
+  builtinQuickActionText,
+  resolveWritingQuickActions,
+  type ResolvedWritingQuickAction,
+} from "@cortex-work/core/writing/quick-actions";
 import type {
   WritingRetrievalContext,
   WritingRetrievalRequest,
@@ -79,6 +84,8 @@ interface Props {
   hasPendingReview?: boolean;
   // 发送前 flush 编辑器自动保存(U5 命令式钩子);确保 agent 起跑时读到最新盘面。
   onFlushBeforeSend?: () => Promise<void> | void;
+  // edit 类快捷指令:对当前选区就地改写(→ 编辑器红绿 diff 审阅)。返回结果供面板提示。
+  onRunInlineEdit?: (instruction: string) => Promise<{ ok: boolean; reason?: string }>;
   onToast?: (msg: string) => void;
 }
 
@@ -136,6 +143,7 @@ export function WritingAssistantPanel({
   selection,
   hasPendingReview = false,
   onFlushBeforeSend,
+  onRunInlineEdit,
   onToast,
 }: Props): ReactElement {
   const bridge = useDesktopBridge();
@@ -144,10 +152,11 @@ export function WritingAssistantPanel({
   const generalSettings = usePersonalStore((s) => s.generalSettings);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
 
-  // 检索上下文开关(U4,跨空间共享,持久化在 spaces store)。仅当 bridge 具备检索能力时展示开关入口。
+  // 检索上下文开关(U4,跨空间共享,持久化在 spaces store)。UI 入口已移到写作设置节(单一真源),
+  // 面板不再放快捷开关;此处仅读值供发送时的检索注入门控。
   const retrievalEnabled = useWritingSpacesStore((s) => s.retrievalEnabled);
-  const setRetrievalEnabled = useWritingSpacesStore((s) => s.setRetrievalEnabled);
-  const retrievalAvailable = !!bridge?.writingRetrieve;
+  // 选中工具栏「快捷指令」配置(空态建议卡 + 选区动作从此渲染)。
+  const quickActions = useWritingSpacesStore((s) => s.quickActions);
 
   const spaceId = space?.id ?? null;
 
@@ -234,6 +243,44 @@ export function WritingAssistantPanel({
     if (!quote) return;
     setQuotes((prev) => [...prev, quote]);
   }, [space, activeFilePath, selection]);
+
+  // 解析出可渲染的快捷指令(禁用项过滤、内置留空补 i18n 默认文案)。
+  const resolvedActions = useMemo(
+    () => resolveWritingQuickActions(quickActions, builtinQuickActionText),
+    [quickActions],
+  );
+
+  // 派发一条快捷指令:
+  //   edit → 对当前选区就地改写(需有选区;→ 红绿 diff 审阅);无 onRunInlineEdit 或失败给 toast。
+  //   chat → 有选区则引用选区,再把 prompt 填进输入框(不自动发,沿用现行为)。
+  const runQuickAction = useCallback(
+    (action: ResolvedWritingQuickAction): void => {
+      if (action.mode === "edit") {
+        if (!hasSelection) {
+          onToast?.("先在编辑器里选中一段文字");
+          return;
+        }
+        void (async () => {
+          const res = (await onRunInlineEdit?.(action.prompt)) ?? { ok: false, reason: "no-editor" };
+          if (res.ok) return;
+          const hint =
+            res.reason === "mode"
+              ? "就地改写请在源码/实时预览模式下使用"
+              : res.reason === "unconfigured"
+                ? "未配置写作模型,无法就地改写(见 设置 → 写作)"
+                : res.reason === "same" || res.reason === "empty"
+                  ? "模型未给出有效改写"
+                  : `改写失败：${res.reason ?? ""}`;
+          onToast?.(hint);
+        })();
+        return;
+      }
+      // chat:有选区先引用,再填入 prompt。
+      if (hasSelection) quoteSelection();
+      fillPrompt(action.prompt);
+    },
+    [hasSelection, onRunInlineEdit, onToast, quoteSelection, fillPrompt],
+  );
 
   const removeQuote = useCallback((id: string): void => {
     setQuotes((prev) => prev.filter((q) => q.id !== id));
@@ -423,39 +470,32 @@ export function WritingAssistantPanel({
               <h3 className="pw-wa-empty-title">写作助手</h3>
               <p className="pw-wa-empty-sub">让 agent 直接改稿,改动以行级红绿 diff 逐块审阅。</p>
             </div>
+            {/* 建议卡从快捷指令配置渲染(设置 → 写作 → 快捷指令)。edit 类无选区时禁用。 */}
             <div className="pw-wa-cards">
-              <button
-                type="button"
-                className="pw-wa-card"
-                onClick={() => fillPrompt(`请总结当前文档《${fileLabel}》的主要内容与结构。`)}
-              >
-                <span className="pw-wa-card-t">总结当前文档</span>
-                <span className="pw-wa-card-s">快速把握全文要点</span>
-              </button>
-              <button
-                type="button"
-                className="pw-wa-card"
-                onClick={() => fillPrompt(`请为当前文档《${fileLabel}》拟一个结构清晰的大纲。`)}
-              >
-                <span className="pw-wa-card-t">拟一个大纲</span>
-                <span className="pw-wa-card-s">先搭骨架再填内容</span>
-              </button>
-              {/* 润色:无选区禁用(R10);点击引用选区并填入润色 prompt(不自动发)。 */}
-              <button
-                type="button"
-                className="pw-wa-card"
-                disabled={!hasSelection}
-                title={hasSelection ? undefined : "先在编辑器里选中一段文字"}
-                onClick={() => {
-                  quoteSelection();
-                  fillPrompt("请润色我选中的这段文字,保持原意、让表达更流畅。");
-                }}
-              >
-                <span className="pw-wa-card-t">润色选中文本</span>
-                <span className="pw-wa-card-s">
-                  {hasSelection ? "打磨措辞与节奏" : "选中文字后可用"}
-                </span>
-              </button>
+              {resolvedActions.map((action) => {
+                const editDisabled = action.mode === "edit" && !hasSelection;
+                return (
+                  <button
+                    key={action.id}
+                    type="button"
+                    className="pw-wa-card"
+                    disabled={editDisabled}
+                    title={editDisabled ? "先在编辑器里选中一段文字" : undefined}
+                    onClick={() => runQuickAction(action)}
+                  >
+                    <span className="pw-wa-card-t">{action.label}</span>
+                    <span className="pw-wa-card-s">
+                      {action.mode === "edit"
+                        ? editDisabled
+                          ? "选中文字后就地改写"
+                          : "就地改写(红绿 diff 审阅)"
+                        : hasSelection
+                          ? "引用选中并填入指令"
+                          : "填入输入框待发送"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -469,6 +509,22 @@ export function WritingAssistantPanel({
 
       {/* composer:引用条 + 输入框 + 工具栏(引用选区 / AgentSelect / 发送·中断)*/}
       <div className="pw-wa-composer">
+        {/* 选区动作条:有消息时(空态已在建议卡)+ 有选区 → 快捷指令 chip(edit 就地改写 / chat 引用+填入)。 */}
+        {!showEmptyState && hasSelection && resolvedActions.length > 0 ? (
+          <div className="pw-wa-selbar" role="group" aria-label="选区快捷指令">
+            {resolvedActions.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                className="pw-wa-selchip"
+                title={action.mode === "edit" ? "就地改写(红绿 diff 审阅)" : "引用选中并填入指令"}
+                onClick={() => runQuickAction(action)}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {hasPendingReview ? (
           <div className="pw-wa-blocked" role="alert">
             有未处理的改动审阅,请先接受或拒绝后再发送。
@@ -519,19 +575,8 @@ export function WritingAssistantPanel({
           >
             <Icon.Comment size={15} />
           </button>
-          {/* 检索上下文开关(U4):仅当 bridge 具备检索能力时展示;开启态高亮。 */}
-          {retrievalAvailable ? (
-            <button
-              type="button"
-              className={`pw-wa-icon-btn ${retrievalEnabled ? "is-active" : ""}`}
-              title={retrievalEnabled ? "检索上下文:已开启(发送时注入相关文献)" : "检索上下文:已关闭"}
-              aria-label="检索上下文开关"
-              aria-pressed={retrievalEnabled}
-              onClick={() => setRetrievalEnabled(!retrievalEnabled)}
-            >
-              <Icon.Search size={15} />
-            </button>
-          ) : null}
+          {/* 检索开关已移入「设置 → 写作 → 写作建议 → 参考其他文档」(单一入口,对齐 Kun);
+              此处不再放快捷开关。检索仍在发送时按 retrievalEnabled 注入(见 doSend)。 */}
           <AgentSelect
             agent={agent}
             derivedAgentId={derivedAgentId}

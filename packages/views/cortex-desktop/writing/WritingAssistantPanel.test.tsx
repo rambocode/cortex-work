@@ -14,6 +14,8 @@ import {
   __resetWritingThreadsForTest,
   useWritingThreadsStore,
 } from "@cortex-work/core/writing/threads";
+import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
+import { defaultWritingQuickActions } from "@cortex-work/core/writing/quick-actions";
 import { WritingAssistantPanel } from "./WritingAssistantPanel";
 
 vi.mock("../personal/MarkdownView", () => ({
@@ -53,20 +55,46 @@ describe("WritingAssistantPanel", () => {
   beforeEach(() => {
     __resetWritingThreadsForTest();
     __resetWritingRunManagerForTest();
+    // 复位快捷指令到内置默认集(建议卡从此渲染;避免用例间串场)。
+    useWritingSpacesStore.setState({ quickActions: defaultWritingQuickActions() });
   });
 
-  it("三卡点击填入输入框且不自动发送;无选区时润色卡禁用", () => {
+  it("建议卡(chat)点击填入输入框且不自动发送;无选区时 edit 类卡禁用", () => {
     const { bridge, startCalls } = fakeBridge();
     renderPanel(bridge);
 
+    // 内置 summarize(chat):填入输入框、不发送。
     fireEvent.click(screen.getByText("总结当前文档"));
     const input = screen.getByRole("textbox") as HTMLTextAreaElement;
     expect(input.value).toContain("请总结当前文档");
     expect(startCalls).toHaveLength(0); // 只填充,不发送
 
-    // 无选区:润色卡禁用
-    const polish = screen.getByText("润色选中文本").closest("button")!;
-    expect(polish).toBeDisabled();
+    // 无选区:edit 类卡(重新格式化)禁用。
+    const reformat = screen.getByText("重新格式化").closest("button")!;
+    expect(reformat).toBeDisabled();
+  });
+
+  it("edit 类建议卡(有选区)→ 调 onRunInlineEdit(就地改写链路)", async () => {
+    const { bridge } = fakeBridge();
+    const onRunInlineEdit = vi.fn().mockResolvedValue({ ok: true });
+    renderPanel(bridge, {
+      selection: { text: "选中段", charCount: 3, lineStart: 1, lineEnd: 1 },
+      onRunInlineEdit,
+    });
+    fireEvent.click(screen.getByText("重新格式化"));
+    await waitFor(() =>
+      expect(onRunInlineEdit).toHaveBeenCalledWith(expect.stringContaining("整理")),
+    );
+  });
+
+  it("chat 类建议卡(有选区)→ 引用选区 + 填入输入框(不发送)", () => {
+    const { bridge, startCalls } = fakeBridge();
+    renderPanel(bridge, { selection: { text: "选中段", charCount: 3, lineStart: 1, lineEnd: 1 } });
+    fireEvent.click(screen.getByText("润色")); // 内置 polish = chat
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(input.value).toContain("润色");
+    expect(screen.getByText(/1-1行/)).toBeInTheDocument(); // 引用 chip
+    expect(startCalls).toHaveLength(0);
   });
 
   it("选区引用 chip:创建后修改文档,chip 内容不变(快照语义)", () => {
