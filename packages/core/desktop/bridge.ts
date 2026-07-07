@@ -106,6 +106,7 @@ import type {
 import type {
   WritingCompletionRequest,
   WritingCompletionResult,
+  WritingDebugLogEntry,
   WritingInlineEditRequest,
   WritingInlineEditResult,
   WritingLlmStatus,
@@ -194,6 +195,9 @@ export interface DesktopBridge {
   writingLlmStatus?(): Promise<WritingLlmStatus>;
   writingComplete?(req: WritingCompletionRequest): Promise<WritingCompletionResult>;
   writingInlineEdit?(req: WritingInlineEditRequest): Promise<WritingInlineEditResult>;
+  // 写作日志:最近续写/改写调用记录(设置里排障查看)/ 清空。可选——无能力时设置节的日志卡不显。
+  writingDebugLog?(): Promise<WritingDebugLogEntry[]>;
+  writingDebugLogClear?(): Promise<void>;
   // ── 写作 PDF 阅读(U5）────────────────────────────────────────────────────
   // 读 PDF 原始字节(base64)交渲染端 pdfjs 阅读器渲染;失败给结构化 message(渲染端展示错误占位)。
   // 可选——web/旧壳无此能力时 .pdf 无法在写作台打开(阅读器降级为不支持提示)。

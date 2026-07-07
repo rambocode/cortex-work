@@ -113,6 +113,7 @@ import type {
 import type {
   WritingCompletionRequest,
   WritingCompletionResult,
+  WritingDebugLogEntry,
   WritingInlineEditRequest,
   WritingInlineEditResult,
   WritingLlmStatus,
@@ -218,6 +219,9 @@ const personal = {
     ipcRenderer.invoke("writing:complete", req),
   writingInlineEdit: (req: WritingInlineEditRequest): Promise<WritingInlineEditResult> =>
     ipcRenderer.invoke("writing:edit", req),
+  // 写作日志:查看最近续写/改写调用 / 清空(设置里排障)。
+  writingDebugLog: (): Promise<WritingDebugLogEntry[]> => ipcRenderer.invoke("writing:debugLog"),
+  writingDebugLogClear: (): Promise<void> => ipcRenderer.invoke("writing:debugLogClear"),
   // ── 写作 PDF 阅读(U5）──────────────────────────────────────────────────
   // writingReadPdf：读 PDF 原始字节(base64)交渲染端 pdfjs 阅读器渲染;失败给结构化 message,不抛。
   writingReadPdf: (req: WritingPdfDataRequest): Promise<WritingPdfDataResult> =>

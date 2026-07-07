@@ -7302,6 +7302,21 @@ button.sb-row {
 .pw-wty-advanced > summary { cursor: pointer; font-size: 12.5px; color: var(--text-2); user-select: none; }
 .pw-wty-advanced > summary:hover { color: var(--text-1); }
 
+/* 写作日志列表 */
+.pw-wdl-actions { display: flex; gap: 8px; margin: 6px 0 8px; }
+.pw-wdl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.pw-wdl-item {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 5px 8px; border-radius: 6px; background: var(--bg-card-2);
+  font-size: 12px; color: var(--text-2);
+}
+.pw-wdl-item[data-ok="0"] { background: var(--red-soft, rgba(220, 38, 38, 0.08)); }
+.pw-wdl-kind { font-weight: 600; color: var(--text-1); }
+.pw-wdl-time { color: var(--text-4); font-variant-numeric: tabular-nums; }
+.pw-wdl-model { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-wdl-ms { color: var(--text-4); font-variant-numeric: tabular-nums; }
+.pw-wdl-err { flex-basis: 100%; color: var(--red, #dc2626); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* 写作快捷指令编辑器:每条一块(label 行 + prompt 文本域);禁用的内置项整块变淡 */
 .pw-wqa-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 10px; }
 .pw-wqa-row { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card-2); }

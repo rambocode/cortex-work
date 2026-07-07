@@ -1954,7 +1954,17 @@ export default interface Resources {
       "debounceRelaxed": "从容 · 1000ms",
       "debounceQuiet": "安静 · 1500ms",
       "maxTokensLabel": "短建议最大长度",
-      "maxTokensDesc": "数字越大，一次建议越长（16–512 tokens）。建议保持较短。"
+      "maxTokensDesc": "数字越大，一次建议越长（16–512 tokens）。建议保持较短。",
+      "debugLogCard": "写作日志",
+      "debugLogDesc": "最近的续写 / ⌘K 改写调用记录（只存元信息，不留正文），用于排查模型是否响应、耗时与错误。进程重启即清空。",
+      "debugLogView": "查看最近调用",
+      "debugLogRefresh": "刷新",
+      "debugLogClear": "清空",
+      "debugLogEmpty": "暂无记录（触发一次续写或 ⌘K 改写后可见）。",
+      "debugLogKindComplete": "续写",
+      "debugLogKindEdit": "改写",
+      "debugLogOk": "成功",
+      "debugLogFail": "失败"
     },
     "thinkingLevel": {
       "high": "高",

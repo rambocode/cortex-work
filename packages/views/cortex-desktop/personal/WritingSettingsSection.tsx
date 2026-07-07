@@ -24,6 +24,7 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import { SettingCard, SwitchRow, SecretField, BareSelect } from "./settingsControls";
 import { WritingQuickActionsEditor } from "./WritingQuickActionsEditor";
 import { WritingTypographySection } from "./WritingTypographySection";
+import { WritingDebugLogSection } from "./WritingDebugLogSection";
 
 // 去抖候选(对齐 Kun 的离散档位)。
 const DEBOUNCE_OPTIONS = [300, 650, 1000, 1500] as const;
@@ -188,6 +189,9 @@ export function WritingSettingsSection() {
       <SettingCard title={t("writing.imageGenCard")}>
         <div className="pw-srow-desc">{t("writing.imageGenNote")}</div>
       </SettingCard>
+
+      {/* 写作日志(对齐 Kun):最近续写/改写调用记录,排障用。无桌面能力时不渲染。 */}
+      <WritingDebugLogSection />
     </div>
   );
 }

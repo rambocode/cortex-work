@@ -93,7 +93,17 @@
     "debounceRelaxed": "Relaxed · 1000ms",
     "debounceQuiet": "Quiet · 1500ms",
     "maxTokensLabel": "Max short suggestion length",
-    "maxTokensDesc": "Larger means longer suggestions (16–512 tokens). Keep it short."
+    "maxTokensDesc": "Larger means longer suggestions (16–512 tokens). Keep it short.",
+    "debugLogCard": "Writing log",
+    "debugLogDesc": "Recent autocomplete / ⌘K rewrite calls (metadata only, no content) for troubleshooting model responsiveness, latency and errors. Cleared on process restart.",
+    "debugLogView": "View recent calls",
+    "debugLogRefresh": "Refresh",
+    "debugLogClear": "Clear",
+    "debugLogEmpty": "No entries yet (visible after one autocomplete or ⌘K rewrite).",
+    "debugLogKindComplete": "Complete",
+    "debugLogKindEdit": "Rewrite",
+    "debugLogOk": "OK",
+    "debugLogFail": "Failed"
   },
   "archivedSessions": {
     "title": "Archived conversations",

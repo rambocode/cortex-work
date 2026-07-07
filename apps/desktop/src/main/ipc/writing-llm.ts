@@ -13,6 +13,7 @@ import { postChatCompletion, type ChatMessage } from "./openai-chat";
 import {
   clampWritingMaxTokens,
   isWritingLlmConfigured,
+  type WritingDebugLogEntry,
   type WritingCompletionRequest,
   type WritingCompletionResult,
   type WritingInlineEditRequest,
@@ -184,7 +185,18 @@ async function loadWritingLlmSettings(): Promise<WritingLlmSettings | undefined>
   return (await getPersistedState()).writingLlmSettings;
 }
 
-// 注册写作 LLM IPC:llmStatus(探测)+ complete(续写)+ edit(改写)。全部失败回可读 message,不抛。
+// 写作日志环形缓冲:保留最近 N 条续写/改写调用记录(内存,进程重启即清)。只记元信息不留正文。
+const WRITING_DEBUG_LOG_MAX = 30;
+const writingDebugLog: WritingDebugLogEntry[] = [];
+let writingDebugLogSeq = 0;
+
+// 记录一条调用:newest-first 入队,超上限裁尾。
+function recordWritingDebug(entry: Omit<WritingDebugLogEntry, "id">): void {
+  writingDebugLog.unshift({ id: `wl-${Date.now().toString(36)}-${(writingDebugLogSeq++).toString(36)}`, ...entry });
+  if (writingDebugLog.length > WRITING_DEBUG_LOG_MAX) writingDebugLog.length = WRITING_DEBUG_LOG_MAX;
+}
+
+// 注册写作 LLM IPC:llmStatus(探测)+ complete(续写)+ edit(改写)+ 写作日志(查看/清空)。全部失败回可读 message,不抛。
 export function registerWritingLlmHandlers(): void {
   // 配置态探测:未配置 → configured=false,渲染端隐藏续写/改写入口。探测失败一律按未配置。
   ipcMain.handle("writing:llmStatus", async (): Promise<WritingLlmStatus> => {
@@ -203,9 +215,10 @@ export function registerWritingLlmHandlers(): void {
   ipcMain.handle(
     "writing:complete",
     async (_e, req: WritingCompletionRequest): Promise<WritingCompletionResult> => {
+      const s = await loadWritingLlmSettings();
+      if (!isWritingLlmConfigured(s)) return { ok: false, message: "写作模型未配置" };
+      const t0 = Date.now();
       try {
-        const s = await loadWritingLlmSettings();
-        if (!isWritingLlmConfigured(s)) return { ok: false, message: "写作模型未配置" };
         const raw = await postChatCompletion({
           baseUrl: s!.baseUrl,
           apiKey: s!.apiKey || undefined,
@@ -215,9 +228,13 @@ export function registerWritingLlmHandlers(): void {
           maxTokens: clampWritingMaxTokens(s!.maxTokens),
           timeoutMs: COMPLETION_TIMEOUT_MS,
         });
-        return { ok: true, completion: parseWritingCompletionResponse(raw) };
+        const completion = parseWritingCompletionResponse(raw);
+        recordWritingDebug({ kind: "complete", ts: t0, model: s!.model, ok: true, ms: Date.now() - t0, chars: completion.length });
+        return { ok: true, completion };
       } catch (err) {
-        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+        const message = err instanceof Error ? err.message : String(err);
+        recordWritingDebug({ kind: "complete", ts: t0, model: s!.model, ok: false, ms: Date.now() - t0, chars: 0, error: message });
+        return { ok: false, message };
       }
     },
   );
@@ -226,9 +243,10 @@ export function registerWritingLlmHandlers(): void {
   ipcMain.handle(
     "writing:edit",
     async (_e, req: WritingInlineEditRequest): Promise<WritingInlineEditResult> => {
+      const s = await loadWritingLlmSettings();
+      if (!isWritingLlmConfigured(s)) return { ok: false, message: "写作模型未配置" };
+      const t0 = Date.now();
       try {
-        const s = await loadWritingLlmSettings();
-        if (!isWritingLlmConfigured(s)) return { ok: false, message: "写作模型未配置" };
         const raw = await postChatCompletion({
           baseUrl: s!.baseUrl,
           apiKey: s!.apiKey || undefined,
@@ -236,10 +254,20 @@ export function registerWritingLlmHandlers(): void {
           messages: buildWritingInlineEditMessages(req),
           timeoutMs: INLINE_EDIT_TIMEOUT_MS,
         });
-        return { ok: true, replacement: parseWritingInlineEditReplacement(raw) };
+        const replacement = parseWritingInlineEditReplacement(raw);
+        recordWritingDebug({ kind: "edit", ts: t0, model: s!.model, ok: true, ms: Date.now() - t0, chars: replacement.length });
+        return { ok: true, replacement };
       } catch (err) {
-        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+        const message = err instanceof Error ? err.message : String(err);
+        recordWritingDebug({ kind: "edit", ts: t0, model: s!.model, ok: false, ms: Date.now() - t0, chars: 0, error: message });
+        return { ok: false, message };
       }
     },
   );
+
+  // 写作日志:查看最近调用(newest-first 副本)/ 清空。供设置里排障。
+  ipcMain.handle("writing:debugLog", async (): Promise<WritingDebugLogEntry[]> => [...writingDebugLog]);
+  ipcMain.handle("writing:debugLogClear", async (): Promise<void> => {
+    writingDebugLog.length = 0;
+  });
 }

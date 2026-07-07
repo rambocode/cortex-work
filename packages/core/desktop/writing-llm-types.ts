@@ -46,6 +46,19 @@ export function clampWritingMaxTokens(v: unknown): number {
   return Math.round(Math.max(WRITING_LLM_MAX_TOKENS_MIN, Math.min(WRITING_LLM_MAX_TOKENS_MAX, n)));
 }
 
+// 写作日志一条：最近一次续写(complete)/改写(edit)的 LLM 调用记录（供设置里排障查看）。
+// 只记元信息（时间/模型/耗时/结果字符数/成败/错误），不留正文，避免日志泄露文档内容。
+export interface WritingDebugLogEntry {
+  id: string;
+  kind: "complete" | "edit";
+  ts: number; // 发起时间戳（ms）
+  model: string;
+  ok: boolean;
+  ms: number; // 耗时（ms）
+  chars: number; // 结果字符数（ok 时）；失败为 0
+  error?: string; // 失败原因（可读）
+}
+
 // 是否已配置：baseUrl 与 model 均非空（apiKey 对本地端点可空）。
 // 未配置 → 渲染端隐藏续写/改写入口（降级），主进程 handler 也据此直接回失败（双重兜底）。
 export function isWritingLlmConfigured(s: WritingLlmSettings | undefined | null): boolean {
