@@ -10473,17 +10473,49 @@ button.sb-row {
   line-height: var(--pw-writing-line-height);
 }
 
-/* ── 富文本(rich)编辑器:所见即所得,文档式排版(70px 版心,与源码/预览同列宽),字号跟随顶栏步进 ── */
+/* ── 中栏版心宽度(对齐 Kun write-editor/write-rich-editor 的读列约定)──
+   源码(source)保持满宽 + 70px gutter 不动;其余三档设最大宽度居中:
+     rich    → 内容元素 720px(Kun .write-rich-editor > *,Notion 式读列,容器 28px 侧距可点击落标);
+     live    → .cm-content 816px + 侧距 clamp(24px,5vw,48px)(Kun「侧距顶满时 720px 文本测量」);
+     preview → 864px + 侧距 clamp(24px,5vw,72px)(Kun .write-markdown-preview)。
+   只限定写作中栏作用域,闪记(pw-note-* 原样)不受影响。live 由编辑器根的
+   .cm-write-live-preview 类区分(仅 live 档挂载,source 无此类 → 天然不动)。 */
+.pw-writing-center .pw-note-cm-host .cm-editor.cm-write-live-preview .cm-content {
+  box-sizing: border-box;
+  max-width: 816px;
+  padding-left: clamp(24px, 5vw, 48px);
+  padding-right: clamp(24px, 5vw, 48px);
+}
+.pw-writing-center .pw-note-editor-preview > .pw-todo-md {
+  box-sizing: border-box;
+  width: min(100%, 864px);
+  margin: 0 auto;
+  padding: 0 clamp(24px, 5vw, 72px);
+}
+.pw-writing-center .pw-note-editor-preview > .pw-empty-hint {
+  box-sizing: border-box;
+  width: min(100%, 864px);
+  margin: 0 auto;
+  padding: 0 clamp(24px, 5vw, 72px);
+}
+
+/* ── 富文本(rich)编辑器:所见即所得,文档式排版(720px 读列,对齐 Kun),字号跟随顶栏步进 ── */
 .pw-writing-rich-host {
   flex: 1; min-height: 0; min-width: 0; overflow-y: auto;
   padding: clamp(28px, 5vh, 56px) 0 120px;
 }
 .pw-writing-center .write-rich-editor {
-  max-width: none; padding: 0 70px; outline: none;
+  max-width: none; padding: 0 28px; outline: none;
   font-size: var(--pw-writing-font-size, 16px);
   font-family: var(--pw-writing-font-family, inherit);
   line-height: var(--pw-writing-line-height, 1.75);
   color: var(--text-1);
+}
+/* Notion 式读列(Kun .write-rich-editor > *):内容元素 720px 居中,容器余量仍可点击落标。 */
+.pw-writing-center .write-rich-editor > * {
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .write-rich-editor > :first-child { margin-top: 0; }
 .write-rich-editor h1 { font-size: 1.7em; font-weight: 700; margin: 1.4em 0 0.5em; letter-spacing: -0.01em; }
