@@ -79,4 +79,13 @@ export interface WritingUiState {
   // 选中文字工具栏「快捷指令」配置（跨空间共享，对齐 Kun selectionAssist.quickActions）。
   // 缺省（旧档）视为内置默认集；hydrate 时按 normalizeWritingQuickActions 补齐内置、去重、夹取自定义上限。
   quickActions?: WritingQuickAction[];
+  // 写作助手 composer 的 agent / 模型 / 思考强度选择（跨空间共享,面板 ModelThinkingPill 持久化;
+  // 均为宽松 string——具体合法值由渲染端 AGENT_MODELS / agentThinkingOptions 兜底回落,旧档脏值无害）。
+  assistantAgent?: string;
+  // 按 agent 记忆各自的模型选择（claude/codex 为 AGENT_MODELS value;pi 为 provider 模型 id）。
+  assistantModelByAgent?: Record<string, string>;
+  // 按 agent 记忆思考强度（AgentThinkingValue:default/low/medium/high 或 pi thinkingLevel）。
+  assistantThinkingByAgent?: Record<string, string>;
+  // pi 模型选择所属的供应商 id（与 assistantModelByAgent.pi 配对）。
+  assistantPiProviderId?: string;
 }

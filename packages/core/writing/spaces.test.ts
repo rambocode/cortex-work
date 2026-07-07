@@ -126,6 +126,34 @@ describe("useWritingSpacesStore 持久化 roundtrip", () => {
     expect(useWritingSpacesStore.getState().previewMode).toBe("rich");
     expect(useWritingSpacesStore.getState().fontSizePx).toBe(48);
   });
+
+  it("助手 composer 选择记忆(agent/模型/思考/pi 供应商)进分片并 roundtrip;旧档缺字段回默认", () => {
+    const st = useWritingSpacesStore.getState();
+    st.setAssistantAgent("codex");
+    st.setAssistantModel("codex", "gpt-5.4");
+    st.setAssistantModel("pi", "deepseek-v4", "deepseek");
+    st.setAssistantThinking("codex", "high");
+    const snap = useWritingSpacesStore.getState().serialize();
+    expect(snap.assistantAgent).toBe("codex");
+    expect(snap.assistantModelByAgent).toEqual({ codex: "gpt-5.4", pi: "deepseek-v4" });
+    expect(snap.assistantThinkingByAgent).toEqual({ codex: "high" });
+    expect(snap.assistantPiProviderId).toBe("deepseek");
+
+    // 回灌一致
+    useWritingSpacesStore.getState().hydrate(snap);
+    const s = useWritingSpacesStore.getState();
+    expect(s.assistantAgent).toBe("codex");
+    expect(s.assistantModelByAgent["pi"]).toBe("deepseek-v4");
+    expect(s.assistantPiProviderId).toBe("deepseek");
+
+    // 旧档缺字段 → 空默认
+    useWritingSpacesStore.getState().hydrate({ spaces: [], activeSpaceId: null });
+    const old = useWritingSpacesStore.getState();
+    expect(old.assistantAgent).toBeNull();
+    expect(old.assistantModelByAgent).toEqual({});
+    expect(old.assistantThinkingByAgent).toEqual({});
+    expect(old.assistantPiProviderId).toBeNull();
+  });
 });
 
 describe("useWritingSpacesStore.ensureDefaultSpace", () => {

@@ -75,4 +75,9 @@ export interface WritingUiState {
   retrievalEnabled?: boolean;
   // 选中文字工具栏「快捷指令」配置（跨空间共享，对齐 Kun selectionAssist.quickActions）。缺省视为内置默认集。
   quickActions?: WritingQuickAction[];
+  // 写作助手 composer 的 agent / 模型 / 思考强度选择（跨空间共享;宽松 string,合法值由渲染端兜底）。
+  assistantAgent?: string;
+  assistantModelByAgent?: Record<string, string>;
+  assistantThinkingByAgent?: Record<string, string>;
+  assistantPiProviderId?: string;
 }

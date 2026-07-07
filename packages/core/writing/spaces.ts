@@ -67,6 +67,12 @@ export interface WritingSpacesState {
   retrievalEnabled: boolean;
   // 选中文字工具栏「快捷指令」配置（跨空间共享）：内置 + 自定义;渲染前经 resolveWritingQuickActions 解析。
   quickActions: WritingQuickAction[];
+  // 写作助手 composer 选择记忆（跨空间共享,面板 AgentSelect + ModelThinkingPill 持久化）:
+  // agent、按 agent 的模型/思考强度、pi 模型所属供应商。宽松 string,合法值由渲染端兜底回落。
+  assistantAgent: string | null;
+  assistantModelByAgent: Record<string, string>;
+  assistantThinkingByAgent: Record<string, string>;
+  assistantPiProviderId: string | null;
 
   // 编辑器视图档位切换（source/live/preview）。
   setPreviewMode: (mode: WritingPreviewMode) => void;
@@ -81,6 +87,10 @@ export interface WritingSpacesState {
   setRetrievalEnabled: (enabled: boolean) => void;
   // 覆盖快捷指令配置（设置编辑器增删改后整表写入，写入即归一化）。
   setQuickActions: (actions: WritingQuickAction[]) => void;
+  // 写作助手 composer 选择记忆写入（切 agent / 选模型 / 调思考强度时调用）。
+  setAssistantAgent: (agent: string) => void;
+  setAssistantModel: (agent: string, model: string, piProviderId?: string) => void;
+  setAssistantThinking: (agent: string, value: string) => void;
 
   // 经系统目录选择器添加空间：取消（pickDirectory 返回 null）不加并回 null；
   // 根已存在则拒绝、不加第二条并回 null；成功则追加、设为活跃并回该空间。
@@ -106,6 +116,10 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   lineHeight: WRITING_LINE_HEIGHT_DEFAULT,
   retrievalEnabled: true,
   quickActions: defaultWritingQuickActions(),
+  assistantAgent: null,
+  assistantModelByAgent: {},
+  assistantThinkingByAgent: {},
+  assistantPiProviderId: null,
 
   setPreviewMode: (mode) => set({ previewMode: mode }),
   setFontSizePx: (px) => set({ fontSizePx: clampFontSize(px) }),
@@ -121,6 +135,15 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
     }),
   setRetrievalEnabled: (enabled) => set({ retrievalEnabled: enabled }),
   setQuickActions: (actions) => set({ quickActions: normalizeWritingQuickActions(actions) }),
+  setAssistantAgent: (agent) => set({ assistantAgent: agent }),
+  setAssistantModel: (agent, model, piProviderId) =>
+    set((s) => ({
+      assistantModelByAgent: { ...s.assistantModelByAgent, [agent]: model },
+      // pi 传 providerId(与模型配对);其它 agent 不动既有值。
+      ...(piProviderId !== undefined ? { assistantPiProviderId: piProviderId } : {}),
+    })),
+  setAssistantThinking: (agent, value) =>
+    set((s) => ({ assistantThinkingByAgent: { ...s.assistantThinkingByAgent, [agent]: value } })),
 
   addSpace: async (bridge) => {
     // web/旧壳无目录选择器能力时直接放弃（入口本应已降级隐藏，这里做防御）。
@@ -170,6 +193,11 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       lineHeight: s.lineHeight,
       retrievalEnabled: s.retrievalEnabled,
       quickActions: s.quickActions,
+      // 助手 composer 选择记忆:null → 省略字段(与可选契约对齐)。
+      ...(s.assistantAgent ? { assistantAgent: s.assistantAgent } : {}),
+      assistantModelByAgent: s.assistantModelByAgent,
+      assistantThinkingByAgent: s.assistantThinkingByAgent,
+      ...(s.assistantPiProviderId ? { assistantPiProviderId: s.assistantPiProviderId } : {}),
     };
   },
 
@@ -188,5 +216,17 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       retrievalEnabled: state?.retrievalEnabled ?? true,
       // 缺字段（旧档）→ 归一化空输入即得内置默认集；有档则补齐内置 + 夹取自定义。
       quickActions: normalizeWritingQuickActions(state?.quickActions),
+      // 助手 composer 选择记忆:宽松回灌(脏值由渲染端 AGENT_MODELS/agentThinkingOptions 兜底)。
+      assistantAgent: typeof state?.assistantAgent === "string" ? state.assistantAgent : null,
+      assistantModelByAgent:
+        state?.assistantModelByAgent && typeof state.assistantModelByAgent === "object"
+          ? state.assistantModelByAgent
+          : {},
+      assistantThinkingByAgent:
+        state?.assistantThinkingByAgent && typeof state.assistantThinkingByAgent === "object"
+          ? state.assistantThinkingByAgent
+          : {},
+      assistantPiProviderId:
+        typeof state?.assistantPiProviderId === "string" ? state.assistantPiProviderId : null,
     }),
 }));

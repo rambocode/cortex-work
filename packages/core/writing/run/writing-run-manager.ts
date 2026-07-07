@@ -11,7 +11,7 @@
 // 模块级注册表(activeRuns / resumeByThread)持有运行态:组件(覆盖层)卸载不中断,重进后镜像完整(R16)。
 import { create } from "zustand";
 import type { DesktopBridge } from "../../desktop/bridge";
-import type { CliStartRequest, CliStreamEvent } from "../../desktop/types";
+import type { CliStartRequest, CliStreamEvent, ReasoningEffort } from "../../desktop/types";
 
 // 写作 run 的 runId 前缀契约(与 messages.ts 的 phantom-run 守卫、事件过滤共同依赖)。
 // runId 形如 writing:<spaceId>:<uid>;sessionId 另用 writing-<threadUuid> 前缀。
@@ -306,6 +306,8 @@ export interface SendWritingMessageParams {
   agent: string; // 选定 agent(claude/codex/pi,U8 面板选择)
   model?: string;
   provider?: CliStartRequest["provider"]; // pi 专用供应商配置
+  // 推理强度(面板 ModelThinkingPill 选择,claude --effort / codex model_reasoning_effort;pi 忽略)。
+  effort?: ReasoningEffort;
 }
 
 // 派发一个写作回合:构造 CliStartRequest 交 startCli,并把用户消息落进镜像。成功返回 true。
@@ -343,6 +345,7 @@ export async function sendWritingMessage(params: SendWritingMessageParams): Prom
     prompt: params.prompt,
     ...(params.model ? { model: params.model } : {}),
     ...(params.provider ? { provider: params.provider } : {}),
+    ...(params.effort ? { effort: params.effort } : {}),
     ...(resumeSessionId ? { resumeSessionId } : {}),
     // accept-edits:免审批写空间内文件(agent 用 Write/Edit 工具直接改稿),不放开任意命令;
     // print 模式无交互审批,approvalPolicy 必须 auto。

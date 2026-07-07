@@ -21,13 +21,18 @@ import {
   type ReactElement,
 } from "react";
 import {
+  AGENT_MODELS,
+  DEFAULT_AGENT_THINKING,
   DEFAULT_MODEL,
+  agentThinkingOptions,
+  mapThinkingForAgent,
   resolveDefaultAgent,
   usePersonalStore,
   useDesktopBridge,
 } from "@cortex-work/core";
 import type {
   AgentKind,
+  AgentThinkingValue,
   CliStartRequest,
   DerivedAgentMeta,
   ProviderSettings,
@@ -67,6 +72,7 @@ import { Icon } from "@cortex-work/ui/icons";
 // 顶栏图标用 lucide-react,与写作模块其余组件(WritingToolbar/WritingSidebar)对齐 Kun 的惯例一致。
 import { FolderOpen, PanelRightClose, Plus, Sparkles } from "lucide-react";
 import { AgentSelect } from "../personal/AgentSelect";
+import { ModelThinkingPill } from "../personal/ModelThinkingPill";
 import { useDismissableMenu } from "../personal/useDismissableMenu";
 import { WritingEmptyState } from "./WritingEmptyState";
 import { WritingMessageRow } from "./WritingMessageRow";
@@ -94,20 +100,35 @@ interface Props {
   onCollapse?: () => void;
 }
 
-// 按选定 agent 解析发送用的 model / provider:pi 从 providerSettings 取默认供应商 + 其模型并拍平
-// 传给主进程(与新会话落地页 draftDefaultsForAgent 同源);其余内置 agent 用各自 DEFAULT_MODEL、无 provider。
+// 面板层的模型选择覆盖(ModelThinkingPill 持久化的选择;缺省走各 agent 默认)。
+interface AgentDispatchOverride {
+  model?: string; // claude/codex:AGENT_MODELS value;pi:供应商模型 id
+  piProviderId?: string; // pi 模型所属供应商 id(与 model 配对)
+}
+
+// 按选定 agent 解析发送用的 model / provider:优先面板选择(override),回落默认——
+// pi 从 providerSettings 取(override 供应商 → 默认供应商 → 首个启用)并拍平传主进程
+// (与新会话落地页 draftDefaultsForAgent 同源);其余内置 agent 用 override.model ?? DEFAULT_MODEL。
 function resolveAgentDispatch(
   agent: AgentKind,
   providerSettings: ProviderSettings,
+  override?: AgentDispatchOverride,
 ): { model?: string; provider?: CliStartRequest["provider"] } {
   if (agent !== "pi") {
-    return { model: DEFAULT_MODEL[agent] };
+    // 面板选择可能是旧档脏值(不在 AGENT_MODELS 中):校验后回落默认。
+    const valid = AGENT_MODELS[agent].some((m) => m.value === override?.model);
+    return { model: valid ? override!.model : DEFAULT_MODEL[agent] };
   }
   const enabled = providerSettings.providers.filter((p) => p.enabled);
-  const provider = enabled.find((p) => p.id === providerSettings.defaultProviderId) ?? enabled[0];
+  const provider =
+    enabled.find((p) => p.id === override?.piProviderId) ??
+    enabled.find((p) => p.id === providerSettings.defaultProviderId) ??
+    enabled[0];
   if (!provider) return {}; // 未配置 pi 供应商:交由主进程回退/报错
   const model =
-    provider.models.find((m) => m.id === providerSettings.defaultModel)?.id ?? provider.models[0]?.id;
+    provider.models.find((m) => m.id === override?.model)?.id ??
+    provider.models.find((m) => m.id === providerSettings.defaultModel)?.id ??
+    provider.models[0]?.id;
   return {
     ...(model ? { model } : {}),
     provider: {
@@ -163,16 +184,26 @@ export function WritingAssistantPanel({
   const retrievalEnabled = useWritingSpacesStore((s) => s.retrievalEnabled);
   // 选中工具栏「快捷指令」配置(空态建议卡 + 选区动作从此渲染)。
   const quickActions = useWritingSpacesStore((s) => s.quickActions);
+  // 助手 composer 选择记忆(跨空间共享,持久化):按 agent 的模型/思考强度 + pi 供应商。
+  const assistantAgent = useWritingSpacesStore((s) => s.assistantAgent);
+  const modelByAgent = useWritingSpacesStore((s) => s.assistantModelByAgent);
+  const thinkingByAgent = useWritingSpacesStore((s) => s.assistantThinkingByAgent);
+  const piProviderId = useWritingSpacesStore((s) => s.assistantPiProviderId);
+  const setAssistantAgent = useWritingSpacesStore((s) => s.setAssistantAgent);
+  const setAssistantModel = useWritingSpacesStore((s) => s.setAssistantModel);
+  const setAssistantThinking = useWritingSpacesStore((s) => s.setAssistantThinking);
 
   const spaceId = space?.id ?? null;
 
   // ── composer 本地态 ──────────────────────────────────────────────────
   const [input, setInput] = useState("");
   const [quotes, setQuotes] = useState<WritingQuote[]>([]);
-  // 选定 agent(始终存内置 base)+ 派生 id(选派生时)。初值取用户默认 agent。
-  const [agent, setAgent] = useState<AgentKind>(() =>
-    resolveDefaultAgent({ generalSettings, agentsAvailable }),
-  );
+  // 选定 agent(始终存内置 base)+ 派生 id(选派生时)。初值优先上次持久化选择,否则用户默认 agent。
+  const [agent, setAgent] = useState<AgentKind>(() => {
+    const remembered = assistantAgent as AgentKind | null;
+    if (remembered && remembered in DEFAULT_MODEL) return remembered;
+    return resolveDefaultAgent({ generalSettings, agentsAvailable });
+  });
   const [derivedAgentId, setDerivedAgentId] = useState<string | undefined>(undefined);
 
   const threadMenu = useDismissableMenu();
@@ -292,10 +323,60 @@ export function WritingAssistantPanel({
     setQuotes((prev) => prev.filter((q) => q.id !== id));
   }, []);
 
-  const onChangeAgent = useCallback((a: AgentKind, derived?: DerivedAgentMeta): void => {
-    setAgent(derived?.base ?? a);
-    setDerivedAgentId(derived?.id);
-  }, []);
+  const onChangeAgent = useCallback(
+    (a: AgentKind, derived?: DerivedAgentMeta): void => {
+      const base = derived?.base ?? a;
+      setAgent(base);
+      setDerivedAgentId(derived?.id);
+      setAssistantAgent(base); // 持久化 agent 选择(重启后恢复)
+    },
+    [setAssistantAgent],
+  );
+
+  // ── 模型 + 思考强度 pill 推导(与 personal/ComposerShell 同构)────────────
+  const isPi = agent === "pi";
+  const agentModels = AGENT_MODELS[agent];
+  const thinkingOptions = useMemo(() => agentThinkingOptions(agent), [agent]);
+  // 思考强度:pi 回退全局 piThinkingDefault(与实际生效值一致),其余回退 default 档。
+  const storedThinking = thinkingByAgent[agent] as AgentThinkingValue | undefined;
+  const resolvedThinkingValue: AgentThinkingValue = isPi
+    ? (storedThinking ?? generalSettings.piThinkingDefault ?? "off")
+    : (storedThinking ?? DEFAULT_AGENT_THINKING);
+  // pi 模型下拉:已启用 provider 的模型拍平为 `${providerId}::${modelId}` 选项。
+  const piModelOptions = useMemo(
+    () =>
+      isPi
+        ? providerSettings.providers
+            .filter((p) => p.enabled)
+            .flatMap((p) => p.models.map((m) => ({ value: `${p.id}::${m.id}`, label: m.label ?? m.id })))
+        : [],
+    [isPi, providerSettings],
+  );
+  // pill 展示值与发送实际生效值同源:经 resolveAgentDispatch 解析(选择缺失/脏值回落默认)。
+  const piDispatchPreview = useMemo(
+    () =>
+      isPi
+        ? resolveAgentDispatch("pi", providerSettings, {
+            model: modelByAgent["pi"],
+            ...(piProviderId ? { piProviderId } : {}),
+          })
+        : null,
+    [isPi, providerSettings, modelByAgent, piProviderId],
+  );
+  const piModelValue = `${piDispatchPreview?.provider?.id ?? ""}::${piDispatchPreview?.model ?? ""}`;
+
+  const onChangeModel = useCallback(
+    (model: string): void => setAssistantModel(agent, model),
+    [agent, setAssistantModel],
+  );
+  const onChangePiModel = useCallback(
+    (provId: string, model: string): void => setAssistantModel("pi", model, provId),
+    [setAssistantModel],
+  );
+  const onChangeThinking = useCallback(
+    (value: AgentThinkingValue): void => setAssistantThinking(agent, value),
+    [agent, setAssistantThinking],
+  );
 
   const newConversation = useCallback((): void => {
     if (!spaceId) return;
@@ -306,9 +387,16 @@ export function WritingAssistantPanel({
   }, [spaceId, createThread, threadMenu]);
 
   // 最新态走 ref,避免 doSend 依赖频繁变化的闭包(发送是异步多步,期间不重建回调)。
-  // 含检索开关与 bridge:发送时按最新值决定是否检索注入(检索能力/开关随时可变)。
-  const stateRef = useRef({ input, quotes, agent, derivedAgentId, space, activeFilePath, retrievalEnabled, bridge });
-  stateRef.current = { input, quotes, agent, derivedAgentId, space, activeFilePath, retrievalEnabled, bridge };
+  // 含检索开关与 bridge:发送时按最新值决定是否检索注入(检索能力/开关随时可变);
+  // 含模型/思考强度选择:发送时按最新 pill 选择解析 dispatch。
+  const stateRef = useRef({
+    input, quotes, agent, derivedAgentId, space, activeFilePath, retrievalEnabled, bridge,
+    modelByAgent, thinkingByAgent, piProviderId,
+  });
+  stateRef.current = {
+    input, quotes, agent, derivedAgentId, space, activeFilePath, retrievalEnabled, bridge,
+    modelByAgent, thinkingByAgent, piProviderId,
+  };
 
   // 发送一个回合:拼 prompt → flush 编辑器 → sendWritingMessage。成功后清输入框与引用条。
   const doSend = useCallback(async (): Promise<void> => {
@@ -320,6 +408,9 @@ export function WritingAssistantPanel({
       activeFilePath: curFile,
       retrievalEnabled: curRetrievalEnabled,
       bridge: curBridge,
+      modelByAgent: curModelByAgent,
+      thinkingByAgent: curThinkingByAgent,
+      piProviderId: curPiProviderId,
     } = stateRef.current;
     if (!curSpace) return;
     const body = curInput.trim();
@@ -356,7 +447,16 @@ export function WritingAssistantPanel({
       return;
     }
 
-    const dispatch = resolveAgentDispatch(curAgent, providerSettings);
+    // 模型:优先面板 pill 选择(脏值在 resolveAgentDispatch 内校验回落);
+    // 思考强度:mapThinkingForAgent 映射(claude/codex → effort;pi 无 effort 通道,不透传)。
+    const dispatch = resolveAgentDispatch(curAgent, providerSettings, {
+      model: curModelByAgent[curAgent],
+      ...(curPiProviderId ? { piProviderId: curPiProviderId } : {}),
+    });
+    const { effort } = mapThinkingForAgent(
+      curAgent,
+      curThinkingByAgent[curAgent] as AgentThinkingValue | undefined,
+    );
     const ok = await sendWritingMessage({
       spaceId: curSpace.id,
       threadId: thread.id,
@@ -366,6 +466,7 @@ export function WritingAssistantPanel({
       agent: curAgent,
       ...(dispatch.model ? { model: dispatch.model } : {}),
       ...(dispatch.provider ? { provider: dispatch.provider } : {}),
+      ...(effort ? { effort } : {}),
     });
     if (ok) {
       setInput("");
@@ -572,6 +673,21 @@ export function WritingAssistantPanel({
             derivedAgents={derivedAgents}
             onSwitch={onChangeAgent}
             menuPlacement="up"
+          />
+          {/* 模型 + 思考强度 pill(对齐 Kun「<模型> 超高」形态;cortex 无 max 档,最高「高」)。
+              切 agent 后自动按新 agent 读各自的模型集与记忆值。 */}
+          <ModelThinkingPill
+            isPi={isPi}
+            models={agentModels}
+            model={modelByAgent[agent]}
+            onChangeModel={onChangeModel}
+            piModelOptions={piModelOptions}
+            piModelValue={piModelValue}
+            onChangePiModel={onChangePiModel}
+            thinkingOptions={thinkingOptions}
+            resolvedThinkingValue={resolvedThinkingValue}
+            onChangeThinking={onChangeThinking}
+            disabled={isPi ? piModelOptions.length === 0 : agentModels.length === 0}
           />
           <div className="spacer" />
           {busy ? (

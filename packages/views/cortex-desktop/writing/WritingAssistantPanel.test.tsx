@@ -55,8 +55,14 @@ describe("WritingAssistantPanel", () => {
   beforeEach(() => {
     __resetWritingThreadsForTest();
     __resetWritingRunManagerForTest();
-    // 复位快捷指令到内置默认集(建议卡从此渲染;避免用例间串场)。
-    useWritingSpacesStore.setState({ quickActions: defaultWritingQuickActions() });
+    // 复位快捷指令到内置默认集(建议卡从此渲染;避免用例间串场)+ 助手 composer 选择记忆。
+    useWritingSpacesStore.setState({
+      quickActions: defaultWritingQuickActions(),
+      assistantAgent: null,
+      assistantModelByAgent: {},
+      assistantThinkingByAgent: {},
+      assistantPiProviderId: null,
+    });
   });
 
   it("空态固定三卡(对齐 Kun):chat 卡点击填入输入框且不自动发送;其余快捷指令不进空态", () => {
@@ -217,6 +223,41 @@ describe("WritingAssistantPanel", () => {
     expect(order).toEqual(["flush", "startCli"]);
     // prompt 恒含改稿约定
     expect(startCalls[0]!.prompt).toContain("行级红绿 Diff");
+  });
+
+  it("pill 选择的模型与思考强度随发送透传(claude → model + effort)", async () => {
+    const { bridge, startCalls } = fakeBridge();
+    // 模拟用户已在 pill 选择:claude 用 opus + 思考「高」(assistantAgent 记忆使面板初始 agent=claude,
+    // 测试环境无已安装 agent,否则默认回落 pi)。
+    useWritingSpacesStore.setState({
+      assistantAgent: "claude",
+      assistantModelByAgent: { claude: "opus" },
+      assistantThinkingByAgent: { claude: "high" },
+    });
+    renderPanel(bridge);
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "改一下" } });
+    fireEvent.click(screen.getByLabelText("发送"));
+
+    await waitFor(() => expect(startCalls).toHaveLength(1));
+    expect(startCalls[0]!.model).toBe("opus");
+    expect(startCalls[0]!.effort).toBe("high");
+  });
+
+  it("pill 记忆为脏值/缺省时回落默认模型;思考 default 档不透传 effort", async () => {
+    const { bridge, startCalls } = fakeBridge();
+    useWritingSpacesStore.setState({
+      assistantAgent: "claude",
+      assistantModelByAgent: { claude: "no-such-model" },
+    });
+    renderPanel(bridge);
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "改" } });
+    fireEvent.click(screen.getByLabelText("发送"));
+
+    await waitFor(() => expect(startCalls).toHaveLength(1));
+    expect(startCalls[0]!.model).toBe("sonnet"); // DEFAULT_MODEL.claude
+    expect(startCalls[0]!.effort).toBeUndefined();
   });
 
   it("成功发送后清空输入框,用户消息落入时间线", async () => {
