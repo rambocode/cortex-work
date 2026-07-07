@@ -443,6 +443,7 @@ export {
   RUN_START_TIMEOUT_MS,
   RUN_STALL_TIMEOUT_MS,
   reapSessionRun,
+  buildSingleSendSkillInjection,
   __resetPersonalMessageRunsForTest,
   type PersonalAttachment,
   type PromptAttachment,

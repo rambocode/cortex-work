@@ -308,6 +308,12 @@ export interface SendWritingMessageParams {
   provider?: CliStartRequest["provider"]; // pi 专用供应商配置
   // 推理强度(面板 ModelThinkingPill 选择,claude --effort / codex model_reasoning_effort;pi 忽略)。
   effort?: ReasoningEffort;
+  // skill 注入(面板 slash 呼出,与 personal 单发路径同源;见 buildSingleSendSkillInjection):
+  // claude → skillRecords(主进程建桥接目录、原生发现);codex → appendSystemPrompt(skill prose)
+  // + invokedSkill(ws 原生触发);pi 不传(pi CLI 自行展开 /skill:name)。
+  skillRecords?: CliStartRequest["skillRecords"];
+  invokedSkill?: CliStartRequest["invokedSkill"];
+  appendSystemPrompt?: string;
 }
 
 // 派发一个写作回合:构造 CliStartRequest 交 startCli,并把用户消息落进镜像。成功返回 true。
@@ -346,6 +352,10 @@ export async function sendWritingMessage(params: SendWritingMessageParams): Prom
     ...(params.model ? { model: params.model } : {}),
     ...(params.provider ? { provider: params.provider } : {}),
     ...(params.effort ? { effort: params.effort } : {}),
+    // skill 注入(有传才带;useOwnSkills 恒 true——写作面板无会话级一键关 skill 的开关)。
+    ...(params.skillRecords?.length ? { skillRecords: params.skillRecords, useOwnSkills: true } : {}),
+    ...(params.invokedSkill ? { invokedSkill: params.invokedSkill } : {}),
+    ...(params.appendSystemPrompt ? { appendSystemPrompt: params.appendSystemPrompt } : {}),
     ...(resumeSessionId ? { resumeSessionId } : {}),
     // accept-edits:免审批写空间内文件(agent 用 Write/Edit 工具直接改稿),不放开任意命令;
     // print 模式无交互审批,approvalPolicy 必须 auto。

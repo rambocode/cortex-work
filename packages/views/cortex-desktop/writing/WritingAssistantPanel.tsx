@@ -25,8 +25,11 @@ import {
   DEFAULT_AGENT_THINKING,
   DEFAULT_MODEL,
   agentThinkingOptions,
+  buildSingleSendSkillInjection,
   mapThinkingForAgent,
+  parseSkillSlash,
   resolveDefaultAgent,
+  resolveEnabledSkillRecords,
   usePersonalStore,
   useDesktopBridge,
 } from "@cortex-work/core";
@@ -35,6 +38,7 @@ import type {
   AgentThinkingValue,
   CliStartRequest,
   DerivedAgentMeta,
+  InjectableSkill,
   ProviderSettings,
 } from "@cortex-work/core";
 import type { WritingSpacesState } from "@cortex-work/core/writing/spaces";
@@ -73,9 +77,13 @@ import { Icon } from "@cortex-work/ui/icons";
 import { FolderOpen, PanelRightClose, Plus, Sparkles } from "lucide-react";
 import { AgentSelect } from "../personal/AgentSelect";
 import { ModelThinkingPill } from "../personal/ModelThinkingPill";
+import { matchSlashCommands, type SlashCommand } from "../personal/ComposerShell";
+import { resolveSkillDispatch } from "../personal/skillDispatch";
+import { skillTitleCase } from "../personal/skillDisplay";
 import { useDismissableMenu } from "../personal/useDismissableMenu";
 import { WritingEmptyState } from "./WritingEmptyState";
 import { WritingMessageRow } from "./WritingMessageRow";
+import { WritingSlashMenu } from "./WritingSlashMenu";
 
 type WritingSpace = WritingSpacesState["spaces"][number];
 
@@ -207,6 +215,67 @@ export function WritingAssistantPanel({
   const [derivedAgentId, setDerivedAgentId] = useState<string | undefined>(undefined);
 
   const threadMenu = useDismissableMenu();
+
+  // ── slash skill 呼出(对齐 Kun composer 的 skillCommands)─────────────────
+  // 已启用 skill 记录:workspace 根用写作空间根(space.root,全局根与 personal 同源);
+  // agent/空间变化时重取。失败回 [](slash 菜单为空,不阻断发送)。pi 不呼出(pi CLI 自行展开)。
+  const [slashSkills, setSlashSkills] = useState<InjectableSkill[]>([]);
+  useEffect(() => {
+    let alive = true;
+    if (!bridge || !space || agent === "pi") {
+      setSlashSkills([]);
+      return;
+    }
+    resolveEnabledSkillRecords(bridge, space.root, true, agent).then(
+      (records) => {
+        if (alive) setSlashSkills(records);
+      },
+      () => {
+        if (alive) setSlashSkills([]);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [bridge, space, agent]);
+
+  const slashCommands = useMemo<SlashCommand[]>(
+    () =>
+      slashSkills.map((s) => ({
+        cmd: `/skill:${s.name}`,
+        displayName: skillTitleCase(s.name),
+        desc: s.description ?? "",
+        kind: "skill",
+      })),
+    [slashSkills],
+  );
+  const [slashSel, setSlashSel] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  // 触发收紧(与 ComposerShell 同):仅「以 / 开头且尚无空格/换行」(还在键入命令 token)时开菜单;
+  // 选中插入 `/skill:name ` 带尾随空格 → 视为「已选定、填参中」→ 菜单关闭,Enter 正常发送。
+  const afterSlash = input.trimStart();
+  const slashQuery =
+    slashCommands.length > 0 &&
+    afterSlash.startsWith("/") &&
+    !afterSlash.includes(" ") &&
+    !afterSlash.includes("\n")
+      ? afterSlash
+      : null;
+  const slashMatches = useMemo(
+    () => (slashQuery ? matchSlashCommands(slashQuery, slashCommands) : []),
+    [slashQuery, slashCommands],
+  );
+  const slashOpen = !!slashQuery && slashMatches.length > 0 && !slashDismissed;
+  // 查询变化 → 高亮回首项并撤销 Esc 收起;纯方向键导航不改 query,选择得以保持。
+  useEffect(() => {
+    setSlashSel(0);
+    setSlashDismissed(false);
+  }, [slashQuery]);
+
+  // 选中 skill:插回 `/skill:name `(尾随空格关菜单),用户续填参数后 Enter 发送。
+  const pickSlash = useCallback((c: SlashCommand): void => {
+    setInput(`${c.cmd} `);
+  }, []);
 
   // ── 会话目录(threads store)────────────────────────────────────────
   const threads = useWritingThreadsStore((s) => s.threads);
@@ -423,6 +492,32 @@ export function WritingAssistantPanel({
     const existing = useWritingRunStore.getState().messagesByThread[thread.id] ?? [];
     if (existing.length === 0 && body) setThreadTitle(thread.id, deriveThreadTitle(body));
 
+    // slash skill 派发(与 personal 单发路径同源,见 skillDispatch/buildSingleSendSkillInjection):
+    // /skill:name 命中已启用 skill 时按 agent 改写——claude 转裸 slash(须做整条 prompt 开头,
+    // claude 才会原生展开,写作上下文改走 appendSystemPrompt 缝);codex 正文只留参数 + 置
+    // invokedSkill(prose 由主进程按 transport 决定)。pi/未命中 → 原样发送,不阻断。
+    let promptBody = body;
+    let invokedSkill: CliStartRequest["invokedSkill"];
+    let skillAppend: string | undefined;
+    let skillRecords: InjectableSkill[] | undefined;
+    let claudeSlashText: string | undefined;
+    if (curAgent !== "pi" && curBridge) {
+      const parsed = parseSkillSlash(body);
+      if (parsed) {
+        const records = await resolveEnabledSkillRecords(curBridge, curSpace.root, true, curAgent);
+        const skill = records.find((s) => s.name === parsed.name);
+        if (skill) {
+          const d = resolveSkillDispatch(curAgent, body, parsed.args, skill, false, records);
+          invokedSkill = d.invokedSkill;
+          const inj = buildSingleSendSkillInjection(curAgent, undefined, records);
+          skillAppend = inj.appendWithSkills;
+          skillRecords = inj.skillRecords;
+          if (curAgent === "claude") claudeSlashText = d.outText;
+          else promptBody = d.outText;
+        }
+      }
+    }
+
     // 检索上下文(U4):开关开启且有正文时,以用户正文查询 top-k 片段注入 prompt。
     // 超时/失败/无命中一律回 null → 静默不注入,绝不阻断发送(见 retrieveContextWithTimeout)。
     const retrieval =
@@ -434,11 +529,18 @@ export function WritingAssistantPanel({
           })
         : null;
 
-    const prompt = composeWritingPrompt(body, curQuotes, {
+    // claude slash 回合:prompt 整条 = 裸 slash;写作上下文(文件/引用/检索/改稿约定)整块
+    // 降级进 appendSystemPrompt,保证 claude CLI 的输入层 slash 展开不被前置文本破坏。
+    const composed = composeWritingPrompt(claudeSlashText != null ? "" : promptBody, curQuotes, {
       workspaceRoot: curSpace.root,
       activeFilePath: curFile,
       retrieval,
     });
+    const prompt = claudeSlashText ?? composed;
+    const appendSystemPrompt =
+      claudeSlashText != null
+        ? [composed, skillAppend].filter(Boolean).join("\n\n") || undefined
+        : skillAppend;
     // 关键时序:先 flush 编辑器自动保存,再起 run —— 否则 agent 读到旧盘面,改动基线错位。
     try {
       await onFlushBeforeSend?.();
@@ -467,6 +569,9 @@ export function WritingAssistantPanel({
       ...(dispatch.model ? { model: dispatch.model } : {}),
       ...(dispatch.provider ? { provider: dispatch.provider } : {}),
       ...(effort ? { effort } : {}),
+      ...(skillRecords?.length ? { skillRecords } : {}),
+      ...(invokedSkill ? { invokedSkill } : {}),
+      ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
     });
     if (ok) {
       setInput("");
@@ -487,15 +592,39 @@ export function WritingAssistantPanel({
     if (spaceId) void cancelRunsForSpace(spaceId);
   }, [spaceId]);
 
-  // Enter 发送 / Shift+Enter 换行。
+  // slash 菜单打开时优先拦截键盘(↑/↓ 选择、Enter/Tab 插入、Esc 收起——必须先于 Enter 发送分支,
+  // 否则 Enter 会把未选定的 /片段 直接发出去);其余情况 Enter 发送 / Shift+Enter 换行。
   const onComposerKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+      if (slashOpen) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSlashSel((v) => Math.min(v + 1, slashMatches.length - 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSlashSel((v) => Math.max(v - 1, 0));
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          const c = slashMatches[Math.min(slashSel, slashMatches.length - 1)];
+          if (c) pickSlash(c);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setSlashDismissed(true);
+          return;
+        }
+      }
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         if (canSend) void doSend();
       }
     },
-    [canSend, doSend],
+    [slashOpen, slashMatches, slashSel, pickSlash, canSend, doSend],
   );
 
   const showEmptyState = messages.length === 0;
@@ -644,6 +773,15 @@ export function WritingAssistantPanel({
               </div>
             ))}
           </div>
+        ) : null}
+        {/* slash skill 提示菜单(输入 / 时浮现;选中插入 /skill:name 供填参) */}
+        {slashOpen ? (
+          <WritingSlashMenu
+            matches={slashMatches}
+            activeIndex={slashSel}
+            onHover={setSlashSel}
+            onPick={pickSlash}
+          />
         ) : null}
         <textarea
           className="pw-wa-input"

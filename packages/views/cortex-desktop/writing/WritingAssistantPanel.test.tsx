@@ -26,7 +26,8 @@ const SPACE = { id: "space-1", name: "写作空间", root: "/space" };
 const FILE = "/space/a.md";
 
 // 记录 startCli 调用序;onCliEvent/onCliExit 返回空 unsubscribe(本测不驱动事件)。
-function fakeBridge() {
+// skills 传入时提供 piSkillsList(slash skill 呼出用;global scope 免授信)。
+function fakeBridge(skills?: { name: string; description: string; dir: string }[]) {
   const startCalls: CliStartRequest[] = [];
   const bridge = {
     startCli: vi.fn(async (req: CliStartRequest) => {
@@ -35,6 +36,20 @@ function fakeBridge() {
     killCli: vi.fn(async () => {}),
     onCliEvent: vi.fn(() => () => {}),
     onCliExit: vi.fn(() => () => {}),
+    ...(skills
+      ? {
+          piSkillsList: vi.fn(async () =>
+            skills.map((s) => ({
+              ...s,
+              rootPath: "/skills",
+              scope: "global",
+              enabled: true,
+              trusted: true,
+              docs: [],
+            })),
+          ),
+        }
+      : {}),
   } as unknown as DesktopBridge;
   return { bridge, startCalls };
 }
@@ -258,6 +273,80 @@ describe("WritingAssistantPanel", () => {
     await waitFor(() => expect(startCalls).toHaveLength(1));
     expect(startCalls[0]!.model).toBe("sonnet"); // DEFAULT_MODEL.claude
     expect(startCalls[0]!.effort).toBeUndefined();
+  });
+
+  it("slash 呼出:输入 / 弹已启用 skill 菜单,Enter 插入 /skill:name 待填参", async () => {
+    const { bridge } = fakeBridge([{ name: "demo-skill", description: "演示技能", dir: "/skills/demo-skill" }]);
+    useWritingSpacesStore.setState({ assistantAgent: "claude" });
+    renderPanel(bridge);
+
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    // 等 skill 记录异步加载完成后输入 "/" 触发菜单
+    fireEvent.change(input, { target: { value: "/" } });
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeInTheDocument());
+    expect(screen.getByText("Demo Skill")).toBeInTheDocument();
+
+    // Enter 选中 → 插入 `/skill:demo-skill `(带尾随空格,菜单关闭),不发送
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("/skill:demo-skill ");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("claude slash 发送:prompt 为裸 slash 开头,skillRecords 注入,写作上下文降级进 appendSystemPrompt", async () => {
+    const { bridge, startCalls } = fakeBridge([
+      { name: "demo-skill", description: "演示技能", dir: "/skills/demo-skill" },
+    ]);
+    useWritingSpacesStore.setState({ assistantAgent: "claude" });
+    renderPanel(bridge);
+
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "/skill:demo-skill 帮我润色" } });
+    fireEvent.click(screen.getByLabelText("发送"));
+
+    await waitFor(() => expect(startCalls).toHaveLength(1));
+    const req = startCalls[0]!;
+    expect(req.prompt).toBe("/demo-skill 帮我润色"); // 裸 slash 整条 prompt,claude 原生展开
+    expect(req.skillRecords?.length).toBe(1); // 桥接目录记录
+    expect(req.appendSystemPrompt).toContain("行级红绿 Diff"); // 改稿约定降级进 system 缝
+  });
+
+  it("codex slash 发送:正文留参数,invokedSkill 结构化字段 + skill prose 进 appendSystemPrompt", async () => {
+    const { bridge, startCalls } = fakeBridge([
+      { name: "demo-skill", description: "演示技能", dir: "/skills/demo-skill" },
+    ]);
+    useWritingSpacesStore.setState({ assistantAgent: "codex" });
+    renderPanel(bridge);
+
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "/skill:demo-skill 参数A" } });
+    fireEvent.click(screen.getByLabelText("发送"));
+
+    await waitFor(() => expect(startCalls).toHaveLength(1));
+    const req = startCalls[0]!;
+    expect(req.invokedSkill).toEqual({ name: "demo-skill", path: "/skills/demo-skill" });
+    expect(req.prompt).toContain("参数A"); // 正文只留 args,仍带写作上下文拼装
+    expect(req.prompt).toContain("行级红绿 Diff");
+    expect(req.prompt).not.toContain("/skill:"); // slash 已被改写
+    expect(req.appendSystemPrompt).toContain("已启用的 Skills"); // codex prose 注入
+    expect(req.skillRecords).toBeUndefined();
+  });
+
+  it("/skill:未启用名 → 原样发送不阻断、无 skill 注入", async () => {
+    const { bridge, startCalls } = fakeBridge([
+      { name: "demo-skill", description: "演示技能", dir: "/skills/demo-skill" },
+    ]);
+    useWritingSpacesStore.setState({ assistantAgent: "claude" });
+    renderPanel(bridge);
+
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "/skill:no-such 试试" } });
+    fireEvent.click(screen.getByLabelText("发送"));
+
+    await waitFor(() => expect(startCalls).toHaveLength(1));
+    const req = startCalls[0]!;
+    expect(req.prompt).toContain("/skill:no-such 试试"); // 原样进正文
+    expect(req.skillRecords).toBeUndefined();
+    expect(req.invokedSkill).toBeUndefined();
   });
 
   it("成功发送后清空输入框,用户消息落入时间线", async () => {

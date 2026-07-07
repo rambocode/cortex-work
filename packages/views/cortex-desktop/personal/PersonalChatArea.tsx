@@ -8,8 +8,6 @@ import {
   getTtsPlaybackState,
   isOrchestrationSend,
   parseSkillSlash,
-  renderClaudeSkillSlash,
-  renderSkillInvocation,
   resolveEnabledSkillRecords,
   resolveProjectFileRef,
   speakText,
@@ -23,11 +21,12 @@ import {
   usePersonalStore,
   useRenderWindow,
 } from "@cortex-work/core";
-import type { AgentKind, FollowupSessionCtx, InjectableSkill, ProjectMeta, SessionMeta } from "@cortex-work/core";
+import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Conversation, Message } from "@cortex-work/core/types";
 import { extractLatestTurnAutoOpenDevPreviewUrls } from "@cortex-work/core/personal/devPreviewDetection";
 import { parseMentions } from "@cortex-work/core/personal/mention";
 import { MessageStream } from "../ChatArea";
+import { resolveSkillDispatch } from "./skillDispatch";
 import { agentContact } from "./agentMeta";
 import { isOpenExternalLike } from "./fileIcons";
 import { resolveExistingFile } from "./resolveFileRef";
@@ -40,39 +39,12 @@ import { PersonalComposer } from "./PersonalComposer";
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
 const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
 
-// U6:发送侧 /skill:name 派发结果。outText 是最终发给 send() 的文本;invokedSkill 仅 codex 单发
-// 原生触发时非空(随请求落到 CliStartRequest.invokedSkill,主进程按 transport 决定 ws/exec)。
-interface SkillDispatch {
-  outText: string;
-  invokedSkill?: { name: string; path: string };
-}
-
 // isOrchestrationSend 改从 @cortex-work/core 导入(code review 修复):与 messages.ts 共用单一
 // 路由判断来源,避免两处各写一份、静默漂移(见 core/personal/skill-injection.ts 的注释)。
 
-// U6:把命中的 /skill:name 按 agent + 路由改写成三路(纯函数,便于单测)。
-//  - 圆桌编排(useOrchestration=true):claude/codex 都维持现状 renderSkillInvocation prose——编排
-//    路径(startOrchestration)绕开 cli:start,没有原生 skill 挂点(见 U5/U6 编排分支不改动)。
-//  - 单发 + claude:转 claude CLI 认得的裸 slash,claude 自身在输入层原生展开(桥接目录见 U1/U2)。
-//  - 单发 + codex:文本保留用户 args,并置 invokedSkill 结构化字段;prose 由主进程按 transport 决定
-//    (ws 不注入 prose、exec 委派回退才 renderSkillInvocation,见 cli.ts U4)。
-//  - 其它(理论不达,pi 已在调用前排除):原样透传,不阻断。
-export function resolveSkillDispatch(
-  agent: AgentKind,
-  originalText: string,
-  parsedArgs: string,
-  skill: InjectableSkill,
-  useOrchestration: boolean,
-  allRecords: InjectableSkill[],
-): SkillDispatch {
-  if (useOrchestration) return { outText: renderSkillInvocation(skill, parsedArgs) };
-  // claude 的裸 slash 命令名需按「本批次已启用 skill 集合」推导(碰撞消歧/空 slug 兜底与主进程建
-  // 桥接目录时的算法一致,见 renderClaudeSkillSlash/resolveClaudeSlashName 注释),故传入 allRecords
-  // 而非只传中选的这一条——否则会跟桥接目录的实际命名漂移(R7)。
-  if (agent === "claude") return { outText: renderClaudeSkillSlash(skill, parsedArgs, allRecords) };
-  if (agent === "codex") return { outText: parsedArgs, invokedSkill: { name: skill.name, path: skill.dir } };
-  return { outText: originalText };
-}
+// U6:/skill:name 三路派发已抽到 skillDispatch.ts(写作助手面板复用);此处 re-export 保持
+// 既有引用(含单测 import 路径)不变。
+export { resolveSkillDispatch };
 
 function EmptyState({ text, hint }: { text: string; hint?: string }) {
   return (

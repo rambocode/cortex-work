@@ -10787,6 +10787,8 @@ button.sb-row {
   padding: 2px; border-radius: 5px; color: var(--text-4); cursor: pointer;
 }
 .pw-wa-quote-x:hover { background: var(--bg-hover); color: var(--text-1); }
+/* 写作助手 composer 内的 slash 菜单:贴输入框上缘(沿用 .pw-slash-* 项目样式) */
+.pw-wa-slash { margin: 0 0 8px; }
 .pw-wa-input {
   width: 100%; resize: none; box-sizing: border-box;
   padding: 8px 10px; border-radius: 10px;
