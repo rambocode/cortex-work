@@ -1964,7 +1964,8 @@ export default interface Resources {
       "debugLogKindComplete": "续写",
       "debugLogKindEdit": "改写",
       "debugLogOk": "成功",
-      "debugLogFail": "失败"
+      "debugLogFail": "失败",
+    "debugLogClose": "关闭"
     },
     "thinkingLevel": {
       "high": "高",

@@ -29,18 +29,22 @@ describe("WritingDebugLogSection", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("查看最近调用 → 拉取并渲染列表(成功/失败条目)", async () => {
+  it("查看最近调用 → 开弹窗、拉取并渲染列表(成功/失败条目);关闭收起", async () => {
     const bridge = {
       writingDebugLog: vi.fn().mockResolvedValue(ENTRIES),
       writingDebugLogClear: vi.fn().mockResolvedValue(undefined),
     } as unknown as DesktopBridge;
     renderUI(bridge);
     fireEvent.click(screen.getByText("查看最近调用"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy()); // 弹窗打开
     await waitFor(() => expect(screen.getByText("deepseek-chat")).toBeTruthy());
     expect(bridge.writingDebugLog).toHaveBeenCalled();
     // 成功条目显示字符数;失败条目显示错误。
     expect(screen.getByText(/成功 · 12字/)).toBeTruthy();
     expect(screen.getByText("超时")).toBeTruthy();
+    // 关闭 → 弹窗收起。
+    fireEvent.click(screen.getByLabelText("关闭"));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("清空 → 调 bridge 并清列表", async () => {

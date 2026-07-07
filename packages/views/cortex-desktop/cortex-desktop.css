@@ -7302,9 +7302,14 @@ button.sb-row {
 .pw-wty-advanced > summary { cursor: pointer; font-size: 12.5px; color: var(--text-2); user-select: none; }
 .pw-wty-advanced > summary:hover { color: var(--text-1); }
 
+/* 写作日志弹窗:复用 .pw-dlg 居中外壳,紧凑尺寸 + 头/体布局 */
+.pw-wdl-dlg { width: min(560px, 92vw); height: auto; max-height: 76vh; display: flex; flex-direction: column; }
+.pw-wdl-head { display: flex; align-items: center; gap: 8px; padding: 4px 4px 10px; border-bottom: 1px solid var(--border); }
+.pw-wdl-dlg-title { font-size: 14px; font-weight: 600; color: var(--text-1); flex: 1; }
+.pw-wdl-head-actions { display: flex; align-items: center; gap: 6px; }
+.pw-wdl-body { flex: 1; min-height: 0; overflow-y: auto; padding-top: 10px; }
 /* 写作日志列表 */
-.pw-wdl-actions { display: flex; gap: 8px; margin: 6px 0 8px; }
-.pw-wdl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.pw-wdl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .pw-wdl-item {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 5px 8px; border-radius: 6px; background: var(--bg-card-2);

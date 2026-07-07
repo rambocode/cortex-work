@@ -103,7 +103,8 @@
     "debugLogKindComplete": "Complete",
     "debugLogKindEdit": "Rewrite",
     "debugLogOk": "OK",
-    "debugLogFail": "Failed"
+    "debugLogFail": "Failed",
+    "debugLogClose": "Close"
   },
   "archivedSessions": {
     "title": "Archived conversations",
