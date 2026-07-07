@@ -218,19 +218,19 @@ describe("WritingWorkspace(U4)", () => {
     expect(center.style.getPropertyValue("--pw-writing-line-height")).toBe("2");
   });
 
-  it("编辑器选区上报 → 助手面板 edit 类建议卡解禁;取消选区后重新禁用(R11)", async () => {
+  it("编辑器选区上报 → 助手面板选区 chip 条出现(含 edit 类指令);取消选区后消失(R11)", async () => {
     useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
     renderWs(makeBridge());
     await screen.findByTestId("cm");
-    // 无选区:edit 类卡(重新格式化)禁用
-    const card = () => screen.getByText("重新格式化").closest("button")!;
-    expect(card()).toBeDisabled();
-    // 上报选区 → 解禁
+    // 空态收敛为固定三卡(对齐 Kun):无选区时选区类指令(重新格式化)无入口。
+    expect(screen.queryByText("重新格式化")).not.toBeInTheDocument();
+    // 上报选区 → 选区 chip 条出现,edit 类指令可点。
     fireEvent.click(screen.getByTestId("cm-select"));
-    await waitFor(() => expect(card()).not.toBeDisabled());
-    // 取消选区 → 重新禁用
+    await waitFor(() => expect(screen.getByText("重新格式化")).toBeInTheDocument());
+    expect(screen.getByText("重新格式化").closest("button")!).not.toBeDisabled();
+    // 取消选区 → chip 条整体消失。
     fireEvent.click(screen.getByTestId("cm-deselect"));
-    await waitFor(() => expect(card()).toBeDisabled());
+    await waitFor(() => expect(screen.queryByText("重新格式化")).not.toBeInTheDocument());
   });
 
   // U9 端到端:模拟 WritingWorkspace 的归因接线闭环。
