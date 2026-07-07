@@ -67,7 +67,13 @@ export function WritingDiffReview({ path, baseline, next, onResolve }: Props): R
             EditorView.lineWrapping,
             markdown(),
             // gutter:false 收敛版心;逐块 accept/reject 由 merge 内置控件提供(mergeControls 默认开)。
-            unifiedMergeView({ original: baselineRef.current, gutter: false }),
+            // collapseUnchanged(对齐 Kun):未变更区域折叠成「N 行」条,只展开改动块 ±3 行上下文——
+            // 否则长文档只改几行时整篇平铺,改动淹没在视口外,审阅时完全找不到变更点。
+            unifiedMergeView({
+              original: baselineRef.current,
+              gutter: false,
+              collapseUnchanged: { margin: 3, minSize: 4 },
+            }),
             // 逐块裁决把改动逐步并入文档;所有 chunk 处理完 → 读当前文档为最终合成,回传 onResolve。
             EditorView.updateListener.of((update) => {
               if (!update.docChanged) return;

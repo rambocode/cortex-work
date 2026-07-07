@@ -10217,6 +10217,73 @@ button.sb-row {
   --w-danger: #f8736a;
   --w-danger-soft: rgba(248, 115, 106, 0.12);
 }
+/* ── diff 审阅视图(U6):头部吸顶 + CM 宿主滚动 + 红绿块配色(对齐 Kun write-editor.css)──
+   merge 包 baseTheme 的底色只有 8% alpha 几乎不可见,必须在宿主作用域下覆盖(压过包内样式)。 */
+.pw-writing-diff { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.pw-writing-diff-h {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.pw-writing-diff-h .spacer { flex: 1; }
+.pw-writing-diff-label { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+.pw-writing-diff-fallback { padding: 24px 16px; }
+.pw-writing-diff-host { flex: 1; min-height: 0; overflow-y: auto; }
+.pw-writing-diff-host .cm-editor { height: 100%; }
+/* 版心与编辑器一致:限宽居中,长文可读。 */
+.pw-writing-diff-host .cm-content {
+  max-width: 960px; margin: 0 auto;
+  padding: 24px clamp(16px, 4vw, 56px) 120px;
+  font-size: 14px; line-height: 1.7;
+}
+/* 删除块/行/字:红底 + 删除线;新增/变更行:绿底(色值照 Kun,dark 提亮)。 */
+.pw-writing-diff-host .cm-deletedChunk,
+.pw-writing-diff-host .cm-deletedLine,
+.pw-writing-diff-host .cm-deletedText {
+  background-color: color-mix(in srgb, #dc2626 15%, transparent);
+}
+.pw-writing-diff-host .cm-deletedText {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, #dc2626 58%, transparent);
+}
+.pw-writing-diff-host .cm-changedLine,
+.pw-writing-diff-host .cm-changedText,
+.pw-writing-diff-host .cm-insertedLine {
+  background-color: color-mix(in srgb, #16a34a 15%, transparent);
+}
+[data-theme="dark"] .pw-writing-diff-host .cm-deletedChunk,
+[data-theme="dark"] .pw-writing-diff-host .cm-deletedLine,
+[data-theme="dark"] .pw-writing-diff-host .cm-deletedText {
+  background-color: color-mix(in srgb, #f87171 22%, transparent);
+}
+[data-theme="dark"] .pw-writing-diff-host .cm-changedLine,
+[data-theme="dark"] .pw-writing-diff-host .cm-changedText,
+[data-theme="dark"] .pw-writing-diff-host .cm-insertedLine {
+  background-color: color-mix(in srgb, #4ade80 20%, transparent);
+}
+/* 逐块 accept/reject 内置控件 */
+.pw-writing-diff-host .cm-chunkButtons { display: inline-flex; gap: 4px; }
+.pw-writing-diff-host .cm-chunkButtons button {
+  cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-card); color: var(--text-1);
+  font-size: 11px; line-height: 1.6; padding: 0 7px;
+}
+.pw-writing-diff-host .cm-chunkButtons button[name="accept"] {
+  border-color: color-mix(in srgb, #16a34a 45%, transparent);
+  color: #15803d;
+}
+[data-theme="dark"] .pw-writing-diff-host .cm-chunkButtons button[name="accept"] { color: #4ade80; }
+.pw-writing-diff-host .cm-chunkButtons button:hover { background: var(--bg-hover); }
+/* 未变更折叠条(collapseUnchanged):弱化胶囊,点击展开 */
+.pw-writing-diff-host .cm-collapsedLines {
+  padding: 4px 12px; margin: 2px 0;
+  border-radius: 8px; cursor: pointer;
+  background: var(--bg-app); color: var(--text-4); font-size: 11.5px;
+}
+.pw-writing-diff-host .cm-collapsedLines:hover { background: var(--bg-hover); color: var(--text-2); }
+
 /* 通栏:body 占满整窗,三栏各自贯穿到顶(无横跨三栏的顶栏)。 */
 .pw-writing-body { flex: 1; display: flex; min-height: 0; min-width: 0; overflow: hidden; }
 /* 左栏贴顶拖拽条:避让 macOS 红绿灯(左侧留白),右侧放返回按钮。 */
