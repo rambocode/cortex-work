@@ -1904,11 +1904,15 @@ export default interface Resources {
       "apiKeyPlaceholder": "本地端点可留空",
       "model": "模型",
       "modelPlaceholder": "如 gpt-4o-mini / deepseek-chat",
-      "completionCard": "打字续写",
-      "completionLabel": "启用打字续写",
+      "completionCard": "写作建议",
+      "completionLabel": "输入停顿时显示建议",
       "completionDesc": "打字停顿后以灰字给出续写建议，Tab 采纳、Esc 或继续输入取消。",
+      "retrievalLabel": "参考其他文档",
+      "retrievalDesc": "生成建议与助手回答前，会快速参考写作空间里的其它 Markdown 文档，让术语、事实与写作风格更连续。",
       "inlineEditLabel": "⌘K 就地改写",
-      "inlineEditDesc": "选中文字后按 ⌘K 输入改写指令，结果经红绿 diff 审阅后落盘。已配置模型即可用。"
+      "inlineEditDesc": "选中文字后按 ⌘K 输入改写指令，结果经红绿 diff 审阅后落盘。已配置模型即可用。",
+      "imageGenCard": "信息图与图片生成",
+      "imageGenNote": "写作里生成信息图使用的图片模型，在「设置 → 媒体生成 → 图片生成」中配置。"
     },
     "thinkingLevel": {
       "high": "高",

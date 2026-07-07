@@ -1,9 +1,17 @@
-// 写作续写/改写(U3)设置分区：独立 OpenAI 兼容端点(baseUrl/apiKey/model)+ ghost text 打字续写开关。
-// 数据走 usePersonalStore.writingLlmSettings（持久化分片，与 PersistedState.writingLlmSettings 镜像）。
-// 未配置(baseUrl/model 任一空)时页面顶部提示「未配置」，主编辑器侧续写/改写入口据 writingLlmStatus 隐藏。
+// 写作设置分区(对齐 Kun 写作设置形态,按 cortex 现有能力裁剪):
+//   - 续写模型端点(baseUrl/apiKey/model):cortex 走独立 OpenAI 兼容端点直连,无 Kun 的 provider 继承概念,故保留直连字段。
+//   - 写作建议:「输入停顿时显示建议」(ghost text 续写开关)+「参考其他文档」(工作区检索开关)+ ⌘K 就地改写说明。
+//   - 信息图与图片生成:图片模型不在此重复配置,指向「媒体生成 → 图片生成」节(单一真源,避免第二份冲突配置)。
+// 数据双分片:
+//   - writingLlmSettings(usePersonalStore,与 PersistedState.writingLlmSettings 镜像)——续写端点 + 续写开关;
+//   - retrievalEnabled(useWritingSpacesStore,WritingUiState 分片,跨空间共享)——检索开关的单一真源
+//     (助手面板 composer 里也有同一状态的快捷开关,二者读写同一 store,无双状态漂移)。
+// Kun 有而 cortex 无对应能力、故本节未做的字段(排版预设/行距、快捷指令编辑器、写作 Agent 人设、
+//   补全去抖/接受分/长度调优、provider 继承)见交付说明,均因缺底层能力而不做,不造空壳。
 
 import { usePersonalStore } from "@cortex-work/core";
 import { isWritingLlmConfigured } from "@cortex-work/core/desktop/types";
+import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
 import { useTranslation } from "@cortex-work/core/i18n";
 
 import { SettingCard, SwitchRow, SecretField } from "./settingsControls";
@@ -12,6 +20,9 @@ export function WritingSettingsSection() {
   const { t } = useTranslation("settings");
   const settings = usePersonalStore((s) => s.writingLlmSettings);
   const setSettings = usePersonalStore((s) => s.setWritingLlmSettings);
+  // 检索开关的单一真源(WritingUiState 分片,跨空间共享;助手面板同读此状态)。
+  const retrievalEnabled = useWritingSpacesStore((s) => s.retrievalEnabled);
+  const setRetrievalEnabled = useWritingSpacesStore((s) => s.setRetrievalEnabled);
   const configured = isWritingLlmConfigured(settings);
 
   return (
@@ -60,6 +71,13 @@ export function WritingSettingsSection() {
           value={settings.completionEnabled}
           onChange={(v) => setSettings({ completionEnabled: v })}
         />
+        {/* 检索开关(对齐 Kun「参考其他文档」)：与助手面板 composer 里的快捷开关同一状态源。 */}
+        <SwitchRow
+          label={t("writing.retrievalLabel")}
+          desc={t("writing.retrievalDesc")}
+          value={retrievalEnabled}
+          onChange={(v) => setRetrievalEnabled(v)}
+        />
         {/* ⌘K 就地改写为纯说明(无开关):配置模型即可用,行为固定，此处只做能力说明。 */}
         <div className="pw-srow">
           <div className="pw-srow-l">
@@ -67,6 +85,11 @@ export function WritingSettingsSection() {
             <span className="pw-srow-desc">{t("writing.inlineEditDesc")}</span>
           </div>
         </div>
+      </SettingCard>
+
+      {/* 信息图/图片生成不在此重复配置,指向「媒体生成 → 图片生成」节(单一真源)。 */}
+      <SettingCard title={t("writing.imageGenCard")}>
+        <div className="pw-srow-desc">{t("writing.imageGenNote")}</div>
       </SettingCard>
     </div>
   );

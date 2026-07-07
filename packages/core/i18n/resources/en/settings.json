@@ -43,11 +43,15 @@
     "apiKeyPlaceholder": "Leave empty for local endpoints",
     "model": "Model",
     "modelPlaceholder": "e.g. gpt-4o-mini / deepseek-chat",
-    "completionCard": "Typing Autocomplete",
-    "completionLabel": "Enable typing autocomplete",
+    "completionCard": "Writing Suggestions",
+    "completionLabel": "Show suggestions on pause",
     "completionDesc": "After a pause while typing, show a ghost-text suggestion. Tab to accept; Esc or keep typing to dismiss.",
+    "retrievalLabel": "Reference other documents",
+    "retrievalDesc": "Before generating suggestions and assistant replies, quickly reference other Markdown docs in the writing space to keep terms, facts, and style consistent.",
     "inlineEditLabel": "⌘K In-place Rewrite",
-    "inlineEditDesc": "Select text and press ⌘K to enter a rewrite instruction; the result goes through the red/green diff review before saving. Available once a model is configured."
+    "inlineEditDesc": "Select text and press ⌘K to enter a rewrite instruction; the result goes through the red/green diff review before saving. Available once a model is configured.",
+    "imageGenCard": "Infographics & Image Generation",
+    "imageGenNote": "The image model used for generating infographics in writing is configured under Settings → Media Generation → Image Generation."
   },
   "archivedSessions": {
     "title": "Archived conversations",
