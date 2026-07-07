@@ -34,6 +34,11 @@ function isInside(parent: string, child: string): boolean {
   return c === p || c.startsWith(p + sep);
 }
 
+// 会话级授权根:用户经系统目录选择器(fs:pickDirectory)明确选中的目录。选择本身即授权
+// (Electron 常规安全模型)。持久化白名单(writingUi.spaces 等)由渲染端节流落盘,新添加的
+// 空间根落盘前扫描会被拒(时序竞态)——本集合在选中时刻即时放行,重启后由持久化根接管。
+const sessionPickedRoots = new Set<string>();
+
 // 信任白名单:promptRoot + Documents/cortex/<日期>(无项目会话读写处) + 各项目根
 // + 设计工作台根(自定义 defaultWorkspaceRoot 与各设计稿 workspaceRoot;默认根在
 // Documents/cortex 下已被覆盖,这里只为用户自定义目录兜底。localHtml 预览授权同样
@@ -48,6 +53,8 @@ async function allowedRoots(): Promise<string[]> {
     ...(state.designDocs ?? []).map((d) => d.workspaceRoot),
     // 写作工作区：默认根在 Documents/cortex/writing（已被上面覆盖），此处只为用户自定义空间根兜底放行。
     ...(state.writingUi?.spaces ?? []).map((s) => s.root),
+    // 本次会话内用户经系统对话框选中的目录(见 sessionPickedRoots)。
+    ...sessionPickedRoots,
   ].filter((r): r is string => !!r);
 }
 
@@ -254,7 +261,11 @@ export function registerFsHandlers(): void {
   ipcMain.handle("fs:pickDirectory", async () => {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    const picked = result.filePaths[0]!;
+    // 用户经系统对话框选中即视为授权,即时纳入白名单——否则新空间根要等渲染端节流
+    // 持久化落盘后才被 allowedRoots 认可,添加空间后的立即扫描会报「路径不在允许范围内」。
+    sessionPickedRoots.add(picked);
+    return picked;
   });
 
   ipcMain.handle("fs:scanPromptTree", async (_e, root: string) => {
