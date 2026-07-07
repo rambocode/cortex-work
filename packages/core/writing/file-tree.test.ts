@@ -6,6 +6,8 @@ import {
   createDir,
   createFile,
   deleteNode,
+  filterWritingTree,
+  firstMarkdownFile,
   joinPath,
   parentPath,
   renameNode,
@@ -127,5 +129,52 @@ describe("deleteNode", () => {
     const res = await deleteNode(makeBridge({ deleteEntry }), "/root/a.md");
     expect(res.error).toBe("failed");
     expect(res.message).toBe("boom");
+  });
+});
+
+describe("filterWritingTree / firstMarkdownFile", () => {
+  // 构造树:根下 img 目录(仅图片)、docs 目录(含 md + png)、顶层 pdf/md/txt。
+  const tree = {
+    name: "root",
+    path: "/root",
+    kind: "dir" as const,
+    children: [
+      {
+        name: "img",
+        path: "/root/img",
+        kind: "dir" as const,
+        children: [{ name: "a.png", path: "/root/img/a.png", kind: "file" as const }],
+      },
+      {
+        name: "docs",
+        path: "/root/docs",
+        kind: "dir" as const,
+        children: [
+          { name: "b.png", path: "/root/docs/b.png", kind: "file" as const },
+          { name: "inner.md", path: "/root/docs/inner.md", kind: "file" as const },
+        ],
+      },
+      { name: "paper.pdf", path: "/root/paper.pdf", kind: "file" as const },
+      { name: "note.txt", path: "/root/note.txt", kind: "file" as const },
+      { name: "top.md", path: "/root/top.md", kind: "file" as const },
+    ],
+  };
+
+  it("只保留 md/pdf 文件;仅图片的目录整体隐藏;txt/png 滤掉", () => {
+    const filtered = filterWritingTree(tree);
+    const names = (filtered.children ?? []).map((c) => c.name);
+    expect(names).toEqual(["docs", "paper.pdf", "top.md"]);
+    const docs = filtered.children!.find((c) => c.name === "docs")!;
+    expect((docs.children ?? []).map((c) => c.name)).toEqual(["inner.md"]);
+  });
+
+  it("firstMarkdownFile:本层 md 优先于子目录深入;pdf 不算", () => {
+    expect(firstMarkdownFile(filterWritingTree(tree))).toBe("/root/top.md");
+    // 去掉顶层 md 后,深入 docs 找到 inner.md
+    const noTop = { ...tree, children: tree.children.filter((c) => c.name !== "top.md") };
+    expect(firstMarkdownFile(filterWritingTree(noTop))).toBe("/root/docs/inner.md");
+    // 全无 md → null
+    const none = { name: "r", path: "/r", kind: "dir" as const, children: [] };
+    expect(firstMarkdownFile(none)).toBeNull();
   });
 });

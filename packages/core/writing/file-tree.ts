@@ -4,6 +4,7 @@
 // 重名预检主进程已自带(fs:renameEntry 用 stat 兜底),这里再前置一次以便早返回友好错误。
 // core 禁用 node path,故路径切分自己做,且兼容 / 与 \(路径来自 OS 原生,跨端)。
 import type { DesktopBridge } from "../desktop/bridge";
+import type { PromptNode } from "../desktop/types";
 
 // CRUD 动作统一返回值:ok 成功;error 为归类原因供 UI 提示(exists=重名、unsupported=旧壳缺能力、
 // invalid=名称非法、failed=底层抛错),message 携带原始错误文本。
@@ -54,6 +55,43 @@ async function entryExists(bridge: DesktopBridge, path: string): Promise<boolean
 
 function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// ── 写作树过滤与自动带入 ─────────────────────────────────────────────────
+// 写作空间文件树只显示写作相关文件:md 系(可编辑)+ pdf(阅读/选区引用是既有功能,不滤)。
+// 图片等其它文件(如粘贴图片落盘的 img 目录内容)不进树,避免杂文件淹没文档列表。
+const WRITING_MD_RE = /\.(md|markdown|mdx)$/i;
+const WRITING_TREE_FILE_RE = /\.(md|markdown|mdx|pdf)$/i;
+
+export function isWritingTreeFile(name: string): boolean {
+  return WRITING_TREE_FILE_RE.test(name);
+}
+
+// 过滤扫描出的目录树:只保留 md/pdf 文件与「过滤后仍有内容的目录」——
+// 只装图片的 img 目录等会被整体隐藏,树里只剩文档结构。根节点恒保留(children 可为空)。
+export function filterWritingTree(node: PromptNode): PromptNode {
+  const children = (node.children ?? [])
+    .map((c) => (c.kind === "dir" ? filterWritingTree(c) : c))
+    .filter((c) =>
+      c.kind === "dir" ? (c.children?.length ?? 0) > 0 : isWritingTreeFile(c.name),
+    );
+  return { ...node, children };
+}
+
+// 按树展示顺序找第一个 md 文档(本层文件优先于子目录深入):
+// 「添加写作空间」后自动带入所选目录里的文档用。无 md 时返回 null(编辑器留空)。
+export function firstMarkdownFile(node: PromptNode): string | null {
+  const children = node.children ?? [];
+  for (const c of children) {
+    if (c.kind === "file" && WRITING_MD_RE.test(c.name)) return c.path;
+  }
+  for (const c of children) {
+    if (c.kind === "dir") {
+      const hit = firstMarkdownFile(c);
+      if (hit) return hit;
+    }
+  }
+  return null;
 }
 
 // 新建空文件:重名预检拒绝(避免 writeFile 覆盖),通过则写入空内容。

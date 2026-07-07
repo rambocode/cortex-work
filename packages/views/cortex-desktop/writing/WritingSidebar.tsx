@@ -21,6 +21,8 @@ import {
   createDir,
   createFile,
   deleteNode,
+  filterWritingTree,
+  firstMarkdownFile,
   renameNode,
   type FsActionResult,
 } from "@cortex-work/core/writing/file-tree";
@@ -106,8 +108,9 @@ export function WritingSidebar({
         return;
       }
       try {
+        // 树只显示写作相关文件(md 系 + pdf),图片等杂文件与无内容目录滤掉(见 filterWritingTree)。
         const node = await bridge.scanDirTree(space.root);
-        setTreesBySpace((t) => ({ ...t, [spaceId]: node }));
+        setTreesBySpace((t) => ({ ...t, [spaceId]: filterWritingTree(node) }));
       } catch (err) {
         toast(`加载文件树失败: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -273,9 +276,19 @@ export function WritingSidebar({
   );
 
   // 添加空间:经系统目录选择器(取消/重复由 store 兜底回 null)。新空间由 addSpace 设为活跃 → 自动展开。
+  // 自动带入:扫描所选目录,直接打开其中第一个 md 文档(按树展示顺序;目录里没有 md 则留空)。
   const onAddSpace = useCallback(async (): Promise<void> => {
     const space = await addSpace(bridge);
-    if (space) setCurrentFile(null); // 新空间无打开文件
+    if (!space) return;
+    let first: string | null = null;
+    if (bridge) {
+      try {
+        first = firstMarkdownFile(filterWritingTree(await bridge.scanDirTree(space.root)));
+      } catch {
+        // 扫描失败不阻断添加流程:展开 effect 会再扫一次并给出 toast,这里静默留空。
+      }
+    }
+    setCurrentFile(first);
   }, [addSpace, bridge, setCurrentFile]);
 
   // 移除空间:仅移出列表不删盘;先关闭其下打开文件与折叠(unwatch 由 watch 差分 effect 处理)。
