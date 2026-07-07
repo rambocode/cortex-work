@@ -29,6 +29,21 @@ export interface WritingThreadMeta {
 // 对应 Kun WritePreviewMode 的子集（Kun 另有 split 分屏，本仓库不支持）。
 export type WritingPreviewMode = "rich" | "source" | "live" | "preview";
 
+// 选中文字工具栏「快捷指令」处理方式：chat=把 prompt 填进助手输入框（不自动发送）；
+// edit=对选区就地改写（走 ⌘K 同款 inline-edit → 红绿 diff 审阅链路）。
+export type WritingQuickActionMode = "chat" | "edit";
+
+// 一条快捷指令：id（内置为固定 id，如 polish；自定义为 custom-*）；label/prompt（内置留空=用 i18n 内置默认，
+// 跟随界面语言）；mode；enabled（内置可禁用不可删，自定义恒 true 且可删）。对齐 Kun WriteQuickActionV1，
+// 附加 enabled 字段以支持「内置禁用不删」（Kun 是删除内置，cortex 改为禁用保留）。
+export interface WritingQuickAction {
+  id: string;
+  label: string;
+  prompt: string;
+  mode: WritingQuickActionMode;
+  enabled: boolean;
+}
+
 // 写作空间 UI/持久化态：空间列表 + 活跃空间 id（无空间时为 null）+ 会话元数据 + 编辑器视图偏好。
 // 替代 Kun 侧 localStorage（core 禁用 localStorage），经 PersistedState.writingUi 分片落盘。
 export interface WritingUiState {
@@ -44,4 +59,7 @@ export interface WritingUiState {
   fontSizePx?: number;
   // 工作区级检索上下文开关（U4，跨空间共享）。缺省视为开启（默认 true，兼容旧档）。
   retrievalEnabled?: boolean;
+  // 选中文字工具栏「快捷指令」配置（跨空间共享，对齐 Kun selectionAssist.quickActions）。
+  // 缺省（旧档）视为内置默认集；hydrate 时按 normalizeWritingQuickActions 补齐内置、去重、夹取自定义上限。
+  quickActions?: WritingQuickAction[];
 }

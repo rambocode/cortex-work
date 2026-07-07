@@ -203,6 +203,11 @@ export function WritingWorkspace(): ReactElement {
             selection={selection}
             hasPendingReview={hasPendingReview}
             onFlushBeforeSend={() => editorRef.current?.flushNow()}
+            // edit 类快捷指令:对当前选区就地改写(→ 红绿 diff 审阅)。返回结果供面板提示。
+            onRunInlineEdit={(instruction) =>
+              editorRef.current?.runInlineEditOnSelection(instruction) ??
+              Promise.resolve({ ok: false, reason: "no-editor" })
+            }
             onToast={setToast}
           />
         </div>

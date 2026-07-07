@@ -51,7 +51,19 @@
     "inlineEditLabel": "⌘K In-place Rewrite",
     "inlineEditDesc": "Select text and press ⌘K to enter a rewrite instruction; the result goes through the red/green diff review before saving. Available once a model is configured.",
     "imageGenCard": "Infographics & Image Generation",
-    "imageGenNote": "The image model used for generating infographics in writing is configured under Settings → Media Generation → Image Generation."
+    "imageGenNote": "The image model used for generating infographics in writing is configured under Settings → Media Generation → Image Generation.",
+    "quickActionsCard": "Selection Toolbar / Quick Actions",
+    "quickActionsDesc": "Quick actions available when text is selected, also shown as assistant empty-state cards. Built-in actions can be disabled but not deleted; up to 12 custom actions can be added.",
+    "quickActionsBuiltin": "Built-in",
+    "quickActionsModeLabel": "Mode",
+    "quickActionsModeChat": "Fill input",
+    "quickActionsModeEdit": "In-place edit",
+    "quickActionsLabelPlaceholder": "Action name",
+    "quickActionsPromptPlaceholder": "Instruction sent to the model",
+    "quickActionsAdd": "Add custom action",
+    "quickActionsReset": "Restore defaults",
+    "quickActionsDelete": "Delete this action",
+    "quickActionsCap": "Up to 12 custom actions; limit reached"
   },
   "archivedSessions": {
     "title": "Archived conversations",

@@ -15,6 +15,7 @@ import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
 import { useTranslation } from "@cortex-work/core/i18n";
 
 import { SettingCard, SwitchRow, SecretField } from "./settingsControls";
+import { WritingQuickActionsEditor } from "./WritingQuickActionsEditor";
 
 export function WritingSettingsSection() {
   const { t } = useTranslation("settings");
@@ -86,6 +87,9 @@ export function WritingSettingsSection() {
           </div>
         </div>
       </SettingCard>
+
+      {/* 选中工具栏 / 快捷指令(对齐 Kun):内置 + 自定义,助手空态卡与选区动作读它。 */}
+      <WritingQuickActionsEditor />
 
       {/* 信息图/图片生成不在此重复配置,指向「媒体生成 → 图片生成」节(单一真源)。 */}
       <SettingCard title={t("writing.imageGenCard")}>

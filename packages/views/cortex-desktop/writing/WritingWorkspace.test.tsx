@@ -201,19 +201,19 @@ describe("WritingWorkspace(U4)", () => {
     await waitFor(() => expect(bridge.unwatchDir).toHaveBeenCalledWith(SPACE_B.id));
   });
 
-  it("编辑器选区上报 → 助手面板润色卡解禁;取消选区后重新禁用(R11)", async () => {
+  it("编辑器选区上报 → 助手面板 edit 类建议卡解禁;取消选区后重新禁用(R11)", async () => {
     useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
     renderWs(makeBridge());
     await screen.findByTestId("cm");
-    // 无选区:润色卡禁用
-    const polish = screen.getByText("润色选中文本").closest("button")!;
-    expect(polish).toBeDisabled();
+    // 无选区:edit 类卡(重新格式化)禁用
+    const card = () => screen.getByText("重新格式化").closest("button")!;
+    expect(card()).toBeDisabled();
     // 上报选区 → 解禁
     fireEvent.click(screen.getByTestId("cm-select"));
-    await waitFor(() => expect(screen.getByText("润色选中文本").closest("button")!).not.toBeDisabled());
+    await waitFor(() => expect(card()).not.toBeDisabled());
     // 取消选区 → 重新禁用
     fireEvent.click(screen.getByTestId("cm-deselect"));
-    await waitFor(() => expect(screen.getByText("润色选中文本").closest("button")!).toBeDisabled());
+    await waitFor(() => expect(card()).toBeDisabled());
   });
 
   // U9 端到端:模拟 WritingWorkspace 的归因接线闭环。

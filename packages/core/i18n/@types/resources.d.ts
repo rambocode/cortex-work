@@ -1912,7 +1912,19 @@ export default interface Resources {
       "inlineEditLabel": "⌘K 就地改写",
       "inlineEditDesc": "选中文字后按 ⌘K 输入改写指令，结果经红绿 diff 审阅后落盘。已配置模型即可用。",
       "imageGenCard": "信息图与图片生成",
-      "imageGenNote": "写作里生成信息图使用的图片模型，在「设置 → 媒体生成 → 图片生成」中配置。"
+      "imageGenNote": "写作里生成信息图使用的图片模型，在「设置 → 媒体生成 → 图片生成」中配置。",
+      "quickActionsCard": "选中工具栏 / 快捷指令",
+      "quickActionsDesc": "选中文字时可用的快捷指令，也作为助手空态的建议卡。内置指令可禁用但不可删除，最多可再自定义 12 条。",
+      "quickActionsBuiltin": "内置",
+      "quickActionsModeLabel": "处理方式",
+      "quickActionsModeChat": "填入输入框",
+      "quickActionsModeEdit": "就地改写",
+      "quickActionsLabelPlaceholder": "指令名称",
+      "quickActionsPromptPlaceholder": "发给模型的指令内容",
+      "quickActionsAdd": "添加自定义指令",
+      "quickActionsReset": "恢复默认",
+      "quickActionsDelete": "删除该指令",
+      "quickActionsCap": "最多 12 条自定义指令，已达上限"
     },
     "thinkingLevel": {
       "high": "高",

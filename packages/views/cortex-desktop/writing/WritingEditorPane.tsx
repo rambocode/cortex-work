@@ -108,6 +108,9 @@ export interface WritingEditorPaneHandle {
   handleExternalChange: () => Promise<ExternalChangeResult>;
   // 当前文件被删信号:进入 deleted 态并停自动保存。
   markDeleted: () => void;
+  // 对当前选区执行就地改写(edit 类快捷指令走此):与 ⌘K 同链路(writingInlineEdit → beginReview 红绿 diff)。
+  // 返回 {ok, reason}:reason∈ no-selection/unconfigured/mode(选区偏移与源码不匹配,如富文本档)/empty/same/<错误文本>。
+  runInlineEditOnSelection: (instruction: string) => Promise<{ ok: boolean; reason?: string }>;
 }
 
 interface Props {
@@ -182,6 +185,9 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
     const [infographicBusy, setInfographicBusy] = useState(false);
     const infographicBusyRef = useRef(false); // 单飞守卫(同步读,避免并发双发)
     const [cmSelection, setCmSelection] = useState<NoteEditorSelection | null>(null);
+    // 命令式句柄读最新选区(edit 类快捷指令从面板触发时,取当下 CM 选区偏移)。
+    const cmSelectionRef = useRef(cmSelection);
+    cmSelectionRef.current = cmSelection;
     // ── 写作 LLM 续写/改写(U3)──────────────────────────────────────────────
     // llmStatus:写作模型配置态(异步探测)。configured 决定 Cmd-K 与 ghost text 是否可用,
     // completionEnabled 单独门控 ghost text。未配置时两者入口全隐藏(降级)。
@@ -273,6 +279,32 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
         markDeleted: () => {
           cancelRef.current(); // 取消挂起去抖保存,避免 flush 写回已删文件
           setDeleted(true);
+        },
+        // edit 类快捷指令入口:对当前 CM 选区就地改写。与 ⌘K 同链路,但指令由外部(面板)给定。
+        runInlineEditOnSelection: async (instruction) => {
+          const p = pathRef.current;
+          const sel = cmSelectionRef.current;
+          const b = bridgeRef.current;
+          if (!p || !sel?.text) return { ok: false, reason: "no-selection" };
+          if (!llmStatusRef.current.configured || !b?.writingInlineEdit) {
+            return { ok: false, reason: "unconfigured" };
+          }
+          const content = draftRef.current; // 提交时刻快照,偏移与之匹配
+          // 偏移校验:富文本档的 from/to 是 PM 位置,不是源码字符偏移,slice 不等即拒绝(避免改错位置)。
+          if (content.slice(sel.from, sel.to) !== sel.text) return { ok: false, reason: "mode" };
+          const ins = instruction.trim();
+          if (!ins) return { ok: false, reason: "empty-instruction" };
+          try {
+            const req = buildWritingInlineEditRequest(content, sel.from, sel.to, ins);
+            const res = await b.writingInlineEdit(req);
+            if (!res.ok) return { ok: false, reason: res.message };
+            if (!res.replacement) return { ok: false, reason: "empty" };
+            const review = buildWritingInlineEditReviewInput(content, sel.from, sel.to, res.replacement);
+            const entered = useWritingReviewStore.getState().beginReview({ path: p, ...review });
+            return entered ? { ok: true } : { ok: false, reason: "same" };
+          } catch (err) {
+            return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+          }
         },
         handleExternalChange: async (): Promise<ExternalChangeResult> => {
           const p = pathRef.current;
