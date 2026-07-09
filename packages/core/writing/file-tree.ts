@@ -67,14 +67,16 @@ export function isWritingTreeFile(name: string): boolean {
   return WRITING_TREE_FILE_RE.test(name);
 }
 
-// 过滤扫描出的目录树:只保留 md/pdf 文件与「过滤后仍有内容的目录」——
-// 只装图片的 img 目录等会被整体隐藏,树里只剩文档结构。根节点恒保留(children 可为空)。
+// 过滤扫描出的目录树:文件只保留 md/pdf;目录按「本来是否为空」区分——
+// 本就是空目录(新建文件夹/用户的组织目录)必须保留,否则新建文件夹不显示、层级关系缺失;
+// 原本有内容但全被滤掉的目录(如只装粘贴图片的 img 目录)才整体隐藏。根节点恒保留。
 export function filterWritingTree(node: PromptNode): PromptNode {
-  const children = (node.children ?? [])
-    .map((c) => (c.kind === "dir" ? filterWritingTree(c) : c))
-    .filter((c) =>
-      c.kind === "dir" ? (c.children?.length ?? 0) > 0 : isWritingTreeFile(c.name),
-    );
+  const children = (node.children ?? []).flatMap((c) => {
+    if (c.kind !== "dir") return isWritingTreeFile(c.name) ? [c] : [];
+    const filtered = filterWritingTree(c);
+    const originallyEmpty = (c.children?.length ?? 0) === 0;
+    return (filtered.children?.length ?? 0) > 0 || originallyEmpty ? [filtered] : [];
+  });
   return { ...node, children };
 }
 

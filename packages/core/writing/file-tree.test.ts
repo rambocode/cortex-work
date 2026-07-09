@@ -168,6 +168,41 @@ describe("filterWritingTree / firstMarkdownFile", () => {
     expect((docs.children ?? []).map((c) => c.name)).toEqual(["inner.md"]);
   });
 
+  it("空目录(新建文件夹)保留;仅当原有内容全被滤掉才隐藏", () => {
+    const withEmpty = {
+      ...tree,
+      children: [
+        ...tree.children,
+        // 新建的空文件夹:children 为空数组或未定义都算「本来就空」,必须显示。
+        { name: "新建文件夹", path: "/root/新建文件夹", kind: "dir" as const, children: [] },
+        { name: "plans", path: "/root/plans", kind: "dir" as const },
+      ],
+    };
+    const names = (filterWritingTree(withEmpty).children ?? []).map((c) => c.name);
+    expect(names).toContain("新建文件夹");
+    expect(names).toContain("plans");
+    expect(names).not.toContain("img"); // 仅图片目录仍整体隐藏
+  });
+
+  it("嵌套空目录保留层级:父目录因含空子目录一并显示", () => {
+    const nested = {
+      name: "root",
+      path: "/root",
+      kind: "dir" as const,
+      children: [
+        {
+          name: "a",
+          path: "/root/a",
+          kind: "dir" as const,
+          children: [{ name: "b", path: "/root/a/b", kind: "dir" as const, children: [] }],
+        },
+      ],
+    };
+    const filtered = filterWritingTree(nested);
+    const a = filtered.children!.find((c) => c.name === "a")!;
+    expect((a.children ?? []).map((c) => c.name)).toEqual(["b"]);
+  });
+
   it("firstMarkdownFile:本层 md 优先于子目录深入;pdf 不算", () => {
     expect(firstMarkdownFile(filterWritingTree(tree))).toBe("/root/top.md");
     // 去掉顶层 md 后,深入 docs 找到 inner.md
