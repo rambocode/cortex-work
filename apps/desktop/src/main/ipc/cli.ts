@@ -10,7 +10,7 @@ import { homedir, platform } from "os";
 import { existsSync, readdirSync, realpathSync, statSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpServerConfig, McpSettings, RoleConfig, TrimSessionRequest } from "./types";
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
-import { agentSessionExists, trimAgentSession } from "./session-trim";
+import { agentSessionExists, trimAgentSession, trimSessionIntoCopy } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { mcpServerToBridge, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -1242,6 +1242,8 @@ export function registerCliHandlers(): void {
   // 编辑重发:截断 agent CLI 会话记忆文件(纯逻辑在 session-trim.ts)。
   ipcMain.handle("cli:agentSessionExists", (_e, req: AgentSessionRequest) => agentSessionExists(req));
   ipcMain.handle("cli:trimSession", (_e, req: TrimSessionRequest) => trimAgentSession(req));
+  // 分支重新生成:复制会话记忆为新 id 并截断副本(源文件保留,旧分支可续聊)。失败返回 null。
+  ipcMain.handle("cli:trimSessionIntoCopy", (_e, req: TrimSessionRequest) => trimSessionIntoCopy(req));
 
   ipcMain.handle("agents:detect", () => detectAgents());
 

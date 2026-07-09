@@ -50,6 +50,17 @@ export function chatDocsDir(sessionId: string): string {
   return join(chatDocsRoot(), sessionId);
 }
 
+// 分支回复的 pi 会话文件快照根:~/.cortex-desktop/chat-branches/（per-session 子目录,
+// 随会话删除清理）。刷新重新生成前把当前 pi 会话 JSONL 复制到此,旧分支据快照 switchSession 续聊。
+export function chatBranchesRoot(): string {
+  return join(cortexHome(), "chat-branches");
+}
+
+export function chatBranchesDir(sessionId: string): string {
+  if (!SAFE_SESSION_ID.test(sessionId)) throw new Error(`非法 session id: ${sessionId}`);
+  return join(chatBranchesRoot(), sessionId);
+}
+
 // 任务附件落盘根:~/.cortex-desktop/task-docs/（per-task 子目录，U13）。
 // 复用聊天文档附件闸门（doc.ts saveDocInto/assertDocPath），仅换存储根。
 // 专用根，**刻意不纳入** fs.ts 的 allowedRoots()（同 chat-docs）——因 assertOpenable 有

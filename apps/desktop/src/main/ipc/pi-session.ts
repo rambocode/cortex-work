@@ -3,15 +3,15 @@
 // claude/codex 仍走 cli.ts 单发管线,与本通道互不影响。
 
 import { randomUUID } from "crypto";
-import { existsSync } from "fs";
+import { existsSync, promises as fsp } from "fs";
 import { homedir } from "os";
-import { isAbsolute, resolve, sep } from "path";
+import { isAbsolute, join, resolve, sep } from "path";
 
 import { ipcMain, type WebContents } from "electron";
 
 import { buildRpcArgs, spawnPiRpc, PiRpcSession, type PiImageContent, type RpcResponse } from "../agents/pi-rpc";
 import { readImageBytes } from "./image";
-import { chatImagesRoot } from "../paths";
+import { chatBranchesDir, chatImagesRoot } from "../paths";
 import { writePiExtension } from "../agents/pi-providers";
 import {
   writeApprovalExtension,
@@ -304,6 +304,30 @@ export function registerPiSessionHandlers(): void {
     command(uiSessionId, (s) => s.switchSession(sessionPath)),
   );
   ipcMain.handle("pi:getState", (_e, uiSessionId: string) => command(uiSessionId, (s) => s.getState()));
+  // 分支回复:把当前 live 会话的磁盘 JSONL 复制为不可变快照(chat-branches/<sessionId>/<branchId>.jsonl),
+  // 旧分支据快照 switchSession 续聊。快照在 fork rewind **之前**做,故不依赖 fork 的原地/换文件语义。
+  // 会话不存在/无 sessionFile/复制失败 → null(调用方把该分支降级为只读)。
+  ipcMain.handle("pi:snapshotSession", async (_e, uiSessionId: string, branchId: string): Promise<{ path: string } | null> => {
+    if (!/^[\w-]+$/.test(branchId)) return null; // branchId 进入文件名,同 SAFE_ID 校验防路径穿越
+    try {
+      const entry = sessions.get(uiSessionId);
+      if (!entry) return null;
+      const resp = await entry.session.getState();
+      const src = resp.success ? (resp.data as { sessionFile?: string } | undefined)?.sessionFile : undefined;
+      if (!src || !existsSync(src)) return null;
+      const dir = chatBranchesDir(uiSessionId);
+      await fsp.mkdir(dir, { recursive: true });
+      const dest = join(dir, `${branchId}.jsonl`);
+      // live 文件本身可能就是该分支此前的快照(切换分支后 switchSession 到快照续写):
+      // 自拷贝会把文件截断清空,原样返回即可。
+      if (resolve(src) === resolve(dest)) return { path: dest };
+      await fsp.copyFile(src, dest);
+      return { path: dest };
+    } catch (e) {
+      log.warn(`pi 会话快照失败(${uiSessionId}/${branchId}): ${String(e)}`);
+      return null;
+    }
+  });
   ipcMain.handle("pi:getStats", (_e, uiSessionId: string) =>
     command(uiSessionId, (s) => s.getSessionStats()),
   );

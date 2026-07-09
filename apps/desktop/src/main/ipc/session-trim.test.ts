@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { agentSessionExists, claudeTrimIndex, codexTrimIndex, trimSessionFile } from "./session-trim";
+import { agentSessionExists, claudeTrimIndex, codexTrimIndex, trimSessionFile, trimSessionIntoCopy } from "./session-trim";
 
 // ── claude:~/.claude/projects/<dir>/<session>.jsonl 的行形状 ──────────────
 function claudeUser(text: string, extra: Record<string, unknown> = {}): string {
@@ -91,6 +91,70 @@ describe("trimSessionFile", () => {
     expect(kept).toContain("第一答");
     expect(kept).not.toContain("第二答");
     expect(readFileSync(path + ".bak", "utf8")).toBe(raw);
+  });
+});
+
+describe("trimSessionIntoCopy(分支重新生成:复制+改 id+截断,源文件不动)", () => {
+  it("claude:副本截断到目标轮之前、每行 sessionId 改写为新 id,源文件原样保留", async () => {
+    const home = mkdtempSync(join(tmpdir(), "trim-copy-"));
+    const dir = join(home, ".claude", "projects", "-tmp-proj");
+    mkdirSync(dir, { recursive: true });
+    const srcPath = join(dir, "old-id.jsonl");
+    // 每行带 sessionId(真实 claude 事件流形状),截断点在第二个「继续」。
+    const lines = claudeLines.map((l) => JSON.stringify({ ...JSON.parse(l), sessionId: "old-id" }));
+    const raw = lines.join("\n") + "\n";
+    writeFileSync(srcPath, raw, "utf8");
+
+    const r = await trimSessionIntoCopy(
+      { agent: "claude", agentSessionId: "old-id", promptText: "继续", occurrence: 1 },
+      "new-id",
+      home,
+    );
+    expect(r).toEqual({ newSessionId: "new-id" });
+    // 源文件未动。
+    expect(readFileSync(srcPath, "utf8")).toBe(raw);
+    // 副本:截断到第 6 行前(含第一「继续」轮及其答复),且行内 sessionId 已改写。
+    const copy = readFileSync(join(dir, "new-id.jsonl"), "utf8").trim().split("\n");
+    expect(copy).toHaveLength(6);
+    expect(copy.join("\n")).toContain("第二答");
+    expect(copy.join("\n")).not.toContain("第三答");
+    for (const line of copy) expect((JSON.parse(line) as { sessionId?: string }).sessionId).toBe("new-id");
+  });
+
+  it("codex:保留 rollout 前缀只换 thread id,session_meta.payload.id 改写", async () => {
+    const home = mkdtempSync(join(tmpdir(), "trim-copy-"));
+    const dir = join(home, ".codex", "sessions", "2026", "07", "09");
+    mkdirSync(dir, { recursive: true });
+    const srcPath = join(dir, "rollout-2026-07-09T10-00-00-old-thread.jsonl");
+    writeFileSync(srcPath, codexLines.join("\n") + "\n", "utf8");
+
+    const r = await trimSessionIntoCopy(
+      { agent: "codex", agentSessionId: "old-thread", promptText: "带附件的问题", occurrence: 0 },
+      "new-thread",
+      home,
+    );
+    expect(r).toEqual({ newSessionId: "new-thread" });
+    const copyPath = join(dir, "rollout-2026-07-09T10-00-00-new-thread.jsonl");
+    const copy = readFileSync(copyPath, "utf8").trim().split("\n");
+    expect(copy).toHaveLength(4); // 截掉 <user_request> 轮(第 4 行)
+    const meta = JSON.parse(copy[0]!) as { payload: { id: string } };
+    expect(meta.payload.id).toBe("new-thread");
+    // 源文件仍是旧 id。
+    expect(readFileSync(srcPath, "utf8")).toContain('"id":"t1"' /* session_meta 原样 */);
+  });
+
+  it("找不到文件 / 匹配不到截断点 / 会清到文件头 → null,不产生副本", async () => {
+    const home = mkdtempSync(join(tmpdir(), "trim-copy-"));
+    expect(await trimSessionIntoCopy({ agent: "claude", agentSessionId: "missing", promptText: "x", occurrence: 0 }, "n1", home)).toBeNull();
+
+    const dir = join(home, ".claude", "projects", "-p");
+    mkdirSync(dir, { recursive: true });
+    const srcPath = join(dir, "sid.jsonl");
+    writeFileSync(srcPath, claudeLines.map((l) => JSON.stringify({ ...JSON.parse(l), sessionId: "sid" })).join("\n") + "\n", "utf8");
+    // 原文不匹配。
+    expect(await trimSessionIntoCopy({ agent: "claude", agentSessionId: "sid", promptText: "不存在", occurrence: 0 }, "n2", home)).toBeNull();
+    // pi 不支持。
+    expect(await trimSessionIntoCopy({ agent: "pi", agentSessionId: "sid", promptText: "第一问", occurrence: 0 }, "n3", home)).toBeNull();
   });
 });
 

@@ -341,6 +341,9 @@ export interface DesktopBridge {
   agentSessionExists?(req: AgentSessionRequest): Promise<boolean>;
   // 编辑重发:截断 agent CLI 会话记忆(可选能力,旧壳无此方法时退化为带旧记忆 resume)。
   trimAgentSession?(req: TrimSessionRequest): Promise<boolean>;
+  // 分支重新生成(claude/codex):复制会话记忆为新 id 并截断副本,源文件保留供旧分支续聊。
+  // 失败返回 null(调用方降级为破坏式 trimAgentSession,旧分支转只读)。可选能力。
+  trimSessionIntoCopy?(req: TrimSessionRequest): Promise<{ newSessionId: string } | null>;
   onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;
   onCliExit(cb: (exit: CliExitEvent) => void): () => void;
   // ws 传输心跳(U5,可选能力):codex app-server 长 MCP 工具静默期主进程定期推送,渲染端据此重置
@@ -379,6 +382,9 @@ export interface DesktopBridge {
   piGetStats?(uiSessionId: string): Promise<unknown>;
   // 阶段4 恢复:从磁盘 JSONL switchSession 恢复上下文（崩溃/空闲/LRU/重启后重开时调）。
   piSwitchSession?(uiSessionId: string, sessionPath: string): Promise<unknown>;
+  // 分支回复:把当前 live 会话文件复制为不可变快照(chat-branches/<sessionId>/<branchId>.jsonl),
+  // 旧分支据快照 switchSession 续聊。会话未开/无文件/失败 → null(该分支降级只读)。
+  piSnapshotSession?(uiSessionId: string, branchId: string): Promise<{ path: string } | null>;
   // 显式关闭会话（终止子进程,幂等）。
   piClose?(uiSessionId: string): Promise<void>;
   // 归一化事件流（仿 onCliEvent:回调 + 返回退订）。按 uiSessionId 分派;runId 供阶段4 代际守卫。

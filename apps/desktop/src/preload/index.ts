@@ -375,6 +375,9 @@ const personal = {
   agentSessionExists: (req: AgentSessionRequest): Promise<boolean> =>
     ipcRenderer.invoke("cli:agentSessionExists", req),
   trimAgentSession: (req: TrimSessionRequest): Promise<boolean> => ipcRenderer.invoke("cli:trimSession", req),
+  // 分支重新生成:复制会话记忆为新 id 并截断副本(源文件保留,旧分支可续聊)。
+  trimSessionIntoCopy: (req: TrimSessionRequest): Promise<{ newSessionId: string } | null> =>
+    ipcRenderer.invoke("cli:trimSessionIntoCopy", req),
   onCliEvent: (cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, payload: { runId: string; sessionId?: string; event: CliStreamEvent }) =>
       cb(payload.runId, payload.event, payload.sessionId);
@@ -432,6 +435,9 @@ const personal = {
   piGetStats: (uiSessionId: string): Promise<unknown> => ipcRenderer.invoke("pi:getStats", uiSessionId),
   piSwitchSession: (uiSessionId: string, sessionPath: string): Promise<unknown> =>
     ipcRenderer.invoke("pi:switchSession", uiSessionId, sessionPath),
+  // 分支回复:复制当前 pi 会话文件为分支快照(详见 bridge 契约注释)。
+  piSnapshotSession: (uiSessionId: string, branchId: string): Promise<{ path: string } | null> =>
+    ipcRenderer.invoke("pi:snapshotSession", uiSessionId, branchId),
   piClose: (uiSessionId: string): Promise<void> => ipcRenderer.invoke("pi:close", uiSessionId),
   onPiEvent: (cb: (uiSessionId: string, event: PiSessionEvent, runId?: string) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, payload: { uiSessionId: string; event: PiSessionEvent; runId?: string }) =>

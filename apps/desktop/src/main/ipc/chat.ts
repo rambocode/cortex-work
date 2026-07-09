@@ -4,7 +4,7 @@
 import { ipcMain } from "electron";
 import { promises as fsp } from "fs";
 import { join } from "path";
-import { chatDocsDir, chatImagesDir, chatsDir, ensureMigrated } from "../paths";
+import { chatBranchesDir, chatDocsDir, chatImagesDir, chatsDir, ensureMigrated } from "../paths";
 import { enqueue } from "./sessionWriteQueue";
 import { createLogger } from "../log";
 
@@ -66,6 +66,8 @@ export function registerChatHandlers(): void {
         await fsp.rm(path, { force: true }); // 不存在不报错
         await fsp.rm(chatImagesDir(sessionId), { recursive: true, force: true });
         await fsp.rm(chatDocsDir(sessionId), { recursive: true, force: true });
+        await fsp.rm(chatBranchesDir(sessionId), { recursive: true, force: true }); // 分支回复的 pi 会话快照
+
       } catch (err) {
         log.error("delete failed:", err);
       }
