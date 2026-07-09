@@ -32,6 +32,7 @@ import {
   finalizeAgentLog,
   foldCliEvent,
   isMissingAgentSessionError,
+  personalBranchKeys,
   personalChatKeys,
   personalProcessKeys,
   personalRunEventsKeys,
@@ -539,8 +540,8 @@ describe("ensureChatLoaded 即建即发不丢首条消息", () => {
     // 给可能晚到的覆盖一个机会(旧实现里第二个 loadChat 会在此后 resolve 并覆盖)。
     await Promise.resolve();
 
-    // 去重:整个过程 loadChat 只被调用一次。
-    expect(loadChat).toHaveBeenCalledTimes(1);
+    // 去重:消息流 loadChat 复用在途请求只发一次;第二次是分支组补载(v2,独立 query key)。
+    expect(loadChat).toHaveBeenCalledTimes(2);
     // 首条用户消息保留,未被空历史覆盖。
     const final = qc.getQueryData<Message[]>(key) ?? [];
     expect(final).toHaveLength(1);
@@ -576,7 +577,8 @@ describe("ensureChatLoaded 即建即发不丢首条消息", () => {
     qc.setQueryData<Message[]>(key, (prev) => [...(prev ?? []), msg("u1", "深化这批闪记")]);
     await Promise.resolve();
 
-    expect(loadChat).toHaveBeenCalledTimes(1);
+    // 同上:1 次消息流(去重) + 1 次分支组补载。
+    expect(loadChat).toHaveBeenCalledTimes(2);
     const final = qc.getQueryData<Message[]>(key) ?? [];
     expect(final).toHaveLength(1);
     expect(asText(final[0]!).text).toBe("深化这批闪记");
@@ -1262,6 +1264,8 @@ describe("U1 过程流永不落盘（saveChat spy）", () => {
       piRuntimeBySession: {},
     });
     beginPiRun(qc, { runId: "prun-s", sessionId: "s1", typingUid: "typ", cwd: "/p", promptText: "hi" });
+    // 预置空分支组:flushChat 落盘前要求分支态已加载(v2 兼容),测试桩 bridge 无 loadChat 补载通道。
+    qc.setQueryData(personalBranchKeys.detail("s1"), []);
     saveChat.mockClear(); // 忽略 beginPiRun 前可能的写入,只看流式阶段。
 
     __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "思考" });
@@ -1296,6 +1300,8 @@ describe("U1 旧档破坏性迁移与隐藏游标无损（R11）", () => {
     // 模拟加载后的缓存（loadChat 已过 sanitize 则本就无 agentLog;但若缓存里混入 agentLog，
     // flushChat 也必须原地清洗——这里直接喂含 agentLog 的缓存固化破坏性契约）。
     qc.setQueryData<Message[]>(personalChatKeys.detail("s1"), [t("u1", "问"), log("g1"), t("a1", "答", "claude")]);
+    // 预置空分支组(理由同上:测试桩无 loadChat,跳过 flushChat 的分支补载异步跳变)。
+    qc.setQueryData(personalBranchKeys.detail("s1"), []);
     __flushChatForTest(qc, "s1");
     expect(saveChat).toHaveBeenCalledTimes(1);
     const saved = saveChat.mock.calls[0]![1];
@@ -1758,6 +1764,8 @@ describe("U5 端到端不落盘强保证（R10:结构上无落盘通道）", () 
       piRuntimeBySession: {},
     });
     beginPiRun(qc, { runId: "prun-e2e", sessionId: "s1", typingUid: "typ", cwd: "/p", promptText: "hi" });
+    // 预置空分支组:flushChat 落盘前要求分支态已加载(v2 兼容),测试桩 bridge 无 loadChat 补载通道。
+    qc.setQueryData(personalBranchKeys.detail("s1"), []);
     saveChat.mockClear();
 
     // 一整轮:思考 → 工具 → 工具收尾 → 正文 → 收尾。

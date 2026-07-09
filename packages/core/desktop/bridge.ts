@@ -256,9 +256,11 @@ export interface DesktopBridge {
   // 持久化
   loadState(): Promise<PersistedState>;
   saveState(state: PersistedState): Promise<void>;
-  // 会话消息持久化（按 sessionId 一文件,内容对桥接层不透明）
-  loadChat(sessionId: string): Promise<unknown[]>;
-  saveChat(sessionId: string, messages: unknown[]): Promise<void>;
+  // 会话消息持久化（按 sessionId 一文件,内容对桥接层不透明）。
+  // 返回 v1 裸消息数组或 v2 对象 {version:2, messages, branchGroups}(分支回复,见 core/personal/branches.ts);
+  // 渲染端经 normalizeLoadedChat 归一。branchGroups 非空时主进程落 v2,否则维持 v1 裸数组(回滚安全)。
+  loadChat(sessionId: string): Promise<unknown>;
+  saveChat(sessionId: string, messages: unknown[], branchGroups?: unknown[]): Promise<void>;
   // 删除会话消息文件（物理删 chats/<id>.json;不存在不报错）
   deleteChat(sessionId: string): Promise<void>;
   // 聊天图片上传:落盘返回绝对路径 / 按路径回读为 dataURL（缩略图）。

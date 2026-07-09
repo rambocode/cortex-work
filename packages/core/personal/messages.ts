@@ -56,6 +56,7 @@ import {
 import { derivePiCapabilities, toAdapterPermissions } from "./permissionMode";
 import { speakText } from "./tts";
 import { parseMentions } from "./mention";
+import { normalizeLoadedChat, sanitizeBranchGroups, type BranchGroup, type LoadedChat } from "./branches";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
 // 供模块级缓存写入函数做消息落盘。
@@ -63,6 +64,13 @@ let bridgeRef: DesktopBridge | null = null;
 
 export const personalChatKeys = {
   detail: (sessionId: string) => ["personal", "convo", sessionId] as const,
+};
+
+// 分支组(刷新重新生成的多版本回复)query key:与消息流分离缓存、一起落盘(chat JSON v2,
+// 见 branches.ts 文件头)。加载经 ensureBranchesLoaded / usePersonalBranches 的 queryFn 自足
+// 读盘,gcTime Infinity——flushChat 会把该 key 当前值写回磁盘,若被 gc 后按空保存会静默丢分支。
+export const personalBranchKeys = {
+  detail: (sessionId: string) => ["personal", "branches", sessionId] as const,
 };
 
 // 瞬态「执行过程流」query key:tool→agentLog 折叠与 reasoning 思考流落在这条独立通道,
@@ -527,14 +535,28 @@ export function sanitizeForSave(messages: Message[]): Message[] {
   return messages.filter(survivesSanitize);
 }
 
-function flushChat(qc: QueryClient, sessionId: string): void {
+export function flushChat(qc: QueryClient, sessionId: string): void {
   const timer = saveTimers.get(sessionId);
   if (timer) {
     clearTimeout(timer);
     saveTimers.delete(sessionId);
   }
   const messages = qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId));
-  if (bridgeRef && messages) void bridgeRef.saveChat(sessionId, sanitizeForSave(messages));
+  if (!bridgeRef || !messages) return;
+  const branchGroups = qc.getQueryData<BranchGroup[]>(personalBranchKeys.detail(sessionId));
+  if (branchGroups === undefined) {
+    // 分支态尚未加载(旧流程可能未经 ensureChatLoaded 直接落盘):先补载再落盘,
+    // 避免把磁盘上 v2 档的分支按「无分支」覆盖丢失。补载失败(旧壳无 loadChat 等)按无分支
+    // 兜底写入缓存,保证递归第二趟必然走到真正落盘、不死循环。
+    const bridge = bridgeRef;
+    void ensureBranchesLoaded(qc, bridge, sessionId)
+      .catch(() => qc.setQueryData<BranchGroup[]>(personalBranchKeys.detail(sessionId), []))
+      .then(() => flushChat(qc, sessionId));
+    return;
+  }
+  // 归档分支的 tail 与主消息流同标准清理;有分支写 v2、无分支仍写 v1 裸数组(主进程 chat:save 打包)。
+  const cleanedGroups = branchGroups.length ? sanitizeBranchGroups(branchGroups, sanitizeForSave) : undefined;
+  void bridgeRef.saveChat(sessionId, sanitizeForSave(messages), cleanedGroups);
 }
 
 function scheduleChatSave(qc: QueryClient, sessionId: string): void {
@@ -594,7 +616,7 @@ function recordRunEvent(qc: QueryClient, sessionId: string, runId: string, ev: C
 
 // 立即清空某会话的运行事件流(会话删除/editResend 截断出口用)。运行事件跨轮累积,故普通
 // 「下一轮开始」不清(与 clearProcess 生命周期不同);只在历史被重写/会话消亡时整条移除。
-function clearRunEvents(qc: QueryClient, sessionId: string): void {
+export function clearRunEvents(qc: QueryClient, sessionId: string): void {
   qc.removeQueries({ queryKey: personalRunEventsKeys.detail(sessionId), exact: true });
 }
 
@@ -625,7 +647,7 @@ function piEventToRunRecord(ev: PiSessionEvent, resultOk: boolean): CliStreamEve
 // 立即清空某会话的过程流（异常终态/会话删除/editResend 截断出口用，KTD8）。先取消该 session 任何
 // 游离的延迟清理 timer（杜绝 timer 复活已删/已清会话的 process key），再整条移除 process query
 // （removeQueries 而非写空数组:彻底回收,不留 inactive 空缓存;活跃 observer 会读回 EMPTY_MESSAGES）。
-function clearProcess(qc: QueryClient, sessionId: string): void {
+export function clearProcess(qc: QueryClient, sessionId: string): void {
   const timer = processCleanupTimers.get(sessionId);
   if (timer) {
     clearTimeout(timer);
@@ -1984,7 +2006,7 @@ export function piEntryMatchesText(entryText: string, originalText: string): boo
   return a.endsWith(`\n\n${b}`);
 }
 
-async function forkPiAtEditedMessage(
+export async function forkPiAtEditedMessage(
   bridge: DesktopBridge,
   sessionId: string,
   prevMessages: Message[],
@@ -2161,13 +2183,51 @@ export function serializeAskQuestionAnswers(
 // NewSessionLanding —— 均 createSession 后同一 tick 立刻 send）会有两个并发的 loadChat:
 // ensureChatLoaded 自己的先 resolve、追加首条用户消息后,useQuery 那个晚到的 loadChat 才
 // resolve 空历史,把刚写入的用户消息覆盖成空——表现为主窗体会话里看不到用户发出的那条消息。
-async function ensureChatLoaded(qc: QueryClient, bridge: DesktopBridge, sessionId: string): Promise<void> {
-  // 历史加载也做瞬态清理（双保险:崩溃时可能存了未收尾状态）。
-  await qc.ensureQueryData<Message[]>({
-    queryKey: personalChatKeys.detail(sessionId),
-    queryFn: async () => sanitizeForSave((await bridge.loadChat(sessionId)) as Message[]),
+export async function ensureChatLoaded(qc: QueryClient, bridge: DesktopBridge, sessionId: string): Promise<void> {
+  // 历史加载也做瞬态清理（双保险:崩溃时可能存了未收尾状态）。v2 档经 normalizeLoadedChat 拆出消息;
+  // 分支组并行补载(flushChat 落盘时两者一起写回,缺一会丢数据)。
+  await Promise.all([
+    qc.ensureQueryData<Message[]>({
+      queryKey: personalChatKeys.detail(sessionId),
+      queryFn: async () =>
+        sanitizeForSave(normalizeLoadedChat((await bridge.loadChat(sessionId)) as LoadedChat).messages),
+    }),
+    ensureBranchesLoaded(qc, bridge, sessionId),
+  ]);
+}
+
+// 分支组补载:自足读盘(与消息流共用 chat JSON,normalize 后只取 branchGroups)。
+// gcTime Infinity 的理由见 personalBranchKeys 注释。
+export async function ensureBranchesLoaded(qc: QueryClient, bridge: DesktopBridge, sessionId: string): Promise<void> {
+  await qc.ensureQueryData<BranchGroup[]>({
+    queryKey: personalBranchKeys.detail(sessionId),
+    queryFn: async () => normalizeLoadedChat((await bridge.loadChat(sessionId)) as LoadedChat).branchGroups,
+    gcTime: Infinity,
   });
 }
+
+// 分支组写入(缓存 + 节流落盘,仿 setMessages)。
+export function setBranchGroups(qc: QueryClient, sessionId: string, groups: BranchGroup[]): void {
+  qc.setQueryData<BranchGroup[]>(personalBranchKeys.detail(sessionId), groups);
+  scheduleChatSave(qc, sessionId);
+}
+
+// 当前会话分支组(UI 分页器数据源)。queryFn 自足读盘,平时被 ensureChatLoaded/写入侧 setQueryData 喂新。
+export function usePersonalBranches(sessionId: string | undefined): BranchGroup[] {
+  const bridge = useDesktopBridge();
+  const { data } = useQuery<BranchGroup[]>({
+    queryKey: personalBranchKeys.detail(sessionId ?? "none"),
+    queryFn: async () => {
+      if (!bridge || !sessionId) return [];
+      return normalizeLoadedChat((await bridge.loadChat(sessionId)) as LoadedChat).branchGroups;
+    },
+    enabled: !!sessionId,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+  return data ?? EMPTY_BRANCH_GROUPS;
+}
+const EMPTY_BRANCH_GROUPS: BranchGroup[] = [];
 
 export function __ensureChatLoadedForTest(
   qc: QueryClient,
@@ -2219,7 +2279,8 @@ export function usePersonalChat(sessionId: string | undefined): PersonalChatSlic
     // 历史消息从磁盘加载（web 端无桥,恒为空）;加载时清理瞬态状态。
     queryFn: async () => {
       if (!bridge || !sessionId) return [];
-      const original = (await bridge.loadChat(sessionId)) as Message[];
+      // v2 档拆出消息数组(v1 裸数组原样透传)。
+      const original = normalizeLoadedChat((await bridge.loadChat(sessionId)) as LoadedChat).messages;
       // 旧档迁移:剥离 agentLog 前先按原数组回算隐藏游标 count（throughUid 命中则无需，
       // 缺 throughUid 的 count 兜底路径会因数组变短而偏移）。一次性写回，幂等。
       maybeMigrateHiddenHistory(sessionId, original);

@@ -9,6 +9,7 @@ import { useCallback, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { Message } from "../types";
 import type { DesktopBridge } from "../desktop/bridge";
+import { normalizeLoadedChat, type LoadedChat } from "./branches";
 import type {
   GitCommit,
   NoteMeta,
@@ -330,7 +331,8 @@ export async function loadTimelineData(bridge: DesktopBridge, projectId: string)
   const chats: Record<string, Message[]> = {};
   for (const sess of list) {
     try {
-      chats[sess.id] = (await bridge.loadChat(sess.id)) as Message[];
+      // v2 档(分支回复)只取主消息数组回填时间线;v1 裸数组原样。
+      chats[sess.id] = normalizeLoadedChat((await bridge.loadChat(sess.id)) as LoadedChat).messages;
     } catch {
       chats[sess.id] = [];
     }

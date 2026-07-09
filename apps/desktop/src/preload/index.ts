@@ -275,9 +275,10 @@ const personal = {
   },
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
-  loadChat: (sessionId: string): Promise<unknown[]> => ipcRenderer.invoke("chat:load", sessionId),
-  saveChat: (sessionId: string, messages: unknown[]): Promise<void> =>
-    ipcRenderer.invoke("chat:save", sessionId, messages),
+  // v2(分支回复)兼容:load 可能返回 v1 数组或 v2 对象;save 的 branchGroups 非空时主进程落 v2。
+  loadChat: (sessionId: string): Promise<unknown> => ipcRenderer.invoke("chat:load", sessionId),
+  saveChat: (sessionId: string, messages: unknown[], branchGroups?: unknown[]): Promise<void> =>
+    ipcRenderer.invoke("chat:save", sessionId, messages, branchGroups),
   deleteChat: (sessionId: string): Promise<void> => ipcRenderer.invoke("chat:delete", sessionId),
   // 聊天图片上传:落盘(二进制 ArrayBuffer 直传)/ 回读为 dataURL(缩略图)。
   imageSave: (req: ImageSaveRequest): Promise<ImageSaveResult> => ipcRenderer.invoke("image:save", req),
