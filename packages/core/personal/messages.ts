@@ -156,7 +156,7 @@ function realHHMM(): string {
 }
 
 let seq = 0;
-function uid(prefix: string): string {
+export function uid(prefix: string): string {
   seq += 1;
   return `${prefix}-${seq}-${Math.random().toString(36).slice(2, 8)}`;
 }

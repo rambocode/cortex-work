@@ -296,6 +296,49 @@ export function compactPi(
   return requireCap(bridge.piCompact, "pi compact")(sessionId, customInstructions);
 }
 
+/** 分支切换:温会话实时 switchSession 到指定磁盘 JSONL,并同步句柄缓存的 sessionFile——
+ *  否则下一轮 sendPiTurn 会把句柄里的旧文件路径回写 SessionMeta,分支指针被静默污染。
+ *  切换后经 get_state 校准(pi 可能落到别的文件;校准失败沿用目标路径)。
+ *  会话未就绪时抛错(调用方走「只改 SessionMeta 指针,下次冷启经 resumeFrom 恢复」的冷路径)。 */
+export async function switchPiToSessionFile(
+  bridge: DesktopBridge,
+  sessionId: string,
+  sessionFile: string,
+): Promise<string> {
+  requireReady(sessionId);
+  await requireCap(bridge.piSwitchSession, "pi switchSession")(sessionId, sessionFile);
+  const handle = piSessions.get(sessionId);
+  let live = sessionFile;
+  try {
+    const state = bridge.piGetState
+      ? ((await bridge.piGetState(sessionId)) as { sessionId?: string; sessionFile?: string } | undefined)
+      : undefined;
+    live = state?.sessionFile ?? live;
+    if (handle && state?.sessionId) handle.piSessionId = state.sessionId;
+  } catch {
+    // get_state 偶发超时:不影响切换结论,沿用目标路径。
+  }
+  if (handle) handle.sessionFile = live;
+  return live;
+}
+
+/** fork 后校准 live sessionFile(fork 可能原地 rewind 也可能换文件,协议未约定):
+ *  经 get_state 取真值并同步句柄。未就绪/无能力/失败返回 undefined,调用方沿用现有指针。 */
+export async function calibratePiSessionFile(bridge: DesktopBridge, sessionId: string): Promise<string | undefined> {
+  const handle = piSessions.get(sessionId);
+  if (!handle?.ready || !bridge.piGetState) return undefined;
+  try {
+    const state = (await bridge.piGetState(sessionId)) as { sessionFile?: string } | undefined;
+    if (state?.sessionFile) {
+      handle.sessionFile = state.sessionFile;
+      return state.sessionFile;
+    }
+  } catch {
+    // 校准失败:沿用现有指针。
+  }
+  return undefined;
+}
+
 /** 显式关闭会话:摘除登记 + 终止子进程（幂等,piClose 缺失时只清本地登记）。 */
 export async function closePiSession(bridge: DesktopBridge | null, sessionId: string): Promise<void> {
   const handle = piSessions.get(sessionId);

@@ -420,8 +420,10 @@ export {
 } from "./personal/git";
 export {
   personalChatKeys,
+  personalBranchKeys,
   personalProcessKeys,
   personalRunEventsKeys,
+  usePersonalBranches,
   buildAttachmentSystemPrompt,
   buildProjectSystemPrompt,
   cleanToolName,
@@ -451,6 +453,15 @@ export {
   type PersonalActions,
   type RunEvent,
 } from "./personal/messages";
+// 分支回复(刷新重新生成的多版本回复):数据模型 + 动作层。
+export {
+  anchorForAgentMessage,
+  isFirstAgentReplyOfTail,
+  pagerPosition,
+  type BranchGroup,
+  type BranchVariant,
+} from "./personal/branches";
+export { useBranchActions, type BranchActions } from "./personal/useBranchActions";
 export {
   useFollowupAsk,
   buildFollowupSystemPrompt,
