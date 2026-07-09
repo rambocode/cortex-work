@@ -109,8 +109,10 @@ async function scanTree(
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
       const child = await scanTree(full, entry.name, depth + 1, budget, mdOnly);
-      // 空目录不展示。
-      if (child.children && child.children.length > 0) {
+      // mdOnly(提示词树):无 md 的目录是噪音,不展示。
+      // 全量树(scanDirTree:文件视图/写作空间/design 列目录):空目录如实返回——
+      // 否则新建文件夹在树里不可见;要不要隐藏由消费方决定(如写作侧 filterWritingTree)。
+      if (!mdOnly || (child.children && child.children.length > 0)) {
         node.children!.push(child);
         budget.left -= 1;
       }
