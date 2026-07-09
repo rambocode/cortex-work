@@ -2365,6 +2365,8 @@ export interface PersonalActions {
     // { name, path },随请求落到 CliStartRequest.invokedSkill,主进程按 transport 决定 ws 结构化
     // 触发 / exec prose 回退(见 cli.ts U4)。claude 走裸 slash(不用此字段)、pi 透传时恒 undefined。
     invokedSkill?: { name: string; path: string },
+    // 已落盘文档引用(编辑/刷新重发复用原消息的引用文件,不重新落盘;与 presavedImages 对称)。
+    presavedDocs?: ChatFileRef[],
     // 返回是否「已消费」(真正发出/已落定):composer 据此决定是否清空待发图/文档(未消费则保留供重试)。
   ) => Promise<boolean>;
   stop: (sessionId: string) => Promise<void>;
@@ -2396,10 +2398,10 @@ export function usePersonalActions(): PersonalActions {
   const qc = useQueryClient();
 
   const send = useCallback<PersonalActions["send"]>(
-    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles, invokedSkill) => {
+    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles, invokedSkill, presavedDocs) => {
       if (!bridge) return false;
       const hasImages = !!(images?.length || presavedImages?.length);
-      const hasDocs = !!docFiles?.length;
+      const hasDocs = !!(docFiles?.length || presavedDocs?.length);
       // U6:codex `/skill:name`(无 args)时文本被收窄为空,但 invokedSkill 本身即本轮内容 →
       // 不能按「皆空」拒发,否则原生 skill 触发被静默丢弃(相较现状 prose 改写是回归)。
       if (!text.trim() && !hasImages && !hasDocs && !invokedSkill) return false; // 纯图/纯文档(无文本)允许发送;皆空才拒
@@ -2407,7 +2409,14 @@ export function usePersonalActions(): PersonalActions {
       usePersonalStore.getState().setModeBlockHint(session.id, undefined);
       if (session.agent !== "pi" && usePersonalStore.getState().agentsAvailable?.[session.agent] === false) {
         await ensureChatLoaded(qc, bridge, session.id);
-        appendUserMessage(qc, session.id, text, attachments, presavedImages?.length ? presavedImages : undefined);
+        appendUserMessage(
+          qc,
+          session.id,
+          text,
+          attachments,
+          presavedImages?.length ? presavedImages : undefined,
+          presavedDocs?.length ? presavedDocs : undefined,
+        );
         appendMsg(qc, session.id, {
           kind: "text",
           who: session.agent,
@@ -2422,7 +2431,14 @@ export function usePersonalActions(): PersonalActions {
         await ensureChatLoaded(qc, bridge, session.id);
         // editResend 复用的已落盘图(presavedImages)仍回显,避免兜底分支静默丢图;
         // 新待发图此刻尚未落盘(imageSave 在下方),留在 composer(return false 保留)。
-        appendUserMessage(qc, session.id, text, attachments, presavedImages?.length ? presavedImages : undefined);
+        appendUserMessage(
+          qc,
+          session.id,
+          text,
+          attachments,
+          presavedImages?.length ? presavedImages : undefined,
+          presavedDocs?.length ? presavedDocs : undefined,
+        );
         appendMsg(qc, session.id, {
           kind: "text",
           who: "pi",
@@ -2488,7 +2504,8 @@ export function usePersonalActions(): PersonalActions {
 
       // 文档落盘(在 appendUserMessage / spawn 之前):逐个经 doc:save 拿绝对路径组装 ChatFileRef[]。
       // 内容不进消息,agent 经 extract_document 按需读取。任一失败 → 整轮中止(已落盘的随会话删除清理)。
-      const fileRefs: ChatFileRef[] = [];
+      // presavedDocs(编辑/刷新重发复用的已存盘文档)直接并入,不重新落盘。
+      const fileRefs: ChatFileRef[] = presavedDocs ? [...presavedDocs] : [];
       if (docFiles?.length) {
         if (!bridge.docSave) {
           if (session.agent === "pi") piSendStarting.delete(session.id);
@@ -2810,9 +2827,11 @@ export function usePersonalActions(): PersonalActions {
       clearProcess(qc, session.id);
       // 历史被截断重写 → 运行事件流与新历史不再对应,整条清掉重新累积。
       clearRunEvents(qc, session.id);
-      // 复用被编辑消息自身的已落盘图片引用(不重新落盘、不删旧文件),随重发带回 agent。
+      // 复用被编辑消息自身的已落盘图片/文档引用(不重新落盘、不删旧文件),随重发带回 agent——
+      // 修复「编辑重发丢引用文件」:文档经 presavedDocs 通道原样带回,doc system prompt 会重新注入。
       const editedMsg = prev.find((m) => m.uid === msgUid);
       const originalImages = editedMsg?.kind === "text" ? editedMsg.images : undefined;
+      const originalFiles = editedMsg?.kind === "text" ? editedMsg.files : undefined;
 
       // pi:在 pi 侧 fork 到分支点（替代 trimAgentSession 截断会话文件）,再以新文本重发。
       // 映射失败/会话未开 → best-effort 退化:只截断 UI + 重发;不再把降级细节写进聊天正文。
@@ -2831,7 +2850,7 @@ export function usePersonalActions(): PersonalActions {
           usePersonalStore.getState().updateSession(session.id, { piSessionFile: undefined });
           sendSession = { ...session, piSessionFile: undefined };
         }
-        await send(sendSession, projectPath, text, attachments, undefined, undefined, originalImages);
+        await send(sendSession, projectPath, text, attachments, undefined, undefined, originalImages, undefined, undefined, originalFiles);
         return;
       }
 
@@ -2860,7 +2879,7 @@ export function usePersonalActions(): PersonalActions {
 
       qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
       flushChat(qc, session.id);
-      await send(sendSession, projectPath, text, attachments, undefined, undefined, originalImages);
+      await send(sendSession, projectPath, text, attachments, undefined, undefined, originalImages, undefined, undefined, originalFiles);
     },
     [bridge, qc, send],
   );
