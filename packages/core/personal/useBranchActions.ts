@@ -185,7 +185,8 @@ export function useBranchActions(): BranchActions {
       await send(sendSession, projectPath, text, [], undefined, undefined, originalImages, undefined, undefined, originalFiles);
 
       // 5. send 重新 append 的用户消息 uid 是新的 → 分支组锚点迁移到新 uid(下次刷新/分页器据此定位)。
-      if (hasTail) {
+      // 注意 tail 为空但组已存在(旧回复未落盘)时同样要迁移,否则组锚点悬空、分页器消失。
+      if (hasTail || group) {
         const after = qc.getQueryData<Message[]>(personalChatKeys.detail(session.id)) ?? [];
         const newAnchor = [...after].reverse().find((m) => m.kind === "text" && m.who === "me");
         if (newAnchor?.uid && newAnchor.uid !== anchorUid) {

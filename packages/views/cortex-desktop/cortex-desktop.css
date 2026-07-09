@@ -4616,6 +4616,25 @@ button.sb-row {
 }
 .m-act-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 
+/* 分支回复分页器(agent 回复 tail):常驻不随 hover 淡入——用户需一眼看到存在多版本回复 */
+.m-branch-pager {
+  display: inline-flex; align-items: center; gap: 2px;
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+.m-branch-pager-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  border: 0; border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px; line-height: 1;
+  cursor: pointer;
+}
+.m-branch-pager-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
+.m-branch-pager-btn:disabled { opacity: 0.35; cursor: default; }
+.m-branch-pager-num { font-variant-numeric: tabular-nums; line-height: 1; }
+
 /* 编辑重发提示条(composer 顶部) */
 .pw-edit-bar {
   display: flex; align-items: center; gap: 6px;

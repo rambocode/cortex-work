@@ -17,9 +17,14 @@ import {
   useCortexUIStore,
   useDesktopBridge,
   usePersonalActions,
+  usePersonalBranches,
   usePersonalChat,
   usePersonalStore,
   useRenderWindow,
+  useBranchActions,
+  anchorForAgentMessage,
+  isFirstAgentReplyOfTail,
+  pagerPosition,
 } from "@cortex-work/core";
 import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Conversation, Message } from "@cortex-work/core/types";
@@ -159,6 +164,9 @@ export function PersonalChatArea({
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
   const { send, stop: stopRun, steer, compact, setPiModel, setThinking, editResend, clearView } =
     usePersonalActions();
+  // 分支回复:刷新=归档旧回复为分支重新生成;回复下方「‹ i/n ›」分页器切换查看/续聊各分支。
+  const branchGroups = usePersonalBranches(session?.id);
+  const { regenerate, switchBranch } = useBranchActions();
 
   // auto_open(仅环回,SSRF 收紧):**只信主信号**(最近一轮 assistant 正文)。process 流
   // (agentLog)无 user 消息、无法按轮次切片,从后往前扫可能取到上一轮旧 URL → 误自动打开。
@@ -287,8 +295,8 @@ export function PersonalChatArea({
                 <button
                   type="button"
                   className="m-act-btn"
-                  title="按原文重新发送(将清除其后的所有消息)"
-                  onClick={() => void editResend(session, project.path, msgUid, msgText, [])}
+                  title="重新回答(当前回复保留为分支,可在回复下方切换查看)"
+                  onClick={() => void regenerate(session, project.path, msgUid)}
                 >
                   <Icon.Retry size={15} />
                 </button>
@@ -318,11 +326,52 @@ export function PersonalChatArea({
       }
       // agent 回复:复制 +(仅在开启「实时朗读」时)朗读开关。正在朗读时常驻显示便于停止。
       const speaking = ttsPlayback.isSpeaking;
+      // 分支分页器:该回复归属的用户消息(anchor)有多份分支回复时,在 tail 首条 agent 回复下
+      // 常驻「‹ i/n ›」切换器(不随 hover 淡入——用户需要一眼看到存在多版本)。
+      const anchorUid = m.uid ? anchorForAgentMessage(allMessages, m.uid) : undefined;
+      const branchGroup = anchorUid
+        ? branchGroups.find((g) => g.anchorUid === anchorUid && g.variants.length > 1)
+        : undefined;
+      const showPager = !!branchGroup && !!m.uid && isFirstAgentReplyOfTail(allMessages, m.uid);
+      const pager = branchGroup ? pagerPosition(branchGroup) : null;
+      const switchTo = (offset: number) => {
+        if (!branchGroup || !pager || !anchorUid) return;
+        const target = branchGroup.variants[pager.index - 1 + offset];
+        if (!target) return;
+        void switchBranch(session, project.path, anchorUid, target.id).then((r) => {
+          if (r === "degraded") onToast("该分支的会话记忆不完整,续聊时上下文可能缺失");
+        });
+      };
       // 本地 HTML / dev URL 的预览入口已内联到消息正文里(见 chatMarkdown 的 pre 渲染:代码块
       // 含 .html 路径时正下方给「预览网页」按钮),此处消息底部不再重复。
       return (
         <div className="m-msg-actions">
           <span className="m-msg-time">{m.time}</span>
+          {showPager && pager ? (
+            <span className="m-branch-pager" title="切换查看不同的回复分支">
+              <button
+                type="button"
+                className="m-branch-pager-btn"
+                aria-label="上一个回复分支"
+                disabled={running || pager.index <= 1}
+                onClick={() => switchTo(-1)}
+              >
+                ‹
+              </button>
+              <span className="m-branch-pager-num">
+                {pager.index}/{pager.total}
+              </span>
+              <button
+                type="button"
+                className="m-branch-pager-btn"
+                aria-label="下一个回复分支"
+                disabled={running || pager.index >= pager.total}
+                onClick={() => switchTo(1)}
+              >
+                ›
+              </button>
+            </span>
+          ) : null}
           <div className={`m-act-row ${speaking ? "is-active" : ""}`}>
             <button
               type="button"
@@ -363,7 +412,7 @@ export function PersonalChatArea({
         </div>
       );
     },
-    [session, project, running, editResend, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast],
+    [session, project, running, regenerate, switchBranch, branchGroups, allMessages, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast],
   );
 
   // 追问浮层的会话上下文(R6:复用当前会话 agent/model/cwd/provider,不新建会话)。
