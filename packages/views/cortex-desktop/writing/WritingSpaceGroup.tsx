@@ -5,7 +5,7 @@
 // 图标全部用 lucide-react,与 Kun 源码逐个对齐(FilePlus2/FolderPlus/RefreshCw/Pencil/Trash2/FileText/
 //   Folder/FolderOpen/ChevronRight/ChevronDown),尺寸/描边照 Kun className(h-3=12px、h-3.5=14px)映射到 size prop。
 // 纯展示组件:树状态、展开态、创建/重命名态与全部动作回调都由父 WritingSidebar 注入。
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type CSSProperties, type ReactElement } from "react";
 import {
   Check,
   ChevronDown,
@@ -25,11 +25,12 @@ import type { WritingSpacesState } from "@cortex-work/core/writing/spaces";
 // WritingSpace 未从 core 主入口导出,与 WritingAssistantPanel 一致从 store 类型派生。
 type WritingSpace = WritingSpacesState["spaces"][number];
 
-// 就地重命名 / 新建目录共用的内联输入行。
+// 就地重命名 / 新建目录共用的内联输入行。style 供树内定位时按层级缩进(与 TreeNode 行同款 paddingLeft)。
 function InlineInput({
   value,
   ariaLabel,
   placeholder,
+  style,
   onChange,
   onCommit,
   onCancel,
@@ -37,12 +38,13 @@ function InlineInput({
   value: string;
   ariaLabel: string;
   placeholder?: string;
+  style?: CSSProperties;
   onChange: (v: string) => void;
   onCommit: () => void;
   onCancel: () => void;
 }): ReactElement {
   return (
-    <div className="pw-writing-inline-input">
+    <div className="pw-writing-inline-input" style={style}>
       <input
         autoFocus
         aria-label={ariaLabel}
@@ -73,6 +75,11 @@ function TreeNode({
   setRenameName,
   commitRename,
   cancelRename,
+  creatingDirPath,
+  createDirName,
+  setCreateDirName,
+  commitCreateDir,
+  cancelCreateDir,
   onOpen,
   onRename,
   onDelete,
@@ -88,6 +95,12 @@ function TreeNode({
   setRenameName: (v: string) => void;
   commitRename: () => void;
   cancelRename: () => void;
+  // 新建目录内联输入:目标是本目录(creatingDirPath===node.path)时,输入行渲染在本目录行正下方。
+  creatingDirPath: string | null;
+  createDirName: string;
+  setCreateDirName: (v: string) => void;
+  commitCreateDir: () => void;
+  cancelCreateDir: () => void;
   onOpen: (path: string) => void;
   onRename: (path: string) => void;
   onDelete: (path: string, isDir: boolean) => void;
@@ -96,6 +109,11 @@ function TreeNode({
 }): ReactElement {
   // 目录默认折叠(depth>0 的深层目录);顶层目录也折叠,由用户点开。
   const [collapsed, setCollapsed] = useState(true);
+  const creatingHere = node.kind === "dir" && creatingDirPath === node.path;
+  // 在本目录下发起新建 → 自动展开(折叠着输入行看不见),提交后保持展开以看到新目录。
+  useEffect(() => {
+    if (creatingHere) setCollapsed(false);
+  }, [creatingHere]);
   // Kun WriteFileTree:buttonStyle={{ paddingLeft: 10 + depth * 14 }}。
   const pad = { paddingLeft: 10 + depth * 14 } as const;
   const isActive = node.kind === "file" && node.path === currentFile;
@@ -212,6 +230,18 @@ function TreeNode({
         <span className="pw-tree-name">{node.name}</span>
         {actions}
       </div>
+      {/* 在本目录下新建目录:输入行紧贴目录行下方,按子级缩进 */}
+      {creatingHere ? (
+        <InlineInput
+          value={createDirName}
+          ariaLabel="新建目录名"
+          placeholder="目录名"
+          style={{ paddingLeft: 10 + (depth + 1) * 14 }}
+          onChange={setCreateDirName}
+          onCommit={commitCreateDir}
+          onCancel={cancelCreateDir}
+        />
+      ) : null}
       {!collapsed
         ? node.children?.map((c) => (
             <TreeNode
@@ -225,6 +255,11 @@ function TreeNode({
               setRenameName={setRenameName}
               commitRename={commitRename}
               cancelRename={cancelRename}
+              creatingDirPath={creatingDirPath}
+              createDirName={createDirName}
+              setCreateDirName={setCreateDirName}
+              commitCreateDir={commitCreateDir}
+              cancelCreateDir={cancelCreateDir}
               onOpen={onOpen}
               onRename={onRename}
               onDelete={onDelete}
@@ -246,7 +281,8 @@ export interface WritingSpaceGroupProps {
   tree: PromptNode | null | undefined;
   currentFile: string | null;
   pendingPaths: Record<string, unknown>;
-  // 新建目录内联输入:命中本空间时在树顶渲染(dir=目标目录)。文件创建走即时 untitled,不用输入行。
+  // 新建目录内联输入(dir=目标目录):目标是空间根 → 树顶渲染;目标是树内目录 → 由对应
+  // TreeNode 渲染在该目录行正下方并自动展开。文件创建走即时 untitled,不用输入行。
   creatingDir: { spaceId: string; dir: string; name: string } | null;
   setCreateDirName: (v: string) => void;
   commitCreateDir: () => void;
@@ -293,7 +329,11 @@ export function WritingSpaceGroup({
   onStartRename,
   onDelete,
 }: WritingSpaceGroupProps): ReactElement {
-  const showCreateDir = expanded && creatingDir?.spaceId === space.id;
+  // 树顶输入行只服务「在空间根新建目录」;目标是树内某个目录时,输入行由对应 TreeNode
+  // 渲染在该目录行正下方(所见即所得,见 TreeNode 的 creatingHere)。
+  const creatingInSpace = creatingDir?.spaceId === space.id ? creatingDir : null;
+  const showCreateDir = expanded && !!creatingInSpace && creatingInSpace.dir === space.root;
+  const creatingDirPath = creatingInSpace && creatingInSpace.dir !== space.root ? creatingInSpace.dir : null;
 
   return (
     <div className="pw-writing-space-group">
@@ -375,7 +415,7 @@ export function WritingSpaceGroup({
         <div className="pw-writing-space-body">
           {showCreateDir ? (
             <InlineInput
-              value={creatingDir!.name}
+              value={creatingInSpace!.name}
               ariaLabel="新建目录名"
               placeholder="目录名"
               onChange={setCreateDirName}
@@ -400,6 +440,11 @@ export function WritingSpaceGroup({
                 setRenameName={setRenameName}
                 commitRename={commitRename}
                 cancelRename={cancelRename}
+                creatingDirPath={creatingDirPath}
+                createDirName={creatingInSpace?.name ?? ""}
+                setCreateDirName={setCreateDirName}
+                commitCreateDir={commitCreateDir}
+                cancelCreateDir={cancelCreateDir}
                 onOpen={onOpenFile}
                 onRename={onStartRename}
                 onDelete={onDelete}

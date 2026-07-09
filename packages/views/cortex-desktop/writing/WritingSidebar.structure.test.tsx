@@ -119,6 +119,35 @@ describe("WritingSidebar 新结构", () => {
     expect(useWritingWorkspaceStore.getState().currentFile).toBe("/other/b.md");
   });
 
+  it("目录内新建目录:输入行渲染在该目录行正下方,且目录自动展开", async () => {
+    // 树里放一个折叠子目录 sub(含 c.md):点 sub 行的「新建目录」→ 输入行紧贴 sub 行下方 + sub 自动展开。
+    const treeWithDir: PromptNode = {
+      name: "writing",
+      path: "/space",
+      kind: "dir",
+      children: [
+        {
+          name: "sub",
+          path: "/space/sub",
+          kind: "dir",
+          children: [{ name: "c.md", path: "/space/sub/c.md", kind: "file" }],
+        },
+        { name: "a.md", path: "/space/a.md", kind: "file" },
+      ],
+    };
+    renderSidebar(makeBridge({ scanDirTree: vi.fn(async () => treeWithDir) } as Partial<DesktopBridge>));
+    await screen.findByText("sub");
+    // 目录默认折叠:c.md 不可见。
+    expect(screen.queryByText("c.md")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "在 sub 新建目录" }));
+    // 输入行出现且紧贴 sub 行正下方(DOM 相邻),不在树顶。
+    const input = screen.getByLabelText("新建目录名");
+    const subRow = screen.getByText("sub").closest(".pw-tree-row")!;
+    expect(subRow.nextElementSibling).toBe(input.closest(".pw-writing-inline-input"));
+    // 目录随之自动展开(否则输入行/新目录看不见)。
+    expect(await screen.findByText("c.md")).toBeTruthy();
+  });
+
   it("折叠空间 → unwatch 该空间", async () => {
     const bridge = makeBridge();
     renderSidebar(bridge);
