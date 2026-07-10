@@ -8,7 +8,8 @@
   --text-3: #94918a;
   --border: #e6e4dd;
   --bg-hover: #ecebe6;
-  --accent: #c96442;
+  /* 品牌色:紫色,与主窗口 cortex-desktop.css 的 --accent 保持一致 */
+  --accent: #7c3aed;
   /* 卡片上下渐变(参考气泡视觉:顶部略亮、无描边)。 */
   --card-bg-top: rgba(255, 255, 255, 0.98);
   --card-bg-bottom: rgba(245, 244, 240, 0.95);

@@ -224,7 +224,6 @@
     "fontMedium": "Medium",
     "fontLarge": "Large",
     "density": "Layout density",
-    "palette": "Brand palette",
     "sidebar": "Sidebar style",
     "workspaceRoot": "Default working directory",
     "workspaceRootDesc": "Where the agent runs for new project-less conversations / scheduled tasks without a project (leave empty to use the home directory).",

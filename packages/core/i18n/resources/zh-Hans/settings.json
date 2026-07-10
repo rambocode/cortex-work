@@ -224,7 +224,6 @@
     "fontMedium": "中",
     "fontLarge": "大",
     "density": "布局密度",
-    "palette": "品牌色调",
     "sidebar": "侧栏样式",
     "workspaceRoot": "默认工作目录",
     "workspaceRootDesc": "新建无项目会话 / 定时任务未指定项目时,agent 在此目录运行（留空则用主目录）。",

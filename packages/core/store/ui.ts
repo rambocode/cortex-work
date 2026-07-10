@@ -2,7 +2,7 @@
 // client/UI state lives here — never server data (that stays in React Query).
 
 import { create } from "zustand";
-import type { Density, Palette, SidebarMode, Toast, ToastKind, Tweaks } from "../types";
+import type { Density, SidebarMode, Toast, ToastKind, Tweaks } from "../types";
 import { DEFAULT_LOCALE } from "../i18n/locales";
 
 // Which page fills the main content area. "chat" is the default IM view; the
@@ -67,7 +67,6 @@ const KIND_ICON: Record<ToastKind, string> = {
 
 export const DEFAULT_TWEAKS: Tweaks = {
   density: "regular" as Density,
-  palette: "clay" as Palette,
   sidebar: "rich" as SidebarMode,
   fontScale: "medium",
   theme: "system",

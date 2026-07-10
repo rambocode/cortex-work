@@ -18,8 +18,9 @@
   --text-3: #94918a;
   --text-4: #b8b5ac;
 
-  --accent: #c96442;
-  --accent-soft: #f3e7df;
+  /* 品牌色:紫色（原 twilight 色板,palette 机制已移除,固化为唯一默认） */
+  --accent: #7c3aed;
+  --accent-soft: #ede5fd;
   --link: #2563eb;
 
   --green: #16a34a;
@@ -69,7 +70,7 @@
 }
 
 /* 明暗主题基础 token（通用设置 主题 → documentElement[data-theme]）。覆盖中性色,
-   品牌主色保留；逐组件 light/dark 视觉打磨为迭代项。与 [data-palette] 正交叠加。 */
+   品牌主色保留；逐组件 light/dark 视觉打磨为迭代项。 */
 [data-theme="dark"] {
   --bg-app: #1a1916;
   --bg-sidebar: #1f1e1a;
@@ -90,7 +91,8 @@
   --text-3: #8a877f;
   --text-4: #66635c;
 
-  --accent-soft: #3a2a22;
+  /* 深色下的品牌软底:紫调暗色（与本块 --violet-soft 同值） */
+  --accent-soft: #251a38;
   --green-soft: #16271f;
   --amber-soft: #2c2310;
   --red-soft: #2e1a1a;
@@ -3195,20 +3197,6 @@ input, textarea { font: inherit; color: inherit; }
   font-style: normal;
 }
 
-/* ──────── Tweaks: Palette ──────── */
-[data-palette="twilight"] {
-  --accent: #7c3aed;
-  --accent-soft: #ede5fd;
-}
-[data-palette="forest"] {
-  --accent: #0d9488;
-  --accent-soft: #d4ebe8;
-}
-[data-palette="ink"] {
-  --accent: #1a1916;
-  --accent-soft: #e6e4dd;
-}
-
 /* ──────── Tweaks: Density ──────── */
 [data-density="compact"] .sb-row { padding: 4px 8px; font-size: 12.5px; }
 [data-density="compact"] .contact { padding: 4px 8px; column-gap: 8px; }
@@ -3451,11 +3439,8 @@ button.sb-row {
 /* ──────── Composer focus state ──────── */
 .composer:focus-within {
   border-color: var(--border-strong);
-  box-shadow: 0 0 0 3px rgba(201, 100, 66, 0.08), 0 1px 0 rgba(20,18,12,0.02), 0 4px 16px rgba(20,18,12,0.04);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.10), 0 1px 0 rgba(20,18,12,0.02), 0 4px 16px rgba(20,18,12,0.04);
 }
-[data-palette="twilight"] .composer:focus-within { box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.10), 0 1px 0 rgba(20,18,12,0.02), 0 4px 16px rgba(20,18,12,0.04); }
-[data-palette="forest"] .composer:focus-within { box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.10), 0 1px 0 rgba(20,18,12,0.02), 0 4px 16px rgba(20,18,12,0.04); }
-[data-palette="ink"] .composer:focus-within { box-shadow: 0 0 0 3px rgba(26, 25, 22, 0.10), 0 1px 0 rgba(20,18,12,0.02), 0 4px 16px rgba(20,18,12,0.04); }
 
 /* ════════ Tweaks panel (floating, host-protocol-free) ════════ */
 .twk-fab {
@@ -3504,7 +3489,7 @@ button.sb-row {
 /* 录制式快捷键控件(HotkeyCapture):常态显示键位 + 「点击修改」,录制态高亮提示。 */
 .twk-hotkey { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 10px; border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 8px; background: rgba(255, 255, 255, 0.9); color: inherit; font: inherit; cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; }
 .twk-hotkey:hover { border-color: rgba(0, 0, 0, 0.28); }
-.twk-hotkey.is-recording { border-color: var(--accent, #c96442); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #c96442) 22%, transparent); }
+.twk-hotkey.is-recording { border-color: var(--accent, #7c3aed); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #7c3aed) 22%, transparent); }
 .twk-hotkey-val { font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
 .twk-hotkey.is-recording .twk-hotkey-val { font-weight: 500; color: rgba(41, 38, 27, 0.6); }
 /* 录制态按到无法识别的键:红色闪边框 + 提示文字,短暂后由组件恢复常态。 */
@@ -6226,8 +6211,8 @@ button.sb-row {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .pw-fu-composer:focus-within {
-  border-color: var(--accent, #c96442);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #c96442) 14%, transparent),
+  border-color: var(--accent, #7c3aed);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #7c3aed) 14%, transparent),
     0 4px 16px rgba(20, 18, 12, 0.04);
 }
 .pw-fu-input {
@@ -7267,11 +7252,11 @@ button.sb-row {
   background: var(--bg-soft); cursor: pointer; text-align: left; width: 100%;
 }
 .pw-prov-item:hover { border-color: var(--text-3); }
-.pw-prov-item.is-active { border-color: var(--accent, #c96442); background: var(--bg-app); }
+.pw-prov-item.is-active { border-color: var(--accent, #7c3aed); background: var(--bg-app); }
 .pw-prov-item-name { font-size: 13px; font-weight: 600; color: var(--text-1, #1a1916); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .pw-prov-item-meta { display: flex; flex-wrap: wrap; gap: 4px; }
 .pw-prov-badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: var(--border); color: var(--text-3); }
-.pw-prov-badge.is-default { background: var(--accent, #c96442); color: #fff; }
+.pw-prov-badge.is-default { background: var(--accent, #7c3aed); color: #fff; }
 .pw-prov-detail { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-soft); }
 .pw-prov-detail textarea.pw-set-input { resize: vertical; min-height: 52px; line-height: 1.5; font-family: var(--mono, ui-monospace, monospace); }
 .pw-prov-probe { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

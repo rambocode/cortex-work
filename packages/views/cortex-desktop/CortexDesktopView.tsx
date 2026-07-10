@@ -110,7 +110,6 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
       <div
         className="app-frame"
         data-density={tweaks.density}
-        data-palette={tweaks.palette}
         data-sidebar={tweaks.sidebar}
         data-right={rightOpen ? "on" : "off"}
         data-left-collapsed={leftCollapsed ? "on" : undefined}

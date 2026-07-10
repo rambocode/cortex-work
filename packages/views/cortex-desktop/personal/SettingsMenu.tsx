@@ -8,7 +8,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
 import { Toggle } from "@cortex-work/ui/controls/Toggle";
-import { PaletteChips, type PaletteOption } from "@cortex-work/ui/controls/PaletteChips";
 import { HotkeyCapture } from "@cortex-work/ui/controls/HotkeyCapture";
 import { formatAccelerator } from "@cortex-work/ui/controls/hotkeyAccelerator";
 import {
@@ -50,7 +49,7 @@ import type {
   UpdateState,
   WecomPushConfig,
 } from "@cortex-work/core";
-import type { Density, FontScale, Palette, SidebarMode, ThemeMode } from "@cortex-work/core/types";
+import type { Density, FontScale, SidebarMode, ThemeMode } from "@cortex-work/core/types";
 import { useTranslation, type Locale } from "@cortex-work/core/i18n";
 import { PET_DESIGNS, PET_KIND_KEY, PET_SIZE_KEY, PET_SIZE_MAX, PET_SIZE_MIN } from "../pet/designs";
 import { PET_SPRITES } from "../pet/sprites";
@@ -68,13 +67,6 @@ import { WritingSettingsSection } from "./WritingSettingsSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { BareSelect, SBlock, SRow, SecretField, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "./platform";
-
-const PALETTES: PaletteOption[] = [
-  { id: "clay", name: "Clay", colors: ["#c96442", "#f3e7df", "#1a1916"] },
-  { id: "twilight", name: "Twilight", colors: ["#7c3aed", "#ede5fd", "#1a1916"] },
-  { id: "forest", name: "Forest", colors: ["#0d9488", "#d4ebe8", "#1a1916"] },
-  { id: "ink", name: "Ink", colors: ["#1a1916", "#e6e4dd", "#5e5c56"] },
-];
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
@@ -411,9 +403,6 @@ function GeneralSection() {
             options={["compact", "regular", "cozy"]}
             onChange={(v) => setTweak("density", v as Density)}
           />
-        </SRow>
-        <SRow label={t("general.palette")}>
-          <PaletteChips value={tweaks.palette} options={PALETTES} onChange={(v) => setTweak("palette", v as Palette)} />
         </SRow>
         <SRow label={t("general.sidebar")}>
           <SegmentedRadio
