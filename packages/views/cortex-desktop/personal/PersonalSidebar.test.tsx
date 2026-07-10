@@ -221,6 +221,36 @@ describe("PersonalSidebar 项目上下文结构", () => {
     expect(card?.querySelector('button[title="更多项目操作"]')).toBeTruthy();
   });
 
+  it("当前项目可展开和隐藏已归档会话", () => {
+    const archivedSession = { ...sessionA, id: "archived-session", title: "已归档会话", archivedAt: 10 };
+    usePersonalStore.setState({
+      projects: [projectA],
+      sessions: [sessionA, archivedSession],
+      activeProjectId: projectA.id,
+      activeSessionId: sessionA.id,
+      homeOpen: false,
+    });
+    renderSidebar(bridgeWith());
+    expect(screen.queryByText("已归档会话")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "显示已归档会话 (1)" }));
+    expect(screen.getByText("已归档会话")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "隐藏已归档会话" }));
+    expect(screen.queryByText("已归档会话")).toBeNull();
+  });
+
+  it("当前项目本身已归档时不在已归档切换组重复出现", () => {
+    const archivedProject = { ...projectA, archivedAt: 10 };
+    usePersonalStore.setState({
+      projects: [archivedProject],
+      sessions: [sessionA],
+      activeProjectId: projectA.id,
+      activeSessionId: sessionA.id,
+      homeOpen: false,
+    });
+    renderSidebar(bridgeWith());
+    expect(screen.queryByText("已归档 (1)")).toBeNull();
+  });
+
   it("点击项目切换项选择该项目最近更新的会话", () => {
     const older = { ...sessionA, id: "session-b-old", projectId: projectB.id, title: "旧 Tandem 会话", updatedAt: 3 };
     const latest = { ...sessionA, id: "session-b-latest", projectId: projectB.id, title: "新 Tandem 会话", updatedAt: 4 };

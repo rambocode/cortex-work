@@ -249,6 +249,7 @@ export function PersonalSidebar({
   // 「已归档」分组折叠态（本地,默认折叠）。
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [contextMenuAnchor, setContextMenuAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [revealedArchiveProjectId, setRevealedArchiveProjectId] = useState<string>();
 
   useEffect(() => {
     let cancelled = false;
@@ -283,7 +284,14 @@ export function PersonalSidebar({
       return contextIsNoProject && !session.projectId;
     })
     .sort((a, b) => b.updatedAt - a.updatedAt);
+  const contextArchivedSessions = contextProject
+    ? sessions
+        .filter((session) => session.projectId === contextProject.id && session.archivedAt != null)
+        .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0))
+    : [];
+  const showContextArchived = contextProject?.id === revealedArchiveProjectId;
   const projectChoices = visible.filter((project) => project.id !== contextProject?.id);
+  const archivedChoices = archived.filter((project) => project.id !== contextProject?.id);
   const defaultAgent = resolveDefaultAgent({ generalSettings, agentsAvailable });
   const conversationModeOpen = !writingOpen && !designOpen && !automationOpen && !workflowOpen && !settingsOpen;
 
@@ -341,6 +349,15 @@ export function PersonalSidebar({
           {contextProject ? <Icon.Folder size={15} /> : <Icon.File size={15} />}
           <strong>{contextProject?.name ?? (contextIsNoProject ? "无项目会话" : "选择一个项目开始")}</strong>
           {contextProject ? <span>当前项目</span> : null}
+          {contextProject && contextArchivedSessions.length > 0 ? (
+            <button
+              className={`pw-icon-btn pw-context-card-menu ${showContextArchived ? "is-active" : ""}`}
+              title={showContextArchived ? "隐藏已归档会话" : `显示已归档会话 (${contextArchivedSessions.length})`}
+              onClick={() => setRevealedArchiveProjectId(showContextArchived ? undefined : contextProject.id)}
+            >
+              <Icon.File size={13} />
+            </button>
+          ) : null}
           {contextProject ? (
             <button
               className={`pw-icon-btn pw-context-card-menu ${contextMenuAnchor ? "is-active" : ""}`}
@@ -400,6 +417,17 @@ export function PersonalSidebar({
               <span>新建第一条会话</span>
             </button>
           )}
+          {showContextArchived
+            ? contextArchivedSessions.map((session) => (
+                <SessionRow
+                  key={session.id}
+                  session={session}
+                  active={session.id === activeSessionId}
+                  onSelect={() => setActiveSession(session.id)}
+                  onToast={onToast}
+                />
+              ))
+            : null}
         </section>
 
         <section className="pw-project-switcher">
@@ -429,10 +457,10 @@ export function PersonalSidebar({
               <small>{noProjectSessions.length}</small>
             </button>
           ) : null}
-          {projectChoices.length === 0 && noProjectSessions.length === 0 && archived.length === 0 ? (
+          {projectChoices.length === 0 && noProjectSessions.length === 0 && archivedChoices.length === 0 ? (
             <div className="pw-project-switch-empty">暂无其他项目</div>
           ) : null}
-          {archived.length > 0 ? (
+          {archivedChoices.length > 0 ? (
             <div className="pw-archived-group">
               <button
                 className="pw-archived-h"
@@ -442,10 +470,10 @@ export function PersonalSidebar({
                 <span className="chev">
                   <Icon.Chevron size={10} />
                 </span>
-                <span>已归档 ({archived.length})</span>
+                <span>已归档 ({archivedChoices.length})</span>
               </button>
               {archivedOpen
-                ? archived.map((project) => (
+                ? archivedChoices.map((project) => (
                     <ProjectSwitchRow
                       key={project.id}
                       project={project}
