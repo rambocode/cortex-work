@@ -65,6 +65,7 @@ import { ReplySettingsSection } from "./ReplySettingsSection";
 import { RolesSection } from "./RolesSettingsSection";
 import { DesignSettingsSection } from "./DesignSettingsSection";
 import { WritingSettingsSection } from "./WritingSettingsSection";
+import { MemorySettingsSection } from "./MemorySettingsSection";
 import { BareSelect, SBlock, SRow, SecretField, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "./platform";
 
@@ -83,6 +84,7 @@ type TFunction = (key: string, opts?: Record<string, unknown>) => string;
 type SettingsTab =
   | "profile"
   | "general"
+  | "memory"
   | "archivedSessions"
   | "providers"
   | "agent"
@@ -105,6 +107,8 @@ type SettingsTab =
 const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> = {
   profile: { tabKey: "tabs.profile", icon: <Icon.Users size={14} /> },
   general: { tabKey: "tabs.general", icon: <Icon.Settings size={14} /> },
+  // 用户记忆（跨会话/写作/设计共享的做梦式持久记忆;Web 端由 memoryAvailable 过滤隐藏）
+  memory: { tabKey: "tabs.memory", icon: <Icon.Sparkle size={14} /> },
   archivedSessions: { tabKey: "tabs.archivedSessions", icon: <Icon.Archive size={14} /> },
   providers: { tabKey: "tabs.providers", icon: <Icon.Globe size={14} /> },
   agent: { tabKey: "tabs.agent", icon: <Icon.Terminal size={14} /> },
@@ -130,7 +134,7 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
 // 设置左栏分组：组标题走 i18n（settings:tabGroups.*）,组内项按数组顺序渲染。
 // 「应用」组并列「插件」「浏览器」两项（用户确认的 IA）。
 const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
-  { groupKey: "tabGroups.general", items: ["profile", "general", "archivedSessions"] },
+  { groupKey: "tabGroups.general", items: ["profile", "general", "memory", "archivedSessions"] },
   { groupKey: "tabGroups.models", items: ["providers", "agent", "pi", "roles"] },
   // 媒体生成挂「应用」组,语音转文字挂「个性化」组（同 pet/voice 并列,U2 新增）
   { groupKey: "tabGroups.apps", items: ["plugins", "browser", "mediaGen", "design", "writing"] },
@@ -1884,14 +1888,17 @@ export function PersonalSettingsView() {
 
   // 快捷回复分区仅 macOS + 桥接可用时出现（非 mac / Web 隐藏整分区，含左栏入口）。
   const replyAvailable = useMemo(() => detectIsMac() && !!bridge?.replyGetPermissions, [bridge]);
+  // 用户记忆分区仅桌面端桥接可用时出现（Web/旧壳无 memory* 方法 → 隐藏整分区）。
+  const memoryAvailable = useMemo(() => !!bridge?.memoryGet, [bridge]);
 
   // 消费 store 的目标分区跳转（openSettings(tab) 设入）：合法且可见的 tab 才切换。
   // 依赖 replyAvailable 保证 reply 分区在门控通过后才跳转，避免跳到被隐藏的分区。
   useEffect(() => {
     if (!settingsTab) return;
     if (settingsTab === "reply" && !replyAvailable) return;
+    if (settingsTab === "memory" && !memoryAvailable) return;
     if (settingsTab in TAB_META) setTab(settingsTab as SettingsTab);
-  }, [settingsTab, replyAvailable]);
+  }, [settingsTab, replyAvailable, memoryAvailable]);
 
   // 挂载时把焦点移入覆盖层（返回按钮）,避免键盘焦点停在被遮挡但仍在 DOM 的底层控件上。
   useEffect(() => {
@@ -1922,6 +1929,7 @@ export function PersonalSettingsView() {
             <div className="pw-dlg-nav-h">{t(group.groupKey)}</div>
             {group.items
               .filter((id) => id !== "reply" || replyAvailable)
+              .filter((id) => id !== "memory" || memoryAvailable)
               .map((id) => (
               <button
                 key={id}
@@ -1942,6 +1950,8 @@ export function PersonalSettingsView() {
             <ProfileSection />
           ) : tab === "general" ? (
             <GeneralSection />
+          ) : tab === "memory" ? (
+            <MemorySettingsSection />
           ) : tab === "archivedSessions" ? (
             <ArchivedSessionsSection />
           ) : tab === "providers" ? (

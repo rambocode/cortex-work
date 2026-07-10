@@ -163,6 +163,18 @@ export function replyMemoryPath(): string {
   return join(replyDataDir(), "memory.json");
 }
 
+// 用户记忆（跨会话/写作/设计共享的语义记忆）目录：~/.cortex-desktop/memory/，
+// 每分区一个 markdown（profile/preferences/projects.md,用户可 Finder 直接编辑,
+// 见 memory/memory-store.ts）。与 reply 域的 replyMemoryDir 互相独立。
+export function userMemoryDir(): string {
+  return join(cortexHome(), "memory");
+}
+
+// 做梦整理的水位与历史：memory/dream-state.json（main-owned,见 memory/dream-state.ts）。
+export function userMemoryDreamStatePath(): string {
+  return join(userMemoryDir(), "dream-state.json");
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await fsp.access(path);

@@ -12,6 +12,7 @@
 import { create } from "zustand";
 import type { DesktopBridge } from "../../desktop/bridge";
 import type { CliStartRequest, CliStreamEvent, ReasoningEffort } from "../../desktop/types";
+import { buildMemoryAppend } from "../../memory/inject";
 
 // 写作 run 的 runId 前缀契约(与 messages.ts 的 phantom-run 守卫、事件过滤共同依赖)。
 // runId 形如 writing:<spaceId>:<uid>;sessionId 另用 writing-<threadUuid> 前缀。
@@ -343,6 +344,11 @@ export async function sendWritingMessage(params: SendWritingMessageParams): Prom
     ...(params.displayText ? { displayText: params.displayText } : {}),
   });
 
+  // 用户记忆注入:与调用方传入的 append(skill prose / claude slash 降级上下文)合并。
+  // 在 run-manager 收口而非组件侧,保证写作台所有发送路径都带记忆(开关关/全空 → undefined)。
+  const appendSystemPrompt =
+    [params.appendSystemPrompt, buildMemoryAppend()].filter(Boolean).join("\n\n") || undefined;
+
   const req: CliStartRequest = {
     runId,
     sessionId,
@@ -355,7 +361,7 @@ export async function sendWritingMessage(params: SendWritingMessageParams): Prom
     // skill 注入(有传才带;useOwnSkills 恒 true——写作面板无会话级一键关 skill 的开关)。
     ...(params.skillRecords?.length ? { skillRecords: params.skillRecords, useOwnSkills: true } : {}),
     ...(params.invokedSkill ? { invokedSkill: params.invokedSkill } : {}),
-    ...(params.appendSystemPrompt ? { appendSystemPrompt: params.appendSystemPrompt } : {}),
+    ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
     ...(resumeSessionId ? { resumeSessionId } : {}),
     // accept-edits:免审批写空间内文件(agent 用 Write/Edit 工具直接改稿),不放开任意命令;
     // print 模式无交互审批,approvalPolicy 必须 auto。

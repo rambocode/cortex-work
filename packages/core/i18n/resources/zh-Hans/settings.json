@@ -22,7 +22,8 @@
     "roles": "角色",
     "reply": "快捷回复",
     "design": "设计",
-    "writing": "写作"
+    "writing": "写作",
+    "memory": "记忆"
   },
   "tabGroups": {
     "general": "通用",
@@ -768,5 +769,53 @@
     "modelDesc": "留空沿用个人工作区当前模型。",
     "generationPrompt": "生成契约覆盖",
     "generationPromptDesc": "覆盖内置的单文件 HTML 生成规则。留空用默认。"
+  },
+  "memory": {
+    "title": "记忆",
+    "desc": "跨会话、写作、设计共享的持久用户记忆。后台像做梦一样定期回放近期会话,提炼稳定的事实与偏好并遗忘过时内容;记忆会注入每次 AI 对话。",
+    "switchCard": "总开关",
+    "enabledLabel": "启用用户记忆",
+    "enabledDesc": "关闭后不再注入任何对话,后台整理也会停止。",
+    "contentCard": "记忆内容",
+    "contentDesc": "手写补充优先级最高;自动整理由做梦管线维护,也可手动校正。文件就在本机,可直接编辑。",
+    "scope": {
+      "profile": "用户画像",
+      "preferences": "偏好习惯",
+      "projects": "项目背景"
+    },
+    "manualLabel": "手写补充(优先级最高)",
+    "manualPlaceholder": "写下希望 AI 始终记住的事,例如:我是一名前端工程师,项目用 pnpm……",
+    "autoLabel": "自动整理(做梦学到的)",
+    "autoEmpty": "还没有自动整理的记忆。聊几轮天后点「立即整理」,或等后台自动完成。",
+    "dreamCard": "做梦整理",
+    "dreamNowLabel": "立即整理",
+    "dreamNow": "立即整理",
+    "dreamBusy": "整理中…",
+    "lastDreamAt": "上次整理:{{time}}。平时会在会话空闲后与每日凌晨自动整理。",
+    "neverDreamed": "还没有整理过。会在会话空闲后与每日凌晨自动整理,也可手动触发。",
+    "dreamDone": "整理完成:消化 {{sessions}} 段会话,更新 {{scopes}} 个分区。",
+    "dreamNothingNew": "没有新的会话内容需要整理。",
+    "dreamInFlight": "已有整理进行中,稍后自动完成。",
+    "dreamDisabled": "记忆开关已关闭,打开后再试。",
+    "dreamNoModel": "尚未配置生成模型,请先在「供应商」中配置。",
+    "dreamFailed": "整理失败:{{detail}}",
+    "trigger": {
+      "manual": "手动",
+      "scheduled": "定时",
+      "catchup": "补跑",
+      "idle": "空闲"
+    },
+    "historyOk": "消化 {{sessions}} 段会话,更新 {{scopes}} 个分区",
+    "historyFailed": "失败",
+    "dataCard": "数据管理",
+    "dataFilesLabel": "记忆文件",
+    "dataFilesDesc": "三个分区各是一个 markdown 文件,存放在本机,可直接查看与编辑。",
+    "openFolder": "打开文件夹",
+    "clearLabel": "清除记忆",
+    "clearDesc": "「清自动整理」保留手写内容;「全部清除」重置为初始模板。",
+    "clearAuto": "清自动整理",
+    "clearAll": "全部清除",
+    "clearAutoConfirm": "确定清除所有自动整理的记忆吗?手写内容会保留。",
+    "clearAllConfirm": "确定清除全部记忆吗?手写内容也会一并清除,且不可恢复。"
   }
 }

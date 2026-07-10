@@ -7,6 +7,9 @@ import { join } from "path";
 import { chatBranchesDir, chatDocsDir, chatImagesDir, chatsDir, ensureMigrated } from "../paths";
 import { enqueue } from "./sessionWriteQueue";
 import { createLogger } from "../log";
+// 用户记忆「小睡」触发信号：每次会话落盘都视为一次活动,空闲一段时间后做梦增量整理
+// （调度器未初始化时安全 no-op,见 memory/dream-scheduler.ts）。
+import { noteMemoryActivity } from "../memory/dream-scheduler";
 
 const log = createLogger("personal-chats");
 
@@ -51,6 +54,8 @@ export function registerChatHandlers(): void {
         const payload = branchGroups?.length ? { version: 2, messages, branchGroups } : messages;
         await fsp.writeFile(tmp, JSON.stringify(payload), "utf8");
         await fsp.rename(tmp, path);
+        // 会话有新内容落盘 → 上报记忆活动（重置做梦「小睡」debounce 计时器）。
+        noteMemoryActivity();
       } catch (err) {
         log.error("save failed:", err);
       }

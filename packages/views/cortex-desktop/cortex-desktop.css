@@ -10192,6 +10192,10 @@ button.sb-row {
 .pw-reply-dot.is-granted { background: var(--green, #34c759); }
 .pw-reply-dot.is-denied { background: var(--red, #ff3b30); }
 
+/* 用户记忆设置分区（MemorySettingsSection）：做梦历史列表 + 清除按钮组。 */
+.pw-memory-history { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.pw-memory-clear-actions { display: flex; align-items: center; gap: 8px; }
+
 /* 黑底主按钮（设计稿的强调操作:去授权 / 连接）。用 --text-1/--bg-app 反色,深色主题自适应。 */
 .pw-reply-btn-primary { border: none; border-radius: 8px; padding: 6px 14px; background: var(--text-1); color: var(--bg-app); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; flex: none; }
 .pw-reply-btn-primary:hover { opacity: 0.85; }

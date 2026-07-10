@@ -567,6 +567,9 @@ export interface GeneralSettings {
   // 浏览器控制（agent 经第一方 MCP server 驱动内置 webview）——总开关 / CDP / 非本地导航预授权白名单。
   // 缺省 = DEFAULT_BROWSER_CONTROL。主进程读 enabled 决定是否注入浏览器 server（cli.ts），故**进** main 镜像。
   browserControl?: BrowserControlSettings;
+  // 用户记忆总开关（跨会话/写作/设计共享的持久记忆,见 core/memory/）:关闭后既不注入 prompt,
+  // 主进程做梦整理管线也停跑。缺省 = 开启（只有显式 false 才关）。主进程读它门控 Dreamer,**进** main 镜像。
+  memoryEnabled?: boolean;
 }
 
 // pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。

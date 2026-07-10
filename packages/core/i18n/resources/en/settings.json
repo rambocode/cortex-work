@@ -22,7 +22,8 @@
     "roles": "Roles",
     "reply": "Quick Reply",
     "design": "Design",
-    "writing": "Writing"
+    "writing": "Writing",
+    "memory": "Memory"
   },
   "tabGroups": {
     "general": "General",
@@ -768,5 +769,53 @@
     "modelDesc": "Empty = follow the current workspace model.",
     "generationPrompt": "Generation contract override",
     "generationPromptDesc": "Override the built-in single-file HTML rules. Empty = default."
+  },
+  "memory": {
+    "title": "Memory",
+    "desc": "Persistent user memory shared across chat, writing, and design. In the background it replays recent conversations like dreaming — distilling stable facts and preferences, forgetting stale ones. Memory is injected into every AI turn.",
+    "switchCard": "Master switch",
+    "enabledLabel": "Enable user memory",
+    "enabledDesc": "When off, nothing is injected and background consolidation stops.",
+    "contentCard": "Memory content",
+    "contentDesc": "Handwritten notes have the highest priority; the auto section is maintained by the dream pipeline and can be edited. Files live on this machine and can be edited directly.",
+    "scope": {
+      "profile": "Profile",
+      "preferences": "Preferences",
+      "projects": "Projects"
+    },
+    "manualLabel": "Handwritten (highest priority)",
+    "manualPlaceholder": "Write what the AI should always remember, e.g. I'm a frontend engineer, projects use pnpm…",
+    "autoLabel": "Auto-consolidated (learned while dreaming)",
+    "autoEmpty": "No consolidated memory yet. Chat for a while, then hit \"Consolidate now\" or wait for the background run.",
+    "dreamCard": "Dream consolidation",
+    "dreamNowLabel": "Consolidate now",
+    "dreamNow": "Consolidate now",
+    "dreamBusy": "Consolidating…",
+    "lastDreamAt": "Last run: {{time}}. Runs automatically when chats go idle and nightly.",
+    "neverDreamed": "Never run yet. Runs automatically when chats go idle and nightly; you can also trigger it manually.",
+    "dreamDone": "Done: digested {{sessions}} conversations, updated {{scopes}} sections.",
+    "dreamNothingNew": "No new conversation content to consolidate.",
+    "dreamInFlight": "A run is already in progress; it will finish on its own.",
+    "dreamDisabled": "Memory is switched off — enable it and retry.",
+    "dreamNoModel": "No generation model configured. Set one up under \"Providers\" first.",
+    "dreamFailed": "Failed: {{detail}}",
+    "trigger": {
+      "manual": "manual",
+      "scheduled": "scheduled",
+      "catchup": "catch-up",
+      "idle": "idle"
+    },
+    "historyOk": "digested {{sessions}} conversations, updated {{scopes}} sections",
+    "historyFailed": "failed",
+    "dataCard": "Data",
+    "dataFilesLabel": "Memory files",
+    "dataFilesDesc": "Each section is a markdown file stored on this machine — view and edit directly.",
+    "openFolder": "Open folder",
+    "clearLabel": "Clear memory",
+    "clearDesc": "\"Clear auto\" keeps handwritten notes; \"Clear all\" resets to the initial template.",
+    "clearAuto": "Clear auto",
+    "clearAll": "Clear all",
+    "clearAutoConfirm": "Clear all auto-consolidated memory? Handwritten notes are kept.",
+    "clearAllConfirm": "Clear ALL memory? Handwritten notes will be removed too. This cannot be undone."
   }
 }

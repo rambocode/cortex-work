@@ -129,6 +129,15 @@ import type {
   LocalWhisperSourcesResult,
 } from "@cortex-work/core/whisper/models";
 import type { Locale } from "@cortex-work/core/i18n/native";
+// 用户记忆（跨工作台持久记忆）IPC 契约类型(type-only,编译期擦除;类型真源在 core/memory/memory.ts,
+// main 侧 ipc/memory.ts 同样直接引用 core,无需再建镜像)。
+import type {
+  DreamStateSummary,
+  MemoryDreamResult,
+  UserMemoryFile,
+  UserMemoryScope,
+  UserMemoryState,
+} from "@cortex-work/core/memory/memory";
 
 interface AppInfo {
   version: string;
@@ -815,6 +824,22 @@ const personal = {
     const listener = (): void => cb();
     ipcRenderer.on("reply:openSettings", listener);
     return () => ipcRenderer.removeListener("reply:openSettings", listener);
+  },
+  // ── 用户记忆（跨工作台持久记忆 + 做梦整理）IPC 透传 ─────────────────────────
+  // 形状与 packages/core/desktop/bridge.ts 的 memory* 方法一一对应；真源在 main
+  // （~/.cortex-desktop/memory/*.md），渲染端只持只读缓存。
+  memoryGet: (): Promise<UserMemoryState> => ipcRenderer.invoke("memory:get"),
+  memorySetFile: (scope: UserMemoryScope, patch: Partial<UserMemoryFile>): Promise<void> =>
+    ipcRenderer.invoke("memory:setFile", scope, patch),
+  memoryClear: (kind: "all" | "auto"): Promise<void> => ipcRenderer.invoke("memory:clear", kind),
+  memoryDreamNow: (): Promise<MemoryDreamResult> => ipcRenderer.invoke("memory:dreamNow"),
+  memoryGetDreamState: (): Promise<DreamStateSummary> => ipcRenderer.invoke("memory:getDreamState"),
+  memoryOpenFolder: (): Promise<void> => ipcRenderer.invoke("memory:openFolder"),
+  // 订阅 main 记忆变更（做梦写回后推全量记忆 → 渲染端刷新只读缓存）。返回退订函数。
+  onMemoryChanged: (cb: (memory: UserMemoryState) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, memory: UserMemoryState) => cb(memory);
+    ipcRenderer.on("memory:changed", listener);
+    return () => ipcRenderer.removeListener("memory:changed", listener);
   },
   // ── 桌面宠物脱离主窗体(独立 pet-overlay 窗口)──────────────────────────────
   // 主窗口 PetBridge 用 reportPetState 转发 usePetStore 变化;pet-overlay 窗口用

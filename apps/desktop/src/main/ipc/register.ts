@@ -34,6 +34,7 @@ import { installIpcTrace } from "../log/ipc-trace";
 import { registerRoleHandlers } from "./roles";
 import { registerRoundtableHandlers } from "./roundtable";
 import { registerReplyHandlers } from "./reply";
+import { registerMemoryHandlers } from "./memory";
 import { registerWritingRetrievalHandlers } from "./writing-retrieval";
 import { registerWritingInfographicHandlers } from "./writing-infographic";
 import { registerWritingExportHandlers } from "./writing-export";
@@ -82,6 +83,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerRoleHandlers(); // 全局角色库 CRUD（圆桌会话）
   registerRoundtableHandlers(); // 圆桌多角色 BFS 编排调度器
   registerReplyHandlers(); // 快捷回复助手 IPC 域（U5 骨架，U7/U9 填实）
+  registerMemoryHandlers(); // 用户记忆（跨工作台持久记忆 + 做梦整理）IPC 域
   registerWritingRetrievalHandlers(); // 写作检索(工作区级轻量 RAG）IPC 域（U4）
   registerWritingInfographicHandlers(); // 写作信息图生成(对接 media-gen）IPC 域（U7）
   registerWritingExportHandlers(); // 写作重型导出(DOCX/PDF/PNG/HTML/复制富文本）IPC 域（U6）

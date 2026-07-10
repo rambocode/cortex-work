@@ -15,7 +15,7 @@ import {
 } from "./ipc/register";
 import { installBrowserWebviewGuards } from "./browser/webviewGuards";
 import { configureBrowserPartition } from "./browser/partition";
-import { ensureMigrated } from "./paths";
+import { chatsDir, ensureMigrated } from "./paths";
 import { initScheduler, rescheduleAll, stopScheduler } from "./automation/scheduler";
 import { tasksStore, tasksReminderScheduler, isTasksReminderOptInEnabled } from "./ipc/tasks";
 import { startMcpHost, stopMcpHost } from "./capabilities/mcp-host/server";
@@ -81,6 +81,13 @@ import { ReplyDistiller } from "./reply/distill";
 import { chatComplete, REPLY_TEMPERATURES } from "./reply/draft-generator";
 import { resolveReplyModel } from "./reply/resolve-model";
 import { getPersistedState } from "./ipc/store";
+// 用户记忆做梦管线（跨工作台持久记忆,与 reply 域独立）。
+import { Dreamer } from "./memory/dreamer";
+import { initMemoryDream } from "./memory/dream-scheduler";
+import { readEpisodicInputs } from "./memory/episodic-source";
+import { userMemoryStore, dreamStateStore, setMemoryDreamer } from "./ipc/memory";
+import { postChatCompletion } from "./ipc/openai-chat";
+import type { DreamPrompt } from "@cortex-work/core/memory/dream-prompt";
 import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 import { getRuntimeAppVersion } from "./app-version";
@@ -172,6 +179,64 @@ async function syncReplyInputMode(): Promise<void> {
   } else {
     registerReplyFallbackHotkey();
   }
+}
+
+// ── 用户记忆（做梦式持久记忆）接线 ─────────────────────────────────────────────
+// 跨平台（区别于 macOS-only 的 reply 域）。做梦调度的清理函数,真正退出时调用。
+let stopMemoryDream: (() => void) | null = null;
+
+// 初始化用户记忆做梦管线：组装 Dreamer 依赖（LLM 直连 + 存储 + 推送）,注入 IPC 域,
+// 启动混合触发调度（深睡 03:00 / 启动与唤醒补跑 / 会话空闲小睡）。
+function initUserMemory(): void {
+  const memoryLog = createLogger("memory");
+  // 做梦蒸馏的 LLM 直连闭包：模型走全局默认供应商回退链（resolveReplyModel 传 null settings
+  // 即跳过 reply 专属级,纯函数复用）;未配置时抛错,被 Dreamer catch 后静默跳过、水位不动。
+  const dreamGenerate = async (prompt: DreamPrompt): Promise<string> => {
+    const target = resolveReplyModel(null, (await getPersistedState()).providerSettings ?? null);
+    if (!target) throw new Error("memory: 生成模型未配置，跳过做梦整理");
+    return postChatCompletion({
+      baseUrl: target.baseUrl,
+      apiKey: target.apiKey,
+      model: target.model,
+      messages: [
+        { role: "system", content: prompt.system },
+        { role: "user", content: prompt.user },
+      ],
+      // 低温求确定：提炼稳定事实,不要发散（对齐 reply 蒸馏的 0.2）。
+      temperature: 0.2,
+    });
+  };
+  const dreamer = new Dreamer({
+    // 记忆总开关：显式 false 才关（缺省开启,与渲染端 buildMemoryAppend 门控一致）。
+    isEnabled: async () => (await getPersistedState()).generalSettings?.memoryEnabled !== false,
+    getEpisodes: () =>
+      readEpisodicInputs({
+        chatsDir,
+        // 会话标题来自 personal-workspace.json 的 sessions 元数据（喂给蒸馏 prompt 做上下文标注）。
+        getSessionTitles: async () => {
+          const sessions = (await getPersistedState()).sessions ?? [];
+          return new Map(sessions.map((s) => [s.id, s.title] as const));
+        },
+        logger: memoryLog,
+      }),
+    getExistingAuto: async (scope) => (await userMemoryStore.getMemory())[scope].auto,
+    generate: dreamGenerate,
+    persistLearned: (scope, auto) => userMemoryStore.setFile(scope, { auto }),
+    stateStore: dreamStateStore,
+    // 做梦写回后推全量记忆给渲染端刷新只读缓存（buildMemoryAppend 下一轮即用新记忆）。
+    onMemoryChanged: () => {
+      void userMemoryStore
+        .getMemory()
+        .then((memory) => mainWindow?.webContents.send("memory:changed", memory));
+    },
+    logger: memoryLog,
+  });
+  setMemoryDreamer(dreamer);
+  stopMemoryDream = initMemoryDream({
+    dreamNow: (trigger) => dreamer.dreamNow(trigger),
+    getLastDreamAt: async () => (await dreamStateStore.load()).lastDreamAt,
+    logger: memoryLog,
+  });
 }
 
 // 初始化 reply 编排器 + helper 生命周期（仅 macOS 调用）。
@@ -523,6 +588,12 @@ if (!app.requestSingleInstanceLock()) {
       onToggleSpotlight: toggleSpotlight,
     });
     await initScheduler();
+    // 用户记忆做梦管线（跨平台）：Dreamer 依赖注入 + 混合触发调度。失败不阻断启动。
+    try {
+      initUserMemory();
+    } catch (err) {
+      log.error("[memory] 用户记忆初始化失败:", err);
+    }
     // 任务提醒调度器（U11）：读初始 opt-in（内部原生通知）+ 当前任务快照建 Cron/补跑错过项。
     // setEnabled 先行（此时快照空，为 no-op），再 sync 真实任务；开机补跑「只补一次」靠 firedAt 闸门。
     {
@@ -622,6 +693,7 @@ if (!app.requestSingleInstanceLock()) {
     realQuitCleanupStarted = true;
     markRealQuit();
     stopScheduler();
+    stopMemoryDream?.(); // 停做梦调度（深睡 Cron + 补跑监听 + 小睡计时器）
     tasksReminderScheduler.stop(); // 停任务提醒 Cron + 释放 powerSaveBlocker
     stopMcpHost();
     stopDocExtractHost();

@@ -6,6 +6,7 @@ import { useEffect, useRef } from "react";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore, toPersistedState, type PersonalState } from "../store/personal";
 import { useReplyStore, replyToPersisted, replySaveUrgency } from "../store/reply";
+import { useMemoryStore } from "../store/memory";
 import type { PersistedState } from "./types";
 
 const SAVE_THROTTLE_MS = 500;
@@ -91,6 +92,14 @@ export function usePersonalPersistence(): void {
             if (!cancelled) useReplyStore.getState().hydrateMemory(memory);
           })
           .catch(() => {});
+        // 用户记忆缓存装填：真源在 main 侧 ~/.cortex-desktop/memory/*.md,读入只读缓存
+        // 供 buildMemoryAppend 注入各工作台 prompt;bridge 无此方法（Web/旧壳）则保持空缓存。
+        void bridge
+          .memoryGet?.()
+          .then((memory) => {
+            if (!cancelled) useMemoryStore.getState().hydrateMemory(memory);
+          })
+          .catch(() => {});
         // 启动时重扫 prompt 树（不持久化树本身）。
         if (state.promptRoot) {
           try {
@@ -118,11 +127,19 @@ export function usePersonalPersistence(): void {
         useReplyStore.getState().hydrateMemory(memory);
       }) ?? (() => {});
 
+    // 用户记忆变更推送：main 做梦写回后推全量记忆 → 刷新只读缓存（下一轮会话即注入新记忆）。
+    // 缓存变更不触发持久化保存（真源在 main）。
+    const unsubUserMemoryChanged =
+      bridge.onMemoryChanged?.((memory) => {
+        useMemoryStore.getState().hydrateMemory(memory);
+      }) ?? (() => {});
+
     return () => {
       cancelled = true;
       unsubPersonal();
       unsubReply();
       unsubMemoryChanged();
+      unsubUserMemoryChanged();
       if (timer.current) {
         clearTimeout(timer.current);
         // 卸载前冲刷一次，避免丢最后一笔变更。

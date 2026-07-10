@@ -35,6 +35,7 @@ import { applyDeepenFinalize } from "./notes";
 import { t } from "../i18n";
 import { languageInstruction } from "../i18n/native";
 import { useCortexUIStore } from "../store/ui";
+import { buildMemoryAppend } from "../memory/inject";
 import {
   abortPi,
   closePiSession,
@@ -1718,7 +1719,8 @@ function buildPiPromptMessage(text: string, appendSystemPrompt?: string): string
 
 // 全局追加系统提示词（U3/U4）:对 claude/codex/pi 三端统一注入,经每轮 appendSystemPrompt 下发
 // （pi 走 buildPiPromptMessage 前缀,claude --append-system-prompt,codex promptWithSkills 前置）。
-// 与 pi 专属、会话级的 piSystemPrompt 解耦并存。组装顺序:全局指令 → 语言指令(U4)。皆空 → undefined。
+// 与 pi 专属、会话级的 piSystemPrompt 解耦并存。组装顺序:全局指令 → 语言指令(U4) → 用户记忆。
+// 皆空 → undefined。
 export function buildGlobalAppend(): string | undefined {
   const parts: string[] = [];
   const gi = usePersonalStore.getState().generalSettings.globalInstruction?.trim();
@@ -1726,6 +1728,10 @@ export function buildGlobalAppend(): string | undefined {
   // 语言指令(U4):按当前 UI 语言注入,让 agent 用该语言回复。在 send 派发时刻读取 tweaks.language
   // （与调用方传入的 extraSystemPrompt 捕获时刻可能相差一次语言切换,有意为之以反映最新语言）。
   parts.push(languageInstruction(useCortexUIStore.getState().tweaks.language));
+  // 用户记忆:跨会话持久记忆（做梦整理 + 手写）,memoryEnabled 关闭或全空时返回 undefined。
+  // 在此单点注入即覆盖 chat 的 pi/claude/codex 三端（writing/design 在各自 run-manager 注入）。
+  const memory = buildMemoryAppend();
+  if (memory) parts.push(memory);
   return parts.length ? parts.join("\n\n") : undefined;
 }
 

@@ -115,6 +115,14 @@ import type {
 import type { WritingPdfDataRequest, WritingPdfDataResult } from "./writing-pdf-types";
 import type { ChannelId } from "../reply/channels";
 import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
+// 用户记忆（跨会话/写作/设计共享的持久记忆,与 reply 域的语气记忆独立）IPC 契约类型。
+import type {
+  DreamStateSummary,
+  MemoryDreamResult,
+  UserMemoryFile,
+  UserMemoryScope,
+  UserMemoryState,
+} from "../memory/memory";
 import type {
   LocalWhisperModelStatus,
   LocalWhisperModelProgress,
@@ -652,6 +660,25 @@ export interface DesktopBridge {
    * 设置页缓存（持久化真源在 main，渲染端只持只读缓存）。返回退订函数。
    */
   onReplyMemoryChanged?(cb: (memory: MemoryState) => void): () => void;
+
+  // ── 用户记忆（跨工作台持久记忆 + 做梦整理）──────────────────────────────────
+  // 真源在 main 侧 ~/.cortex-desktop/memory/*.md（main 唯一写者）;渲染端 useMemoryStore
+  // 只持只读缓存。Web/旧壳无这些方法 → 记忆功能整体降级隐藏（全部 `?:` 可选）。
+  // 跨进程契约见 apps/desktop/src/main/ipc/memory.ts。
+  /** 读全部分区记忆（每次现读 md 文件,Finder 编辑即时生效）。 */
+  memoryGet?(): Promise<UserMemoryState>;
+  /** 写单分区手写区/自动区（设置页编辑）。 */
+  memorySetFile?(scope: UserMemoryScope, patch: Partial<UserMemoryFile>): Promise<void>;
+  /** 清空记忆：all=手写+自动；auto=仅做梦自动整理要点。 */
+  memoryClear?(kind: "all" | "auto"): Promise<void>;
+  /** 手动触发一次做梦整理（单飞,进行中返回 in-flight）。 */
+  memoryDreamNow?(): Promise<MemoryDreamResult>;
+  /** 读做梦状态摘要（上次整理时间 + 最近历史,设置页展示）。 */
+  memoryGetDreamState?(): Promise<DreamStateSummary>;
+  /** 在 Finder 显示 ~/.cortex-desktop/memory/ 记忆文件夹。 */
+  memoryOpenFolder?(): Promise<void>;
+  /** 订阅 main 的记忆变更（做梦写回后推全量记忆,渲染端刷新只读缓存）。返回退订函数。 */
+  onMemoryChanged?(cb: (memory: UserMemoryState) => void): () => void;
 
   // ── 桌面宠物脱离主窗体(独立 overlay 窗口)────────────────────────────────────
   // 宠物渲染从主窗口内嵌 <Pet/> 迁到独立 transparent/alwaysOnTop 的 pet-overlay 窗口

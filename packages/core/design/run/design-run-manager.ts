@@ -10,6 +10,7 @@
 import type { DesktopBridge } from "../../desktop/bridge";
 import type { CliStartRequest, CliStreamEvent } from "../../desktop/types";
 import { usePersonalStore, resolveDefaultAgent } from "../../store/personal";
+import { buildMemoryAppend } from "../../memory/inject";
 import { setDesignRuntimeClient } from "../compat/runtime-client";
 import { setDesignRuntimeProvider } from "../compat/agent-registry";
 import { useChatStore } from "../compat/chat-store";
@@ -253,6 +254,9 @@ export async function sendDesignMessage(
         providerProfile?.models?.[0]?.id ||
         undefined
       : personal.designSettings.model || undefined;
+  // 用户记忆注入:设计回合不做 session 续接(见下方注释),记忆经 appendSystemPrompt 每轮下发,
+  // 正好补上「agent 无对话记忆」的用户背景空缺(开关关/全空 → undefined 不带字段)。
+  const memoryAppend = buildMemoryAppend();
   const req: CliStartRequest = {
     runId,
     sessionId,
@@ -261,6 +265,7 @@ export async function sendDesignMessage(
     prompt: text,
     ...(model ? { model } : {}),
     ...(provider ? { provider } : {}),
+    ...(memoryAppend ? { appendSystemPrompt: memoryAppend } : {}),
     ...(overrides?.reasoningEffort ? {} : {}),
     // accept-edits:免审批写工作区文件(设计回合只需 Write/Edit HTML+MD),
     // 不放开任意命令;print 模式无交互审批,approvalPolicy 必须 auto。

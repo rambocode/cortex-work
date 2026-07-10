@@ -61,7 +61,9 @@
     "./personal/browserOrigin": "./personal/browserOrigin.ts",
     "./personal/annotationPayload": "./personal/annotationPayload.ts",
     "./whisper/models": "./whisper/models.ts",
-    "./reply/*": "./reply/*.ts"
+    "./reply/*": "./reply/*.ts",
+    "./memory/*": "./memory/*.ts",
+    "./store/memory": "./store/memory.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",

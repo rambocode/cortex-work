@@ -242,6 +242,8 @@ export interface GeneralSettings {
   piExtensions?: PiExtensionSettings;
   // 浏览器控制（与 core 镜像）。主进程读 enabled 决定是否注入浏览器 MCP server（cli.ts，KTD5/KTD6）。
   browserControl?: BrowserControlSettings;
+  // 用户记忆总开关（与 core 镜像）。主进程读它门控做梦整理管线（memory/dreamer.ts）;缺省 = 开启。
+  memoryEnabled?: boolean;
 }
 
 // 浏览器控制配置（与 packages/core/desktop/types.ts 逐字镜像）。
