@@ -15,7 +15,9 @@ describe("renderFallbackCodeHtml 转义", () => {
 });
 
 describe("markdown live preview", () => {
-  it("keeps markdown concealment stable while text is selected", () => {
+  // 抖动回归:非空选区必须与空 caret 一样揭示触及行。若改回「非空选区隐藏一切」,
+  // 拖拽选择时 conceal 状态会在空↔非空选区间振荡,行内宽度来回变化导致无法精准选中。
+  it("reveals source on lines touched by a non-empty selection", () => {
     const state = EditorState.create({
       doc: "**Bold** text",
       selection: EditorSelection.range(2, 6),
@@ -23,7 +25,21 @@ describe("markdown live preview", () => {
 
     const lines = markdownLivePreviewTestInternals.collectRevealLinesFromState(state, true);
 
-    expect(lines.size).toBe(0);
+    expect([...lines]).toEqual([1]);
+  });
+
+  it("reveals every line a multi-line selection touches", () => {
+    const state = EditorState.create({
+      doc: "**Bold** text\nsecond *em* line\nthird line",
+      selection: EditorSelection.range(4, 20),
+    });
+
+    const lines = markdownLivePreviewTestInternals.collectRevealLinesFromState(state, true);
+    const blurredLines = markdownLivePreviewTestInternals.collectRevealLinesFromState(state, false);
+
+    expect([...lines].sort()).toEqual([1, 2]);
+    // 失焦时即便有选区也全部渲染成品(原有行为不变)。
+    expect(blurredLines.size).toBe(0);
   });
 
   it("reveals source marks on the caret line only when the editor is focused", () => {

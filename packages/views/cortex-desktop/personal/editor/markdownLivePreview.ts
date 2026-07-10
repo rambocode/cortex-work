@@ -1,5 +1,5 @@
-// CodeMirror 6「实时预览(Live)」扩展:非光标行把 markdown 标记隐藏/渲染成成品,
-// 光标所在行还原源码可编辑。移植自 Kun src/renderer/src/write/markdown-live-preview.ts,
+// CodeMirror 6「实时预览(Live)」扩展:未被光标/选区触及的行把 markdown 标记隐藏/渲染成成品,
+// 光标或选区触及的行还原源码可编辑。移植自 Kun src/renderer/src/write/markdown-live-preview.ts,
 // 剥离 Kun 特有耦合(计划 KTD6):
 //   - 删除 infographic / html-embed 分支与对应 import。
 //   - 图片仅内联 http(s): / data: URI;本地相对路径返回 null → 退化为普通 markdown 文本
@@ -112,13 +112,17 @@ const writeMarkdownLiveTheme = EditorView.theme({
   },
 });
 
+// 行内标记的揭示集入口(ViewPlugin 用),委托给下面的纯函数。
 function collectRevealLines(view: EditorView): Set<number> {
-  if (!view.hasFocus || view.state.selection.ranges.some((range) => !range.empty)) return new Set();
-  return collectActiveLinesFromState(view.state);
+  return collectRevealLinesFromState(view.state, view.hasFocus);
 }
 
+// 揭示集 = 选区(空 caret 或拖拽选区)触及的所有行。刻意不区分选区空/非空:
+// 旧实现对非空选区「隐藏一切」,拖拽时选区在空↔非空间反复切换,conceal 状态振荡、
+// 行内宽度来回变化,导致选择文本时剧烈抖动、无法精准选中;现与块级 widget
+// (markdownBlockPreviewField)的「选区触及即揭示」规则保持一致。
 function collectRevealLinesFromState(state: EditorState, hasFocus: boolean): Set<number> {
-  if (!hasFocus || state.selection.ranges.some((range) => !range.empty)) return new Set();
+  if (!hasFocus) return new Set();
   return collectActiveLinesFromState(state);
 }
 

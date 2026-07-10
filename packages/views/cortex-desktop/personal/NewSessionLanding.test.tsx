@@ -1,6 +1,6 @@
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { CoreProvider, usePersonalStore } from "@cortex-work/core";
+import { CoreProvider, DEFAULT_MODEL, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 
 // send 走 usePersonalActions（内部依赖 bridge spawn 管线），单测里 spy 掉只验调用契约。
@@ -269,7 +269,8 @@ describe("NewSessionLanding agent 选择(U3)", () => {
 
     const created = usePersonalStore.getState().sessions[0]!;
     expect(created.agent).toBe("codex");
-    expect(created.model).toBe("gpt-5.5");
+    // 断言跟随 DEFAULT_MODEL 单一数据源,避免 codex 默认模型升级时测试再次过期。
+    expect(created.model).toBe(DEFAULT_MODEL.codex);
     expect(created.derivedAgentId).toBeUndefined();
   });
 
