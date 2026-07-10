@@ -158,8 +158,6 @@ export {
   type UpdateState,
   type TaskFileInfo,
   type TaskFilesResult,
-  type DocFileRaw,
-  type DocFileKind,
   type ReasoningEffort,
   type ScheduleSpec,
   type AutomationRunStatus,
@@ -329,20 +327,6 @@ export {
   type NotePatch,
   type DeepenPrepResult,
 } from "./personal/notes";
-export {
-  docTasksKeys,
-  docTasksAvailable,
-  assembleDocTasks,
-  useDocTasks,
-  useDocTasksWatch,
-  useContinueDoc,
-  nextSkillForKind,
-  brainstormDocPath,
-  buildContinueSystemPrompt,
-  type DocMetaView,
-  type DocTasksResult,
-  type NextSkill,
-} from "./personal/docTasks";
 export { usePiEnabledSkills, filterEnabledPiSkills, type PiSlashSkill } from "./personal/piSkills";
 // skill 注入 / slash 调用(claude/codex 的 /skill:name 转定向 prompt 供 views 发送侧用)。
 export {
@@ -359,23 +343,6 @@ export {
   type AgentSkillRoot,
   type SkillRootOrigin,
 } from "./personal/skill-roots";
-export {
-  parseDocMeta,
-  type DocKind,
-  type DocType,
-  type ParsedDocMeta,
-} from "./personal/docMeta";
-export {
-  normalizeStatus,
-  defaultStatusForKind,
-  stripStatusAnnotation,
-  TASK_STATUS_ORDER,
-  TASK_STATUS_LABEL,
-  STATUS_SYNONYMS,
-  type TaskStatus,
-} from "./personal/docStatus";
-export { deriveTags, topicOf, type Tag, type TagDim } from "./personal/docTags";
-export { buildLineage, extractOriginBasenames, type Lineage } from "./personal/docLineage";
 export {
   automationKeys,
   useAutomations,

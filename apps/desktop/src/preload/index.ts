@@ -62,7 +62,6 @@ import type {
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
   TaskFilesResult,
-  DocFileRaw,
   TrimSessionRequest,
   TtsStreamEvent,
   TtsVoiceOption,
@@ -238,7 +237,6 @@ const personal = {
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),
-  listDocs: (projectRoot: string): Promise<DocFileRaw[]> => ipcRenderer.invoke("fs:listDocs", projectRoot),
   validateDir: (path: string): Promise<boolean> => ipcRenderer.invoke("fs:validateDir", path),
   fileExists: (path: string): Promise<boolean> => ipcRenderer.invoke("fs:exists", path),
   // 目录实时监听（右栏「文件」视图自动刷新）
@@ -324,6 +322,8 @@ const personal = {
     startMinimized: boolean;
     closeToTray: boolean;
   }): Promise<void> => ipcRenderer.invoke("desktop:setBehavior", behavior),
+  // 渲染端切主题 → 主进程同步 nativeTheme.themeSource(vibrancy 材质/次级窗口外观跟随应用主题)。
+  setTheme: (mode: "system" | "light" | "dark"): Promise<void> => ipcRenderer.invoke("app:setTheme", mode),
   // 渲染端切语言 → 主进程广播 + 重建托盘菜单（原生 chrome 镜像主窗口 i18next）。
   setLocale: (locale: Locale): Promise<void> => ipcRenderer.invoke("app:setLocale", locale),
   // 订阅主进程 locale 广播（次级窗口据此同步语言）。

@@ -1404,18 +1404,6 @@ export interface TaskFilesResult {
   archived: TaskFileInfo[];
 }
 
-// ── Tasks 面板:docs/{ideation,brainstorms,plans} 文档列表（与 apps/desktop/src/main/ipc/types.ts 镜像） ──
-// dumb 列表：只列目录 + 回传文件头部文本，语义解析（DocMeta/状态/标签/血缘）全在 core 纯函数。
-export type DocFileKind = "ideation" | "brainstorm" | "plan";
-
-export interface DocFileRaw {
-  name: string;
-  path: string; // 绝对路径
-  kind: DocFileKind; // 由所在子目录决定
-  mtimeMs: number;
-  head: string; // 文件头部文本（含 frontmatter / inline 元数据块，供 core parseDocMeta 解析）
-}
-
 // ── 自动化（定时任务,与 apps/desktop/src/main/ipc/types.ts 镜像） ─────────
 // 自动化是主进程拥有的状态域:配置 + 运行历史存于 ~/.cortex-desktop/automations.json
 // 与 automation-runs/<id>.json,由 main 常驻调度器(croner)按时无头调用 agent CLI 执行。

@@ -5890,64 +5890,6 @@ button.sb-row {
   margin-top: 4px;
 }
 
-/* tasks 二次编辑:遮罩与面板只局限在右栏文档区（.pw-todo-detail 是 position:relative 的定位祖先），
-   不弹整个 App 的全屏遮罩。 */
-.pw-doc-edit-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px;
-  background: rgba(26, 25, 22, 0.22);
-}
-/* 面板宽度跟随右栏（不用默认 confirm 的 360 min-width,以免溢出窄轨）。 */
-.pw-doc-edit-dlg {
-  width: 100%;
-  min-width: 0;
-  max-width: 460px;
-  max-height: 100%;
-  background: var(--bg-app);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
-}
-.pw-doc-edit-dlg .pw-confirm-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  white-space: normal;
-}
-.pw-doc-edit-dlg .pw-confirm-body > textarea.pw-set-input {
-  width: 100%;
-  resize: vertical;
-  min-height: 88px;
-  line-height: 1.5;
-}
-.pw-doc-edit-dlg .pw-confirm-foot {
-  flex-wrap: wrap;
-}
-.pw-doc-edit-ctx {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-2);
-}
-.pw-doc-edit-ctx-lbl {
-  color: var(--text-3, var(--text-2));
-}
-.pw-doc-edit-ctx > code {
-  font-family: var(--mono, ui-monospace, monospace);
-  word-break: break-all;
-  color: var(--text-1);
-}
-.pw-doc-edit-ctx-empty {
-  color: var(--text-3, var(--text-2));
-}
-
 /* ── 会话搜索弹窗:复用 .pw-dlg-overlay,命令面板式置顶居中小窗。 ── */
 .pw-search-dlg {
   width: 560px;
@@ -8584,68 +8526,6 @@ button.sb-row {
 .pw-plugins-create-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .pw-plugins-ok { font-size: 12.5px; color: var(--green, #16a34a); }
 .pw-plugins-err { font-size: 12.5px; color: var(--red, #dc2626); }
-
-/* Tasks 文档面板（TasksDocsView）---------- */
-.pw-doc-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.pw-doc-toolbar {
-  display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
-  border-bottom: 1px solid var(--border); background: var(--bg-sidebar);
-}
-.pw-doc-mode {
-  align-self: flex-start; display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11.5px; padding: 2px 8px; border-radius: 6px;
-  border: 1px solid var(--border); background: var(--bg-card-2); color: var(--text-2); cursor: pointer;
-}
-.pw-doc-mode.is-on { background: var(--blue-soft); color: var(--blue); border-color: var(--blue); }
-.pw-doc-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.pw-doc-chip {
-  font-size: 11px; padding: 1px 7px; border-radius: 10px; cursor: pointer;
-  border: 1px solid var(--border); background: var(--bg-card-2); color: var(--text-2);
-}
-.pw-doc-chip:hover { background: var(--bg-hover); }
-.pw-doc-chip.is-on { background: var(--bg-active); color: var(--text-1); border-color: var(--text-3); }
-.pw-doc-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
-.pw-doc-group { margin-bottom: 4px; }
-.pw-doc-group-h {
-  display: flex; align-items: center; gap: 4px; width: 100%; text-align: left;
-  font-size: 11.5px; font-weight: 600; color: var(--text-2);
-  padding: 4px 4px; background: none; border: none; cursor: pointer;
-}
-.pw-doc-group-h:hover { color: var(--text-1); }
-.pw-rot90 { transform: rotate(90deg); }
-.pw-doc-card {
-  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card-2);
-  padding: 7px 9px; margin: 4px 2px; cursor: pointer; transition: background 0.12s, border-color 0.12s;
-}
-.pw-doc-card:hover { background: var(--bg-hover); border-color: var(--text-3); }
-.pw-doc-card-tags { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; }
-.pw-doc-tag { font-size: 10.5px; padding: 0 5px; border-radius: 4px; white-space: nowrap; }
-.pw-doc-tag-stage { background: var(--bg-active); color: var(--text-2); }
-.pw-doc-tag-type { background: var(--blue-soft); color: var(--blue); }
-.pw-doc-time { font-size: 10.5px; color: var(--text-3); }
-.pw-doc-card-title {
-  font-size: 12.5px; color: var(--text-1); line-height: 1.35; margin-bottom: 5px;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-/* 卡片文件名行：等宽小字、低对比，单行省略，避免抢标题视觉。 */
-.pw-doc-card-file { display: flex; align-items: center; gap: 3px; margin-bottom: 5px; color: var(--text-3); overflow: hidden; }
-.pw-doc-card-file svg { flex: none; opacity: 0.7; }
-.pw-doc-card-file span { font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pw-doc-card-foot { display: flex; align-items: center; gap: 6px; }
-.pw-doc-status { font-size: 10.5px; padding: 0 6px; border-radius: 9px; font-weight: 600; }
-.pw-doc-status-idea { background: var(--blue-soft); color: var(--blue); }
-.pw-doc-status-todo { background: var(--amber-soft); color: var(--amber); }
-.pw-doc-status-review { background: var(--amber-soft); color: #7c3aed; }
-.pw-doc-status-active { background: var(--green-soft); color: var(--green); }
-.pw-doc-status-done { background: var(--bg-active); color: var(--text-3); }
-.pw-doc-status-raw { color: var(--text-3); cursor: help; }
-.pw-doc-pipeline { border: 1px solid var(--border); border-radius: 8px; padding: 4px; margin: 6px 2px; background: var(--bg-card); }
-.pw-doc-pipeline-h { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 3px 5px; font-size: 11px; }
-.pw-doc-pip-node { padding: 0 5px; border-radius: 4px; background: var(--bg-active); color: var(--text-2); }
-.pw-doc-pip-arrow { color: var(--text-3); margin: 0 2px; }
-.pw-doc-detail-title { font-size: 12.5px; font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 详情态完整文件路径：等宽、低对比，单行省略，hover title 看全。 */
-.pw-doc-detail-path { font-family: var(--mono); font-size: 11px; color: var(--text-3); padding: 0 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── 内嵌浏览器面板（右栏 RightView="browser"，见 BrowserView.tsx）─────────── */
 .pw-browser { display: flex; flex-direction: column; min-height: 0; flex: 1; background: var(--bg-1, #fff); }

@@ -1,5 +1,5 @@
 // Agent 委派派发（「交给 agent」）：以任务标题+备注为上下文起一个 headless 会话
-//（复用 createSession + send，同 docTasks.useContinueDoc 范式），任务转 waiting 并记录 delegation
+//（复用 createSession + send），任务转 waiting 并记录 delegation
 //（sessionId 供回写重校验 shouldAcceptDelegationWriteback）。无 project 任务 cwd 走默认工作区
 // 目录（R17；task-project 无路径，KTD10）。
 //

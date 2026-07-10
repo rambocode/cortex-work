@@ -77,7 +77,6 @@ import type {
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
   TaskFilesResult,
-  DocFileRaw,
   TtsStreamEvent,
   TtsVoiceOption,
   AppInfo,
@@ -217,9 +216,6 @@ export interface DesktopBridge {
   // Tasks 面板:列出项目 tasks/ 与 tasks/archive/ 顶层 .md（带 mtime）。
   // 可选（旧壳没有;无此能力时面板退化为只显示已登记 todo）。
   listTaskFiles?(projectRoot: string): Promise<TaskFilesResult>;
-  // Tasks 面板:列出 docs/{ideation,brainstorms,plans} 顶层 .md（kind/mtime/头部文本）。
-  // 可选（web/旧壳没有 → 文档面板退化为空态）。语义解析在 core 纯函数，本方法只回传 dumb 列表。
-  listDocs?(projectRoot: string): Promise<DocFileRaw[]>;
   validateDir(path: string): Promise<boolean>;
   // 文件存在性探测（深化 / 生成 plan run 收尾判产出用:确定路径,绕开 changedFiles 截断）。
   // 可选:旧壳缺失时探测降级为 false（闪记保持原状态,不误判已深化）。
@@ -308,6 +304,10 @@ export interface DesktopBridge {
   // 桌面行为：renderer 切换开机自启/启动最小化/关闭到托盘时通知主进程立即应用
   //（登录项是系统设置,须即时设置）。可选（web 端为 null）。
   setDesktopBehavior?(behavior: DesktopBehavior): Promise<void>;
+  // 渲染端切主题时下发主进程设置 nativeTheme.themeSource:macOS 侧栏 vibrancy 材质与
+  // 次级窗口的 prefers-color-scheme 跟随的是窗口外观而非 data-theme,应用主题与系统外观
+  // 不一致时(应用暗、系统亮)材质会发白,必须由主进程同步。可选（web 端为 null）。
+  setTheme?(mode: "system" | "light" | "dark"): Promise<void>;
   // 渲染端(主窗口 i18next 为权威源)切语言时下发主进程,主进程据此广播给所有窗口 +
   // 重建托盘菜单（原生 chrome 无法用 react-i18next,只能镜像）。可选（web 端为 null）。
   setLocale?(locale: Locale): Promise<void>;

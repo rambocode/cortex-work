@@ -1,4 +1,4 @@
-// 外观项（theme / fontScale / density / palette / sidebar）的持久化 wiring。
+// 外观项（theme / fontScale / density / sidebar）的持久化 wiring。
 // useCortexUIStore 本身无持久化（裸 create）,此处在 views 层用 localStorage 补齐：
 // mount 时恢复并应用到根节点,变更即写盘 + 重应用,theme=system 随系统明暗切换重算。
 // （core 不得直接用 localStorage,故持久化逻辑放 views 层。）
@@ -74,6 +74,10 @@ export function useTweaksPersistence(): void {
     void changeLanguage(startupLang);
     // 桌面端:把启动语言下发主进程,初始化托盘菜单 + 次级窗口镜像（best-effort,web 端 bridge=null）。
     void bridge?.setLocale?.(startupLang);
+    // 桌面端:把启动主题下发主进程同步 nativeTheme.themeSource —— macOS 侧栏 vibrancy
+    // 材质与次级窗口外观跟随 nativeTheme 而非 data-theme,不同步时「应用暗、系统亮」
+    // 会出现侧栏材质发白(best-effort,web 端 bridge=null)。
+    void bridge?.setTheme?.(useCortexUIStore.getState().tweaks.theme);
 
     // 2. 变更即写盘 + 重应用。
     const unsub = useCortexUIStore.subscribe((s, prev) => {
@@ -85,6 +89,10 @@ export function useTweaksPersistence(): void {
           void changeLanguage(s.tweaks.language);
           // 同步下发主进程,重建托盘菜单 + 广播给次级窗口（best-effort）。
           void bridge?.setLocale?.(s.tweaks.language);
+        }
+        // 仅主题变化时下发主进程同步 nativeTheme(见上方启动下发处的说明)。
+        if (s.tweaks.theme !== prev.tweaks.theme) {
+          void bridge?.setTheme?.(s.tweaks.theme);
         }
       }
     });

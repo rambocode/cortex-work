@@ -1,4 +1,4 @@
-// 真任务系统主界面（U9，替换文档聚合式 TasksDocsView，占据右栏 "todos" 槽）。
+// 真任务系统主界面（U9，占据右栏 "todos" 槽）。
 // 内置固定视图：今日 / 收件箱 / 项目 / 标签（v1 无自定义 Perspectives）。数据全部来自 core hooks
 //（main 是 owner，服务端态走 React Query）。今日聚合用 isTodayEligible（状态门控 + defer>due），
 // 跨日靠 refetchOnWindowFocus 兜底。捕获任务在主窗口触发一次结构化（U6 引擎），建议以 chips

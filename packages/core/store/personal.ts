@@ -66,7 +66,7 @@ function newId(prefix: string): string {
 }
 
 // 右栏当前视图（顶栏下拉选择）。后续新增视图只需扩此联合,不必逐处改字面量。
-export type RightView = "files" | "skills" | "todos" | "pipeline" | "notes" | "browser";
+export type RightView = "files" | "skills" | "todos" | "notes" | "browser";
 
 // 运行模式拦截提示（瞬态,不持久化）。当 plan/accept-edits 模式下 agent 尝试被该模式禁止的
 // 工具(写/执行)时,在 composer 上方提示用户切档并自动重发本轮。category 决定可切到哪些档:

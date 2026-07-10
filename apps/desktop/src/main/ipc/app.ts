@@ -2,7 +2,7 @@
 // 主进程做最终一致镜像 —— 广播给所有窗口(次级窗口据此同步)+ 重建托盘菜单。
 // 原生 chrome(托盘等)无法用 react-i18next,只能从这里取归一化语言。
 
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, ipcMain, nativeTheme } from "electron";
 import { DEFAULT_LOCALE, isLocale, type Locale } from "@cortex-work/core/i18n/native";
 import { rebuildTrayMenu } from "../automation/tray";
 
@@ -28,5 +28,13 @@ export function registerAppHandlers(): void {
     currentLocale = locale;
     broadcastLocale(locale);
     rebuildTrayMenu(locale);
+  });
+
+  // 渲染端切主题 → 同步 nativeTheme.themeSource。窗口外观(macOS 侧栏 vibrancy 材质、
+  // 次级窗口的 prefers-color-scheme)跟随的是 nativeTheme 而非渲染端 data-theme,
+  // 不同步时「应用暗、系统亮」会出现侧栏材质发白、深色文字不可读。非法值忽略。
+  ipcMain.handle("app:setTheme", (_e, mode: "system" | "light" | "dark"): void => {
+    if (mode !== "system" && mode !== "light" && mode !== "dark") return;
+    nativeTheme.themeSource = mode;
   });
 }

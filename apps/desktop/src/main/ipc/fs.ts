@@ -673,49 +673,6 @@ export function registerFsHandlers(): void {
     return { files: await listMd(taskDir), archived: await listMd(join(taskDir, "archive")) };
   });
 
-  // Tasks 面板:列出 docs/{ideation,brainstorms,plans} 顶层 .md，附 kind/mtime/头部文本。
-  // dumb handler:只列目录 + 读头部切片（frontmatter/inline 块都在文件头），不做任何语义解析。
-  // 目录缺失跳过、列举期间被删跳过，绝不抛。
-  ipcMain.handle("fs:listDocs", async (_e, projectRoot: string) => {
-    await assertAllowed(projectRoot);
-    const HEAD_BYTES = 8192; // 足够覆盖 YAML frontmatter 与紧跟标题的 inline 元数据块
-    const kinds: [string, "ideation" | "brainstorm" | "plan"][] = [
-      ["ideation", "ideation"],
-      ["brainstorms", "brainstorm"],
-      ["plans", "plan"],
-    ];
-    const out: { name: string; path: string; kind: string; mtimeMs: number; head: string }[] = [];
-    for (const [dirName, kind] of kinds) {
-      const dir = join(projectRoot, "docs", dirName);
-      let entries;
-      try {
-        entries = await fsp.readdir(dir, { withFileTypes: true });
-      } catch {
-        continue; // 子目录不存在
-      }
-      for (const entry of entries) {
-        if (!entry.isFile() || entry.name.startsWith(".") || !entry.name.toLowerCase().endsWith(".md")) continue;
-        const full = join(dir, entry.name);
-        try {
-          const stat = await fsp.stat(full);
-          const len = Math.min(HEAD_BYTES, stat.size);
-          const fh = await fsp.open(full, "r");
-          try {
-            const buf = Buffer.alloc(len);
-            if (len > 0) await fh.read(buf, 0, len, 0);
-            out.push({ name: entry.name, path: full, kind, mtimeMs: stat.mtimeMs, head: buf.toString("utf8") });
-          } finally {
-            await fh.close();
-          }
-        } catch {
-          /* 列举期间被删,跳过 */
-        }
-      }
-    }
-    out.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    return out;
-  });
-
   // 校验目录存在性。须与 skill 根解析一致地展开 `~`（pluginSkillRoots 走 expandTilde),
   // 否则手填 `~/my/skills` 校验恒 false 而扫描却能命中,渲染端校验会误报。
   ipcMain.handle("fs:validateDir", async (_e, path: string) => {
