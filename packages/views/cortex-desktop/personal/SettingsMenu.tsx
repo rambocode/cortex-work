@@ -1981,9 +1981,22 @@ export function PersonalSettingsView() {
   );
 }
 
-export function SettingsMenu() {
+export function SettingsMenu({ variant = "row" }: { variant?: "row" | "shortcut" }) {
   const { t } = useTranslation();
   const openSettings = usePersonalStore((s) => s.openSettings);
+  const settingsOpen = usePersonalStore((s) => s.settingsOpen);
+  if (variant === "shortcut") {
+    return (
+      <button
+        className={`pw-sidebar-shortcut ${settingsOpen ? "is-active" : ""}`}
+        onClick={() => openSettings()}
+        aria-label={t("sidebar.settings")}
+      >
+        <Icon.Settings size={15} />
+        <span>{t("sidebar.settings")}</span>
+      </button>
+    );
+  }
   return (
     <div className="sb-foot">
       <button className="sb-row is-mute" onClick={() => openSettings()}>

@@ -15,7 +15,6 @@ import {
   usePersonalStore,
 } from "@cortex-work/core";
 import type { EditorInfo, ProjectMeta, SessionMeta } from "@cortex-work/core";
-import { WorkspaceTabs } from "./WorkspaceTabs";
 import { SettingsMenu } from "./SettingsMenu";
 import { ProjectMenu } from "./ProjectMenu";
 import { SidebarLeftControls } from "./SidebarControls";
@@ -148,56 +147,23 @@ export function SessionList({
   );
 }
 
-function ProjectBlock({
+function ProjectSwitchRow({
   project,
   archived,
   editors,
+  onOpen,
   onToast,
 }: {
   project: ProjectMeta;
   archived: boolean;
   editors: EditorInfo[];
+  onOpen: () => void;
   onToast: (text: string) => void;
 }) {
-  const sessions = usePersonalStore((s) => s.sessions);
-  const activeSessionId = usePersonalStore((s) => s.activeSessionId);
-  const collapsed = usePersonalStore((s) => !!s.collapsedProjects[project.id]);
-  const toggle = usePersonalStore((s) => s.toggleProjectCollapse);
   const createSession = usePersonalStore((s) => s.createSession);
-  const setActiveSession = usePersonalStore((s) => s.setActiveSession);
-  const activateProject = usePersonalStore((s) => s.activateProject);
-  const setRightView = usePersonalStore((s) => s.setRightView);
-  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const generalSettings = usePersonalStore((s) => s.generalSettings);
-  // 项目引导态（已激活但未选会话）时高亮项目名。
-  const projectActive = usePersonalStore(
-    (s) => !s.homeOpen && !s.timelineProjectId && !s.activeSessionId && s.activeProjectId === project.id,
-  );
-
-  // ⋯ 菜单锚点（fixed,屏幕坐标）;null = 关闭。
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
-  // 「显示归档」切换（本地,默认隐藏）。
-  const [showArchived, setShowArchived] = useState(false);
-
-  const all = sessions.filter((x) => x.projectId === project.id);
-  const liveList = all.filter((x) => x.archivedAt == null).sort((a, b) => b.updatedAt - a.updatedAt);
-  const archivedList = all
-    .filter((x) => x.archivedAt != null)
-    .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
-
-  // 点击项目名:有会话选最近一条;没有则激活项目（中间区显示新建聊天引导）,
-  // 右栏切到该项目的 Tasks 并展开。
-  const openProject = () => {
-    const latest = liveList[0];
-    if (latest) {
-      setActiveSession(latest.id);
-      return;
-    }
-    activateProject(project.id);
-    setRightView("todos");
-    setRightOpen(true);
-  };
 
   const openMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -205,66 +171,27 @@ function ProjectBlock({
   };
 
   return (
-    <div className="pw-project">
-      <div className="pw-project-h" data-collapsed={collapsed} data-active={projectActive}>
-        <button className="pw-project-chev" onClick={() => toggle(project.id)} title={collapsed ? "展开" : "折叠"}>
-          <span className="chev">
-            <Icon.Chevron size={11} />
-          </span>
+    <div className="pw-project-switch-row" data-archived={archived}>
+      <button className="pw-project-switch-main" onClick={onOpen} title={project.path}>
+        <Icon.Folder size={14} />
+        <span>{project.name}</span>
+        {project.pinnedAt ? <Icon.Pin size={11} className="pw-project-pin" /> : null}
+      </button>
+      <div className={`pw-project-actions ${menuAnchor ? "is-menu-open" : ""}`}>
+        <button className={`pw-icon-btn ${menuAnchor ? "is-active" : ""}`} title="更多" onClick={openMenu}>
+          <Icon.More size={13} />
         </button>
-        <button className="pw-project-toggle" onClick={openProject} title={project.path}>
-          <Icon.Folder size={14} />
-          <span className="pw-project-name">{project.name}</span>
-          {project.pinnedAt ? <Icon.Pin size={11} className="pw-project-pin" /> : null}
+        <button
+          className="pw-icon-btn"
+          title="新建 Session"
+          onClick={() => {
+            createSession(project.id, resolveDefaultAgent({ generalSettings, agentsAvailable }));
+            onToast(`已在 ${project.name} 新建 Session`);
+          }}
+        >
+          <Icon.Plus size={13} />
         </button>
-        <div className={`pw-project-actions ${menuAnchor || showArchived ? "is-menu-open" : ""}`}>
-          {archivedList.length > 0 ? (
-            <button
-              className={`pw-icon-btn ${showArchived ? "is-active" : ""}`}
-              title={showArchived ? "隐藏已归档会话" : `显示已归档会话 (${archivedList.length})`}
-              onClick={() => setShowArchived((v) => !v)}
-            >
-              <Icon.File size={13} />
-            </button>
-          ) : null}
-          <button className={`pw-icon-btn ${menuAnchor ? "is-active" : ""}`} title="更多" onClick={openMenu}>
-            <Icon.More size={13} />
-          </button>
-          <button
-            className="pw-icon-btn"
-            title="新建 Session"
-            onClick={() => {
-              // 按设置里的全局默认 agent 起草(resolveDefaultAgent),而非仅按安装情况派生。
-              createSession(project.id, resolveDefaultAgent({ generalSettings, agentsAvailable }));
-              onToast(`已在 ${project.name} 新建 Session`);
-            }}
-          >
-            <Icon.Plus size={13} />
-          </button>
-        </div>
       </div>
-      {!collapsed ? (
-        <SessionList
-          sessions={liveList}
-          activeSessionId={activeSessionId}
-          onSelect={setActiveSession}
-          onToast={onToast}
-        />
-      ) : null}
-      {!collapsed && showArchived
-        ? archivedList.map((sess) => (
-            <SessionRow
-              key={sess.id}
-              session={sess}
-              active={sess.id === activeSessionId}
-              onSelect={() => setActiveSession(sess.id)}
-              onToast={onToast}
-            />
-          ))
-        : null}
-      {!collapsed && liveList.length === 0 && archivedList.length === 0 ? (
-        <div className="pw-empty-hint">点 + 新建 Session</div>
-      ) : null}
       {menuAnchor ? (
         <ProjectMenu
           project={project}
@@ -293,7 +220,6 @@ export function PersonalSidebar({
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const addProject = usePersonalStore((s) => s.addProject);
-  const homeOpen = usePersonalStore((s) => s.homeOpen);
   const openHome = usePersonalStore((s) => s.openHome);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
   const openAutomation = usePersonalStore((s) => s.openAutomation);
@@ -307,15 +233,22 @@ export function PersonalSidebar({
   const writingOpen = usePersonalStore((s) => s.writingOpen);
   const openWriting = usePersonalStore((s) => s.openWriting);
   const sessions = usePersonalStore((s) => s.sessions);
+  const activeProjectId = usePersonalStore((s) => s.activeProjectId);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
+  const createSession = usePersonalStore((s) => s.createSession);
+  const activateProject = usePersonalStore((s) => s.activateProject);
+  const settingsOpen = usePersonalStore((s) => s.settingsOpen);
+  const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const generalSettings = usePersonalStore((s) => s.generalSettings);
+  const setRightView = usePersonalStore((s) => s.setRightView);
+  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
 
   // 系统已装编辑器（挂载时探测一次,传给所有 ProjectMenu）。
   const [editors, setEditors] = useState<EditorInfo[]>([]);
   // 「已归档」分组折叠态（本地,默认折叠）。
   const [archivedOpen, setArchivedOpen] = useState(false);
-  // 「无项目」伪分组折叠态（本地,默认展开）。
-  const [noProjectOpen, setNoProjectOpen] = useState(true);
+  const [contextMenuAnchor, setContextMenuAnchor] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -339,6 +272,39 @@ export function PersonalSidebar({
     .filter((s) => !s.projectId && s.archivedAt == null)
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
+  const activeSession = sessions.find((session) => session.id === activeSessionId);
+  const contextProjectId = activeSession ? activeSession.projectId : activeProjectId;
+  const contextProject = projects.find((project) => project.id === contextProjectId);
+  const contextIsNoProject = Boolean(activeSession && !activeSession.projectId);
+  const contextSessions = sessions
+    .filter((session) => {
+      if (session.archivedAt != null) return false;
+      if (contextProject) return session.projectId === contextProject.id;
+      return contextIsNoProject && !session.projectId;
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const projectChoices = visible.filter((project) => project.id !== contextProject?.id);
+  const defaultAgent = resolveDefaultAgent({ generalSettings, agentsAvailable });
+  const conversationModeOpen = !writingOpen && !designOpen && !automationOpen && !workflowOpen && !settingsOpen;
+
+  const createContextSession = () => {
+    createSession(contextProject?.id, defaultAgent);
+    onToast(contextProject ? `已在 ${contextProject.name} 新建 Session` : "已新建无项目 Session");
+  };
+
+  const openProject = (project: ProjectMeta) => {
+    const latest = sessions
+      .filter((session) => session.projectId === project.id && session.archivedAt == null)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (latest) {
+      setActiveSession(latest.id);
+      return;
+    }
+    activateProject(project.id);
+    setRightView("todos");
+    setRightOpen(true);
+  };
+
   const pickProject = async () => {
     if (!bridge) return;
     const path = await bridge.pickDirectory();
@@ -354,143 +320,175 @@ export function PersonalSidebar({
       <div className="pw-col-head pw-sidebar-head">
         <SidebarLeftControls />
       </div>
-      <WorkspaceTabs />
-      {/* 顶部三入口同一行:会话(主 CTA,⌘N 快捷键保留,徽标并入 title 提示以省横向空间)/ 写作 / 项目管理。
-          写作/项目管理按桥接能力降级隐藏(web 端 bridge=null、旧壳缺方法时不渲染),缺臂时余下入口 flex 均分整行。 */}
-      <div className="pw-top-nav-row">
-        <button className={`pw-home-btn pw-home-btn--primary ${homeOpen ? "is-active" : ""}`} onClick={openHome} title="会话（看板·选项目·开聊,⌘N）">
-          <Icon.Plus size={15} />
-          <span>会话</span>
+      <div className="pw-sidebar-modes" aria-label="工作模式">
+        <button className={conversationModeOpen ? "is-active" : ""} onClick={openHome} aria-pressed={conversationModeOpen}>
+          会话
         </button>
-        {/* 写作工作区入口:依赖 startCli/文件系统桥接,web 端(bridge=null)降级隐藏。 */}
         {bridge ? (
+          <button className={writingOpen ? "is-active" : ""} onClick={openWriting} aria-pressed={writingOpen}>
+            写作
+          </button>
+        ) : null}
+        {bridge ? (
+          <button className={designOpen ? "is-active" : ""} onClick={() => openDesign()} aria-pressed={designOpen}>
+            设计
+          </button>
+        ) : null}
+      </div>
+
+      <section className="pw-context-card" aria-label="当前项目">
+        <div className="pw-context-card-title">
+          {contextProject ? <Icon.Folder size={15} /> : <Icon.File size={15} />}
+          <strong>{contextProject?.name ?? (contextIsNoProject ? "无项目会话" : "选择一个项目开始")}</strong>
+          {contextProject ? <span>当前项目</span> : null}
+          {contextProject ? (
+            <button
+              className={`pw-icon-btn pw-context-card-menu ${contextMenuAnchor ? "is-active" : ""}`}
+              title="更多项目操作"
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setContextMenuAnchor({ x: rect.right, y: rect.bottom + 4 });
+              }}
+            >
+              <Icon.More size={13} />
+            </button>
+          ) : null}
+        </div>
+        <div className="pw-context-card-actions">
+          <button className="is-primary" onClick={createContextSession}>
+            <Icon.Plus size={13} />
+            <span>新建会话</span>
+          </button>
+          {bridge?.tasksListProjects && onOpenProjectsWindow ? (
+            <button
+              className="pw-projects-entry"
+              onClick={onOpenProjectsWindow}
+              title="项目管理（独立窗口：项目树 / 任务清单 / 详情）"
+            >
+              <Icon.Folder size={13} />
+              <span>项目管理</span>
+            </button>
+          ) : null}
+        </div>
+        {contextProject && contextMenuAnchor ? (
+          <ProjectMenu
+            project={contextProject}
+            archived={contextProject.archivedAt != null}
+            editors={editors}
+            anchor={contextMenuAnchor}
+            onClose={() => setContextMenuAnchor(null)}
+            onToast={onToast}
+          />
+        ) : null}
+      </section>
+
+      <div className="pw-sidebar-scroll">
+        <section className="pw-context-sessions">
+          <div className="pw-section-h">
+            <span>{contextIsNoProject ? "无项目会话" : "当前项目会话"}</span>
+          </div>
+          {contextSessions.length > 0 ? (
+            <SessionList
+              sessions={contextSessions}
+              activeSessionId={activeSessionId}
+              onSelect={setActiveSession}
+              onToast={onToast}
+            />
+          ) : (
+            <button className="pw-context-empty" onClick={createContextSession}>
+              <Icon.Plus size={12} />
+              <span>新建第一条会话</span>
+            </button>
+          )}
+        </section>
+
+        <section className="pw-project-switcher">
+          <div className="pw-section-h">
+            <span>切换项目</span>
+            <button className="pw-icon-btn" title="添加项目（选择本地文件夹）" onClick={pickProject} disabled={!bridge}>
+              <Icon.FolderPlus size={14} />
+            </button>
+          </div>
+          {projectChoices.map((project) => (
+            <ProjectSwitchRow
+              key={project.id}
+              project={project}
+              archived={false}
+              editors={editors}
+              onOpen={() => openProject(project)}
+              onToast={onToast}
+            />
+          ))}
+          {noProjectSessions.length > 0 && !contextIsNoProject ? (
+            <button
+              className="pw-project-switch-main pw-no-project-switch"
+              onClick={() => setActiveSession(noProjectSessions[0]!.id)}
+            >
+              <Icon.File size={14} />
+              <span>无项目</span>
+              <small>{noProjectSessions.length}</small>
+            </button>
+          ) : null}
+          {projectChoices.length === 0 && noProjectSessions.length === 0 && archived.length === 0 ? (
+            <div className="pw-project-switch-empty">暂无其他项目</div>
+          ) : null}
+          {archived.length > 0 ? (
+            <div className="pw-archived-group">
+              <button
+                className="pw-archived-h"
+                data-collapsed={!archivedOpen}
+                onClick={() => setArchivedOpen((value) => !value)}
+              >
+                <span className="chev">
+                  <Icon.Chevron size={10} />
+                </span>
+                <span>已归档 ({archived.length})</span>
+              </button>
+              {archivedOpen
+                ? archived.map((project) => (
+                    <ProjectSwitchRow
+                      key={project.id}
+                      project={project}
+                      archived
+                      editors={editors}
+                      onOpen={() => openProject(project)}
+                      onToast={onToast}
+                    />
+                  ))
+                : null}
+            </div>
+          ) : null}
+        </section>
+      </div>
+
+      <div className="pw-sidebar-shortcuts" aria-label="快捷入口">
+        {onOpenFlashNote ? (
+          <button className="pw-sidebar-shortcut" onClick={onOpenFlashNote} aria-label="闪记">
+            <Icon.Pin size={15} />
+            <span>闪记</span>
+          </button>
+        ) : null}
+        {bridge?.automationList ? (
           <button
-            className={`pw-home-btn ${writingOpen ? "is-active" : ""}`}
-            onClick={openWriting}
-            title="写作（写作空间 · Markdown 编辑 · 写作助手）"
+            className={`pw-sidebar-shortcut ${automationOpen ? "is-active" : ""}`}
+            onClick={openAutomation}
+            aria-label="自动化"
           >
-            <Icon.Edit size={14} />
-            <span>写作</span>
+            <Icon.Workflow size={15} />
+            <span>自动化</span>
           </button>
         ) : null}
-        {/* 「项目管理」独立窗口入口：双门控——bridge.tasksListProjects（任务能力）+ onOpenProjectsWindow
-            （壳注入窗口能力）；旧壳缺任一 → 隐藏（KTD2：窗口打开经壳注入回调,views 不碰 window.desktopAPI）。 */}
-        {bridge?.tasksListProjects && onOpenProjectsWindow ? (
-          <button className="pw-home-btn pw-projects-entry" onClick={onOpenProjectsWindow} title="项目管理（独立窗口：项目树 / 任务清单 / 详情）">
-            <Icon.Folder size={14} />
-            <span>项目管理</span>
+        {bridge?.workflowList ? (
+          <button
+            className={`pw-sidebar-shortcut ${workflowOpen ? "is-active" : ""}`}
+            onClick={openWorkflow}
+            aria-label="Loop"
+          >
+            <Icon.GitBranch size={15} />
+            <span>Loop</span>
           </button>
         ) : null}
-      </div>
-      {/* 闪记入口:从输入框工具栏迁来,壳注入 onOpenFlashNote 时才渲染(web/旧壳缺省 → 隐藏)。 */}
-      {onOpenFlashNote ? (
-        <button className="pw-home-btn" onClick={onOpenFlashNote} title="闪记（速记浮层）">
-          <Icon.Pin size={14} color="#7c5cff" />
-          <span>闪记</span>
-        </button>
-      ) : null}
-      {bridge?.automationList ? (
-        <button
-          className={`pw-home-btn ${automationOpen ? "is-active" : ""}`}
-          onClick={openAutomation}
-          title="自动化（定时任务）"
-        >
-          <Icon.Workflow size={14} />
-          <span>自动化</span>
-        </button>
-      ) : null}
-      {/* loop 工作流入口：bridge.workflowList 有值时才渲染（web 端 bridge 为 null 自动降级隐藏）。
-          使用 GitBranch 图标以区分 Workflow（自动化）入口。 */}
-      {bridge?.workflowList ? (
-        <button
-          className={`pw-home-btn ${workflowOpen ? "is-active" : ""}`}
-          onClick={openWorkflow}
-          title="Loop 工作流（节点式自动化）"
-        >
-          <Icon.GitBranch size={14} />
-          <span>Loop 工作流</span>
-        </button>
-      ) : null}
-      <div className="pw-section-h">
-        <span>项目</span>
-        <button className="pw-icon-btn" title="添加项目（选择本地文件夹）" onClick={pickProject} disabled={!bridge}>
-          <Icon.FolderPlus size={14} />
-        </button>
-      </div>
-      <div className="sb-list">
-        {visible.map((p) => (
-          <ProjectBlock key={p.id} project={p} archived={false} editors={editors} onToast={onToast} />
-        ))}
-        {visible.length === 0 && archived.length === 0 ? (
-          <div className="sb-empty">
-            <Icon.Folder size={22} />
-            <div>还没有项目</div>
-            <button className="btn primary" onClick={pickProject} disabled={!bridge}>
-              <Icon.FolderPlus size={13} />
-              选择文件夹
-            </button>
-          </div>
-        ) : null}
-        {archived.length > 0 ? (
-          <div className="pw-archived-group">
-            <button
-              className="pw-archived-h"
-              data-collapsed={!archivedOpen}
-              onClick={() => setArchivedOpen((v) => !v)}
-            >
-              <span className="chev">
-                <Icon.Chevron size={10} />
-              </span>
-              <span>已归档 ({archived.length})</span>
-            </button>
-            {archivedOpen
-              ? archived.map((p) => (
-                  <ProjectBlock key={p.id} project={p} archived={true} editors={editors} onToast={onToast} />
-                ))
-              : null}
-          </div>
-        ) : null}
-        {noProjectSessions.length > 0 ? (
-          <div className="pw-noproject-group">
-            <button
-              className="pw-archived-h"
-              data-collapsed={!noProjectOpen}
-              onClick={() => setNoProjectOpen((v) => !v)}
-            >
-              <span className="chev">
-                <Icon.Chevron size={10} />
-              </span>
-              <span>无项目 ({noProjectSessions.length})</span>
-            </button>
-            {noProjectOpen ? (
-              <SessionList
-                sessions={noProjectSessions}
-                activeSessionId={activeSessionId}
-                onSelect={setActiveSession}
-                onToast={onToast}
-              />
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-      {/* 底部全局入口组（设计 / 设置）：整组包一层 .pw-sidebar-footer,顶部一条分隔线
-          + 微弱底色,与上方会话/项目列表拉开区分度（组内 .sb-foot 去掉自带 border-top 避免双线）。
-          项目管理入口已上移到顶部三入口组,footer 只剩设计与设置。 */}
-      <div className="pw-sidebar-footer">
-        {/* 设计工作台入口:依赖 startCli/文件系统桥接,web 端(bridge=null)降级隐藏。 */}
-        {bridge ? (
-          <div className="pw-footer-row">
-            <button
-              className={`pw-home-btn ${designOpen ? "is-active" : ""}`}
-              onClick={() => openDesign()}
-              title="设计（AI 设计画布）"
-            >
-              <Icon.Palette size={14} />
-              <span>设计</span>
-            </button>
-          </div>
-        ) : null}
-        <SettingsMenu />
+        <SettingsMenu variant="shortcut" />
       </div>
     </aside>
   );

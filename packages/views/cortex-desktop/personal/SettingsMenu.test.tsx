@@ -54,6 +54,15 @@ describe("设置入口与整页设置视图", () => {
     expect(usePersonalStore.getState().settingsOpen).toBe(true);
   });
 
+  it("shortcut 变体使用固定快捷入口样式并反映设置打开态", () => {
+    usePersonalStore.setState({ settingsOpen: true });
+    const { container } = renderUI(<SettingsMenu variant="shortcut" />);
+    const button = screen.getByRole("button", { name: "设置" });
+    expect(button.classList.contains("pw-sidebar-shortcut")).toBe(true);
+    expect(button.classList.contains("is-active")).toBe(true);
+    expect(container.querySelector(".sb-foot")).toBeNull();
+  });
+
   it("点击「返回应用」关闭整页(settingsOpen=false)", () => {
     usePersonalStore.setState({ settingsOpen: true });
     renderUI(<PersonalSettingsView />);
