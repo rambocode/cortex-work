@@ -23,6 +23,13 @@ import { WritingSidebar } from "./WritingSidebar";
 import { WritingEditorPane, type WritingEditorPaneHandle } from "./WritingEditorPane";
 import { WritingAssistantPanel } from "./WritingAssistantPanel";
 
+// 三栏宽度契约(与 cortex-desktop.css 的 .pw-writing-left/center/right 保持一致):
+// 左栏固定 260、中栏保底 560(Kun MAIN_MIN_WIDTH)、右侧助手栏固定 360。
+// 窗口窄于「左(若展开)+ 中保底 + 右」时自动收起助手栏让位(body overflow 已 hidden,不再横向滚动)。
+const LEFT_W = 260;
+const CENTER_MIN_W = 560;
+const RIGHT_W = 360;
+
 export function WritingWorkspace(): ReactElement {
   const bridge = useDesktopBridge();
   const closeWriting = usePersonalStore((s) => s.closeWriting);
@@ -46,6 +53,32 @@ export function WritingWorkspace(): ReactElement {
   // 左栏折叠 / 右侧助手栏开合(顶栏两个按钮控制;瞬态,不持久化)。
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(true);
+  // 窄窗自适应:跟踪窗口宽度(覆盖层 fixed inset-0 占满整窗,innerWidth 即容器宽)。
+  const [windowWidth, setWindowWidth] = useState(() =>
+    typeof window === "undefined" ? Number.POSITIVE_INFINITY : window.innerWidth,
+  );
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  // narrow:放不下「左(若展开)+ 中保底 + 右」三栏。assistantOpen 保留为用户意图不被改写,
+  // 实际显示 = 意图 && !narrow —— 窄窗自动收起助手栏保证中栏可用,拖宽后自动恢复。
+  const narrow = windowWidth < (leftCollapsed ? 0 : LEFT_W) + CENTER_MIN_W + RIGHT_W;
+  const assistantVisible = assistantOpen && !narrow;
+  // 窄窗下手动打开助手:先折叠左栏腾出 260px;连中+右都放不下时提示并放弃打开。
+  const toggleAssistant = () => {
+    if (assistantVisible) {
+      setAssistantOpen(false);
+      return;
+    }
+    if (windowWidth < CENTER_MIN_W + RIGHT_W) {
+      setToast("窗口过窄,无法打开助手面板");
+      return;
+    }
+    if (narrow && !leftCollapsed) setLeftCollapsed(true);
+    setAssistantOpen(true);
+  };
   // 编辑器实时选区(R11):CM onSelectionChange → 此 state → 助手面板 selection prop。
   // 空选区/非编辑态为 null,润色卡与「引用选中」据此解禁。
   const [selection, setSelection] = useState<WritingSelectionSnapshot | null>(null);
@@ -182,8 +215,9 @@ export function WritingWorkspace(): ReactElement {
             onFontSizeChange={setFontSizePx}
             leftCollapsed={leftCollapsed}
             onToggleLeft={() => setLeftCollapsed((v) => !v)}
-            assistantOpen={assistantOpen}
-            onToggleAssistant={() => setAssistantOpen((v) => !v)}
+            // 传实际显示值(而非用户意图):窄窗被自动收起时,工具栏 sparkles 状态与实际一致。
+            assistantOpen={assistantVisible}
+            onToggleAssistant={toggleAssistant}
             // CM 选区 → WritingSelectionSnapshot(charCount 取选中文本长度;空选区传 null)。
             onSelectionChange={(sel: NoteEditorSelection | null) =>
               setSelection(
@@ -207,7 +241,7 @@ export function WritingWorkspace(): ReactElement {
             }
           />
         </div>
-        <div className={`pw-writing-right${assistantOpen ? "" : " is-hidden"}`}>
+        <div className={`pw-writing-right${assistantVisible ? "" : " is-hidden"}`}>
           <WritingAssistantPanel
             space={activeSpace}
             activeFilePath={currentFile}

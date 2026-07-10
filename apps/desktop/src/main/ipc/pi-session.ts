@@ -219,7 +219,8 @@ export function registerPiSessionHandlers(): void {
       summary: "pi open",
       sessionId: prepared.uiSessionId,
       agent: "pi",
-      data: { cwd: prepared.cwd, argCount: args.length, providerId: prepared.provider?.id },
+      // model:调试跟踪需能直读会话启动模型(缺省 = pi 自身默认;运行时可经 pi:setModel 切换)。
+      data: { cwd: prepared.cwd, model: prepared.model ?? "(默认)", argCount: args.length, providerId: prepared.provider?.id },
     });
     const transport = spawnPiRpc(args, {
       cwd: prepared.cwd,

@@ -139,18 +139,20 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
 
   function forward(ev: CliStreamEvent): void {
     if (settled) return;
-    if (ev.type === "text") {
+    // text/thinking 增量交 trace 记录端合并为生长段(与 pi-session 同策略,避免逐 delta 刷屏);
+    // 仅影响 dev 调试跟踪,sendEvent 真实事件管线不变。
+    if (ev.type === "text" || ev.type === "thinking") {
       sawAnyVisible = true;
       recordStreamDelta({
         scope: "cli",
-        segmentType: "text",
+        segmentType: ev.type === "text" ? "text" : "reasoning",
         delta: ev.delta,
         runId: req.runId,
         sessionId: req.sessionId,
         agent: req.agent,
       });
     } else {
-      if (ev.type === "tool" || ev.type === "result" || ev.type === "thinking") sawAnyVisible = true;
+      if (ev.type === "tool" || ev.type === "result") sawAnyVisible = true;
       recordAgentTrace({
         scope: "cli",
         phase: "event",
@@ -228,7 +230,8 @@ export function startCodexWsRun(opts: CodexWsRunOpts): AgentProcess {
       runId: req.runId,
       sessionId: req.sessionId,
       agent: req.agent,
-      data: { cwd: req.cwd, attempt },
+      // model/effort:调试跟踪需能直读本轮用的模型与推理强度(缺省 = 未显式传,用 agent 自身默认)。
+      data: { cwd: req.cwd, model: req.model ?? "(默认)", effort: req.effort ?? "(默认)", attempt },
     });
     let server: { wsUrl: string };
     try {

@@ -10477,9 +10477,9 @@ button.sb-row {
 .pw-writing-diff-host .cm-collapsedLines:hover { background: var(--bg-hover); color: var(--text-2); }
 
 /* 通栏:body 占满整窗,三栏各自贯穿到顶(无横跨三栏的顶栏)。
-   横向 auto:中栏有保底 min-width(见 .pw-writing-center),窗口窄于「左+中保底+右」时
-   整体横向滚动兜底,而不是把中栏挤压到没空间(纵向滚动仍归各栏自己)。 */
-.pw-writing-body { flex: 1; display: flex; min-height: 0; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+   横向 hidden:窗口窄于「左+中保底+右」时由 WritingWorkspace 的窄宽逻辑自动收起
+   右侧助手栏让位(而非横向滚动——滚动会把右栏推出视口只剩一条,见窄窗 bug)。 */
+.pw-writing-body { flex: 1; display: flex; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: hidden; }
 /* 左栏贴顶拖拽条:避让 macOS 红绿灯(左侧留白),右侧放返回按钮。 */
 .pw-writing-left-titlebar {
   display: flex; align-items: center; justify-content: flex-end;
@@ -10501,10 +10501,10 @@ button.sb-row {
   background: var(--w-panel-bg);
 }
 .pw-writing-left.is-collapsed { display: none; }
-/* 中栏保底宽度 900px(比 Kun MAIN_MIN_WIDTH 560 更宽,保证 864px 预览版心不被压缩):
-   左右栏 shrink-0 固定宽,若不设保底,拖窄窗口时 flex:1 的中栏会被挤压到 0;
-   窄于总最小宽时由 body 横向滚动兜底。 */
-.pw-writing-center { flex: 1; min-width: 900px; display: flex; flex-direction: column; min-height: 0; }
+/* 中栏保底宽度 560px(对齐 Kun MAIN_MIN_WIDTH;预览版心是 min(100%,864px) 可自适应收缩,
+   无需 900px 保底):左右栏 shrink-0 固定宽,若不设保底,拖窄窗口时 flex:1 的中栏会被挤压到 0;
+   窄于「左+560+右」时由 WritingWorkspace 自动收起助手栏让位(body overflow 已 hidden,不再横向滚动)。 */
+.pw-writing-center { flex: 1; min-width: 560px; display: flex; flex-direction: column; min-height: 0; }
 .pw-writing-right {
   width: 360px; flex-shrink: 0;
   display: flex; flex-direction: column; min-height: 0;

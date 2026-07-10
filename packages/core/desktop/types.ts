@@ -1315,7 +1315,12 @@ export const AGENT_MODELS: Record<AgentKind, { label: string; value: string }[]>
     { label: "Opus", value: "opus" },
     { label: "Haiku", value: "haiku" },
   ],
+  // codex GPT-5.6 三档:sol=旗舰前沿、terra=日常均衡、luna=快速廉价(对齐 codex CLI 模型清单);
+  // 5.5/5.4 保留为 legacy 可选(codex -m 仍接受),也让旧会话记忆的模型值不被判为脏值。
   codex: [
+    { label: "GPT-5.6 Sol", value: "gpt-5.6-sol" },
+    { label: "GPT-5.6 Terra", value: "gpt-5.6-terra" },
+    { label: "GPT-5.6 Luna", value: "gpt-5.6-luna" },
     { label: "GPT-5.5", value: "gpt-5.5" },
     { label: "GPT-5.4", value: "gpt-5.4" },
     { label: "GPT-5.4 Mini", value: "gpt-5.4-mini" },
@@ -1333,7 +1338,7 @@ export const AGENT_MODELS: Record<AgentKind, { label: string; value: string }[]>
 
 export const DEFAULT_MODEL: Record<AgentKind, string> = {
   claude: "sonnet",
-  codex: "gpt-5.5",
+  codex: "gpt-5.6-sol",
   pi: "sonnet",
 };
 

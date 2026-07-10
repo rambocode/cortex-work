@@ -4,6 +4,9 @@ import { AGENT_MODELS, DEFAULT_MODEL, PERMISSION_MODES, APPROVAL_POLICIES } from
 describe("desktop agent model config", () => {
   it("Codex exposes selectable recommended models", () => {
     expect(AGENT_MODELS.codex.map((m) => m.value)).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",

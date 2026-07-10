@@ -415,6 +415,8 @@ function runDelegateSubAgent(
       cwd: parent.cwd, roleId: role.id, taskPreview: promptPreview(task),
       // 诊断：确认 stdin 是否真带 task + 子 agent 实际 permissionMode（继承自主会话）。
       stdinLen: stdin?.length ?? 0, permissionMode: req.permissionMode ?? "(full-auto)",
+      // model/effort:子 agent 实际模型(未继承时用 agent 自身默认)与推理强度(继承主会话)。
+      model: req.model ?? "(默认)", effort: req.effort ?? "(默认)",
     },
   });
 
@@ -872,7 +874,16 @@ export function registerCliHandlers(): void {
         runId: req.runId,
         sessionId: req.sessionId,
         agent: req.agent,
-        data: { cmd, cwd: req.cwd, argCount: args.length, attempt, promptPreview: promptPreview(req.prompt) },
+        // model/effort:调试跟踪需能直读本轮用的模型与推理强度(缺省 = 未显式传,用 agent 自身默认)。
+        data: {
+          cmd,
+          cwd: req.cwd,
+          model: req.model ?? "(默认)",
+          effort: req.effort ?? "(默认)",
+          argCount: args.length,
+          attempt,
+          promptPreview: promptPreview(req.prompt),
+        },
       });
       const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvForDef(req, adapter), stdin });
       running.set(req.runId, proc);
@@ -918,11 +929,13 @@ export function registerCliHandlers(): void {
         noteActivity(); // 任意 stdout 行(含未解析行)都算活跃,重置看门狗
         for (const ev of parseLineEvents(adapter, line)) {
           sawAny = true;
-          if (ev.type === "text") {
-            sawText = true;
+          // text/thinking 增量交 trace 记录端合并为生长段(与 pi-session 同策略,避免逐 delta 刷屏);
+          // 仅影响 dev 调试跟踪,sendEvent 真实事件管线不变。
+          if (ev.type === "text" || ev.type === "thinking") {
+            if (ev.type === "text") sawText = true;
             recordStreamDelta({
               scope: "cli",
-              segmentType: "text",
+              segmentType: ev.type === "text" ? "text" : "reasoning",
               delta: ev.delta,
               runId: req.runId,
               sessionId: req.sessionId,
@@ -1130,7 +1143,8 @@ export function registerCliHandlers(): void {
         summary: `${agent} oneshot start`,
         sessionId: "oneshot",
         agent,
-        data: { cmd, cwd, argCount: args.length, promptPreview: promptPreview(req.prompt) },
+        // model:oneshot 实际模型(未传时用 agent 自身默认;oneshot 请求不带推理强度)。
+        data: { cmd, cwd, model: req.model ?? "(默认)", argCount: args.length, promptPreview: promptPreview(req.prompt) },
       });
       return new Promise<string>((resolve, reject) => {
         const proc = startAgentProcess(cmd, args, {
@@ -1152,11 +1166,11 @@ export function registerCliHandlers(): void {
           // 一行可解析出多个事件(usage + result);逐个处理。oneshot 只关心 text 聚合与 result 收尾,
           // usage 等其它事件走 trace 记录即可。
           for (const ev of parseLineEvents(adapter, line)) {
-            // text 增量合并为段;其它事件走普通 trace。
-            if (ev.type === "text") {
+            // text/thinking 增量合并为段(thinking 逐 delta 落普通事件会刷屏,完整输出后定格一条);其它事件走普通 trace。
+            if (ev.type === "text" || ev.type === "thinking") {
               recordStreamDelta({
                 scope: "oneshot",
-                segmentType: "text",
+                segmentType: ev.type === "text" ? "text" : "reasoning",
                 delta: ev.delta,
                 sessionId: "oneshot",
                 agent,

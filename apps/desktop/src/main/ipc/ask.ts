@@ -87,7 +87,15 @@ export function registerAskHandlers(): void {
       runId: req.askId,
       sessionId: req.askId,
       agent: req.agent,
-      data: { cmd: built.cmd, cwd, argCount: args.length, promptPreview: promptPreview(req.prompt) },
+      // model/effort:调试跟踪需能直读本轮用的模型与推理强度(缺省 = 未显式传,用 agent 自身默认)。
+      data: {
+        cmd: built.cmd,
+        cwd,
+        model: req.model ?? "(默认)",
+        effort: req.effort ?? "(默认)",
+        argCount: args.length,
+        promptPreview: promptPreview(req.prompt),
+      },
     });
     const proc = startAgentProcess(built.cmd, args, {
       cwd,
