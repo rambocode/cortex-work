@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { CoreProvider } from "@cortex-work/core";
+import { CoreProvider, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge, SessionMeta } from "@cortex-work/core";
 
 import { SessionList } from "./PersonalSidebar";
@@ -26,6 +26,13 @@ function renderUI(ui: ReactElement) {
 // 会话行标题即 title;造 n 条便于断言「显示了几条」。
 function makeSessions(n: number): SessionMeta[] {
   return Array.from({ length: n }, (_, i) => sess({ id: `s${i}`, title: `会话${i}` }));
+}
+
+function StoredSessionList({ onSelect = () => {} }: { onSelect?: (id: string) => void }) {
+  const sessions = usePersonalStore((state) => state.sessions);
+  return (
+    <SessionList sessions={sessions} activeSessionId={undefined} onSelect={onSelect} onToast={() => {}} />
+  );
 }
 
 describe("SessionList 分组会话超 5 折叠", () => {
@@ -62,5 +69,54 @@ describe("SessionList 分组会话超 5 折叠", () => {
     renderUI(<SessionList sessions={makeSessions(3)} {...base} onSelect={onSelect} />);
     fireEvent.click(screen.getByText("会话1"));
     expect(onSelect).toHaveBeenCalledWith("s1");
+  });
+});
+
+describe("SessionList 会话重命名", () => {
+  it("点击铅笔原地编辑且不切换会话,Enter 保存去除空格后的名称", () => {
+    usePersonalStore.setState({ sessions: makeSessions(1) });
+    const onSelect = vi.fn();
+    renderUI(<StoredSessionList onSelect={onSelect} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重命名 会话0" }));
+
+    const input = screen.getByRole("textbox", { name: "会话名称" });
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue("会话0");
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "  新会话名称  " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("新会话名称");
+    expect(screen.queryByRole("textbox", { name: "会话名称" })).not.toBeInTheDocument();
+  });
+
+  it("输入框失焦时保存名称", () => {
+    usePersonalStore.setState({ sessions: makeSessions(1) });
+    renderUI(<StoredSessionList />);
+    fireEvent.click(screen.getByRole("button", { name: "重命名 会话0" }));
+    const input = screen.getByRole("textbox", { name: "会话名称" });
+
+    fireEvent.change(input, { target: { value: "失焦名称" } });
+    fireEvent.blur(input);
+
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("失焦名称");
+  });
+
+  it("Escape 或空名称取消修改", () => {
+    usePersonalStore.setState({ sessions: makeSessions(1) });
+    renderUI(<StoredSessionList />);
+    fireEvent.click(screen.getByRole("button", { name: "重命名 会话0" }));
+    let input = screen.getByRole("textbox", { name: "会话名称" });
+    fireEvent.change(input, { target: { value: "不应保存" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("会话0");
+
+    fireEvent.click(screen.getByRole("button", { name: "重命名 会话0" }));
+    input = screen.getByRole("textbox", { name: "会话名称" });
+    fireEvent.change(input, { target: { value: "   " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("会话0");
   });
 });

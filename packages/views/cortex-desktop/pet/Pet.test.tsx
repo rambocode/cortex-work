@@ -2,10 +2,11 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { usePetStore } from "@cortex-work/core";
+import { CoreProvider, usePetStore, type DesktopBridge } from "@cortex-work/core";
 import { PET_ENABLED_KEY, PET_MODE_KEY, PET_WALK_KEY, WALK_IDLE_DELAY_MS } from "./behavior";
-import { PET_KIND_KEY } from "./designs";
+import { PET_KIND_KEY, PET_SIZE_KEY } from "./designs";
 import { Pet } from "./Pet";
+import { PetBridge } from "./PetBridge";
 
 function resetStore() {
   usePetStore.setState({
@@ -23,6 +24,8 @@ function resetStore() {
 // jsdom 视口 1024 宽,巡逻道最右侧 = innerWidth - PET_W(110) - 18
 const RIGHT_X = 1024 - 110 - 18;
 const petCss = readFileSync("cortex-desktop/cortex-desktop.css", "utf8");
+const TEST_WS_ID = "test-ws";
+const TEST_IDENTITY = { userId: "me", name: "我" };
 
 describe("Pet 行为模式", () => {
   beforeEach(() => {
@@ -154,6 +157,17 @@ describe("Pet 行为模式", () => {
   // 的透明窗口内挪动会被 macOS 裁剪,原生窗口拖拽不受此限(见 Pet.tsx/pet-overlay-window.ts
   // 头部注释)。
   describe("windowFollowsPet(独立 pet-overlay 窗口)", () => {
+    it("只消费主窗口同步状态,不使用 overlay 页面的 localStorage 覆盖", () => {
+      localStorage.setItem(PET_KIND_KEY, "dog");
+      localStorage.setItem(PET_SIZE_KEY, "1.5");
+      localStorage.setItem(PET_ENABLED_KEY, "0");
+      act(() => usePetStore.setState({ kind: "mint", size: 2, enabled: true }));
+
+      render(<Pet windowFollowsPet />);
+
+      expect(usePetStore.getState()).toMatchObject({ kind: "mint", size: 2, enabled: true });
+    });
+
     it("固定居中显示,不读取/写入 localStorage 记忆位置", () => {
       localStorage.setItem("cortex_pet_pos", JSON.stringify({ x: 1, y: 2 }));
       const { container } = render(<Pet windowFollowsPet />);
@@ -188,5 +202,32 @@ describe("Pet 行为模式", () => {
       fireEvent.pointerUp(pet, { clientX: 10, clientY: 10, pointerId: 1 });
       expect(usePetStore.getState().state).toBe("happy");
     });
+  });
+});
+
+describe("PetBridge", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetStore();
+  });
+  afterEach(() => cleanup());
+
+  it("首次同步前从主窗口 localStorage 恢复宠物设置", () => {
+    localStorage.setItem(PET_KIND_KEY, "mint");
+    localStorage.setItem(PET_SIZE_KEY, "2");
+    localStorage.setItem(PET_ENABLED_KEY, "0");
+    const reportPetState = vi.fn();
+    const bridge = { reportPetState } as unknown as DesktopBridge;
+
+    render(
+      <CoreProvider wsId={TEST_WS_ID} identity={TEST_IDENTITY} desktopBridge={bridge}>
+        <PetBridge />
+      </CoreProvider>,
+    );
+
+    expect(reportPetState).toHaveBeenCalledTimes(1);
+    expect(reportPetState).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "mint", size: 2, enabled: false }),
+    );
   });
 });

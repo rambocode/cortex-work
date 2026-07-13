@@ -3828,7 +3828,16 @@ button.sb-row {
 .pw-session.is-active { background: var(--bg-active); color: var(--text-1); font-weight: 500; }
 .pw-session-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pw-session-time { font-size: 11px; color: var(--text-4); flex-shrink: 0; }
-/* 会话行:相对定位容纳右侧悬浮的归档/删除操作;hover 时浮现并让位时间 */
+.pw-session-rename { padding-top: 3px; padding-bottom: 3px; cursor: text; }
+.pw-session-rename-input {
+  width: 100%; min-width: 0; height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--accent); border-radius: 5px;
+  background: var(--bg-card); color: var(--text-1);
+  font: inherit; outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+/* 会话行:相对定位容纳右侧悬浮的重命名/归档/删除操作;hover 时浮现并让位时间 */
 .pw-session-row { position: relative; }
 .pw-session-row[data-archived="true"] .pw-session { opacity: 0.55; }
 .pw-session-actions {
@@ -6718,6 +6727,99 @@ button.sb-row {
 .pw-settings-page .pw-srow-l { flex-basis: 40%; }
 /* 约束单行输入/下拉最大宽,避免宽窗下拉伸过长(左对齐);不影响 segmented/全宽块/嵌套控件 */
 .pw-settings-page .pw-srow-c > .pw-set-input { max-width: 340px; }
+
+/* 设计设置:紧凑双列卡片。以右侧内容区自身宽度回落,不依赖整窗或左导航宽度。 */
+.pw-design-settings {
+  container: design-settings / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pw-design-heading { display: flex; flex-direction: column; gap: 4px; }
+.pw-design-settings .pw-dlg-desc { margin-bottom: 0; }
+.pw-design-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--border-soft);
+}
+.pw-design-summary-item {
+  min-width: 0;
+  padding: 9px 12px;
+  background: var(--bg-card-2, var(--bg-soft));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pw-design-summary-item span { font-size: 11.5px; color: var(--text-3); }
+.pw-design-summary-item strong {
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-design-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.pw-settings-page .pw-design-card { margin-top: 0; padding: 0 14px 5px; }
+.pw-design-card--workspace { grid-column: 1 / -1; }
+.pw-design-card-title { display: flex; align-items: center; gap: 8px; margin: 0; padding: 13px 2px 8px; }
+.pw-design-card-icon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 7px;
+  background: var(--bg-chip);
+  color: var(--text-2);
+}
+.pw-design-card-body > .pw-sblock:first-child,
+.pw-design-card-body > .pw-srow:first-child { border-top: 0; }
+.pw-design-card .pw-sblock { padding: 11px 2px; }
+.pw-design-card .pw-srow { gap: 12px; padding: 11px 2px; }
+.pw-design-card .pw-srow-l { flex: 1 1 auto; }
+.pw-design-card .pw-srow-c { flex: 0 0 auto; }
+.pw-design-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pw-design-fields .pw-sblock { border-top: 0; }
+.pw-design-field:nth-child(even) { padding-left: 8px; }
+.pw-design-field:nth-child(odd) { padding-right: 8px; }
+.pw-design-fields .pw-design-field--wide { grid-column: 1 / -1; padding-right: 0; padding-left: 0; }
+.pw-design-workspace-control { display: flex; align-items: center; gap: 8px; }
+.pw-design-workspace-control > .pw-set-input { flex: 1 1 auto; min-width: 0; }
+.pw-design-workspace-actions { display: flex; gap: 8px; flex: none; }
+.pw-design-action { min-height: 32px; padding: 6px 12px; border-radius: 8px; font-size: 12.5px; }
+.pw-design-action--primary {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+}
+.pw-design-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pw-design-textarea { min-height: 84px; resize: vertical; line-height: 1.5; font-family: inherit; }
+
+@container design-settings (max-width: 720px) {
+  .pw-design-summary { grid-template-columns: 1fr; }
+  .pw-design-grid { grid-template-columns: 1fr; }
+  .pw-design-card--workspace { grid-column: auto; }
+  .pw-design-workspace-control { align-items: stretch; flex-direction: column; }
+  .pw-design-workspace-actions { flex-wrap: wrap; }
+}
+
+@container design-settings (max-width: 420px) {
+  .pw-design-fields { grid-template-columns: 1fr; }
+  .pw-design-field,
+  .pw-design-field:nth-child(even),
+  .pw-design-field:nth-child(odd) { grid-column: auto; padding-right: 0; padding-left: 0; }
+}
 
 /* C. 深色模式:.twk-* 控件(分段/快捷键/色卡)源自浮层浅色面板(.twk-panel)设计,硬编码了
    白滑块/黑描边/深字;复用到深色设置页时白滑块+继承的浅色文字会糊成一片。这里仅在

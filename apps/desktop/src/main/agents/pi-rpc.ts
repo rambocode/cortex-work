@@ -559,7 +559,11 @@ export class PiRpcSession {
   }
 
   /** 发一条命令,等带相同 id 的 response。超时或进程已退出则 reject。 */
-  send(command: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<RpcResponse> {
+  send(
+    command: Record<string, unknown>,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    opts: { warnOnTimeout?: boolean } = {},
+  ): Promise<RpcResponse> {
     if (this.exited) return Promise.reject(new Error("pi 会话已退出"));
     const id = `req_${++this.reqId}`;
     return new Promise<RpcResponse>((resolve, reject) => {
@@ -567,10 +571,12 @@ export class PiRpcSession {
         this.pending.delete(id);
         // 盲区补点(R10):命令级超时无终态事件,易表现为 renderer 静默卡死。记录命令类型 +
         // 超时阈值便于定位是 pi 未应答还是阈值过短。仅观测,不改 reject 行为。
-        try {
-          log.warn("pi 命令超时", { command: String(command.type), timeoutMs });
-        } catch {
-          /* 日志失败不影响 reject */
+        if (opts.warnOnTimeout !== false) {
+          try {
+            log.warn("pi 命令超时", { command: String(command.type), timeoutMs });
+          } catch {
+            /* 日志失败不影响 reject */
+          }
         }
         reject(new Error(`pi 命令超时: ${String(command.type)}`));
       }, timeoutMs);
@@ -597,7 +603,9 @@ export class PiRpcSession {
     for (let i = 0; i < tries; i++) {
       if (this.exited) throw readyExitError();
       try {
-        const resp = await this.send({ type: "get_state" }, intervalMs);
+        // 单次探测超时是冷启动期间的预期轮询信号，不应冒充命令故障告警；只有整个 ready
+        // 尝试耗尽才是真正的会话就绪失败。
+        const resp = await this.send({ type: "get_state" }, intervalMs, { warnOnTimeout: false });
         const data = resp.success ? (resp.data as { sessionId?: string; sessionFile?: string } | undefined) : undefined;
         if (data?.sessionId) return { sessionId: data.sessionId, sessionFile: data.sessionFile };
         // 已应答但暂无 sessionId:小睡一轮再试,避免无间隔忙轮询烧光 tries。
@@ -606,6 +614,11 @@ export class PiRpcSession {
         if (this.exited) throw readyExitError();
         // get_state 超时（≈intervalMs）= 进程未就绪,直接重试（超时本身已构成间隔）。
       }
+    }
+    try {
+      log.warn("pi 会话就绪超时", { tries, intervalMs });
+    } catch {
+      /* 日志失败不影响 reject */
     }
     throw new Error("pi 会话就绪超时");
   }

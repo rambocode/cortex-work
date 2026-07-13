@@ -111,13 +111,16 @@ export function Pet({ windowFollowsPet = false }: PetProps = {}) {
 
   // 启动时恢复上次选择的造型 / 行为 / 显隐 / 尺寸 / 配色。
   useEffect(() => {
+    // 独立 overlay 只是主窗口状态的镜像；file:// 页面各自的 localStorage 不能作为
+    // 同一份设置来源，否则 overlay 会在收到同步快照后又用自己的默认值覆盖它。
+    if (windowFollowsPet) return;
     setKind(loadPetKind());
     setMode(loadPetMode());
     setWalk(loadPetWalk());
     setEnabled(loadPetEnabled());
     setSize(loadPetSize());
     setColor(loadPetColor());
-  }, [setKind, setMode, setWalk, setEnabled, setSize, setColor]);
+  }, [windowFollowsPet, setKind, setMode, setWalk, setEnabled, setSize, setColor]);
 
   // 节拍器:超时衰减 + 无聊判定。
   // 安静 2–10 分钟打盹;满 10 分钟且开了走动开关 → 叫醒去散步(wake 不刷新

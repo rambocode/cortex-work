@@ -72,6 +72,8 @@ export interface SessionMeta {
   // 不使用项目时的工作目录（Documents/cortex/<YYYY-MM-DD>,创建时定下不漂移）。
   noProjectDir?: string;
   title: string;
+  // 用户是否显式修改过标题。用于阻止首条消息的自动标题覆盖手动名称。
+  titleManuallyEdited?: boolean;
   // 旧字段兼容:claude -p 首轮 system.init 返回的 session_id。
   claudeSessionId?: string;
   // 各 agent 自己的会话 id，后续轮次 resume 用。

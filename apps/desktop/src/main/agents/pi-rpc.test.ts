@@ -560,6 +560,36 @@ describe("PiRpcSession", () => {
     }
   });
 
+  it("ready: 冷启动首轮 get_state 超时后重试成功，不记录命令级超时告警", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakeTransport();
+      const s = new PiRpcSession(f.transport, vi.fn());
+      const ready = s.ready({ tries: 2, intervalMs: 250 });
+
+      await vi.advanceTimersByTimeAsync(250);
+      const retry = f.lastCmd();
+      expect(retry.type).toBe("get_state");
+      f.emit(
+        JSON.stringify({
+          type: "response",
+          id: retry.id,
+          command: "get_state",
+          success: true,
+          data: { sessionId: "sess-after-cold-start" },
+        }) + "\n",
+      );
+
+      await expect(ready).resolves.toEqual({ sessionId: "sess-after-cold-start" });
+      expect(logMocks.logger.warn).not.toHaveBeenCalledWith(
+        "pi 命令超时",
+        expect.objectContaining({ command: "get_state" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("命令封装写出正确的 type 与参数（含 snake_case 映射）", () => {
     const f = fakeTransport();
     const s = new PiRpcSession(f.transport, vi.fn());

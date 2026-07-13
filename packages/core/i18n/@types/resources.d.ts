@@ -230,6 +230,7 @@ export default interface Resources {
       "piAuthHint": "（请在 设置 → 供应商 添加供应商并填写 API Key）",
       "piExited": "⚠️ pi 会话已退出{{detail}}。下次发送将自动重启并恢复上下文。",
       "piExitedDetail": "：{{error}}",
+      "piEmptyReply": "⚠️ 模型本轮未生成最终答复，请重试。",
       "piForkFailed": "⚠️ 未能在 pi 侧定位编辑点,已带原有上下文重发（pi 仍记得被编辑前的内容）。",
       "piStartFailed": "⚠️ pi 会话启动失败：{{message}}",
       "processExit": "进程退出码 {{code}}",

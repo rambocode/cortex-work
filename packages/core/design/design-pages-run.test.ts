@@ -137,8 +137,8 @@ describe('runDesignPages parallel fanout', () => {
     expect(new Set(artifacts.map((artifact) => artifact.direction?.id))).toHaveLength(1)
     expect(artifacts.every((artifact) => artifact.direction?.name === 'IKUN community')).toBe(true)
     expect(useDesignWorkspaceStore.getState().pagesRun).toBeNull()
-    expect(Object.values(useDesignWorkspaceStore.getState().parallelPageStates)).toHaveLength(2)
-    expect(Object.values(useDesignWorkspaceStore.getState().parallelPageStates).every((state) => state.status === 'done')).toBe(true)
+    // 运行结束后页面内容已落盘，并行进度只用于运行中 overlay，必须随 run 一起清空。
+    expect(useDesignWorkspaceStore.getState().parallelPageStates).toEqual({})
     const htmlWrites = writeWorkspaceFile.mock.calls.filter((call) => {
       const payload = call[0] as { path?: string } | undefined
       return String(payload?.path ?? '').endsWith('/v1.html')

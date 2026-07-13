@@ -1645,7 +1645,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         PI_ERROR_FINALIZE_GRACE_MS,
       );
       return;
-    case "result":
+    case "result": {
       if (ev.willRetry) {
         // 自动重试:保留 run 等下一轮事件,不收尾（retry 事件已驱动状态指示）。
         // 复位上一尝试的失败态 + 折叠游标 + buffer,避免成功的重试被误判失败或文本续错块。
@@ -1661,9 +1661,28 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         run.toolStartedAt = undefined;
         return;
       }
+      // 部分 reasoning 模型会以 stop 正常结束，却只产出思考流、完全没有最终正文。此前该路径
+      // 被当成成功轮直接清空，用户看到的就是“思考结束后没有回复”。它不同于有工具步骤的纯工具轮：
+      // 给出可见的瞬态错误提示，避免静默结束，同时不把内部 reasoning 暴露成最终答案。
+      const missingFinalReply =
+        run.resultOk !== false &&
+        !run.sawText &&
+        !!run.reasoningUid &&
+        run.processCursor.lastKind !== "tool" &&
+        !run.stepCount;
       finalizeRunReasoning(qc, run);
       run.gotResult = true;
       if (run.resultOk === undefined) run.resultOk = true;
+      if (missingFinalReply) {
+        run.resultOk = false;
+        appendMsg(qc, sessionId, {
+          kind: "text",
+          who: run.agent,
+          time: realHHMM(),
+          text: t("chat:core.piEmptyReply"),
+          uid: uid("err"),
+        });
+      }
       // 过程流当前打开的 agentLog 收尾打勾。
       finalizeProcessAgentLog(qc, sessionId, run);
       // 纯工具轮占位（R3/KTD5/C1）:pi 的 result 是 {willRetry},无 ok/text 字段,故按
@@ -1676,6 +1695,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       notifyTurnComplete(run.resultOk !== false);
       finalizeRun(qc, runId, 0, undefined, sessionId);
       return;
+    }
   }
 }
 
@@ -2053,10 +2073,11 @@ function sanitizeTitle(raw: string): string {
 
 // 首条消息发出后:先用截断文本占位,再用 haiku 异步生成概括标题（不阻塞会话）。
 function autoTitle(bridge: DesktopBridge, session: SessionMeta, text: string): void {
-  if (!DEFAULT_TITLE.test(session.title)) return;
+  const liveSession = usePersonalStore.getState().sessions.find((item) => item.id === session.id);
+  if (!liveSession || liveSession.titleManuallyEdited || !DEFAULT_TITLE.test(liveSession.title)) return;
   const fallback = fallbackTitle(text);
   usePersonalStore.getState().updateSession(session.id, { title: fallback });
-  if (session.agent !== "claude") return;
+  if (liveSession.agent !== "claude") return;
   void bridge
     .oneshotCli({
       // 不传 cwd:在中性目录运行,不加载项目上下文,不与正式会话抢资源。
@@ -2069,12 +2090,16 @@ function autoTitle(bridge: DesktopBridge, session: SessionMeta, text: string): v
       const store = usePersonalStore.getState();
       const current = store.sessions.find((x) => x.id === session.id);
       // 仅当标题仍是占位值时替换,避免覆盖之后的修改。
-      if (current && current.title === fallback) store.updateSession(session.id, { title });
+      if (current && !current.titleManuallyEdited && current.title === fallback) {
+        store.updateSession(session.id, { title });
+      }
     })
     .catch(() => {
       // 生成失败保留截断占位标题。
     });
 }
+
+export const __autoTitleForTest = autoTitle;
 
 // ── Hooks ─────────────────────────────────────────────────────────────────
 

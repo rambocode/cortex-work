@@ -16,6 +16,7 @@ import {
   __clearProcessForTest,
   __scheduleStrayProcessTimerForTest,
   __processCleanupTimerCountForTest,
+  __autoTitleForTest,
   adjustHiddenHistoryForSanitize,
   beginPiRun,
   reapSessionRun,
@@ -76,6 +77,19 @@ beforeEach(() => {
 afterEach(() => {
   __resetPersonalMessageRunsForTest();
   vi.useRealTimers();
+});
+
+describe("会话自动标题", () => {
+  it("手动名称即使仍符合 Session N 格式也不被自动标题覆盖", () => {
+    const session = { ...baseSession, title: "Session 42", titleManuallyEdited: true };
+    const oneshotCli = vi.fn();
+    usePersonalStore.setState({ sessions: [session] });
+
+    __autoTitleForTest({ oneshotCli } as unknown as DesktopBridge, session, "第一条消息");
+
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("Session 42");
+    expect(oneshotCli).not.toHaveBeenCalled();
+  });
 });
 
 describe("personal message agent session helpers", () => {
@@ -1227,6 +1241,20 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
     expect(texts).toHaveLength(1);
     expect(asText(texts[0]!).text).toBe("完成");
     expect(chatOf(qc).some((m) => m.kind === "text" && asText(m).text === PURE_TOOL_TURN_PLACEHOLDER)).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("pi 只有思考、没有最终正文时给出可见提示，不静默结束本轮", () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "正在分析" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
+    expect(texts).toHaveLength(1);
+    expect(asText(texts[0]!).text).toContain("未生成最终答复");
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
     vi.useRealTimers();
   });
 

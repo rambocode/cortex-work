@@ -185,6 +185,7 @@
     "autoTitlePrompt": "为下面这个用户请求生成一个简短的中文标题,不超过12个字,只输出标题本身,不要任何引号、标点或解释:\n\n{{text}}",
     "piExited": "⚠️ pi 会话已退出{{detail}}。下次发送将自动重启并恢复上下文。",
     "piExitedDetail": "：{{error}}",
+    "piEmptyReply": "⚠️ 模型本轮未生成最终答复，请重试。",
     "aborted": "⏹ 已中断本轮。",
     "piStartFailed": "⚠️ pi 会话启动失败：{{message}}",
     "imageUnsupported": "⚠️ 当前环境不支持图片上传。",

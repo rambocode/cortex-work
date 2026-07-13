@@ -33,7 +33,7 @@ export function relTime(ts: number): string {
   return `${Math.floor(day / 30)} 个月`;
 }
 
-// 会话行:悬停在右侧浮现「归档/取消归档」+「删除」两个图标按钮。
+// 会话行:悬停在右侧浮现「重命名」+「归档/取消归档」+「删除」图标按钮。
 // 删除就地二次确认（首点变红+✓,再点真删;鼠标移开重置）,不弹菜单/对话框。
 function SessionRow({
   session,
@@ -50,9 +50,17 @@ function SessionRow({
   const archiveSession = usePersonalStore((s) => s.archiveSession);
   const unarchiveSession = usePersonalStore((s) => s.unarchiveSession);
   const removeSession = usePersonalStore((s) => s.removeSession);
+  const renameSession = usePersonalStore((s) => s.renameSession);
   const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
   const archived = session.archivedAt != null;
+
+  const commitRename = () => {
+    if (renameDraft === null) return;
+    renameSession(session.id, renameDraft);
+    setRenameDraft(null);
+  };
 
   const onArchive = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -79,27 +87,68 @@ function SessionRow({
   };
 
   return (
-    <div className="pw-session-row" data-archived={archived} onMouseLeave={() => setConfirming(false)}>
-      <button className={`pw-session ${active ? "is-active" : ""}`} onClick={onSelect}>
-        <span className="pw-session-title">{session.title}</span>
-        <span className="pw-session-time">{relTime(session.updatedAt)}</span>
-      </button>
-      <div className="pw-session-actions">
-        <button
-          className="pw-icon-btn pw-session-act"
-          title={archived ? "取消归档" : "归档"}
-          onClick={onArchive}
-        >
-          {archived ? <Icon.Reply size={13} /> : <Icon.Archive size={13} />}
+    <div
+      className="pw-session-row"
+      data-archived={archived}
+      onMouseLeave={() => setConfirming(false)}
+    >
+      {renameDraft !== null ? (
+        <div className={`pw-session pw-session-rename ${active ? "is-active" : ""}`}>
+          <input
+            autoFocus
+            className="pw-session-rename-input"
+            aria-label="会话名称"
+            value={renameDraft}
+            onFocus={(event) => event.currentTarget.select()}
+            onChange={(event) => setRenameDraft(event.target.value)}
+            onBlur={commitRename}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitRename();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                setRenameDraft(null);
+              }
+            }}
+          />
+        </div>
+      ) : (
+        <button className={`pw-session ${active ? "is-active" : ""}`} onClick={onSelect}>
+          <span className="pw-session-title">{session.title}</span>
+          <span className="pw-session-time">{relTime(session.updatedAt)}</span>
         </button>
-        <button
-          className={`pw-icon-btn pw-session-act ${confirming ? "is-danger" : ""}`}
-          title={confirming ? "再点确认删除" : "删除"}
-          onClick={onDelete}
-        >
-          {confirming ? <Icon.Check size={13} /> : <Icon.Trash size={13} />}
-        </button>
-      </div>
+      )}
+      {renameDraft === null ? (
+        <div className="pw-session-actions">
+          <button
+            className="pw-icon-btn pw-session-act"
+            title="重命名"
+            aria-label={`重命名 ${session.title}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setRenameDraft(session.title);
+            }}
+          >
+            <Icon.Edit size={13} />
+          </button>
+          <button
+            className="pw-icon-btn pw-session-act"
+            title={archived ? "取消归档" : "归档"}
+            onClick={onArchive}
+          >
+            {archived ? <Icon.Reply size={13} /> : <Icon.Archive size={13} />}
+          </button>
+          <button
+            className={`pw-icon-btn pw-session-act ${confirming ? "is-danger" : ""}`}
+            title={confirming ? "再点确认删除" : "删除"}
+            onClick={onDelete}
+          >
+            {confirming ? <Icon.Check size={13} /> : <Icon.Trash size={13} />}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

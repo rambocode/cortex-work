@@ -185,6 +185,7 @@
     "autoTitlePrompt": "Generate a short Chinese title for the following user request, no more than 12 characters. Output only the title itself, without any quotes, punctuation, or explanation:\n\n{{text}}",
     "piExited": "⚠️ The pi session has exited{{detail}}. The next message will automatically restart and restore context.",
     "piExitedDetail": ": {{error}}",
+    "piEmptyReply": "⚠️ The model did not produce a final answer for this turn. Please retry.",
     "aborted": "⏹ This turn was aborted.",
     "piStartFailed": "⚠️ Failed to start the pi session: {{message}}",
     "imageUnsupported": "⚠️ Image upload is not supported in this environment.",

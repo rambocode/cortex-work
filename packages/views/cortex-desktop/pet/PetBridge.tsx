@@ -7,12 +7,24 @@
 
 import { useEffect } from "react";
 import { usePetStore, useDesktopBridge } from "@cortex-work/core";
+import { loadPetColor, loadPetKind, loadPetSize } from "./designs";
+import { loadPetEnabled, loadPetMode, loadPetWalk } from "./behavior";
 
 export function PetBridge() {
   const bridge = useDesktopBridge();
 
   useEffect(() => {
     if (!bridge?.reportPetState) return;
+    // 桌面端不再在主窗口挂载 <Pet/>，因此必须由主窗口里的 bridge 恢复设置；随后
+    // overlay 只消费这份快照。恢复发生在首次 report 之前，避免先广播 store 默认值。
+    usePetStore.setState({
+      kind: loadPetKind(),
+      mode: loadPetMode(),
+      walk: loadPetWalk(),
+      enabled: loadPetEnabled(),
+      size: loadPetSize(),
+      color: loadPetColor(),
+    });
     // 挂载时先发一次当前快照,再订阅后续变化——避免 pet-overlay 窗口在两者都刚起来时
     // 错过第一次同步(overlay 侧也会主动 requestPetSync 兜底,双保险)。
     const snapshot = (s: ReturnType<typeof usePetStore.getState>) => ({

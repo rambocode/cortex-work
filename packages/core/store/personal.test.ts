@@ -5,6 +5,38 @@ import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } f
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
 
+describe("会话重命名", () => {
+  const session: SessionMeta = {
+    id: "s1",
+    title: "Session 1",
+    agent: "claude",
+    createdAt: 1,
+    updatedAt: 10,
+  };
+
+  it("去除首尾空格并持久化名称,但不刷新最近活动时间", () => {
+    usePersonalStore.getState().hydrate({ ...base, sessions: [session] });
+
+    usePersonalStore.getState().renameSession(session.id, "  新名称  ");
+
+    const renamed = usePersonalStore.getState().sessions[0]!;
+    expect(renamed.title).toBe("新名称");
+    expect(renamed.updatedAt).toBe(10);
+    expect(renamed.titleManuallyEdited).toBe(true);
+    expect(toPersistedState(usePersonalStore.getState()).sessions[0]).toEqual(renamed);
+  });
+
+  it("空名称或规范化后未变化时保持原会话对象不变", () => {
+    usePersonalStore.getState().hydrate({ ...base, sessions: [session] });
+    const before = usePersonalStore.getState().sessions[0];
+
+    usePersonalStore.getState().renameSession(session.id, "   ");
+    usePersonalStore.getState().renameSession(session.id, " Session 1 ");
+
+    expect(usePersonalStore.getState().sessions[0]).toBe(before);
+  });
+});
+
 describe("pi 扩展市场 store（U2）", () => {
   const rec = (ref: string, scope: "global" | "workspace" = "global") => ({
     ref,

@@ -268,6 +268,7 @@ export interface PersonalState {
     opts?: { noProjectDir?: string },
   ) => SessionMeta;
   updateSession: (id: string, patch: Partial<SessionMeta>) => void;
+  renameSession: (id: string, title: string) => void;
   archiveSession: (id: string) => void;
   unarchiveSession: (id: string) => void;
   removeSession: (id: string) => void;
@@ -871,6 +872,20 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     set((s) => ({
       sessions: s.sessions.map((x) => (x.id === id ? { ...x, ...patch, updatedAt: Date.now() } : x)),
     })),
+
+  renameSession: (id, title) => {
+    const normalized = title.trim();
+    if (!normalized) return;
+    set((s) => {
+      const session = s.sessions.find((x) => x.id === id);
+      if (!session || session.title === normalized) return s;
+      return {
+        sessions: s.sessions.map((x) =>
+          x.id === id ? { ...x, title: normalized, titleManuallyEdited: true } : x,
+        ),
+      };
+    });
+  },
 
   // 归档/取消归档:只动 archivedAt,不刷新 updatedAt（避免改变会话列表排序）。
   // 归档当前会话时让出焦点（仿 archiveProject）。
