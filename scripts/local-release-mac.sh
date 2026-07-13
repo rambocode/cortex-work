@@ -12,11 +12,16 @@
 #   - Developer ID Application 证书已在登录钥匙串（identity: Jiangwei Lan (HQ537XMLJY)）
 #   - gh 已登录且对 rambocode/cortex-work-release 有写权限（或设 GH_TOKEN）
 #   - 环境变量提供 Apple 公证凭据：
+#       APPLE_KEYCHAIN_PROFILE      推荐：notarytool 存入钥匙串的 profile 名称
+#     或：
 #       APPLE_ID                    Apple 开发者账号邮箱
 #       APPLE_APP_SPECIFIC_PASSWORD app 专用密码（appleid.apple.com 生成）
 #       APPLE_TEAM_ID               默认 HQ537XMLJY（取自证书）
 #
 # 用法：
+#   xcrun notarytool store-credentials "cortex-release" --apple-id "..." --team-id HQ537XMLJY
+#   APPLE_KEYCHAIN_PROFILE="cortex-release" bash scripts/local-release-mac.sh
+#   # 或使用环境变量：
 #   export APPLE_ID="..." APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
 #   bash scripts/local-release-mac.sh            # 发布当前 package.json 版本对应的 tag
 #
@@ -31,8 +36,10 @@ REPO="rambocode/cortex-work-release"
 PRODUCT="$(node -p "require('./apps/desktop/package.json').productName")"
 
 # ── 前置校验 ─────────────────────────────────────────────────────────────────
-: "${APPLE_ID:?需要 export APPLE_ID}"
-: "${APPLE_APP_SPECIFIC_PASSWORD:?需要 export APPLE_APP_SPECIFIC_PASSWORD}"
+if [[ -z "${APPLE_KEYCHAIN_PROFILE:-}" ]]; then
+  : "${APPLE_ID:?需要 export APPLE_ID，或设置 APPLE_KEYCHAIN_PROFILE}"
+  : "${APPLE_APP_SPECIFIC_PASSWORD:?需要 export APPLE_APP_SPECIFIC_PASSWORD，或设置 APPLE_KEYCHAIN_PROFILE}"
+fi
 if [[ "$BUILD_TAG" != "v$PKG_VERSION" ]]; then
   echo "✗ tag($BUILD_TAG) 与 package.json 版本(v$PKG_VERSION) 不一致" >&2; exit 1
 fi
