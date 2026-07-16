@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <!-- QoderWork AI Slides builtin reference adapted from qoderwork-ppt/10-quote.html; scaled to 1280x720 and stripped of remote cover media. -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1280, height=720">
+  <title>Quote</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    .slide {
+      width: 1280px;
+      height: 720px;
+      background-color: #000000;
+      font-family: 'PingFang SC', 'Microsoft YaHei', 'PingFang TC', 'Hiragino Sans GB', sans-serif;
+      position: relative;
+      overflow: hidden;
+    }
+    .quote-block {
+      position: absolute;
+      left: 53px;
+      top: 67px;
+      width: 1173px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .quote-block [data-slot="quote"] {
+      font-weight: 700;
+      font-size: 67px;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+      color: #73CD94;
+      /* 固定可视区域，避免金句过长把下方 subtitle 挤没 */
+      height: 487px; /* Figma 为固定高度 730 */
+      overflow: hidden;
+      flex-shrink: 0;
+      /* 行数截断（浏览器渲染会裁剪高度，dom-to-pptx 抓取也更稳定） */
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 6;
+    }
+    .quote-block [data-slot="subtitle"] {
+      font-weight: 400;
+      font-size: 27px;
+      line-height: 1.4;
+      color: #FFFFFF;
+      /* 等效灰色（避免 opacity 导出丢失） */
+      color: #666666; /* white @ 40% on black */
+      max-width: 798px;
+      flex-shrink: 0;
+    }
+    html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div class="slide" data-template="quote">
+    <div class="quote-block">
+      <blockquote data-slot="quote">"I am a golden phrase or slogan.
+Keep it around 4–5 lines.
+Don’t leave too much empty space.
+Chinese or English are both fine."</blockquote>
+      <p data-slot="subtitle">If the title above is English, I am the subtitle; if the title is Chinese, I am the English translation</p>
+    </div>
+  </div>
+</body>
+</html>

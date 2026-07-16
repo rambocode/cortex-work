@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#F2F2D2",
+      "secondary": "#F2F2D2",
+      "accent": "#F5F0E4",
+      "background": "#FAFADF",
+      "surface": "#F2F2D2",
+      "text": "#1A1A16",
+      "textSecondary": "#F2F2D2",
+      "border": "#F2F2D2"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 600,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.45
+      }
+    },
+    "styleGuide": "Black Ledger is a builtin QoderWork AI Slides visual reference. Match its light scheme, high density, and restrained, literary, archival, ledger, considered, neutral, honest tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Lora; body: Jost; mono: JetBrains Mono; serif_cn: Noto Serif SC; sans_cn: Noto Sans SC. Treat these font names as visual cues, not external font dependencies.\nColor language: ivory and pale-cream paper with deep ink-black type only; no color at all; the system runs on typography, line, and white space.\nBest for: Anything that should feel like a hand-typeset ledger: user research synthesis, white papers, longform reports, academic and policy briefs, advisory deliverables, bilingual EN/CN reports. Equally good for tech, design, or brand decks that want their words to be the only thing on the page.\nReference notes: A literary editorial system rendered in black ink on cream paper. Ultra-light geometric sans (Jost at weight 200–300) carries every headline; Lora italic serif handles quote text and insight-card titles; JetBrains Mono provides the structural chrome. There are no chromatic accents — every color in the palette is a graphite or cream tone, and \"accent\" simply means \"darker ink.\" The aesthetic borrows from independent research reports, scholarly monographs, and the quietest end of contemporary editorial design — closer to a printed journal than a tech presentation."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Ivory ledger paper with all-black type; Lora serif headlines, Jost body, no color at all.\nivory and pale-cream paper with deep ink-black type only; no color at all; the system runs on typography, line, and white space\nliterary serif headlines + clean geometric sans body + technical mono; reads like a hand-typeset ledger\nBlack Ledger (Ivory Ledger) is a **literary editorial system** built on a single material constraint: black ink on cream paper, and nothing else. The palette has eight tokens, but seven of them are tonal variations of cream or graphite. There is no chromatic accent — the \"accent\" color is just darker ink. The result is a system that reads as a carefully typeset research report or a quiet contemporary monograph, not a presentation.\nThe typeface stack is a three-voice editorial pairing. **Jost** at weights 200, 300, and 400 carries every display, headline, body, and label — its geometric sans construction stays calm at ultra-light weights and the contrast between weight 200 (display) and weight 300 (body) is the system's primary typographic rhythm. **Lora** italic serif is reserved for two specific moments: the body text of a pull-quote and the title of an insight card. The serif italic provides the only typographic warmth in the system — wherever it appears, it signals \"this is the human voice.\" **JetBrains Mono** at weight 400 carries every structural marker: chrome labels, sidebar tags, version numbers, footer text, bullet dashes, axis labels, dates. Mono is uppercase and tracked at 0.12em or wider.\nThe palette functions in three roles. **Cream paper** (`{colors.cream-paper}` and its three near-identical sibling tones) is the canvas — slides are never white, always a warm off-yellow cream. **Black ink** (`{colors.ink-black}` — actually #1A1A16, a very dark olive-black) is every text moment, every border, every divider, every shape fill that isn't decorative cream. **Graphite** in two tones (`{colors.ink-graphite}` for secondary text, `{colors.ink-graphite-light}` for tertiary) handles muted copy. That's the whole color system.\nDepth is achieved entirely through **1px hai",
+      "cssSnippets": [
+        ":root { --primary: #F2F2D2; --secondary: #F2F2D2; --accent: #F5F0E4; --background: #FAFADF; --surface: #F2F2D2; --text: #1A1A16; --textSecondary: #F2F2D2; --border: #F2F2D2; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#E8B88E",
+      "secondary": "#E8B88E",
+      "accent": "#1A1A1A",
+      "background": "#F0C8A0",
+      "surface": "#E8B88E",
+      "text": "#1A1A1A",
+      "textSecondary": "#E8B88E",
+      "border": "#E8B88E"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Peach Launch is a builtin QoderWork AI Slides visual reference. Match its light scheme, medium density, and warm, approachable, indie, friendly, upbeat, informal, welcoming tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Syne; body: Space Grotesk. Treat these font names as visual cues, not external font dependencies.\nColor language: warm peach / sand backgrounds with ink-black structure and lighter cream cards; single warm temperature throughout.\nBest for: Anything that should feel warm, indie, and approachable: creator portfolios, indie product launches, lifestyle brands, small-business pitches, newsletter / community decks. Also welcoming for any deck — including tech or research — that wants to feel friendly and human rather than corporate.\nReference notes: A warm, hand-crafted editorial system built on a peach-clay canvas with charcoal ink as the only \"color.\" Display type runs in Syne (weight 700–800, tight negative tracking); body type runs in Space Grotesk at weight 400–500. The aesthetic borrows from independent studio decks, risograph zines, and sketchbook spreads: organic blob frames, scribbled SVG doodles, slightly rotated cards, and double-stroke offset borders give every slide a hand-touched, unpolished warmth. The effect is creative-studio editorial, not corporate pitch — confident but human, structured but loose."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Sun-warm peach background with Syne display: a friendly indie launch deck.\nwarm peach / sand backgrounds with ink-black structure and lighter cream cards; single warm temperature throughout\ngeometric variable display with personality + clean grotesk body\nPeach Launch is a **hand-crafted editorial system** anchored by a single warm canvas — a peach-clay `{colors.bg}` (#F0C8A0) — with charcoal `{colors.text}` (#1A1A1A) as the only meaningful \"color.\" Everything reads as ink-on-clay-paper. There are no secondary brand colors, no gradients, no chromatic accents. The system commits fully to a one-color discipline and finds its expressiveness in shape, weight, rotation, and hand-drawn marks rather than in palette variety.\nThe typeface stack is **Syne for display, Space Grotesk for body**. Syne is the personality — a high-contrast display sans with quirky humanist proportions that reads as a contemporary independent studio voice, not a corporate sans. It is used at weights 700 and 800 with tight negative letter-spacing (-0.01em to -0.03em) for every headline, statement, statistic, and number. Space Grotesk is the workhorse — a steady, neutral geometric sans at weight 400–500 for body and 500–600 for labels. The pairing reads as \"expressive editorial built on a reliable grid.\"\nThe color philosophy is **monochrome warmth**: a single ink color on a single warm surface, plus two tonal siblings of the canvas (`{colors.bg-alt}` slightly darker for image placeholders, `{colors.light}` slightly lighter for gentle layering). The peach is saturated enough to read as a deliberate aesthetic choice, not a neutral. The ink is slightly softened from pure black (#1A1A1A) to sit comfortably on the warm paper. The system's emotional register is \"studio sketchbook\" — confident but warm, structured but unpolished.\nDepth is **double-stroke offset borders** and **hand-drawn marks**, not blurred shadows. The signature treatment: a 3px charcoal border on a card, plus a `::before` pseudo-element offset down-and-right by 6–8px carrying a second 2–3px border",
+      "cssSnippets": [
+        ":root { --primary: #E8B88E; --secondary: #E8B88E; --accent: #1A1A1A; --background: #F0C8A0; --surface: #E8B88E; --text: #1A1A1A; --textSecondary: #E8B88E; --border: #E8B88E; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

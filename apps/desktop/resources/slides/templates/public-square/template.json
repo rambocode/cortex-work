@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#2C2CDC",
+      "secondary": "#F4E9D6",
+      "accent": "#E83A2A",
+      "background": "#F4E9D6",
+      "surface": "#F4E9D6",
+      "text": "#0E0E14",
+      "textSecondary": "#2C2CDC",
+      "border": "#0E0E14"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.45
+      }
+    },
+    "styleGuide": "Public Square is a builtin QoderWork AI Slides visual reference. Match its light scheme, medium-high density, and activist, loud, graphic, honest, punchy, direct, expressive, warm-bold tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Alfa Slab One; secondary: Archivo Narrow; script: Caveat Brush; mono: DM Mono. Treat these font names as visual cues, not external font dependencies.\nColor language: saturated political-poster palette: cobalt blue, signal orange, warning red, on warm cream with deep ink.\nBest for: Anything that should feel honest, loud, and graphic: cultural commentary, manifestos, civic and community decks, design talks, campaign pitches. Excellent for founder-vision moments, mission statements, or any deck — including across industries — that wants protest-poster energy instead of corporate polish.\nReference notes: A WPA-poster-meets-political-campaign presentation system built on three typefaces and a five-color palette that reduces to three functional roles. Alfa Slab One — a compressed slab serif — does all the heavy lifting at extreme sizes in pure uppercase. Caveat Brush drops in as a handwritten human interrupt: lowercase, slightly rotated, emotionally warm. DM Mono carries all metadata at tight uppercase tracking. The palette is electric cobalt blue, amber orange, and hot red — with red functioning exclusively as a shadow/depth color, never as a surface fill. Every slide gets a paper grain overlay that makes the whole deck feel screen-printed. The aesthetic is loud, confident, and populist — the kind of visual language that belongs on a protest placard, a union newsletter, or a campaign bus."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Activist poster energy: blue, orange, red on cream, with Alfa Slab + Caveat Brush.\nsaturated political-poster palette: cobalt blue, signal orange, warning red, on warm cream with deep ink\nheavy slab display + narrow grotesk + brush script + mono; protest-poster typographic stack\nPublic Square is a **WPA-poster-meets-political-campaign slide system** — the visual language of conviction, the graphic register of public address. The canvas is warm paper (`{colors.paper}` — #F5F2EA), a hair warmer than white, and every slide gets a grain texture applied via a CSS pseudo-element that makes the whole deck feel screen-printed rather than rendered.\nThe palette has five named colors but three functional roles. **Blue** (`{colors.blue}` — #2C2CDC) is the primary structural color: backgrounds for high-emphasis surfaces, borders for content dividers, text color on non-blue backgrounds. **Orange** (`{colors.orange}` — #F2A03A) is the energy color: stat figures, column numerals, accent text within blue surfaces. **Red** (`{colors.red}` — #E83A2A) is the depth color — it never appears as a surface fill, only as the first layer of a stacked text-shadow or box-shadow. Blue-deep and red-deep are the outer shadow layers in the double-stacked shadow system.\nThe signature depth technique is the **stacked offset text-shadow**: orange text casts a red shadow at 6–12px, which casts a red-deep shadow at 12–24px. This creates a three-layer quasi-3D letterpress effect that is the system's most recognisable trait. Box-shadows on interactive elements mirror the same treatment: `6px 6px 0 {colors.red}`.\n**Key Characteristics:** - Paper canvas (`{colors.paper}` — #F5F2EA) with grain overlay via CSS pseudo-element on every slide. - Stacked double text-shadow: `Npx Npx 0 {colors.red}, 2Npx 2Npx 0 {colors.red-deep}`. Shadow size scales with font size. - Alfa Slab One for all display and structural type — uppercase, line-height 0.82–1.04, letter-spacing 0.005em. - Red (`{colors.red}`) functions exclusively as a shadow color — never a surface background. - Heavy 6px ink border",
+      "cssSnippets": [
+        ":root { --primary: #2C2CDC; --secondary: #F4E9D6; --accent: #E83A2A; --background: #F4E9D6; --surface: #F4E9D6; --text: #0E0E14; --textSecondary: #2C2CDC; --border: #0E0E14; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

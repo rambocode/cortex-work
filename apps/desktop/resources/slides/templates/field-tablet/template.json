@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#3F73B7",
+      "secondary": "#E2DCC9",
+      "accent": "#EE7A2E",
+      "background": "#F4EFE0",
+      "surface": "#F4EFE0",
+      "text": "#0A0A0A",
+      "textSecondary": "#E2DCC9",
+      "border": "#0A0A0A"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Field Tablet is a builtin QoderWork AI Slides visual reference. Match its light scheme, medium density, and archival, earthy, tactile, considered, graphic, weighty, literary tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Bowlby One; stencil: Stardos Stencil; condensed: Barlow Condensed; body: Inter. Treat these font names as visual cues, not external font dependencies.\nColor language: warm bone and paper neutrals with a saturated earthy palette (sienna, magenta, orange, teal, blue, olive) used in stencil-cut blocks.\nBest for: Anything that should feel archival, tactile, and weighty-graphic: museum and cultural-institution decks, art / architecture brands, longform research, heritage and craft brands, manifestos. A great choice anytime — including across tech and business — when you want the deck to feel like a field manual rather than a slide deck.\nReference notes: A West Coast skate-poster meets municipal stencil signage system. Stardos Stencil carries every headline, numeral, and chunky display moment with its characteristic ink-break gaps; Barlow Condensed runs all metadata and uppercase chrome at extra-heavy weights; Inter handles body. The palette is bone (#E2DCC9) and black, energized by a saturated retro-print accent set — sienna, magenta, orange, teal, blue, mustard, olive. Soft rounded \"tablet\" cards (22–26px radius) tile across slides in colored blocks. Type runs huge and uppercase, numerals dominate at 160–540px, and color blocks act as the layout. The mood is industrial poster, vintage workshop sign, and music festival lineup all at once."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Bone paper with stencil-cut headlines and a six-color earth palette: archaeology meets brand.\nwarm bone and paper neutrals with a saturated earthy palette (sienna, magenta, orange, teal, blue, olive) used in stencil-cut blocks\nultra-heavy display + stencil + tall condensed + clean body; reads like an archaeological field manual\nField Tablet is a **poster-loud, type-led** presentation system. The premise is a single display face — Stardos Stencil — handling every headline, every numeral, every featured moment, with characteristic stencil ink-breaks giving each glyph a slightly-distressed industrial register. The supporting cast is Barlow Condensed (extra-heavy 600–900, uppercase, generous tracking) running all metadata, chrome, pills, and legends — and Inter handling the small set of body paragraphs that exist mostly to caption the loud type above them.\nThe visual logic is **color blocks as layout**. The bone-cream field (`{colors.bone}` — #E2DCC9) is the default page; on top of it sit rounded \"tablet\" cards in saturated retro-print colors — sienna brown, magenta pink, orange, teal, deep blue, mustard yellow, olive green. The accents are not pastels — they read as printed ink, slightly muted but unmistakably saturated. The cards do the work of dividing the canvas; you can identify a slide's structure from across the room because the color blocks tile geometrically. A dark-bone alternate (`{colors.black}` field with bone-colored type) appears on agenda-style and bold-statement slides.\nThe typographic register is **huge and uppercase**. Cover titles run at 220px. Numerals inside tablets at 220–240px. Section dividers at 540px (yes, more than half the canvas in single-character height). Statement headlines at 120px. Even stat numerals start at 160px. The system's identity depends on running type at sizes that would be impossible on most decks — Field Tablet uses scale as the primary expressive tool, with color as the secondary tool, and body text only as the supporting cast.\nDepth is **flat with rounded chrome**. There are no drop shadows. No gradients. Cards have generous border-radius (2",
+      "cssSnippets": [
+        ":root { --primary: #3F73B7; --secondary: #E2DCC9; --accent: #EE7A2E; --background: #F4EFE0; --surface: #F4EFE0; --text: #0A0A0A; --textSecondary: #E2DCC9; --border: #0A0A0A; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

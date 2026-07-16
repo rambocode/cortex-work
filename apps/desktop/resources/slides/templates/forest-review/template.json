@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#1A1A17",
+      "secondary": "#EFE7D4",
+      "accent": "#2E4A2A",
+      "background": "#EFE7D4",
+      "surface": "#EFE7D4",
+      "text": "#1A1A17",
+      "textSecondary": "#2E4A2A",
+      "border": "#1A1A17"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 600,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Forest Review is a builtin QoderWork AI Slides visual reference. Match its mixed scheme, medium density, and editorial, quiet, considered, warm, intentional, literary, thoughtful, low-pressure tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: serif: Source Serif 4; mono: JetBrains Mono. Treat these font names as visual cues, not external font dependencies.\nColor language: deep forest green, dusty pink, and warm cream paper; quiet tri-tone that pairs a saturated dark with two soft accents.\nBest for: Anything that should feel like a considered editorial — quarterly reviews, internal readouts, studio updates, creative-agency presentations. Equally good for any deck that wants to feel warm and unhurried rather than corporate, including research recaps, book or program announcements, and team retrospectives.\nReference notes: A serif-led editorial presentation system in the register of a literary quarterly or art-book monograph. Display type runs in Source Serif 4 at weight 500 with optical-size axis engaged, scaling up to 220px for cover and stat moments. The palette pairs a deep forest green (#2e4a2a) with a dusty rose pink (#e89cb1) over an oat-cream paper ground (#efe7d4), with JetBrains Mono as the editorial chrome (labels, captions, axis ticks). The aesthetic is closer to a Penguin classic, Apartamento spread, or quiet annual report than a tech keynote — confident, paper-feeling, and committed to a small color vocabulary."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Forest green, dusty pink, and warm cream meet Source Serif 4 in a quiet, intentional quarterly-review deck.\ndeep forest green, dusty pink, and warm cream paper; quiet tri-tone that pairs a saturated dark with two soft accents\nhumanist editorial serif with a technical mono for kickers and labels; restrained typographic hierarchy\nForest Review is a **serif-led editorial presentation system** in the tonal register of a Penguin classic, a quiet annual report, or an art-book spread. The system's foundational premise is a single, confident typographic voice — Source Serif 4 — used at extreme scale (up to 220px) for headlines and stat figures, with JetBrains Mono playing the supporting role of editorial chrome (labels, captions, axis ticks, page footlines).\nThe serif is run at **weight 500** for nearly every display moment — never the more familiar 400 or 700. The 500 weight is the system's most distinctive typographic choice: heavy enough to feel authored, light enough to keep the page calm. Optical-size axis is engaged (`opsz` 8..60), which means the same Source Serif 4 face renders with subtly different letterforms at 26px caption sizes versus 220px display sizes — the small sizes pick up extra contrast and finer details automatically. JetBrains Mono runs at 500 in uppercase with 0.14em–0.18em letter-spacing, used for every label, tag, caption, axis tick, and footer line. The system never mixes a third typeface.\nThe palette is a tight five-color editorial set built around three primary surfaces: a **deep forest green** (`{colors.green}` — #2e4a2a), a **dusty rose pink** (`{colors.pink}` — #e89cb1), and an **oat cream paper** (`{colors.cream}` — #efe7d4). Two near-duplicates round out the set: `{colors.green-deep}` for green-on-pink text contrast, `{colors.green-lite}` for tile fills that need a second green shade, `{colors.pink-deep}` for pink-on-pink borders, and `{colors.cream-2}` for tiles that sit on the main cream surface. Body text everywhere is `{colors.ink}` (#1a1a17) — a warm near-black — except when sat on a green or pink surface, where it switches to the surface's complementary color",
+      "cssSnippets": [
+        ":root { --primary: #1A1A17; --secondary: #EFE7D4; --accent: #2E4A2A; --background: #EFE7D4; --surface: #EFE7D4; --text: #1A1A17; --textSecondary: #2E4A2A; --border: #1A1A17; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#1C1410",
+      "secondary": "#D8000F",
+      "accent": "#D8000F",
+      "background": "#FFFFFF",
+      "surface": "#1C1410",
+      "text": "#1C1410",
+      "textSecondary": "#D8000F",
+      "border": "#1C1410"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 600,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Poster Spark is a builtin QoderWork AI Slides visual reference. Match its light scheme, low density, and bold, editorial, loud, confident, dramatic, graphic, sharp, intentional tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Shrikhand; serif: Libre Baskerville; body: Space Grotesk. Treat these font names as visual cues, not external font dependencies.\nColor language: white and warm-cream paper with deep almost-black ink, lifted by a single saturated fire-engine red.\nBest for: Anything that should land like a magazine cover: brand manifestos, founder vision decks, editorial / cultural pitches, creative reviews. Excellent any time you want a few words to feel like a poster — including unexpected fits like a tech keynote or a finance manifesto that wants to be quotable.\nReference notes: A populist editorial poster system that mashes vintage Italian sports-magazine display lettering with classical serif body and tight monospace metadata. The display face is Shrikhand — a heavy slab/script hybrid with playful italic personality — rendered at poster scale (often 200-320px) and routinely tilted off-axis. Body runs Libre Baskerville for a literary editorial register; Space Grotesk handles tiny uppercase labels and chrome. The palette is uncompromising: white canvas, deep brown-black ink (#1C1410), single saturated tomato red (#D8000F), and a warm off-white (#F5F2EF) for alternating panels. Borders are bold 1.5-3px ink rules; the only shadow is a single stacked offset behind red display text. The aesthetic is loud, confident, and unmistakably print-poster — closer to a 1970s European brand annual report or a wine merchant's ca"
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Editorial poster aesthetic with massive Shrikhand display and a single fire-engine red accent.\nwhite and warm-cream paper with deep almost-black ink, lifted by a single saturated fire-engine red\ngroovy display + editorial serif + grotesk body; very high typographic contrast\nPoster Spark is a **populist editorial poster system** that lifts its visual vocabulary from vintage Italian sports magazines, mid-century European brand annual reports, and wine-merchant catalogues. The premise is that every slide should feel printed — set in heavy display type, locked to one strong red accent, on a white or off-white sheet, with grids ruled in ink and decoration kept to a strict minimum.\nThe type system is three faces working in tight roles. **Shrikhand** (Google Fonts) is the display face — a heavy slab/script hybrid with chunky italic terminals, narrow apertures, and a distinctly Italian-sports-script personality. Used at poster scale (often 100-320px) and almost always with playful rotation (-6° to +2°), Shrikhand carries every hero title, every section header, every stat figure, every card title. **Libre Baskerville** (Google Fonts) is the body face — a classical literary serif with strong stroke contrast that anchors the system in editorial register. Used at 11-16px with 1.5-1.75 line-height in deep ink, Libre Baskerville is what makes the system feel printed rather than digital. **Space Grotesk** (Google Fonts) is the chrome face — used exclusively for tiny uppercase labels (9-12px, 2-3px tracking), bullet body inside cards, slide counters, and footer links. The Space Grotesk treatment is the system's \"metadata\" voice.\nThe color philosophy is **uncompromising restraint**: white canvas, deep brown-black ink (`{colors.dark}` — `#1C1410`), single saturated tomato red (`{colors.red}` — `#D8000F`), and a warm off-white (`{colors.light}` — `#F5F2EF`) for alternating panels. There are no secondary brand colors, no gradients (except the inside of the stacked text-shadow), no tints, no semantic state colors. Every numerical callout, every active rule, eve",
+      "cssSnippets": [
+        ":root { --primary: #1C1410; --secondary: #D8000F; --accent: #D8000F; --background: #FFFFFF; --surface: #1C1410; --text: #1C1410; --textSecondary: #D8000F; --border: #1C1410; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

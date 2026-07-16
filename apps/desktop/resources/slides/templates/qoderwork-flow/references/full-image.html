@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <!-- QoderWork AI Slides builtin reference adapted from qoderwork-ppt/12-full-image.html; scaled to 1280x720 and stripped of remote cover media. -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1280, height=720">
+  <title>Full-Image</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    .slide {
+      width: 1280px;
+      height: 720px;
+      background-color: #000000;
+      font-family: 'PingFang SC', 'Microsoft YaHei', 'PingFang TC', 'Hiragino Sans GB', sans-serif;
+      position: relative;
+      overflow: hidden;
+    }
+    .bg-image {
+      position: absolute;
+      inset: 0;
+      width: 1280px;
+      height: 720px;
+      object-fit: cover;
+      object-position: center;
+      z-index: 0;
+    }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      width: 1280px;
+      height: 720px;
+      background: linear-gradient(
+        to top,
+        rgba(0, 0, 0, 0.85) 0%,
+        rgba(0, 0, 0, 0.5) 40%,
+        rgba(0, 0, 0, 0.15) 100%
+      );
+      z-index: 1;
+    }
+    .text-block {
+      position: absolute;
+      left: 53px;
+      bottom: 53px;
+      width: 933px;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .text-block [data-slot="statement"] {
+      font-weight: 700;
+      font-size: 48px;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      color: #FFFFFF;
+    }
+    .text-block [data-slot="subtitle"] {
+      font-weight: 400;
+      font-size: 24px;
+      line-height: 1.4;
+      color: #B3B3B3;
+      max-width: 667px;
+    }
+    .accent-tag {
+      position: absolute;
+      right: 53px;
+      bottom: 53px;
+      z-index: 2;
+      background-color: #73CD94;
+      border-radius: 5px;
+      padding: 8px 19px;
+    }
+    .accent-tag [data-slot="tag"] {
+      font-weight: 600;
+      font-size: 19px;
+      line-height: 1.2;
+      color: #000000;
+    }
+    .qoder-cover-art {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      background:
+        radial-gradient(circle at 76% 24%, rgba(115,205,148,.52), transparent 22%),
+        radial-gradient(circle at 82% 78%, rgba(0,0,0,.16), transparent 25%),
+        linear-gradient(135deg, #D7F8DC 0%, #C2EFC7 48%, #E7FFE9 100%);
+    }
+    .qoder-cover-art::before {
+      content: "";
+      position: absolute;
+      right: 113px;
+      top: 87px;
+      width: 480px;
+      height: 480px;
+      border: 28px solid rgba(0,0,0,.88);
+      border-radius: 25px;
+      transform: rotate(-12deg);
+    }
+    .qoder-cover-art::after {
+      content: "";
+      position: absolute;
+      right: 200px;
+      top: 167px;
+      width: 307px;
+      height: 307px;
+      background: #73CD94;
+      transform: rotate(9deg);
+      box-shadow: 49px 49px 0 rgba(0,0,0,.88);
+    }
+    html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div class="slide" data-template="full-image">
+    <div class="qoder-cover-art" aria-hidden="true"></div>
+    <div class="overlay"></div>
+    <div class="text-block">
+      <h1 data-slot="statement">A bold statement that captures attention and sets the tone</h1>
+      <p data-slot="subtitle">Supporting context or description that adds detail to the statement above</p>
+    </div>
+    <div class="accent-tag">
+      <span data-slot="tag">Key Insight</span>
+    </div>
+  </div>
+</body>
+</html>

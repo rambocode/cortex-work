@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#99E885",
+      "secondary": "#FFDC8B",
+      "accent": "#F7CB46",
+      "background": "#FFDC8B",
+      "surface": "#FFDC8B",
+      "text": "#000000",
+      "textSecondary": "#FE90E8",
+      "border": "#FE90E8"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.45
+      }
+    },
+    "styleGuide": "Candy Frame is a builtin QoderWork AI Slides visual reference. Match its light scheme, high density, and bold, playful, graphic, fresh, confident, pop, design-led tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Space Grotesk; body: Inter. Treat these font names as visual cues, not external font dependencies.\nColor language: off-white background with neon pastel blocks (hot pink, sky blue, lime green, golden yellow) framed in heavy black borders.\nBest for: Anything that should feel pop-graphic and design-led: indie SaaS launches, agency credentials, creative reviews, brand redesigns. Also a strong unexpected pick for tech, finance, or research when the speaker wants to land as confident and contemporary rather than buttoned-up.\nReference notes: A maximalist neobrutalist presentation system built on 4px solid black borders, 8px hard offset shadows, and a high-key candy palette of five saturated pastels plus cream and off-white. Display type runs Inter at weight 800-900 in tight uppercase; secondary chrome uses Space Grotesk as a quasi-monospace label face. Tilted decorative shapes (rotated stars, rectangles, badges) puncture the borders and break the grid intentionally. Pastels are paired loudly: pink + blue + green + yellow + cream cycle through every region with deliberate juxtaposition. The aesthetic borrows from zine layout, 1990s-revival sticker books, and contemporary toy packaging — bold, joyful, slightly chaotic, never timid."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Neobrutalist deck with pastel-neon color blocks and chunky black borders.\noff-white background with neon pastel blocks (hot pink, sky blue, lime green, golden yellow) framed in heavy black borders\ngeometric sans display + neutral body, used in heavy weights for a poster-like feel\nCandy Frame is a **maximalist neobrutalist presentation system** built on five structural laws: every region has a 4px black border, every elevated element has an 8px hard offset shadow, every corner is square, every accent color is a saturated pastel, and every layout is allowed to be a little bit crooked. The system's joy comes from the deliberate collision of these laws — bordered cards meet bordered cards, shadows stack against shadows, tilted decorations puncture the grid intentionally.\nThe type system pivots on **Inter** (weights 400-900) for display, body, and stats — set at weight 800-900 in tight uppercase with negative letter-spacing for headlines, weight 500 sentence case for body, and weight 700 uppercase for card titles. **Space Grotesk** (weights 400-700) is the secondary face, used as a quasi-monospace label voice for eyebrows, slide counters, stat labels, mono tags, and any chrome that should read as \"system\" rather than \"editorial\". The face combination is deliberately ordinary — both are widely-available open sans-serifs — but the treatment (heavy uppercase Inter + wide-tracked Space Grotesk) gives them a distinct neobrutalist register.\nThe palette is built around **five saturated pastels** (pink `#FE90E8`, blue `#C0F7FE`, green `#99E885`, yellow `#F7CB46`, cream `#FFDC8B`) plus **pure black** (`#000000`) for borders and text, **white** (`#FFFFFF`) for clean card fills, and **off-white** (`#FFFDF5`) for warm canvas. The pastels are not subtle accents — they are full-bleed surface fills. A typical deck cycles every slide through a different colored ground (offwhite cover → blue intro → offwhite content → green chart → pink quote → yellow split → offwhite timeline → blue stats → cream team → black close). This color cycling is the system's primary rhythm.",
+      "cssSnippets": [
+        ":root { --primary: #99E885; --secondary: #FFDC8B; --accent: #F7CB46; --background: #FFDC8B; --surface: #FFDC8B; --text: #000000; --textSecondary: #FE90E8; --border: #FE90E8; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

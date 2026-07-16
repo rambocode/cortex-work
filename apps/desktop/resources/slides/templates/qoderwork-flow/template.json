@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#73CD94",
+      "secondary": "#C2EFC7",
+      "accent": "#73CD94",
+      "background": "#C2EFC7",
+      "surface": "#000000",
+      "text": "#000000",
+      "textSecondary": "#5A6B5F",
+      "border": "#000000"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.48
+      }
+    },
+    "styleGuide": "QoderWork Flow is a builtin QoderWork AI Slides visual reference. Match its green-and-black product-workbench identity: bright mint surfaces, black high-contrast sections, clean card grids, large confident titles, and restrained product-demo energy. Use the bundled Alibaba PuHuiTi 3.0 font stack and keep layouts practical, clear, and easy to export."
+  },
+  "decorativePatterns": [
+    {
+      "name": "qoderwork-product-system",
+      "description": "Native QoderWork presentation language: mint green canvas, black high-contrast data or quote pages, simple cards, crisp sans-serif typography, generous whitespace, and product-workbench rhythm. Use green as a strong identity color, black as emphasis, and avoid ornamental decoration that weakens the QoderWork signal.",
+      "cssSnippets": [
+        ":root { --primary: #73CD94; --secondary: #C2EFC7; --accent: #73CD94; --background: #C2EFC7; --surface: #000000; --text: #000000; --textSecondary: #5A6B5F; --border: #000000; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/cover.html"
+    },
+    {
+      "layout": "grid-cards",
+      "file": "references/contents.html"
+    },
+    {
+      "layout": "cover",
+      "file": "references/section-divider.html"
+    },
+    {
+      "layout": "image-side",
+      "file": "references/image-side.html"
+    },
+    {
+      "layout": "comparison",
+      "file": "references/two-card-content.html"
+    },
+    {
+      "layout": "grid-cards",
+      "file": "references/two-column-cards.html"
+    },
+    {
+      "layout": "grid-cards",
+      "file": "references/three-column-cards.html"
+    },
+    {
+      "layout": "grid-cards",
+      "file": "references/four-card-grid.html"
+    },
+    {
+      "layout": "data-spotlight",
+      "file": "references/data-highlight.html"
+    },
+    {
+      "layout": "text-quote",
+      "file": "references/quote.html"
+    },
+    {
+      "layout": "timeline",
+      "file": "references/timeline.html"
+    },
+    {
+      "layout": "image-banner",
+      "file": "references/full-image.html"
+    },
+    {
+      "layout": "comparison",
+      "file": "references/comparison.html"
+    },
+    {
+      "layout": "text-quote",
+      "file": "references/thank-you.html"
+    }
+  ]
+}

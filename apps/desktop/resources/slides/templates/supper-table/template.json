@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#B53D2A",
+      "secondary": "#8E2D1F",
+      "accent": "#8E2D1F",
+      "background": "#FAF1E2",
+      "surface": "#FAF1E2",
+      "text": "#B53D2A",
+      "textSecondary": "#8E2D1F",
+      "border": "#B53D2A"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 600,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Supper Table is a builtin QoderWork AI Slides visual reference. Match its light scheme, medium density, and warm, intimate, modern, friendly, small-batch, social, hospitality, playful, considered, magazine-friendly, modern-editorial tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Bricolage Grotesque; body: Fraunces. Treat these font names as visual cues, not external font dependencies.\nColor language: warm buttery-cream paper with one strict rust-red / terracotta ink used for type, pill borders, and outlined info cards — strictly bichromatic, very social-media friendly.\nBest for: Anything that should feel like a warm, intimate, modern hospitality / community brand: supper clubs, dinner series, small restaurants, creative-studio events, membership pitches, lifestyle and wine brands. Equally good for any deck wanting a single warm accent colour, mixed-weight typography, and a social-media-aware modern-editorial voice.\nReference notes: A warm, single-ink editorial system in the register of a supper-club poster, a small-batch zine, or a Risograph-printed program. The entire system runs in one ink color — a warm rust terracotta (#B53D2A) — on a buttery cream paper ground (#FAF1E2), with a subtle 4px radial-dot texture overlay giving the surface its \"printed paper\" quality. Display type runs in Bricolage Grotesque at weight 700–800 in uppercase; body and metadata run in Fraunces serif at weight 400–600 with optical-size axis engaged. Pill buttons, outlined edition badges, italic-edition numerals, and dashed/solid 1.5px borders complete the printed-program vocabulary."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Warm cream and rust-red supper-club aesthetic with bold uppercase grotesk headlines, Fraunces serifs, and pill-shaped outlined buttons.\nwarm buttery-cream paper with one strict rust-red / terracotta ink used for type, pill borders, and outlined info cards — strictly bichromatic, very social-media friendly\nbold uppercase Bricolage Grotesque for hero / chapter titles paired with Fraunces for body, captions, button labels, and tagline — a contemporary mix-and-match modern editorial pairing\nSupper Table is a **single-ink editorial system** in the register of a supper-club poster, a Risograph zine, or a small-press dinner program. The foundational premise is monochromatic: every visible mark in the system — every headline, every paragraph, every border, every rule, every pill, every page number — is rendered in a single warm rust terracotta ink (`{colors.ink}` — #B53D2A) on a buttery cream paper ground (`{colors.paper}` — #FAF1E2). The only chromatic variation is opacity: the same ink at 100% for primary marks, at 78% for de-emphasized metadata, at 32% for dashed internal dividers, at 10% for the paper-texture dots.\nThe single-ink constraint is the system's identity. The aesthetic borrows from one-color screen printing, letterpress posters, and Risograph stationery — formats where each additional color is a separate printing pass and therefore a deliberate decision. By committing to one ink, the system achieves the calm authority of a printed object rather than the polish of a digital surface.\nA signature **paper-texture overlay** sits on every slide: a 4px-tile radial-dot pattern in 50%-opacity ink at 10% opacity, applied via the `.stage::before` pseudo-element. The dots are invisible at conversational viewing distance but visible up close — they give the cream surface its \"printed paper\" feel and are an essential part of the design system, not optional decoration.\n- **Bricolage Grotesque** at weights 700 and 800 in **strict uppercase** carries every display moment — covers, headlines, card titles, course names, quote bodies, info values, who-tags. Bricolage is a wide, slightly-condensed grotesque with strong personality; its uppercase set has the impact of a hand-lettered poster. The optical-size axis (`opsz` 12..96) is engaged. - **Fraunces** at weight 400",
+      "cssSnippets": [
+        ":root { --primary: #B53D2A; --secondary: #8E2D1F; --accent: #8E2D1F; --background: #FAF1E2; --surface: #FAF1E2; --text: #B53D2A; --textSecondary: #8E2D1F; --border: #B53D2A; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

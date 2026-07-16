@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#1F2BE0",
+      "secondary": "#5560E5",
+      "accent": "#5560E5",
+      "background": "#F0EBDE",
+      "surface": "#F0EBDE",
+      "text": "#1F2BE0",
+      "textSecondary": "#5560E5",
+      "border": "#1F2BE0"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 600,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Electric Grid is a builtin QoderWork AI Slides visual reference. Match its light scheme, medium density, and editorial, design-research, studious, modernist, tech-print, monochrome, considered, literary, quietly-modern tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Newsreader; body: Hanken Grotesk; mono: DM Mono. Treat these font names as visual cues, not external font dependencies.\nColor language: warm cream / ivory paper canvas with one strict accent of electric cobalt royal blue. The grid is a faint cobalt overlay, and decorations (pixel stair-blocks, QR-style mini-grids, hairline rules) all use the same blue, keeping the deck strictly bichromatic.\nBest for: Anything that should feel like a quietly serious design / research bulletin, art publication, or curated trend report. Strong for studio annuals, agency capabilities decks, design-research publications, architecture / art / academic decks, and any deck wanting one strict accent colour and a printed-ledger calmness rather than corporate polish.\nReference notes: A Japanese-magazine trend-report system built on warm cream paper, electric cobalt ink, and a graph-paper grid that lives permanently behind every slide. Newsreader serif headlines tower at 18vh while DM Mono carries chrome and ticker text. The signature decoration is a pixel-glitch column — vertical scanlines stair-stepped down the right edge of declarative slides — paired with QR-style 8×8 grid patches. The cultural reference is WIRED Japan, Shift magazine, and architectural trend reports printed in two-color risograph: cream + one cobalt."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Electric cobalt serifs on a graph-paper canvas, anchored by stair-stepped pixel-glitch decorations and slim hairline rules.\nwarm cream / ivory paper canvas with one strict accent of electric cobalt royal blue. The grid is a faint cobalt overlay, and decorations (pixel stair-blocks, QR-style mini-grids, hairline rules) all use the same blue, keeping the deck strictly bichromatic\ntransitional serif for hero type and section heads, paired with a neutral grotesk for body and a clean mono for tabular data and micro-captions; strictly cobalt-on-cream\nElectric Grid is a **two-color trend-report editorial system** built on three immovable foundations: a warm cream paper canvas (`{colors.paper}`), an electric cobalt ink (`{colors.ink}`), and a **permanent graph-paper grid** that sits behind every slide. The grid is not optional decoration — it is rendered via a `::before` pseudo on every `.stage` and cannot be turned off. The aesthetic is \"two-color risograph monograph\": cream + cobalt only, with the grid lending the entire deck the feel of architectural tracing paper or a Japanese trend report.\nThe typeface stack is a deliberate three-face conversation. **Newsreader** — a contemporary literary serif with low-modulation roman letterforms — carries every display moment, every section headline, every stat numeral. Newsreader is used at weight 400 only; the type relies on size to assert hierarchy, not weight. **Hanken Grotesk** — a humanist sans — carries every body paragraph, every uppercase label, every micro-text. Hanken runs at 400 for body and 600 for labels. **DM Mono** — a monospace — carries every chrome element: page numbers, mono tags, axis ticks, vertical-stack labels, delta arrows in tables. The three-face system creates the system's identity: serif statements + sans bodies + mono chrome.\nThe palette is **strictly two-color**: cream and cobalt, with a softer cobalt `{colors.ink-soft}` and two opacity tones (`{colors.grid}` at 10%, `{colors.ink-faint}` at 18%) for atmospheric and structural use. There are no accent colors. Cobalt is the *only* ink color — for headlines, body, borders, page numbers, the graph paper, the pixel-glitch decoration, and the QR patches. The cream paper is the *only* surface. Even the pixel-stack bar chart uses cobalt at two opacities (10% off, 100% on) to render data.\nDepth is **flat wi",
+      "cssSnippets": [
+        ":root { --primary: #1F2BE0; --secondary: #5560E5; --accent: #5560E5; --background: #F0EBDE; --surface: #F0EBDE; --text: #1F2BE0; --textSecondary: #5560E5; --border: #1F2BE0; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#C8A870",
+      "secondary": "#232F55",
+      "accent": "#C8A870",
+      "background": "#1C2644",
+      "surface": "#232F55",
+      "text": "#E2DCD0",
+      "textSecondary": "#232F55",
+      "border": "#232F55"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 600,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.45
+      }
+    },
+    "styleGuide": "Navy Signal is a builtin QoderWork AI Slides visual reference. Match its mixed scheme, high density, and institutional, trustworthy, considered, weighty, sober, polished, established, literary tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Source Serif 4; body: DM Sans; mono: IBM Plex Mono; serif_cn: Noto Serif SC; sans_cn: Noto Sans SC. Treat these font names as visual cues, not external font dependencies.\nColor language: deep navy primary with warm bone paper alternate and a single muted-gold accent; restrained, institutional, no decorative color.\nBest for: Anything that should feel weighty, considered, and credibly institutional: investor decks, board presentations, consulting deliverables, legal / policy briefs, advisory pitches. Also a strong choice for tech, research, or brand work that wants to read as quietly authoritative rather than loud.\nReference notes: A literary editorial presentation system in the spirit of a long-form magazine — The Economist's restraint crossed with a private intelligence briefing. Source Serif 4 carries every headline with roman/italic mixing mid-sentence in antique gold, DM Sans steps back for body, and IBM Plex Mono runs all the timestamps, kickers, and chrome. The dual surface system is warm cream paper (#F0ECE3) and deep editorial navy (#1C2644), connected by a single hot accent — antique gold (#C8A870) — used only on rules, italic emphasis, and numerical figures. A near-invisible 80px grid texture overlays every dark slide as a fingerprint. The effect is sober, considered, and a little bit aristocratic."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Deep navy canvas with bone paper and a single muted-gold accent; institutional with quiet weight.\ndeep navy primary with warm bone paper alternate and a single muted-gold accent; restrained, institutional, no decorative color\ntransitional serif headlines + clean sans body + technical mono captions; full Chinese serif/sans support\nNavy Signal is a **literary editorial** presentation system — what a long-form intelligence briefing or a quarterly review from a serious magazine would look like if it ran as a deck. The visual premise is the marriage of two faces: a Scottish-roast editorial serif (Source Serif 4) carrying the voice, and a precision grotesque (DM Sans) carrying the substance, with a condensed monospace (IBM Plex Mono) for every timestamp, kicker, and piece of chrome metadata. The result reads like a quiet authority — the deck does not need to shout because the typography already telegraphs seriousness.\nThe system runs on a **dual-surface** model. The dark surface is `{colors.navy}` (#1C2644) — a deep editorial blue that sits warmer than navy and cooler than midnight. The light surface is `{colors.cream}` (#F0ECE3) — a warm aged-paper tone, never pure white. Both surfaces carry the same typographic vocabulary at the same scale; what changes is the foreground color. On dark surfaces, primary text is `{colors.text-warm}` (a warm off-white, never pure white). On cream, primary text is `{colors.ink}` (a near-black with a navy bias). The two surfaces are interchangeable from slide to slide — adjacent slides may alternate without any explanation, and the cream surface acts as a \"reset\" within a longer dark run.\nThere is exactly one accent color: **antique gold** (`{colors.gold}` — #C8A870). Gold appears only in three contexts: the short rule that separates a kicker from a headline; an `<em>` tag mixed into a roman serif headline (the \"Navy Signal moment\"); and any numerical figure. Gold never carries a body paragraph and never fills a background. It is a precision tool, used sparingly so that when it appears, it carries weight.\nDepth is **flat plus hairline**. There are no drop shadows, no rounded card",
+      "cssSnippets": [
+        ":root { --primary: #C8A870; --secondary: #232F55; --accent: #C8A870; --background: #1C2644; --surface: #232F55; --text: #E2DCD0; --textSecondary: #232F55; --border: #232F55; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

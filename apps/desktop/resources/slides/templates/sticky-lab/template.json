@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#B2F2BB",
+      "secondary": "#FFE066",
+      "accent": "#FFE066",
+      "background": "#F7F5F0",
+      "surface": "#F7F5F0",
+      "text": "#2D2A26",
+      "textSecondary": "#FFE066",
+      "border": "#2D2A26"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.45
+      }
+    },
+    "styleGuide": "Sticky Lab is a builtin QoderWork AI Slides visual reference. Match its light scheme, high density, and playful, creative, warm, messy-on-purpose, workshop, informal, expressive, human tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Shrikhand; script: Caveat; body: Zilla Slab. Treat these font names as visual cues, not external font dependencies.\nColor language: off-white paper with a full pastel sticky-note palette (yellow, blue, pink, green, orange, purple) and ink-brown text; soft drop shadows everywhere.\nBest for: Anything that should feel like a designer's whiteboard: brainstorms, workshops, creative-agency credentials, design-thinking sessions, ideation pitches, art-direction reviews. Equally fun for any deck — including tech, research, or business — that wants to read as in-progress thinking rather than polished conclusions.\nReference notes: A Post-it-note-and-cork-board presentation system. Every content block is a colored sticky note on a textured paper or cork surface, layered with red thumbtacks, masking tape, and decorative doodles. Display type runs in Shrikhand (a chunky decorative display serif) on every headline; body type runs in Zilla Slab (a friendly slab serif); handwritten emphasis runs in Caveat. The palette is pastel sticky-note colors (yellow, blue, pink, green, orange, purple) on cream paper / cork / warm gradient backgrounds. The aesthetic borrows from creative-workshop wall art, brainstorming boards, and indie-studio mood boards: scattered slight rotations, multiple background texture variants per slide, pin / tape / drop-shadow combinations. The effect is warmth, play, and tactile creative-process energy."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Post-it inspired: pastel sticky notes, Caveat handwriting, Shrikhand and Zilla Slab type stack.\noff-white paper with a full pastel sticky-note palette (yellow, blue, pink, green, orange, purple) and ink-brown text; soft drop shadows everywhere\ngroovy display + handwritten script + warm slab body; reads like a designer's whiteboard\nSticky Lab is a **Post-it-note-and-cork-board presentation system**. Every content block is a colored sticky note (`{components.post-it}`) layered onto one of three textured background variants — cork board, desk paper, or warm gradient — with red / blue / green / gold thumbtacks pinning the notes and translucent masking tape sometimes added on top. The visual metaphor is total: the deck is a creative-workshop wall, a brainstorming board, or a thinker's desk, and the content is the cluster of sticky notes pinned across it.\nThe typeface stack pairs three Google Fonts with distinct emotional roles. **Shrikhand** is the display voice — a chunky decorative display serif with playful curves and high contrast. Used at weight 400 (the only weight available) for every headline, statement, feature icon glyph, stat value, and oversized callout. Its loud, friendly personality is the system's primary signal: it reads as hand-lettered marker pen rather than typeset publication. **Zilla Slab** is the body voice — a friendly modern slab serif with humanist proportions. Used at weights 300–700 for body paragraphs, list items, and labels. Its slab serifs match the warm hand-drawn register of Shrikhand without competing for attention. **Caveat** is the hand-script voice — a casual cursive. Used for personal notes, side annotations, label-script eyebrows, stat-divider quips, and any moment that should read as \"scribbled on the note in pen.\"\nThe color philosophy is **pastel sticky-note palette on tactile paper backgrounds**. Seven sticky-note colors (`yellow`, `blue`, `pink`, `green`, `orange`, `purple`, plus bordered `white`) provide categorical variety; each has a deeper sibling that drives the 135° gradient fill. The ink (`{colors.ink}` — #2d2a26) is a soft warm charcoal rather than p",
+      "cssSnippets": [
+        ":root { --primary: #B2F2BB; --secondary: #FFE066; --accent: #FFE066; --background: #F7F5F0; --surface: #F7F5F0; --text: #2D2A26; --textSecondary: #FFE066; --border: #2D2A26; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

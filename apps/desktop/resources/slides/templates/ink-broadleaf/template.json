@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#E85D26",
+      "secondary": "#1A1A18",
+      "accent": "#E85D26",
+      "background": "#111111",
+      "surface": "#1A1A18",
+      "text": "#F0ECE5",
+      "textSecondary": "#888880",
+      "border": "#282826"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Ink Broadleaf is a builtin QoderWork AI Slides visual reference. Match its dark scheme, medium density, and editorial, dramatic, loud, newspaper, graphic, punchy, literary, considered tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Barlow; body: Barlow; mono: IBM Plex Mono; cn: Noto Sans SC. Treat these font names as visual cues, not external font dependencies.\nColor language: near-black newspaper canvas with warm cream text and a single fire-orange headline accent; high typographic contrast, no decorative color.\nBest for: Anything that should land like a Ink Broadleaf newspaper headline: brand manifestos, magazine and cultural pitches, design talks, bilingual EN/CN decks, founder vision statements. Also a striking pick for tech, research, or business decks that want a dramatic single-accent editorial feel.\nReference notes: A protest-poster editorial system built on massive Barlow type and a single fire-orange environment color. The aesthetic is \"ink on fire\" — dark slides for documentation, orange slides for declaration. Display type is enormous (13vw, roughly 187px at 1440 width) in weight 900 lowercase, treating words as graphic elements rather than reading copy. The cultural reference is Ink Broadleaf printing, SPACE10 reports, and Wim Crouwel grids reinterpreted with one loud color and zero decoration."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Dark editorial canvas with a single fire orange accent and bilingual Latin/Chinese type stack.\nnear-black newspaper canvas with warm cream text and a single fire-orange headline accent; high typographic contrast, no decorative color\nInk Broadleaf-newspaper grotesk pairing with technical mono captions and Simplified Chinese support\nInk Broadleaf is a **protest-poster editorial system**. The defining premise: type is so large it stops behaving as text and starts behaving as graphic primitive. Display sizes at `13vw` (`{typography.display}`) put a single word at roughly 187px on a 1440-wide screen — wide enough that the eye scans letterforms before reading. This is the system's primary expressive instrument.\nThe typeface stack is monolithic. **Barlow** carries every text role from `{typography.display}` down to `{typography.body}` — there is no serif companion, no script accent, no secondary display face. The expressive range is achieved entirely through weight (400 to 900) and size, not face contrast. **IBM Plex Mono** is the only secondary face and it appears only in chrome: slide numbers, kickers, labels, tags, captions, and the bullet-list slash markers. **Noto Sans SC** sits in every font-family stack as the CJK fallback at matching weights. The voice is uniform, heavy, and lowercase — *Ink Broadleaf does not use uppercase headlines.* That is a meaningful inversion of the brutalist norm.\nThe palette functions in two distinct registers. The **dark register** uses near-black canvas `{colors.ink-black}` with cream text `{colors.cream}` and `{colors.fire-orange}` as the singular accent — the orange is used only for emphasis (kickers, accent stats, bullet markers, the leading bar). The **orange register** flips the relationship entirely: `{colors.fire-orange}` becomes the full slide background, and the same dark `#111111` ink is used for headlines and body. There is no light/cream slide variant — the `.light` class is intentionally aliased to dark in the source. Cover and chapter slides default to the orange register; content slides default to dark.\nDepth is **flat**. There are no drop shadows, no elevation",
+      "cssSnippets": [
+        ":root { --primary: #E85D26; --secondary: #1A1A18; --accent: #E85D26; --background: #111111; --surface: #1A1A18; --text: #F0ECE5; --textSecondary: #888880; --border: #282826; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

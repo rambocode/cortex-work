@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <!-- QoderWork AI Slides builtin reference adapted from qoderwork-ppt/03-section-divider.html; scaled to 1280x720 and stripped of remote cover media. -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1280, height=720">
+  <title>Section-Divider</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    .slide {
+      width: 1280px;
+      height: 720px;
+      background-color: #FFFFFF;
+      font-family: 'PingFang SC', 'Microsoft YaHei', 'PingFang TC', 'Hiragino Sans GB', sans-serif;
+      position: relative;
+      overflow: hidden;
+    }
+    /* 序号 + 标题 + 副标题：Figma 自动布局 column gap 16px */
+    .header-block {
+      position: absolute;
+      left: 53px;
+      top: 53px;
+      width: 635px;
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+    }
+    .header-block [data-slot="chapterNumber"] {
+      font-weight: 600;
+      font-size: 53px;
+      line-height: 1.22;
+      color: #73CD94;
+    }
+    .header-block [data-slot="title"] {
+      font-weight: 600;
+      font-size: 53px;
+      line-height: 1.22;
+      color: #000000;
+    }
+    .header-block [data-slot="subtitle"] {
+      font-weight: 400;
+      font-size: 27px;
+      line-height: 1.22;
+      color: #000000;
+      /* 等效灰色（避免 opacity 导出丢失） */
+      color: #666666; /* black @ 60% on white */
+    }
+    .statement-block {
+      position: absolute;
+      left: 53px;
+      top: 588px;
+      width: 495px;
+    }
+    .statement-block [data-slot="statement"] {
+      font-weight: 400;
+      font-size: 27px;
+      line-height: 1.22;
+      color: #000000;
+    }
+    .deco-image {
+      position: absolute;
+      left: 757px;
+      top: 19px;
+      width: 505px;
+      height: 683px;
+      border-radius: 11px;
+      overflow: hidden;
+    }
+    .deco-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 11px;
+      display: block;
+    }
+    html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div class="slide" data-template="section-divider">
+    <div class="header-block">
+      <span data-slot="chapterNumber">01</span>
+      <h1 data-slot="title">I am the title of Chapter 1<br>Please try to split into two lines</h1>
+      <p data-slot="subtitle">If the title is English, I am the subtitle; if the title is Chinese, I am the English translation</p>
+    </div>
+    <div class="statement-block">
+      <p data-slot="statement">I am a statement or slogan to make the layout more attractive. It's best to be one and a half lines</p>
+    </div>
+    <div class="deco-image">
+      <img data-slot="image" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22640%22%20height%3D%22420%22%20viewBox%3D%220%200%20640%20420%22%3E%3Crect%20width%3D%22640%22%20height%3D%22420%22%20rx%3D%2224%22%20fill%3D%22%23EAF7EE%22%2F%3E%3Crect%20x%3D%22115%22%20y%3D%2276%22%20width%3D%22410%22%20height%3D%22269%22%20rx%3D%2218%22%20fill%3D%22%2373CD94%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2254%25%22%20text-anchor%3D%22middle%22%20font-family%3D%22Arial%2Csans-serif%22%20font-size%3D%22134%22%20font-weight%3D%22700%22%20fill%3D%22%23000%22%3EQ%3C%2Ftext%3E%3C%2Fsvg%3E" alt="">
+    </div>
+  </div>
+</body>
+</html>

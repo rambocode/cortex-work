@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#8A8178",
+      "secondary": "#E2DBD1",
+      "accent": "#8A8178",
+      "background": "#EDE8E0",
+      "surface": "#E2DBD1",
+      "text": "#E2DBD1",
+      "textSecondary": "#1A1A1A",
+      "border": "#B8B0A4"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 600,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Quiet Axis is a builtin QoderWork AI Slides visual reference. Match its light scheme, low density, and quiet, considered, elegant, warm-minimal, classical, literary, restrained, confident-quiet tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Playfair Display; body: Inter. Treat these font names as visual cues, not external font dependencies.\nColor language: warm bone and stone neutrals only; no saturated color; the entire system runs on tonal contrast and typography.\nBest for: Anything that should feel quiet, considered, and grown-up: investment theses, white papers, advisory work, longform research, gallery / cultural decks. Also a strong choice for editorial features, founder reflections, or any deck where restraint is the message — including across tech and finance.\nReference notes: A quiet, museum-catalog editorial system built on Playfair Display serif headlines, Inter sans body, and a five-tone warm-stone palette. The aesthetic is \"consulting deck meets architectural monograph\" — minimal geometric line decorations (thin circles, dashed arcs, vertical and horizontal hairlines) drift behind content, suggesting drafting paper and compass work. Every divider is a single 1px line in a muted taupe; nothing is bold, nothing is loud. The cultural reference is Massimo Vignelli's editorial work, the Cooper Hewitt catalog, and pencil-and-tracing-paper urban planning documents."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Quiet warm-neutral palette with classical Playfair serifs; tasteful and unhurried.\nwarm bone and stone neutrals only; no saturated color; the entire system runs on tonal contrast and typography\ntransitional serif headlines paired with a clean grotesk; reads like a Sunday newspaper essay\nQuiet Axis is a **quiet museum-catalog editorial system**. Its defining premise is **restraint through 1px lines**. Every structural element — list separators, agenda rules, timeline connectors, card borders, table dividers — is a single 1px line in a muted taupe `{colors.line}`. There are no thick borders, no fills, no shadows, no rounded surfaces. Hierarchy is built through type contrast and negative space; depth does not exist in the conventional sense.\nThe typeface stack is a literary-monograph pairing. **Playfair Display** — a high-contrast didone-influenced serif — carries every headline, every stat numeral, every card title, every team initial, every quote mark. Playfair runs at weight 400 (regular) almost exclusively — there is no use of bold or 700-weight Playfair in the system. The thin-stroke didone aesthetic depends on letting the letterforms breathe at modest weights. **Inter** — a clean modern grotesque — carries every body paragraph, every subtitle, every label, every attribution. Inter runs at 400 for body and 500 for labels. The pairing creates the system's editorial voice: serif statements + clean sans supporting structure.\nThe palette is **five warm stones plus ink**. The canvas is `{colors.bg-primary}` — a warm sandstone off-cream. A slightly deeper stone `{colors.bg-secondary}` provides subtle region differentiation (image placeholders, team photo frames). Ink `{colors.text-primary}` is the headline color; medium gray `{colors.text-secondary}` is body. A warmer taupe `{colors.accent}` carries labels, attribution, and small numerals. The lightest taupe `{colors.line}` is the universal 1px line color. There are no accent colors in the populist sense — no red, no orange, no blue. The palette is stone, stone, stone, ink, ink. The only \"color\" in the syst",
+      "cssSnippets": [
+        ":root { --primary: #8A8178; --secondary: #E2DBD1; --accent: #8A8178; --background: #EDE8E0; --surface: #E2DBD1; --text: #E2DBD1; --textSecondary: #1A1A1A; --border: #B8B0A4; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

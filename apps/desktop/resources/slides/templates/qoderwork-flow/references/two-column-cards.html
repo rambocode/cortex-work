@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <!-- QoderWork AI Slides builtin reference adapted from qoderwork-ppt/06-content-two-columns.html; scaled to 1280x720 and stripped of remote cover media. -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1280, height=720">
+  <title>Content-Two-Columns</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    .slide {
+      width: 1280px;
+      height: 720px;
+      background-color: #FFFFFF;
+      font-family: 'PingFang SC', 'Microsoft YaHei', 'PingFang TC', 'Hiragino Sans GB', sans-serif;
+      position: relative;
+      overflow: hidden;
+    }
+    .title-block {
+      position: absolute;
+      left: 53px;
+      top: 67px;
+      width: 1120px;
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+    }
+    .title-block [data-slot="title"] {
+      font-weight: 600;
+      font-size: 43px;
+      line-height: 1.25;
+      color: #000000;
+    }
+    .title-block [data-slot="subtitle"] {
+      font-weight: 400;
+      font-size: 27px;
+      line-height: 1.4;
+      color: #000000;
+      /* 等效灰色（避免 opacity 导出丢失） */
+      color: #666666; /* black @ 60% on white */
+    }
+    .content-row {
+      position: absolute;
+      left: 53px;
+      top: 203px;
+      width: 1173px;
+      display: flex;
+      flex-direction: row;
+      gap: 21px;
+      align-items: center;
+    }
+    .content-card {
+      width: 576px;
+      height: 451px;
+      background-color: #F1F1F1;
+      border-radius: 11px;
+      padding: 37px;
+      display: flex;
+      flex-direction: column;
+      gap: 56px;
+    }
+    .card-image {
+      width: 93px;
+      height: 93px;
+      border-radius: 8px;
+      overflow: hidden;
+      background-color: #FFFFFF;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card-image img {
+      width: 48px;
+      height: 48px;
+      object-fit: contain;
+    }
+    .card-text {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      flex: 1;
+    }
+    .content-card [data-slot$="Heading"] {
+      font-weight: 500;
+      font-size: 27px;
+      line-height: 1.22;
+      color: #000000;
+    }
+    .content-card [data-slot$="Copy"] {
+      font-weight: 400;
+      font-size: 19px;
+      line-height: 1.22;
+      color: #000000;
+      /* 等效灰色（避免 opacity 导出丢失） */
+      color: #4D4D4D; /* black @ 70% on white */
+    }
+    html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div class="slide" data-template="content-two-columns">
+    <div class="title-block">
+      <h1 data-slot="title">I am a main title</h1>
+      <p data-slot="subtitle">If the title is English, I am the subtitle; if the title is Chinese, I am the English translation</p>
+    </div>
+    <div class="content-row">
+      <div class="content-card">
+        <div class="card-image">
+          <img data-slot="block1Image" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22140%22%20height%3D%22140%22%20viewBox%3D%220%200%20140%20140%22%3E%3Crect%20width%3D%22140%22%20height%3D%22140%22%20rx%3D%2224%22%20fill%3D%22%23EAF7EE%22%2F%3E%3Crect%20x%3D%2225%22%20y%3D%2225%22%20width%3D%2290%22%20height%3D%2290%22%20rx%3D%2218%22%20fill%3D%22%2373CD94%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2254%25%22%20text-anchor%3D%22middle%22%20font-family%3D%22Arial%2Csans-serif%22%20font-size%3D%2245%22%20font-weight%3D%22700%22%20fill%3D%22%23000%22%3E1%3C%2Ftext%3E%3C%2Fsvg%3E" alt="">
+        </div>
+        <div class="card-text">
+          <h2 data-slot="block1Heading">I am a subheading</h2>
+          <p data-slot="block1Copy">I am the copy under the subheading, which can be 1 to 3 lines. I am the copy under the subheading, which can be 1 to 3 lines. I am the copy under the subheading, which can be 1 to 3 lines.</p>
+        </div>
+      </div>
+      <div class="content-card">
+        <div class="card-image">
+          <img data-slot="block2Image" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22140%22%20height%3D%22140%22%20viewBox%3D%220%200%20140%20140%22%3E%3Crect%20width%3D%22140%22%20height%3D%22140%22%20rx%3D%2224%22%20fill%3D%22%23EAF7EE%22%2F%3E%3Crect%20x%3D%2225%22%20y%3D%2225%22%20width%3D%2290%22%20height%3D%2290%22%20rx%3D%2218%22%20fill%3D%22%2373CD94%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2254%25%22%20text-anchor%3D%22middle%22%20font-family%3D%22Arial%2Csans-serif%22%20font-size%3D%2245%22%20font-weight%3D%22700%22%20fill%3D%22%23000%22%3E2%3C%2Ftext%3E%3C%2Fsvg%3E" alt="">
+        </div>
+        <div class="card-text">
+          <h2 data-slot="block2Heading">I am a subheading</h2>
+          <p data-slot="block2Copy">I am the copy under the subheading, which can be 1 to 3 lines. I am the copy under the subheading, which can be 1 to 3 lines. I am the copy under the subheading, which can be 1 to 3 lines.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#008F4D",
+      "secondary": "#B8A98A",
+      "accent": "#008F4D",
+      "background": "#C8B99A",
+      "surface": "#B8A98A",
+      "text": "#1A1A1A",
+      "textSecondary": "#B8A98A",
+      "border": "#B8A98A"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Riso Notes is a builtin QoderWork AI Slides visual reference. Match its light scheme, medium density, and crafted, lo-fi, underground, warm-retro, scrappy, warm, intentional, DIY tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Bebas Neue; script: Caveat; body: Space Grotesk. Treat these font names as visual cues, not external font dependencies.\nColor language: warm beige / khaki paper with one saturated forest green; dark ink and off-white cream; reads like a two-color riso print.\nBest for: Anything that should feel printed, lo-fi, and crafted: indie zines and publications, music / arts brands, creator portfolios, small-batch craft launches, community decks. Also a great underdog choice for tech, research, or business decks that want a riso-print warmth instead of digital polish.\nReference notes: A risograph-zine editorial system on warm khaki paper with a deep forest-green accent and ink-black structure. Display type runs in Bebas Neue (condensed industrial sans, uppercase, generously tracked); body type runs in Space Grotesk at weight 300–500; handwritten emphasis runs in Caveat. A subtle SVG grain overlay sits over every slide, reinforcing the printed-paper feel. The aesthetic borrows from independent press, mid-century activist posters, and DIY zine culture: slightly rotated stamp marks, masking-tape pieces in collage layouts, drop caps, and offset paper-on-paper shadows. The effect is hand-printed editorial — warm but disciplined, confident but tactile."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Beige paper with green accent and Bebas Neue + Caveat: a riso-printed zine in HTML form.\nwarm beige / khaki paper with one saturated forest green; dark ink and off-white cream; reads like a two-color riso print\ntall condensed display + handwritten script + clean grotesk body; layered like a printed zine page\nRiso Notes is a **risograph-zine editorial system** on a warm khaki canvas (`{colors.bg}` — #C8B99A) with deep forest-green (`{colors.green}` — #008F4D) as the meaningful accent and ink-black (`{colors.black}` — #1A1A1A) as the structural color. The aesthetic borrows from independent press culture, mid-century activist posters, and DIY zine layouts: condensed industrial display type, hand-script emphasis, slightly rotated stamps, masking-tape collage marks, drop caps, and a print-grain overlay that ties every surface to a printed-paper register.\nThe typeface stack pairs three faces with distinct emotional roles. **Bebas Neue** is the display voice — a condensed, all-caps industrial sans with generous tracking (0.02–0.04em) used for every headline, statement, statistic, numeral, and label. Its compressed verticality is the system's visual identity; substituting any other display sans loses the zine voice. **Space Grotesk** is the body voice — a clean humanist geometric sans at weight 300–500 for paragraphs, used at small sizes (13–18px) which preserves the magazine column-text density. **Caveat** is the hand-script voice — a casual ballpoint cursive used for author attributions, side notes, captions on display elements, and the form-field \"writing\" in RSVP-style layouts. The three faces together read as \"an editorial spread typeset by a small press.\"\nThe color philosophy is **earth + forest**: a warm khaki paper canvas, a deeper khaki tonal sibling for layered surfaces, deep forest-green for accents and accent surfaces, ink-black for structure and body, and an off-white cream (`{colors.white}` — #F4EFE6) for cards and inverted text fills. The white is deliberately not pure — it's a soft cream that sits as paper inside paper rather than as a hard rectangle. Green carries ",
+      "cssSnippets": [
+        ":root { --primary: #008F4D; --secondary: #B8A98A; --accent: #008F4D; --background: #C8B99A; --surface: #B8A98A; --text: #1A1A1A; --textSecondary: #B8A98A; --border: #B8A98A; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#C0C0C0",
+      "secondary": "#000080",
+      "accent": "#000080",
+      "background": "#D4D0C8",
+      "surface": "#C0C0C0",
+      "text": "#000000",
+      "textSecondary": "#C0C0C0",
+      "border": "#C0C0C0"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Classic Desktop is a builtin QoderWork AI Slides visual reference. Match its light scheme, medium density, and nostalgic, retro, geeky, playful, winking, fun tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Press Start 2P; body: MS Sans Serif; mono: VT323. Treat these font names as visual cues, not external font dependencies.\nColor language: Windows 95 system palette: 3D-button gray, navy title bars, pixel-perfect inset/outset borders, no anti-aliasing aesthetic.\nBest for: Anything that should feel knowingly nostalgic: retro gaming, Y2K-aesthetic brands, creator portfolios with a 90s vibe, tech-history talks, deliberately tongue-in-cheek decks. A great choice anywhere a playful retro reference is the entire point.\nReference notes: A Windows 95 / 98 desktop-OS aesthetic rendered as a presentation system. Every slide is a window — beveled chrome, navy gradient title bar, MS Sans Serif body type, with chart areas, group boxes, and panels arranged as if they were software UI from 1995. The palette is the original Win9x system colors (gray button-face, navy title bars, white sunken inputs) with retro accent hues (DOS green, brick red, mustard yellow, teal cyan) reserved for status text and chart data. Pixel-font (Press Start 2P) and terminal-font (VT323) appear sparingly for nostalgic punctuation. The effect is half playful nostalgia, half functional dashboard — a deck that reads as a software product running on a CRT monitor."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Windows 95 chrome: gray title bars, MS Sans Serif, pixel typography, full nostalgia.\nWindows 95 system palette: 3D-button gray, navy title bars, pixel-perfect inset/outset borders, no anti-aliasing aesthetic\n8-bit pixel display + Microsoft system sans + DOS terminal mono\nClassic Desktop is a **Windows 95 / 98 desktop-OS aesthetic** rendered as a slide template. Every slide is structured as a `win-window` — a beveled rectangular chrome with a navy-gradient title bar, three button icons in the upper right (`_`, `[]`, `X`), and a body region containing application-style content. The composition is \"this slide is software running on a 1995 desktop, and the content is what the software displays.\" The conceit is total: there are no slide titles in the modern presentation sense, only window titles styled as filenames (`README.DOC`, `DATAVIEW.CSV`, `METRICS.LOG`).\nThe palette is the **original Win9x system color set**: button-face gray (`{colors.bg-light}` #d4d0c8), highlight white, shadow dark-gray, and a navy/blue gradient (`{colors.blue-navy}` → `{colors.blue-bright}`) reserved for active title bars and primary data fills. A second cluster of \"retro accent\" hues — DOS green (#008000), brick red (#800000), mustard yellow (#808000), teal cyan (#008080) — is the system's status palette: green for OK / success / live, red for warnings, yellow for \"moderate\" risk, cyan for tertiary chart data. Charts pull from this status palette plus the navy ladder. There are no modern saturated hues.\n**Key Characteristics:** - Every slide is a `{components.win-window}` — beveled chrome with navy-gradient title bar and three system buttons (`_`, `[]`, `X`). - A fixed 3px-period CRT scanline overlay (`{components.crt-overlay}`) sits above all content at 3% opacity. - Bevel-based depth: raised (`{components.panel-raised}`, `{components.btn-retro}`) and sunken (`{components.panel-sunken}`, `{components.group-box}`) — no blurred shadows. - The font stack is MS Sans Serif / Segoe UI / Tahoma fallback, with Press Start 2P and VT323 as nostalgic accents. - Status colors",
+      "cssSnippets": [
+        ":root { --primary: #C0C0C0; --secondary: #000080; --accent: #000080; --background: #D4D0C8; --surface: #C0C0C0; --text: #000000; --textSecondary: #C0C0C0; --border: #C0C0C0; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

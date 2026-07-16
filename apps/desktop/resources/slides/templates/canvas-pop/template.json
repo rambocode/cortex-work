@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#1F8A4C",
+      "secondary": "#EFE9D9",
+      "accent": "#F5C518",
+      "background": "#EFE9D9",
+      "surface": "#EFE9D9",
+      "text": "#0F0F0F",
+      "textSecondary": "#E4DCC4",
+      "border": "#0F0F0F"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.45
+      }
+    },
+    "styleGuide": "Canvas Pop is a builtin QoderWork AI Slides visual reference. Match its light scheme, medium-high density, and creative, confident, playful, design-led, graphic, expressive, modern tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Archivo Black; body: Space Grotesk; mono: JetBrains Mono. Treat these font names as visual cues, not external font dependencies.\nColor language: warm cream paper background with a saturated multi-accent palette (forest green, hot pink, orange, mustard yellow) on ink-black structure.\nBest for: Anything that should feel design-led and confident: creative agency pitches, design studio decks, ad shop credentials, brand creative reviews, art-direction reviews. Also a great unexpected pick for a tech talk, research findings, or finance review when the speaker wants to lead with taste rather than convention.\nReference notes: A neo-brutalist editorial presentation system built for 1920x1080 slides. The deck anchors on a warm cream canvas with heavy 4px ink borders, hard offset drop-shadows, and a bold four-color accent palette (forest green, hot pink, burnt orange, sunshine yellow). Display headlines run Archivo Black in pure uppercase — aggressive, loud, zero letter-spacing softness. Monospace labels in JetBrains Mono echo a typesetting rule-sheet. Body copy sits in Space Grotesk. Every slide uses flat color-blocking with no gradients, no rounded cards, and no subtlety. The aesthetic is part Bauhaus grid, part punk zine, part Swiss editorial."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Cream paper canvas with confident multi-color (green, pink, orange, yellow) accents and Archivo Black display.\nwarm cream paper background with a saturated multi-accent palette (forest green, hot pink, orange, mustard yellow) on ink-black structure\nultra-heavy poster sans + clean grotesk + technical mono\nCanvas Pop is a **neo-brutalist editorial slide system** for 1920x1080 presentations. The foundational aesthetic choice is restraint of technique paired with aggression of expression: no rounded cards, no gradients, no shadows that suggest light sources — only flat color-blocking and hard offset drop-shadows (the \"Risograph\" or \"screen-print\" kind where the shadow is a sold same-color offset).\nThe canvas is warm cream (`{colors.cream}` — #EFE9D9) with near-black ink (`{colors.ink}` — #0F0F0F) for borders, text, and rules. Four accent colors fire at full saturation: forest green, hot pink, burnt orange, and sunshine yellow. These never blend — they collide on the slide and the collision is the design.\nEvery slide follows an identical chrome frame: a JetBrains Mono topbar at 48px from top (left text + right pill), and a JetBrains Mono meta footer at 40px from bottom (label left, slide number right with ink dot divider). Content lives inside this frame with 96px side gutters.\n**Key Characteristics:** - Cream canvas (`{colors.cream}` — #EFE9D9) as the universal background; green (`{colors.green}` — #1F8A4C) used for the closing slide only. - 4px solid ink borders on every structural element — cards, panels, table cells, chart axes. - Hard offset box-shadows in place of blurred drops: `24px 24px 0 color, 24px 24px 0 4px ink` on featured blocks. - Archivo Black display type in uppercase with 0.92 line-height for extreme tightness. - Four accent colors used as flat fills; each slide uses two or three of the four, never all simultaneously. - Topbar pill badge (JetBrains Mono, 2px ink border, 999px radius) as the only rounded element per slide.",
+      "cssSnippets": [
+        ":root { --primary: #1F8A4C; --secondary: #EFE9D9; --accent: #F5C518; --background: #EFE9D9; --surface: #EFE9D9; --text: #0F0F0F; --textSecondary: #E4DCC4; --border: #0F0F0F; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

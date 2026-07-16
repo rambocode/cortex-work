@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#C8524A",
+      "secondary": "#1E3221",
+      "accent": "#C8524A",
+      "background": "#192B1B",
+      "surface": "#1E3221",
+      "text": "#D4CFBF",
+      "textSecondary": "#1E3221",
+      "border": "#1E3221"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 600,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Green Archive is a builtin QoderWork AI Slides visual reference. Match its mixed scheme, medium density, and organic, considered, warm, literary, natural, classical, patient tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Playfair Display; body: Jost; mono: JetBrains Mono; serif_cn: Noto Serif SC; sans_cn: Noto Sans SC. Treat these font names as visual cues, not external font dependencies.\nColor language: deep forest green canvas with warm bone type and a single rust-red accent; alternate cream-paper mode for breathing room.\nBest for: Anything that should feel organic, considered, and grown-up: sustainability and wellness brands, outdoor / nature products, wineries and restaurants, literary or arts decks, advisory deliverables, bilingual EN/CN reports. Also a calm, distinctive choice for tech, research, or business decks that want patience over urgency.\nReference notes: A quiet, editorial-serif presentation system in the register of a well-bound monograph or boutique brand book. Playfair Display at weight 400 (never bold) carries every headline, italicized in terracotta coral for accent emphasis as the signature move. Jost weight 300 carries every paragraph as the \"good paper\" body face. JetBrains Mono at weight 300 holds labels, kickers, and the thin chrome bars. The palette pairs a deep forest green canvas (#192b1b) with warm cream text (#d4cfbf) and a single terracotta coral accent (#c8524a). Generous negative space, hairline 1px borders, and a near-invisible serif watermark numeral give it the calm authority of a literary journal."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Forest-green canvas with cream type, classical Playfair serifs, and a single rust accent.\ndeep forest green canvas with warm bone type and a single rust-red accent; alternate cream-paper mode for breathing room\ntransitional serif headlines + clean geometric sans body + technical mono; full Chinese serif/sans support\nGreen Archive is a **quiet, editorial-serif presentation system** in the register of a literary monograph or boutique brand book. The foundational premise is restraint: every slide carries one focused content moment surrounded by deep negative space, anchored by thin 1px chrome bars at top and bottom and supported by a small library of compositional beats (coral kicker, 36px coral rule, italic-coral accent, em-dash bullet, near-invisible watermark numeral).\n- **Playfair Display at weight 400** carries every headline, every quote, every stat figure, and every watermark numeral. **Bold serif is not permitted** — the no-bold rule is the system's most important typographic commitment. Italicized Playfair in `{colors.accent}` coral is the signature accent move: `<em>` inside any headline switches to italic coral. - **Jost at weight 300** carries every paragraph and bullet body. The light weight is the \"good paper\" feel — it sits back and lets the serif lead. - **JetBrains Mono at weight 300** carries every label, kicker, footline, slide counter, and stat caption. Always uppercase, always with at least 0.12em letter-spacing. - **Noto Serif SC / Noto Sans SC at weight 300–500** are loaded as Chinese fallbacks for every role. The deck is built bilingually-aware — Chinese characters render through the Noto cuts when present in the content.\nThe palette is a tight two-surface system with one accent. Dark slides use `{colors.bg}` (a deep forest green) with `{colors.fg}` (warm cream — never pure white) for body text. Light slides flip to `{colors.bg-light}` (warm parchment) with `{colors.fg-light}` (the same forest green now used as text). The single accent is **terracotta coral** (`{colors.accent}` — #c8524a), used only in small, deliberate places: the italic emphasis inside headlines, the",
+      "cssSnippets": [
+        ":root { --primary: #C8524A; --secondary: #1E3221; --accent: #C8524A; --background: #192B1B; --surface: #1E3221; --text: #D4CFBF; --textSecondary: #1E3221; --border: #1E3221; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#3D9F47",
+      "secondary": "#3A2516",
+      "accent": "#E5392A",
+      "background": "#F1E6CB",
+      "surface": "#F1E6CB",
+      "text": "#3A2516",
+      "textSecondary": "#E5392A",
+      "border": "#3A2516"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Ribbon Cassette is a builtin QoderWork AI Slides visual reference. Match its light scheme, medium density, and retro, playful, kawaii-tech, warm, tactile, product-catalogue, confident, 80s-Japanese-tech tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Big Shoulders Display; body: Albert Sans; mono: JetBrains Mono; jp: Noto Sans JP. Treat these font names as visual cues, not external font dependencies.\nColor language: warm cream paper canvas with dark warm-brown ink and a six-colour primary palette (red, pink, orange, yellow, green, blue) used as bold flat blocks, ribbons, and product-strip accents.\nBest for: Anything that should feel like a vintage Japanese cassette package or a TDK / Sony / Sakura Color product catalogue: indie hardware brand decks, music-label release schedules, analog studio retrospectives, zine and magazine pitches, kawaii-tech product launches, creative-studio annual reports. Equally good for any deck wanting bold colour, condensed display type, and a tactile printed-product personality.\nReference notes: A cassette-package editorial system on warm cream paper with a six-color primary palette and warm-brown ink. Display type runs in Big Shoulders Display (condensed industrial display sans at weight 900); body in Albert Sans; tabular and tag content in JetBrains Mono; occasional Japanese accents in Noto Sans JP. The aesthetic borrows from 1970s consumer cassette packaging, Japanese print catalogues, and lo-fi product zines: petal-cluster blob clusters, diagonal multi-color ribbon bands, 12-point starburst seals, red rectangular stamps, and tracked uppercase micro-labels. The effect is hand-curated industrial editorial — warm but disciplined, playful but tightly typeset, with the cassette as its visual metaphor."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Vintage Japanese cassette-package aesthetic: cream paper, diagonal rainbow ribbons, condensed bold type, JIS-style spec checkboxes.\nwarm cream paper canvas with dark warm-brown ink and a six-colour primary palette (red, pink, orange, yellow, green, blue) used as bold flat blocks, ribbons, and product-strip accents\ncondensed black grotesk display in red and brown for hero type, paired with a clean modern sans for body and a mono for spec-sheet listings; Japanese kanji used as decorative micro-type\nRibbon Cassette is a **cassette-package editorial system** that treats every slide as a printed product page from a small Japanese audio-products catalogue. The visual metaphor is total: petal-cluster blob marks, diagonal multi-color ribbon bands, 12-point starburst seals, red rectangular stamps, mono-font spec rows, color-coded chips, and equalizer-style bar charts. Everything reads as if pulled from the back-page spread of a 1970s consumer-audio brochure — warm, hand-curated, industrially typeset.\nThe typeface stack pairs four faces with distinct functional roles. **Big Shoulders Display** is the display voice — a condensed industrial sans at weight 900 with tight negative letter-spacing (-0.012em to -0.025em). It carries every display moment: hero numerals, statements, brand lockups, card names, section titles. Its compressed verticality and heavy weight give the system its loud, catalogue-front voice. **Albert Sans** is the body voice — a clean modern humanist sans at weight 400–700 for body paragraphs, micro-labels, and spec captions. **JetBrains Mono** is the tabular voice — used for spec rows, page numbers, dates, chips, equalizer ticks, and any moment that needs to read as \"data\" rather than as \"editorial.\" **Noto Sans JP** is the cultural accent — used for occasional Japanese characters (限定版 \"limited edition\") that signal the Matsumoto-workshop voice. Together the four faces compose as \"industrial display + clean body + monospaced data + Japanese spice.\"\nThe color philosophy is **warm-cream paper + ink-brown structure + six-color primary accent set**. The paper (`{colors.paper}` — #F1E6CB) is a warm cream, slightly darker than typical bone-white, with a darker tonal sibling (`{colors.paper-dk}` — #E5D6B0) for layered surfaces. The ink (`{colors.ink}` — #3A2516) i",
+      "cssSnippets": [
+        ":root { --primary: #3D9F47; --secondary: #3A2516; --accent: #E5392A; --background: #F1E6CB; --surface: #F1E6CB; --text: #3A2516; --textSecondary: #E5392A; --border: #3A2516; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

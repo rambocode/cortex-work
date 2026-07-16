@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#5EDCF4",
+      "secondary": "#F4D03F",
+      "accent": "#F4D03F",
+      "background": "#F0A6CA",
+      "surface": "#5EDCF4",
+      "text": "#5EDCF4",
+      "textSecondary": "#F4D03F",
+      "border": "#5EDCF4"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Pixel Orbit is a builtin QoderWork AI Slides visual reference. Match its dark scheme, medium density, and retro-tech, playful, cyberpunk, energetic, geeky, neon, rebellious, sci-fi tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Tektur; body: Chakra Petch; mono: Space Mono. Treat these font names as visual cues, not external font dependencies.\nColor language: deep navy/black void with neon pink, cyan, and yellow pops; pixel art accents and CRT-monitor energy.\nBest for: Anything that should feel like a CRT screen at 2am: cyberpunk, gaming, web3, indie dev tools, hackathon demos. Just as good for a tech talk that wants to lean into nostalgic-digital craft, a synthwave brand deck, or a creative review that wants to feel like a console.\nReference notes: A retro-futuristic pixel-art presentation system that fuses 16-bit arcade nostalgia with editorial discipline. Display type runs in Tektur (a chunky geometric display face built on pixel-grid logic) paired with Chakra Petch for body and Space Mono for code-flavored labels and tabular data. The palette pivots on a deep cosmic navy (`#0F1B3D` / `#0A0E27`) lit by three saturated neons — cyan, hot pink, and a high-key yellow — with a soft lavender pastel for warm reprieves. Depth is built from stacked hard offset shadows in 4px increments (the pixel unit), CRT scanlines, atmospheric grain, vignettes, and animated starfields. The effect sits between an arcade cabinet and a Tron-era boardroom — unmistakably digital, intentionally lo-fi, and engineered to feel as if it just booted up."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Pixel-art neon arcade aesthetic on a deep navy void.\ndeep navy/black void with neon pink, cyan, and yellow pops; pixel art accents and CRT-monitor energy\nboxy display sans paired with technical mono, all unmistakably digital and pixel-flavored\nPixel Orbit is a **retro-futuristic pixel-art presentation system**. Its foundational premise is the **4-pixel unit**: every shadow offset, every border, every corner bracket, every label height resolves to a multiple of 4px. Layouts feel as if they were rasterized on an old CRT and dragged into HTML — and atmospheric overlays (scanlines, grain, vignette glow, animated starfields) reinforce the illusion on every surface.\nThe type stack is three faces working in concert. **Tektur** is the display face — a chunky, geometric, semi-pixelated grotesque that carries headlines, hero text, stat numerals, and any text that needs to feel like it was drawn on the pixel grid. **Chakra Petch** is the body face — a humanist sans with subtle geometric cuts that reads cleanly at small sizes and avoids fighting Tektur for attention. **Space Mono** is the system face — used exclusively for labels, captions, badges, chart values, dates, and counters. The mono treatment + wide tracking on these elements makes them feel like HUD readouts, not editorial captions.\nThe palette is built around **deep navy as ground** (`{colors.dark-void}` and `{colors.deep-navy}`) lit by **three saturated neons** — cyan, hot pink, yellow — plus a soft lavender pastel. Surfaces alternate: a dark navy surface (cyan grid wallpaper, white text, neon accents glowing in front) followed by a colored surface (pink, cyan, or lavender ground with navy text and navy grid lines etched at low opacity). The neons never appear as body text — they are reserved for headlines, stat numerals, accent rules, and label fills. The result is high contrast without being harsh: the neons feel illuminated rather than printed.\nDepth is the system's signature trick: **stacked hard offset shadows in the pixel unit**. The flagship pattern is",
+      "cssSnippets": [
+        ":root { --primary: #5EDCF4; --secondary: #F4D03F; --accent: #F4D03F; --background: #F0A6CA; --surface: #5EDCF4; --text: #5EDCF4; --textSecondary: #F4D03F; --border: #5EDCF4; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#3CD896",
+      "secondary": "#0F1A5C",
+      "accent": "#0F1A5C",
+      "background": "#F1E9D6",
+      "surface": "#F1E9D6",
+      "text": "#3CD896",
+      "textSecondary": "#0F1A5C",
+      "border": "#3CD896"
+    },
+    "typography": {
+      "baseSize": 24,
+      "heading": {
+        "weight": 600,
+        "lineHeight": 1.12
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Emerald Ledger is a builtin QoderWork AI Slides visual reference. Match its mixed scheme, medium density, and editorial, considered, confident, magazine-cover, literary, authoritative, warm, designed tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Bodoni Moda; sans: Manrope. Treat these font names as visual cues, not external font dependencies.\nColor language: vivid emerald green field, deep navy ink, and warm paper cream; high-saturation magazine-cover palette grounded by the navy.\nBest for: Anything that should feel like the front of a serious magazine, including but not limited to leadership readouts, planning-office reviews, and strategy briefings. The double-rule masthead ornament gives it editorial gravitas without making it stiff — also a great unexpected pick for product launches or research recaps that want to feel considered rather than corporate.\nReference notes: A bold display-serif editorial system in the register of a fashion masthead or vintage magazine cover. Bodoni Moda runs at weight 900 across a wide scale (44–460px), set against a saturated emerald-green canvas with deep navy ink and oat-paper accents. The signature treatment is a stacked double-rule ornament that brackets centered display words like a 19th-century theatrical playbill. The aesthetic borrows from Harper's Bazaar / Vogue / Wallpaper covers: confident, theatrical, paper-and-ink committed, with a tight three-color palette and zero gradients or shadows."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "A magazine-cover business deck: emerald + navy + paper, double-rule masthead ornaments, and a bold Bodoni-style display serif.\nvivid emerald green field, deep navy ink, and warm paper cream; high-saturation magazine-cover palette grounded by the navy\nheavy Bodoni-style display serif paired with a wide geometric sans for chrome and body\nThe palette is a tight three-color editorial set: a **saturated emerald green** (`{colors.bg}` — #3CD896) as the dominant surface, a **deep navy ink** (`{colors.ink}` — #0F1A5C) as both the primary text color and the inverse-panel surface, and an **oat paper** (`{colors.paper}` — #F1E9D6) as the secondary surface for alternate tiles. The navy / emerald contrast is the system's chromatic identity; every body of text is navy-on-emerald or emerald-on-navy. Two near-duplicates of the emerald (`{colors.bg-2}`, `{colors.bg-3}`) and two of the navy (`{colors.ink-2}`, `{colors.ink-3}`) exist in the token system but are reserved — the published slides commit almost entirely to the three primaries.\nThe supporting typeface is **Manrope**, a humanist geometric sans, run at weight 500 for body paragraphs and weight 700–800 in uppercase with wide letter-spacing for every label, tag, eyebrow, caption, and footline. Manrope never crosses into display territory — it stops at 28px and stays in the chrome layer.\nDepth is **flat and ink-based**. There are no drop shadows, no gradients, no blur, no glow. Every surface is solid emerald, solid navy, or solid paper. Elevation happens through color-block inversion (a navy tile on the emerald canvas is the \"elevated\" element) and 4px ink rules separating sections. The whole system reads as printed ink on paper, not as a digital interface.\n**Density philosophy: medium-full and centered.** Most slides carry one display headline at scale (92–200px) plus 3–4 supporting elements (a stat row, a kpi grid, a process flow, a chart card). The slide padding of 110px gives breathing room, and the masthead/footline chrome at top and bottom anchors the page. A slide that crams six small elements reads as broken; a slide with one giant headline plus three supp",
+      "cssSnippets": [
+        ":root { --primary: #3CD896; --secondary: #0F1A5C; --accent: #0F1A5C; --background: #F1E9D6; --surface: #F1E9D6; --text: #3CD896; --textSecondary: #0F1A5C; --border: #3CD896; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}
