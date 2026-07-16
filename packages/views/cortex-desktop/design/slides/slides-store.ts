@@ -18,6 +18,7 @@ import type {
   SlidesFinding,
   SlidesOutline
 } from '@cortex-work/core/design/slides/slides-types'
+import type { SlidesTemplateSummary } from '@cortex-work/core/design/slides/slides-templates'
 
 export type SlidesZoom = 'fit' | '50' | '75' | '100'
 
@@ -52,6 +53,9 @@ export interface SlidesUiState {
   checkPanelOpen: boolean
   checking: boolean
   findings: SlidesFinding[] | null
+  /** 模板选择器:templates=null 表示尚未加载。 */
+  templatePickerOpen: boolean
+  templates: SlidesTemplateSummary[] | null
 
   setup(context: { bridge: DesktopBridge; workspaceRoot: string; deckId: string; title: string }): Promise<void>
   openOutlineDialog(): Promise<void>
@@ -61,6 +65,11 @@ export interface SlidesUiState {
   /** 运行 deck 检查(静态+渲染,顺带刷新缩略图);完成后打开结果面板并定位第一条 blocking。 */
   runCheck(): Promise<void>
   closeCheckPanel(): void
+  /** 打开模板选择器(首次打开时拉取列表)。 */
+  openTemplatePicker(): Promise<void>
+  closeTemplatePicker(): void
+  /** 应用模板到当前 deck(主进程写主题);成功返回 true。 */
+  applyTemplate(templateId: string): Promise<boolean>
   refresh(): Promise<void>
   insertSlide(afterSlotId?: string): Promise<void>
   duplicateSlide(slotId: string): Promise<void>
@@ -116,6 +125,35 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   checkPanelOpen: false,
   checking: false,
   findings: null,
+  templatePickerOpen: false,
+  templates: null,
+
+  openTemplatePicker: async () => {
+    set({ templatePickerOpen: true })
+    if (get().templates || !ctx?.bridge.slidesListTemplates) return
+    const result = await ctx.bridge.slidesListTemplates().catch(() => undefined)
+    if (result?.ok) set({ templates: result.templates })
+    else set({ templates: [], actionError: result && !result.ok ? result.error.message : '读取模板失败' })
+  },
+
+  closeTemplatePicker: () => set({ templatePickerOpen: false }),
+
+  applyTemplate: async (templateId) => {
+    const { manifest } = get()
+    if (!ctx?.bridge.slidesApplyTemplate || !manifest || get().mutating) return false
+    set({ mutating: true })
+    const result = await ctx.bridge
+      .slidesApplyTemplate({
+        workspaceRoot: ctx.workspaceRoot,
+        deckId: ctx.deckId,
+        expectedRevision: manifest.revision,
+        templateId
+      })
+      .catch(() => undefined)
+    const ok = await absorbDeckResult(set, get().refresh, result)
+    if (ok) set({ templatePickerOpen: false })
+    return ok
+  },
 
   runCheck: async () => {
     if (!ctx?.bridge.slidesCheck || get().checking) return
@@ -345,7 +383,9 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       conflictNotice: false,
       recoveredNotice: false,
       outlineDialogOpen: false,
-      outlineDraft: null
+      outlineDraft: null,
+      templatePickerOpen: false,
+      templates: null
     })
   }
 }))

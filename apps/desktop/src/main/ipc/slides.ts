@@ -11,7 +11,9 @@ import { BrowserWindow, dialog, ipcMain } from "electron";
 import { slotsFromSlidesOutline, type SlidesDeckManifest, nextSlidesSlotId, type SlidesSlot } from "@cortex-work/core/design/slides/slides-types";
 import { slidesSlideHtmlPath } from "@cortex-work/core/design/slides/slides-paths";
 import type {
+  SlidesApplyTemplateRequest,
   SlidesApproveOutlineRequest,
+  SlidesListTemplatesResult,
   SlidesCheckRequest,
   SlidesCheckResult,
   SlidesCreateDeckRequest,
@@ -51,6 +53,7 @@ import { buildDeckPptx, writeArtifactAtomic } from "../capabilities/slides/expor
 import { buildDeckPdf } from "../capabilities/slides/export/pdf";
 import { exportDeckPngs } from "../capabilities/slides/export/png";
 import { buildPresenterHtml, presenterSlots, type PresenterSlide } from "../capabilities/slides/export/html";
+import { getSlidesTemplate, listSlidesTemplates } from "../capabilities/slides/templates";
 
 // workspace 层 Result → IPC envelope(成功统一携带最新 manifest)。
 function toDeckResult(
@@ -256,6 +259,31 @@ export function registerSlidesHandlers(): void {
         }),
       ),
     ),
+  );
+
+  // 模板:UI 侧入口(与 MCP list_templates / apply_template 同一注册表与写入路径)。
+  ipcMain.handle("slides:listTemplates", (): Promise<SlidesListTemplatesResult> =>
+    guarded("读取模板失败", async () => ({ ok: true as const, templates: await listSlidesTemplates() })),
+  );
+
+  ipcMain.handle("slides:applyTemplate", (_e, req: SlidesApplyTemplateRequest): Promise<SlidesDeckIpcResult> =>
+    guarded("应用模板失败", async () => {
+      const template = await getSlidesTemplate(req.templateId);
+      if (!template) {
+        return { ok: false as const, error: { code: "not_found" as const, message: `模板不存在: ${req.templateId}` } };
+      }
+      return toDeckResult(
+        await updateDeckManifest({
+          workspaceRoot: req.workspaceRoot,
+          deckId: req.deckId,
+          expectedRevision: req.expectedRevision,
+          mutate: (m) => {
+            m.theme = template.theme;
+            return m;
+          },
+        }),
+      );
+    }),
   );
 
   ipcMain.handle(

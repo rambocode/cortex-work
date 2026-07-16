@@ -15,12 +15,15 @@ import type {
   SlidesFinding,
   SlidesOutline
 } from "@cortex-work/core/design/slides/slides-types"
+import type { SlidesTemplateSummary } from "@cortex-work/core/design/slides/slides-templates"
 
 /** IPC 通道名清单(运行时常量,契约测试用)。 */
 export const SLIDES_IPC_CHANNELS = [
   'slides:createDeck',
   'slides:loadDeck',
   'slides:renameDeck',
+  'slides:listTemplates',
+  'slides:applyTemplate',
   'slides:approveOutline',
   'slides:readOutlineDraft',
   'slides:reorderSlides',
@@ -99,6 +102,17 @@ export type SlidesSaveEditedHtmlRequest = SlidesDeckScopedRequest & {
 }
 
 export type SlidesReadSlideHtmlRequest = SlidesDeckScopedRequest & { slotId: string }
+
+/** 列出内置模板(与 deck 无关,不需 deckId)。 */
+export type SlidesListTemplatesResult =
+  | { ok: true; templates: SlidesTemplateSummary[] }
+  | { ok: false; error: SlidesError }
+
+/** 用户在 UI 里选模板:主进程把模板主题写进 deck(与 MCP apply_template 同源)。 */
+export type SlidesApplyTemplateRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  templateId: string
+}
 
 /** 读取 drafts/outline.json 提纲草案(确认面板初始值)。 */
 export type SlidesReadOutlineDraftRequest = SlidesDeckScopedRequest

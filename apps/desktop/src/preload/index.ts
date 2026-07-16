@@ -124,7 +124,9 @@ import type {
 } from "../main/ipc/writing-pdf-types";
 // AI Slides IPC 契约类型(type-only,编译期擦除;与 core/desktop/slides-ipc-types.ts 镜像)。
 import type {
+  SlidesApplyTemplateRequest,
   SlidesApproveOutlineRequest,
+  SlidesListTemplatesResult,
   SlidesCheckRequest,
   SlidesCheckResult,
   SlidesCreateDeckRequest,
@@ -267,6 +269,9 @@ const personal = {
     ipcRenderer.invoke("slides:loadDeck", req),
   slidesRenameDeck: (req: SlidesRenameDeckRequest): Promise<SlidesDeckIpcResult> =>
     ipcRenderer.invoke("slides:renameDeck", req),
+  slidesListTemplates: (): Promise<SlidesListTemplatesResult> => ipcRenderer.invoke("slides:listTemplates"),
+  slidesApplyTemplate: (req: SlidesApplyTemplateRequest): Promise<SlidesDeckIpcResult> =>
+    ipcRenderer.invoke("slides:applyTemplate", req),
   slidesApproveOutline: (req: SlidesApproveOutlineRequest): Promise<SlidesDeckIpcResult> =>
     ipcRenderer.invoke("slides:approveOutline", req),
   slidesReadOutlineDraft: (req: SlidesReadOutlineDraftRequest): Promise<SlidesReadOutlineDraftResult> =>

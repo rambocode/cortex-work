@@ -69,6 +69,12 @@ type Props = {
   onSwitchThread: (threadId: string) => void
   onCollapse: () => void
   className?: string
+  /**
+   * 演示文稿(slides)设计稿:右栏复用同一会话管线,但上下文语义不同 ——
+   * 隐藏「Web/App 目标 + 1280×800 Web 画布」这类自由画布专属控件(对 16:9 演示页是错的),
+   * 换成 slides 自己的空态/占位文案。
+   */
+  slidesMode?: boolean
 }
 
 export function designThreadTitleLooksDefault(
@@ -126,7 +132,8 @@ function DesignAIRailInner({
   designThreads,
   onSwitchThread,
   onCollapse,
-  className = ''
+  className = '',
+  slidesMode = false
 }: Props): ReactElement {
   const { t, i18n } = useTranslation('design')
   const workspaceRoot = useDesignWorkspaceStore((s) => s.workspaceRoot)
@@ -275,8 +282,9 @@ function DesignAIRailInner({
   // even during the brief idle gaps between page turns.
   const effectiveBusy = (showingDocumentThread && busy) || runActive
   const canCreateConversation = runtimeConnection === 'ready' && !effectiveBusy && !viewingChildThread
+  // slides 设计稿没有自由画布产物,多页规划(Kun 的 board 多页 fanout)不适用。
   const showMultiPageToggle =
-    designIntentMode === 'generate' && !runActive && activeArtifact?.kind !== 'canvas'
+    !slidesMode && designIntentMode === 'generate' && !runActive && activeArtifact?.kind !== 'canvas'
   const contextLabel = primaryContextChip
     ? `${designIntentMode === 'preview' ? t('designProjectPreview') : t('designProjectModify')} · ${primaryContextChip.label}`
     : ''
@@ -301,7 +309,10 @@ function DesignAIRailInner({
   const activeThreadTitle = activeThread ? titleForDesignThread(activeThread, activeThreadIndex) : ''
   const headerTitle = viewingChildThread
     ? t('subagentSessionBannerTitle')
-    : activeThreadTitle || t('designRailTitle')
+    : activeThreadTitle || t(slidesMode ? 'slidesRailTitle' : 'designRailTitle')
+  // slides 的空态/占位面向「演示主题」,不是「设计界面」。
+  const railEmptyText = t(slidesMode ? 'slidesRailEmpty' : 'designRailEmpty')
+  const railPlaceholder = t(slidesMode ? 'slidesRailPlaceholder' : 'designRailPlaceholder')
 
   const openChildThread = (threadId: string): void => {
     setThreadListOpen(false)
@@ -373,7 +384,7 @@ function DesignAIRailInner({
           >
             {designThreads.length === 0 ? (
               <p className="px-2.5 py-3 text-center text-[12.5px] text-ds-faint">
-                {t('designRailEmpty')}
+                {railEmptyText}
               </p>
             ) : (
               designThreads.map((thread, index) => (
@@ -467,7 +478,7 @@ function DesignAIRailInner({
                   <MessageSquare className="h-5 w-5" strokeWidth={1.55} />
                 </div>
                 <p className="mt-3 text-[13px] leading-6 text-ds-muted">
-                  {t('designRailEmpty')}
+                  {railEmptyText}
                 </p>
               </div>
             </div>
@@ -480,23 +491,40 @@ function DesignAIRailInner({
       >
         {!viewingChildThread ? (
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <DesignTargetToggle
-              designTarget={designTarget}
-              disabled={effectiveBusy}
-              disabledReason={effectiveBusy ? t('designTargetLockedHint') : undefined}
-              onChange={setDesignTarget}
-            />
-            <div
-              className="flex max-w-full items-center gap-1.5 rounded-full border border-accent/25 bg-accent/10 px-3 py-2 text-[12.5px] font-semibold text-ds-muted"
-              title={designTargetStatusTitle}
-              aria-label={designTargetStatusTitle}
-            >
-              <Target className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
-              <span className="shrink-0 text-ds-ink">{t('designTargetContextStatus')}</span>
-              <span className="text-ds-faint">·</span>
-              <span className="shrink-0 text-ds-ink">{designTargetLabel}</span>
-              <span className="hidden min-w-0 truncate text-ds-faint sm:inline">{designTargetDetail}</span>
-            </div>
+            {/* slides:Web/App 目标与「1280×800 Web 画布」对演示文稿是错的上下文,
+                换成固定的 16:9 演示画布提示(尺寸由 deck 合同锁死,用户无需选)。 */}
+            {slidesMode ? (
+              <div
+                className="flex max-w-full items-center gap-1.5 rounded-full border border-accent/25 bg-accent/10 px-3 py-2 text-[12.5px] font-semibold text-ds-muted"
+                title={t('slidesRailContextHint')}
+                aria-label={t('slidesRailContextHint')}
+              >
+                <Target className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
+                <span className="shrink-0 text-ds-ink">{t('slidesRailContextLabel')}</span>
+                <span className="text-ds-faint">·</span>
+                <span className="shrink-0 text-ds-ink">{t('slidesRailContextCanvas')}</span>
+              </div>
+            ) : (
+              <>
+                <DesignTargetToggle
+                  designTarget={designTarget}
+                  disabled={effectiveBusy}
+                  disabledReason={effectiveBusy ? t('designTargetLockedHint') : undefined}
+                  onChange={setDesignTarget}
+                />
+                <div
+                  className="flex max-w-full items-center gap-1.5 rounded-full border border-accent/25 bg-accent/10 px-3 py-2 text-[12.5px] font-semibold text-ds-muted"
+                  title={designTargetStatusTitle}
+                  aria-label={designTargetStatusTitle}
+                >
+                  <Target className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
+                  <span className="shrink-0 text-ds-ink">{t('designTargetContextStatus')}</span>
+                  <span className="text-ds-faint">·</span>
+                  <span className="shrink-0 text-ds-ink">{designTargetLabel}</span>
+                  <span className="hidden min-w-0 truncate text-ds-faint sm:inline">{designTargetDetail}</span>
+                </div>
+              </>
+            )}
             {showContextControls ? (
               <>
             {pagesRun ? (
@@ -581,6 +609,7 @@ function DesignAIRailInner({
           <FloatingComposer
             variant="compact"
             workspaceRootOverride={workspaceRoot}
+            placeholder={railPlaceholder}
             input={input}
             setInput={setInput}
             mode={mode}

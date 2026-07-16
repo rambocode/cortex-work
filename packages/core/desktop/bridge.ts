@@ -114,7 +114,9 @@ import type {
 import type { WritingPdfDataRequest, WritingPdfDataResult } from "./writing-pdf-types";
 // AI Slides IPC 契约类型(与 apps/desktop/src/main/ipc/slides-ipc-types.ts 镜像）。
 import type {
+  SlidesApplyTemplateRequest,
   SlidesApproveOutlineRequest,
+  SlidesListTemplatesResult,
   SlidesCheckRequest,
   SlidesCheckResult,
   SlidesCreateDeckRequest,
@@ -240,6 +242,8 @@ export interface DesktopBridge {
   slidesCreateDeck?(req: SlidesCreateDeckRequest): Promise<SlidesDeckIpcResult>;
   slidesLoadDeck?(req: SlidesLoadDeckRequest): Promise<SlidesDeckIpcResult>;
   slidesRenameDeck?(req: SlidesRenameDeckRequest): Promise<SlidesDeckIpcResult>;
+  slidesListTemplates?(): Promise<SlidesListTemplatesResult>;
+  slidesApplyTemplate?(req: SlidesApplyTemplateRequest): Promise<SlidesDeckIpcResult>;
   slidesApproveOutline?(req: SlidesApproveOutlineRequest): Promise<SlidesDeckIpcResult>;
   slidesReadOutlineDraft?(req: SlidesReadOutlineDraftRequest): Promise<SlidesReadOutlineDraftResult>;
   slidesReorderSlides?(req: SlidesReorderRequest): Promise<SlidesDeckIpcResult>;

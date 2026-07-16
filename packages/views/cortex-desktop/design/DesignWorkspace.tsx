@@ -15,7 +15,7 @@ import { useChatStore } from "@cortex-work/core/design/compat/chat-store";
 import { useCanvasShapeStore } from "@cortex-work/core/design/canvas/canvas-shape-store";
 import { useCanvasSelectionStore } from "@cortex-work/core/design/canvas/canvas-selection-store";
 import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspace-store";
-import type { DesignArtifact } from "@cortex-work/core/design/design-types";
+import { designDocumentKind, type DesignArtifact } from "@cortex-work/core/design/design-types";
 import { DesignAIRail } from "./DesignAIRail";
 import { DesignSidebar } from "./DesignSidebar";
 import { DesignWorkspaceView } from "./DesignWorkspaceView";
@@ -76,6 +76,10 @@ export function DesignWorkspace(): ReactElement {
   const setAssistantOpen = useDesignWorkspaceStore((s) => s.setCanvasAssistantOpen);
   const workspaceRoot = useDesignWorkspaceStore((s) => s.workspaceRoot);
   const activeDocumentId = useDesignWorkspaceStore((s) => s.activeDocumentId);
+  const documents = useDesignWorkspaceStore((s) => s.documents);
+  // 右栏与中间区域共享同一会话管线,但 slides 设计稿的上下文语义不同(见 DesignAIRail.slidesMode)。
+  const activeDoc = documents.find((d) => d.id === activeDocumentId) ?? null;
+  const slidesMode = activeDoc ? designDocumentKind(activeDoc) === "slides" : false;
   const canvasDocument = useCanvasShapeStore((s) => s.document);
   const selectedIds = useCanvasSelectionStore((s) => s.selectedIds);
 
@@ -209,6 +213,7 @@ export function DesignWorkspace(): ReactElement {
           designThreads={designThreads}
           onSwitchThread={() => {}}
           onCollapse={() => setAssistantOpen(false)}
+          slidesMode={slidesMode}
         />
         </div>
       ) : null}

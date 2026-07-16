@@ -106,6 +106,12 @@ extraResources:
   # skills/locate.builtinSkillsRoot 打包态指向这里；第二阶段下载的官方库走 userData/skills 优先覆盖。
   - from: resources/skills
     to: skills
+  # AI Slides 内置模板（35 套,纯文本 TEMPLATE.md + template.json + 参考页 HTML）。
+  # 落到 <App>/Contents/Resources/slides/templates/,capabilities/slides/templates.ts 的
+  # slidesTemplatesRoot() 打包态指向这里(开发态回落仓库内 resources/slides/templates)。
+  # 放 extraResources 而非 asar:模板要按目录扫描 + 逐文件读,真实文件路径最省事且可被用户查看。
+  - from: resources/slides
+    to: slides
   # 本地 Whisper runner（U8）：whisper-cli 原生可执行文件不能进 asar（asar 是虚拟归档，
   # 原生二进制必须以真实文件存在才可被 child_process.spawn 执行）。
   # beforePack 中 prune 步骤已删除非目标平台目录，打包时只含目标平台产物。

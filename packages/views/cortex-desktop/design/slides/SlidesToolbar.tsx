@@ -3,7 +3,7 @@
 // 保存对话框决定);用户取消静默,失败展示可读错误。
 import { useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Download, Loader2, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { ChevronDown, Download, Loader2, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
 import type { SlidesExportFormat } from '@cortex-work/core/desktop/slides-ipc-types'
 import { useSlidesStore, type SlidesZoom } from './slides-store'
 
@@ -24,6 +24,7 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
   const clearActionError = useSlidesStore((s) => s.clearActionError)
   const refresh = useSlidesStore((s) => s.refresh)
   const exportDeck = useSlidesStore((s) => s.exportDeck)
+  const openTemplatePicker = useSlidesStore((s) => s.openTemplatePicker)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportedPath, setExportedPath] = useState<string | null>(null)
@@ -59,6 +60,17 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
             </button>
           ))}
         </div>
+        {/* 模板入口:此前模板只有 Agent 侧工具、界面无从选择。 */}
+        <button
+          type="button"
+          onClick={() => void openTemplatePicker()}
+          disabled={!manifest}
+          title={t('slidesTemplateTitle')}
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-ds-muted transition hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/8"
+        >
+          <Palette className="h-3.5 w-3.5" strokeWidth={1.9} />
+          {t('slidesTemplateButton')}
+        </button>
         <button
           type="button"
           onClick={onRunCheck}

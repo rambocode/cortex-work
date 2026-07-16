@@ -13,18 +13,20 @@ type FloatingComposerProps = {
   busy?: boolean;
   onSend?: () => void;
   onInterrupt?: () => void;
+  /** 占位文案(缺省为设计需求;slides 传演示主题口径)。 */
+  placeholder?: string;
 } & Record<string, unknown>;
 
 export function FloatingComposer(props: FloatingComposerProps) {
   const { t } = useTranslation("design");
-  const { input, setInput, busy, onSend, onInterrupt } = props;
+  const { input, setInput, busy, onSend, onInterrupt, placeholder } = props;
   const canSend = !busy && input.trim().length > 0;
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-black/10 bg-white/70 p-2 dark:border-white/10 dark:bg-black/20">
       <textarea
         className="min-h-[72px] w-full resize-none bg-transparent px-1 py-0.5 text-sm outline-hidden"
         value={input}
-        placeholder={t("composerPlaceholder", { defaultValue: "描述你的设计需求…" })}
+        placeholder={placeholder ?? t("composerPlaceholder", { defaultValue: "描述你的设计需求…" })}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={(e) => {
           // Enter 发送、Shift+Enter 换行（与个人工作区 composer 习惯一致）。
