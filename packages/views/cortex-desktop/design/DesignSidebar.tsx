@@ -11,6 +11,7 @@ import {
   Moon,
   Palette,
   Pencil,
+  Presentation,
   RotateCcw,
   Settings,
   Sun,
@@ -21,7 +22,7 @@ import { useTranslation } from 'react-i18next'
 import type { SettingsRouteSection } from '@cortex-work/core/design/compat/chat-store'
 import { WorkspaceModeTabs } from './compat/WorkspaceModeTabs'
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
-import type { DesignArtifact, DesignDocument } from '@cortex-work/core/design/design-types'
+import { designDocumentKind, type DesignArtifact, type DesignDocument } from '@cortex-work/core/design/design-types'
 import { collectAgentDrawingArtifactIds, groupDesignArtifacts } from '@cortex-work/core/design/design-artifact-actions'
 import { findDesignBoardArtifact } from '@cortex-work/core/design/design-board'
 import { useCanvasShapeStore } from '@cortex-work/core/design/canvas/canvas-shape-store'
@@ -172,12 +173,13 @@ export function DesignSidebar({
   }
 
   // New 设计稿: a fresh top-level container (its own canvas + conversation).
-  const handleNewDocument = (): void => {
+  // kind === 'slides' 时创建演示文稿(deck 目录/manifest 由 SlidesWorkspace 挂载时经 IPC 补建)。
+  const handleNewDocument = (kind?: 'slides'): void => {
     closeImplementPanel()
     setDesignIntentMode('generate')
     setCanvasAssistantOpen(true)
     useCanvasSelectionStore.getState().clearSelection()
-    createDocument()
+    createDocument(undefined, kind === 'slides' ? { kind: 'slides' } : undefined)
     focusComposer()
   }
 
@@ -423,6 +425,7 @@ export function DesignSidebar({
 
   const renderDocument = (doc: DesignDocument): ReactElement => {
     const isActive = doc.id === activeDocumentId
+    const isSlides = designDocumentKind(doc) === 'slides'
     const screenCount = getDesignSidebarDocumentScreenCount(doc)
     const documentLabel = getDesignSidebarDocumentLabel(doc)
     return (
@@ -476,7 +479,12 @@ export function DesignSidebar({
               </>
             }
           >
-            {isActive ? (
+            {isSlides ? (
+              <Presentation
+                className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-[#3b82d8]' : 'text-ds-muted'}`}
+                strokeWidth={1.9}
+              />
+            ) : isActive ? (
               <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[#3b82d8]" strokeWidth={1.9} />
             ) : (
               <Folder className="h-3.5 w-3.5 shrink-0 text-ds-muted" strokeWidth={1.9} />
@@ -486,7 +494,8 @@ export function DesignSidebar({
             </span>
           </SidebarTreeRow>
         )}
-        {isActive ? renderActiveDocBody() : null}
+        {/* slides 设计稿没有自由画布 screens/layers,body 只对 board 渲染。 */}
+        {isActive && !isSlides ? renderActiveDocBody() : null}
       </li>
     )
   }
@@ -530,8 +539,14 @@ export function DesignSidebar({
           />
           <SidebarCommandRow
             icon={<FilePlus2 className="h-4 w-4" strokeWidth={1.9} />}
-            label={t('designNewDocument')}
-            onClick={handleNewDocument}
+            label={t('slidesNewBoard')}
+            onClick={() => handleNewDocument()}
+            variant="accent"
+          />
+          <SidebarCommandRow
+            icon={<Presentation className="h-4 w-4" strokeWidth={1.9} />}
+            label={t('slidesNewDeck')}
+            onClick={() => handleNewDocument('slides')}
             variant="accent"
           />
         </div>

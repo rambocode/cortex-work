@@ -4,9 +4,10 @@ import { X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
 import type { DesignHtmlElementContext } from '@cortex-work/core/design/design-composer-context'
-import type { DesignArtifact } from '@cortex-work/core/design/design-types'
+import { designDocumentKind, type DesignArtifact } from '@cortex-work/core/design/design-types'
 import type { DesignRuntimeQualityPayload } from '@cortex-work/core/design/design-html-quality'
 import { DesignCanvas } from './DesignCanvas'
+import { SlidesWorkspace } from './slides/SlidesWorkspace'
 
 type Props = {
   leftSidebarCollapsed: boolean
@@ -40,6 +41,12 @@ export function DesignWorkspaceView({
   const loadDesignSettings = useDesignWorkspaceStore((s) => s.loadDesignSettings)
   const fileError = useDesignWorkspaceStore((s) => s.fileError)
   const setFileError = useDesignWorkspaceStore((s) => s.setFileError)
+  // Slides 分流:kind === 'slides' 的设计稿用专用 Slides Workspace,不进自由画布。
+  const workspaceRoot = useDesignWorkspaceStore((s) => s.workspaceRoot)
+  const activeDocumentId = useDesignWorkspaceStore((s) => s.activeDocumentId)
+  const documents = useDesignWorkspaceStore((s) => s.documents)
+  const activeDocument = documents.find((doc) => doc.id === activeDocumentId) ?? null
+  const isSlidesDocument = activeDocument ? designDocumentKind(activeDocument) === 'slides' : false
 
   useEffect(() => {
     void loadDesignSettings()
@@ -61,17 +68,25 @@ export function DesignWorkspaceView({
         </div>
       ) : null}
       <div className="relative flex min-h-0 min-w-0 flex-1">
-        <DesignCanvas
-          leftSidebarCollapsed={leftSidebarCollapsed}
-          onToggleLeftSidebar={onToggleLeftSidebar}
-          busy={busy}
-          onOpenAgentSettings={onOpenAgentSettings}
-          onImplementDesign={onImplementDesign}
-          onScreenCreated={onScreenCreated}
-          onUseElementAsContext={onUseElementAsContext}
-          onRuntimeQualityFindings={onRuntimeQualityFindings}
-          onRequestQualityRepair={onRequestQualityRepair}
-        />
+        {isSlidesDocument && activeDocument ? (
+          <SlidesWorkspace
+            workspaceRoot={workspaceRoot}
+            documentId={activeDocument.id}
+            documentTitle={activeDocument.title}
+          />
+        ) : (
+          <DesignCanvas
+            leftSidebarCollapsed={leftSidebarCollapsed}
+            onToggleLeftSidebar={onToggleLeftSidebar}
+            busy={busy}
+            onOpenAgentSettings={onOpenAgentSettings}
+            onImplementDesign={onImplementDesign}
+            onScreenCreated={onScreenCreated}
+            onUseElementAsContext={onUseElementAsContext}
+            onRuntimeQualityFindings={onRuntimeQualityFindings}
+            onRequestQualityRepair={onRequestQualityRepair}
+          />
+        )}
       </div>
     </div>
   )
