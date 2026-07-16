@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- POC fixture 4:复杂视觉层(渐变背景、canvas 图表、CSS 滤镜)+ 一段普通标题。
+     预期:标题原生重建;canvas / 滤镜 / 渐变背景降级到 base raster,且不与原生对象重复。 -->
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; }
+  body {
+    background: linear-gradient(135deg, #0f172a 0%, #312e81 60%, #7c3aed 100%);
+    font-family: Helvetica, "PingFang SC", sans-serif;
+    position: relative;
+  }
+</style>
+</head>
+<body>
+  <h1 data-cortex-id="complex-title" style="position:absolute; left:80px; top:64px; width:900px; height:56px; font-size:40px; font-weight:700; color:#f8fafc; line-height:56px;">复杂视觉层降级验证</h1>
+  <canvas data-cortex-id="chart-canvas" width="520" height="320" style="position:absolute; left:80px; top:200px; width:520px; height:320px;"></canvas>
+  <div data-cortex-id="glow-circle" style="position:absolute; left:760px; top:240px; width:280px; height:280px; background:#22d3ee; border-radius:50%; filter: blur(2px);"></div>
+  <script>
+    // 在 canvas 上画一组柱状图,制造只能栅格化的内容。
+    const ctx = document.querySelector("canvas").getContext("2d");
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.fillRect(0, 0, 520, 320);
+    const bars = [120, 220, 160, 280, 90];
+    bars.forEach((h, i) => {
+      ctx.fillStyle = ["#38bdf8", "#818cf8", "#c084fc", "#f472b6", "#fb923c"][i];
+      ctx.fillRect(30 + i * 95, 300 - h, 60, h);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<!-- POC fixture 1:纯文本与纯色色块 — 全部应重建为原生 PPTX 对象(0 栅格)。
+     绝对定位 + 固定坐标,便于测试断言 bbox。 -->
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; }
+  body { background: #f8fafc; font-family: Helvetica, "PingFang SC", sans-serif; position: relative; }
+</style>
+</head>
+<body>
+  <h1 data-cortex-id="title" style="position:absolute; left:80px; top:80px; width:800px; height:60px; font-size:48px; font-weight:700; color:#0f172a; line-height:60px;">AI Slides 技术验证</h1>
+  <p data-cortex-id="body-text" style="position:absolute; left:80px; top:180px; width:640px; height:96px; font-size:24px; color:#334155; line-height:32px;">普通段落文字,包含<b>加粗片段</b>与<span style="color:#e2444a;">彩色片段</span>,<br />以及一次强制换行。</p>
+  <div data-cortex-id="color-block" style="position:absolute; left:80px; top:340px; width:320px; height:200px; background:#2b6cb0; border-radius:16px;"></div>
+  <div data-cortex-id="badge" style="position:absolute; left:480px; top:340px; width:280px; height:64px; background:#ecfdf5; border:2px solid #10b981; border-radius:8px; font-size:20px; color:#047857; text-align:center; line-height:60px;">带边框的文字徽章</div>
+  <p data-cortex-id="right-note" style="position:absolute; left:800px; top:600px; width:400px; height:32px; font-size:16px; color:#64748b; text-align:right; line-height:32px;"><i>右对齐斜体注释文字</i></p>
+</body>
+</html>
