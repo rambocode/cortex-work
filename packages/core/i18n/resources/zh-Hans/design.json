@@ -351,6 +351,7 @@
   "slidesRefresh": "刷新",
   "slidesZoomFit": "适应",
   "slidesExport": "导出",
+  "slidesExporting": "导出中…",
   "slidesExportPptx": "导出 PPTX",
   "slidesExportPdf": "导出 PDF",
   "slidesExportPng": "导出 PNG",

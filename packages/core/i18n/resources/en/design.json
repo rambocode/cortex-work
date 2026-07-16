@@ -351,6 +351,7 @@
   "slidesRefresh": "Refresh",
   "slidesZoomFit": "Fit",
   "slidesExport": "Export",
+  "slidesExporting": "Exporting…",
   "slidesExportPptx": "Export PPTX",
   "slidesExportPdf": "Export PDF",
   "slidesExportPng": "Export PNG",

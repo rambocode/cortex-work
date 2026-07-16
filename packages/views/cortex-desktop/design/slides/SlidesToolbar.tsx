@@ -3,7 +3,7 @@
 // 保存对话框决定);用户取消静默,失败展示可读错误。
 import { useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Download, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { ChevronDown, Download, Loader2, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
 import type { SlidesExportFormat } from '@cortex-work/core/desktop/slides-ipc-types'
 import { useSlidesStore, type SlidesZoom } from './slides-store'
 
@@ -76,8 +76,12 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
             disabled={exporting || !manifest}
             className="inline-flex items-center gap-1 rounded-lg bg-[#3b82d8] px-2.5 py-1 text-[12px] text-white transition hover:bg-[#2f6fc0] disabled:opacity-50"
           >
-            <Download className="h-3.5 w-3.5" strokeWidth={1.9} />
-            {t('slidesExport')}
+            {exporting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+            ) : (
+              <Download className="h-3.5 w-3.5" strokeWidth={1.9} />
+            )}
+            {exporting ? t('slidesExporting') : t('slidesExport')}
             <ChevronDown className="h-3 w-3" strokeWidth={2} />
           </button>
           {exportOpen ? (

@@ -47,6 +47,9 @@ import {
 } from "../capabilities/slides/workspace";
 import { checkSlides, screenshotSlideToSnapshot } from "../capabilities/slides/inspect";
 import { buildDeckPptx, writeArtifactAtomic } from "../capabilities/slides/export/deck-export";
+import { buildDeckPdf } from "../capabilities/slides/export/pdf";
+import { exportDeckPngs } from "../capabilities/slides/export/png";
+import { buildPresenterHtml, presenterSlots, type PresenterSlide } from "../capabilities/slides/export/html";
 
 // workspace 层 Result → IPC envelope(成功统一携带最新 manifest)。
 function toDeckResult(
@@ -294,35 +297,59 @@ export function registerSlidesHandlers(): void {
       return { ok: true as const, snapshotPath: result.value.snapshotPath };
     }),
   );
-  // 导出:目标路径只由主进程保存对话框决定(请求里不带输出路径);产物完全就绪后
-  // 才原子落盘,失败/取消不留半成品。PDF/PNG/HTML 在 Task 10 接入。
+  // 导出:目标路径只由主进程对话框决定(请求里不带输出路径);产物完全就绪后才
+  // 原子落盘,失败/取消不留半成品。PNG 走目录选择 + 本次半成品回滚(见 png.ts)。
   ipcMain.handle("slides:export", async (event, req: SlidesExportRequest): Promise<SlidesExportResult> => {
     try {
       if (!SLIDES_EXPORT_FORMATS.includes(req.format)) {
         return { ok: false, error: { code: "unsupported_format", message: `不支持的导出格式: ${String(req.format)}` } };
       }
-      if (req.format !== "pptx") {
-        return { ok: false, error: { code: "unsupported_format", message: `${req.format.toUpperCase()} 导出尚未启用` } };
-      }
       const loaded = await loadDeckManifest({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
       if (!loaded.ok) return { ok: false, error: loaded.error };
-
-      // 先生成产物再弹框?不 —— 先弹框(用户取消则省下几十秒渲染),但落盘一定在产物就绪后。
+      const manifest = loaded.value.manifest;
+      const deckTitle = manifest.title || req.deckId;
       const parent = BrowserWindow.fromWebContents(event.sender);
-      const defaultName = `${loaded.value.manifest.title || req.deckId}.pptx`;
-      const options: Electron.SaveDialogOptions = {
-        title: "导出演示文稿",
-        defaultPath: defaultName,
-        filters: [{ name: "PowerPoint 演示文稿", extensions: ["pptx"] }],
-      };
-      const picked = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
-      if (picked.canceled || !picked.filePath) return { ok: false, canceled: true };
-      const targetPath = picked.filePath.toLowerCase().endsWith(".pptx") ? picked.filePath : `${picked.filePath}.pptx`;
 
-      const built = await buildDeckPptx({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
-      if (!built.ok) return { ok: false, error: built.error };
-      await writeArtifactAtomic(targetPath, built.value.buffer);
-      return { ok: true, path: targetPath, format: "pptx" };
+      // 先弹框、后产出:用户取消可省下几十秒渲染;但落盘一定在产物就绪之后。
+      if (req.format === "png") {
+        const picked = await showOpenDirectory(parent);
+        if (!picked) return { ok: false, canceled: true };
+        const result = await exportDeckPngs({
+          workspaceRoot: req.workspaceRoot,
+          deckId: req.deckId,
+          targetDir: picked,
+        });
+        if (!result.ok) {
+          return result.error.code === "canceled"
+            ? { ok: false, canceled: true }
+            : { ok: false, error: result.error };
+        }
+        return { ok: true, path: picked, format: "png" };
+      }
+
+      const spec = EXPORT_FILE_SPEC[req.format];
+      const picked = await showSaveDialog(parent, `${deckTitle}${spec.ext}`, spec.filter);
+      if (!picked) return { ok: false, canceled: true };
+      const targetPath = picked.toLowerCase().endsWith(spec.ext) ? picked : `${picked}${spec.ext}`;
+
+      if (req.format === "pptx") {
+        const built = await buildDeckPptx({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
+        if (!built.ok) return { ok: false, error: built.error };
+        await writeArtifactAtomic(targetPath, built.value.buffer);
+        return { ok: true, path: targetPath, format: "pptx" };
+      }
+
+      // pdf / html 都需要各页 HTML 原文。
+      const slides = await collectPresenterSlides(req.workspaceRoot, req.deckId, manifest.slides);
+      if (!slides.ok) return { ok: false, error: slides.error };
+      if (req.format === "html") {
+        const html = buildPresenterHtml({ title: deckTitle, slides: slides.value });
+        await writeArtifactAtomic(targetPath, html);
+        return { ok: true, path: targetPath, format: "html" };
+      }
+      const pdf = await buildDeckPdf({ title: deckTitle, slides: slides.value });
+      await writeArtifactAtomic(targetPath, pdf);
+      return { ok: true, path: targetPath, format: "pdf" };
     } catch (err) {
       return {
         ok: false,
@@ -330,4 +357,53 @@ export function registerSlidesHandlers(): void {
       };
     }
   });
+}
+
+// 各格式的扩展名与保存对话框过滤器。
+const EXPORT_FILE_SPEC: Record<"pptx" | "pdf" | "html", { ext: string; filter: Electron.FileFilter }> = {
+  pptx: { ext: ".pptx", filter: { name: "PowerPoint 演示文稿", extensions: ["pptx"] } },
+  pdf: { ext: ".pdf", filter: { name: "PDF", extensions: ["pdf"] } },
+  html: { ext: ".html", filter: { name: "HTML 演示文稿", extensions: ["html"] } },
+};
+
+async function showSaveDialog(
+  parent: BrowserWindow | null,
+  defaultName: string,
+  filter: Electron.FileFilter,
+): Promise<string | null> {
+  const options: Electron.SaveDialogOptions = {
+    title: "导出演示文稿",
+    defaultPath: defaultName,
+    filters: [filter],
+  };
+  const res = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
+  return res.canceled || !res.filePath ? null : res.filePath;
+}
+
+async function showOpenDirectory(parent: BrowserWindow | null): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title: "选择 PNG 导出目录",
+    properties: ["openDirectory", "createDirectory"],
+  };
+  const res = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+  return res.canceled || !res.filePaths[0] ? null : res.filePaths[0];
+}
+
+// 读取各页 HTML 原文(presenter/PDF 用)。任何一页读失败即整体失败,不导半套。
+async function collectPresenterSlides(
+  workspaceRoot: string,
+  deckId: string,
+  slides: SlidesDeckManifest["slides"],
+): Promise<SlidesWorkspaceResult<PresenterSlide[]>> {
+  const slots = presenterSlots(slides);
+  if (slots.length === 0) {
+    return { ok: false, error: { code: "not_found", message: "没有可导出的页面" } };
+  }
+  const out: PresenterSlide[] = [];
+  for (const slot of slots) {
+    const html = await readSlideHtml({ workspaceRoot, deckId, slotId: slot.id });
+    if (!html.ok) return html;
+    out.push({ title: slot.title, html: html.value });
+  }
+  return { ok: true, value: out };
 }
