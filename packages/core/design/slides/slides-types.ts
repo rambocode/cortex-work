@@ -106,6 +106,7 @@ export type SlidesErrorCode =
   | 'invalid_path'
   | 'invalid_manifest'
   | 'not_found'
+  | 'already_exists'
   | 'revision_conflict'
   | 'outline_not_approved'
   | 'io_error'

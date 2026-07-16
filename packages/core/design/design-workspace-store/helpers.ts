@@ -321,7 +321,11 @@ export async function rehydrateDesignWorkspaceArtifacts({
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
         artifacts,
-        activeArtifactId
+        activeArtifactId,
+        // Slides marker travels through rehydrate so a deck survives app restart.
+        ...(entry.kind === 'slides' && entry.slidesManifestPath
+          ? { kind: 'slides' as const, slidesManifestPath: entry.slidesManifestPath }
+          : {})
       })
     }
     await Promise.all(
@@ -379,7 +383,13 @@ export async function rehydrateDesignWorkspaceArtifacts({
           if (!incoming) return doc
           const known = new Set(doc.artifacts.map((a) => a.id))
           const fresh = incoming.artifacts.filter((a) => !known.has(a.id) && !removedArtifactIds.has(a.id))
-          return fresh.length > 0 ? { ...doc, artifacts: sortArtifacts([...doc.artifacts, ...fresh]) } : doc
+          // Adopt the slides marker from disk when the in-memory doc predates it.
+          const slidesFields =
+            !doc.kind && incoming.kind === 'slides' && incoming.slidesManifestPath
+              ? { kind: 'slides' as const, slidesManifestPath: incoming.slidesManifestPath }
+              : {}
+          const merged = { ...doc, ...slidesFields }
+          return fresh.length > 0 ? { ...merged, artifacts: sortArtifacts([...merged.artifacts, ...fresh]) } : merged
         })
       const keptIds = new Set(kept.map((d) => d.id))
       const documents = [...kept, ...loaded.filter((l) => !keptIds.has(l.id))]

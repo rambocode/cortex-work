@@ -19,6 +19,7 @@ import {
   defaultDesignArtifactNode
 } from './design-types'
 import type { DesignDocument } from './design-types'
+import { slidesManifestPath } from './slides/slides-paths'
 import type { DesignWorkspaceState } from './design-workspace-store-types'
 import {
   AI_RAIL_COLLAPSED_KEY,
@@ -136,7 +137,10 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
           updatedAt: createdAt,
           order,
           artifacts: [],
-          activeArtifactId: null
+          activeArtifactId: null,
+          // Slides 设计稿在索引中落 kind + deck.json 路径;deck 目录/manifest 本体
+          // 由桌面主进程经 slides IPC 创建(renderer 不直接写 deck 文件)。
+          ...(options?.kind === 'slides' ? { kind: 'slides' as const, slidesManifestPath: slidesManifestPath(id) } : {})
         }
         const documents = [...state.documents, doc]
         return { documents, activeDocumentId: id, ...projectActiveDoc(documents, id), fileError: null }
