@@ -7,7 +7,7 @@
  * also marks "the legacy → nested migration has run" (see the store).
  */
 import { kunGuiPort, requireKunGui } from './compat/kun-gui-port'
-import type { DesignDocument } from './design-types'
+import type { DesignDocument, DesignDocumentKind } from './design-types'
 
 const DESIGN_DIR = '.cortex-design'
 
@@ -34,6 +34,10 @@ export type DesignDocumentIndexEntry = {
   createdAt: string
   updatedAt: string
   activeArtifactId: string | null
+  /** Optional kind ('board' | 'slides'); absent on legacy entries → 'board'. */
+  kind?: DesignDocumentKind
+  /** Workspace-relative deck.json path; only present for slides documents. */
+  slidesManifestPath?: string
 }
 
 export type DesignDocumentsIndex = {
@@ -46,7 +50,7 @@ const isStr = (v: unknown): v is string => typeof v === 'string'
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
 function toIndexEntry(doc: DesignDocument): DesignDocumentIndexEntry {
-  return {
+  const entry: DesignDocumentIndexEntry = {
     id: doc.id,
     title: doc.title,
     order: doc.order,
@@ -54,6 +58,13 @@ function toIndexEntry(doc: DesignDocument): DesignDocumentIndexEntry {
     updatedAt: doc.updatedAt,
     activeArtifactId: doc.activeArtifactId
   }
+  // Slides fields only serialize when meaningful — board entries stay byte-identical
+  // with the legacy index shape, so downgrade/upgrade round-trips keep working.
+  if (doc.kind === 'slides' && doc.slidesManifestPath) {
+    entry.kind = 'slides'
+    entry.slidesManifestPath = doc.slidesManifestPath
+  }
+  return entry
 }
 
 export function serializeDocumentsIndex(
@@ -85,14 +96,21 @@ export function parseDocumentsIndex(raw: string): DesignDocumentsIndex | null {
     const o = value as Record<string, unknown>
     if (!isStr(o.id) || !o.id) return
     const createdAt = isStr(o.createdAt) ? o.createdAt : new Date(0).toISOString()
-    documents.push({
+    const entry: DesignDocumentIndexEntry = {
       id: o.id,
       title: isStr(o.title) ? o.title : o.id,
       order: isNum(o.order) ? o.order : fallbackOrder,
       createdAt,
       updatedAt: isStr(o.updatedAt) ? o.updatedAt : createdAt,
       activeArtifactId: isStr(o.activeArtifactId) ? o.activeArtifactId : null
-    })
+    }
+    // Slides marker only survives when both fields are sane; otherwise the entry
+    // degrades to a board document (never route a broken deck into the Slides loader).
+    if (o.kind === 'slides' && isStr(o.slidesManifestPath) && o.slidesManifestPath) {
+      entry.kind = 'slides'
+      entry.slidesManifestPath = o.slidesManifestPath
+    }
+    documents.push(entry)
   })
   if (documents.length === 0) return null
   const activeDocumentId =

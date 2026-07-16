@@ -144,6 +144,13 @@ export function inferDesignArtifactFoundationRole(
 }
 
 /**
+ * 设计稿 top-level type. `'board'` = the existing free-canvas board of HTML/SVG
+ * artifacts; `'slides'` = an AI Slides deck backed by a `deck.json` manifest.
+ * Legacy documents persisted before this field existed normalize to `'board'`.
+ */
+export type DesignDocumentKind = 'board' | 'slides'
+
+/**
  * A 设计稿 (design document) — the top-level container, one per directory under
  * `.cortex-design/<id>/`. Holds multiple 画布 (canvas artifacts: HTML or SVG) and
  * owns its own project-canvas surface + AI conversation. The store keeps the
@@ -160,6 +167,24 @@ export type DesignDocument = {
   artifacts: DesignArtifact[]
   /** Last-active 画布 within this 设计稿; null when empty. */
   activeArtifactId: string | null
+  /** Document kind; absent on legacy data and treated as 'board'. */
+  kind?: DesignDocumentKind
+  /** Workspace-relative path to `deck.json`; required for kind === 'slides'. */
+  slidesManifestPath?: string
+}
+
+/**
+ * Effective kind with legacy normalization: a document only counts as a Slides
+ * deck when it both declares `kind: 'slides'` AND carries a manifest path —
+ * anything else (legacy data, half-written entries) falls back to 'board' so
+ * the board loader never receives a deck and vice versa.
+ */
+export function designDocumentKind(
+  doc: Pick<DesignDocument, 'kind' | 'slidesManifestPath'>
+): DesignDocumentKind {
+  return doc.kind === 'slides' && typeof doc.slidesManifestPath === 'string' && doc.slidesManifestPath.length > 0
+    ? 'slides'
+    : 'board'
 }
 
 export const DESIGN_ARTIFACT_NODE_DEFAULT_WIDTH = 420
