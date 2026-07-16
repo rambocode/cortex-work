@@ -44,6 +44,7 @@ import {
   writeSlideHtml,
   type SlidesWorkspaceResult,
 } from "../capabilities/slides/workspace";
+import { checkSlides, screenshotSlideToSnapshot } from "../capabilities/slides/inspect";
 
 // workspace 层 Result → IPC envelope(成功统一携带最新 manifest)。
 function toDeckResult(
@@ -269,12 +270,27 @@ export function registerSlidesHandlers(): void {
     }),
   );
 
-  // ── 以下通道在对应任务落地(Task 7 检查/截图、Task 9/10 导出)前返回占位错误。──
-  ipcMain.handle("slides:check", (_e, _req: SlidesCheckRequest): Promise<SlidesCheckResult> =>
-    Promise.resolve({ ok: false, error: { code: "io_error", message: "检查能力尚未启用" } }),
+  ipcMain.handle("slides:check", (_e, req: SlidesCheckRequest): Promise<SlidesCheckResult> =>
+    guarded("检查失败", async () => {
+      const result = await checkSlides({
+        workspaceRoot: req.workspaceRoot,
+        deckId: req.deckId,
+        slotIds: req.slotIds,
+      });
+      if (!result.ok) return { ok: false as const, error: result.error };
+      return { ok: true as const, findings: result.value };
+    }),
   );
-  ipcMain.handle("slides:screenshot", (_e, _req: SlidesScreenshotRequest): Promise<SlidesScreenshotResult> =>
-    Promise.resolve({ ok: false, error: { code: "io_error", message: "截图能力尚未启用" } }),
+  ipcMain.handle("slides:screenshot", (_e, req: SlidesScreenshotRequest): Promise<SlidesScreenshotResult> =>
+    guarded("截图失败", async () => {
+      const result = await screenshotSlideToSnapshot({
+        workspaceRoot: req.workspaceRoot,
+        deckId: req.deckId,
+        slotId: req.slotId,
+      });
+      if (!result.ok) return { ok: false as const, error: result.error };
+      return { ok: true as const, snapshotPath: result.value.snapshotPath };
+    }),
   );
   ipcMain.handle("slides:export", (_e, _req: SlidesExportRequest): Promise<SlidesExportResult> =>
     Promise.resolve({ ok: false, error: { code: "unsupported_format", message: "导出能力尚未启用" } }),

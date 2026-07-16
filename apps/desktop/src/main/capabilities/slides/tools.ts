@@ -19,6 +19,7 @@ import {
   writeSlidesOutlineDraft,
   type SlidesWorkspaceResult,
 } from "./workspace";
+import { checkSlides, screenshotSlideToSnapshot } from "./inspect";
 
 const log = createLogger("slides");
 
@@ -350,6 +351,40 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       const result = await deleteSlide({ ...ctx, slotId: slot_id, expectedRevision: expected_revision });
       if (!result.ok) return fromWorkspaceError(result);
       return jsonResult({ ok: true, revision: result.value.revision });
+    },
+  );
+
+  mcp.registerTool(
+    "check_slide",
+    {
+      description:
+        "运行单页(或整个 deck)的静态 + 渲染检查:越界/裁切、最小字号、图片加载失败、" +
+        "远程资源、危险脚本、文本密度、空页面等,返回结构化 findings(blocking 应修复)。" +
+        "同时刷新对应页面缩略图。",
+      inputSchema: {
+        slot_id: z.string().optional().describe("缺省检查整个 deck"),
+      },
+    },
+    async ({ slot_id }): Promise<ToolResult> => {
+      const result = await checkSlides({
+        ...ctx,
+        slotIds: slot_id ? [slot_id] : undefined,
+      });
+      if (!result.ok) return fromWorkspaceError(result);
+      return jsonResult({ ok: true, findings: result.value });
+    },
+  );
+
+  mcp.registerTool(
+    "screenshot_slide",
+    {
+      description: "重新渲染指定页并刷新缩略图(固定 1280×720 视口,10s 超时)。",
+      inputSchema: { slot_id: z.string() },
+    },
+    async ({ slot_id }): Promise<ToolResult> => {
+      const result = await screenshotSlideToSnapshot({ ...ctx, slotId: slot_id });
+      if (!result.ok) return fromWorkspaceError(result);
+      return jsonResult({ ok: true, snapshotPath: result.value.snapshotPath });
     },
   );
 

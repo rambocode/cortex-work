@@ -210,13 +210,27 @@ describe("deck 生命周期经 IPC", () => {
     if (!badId.ok) expect(badId.error.code).toBe("invalid_path");
   });
 
-  it("check/screenshot/export 占位通道返回结构化未启用错误", async () => {
-    const check = await invoke<{ ok: boolean }>("slides:check", { workspaceRoot: root, deckId: DECK });
-    expect(check.ok).toBe(false);
-    const shot = await invoke<{ ok: boolean }>("slides:screenshot", { workspaceRoot: root, deckId: DECK, slotId: "slot-001" });
-    expect(shot.ok).toBe(false);
+  it("export 占位通道返回结构化未启用错误(Task 9/10 前)", async () => {
     const exported = await invoke<{ ok: boolean }>("slides:export", { workspaceRoot: root, deckId: DECK, format: "pptx" });
     expect(exported.ok).toBe(false);
+  });
+
+  it("check/screenshot 通道走真实巡检:非法 deck 结构化拒绝(不抛)", async () => {
+    // 真实渲染需 Electron GUI,本用例只验证 IPC 层错误封装;渲染路径由
+    // capabilities/slides/inspect.test.ts 用假窗口覆盖。
+    const check = await invoke<{ ok: boolean; error?: { code: string } }>("slides:check", {
+      workspaceRoot: join(root, "nope"),
+      deckId: DECK,
+    });
+    expect(check.ok).toBe(false);
+    expect(check.error?.code).toBe("invalid_path");
+    const shot = await invoke<{ ok: boolean; error?: { code: string } }>("slides:screenshot", {
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId: "slot-999",
+    });
+    expect(shot.ok).toBe(false);
+    expect(shot.error?.code).toBe("not_found");
   });
 });
 

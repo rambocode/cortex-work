@@ -8,6 +8,7 @@ import { useDesktopBridge } from '@cortex-work/core/provider'
 import { sortedSlidesSlots, type SlidesSlot } from '@cortex-work/core/design/slides/slides-types'
 import { sendDesignMessage } from '@cortex-work/core/design/run/design-run-manager'
 import { useChatStore } from '@cortex-work/core/design/compat/chat-store'
+import { SlidesCheckPanel } from './SlidesCheckPanel'
 import { SlidesOutlineDialog } from './SlidesOutlineDialog'
 import { SlidesStage } from './SlidesStage'
 import { SlidesThumbnailRail } from './SlidesThumbnailRail'
@@ -31,6 +32,7 @@ export function SlidesWorkspace({ workspaceRoot, documentId, documentTitle }: Pr
   const refresh = useSlidesStore((s) => s.refresh)
   const openOutlineDialog = useSlidesStore((s) => s.openOutlineDialog)
   const outlineDialogOpen = useSlidesStore((s) => s.outlineDialogOpen)
+  const runCheck = useSlidesStore((s) => s.runCheck)
   // 右栏设计对话的 busy 态:agent 经 MCP 直接写盘,渲染端无推送,借 busy 驱动轮询刷新。
   const agentBusy = useChatStore((s) => s.busy)
 
@@ -50,7 +52,13 @@ export function SlidesWorkspace({ workspaceRoot, documentId, documentTitle }: Pr
     }
     if (wasBusyRef.current) {
       wasBusyRef.current = false
-      void refresh()
+      void refresh().then(() => {
+        // 生成回合结束:deck 已就绪/出错时自动跑一次基础检查(内部会定位第一条 blocking)。
+        const current = useSlidesStore.getState().manifest
+        if (current && (current.status === 'ready' || current.status === 'error')) {
+          void useSlidesStore.getState().runCheck()
+        }
+      })
     }
     return undefined
   }, [agentBusy, refresh])
@@ -110,7 +118,7 @@ export function SlidesWorkspace({ workspaceRoot, documentId, documentTitle }: Pr
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="slides-workspace">
-      <SlidesToolbar />
+      <SlidesToolbar onRunCheck={() => void runCheck()} />
       {recoveredNotice ? (
         <div className="shrink-0 bg-[#2e9e6b]/10 px-3 py-1 text-[11.5px] text-[#1f7a50] dark:text-[#7fd8ab]">
           {t('slidesDeckRecovered')}
@@ -131,6 +139,7 @@ export function SlidesWorkspace({ workspaceRoot, documentId, documentTitle }: Pr
               : undefined
           }
         />
+        <SlidesCheckPanel />
         {outlineDialogOpen ? <SlidesOutlineDialog onApproved={handleOutlineApproved} /> : null}
       </div>
     </div>

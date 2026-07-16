@@ -12,7 +12,12 @@ import type {
   SlidesExportFormat,
   SlidesExportResult
 } from '@cortex-work/core/desktop/slides-ipc-types'
-import type { SlidesDeckManifest, SlidesError, SlidesOutline } from '@cortex-work/core/design/slides/slides-types'
+import type {
+  SlidesDeckManifest,
+  SlidesError,
+  SlidesFinding,
+  SlidesOutline
+} from '@cortex-work/core/design/slides/slides-types'
 
 export type SlidesZoom = 'fit' | '50' | '75' | '100'
 
@@ -43,12 +48,19 @@ export interface SlidesUiState {
   /** 提纲确认面板:draft 来自 drafts/outline.json(agent propose_outline 写入)。 */
   outlineDialogOpen: boolean
   outlineDraft: SlidesOutline | null
+  /** 检查结果面板。findings=null 表示尚未跑过检查。 */
+  checkPanelOpen: boolean
+  checking: boolean
+  findings: SlidesFinding[] | null
 
   setup(context: { bridge: DesktopBridge; workspaceRoot: string; deckId: string; title: string }): Promise<void>
   openOutlineDialog(): Promise<void>
   closeOutlineDialog(): void
   /** 批准提纲(用户编辑后的最终版);成功返回 true 并采纳新 manifest。 */
   approveOutline(outline: Omit<SlidesOutline, 'approvedAt'>): Promise<boolean>
+  /** 运行 deck 检查(静态+渲染,顺带刷新缩略图);完成后打开结果面板并定位第一条 blocking。 */
+  runCheck(): Promise<void>
+  closeCheckPanel(): void
   refresh(): Promise<void>
   insertSlide(afterSlotId?: string): Promise<void>
   duplicateSlide(slotId: string): Promise<void>
@@ -101,6 +113,29 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   zoom: 'fit',
   outlineDialogOpen: false,
   outlineDraft: null,
+  checkPanelOpen: false,
+  checking: false,
+  findings: null,
+
+  runCheck: async () => {
+    if (!ctx?.bridge.slidesCheck || get().checking) return
+    set({ checking: true, checkPanelOpen: true })
+    const result = await ctx.bridge
+      .slidesCheck({ workspaceRoot: ctx.workspaceRoot, deckId: ctx.deckId })
+      .catch(() => undefined)
+    if (!result || !result.ok) {
+      set({ checking: false, actionError: result && !result.ok ? result.error.message : '检查失败' })
+      return
+    }
+    set({ checking: false, findings: result.findings })
+    // 检查会刷新缩略图(snapshotPath 入册),同步拉一次最新 manifest。
+    await get().refresh()
+    // 自动定位第一条 blocking finding 所在页。
+    const firstBlocking = result.findings.find((f) => f.severity === 'blocking')
+    if (firstBlocking) void get().setActiveSlide(firstBlocking.slideId)
+  },
+
+  closeCheckPanel: () => set({ checkPanelOpen: false }),
 
   openOutlineDialog: async () => {
     if (!ctx?.bridge.slidesReadOutlineDraft) return

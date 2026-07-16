@@ -75,6 +75,8 @@ describe("工具清单契约(MVP)", () => {
         "move_slide",
         "insert_slide",
         "delete_slide",
+        "check_slide",
+        "screenshot_slide",
         "upload_asset",
       ].sort(),
     );
