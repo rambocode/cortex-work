@@ -7,6 +7,7 @@ import { Loader2, TriangleAlert } from 'lucide-react'
 import { useDesktopBridge } from '@cortex-work/core/provider'
 import { sortedSlidesSlots, type SlidesSlot } from '@cortex-work/core/design/slides/slides-types'
 import { sendDesignMessage } from '@cortex-work/core/design/run/design-run-manager'
+import { buildSlidesTurnPrompt } from '@cortex-work/core/design/slides/slides-prompt'
 import { useChatStore } from '@cortex-work/core/design/compat/chat-store'
 import { SlidesCheckPanel } from './SlidesCheckPanel'
 import { SlidesOutlineDialog } from './SlidesOutlineDialog'
@@ -72,17 +73,31 @@ export function SlidesWorkspace({ workspaceRoot, documentId, documentTitle }: Pr
   }, [status, agentBusy, openOutlineDialog])
 
   // 批准后自动派发「逐页生成」指令(displayText 只在对话里显示短句)。
+  // 批准后自动派发「逐页生成」指令。与右栏手动发送共用同一 slides 合同(buildSlidesTurnPrompt),
+  // 保证任何 slides 回合都不会漂到 design 的自由画布流水线上。
   const handleOutlineApproved = (): void => {
-    void sendDesignMessage(t('slidesGenerateApprovedPrompt'), 'agent', {
-      displayText: t('slidesOutlineApprove')
-    })
+    void sendDesignMessage(
+      buildSlidesTurnPrompt({
+        text: t('slidesGenerateApprovedPrompt'),
+        stage: 'outline-approved',
+        themeName: manifest?.theme.name
+      }),
+      'agent',
+      { displayText: t('slidesOutlineApprove') }
+    )
   }
 
   // 单页重试:只针对该 slot 重新生成,不动已成功页面。
   const handleRetrySlide = (slot: SlidesSlot, index: number): void => {
-    void sendDesignMessage(t('slidesRetrySlidePrompt', { index: index + 1, slotId: slot.id }), 'agent', {
-      displayText: `${t('slidesRetrySlide')}: ${t('slidesSlideLabel', { index: index + 1 })}`
-    })
+    void sendDesignMessage(
+      buildSlidesTurnPrompt({
+        text: t('slidesRetrySlidePrompt', { index: index + 1, slotId: slot.id }),
+        stage: manifest?.status ?? 'generating',
+        themeName: manifest?.theme.name
+      }),
+      'agent',
+      { displayText: `${t('slidesRetrySlide')}: ${t('slidesSlideLabel', { index: index + 1 })}` }
+    )
   }
 
   const activeSlot = manifest

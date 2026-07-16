@@ -10,6 +10,8 @@ import {
   installDesignRuntime,
   sendDesignMessage,
 } from "@cortex-work/core/design/run/design-run-manager";
+import { buildSlidesTurnPrompt } from "@cortex-work/core/design/slides/slides-prompt";
+import { useSlidesStore } from "./slides/slides-store";
 import { implementDesignInProject } from "@cortex-work/core/design/run/design-implement";
 import { useChatStore } from "@cortex-work/core/design/compat/chat-store";
 import { useCanvasShapeStore } from "@cortex-work/core/design/canvas/canvas-shape-store";
@@ -22,6 +24,23 @@ import { DesignWorkspaceView } from "./DesignWorkspaceView";
 import { useDesignComposerContextState } from "./useDesignComposerContextState";
 import { useDesignPromptController } from "./useDesignPromptController";
 import type { ComposerReasoningEffort } from "./compat/FloatingComposerModelPicker";
+
+/**
+ * 右栏发送的路由决策(纯函数,便于测试)。
+ *
+ * slides 稿必须绕开 design 的 prompt 路由:那条路会过 multi-page 闸门,把一句话展开成
+ * 自由画布流水线(设计规格 → 设计系统与令牌 → 品牌标识 → 并行多页),产物落在
+ * `.cortex-design/<doc>/` 的自由画布里,与 deck.json / slot HTML 无关、也不会出现在
+ * 缩略图栏(用户实测踩到)。slides 走 buildSlidesTurnPrompt 的合同回合。
+ */
+export function routeDesignComposerSend(options: {
+  input: string;
+  slidesMode: boolean;
+}): { kind: "ignore" } | { kind: "design-prompt" } | { kind: "slides-turn"; text: string } {
+  const text = options.input.trim();
+  if (!text) return { kind: "ignore" };
+  return options.slidesMode ? { kind: "slides-turn", text } : { kind: "design-prompt" };
+}
 
 export function DesignWorkspace(): ReactElement {
   const bridge = useDesktopBridge();
@@ -80,6 +99,24 @@ export function DesignWorkspace(): ReactElement {
   // 右栏与中间区域共享同一会话管线,但 slides 设计稿的上下文语义不同(见 DesignAIRail.slidesMode)。
   const activeDoc = documents.find((d) => d.id === activeDocumentId) ?? null;
   const slidesMode = activeDoc ? designDocumentKind(activeDoc) === "slides" : false;
+  // deck 状态决定本轮该做什么(主题/提纲/逐页生成);未加载时按 draft。
+  const slidesStatus = useSlidesStore((s) => s.manifest?.status);
+  const slidesThemeName = useSlidesStore((s) => s.manifest?.theme.name);
+
+  const handleSend = (): void => {
+    const decision = routeDesignComposerSend({ input, slidesMode });
+    if (decision.kind === "ignore") return;
+    if (decision.kind === "design-prompt") {
+      void promptController.sendDesignPrompt(input);
+      return;
+    }
+    setInput("");
+    void sendDesignMessage(
+      buildSlidesTurnPrompt({ text: decision.text, stage: slidesStatus, themeName: slidesThemeName }),
+      "agent",
+      { displayText: decision.text },
+    );
+  };
   const canvasDocument = useCanvasShapeStore((s) => s.document);
   const selectedIds = useCanvasSelectionStore((s) => s.selectedIds);
 
@@ -205,7 +242,7 @@ export function DesignWorkspace(): ReactElement {
           setComposerReasoningEffort={setComposerReasoningEffort}
           queuedMessages={[]}
           removeQueuedMessage={() => {}}
-          onSend={() => void promptController.sendDesignPrompt(input)}
+          onSend={handleSend}
           onInterrupt={() => void cancelActiveDesignRuns()}
           onRetryConnection={() => installDesignRuntime(bridge)}
           onOpenSettings={() => openSettings("design")}

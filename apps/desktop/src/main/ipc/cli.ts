@@ -810,18 +810,6 @@ export function registerCliHandlers(): void {
           ),
       };
       registerDesignDelegateSession(state);
-      // pi 主 agent 走单发、mcpInjection==="none" 不进 builtinServers 注入块,故在此单独经 -e 桥接注入。
-      if (baseAgentKindOf(req.agent) === "pi") {
-        const designCfg = await ensureDesignDelegateMcpServerConfig(req.sessionId);
-        const bridge = designCfg ? mcpServerToBridge(designCfg) : null;
-        if (bridge) {
-          const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
-          req.extraExtensionPaths = [
-            ...(req.extraExtensionPaths ?? []),
-            writeMcpBridgeExtension([bridge], `design-delegate-bridge-${safeSid}.js`),
-          ];
-        }
-      }
     }
 
     // ── AI Slides：Slides Workspace 回合(runId 前缀 slides:<docId>:)注册 cortex-slides 会话 ──
@@ -839,19 +827,29 @@ export function registerCliHandlers(): void {
         });
         slidesSessionActive = true;
         log.info(`[slides] cli:start agent=${req.agent} doc=${slidesDocId} runId=${req.runId}`);
-        // pi 不进 builtinServers 注入块(mcpInjection==="none"),经 -e 扩展桥接注入同一 server,
-        // 工具 schema 与 claude/codex 完全一致(同一 MCP 实例)。
-        if (baseAgentKindOf(req.agent) === "pi") {
-          const slidesCfg = await ensureSlidesMcpServerConfig(req.sessionId);
-          const bridge = slidesCfg ? mcpServerToBridge(slidesCfg) : null;
-          if (bridge) {
-            const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
-            req.extraExtensionPaths = [
-              ...(req.extraExtensionPaths ?? []),
-              writeMcpBridgeExtension([bridge], `slides-bridge-${safeSid}.js`),
-            ];
-          }
-        }
+      }
+    }
+
+    // ── pi 的 MCP 桥接:design-delegate 与 cortex-slides **必须合成一个扩展文件** ──
+    // pi 不进 builtinServers 注入块(mcpInjection==="none"),经 -e 扩展桥接注入;而 pi 的工具
+    // 去重只在单个扩展内生效 —— 两个扩展各自注册 ping 会直接报
+    //   Failed to load extension "…": Tool "ping" conflicts with "…"
+    // 使后加载的那个(slides)整体挂不上、工具全丢(实测)。writeMcpBridgeExtension 本就收数组,
+    // 故把本轮所有 server 合并进一个 bridge 文件,由其内部 registered 去重。
+    if (baseAgentKindOf(req.agent) === "pi") {
+      const piBridgeCfgs = [
+        req.runId.startsWith("design:") || isSlidesRunId(req.runId)
+          ? await ensureDesignDelegateMcpServerConfig(req.sessionId)
+          : null,
+        slidesSessionActive ? await ensureSlidesMcpServerConfig(req.sessionId) : null,
+      ].filter((c): c is McpServerConfig => c !== null);
+      const bridges = piBridgeCfgs.map(mcpServerToBridge).filter((b): b is NonNullable<typeof b> => b !== null);
+      if (bridges.length) {
+        const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+        req.extraExtensionPaths = [
+          ...(req.extraExtensionPaths ?? []),
+          writeMcpBridgeExtension(bridges, `design-bridge-${safeSid}.js`),
+        ];
       }
     }
 
