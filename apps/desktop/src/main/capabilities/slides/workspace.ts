@@ -31,6 +31,7 @@ import {
   slidesDeckRootPath,
   slidesDraftOutlinePath,
   slidesManifestPath,
+  slidesNotesPath,
   slidesSlideHtmlPath,
   slidesTrashDirPath,
 } from "@cortex-work/core/design/slides/slides-paths";
@@ -360,6 +361,83 @@ export async function writeSlideHtml(options: {
       return fail<SlidesDeckManifest>("io_error", "slide HTML 写入失败");
     }
   });
+}
+
+/** 演讲者备注上限:备注是文本,给足余量但不许无界。 */
+export const MAX_NOTES_BYTES = 256 * 1024;
+
+/**
+ * 写单页演讲者备注(notes/<slotId>.md)并把 notesPath 入册 manifest。
+ * 与 slide HTML 同款:expectedRevision 乐观锁 + 原子写。
+ */
+export async function writeSlideNotes(options: {
+  workspaceRoot: string;
+  deckId: string;
+  slotId: string;
+  markdown: string;
+  expectedRevision: number;
+  now?: string;
+}): Promise<SlidesWorkspaceResult<SlidesDeckManifest>> {
+  if (!isValidSlotId(options.slotId)) return fail("invalid_path", `非法 slot id: ${options.slotId}`);
+  if (typeof options.markdown !== "string") return fail("invalid_payload", "备注内容非法");
+  if (Buffer.byteLength(options.markdown, "utf8") > MAX_NOTES_BYTES) {
+    return fail("too_large", `备注超过 ${MAX_NOTES_BYTES} 字节上限`);
+  }
+  const resolved = await resolveDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const paths = resolved.value;
+  return enqueueDeck(paths.deckRootAbs, async () => {
+    const loaded = await loadDeckManifestUnlocked(paths, options.deckId);
+    if (!loaded.ok) return loaded;
+    const current = loaded.value.manifest;
+    if (current.revision !== options.expectedRevision) {
+      return fail<SlidesDeckManifest>(
+        "revision_conflict",
+        `revision 不匹配: 期望 ${options.expectedRevision},当前 ${current.revision}`,
+      );
+    }
+    if (!current.slides.some((s) => s.id === options.slotId)) {
+      return fail<SlidesDeckManifest>("not_found", `slot 不存在: ${options.slotId}`);
+    }
+    const rel = slidesNotesPath(options.deckId, options.slotId);
+    const abs = resolve(paths.realWorkspaceRoot, rel);
+    const pathError = await assertWritablePath(paths, abs);
+    if (pathError) return { ok: false as const, error: pathError };
+    const now = options.now ?? new Date().toISOString();
+    try {
+      await atomicWriteFile(abs, options.markdown);
+      const next = structuredClone(current);
+      const slot = next.slides.find((s) => s.id === options.slotId)!;
+      slot.notesPath = rel;
+      slot.updatedAt = now;
+      next.revision = current.revision + 1;
+      next.updatedAt = now;
+      await atomicWriteFile(paths.manifestAbs, serializeSlidesManifest(next));
+      return { ok: true as const, value: next };
+    } catch (err) {
+      log.error("writeSlideNotes failed:", err);
+      return fail<SlidesDeckManifest>("io_error", "备注写入失败");
+    }
+  });
+}
+
+/** 读取单页备注;无备注返回空串(不是错误 —— 备注天然可选)。 */
+export async function readSlideNotes(options: {
+  workspaceRoot: string;
+  deckId: string;
+  slotId: string;
+}): Promise<SlidesWorkspaceResult<string>> {
+  if (!isValidSlotId(options.slotId)) return fail("invalid_path", `非法 slot id: ${options.slotId}`);
+  const resolved = await resolveDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const abs = resolve(resolved.value.realWorkspaceRoot, slidesNotesPath(options.deckId, options.slotId));
+  try {
+    const st = await fsp.lstat(abs);
+    if (st.isSymbolicLink()) return fail("invalid_path", "备注文件不允许是符号链接");
+    return { ok: true, value: await fsp.readFile(abs, "utf8") };
+  } catch {
+    return { ok: true, value: "" };
+  }
 }
 
 /** 读取单页 HTML(路径经 lstat 拒符号链接 + 根边界校验)。 */

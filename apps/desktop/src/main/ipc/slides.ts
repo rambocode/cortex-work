@@ -40,6 +40,7 @@ import {
   duplicateSlide,
   loadDeckManifest,
   readSlideHtml,
+  readSlideNotes,
   readSlidesOutlineDraft,
   updateDeckManifest,
   writeSlideHtml,
@@ -403,7 +404,9 @@ async function collectPresenterSlides(
   for (const slot of slots) {
     const html = await readSlideHtml({ workspaceRoot, deckId, slotId: slot.id });
     if (!html.ok) return html;
-    out.push({ title: slot.title, html: html.value });
+    // 备注仅 presenter 用(PDF 的打印文档不含备注面板);读失败不阻断导出。
+    const notes = slot.notesPath ? await readSlideNotes({ workspaceRoot, deckId, slotId: slot.id }) : null;
+    out.push({ title: slot.title, html: html.value, notes: notes?.ok ? notes.value : undefined });
   }
   return { ok: true, value: out };
 }

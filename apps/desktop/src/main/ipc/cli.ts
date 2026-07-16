@@ -675,7 +675,12 @@ export function registerCliHandlers(): void {
           req.delegateRoles?.length ? await ensureDelegateMcpServerConfig(req.sessionId) : null,
           // 设计委派（design-delegate）：设计工作台回合(runId 前缀 design:)注入通用 delegate_task 工具,
           // 让父设计 agent 并行 fanout 逐页生成。工具集由下方 registerDesignDelegateSession 注册。
-          req.runId.startsWith("design:") ? await ensureDesignDelegateMcpServerConfig(req.sessionId) : null,
+          // Slides 回合(slides: 前缀)同样注入:多 Agent 分工(research/design/review/notes)
+          // 复用同一 delegate_task —— 子 agent 用 fresh sessionId,故拿不到 cortex-slides 工具,
+          // 只能把产出交回父 agent 由其经 MCP 落盘(reviewer 天然只产 findings、改不了页面)。
+          req.runId.startsWith("design:") || isSlidesRunId(req.runId)
+            ? await ensureDesignDelegateMcpServerConfig(req.sessionId)
+            : null,
           // AI Slides：仅 Slides Workspace 回合(runId 前缀 slides:<docId>:)注入 cortex-slides
           // 工具集(deck 状态/提纲/逐页写入)。工具集由下方 registerSlidesSession 注册的会话状态 gate。
           isSlidesRunId(req.runId) ? await ensureSlidesMcpServerConfig(req.sessionId) : null,
@@ -776,7 +781,7 @@ export function registerCliHandlers(): void {
     // (父 agent 同款底层 agent、fresh sessionId、跑该页 prompt),事件带 label(page:<artifactId>)
     // 实时推渲染端。子 agent 用 fresh sessionId 不注册本 session → 无 delegate_task 工具 → 防递归。
     let designDelegateAbort: AbortController | undefined;
-    if (req.runId.startsWith("design:")) {
+    if (req.runId.startsWith("design:") || isSlidesRunId(req.runId)) {
       const controller = new AbortController();
       designDelegateAbort = controller;
       const state: DesignDelegateSessionState = {

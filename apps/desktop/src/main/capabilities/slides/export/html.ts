@@ -13,6 +13,8 @@ import { sortedSlidesSlots, type SlidesSlot } from "@cortex-work/core/design/sli
 export interface PresenterSlide {
   title: string;
   html: string;
+  /** 演讲者备注(Markdown 原文);presenter 用 N 键切换显示,PDF/PNG 忽略。 */
+  notes?: string;
 }
 
 function escapeHtml(value: string): string {
@@ -40,7 +42,9 @@ const SLIDE_FRAME_SANDBOX = "allow-scripts allow-same-origin";
 // 每页以 <iframe srcdoc> 承载:既保持页面自身的 CSS 隔离(slide HTML 各自带全局样式,
 // 直接拼进同一文档会互相污染),又不需要外部文件。srcdoc 内容做 HTML 属性转义。
 function slideFrame(slide: PresenterSlide, index: number): string {
-  return `<figure class="slide" data-index="${index}" aria-label="${escapeHtml(slide.title)}">
+  // 备注以 data 属性随页携带(纯文本,转义后不可能逃逸出属性)。
+  const notesAttr = slide.notes?.trim() ? ` data-notes="${escapeHtml(slide.notes)}"` : "";
+  return `<figure class="slide" data-index="${index}" aria-label="${escapeHtml(slide.title)}"${notesAttr}>
   <iframe title="${escapeHtml(slide.title)}" sandbox="${SLIDE_FRAME_SANDBOX}" srcdoc="${escapeHtml(slide.html)}"></iframe>
 </figure>`;
 }
@@ -63,9 +67,14 @@ const PRESENTER_CSS = `
     padding: 2px 8px; border-radius: 6px; }
   #bar button:hover { background: rgba(255,255,255,0.12); }
   #counter { min-width: 62px; text-align: center; font-variant-numeric: tabular-nums; }
+  #notes { position: fixed; right: 0; top: 0; bottom: 0; width: 320px; padding: 18px 16px; overflow-y: auto;
+    background: rgba(16,18,24,0.96); border-left: 1px solid rgba(255,255,255,0.08); display: none;
+    white-space: pre-wrap; font-size: 13px; line-height: 1.7; color: #cbd2e0; }
+  body.notes-open #notes { display: block; }
+  #notes:empty::before { content: '本页没有备注'; color: #6b7280; }
   @media print {
     html, body { background: #fff; }
-    #bar { display: none; }
+    #bar, #notes { display: none !important; }
     #stage { position: static; }
     .slide { display: block !important; position: static; page-break-after: always; box-shadow: none;
       transform: none !important; }
@@ -77,6 +86,7 @@ const PRESENTER_JS = `
 (function () {
   var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
   var counter = document.getElementById('counter');
+  var notes = document.getElementById('notes');
   var index = 0;
 
   function fit() {
@@ -87,6 +97,8 @@ const PRESENTER_JS = `
     index = Math.max(0, Math.min(slides.length - 1, next));
     slides.forEach(function (el, i) { el.classList.toggle('active', i === index); });
     counter.textContent = (index + 1) + ' / ' + slides.length;
+    // 备注取自当前页的 data-notes(textContent 赋值:纯文本,不解析 HTML)。
+    notes.textContent = slides[index].getAttribute('data-notes') || '';
     location.hash = '#' + (index + 1);
   }
   function toggleFullscreen() {
@@ -100,10 +112,14 @@ const PRESENTER_JS = `
     else if (e.key === 'Home') { e.preventDefault(); show(0); }
     else if (e.key === 'End') { e.preventDefault(); show(slides.length - 1); }
     else if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); }
+    else if (e.key === 'n' || e.key === 'N') { document.body.classList.toggle('notes-open'); }
   });
   document.getElementById('prev').addEventListener('click', function () { show(index - 1); });
   document.getElementById('next').addEventListener('click', function () { show(index + 1); });
   document.getElementById('full').addEventListener('click', toggleFullscreen);
+  document.getElementById('notesBtn').addEventListener('click', function () {
+    document.body.classList.toggle('notes-open');
+  });
   document.getElementById('print').addEventListener('click', function () { window.print(); });
   window.addEventListener('resize', fit);
   window.addEventListener('hashchange', function () {
@@ -133,10 +149,12 @@ export function buildPresenterHtml(options: { title: string; slides: PresenterSl
     '  <main id="stage">',
     ...options.slides.map((slide, index) => `    ${slideFrame(slide, index)}`),
     "  </main>",
+    '  <aside id="notes" aria-label="演讲者备注"></aside>',
     '  <nav id="bar">',
     '    <button id="prev" title="上一页" aria-label="上一页">‹</button>',
     '    <span id="counter">1 / 1</span>',
     '    <button id="next" title="下一页" aria-label="下一页">›</button>',
+    '    <button id="notesBtn" title="演讲者备注(N)" aria-label="演讲者备注">☰</button>',
     '    <button id="full" title="全屏(F)" aria-label="全屏">⛶</button>',
     '    <button id="print" title="打印" aria-label="打印">⎙</button>',
     "  </nav>",

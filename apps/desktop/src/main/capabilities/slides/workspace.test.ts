@@ -16,11 +16,14 @@ import {
   createDeckWorkspace,
   deleteSlide,
   loadDeckManifest,
+  MAX_NOTES_BYTES,
   MAX_SLIDE_HTML_BYTES,
   readSlideHtml,
+  readSlideNotes,
   resolveDeckPaths,
   updateDeckManifest,
   writeSlideHtml,
+  writeSlideNotes,
 } from "./workspace";
 
 const DECK = "deckabc1";
@@ -277,6 +280,68 @@ describe("writeSlideHtml / readSlideHtml", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("revision_conflict");
     expect(existsSync(deckFile("slides", "slot-001.html"))).toBe(false);
+  });
+});
+
+describe("演讲者备注", () => {
+  it("写入 notes/<slot>.md 并入册 notesPath;读回一致", async () => {
+    const manifest = await createDeckWithSlot();
+    const result = await writeSlideNotes({
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId: "slot-001",
+      markdown: "# 开场\n\n- 先讲痛点\n- 再给数据",
+      expectedRevision: manifest.revision,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.slides[0]!.notesPath).toBe(`.cortex-design/${DECK}/notes/slot-001.md`);
+      expect(result.value.revision).toBe(manifest.revision + 1);
+    }
+    expect(readFileSync(deckFile("notes", "slot-001.md"), "utf8")).toContain("先讲痛点");
+    const read = await readSlideNotes({ workspaceRoot: root, deckId: DECK, slotId: "slot-001" });
+    expect(read.ok).toBe(true);
+    if (read.ok) expect(read.value).toContain("再给数据");
+  });
+
+  it("无备注时读回空串(备注天然可选,不是错误)", async () => {
+    await createDeckWithSlot();
+    const read = await readSlideNotes({ workspaceRoot: root, deckId: DECK, slotId: "slot-001" });
+    expect(read.ok).toBe(true);
+    if (read.ok) expect(read.value).toBe("");
+  });
+
+  it("slot 不存在 → not_found;超大备注 → too_large;revision 过期 → conflict", async () => {
+    const manifest = await createDeckWithSlot();
+    const missing = await writeSlideNotes({
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId: "slot-999",
+      markdown: "x",
+      expectedRevision: manifest.revision,
+    });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error.code).toBe("not_found");
+
+    const big = await writeSlideNotes({
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId: "slot-001",
+      markdown: "x".repeat(MAX_NOTES_BYTES + 1),
+      expectedRevision: manifest.revision,
+    });
+    expect(big.ok).toBe(false);
+    if (!big.ok) expect(big.error.code).toBe("too_large");
+
+    const stale = await writeSlideNotes({
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId: "slot-001",
+      markdown: "x",
+      expectedRevision: manifest.revision + 9,
+    });
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.error.code).toBe("revision_conflict");
   });
 });
 

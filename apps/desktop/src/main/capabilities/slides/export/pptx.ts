@@ -37,6 +37,8 @@ export function pxToPt(px: number): number {
 export interface SceneSlideInput {
   scene: SlideScene;
   baseRasterDataUri?: string;
+  /** 演讲者备注(Markdown 原文);PptxGenJS 写进 PPT 的备注页。 */
+  notes?: string;
 }
 
 function addTextNode(slide: PptxGenJS.Slide, node: SceneTextNode): void {
@@ -134,8 +136,10 @@ export async function scenesToPptxBuffer(
   pptx.layout = "CORTEX_16x9";
 
   const reports: SceneExportReport[] = [];
-  for (const { scene, baseRasterDataUri } of slides) {
+  for (const { scene, baseRasterDataUri, notes } of slides) {
     const slide = pptx.addSlide();
+    // 备注写进 PPT 原生备注页(PowerPoint/Keynote 的演讲者视图可见)。
+    if (notes && notes.trim()) slide.addNotes(notes);
     if (scene.backgroundColor) {
       slide.background = { color: scene.backgroundColor };
     }

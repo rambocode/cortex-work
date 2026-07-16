@@ -15,7 +15,13 @@ vi.mock("../../log", () => ({
 import { buildDeckPptx, renderDeckForExport, writeArtifactAtomic } from "./deck-export";
 import type { SlideRenderWindow } from "../render";
 import type { SlideScene } from "./types";
-import { createDeckWorkspace, loadDeckManifest, updateDeckManifest, writeSlideHtml } from "../workspace";
+import {
+  createDeckWorkspace,
+  loadDeckManifest,
+  updateDeckManifest,
+  writeSlideHtml,
+  writeSlideNotes,
+} from "../workspace";
 
 const DECK = "deckexp001";
 let root: string;
@@ -280,6 +286,31 @@ describe("buildDeckPptx", () => {
     // 复杂页:base raster 一张图 + 原生文本。
     expect((slide2.match(/<p:pic>/g) ?? []).length).toBe(1);
     expect(slide2).toContain("<a:t>复杂页标题</a:t>");
+  });
+
+  it("演讲者备注写进 PPT 原生备注页", async () => {
+    await seedSlides(1);
+    const loaded = await loadDeckManifest({ workspaceRoot: root, deckId: DECK });
+    if (!loaded.ok) throw new Error("load failed");
+    await writeSlideNotes({
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId: "slot-001",
+      markdown: "开场先讲痛点",
+      expectedRevision: loaded.value.manifest.revision,
+    });
+    const log: WindowLog = { created: 0, destroyed: 0, insertCssCalls: 0 };
+    const built = await buildDeckPptx({
+      workspaceRoot: root,
+      deckId: DECK,
+      windowFactory: windowFactory([plainScene("标题")], log),
+    });
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const zip = await JSZip.loadAsync(built.value.buffer);
+    const notesSlide = zip.file("ppt/notesSlides/notesSlide1.xml");
+    expect(notesSlide).not.toBeNull();
+    expect(await notesSlide!.async("string")).toContain("开场先讲痛点");
   });
 });
 

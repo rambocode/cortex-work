@@ -13,13 +13,16 @@ import {
   deleteSlide,
   loadDeckManifest,
   readSlideHtml,
+  readSlideNotes,
   updateDeckManifest,
   writeDeckAsset,
   writeSlideHtml,
+  writeSlideNotes,
   writeSlidesOutlineDraft,
   type SlidesWorkspaceResult,
 } from "./workspace";
 import { checkSlides, screenshotSlideToSnapshot } from "./inspect";
+import { getSlidesTemplate, listSlidesTemplates, readTemplateReferenceHtml } from "./templates";
 
 const log = createLogger("slides");
 
@@ -351,6 +354,108 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       const result = await deleteSlide({ ...ctx, slotId: slot_id, expectedRevision: expected_revision });
       if (!result.ok) return fromWorkspaceError(result);
       return jsonResult({ ok: true, revision: result.value.revision });
+    },
+  );
+
+  mcp.registerTool(
+    "list_templates",
+    {
+      description:
+        "列出内置演示模板(id/标题/描述/明暗/标签)。用户没指定风格时,可据主题与受众推荐一套," +
+        "再用 apply_template 应用。模板是数据不是提示词:应用后主题与风格指南会写进 deck。",
+      inputSchema: {},
+    },
+    async (): Promise<ToolResult> => {
+      const templates = await listSlidesTemplates();
+      return jsonResult({
+        ok: true,
+        templates: templates.map((t) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          descriptionZh: t.descriptionZh,
+          category: t.category,
+          tags: t.tags,
+        })),
+      });
+    },
+  );
+
+  mcp.registerTool(
+    "apply_template",
+    {
+      description:
+        "把内置模板应用到当前 deck:写入该模板的结构化主题(配色/密度)与风格指南。" +
+        "返回完整 styleGuide 与参考页 HTML(如有)——生成页面时请严格参照其视觉语言。",
+      inputSchema: {
+        expected_revision: z.number().int().min(0),
+        template_id: z.string().describe("list_templates 返回的 id"),
+        include_reference: z.boolean().optional().describe("是否返回参考页 HTML(默认 true)"),
+      },
+    },
+    async ({ expected_revision, template_id, include_reference }): Promise<ToolResult> => {
+      const template = await getSlidesTemplate(template_id);
+      if (!template) return errorResult("not_found", `模板不存在: ${template_id}`);
+      const updated = await updateDeckManifest({
+        ...ctx,
+        expectedRevision: expected_revision,
+        mutate: (m) => {
+          m.theme = template.theme;
+          return m;
+        },
+      });
+      if (!updated.ok) return fromWorkspaceError(updated);
+      // 参考页 HTML 可能较大(几十 KB),默认给但允许关掉。
+      let referenceHtml: string | null = null;
+      if (include_reference !== false && template.referenceSlides[0]) {
+        referenceHtml = await readTemplateReferenceHtml(template.id, template.referenceSlides[0].file);
+      }
+      log.info(`[slides] template applied deck=${state.documentId} template=${template.id}`);
+      return jsonResult({
+        ok: true,
+        revision: updated.value.revision,
+        template: { id: template.id, title: template.title, category: template.category },
+        theme: template.theme,
+        styleGuide: template.styleGuide,
+        referenceHtml,
+      });
+    },
+  );
+
+  mcp.registerTool(
+    "generate_speaker_notes",
+    {
+      description:
+        "为指定页写演讲者备注(Markdown,落 notes/<slot>.md)。备注会随 PPTX 与 HTML presenter 导出;" +
+        "PDF/PNG 不含备注。",
+      inputSchema: {
+        expected_revision: z.number().int().min(0),
+        slot_id: z.string(),
+        markdown: z.string().min(1).describe("该页的讲稿/提示要点"),
+      },
+    },
+    async ({ expected_revision, slot_id, markdown }): Promise<ToolResult> => {
+      const result = await writeSlideNotes({
+        ...ctx,
+        slotId: slot_id,
+        markdown,
+        expectedRevision: expected_revision,
+      });
+      if (!result.ok) return fromWorkspaceError(result);
+      return jsonResult({ ok: true, revision: result.value.revision });
+    },
+  );
+
+  mcp.registerTool(
+    "read_speaker_notes",
+    {
+      description: "读取指定页的演讲者备注(无备注返回空串)。",
+      inputSchema: { slot_id: z.string() },
+    },
+    async ({ slot_id }): Promise<ToolResult> => {
+      const result = await readSlideNotes({ ...ctx, slotId: slot_id });
+      if (!result.ok) return fromWorkspaceError(result);
+      return jsonResult({ ok: true, markdown: result.value });
     },
   );
 

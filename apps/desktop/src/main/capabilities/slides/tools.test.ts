@@ -78,6 +78,10 @@ describe("工具清单契约(MVP)", () => {
         "check_slide",
         "screenshot_slide",
         "upload_asset",
+        "list_templates",
+        "apply_template",
+        "generate_speaker_notes",
+        "read_speaker_notes",
       ].sort(),
     );
   });

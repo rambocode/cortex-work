@@ -18,7 +18,7 @@ import {
   type SlideRenderWindow,
   type SlideWindowFactory,
 } from "../render";
-import { loadDeckManifest, resolveDeckPaths, type SlidesWorkspaceResult } from "../workspace";
+import { loadDeckManifest, readSlideNotes, resolveDeckPaths, type SlidesWorkspaceResult } from "../workspace";
 import { captureBaseRasterDataUri, extractSlideScene } from "./dom-extractor";
 import { scenesToPptxBuffer, type SceneSlideInput } from "./pptx";
 import { summarizeScene, type SceneExportReport, type SlideScene } from "./types";
@@ -156,10 +156,18 @@ export async function buildDeckPptx(options: {
 }): Promise<SlidesWorkspaceResult<{ buffer: Buffer; reports: SceneExportReport[] }>> {
   const rendered = await renderDeckForExport(options);
   if (!rendered.ok) return rendered;
-  const inputs: SceneSlideInput[] = rendered.value.map((r) => ({
-    scene: r.scene,
-    baseRasterDataUri: r.baseRasterDataUri,
-  }));
+  // 演讲者备注随 PPTX 导出(有则带,无则跳过 —— 读失败不阻断导出)。
+  const inputs: SceneSlideInput[] = [];
+  for (const r of rendered.value) {
+    const notes = r.slot.notesPath
+      ? await readSlideNotes({ workspaceRoot: options.workspaceRoot, deckId: options.deckId, slotId: r.slot.id })
+      : null;
+    inputs.push({
+      scene: r.scene,
+      baseRasterDataUri: r.baseRasterDataUri,
+      notes: notes?.ok ? notes.value : undefined,
+    });
+  }
   try {
     const { buffer, reports } = await scenesToPptxBuffer(inputs);
     const totals = reports.reduce(
