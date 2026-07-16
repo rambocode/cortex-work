@@ -1,0 +1,133 @@
+/**
+ * Slides IPC 契约(desktop 主进程侧镜像副本)。与 `packages/core/desktop/slides-ipc-types.ts`
+ * 逐字段镜像(除 import 路径),由 desktop 侧契约测试比对运行时常量防漂移。
+ *
+ * 约定:
+ *  - 所有请求带 workspaceRoot + deckId;主进程重新做 realpath/边界/revision 校验,
+ *    绝不信任 renderer 传入的任何路径。
+ *  - 结果一律结构化 { ok } envelope,错误码取 SlidesErrorCode;用户取消导出用
+ *    canceled=true 与失败区分(渲染端静默 vs toast)。
+ *  - 导出目标路径只由主进程的系统保存对话框决定,请求里不携带输出路径。
+ */
+import type {
+  SlidesDeckManifest,
+  SlidesError,
+  SlidesFinding,
+  SlidesOutline
+} from "@cortex-work/core/design/slides/slides-types"
+
+/** IPC 通道名清单(运行时常量,契约测试用)。 */
+export const SLIDES_IPC_CHANNELS = [
+  'slides:createDeck',
+  'slides:loadDeck',
+  'slides:renameDeck',
+  'slides:approveOutline',
+  'slides:reorderSlides',
+  'slides:insertSlide',
+  'slides:duplicateSlide',
+  'slides:deleteSlide',
+  'slides:setActiveSlide',
+  'slides:saveEditedHtml',
+  'slides:readSlideHtml',
+  'slides:check',
+  'slides:screenshot',
+  'slides:export'
+] as const
+
+export type SlidesIpcChannel = (typeof SLIDES_IPC_CHANNELS)[number]
+
+/** 导出格式(运行时常量,契约测试 + 保存对话框过滤器共用)。 */
+export const SLIDES_EXPORT_FORMATS = ['pptx', 'pdf', 'png', 'html'] as const
+export type SlidesExportFormat = (typeof SLIDES_EXPORT_FORMATS)[number]
+
+// ── 请求 ────────────────────────────────────────────────────────────────────
+
+export type SlidesDeckScopedRequest = {
+  workspaceRoot: string
+  deckId: string
+}
+
+export type SlidesCreateDeckRequest = SlidesDeckScopedRequest & { title: string }
+
+export type SlidesLoadDeckRequest = SlidesDeckScopedRequest
+
+export type SlidesRenameDeckRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  title: string
+}
+
+/** 批准提纲:主进程写正式 outline(approvedAt=now)、按 items 生成空 slots、状态推进。 */
+export type SlidesApproveOutlineRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  /** 用户在确认面板上最终编辑过的提纲(不含 approvedAt,由主进程盖章)。 */
+  outline: Omit<SlidesOutline, 'approvedAt'>
+}
+
+export type SlidesReorderRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  /** 新顺序:必须恰好是现有 slot id 的一个排列。 */
+  orderedSlotIds: string[]
+}
+
+export type SlidesInsertSlideRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  /** 插入到该 slot 之后;缺省插到末尾。 */
+  afterSlotId?: string
+  title?: string
+}
+
+export type SlidesDuplicateSlideRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  slotId: string
+}
+
+export type SlidesDeleteSlideRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  slotId: string
+}
+
+export type SlidesSetActiveSlideRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  slotId: string | null
+}
+
+export type SlidesSaveEditedHtmlRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  slotId: string
+  html: string
+}
+
+export type SlidesReadSlideHtmlRequest = SlidesDeckScopedRequest & { slotId: string }
+
+export type SlidesCheckRequest = SlidesDeckScopedRequest & {
+  /** 限定检查的 slot;缺省检查整个 deck。 */
+  slotIds?: string[]
+}
+
+export type SlidesScreenshotRequest = SlidesDeckScopedRequest & { slotId: string }
+
+export type SlidesExportRequest = SlidesDeckScopedRequest & { format: SlidesExportFormat }
+
+// ── 结果 ────────────────────────────────────────────────────────────────────
+
+/** deck 变更类通道的统一结果:成功携带最新 manifest(renderer 以此为准刷新)。 */
+export type SlidesDeckIpcResult =
+  | { ok: true; manifest: SlidesDeckManifest; recovered?: boolean; newSlotId?: string }
+  | { ok: false; error: SlidesError }
+
+export type SlidesReadSlideHtmlResult =
+  | { ok: true; html: string }
+  | { ok: false; error: SlidesError }
+
+export type SlidesCheckResult =
+  | { ok: true; findings: SlidesFinding[] }
+  | { ok: false; error: SlidesError }
+
+export type SlidesScreenshotResult =
+  | { ok: true; snapshotPath: string }
+  | { ok: false; error: SlidesError }
+
+/** 导出:canceled=true 表示用户在保存对话框取消(渲染端静默,不当作失败)。 */
+export type SlidesExportResult =
+  | { ok: true; path: string; format: SlidesExportFormat }
+  | { ok: false; canceled?: boolean; error?: SlidesError }

@@ -187,3 +187,45 @@ export function createEmptySlidesDeckManifest(options: {
 export function sortedSlidesSlots(slots: readonly SlidesSlot[]): SlidesSlot[] {
   return [...slots].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
 }
+
+/**
+ * Next stable slot id: `slot-NNN` continuing after the highest numeric suffix
+ * among existing ids (deleted slots never free their number — ids must stay
+ * unique across the deck's whole history so snapshots/notes can't collide).
+ */
+export function nextSlidesSlotId(existingIds: readonly string[]): string {
+  let max = 0
+  for (const id of existingIds) {
+    const m = /^slot-(\d+)$/.exec(id)
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  return `slot-${String(max + 1).padStart(3, '0')}`
+}
+
+/**
+ * Materialize empty slots from an approved outline (one slot per item, order
+ * following the outline). Pure: caller supplies the html path builder so this
+ * stays platform-free.
+ */
+export function slotsFromSlidesOutline(options: {
+  outline: SlidesOutline
+  existingIds: readonly string[]
+  now: string
+  htmlPathFor: (slotId: string) => string
+}): SlidesSlot[] {
+  const ids = [...options.existingIds]
+  return options.outline.items.map((item, index) => {
+    const id = nextSlidesSlotId(ids)
+    ids.push(id)
+    return {
+      id,
+      order: index,
+      title: item.title,
+      purpose: item.purpose,
+      htmlPath: options.htmlPathFor(id),
+      revision: 0,
+      status: 'empty' as const,
+      updatedAt: options.now
+    }
+  })
+}

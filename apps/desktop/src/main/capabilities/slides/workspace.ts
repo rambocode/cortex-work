@@ -377,6 +377,91 @@ export async function readSlideHtml(options: {
 }
 
 /**
+ * 复制 slot:一次队列操作内完成「复制 HTML 文件(若有)+ manifest 插入新 slot」。
+ * 新 slot 紧跟源 slot 之后,orders 全量重排为 0..n-1。
+ */
+export async function duplicateSlide(options: {
+  workspaceRoot: string;
+  deckId: string;
+  slotId: string;
+  expectedRevision: number;
+  newSlotId: string;
+  now?: string;
+}): Promise<SlidesWorkspaceResult<SlidesDeckManifest>> {
+  if (!isValidSlotId(options.slotId) || !isValidSlotId(options.newSlotId)) {
+    return fail("invalid_path", "非法 slot id");
+  }
+  const resolved = await resolveDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const paths = resolved.value;
+  return enqueueDeck(paths.deckRootAbs, async () => {
+    const loaded = await loadDeckManifestUnlocked(paths, options.deckId);
+    if (!loaded.ok) return loaded;
+    const current = loaded.value.manifest;
+    if (current.revision !== options.expectedRevision) {
+      return fail<SlidesDeckManifest>(
+        "revision_conflict",
+        `revision 不匹配: 期望 ${options.expectedRevision},当前 ${current.revision}`,
+      );
+    }
+    const source = current.slides.find((s) => s.id === options.slotId);
+    if (!source) return fail<SlidesDeckManifest>("not_found", `slot 不存在: ${options.slotId}`);
+    if (current.slides.some((s) => s.id === options.newSlotId)) {
+      return fail<SlidesDeckManifest>("already_exists", `slot 已存在: ${options.newSlotId}`);
+    }
+    const now = options.now ?? new Date().toISOString();
+    const newHtmlRel = slidesSlideHtmlPath(options.deckId, options.newSlotId);
+    const newHtmlAbs = resolve(paths.realWorkspaceRoot, newHtmlRel);
+    const pathError = await assertWritablePath(paths, newHtmlAbs);
+    if (pathError) return { ok: false as const, error: pathError };
+    try {
+      // 源 HTML 存在才复制(空 slot 复制出的也是空 slot)。
+      let hasHtml = false;
+      const srcAbs = resolve(paths.realWorkspaceRoot, source.htmlPath);
+      if (isInsideRoot(paths.deckRootAbs, srcAbs)) {
+        try {
+          const st = await fsp.lstat(srcAbs);
+          if (!st.isSymbolicLink() && st.isFile()) {
+            await atomicWriteFile(newHtmlAbs, await fsp.readFile(srcAbs, "utf8"));
+            hasHtml = true;
+          }
+        } catch {
+          // 源文件缺失:按空 slot 复制。
+        }
+      }
+      const next = structuredClone(current);
+      const ordered = next.slides.sort((a, b) => a.order - b.order);
+      const srcIndex = ordered.findIndex((s) => s.id === options.slotId);
+      const copy: SlidesSlot = {
+        ...structuredClone(source),
+        id: options.newSlotId,
+        title: `${source.title} 副本`,
+        htmlPath: newHtmlRel,
+        snapshotPath: undefined,
+        notesPath: undefined,
+        revision: 0,
+        status: hasHtml ? "ready" : "empty",
+        updatedAt: now,
+      };
+      ordered.splice(srcIndex + 1, 0, copy);
+      ordered.forEach((s, i) => {
+        s.order = i;
+      });
+      next.slides = ordered;
+      next.revision = current.revision + 1;
+      next.updatedAt = now;
+      const validated = parseSlidesManifest(next);
+      if (!validated.ok) return { ok: false as const, error: validated.error };
+      await atomicWriteFile(paths.manifestAbs, serializeSlidesManifest(validated.manifest));
+      return { ok: true as const, value: validated.manifest };
+    } catch (err) {
+      log.error("duplicateSlide failed:", err);
+      return fail<SlidesDeckManifest>("io_error", "复制 slide 失败");
+    }
+  });
+}
+
+/**
  * 软删 slot:HTML/notes/snapshot 先移入 .trash/<ts>-<slotId>.*,manifest 更新成功后
  * 才算删除完成;.trash 清理由后台异步 best-effort,失败不影响一致性。
  */

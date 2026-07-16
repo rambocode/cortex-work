@@ -112,6 +112,28 @@ import type {
 } from "./writing-llm-types";
 // 写作 PDF 阅读(U5）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-pdf-types.ts 镜像）。
 import type { WritingPdfDataRequest, WritingPdfDataResult } from "./writing-pdf-types";
+// AI Slides IPC 契约类型(与 apps/desktop/src/main/ipc/slides-ipc-types.ts 镜像）。
+import type {
+  SlidesApproveOutlineRequest,
+  SlidesCheckRequest,
+  SlidesCheckResult,
+  SlidesCreateDeckRequest,
+  SlidesDeckIpcResult,
+  SlidesDeleteSlideRequest,
+  SlidesDuplicateSlideRequest,
+  SlidesExportRequest,
+  SlidesExportResult,
+  SlidesInsertSlideRequest,
+  SlidesLoadDeckRequest,
+  SlidesReadSlideHtmlRequest,
+  SlidesReadSlideHtmlResult,
+  SlidesRenameDeckRequest,
+  SlidesReorderRequest,
+  SlidesSaveEditedHtmlRequest,
+  SlidesScreenshotRequest,
+  SlidesScreenshotResult,
+  SlidesSetActiveSlideRequest,
+} from "./slides-ipc-types";
 import type { ChannelId } from "../reply/channels";
 import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
 // 用户记忆（跨会话/写作/设计共享的持久记忆,与 reply 域的语气记忆独立）IPC 契约类型。
@@ -209,6 +231,24 @@ export interface DesktopBridge {
   // 读 PDF 原始字节(base64)交渲染端 pdfjs 阅读器渲染;失败给结构化 message(渲染端展示错误占位)。
   // 可选——web/旧壳无此能力时 .pdf 无法在写作台打开(阅读器降级为不支持提示)。
   writingReadPdf?(req: WritingPdfDataRequest): Promise<WritingPdfDataResult>;
+  // ── AI Slides(演示文稿 deck)────────────────────────────────────────────
+  // deck.json 与 slide HTML 只经主进程读写(renderer 不直接碰 deck 文件);全部结果
+  // 结构化 { ok } envelope,revision 冲突返回 revision_conflict 由 UI 提示刷新。
+  // 可选——web/旧壳无此能力时「演示文稿」创建入口降级隐藏。
+  slidesCreateDeck?(req: SlidesCreateDeckRequest): Promise<SlidesDeckIpcResult>;
+  slidesLoadDeck?(req: SlidesLoadDeckRequest): Promise<SlidesDeckIpcResult>;
+  slidesRenameDeck?(req: SlidesRenameDeckRequest): Promise<SlidesDeckIpcResult>;
+  slidesApproveOutline?(req: SlidesApproveOutlineRequest): Promise<SlidesDeckIpcResult>;
+  slidesReorderSlides?(req: SlidesReorderRequest): Promise<SlidesDeckIpcResult>;
+  slidesInsertSlide?(req: SlidesInsertSlideRequest): Promise<SlidesDeckIpcResult>;
+  slidesDuplicateSlide?(req: SlidesDuplicateSlideRequest): Promise<SlidesDeckIpcResult>;
+  slidesDeleteSlide?(req: SlidesDeleteSlideRequest): Promise<SlidesDeckIpcResult>;
+  slidesSetActiveSlide?(req: SlidesSetActiveSlideRequest): Promise<SlidesDeckIpcResult>;
+  slidesSaveEditedHtml?(req: SlidesSaveEditedHtmlRequest): Promise<SlidesDeckIpcResult>;
+  slidesReadSlideHtml?(req: SlidesReadSlideHtmlRequest): Promise<SlidesReadSlideHtmlResult>;
+  slidesCheck?(req: SlidesCheckRequest): Promise<SlidesCheckResult>;
+  slidesScreenshot?(req: SlidesScreenshotRequest): Promise<SlidesScreenshotResult>;
+  slidesExport?(req: SlidesExportRequest): Promise<SlidesExportResult>;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
   // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。
   renameEntry?(from: string, to: string): Promise<void>;
