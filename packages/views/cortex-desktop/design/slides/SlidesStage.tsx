@@ -2,11 +2,18 @@
 // 复用 DesignHtmlPreviewHost(authorizeWritePrototype 本地授权 + revision watch +
 // 既有 webview 导航闸门);zoom=fit 时按容器实测缩放,否则用固定档位。
 // 空/生成中/错误 slot 渲染对应占位,不挂 webview。
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { SLIDES_CANVAS_HEIGHT, SLIDES_CANVAS_WIDTH, type SlidesSlot } from '@cortex-work/core/design/slides/slides-types'
 import { useDesignHtmlPreview } from '../DesignHtmlPreviewHost'
+import {
+  BRIDGE_DRAIN_INTERVAL_MS,
+  buildSlideEditBridgeSource,
+  compileSlideBridgeCommand,
+  DRAIN_SLIDE_BRIDGE_SOURCE,
+  parseSlideBridgeDrain
+} from './slide-edit-bridge'
 import { useSlidesStore } from './slides-store'
 
 type Props = {
@@ -47,6 +54,13 @@ export function SlidesStage({ workspaceRoot, slot, onRetrySlide }: Props): React
   const stageHeight = Math.round(SLIDES_CANVAS_HEIGHT * factor)
 
   const showWebview = Boolean(slot && slot.status === 'ready')
+  const saveEditedHtml = useSlidesStore((s) => s.saveEditedHtml)
+  const conflictNotice = useSlidesStore((s) => s.conflictNotice)
+
+  // webview dom-ready 时注入编辑 bridge(幂等;导航后需重注,故挂在 onWebviewReady)。
+  const handleWebviewReady = useCallback((webview: { executeJavaScript?: (code: string) => Promise<unknown> }) => {
+    void webview.executeJavaScript?.(buildSlideEditBridgeSource()).catch(() => undefined)
+  }, [])
 
   const preview = useDesignHtmlPreview({
     workspaceRoot,
@@ -55,8 +69,47 @@ export function SlidesStage({ workspaceRoot, slot, onRetrySlide }: Props): React
     partition: 'cortex-slides',
     zoom: factor,
     // slide 文件由主进程原子写,不存在=尚未生成;不要长轮询等待。
-    retryMissingFile: false
+    retryMissingFile: false,
+    onWebviewReady: handleWebviewReady
   })
+
+  // 编辑 bridge 消息泵:周期性 drain 页内队列,把 html-changed 提交保存。
+  // 冲突后停机:conflictNotice 为真时不再自动保存(用户点「刷新」确认后恢复)。
+  const executeScript = preview.executeScript
+  const slotIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    slotIdRef.current = slot?.id ?? null
+  }, [slot?.id])
+
+  useEffect(() => {
+    if (!showWebview || !preview.state.ready || conflictNotice) return
+    let disposed = false
+    const pump = async (): Promise<void> => {
+      const raw = await executeScript(DRAIN_SLIDE_BRIDGE_SOURCE)
+      if (disposed || !raw) return
+      for (const msg of parseSlideBridgeDrain(raw)) {
+        if (msg.type !== 'html-changed') continue
+        const targetSlotId = slotIdRef.current
+        // 页面切换竞态:drain 结果必须归属当前 slot,否则丢弃(绝不把 A 页内容写进 B 页)。
+        if (!targetSlotId || targetSlotId !== slot?.id) continue
+        await saveEditedHtml(targetSlotId, msg.html)
+      }
+    }
+    const timer = window.setInterval(() => void pump(), BRIDGE_DRAIN_INTERVAL_MS)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+      // 离开页面前 flush pending save,再最后 drain 一次(不丢最后一次编辑)。
+      void executeScript(compileSlideBridgeCommand({ type: 'flush' }))
+      void executeScript(DRAIN_SLIDE_BRIDGE_SOURCE)?.then((raw) => {
+        const slotId = slot?.id
+        if (!slotId) return
+        for (const msg of parseSlideBridgeDrain(raw)) {
+          if (msg.type === 'html-changed') void saveEditedHtml(slotId, msg.html)
+        }
+      })
+    }
+  }, [showWebview, preview.state.ready, conflictNotice, executeScript, saveEditedHtml, slot?.id])
 
   return (
     <div ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto bg-black/4 dark:bg-black/30">
