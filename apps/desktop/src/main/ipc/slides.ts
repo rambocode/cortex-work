@@ -7,7 +7,7 @@
 //   - 不抛未捕获异常:一律返回结构化 { ok:false, error } 结果;
 //   - 导出/截图/检查通道在对应能力落地任务(Task 7/9/10)前返回 unsupported_format /
 //     io_error 占位错误,保证 preload 面从本任务起稳定。
-import { ipcMain } from "electron";
+import { BrowserWindow, dialog, ipcMain } from "electron";
 import { slotsFromSlidesOutline, type SlidesDeckManifest, nextSlidesSlotId, type SlidesSlot } from "@cortex-work/core/design/slides/slides-types";
 import { slidesSlideHtmlPath } from "@cortex-work/core/design/slides/slides-paths";
 import type {
@@ -33,6 +33,7 @@ import type {
   SlidesScreenshotResult,
   SlidesSetActiveSlideRequest,
 } from "./slides-ipc-types";
+import { SLIDES_EXPORT_FORMATS } from "./slides-ipc-types";
 import {
   createDeckWorkspace,
   deleteSlide,
@@ -45,6 +46,7 @@ import {
   type SlidesWorkspaceResult,
 } from "../capabilities/slides/workspace";
 import { checkSlides, screenshotSlideToSnapshot } from "../capabilities/slides/inspect";
+import { buildDeckPptx, writeArtifactAtomic } from "../capabilities/slides/export/deck-export";
 
 // workspace 层 Result → IPC envelope(成功统一携带最新 manifest)。
 function toDeckResult(
@@ -292,7 +294,40 @@ export function registerSlidesHandlers(): void {
       return { ok: true as const, snapshotPath: result.value.snapshotPath };
     }),
   );
-  ipcMain.handle("slides:export", (_e, _req: SlidesExportRequest): Promise<SlidesExportResult> =>
-    Promise.resolve({ ok: false, error: { code: "unsupported_format", message: "导出能力尚未启用" } }),
-  );
+  // 导出:目标路径只由主进程保存对话框决定(请求里不带输出路径);产物完全就绪后
+  // 才原子落盘,失败/取消不留半成品。PDF/PNG/HTML 在 Task 10 接入。
+  ipcMain.handle("slides:export", async (event, req: SlidesExportRequest): Promise<SlidesExportResult> => {
+    try {
+      if (!SLIDES_EXPORT_FORMATS.includes(req.format)) {
+        return { ok: false, error: { code: "unsupported_format", message: `不支持的导出格式: ${String(req.format)}` } };
+      }
+      if (req.format !== "pptx") {
+        return { ok: false, error: { code: "unsupported_format", message: `${req.format.toUpperCase()} 导出尚未启用` } };
+      }
+      const loaded = await loadDeckManifest({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
+      if (!loaded.ok) return { ok: false, error: loaded.error };
+
+      // 先生成产物再弹框?不 —— 先弹框(用户取消则省下几十秒渲染),但落盘一定在产物就绪后。
+      const parent = BrowserWindow.fromWebContents(event.sender);
+      const defaultName = `${loaded.value.manifest.title || req.deckId}.pptx`;
+      const options: Electron.SaveDialogOptions = {
+        title: "导出演示文稿",
+        defaultPath: defaultName,
+        filters: [{ name: "PowerPoint 演示文稿", extensions: ["pptx"] }],
+      };
+      const picked = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
+      if (picked.canceled || !picked.filePath) return { ok: false, canceled: true };
+      const targetPath = picked.filePath.toLowerCase().endsWith(".pptx") ? picked.filePath : `${picked.filePath}.pptx`;
+
+      const built = await buildDeckPptx({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
+      if (!built.ok) return { ok: false, error: built.error };
+      await writeArtifactAtomic(targetPath, built.value.buffer);
+      return { ok: true, path: targetPath, format: "pptx" };
+    } catch (err) {
+      return {
+        ok: false,
+        error: { code: "io_error", message: `导出失败: ${err instanceof Error ? err.message : String(err)}` },
+      };
+    }
+  });
 }

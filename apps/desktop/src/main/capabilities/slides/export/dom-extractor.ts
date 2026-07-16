@@ -1,22 +1,26 @@
-// Slides POC 页内提取脚本:在隐藏 BrowserWindow 的页面上下文里执行,把渲染后的 DOM
-// 提炼为 scene-types.ts 定义的 SlideScene(JSON)。同时给已重建为原生对象的元素打
-// `data-cortex-native` 标记、给降级层打 `data-cortex-raster` 标记,供 harness 隐藏原生
-// 节点后截取 base raster(避免「整页截图 + 原生对象」双重渲染)。
+// Slides 导出的 DOM 场景提取层:在隐藏窗口的页面上下文里把渲染后的 DOM 提炼为
+// types.ts 定义的 SlideScene(JSON),并给「将被原生重建」的元素打 data-cortex-native、
+// 给「必须栅格降级」的层打 data-cortex-raster —— 宿主据此隐藏原生节点后截 base raster,
+// 从而避免「整页截图 + 原生对象」双重渲染。
 //
-// 用 `函数.toString()` 导出源码字符串,而不是手写字符串:保住语法高亮 / lint;
-// 函数必须完全自包含(不引用闭包外变量),否则注入页面后会 ReferenceError。
+// 页内脚本用 `函数.toString()` 注入(保住语法高亮/lint);函数必须完全自包含
+//(不引用闭包外变量),否则注入页面后 ReferenceError。类型注解编译时擦除,不影响注入。
 //
-// 分类为「复杂层(栅格降级)」的判定是保守白名单思路:凡 canvas、滤镜、渐变、非平移
+// 分类为「复杂层(栅格降级)」的判定是保守白名单:凡 canvas、滤镜、渐变、非平移
 // transform、混合模式、阴影等 PPTX 难以原生表达的样式,一律整棵子树交给 base raster,
 // 保真优先、可编辑性其次。
+import type { SlideRenderWindow } from "../render";
+import type { SlideScene } from "./types";
 
 /* eslint-disable */
-
 function extractSceneInPage() {
   var CANVAS_W = 1280;
   var CANVAS_H = 720;
-  var warnings = [];
-  var nodes = [];
+  var warnings: string[] = [];
+  // 页内脚本用 any 收敛节点构造:各 emit* 分支按 SceneNode 各变体逐字段拼装,
+  // 这里若用联合类型,TS 会对「先 push 再补字段」的 JS 写法层层报错而无实益;
+  // 真正的类型保证在消费侧(extractSlideScene 断言为 SlideScene,pptx.ts 按 kind 分派)。
+  var nodes: any[] = [];
   var seq = 0;
   var zCounter = 0;
 
@@ -173,7 +177,7 @@ function extractSceneInPage() {
   }
 
   function emitText(el, cs) {
-    var runs = [];
+    var runs: any[] = [];
     collectRuns(el, runs);
     if (!runs.length) return;
     var r = rectOf(el);
@@ -219,7 +223,8 @@ function extractSceneInPage() {
       z: zCounter++,
       fill: fill ? fill.hex : undefined,
       fillOpacity: fill ? Math.round(fill.alpha * 100) : undefined,
-      border: hasBorder ? { color: borderColor.hex, widthPx: borderW } : undefined,
+      // 直接用 borderColor 收窄(hasBorder 是它的布尔中介,TS 看不穿)。
+      border: borderColor && hasBorder ? { color: borderColor.hex, widthPx: borderW } : undefined,
       borderRadiusPx: radius > 0 ? radius : undefined,
     });
     return true;
@@ -266,10 +271,10 @@ function extractSceneInPage() {
 
   function emitTable(tableEl, cs) {
     var r = rectOf(tableEl);
-    var rows = [];
+    var rows: any[] = [];
     var trs = tableEl.querySelectorAll("tr");
     for (var i = 0; i < trs.length; i++) {
-      var cells = [];
+      var cells: any[] = [];
       for (var j = 0; j < trs[i].children.length; j++) {
         var cellEl = trs[i].children[j];
         var tag = cellEl.tagName;
@@ -290,7 +295,7 @@ function extractSceneInPage() {
     }
     if (!rows.length) return;
     var firstTr = tableEl.querySelector("tr");
-    var colWidthsPx = [];
+    var colWidthsPx: number[] = [];
     if (firstTr) {
       for (var k = 0; k < firstTr.children.length; k++) {
         colWidthsPx.push(round2(firstTr.children[k].getBoundingClientRect().width));
@@ -390,8 +395,35 @@ function extractSceneInPage() {
     warnings: warnings,
   };
 }
+/* eslint-enable */
 
-// 导出可直接交给 webContents.executeJavaScript 的自执行源码。
-module.exports = {
-  EXTRACT_SCENE_SOURCE: "(" + extractSceneInPage.toString() + ")()",
-};
+/** 页内提取脚本源码(自执行,返回 SlideScene)。 */
+export const EXTRACT_SCENE_SOURCE = "(" + extractSceneInPage.toString() + ")()";
+
+/**
+ * 隐藏所有将被原生重建的节点、强制显示栅格层。
+ * 用 visibility(而非 display)是关键:容器隐藏后其内的 raster 子层仍能显式显示回来,
+ * 且不触发重排 —— 布局必须与提取时完全一致,否则 base raster 会与原生对象错位。
+ */
+export const HIDE_NATIVE_CSS =
+  '[data-cortex-native="1"] { visibility: hidden !important; }' +
+  '[data-cortex-raster="1"] { visibility: visible !important; }';
+
+/** 在已加载并就绪的窗口里提取场景(同时给页面打上 native/raster 标记)。 */
+export async function extractSlideScene(win: SlideRenderWindow): Promise<SlideScene> {
+  return (await win.executeJavaScript(EXTRACT_SCENE_SOURCE)) as SlideScene;
+}
+
+/**
+ * 截取 base raster:隐藏原生节点后整页截图 → data URI。
+ * 必须在 extractSlideScene 之后调用(依赖它打的标记)。
+ */
+export async function captureBaseRasterDataUri(win: SlideRenderWindow): Promise<string> {
+  await win.insertCSS(HIDE_NATIVE_CSS);
+  // 等两帧确保隐藏样式已绘制,再截图。
+  await win.executeJavaScript(
+    "new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(undefined))))",
+  );
+  const image = await win.capturePage();
+  return "data:image/png;base64," + image.toPNG().toString("base64");
+}

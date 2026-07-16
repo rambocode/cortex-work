@@ -1,7 +1,8 @@
-// Slides 导出场景模型(POC):把浏览器渲染后的 DOM 提炼为与 DOM 无关的「场景节点」列表,
+// Slides 导出场景模型:把浏览器渲染后的 DOM 提炼为与 DOM 无关的「场景节点」列表,
 // 供 HTML → PPTX 混合导出使用。分类目标:普通文本/图片/表格/简单形状重建为 PPTX 原生对象
 // (保持可编辑),复杂视觉层(canvas、滤镜、复杂渐变等)降级为栅格图。
-// 该模型是纯数据(JSON 可序列化),提取在隐藏 BrowserWindow 页内脚本完成,转换在 Node 侧完成。
+// 该模型是纯数据(JSON 可序列化),提取在隐藏 BrowserWindow 页内脚本完成(dom-extractor),
+// 转换在 Node 侧完成(pptx.ts)。
 
 /** 场景节点共有字段:画布内像素坐标(左上原点)与绘制次序 z(越大越靠上)。 */
 export interface SceneNodeBase {

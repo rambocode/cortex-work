@@ -47,7 +47,7 @@ export function defaultSlideWindowFactory(): SlideRenderWindow {
 }
 
 // 等待字体与全部图片 load/error 完成(与 writing-export 同口径)。
-const READY_WAIT_SCRIPT = `
+export const READY_WAIT_SCRIPT = `
   Promise.all([
     document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve(),
     Promise.all(Array.from(document.images).map((img) => {

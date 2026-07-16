@@ -1,9 +1,13 @@
-// Slides POC 场景 → PPTX 转换(纯 Node,无 Electron 依赖):把 inpage-extractor 产出的
+// Slides 场景 → PPTX 转换(纯 Node,无 Electron 依赖):把 dom-extractor 产出的
 // SlideScene 按 z 升序重建为 PptxGenJS 原生对象。映射约定:
 //   - 画布 1280×720 px ↔ 版面 13.333×7.5 in(即 96 px/inch 精确换算);
 //   - 字号 px → pt 按 CSS 标准 1px = 0.75pt;
 //   - text/image/table/shape 原生重建(可编辑);raster 节点本身不落对象,
 //     由整页 base raster(隐藏原生节点后的截图)作为最底层图片承载。
+//
+// 打包核查:pptxgenjs 是 apps/desktop 声明依赖,走 externalizeDepsPlugin 从 asar
+// node_modules 运行时解析(与 html-to-docx 同路径);electron-builder.yml 的 files
+// 排除清单未含 pptxgenjs 及其传递依赖,打包后可正常 require。
 import PptxGenJS from "pptxgenjs";
 import type {
   SceneImageNode,
@@ -12,8 +16,8 @@ import type {
   SceneTableNode,
   SceneTextNode,
   SlideScene,
-} from "./scene-types";
-import { summarizeScene, type SceneExportReport } from "./scene-types";
+} from "./types";
+import { summarizeScene, type SceneExportReport } from "./types";
 
 const SLIDE_W_IN = 13.333;
 const SLIDE_H_IN = 7.5;

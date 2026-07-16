@@ -1,8 +1,9 @@
-// Task 0 技术验证回归测试:HTML → 场景提取 → PPTX 混合导出。
+// PPTX 导出 fixture 回归测试:HTML → 场景提取 → PPTX 混合导出。
 // 真实渲染由独立 Electron 子进程完成(vitest 的 Node 环境没有布局引擎):
-//   beforeAll 里 `electron poc/harness.cjs fixtures/ <outDir>` 跑出 4 个 fixture 的
-//   scene.json + full/base 截图,随后的断言全部基于这些产物与 PPTX XML 结构。
-// 退出条件对应关系:
+//   beforeAll 把 TS 侧 dom-extractor 的 EXTRACT_SCENE_SOURCE 写入临时文件,
+//   交 `electron fixtures-harness.cjs fixtures/ <outDir> <script>` 跑出 4 个 fixture 的
+//   scene.json + full/base 截图,随后断言全部基于这些产物与 PPTX XML 结构。
+// 质量门槛对应关系:
 //   - 文本/图片/表格可编辑 → slide XML 中存在原生 <a:t>/<a:blip>/<a:tbl>;
 //   - 复杂层明确降级且不重复渲染 → raster 节点有原因、base raster 中原生内容已被隐藏
 //     (baseNonBackgroundRatio 显著低于 fullNonBackgroundRatio);
@@ -17,15 +18,16 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import JSZip from "jszip";
 import { beforeAll, describe, expect, it } from "vitest";
-import { scenesToPptxBuffer, pxToIn, pxToPt } from "./poc/scene-to-pptx";
-import { summarizeScene } from "./poc/scene-types";
-import type { SceneImageNode, SceneShapeNode, SceneTableNode, SceneTextNode, SlideScene } from "./poc/scene-types";
+import { EXTRACT_SCENE_SOURCE } from "./dom-extractor";
+import { scenesToPptxBuffer, pxToIn, pxToPt } from "./pptx";
+import { summarizeScene } from "./types";
+import type { SceneImageNode, SceneShapeNode, SceneTableNode, SceneTextNode, SlideScene } from "./types";
 
 const execFileAsync = promisify(execFile);
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const fixturesDir = join(here, "fixtures");
-const harnessPath = join(here, "poc", "harness.cjs");
+const harnessPath = join(here, "fixtures-harness.cjs");
 
 // electron 包在 Node 环境 require 时返回二进制路径字符串。
 const nodeRequire = createRequire(import.meta.url);
@@ -55,10 +57,13 @@ function baseRasterDataUri(name: string): string {
 }
 
 beforeAll(async () => {
-  outDir = await mkdtemp(join(tmpdir(), "cortex-slides-poc-"));
+  outDir = await mkdtemp(join(tmpdir(), "cortex-slides-export-"));
+  // 提取器单一事实源在 TS 侧:把它的注入源码写给裸 electron harness(它不能 import TS)。
+  const injectScriptPath = join(outDir, "extract-scene.js");
+  await writeFile(injectScriptPath, EXTRACT_SCENE_SOURCE, "utf8");
   // 剔除 ELECTRON_RUN_AS_NODE,确保 electron 以完整 GUI runtime 启动。
   const { ELECTRON_RUN_AS_NODE: _drop, ...env } = process.env;
-  await execFileAsync(electronBin, [harnessPath, fixturesDir, outDir], {
+  await execFileAsync(electronBin, [harnessPath, fixturesDir, outDir, injectScriptPath], {
     env,
     timeout: 90_000,
     maxBuffer: 16 * 1024 * 1024,
@@ -81,10 +86,10 @@ beforeAll(async () => {
     }),
   );
   pptxBuffer = buffer;
-  const deckPath = join(outDir, "poc-deck.pptx");
+  const deckPath = join(outDir, "fixtures-deck.pptx");
   await writeFile(deckPath, pptxBuffer);
   // 保留产物路径,便于人工用 PowerPoint / Keynote 验证可编辑性。
-  console.info(`[slides-poc] deck written to ${deckPath}`);
+  console.info(`[slides-export] deck written to ${deckPath}`);
 
   const zip = await JSZip.loadAsync(pptxBuffer);
   slideXml = await Promise.all(
@@ -272,9 +277,9 @@ const soffice = ["/Applications/LibreOffice.app/Contents/MacOS/soffice", "/usr/l
 
 describe.skipIf(!soffice)("LibreOffice 兼容性(可选)", () => {
   it("headless 打开导出的 PPTX 并转换 PDF 成功", async () => {
-    await execFileAsync(soffice!, ["--headless", "--convert-to", "pdf", "--outdir", outDir, join(outDir, "poc-deck.pptx")], {
+    await execFileAsync(soffice!, ["--headless", "--convert-to", "pdf", "--outdir", outDir, join(outDir, "fixtures-deck.pptx")], {
       timeout: 120_000,
     });
-    expect(existsSync(join(outDir, "poc-deck.pdf"))).toBe(true);
+    expect(existsSync(join(outDir, "fixtures-deck.pdf"))).toBe(true);
   }, 150_000);
 });
