@@ -31,6 +31,9 @@ type SlidesContext = {
 
 let ctx: SlidesContext | null = null
 
+// 在途缩略图请求(key = `<slotId>@<updatedAt>`):多个组件同帧请求同一张时只发一次 IPC。
+const inFlightSnapshots = new Set<string>()
+
 export interface SlidesUiState {
   deckId: string | null
   manifest: SlidesDeckManifest | null
@@ -56,6 +59,12 @@ export interface SlidesUiState {
   /** 模板选择器:templates=null 表示尚未加载。 */
   templatePickerOpen: boolean
   templates: SlidesTemplateSummary[] | null
+  /**
+   * 缩略图 data URL 缓存,key = `<slotId>@<updatedAt>`(updatedAt 变即失效重取)。
+   * 为什么走 IPC 取 data URL:renderer 页非 file:// 源,<img src="file://…"> 会被
+   * Chromium 拦掉(实测缩略图全碎)。
+   */
+  snapshots: Record<string, string>
 
   setup(context: { bridge: DesktopBridge; workspaceRoot: string; deckId: string; title: string }): Promise<void>
   openOutlineDialog(): Promise<void>
@@ -70,6 +79,8 @@ export interface SlidesUiState {
   closeTemplatePicker(): void
   /** 应用模板到当前 deck(主进程写主题);成功返回 true。 */
   applyTemplate(templateId: string): Promise<boolean>
+  /** 按需拉取某页缩略图(已缓存或已在途则不重复请求)。 */
+  ensureSnapshot(slotId: string, updatedAt: string): Promise<void>
   refresh(): Promise<void>
   insertSlide(afterSlotId?: string): Promise<void>
   duplicateSlide(slotId: string): Promise<void>
@@ -127,6 +138,19 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   findings: null,
   templatePickerOpen: false,
   templates: null,
+  snapshots: {},
+
+  ensureSnapshot: async (slotId, updatedAt) => {
+    const key = `${slotId}@${updatedAt}`
+    if (get().snapshots[key] || inFlightSnapshots.has(key) || !ctx?.bridge.slidesReadSnapshot) return
+    inFlightSnapshots.add(key)
+    const { workspaceRoot, deckId } = ctx
+    const result = await ctx.bridge.slidesReadSnapshot({ workspaceRoot, deckId, slotId }).catch(() => undefined)
+    inFlightSnapshots.delete(key)
+    // 切 deck 竞态:异步期间已换 deck → 丢弃。快照缺失(not_found)是常态,UI 退化为状态占位。
+    if (ctx?.deckId !== deckId || !result?.ok) return
+    set((state) => ({ snapshots: { ...state.snapshots, [key]: result.dataUrl } }))
+  },
 
   openTemplatePicker: async () => {
     set({ templatePickerOpen: true })
@@ -385,7 +409,8 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       outlineDialogOpen: false,
       outlineDraft: null,
       templatePickerOpen: false,
-      templates: null
+      templates: null,
+      snapshots: {}
     })
   }
 }))

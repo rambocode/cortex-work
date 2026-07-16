@@ -33,6 +33,7 @@ export const SLIDES_IPC_CHANNELS = [
   'slides:setActiveSlide',
   'slides:saveEditedHtml',
   'slides:readSlideHtml',
+  'slides:readSnapshot',
   'slides:check',
   'slides:screenshot',
   'slides:export'
@@ -102,6 +103,18 @@ export type SlidesSaveEditedHtmlRequest = SlidesDeckScopedRequest & {
 }
 
 export type SlidesReadSlideHtmlRequest = SlidesDeckScopedRequest & { slotId: string }
+
+/**
+ * 读取页面缩略图为 data URL。
+ * 为什么不让 renderer 直接 <img src="file://…">:渲染页不是 file:// 源,Chromium 会拦掉
+ * file:// 子资源(实测缩略图全是碎图)。故由主进程读盘转 data URL(沿用图片读闸门:
+ * 拒符号链接、realpath 根校验、仅位图扩展名、体积上限)。
+ */
+export type SlidesReadSnapshotRequest = SlidesDeckScopedRequest & { slotId: string }
+
+export type SlidesReadSnapshotResult =
+  | { ok: true; dataUrl: string }
+  | { ok: false; error: SlidesError }
 
 /** 列出内置模板(与 deck 无关,不需 deckId)。 */
 export type SlidesListTemplatesResult =

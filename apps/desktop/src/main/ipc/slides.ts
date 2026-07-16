@@ -8,8 +8,11 @@
 //   - 导出/截图/检查通道在对应能力落地任务(Task 7/9/10)前返回 unsupported_format /
 //     io_error 占位错误,保证 preload 面从本任务起稳定。
 import { BrowserWindow, dialog, ipcMain } from "electron";
+import { resolve, sep } from "node:path";
+
+import { readImageOpenable } from "./image";
 import { slotsFromSlidesOutline, type SlidesDeckManifest, nextSlidesSlotId, type SlidesSlot } from "@cortex-work/core/design/slides/slides-types";
-import { slidesSlideHtmlPath } from "@cortex-work/core/design/slides/slides-paths";
+import { isValidSlotId, slidesSlideHtmlPath, slidesSnapshotPath } from "@cortex-work/core/design/slides/slides-paths";
 import type {
   SlidesApplyTemplateRequest,
   SlidesApproveOutlineRequest,
@@ -28,6 +31,8 @@ import type {
   SlidesReadOutlineDraftResult,
   SlidesReadSlideHtmlRequest,
   SlidesReadSlideHtmlResult,
+  SlidesReadSnapshotRequest,
+  SlidesReadSnapshotResult,
   SlidesRenameDeckRequest,
   SlidesReorderRequest,
   SlidesSaveEditedHtmlRequest,
@@ -44,6 +49,7 @@ import {
   readSlideHtml,
   readSlideNotes,
   readSlidesOutlineDraft,
+  resolveDeckPaths,
   updateDeckManifest,
   writeSlideHtml,
   type SlidesWorkspaceResult,
@@ -294,6 +300,30 @@ export function registerSlidesHandlers(): void {
         if (!result.ok) return { ok: false as const, error: result.error };
         return { ok: true as const, outline: result.value };
       }),
+  );
+
+  // 缩略图:主进程读盘转 data URL —— renderer 页非 file:// 源,直接 <img src="file://…">
+  // 会被 Chromium 拦掉(实测碎图)。沿用图片读闸门(拒符号链接/realpath/仅位图/体积上限),
+  // 并额外要求真实路径落在本 deck 根内。
+  ipcMain.handle("slides:readSnapshot", (_e, req: SlidesReadSnapshotRequest): Promise<SlidesReadSnapshotResult> =>
+    guarded("读取缩略图失败", async () => {
+      const resolved = await resolveDeckPaths(req.workspaceRoot, req.deckId);
+      if (!resolved.ok) return { ok: false as const, error: resolved.error };
+      if (!isValidSlotId(req.slotId)) {
+        return { ok: false as const, error: { code: "invalid_path" as const, message: `非法 slot id: ${req.slotId}` } };
+      }
+      const abs = resolve(resolved.value.realWorkspaceRoot, slidesSnapshotPath(req.deckId, req.slotId));
+      try {
+        const { dataUrl } = await readImageOpenable(abs, (realTarget) =>
+          realTarget === resolved.value.deckRootAbs || realTarget.startsWith(resolved.value.deckRootAbs + sep),
+        );
+        return { ok: true as const, dataUrl };
+      } catch (err) {
+        // 快照缺失是常态(尚未截图),按 not_found 回,UI 退化为状态占位。
+        const code = (err as NodeJS.ErrnoException).code === "ENOENT" ? ("not_found" as const) : ("invalid_path" as const);
+        return { ok: false as const, error: { code, message: err instanceof Error ? err.message : String(err) } };
+      }
+    }),
   );
 
   ipcMain.handle("slides:readSlideHtml", (_e, req: SlidesReadSlideHtmlRequest): Promise<SlidesReadSlideHtmlResult> =>

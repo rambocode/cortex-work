@@ -1,6 +1,6 @@
 // Slides IPC 域测试:存根 ipcMain 捕获 handler,真实 fs(mkdtemp)走完整持久化;
 // 同时验证「注册面 == 镜像契约通道清单」与 core/desktop 运行时常量一致(防漂移)。
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -199,6 +199,51 @@ describe("deck 生命周期经 IPC", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.manifest.activeSlideId).toBe(last.id);
+  });
+
+  // 回归:renderer 页非 file:// 源,<img src="file://…"> 会被 Chromium 拦掉(实测碎图),
+  // 故缩略图必须由主进程读盘转 data URL。
+  it("readSnapshot:缺快照 → not_found;非法 slot/deck → invalid_path", async () => {
+    const missing = await invoke<{ ok: boolean; error?: { code: string } }>("slides:readSnapshot", {
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId: "slot-001",
+    });
+    expect(missing.ok).toBe(false);
+    expect(missing.error?.code).toBe("not_found");
+
+    const badSlot = await invoke<{ ok: boolean; error?: { code: string } }>("slides:readSnapshot", {
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId: "../../etc/passwd",
+    });
+    expect(badSlot.ok).toBe(false);
+    expect(badSlot.error?.code).toBe("invalid_path");
+
+    const badDeck = await invoke<{ ok: boolean; error?: { code: string } }>("slides:readSnapshot", {
+      workspaceRoot: root,
+      deckId: "../evil",
+      slotId: "slot-001",
+    });
+    expect(badDeck.ok).toBe(false);
+    expect(badDeck.error?.code).toBe("invalid_path");
+  });
+
+  it("readSnapshot:真实 PNG → data URL", async () => {
+    // 造一张最小合法 PNG(读闸门会嗅探扩展名与体积)。
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    mkdirSync(join(root, ".cortex-design", DECK, "snapshots"), { recursive: true });
+    writeFileSync(join(root, ".cortex-design", DECK, "snapshots", "slot-001.png"), png);
+    const result = await invoke<{ ok: boolean; dataUrl?: string }>("slides:readSnapshot", {
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId: "slot-001",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.dataUrl?.startsWith("data:image/png;base64,")).toBe(true);
   });
 
   it("非法 workspaceRoot / deckId 结构化拒绝", async () => {

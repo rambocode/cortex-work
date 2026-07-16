@@ -141,6 +141,8 @@ import type {
   SlidesReadOutlineDraftResult,
   SlidesReadSlideHtmlRequest,
   SlidesReadSlideHtmlResult,
+  SlidesReadSnapshotRequest,
+  SlidesReadSnapshotResult,
   SlidesRenameDeckRequest,
   SlidesReorderRequest,
   SlidesSaveEditedHtmlRequest,
@@ -290,6 +292,8 @@ const personal = {
     ipcRenderer.invoke("slides:saveEditedHtml", req),
   slidesReadSlideHtml: (req: SlidesReadSlideHtmlRequest): Promise<SlidesReadSlideHtmlResult> =>
     ipcRenderer.invoke("slides:readSlideHtml", req),
+  slidesReadSnapshot: (req: SlidesReadSnapshotRequest): Promise<SlidesReadSnapshotResult> =>
+    ipcRenderer.invoke("slides:readSnapshot", req),
   slidesCheck: (req: SlidesCheckRequest): Promise<SlidesCheckResult> => ipcRenderer.invoke("slides:check", req),
   slidesScreenshot: (req: SlidesScreenshotRequest): Promise<SlidesScreenshotResult> =>
     ipcRenderer.invoke("slides:screenshot", req),

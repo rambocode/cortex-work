@@ -131,6 +131,8 @@ import type {
   SlidesReadOutlineDraftResult,
   SlidesReadSlideHtmlRequest,
   SlidesReadSlideHtmlResult,
+  SlidesReadSnapshotRequest,
+  SlidesReadSnapshotResult,
   SlidesRenameDeckRequest,
   SlidesReorderRequest,
   SlidesSaveEditedHtmlRequest,
@@ -253,6 +255,7 @@ export interface DesktopBridge {
   slidesSetActiveSlide?(req: SlidesSetActiveSlideRequest): Promise<SlidesDeckIpcResult>;
   slidesSaveEditedHtml?(req: SlidesSaveEditedHtmlRequest): Promise<SlidesDeckIpcResult>;
   slidesReadSlideHtml?(req: SlidesReadSlideHtmlRequest): Promise<SlidesReadSlideHtmlResult>;
+  slidesReadSnapshot?(req: SlidesReadSnapshotRequest): Promise<SlidesReadSnapshotResult>;
   slidesCheck?(req: SlidesCheckRequest): Promise<SlidesCheckResult>;
   slidesScreenshot?(req: SlidesScreenshotRequest): Promise<SlidesScreenshotResult>;
   slidesExport?(req: SlidesExportRequest): Promise<SlidesExportResult>;

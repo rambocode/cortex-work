@@ -1,21 +1,18 @@
 // 左侧页面缩略图栏:按 manifest order 展示 slot 列表(页码/标题/状态),支持点击切页、
-// 新增/复制/删除与 HTML5 拖拽排序。缩略图用 snapshotPath 的 file:// 图片(带 updatedAt
-// cache-bust);快照缺失时退化为状态占位块。
-import { useState, type ReactElement } from 'react'
+// 新增/复制/删除与 HTML5 拖拽排序。
+//
+// 缩略图经 slides:readSnapshot 取 data URL(store 按 `<slotId>@<updatedAt>` 缓存):
+// renderer 页不是 file:// 源,直接 <img src="file://…"> 会被 Chromium 拦掉(实测全碎图)。
+// 快照缺失/未截图时退化为状态占位块。
+import { useEffect, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Copy, Loader2, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { sortedSlidesSlots, type SlidesSlot } from '@cortex-work/core/design/slides/slides-types'
 import { useSlidesStore } from './slides-store'
 
-type Props = {
-  workspaceRoot: string
-}
-
-// 快照图片地址:file://<workspaceRoot>/<snapshotPath>?rev=<updatedAt>(变更后强制刷新)。
-export function slidesSnapshotUrl(workspaceRoot: string, slot: SlidesSlot): string | null {
-  if (!slot.snapshotPath) return null
-  const encoded = slot.snapshotPath.split('/').map(encodeURIComponent).join('/')
-  return `file://${workspaceRoot}/${encoded}?rev=${encodeURIComponent(slot.updatedAt)}`
+/** 缩略图缓存 key:updatedAt 变即换 key → 自动重取(等价旧 file:// 的 ?rev= cache-bust)。 */
+export function slidesSnapshotKey(slot: Pick<SlidesSlot, 'id' | 'updatedAt'>): string {
+  return `${slot.id}@${slot.updatedAt}`
 }
 
 function StatusBadge({ status }: { status: SlidesSlot['status'] }): ReactElement | null {
@@ -40,9 +37,11 @@ function StatusBadge({ status }: { status: SlidesSlot['status'] }): ReactElement
   return <span className="text-[11px] text-ds-faint">{t('slidesStatusEmpty')}</span>
 }
 
-export function SlidesThumbnailRail({ workspaceRoot }: Props): ReactElement {
+export function SlidesThumbnailRail(): ReactElement {
   const { t } = useTranslation('design')
   const manifest = useSlidesStore((s) => s.manifest)
+  const snapshots = useSlidesStore((s) => s.snapshots)
+  const ensureSnapshot = useSlidesStore((s) => s.ensureSnapshot)
   const mutating = useSlidesStore((s) => s.mutating)
   const insertSlide = useSlidesStore((s) => s.insertSlide)
   const duplicateSlide = useSlidesStore((s) => s.duplicateSlide)
@@ -55,6 +54,19 @@ export function SlidesThumbnailRail({ workspaceRoot }: Props): ReactElement {
 
   const slots = manifest ? sortedSlidesSlots(manifest.slides) : []
   const activeSlideId = manifest?.activeSlideId ?? null
+
+  // 按需拉取:仅已生成且已入册快照的页面(未截图的页拉了也是 not_found)。
+  // 依赖用稳定签名而非 slots 数组本身 —— 后者每次渲染都是新引用,会打成循环。
+  const snapshotSignature = slots
+    .filter((s) => s.status === 'ready' && s.snapshotPath)
+    .map((s) => slidesSnapshotKey(s))
+    .join('|')
+  useEffect(() => {
+    for (const key of snapshotSignature ? snapshotSignature.split('|') : []) {
+      const at = key.lastIndexOf('@')
+      void ensureSnapshot(key.slice(0, at), key.slice(at + 1))
+    }
+  }, [snapshotSignature, ensureSnapshot])
 
   // 拖拽落点:把 dragId 移动到 targetId 的位置(其余顺序不变),提交整个新排列。
   const handleDrop = (targetId: string): void => {
@@ -76,7 +88,7 @@ export function SlidesThumbnailRail({ workspaceRoot }: Props): ReactElement {
       <ol className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2.5 py-3" aria-label={t('slidesDragToReorder')}>
         {slots.map((slot, index) => {
           const active = slot.id === activeSlideId
-          const snapshotUrl = slidesSnapshotUrl(workspaceRoot, slot)
+          const snapshotUrl = snapshots[slidesSnapshotKey(slot)] ?? null
           return (
             <li key={slot.id}>
               <button

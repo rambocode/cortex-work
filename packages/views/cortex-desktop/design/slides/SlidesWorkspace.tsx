@@ -141,7 +141,7 @@ export function SlidesWorkspace({ workspaceRoot, documentId, documentTitle }: Pr
         </div>
       ) : null}
       <div className="relative flex min-h-0 min-w-0 flex-1">
-        <SlidesThumbnailRail workspaceRoot={workspaceRoot} />
+        <SlidesThumbnailRail />
         <SlidesStage
           workspaceRoot={workspaceRoot}
           slot={activeSlot}

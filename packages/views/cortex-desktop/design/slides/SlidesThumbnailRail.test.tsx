@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopBridge } from '@cortex-work/core/desktop/bridge'
 import { createEmptySlidesDeckManifest, type SlidesDeckManifest } from '@cortex-work/core/design/slides/slides-types'
 import { slidesSlideHtmlPath, slidesSnapshotPath } from '@cortex-work/core/design/slides/slides-paths'
-import { SlidesThumbnailRail, slidesSnapshotUrl } from './SlidesThumbnailRail'
+import { SlidesThumbnailRail, slidesSnapshotKey } from './SlidesThumbnailRail'
 import { useSlidesStore } from './slides-store'
 
 const NOW = '2026-07-16T00:00:00.000Z'
@@ -73,7 +73,7 @@ afterEach(() => {
 describe('SlidesThumbnailRail', () => {
   it('按 manifest order 渲染缩略图,active 页高亮,状态徽标正确', async () => {
     await setupStore(fakeBridge())
-    render(<SlidesThumbnailRail workspaceRoot={ROOT} />)
+    render(<SlidesThumbnailRail />)
     const items = screen.getAllByTestId(/slides-thumb-/)
     expect(items.map((el) => el.getAttribute('data-testid'))).toEqual([
       'slides-thumb-slot-001',
@@ -88,7 +88,7 @@ describe('SlidesThumbnailRail', () => {
   it('点击缩略图切换 active slide', async () => {
     const setActive = vi.fn(async () => ({ ok: true as const, manifest: makeManifest() }))
     await setupStore(fakeBridge({ slidesSetActiveSlide: setActive }))
-    render(<SlidesThumbnailRail workspaceRoot={ROOT} />)
+    render(<SlidesThumbnailRail />)
     fireEvent.click(screen.getByTestId('slides-thumb-slot-002'))
     expect(setActive).toHaveBeenCalledWith(expect.objectContaining({ slotId: 'slot-002' }))
   })
@@ -100,7 +100,7 @@ describe('SlidesThumbnailRail', () => {
     await setupStore(
       fakeBridge({ slidesInsertSlide: insert, slidesDuplicateSlide: duplicate, slidesDeleteSlide: remove })
     )
-    render(<SlidesThumbnailRail workspaceRoot={ROOT} />)
+    render(<SlidesThumbnailRail />)
     // 写操作互斥(mutating 守卫),每次点击后等 store 空闲再点下一个。
     const idle = () => waitFor(() => expect(useSlidesStore.getState().mutating).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: '新增页面' }))
@@ -114,12 +114,35 @@ describe('SlidesThumbnailRail', () => {
     await idle()
   })
 
-  it('slidesSnapshotUrl 带 updatedAt cache-bust,无快照返回 null', () => {
-    const manifest = makeManifest()
-    const withSnapshot = manifest.slides.find((s) => s.id === 'slot-001')!
-    const url = slidesSnapshotUrl('/ws', withSnapshot)
-    expect(url).toContain('file:///ws/.cortex-design/deckrail01/snapshots/slot-001.png')
-    expect(url).toContain('rev=')
-    expect(slidesSnapshotUrl('/ws', manifest.slides.find((s) => s.id === 'slot-002')!)).toBeNull()
+  it('slidesSnapshotKey 含 updatedAt(变更即换 key → 自动重取)', () => {
+    expect(slidesSnapshotKey({ id: 'slot-001', updatedAt: NOW })).toBe(`slot-001@${NOW}`)
+    expect(slidesSnapshotKey({ id: 'slot-001', updatedAt: '2026-07-17T00:00:00.000Z' })).not.toBe(
+      slidesSnapshotKey({ id: 'slot-001', updatedAt: NOW })
+    )
+  })
+
+  // 回归:此前缩略图用 <img src="file://…">,renderer 页非 file:// 源被 Chromium 拦掉 → 全碎图。
+  // 现在必须经 slides:readSnapshot 取 data URL。
+  it('缩略图经 IPC 取 data URL 渲染,绝不用 file:// 直链', async () => {
+    const readSnapshot = vi.fn(async () => ({ ok: true as const, dataUrl: 'data:image/png;base64,AAAA' }))
+    await setupStore(fakeBridge({ slidesReadSnapshot: readSnapshot }))
+    render(<SlidesThumbnailRail />)
+    // 只为 ready + 已入册快照的页拉取(slot-001)。
+    await waitFor(() => expect(readSnapshot).toHaveBeenCalledWith(expect.objectContaining({ slotId: 'slot-001' })))
+    expect(readSnapshot).toHaveBeenCalledOnce()
+    const img = await screen.findByAltText('开场页')
+    expect(img.getAttribute('src')).toBe('data:image/png;base64,AAAA')
+    expect(document.body.innerHTML).not.toContain('file://')
+  })
+
+  it('快照读取失败 → 退化为状态占位,不渲染碎图', async () => {
+    const readSnapshot = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: 'not_found' as const, message: 'x' }
+    }))
+    await setupStore(fakeBridge({ slidesReadSnapshot: readSnapshot }))
+    render(<SlidesThumbnailRail />)
+    await waitFor(() => expect(readSnapshot).toHaveBeenCalled())
+    expect(screen.queryByAltText('开场页')).toBeNull()
   })
 })
