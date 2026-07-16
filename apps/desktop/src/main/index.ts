@@ -25,6 +25,8 @@ import { startMediaGenHost, stopMediaGenHost } from "./capabilities/media-gen/se
 import { startLoopWorkflowsHost, stopLoopWorkflowsHost } from "./capabilities/loop-workflows/server";
 import { startDelegateHost, stopDelegateHost, killAllDelegates } from "./capabilities/delegate/server";
 import { startDesignDelegateHost, stopDesignDelegateHost, killAllDesignDelegates } from "./capabilities/design-delegate/server";
+import { stopSlidesHost } from "./capabilities/slides/server";
+import { clearAllSlidesSessions } from "./capabilities/slides/session";
 import { initWorkflowRuntime, killAllWorkflows } from "./workflow/index";
 import { loadWorkflows, markOrphanRunsKilled } from "./workflow/store";
 import { initWorkflowScheduler } from "./workflow/scheduler";
@@ -685,6 +687,7 @@ if (!app.requestSingleInstanceLock()) {
     killAllRoundtables(); // 圆桌编排随窗口关闭终止
     killAllDelegates(); // 委派编排随窗口关闭终止
     killAllDesignDelegates(); // 设计委派随窗口关闭终止
+    clearAllSlidesSessions(); // Slides 会话状态随窗口关闭失效
   });
 
   // 真正退出（托盘退出 / 系统关机）:停调度 + 终止所有自动化进程 + 常规清理。
@@ -701,6 +704,8 @@ if (!app.requestSingleInstanceLock()) {
     stopLoopWorkflowsHost();
     stopDelegateHost();
     stopDesignDelegateHost();
+    stopSlidesHost();
+    clearAllSlidesSessions();
     killAllAutomations();
     killAllWorkflows();
     killAllOrchestrations(); // 编排链路回收（真正退出时）

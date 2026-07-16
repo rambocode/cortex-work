@@ -17,13 +17,18 @@ import {
   createEmptySlidesDeckManifest,
   type SlidesDeckManifest,
   type SlidesError,
+  type SlidesOutline,
   type SlidesSlot,
 } from "@cortex-work/core/design/slides/slides-types";
+import { slidesOutlineSchema } from "@cortex-work/core/design/slides/slides-schema";
 import {
+  isValidAssetFileName,
   isValidDeckId,
   isValidSlotId,
+  slidesAssetPath,
   slidesDeckDirectories,
   slidesDeckRootPath,
+  slidesDraftOutlinePath,
   slidesManifestPath,
   slidesSlideHtmlPath,
   slidesTrashDirPath,
@@ -374,6 +379,117 @@ export async function readSlideHtml(options: {
   } catch {
     return fail("not_found", `slide 文件不存在: ${options.slotId}`);
   }
+}
+
+// 上传资产的字节上限与扩展名 allowlist(MCP upload_asset / 后续 UI 上传共用)。
+export const MAX_ASSET_BYTES = 8 * 1024 * 1024;
+const ASSET_EXT_ALLOWLIST = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+
+/**
+ * 写提纲草案到 drafts/outline.json(原子写)。草案不是正式 outline:批准前
+ * manifest.outline 保持不变,place_slide_html 仍被 gate 拦截。
+ */
+export async function writeSlidesOutlineDraft(options: {
+  workspaceRoot: string;
+  deckId: string;
+  outline: SlidesOutline;
+}): Promise<SlidesWorkspaceResult<string>> {
+  const parsed = slidesOutlineSchema.safeParse(options.outline);
+  if (!parsed.success) {
+    return fail("invalid_payload", `outline 草案不合法: ${parsed.error.issues[0]?.message ?? ""}`);
+  }
+  const resolved = await resolveDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const paths = resolved.value;
+  const rel = slidesDraftOutlinePath(options.deckId);
+  const abs = resolve(paths.realWorkspaceRoot, rel);
+  const pathError = await assertWritablePath(paths, abs);
+  if (pathError) return { ok: false, error: pathError };
+  try {
+    await atomicWriteFile(abs, `${JSON.stringify(parsed.data, null, 2)}\n`);
+    return { ok: true, value: rel };
+  } catch (err) {
+    log.error("writeSlidesOutlineDraft failed:", err);
+    return fail("io_error", "提纲草案写入失败");
+  }
+}
+
+/** 读提纲草案;不存在返回 not_found,损坏返回 invalid_payload。 */
+export async function readSlidesOutlineDraft(options: {
+  workspaceRoot: string;
+  deckId: string;
+}): Promise<SlidesWorkspaceResult<SlidesOutline>> {
+  const resolved = await resolveDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const abs = resolve(resolved.value.realWorkspaceRoot, slidesDraftOutlinePath(options.deckId));
+  let raw: string;
+  try {
+    const st = await fsp.lstat(abs);
+    if (st.isSymbolicLink()) return fail("invalid_path", "提纲草案不允许是符号链接");
+    raw = await fsp.readFile(abs, "utf8");
+  } catch {
+    return fail("not_found", "提纲草案不存在");
+  }
+  try {
+    const parsed = slidesOutlineSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success) return fail("invalid_payload", "提纲草案不合法");
+    return { ok: true, value: parsed.data as SlidesOutline };
+  } catch {
+    return fail("invalid_payload", "提纲草案不是合法 JSON");
+  }
+}
+
+/**
+ * 写入 deck 资产(base64):扩展名 allowlist + 字节上限 + 文件名形状校验,
+ * 落 assets/<kind>/,返回工作区相对路径。已存在同名文件时自动加序号后缀。
+ */
+export async function writeDeckAsset(options: {
+  workspaceRoot: string;
+  deckId: string;
+  kind: "source" | "generated";
+  fileName: string;
+  base64: string;
+}): Promise<SlidesWorkspaceResult<string>> {
+  if (!isValidAssetFileName(options.fileName)) {
+    return fail("invalid_path", `非法资产文件名: ${options.fileName}`);
+  }
+  const ext = options.fileName.split(".").pop()!.toLowerCase();
+  if (!ASSET_EXT_ALLOWLIST.has(ext)) {
+    return fail("unsupported_format", `不支持的资产类型: .${ext}`);
+  }
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(options.base64, "base64");
+  } catch {
+    return fail("invalid_payload", "base64 解码失败");
+  }
+  if (bytes.byteLength === 0) return fail("invalid_payload", "资产内容为空");
+  if (bytes.byteLength > MAX_ASSET_BYTES) {
+    return fail("too_large", `资产超过 ${MAX_ASSET_BYTES} 字节上限`);
+  }
+  const resolved = await resolveDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const paths = resolved.value;
+  // 同名冲突自动加序号(hero.png → hero-2.png),避免覆盖已引用资产。
+  const stem = options.fileName.slice(0, -(ext.length + 1));
+  for (let i = 0; i < 100; i++) {
+    const candidate = i === 0 ? options.fileName : `${stem}-${i + 1}.${ext}`;
+    const rel = slidesAssetPath(options.deckId, options.kind, candidate);
+    const abs = resolve(paths.realWorkspaceRoot, rel);
+    const pathError = await assertWritablePath(paths, abs);
+    if (pathError) return { ok: false, error: pathError };
+    try {
+      await fsp.mkdir(dirname(abs), { recursive: true });
+      await fsp.writeFile(abs, bytes, { flag: "wx" });
+      return { ok: true, value: rel };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EEXIST") continue;
+      log.error("writeDeckAsset failed:", err);
+      return fail("io_error", "资产写入失败");
+    }
+  }
+  return fail("io_error", "资产同名冲突过多");
 }
 
 /**

@@ -32,6 +32,13 @@ import {
   unregisterDesignDelegateSession,
   type DesignDelegateSessionState,
 } from "../capabilities/design-delegate/server";
+import { ensureSlidesMcpServerConfig } from "../capabilities/slides/server";
+import {
+  isSlidesRunId,
+  parseSlidesRunId,
+  registerSlidesSession,
+  unregisterSlidesSession,
+} from "../capabilities/slides/session";
 import { loadWorkflows } from "../workflow/store";
 import { getPersistedState } from "./store";
 import { CodexServerManager } from "../agents/codex-app-server";
@@ -669,6 +676,9 @@ export function registerCliHandlers(): void {
           // 设计委派（design-delegate）：设计工作台回合(runId 前缀 design:)注入通用 delegate_task 工具,
           // 让父设计 agent 并行 fanout 逐页生成。工具集由下方 registerDesignDelegateSession 注册。
           req.runId.startsWith("design:") ? await ensureDesignDelegateMcpServerConfig(req.sessionId) : null,
+          // AI Slides：仅 Slides Workspace 回合(runId 前缀 slides:<docId>:)注入 cortex-slides
+          // 工具集(deck 状态/提纲/逐页写入)。工具集由下方 registerSlidesSession 注册的会话状态 gate。
+          isSlidesRunId(req.runId) ? await ensureSlidesMcpServerConfig(req.sessionId) : null,
         ].filter((s): s is McpServerConfig => s !== null);
         if (builtinServers.length) {
           const userServers = mcp.enabled ? mcp.servers : [];
@@ -809,6 +819,37 @@ export function registerCliHandlers(): void {
       }
     }
 
+    // ── AI Slides：Slides Workspace 回合(runId 前缀 slides:<docId>:)注册 cortex-slides 会话 ──
+    // 会话状态只存 documentId + workspaceRoot(= cwd);deck 文件读写全部经 capabilities/slides/
+    // workspace.ts 的路径校验与乐观锁。回合结束(onExit/onError)unregister,防跨 deck 泄漏。
+    let slidesSessionActive = false;
+    {
+      const slidesDocId = parseSlidesRunId(req.runId);
+      if (slidesDocId) {
+        registerSlidesSession({
+          sessionId: req.sessionId,
+          runId: req.runId,
+          documentId: slidesDocId,
+          workspaceRoot: req.cwd,
+        });
+        slidesSessionActive = true;
+        log.info(`[slides] cli:start agent=${req.agent} doc=${slidesDocId} runId=${req.runId}`);
+        // pi 不进 builtinServers 注入块(mcpInjection==="none"),经 -e 扩展桥接注入同一 server,
+        // 工具 schema 与 claude/codex 完全一致(同一 MCP 实例)。
+        if (baseAgentKindOf(req.agent) === "pi") {
+          const slidesCfg = await ensureSlidesMcpServerConfig(req.sessionId);
+          const bridge = slidesCfg ? mcpServerToBridge(slidesCfg) : null;
+          if (bridge) {
+            const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+            req.extraExtensionPaths = [
+              ...(req.extraExtensionPaths ?? []),
+              writeMcpBridgeExtension([bridge], `slides-bridge-${safeSid}.js`),
+            ];
+          }
+        }
+      }
+    }
+
     const inactivityMs = resolveCliInactivityTimeoutMs();
 
     // ── ws 传输分流(U5):codex 主交互会话走 app-server WebSocket,在 buildArgs/spawn 之前前置返回 ──
@@ -818,8 +859,12 @@ export function registerCliHandlers(): void {
     // 破坏 per-turn 工具集（每轮 @mention 不同）。单发每轮 fresh exec 重新发现 delegate 工具。
     // 委派场景强制走单发(非 ws):ws app-server 长驻缓存 tools/list,破坏 per-turn delegate 工具集。
     // 设计回合的 design-delegate 同理需 per-turn 工具,故设计回合也不走 ws。
+    // Slides 回合同理:cortex-slides 工具按会话 gate,ws 长驻会缓存 tools/list。
     const goesWs =
-      (adapter.transport ?? "spawn") === "ws" && !req.delegateRoles?.length && !req.runId.startsWith("design:");
+      (adapter.transport ?? "spawn") === "ws" &&
+      !req.delegateRoles?.length &&
+      !req.runId.startsWith("design:") &&
+      !slidesSessionActive;
 
     // codex 原生 skill(U4):ws 主交互路径把 invokedSkill 作为 turn/start 的原生 skill input item
     // 显式注入(见 buildTurnInput);但因委派等原因退回 `codex exec`(非 ws)时,exec 没有输入层做
@@ -1000,6 +1045,7 @@ export function registerCliHandlers(): void {
           designDelegateAbort.abort();
           unregisterDesignDelegateSession(req.sessionId);
         }
+        if (slidesSessionActive) unregisterSlidesSession(req.sessionId);
         runWatchdogBumpers.delete(req.runId);
         sendExit({ runId: req.runId, code: null, error: err.message });
       });
@@ -1072,6 +1118,8 @@ export function registerCliHandlers(): void {
           designDelegateAbort.abort();
           unregisterDesignDelegateSession(req.sessionId);
         }
+        // Slides 会话状态注销:回合终态即失效(下一轮 cli:start 会重新注册),防跨 deck 泄漏。
+        if (slidesSessionActive) unregisterSlidesSession(req.sessionId);
         runWatchdogBumpers.delete(req.runId);
         cancelledRunIds.delete(req.runId);
         running.delete(req.runId);
