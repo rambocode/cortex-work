@@ -135,6 +135,8 @@ import type {
   SlidesExportResult,
   SlidesInsertSlideRequest,
   SlidesLoadDeckRequest,
+  SlidesReadOutlineDraftRequest,
+  SlidesReadOutlineDraftResult,
   SlidesReadSlideHtmlRequest,
   SlidesReadSlideHtmlResult,
   SlidesRenameDeckRequest,
@@ -267,6 +269,8 @@ const personal = {
     ipcRenderer.invoke("slides:renameDeck", req),
   slidesApproveOutline: (req: SlidesApproveOutlineRequest): Promise<SlidesDeckIpcResult> =>
     ipcRenderer.invoke("slides:approveOutline", req),
+  slidesReadOutlineDraft: (req: SlidesReadOutlineDraftRequest): Promise<SlidesReadOutlineDraftResult> =>
+    ipcRenderer.invoke("slides:readOutlineDraft", req),
   slidesReorderSlides: (req: SlidesReorderRequest): Promise<SlidesDeckIpcResult> =>
     ipcRenderer.invoke("slides:reorderSlides", req),
   slidesInsertSlide: (req: SlidesInsertSlideRequest): Promise<SlidesDeckIpcResult> =>

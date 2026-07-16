@@ -18,6 +18,7 @@ import type { ChatBlock, NormalizedThread } from "../compat/agent-types";
 import type { AppSettingsV1 } from "../compat/app-settings";
 import type { SendMessageOverrides } from "../compat/chat-store-types";
 import { useDesignWorkspaceStore } from "../design-workspace-store";
+import { designDocumentKind } from "../design-types";
 import { installDesignPlatform } from "../platform/bridge-adapter";
 import { designUiStorage } from "../platform/design-ui-storage";
 
@@ -47,9 +48,12 @@ function safeStringify(value: unknown): string {
 
 // 设计 run 的 runId 前缀契约(与 messages.ts 的 phantom-run 守卫、事件过滤共同依赖)。
 export const DESIGN_RUN_PREFIX = "design:";
+// Slides(演示文稿)回合前缀:同属设计工作台 run 管线,但主进程只对该前缀注入
+// cortex-slides MCP 工具(见 apps/desktop main/ipc/cli.ts),普通 design 回合不注入。
+export const SLIDES_RUN_PREFIX = "slides:";
 
 export function isDesignRunId(runId: string): boolean {
-  return runId.startsWith(DESIGN_RUN_PREFIX);
+  return runId.startsWith(DESIGN_RUN_PREFIX) || runId.startsWith(SLIDES_RUN_PREFIX);
 }
 
 // 当前是否有设计回合在跑(右栏 busy 态用)。
@@ -190,7 +194,12 @@ export async function sendDesignMessage(
   }
 
   const sessionId = `design-${docId}`;
-  const runId = `${DESIGN_RUN_PREFIX}${docId}:${uid("r")}`;
+  // Slides 设计稿的回合用 slides: 前缀 —— 主进程据此注入 cortex-slides MCP 工具;
+  // 普通 board 设计稿保持 design: 前缀(注入 design-delegate)。
+  const activeDoc = ws.documents.find((d) => d.id === ws.activeDocumentId);
+  const runPrefix =
+    activeDoc && designDocumentKind(activeDoc) === "slides" ? SLIDES_RUN_PREFIX : DESIGN_RUN_PREFIX;
+  const runId = `${runPrefix}${docId}:${uid("r")}`;
   const turnId = uid("turn");
   const userBlockId = uid("u");
 

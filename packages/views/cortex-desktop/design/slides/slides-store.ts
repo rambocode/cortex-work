@@ -12,7 +12,7 @@ import type {
   SlidesExportFormat,
   SlidesExportResult
 } from '@cortex-work/core/desktop/slides-ipc-types'
-import type { SlidesDeckManifest, SlidesError } from '@cortex-work/core/design/slides/slides-types'
+import type { SlidesDeckManifest, SlidesError, SlidesOutline } from '@cortex-work/core/design/slides/slides-types'
 
 export type SlidesZoom = 'fit' | '50' | '75' | '100'
 
@@ -40,8 +40,15 @@ export interface SlidesUiState {
   /** deck.json 曾从 tmp 恢复(提示一次)。 */
   recoveredNotice: boolean
   zoom: SlidesZoom
+  /** 提纲确认面板:draft 来自 drafts/outline.json(agent propose_outline 写入)。 */
+  outlineDialogOpen: boolean
+  outlineDraft: SlidesOutline | null
 
   setup(context: { bridge: DesktopBridge; workspaceRoot: string; deckId: string; title: string }): Promise<void>
+  openOutlineDialog(): Promise<void>
+  closeOutlineDialog(): void
+  /** 批准提纲(用户编辑后的最终版);成功返回 true 并采纳新 manifest。 */
+  approveOutline(outline: Omit<SlidesOutline, 'approvedAt'>): Promise<boolean>
   refresh(): Promise<void>
   insertSlide(afterSlotId?: string): Promise<void>
   duplicateSlide(slotId: string): Promise<void>
@@ -92,6 +99,39 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   conflictNotice: false,
   recoveredNotice: false,
   zoom: 'fit',
+  outlineDialogOpen: false,
+  outlineDraft: null,
+
+  openOutlineDialog: async () => {
+    if (!ctx?.bridge.slidesReadOutlineDraft) return
+    const result = await ctx.bridge
+      .slidesReadOutlineDraft({ workspaceRoot: ctx.workspaceRoot, deckId: ctx.deckId })
+      .catch(() => undefined)
+    if (result?.ok) {
+      set({ outlineDraft: result.outline, outlineDialogOpen: true })
+    } else {
+      set({ outlineDraft: null, outlineDialogOpen: true })
+    }
+  },
+
+  closeOutlineDialog: () => set({ outlineDialogOpen: false }),
+
+  approveOutline: async (outline) => {
+    const { manifest } = get()
+    if (!ctx?.bridge.slidesApproveOutline || !manifest) return false
+    set({ mutating: true })
+    const result = await ctx.bridge
+      .slidesApproveOutline({
+        workspaceRoot: ctx.workspaceRoot,
+        deckId: ctx.deckId,
+        expectedRevision: manifest.revision,
+        outline
+      })
+      .catch(() => undefined)
+    const ok = await absorbDeckResult(set, get().refresh, result)
+    if (ok) set({ outlineDialogOpen: false })
+    return ok
+  },
 
   setup: async ({ bridge, workspaceRoot, deckId, title }) => {
     ctx = { bridge, workspaceRoot, deckId }
@@ -102,7 +142,9 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       deckError: null,
       actionError: null,
       conflictNotice: false,
-      recoveredNotice: false
+      recoveredNotice: false,
+      outlineDialogOpen: false,
+      outlineDraft: null
     })
     if (!bridge.slidesLoadDeck || !bridge.slidesCreateDeck) {
       set({ loading: false, deckError: { code: 'io_error', message: '当前环境不支持演示文稿' } })
@@ -266,7 +308,9 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       deckError: null,
       actionError: null,
       conflictNotice: false,
-      recoveredNotice: false
+      recoveredNotice: false,
+      outlineDialogOpen: false,
+      outlineDraft: null
     })
   }
 }))

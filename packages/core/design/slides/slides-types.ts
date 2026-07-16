@@ -189,6 +189,28 @@ export function sortedSlidesSlots(slots: readonly SlidesSlot[]): SlidesSlot[] {
 }
 
 /**
+ * Recompute deck status from slot states after a slide-level mutation.
+ * Pre-approval states (draft / outline-proposed) are owned by the outline flow
+ * and never derived here. Post-approval:
+ *   any generating → 'generating'; empty remaining → 'generating' once some page
+ *   is ready (mid-generation) else 'outline-approved'; all ready → 'ready';
+ *   finished but with failures → 'error'.
+ */
+export function computeSlidesDeckStatus(
+  slides: readonly SlidesSlot[],
+  current: SlidesDeckStatus
+): SlidesDeckStatus {
+  if (current === 'draft' || current === 'outline-proposed') return current
+  if (slides.length === 0) return 'outline-approved'
+  const counts = { empty: 0, generating: 0, ready: 0, error: 0 }
+  for (const slot of slides) counts[slot.status] += 1
+  if (counts.generating > 0) return 'generating'
+  if (counts.empty > 0) return counts.ready > 0 || counts.error > 0 ? 'generating' : 'outline-approved'
+  if (counts.error > 0) return 'error'
+  return 'ready'
+}
+
+/**
  * Next stable slot id: `slot-NNN` continuing after the highest numeric suffix
  * among existing ids (deleted slots never free their number — ids must stay
  * unique across the deck's whole history so snapshots/notes can't collide).

@@ -71,6 +71,57 @@ describe('documents.json 索引兼容', () => {
   })
 })
 
+describe('computeSlidesDeckStatus 状态机', () => {
+  const mkSlot = (id: string, status: SlidesSlot['status']): SlidesSlot => ({
+    id,
+    order: 0,
+    title: id,
+    htmlPath: `.cortex-design/d/slides/${id}.html`,
+    revision: 0,
+    status,
+    updatedAt: NOW
+  })
+
+  it('提纲前状态不被推导覆盖', async () => {
+    const { computeSlidesDeckStatus } = await import('./slides-types')
+    expect(computeSlidesDeckStatus([mkSlot('slot-001', 'ready')], 'draft')).toBe('draft')
+    expect(computeSlidesDeckStatus([mkSlot('slot-001', 'ready')], 'outline-proposed')).toBe('outline-proposed')
+  })
+
+  it('批准后按 slot 状态推进:approved → generating → ready / error', async () => {
+    const { computeSlidesDeckStatus } = await import('./slides-types')
+    // 全空:仍是 outline-approved(等待生成)。
+    expect(
+      computeSlidesDeckStatus([mkSlot('slot-001', 'empty'), mkSlot('slot-002', 'empty')], 'outline-approved')
+    ).toBe('outline-approved')
+    // 部分完成:generating。
+    expect(
+      computeSlidesDeckStatus([mkSlot('slot-001', 'ready'), mkSlot('slot-002', 'empty')], 'outline-approved')
+    ).toBe('generating')
+    expect(
+      computeSlidesDeckStatus([mkSlot('slot-001', 'generating'), mkSlot('slot-002', 'ready')], 'generating')
+    ).toBe('generating')
+    // 全部就绪:ready。
+    expect(
+      computeSlidesDeckStatus([mkSlot('slot-001', 'ready'), mkSlot('slot-002', 'ready')], 'generating')
+    ).toBe('ready')
+    // 完成但有失败页:error(单页失败不回滚其他页面)。
+    expect(
+      computeSlidesDeckStatus([mkSlot('slot-001', 'ready'), mkSlot('slot-002', 'error')], 'generating')
+    ).toBe('error')
+  })
+})
+
+describe('slides runId 前缀', () => {
+  it('isDesignRunId 同时认 design: 与 slides: 前缀(共用设计 run 管线)', async () => {
+    const { isDesignRunId, SLIDES_RUN_PREFIX } = await import('../run/design-run-manager')
+    expect(SLIDES_RUN_PREFIX).toBe('slides:')
+    expect(isDesignRunId('design:doc1:r1')).toBe(true)
+    expect(isDesignRunId('slides:doc1:r1')).toBe(true)
+    expect(isDesignRunId('writing:doc1:r1')).toBe(false)
+  })
+})
+
 describe('deck manifest 工厂与排序', () => {
   it('createEmptySlidesDeckManifest 产出可解析的 draft manifest', () => {
     const manifest = createEmptySlidesDeckManifest({ id: 'deck1', title: 'T', now: NOW })

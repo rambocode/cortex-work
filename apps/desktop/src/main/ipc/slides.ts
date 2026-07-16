@@ -22,6 +22,8 @@ import type {
   SlidesExportResult,
   SlidesInsertSlideRequest,
   SlidesLoadDeckRequest,
+  SlidesReadOutlineDraftRequest,
+  SlidesReadOutlineDraftResult,
   SlidesReadSlideHtmlRequest,
   SlidesReadSlideHtmlResult,
   SlidesRenameDeckRequest,
@@ -37,6 +39,7 @@ import {
   duplicateSlide,
   loadDeckManifest,
   readSlideHtml,
+  readSlidesOutlineDraft,
   updateDeckManifest,
   writeSlideHtml,
   type SlidesWorkspaceResult,
@@ -246,6 +249,16 @@ export function registerSlidesHandlers(): void {
         }),
       ),
     ),
+  );
+
+  ipcMain.handle(
+    "slides:readOutlineDraft",
+    (_e, req: SlidesReadOutlineDraftRequest): Promise<SlidesReadOutlineDraftResult> =>
+      guarded("读取提纲草案失败", async () => {
+        const result = await readSlidesOutlineDraft({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
+        if (!result.ok) return { ok: false as const, error: result.error };
+        return { ok: true as const, outline: result.value };
+      }),
   );
 
   ipcMain.handle("slides:readSlideHtml", (_e, req: SlidesReadSlideHtmlRequest): Promise<SlidesReadSlideHtmlResult> =>

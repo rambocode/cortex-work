@@ -12,6 +12,8 @@ import { useSlidesStore } from './slides-store'
 type Props = {
   workspaceRoot: string
   slot: SlidesSlot | null
+  /** 错误页占位上的「重试本页」回调(缺省不显示按钮)。 */
+  onRetrySlide?: () => void
 }
 
 // fit 模式:容器尺寸 → 缩放因子(留 24px 内边距,夹在 0.1–1 之间,不放大超过 100%)。
@@ -22,7 +24,7 @@ export function slidesFitZoomFactor(containerWidth: number, containerHeight: num
   return Number.isFinite(factor) && factor > 0.1 ? Math.round(factor * 1000) / 1000 : 0.1
 }
 
-export function SlidesStage({ workspaceRoot, slot }: Props): ReactElement {
+export function SlidesStage({ workspaceRoot, slot, onRetrySlide }: Props): ReactElement {
   const { t } = useTranslation('design')
   const zoom = useSlidesStore((s) => s.zoom)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -69,9 +71,9 @@ export function SlidesStage({ workspaceRoot, slot }: Props): ReactElement {
               className: 'h-full w-full',
               style: { width: '100%', height: '100%' },
               title: slot!.title
-            }) ?? <StagePlaceholder status={slot!.status} error={preview.state.error} />
+            }) ?? <StagePlaceholder status={slot!.status} error={preview.state.error} onRetry={onRetrySlide} />
           ) : (
-            <StagePlaceholder status={slot?.status ?? 'empty'} />
+            <StagePlaceholder status={slot?.status ?? 'empty'} onRetry={onRetrySlide} />
           )}
           {preview.state.error ? (
             <div className="absolute inset-x-0 bottom-0 bg-[#c0392b]/85 px-2 py-1 text-[11px] text-white">
@@ -88,7 +90,15 @@ export function SlidesStage({ workspaceRoot, slot }: Props): ReactElement {
   )
 }
 
-function StagePlaceholder({ status, error }: { status: SlidesSlot['status']; error?: string }): ReactElement {
+function StagePlaceholder({
+  status,
+  error,
+  onRetry
+}: {
+  status: SlidesSlot['status']
+  error?: string
+  onRetry?: () => void
+}): ReactElement {
   const { t } = useTranslation('design')
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-ds-muted">
@@ -101,6 +111,15 @@ function StagePlaceholder({ status, error }: { status: SlidesSlot['status']; err
         <>
           <TriangleAlert className="h-5 w-5 text-[#c0392b]" strokeWidth={2} />
           <span className="text-[12.5px]">{error || t('slidesStatusError')}</span>
+          {onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-1 rounded-lg bg-[#3b82d8] px-3 py-1 text-[12px] text-white transition hover:bg-[#2f6fc0]"
+            >
+              {t('slidesRetrySlide')}
+            </button>
+          ) : null}
         </>
       ) : (
         <span className="text-[12.5px]">{t('slidesEmptySlideHint')}</span>

@@ -884,7 +884,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   // 独立消费,绝不能进入下面的 recovered-run 重建路径——否则会以 sessionIdHint 伪造
   // 个人会话运行态(phantom run),污染会话列表与过程流。writing- 一并挡是防御:
   // 写作 runId 恒为 writing: 前缀,但 sessionId 用 writing- 前缀,守卫两者杜绝任何漏网。
-  if (runId.startsWith("design:") || runId.startsWith("writing:") || runId.startsWith("writing-"))
+  if (runId.startsWith("design:") || runId.startsWith("slides:") || runId.startsWith("writing:") || runId.startsWith("writing-"))
     return;
   let run = runs.get(runId);
   if (!run) {
@@ -1264,7 +1264,7 @@ function handleCliExit(
   // 与 handleCliEvent 的守卫对称:design run 与 writing run(writing:/writing-)的退出
   // 由各自的 run-manager 处理,不得走 finalizeRun 的 sessionIdHint 兜底(会对
   // design-<docId> / writing-<threadUuid> 会话 flushChat,用个人消息缓存覆写工作台转录)。
-  if (runId.startsWith("design:") || runId.startsWith("writing:") || runId.startsWith("writing-"))
+  if (runId.startsWith("design:") || runId.startsWith("slides:") || runId.startsWith("writing:") || runId.startsWith("writing-"))
     return;
   finalizeRun(qc, runId, code, error, sessionIdHint);
 }

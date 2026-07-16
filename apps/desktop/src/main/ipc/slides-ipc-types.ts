@@ -22,6 +22,7 @@ export const SLIDES_IPC_CHANNELS = [
   'slides:loadDeck',
   'slides:renameDeck',
   'slides:approveOutline',
+  'slides:readOutlineDraft',
   'slides:reorderSlides',
   'slides:insertSlide',
   'slides:duplicateSlide',
@@ -98,6 +99,13 @@ export type SlidesSaveEditedHtmlRequest = SlidesDeckScopedRequest & {
 }
 
 export type SlidesReadSlideHtmlRequest = SlidesDeckScopedRequest & { slotId: string }
+
+/** 读取 drafts/outline.json 提纲草案(确认面板初始值)。 */
+export type SlidesReadOutlineDraftRequest = SlidesDeckScopedRequest
+
+export type SlidesReadOutlineDraftResult =
+  | { ok: true; outline: SlidesOutline }
+  | { ok: false; error: SlidesError }
 
 export type SlidesCheckRequest = SlidesDeckScopedRequest & {
   /** 限定检查的 slot;缺省检查整个 deck。 */

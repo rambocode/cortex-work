@@ -14,6 +14,7 @@ import {
   serializeSlidesManifest,
 } from "@cortex-work/core/design/slides/slides-schema";
 import {
+  computeSlidesDeckStatus,
   createEmptySlidesDeckManifest,
   type SlidesDeckManifest,
   type SlidesError,
@@ -348,6 +349,8 @@ export async function writeSlideHtml(options: {
       nextSlot.status = options.status ?? "ready";
       nextSlot.updatedAt = now;
       nextSlot.htmlPath = slidesSlideHtmlPath(options.deckId, options.slotId);
+      // deck 级状态随 slot 状态推导(generating → ready/error),提纲前状态不受影响。
+      next.status = computeSlidesDeckStatus(next.slides, next.status);
       next.revision = current.revision + 1;
       next.updatedAt = now;
       await atomicWriteFile(paths.manifestAbs, serializeSlidesManifest(next));
@@ -622,6 +625,7 @@ export async function deleteSlide(options: {
       if (next.activeSlideId === options.slotId) {
         next.activeSlideId = next.slides[0]?.id ?? null;
       }
+      next.status = computeSlidesDeckStatus(next.slides, next.status);
       next.revision = current.revision + 1;
       next.updatedAt = now;
       await atomicWriteFile(paths.manifestAbs, serializeSlidesManifest(next));
