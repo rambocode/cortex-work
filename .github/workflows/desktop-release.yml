@@ -2,8 +2,8 @@ name: Desktop Release
 run-name: Desktop Release ${{ github.ref_name }}
 
 # 私有库(闭源)的多架构构建/发布流水线。三个构建 job(macOS arm64 / macOS x64 / Windows x64)
-# 各自独立产出,互不依赖;发布(publish)job 汇总三份产物、合并 macOS 双架构的 latest-mac.yml,
-# 校验通过后统一发布一次。按 mode 分档,门槛递增:
+# 各自独立产出;正式发布时先创建 draft Release,三端将产物直接传入草稿,publish job 再合并
+# macOS 双架构 latest-mac.yml,校验通过后统一公开。非发布模式仍用 workflow artifact。按 mode 分档,门槛递增:
 #  - build-unsigned(默认 dispatch):只构建未签名包(bun/pnpm/electron-vite/electron-builder 打包),
 #    **不需要任何 secret**。用于先验证闭源库的自动构建链能否在 CI 跑通。
 #  - build-signed:构建 + Developer ID 签名 + Apple 公证 + 仓库外校验,不发布。需 5 个签名 secret。
@@ -45,8 +45,58 @@ permissions:
   contents: write
 
 jobs:
+  # 正式发布先创建不可见的 draft Release。三个构建 job 直接把产物上传到该草稿，避免依赖
+  # Actions artifact 存储配额；全部构建和清单护栏通过后，publish job 才将草稿公开。
+  prepare-release:
+    name: Prepare draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-release
+    env:
+      MODE: ${{ (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-unsigned' }}
+      BUILD_TAG: ${{ github.ref_name }}
+    outputs:
+      target_repo: ${{ steps.target.outputs.repo }}
+
+    steps:
+      - name: Create draft release for direct asset transfer
+        id: target
+        if: ${{ contains(fromJSON('["publish-self", "publish-draft", "publish-release"]'), env.MODE) }}
+        env:
+          SELF_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo="rambocode/cortex-work-release"
+          token="$RELEASE_GH_TOKEN"
+          if [[ "$MODE" == "publish-self" ]]; then
+            repo="rambocode/cortex-work"
+            token="$SELF_GH_TOKEN"
+          fi
+          export GH_TOKEN="$token"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+
+          if [[ "$repo" == "rambocode/cortex-work-release" ]]; then
+            default_branch="$(gh repo view "$repo" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+            target_sha="$(gh api "repos/$repo/commits/$default_branch" --jq '.sha')"
+            if ! gh api "repos/$repo/git/ref/tags/$BUILD_TAG" >/dev/null 2>&1; then
+              gh api --method POST "repos/$repo/git/refs" \
+                -f ref="refs/tags/$BUILD_TAG" \
+                -f sha="$target_sha" >/dev/null
+            fi
+          fi
+
+          if ! gh release view "$BUILD_TAG" --repo "$repo" >/dev/null 2>&1; then
+            gh release create "$BUILD_TAG" \
+              --repo "$repo" \
+              --title "${BUILD_TAG#v}" \
+              --notes "构建与发布校验进行中。" \
+              --draft
+          fi
+
   build-macos-arm64:
     name: Build (sign/publish per mode) — macOS arm64
+    needs: prepare-release
     # 必须 GitHub-hosted(一次性 VM);禁 self-hosted,否则证书/keychain 跨 job 残留。
     runs-on: macos-15
     timeout-minutes: 60
@@ -140,7 +190,7 @@ jobs:
 
       # —— 打包步:按 mode 决定是否签名。electron-builder 从已构建的 out/ 打包,
       # npmRebuild: false 使其不在本步跑 node-gyp 原生编译。签名凭据仅此步注入。
-      # 发布统一由 publish job 的 gh release 步完成,本 job 从不 --publish,避免多个 publisher 并发建 release。
+      # 本 job 只将资产传入不可见的 draft Release；最终清单合并与公开仍统一由 publish job 完成。
       - name: Build (and sign per mode)
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -182,12 +232,12 @@ jobs:
           xcrun stapler validate "$dmg_copy" \
             || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
 
-      # latest-mac.yml 重命名为 latest-mac-arm64.yml 上传,避免和 macos-x64 job 的同名文件在
-      # publish job 下载多份 artifact 时撞名(两者都叫 latest-mac.yml)。
-      - name: Rename manifest for artifact upload
+      # latest-mac.yml 重命名为 latest-mac-arm64.yml,供 publish job 与 x64 清单合并。
+      - name: Rename manifest for release transfer
         run: cp apps/desktop/dist/latest-mac.yml apps/desktop/dist/latest-mac-arm64.yml
 
-      - name: Upload artifacts
+      - name: Upload workflow artifact
+        if: ${{ !contains(fromJSON('["publish-self", "publish-draft", "publish-release"]'), env.MODE) }}
         uses: actions/upload-artifact@v7
         with:
           name: cortex-desktop-${{ env.BUILD_TAG }}-macos-arm64
@@ -200,8 +250,26 @@ jobs:
             apps/desktop/dist/latest-mac-arm64.yml
             apps/desktop/build/release-notes.md
 
+      - name: Upload assets directly to draft release
+        if: ${{ contains(fromJSON('["publish-self", "publish-draft", "publish-release"]'), env.MODE) }}
+        env:
+          GH_TOKEN: ${{ env.MODE == 'publish-self' && secrets.GITHUB_TOKEN || secrets.RELEASE_GH_TOKEN }}
+          RELEASE_REPO: ${{ needs.prepare-release.outputs.target_repo }}
+        run: |
+          shopt -s nullglob
+          assets=(
+            apps/desktop/dist/*-arm64.dmg
+            apps/desktop/dist/*-arm64.dmg.blockmap
+            apps/desktop/dist/*-arm64.zip
+            apps/desktop/dist/*-arm64.zip.blockmap
+            apps/desktop/dist/latest-mac-arm64.yml
+          )
+          (( ${#assets[@]} == 5 )) || { echo "Expected 5 arm64 release assets, got ${#assets[@]}" >&2; exit 1; }
+          gh release upload "$BUILD_TAG" --repo "$RELEASE_REPO" --clobber "${assets[@]}"
+
   build-macos-x64:
     name: Build (sign/publish per mode) — macOS x64
+    needs: prepare-release
     # arm64 硬件上交叉产出 x64:node-pty 自带 darwin-x64 prebuilds、pi 用 bun --target bun-darwin-x64
     # 交叉编译,故不需要真正的 Intel runner。
     runs-on: macos-15
@@ -322,10 +390,11 @@ jobs:
           xcrun stapler validate "$dmg_copy" \
             || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
 
-      - name: Rename manifest for artifact upload
+      - name: Rename manifest for release transfer
         run: cp apps/desktop/dist/latest-mac.yml apps/desktop/dist/latest-mac-x64.yml
 
-      - name: Upload artifacts
+      - name: Upload workflow artifact
+        if: ${{ !contains(fromJSON('["publish-self", "publish-draft", "publish-release"]'), env.MODE) }}
         uses: actions/upload-artifact@v7
         with:
           name: cortex-desktop-${{ env.BUILD_TAG }}-macos-x64
@@ -337,13 +406,33 @@ jobs:
             apps/desktop/dist/*-x64.zip.blockmap
             apps/desktop/dist/latest-mac-x64.yml
 
+      - name: Upload assets directly to draft release
+        if: ${{ contains(fromJSON('["publish-self", "publish-draft", "publish-release"]'), env.MODE) }}
+        env:
+          GH_TOKEN: ${{ env.MODE == 'publish-self' && secrets.GITHUB_TOKEN || secrets.RELEASE_GH_TOKEN }}
+          RELEASE_REPO: ${{ needs.prepare-release.outputs.target_repo }}
+        run: |
+          shopt -s nullglob
+          assets=(
+            apps/desktop/dist/*-x64.dmg
+            apps/desktop/dist/*-x64.dmg.blockmap
+            apps/desktop/dist/*-x64.zip
+            apps/desktop/dist/*-x64.zip.blockmap
+            apps/desktop/dist/latest-mac-x64.yml
+          )
+          (( ${#assets[@]} == 5 )) || { echo "Expected 5 x64 release assets, got ${#assets[@]}" >&2; exit 1; }
+          gh release upload "$BUILD_TAG" --repo "$RELEASE_REPO" --clobber "${assets[@]}"
+
   build-windows-x64:
     name: Build — Windows x64
+    needs: prepare-release
     runs-on: windows-latest
     timeout-minutes: 60
-    # 不签名(CSC_IDENTITY_AUTO_DISCOVERY=false 现状不变),无需任何 Apple/签名 secret,
-    # 也无需 production-release environment 门禁——始终构建,发布与否仍受 publish job 的 MODE 控制。
+    # 不签名(CSC_IDENTITY_AUTO_DISCOVERY=false 现状不变),但正式跨库发布需要从受保护
+    # production-release environment 读取 RELEASE_GH_TOKEN,将产物直接传入 draft Release。
+    environment: production-release
     env:
+      MODE: ${{ (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-unsigned' }}
       BUILD_TAG: ${{ github.ref_name }}
 
     steps:
@@ -388,7 +477,8 @@ jobs:
       - name: Build (unsigned)
         run: pnpm --filter @cortex-work/desktop run build:win-x64
 
-      - name: Upload artifacts
+      - name: Upload workflow artifact
+        if: ${{ !contains(fromJSON('["publish-self", "publish-draft", "publish-release"]'), env.MODE) }}
         uses: actions/upload-artifact@v7
         with:
           name: cortex-desktop-${{ env.BUILD_TAG }}-windows-x64
@@ -398,9 +488,25 @@ jobs:
             apps/desktop/dist/*.exe.blockmap
             apps/desktop/dist/latest.yml
 
+      - name: Upload assets directly to draft release
+        if: ${{ contains(fromJSON('["publish-self", "publish-draft", "publish-release"]'), env.MODE) }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ env.MODE == 'publish-self' && secrets.GITHUB_TOKEN || secrets.RELEASE_GH_TOKEN }}
+          RELEASE_REPO: ${{ needs.prepare-release.outputs.target_repo }}
+        run: |
+          shopt -s nullglob
+          assets=(
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.exe.blockmap
+            apps/desktop/dist/latest.yml
+          )
+          (( ${#assets[@]} == 3 )) || { echo "Expected 3 Windows release assets, got ${#assets[@]}" >&2; exit 1; }
+          gh release upload "$BUILD_TAG" --repo "$RELEASE_REPO" --clobber "${assets[@]}"
+
   publish:
     name: Publish merged release (macOS arm64 + x64, Windows x64)
-    needs: [build-macos-arm64, build-macos-x64, build-windows-x64]
+    needs: [prepare-release, build-macos-arm64, build-macos-x64, build-windows-x64]
     if: ${{ contains(fromJSON('["publish-self", "publish-draft", "publish-release"]'), (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-unsigned') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -408,6 +514,7 @@ jobs:
     env:
       MODE: ${{ (github.event_name == 'push' && 'publish-release') || github.event.inputs.mode || 'build-unsigned' }}
       BUILD_TAG: ${{ github.ref_name }}
+      RELEASE_REPO: ${{ needs.prepare-release.outputs.target_repo }}
 
     steps:
       - name: Checkout
@@ -428,11 +535,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download artifacts
-        uses: actions/download-artifact@v6
-        with:
-          path: artifacts
-          pattern: cortex-desktop-${{ env.BUILD_TAG }}-*
+      - name: Generate strict release notes
+        env:
+          CORTEX_NOTES_STRICT: "1"
+        run: pnpm --filter @cortex-work/desktop run prebuild:notes
+
+      - name: Download release manifests
+        env:
+          GH_TOKEN: ${{ env.MODE == 'publish-self' && secrets.GITHUB_TOKEN || secrets.RELEASE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          arm_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-arm64"
+          x64_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-x64"
+          mkdir -p "$arm_dir" "$x64_dir"
+          gh release download "$BUILD_TAG" --repo "$RELEASE_REPO" \
+            --pattern latest-mac-arm64.yml --dir "$arm_dir"
+          gh release download "$BUILD_TAG" --repo "$RELEASE_REPO" \
+            --pattern latest-mac-x64.yml --dir "$x64_dir"
 
       # 第一道护栏:merge 脚本内置断言,任一份清单"名不副实"或合并结果非双架构直接 abort。
       - name: Merge macOS update manifests (arm64 + x64)
@@ -448,87 +567,57 @@ jobs:
       - name: Verify merged manifest is multi-arch (independent guard)
         run: node apps/desktop/scripts/merge-mac-update-manifest.mjs --verify staging/latest-mac.yml
 
-      - name: Stage release assets
+      - name: Verify draft release asset inventory
+        env:
+          GH_TOKEN: ${{ env.MODE == 'publish-self' && secrets.GITHUB_TOKEN || secrets.RELEASE_GH_TOKEN }}
         run: |
           set -euo pipefail
-          # nullglob:下方 G6 护栏用数组长度判断 pattern 是否命中,依赖未匹配的 glob 展开为空。
-          shopt -s nullglob
-          arm_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-arm64"
-          x64_dir="artifacts/cortex-desktop-${BUILD_TAG}-macos-x64"
-          win_dir="artifacts/cortex-desktop-${BUILD_TAG}-windows-x64"
+          gh release view "$BUILD_TAG" --repo "$RELEASE_REPO" \
+            --json assets --jq '.assets[].name' > release-assets.txt
 
-          cp "$arm_dir"/*-arm64.dmg "$arm_dir"/*-arm64.dmg.blockmap staging/
-          cp "$arm_dir"/*-arm64.zip "$arm_dir"/*-arm64.zip.blockmap staging/
-          cp "$x64_dir"/*-x64.dmg "$x64_dir"/*-x64.dmg.blockmap staging/
-          cp "$x64_dir"/*-x64.zip "$x64_dir"/*-x64.zip.blockmap staging/
-          cp "$win_dir"/*.exe "$win_dir"/*.exe.blockmap staging/
-          cp "$win_dir/latest.yml" staging/
-
-          # G6 护栏:mac 双架构资产必须同时存在,少一个直接中止。用数组长度判断而非 ls 是否成功——
-          # nullglob 已开启,未匹配的 pattern 展开为空、`ls staging/` 会退化成列出整个目录、总是成功,
-          # 不能反映某个具体 pattern 有没有真的匹配到文件。
-          for pattern in "*-arm64.dmg" "*-arm64.zip" "*-x64.dmg" "*-x64.zip"; do
-            matches=(staging/$pattern)
-            if [[ ${#matches[@]} -eq 0 ]]; then
-              echo "Missing mac release asset matching: $pattern" >&2
+          required_patterns=(
+            '.*-arm64\.dmg$'
+            '.*-arm64\.dmg\.blockmap$'
+            '.*-arm64\.zip$'
+            '.*-arm64\.zip\.blockmap$'
+            '.*-x64\.dmg$'
+            '.*-x64\.dmg\.blockmap$'
+            '.*-x64\.zip$'
+            '.*-x64\.zip\.blockmap$'
+            '.*\.exe$'
+            '.*\.exe\.blockmap$'
+            '^latest\.yml$'
+            '^latest-mac-arm64\.yml$'
+            '^latest-mac-x64\.yml$'
+          )
+          for pattern in "${required_patterns[@]}"; do
+            if ! grep -Eq "$pattern" release-assets.txt; then
+              echo "Missing release asset matching: $pattern" >&2
               exit 1
             fi
           done
+          echo "Draft release assets:"
+          cat release-assets.txt
 
-          echo "Staged assets:"
-          ls -la staging/
-
-      - name: Publish GitHub release
+      - name: Finalize GitHub release
         env:
-          SELF_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          GH_TOKEN: ${{ env.MODE == 'publish-self' && secrets.GITHUB_TOKEN || secrets.RELEASE_GH_TOKEN }}
         run: |
           set -euo pipefail
+          notes_file="apps/desktop/build/release-notes.md"
+          gh release upload "$BUILD_TAG" --repo "$RELEASE_REPO" --clobber staging/latest-mac.yml
+          gh release edit "$BUILD_TAG" --repo "$RELEASE_REPO" \
+            --title "${BUILD_TAG#v}" --notes-file "$notes_file"
 
-          repo="rambocode/cortex-work-release"
-          token="$RELEASE_GH_TOKEN"
+          # 两份单架构清单只用于流水线内部合并，最终 Release 仅保留双架构 latest-mac.yml。
+          release_id="$(gh api "repos/$RELEASE_REPO/releases/tags/$BUILD_TAG" --jq '.id')"
+          for name in latest-mac-arm64.yml latest-mac-x64.yml; do
+            asset_id="$(gh api "repos/$RELEASE_REPO/releases/$release_id/assets" \
+              --jq ".[] | select(.name == \"$name\") | .id")"
+            [[ -n "$asset_id" ]] || { echo "Missing temporary manifest: $name" >&2; exit 1; }
+            gh api --method DELETE "repos/$RELEASE_REPO/releases/assets/$asset_id"
+          done
 
-          if [[ "$MODE" == "publish-self" ]]; then
-            repo="rambocode/cortex-work"
-            token="$SELF_GH_TOKEN"
+          if [[ "$MODE" != "publish-draft" ]]; then
+            gh release edit "$BUILD_TAG" --repo "$RELEASE_REPO" --draft=false --latest
           fi
-
-          export GH_TOKEN="$token"
-
-          # 跨库 release 仓库只承载产物,tag 指向 release 仓库默认分支即可;
-          # GitHub 发布正式 release 时要求 tag 在目标仓库有效存在。
-          if [[ "$repo" == "rambocode/cortex-work-release" ]]; then
-            default_branch="$(gh repo view "$repo" --json defaultBranchRef --jq '.defaultBranchRef.name')"
-            target_sha="$(gh api "repos/$repo/commits/$default_branch" --jq '.sha')"
-            if ! gh api "repos/$repo/git/ref/tags/$BUILD_TAG" >/dev/null 2>&1; then
-              gh api --method POST "repos/$repo/git/refs" \
-                -f ref="refs/tags/$BUILD_TAG" \
-                -f sha="$target_sha" >/dev/null
-            fi
-          fi
-
-          # Release body 与应用内更新弹窗同源:用 arm64 job 里 prepackage 生成的 release-notes.md。
-          notes_file="artifacts/cortex-desktop-${BUILD_TAG}-macos-arm64/build/release-notes.md"
-          if [[ ! -f "$notes_file" ]]; then
-            echo "Missing release notes file: $notes_file" >&2
-            exit 1
-          fi
-
-          if ! gh release view "$BUILD_TAG" --repo "$repo" >/dev/null 2>&1; then
-            if [[ "$MODE" == "publish-draft" ]]; then
-              gh release create "$BUILD_TAG" \
-                --repo "$repo" \
-                --title "${BUILD_TAG#v}" \
-                --notes-file "$notes_file" \
-                --draft
-            else
-              gh release create "$BUILD_TAG" \
-                --repo "$repo" \
-                --title "${BUILD_TAG#v}" \
-                --notes-file "$notes_file"
-            fi
-          fi
-
-          # 只上传 staging/ 里合并后的最终产物;per-arch 的 latest-mac-arm64.yml/latest-mac-x64.yml
-          # 从未被 copy 进 staging,结构上保证不会被误传。
-          gh release upload "$BUILD_TAG" --repo "$repo" --clobber staging/*
