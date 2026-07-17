@@ -168,14 +168,11 @@ export function resolveDesignRunAgent(
 ): { agent: AgentKind; derivedId?: string } {
   const picked = s.designSettings.agent;
   const isKnownKind = picked === "claude" || picked === "codex" || picked === "pi";
-  let agent: AgentKind;
-  if (!isKnownKind) {
-    agent = resolveDefaultAgent(s);
-  } else if (picked !== "pi" && s.agentsAvailable?.[picked] === false) {
-    agent = resolveDefaultAgent(s);
-  } else {
-    agent = picked;
-  }
+  // 显式选择无条件生效,**不做可用性静默回落**:agentsAvailable 来自启动期探测,可能因超时
+  // 误判 false;此前「不可用→悄悄换默认 agent」会造成 UI 显示 claude、实际 spawn codex 的
+  // 静默分歧(权限/模型行为全对不上,极难排查)。真不可用时由主进程 spawn 前的
+  // assertAgentAvailable 给出明确可读错误,好于换人。
+  const agent: AgentKind = isKnownKind ? picked : resolveDefaultAgent(s);
   const derivedId = s.designSettings.derivedAgentId;
   const validDerived =
     derivedId && (s.derivedAgents ?? []).some((d) => d.id === derivedId) ? derivedId : undefined;
