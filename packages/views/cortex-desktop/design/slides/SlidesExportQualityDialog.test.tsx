@@ -53,6 +53,54 @@ beforeEach(() => {
 })
 
 describe('SlidesExportQualityDialog', () => {
+  it('覆盖层退出窗口拖拽命中区,保证按钮可以接收点击', () => {
+    render(<SlidesExportQualityDialog />)
+
+    expect(screen.getByRole('presentation')).toHaveClass('ds-no-drag')
+  })
+
+  it('打开原生保存框前先关闭预检层,避免 macOS 嵌套 modal 阻塞覆盖确认', async () => {
+    let resolveExport!: (result: { ok: true; path: string; format: 'pptx' }) => void
+    const exportDeck = vi.fn(
+      () => new Promise<{ ok: true; path: string; format: 'pptx' }>((resolve) => {
+        resolveExport = resolve
+        expect(screen.queryByRole('presentation')).not.toBeInTheDocument()
+      })
+    )
+    useSlidesStore.setState({ exportDeck })
+    render(<SlidesExportQualityDialog />)
+
+    fireEvent.click(screen.getByRole('button', { name: '继续导出 PPTX' }))
+
+    expect(exportDeck).toHaveBeenCalledWith('pptx')
+    expect(useSlidesStore.getState().exportQualityOpen).toBe(false)
+    resolveExport({ ok: true, path: '/tmp/a.pptx', format: 'pptx' })
+  })
+
+  it('连续点击只打开一次原生保存框', () => {
+    const exportDeck = vi.fn(async () => ({ ok: false as const, canceled: true as const }))
+    useSlidesStore.setState({ exportDeck })
+    render(<SlidesExportQualityDialog />)
+    const button = screen.getByRole('button', { name: '继续导出 PPTX' })
+
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    expect(exportDeck).toHaveBeenCalledTimes(1)
+  })
+
+  it('关闭后重新打开预检可以再次导出', () => {
+    const exportDeck = vi.fn(async () => ({ ok: false as const, canceled: true as const }))
+    useSlidesStore.setState({ exportDeck })
+    render(<SlidesExportQualityDialog />)
+
+    fireEvent.click(screen.getByRole('button', { name: '继续导出 PPTX' }))
+    act(() => useSlidesStore.setState({ exportQualityOpen: true }))
+    fireEvent.click(screen.getByRole('button', { name: '继续导出 PPTX' }))
+
+    expect(exportDeck).toHaveBeenCalledTimes(2)
+  })
+
   it('逐页展示原生/栅格数量、nativeKinds 与 warnings,用户确认后继续导出', async () => {
     const exportDeck = vi.fn(async () => ({ ok: true as const, path: '/tmp/a.pptx', format: 'pptx' as const }))
     useSlidesStore.setState({ exportDeck })

@@ -1,5 +1,6 @@
-import { useState, type ReactElement } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, X } from 'lucide-react'
+import { useEffect, useRef, type ReactElement } from 'react'
+import { flushSync } from 'react-dom'
+import { AlertTriangle, CheckCircle2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSlidesStore } from './slides-store'
 
@@ -18,7 +19,11 @@ export function SlidesExportQualityDialog({ onOptimize }: Props): ReactElement |
   const analysis = useSlidesStore((state) => state.exportQualityAnalysis)
   const close = useSlidesStore((state) => state.closeExportQuality)
   const exportDeck = useSlidesStore((state) => state.exportDeck)
-  const [exporting, setExporting] = useState(false)
+  const exportStartedRef = useRef(false)
+
+  useEffect(() => {
+    if (open) exportStartedRef.current = false
+  }, [open])
 
   if (!open || !analysis) return null
   const heavySlides = analysis.slides.filter((slide) => slide.report.quality !== 'high')
@@ -30,14 +35,16 @@ export function SlidesExportQualityDialog({ onOptimize }: Props): ReactElement |
       .join(' · ')
 
   const continueExport = async (): Promise<void> => {
-    setExporting(true)
-    const result = await exportDeck('pptx')
-    setExporting(false)
-    if (result.ok || result.canceled) close()
+    if (exportStartedRef.current) return
+    exportStartedRef.current = true
+    // 原生保存框必须在 HTML modal 退出后再打开。macOS 上两层 modal 生命周期
+    // 重叠时，文件已存在后的 Replace 确认可能无法获得鼠标命中。
+    flushSync(close)
+    await exportDeck('pptx')
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6" role="presentation">
+    <div className="ds-no-drag fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6" role="presentation">
       <section
         role="dialog"
         aria-modal="true"
@@ -140,11 +147,9 @@ export function SlidesExportQualityDialog({ onOptimize }: Props): ReactElement |
           ) : null}
           <button
             type="button"
-            disabled={exporting}
             onClick={() => void continueExport()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2376d2] px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2376d2] px-3 py-1.5 text-[12px] font-medium text-white"
           >
-            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             {t('slidesExportQualityContinue')}
           </button>
         </footer>
