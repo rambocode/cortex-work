@@ -13,7 +13,14 @@ export default defineConfig({
     // externalizeDepsPlugin 失效、把 nodemailer/electron-updater/MCP SDK 等全打进 chunk(回归)。
     // 文档抽取(doc-extract)在主进程内跑 officeParser(externalize + asarUnpack,wasm 完整),
     // 不另起 worker 构建入口;进程隔离(utilityProcess/fork)待打包验证后于二期再做。
-    plugins: [externalizeDepsPlugin({ exclude: ["@cortex-work/core"] })],
+    // node-mac-permissions 是 optionalDependencies（Windows 不安装），插件默认只读取
+    // dependencies；显式 include 才能让 Windows 构建保留动态 import、运行时走非 mac 短路。
+    plugins: [
+      externalizeDepsPlugin({
+        exclude: ["@cortex-work/core"],
+        include: ["node-mac-permissions"],
+      }),
+    ],
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
