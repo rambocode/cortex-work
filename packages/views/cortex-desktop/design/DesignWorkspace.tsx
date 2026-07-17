@@ -212,9 +212,10 @@ export function DesignWorkspace(): ReactElement {
     // 设计模式整窗接管:fixed 覆盖层盖住个人工作区侧栏,自成左(设计稿树)/中(画布)/右(对话)三栏。
     <div className="fixed inset-0 z-40 flex min-h-0 min-w-0 overflow-hidden bg-ds-main">
       {/* 左栏固定宽度(DesignSidebar 内部是 w-full,需外层约束,否则铺满挤没画布)。
-          整窗覆盖时顶部避让 macOS 红绿灯(pt-7)并作拖拽区(ds-drag)。 */}
+          红绿灯避让由 SidebarFrame 自带的 titlebar spacer 负责,这里不再额外 pt
+          (否则双重预留导致顶部留白过大);外层仅作拖拽区(ds-drag)。 */}
       {leftCollapsed ? null : (
-        <div className="ds-drag grid min-h-0 w-[260px] shrink-0 bg-ds-sidebar pt-7">
+        <div className="ds-drag grid min-h-0 w-[260px] shrink-0 bg-ds-sidebar">
           <div className="ds-no-drag grid min-h-0 overflow-hidden">
             <DesignSidebar
               onCodeOpen={closeDesign}

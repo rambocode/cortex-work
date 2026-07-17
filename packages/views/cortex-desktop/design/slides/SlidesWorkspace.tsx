@@ -11,7 +11,6 @@ import { buildSlidesTurnPrompt } from '@cortex-work/core/design/slides/slides-pr
 import { useChatStore } from '@cortex-work/core/design/compat/chat-store'
 import { SlidesCheckPanel } from './SlidesCheckPanel'
 import { SlidesOutlineDialog } from './SlidesOutlineDialog'
-import { SlidesTemplatePicker } from './SlidesTemplatePicker'
 import { SlidesStage } from './SlidesStage'
 import { SlidesThumbnailRail } from './SlidesThumbnailRail'
 import { SlidesToolbar } from './SlidesToolbar'
@@ -156,7 +155,6 @@ export function SlidesWorkspace({ workspaceRoot, documentId, documentTitle }: Pr
           }
         />
         <SlidesCheckPanel />
-        <SlidesTemplatePicker />
         {outlineDialogOpen ? <SlidesOutlineDialog onApproved={handleOutlineApproved} /> : null}
       </div>
     </div>

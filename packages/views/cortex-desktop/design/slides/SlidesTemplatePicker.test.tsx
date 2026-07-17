@@ -126,14 +126,41 @@ describe('SlidesTemplatePicker', () => {
   })
 
   it('当前主题对应的模板显示为已应用', async () => {
+    // 匹配依据是 theme.name(fixture 里 = 模板 id),不是展示标题。
     const bridge = fakeBridge({
-      slidesLoadDeck: vi.fn(async () => ({ ok: true as const, manifest: manifest('Quiet Axis') }))
+      slidesLoadDeck: vi.fn(async () => ({ ok: true as const, manifest: manifest('quiet-axis') }))
     })
     await setup(bridge)
     render(<SlidesTemplatePicker />)
     await useSlidesStore.getState().openTemplatePicker()
-    expect(screen.getByTestId('slides-template-quiet-axis').className).toContain('#3b82d8')
+    expect(screen.getByTestId('slides-template-quiet-axis').className).toContain('bg-[#3b82d8]/8')
     expect(screen.getByTestId('slides-template-pixel-orbit').className).not.toContain('bg-[#3b82d8]/8')
+  })
+
+  it('悬停模板行 → 经桥接取参考页并渲染缩放 iframe 预览', async () => {
+    const readRef = vi.fn(async () => ({
+      ok: true as const,
+      html: '<!DOCTYPE html><html><body>REF</body></html>'
+    }))
+    await setup(fakeBridge({ slidesReadTemplateReference: readRef }))
+    render(<SlidesTemplatePicker />)
+    await useSlidesStore.getState().openTemplatePicker()
+    fireEvent.mouseEnter(screen.getByTestId('slides-template-quiet-axis'))
+    await waitFor(() =>
+      expect(readRef).toHaveBeenCalledWith({ templateId: 'quiet-axis', file: 'references/template.html' })
+    )
+    // 预览 iframe 以模板标题命名(title 属性),srcdoc 为参考页 HTML。
+    await waitFor(() => expect(screen.getByTitle('Quiet Axis')).toBeInTheDocument())
+  })
+
+  it('桥接无参考页能力 → 悬停不报错,预览退化为色板占位', async () => {
+    await setup(fakeBridge())
+    render(<SlidesTemplatePicker />)
+    await useSlidesStore.getState().openTemplatePicker()
+    fireEvent.mouseEnter(screen.getByTestId('slides-template-pixel-orbit'))
+    // 无 iframe,但预览卡片仍展示模板标题与描述(色板占位)。
+    await waitFor(() => expect(screen.queryByTitle('Pixel Orbit')).toBeNull())
+    expect(screen.getAllByText('Pixel Orbit').length).toBeGreaterThan(1)
   })
 
   it('模板加载失败 → 空列表 + 可读错误', async () => {

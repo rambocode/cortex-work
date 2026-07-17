@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { ChevronDown, Download, Loader2, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
 import type { SlidesExportFormat } from '@cortex-work/core/desktop/slides-ipc-types'
 import { useSlidesStore, type SlidesZoom } from './slides-store'
+import { SlidesTemplatePicker } from './SlidesTemplatePicker'
 
 const ZOOMS: SlidesZoom[] = ['fit', '50', '75', '100']
 
@@ -38,8 +39,9 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
     if (result.ok) setExportedPath(result.path)
   }
 
+  // 背景用 bg-ds-sidebar 与左侧缩略图栏/设计侧栏同色,避免白色工具栏悬在灰色舞台上突兀。
   return (
-    <div className="ds-no-drag flex shrink-0 flex-col border-b border-black/8 bg-ds-main dark:border-white/8">
+    <div className="ds-no-drag flex shrink-0 flex-col border-b border-black/8 bg-ds-sidebar dark:border-white/8">
       <div className="flex h-11 items-center gap-2 px-3">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ds-strong">
           {manifest?.title ?? ''}
@@ -60,17 +62,20 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
             </button>
           ))}
         </div>
-        {/* 模板入口:此前模板只有 Agent 侧工具、界面无从选择。 */}
-        <button
-          type="button"
-          onClick={() => void openTemplatePicker()}
-          disabled={!manifest}
-          title={t('slidesTemplateTitle')}
-          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-ds-muted transition hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/8"
-        >
-          <Palette className="h-3.5 w-3.5" strokeWidth={1.9} />
-          {t('slidesTemplateButton')}
-        </button>
+        {/* 模板入口:下拉面板(SlidesTemplatePicker)锚定在此 relative wrapper 下方。 */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => void openTemplatePicker()}
+            disabled={!manifest}
+            title={t('slidesTemplateTitle')}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-ds-muted transition hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/8"
+          >
+            <Palette className="h-3.5 w-3.5" strokeWidth={1.9} />
+            {t('slidesTemplateButton')}
+          </button>
+          <SlidesTemplatePicker />
+        </div>
         <button
           type="button"
           onClick={onRunCheck}

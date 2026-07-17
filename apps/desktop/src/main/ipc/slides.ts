@@ -33,6 +33,8 @@ import type {
   SlidesReadSlideHtmlResult,
   SlidesReadSnapshotRequest,
   SlidesReadSnapshotResult,
+  SlidesReadTemplateReferenceRequest,
+  SlidesReadTemplateReferenceResult,
   SlidesRenameDeckRequest,
   SlidesReorderRequest,
   SlidesSaveEditedHtmlRequest,
@@ -59,7 +61,7 @@ import { buildDeckPptx, writeArtifactAtomic } from "../capabilities/slides/expor
 import { buildDeckPdf } from "../capabilities/slides/export/pdf";
 import { exportDeckPngs } from "../capabilities/slides/export/png";
 import { buildPresenterHtml, presenterSlots, type PresenterSlide } from "../capabilities/slides/export/html";
-import { getSlidesTemplate, listSlidesTemplates } from "../capabilities/slides/templates";
+import { getSlidesTemplate, listSlidesTemplates, readTemplateReferenceHtml } from "../capabilities/slides/templates";
 
 // workspace 层 Result → IPC envelope(成功统一携带最新 manifest)。
 function toDeckResult(
@@ -290,6 +292,21 @@ export function registerSlidesHandlers(): void {
         }),
       );
     }),
+  );
+
+  // 模板参考页 HTML:下拉 hover 预览用。路径校验在 readTemplateReferenceHtml 内
+  // (id 白名单 + file 必须是 template.json 声明的 referenceSlides 之一 + 不出模板目录),
+  // 任何不合法/缺失统一回 not_found,renderer 退化为色板占位。
+  ipcMain.handle(
+    "slides:readTemplateReference",
+    (_e, req: SlidesReadTemplateReferenceRequest): Promise<SlidesReadTemplateReferenceResult> =>
+      guarded("读取模板参考页失败", async () => {
+        const html = await readTemplateReferenceHtml(req.templateId, req.file);
+        if (html === null) {
+          return { ok: false as const, error: { code: "not_found" as const, message: `模板参考页不存在: ${req.templateId}/${req.file}` } };
+        }
+        return { ok: true as const, html };
+      }),
   );
 
   ipcMain.handle(

@@ -3,6 +3,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SlidesDeckManifest, SlidesOutline } from "@cortex-work/core/design/slides/slides-types";
 import {
@@ -14,12 +15,16 @@ const { handlers } = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, req: unknown) => Promise<unknown>>(),
 }));
 
+// app.getAppPath() → apps/desktop 根:模板通道走真实 resources/slides/templates 资源。
+const APP_PATH = fileURLToPath(new URL("../../..", import.meta.url));
+
 vi.mock("electron", () => ({
   ipcMain: {
     handle: (channel: string, fn: (event: unknown, req: unknown) => Promise<unknown>) => {
       handlers.set(channel, fn);
     },
   },
+  app: { getAppPath: () => APP_PATH },
 }));
 
 vi.mock("../log", () => ({
@@ -276,6 +281,29 @@ describe("deck 生命周期经 IPC", () => {
     });
     expect(shot.ok).toBe(false);
     expect(shot.error?.code).toBe("not_found");
+  });
+});
+
+describe("模板参考页经 IPC", () => {
+  it("读取声明过的参考页返回 HTML;未声明路径/未知模板回 not_found", async () => {
+    // 走真实随包模板资源(electron mock 的 getAppPath 指向 apps/desktop 根)。
+    const okResult = await invoke<{ ok: boolean; html?: string }>("slides:readTemplateReference", {
+      templateId: "quiet-axis",
+      file: "references/template.html",
+    });
+    expect(okResult.ok).toBe(true);
+    expect(okResult.html?.toLowerCase()).toContain("<!doctype html>");
+
+    // 路径守卫在 readTemplateReferenceHtml 内:非声明 file / 穿越 / 未知 id 一律 not_found。
+    for (const req of [
+      { templateId: "quiet-axis", file: "../../../etc/passwd" },
+      { templateId: "quiet-axis", file: "template.json" },
+      { templateId: "nope-xyz", file: "references/template.html" },
+    ]) {
+      const denied = await invoke<{ ok: boolean; error?: { code: string } }>("slides:readTemplateReference", req);
+      expect(denied.ok).toBe(false);
+      if (!denied.ok) expect(denied.error?.code).toBe("not_found");
+    }
   });
 });
 

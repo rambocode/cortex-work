@@ -143,6 +143,8 @@ import type {
   SlidesReadSlideHtmlResult,
   SlidesReadSnapshotRequest,
   SlidesReadSnapshotResult,
+  SlidesReadTemplateReferenceRequest,
+  SlidesReadTemplateReferenceResult,
   SlidesRenameDeckRequest,
   SlidesReorderRequest,
   SlidesSaveEditedHtmlRequest,
@@ -274,6 +276,8 @@ const personal = {
   slidesListTemplates: (): Promise<SlidesListTemplatesResult> => ipcRenderer.invoke("slides:listTemplates"),
   slidesApplyTemplate: (req: SlidesApplyTemplateRequest): Promise<SlidesDeckIpcResult> =>
     ipcRenderer.invoke("slides:applyTemplate", req),
+  slidesReadTemplateReference: (req: SlidesReadTemplateReferenceRequest): Promise<SlidesReadTemplateReferenceResult> =>
+    ipcRenderer.invoke("slides:readTemplateReference", req),
   slidesApproveOutline: (req: SlidesApproveOutlineRequest): Promise<SlidesDeckIpcResult> =>
     ipcRenderer.invoke("slides:approveOutline", req),
   slidesReadOutlineDraft: (req: SlidesReadOutlineDraftRequest): Promise<SlidesReadOutlineDraftResult> =>

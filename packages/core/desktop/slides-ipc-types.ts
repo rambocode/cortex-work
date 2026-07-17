@@ -24,6 +24,7 @@ export const SLIDES_IPC_CHANNELS = [
   'slides:renameDeck',
   'slides:listTemplates',
   'slides:applyTemplate',
+  'slides:readTemplateReference',
   'slides:approveOutline',
   'slides:readOutlineDraft',
   'slides:reorderSlides',
@@ -126,6 +127,20 @@ export type SlidesApplyTemplateRequest = SlidesDeckScopedRequest & {
   expectedRevision: number
   templateId: string
 }
+
+/**
+ * 读取模板参考页 HTML(模板下拉 hover 预览用)。参考页自包含(内联样式、无外链资源),
+ * renderer 以沙箱 iframe srcdoc 缩放渲染。file 必须是该模板 template.json 声明的
+ * referenceSlides 相对路径之一,主进程校验通过才读盘(不接受任意路径)。
+ */
+export type SlidesReadTemplateReferenceRequest = {
+  templateId: string
+  file: string
+}
+
+export type SlidesReadTemplateReferenceResult =
+  | { ok: true; html: string }
+  | { ok: false; error: SlidesError }
 
 /** 读取 drafts/outline.json 提纲草案(确认面板初始值)。 */
 export type SlidesReadOutlineDraftRequest = SlidesDeckScopedRequest

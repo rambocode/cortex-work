@@ -133,6 +133,8 @@ import type {
   SlidesReadSlideHtmlResult,
   SlidesReadSnapshotRequest,
   SlidesReadSnapshotResult,
+  SlidesReadTemplateReferenceRequest,
+  SlidesReadTemplateReferenceResult,
   SlidesRenameDeckRequest,
   SlidesReorderRequest,
   SlidesSaveEditedHtmlRequest,
@@ -246,6 +248,8 @@ export interface DesktopBridge {
   slidesRenameDeck?(req: SlidesRenameDeckRequest): Promise<SlidesDeckIpcResult>;
   slidesListTemplates?(): Promise<SlidesListTemplatesResult>;
   slidesApplyTemplate?(req: SlidesApplyTemplateRequest): Promise<SlidesDeckIpcResult>;
+  // 模板参考页 HTML(模板下拉 hover 预览);可选——无能力时预览退化为色板占位。
+  slidesReadTemplateReference?(req: SlidesReadTemplateReferenceRequest): Promise<SlidesReadTemplateReferenceResult>;
   slidesApproveOutline?(req: SlidesApproveOutlineRequest): Promise<SlidesDeckIpcResult>;
   slidesReadOutlineDraft?(req: SlidesReadOutlineDraftRequest): Promise<SlidesReadOutlineDraftResult>;
   slidesReorderSlides?(req: SlidesReorderRequest): Promise<SlidesDeckIpcResult>;

@@ -121,6 +121,8 @@ export interface SlidesUiState {
   closeTemplatePicker(): void
   /** 应用模板到当前 deck(主进程写主题);成功返回 true。 */
   applyTemplate(templateId: string): Promise<boolean>
+  /** 读取模板参考页 HTML(下拉 hover 预览);无能力/失败返回 null,UI 退化为色板占位。 */
+  readTemplateReference(templateId: string, file: string): Promise<string | null>
   /** 按需拉取某页缩略图(已缓存或已在途则不重复请求)。 */
   ensureSnapshot(slotId: string, updatedAt: string): Promise<void>
   refresh(): Promise<void>
@@ -235,6 +237,12 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
     const ok = await absorbDeckResult(set, get().refresh, result)
     if (ok) set({ templatePickerOpen: false })
     return ok
+  },
+
+  readTemplateReference: async (templateId, file) => {
+    if (!ctx?.bridge.slidesReadTemplateReference) return null
+    const result = await ctx.bridge.slidesReadTemplateReference({ templateId, file }).catch(() => undefined)
+    return result?.ok ? result.html : null
   },
 
   runCheck: async () => {
