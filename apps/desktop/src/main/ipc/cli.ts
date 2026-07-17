@@ -698,6 +698,9 @@ export function registerCliHandlers(): void {
         if (builtinServers.length) {
           const userServers = mcp.enabled ? mcp.servers : [];
           mcp = { enabled: true, servers: [...userServers, ...builtinServers] };
+          // 内置 server 是产品自身能力面,回填 id 清单供 claude buildArgs 预授权
+          // (--allowed-tools mcp__<id>);用户自配 MCP 不在此列,仍走 claude 自身权限配置。
+          req.builtinMcpServers = builtinServers.map((server) => server.id);
         }
       } catch {
         /* 配置不可读 → 不注入 */

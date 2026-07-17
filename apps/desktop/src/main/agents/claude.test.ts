@@ -109,6 +109,23 @@ describe("claudeDef.buildArgs", () => {
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
+  it("acceptEdits + 内置 MCP server → --allowed-tools 整体预授权(print 模式无人可批权限弹窗)", () => {
+    const { args } = claudeDef.buildArgs({
+      ...baseReq,
+      permissionMode: "accept-edits",
+      builtinMcpServers: ["cortex-slides", "cortex-design-delegate"],
+    });
+    expect(args.join(" ")).toContain("--allowed-tools mcp__cortex-slides,mcp__cortex-design-delegate");
+  });
+
+  it("plan / full-auto 不追加 --allowed-tools(plan 保只读承诺;bypass 本就全放行)", () => {
+    const withServers = { ...baseReq, builtinMcpServers: ["cortex-slides"] };
+    expect(claudeDef.buildArgs({ ...withServers, permissionMode: "plan" }).args).not.toContain("--allowed-tools");
+    expect(claudeDef.buildArgs({ ...withServers, permissionMode: "full-auto" }).args).not.toContain("--allowed-tools");
+    // 无内置 server 时 acceptEdits 也不追加。
+    expect(claudeDef.buildArgs({ ...baseReq, permissionMode: "accept-edits" }).args).not.toContain("--allowed-tools");
+  });
+
   it("运行模式:full-auto 与缺省均回退 --dangerously-skip-permissions(回归)", () => {
     expect(claudeDef.buildArgs({ ...baseReq, permissionMode: "full-auto" }).args).toContain(
       "--dangerously-skip-permissions",
