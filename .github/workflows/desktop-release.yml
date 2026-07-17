@@ -610,7 +610,9 @@ jobs:
             --title "${BUILD_TAG#v}" --notes-file "$notes_file"
 
           # 两份单架构清单只用于流水线内部合并，最终 Release 仅保留双架构 latest-mac.yml。
-          release_id="$(gh api "repos/$RELEASE_REPO/releases/tags/$BUILD_TAG" --jq '.id')"
+          # REST 的 /releases/tags/{tag} 不返回 draft Release；gh release view 会在草稿列表中解析 tag。
+          release_id="$(gh release view "$BUILD_TAG" --repo "$RELEASE_REPO" \
+            --json databaseId --jq '.databaseId')"
           for name in latest-mac-arm64.yml latest-mac-x64.yml; do
             asset_id="$(gh api "repos/$RELEASE_REPO/releases/$release_id/assets" \
               --jq ".[] | select(.name == \"$name\") | .id")"

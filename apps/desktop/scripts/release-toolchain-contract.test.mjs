@@ -56,5 +56,8 @@ describe('desktop release toolchain contract', () => {
     expect(publishSteps.find((step) => step.name === 'Download release manifests')?.run).toContain(
       'gh release download',
     )
+    const finalizeStep = publishSteps.find((step) => step.name === 'Finalize GitHub release')
+    expect(finalizeStep?.run).toContain('--json databaseId')
+    expect(finalizeStep?.run).not.toContain('gh api "repos/$RELEASE_REPO/releases/tags/')
   })
 })
