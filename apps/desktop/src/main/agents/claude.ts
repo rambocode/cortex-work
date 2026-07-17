@@ -177,6 +177,13 @@ export const claudeDef: AgentDef = {
     if (mode === "plan") args.push("--permission-mode", "plan");
     else if (mode === "accept-edits" || mode === "sandbox") args.push("--permission-mode", "acceptEdits");
     else args.push("--dangerously-skip-permissions");
+    // 内置 MCP server(cortex-slides / delegate / 浏览器控制等)是产品自身能力面,acceptEdits 不
+    // 覆盖 MCP 工具 → print 模式下调用卡在无人可批的权限请求(实测 slides 回合 claude 直接罢工
+    // 求授权)。故对注入的内置 server 整体预授权(mcp__<id> 规则覆盖该 server 全部工具)。
+    // plan 模式刻意不放行:内置工具含写操作,放行会破坏 plan 的只读承诺;bypass 本就全放行。
+    if ((mode === "accept-edits" || mode === "sandbox") && req.builtinMcpServers?.length) {
+      args.push("--allowed-tools", req.builtinMcpServers.map((id) => `mcp__${id}`).join(","));
+    }
     // 执行/审批:claude -p 非交互,无中途审批回路。ask(询问后执行)在此无法兑现 → 降级为与 auto
     // 同行为(由 UI 标注降级映射),不改启动标志。
     if (req.model) args.push("--model", req.model);

@@ -506,6 +506,10 @@ export interface CliStartRequest {
   // U2:claude skill 桥接目录绝对路径（主进程内部填充,renderer 不传）。cli.ts 建目录后写入,
   // claude.ts buildArgs 追加 --add-dir。与 core 镜像。
   skillsBridgeDir?: string;
+  // 本轮注入的内置 MCP server id 清单（主进程内部填充,renderer 不传）。cli.ts 注入后写入,
+  // claude.ts 在 acceptEdits/sandbox 模式下用 --allowed-tools 预授权这些 server —— print 模式
+  // 无人审批回路,不预授权则 MCP 调用卡在权限请求。与 core 镜像。
+  builtinMcpServers?: string[];
   // U4/U6:codex app-server(ws)原生 skill input item（renderer 填充）。与 core 镜像。
   invokedSkill?: { name: string; path: string };
   // 用户上传的图片（仅 claude/codex 消费;pi 走 piPrompt 独立参数）。与 core 镜像。
