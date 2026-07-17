@@ -11,6 +11,12 @@ import { Check, Loader2, Search } from 'lucide-react'
 import type { SlidesTemplateSummary } from '@cortex-work/core/design/slides/slides-templates'
 import { useSlidesStore } from './slides-store'
 
+/** 分类角标的 i18n key:business 为场景分类;其余按明暗,unknown 沿用历史行为归入浅色。 */
+function categoryLabelKey(category: SlidesTemplateSummary['category']): string {
+  if (category === 'business') return 'slidesTemplateBusiness'
+  return category === 'dark' ? 'slidesTemplateDark' : 'slidesTemplateLight'
+}
+
 /** 配色条:直观展示模板的背景/前景/主色/强调色。 */
 function PaletteStrip({ template }: { template: SlidesTemplateSummary }): ReactElement {
   const p = template.theme.palette
@@ -73,7 +79,7 @@ function TemplatePreviewCard({
         {template.descriptionZh || template.description}
       </p>
       <p className="mt-0.5 truncate text-[10.5px] text-ds-faint">
-        {t(template.category === 'dark' ? 'slidesTemplateDark' : 'slidesTemplateLight')}
+        {t(categoryLabelKey(template.category))}
         {template.tags.slice(0, 3).map((tag) => ` #${tag}`).join('')}
       </p>
     </div>
@@ -205,7 +211,7 @@ export function SlidesTemplatePicker(): ReactElement | null {
                         </span>
                       </span>
                       <span className="shrink-0 rounded bg-black/6 px-1.5 py-0.5 text-[10px] text-ds-faint dark:bg-white/10">
-                        {t(tpl.category === 'dark' ? 'slidesTemplateDark' : 'slidesTemplateLight')}
+                        {t(categoryLabelKey(tpl.category))}
                       </span>
                       {applied ? <Check className="h-3.5 w-3.5 shrink-0 text-[#3b82d8]" strokeWidth={2.5} /> : null}
                     </button>

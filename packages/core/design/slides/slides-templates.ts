@@ -11,8 +11,8 @@
  */
 import type { SlidesTheme } from './slides-types'
 
-/** 模板明暗倾向(来自 frontmatter category)。 */
-export type SlidesTemplateCategory = 'light' | 'dark' | 'unknown'
+/** 模板分类(来自 frontmatter category):明暗倾向或场景分类(business);其余值归一化为 unknown。 */
+export type SlidesTemplateCategory = 'light' | 'dark' | 'business' | 'unknown'
 
 /** 归一化后的模板摘要(IPC/UI/MCP 共用)。 */
 export type SlidesTemplateSummary = {
@@ -181,7 +181,9 @@ export function buildTemplateSummary(options: {
   const frontmatter = parseTemplateFrontmatter(options.markdown)
   const categoryRaw = asString(frontmatter.category)
   const category: SlidesTemplateCategory =
-    categoryRaw === 'light' || categoryRaw === 'dark' ? categoryRaw : 'unknown'
+    categoryRaw === 'light' || categoryRaw === 'dark' || categoryRaw === 'business'
+      ? categoryRaw
+      : 'unknown'
   return {
     id: options.id,
     // 展示名:TEMPLATE.md 的一级标题优先(人写的漂亮名),否则 frontmatter name。

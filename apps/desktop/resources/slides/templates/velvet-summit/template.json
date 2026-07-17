@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#D4AF6A",
+      "secondary": "#3A2440",
+      "accent": "#E5C687",
+      "background": "#1A0E1C",
+      "surface": "#241428",
+      "text": "#F5EDE0",
+      "textSecondary": "#A89F9B",
+      "border": "#3D2A42"
+    },
+    "typography": {
+      "baseSize": 22,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Velvet Summit is a builtin QoderWork AI Slides visual reference. Match its deep plum-black velvet scheme, ceremonial restraint, and luxurious, high-end, premium-brand tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Playfair Display; heading: Playfair Display; body: DM Sans; mono: Courier Prime; serif_cn: Noto Serif SC; sans_cn: Noto Sans SC. Treat these font names as visual cues, not external font dependencies.\nColor language: deep plum-black canvas (#1A0E1C) with warm cream body type (#F5EDE0) and a strictly rationed champagne-gold (#D4AF6A / #E5C687) reserved for headline serifs, hero numbers, and hairline rules; a single coherent dark palette across every slide, no inverted theme.\nBest for: Luxury and premium consumer brand pitches, hospitality and lifestyle ventures, flagship product reveals, and high-end partnership and sponsorship proposals — fundraising decks and business plans that must feel ceremonial, expensive, and quietly confident.\nReference notes: A black-tie pitch deck rendered as a velvet gala programme. Every slide is the same deep plum-black field (#1A0E1C) with a subtly warmer plum surface (#241428) for occasional panels. Champagne-gold Playfair Display serifs carry every headline and every hero number — the gold is the ceremony, and it is spent sparingly: on the title, the one big market figure, the traction stats, and thin 1px gold hairlines. Cream DM Sans (#F5EDE0) does the reading work in a calm supporting voice; a muted warm taupe (#A89F9B) handles secondary copy. Courier Prime mono provides the ledger voice — kickers, page numbers, and a fixed company mark (VELVET / SUMMIT CAPITAL) sitting in the deck chrome. There are no drop shadows and no gradients beyond one faint radial glow behind the cover title; corners stay crisp, borders are 1px gold at low opacity. The mood is a private members' club meets a fundraising roadshow — slow, luxurious, ceremonial. One field, one gold accent, spent like it costs something."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Deep plum-black canvas with champagne-gold serifs and cream type. Luxurious, ceremonial, high-end brand gravitas.\nA deep plum-black velvet field (#1A0E1C) carries every slide, with a subtly warmer plum surface (#241428) reserved for compare panels and the ask card. Champagne-gold (#D4AF6A, brightened to #E5C687 for emphasis) is rationed to headline serifs, hero numbers, traction stats, and 1px hairline rules — the restraint is the luxury.\nPlayfair Display serifs at display and hero scale supply the ceremonial pitch-deck gravitas; DM Sans carries body in cream (#F5EDE0), a muted taupe (#A89F9B) handles secondary copy, and Courier Prime mono provides kickers, page numbers, and the fixed SUMMIT CAPITAL company mark in the chrome; bilingual EN/CN support via Noto Serif SC / Noto Sans SC fallbacks.\nDepth is flat and ceremonial: no drop shadows, no rounded corners, no gradients beyond a single faint radial gold glow behind the cover title. Borders are 1px champagne-gold at ~20% opacity — present as fine structural rules rather than heavy dividers. The compare layout is the one exception, using two adjacent plum shades to split the canvas. Motion is set to zero — the deck is completely still, like a printed gala programme.\nKey characteristics: single plum-black field on every slide; champagne-gold spent only on titles, hero numbers, stats, and hairlines; oversized Playfair serif headlines and market figures for pitch-deck presence; per-slide chrome with company mark and page number.",
+      "cssSnippets": [
+        ":root { --primary: #D4AF6A; --secondary: #3A2440; --accent: #E5C687; --background: #1A0E1C; --surface: #241428; --text: #F5EDE0; --textSecondary: #A89F9B; --border: #3D2A42; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}
