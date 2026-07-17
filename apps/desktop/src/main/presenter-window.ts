@@ -119,7 +119,14 @@ export async function openPresenterWindow(options: {
     autoHideMenuBar: true,
     backgroundColor: "#0b0d12", // 与 body 底色一致,避免全屏切换白闪。
     ...(pick
-      ? { x: pick.audience.bounds.x, y: pick.audience.bounds.y, width: pick.audience.bounds.width, height: pick.audience.bounds.height }
+      ? {
+          // 双窗:无边框 + 目标屏 bounds(全屏由 ready-to-show 里 simpleFullScreen 完成)。
+          frame: false,
+          x: pick.audience.bounds.x,
+          y: pick.audience.bounds.y,
+          width: pick.audience.bounds.width,
+          height: pick.audience.bounds.height,
+        }
       : {}),
     webPreferences: { ...PRESENT_WEB_PREFERENCES },
   });
@@ -132,6 +139,7 @@ export async function openPresenterWindow(options: {
     await fsp.writeFile(speakerFile, speakerHtml, "utf8");
     speaker = new BrowserWindow({
       fullscreen: false,
+      frame: false,
       show: false,
       autoHideMenuBar: true,
       backgroundColor: "#0b0d12",
@@ -171,40 +179,20 @@ export async function openPresenterWindow(options: {
     audience.webContents.on("dom-ready", () => {
       audience.webContents.insertCSS("#bar{display:none!important}").catch(() => {});
     });
-    // 目标屏定位 + 全屏。两个关键时序约束(实测踩坑):
-    //  1. setFullScreen 必须在 show() 之后 —— 对隐藏窗口做原生全屏在 macOS 上不可靠;
-    //  2. 两窗的原生全屏转场必须**串行**:macOS 上每次全屏各建一个 Space,两个转场同时
-    //     进行时后到的会被系统吞掉(表现为观众屏没有全屏)。故观众窗先全屏,等它
-    //     enter-full-screen 事件后再全屏演讲者窗;事件不来(平台差异)用超时兜底。
-    // 演讲者窗全屏的两个前置条件汇合:自身内容就绪(它内嵌两份全页 iframe,较重)+
-    // 观众窗全屏转场已让路;二者都满足才 show + setFullScreen,只执行一次。
-    let speakerReady = false;
-    let audienceSettled = false;
-    let speakerDone = false;
-    const trySpeakerFullscreen = (): void => {
-      if (speakerDone || !speakerReady || !audienceSettled) return;
-      if (session !== s || !speaker || speaker.isDestroyed()) return;
-      speakerDone = true;
-      speaker.setBounds(pick.speaker.bounds);
-      speaker.show();
-      speaker.setFullScreen(true);
+    // 目标屏定位 + 全屏。原生 setFullScreen(Spaces 全屏)在双窗场景实测不可靠:两个
+    // 转场无论同时还是串行(等 enter-full-screen + 超时兜底)都可能被系统吞掉,表现为
+    // 观众屏停在窗口态。故 macOS 双窗一律改用 setSimpleFullScreen(pre-Lion 全屏:
+    // 不建 Space、无转场动画、多屏可同时生效,确定性强);其它平台无 Spaces 概念,
+    // 仍用 setFullScreen。双窗窗口本身 frame:false,即便全屏调用失效也接近满屏观感。
+    const enterFullscreen = (w: BrowserWindow, bounds: Electron.Rectangle): void => {
+      if (session !== s || w.isDestroyed()) return;
+      w.setBounds(bounds);
+      w.show();
+      if (process.platform === "darwin") w.setSimpleFullScreen(true);
+      else w.setFullScreen(true);
     };
-    const settleAudience = (): void => {
-      audienceSettled = true;
-      trySpeakerFullscreen();
-    };
-    speaker.once("ready-to-show", () => {
-      speakerReady = true;
-      trySpeakerFullscreen();
-    });
-    audience.once("ready-to-show", () => {
-      if (session !== s || audience.isDestroyed()) return;
-      audience.setBounds(pick.audience.bounds);
-      audience.show();
-      audience.setFullScreen(true);
-      audience.once("enter-full-screen", settleAudience);
-      setTimeout(settleAudience, 1500);
-    });
+    audience.once("ready-to-show", () => enterFullscreen(audience, pick.audience.bounds));
+    speaker.once("ready-to-show", () => enterFullscreen(speaker!, pick.speaker.bounds));
   } else {
     // 单窗:仅拦 Esc(方向键交给 presenter HTML 自带运行时),保留可点 #bar,行为与改造前一致。
     audience.webContents.on("before-input-event", (_event, input: { type: string; key: string }) => {
