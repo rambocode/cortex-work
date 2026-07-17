@@ -32,11 +32,11 @@ describe("resolveDesignRunAgent", () => {
     ).toEqual({ agent: "claude", derivedId: undefined });
   });
 
-  it("选中的非 pi agent 已卸载时视为陈旧,回落默认", () => {
-    // claude 不可用 → resolveDefaultAgent 按安装派生(codex 可用)。
+  it("显式选择不做可用性静默回落(探测可能误判;真不可用由 spawn 前置校验明确报错)", () => {
+    // 此前 claude 探测为 false 会悄悄换 codex → UI 显示 claude 实跑 codex,静默分歧极难排查。
     expect(
       resolveDesignRunAgent(slice({ agent: "claude", agentsAvailable: { claude: false, codex: true } })).agent,
-    ).toBe("codex");
+    ).toBe("claude");
   });
 
   it("derivedAgentId 必须仍在派生列表中才返回", () => {
