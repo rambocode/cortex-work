@@ -181,6 +181,9 @@ mac:
       arch: [arm64, x64]
 win:
   icon: assets/cortex-neuron-icon.png
+  # 显式使用无空格文件名。GitHub 上传含空格资产时会把空格改成点号，而 latest.yml 使用连字符，
+  # 两者不一致会令 NsisUpdater 下载 404。
+  artifactName: ${productName}-Setup-${version}.${ext}
   # 只出 nsis:Windows 自动更新(NsisUpdater)与人工分发都用 .exe,zip 纯冗余,已移除不再生成/发布。
   target:
     - target: nsis

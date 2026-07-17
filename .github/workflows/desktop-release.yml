@@ -575,24 +575,26 @@ jobs:
           gh release view "$BUILD_TAG" --repo "$RELEASE_REPO" \
             --json assets --jq '.assets[].name' > release-assets.txt
 
-          required_patterns=(
-            '.*-arm64\.dmg$'
-            '.*-arm64\.dmg\.blockmap$'
-            '.*-arm64\.zip$'
-            '.*-arm64\.zip\.blockmap$'
-            '.*-x64\.dmg$'
-            '.*-x64\.dmg\.blockmap$'
-            '.*-x64\.zip$'
-            '.*-x64\.zip\.blockmap$'
-            '.*\.exe$'
-            '.*\.exe\.blockmap$'
-            '^latest\.yml$'
-            '^latest-mac-arm64\.yml$'
-            '^latest-mac-x64\.yml$'
+          product_name="$(node -p "require('./apps/desktop/package.json').productName")"
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          required_assets=(
+            "${product_name}-${version}-arm64.dmg"
+            "${product_name}-${version}-arm64.dmg.blockmap"
+            "${product_name}-${version}-arm64.zip"
+            "${product_name}-${version}-arm64.zip.blockmap"
+            "${product_name}-${version}-x64.dmg"
+            "${product_name}-${version}-x64.dmg.blockmap"
+            "${product_name}-${version}-x64.zip"
+            "${product_name}-${version}-x64.zip.blockmap"
+            "${product_name}-Setup-${version}.exe"
+            "${product_name}-Setup-${version}.exe.blockmap"
+            latest.yml
+            latest-mac-arm64.yml
+            latest-mac-x64.yml
           )
-          for pattern in "${required_patterns[@]}"; do
-            if ! grep -Eq "$pattern" release-assets.txt; then
-              echo "Missing release asset matching: $pattern" >&2
+          for asset in "${required_assets[@]}"; do
+            if ! grep -Fxq "$asset" release-assets.txt; then
+              echo "Missing exact release asset: $asset" >&2
               exit 1
             fi
           done

@@ -33,6 +33,11 @@ describe('desktop release toolchain contract', () => {
     expect(packageJson.scripts?.['build:win-x64']).toBe('node scripts/build-win-x64.mjs')
   })
 
+  it('uses a Windows artifact name that matches the updater manifest URL', () => {
+    const builderConfig = load(readFileSync(resolve(desktopRoot, 'electron-builder.yml'), 'utf8'))
+    expect(builderConfig.win?.artifactName).toBe('${productName}-Setup-${version}.${ext}')
+  })
+
   it('bypasses Actions artifact storage when publishing a release', () => {
     const workflow = load(
       readFileSync(resolve(desktopRoot, '../../.github/workflows/desktop-release.yml'), 'utf8'),
@@ -55,6 +60,9 @@ describe('desktop release toolchain contract', () => {
     expect(publishSteps.some((step) => step.uses?.startsWith('actions/download-artifact@'))).toBe(false)
     expect(publishSteps.find((step) => step.name === 'Download release manifests')?.run).toContain(
       'gh release download',
+    )
+    expect(publishSteps.find((step) => step.name === 'Verify draft release asset inventory')?.run).toContain(
+      '${product_name}-Setup-${version}.exe',
     )
     const finalizeStep = publishSteps.find((step) => step.name === 'Finalize GitHub release')
     expect(finalizeStep?.run).toContain('--json databaseId')
