@@ -17,7 +17,8 @@ export interface PresenterSlide {
   notes?: string;
 }
 
-function escapeHtml(value: string): string {
+// 导出供演示模式专用页(present/speaker-html.ts)复用同一份 HTML 转义,避免重复实现漂移。
+export function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
