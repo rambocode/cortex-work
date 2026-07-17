@@ -6,12 +6,22 @@ import { useCallback, useEffect, useRef, useState, type ReactElement, type React
 import { useTranslation } from 'react-i18next'
 import {
   AlignCenter,
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
   AlignLeft,
   AlignRight,
+  AlignStartHorizontal,
+  AlignStartVertical,
   Bold,
+  BringToFront,
+  ChevronDown,
+  ChevronUp,
   Italic,
   Loader2,
   Redo2,
+  SendToBack,
   Trash2,
   TriangleAlert,
   Underline,
@@ -186,105 +196,153 @@ export function SlidesStage({ workspaceRoot, slot, focusElement, onRetrySlide }:
   const selectionCount = stageSelection && stageSelection.slotId === slot?.id ? stageSelection.items.length : 0
 
   return (
-    <div ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto bg-black/4 dark:bg-black/30">
-      {slot ? (
-        <div
-          data-testid="slides-stage-frame"
-          className="relative shrink-0 overflow-hidden rounded-md bg-white shadow-[0_2px_16px_rgba(0,0,0,0.18)]"
-          style={{ width: stageWidth, height: stageHeight }}
-        >
-          {showWebview ? (
-            preview.renderWebview({
-              className: 'h-full w-full',
-              style: { width: '100%', height: '100%' },
-              title: slot!.title
-            }) ?? <StagePlaceholder status={slot!.status} error={preview.state.error} onRetry={onRetrySlide} />
-          ) : (
-            <StagePlaceholder status={slot?.status ?? 'empty'} onRetry={onRetrySlide} />
-          )}
-          {preview.state.error ? (
-            <div className="absolute inset-x-0 bottom-0 bg-[#c0392b]/85 px-2 py-1 text-[11px] text-white">
-              {preview.state.error}
-            </div>
-          ) : null}
-          {/* 画布工具栏:撤销/重做常驻,选中后追加格式/字号/对齐/删除。 */}
-          {showWebview && preview.state.ready ? (
-            <div
-              data-testid="slides-canvas-toolbar"
-              className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-lg bg-black/70 px-1.5 py-1 text-white shadow"
+    // 竖向三段布局:工具栏行(画布上方)→ 画布 → 选区 chip 行(画布下方)。
+    // 工具栏与 chip 不再悬浮在幻灯片画布内部,避免遮挡页面内容;
+    // 上下两行固定高度常驻,防止出现/消失时 fit 缩放反复抖动。
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-black/4 dark:bg-black/30">
+      {/* 画布工具栏:撤销/重做常驻,选中后追加格式/字号/对齐/删除。 */}
+      <div className="flex h-11 shrink-0 items-center justify-center">
+        {showWebview && preview.state.ready ? (
+          <div
+            data-testid="slides-canvas-toolbar"
+            className="flex items-center gap-0.5 rounded-lg bg-black/70 px-1.5 py-1 text-white shadow"
+          >
+            <ToolButton title={t('slidesUndo')} disabled={!stageHistory.canUndo} onClick={() => sendCommand({ type: 'undo' })}>
+              <Undo2 className="h-3.5 w-3.5" strokeWidth={1.9} />
+            </ToolButton>
+            <ToolButton title={t('slidesRedo')} disabled={!stageHistory.canRedo} onClick={() => sendCommand({ type: 'redo' })}>
+              <Redo2 className="h-3.5 w-3.5" strokeWidth={1.9} />
+            </ToolButton>
+            {selectionCount > 0 ? (
+              <>
+                <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
+                <ToolButton title={t('slidesBold')} onClick={() => sendCommand({ type: 'format', command: 'bold' })}>
+                  <Bold className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                <ToolButton title={t('slidesItalic')} onClick={() => sendCommand({ type: 'format', command: 'italic' })}>
+                  <Italic className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                <ToolButton title={t('slidesUnderline')} onClick={() => sendCommand({ type: 'format', command: 'underline' })}>
+                  <Underline className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
+                <ToolButton title={t('slidesFontSmaller')} onClick={() => sendCommand({ type: 'font-step', delta: -2 })}>
+                  <span className="text-[11px] leading-none">A−</span>
+                </ToolButton>
+                <ToolButton title={t('slidesFontLarger')} onClick={() => sendCommand({ type: 'font-step', delta: 2 })}>
+                  <span className="text-[12.5px] leading-none">A+</span>
+                </ToolButton>
+                <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
+                <ToolButton title={t('slidesAlignLeft')} onClick={() => sendCommand({ type: 'align', value: 'left' })}>
+                  <AlignLeft className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                <ToolButton title={t('slidesAlignCenter')} onClick={() => sendCommand({ type: 'align', value: 'center' })}>
+                  <AlignCenter className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                <ToolButton title={t('slidesAlignRight')} onClick={() => sendCommand({ type: 'align', value: 'right' })}>
+                  <AlignRight className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                {/* 元素对齐组:仅多选(≥2)时出现,按选区包围盒对齐元素位置(非 text-align)。 */}
+                {selectionCount >= 2 ? (
+                  <>
+                    <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
+                    <ToolButton title={t('slidesAlignElementsLeft')} onClick={() => sendCommand({ type: 'align-elements', value: 'left' })}>
+                      <AlignStartVertical className="h-3.5 w-3.5" strokeWidth={1.9} />
+                    </ToolButton>
+                    <ToolButton title={t('slidesAlignElementsCenterX')} onClick={() => sendCommand({ type: 'align-elements', value: 'center-x' })}>
+                      <AlignCenterVertical className="h-3.5 w-3.5" strokeWidth={1.9} />
+                    </ToolButton>
+                    <ToolButton title={t('slidesAlignElementsRight')} onClick={() => sendCommand({ type: 'align-elements', value: 'right' })}>
+                      <AlignEndVertical className="h-3.5 w-3.5" strokeWidth={1.9} />
+                    </ToolButton>
+                    <ToolButton title={t('slidesAlignElementsTop')} onClick={() => sendCommand({ type: 'align-elements', value: 'top' })}>
+                      <AlignStartHorizontal className="h-3.5 w-3.5" strokeWidth={1.9} />
+                    </ToolButton>
+                    <ToolButton title={t('slidesAlignElementsCenterY')} onClick={() => sendCommand({ type: 'align-elements', value: 'center-y' })}>
+                      <AlignCenterHorizontal className="h-3.5 w-3.5" strokeWidth={1.9} />
+                    </ToolButton>
+                    <ToolButton title={t('slidesAlignElementsBottom')} onClick={() => sendCommand({ type: 'align-elements', value: 'bottom' })}>
+                      <AlignEndHorizontal className="h-3.5 w-3.5" strokeWidth={1.9} />
+                    </ToolButton>
+                  </>
+                ) : null}
+                {/* 层级组:相对重叠元素调 z-index(上移/下移一层、置顶/置底)。 */}
+                <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
+                <ToolButton title={t('slidesLayerUp')} onClick={() => sendCommand({ type: 'z-order', value: 'up' })}>
+                  <ChevronUp className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                <ToolButton title={t('slidesLayerDown')} onClick={() => sendCommand({ type: 'z-order', value: 'down' })}>
+                  <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                <ToolButton title={t('slidesLayerFront')} onClick={() => sendCommand({ type: 'z-order', value: 'front' })}>
+                  <BringToFront className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                <ToolButton title={t('slidesLayerBack')} onClick={() => sendCommand({ type: 'z-order', value: 'back' })}>
+                  <SendToBack className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+                <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
+                <ToolButton
+                  title={t('slidesDeleteElement')}
+                  danger
+                  onClick={() => {
+                    sendCommand({ type: 'delete-selected' })
+                    clearStageSelection()
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </ToolButton>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {/* 画布区:仅此区域参与 fit 缩放测量(上下两行不占用画布空间)。 */}
+      <div ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto">
+        {slot ? (
+          <div
+            data-testid="slides-stage-frame"
+            className="relative shrink-0 overflow-hidden rounded-md bg-white shadow-[0_2px_16px_rgba(0,0,0,0.18)]"
+            style={{ width: stageWidth, height: stageHeight }}
+          >
+            {showWebview ? (
+              preview.renderWebview({
+                className: 'h-full w-full',
+                style: { width: '100%', height: '100%' },
+                title: slot!.title
+              }) ?? <StagePlaceholder status={slot!.status} error={preview.state.error} onRetry={onRetrySlide} />
+            ) : (
+              <StagePlaceholder status={slot?.status ?? 'empty'} onRetry={onRetrySlide} />
+            )}
+            {preview.state.error ? (
+              <div className="absolute inset-x-0 bottom-0 bg-[#c0392b]/85 px-2 py-1 text-[11px] text-white">
+                {preview.state.error}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="max-w-[380px] px-6 text-center text-[13px] leading-6 text-ds-muted">
+            {t('slidesEmptyDeck')}
+          </div>
+        )}
+      </div>
+      {/* 选区 chip 行:画布下方,提示所选将随下一条消息进入 AI 上下文;可一键清除。 */}
+      <div className="flex h-10 shrink-0 items-center justify-center">
+        {selectionCount > 0 ? (
+          <div
+            data-testid="slides-selection-chip"
+            className="flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-[11.5px] text-white shadow"
+          >
+            <span>{t('slidesSelectionHint', { count: selectionCount })}</span>
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              className="rounded-full px-1.5 py-0.5 text-white/80 transition hover:bg-white/15 hover:text-white"
             >
-              <ToolButton title={t('slidesUndo')} disabled={!stageHistory.canUndo} onClick={() => sendCommand({ type: 'undo' })}>
-                <Undo2 className="h-3.5 w-3.5" strokeWidth={1.9} />
-              </ToolButton>
-              <ToolButton title={t('slidesRedo')} disabled={!stageHistory.canRedo} onClick={() => sendCommand({ type: 'redo' })}>
-                <Redo2 className="h-3.5 w-3.5" strokeWidth={1.9} />
-              </ToolButton>
-              {selectionCount > 0 ? (
-                <>
-                  <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
-                  <ToolButton title={t('slidesBold')} onClick={() => sendCommand({ type: 'format', command: 'bold' })}>
-                    <Bold className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </ToolButton>
-                  <ToolButton title={t('slidesItalic')} onClick={() => sendCommand({ type: 'format', command: 'italic' })}>
-                    <Italic className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </ToolButton>
-                  <ToolButton title={t('slidesUnderline')} onClick={() => sendCommand({ type: 'format', command: 'underline' })}>
-                    <Underline className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </ToolButton>
-                  <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
-                  <ToolButton title={t('slidesFontSmaller')} onClick={() => sendCommand({ type: 'font-step', delta: -2 })}>
-                    <span className="text-[11px] leading-none">A−</span>
-                  </ToolButton>
-                  <ToolButton title={t('slidesFontLarger')} onClick={() => sendCommand({ type: 'font-step', delta: 2 })}>
-                    <span className="text-[12.5px] leading-none">A+</span>
-                  </ToolButton>
-                  <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
-                  <ToolButton title={t('slidesAlignLeft')} onClick={() => sendCommand({ type: 'align', value: 'left' })}>
-                    <AlignLeft className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </ToolButton>
-                  <ToolButton title={t('slidesAlignCenter')} onClick={() => sendCommand({ type: 'align', value: 'center' })}>
-                    <AlignCenter className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </ToolButton>
-                  <ToolButton title={t('slidesAlignRight')} onClick={() => sendCommand({ type: 'align', value: 'right' })}>
-                    <AlignRight className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </ToolButton>
-                  <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
-                  <ToolButton
-                    title={t('slidesDeleteElement')}
-                    danger
-                    onClick={() => {
-                      sendCommand({ type: 'delete-selected' })
-                      clearStageSelection()
-                    }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </ToolButton>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-          {/* 选区 chip:提示所选将随下一条消息进入 AI 上下文;可一键清除。 */}
-          {selectionCount > 0 ? (
-            <div
-              data-testid="slides-selection-chip"
-              className="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-[11.5px] text-white shadow"
-            >
-              <span>{t('slidesSelectionHint', { count: selectionCount })}</span>
-              <button
-                type="button"
-                onClick={handleClearSelection}
-                className="rounded-full px-1.5 py-0.5 text-white/80 transition hover:bg-white/15 hover:text-white"
-              >
-                {t('slidesSelectionClear')}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="max-w-[380px] px-6 text-center text-[13px] leading-6 text-ds-muted">
-          {t('slidesEmptyDeck')}
-        </div>
-      )}
+              {t('slidesSelectionClear')}
+            </button>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

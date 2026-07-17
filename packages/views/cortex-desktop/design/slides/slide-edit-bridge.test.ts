@@ -168,6 +168,13 @@ describe('页内 bridge 行为(jsdom)', () => {
     <div data-cortex-id="box"><span>无 id 的内容</span></div>
   </body>`
 
+  // jsdom 无布局引擎,getBoundingClientRect 恒为 0 —— 需要几何的用例逐元素 mock。
+  function mockRect(el: HTMLElement, left: number, top: number, width: number, height: number): void {
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({})
+    } as DOMRect)
+  }
+
   it('挂载即发 ready;drain 后队列清空', () => {
     const bridge = mountPage(PAGE)
     const first = parseSlideBridgeDrain(bridge.drain())
@@ -319,7 +326,8 @@ describe('页内 bridge 行为(jsdom)', () => {
     // dx=-197 → 拟移到 left=103,距 a 的左边线(100)3px → 吸附到 100。
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 303, clientY: 500 }))
     expect(b.style.left).toBe('100px')
-    const guide = document.querySelector('div[data-cortex-bridge]') as HTMLElement
+    // 排除缩放手柄层(同为 data-cortex-bridge 节点,拖拽开始选中 b 时已创建)。
+    const guide = document.querySelector('div[data-cortex-bridge]:not([data-cortex-handles])') as HTMLElement
     expect(guide).not.toBeNull()
     expect(guide.style.display).toBe('block')
     expect(guide.style.left).toBe('100px')
@@ -473,6 +481,206 @@ describe('页内 bridge 行为(jsdom)', () => {
     expect(style).toContain('text-align: center')
     vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
     expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'html-changed')).toBe(true)
+  })
+
+  it('exec(align-elements) 多选时按选区包围盒对齐;单选/非法取值忽略', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    const p = document.querySelector('p') as HTMLElement
+    // h1 占 (10,10)-(110,30),p 占 (50,50)-(110,60),包围盒 left=10 / bottom=60。
+    mockRect(h1, 10, 10, 100, 20)
+    mockRect(p, 50, 50, 60, 10)
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    // 单选时元素对齐无意义,命令被忽略。
+    bridge.exec({ type: 'align-elements', value: 'left' })
+    expect(h1.style.left).toBe('')
+    p.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    bridge.drain()
+    bridge.exec({ type: 'align-elements', value: 'left' })
+    // 左对齐到包围盒 left=10:h1 已贴边不动,p 左移 40(static 转 relative 偏移)。
+    expect(h1.style.left).toBe('')
+    expect(p.style.position).toBe('relative')
+    expect(p.style.left).toBe('-40px')
+    bridge.exec({ type: 'align-elements', value: 'bottom' })
+    // 底对齐到包围盒 bottom=60:p 已在底边,h1 下移 30。
+    expect(h1.style.top).toBe('30px')
+    // 非法取值直接忽略,不产生位移。
+    bridge.exec({ type: 'align-elements', value: 'diagonal' })
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'html-changed')).toBe(true)
+  })
+
+  it('exec(insert-image) 插入居中 img 并选中;非法/超限 dataUrl 拒绝', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    bridge.exec({ type: 'insert-image', dataUrl: 'data:image/webp;base64,AAAA', width: 200, height: 100 })
+    const img = document.querySelector('img') as HTMLImageElement
+    expect(img).not.toBeNull()
+    // 画布(1280×720)居中:left=(1280-200)/2,top=(720-100)/2;插入即选中并补 id。
+    expect(img.style.position).toBe('absolute')
+    expect(img.style.left).toBe('540px')
+    expect(img.style.top).toBe('310px')
+    expect(img.getAttribute('data-cortex-selected')).toBe('1')
+    expect(img.getAttribute('data-cortex-id')).toBeTruthy()
+    const selected = parseSlideBridgeDrain(bridge.drain()).find((m) => m.type === 'selection-changed')
+    expect(selected).toMatchObject({ type: 'selection-changed', items: [{ tagName: 'IMG' }] })
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    const changed = parseSlideBridgeDrain(bridge.drain()).find((m) => m.type === 'html-changed')
+    expect(changed && changed.type === 'html-changed' ? changed.html : '').toContain('data:image/webp')
+
+    // 非法输入一律拒绝:远程 URL、javascript:、SVG(可携带脚本)、非法尺寸、超预算大图。
+    bridge.exec({ type: 'insert-image', dataUrl: 'https://evil.example/x.png', width: 10, height: 10 })
+    bridge.exec({ type: 'insert-image', dataUrl: 'javascript:alert(1)', width: 10, height: 10 })
+    bridge.exec({ type: 'insert-image', dataUrl: 'data:image/svg+xml;base64,AAAA', width: 10, height: 10 })
+    bridge.exec({ type: 'insert-image', dataUrl: 'data:image/png;base64,AAAA', width: -5, height: 10 })
+    bridge.exec({ type: 'insert-image', dataUrl: 'data:image/png;base64,' + 'A'.repeat(MAX_EDITED_HTML_BYTES), width: 10, height: 10 })
+    expect(document.querySelectorAll('img')).toHaveLength(1)
+  })
+
+  it('exec(z-order) 相对重叠元素调层级;static 目标转 relative;无重叠不改动', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    const p = document.querySelector('p') as HTMLElement
+    // 插入图片(自动选中),几何上与 h1 重叠、与 p 不重叠。
+    bridge.exec({ type: 'insert-image', dataUrl: 'data:image/webp;base64,AAAA', width: 200, height: 100 })
+    const img = document.querySelector('img') as HTMLElement
+    mockRect(h1, 500, 300, 300, 60)
+    mockRect(img, 540, 310, 200, 100)
+    mockRect(p, 0, 600, 100, 20)
+    // 下移一层:唯一下层 peer 是 h1(static 流内文字视作 z=0)→ img 压到 -1,绘制到文字之后。
+    bridge.exec({ type: 'z-order', value: 'down' })
+    expect(img.style.zIndex).toBe('-1')
+    // 置顶:回到 h1 之上。
+    bridge.exec({ type: 'z-order', value: 'front' })
+    expect(img.style.zIndex).toBe('1')
+    // 选中 h1(static 文本)上移一层:转 relative 让 z-index 生效,压过 img。
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    bridge.drain()
+    bridge.exec({ type: 'z-order', value: 'up' })
+    expect(h1.style.position).toBe('relative')
+    expect(h1.style.zIndex).toBe('2')
+    // p 与谁都不重叠:调层级无视觉意义,不产生改动。
+    p.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    bridge.drain()
+    bridge.exec({ type: 'z-order', value: 'front' })
+    expect(p.style.zIndex).toBe('')
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'html-changed')).toBe(true)
+  })
+
+  it('单选出缩放手柄:文本调宽自动换行(nowrap 转 normal),多选隐藏', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    h1.style.whiteSpace = 'nowrap'
+    // 带 max-width 约束:调宽时须被解除,否则 style.width 被钳住拉不动。
+    h1.style.maxWidth = '300px'
+    mockRect(h1, 100, 100, 300, 60)
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    bridge.drain()
+    const layer = document.querySelector('[data-cortex-handles]') as HTMLElement
+    expect(layer.style.display).toBe('block')
+    expect(layer.querySelectorAll('[data-key]')).toHaveLength(8)
+    // 拖东侧手柄 +50px:宽度固化为 350px,nowrap 转 normal 让文字可折行。
+    const east = layer.querySelector('[data-key="e"]') as HTMLElement
+    east.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 400, clientY: 130 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 450, clientY: 130 }))
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(h1.style.width).toBe('350px')
+    expect(h1.style.whiteSpace).toBe('normal')
+    expect(h1.style.maxWidth).toBe('none')
+    // 真实浏览器 mouseup 后会补发一次 click(被 suppressClick 吞掉);jsdom 需手动补上。
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    // 多选(≥2)时缩放语义不明,手柄隐藏。
+    document.querySelector('p')!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    expect(layer.style.display).toBe('none')
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'html-changed')).toBe(true)
+  })
+
+  it('图片等比缩放:仅四角手柄,宽高比锁定', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    bridge.exec({ type: 'insert-image', dataUrl: 'data:image/webp;base64,AAAA', width: 200, height: 100 })
+    const img = document.querySelector('img') as HTMLElement
+    mockRect(img, 540, 310, 200, 100)
+    const layer = document.querySelector('[data-cortex-handles]') as HTMLElement
+    // 等比元素的边中点手柄(单轴)与等比语义冲突,隐藏;四角保留。
+    expect((layer.querySelector('[data-key="s"]') as HTMLElement).style.display).toBe('none')
+    expect((layer.querySelector('[data-key="se"]') as HTMLElement).style.display).toBe('block')
+    // 拖东南角 dx=40 / dy=5:dx 主导,2:1 宽高比锁定 → 240×120。
+    const se = layer.querySelector('[data-key="se"]') as HTMLElement
+    se.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 740, clientY: 410 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 780, clientY: 415 }))
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(img.style.width).toBe('240px')
+    expect(img.style.height).toBe('120px')
+  })
+
+  // 剪贴板事件 stub:jsdom 无 DataTransfer 构造器,用共享 store 模拟 copy→paste 流转。
+  function clipboardStub(store: Record<string, string>): unknown {
+    return {
+      items: [],
+      setData: (type: string, v: string) => {
+        store[type] = v
+      },
+      getData: (type: string) => store[type] ?? ''
+    }
+  }
+
+  function dispatchClipboard(type: 'copy' | 'paste', store: Record<string, string>): Event {
+    const evt = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(evt, 'clipboardData', { value: clipboardStub(store) })
+    document.body.dispatchEvent(evt)
+    return evt
+  }
+
+  it('画布内复制/粘贴所选元素:copy 写自定义 mime,paste 克隆到原元素旁并偏移选中', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    bridge.drain()
+    const store: Record<string, string> = {}
+    const copyEvt = dispatchClipboard('copy', store)
+    expect(copyEvt.defaultPrevented).toBe(true)
+    expect(store['application/x-cortex-slide-elements']).toContain('标题')
+    expect(store['text/html']).toContain('<h1')
+
+    dispatchClipboard('paste', store)
+    const clones = document.querySelectorAll('h1')
+    expect(clones).toHaveLength(2)
+    const clone = clones[1] as HTMLElement
+    // 插回原元素旁、偏移 16px(static 转 relative)、清旧 id 后重新编号、自动选中。
+    expect(clone.previousElementSibling).toBe(h1)
+    expect(clone.style.left).toBe('16px')
+    expect(clone.style.top).toBe('16px')
+    expect(clone.getAttribute('data-cortex-selected')).toBe('1')
+    expect(clone.getAttribute('data-cortex-id')).not.toBe('title')
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'html-changed')).toBe(true)
+  })
+
+  it('粘贴的剪贴板 HTML 按不可信输入清洗:剥 script 与 on* 事件属性', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const store: Record<string, string> = {
+      'application/x-cortex-slide-elements': JSON.stringify([
+        { id: '', html: '<div onclick="evil()"><script>evil()</' + 'script><span onmouseover="evil()">ok</span></div>' },
+        { id: '', html: '<script>evil()</' + 'script>' }
+      ])
+    }
+    dispatchClipboard('paste', store)
+    // 第二条根节点即脚本,整条拒绝;第一条清洗后插入。
+    const pasted = document.querySelector('[data-cortex-selected]') as HTMLElement
+    expect(pasted).not.toBeNull()
+    expect(pasted.tagName).toBe('DIV')
+    expect(pasted.getAttribute('onclick')).toBeNull()
+    expect(pasted.querySelector('script')).toBeNull()
+    expect(pasted.querySelector('span')!.getAttribute('onmouseover')).toBeNull()
+    expect(document.querySelectorAll('script[data-cortex-test]')).toHaveLength(0)
   })
 
   it('exec(focus-element) 按 data-cortex-id 定位并同步页内选区', () => {
