@@ -38,6 +38,8 @@ function props(overrides: Partial<DesignAIRailProps> = {}): DesignAIRailProps {
     designThreads: [],
     onSwitchThread: () => {},
     onCollapse: () => {},
+    designAgent: 'claude',
+    onSwitchAgent: () => {},
     ...overrides
   }
 }
@@ -143,6 +145,22 @@ describe('DesignAIRail target toggle', () => {
     expect(html).toContain(
       'title="默认 390 x 844 App 画布. 设计 Agent 工作中会暂时锁定目标类型"'
     )
+  })
+
+  it('renders the design agent selector with the selected agent label', () => {
+    const html = renderToStaticMarkup(createElement(DesignAIRail, props({ designAgent: 'claude' })))
+
+    expect(html).toContain('pw-sh-agent')
+    expect(html).toContain('Claude Code')
+  })
+
+  it('shows the design agent selector in slides mode too', () => {
+    const html = renderToStaticMarkup(
+      createElement(DesignAIRail, props({ slidesMode: true, designAgent: 'codex' }))
+    )
+
+    expect(html).toContain('pw-sh-agent')
+    expect(html).toContain('Codex')
   })
 
   it('explains why the rail target switch is disabled while the agent is busy', () => {

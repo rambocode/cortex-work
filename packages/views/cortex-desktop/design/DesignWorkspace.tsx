@@ -4,7 +4,9 @@
 // 设计回合的派发/流式/取消全部经 core 的 design-run-manager,不触碰个人会话管线。
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useDesktopBridge } from "@cortex-work/core/provider";
-import { usePersonalStore } from "@cortex-work/core/store/personal";
+import { usePersonalStore, resolveDefaultAgent } from "@cortex-work/core/store/personal";
+import type { AgentKind } from "@cortex-work/core";
+import { buildDesignAgentSwitchPatch } from "@cortex-work/core/design/compat/app-settings";
 import {
   cancelActiveDesignRuns,
   installDesignRuntime,
@@ -49,6 +51,14 @@ export function DesignWorkspace(): ReactElement {
   const designSettings = usePersonalStore((s) => s.designSettings);
   const projects = usePersonalStore((s) => s.projects);
   const addProject = usePersonalStore((s) => s.addProject);
+  // 设计助手栏 agent 选择器所需的状态与 setter（provider/general/探测结果/落盘）。
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const generalSettings = usePersonalStore((s) => s.generalSettings);
+  const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
+  const derivedAgents = usePersonalStore((s) => s.derivedAgents);
+  const setDesignSettings = usePersonalStore((s) => s.setDesignSettings);
+  const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
+  const setDerivedAgents = usePersonalStore((s) => s.setDerivedAgents);
 
   const setDesignWorkspaceRoot = useDesignWorkspaceStore((s) => s.setWorkspaceRoot);
   const loadDesignSettings = useDesignWorkspaceStore((s) => s.loadDesignSettings);
@@ -82,6 +92,23 @@ export function DesignWorkspace(): ReactElement {
   const [composerModel, setComposerModel] = useState(designSettings.model);
   const [composerReasoningEffort, setComposerReasoningEffort] =
     useState<ComposerReasoningEffort>("auto");
+
+  // 设计助手栏当前显示的 base agent：显式选择优先,未选择则跟随系统「新会话默认 Agent」。
+  const displayAgent: AgentKind =
+    (designSettings.agent as AgentKind) || resolveDefaultAgent({ generalSettings, agentsAvailable });
+  // 切 agent:落 designSettings 的联动 patch(pi 配齐 provider+model、其余清空),同步 composer 模型显示。
+  const onSwitchAgent = (agent: AgentKind, derived?: Parameters<typeof buildDesignAgentSwitchPatch>[2]): void => {
+    const patch = buildDesignAgentSwitchPatch(agent, providerSettings, derived);
+    setDesignSettings(patch);
+    setComposerModel(patch.model ?? "");
+  };
+
+  // 兜底探测已安装 agent 与用户派生 agent(bridge 具备时),回填 store 供选择器门控/展示。
+  // 主窗口个人工作区通常已探测,这里仅补齐设计模式独立入口(直接进设计台)时缺失的情况。
+  useEffect(() => {
+    bridge?.detectAgents?.().then(setAgentsAvailable).catch(() => {});
+    bridge?.listAgentProfiles?.().then(setDerivedAgents).catch(() => {});
+  }, [bridge, setAgentsAvailable, setDerivedAgents]);
 
   // 设计对话镜像(design-run-manager 折叠 CliStreamEvent 写入)。
   const busy = useChatStore((s) => s.busy);
@@ -272,6 +299,11 @@ export function DesignWorkspace(): ReactElement {
           onSwitchThread={() => {}}
           onCollapse={() => setAssistantOpen(false)}
           slidesMode={slidesMode}
+          designAgent={displayAgent}
+          designDerivedAgentId={designSettings.derivedAgentId || undefined}
+          agentsAvailable={agentsAvailable}
+          derivedAgents={derivedAgents}
+          onSwitchAgent={onSwitchAgent}
         />
         </div>
       ) : null}

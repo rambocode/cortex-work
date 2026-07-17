@@ -8,8 +8,8 @@
 //      折叠进 compat/chat-store 镜像(design 树的画布实时应用/转录渲染都读它)。
 //   3) 取消/收尾:killCli + 镜像回合状态复位。
 import type { DesktopBridge } from "../../desktop/bridge";
-import type { CliStartRequest, CliStreamEvent } from "../../desktop/types";
-import { usePersonalStore, resolveDefaultAgent } from "../../store/personal";
+import type { AgentKind, CliStartRequest, CliStreamEvent } from "../../desktop/types";
+import { usePersonalStore, resolveDefaultAgent, type PersonalState } from "../../store/personal";
 import { buildMemoryAppend } from "../../memory/inject";
 import { setDesignRuntimeClient } from "../compat/runtime-client";
 import { setDesignRuntimeProvider } from "../compat/agent-registry";
@@ -156,6 +156,32 @@ function handleDesignCliExit(runId: string, code: number | null, error?: string)
   if (activeRuns.size === 0) mirror.endTurn();
 }
 
+// 解析设计回合实际使用的 agent(纯函数,便于测试):
+//   · designSettings.agent(设计助手栏显式选择)优先;
+//   · 非 pi 且已从 PATH 卸载(agentsAvailable[picked]===false,陈旧持久值)→ 回落系统默认,
+//     避免 spawn 一个已不存在的 CLI;
+//   · 未显式选择("" 或未知值)→ 跟随系统「新会话默认 Agent」(resolveDefaultAgent);
+//   · derivedAgentId 只在仍存在于当前派生列表(agents.local.json 可能被改)时才返回,否则视为失效。
+// 返回 base agent(供 model/provider 配对)与可选 derivedId(供 spawn 时覆盖 req.agent)。
+export function resolveDesignRunAgent(
+  s: Pick<PersonalState, "designSettings" | "generalSettings" | "agentsAvailable" | "derivedAgents">,
+): { agent: AgentKind; derivedId?: string } {
+  const picked = s.designSettings.agent;
+  const isKnownKind = picked === "claude" || picked === "codex" || picked === "pi";
+  let agent: AgentKind;
+  if (!isKnownKind) {
+    agent = resolveDefaultAgent(s);
+  } else if (picked !== "pi" && s.agentsAvailable?.[picked] === false) {
+    agent = resolveDefaultAgent(s);
+  } else {
+    agent = picked;
+  }
+  const derivedId = s.designSettings.derivedAgentId;
+  const validDerived =
+    derivedId && (s.derivedAgents ?? []).some((d) => d.id === derivedId) ? derivedId : undefined;
+  return { agent, derivedId: validDerived };
+}
+
 // ── 回合派发 ────────────────────────────────────────────────────────────
 // DesignTurnSubmitSendMessage 兼容签名:design 树的 prompt 控制器/编排层直接调用。
 export async function sendDesignMessage(
@@ -228,8 +254,9 @@ export async function sendDesignMessage(
   } as ChatBlock);
   mirror.beginTurn(turnId, userBlockId);
 
-  // agent:跟随系统「新会话默认 Agent」(设置→Agent);未设置/不可用则按安装派生(claude>codex>pi)。
-  const agent = resolveDefaultAgent(personal);
+  // agent:设计助手栏显式选择优先(designSettings.agent),未设置/陈旧则跟随系统「新会话默认 Agent」。
+  // derivedId 存在时仅覆盖 spawn 的 req.agent,下方 model/provider 配对仍用 base agent。
+  const { agent, derivedId } = resolveDesignRunAgent(personal);
   // model + provider 必须**与解析出的 agent 配对**(mirror initialModelDraft):
   //   · pi:选一个已启用供应商(设计设置 > lastProviderId > defaultProviderId > 首个),并**必须**配上
   //     该供应商的一个模型(设计设置 > 同为 pi 时的 lastModel > 供应商默认模型 > 首个模型)——
@@ -269,7 +296,8 @@ export async function sendDesignMessage(
   const req: CliStartRequest = {
     runId,
     sessionId,
-    agent,
+    // 派生 agent(agents.local.json)用其 id spawn;内置直接用 base kind。
+    agent: derivedId ?? agent,
     cwd,
     prompt: text,
     ...(model ? { model } : {}),

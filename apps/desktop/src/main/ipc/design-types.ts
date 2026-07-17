@@ -45,6 +45,10 @@ export interface DesignSettings {
   fontStyle: DesignFontStyleSetting;
 
   // --- 设计 agent（"" = 继承个人工作区当前 agent/model 选择） ---
+  // 设计助手栏选中的 agent 种类("" = 跟随系统「新会话默认 Agent」);切 agent 时须联动清/配 model+providerId。
+  agent: string;
+  // 选中的派生 agent id("" = 内置);spawn 时 req.agent = derivedAgentId || 内置 base。
+  derivedAgentId: string;
   model: string;
   providerId: string;
   reasoningEffort: string;

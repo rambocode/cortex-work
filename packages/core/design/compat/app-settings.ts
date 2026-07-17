@@ -7,6 +7,7 @@ import type {
   DesignSettings,
   DesignSystemPreset,
 } from "../../desktop/design-types";
+import type { AgentKind, DerivedAgentMeta, ProviderSettings } from "../../desktop/types";
 
 export type { DesignSystemPreset };
 // Kun 命名兼容别名（移植代码里以 DesignSettingsV1 引用）。
@@ -111,6 +112,8 @@ export function defaultDesignSettings(): DesignSettingsV1 {
     radius: "",
     density: "",
     fontStyle: "",
+    agent: "",
+    derivedAgentId: "",
     model: "",
     providerId: "",
     reasoningEffort: "",
@@ -139,6 +142,10 @@ export function normalizeDesignSettings(input: DesignSettingsPatchV1 | undefined
     radius: oneOf(source.radius, DESIGN_RADII, ""),
     density: oneOf(source.density, DESIGN_DENSITIES, ""),
     fontStyle: oneOf(source.fontStyle, DESIGN_FONT_STYLES, ""),
+    // agent 只接受内置三种 + "" (跟随系统默认);脏值/未知一律回 ""。
+    agent: oneOf(source.agent, ["", "claude", "codex", "pi"], ""),
+    // 派生 id 是自由字符串(agents.local.json 用户自定义);沿用 model 的长度上限截断。
+    derivedAgentId: trimmedString(source.derivedAgentId, MAX_MODEL_LENGTH),
     model: trimmedString(source.model, MAX_MODEL_LENGTH),
     providerId: trimmedString(source.providerId, MAX_MODEL_LENGTH),
     reasoningEffort: trimmedString(source.reasoningEffort, MAX_EFFORT_LENGTH),
@@ -160,4 +167,40 @@ export function mergeDesignSettings(
 ): DesignSettingsV1 {
   if (!patch) return normalizeDesignSettings(current);
   return normalizeDesignSettings({ ...current, ...patch });
+}
+
+// 设计助手栏切 agent 时的联动 patch —— 与个人会话的 buildAgentSwitchPatch(agentMeta.ts)同构,
+// 只是落在 DesignSettings 而非 SessionMeta(设计回合无会话续接槽,故不带 agentSessionIds/thinking)。
+//
+// 为什么 pi 必须配齐 provider+model、其余必须清空:sendDesignMessage 的配对逻辑读
+// designSettings.model/.providerId。pi 走用户供应商端点,缺 model 会回落到内置默认
+// openai-codex(常 deactivated)→ LLM 调用直接失败、一个文件都不写;claude/codex 用各自 CLI
+// 自带鉴权、不挂 provider,若残留上一次 pi 的模型名(如某供应商模型 id)传给 claude 会因未知
+// 模型瞬间退出。故切到 pi 时配齐、切到其余时把 model+providerId 清空,根除跨 agent 残留。
+export function buildDesignAgentSwitchPatch(
+  agent: AgentKind,
+  providerSettings: ProviderSettings,
+  derived?: DerivedAgentMeta,
+): Partial<DesignSettings> {
+  // session.agent 始终存内置 base;派生只在 derivedAgentId 记录。
+  const base = derived?.base ?? agent;
+  if (base === "pi") {
+    const piDefaultProvider = providerSettings.providers.find(
+      (p) => p.id === providerSettings.defaultProviderId,
+    );
+    return {
+      agent: base,
+      derivedAgentId: derived?.id ?? "",
+      providerId: providerSettings.defaultProviderId ?? "",
+      // 默认模型 > 默认供应商首个模型 > 空(空时 sendDesignMessage 再兜底到启用供应商首模型)。
+      model: providerSettings.defaultModel ?? piDefaultProvider?.models[0]?.id ?? "",
+    };
+  }
+  // claude/codex:清空 provider+model,避免上一次 pi 的模型名残留导致目标 agent 瞬退。
+  return {
+    agent: base,
+    derivedAgentId: derived?.id ?? "",
+    providerId: "",
+    model: "",
+  };
 }

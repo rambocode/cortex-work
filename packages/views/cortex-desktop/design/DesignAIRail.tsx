@@ -24,11 +24,13 @@ import { DESIGN_ASSISTANT_THREAD_TITLE } from '@cortex-work/core/design/design-t
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
 import { defaultFrameSizeForDesignTarget } from '@cortex-work/core/design/design-context'
 import { cancelDesignPagesRun } from '@cortex-work/core/design/design-pages-run'
+import type { AgentKind, DerivedAgentMeta } from '@cortex-work/core'
 import { MessageTimeline } from './compat/MessageTimeline'
 import { FloatingComposer } from './compat/FloatingComposer'
 import type { DesignComposerContext } from './compat/FloatingComposer'
 import type { ComposerReasoningEffort } from './compat/FloatingComposerModelPicker'
 import { DesignTargetToggle } from './DesignTargetToggle'
+import { AgentSelect } from '../personal/AgentSelect'
 
 type Props = {
   input: string
@@ -68,6 +70,14 @@ type Props = {
   designThreads: NormalizedThread[]
   onSwitchThread: (threadId: string) => void
   onCollapse: () => void
+  // 设计助手栏 agent 选择器（DesignWorkspace 容器接线时 slides/board 两模式都显示）：
+  // designAgent 为当前 base agent,designDerivedAgentId 为选中的派生 id;onSwitchAgent 切换后
+  // 由容器落 designSettings。二者均可选——未接线的次级消费方(如 DesignRightPanelContent)不渲染选择器。
+  designAgent?: AgentKind
+  designDerivedAgentId?: string
+  agentsAvailable?: Partial<Record<AgentKind, boolean>>
+  derivedAgents?: DerivedAgentMeta[]
+  onSwitchAgent?: (agent: AgentKind, derived?: DerivedAgentMeta) => void
   className?: string
   /**
    * 演示文稿(slides)设计稿:右栏复用同一会话管线,但上下文语义不同 ——
@@ -132,6 +142,11 @@ function DesignAIRailInner({
   designThreads,
   onSwitchThread,
   onCollapse,
+  designAgent,
+  designDerivedAgentId,
+  agentsAvailable,
+  derivedAgents,
+  onSwitchAgent,
   className = '',
   slidesMode = false
 }: Props): ReactElement {
@@ -491,6 +506,17 @@ function DesignAIRailInner({
       >
         {!viewingChildThread ? (
           <div className="mb-2 flex flex-wrap items-center gap-2">
+            {/* 设计助手栏 agent 选择器:容器接线时 slides/board 两模式都显示,菜单向上弹避免被下方 composer 遮挡。 */}
+            {designAgent && onSwitchAgent ? (
+              <AgentSelect
+                menuPlacement="up"
+                agent={designAgent}
+                derivedAgentId={designDerivedAgentId}
+                agentsAvailable={agentsAvailable}
+                derivedAgents={derivedAgents}
+                onSwitch={onSwitchAgent}
+              />
+            ) : null}
             {/* slides:Web/App 目标与「1280×800 Web 画布」对演示文稿是错的上下文,
                 换成固定的 16:9 演示画布提示(尺寸由 deck 合同锁死,用户无需选)。 */}
             {slidesMode ? (
