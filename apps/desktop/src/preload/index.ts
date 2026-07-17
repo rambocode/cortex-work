@@ -139,6 +139,8 @@ import type {
   SlidesDuplicateSlideRequest,
   SlidesExportRequest,
   SlidesExportResult,
+  SlidesPresentRequest,
+  SlidesPresentResult,
   SlidesInsertSlideRequest,
   SlidesLoadDeckRequest,
   SlidesReadOutlineDraftRequest,
@@ -328,6 +330,7 @@ const personal = {
   slidesRejectPipelineRole: (req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult> =>
     ipcRenderer.invoke("slides:rejectPipelineRole", req),
   slidesExport: (req: SlidesExportRequest): Promise<SlidesExportResult> => ipcRenderer.invoke("slides:export", req),
+  slidesPresent: (req: SlidesPresentRequest): Promise<SlidesPresentResult> => ipcRenderer.invoke("slides:present", req),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),

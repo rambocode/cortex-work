@@ -129,6 +129,8 @@ import type {
   SlidesDuplicateSlideRequest,
   SlidesExportRequest,
   SlidesExportResult,
+  SlidesPresentRequest,
+  SlidesPresentResult,
   SlidesInsertSlideRequest,
   SlidesLoadDeckRequest,
   SlidesReadOutlineDraftRequest,
@@ -281,6 +283,9 @@ export interface DesktopBridge {
   slidesAcceptPipelineRole?(req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult>;
   slidesRejectPipelineRole?(req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult>;
   slidesExport?(req: SlidesExportRequest): Promise<SlidesExportResult>;
+  // 演示模式:主进程开独立全屏窗口播放整套 ready 页,从 startSlideId 起播。
+  // 可选——web/旧壳无此能力时工具栏「播放」按钮隐藏。
+  slidesPresent?(req: SlidesPresentRequest): Promise<SlidesPresentResult>;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
   // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。
   renameEntry?(from: string, to: string): Promise<void>;

@@ -11,7 +11,8 @@ import type {
   SlidesDeckIpcResult,
   SlidesExportQualityAnalysis,
   SlidesExportFormat,
-  SlidesExportResult
+  SlidesExportResult,
+  SlidesPresentResult
 } from '@cortex-work/core/desktop/slides-ipc-types'
 import type {
   SlidesDeckManifest,
@@ -162,6 +163,8 @@ export interface SlidesUiState {
   pipelineLoading: boolean
   pipelineRun: SlidesPipelineRun | null
   pipelineFindings: SlidesPipelineFinding[]
+  /** 桥接是否具备演示能力(setup 时探测);false 时工具栏「播放」按钮隐藏。 */
+  canPresent: boolean
 
   setup(context: { bridge: DesktopBridge; workspaceRoot: string; deckId: string; title: string }): Promise<void>
   /** 编辑桥选区上报入口:空 items 视为清空。 */
@@ -205,6 +208,8 @@ export interface SlidesUiState {
   setActiveSlide(slotId: string): Promise<void>
   saveEditedHtml(slotId: string, html: string): Promise<boolean>
   exportDeck(format: SlidesExportFormat): Promise<SlidesExportResult>
+  /** 演示模式:主进程开全屏窗口从当前选中页播放;只读操作,不占 mutating。 */
+  present(): Promise<void>
   setZoom(zoom: SlidesZoom): void
   clearConflict(): void
   clearActionError(): void
@@ -247,6 +252,7 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   conflictNotice: false,
   recoveredNotice: false,
   zoom: 'fit',
+  canPresent: false,
   outlineDialogOpen: false,
   outlineDraft: null,
   checkPanelOpen: false,
@@ -593,6 +599,7 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       deckId,
       manifest: null,
       loading: true,
+      canPresent: !!bridge.slidesPresent,
       deckError: null,
       actionError: null,
       conflictNotice: false,
@@ -776,6 +783,24 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
     return result
   },
 
+  // 演示是只读操作:不占 mutating 锁,演示窗口打开期间编辑器照常可用。
+  present: async () => {
+    if (!ctx?.bridge.slidesPresent) {
+      set({ actionError: '当前环境不支持演示模式' })
+      return
+    }
+    const startSlideId = get().manifest?.activeSlideId ?? null
+    const result = await ctx.bridge
+      .slidesPresent({ workspaceRoot: ctx.workspaceRoot, deckId: ctx.deckId, startSlideId })
+      .catch(
+        (err: unknown): SlidesPresentResult => ({
+          ok: false,
+          error: { code: 'io_error', message: err instanceof Error ? err.message : String(err) }
+        })
+      )
+    if (!result.ok) set({ actionError: result.error.message })
+  },
+
   setZoom: (zoom) => set({ zoom }),
   clearConflict: () => set({ conflictNotice: false }),
   clearActionError: () => set({ actionError: null }),
@@ -792,6 +817,7 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       manifest: null,
       loading: false,
       mutating: false,
+      canPresent: false,
       deckError: null,
       actionError: null,
       conflictNotice: false,

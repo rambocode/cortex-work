@@ -18,6 +18,16 @@ function manifest(): SlidesDeckManifest {
   return m
 }
 
+// 带一个 ready 页的 manifest:播放按钮仅在存在 ready 页时可点。
+function manifestWithReadySlide(): SlidesDeckManifest {
+  const m = manifest()
+  m.slides = [
+    { id: 'slot-001', order: 0, title: '开场', htmlPath: 'slides/slot-001.html', revision: 1, status: 'ready', updatedAt: NOW }
+  ]
+  m.activeSlideId = 'slot-001'
+  return m
+}
+
 function fakeBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridge {
   return {
     slidesLoadDeck: vi.fn(async () => ({ ok: true as const, manifest: manifest() })),
@@ -148,6 +158,36 @@ describe('SlidesToolbar', () => {
     fireEvent.click(screen.getByRole('button', { name: /刷新/ }))
     expect(useSlidesStore.getState().conflictNotice).toBe(false)
     await waitFor(() => expect(loadDeck).toHaveBeenCalled())
+  })
+
+  it('播放按钮:桥接具备演示能力且有 ready 页时可点,点击触发演示', async () => {
+    const slidesPresent = vi.fn(async () => ({ ok: true as const }))
+    await setup(
+      fakeBridge({
+        slidesLoadDeck: vi.fn(async () => ({ ok: true as const, manifest: manifestWithReadySlide() })),
+        slidesPresent
+      })
+    )
+    render(<SlidesToolbar />)
+    const button = screen.getByRole('button', { name: /播放/ })
+    expect(button).toBeEnabled()
+    fireEvent.click(button)
+    await waitFor(() =>
+      expect(slidesPresent).toHaveBeenCalledWith({ workspaceRoot: ROOT, deckId: DECK, startSlideId: 'slot-001' })
+    )
+  })
+
+  it('播放按钮:无 ready 页时禁用;桥接无演示能力时整体隐藏', async () => {
+    // manifest() 无任何页 → 按钮存在但禁用。
+    await setup(fakeBridge({ slidesPresent: vi.fn(async () => ({ ok: true as const })) }))
+    render(<SlidesToolbar />)
+    expect(screen.getByRole('button', { name: /播放/ })).toBeDisabled()
+    cleanup()
+    // 桥接无 slidesPresent → 按钮不渲染(web/旧壳降级)。
+    useSlidesStore.getState().reset()
+    await setup(fakeBridge())
+    render(<SlidesToolbar />)
+    expect(screen.queryByRole('button', { name: /播放/ })).toBeNull()
   })
 
   it('检查按钮触发 onRunCheck', async () => {
