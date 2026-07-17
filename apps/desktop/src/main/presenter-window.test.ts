@@ -212,21 +212,59 @@ describe("openPresenterWindow · 双屏", () => {
     expect(speakerHtml).toContain('id="elapsed"');
   });
 
-  it("ready-to-show 里各自 setBounds + setFullScreen 到目标屏", async () => {
+  it("全屏串行化:观众窗先 show+全屏,enter-full-screen 后演讲者窗才跟进", async () => {
     useDualScreen();
     await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
     const [audience, speaker] = fakeWindows;
     audience!.emit("ready-to-show");
     speaker!.emit("ready-to-show");
-    // 观众窗落外接屏(id=2),演讲者窗落主屏(id=1)。
+    // 观众窗落外接屏(id=2):先 show 再 setFullScreen(隐藏窗做原生全屏在 macOS 不可靠)。
     expect(audience!.setBounds).toHaveBeenCalledWith({ x: 1440, y: 0, width: 1920, height: 1080 });
-    expect(speaker!.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1440, height: 900 });
     expect(audience!.setFullScreen).toHaveBeenCalledWith(true);
-    expect(speaker!.setFullScreen).toHaveBeenCalledWith(true);
     expect(audience!.shown).toBe(true);
-    expect(speaker!.shown).toBe(true);
     expect(audience!.options.fullscreen).toBe(false);
-    expect(speaker!.options.fullscreen).toBe(false);
+    // 观众窗全屏转场完成前,演讲者窗按兵不动(两个 Spaces 转场同时进行会被 macOS 吞掉一个)。
+    expect(speaker!.setFullScreen).not.toHaveBeenCalled();
+    expect(speaker!.shown).toBe(false);
+    // 转场完成 → 演讲者窗落主屏(id=1)并全屏。
+    audience!.emit("enter-full-screen");
+    expect(speaker!.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1440, height: 900 });
+    expect(speaker!.setFullScreen).toHaveBeenCalledWith(true);
+    expect(speaker!.shown).toBe(true);
+    // enter-full-screen 与超时兜底只执行一次。
+    audience!.emit("enter-full-screen");
+    expect(speaker!.setFullScreen).toHaveBeenCalledTimes(1);
+  });
+
+  it("enter-full-screen 不来(平台差异)→ 1.5s 超时兜底仍全屏演讲者窗", async () => {
+    vi.useFakeTimers();
+    try {
+      useDualScreen();
+      await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
+      const [audience, speaker] = fakeWindows;
+      audience!.emit("ready-to-show");
+      speaker!.emit("ready-to-show");
+      expect(speaker!.setFullScreen).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1500);
+      expect(speaker!.setFullScreen).toHaveBeenCalledWith(true);
+      expect(speaker!.shown).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("演讲者窗未就绪时不提前 show:两个前置条件都满足才全屏", async () => {
+    useDualScreen();
+    await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
+    const [audience, speaker] = fakeWindows;
+    // 只有观众窗就绪并完成全屏,演讲者窗内容未就绪 → 仍不 show。
+    audience!.emit("ready-to-show");
+    audience!.emit("enter-full-screen");
+    expect(speaker!.shown).toBe(false);
+    // 演讲者窗就绪 → 立即补全屏。
+    speaker!.emit("ready-to-show");
+    expect(speaker!.setFullScreen).toHaveBeenCalledWith(true);
+    expect(speaker!.shown).toBe(true);
   });
 
   it("观众窗 dom-ready 隐藏 #bar(避免鼠标点击绕过主进程翻页权威)", async () => {

@@ -171,17 +171,39 @@ export async function openPresenterWindow(options: {
     audience.webContents.on("dom-ready", () => {
       audience.webContents.insertCSS("#bar{display:none!important}").catch(() => {});
     });
-    // 目标屏定位 + 全屏:先建于目标屏坐标,ready-to-show 里再 setBounds + setFullScreen + show,
-    // 避免全屏窗口跨屏移动的闪烁/竞态。
-    audience.once("ready-to-show", () => {
-      audience.setBounds(pick.audience.bounds);
-      audience.setFullScreen(true);
-      audience.show();
-    });
+    // 目标屏定位 + 全屏。两个关键时序约束(实测踩坑):
+    //  1. setFullScreen 必须在 show() 之后 —— 对隐藏窗口做原生全屏在 macOS 上不可靠;
+    //  2. 两窗的原生全屏转场必须**串行**:macOS 上每次全屏各建一个 Space,两个转场同时
+    //     进行时后到的会被系统吞掉(表现为观众屏没有全屏)。故观众窗先全屏,等它
+    //     enter-full-screen 事件后再全屏演讲者窗;事件不来(平台差异)用超时兜底。
+    // 演讲者窗全屏的两个前置条件汇合:自身内容就绪(它内嵌两份全页 iframe,较重)+
+    // 观众窗全屏转场已让路;二者都满足才 show + setFullScreen,只执行一次。
+    let speakerReady = false;
+    let audienceSettled = false;
+    let speakerDone = false;
+    const trySpeakerFullscreen = (): void => {
+      if (speakerDone || !speakerReady || !audienceSettled) return;
+      if (session !== s || !speaker || speaker.isDestroyed()) return;
+      speakerDone = true;
+      speaker.setBounds(pick.speaker.bounds);
+      speaker.show();
+      speaker.setFullScreen(true);
+    };
+    const settleAudience = (): void => {
+      audienceSettled = true;
+      trySpeakerFullscreen();
+    };
     speaker.once("ready-to-show", () => {
-      speaker!.setBounds(pick.speaker.bounds);
-      speaker!.setFullScreen(true);
-      speaker!.show();
+      speakerReady = true;
+      trySpeakerFullscreen();
+    });
+    audience.once("ready-to-show", () => {
+      if (session !== s || audience.isDestroyed()) return;
+      audience.setBounds(pick.audience.bounds);
+      audience.show();
+      audience.setFullScreen(true);
+      audience.once("enter-full-screen", settleAudience);
+      setTimeout(settleAudience, 1500);
     });
   } else {
     // 单窗:仅拦 Esc(方向键交给 presenter HTML 自带运行时),保留可点 #bar,行为与改造前一致。
