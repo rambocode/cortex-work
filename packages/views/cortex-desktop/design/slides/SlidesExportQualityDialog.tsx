@@ -148,7 +148,7 @@ export function SlidesExportQualityDialog({ onOptimize }: Props): ReactElement |
           <button
             type="button"
             onClick={() => void continueExport()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2376d2] px-3 py-1.5 text-[12px] font-medium text-white"
+            className="ds-no-drag inline-flex items-center gap-1.5 rounded-lg bg-[#2376d2] px-3 py-1.5 text-[12px] font-medium text-white"
           >
             {t('slidesExportQualityContinue')}
           </button>

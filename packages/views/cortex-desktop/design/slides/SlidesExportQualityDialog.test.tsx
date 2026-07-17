@@ -57,6 +57,7 @@ describe('SlidesExportQualityDialog', () => {
     render(<SlidesExportQualityDialog />)
 
     expect(screen.getByRole('presentation')).toHaveClass('ds-no-drag')
+    expect(screen.getByRole('button', { name: '继续导出 PPTX' })).toHaveClass('ds-no-drag')
   })
 
   it('打开原生保存框前先关闭预检层,避免 macOS 嵌套 modal 阻塞覆盖确认', async () => {
