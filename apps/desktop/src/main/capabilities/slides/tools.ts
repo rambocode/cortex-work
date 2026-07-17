@@ -19,9 +19,11 @@ import {
   writeSlideHtml,
   writeSlideNotes,
   writeSlidesOutlineDraft,
+  MAX_ASSET_BASE64_CHARS,
   type SlidesWorkspaceResult,
 } from "./workspace";
 import { checkSlides, screenshotSlideToSnapshot } from "./inspect";
+import { registerSlidesPipelineTools } from "./pipeline/tools";
 import { getSlidesTemplate, listSlidesTemplates, readTemplateReferenceHtml } from "./templates";
 
 const log = createLogger("slides");
@@ -501,7 +503,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
         "返回工作区相对路径;slide HTML 中请用相对本页的路径(../assets/...)引用。",
       inputSchema: {
         file_name: z.string().describe("目标文件名(含扩展名),如 hero.png"),
-        base64: z.string().min(1),
+        base64: z.string().min(1).max(MAX_ASSET_BASE64_CHARS),
         kind: z.enum(["source", "generated"]).optional().describe("缺省 generated"),
       },
     },
@@ -516,4 +518,6 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       return jsonResult({ ok: true, path: result.value });
     },
   );
+
+  registerSlidesPipelineTools(mcp, state);
 }

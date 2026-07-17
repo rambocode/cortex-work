@@ -3,7 +3,7 @@
 // 保存对话框决定);用户取消静默,失败展示可读错误。
 import { useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Download, Loader2, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Bot, ChevronDown, Download, FileText, Loader2, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
 import type { SlidesExportFormat } from '@cortex-work/core/desktop/slides-ipc-types'
 import { useSlidesStore, type SlidesZoom } from './slides-store'
 import { SlidesTemplatePicker } from './SlidesTemplatePicker'
@@ -25,13 +25,26 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
   const clearActionError = useSlidesStore((s) => s.clearActionError)
   const refresh = useSlidesStore((s) => s.refresh)
   const exportDeck = useSlidesStore((s) => s.exportDeck)
+  const analyzeExportQuality = useSlidesStore((s) => s.analyzeExportQuality)
+  const analyzingExport = useSlidesStore((s) => s.analyzingExport)
   const openTemplatePicker = useSlidesStore((s) => s.openTemplatePicker)
+  const notesOpen = useSlidesStore((s) => s.notesOpen)
+  const openNotes = useSlidesStore((s) => s.openNotes)
+  const closeNotes = useSlidesStore((s) => s.closeNotes)
+  const workflowOpen = useSlidesStore((s) => s.workflowOpen)
+  const openWorkflow = useSlidesStore((s) => s.openWorkflow)
+  const closeWorkflow = useSlidesStore((s) => s.closeWorkflow)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportedPath, setExportedPath] = useState<string | null>(null)
 
   const handleExport = async (format: SlidesExportFormat): Promise<void> => {
     setExportOpen(false)
+    if (format === 'pptx') {
+      setExportedPath(null)
+      await analyzeExportQuality()
+      return
+    }
     setExporting(true)
     setExportedPath(null)
     const result = await exportDeck(format)
@@ -78,6 +91,41 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
         </div>
         <button
           type="button"
+          onClick={() => {
+            if (workflowOpen) closeWorkflow()
+            else void openWorkflow()
+          }}
+          disabled={!manifest}
+          aria-pressed={workflowOpen}
+          className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] transition disabled:opacity-40 ${
+            workflowOpen
+              ? 'bg-black/8 text-ds-strong dark:bg-white/15'
+              : 'text-ds-muted hover:bg-black/5 hover:text-ds-strong dark:hover:bg-white/8'
+          }`}
+        >
+          <Bot className="h-3.5 w-3.5" strokeWidth={1.9} />
+          {t('slidesWorkflow')}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (notesOpen) void closeNotes()
+            else void openNotes()
+          }}
+          disabled={!manifest}
+          aria-pressed={notesOpen}
+          title={t('slidesNotes')}
+          className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] transition disabled:opacity-40 ${
+            notesOpen
+              ? 'bg-black/8 text-ds-strong dark:bg-white/15'
+              : 'text-ds-muted hover:bg-black/5 hover:text-ds-strong dark:hover:bg-white/8'
+          }`}
+        >
+          <FileText className="h-3.5 w-3.5" strokeWidth={1.9} />
+          {t('slidesNotes')}
+        </button>
+        <button
+          type="button"
           onClick={onRunCheck}
           disabled={!onRunCheck}
           title={t('slidesCheck')}
@@ -90,15 +138,15 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
           <button
             type="button"
             onClick={() => setExportOpen((v) => !v)}
-            disabled={exporting || !manifest}
+            disabled={exporting || analyzingExport || !manifest}
             className="inline-flex items-center gap-1 rounded-lg bg-[#3b82d8] px-2.5 py-1 text-[12px] text-white transition hover:bg-[#2f6fc0] disabled:opacity-50"
           >
-            {exporting ? (
+            {exporting || analyzingExport ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
             ) : (
               <Download className="h-3.5 w-3.5" strokeWidth={1.9} />
             )}
-            {exporting ? t('slidesExporting') : t('slidesExport')}
+            {exporting ? t('slidesExporting') : analyzingExport ? t('slidesExportPreflight') : t('slidesExport')}
             <ChevronDown className="h-3 w-3" strokeWidth={2} />
           </button>
           {exportOpen ? (
@@ -119,6 +167,7 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
                           ? 'slidesExportPng'
                           : 'slidesExportHtml'
                   )}
+                  {format === 'pdf' || format === 'png' ? ` · ${t('slidesExportNoNotes')}` : ''}
                 </button>
               ))}
             </div>

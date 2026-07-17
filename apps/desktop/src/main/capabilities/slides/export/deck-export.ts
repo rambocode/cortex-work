@@ -21,7 +21,8 @@ import {
 import { loadDeckManifest, readSlideNotes, resolveDeckPaths, type SlidesWorkspaceResult } from "../workspace";
 import { captureBaseRasterDataUri, extractSlideScene } from "./dom-extractor";
 import { scenesToPptxBuffer, type SceneSlideInput } from "./pptx";
-import { summarizeScene, type SceneExportReport, type SlideScene } from "./types";
+import { summarizeScene, type DeckExportReport, type SceneExportReport, type SlideScene } from "./types";
+import { buildDeckExportReport } from "@cortex-work/core/design/slides/slides-export-quality";
 
 const log = createLogger("slides");
 
@@ -44,6 +45,17 @@ export interface RenderedSlideForExport {
 
 export interface DeckExportProgress {
   (done: number, total: number, slotId: string): void;
+}
+
+export interface DeckExportAnalysisSlide {
+  slotId: string;
+  order: number;
+  report: SceneExportReport;
+}
+
+export interface DeckExportAnalysis {
+  slides: DeckExportAnalysisSlide[];
+  deckReport: DeckExportReport;
 }
 
 // 逐页:加载 → 就绪等待 → 提取场景 → (有复杂层则)截 base raster。窗口 finally 必销毁。
@@ -145,6 +157,32 @@ export async function renderDeckForExport(options: {
   return { ok: true, value: rendered };
 }
 
+function summarizeDeckExport(rendered: readonly RenderedSlideForExport[]): DeckExportAnalysis {
+  const slides = rendered.map((entry) => ({
+    slotId: entry.slot.id,
+    order: entry.slot.order,
+    report: entry.report,
+  }));
+  return {
+    slides,
+    deckReport: buildDeckExportReport(slides.map((entry) => entry.report)),
+  };
+}
+
+/** 只做导出预检与质量汇总,不写文件也不生成 PPTX buffer。 */
+export async function analyzeDeckForExport(options: {
+  workspaceRoot: string;
+  deckId: string;
+  windowFactory?: SlideWindowFactory;
+  timeoutMs?: number;
+  cancel?: ExportCancelSignal;
+  onProgress?: DeckExportProgress;
+}): Promise<SlidesWorkspaceResult<DeckExportAnalysis>> {
+  const rendered = await renderDeckForExport(options);
+  if (!rendered.ok) return rendered;
+  return { ok: true, value: summarizeDeckExport(rendered.value) };
+}
+
 /** deck → PPTX buffer(纯内存产出;调用方负责落盘)。 */
 export async function buildDeckPptx(options: {
   workspaceRoot: string;
@@ -153,9 +191,10 @@ export async function buildDeckPptx(options: {
   timeoutMs?: number;
   cancel?: ExportCancelSignal;
   onProgress?: DeckExportProgress;
-}): Promise<SlidesWorkspaceResult<{ buffer: Buffer; reports: SceneExportReport[] }>> {
+}): Promise<SlidesWorkspaceResult<{ buffer: Buffer; reports: SceneExportReport[]; deckReport: DeckExportReport }>> {
   const rendered = await renderDeckForExport(options);
   if (!rendered.ok) return rendered;
+  const analysis = summarizeDeckExport(rendered.value);
   // 演讲者备注随 PPTX 导出(有则带,无则跳过 —— 读失败不阻断导出)。
   const inputs: SceneSlideInput[] = [];
   for (const r of rendered.value) {
@@ -175,9 +214,9 @@ export async function buildDeckPptx(options: {
       { native: 0, raster: 0 },
     );
     log.info(
-      `[slides] pptx built deck=${options.deckId} slides=${reports.length} native=${totals.native} raster=${totals.raster} bytes=${buffer.byteLength}`,
+      `[slides] pptx built deck=${options.deckId} slides=${reports.length} native=${totals.native} raster=${totals.raster} quality=${analysis.deckReport.quality} bytes=${buffer.byteLength}`,
     );
-    return { ok: true, value: { buffer, reports } };
+    return { ok: true, value: { buffer, reports, deckReport: analysis.deckReport } };
   } catch (err) {
     log.error("buildDeckPptx failed:", err);
     return { ok: false, error: { code: "io_error", message: `PPTX 生成失败:${err instanceof Error ? err.message : String(err)}` } };

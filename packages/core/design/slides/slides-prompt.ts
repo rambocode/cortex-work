@@ -44,6 +44,12 @@ const CONTRACT = [
   '- 先 get_deck_state 取当前主题、提纲、页面列表与 revision(所有写工具都要带 expected_revision);',
   '- 页面必须是 1280×720(16:9)固定画布的自包含 HTML:不依赖远程 JavaScript,',
   '  资源用 deck 相对路径或 data URI,关键元素带 data-cortex-id;',
+  '- 数据图表若要在 PPTX 中保持可编辑,必须在图表容器内附带',
+  '  <script type="application/json" data-cortex-chart-spec>，使用 version=1 的 bar/line/pie',
+  '  categories + series 明确数据；不要让导出器从任意 canvas 反推数据;',
+  '- 用户明确发起 AI 工作流时，先 create_pipeline_run，再按 run 中固定角色调用',
+  '  delegate_slides_role；角色只提交结构化结果，完成后 get_pipeline_run 并等待用户批准，',
+  '  reviewer 默认只报告不修复，notes-writer 只能在 review 完成后执行;',
   '- 不要用 Write/Edit 等文件工具直接改 deck 目录,也不要生成自由画布页面或设计系统文档。'
 ].join('\n')
 

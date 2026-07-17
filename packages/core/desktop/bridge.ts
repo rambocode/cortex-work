@@ -115,11 +115,15 @@ import type { WritingPdfDataRequest, WritingPdfDataResult } from "./writing-pdf-
 // AI Slides IPC 契约类型(与 apps/desktop/src/main/ipc/slides-ipc-types.ts 镜像）。
 import type {
   SlidesApplyTemplateRequest,
+  SlidesAnalyzeExportQualityRequest,
+  SlidesAnalyzeExportQualityResult,
   SlidesApproveOutlineRequest,
   SlidesListTemplatesResult,
   SlidesCheckRequest,
   SlidesCheckResult,
   SlidesCreateDeckRequest,
+  SlidesCancelPipelineRunRequest,
+  SlidesDeckScopedRequest,
   SlidesDeckIpcResult,
   SlidesDeleteSlideRequest,
   SlidesDuplicateSlideRequest,
@@ -129,15 +133,21 @@ import type {
   SlidesLoadDeckRequest,
   SlidesReadOutlineDraftRequest,
   SlidesReadOutlineDraftResult,
+  SlidesReadNotesRequest,
+  SlidesReadNotesResult,
   SlidesReadSlideHtmlRequest,
   SlidesReadSlideHtmlResult,
   SlidesReadSnapshotRequest,
   SlidesReadSnapshotResult,
   SlidesReadTemplateReferenceRequest,
   SlidesReadTemplateReferenceResult,
+  SlidesGetPipelineRunRequest,
+  SlidesPipelineRoleDecisionRequest,
+  SlidesPipelineRunResult,
   SlidesRenameDeckRequest,
   SlidesReorderRequest,
   SlidesSaveEditedHtmlRequest,
+  SlidesSaveNotesRequest,
   SlidesScreenshotRequest,
   SlidesScreenshotResult,
   SlidesSetActiveSlideRequest,
@@ -258,10 +268,18 @@ export interface DesktopBridge {
   slidesDeleteSlide?(req: SlidesDeleteSlideRequest): Promise<SlidesDeckIpcResult>;
   slidesSetActiveSlide?(req: SlidesSetActiveSlideRequest): Promise<SlidesDeckIpcResult>;
   slidesSaveEditedHtml?(req: SlidesSaveEditedHtmlRequest): Promise<SlidesDeckIpcResult>;
+  slidesReadNotes?(req: SlidesReadNotesRequest): Promise<SlidesReadNotesResult>;
+  slidesSaveNotes?(req: SlidesSaveNotesRequest): Promise<SlidesDeckIpcResult>;
   slidesReadSlideHtml?(req: SlidesReadSlideHtmlRequest): Promise<SlidesReadSlideHtmlResult>;
   slidesReadSnapshot?(req: SlidesReadSnapshotRequest): Promise<SlidesReadSnapshotResult>;
   slidesCheck?(req: SlidesCheckRequest): Promise<SlidesCheckResult>;
   slidesScreenshot?(req: SlidesScreenshotRequest): Promise<SlidesScreenshotResult>;
+  slidesAnalyzeExportQuality?(req: SlidesAnalyzeExportQualityRequest): Promise<SlidesAnalyzeExportQualityResult>;
+  slidesGetLatestPipelineRun?(req: SlidesDeckScopedRequest): Promise<SlidesPipelineRunResult>;
+  slidesGetPipelineRun?(req: SlidesGetPipelineRunRequest): Promise<SlidesPipelineRunResult>;
+  slidesCancelPipelineRun?(req: SlidesCancelPipelineRunRequest): Promise<SlidesPipelineRunResult>;
+  slidesAcceptPipelineRole?(req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult>;
+  slidesRejectPipelineRole?(req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult>;
   slidesExport?(req: SlidesExportRequest): Promise<SlidesExportResult>;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
   // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。

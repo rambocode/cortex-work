@@ -16,6 +16,8 @@ import type {
   SlidesOutline
 } from '../design/slides/slides-types'
 import type { SlidesTemplateSummary } from '../design/slides/slides-templates'
+import type { DeckExportReport, SceneExportReport } from '../design/slides/slides-export-quality'
+import type { SlidesPipelineRun, SlidesRole } from '../design/slides/slides-pipeline-types'
 
 /** IPC 通道名清单(运行时常量,契约测试用)。 */
 export const SLIDES_IPC_CHANNELS = [
@@ -33,10 +35,18 @@ export const SLIDES_IPC_CHANNELS = [
   'slides:deleteSlide',
   'slides:setActiveSlide',
   'slides:saveEditedHtml',
+  'slides:readNotes',
+  'slides:saveNotes',
   'slides:readSlideHtml',
   'slides:readSnapshot',
   'slides:check',
   'slides:screenshot',
+  'slides:analyzeExportQuality',
+  'slides:getLatestPipelineRun',
+  'slides:getPipelineRun',
+  'slides:cancelPipelineRun',
+  'slides:acceptPipelineRole',
+  'slides:rejectPipelineRole',
   'slides:export'
 ] as const
 
@@ -103,6 +113,14 @@ export type SlidesSaveEditedHtmlRequest = SlidesDeckScopedRequest & {
   html: string
 }
 
+export type SlidesReadNotesRequest = SlidesDeckScopedRequest & { slotId: string }
+
+export type SlidesSaveNotesRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  slotId: string
+  markdown: string
+}
+
 export type SlidesReadSlideHtmlRequest = SlidesDeckScopedRequest & { slotId: string }
 
 /**
@@ -158,6 +176,26 @@ export type SlidesScreenshotRequest = SlidesDeckScopedRequest & { slotId: string
 
 export type SlidesExportRequest = SlidesDeckScopedRequest & { format: SlidesExportFormat }
 
+export type SlidesAnalyzeExportQualityRequest = SlidesDeckScopedRequest
+
+export type SlidesGetPipelineRunRequest = SlidesDeckScopedRequest & { runId: string }
+export type SlidesCancelPipelineRunRequest = SlidesGetPipelineRunRequest & { expectedUpdatedAt: string }
+export type SlidesPipelineRoleDecisionRequest = SlidesCancelPipelineRunRequest & { role: SlidesRole }
+
+export type SlidesPipelineRunResult =
+  | { ok: true; run: SlidesPipelineRun | null; action?: unknown }
+  | { ok: false; error: SlidesError }
+
+export type SlidesExportQualityAnalysis = {
+  revision: number
+  slides: Array<{ slotId: string; order: number; report: SceneExportReport }>
+  deckReport: DeckExportReport
+}
+
+export type SlidesAnalyzeExportQualityResult =
+  | { ok: true; analysis: SlidesExportQualityAnalysis; cached?: boolean }
+  | { ok: false; error: SlidesError }
+
 // ── 结果 ────────────────────────────────────────────────────────────────────
 
 /** deck 变更类通道的统一结果:成功携带最新 manifest(renderer 以此为准刷新)。 */
@@ -167,6 +205,10 @@ export type SlidesDeckIpcResult =
 
 export type SlidesReadSlideHtmlResult =
   | { ok: true; html: string }
+  | { ok: false; error: SlidesError }
+
+export type SlidesReadNotesResult =
+  | { ok: true; markdown: string; slotRevision: number }
   | { ok: false; error: SlidesError }
 
 export type SlidesCheckResult =
@@ -179,5 +221,5 @@ export type SlidesScreenshotResult =
 
 /** 导出:canceled=true 表示用户在保存对话框取消(渲染端静默,不当作失败)。 */
 export type SlidesExportResult =
-  | { ok: true; path: string; format: SlidesExportFormat }
+  | { ok: true; path: string; format: SlidesExportFormat; qualityReport?: DeckExportReport }
   | { ok: false; canceled?: boolean; error?: SlidesError }

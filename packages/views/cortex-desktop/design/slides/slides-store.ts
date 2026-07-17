@@ -9,6 +9,7 @@ import { create } from 'zustand'
 import type { DesktopBridge } from '@cortex-work/core/desktop/bridge'
 import type {
   SlidesDeckIpcResult,
+  SlidesExportQualityAnalysis,
   SlidesExportFormat,
   SlidesExportResult
 } from '@cortex-work/core/desktop/slides-ipc-types'
@@ -19,6 +20,7 @@ import type {
   SlidesOutline
 } from '@cortex-work/core/design/slides/slides-types'
 import type { SlidesTemplateSummary } from '@cortex-work/core/design/slides/slides-templates'
+import type { SlidesPipelineRun, SlidesRole } from '@cortex-work/core/design/slides/slides-pipeline-types'
 import type { SlideBridgeSelectionItem } from './slide-edit-bridge'
 
 export type SlidesZoom = 'fit' | '50' | '75' | '100'
@@ -27,6 +29,45 @@ export type SlidesZoom = 'fit' | '50' | '75' | '100'
 export type SlidesStageSelection = {
   slotId: string
   items: SlideBridgeSelectionItem[]
+}
+
+export type SlidesPipelineFinding = SlidesFinding & { source: 'narrative' | 'render' }
+
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+function findingsFromPipelineAction(
+  role: SlidesRole,
+  action: unknown,
+  manifest: SlidesDeckManifest
+): SlidesPipelineFinding[] {
+  const root = recordOf(action)
+  if (!root) return []
+  const source = role === 'render-reviewer' ? 'render' : role === 'narrative-reviewer' ? 'narrative' : null
+  if (!source) return []
+  const raw = source === 'render' ? root.findings : root.slideFindings
+  if (!Array.isArray(raw)) return []
+  const fallbackSlideId = manifest.activeSlideId ?? manifest.slides[0]?.id
+  return raw.flatMap((item, index) => {
+    const finding = recordOf(item)
+    if (!finding) return []
+    const slideId = typeof finding.slideId === 'string' ? finding.slideId : fallbackSlideId
+    const message = typeof finding.message === 'string' ? finding.message : null
+    const code = typeof finding.code === 'string' ? finding.code : `${source}-review`
+    if (!slideId || !message) return []
+    const severity = finding.severity === 'blocking' || finding.severity === 'info' ? finding.severity : 'warning'
+    return [{
+      id: `pipeline:${source}:${slideId}:${code}:${index}`,
+      source,
+      severity,
+      slideId,
+      code,
+      message,
+      elementId: typeof finding.elementId === 'string' ? finding.elementId : undefined,
+      hint: typeof finding.hint === 'string' ? finding.hint : undefined
+    }]
+  })
 }
 
 /** setup() 注入的运行环境(bridge + 工作区根);module 级持有,切 deck 时整体替换。 */
@@ -46,6 +87,7 @@ const inFlightSnapshots = new Set<string>()
 // slot.updatedAt),缩略图栏据新 key 重取 data URL —— 这就是「实时缩略图」链路。
 const SNAPSHOT_REFRESH_DEBOUNCE_MS = 1200
 const snapshotRefreshTimers = new Map<string, number>()
+let notesLoadGeneration = 0
 
 function scheduleSnapshotRefresh(slotId: string, refresh: () => Promise<void>): void {
   if (!ctx?.bridge.slidesScreenshot) return
@@ -103,12 +145,42 @@ export interface SlidesUiState {
   stageSelection: SlidesStageSelection | null
   /** 舞台撤销/重做可用态(编辑桥 history-changed 上报,驱动画布工具栏按钮)。 */
   stageHistory: { canUndo: boolean; canRedo: boolean }
+  /** 当前页演讲者备注。冲突时保留本地 markdown,由用户选择重试或重新加载。 */
+  notesOpen: boolean
+  notesSlotId: string | null
+  notesMarkdown: string
+  notesLoading: boolean
+  notesDirty: boolean
+  notesSaving: boolean
+  notesSavedAt: string | null
+  notesError: string | null
+  notesConflict: boolean
+  exportQualityOpen: boolean
+  analyzingExport: boolean
+  exportQualityAnalysis: SlidesExportQualityAnalysis | null
+  workflowOpen: boolean
+  pipelineLoading: boolean
+  pipelineRun: SlidesPipelineRun | null
+  pipelineFindings: SlidesPipelineFinding[]
 
   setup(context: { bridge: DesktopBridge; workspaceRoot: string; deckId: string; title: string }): Promise<void>
   /** 编辑桥选区上报入口:空 items 视为清空。 */
   setStageSelection(slotId: string, items: SlideBridgeSelectionItem[]): void
   clearStageSelection(): void
   setStageHistory(history: { canUndo: boolean; canRedo: boolean }): void
+  openNotes(): Promise<void>
+  closeNotes(): Promise<boolean>
+  loadNotes(slotId: string): Promise<void>
+  setNotesMarkdown(markdown: string): void
+  saveNotes(): Promise<boolean>
+  analyzeExportQuality(): Promise<boolean>
+  closeExportQuality(): void
+  openWorkflow(): Promise<void>
+  closeWorkflow(): void
+  refreshPipeline(): Promise<void>
+  cancelPipelineRun(): Promise<boolean>
+  acceptPipelineRole(role: SlidesRole): Promise<boolean>
+  rejectPipelineRole(role: SlidesRole): Promise<boolean>
   openOutlineDialog(): Promise<void>
   closeOutlineDialog(): void
   /** 批准提纲(用户编辑后的最终版);成功返回 true 并采纳新 manifest。 */
@@ -185,6 +257,22 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   snapshots: {},
   stageSelection: null,
   stageHistory: { canUndo: false, canRedo: false },
+  notesOpen: false,
+  notesSlotId: null,
+  notesMarkdown: '',
+  notesLoading: false,
+  notesDirty: false,
+  notesSaving: false,
+  notesSavedAt: null,
+  notesError: null,
+  notesConflict: false,
+  exportQualityOpen: false,
+  analyzingExport: false,
+  exportQualityAnalysis: null,
+  workflowOpen: false,
+  pipelineLoading: false,
+  pipelineRun: null,
+  pipelineFindings: [],
 
   setStageSelection: (slotId, items) => {
     set({ stageSelection: items.length ? { slotId, items } : null })
@@ -197,6 +285,208 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   setStageHistory: (history) => {
     const cur = get().stageHistory
     if (cur.canUndo !== history.canUndo || cur.canRedo !== history.canRedo) set({ stageHistory: history })
+  },
+
+  openNotes: async () => {
+    const slotId = get().manifest?.activeSlideId
+    set({ notesOpen: true })
+    if (slotId) await get().loadNotes(slotId)
+  },
+
+  closeNotes: async () => {
+    if (get().notesDirty && !(await get().saveNotes())) return false
+    set({ notesOpen: false })
+    return true
+  },
+
+  loadNotes: async (slotId) => {
+    if (!ctx?.bridge.slidesReadNotes) {
+      set({ notesError: '当前环境不支持演讲者备注' })
+      return
+    }
+    const deckId = ctx.deckId
+    const requestGeneration = ++notesLoadGeneration
+    set({ notesLoading: true, notesError: null, notesConflict: false })
+    const result = await ctx.bridge
+      .slidesReadNotes({ workspaceRoot: ctx.workspaceRoot, deckId, slotId })
+      .catch(() => undefined)
+    if (ctx?.deckId !== deckId || requestGeneration !== notesLoadGeneration) return
+    if (!result?.ok) {
+      set({ notesLoading: false, notesError: result && !result.ok ? result.error.message : '读取备注失败' })
+      return
+    }
+    set({
+      notesSlotId: slotId,
+      notesMarkdown: result.markdown,
+      notesLoading: false,
+      notesDirty: false,
+      notesSavedAt: null,
+      notesError: null,
+      notesConflict: false
+    })
+  },
+
+  setNotesMarkdown: (markdown) => {
+    set({ notesMarkdown: markdown, notesDirty: true, notesError: null, notesConflict: false })
+  },
+
+  saveNotes: async () => {
+    const state = get()
+    if (!state.notesDirty) return true
+    if (!ctx?.bridge.slidesSaveNotes || !state.manifest || !state.notesSlotId || state.notesSaving) return false
+    const deckId = ctx.deckId
+    const localMarkdown = state.notesMarkdown
+    set({ notesSaving: true, notesError: null })
+    const result = await ctx.bridge
+      .slidesSaveNotes({
+        workspaceRoot: ctx.workspaceRoot,
+        deckId,
+        slotId: state.notesSlotId,
+        markdown: localMarkdown,
+        expectedRevision: state.manifest.revision
+      })
+      .catch(() => undefined)
+    if (ctx?.deckId !== deckId) return false
+    if (!result) {
+      set({ notesSaving: false, notesError: '保存备注失败' })
+      return false
+    }
+    if (result.ok) {
+      // 仅当保存期间用户没有继续输入时清 dirty;否则保留更新后的本地草稿。
+      const unchanged = get().notesMarkdown === localMarkdown
+      set({
+        manifest: result.manifest,
+        notesSaving: false,
+        notesDirty: !unchanged,
+        notesSavedAt: unchanged ? new Date().toISOString() : get().notesSavedAt,
+        notesError: null,
+        notesConflict: false
+      })
+      return unchanged
+    }
+    if (result.error.code === 'revision_conflict') {
+      await get().refresh()
+      set({ notesSaving: false, notesDirty: true, notesConflict: true })
+      return false
+    }
+    set({ notesSaving: false, notesDirty: true, notesError: result.error.message })
+    return false
+  },
+
+  analyzeExportQuality: async () => {
+    if (!ctx?.bridge.slidesAnalyzeExportQuality || get().analyzingExport) {
+      if (!ctx?.bridge.slidesAnalyzeExportQuality) set({ actionError: '当前环境不支持 PPTX 可编辑性预检' })
+      return false
+    }
+    set({ analyzingExport: true, actionError: null })
+    const result = await ctx.bridge
+      .slidesAnalyzeExportQuality({ workspaceRoot: ctx.workspaceRoot, deckId: ctx.deckId })
+      .catch(() => undefined)
+    if (!result?.ok) {
+      set({ analyzingExport: false, actionError: result && !result.ok ? result.error.message : 'PPTX 预检失败' })
+      return false
+    }
+    set({ analyzingExport: false, exportQualityAnalysis: result.analysis, exportQualityOpen: true })
+    return true
+  },
+
+  closeExportQuality: () => set({ exportQualityOpen: false }),
+
+  openWorkflow: async () => {
+    set({ workflowOpen: true, checkPanelOpen: false })
+    await get().refreshPipeline()
+  },
+
+  closeWorkflow: () => set({ workflowOpen: false }),
+
+  refreshPipeline: async () => {
+    if (!ctx || get().pipelineLoading) return
+    const { bridge, workspaceRoot, deckId } = ctx
+    const active = get().pipelineRun
+    const request = active && bridge.slidesGetPipelineRun
+      ? bridge.slidesGetPipelineRun({ workspaceRoot, deckId, runId: active.id })
+      : bridge.slidesGetLatestPipelineRun?.({ workspaceRoot, deckId })
+    if (!request) return
+    set({ pipelineLoading: true })
+    const result = await request.catch(() => undefined)
+    if (ctx?.deckId !== deckId) return
+    if (!result?.ok) {
+      set({ pipelineLoading: false, actionError: result && !result.ok ? result.error.message : '读取 AI 工作流失败' })
+      return
+    }
+    set({ pipelineLoading: false, pipelineRun: result.run })
+  },
+
+  cancelPipelineRun: async () => {
+    const run = get().pipelineRun
+    if (!ctx?.bridge.slidesCancelPipelineRun || !run || get().pipelineLoading) return false
+    set({ pipelineLoading: true })
+    const result = await ctx.bridge
+      .slidesCancelPipelineRun({
+        workspaceRoot: ctx.workspaceRoot,
+        deckId: ctx.deckId,
+        runId: run.id,
+        expectedUpdatedAt: run.updatedAt
+      })
+      .catch(() => undefined)
+    if (!result?.ok) {
+      set({ pipelineLoading: false, actionError: result && !result.ok ? result.error.message : '取消工作流失败' })
+      return false
+    }
+    set({ pipelineLoading: false, pipelineRun: result.run })
+    return true
+  },
+
+  acceptPipelineRole: async (role) => {
+    const run = get().pipelineRun
+    if (!ctx?.bridge.slidesAcceptPipelineRole || !run || get().pipelineLoading) return false
+    set({ pipelineLoading: true })
+    const result = await ctx.bridge
+      .slidesAcceptPipelineRole({
+        workspaceRoot: ctx.workspaceRoot,
+        deckId: ctx.deckId,
+        runId: run.id,
+        expectedUpdatedAt: run.updatedAt,
+        role
+      })
+      .catch(() => undefined)
+    if (!result?.ok) {
+      set({ pipelineLoading: false, actionError: result && !result.ok ? result.error.message : '接受角色结果失败' })
+      return false
+    }
+    const pipelineFindings = result.action && result.run && get().manifest
+      ? findingsFromPipelineAction(role, result.action, get().manifest!)
+      : []
+    set((state) => ({
+      pipelineLoading: false,
+      pipelineRun: result.run,
+      pipelineFindings: pipelineFindings.length
+        ? [...state.pipelineFindings.filter((finding) => finding.source !== pipelineFindings[0]!.source), ...pipelineFindings]
+        : state.pipelineFindings
+    }))
+    if (role === 'notes-writer') await get().refresh()
+    return true
+  },
+
+  rejectPipelineRole: async (role) => {
+    const run = get().pipelineRun
+    if (!ctx?.bridge.slidesRejectPipelineRole || !run || get().pipelineLoading) return false
+    set({ pipelineLoading: true })
+    const result = await ctx.bridge
+      .slidesRejectPipelineRole({
+        workspaceRoot: ctx.workspaceRoot,
+        deckId: ctx.deckId,
+        runId: run.id,
+        expectedUpdatedAt: run.updatedAt,
+        role
+      })
+      .catch(() => undefined)
+    if (!result?.ok) {
+      set({ pipelineLoading: false, actionError: result && !result.ok ? result.error.message : '拒绝角色结果失败' })
+      return false
+    }
+    set({ pipelineLoading: false, pipelineRun: result.run })
+    return true
   },
 
   ensureSnapshot: async (slotId, updatedAt) => {
@@ -247,7 +537,7 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
 
   runCheck: async () => {
     if (!ctx?.bridge.slidesCheck || get().checking) return
-    set({ checking: true, checkPanelOpen: true })
+    set({ checking: true, checkPanelOpen: true, workflowOpen: false })
     const result = await ctx.bridge
       .slidesCheck({ workspaceRoot: ctx.workspaceRoot, deckId: ctx.deckId })
       .catch(() => undefined)
@@ -297,6 +587,7 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   },
 
   setup: async ({ bridge, workspaceRoot, deckId, title }) => {
+    notesLoadGeneration += 1
     ctx = { bridge, workspaceRoot, deckId }
     set({
       deckId,
@@ -307,7 +598,23 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       conflictNotice: false,
       recoveredNotice: false,
       outlineDialogOpen: false,
-      outlineDraft: null
+      outlineDraft: null,
+      notesOpen: false,
+      notesSlotId: null,
+      notesMarkdown: '',
+      notesLoading: false,
+      notesDirty: false,
+      notesSaving: false,
+      notesSavedAt: null,
+      notesError: null,
+      notesConflict: false,
+      exportQualityOpen: false,
+      analyzingExport: false,
+      exportQualityAnalysis: null,
+      workflowOpen: false,
+      pipelineLoading: false,
+      pipelineRun: null,
+      pipelineFindings: []
     })
     if (!bridge.slidesLoadDeck || !bridge.slidesCreateDeck) {
       set({ loading: false, deckError: { code: 'io_error', message: '当前环境不支持演示文稿' } })
@@ -404,18 +711,22 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
     const { manifest } = get()
     if (!ctx?.bridge.slidesSetActiveSlide || !manifest) return
     if (manifest.activeSlideId === slotId) return
+    if (get().notesOpen && get().notesDirty && !(await get().saveNotes())) return
+    const currentManifest = get().manifest
+    if (!currentManifest) return
     // 本地乐观更新(切页是高频操作),失败/冲突再回滚到服务端快照。
-    set({ manifest: { ...manifest, activeSlideId: slotId } })
+    set({ manifest: { ...currentManifest, activeSlideId: slotId } })
     const result = await ctx.bridge
       .slidesSetActiveSlide({
         workspaceRoot: ctx.workspaceRoot,
         deckId: ctx.deckId,
-        expectedRevision: manifest.revision,
+        expectedRevision: currentManifest.revision,
         slotId
       })
       .catch(() => undefined)
     if (result?.ok) {
       set({ manifest: result.manifest })
+      if (get().notesOpen) await get().loadNotes(slotId)
     } else if (result && !result.ok && result.error.code === 'revision_conflict') {
       await get().refresh()
       set({ conflictNotice: true })
@@ -474,6 +785,7 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   },
 
   reset: () => {
+    notesLoadGeneration += 1
     ctx = null
     set({
       deckId: null,
@@ -490,7 +802,23 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       templates: null,
       snapshots: {},
       stageSelection: null,
-      stageHistory: { canUndo: false, canRedo: false }
+      stageHistory: { canUndo: false, canRedo: false },
+      notesOpen: false,
+      notesSlotId: null,
+      notesMarkdown: '',
+      notesLoading: false,
+      notesDirty: false,
+      notesSaving: false,
+      notesSavedAt: null,
+      notesError: null,
+      notesConflict: false,
+      exportQualityOpen: false,
+      analyzingExport: false,
+      exportQualityAnalysis: null,
+      workflowOpen: false,
+      pipelineLoading: false,
+      pipelineRun: null,
+      pipelineFindings: []
     })
   }
 }))

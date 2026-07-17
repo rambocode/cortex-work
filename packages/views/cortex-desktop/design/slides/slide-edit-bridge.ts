@@ -80,6 +80,7 @@ export type SlideBridgeCommand =
   | { type: 'color'; hex: string }
   | { type: 'align'; value: 'left' | 'center' | 'right' }
   | { type: 'delete-selected' }
+  | { type: 'focus-element'; elementId: string }
   | { type: 'clear-selection' }
   | { type: 'undo' }
   | { type: 'redo' }
@@ -769,6 +770,21 @@ function slideEditBridgeInPage(config: { protocol: number; editableTags: string[
           postSelection()
           scheduleSave()
           break
+        case 'focus-element': {
+          if (typeof command.elementId !== 'string' || !command.elementId || command.elementId.length > 256) return
+          var candidates = document.querySelectorAll('[data-cortex-id]')
+          var target: HTMLElement | null = null
+          for (var fe = 0; fe < candidates.length; fe++) {
+            var candidate = candidates[fe] as HTMLElement
+            if (candidate.getAttribute('data-cortex-id') === command.elementId) {
+              target = candidate
+              break
+            }
+          }
+          applySelection(target ? [target] : [])
+          if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+          break
+        }
         case 'clear-selection':
           applySelection([])
           break

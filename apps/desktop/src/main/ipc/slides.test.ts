@@ -33,6 +33,12 @@ vi.mock("../log", () => ({
 
 import { registerSlidesHandlers } from "./slides";
 import { SLIDES_EXPORT_FORMATS, SLIDES_IPC_CHANNELS } from "./slides-ipc-types";
+import {
+  createSlidesPipelineRunAction,
+  recordSlidesPipelineRoleResult,
+  startSlidesPipelineRole,
+} from "../capabilities/slides/pipeline/tools";
+import * as pipelineTools from "../capabilities/slides/pipeline/tools";
 
 const DECK = "deckipc01";
 let root: string;
@@ -193,6 +199,48 @@ describe("deck 生命周期经 IPC", () => {
     if (!stale.ok) expect(stale.error.code).toBe("revision_conflict");
   });
 
+  it("readNotes / saveNotes 共用 slot 与 deck revision 合同", async () => {
+    const before = await load();
+    const slotId = before.slides[0]!.id;
+
+    const empty = await invoke<{ ok: boolean; markdown?: string; slotRevision?: number }>("slides:readNotes", {
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId,
+    });
+    expect(empty).toMatchObject({ ok: true, markdown: "", slotRevision: before.slides[0]!.revision });
+
+    const saved = await invoke<DeckResult>("slides:saveNotes", {
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId,
+      markdown: "## 演讲提示\n\n先讲用户痛点。",
+      expectedRevision: before.revision,
+    });
+    expect(saved.ok).toBe(true);
+    if (saved.ok) {
+      expect(saved.manifest.revision).toBe(before.revision + 1);
+      expect(saved.manifest.slides.find((slot) => slot.id === slotId)?.notesPath).toContain(`notes/${slotId}.md`);
+    }
+
+    const readBack = await invoke<{ ok: boolean; markdown?: string }>("slides:readNotes", {
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId,
+    });
+    expect(readBack).toMatchObject({ ok: true, markdown: "## 演讲提示\n\n先讲用户痛点。" });
+
+    const conflict = await invoke<DeckResult>("slides:saveNotes", {
+      workspaceRoot: root,
+      deckId: DECK,
+      slotId,
+      markdown: "过期覆盖",
+      expectedRevision: before.revision,
+    });
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.error.code).toBe("revision_conflict");
+  });
+
   it("setActiveSlide 更新指针", async () => {
     const manifest = await load();
     const last = manifest.slides.sort((a, b) => a.order - b.order).at(-1)!;
@@ -282,6 +330,53 @@ describe("deck 生命周期经 IPC", () => {
     expect(shot.ok).toBe(false);
     expect(shot.error?.code).toBe("not_found");
   });
+
+  it("导出质量预检对非法 deck 返回结构化错误", async () => {
+    const result = await invoke<{ ok: boolean; error?: { code: string } }>("slides:analyzeExportQuality", {
+      workspaceRoot: root,
+      deckId: "../evil",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("invalid_path");
+  });
+
+  it("无历史 pipeline 时 latest 返回 null;不存在 run 结构化拒绝", async () => {
+    const latest = await invoke<{ ok: boolean; run?: unknown }>("slides:getLatestPipelineRun", {
+      workspaceRoot: root,
+      deckId: DECK,
+    });
+    expect(latest).toEqual({ ok: true, run: null });
+    const missing = await invoke<{ ok: boolean; error?: { code: string } }>("slides:getPipelineRun", {
+      workspaceRoot: root,
+      deckId: DECK,
+      runId: "run-missing",
+    });
+    expect(missing.ok).toBe(false);
+    expect(missing.error?.code).toBe("not_found");
+  });
+
+  it("acceptPipelineRole 会把 expectedUpdatedAt 下推到 action，避免 IPC 层分离校验", async () => {
+    await seedAwaitingApprovalRun("run-accept-ipc");
+    const loaded = await invoke<{ ok: boolean; run?: { updatedAt: string } }>("slides:getPipelineRun", {
+      workspaceRoot: root,
+      deckId: DECK,
+      runId: "run-accept-ipc",
+    });
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok || !loaded.run) return;
+
+    const acceptSpy = vi.spyOn(pipelineTools, "acceptSlidesPipelineRoleResult");
+    const accepted = await invoke<{ ok: boolean }>("slides:acceptPipelineRole", {
+      workspaceRoot: root,
+      deckId: DECK,
+      runId: "run-accept-ipc",
+      role: "topic-researcher",
+      expectedUpdatedAt: loaded.run.updatedAt,
+    });
+    expect(accepted.ok).toBe(true);
+    expect(acceptSpy).toHaveBeenCalledWith(expect.objectContaining({ expectedUpdatedAt: loaded.run.updatedAt }));
+    acceptSpy.mockRestore();
+  });
 });
 
 describe("模板参考页经 IPC", () => {
@@ -311,4 +406,34 @@ async function load(): Promise<SlidesDeckManifest> {
   const result = await invoke<DeckResult>("slides:loadDeck", { workspaceRoot: root, deckId: DECK });
   if (!result.ok) throw new Error("loadDeck failed");
   return result.manifest;
+}
+
+async function seedAwaitingApprovalRun(runId: string): Promise<void> {
+  const created = await createSlidesPipelineRunAction({
+    workspaceRoot: root,
+    deckId: DECK,
+    kind: "research",
+    runId,
+  });
+  expect(created.ok).toBe(true);
+  const started = await startSlidesPipelineRole({
+    workspaceRoot: root,
+    deckId: DECK,
+    runId,
+    role: "topic-researcher",
+  });
+  expect(started.ok).toBe(true);
+  const recorded = await recordSlidesPipelineRoleResult({
+    workspaceRoot: root,
+    deckId: DECK,
+    runId,
+    role: "topic-researcher",
+    result: {
+      facts: ["事实 1"],
+      sources: [{ title: "来源 A", url: "https://example.com/a" }],
+      claims: ["判断 1"],
+      openQuestions: ["问题 1"],
+    },
+  });
+  expect(recorded.ok).toBe(true);
 }

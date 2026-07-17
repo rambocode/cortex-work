@@ -32,6 +32,7 @@ import { useSlidesStore } from './slides-store'
 type Props = {
   workspaceRoot: string
   slot: SlidesSlot | null
+  focusElement?: { slotId: string; elementId: string; nonce: number } | null
   /** 错误页占位上的「重试本页」回调(缺省不显示按钮)。 */
   onRetrySlide?: () => void
 }
@@ -48,7 +49,7 @@ export function slidesFitZoomFactor(containerWidth: number, containerHeight: num
   return Number.isFinite(factor) && factor > 0.1 ? Math.round(factor * 1000) / 1000 : 0.1
 }
 
-export function SlidesStage({ workspaceRoot, slot, onRetrySlide }: Props): ReactElement {
+export function SlidesStage({ workspaceRoot, slot, focusElement, onRetrySlide }: Props): ReactElement {
   const { t } = useTranslation('design')
   const zoom = useSlidesStore((s) => s.zoom)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -117,6 +118,11 @@ export function SlidesStage({ workspaceRoot, slot, onRetrySlide }: Props): React
     // 切页即清选区(旧页的选区对新页无意义,也不能进 LLM 上下文)。
     clearStageSelection()
   }, [slot?.id, clearStageSelection])
+
+  useEffect(() => {
+    if (!preview.state.ready || !focusElement || focusElement.slotId !== slot?.id) return
+    void executeScript(compileSlideBridgeCommand({ type: 'focus-element', elementId: focusElement.elementId }))
+  }, [executeScript, focusElement, preview.state.ready, slot?.id])
 
   useEffect(() => {
     if (!showWebview || !preview.state.ready || conflictNotice) return

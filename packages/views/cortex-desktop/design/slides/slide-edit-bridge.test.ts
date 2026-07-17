@@ -475,6 +475,15 @@ describe('页内 bridge 行为(jsdom)', () => {
     expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'html-changed')).toBe(true)
   })
 
+  it('exec(focus-element) 按 data-cortex-id 定位并同步页内选区', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    bridge.exec({ type: 'focus-element', elementId: 'body' })
+    expect(document.querySelector('p')!.getAttribute('data-cortex-selected')).toBe('1')
+    const selected = parseSlideBridgeDrain(bridge.drain()).find((message) => message.type === 'selection-changed')
+    expect(selected).toMatchObject({ type: 'selection-changed', items: [{ elementId: 'body' }] })
+  })
+
   it('Delete 删除已选中元素(编辑中不拦截)', () => {
     const bridge = mountPage(PAGE)
     bridge.drain()

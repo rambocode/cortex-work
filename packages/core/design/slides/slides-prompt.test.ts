@@ -11,6 +11,11 @@ describe('buildSlidesTurnPrompt', () => {
     expect(p).toContain('1280×720')
     expect(p).toContain('data-cortex-id')
     expect(p).toContain('expected_revision')
+    expect(p).toContain('data-cortex-chart-spec')
+    expect(p).toContain('application/json')
+    expect(p).toContain('create_pipeline_run')
+    expect(p).toContain('delegate_slides_role')
+    expect(p).toContain('等待用户批准')
   })
 
   it('draft:先定主题再提纲,明确禁止批准前写页面', () => {

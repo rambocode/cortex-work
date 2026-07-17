@@ -13,7 +13,113 @@
 //    坐标不受影响 → 容器盒子留在 base raster,子级文本/图片继续原生提取(PPTX 可编辑)。
 //    纯文本块自身带装饰时,盒子进 raster、文字截图时置为透明(data-cortex-native-text)。
 import type { SlideRenderWindow } from "../render";
-import type { SlideScene } from "./types";
+import { parseSlidesChartSpec } from "./chart-spec";
+import type { SceneChartNode, SceneNode, SceneRasterNode, SlideScene } from "./types";
+
+export interface RawChartCandidateNode {
+  kind: "chart-candidate";
+  id: string;
+  candidateKey: string;
+  chartId: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  z: number;
+  specText: string;
+  ariaLabel?: string;
+  style?: SceneChartNode["style"];
+}
+
+export interface RawExtractedSlideScene {
+  width: number;
+  height: number;
+  backgroundColor?: string;
+  nodes: Array<SceneNode | RawChartCandidateNode>;
+  hasComplexLayers: boolean;
+  warnings: string[];
+}
+
+export function finalizeExtractedSlideScene(rawScene: RawExtractedSlideScene): {
+  scene: SlideScene;
+  validChartCandidateKeys: string[];
+  invalidChartCandidateKeys: string[];
+} {
+  const nodes: SceneNode[] = [];
+  const warnings = [...rawScene.warnings];
+  const validChartCandidateKeys: string[] = [];
+  const invalidChartCandidateKeys: string[] = [];
+
+  for (const node of rawScene.nodes) {
+    if (node.kind !== "chart-candidate") {
+      nodes.push(node);
+      continue;
+    }
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(node.specText);
+    } catch {
+      warnings.push(`chart-spec-invalid:${node.chartId}`);
+      invalidChartCandidateKeys.push(node.candidateKey);
+      nodes.push({
+        kind: "raster",
+        id: node.id.replace(/^chart/, "raster"),
+        x: node.x,
+        y: node.y,
+        w: node.w,
+        h: node.h,
+        z: node.z,
+        reason: "canvas",
+      } satisfies SceneRasterNode);
+      continue;
+    }
+    const parsed = parseSlidesChartSpec(parsedJson);
+    if (!parsed.ok) {
+      warnings.push(`chart-spec-invalid:${node.chartId}`);
+      invalidChartCandidateKeys.push(node.candidateKey);
+      nodes.push({
+        kind: "raster",
+        id: node.id.replace(/^chart/, "raster"),
+        x: node.x,
+        y: node.y,
+        w: node.w,
+        h: node.h,
+        z: node.z,
+        reason: "canvas",
+      } satisfies SceneRasterNode);
+      continue;
+    }
+    if (parsed.value.type === "pie" && (parsed.value.xAxisTitle || parsed.value.yAxisTitle)) {
+      warnings.push(`chart-axis-title-ignored:${node.chartId}`);
+    }
+    validChartCandidateKeys.push(node.candidateKey);
+    nodes.push({
+      kind: "chart",
+      id: node.id,
+      x: node.x,
+      y: node.y,
+      w: node.w,
+      h: node.h,
+      z: node.z,
+      spec: parsed.value,
+      ariaLabel: node.ariaLabel,
+      style: node.style,
+    } satisfies SceneChartNode);
+  }
+
+  return {
+    scene: {
+      width: rawScene.width,
+      height: rawScene.height,
+      backgroundColor: rawScene.backgroundColor,
+      nodes,
+      hasComplexLayers: nodes.some((entry) => entry.kind === "raster"),
+      warnings,
+    },
+    validChartCandidateKeys,
+    invalidChartCandidateKeys,
+  };
+}
 
 /* eslint-disable */
 function extractSceneInPage() {
@@ -34,6 +140,10 @@ function extractSceneInPage() {
 
   function round2(v) {
     return Math.round(v * 100) / 100;
+  }
+
+  function round4(v) {
+    return Math.round(v * 10000) / 10000;
   }
 
   // rgb()/rgba() → { hex, alpha };全透明返回 null。
@@ -61,6 +171,105 @@ function extractSceneInPage() {
     return { x: round2(r.left), y: round2(r.top), w: round2(r.width), h: round2(r.height) };
   }
 
+  function simpleTransformInfo(cs) {
+    var t = cs.transform;
+    if (!t || t === "none") return { rotateDeg: undefined, reason: null };
+    if (t.indexOf("matrix3d(") === 0) return { rotateDeg: undefined, reason: "transform-3d" };
+    var m = t.match(/^matrix\(([^)]+)\)$/);
+    if (!m) return { rotateDeg: undefined, reason: "transform" };
+    var p = m[1].split(",").map(function (s) {
+      return parseFloat(s);
+    });
+    if (p.length < 4) return { rotateDeg: undefined, reason: "transform" };
+    var a = p[0];
+    var b = p[1];
+    var c = p[2];
+    var d = p[3];
+    var det = a * d - b * c;
+    if (Math.abs(det - 1) > 0.03) return { rotateDeg: undefined, reason: "transform" };
+    if (Math.abs(a - d) > 0.03 || Math.abs(b + c) > 0.03) return { rotateDeg: undefined, reason: "transform" };
+    var angle = Math.atan2(b, a) * (180 / Math.PI);
+    return { rotateDeg: Math.abs(angle) < 0.05 ? undefined : round2(angle), reason: null };
+  }
+
+  function nodeVisualProps(cs) {
+    var opacity = parseFloat(cs.opacity);
+    var transform = simpleTransformInfo(cs);
+    return {
+      rotateDeg: transform.rotateDeg,
+      opacity: !isNaN(opacity) && opacity < 0.999 ? round4(opacity) : undefined,
+    };
+  }
+
+  function normalizeDataUri(src) {
+    if (src.indexOf("data:") !== 0) return src;
+    var comma = src.indexOf(",");
+    if (comma < 0) return src;
+    var header = src.slice(0, comma);
+    var body = src.slice(comma + 1);
+    if (header.indexOf(";base64") !== -1) return src;
+    var decoded = decodeURIComponent(body);
+    var utf8 = unescape(encodeURIComponent(decoded));
+    return header + ";base64," + btoa(utf8);
+  }
+
+  function serializeSvgDataUri(el) {
+    var clone = el.cloneNode(true);
+    if (!clone.getAttribute("xmlns")) clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    var raw = new XMLSerializer().serializeToString(clone);
+    return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(raw)));
+  }
+
+  function parsePositionToken(token, fallback) {
+    if (!token) return fallback;
+    var lower = token.toLowerCase();
+    if (lower === "left" || lower === "top") return 0;
+    if (lower === "center") return 0.5;
+    if (lower === "right" || lower === "bottom") return 1;
+    if (/%$/.test(lower)) return Math.max(0, Math.min(1, parseFloat(lower) / 100));
+    return fallback;
+  }
+
+  function parseObjectPosition(cs) {
+    var raw = (cs.objectPosition || "50% 50%").trim().split(/\s+/);
+    var x = parsePositionToken(raw[0], 0.5);
+    var y = parsePositionToken(raw[1] || raw[0], 0.5);
+    return { x: round4(x), y: round4(y) };
+  }
+
+  function valignForText(cs) {
+    if (cs.display === "flex") {
+      if (cs.alignItems === "center") return "middle";
+      if (cs.alignItems === "flex-end" || cs.alignItems === "end") return "bottom";
+    }
+    if (cs.display === "table-cell") {
+      if (cs.verticalAlign === "middle") return "middle";
+      if (cs.verticalAlign === "bottom") return "bottom";
+    }
+    return "top";
+  }
+
+  function bulletForElement(el) {
+    if (el.tagName !== "LI") return undefined;
+    var parent = el.parentElement;
+    if (!parent) return undefined;
+    var tag = parent.tagName.toLowerCase();
+    if (tag === "ul") return { type: "bullet" };
+    if (tag === "ol") {
+      var explicit = parseInt(el.getAttribute("value") || "", 10);
+      if (!isNaN(explicit)) return { type: "number", numberStartAt: explicit };
+      var start = parseInt(parent.getAttribute("start") || "", 10);
+      if (isNaN(start)) start = 1;
+      var index = 0;
+      for (var i = 0; i < parent.children.length; i++) {
+        if (parent.children[i] === el) break;
+        if (parent.children[i].tagName === "LI") index += 1;
+      }
+      return { type: "number", numberStartAt: start + index };
+    }
+    return undefined;
+  }
+
   // 结构性复杂判定:绘制/几何会波及子孙(子内容无法按 viewport 坐标独立重建),
   // 命中则整棵子树栅格;可原生重建时返回 null。
   function structuralReason(el, cs) {
@@ -75,18 +284,8 @@ function extractSceneInPage() {
     if (cs.clipPath && cs.clipPath !== "none") return "clip-path";
     var mask = cs.maskImage || cs.webkitMaskImage;
     if (mask && mask !== "none") return "mask";
-    var t = cs.transform;
-    if (t && t !== "none") {
-      // 仅允许纯平移(matrix(1,0,0,1,tx,ty));旋转/缩放/3D 一律降级。
-      var m = t.match(/^matrix\(([^)]+)\)$/);
-      if (!m) return "transform-3d";
-      var p = m[1].split(",").map(function (s) {
-        return parseFloat(s);
-      });
-      if (Math.abs(p[0] - 1) > 0.01 || Math.abs(p[1]) > 0.01 || Math.abs(p[2]) > 0.01 || Math.abs(p[3] - 1) > 0.01) {
-        return "transform";
-      }
-    }
+    var transform = simpleTransformInfo(cs);
+    if (transform.reason) return transform.reason;
     return null;
   }
 
@@ -191,19 +390,31 @@ function extractSceneInPage() {
     collectRuns(el, runs);
     if (!runs.length) return;
     var r = rectOf(el);
+    var firstRun = runs[0];
+    var bullet = bulletForElement(el);
+    if (firstRun && bullet) firstRun.bullet = bullet;
+    if (firstRun) {
+      var mt = parseFloat(cs.marginTop) || 0;
+      var mb = parseFloat(cs.marginBottom) || 0;
+      if (mt > 0.5) firstRun.paraSpaceBeforePx = mt;
+      if (mb > 0.5) firstRun.paraSpaceAfterPx = mb;
+    }
     el.setAttribute(textOnly ? "data-cortex-native-text" : "data-cortex-native", "1");
     var align = cs.textAlign;
     if (align !== "center" && align !== "right" && align !== "justify") align = "left";
     nodes.push({
       kind: "text",
-      id: nextId("text"),
+      id: el.getAttribute("data-cortex-id") || nextId("text"),
       x: r.x,
       y: r.y,
       w: r.w,
       h: r.h,
       z: zCounter++,
+      rotateDeg: nodeVisualProps(cs).rotateDeg,
+      opacity: nodeVisualProps(cs).opacity,
       runs: runs,
       align: align,
+      valign: valignForText(cs),
       lineHeightPx: cs.lineHeight === "normal" ? (parseFloat(cs.fontSize) || 16) * 1.2 : parseFloat(cs.lineHeight),
       paddingPx: {
         top: parseFloat(cs.paddingTop) || 0,
@@ -225,12 +436,14 @@ function extractSceneInPage() {
     var radius = parseFloat(cs.borderTopLeftRadius) || 0;
     nodes.push({
       kind: "shape",
-      id: nextId("shape"),
+      id: el.getAttribute("data-cortex-id") || nextId("shape"),
       x: r.x,
       y: r.y,
       w: r.w,
       h: r.h,
       z: zCounter++,
+      rotateDeg: nodeVisualProps(cs).rotateDeg,
+      opacity: nodeVisualProps(cs).opacity,
       fill: fill ? fill.hex : undefined,
       fillOpacity: fill ? Math.round(fill.alpha * 100) : undefined,
       // 直接用 borderColor 收窄(hasBorder 是它的布尔中介,TS 看不穿)。
@@ -254,23 +467,81 @@ function extractSceneInPage() {
     el.setAttribute("data-cortex-native", "1");
     nodes.push({
       kind: "image",
-      id: nextId("img"),
+      id: el.getAttribute("data-cortex-id") || nextId("img"),
       x: r.x,
       y: r.y,
       w: r.w,
       h: r.h,
       z: zCounter++,
-      src: src,
+      rotateDeg: nodeVisualProps(cs).rotateDeg,
+      opacity: nodeVisualProps(cs).opacity,
+      src: normalizeDataUri(src),
+      objectFit: cs.objectFit === "contain" || cs.objectFit === "cover" ? cs.objectFit : "fill",
+      objectPosition: parseObjectPosition(cs),
+      intrinsicSize: el.naturalWidth > 0 && el.naturalHeight > 0 ? { width: el.naturalWidth, height: el.naturalHeight } : undefined,
       borderRadiusPx: radius > 0 ? radius : undefined,
     });
   }
 
-  // 内联 <svg>:POC 阶段不做矢量重建,整块交给 base raster(Node 侧 PptxGenJS 对 svg
-  // 的 png fallback 依赖浏览器 canvas,主进程不可用)。
-  function emitSvgAsRaster(el) {
+  function emitSvgAsImage(el) {
     var r = rectOf(el);
-    el.setAttribute("data-cortex-raster", "1");
-    nodes.push({ kind: "raster", id: nextId("raster"), x: r.x, y: r.y, w: r.w, h: r.h, z: zCounter++, reason: "svg" });
+    el.setAttribute("data-cortex-native", "1");
+    nodes.push({
+      kind: "image",
+      id: el.getAttribute("data-cortex-id") || nextId("img"),
+      x: r.x,
+      y: r.y,
+      w: r.w,
+      h: r.h,
+      z: zCounter++,
+      rotateDeg: nodeVisualProps(getComputedStyle(el)).rotateDeg,
+      opacity: nodeVisualProps(getComputedStyle(el)).opacity,
+      src: serializeSvgDataUri(el),
+      objectFit: "fill",
+      objectPosition: { x: 0.5, y: 0.5 },
+      intrinsicSize: undefined,
+    });
+  }
+
+  function directChartSpecScript(el) {
+    for (var i = 0; i < el.children.length; i++) {
+      var child = el.children[i];
+      if (child.tagName === "SCRIPT" && child.hasAttribute("data-cortex-chart-spec")) return child;
+    }
+    return null;
+  }
+
+  function emitChartCandidate(el, cs) {
+    var specScript = directChartSpecScript(el);
+    if (!specScript) return false;
+    var canvas = el.querySelector("canvas");
+    if (!canvas) return false;
+    var r = rectOf(canvas);
+    var color = parseColor(cs.color);
+    var bg = parseColor(cs.backgroundColor);
+    var markerId = el.getAttribute("data-cortex-id") || nextId("chart-root");
+    var candidateKey = nextId("chart-candidate");
+    canvas.setAttribute("data-cortex-chart-candidate", candidateKey);
+    nodes.push({
+      kind: "chart-candidate",
+      id: nextId("chart"),
+      candidateKey: candidateKey,
+      chartId: markerId,
+      x: r.x,
+      y: r.y,
+      w: r.w,
+      h: r.h,
+      z: zCounter++,
+      specText: (specScript.textContent || "").trim(),
+      ariaLabel: el.getAttribute("aria-label") || canvas.getAttribute("aria-label") || undefined,
+      style: {
+        fontFamily: (cs.fontFamily.split(",")[0] || "Helvetica").trim().replace(/^["']|["']$/g, ""),
+        fontSizePx: parseFloat(cs.fontSize) || undefined,
+        color: color ? color.hex : undefined,
+        backgroundColor: bg ? bg.hex : undefined,
+      },
+    });
+    return true;
   }
 
   function cellAlign(cs) {
@@ -282,6 +553,7 @@ function extractSceneInPage() {
   function emitTable(tableEl, cs) {
     var r = rectOf(tableEl);
     var rows: any[] = [];
+    var warnedRadius = false;
     var trs = tableEl.querySelectorAll("tr");
     for (var i = 0; i < trs.length; i++) {
       var cells: any[] = [];
@@ -292,6 +564,11 @@ function extractSceneInPage() {
         var ccs = getComputedStyle(cellEl);
         var fill = parseColor(ccs.backgroundColor);
         var color = parseColor(ccs.color);
+        var radius = parseFloat(ccs.borderTopLeftRadius) || 0;
+        if (!warnedRadius && radius > 0) {
+          warnings.push("table-border-radius-approx:" + (tableEl.getAttribute("data-cortex-id") || "table"));
+          warnedRadius = true;
+        }
         cells.push({
           text: (cellEl.textContent || "").replace(/\s+/g, " ").trim(),
           bold: (parseInt(ccs.fontWeight, 10) || 400) >= 600,
@@ -299,16 +576,26 @@ function extractSceneInPage() {
           fill: fill ? fill.hex : undefined,
           align: cellAlign(ccs),
           fontSizePx: parseFloat(ccs.fontSize) || 16,
+          colspan: cellEl.colSpan > 1 ? cellEl.colSpan : undefined,
+          rowspan: cellEl.rowSpan > 1 ? cellEl.rowSpan : undefined,
         });
       }
       if (cells.length) rows.push(cells);
     }
     if (!rows.length) return;
+    if (!warnedRadius && (parseFloat(cs.borderTopLeftRadius) || 0) > 0) {
+      warnings.push("table-border-radius-approx:" + (tableEl.getAttribute("data-cortex-id") || "table"));
+    }
     var firstTr = tableEl.querySelector("tr");
     var colWidthsPx: number[] = [];
     if (firstTr) {
       for (var k = 0; k < firstTr.children.length; k++) {
-        colWidthsPx.push(round2(firstTr.children[k].getBoundingClientRect().width));
+        var width = firstTr.children[k].getBoundingClientRect().width;
+        var logicalSpan = firstTr.children[k].colSpan > 0 ? firstTr.children[k].colSpan : 1;
+        var logicalWidth = round2(width / logicalSpan);
+        for (var spanIndex = 0; spanIndex < logicalSpan; spanIndex++) {
+          colWidthsPx.push(logicalWidth);
+        }
       }
     }
     // 边框取第一个单元格的 border(简单表格假设四边一致)。
@@ -323,12 +610,14 @@ function extractSceneInPage() {
     tableEl.setAttribute("data-cortex-native", "1");
     nodes.push({
       kind: "table",
-      id: nextId("table"),
+      id: tableEl.getAttribute("data-cortex-id") || nextId("table"),
       x: r.x,
       y: r.y,
       w: r.w,
       h: r.h,
       z: zCounter++,
+      rotateDeg: nodeVisualProps(cs).rotateDeg,
+      opacity: nodeVisualProps(cs).opacity,
       rows: rows,
       colWidthsPx: colWidthsPx,
       border: border,
@@ -357,7 +646,16 @@ function extractSceneInPage() {
       return;
     }
     if (tag === "img") return emitImage(el, cs);
-    if (tag === "svg") return emitSvgAsRaster(el);
+    if (tag === "svg") return emitSvgAsImage(el);
+    if (emitChartCandidate(el, cs)) return;
+
+    if (hasDirectText(el) && !isTextBlock(el)) {
+      warnings.push("mixed-content:" + (el.getAttribute("data-cortex-id") || tag));
+      warnings.push("blocking:" + (el.getAttribute("data-cortex-id") || tag));
+      el.setAttribute("data-cortex-raster", "1");
+      nodes.push({ kind: "raster", id: nextId("raster"), x: r.x, y: r.y, w: r.w, h: r.h, z: zCounter++, reason: "mixed-content" });
+      return;
+    }
 
     var decor = decorativeReason(cs);
     if (decor) {
@@ -441,7 +739,33 @@ export const HIDE_NATIVE_CSS =
 
 /** 在已加载并就绪的窗口里提取场景(同时给页面打上 native/raster 标记)。 */
 export async function extractSlideScene(win: SlideRenderWindow): Promise<SlideScene> {
-  return (await win.executeJavaScript(EXTRACT_SCENE_SOURCE)) as SlideScene;
+  const rawScene = (await win.executeJavaScript(EXTRACT_SCENE_SOURCE)) as RawExtractedSlideScene;
+  const { scene, validChartCandidateKeys, invalidChartCandidateKeys } = finalizeExtractedSlideScene(rawScene);
+
+  if (validChartCandidateKeys.length || invalidChartCandidateKeys.length) {
+    await win.executeJavaScript(
+      `(() => {
+        const validIds = ${JSON.stringify(validChartCandidateKeys)};
+        const invalidIds = ${JSON.stringify(invalidChartCandidateKeys)};
+        for (const id of validIds) {
+          const el = document.querySelector('[data-cortex-chart-candidate="' + id + '"]');
+          if (!el) continue;
+          el.setAttribute("data-cortex-native", "1");
+          el.removeAttribute("data-cortex-raster");
+          el.removeAttribute("data-cortex-chart-candidate");
+        }
+        for (const id of invalidIds) {
+          const el = document.querySelector('[data-cortex-chart-candidate="' + id + '"]');
+          if (!el) continue;
+          el.removeAttribute("data-cortex-native");
+          el.setAttribute("data-cortex-raster", "1");
+          el.removeAttribute("data-cortex-chart-candidate");
+        }
+      })()`,
+    );
+  }
+
+  return scene;
 }
 
 /**

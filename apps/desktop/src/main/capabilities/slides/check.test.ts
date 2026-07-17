@@ -62,6 +62,30 @@ describe("staticCheckSlideHtml", () => {
     const b = staticCheckSlideHtml("slot-001", html).map((f) => f.id);
     expect(a).toEqual(b);
   });
+
+  it("canvas 缺 chart spec 或 spec 非法时给出可编辑性 warning", () => {
+    const missing = staticCheckSlideHtml("slot-001", GOOD_HTML.replace("</body>", "<canvas></canvas></body>"));
+    expect(missing.map((item) => item.code)).toContain("chart-spec-missing");
+
+    const invalid = staticCheckSlideHtml(
+      "slot-001",
+      GOOD_HTML.replace(
+        "</body>",
+        '<script type="application/json" data-cortex-chart-spec>{"version":1,"type":"bar"}</script><canvas></canvas></body>',
+      ),
+    );
+    expect(invalid.map((item) => item.code)).toContain("chart-spec-invalid");
+
+    const valid = staticCheckSlideHtml(
+      "slot-001",
+      GOOD_HTML.replace(
+        "</body>",
+        '<script type="application/json" data-cortex-chart-spec>{"version":1,"type":"bar","categories":["Q1"],"series":[{"name":"收入","values":[12]}]}</script><canvas></canvas></body>',
+      ),
+    );
+    expect(valid.map((item) => item.code)).not.toContain("chart-spec-missing");
+    expect(valid.map((item) => item.code)).not.toContain("chart-spec-invalid");
+  });
 });
 
 describe("renderInspectionFindings", () => {

@@ -3,6 +3,8 @@
 // (保持可编辑),复杂视觉层(canvas、滤镜、复杂渐变等)降级为栅格图。
 // 该模型是纯数据(JSON 可序列化),提取在隐藏 BrowserWindow 页内脚本完成(dom-extractor),
 // 转换在 Node 侧完成(pptx.ts)。
+import { buildSceneExportReport, type DeckExportReport as CoreDeckExportReport, type SceneExportQuality, type SceneExportReport as CoreSceneExportReport } from "@cortex-work/core/design/slides/slides-export-quality";
+import type { SlidesChartSpec } from "./chart-spec";
 
 /** 场景节点共有字段:画布内像素坐标(左上原点)与绘制次序 z(越大越靠上)。 */
 export interface SceneNodeBase {
@@ -14,6 +16,10 @@ export interface SceneNodeBase {
   h: number;
   /** 绘制次序:提取时按 DOM 顺序 + z-index 的简化 stacking 规则分配,转换时按 z 升序落 PPTX。 */
   z: number;
+  /** 简单 rotate() 提取为角度;复杂 transform 继续走 raster。 */
+  rotateDeg?: number;
+  /** CSS opacity 0..1。 */
+  opacity?: number;
 }
 
 /** 单段同样式文本(对应 PPTX text run)。 */
@@ -29,6 +35,9 @@ export interface SceneTextRun {
   bold: boolean;
   italic: boolean;
   underline: boolean;
+  bullet?: { type: "bullet" } | { type: "number"; numberStartAt?: number };
+  paraSpaceBeforePx?: number;
+  paraSpaceAfterPx?: number;
 }
 
 /** 文本块:一个块级元素内的全部内联文本,重建为原生 PPTX 文本框。 */
@@ -36,6 +45,7 @@ export interface SceneTextNode extends SceneNodeBase {
   kind: "text";
   runs: SceneTextRun[];
   align: "left" | "center" | "right" | "justify";
+  valign?: "top" | "middle" | "bottom";
   /** 行高(px),用于换算 PPTX lineSpacing。 */
   lineHeightPx: number;
   /** 垂直内边距等造成的首行偏移已折算进 y/h,这里保留原始 padding 供调试。 */
@@ -47,6 +57,9 @@ export interface SceneImageNode extends SceneNodeBase {
   kind: "image";
   /** data URI 或 file:// URL;转换侧只支持 data URI 与 file://。 */
   src: string;
+  objectFit?: "fill" | "contain" | "cover";
+  objectPosition?: { x: number; y: number };
+  intrinsicSize?: { width: number; height: number };
   /** 圆角半径 px(仅记录,POC 不重建圆角裁剪)。 */
   borderRadiusPx?: number;
 }
@@ -60,6 +73,8 @@ export interface SceneTableCell {
   fill?: string;
   align: "left" | "center" | "right";
   fontSizePx: number;
+  colspan?: number;
+  rowspan?: number;
 }
 
 /** 简单表格:重建为原生 PPTX table。 */
@@ -84,6 +99,19 @@ export interface SceneShapeNode extends SceneNodeBase {
   borderRadiusPx?: number;
 }
 
+/** 原生图表:由 data-cortex-chart-spec 驱动,重建为 PPTX 原生 chart。 */
+export interface SceneChartNode extends SceneNodeBase {
+  kind: "chart";
+  spec: SlidesChartSpec;
+  ariaLabel?: string;
+  style?: {
+    fontFamily?: string;
+    fontSizePx?: number;
+    color?: string;
+    backgroundColor?: string;
+  };
+}
+
 /** 复杂层:无法安全重建为原生对象,由 base raster(隐藏原生节点后的整页截图)承载。 */
 export interface SceneRasterNode extends SceneNodeBase {
   kind: "raster";
@@ -91,7 +119,7 @@ export interface SceneRasterNode extends SceneNodeBase {
   reason: string;
 }
 
-export type SceneNode = SceneTextNode | SceneImageNode | SceneTableNode | SceneShapeNode | SceneRasterNode;
+export type SceneNode = SceneTextNode | SceneImageNode | SceneTableNode | SceneShapeNode | SceneChartNode | SceneRasterNode;
 
 /** 一页 slide 的完整提取结果。 */
 export interface SlideScene {
@@ -107,20 +135,13 @@ export interface SlideScene {
 }
 
 /** 导出报告(POC):每页原生/栅格对象计数与降级原因,验证退出条件用。 */
-export interface SceneExportReport {
-  nativeCount: number;
-  rasterCount: number;
-  rasterReasons: string[];
-  warnings: string[];
-}
+export type SceneExportReport = CoreSceneExportReport;
+
+export type DeckExportReport = CoreDeckExportReport;
+
+export type { SceneExportQuality };
 
 /** 统计场景的原生/栅格构成,供测试断言与导出日志。 */
 export function summarizeScene(scene: SlideScene): SceneExportReport {
-  const rasterNodes = scene.nodes.filter((n): n is SceneRasterNode => n.kind === "raster");
-  return {
-    nativeCount: scene.nodes.length - rasterNodes.length,
-    rasterCount: rasterNodes.length,
-    rasterReasons: rasterNodes.map((n) => n.reason),
-    warnings: scene.warnings,
-  };
+  return buildSceneExportReport(scene);
 }

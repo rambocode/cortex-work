@@ -10,6 +10,7 @@
 // 排除清单未含 pptxgenjs 及其传递依赖,打包后可正常 require。
 import PptxGenJS from "pptxgenjs";
 import type {
+  SceneChartNode,
   SceneImageNode,
   SceneNode,
   SceneShapeNode,
@@ -51,6 +52,9 @@ function addTextNode(slide: PptxGenJS.Slide, node: SceneTextNode): void {
       bold: r.bold,
       italic: r.italic,
       underline: r.underline ? ({ style: "sng" } as const) : undefined,
+      bullet: r.bullet,
+      paraSpaceBefore: r.paraSpaceBeforePx ? pxToPt(r.paraSpaceBeforePx) : undefined,
+      paraSpaceAfter: r.paraSpaceAfterPx ? pxToPt(r.paraSpaceAfterPx) : undefined,
       breakLine: r.breakAfter === true,
     },
   }));
@@ -60,36 +64,99 @@ function addTextNode(slide: PptxGenJS.Slide, node: SceneTextNode): void {
     w: pxToIn(node.w),
     h: pxToIn(node.h),
     align: node.align === "justify" ? "left" : node.align,
-    valign: "top",
-    margin: 0,
+    valign: node.valign ?? "top",
+    margin: [
+      pxToPt(node.paddingPx.top),
+      pxToPt(node.paddingPx.right),
+      pxToPt(node.paddingPx.bottom),
+      pxToPt(node.paddingPx.left),
+    ],
     lineSpacing: pxToPt(node.lineHeightPx),
+    rotate: node.rotateDeg,
+    transparency: node.opacity !== undefined ? 100 - Math.round(node.opacity * 100) : undefined,
   });
 }
 
 function addImageNode(slide: PptxGenJS.Slide, node: SceneImageNode): void {
   const geom = { x: pxToIn(node.x), y: pxToIn(node.y), w: pxToIn(node.w), h: pxToIn(node.h) };
+  const options: Record<string, unknown> = {
+    ...geom,
+    rotate: node.rotateDeg,
+    transparency: node.opacity !== undefined ? 100 - Math.round(node.opacity * 100) : undefined,
+  };
+  if (node.objectFit === "contain") {
+    options.sizing = { type: "contain", ...geom };
+  } else if (node.objectFit === "cover") {
+    let cropX = geom.x;
+    let cropY = geom.y;
+    if (node.intrinsicSize?.width && node.intrinsicSize?.height && node.objectPosition) {
+      const scale = Math.max(node.w / node.intrinsicSize.width, node.h / node.intrinsicSize.height);
+      const scaledW = node.intrinsicSize.width * scale;
+      const scaledH = node.intrinsicSize.height * scale;
+      const overflowX = Math.max(0, scaledW - node.w);
+      const overflowY = Math.max(0, scaledH - node.h);
+      cropX = pxToIn(node.x - overflowX * node.objectPosition.x);
+      cropY = pxToIn(node.y - overflowY * node.objectPosition.y);
+    }
+    options.sizing = { type: "crop", x: cropX, y: cropY, w: geom.w, h: geom.h };
+  }
   if (node.src.startsWith("data:")) {
-    slide.addImage({ data: node.src, ...geom });
+    slide.addImage({ data: node.src, ...options });
   } else if (node.src.startsWith("file://")) {
-    slide.addImage({ path: new URL(node.src).pathname, ...geom });
+    slide.addImage({ path: new URL(node.src).pathname, ...options });
   }
 }
 
 function addTableNode(slide: PptxGenJS.Slide, node: SceneTableNode): void {
-  const rows: PptxGenJS.TableRow[] = node.rows.map((row) =>
-    row.map((cell) => ({
-      text: cell.text,
+  const columnCount = node.colWidthsPx.length;
+  const occupied = new Set<string>();
+  const rows: PptxGenJS.TableRow[] = node.rows.map((row, rowIndex) => {
+    const rendered: PptxGenJS.TableRow = [];
+    let columnIndex = 0;
+    const placeHolder = () => ({
+      text: "",
       options: {
-        bold: cell.bold,
-        color: cell.color,
-        fill: cell.fill ? { color: cell.fill } : undefined,
-        align: cell.align,
-        fontSize: pxToPt(cell.fontSizePx),
-        fontFace: node.fontFamily,
-        valign: "middle" as const,
+        border: { type: "none" as const },
+        fill: { color: "FFFFFF", transparency: 100 },
       },
-    })),
-  );
+    });
+    for (const cell of row) {
+      while (occupied.has(`${rowIndex}:${columnIndex}`) && columnIndex < columnCount) {
+        rendered.push(placeHolder());
+        columnIndex += 1;
+      }
+      rendered.push({
+        text: cell.text,
+        options: {
+          bold: cell.bold,
+          color: cell.color,
+          fill: cell.fill ? { color: cell.fill } : undefined,
+          align: cell.align,
+          fontSize: pxToPt(cell.fontSizePx),
+          fontFace: node.fontFamily,
+          valign: "middle" as const,
+          colspan: cell.colspan,
+          rowspan: cell.rowspan,
+        },
+      });
+      const colSpan = cell.colspan ?? 1;
+      const rowSpan = cell.rowspan ?? 1;
+      for (let r = 0; r < rowSpan; r += 1) {
+        for (let c = 0; c < colSpan; c += 1) {
+          if (r === 0 && c === 0) continue;
+          occupied.add(`${rowIndex + r}:${columnIndex + c}`);
+        }
+      }
+      columnIndex += colSpan;
+    }
+    while (columnIndex < columnCount) {
+      if (occupied.has(`${rowIndex}:${columnIndex}`)) {
+        rendered.push(placeHolder());
+      }
+      columnIndex += 1;
+    }
+    return rendered;
+  });
   slide.addTable(rows, {
     x: pxToIn(node.x),
     y: pxToIn(node.y),
@@ -112,11 +179,17 @@ function addShapeNode(pptx: PptxGenJS, slide: PptxGenJS.Slide, node: SceneShapeN
     w: pxToIn(node.w),
     h: pxToIn(node.h),
     fill: node.fill
-      ? { color: node.fill, transparency: 100 - (node.fillOpacity ?? 100) }
+      ? {
+          color: node.fill,
+          transparency:
+            100 -
+            Math.round(((node.fillOpacity ?? 100) / 100) * (node.opacity ?? 1) * 100),
+        }
       : { type: "none" },
     line: node.border
       ? { color: node.border.color, width: pxToPt(node.border.widthPx) }
       : { type: "none" },
+    rotate: node.rotateDeg,
   };
   if (rounded) {
     // rectRadius 单位是 inch;PPTX 圆角实际按短边比例呈现,与 CSS 不完全一致,POC 接受近似。
@@ -125,6 +198,54 @@ function addShapeNode(pptx: PptxGenJS, slide: PptxGenJS.Slide, node: SceneShapeN
   } else {
     slide.addShape(pptx.ShapeType.rect, options);
   }
+}
+
+function addChartNode(pptx: PptxGenJS, slide: PptxGenJS.Slide, node: SceneChartNode): void {
+  const chartData = node.spec.series.map((series) => ({
+    name: series.name,
+    labels: node.spec.categories,
+    values: series.values,
+    color: series.color,
+  }));
+  const chartColors = node.spec.series.map((series) => series.color).filter((value): value is string => Boolean(value));
+  const options: Record<string, unknown> = {
+    x: pxToIn(node.x),
+    y: pxToIn(node.y),
+    w: pxToIn(node.w),
+    h: pxToIn(node.h),
+    showTitle: false,
+    showLegend: node.spec.legend === true,
+    legendPos: "r",
+    showValue: node.spec.dataLabels === true,
+    dataLabelPosition: node.spec.type === "pie" ? "bestFit" : "outEnd",
+  };
+  if (chartColors.length > 0) options.chartColors = chartColors;
+  if (node.style?.fontFamily) {
+    options.legendFontFace = node.style.fontFamily;
+    options.dataLabelFontFace = node.style.fontFamily;
+    options.catAxisTitleFontFace = node.style.fontFamily;
+    options.valAxisTitleFontFace = node.style.fontFamily;
+  }
+  if (node.style?.fontSizePx) {
+    const fontSize = pxToPt(node.style.fontSizePx);
+    options.legendFontSize = fontSize;
+    options.dataLabelFontSize = fontSize;
+    options.catAxisTitleFontSize = fontSize;
+    options.valAxisTitleFontSize = fontSize;
+  }
+  if (node.style?.color) {
+    options.legendColor = node.style.color;
+    options.dataLabelColor = node.style.color;
+    options.catAxisLabelColor = node.style.color;
+    options.valAxisLabelColor = node.style.color;
+    options.catAxisTitleColor = node.style.color;
+    options.valAxisTitleColor = node.style.color;
+  }
+  if (node.spec.type !== "pie") {
+    if (node.spec.xAxisTitle) options.catAxisTitle = node.spec.xAxisTitle;
+    if (node.spec.yAxisTitle) options.valAxisTitle = node.spec.yAxisTitle;
+  }
+  slide.addChart(pptx.ChartType[node.spec.type], chartData, options);
 }
 
 /** 场景列表 → PPTX Buffer;同时返回每页原生/栅格构成报告(导出日志与测试断言用)。 */
@@ -171,6 +292,9 @@ function addNode(pptx: PptxGenJS, slide: PptxGenJS.Slide, node: SceneNode): void
       break;
     case "shape":
       addShapeNode(pptx, slide, node);
+      break;
+    case "chart":
+      addChartNode(pptx, slide, node);
       break;
     case "raster":
       // 栅格节点由整页 base raster 统一承载,这里不再落单独对象。

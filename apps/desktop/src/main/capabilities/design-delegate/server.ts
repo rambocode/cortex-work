@@ -11,7 +11,9 @@
 // sessionId 且不注册本 session → 子 agent 取不到 state → 无 delegate_task 工具 → 无法再派发。
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { SlidesRole, SlidesRoleResultByRole } from "@cortex-work/core/design/slides/slides-pipeline-types";
 import { createMcpHost, type McpHostHandle } from "../mcp-host/server";
+import { parseSlidesRoleResult } from "../slides/pipeline/role-schemas";
 import type { McpServerConfig, CliStreamEvent } from "../../ipc/types";
 
 // 注入用 server id（= MCP server 名）。须为 TOML 裸键安全（codex -c mcp_servers.<id>）。
@@ -20,15 +22,72 @@ export const DESIGN_DELEGATE_SERVER_ID = "cortex-design-delegate";
 // 一轮内 delegate_task 调用总次数上限：防父 agent 失控狂派子 agent（对齐 delegate 的资源护栏，
 // 但设计多页可能有较多页，放宽到 12）。
 const MAX_DELEGATE_CALLS = 12;
+const MAX_DELEGATE_LABEL_CHARS = 256;
+const MAX_DELEGATE_PROMPT_CHARS = 32_000;
+const MAX_SLIDES_SCOPE_CHARS = 12_000;
+const MAX_SLIDES_PROMPT_CHARS = 32_000;
+const MAX_EMBEDDED_BASE64_CHARS = 12 * 1024 * 1024;
+const SLIDES_ROLE_RUN_CONCURRENCY = 3;
+const SLIDES_ROLE_MAX_ATTEMPTS = 2;
+const SLIDES_PIPELINE_ROLES = [
+  "topic-researcher",
+  "visual-researcher",
+  "narrative-reviewer",
+  "render-reviewer",
+  "notes-writer",
+] as const satisfies readonly SlidesRole[];
+const SLIDES_RUN_ID_PATTERN = /^run-[a-z0-9][a-z0-9-]{0,63}$/;
 
 const designDelegateHost = createMcpHost(DESIGN_DELEGATE_SERVER_ID);
 let hostStartPromise: Promise<McpHostHandle> | null = null;
+const slidesRunLimiterMap = new Map<string, ReturnType<typeof createTaskLimiter>>();
+const slidesRoleAttemptCountMap = new Map<string, number>();
 
 // 子 agent 一次执行的结果。
 export interface DesignSubAgentResult {
   text: string;
   ok: boolean;
   error?: string;
+}
+
+export type DesignDelegateSlidesRoleEvent<R extends SlidesRole = SlidesRole> =
+  | {
+      status: "started";
+      runId: string;
+      role: R;
+      label: string;
+      scope: string;
+      prompt: string;
+      attempt: number;
+    }
+  | {
+      status: "succeeded";
+      runId: string;
+      role: R;
+      label: string;
+      scope: string;
+      prompt: string;
+      attempt: number;
+      artifact: SlidesRoleResultByRole[R];
+      rawText: string;
+      rawSummary: string;
+    }
+  | {
+      status: "failed";
+      runId: string;
+      role: R;
+      label: string;
+      scope: string;
+      prompt: string;
+      attempt: number;
+      error: string;
+      rawText: string;
+      rawSummary: string;
+    };
+
+export interface DesignDelegateSlidesContext {
+  onRoleEvent: (event: DesignDelegateSlidesRoleEvent) => void | Promise<void>;
+  canDelegateNotesWriter?: (runId: string) => boolean | Promise<boolean>;
 }
 
 // per-session 运行时状态（由 cli.ts cli:start 构造并注册；含运行时回调）。
@@ -46,6 +105,8 @@ export interface DesignDelegateSessionState {
   // cli.ts 注入：以「父 agent 同款底层 agent」spawn 子 agent 执行 prompt。label 作为子 agent 的
   // roleId/stageLabel 透传（page:<artifactId>），供渲染端/画布把子 agent 进度回映到对应页。
   runSubAgent: (label: string, prompt: string, onEvent: (ev: CliStreamEvent) => void) => Promise<DesignSubAgentResult>;
+  // slides pipeline 角色化委派（仅 slides 会话注入；普通 design 会话保持 undefined）。
+  slides?: DesignDelegateSlidesContext;
 }
 
 const sessionStateMap = new Map<string, DesignDelegateSessionState>();
@@ -56,6 +117,7 @@ export function registerDesignDelegateSession(state: DesignDelegateSessionState)
 
 export function unregisterDesignDelegateSession(sessionId: string): void {
   sessionStateMap.delete(sessionId);
+  clearSlidesSessionCaches(sessionId);
 }
 
 // app 退出清理：取消所有在途设计委派。
@@ -68,6 +130,7 @@ export function killAllDesignDelegates(): void {
     }
   }
   sessionStateMap.clear();
+  clearSlidesSessionCaches();
 }
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -76,6 +139,310 @@ function textResult(text: string): ToolResult {
 }
 function errorResult(text: string): ToolResult {
   return { content: [{ type: "text", text }], isError: true };
+}
+
+function normalizeBoundedText(value: string, options: { field: string; maxChars: number }): string | null {
+  const text = value.trim();
+  if (!text) return null;
+  if (text.length > options.maxChars) {
+    throw new Error(`${options.field} 过长(>${options.maxChars} 字符)`);
+  }
+  return text;
+}
+
+function validateEmbeddedBase64Length(value: string, field: string): void {
+  const matches = value.matchAll(/base64,([A-Za-z0-9+/=\r\n]+)/g);
+  for (const match of matches) {
+    const raw = match[1]?.replace(/\s+/g, "") ?? "";
+    if (raw.length > MAX_EMBEDDED_BASE64_CHARS) {
+      throw new Error(`${field} 内嵌 base64 过长(>${MAX_EMBEDDED_BASE64_CHARS} 字符)`);
+    }
+  }
+}
+
+function emitRoleResult(state: DesignDelegateSessionState, roleId: string, ok: boolean, error?: string): void {
+  state.pushEvent({ type: "result", ok, error, roleId });
+}
+
+export function createTaskLimiter(maxConcurrency: number): <T>(job: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const queue: Array<() => void> = [];
+
+  const pump = (): void => {
+    if (active >= maxConcurrency) return;
+    const start = queue.shift();
+    if (!start) return;
+    active += 1;
+    start();
+  };
+
+  return <T>(job: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      queue.push(() => {
+        void job()
+          .then(resolve, reject)
+          .finally(() => {
+            active -= 1;
+            pump();
+          });
+      });
+      pump();
+    });
+}
+
+const SLIDES_ROLE_SYSTEM_CONTRACT: Record<SlidesRole, string> = {
+  "topic-researcher":
+    "职责：补充事实、来源、关键判断与待确认问题；不要写 deck，不要编造无法支撑的结论。",
+  "visual-researcher":
+    "职责：提出可视化素材、图表建议与视觉风险；不要改页面实现，不要输出无关 prose。",
+  "narrative-reviewer":
+    "职责：审查叙事结构、论证顺序与页面级问题；不要直接改 deck。",
+  "render-reviewer":
+    "职责：审查版式、密度、可读性与导出风险；不要直接改 deck。",
+  "notes-writer":
+    "职责：基于已完成 review 输出演讲者备注草案；不要直接写 notes 文件或修改 deck。",
+};
+
+const SLIDES_ROLE_JSON_SHAPE: Record<SlidesRole, string> = {
+  "topic-researcher":
+    '{"facts":["..."],"sources":[{"title":"...","url":"https://...","note":"..."}],"claims":["..."],"openQuestions":["..."]}',
+  "visual-researcher":
+    '{"assetIdeas":[{"slideId":"slot-001","query":"...","rationale":"..."}],"chartIdeas":[{"slideId":"slot-001","chartType":"bar","rationale":"..."}],"visualRisks":[{"slideId":"slot-001","message":"...","hint":"..."}]}',
+  "narrative-reviewer":
+    '{"deckFindings":[{"code":"...","message":"...","hint":"..."}],"slideFindings":[{"slideId":"slot-001","code":"...","message":"...","hint":"..."}],"suggestedOrder":["slot-001"]}',
+  "render-reviewer":
+    '{"findings":[{"severity":"warning","slideId":"slot-001","elementId":"...","code":"...","message":"...","hint":"..."}]}',
+  "notes-writer":
+    '{"slots":[{"slotId":"slot-001","markdown":"## 标题\\n\\n备注正文"}]}',
+};
+
+function summarizeSlidesRoleText(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return "(empty)";
+  return normalized.length > 240 ? `${normalized.slice(0, 240)}…` : normalized;
+}
+
+function slidesRunLimiterKey(sessionId: string, runId: string): string {
+  return `${sessionId}:${runId}`;
+}
+
+function slidesRoleAttemptKey(sessionId: string, runId: string, role: SlidesRole): string {
+  return `${sessionId}:${runId}:${role}`;
+}
+
+function getSlidesRunLimiter(sessionId: string, runId: string): ReturnType<typeof createTaskLimiter> {
+  const key = slidesRunLimiterKey(sessionId, runId);
+  let limiter = slidesRunLimiterMap.get(key);
+  if (!limiter) {
+    limiter = createTaskLimiter(SLIDES_ROLE_RUN_CONCURRENCY);
+    slidesRunLimiterMap.set(key, limiter);
+  }
+  return limiter;
+}
+
+function clearSlidesSessionCaches(sessionId?: string): void {
+  if (!sessionId) {
+    slidesRunLimiterMap.clear();
+    slidesRoleAttemptCountMap.clear();
+    return;
+  }
+  const prefix = `${sessionId}:`;
+  for (const key of slidesRunLimiterMap.keys()) {
+    if (key.startsWith(prefix)) slidesRunLimiterMap.delete(key);
+  }
+  for (const key of slidesRoleAttemptCountMap.keys()) {
+    if (key.startsWith(prefix)) slidesRoleAttemptCountMap.delete(key);
+  }
+}
+
+export function buildSlidesRoleDelegateLabel(runId: string, role: SlidesRole): string {
+  return `slides:${role}:${runId}`;
+}
+
+export function buildSlidesRoleDelegatePrompt(options: {
+  runId: string;
+  role: SlidesRole;
+  scope: string;
+  prompt: string;
+}): string {
+  const scope = options.scope.trim() || "未提供 scope";
+  const task = options.prompt.trim();
+  return [
+    `slides pipeline role: ${options.role}`,
+    `run id: ${options.runId}`,
+    SLIDES_ROLE_SYSTEM_CONTRACT[options.role],
+    "硬约束：只返回单个 JSON 对象；不要 markdown fence；不要解释性文字；不能 Write/Edit deck；不能调用正式 slides 写工具；不能修改任何文件。",
+    `输出 JSON 形状：${SLIDES_ROLE_JSON_SHAPE[options.role]}`,
+    `scope:\n${scope}`,
+    `task:\n${task}`,
+  ].join("\n\n");
+}
+
+function extractJsonCandidateFromText(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const fenceMatches = Array.from(trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi));
+  for (const match of fenceMatches) {
+    const candidate = match[1]?.trim();
+    if (candidate) return candidate;
+  }
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1).trim();
+  }
+  return null;
+}
+
+export function parseSlidesRoleAgentText<R extends SlidesRole>(
+  role: R,
+  text: string,
+): ReturnType<typeof parseSlidesRoleResult<R>> {
+  const candidate = extractJsonCandidateFromText(text);
+  if (!candidate) {
+    return { ok: false, error: { code: "invalid_payload", message: `未找到 ${role} 的 JSON 输出` } };
+  }
+  return parseSlidesRoleResult(role, candidate);
+}
+
+export async function runSlidesRoleDelegate(
+  state: DesignDelegateSessionState,
+  args: { run_id: string; role: SlidesRole; scope: string; prompt: string },
+): Promise<ToolResult> {
+  if (state.signal.aborted) return errorResult("已取消");
+  if (!state.slides) return errorResult("当前会话未启用 slides 委派");
+
+  const runId = args.run_id.trim();
+  let prompt: string;
+  let scope: string;
+  try {
+    prompt = normalizeBoundedText(args.prompt, { field: "prompt", maxChars: MAX_SLIDES_PROMPT_CHARS }) ?? "";
+    scope = normalizeBoundedText(args.scope, { field: "scope", maxChars: MAX_SLIDES_SCOPE_CHARS }) ?? "";
+    validateEmbeddedBase64Length(prompt, "prompt");
+    validateEmbeddedBase64Length(scope, "scope");
+  } catch (error) {
+    return errorResult(`slides role 委派失败:${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!SLIDES_RUN_ID_PATTERN.test(runId)) return errorResult(`非法 run_id: ${args.run_id}`);
+  if (!prompt) return errorResult("slides role 委派失败: prompt 为空。");
+  if (!scope) return errorResult("slides role 委派失败: scope 为空。");
+  if (state.callCount.n >= MAX_DELEGATE_CALLS) {
+    return errorResult(`本轮 delegate_task 调用已达上限(${MAX_DELEGATE_CALLS}),请基于已有结果收尾。`);
+  }
+
+  if (args.role === "notes-writer") {
+    const gate = state.slides.canDelegateNotesWriter;
+    if (!gate) return errorResult("notes-writer 仅在 review 完成后可委派。");
+    const allowed = await gate(runId);
+    if (!allowed) return errorResult("notes-writer 仅在 review 完成后可委派。");
+  }
+
+  state.callCount.n += 1;
+  const label = buildSlidesRoleDelegateLabel(runId, args.role);
+  const delegatePrompt = buildSlidesRoleDelegatePrompt({
+    runId,
+    role: args.role,
+    scope,
+    prompt,
+  });
+  const limiter = getSlidesRunLimiter(state.sessionId, runId);
+  const attemptKey = slidesRoleAttemptKey(state.sessionId, runId, args.role);
+
+  return limiter(async () => {
+    const emitLifecycle = async (event: Parameters<NonNullable<NonNullable<typeof state.slides>["onRoleEvent"]>>[0]): Promise<string | null> => {
+      try {
+        await state.slides!.onRoleEvent(event);
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    };
+    const failRole = async (error: string, attempt: number, rawText = ""): Promise<ToolResult> => {
+      const lifecycleError = await emitLifecycle({
+        status: "failed",
+        runId,
+        role: args.role,
+        label,
+        scope,
+        prompt,
+        attempt,
+        error,
+        rawText,
+        rawSummary: summarizeSlidesRoleText(rawText || error),
+      });
+      const finalError = lifecycleError ? `${error}; lifecycle: ${lifecycleError}` : error;
+      emitRoleResult(state, label, false, finalError);
+      return errorResult(`slides role「${args.role}」执行失败:${finalError}`);
+    };
+
+    let consumed = slidesRoleAttemptCountMap.get(attemptKey) ?? 0;
+    if (consumed >= SLIDES_ROLE_MAX_ATTEMPTS) {
+      return errorResult(`slides role「${args.role}」在 run「${runId}」已达最大委派次数(${SLIDES_ROLE_MAX_ATTEMPTS})。`);
+    }
+
+    const startEventError = await emitLifecycle({
+      status: "started",
+      runId,
+      role: args.role,
+      label,
+      scope,
+      prompt,
+      attempt: consumed + 1,
+    });
+    if (startEventError) {
+      emitRoleResult(state, label, false, startEventError);
+      return errorResult(`slides role「${args.role}」执行失败:${startEventError}`);
+    }
+
+    let lastError = "未知错误";
+    let lastRawText = "";
+    while (consumed < SLIDES_ROLE_MAX_ATTEMPTS) {
+      if (state.signal.aborted) return failRole("已取消", consumed || 1);
+      consumed += 1;
+      slidesRoleAttemptCountMap.set(attemptKey, consumed);
+
+      state.pushEvent({ type: "init", sessionId: state.sessionId, roleId: label, stageLabel: label });
+      const onEvent = (ev: CliStreamEvent) => {
+        state.pushEvent(ev);
+        state.bumpWatchdog();
+      };
+      let result: DesignSubAgentResult;
+      try {
+        result = await state.runSubAgent(label, delegatePrompt, onEvent);
+      } catch (error) {
+        return failRole(error instanceof Error ? error.message : String(error), consumed);
+      }
+      if (!result.ok) {
+        lastError = result.error ?? "未知错误";
+        lastRawText = result.text ?? "";
+        continue;
+      }
+
+      const parsed = parseSlidesRoleAgentText(args.role, result.text);
+      if (parsed.ok) {
+        const successEventError = await emitLifecycle({
+          status: "succeeded",
+          runId,
+          role: args.role,
+          label,
+          scope,
+          prompt,
+          attempt: consumed,
+          artifact: parsed.result,
+          rawText: result.text,
+          rawSummary: summarizeSlidesRoleText(result.text),
+        });
+        if (successEventError) return failRole(successEventError, consumed, result.text);
+        emitRoleResult(state, label, true);
+        return textResult(JSON.stringify(parsed.result));
+      }
+
+      lastError = parsed.error.message;
+      lastRawText = result.text;
+    }
+
+    return failRole(lastError, consumed, lastRawText);
+  });
 }
 
 // 注册通用 delegate_task 工具。
@@ -101,8 +468,21 @@ function registerDelegateTaskTool(mcp: McpServer, state: DesignDelegateSessionSt
     },
     async ({ label, prompt }: { label: string; prompt: string; workspace?: string }): Promise<ToolResult> => {
       if (state.signal.aborted) return errorResult("已取消");
-      const taskText = typeof prompt === "string" ? prompt.trim() : "";
-      const jobLabel = typeof label === "string" && label.trim() ? label.trim() : "page";
+      let taskText = "";
+      let jobLabel = "page";
+      try {
+        taskText =
+          typeof prompt === "string"
+            ? (normalizeBoundedText(prompt, { field: "prompt", maxChars: MAX_DELEGATE_PROMPT_CHARS }) ?? "")
+            : "";
+        jobLabel =
+          typeof label === "string"
+            ? (normalizeBoundedText(label, { field: "label", maxChars: MAX_DELEGATE_LABEL_CHARS }) ?? "page")
+            : "page";
+        validateEmbeddedBase64Length(taskText, "prompt");
+      } catch (error) {
+        return errorResult(`委派失败:${error instanceof Error ? error.message : String(error)}`);
+      }
       if (!taskText) {
         return errorResult(`委派「${jobLabel}」失败:prompt 为空,请提供完整、自包含的任务描述。`);
       }
@@ -116,12 +496,40 @@ function registerDelegateTaskTool(mcp: McpServer, state: DesignDelegateSessionSt
         state.pushEvent(ev);
         state.bumpWatchdog();
       };
-      const result = await state.runSubAgent(jobLabel, taskText, onEvent);
+      let result: DesignSubAgentResult;
+      try {
+        result = await state.runSubAgent(jobLabel, taskText, onEvent);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        emitRoleResult(state, jobLabel, false, message);
+        return errorResult(`子任务「${jobLabel}」执行失败:${message}`);
+      }
       if (!result.ok) {
+        emitRoleResult(state, jobLabel, false, result.error ?? "未知错误");
         return errorResult(`子任务「${jobLabel}」执行失败:${result.error ?? "未知错误"}`);
       }
+      emitRoleResult(state, jobLabel, true);
       return textResult(result.text || `(子任务「${jobLabel}」未产生文本输出)`);
     },
+  );
+}
+
+function registerDelegateSlidesRoleTool(mcp: McpServer, state: DesignDelegateSessionState): void {
+  mcp.registerTool(
+    "delegate_slides_role",
+    {
+      description:
+        "把 slides pipeline 的单个角色任务委派给 fresh session 子 agent。子 agent 只能返回 JSON 结果，" +
+        "不能直接 Write/Edit deck 或调用正式 slides 写工具。",
+      inputSchema: {
+        run_id: z.string().regex(SLIDES_RUN_ID_PATTERN).describe("目标 slides pipeline run id，例如 run-abc123。"),
+        role: z.enum(SLIDES_PIPELINE_ROLES).describe("slides pipeline 角色。"),
+        scope: z.string().min(1).describe("本次角色任务的边界/页范围/审查范围。"),
+        prompt: z.string().min(1).describe("交给该角色的完整、自包含任务描述。"),
+      },
+    },
+    async (args: { run_id: string; role: SlidesRole; scope: string; prompt: string }): Promise<ToolResult> =>
+      runSlidesRoleDelegate(state, args),
   );
 }
 
@@ -133,6 +541,7 @@ export function startDesignDelegateHost(): Promise<McpHostHandle> {
     // 取不到 state（未注册 / 子 agent 的 fresh sessionId）→ 不注册 delegate_task,只剩 ping(防递归)。
     if (!state) return;
     registerDelegateTaskTool(mcp, state);
+    if (state.slides) registerDelegateSlidesRoleTool(mcp, state);
   });
   hostStartPromise.finally(() => {
     hostStartPromise = null;

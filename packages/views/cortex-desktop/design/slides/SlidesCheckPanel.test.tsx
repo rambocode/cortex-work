@@ -105,6 +105,40 @@ describe('SlidesCheckPanel', () => {
     expect(screen.queryByText('文字过小(10px < 12px)')).toBeNull()
   })
 
+  it('合并 Narrative / Render findings 并可按来源筛选', async () => {
+    await useSlidesStore.getState().setup({ bridge: fakeBridge(), workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    useSlidesStore.setState({
+      checkPanelOpen: true,
+      findings: FINDINGS,
+      pipelineFindings: [
+        {
+          id: 'pipeline:narrative:slot-001:flow:0',
+          source: 'narrative',
+          severity: 'warning',
+          slideId: 'slot-001',
+          code: 'flow',
+          message: '叙事衔接不足'
+        },
+        {
+          id: 'pipeline:render:slot-002:contrast:0',
+          source: 'render',
+          severity: 'blocking',
+          slideId: 'slot-002',
+          code: 'contrast',
+          message: '对比度不足'
+        }
+      ]
+    })
+    render(<SlidesCheckPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Narrative' }))
+    expect(screen.getByText('叙事衔接不足')).toBeInTheDocument()
+    expect(screen.queryByText('对比度不足')).toBeNull()
+    expect(screen.queryByText('内容越出 1280×720 画布')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Render' }))
+    expect(screen.getByText('对比度不足')).toBeInTheDocument()
+  })
+
   it('点击 finding 定位对应 slide', async () => {
     const setActive = vi.fn(async () => ({ ok: true as const, manifest: manifest() }))
     await useSlidesStore
@@ -116,6 +150,43 @@ describe('SlidesCheckPanel', () => {
 
     fireEvent.click(screen.getByText('文字过小(10px < 12px)'))
     await waitFor(() => expect(setActive).toHaveBeenCalledWith(expect.objectContaining({ slotId: 'slot-001' })))
+  })
+
+  it('带 elementId 的 finding 在切页后请求同步舞台选区', async () => {
+    const onFocusFinding = vi.fn()
+    await useSlidesStore.getState().setup({ bridge: fakeBridge(), workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    render(<SlidesCheckPanel onFocusFinding={onFocusFinding} />)
+    await useSlidesStore.getState().runCheck()
+
+    fireEvent.click(screen.getByText('文字过小(10px < 12px)'))
+    await waitFor(() =>
+      expect(onFocusFinding).toHaveBeenCalledWith(expect.objectContaining({ slideId: 'slot-001', elementId: 'note' }))
+    )
+  })
+
+  it('pipeline finding 可逐条接受、忽略或交给主 Agent 修复', async () => {
+    const onFixFinding = vi.fn()
+    await useSlidesStore.getState().setup({ bridge: fakeBridge(), workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    useSlidesStore.setState({
+      checkPanelOpen: true,
+      findings: [],
+      pipelineFindings: [{
+        id: 'pipeline:render:slot-002:contrast:0',
+        source: 'render',
+        severity: 'warning',
+        slideId: 'slot-002',
+        code: 'contrast',
+        message: '对比度不足'
+      }]
+    })
+    render(<SlidesCheckPanel onFixFinding={onFixFinding} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '接受此建议' }))
+    expect(screen.getByText('已接受')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '交给 Agent 修复' }))
+    expect(onFixFinding).toHaveBeenCalledWith(expect.objectContaining({ id: 'pipeline:render:slot-002:contrast:0' }))
+    fireEvent.click(screen.getByRole('button', { name: '忽略此建议' }))
+    expect(screen.queryByText('对比度不足')).toBeNull()
   })
 
   it('无 finding 时显示「没有发现问题」', async () => {

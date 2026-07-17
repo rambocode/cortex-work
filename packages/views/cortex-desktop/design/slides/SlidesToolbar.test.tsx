@@ -53,37 +53,37 @@ describe('SlidesToolbar', () => {
     await setup(fakeBridge({ slidesExport }))
     render(<SlidesToolbar />)
     fireEvent.click(screen.getByRole('button', { name: /导出/ }))
-    for (const label of ['导出 PPTX', '导出 PDF', '导出 PNG', '导出 HTML']) {
+    for (const label of [/导出 PPTX/, /导出 PDF.*不含备注/, /导出 PNG.*不含备注/, /导出 HTML/]) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }
-    fireEvent.click(screen.getByRole('button', { name: '导出 PDF' }))
+    fireEvent.click(screen.getByRole('button', { name: /导出 PDF/ }))
     await waitFor(() => expect(slidesExport).toHaveBeenCalledWith(expect.objectContaining({ format: 'pdf' })))
   })
 
   it('导出成功后展示落盘路径', async () => {
-    const slidesExport = vi.fn(async () => ({ ok: true as const, path: '/out/季度汇报.pptx', format: 'pptx' as const }))
+    const slidesExport = vi.fn(async () => ({ ok: true as const, path: '/out/季度汇报.html', format: 'html' as const }))
     await setup(fakeBridge({ slidesExport }))
     render(<SlidesToolbar />)
     fireEvent.click(screen.getByRole('button', { name: /导出/ }))
-    fireEvent.click(screen.getByRole('button', { name: '导出 PPTX' }))
-    await waitFor(() => expect(screen.getByText('/out/季度汇报.pptx')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '导出 HTML' }))
+    await waitFor(() => expect(screen.getByText('/out/季度汇报.html')).toBeInTheDocument())
   })
 
   it('导出中显示进度态并禁用按钮', async () => {
     let release: (() => void) | null = null
     const slidesExport = vi.fn(
       () =>
-        new Promise<{ ok: true; path: string; format: 'pptx' }>((resolve) => {
-          release = () => resolve({ ok: true, path: '/out/x.pptx', format: 'pptx' })
+        new Promise<{ ok: true; path: string; format: 'html' }>((resolve) => {
+          release = () => resolve({ ok: true, path: '/out/x.html', format: 'html' })
         })
     )
     await setup(fakeBridge({ slidesExport: slidesExport as unknown as DesktopBridge['slidesExport'] }))
     render(<SlidesToolbar />)
     fireEvent.click(screen.getByRole('button', { name: /导出/ }))
-    fireEvent.click(screen.getByRole('button', { name: '导出 PPTX' }))
+    fireEvent.click(screen.getByRole('button', { name: '导出 HTML' }))
     await waitFor(() => expect(screen.getByRole('button', { name: /导出中/ })).toBeDisabled())
     release!()
-    await waitFor(() => expect(screen.getByText('/out/x.pptx')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('/out/x.html')).toBeInTheDocument())
   })
 
   it('用户取消导出 → 静默(无错误条、无路径条)', async () => {
@@ -91,7 +91,7 @@ describe('SlidesToolbar', () => {
     await setup(fakeBridge({ slidesExport }))
     render(<SlidesToolbar />)
     fireEvent.click(screen.getByRole('button', { name: /导出/ }))
-    fireEvent.click(screen.getByRole('button', { name: '导出 PNG' }))
+    fireEvent.click(screen.getByRole('button', { name: /导出 PNG/ }))
     await waitFor(() => expect(slidesExport).toHaveBeenCalled())
     expect(useSlidesStore.getState().actionError).toBeNull()
     expect(screen.queryByText(/\/out\//)).toBeNull()
@@ -107,6 +107,35 @@ describe('SlidesToolbar', () => {
     fireEvent.click(screen.getByRole('button', { name: /导出/ }))
     fireEvent.click(screen.getByRole('button', { name: '导出 HTML' }))
     await waitFor(() => expect(screen.getByText('磁盘已满')).toBeInTheDocument())
+  })
+
+  it('PPTX 先运行可编辑性预检,不直接弹保存框', async () => {
+    const slidesExport = vi.fn()
+    const slidesAnalyzeExportQuality = vi.fn(async () => ({
+      ok: true as const,
+      analysis: {
+        revision: 3,
+        slides: [],
+        deckReport: {
+          slideCount: 0,
+          nativeCount: 0,
+          rasterCount: 0,
+          rasterAreaRatio: 0,
+          rasterReasons: [],
+          warnings: [],
+          quality: 'high' as const,
+          nativeKinds: { text: 0, image: 0, table: 0, shape: 0, chart: 0 },
+          qualityCounts: { high: 0, mixed: 0, 'raster-heavy': 0 }
+        }
+      }
+    }))
+    await setup(fakeBridge({ slidesExport, slidesAnalyzeExportQuality }))
+    render(<SlidesToolbar />)
+    fireEvent.click(screen.getByRole('button', { name: /导出/ }))
+    fireEvent.click(screen.getByRole('button', { name: '导出 PPTX' }))
+    await waitFor(() => expect(slidesAnalyzeExportQuality).toHaveBeenCalledOnce())
+    expect(slidesExport).not.toHaveBeenCalled()
+    expect(useSlidesStore.getState().exportQualityOpen).toBe(true)
   })
 
   it('冲突时展示提示,点刷新后清除并重新拉取', async () => {
@@ -127,5 +156,31 @@ describe('SlidesToolbar', () => {
     render(<SlidesToolbar onRunCheck={onRunCheck} />)
     fireEvent.click(screen.getByRole('button', { name: /检查/ }))
     expect(onRunCheck).toHaveBeenCalledOnce()
+  })
+
+  it('备注按钮可切换备注面板开关', async () => {
+    await setup(fakeBridge())
+
+    render(<SlidesToolbar />)
+    const toggle = screen.getByRole('button', { name: '备注' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(toggle)
+    await waitFor(() => expect(useSlidesStore.getState().notesOpen).toBe(true))
+    expect(screen.getByRole('button', { name: '备注' })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: '备注' }))
+    await waitFor(() => expect(useSlidesStore.getState().notesOpen).toBe(false))
+  })
+
+  it('AI 工作流按钮打开状态面板并尝试恢复最近 run', async () => {
+    const slidesGetLatestPipelineRun = vi.fn(async () => ({ ok: true as const, run: null }))
+    await setup(fakeBridge({ slidesGetLatestPipelineRun }))
+    render(<SlidesToolbar />)
+    const toggle = screen.getByRole('button', { name: 'AI 工作流' })
+    fireEvent.click(toggle)
+    await waitFor(() => expect(useSlidesStore.getState().workflowOpen).toBe(true))
+    expect(slidesGetLatestPipelineRun).toHaveBeenCalledOnce()
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
   })
 })

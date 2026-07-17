@@ -82,6 +82,11 @@ describe("工具清单契约(MVP)", () => {
         "apply_template",
         "generate_speaker_notes",
         "read_speaker_notes",
+        "create_pipeline_run",
+        "get_pipeline_run",
+        "record_role_result",
+        "accept_role_result",
+        "reject_role_result",
       ].sort(),
     );
   });
@@ -240,6 +245,15 @@ describe("结构操作与资产", () => {
     const bad = await call("upload_asset", { file_name: "evil.sh", base64: png });
     expect(bad.ok).toBe(false);
     expect(bad.code).toBe("unsupported_format");
+  });
+
+  it("upload_asset 在 base64 解码前拒绝超过编码上限的输入", async () => {
+    const oversized = await call("upload_asset", {
+      file_name: "huge.png",
+      base64: "A".repeat(11_184_817),
+    });
+    expect(oversized.ok).toBe(false);
+    expect(oversized.message).toContain("base64");
   });
 });
 

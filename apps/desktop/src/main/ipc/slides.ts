@@ -14,6 +14,9 @@ import { readImageOpenable } from "./image";
 import { slotsFromSlidesOutline, type SlidesDeckManifest, nextSlidesSlotId, type SlidesSlot } from "@cortex-work/core/design/slides/slides-types";
 import { isValidSlotId, slidesSlideHtmlPath, slidesSnapshotPath } from "@cortex-work/core/design/slides/slides-paths";
 import type {
+  SlidesAnalyzeExportQualityRequest,
+  SlidesAnalyzeExportQualityResult,
+  SlidesCancelPipelineRunRequest,
   SlidesApplyTemplateRequest,
   SlidesApproveOutlineRequest,
   SlidesListTemplatesResult,
@@ -29,6 +32,8 @@ import type {
   SlidesLoadDeckRequest,
   SlidesReadOutlineDraftRequest,
   SlidesReadOutlineDraftResult,
+  SlidesReadNotesRequest,
+  SlidesReadNotesResult,
   SlidesReadSlideHtmlRequest,
   SlidesReadSlideHtmlResult,
   SlidesReadSnapshotRequest,
@@ -38,9 +43,15 @@ import type {
   SlidesRenameDeckRequest,
   SlidesReorderRequest,
   SlidesSaveEditedHtmlRequest,
+  SlidesSaveNotesRequest,
   SlidesScreenshotRequest,
   SlidesScreenshotResult,
   SlidesSetActiveSlideRequest,
+  SlidesExportQualityAnalysis,
+  SlidesGetPipelineRunRequest,
+  SlidesPipelineRoleDecisionRequest,
+  SlidesPipelineRunResult,
+  SlidesDeckScopedRequest,
 } from "./slides-ipc-types";
 import { SLIDES_EXPORT_FORMATS } from "./slides-ipc-types";
 import {
@@ -54,14 +65,37 @@ import {
   resolveDeckPaths,
   updateDeckManifest,
   writeSlideHtml,
+  writeSlideNotes,
   type SlidesWorkspaceResult,
 } from "../capabilities/slides/workspace";
 import { checkSlides, screenshotSlideToSnapshot } from "../capabilities/slides/inspect";
-import { buildDeckPptx, writeArtifactAtomic } from "../capabilities/slides/export/deck-export";
+import { analyzeDeckForExport, buildDeckPptx, writeArtifactAtomic } from "../capabilities/slides/export/deck-export";
 import { buildDeckPdf } from "../capabilities/slides/export/pdf";
 import { exportDeckPngs } from "../capabilities/slides/export/png";
 import { buildPresenterHtml, presenterSlots, type PresenterSlide } from "../capabilities/slides/export/html";
 import { getSlidesTemplate, listSlidesTemplates, readTemplateReferenceHtml } from "../capabilities/slides/templates";
+import {
+  cancelSlidesPipelineRun,
+  listLatestRecoverableSlidesPipelineRun,
+  loadSlidesPipelineRun,
+} from "../capabilities/slides/pipeline/workspace";
+import {
+  acceptSlidesPipelineRoleResult,
+  rejectSlidesPipelineRoleResult,
+} from "../capabilities/slides/pipeline/tools";
+
+const EXPORT_ANALYSIS_CACHE_MAX = 8;
+const exportAnalysisCache = new Map<string, SlidesExportQualityAnalysis>();
+
+function cacheExportAnalysis(key: string, analysis: SlidesExportQualityAnalysis): void {
+  exportAnalysisCache.delete(key);
+  exportAnalysisCache.set(key, analysis);
+  while (exportAnalysisCache.size > EXPORT_ANALYSIS_CACHE_MAX) {
+    const oldest = exportAnalysisCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    exportAnalysisCache.delete(oldest);
+  }
+}
 
 // workspace 层 Result → IPC envelope(成功统一携带最新 manifest)。
 function toDeckResult(
@@ -269,6 +303,34 @@ export function registerSlidesHandlers(): void {
     ),
   );
 
+  ipcMain.handle("slides:readNotes", (_e, req: SlidesReadNotesRequest): Promise<SlidesReadNotesResult> =>
+    guarded("读取演讲者备注失败", async () => {
+      const loaded = await loadDeckManifest({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
+      if (!loaded.ok) return { ok: false as const, error: loaded.error };
+      const slot = loaded.value.manifest.slides.find((candidate) => candidate.id === req.slotId);
+      if (!slot) {
+        return { ok: false as const, error: { code: "not_found" as const, message: `页面不存在: ${req.slotId}` } };
+      }
+      const result = await readSlideNotes({ workspaceRoot: req.workspaceRoot, deckId: req.deckId, slotId: req.slotId });
+      if (!result.ok) return { ok: false as const, error: result.error };
+      return { ok: true as const, markdown: result.value, slotRevision: slot.revision };
+    }),
+  );
+
+  ipcMain.handle("slides:saveNotes", (_e, req: SlidesSaveNotesRequest): Promise<SlidesDeckIpcResult> =>
+    guarded("保存演讲者备注失败", async () =>
+      toDeckResult(
+        await writeSlideNotes({
+          workspaceRoot: req.workspaceRoot,
+          deckId: req.deckId,
+          slotId: req.slotId,
+          markdown: req.markdown,
+          expectedRevision: req.expectedRevision,
+        }),
+      ),
+    ),
+  );
+
   // 模板:UI 侧入口(与 MCP list_templates / apply_template 同一注册表与写入路径)。
   ipcMain.handle("slides:listTemplates", (): Promise<SlidesListTemplatesResult> =>
     guarded("读取模板失败", async () => ({ ok: true as const, templates: await listSlidesTemplates() })),
@@ -373,6 +435,100 @@ export function registerSlidesHandlers(): void {
       return { ok: true as const, snapshotPath: result.value.snapshotPath };
     }),
   );
+  ipcMain.handle(
+    "slides:analyzeExportQuality",
+    (_e, req: SlidesAnalyzeExportQualityRequest): Promise<SlidesAnalyzeExportQualityResult> =>
+      guarded("分析 PPTX 可编辑性失败", async () => {
+        const loaded = await loadDeckManifest({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
+        if (!loaded.ok) return { ok: false as const, error: loaded.error };
+        const revision = loaded.value.manifest.revision;
+        const cacheKey = `${req.workspaceRoot}\u0000${req.deckId}\u0000${revision}`;
+        const cached = exportAnalysisCache.get(cacheKey);
+        if (cached) return { ok: true as const, analysis: cached, cached: true };
+        const result = await analyzeDeckForExport({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
+        if (!result.ok) return { ok: false as const, error: result.error };
+        const analysis: SlidesExportQualityAnalysis = { revision, ...result.value };
+        cacheExportAnalysis(cacheKey, analysis);
+        return { ok: true as const, analysis };
+      }),
+  );
+  ipcMain.handle(
+    "slides:getLatestPipelineRun",
+    (_e, req: SlidesDeckScopedRequest): Promise<SlidesPipelineRunResult> =>
+      guarded("读取 AI 工作流失败", async () => {
+        const result = await listLatestRecoverableSlidesPipelineRun({
+          workspaceRoot: req.workspaceRoot,
+          deckId: req.deckId,
+        });
+        if (!result.ok) return { ok: false as const, error: result.error };
+        return { ok: true as const, run: result.value };
+      }),
+  );
+  ipcMain.handle(
+    "slides:getPipelineRun",
+    (_e, req: SlidesGetPipelineRunRequest): Promise<SlidesPipelineRunResult> =>
+      guarded("读取 AI 工作流失败", async () => {
+        const result = await loadSlidesPipelineRun({
+          workspaceRoot: req.workspaceRoot,
+          deckId: req.deckId,
+          runId: req.runId,
+        });
+        if (!result.ok) return { ok: false as const, error: result.error };
+        return { ok: true as const, run: result.value };
+      }),
+  );
+  ipcMain.handle(
+    "slides:cancelPipelineRun",
+    (_e, req: SlidesCancelPipelineRunRequest): Promise<SlidesPipelineRunResult> =>
+      guarded("取消 AI 工作流失败", async () => {
+        const result = await cancelSlidesPipelineRun({
+          workspaceRoot: req.workspaceRoot,
+          deckId: req.deckId,
+          runId: req.runId,
+          expectedUpdatedAt: req.expectedUpdatedAt,
+        });
+        if (!result.ok) return { ok: false as const, error: result.error };
+        return { ok: true as const, run: result.value };
+      }),
+  );
+
+  const decidePipelineRole = async (
+    req: SlidesPipelineRoleDecisionRequest,
+    decision: "accept" | "reject",
+  ): Promise<SlidesPipelineRunResult> => {
+    const result = decision === "accept"
+      ? await acceptSlidesPipelineRoleResult({
+          workspaceRoot: req.workspaceRoot,
+          deckId: req.deckId,
+          runId: req.runId,
+          role: req.role,
+          expectedUpdatedAt: req.expectedUpdatedAt,
+        })
+      : await rejectSlidesPipelineRoleResult({
+          workspaceRoot: req.workspaceRoot,
+          deckId: req.deckId,
+          runId: req.runId,
+          role: req.role,
+          expectedUpdatedAt: req.expectedUpdatedAt,
+        });
+    if (!result.ok) return { ok: false, error: result.error };
+    return {
+      ok: true,
+      run: result.value.run,
+      action: result.value.review ?? result.value.appliedNotes,
+    };
+  };
+
+  ipcMain.handle(
+    "slides:acceptPipelineRole",
+    (_e, req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult> =>
+      guarded("接受角色结果失败", () => decidePipelineRole(req, "accept")),
+  );
+  ipcMain.handle(
+    "slides:rejectPipelineRole",
+    (_e, req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult> =>
+      guarded("拒绝角色结果失败", () => decidePipelineRole(req, "reject")),
+  );
   // 导出:目标路径只由主进程对话框决定(请求里不带输出路径);产物完全就绪后才
   // 原子落盘,失败/取消不留半成品。PNG 走目录选择 + 本次半成品回滚(见 png.ts)。
   ipcMain.handle("slides:export", async (event, req: SlidesExportRequest): Promise<SlidesExportResult> => {
@@ -412,7 +568,7 @@ export function registerSlidesHandlers(): void {
         const built = await buildDeckPptx({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
         if (!built.ok) return { ok: false, error: built.error };
         await writeArtifactAtomic(targetPath, built.value.buffer);
-        return { ok: true, path: targetPath, format: "pptx" };
+        return { ok: true, path: targetPath, format: "pptx", qualityReport: built.value.deckReport };
       }
 
       // pdf / html 都需要各页 HTML 原文。

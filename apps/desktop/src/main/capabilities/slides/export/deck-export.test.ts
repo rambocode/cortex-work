@@ -12,7 +12,7 @@ vi.mock("../../log", () => ({
   createLogger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
 }));
 
-import { buildDeckPptx, renderDeckForExport, writeArtifactAtomic } from "./deck-export";
+import { analyzeDeckForExport, buildDeckPptx, renderDeckForExport, writeArtifactAtomic } from "./deck-export";
 import type { SlideRenderWindow } from "../render";
 import type { SlideScene } from "./types";
 import {
@@ -288,6 +288,92 @@ describe("buildDeckPptx", () => {
     expect(slide2).toContain("<a:t>复杂页标题</a:t>");
   });
 
+  it("分析导出预检时汇总每页与整套质量报告,且返回值不泄漏 HTML/文本/绝对路径", async () => {
+    await seedSlides(2);
+    const log: WindowLog = { created: 0, destroyed: 0, insertCssCalls: 0 };
+    const analysis = await analyzeDeckForExport({
+      workspaceRoot: root,
+      deckId: DECK,
+      windowFactory: windowFactory([
+        plainScene("不会进入报告正文"),
+        {
+          ...complexScene(),
+          nodes: [
+            {
+              kind: "text",
+              id: "text-1",
+              x: 80,
+              y: 80,
+              w: 500,
+              h: 60,
+              z: 1,
+              align: "left",
+              lineHeightPx: 60,
+              paddingPx: { top: 0, right: 0, bottom: 0, left: 0 },
+              runs: [
+                {
+                  text: "用户标题不应进入预检报告",
+                  fontFamily: "Helvetica",
+                  fontSizePx: 48,
+                  color: "0f172a",
+                  bold: true,
+                  italic: false,
+                  underline: false,
+                },
+              ],
+            },
+            {
+              kind: "raster",
+              id: "raster-1",
+              x: 0,
+              y: 0,
+              w: 1280,
+              h: 720,
+              z: 0,
+              reason: "body-background",
+            },
+          ],
+          warnings: [
+            "blocking:file:///Users/mike/source/ai/cortex-org/cortex-desktop/cortex-work/.cortex-design/deckexp001/slides/slot-002.html",
+            "mixed-content:<h1>用户标题不应进入预检报告</h1>",
+          ],
+        },
+      ], log),
+    });
+
+    expect(analysis.ok).toBe(true);
+    if (!analysis.ok) return;
+
+    expect(analysis.value.slides).toEqual([
+      expect.objectContaining({
+        slotId: "slot-001",
+        order: 0,
+        report: expect.objectContaining({ quality: "high" }),
+      }),
+      expect.objectContaining({
+        slotId: "slot-002",
+        order: 1,
+        report: expect.objectContaining({
+          quality: "raster-heavy",
+          rasterAreaRatio: 1,
+          warnings: ["blocking", "mixed-content"],
+        }),
+      }),
+    ]);
+    expect(analysis.value.deckReport).toEqual(
+      expect.objectContaining({
+        slideCount: 2,
+        quality: "raster-heavy",
+        qualityCounts: { high: 1, mixed: 0, "raster-heavy": 1 },
+      })
+    );
+    const serialized = JSON.stringify(analysis.value);
+    expect(serialized).not.toContain(root);
+    expect(serialized).not.toContain("<h1>");
+    expect(serialized).not.toContain("用户标题不应进入预检报告");
+    expect(serialized).not.toContain("<!doctype html>");
+  });
+
   it("演讲者备注写进 PPT 原生备注页", async () => {
     await seedSlides(1);
     const loaded = await loadDeckManifest({ workspaceRoot: root, deckId: DECK });
@@ -307,6 +393,12 @@ describe("buildDeckPptx", () => {
     });
     expect(built.ok).toBe(true);
     if (!built.ok) return;
+    expect(built.value.deckReport).toEqual(
+      expect.objectContaining({
+        slideCount: 1,
+        quality: "high",
+      }),
+    );
     const zip = await JSZip.loadAsync(built.value.buffer);
     const notesSlide = zip.file("ppt/notesSlides/notesSlide1.xml");
     expect(notesSlide).not.toBeNull();

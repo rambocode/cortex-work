@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CircleAlert, Info, Loader2, TriangleAlert, X } from 'lucide-react'
-import type { SlidesFindingSeverity } from '@cortex-work/core/design/slides/slides-types'
+import type { SlidesFinding, SlidesFindingSeverity } from '@cortex-work/core/design/slides/slides-types'
 import { sortedSlidesSlots } from '@cortex-work/core/design/slides/slides-types'
 import { useSlidesStore } from './slides-store'
 
@@ -13,15 +13,25 @@ const SEVERITY_ICON: Record<SlidesFindingSeverity, ReactElement> = {
   info: <Info className="h-3.5 w-3.5 text-[#3b82d8]" strokeWidth={2} />
 }
 
-export function SlidesCheckPanel(): ReactElement | null {
+type SourcedFinding = SlidesFinding & { source: 'rules' | 'narrative' | 'render' }
+
+type Props = {
+  onFocusFinding?: (finding: SourcedFinding) => void
+  onFixFinding?: (finding: SourcedFinding) => void
+}
+
+export function SlidesCheckPanel({ onFocusFinding, onFixFinding }: Props = {}): ReactElement | null {
   const { t } = useTranslation('design')
   const open = useSlidesStore((s) => s.checkPanelOpen)
   const checking = useSlidesStore((s) => s.checking)
   const findings = useSlidesStore((s) => s.findings)
+  const pipelineFindings = useSlidesStore((s) => s.pipelineFindings)
   const manifest = useSlidesStore((s) => s.manifest)
   const close = useSlidesStore((s) => s.closeCheckPanel)
   const setActiveSlide = useSlidesStore((s) => s.setActiveSlide)
   const [filter, setFilter] = useState<SlidesFindingSeverity | 'all'>('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'rules' | 'narrative' | 'render'>('all')
+  const [decisions, setDecisions] = useState<Record<string, 'accepted' | 'ignored' | 'fixing'>>({})
 
   const slotIndex = useMemo(() => {
     const map = new Map<string, number>()
@@ -31,10 +41,19 @@ export function SlidesCheckPanel(): ReactElement | null {
 
   if (!open) return null
 
-  const visible = (findings ?? []).filter((f) => filter === 'all' || f.severity === filter)
+  const sourcedFindings = [
+    ...(findings ?? []).map((finding) => ({ ...finding, source: 'rules' as const })),
+    ...pipelineFindings
+  ]
+  const visible = sourcedFindings.filter(
+    (finding) =>
+      decisions[finding.id] !== 'ignored' &&
+      (filter === 'all' || finding.severity === filter) &&
+      (sourceFilter === 'all' || finding.source === sourceFilter)
+  )
   const counts = {
-    blocking: (findings ?? []).filter((f) => f.severity === 'blocking').length,
-    warning: (findings ?? []).filter((f) => f.severity === 'warning').length
+    blocking: sourcedFindings.filter((f) => f.severity === 'blocking').length,
+    warning: sourcedFindings.filter((f) => f.severity === 'warning').length
   }
 
   return (
@@ -66,6 +85,29 @@ export function SlidesCheckPanel(): ReactElement | null {
           </button>
         ))}
       </div>
+      <div className="flex gap-1 border-b border-black/8 px-2 py-1.5 dark:border-white/8">
+        {(['all', 'rules', 'narrative', 'render'] as const).map((source) => (
+          <button
+            key={source}
+            type="button"
+            onClick={() => setSourceFilter(source)}
+            aria-pressed={sourceFilter === source}
+            className={`rounded-md px-1.5 py-0.5 text-[10.5px] transition ${
+              sourceFilter === source
+                ? 'bg-black/8 text-ds-strong dark:bg-white/15'
+                : 'text-ds-muted hover:text-ds-strong'
+            }`}
+          >
+            {source === 'all'
+              ? t('slidesCheckSourceAll')
+              : source === 'rules'
+                ? t('slidesCheckSourceRules')
+                : source === 'narrative'
+                  ? 'Narrative'
+                  : 'Render'}
+          </button>
+        ))}
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {checking ? (
           <div className="flex items-center justify-center gap-2 py-6 text-[12px] text-ds-muted">
@@ -77,11 +119,11 @@ export function SlidesCheckPanel(): ReactElement | null {
         ) : (
           <ul className="space-y-1.5">
             {visible.map((f) => (
-              <li key={f.id}>
+              <li key={f.id} className="rounded-lg border border-black/8 dark:border-white/8">
                 <button
                   type="button"
-                  onClick={() => void setActiveSlide(f.slideId)}
-                  className="w-full rounded-lg border border-black/8 px-2 py-1.5 text-left transition hover:border-[#3b82d8]/60 dark:border-white/8"
+                  onClick={() => void setActiveSlide(f.slideId).then(() => onFocusFinding?.(f))}
+                  className="w-full rounded-lg px-2 py-1.5 text-left transition hover:bg-black/3 dark:hover:bg-white/5"
                 >
                   <span className="flex items-center gap-1.5">
                     {SEVERITY_ICON[f.severity]}
@@ -93,6 +135,39 @@ export function SlidesCheckPanel(): ReactElement | null {
                   <span className="mt-0.5 block text-[12px] leading-4 text-ds-strong">{f.message}</span>
                   {f.hint ? <span className="mt-0.5 block text-[11px] leading-4 text-ds-muted">{f.hint}</span> : null}
                 </button>
+                {f.source !== 'rules' ? (
+                  <div className="flex items-center gap-1 border-t border-black/8 px-2 py-1 dark:border-white/8">
+                    <button
+                      type="button"
+                      aria-label={t('slidesFindingAccept')}
+                      onClick={() => setDecisions((current) => ({ ...current, [f.id]: 'accepted' }))}
+                      className="rounded px-1.5 py-0.5 text-[10.5px] text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300"
+                    >
+                      {decisions[f.id] === 'accepted' ? t('slidesFindingAccepted') : t('slidesFindingAccept')}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t('slidesFindingIgnore')}
+                      onClick={() => setDecisions((current) => ({ ...current, [f.id]: 'ignored' }))}
+                      className="rounded px-1.5 py-0.5 text-[10.5px] text-ds-muted hover:bg-black/5 dark:hover:bg-white/8"
+                    >
+                      {t('slidesFindingIgnore')}
+                    </button>
+                    {onFixFinding ? (
+                      <button
+                        type="button"
+                        aria-label={t('slidesFindingFix')}
+                        onClick={() => {
+                          setDecisions((current) => ({ ...current, [f.id]: 'fixing' }))
+                          onFixFinding(f)
+                        }}
+                        className="rounded px-1.5 py-0.5 text-[10.5px] text-[#2f6fc0] hover:bg-[#3b82d8]/10 dark:text-[#78b5ef]"
+                      >
+                        {t('slidesFindingFix')}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>

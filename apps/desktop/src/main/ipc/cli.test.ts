@@ -54,6 +54,36 @@ vi.mock("../skills/claude-bridge", () => ({
   buildClaudeSkillBridge: (...args: unknown[]) => buildClaudeSkillBridgeMock(...args),
 }));
 
+const slidesPipelineMocks = vi.hoisted(() => ({
+  startSlidesPipelineRole: vi.fn(async () => ({ ok: true, value: { run: { id: "run-1" }, nextActions: [{ type: "done" }] } })),
+  recordSlidesPipelineRoleResult: vi.fn(async () => ({ ok: true, value: { run: { id: "run-1" }, nextActions: [{ type: "done" }] } })),
+  failSlidesPipelineRoleResult: vi.fn(async () => ({ ok: true, value: { run: { id: "run-1" }, nextActions: [{ type: "done" }] } })),
+  hasCompletedSlidesPipelineRunKind: vi.fn(async () => ({ ok: true, value: true })),
+  loadSlidesPipelineRun: vi.fn(async () => ({ ok: true, value: { status: "running", updatedAt: "u1", kind: "notes" } })),
+  cancelSlidesPipelineRun: vi.fn(async () => ({ ok: true, value: { id: "run-1", status: "canceled" } })),
+}));
+vi.mock("../capabilities/slides/pipeline/tools", () => ({
+  startSlidesPipelineRole: slidesPipelineMocks.startSlidesPipelineRole,
+  recordSlidesPipelineRoleResult: slidesPipelineMocks.recordSlidesPipelineRoleResult,
+  failSlidesPipelineRoleResult: slidesPipelineMocks.failSlidesPipelineRoleResult,
+}));
+vi.mock("../capabilities/slides/pipeline/workspace", () => ({
+  hasCompletedSlidesPipelineRunKind: slidesPipelineMocks.hasCompletedSlidesPipelineRunKind,
+  loadSlidesPipelineRun: slidesPipelineMocks.loadSlidesPipelineRun,
+  cancelSlidesPipelineRun: slidesPipelineMocks.cancelSlidesPipelineRun,
+}));
+
+const designDelegateState = vi.hoisted(() => ({
+  current: null as null | Record<string, unknown>,
+}));
+vi.mock("../capabilities/design-delegate/server", () => ({
+  ensureDesignDelegateMcpServerConfig: vi.fn(async () => null),
+  registerDesignDelegateSession: vi.fn((state: unknown) => {
+    designDelegateState.current = state as Record<string, unknown>;
+  }),
+  unregisterDesignDelegateSession: vi.fn(),
+}));
+
 vi.mock("electron", () => ({
   app: { getAppPath: () => "/fake/app", getPath: () => "/tmp/cortex-test-userData", isPackaged: false },
   ipcMain: {
@@ -119,6 +149,19 @@ beforeEach(() => {
   m.buildCodexMcpArgs.mockReset().mockReturnValue([]);
   m.agentSessionExists.mockReset().mockReturnValue(true);
   buildClaudeSkillBridgeMock.mockReset().mockReturnValue(undefined);
+  slidesPipelineMocks.startSlidesPipelineRole.mockClear();
+  slidesPipelineMocks.recordSlidesPipelineRoleResult.mockClear();
+  slidesPipelineMocks.failSlidesPipelineRoleResult.mockClear();
+  slidesPipelineMocks.hasCompletedSlidesPipelineRunKind.mockClear();
+  slidesPipelineMocks.loadSlidesPipelineRun.mockClear().mockResolvedValue({
+    ok: true,
+    value: { status: "running", updatedAt: "u1", kind: "notes" },
+  });
+  slidesPipelineMocks.cancelSlidesPipelineRun.mockClear().mockResolvedValue({
+    ok: true,
+    value: { id: "run-1", status: "canceled" },
+  });
+  designDelegateState.current = null;
   killAllDelegates();
   stopDelegateHost();
   vi.spyOn(console, "info").mockImplementation(() => undefined);
@@ -672,6 +715,45 @@ describe("cli:start 安全重试(U7)", () => {
     } finally {
       killSpy.mockRestore();
       vi.useRealTimers();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("父任务取消时也会取消处于 awaiting-approval 的 slides pipeline run", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-slides-cancel-"));
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    slidesPipelineMocks.loadSlidesPipelineRun.mockResolvedValue({
+      ok: true,
+      value: { status: "awaiting-approval", updatedAt: "u-awaiting", kind: "notes" },
+    });
+    registerCliHandlers();
+    const send = vi.fn();
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send } },
+        { runId: "slides:deckcli01:r1", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
+      );
+
+      const onRoleEvent = (designDelegateState.current as {
+        slides?: { onRoleEvent?: (event: unknown) => Promise<void> };
+      } | null)?.slides?.onRoleEvent;
+      expect(onRoleEvent).toBeTruthy();
+      await onRoleEvent?.({ status: "started", runId: "run-awaiting", role: "notes-writer" });
+
+      ipcHandlers.get("cli:kill")?.({}, "slides:deckcli01:r1");
+      child.emit("close", 1);
+      await Promise.resolve();
+
+      expect(slidesPipelineMocks.cancelSlidesPipelineRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceRoot: cwd,
+          deckId: "deckcli01",
+          runId: "run-awaiting",
+          expectedUpdatedAt: "u-awaiting",
+        }),
+      );
+    } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
   });

@@ -125,11 +125,15 @@ import type {
 // AI Slides IPC 契约类型(type-only,编译期擦除;与 core/desktop/slides-ipc-types.ts 镜像)。
 import type {
   SlidesApplyTemplateRequest,
+  SlidesAnalyzeExportQualityRequest,
+  SlidesAnalyzeExportQualityResult,
   SlidesApproveOutlineRequest,
   SlidesListTemplatesResult,
   SlidesCheckRequest,
   SlidesCheckResult,
   SlidesCreateDeckRequest,
+  SlidesCancelPipelineRunRequest,
+  SlidesDeckScopedRequest,
   SlidesDeckIpcResult,
   SlidesDeleteSlideRequest,
   SlidesDuplicateSlideRequest,
@@ -139,15 +143,21 @@ import type {
   SlidesLoadDeckRequest,
   SlidesReadOutlineDraftRequest,
   SlidesReadOutlineDraftResult,
+  SlidesReadNotesRequest,
+  SlidesReadNotesResult,
   SlidesReadSlideHtmlRequest,
   SlidesReadSlideHtmlResult,
   SlidesReadSnapshotRequest,
   SlidesReadSnapshotResult,
   SlidesReadTemplateReferenceRequest,
   SlidesReadTemplateReferenceResult,
+  SlidesGetPipelineRunRequest,
+  SlidesPipelineRoleDecisionRequest,
+  SlidesPipelineRunResult,
   SlidesRenameDeckRequest,
   SlidesReorderRequest,
   SlidesSaveEditedHtmlRequest,
+  SlidesSaveNotesRequest,
   SlidesScreenshotRequest,
   SlidesScreenshotResult,
   SlidesSetActiveSlideRequest,
@@ -294,6 +304,10 @@ const personal = {
     ipcRenderer.invoke("slides:setActiveSlide", req),
   slidesSaveEditedHtml: (req: SlidesSaveEditedHtmlRequest): Promise<SlidesDeckIpcResult> =>
     ipcRenderer.invoke("slides:saveEditedHtml", req),
+  slidesReadNotes: (req: SlidesReadNotesRequest): Promise<SlidesReadNotesResult> =>
+    ipcRenderer.invoke("slides:readNotes", req),
+  slidesSaveNotes: (req: SlidesSaveNotesRequest): Promise<SlidesDeckIpcResult> =>
+    ipcRenderer.invoke("slides:saveNotes", req),
   slidesReadSlideHtml: (req: SlidesReadSlideHtmlRequest): Promise<SlidesReadSlideHtmlResult> =>
     ipcRenderer.invoke("slides:readSlideHtml", req),
   slidesReadSnapshot: (req: SlidesReadSnapshotRequest): Promise<SlidesReadSnapshotResult> =>
@@ -301,6 +315,18 @@ const personal = {
   slidesCheck: (req: SlidesCheckRequest): Promise<SlidesCheckResult> => ipcRenderer.invoke("slides:check", req),
   slidesScreenshot: (req: SlidesScreenshotRequest): Promise<SlidesScreenshotResult> =>
     ipcRenderer.invoke("slides:screenshot", req),
+  slidesAnalyzeExportQuality: (req: SlidesAnalyzeExportQualityRequest): Promise<SlidesAnalyzeExportQualityResult> =>
+    ipcRenderer.invoke("slides:analyzeExportQuality", req),
+  slidesGetLatestPipelineRun: (req: SlidesDeckScopedRequest): Promise<SlidesPipelineRunResult> =>
+    ipcRenderer.invoke("slides:getLatestPipelineRun", req),
+  slidesGetPipelineRun: (req: SlidesGetPipelineRunRequest): Promise<SlidesPipelineRunResult> =>
+    ipcRenderer.invoke("slides:getPipelineRun", req),
+  slidesCancelPipelineRun: (req: SlidesCancelPipelineRunRequest): Promise<SlidesPipelineRunResult> =>
+    ipcRenderer.invoke("slides:cancelPipelineRun", req),
+  slidesAcceptPipelineRole: (req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult> =>
+    ipcRenderer.invoke("slides:acceptPipelineRole", req),
+  slidesRejectPipelineRole: (req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult> =>
+    ipcRenderer.invoke("slides:rejectPipelineRole", req),
   slidesExport: (req: SlidesExportRequest): Promise<SlidesExportResult> => ipcRenderer.invoke("slides:export", req),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),

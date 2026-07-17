@@ -18,10 +18,10 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import JSZip from "jszip";
 import { beforeAll, describe, expect, it } from "vitest";
-import { EXTRACT_SCENE_SOURCE } from "./dom-extractor";
+import { EXTRACT_SCENE_SOURCE, finalizeExtractedSlideScene } from "./dom-extractor";
 import { scenesToPptxBuffer, pxToIn, pxToPt } from "./pptx";
 import { summarizeScene } from "./types";
-import type { SceneImageNode, SceneShapeNode, SceneTableNode, SceneTextNode, SlideScene } from "./types";
+import type { SceneChartNode, SceneImageNode, SceneShapeNode, SceneTableNode, SceneTextNode, SlideScene } from "./types";
 
 const execFileAsync = promisify(execFile);
 
@@ -42,7 +42,7 @@ interface HarnessScene extends SlideScene {
   };
 }
 
-const FIXTURES = ["01-text-blocks", "02-images", "03-table", "04-complex", "05-doodle"] as const;
+const FIXTURES = ["01-text-blocks", "02-images", "03-table", "04-complex", "05-doodle", "06-charts", "07-basic-native"] as const;
 
 let outDir: string;
 const scenes = new Map<string, HarnessScene>();
@@ -72,7 +72,9 @@ beforeAll(async () => {
   const done = JSON.parse(readFileSync(join(outDir, "done.json"), "utf8")) as { done: string[] };
   expect(done.done).toEqual([...FIXTURES]);
   for (const name of FIXTURES) {
-    scenes.set(name, JSON.parse(readFileSync(join(outDir, `${name}.scene.json`), "utf8")) as HarnessScene);
+    const rawScene = JSON.parse(readFileSync(join(outDir, `${name}.scene.json`), "utf8")) as HarnessScene;
+    const finalized = finalizeExtractedSlideScene(rawScene);
+    scenes.set(name, { ...finalized.scene, meta: rawScene.meta } as HarnessScene);
   }
 
   // 四页合成一个 PPTX,并解包 slide XML 供结构断言。
@@ -229,9 +231,9 @@ describe("fixture 04 复杂层", () => {
     );
     expect(title).toBeDefined();
     expect(title!.runs[0].color).toBe("f8fafc");
-    // 渐变背景占满全页 → base 非背景占比高;隐藏了标题后 base 应低于 full。
+    // 渐变背景占满全页 → base 非背景占比高;隐藏原生标题后 base 不应比 full 更“重”。
     expect(scene.meta.baseNonBackgroundRatio).toBeGreaterThan(0.05);
-    expect(scene.meta.baseNonBackgroundRatio).toBeLessThan(scene.meta.fullNonBackgroundRatio + 0.001);
+    expect(scene.meta.baseNonBackgroundRatio).toBeLessThanOrEqual(scene.meta.fullNonBackgroundRatio + 0.001);
   });
 });
 
@@ -271,6 +273,108 @@ describe("fixture 05 手绘拼贴风(装饰性复杂 → 盒子栅格、文字�
   });
 });
 
+describe("fixture 06 原生图表", () => {
+  it("合法 bar/line/pie 合同提取为 chart 节点,并正确统计 nativeKinds.chart", () => {
+    const scene = sceneOf("06-charts");
+    const charts = scene.nodes.filter((n): n is SceneChartNode => n.kind === "chart");
+    expect(charts).toHaveLength(3);
+    expect(charts.map((chart) => chart.spec.type)).toEqual(["bar", "line", "pie"]);
+    expect(charts[0]!.spec.series.map((series) => series.color)).toEqual(["3366FF", "FF8A00"]);
+    expect(charts[1]!.ariaLabel).toBe("激活率折线图");
+    expect(charts[1]!.style?.fontSizePx).toBeCloseTo(14, 1);
+    expect(charts[2]!.style?.color).toBe("334155");
+    expect(summarizeScene(scene).nativeKinds.chart).toBe(3);
+  });
+
+  it("同容器合法 chart 不再把 canvas 记成 raster;非法合同仍保留单个 canvas fallback", () => {
+    const scene = sceneOf("06-charts");
+    const chartRasters = scene.nodes.filter(
+      (n): n is Extract<(typeof scene.nodes)[number], { kind: "raster" }> => n.kind === "raster" && Math.abs(n.y - 80) < 2,
+    );
+    expect(chartRasters).toHaveLength(1);
+    expect(chartRasters[0]!.reason).toBe("canvas");
+    expect(summarizeScene(scene).rasterCount).toBe(1);
+    expect(scene.warnings).toContain("chart-spec-invalid:chart-invalid");
+    expect(scene.warnings).toContain("chart-axis-title-ignored:chart-pie");
+  });
+});
+
+describe("fixture 07 基础原生映射", () => {
+  it("inline svg 序列化为 data uri image,不再走 svg raster", () => {
+    const scene = sceneOf("07-basic-native");
+    const svgImage = scene.nodes.find(
+      (n): n is SceneImageNode => n.kind === "image" && n.id === "inline-svg",
+    );
+    expect(svgImage).toBeDefined();
+    expect(svgImage!.x).toBeCloseTo(60, 0);
+    expect(svgImage!.src.startsWith("data:image/svg+xml;base64,")).toBe(true);
+    expect(summarizeScene(scene).rasterReasons).not.toContain("svg");
+  });
+
+  it("img 保留 object-fit/object-position/intrinsic size,简单 rotate 与 opacity 保留", () => {
+    const scene = sceneOf("07-basic-native");
+    const contain = scene.nodes.find((n): n is SceneImageNode => n.kind === "image" && n.id === "img-contain");
+    const cover = scene.nodes.find((n): n is SceneImageNode => n.kind === "image" && n.id === "img-cover");
+    const rotated = scene.nodes.find((n): n is SceneShapeNode => n.kind === "shape" && n.id === "rotated-card");
+    expect(contain?.objectFit).toBe("contain");
+    expect(contain?.objectPosition).toEqual({ x: 0, y: 1 });
+    expect(contain?.intrinsicSize).toEqual({ width: 400, height: 200 });
+    expect(cover?.objectFit).toBe("cover");
+    expect(cover?.objectPosition).toEqual({ x: 0.75, y: 0.25 });
+    expect(cover?.rotateDeg).toBeUndefined();
+    expect(rotated?.rotateDeg).toBeCloseTo(15, 0);
+    expect(rotated?.opacity).toBeCloseTo(0.6, 2);
+  });
+
+  it("bullet/numbering、段前后距与 valign 被提取", () => {
+    const scene = sceneOf("07-basic-native");
+    const centered = scene.nodes.find(
+      (n): n is SceneTextNode => n.kind === "text" && n.runs.some((r) => r.text.includes("居中提示")),
+    );
+    const bullet = scene.nodes.find(
+      (n): n is SceneTextNode => n.kind === "text" && n.runs.some((r) => r.text.includes("第一条项目符号")),
+    );
+    const numbered = scene.nodes.find(
+      (n): n is SceneTextNode => n.kind === "text" && n.runs.some((r) => r.text.includes("第三步")),
+    );
+    expect(centered?.valign).toBe("middle");
+    expect(centered?.rotateDeg).toBeCloseTo(5, 0);
+    expect(centered?.opacity).toBeCloseTo(0.8, 2);
+    expect(bullet?.runs[0]?.bullet).toEqual({ type: "bullet" });
+    expect(bullet?.runs[0]?.paraSpaceAfterPx).toBeCloseTo(12, 1);
+    expect(numbered?.runs[0]?.bullet).toEqual({ type: "number", numberStartAt: 3 });
+  });
+
+  it("scale/blend 继续 raster,table merge 与 border-radius warning 保留", () => {
+    const scene = sceneOf("07-basic-native");
+    const reasons = summarizeScene(scene).rasterReasons;
+    expect(reasons).toContain("transform");
+    expect(reasons).toContain("blend-mode");
+    const table = scene.nodes.find((n): n is SceneTableNode => n.kind === "table");
+    expect(table).toBeDefined();
+    expect(table!.colWidthsPx).toHaveLength(3);
+    expect(table!.colWidthsPx[0]).toBeCloseTo(table!.colWidthsPx[1]!, 1);
+    expect(Math.abs(table!.colWidthsPx.reduce((sum, width) => sum + width, 0) - table!.w)).toBeLessThan(1.5);
+    expect(table!.rows[0]?.[0]?.colspan).toBe(2);
+    expect(table!.rows[0]?.[1]?.rowspan).toBe(2);
+    expect(scene.warnings).toContain("table-border-radius-approx:merge-table");
+  });
+
+  it("mixed-content 不再静默丢字:要么原生提取,要么显式 blocking+raster 回退", () => {
+    const scene = sceneOf("07-basic-native");
+    const report = summarizeScene(scene);
+    const mixedRaster = scene.nodes.find(
+      (n): n is Extract<(typeof scene.nodes)[number], { kind: "raster" }> => n.kind === "raster" && n.reason === "mixed-content",
+    );
+    expect(mixedRaster).toBeDefined();
+    expect(scene.warnings).toContain("mixed-content:mixed-inline-block");
+    expect(scene.warnings).toContain("blocking:mixed-inline-block");
+    expect(report.warnings).toContain("mixed-content");
+    expect(report.warnings).toContain("blocking");
+    expect(report.quality).toBe("raster-heavy");
+  });
+});
+
 describe("PPTX 结构(可编辑性与不重复渲染)", () => {
   it("文本页:标题/加粗 run 是原生 <a:t> 文本(PowerPoint 可选中编辑)", () => {
     expect(slideXml[0]).toContain("<a:t>AI Slides 技术验证</a:t>");
@@ -297,6 +401,7 @@ describe("PPTX 结构(可编辑性与不重复渲染)", () => {
     const picCount = (slideXml[3].match(/<p:pic>/g) ?? []).length;
     expect(picCount).toBe(1);
     expect(slideXml[3]).toContain("<a:t>复杂视觉层降级验证</a:t>");
+    expect(slideXml[3].match(/复杂视觉层降级验证/g) ?? []).toHaveLength(1);
   });
 
   it("手绘风页:base raster 单张,卡片/药丸文字为原生 <a:t>(PowerPoint 可编辑)", () => {
@@ -304,6 +409,16 @@ describe("PPTX 结构(可编辑性与不重复渲染)", () => {
     expect(picCount).toBe(1);
     expect(slideXml[4]).toContain("<a:t>手绘药丸标题</a:t>");
     expect(slideXml[4]).toContain("<a:t>卡片标题可编辑</a:t>");
+  });
+
+  it("图表页:非法合同仍只有一张 base raster 图,合法原生 chart 不回退成额外图片", () => {
+    const picCount = (slideXml[5].match(/<p:pic>/g) ?? []).length;
+    expect(picCount).toBe(1);
+  });
+
+  it("基础映射页:svg + 2 张 img 保持原生 pic,且因 scale/blend fallback 存在一张 base raster", () => {
+    const picCount = (slideXml[6].match(/<p:pic>/g) ?? []).length;
+    expect(picCount).toBe(4);
   });
 
   it("px→inch/pt 映射符合 96dpi 与 CSS pt 换算", () => {

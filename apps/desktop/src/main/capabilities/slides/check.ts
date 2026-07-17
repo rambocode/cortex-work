@@ -3,6 +3,7 @@
 // 不自动改写页面;修复由用户或 Agent 发起新的可追踪 revision。
 import type { SlidesFinding, SlidesSlot } from "@cortex-work/core/design/slides/slides-types";
 import type { SlideRenderInspection } from "./render";
+import { parseSlidesChartSpec } from "./export/chart-spec";
 
 /** 文本密度阈值:单页可见文本超过该字数视为过密(演示页应精炼)。 */
 export const TEXT_DENSITY_WARN_CHARS = 800;
@@ -68,6 +69,34 @@ export function staticCheckSlideHtml(slideId: string, html: string): SlidesFindi
   }
   if (/target=["']_blank["']/i.test(html)) {
     findings.push(finding(slideId, "external-link", n++, "warning", "页面包含外部跳转链接(演示中不可点)"));
+  }
+
+  // 原生图表合同:任意 canvas 若没有显式 JSON spec，PPTX 只能栅格化；有 spec
+  // 但结构非法时同样提示。这里不从 canvas 像素或页面脚本反推数据。
+  const hasCanvas = /<canvas\b/i.test(html);
+  const chartSpecs = [...html.matchAll(/<script\b(?=[^>]*\bdata-cortex-chart-spec\b)[^>]*>([\s\S]*?)<\/script>/gi)];
+  if (hasCanvas && chartSpecs.length === 0) {
+    findings.push(
+      finding(slideId, "chart-spec-missing", n++, "warning", "canvas 图表缺少 data-cortex-chart-spec，将栅格化导出", {
+        hint: "添加 type=application/json 的 version=1 bar/line/pie 图表数据合同",
+      }),
+    );
+  }
+  for (const spec of chartSpecs) {
+    let input: unknown;
+    try {
+      input = JSON.parse(spec[1] ?? "");
+    } catch {
+      input = undefined;
+    }
+    const parsed = parseSlidesChartSpec(input);
+    if (!parsed.ok) {
+      findings.push(
+        finding(slideId, "chart-spec-invalid", n++, "warning", `图表数据合同无效: ${parsed.message}`, {
+          hint: "修正 chart spec 后可导出为 PowerPoint 原生图表",
+        }),
+      );
+    }
   }
 
   // 文本密度:粗略去标签后统计。

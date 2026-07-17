@@ -421,6 +421,118 @@ export async function writeSlideNotes(options: {
   });
 }
 
+export async function writeSlideNotesBatch(options: {
+  workspaceRoot: string;
+  deckId: string;
+  notes: Array<{ slotId: string; markdown: string }>;
+  expectedRevision: number;
+  now?: string;
+}): Promise<SlidesWorkspaceResult<SlidesDeckManifest>> {
+  if (!Array.isArray(options.notes) || options.notes.length === 0) {
+    return fail("invalid_payload", "备注内容为空");
+  }
+  const seen = new Set<string>();
+  for (const note of options.notes) {
+    if (!isValidSlotId(note.slotId)) return fail("invalid_path", `非法 slot id: ${note.slotId}`);
+    if (typeof note.markdown !== "string") return fail("invalid_payload", "备注内容非法");
+    if (Buffer.byteLength(note.markdown, "utf8") > MAX_NOTES_BYTES) {
+      return fail("too_large", `备注超过 ${MAX_NOTES_BYTES} 字节上限`);
+    }
+    if (seen.has(note.slotId)) return fail("invalid_payload", `重复的 slot id: ${note.slotId}`);
+    seen.add(note.slotId);
+  }
+  const resolved = await resolveDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const paths = resolved.value;
+  return enqueueDeck(paths.deckRootAbs, async () => {
+    const loaded = await loadDeckManifestUnlocked(paths, options.deckId);
+    if (!loaded.ok) return loaded;
+    const current = loaded.value.manifest;
+    if (current.revision !== options.expectedRevision) {
+      return fail<SlidesDeckManifest>(
+        "revision_conflict",
+        `revision 不匹配: 期望 ${options.expectedRevision},当前 ${current.revision}`,
+      );
+    }
+    for (const note of options.notes) {
+      if (!current.slides.some((slot) => slot.id === note.slotId)) {
+        return fail<SlidesDeckManifest>("not_found", `slot 不存在: ${note.slotId}`);
+      }
+    }
+
+    const entries: Array<{
+      slotId: string;
+      markdown: string;
+      rel: string;
+      abs: string;
+      tmp: string;
+    }> = [];
+    for (const note of options.notes) {
+      const rel = slidesNotesPath(options.deckId, note.slotId);
+      const abs = resolve(paths.realWorkspaceRoot, rel);
+      const pathError = await assertWritablePath(paths, abs);
+      if (pathError) return { ok: false as const, error: pathError };
+      entries.push({
+        slotId: note.slotId,
+        markdown: note.markdown,
+        rel,
+        abs,
+        tmp: `${abs}.batch-${process.pid}-${entries.length}.tmp`,
+      });
+    }
+
+    const backups = new Map<string, string | null>();
+    const renamed = new Set<string>();
+    const now = options.now ?? new Date().toISOString();
+    try {
+      for (const entry of entries) {
+        try {
+          const st = await fsp.lstat(entry.abs);
+          if (st.isSymbolicLink()) return fail<SlidesDeckManifest>("invalid_path", "备注文件不允许是符号链接");
+          backups.set(entry.abs, await fsp.readFile(entry.abs, "utf8"));
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "ENOENT") backups.set(entry.abs, null);
+          else throw error;
+        }
+        await fsp.mkdir(dirname(entry.abs), { recursive: true });
+        await fsp.writeFile(entry.tmp, entry.markdown, "utf8");
+      }
+
+      for (const entry of entries) {
+        await fsp.rename(entry.tmp, entry.abs);
+        renamed.add(entry.abs);
+      }
+
+      const next = structuredClone(current);
+      for (const entry of entries) {
+        const slot = next.slides.find((candidate) => candidate.id === entry.slotId)!;
+        slot.notesPath = entry.rel;
+        slot.updatedAt = now;
+      }
+      next.revision = current.revision + 1;
+      next.updatedAt = now;
+      await atomicWriteFile(paths.manifestAbs, serializeSlidesManifest(next));
+      return { ok: true as const, value: next };
+    } catch (err) {
+      for (const entry of entries) {
+        await fsp.rm(entry.tmp, { force: true }).catch(() => undefined);
+      }
+      for (const entry of entries) {
+        if (!renamed.has(entry.abs)) continue;
+        const previous = backups.get(entry.abs) ?? null;
+        if (previous === null) {
+          await fsp.rm(entry.abs, { force: true }).catch(() => undefined);
+          continue;
+        }
+        await atomicWriteFile(entry.abs, previous).catch(() => undefined);
+      }
+      log.error("writeSlideNotesBatch failed:", err);
+      return fail<SlidesDeckManifest>("io_error", "批量备注写入失败");
+    }
+  });
+}
+
 /** 读取单页备注;无备注返回空串(不是错误 —— 备注天然可选)。 */
 export async function readSlideNotes(options: {
   workspaceRoot: string;
@@ -464,6 +576,8 @@ export async function readSlideHtml(options: {
 
 // 上传资产的字节上限与扩展名 allowlist(MCP upload_asset / 后续 UI 上传共用)。
 export const MAX_ASSET_BYTES = 8 * 1024 * 1024;
+/** 8MB 二进制的 base64 最大编码长度（含最多一个四字符 padding block）。 */
+export const MAX_ASSET_BASE64_CHARS = Math.ceil(MAX_ASSET_BYTES / 3) * 4 + 4;
 const ASSET_EXT_ALLOWLIST = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 
 /**
@@ -537,6 +651,9 @@ export async function writeDeckAsset(options: {
   const ext = options.fileName.split(".").pop()!.toLowerCase();
   if (!ASSET_EXT_ALLOWLIST.has(ext)) {
     return fail("unsupported_format", `不支持的资产类型: .${ext}`);
+  }
+  if (options.base64.length > MAX_ASSET_BASE64_CHARS) {
+    return fail("too_large", `base64 编码超过 ${MAX_ASSET_BASE64_CHARS} 字符上限`);
   }
   let bytes: Buffer;
   try {
