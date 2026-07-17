@@ -1,0 +1,1231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- QoderWork 内置模版参考：保留原风格结构，替换新模版名，并移除外部字体链接和脚本。 -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Volt Pitch</title>
+
+    <style>
+      /* ╔══════════════════════════════════════════════════════════════════════╗
+   ║  ZONE A · TOKENS                                                      ║
+   ║                                                                      ║
+   ║  Volt Pitch: near-black charcoal field, cool white type, one          ║
+   ║  disciplined electric-blue accent. Space Grotesk display, Inter       ║
+   ║  body, IBM Plex Mono chrome. Institutional pitch-deck energy.         ║
+   ╚══════════════════════════════════════════════════════════════════════╝ */
+      :root {
+        /* ── Color field ─────────────────────────────────────────────────── */
+        /* Single dark palette across every slide — no inverted theme. The
+           "light" tokens are aliased to the dark values so any inline
+           reference to --c-bg-light renders identically. */
+        --c-bg: #0c0e12;        /* near-black charcoal — every slide         */
+        --c-bg-alt: #151a22;    /* surface — panels, stat cards, compare     */
+        --c-bg-2: #1e2836;      /* secondary block — deeper lifted panel     */
+        --c-bg-light: #0c0e12;  /* alias — no inverted theme                 */
+        --c-bg-light-alt: #151a22;
+
+        --c-fg: #f5f7fa;        /* cool white type — primary                 */
+        --c-fg-2: #9aa6b8;      /* muted cool-gray — secondary copy          */
+        --c-fg-3: rgba(245, 247, 250, 0.42); /* tertiary / faint labels      */
+        --c-fg-light: #f5f7fa;  /* alias                                     */
+        --c-fg-light-2: #9aa6b8;
+        --c-fg-light-3: rgba(245, 247, 250, 0.42);
+
+        /* Electric blue — used with severe restraint. Key numbers, growth
+           mark, one emphasized word, the accent rule, list markers only. */
+        --c-primary: #3b82f6;   /* electric blue — the accent                */
+        --c-accent: #60a5fa;    /* brighter blue — emphasis / hover-of-eye   */
+        --c-glow: rgba(59, 130, 246, 0.14); /* faint blue wash for panels    */
+
+        --c-border: #232b36;    /* hairline structural border                */
+        --c-border-soft: rgba(245, 247, 250, 0.09); /* faint white hairline  */
+        --c-border-light: #232b36;
+
+        /* ── Typography ──────────────────────────────────────────────────── */
+        /* Display + heading: Space Grotesk — geometric, tight, assertive.
+           The large numbers and headlines are the personality. */
+        --f-display: "Space Grotesk", "Noto Sans SC", system-ui, sans-serif;
+        --f-heading: "Space Grotesk", "Noto Sans SC", system-ui, sans-serif;
+        /* Body: Inter — clean, recedes behind the display type. */
+        --f-body: "Inter", "Noto Sans SC", system-ui, sans-serif;
+        /* Mono: IBM Plex Mono — kickers, labels, page counter chrome. */
+        --f-mono: "IBM Plex Mono", "Noto Sans SC", ui-monospace, monospace;
+        /* Annotation: mono — instrument-panel chrome bottom-left. */
+        --f-annotation: "IBM Plex Mono", "Noto Sans SC", ui-monospace, monospace;
+
+        /* ── Type scale — big pitch-deck presence ────────────────────────── */
+        --sz-display: 10vw;
+        --sz-mega: 13vw;   /* market-size / hero metric event number */
+        --sz-h1: 6.4vw;
+        --sz-h2: 3.6vw;
+        --sz-h3: 2.1vw;
+        --sz-lead: 1.5vw;
+        --sz-body: 1.05vw;
+        --sz-caption: 0.85vw;
+        --sz-label: 0.72vw;
+
+        /* ── Spacing ─────────────────────────────────────────────────────── */
+        --pad-x: 6vw;
+        --pad-y: 6.5vh;
+        --gap-lg: 4.5vh;
+        --gap-md: 2.6vh;
+        --gap-sm: 1.4vh;
+
+        /* ── Radius — subtle, precise ────────────────────────────────────── */
+        --radius: 4px;
+
+        /* ── Motion: static reference ────────────────────────────────────── */
+        --ease-slide: cubic-bezier(0.77, 0, 0.175, 1);
+        --dur-slide: 0s;
+        --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+        --dur-enter: 0s;
+      }
+
+      /* ╔══════════════════════════════════════════════════════════════════════╗
+   ║  ZONE B · ENGINE — DO NOT MODIFY                                      ║
+   ║                                                                      ║
+   ║  Layout engine, transitions, navigation chrome.                      ║
+   ║  Animation system removed — this skeleton is fully static.           ║
+   ║  Touching the engine mechanics breaks navigation.                    ║
+   ╚══════════════════════════════════════════════════════════════════════╝ */
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--c-bg);
+        color: var(--c-fg);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* Deck container — all slides sit side by side */
+      #deck {
+        display: flex;
+        height: 100vh;
+        /* Width = N * 100vw, set dynamically by JS */
+        transition: transform var(--dur-slide) var(--ease-slide);
+        will-change: transform;
+      }
+
+      /* Slide base — each slide is one full viewport */
+      .slide {
+        flex: 0 0 100vw;
+        width: 100vw;
+        height: 100vh;
+        position: relative;
+        padding: var(--pad-y) var(--pad-x);
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        overflow: hidden;
+        background: var(--c-bg);
+        color: var(--c-fg);
+      }
+      /* Prevent grid children from overflowing */
+      .slide-body {
+        min-height: 0;
+      }
+
+      /* Volt Pitch: every slide uses the same near-black field. The .dark /
+         .light classes are preserved for backwards compatibility but render
+         identically — no inverted theme. */
+      .slide.dark,
+      .slide.light {
+        background: var(--c-bg);
+        color: var(--c-fg);
+      }
+
+      /* ── Navigation ───────────────────────────────────────────────────── */
+      #nav-dots {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 7px;
+        z-index: 100;
+      }
+      .nav-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(245, 247, 250, 0.2);
+        cursor: pointer;
+        transition:
+          background 0.3s,
+          transform 0.3s;
+        padding: 0;
+      }
+      .nav-dot.is-active {
+        background: var(--c-accent);
+        transform: scale(1.4);
+      }
+
+      #slide-counter {
+        position: fixed;
+        bottom: 20px;
+        right: 28px;
+        font-family: var(--f-mono);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        color: rgba(245, 247, 250, 0.28);
+        z-index: 100;
+        user-select: none;
+      }
+
+      /* ╔══════════════════════════════════════════════════════════════════════╗
+   ║  ZONE C · TYPOGRAPHY                                                  ║
+   ║                                                                      ║
+   ║  Space Grotesk carries display + headings (tight, geometric,         ║
+   ║  assertive). Inter carries body. Mono carries chrome. One            ║
+   ║  emphasized word per headline may take the electric-blue accent.     ║
+   ╚══════════════════════════════════════════════════════════════════════╝ */
+
+      /* Display — the hero headline / cover title. */
+      .display {
+        font-family: var(--f-display);
+        font-size: var(--sz-display);
+        font-weight: 700;
+        line-height: 0.94;
+        letter-spacing: -0.03em;
+      }
+      /* Mega — the single market-size / metric event number. */
+      .mega {
+        font-family: var(--f-display);
+        font-size: var(--sz-mega);
+        font-weight: 700;
+        line-height: 0.86;
+        letter-spacing: -0.045em;
+      }
+      .h1 {
+        font-family: var(--f-heading);
+        font-size: var(--sz-h1);
+        font-weight: 700;
+        line-height: 1.02;
+        letter-spacing: -0.025em;
+      }
+      .h2 {
+        font-family: var(--f-heading);
+        font-size: var(--sz-h2);
+        font-weight: 700;
+        line-height: 1.08;
+        letter-spacing: -0.02em;
+      }
+      .h3 {
+        font-family: var(--f-heading);
+        font-size: var(--sz-h3);
+        font-weight: 600;
+        line-height: 1.18;
+        letter-spacing: -0.01em;
+      }
+      /* Emphasis word inside a headline takes the electric-blue accent. */
+      .display em,
+      .h1 em,
+      .h2 em,
+      .mega em {
+        font-style: normal;
+        color: var(--c-accent);
+      }
+
+      .lead {
+        font-family: var(--f-body);
+        font-size: var(--sz-lead);
+        font-weight: 400;
+        line-height: 1.55;
+        color: var(--c-fg-2);
+      }
+      .body {
+        font-family: var(--f-body);
+        font-size: var(--sz-body);
+        font-weight: 400;
+        line-height: 1.65;
+      }
+      .caption {
+        font-family: var(--f-body);
+        font-size: var(--sz-caption);
+        font-weight: 400;
+        line-height: 1.5;
+        color: var(--c-fg-2);
+      }
+      .label {
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        font-weight: 400;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--c-fg-3);
+      }
+      .muted {
+        color: var(--c-fg-2);
+      }
+      /* .accent: small electric-blue text emphasis. */
+      .accent {
+        color: var(--c-accent);
+      }
+
+      /* Kicker — mono eyebrow above headings, in electric blue. */
+      .kicker {
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--c-primary);
+      }
+      /* The 28px accent rule — a single electric-blue tick. */
+      .rule {
+        width: 34px;
+        height: 2px;
+        background: var(--c-primary);
+      }
+
+      /* Annotation: mono chrome — sits bottom-left on every slide. */
+      .pin-note {
+        font-family: var(--f-annotation);
+        font-size: 0.8vw;
+        font-weight: 400;
+        line-height: 1.5;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--c-fg-3);
+      }
+      .pin-note.hot {
+        color: var(--c-primary);
+      }
+
+      /* ── Numbered list — instrument-panel markers ─────────────────────── */
+      .bullet-list {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-md);
+        padding: 0;
+        counter-reset: list-counter;
+      }
+      .bullet-list li {
+        font-family: var(--f-body);
+        font-size: var(--sz-lead);
+        font-weight: 400;
+        line-height: 1.45;
+        display: grid;
+        grid-template-columns: 2.4em 1fr;
+        gap: 0.6em;
+        color: var(--c-fg);
+      }
+      .bullet-list li::before {
+        content: counter(list-counter, decimal-leading-zero);
+        counter-increment: list-counter;
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.08em;
+        color: var(--c-primary);
+        padding-top: 0.55em;
+      }
+
+      /* ╔══════════════════════════════════════════════════════════════════════╗
+   ║  ZONE D · LAYOUTS + COMPONENTS                                        ║
+   ║                                                                      ║
+   ║  Persistent chrome: top page counter, bottom-left company/round      ║
+   ║  annotation on every slide. Nine pitch-deck layouts.                 ║
+   ╚══════════════════════════════════════════════════════════════════════╝ */
+
+      /* ── Chrome + foot — minimal, hairline, instrument-panel ──────────── */
+      .slide-chrome,
+      .slide-foot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .slide-chrome {
+        padding-bottom: var(--gap-sm);
+        border-bottom: 1px solid var(--c-border);
+        margin-bottom: var(--gap-md);
+      }
+      .slide-foot {
+        padding-top: var(--gap-sm);
+        border-top: 1px solid var(--c-border);
+        margin-top: var(--gap-md);
+      }
+
+      /* Persistent bottom-left annotation — company · round on every slide. */
+      .pin-annotation {
+        position: absolute;
+        bottom: calc(var(--pad-y) * 0.9);
+        left: var(--pad-x);
+        display: flex;
+        flex-direction: column;
+        gap: 0.35vh;
+        z-index: 10;
+        max-width: 26vw;
+      }
+      /* Persistent bottom-right page counter — mono, faint.
+         底部而非顶部:顶部右侧被参考页固定的 id 角标占用,避免相叠。 */
+      .pin-page {
+        position: absolute;
+        bottom: calc(var(--pad-y) * 0.9);
+        right: var(--pad-x);
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.14em;
+        color: var(--c-fg-3);
+        z-index: 10;
+      }
+      .pin-page b {
+        color: var(--c-fg);
+        font-weight: 500;
+      }
+
+      /* Wordmark — the small company lockup, top-left of chromed slides. */
+      .wordmark {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5em;
+        font-family: var(--f-display);
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        font-size: 1vw;
+        color: var(--c-fg);
+      }
+      .wordmark .spark {
+        width: 0.7em;
+        height: 0.7em;
+        border-radius: 2px;
+        background: var(--c-primary);
+        transform: rotate(45deg);
+      }
+
+      /* Image placeholder — dashed hairline, mono label. */
+      .img-placeholder {
+        background: var(--c-glow);
+        border: 1px dashed var(--c-border);
+        border-radius: var(--radius);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--c-fg-3);
+        width: 100%;
+        height: 100%;
+        min-height: 28vh;
+      }
+
+      /* ── 1. COVER — the deck opens here; preview renders this slide ────── */
+      /* Left-weighted lockup: wordmark, big headline, one-line thesis, and
+         a round chip. The cover must carry the most confidence in the deck. */
+      .slide--cover {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: var(--gap-lg);
+        position: relative;
+        overflow: hidden;
+      }
+      /* Faint electric grid wash bleeding from the right edge — the only
+         atmospheric element; kept low so the field stays near-black. */
+      .slide--cover::after {
+        content: "";
+        position: absolute;
+        top: -20%;
+        right: -14%;
+        width: 52vw;
+        height: 140%;
+        background:
+          radial-gradient(circle at 70% 40%, var(--c-glow), transparent 62%);
+        pointer-events: none;
+      }
+      .cover-head {
+        display: flex;
+        align-items: center;
+        gap: 0.7em;
+        z-index: 2;
+      }
+      .cover-mark {
+        font-family: var(--f-display);
+        font-weight: 700;
+        font-size: 1.6vw;
+        letter-spacing: -0.01em;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55em;
+      }
+      .cover-mark .spark {
+        width: 0.62em;
+        height: 0.62em;
+        border-radius: 3px;
+        background: var(--c-primary);
+        transform: rotate(45deg);
+      }
+      .cover-title {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-md);
+        max-width: 74%;
+        z-index: 2;
+      }
+      .cover-title .lead {
+        max-width: 44ch;
+        font-size: var(--sz-lead);
+      }
+      .cover-round {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.7em;
+        z-index: 2;
+      }
+      .chip {
+        font-family: var(--f-mono);
+        font-size: var(--sz-caption);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--c-fg);
+        padding: 0.55em 0.9em;
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius);
+        background: var(--c-bg-alt);
+      }
+      .chip.hot {
+        border-color: rgba(59, 130, 246, 0.5);
+        color: var(--c-accent);
+        background: var(--c-glow);
+      }
+
+      /* ── 2. STATEMENT — single thesis / the problem, chromeless ───────── */
+      .slide--statement {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: var(--gap-md);
+        position: relative;
+        max-width: 80%;
+      }
+      .slide--statement .lead {
+        max-width: 56ch;
+      }
+
+      /* ── 3. MEGA — one enormous market-size number ────────────────────── */
+      .slide--mega {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        position: relative;
+      }
+      .slide--mega .slide-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-md);
+        min-height: 0;
+      }
+      .mega-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 1.4vw;
+        flex-wrap: wrap;
+      }
+      .mega-sub {
+        display: grid;
+        grid-template-columns: repeat(3, auto);
+        gap: 3vw;
+        margin-top: var(--gap-md);
+      }
+      .mega-sub .pin-note {
+        font-size: var(--sz-caption);
+      }
+      .mega-sub b {
+        display: block;
+        font-family: var(--f-display);
+        font-size: 2.4vw;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--c-fg);
+        margin-bottom: 0.3em;
+      }
+      .mega-sub b.hot {
+        color: var(--c-accent);
+      }
+
+      /* ── 4. SPLIT — product: text left, visual panel right ────────────── */
+      .slide--split {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        position: relative;
+      }
+      .slide--split .slide-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4vw;
+        align-items: center;
+        min-height: 0;
+      }
+      .split-text {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-md);
+      }
+      .split-visual {
+        height: 58vh;
+      }
+      /* Product panel — a lifted surface with stacked feature rows. */
+      .panel {
+        background: var(--c-bg-alt);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius);
+        padding: 2.6vw;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 1.6vh;
+      }
+      .panel-row {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 1em;
+        align-items: baseline;
+        padding: 1.2vh 0;
+        border-bottom: 1px solid var(--c-border-soft);
+      }
+      .panel-row:last-child {
+        border-bottom: none;
+      }
+      .panel-row .idx {
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.08em;
+        color: var(--c-primary);
+      }
+      .panel-row .k {
+        font-family: var(--f-heading);
+        font-weight: 600;
+        font-size: 1.25vw;
+        color: var(--c-fg);
+      }
+      .panel-row .v {
+        font-family: var(--f-body);
+        font-size: var(--sz-caption);
+        color: var(--c-fg-2);
+        margin-top: 0.3em;
+      }
+
+      /* ── 5. STATS — traction metrics across a band ────────────────────── */
+      .slide--stats {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: var(--gap-lg);
+        position: relative;
+      }
+      .slide--stats .slide-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-lg);
+        min-height: 0;
+      }
+      .stats-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1.4vw;
+        width: 100%;
+      }
+      .pin-stat {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-sm);
+        padding: 2vw 1.6vw;
+        background: var(--c-bg-alt);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius);
+      }
+      /* One stat card gets the electric-blue treatment — the headline metric. */
+      .pin-stat.hot {
+        border-color: rgba(59, 130, 246, 0.5);
+        background: var(--c-glow);
+      }
+      .pin-stat-val {
+        font-family: var(--f-display);
+        font-size: 3.6vw;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: -0.03em;
+        color: var(--c-fg);
+      }
+      .pin-stat.hot .pin-stat-val {
+        color: var(--c-accent);
+      }
+      .pin-stat-delta {
+        font-family: var(--f-mono);
+        font-size: var(--sz-caption);
+        letter-spacing: 0.06em;
+        color: var(--c-primary);
+      }
+      .pin-stat-label {
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--c-fg-2);
+        line-height: 1.5;
+      }
+
+      /* ── 6. MODEL — business model: pricing tiers as columns ──────────── */
+      .slide--model {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: var(--gap-lg);
+        position: relative;
+      }
+      .slide--model .slide-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-lg);
+        min-height: 0;
+      }
+      .tier-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.6vw;
+      }
+      .tier {
+        background: var(--c-bg-alt);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius);
+        padding: 2.2vw 1.8vw;
+        display: flex;
+        flex-direction: column;
+        gap: 1.4vh;
+      }
+      .tier.hot {
+        border-color: rgba(59, 130, 246, 0.55);
+        background: var(--c-glow);
+      }
+      .tier-name {
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--c-fg-2);
+      }
+      .tier.hot .tier-name {
+        color: var(--c-accent);
+      }
+      .tier-price {
+        font-family: var(--f-display);
+        font-weight: 700;
+        font-size: 2.8vw;
+        letter-spacing: -0.03em;
+        color: var(--c-fg);
+        line-height: 1;
+      }
+      .tier-price small {
+        font-family: var(--f-mono);
+        font-size: var(--sz-caption);
+        font-weight: 400;
+        letter-spacing: 0.04em;
+        color: var(--c-fg-2);
+      }
+      .tier-note {
+        font-family: var(--f-body);
+        font-size: var(--sz-caption);
+        color: var(--c-fg-2);
+        line-height: 1.5;
+      }
+
+      /* ── 7. COMPARE — legacy vs Volt, two lifted surface columns ──────── */
+      .slide--compare {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        padding: 0;
+        position: relative;
+      }
+      .slide--compare .slide-body {
+        display: contents;
+      }
+      .compare-panel {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: var(--gap-md);
+        padding: var(--pad-y) var(--pad-x);
+        height: 100%;
+        min-height: 100vh;
+      }
+      /* Left = legacy (deeper, receded). Right = Volt (lifted, blue-edged). */
+      .compare-panel.left {
+        background: var(--c-bg);
+        color: var(--c-fg);
+      }
+      .compare-panel.right {
+        background: var(--c-bg-alt);
+        color: var(--c-fg);
+        border-left: 1px solid var(--c-border);
+        box-shadow: inset 3px 0 0 var(--c-primary);
+      }
+      .compare-label {
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin-bottom: var(--gap-sm);
+      }
+      .compare-panel.left .compare-label {
+        color: var(--c-fg-3);
+      }
+      .compare-panel.right .compare-label {
+        color: var(--c-primary);
+      }
+
+      /* ── 8. TEAM — founders row of profile cards ──────────────────────── */
+      .slide--team {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: var(--gap-lg);
+        position: relative;
+      }
+      .slide--team .slide-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-lg);
+        min-height: 0;
+      }
+      .team-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1.6vw;
+      }
+      .member {
+        display: flex;
+        flex-direction: column;
+        gap: 1vh;
+      }
+      .member-photo {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        border-radius: var(--radius);
+        background: var(--c-bg-alt);
+        border: 1px solid var(--c-border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--f-display);
+        font-weight: 700;
+        font-size: 2.4vw;
+        color: var(--c-fg-3);
+      }
+      .member-name {
+        font-family: var(--f-heading);
+        font-weight: 600;
+        font-size: 1.25vw;
+        color: var(--c-fg);
+      }
+      .member-role {
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.08em;
+        color: var(--c-primary);
+      }
+      .member-prev {
+        font-family: var(--f-body);
+        font-size: var(--sz-caption);
+        color: var(--c-fg-2);
+        line-height: 1.5;
+      }
+
+      /* ── 9. ASK / END — the raise, closing lockup ─────────────────────── */
+      .slide--ask {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: var(--gap-lg);
+        position: relative;
+        overflow: hidden;
+      }
+      .slide--ask::after {
+        content: "";
+        position: absolute;
+        bottom: -30%;
+        left: -12%;
+        width: 48vw;
+        height: 120%;
+        background: radial-gradient(circle at 40% 60%, var(--c-glow), transparent 60%);
+        pointer-events: none;
+      }
+      .ask-head {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-md);
+        z-index: 2;
+        max-width: 80%;
+      }
+      .ask-grid {
+        display: grid;
+        grid-template-columns: repeat(3, auto);
+        gap: 3.4vw;
+        z-index: 2;
+      }
+      .ask-grid .k {
+        font-family: var(--f-mono);
+        font-size: var(--sz-label);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--c-fg-3);
+        margin-bottom: 0.5em;
+      }
+      .ask-grid .v {
+        font-family: var(--f-display);
+        font-weight: 700;
+        font-size: 2.4vw;
+        letter-spacing: -0.02em;
+        color: var(--c-fg);
+      }
+      .ask-grid .v.hot {
+        color: var(--c-accent);
+      }
+      .ask-contact {
+        z-index: 2;
+        font-family: var(--f-mono);
+        font-size: var(--sz-caption);
+        letter-spacing: 0.06em;
+        color: var(--c-fg-2);
+      }
+      .ask-contact b {
+        color: var(--c-accent);
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div style="position:absolute;left:28px;top:24px;z-index:9999;font:600 18px/1.1 Arial,sans-serif;opacity:.72">电光路演</div>
+    <div style="position:absolute;right:28px;top:24px;z-index:9999;padding:6px 9px;border:1px solid currentColor;font:12px/1 Arial,sans-serif;letter-spacing:.04em;opacity:.65;background:rgba(255,255,255,.08)">volt-pitch</div>
+    <div id="deck">
+      <!-- ═══ SLIDE 01 · COVER ════════════════════════════════════════════ -->
+      <!-- Preview renders this slide only — it must carry the most confidence. -->
+      <section class="slide dark slide--cover" data-slide="1" style="position: relative">
+        <div class="cover-head">
+          <span class="cover-mark"><span class="spark"></span>Kelvin</span>
+        </div>
+        <div class="cover-title">
+          <span class="kicker">Series A · Confidential</span>
+          <h1 class="display">The real-time<br />data plane for <em>AI</em>.</h1>
+          <p class="lead">
+            Kelvin streams fresh, governed data into every model call — so AI
+            products stop answering from yesterday's snapshot.
+          </p>
+        </div>
+        <div class="cover-round">
+          <span class="chip hot">Raising $12M</span>
+          <span class="chip">San Francisco · 2026</span>
+        </div>
+        <div class="pin-page"><b>01</b> / 09</div>
+      </section>
+
+      <!-- ═══ SLIDE 02 · STATEMENT · the problem ══════════════════════════ -->
+      <section class="slide dark slide--statement" data-slide="2" style="position: relative">
+        <span class="kicker">The Problem</span>
+        <div class="rule"></div>
+        <h1 class="h1">
+          AI apps are brilliant<br />on <em>stale</em> data.
+        </h1>
+        <p class="lead">
+          Teams ship a model, then discover the hard part isn't inference — it's
+          getting correct, current, permissioned data to the model at request
+          time. Today that means brittle pipelines, nightly batch jobs, and
+          answers that are already wrong by the time they render.
+        </p>
+        <div class="pin-annotation">
+          <span class="pin-note hot">Kelvin</span>
+          <span class="pin-note">The gap nobody owns</span>
+        </div>
+        <div class="pin-page"><b>02</b> / 09</div>
+      </section>
+
+      <!-- ═══ SLIDE 03 · MEGA · market size ═══════════════════════════════ -->
+      <section class="slide dark slide--mega" data-slide="3" style="position: relative">
+        <header class="slide-chrome">
+          <span class="wordmark"><span class="spark"></span>Kelvin</span>
+          <span class="label">Market</span>
+        </header>
+        <div class="slide-body">
+          <span class="kicker">Total Addressable Market — 2030</span>
+          <div class="mega-row">
+            <span class="mega"><em>$47B</em></span>
+            <span class="lead" style="margin-bottom: 1.4vh; max-width: 26ch">
+              spent on data infrastructure for AI workloads, growing 34% a year.
+            </span>
+          </div>
+          <div class="mega-sub">
+            <div>
+              <b>$9.1B</b>
+              <span class="pin-note">SAM · real-time serving</span>
+            </div>
+            <div>
+              <b class="hot">34%</b>
+              <span class="pin-note">CAGR · 2026–2030</span>
+            </div>
+            <div>
+              <b>18k</b>
+              <span class="pin-note">AI-native teams in ICP</span>
+            </div>
+          </div>
+        </div>
+        <div class="pin-annotation">
+          <span class="pin-note hot">Kelvin</span>
+          <span class="pin-note">Source: internal + IDC, 2026</span>
+        </div>
+        <div class="pin-page"><b>03</b> / 09</div>
+      </section>
+
+      <!-- ═══ SLIDE 04 · SPLIT · product ══════════════════════════════════ -->
+      <section class="slide dark slide--split" data-slide="4" style="position: relative">
+        <header class="slide-chrome">
+          <span class="wordmark"><span class="spark"></span>Kelvin</span>
+          <span class="label">Product</span>
+        </header>
+        <div class="slide-body">
+          <div class="split-text">
+            <span class="kicker">One API, always-fresh context</span>
+            <h2 class="h2">A read of your data as of <em>now</em>.</h2>
+            <p class="lead">
+              Point Kelvin at your sources once. Every model call gets a live,
+              access-checked view — no pipelines to babysit, no drift, no PII
+              leaking into prompts.
+            </p>
+          </div>
+          <div class="split-visual">
+            <div class="panel">
+              <div class="panel-row">
+                <span class="idx">01</span>
+                <div>
+                  <div class="k">Live sync</div>
+                  <div class="v">Change-data-capture from Postgres, warehouses, and SaaS in &lt;200ms.</div>
+                </div>
+              </div>
+              <div class="panel-row">
+                <span class="idx">02</span>
+                <div>
+                  <div class="k">Governed context</div>
+                  <div class="v">Row- and column-level policy enforced at query time, per user.</div>
+                </div>
+              </div>
+              <div class="panel-row">
+                <span class="idx">03</span>
+                <div>
+                  <div class="k">Model-native</div>
+                  <div class="v">One call returns ranked, token-budgeted context ready for the prompt.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="pin-annotation">
+          <span class="pin-note hot">Kelvin</span>
+          <span class="pin-note">In production since Q1</span>
+        </div>
+        <div class="pin-page"><b>04</b> / 09</div>
+      </section>
+
+      <!-- ═══ SLIDE 05 · STATS · traction ═════════════════════════════════ -->
+      <section class="slide dark slide--stats" data-slide="5" style="position: relative">
+        <header class="slide-chrome">
+          <span class="wordmark"><span class="spark"></span>Kelvin</span>
+          <span class="label">Traction</span>
+        </header>
+        <div class="slide-body">
+          <h2 class="h2" style="max-width: 20ch">Fifteen months, compounding.</h2>
+          <div class="stats-row">
+            <div class="pin-stat hot">
+              <div class="pin-stat-val">$4.2M</div>
+              <div class="pin-stat-delta">▲ 3.1× YoY</div>
+              <div class="pin-stat-label">Annual recurring revenue</div>
+            </div>
+            <div class="pin-stat">
+              <div class="pin-stat-val">142</div>
+              <div class="pin-stat-delta">▲ 68 net-new</div>
+              <div class="pin-stat-label">Paying teams</div>
+            </div>
+            <div class="pin-stat">
+              <div class="pin-stat-val">129%</div>
+              <div class="pin-stat-delta">Net revenue retention</div>
+              <div class="pin-stat-label">Expansion within cohorts</div>
+            </div>
+            <div class="pin-stat">
+              <div class="pin-stat-val">11 mo</div>
+              <div class="pin-stat-delta">CAC payback</div>
+              <div class="pin-stat-label">Blended, last two quarters</div>
+            </div>
+          </div>
+        </div>
+        <div class="pin-annotation">
+          <span class="pin-note hot">Kelvin</span>
+          <span class="pin-note">As of June 2026</span>
+        </div>
+        <div class="pin-page"><b>05</b> / 09</div>
+      </section>
+
+      <!-- ═══ SLIDE 06 · MODEL · business model ═══════════════════════════ -->
+      <section class="slide dark slide--model" data-slide="6" style="position: relative">
+        <header class="slide-chrome">
+          <span class="wordmark"><span class="spark"></span>Kelvin</span>
+          <span class="label">Business Model</span>
+        </header>
+        <div class="slide-body">
+          <div style="display:flex;flex-direction:column;gap:var(--gap-sm)">
+            <span class="kicker">Usage-based, expands with the workload</span>
+            <h2 class="h2" style="max-width: 22ch">Land on a seat, grow on volume.</h2>
+          </div>
+          <div class="tier-row">
+            <div class="tier">
+              <span class="tier-name">Build</span>
+              <span class="tier-price">$0<small> / free tier</small></span>
+              <p class="tier-note">1M reads a month. The wedge into every AI-native team's first prototype.</p>
+            </div>
+            <div class="tier hot">
+              <span class="tier-name">Scale · most popular</span>
+              <span class="tier-price">$2.4k<small> / mo + usage</small></span>
+              <p class="tier-note">Production SLAs, governance, and per-million-read pricing that grows with them.</p>
+            </div>
+            <div class="tier">
+              <span class="tier-name">Enterprise</span>
+              <span class="tier-price">Custom</span>
+              <p class="tier-note">VPC deploy, audit, and committed volume. Average contract $180k a year.</p>
+            </div>
+          </div>
+        </div>
+        <div class="pin-annotation">
+          <span class="pin-note hot">Kelvin</span>
+          <span class="pin-note">80% gross margin at scale</span>
+        </div>
+        <div class="pin-page"><b>06</b> / 09</div>
+      </section>
+
+      <!-- ═══ SLIDE 07 · COMPARE · legacy vs Kelvin ═══════════════════════ -->
+      <section class="slide slide--compare" data-slide="7" style="position: relative">
+        <div class="slide-body">
+          <div class="compare-panel left">
+            <span class="compare-label">The old way · batch ETL</span>
+            <h3 class="h3">Pipelines you maintain</h3>
+            <p class="lead">
+              A stack of schedulers, warehouses, and glue code — rebuilt for every
+              app, stale between runs, and blind to who's allowed to see what.
+            </p>
+            <ul class="bullet-list" style="--sz-lead: var(--sz-body)">
+              <li>Nightly jobs; data hours or days behind</li>
+              <li>Governance bolted on after the fact</li>
+              <li>Weeks of platform work before value</li>
+            </ul>
+          </div>
+          <div class="compare-panel right">
+            <span class="compare-label">With Kelvin · live plane</span>
+            <h3 class="h3">Fresh context as a service</h3>
+            <p class="lead">
+              One API delivering current, permissioned context at request time —
+              nothing to schedule, nothing to drift, nothing to leak.
+            </p>
+            <ul class="bullet-list" style="--sz-lead: var(--sz-body)">
+              <li>Sub-second freshness on every call</li>
+              <li>Policy enforced in the read path</li>
+              <li>First value in an afternoon, not a quarter</li>
+            </ul>
+          </div>
+        </div>
+        <div class="pin-annotation" style="z-index: 5">
+          <span class="pin-note hot">Kelvin</span>
+          <span class="pin-note">Why we win</span>
+        </div>
+        <div class="pin-page" style="z-index: 5"><b>07</b> / 09</div>
+      </section>
+
+      <!-- ═══ SLIDE 08 · TEAM · founders ══════════════════════════════════ -->
+      <section class="slide dark slide--team" data-slide="8" style="position: relative">
+        <header class="slide-chrome">
+          <span class="wordmark"><span class="spark"></span>Kelvin</span>
+          <span class="label">Team</span>
+        </header>
+        <div class="slide-body">
+          <h2 class="h2" style="max-width: 24ch">Built the systems this problem needs.</h2>
+          <div class="team-row">
+            <div class="member">
+              <div class="member-photo">MR</div>
+              <span class="member-name">Maya Reyes</span>
+              <span class="member-role">CEO</span>
+              <span class="member-prev">Prev. staff eng, real-time data at a public SaaS.</span>
+            </div>
+            <div class="member">
+              <div class="member-photo">JK</div>
+              <span class="member-name">Jonas K/oll</span>
+              <span class="member-role">CTO</span>
+              <span class="member-prev">Built the streaming core of a warehouse used by thousands.</span>
+            </div>
+            <div class="member">
+              <div class="member-photo">Aden</div>
+              <span class="member-name">A. Deng</span>
+              <span class="member-role">Head of Product</span>
+              <span class="member-prev">Led developer platform for an AI infra unicorn.</span>
+            </div>
+            <div class="member">
+              <div class="member-photo">SO</div>
+              <span class="member-name">Sara Okoro</span>
+              <span class="member-role">Head of GTM</span>
+              <span class="member-prev">Scaled two dev-first products from seed to Series C.</span>
+            </div>
+          </div>
+        </div>
+        <div class="pin-annotation">
+          <span class="pin-note hot">Kelvin</span>
+          <span class="pin-note">22 people · SF + remote</span>
+        </div>
+        <div class="pin-page"><b>08</b> / 09</div>
+      </section>
+
+      <!-- ═══ SLIDE 09 · ASK / END · the raise ════════════════════════════ -->
+      <section class="slide dark slide--ask" data-slide="9" style="position: relative">
+        <div class="ask-head">
+          <span class="kicker">The Ask</span>
+          <h1 class="h1">Raising <em>$12M</em> Series&nbsp;A.</h1>
+          <p class="lead" style="max-width: 48ch">
+            To take the live data plane from design partners to the default choice
+            for AI-native teams — deepening the platform and building go-to-market.
+          </p>
+        </div>
+        <div class="ask-grid">
+          <div>
+            <div class="k">Round</div>
+            <div class="v hot">$12M</div>
+          </div>
+          <div>
+            <div class="k">Use of funds</div>
+            <div class="v">R&amp;D · GTM</div>
+          </div>
+          <div>
+            <div class="k">Runway</div>
+            <div class="v">30 months</div>
+          </div>
+        </div>
+        <div class="ask-contact">
+          Let's talk — <b>maya@kelvin.dev</b> · kelvin.dev/a
+        </div>
+        <div class="pin-annotation">
+          <span class="pin-note hot">Kelvin</span>
+          <span class="pin-note">Thank you · Series A 2026</span>
+        </div>
+        <div class="pin-page"><b>09</b> / 09</div>
+      </section>
+    </div>
+    <!-- /#deck -->
+
+    <nav id="nav-dots" aria-label="Slide navigation"></nav>
+    <div id="slide-counter"></div>
+  </body>
+</html>

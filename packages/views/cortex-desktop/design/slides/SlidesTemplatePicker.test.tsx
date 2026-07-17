@@ -41,7 +41,8 @@ function template(id: string, patch: Partial<SlidesTemplateSummary> = {}): Slide
 
 const TEMPLATES = [
   template('quiet-axis', { title: 'Quiet Axis', descriptionZh: '静态坐标', tags: ['elegant', 'literary'] }),
-  template('pixel-orbit', { title: 'Pixel Orbit', descriptionZh: '像素轨道', category: 'dark', tags: ['arcade'] })
+  template('pixel-orbit', { title: 'Pixel Orbit', descriptionZh: '像素轨道', category: 'dark', tags: ['arcade'] }),
+  template('volt-pitch', { title: 'Volt Pitch', descriptionZh: '电光路演', category: 'business', tags: ['pitch'] })
 ]
 
 function manifest(themeName = 'Cortex Default'): SlidesDeckManifest {
@@ -88,6 +89,8 @@ describe('SlidesTemplatePicker', () => {
     expect(screen.getByText('Quiet Axis')).toBeInTheDocument()
     expect(screen.getByText('像素轨道')).toBeInTheDocument()
     expect(screen.getByText('深色')).toBeInTheDocument()
+    // business 分类显示「商务」角标(而非按 unknown 落到「浅色」)。
+    expect(screen.getByText('商务')).toBeInTheDocument()
     // 关掉再开:不重复请求。
     useSlidesStore.getState().closeTemplatePicker()
     await useSlidesStore.getState().openTemplatePicker()

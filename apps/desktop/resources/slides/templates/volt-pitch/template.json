@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "theme": {
+    "colors": {
+      "primary": "#3B82F6",
+      "secondary": "#1E2836",
+      "accent": "#60A5FA",
+      "background": "#0C0E12",
+      "surface": "#151A22",
+      "text": "#F5F7FA",
+      "textSecondary": "#9AA6B8",
+      "border": "#232B36"
+    },
+    "typography": {
+      "baseSize": 22,
+      "heading": {
+        "weight": 700,
+        "lineHeight": 1.08
+      },
+      "body": {
+        "weight": 400,
+        "lineHeight": 1.55
+      }
+    },
+    "styleGuide": "Volt Pitch is a builtin QoderWork AI Slides visual reference. Match its near-black institutional pitch-deck scheme, restrained electric-blue accents, and sharp, confident, institutional tone while using the bundled Alibaba PuHuiTi 3.0 font stack for generated slides.\nReference typography cues: display: Space Grotesk; heading: Space Grotesk; body: Inter; mono: IBM Plex Mono; serif_cn: Noto Serif SC; sans_cn: Noto Sans SC. Treat these font names as visual cues, not external font dependencies.\nColor language: a near-black charcoal canvas (#0C0E12) with cool white type (#F5F7FA) and one disciplined electric-blue accent (#3B82F6, brightening to #60A5FA) reserved for the key numbers, growth marks, emphasis words, and hairline rules. Muted cool-gray (#9AA6B8) carries secondary copy. One coherent dark palette across every slide, no inverted theme.\nBest for: Fundraising pitch decks, business plans, product launches for tech/SaaS/infrastructure startups; investor updates and board decks that should feel sharp, credible, and quietly ambitious.\nReference notes: An investor-grade dark pitch system in the modern tech-startup lineage (Stripe, Linear). Every slide is the same near-black charcoal field (#0C0E12) with a slightly lifted surface (#151A22) used only for panels, stat cards, and compare columns. Space Grotesk carries the display and headings — tight, geometric, quietly assertive at large sizes; huge market-size and metric numbers are the visual event of the deck. Inter handles body and lead copy in a clean supporting role, and IBM Plex Mono provides the kicker, page-number, and label voice that reads as instrument-panel chrome. The electric blue is used with severe restraint: key statistics, the growing bar in a chart, one emphasized word inside a headline, the 28px accent rule, and list markers — never as a fill for large areas. Depth is flat and precise: 1px hairline borders at low foreground opacity, no drop shadows on type, generous negative space, and a persistent bottom-left company/round chrome plus a top page counter on every slide. The mood is a term sheet rendered as a keynote — cold, exact, ambitious, and completely composed."
+  },
+  "decorativePatterns": [
+    {
+      "name": "visual-system",
+      "description": "Near-black charcoal canvas with electric-blue accents and cool white type. Sharp, confident, institutional-grade pitch energy.\nVolt Pitch is a near-black institutional pitch-deck system: a single #0C0E12 charcoal field on every slide, cool white #F5F7FA type, muted #9AA6B8 secondary copy, and one disciplined electric-blue accent (#3B82F6 / #60A5FA).\nSpace Grotesk is the structural display and heading face — geometric, tight, assertive at large sizes; huge market-size and metric numbers are the deck's visual event. Inter carries body copy; IBM Plex Mono carries kickers, labels, and page-number chrome. Bilingual EN/CN support via Noto Serif SC / Noto Sans SC fallbacks.\nThe color philosophy is one dark field, one accent, used with severe restraint. The field is #0C0E12; panels and stat cards lift to #151A22 (surface) with #1E2836 secondary blocks. Electric blue appears only on key numbers, the growing bar in a chart, one emphasized headline word, the thin accent rule, and list markers — never as a large fill. Borders are 1px hairlines from the border token (#232B36) or low-opacity white; there are no drop shadows on type and no gradients on the field.\nDepth is flat and precise. Every slide keeps a persistent bottom-left company/round annotation and a top-right page counter, reading as instrument-panel chrome. The compare layout is the one place two lifted surface shades sit side by side to split legacy vs. Volt. The mood is a term sheet rendered as a keynote — cold, exact, ambitious, completely composed.\n**Key Characteristics:** - Single near-black charcoal field (#0C0E12) on every slide; electric blue reserved for the numbers and growth story only",
+      "cssSnippets": [
+        ":root { --primary: #3B82F6; --secondary: #1E2836; --accent: #60A5FA; --background: #0C0E12; --surface: #151A22; --text: #F5F7FA; --textSecondary: #9AA6B8; --border: #232B36; }"
+      ],
+      "htmlFragments": []
+    }
+  ],
+  "referenceSlides": [
+    {
+      "layout": "cover",
+      "file": "references/template.html"
+    }
+  ]
+}

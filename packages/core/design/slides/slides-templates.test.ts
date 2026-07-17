@@ -145,6 +145,11 @@ describe('buildTemplateSummary', () => {
     expect(summary.styleGuide).toContain('Quiet Axis')
   })
 
+  it('business 是合法场景分类,不归一化为 unknown', () => {
+    const summary = buildTemplateSummary({ id: 'volt-pitch', markdown: '---\ncategory: business\n---\n', json: {} })
+    expect(summary.category).toBe('business')
+  })
+
   it('未知 category 归一化为 unknown;无参考页时为空数组', () => {
     const summary = buildTemplateSummary({ id: 'x', markdown: '---\ncategory: neon\n---\n', json: {} })
     expect(summary.category).toBe('unknown')
