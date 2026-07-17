@@ -28,6 +28,7 @@ const { fakeWindows, FakeBrowserWindow, screenState } = vi.hoisted(() => {
     shown = false;
     setBounds = vi.fn();
     setFullScreen = vi.fn();
+    setSimpleFullScreen = vi.fn();
 
     constructor(options: Record<string, unknown>) {
       this.options = options;
@@ -212,58 +213,31 @@ describe("openPresenterWindow · 双屏", () => {
     expect(speakerHtml).toContain('id="elapsed"');
   });
 
-  it("全屏串行化:观众窗先 show+全屏,enter-full-screen 后演讲者窗才跟进", async () => {
+  // 全屏方式断言:macOS 双窗走 setSimpleFullScreen(原生 Spaces 全屏实测会互吞转场),
+  // 其它平台走 setFullScreen —— 与实现同一平台分支,测试按运行平台选对应 spy。
+  const fullscreenSpy = (w: InstanceType<typeof FakeBrowserWindow>) =>
+    process.platform === "darwin" ? w.setSimpleFullScreen : w.setFullScreen;
+
+  it("两窗各自 ready-to-show 后 setBounds + show + 全屏到目标屏(无边框)", async () => {
     useDualScreen();
     await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
     const [audience, speaker] = fakeWindows;
-    audience!.emit("ready-to-show");
-    speaker!.emit("ready-to-show");
-    // 观众窗落外接屏(id=2):先 show 再 setFullScreen(隐藏窗做原生全屏在 macOS 不可靠)。
-    expect(audience!.setBounds).toHaveBeenCalledWith({ x: 1440, y: 0, width: 1920, height: 1080 });
-    expect(audience!.setFullScreen).toHaveBeenCalledWith(true);
-    expect(audience!.shown).toBe(true);
+    // 双窗均无边框:即便全屏调用失效,目标屏 bounds 的无边框窗也接近满屏观感。
+    expect(audience!.options.frame).toBe(false);
+    expect(speaker!.options.frame).toBe(false);
     expect(audience!.options.fullscreen).toBe(false);
-    // 观众窗全屏转场完成前,演讲者窗按兵不动(两个 Spaces 转场同时进行会被 macOS 吞掉一个)。
-    expect(speaker!.setFullScreen).not.toHaveBeenCalled();
-    expect(speaker!.shown).toBe(false);
-    // 转场完成 → 演讲者窗落主屏(id=1)并全屏。
-    audience!.emit("enter-full-screen");
-    expect(speaker!.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1440, height: 900 });
-    expect(speaker!.setFullScreen).toHaveBeenCalledWith(true);
-    expect(speaker!.shown).toBe(true);
-    // enter-full-screen 与超时兜底只执行一次。
-    audience!.emit("enter-full-screen");
-    expect(speaker!.setFullScreen).toHaveBeenCalledTimes(1);
-  });
 
-  it("enter-full-screen 不来(平台差异)→ 1.5s 超时兜底仍全屏演讲者窗", async () => {
-    vi.useFakeTimers();
-    try {
-      useDualScreen();
-      await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
-      const [audience, speaker] = fakeWindows;
-      audience!.emit("ready-to-show");
-      speaker!.emit("ready-to-show");
-      expect(speaker!.setFullScreen).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(1500);
-      expect(speaker!.setFullScreen).toHaveBeenCalledWith(true);
-      expect(speaker!.shown).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("演讲者窗未就绪时不提前 show:两个前置条件都满足才全屏", async () => {
-    useDualScreen();
-    await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
-    const [audience, speaker] = fakeWindows;
-    // 只有观众窗就绪并完成全屏,演讲者窗内容未就绪 → 仍不 show。
     audience!.emit("ready-to-show");
-    audience!.emit("enter-full-screen");
+    // 观众窗落外接屏(id=2):先 show 再全屏(对隐藏窗全屏不可靠)。
+    expect(audience!.setBounds).toHaveBeenCalledWith({ x: 1440, y: 0, width: 1920, height: 1080 });
+    expect(audience!.shown).toBe(true);
+    expect(fullscreenSpy(audience!)).toHaveBeenCalledWith(true);
+
+    // 演讲者窗独立就绪,互不阻塞(simpleFullScreen 无 Spaces 转场,可同时生效)。
     expect(speaker!.shown).toBe(false);
-    // 演讲者窗就绪 → 立即补全屏。
     speaker!.emit("ready-to-show");
-    expect(speaker!.setFullScreen).toHaveBeenCalledWith(true);
+    expect(speaker!.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1440, height: 900 });
+    expect(fullscreenSpy(speaker!)).toHaveBeenCalledWith(true);
     expect(speaker!.shown).toBe(true);
   });
 
