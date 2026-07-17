@@ -1,7 +1,7 @@
 {
   "name": "@cortex-work/desktop",
   "productName": "Cortex",
-  "version": "0.1.41",
+  "version": "0.1.42",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
@@ -27,7 +27,7 @@
     "prepackage:win-x64": "pnpm run prebuild:notes && node scripts/build-pi-binary.mjs --platform win32 --arch x64 && electron-vite build",
     "build:mac-arm64": "electron-builder --mac zip dmg --arm64 --publish never",
     "build:mac-x64": "electron-builder --mac zip dmg --x64 --publish never",
-    "build:win-x64": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --x64 --publish never",
+    "build:win-x64": "node scripts/build-win-x64.mjs",
     "merge:mac-manifest": "node scripts/merge-mac-update-manifest.mjs"
   },
   "dependencies": {

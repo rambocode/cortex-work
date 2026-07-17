@@ -26,4 +26,9 @@ describe('desktop release toolchain contract', () => {
     externalizePlugin.config(config)
     expect(config.build.rollupOptions.external).toContain('node-mac-permissions')
   })
+
+  it('runs the Windows packager through a cross-platform Node launcher', () => {
+    const packageJson = JSON.parse(readFileSync(resolve(desktopRoot, 'package.json'), 'utf8'))
+    expect(packageJson.scripts?.['build:win-x64']).toBe('node scripts/build-win-x64.mjs')
+  })
 })
