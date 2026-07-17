@@ -52,6 +52,8 @@ import type {
   SlidesPipelineRoleDecisionRequest,
   SlidesPipelineRunResult,
   SlidesDeckScopedRequest,
+  SlidesPresentRequest,
+  SlidesPresentResult,
 } from "./slides-ipc-types";
 import { SLIDES_EXPORT_FORMATS } from "./slides-ipc-types";
 import {
@@ -73,6 +75,7 @@ import { analyzeDeckForExport, buildDeckPptx, writeArtifactAtomic } from "../cap
 import { buildDeckPdf } from "../capabilities/slides/export/pdf";
 import { exportDeckPngs } from "../capabilities/slides/export/png";
 import { buildPresenterHtml, presenterSlots, type PresenterSlide } from "../capabilities/slides/export/html";
+import { openPresenterWindow } from "../presenter-window";
 import { getSlidesTemplate, listSlidesTemplates, readTemplateReferenceHtml } from "../capabilities/slides/templates";
 import {
   cancelSlidesPipelineRun,
@@ -589,6 +592,23 @@ export function registerSlidesHandlers(): void {
       };
     }
   });
+
+  // 演示模式:组装与导出 html 完全同源的 presenter 页集,在独立全屏窗口播放。
+  // 只读操作(不动 deck),startSlideId 缺省/指向非 ready 页时回退首个 ready 页。
+  ipcMain.handle("slides:present", (_e, req: SlidesPresentRequest): Promise<SlidesPresentResult> =>
+    guarded("打开演示窗口失败", async () => {
+      const loaded = await loadDeckManifest({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
+      if (!loaded.ok) return { ok: false as const, error: loaded.error };
+      const manifest = loaded.value.manifest;
+      const slides = await collectPresenterSlides(req.workspaceRoot, req.deckId, manifest.slides);
+      if (!slides.ok) return { ok: false as const, error: slides.error };
+      // startIndex 与 slides.value 同基于 presenterSlots 的排序,索引天然对齐。
+      const ready = presenterSlots(manifest.slides);
+      const startIndex = Math.max(0, ready.findIndex((slot) => slot.id === req.startSlideId));
+      await openPresenterWindow({ title: manifest.title || req.deckId, slides: slides.value, startIndex });
+      return { ok: true as const };
+    }),
+  );
 }
 
 // 各格式的扩展名与保存对话框过滤器。

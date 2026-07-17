@@ -47,7 +47,8 @@ export const SLIDES_IPC_CHANNELS = [
   'slides:cancelPipelineRun',
   'slides:acceptPipelineRole',
   'slides:rejectPipelineRole',
-  'slides:export'
+  'slides:export',
+  'slides:present'
 ] as const
 
 export type SlidesIpcChannel = (typeof SLIDES_IPC_CHANNELS)[number]
@@ -176,6 +177,12 @@ export type SlidesScreenshotRequest = SlidesDeckScopedRequest & { slotId: string
 
 export type SlidesExportRequest = SlidesDeckScopedRequest & { format: SlidesExportFormat }
 
+/** 演示模式:主进程开独立全屏窗口播放;从 startSlideId 起播(非 ready 页回退首个 ready 页)。 */
+export type SlidesPresentRequest = SlidesDeckScopedRequest & {
+  /** 起始页(通常传当前 activeSlideId);缺省或指向非 ready 页时回退首个 ready 页。 */
+  startSlideId?: string | null
+}
+
 export type SlidesAnalyzeExportQualityRequest = SlidesDeckScopedRequest
 
 export type SlidesGetPipelineRunRequest = SlidesDeckScopedRequest & { runId: string }
@@ -223,3 +230,6 @@ export type SlidesScreenshotResult =
 export type SlidesExportResult =
   | { ok: true; path: string; format: SlidesExportFormat; qualityReport?: DeckExportReport }
   | { ok: false; canceled?: boolean; error?: SlidesError }
+
+/** 演示结果:成功仅表示演示窗口已打开(不回传内容);无 ready 页 → not_found。 */
+export type SlidesPresentResult = { ok: true } | { ok: false; error: SlidesError }

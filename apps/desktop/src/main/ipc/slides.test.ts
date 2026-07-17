@@ -31,7 +31,14 @@ vi.mock("../log", () => ({
   createLogger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
 }));
 
+// 演示窗口是真实 BrowserWindow 的薄壳,IPC 层只验证「组装 + 起始页索引」;
+// 窗口生命周期由 presenter-window.test.ts 用假窗口覆盖。
+vi.mock("../presenter-window", () => ({
+  openPresenterWindow: vi.fn(async () => {}),
+}));
+
 import { registerSlidesHandlers } from "./slides";
+import { openPresenterWindow } from "../presenter-window";
 import { SLIDES_EXPORT_FORMATS, SLIDES_IPC_CHANNELS } from "./slides-ipc-types";
 import {
   createSlidesPipelineRunAction,
@@ -376,6 +383,83 @@ describe("deck 生命周期经 IPC", () => {
     expect(accepted.ok).toBe(true);
     expect(acceptSpy).toHaveBeenCalledWith(expect.objectContaining({ expectedUpdatedAt: loaded.run.updatedAt }));
     acceptSpy.mockRestore();
+  });
+});
+
+describe("演示模式经 IPC", () => {
+  const PRESENT_DECK = "deckpres01";
+  const presentMock = vi.mocked(openPresenterWindow);
+
+  // 建一个含 3 页提纲的 deck,前两页写入 HTML(→ ready),第三页保持 empty。
+  async function setupPresentDeck(): Promise<SlidesDeckManifest> {
+    await invoke("slides:createDeck", { workspaceRoot: root, deckId: PRESENT_DECK, title: "演示" });
+    let m = (await invoke<DeckResult>("slides:approveOutline", {
+      workspaceRoot: root,
+      deckId: PRESENT_DECK,
+      expectedRevision: 0,
+      outline: {
+        version: 1,
+        summary: "三页",
+        items: [
+          { id: "o1", title: "一", purpose: "hook", keyPoints: ["a"] },
+          { id: "o2", title: "二", purpose: "body", keyPoints: ["b"] },
+          { id: "o3", title: "三", purpose: "cta", keyPoints: ["c"] },
+        ],
+      },
+    })) as Extract<DeckResult, { ok: true }>;
+    expect(m.ok).toBe(true);
+    for (const slotId of m.manifest.slides.slice(0, 2).map((slot) => slot.id)) {
+      const saved = (await invoke<DeckResult>("slides:saveEditedHtml", {
+        workspaceRoot: root,
+        deckId: PRESENT_DECK,
+        expectedRevision: m.manifest.revision,
+        slotId,
+        html: `<!doctype html><html><body>${slotId}</body></html>`,
+      })) as Extract<DeckResult, { ok: true }>;
+      expect(saved.ok).toBe(true);
+      m = saved;
+    }
+    return m.manifest;
+  }
+
+  it("startSlideId 指向第 2 个 ready 页 → startIndex=1;非 ready 页回退 0;无 ready 页 → not_found", async () => {
+    const manifest = await setupPresentDeck();
+    const readySlots = manifest.slides.filter((slot) => slot.status === "ready");
+    const emptySlot = manifest.slides.find((slot) => slot.status === "empty")!;
+    expect(readySlots).toHaveLength(2);
+
+    // 指向第 2 个 ready 页:索引按「ready 页序列」计,与 presenter 页序一致。
+    presentMock.mockClear();
+    const hit = await invoke<{ ok: boolean }>("slides:present", {
+      workspaceRoot: root,
+      deckId: PRESENT_DECK,
+      startSlideId: readySlots[1]!.id,
+    });
+    expect(hit.ok).toBe(true);
+    expect(presentMock).toHaveBeenCalledTimes(1);
+    expect(presentMock.mock.calls[0]![0]).toMatchObject({ title: "演示", startIndex: 1 });
+    expect(presentMock.mock.calls[0]![0].slides).toHaveLength(2);
+
+    // 指向 empty 页(不在 ready 序列)→ 回退首个 ready 页。
+    presentMock.mockClear();
+    const fallback = await invoke<{ ok: boolean }>("slides:present", {
+      workspaceRoot: root,
+      deckId: PRESENT_DECK,
+      startSlideId: emptySlot.id,
+    });
+    expect(fallback.ok).toBe(true);
+    expect(presentMock.mock.calls[0]![0]).toMatchObject({ startIndex: 0 });
+
+    // 全空 deck → not_found,且不开窗。
+    presentMock.mockClear();
+    await invoke("slides:createDeck", { workspaceRoot: root, deckId: "deckpres02", title: "空" });
+    const empty = await invoke<{ ok: boolean; error?: { code: string } }>("slides:present", {
+      workspaceRoot: root,
+      deckId: "deckpres02",
+    });
+    expect(empty.ok).toBe(false);
+    if (!empty.ok && empty.error) expect(empty.error.code).toBe("not_found");
+    expect(presentMock).not.toHaveBeenCalled();
   });
 });
 

@@ -3,7 +3,7 @@
 // 保存对话框决定);用户取消静默,失败展示可读错误。
 import { useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Bot, ChevronDown, Download, FileText, Loader2, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Bot, ChevronDown, Download, FileText, Loader2, Palette, Play, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
 import type { SlidesExportFormat } from '@cortex-work/core/desktop/slides-ipc-types'
 import { useSlidesStore, type SlidesZoom } from './slides-store'
 import { SlidesTemplatePicker } from './SlidesTemplatePicker'
@@ -34,6 +34,8 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
   const workflowOpen = useSlidesStore((s) => s.workflowOpen)
   const openWorkflow = useSlidesStore((s) => s.openWorkflow)
   const closeWorkflow = useSlidesStore((s) => s.closeWorkflow)
+  const canPresent = useSlidesStore((s) => s.canPresent)
+  const present = useSlidesStore((s) => s.present)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportedPath, setExportedPath] = useState<string | null>(null)
@@ -134,6 +136,19 @@ export function SlidesToolbar({ onRunCheck }: Props): ReactElement {
           <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.9} />
           {t('slidesCheck')}
         </button>
+        {/* 播放(演示模式):桥接无该能力(web/旧壳)时整体隐藏;无 ready 页时禁用。 */}
+        {canPresent ? (
+          <button
+            type="button"
+            onClick={() => void present()}
+            disabled={!manifest || !manifest.slides.some((s) => s.status === 'ready')}
+            title={t('slidesPlay')}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-ds-muted transition hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/8"
+          >
+            <Play className="h-3.5 w-3.5" strokeWidth={1.9} />
+            {t('slidesPlay')}
+          </button>
+        ) : null}
         <div className="relative">
           <button
             type="button"

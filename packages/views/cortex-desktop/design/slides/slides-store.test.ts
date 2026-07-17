@@ -333,6 +333,42 @@ describe('exportDeck', () => {
   })
 })
 
+describe('present(演示模式)', () => {
+  it('桥接具备能力时 canPresent=true,present 以 activeSlideId 起播且不占 mutating', async () => {
+    const slidesPresent = vi.fn(async () => ({ ok: true as const }))
+    const bridge = fakeBridge({ slidesPresent })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    expect(useSlidesStore.getState().canPresent).toBe(true)
+    await useSlidesStore.getState().present()
+    expect(slidesPresent).toHaveBeenCalledWith({ workspaceRoot: ROOT, deckId: DECK, startSlideId: 'slot-001' })
+    // 只读操作:全程不进 mutating 互斥,演示期间编辑器可用。
+    expect(useSlidesStore.getState().mutating).toBe(false)
+    expect(useSlidesStore.getState().actionError).toBeNull()
+  })
+
+  it('桥接无能力:canPresent=false,present 挂可读错误且不抛', async () => {
+    const bridge = fakeBridge()
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    expect(useSlidesStore.getState().canPresent).toBe(false)
+    await useSlidesStore.getState().present()
+    expect(useSlidesStore.getState().actionError).toBe('当前环境不支持演示模式')
+  })
+
+  it('主进程返回失败 → actionError 展示错误信息;reset 复位 canPresent', async () => {
+    const bridge = fakeBridge({
+      slidesPresent: vi.fn(async () => ({
+        ok: false as const,
+        error: { code: 'not_found' as const, message: '没有可导出的页面' }
+      }))
+    })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    await useSlidesStore.getState().present()
+    expect(useSlidesStore.getState().actionError).toBe('没有可导出的页面')
+    useSlidesStore.getState().reset()
+    expect(useSlidesStore.getState().canPresent).toBe(false)
+  })
+})
+
 describe('AI Workflow 状态', () => {
   const run: SlidesPipelineRun = {
     schemaVersion: 1,
