@@ -42,7 +42,7 @@ interface HarnessScene extends SlideScene {
   };
 }
 
-const FIXTURES = ["01-text-blocks", "02-images", "03-table", "04-complex"] as const;
+const FIXTURES = ["01-text-blocks", "02-images", "03-table", "04-complex", "05-doodle"] as const;
 
 let outDir: string;
 const scenes = new Map<string, HarnessScene>();
@@ -235,6 +235,42 @@ describe("fixture 04 复杂层", () => {
   });
 });
 
+describe("fixture 05 手绘拼贴风(装饰性复杂 → 盒子栅格、文字原生)", () => {
+  it("硬阴影卡片与渐变条降级为 raster,原因明确", () => {
+    const scene = sceneOf("05-doodle");
+    expect(scene.hasComplexLayers).toBe(true);
+    const reasons = summarizeScene(scene).rasterReasons;
+    expect(reasons).toContain("box-shadow");
+    expect(reasons).toContain("gradient");
+  });
+
+  it("卡片内文字与带阴影药丸标题仍原生提取(不随盒子整棵栅格)", () => {
+    const scene = sceneOf("05-doodle");
+    const texts = scene.nodes.filter((n): n is SceneTextNode => n.kind === "text");
+    const pill = texts.find((n) => n.runs.some((r) => r.text.includes("手绘药丸标题")));
+    const cardTitle = texts.find((n) => n.runs.some((r) => r.text.includes("卡片标题可编辑")));
+    const cardBody = texts.find((n) => n.runs.some((r) => r.text.includes("卡片正文")));
+    expect(pill).toBeDefined();
+    expect(cardTitle).toBeDefined();
+    expect(cardBody).toBeDefined();
+    // 卡片 padding 24px + border 3px:标题文字几何在卡片盒内。
+    expect(cardTitle!.x).toBeCloseTo(107, 0);
+    expect(cardTitle!.y).toBeCloseTo(187, 0);
+    // 药丸文字压在其 raster 盒之上(z 更大)。
+    const pillRaster = scene.nodes.find((n) => n.kind === "raster" && n.reason === "box-shadow" && Math.abs(n.y - 40) < 2);
+    expect(pillRaster).toBeDefined();
+    expect(pill!.z).toBeGreaterThan(pillRaster!.z);
+  });
+
+  it("base raster 保留盒子但剔除了原生文字(base 仍显著非空、低于 full)", () => {
+    const scene = sceneOf("05-doodle");
+    // 卡片/药丸盒子留在 base raster → 占比显著非零。
+    expect(scene.meta.baseNonBackgroundRatio).toBeGreaterThan(0.05);
+    // 文字被置透明后 base 应低于 full(文字不重复渲染)。
+    expect(scene.meta.baseNonBackgroundRatio).toBeLessThan(scene.meta.fullNonBackgroundRatio);
+  });
+});
+
 describe("PPTX 结构(可编辑性与不重复渲染)", () => {
   it("文本页:标题/加粗 run 是原生 <a:t> 文本(PowerPoint 可选中编辑)", () => {
     expect(slideXml[0]).toContain("<a:t>AI Slides 技术验证</a:t>");
@@ -261,6 +297,13 @@ describe("PPTX 结构(可编辑性与不重复渲染)", () => {
     const picCount = (slideXml[3].match(/<p:pic>/g) ?? []).length;
     expect(picCount).toBe(1);
     expect(slideXml[3]).toContain("<a:t>复杂视觉层降级验证</a:t>");
+  });
+
+  it("手绘风页:base raster 单张,卡片/药丸文字为原生 <a:t>(PowerPoint 可编辑)", () => {
+    const picCount = (slideXml[4].match(/<p:pic>/g) ?? []).length;
+    expect(picCount).toBe(1);
+    expect(slideXml[4]).toContain("<a:t>手绘药丸标题</a:t>");
+    expect(slideXml[4]).toContain("<a:t>卡片标题可编辑</a:t>");
   });
 
   it("px→inch/pt 映射符合 96dpi 与 CSS pt 换算", () => {

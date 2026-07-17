@@ -37,9 +37,11 @@ const READY_WAIT_SCRIPT = `
 `;
 
 // 隐藏原生节点、强制显示栅格层(visibility 可被子级覆盖,借此实现「容器隐藏但复杂子层保留」)。
+// 与 dom-extractor.ts 的 HIDE_NATIVE_CSS 保持一致(本文件是裸 electron harness,无法 import TS)。
 const HIDE_NATIVE_CSS =
   '[data-cortex-native="1"] { visibility: hidden !important; }' +
-  '[data-cortex-raster="1"] { visibility: visible !important; }';
+  '[data-cortex-raster="1"] { visibility: visible !important; }' +
+  '[data-cortex-native-text="1"], [data-cortex-native-text="1"] * { color: transparent !important; }';
 
 // 非背景像素占比:以左上角像素为背景色,统计差异像素比例(BGRA 每通道容差 6)。
 // 用途:text fixture 的 base raster 应接近纯背景(占比≈0),complex fixture 应明显非零。

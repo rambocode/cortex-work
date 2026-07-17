@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- fixture 5:手绘拼贴风(卡片硬阴影 + 渐变装饰条 + 带阴影的药丸标题)。
+     对应真实模板(sunny-doodles 等)的样式特征:整卡 box-shadow:6px 6px 0。
+     预期:盒子/渐变条降级到 base raster,但卡片内文字仍原生提取(PPTX 可编辑)。 -->
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; }
+  body { background: #f5f0e6; font-family: Helvetica, "PingFang SC", sans-serif; position: relative; }
+  .strip { position: absolute; top: 0; left: 0; width: 1280px; height: 10px;
+    background: linear-gradient(90deg, #ffcba4, #c3b1e1, #7ecdc0); }
+  .pill { position: absolute; top: 40px; left: 440px; width: 400px; height: 64px;
+    line-height: 58px; text-align: center; font-size: 32px; font-weight: 700; color: #2d2d2d;
+    background: #ffcba4; border: 3px solid #2d2d2d; border-radius: 32px; box-shadow: 6px 6px 0 #2d2d2d; }
+  .card { position: absolute; top: 160px; left: 80px; width: 420px; height: 300px; padding: 24px;
+    background: #ffffff; border: 3px solid #2d2d2d; border-radius: 20px; box-shadow: 6px 6px 0 #2d2d2d; }
+  .card h3 { font-size: 24px; color: #2d2d2d; }
+  .card p { margin-top: 12px; font-size: 16px; color: #4a4a4a; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="strip" data-cortex-id="strip"></div>
+  <h2 class="pill" data-cortex-id="pill">手绘药丸标题</h2>
+  <div class="card" data-cortex-id="card">
+    <h3>卡片标题可编辑</h3>
+    <p>卡片正文也应保持原生文本,导出后可在 PowerPoint 中直接修改。</p>
+  </div>
+</body>
+</html>

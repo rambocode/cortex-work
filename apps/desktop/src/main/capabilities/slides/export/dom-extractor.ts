@@ -6,9 +6,12 @@
 // 页内脚本用 `函数.toString()` 注入(保住语法高亮/lint);函数必须完全自包含
 //(不引用闭包外变量),否则注入页面后 ReferenceError。类型注解编译时擦除,不影响注入。
 //
-// 分类为「复杂层(栅格降级)」的判定是保守白名单:凡 canvas、滤镜、渐变、非平移
-// transform、混合模式、阴影等 PPTX 难以原生表达的样式,一律整棵子树交给 base raster,
-// 保真优先、可编辑性其次。
+// 复杂样式分两级处理(可编辑性优先,用户实测「整页一张图」不可接受):
+//  - 结构性复杂(canvas/video/iframe、滤镜、混合模式、clip-path/mask、非平移 transform):
+//    绘制或几何会波及子孙,子内容无法独立重建 → 整棵子树交给 base raster;
+//  - 装饰性复杂(box-shadow、渐变/背景图、text-shadow):只是容器自身的绘制,子元素
+//    坐标不受影响 → 容器盒子留在 base raster,子级文本/图片继续原生提取(PPTX 可编辑)。
+//    纯文本块自身带装饰时,盒子进 raster、文字截图时置为透明(data-cortex-native-text)。
 import type { SlideRenderWindow } from "../render";
 import type { SlideScene } from "./types";
 
@@ -58,8 +61,9 @@ function extractSceneInPage() {
     return { x: round2(r.left), y: round2(r.top), w: round2(r.width), h: round2(r.height) };
   }
 
-  // 复杂样式判定:返回降级原因字符串;可原生重建时返回 null。
-  function complexReason(el, cs) {
+  // 结构性复杂判定:绘制/几何会波及子孙(子内容无法按 viewport 坐标独立重建),
+  // 命中则整棵子树栅格;可原生重建时返回 null。
+  function structuralReason(el, cs) {
     var tag = el.tagName.toLowerCase();
     if (tag === "canvas") return "canvas";
     if (tag === "video") return "video";
@@ -71,14 +75,6 @@ function extractSceneInPage() {
     if (cs.clipPath && cs.clipPath !== "none") return "clip-path";
     var mask = cs.maskImage || cs.webkitMaskImage;
     if (mask && mask !== "none") return "mask";
-    if (cs.boxShadow && cs.boxShadow !== "none") return "box-shadow";
-    if (cs.textShadow && cs.textShadow !== "none") return "text-shadow";
-    var bg = cs.backgroundImage;
-    if (bg && bg !== "none") {
-      if (bg.indexOf("gradient(") !== -1) return "gradient";
-      if (bg.indexOf("url(") !== -1) return "background-image";
-      return "background-image";
-    }
     var t = cs.transform;
     if (t && t !== "none") {
       // 仅允许纯平移(matrix(1,0,0,1,tx,ty));旋转/缩放/3D 一律降级。
@@ -90,6 +86,18 @@ function extractSceneInPage() {
       if (Math.abs(p[0] - 1) > 0.01 || Math.abs(p[1]) > 0.01 || Math.abs(p[2]) > 0.01 || Math.abs(p[3] - 1) > 0.01) {
         return "transform";
       }
+    }
+    return null;
+  }
+
+  // 装饰性复杂判定:仅容器自身的绘制超出 PPTX 原生表达(硬阴影/渐变/背景图),
+  // 子元素几何不受影响 —— 盒子进 base raster,子内容继续原生提取。
+  function decorativeReason(cs) {
+    if (cs.boxShadow && cs.boxShadow !== "none") return "box-shadow";
+    if (cs.textShadow && cs.textShadow !== "none") return "text-shadow";
+    var bg = cs.backgroundImage;
+    if (bg && bg !== "none") {
+      return bg.indexOf("gradient(") !== -1 ? "gradient" : "background-image";
     }
     return null;
   }
@@ -176,12 +184,14 @@ function extractSceneInPage() {
     }
   }
 
-  function emitText(el, cs) {
+  // textOnly:元素盒子(背景/边框/阴影)由 base raster 承载,只有文字原生重建 ——
+  // 截图时经 data-cortex-native-text 把文字置透明(而非隐藏整个元素,否则盒子也消失)。
+  function emitText(el, cs, textOnly) {
     var runs: any[] = [];
     collectRuns(el, runs);
     if (!runs.length) return;
     var r = rectOf(el);
-    el.setAttribute("data-cortex-native", "1");
+    el.setAttribute(textOnly ? "data-cortex-native-text" : "data-cortex-native", "1");
     var align = cs.textAlign;
     if (align !== "center" && align !== "right" && align !== "justify") align = "left";
     nodes.push({
@@ -339,22 +349,40 @@ function extractSceneInPage() {
     // 完全在画布外的元素不参与导出。
     if (r.x >= CANVAS_W || r.y >= CANVAS_H || r.x + r.w <= 0 || r.y + r.h <= 0) return;
 
-    var reason = complexReason(el, cs);
+    var reason = structuralReason(el, cs);
     if (reason) {
-      // 整棵子树降级:子孙即便是普通文本也随栅格层走,避免半原生半栅格的重叠。
+      // 整棵子树降级:绘制/几何波及子孙,子内容无法独立重建。
       el.setAttribute("data-cortex-raster", "1");
       nodes.push({ kind: "raster", id: nextId("raster"), x: r.x, y: r.y, w: r.w, h: r.h, z: zCounter++, reason: reason });
       return;
     }
     if (tag === "img") return emitImage(el, cs);
     if (tag === "svg") return emitSvgAsRaster(el);
+
+    var decor = decorativeReason(cs);
+    if (decor) {
+      // 装饰性容器:盒子(阴影/渐变/背景图连同背景色边框)整体留在 base raster,
+      // 子级文本/图片继续原生提取 —— 手绘风模板整卡带硬阴影,整棵栅格会让 PPTX
+      // 退化成一张图(用户实测不可编辑),这里以「盒子不可动、文字可编辑」为折中。
+      el.setAttribute("data-cortex-raster", "1");
+      nodes.push({ kind: "raster", id: nextId("raster"), x: r.x, y: r.y, w: r.w, h: r.h, z: zCounter++, reason: decor });
+      if (isTextBlock(el)) {
+        // 自身就是文本块(如带硬阴影的药丸标题):文字原生、截图时置透明。
+        // text-shadow 留在 raster 里,原生文字叠其上,视觉与 HTML 一致。
+        emitText(el, cs, true);
+        return;
+      }
+      var decorKids = sortedChildren(el);
+      for (var d = 0; d < decorKids.length; d++) walk(decorKids[d]);
+      return;
+    }
     if (tag === "table") return emitTable(el, cs);
 
     var emittedShape = emitShapeIfAny(el, cs);
     if (emittedShape) el.setAttribute("data-cortex-native", "1");
 
     if (isTextBlock(el)) {
-      emitText(el, cs);
+      emitText(el, cs, false);
       return;
     }
     if (hasDirectText(el)) {
@@ -407,7 +435,9 @@ export const EXTRACT_SCENE_SOURCE = "(" + extractSceneInPage.toString() + ")()";
  */
 export const HIDE_NATIVE_CSS =
   '[data-cortex-native="1"] { visibility: hidden !important; }' +
-  '[data-cortex-raster="1"] { visibility: visible !important; }';
+  '[data-cortex-raster="1"] { visibility: visible !important; }' +
+  // 装饰性文本块:盒子要留在 raster 里,只把文字置透明(text-shadow 仍随 raster 保留)。
+  '[data-cortex-native-text="1"], [data-cortex-native-text="1"] * { color: transparent !important; }';
 
 /** 在已加载并就绪的窗口里提取场景(同时给页面打上 native/raster 标记)。 */
 export async function extractSlideScene(win: SlideRenderWindow): Promise<SlideScene> {
