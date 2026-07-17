@@ -75,9 +75,11 @@ export interface PetProps {
    * 巡逻走动在此模式下禁用(移动窗口本身走动是后续工作项,当前先禁用而非假装支持)。
    * 主窗口内嵌场景(Web/桌面主窗口)不传,行为与此前完全一致。 */
   windowFollowsPet?: boolean;
+  /** 独立 overlay 把显隐动作回传给主窗口设置真源；主窗口内嵌模式无需传。 */
+  onEnabledChange?: (enabled: boolean) => void;
 }
 
-export function Pet({ windowFollowsPet = false }: PetProps = {}) {
+export function Pet({ windowFollowsPet = false, onEnabledChange }: PetProps = {}) {
   const { t } = useTranslation("pet");
   const state = usePetStore((s) => s.state);
   const kind = usePetStore((s) => s.kind);
@@ -292,6 +294,7 @@ export function Pet({ windowFollowsPet = false }: PetProps = {}) {
   const hide = () => {
     setEnabled(false);
     savePetEnabled(false);
+    onEnabledChange?.(false);
   };
 
   if (!enabled) return null;

@@ -6,9 +6,9 @@
 // 位置持久化不走这里——pet-overlay-window.ts 里监听窗口自身的 `moved` 事件直接落盘
 // (原生 app-region 拖拽产生的位置变化,主进程自己就能观察到,不需要渲染端上报)。
 
-import { ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 import type { PetStateSnapshot } from "./types";
-import { getPetOverlayWindow } from "../pet-overlay-window";
+import { getPetOverlayWindow, setPetOverlayVisibility } from "../pet-overlay-window";
 
 let cachedState: PetStateSnapshot | null = null;
 
@@ -20,5 +20,26 @@ export function registerPetHandlers(): void {
   });
   ipcMain.on("pet:request-sync", (e) => {
     if (cachedState) e.sender.send("pet:sync-state", cachedState);
+  });
+  // 仅宠物 overlay 自身可同步其原生窗口可见性。Pet 返回 null 时必须 hide BrowserWindow，
+  // 不能只清空 DOM，否则透明窗口仍会拦截对其它应用的点击。
+  ipcMain.on("pet:set-overlay-visible", (e, visible: unknown) => {
+    if (typeof visible !== "boolean") return;
+    const overlay = getPetOverlayWindow();
+    if (!overlay || overlay.isDestroyed() || e.sender !== overlay.webContents) return;
+    setPetOverlayVisibility(visible);
+  });
+  // overlay 的关闭按钮必须回写主窗口设置真源；否则主窗口下一次状态广播会携旧的 enabled=true，
+  // 把刚隐藏的宠物重新顶出来。只接受 overlay 自身，并只向其它窗口广播这一项设置变更。
+  ipcMain.on("pet:set-enabled", (e, enabled: unknown) => {
+    if (typeof enabled !== "boolean") return;
+    const overlay = getPetOverlayWindow();
+    if (!overlay || overlay.isDestroyed() || e.sender !== overlay.webContents) return;
+    if (cachedState) cachedState = { ...cachedState, enabled };
+    setPetOverlayVisibility(enabled);
+    for (const target of BrowserWindow.getAllWindows()) {
+      if (!target.isDestroyed() && target.webContents !== overlay.webContents)
+        target.webContents.send("pet:enabled-changed", enabled);
+    }
   });
 }

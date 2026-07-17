@@ -21,10 +21,20 @@ const bridge = window.desktopAPI?.personal;
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 
 if (bridge?.onPetSyncState) {
+  // 只在 enabled 变化时通知主进程切换原生窗口。仅让 React 返回 null 不够：透明的
+  // BrowserWindow 仍有完整鼠标命中区，会挡住其下方应用。
+  let lastEnabled: boolean | undefined;
+  usePetStore.subscribe((state) => {
+    if (state.enabled === lastEnabled) return;
+    lastEnabled = state.enabled;
+    bridge.setPetOverlayVisible?.(state.enabled);
+  });
   bridge.onPetSyncState((snapshot) => {
     usePetStore.setState(snapshot);
   });
   bridge.requestPetSync?.();
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<Pet windowFollowsPet />);
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <Pet windowFollowsPet onEnabledChange={(enabled) => bridge?.setPetEnabled?.(enabled)} />,
+);

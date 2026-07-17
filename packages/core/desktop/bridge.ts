@@ -769,6 +769,12 @@ export interface DesktopBridge {
   reportPetState?(snapshot: PetStateSnapshot): void;
   /** overlay 窗口挂载时主动请求一次当前快照(应对"谁先挂载"的时序竞态)。 */
   requestPetSync?(): void;
+  /** overlay renderer 按 Pet enabled 状态显示/隐藏对应原生窗口，避免透明空窗吞点击。 */
+  setPetOverlayVisible?(visible: boolean): void;
+  /** overlay 关闭按钮把 enabled 设置回写主窗口真源。 */
+  setPetEnabled?(enabled: boolean): void;
+  /** 主窗口订阅 overlay 发起的 enabled 设置变化。 */
+  onPetEnabledChange?(cb: (enabled: boolean) => void): () => void;
   /** 订阅主进程广播的宠物状态快照(overlay 窗口用)。返回退订函数。 */
   onPetSyncState?(cb: (snapshot: PetStateSnapshot) => void): () => void;
 }

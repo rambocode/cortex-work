@@ -8,7 +8,7 @@
 import { useEffect } from "react";
 import { usePetStore, useDesktopBridge } from "@cortex-work/core";
 import { loadPetColor, loadPetKind, loadPetSize } from "./designs";
-import { loadPetEnabled, loadPetMode, loadPetWalk } from "./behavior";
+import { loadPetEnabled, loadPetMode, loadPetWalk, savePetEnabled } from "./behavior";
 
 export function PetBridge() {
   const bridge = useDesktopBridge();
@@ -37,7 +37,16 @@ export function PetBridge() {
       color: s.color,
     });
     bridge.reportPetState(snapshot(usePetStore.getState()));
-    return usePetStore.subscribe((s) => bridge.reportPetState?.(snapshot(s)));
+    const offEnabledChange = bridge.onPetEnabledChange?.((enabled) => {
+      if (usePetStore.getState().enabled === enabled) return;
+      savePetEnabled(enabled);
+      usePetStore.getState().setEnabled(enabled);
+    });
+    const offStore = usePetStore.subscribe((s) => bridge.reportPetState?.(snapshot(s)));
+    return () => {
+      offEnabledChange?.();
+      offStore();
+    };
   }, [bridge]);
 
   return null;

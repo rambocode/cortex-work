@@ -21,6 +21,10 @@ import { is } from "@electron-toolkit/utils";
 import { loadPetPosition, savePetPosition } from "./ipc/pet-store";
 
 let win: BrowserWindow | null = null;
+// 原生窗口是否应显示由 overlay renderer 的真实 Pet enabled 状态驱动。初始必须为 false：
+// PetBridge 快照尚未到达时 renderer 可能为空，提前展示透明 BrowserWindow 会吞掉底层应用点击。
+let visibilityRequested = false;
+let contentReady = false;
 
 // 与 packages/views/cortex-desktop/pet/Pet.tsx 里的同名常量保持一致(该文件据此把
 // 宠物居中定位在窗口内)。
@@ -45,6 +49,7 @@ function defaultPosition(): { x: number; y: number } {
 }
 
 function create(): BrowserWindow {
+  contentReady = false;
   const { x, y } = defaultPosition();
   win = new BrowserWindow({
     x,
@@ -88,9 +93,12 @@ function create(): BrowserWindow {
       if (win && !win.isDestroyed()) savePetPosition(win.getBounds());
     }, 300);
   });
-  // 内容(含透明 CSS)加载完再显示,避免 show:false→true 之间那一瞬间用窗口自身的
-  // backgroundColor 兜底色打底、看起来像白屏闪一下。showInactive:不抢主窗口焦点。
-  win.once("ready-to-show", () => win?.showInactive());
+  // 内容与 enabled 状态都就绪后才显示。仅 ready 就展示会在宠物被隐藏时留下整块透明原生窗，
+  // 该区域仍参与 macOS 命中测试并吞掉对后方应用的点击。
+  win.once("ready-to-show", () => {
+    contentReady = true;
+    if (visibilityRequested) win?.showInactive();
+  });
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     void win.loadURL(`${process.env["ELECTRON_RENDERER_URL"]}/pet-overlay.html`);
   } else {
@@ -98,6 +106,7 @@ function create(): BrowserWindow {
   }
   win.on("closed", () => {
     win = null;
+    contentReady = false;
   });
   // 用上次记忆的位置覆盖默认位置(异步读盘,不阻塞建窗;读到之前用默认右下角兜底,
   // 多数情况下 ready-to-show 尚未触发,不会有肉眼可见的"跳一下")。
@@ -110,10 +119,22 @@ function create(): BrowserWindow {
 export function ensurePetOverlayWindow(): BrowserWindow {
   const existing = win && !win.isDestroyed() ? win : null;
   if (existing) {
-    if (!existing.isVisible()) existing.showInactive();
+    if (visibilityRequested && contentReady && !existing.isVisible()) existing.showInactive();
     return existing;
   }
   return create();
+}
+
+/** 让原生窗口跟随 Pet 的真实 enabled 状态；隐藏空 overlay 可释放其整块鼠标命中区。 */
+export function setPetOverlayVisibility(visible: boolean): void {
+  visibilityRequested = visible;
+  const current = win && !win.isDestroyed() ? win : null;
+  if (!current) return;
+  if (!visible) {
+    if (current.isVisible()) current.hide();
+    return;
+  }
+  if (contentReady && !current.isVisible()) current.showInactive();
 }
 
 export function getPetOverlayWindow(): BrowserWindow | null {
@@ -123,4 +144,6 @@ export function getPetOverlayWindow(): BrowserWindow | null {
 export function destroyPetOverlayWindow(): void {
   if (win && !win.isDestroyed()) win.destroy();
   win = null;
+  visibilityRequested = false;
+  contentReady = false;
 }

@@ -202,6 +202,16 @@ describe("Pet 行为模式", () => {
       fireEvent.pointerUp(pet, { clientX: 10, clientY: 10, pointerId: 1 });
       expect(usePetStore.getState().state).toBe("happy");
     });
+
+    it("点击关闭时通知 overlay 宿主同步主窗口设置", () => {
+      const onEnabledChange = vi.fn();
+      const { container } = render(<Pet windowFollowsPet onEnabledChange={onEnabledChange} />);
+
+      fireEvent.click(container.querySelector(".pet-x")!);
+
+      expect(onEnabledChange).toHaveBeenCalledOnce();
+      expect(onEnabledChange).toHaveBeenCalledWith(false);
+    });
   });
 });
 
@@ -229,5 +239,26 @@ describe("PetBridge", () => {
     expect(reportPetState).toHaveBeenLastCalledWith(
       expect.objectContaining({ kind: "mint", size: 2, enabled: false }),
     );
+  });
+
+  it("接收 overlay 的隐藏动作后更新主窗口状态并持久化", () => {
+    let onEnabledChange: ((enabled: boolean) => void) | undefined;
+    const bridge = {
+      reportPetState: vi.fn(),
+      onPetEnabledChange: vi.fn((cb: (enabled: boolean) => void) => {
+        onEnabledChange = cb;
+        return vi.fn();
+      }),
+    } as unknown as DesktopBridge;
+
+    render(
+      <CoreProvider wsId={TEST_WS_ID} identity={TEST_IDENTITY} desktopBridge={bridge}>
+        <PetBridge />
+      </CoreProvider>,
+    );
+    act(() => onEnabledChange?.(false));
+
+    expect(usePetStore.getState().enabled).toBe(false);
+    expect(localStorage.getItem(PET_ENABLED_KEY)).toBe("0");
   });
 });

@@ -945,6 +945,13 @@ const personal = {
   // (见 main/pet-overlay-window.ts),渲染端不需要上报/查询位置。
   reportPetState: (snapshot: PetStateSnapshot): void => ipcRenderer.send("pet:report-state", snapshot),
   requestPetSync: (): void => ipcRenderer.send("pet:request-sync"),
+  setPetOverlayVisible: (visible: boolean): void => ipcRenderer.send("pet:set-overlay-visible", visible),
+  setPetEnabled: (enabled: boolean): void => ipcRenderer.send("pet:set-enabled", enabled),
+  onPetEnabledChange: (cb: (enabled: boolean) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, enabled: boolean) => cb(enabled);
+    ipcRenderer.on("pet:enabled-changed", listener);
+    return () => ipcRenderer.removeListener("pet:enabled-changed", listener);
+  },
   onPetSyncState: (cb: (snapshot: PetStateSnapshot) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, snapshot: PetStateSnapshot) => cb(snapshot);
     ipcRenderer.on("pet:sync-state", listener);
