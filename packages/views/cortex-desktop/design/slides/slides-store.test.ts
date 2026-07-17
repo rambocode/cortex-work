@@ -170,3 +170,117 @@ describe('exportDeck', () => {
     expect(useSlidesStore.getState().actionError).toBeNull()
   })
 })
+
+// 舞台选区:编辑桥 selection-changed → store;空 items 即清空;reset 一并清。
+describe('stageSelection', () => {
+  const ITEM = { elementId: 'edit-1', tagName: 'H2', rect: { x: 0, y: 0, w: 10, h: 10 }, text: '标题' }
+
+  beforeEach(() => {
+    useSlidesStore.getState().reset()
+  })
+
+  it('setStageSelection 记录选区;空 items 置回 null', () => {
+    useSlidesStore.getState().setStageSelection('slot-001', [ITEM])
+    expect(useSlidesStore.getState().stageSelection).toEqual({ slotId: 'slot-001', items: [ITEM] })
+    useSlidesStore.getState().setStageSelection('slot-001', [])
+    expect(useSlidesStore.getState().stageSelection).toBeNull()
+  })
+
+  it('clearStageSelection 与 reset 都清空选区', () => {
+    useSlidesStore.getState().setStageSelection('slot-002', [ITEM])
+    useSlidesStore.getState().clearStageSelection()
+    expect(useSlidesStore.getState().stageSelection).toBeNull()
+    useSlidesStore.getState().setStageSelection('slot-002', [ITEM])
+    useSlidesStore.getState().reset()
+    expect(useSlidesStore.getState().stageSelection).toBeNull()
+  })
+})
+
+// 编辑保存:系统级 revision 漂移(截图/检查 bump)导致的冲突应自动刷新重试一次,
+// 不打扰用户;重试仍冲突才挂冲突提示。
+describe('saveEditedHtml 冲突自动重试', () => {
+  it('revision_conflict → refresh → 带新 revision 重试成功,无冲突提示', async () => {
+    const save = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false as const, error: { code: 'revision_conflict' as const, message: 'x' } })
+      .mockResolvedValueOnce({ ok: true as const, manifest: manifestWithSlots(8) })
+    // setup 拿到 rev 3;冲突后 refresh 拿到 rev 7 → 重试必须带 7。
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true as const, manifest: manifestWithSlots(3) })
+      .mockResolvedValue({ ok: true as const, manifest: manifestWithSlots(7) })
+    const bridge = fakeBridge({ slidesSaveEditedHtml: save, slidesLoadDeck: load })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    const ok = await useSlidesStore.getState().saveEditedHtml('slot-001', '<html>x</html>')
+    expect(ok).toBe(true)
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save.mock.calls[0]![0]).toMatchObject({ expectedRevision: 3 })
+    expect(save.mock.calls[1]![0]).toMatchObject({ expectedRevision: 7 })
+    expect(useSlidesStore.getState().conflictNotice).toBe(false)
+    expect(useSlidesStore.getState().manifest?.revision).toBe(8)
+  })
+
+  it('重试仍冲突 → 挂冲突提示停止自动保存', async () => {
+    const save = vi.fn(async () => ({ ok: false as const, error: { code: 'revision_conflict' as const, message: 'x' } }))
+    const bridge = fakeBridge({ slidesSaveEditedHtml: save })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    const ok = await useSlidesStore.getState().saveEditedHtml('slot-001', '<html>x</html>')
+    expect(ok).toBe(false)
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(useSlidesStore.getState().conflictNotice).toBe(true)
+  })
+
+  it('保存成功后防抖触发单页截图并刷新 manifest(实时缩略图链路)', async () => {
+    vi.useFakeTimers()
+    try {
+      const save = vi.fn(async () => ({ ok: true as const, manifest: manifestWithSlots(4) }))
+      const screenshot = vi.fn(async () => ({ ok: true as const, snapshotPath: 'p.png' }))
+      const load = vi.fn(async () => ({ ok: true as const, manifest: manifestWithSlots(5) }))
+      const bridge = fakeBridge({ slidesSaveEditedHtml: save, slidesScreenshot: screenshot, slidesLoadDeck: load })
+      await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+      await useSlidesStore.getState().saveEditedHtml('slot-001', '<html>x</html>')
+      // 连续保存复位防抖:第二次保存后计时重来,只触发一次截图。
+      await useSlidesStore.getState().saveEditedHtml('slot-001', '<html>y</html>')
+      expect(screenshot).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1300)
+      expect(screenshot).toHaveBeenCalledTimes(1)
+      expect(screenshot).toHaveBeenCalledWith(expect.objectContaining({ slotId: 'slot-001' }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// 缩略图缓存:每 slot 单份,新 key 原地替换;取图失败保留旧图(只有一种覆盖模式)。
+describe('ensureSnapshot 每 slot 单份缓存', () => {
+  it('同 key 跳过、新 key 替换、失败保留旧图', async () => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true as const, dataUrl: 'data:image/png;base64,ONE' })
+      .mockResolvedValueOnce({ ok: false as const, error: { code: 'not_found' as const, message: 'x' } })
+      .mockResolvedValueOnce({ ok: true as const, dataUrl: 'data:image/png;base64,TWO' })
+    const bridge = fakeBridge({ slidesReadSnapshot: read })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    await useSlidesStore.getState().ensureSnapshot('slot-001', 't1')
+    expect(useSlidesStore.getState().snapshots['slot-001']).toEqual({ key: 'slot-001@t1', url: 'data:image/png;base64,ONE' })
+    // 同 key 不重复取。
+    await useSlidesStore.getState().ensureSnapshot('slot-001', 't1')
+    expect(read).toHaveBeenCalledTimes(1)
+    // 新 key 但读取失败(如截图尚未生成)→ 旧图保留。
+    await useSlidesStore.getState().ensureSnapshot('slot-001', 't2')
+    expect(useSlidesStore.getState().snapshots['slot-001']!.url).toBe('data:image/png;base64,ONE')
+    // 再来新 key 成功 → 原地替换。
+    await useSlidesStore.getState().ensureSnapshot('slot-001', 't3')
+    expect(useSlidesStore.getState().snapshots['slot-001']).toEqual({ key: 'slot-001@t3', url: 'data:image/png;base64,TWO' })
+  })
+})
+
+// 舞台历史态:history-changed → 按钮可用态;reset 复位。
+describe('stageHistory', () => {
+  it('setStageHistory 更新;reset 复位为不可撤销', () => {
+    useSlidesStore.getState().setStageHistory({ canUndo: true, canRedo: false })
+    expect(useSlidesStore.getState().stageHistory).toEqual({ canUndo: true, canRedo: false })
+    useSlidesStore.getState().reset()
+    expect(useSlidesStore.getState().stageHistory).toEqual({ canUndo: false, canRedo: false })
+  })
+})

@@ -71,4 +71,32 @@ describe('buildSlidesTurnPrompt', () => {
     expect(p.indexOf('cortex-slides')).toBeLessThan(p.indexOf('我的独特要求'))
     expect(p.trimEnd().endsWith('我的独特要求')).toBe(true)
   })
+
+  // 舞台选区:用户点选元素后发话,prompt 需列出 id/标签/文本并限定改动范围。
+  it('带选区时列出元素锚点并限定只调整所选', () => {
+    const p = buildSlidesTurnPrompt({
+      text: '标题换个说法',
+      stage: 'ready',
+      selection: {
+        slotId: 'slot-003',
+        slideIndex: 3,
+        items: [
+          { id: 'edit-1', tag: 'H2', text: '午后的意外惊喜' },
+          { id: 'star-lg', tag: 'DIV' }
+        ]
+      }
+    })
+    expect(p).toContain('第 3 页(slot: slot-003)')
+    expect(p).toContain('<h2 data-cortex-id="edit-1">:「午后的意外惊喜」')
+    expect(p).toContain('<div data-cortex-id="star-lg">(图形/装饰元素,无文本)')
+    expect(p).toContain('本轮请只调整它们')
+    // 选区段在静态合同之后、用户原话之前(prompt 缓存前缀不受影响)。
+    expect(p.indexOf('cortex-slides')).toBeLessThan(p.indexOf('slot-003'))
+    expect(p.indexOf('slot-003')).toBeLessThan(p.indexOf('标题换个说法'))
+  })
+
+  it('空选区不产生选区段', () => {
+    const p = buildSlidesTurnPrompt({ text: 'x', selection: { slotId: 'slot-001', items: [] } })
+    expect(p).not.toContain('选中了以下元素')
+  })
 })

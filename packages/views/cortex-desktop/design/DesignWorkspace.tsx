@@ -111,8 +111,28 @@ export function DesignWorkspace(): ReactElement {
       return;
     }
     setInput("");
+    // 舞台选区(用户点选元素后发话):并入本轮上下文,让 Agent 只精准调整所选。
+    // 从 getState 取而非订阅:发送瞬间的快照即可,不需要因选区变化重渲染本组件。
+    const slidesState = useSlidesStore.getState();
+    const stageSelection = slidesState.stageSelection;
+    const slotOrder = slidesState.manifest
+      ? [...slidesState.manifest.slides].sort((a, b) => a.order - b.order).map((s) => s.id)
+      : [];
+    const selection =
+      stageSelection && stageSelection.items.length > 0
+        ? {
+            slotId: stageSelection.slotId,
+            slideIndex:
+              slotOrder.indexOf(stageSelection.slotId) >= 0 ? slotOrder.indexOf(stageSelection.slotId) + 1 : undefined,
+            items: stageSelection.items.map((item) => ({
+              id: item.elementId,
+              tag: item.tagName,
+              text: item.text || undefined,
+            })),
+          }
+        : undefined;
     void sendDesignMessage(
-      buildSlidesTurnPrompt({ text: decision.text, stage: slidesStatus, themeName: slidesThemeName }),
+      buildSlidesTurnPrompt({ text: decision.text, stage: slidesStatus, themeName: slidesThemeName, selection }),
       "agent",
       { displayText: decision.text },
     );

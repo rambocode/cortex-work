@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  designHtmlPreviewNavigateAction,
   designHtmlPreviewUrl,
   designHtmlPreviewWebviewZoomFactor,
   executeDesignHtmlPreviewScript,
@@ -56,6 +57,19 @@ describe('DesignHtmlPreviewHost helpers', () => {
     expect(designHtmlPreviewWebviewZoomFactor(Number.NaN)).toBe(1)
     expect(designHtmlPreviewWebviewZoomFactor(0.001)).toBe(0.05)
     expect(designHtmlPreviewWebviewZoomFactor(50)).toBe(4)
+  })
+
+  // 自写回静默:slides 编辑保存后 watcher 推 revision,页面 DOM 即最新内容,
+  // 重载只会清空选区/光标;首次加载与外部改写必须照常导航。
+  it('navigate action: skips self-save reloads but never the first load', () => {
+    // revision 未变 → 无动作。
+    expect(designHtmlPreviewNavigateAction({ lastLoadedRevision: 3, revision: 3, skipSelfReload: true })).toBe('none')
+    // 首次加载(lastLoadedRevision<0)即便处于静默窗也要加载。
+    expect(designHtmlPreviewNavigateAction({ lastLoadedRevision: -1, revision: 0, skipSelfReload: true })).toBe('load')
+    // 自写回的增量 revision → 跳过(标记已消费,不导航)。
+    expect(designHtmlPreviewNavigateAction({ lastLoadedRevision: 0, revision: 1, skipSelfReload: true })).toBe('skip')
+    // 外部改写(不在静默窗)→ 正常重载。
+    expect(designHtmlPreviewNavigateAction({ lastLoadedRevision: 1, revision: 2, skipSelfReload: false })).toBe('load')
   })
 
   it('guards synchronous Electron executeJavaScript throws', async () => {

@@ -13,6 +13,21 @@
 /** deck 状态 → 该回合该做什么(与 manifest.status 对齐)。 */
 export type SlidesTurnStage = 'draft' | 'outline-proposed' | 'outline-approved' | 'generating' | 'ready' | 'error'
 
+/** 用户在舞台上选中的元素(编辑桥上报;id 已由桥就地补打并落盘)。 */
+export type SlidesSelectionContext = {
+  /** 选中元素所在页的 slot id。 */
+  slotId: string
+  /** 页序号(1 起,供 Agent 与用户口径对齐);未知可省略。 */
+  slideIndex?: number
+  items: Array<{
+    /** 元素的 data-cortex-id(已存在于该页 HTML 文件中)。 */
+    id: string
+    tag: string
+    /** 文本摘要(可能截断;空串表示图形类元素)。 */
+    text?: string
+  }>
+}
+
 export type BuildSlidesTurnPromptOptions = {
   /** 用户原话。 */
   text: string
@@ -20,6 +35,8 @@ export type BuildSlidesTurnPromptOptions = {
   stage?: SlidesTurnStage
   /** 已应用的模板/主题名(有则提示 Agent 沿用,不要自己另起一套配色)。 */
   themeName?: string
+  /** 舞台选区:用户点选了具体元素再发话,本轮应以这些元素为修订对象。 */
+  selection?: SlidesSelectionContext
 }
 
 const CONTRACT = [
@@ -60,15 +77,33 @@ const STAGE_INSTRUCTION: Record<SlidesTurnStage, string> = {
   ].join('\n')
 }
 
+// 选区上下文 → prompt 片段:逐元素列 id/标签/文本摘要,并限定本轮改动范围。
+function selectionSection(selection: SlidesSelectionContext): string {
+  const where = selection.slideIndex ? `第 ${selection.slideIndex} 页(slot: ${selection.slotId})` : `slot: ${selection.slotId}`
+  const lines = selection.items.map((item) => {
+    const text = item.text?.trim()
+    return `- <${item.tag.toLowerCase()} data-cortex-id="${item.id}">${text ? `:「${text}」` : '(图形/装饰元素,无文本)'}`
+  })
+  return [
+    `用户在 ${where} 选中了以下元素,本轮请只调整它们(除非用户明确要求动别处):`,
+    ...lines,
+    '先 read_slide_html 查看该页,再用 replace_slide_text 精准替换文字;结构/样式改动用',
+    'place_slide_html 整页替换时也要保持未选中内容原样(含这些 data-cortex-id 属性)。'
+  ].join('\n')
+}
+
 /**
- * 拼装一次 slides 回合的完整 prompt:合同 + 阶段指令 + 主题提示 + 用户原话。
- * 顺序固定(静态前缀在前、用户变量在尾),便于命中供应商的 prompt 缓存。
+ * 拼装一次 slides 回合的完整 prompt:合同 + 阶段指令 + 主题提示 + 选区上下文 + 用户原话。
+ * 顺序固定(静态前缀在前、变量段在尾),便于命中供应商的 prompt 缓存。
  */
 export function buildSlidesTurnPrompt(options: BuildSlidesTurnPromptOptions): string {
   const stage = options.stage ?? 'draft'
   const parts = [CONTRACT, STAGE_INSTRUCTION[stage]]
   if (options.themeName) {
     parts.push(`当前主题:「${options.themeName}」—— 请沿用它的配色与风格,不要另起一套。`)
+  }
+  if (options.selection && options.selection.items.length > 0) {
+    parts.push(selectionSection(options.selection))
   }
   parts.push(`用户的要求:\n${options.text.trim()}`)
   return parts.join('\n\n')

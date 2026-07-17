@@ -69,6 +69,12 @@ export type DesignHtmlPreviewHostProps = {
   onRevision?: (revision: number) => void
   onRenderStateChange?: (state: DesignPreviewRenderState) => void
   onWebviewReady?: (webview: DesignHtmlPreviewWebviewElement) => void
+  /**
+   * 增量 revision 到来时是否跳过重载(见 designHtmlPreviewNavigateAction)。
+   * slides 编辑保存属于「页面自己写回」:返回 true 可避免闪屏与选区/光标丢失;
+   * 首次加载不受影响,外部(Agent)改写仍照常重载。
+   */
+  shouldSkipReload?: () => boolean
   children: (props: DesignHtmlPreviewHostRenderProps) => ReactNode
 }
 
@@ -115,6 +121,23 @@ export function executeDesignHtmlPreviewScript(
   }
 }
 
+/**
+ * revision 导航决策(纯函数,便于单测):
+ *  - 'none':revision 未变,无需动作;
+ *  - 'skip':增量 revision 但属于「页面自己写回」(如 slides 编辑保存)—— 页面 DOM 即
+ *    刚落盘的内容,重载只会闪屏并清空选区/光标,标记已消费但不导航;
+ *  - 'load':需要真实导航(首次加载一律 load,不受 skip 影响)。
+ */
+export function designHtmlPreviewNavigateAction(options: {
+  lastLoadedRevision: number
+  revision: number
+  skipSelfReload: boolean
+}): 'none' | 'skip' | 'load' {
+  if (options.lastLoadedRevision === options.revision) return 'none'
+  const firstLoad = options.lastLoadedRevision < 0
+  return !firstLoad && options.skipSelfReload ? 'skip' : 'load'
+}
+
 export function designHtmlPreviewUrl(fileUrl: string, revision: number): string {
   if (!fileUrl) return ''
   return `${fileUrl}${fileUrl.includes('?') ? '&' : '?'}rev=${revision}`
@@ -132,7 +155,8 @@ export function useDesignHtmlPreview({
   onError,
   onRevision,
   onRenderStateChange,
-  onWebviewReady
+  onWebviewReady,
+  shouldSkipReload
 }: UseDesignHtmlPreviewOptions): DesignHtmlPreviewHostRenderProps {
   const webviewRef = useRef<DesignHtmlPreviewWebviewElement | null>(null)
   const webviewReadyRef = useRef(false)
@@ -267,8 +291,14 @@ export function useDesignHtmlPreview({
     if (!webview || !webviewUrl) return
     const target = webviewUrl
     const navigate = (): void => {
-      if (lastLoadedRevisionRef.current === revision) return
+      const action = designHtmlPreviewNavigateAction({
+        lastLoadedRevision: lastLoadedRevisionRef.current,
+        revision,
+        skipSelfReload: shouldSkipReload?.() === true
+      })
+      if (action === 'none') return
       lastLoadedRevisionRef.current = revision
+      if (action === 'skip') return
       if (typeof webview.loadURL === 'function') {
         try {
           void webview.loadURL(target).catch(() => undefined)
@@ -283,10 +313,10 @@ export function useDesignHtmlPreview({
         }
       }
     }
-    if (webviewReadyRef.current) {
-      navigate()
-      return
-    }
+    // dom-ready 监听常驻:revision 重载(loadURL ?rev=N)后的每次导航都会再次 dom-ready,
+    // onWebviewReady 需逐次回调 —— slides 编辑桥依赖它在新 document 上重新注入(注入幂等)。
+    // 旧实现只在首个 dom-ready 前挂监听,重载一次后桥即永久丢失(用户实测:移动元素保存
+    // 触发重载后再也无法选中)。
     const onReady = (): void => {
       webviewReadyRef.current = true
       setReady(true)
@@ -294,8 +324,9 @@ export function useDesignHtmlPreview({
       navigate()
     }
     webview.addEventListener('dom-ready', onReady)
+    if (webviewReadyRef.current) navigate()
     return () => webview.removeEventListener('dom-ready', onReady)
-  }, [fileUrl, onWebviewReady, revision, webviewMountNonce, webviewUrl])
+  }, [fileUrl, onWebviewReady, revision, shouldSkipReload, webviewMountNonce, webviewUrl])
 
   const applyZoomFactor = useCallback((): void => {
     const webview = webviewRef.current

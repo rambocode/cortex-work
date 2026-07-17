@@ -88,7 +88,8 @@ export function SlidesThumbnailRail(): ReactElement {
       <ol className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2.5 py-3" aria-label={t('slidesDragToReorder')}>
         {slots.map((slot, index) => {
           const active = slot.id === activeSlideId
-          const snapshotUrl = snapshots[slidesSnapshotKey(slot)] ?? null
+          // 每 slot 单份缓存:新图未取到前展示旧图(只有「图片」一种覆盖模式,不闪占位框)。
+          const snapshotUrl = snapshots[slot.id]?.url ?? null
           return (
             <li key={slot.id}>
               <button
@@ -115,13 +116,21 @@ export function SlidesThumbnailRail(): ReactElement {
                 } ${dragOverId === slot.id && dragId !== slot.id ? 'ring-2 ring-[#3b82d8]/60' : ''}`}
               >
                 <div className="relative aspect-video w-full overflow-hidden rounded-md bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.08)] dark:bg-white/8">
-                  {snapshotUrl && slot.status === 'ready' ? (
-                    <img
-                      src={snapshotUrl}
-                      alt={slot.title}
-                      className="h-full w-full object-cover"
-                      draggable={false}
-                    />
+                  {snapshotUrl ? (
+                    <>
+                      <img
+                        src={snapshotUrl}
+                        alt={slot.title}
+                        className="h-full w-full object-cover"
+                        draggable={false}
+                      />
+                      {/* 非 ready 态(重新生成/失败)叠小角标,旧图继续兜底展示。 */}
+                      {slot.status !== 'ready' ? (
+                        <span className="absolute right-1 top-1 rounded bg-black/55 px-1 py-0.5">
+                          <StatusBadge status={slot.status} />
+                        </span>
+                      ) : null}
+                    </>
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">
                       <StatusBadge status={slot.status} />

@@ -15,6 +15,8 @@ import {
   MAX_EDITED_HTML_BYTES,
   parseSlideBridgeDrain,
   parseSlideBridgeMessage,
+  SELECTION_ITEMS_MAX,
+  SELECTION_TEXT_MAX,
   SLIDE_BRIDGE_PROTOCOL
 } from './slide-edit-bridge'
 
@@ -27,15 +29,43 @@ describe('parseSlideBridgeMessage', () => {
     expect(
       parseSlideBridgeMessage({
         __cortexSlides: 1,
-        type: 'selected',
-        elementId: 'title',
-        tagName: 'H1',
-        rect: { x: 1, y: 2, w: 3, h: 4 }
+        type: 'selection-changed',
+        items: [{ elementId: 'title', tagName: 'H1', rect: { x: 1, y: 2, w: 3, h: 4 }, text: '标题' }]
       })
-    ).toMatchObject({ type: 'selected', elementId: 'title' })
+    ).toMatchObject({ type: 'selection-changed', items: [{ elementId: 'title', text: '标题' }] })
+    // 空 items = 取消选择,合法。
+    expect(parseSlideBridgeMessage({ __cortexSlides: 1, type: 'selection-changed', items: [] })).toMatchObject({
+      type: 'selection-changed',
+      items: []
+    })
     expect(parseSlideBridgeMessage({ __cortexSlides: 1, type: 'html-changed', html: '<html></html>' })).toMatchObject({
       type: 'html-changed'
     })
+  })
+
+  it('selection-changed:单条非法只丢该条,超长文本截断,条目数封顶', () => {
+    const good = { elementId: 'a', tagName: 'P', rect: { x: 0, y: 0, w: 1, h: 1 }, text: 'x'.repeat(SELECTION_TEXT_MAX + 50) }
+    const parsed = parseSlideBridgeMessage({
+      __cortexSlides: 1,
+      type: 'selection-changed',
+      items: [good, { elementId: 42 }, 'garbage', { elementId: 'b', tagName: 'H1', rect: { x: 'x' } }]
+    })
+    expect(parsed?.type).toBe('selection-changed')
+    if (parsed?.type === 'selection-changed') {
+      expect(parsed.items).toHaveLength(1)
+      expect(parsed.items[0]!.text).toHaveLength(SELECTION_TEXT_MAX)
+    }
+    const flood = parseSlideBridgeMessage({
+      __cortexSlides: 1,
+      type: 'selection-changed',
+      items: Array.from({ length: SELECTION_ITEMS_MAX + 20 }, (_, i) => ({
+        elementId: `e${i}`,
+        tagName: 'P',
+        rect: { x: 0, y: 0, w: 1, h: 1 },
+        text: ''
+      }))
+    })
+    if (flood?.type === 'selection-changed') expect(flood.items).toHaveLength(SELECTION_ITEMS_MAX)
   })
 
   it('丢弃缺协议标记 / 版本不符的消息(恶意 postMessage)', () => {
@@ -51,10 +81,10 @@ describe('parseSlideBridgeMessage', () => {
   })
 
   it('丢弃字段类型错误的消息', () => {
-    expect(parseSlideBridgeMessage({ __cortexSlides: 1, type: 'selected', elementId: 42 })).toBeNull()
-    expect(
-      parseSlideBridgeMessage({ __cortexSlides: 1, type: 'selected', elementId: 'a', tagName: 'H1', rect: { x: 'x' } })
-    ).toBeNull()
+    // 旧协议的 selected/deselected 不再是合法 type。
+    expect(parseSlideBridgeMessage({ __cortexSlides: 1, type: 'selected', elementId: 'a' })).toBeNull()
+    expect(parseSlideBridgeMessage({ __cortexSlides: 1, type: 'deselected' })).toBeNull()
+    expect(parseSlideBridgeMessage({ __cortexSlides: 1, type: 'selection-changed', items: 'nope' })).toBeNull()
     expect(parseSlideBridgeMessage({ __cortexSlides: 1, type: 'html-changed', html: '' })).toBeNull()
     expect(parseSlideBridgeMessage({ __cortexSlides: 1, type: 'html-changed', html: 123 })).toBeNull()
   })
@@ -145,17 +175,222 @@ describe('页内 bridge 行为(jsdom)', () => {
     expect(bridge.drain()).toEqual([])
   })
 
-  it('点击带 data-cortex-id 的白名单元素 → selected;点击非法目标 → deselected', () => {
+  it('点击白名单元素 → selection-changed(1 项);点击非法目标清空选区', () => {
     const bridge = mountPage(PAGE)
     bridge.drain()
     document.querySelector('h1')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    const selected = parseSlideBridgeDrain(bridge.drain())
-    expect(selected[0]).toMatchObject({ type: 'selected', elementId: 'title', tagName: 'H1' })
+    const first = parseSlideBridgeDrain(bridge.drain())[0]
+    expect(first).toMatchObject({
+      type: 'selection-changed',
+      items: [{ elementId: 'title', tagName: 'H1', text: '标题' }]
+    })
     expect(document.querySelector('h1')!.getAttribute('data-cortex-selected')).toBe('1')
 
-    // DIV 不在白名单 → 无可编辑祖先 → deselected。
-    document.querySelector('div')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    expect(parseSlideBridgeDrain(bridge.drain())[0]).toMatchObject({ type: 'deselected' })
+    // 点 body 空白(无可选目标)→ 选区清空。
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(parseSlideBridgeDrain(bridge.drain())[0]).toMatchObject({ type: 'selection-changed', items: [] })
+    expect(document.querySelector('h1')!.getAttribute('data-cortex-selected')).toBeNull()
+  })
+
+  it('Shift+点击切换多选成员;再次 Shift+点击移出', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    document.querySelector('h1')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    bridge.drain()
+    document.querySelector('p')!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    const two = parseSlideBridgeDrain(bridge.drain())[0]
+    expect(two).toMatchObject({ type: 'selection-changed' })
+    if (two?.type === 'selection-changed') {
+      expect(two.items.map((i) => i.elementId)).toEqual(['title', 'body'])
+    }
+    document.querySelector('h1')!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    const one = parseSlideBridgeDrain(bridge.drain())[0]
+    if (one?.type === 'selection-changed') expect(one.items.map((i) => i.elementId)).toEqual(['body'])
+  })
+
+  it('拖拽移动:static 元素转 relative 偏移,落盘含新位置', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    h1.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 100 }))
+    // 4px 阈值内不算拖拽。
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 102, clientY: 101 }))
+    expect(h1.style.left).toBe('')
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 130, clientY: 120 }))
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(h1.style.position).toBe('relative')
+    expect(h1.style.left).toBe('30px')
+    expect(h1.style.top).toBe('20px')
+    // 拖拽后选区上报 + debounce 落盘。
+    const msgs = parseSlideBridgeDrain(bridge.drain())
+    expect(msgs.some((m) => m.type === 'selection-changed')).toBe(true)
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    const changed = parseSlideBridgeDrain(bridge.drain()).find((m) => m.type === 'html-changed')
+    expect(changed).toBeDefined()
+    if (changed?.type === 'html-changed') {
+      expect(changed.html).toContain('left: 30px')
+      // 编辑态属性不落盘。
+      expect(changed.html).not.toContain('data-cortex-selected')
+    }
+    // 拖拽结束后的 click 被抑制,不改写选区。
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'selection-changed')).toBe(false)
+  })
+
+  it('多选成组拖拽:两个元素同位移', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    const p = document.querySelector('p') as HTMLElement
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    p.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    bridge.drain()
+    p.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 0, clientY: 0 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 12, clientY: -8 }))
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(h1.style.left).toBe('12px')
+    expect(h1.style.top).toBe('-8px')
+    expect(p.style.left).toBe('12px')
+    expect(p.style.top).toBe('-8px')
+  })
+
+  it('拖拽后 Cmd+Z 撤销位置,redo 命令重做;history-changed 驱动可用态', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    h1.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 0, clientY: 0 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 20 }))
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(h1.style.left).toBe('30px')
+    // 拖拽开始时 capture → canUndo。
+    const history = parseSlideBridgeDrain(bridge.drain()).filter((m) => m.type === 'history-changed').at(-1)
+    expect(history).toMatchObject({ canUndo: true, canRedo: false })
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true }))
+    // 撤销经 innerHTML 恢复,旧引用失效,重新查询。
+    const restored = document.querySelector('h1') as HTMLElement
+    expect(restored.style.left).toBe('')
+    const afterUndo = parseSlideBridgeDrain(bridge.drain()).filter((m) => m.type === 'history-changed').at(-1)
+    expect(afterUndo).toMatchObject({ canUndo: false, canRedo: true })
+
+    bridge.exec({ type: 'redo' })
+    expect((document.querySelector('h1') as HTMLElement).style.left).toBe('30px')
+    // 撤销/重做本身也要落盘(否则文件与画布漂移)。
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'html-changed')).toBe(true)
+  })
+
+  it('删除后撤销可恢复元素', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    document.querySelector('p')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
+    expect(document.querySelector('p')).toBeNull()
+    bridge.exec({ type: 'undo' })
+    expect(document.querySelector('p')).not.toBeNull()
+    expect(document.querySelector('p')!.textContent).toBe('正文')
+  })
+
+  it('拖拽吸附:距其它元素边线 5px 内自动贴齐并显示参考线,松手后隐藏', () => {
+    const bridge = mountPage(`<head></head><body>
+      <div id="a" style="position:absolute;left:100px;top:100px;width:200px;height:100px"></div>
+      <div id="b" style="position:absolute;left:300px;top:300px;width:100px;height:50px"></div></body>`)
+    bridge.drain()
+    const stubRect = (el: HTMLElement, r: { left: number; top: number; w: number; h: number }): void => {
+      Object.defineProperty(el, 'getBoundingClientRect', {
+        value: () => ({
+          left: r.left,
+          top: r.top,
+          width: r.w,
+          height: r.h,
+          right: r.left + r.w,
+          bottom: r.top + r.h,
+          x: r.left,
+          y: r.top,
+          toJSON: () => ({})
+        })
+      })
+    }
+    const a = document.getElementById('a') as HTMLElement
+    const b = document.getElementById('b') as HTMLElement
+    stubRect(a, { left: 100, top: 100, w: 200, h: 100 })
+    stubRect(b, { left: 300, top: 300, w: 100, h: 50 })
+    b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 500, clientY: 500 }))
+    // dx=-197 → 拟移到 left=103,距 a 的左边线(100)3px → 吸附到 100。
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 303, clientY: 500 }))
+    expect(b.style.left).toBe('100px')
+    const guide = document.querySelector('div[data-cortex-bridge]') as HTMLElement
+    expect(guide).not.toBeNull()
+    expect(guide.style.display).toBe('block')
+    expect(guide.style.left).toBe('100px')
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(guide.style.display).toBe('none')
+    // 参考线绝不落盘。
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    const changed = parseSlideBridgeDrain(bridge.drain()).find((m) => m.type === 'html-changed')
+    if (changed?.type === 'html-changed') expect(changed.html).not.toContain('data-cortex-bridge')
+  })
+
+  it('font-step 按 computed 字号步进并夹在 8–200px', () => {
+    const bridge = mountPage(`<head></head><body><h1 data-cortex-id="t" style="font-size:20px">T</h1></body>`)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    bridge.exec({ type: 'font-step', delta: 2 })
+    expect(h1.style.fontSize).toBe('22px')
+    bridge.exec({ type: 'font-step', delta: -100 })
+    expect(h1.style.fontSize).toBe('8px')
+  })
+
+  it('方向键微调选区(Shift ×10)并触发保存', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    bridge.drain()
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(h1.style.left).toBe('1px')
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true }))
+    expect(h1.style.top).toBe('10px')
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'html-changed')).toBe(true)
+  })
+
+  // 回归:Agent 生成的页面常把 data-cortex-id 只打在容器 div 上,若选中强依赖 id
+  // 会导致整页不可编辑(用户实测)。白名单标签缺 id 也要可选中,并就地补 id。
+  it('无 data-cortex-id 的白名单元素仍可选中,并就地补打 id', () => {
+    const bridge = mountPage(`<head></head><body>
+      <div data-cortex-id="tile"><h3>裸标题</h3><p>裸正文</p></div></body>`)
+    bridge.drain()
+    const h3 = document.querySelector('h3')!
+    h3.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    const selected = parseSlideBridgeDrain(bridge.drain())
+    expect(selected[0]).toMatchObject({ type: 'selection-changed', items: [{ tagName: 'H3' }] })
+    const stamped = h3.getAttribute('data-cortex-id')
+    expect(stamped).toMatch(/^edit-\d+$/)
+    if (selected[0]?.type === 'selection-changed') expect(selected[0].items[0]!.elementId).toBe(stamped)
+    // 补打的 id 随 debounce 落盘,LLM 才能引用。
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    const persisted = parseSlideBridgeDrain(bridge.drain()).find((m) => m.type === 'html-changed')
+    expect(persisted).toBeDefined()
+    if (persisted?.type === 'html-changed') expect(persisted.html).toContain(`data-cortex-id="${stamped}"`)
+    // 双击可进入编辑。
+    h3.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(h3.getAttribute('contenteditable')).toBe('true')
+  })
+
+  it('纯文本 div(如 emoji 图标块)可选中;含块级子元素的容器不可', () => {
+    const bridge = mountPage(`<head></head><body>
+      <div class="icon">😊</div>
+      <div class="wrap"><section>块级子元素</section></div></body>`)
+    bridge.drain()
+    document.querySelector('.icon')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(parseSlideBridgeDrain(bridge.drain())[0]).toMatchObject({
+      type: 'selection-changed',
+      items: [{ tagName: 'DIV' }]
+    })
+    document.querySelector('.wrap')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(parseSlideBridgeDrain(bridge.drain())[0]).toMatchObject({ type: 'selection-changed', items: [] })
   })
 
   it('双击进入 contenteditable;输入后 500ms debounce 才产出整页 HTML', () => {

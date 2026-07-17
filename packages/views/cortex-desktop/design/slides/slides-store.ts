@@ -19,8 +19,15 @@ import type {
   SlidesOutline
 } from '@cortex-work/core/design/slides/slides-types'
 import type { SlidesTemplateSummary } from '@cortex-work/core/design/slides/slides-templates'
+import type { SlideBridgeSelectionItem } from './slide-edit-bridge'
 
 export type SlidesZoom = 'fit' | '50' | '75' | '100'
+
+/** 舞台选区(编辑桥 selection-changed 上报;发消息时并入 LLM 回合上下文)。 */
+export type SlidesStageSelection = {
+  slotId: string
+  items: SlideBridgeSelectionItem[]
+}
 
 /** setup() 注入的运行环境(bridge + 工作区根);module 级持有,切 deck 时整体替换。 */
 type SlidesContext = {
@@ -33,6 +40,31 @@ let ctx: SlidesContext | null = null
 
 // 在途缩略图请求(key = `<slotId>@<updatedAt>`):多个组件同帧请求同一张时只发一次 IPC。
 const inFlightSnapshots = new Set<string>()
+
+// 编辑保存后的缩略图刷新防抖(每 slot 一个计时器):等编辑停顿再让主进程隐藏窗截图,
+// 连续拖拽/打字期间不反复渲染;截图完成后 refresh() 同步 manifest(截图会 bump
+// slot.updatedAt),缩略图栏据新 key 重取 data URL —— 这就是「实时缩略图」链路。
+const SNAPSHOT_REFRESH_DEBOUNCE_MS = 1200
+const snapshotRefreshTimers = new Map<string, number>()
+
+function scheduleSnapshotRefresh(slotId: string, refresh: () => Promise<void>): void {
+  if (!ctx?.bridge.slidesScreenshot) return
+  const deckId = ctx.deckId
+  const prev = snapshotRefreshTimers.get(slotId)
+  if (prev) window.clearTimeout(prev)
+  const timer = window.setTimeout(() => {
+    snapshotRefreshTimers.delete(slotId)
+    if (!ctx || ctx.deckId !== deckId || !ctx.bridge.slidesScreenshot) return
+    void ctx.bridge
+      .slidesScreenshot({ workspaceRoot: ctx.workspaceRoot, deckId, slotId })
+      .then(async (result) => {
+        if (!result?.ok || !ctx || ctx.deckId !== deckId) return
+        await refresh()
+      })
+      .catch(() => undefined)
+  }, SNAPSHOT_REFRESH_DEBOUNCE_MS)
+  snapshotRefreshTimers.set(slotId, timer)
+}
 
 export interface SlidesUiState {
   deckId: string | null
@@ -60,13 +92,23 @@ export interface SlidesUiState {
   templatePickerOpen: boolean
   templates: SlidesTemplateSummary[] | null
   /**
-   * 缩略图 data URL 缓存,key = `<slotId>@<updatedAt>`(updatedAt 变即失效重取)。
+   * 缩略图 data URL 缓存:**每 slot 只存一份**(key 记录取图时的 `<slotId>@<updatedAt>`)。
+   * updatedAt 变化时重取并原地替换 —— 新图未到前保留旧图,缩略图只有「图片」一种
+   * 覆盖模式,不会闪回占位空框。
    * 为什么走 IPC 取 data URL:renderer 页非 file:// 源,<img src="file://…"> 会被
    * Chromium 拦掉(实测缩略图全碎)。
    */
-  snapshots: Record<string, string>
+  snapshots: Record<string, { key: string; url: string }>
+  /** 舞台当前选区(null = 无选中);webview 重载/切页时由 SlidesStage 清空。 */
+  stageSelection: SlidesStageSelection | null
+  /** 舞台撤销/重做可用态(编辑桥 history-changed 上报,驱动画布工具栏按钮)。 */
+  stageHistory: { canUndo: boolean; canRedo: boolean }
 
   setup(context: { bridge: DesktopBridge; workspaceRoot: string; deckId: string; title: string }): Promise<void>
+  /** 编辑桥选区上报入口:空 items 视为清空。 */
+  setStageSelection(slotId: string, items: SlideBridgeSelectionItem[]): void
+  clearStageSelection(): void
+  setStageHistory(history: { canUndo: boolean; canRedo: boolean }): void
   openOutlineDialog(): Promise<void>
   closeOutlineDialog(): void
   /** 批准提纲(用户编辑后的最终版);成功返回 true 并采纳新 manifest。 */
@@ -139,17 +181,33 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   templatePickerOpen: false,
   templates: null,
   snapshots: {},
+  stageSelection: null,
+  stageHistory: { canUndo: false, canRedo: false },
+
+  setStageSelection: (slotId, items) => {
+    set({ stageSelection: items.length ? { slotId, items } : null })
+  },
+
+  clearStageSelection: () => {
+    if (get().stageSelection) set({ stageSelection: null })
+  },
+
+  setStageHistory: (history) => {
+    const cur = get().stageHistory
+    if (cur.canUndo !== history.canUndo || cur.canRedo !== history.canRedo) set({ stageHistory: history })
+  },
 
   ensureSnapshot: async (slotId, updatedAt) => {
     const key = `${slotId}@${updatedAt}`
-    if (get().snapshots[key] || inFlightSnapshots.has(key) || !ctx?.bridge.slidesReadSnapshot) return
+    // 该 slot 已持有此 key 的图 → 跳过;持有旧 key → 重取并原地替换(期间旧图继续展示)。
+    if (get().snapshots[slotId]?.key === key || inFlightSnapshots.has(key) || !ctx?.bridge.slidesReadSnapshot) return
     inFlightSnapshots.add(key)
     const { workspaceRoot, deckId } = ctx
     const result = await ctx.bridge.slidesReadSnapshot({ workspaceRoot, deckId, slotId }).catch(() => undefined)
     inFlightSnapshots.delete(key)
-    // 切 deck 竞态:异步期间已换 deck → 丢弃。快照缺失(not_found)是常态,UI 退化为状态占位。
+    // 切 deck 竞态:异步期间已换 deck → 丢弃。读取失败(not_found 等)保留旧图不清空。
     if (ctx?.deckId !== deckId || !result?.ok) return
-    set((state) => ({ snapshots: { ...state.snapshots, [key]: result.dataUrl } }))
+    set((state) => ({ snapshots: { ...state.snapshots, [slotId]: { key, url: result.dataUrl } } }))
   },
 
   openTemplatePicker: async () => {
@@ -357,18 +415,30 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   },
 
   saveEditedHtml: async (slotId, html) => {
-    const { manifest } = get()
-    if (!ctx?.bridge.slidesSaveEditedHtml || !manifest) return false
-    const result = await ctx.bridge
-      .slidesSaveEditedHtml({
-        workspaceRoot: ctx.workspaceRoot,
-        deckId: ctx.deckId,
-        expectedRevision: manifest.revision,
-        slotId,
-        html
-      })
-      .catch(() => undefined)
-    return absorbDeckResult(set, get().refresh, result)
+    if (!ctx?.bridge.slidesSaveEditedHtml || !get().manifest) return false
+    const attempt = async (): Promise<SlidesDeckIpcResult | undefined> =>
+      ctx!.bridge
+        .slidesSaveEditedHtml!({
+          workspaceRoot: ctx!.workspaceRoot,
+          deckId: ctx!.deckId,
+          expectedRevision: get().manifest!.revision,
+          slotId,
+          html
+        })
+        .catch(() => undefined)
+    let result = await attempt()
+    // 系统级 revision 漂移(截图/检查只 bump manifest 元数据,不碰页面 HTML)会让编辑保存
+    // 误报冲突:刷新拿最新 revision 后自动重试一次。正在编辑的页面 DOM 就是用户最新意图,
+    // 重试覆盖是正确语义;重试仍冲突才走冲突提示(真正的并发改写,如 Agent 同时写同一页)。
+    if (result && !result.ok && result.error.code === 'revision_conflict') {
+      await get().refresh()
+      if (!get().manifest) return false
+      result = await attempt()
+    }
+    const ok = await absorbDeckResult(set, get().refresh, result)
+    // 保存成功 → 防抖刷新该页缩略图(左栏实时跟随编辑)。
+    if (ok) scheduleSnapshotRefresh(slotId, get().refresh)
+    return ok
   },
 
   exportDeck: async (format) => {
@@ -410,7 +480,9 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       outlineDraft: null,
       templatePickerOpen: false,
       templates: null,
-      snapshots: {}
+      snapshots: {},
+      stageSelection: null,
+      stageHistory: { canUndo: false, canRedo: false }
     })
   }
 }))
