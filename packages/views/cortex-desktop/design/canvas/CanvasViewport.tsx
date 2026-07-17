@@ -371,7 +371,10 @@ export function CanvasViewport({
       } else {
         const scaleX = store.vbox.width / store.containerWidth
         const scaleY = store.vbox.height / store.containerHeight
-        store.pan(e.deltaX * scaleX, e.deltaY * scaleY)
+        // pan() 的正方向 = 内容跟随移动(手型拖拽语义);滚轮 delta 的正方向 = 视口移动
+        // (deltaY>0 是「向下滚」,视口应下移、内容上移),二者相反,必须取负。
+        // 否则触摸板双指平移两轴全反(系统的自然滚动开关由 OS 在 delta 层处理,这里无需关心)。
+        store.pan(-e.deltaX * scaleX, -e.deltaY * scaleY)
       }
     },
     [screenToCanvas]

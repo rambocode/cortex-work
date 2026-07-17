@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopBridge } from '@cortex-work/core/desktop/bridge'
 import { createEmptySlidesDeckManifest, type SlidesDeckManifest } from '@cortex-work/core/design/slides/slides-types'
+import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
 import { SlidesToolbar } from './SlidesToolbar'
 import { useSlidesStore } from './slides-store'
 
@@ -222,5 +223,33 @@ describe('SlidesToolbar', () => {
     await waitFor(() => expect(useSlidesStore.getState().workflowOpen).toBe(true))
     expect(slidesGetLatestPipelineRun).toHaveBeenCalledOnce()
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('侧栏折叠按钮:未传 onToggleLeftSidebar 时不渲染,传入后点击触发开关', async () => {
+    await setup(fakeBridge())
+    render(<SlidesToolbar />)
+    expect(screen.queryByRole('button', { name: '收起侧边栏' })).toBeNull()
+    cleanup()
+
+    const onToggleLeftSidebar = vi.fn()
+    render(<SlidesToolbar onToggleLeftSidebar={onToggleLeftSidebar} />)
+    fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }))
+    expect(onToggleLeftSidebar).toHaveBeenCalledOnce()
+    cleanup()
+
+    render(<SlidesToolbar leftSidebarCollapsed onToggleLeftSidebar={onToggleLeftSidebar} />)
+    expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeInTheDocument()
+  })
+
+  it('右侧助手栏开关:折叠后可从工具栏重新展开', async () => {
+    await setup(fakeBridge())
+    useDesignWorkspaceStore.setState({ canvasAssistantOpen: false })
+    render(<SlidesToolbar />)
+    const toggle = screen.getByRole('button', { name: '打开设计助手' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(toggle)
+    expect(useDesignWorkspaceStore.getState().canvasAssistantOpen).toBe(true)
+    expect(screen.getByRole('button', { name: '折叠助手' })).toHaveAttribute('aria-pressed', 'true')
   })
 })

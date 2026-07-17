@@ -24,9 +24,18 @@ type Props = {
   workspaceRoot: string
   documentId: string
   documentTitle: string
+  /** 左设计侧栏折叠态:透传给工具栏渲染折叠/展开按钮(与自由画布同一交互)。 */
+  leftSidebarCollapsed?: boolean
+  onToggleLeftSidebar?: () => void
 }
 
-export function SlidesWorkspace({ workspaceRoot, documentId, documentTitle }: Props): ReactElement {
+export function SlidesWorkspace({
+  workspaceRoot,
+  documentId,
+  documentTitle,
+  leftSidebarCollapsed = false,
+  onToggleLeftSidebar
+}: Props): ReactElement {
   const { t } = useTranslation('design')
   const bridge = useDesktopBridge()
   const setup = useSlidesStore((s) => s.setup)
@@ -253,7 +262,11 @@ export function SlidesWorkspace({ workspaceRoot, documentId, documentTitle }: Pr
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="slides-workspace">
-      <SlidesToolbar onRunCheck={() => void runCheck()} />
+      <SlidesToolbar
+        onRunCheck={() => void runCheck()}
+        leftSidebarCollapsed={leftSidebarCollapsed}
+        onToggleLeftSidebar={onToggleLeftSidebar}
+      />
       {recoveredNotice ? (
         <div className="shrink-0 bg-[#2e9e6b]/10 px-3 py-1 text-[11.5px] text-[#1f7a50] dark:text-[#7fd8ab]">
           {t('slidesDeckRecovered')}

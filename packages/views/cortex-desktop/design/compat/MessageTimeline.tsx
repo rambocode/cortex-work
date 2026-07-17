@@ -17,16 +17,53 @@ type MessageTimelineProps = {
   liveReasoning?: string;
 } & Record<string, unknown>;
 
-// 工具名 → 简短中文标签 + 图标。未知工具回退原名。
+// 工具名 → 简短中文标签 + 图标。key 一律小写(查表时归一化),未知工具回退短名 + 等宽截断。
 const TOOL_META: Record<string, { icon: string; label: string }> = {
+  // —— 内置工具 ——
   read: { icon: "📖", label: "读取" },
   write: { icon: "✏️", label: "写入" },
   edit: { icon: "✏️", label: "编辑" },
   bash: { icon: "❯_", label: "命令" },
-  delegate_task: { icon: "⚡", label: "并行子任务" },
   ls: { icon: "📂", label: "列目录" },
   grep: { icon: "🔎", label: "搜索" },
   glob: { icon: "🔎", label: "查找" },
+  toolsearch: { icon: "🧰", label: "查工具" },
+  webfetch: { icon: "🌐", label: "抓网页" },
+  websearch: { icon: "🌐", label: "联网搜索" },
+  task: { icon: "⚡", label: "子任务" },
+  delegate_task: { icon: "⚡", label: "并行子任务" },
+  delegate_slides_role: { icon: "⚡", label: "派发角色" },
+  // —— cortex-slides MCP(见 apps/desktop/src/main/capabilities/slides/tools.ts + pipeline/tools.ts)——
+  get_deck_state: { icon: "📄", label: "读取状态" },
+  set_theme: { icon: "🎨", label: "设置主题" },
+  propose_outline: { icon: "🧭", label: "提交提纲" },
+  place_slide_html: { icon: "✏️", label: "写入页面" },
+  read_slide_html: { icon: "📖", label: "读取页面" },
+  replace_slide_text: { icon: "✏️", label: "替换文字" },
+  move_slide: { icon: "↕", label: "移动页面" },
+  insert_slide: { icon: "➕", label: "插入页面" },
+  delete_slide: { icon: "🗑", label: "删除页面" },
+  list_templates: { icon: "🗂", label: "列出模板" },
+  apply_template: { icon: "🎨", label: "应用模板" },
+  generate_speaker_notes: { icon: "🗒", label: "写备注" },
+  read_speaker_notes: { icon: "📖", label: "读备注" },
+  check_slide: { icon: "✅", label: "检查页面" },
+  screenshot_slide: { icon: "📸", label: "刷新缩略图" },
+  upload_asset: { icon: "🖼", label: "上传素材" },
+  create_pipeline_run: { icon: "⚙", label: "创建流程" },
+  get_pipeline_run: { icon: "⚙", label: "读取流程" },
+  record_role_result: { icon: "📥", label: "记录结果" },
+  accept_role_result: { icon: "✅", label: "采纳结果" },
+  reject_role_result: { icon: "✖", label: "驳回结果" },
+  // —— 其它工作台 MCP ——
+  generate_image: { icon: "🖼", label: "生成图片" },
+  generate_video: { icon: "🎬", label: "生成视频" },
+  generate_music: { icon: "🎵", label: "生成音乐" },
+  generate_speech: { icon: "🔊", label: "生成语音" },
+  extract_document: { icon: "📄", label: "提取文档" },
+  browser_click: { icon: "🖱", label: "点击" },
+  browser_read_console: { icon: "🖥", label: "读控制台" },
+  browser_screenshot: { icon: "📸", label: "浏览器截图" },
 };
 
 function toolNameOf(block: ToolBlock): string {
@@ -35,8 +72,21 @@ function toolNameOf(block: ToolBlock): string {
   return (block.summary || "").split(/[\s·]/)[0] || "工具";
 }
 
-function metaFor(name: string): { icon: string; label: string } {
-  return TOOL_META[name] ?? { icon: "⚙", label: name };
+// 解析 mcp__<server>__<tool>:按 `__` 双下划线切分,兼容含连字符的 server id(cortex-slides 等)。
+function parseToolId(raw: string): { server: string; tool: string } {
+  if (raw.startsWith("mcp__")) {
+    const rest = raw.slice(5);
+    const i = rest.indexOf("__");
+    if (i >= 0) return { server: rest.slice(0, i), tool: rest.slice(i + 2) };
+  }
+  return { server: "", tool: raw };
+}
+
+// 查表大小写不敏感(运行时工具名多为首字母大写 Read/ToolSearch,表 key 全小写)。
+// 未知工具兜底:只显 tool 短名 + 等宽字体(mono),渲染处 truncate,绝不让长名撑破布局。
+function metaFor(rawName: string): { icon: string; label: string; mono?: boolean } {
+  const { tool } = parseToolId(rawName);
+  return TOOL_META[tool.toLowerCase()] ?? { icon: "⚙", label: tool, mono: true };
 }
 
 // 从工具 block 的 detail(input JSON)里提取一行可读摘要:文件路径 / 命令 / 标签等。
@@ -88,25 +138,27 @@ function ToolGroup({ tools }: { tools: ToolBlock[] }): ReactElement {
     const m = metaFor(toolNameOf(t));
     const detail = toolDetailLine(t);
     return (
-      <div className="flex items-center gap-2 self-start rounded-full border border-ds-border-muted bg-ds-card px-2.5 py-1 text-[11.5px] text-ds-muted">
-        <span aria-hidden="true">{m.icon}</span>
-        <span className="font-medium text-ds-ink">{m.label}</span>
-        {detail ? <span className="max-w-[220px] truncate opacity-70">{detail}</span> : null}
+      <div className="flex max-w-full items-center gap-2 self-start rounded-lg border border-ds-border-muted bg-ds-card px-2.5 py-1 text-[11.5px] text-ds-muted">
+        <span className="shrink-0" aria-hidden="true">{m.icon}</span>
+        {/* 未知工具(mono)用等宽 + 截断,防止超长 MCP 工具名撑破芯片 */}
+        <span className={`shrink-0 whitespace-nowrap font-medium text-ds-ink${m.mono ? " max-w-[160px] truncate font-mono" : ""}`}>{m.label}</span>
+        {detail ? <span className="min-w-0 flex-1 truncate opacity-70">{detail}</span> : null}
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass(t.status)}`} />
       </div>
     );
   }
 
   return (
-    <div className="self-start">
+    // self-stretch + min-w-0:给内部 truncate 一个确定的宽度基准,避免长 breakdown 撑成多行椭圆
+    <div className="min-w-0 self-stretch">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-full border border-ds-border-muted bg-ds-card px-2.5 py-1 text-[11.5px] text-ds-muted transition hover:bg-ds-hover"
+        className="flex w-full items-center gap-2 rounded-lg border border-ds-border-muted bg-ds-card px-2.5 py-1.5 text-left text-[11.5px] text-ds-muted transition hover:bg-ds-hover"
       >
-        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-        <span className="font-medium text-ds-ink">{tools.length} 个操作</span>
-        <span className="opacity-70">{breakdown}</span>
+        <span className="shrink-0" aria-hidden="true">{open ? "▾" : "▸"}</span>
+        <span className="shrink-0 font-medium text-ds-ink">{tools.length} 个操作</span>
+        <span className="min-w-0 flex-1 truncate opacity-70">{breakdown}</span>
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass(summaryDot)}`} />
       </button>
       {open ? (
@@ -116,8 +168,8 @@ function ToolGroup({ tools }: { tools: ToolBlock[] }): ReactElement {
             const detail = toolDetailLine(t);
             return (
               <div key={t.id} className="flex items-center gap-2 text-[11.5px] text-ds-muted">
-                <span aria-hidden="true">{m.icon}</span>
-                <span className="text-ds-ink">{m.label}</span>
+                <span className="shrink-0" aria-hidden="true">{m.icon}</span>
+                <span className={`shrink-0 whitespace-nowrap text-ds-ink${m.mono ? " max-w-[140px] truncate font-mono" : ""}`}>{m.label}</span>
                 {detail ? <span className="min-w-0 flex-1 truncate opacity-70">{detail}</span> : null}
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass(t.status)}`} />
               </div>
@@ -150,7 +202,7 @@ export function MessageTimeline(props: MessageTimelineProps): ReactElement {
   const { blocks, live } = props;
   const segments = segmentize(blocks);
   return (
-    <div className="flex flex-col gap-2.5 px-1 py-2 text-[13px] leading-relaxed">
+    <div className="flex flex-col gap-3.5 px-1 py-2 text-[13px] leading-relaxed">
       {segments.map((seg, i) => {
         if (seg.kind === "tools") {
           return <ToolGroup key={`tools-${i}`} tools={seg.tools} />;
@@ -160,7 +212,7 @@ export function MessageTimeline(props: MessageTimelineProps): ReactElement {
           const display = (block.meta?.displayText as string | undefined)?.trim() || block.text;
           return (
             <div key={block.id} className="flex justify-end">
-              <div className="max-w-[88%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-[var(--ds-sidebar-row-active)] px-3.5 py-2 text-ds-ink">
+              <div className="max-w-[88%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm border border-ds-border-muted bg-[var(--ds-sidebar-row-active)] px-3.5 py-2 text-ds-ink">
                 {display}
               </div>
             </div>
@@ -168,7 +220,7 @@ export function MessageTimeline(props: MessageTimelineProps): ReactElement {
         }
         if (block.kind === "assistant" && block.text.trim()) {
           return (
-            <div key={block.id} className="md-body px-0.5 text-ds-ink">
+            <div key={block.id} className="md-body md-soft px-0.5 text-ds-ink">
               <Markdown remarkPlugins={MD_PLUGINS}>{block.text}</Markdown>
             </div>
           );
@@ -186,7 +238,7 @@ export function MessageTimeline(props: MessageTimelineProps): ReactElement {
         return null;
       })}
       {live?.trim() ? (
-        <div className="md-body px-0.5 text-ds-ink opacity-80">
+        <div className="md-body md-soft px-0.5 text-ds-ink opacity-80">
           <Markdown remarkPlugins={MD_PLUGINS}>{live}</Markdown>
         </div>
       ) : null}

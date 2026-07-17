@@ -242,13 +242,16 @@ export function DesignWorkspace(): ReactElement {
           红绿灯避让由 SidebarFrame 自带的 titlebar spacer 负责,这里不再额外 pt
           (否则双重预留导致顶部留白过大);外层仅作拖拽区(ds-drag)。 */}
       {leftCollapsed ? null : (
-        <div className="ds-drag grid min-h-0 w-[260px] shrink-0 bg-ds-sidebar">
+        // relative z-10:让右缘阴影盖在中间区之上(否则被后绘制的兄弟节点遮住),强化侧栏与文档区的层级
+        <div className="ds-drag relative z-10 grid min-h-0 w-[260px] shrink-0 bg-ds-sidebar shadow-[1px_0_0_rgba(0,0,0,0.06),6px_0_16px_rgba(0,0,0,0.05)] dark:shadow-[1px_0_0_rgba(255,255,255,0.07),6px_0_16px_rgba(0,0,0,0.45)]">
           <div className="ds-no-drag grid min-h-0 overflow-hidden">
             <DesignSidebar
               onCodeOpen={closeDesign}
               onWriteOpen={closeDesign}
               onDesignOpen={() => {}}
               onOpenSettings={() => openSettings("design")}
+              // 选中文稿后自动折叠左侧栏,聚焦设计/演示核心区(工具栏的折叠按钮可随时展开)
+              onDocumentSelected={() => setLeftCollapsed(true)}
               // cortex 的主题由宿主壳统一管理;这里沿用 Kun 语义翻转 data-theme,
               // DesignSidebar 自带 MutationObserver 会同步图标态。
               onToggleTheme={() => {

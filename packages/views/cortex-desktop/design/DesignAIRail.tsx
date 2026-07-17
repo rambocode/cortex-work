@@ -5,7 +5,6 @@ import {
   Layers,
   Loader2,
   MessageSquare,
-  PanelRightClose,
   Plus,
   Sparkles,
   StopCircle,
@@ -141,7 +140,6 @@ function DesignAIRailInner({
   onNewConversation,
   designThreads,
   onSwitchThread,
-  onCollapse,
   designAgent,
   designDerivedAgentId,
   agentsAvailable,
@@ -347,15 +345,6 @@ function DesignAIRailInner({
     >
         <div className="shrink-0 border-b border-ds-border-muted bg-white/92 px-3 py-3 dark:bg-ds-card">
           <div className="flex min-w-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={onCollapse}
-              className="ds-sidebar-toggle-button shrink-0"
-              title={t('designRailCollapse')}
-              aria-label={t('designRailCollapse')}
-            >
-              <PanelRightClose className="h-4 w-4" strokeWidth={1.85} />
-            </button>
             <button
               ref={threadPillRef}
               type="button"

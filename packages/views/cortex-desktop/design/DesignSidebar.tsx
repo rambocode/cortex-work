@@ -11,6 +11,7 @@ import {
   Moon,
   Palette,
   Pencil,
+  Plus,
   Presentation,
   RotateCcw,
   Settings,
@@ -44,6 +45,9 @@ type Props = {
   onDesignOpen: () => void
   onOpenSettings: (section?: SettingsRouteSection) => void
   onToggleTheme: () => void
+  /** 点击「演示文稿」类型的文稿行后回调(无论是否已激活):宿主用它自动折叠侧栏聚焦演示区。
+      board 类型不触发——自由画布常需要侧栏的 screens 树,不该自动收起。 */
+  onDocumentSelected?: () => void
 }
 
 export function getDesignSidebarVisibleArtifacts(artifacts: readonly DesignArtifact[]): DesignArtifact[] {
@@ -68,7 +72,8 @@ export function DesignSidebar({
   onWriteOpen,
   onDesignOpen,
   onOpenSettings,
-  onToggleTheme
+  onToggleTheme,
+  onDocumentSelected
 }: Props): ReactElement {
   const { t } = useTranslation('design')
   const [isDarkMode, setIsDarkMode] = useState(
@@ -184,6 +189,9 @@ export function DesignSidebar({
   }
 
   const handleSelectDocument = (documentId: string): void => {
+    // 仅演示文稿触发折叠回调(点已激活的也触发:用户意图是「进去干活」);board 不折叠。
+    const doc = documents.find((d) => d.id === documentId)
+    if (doc && designDocumentKind(doc) === 'slides') onDocumentSelected?.()
     if (documentId === activeDocumentId) return
     closeImplementPanel()
     useCanvasSelectionStore.getState().clearSelection()
@@ -452,6 +460,7 @@ export function DesignSidebar({
             title={`@${documentLabel}`}
             className="min-h-[34px]"
             buttonClassName="items-center gap-2 px-2.5 py-2"
+            actionsVisibility="hidden"
             trailing={
               screenCount > 0 ? (
                 <span className="text-[11.5px] text-ds-faint">{screenCount}</span>
@@ -537,24 +546,35 @@ export function DesignSidebar({
             onWriteOpen={onWriteOpen}
             onDesignOpen={onDesignOpen}
           />
+          {/* 导航(返回)与内容区之间的分隔线:给侧栏三段(导航/新建/文稿)建立层级 */}
+          <div className="mx-1.5 my-2 border-t border-[var(--ds-sidebar-divider)]" />
+          <SidebarSectionHeader label={t('designSidebarCreateSection')} />
           <SidebarCommandRow
             icon={<FilePlus2 className="h-4 w-4" strokeWidth={1.9} />}
             label={t('slidesNewBoard')}
             onClick={() => handleNewDocument()}
             variant="accent"
+            trailing={<Plus className="h-3.5 w-3.5 text-ds-faint" strokeWidth={1.9} aria-hidden="true" />}
           />
           <SidebarCommandRow
             icon={<Presentation className="h-4 w-4" strokeWidth={1.9} />}
             label={t('slidesNewDeck')}
             onClick={() => handleNewDocument('slides')}
             variant="accent"
+            trailing={<Plus className="h-3.5 w-3.5 text-ds-faint" strokeWidth={1.9} aria-hidden="true" />}
           />
         </div>
 
-        <div className="ds-no-drag mx-1.5 my-3" />
-
         <div className="ds-no-drag flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+            <SidebarSectionHeader
+              label={t('designSidebarDocsSection')}
+              actions={
+                sortedDocuments.length > 0 ? (
+                  <span className="text-[11.5px] text-ds-faint">{sortedDocuments.length}</span>
+                ) : null
+              }
+            />
             {sortedDocuments.length === 0 ? (
               <div className="mx-2 mt-2 rounded-lg px-2 py-2">
                 <p className="text-[15px] font-medium text-ds-muted">{t('designNewDocument')}</p>

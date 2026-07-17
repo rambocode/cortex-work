@@ -221,6 +221,12 @@ input, textarea { font: inherit; color: inherit; }
 /* 左栏折叠后,侧栏隐藏 → 折叠/搜索控制移到中栏顶栏,这里为红绿灯预留同样的左侧空间。 */
 .app-frame[data-native-titlebar="mac"][data-left-collapsed="on"] .pw-center-head,
 .app-frame[data-native-titlebar="mac"][data-left-collapsed="on"] .pw-col-head.pw-sh { padding-left: 84px; }
+/* 演示文稿(slides)工具栏的侧栏折叠按钮:左设计侧栏折叠后工具栏顶到窗口左缘,
+   为 macOS 红绿灯预留左侧空间(与 .pw-center-head 折叠态同一 84px 惯例)。 */
+.app-frame[data-native-titlebar="mac"] .ds-slides-toolbar-toggle-inset { padding-left: 84px; }
+/* 设计画布(CanvasViewport)折叠态的展开按钮同款避让:按钮浮在画布左上角(left-3),
+   侧栏折叠后与 mac 红绿灯重叠,参照 slides 工具栏左移 84px。 */
+.app-frame[data-native-titlebar="mac"] .ds-window-controls-safe-inset { padding-left: 84px; }
 /* 折叠/搜索控制组（侧栏头 / 折叠态顶栏共用）。固定 38px 高 + 居中,使图标中心落在红绿灯中心(≈19px)。
    非浮起的中栏头顶在窗口 y=0,38px 居中即对齐红绿灯。 */
 .pw-sb-ctrls { display: flex; align-items: center; gap: 2px; flex: none; height: 38px; }
@@ -4876,6 +4882,18 @@ button.sb-row {
   overflow-x: auto;
 }
 .md-body pre code { background: transparent; padding: 0; font-size: 12px; line-height: 1.55; }
+/* design/slides 右栏会话(MessageTimeline)专用 scope:inline code 柔和化,避开可点击的 file-link。
+   不动全局 .md-body code——它被 personal 的 chatMarkdown/ChatArea 等共享。token 自动亮暗。 */
+.md-body.md-soft code:not(.file-link) {
+  background: var(--bg-hover);
+  border: 1px solid var(--border-soft);
+  color: var(--text-1);
+  font-size: 0.9em;
+  padding: 0.5px 4px;
+  border-radius: 4px;
+}
+/* 右栏窄面板里段落间距略增,提升呼吸感 */
+.md-body.md-soft p { margin: 7px 0; }
 .md-body blockquote {
   margin: 8px 0;
   padding: 2px 12px;
@@ -9070,6 +9088,13 @@ button.sb-row {
 .ds-drag { -webkit-app-region: drag; }
 .ds-no-drag { -webkit-app-region: no-drag; }
 .ds-titlebar-safe-block { height: 22px; flex-shrink: 0; }
+/* 演示文稿(slides)工具栏整栏是窗口拖拽区(侧栏折叠后顶部唯一拖拽面);
+   栏内交互控件恢复 no-drag,沿用 .titlebar button 同范式。下拉面板由 JSX 里的
+   ds-no-drag wrapper 覆盖,这里只管按钮/输入类控件。 */
+.ds-slides-toolbar button,
+.ds-slides-toolbar input,
+.ds-slides-toolbar select,
+.ds-slides-toolbar a { -webkit-app-region: no-drag; }
 
 /* Loop 工作流编辑器作用域：把强调色覆盖为蓝色（对齐 Kun 的蓝色主题），
    仅作用于工作流编辑器内部（palette/按钮/运行一次/画布边/选中态），

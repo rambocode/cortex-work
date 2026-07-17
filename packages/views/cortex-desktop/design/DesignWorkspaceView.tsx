@@ -73,6 +73,8 @@ export function DesignWorkspaceView({
             workspaceRoot={workspaceRoot}
             documentId={activeDocument.id}
             documentTitle={activeDocument.title}
+            leftSidebarCollapsed={leftSidebarCollapsed}
+            onToggleLeftSidebar={onToggleLeftSidebar}
           />
         ) : (
           <DesignCanvas

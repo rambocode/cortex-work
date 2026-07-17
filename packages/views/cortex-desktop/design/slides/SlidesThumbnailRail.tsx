@@ -84,7 +84,15 @@ export function SlidesThumbnailRail(): ReactElement {
   }
 
   return (
-    <div className="flex h-full w-[168px] shrink-0 flex-col border-r border-black/8 bg-ds-sidebar dark:border-white/8">
+    // 底色与舞台同款灰(bg-black/4),和左侧暖白菜单栏(bg-ds-sidebar)分层:
+    // 缩略图栏属于「文档区」,不是应用侧栏的一部分。左缘分界由设计侧栏的右投影承担,
+    // 这里只保留右边线,避免与阴影硬边叠成双线。
+    <div className="flex h-full w-[168px] shrink-0 flex-col border-r border-black/8 bg-black/4 dark:border-white/8 dark:bg-black/30">
+      {/* 栏头:标题 + 页数,给缩略图列表一个层级锚点(与底部「新增页面」上下呼应) */}
+      <div className="flex shrink-0 items-center justify-between border-b border-black/8 px-3 py-2 dark:border-white/8">
+        <span className="text-[12px] text-[#9aa5b5] dark:text-white/35">{t('slidesThumbRailTitle')}</span>
+        {slots.length > 0 ? <span className="text-[11.5px] text-ds-faint">{slots.length}</span> : null}
+      </div>
       <ol className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2.5 py-3" aria-label={t('slidesDragToReorder')}>
         {slots.map((slot, index) => {
           const active = slot.id === activeSlideId
@@ -111,8 +119,8 @@ export function SlidesThumbnailRail(): ReactElement {
                 onDrop={() => handleDrop(slot.id)}
                 className={`group w-full rounded-lg p-1.5 text-left transition ${
                   active
-                    ? 'bg-[var(--ds-sidebar-row-active)] shadow-[inset_0_0_0_1.5px_#3b82d8]'
-                    : 'hover:bg-[var(--ds-sidebar-row-active)]'
+                    ? 'bg-black/5 shadow-[inset_0_0_0_1.5px_#3b82d8] dark:bg-white/10'
+                    : 'hover:bg-black/5 dark:hover:bg-white/8'
                 } ${dragOverId === slot.id && dragId !== slot.id ? 'ring-2 ring-[#3b82d8]/60' : ''}`}
               >
                 <div className="relative aspect-video w-full overflow-hidden rounded-md bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.08)] dark:bg-white/8">
@@ -141,7 +149,8 @@ export function SlidesThumbnailRail(): ReactElement {
                   </span>
                 </div>
                 <div className="mt-1 flex items-center gap-1">
-                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-ds-muted">{slot.title}</span>
+                  {/* 激活页标题用主文字色,与非激活页拉开层级 */}
+                  <span className={`min-w-0 flex-1 truncate text-[11.5px] ${active ? 'font-medium text-ds-ink' : 'text-ds-muted'}`}>{slot.title}</span>
                   <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
                     <span
                       role="button"
