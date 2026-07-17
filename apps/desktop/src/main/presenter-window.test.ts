@@ -28,7 +28,13 @@ const { fakeWindows, FakeBrowserWindow, screenState } = vi.hoisted(() => {
     shown = false;
     setBounds = vi.fn();
     setFullScreen = vi.fn();
-    setSimpleFullScreen = vi.fn();
+    simpleFs = false;
+    setSimpleFullScreen = vi.fn((flag: boolean) => {
+      this.simpleFs = flag;
+    });
+    isSimpleFullScreen(): boolean {
+      return this.simpleFs;
+    }
 
     constructor(options: Record<string, unknown>) {
       this.options = options;
@@ -273,6 +279,30 @@ describe("openPresenterWindow · 双屏", () => {
     expect(audience!.isDestroyed()).toBe(true);
     expect(speaker!.isDestroyed()).toBe(true);
     expect(getPresenterWindow()).toBeNull();
+  });
+
+  it("退出演示先退 simpleFullScreen 再销毁(否则 macOS 程序坞/菜单栏不恢复)", async () => {
+    useDualScreen();
+    await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
+    const [audience, speaker] = fakeWindows;
+    audience!.emit("ready-to-show");
+    speaker!.emit("ready-to-show");
+    if (process.platform === "darwin") {
+      expect(audience!.isSimpleFullScreen()).toBe(true);
+      expect(speaker!.isSimpleFullScreen()).toBe(true);
+      // Esc 全退:销毁前两窗都被显式退出 simple fullscreen(系统据此恢复程序坞)。
+      audience!.emitInput("before-input-event", { preventDefault: vi.fn() }, { type: "keyDown", key: "Escape" });
+      expect(audience!.setSimpleFullScreen).toHaveBeenLastCalledWith(false);
+      expect(speaker!.setSimpleFullScreen).toHaveBeenLastCalledWith(false);
+      expect(audience!.isSimpleFullScreen()).toBe(false);
+      expect(speaker!.isSimpleFullScreen()).toBe(false);
+      expect(audience!.isDestroyed()).toBe(true);
+      expect(speaker!.isDestroyed()).toBe(true);
+    } else {
+      // 非 macOS 走原生 setFullScreen,无 simple fullscreen 状态可退,销毁路径应为 no-op。
+      audience!.emitInput("before-input-event", { preventDefault: vi.fn() }, { type: "keyDown", key: "Escape" });
+      expect(audience!.setSimpleFullScreen).not.toHaveBeenCalledWith(false);
+    }
   });
 
   it("关闭任一窗 → 连带销毁另一窗,并在全关后删除共享临时目录", async () => {

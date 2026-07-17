@@ -169,7 +169,10 @@ export async function openPresenterWindow(options: {
     cleanupDir();
     if (session === s) {
       session = null;
-      for (const w of allWins) if (!w.isDestroyed()) w.destroy();
+      for (const w of allWins) {
+        releaseSimpleFullscreen(w);
+        if (!w.isDestroyed()) w.destroy();
+      }
     }
   };
 
@@ -201,6 +204,8 @@ export async function openPresenterWindow(options: {
     audience.once("ready-to-show", () => audience.show());
   }
 
+  // close(销毁前)先退自身 simple fullscreen —— 兜住用户经系统途径(Cmd+W 等)关窗的路径。
+  for (const w of allWins) w.on("close", () => releaseSimpleFullscreen(w));
   for (const w of allWins) w.on("closed", onClosed);
 
   // hash = 起始页序号(1 基),各页初始化读 location.hash 定位。
@@ -216,11 +221,25 @@ export async function openPresenterWindow(options: {
 }
 
 /** 销毁演示窗口(若存在);幂等。先清空 session 再销毁,避免 closed 回调重入。 */
+/**
+ * 销毁前先退出 simple fullscreen:窗口在 simpleFullScreen 态被直接销毁时,macOS 的
+ * presentation options(隐藏菜单栏/程序坞)不会被系统恢复 —— 表现为退出演示后程序坞
+ * 消失。显式 setSimpleFullScreen(false) 让系统还原后再销毁;非 simple 态/已销毁则跳过。
+ */
+function releaseSimpleFullscreen(w: BrowserWindow | null): void {
+  try {
+    if (w && !w.isDestroyed() && w.isSimpleFullScreen()) w.setSimpleFullScreen(false);
+  } catch {
+    /* 窗口正在销毁等边缘态,忽略 */
+  }
+}
+
 export function destroyPresenterWindow(): void {
   const s = session;
   session = null;
   if (!s) return;
   for (const w of [s.audience, s.speaker]) {
+    releaseSimpleFullscreen(w);
     if (w && !w.isDestroyed()) w.destroy();
   }
 }
