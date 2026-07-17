@@ -1013,6 +1013,12 @@ export function registerCliHandlers(): void {
           model: req.model ?? "(默认)",
           effort: req.effort ?? "(默认)",
           argCount: args.length,
+          // MCP 预授权现场取证:权限类问题(如 slides 回合 claude 被 MCP 弹窗卡死)可直读
+          // 本轮是否带了 --allowed-tools 及其值,不必猜测运行中的构建新旧。值仅含 server 名,无敏感信息。
+          allowedTools: (() => {
+            const i = args.indexOf("--allowed-tools");
+            return i >= 0 ? args[i + 1] : "(无)";
+          })(),
           attempt,
           promptPreview: promptPreview(req.prompt),
         },
