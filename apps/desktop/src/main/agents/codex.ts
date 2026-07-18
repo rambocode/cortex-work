@@ -55,6 +55,27 @@ const CODEX_TOOL_TYPES = new Set(Object.keys(CODEX_TOOL_NAMES));
 // 工具输出截断上限(与 claude adapter 同值):防超大输出撑爆 IPC 与渲染端内存。
 const MAX_TOOL_OUTPUT = 8_000;
 
+// todo_list item 的 items 归一化:实测 0.14x JSONL 为 {text,completed} 布尔两态;优先读显式
+// status 字段(update_plan 语义含 in_progress,前向兼容新版),回退 completed 布尔映射。
+function normalizeCodexTodos(items: unknown): Array<{ text: string; status: "pending" | "in_progress" | "completed" }> {
+  if (!Array.isArray(items)) return [];
+  const out: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const text = typeof item.text === "string" ? item.text : typeof item.step === "string" ? item.step : "";
+    if (!text) continue;
+    const status =
+      item.status === "in_progress" || item.status === "completed" || item.status === "pending"
+        ? item.status
+        : item.completed === true
+          ? "completed"
+          : "pending";
+    out.push({ text, status });
+  }
+  return out;
+}
+
 // codex tool 项完成帧的输出文本:command_execution 带 aggregated_output(实测 0.142.x JSONL);
 // 兼容 camelCase 拼写与通用 output 字段,均缺失时返回 undefined(end 事件仍产出,仅无输出正文)。
 function codexToolOutput(item: Record<string, unknown>): string | undefined {
@@ -201,6 +222,18 @@ export const codexDef: AgentDef = {
     }
 
     const item = obj.item as Record<string, unknown> | undefined;
+
+    // 任务清单(update_plan → todo_list item):三种帧(started/updated/completed)都带全量
+    // items,整表覆盖语义,统一归一化为 todo 事件。注意 item.updated 是本分支专属——parseLine
+    // 其余分支不处理 updated 帧,todo_list 也刻意不进 CODEX_TOOL_TYPES(不当工具渲染)。
+    if (
+      item?.type === "todo_list" &&
+      (obj.type === "item.started" || obj.type === "item.updated" || obj.type === "item.completed")
+    ) {
+      const todos = normalizeCodexTodos(item.items);
+      return todos.length > 0 ? { type: "todo", todos } : null;
+    }
+
     // 工具起始(R2):归一化 tool 名(不再硬编码 "Shell"),标注 phase:"start" + toolCallId(item.id)。
     // 只在 item.started 产起始事件,不产 end(避免重复 tool 事件污染渲染端 agentLog 折叠)。
     if (obj.type === "item.started" && typeof item?.type === "string" && CODEX_TOOL_TYPES.has(item.type)) {

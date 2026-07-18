@@ -18,6 +18,12 @@
     "done": "已完成",
     "steps": "{{count}} 步"
   },
+  "todoList": {
+    "title": "任务清单",
+    "progress": "{{done}}/{{total}}",
+    "doneSummary": "已完成 {{count}} 项任务",
+    "inProgress": "进行中"
+  },
   "diff": {
     "applied": "已应用",
     "rejected": "已拒绝",

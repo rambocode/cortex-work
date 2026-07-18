@@ -85,6 +85,57 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
     expect(getByText("答案在此")).toBeInTheDocument();
   });
 
+  it("todoList 未全完成 → 默认展开:标题+进度+三态图标,in_progress 项转圈(active)", () => {
+    const messages: Message[] = [
+      {
+        kind: "todoList",
+        who: "claude",
+        time: "10:00",
+        uid: "td1",
+        runId: "run-1",
+        active: true,
+        todos: [
+          { text: "分析代码", status: "completed" },
+          { text: "重写组件", status: "in_progress" },
+          { text: "跑测试", status: "pending" },
+        ],
+      },
+    ];
+    const { container, getByText } = renderTeamStream(messages);
+    expect(getByText("任务清单")).toBeInTheDocument();
+    expect(getByText(/1\/3/)).toBeInTheDocument();
+    expect(getByText("分析代码")).toBeInTheDocument();
+    expect(getByText("重写组件")).toBeInTheDocument();
+    expect(getByText("跑测试")).toBeInTheDocument();
+    // in_progress 项在 active run 中显示 spinner(列表内至少一个)。
+    expect(container.querySelectorAll(".agent-log ul .spinner").length).toBeGreaterThan(0);
+  });
+
+  it("todoList 全部完成 → 自动折成一行摘要,点击可展开回顾", () => {
+    const messages: Message[] = [
+      {
+        kind: "todoList",
+        who: "claude",
+        time: "10:00",
+        uid: "td2",
+        runId: "run-1",
+        active: false,
+        todos: [
+          { text: "分析代码", status: "completed" },
+          { text: "跑测试", status: "completed" },
+        ],
+      },
+    ];
+    const { container, getByText, queryByText } = renderTeamStream(messages);
+    // 折叠态:一行摘要,列表不渲染。
+    expect(getByText("已完成 2 项任务")).toBeInTheDocument();
+    expect(queryByText("分析代码")).not.toBeInTheDocument();
+    // 点击标题展开 → 列表可见。
+    fireEvent.click(container.querySelector(".agent-log .al-h")!);
+    expect(getByText("分析代码")).toBeInTheDocument();
+    expect(getByText("跑测试")).toBeInTheDocument();
+  });
+
   it("agentLog + reasoning 同时存在时团队侧两者都内联（个人区外移不影响共享件）", () => {
     const messages: Message[] = [
       { kind: "reasoning", who: "claude", time: "10:00", uid: "r1", text: "思考X", active: true },

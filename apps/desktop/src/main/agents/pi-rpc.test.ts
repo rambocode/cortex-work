@@ -168,6 +168,26 @@ describe("mapPiEvent", () => {
     });
   });
 
+  it("todo_write 特判:start → todo 整表快照事件;end 被吞掉(返回 null)", () => {
+    expect(
+      mapPiEvent({
+        type: "tool_execution_start",
+        toolName: "todo_write",
+        toolCallId: "call_t",
+        args: { todos: [{ text: "分析", status: "completed" }, { text: "实现", status: "in_progress" }] },
+      }),
+    ).toEqual({
+      type: "todo",
+      todos: [
+        { text: "分析", status: "completed" },
+        { text: "实现", status: "in_progress" },
+      ],
+    });
+    expect(
+      mapPiEvent({ type: "tool_execution_end", toolName: "todo_write", toolCallId: "call_t", result: {}, isError: false }),
+    ).toBeNull();
+  });
+
   it("tool_execution_end → tool-end（isError 归一为布尔;空 result 无 output）", () => {
     expect(
       mapPiEvent({ type: "tool_execution_end", toolName: "bash", toolCallId: "call_0", result: {}, isError: false }),

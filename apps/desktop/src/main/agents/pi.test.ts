@@ -171,6 +171,24 @@ describe("piDef.parseLine", () => {
     expect(piDef.parseLine(line)).toEqual({ type: "tool", name: "bash", detail: "ls -la" });
   });
 
+  it("tool_execution_start todo_write → todo 整表快照事件(不产 tool);空清单丢弃", () => {
+    const line = JSON.stringify({
+      type: "tool_execution_start",
+      toolCallId: "call_t",
+      toolName: "todo_write",
+      args: { todos: [{ text: "拆分模块", status: "in_progress" }, { text: "补测试", status: "pending" }] },
+    });
+    expect(piDef.parseLine(line)).toEqual({
+      type: "todo",
+      todos: [
+        { text: "拆分模块", status: "in_progress" },
+        { text: "补测试", status: "pending" },
+      ],
+    });
+    const empty = JSON.stringify({ type: "tool_execution_start", toolCallId: "call_e", toolName: "todo_write", args: { todos: [] } });
+    expect(piDef.parseLine(empty)).toBeNull();
+  });
+
   it("message_end stopReason=stop → ok result 带拼接文本", () => {
     const line = JSON.stringify({
       type: "message_end",

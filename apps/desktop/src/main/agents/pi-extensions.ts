@@ -254,6 +254,69 @@ export function renderAskQuestionExtension(sentinel: string): string {
   ].join("\n");
 }
 
+// 任务清单工具名:extension 注册名与 pi.ts / pi-rpc.ts adapter 特判同源,单一出处防漂移。
+export const TODO_TOOL_NAME = "todo_write";
+
+// todo_write 的 parameters schema(给 LLM)。整表覆盖语义:每次调用传完整清单,对齐 claude TodoWrite。
+const TODO_WRITE_PARAMS = {
+  type: "object",
+  properties: {
+    todos: {
+      type: "array",
+      description: "完整任务清单(整表覆盖上一次调用的清单)",
+      items: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "任务内容(简短祈使句)" },
+          status: { type: "string", enum: ["pending", "in_progress", "completed"], description: "任务状态" },
+        },
+        required: ["text", "status"],
+      },
+    },
+  },
+  required: ["todos"],
+};
+
+// 任务清单工具 extension:pi 无原生 TodoWrite,注册 todo_write 补齐。execute 无状态——
+// 清单不存 pi 侧,host 从 tool_execution_start.args 直接取整表快照(见 pi.ts / pi-rpc.ts 特判),
+// 这里只回一句确认文本给 LLM。复杂度判断交给模型(description 约束「复杂多步任务才用」)。
+export function renderTodoExtension(): string {
+  return [
+    "// 由 Cortex Desktop 自动生成（任务清单工具 todo_write,对齐 claude TodoWrite 语义）,请勿手改。",
+    `const PARAMS = ${JSON.stringify(TODO_WRITE_PARAMS)};`,
+    "export default function (pi) {",
+    "  pi.registerTool({",
+    `    name: ${JSON.stringify(TODO_TOOL_NAME)},`,
+    '    description: "维护当前任务的任务清单。仅在复杂多步任务(3 步以上)时使用:开工前列出计划,每完成一步立即再次调用更新状态;每次调用必须传完整清单(整表覆盖),同一时刻至多一项 in_progress。简单任务不要使用本工具。",',
+    '    promptSnippet: "todo_write - 复杂多步任务时创建并维护任务清单(整表覆盖)",',
+    "    parameters: PARAMS,",
+    "    async execute(toolCallId, params) {",
+    "      const todos = params && Array.isArray(params.todos) ? params.todos : [];",
+    '      const done = todos.filter((t) => t && t.status === "completed").length;',
+    '      return { content: [{ type: "text", text: "任务清单已更新(" + done + "/" + todos.length + " 项完成)" }], isError: false };',
+    "    },",
+    "  });",
+    "}",
+    "",
+  ].join("\n");
+}
+
+// todo_write 调用参数归一化(host 侧):tool_execution_start.args.todos → todo 事件整表快照。
+// 非法项跳过,未知状态回退 pending;与 claude/codex adapter 的归一化形状一致。
+export function normalizePiTodos(args: unknown): Array<{ text: string; status: "pending" | "in_progress" | "completed" }> {
+  const todos = (args as Record<string, unknown> | null | undefined)?.todos;
+  if (!Array.isArray(todos)) return [];
+  const out: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> = [];
+  for (const t of todos) {
+    if (!t || typeof t !== "object") continue;
+    const item = t as Record<string, unknown>;
+    if (typeof item.text !== "string" || !item.text) continue;
+    const status = item.status === "in_progress" || item.status === "completed" ? item.status : "pending";
+    out.push({ text: item.text, status });
+  }
+  return out;
+}
+
 // 落盘 extension 文件,返回绝对路径。固定文件名（无 per-instance 状态,每次 open 覆盖重写）。
 function writeExtension(name: string, content: string): string {
   const dir = join(app.getPath("userData"), "pi-extensions");
@@ -283,4 +346,9 @@ export function writeSlashCommandExtension(): string {
 // askquestion 工具 extension（常驻;sentinel 每会话高熵,由 pi:open 生成传入）。
 export function writeAskQuestionExtension(sentinel: string): string {
   return writeExtension("askquestion", renderAskQuestionExtension(sentinel));
+}
+
+// 任务清单工具 extension（常驻,RPC 与单发两条路径都加载）。
+export function writeTodoExtension(): string {
+  return writeExtension("todo", renderTodoExtension());
 }

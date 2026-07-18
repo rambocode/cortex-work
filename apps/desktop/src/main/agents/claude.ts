@@ -25,6 +25,22 @@ function toolDetail(input: unknown): string | undefined {
 // 工具输出截断上限:防止超大输出(如 cat 大文件)撑爆 IPC 消息与渲染端内存。
 const MAX_TOOL_OUTPUT = 8_000;
 
+// TodoWrite 归一化:claude 任务清单工具的 input.todos=[{content,status,activeForm}] 转成
+// todo 事件的整表快照。忽略 activeForm(渲染只需文本+状态);非法项跳过,未知状态回退 pending。
+function normalizeClaudeTodos(input: unknown): Array<{ text: string; status: "pending" | "in_progress" | "completed" }> {
+  const todos = (input as Record<string, unknown> | null | undefined)?.todos;
+  if (!Array.isArray(todos)) return [];
+  const out: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> = [];
+  for (const t of todos) {
+    if (!t || typeof t !== "object") continue;
+    const item = t as Record<string, unknown>;
+    if (typeof item.content !== "string" || !item.content) continue;
+    const status = item.status === "in_progress" || item.status === "completed" ? item.status : "pending";
+    out.push({ text: item.content, status });
+  }
+  return out;
+}
+
 // 归一化 tool_result 的 content 为展示用文本:string 原样;content block 数组拼接其中的
 // text 块;其余形态(对象/数字等)JSON 序列化兜底。超限截断。
 function normalizeToolResultContent(content: unknown): string {
@@ -250,14 +266,26 @@ export const claudeDef: AgentDef = {
         (b): b is Record<string, unknown> & { name: string } => b.type === "tool_use" && typeof b.name === "string",
       );
       if (tools.length === 0) return null;
-      const events = tools.map<CliStreamEvent>((tool) => ({
-        type: "tool",
-        name: tool.name,
-        detail: toolDetail(tool.input),
-        input: tool.input,
-        phase: "start",
-        toolCallId: typeof tool.id === "string" ? tool.id : undefined,
-      }));
+      // TodoWrite 分流:任务清单工具不产 tool 事件(避免过程流出现噪音「TodoWrite」条目),
+      // 改产 todo 整表快照事件;空清单直接丢弃。其对应 tool_result 会产一个无 start 配对的
+      // end 事件,handleCliEvent 对 end 提前 return,无害。
+      const events = tools
+        .map<CliStreamEvent | null>((tool) => {
+          if (tool.name === "TodoWrite") {
+            const todos = normalizeClaudeTodos(tool.input);
+            return todos.length > 0 ? { type: "todo", todos } : null;
+          }
+          return {
+            type: "tool",
+            name: tool.name,
+            detail: toolDetail(tool.input),
+            input: tool.input,
+            phase: "start",
+            toolCallId: typeof tool.id === "string" ? tool.id : undefined,
+          };
+        })
+        .filter((ev): ev is CliStreamEvent => ev !== null);
+      if (events.length === 0) return null;
       return events.length === 1 ? events[0]! : events;
     }
 

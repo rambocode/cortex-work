@@ -151,6 +151,47 @@ describe("AskQuestionCard（U5）", () => {
     expect(lastResp(bridge)).toEqual(["s-pi", "a2", { cancelled: true }]);
   });
 
+  it("头部身份行:「向你提问」标题 + ✕ 关闭等价取消", () => {
+    const bridge = makeBridge();
+    usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-pi", request: askReq("a1", oneGroup) }] });
+    renderCard(bridge);
+    expect(screen.getByText("向你提问")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(lastResp(bridge)).toEqual(["s-pi", "a1", { cancelled: true }]);
+  });
+
+  it("数字键 1-9 选当前组选项;Enter(非输入框焦点)提交", () => {
+    const bridge = makeBridge();
+    usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-pi", request: askReq("a1", oneGroup) }] });
+    renderCard(bridge);
+    fireEvent.keyDown(window, { key: "2" }); // 选第二项「选项B」
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(JSON.parse((lastResp(bridge)![2] as { value: string }).value)).toEqual({
+      answers: [{ groupId: "g0", value: "选项B", isCustom: false }],
+    });
+  });
+
+  it("数字键在输入框聚焦时不劫持(自定义作答可正常输入数字)", () => {
+    const bridge = makeBridge();
+    usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-pi", request: askReq("a1", oneGroup) }] });
+    renderCard(bridge);
+    const input = screen.getByPlaceholderText("或自定义回答…");
+    fireEvent.keyDown(input, { key: "1" }); // 焦点在输入框:不应选中选项
+    expect(screen.getByRole("button", { name: "提交" })).toBeDisabled();
+  });
+
+  it("自定义输入内回车 → 直接提交", () => {
+    const bridge = makeBridge();
+    usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-pi", request: askReq("a1", oneGroup) }] });
+    renderCard(bridge);
+    const input = screen.getByPlaceholderText("或自定义回答…");
+    fireEvent.change(input, { target: { value: "回车答案" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(JSON.parse((lastResp(bridge)![2] as { value: string }).value)).toEqual({
+      answers: [{ groupId: "g0", value: "回车答案", isCustom: true }],
+    });
+  });
+
   it("会话隔离:uiSessionId ≠ 当前会话 → 不渲染(后台会话卡不冒头)", () => {
     usePersonalStore.setState({ piUiPending: [{ uiSessionId: "s-OTHER", request: askReq("a1", oneGroup) }] });
     renderCard(makeBridge(), "s-pi");

@@ -324,6 +324,9 @@ function mapPiToCliEvent(ev: PiSessionEvent): CliStreamEvent | null {
       return { type: "tool", name: ev.name, detail: ev.detail, phase: "start", toolCallId: ev.toolCallId };
     case "tool-end":
       return { type: "tool", name: ev.name, phase: "end", toolCallId: ev.toolCallId };
+    case "todo":
+      // 任务清单快照原样透传(编排 run 的渲染端有前缀守卫,不渲染 todo 卡)。
+      return { type: "todo", todos: ev.todos };
     case "retry":
       return { type: "retry", attempt: ev.attempt, maxAttempts: ev.maxAttempts, reason: ev.error };
     case "turn-end":

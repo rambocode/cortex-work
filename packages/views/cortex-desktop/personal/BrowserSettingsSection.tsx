@@ -138,10 +138,11 @@ export function BrowserSettingsSection() {
             <BareSelect
               value={bc.navigationApproval}
               options={[
+                { label: t("browser.approvalNone"), value: "none" },
                 { label: t("browser.approvalNonLocal"), value: "nonLocalOnly" },
                 { label: t("browser.approvalAll"), value: "all" },
               ]}
-              onChange={(v) => setBrowserControl({ navigationApproval: v as "nonLocalOnly" | "all" })}
+              onChange={(v) => setBrowserControl({ navigationApproval: v as "none" | "nonLocalOnly" | "all" })}
             />
           </SRow>
           <div className="pw-srow-desc">{t("browser.approvalHint")}</div>

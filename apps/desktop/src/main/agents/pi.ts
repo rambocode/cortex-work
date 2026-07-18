@@ -20,6 +20,7 @@
 //    + errorMessage/diagnostics 上。故 result 由最后一条 assistant message_end 发出,
 //    agent_end 不发,避免覆盖掉这条错误结果。
 
+import { normalizePiTodos, TODO_TOOL_NAME } from "./pi-extensions";
 import { resolvePiBinary } from "./pi-locate";
 import { safeId } from "./pi-providers";
 import { PI_PLAN_TOOL_WHITELIST, type CliStartRequest, type CliStreamEvent } from "../ipc/types";
@@ -173,6 +174,12 @@ export const piDef: AgentDef = {
     }
 
     if (obj.type === "tool_execution_start" && typeof obj.toolName === "string") {
+      // 任务清单工具特判:todo_write(pi-todo extension)不产 tool 事件(避免过程流噪音),
+      // 改产 todo 整表快照事件(与 pi-rpc.ts mapPiEvent 同款分流);空清单丢弃。
+      if (obj.toolName === TODO_TOOL_NAME) {
+        const todos = normalizePiTodos(obj.args);
+        return todos.length > 0 ? { type: "todo", todos } : null;
+      }
       return { type: "tool", name: obj.toolName, detail: toolDetail(obj.args) };
     }
 

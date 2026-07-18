@@ -152,7 +152,7 @@ describe("浏览器控制 store（U1）", () => {
       approvedOrigins: [],
       localUrlOpenTarget: "internal",
       annotateScreenshotMode: "ask",
-      navigationApproval: "nonLocalOnly",
+      navigationApproval: "none",
     });
   });
 
@@ -168,7 +168,7 @@ describe("浏览器控制 store（U1）", () => {
     expect(bc.enabled).toBe(true);
     expect(bc.localUrlOpenTarget).toBe("internal");
     expect(bc.annotateScreenshotMode).toBe("ask");
-    expect(bc.navigationApproval).toBe("nonLocalOnly");
+    expect(bc.navigationApproval).toBe("none"); // 旧档缺字段 → 兜新默认「全部授权」
   });
 
   it("setBrowserControl patch 不覆盖未传字段", () => {

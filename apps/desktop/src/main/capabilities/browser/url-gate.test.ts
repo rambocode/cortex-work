@@ -73,8 +73,24 @@ describe("导航授权范围 navigationApproval（U5）", () => {
     expect(classifyTarget("https://ok.com/a", ["https://ok.com"], noFile, "all").allow).toBe(true);
   });
 
-  it("nonLocalOnly(默认):本地放行(回归)", () => {
+  it("nonLocalOnly(参数缺省值):本地放行(回归)", () => {
     expect(classifyTarget("http://localhost:3000/", [], noFile, "nonLocalOnly").allow).toBe(true);
-    expect(classifyTarget("http://127.0.0.1:8080/", [], noFile).allow).toBe(true); // 缺省即 nonLocalOnly
+    expect(classifyTarget("http://127.0.0.1:8080/", [], noFile).allow).toBe(true); // 参数缺省即 nonLocalOnly
+  });
+
+  it("none 档(全部授权,设置默认):http/https 一律放行,空白名单也不拦", () => {
+    expect(classifyTarget("https://evil.com/x", [], noFile, "none").allow).toBe(true); // 外部站点免白名单
+    expect(classifyTarget("http://localhost:3000/", [], noFile, "none").allow).toBe(true); // 本地
+    expect(classifyTarget("http://192.168.1.1/", [], noFile, "none").allow).toBe(true); // 私网也放行(全部的字面语义)
+    expect(classifyTarget("http://169.254.169.254/", [], noFile, "none").allow).toBe(true); // 云 metadata 同上
+  });
+
+  it("none 档:file 仍须授权、坏 URL / 非 http(s) 仍拒(none 只放开导航白名单)", () => {
+    expect(classifyTarget("file:///etc/passwd", [], noFile, "none")).toEqual({
+      allow: false,
+      reason: "file-unauthorized",
+    });
+    expect(classifyTarget("not a url", [], noFile, "none")).toEqual({ allow: false, reason: "bad-url" });
+    expect(classifyTarget("ftp://x/", [], noFile, "none")).toEqual({ allow: false, reason: "bad-url" });
   });
 });

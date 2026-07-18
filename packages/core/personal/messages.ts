@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { ChatFileRef, ChatImageRef, Message, TypingActivity } from "../types";
+import type { ChatFileRef, ChatImageRef, Message, TodoListItem, TypingActivity } from "../types";
 import type {
   AgentKind,
   AskQuestionAnswers,
@@ -532,8 +532,12 @@ const processCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // 此过滤既保证新会话过程/报错不入档,也作为「破坏性旧档迁移」:旧档被加载后任意一次 flushChat 即把
 // chat JSON 原地重写为不含 agentLog/报错的版本（无 .bak、不可逆，KTD2）。
 // 加载历史时同样过此函数,故旧数据里遗留的 reasoning/agentLog/报错会被顺带清掉。
+// ⚠️ todoList **刻意保留**(任务清单快照落盘,重开会话可回顾),不要把它加进剥离名单;
+// 落盘时把 active 归一为 false——快照语义,避免历史加载后 in_progress 项残留转圈态。
 export function sanitizeForSave(messages: Message[]): Message[] {
-  return messages.filter(survivesSanitize);
+  return messages
+    .filter(survivesSanitize)
+    .map((m) => (m.kind === "todoList" && m.active ? { ...m, active: false } : m));
 }
 
 export function flushChat(qc: QueryClient, sessionId: string): void {
@@ -635,6 +639,8 @@ function piEventToRunRecord(ev: PiSessionEvent, resultOk: boolean): CliStreamEve
       return { type: "tool", name: ev.name, detail: ev.detail, input: ev.input, phase: "start", toolCallId: ev.toolCallId };
     case "tool-end":
       return { type: "tool", name: ev.name, phase: "end", toolCallId: ev.toolCallId, output: ev.output, isError: ev.isError };
+    case "todo":
+      return { type: "todo", todos: ev.todos };
     case "error":
       return { type: "result", ok: false, error: ev.error };
     case "result":
@@ -707,6 +713,10 @@ function clearTransient(qc: QueryClient, sessionId: string): void {
         }
         if (m.kind === "reasoning" && m.active) {
           return { ...m, active: false, completed: true };
+        }
+        // 崩溃/兜底出口:todoList 卡停转圈(finalizeRun 主路径按 runId 精确收尾,这里兜全量)。
+        if (m.kind === "todoList" && m.active) {
+          return { ...m, active: false };
         }
         return m;
       }),
@@ -864,6 +874,39 @@ function foldToolIntoProcess(qc: QueryClient, sessionId: string, run: RunState, 
   run.cursor = { ...run.cursor, lastKind: "tool", textUid: undefined, segmentText: "" };
 }
 
+// todos 整表浅比较:text+status 序列全同视为无变化(吸收 codex item.updated 的重复帧,
+// 避免空刷 setMessages 触发重渲染与落盘节流)。
+function todosEqual(a: TodoListItem[], b: TodoListItem[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.text !== b[i]!.text || a[i]!.status !== b[i]!.status) return false;
+  }
+  return true;
+}
+
+// 任务清单折叠:todo 事件(整表快照)进**持久消息流**。同一 runId 的卡片原地覆盖 todos
+//(agent 反复调用是在更新同一份清单),未命中则 append 新卡(新 run 开新卡)。区别于
+// agentLog(瞬态过程流):todoList 落盘(sanitizeForSave 保留),重开会话可回顾任务拆解。
+function foldTodoIntoCache(qc: QueryClient, sessionId: string, run: RunState, runId: string, todos: TodoListItem[]): void {
+  setMessages(qc, sessionId, (prev) => {
+    const idx = prev.findIndex((m) => m.kind === "todoList" && m.runId === runId);
+    if (idx >= 0) {
+      const cur = prev[idx] as Extract<Message, { kind: "todoList" }>;
+      if (todosEqual(cur.todos, todos) && cur.active) return prev;
+      const next = prev.slice();
+      next[idx] = { ...cur, todos, active: true };
+      return next;
+    }
+    return [
+      ...prev,
+      { kind: "todoList", who: run.agent, time: realHHMM(), runId, todos, active: true, uid: uid("todo") },
+    ];
+  });
+  // 游标打断(关键):清单卡落到数组尾部后,后续 text 必须开新块——否则 foldCliEvent 会按 textUid
+  // 原地续写卡片**之前**的旧 text 块,视觉上正文长不到卡片之后。与 foldToolIntoProcess 同款处理。
+  run.cursor = { ...run.cursor, lastKind: "tool", textUid: undefined, segmentText: "" };
+}
+
 // 跨流收尾:text 到达且过程流当前有打开的 agentLog 时,对 **process key** 收尾该卡片并清 logUid
 //（KTD6——纯函数只做同流折叠,跨流收尾在调用方）。返回是否执行了收尾。
 function finalizeProcessAgentLog(qc: QueryClient, sessionId: string, run: RunState): void {
@@ -1001,6 +1044,17 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     usePetStore.getState().set("thinking");
     finalizeProcessAgentLog(qc, sessionId, run);
     foldReasoning(qc, run, ev.delta);
+    return;
+  }
+
+  if (ev.type === "todo") {
+    // 任务清单快照(claude TodoWrite / codex update_plan):编排中间段(intent/subagent)的清单
+    // 属于过程,不进聊天正文——与下方 text 的 stage 守卫同理;非编排 run 无 stage,正常折叠。
+    if (ev.stage === "intent" || ev.stage === "subagent") return;
+    // 清单更新是显式阶段边界:先收尾打开的思考块/工具卡,再原地覆盖(或追加)todo 卡。
+    finalizeRunReasoning(qc, run);
+    finalizeProcessAgentLog(qc, sessionId, run);
+    foldTodoIntoCache(qc, sessionId, run, runId, ev.todos);
     return;
   }
 
@@ -1179,6 +1233,11 @@ function finalizeRun(
   const { sessionId } = run;
   dropMsg(qc, sessionId, run.typingUid);
   usePersonalStore.getState().setRunning(sessionId, undefined);
+  // 任务清单卡收尾:该 run 的 todoList 卡 active 置 false(run 结束,in_progress 项停转圈)。
+  // 未完成项保持原状态展示——「运行结束但没做完」应直观暴露,不自动打勾。
+  setMessages(qc, sessionId, (prev) =>
+    prev.map((m) => (m.kind === "todoList" && m.runId === runId && m.active ? { ...m, active: false } : m)),
+  );
 
   if (!run.gotResult && (error || (code !== null && code !== 0))) {
     const missingCodexSession = run.agent === "codex" && isMissingAgentSessionError(error);
@@ -1615,6 +1674,13 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       });
       return;
     }
+    case "todo":
+      // 任务清单快照(pi todo_write):与 handleCliEvent 的 todo 分支同语义——收尾打开的
+      // 思考块/工具卡,原地覆盖(或追加)todo 卡。
+      finalizeRunReasoning(qc, run);
+      finalizeProcessAgentLog(qc, sessionId, run);
+      foldTodoIntoCache(qc, sessionId, run, runId, ev.todos);
+      return;
     case "tool-end":
       finalizeLastToolItem(qc, run, ev.isError);
       // 短暂 ✓ 完成态:被下一个 reasoning/tool/text 事件覆盖;若直接 result 则由占位/正文兜底。

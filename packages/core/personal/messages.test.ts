@@ -2249,3 +2249,111 @@ describe("运行事件流(personalRunEventsKeys)采集与 tool phase:end 守卫"
     expect(recs.every((r) => r.runId === "prun-1")).toBe(true);
   });
 });
+
+describe("todo 事件折叠(任务清单卡片)", () => {
+  function setupCliRun(qc: QueryClient, runId = "run-1"): void {
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, agent: "claude", agentSessionIds: {} }],
+      runningBySession: {},
+    });
+    __handleCliEventForTest(qc, runId, { type: "init", sessionId: "cl-session" }, "s1");
+  }
+  function chatOf(qc: QueryClient): Message[] {
+    return qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+  }
+  const TODOS_V1 = [
+    { text: "分析", status: "in_progress" as const },
+    { text: "实现", status: "pending" as const },
+  ];
+  const TODOS_V2 = [
+    { text: "分析", status: "completed" as const },
+    { text: "实现", status: "in_progress" as const },
+  ];
+
+  it("同 runId 连续 todo 事件 → 单卡原地覆盖(整表替换,不新增)", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-1", { type: "todo", todos: TODOS_V1 }, "s1");
+    __handleCliEventForTest(qc, "run-1", { type: "todo", todos: TODOS_V2 }, "s1");
+    const cards = chatOf(qc).filter((m) => m.kind === "todoList");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ runId: "run-1", todos: TODOS_V2, active: true });
+  });
+
+  it("不同 runId → 各自独立卡片(新一轮清单开新卡)", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc, "run-1");
+    __handleCliEventForTest(qc, "run-1", { type: "todo", todos: TODOS_V1 }, "s1");
+    __handleCliEventForTest(qc, "run-2", { type: "init", sessionId: "cl-session" }, "s1");
+    __handleCliEventForTest(qc, "run-2", { type: "todo", todos: TODOS_V2 }, "s1");
+    const cards = chatOf(qc).filter((m) => m.kind === "todoList");
+    expect(cards).toHaveLength(2);
+    expect(cards.map((c) => c.kind === "todoList" && c.runId)).toEqual(["run-1", "run-2"]);
+  });
+
+  it("游标打断:todo 卡之后的 text 开新块,排在卡片后(不回写卡片前的旧 text 块)", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-1", { type: "text", delta: "前段" }, "s1");
+    __handleCliEventForTest(qc, "run-1", { type: "todo", todos: TODOS_V1 }, "s1");
+    __handleCliEventForTest(qc, "run-1", { type: "text", delta: "后段" }, "s1");
+    const kinds = chatOf(qc).map((m) => m.kind);
+    const cardIdx = kinds.indexOf("todoList");
+    expect(cardIdx).toBeGreaterThan(-1);
+    const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "claude");
+    expect(texts).toHaveLength(2); // 「前段」「后段」两个独立块,而非并成一块
+    expect(texts[1]).toMatchObject({ text: "后段" });
+    // 「后段」块位于卡片之后。
+    expect(kinds.lastIndexOf("text")).toBeGreaterThan(cardIdx);
+  });
+
+  it("run 结束(cli:exit)→ 该 run 的卡片 active 置 false,未完成项保持原状态", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-1", { type: "todo", todos: TODOS_V1 }, "s1");
+    __handleCliEventForTest(qc, "run-1", { type: "result", ok: true, text: "done" }, "s1");
+    __handleCliExitForTest(qc, "run-1", 0, undefined, "s1");
+    const card = chatOf(qc).find((m) => m.kind === "todoList");
+    expect(card).toMatchObject({ active: false, todos: TODOS_V1 });
+  });
+
+  it("pi RPC 路径:todo 事件同样折进持久消息流并支持覆盖更新", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId: "prun-t", sessionId: "s1", typingUid: "typ-s1", cwd: "/proj", promptText: "hi" });
+    __handlePiEventForTest(qc, "s1", { type: "todo", todos: TODOS_V1 });
+    __handlePiEventForTest(qc, "s1", { type: "todo", todos: TODOS_V2 });
+    const cards = chatOf(qc).filter((m) => m.kind === "todoList");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ runId: "prun-t", todos: TODOS_V2 });
+    // 过程流不含 todo 卡(与 agentLog 分离)。
+    const process = qc.getQueryData<Message[]>(personalProcessKeys.detail("s1")) ?? [];
+    expect(process.some((m) => m.kind === "todoList")).toBe(false);
+  });
+
+  it("sanitizeForSave:todoList 保留且 active 归一 false;计入隐藏游标 count", () => {
+    const msgs: Message[] = [
+      { kind: "text", who: "me", time: "10:00", text: "问", uid: "u1" },
+      {
+        kind: "todoList",
+        who: "claude",
+        time: "10:00",
+        runId: "run-1",
+        todos: TODOS_V1,
+        active: true,
+        uid: "td1",
+      },
+      { kind: "reasoning", who: "claude", time: "10:00", text: "思考", active: true, uid: "r1" },
+      { kind: "text", who: "claude", time: "10:01", text: "答", uid: "a1" },
+    ];
+    const out = sanitizeForSave(msgs);
+    expect(out.map((m) => m.kind)).toEqual(["text", "todoList", "text"]);
+    expect(out[1]).toMatchObject({ kind: "todoList", active: false, todos: TODOS_V1 });
+    // count 与落盘后长度一致(游标不偏移)。
+    expect(createHiddenHistory(msgs, 1).count).toBe(out.length);
+  });
+});

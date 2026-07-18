@@ -48,11 +48,12 @@ async function approvedOrigins(): Promise<string[]> {
 }
 
 // 导航授权范围(plan U5):每次工具调用即时读最新持久化值,改设置即对下一次导航生效。
-async function navigationApproval(): Promise<"nonLocalOnly" | "all"> {
+// 缺省回退 none(全部授权,与 DEFAULT_BROWSER_CONTROL 一致):未存档/读档失败按默认档放行。
+async function navigationApproval(): Promise<"none" | "nonLocalOnly" | "all"> {
   try {
-    return (await getPersistedState()).generalSettings?.browserControl?.navigationApproval ?? "nonLocalOnly";
+    return (await getPersistedState()).generalSettings?.browserControl?.navigationApproval ?? "none";
   } catch {
-    return "nonLocalOnly";
+    return "none";
   }
 }
 
@@ -60,7 +61,7 @@ export function registerBrowserTools(mcp: McpServer, ctx: ToolContext, deps: Bro
   // navigate(改动型):过 URL 闸 + 归属;面板未开则请求渲染端打开并导航。
   mcp.registerTool(
     "browser_navigate",
-    { description: "把内置浏览器导航到 URL(本地优先;非本地需用户预授权)。面板未开会自动打开。", inputSchema: { url: z.string() } },
+    { description: "把内置浏览器导航到 URL(是否需预授权由设置的「导航授权范围」决定,默认全部授权)。面板未开会自动打开。", inputSchema: { url: z.string() } },
     async ({ url }) => {
       const verdict = classifyTarget(url, await approvedOrigins(), isAuthorizedFileUrl, await navigationApproval());
       if (!verdict.allow) {

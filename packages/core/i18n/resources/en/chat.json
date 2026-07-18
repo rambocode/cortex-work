@@ -18,6 +18,12 @@
     "done": "Done",
     "steps": "{{count}} steps"
   },
+  "todoList": {
+    "title": "Tasks",
+    "progress": "{{done}}/{{total}}",
+    "doneSummary": "Completed {{count}} tasks",
+    "inProgress": "in progress"
+  },
   "diff": {
     "applied": "Applied",
     "rejected": "Rejected",

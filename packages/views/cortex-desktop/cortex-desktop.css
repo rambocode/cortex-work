@@ -6214,7 +6214,8 @@ button.sb-row {
 }
 
 /* askquestion 富卡片（输入框上方,非模态）。多组顶部 tab 切换 + 推荐项 + 自定义输入 + 整卡一次提交。
-   宽度对齐输入框（与 .composer-wrap 同 40px 侧距,不超过输入框）,背景纯白,tab active 用主题色。 */
+   宽度对齐输入框（与 .composer-wrap 同 40px 侧距,不超过输入框）,背景纯白,tab active 用主题色。
+   头部身份行(? 图标 + 「向你提问」+ 进度 + ✕)让卡片可辨识为「等待作答」,浮起阴影与消息流区隔。 */
 .pw-askq {
   margin: 6px 40px 0;
   border: 1px solid var(--border-strong);
@@ -6223,6 +6224,53 @@ button.sb-row {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: var(--shadow-pop);
+}
+.pw-askq-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px 8px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pw-askq-head-ic {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+.pw-askq-head-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.pw-askq-head-count {
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.pw-askq-head-close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.pw-askq-head-close:hover {
+  color: var(--text-1);
+  background: var(--bg-hover);
 }
 .pw-askq-tabs {
   display: flex;
@@ -6300,9 +6348,11 @@ button.sb-row {
   cursor: pointer;
   font-size: 13px;
   color: var(--text-1);
+  transition: border-color 0.12s ease, background-color 0.12s ease;
 }
 .pw-askq-opt:hover {
   background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 .pw-askq-opt.selected {
   border-color: var(--accent);
@@ -6312,6 +6362,31 @@ button.sb-row {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+/* 选择指示圆点:未选空心,选中实心 accent + 白色内点(radio 隐喻,选中态一眼可辨)。 */
+.pw-askq-opt-radio {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.pw-askq-opt.selected .pw-askq-opt-radio {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.pw-askq-opt.selected .pw-askq-opt-radio::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #fff;
+}
+/* 描述缩进对齐 label(radio 14px + gap 8px = 22px),不再顶到卡片左缘。 */
+.pw-askq-opt-desc {
+  padding-left: 22px;
 }
 .pw-askq-badge {
   font-size: 10.5px;
@@ -6350,6 +6425,27 @@ button.sb-row {
   margin-right: auto;
   font-size: 12px;
   color: var(--text-3);
+}
+/* 快捷键提示(footer 中缝):纯视觉辅助,aria-hidden。窄卡时可被压缩隐藏,不挤按钮。 */
+.pw-askq-kbds {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 4px;
+}
+.pw-askq-kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-sidebar);
+  font-size: 10.5px;
+  font-family: inherit;
+  color: var(--text-2);
+  line-height: 1.6;
 }
 .pw-dlg-nav {
   width: 152px;

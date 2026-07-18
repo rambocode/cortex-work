@@ -742,8 +742,11 @@ export const PI_THINKING_LABELS: Record<ThinkingLevel, string> = {
 export type LocalUrlOpenTarget = "internal" | "system";
 // 批注「发送到 Chat」是否附带当前页截图:始终 / 询问(本期=手动不自动附) / 从不。
 export type AnnotateScreenshotMode = "always" | "ask" | "never";
-// 导航授权范围(预授权严格度,取代 Codex 事中审批):仅非本地需预授权 / 含 localhost 也需。
-export type NavigationApproval = "nonLocalOnly" | "all";
+// 导航授权范围(预授权严格度,取代 Codex 事中审批):
+//   none         — 全部授权(默认):http/https 一律放行,免预授权白名单(file 仍需授权)。
+//   nonLocalOnly — 仅非本地需预授权,localhost 自由访问。
+//   all          — 含 localhost 也需预授权(最严)。
+export type NavigationApproval = "none" | "nonLocalOnly" | "all";
 
 // 浏览器控制配置（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。
 export interface BrowserControlSettings {
@@ -752,7 +755,7 @@ export interface BrowserControlSettings {
   approvedOrigins: string[]; // 非本地导航的预授权 origin 白名单(scheme 限定,如 https://example.com)
   localUrlOpenTarget: LocalUrlOpenTarget; // 本地 URL 打开目标(仅本地;外链恒进内置)。缺省 internal
   annotateScreenshotMode: AnnotateScreenshotMode; // 批注附截图策略。缺省 ask(零行为变更)
-  navigationApproval: NavigationApproval; // 导航授权范围。缺省 nonLocalOnly(当前行为)
+  navigationApproval: NavigationApproval; // 导航授权范围。缺省 none(全部授权)
 }
 
 export const DEFAULT_BROWSER_CONTROL: BrowserControlSettings = {
@@ -761,7 +764,7 @@ export const DEFAULT_BROWSER_CONTROL: BrowserControlSettings = {
   approvedOrigins: [],
   localUrlOpenTarget: "internal",
   annotateScreenshotMode: "ask",
-  navigationApproval: "nonLocalOnly",
+  navigationApproval: "none",
 };
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
@@ -1094,7 +1097,10 @@ export type CliStreamEvent =
   | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
   | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
   | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string };
+  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  // todo 事件:agent 任务清单整表快照(覆盖语义,每帧带全量 todos)。三端归一化产出:
+  // claude TodoWrite / codex update_plan(todo_list item)/ pi 自定义 todo_write 工具。
+  | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }>; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string };
 
 export interface CliExitEvent {
   runId: string;
@@ -1215,6 +1221,9 @@ export type PiSessionEvent =
   // (tool_execution_end.result 归一化,主进程已截断)。供运行过程详情视图展示。
   | { type: "tool-start"; name: string; toolCallId: string; detail?: string; input?: unknown }
   | { type: "tool-end"; name: string; toolCallId: string; isError: boolean; output?: string }
+  // todo 事件:自定义 todo_write 工具(pi-todo extension)调用的任务清单整表快照(覆盖语义)。
+  // adapter 侧把 tool_execution_start 特判转成本事件,对应 tool-end 被吞掉(避免过程流噪音)。
+  | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> }
   | { type: "turn-end" } // 一轮（含工具）结束
   | { type: "error"; error: string } // assistant stopReason=error/aborted
   | { type: "result"; willRetry: boolean } // 一次 run 结束（agent_end）

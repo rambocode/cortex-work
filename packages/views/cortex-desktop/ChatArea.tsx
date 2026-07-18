@@ -319,6 +319,94 @@ const AgentLogMessage = memo(function AgentLogMessage({
   );
 });
 
+// agent 任务清单卡片(todoList):同一 run 内整表覆盖更新的任务拆解与完成进度。
+// 折叠是派生态:全部 completed → 默认收起为一行摘要(可点开回顾);有未完成项(含 run 中途
+// 结束)→ 保持展开直观暴露。用户点击标题可手动覆盖,allDone 翻转时清覆盖回到默认。
+const TodoListMessage = memo(function TodoListMessage({
+  m,
+  grouped,
+}: {
+  m: Extract<Message, { kind: "todoList" }>;
+  grouped: boolean;
+}) {
+  const { t } = useTranslation("chat");
+  const doneCount = m.todos.filter((it) => it.status === "completed").length;
+  const allDone = m.todos.length > 0 && doneCount === m.todos.length;
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    setUserOpen(null);
+  }, [allDone]);
+  const open = userOpen ?? !allDone;
+
+  return (
+    <div className={`msg ${grouped ? "is-grouped" : ""}`}>
+      <MessageAvatar who={m.who} />
+      <div className="m-body">
+        <MessageHeader who={m.who} time={m.time} />
+        <div className="agent-log">
+          <div className="al-h" onClick={() => setUserOpen(!open)} style={{ cursor: "pointer", userSelect: "none" }}>
+            {allDone ? (
+              <span className="check">
+                <Icon.CheckCircle size={14} />
+              </span>
+            ) : m.active ? (
+              <span className="spinner" />
+            ) : (
+              <Icon.Task size={14} />
+            )}
+            <span style={{ color: "var(--text-1)", fontWeight: 500 }}>
+              {allDone && !open ? t("todoList.doneSummary", { count: m.todos.length }) : t("todoList.title")}
+            </span>
+            {!(allDone && !open) ? (
+              <span style={{ marginLeft: 6, color: "var(--text-3)" }}>
+                · {t("todoList.progress", { done: doneCount, total: m.todos.length })}
+              </span>
+            ) : null}
+            <span className="al-chev" data-open={open}>
+              <Icon.Chevron size={11} />
+            </span>
+          </div>
+          {!open ? null : (
+            <ul>
+              {m.todos.map((it, i) => (
+                <li key={i} className={it.status === "in_progress" ? "is-active" : ""}>
+                  <span className="ic">
+                    {it.status === "completed" ? (
+                      <Icon.Check size={13} />
+                    ) : it.status === "in_progress" && m.active ? (
+                      <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
+                    ) : it.status === "in_progress" ? (
+                      <span
+                        style={{
+                          width: 5,
+                          height: 5,
+                          background: "currentColor",
+                          borderRadius: "50%",
+                          display: "inline-block",
+                        }}
+                      />
+                    ) : (
+                      <span
+                        style={{ width: 7, height: 7, border: "1.5px dashed currentColor", borderRadius: "50%" }}
+                      />
+                    )}
+                  </span>
+                  <span style={it.status === "completed" ? { color: "var(--text-3)" } : undefined}>{it.text}</span>
+                  {it.status === "in_progress" ? (
+                    <span style={{ marginLeft: 6, color: "var(--text-3)", fontSize: 11 }}>
+                      {t("todoList.inProgress")}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const DiffMessage = memo(function DiffMessage({
   m,
   grouped,
@@ -693,7 +781,8 @@ export function MessageStream({
             m.kind !== "approve" &&
             m.kind !== "diff" &&
             m.kind !== "agentLog" &&
-            m.kind !== "reasoning";
+            m.kind !== "reasoning" &&
+            m.kind !== "todoList";
           lastWho = m.who;
           switch (m.kind) {
             case "text":
@@ -713,6 +802,8 @@ export function MessageStream({
               return <ReasoningMessage key={key} m={m} grouped={grouped} collapsible={collapsibleReasoning} />;
             case "agentLog":
               return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
+            case "todoList":
+              return <TodoListMessage key={key} m={m} grouped={grouped} />;
             case "diff":
               return <DiffMessage key={key} m={m} grouped={grouped} onSelectFile={onSelectFile} activeFile={activeFile} />;
             case "approve":

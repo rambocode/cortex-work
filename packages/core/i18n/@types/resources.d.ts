@@ -270,6 +270,12 @@ export default interface Resources {
     "stream": {
       "empty": "这里还没有对话内容,从下方输入框开始 →"
     },
+    "todoList": {
+      "doneSummary": "已完成 {{count}} 项任务",
+      "inProgress": "进行中",
+      "progress": "{{done}}/{{total}}",
+      "title": "任务清单"
+    },
     "transcript": {
       "close": "关闭",
       "done": "完成",
@@ -1429,9 +1435,10 @@ export default interface Resources {
     "browser": {
       "approvalAll": "所有网站均需预授权 · 含 localhost",
       "approvalDesc": "选择 agent 打开网站前的预授权范围。cortex 用预授权白名单(非事中弹窗)。",
-      "approvalHint": "切到「含 localhost」后,需先在下方「网站权限」把 localhost 加入,否则本地导航被拒。",
+      "approvalHint": "「全部授权」下 agent 可自由打开任意网站(含内网),无需白名单;切到「含 localhost」后,需先在下方「网站权限」把 localhost 加入,否则本地导航被拒。",
       "approvalLabel": "导航授权范围",
       "approvalNonLocal": "仅外部网站需预授权 · localhost 自由访问",
+      "approvalNone": "全部授权 · 免预授权(默认)",
       "cancel": "取消",
       "cdpConfirm": "开启后 agent 可观测全部网络请求与无障碍树,并占用调试器。确认启用?",
       "cdpConfirmBtn": "我已了解风险,启用",

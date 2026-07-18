@@ -8,14 +8,18 @@ vi.mock("fs", () => ({ writeFileSync: h.writeFileSync, mkdirSync: h.mkdirSync })
 import {
   DEFAULT_APPROVAL_TOOLS,
   evaluatePathJail,
+  normalizePiTodos,
   renderApprovalExtension,
   renderAskQuestionExtension,
   renderCustomToolExtension,
   renderPathJailExtension,
   renderSlashCommandExtension,
+  renderTodoExtension,
+  TODO_TOOL_NAME,
   writeApprovalExtension,
   writeAskQuestionExtension,
   writePathJailExtension,
+  writeTodoExtension,
 } from "./pi-extensions";
 import { isAbsolute, join, resolve, sep } from "node:path";
 
@@ -196,5 +200,53 @@ describe("renderAskQuestionExtension（askquestion 工具）", () => {
     expect(h.writeFileSync).toHaveBeenCalledWith(expect.stringContaining("askquestion.js"), expect.any(String), {
       mode: 0o600,
     });
+  });
+});
+
+describe("renderTodoExtension（任务清单工具 todo_write）", () => {
+  it("registerTool 结构:工具名与 TODO_TOOL_NAME 同源,schema 含三态 status 枚举与 todos 必填", () => {
+    const src = renderTodoExtension();
+    expect(src).toContain("export default function (pi)");
+    expect(src).toContain("pi.registerTool({");
+    expect(src).toContain(JSON.stringify(TODO_TOOL_NAME));
+    expect(src).toContain('"enum":["pending","in_progress","completed"]');
+    expect(src).toContain('"required":["todos"]');
+    // 复杂度判断交给模型:description 必须带「复杂多步任务才用」的约束。
+    expect(src).toContain("复杂多步任务");
+    expect(src).toContain("整表覆盖");
+  });
+
+  it("写文件:落 userData/pi-extensions/todo.js,mode 0600", () => {
+    const path = writeTodoExtension();
+    expect(path.endsWith("todo.js")).toBe(true);
+    expect(h.writeFileSync).toHaveBeenCalledWith(expect.stringContaining("todo.js"), expect.any(String), {
+      mode: 0o600,
+    });
+  });
+});
+
+describe("normalizePiTodos（todo_write 参数归一化）", () => {
+  it("合法项透传;未知状态回退 pending;非法项/空文本跳过", () => {
+    expect(
+      normalizePiTodos({
+        todos: [
+          { text: "分析", status: "completed" },
+          { text: "实现", status: "in_progress" },
+          { text: "验证", status: "bogus" },
+          { text: "", status: "pending" },
+          "not-an-object",
+        ],
+      }),
+    ).toEqual([
+      { text: "分析", status: "completed" },
+      { text: "实现", status: "in_progress" },
+      { text: "验证", status: "pending" },
+    ]);
+  });
+
+  it("args 缺失/非数组 → 空数组", () => {
+    expect(normalizePiTodos(undefined)).toEqual([]);
+    expect(normalizePiTodos({})).toEqual([]);
+    expect(normalizePiTodos({ todos: "x" })).toEqual([]);
   });
 });

@@ -10,6 +10,7 @@
 
 import { spawn } from "child_process";
 
+import { normalizePiTodos, TODO_TOOL_NAME } from "./pi-extensions";
 import { resolvePiBinary } from "./pi-locate";
 import { safeId } from "./pi-providers";
 import { recordAgentTrace } from "../ipc/agent-trace";
@@ -140,6 +141,12 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
     }
     case "tool_execution_start": {
       if (typeof o.toolName !== "string" || typeof o.toolCallId !== "string") return null;
+      // 任务清单工具特判:todo_write(pi-todo extension)不产 tool-start(避免过程流噪音),
+      // 改产 todo 整表快照事件;对应 tool_execution_end 在下方分支被吞掉。空清单丢弃。
+      if (o.toolName === TODO_TOOL_NAME) {
+        const todos = normalizePiTodos(o.args);
+        return todos.length > 0 ? { type: "todo", todos } : null;
+      }
       const out: Extract<PiSessionEvent, { type: "tool-start" }> = {
         type: "tool-start",
         name: o.toolName,
@@ -153,6 +160,8 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
     }
     case "tool_execution_end": {
       if (typeof o.toolName !== "string" || typeof o.toolCallId !== "string") return null;
+      // todo_write 的 end 帧吞掉:start 侧已转成 todo 事件,无 tool-start 可配对。
+      if (o.toolName === TODO_TOOL_NAME) return null;
       const out: Extract<PiSessionEvent, { type: "tool-end" }> = {
         type: "tool-end",
         name: o.toolName,

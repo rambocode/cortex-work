@@ -118,6 +118,11 @@ function messageScrollSignature(messages: Message[]): string {
     const last = tail.items[tail.items.length - 1];
     return `agentLog:${tail.uid ?? ""}:${tail.items.length}:${last?.ic ?? ""}:${last ? richLength(last.text) : 0}:${tail.active ? 1 : 0}`;
   }
+  // todoList 原地覆盖更新(uid 不变):签名纳入条数/完成数/active,更新时仍能驱动自动滚动。
+  if (tail.kind === "todoList") {
+    const done = tail.todos.filter((it) => it.status === "completed").length;
+    return `todoList:${tail.uid ?? ""}:${tail.todos.length}:${done}:${tail.active ? 1 : 0}`;
+  }
   return `${tail.kind}:${tail.uid ?? messages.length}`;
 }
 

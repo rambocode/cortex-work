@@ -67,13 +67,16 @@ function isPrivateOrLinkLocal(host: string): boolean {
 }
 
 // 导航授权范围(设置页「导航授权范围」下拉,plan U5/R9):
-//   - nonLocalOnly(默认/当前行为):本地免审,仅非本地查白名单。
+//   - none(默认):全部授权——http/https 一律放行(含私网/内网 IP),免预授权白名单。
+//     file:// 不受本档影响,仍须经既有授权(文件访问权限独立于导航范围)。
+//   - nonLocalOnly:本地免审,仅非本地查白名单。
 //   - all:连本地(localhost/127.x/::1)也需在 approvedOrigins 白名单,未授权则拒并回 origin。
 // cortex 无事中弹窗审批(claude/codex 一次性 spawn),故用预授权强度取代 Codex 的事中「审批」。
-export type NavigationApproval = "nonLocalOnly" | "all";
+export type NavigationApproval = "none" | "nonLocalOnly" | "all";
 
 // 判定 agent 请求导航的目标 URL 是否放行。isFileAuthorized 由调用方注入(对齐 webviewGuards）。
-// navigationApproval 缺省 nonLocalOnly,保后向兼容(既有 3 参调用与测试不变)。
+// navigationApproval 缺省 nonLocalOnly,保后向兼容(既有 3 参调用与测试不变;运行时实际档位
+// 由 tools.ts 从持久化设置读出并显式传入)。
 export function classifyTarget(
   rawUrl: string,
   approvedOrigins: string[],
@@ -90,6 +93,9 @@ export function classifyTarget(
     return isFileAuthorized(u.toString()) ? { allow: true } : { allow: false, reason: "file-unauthorized" };
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") return { allow: false, reason: "bad-url" };
+  // none 档(全部授权):http/https 一律放行,连私网检查也跳过——「全部」的字面语义,
+  // SSRF 面由用户显式选择该档位承担(bad-url/file 闸仍在)。
+  if (navigationApproval === "none") return { allow: true };
   const host = u.hostname.replace(/^\[|\]$/g, ""); // 去 IPv6 方括号
   // all 档下本地不再免审,落入下方白名单检查(未授权 → 回 origin 待授权)。
   if (navigationApproval !== "all" && isLoopbackHost(host)) return { allow: true }; // 本地自测,免审

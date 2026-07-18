@@ -12,6 +12,7 @@ import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, Cli
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession, trimSessionIntoCopy } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
+import { writeTodoExtension } from "../agents/pi-extensions";
 import { mcpServerToBridge, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
@@ -934,6 +935,14 @@ export function registerCliHandlers(): void {
           ...(req.extraExtensionPaths ?? []),
           writeMcpBridgeExtension(bridges, `design-bridge-${safeSid}.js`),
         ];
+      }
+      // 任务清单工具 todo_write:pi 无原生 TodoWrite,单发路径常驻注入(与 RPC 路径
+      // preparePiOpenRequest 对齐)。编排流(design:/slides:/writing:)跳过——其事件在渲染端
+      // 被前缀守卫拦截,不渲染 todo 卡,注入只会让 agent 白调工具。
+      const isOrchestrationRun =
+        req.runId.startsWith("design:") || req.runId.startsWith("slides:") || req.runId.startsWith("writing:");
+      if (!isOrchestrationRun) {
+        req.extraExtensionPaths = [...(req.extraExtensionPaths ?? []), writeTodoExtension()];
       }
     }
 

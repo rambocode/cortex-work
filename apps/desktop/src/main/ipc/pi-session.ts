@@ -19,6 +19,7 @@ import {
   writeCustomToolExtension,
   writePathJailExtension,
   writeSlashCommandExtension,
+  writeTodoExtension,
 } from "../agents/pi-extensions";
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
 import { getPersistedState } from "./store";
@@ -181,6 +182,9 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
     prepared.askQuestionSentinel ?? `@@CORTEX_ASKQ:${randomUUID()}@@`;
   prepared.askQuestionSentinel = askQuestionSentinel;
   extra.push(writeAskQuestionExtension(askQuestionSentinel));
+  // 任务清单工具 todo_write(常驻):pi 无原生 TodoWrite,经此补齐。事件在 pi-rpc.ts mapPiEvent
+  // 特判转成 todo 整表快照事件,渲染端折叠成任务清单卡片。
+  extra.push(writeTodoExtension());
 
   try {
     const gs = (await getPersistedState()).generalSettings;

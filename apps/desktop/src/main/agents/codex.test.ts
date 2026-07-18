@@ -210,6 +210,38 @@ describe("codexDef.parseLine", () => {
     expect(ev({ id: "i3", type: "mcp_tool_call", tool: "fs.read" })).toMatchObject({ name: "MCP", detail: "fs.read" });
   });
 
+  it("todo_list 三种帧(started/updated/completed)→ todo 整表快照事件,不产 tool 事件", () => {
+    const items = [
+      { text: "分析结构", completed: true },
+      { text: "重写组件", completed: false },
+    ];
+    const expected = {
+      type: "todo",
+      todos: [
+        { text: "分析结构", status: "completed" },
+        { text: "重写组件", status: "pending" },
+      ],
+    };
+    for (const frame of ["item.started", "item.updated", "item.completed"]) {
+      const line = JSON.stringify({ type: frame, item: { id: "todo_0", type: "todo_list", items } });
+      expect(codexDef.parseLine(line)).toEqual(expected);
+    }
+  });
+
+  it("todo_list 显式 status 字段优先(前向兼容 in_progress);空 items 丢弃", () => {
+    const line = JSON.stringify({
+      type: "item.updated",
+      item: { id: "t1", type: "todo_list", items: [{ text: "改代码", status: "in_progress", completed: false }] },
+    });
+    expect(codexDef.parseLine(line)).toEqual({
+      type: "todo",
+      todos: [{ text: "改代码", status: "in_progress" }],
+    });
+    expect(
+      codexDef.parseLine(JSON.stringify({ type: "item.started", item: { id: "t2", type: "todo_list", items: [] } })),
+    ).toBeNull();
+  });
+
   it("工具 item.completed → tool phase:end 带 aggregated_output/isError", () => {
     const line = JSON.stringify({
       type: "item.completed",

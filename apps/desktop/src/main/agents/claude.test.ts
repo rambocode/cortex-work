@@ -243,6 +243,58 @@ describe("claudeDef.parseLine", () => {
     ]);
   });
 
+  it("TodoWrite → todo 整表快照事件(不产 tool 事件,content→text、未知状态回退 pending)", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_todo",
+            name: "TodoWrite",
+            input: {
+              todos: [
+                { content: "分析代码", status: "completed", activeForm: "分析中" },
+                { content: "重写组件", status: "in_progress" },
+                { content: "跑测试", status: "bogus" },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    expect(claudeDef.parseLine(line)).toEqual({
+      type: "todo",
+      todos: [
+        { text: "分析代码", status: "completed" },
+        { text: "重写组件", status: "in_progress" },
+        { text: "跑测试", status: "pending" },
+      ],
+    });
+  });
+
+  it("TodoWrite 与其他 tool_use 并行 → 混合数组(todo + tool);空清单 TodoWrite 被丢弃", () => {
+    const mixed = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", id: "toolu_a", name: "Bash", input: { command: "ls" } },
+          { type: "tool_use", id: "toolu_b", name: "TodoWrite", input: { todos: [{ content: "步骤一", status: "pending" }] } },
+        ],
+      },
+    });
+    expect(claudeDef.parseLine(mixed)).toEqual([
+      { type: "tool", name: "Bash", detail: "ls", input: { command: "ls" }, phase: "start", toolCallId: "toolu_a" },
+      { type: "todo", todos: [{ text: "步骤一", status: "pending" }] },
+    ]);
+
+    const empty = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "toolu_c", name: "TodoWrite", input: { todos: [] } }] },
+    });
+    expect(claudeDef.parseLine(empty)).toBeNull();
+  });
+
   it("user tool_result(string content)→ tool phase:end 带输出与 toolCallId", () => {
     const line = JSON.stringify({
       type: "user",

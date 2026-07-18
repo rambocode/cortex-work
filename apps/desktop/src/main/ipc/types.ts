@@ -253,7 +253,7 @@ export interface BrowserControlSettings {
   approvedOrigins: string[];
   localUrlOpenTarget: "internal" | "system";
   annotateScreenshotMode: "always" | "ask" | "never";
-  navigationApproval: "nonLocalOnly" | "all";
+  navigationApproval: "none" | "nonLocalOnly" | "all";
 }
 
 // pi 插件 Skill 配置（与 packages/core/desktop/types.ts 逐字镜像）。
@@ -615,7 +615,10 @@ export type CliStreamEvent =
   | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
   | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
   | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string };
+  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  // todo 事件:agent 任务清单整表快照(覆盖语义,每帧带全量 todos)。三端归一化产出:
+  // claude TodoWrite / codex update_plan(todo_list item)/ pi 自定义 todo_write 工具。
+  | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }>; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string };
 
 // 圆桌编排启动参数（渲染端 → roundtable:start）。
 // 管线式调度：主 agent 先执行用户 prompt，其输出作为 @mentioned agent 的上下文（KTD4）。
@@ -718,6 +721,9 @@ export type PiSessionEvent =
   // (tool_execution_end.result 归一化,主进程已截断)。供运行过程详情视图展示。
   | { type: "tool-start"; name: string; toolCallId: string; detail?: string; input?: unknown }
   | { type: "tool-end"; name: string; toolCallId: string; isError: boolean; output?: string }
+  // todo 事件:自定义 todo_write 工具(pi-todo extension)调用的任务清单整表快照(覆盖语义)。
+  // adapter 侧把 tool_execution_start 特判转成本事件,对应 tool-end 被吞掉(避免过程流噪音)。
+  | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> }
   | { type: "turn-end" } // 一轮（含工具）结束
   | { type: "error"; error: string } // assistant stopReason=error/aborted
   | { type: "result"; willRetry: boolean } // 一次 run 结束（agent_end）

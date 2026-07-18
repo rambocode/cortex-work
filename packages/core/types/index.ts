@@ -190,7 +190,26 @@ export type Message =
       roleColor?: string;
       roleAvatar?: string;
       uid?: string;
+    }
+  | {
+      // agent 任务清单卡片:由 CliStreamEvent/PiSessionEvent 的 todo 事件折叠而来。
+      // 同一 runId 覆盖更新(整表替换 todos),新 run 开新卡;全部 completed 时渲染端默认折叠。
+      // 区别于 agentLog(瞬态过程流):todoList 进持久消息流并落盘(sanitizeForSave 保留)。
+      kind: "todoList";
+      who: string;
+      time: string;
+      runId: string;
+      todos: TodoListItem[];
+      // run 仍在进行:in_progress 项显示 spinner;finalizeRun / 落盘时归一为 false。
+      active?: boolean;
+      uid?: string;
     };
+
+// agent 任务清单单项:三端(claude TodoWrite / codex update_plan / pi todo_write)归一化后的形状。
+export interface TodoListItem {
+  text: string;
+  status: "pending" | "in_progress" | "completed";
+}
 
 export interface HeaderStatus {
   dot: "working" | "review" | "online" | "idle";

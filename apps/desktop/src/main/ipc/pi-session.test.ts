@@ -59,6 +59,7 @@ const h = vi.hoisted(() => {
     writeCustomToolExtension: vi.fn(() => "/ext/sample-tools.js"),
     writeSlashCommandExtension: vi.fn(() => "/ext/sample-commands.js"),
     writeAskQuestionExtension: vi.fn(() => "/ext/askquestion.js"),
+    writeTodoExtension: vi.fn(() => "/ext/todo.js"),
     assertSpawnCwd: vi.fn(),
     spawnEnvFor: vi.fn(() => ({})),
     readImageBytes: vi.fn(async () => ({ mimeType: "image/png", base64: "AAAA" })),
@@ -85,6 +86,7 @@ vi.mock("../agents/pi-extensions", () => ({
   writeCustomToolExtension: h.writeCustomToolExtension,
   writeSlashCommandExtension: h.writeSlashCommandExtension,
   writeAskQuestionExtension: h.writeAskQuestionExtension,
+  writeTodoExtension: h.writeTodoExtension,
 }));
 vi.mock("./cli", () => ({ assertSpawnCwd: h.assertSpawnCwd, spawnEnvFor: h.spawnEnvFor }));
 vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
@@ -451,7 +453,7 @@ describe("阶段3 extension 装配（pi:open 按开关注入）", () => {
     expect(req.extraExtensionPaths).toContain("/ext/approval.js");
   });
 
-  it("三开关全开 → 三个样例 + askquestion 常驻,extraExtensionPaths 四条", async () => {
+  it("三开关全开 → 三个样例 + askquestion/todo 常驻,extraExtensionPaths 五条", async () => {
     const req: PiOpenRequest = {
       uiSessionId: "u1",
       cwd: "/p",
@@ -465,15 +467,16 @@ describe("阶段3 extension 装配（pi:open 按开关注入）", () => {
       "/ext/sample-tools.js",
       "/ext/sample-commands.js",
       "/ext/askquestion.js",
+      "/ext/todo.js",
     ]);
   });
 
-  it("无开关 → 不生成样例 extension,但 askquestion 常驻注入(每会话高熵 sentinel)", async () => {
+  it("无开关 → 不生成样例 extension,但 askquestion/todo 常驻注入(askquestion 带每会话高熵 sentinel)", async () => {
     const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
     await h.handlers.get("pi:open")!(fakeEvent(), req);
     expect(h.writeApprovalExtension).not.toHaveBeenCalled();
     expect(h.writeAskQuestionExtension).toHaveBeenCalledWith(expect.stringContaining("@@CORTEX_ASKQ"));
-    expect(req.extraExtensionPaths).toEqual(["/ext/askquestion.js"]);
+    expect(req.extraExtensionPaths).toEqual(["/ext/askquestion.js", "/ext/todo.js"]);
   });
 
   it("provider + 审批共存:provider extension 与审批 extension 都生成,互不影响", async () => {
@@ -482,7 +485,7 @@ describe("阶段3 extension 装配（pi:open 按开关注入）", () => {
     await h.handlers.get("pi:open")!(fakeEvent(), req);
     expect(h.writePiExtension).toHaveBeenCalledWith(provider); // provider 注入不动
     expect(req.piExtensionPath).toBe("/ext/deepseek.js");
-    expect(req.extraExtensionPaths).toEqual(["/ext/approval.js", "/ext/askquestion.js"]);
+    expect(req.extraExtensionPaths).toEqual(["/ext/approval.js", "/ext/askquestion.js", "/ext/todo.js"]);
   });
 });
 
