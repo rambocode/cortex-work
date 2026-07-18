@@ -220,8 +220,9 @@ describe('页内 bridge 行为(jsdom)', () => {
     bridge.drain()
     const h1 = document.querySelector('h1') as HTMLElement
     h1.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 100 }))
-    // 4px 阈值内不算拖拽。
-    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 102, clientY: 101 }))
+    // 2px 阈值内不算拖拽(1px 只是手抖);拖拽期间实时位移走 transform,left 松手才写。
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 101, clientY: 100 }))
+    expect(h1.style.transform).toBe('')
     expect(h1.style.left).toBe('')
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 130, clientY: 120 }))
     document.dispatchEvent(new MouseEvent('mouseup', {}))
@@ -324,15 +325,19 @@ describe('页内 bridge 行为(jsdom)', () => {
     stubRect(b, { left: 300, top: 300, w: 100, h: 50 })
     b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 500, clientY: 500 }))
     // dx=-197 → 拟移到 left=103,距 a 的左边线(100)3px → 吸附到 100。
+    // 拖拽期间实时位移(含吸附修正 -3px)走 transform;left 到松手才落盘。
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 303, clientY: 500 }))
-    expect(b.style.left).toBe('100px')
-    // 排除缩放手柄层(同为 data-cortex-bridge 节点,拖拽开始选中 b 时已创建)。
-    const guide = document.querySelector('div[data-cortex-bridge]:not([data-cortex-handles])') as HTMLElement
+    expect(b.style.transform).toBe('translate(-200px, 0px)')
+    // 排除缩放手柄层与旋转手柄(同为 data-cortex-bridge 节点,拖拽开始选中 b 时已创建)。
+    const guide = document.querySelector('div[data-cortex-bridge]:not([data-cortex-handles]):not([data-cortex-rotate])') as HTMLElement
     expect(guide).not.toBeNull()
     expect(guide.style.display).toBe('block')
     expect(guide.style.left).toBe('100px')
     document.dispatchEvent(new MouseEvent('mouseup', {}))
     expect(guide.style.display).toBe('none')
+    // 松手落盘:吸附后的最终位置写入 left,临时 transform 还原。
+    expect(b.style.left).toBe('100px')
+    expect(b.style.transform).toBe('')
     // 参考线绝不落盘。
     vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
     const changed = parseSlideBridgeDrain(bridge.drain()).find((m) => m.type === 'html-changed')
@@ -681,6 +686,117 @@ describe('页内 bridge 行为(jsdom)', () => {
     expect(pasted.querySelector('script')).toBeNull()
     expect(pasted.querySelector('span')!.getAttribute('onmouseover')).toBeNull()
     expect(document.querySelectorAll('script[data-cortex-test]')).toHaveLength(0)
+  })
+
+  it('吸附速度自适应:指针高速移动时不吸附,慢速精调时吸附', () => {
+    const bridge = mountPage(`<head></head><body>
+      <div id="a" style="position:absolute;left:100px;top:100px;width:200px;height:100px"></div>
+      <div id="b" style="position:absolute;left:300px;top:300px;width:100px;height:50px"></div></body>`)
+    bridge.drain()
+    const a = document.getElementById('a') as HTMLElement
+    const b = document.getElementById('b') as HTMLElement
+    mockRect(a, 100, 100, 200, 100)
+    mockRect(b, 300, 300, 100, 50)
+    b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 500, clientY: 500 }))
+    // 首帧(无速度历史)建立采样。
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 495, clientY: 500 }))
+    // 4ms 内跨 192px ≈ 48px/ms:高速移动,拟移到 left=103(距线 3px)也不吸附。
+    vi.advanceTimersByTime(4)
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 303, clientY: 500 }))
+    expect(b.style.transform).toBe('translate(-197px, 0px)')
+    // 200ms 才挪 1px:慢速精调,吸附恢复(102 → 贴 100,修正 -2)。
+    vi.advanceTimersByTime(200)
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 302, clientY: 500 }))
+    expect(b.style.transform).toBe('translate(-200px, 0px)')
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(b.style.left).toBe('100px')
+  })
+
+  it('框选:空白处拖矩形,相交即选、实时反馈,嵌套只选最外层', () => {
+    const bridge = mountPage(`<head></head><body>
+      <div id="card" style="position:absolute;left:40px;top:40px;width:200px;height:100px"><p>卡内文字</p></div>
+      <p id="far" data-cortex-id="far">远处文字</p></body>`)
+    bridge.drain()
+    const card = document.getElementById('card') as HTMLElement
+    const inner = card.querySelector('p') as HTMLElement
+    const far = document.getElementById('far') as HTMLElement
+    mockRect(card, 40, 40, 200, 100)
+    mockRect(inner, 50, 50, 100, 20)
+    mockRect(far, 40, 400, 100, 20)
+    // 空白处(body 直接命中,无可选目标)按下开始框选。
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 300, clientY: 200 }))
+    // 框到 card 与其内部 p:只选最外层 card;far 未相交不选。
+    expect(card.getAttribute('data-cortex-selected')).toBe('1')
+    expect(inner.getAttribute('data-cortex-selected')).toBeNull()
+    expect(far.getAttribute('data-cortex-selected')).toBeNull()
+    const marquee = document.querySelector('[data-cortex-marquee]') as HTMLElement
+    expect(marquee).not.toBeNull()
+    // 拉大到覆盖 far:相交即入选。
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 300, clientY: 500 }))
+    expect(far.getAttribute('data-cortex-selected')).toBe('1')
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    // 框选矩形移除;结束后的 click 被抑制,不清空选区。
+    expect(document.querySelector('[data-cortex-marquee]')).toBeNull()
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(card.getAttribute('data-cortex-selected')).toBe('1')
+    const sel = parseSlideBridgeDrain(bridge.drain()).filter((m) => m.type === 'selection-changed').at(-1)
+    if (sel?.type === 'selection-changed') expect(sel.items).toHaveLength(2)
+  })
+
+  it('框选不被满画布容器吞掉:容器视为背景可发起框选,子元素可多选', () => {
+    const bridge = mountPage(`<head></head><body>
+      <div id="wrap" style="position:absolute;left:0;top:0;width:1280px;height:720px">
+        <div id="c1" style="position:absolute;left:100px;top:100px;width:200px;height:100px"></div>
+        <div id="c2" style="position:absolute;left:400px;top:100px;width:200px;height:100px"></div>
+      </div></body>`)
+    bridge.drain()
+    const wrap = document.getElementById('wrap') as HTMLElement
+    const c1 = document.getElementById('c1') as HTMLElement
+    const c2 = document.getElementById('c2') as HTMLElement
+    mockRect(wrap, 0, 0, 1280, 720)
+    mockRect(c1, 100, 100, 200, 100)
+    mockRect(c2, 400, 100, 200, 100)
+    // 从满画布 wrapper 的背景上按下:容器视为空白,框选正常发起(而非拖动 wrapper)。
+    wrap.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 50, clientY: 50 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 650, clientY: 250 }))
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    // 两张卡片同时入选;完全包住框选矩形的 wrapper 自身不入选。
+    expect(c1.getAttribute('data-cortex-selected')).toBe('1')
+    expect(c2.getAttribute('data-cortex-selected')).toBe('1')
+    expect(wrap.getAttribute('data-cortex-selected')).toBeNull()
+    // 消耗框选结束的 click 抑制后,点背景容器=点空白 → 清空选区。
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    wrap.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(c1.getAttribute('data-cortex-selected')).toBeNull()
+    expect(wrap.getAttribute('data-cortex-selected')).toBeNull()
+  })
+
+  it('旋转 v1:拖旋转手柄绕中心旋转,Shift 吸附 15°,旋转态缩放手柄隐藏', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    mockRect(h1, 100, 100, 100, 50)
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    bridge.drain()
+    const handle = document.querySelector('[data-cortex-rotate]') as HTMLElement
+    expect(handle).not.toBeNull()
+    expect(handle.style.display).toBe('block')
+    // 中心 (150,125);从正上方(-90°)拖到正右方(0°)= 旋转 +90°。
+    handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 150, clientY: 50 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 250, clientY: 125 }))
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(h1.style.transform).toBe('rotate(90deg)')
+    // 旋转态:AABB 与真实四角错位,缩放手柄整组隐藏。
+    const dot = document.querySelector('[data-cortex-handles] [data-key="e"]') as HTMLElement
+    expect(dot.style.display).toBe('none')
+    // Shift 吸附:再往下拖到 116.6° 方向,吸到 120°(90 + 26.57 → 120)。
+    handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 150, clientY: 50 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 250, clientY: 175, shiftKey: true }))
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(h1.style.transform).toBe('rotate(210deg)')
+    vi.advanceTimersByTime(EDIT_SAVE_DEBOUNCE_MS + 10)
+    expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'html-changed')).toBe(true)
   })
 
   it('exec(focus-element) 按 data-cortex-id 定位并同步页内选区', () => {

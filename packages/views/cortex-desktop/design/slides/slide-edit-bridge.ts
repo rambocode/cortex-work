@@ -8,9 +8,15 @@
 //
 // 能力(editMode 下):
 //  - 文字编辑:双击白名单标签/纯文本块进入 contenteditable;
-//  - 选择:单击选中(蓝框),Shift/Cmd+单击切换多选,点空白清空;
-//  - 移动:拖拽已选元素成组移动(absolute/fixed 调 left/top 并释放 right/bottom,
-//    流内元素转 position:relative 偏移,不影响兄弟布局);方向键微调(Shift ×10);
+//  - 选择:单击选中(蓝框),Shift/Cmd+单击切换多选,点空白清空;空白处按下拖矩形
+//    框选(相交即选,实时反馈;嵌套只选最外层命中元素)。满画布(≥90% 视口)的
+//    定位容器视为页面背景:点它=点空白,框选可从其上发起;完全包住框选矩形的
+//    容器不入选(在其内部框选=选其子元素);
+//  - 移动:拖拽已选元素成组移动(2px 阈值区分点击;拖拽期间经 transform 走合成器
+//    实时反馈,松手落盘 left/top —— absolute/fixed 释放 right/bottom,流内元素转
+//    position:relative 偏移,不影响兄弟布局);方向键微调(Shift ×10);
+//  - 旋转 v1:单选出旋转手柄(包围盒顶上),绕元素中心旋转,Shift 吸附 15°;
+//    CSS transform rotate 落盘并保留既有变换;旋转态下缩放手柄隐藏(AABB 错位);
 //  - 删除:选中后 Delete/Backspace 批量删除;
 //  - 撤销/重做:动作前入栈 body 快照(Cmd/Ctrl+Z、Shift+Cmd+Z / Ctrl+Y,或宿主工具栏
 //    下发 undo/redo 命令);history-changed 消息驱动宿主按钮可用态;
@@ -27,7 +33,8 @@
 //    paste 优先识别该 mime,克隆经 DOMParser 惰性解析 + 清洗(剥脚本/on* 属性)后
 //    插回原元素旁(+16px 偏移,跨页粘贴挂 body)并选中;文字编辑态交给原生;
 //  - 吸附对齐:拖拽时组包围盒对画布边缘/中线与其它定位元素边/中线做 5px 吸附,
-//    显示参考线(data-cortex-bridge 标记,不落盘);按住 Alt 临时禁用;
+//    显示参考线(data-cortex-bridge 标记,不落盘);按住 Alt 临时禁用;指针高速
+//    移动时自动不吸附(速度自适应:快速=路过,慢速=对齐),消除黏手/跳变;
 //  - 选区上报:selection-changed 携带 elementId/tagName/rect/文本摘要,宿主存入
 //    slides-store,发消息时并入 LLM 回合的选区上下文(精准修订)。
 //
@@ -57,8 +64,9 @@ import {
   SELECTION_TEXT_MAX,
   SLIDE_BRIDGE_PROTOCOL
 } from './slide-bridge-protocol'
-// 页内注入脚本本体(自包含函数;仅在 builder 中 toString 使用)。
+// 页内注入脚本本体与扩展子系统(自包含函数;仅在 builder 中 toString 使用)。
 import { slideEditBridgeInPage } from './slide-edit-inpage'
+import { slideEditExtrasInPage } from './slide-edit-inpage-extras'
 
 
 
@@ -72,5 +80,6 @@ export function buildSlideEditBridgeSource(): string {
     htmlMaxBytes: MAX_EDITED_HTML_BYTES
   })
   // 幂等守卫:webview 每次 dom-ready 都会注入,已挂载则跳过。
-  return `(function(){ if (window.__cortexSlidesBridge) return; (${slideEditBridgeInPage.toString()})(${config}); })()`
+  // 扩展子系统(框选/旋转/z-order)作为第二参数一并注入,主脚本初始化末尾装配。
+  return `(function(){ if (window.__cortexSlidesBridge) return; (${slideEditBridgeInPage.toString()})(${config}, ${slideEditExtrasInPage.toString()}); })()`
 }

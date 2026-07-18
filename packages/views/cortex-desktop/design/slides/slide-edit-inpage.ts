@@ -4,12 +4,19 @@
 // 约束:函数必须自包含 —— 不引用模块内其它符号(配置经参数注入),否则
 // toString 注入后运行时引用悬空。
 
+import type { SlideExtrasApi, SlideExtrasCtx } from './slide-edit-inpage-extras'
+
 /* eslint-disable */
 // 页内注入脚本(自包含函数,toString 后由宿主 executeJavaScript 注入)。
 // 约束:不引用闭包外变量;只经 outbox + 宿主 drain 通信;不触碰任何 Node/preload API。
 // 类型注解仅为通过本包 typecheck —— 编译时被擦除,不影响 toString() 注入的运行时代码;
 // 因此这里不得使用任何需要运行时 helper 的 TS 构造(enum/装饰器/参数属性等)。
-export function slideEditBridgeInPage(config: { protocol: number; editableTags: string[]; debounceMs: number; textMax: number; htmlMaxBytes: number }) {
+// extrasFactory:扩展子系统(框选/旋转/z-order,见 slide-edit-inpage-extras.ts)的
+// 工厂,由 builder 一并 toString 注入后作为参数传入。
+export function slideEditBridgeInPage(
+  config: { protocol: number; editableTags: string[]; debounceMs: number; textMax: number; htmlMaxBytes: number },
+  extrasFactory?: (ctx: SlideExtrasCtx) => SlideExtrasApi
+) {
   var PROTOCOL = config.protocol
   var HTML_MAX = config.htmlMaxBytes
   var EDITABLE: Record<string, boolean> = {}
@@ -28,6 +35,8 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
   var suppressClick = false
   // 方向键微调的撤销步合并窗计时。
   var lastNudgeAt = 0
+  // 扩展子系统(框选/旋转/z-order):初始化末尾由 extrasFactory 装配。
+  var extras: SlideExtrasApi | null = null
   // 出队缓冲:宿主经 drain() 拉取(webview guest 无法直接 postMessage 到宿主)。
   // 上限保护:队列只保留最近 32 条,避免宿主长时间不 drain 时无限增长。
   var outbox: Record<string, unknown>[] = []
@@ -180,7 +189,17 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
       if (isTextBlockLike(node)) return node
       if (node.tagName && MOVABLE[node.tagName.toUpperCase()]) return node
       var pos = getComputedStyle(node).position
-      if (pos === 'absolute' || pos === 'fixed') return node
+      if (pos === 'absolute' || pos === 'fixed') {
+        // 满画布(≥90% 视口)的定位容器视为页面背景:点它=点空白(清选区/发起框选),
+        // 否则整页 wrapper 会拦下所有空白交互。图形/文本类元素在上方分支已返回,
+        // 满画布背景图仍可正常点选。
+        var nr = node.getBoundingClientRect()
+        if (nr.width >= (window.innerWidth || 1280) * 0.9 && nr.height >= (window.innerHeight || 720) * 0.9) {
+          node = node.parentElement
+          continue
+        }
+        return node
+      }
       node = node.parentElement
     }
     return null
@@ -245,95 +264,19 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
     scheduleSave()
   }
 
-  // —— 层级调整:z-index 比较只在「与目标重叠」的元素间进行(不重叠的元素调层级无
-  // 视觉意义,还会把 z 值越推越大)。跨 stacking context 的 z 比较在语义上不严格,
-  // 但 Agent 生成的 slide 页面层级普遍扁平,务实处理;static 的流内元素视作 z=0、
-  // 按 DOM 序垫底,与 CSS 实际绘制序一致(定位元素负 z 才会绘制到流内内容之后)。
-  function zOf(el: HTMLElement): number {
-    var z = parseInt(getComputedStyle(el).zIndex, 10)
-    return isNaN(z) ? 0 : z
-  }
-
-  // peer 是否绘制在 base 之上:z 大者在上,同 z 按 DOM 后序在上。
-  function paintsAbove(peer: HTMLElement, peerZ: number, baseZ: number, base: HTMLElement): boolean {
-    if (peerZ !== baseZ) return peerZ > baseZ
-    return !!(base.compareDocumentPosition(peer) & 4) // DOCUMENT_POSITION_FOLLOWING
-  }
-
-  // 收集与 el 视觉重叠的层级参与者:定位元素、图形类标签、文本块(选区成员与
-  // 桥附属节点、el 的祖先/子孙除外 —— 祖先必然重叠,比较无意义)。
-  function overlappingPeers(el: HTMLElement): HTMLElement[] {
-    var r = el.getBoundingClientRect()
-    var peers: HTMLElement[] = []
-    var all = document.body.querySelectorAll('*')
-    for (var i = 0; i < all.length; i++) {
-      var candidate = all[i] as HTMLElement
-      if (candidate === el || candidate.contains(el) || el.contains(candidate)) continue
-      if (candidate.closest && candidate.closest('[data-cortex-selected],[data-cortex-bridge]')) continue
-      if ((candidate as unknown as { ownerSVGElement?: unknown }).ownerSVGElement) continue
-      if (candidate.nodeType !== 1) continue
-      var cs = getComputedStyle(candidate)
-      if (cs.display === 'none' || cs.visibility === 'hidden') continue
-      var layered =
-        cs.position !== 'static' ||
-        !!(candidate.tagName && (MOVABLE[candidate.tagName.toUpperCase()] || EDITABLE[candidate.tagName])) ||
-        isTextBlockLike(candidate)
-      if (!layered) continue
-      var cr = candidate.getBoundingClientRect()
-      if (cr.width < 8 || cr.height < 8) continue
-      if (cr.left >= r.left + r.width || cr.left + cr.width <= r.left) continue
-      if (cr.top >= r.top + r.height || cr.top + cr.height <= r.top) continue
-      peers.push(candidate)
-    }
-    return peers
-  }
-
-  // 对单个元素执行层级调整;返回是否有实际改动。
-  function reorderOne(el: HTMLElement, direction: string): boolean {
-    var peers = overlappingPeers(el)
-    if (!peers.length) return false
-    var selfZ = zOf(el)
-    var next: number | null = null
-    if (direction === 'front') {
-      var maxZ = -Infinity
-      var anyAbove = false
-      for (var i = 0; i < peers.length; i++) {
-        var pz = zOf(peers[i]!)
-        if (pz > maxZ) maxZ = pz
-        if (paintsAbove(peers[i]!, pz, selfZ, el)) anyAbove = true
-      }
-      if (anyAbove) next = maxZ + 1
-    } else if (direction === 'back') {
-      var minZ = Infinity
-      var anyBelow = false
-      for (var b = 0; b < peers.length; b++) {
-        var bz = zOf(peers[b]!)
-        if (bz < minZ) minZ = bz
-        if (!paintsAbove(peers[b]!, bz, selfZ, el)) anyBelow = true
-      }
-      if (anyBelow) next = minZ - 1
-    } else if (direction === 'up') {
-      // 最近的上层 peer:取其中最小 z,压过它一层。
-      var lowestAbove = Infinity
-      for (var u = 0; u < peers.length; u++) {
-        var uz = zOf(peers[u]!)
-        if (paintsAbove(peers[u]!, uz, selfZ, el) && uz < lowestAbove) lowestAbove = uz
-      }
-      if (lowestAbove !== Infinity) next = lowestAbove + 1
-    } else {
-      // down:最近的下层 peer,压到它之下一层。
-      var highestBelow = -Infinity
-      for (var d = 0; d < peers.length; d++) {
-        var dz = zOf(peers[d]!)
-        if (!paintsAbove(peers[d]!, dz, selfZ, el) && dz > highestBelow) highestBelow = dz
-      }
-      if (highestBelow !== -Infinity) next = highestBelow - 1
-    }
-    if (next === null || next === selfZ) return false
-    // static 元素 z-index 不生效,转 relative(不脱离文档流,不影响兄弟布局)。
-    if (getComputedStyle(el).position === 'static') el.style.position = 'relative'
-    el.style.zIndex = String(next)
-    return true
+  // 元素是否参与层级比较/框选命中:定位元素、图形类标签、可编辑文本、文本块。
+  // (z-order 与框选的实现在 extras 子系统,见文件尾部的 extrasFactory 装配。)
+  function isLayerParticipant(el: HTMLElement): boolean {
+    if (el.nodeType !== 1) return false
+    if (el.closest && el.closest('[data-cortex-bridge]')) return false
+    if ((el as unknown as { ownerSVGElement?: unknown }).ownerSVGElement) return false
+    var cs = getComputedStyle(el)
+    if (cs.display === 'none' || cs.visibility === 'hidden') return false
+    return (
+      cs.position !== 'static' ||
+      !!(el.tagName && (MOVABLE[el.tagName.toUpperCase()] || EDITABLE[el.tagName])) ||
+      isTextBlockLike(el)
+    )
   }
 
   // —— 缩放手柄:单选时沿元素包围盒摆 8 个手柄(图片只出四角)。手柄是 fixed 定位的
@@ -400,6 +343,7 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
   function updateHandles(): void {
     if (!editMode || selected.length !== 1) {
       if (handleLayer) handleLayer.style.display = 'none'
+      if (extras) extras.refreshUi()
       return
     }
     var el = selected[0]!
@@ -407,10 +351,13 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
     layer.style.display = 'block'
     var r = el.getBoundingClientRect()
     var prop = isProportional(el)
+    // 旋转 v1 约定:旋转态下 AABB 与元素真实四角错位,缩放手柄整组隐藏
+    //(旋转手柄本身由 extras 维护,仍显示)。
+    var rotated = /rotate\(/.test(el.style.transform || '')
     for (var i = 0; i < handleDots.length; i++) {
       var dot = handleDots[i]!
       // 等比元素的边中点手柄(单轴缩放)与等比语义冲突,隐藏。
-      if (prop && dot.def.key.length === 1) {
+      if (rotated || (prop && dot.def.key.length === 1)) {
         dot.el.style.display = 'none'
         continue
       }
@@ -418,6 +365,7 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
       dot.el.style.left = Math.round(r.left + dot.def.x * r.width - 4) + 'px'
       dot.el.style.top = Math.round(r.top + dot.def.y * r.height - 4) + 'px'
     }
+    if (extras) extras.refreshUi()
   }
 
   // 手柄拖拽缩放。文本/容器自由调宽高(nowrap 文本先转 normal,调宽即自动折行);
@@ -540,6 +488,7 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
     guideH = null
     handleLayer = null
     handleDots = []
+    if (extras) extras.resetUi()
     // 安全性:html 只来自本 document 自身的历史快照(cleanBodyHtml 在同一沙箱 guest 内
     // 捕获),恢复它不引入任何新来源的内容;guest 本就无 preload/Node 能力。
     document.body.innerHTML = html
@@ -562,6 +511,8 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
 
   // —— 吸附对齐:拖拽时把组包围盒的边/中线吸附到画布边缘/中线与其它定位元素的边/中线。
   var SNAP_PX = 5
+  // 速度自适应门限(px/ms):指针快于此值时不吸附(意图是路过),慢速才启用(意图是对齐)。
+  var SNAP_MAX_VEL = 1.2
   var guideV: HTMLElement | null = null
   var guideH: HTMLElement | null = null
 
@@ -691,15 +642,26 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
     var startY = me.clientY
     var started = false
     var dragItems: { el: HTMLElement; left: number; top: number }[] = []
+    // 拖拽期间的原始内联 transform(逐项对应 dragItems):实时位移经 transform 反馈,
+    // 松手时还原并落盘 left/top。
+    var dragTransforms: string[] = []
     var groupRect0 = { left: 0, top: 0, w: 0, h: 0 }
     var snapLines = { xs: [] as number[], ys: [] as number[] }
+    // 指针速度采样(px/ms):快速移动时禁用吸附(意图是「路过」不是「对齐」),
+    // 消除黏手/跳变;慢速精调时吸附照常。
+    var lastMoveT = 0
+    var lastMoveX = 0
+    var lastMoveY = 0
+    var pointerVel = 0
+    var finalDx = 0
+    var finalDy = 0
     function onMove(ev: Event): void {
       var mv = ev as MouseEvent
       var dx = mv.clientX - startX
       var dy = mv.clientY - startY
       if (!started) {
-        // 4px 阈值区分点击与拖拽(点击不改写任何样式)。
-        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return
+        // 2px 阈值区分点击与拖拽(点击不改写任何样式);再小会把手抖当拖拽。
+        if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return
         started = true
         suppressClick = true
         // 拖未选中元素 → 先把它变成唯一选区;拖已选元素 → 成组移动整个选区。
@@ -709,18 +671,40 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
         // 吸附基准:组包围盒初值与候选线在拖拽开始时一次性采集(拖拽中元素在动,不能重采)。
         groupRect0 = boundsOf(selected)
         snapLines = collectSnapLines()
-        for (var i = 0; i < selected.length; i++) dragItems.push(positionBase(selected[i]!))
+        for (var i = 0; i < selected.length; i++) {
+          dragItems.push(positionBase(selected[i]!))
+          dragTransforms.push(selected[i]!.style.transform || '')
+        }
         document.body.style.userSelect = 'none'
       }
-      // 吸附(Alt 按住时禁用):对组包围盒做修正,整组一起贴线。
+      // 速度采样:首帧无历史按 0(静止起步默认吸附)。
+      var now = Date.now()
+      if (lastMoveT && now > lastMoveT) {
+        var mdx = mv.clientX - lastMoveX
+        var mdy = mv.clientY - lastMoveY
+        pointerVel = Math.sqrt(mdx * mdx + mdy * mdy) / (now - lastMoveT)
+      }
+      lastMoveT = now
+      lastMoveX = mv.clientX
+      lastMoveY = mv.clientY
+      // 吸附(Alt 按住或指针高速移动时禁用):对组包围盒做修正,整组一起贴线。
       var adj = { dx: 0, dy: 0, x: null as number | null, y: null as number | null }
-      if (!mv.altKey) {
+      if (!mv.altKey && pointerVel <= SNAP_MAX_VEL) {
         adj = snapAdjust(
           { left: groupRect0.left + dx, top: groupRect0.top + dy, w: groupRect0.w, h: groupRect0.h },
           snapLines
         )
       }
-      moveBy(dragItems, dx + adj.dx, dy + adj.dy)
+      finalDx = dx + adj.dx
+      finalDy = dy + adj.dy
+      // 实时反馈走 transform(前置 translate = 屏幕空间位移,不进布局管线,
+      // 也不与元素既有 rotate/translate 冲突);left/top 到松手才写。
+      for (var di = 0; di < dragItems.length; di++) {
+        var orig = dragTransforms[di]!
+        dragItems[di]!.el.style.transform =
+          'translate(' + Math.round(finalDx) + 'px, ' + Math.round(finalDy) + 'px)' + (orig ? ' ' + orig : '')
+      }
+      updateHandles()
       showGuide('v', adj.x)
       showGuide('h', adj.y)
       mv.preventDefault()
@@ -731,6 +715,13 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
       if (started) {
         document.body.style.userSelect = ''
         hideGuides()
+        // 还原 transform,把最终位移落到 left/top(落盘语义与旧实现一致)。
+        for (var ri = 0; ri < dragItems.length; ri++) {
+          var orig = dragTransforms[ri]!
+          if (orig) dragItems[ri]!.el.style.transform = orig
+          else dragItems[ri]!.el.style.removeProperty('transform')
+        }
+        moveBy(dragItems, finalDx, finalDy)
         // rect 已变化,同步宿主;落盘走 debounce。
         postSelection()
         scheduleSave()
@@ -1138,15 +1129,12 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
           insertImage(command.dataUrl, command.width, command.height)
           break
         case 'z-order': {
-          if (!selected.length) return
+          if (!selected.length || !extras) return
           var zdir = command.value
           if (zdir !== 'up' && zdir !== 'down' && zdir !== 'front' && zdir !== 'back') return
           capture()
-          var zChanged = false
-          for (var zi = 0; zi < selected.length; zi++) {
-            if (reorderOne(selected[zi]!, zdir as string)) zChanged = true
-          }
-          if (zChanged) scheduleSave()
+          // 实现在 extras 子系统(相对重叠元素比较绘制序调 z-index)。
+          if (extras.zOrder(selected, zdir as string)) scheduleSave()
           break
         }
         case 'clear-selection':
@@ -1163,6 +1151,31 @@ export function slideEditBridgeInPage(config: { protocol: number; editableTags: 
           break
       }
     }
+  }
+
+  // 装配扩展子系统(框选/旋转/z-order):在全部监听注册之后调用,保证 extras 的
+  // mousedown 监听排在主拖动监听之后(空白处主监听先行短路,框选才接手)。
+  if (typeof extrasFactory === 'function') {
+    extras = extrasFactory({
+      isEditMode: function () {
+        return editMode
+      },
+      getSelected: function () {
+        return selected
+      },
+      applySelection: applySelection,
+      capture: capture,
+      scheduleSave: scheduleSave,
+      postSelection: postSelection,
+      suppressNextClick: function () {
+        suppressClick = true
+      },
+      selectTarget: selectTarget,
+      isLayerParticipant: isLayerParticipant,
+      positionBase: positionBase,
+      updateHandles: updateHandles,
+      host: host
+    })
   }
 
   // 选中框样式(标记 data-cortex-bridge,序列化时剥离)。
