@@ -221,6 +221,22 @@ describe("ensurePiSession", () => {
     expect(bridge.piClose).not.toHaveBeenCalled();
   });
 
+  it("confineToCwd 变化（仅工作目录 → 所有文件）→ 指纹漂移关旧重开,卸掉路径闸", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), confineToCwd: true }); // 仅工作目录:带 cwd 路径闸
+    await ensurePiSession(bridge, { ...req() }); // 切「所有文件」:不再闸
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("confineToCwd 不变 → 指纹一致复用不重开", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), confineToCwd: true });
+    await ensurePiSession(bridge, { ...req(), confineToCwd: true });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
   it("thinkingLevel 仅运行时态 → 不进指纹,切档复用温会话不重开（阶段5）", async () => {
     const bridge = fakeBridge();
     await ensurePiSession(bridge, { ...req(), thinkingLevel: "low" });

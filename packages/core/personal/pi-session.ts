@@ -92,6 +92,9 @@ function extensionFingerprint(req: PiOpenRequest): string {
     toolWhitelist: req.toolWhitelist ? [...req.toolWhitelist].sort() : null,
     sampleTools: !!req.enableSampleTools,
     sampleCommands: !!req.enableSampleCommands,
+    // 目录执行权限路径闸:writePathJailExtension 经 -e 冷启注入,无运行时卸载命令。不进指纹会导致
+    // 「仅工作目录/外部沙箱 → 所有文件」切档后温会话复用、旧路径闸残留(pi 仍报无权限访问 cwd 外)。
+    confineToCwd: !!req.confineToCwd,
     // 持久 system prompt（阶段4）:经 --append-system-prompt 冷启注入,无运行时命令,改值必须重开。
     appendSystemPrompt: req.appendSystemPrompt ?? null,
     // 插件 Skill（U5）:启用集经 --skill 冷启注入,无运行时命令,改值必须重开。已在装配层排序,
