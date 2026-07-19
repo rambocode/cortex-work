@@ -1,44 +1,30 @@
-# Repository Guidelines
+# Cortex Desktop 仓库规则
 
-## Project Structure & Module Organization
+pnpm `10.28.2` / Turbo monorepo；前端位于 `apps/`、共享包位于 `packages/`，Go 后端位于 `server/`。
 
-This is a pnpm/Turbo monorepo for Cortex Desktop, with a Go backend in `server/`.
+## 模块边界
 
-- `apps/web/`: Next.js App Router web client.
-- `apps/desktop/`: Electron desktop app built with electron-vite.
-- `packages/core/`: shared types, mock API, React Query hooks, Zustand store, and `CoreProvider`.
-- `packages/ui/`: pure reusable UI controls, icons, and utilities.
-- `packages/views/`: business views such as `CortexDesktopView`.
-- `packages/tsconfig/` and `packages/eslint-config/`: shared TypeScript and ESLint configuration.
-- `server/`: Go services, CLI commands, handlers, migrations, and tests.
+- `apps/web`: Next.js App Router；`apps/desktop`: Electron + electron-vite。
+- `packages/core`: 共享类型、API/hooks/store；不得依赖 `react-dom`、`localStorage` 或 `process.env`。
+- `packages/ui`: 纯复用 UI，不得依赖 `core`。
+- `packages/views`: 业务视图，不得导入 `next/*` 或路由专属 API。
+- `server`: Go 服务、CLI、handlers、migrations 和测试。
 
-Keep module boundaries strict: `core` must not depend on `react-dom`, `localStorage`, or `process.env`; `ui` must not depend on `core`; `views` must not import `next/*` or router-specific APIs.
+## 常用命令
 
-## Build, Test, and Development Commands
+- 安装与开发：`pnpm install`、`pnpm dev:web`、`pnpm dev:desktop`。
+- 前端验证：`pnpm typecheck`、`pnpm test`、`pnpm lint`、`pnpm build`。
+- 后端验证：`cd server && go test ./...`。
 
-Use pnpm `10.28.2`.
+## 实现与验证
 
-- `pnpm install`: install workspace dependencies.
-- `pnpm dev:web`: run the web app on `FRONTEND_PORT` or `3000`.
-- `pnpm dev:desktop`: run the Electron desktop app.
-- `pnpm typecheck`: run TypeScript checks through Turbo.
-- `pnpm test`: run workspace tests.
-- `pnpm lint`: run ESLint after typechecking dependencies.
-- `pnpm build`: build web and desktop targets.
-- `cd server && go test ./...`: run Go backend tests.
+- 使用 ESM `import`/`export`；遵循 `@cortex-work/eslint-config` 和 React Hooks 规则。
+- React 组件用 `PascalCase`，函数/变量用 `camelCase`；测试与实现同目录，命名为 `*.test.ts(x)`。
+- Go 使用 `gofmt`；后端测试命名为 `*_test.go`，优先 table-driven tests。
+- 先运行目标测试；跨模块改动或收尾时运行相关完整测试、`typecheck` 和 `lint`。
+- 不提交 secrets、tokens、generated uploads 或环境专属配置。
+- `packages/core/mock/` 数据应覆盖可见状态；替换 mock API 时保持 query keys 和组件 contract 稳定。
 
-## Coding Style & Naming Conventions
+## 交付
 
-The root package is `"type": "module"`, so use ES modules (`import`/`export`) instead of `require()`. TypeScript and React code should follow `@cortex-work/eslint-config`; React Hooks rules are enforced. Use `PascalCase` for React components, `camelCase` for functions and variables, and colocate tests beside the code they verify. Format Go code with `gofmt`.
-
-## Testing Guidelines
-
-Frontend packages use Vitest, Testing Library, and jsdom where configured. Name tests `*.test.ts` or `*.test.tsx`. Add tests for shared behavior in `core`, interaction logic in `views`, and reusable components in `ui`. Backend tests live beside Go packages as `*_test.go`; prefer table-driven tests for handlers and services. Run targeted tests first, then `pnpm test` and `cd server && go test ./...`.
-
-## Commit & Pull Request Guidelines
-
-Git history is not available from this checkout, so use clear Conventional Commit-style messages such as `feat: add workspace activity filter` or `fix: handle missing daemon token`. Pull requests should include a summary, linked issue, screenshots for UI changes, migration notes, and exact test commands run.
-
-## Security & Configuration Tips
-
-Do not commit secrets, local tokens, generated uploads, or environment-specific config. Keep mock data in `packages/core/mock/` realistic enough to exercise visible UI states, and replace mock API implementations without changing query keys or component contracts.
+提交信息使用 Conventional Commit。PR 写明摘要、关联 issue、准确验证命令；UI 改动附截图，涉及迁移时补 migration notes。

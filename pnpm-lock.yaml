@@ -91,9 +91,6 @@ importers:
       '@cortex-work/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      '@cortex-work/views':
-        specifier: workspace:*
-        version: link:../../packages/views
       '@earendil-works/pi-coding-agent':
         specifier: 0.79.2
         version: 0.79.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
@@ -146,6 +143,9 @@ importers:
       '@cortex-work/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
+      '@cortex-work/views':
+        specifier: workspace:*
+        version: link:../../packages/views
       '@electron-toolkit/tsconfig':
         specifier: ^2.0.0
         version: 2.0.0(@types/node@25.9.1)

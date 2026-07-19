@@ -28,6 +28,12 @@ describe('desktop release toolchain contract', () => {
     expect(config.build.rollupOptions.external).toContain('node-mac-permissions')
   })
 
+  it('keeps the renderer-only views workspace out of packaged production dependencies', () => {
+    const packageJson = JSON.parse(readFileSync(resolve(desktopRoot, 'package.json'), 'utf8'))
+    expect(packageJson.dependencies?.['@cortex-work/views']).toBeUndefined()
+    expect(packageJson.devDependencies?.['@cortex-work/views']).toBe('workspace:*')
+  })
+
   it('runs the Windows packager through a cross-platform Node launcher', () => {
     const packageJson = JSON.parse(readFileSync(resolve(desktopRoot, 'package.json'), 'utf8'))
     expect(packageJson.scripts?.['build:win-x64']).toBe('node scripts/build-win-x64.mjs')

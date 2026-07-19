@@ -5620,6 +5620,10 @@ button.sb-row {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 .pw-sheet-insert-menu .pw-ftb-btn { border-color: transparent; justify-content: flex-start; }
+/* 「视图」菜单勾选项 + 编辑栏显隐(Univer 无运行时开关,公式栏 DOM 带 data-u-comp="formula-bar") */
+.pw-sheet-view-item { display: inline-flex; align-items: center; gap: 6px; }
+.pw-sheet-view-check { width: 14px; display: inline-flex; justify-content: center; }
+.pw-sheet-no-fbar [data-u-comp="formula-bar"] { display: none; }
 
 /* 文件窗口的 .md 预览:复用 tasks 的 .pw-todo-md 排版,填满面板并自管滚动
    （.pw-todo-md 默认 max-height:260px 仅适合详情卡片,这里放开让其撑满）。 */

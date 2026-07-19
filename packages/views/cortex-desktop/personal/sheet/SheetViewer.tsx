@@ -68,9 +68,13 @@ export function SheetViewer({
   const [conflict, setConflict] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [annotations, setAnnotations] = useState<SheetAnnotation[]>([]);
-  // 图表面板 / 插入图表类型菜单开关。
+  // 图表面板 / 插入图表类型菜单 / 视图菜单开关。
   const [chartsOpen, setChartsOpen] = useState(false);
   const [insertMenuOpen, setInsertMenuOpen] = useState(false);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  // 视图选项:网格线 / 编辑栏(默认都开)。
+  const [showGridlines, setShowGridlines] = useState(true);
+  const [showFormulaBar, setShowFormulaBar] = useState(true);
   // 外部变更静默重载的触发器:自增即重跑加载 effect。
   const [reloadTick, setReloadTick] = useState(0);
 
@@ -82,6 +86,8 @@ export function SheetViewer({
   const originalBytesRef = useRef<Uint8Array | null>(null);
   // 程序化插入图表图片期间抑制脏标记(插入是我们自己的动作,不是用户编辑)。
   const suppressDirtyRef = useRef(false);
+  // 网格线设置的镜像 ref:外部变更静默重载重建 Univer 后,加载 effect 据此重放。
+  const gridlinesRef = useRef(true);
   const savingRef = useRef(false);
   const openedMtimeRef = useRef(0);
   // xlsx 首次保存的丢特性提醒:每次挂载(每个文件)只问一次。
@@ -95,6 +101,21 @@ export function SheetViewer({
     },
     [onDirtyChange],
   );
+
+  // 应用网格线显隐到活动工作簿的所有 sheet(切 tab 后保持一致);视图操作不标脏,
+  // 用 suppressDirtyRef 抑制 gridlines mutation 触发的脏标记。
+  const applyGridlines = useCallback((show: boolean) => {
+    const api = apiRef.current;
+    if (!api) return;
+    try {
+      suppressDirtyRef.current = true;
+      api.getActiveWorkbook()?.getSheets().forEach((s) => s.setHiddenGridlines(!show));
+    } catch {
+      /* facade 在工作簿销毁等时序会抛:视图开关失败静默,不影响表格本体 */
+    } finally {
+      suppressDirtyRef.current = false;
+    }
+  }, []);
 
   // ── 图表运行时(自研 sheets-chart):网格图片同步/数据变更重绘/插入/删除/改类型 ──
   const seriesFallback = useCallback((i: number) => t("sheet.chartSeriesFallback", { index: i + 1 }), [t]);
@@ -172,6 +193,9 @@ export function SheetViewer({
         apiRef.current = inst.univerAPI;
         inst.univerAPI.createWorkbook(workbookData);
         setStatus("ready");
+        // 重放网格线设置:外部变更静默重载重建了 Univer 实例,此时 mutation 订阅
+        // 尚未建立(下方 300ms 延迟),天然不会标脏。
+        if (!gridlinesRef.current) applyGridlines(false);
         // 初始渲染会异步派发一批 mutation(行高自适应等),延迟订阅避免误标脏;
         // 自动行高 mutation 始终忽略(滚动浏览也会触发,不代表内容变更)。
         setTimeout(() => {
@@ -329,6 +353,20 @@ export function SheetViewer({
     else onToast(t("sheet.chartInsertNeedRange"));
   };
 
+  // ── 视图选项 ────────────────────────────────────────────────────────────────
+  const toggleGridlines = () => {
+    setViewMenuOpen(false);
+    const next = !gridlinesRef.current;
+    gridlinesRef.current = next;
+    setShowGridlines(next);
+    if (status === "ready") applyGridlines(next);
+  };
+  // 编辑栏显隐走 CSS(见 .pw-sheet-no-fbar),Univer 无运行时开关。
+  const toggleFormulaBar = () => {
+    setViewMenuOpen(false);
+    setShowFormulaBar((v) => !v);
+  };
+
   // ── 批注 ──────────────────────────────────────────────────────────────────
   const selection = useSheetSelection(() => apiRef.current, status === "ready");
 
@@ -379,7 +417,7 @@ export function SheetViewer({
   }
 
   return (
-    <div className="pw-sheet-wrap">
+    <div className={`pw-sheet-wrap${showFormulaBar ? "" : " pw-sheet-no-fbar"}`}>
       <div className="pw-sheet-toolbar">
         <button
           className="pw-ftb-btn is-primary"
@@ -441,6 +479,31 @@ export function SheetViewer({
           <button className="pw-ftb-btn" title={t("sheet.asTextTitle")} onClick={onOpenAsText}>
             {t("sheet.asText")}
           </button>
+        ) : null}
+        {status === "ready" ? (
+          // 视图菜单:网格线 / 编辑栏显隐,勾选态开关(行为同插入图表菜单:点按钮切换,不做外部点击关闭)。
+          <span className="pw-sheet-insert-wrap">
+            <button
+              className={`pw-ftb-btn${viewMenuOpen ? " is-active" : ""}`}
+              title={t("sheet.viewTitle")}
+              onClick={() => setViewMenuOpen((v) => !v)}
+            >
+              <Icon.Eye size={12} />
+              {t("sheet.view")}
+            </button>
+            {viewMenuOpen ? (
+              <span className="pw-sheet-insert-menu" onMouseDown={(e) => e.preventDefault()}>
+                <button className="pw-ftb-btn pw-sheet-view-item" onClick={toggleGridlines}>
+                  <span className="pw-sheet-view-check">{showGridlines ? <Icon.Check size={12} /> : null}</span>
+                  {t("sheet.showGridlines")}
+                </button>
+                <button className="pw-ftb-btn pw-sheet-view-item" onClick={toggleFormulaBar}>
+                  <span className="pw-sheet-view-check">{showFormulaBar ? <Icon.Check size={12} /> : null}</span>
+                  {t("sheet.formulaBar")}
+                </button>
+              </span>
+            ) : null}
+          </span>
         ) : null}
         <div className="spacer" />
         {!isCsv ? <span className="pw-sheet-fidelity">{t("sheet.fidelityHint")}</span> : null}

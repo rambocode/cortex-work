@@ -1,7 +1,7 @@
 {
   "name": "@cortex-work/desktop",
   "productName": "Cortex",
-  "version": "0.1.45",
+  "version": "0.1.46",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
@@ -33,7 +33,6 @@
   "dependencies": {
     "@cortex-work/core": "workspace:*",
     "@cortex-work/ui": "workspace:*",
-    "@cortex-work/views": "workspace:*",
     "@earendil-works/pi-coding-agent": "0.79.2",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
@@ -56,6 +55,7 @@
   "devDependencies": {
     "@cortex-work/eslint-config": "workspace:*",
     "@cortex-work/tsconfig": "workspace:*",
+    "@cortex-work/views": "workspace:*",
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@tailwindcss/vite": "catalog:",
     "@types/html-to-docx": "^1.8.1",
