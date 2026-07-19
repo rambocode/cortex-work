@@ -5624,6 +5624,11 @@ button.sb-row {
 .pw-sheet-view-item { display: inline-flex; align-items: center; gap: 6px; }
 .pw-sheet-view-check { width: 14px; display: inline-flex; justify-content: center; }
 .pw-sheet-no-fbar [data-u-comp="formula-bar"] { display: none; }
+/* Univer 工具类按 16px 根字号设计(rem),本应用根字号 13.5px 会把公式栏(univer-h-7=28px)
+   等比缩到 ~23.6px;但栏内编辑器文本是 canvas 绝对像素渲染,不随 rem 缩小——栏高不足导致
+   点击聚焦时文本上移、顶部被裁。锁回设计高度(展开态 univer-h-20=80px 同理)。 */
+.pw-sheet-host [data-u-comp="formula-bar"] { height: 28px; }
+.pw-sheet-host [data-u-comp="formula-bar"].univer-h-20 { height: 80px; }
 
 /* 文件窗口的 .md 预览:复用 tasks 的 .pw-todo-md 排版,填满面板并自管滚动
    （.pw-todo-md 默认 max-height:260px 仅适合详情卡片,这里放开让其撑满）。 */
