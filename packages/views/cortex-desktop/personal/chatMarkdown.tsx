@@ -15,6 +15,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Components } from "react-markdown";
 import {
+  decodePathRef,
   isLikelyFilePath,
   isLocalImagePath,
   resolveProjectFileRef,
@@ -379,9 +380,12 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
     // 图片:agent 用 `![](path)` 给本地图片时,内联渲染为图片(经 imageReadAny 回读 dataURL)。
     // 远程图床 / data: URI / svg 不命中 isLocalImagePath → 走 react-markdown 默认 <img>。
     img({ node: _node, src, alt, ...rest }) {
-      if (typeof src === "string" && isLocalImagePath(src)) {
+      // remark 会把 src percent-encode(中文路径变 %E5%…),先解码再判定/回读;
+      // 非本地路径(http 图床等)不受影响,仍回退默认 <img>(用原始 src)。
+      const localSrc = typeof src === "string" ? decodePathRef(src) : "";
+      if (localSrc && isLocalImagePath(localSrc)) {
         return (
-          <ChatInlineImage key={src} src={src} alt={typeof alt === "string" ? alt : ""} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
+          <ChatInlineImage key={localSrc} src={localSrc} alt={typeof alt === "string" ? alt : ""} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
         );
       }
       return <img {...rest} src={src} alt={typeof alt === "string" ? alt : ""} />;
@@ -461,17 +465,21 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
     },
     a({ node: _node, href, children, ...rest }) {
       const external = /^https?:\/\//i.test(href ?? "");
+      // 本地文件 ref 统一先解码:remark(normalizeUri)会把 href percent-encode,中文路径
+      // (如 /Users/x/周报/….xlsx)不解码就拿去 stat 必失败 → 链接判死、点击无响应(线上死链根因)。
+      // 外链保持原始 href,不解码(解码可能改变 URL 语义)。
+      const fileRef = !external && href ? decodePathRef(href) : "";
       // agent 常用链接语法 `[name](path)` 给图片(而非 `![]()`)→ 命中本地图片路径则内联渲染图片。
-      if (!external && href && isLocalImagePath(href)) {
+      if (fileRef && isLocalImagePath(fileRef)) {
         return (
-          <ChatInlineImage key={href} src={href} alt={textOf(children)} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
+          <ChatInlineImage key={fileRef} src={fileRef} alt={textOf(children)} projectPath={projectPath} bridge={bridge} onOpenFile={onOpenFile} />
         );
       }
-      if (!external && href && isOpenableFile(href)) {
+      if (fileRef && isOpenableFile(fileRef)) {
         return (
           <FileAnchor
             {...rest}
-            ref_={href}
+            ref_={fileRef}
             href={href}
             projectPath={projectPath}
             bridge={bridge}

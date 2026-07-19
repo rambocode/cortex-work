@@ -67,51 +67,69 @@ describe("renderApprovalExtension（阶段3 U7）", () => {
   });
 });
 
-describe("evaluatePathJail（目录执行权限「仅工作目录」判定逻辑）", () => {
-  describe("文件工具(read/write/edit/ls/grep/find)", () => {
+describe("evaluatePathJail（目录执行权限「仅工作目录」:读不限、写受限）", () => {
+  describe("写型文件工具(write/edit)", () => {
     it("工作目录内的绝对/相对路径 → 放行(null)", () => {
-      expect(jail("read", { path: "/Users/mike/proj/a.txt" })).toBeNull();
-      expect(jail("ls", { path: "sub/dir" })).toBeNull(); // 相对 → resolve 进 cwd
-      expect(jail("read", { path: "." })).toBeNull();
+      expect(jail("write", { path: "/Users/mike/proj/a.txt" })).toBeNull();
+      expect(jail("edit", { path: "sub/dir/a.ts" })).toBeNull(); // 相对 → resolve 进 cwd
+      expect(jail("write", { path: "." })).toBeNull();
     });
-    it("已启用 skill 目录内 → 放行(避免 skill references 被误伤)", () => {
-      expect(jail("read", { path: "/skills/foo/references/x.md" })).toBeNull();
+    it("已启用 skill 目录内 → 放行", () => {
+      expect(jail("write", { path: "/skills/foo/outputs/x.md" })).toBeNull();
     });
-    it("工作目录外的绝对路径 → 拦截", () => {
-      expect(jail("ls", { path: "/Users/mike/Desktop" })?.reason).toContain("仅工作目录");
-      expect(jail("read", { path: "/etc/passwd" })).not.toBeNull();
+    it("工作目录外的写入 → 拦截,文案说明「写入」受限", () => {
+      expect(jail("write", { path: "/Users/mike/Desktop/a.txt" })?.reason).toContain("写入");
+      expect(jail("edit", { path: "/etc/hosts" })).not.toBeNull();
     });
-    it("【关键修复】~ / ~/… 展开成 home 后判界(早前裸 resolve 不展开 → 误放行)", () => {
-      expect(jail("ls", { path: "~/Desktop" })).not.toBeNull(); // home 外 cwd → 拦
-      expect(jail("read", { path: "~" })).not.toBeNull();
+    it("~ / ~/… 展开成 home 后判界(裸 resolve 不展开 → 误放行的回归)", () => {
+      expect(jail("write", { path: "~/Desktop/a.txt" })).not.toBeNull(); // home 外 cwd → 拦
+      expect(jail("edit", { path: "~" })).not.toBeNull();
     });
     it("strip 前缀 @(pi file-mention 语法)后再判界", () => {
-      expect(jail("read", { path: "@/Users/mike/proj/a.txt" })).toBeNull();
-      expect(jail("read", { path: "@/Users/mike/Desktop/a.txt" })).not.toBeNull();
+      expect(jail("write", { path: "@/Users/mike/proj/a.txt" })).toBeNull();
+      expect(jail("write", { path: "@/Users/mike/Desktop/a.txt" })).not.toBeNull();
     });
     it("相对路径 .. 逃逸出工作目录 → 拦截", () => {
-      expect(jail("read", { path: "../secret.txt" })).not.toBeNull();
+      expect(jail("write", { path: "../secret.txt" })).not.toBeNull();
     });
     it("缺省 path(undefined/空)→ 工具落 cwd,放行", () => {
-      expect(jail("ls", {})).toBeNull();
-      expect(jail("grep", { path: "" })).toBeNull();
+      expect(jail("write", {})).toBeNull();
+      expect(jail("edit", { path: "" })).toBeNull();
     });
     it("前缀判定带 sep:/Users/mike/proj-evil 不被误判为 /Users/mike/proj 子路径", () => {
-      expect(jail("read", { path: "/Users/mike/proj-evil/x" })).not.toBeNull();
+      expect(jail("write", { path: "/Users/mike/proj-evil/x" })).not.toBeNull();
     });
   });
 
-  describe("bash(命令里的家目录引用)", () => {
-    it("ls ~/Desktop / cat $HOME/Desktop / 字面 home 前缀 → 拦截", () => {
-      expect(jail("bash", { command: "ls ~/Desktop" })).not.toBeNull();
-      expect(jail("bash", { command: "cat $HOME/Desktop/a.txt" })).not.toBeNull();
-      expect(jail("bash", { command: "cat ${HOME}/Desktop/a.txt" })).not.toBeNull();
-      expect(jail("bash", { command: "ls /Users/mike/Desktop" })).not.toBeNull();
+  describe("读型文件工具(read/ls/grep/find):读取不受限", () => {
+    it("工作目录外/全盘读取 → 一律放行", () => {
+      expect(jail("read", { path: "/Users/mike/Desktop/a.txt" })).toBeNull();
+      expect(jail("ls", { path: "~/Desktop" })).toBeNull();
+      expect(jail("grep", { path: "/etc" })).toBeNull();
+      expect(jail("find", { path: "../secret" })).toBeNull();
+      expect(jail("read", { path: "/Users/mike/work/team/周报/x.xlsx" })).toBeNull();
     });
-    it("工作目录内的命令 → 放行(无家目录引用 / 引用落在 cwd 内)", () => {
+  });
+
+  describe("bash(写型命令启发式:读放行、疑似写才判界)", () => {
+    it("读型命令引用工作目录外 → 放行(读取不受限)", () => {
+      expect(jail("bash", { command: "ls ~/Desktop" })).toBeNull();
+      expect(jail("bash", { command: "cat $HOME/Desktop/a.txt" })).toBeNull();
+      expect(jail("bash", { command: "grep foo /Users/mike/Desktop/a.txt" })).toBeNull();
+      expect(jail("bash", { command: "cat ~/Desktop/a.txt 2>&1" })).toBeNull(); // fd 复制不算写
+      expect(jail("bash", { command: "cat ~/Desktop/a.txt 2>/dev/null" })).toBeNull(); // /dev/null 不算写
+    });
+    it("写型命令涉及工作目录外引用 → 拦截", () => {
+      expect(jail("bash", { command: "rm ~/Desktop/a.txt" })).not.toBeNull();
+      expect(jail("bash", { command: "mv /Users/mike/Desktop/a b" })).not.toBeNull();
+      expect(jail("bash", { command: "echo hi > ~/Desktop/out.txt" })).not.toBeNull(); // 重定向到文件
+      expect(jail("bash", { command: "sed -i '' s/a/b/ $HOME/Desktop/a.txt" })).not.toBeNull(); // 原地写
+      expect(jail("bash", { command: "tee ${HOME}/Desktop/log" })).not.toBeNull();
+    });
+    it("写型命令但引用都在工作目录内(或无家目录引用)→ 放行", () => {
       expect(jail("bash", { command: "npm test" })).toBeNull();
-      expect(jail("bash", { command: "cat ./package.json && git status" })).toBeNull();
-      expect(jail("bash", { command: "ls ~/proj/sub" })).toBeNull(); // ~/proj == cwd
+      expect(jail("bash", { command: "rm ~/proj/tmp.txt" })).toBeNull(); // ~/proj == cwd
+      expect(jail("bash", { command: "echo hi > out.txt" })).toBeNull(); // 相对路径落 cwd
     });
   });
 

@@ -41,13 +41,18 @@ export function renderApprovalExtension(tools: string[] = DEFAULT_APPROVAL_TOOLS
 // 归一 unicode 空格,再按 isAbsolute 决定相对/绝对 resolve。**这是修复关键** —— 早前用裸 resolve 不展开 `~`,
 // 导致 `~/Desktop` 被当成 cwd 下相对路径误判放行。
 //
+// 语义(2026-07 起):**读取不受限、仅写入/修改受限** —— 读全盘放行(agent 汇总外部文件是常见合法需求),
+// 只有把变更落到工作目录外才拦。与 codex 原生 workspace-write(读全盘、写限工作区)对齐,跨 agent 语义一致。
+//
 // 覆盖范围:
-//  - 文件工具 read/write/edit/ls/grep/find:解析 input.path,落在 allowed roots(cwd + 已启用 skill 目录)外即拦。
-//    含 skill 目录:否则 skill references(<skillDir>/references/,常以绝对路径 Read)会被误伤。
-//  - bash:无结构化路径,改为高精度抽取命令里的「家目录引用」(`~`/`~/…`/`$HOME`/`${HOME}`/字面 home 前缀)逐个判界,
-//    覆盖「访问工作目录外用户文件」这一最常见越权(如 `ls ~/Desktop`)。
-// 已知限制:bash 仍非 bulletproof —— 绝对系统路径(/etc 等)与混淆命令拦不全;真正彻底隔离需 OS 级 sandbox
-//(见 pi examples/extensions/sandbox,需 @anthropic-ai/sandbox-runtime + sandbox-exec/bubblewrap)。不解析符号链接。
+//  - 写型文件工具 write/edit:解析 input.path,落在 allowed roots(cwd + 已启用 skill 目录)外即拦。
+//    含 skill 目录:否则 skill 自带的可写产物目录会被误伤。读型工具 read/ls/grep/find 不拦。
+//  - bash:无结构化路径,先按「写型命令启发式」判断命令是否可能写盘(rm/mv/cp/tee…、sed -i、重定向到文件);
+//    读型命令(cat/ls/grep…)直接放行;写型再抽取命令里的「家目录引用」(`~`/`~/…`/`$HOME`/`${HOME}`/字面 home
+//    前缀)逐个判界,覆盖「写入工作目录外用户文件」这一最常见越权(如 `rm ~/Desktop/x`)。
+// 已知限制:bash 仍非 bulletproof —— 写启发式是保守正则(管道/脚本/混淆命令拦不全),绝对系统路径(/etc 等)
+// 不查;真正彻底隔离需 OS 级 sandbox(见 pi examples/extensions/sandbox,需 @anthropic-ai/sandbox-runtime +
+// sandbox-exec/bubblewrap)。不解析符号链接。
 //
 // ⚠️ evaluatePathJail 必须**完全自包含**(只引用入参 + 字面量 + 全局 String/RegExp;不引用任何模块作用域符号),
 //    否则 .toString() 内联后会在 extension 运行时 ReferenceError。改它时务必保持这一不变量。
@@ -80,17 +85,25 @@ export function evaluatePathJail(
     }
     return false;
   };
-  const fileTools = ["read", "write", "edit", "ls", "grep", "find"];
-  if (fileTools.indexOf(toolName) !== -1) {
+  // 读取不受限:只拦写型工具(write/edit);read/ls/grep/find 全盘放行。
+  const writeTools = ["write", "edit"];
+  if (writeTools.indexOf(toolName) !== -1) {
     const p = input && input.path;
     if (typeof p !== "string" || p.length === 0) return null; // 缺省 path → 工具落 cwd,放行
     if (!inRoots(toAbs(p)))
-      return { reason: "目录执行权限为「仅工作目录」,已拦截工作目录外的访问: " + p + "。如需放开,请在「自定义 → 目录执行权限」切到「所有文件」。" };
+      return { reason: "目录执行权限为「仅工作目录」,已拦截工作目录外的写入: " + p + "。读取不受限;如需在外部目录写入,请在「自定义 → 目录执行权限」切到「所有文件」。" };
     return null;
   }
   if (toolName === "bash") {
     const cmd = input && input.command;
     if (typeof cmd !== "string" || cmd.length === 0) return null;
+    // 写型命令启发式:命中才继续判界,读型命令(cat/ls/grep…)直接放行(读取不受限)。
+    // 三类写信号:写型命令词 / sed·perl 原地写(-i) / 重定向到文件(排除 fd 复制 `>&N` 与 /dev/null)。
+    const writeCmdRe =
+      /(?:^|[|&;(\s`])(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|chgrp|ln|dd|truncate|rsync|tee|install|unlink|shred)(?=\s|$)/;
+    const inplaceRe = /\b(sed|perl)\b[^|;&]*\s-[a-zA-Z]*i\b/;
+    const redirRe = />>?\s*(?!&|\/dev\/null(?:\s|$))\S/;
+    if (!writeCmdRe.test(cmd) && !inplaceRe.test(cmd) && !redirRe.test(cmd)) return null;
     const refs: string[] = [];
     let m: RegExpExecArray | null;
     const tildeRe = /(?:^|[\s=:"'`(])(~(?:\/[^\s"'`)]*)?)/g; // 词首的 ~ 或 ~/...
@@ -104,7 +117,7 @@ export function evaluatePathJail(
     }
     for (let i = 0; i < refs.length; i++) {
       if (!inRoots(toAbs(refs[i])))
-        return { reason: "目录执行权限为「仅工作目录」,已拦截 bash 命令访问工作目录外的用户目录: " + refs[i] + "。如需放开,请切到「所有文件」。" };
+        return { reason: "目录执行权限为「仅工作目录」,已拦截疑似写入工作目录外用户目录的 bash 命令: " + refs[i] + "。读取不受限;如需在外部目录写入,请切到「所有文件」。" };
     }
     return null;
   }

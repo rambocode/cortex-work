@@ -67,8 +67,9 @@ export async function assertAllowed(path: string): Promise<void> {
 }
 
 // 「打开/读取」放宽校验:白名单根内 → 放行;否则仅当目标是真实存在的文件才放行。
-// 用途:打开 agent 写到项目根之外的产物(如 outputs/ 落在项目外)。只读取与系统 open
-// 用此,写/删仍走严格 assertAllowed,避免越权写入项目外。目录/不存在路径一律拒。
+// 用途:打开/reveal agent 写到项目根之外的产物(如 outputs/ 落在项目外)。读型操作
+//(系统 open / Finder reveal / 图片回读)用此,写/删仍走严格 assertAllowed,避免越权
+// 写入项目外。目录/不存在路径一律拒。
 export async function assertOpenable(path: string): Promise<void> {
   const roots = await allowedRoots();
   if (roots.some((root) => isInside(root, path))) return;
@@ -701,8 +702,10 @@ export function registerFsHandlers(): void {
     if (err) throw new Error(err);
   });
 
+  // reveal 是读型操作(仅让 Finder 定位,不改文件),与 openPath 同用宽松 assertOpenable:
+  // 白名单外但真实存在的文件(如聊天里引用的外部产物)也可定位;写/删仍走严格 assertAllowed。
   ipcMain.handle("shell:revealInFolder", async (_e, path: string) => {
-    await assertAllowed(path);
+    await assertOpenable(path);
     shell.showItemInFolder(path);
   });
 

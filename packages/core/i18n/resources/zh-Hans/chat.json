@@ -105,7 +105,7 @@
       "workspace": "仅工作目录",
       "all": "所有文件",
       "sandbox": "外部沙箱",
-      "workspaceHint": "限制 agent 只在工作目录内操作(Pi 强制路径限制;Codex 仅限写、读不限;Claude 暂不强制)",
+      "workspaceHint": "写入/修改仅限工作目录,读取不受限(Pi/Codex 强制;Claude 暂不强制)",
       "allHint": "全盘读写,不限制目录(默认)",
       "sandboxHint": "在隔离沙箱内放开,限制对真实文件系统的影响(codex 原生沙箱;claude/pi 降级)",
       "sandboxDegraded": "「外部沙箱」仅 Codex 原生支持;Claude/Pi 无原生沙箱,已降级为普通目录访问"
