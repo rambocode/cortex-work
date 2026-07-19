@@ -399,7 +399,7 @@ function TaskRow({
       <div className="pw-task-row-main">
         <input
           type="checkbox"
-          className="pw-task-check"
+          className={`pw-task-check${task.flagged && task.status !== "done" ? " is-flagged" : ""}`}
           checked={task.status === "done"}
           onChange={onToggleDone}
           title="完成"

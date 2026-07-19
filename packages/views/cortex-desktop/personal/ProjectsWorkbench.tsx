@@ -5,7 +5,7 @@
 // TaskDetail（右）填充，顶部由 WorkbenchToolbar 自绘（U4）。
 import { useEffect, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { usePersonalStore } from "@cortex-work/core";
+import { usePersonalStore, usePushSettingsSync } from "@cortex-work/core";
 import {
   useTasks,
   useTasksChangeSubscription,
@@ -166,6 +166,9 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
   useTasksChangeSubscription();
   // 资源（成员/岗位/模板）变更订阅：跨窗口 CRUD 后 invalidate 重拉（设置视图与任务字段共用）。
   useTaskResourcesSubscription();
+  // pushSettings 镜像同步：本窗口不挂全量持久化（见下方 KTD9 注释），store 从不 hydrate，
+  // 任务提醒字段的通知 opt-in 警告须经此窄通道读到主进程权威值，否则永远误报「未开启」。
+  usePushSettingsSync();
 
   const projects = useTaskProjects().data ?? [];
   const addTask = useAddTask();
@@ -531,9 +534,11 @@ export function ProjectsWorkbench({ onToast }: { onToast: (text: string) => void
           {selectedTask ? (
             <TaskDetail task={selectedTask} onBack={() => selectTask(null)} onToast={onToast} />
           ) : (
-            // 空态（对齐设计稿右列检查器）：居中图标 + 两行提示。
+            // 空态（对齐设计稿右列检查器）：圆形图标容器 + 两行提示。
             <div className="pw-projects-detail-empty">
-              <Icon.Task size={30} className="pw-projects-detail-empty-icon" />
+              <div className="pw-projects-detail-empty-avatar">
+                <Icon.Task size={26} />
+              </div>
               <div className="pw-projects-detail-empty-text">
                 选择一个任务
                 <br />

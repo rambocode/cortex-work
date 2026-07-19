@@ -44,9 +44,14 @@ function NotificationWindow(): React.ReactElement {
     if (!api?.notification) return;
     const offPush = api.notification.onPush((p) => {
       setItems((list) => (list.some((n) => n.id === p.id) ? list : [...list, p]));
-      const dur = p.duration && p.duration > 0 ? p.duration : DEFAULT_EXTERNAL_DURATION;
       const existing = timers.current.get(p.id);
       if (existing) clearTimeout(existing);
+      // duration<0 = 常驻(任务提醒):不设自动消失计时,等手动关闭或 clear。
+      if (p.duration != null && p.duration < 0) {
+        timers.current.delete(p.id);
+        return;
+      }
+      const dur = p.duration && p.duration > 0 ? p.duration : DEFAULT_EXTERNAL_DURATION;
       timers.current.set(
         p.id,
         setTimeout(() => remove(p.id), dur),
@@ -59,6 +64,8 @@ function NotificationWindow(): React.ReactElement {
     });
     // 主窗切语言 → 本窗体(独立 i18next 单例)随之重译。
     const offLocale = api.personal?.onLocaleChange?.((locale) => void changeLanguage(locale));
+    // 监听已注册,向主进程发就绪回执 → 冲刷 ready 前积压的通知(防首发早于监听丢失)。
+    api.notification.ready?.();
     return () => {
       offPush();
       offClear();

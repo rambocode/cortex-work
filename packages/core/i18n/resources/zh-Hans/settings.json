@@ -2,7 +2,8 @@
   "page": {
     "ariaLabel": "设置",
     "navAriaLabel": "设置菜单",
-    "back": "返回应用"
+    "back": "返回应用",
+    "autoSaved": "已自动保存"
   },
   "tabs": {
     "profile": "个人资料",
@@ -128,6 +129,7 @@
   "browser": {
     "title": "浏览器",
     "desc": "管理内置浏览器与 agent 的浏览器控制权限。",
+    "controlCard": "浏览器控制",
     "enableLabel": "允许 agent 控制内置浏览器",
     "enableDesc": "开启后 claude / codex 获得「浏览器控制」工具:在你正看的内置浏览器里导航 / 点击 / 填表 / 截图 / 读 DOM / 控制台。仅本地 URL(localhost / 127.0.0.1)免审,非本地需在下方「网站权限」预授权。若项目目录已有你自己的 .mcp.json,claude 不会被自动注入(需手动添加;codex 不受影响)。",
     "disabledHint": "启用浏览器控制后可配置。",

@@ -1,10 +1,10 @@
 // 个人工作区持久化：~/.cortex-desktop/personal-workspace.json 全量读写。
 // renderer 侧节流后调 store:save 覆盖；主进程串行化写入避免交错。
 
-import { ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 import { existsSync, promises as fsp } from "fs";
 import { dirname } from "path";
-import type { PersistedState } from "./types";
+import type { PersistedState, PushSettings } from "./types";
 import { ensureMigrated, workspaceStorePath } from "../paths";
 import { createLogger } from "../log";
 
@@ -57,17 +57,35 @@ async function savePersistedState(state: PersistedState): Promise<void> {
   await fsp.rename(tmp, path);
 }
 
+// pushSettings 变更广播：推给**所有**窗口（含发起方）。项目管理等二级窗口刻意不挂全量持久化
+// （防陈旧快照 clobber，见 ProjectsWorkbench 注释），它们的 pushSettings 镜像只能靠这条窄通道
+// 保持新鲜；主窗口收到自己发起的变更时内容相等、渲染端跳过写入，不会形成 save→广播→save 回环。
+function broadcastPushSettingsIfChanged(prev: PushSettings | undefined, next: PushSettings | undefined): void {
+  if (JSON.stringify(prev ?? {}) === JSON.stringify(next ?? {})) return;
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send("store:push-settings-changed", next ?? {});
+  }
+}
+
 // onSaved：每次 renderer 全量落设置后同步调用（cached 已更新）。用于让 main 侧订阅方即时
 // 反应设置变更——当前唯一订阅方是任务提醒调度器（读 pushSettings.internal.enabled opt-in 变化，
 // off→on 建 Cron/补跑、on→off 拆全部）。回调抛错不阻断落盘（调用方自行兜底）。
 export function registerStoreHandlers(onSaved?: (state: PersistedState) => void): void {
-  ipcMain.handle("store:load", () => getPersistedState());
-  ipcMain.handle("store:save", (_e, state: PersistedState) => {
+  const commit = (prev: PersistedState | null, state: PersistedState): Promise<void> => {
     cached = state;
     onSaved?.(state);
+    broadcastPushSettingsIfChanged(prev?.pushSettings, state.pushSettings);
     writeQueue = writeQueue.then(() => savePersistedState(state)).catch((err) => {
       log.error("save failed:", err);
     });
     return writeQueue;
+  };
+  ipcMain.handle("store:load", () => getPersistedState());
+  ipcMain.handle("store:save", (_e, state: PersistedState) => commit(cached, state));
+  // pushSettings 窄写通道：main 在权威态上就地合并后落盘，供不挂全量持久化的窗口
+  // （项目管理等）安全写入推送开关——绕开「陈旧全量快照 clobber」问题。
+  ipcMain.handle("store:patchPushSettings", async (_e, patch: Partial<PushSettings>) => {
+    const base = await getPersistedState();
+    return commit(base, { ...base, pushSettings: { ...base.pushSettings, ...patch } });
   });
 }

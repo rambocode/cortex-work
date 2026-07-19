@@ -281,6 +281,8 @@ export {
 // 权限两轴 ↔ 线格式派生(发送边界 / 迁移 / ModeBlockBanner 重发用)。
 export { toAdapterPermissions, fromAdapterPermissions } from "./personal/permissionMode";
 export { usePersonalPersistence } from "./desktop/usePersonalPersistence";
+// pushSettings 跨窗口镜像同步（项目管理等不挂全量持久化的窗口用它保持推送开关新鲜）。
+export { usePushSettingsSync } from "./desktop/usePushSettingsSync";
 export { useUpdateState } from "./desktop/useUpdateState";
 export {
   decorateExtensions,

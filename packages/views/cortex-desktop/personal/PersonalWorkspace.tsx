@@ -10,6 +10,7 @@ import {
   useNotesChangeSubscription,
   usePersonalCliEvents,
   usePersonalPersistence,
+  usePushSettingsSync,
   usePersonalPiEvents,
   usePersonalPiUi,
   usePersonalStore,
@@ -102,6 +103,9 @@ export function PersonalWorkspace({
   const setDerivedAgents = usePersonalStore((s) => s.setDerivedAgents);
   const requestBrowserUrl = usePersonalStore((s) => s.requestBrowserUrl);
   usePersonalPersistence();
+  // pushSettings 跨窗口镜像：项目管理窗口经窄通道改推送开关时，主窗口 store 必须同步跟进——
+  // 否则主窗口后续任一全量落盘会用陈旧值把该开关静默改回去（clobber）。
+  usePushSettingsSync();
   usePersonalCliEvents();
   // pi RPC 会话事件流（与 CLI 事件并列挂载一次）；bridge 无 onPiEvent 时内部空转。
   usePersonalPiEvents();

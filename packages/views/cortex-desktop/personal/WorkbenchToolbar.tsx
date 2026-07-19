@@ -99,8 +99,9 @@ export function WorkbenchToolbar({
       {/* 中间可拖拽空白填充（drag 区）。 */}
       <div className="pw-wb-spacer" />
       <div className="pw-wb-group">
-        {/* 「新建」单一按钮：点击直接新建动作（U11）；新建项目走左树「＋」入口。 */}
-        <button className="pw-wb-btn ds-no-drag" title="新建动作" onClick={onNewAction}>
+        {/* 「新建」单一按钮：点击直接新建动作（U11）；新建项目走左树「＋」入口。
+            is-primary 提为工具栏唯一主按钮（accent 底），其余按钮保持 ghost 灰态。 */}
+        <button className="pw-wb-btn is-primary ds-no-drag" title="新建动作" onClick={onNewAction}>
           <Icon.Plus size={16} />
           <span className="pw-wb-btn-label">新建</span>
         </button>

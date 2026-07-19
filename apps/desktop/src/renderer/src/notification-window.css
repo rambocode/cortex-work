@@ -26,6 +26,13 @@
   }
 }
 
+/* 与主应用 cortex-desktop.css 的全局 reset 对齐:共享的 .toast* 规则按 border-box 书写。
+   缺此条时 .toast 实际总宽 = 320 + padding 24 + border 2 = 346px > 窗口 332px,
+   右对齐布局会把左侧(恰好整个左 padding)裁掉,图标贴边。 */
+* {
+  box-sizing: border-box;
+}
+
 html,
 body {
   margin: 0;

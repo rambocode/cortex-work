@@ -89,6 +89,7 @@ import type {
   ReplyRelearnResult,
   ReplySyncSnapshot,
   PetStateSnapshot,
+  PushSettings,
 } from "./types";
 // 写作检索(U4）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-retrieval-types.ts 镜像）。
 import type { WritingRetrievalRequest, WritingRetrievalResult } from "./writing-retrieval-types";
@@ -337,6 +338,12 @@ export interface DesktopBridge {
   // 持久化
   loadState(): Promise<PersistedState>;
   saveState(state: PersistedState): Promise<void>;
+  // pushSettings 窄写通道：main 在权威态上就地合并后落盘。供不挂全量持久化的窗口
+  // （项目管理）写推送开关，绕开陈旧全量快照 clobber。可选（web/旧壳无）。
+  patchPushSettings?(patch: Partial<PushSettings>): Promise<void>;
+  // pushSettings 变更订阅：main 在内容变化时广播全量 PushSettings 给所有窗口。
+  // 各窗口用它保持只读镜像新鲜（usePushSettingsSync）。可选（web/旧壳无 → 空转）。
+  onPushSettingsChanged?(cb: (push: PushSettings) => void): () => void;
   // 会话消息持久化（按 sessionId 一文件,内容对桥接层不透明）。
   // 返回 v1 裸消息数组或 v2 对象 {version:2, messages, branchGroups}(分支回复,见 core/personal/branches.ts);
   // 渲染端经 normalizeLoadedChat 归一。branchGroups 非空时主进程落 v2,否则维持 v1 裸数组(回滚安全)。

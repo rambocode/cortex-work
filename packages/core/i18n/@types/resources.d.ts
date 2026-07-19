@@ -1453,6 +1453,7 @@ export default interface Resources {
       "clearDataFail": "清除失败,请重试",
       "clearDataLabel": "浏览数据",
       "clearDataOk": "已清除浏览数据",
+      "controlCard": "浏览器控制",
       "desc": "管理内置浏览器与 agent 的浏览器控制权限。",
       "devCard": "开发者模式",
       "disabledHint": "启用浏览器控制后可配置。",
@@ -1694,6 +1695,7 @@ export default interface Resources {
     },
     "page": {
       "ariaLabel": "设置",
+      "autoSaved": "已自动保存",
       "back": "返回应用",
       "navAriaLabel": "设置菜单"
     },

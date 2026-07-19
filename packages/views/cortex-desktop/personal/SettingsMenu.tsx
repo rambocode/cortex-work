@@ -67,6 +67,7 @@ import { WritingSettingsSection } from "./WritingSettingsSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { BareSelect, SBlock, SRow, SecretField, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "./platform";
+import { SettingsSavedIndicator } from "./SettingsSavedIndicator";
 
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 
@@ -1934,6 +1935,8 @@ export function PersonalSettingsView() {
         ))}
       </nav>
       <div className="pw-dlg-body">
+        {/* 修改任一设置后顶部右侧浮出「已自动保存」反馈（store 切片变化驱动）。 */}
+        <SettingsSavedIndicator />
         <div className="pw-settings-content">
           {tab === "profile" ? (
             <ProfileSection />

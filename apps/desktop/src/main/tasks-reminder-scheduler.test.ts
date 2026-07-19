@@ -166,15 +166,21 @@ describe("TasksReminderScheduler — 非法 at 跳过不影响同批", () => {
     expect(crons[0]!.at).toBe(NOW + 60_000);
   });
 
-  it("已完结任务（done/dropped）不调度", () => {
-    const { deps, crons } = makeDeps();
+  // 产品决策：提醒一经设置一律触发，不看任务状态（用户会在已完结任务上显式设提醒并预期它响）。
+  it("已完结任务（done/dropped）照常调度，到点照常投递", () => {
+    const { deps, crons, notify, markFired } = makeDeps();
     const s = new TasksReminderScheduler(deps);
     s.setEnabled(true);
     s.sync([
       makeTask({ id: "done", status: "done", reminder: { at: NOW + 60_000 } }),
       makeTask({ id: "dropped", status: "dropped", reminder: { at: NOW + 60_000 } }),
     ]);
-    expect(crons).toHaveLength(0);
+    expect(crons).toHaveLength(2);
+    // 到点触发：fire 复核不拦已完结状态，正常投递 + 写 firedAt。
+    crons[0]!.cb();
+    crons[1]!.cb();
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(markFired).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -63,7 +63,8 @@ export interface NotificationPayload {
   title?: string;
   description?: string;
   iconName?: string;
-  // 自动消失时长(ms);0/缺省由窗体侧按默认处理。
+  // 自动消失时长(ms);0/缺省由窗体侧按默认处理;负数 = 常驻不自动消失(任务提醒用,
+  // 用户可能不在电脑前,须等手动关闭或主窗重获焦点 clear)。
   duration?: number;
 }
 

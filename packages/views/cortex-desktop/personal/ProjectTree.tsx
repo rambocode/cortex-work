@@ -35,6 +35,32 @@ function newStageId(): string {
 // 每层缩进步长（px）。折叠箭头 / 占位固定宽，保证同层节点名对齐。
 const INDENT = 16;
 
+// 项目图标（参考 OmniFocus 并行项目标识）：2x2 圆点阵，蓝色，与灰色文件夹图标形成「项目 / 文件夹」区分。
+// 局部组件即可——ui 包的 Icon 命名空间没有对应图形，无需上提。
+function ProjectGlyph({ size = 14 }: { size?: number }) {
+  const r = 1.6;
+  const dots: Array<[number, number]> = [
+    [4, 4],
+    [12, 4],
+    [4, 12],
+    [12, 12],
+  ];
+  return (
+    <svg
+      className="pw-ptree-proj-icon"
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden
+    >
+      {dots.map(([cx, cy]) => (
+        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} />
+      ))}
+    </svg>
+  );
+}
+
 // ── 折叠态窄通道（U11）───────────────────────────────────────────────────────
 // 默认全展开：只持久化「被用户折叠的节点 id」集合，未记录即展开（新项目天然展开）。
 // 用 localStorage 作窗口专属窄通道（同 ProjectsWorkbench 的 SIDEBAR_KEY / VIEW_OPTIONS_KEY 惯例），
@@ -380,7 +406,7 @@ function TreeNode({ node, depth, ctx }: { node: TaskProjectNode; depth: number; 
             title={node.name}
             onClick={() => ctx.onSelect({ kind: selKind, id: node.id })}
           >
-            {isFolder ? <Icon.Folder size={14} /> : <Icon.Task size={14} />}
+            {isFolder ? <Icon.Folder size={14} /> : <ProjectGlyph size={14} />}
             <span className="pw-project-name">{node.name}</span>
             {/* 顺序项目标识：与中栏组头模式标识呼应（U8/R24） */}
             {isSequential ? (
@@ -390,6 +416,17 @@ function TreeNode({ node, depth, ctx }: { node: TaskProjectNode; depth: number; 
             ) : null}
           </button>
         )}
+        {!editing && !isFolder && node.status === "done" ? (
+          // 已完成项目常驻右侧 ✓ 圆标（参考图设计）；悬停操作按钮浮现时会让位（同级 flex）。
+          <span className="pw-ptree-status" title="已完成" aria-label="已完成">
+            <Icon.CheckCircle size={14} />
+          </span>
+        ) : null}
+        {!editing && !isFolder && node.status === "dropped" ? (
+          <span className="pw-ptree-status is-dropped" title="已放弃" aria-label="已放弃">
+            <Icon.XCircle size={14} />
+          </span>
+        ) : null}
         {!editing ? (
           <div className="pw-project-actions">
             {/* project 节点下只允许子项目；folder 节点下可建 folder/project */}

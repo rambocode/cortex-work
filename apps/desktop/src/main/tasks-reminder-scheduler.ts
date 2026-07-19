@@ -46,9 +46,6 @@ export interface TasksReminderSchedulerDeps {
 export const REMINDER_MAX_PAST_MS = 30 * 24 * 60 * 60 * 1000;
 export const REMINDER_MAX_FUTURE_MS = 5 * 365 * 24 * 60 * 60 * 1000;
 
-// 只对未完结任务调度提醒（done/dropped 的提醒无意义）。
-const ACTIVE_STATUSES: ReadonlySet<TaskMeta["status"]> = new Set(["active", "in-progress", "waiting"]);
-
 // at 合法性 + 上下界校验（纯函数，导出供测试）。非法返回 false → 调用方跳过该条。
 export function reminderAtInRange(at: number, now: number): boolean {
   return Number.isFinite(at) && at >= now - REMINDER_MAX_PAST_MS && at <= now + REMINDER_MAX_FUTURE_MS;
@@ -110,7 +107,8 @@ export class TasksReminderScheduler {
       const rem = task.reminder;
       if (!rem || rem.firedAt != null) continue; // 无提醒 / 已触发（幂等闸门）→ 跳过
       if (this.firedThisSession.get(task.id) === rem.at) continue; // 本会话已触发同一 at（跨 sync 闸门）
-      if (!ACTIVE_STATUSES.has(task.status)) continue; // 已完结 → 跳过
+      // 有意不看任务状态：提醒一经设置一律触发（含 done/dropped）。用户会在已完结任务上
+      // 显式设提醒并预期它响；完结任务想静默需手动清除提醒（产品决策，勿加状态过滤回来）。
       // at 校验：非法/越界 → 跳过该条，绝不让整个 sync 抛错（保护同批其它提醒）。
       if (!reminderAtInRange(rem.at, now)) {
         this.deps.log?.warn(`跳过越界提醒 at（task=${task.id}）`);
@@ -142,8 +140,9 @@ export class TasksReminderScheduler {
     // 先停掉该任务的 Cron（无论后续是否投递，防重复触发；补跑路径无 job，delete 为 no-op）。
     this.jobs.get(id)?.stop();
     this.jobs.delete(id);
-    // 以当前快照复核：提醒已删/改时/已触发、任务已完结、或本会话已触发同一 at → no-op（不弹、不写 firedAt，
+    // 以当前快照复核：提醒已删/改时/已触发、或本会话已触发同一 at → no-op（不弹、不写 firedAt，
     // 杜绝「删提醒瞬间 Cron 触发」误弹 + 并发重复弹）。markFired 侧还有 store 锁内二次守卫（不复活已删提醒）。
+    // 不复核任务状态：与 applySync 一致，提醒不因任务完结而静默（见调度处注释）。
     const cur = this.lastTasks.find((t) => t.id === id);
     const stale =
       at == null ||
@@ -151,7 +150,6 @@ export class TasksReminderScheduler {
       !cur.reminder ||
       cur.reminder.at !== at ||
       cur.reminder.firedAt != null ||
-      !ACTIVE_STATUSES.has(cur.status) ||
       this.firedThisSession.get(id) === at;
     if (stale) {
       this.updateBlocker();

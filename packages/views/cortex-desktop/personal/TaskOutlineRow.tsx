@@ -126,25 +126,25 @@ export function TaskOutlineRow({
     <div
       className={`pw-task-row${isSelected ? " is-selected" : ""}${done ? " is-done" : ""}${dropped ? " is-dropped" : ""}`}
       data-task-id={task.id}
+      {...(isSelected
+        ? {}
+        : {
+            role: "button",
+            tabIndex: 0,
+            onClick: onOpen,
+            onKeyDown: (e: React.KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpen();
+              }
+            },
+          })}
     >
-      {/* U10 未选中 = 只读精简态：整行可点击选中（含标题/空白/只读 chip）；选中行不挂行级 onClick，
-          交由内部 input / inspector 编辑。role/tabIndex/键盘让整行在未选中态可聚焦并回车/空格选中。 */}
-      <div
-        className="pw-task-row-main"
-        {...(isSelected
-          ? {}
-          : {
-              role: "button",
-              tabIndex: 0,
-              onClick: onOpen,
-              onKeyDown: (e: React.KeyboardEvent) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onOpen();
-                }
-              },
-            })}
-      >
+      {/* U10 未选中 = 只读精简态：行级 onClick 挂最外层 .pw-task-row，点击行任意位置（标题/空白/只读
+          chip/备注预览）均选中该行；各交互控件（折叠/勾选/动作按钮）经 stop() 或自身 stopPropagation
+          保留原行为不冒泡。选中行不挂行级 onClick，交由内部 input / inspector 编辑。
+          role/tabIndex/键盘让整行在未选中态可聚焦并回车/空格选中。 */}
+      <div className="pw-task-row-main">
         {/* 子任务缩进：按 depth 留白（U3；U6 视觉细调）。*/}
         {depth > 0 && <span className="pw-task-indent" style={{ width: depth * INDENT_STEP }} aria-hidden />}
         {/* 折叠箭头：有子任务才显，否则占位对齐。*/}
@@ -162,7 +162,7 @@ export function TaskOutlineRow({
         )}
         <input
           type="checkbox"
-          className="pw-task-check"
+          className={`pw-task-check${task.flagged && !done ? " is-flagged" : ""}`}
           checked={done}
           onChange={onToggleDone}
           onClick={(e) => e.stopPropagation()}

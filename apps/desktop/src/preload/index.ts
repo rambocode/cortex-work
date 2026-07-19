@@ -44,6 +44,7 @@ import type {
   Member,
   NoteStatus,
   PersistedState,
+  PushSettings,
   PiOpenRequest,
   PiOpenResult,
   PiSessionEvent,
@@ -379,6 +380,15 @@ const personal = {
   },
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
+  // pushSettings 窄写通道 + 变更订阅：供不挂全量持久化的窗口（项目管理）安全读写推送开关，
+  // 变更由 main 广播到所有窗口保持镜像新鲜（见 main/ipc/store.ts）。
+  patchPushSettings: (patch: Partial<PushSettings>): Promise<void> =>
+    ipcRenderer.invoke("store:patchPushSettings", patch),
+  onPushSettingsChanged: (cb: (push: PushSettings) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, push: PushSettings) => cb(push);
+    ipcRenderer.on("store:push-settings-changed", listener);
+    return () => ipcRenderer.removeListener("store:push-settings-changed", listener);
+  },
   // v2(分支回复)兼容:load 可能返回 v1 数组或 v2 对象;save 的 branchGroups 非空时主进程落 v2。
   loadChat: (sessionId: string): Promise<unknown> => ipcRenderer.invoke("chat:load", sessionId),
   saveChat: (sessionId: string, messages: unknown[], branchGroups?: unknown[]): Promise<void> =>
@@ -988,6 +998,8 @@ const notification = {
   push: (payload: NotificationPayload): void => ipcRenderer.send("notification:push", payload),
   clear: (): void => ipcRenderer.send("notification:clear"),
   resize: (height: number): void => ipcRenderer.send("notification:resize", height),
+  // 窗体渲染端注册完 onPush/onClear 监听后调用:主进程冲刷 ready 前积压的通知(防首发丢失)。
+  ready: (): void => ipcRenderer.send("notification:ready"),
   onPush: (cb: (payload: NotificationPayload) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, payload: NotificationPayload) => cb(payload);
     ipcRenderer.on("notification:push", listener);

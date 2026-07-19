@@ -20,6 +20,13 @@ import {
 
 let win: BrowserWindow | null = null;
 
+// 就绪握手（KTD:首发丢失竞态）：renderer 的 onPush 监听在 React passive effect 里注册，
+// 可能晚于 did-finish-load——只靠 did-finish-load 发送会丢首条(任务提醒单发场景必踩)。
+// 改为:renderer 注册完监听后发 notification:ready,主进程在 ready 前把 payload 入队,
+// ready 时统一冲刷。窗口重载/销毁时 ready 复位,pending 保留待下次冲刷(提醒不可静默丢)。
+let rendererReady = false;
+const pending: NotificationPayload[] = [];
+
 // prod 下 html 可能落在 flat / nested,双路径探测兜底(漏抄会白屏)。仿 notes-overlay.ts。
 function notificationHtml(): string {
   const flat = join(__dirname, "../renderer/notification.html");
@@ -70,21 +77,36 @@ function create(): BrowserWindow {
   } else {
     void win.loadFile(notificationHtml());
   }
+  // 页面(重)加载即未就绪:等 renderer 重新注册监听后再发 ready(dev 热重载/异常刷新同样覆盖)。
+  win.webContents.on("did-start-loading", () => {
+    rendererReady = false;
+  });
   win.on("closed", () => {
     win = null;
+    rendererReady = false;
   });
   return win;
 }
 
 // 推送一条提醒到窗体。不在此处 show——等 renderer 渲染后经 resize 上报真实高度再显示,避免
-// 透明窗口闪现错误尺寸。webContents 尚在加载则等 did-finish-load 再发,避免事件早于监听丢失。
+// 透明窗口闪现错误尺寸。renderer 未就绪(首次创建/重载中)则入队,ready 握手后统一冲刷——
+// 不能只等 did-finish-load:该事件可能早于 renderer 的监听注册,首条会静默丢失。
 export function pushNotification(payload: NotificationPayload): void {
   const w = win && !win.isDestroyed() ? win : create();
   if (process.platform === "darwin")
     w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-  const send = (): void => w.webContents.send("notification:push", payload);
-  if (w.webContents.isLoading()) w.webContents.once("did-finish-load", send);
-  else send();
+  if (!rendererReady) {
+    pending.push(payload);
+    return;
+  }
+  w.webContents.send("notification:push", payload);
+}
+
+// renderer 注册完监听后的 ready 回执:置就绪并冲刷积压 payload(按入队顺序)。
+export function notificationRendererReady(): void {
+  rendererReady = true;
+  if (!win || win.isDestroyed()) return;
+  for (const p of pending.splice(0)) win.webContents.send("notification:push", p);
 }
 
 // renderer 实测高度上报:<=1 视为空栈 → 隐藏;否则夹取定位并(必要时)显示。

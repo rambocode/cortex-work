@@ -6,10 +6,17 @@
 
 import { ipcMain } from "electron";
 import type { NotificationPayload } from "./types";
-import { pushNotification, resizeNotificationWindow, clearNotifications } from "../notification-window";
+import {
+  pushNotification,
+  resizeNotificationWindow,
+  clearNotifications,
+  notificationRendererReady,
+} from "../notification-window";
 
 export function registerNotificationWindowHandlers(): void {
   ipcMain.on("notification:push", (_e, payload: NotificationPayload) => pushNotification(payload));
   ipcMain.on("notification:resize", (_e, height: number) => resizeNotificationWindow(height));
   ipcMain.on("notification:clear", () => clearNotifications());
+  // 窗体渲染端注册完监听后的就绪回执:冲刷 ready 前积压的 payload(防首发丢失,见 notification-window.ts)。
+  ipcMain.on("notification:ready", () => notificationRendererReady());
 }

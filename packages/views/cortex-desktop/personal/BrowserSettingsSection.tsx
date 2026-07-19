@@ -64,9 +64,9 @@ export function BrowserSettingsSection() {
   };
 
   return (
-    <>
+    <div className="pw-bc">
       {/* 总开关 */}
-      <SettingCard title={t("browser.title")}>
+      <SettingCard title={t("browser.controlCard")}>
         <SwitchRow
           label={t("browser.enableLabel")}
           desc={t("browser.enableDesc")}
@@ -95,24 +95,26 @@ export function BrowserSettingsSection() {
               onChange={(v) => setBrowserControl({ localUrlOpenTarget: v as "internal" | "system" })}
             />
           </SRow>
-          <div className="pw-srow-desc">{t("browser.localUrlHint")}</div>
+          <div className="pw-srow-desc pw-bc-hint">{t("browser.localUrlHint")}</div>
 
           {canClearData ? (
             <>
               <SRow label={t("browser.clearDataLabel")} desc={t("browser.clearDataDesc")} end>
-                <button type="button" className="pw-btn" disabled={clearing} onClick={() => setClearConfirm(true)}>
+                <button type="button" className="pw-btn-sm" disabled={clearing} onClick={() => setClearConfirm(true)}>
                   {clearing ? t("browser.clearDataBusy") : t("browser.clearDataBtn")}
                 </button>
               </SRow>
               {clearConfirm ? (
-                <div className="pw-srow-desc pw-bc-risk">
-                  {t("browser.clearDataConfirm")}
-                  <button type="button" className="pw-btn" onClick={clearData}>
-                    {t("browser.clearDataConfirmBtn")}
-                  </button>
-                  <button type="button" className="pw-btn-sm" onClick={() => setClearConfirm(false)}>
-                    {t("browser.cancel")}
-                  </button>
+                <div className="pw-bc-confirm" role="alert">
+                  <span className="pw-bc-confirm-text">{t("browser.clearDataConfirm")}</span>
+                  <span className="pw-bc-confirm-actions">
+                    <button type="button" className="pw-btn-sm pw-btn-sm--danger" onClick={clearData}>
+                      {t("browser.clearDataConfirmBtn")}
+                    </button>
+                    <button type="button" className="pw-btn-sm" onClick={() => setClearConfirm(false)}>
+                      {t("browser.cancel")}
+                    </button>
+                  </span>
                 </div>
               ) : null}
             </>
@@ -129,7 +131,7 @@ export function BrowserSettingsSection() {
               onChange={(v) => setBrowserControl({ annotateScreenshotMode: v as "always" | "ask" | "never" })}
             />
           </SRow>
-          <div className="pw-srow-desc">{t("browser.screenshotHint")}</div>
+          <div className="pw-srow-desc pw-bc-hint">{t("browser.screenshotHint")}</div>
         </SettingCard>
 
         {/* 权限:导航授权范围(取代 Codex 事中审批——cortex 无事中回路,用预授权严格度) */}
@@ -145,19 +147,19 @@ export function BrowserSettingsSection() {
               onChange={(v) => setBrowserControl({ navigationApproval: v as "none" | "nonLocalOnly" | "all" })}
             />
           </SRow>
-          <div className="pw-srow-desc">{t("browser.approvalHint")}</div>
+          <div className="pw-srow-desc pw-bc-hint">{t("browser.approvalHint")}</div>
         </SettingCard>
 
         {/* 网站权限:预授权 origin 白名单(cortex 当前的站点级能力,复用 approvedOrigins) */}
         <SettingCard title={t("browser.sitesCard")}>
-          <div className="pw-srow-desc">{t("browser.sitesDesc")}</div>
+          <div className="pw-srow-desc pw-bc-sites-desc">{t("browser.sitesDesc")}</div>
           {bc.approvedOrigins.length === 0 ? (
             <div className="pw-scard-empty">{t("browser.sitesEmpty")}</div>
           ) : (
             <div className="pw-bc-list">
               {bc.approvedOrigins.map((o) => (
-                <div key={o} className="pw-mcp-item">
-                  <span>{o}</span>
+                <div key={o} className="pw-bc-site">
+                  <span className="pw-bc-site-origin">{o}</span>
                   <button type="button" className="pw-btn-sm" onClick={() => removeApprovedOrigin(o)}>
                     {t("browser.sitesRemove")}
                   </button>
@@ -168,9 +170,11 @@ export function BrowserSettingsSection() {
           <div className="pw-bc-add">
             <input
               type="text"
+              className="pw-set-input"
               value={originInput}
               placeholder={t("browser.sitesPlaceholder")}
               aria-label={t("browser.sitesAdd")}
+              spellCheck={false}
               onChange={(e) => {
                 setOriginInput(e.target.value);
                 setOriginError("");
@@ -179,17 +183,17 @@ export function BrowserSettingsSection() {
                 if (e.key === "Enter") addOrigin();
               }}
             />
-            <button type="button" className="pw-btn" onClick={addOrigin}>
+            <button type="button" className="pw-btn-sm" onClick={addOrigin}>
               {t("browser.sitesAdd")}
             </button>
           </div>
-          {originError ? <div className="pw-srow-desc pw-bc-risk">{originError}</div> : null}
+          {originError ? <div className="pw-srow-desc pw-bc-hint pw-bc-risk">{originError}</div> : null}
         </SettingCard>
 
         {/* 开发者模式:完整 CDP(风险升高,启用前二段确认) */}
         <SettingCard title={t("browser.devCard")}>
           <SRow label={t("browser.cdpLabel")} desc={t("browser.cdpDesc")} end>
-            <span className="pw-bc-risk pw-bc-risk-tag">{t("browser.cdpRisk")}</span>
+            <span className="pw-bc-risk-tag">{t("browser.cdpRisk")}</span>
             <button
               type="button"
               className="twk-toggle"
@@ -210,22 +214,27 @@ export function BrowserSettingsSection() {
             </button>
           </SRow>
           {cdpConfirm && !bc.cdpEnabled ? (
-            <div className="pw-srow-desc pw-bc-risk">
-              {t("browser.cdpConfirm")}
-              <button
-                type="button"
-                className="pw-btn"
-                onClick={() => {
-                  setBrowserControl({ cdpEnabled: true });
-                  setCdpConfirm(false);
-                }}
-              >
-                {t("browser.cdpConfirmBtn")}
-              </button>
+            <div className="pw-bc-confirm" role="alert">
+              <span className="pw-bc-confirm-text">{t("browser.cdpConfirm")}</span>
+              <span className="pw-bc-confirm-actions">
+                <button
+                  type="button"
+                  className="pw-btn-sm pw-btn-sm--danger"
+                  onClick={() => {
+                    setBrowserControl({ cdpEnabled: true });
+                    setCdpConfirm(false);
+                  }}
+                >
+                  {t("browser.cdpConfirmBtn")}
+                </button>
+                <button type="button" className="pw-btn-sm" onClick={() => setCdpConfirm(false)}>
+                  {t("browser.cancel")}
+                </button>
+              </span>
             </div>
           ) : null}
         </SettingCard>
       </fieldset>
-    </>
+    </div>
   );
 }

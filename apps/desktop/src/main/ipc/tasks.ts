@@ -4,8 +4,9 @@
 // 存储核心在 tasks-store.ts（不依赖 electron，可单测）；本文件注入路径 + 绑 ipcMain + broadcast。
 // 单例 store 导出，供 tasks-migrate.ts（迁移）与 tasks-delegate-observer.ts（委派回写）共用。
 
-import { BrowserWindow, Notification, ipcMain, powerSaveBlocker } from "electron";
+import { BrowserWindow, ipcMain, powerSaveBlocker } from "electron";
 import { Cron } from "croner";
+import { pushNotification } from "../notification-window";
 import { tasksJsonPath, taskDocsRoot, taskDocsDir } from "../paths";
 import { TasksStore } from "./tasks-store";
 import { saveTaskDoc, deleteTaskDoc } from "./task-doc";
@@ -46,19 +47,24 @@ export function isTasksReminderOptInEnabled(state: PersistedState): boolean {
   return state.pushSettings?.internal?.enabled ?? false;
 }
 
-// 原生系统通知（复用 automation/push-on-complete 范式）。锁屏隐私：**只带标题**，
-// 不把 notes 正文塞进 body。close-to-tray 下窗口可能 hidden，click 需 show() 再 focus()。
+// 任务提醒投递：走应用内自绘通知卡片窗口（notification-window），**不走 macOS 原生通知**——
+// 原生通知受系统授权/勿扰模式限制，dev 下 ad-hoc 签名还可能被静默丢弃（用户实际踩过：调度器
+// 到点触发、firedAt 已写，横幅却被系统吞掉）。卡片窗口置顶不抢焦、不受通知中心管控。
+// duration:-1 = 常驻不自动消失（用户可能不在电脑前，提醒须等到手动关闭或回到主窗）。
+// 隐私：只带任务标题，不塞 notes 正文。
 function showTasksNotification(task: TaskMeta): void {
-  if (!Notification.isSupported()) return;
-  const n = new Notification({ title: task.title || "任务提醒" });
-  n.on("click", () => {
-    const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-    if (win) {
-      win.show();
-      win.focus();
-    }
+  pushNotification({
+    // id 含 at：同一任务重设提醒后再次触发不会被窗体栈的同 id 去重拦掉。
+    id: `task-reminder-${task.id}-${task.reminder?.at ?? 0}`,
+    kind: "info",
+    iconName: "Bell",
+    title: "任务提醒",
+    // NotificationCard 有 title 时只渲染 title+description(text 被忽略),任务名须走 description;
+    // text 为契约必填,仅作无 title 场景的兜底。
+    text: task.title || "任务提醒",
+    description: task.title || undefined,
+    duration: -1,
   });
-  n.show();
 }
 
 // 单例提醒调度器（注入真依赖）。markFired 走 `markReminderFired`（store 锁内条件写）落 firedAt 后 broadcast——
