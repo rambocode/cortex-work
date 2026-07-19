@@ -22,6 +22,18 @@ export function isLikelyFilePath(text: string): boolean {
   return true;
 }
 
+// markdown 链接/图片的 href/src 会被 remark 管线(mdast-util-to-hast 的 normalizeUri)
+// percent-encode:中文等非 ASCII 路径(如 /Users/x/周报)变成 %E5%91%A8… 形式,直接拿去
+// stat/打开必失败(死链)。渲染期先经此解一次码再当文件 ref 用;解码失败(孤立 % 等非法
+// 序列)回退原串——纯 ASCII 路径编码前后一致,零回归。
+export function decodePathRef(ref: string): string {
+  try {
+    return decodeURIComponent(ref);
+  } catch {
+    return ref;
+  }
+}
+
 // 本地位图图片路径扩展名(与主进程 image.ts 读侧 allowlist 对齐:仅 PNG/JPEG/GIF/WebP)。
 // svg 刻意不在内——读侧也拒(svg 可内联脚本),避免内联渲染引入注入面。
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp)$/i;

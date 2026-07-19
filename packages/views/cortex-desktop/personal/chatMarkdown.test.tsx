@@ -231,6 +231,17 @@ describe("chatMarkdownComponents", () => {
     expect(onOpenFile).toHaveBeenCalledWith(abs);
   });
 
+  it("【死链修复】中文绝对路径链接被 remark percent-encode → 解码后再探测/点击,均用真实路径", async () => {
+    const abs = "/Users/jingjing/work/team/周报/2026/【技术部周报】20260713.xlsx";
+    const fileExists = vi.fn<(p: string) => Promise<boolean>>().mockResolvedValue(true);
+    const { container, onOpenFile } = renderMd(`见 [周报](${abs})`, { fileExists });
+    await waitFor(() => expect(container.querySelector("a.file-link")).not.toBeNull());
+    // 关键断言:探测用的是解码后的真实路径,而非 %E5%91%A8… 编码串(编码串 stat 必失败 → 死链)。
+    expect(fileExists).toHaveBeenCalledWith(abs);
+    fireEvent.click(container.querySelector("a.file-link")!);
+    expect(onOpenFile).toHaveBeenCalledWith(abs);
+  });
+
   it("../outputs 相对爬出 docx(within=false):resolveProjectFile 落空 + fileExists 命中 → 可点", async () => {
     const resolveProjectFile = vi.fn<(r: string, ref: string) => Promise<string | null>>().mockResolvedValue(null);
     const fileExists = vi.fn<(p: string) => Promise<boolean>>().mockResolvedValue(true);

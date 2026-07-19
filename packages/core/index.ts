@@ -462,7 +462,7 @@ export {
   piRpcUnavailableMessage,
   __resetPiSessionsForTest,
 } from "./personal/pi-session";
-export { isLikelyFilePath, isLocalImagePath, resolveProjectFileRef } from "./personal/filePaths";
+export { decodePathRef, isLikelyFilePath, isLocalImagePath, resolveProjectFileRef } from "./personal/filePaths";
 export {
   timelineKeys,
   dayKey,

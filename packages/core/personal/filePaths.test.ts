@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { isLikelyFilePath, isLocalImagePath, resolveProjectFileRef } from "./filePaths";
+import { decodePathRef, isLikelyFilePath, isLocalImagePath, resolveProjectFileRef } from "./filePaths";
+
+describe("decodePathRef", () => {
+  it("解码 remark percent-encode 的中文路径(死链根因)", () => {
+    expect(decodePathRef("/Users/j/work/%E5%91%A8%E6%8A%A5/a.xlsx")).toBe("/Users/j/work/周报/a.xlsx");
+  });
+  it("纯 ASCII 路径编码前后一致,原样返回(零回归)", () => {
+    expect(decodePathRef("/proj/src/a.ts")).toBe("/proj/src/a.ts");
+  });
+  it("非法序列(孤立 %)解码抛错 → 回退原串", () => {
+    expect(decodePathRef("/proj/50%.md")).toBe("/proj/50%.md");
+  });
+});
 
 describe("isLikelyFilePath", () => {
   it("识别项目内文件路径(正例)", () => {

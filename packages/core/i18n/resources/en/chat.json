@@ -105,7 +105,7 @@
       "workspace": "Workspace only",
       "all": "All files",
       "sandbox": "External sandbox",
-      "workspaceHint": "Confine the agent to the working directory (enforced on Pi; writes only on Codex; not enforced on Claude)",
+      "workspaceHint": "Writes are confined to the working directory; reads are unrestricted (enforced on Pi/Codex; not enforced on Claude)",
       "allHint": "Full read-write, no directory limit (default)",
       "sandboxHint": "Unrestricted inside an isolated sandbox, limiting impact on the real filesystem (native to codex; degrades on claude/pi)",
       "sandboxDegraded": "External sandbox is native to Codex only; Claude/Pi have no native sandbox and fall back to normal directory access"
