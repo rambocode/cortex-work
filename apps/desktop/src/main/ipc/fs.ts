@@ -14,6 +14,9 @@ import type {
   GitInfoResult,
   GitOpResult,
   PromptNode,
+  ReadFileBinaryResult,
+  StatFileResult,
+  WriteFileBinaryResult,
   WritingSaveImagePayload,
 } from "./types";
 import { getPersistedState } from "./store";
@@ -26,6 +29,10 @@ import type { ImageReadResult } from "./types";
 const MAX_DEPTH = 8;
 const MAX_NODES = 5000;
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB
+// 表格二进制通道独立上限:xlsx 是压缩包,25MB 已覆盖绝大多数表格;超限降级系统打开。
+const MAX_SHEET_BYTES = 25 * 1024 * 1024;
+// 本进程生命周期内已做过首次备份的文件集合(见 fs:writeFileBinary)。
+const binaryBackedUp = new Set<string>();
 const SKIP_DIRS = new Set(["node_modules", ".git", ".hg", ".svn", "dist", "out", ".next", ".turbo"]);
 
 function isInside(parent: string, child: string): boolean {
@@ -563,6 +570,54 @@ export function registerFsHandlers(): void {
     await fsp.writeFile(path, content, "utf8");
   });
 
+  // ── 表格文件二进制通道（内置表格预览/编辑用,base64 传输）────────────────────
+  // fs:readFile 的 2MB 文本上限对 xlsx 太小且截半即损坏,这里独立上限、超限不返回内容
+  //（渲染端据 truncated 降级为「用系统应用打开」）。
+  ipcMain.handle("fs:readFileBinary", async (_e, path: string): Promise<ReadFileBinaryResult> => {
+    await assertOpenable(path);
+    const stat = await fsp.stat(path);
+    if (stat.size > MAX_SHEET_BYTES) {
+      return { data: null, truncated: true, size: stat.size, mtimeMs: stat.mtimeMs };
+    }
+    const buf = await fsp.readFile(path);
+    return { data: buf.toString("base64"), truncated: false, size: stat.size, mtimeMs: stat.mtimeMs };
+  });
+
+  // 二进制写回:前端表格库写 xlsx 有丢高级特性(图表/透视表)风险,故
+  // 1) backup=true 时首次覆写前留一份 `<path>.bak-<时间戳>`(按主进程生命周期去重,避免每次保存都堆备份);
+  // 2) 先写临时文件再 rename 原子替换,防写一半损坏原文件。
+  ipcMain.handle(
+    "fs:writeFileBinary",
+    async (_e, path: string, dataBase64: string, opts?: { backup?: boolean }): Promise<WriteFileBinaryResult> => {
+      await assertAllowed(path);
+      await fsp.mkdir(dirname(path), { recursive: true });
+      let backupPath: string | undefined;
+      if (opts?.backup && !binaryBackedUp.has(path)) {
+        try {
+          await fsp.stat(path); // 仅对已存在文件留底
+          const ts = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+          backupPath = `${path}.bak-${ts}`;
+          await fsp.copyFile(path, backupPath);
+          binaryBackedUp.add(path);
+        } catch {
+          backupPath = undefined; // 原文件不存在（新建场景）:无需备份
+        }
+      }
+      const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
+      await fsp.writeFile(tmp, Buffer.from(dataBase64, "base64"));
+      await fsp.rename(tmp, path);
+      const stat = await fsp.stat(path);
+      return { backupPath, mtimeMs: stat.mtimeMs };
+    },
+  );
+
+  // 轻量 stat:外部变更检测(watch 信号后比对 mtime),避免整文件重读。
+  ipcMain.handle("fs:statFile", async (_e, path: string): Promise<StatFileResult> => {
+    await assertOpenable(path);
+    const stat = await fsp.stat(path);
+    return { size: stat.size, mtimeMs: stat.mtimeMs };
+  });
+
   ipcMain.handle("fs:deleteFile", async (_e, path: string) => {
     await assertAllowed(path);
     await fsp.rm(path, { force: true });
@@ -578,6 +633,14 @@ export function registerFsHandlers(): void {
   ipcMain.handle("fs:deleteEntry", async (_e, path: string) => {
     await assertAllowed(path);
     await fsp.rm(path, { recursive: true, force: true });
+  });
+
+  // 无项目会话归档根:Documents/cortex(天然在白名单内,零配置可用)。调用即确保存在。
+  // 供右栏「文件」在无项目会话时回退展示其下各按日期建的目录(及 design/writing)。
+  ipcMain.handle("fs:documentsCortexRoot", async () => {
+    const dir = documentsCortexDir();
+    await fsp.mkdir(dir, { recursive: true });
+    return dir;
   });
 
   // 设计工作台默认根:Documents/cortex/design(天然在白名单内,零配置可用)。调用即确保存在。

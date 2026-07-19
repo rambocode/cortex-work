@@ -5434,6 +5434,193 @@ button.sb-row {
 }
 .pw-sel-pop .pw-ftb-btn { border-color: transparent; }
 
+/* ── 内置表格预览(SheetViewer:xlsx/csv + 批注侧栏) ─────────────────────── */
+/* 无项目会话的聊天区浮层:盖满 .chat(position:relative),内部纵排 头部+SheetViewer */
+.pw-sheet-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+}
+.pw-sheet-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.pw-sheet-toolbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pw-sheet-toolbar .spacer { flex: 1; }
+.pw-sheet-fidelity { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.pw-ftb-btn.is-active { background: var(--bg-active); color: var(--text-1); }
+/* 外部变更冲突弹条:文件被 agent/外部改动且本地有未保存编辑时出现 */
+.pw-sheet-conflict {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+  border-bottom: 1px solid var(--border-soft);
+}
+.pw-sheet-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+/* host 由 Univer 全权接管内部 DOM。 */
+.pw-sheet-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.pw-sheet-loading {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12.5px; color: var(--text-3);
+  pointer-events: none;
+}
+/* 批注侧栏 */
+.pw-sheet-side {
+  width: 250px;
+  flex-shrink: 0;
+  display: flex; flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border-soft);
+  background: var(--bg-app);
+}
+.pw-sheet-side-h {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px 4px;
+  font-size: 12px; font-weight: 600; color: var(--text-1);
+}
+.pw-sheet-side-h .spacer { flex: 1; }
+.pw-sheet-side-sel {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 4px 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-card-2, var(--bg-hover));
+  font-size: 11.5px;
+}
+.pw-sheet-sel-range { font-weight: 600; color: var(--text-1); }
+.pw-sheet-sel-val, .pw-sheet-note-val {
+  color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.pw-sheet-sel-empty { color: var(--text-3); }
+.pw-sheet-side-input {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 0 10px 8px;
+}
+.pw-sheet-side-input textarea {
+  resize: none;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-1);
+  font-family: inherit;
+}
+.pw-sheet-side-input textarea:focus { outline: none; border-color: var(--accent, #cc785c); }
+.pw-sheet-side-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.pw-sheet-note {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  font-size: 11.5px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.pw-sheet-note-head { display: flex; align-items: center; }
+.pw-sheet-note-head .spacer { flex: 1; }
+.pw-sheet-note-range { font-weight: 600; color: var(--text-2); }
+.pw-sheet-note-text { color: var(--text-1); white-space: pre-wrap; word-break: break-word; }
+.pw-sheet-side-f {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+}
+.pw-sheet-side-f .pw-ftb-btn { flex: 1; justify-content: center; }
+/* 图表侧栏(echarts 渲染工作簿图表;与批注侧栏互斥) */
+.pw-sheet-charts {
+  width: min(46%, 420px);
+  flex-shrink: 0;
+  display: flex; flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border-soft);
+  background: var(--bg-app);
+}
+.pw-sheet-charts-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 10px 10px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.pw-sheet-chart-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.pw-sheet-chart-h { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pw-sheet-chart-title {
+  font-size: 12px; font-weight: 600; color: var(--text-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0;
+}
+.pw-sheet-chart-tag {
+  flex-shrink: 0;
+  font-size: 10.5px; color: var(--text-3);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-card-2, var(--bg-hover));
+}
+.pw-sheet-chart-host { height: 220px; width: 100%; }
+.pw-sheet-chart-tag.is-user { color: var(--accent, #cc785c); background: color-mix(in srgb, var(--accent, #cc785c) 12%, transparent); }
+/* 用户新建图表的操作行(改类型/删除) */
+.pw-sheet-chart-actions { display: flex; align-items: center; gap: 6px; }
+.pw-sheet-chart-actions .spacer { flex: 1; }
+.pw-sheet-chart-actions select {
+  font-size: 11px;
+  color: var(--text-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  padding: 2px 4px;
+}
+/* 「插入图表」类型下拉(锚在按钮下方) */
+.pw-sheet-insert-wrap { position: relative; display: inline-flex; }
+.pw-sheet-insert-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.pw-sheet-insert-menu .pw-ftb-btn { border-color: transparent; justify-content: flex-start; }
+
 /* 文件窗口的 .md 预览:复用 tasks 的 .pw-todo-md 排版,填满面板并自管滚动
    （.pw-todo-md 默认 max-height:260px 仅适合详情卡片,这里放开让其撑满）。 */
 .pw-file-md {

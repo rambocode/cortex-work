@@ -877,6 +877,29 @@ export interface ReadFileResult {
   truncated: boolean;
 }
 
+// ── 表格文件二进制通道（与主进程 ipc/types.ts 镜像）──────────────────────────
+// 现有 readFile/writeFile 是 UTF-8 文本通道，xlsx 等二进制走这里（base64 传输）。
+
+// 读结果：超过大小上限时 truncated=true 且 data=null（二进制截半无意义，调用方降级系统打开）。
+export interface ReadFileBinaryResult {
+  data: string | null; // base64
+  truncated: boolean;
+  size: number;
+  mtimeMs: number; // 读取时刻的文件 mtime，供外部变更（agent 改文件）检测比对
+}
+
+// 写结果：backupPath = 本次触发的首次备份落点（未备份则缺省）；mtimeMs = 写后新 mtime。
+export interface WriteFileBinaryResult {
+  backupPath?: string;
+  mtimeMs: number;
+}
+
+// 轻量 stat：外部变更检测用（watch 信号后比对 mtime，避免整文件重读）。
+export interface StatFileResult {
+  size: number;
+  mtimeMs: number;
+}
+
 // 写作工作区：粘贴/生成图片落盘入参（fs:writingSaveImage，与主进程 ipc/types.ts 镜像）。
 // bytesBase64 = 图片原始字节的 base64；ext = 落盘扩展名（不含点，主进程会再净化）。
 // 主进程落 <spaceRoot>/img/pasted-<ts>-<rand>.<ext>，返回落盘绝对路径。

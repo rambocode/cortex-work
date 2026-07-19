@@ -122,10 +122,22 @@ export function isBinaryLike(name: string): boolean {
   return IMAGE_EXT.has(ex) || ARCHIVE_EXT.has(ex) || MEDIA_EXT.has(ex);
 }
 
+// 内置表格预览可接管的电子表格类型(xlsx/csv)。注意不含 .xls:老二进制格式写回支持
+// 普遍很差,仍走系统打开。csv 本就不在 external 集里(原走 Monaco 文本),列出是为
+// FilesView openFile 的表格分流;xlsx 则靠下方 isOpenExternalLike 排除才不被系统打开。
+const SPREADSHEET_INBUILT = new Set(["xlsx", "csv"]);
+
+export function isSpreadsheetLike(name: string): boolean {
+  return SPREADSHEET_INBUILT.has(extOf(name));
+}
+
 // 内置编辑器打不开、应交系统默认应用打开的文件:图片/压缩/媒体 + office 文档/pdf/二进制。
 // 点击此类文件链接(会话内或文件树)直接调 bridge.openPath,不进右栏内置预览。
+// 例外:xlsx/csv 有内置表格预览(SheetViewer),从 external 集排除——FilesView 与
+// PersonalChatArea 两个入口共用本判定,一处排除即两处行为一致。
 export function isOpenExternalLike(name: string): boolean {
-  return isBinaryLike(name) || DOC_BINARY_EXT.has(extOf(name));
+  const ex = extOf(name);
+  return (isBinaryLike(name) || DOC_BINARY_EXT.has(ex)) && !SPREADSHEET_INBUILT.has(ex);
 }
 
 // 文件树行内小图标。spec 为 null 时由调用方回退通用 <Icon.File>。

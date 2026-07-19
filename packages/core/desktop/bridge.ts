@@ -72,6 +72,9 @@ import type {
   PtySpawnRequest,
   PtySpawnResult,
   ReadFileResult,
+  ReadFileBinaryResult,
+  StatFileResult,
+  WriteFileBinaryResult,
   WritingSaveImagePayload,
   TrimSessionRequest,
   TtsListVoicesRequest,
@@ -199,6 +202,12 @@ export interface DesktopBridge {
   gitCreateBranch?(root: string, name: string): Promise<GitOpResult>;
   gitCheckout?(root: string, name: string): Promise<GitOpResult>;
   readFile(path: string): Promise<ReadFileResult>;
+  // 表格文件二进制通道(内置表格预览/编辑,base64 传输):读超限 truncated 降级、
+  // 写带首次备份 + 临时文件原子替换。可选——web/旧壳无 → 表格入口回退系统打开。
+  readFileBinary?(path: string): Promise<ReadFileBinaryResult>;
+  writeFileBinary?(path: string, dataBase64: string, opts?: { backup?: boolean }): Promise<WriteFileBinaryResult>;
+  // 轻量 stat:表格预览的外部变更检测(watch 信号后比对 mtime,避免整文件重读)。
+  statFile?(path: string): Promise<StatFileResult>;
   // 会话消息里文件链接的项目内定位:ref(相对路径或裸文件名)→ 真实绝对路径,找不到 → null。
   // 支持 ref 缺目录、真实文件在子目录的情况(yuque 导出表格只列文件名)。
   // 可选（web/旧壳没有 → chatMarkdown 退化为乐观可点击、handleOpenFile 走精确路径)。
@@ -210,6 +219,10 @@ export interface DesktopBridge {
   deleteEntry?(path: string): Promise<void>;
   // 设计产物默认根(Documents/cortex/design,调用即建目录);用户未自定义工作目录时的回落值。
   designWorkspaceRoot?(): Promise<string>;
+  // 无项目会话归档根(Documents/cortex,调用即建目录):右栏「文件」无项目会话时的回退根,
+  // 其子节点即各按日期(YYYY-MM-DD)建的目录及 design/writing。
+  // 可选——web/旧壳无 → 无项目时右栏保持空态(无回退)。
+  documentsCortexRoot?(): Promise<string>;
   // 写作产物默认根(Documents/cortex/writing,调用即建目录);首次进入写作工作区建默认空间用。
   // 可选——web/旧壳无此能力时写作入口降级隐藏。
   writingWorkspaceRoot?(): Promise<string>;

@@ -56,6 +56,9 @@ import type {
   PiExtInstallResult,
   PromptNode,
   ReadFileResult,
+  ReadFileBinaryResult,
+  StatFileResult,
+  WriteFileBinaryResult,
   WritingSaveImagePayload,
   SkillMeta,
   SpotlightIntent,
@@ -228,6 +231,12 @@ const personal = {
     ipcRenderer.invoke("fs:gitCreateBranch", root, name),
   gitCheckout: (root: string, name: string): Promise<GitOpResult> => ipcRenderer.invoke("fs:gitCheckout", root, name),
   readFile: (path: string): Promise<ReadFileResult> => ipcRenderer.invoke("fs:readFile", path),
+  // 表格文件二进制通道(内置表格预览/编辑):base64 传输,读超限降级、写带首次备份+原子替换。
+  readFileBinary: (path: string): Promise<ReadFileBinaryResult> => ipcRenderer.invoke("fs:readFileBinary", path),
+  writeFileBinary: (path: string, dataBase64: string, opts?: { backup?: boolean }): Promise<WriteFileBinaryResult> =>
+    ipcRenderer.invoke("fs:writeFileBinary", path, dataBase64, opts),
+  // 轻量 stat:外部变更检测(watch 信号后比对 mtime)。
+  statFile: (path: string): Promise<StatFileResult> => ipcRenderer.invoke("fs:statFile", path),
   // 会话文件链接定位:ref(相对/裸文件名)→ 项目内真实绝对路径,找不到/越权 → null（不抛错）。
   resolveProjectFile: (root: string, ref: string): Promise<string | null> =>
     ipcRenderer.invoke("fs:resolveProjectFile", root, ref),
@@ -237,6 +246,8 @@ const personal = {
   mkdir: (path: string): Promise<void> => ipcRenderer.invoke("fs:mkdir", path),
   deleteEntry: (path: string): Promise<void> => ipcRenderer.invoke("fs:deleteEntry", path),
   designWorkspaceRoot: (): Promise<string> => ipcRenderer.invoke("fs:designWorkspaceRoot"),
+  // 无项目会话归档根(Documents/cortex,调用即建目录):右栏「文件」无项目会话时的回退根。
+  documentsCortexRoot: (): Promise<string> => ipcRenderer.invoke("fs:documentsCortexRoot"),
   // 写作工作区:默认根(确保存在)/ 重命名条目(同目录重名预检,不覆盖)。
   writingWorkspaceRoot: (): Promise<string> => ipcRenderer.invoke("fs:writingWorkspaceRoot"),
   // 写作粘贴/生成图片落盘(U1):返回落盘绝对路径,渲染端换算相对链接。

@@ -5,12 +5,13 @@
 // - 选中片段可发送到终端（bracketed paste）或插入会话输入框。
 // 变更文件优先显示 git diff（+/− 着色,仍走纯文本渲染）。
 
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { ChangedFile, ContentSearchResult, GitChangesResult, PromptNode } from "@cortex-work/core";
-import { FileIcon, fileIconSpec, isOpenExternalLike } from "./fileIcons";
+import { FileIcon, fileIconSpec, isOpenExternalLike, isSpreadsheetLike } from "./fileIcons";
+import { SheetViewer } from "./sheet/SheetViewer";
 import { isBinaryDoc } from "./docIntake";
 import { langForName, wordWrapForName } from "./monacoLang";
 import { MonacoViewer, type SelectionAnchor } from "./MonacoViewer";
@@ -32,6 +33,8 @@ interface Preview {
   content: string;
   isDiff: boolean;
   truncated?: boolean;
+  // "sheet" = 内置表格预览(xlsx/csv,SheetViewer 自行经二进制通道读写);缺省为文本。
+  kind?: "sheet";
 }
 
 function TreeRowIcon({ name }: { name: string }) {
@@ -140,7 +143,26 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   const bridge = useDesktopBridge();
   const projects = usePersonalStore((s) => s.projects);
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
-  const project = projects.find((p) => p.id === activeProjectId);
+  const realProject = projects.find((p) => p.id === activeProjectId);
+  // 无真实项目(无项目会话 / 未选会话):activeProjectId 为空。回退到 ~/Documents/cortex
+  // 归档根,其子节点即各按日期(YYYY-MM-DD)建的会话目录及 design/writing。jail 已放行该根。
+  const noProject = !realProject;
+  const [cortexRoot, setCortexRoot] = useState<string | null>(null);
+  useEffect(() => {
+    if (realProject || !bridge?.documentsCortexRoot) return; // 有项目 / web·旧壳无此能力:不回退
+    let alive = true;
+    bridge.documentsCortexRoot().then((d) => alive && setCortexRoot(d)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [realProject, bridge]);
+  // 合成回退 project,让下游 scanDirTree/watch/search 无需特判(id 用哨兵,不会与真实项目 id 撞)。
+  // 必须 useMemo 稳定引用:refresh/watch 等 effect 依赖 project,每渲染新建对象会让 watch
+  // 反复 unwatch+watch+scanDirTree,导致刷屏。realProject(projects.find)本就引用稳定。
+  const project = useMemo(
+    () => realProject ?? (cortexRoot ? { id: "__noproject__", name: "cortex", path: cortexRoot, addedAt: 0 } : undefined),
+    [realProject, cortexRoot],
+  );
 
   const [mode, setMode] = useState<Mode>("all");
   const [tree, setTree] = useState<PromptNode | null>(null);
@@ -151,6 +173,8 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   const [selection, setSelection] = useState("");
   const [selAnchor, setSelAnchor] = useState<SelectionAnchor | null>(null);
   const [ctxMenu, setCtxMenu] = useState<FileCtxTarget | null>(null);
+  // 目录 watch 信号计数:表格预览(SheetViewer)据此比对 mtime,联动 agent 改文件后的自动重载。
+  const [dirTick, setDirTick] = useState(0);
   const draftRef = useRef("");
 
   // 搜索框:默认按文件名过滤;? 前缀切到内容搜索（grep）。
@@ -176,6 +200,12 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     setPreview(null);
     void refresh();
   }, [refresh]);
+
+  // 无项目回退根(~/Documents/cortex)非 git 仓库,「最近变更」无意义:强制回「全部文件」,
+  // 兼防从项目切到无项目会话时残留 changes 模式。
+  useEffect(() => {
+    if (noProject) setMode("all");
+  }, [noProject]);
 
   // 切换模式 / 项目:清空搜索态,避免残留过滤或上个项目的搜索结果。
   useEffect(() => {
@@ -219,7 +249,10 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
       /* 监听失败（权限等）:保留手动刷新 */
     });
     const off = bridge.onDirChanged?.((id) => {
-      if (id === watchId) void refresh();
+      if (id === watchId) {
+        setDirTick((v) => v + 1);
+        void refresh();
+      }
     });
     return () => {
       off?.();
@@ -258,11 +291,42 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     setSelAnchor(null);
   };
 
+  // 文本预览路径(Monaco/Markdown);csv 在表格预览里点「以文本打开」也走这里,
+  // 故先复位编辑/脏态(表格切文本时脏标记不应残留)。
+  const openTextFile = async (path: string, name: string) => {
+    if (!bridge) return;
+    setEditMode(false);
+    setDirty(false);
+    try {
+      const { content, truncated } = await bridge.readFile(path);
+      draftRef.current = content;
+      setPreview({ name, path, content, isDiff: false, truncated });
+    } catch (err) {
+      onToast(t("readFailed", { error: err instanceof Error ? err.message : String(err) }));
+    }
+  };
+
   const openFile = async (path: string, name: string) => {
     if (!bridge) return;
     setEditMode(false);
     setDirty(false);
     setSelection("");
+    // 电子表格(xlsx/csv)→ 内置表格预览(SheetViewer 自行经二进制通道读取)。
+    // 无二进制桥(web/旧壳):xlsx 回退系统打开;csv 落回下方文本路径(原行为)。
+    if (isSpreadsheetLike(name)) {
+      if (bridge.readFileBinary) {
+        setPreview({ name, path, content: "", isDiff: false, kind: "sheet" });
+        return;
+      }
+      if (!/\.csv$/i.test(name)) {
+        try {
+          await bridge.openPath?.(path);
+        } catch (err) {
+          onToast(t("openFailed", { error: err instanceof Error ? err.message : String(err) }));
+        }
+        return;
+      }
+    }
     // 内置编辑器打不开的类型(图片/媒体/office/pdf/二进制)→ 交系统默认应用打开,不进内置预览
     // (强转 UTF-8 会乱码)。文本类型继续走 readFile + Monaco/Markdown。
     if (isOpenExternalLike(name)) {
@@ -274,13 +338,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
       }
       return;
     }
-    try {
-      const { content, truncated } = await bridge.readFile(path);
-      draftRef.current = content;
-      setPreview({ name, path, content, isDiff: false, truncated });
-    } catch (err) {
-      onToast(t("readFailed", { error: err instanceof Error ? err.message : String(err) }));
-    }
+    await openTextFile(path, name);
   };
 
   // 会话消息点文件链接:消费预览请求,复用 openFile 渲染(Monaco/Markdown/二进制占位按类型)。
@@ -393,7 +451,8 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   if (!project) return <div className="pw-panel-empty">{t("selectProject")}</div>;
 
   if (preview) {
-    const canEdit = !preview.isDiff && !preview.truncated && !!preview.path;
+    const isSheet = preview.kind === "sheet";
+    const canEdit = !isSheet && !preview.isDiff && !preview.truncated && !!preview.path;
     return (
       <div className="pw-rp-view is-fileopen">
         <div className="pw-editor-h pw-file-toolbar">
@@ -426,13 +485,15 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                   {t("toolbar.edit")}
                 </button>
               ) : null}
-              <button
-                className="pw-ftb-btn"
-                title={t("toolbar.copyContentTitle")}
-                onClick={() => void copyText(dirty ? draftRef.current : preview.content, t("content"))}
-              >
-                {t("content")}
-              </button>
+              {!isSheet ? (
+                <button
+                  className="pw-ftb-btn"
+                  title={t("toolbar.copyContentTitle")}
+                  onClick={() => void copyText(dirty ? draftRef.current : preview.content, t("content"))}
+                >
+                  {t("content")}
+                </button>
+              ) : null}
               {preview.path ? (
                 <button className="pw-ftb-btn" title={t("toolbar.copyPathTitle")} onClick={() => void copyText(preview.path!, t("path"))}>
                   {t("path")}
@@ -456,7 +517,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                   {t("toolbar.reveal")}
                 </button>
               ) : null}
-              {preview.path && !preview.isDiff ? (
+              {preview.path && !preview.isDiff && !isSheet ? (
                 <button className="pw-icon-btn" title={t("toolbar.reload")} onClick={() => void openFile(preview.path!, preview.name)}>
                   <Icon.Workflow size={13} />
                 </button>
@@ -464,7 +525,19 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
             </>
           )}
         </div>
-        {preview.isDiff ? (
+        {isSheet && preview.path && bridge ? (
+          // 表格预览:SheetViewer 自管读写/保存/批注;脏标记上抛复用头部 ● 。
+          <SheetViewer
+            key={preview.path}
+            filePath={preview.path}
+            fileName={preview.name}
+            bridge={bridge}
+            onToast={onToast}
+            onDirtyChange={setDirty}
+            onOpenAsText={() => void openTextFile(preview.path!, preview.name)}
+            dirChangeTick={dirTick}
+          />
+        ) : preview.isDiff ? (
           <DiffText content={preview.content} />
         ) : isMarkdownName(preview.name) && !editMode ? (
           // .md 预览:与 tasks 文档同款渲染（点「编辑」切回 Monaco 源码编辑）。
@@ -527,9 +600,12 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
           <button className={mode === "all" ? "is-active" : ""} onClick={() => setMode("all")}>
             {t("segAll")}
           </button>
-          <button className={mode === "changes" ? "is-active" : ""} onClick={() => setMode("changes")}>
-            {t("segChanges")}
-          </button>
+          {/* 无项目回退根非 git 仓库,「最近变更」无展示价值 → 隐藏该分段 */}
+          {!noProject ? (
+            <button className={mode === "changes" ? "is-active" : ""} onClick={() => setMode("changes")}>
+              {t("segChanges")}
+            </button>
+          ) : null}
         </div>
         <div className="spacer" />
         <button className="pw-icon-btn" title={t("refresh")} onClick={() => void refresh()}>

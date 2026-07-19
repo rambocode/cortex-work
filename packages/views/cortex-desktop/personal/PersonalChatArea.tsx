@@ -33,7 +33,8 @@ import { parseMentions } from "@cortex-work/core/personal/mention";
 import { MessageStream } from "../ChatArea";
 import { resolveSkillDispatch } from "./skillDispatch";
 import { agentContact } from "./agentMeta";
-import { isOpenExternalLike } from "./fileIcons";
+import { isOpenExternalLike, isSpreadsheetLike } from "./fileIcons";
+import { SheetOverlay } from "./sheet/SheetOverlay";
 import { resolveExistingFile } from "./resolveFileRef";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
@@ -212,6 +213,10 @@ export function PersonalChatArea({
   // 追问浮层(U5):以某条 assistant 正文为种子的临时多轮问答,关闭即弃。单实例;
   // returnFocusEl 记录触发按钮,关闭后焦点归还(无障碍)。
   const [followup, setFollowup] = useState<{ seedText: string; returnFocusEl?: HTMLElement | null } | null>(null);
+  // 无项目会话的表格预览浮层(有项目走右栏 FilesView,不用浮层)。
+  const [sheetOverlay, setSheetOverlay] = useState<{ path: string; name: string } | null>(null);
+  // 切换会话时关掉浮层,避免上个会话的表格残留盖在新会话上。
+  useEffect(() => setSheetOverlay(null), [activeSessionId]);
 
   useEffect(() => {
     setShowHiddenHistory(false);
@@ -248,12 +253,19 @@ export function PersonalChatArea({
   // resolveExistingFile:绝对路径走 fileExists、相对走 resolveProjectFile→拼 abs+fileExists,
   // 覆盖项目外 agent 产物如 ~/.codex/generated_images 与 `../outputs` 爬出),按文件类型分发:
   // - 非文本(图片/媒体/office/pdf/二进制)→ 系统默认应用打开,不依赖项目上下文;
+  // - 电子表格(xlsx/csv)→ 有项目走右栏内置表格;无项目会话在聊天区盖 SheetOverlay 浮层;
   // - 文本类 → 右栏内置预览并展开右栏(需项目);无项目会话退化为系统打开。
   const handleOpenFile = useCallback(
     (ref: string) => {
       const projectPath = realProject?.path ?? "";
       const openResolved = (abs: string) => {
         const name = abs.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? ref;
+        // 表格 + 无项目会话:右栏 FilesView 需要项目上下文,改在聊天区就地浮层打开
+        // (无二进制桥的 web/旧壳仍落到下方系统打开)。
+        if (isSpreadsheetLike(name) && !realProject && bridge?.readFileBinary) {
+          setSheetOverlay({ path: abs, name });
+          return;
+        }
         // 图片/office/pdf/媒体/二进制 → 系统打开;无项目会话(无右栏预览上下文)亦同。
         if (isOpenExternalLike(name) || !realProject) {
           void bridge?.openPath?.(abs).catch(() => onToast(`打开失败：${name}`));
@@ -638,6 +650,17 @@ export function PersonalChatArea({
             setFollowup(null);
             el?.focus();
           }}
+        />
+      ) : null}
+
+      {/* 无项目会话的表格预览浮层:消息里点 xlsx/csv 链接时就地盖在聊天区上。 */}
+      {sheetOverlay && bridge ? (
+        <SheetOverlay
+          path={sheetOverlay.path}
+          name={sheetOverlay.name}
+          bridge={bridge}
+          onToast={onToast}
+          onClose={() => setSheetOverlay(null)}
         />
       ) : null}
     </main>

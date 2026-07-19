@@ -92,7 +92,7 @@ describe("FilesView 消费 filePreviewRequest", () => {
     expect(bridge.readFile).not.toHaveBeenCalled();
   });
 
-  it("office 文档(.xlsx) → 系统默认应用打开,不调 readFile", async () => {
+  it("xlsx 但无二进制桥(web/旧壳) → 回退系统默认应用打开,不调 readFile", async () => {
     const openPath = vi.fn().mockResolvedValue("");
     const bridge = makeBridge({ openPath });
     usePersonalStore.setState({
@@ -100,6 +100,20 @@ describe("FilesView 消费 filePreviewRequest", () => {
     });
     renderView(bridge);
     await waitFor(() => expect(openPath).toHaveBeenCalledWith("/code/alpha/outputs/monthly.xlsx"));
+    expect(bridge.readFile).not.toHaveBeenCalled();
+  });
+
+  it("xlsx 且有二进制桥 → 进内置表格预览(readFileBinary),不再系统打开", async () => {
+    const openPath = vi.fn().mockResolvedValue("");
+    // 无效 xlsx 字节:SheetViewer 解析失败降级为错误占位,但读取路径已走二进制通道。
+    const readFileBinary = vi.fn().mockResolvedValue({ data: "AAAA", truncated: false, size: 3, mtimeMs: 1 });
+    const bridge = makeBridge({ openPath, readFileBinary });
+    usePersonalStore.setState({
+      filePreviewRequest: { projectId: "p1", path: "/code/alpha/outputs/monthly.xlsx", name: "monthly.xlsx" },
+    });
+    renderView(bridge);
+    await waitFor(() => expect(readFileBinary).toHaveBeenCalledWith("/code/alpha/outputs/monthly.xlsx"));
+    expect(openPath).not.toHaveBeenCalled();
     expect(bridge.readFile).not.toHaveBeenCalled();
   });
 

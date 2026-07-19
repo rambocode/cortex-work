@@ -215,15 +215,15 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     expect(useCortexUIStore.getState().rightOpen).toBe(true);
   });
 
-  it("项目外的非文本产物(如 outputs 里的 xlsx)→ 系统默认应用打开,不进右栏预览", async () => {
+  it("项目外的非文本产物(如 outputs 里的 pdf)→ 系统默认应用打开,不进右栏预览", async () => {
     const openPath = vi.fn(async () => "");
     const b = {
       loadChat: async () => [
-        { kind: "text", who: "claude", time: "12:00", uid: "mx", text: "见 `/data/outputs/x/monthly.xlsx`" },
+        { kind: "text", who: "claude", time: "12:00", uid: "mx", text: "见 `/data/outputs/x/monthly.pdf`" },
       ],
       saveChat: async () => {},
       // 项目根为 /code/alpha,文件在项目外;主进程按真实存在性解析回绝对路径。
-      resolveProjectFile: async (_root: string, _ref: string) => "/data/outputs/x/monthly.xlsx",
+      resolveProjectFile: async (_root: string, _ref: string) => "/data/outputs/x/monthly.pdf",
       openPath,
     } as unknown as DesktopBridge;
     render(
@@ -232,11 +232,38 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
       </CoreProvider>,
     );
     // 项目外绝对路径也点亮为可点 file-link(渲染层放行 + 主进程解析命中)。
-    await waitFor(() => expect(screen.getByText("/data/outputs/x/monthly.xlsx")).toHaveClass("file-link"));
-    fireEvent.click(screen.getByText("/data/outputs/x/monthly.xlsx"));
-    await waitFor(() => expect(openPath).toHaveBeenCalledWith("/data/outputs/x/monthly.xlsx"));
+    await waitFor(() => expect(screen.getByText("/data/outputs/x/monthly.pdf")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("/data/outputs/x/monthly.pdf"));
+    await waitFor(() => expect(openPath).toHaveBeenCalledWith("/data/outputs/x/monthly.pdf"));
     // 非文本不走右栏内置预览。
     expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+  });
+
+  it("xlsx 有内置表格预览 → 走右栏预览请求,不再系统打开", async () => {
+    const openPath = vi.fn(async () => "");
+    const b = {
+      loadChat: async () => [
+        { kind: "text", who: "claude", time: "12:00", uid: "ms", text: "见 `/data/outputs/x/monthly.xlsx`" },
+      ],
+      saveChat: async () => {},
+      resolveProjectFile: async (_root: string, _ref: string) => "/data/outputs/x/monthly.xlsx",
+      openPath,
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("/data/outputs/x/monthly.xlsx")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("/data/outputs/x/monthly.xlsx"));
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "p1",
+        path: "/data/outputs/x/monthly.xlsx",
+        name: "monthly.xlsx",
+      }),
+    );
+    expect(openPath).not.toHaveBeenCalled();
   });
 
   it("无项目会话:projectPath 缺失,文本路径不可点(无 .file-link)", async () => {
@@ -281,6 +308,37 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     await waitFor(() => expect(screen.getByText("报告")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("报告"));
     await waitFor(() => expect(openPath).toHaveBeenCalledWith(abs));
+    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+  });
+
+  it("无项目会话:xlsx + 二进制桥 → 聊天区 SheetOverlay 浮层打开,不走系统打开", async () => {
+    usePersonalStore.setState({
+      sessions: [{ id: "s4", title: "分析", agent: "claude", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" }],
+      activeProjectId: undefined,
+      activeSessionId: "s4",
+    });
+    const openPath = vi.fn(async () => "");
+    // 无效 xlsx 字节:SheetViewer 解析失败降级错误占位,但浮层与二进制读取路径已生效。
+    const readFileBinary = vi.fn(async () => ({ data: "AAAA", truncated: false, size: 3, mtimeMs: 1 }));
+    const abs = "/Users/mike/Documents/cortex/2026-07-18/财务分析.xlsx";
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "06:03", uid: "m4", text: `文件在 [工作簿](${abs})` }],
+      saveChat: async () => {},
+      fileExists: vi.fn(async () => true),
+      openPath,
+      readFileBinary,
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("工作簿")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("工作簿"));
+    // 浮层头部显示文件名,且经二进制通道读取;不再交系统应用打开。
+    await waitFor(() => expect(screen.getByText("财务分析.xlsx")).toBeInTheDocument());
+    await waitFor(() => expect(readFileBinary).toHaveBeenCalledWith(abs));
+    expect(openPath).not.toHaveBeenCalled();
     expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
   });
 });

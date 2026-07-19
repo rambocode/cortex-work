@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileIconSpec, isBinaryLike, isOpenExternalLike } from "./fileIcons";
+import { fileIconSpec, isBinaryLike, isOpenExternalLike, isSpreadsheetLike } from "./fileIcons";
 
 describe("fileIconSpec 扩展名映射", () => {
   it("代码族返回品牌色徽章", () => {
@@ -53,13 +53,14 @@ describe("isBinaryLike", () => {
 
 describe("isOpenExternalLike", () => {
   it("office 文档 / pdf / 媒体 / 二进制 → 交系统默认应用打开", () => {
-    expect(isOpenExternalLike("monthly.xlsx")).toBe(true);
     expect(isOpenExternalLike("report.docx")).toBe(true);
     expect(isOpenExternalLike("slides.pptx")).toBe(true);
     expect(isOpenExternalLike("doc.pdf")).toBe(true);
     expect(isOpenExternalLike("logo.png")).toBe(true);
     expect(isOpenExternalLike("dist.zip")).toBe(true);
     expect(isOpenExternalLike("data.sqlite")).toBe(true);
+    // .xls 老二进制格式:内置表格不接管(写回支持差),仍走系统打开。
+    expect(isOpenExternalLike("legacy.xls")).toBe(true);
   });
   it("文本 / 代码 / 可内置打开的文本文档 → 不外部打开(走内置编辑器)", () => {
     expect(isOpenExternalLike("a.ts")).toBe(false);
@@ -68,5 +69,18 @@ describe("isOpenExternalLike", () => {
     expect(isOpenExternalLike("a.json")).toBe(false);
     expect(isOpenExternalLike("a.svg")).toBe(false);
     expect(isOpenExternalLike("Dockerfile")).toBe(false);
+  });
+  it("xlsx 有内置表格预览 → 不再交系统打开", () => {
+    expect(isOpenExternalLike("monthly.xlsx")).toBe(false);
+  });
+});
+
+describe("isSpreadsheetLike", () => {
+  it("xlsx/csv 进内置表格预览;xls 与其它类型不进", () => {
+    expect(isSpreadsheetLike("a.xlsx")).toBe(true);
+    expect(isSpreadsheetLike("A.XLSX")).toBe(true);
+    expect(isSpreadsheetLike("a.csv")).toBe(true);
+    expect(isSpreadsheetLike("a.xls")).toBe(false);
+    expect(isSpreadsheetLike("a.ts")).toBe(false);
   });
 });
