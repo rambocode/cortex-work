@@ -49,6 +49,36 @@ describe("probeProvider", () => {
     expect(headers.Authorization).toBeUndefined();
   });
 
+  it("messages 无版本前缀时首选 {base}/v1/models（Anthropic 约定,如 Kimi Code）", async () => {
+    const fn = mockFetch(() => jsonResponse({ data: [{ id: "kimi-for-coding" }] }));
+    const out = await probeProvider({
+      baseUrl: "https://api.kimi.com/coding",
+      apiKey: "sk",
+      endpointFormat: "messages",
+    });
+    expect(out).toEqual({ ok: true, models: ["kimi-for-coding"] });
+    expect(fn.mock.calls[0]?.[0]).toBe("https://api.kimi.com/coding/v1/models");
+  });
+
+  it("messages /v1/models 404 时回退 {base}/models", async () => {
+    const fn = mockFetch((url) =>
+      url.includes("/v1/models")
+        ? jsonResponse({}, { ok: false, status: 404, statusText: "Not Found" })
+        : jsonResponse({ data: [{ id: "m1" }] }),
+    );
+    const out = await probeProvider({ baseUrl: "https://x.com", apiKey: "sk", endpointFormat: "messages" });
+    expect(out).toEqual({ ok: true, models: ["m1"] });
+    expect(fn.mock.calls[0]?.[0]).toBe("https://x.com/v1/models");
+    expect(fn.mock.calls[1]?.[0]).toBe("https://x.com/models");
+  });
+
+  it("messages base 已带 /v1 时保持 {base}/models 优先", async () => {
+    const fn = mockFetch(() => jsonResponse({ data: [] }));
+    await probeProvider({ baseUrl: "https://x.com/v1", endpointFormat: "messages" });
+    expect(fn.mock.calls[0]?.[0]).toBe("https://x.com/v1/models");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
   it("custom 不发请求,返回不支持探测", async () => {
     const fn = mockFetch(() => jsonResponse({ data: [] }));
     const out = await probeProvider({ baseUrl: "https://x.com", endpointFormat: "custom" });

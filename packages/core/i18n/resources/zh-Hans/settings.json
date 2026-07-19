@@ -327,7 +327,8 @@
     },
     "preset": {
       "deepseek": "DeepSeek",
-      "kimi": "Kimi (Moonshot)",
+      "kimi": "Kimi 开放平台",
+      "kimiCode": "Kimi Code",
       "qwen": "通义千问",
       "zhipu": "智谱 GLM",
       "siliconflow": "硅基流动",

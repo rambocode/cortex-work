@@ -296,6 +296,20 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     ],
   },
   {
+    // Kimi Code 平台（会员订阅额度,区别于按量付费的 Kimi 开放平台）。
+    // Anthropic 兼容端点:base 不带 /v1（SDK 自行拼 /v1/messages）,
+    // 探测走 {base}/v1/models（见 main/ipc/provider.ts 的 messages 分支）。
+    templateKey: "kimi-code",
+    nameKey: "providers.preset.kimiCode",
+    baseUrl: "https://api.kimi.com/coding",
+    endpointFormat: "messages",
+    models: [
+      { id: "kimi-for-coding", label: "Kimi for Coding" },
+      { id: "kimi-for-coding-highspeed", label: "Kimi for Coding Highspeed" },
+      { id: "k3", label: "K3" },
+    ],
+  },
+  {
     templateKey: "qwen",
     nameKey: "providers.preset.qwen",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",

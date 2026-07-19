@@ -43,10 +43,19 @@ function parseModelIds(data: unknown): string[] {
   return ids.sort((a, b) => a.localeCompare(b));
 }
 
-// 候选模型列表 URL：先试 {base}/models;若 base 带版本前缀（/v1 等）,补一个去掉前缀的
-// 候选（部分供应商如 DeepSeek 的 /models 在版本前缀之外,/v1/models 会 404）。
-function modelsUrlCandidates(baseUrl: string): string[] {
+// 候选模型列表 URL:
+// - chat_completions / responses:先试 {base}/models;若 base 带版本前缀（/v1 等）,补一个
+//   去掉前缀的候选（部分供应商如 DeepSeek 的 /models 在版本前缀之外,/v1/models 会 404）。
+// - messages:遵循 Anthropic 约定（base 不含 /v1,SDK 自行拼接 /v1/messages),
+//   base 不带版本前缀时首选 {base}/v1/models（如 https://api.kimi.com/coding）,
+//   再回退 {base}/models;base 已带 /v\d+ 时保持 {base}/models 优先。
+function modelsUrlCandidates(baseUrl: string, endpointFormat: ProviderProbeInput["endpointFormat"]): string[] {
   const base = baseUrl.replace(/\/+$/, "");
+  const hasVersionPrefix = /\/v\d+$/i.test(base);
+  if (endpointFormat === "messages") {
+    if (!hasVersionPrefix) return [`${base}/v1/models`, `${base}/models`];
+    return [`${base}/models`];
+  }
   const urls = [`${base}/models`];
   const stripped = base.replace(/\/v\d+$/i, "");
   if (stripped !== base) urls.push(`${stripped}/models`);
@@ -85,7 +94,7 @@ export async function probeProvider(input: ProviderProbeInput): Promise<Provider
         : {};
 
   let lastErr = "";
-  for (const url of modelsUrlCandidates(baseUrl)) {
+  for (const url of modelsUrlCandidates(baseUrl, input.endpointFormat)) {
     try {
       const res = await fetchOnce(url, headers);
       if (res.ok) return { ok: true, models: parseModelIds(res.json) };

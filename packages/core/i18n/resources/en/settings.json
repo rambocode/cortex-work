@@ -327,7 +327,8 @@
     },
     "preset": {
       "deepseek": "DeepSeek",
-      "kimi": "Kimi (Moonshot)",
+      "kimi": "Kimi Open Platform",
+      "kimiCode": "Kimi Code",
       "qwen": "Qwen",
       "zhipu": "Zhipu GLM",
       "siliconflow": "SiliconFlow",
