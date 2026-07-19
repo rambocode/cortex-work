@@ -855,9 +855,9 @@ function ReplyModelSelector() {
           {t("reply.modelFollowTarget", { provider: followTarget.providerName, model: followTarget.model })}
         </div>
       ) : (
-        // 跟随默认但无可用供应商/默认：警示 + 引导去「模型供应商」分区配置。
+        // 跟随默认但无可用供应商/默认：警示 + 引导去「Pi」分区（供应商管理已并入）配置。
         <SRow label={t("reply.modelNoneWarn")} end>
-          <button type="button" className="pw-btn-sm" onClick={() => openSettings("providers")}>
+          <button type="button" className="pw-btn-sm" onClick={() => openSettings("pi")}>
             {t("reply.modelGotoProviders")}
           </button>
         </SRow>

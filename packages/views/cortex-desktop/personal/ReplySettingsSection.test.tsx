@@ -258,12 +258,12 @@ describe("ReplySettingsSection 生成模型选择器", () => {
     expect(screen.getByText(/将使用「ChatOne」的 m1/)).toBeInTheDocument();
   });
 
-  it("无可用供应商/无默认 → 渲染警示与「去配置供应商」按钮，点击跳转 providers 分区", () => {
+  it("无可用供应商/无默认 → 渲染警示与「去配置供应商」按钮，点击跳转 pi 分区(供应商管理已并入)", () => {
     // providerSettings 为空（beforeEach 已复位）。
     renderUI(<ReplySettingsSection />, makeBridge());
     expect(screen.getByText("未配置可用模型")).toBeInTheDocument();
     fireEvent.click(screen.getByText("去配置供应商"));
-    expect(usePersonalStore.getState().settingsTab).toBe("providers");
+    expect(usePersonalStore.getState().settingsTab).toBe("pi");
   });
 });
 

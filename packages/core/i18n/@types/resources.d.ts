@@ -1729,9 +1729,9 @@ export default interface Resources {
       "defaultProvider": "默认供应商",
       "defaultProviderCard": "默认供应商",
       "defaultProviderDesc": "新建 Pi 会话默认使用的供应商。",
-      "desc": "Pi 是内置 Agent,以长驻会话运行。下列设置在新建会话或下次发送时生效;其中工具审批等 extension 类设置改动会重启当前 pi 会话(丢失内存上下文,自动从磁盘历史恢复)。",
+      "desc": "Pi 是内置 Agent,以长驻会话运行;这里管理它使用的模型供应商与默认行为。下列设置在新建会话或下次发送时生效;其中工具审批等 extension 类设置改动会重启当前 pi 会话(丢失内存上下文,自动从磁盘历史恢复)。",
       "modelFirst": "（供应商首个模型）",
-      "noProvider": "还没有启用的供应商。先在「供应商」设置中添加并启用,再回此处选默认。",
+      "noProvider": "还没有启用的供应商。先在上方「供应商」卡片中添加并启用,再回此处选默认。",
       "providerUnset": "（未设置）",
       "sampleCommands": "自定义斜杠命令样例",
       "sampleCommandsDesc": "加载示例命令 /greet,演示 pi 自定义斜杠命令能力。改动下次发送时生效(重启会话)。",
@@ -1770,7 +1770,6 @@ export default interface Resources {
       "baseUrlPlaceholder": "https://api.deepseek.com/v1",
       "confirmDelete": "确认删除？",
       "deleteProvider": "删除供应商",
-      "desc": "配置 LLM 供应商（OpenAI 兼容 / Anthropic 兼容端点）。Pi 兜底 Agent 在「Agent」设置中选用这里的供应商;API Key 仅本机保存。",
       "empty": "还没有供应商。选择模板（或「自定义」）后点「添加供应商」,填好 API Key 即可在会话中选用。",
       "enable": "启用",
       "endpointFormat": {
@@ -1779,6 +1778,9 @@ export default interface Resources {
         "messages": "Anthropic Messages",
         "responses": "OpenAI Responses"
       },
+      "manage": "供应商管理",
+      "manageClose": "关闭",
+      "manageHint": "添加、编辑或删除供应商",
       "models": {
         "addModel": "添加模型",
         "apply": "应用",
@@ -1808,7 +1810,8 @@ export default interface Resources {
       "preset": {
         "custom": "自定义",
         "deepseek": "DeepSeek",
-        "kimi": "Kimi (Moonshot)",
+        "kimi": "Kimi 开放平台",
+        "kimiCode": "Kimi Code",
         "openai": "OpenAI",
         "qwen": "通义千问",
         "siliconflow": "硅基流动",
@@ -2072,7 +2075,6 @@ export default interface Resources {
       "pi": "Pi",
       "plugins": "插件",
       "profile": "个人资料",
-      "providers": "供应商",
       "push": "推送",
       "reply": "快捷回复",
       "roles": "角色",

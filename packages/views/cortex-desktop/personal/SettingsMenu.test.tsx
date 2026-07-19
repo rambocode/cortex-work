@@ -231,15 +231,55 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     expect(active.getAttribute("aria-current")).toBe("page");
   });
 
-  it("pi 设置已从「通用」迁出,聚合到「Pi」分区", () => {
+  it("pi 设置已从「通用」迁出,聚合到「Pi」分区(供应商管理收进弹窗)", () => {
     renderUI(<PersonalSettingsView />);
     // 「通用」不再含 pi 工具审批开关。
     fireEvent.click(screen.getByRole("button", { name: "通用" }));
     expect(screen.queryByText("工具执行审批")).toBeNull();
-    // 「Pi」含工具审批 + 默认供应商(空态下「默认供应商」为卡片标题,唯一)。
+    // 左栏不再有独立「供应商」导航项（并入「Pi」）。
+    expect(screen.queryByRole("button", { name: "供应商" })).toBeNull();
+    // 「Pi」含工具审批 + 默认供应商(空态下「默认供应商」为卡片标题,唯一);
+    // 供应商管理在弹窗内,页内不直接出现「从模板添加」。
     fireEvent.click(screen.getByRole("button", { name: "Pi" }));
     expect(screen.getByText("工具执行审批")).toBeTruthy();
     expect(screen.getByText("默认供应商")).toBeTruthy();
+    expect(screen.queryByText("从模板添加")).toBeNull();
+  });
+
+  it("供应商管理弹窗:空态点「供应商管理」开弹窗,关闭后消失", () => {
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+    fireEvent.click(screen.getByRole("button", { name: "供应商管理" }));
+    expect(screen.getByRole("dialog", { name: "供应商管理" })).toBeTruthy();
+    // 弹窗内是完整管理:模板添加 + 添加按钮。
+    expect(screen.getByText("从模板添加")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(screen.queryByRole("dialog", { name: "供应商管理" })).toBeNull();
+  });
+
+  it("有供应商时「供应商管理」按钮在默认供应商行,页内不渲染紧凑列表", () => {
+    usePersonalStore.setState((s) => ({
+      providerSettings: {
+        ...s.providerSettings,
+        providers: [
+          {
+            id: "deepseek",
+            name: "DeepSeek",
+            baseUrl: "https://api.deepseek.com/v1",
+            endpointFormat: "chat_completions",
+            models: [{ id: "deepseek-chat" }],
+            enabled: true,
+          },
+        ],
+        defaultProviderId: "deepseek",
+      },
+    }));
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+    // 供应商名只出现在默认供应商下拉里,不再是可点的紧凑列表行。
+    expect(screen.queryByRole("button", { name: /DeepSeek/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "供应商管理" }));
+    expect(screen.getByRole("dialog", { name: "供应商管理" })).toBeTruthy();
   });
 
   it("工具审批开启时渲染可勾选工具清单,点击切换写入 approvalTools", () => {
