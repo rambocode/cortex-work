@@ -41,6 +41,7 @@ import { registerWritingExportHandlers } from "./writing-export";
 import { registerWritingLlmHandlers } from "./writing-llm";
 import { registerWritingPdfHandlers } from "./writing-pdf";
 import { registerSlidesHandlers } from "./slides";
+import { registerAgentBrowserHandlers, syncAgentBrowserRuntime } from "./agent-browser";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -53,7 +54,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerFsHandlers();
   registerWatchHandlers();
   // 设置落盘后同步任务提醒 opt-in（pushSettings.internal.enabled 变化 → 调度器建/拆 Cron）。
-  registerStoreHandlers((state) => tasksReminderScheduler.setEnabled(isTasksReminderOptInEnabled(state)));
+  registerStoreHandlers((state) => {
+    tasksReminderScheduler.setEnabled(isTasksReminderOptInEnabled(state));
+    syncAgentBrowserRuntime(state.generalSettings?.agentBrowser?.enabled !== false);
+  });
   registerNotesHandlers();
   registerTasksHandlers(); // 真任务系统（替换 doc 聚合 Tasks）
   registerSkillsHandlers();
@@ -77,6 +81,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerAgentTraceHandlers({ devMode: options.agentTraceDevMode ?? false });
   registerProjectsWindowHandlers(); // 「项目管理」独立窗口 open 通道（U2）
   registerBrowserHandlers();
+  registerAgentBrowserHandlers();
   registerAutomationHandlers();
   registerWorkflowHandlers(); // 节点式工作流（loop）IPC，紧挨 automation 注册
   registerSttHandlers();
@@ -100,6 +105,7 @@ export { killAllPty } from "./pty";
 export { closeAllWatchers } from "./watch";
 export { killAllAutomations } from "../automation/runner";
 export { killAllWorkflows } from "../workflow/index";
+export { syncAgentBrowserRuntime } from "./agent-browser";
 // 编排子进程回收：接入 app 退出钩子（与 killAllCli/killAllHeadlessPrompts 并列）
 export { killAllOrchestrations } from "./orchestrate";
 export { killAllRoundtables } from "./roundtable";

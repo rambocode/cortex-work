@@ -7,7 +7,7 @@ import { existsSync, promises as fsp } from "fs";
 import { homedir } from "os";
 import { isAbsolute, join, resolve, sep } from "path";
 
-import { ipcMain, type WebContents } from "electron";
+import { app, ipcMain, type WebContents } from "electron";
 
 import { buildRpcArgs, spawnPiRpc, PiRpcSession, type PiImageContent, type RpcResponse } from "../agents/pi-rpc";
 import { readImageBytes } from "./image";
@@ -24,6 +24,8 @@ import {
 import { assertSpawnCwd, spawnEnvFor } from "./cli";
 import { getPersistedState } from "./store";
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
+import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "../capabilities/agent-browser/inject";
+import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
@@ -188,9 +190,25 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
 
   try {
     const gs = (await getPersistedState()).generalSettings;
-    const userServers = gs?.mcp?.enabled ? gs.mcp.servers : [];
+    const migratedMcp = migrateLegacyAgentBrowserMcp(gs?.mcp ?? { enabled: false, servers: [] });
+    const userServers = migratedMcp.enabled ? migratedMcp.servers : [];
     const docServer = buildDocExtractMcpServerConfig(prepared.uiSessionId);
-    const bridgeInputs = docServer ? [...userServers, docServer] : userServers;
+    const agentBrowserServer = buildAgentBrowserMcpServerConfig(
+      gs?.agentBrowser,
+      prepared.uiSessionId,
+      resolveAgentBrowserBinary({
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        appPath: app.getAppPath(),
+        platform: process.platform,
+        arch: process.arch,
+      }),
+    );
+    const bridgeInputs = [
+      ...userServers,
+      ...(docServer ? [docServer] : []),
+      ...(agentBrowserServer ? [agentBrowserServer] : []),
+    ];
     const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, prepared.uiSessionId);
     const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
     if (bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));

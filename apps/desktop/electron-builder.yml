@@ -32,6 +32,8 @@ files:
   - "!**/*.map"
   # pi 改用 resources/pi 下的 bun 自包含二进制（extraResources）,npm 包不必进 asar,排除省体积。
   - "!**/node_modules/@earendil-works/**"
+  # agent-browser 通过 extraResources 仅携带目标平台二进制；npm 包含的其它平台二进制全部排除。
+  - "!**/node_modules/agent-browser/**"
   # node-pty 自带 prebuilds/<platform-arch> 全架构预编译二进制,运行时按 platform/arch 自动选择;
   # 但本机 pnpm onlyBuiltDependencies 触发的 node-gyp 编译会在 build/Release 生成仅本机架构的
   # pty.node,其加载优先级高于 prebuilds(见 node-pty/lib/utils.js)。排除 build/ 强制统一走
@@ -92,6 +94,10 @@ files:
   - "!**/node_modules/lodash-es/**"            # 0.6MB
   - "!**/node_modules/@lezer/**"               # codemirror 语法定义
 extraResources:
+  # agent-browser 原生 CLI；prepackage 脚本只准备当前目标平台/架构，避免把 npm 包内全部平台
+  # 二进制打进安装包。`${os}` 在 electron-builder 中展开为 mac/win。
+  - from: resources/agent-browser/${os}-${arch}
+    to: agent-browser
   # pi 的 bun 二进制 + 旁置资产（theme/assets/export-html/wasm）,由 scripts/build-pi-binary.mjs
   # 生成；落到 <App>/Contents/Resources/pi/,pi-locate.resolvePiBinary 打包态指向这里。
   - from: resources/pi

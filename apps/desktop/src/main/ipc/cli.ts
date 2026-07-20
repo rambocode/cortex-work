@@ -18,6 +18,8 @@ import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
 import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
+import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "../capabilities/agent-browser/inject";
+import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
@@ -662,7 +664,7 @@ export function registerCliHandlers(): void {
       try {
         const persistedState = await getPersistedState();
         const gs = persistedState.generalSettings;
-        mcp = gs?.mcp ?? mcp;
+        mcp = migrateLegacyAgentBrowserMcp(gs?.mcp ?? mcp);
         // 内置 server 并入 mcp.servers(token 经 header):
         //  - 浏览器控制:仅总开关开 + server 可用时注入(buildBrowserMcpServerConfig 内部 gate)。
         //  - 文档抽取:v1 无开关,host 可用即注入(extract_document 工具靠会话隔离 + 限根自保)。
@@ -676,6 +678,17 @@ export function registerCliHandlers(): void {
           /* 工作流列表读取失败 → loop MCP 不注入，不阻断主 agent 启动 */
         }
         const builtinServers = [
+          buildAgentBrowserMcpServerConfig(
+            gs?.agentBrowser,
+            req.sessionId,
+            resolveAgentBrowserBinary({
+              isPackaged: app.isPackaged,
+              resourcesPath: process.resourcesPath,
+              appPath: app.getAppPath(),
+              platform: process.platform,
+              arch: process.arch,
+            }),
+          ),
           buildBrowserMcpServerConfig(gs?.browserControl, req.sessionId),
           buildDocExtractMcpServerConfig(req.sessionId),
           buildMediaGenMcpServerConfig(persistedState.mediaGenSettings, req.sessionId, req.cwd),

@@ -99,8 +99,18 @@ function makeStdioClient(server) {
   if (child.stderr) child.stderr.resume(); // 消费 stderr,防管道胀满阻塞子进程
   if (child.stdin) child.stdin.on("error", () => {}); // 子进程已死写 stdin 的 EPIPE 兜底
   const pending = new Map();
+  let closedError = null;
   let buf = "";
   let nextId = 0;
+  function rejectAllPending(error) {
+    closedError = error;
+    for (const p of pending.values()) p.reject(error);
+    pending.clear();
+  }
+  child.on("error", (error) => rejectAllPending(error));
+  child.on("exit", (code, signal) => {
+    rejectAllPending(new Error("MCP 子进程已退出: code=" + code + " signal=" + signal));
+  });
   child.stdout.on("data", (chunk) => {
     buf += chunk;
     let nl;
@@ -119,6 +129,7 @@ function makeStdioClient(server) {
     }
   });
   function request(method, params) {
+    if (closedError) return Promise.reject(closedError);
     const id = ++nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

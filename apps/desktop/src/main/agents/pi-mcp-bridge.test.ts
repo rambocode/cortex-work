@@ -101,6 +101,10 @@ describe("renderMcpBridgeExtension", () => {
     expect(src).toContain("pi.registerTool");
     // Accept 头须同时含 json 与 event-stream(否则 SDK streamable transport 406)。
     expect(src).toContain("application/json, text/event-stream");
+    // stdio MCP 若在 initialize 前退出，必须立即拒绝 pending，不能等 20 秒超时拖死 pi:open。
+    expect(src).toContain('child.on("exit"');
+    expect(src).toContain("rejectAllPending");
+    expect(src).toContain("if (closedError) return Promise.reject(closedError)");
   });
 
   it("生成源码语法有效(去掉 ESM 专属行后可被 vm 编译)", () => {

@@ -67,12 +67,21 @@ const h = vi.hoisted(() => {
     recordStreamDelta: vi.fn(),
     getPersistedState: vi.fn(async () => ({ generalSettings: {} as Record<string, unknown> })),
     buildBrowserMcpServerConfig: vi.fn((): unknown => null),
-    collectBridgeServers: vi.fn((): unknown[] => []),
+    resolveAgentBrowserBinary: vi.fn(() => "/app/agent-browser" as string | null),
+    buildAgentBrowserMcpServerConfig: vi.fn((): unknown => ({
+      id: "agent-browser",
+      transport: "stdio",
+      command: "/app/agent-browser",
+      args: ["mcp", "--tools", "all"],
+    })),
+    migrateLegacyAgentBrowserMcp: vi.fn((settings: unknown) => settings),
+    collectBridgeServers: vi.fn((_servers?: unknown[], _browser?: unknown): unknown[] => []),
     writeMcpBridgeExtension: vi.fn(() => "/ext/mcp-bridge.js"),
   };
 });
 
 vi.mock("electron", () => ({
+  app: { getAppPath: () => "/fake/app", isPackaged: false },
   ipcMain: { handle: (ch: string, fn: (...a: unknown[]) => unknown) => h.handlers.set(ch, fn) },
 }));
 vi.mock("../agents/pi-rpc", () => ({
@@ -93,6 +102,11 @@ vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
 vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace, recordStreamDelta: h.recordStreamDelta }));
 vi.mock("./store", () => ({ getPersistedState: h.getPersistedState }));
 vi.mock("../capabilities/browser/inject", () => ({ buildBrowserMcpServerConfig: h.buildBrowserMcpServerConfig }));
+vi.mock("../capabilities/agent-browser/locate", () => ({ resolveAgentBrowserBinary: h.resolveAgentBrowserBinary }));
+vi.mock("../capabilities/agent-browser/inject", () => ({
+  buildAgentBrowserMcpServerConfig: h.buildAgentBrowserMcpServerConfig,
+  migrateLegacyAgentBrowserMcp: h.migrateLegacyAgentBrowserMcp,
+}));
 vi.mock("../agents/pi-mcp-bridge", () => ({
   collectBridgeServers: h.collectBridgeServers,
   writeMcpBridgeExtension: h.writeMcpBridgeExtension,
@@ -140,6 +154,14 @@ beforeEach(() => {
   h.recordStreamDelta.mockClear();
   h.getPersistedState.mockReset().mockResolvedValue({ generalSettings: {} });
   h.buildBrowserMcpServerConfig.mockReset().mockReturnValue(null);
+  h.resolveAgentBrowserBinary.mockReset().mockReturnValue("/app/agent-browser");
+  h.buildAgentBrowserMcpServerConfig.mockReset().mockReturnValue({
+    id: "agent-browser",
+    transport: "stdio",
+    command: "/app/agent-browser",
+    args: ["mcp", "--tools", "all"],
+  });
+  h.migrateLegacyAgentBrowserMcp.mockReset().mockImplementation((settings) => settings);
   h.collectBridgeServers.mockReset().mockReturnValue([]);
   h.writeMcpBridgeExtension.mockReset().mockReturnValue("/ext/mcp-bridge.js");
   registerPiSessionHandlers();
@@ -177,18 +199,34 @@ describe("pi:open MCP 桥接扩展(cortex 自有,替代 pi-mcp-adapter)", () => 
     h.collectBridgeServers.mockReturnValue([{ id: "fs", transport: "stdio", command: "/bin/fs" }, browser]);
     await open({ uiSessionId: "ub", cwd: "/proj" });
     // 汇总用户 server(总开关开)+ 浏览器 server 交给 collectBridgeServers。
-    expect(h.collectBridgeServers).toHaveBeenCalledWith([{ id: "fs" }], browser);
+    expect(h.collectBridgeServers).toHaveBeenCalledWith(
+      [{ id: "fs" }, expect.objectContaining({ id: "agent-browser" })],
+      browser,
+    );
     expect(h.writeMcpBridgeExtension).toHaveBeenCalledTimes(1);
     // 生成的桥接扩展路径并入本会话的 extraExtensionPaths(供 buildRpcArgs 加 -e)。
     const req = h.buildRpcArgs.mock.calls[0][0] as PiOpenRequest;
     expect(req.extraExtensionPaths).toContain("/ext/mcp-bridge.js");
   });
 
-  it("无桥接 server(总开关关 + 浏览器不可用)→ 不生成桥接扩展", async () => {
+  it("内置 agent-browser 不可用且无其它 server → 不生成桥接扩展", async () => {
+    h.buildAgentBrowserMcpServerConfig.mockReturnValue(null);
     await open({ uiSessionId: "ub2", cwd: "/proj" }); // 默认 collectBridgeServers→[]
     expect(h.writeMcpBridgeExtension).not.toHaveBeenCalled();
     const req = h.buildRpcArgs.mock.calls[0][0] as PiOpenRequest;
     expect(req.extraExtensionPaths).not.toContain("/ext/mcp-bridge.js");
+  });
+
+  it("默认把内置 agent-browser 加入 Pi MCP 桥接", async () => {
+    h.collectBridgeServers.mockImplementation((servers: unknown[] = []) => servers);
+    await open({ uiSessionId: "ub3", cwd: "/proj" });
+
+    expect(h.buildAgentBrowserMcpServerConfig).toHaveBeenCalledWith(undefined, "ub3", "/app/agent-browser");
+    expect(h.collectBridgeServers).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: "agent-browser" })],
+      null,
+    );
+    expect(h.writeMcpBridgeExtension).toHaveBeenCalledTimes(1);
   });
 });
 

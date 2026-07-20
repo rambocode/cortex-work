@@ -93,6 +93,7 @@ import type {
   ReplySyncSnapshot,
   PetStateSnapshot,
   PushSettings,
+  AgentBrowserRuntimeStatus,
 } from "./types";
 // 写作检索(U4）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-retrieval-types.ts 镜像）。
 import type { WritingRetrievalRequest, WritingRetrievalResult } from "./writing-retrieval-types";
@@ -179,6 +180,12 @@ import type { WorkflowDef, WorkflowRun, WorkflowRunEvent } from "./workflow-type
 
 export interface DesktopBridge {
   appInfo?: AppInfo;
+  /** 内置 agent-browser 的 Chrome 运行时状态。 */
+  agentBrowserStatus?(): Promise<AgentBrowserRuntimeStatus>;
+  /** 重新检查并在缺失时后台安装 Chrome for Testing。 */
+  agentBrowserRetry?(): Promise<AgentBrowserRuntimeStatus>;
+  /** 订阅主进程的检查/下载状态。 */
+  onAgentBrowserStatus?(cb: (status: AgentBrowserRuntimeStatus) => void): () => void;
   // fs
   pickDirectory(): Promise<string | null>;
   scanPromptTree(root: string): Promise<PromptNode>;

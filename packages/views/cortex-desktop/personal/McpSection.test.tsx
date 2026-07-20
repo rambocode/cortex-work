@@ -17,21 +17,37 @@ function renderUI(ui: ReactElement) {
 const mcp = () => usePersonalStore.getState().generalSettings.mcp;
 
 beforeEach(() => {
-  usePersonalStore.getState().setGeneralSettings({ mcp: { enabled: false, servers: [] } });
+  usePersonalStore.getState().setGeneralSettings({
+    agentBrowser: { enabled: true },
+    mcp: { enabled: false, servers: [] },
+  });
 });
 afterEach(cleanup);
 
 describe("McpCard", () => {
-  it("未配置时显示空态,开关默认关", () => {
+  it("单独显示默认开启的内置 Agent Browser", () => {
     renderUI(<McpCard onEdit={vi.fn()} />);
-    expect(screen.getByText("尚未配置 MCP server。")).toBeTruthy();
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByText("Agent Browser（内置）")).toBeTruthy();
+    expect(screen.getAllByText(/Claude、Codex 与 Pi/)).toHaveLength(2);
+    expect((screen.getByLabelText("启用内置 Agent Browser") as HTMLInputElement).checked).toBe(true);
   });
 
-  it("切换总开关 → 写入 store", () => {
+  it("未配置时显示空态,自定义 MCP 开关默认关", () => {
     renderUI(<McpCard onEdit={vi.fn()} />);
-    fireEvent.click(screen.getByRole("checkbox"));
+    expect(screen.getByText("尚未配置 MCP server。")).toBeTruthy();
+    expect((screen.getByLabelText("启用自定义 MCP 注入") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("切换自定义 MCP 总开关 → 写入 store", () => {
+    renderUI(<McpCard onEdit={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText("启用自定义 MCP 注入"));
     expect(mcp()?.enabled).toBe(true);
+  });
+
+  it("切换内置 Agent Browser → 写入独立设置", () => {
+    renderUI(<McpCard onEdit={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText("启用内置 Agent Browser"));
+    expect(usePersonalStore.getState().generalSettings.agentBrowser).toEqual({ enabled: false });
   });
 
   it("「连接自定义 MCP」→ onEdit(null)(打开独立新增页)", () => {

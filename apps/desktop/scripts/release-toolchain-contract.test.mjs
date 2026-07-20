@@ -39,6 +39,27 @@ describe('desktop release toolchain contract', () => {
     expect(packageJson.scripts?.['build:win-x64']).toBe('node scripts/build-win-x64.mjs')
   })
 
+  it('pins and prepares the target agent-browser binary before every platform package', () => {
+    const packageJson = JSON.parse(readFileSync(resolve(desktopRoot, 'package.json'), 'utf8'))
+    expect(packageJson.dependencies?.['agent-browser']).toBe('0.31.1')
+    expect(packageJson.scripts?.['prepare:agent-browser']).toBe('node scripts/prepare-agent-browser.mjs')
+    expect(packageJson.scripts?.['prepackage:mac-arm64']).toContain(
+      'pnpm run prepare:agent-browser -- --platform darwin --arch arm64',
+    )
+    expect(packageJson.scripts?.['prepackage:mac-x64']).toContain(
+      'pnpm run prepare:agent-browser -- --platform darwin --arch x64',
+    )
+    expect(packageJson.scripts?.['prepackage:win-x64']).toContain(
+      'pnpm run prepare:agent-browser -- --platform win32 --arch x64',
+    )
+
+    const builderConfig = load(readFileSync(resolve(desktopRoot, 'electron-builder.yml'), 'utf8'))
+    expect(builderConfig.extraResources).toContainEqual({
+      from: 'resources/agent-browser/${os}-${arch}',
+      to: 'agent-browser',
+    })
+  })
+
   it('uses a Windows artifact name that matches the updater manifest URL', () => {
     const builderConfig = load(readFileSync(resolve(desktopRoot, 'electron-builder.yml'), 'utf8'))
     expect(builderConfig.win?.artifactName).toBe('${productName}-Setup-${version}.${ext}')

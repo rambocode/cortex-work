@@ -106,6 +106,9 @@ importers:
       '@tanstack/react-query':
         specifier: 'catalog:'
         version: 5.100.14(react@19.2.3)
+      agent-browser:
+        specifier: 0.31.1
+        version: 0.31.1
       croner:
         specifier: ^10.0.1
         version: 10.0.1
@@ -3781,6 +3784,11 @@ packages:
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
+
+  agent-browser@0.31.1:
+    resolution: {integrity: sha512-RjgfT0EsHe1oZQbwzUqJTPb7w3sU8DGbbAjMxLNI5dW1y0cc81TbVsqgjqQJmsy3GEbEcKe/ryARwmWGqJAXXQ==}
+    engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
+    hasBin: true
 
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
@@ -11968,6 +11976,8 @@ snapshots:
   acorn@8.16.0: {}
 
   agent-base@7.1.4: {}
+
+  agent-browser@0.31.1: {}
 
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:

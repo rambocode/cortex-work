@@ -90,6 +90,7 @@ import type {
   ReplyBubbleVoiceCommand,
   ReplyBubbleVoiceResult,
   PetStateSnapshot,
+  AgentBrowserRuntimeStatus,
 } from "../main/ipc/types";
 // 方案 A：编排请求类型权威定义留在 orchestrate.ts，此处 type-only 引入（编译期擦除，
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
@@ -211,6 +212,13 @@ function fetchAppInfo(): AppInfo {
 // 一一对应（renderer 侧直接作为 bridge 注入 CoreProvider）。
 const personal = {
   appInfo: fetchAppInfo(),
+  agentBrowserStatus: (): Promise<AgentBrowserRuntimeStatus> => ipcRenderer.invoke("agent-browser:status"),
+  agentBrowserRetry: (): Promise<AgentBrowserRuntimeStatus> => ipcRenderer.invoke("agent-browser:retry"),
+  onAgentBrowserStatus: (cb: (status: AgentBrowserRuntimeStatus) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, status: AgentBrowserRuntimeStatus) => cb(status);
+    ipcRenderer.on("agent-browser:status", listener);
+    return () => ipcRenderer.removeListener("agent-browser:status", listener);
+  },
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("fs:pickDirectory"),
   scanPromptTree: (root: string): Promise<PromptNode> => ipcRenderer.invoke("fs:scanPromptTree", root),
   scanDirTree: (root: string): Promise<PromptNode> => ipcRenderer.invoke("fs:scanDirTree", root),

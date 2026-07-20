@@ -12,6 +12,7 @@ import {
   killAllAutomations,
   killAllOrchestrations,
   killAllRoundtables,
+  syncAgentBrowserRuntime,
 } from "./ipc/register";
 import { installBrowserWebviewGuards } from "./browser/webviewGuards";
 import { configureBrowserPartition } from "./browser/partition";
@@ -559,6 +560,10 @@ if (!app.requestSingleInstanceLock()) {
     registerNotesOverlayHandlers();
     registerNotificationWindowHandlers();
     registerPetHandlers();
+    // 内置 agent-browser 默认启用。Chrome 检测/下载在后台进行，不阻塞主窗口和 agent 启动。
+    void getPersistedState().then((state) => {
+      syncAgentBrowserRuntime(state.generalSettings?.agentBrowser?.enabled !== false);
+    }).catch((err) => log.warn("[agent-browser] 启动检查失败", err));
     // 全局热键唤起闪记浮层(全仓首次用 globalShortcut)。读用户配置的 notesHotkey,
     // 无效或缺失则回退默认 NOTES_HOTKEY_ACCELERATOR。register 返回 false = 被占用 →
     // 不抛错,降级到仅窗口图标入口,并把提示文案在主窗口就绪后 best-effort 推给渲染端 toast。

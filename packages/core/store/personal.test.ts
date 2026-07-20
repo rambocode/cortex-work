@@ -732,6 +732,31 @@ describe("providerSettings 多供应商", () => {
 });
 
 describe("generalSettings 通用设置", () => {
+  it("旧存档默认启用内置 agent-browser", () => {
+    usePersonalStore.getState().hydrate(base);
+    expect(usePersonalStore.getState().generalSettings.agentBrowser).toEqual({ enabled: true });
+  });
+
+  it("hydrate 把旧 agent-browser mcp 配置迁移为内置能力", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        mcp: {
+          enabled: true,
+          servers: [
+            { id: "agent-browser", transport: "stdio", command: "agent-browser", args: ["mcp"] },
+            { id: "fs", transport: "stdio", command: "/bin/fs" },
+          ],
+        },
+      },
+    });
+
+    expect(usePersonalStore.getState().generalSettings.mcp?.servers).toEqual([
+      { id: "fs", transport: "stdio", command: "/bin/fs" },
+    ]);
+  });
+
   type Persisted = import("../desktop/types").PersistedState;
 
   it("默认值（closeToTray 默认 true 保留现有关窗隐藏行为）", () => {

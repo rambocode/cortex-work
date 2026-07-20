@@ -17,6 +17,9 @@ apps/desktop/resources/pi/
 # Cortex_Helper 的 swift 编译产物,由 apps/desktop/scripts/build-cortex-helper.mjs 生成
 apps/desktop/resources/Cortex_Helper/
 
+# agent-browser 目标平台二进制，由 prepare-agent-browser.mjs 从固定版本 npm 包生成
+apps/desktop/resources/agent-browser/
+
 # Cortex_Helper Swift 包的 SwiftPM 构建缓存
 apps/desktop/native/Cortex_Helper/.build/
 

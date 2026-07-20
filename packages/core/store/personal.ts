@@ -452,9 +452,11 @@ function migratePiSkills(raw: Partial<PiSkillSettings> | undefined): PiSkillSett
 function resolveGeneralSettings(s: PersistedState): GeneralSettings {
   const g = s.generalSettings;
   if (!g) return DEFAULT_GENERAL_SETTINGS;
+  const mcp = g.mcp ? migrateLegacyAgentBrowserMcp(g.mcp) : undefined;
   return {
     ...DEFAULT_GENERAL_SETTINGS,
     ...g,
+    ...(mcp ? { mcp } : {}),
     desktopBehavior: { ...DEFAULT_GENERAL_SETTINGS.desktopBehavior, ...g.desktopBehavior },
     notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
     log: { ...DEFAULT_GENERAL_SETTINGS.log, ...g.log },
@@ -468,6 +470,30 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     // 浏览器控制:旧档无 browserControl 或缺子字段时逐字段兜 DEFAULT_BROWSER_CONTROL（U1）。
     browserControl: { ...DEFAULT_BROWSER_CONTROL, ...g.browserControl },
   };
+}
+
+function migrateLegacyAgentBrowserMcp(mcp: NonNullable<GeneralSettings["mcp"]>): NonNullable<GeneralSettings["mcp"]> {
+  const occupied = new Set(mcp.servers.filter((s) => s.id !== "agent-browser").map((s) => s.id));
+  let changed = false;
+  const servers = mcp.servers.flatMap((server) => {
+    if (
+      server.id === "agent-browser" &&
+      server.transport === "stdio" &&
+      server.command === "agent-browser" &&
+      JSON.stringify(server.args ?? []) === JSON.stringify(["mcp"])
+    ) {
+      changed = true;
+      return [];
+    }
+    if (server.id !== "agent-browser") return [server];
+    let suffix = 1;
+    let id = "agent-browser-user";
+    while (occupied.has(id)) id = `agent-browser-user-${++suffix}`;
+    occupied.add(id);
+    changed = true;
+    return [{ ...server, id }];
+  });
+  return changed ? { ...mcp, servers } : mcp;
 }
 
 // 老会话字段迁移（剥离旧名,避免死字段随快照回写）。field-presence 驱动,不 bump version。

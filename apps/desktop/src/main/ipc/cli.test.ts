@@ -17,6 +17,14 @@ const m = vi.hoisted(() => ({
   getPersistedState: vi.fn(async () => ({ generalSettings: {} as Record<string, unknown> })),
   applyClaudeMcp: vi.fn(async () => "skip"),
   buildCodexMcpArgs: vi.fn(() => [] as string[]),
+  resolveAgentBrowserBinary: vi.fn(() => "/app/agent-browser" as string | null),
+  buildAgentBrowserMcpServerConfig: vi.fn(() => ({
+    id: "agent-browser",
+    transport: "stdio",
+    command: "/app/agent-browser",
+    args: ["mcp", "--tools", "all"],
+  }) as unknown),
+  migrateLegacyAgentBrowserMcp: vi.fn((settings: unknown) => settings),
   agentSessionExists: vi.fn(() => true),
 }));
 
@@ -45,6 +53,11 @@ vi.mock("./mcp-config", () => ({
 vi.mock("./session-trim", () => ({
   agentSessionExists: m.agentSessionExists,
   trimAgentSession: vi.fn(async () => false),
+}));
+vi.mock("../capabilities/agent-browser/locate", () => ({ resolveAgentBrowserBinary: m.resolveAgentBrowserBinary }));
+vi.mock("../capabilities/agent-browser/inject", () => ({
+  buildAgentBrowserMcpServerConfig: m.buildAgentBrowserMcpServerConfig,
+  migrateLegacyAgentBrowserMcp: m.migrateLegacyAgentBrowserMcp,
 }));
 
 // U2 claude 桥接接线单测:mock 掉 buildClaudeSkillBridge 本体(其自身行为已由 claude-bridge.test.ts
@@ -147,6 +160,14 @@ beforeEach(() => {
   m.getPersistedState.mockReset().mockResolvedValue({ generalSettings: {} });
   m.applyClaudeMcp.mockReset().mockResolvedValue("skip");
   m.buildCodexMcpArgs.mockReset().mockReturnValue([]);
+  m.resolveAgentBrowserBinary.mockReset().mockReturnValue("/app/agent-browser");
+  m.buildAgentBrowserMcpServerConfig.mockReset().mockReturnValue({
+    id: "agent-browser",
+    transport: "stdio",
+    command: "/app/agent-browser",
+    args: ["mcp", "--tools", "all"],
+  });
+  m.migrateLegacyAgentBrowserMcp.mockReset().mockImplementation((settings) => settings);
   m.agentSessionExists.mockReset().mockReturnValue(true);
   buildClaudeSkillBridgeMock.mockReset().mockReturnValue(undefined);
   slidesPipelineMocks.startSlidesPipelineRole.mockClear();
@@ -199,8 +220,38 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
     m.getPersistedState.mockResolvedValue({ generalSettings: { mcp } });
     try {
       await startWithDetect("claude", { runId: "m1", sessionId: "s", cwd, prompt: "hi" }, vi.fn());
-      expect(m.applyClaudeMcp).toHaveBeenCalledWith(cwd, mcp);
+      expect(m.applyClaudeMcp).toHaveBeenCalledWith(cwd, {
+        enabled: true,
+        servers: [...mcp.servers, expect.objectContaining({ id: "agent-browser" })],
+      });
       expect(m.buildCodexMcpArgs).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("默认给 Claude 注入内置 agent-browser，并标记为预授权 MCP", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-agent-browser-"));
+    try {
+      await startWithDetect(
+        "claude",
+        { runId: "ab1", sessionId: "session-1", cwd, prompt: "hi", permissionMode: "accept-edits" },
+        vi.fn(),
+      );
+      expect(m.buildAgentBrowserMcpServerConfig).toHaveBeenCalledWith(
+        undefined,
+        "session-1",
+        "/app/agent-browser",
+      );
+      expect(m.applyClaudeMcp).toHaveBeenCalledWith(
+        cwd,
+        expect.objectContaining({
+          enabled: true,
+          servers: [expect.objectContaining({ id: "agent-browser" })],
+        }),
+      );
+      const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
+      expect(runArgs).toContain("mcp__agent-browser");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

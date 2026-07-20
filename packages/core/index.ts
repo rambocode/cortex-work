@@ -78,6 +78,7 @@ export {
   type ProviderProbeInput,
   type ProviderProbeResult,
   type GeneralSettings,
+  type AgentBrowserRuntimeStatus,
   type McpServerConfig,
   type McpSettings,
   type BrowserControlSettings,

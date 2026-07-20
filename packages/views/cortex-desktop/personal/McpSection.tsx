@@ -5,15 +5,36 @@
 /* eslint-disable i18next/no-literal-string -- MCP 配置项标签为桌面专用,暂不本地化 */
 
 import { Icon } from "@cortex-work/ui/icons";
-import { usePersonalStore } from "@cortex-work/core";
-import type { McpSettings } from "@cortex-work/core";
+import { useEffect, useState } from "react";
+import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
+import type { AgentBrowserRuntimeStatus, McpSettings } from "@cortex-work/core";
 
 const EMPTY: McpSettings = { enabled: false, servers: [] };
 
 export function McpCard({ onEdit }: { onEdit: (index: number | null) => void }) {
   const general = usePersonalStore((s) => s.generalSettings);
   const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
+  const bridge = useDesktopBridge();
   const mcp: McpSettings = general.mcp ?? EMPTY;
+  const agentBrowserEnabled = general.agentBrowser?.enabled !== false;
+  const [agentBrowserStatus, setAgentBrowserStatus] = useState<AgentBrowserRuntimeStatus | null>(null);
+
+  useEffect(() => {
+    if (!bridge?.agentBrowserStatus) return;
+    let active = true;
+    void bridge.agentBrowserStatus().then((status) => {
+      if (active) setAgentBrowserStatus(status);
+    }).catch(() => {
+      if (active) setAgentBrowserStatus({ state: "error", message: "无法读取运行状态" });
+    });
+    const off = bridge.onAgentBrowserStatus?.((status) => {
+      if (active) setAgentBrowserStatus(status);
+    });
+    return () => {
+      active = false;
+      off?.();
+    };
+  }, [bridge]);
 
   const update = (patch: Partial<McpSettings>) => setGeneral({ mcp: { ...mcp, ...patch } });
   const removeServer = (i: number) => update({ servers: mcp.servers.filter((_, idx) => idx !== i) });
@@ -22,14 +43,45 @@ export function McpCard({ onEdit }: { onEdit: (index: number | null) => void }) 
     <div className="pw-scard">
       <div className="pw-scard-t">MCP 工具</div>
 
-      <div className="pw-srow">
-        <span className="pw-srow-lbl">启用 MCP 注入</span>
+      <div className="pw-mcp-item">
+        <div className="pw-mcp-item-main">
+          <span className="pw-mcp-item-name">Agent Browser（内置）</span>
+          <span className="pw-tag">STDIO</span>
+          <span className="pw-mcp-item-sub">为 Claude、Codex 与 Pi 提供完整浏览器自动化工具</span>
+          <span className="pw-mcp-item-sub">
+            {bridge?.agentBrowserStatus
+              ? agentBrowserStatus?.message ?? "正在检查 Chrome"
+              : "Chrome 状态仅桌面端可用"}
+          </span>
+        </div>
         <label className="pw-srow-end">
-          <input type="checkbox" checked={mcp.enabled} onChange={(e) => update({ enabled: e.target.checked })} />
+          <input
+            aria-label="启用内置 Agent Browser"
+            type="checkbox"
+            checked={agentBrowserEnabled}
+            onChange={(e) => setGeneral({ agentBrowser: { enabled: e.target.checked } })}
+          />
+        </label>
+        {agentBrowserEnabled && agentBrowserStatus?.state === "error" && bridge?.agentBrowserRetry ? (
+          <button
+            className="pw-tl-gen"
+            onClick={() => void bridge.agentBrowserRetry?.().then(setAgentBrowserStatus).catch(() => {
+              setAgentBrowserStatus({ state: "error", message: "重试安装失败" });
+            })}
+          >
+            重试安装
+          </button>
+        ) : null}
+      </div>
+
+      <div className="pw-srow">
+        <span className="pw-srow-lbl">启用自定义 MCP 注入</span>
+        <label className="pw-srow-end">
+          <input aria-label="启用自定义 MCP 注入" type="checkbox" checked={mcp.enabled} onChange={(e) => update({ enabled: e.target.checked })} />
         </label>
       </div>
       <div className="pw-srow-desc">
-        开启后,下表的 MCP server 会按会话注入给 claude(写项目 .mcp.json)与 codex(-c)。关闭时不注入、不覆盖你项目里已有的 .mcp.json,codex 仍继承 ~/.codex 配置。
+        这里只控制下表的自定义 MCP server；内置 Agent Browser 使用上方独立开关，并按会话注入给 Claude、Codex 与 Pi。
       </div>
 
       {mcp.servers.length === 0 ? (

@@ -550,10 +550,21 @@ export interface McpSettings {
   servers: McpServerConfig[];
 }
 
+export interface AgentBrowserSettings {
+  enabled: boolean;
+}
+
+export interface AgentBrowserRuntimeStatus {
+  state: "disabled" | "checking" | "downloading" | "ready" | "error";
+  message: string;
+}
+
 export interface GeneralSettings {
   workspaceRoot?: string; // 默认工作目录（agent 启动未显式传 cwd 时兜底）
   // MCP 注入配置(U2);缺省视为不注入。
   mcp?: McpSettings;
+  // 内置 agent-browser MCP；旧存档缺省按开启处理。
+  agentBrowser?: AgentBrowserSettings;
   // 新会话默认 agent;缺省 = 按安装情况派生（resolveDefaultAgent / defaultAgent）。
   // 落地页激励文案的每日 LLM 增强也基于此 agent 生成。
   defaultAgent?: AgentKind;
@@ -786,6 +797,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   desktopBehavior: { openAtLogin: false, startMinimized: false, closeToTray: true },
   notifications: { turnComplete: true },
   log: { enabled: true, retentionDays: 2 },
+  agentBrowser: { enabled: true },
   piSkills: DEFAULT_PI_SKILLS,
 };
 

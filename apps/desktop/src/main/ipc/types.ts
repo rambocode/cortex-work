@@ -221,10 +221,21 @@ export interface McpSettings {
   servers: McpServerConfig[];
 }
 
+export interface AgentBrowserSettings {
+  enabled: boolean;
+}
+
+export interface AgentBrowserRuntimeStatus {
+  state: "disabled" | "checking" | "downloading" | "ready" | "error";
+  message: string;
+}
+
 export interface GeneralSettings {
   workspaceRoot?: string;
   // MCP 注入配置(U2);缺省视为 { enabled:false, servers:[] }(不注入)。
   mcp?: McpSettings;
+  // 内置 agent-browser MCP；旧存档缺省按开启处理。
+  agentBrowser?: AgentBrowserSettings;
   desktopBehavior: DesktopBehavior;
   notifications: NotificationSettings;
   log: LogSettings;
