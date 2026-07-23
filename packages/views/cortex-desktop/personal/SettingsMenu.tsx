@@ -966,7 +966,8 @@ function PushSection() {
     await bridge.writeFile(path, DEFAULT_PUSH_TEMPLATE);
     setPush({ formatSkillPath: path });
     try {
-      setPromptTree(await bridge.scanPromptTree(promptRoot));
+      // 与 PromptPanel/持久化同源:Skills 库树为全部文件(scanDirTree),不再仅 .md,避免写回后被 md-only 覆盖。
+      setPromptTree(await bridge.scanDirTree(promptRoot));
     } catch {
       // 重扫失败不影响已写入的 skill 生效。
     }

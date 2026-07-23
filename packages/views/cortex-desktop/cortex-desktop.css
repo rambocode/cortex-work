@@ -5343,6 +5343,26 @@ button.sb-row {
   border-bottom-color: var(--bg-right);
 }
 .pw-rp-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* Skills 面板两栏:列表态左树占满;打开文件后(is-fileopen 由 PromptPanel 注入,同时触发
+   .pw-prompts:has(.pw-rp-view.is-fileopen) 的自动加宽)树收窄为固定 240px,右侧预览填满余下。 */
+.pw-skills-body { display: flex; flex: 1; min-height: 0; }
+.pw-skills-tree { flex: 1; overflow: auto; min-width: 0; }
+.pw-rp-view.is-fileopen .pw-skills-tree { flex: none; width: 240px; border-right: 1px solid var(--border); }
+.pw-skills-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pw-skill-preview { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.pw-skill-doc, .pw-skill-sheet, .pw-skill-code, .pw-skill-md { flex: 1; min-height: 0; overflow: auto; }
+.pw-skill-md { padding: 12px 18px 18px; }
+/* 解除 .pw-todo-md 默认 max-height:260px(详情卡片用),让 .md 预览撑满面板、滚动交给外层
+   .pw-skill-md(与 .pw-file-md .pw-todo-md 先例一致)——否则内容被卡在 260px、下方大片留白。 */
+.pw-skill-md .pw-todo-md { max-height: none; overflow: visible; }
+.pw-skill-img { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; justify-content: center; padding: 16px; }
+.pw-skill-img img { max-width: 100%; height: auto; }
+.pw-skill-preview-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 24px; color: var(--text-2); text-align: center;
+}
+
 .pw-rp-seg {
   display: flex;
   gap: 2px;

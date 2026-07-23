@@ -100,10 +100,10 @@ export function usePersonalPersistence(): void {
             if (!cancelled) useMemoryStore.getState().hydrateMemory(memory);
           })
           .catch(() => {});
-        // 启动时重扫 prompt 树（不持久化树本身）。
+        // 启动时重扫 Skills 库文件树（全部文件,不持久化树本身;与 PromptPanel 手动刷新同源）。
         if (state.promptRoot) {
           try {
-            const tree = await bridge.scanPromptTree(state.promptRoot);
+            const tree = await bridge.scanDirTree(state.promptRoot);
             if (!cancelled) usePersonalStore.getState().setPromptTree(tree);
           } catch {
             // 目录可能已被删除/移动，保留 promptRoot 让 UI 提示重新选择。
