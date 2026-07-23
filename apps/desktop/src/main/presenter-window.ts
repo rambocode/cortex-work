@@ -14,6 +14,15 @@
 import { app, BrowserWindow, screen } from "electron";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
+import {
+  ENTRANCE_PRESETS,
+  STYLE_DURATION_SCALE,
+  defaultHeuristicEntranceDurationMs,
+} from "@cortex-work/core/design/slides/slides-animation";
+import type {
+  SlidesAnimationStyle,
+  SlidesSlotAnimation,
+} from "@cortex-work/core/design/slides/slides-types";
 import { buildPresenterHtml, type PresenterSlide } from "./capabilities/slides/export/html";
 import { buildSpeakerHtml } from "./capabilities/slides/present/speaker-html";
 import { pickPresentDisplays } from "./present-display-geometry";
@@ -22,11 +31,18 @@ import { createLogger } from "./log";
 const log = createLogger("slides");
 
 // 演示 session:双窗模式 audience(观众)+ speaker(演讲者);单窗模式 speaker 为 null。
-// currentIndex/total 是主进程持有的唯一翻页权威(双窗联动的单一数据源)。
+// currentIndex/currentStep/total 是主进程持有的唯一翻页权威(双窗联动的单一数据源)。
+// entranceSteps 按 manifest 显式 entrances 预计算为有序去重的「待按键步骤」；step 0
+// 在进入页面时自动播放，不进入此序列。无显式注解的启发式也全部归 step 0。
 interface PresentSession {
   audience: BrowserWindow;
   speaker: BrowserWindow | null;
   currentIndex: number;
+  /** 当前页已推进到的分步档位(0 基;0 = 仅自动入场的 step 0 已播)。 */
+  currentStep: number;
+  entranceSteps: number[][];
+  stepDurations: Array<Record<number, number>>;
+  busyUntil: number;
   total: number;
 }
 
@@ -39,28 +55,116 @@ function clampIndex(n: number, total: number): number {
   return Math.max(0, Math.min(total - 1, n));
 }
 
-// 把当前页广播给两窗:改各窗 location.hash → 触发页面自身的 hashchange→show(复用现成联动)。
-function broadcastHash(idx: number): void {
+function pendingEntranceSteps(animation: SlidesSlotAnimation | undefined): number[] {
+  const steps = animation?.entrances?.map((entry) => entry.step).filter((step) => step > 0) ?? [];
+  return [...new Set(steps)].sort((a, b) => a - b);
+}
+
+function entranceStepDurations(
+  animation: SlidesSlotAnimation | undefined,
+  style: SlidesAnimationStyle,
+  slideHtml: string,
+): Record<number, number> {
+  const durations: Record<number, number> = {};
+  if (!(animation?.entrances?.length) && slideHtml.includes("data-cortex-id")) {
+    durations[0] = defaultHeuristicEntranceDurationMs(style);
+    return durations;
+  }
+  for (const entry of animation?.entrances ?? []) {
+    const preset = ENTRANCE_PRESETS[entry.preset];
+    const duration = entry.durationMs ?? Math.round(preset.defaultDurationMs * STYLE_DURATION_SCALE[style]);
+    durations[entry.step] = Math.max(durations[entry.step] ?? 0, (entry.delayMs ?? 0) + duration);
+  }
+  return durations;
+}
+
+// hash 契约(与 presenter-runtime 对齐):`#页[.步|.all]`,1 基页号。
+// speaker 页 parseInt 解析天然只取页号,无需感知 step。
+function broadcastHash(idx: number, token?: number | "all"): void {
   if (!session) return;
+  const suffix = token === undefined || token === 0 ? "" : `.${token}`;
   for (const w of [session.audience, session.speaker]) {
     if (w && !w.isDestroyed()) {
-      w.webContents.executeJavaScript(`location.hash='#${idx + 1}'`).catch(() => {});
+      w.webContents.executeJavaScript(`location.hash='#${idx + 1}${suffix}'`).catch(() => {});
     }
   }
 }
 
-// 主进程权威翻页:clamp 后更新 currentIndex,再广播给两窗。
-function navigate(target: number): void {
+// 主进程权威翻页。mode:'auto' = 正向进入新页(step 归零、自动入场);
+// 'all' = 回退/跳页(该页全显、不播动画,标准 PPT 语义)。
+function navigate(target: number, mode: "auto" | "all"): void {
   if (!session) return;
   const idx = clampIndex(target, session.total);
   session.currentIndex = idx;
-  broadcastHash(idx);
+  const steps = session.entranceSteps[idx] ?? [];
+  session.currentStep = mode === "all" ? (steps.at(-1) ?? 0) : 0;
+  session.busyUntil = mode === "auto" ? Date.now() + (session.stepDurations[idx]?.[0] ?? 0) : 0;
+  broadcastHash(idx, mode === "all" ? "all" : 0);
+}
+
+function advancePresentation(): void {
+  const s = session;
+  if (!s || Date.now() < s.busyUntil) return;
+  const nextStep = (s.entranceSteps[s.currentIndex] ?? []).find((candidate) => candidate > s.currentStep);
+  if (nextStep !== undefined) {
+    s.currentStep = nextStep;
+    s.busyUntil = Date.now() + (s.stepDurations[s.currentIndex]?.[nextStep] ?? 0);
+    broadcastHash(s.currentIndex, nextStep);
+  } else if (s.currentIndex + 1 < s.total) {
+    navigate(s.currentIndex + 1, "auto");
+  }
+}
+
+function backPresentation(): void {
+  const s = session;
+  if (s && s.currentIndex > 0) navigate(s.currentIndex - 1, "all");
+}
+
+type PresenterControlCommand =
+  | { type: "advance" }
+  | { type: "back" }
+  | { type: "jump"; pageIndex: number }
+  | { type: "end" };
+
+function parsePresenterControlUrl(rawUrl: string): PresenterControlCommand | null {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "cortex-presenter:" || url.hostname !== "control") return null;
+    if (url.pathname === "/advance") return { type: "advance" };
+    if (url.pathname === "/back") return { type: "back" };
+    if (url.pathname === "/end") return { type: "end" };
+    if (url.pathname === "/jump") {
+      const page = Number(url.searchParams.get("page"));
+      if (Number.isInteger(page) && page > 0) return { type: "jump", pageIndex: page - 1 };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function isPresenterControlUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "cortex-presenter:" && url.hostname === "control";
+  } catch {
+    return false;
+  }
+}
+
+function handlePresenterControl(command: PresenterControlCommand): void {
+  if (command.type === "advance") advancePresentation();
+  else if (command.type === "back") backPresentation();
+  else if (command.type === "jump") navigate(command.pageIndex, "auto");
+  else destroyPresenterWindow();
 }
 
 // 双窗模式的键盘处理:两窗都拦方向/翻页键(preventDefault 阻止事件下发到页面,避免页面内
 // 自带的 keydown 再翻一次导致两窗脱同步),Esc 关全部窗口;f/n 等其它键放行给页面。
+// 正向推进是 (page, step) 状态机:本页还有未播分步 → step+1;否则翻下一页。
 function handleDualInput(event: { preventDefault: () => void }, input: { type: string; key: string }): void {
   if (input.type !== "keyDown") return;
+  const s = session;
   switch (input.key) {
     case "Escape":
       event.preventDefault();
@@ -69,21 +173,22 @@ function handleDualInput(event: { preventDefault: () => void }, input: { type: s
     case "ArrowLeft":
     case "PageUp":
       event.preventDefault();
-      navigate((session?.currentIndex ?? 0) - 1);
+      backPresentation();
       break;
     case "ArrowRight":
     case "PageDown":
-    case " ":
+    case " ": {
       event.preventDefault();
-      navigate((session?.currentIndex ?? 0) + 1);
+      advancePresentation();
       break;
+    }
     case "Home":
       event.preventDefault();
-      navigate(0);
+      navigate(0, "all");
       break;
     case "End":
       event.preventDefault();
-      navigate((session?.total ?? 1) - 1);
+      navigate((s?.total ?? 1) - 1, "all");
       break;
     // 其它键(f/n 等)不 preventDefault,放行给页面自身处理。
   }
@@ -94,6 +199,8 @@ export async function openPresenterWindow(options: {
   title: string;
   slides: PresenterSlide[];
   startIndex: number;
+  /** 全局动画风格(deck.json 的 animationStyle);缺省 none = 静态播放,零回归。 */
+  animationStyle?: SlidesAnimationStyle;
 }): Promise<void> {
   // 旧 session 先销毁(其 closed 回调清理共享临时目录):内容可能已变,重建不串台。
   destroyPresenterWindow();
@@ -103,7 +210,11 @@ export async function openPresenterWindow(options: {
   const hash = String(startIndex + 1);
 
   // 观众页(与单窗同一份 presenter 导出运行时)。
-  const audienceHtml = buildPresenterHtml({ title: options.title, slides: options.slides });
+  const audienceHtml = buildPresenterHtml({
+    title: options.title,
+    slides: options.slides,
+    animationStyle: options.animationStyle
+  });
   // 共享 mkdtemp 目录:双窗的 audience.html / speaker.html 同放此目录,全部窗口关闭后统一清理。
   const tmpDir = await fsp.mkdtemp(join(app.getPath("temp"), "cortex-present-"));
   const audienceFile = join(tmpDir, "audience.html");
@@ -122,6 +233,15 @@ export async function openPresenterWindow(options: {
       ? {
           // 双窗:无边框 + 目标屏 bounds(全屏由 ready-to-show 里 simpleFullScreen 完成)。
           frame: false,
+          ...(process.platform === "darwin"
+            ? {
+                // macOS 普通窗口会把 y=0 强制夹到菜单栏下方。允许超出工作区后,panel
+                // 才能严格覆盖 Display.bounds,无需不可靠的 Spaces 全屏转场。
+                type: "panel" as const,
+                enableLargerThanScreen: true,
+                fullscreenable: false,
+              }
+            : {}),
           x: pick.audience.bounds.x,
           y: pick.audience.bounds.y,
           width: pick.audience.bounds.width,
@@ -130,12 +250,26 @@ export async function openPresenterWindow(options: {
       : {}),
     webPreferences: { ...PRESENT_WEB_PREFERENCES },
   });
+  if (pick && process.platform === "darwin") {
+    // screen-saver 层级盖住观众屏自己的菜单栏/Dock;只提升这一个窗口,不会像
+    // simpleFullScreen 那样修改 NSApp 全局 presentationOptions、隐藏主屏 Dock。
+    audience.setAlwaysOnTop(true, "screen-saver");
+    audience.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
+    });
+  }
 
   let speaker: BrowserWindow | null = null;
   let speakerFile: string | null = null;
   if (pick) {
     speakerFile = join(tmpDir, "speaker.html");
-    const speakerHtml = buildSpeakerHtml({ title: options.title, slides: options.slides, startIndex });
+    const speakerHtml = buildSpeakerHtml({
+      title: options.title,
+      slides: options.slides,
+      startIndex,
+      animationStyle: options.animationStyle,
+    });
     await fsp.writeFile(speakerFile, speakerHtml, "utf8");
     speaker = new BrowserWindow({
       fullscreen: false,
@@ -151,7 +285,23 @@ export async function openPresenterWindow(options: {
     });
   }
 
-  const s: PresentSession = { audience, speaker, currentIndex: startIndex, total };
+  // 风格为 none(或缺省)时动画整体关闭,不存在待按键的分步。
+  const animationOn = (options.animationStyle ?? "none") !== "none";
+  const animationStyle = options.animationStyle ?? "none";
+  const entranceSteps = options.slides.map((slide) => (animationOn ? pendingEntranceSteps(slide.animation) : []));
+  const stepDurations = options.slides.map((slide) =>
+    animationOn ? entranceStepDurations(slide.animation, animationStyle, slide.html) : {},
+  );
+  const s: PresentSession = {
+    audience,
+    speaker,
+    currentIndex: startIndex,
+    currentStep: 0,
+    entranceSteps,
+    stepDurations,
+    busyUntil: Date.now() + (stepDurations[startIndex]?.[0] ?? 0),
+    total,
+  };
   session = s;
 
   const allWins = speaker ? [audience, speaker] : [audience];
@@ -179,20 +329,28 @@ export async function openPresenterWindow(options: {
   if (pick && speaker) {
     // 双窗:两窗都收权威翻页键;观众窗额外隐藏 #bar(鼠标点 #bar 会绕过主进程翻页权威致两窗脱同步)。
     for (const w of allWins) w.webContents.on("before-input-event", handleDualInput);
+    speaker.webContents.on("will-navigate", (event, navigationUrl) => {
+      if (!isPresenterControlUrl(navigationUrl)) return;
+      event.preventDefault();
+      const command = parsePresenterControlUrl(navigationUrl);
+      if (!command) return;
+      handlePresenterControl(command);
+    });
     audience.webContents.on("dom-ready", () => {
       audience.webContents.insertCSS("#bar{display:none!important}").catch(() => {});
     });
-    // 目标屏定位 + 全屏。原生 setFullScreen(Spaces 全屏)在双窗场景实测不可靠:两个
-    // 转场无论同时还是串行(等 enter-full-screen + 超时兜底)都可能被系统吞掉,表现为
-    // 观众屏停在窗口态。故 macOS 双窗一律改用 setSimpleFullScreen(pre-Lion 全屏:
-    // 不建 Space、无转场动画、多屏可同时生效,确定性强);其它平台无 Spaces 概念,
-    // 仍用 setFullScreen。双窗窗口本身 frame:false,即便全屏调用失效也接近满屏观感。
+    // 目标屏定位与全屏策略(历史沿革,勿回退):
+    //  - setSimpleFullScreen 经 NSApp 级 presentationOptions **全局隐藏 Dock 与菜单栏**
+    //    (用户明确要求:演示期间不得隐藏程序坞),弃用;
+    //  - 原生 setFullScreen(Spaces)在双窗场景会被系统吞掉,并且把演讲者窗等待在
+    //    enter-full-screen 后会导致两窗一起不可用。macOS 因此改为无边框 panel 严格覆盖
+    //    Display.bounds;观众/演讲者两窗各自 ready 后独立展示,没有跨窗时序依赖;
+    //  - 其它平台无 Spaces/presentationOptions 概念,两窗仍用 setFullScreen。
     const enterFullscreen = (w: BrowserWindow, bounds: Electron.Rectangle): void => {
       if (session !== s || w.isDestroyed()) return;
       w.setBounds(bounds);
       w.show();
-      if (process.platform === "darwin") w.setSimpleFullScreen(true);
-      else w.setFullScreen(true);
+      if (process.platform !== "darwin") w.setFullScreen(true);
     };
     audience.once("ready-to-show", () => enterFullscreen(audience, pick.audience.bounds));
     speaker.once("ready-to-show", () => enterFullscreen(speaker!, pick.speaker.bounds));
@@ -222,9 +380,9 @@ export async function openPresenterWindow(options: {
 
 /** 销毁演示窗口(若存在);幂等。先清空 session 再销毁,避免 closed 回调重入。 */
 /**
- * 销毁前先退出 simple fullscreen:窗口在 simpleFullScreen 态被直接销毁时,macOS 的
- * presentation options(隐藏菜单栏/程序坞)不会被系统恢复 —— 表现为退出演示后程序坞
- * 消失。显式 setSimpleFullScreen(false) 让系统还原后再销毁;非 simple 态/已销毁则跳过。
+ * 防御性兜底:双窗路径已不再进入 simpleFullScreen(演示期间保留 Dock,见 enterFullscreen
+ * 注释),正常流程下这里恒为 no-op;保留是防未来某路径又把窗口置入 simple 态时,
+ * 销毁前忘还原 presentation options 导致退出演示后程序坞消失(历史踩坑)。
  */
 function releaseSimpleFullscreen(w: BrowserWindow | null): void {
   try {

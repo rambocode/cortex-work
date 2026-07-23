@@ -192,15 +192,15 @@ export function createTaskLimiter(maxConcurrency: number): <T>(job: () => Promis
 
 const SLIDES_ROLE_SYSTEM_CONTRACT: Record<SlidesRole, string> = {
   "topic-researcher":
-    "职责：补充事实、来源、关键判断与待确认问题；不要写 deck，不要编造无法支撑的结论。",
+    "Duty: supply facts, sources, key judgements and open questions. Do not write the deck; never fabricate unsupported conclusions.",
   "visual-researcher":
-    "职责：提出可视化素材、图表建议与视觉风险；不要改页面实现，不要输出无关 prose。",
+    "Duty: propose visual assets, chart suggestions and visual risks. Do not change slide implementations; no unrelated prose.",
   "narrative-reviewer":
-    "职责：审查叙事结构、论证顺序与页面级问题；不要直接改 deck。",
+    "Duty: review narrative structure, argument order and slide-level issues. Do not modify the deck directly.",
   "render-reviewer":
-    "职责：审查版式、密度、可读性与导出风险；不要直接改 deck。",
+    "Duty: review layout, density, readability and export risks. Do not modify the deck directly.",
   "notes-writer":
-    "职责：基于已完成 review 输出演讲者备注草案；不要直接写 notes 文件或修改 deck。",
+    "Duty: draft speaker notes based on the completed review. Do not write notes files or modify the deck directly.",
 };
 
 const SLIDES_ROLE_JSON_SHAPE: Record<SlidesRole, string> = {
@@ -213,7 +213,7 @@ const SLIDES_ROLE_JSON_SHAPE: Record<SlidesRole, string> = {
   "render-reviewer":
     '{"findings":[{"severity":"warning","slideId":"slot-001","elementId":"...","code":"...","message":"...","hint":"..."}]}',
   "notes-writer":
-    '{"slots":[{"slotId":"slot-001","markdown":"## 标题\\n\\n备注正文"}]}',
+    '{"slots":[{"slotId":"slot-001","markdown":"## Title\\n\\nNotes body"}]}',
 };
 
 function summarizeSlidesRoleText(text: string): string {
@@ -265,14 +265,14 @@ export function buildSlidesRoleDelegatePrompt(options: {
   scope: string;
   prompt: string;
 }): string {
-  const scope = options.scope.trim() || "未提供 scope";
+  const scope = options.scope.trim() || "(no scope provided)";
   const task = options.prompt.trim();
   return [
     `slides pipeline role: ${options.role}`,
     `run id: ${options.runId}`,
     SLIDES_ROLE_SYSTEM_CONTRACT[options.role],
-    "硬约束：只返回单个 JSON 对象；不要 markdown fence；不要解释性文字；不能 Write/Edit deck；不能调用正式 slides 写工具；不能修改任何文件。",
-    `输出 JSON 形状：${SLIDES_ROLE_JSON_SHAPE[options.role]}`,
+    "Hard constraints: return exactly one JSON object; no markdown fences; no explanatory prose; never Write/Edit the deck; never call the official slides write tools; never modify any file.",
+    `Output JSON shape: ${SLIDES_ROLE_JSON_SHAPE[options.role]}`,
     `scope:\n${scope}`,
     `task:\n${task}`,
   ].join("\n\n");
@@ -519,13 +519,13 @@ function registerDelegateSlidesRoleTool(mcp: McpServer, state: DesignDelegateSes
     "delegate_slides_role",
     {
       description:
-        "把 slides pipeline 的单个角色任务委派给 fresh session 子 agent。子 agent 只能返回 JSON 结果，" +
-        "不能直接 Write/Edit deck 或调用正式 slides 写工具。",
+        "Delegate a single slides-pipeline role task to a fresh-session sub-agent. The sub-agent may only return a JSON result; " +
+        "it can never Write/Edit the deck or call the official slides write tools.",
       inputSchema: {
-        run_id: z.string().regex(SLIDES_RUN_ID_PATTERN).describe("目标 slides pipeline run id，例如 run-abc123。"),
-        role: z.enum(SLIDES_PIPELINE_ROLES).describe("slides pipeline 角色。"),
-        scope: z.string().min(1).describe("本次角色任务的边界/页范围/审查范围。"),
-        prompt: z.string().min(1).describe("交给该角色的完整、自包含任务描述。"),
+        run_id: z.string().regex(SLIDES_RUN_ID_PATTERN).describe("Target slides pipeline run id, e.g. run-abc123."),
+        role: z.enum(SLIDES_PIPELINE_ROLES).describe("The slides pipeline role."),
+        scope: z.string().min(1).describe("The task boundary / slide range / review scope for this role task."),
+        prompt: z.string().min(1).describe("A complete, self-contained task description for the role."),
       },
     },
     async (args: { run_id: string; role: SlidesRole; scope: string; prompt: string }): Promise<ToolResult> =>

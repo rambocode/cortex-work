@@ -4,6 +4,39 @@ import { CoreProvider, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge, PromptNode } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
 
+vi.mock("docx-preview", () => ({
+  renderAsync: vi.fn(async (_bytes: ArrayBuffer, body: HTMLElement) => {
+    body.innerHTML = "<p>DOCX 预览正文</p>";
+    return {};
+  }),
+}));
+
+vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
+  GlobalWorkerOptions: { workerSrc: "" },
+  getDocument: vi.fn(() => ({
+    promise: Promise.resolve({
+      numPages: 1,
+      getPage: vi.fn(async () => ({
+        getViewport: () => ({ width: 600, height: 800 }),
+        render: () => ({ promise: Promise.resolve(), cancel: vi.fn() }),
+      })),
+      destroy: vi.fn(),
+    }),
+  })),
+}));
+
+vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url", () => ({ default: "pdf-worker.mjs" }));
+
+vi.mock("@aiden0z/pptx-renderer", () => ({
+  RECOMMENDED_ZIP_LIMITS: {},
+  PptxViewer: {
+    open: vi.fn(async (_bytes: ArrayBuffer, body: HTMLElement) => {
+      body.textContent = "PPTX 预览正文";
+      return { slideCount: 1, destroy: vi.fn(), goToSlide: vi.fn(), setZoom: vi.fn(), setFitMode: vi.fn() };
+    }),
+  },
+}));
+
 const NOW = Date.now();
 
 const EMPTY_TREE: PromptNode = { kind: "dir", name: "alpha", path: "/code/alpha", children: [] };
@@ -115,6 +148,53 @@ describe("FilesView 消费 filePreviewRequest", () => {
     await waitFor(() => expect(readFileBinary).toHaveBeenCalledWith("/code/alpha/outputs/monthly.xlsx"));
     expect(openPath).not.toHaveBeenCalled();
     expect(bridge.readFile).not.toHaveBeenCalled();
+  });
+
+  it("docx 且有二进制桥 → 进内置 Word 预览,不再系统打开或按文本读取", async () => {
+    const openPath = vi.fn().mockResolvedValue("");
+    const readFileBinary = vi.fn().mockResolvedValue({
+      data: "UEsDBA==",
+      truncated: false,
+      size: 4,
+      mtimeMs: 1,
+    });
+    const bridge = makeBridge({ openPath, readFileBinary });
+    usePersonalStore.setState({
+      filePreviewRequest: { projectId: "p1", path: "/code/alpha/outputs/report.docx", name: "report.docx" },
+    });
+
+    renderView(bridge);
+
+    expect(await screen.findByText("DOCX 预览正文")).toBeInTheDocument();
+    expect(readFileBinary).toHaveBeenCalledWith("/code/alpha/outputs/report.docx");
+    expect(openPath).not.toHaveBeenCalled();
+    expect(bridge.readFile).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["PDF", "/code/alpha/outputs/report.pdf", "report.pdf"],
+    ["PPTX", "/code/alpha/outputs/slides.pptx", "slides.pptx"],
+  ])("%s 且有二进制桥 → 进入内置只读预览", async (label, path, name) => {
+    const openPath = vi.fn().mockResolvedValue("");
+    const readFileBinary = vi.fn().mockResolvedValue({
+      data: label === "PDF" ? "JVBERi0xLjQ=" : "UEsDBA==",
+      truncated: false,
+      size: 8,
+      mtimeMs: 1,
+    });
+    const bridge = makeBridge({ openPath, readFileBinary });
+    usePersonalStore.setState({
+      filePreviewRequest: { projectId: "p1", path, name },
+    });
+
+    renderView(bridge);
+
+    expect(await screen.findByLabelText(new RegExp(`${name}.*预览`))).toBeInTheDocument();
+    expect(readFileBinary).toHaveBeenCalledWith(path);
+    expect(openPath).not.toHaveBeenCalled();
+    expect(bridge.readFile).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
   });
 
   it("readFile 抛错 → onToast 读取失败提示", async () => {

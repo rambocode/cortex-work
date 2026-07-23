@@ -18,9 +18,11 @@ import {
   BringToFront,
   ChevronDown,
   ChevronUp,
+  CirclePlay,
   Italic,
   Loader2,
   Redo2,
+  Wand2,
   SendToBack,
   Trash2,
   TriangleAlert,
@@ -37,7 +39,19 @@ import {
   parseSlideBridgeDrain,
   type SlideBridgeCommand
 } from './slide-edit-bridge'
+import type { SlidesElementAnimation, SlidesEntrancePreset } from '@cortex-work/core/design/slides/slides-types'
 import { useSlidesStore } from './slides-store'
+import { buildEntrancePlanProbeSource, buildSlideAnimationPreviewSource } from './slide-animation-preview'
+
+// 选中元素可指定的入场预设(顺序即菜单顺序;null 项单独渲染为「移除动画」)。
+const ELEMENT_PRESETS: Array<{ preset: SlidesEntrancePreset; labelKey: string }> = [
+  { preset: 'fade-in', labelKey: 'slidesAnimPresetFadeIn' },
+  { preset: 'fade-up', labelKey: 'slidesAnimPresetFadeUp' },
+  { preset: 'slide-in-left', labelKey: 'slidesAnimPresetSlideLeft' },
+  { preset: 'slide-in-right', labelKey: 'slidesAnimPresetSlideRight' },
+  { preset: 'zoom-in', labelKey: 'slidesAnimPresetZoomIn' },
+  { preset: 'reveal-clip', labelKey: 'slidesAnimPresetReveal' }
+]
 
 type Props = {
   workspaceRoot: string
@@ -195,6 +209,51 @@ export function SlidesStage({ workspaceRoot, slot, focusElement, onRetrySlide }:
 
   const selectionCount = stageSelection && stageSelection.slotId === slot?.id ? stageSelection.items.length : 0
 
+  // 「预览动画」:注入一次性预览脚本重放本页入场(播完自动清理,不落盘、不扰编辑桥)。
+  // 风格为 none 时按钮禁用并以 title 提示先去工具栏选风格(避免点了没反应的困惑)。
+  const animationStyle = useSlidesStore((s) => s.manifest?.animationStyle ?? 'none')
+  const handlePreviewAnimation = useCallback(() => {
+    if (!slot) return
+    void executeScript(
+      buildSlideAnimationPreviewSource({
+        style: animationStyle,
+        entrances: slot.animation?.entrances?.length ? slot.animation.entrances : null
+      })
+    )
+  }, [executeScript, slot, animationStyle])
+
+  // 舞台入场计划探针:webview 就绪时注册(供 store 把启发式编排物化为显式 entrances),
+  // 页面/组件切换时注销,避免 store 拿着指向已卸载 webview 的探针。
+  const registerStageAnimationProbe = useSlidesStore((s) => s.registerStageAnimationProbe)
+  useEffect(() => {
+    if (!showWebview || !preview.state.ready) return
+    registerStageAnimationProbe(async () => {
+      const raw = await executeScript(buildEntrancePlanProbeSource(animationStyle))
+      if (typeof raw !== 'string') return null
+      try {
+        return JSON.parse(raw) as SlidesElementAnimation[]
+      } catch {
+        return null
+      }
+    })
+    return () => registerStageAnimationProbe(null)
+  }, [showWebview, preview.state.ready, executeScript, animationStyle, registerStageAnimationProbe])
+
+  // 选中元素的入场动画设定:下拉列出预设 + 移除;应用于当前选区全部元素。
+  const setElementAnimation = useSlidesStore((s) => s.setElementAnimation)
+  const [elementAnimOpen, setElementAnimOpen] = useState(false)
+  const selectedElementIds =
+    stageSelection && stageSelection.slotId === slot?.id ? stageSelection.items.map((i) => i.elementId) : []
+  const handleElementPreset = useCallback(
+    (preset: SlidesEntrancePreset | null) => {
+      setElementAnimOpen(false)
+      if (!slot || selectedElementIds.length === 0) return
+      void setElementAnimation(slot.id, selectedElementIds, preset)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedElementIds 由 selection 派生,数组身份逐次变化
+    [slot?.id, stageSelection, setElementAnimation]
+  )
+
   return (
     // 竖向三段布局:工具栏行(画布上方)→ 画布 → 选区 chip 行(画布下方)。
     // 工具栏与 chip 不再悬浮在幻灯片画布内部,避免遮挡页面内容;
@@ -212,6 +271,15 @@ export function SlidesStage({ workspaceRoot, slot, focusElement, onRetrySlide }:
             </ToolButton>
             <ToolButton title={t('slidesRedo')} disabled={!stageHistory.canRedo} onClick={() => sendCommand({ type: 'redo' })}>
               <Redo2 className="h-3.5 w-3.5" strokeWidth={1.9} />
+            </ToolButton>
+            <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
+            {/* 预览动画用「播放」语义图标,与元素动画(Wand2)、页面级动画菜单(Clapperboard)区分。 */}
+            <ToolButton
+              title={animationStyle === 'none' ? t('slidesAnimationPreviewNone') : t('slidesAnimationPreview')}
+              disabled={animationStyle === 'none'}
+              onClick={handlePreviewAnimation}
+            >
+              <CirclePlay className="h-3.5 w-3.5" strokeWidth={1.9} />
             </ToolButton>
             {selectionCount > 0 ? (
               <>
@@ -280,6 +348,44 @@ export function SlidesStage({ workspaceRoot, slot, focusElement, onRetrySlide }:
                 <ToolButton title={t('slidesLayerBack')} onClick={() => sendCommand({ type: 'z-order', value: 'back' })}>
                   <SendToBack className="h-3.5 w-3.5" strokeWidth={1.9} />
                 </ToolButton>
+                {/* 所选元素入场动画:预设下拉(先物化整页编排,再对所选元素改预设)。 */}
+                <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
+                <span className="relative">
+                  <ToolButton
+                    title={animationStyle === 'none' ? t('slidesAnimationPreviewNone') : t('slidesAnimElement')}
+                    disabled={animationStyle === 'none'}
+                    onClick={() => setElementAnimOpen((v) => !v)}
+                  >
+                    <Wand2 className="h-3.5 w-3.5" strokeWidth={1.9} />
+                  </ToolButton>
+                  {elementAnimOpen ? (
+                    // 深色面板 + 显式颜色:该下拉悬在深色画布工具栏下,不用 ds token 类
+                    // (曾在此上下文解析异常导致白底白字,用户实测文字不可见)。
+                    <div
+                      data-testid="slides-element-anim-menu"
+                      className="absolute left-1/2 top-full z-40 mt-1 w-32 -translate-x-1/2 rounded-lg border border-white/10 bg-[#23262f] p-1 text-white shadow-xl"
+                    >
+                      {ELEMENT_PRESETS.map(({ preset, labelKey }) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => handleElementPreset(preset)}
+                          className="block w-full rounded-md px-2 py-1 text-left text-[12px] text-white/90 transition hover:bg-white/12 hover:text-white"
+                        >
+                          {t(labelKey)}
+                        </button>
+                      ))}
+                      <div className="my-1 h-px bg-white/12" aria-hidden />
+                      <button
+                        type="button"
+                        onClick={() => handleElementPreset(null)}
+                        className="block w-full rounded-md px-2 py-1 text-left text-[12px] text-white/60 transition hover:bg-white/12 hover:text-white"
+                      >
+                        {t('slidesAnimElementRemove')}
+                      </button>
+                    </div>
+                  ) : null}
+                </span>
                 <span className="mx-0.5 h-4 w-px bg-white/20" aria-hidden />
                 <ToolButton
                   title={t('slidesDeleteElement')}

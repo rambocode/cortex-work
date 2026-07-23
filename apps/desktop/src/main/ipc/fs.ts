@@ -25,12 +25,11 @@ import { documentsCortexDir, noProjectSessionDir } from "../paths";
 import { countAddedLines, parseNumstat, parseUntracked, sumStats, synthUntrackedDiff } from "./git-info";
 import { readImageOpenable } from "./image";
 import type { ImageReadResult } from "./types";
+import { binaryReadLimitForPath } from "./fs-binary";
 
 const MAX_DEPTH = 8;
 const MAX_NODES = 5000;
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB
-// 表格二进制通道独立上限:xlsx 是压缩包,25MB 已覆盖绝大多数表格;超限降级系统打开。
-const MAX_SHEET_BYTES = 25 * 1024 * 1024;
 // 本进程生命周期内已做过首次备份的文件集合(见 fs:writeFileBinary)。
 const binaryBackedUp = new Set<string>();
 const SKIP_DIRS = new Set(["node_modules", ".git", ".hg", ".svn", "dist", "out", ".next", ".turbo"]);
@@ -570,13 +569,13 @@ export function registerFsHandlers(): void {
     await fsp.writeFile(path, content, "utf8");
   });
 
-  // ── 表格文件二进制通道（内置表格预览/编辑用,base64 传输）────────────────────
+  // ── 内置文档/表格预览二进制通道（base64 传输）─────────────────────────────
   // fs:readFile 的 2MB 文本上限对 xlsx 太小且截半即损坏,这里独立上限、超限不返回内容
-  //（渲染端据 truncated 降级为「用系统应用打开」）。
+  //（渲染端据 truncated 降级为「用系统应用打开」）。PDF/PPTX 使用更高但仍受控的预览上限。
   ipcMain.handle("fs:readFileBinary", async (_e, path: string): Promise<ReadFileBinaryResult> => {
     await assertOpenable(path);
     const stat = await fsp.stat(path);
-    if (stat.size > MAX_SHEET_BYTES) {
+    if (stat.size > binaryReadLimitForPath(path)) {
       return { data: null, truncated: true, size: stat.size, mtimeMs: stat.mtimeMs };
     }
     const buf = await fsp.readFile(path);

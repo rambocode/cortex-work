@@ -64,6 +64,43 @@ export const slidesOutlineSchema = z.object({
   approvedAt: isoDate.optional()
 })
 
+/**
+ * 动画枚举容错策略：未知值不使整份 manifest 校验失败，而是降级为安全默认
+ * （新旧版本枚举漂移时旧客户端仍能打开 deck）。数值字段夹取上限防病态值
+ * 卡死播放。
+ */
+const entrancePresetSchema = z
+  .enum(['fade-in', 'fade-up', 'slide-in-left', 'slide-in-right', 'zoom-in', 'reveal-clip'])
+  .catch('fade-in')
+
+const transitionSchema = z
+  .enum(['none', 'fade', 'push-horizontal', 'push-vertical', 'zoom', 'page-flip', 'cube-rotate'])
+  .catch('fade')
+
+/** 单条入场注解上限：duration ≤5s、delay ≤10s，超出取上限而非报错。 */
+const elementAnimationSchema = z.object({
+  elementId: z.string().min(1),
+  preset: entrancePresetSchema,
+  step: z.number().int().min(0),
+  delayMs: z
+    .number()
+    .int()
+    .min(0)
+    .transform((v) => Math.min(v, 10_000))
+    .optional(),
+  durationMs: z
+    .number()
+    .int()
+    .min(0)
+    .transform((v) => Math.min(v, 5_000))
+    .optional()
+})
+
+export const slidesSlotAnimationSchema = z.object({
+  transition: transitionSchema.optional(),
+  entrances: z.array(elementAnimationSchema).optional()
+})
+
 export const slidesSlotSchema = z.object({
   id: z.string().refine(isValidSlotId, 'invalid slot id'),
   order: z.number().int().min(0),
@@ -74,7 +111,8 @@ export const slidesSlotSchema = z.object({
   snapshotPath: z.string().min(1).optional(),
   revision: z.number().int().min(0),
   status: z.enum(['empty', 'generating', 'ready', 'error']),
-  updatedAt: isoDate
+  updatedAt: isoDate,
+  animation: slidesSlotAnimationSchema.optional()
 })
 
 export const slidesDeckManifestSchema = z
@@ -90,6 +128,8 @@ export const slidesDeckManifestSchema = z
     outline: slidesOutlineSchema.nullable(),
     slides: z.array(slidesSlotSchema),
     activeSlideId: z.string().nullable(),
+    // 未知风格值降级 'none'(静态),而非拒绝整份 manifest。
+    animationStyle: z.enum(['none', 'subtle', 'lively']).catch('none').optional(),
     createdAt: isoDate,
     updatedAt: isoDate
   })

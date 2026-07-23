@@ -4,7 +4,13 @@ import { describe, expect, it } from 'vitest'
 import { designDocumentKind } from '../design-types'
 import { parseDocumentsIndex, serializeDocumentsIndex } from '../design-document-persistence'
 import type { DesignDocument } from '../design-types'
-import { createEmptySlidesDeckManifest, sortedSlidesSlots, type SlidesSlot } from './slides-types'
+import {
+  createEmptySlidesDeckManifest,
+  resolveDeckAnimationStyle,
+  slotHasExplicitEntrances,
+  sortedSlidesSlots,
+  type SlidesSlot
+} from './slides-types'
 import { slidesManifestPath } from './slides-paths'
 
 const NOW = '2026-07-16T00:00:00.000Z'
@@ -130,6 +136,8 @@ describe('deck manifest 工厂与排序', () => {
     expect(manifest.width).toBe(1280)
     expect(manifest.height).toBe(720)
     expect(manifest.slides).toEqual([])
+    // 新 deck 开箱带「稳重」动画风格(存量 deck 无此字段仍按 none)。
+    expect(manifest.animationStyle).toBe('subtle')
   })
 
   it('sortedSlidesSlots 按 order 升序、同序按 id 稳定排序', () => {
@@ -144,5 +152,23 @@ describe('deck manifest 工厂与排序', () => {
     })
     const sorted = sortedSlidesSlots([mk('slot-b', 2), mk('slot-a', 0), mk('slot-c', 1)])
     expect(sorted.map((s) => s.id)).toEqual(['slot-a', 'slot-c', 'slot-b'])
+  })
+})
+
+describe('动画 helper', () => {
+  it('resolveDeckAnimationStyle 缺省为 none', () => {
+    expect(resolveDeckAnimationStyle({})).toBe('none')
+    expect(resolveDeckAnimationStyle({ animationStyle: 'lively' })).toBe('lively')
+  })
+
+  it('slotHasExplicitEntrances 只在有非空 entrances 时为 true', () => {
+    expect(slotHasExplicitEntrances({})).toBe(false)
+    expect(slotHasExplicitEntrances({ animation: {} })).toBe(false)
+    expect(slotHasExplicitEntrances({ animation: { entrances: [] } })).toBe(false)
+    expect(
+      slotHasExplicitEntrances({
+        animation: { entrances: [{ elementId: 'e', preset: 'fade-in', step: 0 }] }
+      })
+    ).toBe(true)
   })
 })

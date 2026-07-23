@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { fileIconSpec, isBinaryLike, isOpenExternalLike, isSpreadsheetLike } from "./fileIcons";
+import {
+  fileIconSpec,
+  inAppDocumentKind,
+  isBinaryLike,
+  isDocxLike,
+  isOpenExternalLike,
+  isSpreadsheetLike,
+} from "./fileIcons";
 
 describe("fileIconSpec 扩展名映射", () => {
   it("代码族返回品牌色徽章", () => {
@@ -82,5 +89,24 @@ describe("isSpreadsheetLike", () => {
     expect(isSpreadsheetLike("a.csv")).toBe(true);
     expect(isSpreadsheetLike("a.xls")).toBe(false);
     expect(isSpreadsheetLike("a.ts")).toBe(false);
+  });
+});
+
+describe("isDocxLike", () => {
+  it("仅现代 Word .docx 进入内置预览", () => {
+    expect(isDocxLike("report.docx")).toBe(true);
+    expect(isDocxLike("REPORT.DOCX")).toBe(true);
+    expect(isDocxLike("legacy.doc")).toBe(false);
+    expect(isDocxLike("slides.pptx")).toBe(false);
+  });
+});
+
+describe("inAppDocumentKind", () => {
+  it("识别可在应用内预览的现代文档格式", () => {
+    expect(inAppDocumentKind("report.docx")).toBe("docx");
+    expect(inAppDocumentKind("REPORT.PDF")).toBe("pdf");
+    expect(inAppDocumentKind("slides.pptx")).toBe("pptx");
+    expect(inAppDocumentKind("legacy.doc")).toBeNull();
+    expect(inAppDocumentKind("legacy.ppt")).toBeNull();
   });
 });

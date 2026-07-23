@@ -158,6 +158,8 @@ import type {
   SlidesScreenshotRequest,
   SlidesScreenshotResult,
   SlidesSetActiveSlideRequest,
+  SlidesSetAnimationStyleRequest,
+  SlidesSetSlideAnimationRequest,
 } from "./slides-ipc-types";
 import type { ChannelId } from "../reply/channels";
 import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
@@ -209,8 +211,8 @@ export interface DesktopBridge {
   gitCreateBranch?(root: string, name: string): Promise<GitOpResult>;
   gitCheckout?(root: string, name: string): Promise<GitOpResult>;
   readFile(path: string): Promise<ReadFileResult>;
-  // 表格文件二进制通道(内置表格预览/编辑,base64 传输):读超限 truncated 降级、
-  // 写带首次备份 + 临时文件原子替换。可选——web/旧壳无 → 表格入口回退系统打开。
+  // 文档/表格二进制通道(内置预览/表格编辑,base64 传输):读超限 truncated 降级；
+  // 写带首次备份 + 临时文件原子替换。可选——web/旧壳无 → 对应入口回退系统打开。
   readFileBinary?(path: string): Promise<ReadFileBinaryResult>;
   writeFileBinary?(path: string, dataBase64: string, opts?: { backup?: boolean }): Promise<WriteFileBinaryResult>;
   // 轻量 stat:表格预览的外部变更检测(watch 信号后比对 mtime,避免整文件重读)。
@@ -290,6 +292,10 @@ export interface DesktopBridge {
   slidesDuplicateSlide?(req: SlidesDuplicateSlideRequest): Promise<SlidesDeckIpcResult>;
   slidesDeleteSlide?(req: SlidesDeleteSlideRequest): Promise<SlidesDeckIpcResult>;
   slidesSetActiveSlide?(req: SlidesSetActiveSlideRequest): Promise<SlidesDeckIpcResult>;
+  // 动画:全局风格(none/subtle/lively)与单页转场/入场注解。可选——无能力时工具栏
+  // 动画菜单降级隐藏(与 present 一致的探测方式)。
+  slidesSetAnimationStyle?(req: SlidesSetAnimationStyleRequest): Promise<SlidesDeckIpcResult>;
+  slidesSetSlideAnimation?(req: SlidesSetSlideAnimationRequest): Promise<SlidesDeckIpcResult>;
   slidesSaveEditedHtml?(req: SlidesSaveEditedHtmlRequest): Promise<SlidesDeckIpcResult>;
   slidesReadNotes?(req: SlidesReadNotesRequest): Promise<SlidesReadNotesResult>;
   slidesSaveNotes?(req: SlidesSaveNotesRequest): Promise<SlidesDeckIpcResult>;

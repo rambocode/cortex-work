@@ -33,7 +33,8 @@ import { parseMentions } from "@cortex-work/core/personal/mention";
 import { MessageStream } from "../ChatArea";
 import { resolveSkillDispatch } from "./skillDispatch";
 import { agentContact } from "./agentMeta";
-import { isOpenExternalLike, isSpreadsheetLike } from "./fileIcons";
+import { inAppDocumentKind, isOpenExternalLike, isSpreadsheetLike, type InAppDocumentKind } from "./fileIcons";
+import { DocumentOverlay } from "./DocumentOverlay";
 import { SheetOverlay } from "./sheet/SheetOverlay";
 import { resolveExistingFile } from "./resolveFileRef";
 import { AskQuestionCard } from "./AskQuestionCard";
@@ -215,8 +216,16 @@ export function PersonalChatArea({
   const [followup, setFollowup] = useState<{ seedText: string; returnFocusEl?: HTMLElement | null } | null>(null);
   // 无项目会话的表格预览浮层(有项目走右栏 FilesView,不用浮层)。
   const [sheetOverlay, setSheetOverlay] = useState<{ path: string; name: string } | null>(null);
+  const [documentOverlay, setDocumentOverlay] = useState<{
+    path: string;
+    name: string;
+    kind: InAppDocumentKind;
+  } | null>(null);
   // 切换会话时关掉浮层,避免上个会话的表格残留盖在新会话上。
-  useEffect(() => setSheetOverlay(null), [activeSessionId]);
+  useEffect(() => {
+    setSheetOverlay(null);
+    setDocumentOverlay(null);
+  }, [activeSessionId]);
 
   useEffect(() => {
     setShowHiddenHistory(false);
@@ -252,14 +261,49 @@ export function PersonalChatArea({
   // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为「真实存在的绝对路径」(口径见
   // resolveExistingFile:绝对路径走 fileExists、相对走 resolveProjectFile→拼 abs+fileExists,
   // 覆盖项目外 agent 产物如 ~/.codex/generated_images 与 `../outputs` 爬出),按文件类型分发:
+  // - HTML → 经主进程授权为 file:// URL 后在右侧内置浏览器打开;
   // - 非文本(图片/媒体/office/pdf/二进制)→ 系统默认应用打开,不依赖项目上下文;
   // - 电子表格(xlsx/csv)→ 有项目走右栏内置表格;无项目会话在聊天区盖 SheetOverlay 浮层;
   // - 文本类 → 右栏内置预览并展开右栏(需项目);无项目会话退化为系统打开。
   const handleOpenFile = useCallback(
     (ref: string) => {
-      const projectPath = realProject?.path ?? "";
+      // 无项目会话也有创建时固定的 noProjectDir(project 为上方 syntheticNoProject);
+      // 相对产物链接必须以该真实 cwd 解析,不能只认 realProject。
+      const projectPath = project?.path ?? "";
       const openResolved = (abs: string) => {
         const name = abs.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? ref;
+        // HTML 统一进内置浏览器。browserResolveLocalHtml 会在主进程校验允许根、realpath、扩展名
+        // 与真实文件并登记授权；不直接把本地路径塞给 BrowserView。
+        if (/\.html?$/i.test(name)) {
+          const resolveHtml = bridge?.browserResolveLocalHtml;
+          if (!resolveHtml) {
+            onToast(`当前环境不支持预览网页：${name}`);
+            return;
+          }
+          void resolveHtml(abs)
+            .then((fileUrl) => {
+              if (!fileUrl) {
+                onToast(`无法预览网页：${name}`);
+                return;
+              }
+              requestBrowserUrl(fileUrl);
+              setRightOpen(true);
+            })
+            .catch(() => onToast(`无法预览网页：${name}`));
+          return;
+        }
+        // DOCX/PDF/PPTX 有二进制桥时走应用内只读预览:项目会话复用右栏 FilesView,
+        // 无项目会话仿 SheetOverlay 在聊天区就地覆盖。旧壳/网页端继续系统打开。
+        const documentKind = inAppDocumentKind(name);
+        if (documentKind && bridge?.readFileBinary) {
+          if (!realProject) {
+            setDocumentOverlay({ path: abs, name, kind: documentKind });
+            return;
+          }
+          requestFilePreview({ projectId: realProject.id, path: abs, name });
+          setRightOpen(true);
+          return;
+        }
         // 表格 + 无项目会话:右栏 FilesView 需要项目上下文,改在聊天区就地浮层打开
         // (无二进制桥的 web/旧壳仍落到下方系统打开)。
         if (isSpreadsheetLike(name) && !realProject && bridge?.readFileBinary) {
@@ -286,7 +330,7 @@ export function PersonalChatArea({
         else onToast(`未找到文件：${ref}`);
       });
     },
-    [realProject, bridge, requestFilePreview, setRightOpen, onToast],
+    [project, realProject, bridge, requestBrowserUrl, requestFilePreview, setRightOpen, onToast],
   );
 
   // 点 typing 活动行 → 请求展开右侧「执行过程」面板(store nonce 信号,面板侧消费)。
@@ -537,7 +581,8 @@ export function PersonalChatArea({
         collapsibleReasoning
         hideTextTime
         onOpenFile={handleOpenFile}
-        projectPath={realProject ? realProject.path : undefined}
+        // 相对文件链接按 agent 的真实 cwd 解析:项目会话用项目 path,无项目会话用 noProjectDir。
+        projectPath={project.path}
         renderTextTail={renderTextTail}
         stickToBottomKey={scrollStickKey}
         preserveAnchorKey={win.expandNonce}
@@ -661,6 +706,16 @@ export function PersonalChatArea({
           bridge={bridge}
           onToast={onToast}
           onClose={() => setSheetOverlay(null)}
+        />
+      ) : null}
+      {documentOverlay && bridge ? (
+        <DocumentOverlay
+          kind={documentOverlay.kind}
+          path={documentOverlay.path}
+          name={documentOverlay.name}
+          bridge={bridge}
+          onToast={onToast}
+          onClose={() => setDocumentOverlay(null)}
         />
       ) : null}
     </main>

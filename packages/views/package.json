@@ -14,6 +14,7 @@
     "./cortex-desktop/voice-recorder": "./cortex-desktop/personal/voiceRecorder.ts"
   },
   "dependencies": {
+    "@aiden0z/pptx-renderer": "^1.2.4",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language": "^6.12.3",
@@ -36,6 +37,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.11.0",
+    "docx-preview": "^0.4.0",
     "echarts": "^6.1.0",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.1",

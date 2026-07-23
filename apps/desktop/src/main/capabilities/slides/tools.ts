@@ -49,19 +49,19 @@ function deckStatePayload(manifest: SlidesDeckManifest): Record<string, unknown>
     deck: manifest,
     hint:
       manifest.status === "draft"
-        ? "deck 处于草稿态:先 set_theme 设定主题,再 propose_outline 提交提纲等待用户批准。"
+        ? "The deck is a draft: set the theme via set_theme first, then submit an outline with propose_outline and wait for user approval."
         : manifest.status === "outline-proposed"
-          ? "提纲已提交,等待用户在界面上批准;批准前不能写正式页面。"
+          ? "The outline is submitted and awaiting user approval in the UI; slides cannot be written before approval."
           : manifest.status === "outline-approved" || manifest.status === "generating"
-            ? "提纲已批准:用 place_slide_html 按 slot 逐页写入 1280×720 HTML。"
-            : "deck 已就绪:可继续修订单页或响应用户的检查/导出请求。",
+            ? "The outline is approved: write 1280×720 HTML slot by slot via place_slide_html."
+            : "The deck is ready: keep revising individual slides or respond to the user's check/export requests.",
   };
 }
 
 // 主题输入 schema(与 core SlidesTheme 对齐;zod v4 raw shape 交给 registerTool)。
 const themeShape = {
-  name: z.string().min(1).describe("主题名称"),
-  mood: z.array(z.string()).describe("氛围关键词,如 ['clean','modern']"),
+  name: z.string().min(1).describe("Theme name"),
+  mood: z.array(z.string()).describe("Mood keywords, e.g. ['clean','modern']"),
   palette: z
     .object({
       background: z.string().regex(/^#[0-9a-fA-F]{3,6}$/),
@@ -70,7 +70,7 @@ const themeShape = {
       secondary: z.string().regex(/^#[0-9a-fA-F]{3,6}$/),
       accent: z.string().regex(/^#[0-9a-fA-F]{3,6}$/),
     })
-    .describe("hex 配色"),
+    .describe("Hex color palette"),
   fonts: z.object({
     heading: z.string().min(1),
     body: z.string().min(1),
@@ -82,15 +82,35 @@ const themeShape = {
 };
 
 const outlineItemShape = z.object({
-  id: z.string().min(1).describe("提纲条目稳定 id,如 'o1'"),
+  id: z.string().min(1).describe("Stable outline item id, e.g. 'o1'"),
   title: z.string().min(1),
-  purpose: z.string().describe("该页在叙事中的作用"),
+  purpose: z.string().describe("This slide's role in the narrative"),
   keyPoints: z.array(z.string()),
-  visualIntent: z.string().optional().describe("视觉意图(布局/图表/配图方向)"),
+  visualIntent: z.string().optional().describe("Visual intent (layout/chart/illustration direction)"),
 });
 
 // 提纲批准 gate:仅这些状态允许写正式 slide HTML。
 const HTML_WRITE_ALLOWED_STATUS = new Set(["outline-approved", "generating", "ready", "error"]);
+
+// 动画枚举(与 core slides-types 的联合类型对齐;schema 层还有 .catch 容错)。
+const animationStyleEnum = z.enum(["none", "subtle", "lively"]);
+const entrancePresetEnum = z.enum([
+  "fade-in",
+  "fade-up",
+  "slide-in-left",
+  "slide-in-right",
+  "zoom-in",
+  "reveal-clip",
+]);
+const transitionEnum = z.enum([
+  "none",
+  "fade",
+  "push-horizontal",
+  "push-vertical",
+  "zoom",
+  "page-flip",
+  "cube-rotate",
+]);
 
 export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): void {
   const ctx = { workspaceRoot: state.workspaceRoot, deckId: state.documentId };
@@ -104,8 +124,8 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
     "get_deck_state",
     {
       description:
-        "读取当前演示文稿(deck)的完整状态:标题、主题、提纲、页面列表(slot id/顺序/状态)与 revision。" +
-        "所有写工具都需要本工具返回的 revision 作为 expected_revision。",
+        "Read the deck's full state: title, theme, outline, slide list (slot id/order/status) and revision. " +
+        "Every write tool requires the revision returned here as expected_revision.",
       inputSchema: {},
     },
     async (): Promise<ToolResult> => {
@@ -118,7 +138,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
   mcp.registerTool(
     "set_theme",
     {
-      description: "设置 deck 的结构化主题(配色/字体/密度/氛围)。需要 expected_revision(乐观锁)。",
+      description: "Set the deck's structured theme (palette/fonts/density/mood). Requires expected_revision (optimistic lock).",
       inputSchema: {
         expected_revision: z.number().int().min(0),
         theme: z.object(themeShape),
@@ -142,14 +162,14 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
     "propose_outline",
     {
       description:
-        "提交提纲草案供用户确认。草案写入 drafts/outline.json 并把 deck 状态置为 outline-proposed;" +
-        "用户批准前 place_slide_html 会被拒绝。若用户要求修改提纲,可再次调用本工具提交新版本(version+1)。",
+        "Submit an outline draft for user confirmation. The draft is written to drafts/outline.json and the deck status becomes outline-proposed; " +
+        "place_slide_html is rejected until the user approves. If the user asks for changes, call this tool again to submit a new version (version+1).",
       inputSchema: {
         expected_revision: z.number().int().min(0),
-        summary: z.string().describe("整套演示的一句话概要"),
+        summary: z.string().describe("One-sentence summary of the whole deck"),
         audience: z.string().optional(),
         goal: z.string().optional(),
-        items: z.array(outlineItemShape).min(1).describe("每页一个条目,按演示顺序"),
+        items: z.array(outlineItemShape).min(1).describe("One item per slide, in presentation order"),
       },
     },
     async ({ expected_revision, summary, audience, goal, items }): Promise<ToolResult> => {
@@ -179,7 +199,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
         ok: true,
         revision: updated.value.revision,
         outlineVersion: outline.version,
-        message: "提纲草案已提交,等待用户在界面上批准后才能写入正式页面。",
+        message: "Outline draft submitted. Slides can be written only after the user approves it in the UI.",
       });
     },
   );
@@ -188,12 +208,12 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
     "place_slide_html",
     {
       description:
-        "写入(创建或整页替换)一个 slot 的 HTML。前置条件:提纲已被用户批准。" +
-        "HTML 必须是 1280×720 固定画布的自包含文档(禁远程 JS,资源用 deck 相对路径或 data URI," +
-        "关键元素带 data-cortex-id)。",
+        "Write (create or fully replace) one slot's HTML. Precondition: the outline has been approved by the user. " +
+        "The HTML must be a self-contained document on a fixed 1280×720 canvas (no remote JS; assets via " +
+        "deck-relative paths or data URIs; key elements tagged with data-cortex-id).",
       inputSchema: {
         expected_revision: z.number().int().min(0),
-        slot_id: z.string().describe("目标 slot id(get_deck_state 可得)"),
+        slot_id: z.string().describe("Target slot id (from get_deck_state)"),
         html: z.string().min(1),
       },
     },
@@ -203,7 +223,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       if (!HTML_WRITE_ALLOWED_STATUS.has(current.value.status)) {
         return errorResult(
           "outline_not_approved",
-          "提纲尚未获用户批准,不能写入正式页面。请先 propose_outline 并等待用户在界面上批准。",
+          "The outline is not yet approved by the user, so slides cannot be written. Call propose_outline first and wait for approval in the UI.",
         );
       }
       const result = await writeSlideHtml({
@@ -221,7 +241,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
   mcp.registerTool(
     "read_slide_html",
     {
-      description: "读取指定 slot 当前的 HTML 内容。",
+      description: "Read the current HTML content of the given slot.",
       inputSchema: { slot_id: z.string() },
     },
     async ({ slot_id }): Promise<ToolResult> => {
@@ -235,8 +255,8 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
     "replace_slide_text",
     {
       description:
-        "在指定 slot 的 HTML 里做一次精确文字替换。find 必须在页面中恰好出现一次," +
-        "否则返回错误(避免误伤);大改请用 place_slide_html 整页替换。",
+        "Perform one exact text replacement in the slot's HTML. find must occur exactly once in the slide, " +
+        "otherwise an error is returned (to avoid collateral edits); for large changes use place_slide_html.",
       inputSchema: {
         expected_revision: z.number().int().min(0),
         slot_id: z.string(),
@@ -248,9 +268,9 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       const current = await readSlideHtml({ ...ctx, slotId: slot_id });
       if (!current.ok) return fromWorkspaceError(current);
       const occurrences = current.value.split(find).length - 1;
-      if (occurrences === 0) return errorResult("not_found", "find 文本未在页面中出现");
+      if (occurrences === 0) return errorResult("not_found", "The find text does not occur in the slide");
       if (occurrences > 1) {
-        return errorResult("invalid_payload", `find 文本出现 ${occurrences} 次,必须唯一;请提供更长的上下文`);
+        return errorResult("invalid_payload", `The find text occurs ${occurrences} times; it must be unique — provide longer context`);
       }
       const result = await writeSlideHtml({
         ...ctx,
@@ -266,7 +286,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
   mcp.registerTool(
     "move_slide",
     {
-      description: "把指定 slot 移动到目标位置(to_index,0 起)。其余页面相对顺序不变。",
+      description: "Move the given slot to the target position (to_index, 0-based). Other slides keep their relative order.",
       inputSchema: {
         expected_revision: z.number().int().min(0),
         slot_id: z.string(),
@@ -302,7 +322,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
   mcp.registerTool(
     "insert_slide",
     {
-      description: "插入一个新的空 slot(生成稳定 id)。after_slot_id 缺省时追加到末尾。",
+      description: "Insert a new empty slot (with a stable generated id). Appends to the end when after_slot_id is omitted.",
       inputSchema: {
         expected_revision: z.number().int().min(0),
         title: z.string().optional(),
@@ -346,7 +366,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
   mcp.registerTool(
     "delete_slide",
     {
-      description: "删除一个 slot(软删:文件移入 deck 内回收区,可由用户恢复)。",
+      description: "Delete a slot (soft delete: files move to the deck's trash area and can be restored by the user).",
       inputSchema: {
         expected_revision: z.number().int().min(0),
         slot_id: z.string(),
@@ -363,8 +383,9 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
     "list_templates",
     {
       description:
-        "列出内置演示模板(id/标题/描述/明暗/标签)。用户没指定风格时,可据主题与受众推荐一套," +
-        "再用 apply_template 应用。模板是数据不是提示词:应用后主题与风格指南会写进 deck。",
+        "List built-in slide templates (id/title/description/light-dark/tags). When the user has no style preference, " +
+        "recommend one based on topic and audience, then apply it with apply_template. Templates are data, not prompts: " +
+        "applying one writes the theme and style guide into the deck.",
       inputSchema: {},
     },
     async (): Promise<ToolResult> => {
@@ -387,12 +408,12 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
     "apply_template",
     {
       description:
-        "把内置模板应用到当前 deck:写入该模板的结构化主题(配色/密度)与风格指南。" +
-        "返回完整 styleGuide 与参考页 HTML(如有)——生成页面时请严格参照其视觉语言。",
+        "Apply a built-in template to the deck: writes its structured theme (palette/density) and style guide. " +
+        "Returns the full styleGuide and a reference slide HTML (if any) — follow their visual language strictly when generating slides.",
       inputSchema: {
         expected_revision: z.number().int().min(0),
-        template_id: z.string().describe("list_templates 返回的 id"),
-        include_reference: z.boolean().optional().describe("是否返回参考页 HTML(默认 true)"),
+        template_id: z.string().describe("An id returned by list_templates"),
+        include_reference: z.boolean().optional().describe("Whether to return the reference slide HTML (default true)"),
       },
     },
     async ({ expected_revision, template_id, include_reference }): Promise<ToolResult> => {
@@ -428,12 +449,12 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
     "generate_speaker_notes",
     {
       description:
-        "为指定页写演讲者备注(Markdown,落 notes/<slot>.md)。备注会随 PPTX 与 HTML presenter 导出;" +
-        "PDF/PNG 不含备注。",
+        "Write speaker notes for a slide (Markdown, stored at notes/<slot>.md). Notes are included in PPTX and HTML presenter exports; " +
+        "PDF/PNG exports do not contain notes.",
       inputSchema: {
         expected_revision: z.number().int().min(0),
         slot_id: z.string(),
-        markdown: z.string().min(1).describe("该页的讲稿/提示要点"),
+        markdown: z.string().min(1).describe("The slide's script / talking points"),
       },
     },
     async ({ expected_revision, slot_id, markdown }): Promise<ToolResult> => {
@@ -451,7 +472,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
   mcp.registerTool(
     "read_speaker_notes",
     {
-      description: "读取指定页的演讲者备注(无备注返回空串)。",
+      description: "Read the slide's speaker notes (empty string when absent).",
       inputSchema: { slot_id: z.string() },
     },
     async ({ slot_id }): Promise<ToolResult> => {
@@ -462,14 +483,99 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
   );
 
   mcp.registerTool(
+    "set_deck_animation_style",
+    {
+      description:
+        "Set the deck-wide animation style: none (static) / subtle / lively. " +
+        "The style decides the default transition and entrance pacing during playback; slides without explicit choreography auto-enter per the style.",
+      inputSchema: {
+        expected_revision: z.number().int().min(0),
+        style: animationStyleEnum,
+      },
+    },
+    async ({ expected_revision, style }): Promise<ToolResult> => {
+      const result = await updateDeckManifest({
+        ...ctx,
+        expectedRevision: expected_revision,
+        mutate: (m) => {
+          m.animationStyle = style;
+          return m;
+        },
+      });
+      if (!result.ok) return fromWorkspaceError(result);
+      return jsonResult({ ok: true, revision: result.value.revision });
+    },
+  );
+
+  mcp.registerTool(
+    "set_slide_animation",
+    {
+      description:
+        "Declare a slide's animation choreography: the transition into the slide and the element entrance sequence. " +
+        "entrances reference in-slide data-cortex-id elements via element_id; elements sharing a step enter together, " +
+        "step 0 plays automatically on slide entry, step >= 1 advances on the presenter's click (PowerPoint-style builds). " +
+        "Passing only transition keeps existing entrances, and vice versa. Animations apply only to playback / HTML export.",
+      inputSchema: {
+        expected_revision: z.number().int().min(0),
+        slot_id: z.string(),
+        transition: transitionEnum.optional(),
+        entrances: z
+          .array(
+            z.object({
+              element_id: z.string().min(1).describe("The element's data-cortex-id inside the slide"),
+              preset: entrancePresetEnum,
+              step: z.number().int().min(0),
+              delay_ms: z.number().int().min(0).optional(),
+              duration_ms: z.number().int().min(0).optional(),
+            }),
+          )
+          .optional(),
+      },
+    },
+    async ({ expected_revision, slot_id, transition, entrances }): Promise<ToolResult> => {
+      const current = await loadDeck();
+      if (!current.ok) return fromWorkspaceError(current);
+      // slot 存在性前置校验:mutate 内抛错不会被乐观锁管线捕获,必须先拒。
+      if (!current.value.slides.some((s) => s.id === slot_id)) {
+        return errorResult("not_found", `slot 不存在: ${slot_id}`);
+      }
+      // element_id 只做软校验(HTML 可能后写):孤儿注解由播放器「找不到即忽略」容错。
+      const result = await updateDeckManifest({
+        ...ctx,
+        expectedRevision: expected_revision,
+        mutate: (m) => {
+          const slot = m.slides.find((s) => s.id === slot_id);
+          if (!slot) return null;
+          const animation = { ...(slot.animation ?? {}) };
+          if (transition !== undefined) animation.transition = transition;
+          if (entrances !== undefined) {
+            animation.entrances = entrances.map((e) => ({
+              elementId: e.element_id,
+              preset: e.preset,
+              step: e.step,
+              delayMs: e.delay_ms,
+              durationMs: e.duration_ms,
+            }));
+          }
+          slot.animation = animation;
+          return m;
+        },
+      });
+      if (!result.ok) return fromWorkspaceError(result);
+      const slot = result.value.slides.find((s) => s.id === slot_id);
+      return jsonResult({ ok: true, revision: result.value.revision, animation: slot?.animation });
+    },
+  );
+
+  mcp.registerTool(
     "check_slide",
     {
       description:
-        "运行单页(或整个 deck)的静态 + 渲染检查:越界/裁切、最小字号、图片加载失败、" +
-        "远程资源、危险脚本、文本密度、空页面等,返回结构化 findings(blocking 应修复)。" +
-        "同时刷新对应页面缩略图。",
+        "Run static + render checks for one slide (or the whole deck): overflow/clipping, minimum font size, broken images, " +
+        "remote resources, dangerous scripts, text density, empty slides, etc. Returns structured findings (fix blocking ones). " +
+        "Also refreshes the affected slide thumbnails.",
       inputSchema: {
-        slot_id: z.string().optional().describe("缺省检查整个 deck"),
+        slot_id: z.string().optional().describe("Checks the whole deck when omitted"),
       },
     },
     async ({ slot_id }): Promise<ToolResult> => {
@@ -485,7 +591,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
   mcp.registerTool(
     "screenshot_slide",
     {
-      description: "重新渲染指定页并刷新缩略图(固定 1280×720 视口,10s 超时)。",
+      description: "Re-render the slide and refresh its thumbnail (fixed 1280×720 viewport, 10s timeout).",
       inputSchema: { slot_id: z.string() },
     },
     async ({ slot_id }): Promise<ToolResult> => {
@@ -499,12 +605,12 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
     "upload_asset",
     {
       description:
-        "把图片资产写入 deck 的 assets/ 目录(base64;png/jpg/jpeg/gif/webp/svg,≤8MB)。" +
-        "返回工作区相对路径;slide HTML 中请用相对本页的路径(../assets/...)引用。",
+        "Write an image asset into the deck's assets/ directory (base64; png/jpg/jpeg/gif/webp/svg, <=8MB). " +
+        "Returns a workspace-relative path; reference it from slide HTML via a slide-relative path (../assets/...).",
       inputSchema: {
-        file_name: z.string().describe("目标文件名(含扩展名),如 hero.png"),
+        file_name: z.string().describe("Target file name with extension, e.g. hero.png"),
         base64: z.string().min(1).max(MAX_ASSET_BASE64_CHARS),
-        kind: z.enum(["source", "generated"]).optional().describe("缺省 generated"),
+        kind: z.enum(["source", "generated"]).optional().describe("Defaults to generated"),
       },
     },
     async ({ file_name, base64, kind }): Promise<ToolResult> => {

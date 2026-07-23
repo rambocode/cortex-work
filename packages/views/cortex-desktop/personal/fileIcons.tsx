@@ -131,6 +131,21 @@ export function isSpreadsheetLike(name: string): boolean {
   return SPREADSHEET_INBUILT.has(extOf(name));
 }
 
+// 现代 Word 文档由内置 DOCX 查看器接管。旧 .doc 仍交系统应用。
+export function isDocxLike(name: string): boolean {
+  return extOf(name) === "docx";
+}
+
+export type InAppDocumentKind = "docx" | "pdf" | "pptx";
+
+// 可纯本地、安全地交给内置只读查看器的现代文档格式。
+// 旧 .doc/.ppt 仍交系统应用，避免用不完整解析器误展示。
+export function inAppDocumentKind(name: string): InAppDocumentKind | null {
+  const extension = extOf(name);
+  if (extension === "docx" || extension === "pdf" || extension === "pptx") return extension;
+  return null;
+}
+
 // 内置编辑器打不开、应交系统默认应用打开的文件:图片/压缩/媒体 + office 文档/pdf/二进制。
 // 点击此类文件链接(会话内或文件树)直接调 bridge.openPath,不进右栏内置预览。
 // 例外:xlsx/csv 有内置表格预览(SheetViewer),从 external 集排除——FilesView 与

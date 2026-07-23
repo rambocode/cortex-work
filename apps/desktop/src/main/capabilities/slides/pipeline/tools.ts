@@ -470,7 +470,7 @@ export function registerSlidesPipelineTools(mcp: McpServer, state: SlidesSession
   mcp.registerTool(
     "create_pipeline_run",
     {
-      description: "创建 Slides pipeline run。kind=research/review/notes，并按 kind 自动建立固定角色。",
+      description: "Create a Slides pipeline run. kind=research/review/notes; the fixed roles are set up automatically per kind.",
       inputSchema: {
         kind: z.enum(["research", "review", "notes"]),
       },
@@ -484,7 +484,7 @@ export function registerSlidesPipelineTools(mcp: McpServer, state: SlidesSession
   mcp.registerTool(
     "get_pipeline_run",
     {
-      description: "读取 pipeline run 状态与已记录的结构化 role artifact；不暴露绝对路径。",
+      description: "Read the pipeline run status and recorded structured role artifacts; absolute paths are never exposed.",
       inputSchema: {
         run_id: z.string().min(1),
       },
@@ -498,7 +498,7 @@ export function registerSlidesPipelineTools(mcp: McpServer, state: SlidesSession
   mcp.registerTool(
     "record_role_result",
     {
-      description: "记录某个 Slides role 的结构化结果。结果会先过严格 schema，再写固定 artifact 文件，并把该 role 置为 awaiting-approval。",
+      description: "Record a Slides role's structured result. It is validated against a strict schema, written to a fixed artifact file, and the role becomes awaiting-approval.",
       inputSchema: {
         run_id: z.string().min(1),
         role: z.enum(["topic-researcher", "visual-researcher", "narrative-reviewer", "render-reviewer", "notes-writer"]),
@@ -520,7 +520,7 @@ export function registerSlidesPipelineTools(mcp: McpServer, state: SlidesSession
     "accept_role_result",
     {
       description:
-        "接受某个 Slides role 的结果。research 只标接受；review 保留 artifact 并返回 findings/suggestedOrder；notes-writer 会按 revision 链写入正式 notes。",
+        "Accept a Slides role's result. research is merely marked accepted; review keeps the artifact and returns findings/suggestedOrder; notes-writer writes official notes along the revision chain.",
       inputSchema: {
         run_id: z.string().min(1),
         role: z.enum(["topic-researcher", "visual-researcher", "narrative-reviewer", "render-reviewer", "notes-writer"]),
@@ -535,7 +535,7 @@ export function registerSlidesPipelineTools(mcp: McpServer, state: SlidesSession
   mcp.registerTool(
     "reject_role_result",
     {
-      description: "拒绝某个 Slides role 的结果。仅更新 run 状态，不自动修改 deck。",
+      description: "Reject a Slides role's result. Only updates the run status; the deck is never modified automatically.",
       inputSchema: {
         run_id: z.string().min(1),
         role: z.enum(["topic-researcher", "visual-researcher", "narrative-reviewer", "render-reviewer", "notes-writer"]),

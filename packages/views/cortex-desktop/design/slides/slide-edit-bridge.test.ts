@@ -5,7 +5,7 @@
 // 页内脚本、用 innerHTML 灌入字面量 fixture —— 这是「在测试进程里模拟 webview guest」
 // 的手段,执行的是本仓库自己 builder 产出的源码(配置经 JSON.stringify 注入,无外部
 // 输入),与生产路径无关;生产侧脚本经 webview.executeJavaScript 注入到沙箱 guest。
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   BRIDGE_DRAIN_INTERVAL_MS,
   buildSlideEditBridgeSource,
@@ -162,6 +162,12 @@ describe('页内 bridge 行为(jsdom)', () => {
     vi.useFakeTimers()
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
   const PAGE = `<head></head><body>
     <h1 data-cortex-id="title">标题</h1>
     <p data-cortex-id="body">正文</p>
@@ -243,6 +249,94 @@ describe('页内 bridge 行为(jsdom)', () => {
     // 拖拽结束后的 click 被抑制,不改写选区。
     h1.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     expect(parseSlideBridgeDrain(bridge.drain()).some((m) => m.type === 'selection-changed')).toBe(false)
+  })
+
+  it('拖拽元素逐事件紧跟鼠标,拖动期间不测量手柄布局', () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+    const rect = vi.spyOn(h1, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 40,
+      right: 100,
+      bottom: 40,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect)
+
+    h1.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 0, clientY: 0 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 1, clientY: 0 }))
+    expect(h1.style.transform).toBe('')
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 10, clientY: 0 }))
+    // 1px 手抖后,首次有效移动立即显示。
+    expect(h1.style.transform).toBe('translate(10px, 0px)')
+    rect.mockClear()
+
+    for (let x = 101; x <= 140; x += 1) {
+      document.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: 0 }))
+    }
+
+    // 元素自身逐事件跟到最新指针;高成本手柄测量在整个拖动期间都不执行。
+    expect(h1.style.transform).toBe('translate(140px, 0px)')
+    expect(h1.style.getPropertyPriority('transform')).toBe('important')
+    expect(rect).not.toHaveBeenCalled()
+    expect(frames).toHaveLength(0)
+    const handles = document.querySelector('[data-cortex-handles]') as HTMLElement
+    const rotate = document.querySelector('[data-cortex-rotate]') as HTMLElement
+    expect(handles.style.display).toBe('none')
+    expect(rotate.style.display).toBe('none')
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(handles.style.display).not.toBe('none')
+    expect(rotate.style.display).not.toBe('none')
+  })
+
+  it('拖拽期间启用 transform 合成提示,松手后恢复原样式', () => {
+    const bridge = mountPage(PAGE)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+
+    h1.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 0, clientY: 0 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 20, clientY: 10 }))
+    expect(h1.style.willChange).toBe('transform')
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(h1.style.willChange).toBe('')
+  })
+
+  it('拖拽期间屏蔽页面 transition/animation,松手后完整恢复', () => {
+    const bridge = mountPage(`<head></head><body>
+      <h1 data-cortex-id="title"
+        style="position:absolute;left:10px;top:20px;transform:rotate(2deg);transition:transform 300ms ease;animation:pulse 2s infinite">
+        标题
+      </h1>
+    </body>`)
+    bridge.drain()
+    const h1 = document.querySelector('h1') as HTMLElement
+
+    h1.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 0, clientY: 0 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 20, clientY: 10 }))
+    expect(h1.style.getPropertyValue('transition')).toBe('none')
+    expect(h1.style.getPropertyPriority('transition')).toBe('important')
+    expect(h1.style.getPropertyValue('animation')).toBe('none')
+    expect(h1.style.getPropertyPriority('animation')).toBe('important')
+    expect(h1.style.transform).toBe('translate(20px, 10px) rotate(2deg)')
+    expect(h1.style.getPropertyPriority('transform')).toBe('important')
+
+    document.dispatchEvent(new MouseEvent('mouseup', {}))
+    expect(h1.style.transform).toBe('rotate(2deg)')
+    expect(h1.style.getPropertyPriority('transform')).toBe('')
+    expect(h1.style.transition).toBe('transform 300ms ease')
+    expect(h1.style.getPropertyPriority('transition')).toBe('')
+    expect(h1.style.animation).toBe('pulse 2s infinite')
+    expect(h1.style.getPropertyPriority('animation')).toBe('')
   })
 
   it('多选成组拖拽:两个元素同位移', () => {
@@ -327,6 +421,7 @@ describe('页内 bridge 行为(jsdom)', () => {
     // dx=-197 → 拟移到 left=103,距 a 的左边线(100)3px → 吸附到 100。
     // 拖拽期间实时位移(含吸附修正 -3px)走 transform;left 到松手才落盘。
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 303, clientY: 500 }))
+    vi.advanceTimersByTime(16)
     expect(b.style.transform).toBe('translate(-200px, 0px)')
     // 排除缩放手柄层与旋转手柄(同为 data-cortex-bridge 节点,拖拽开始选中 b 时已创建)。
     const guide = document.querySelector('div[data-cortex-bridge]:not([data-cortex-handles]):not([data-cortex-rotate])') as HTMLElement
@@ -703,10 +798,12 @@ describe('页内 bridge 行为(jsdom)', () => {
     // 4ms 内跨 192px ≈ 48px/ms:高速移动,拟移到 left=103(距线 3px)也不吸附。
     vi.advanceTimersByTime(4)
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 303, clientY: 500 }))
+    vi.advanceTimersByTime(16)
     expect(b.style.transform).toBe('translate(-197px, 0px)')
     // 200ms 才挪 1px:慢速精调,吸附恢复(102 → 贴 100,修正 -2)。
     vi.advanceTimersByTime(200)
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 302, clientY: 500 }))
+    vi.advanceTimersByTime(16)
     expect(b.style.transform).toBe('translate(-200px, 0px)')
     document.dispatchEvent(new MouseEvent('mouseup', {}))
     expect(b.style.left).toBe('100px')

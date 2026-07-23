@@ -1,8 +1,8 @@
 // Monaco 编辑器封装（borrowed from fanbox mona）。整个 views 包里唯一接触
 // monaco-editor 的文件,且全部走 useEffect 内动态 import —— views 同时被
 // Next.js(web) 打包,顶层 import 会把巨型依赖卷进 web 产物甚至构建失败。
-// worker 用 new URL(...) 跨打包器写法;file:// 下创建失败时 Monaco 自动
-// 降级主线程（高亮 tokenizer 本就在主线程,不受影响）。
+// worker 用 new URL(...) 跨打包器写法,并按 language label 启动 Monaco 自带 worker;
+// file:// 下创建失败时 Monaco 自动降级主线程（高亮 tokenizer 本就在主线程,不受影响）。
 
 import { useEffect, useRef } from "react";
 import type * as MonacoNS from "monaco-editor";
@@ -17,8 +17,34 @@ function ensureEnvironment(): void {
   const g = globalThis as { MonacoEnvironment?: unknown };
   if (g.MonacoEnvironment) return;
   g.MonacoEnvironment = {
-    getWorker: () =>
-      new Worker(new URL("monaco-editor/esm/vs/editor/editor.worker.js", import.meta.url), { type: "module" }),
+    // language worker 内已注入对应 foreign module factory。若一律返回 editor.worker,
+    // HTML/JSON/CSS/TS 会退回 $loadForeignModule 动态 import;ESM worker 没有 AMD
+    // require.toUrl,最终在 FileAccessImpl.toUri 触发 undefined.toUrl。
+    getWorker: (_workerId: string, label: string) => {
+      if (label === "json") {
+        return new Worker(new URL("monaco-editor/esm/vs/language/json/json.worker.js", import.meta.url), {
+          type: "module",
+        });
+      }
+      if (label === "css" || label === "scss" || label === "less") {
+        return new Worker(new URL("monaco-editor/esm/vs/language/css/css.worker.js", import.meta.url), {
+          type: "module",
+        });
+      }
+      if (label === "html" || label === "handlebars" || label === "razor") {
+        return new Worker(new URL("monaco-editor/esm/vs/language/html/html.worker.js", import.meta.url), {
+          type: "module",
+        });
+      }
+      if (label === "typescript" || label === "javascript") {
+        return new Worker(new URL("monaco-editor/esm/vs/language/typescript/ts.worker.js", import.meta.url), {
+          type: "module",
+        });
+      }
+      return new Worker(new URL("monaco-editor/esm/vs/editor/editor.worker.js", import.meta.url), {
+        type: "module",
+      });
+    },
   };
 }
 

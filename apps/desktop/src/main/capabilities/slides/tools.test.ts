@@ -82,6 +82,8 @@ describe("工具清单契约(MVP)", () => {
         "apply_template",
         "generate_speaker_notes",
         "read_speaker_notes",
+        "set_deck_animation_style",
+        "set_slide_animation",
         "create_pipeline_run",
         "get_pipeline_run",
         "record_role_result",
@@ -254,6 +256,80 @@ describe("结构操作与资产", () => {
     });
     expect(oversized.ok).toBe(false);
     expect(oversized.message).toContain("base64");
+  });
+});
+
+describe("动画注解工具", () => {
+  it("set_deck_animation_style 写入全局风格并 bump revision", async () => {
+    const before = await currentRevision();
+    const result = await call("set_deck_animation_style", {
+      expected_revision: before,
+      style: "lively",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.revision).toBe(before + 1);
+    const state = await call("get_deck_state");
+    expect((state.deck as { animationStyle?: string }).animationStyle).toBe("lively");
+  });
+
+  it("set_slide_animation 写入转场与入场注解", async () => {
+    const state = await call("get_deck_state");
+    const slotId = (state.deck as { slides: Array<{ id: string }> }).slides[0]!.id;
+    const result = await call("set_slide_animation", {
+      expected_revision: await currentRevision(),
+      slot_id: slotId,
+      transition: "page-flip",
+      entrances: [
+        { element_id: "t", preset: "reveal-clip", step: 0 },
+        { element_id: "b", preset: "fade-up", step: 1, delay_ms: 120 },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    const after = await call("get_deck_state");
+    const slot = (after.deck as { slides: Array<{ id: string; animation?: Record<string, unknown> }> }).slides.find(
+      (s) => s.id === slotId,
+    );
+    expect(slot?.animation?.transition).toBe("page-flip");
+    const entrances = slot?.animation?.entrances as Array<Record<string, unknown>>;
+    expect(entrances).toHaveLength(2);
+    expect(entrances[0]).toMatchObject({ elementId: "t", preset: "reveal-clip", step: 0 });
+    expect(entrances[1]).toMatchObject({ elementId: "b", preset: "fade-up", step: 1, delayMs: 120 });
+  });
+
+  it("set_slide_animation 对不存在的 slot 报错;过期 revision 冲突", async () => {
+    const missing = await call("set_slide_animation", {
+      expected_revision: await currentRevision(),
+      slot_id: "slot-999",
+      transition: "fade",
+    });
+    expect(missing.ok).toBe(false);
+    const state = await call("get_deck_state");
+    const slotId = (state.deck as { slides: Array<{ id: string }> }).slides[0]!.id;
+    const conflict = await call("set_slide_animation", {
+      expected_revision: 0,
+      slot_id: slotId,
+      transition: "fade",
+    });
+    expect(conflict.ok).toBe(false);
+    expect(conflict.code).toBe("revision_conflict");
+  });
+
+  it("set_slide_animation 只带 transition 时保留已有 entrances", async () => {
+    const state = await call("get_deck_state");
+    const slotId = (state.deck as { slides: Array<{ id: string }> }).slides[0]!.id;
+    const result = await call("set_slide_animation", {
+      expected_revision: await currentRevision(),
+      slot_id: slotId,
+      transition: "zoom",
+    });
+    expect(result.ok).toBe(true);
+    const after = await call("get_deck_state");
+    const slot = (after.deck as { slides: Array<{ id: string; animation?: Record<string, unknown> }> }).slides.find(
+      (s) => s.id === slotId,
+    );
+    expect(slot?.animation?.transition).toBe("zoom");
+    // 上一个用例写入的 entrances 不应被只改转场的调用清掉。
+    expect((slot?.animation?.entrances as unknown[]).length).toBe(2);
   });
 });
 

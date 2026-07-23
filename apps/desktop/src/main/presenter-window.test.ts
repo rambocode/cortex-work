@@ -27,7 +27,16 @@ const { fakeWindows, FakeBrowserWindow, screenState } = vi.hoisted(() => {
     private destroyed = false;
     shown = false;
     setBounds = vi.fn();
-    setFullScreen = vi.fn();
+    fullScreen = false;
+    setFullScreen = vi.fn((flag: boolean) => {
+      this.fullScreen = flag;
+    });
+    isFullScreen(): boolean {
+      return this.fullScreen;
+    }
+    focus = vi.fn();
+    setAlwaysOnTop = vi.fn();
+    setVisibleOnAllWorkspaces = vi.fn();
     simpleFs = false;
     setSimpleFullScreen = vi.fn((flag: boolean) => {
       this.simpleFs = flag;
@@ -126,6 +135,7 @@ async function waitGone(path: string): Promise<void> {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   destroyPresenterWindow();
   fakeWindows.length = 0;
   useSingleScreen(); // 复位为单屏,避免跨用例串台。
@@ -219,32 +229,48 @@ describe("openPresenterWindow · 双屏", () => {
     expect(speakerHtml).toContain('id="elapsed"');
   });
 
-  // 全屏方式断言:macOS 双窗走 setSimpleFullScreen(原生 Spaces 全屏实测会互吞转场),
-  // 其它平台走 setFullScreen —— 与实现同一平台分支,测试按运行平台选对应 spy。
-  const fullscreenSpy = (w: InstanceType<typeof FakeBrowserWindow>) =>
-    process.platform === "darwin" ? w.setSimpleFullScreen : w.setFullScreen;
-
-  it("两窗各自 ready-to-show 后 setBounds + show + 全屏到目标屏(无边框)", async () => {
+  it("两窗各自 ready-to-show 后展示;macOS 观众窗用完整屏幕 panel,不依赖 Spaces 全屏事件", async () => {
     useDualScreen();
     await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
     const [audience, speaker] = fakeWindows;
-    // 双窗均无边框:即便全屏调用失效,目标屏 bounds 的无边框窗也接近满屏观感。
+    // 双窗均无边框:目标屏 bounds 的无边框窗即满屏观感。
     expect(audience!.options.frame).toBe(false);
     expect(speaker!.options.frame).toBe(false);
     expect(audience!.options.fullscreen).toBe(false);
 
     audience!.emit("ready-to-show");
-    // 观众窗落外接屏(id=2):先 show 再全屏(对隐藏窗全屏不可靠)。
+    // 观众窗落外接屏(id=2)。
     expect(audience!.setBounds).toHaveBeenCalledWith({ x: 1440, y: 0, width: 1920, height: 1080 });
     expect(audience!.shown).toBe(true);
-    expect(fullscreenSpy(audience!)).toHaveBeenCalledWith(true);
 
-    // 演讲者窗独立就绪,互不阻塞(simpleFullScreen 无 Spaces 转场,可同时生效)。
+    // 演讲者窗内容独立就绪并立即展示,不能被观众窗的原生全屏事件阻塞。
     expect(speaker!.shown).toBe(false);
     speaker!.emit("ready-to-show");
     expect(speaker!.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1440, height: 900 });
-    expect(fullscreenSpy(speaker!)).toHaveBeenCalledWith(true);
     expect(speaker!.shown).toBe(true);
+
+    if (process.platform === "darwin") {
+      // enableLargerThanScreen 解除 macOS 对普通窗口 y>=菜单栏高度的约束;panel +
+      // screen-saver 层级覆盖目标显示器完整 bounds,无需不可靠的 Spaces 转场。
+      expect(audience!.options).toMatchObject({
+        type: "panel",
+        enableLargerThanScreen: true,
+        fullscreenable: false,
+      });
+      expect(audience!.setAlwaysOnTop).toHaveBeenCalledWith(true, "screen-saver");
+      expect(audience!.setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, {
+        visibleOnFullScreen: true,
+        skipTransformProcessType: true,
+      });
+      expect(audience!.setSimpleFullScreen).not.toHaveBeenCalled();
+      expect(speaker!.setSimpleFullScreen).not.toHaveBeenCalled();
+      expect(audience!.setFullScreen).not.toHaveBeenCalled();
+      expect(speaker!.setFullScreen).not.toHaveBeenCalled();
+    } else {
+      expect(speaker!.shown).toBe(true);
+      expect(audience!.setFullScreen).toHaveBeenCalledWith(true);
+      expect(speaker!.setFullScreen).toHaveBeenCalledWith(true);
+    }
   });
 
   it("观众窗 dom-ready 隐藏 #bar(避免鼠标点击绕过主进程翻页权威)", async () => {
@@ -271,6 +297,212 @@ describe("openPresenterWindow · 双屏", () => {
     expect(speaker!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#3'");
   });
 
+  it("下一步优先播放当前页离散动画 step,全部完成后才翻页", async () => {
+    vi.useFakeTimers();
+    useDualScreen();
+    await openPresenterWindow({
+      title: "T",
+      slides: [
+        {
+          ...SLIDES[0]!,
+          animation: {
+            entrances: [
+              { elementId: "title", preset: "fade-up" as const, step: 2 },
+              { elementId: "chart", preset: "zoom-in" as const, step: 5 },
+            ],
+          },
+        },
+        SLIDES[1]!,
+      ],
+      startIndex: 0,
+      animationStyle: "lively",
+    });
+    const [audience, speaker] = fakeWindows;
+    const event = { preventDefault: vi.fn() };
+
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#1.2'");
+    expect(speaker!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#1.2'");
+
+    vi.advanceTimersByTime(1_000);
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#1.5'");
+
+    vi.advanceTimersByTime(1_000);
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#2'");
+  });
+
+  it("元素动画播放期间忽略重复下一步,结束后才允许继续推进", async () => {
+    vi.useFakeTimers();
+    useDualScreen();
+    await openPresenterWindow({
+      title: "T",
+      slides: [
+        {
+          ...SLIDES[0]!,
+          animation: {
+            entrances: [
+              { elementId: "title", preset: "fade-up" as const, step: 1, durationMs: 500 },
+              { elementId: "chart", preset: "zoom-in" as const, step: 2, durationMs: 500 },
+            ],
+          },
+        },
+        SLIDES[1]!,
+      ],
+      startIndex: 0,
+      animationStyle: "lively",
+    });
+    const [audience, speaker] = fakeWindows;
+    const event = { preventDefault: vi.fn() };
+
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#1.1'");
+    audience!.webContents.executeJavaScript.mockClear();
+    speaker!.webContents.executeJavaScript.mockClear();
+
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(500);
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#1.2'");
+  });
+
+  it("进入页面后先完成自动元素动画,再允许翻到下一页", async () => {
+    vi.useFakeTimers();
+    useDualScreen();
+    await openPresenterWindow({
+      title: "T",
+      slides: [
+        {
+          ...SLIDES[0]!,
+          animation: {
+            entrances: [{ elementId: "title", preset: "fade-up" as const, step: 0, durationMs: 500 }],
+          },
+        },
+        SLIDES[1]!,
+      ],
+      startIndex: 0,
+      animationStyle: "subtle",
+    });
+    const [audience, speaker] = fakeWindows;
+    const event = { preventDefault: vi.fn() };
+
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(500);
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#2'");
+  });
+
+  it("默认启发式 step0 动画完成前不允许直接翻页", async () => {
+    vi.useFakeTimers();
+    useDualScreen();
+    await openPresenterWindow({
+      title: "T",
+      slides: [
+        {
+          ...SLIDES[0]!,
+          html: '<!doctype html><html><body><h1 data-cortex-id="title">P1</h1></body></html>',
+        },
+        SLIDES[1]!,
+      ],
+      startIndex: 0,
+      animationStyle: "subtle",
+    });
+    const [audience, speaker] = fakeWindows;
+    const event = { preventDefault: vi.fn() };
+
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(2_050);
+    speaker!.emitInput("before-input-event", event, { type: "keyDown", key: "ArrowRight" });
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#2'");
+  });
+
+  it("演讲者窗口的下一步按钮通过受限导航命令复用动画推进状态机", async () => {
+    useDualScreen();
+    await openPresenterWindow({
+      title: "T",
+      slides: [
+        {
+          ...SLIDES[0]!,
+          animation: { entrances: [{ elementId: "title", preset: "fade-up" as const, step: 2 }] },
+        },
+        SLIDES[1]!,
+      ],
+      startIndex: 0,
+      animationStyle: "subtle",
+    });
+    const [audience, speaker] = fakeWindows;
+    const event = { preventDefault: vi.fn() };
+
+    speaker!.emitInput("will-navigate", event, "cortex-presenter://control/advance");
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#1.2'");
+    expect(speaker!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#1.2'");
+  });
+
+  it("演讲者窗口可直接跳转页面并从目标页初始状态播放", async () => {
+    useDualScreen();
+    await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
+    const [audience, speaker] = fakeWindows;
+    const event = { preventDefault: vi.fn() };
+
+    speaker!.emitInput("will-navigate", event, "cortex-presenter://control/jump?page=3");
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#3'");
+    expect(speaker!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#3'");
+  });
+
+  it("演讲者窗口返回上一页时显示目标页动画完成态", async () => {
+    useDualScreen();
+    await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 1 });
+    const [audience, speaker] = fakeWindows;
+    const event = { preventDefault: vi.fn() };
+
+    speaker!.emitInput("will-navigate", event, "cortex-presenter://control/back");
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(audience!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#1.all'");
+    expect(speaker!.webContents.executeJavaScript).toHaveBeenLastCalledWith("location.hash='#1.all'");
+  });
+
+  it("演讲者窗口可通过控制按钮结束整个双屏演示", async () => {
+    useDualScreen();
+    await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
+    const [audience, speaker] = fakeWindows;
+    const event = { preventDefault: vi.fn() };
+
+    speaker!.emitInput("will-navigate", event, "cortex-presenter://control/end");
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(audience!.isDestroyed()).toBe(true);
+    expect(speaker!.isDestroyed()).toBe(true);
+    expect(getPresenterWindow()).toBeNull();
+  });
+
+  it("拦截演讲者窗口的非法控制导航且不改变演示状态", async () => {
+    useDualScreen();
+    await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
+    const [audience, speaker] = fakeWindows;
+    const invalidPage = { preventDefault: vi.fn() };
+    const unknownAction = { preventDefault: vi.fn() };
+
+    speaker!.emitInput("will-navigate", invalidPage, "cortex-presenter://control/jump?page=0");
+    speaker!.emitInput("will-navigate", unknownAction, "cortex-presenter://control/delete");
+
+    expect(invalidPage.preventDefault).toHaveBeenCalledOnce();
+    expect(unknownAction.preventDefault).toHaveBeenCalledOnce();
+    expect(audience!.webContents.executeJavaScript).not.toHaveBeenCalled();
+    expect(speaker!.webContents.executeJavaScript).not.toHaveBeenCalled();
+  });
+
   it("Esc 全退:关闭全部窗口", async () => {
     useDualScreen();
     await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
@@ -281,28 +513,21 @@ describe("openPresenterWindow · 双屏", () => {
     expect(getPresenterWindow()).toBeNull();
   });
 
-  it("退出演示先退 simpleFullScreen 再销毁(否则 macOS 程序坞/菜单栏不恢复)", async () => {
+  it("退出演示:双窗已不进 simpleFullScreen,销毁路径的还原兜底应为 no-op", async () => {
     useDualScreen();
     await openPresenterWindow({ title: "T", slides: SLIDES, startIndex: 0 });
     const [audience, speaker] = fakeWindows;
     audience!.emit("ready-to-show");
     speaker!.emit("ready-to-show");
-    if (process.platform === "darwin") {
-      expect(audience!.isSimpleFullScreen()).toBe(true);
-      expect(speaker!.isSimpleFullScreen()).toBe(true);
-      // Esc 全退:销毁前两窗都被显式退出 simple fullscreen(系统据此恢复程序坞)。
-      audience!.emitInput("before-input-event", { preventDefault: vi.fn() }, { type: "keyDown", key: "Escape" });
-      expect(audience!.setSimpleFullScreen).toHaveBeenLastCalledWith(false);
-      expect(speaker!.setSimpleFullScreen).toHaveBeenLastCalledWith(false);
-      expect(audience!.isSimpleFullScreen()).toBe(false);
-      expect(speaker!.isSimpleFullScreen()).toBe(false);
-      expect(audience!.isDestroyed()).toBe(true);
-      expect(speaker!.isDestroyed()).toBe(true);
-    } else {
-      // 非 macOS 走原生 setFullScreen,无 simple fullscreen 状态可退,销毁路径应为 no-op。
-      audience!.emitInput("before-input-event", { preventDefault: vi.fn() }, { type: "keyDown", key: "Escape" });
-      expect(audience!.setSimpleFullScreen).not.toHaveBeenCalledWith(false);
-    }
+    // 演示期间保留 Dock:任何平台都不应处于 simple fullscreen 态。
+    expect(audience!.isSimpleFullScreen()).toBe(false);
+    expect(speaker!.isSimpleFullScreen()).toBe(false);
+    audience!.emitInput("before-input-event", { preventDefault: vi.fn() }, { type: "keyDown", key: "Escape" });
+    // releaseSimpleFullscreen 兜底只在窗口确实处于 simple 态时才调用还原。
+    expect(audience!.setSimpleFullScreen).not.toHaveBeenCalledWith(false);
+    expect(speaker!.setSimpleFullScreen).not.toHaveBeenCalledWith(false);
+    expect(audience!.isDestroyed()).toBe(true);
+    expect(speaker!.isDestroyed()).toBe(true);
   });
 
   it("关闭任一窗 → 连带销毁另一窗,并在全关后删除共享临时目录", async () => {

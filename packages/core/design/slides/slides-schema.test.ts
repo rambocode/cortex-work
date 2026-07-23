@@ -93,6 +93,69 @@ describe('parseSlidesManifest', () => {
     expect(parseSlidesManifest(manifest).ok).toBe(false)
   })
 
+  it('无动画字段的旧 manifest 仍解析成功(向后兼容)', () => {
+    const manifest = validManifest()
+    // 模拟存量 deck:工厂现在默认带 animationStyle,旧 deck.json 没有该字段。
+    delete manifest.animationStyle
+    const result = parseSlidesManifest(serializeSlidesManifest(manifest))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.manifest.animationStyle).toBeUndefined()
+      expect(result.manifest.slides[0]!.animation).toBeUndefined()
+    }
+  })
+
+  it('接受合法动画注解并原样保留', () => {
+    const manifest = validManifest()
+    manifest.animationStyle = 'lively'
+    manifest.slides[0] = slot('deck1234', 'slot-001', 0, {
+      animation: {
+        transition: 'page-flip',
+        entrances: [{ elementId: 'el-1', preset: 'fade-up', step: 0, delayMs: 100 }]
+      }
+    })
+    const result = parseSlidesManifest(manifest)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.manifest.animationStyle).toBe('lively')
+      expect(result.manifest.slides[0]!.animation?.transition).toBe('page-flip')
+      expect(result.manifest.slides[0]!.animation?.entrances?.[0]?.preset).toBe('fade-up')
+    }
+  })
+
+  it('未知动画枚举值降级为安全默认而非整体拒绝', () => {
+    const manifest = validManifest() as unknown as Record<string, unknown>
+    manifest.animationStyle = 'future-style'
+    const slides = manifest.slides as Array<Record<string, unknown>>
+    slides[0]!.animation = {
+      transition: 'future-transition',
+      entrances: [{ elementId: 'el-1', preset: 'future-preset', step: 0 }]
+    }
+    const result = parseSlidesManifest(manifest)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.manifest.animationStyle).toBe('none')
+      expect(result.manifest.slides[0]!.animation?.transition).toBe('fade')
+      expect(result.manifest.slides[0]!.animation?.entrances?.[0]?.preset).toBe('fade-in')
+    }
+  })
+
+  it('病态 duration/delay 夹取上限而非报错', () => {
+    const manifest = validManifest()
+    manifest.slides[0] = slot('deck1234', 'slot-001', 0, {
+      animation: {
+        entrances: [{ elementId: 'el-1', preset: 'fade-in', step: 0, delayMs: 999_999, durationMs: 60_000 }]
+      }
+    })
+    const result = parseSlidesManifest(manifest)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const entrance = result.manifest.slides[0]!.animation?.entrances?.[0]
+      expect(entrance?.delayMs).toBe(10_000)
+      expect(entrance?.durationMs).toBe(5_000)
+    }
+  })
+
   it('拒绝重复 outline item id', () => {
     const manifest = validManifest()
     manifest.outline = {

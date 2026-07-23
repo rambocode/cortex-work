@@ -642,9 +642,16 @@ export function slideEditBridgeInPage(
     var startY = me.clientY
     var started = false
     var dragItems: { el: HTMLElement; left: number; top: number }[] = []
-    // 拖拽期间的原始内联 transform(逐项对应 dragItems):实时位移经 transform 反馈,
-    // 松手时还原并落盘 left/top。
-    var dragTransforms: string[] = []
+    // 拖拽期间覆盖的内联样式(逐项对应 dragItems):实时位移经 transform 反馈,
+    // transition/animation 必须暂时关闭,否则页面模板的动效会让元素追赶鼠标。
+    // 松手时完整恢复 value + priority,再把最终位移落盘到 left/top。
+    var dragStyles: {
+      transform: { value: string; priority: string }
+      transition: { value: string; priority: string }
+      animation: { value: string; priority: string }
+      willChange: { value: string; priority: string }
+    }[] = []
+    var dragChrome: { el: HTMLElement; display: { value: string; priority: string } }[] = []
     var groupRect0 = { left: 0, top: 0, w: 0, h: 0 }
     var snapLines = { xs: [] as number[], ys: [] as number[] }
     // 指针速度采样(px/ms):快速移动时禁用吸附(意图是「路过」不是「对齐」),
@@ -655,10 +662,23 @@ export function slideEditBridgeInPage(
     var pointerVel = 0
     var finalDx = 0
     var finalDy = 0
-    function onMove(ev: Event): void {
-      var mv = ev as MouseEvent
-      var dx = mv.clientX - startX
-      var dy = mv.clientY - startY
+    function readInlineStyle(el: HTMLElement, name: string): { value: string; priority: string } {
+      return {
+        value: el.style.getPropertyValue(name),
+        priority: el.style.getPropertyPriority(name)
+      }
+    }
+    function restoreInlineStyle(
+      el: HTMLElement,
+      name: string,
+      original: { value: string; priority: string }
+    ): void {
+      if (original.value) el.style.setProperty(name, original.value, original.priority)
+      else el.style.removeProperty(name)
+    }
+    function applyMove(mv: { x: number; y: number; altKey: boolean; velocity: number }): void {
+      var dx = mv.x - startX
+      var dy = mv.y - startY
       if (!started) {
         // 2px 阈值区分点击与拖拽(点击不改写任何样式);再小会把手抖当拖拽。
         if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return
@@ -672,24 +692,37 @@ export function slideEditBridgeInPage(
         groupRect0 = boundsOf(selected)
         snapLines = collectSnapLines()
         for (var i = 0; i < selected.length; i++) {
-          dragItems.push(positionBase(selected[i]!))
-          dragTransforms.push(selected[i]!.style.transform || '')
+          var selectedEl = selected[i]!
+          dragItems.push(positionBase(selectedEl))
+          var styles = {
+            transform: readInlineStyle(selectedEl, 'transform'),
+            transition: readInlineStyle(selectedEl, 'transition'),
+            animation: readInlineStyle(selectedEl, 'animation'),
+            willChange: readInlineStyle(selectedEl, 'will-change')
+          }
+          dragStyles.push(styles)
+          // 页面模板可能在标签或样式表中使用 !important;拖动态也必须以最高
+          // 优先级关闭补间/关键帧,避免视觉位置落后于真实指针。
+          selectedEl.style.setProperty('transition', 'none', 'important')
+          selectedEl.style.setProperty('animation', 'none', 'important')
+          var willChange = styles.willChange.value
+          if (!/(^|,\s*)transform(\s*,|$)/.test(willChange)) {
+            selectedEl.style.setProperty('will-change', willChange ? willChange + ', transform' : 'transform')
+          }
+        }
+        // 控制框刷新依赖 getBoundingClientRect,会强制布局。拖动中隐藏并停止测量,
+        // 松手后由 moveBy 一次性按最终位置恢复。
+        var chrome = document.querySelectorAll('[data-cortex-handles],[data-cortex-rotate]')
+        for (var ci = 0; ci < chrome.length; ci++) {
+          var chromeEl = chrome[ci] as HTMLElement
+          dragChrome.push({ el: chromeEl, display: readInlineStyle(chromeEl, 'display') })
+          chromeEl.style.setProperty('display', 'none', 'important')
         }
         document.body.style.userSelect = 'none'
       }
-      // 速度采样:首帧无历史按 0(静止起步默认吸附)。
-      var now = Date.now()
-      if (lastMoveT && now > lastMoveT) {
-        var mdx = mv.clientX - lastMoveX
-        var mdy = mv.clientY - lastMoveY
-        pointerVel = Math.sqrt(mdx * mdx + mdy * mdy) / (now - lastMoveT)
-      }
-      lastMoveT = now
-      lastMoveX = mv.clientX
-      lastMoveY = mv.clientY
       // 吸附(Alt 按住或指针高速移动时禁用):对组包围盒做修正,整组一起贴线。
       var adj = { dx: 0, dy: 0, x: null as number | null, y: null as number | null }
-      if (!mv.altKey && pointerVel <= SNAP_MAX_VEL) {
+      if (!mv.altKey && mv.velocity <= SNAP_MAX_VEL) {
         adj = snapAdjust(
           { left: groupRect0.left + dx, top: groupRect0.top + dy, w: groupRect0.w, h: groupRect0.h },
           snapLines
@@ -700,14 +733,30 @@ export function slideEditBridgeInPage(
       // 实时反馈走 transform(前置 translate = 屏幕空间位移,不进布局管线,
       // 也不与元素既有 rotate/translate 冲突);left/top 到松手才写。
       for (var di = 0; di < dragItems.length; di++) {
-        var orig = dragTransforms[di]!
-        dragItems[di]!.el.style.transform =
-          'translate(' + Math.round(finalDx) + 'px, ' + Math.round(finalDy) + 'px)' + (orig ? ' ' + orig : '')
+        var orig = dragStyles[di]!.transform.value
+        dragItems[di]!.el.style.setProperty(
+          'transform',
+          'translate(' + Math.round(finalDx) + 'px, ' + Math.round(finalDy) + 'px)' + (orig ? ' ' + orig : ''),
+          'important'
+        )
       }
-      updateHandles()
       showGuide('v', adj.x)
       showGuide('h', adj.y)
-      mv.preventDefault()
+    }
+    function onMove(ev: Event): void {
+      var mv = ev as MouseEvent
+      // 速度必须按原始事件采样,不能等到帧提交时再算:同一帧内的快速掠过也应关闭吸附。
+      var now = Date.now()
+      if (lastMoveT && now > lastMoveT) {
+        var mdx = mv.clientX - lastMoveX
+        var mdy = mv.clientY - lastMoveY
+        pointerVel = Math.sqrt(mdx * mdx + mdy * mdy) / (now - lastMoveT)
+      }
+      lastMoveT = now
+      lastMoveX = mv.clientX
+      lastMoveY = mv.clientY
+      applyMove({ x: mv.clientX, y: mv.clientY, altKey: mv.altKey, velocity: pointerVel })
+      if (Math.abs(mv.clientX - startX) >= 2 || Math.abs(mv.clientY - startY) >= 2) mv.preventDefault()
     }
     function onUp(): void {
       document.removeEventListener('mousemove', onMove, true)
@@ -715,11 +764,18 @@ export function slideEditBridgeInPage(
       if (started) {
         document.body.style.userSelect = ''
         hideGuides()
-        // 还原 transform,把最终位移落到 left/top(落盘语义与旧实现一致)。
+        // 先还原页面元素的全部临时样式,再把最终位移落到 left/top
+        //(落盘语义与旧实现一致,临时性能样式不会被保存)。
         for (var ri = 0; ri < dragItems.length; ri++) {
-          var orig = dragTransforms[ri]!
-          if (orig) dragItems[ri]!.el.style.transform = orig
-          else dragItems[ri]!.el.style.removeProperty('transform')
+          var dragEl = dragItems[ri]!.el
+          var original = dragStyles[ri]!
+          restoreInlineStyle(dragEl, 'transform', original.transform)
+          restoreInlineStyle(dragEl, 'transition', original.transition)
+          restoreInlineStyle(dragEl, 'animation', original.animation)
+          restoreInlineStyle(dragEl, 'will-change', original.willChange)
+        }
+        for (var ui = 0; ui < dragChrome.length; ui++) {
+          restoreInlineStyle(dragChrome[ui]!.el, 'display', dragChrome[ui]!.display)
         }
         moveBy(dragItems, finalDx, finalDy)
         // rect 已变化,同步宿主;落盘走 debounce。

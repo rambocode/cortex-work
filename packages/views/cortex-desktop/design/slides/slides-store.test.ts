@@ -369,6 +369,156 @@ describe('present(演示模式)', () => {
   })
 })
 
+describe('动画设置', () => {
+  it('桥接具备两个动画通道时 canAnimate=true;setAnimationStyle 走乐观锁并采纳新 manifest', async () => {
+    const updated = manifestWithSlots(4)
+    updated.animationStyle = 'lively'
+    const slidesSetAnimationStyle = vi.fn(async () => ({ ok: true as const, manifest: updated }))
+    const bridge = fakeBridge({
+      slidesSetAnimationStyle,
+      slidesSetSlideAnimation: vi.fn(async () => ({ ok: true as const, manifest: updated }))
+    })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    expect(useSlidesStore.getState().canAnimate).toBe(true)
+    await useSlidesStore.getState().setAnimationStyle('lively')
+    expect(slidesSetAnimationStyle).toHaveBeenCalledWith({
+      workspaceRoot: ROOT,
+      deckId: DECK,
+      expectedRevision: 3,
+      style: 'lively'
+    })
+    expect(useSlidesStore.getState().manifest?.animationStyle).toBe('lively')
+    expect(useSlidesStore.getState().mutating).toBe(false)
+  })
+
+  it('只有一个动画通道时 canAnimate=false(菜单整体隐藏)', async () => {
+    const bridge = fakeBridge({ slidesSetAnimationStyle: vi.fn(async () => ({ ok: true as const, manifest: manifestWithSlots() })) })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    expect(useSlidesStore.getState().canAnimate).toBe(false)
+  })
+
+  it('setSlotTransition 传 null 清除页级覆写;冲突时自动刷新并挂提示', async () => {
+    const slidesSetSlideAnimation = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: 'revision_conflict' as const, message: '冲突' }
+    }))
+    const bridge = fakeBridge({
+      slidesSetAnimationStyle: vi.fn(async () => ({ ok: true as const, manifest: manifestWithSlots() })),
+      slidesSetSlideAnimation
+    })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    await useSlidesStore.getState().setSlotTransition('slot-001', null)
+    expect(slidesSetSlideAnimation).toHaveBeenCalledWith({
+      workspaceRoot: ROOT,
+      deckId: DECK,
+      expectedRevision: 3,
+      slotId: 'slot-001',
+      transition: null
+    })
+    expect(useSlidesStore.getState().conflictNotice).toBe(true)
+    expect(useSlidesStore.getState().mutating).toBe(false)
+  })
+})
+
+describe('元素动画设定与分步物化', () => {
+  function animBridge(overrides: Partial<DesktopBridge> = {}): {
+    bridge: DesktopBridge
+    calls: Array<Record<string, unknown>>
+  } {
+    const calls: Array<Record<string, unknown>> = []
+    const bridge = fakeBridge({
+      slidesSetAnimationStyle: vi.fn(async () => ({ ok: true as const, manifest: manifestWithSlots() })),
+      slidesSetSlideAnimation: vi.fn(async (req: Record<string, unknown>) => {
+        calls.push(req)
+        return { ok: true as const, manifest: manifestWithSlots(4) }
+      }),
+      ...overrides
+    })
+    return { bridge, calls }
+  }
+
+  it('materializeSlotEntrances stepped:经探针物化,每元素独占一个 step(1..n)', async () => {
+    const { bridge, calls } = animBridge()
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    useSlidesStore.getState().registerStageAnimationProbe(async () => [
+      { elementId: 'title', preset: 'reveal-clip', step: 0, delayMs: 0 },
+      { elementId: 'body', preset: 'fade-up', step: 0, delayMs: 80 }
+    ])
+    await useSlidesStore.getState().materializeSlotEntrances('slot-001', 'stepped')
+    expect(calls).toHaveLength(1)
+    const entrances = calls[0]!.entrances as Array<Record<string, unknown>>
+    expect(entrances.map((e) => [e.elementId, e.step])).toEqual([
+      ['title', 1],
+      ['body', 2]
+    ])
+  })
+
+  it('materializeSlotEntrances auto:已有显式 entrances 时不走探针,步号全部归零', async () => {
+    const withEntrances = manifestWithSlots()
+    withEntrances.slides[0]!.animation = {
+      entrances: [
+        { elementId: 'a', preset: 'fade-in', step: 1 },
+        { elementId: 'b', preset: 'fade-up', step: 2 }
+      ]
+    }
+    const probe = vi.fn(async () => [])
+    const { bridge, calls } = animBridge({
+      slidesLoadDeck: vi.fn(async () => ({ ok: true as const, manifest: withEntrances }))
+    })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    useSlidesStore.getState().registerStageAnimationProbe(probe)
+    await useSlidesStore.getState().materializeSlotEntrances('slot-001', 'auto')
+    expect(probe).not.toHaveBeenCalled()
+    const entrances = calls[0]!.entrances as Array<Record<string, unknown>>
+    expect(entrances.every((e) => e.step === 0)).toBe(true)
+  })
+
+  it('setElementAnimation:无显式注解时先物化整页,再改所选元素预设(其余元素不丢动画)', async () => {
+    const { bridge, calls } = animBridge()
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    useSlidesStore.getState().registerStageAnimationProbe(async () => [
+      { elementId: 'title', preset: 'reveal-clip', step: 0 },
+      { elementId: 'body', preset: 'fade-up', step: 0 }
+    ])
+    await useSlidesStore.getState().setElementAnimation('slot-001', ['body'], 'zoom-in')
+    const entrances = calls[0]!.entrances as Array<Record<string, unknown>>
+    expect(entrances).toHaveLength(2)
+    expect(entrances.find((e) => e.elementId === 'title')?.preset).toBe('reveal-clip')
+    expect(entrances.find((e) => e.elementId === 'body')?.preset).toBe('zoom-in')
+  })
+
+  it('setElementAnimation preset=null 移除所选元素;新元素 upsert 为 step 0', async () => {
+    const withEntrances = manifestWithSlots()
+    withEntrances.slides[0]!.animation = {
+      entrances: [
+        { elementId: 'a', preset: 'fade-in', step: 1 },
+        { elementId: 'b', preset: 'fade-up', step: 2 }
+      ]
+    }
+    const { bridge, calls } = animBridge({
+      slidesLoadDeck: vi.fn(async () => ({ ok: true as const, manifest: withEntrances }))
+    })
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    await useSlidesStore.getState().setElementAnimation('slot-001', ['a'], null)
+    let entrances = calls[0]!.entrances as Array<Record<string, unknown>>
+    expect(entrances.map((e) => e.elementId)).toEqual(['b'])
+    // upsert 新元素(store 内 manifest 已被 fake 结果替换为无注解版,会走探针 → 注册空探针)
+    useSlidesStore.getState().registerStageAnimationProbe(async () => [])
+    await useSlidesStore.getState().setElementAnimation('slot-001', ['c'], 'fade-in')
+    entrances = calls[1]!.entrances as Array<Record<string, unknown>>
+    expect(entrances).toEqual([{ elementId: 'c', preset: 'fade-in', step: 0 }])
+  })
+
+  it('探针缺失且页面无注解:物化提示无可编排元素,不发 IPC', async () => {
+    const { bridge, calls } = animBridge()
+    await useSlidesStore.getState().setup({ bridge, workspaceRoot: ROOT, deckId: DECK, title: 'T' })
+    useSlidesStore.getState().registerStageAnimationProbe(null)
+    await useSlidesStore.getState().materializeSlotEntrances('slot-001', 'stepped')
+    expect(calls).toHaveLength(0)
+    expect(useSlidesStore.getState().actionError).toBe('当前页没有可编排的元素')
+  })
+})
+
 describe('AI Workflow 状态', () => {
   const run: SlidesPipelineRun = {
     schemaVersion: 1,

@@ -8,6 +8,7 @@ import type { SlidesExportFormat } from '@cortex-work/core/desktop/slides-ipc-ty
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
 import { useSlidesStore, type SlidesZoom } from './slides-store'
 import { SlidesTemplatePicker } from './SlidesTemplatePicker'
+import { SlidesAnimationMenu } from './SlidesAnimationMenu'
 import { SidebarTitlebarToggleButton } from '../compat/SidebarPrimitives'
 
 const ZOOMS: SlidesZoom[] = ['fit', '50', '75', '100']
@@ -115,6 +116,8 @@ export function SlidesToolbar({ onRunCheck, leftSidebarCollapsed = false, onTogg
           </button>
           <SlidesTemplatePicker />
         </div>
+        {/* 动画菜单:全局风格 + 当前页转场;桥接无动画能力(web/旧壳)时组件自身返回 null。 */}
+        <SlidesAnimationMenu />
         <button
           type="button"
           onClick={() => {

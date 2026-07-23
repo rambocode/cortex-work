@@ -6,7 +6,7 @@ import { whoMeta, usePetStore, useDesktopBridge, usePersonalProfile } from "@cor
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { renderRich } from "./rich";
-import { chatMarkdownComponents } from "./personal/chatMarkdown";
+import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./personal/chatMarkdown";
 import { ChatImages } from "./personal/ChatImages";
 import { ChatFiles } from "./personal/ChatFiles";
 import { renderAvatar } from "./personal/avatars";
@@ -141,9 +141,9 @@ const TextMessage = memo(function TextMessage({
   const bridge = useDesktopBridge();
   const profile = usePersonalProfile();
   const renderMd = markdown && m.who !== "me" && typeof m.text === "string";
-  // 个人区(有 onOpenFile)即注入自定义 components:文件链接需 projectPath 才可点(无项目会话
-  // projectPath 为空,chatMarkdown 内已对空根短路);本地 HTML 预览(pre 渲染)不依赖项目,故
-  // 无项目会话与历史会话同样生效。团队侧不传 onOpenFile → undefined = 原渲染,零回归。
+  // 个人区(有 onOpenFile)即注入自定义 components:文件链接需 projectPath 才可点。
+  // PersonalChatArea 会传 agent 的真实 cwd(项目 path 或无项目会话 noProjectDir);
+  // 本地 HTML 预览(pre 渲染)不依赖该路径。团队侧不传 onOpenFile → undefined = 原渲染,零回归。
   const fileLinkComponents = onOpenFile
     ? chatMarkdownComponents({ onOpenFile, projectPath: projectPath ?? "", bridge })
     : undefined;
@@ -160,7 +160,11 @@ const TextMessage = memo(function TextMessage({
         ) : null}
         {renderMd ? (
           <div className="m-text md-body">
-            <Markdown remarkPlugins={[remarkGfm]} components={fileLinkComponents}>
+            <Markdown
+              remarkPlugins={[remarkGfm]}
+              components={fileLinkComponents}
+              urlTransform={onOpenFile ? chatMarkdownUrlTransform : undefined}
+            >
               {m.text as string}
             </Markdown>
           </div>
@@ -188,7 +192,7 @@ const TextMessage = memo(function TextMessage({
           </div>
         ) : null}
         {m.images && m.images.length > 0 ? <ChatImages images={m.images} /> : null}
-        {m.files && m.files.length > 0 ? <ChatFiles files={m.files} /> : null}
+        {m.files && m.files.length > 0 ? <ChatFiles files={m.files} onOpenFile={onOpenFile} /> : null}
         {renderTail?.(m)}
       </div>
     </div>

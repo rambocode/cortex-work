@@ -889,8 +889,8 @@ export interface ReadFileResult {
   truncated: boolean;
 }
 
-// ── 表格文件二进制通道（与主进程 ipc/types.ts 镜像）──────────────────────────
-// 现有 readFile/writeFile 是 UTF-8 文本通道，xlsx 等二进制走这里（base64 传输）。
+// ── 文档/表格文件二进制通道（与主进程 ipc/types.ts 镜像）─────────────────────
+// 现有 readFile/writeFile 是 UTF-8 文本通道，PDF/OOXML 等二进制走这里（base64 传输）。
 
 // 读结果：超过大小上限时 truncated=true 且 data=null（二进制截半无意义，调用方降级系统打开）。
 export interface ReadFileBinaryResult {

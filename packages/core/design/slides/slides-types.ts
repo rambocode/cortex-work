@@ -79,6 +79,8 @@ export type SlidesSlot = {
   revision: number
   status: SlidesSlotStatus
   updatedAt: string
+  /** 页级动画注解（转场 + 元素入场）；缺省 = 无显式编排。 */
+  animation?: SlidesSlotAnimation
 }
 
 /** Single source of truth for a deck; persisted as `deck.json` with optimistic revision. */
@@ -96,8 +98,76 @@ export type SlidesDeckManifest = {
   outline: SlidesOutline | null
   slides: SlidesSlot[]
   activeSlideId: string | null
+  /** 全局动画风格；缺省 = 'none'（旧 deck 静态播放，行为不变）。 */
+  animationStyle?: SlidesAnimationStyle
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * 全局动画风格：挂在 manifest 顶层，决定默认转场、入场 preset 组合与错峰节奏。
+ * 缺省视为 'none'（旧 deck 行为不变——静态硬切）。
+ */
+export type SlidesAnimationStyle = 'none' | 'subtle' | 'lively'
+
+/** 元素入场动画预设 id（与 slides-animation.ts 预设库 key 一一对应）。 */
+export type SlidesEntrancePreset =
+  | 'fade-in'
+  | 'fade-up'
+  | 'slide-in-left'
+  | 'slide-in-right'
+  | 'zoom-in'
+  | 'reveal-clip'
+
+/** 翻页转场 id；page-flip / cube-rotate 为 3D（低端环境运行时降级 fade）。 */
+export type SlidesTransition =
+  | 'none'
+  | 'fade'
+  | 'push-horizontal'
+  | 'push-vertical'
+  | 'zoom'
+  | 'page-flip'
+  | 'cube-rotate'
+
+/**
+ * 单元素入场注解。elementId 指向页内 `data-cortex-id`；元素被删除后注解会
+ * 「孤儿化」，运行时按「找不到即忽略该条，其余照跑」容错。
+ * step：同 step 的元素同时入场；step 0 在切到该页时自动播放，step≥1 需
+ * 点击/按键推进（PPT 式分步）。
+ */
+export type SlidesElementAnimation = {
+  elementId: string
+  preset: SlidesEntrancePreset
+  step: number
+  /** 组内错峰微调（毫秒）。 */
+  delayMs?: number
+  /** 覆盖预设默认时长（毫秒，schema 层夹取上限防病态值）。 */
+  durationMs?: number
+}
+
+/**
+ * 单页动画注解（挂 SlidesSlot）。存 deck.json 而非 slot HTML：
+ * slot HTML 永远是「终态全可见」，静态导出（PPTX/PDF/PNG）与页内编辑桥
+ * 因此无需感知动画。entrances 缺省 → 播放器走默认编排启发式。
+ */
+export type SlidesSlotAnimation = {
+  /** 进入该页的转场；缺省继承全局风格默认。 */
+  transition?: SlidesTransition
+  entrances?: SlidesElementAnimation[]
+}
+
+/** 解析 deck 的有效动画风格：缺省 = 'none'，保证旧 deck 行为不变。 */
+export function resolveDeckAnimationStyle(manifest: {
+  animationStyle?: SlidesAnimationStyle
+}): SlidesAnimationStyle {
+  return manifest.animationStyle ?? 'none'
+}
+
+/** 该页是否带显式元素入场注解（有则优先于默认启发式）。 */
+export function slotHasExplicitEntrances(slot: {
+  animation?: SlidesSlotAnimation
+}): boolean {
+  return (slot.animation?.entrances?.length ?? 0) > 0
 }
 
 /** Recoverable structured error codes shared by IPC results and MCP tool results. */
@@ -178,6 +248,9 @@ export function createEmptySlidesDeckManifest(options: {
     outline: null,
     slides: [],
     activeSlideId: null,
+    // 新建 deck 默认「稳重」动画:开箱播放即有入场/转场;存量 deck(无此字段)
+    // 仍按 none 处理,行为零回归。用户可在工具栏动画菜单改为无动画/活泼。
+    animationStyle: 'subtle',
     createdAt: options.now,
     updatedAt: options.now
   }

@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { Components } from "react-markdown";
+import { defaultUrlTransform, type Components } from "react-markdown";
 import {
   decodePathRef,
   isLikelyFilePath,
@@ -28,6 +28,20 @@ import { ChatInlineImage } from "./ChatInlineImage";
 import { findLocalHtmlPathsInText } from "@cortex-work/core/personal/devPreviewDetection";
 import { isLoopbackOnly } from "@cortex-work/core/personal/devPreviewUrl";
 import { Icon } from "@cortex-work/ui/icons";
+
+// react-markdown 默认会把 file:// 判为不安全协议并转换成空 href。历史消息已落盘了
+// `[label](file:///absolute/path)`，因此在进入自定义 a 组件前将本机 file URL 收敛为绝对路径；
+// 其它 URL 仍走库自带安全转换，非本机 file host 直接拒绝。
+export function chatMarkdownUrlTransform(value: string): string {
+  if (!/^file:/i.test(value)) return defaultUrlTransform(value);
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "file:" || (url.hostname && url.hostname !== "localhost")) return "";
+    return url.pathname;
+  } catch {
+    return "";
+  }
+}
 
 // 递归取 react 子节点的纯文本。inline code 子节点通常是字符串/数组;但 fenced 代码块的
 // <pre> 子节点是一个 <code> React 元素,需递归进其 props.children 才能拿到文本(否则 pre

@@ -40,61 +40,75 @@ export type BuildSlidesTurnPromptOptions = {
 }
 
 const CONTRACT = [
-  '你正在 Cortex 的「演示文稿」工作台里工作。请只用 cortex-slides 工具读写这份 deck:',
-  '- 先 get_deck_state 取当前主题、提纲、页面列表与 revision(所有写工具都要带 expected_revision);',
-  '- 页面必须是 1280×720(16:9)固定画布的自包含 HTML:不依赖远程 JavaScript,',
-  '  资源用 deck 相对路径或 data URI,关键元素带 data-cortex-id;',
-  '- 数据图表若要在 PPTX 中保持可编辑,必须在图表容器内附带',
-  '  <script type="application/json" data-cortex-chart-spec>，使用 version=1 的 bar/line/pie',
-  '  categories + series 明确数据；不要让导出器从任意 canvas 反推数据;',
-  '- 用户明确发起 AI 工作流时，先 create_pipeline_run，再按 run 中固定角色调用',
-  '  delegate_slides_role；角色只提交结构化结果，完成后 get_pipeline_run 并等待用户批准，',
-  '  reviewer 默认只报告不修复，notes-writer 只能在 review 完成后执行;',
-  '- 不要用 Write/Edit 等文件工具直接改 deck 目录,也不要生成自由画布页面或设计系统文档。'
+  'You are working in the Cortex "Slides" workspace. Read and write this deck only through the cortex-slides tools:',
+  '- Start with get_deck_state to fetch the current theme, outline, slide list and revision (every write tool requires expected_revision).',
+  '- Every slide must be a self-contained HTML document on a fixed 1280×720 (16:9) canvas: no remote JavaScript;',
+  '  reference assets via deck-relative paths or data URIs; tag key elements with data-cortex-id.',
+  '- For data charts to stay editable in the PPTX export, embed',
+  '  <script type="application/json" data-cortex-chart-spec> inside the chart container, using version=1',
+  '  bar/line/pie with explicit categories + series data. Never make the exporter reverse-engineer a canvas.',
+  '- When the user explicitly starts the AI workflow, call create_pipeline_run first, then delegate the fixed',
+  '  roles via delegate_slides_role. Roles only submit structured results; when done, call get_pipeline_run and',
+  '  wait for user approval. The reviewer reports without fixing by default; notes-writer runs only after review.',
+  '- Never modify the deck directory with generic file tools (Write/Edit), and never produce free-canvas pages',
+  '  or design-system documents.',
+  '- Animations are declarative annotations — do NOT write entrance/transition CSS inside slide HTML',
+  '  (decorative looping animations are the only exception). Use set_deck_animation_style for the global style',
+  '  (none/subtle/lively) and set_slide_animation per slide to declare its transition',
+  '  (none/fade/push-horizontal/push-vertical/zoom/page-flip/cube-rotate) and element entrances',
+  '  (entrances reference data-cortex-id; presets: fade-in/fade-up/slide-in-left/slide-in-right/',
+  '  zoom-in/reveal-clip; same step enters together, step 0 plays automatically on slide entry,',
+  '  step >= 1 advances on click). Slides without explicit choreography auto-enter per the global style,',
+  '  so only slides that need emphasized pacing deserve per-element choreography.'
 ].join('\n')
 
 const STAGE_INSTRUCTION: Record<SlidesTurnStage, string> = {
   draft: [
-    '本轮目标:先把主题定下来,再提交提纲草案等用户确认。',
-    '1) 如果用户没指定风格,可用 list_templates 挑一套合适的并 apply_template(或用 set_theme 自定义);',
-    '2) 然后调用 propose_outline 提交提纲(每页一条,含标题/目的/要点);',
-    '3) 提纲需要用户在界面上批准 —— 在此之前不要调用 place_slide_html(会被拒绝)。',
-    '提交提纲后简要说明思路即可,不要自行开始写页面。'
+    'Goal for this turn: settle the theme first, then submit an outline draft for user confirmation.',
+    '1) If the user did not specify a style, pick a suitable template via list_templates + apply_template (or customize with set_theme);',
+    '2) Then call propose_outline to submit the outline (one item per slide: title / purpose / key points);',
+    '3) The outline requires user approval in the UI — do not call place_slide_html before that (it will be rejected).',
+    'After submitting the outline, briefly explain your thinking. Do not start writing slides on your own.'
   ].join('\n'),
   'outline-proposed': [
-    '提纲草案已提交,正在等用户确认。若用户要求调整,请再次 propose_outline 提交新版本;',
-    '在用户批准前不要调用 place_slide_html。'
+    'The outline draft has been submitted and is awaiting user confirmation. If the user asks for changes,',
+    'call propose_outline again with a new version. Do not call place_slide_html before approval.'
   ].join('\n'),
   'outline-approved': [
-    '提纲已获批准。请按 get_deck_state 返回的 slot 顺序,为每个 status 为 empty 的 slot 调用',
-    'place_slide_html 生成页面(遵循 deck 主题与该 slot 的提纲要点)。逐页完成后简要汇报。'
+    'The outline is approved. Following the slot order from get_deck_state, call place_slide_html for every',
+    'slot whose status is empty (respect the deck theme and that slot\'s outline points).',
+    'Once all slides are done, you may set the animation style with set_deck_animation_style and choreograph',
+    'transitions/entrances for key slides with set_slide_animation. Report briefly after finishing each slide.'
   ].join('\n'),
   generating: [
-    '部分页面已生成。请按用户要求继续:只改动相关 slot(place_slide_html / replace_slide_text),',
-    '不要重写已完成且用户没提到的页面。'
+    'Some slides are already generated. Continue per the user\'s request: touch only the relevant slots',
+    '(place_slide_html / replace_slide_text). Do not rewrite finished slides the user did not mention.'
   ].join('\n'),
   ready: [
-    'deck 已就绪。请按用户要求修订指定页面(replace_slide_text 做精确文字替换,',
-    '大改用 place_slide_html 整页替换);必要时用 check_slide 复核。'
+    'The deck is ready. Revise the requested slides per the user\'s instructions (replace_slide_text for precise',
+    'text replacements; place_slide_html for full-slide rewrites). Use check_slide to verify when needed.'
   ].join('\n'),
   error: [
-    '部分页面处于失败状态。请先 get_deck_state 查看,再针对失败的 slot 重新 place_slide_html;',
-    '不要动已经成功的页面。'
+    'Some slides are in a failed state. Inspect with get_deck_state first, then re-run place_slide_html for the',
+    'failed slots only. Do not touch slides that already succeeded.'
   ].join('\n')
 }
 
 // 选区上下文 → prompt 片段:逐元素列 id/标签/文本摘要,并限定本轮改动范围。
 function selectionSection(selection: SlidesSelectionContext): string {
-  const where = selection.slideIndex ? `第 ${selection.slideIndex} 页(slot: ${selection.slotId})` : `slot: ${selection.slotId}`
+  const where = selection.slideIndex
+    ? `slide ${selection.slideIndex} (slot: ${selection.slotId})`
+    : `slot: ${selection.slotId}`
   const lines = selection.items.map((item) => {
     const text = item.text?.trim()
-    return `- <${item.tag.toLowerCase()} data-cortex-id="${item.id}">${text ? `:「${text}」` : '(图形/装饰元素,无文本)'}`
+    return `- <${item.tag.toLowerCase()} data-cortex-id="${item.id}">${text ? `: "${text}"` : ' (graphic/decorative element, no text)'}`
   })
   return [
-    `用户在 ${where} 选中了以下元素,本轮请只调整它们(除非用户明确要求动别处):`,
+    `The user selected the following elements on ${where}. Adjust only these this turn (unless the user explicitly asks to change something else):`,
     ...lines,
-    '先 read_slide_html 查看该页,再用 replace_slide_text 精准替换文字;结构/样式改动用',
-    'place_slide_html 整页替换时也要保持未选中内容原样(含这些 data-cortex-id 属性)。'
+    'Inspect the slide with read_slide_html first, then use replace_slide_text for precise text replacements;',
+    'if a structural/style change requires place_slide_html, keep all unselected content intact',
+    '(including these data-cortex-id attributes).'
   ].join('\n')
 }
 
@@ -106,11 +120,14 @@ export function buildSlidesTurnPrompt(options: BuildSlidesTurnPromptOptions): st
   const stage = options.stage ?? 'draft'
   const parts = [CONTRACT, STAGE_INSTRUCTION[stage]]
   if (options.themeName) {
-    parts.push(`当前主题:「${options.themeName}」—— 请沿用它的配色与风格,不要另起一套。`)
+    parts.push(
+      `Current theme: "${options.themeName}" — keep its palette and visual language; do not invent a new one.`
+    )
   }
   if (options.selection && options.selection.items.length > 0) {
     parts.push(selectionSection(options.selection))
   }
-  parts.push(`用户的要求:\n${options.text.trim()}`)
+  // 用户原话原样透传(不翻译),仍固定在末尾以命中 prompt 缓存。
+  parts.push(`User request:\n${options.text.trim()}`)
   return parts.join('\n\n')
 }

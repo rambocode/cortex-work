@@ -10,10 +10,13 @@
  *  - 导出目标路径只由主进程的系统保存对话框决定,请求里不携带输出路径。
  */
 import type {
+  SlidesAnimationStyle,
   SlidesDeckManifest,
+  SlidesElementAnimation,
   SlidesError,
   SlidesFinding,
-  SlidesOutline
+  SlidesOutline,
+  SlidesTransition
 } from "@cortex-work/core/design/slides/slides-types"
 import type { SlidesTemplateSummary } from "@cortex-work/core/design/slides/slides-templates"
 import type { DeckExportReport, SceneExportReport } from "@cortex-work/core/design/slides/slides-export-quality"
@@ -47,6 +50,8 @@ export const SLIDES_IPC_CHANNELS = [
   'slides:cancelPipelineRun',
   'slides:acceptPipelineRole',
   'slides:rejectPipelineRole',
+  'slides:setAnimationStyle',
+  'slides:setSlideAnimation',
   'slides:export',
   'slides:present'
 ] as const
@@ -112,6 +117,23 @@ export type SlidesSaveEditedHtmlRequest = SlidesDeckScopedRequest & {
   expectedRevision: number
   slotId: string
   html: string
+}
+
+/** 设置全局动画风格(写 manifest.animationStyle)。 */
+export type SlidesSetAnimationStyleRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  style: SlidesAnimationStyle
+}
+
+/**
+ * 设置单页动画注解。transition 为 null 表示清除该页转场(回落全局风格默认);
+ * 省略字段 = 保留原值(与 MCP set_slide_animation 语义一致)。
+ */
+export type SlidesSetSlideAnimationRequest = SlidesDeckScopedRequest & {
+  expectedRevision: number
+  slotId: string
+  transition?: SlidesTransition | null
+  entrances?: SlidesElementAnimation[]
 }
 
 export type SlidesReadNotesRequest = SlidesDeckScopedRequest & { slotId: string }

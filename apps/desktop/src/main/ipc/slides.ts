@@ -47,6 +47,8 @@ import type {
   SlidesScreenshotRequest,
   SlidesScreenshotResult,
   SlidesSetActiveSlideRequest,
+  SlidesSetAnimationStyleRequest,
+  SlidesSetSlideAnimationRequest,
   SlidesExportQualityAnalysis,
   SlidesGetPipelineRunRequest,
   SlidesPipelineRoleDecisionRequest,
@@ -290,6 +292,53 @@ export function registerSlidesHandlers(): void {
         }),
       ),
     ),
+  );
+
+  // 全局动画风格(none/subtle/lively):决定播放时默认转场与未标注页面的自动入场节奏。
+  ipcMain.handle(
+    "slides:setAnimationStyle",
+    (_e, req: SlidesSetAnimationStyleRequest): Promise<SlidesDeckIpcResult> =>
+      guarded("设置动画风格失败", async () =>
+        toDeckResult(
+          await updateDeckManifest({
+            workspaceRoot: req.workspaceRoot,
+            deckId: req.deckId,
+            expectedRevision: req.expectedRevision,
+            mutate: (m) => {
+              if ((m.animationStyle ?? "none") === req.style) return null;
+              m.animationStyle = req.style;
+              return m;
+            },
+          }),
+        ),
+      ),
+  );
+
+  // 单页动画注解:v1 UI 只写 transition(null=清除,回落全局默认);entrances 主要由 AI 经
+  // MCP 工具写入,这里保留字段以便未来元素级手动编辑复用同一通道。省略字段 = 保留原值。
+  ipcMain.handle(
+    "slides:setSlideAnimation",
+    (_e, req: SlidesSetSlideAnimationRequest): Promise<SlidesDeckIpcResult> =>
+      guarded("设置页面动画失败", async () =>
+        toDeckResult(
+          await updateDeckManifest({
+            workspaceRoot: req.workspaceRoot,
+            deckId: req.deckId,
+            expectedRevision: req.expectedRevision,
+            mutate: (m) => {
+              const slot = m.slides.find((s) => s.id === req.slotId);
+              // slot 不存在(并发删除的竞态边缘)按无操作处理:revision 不动,返回现状。
+              if (!slot) return null;
+              const animation = { ...(slot.animation ?? {}) };
+              if (req.transition === null) delete animation.transition;
+              else if (req.transition !== undefined) animation.transition = req.transition;
+              if (req.entrances !== undefined) animation.entrances = req.entrances;
+              slot.animation = animation;
+              return m;
+            },
+          }),
+        ),
+      ),
   );
 
   ipcMain.handle("slides:saveEditedHtml", (_e, req: SlidesSaveEditedHtmlRequest): Promise<SlidesDeckIpcResult> =>
@@ -578,7 +627,11 @@ export function registerSlidesHandlers(): void {
       const slides = await collectPresenterSlides(req.workspaceRoot, req.deckId, manifest.slides);
       if (!slides.ok) return { ok: false, error: slides.error };
       if (req.format === "html") {
-        const html = buildPresenterHtml({ title: deckTitle, slides: slides.value });
+        const html = buildPresenterHtml({
+          title: deckTitle,
+          slides: slides.value,
+          animationStyle: manifest.animationStyle,
+        });
         await writeArtifactAtomic(targetPath, html);
         return { ok: true, path: targetPath, format: "html" };
       }
@@ -605,7 +658,12 @@ export function registerSlidesHandlers(): void {
       // startIndex 与 slides.value 同基于 presenterSlots 的排序,索引天然对齐。
       const ready = presenterSlots(manifest.slides);
       const startIndex = Math.max(0, ready.findIndex((slot) => slot.id === req.startSlideId));
-      await openPresenterWindow({ title: manifest.title || req.deckId, slides: slides.value, startIndex });
+      await openPresenterWindow({
+        title: manifest.title || req.deckId,
+        slides: slides.value,
+        startIndex,
+        animationStyle: manifest.animationStyle,
+      });
       return { ok: true as const };
     }),
   );
@@ -657,7 +715,13 @@ async function collectPresenterSlides(
     if (!html.ok) return html;
     // 备注仅 presenter 用(PDF 的打印文档不含备注面板);读失败不阻断导出。
     const notes = slot.notesPath ? await readSlideNotes({ workspaceRoot, deckId, slotId: slot.id }) : null;
-    out.push({ title: slot.title, html: html.value, notes: notes?.ok ? notes.value : undefined });
+    // 动画注解随页带给 presenter/HTML 导出;PDF 打印路径(buildPrintableHtml)不消费它。
+    out.push({
+      title: slot.title,
+      html: html.value,
+      notes: notes?.ok ? notes.value : undefined,
+      animation: slot.animation,
+    });
   }
   return { ok: true, value: out };
 }

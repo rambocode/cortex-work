@@ -15,10 +15,14 @@ import type {
   SlidesPresentResult
 } from '@cortex-work/core/desktop/slides-ipc-types'
 import type {
+  SlidesAnimationStyle,
   SlidesDeckManifest,
+  SlidesElementAnimation,
+  SlidesEntrancePreset,
   SlidesError,
   SlidesFinding,
-  SlidesOutline
+  SlidesOutline,
+  SlidesTransition
 } from '@cortex-work/core/design/slides/slides-types'
 import type { SlidesTemplateSummary } from '@cortex-work/core/design/slides/slides-templates'
 import type { SlidesPipelineRun, SlidesRole } from '@cortex-work/core/design/slides/slides-pipeline-types'
@@ -165,6 +169,8 @@ export interface SlidesUiState {
   pipelineFindings: SlidesPipelineFinding[]
   /** 桥接是否具备演示能力(setup 时探测);false 时工具栏「播放」按钮隐藏。 */
   canPresent: boolean
+  /** 桥接是否具备动画设置能力(setup 时探测);false 时工具栏「动画」菜单隐藏。 */
+  canAnimate: boolean
 
   setup(context: { bridge: DesktopBridge; workspaceRoot: string; deckId: string; title: string }): Promise<void>
   /** 编辑桥选区上报入口:空 items 视为清空。 */
@@ -210,12 +216,81 @@ export interface SlidesUiState {
   exportDeck(format: SlidesExportFormat): Promise<SlidesExportResult>
   /** 演示模式:主进程开全屏窗口从当前选中页播放;只读操作,不占 mutating。 */
   present(): Promise<void>
+  /** 设置全局动画风格(none/subtle/lively),写 manifest.animationStyle。 */
+  setAnimationStyle(style: SlidesAnimationStyle): Promise<void>
+  /** 设置单页转场;null = 清除(回落全局风格默认)。 */
+  setSlotTransition(slotId: string, transition: SlidesTransition | null): Promise<void>
+  /**
+   * 舞台入场计划探针(SlidesStage 挂载 webview 后注册,卸载时置 null):
+   * 在当前页 DOM 上跑「采集+默认编排」返回计划,用于把启发式物化为显式 entrances。
+   */
+  registerStageAnimationProbe(probe: (() => Promise<SlidesElementAnimation[] | null>) | null): void
+  /**
+   * 物化当前页入场编排并设定触发方式:'auto' = 全部 step 0(切页自动依次入场);
+   * 'stepped' = 每个元素独占一个 step(1..n,播放时按键逐个出现)。
+   * 无显式 entrances 时先经舞台探针取默认编排。
+   */
+  materializeSlotEntrances(slotId: string, mode: 'auto' | 'stepped'): Promise<void>
+  /**
+   * 设定所选元素的入场动画;preset 为 null = 移除这些元素的入场。
+   * 页面尚无显式 entrances 时先物化默认编排(否则单独添加会让其余元素失去动画)。
+   */
+  setElementAnimation(slotId: string, elementIds: string[], preset: SlidesEntrancePreset | null): Promise<void>
   setZoom(zoom: SlidesZoom): void
   clearConflict(): void
   clearActionError(): void
   /** 外部推来的最新 manifest(如 Agent 回合结束的刷新);仅在 deck 匹配时采纳。 */
   applyManifest(manifest: SlidesDeckManifest): void
   reset(): void
+}
+
+// 舞台入场计划探针(模块级,与 ctx 同生命周期语义):SlidesStage 注册/注销。
+let stageAnimationProbe: (() => Promise<SlidesElementAnimation[] | null>) | null = null
+
+/**
+ * 取该页的显式 entrances 作为编辑基线:已有则直接用;没有则经舞台探针把默认
+ * 启发式编排物化出来(否则「只给一个元素设动画」会让其余元素失去动画)。
+ * 返回 null 仅表示 slot 不存在;探针缺失/失败返回空数组(调用方按「无可编排元素」提示)。
+ */
+async function resolveExplicitEntrances(
+  get: () => SlidesUiState,
+  slotId: string
+): Promise<SlidesElementAnimation[] | null> {
+  const manifest = get().manifest
+  const slot = manifest?.slides.find((s) => s.id === slotId)
+  if (!slot) return null
+  const existing = slot.animation?.entrances
+  if (existing && existing.length > 0) return [...existing]
+  // 探针只探当前舞台页面的 DOM,非当前页无法物化。
+  if (!stageAnimationProbe || manifest?.activeSlideId !== slotId) return []
+  try {
+    const plan = await stageAnimationProbe()
+    return plan ?? []
+  } catch {
+    return []
+  }
+}
+
+/** 全量写回该页 entrances(乐观锁,复用 absorbDeckResult 冲突语义)。 */
+async function sendSlotEntrances(
+  set: (partial: Partial<SlidesUiState>) => void,
+  get: () => SlidesUiState,
+  slotId: string,
+  entrances: SlidesElementAnimation[]
+): Promise<void> {
+  const { manifest } = get()
+  if (!ctx?.bridge.slidesSetSlideAnimation || !manifest || get().mutating) return
+  set({ mutating: true })
+  const result = await ctx.bridge
+    .slidesSetSlideAnimation({
+      workspaceRoot: ctx.workspaceRoot,
+      deckId: ctx.deckId,
+      expectedRevision: manifest.revision,
+      slotId,
+      entrances
+    })
+    .catch(() => undefined)
+  await absorbDeckResult(set, get().refresh, result)
 }
 
 // 统一处理 deck 变更类 IPC 结果:成功换快照;revision_conflict 自动刷新 + 冲突提示;
@@ -253,6 +328,7 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
   recoveredNotice: false,
   zoom: 'fit',
   canPresent: false,
+  canAnimate: false,
   outlineDialogOpen: false,
   outlineDraft: null,
   checkPanelOpen: false,
@@ -600,6 +676,7 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       manifest: null,
       loading: true,
       canPresent: !!bridge.slidesPresent,
+      canAnimate: !!bridge.slidesSetAnimationStyle && !!bridge.slidesSetSlideAnimation,
       deckError: null,
       actionError: null,
       conflictNotice: false,
@@ -801,6 +878,73 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
     if (!result.ok) set({ actionError: result.error.message })
   },
 
+  setAnimationStyle: async (style) => {
+    const { manifest } = get()
+    if (!ctx?.bridge.slidesSetAnimationStyle || !manifest || get().mutating) return
+    set({ mutating: true })
+    const result = await ctx.bridge
+      .slidesSetAnimationStyle({
+        workspaceRoot: ctx.workspaceRoot,
+        deckId: ctx.deckId,
+        expectedRevision: manifest.revision,
+        style
+      })
+      .catch(() => undefined)
+    await absorbDeckResult(set, get().refresh, result)
+  },
+
+  setSlotTransition: async (slotId, transition) => {
+    const { manifest } = get()
+    if (!ctx?.bridge.slidesSetSlideAnimation || !manifest || get().mutating) return
+    set({ mutating: true })
+    const result = await ctx.bridge
+      .slidesSetSlideAnimation({
+        workspaceRoot: ctx.workspaceRoot,
+        deckId: ctx.deckId,
+        expectedRevision: manifest.revision,
+        slotId,
+        transition
+      })
+      .catch(() => undefined)
+    await absorbDeckResult(set, get().refresh, result)
+  },
+
+  registerStageAnimationProbe: (probe) => {
+    stageAnimationProbe = probe
+  },
+
+  materializeSlotEntrances: async (slotId, mode) => {
+    const base = await resolveExplicitEntrances(get, slotId)
+    if (base === null) return
+    if (base.length === 0) {
+      set({ actionError: '当前页没有可编排的元素' })
+      return
+    }
+    // 'stepped':每个元素独占一个 step(1..n),step 0 留空 → 切页后须按键才出现第一个
+    // 元素(标准 PPT 分步);组内 delay 清零(逐个触发不再需要错峰)。
+    const entrances = base.map((e, index) =>
+      mode === 'stepped' ? { ...e, step: index + 1, delayMs: undefined } : { ...e, step: 0 }
+    )
+    await sendSlotEntrances(set, get, slotId, entrances)
+  },
+
+  setElementAnimation: async (slotId, elementIds, preset) => {
+    const base = await resolveExplicitEntrances(get, slotId)
+    if (base === null) return
+    let entrances: SlidesElementAnimation[]
+    if (preset === null) {
+      entrances = base.filter((e) => !elementIds.includes(e.elementId))
+    } else {
+      entrances = [...base]
+      for (const id of elementIds) {
+        const existing = entrances.findIndex((e) => e.elementId === id)
+        if (existing >= 0) entrances[existing] = { ...entrances[existing]!, preset }
+        else entrances.push({ elementId: id, preset, step: 0 })
+      }
+    }
+    await sendSlotEntrances(set, get, slotId, entrances)
+  },
+
   setZoom: (zoom) => set({ zoom }),
   clearConflict: () => set({ conflictNotice: false }),
   clearActionError: () => set({ actionError: null }),
@@ -818,6 +962,7 @@ export const useSlidesStore = create<SlidesUiState>((set, get) => ({
       loading: false,
       mutating: false,
       canPresent: false,
+      canAnimate: false,
       deckError: null,
       actionError: null,
       conflictNotice: false,

@@ -6,8 +6,18 @@
 //  - 不含任何内部文件绝对路径(页面 HTML 内联,资源须已是 data URI 或相对路径 ——
 //    远程/未内联资源在检查阶段已给出 warning)。
 //
-// 播放能力:左右键 / Space / Home / End / 全屏 / 页码 / 打印。
-import { sortedSlidesSlots, type SlidesSlot } from "@cortex-work/core/design/slides/slides-types";
+// 播放能力:左右键 / Space / Home / End / 全屏 / 页码 / 打印 / 声明式动画
+// (转场 + 元素入场 + PPT 式分步;运行时在 present/presenter-runtime.ts)。
+import {
+  sortedSlidesSlots,
+  type SlidesAnimationStyle,
+  type SlidesSlot
+} from "@cortex-work/core/design/slides/slides-types";
+import {
+  PRESENTER_CSS,
+  buildPresenterScript,
+  type PresenterSlideAnimation
+} from "../present/presenter-runtime";
 
 /** presenter 单页数据(HTML 已是完整文档字符串)。 */
 export interface PresenterSlide {
@@ -15,6 +25,8 @@ export interface PresenterSlide {
   html: string;
   /** 演讲者备注(Markdown 原文);presenter 用 N 键切换显示,PDF/PNG 忽略。 */
   notes?: string;
+  /** 声明式动画注解(来自 deck.json);静态导出路径(PDF/PNG/PPTX)忽略。 */
+  animation?: PresenterSlideAnimation;
 }
 
 // 导出供演示模式专用页(present/speaker-html.ts)复用同一份 HTML 转义,避免重复实现漂移。
@@ -42,101 +54,28 @@ const SLIDE_FRAME_SANDBOX = "allow-scripts allow-same-origin";
 
 // 每页以 <iframe srcdoc> 承载:既保持页面自身的 CSS 隔离(slide HTML 各自带全局样式,
 // 直接拼进同一文档会互相污染),又不需要外部文件。srcdoc 内容做 HTML 属性转义。
+// .slide-inner 是转场动画的作用层:figure 承担 fit 缩放(inline transform),转场
+// class 打在 inner 上才不会与缩放互相覆盖(inline style 优先级高于 class)。
 function slideFrame(slide: PresenterSlide, index: number): string {
   // 备注以 data 属性随页携带(纯文本,转义后不可能逃逸出属性)。
   const notesAttr = slide.notes?.trim() ? ` data-notes="${escapeHtml(slide.notes)}"` : "";
   return `<figure class="slide" data-index="${index}" aria-label="${escapeHtml(slide.title)}"${notesAttr}>
-  <iframe title="${escapeHtml(slide.title)}" sandbox="${SLIDE_FRAME_SANDBOX}" srcdoc="${escapeHtml(slide.html)}"></iframe>
+  <div class="slide-inner"><iframe title="${escapeHtml(slide.title)}" sandbox="${SLIDE_FRAME_SANDBOX}" srcdoc="${escapeHtml(slide.html)}"></iframe></div>
 </figure>`;
 }
 
-const PRESENTER_CSS = `
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #0b0d12; color: #e6e8ee;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
-  #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
-  .slide { position: absolute; margin: 0; width: 1280px; height: 720px; transform-origin: center center;
-    background: #fff; box-shadow: 0 8px 40px rgba(0,0,0,0.5); display: none; }
-  .slide.active { display: block; }
-  .slide iframe { width: 1280px; height: 720px; border: 0; display: block; }
-  #bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 10px;
-    align-items: center; padding: 6px 12px; border-radius: 999px; background: rgba(20,22,30,0.82);
-    box-shadow: 0 2px 12px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.2s; font-size: 13px; }
-  #bar:hover, body:hover #bar { opacity: 1; }
-  #bar button { background: transparent; border: 0; color: #e6e8ee; cursor: pointer; font-size: 15px;
-    padding: 2px 8px; border-radius: 6px; }
-  #bar button:hover { background: rgba(255,255,255,0.12); }
-  #counter { min-width: 62px; text-align: center; font-variant-numeric: tabular-nums; }
-  #notes { position: fixed; right: 0; top: 0; bottom: 0; width: 320px; padding: 18px 16px; overflow-y: auto;
-    background: rgba(16,18,24,0.96); border-left: 1px solid rgba(255,255,255,0.08); display: none;
-    white-space: pre-wrap; font-size: 13px; line-height: 1.7; color: #cbd2e0; }
-  body.notes-open #notes { display: block; }
-  #notes:empty::before { content: '本页没有备注'; color: #6b7280; }
-  @media print {
-    html, body { background: #fff; }
-    #bar, #notes { display: none !important; }
-    #stage { position: static; }
-    .slide { display: block !important; position: static; page-break-after: always; box-shadow: none;
-      transform: none !important; }
-  }
-`;
-
-// presenter 运行时:纯导航逻辑,不与任何宿主通信。
-const PRESENTER_JS = `
-(function () {
-  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
-  var counter = document.getElementById('counter');
-  var notes = document.getElementById('notes');
-  var index = 0;
-
-  function fit() {
-    var scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
-    slides.forEach(function (el) { el.style.transform = 'scale(' + scale + ')'; });
-  }
-  function show(next) {
-    index = Math.max(0, Math.min(slides.length - 1, next));
-    slides.forEach(function (el, i) { el.classList.toggle('active', i === index); });
-    counter.textContent = (index + 1) + ' / ' + slides.length;
-    // 备注取自当前页的 data-notes(textContent 赋值:纯文本,不解析 HTML)。
-    notes.textContent = slides[index].getAttribute('data-notes') || '';
-    location.hash = '#' + (index + 1);
-  }
-  function toggleFullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else document.documentElement.requestFullscreen();
-  }
-
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); show(index + 1); }
-    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(index - 1); }
-    else if (e.key === 'Home') { e.preventDefault(); show(0); }
-    else if (e.key === 'End') { e.preventDefault(); show(slides.length - 1); }
-    else if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); }
-    else if (e.key === 'n' || e.key === 'N') { document.body.classList.toggle('notes-open'); }
-  });
-  document.getElementById('prev').addEventListener('click', function () { show(index - 1); });
-  document.getElementById('next').addEventListener('click', function () { show(index + 1); });
-  document.getElementById('full').addEventListener('click', toggleFullscreen);
-  document.getElementById('notesBtn').addEventListener('click', function () {
-    document.body.classList.toggle('notes-open');
-  });
-  document.getElementById('print').addEventListener('click', function () { window.print(); });
-  window.addEventListener('resize', fit);
-  window.addEventListener('hashchange', function () {
-    var n = parseInt(location.hash.slice(1), 10);
-    if (!isNaN(n) && n - 1 !== index) show(n - 1);
-  });
-
-  fit();
-  var initial = parseInt(location.hash.slice(1), 10);
-  show(isNaN(initial) ? 0 : initial - 1);
-})();
-`;
-
-/** 生成自包含 presenter HTML(单文件,可直接双击播放)。 */
-export function buildPresenterHtml(options: { title: string; slides: PresenterSlide[] }): string {
+/** 生成自包含 presenter HTML(单文件,可直接双击播放)。animationStyle 缺省 none = 静态。 */
+export function buildPresenterHtml(options: {
+  title: string;
+  slides: PresenterSlide[];
+  animationStyle?: SlidesAnimationStyle;
+}): string {
   const title = options.title.trim() || "演示文稿";
+  const script = buildPresenterScript({
+    animationStyle: options.animationStyle ?? "none",
+    slides: options.slides.map((s) => s.animation ?? null),
+    hasElementMarkers: options.slides.map((s) => s.html.includes("data-cortex-id"))
+  });
   return [
     "<!doctype html>",
     '<html lang="zh-Hans">',
@@ -159,7 +98,7 @@ export function buildPresenterHtml(options: { title: string; slides: PresenterSl
     '    <button id="full" title="全屏(F)" aria-label="全屏">⛶</button>',
     '    <button id="print" title="打印" aria-label="打印">⎙</button>',
     "  </nav>",
-    `  <script>${PRESENTER_JS}</script>`,
+    `  <script>${script}</script>`,
     "</body>",
     "</html>",
     "",

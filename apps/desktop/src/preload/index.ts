@@ -168,6 +168,8 @@ import type {
   SlidesScreenshotRequest,
   SlidesScreenshotResult,
   SlidesSetActiveSlideRequest,
+  SlidesSetAnimationStyleRequest,
+  SlidesSetSlideAnimationRequest,
 } from "../main/ipc/slides-ipc-types";
 import type {
   LocalWhisperModelProgress,
@@ -324,6 +326,10 @@ const personal = {
     ipcRenderer.invoke("slides:deleteSlide", req),
   slidesSetActiveSlide: (req: SlidesSetActiveSlideRequest): Promise<SlidesDeckIpcResult> =>
     ipcRenderer.invoke("slides:setActiveSlide", req),
+  slidesSetAnimationStyle: (req: SlidesSetAnimationStyleRequest): Promise<SlidesDeckIpcResult> =>
+    ipcRenderer.invoke("slides:setAnimationStyle", req),
+  slidesSetSlideAnimation: (req: SlidesSetSlideAnimationRequest): Promise<SlidesDeckIpcResult> =>
+    ipcRenderer.invoke("slides:setSlideAnimation", req),
   slidesSaveEditedHtml: (req: SlidesSaveEditedHtmlRequest): Promise<SlidesDeckIpcResult> =>
     ipcRenderer.invoke("slides:saveEditedHtml", req),
   slidesReadNotes: (req: SlidesReadNotesRequest): Promise<SlidesReadNotesResult> =>

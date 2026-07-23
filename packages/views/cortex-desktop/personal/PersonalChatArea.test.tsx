@@ -215,7 +215,7 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     expect(useCortexUIStore.getState().rightOpen).toBe(true);
   });
 
-  it("项目外的非文本产物(如 outputs 里的 pdf)→ 系统默认应用打开,不进右栏预览", async () => {
+  it("项目外 PDF 产物 → 走右栏内置预览,不再系统打开", async () => {
     const openPath = vi.fn(async () => "");
     const b = {
       loadChat: async () => [
@@ -224,6 +224,7 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
       saveChat: async () => {},
       // 项目根为 /code/alpha,文件在项目外;主进程按真实存在性解析回绝对路径。
       resolveProjectFile: async (_root: string, _ref: string) => "/data/outputs/x/monthly.pdf",
+      readFileBinary: vi.fn(),
       openPath,
     } as unknown as DesktopBridge;
     render(
@@ -234,9 +235,14 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     // 项目外绝对路径也点亮为可点 file-link(渲染层放行 + 主进程解析命中)。
     await waitFor(() => expect(screen.getByText("/data/outputs/x/monthly.pdf")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("/data/outputs/x/monthly.pdf"));
-    await waitFor(() => expect(openPath).toHaveBeenCalledWith("/data/outputs/x/monthly.pdf"));
-    // 非文本不走右栏内置预览。
-    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "p1",
+        path: "/data/outputs/x/monthly.pdf",
+        name: "monthly.pdf",
+      }),
+    );
+    expect(openPath).not.toHaveBeenCalled();
   });
 
   it("xlsx 有内置表格预览 → 走右栏预览请求,不再系统打开", async () => {
@@ -266,20 +272,208 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     expect(openPath).not.toHaveBeenCalled();
   });
 
-  it("无项目会话:projectPath 缺失,文本路径不可点(无 .file-link)", async () => {
+  it("项目会话 DOCX 链接 → 走右栏 Word 预览请求,不再系统打开", async () => {
+    const openPath = vi.fn(async () => "");
+    const abs = "/data/outputs/x/report.docx";
+    const b = {
+      loadChat: async () => [
+        { kind: "text", who: "claude", time: "12:00", uid: "mw", text: `见 [报告](${abs})` },
+      ],
+      saveChat: async () => {},
+      resolveProjectFile: async () => abs,
+      readFileBinary: vi.fn(),
+      openPath,
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("报告")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("报告"));
+
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "p1",
+        path: abs,
+        name: "report.docx",
+      }),
+    );
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it("项目会话 PPTX 链接 → 走右栏演示文稿预览请求", async () => {
+    const openPath = vi.fn(async () => "");
+    const abs = "/data/outputs/x/slides.pptx";
+    const b = {
+      loadChat: async () => [
+        { kind: "text", who: "claude", time: "12:00", uid: "mp", text: `见 [演示文稿](${abs})` },
+      ],
+      saveChat: async () => {},
+      resolveProjectFile: async () => abs,
+      readFileBinary: vi.fn(),
+      openPath,
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("演示文稿")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("演示文稿"));
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "p1",
+        path: abs,
+        name: "slides.pptx",
+      }),
+    );
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it("聊天 DOCX 附件 chip → 复用文件打开路由进入右栏预览", async () => {
+    const abs = "/Users/mike/Library/Application Support/cortex/chat-docs/s1/report.docx";
+    const b = {
+      loadChat: async () => [
+        {
+          kind: "text",
+          who: "me",
+          time: "12:00",
+          uid: "ma",
+          text: "请审阅",
+          files: [{ path: abs, name: "季度报告.docx", mimeType: "application/docx", sizeBytes: 10 }],
+        },
+      ],
+      saveChat: async () => {},
+      fileExists: vi.fn(async () => true),
+      readFileBinary: vi.fn(),
+      openPath: vi.fn(async () => ""),
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "预览附件：季度报告.docx" }));
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "p1",
+        path: abs,
+        name: "report.docx",
+      }),
+    );
+  });
+
+  it("无项目会话 DOCX + 二进制桥 → 聊天区 Word 浮层打开", async () => {
+    usePersonalStore.setState({
+      sessions: [{ id: "s5", title: "报告", agent: "codex", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" }],
+      activeProjectId: undefined,
+      activeSessionId: "s5",
+    });
+    const abs = "/Users/mike/.codex/outputs/report.docx";
+    const readFileBinary = vi.fn(async () => ({
+      data: "UEsDBA==",
+      truncated: false,
+      size: 4,
+      mtimeMs: 1,
+    }));
+    const openPath = vi.fn(async () => "");
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "codex", time: "06:03", uid: "m5", text: `产物在 [报告](${abs})` }],
+      saveChat: async () => {},
+      fileExists: vi.fn(async () => true),
+      readFileBinary,
+      openPath,
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("报告")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("报告"));
+
+    expect(await screen.findByLabelText("report.docx Word 文档预览")).toBeInTheDocument();
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it("无项目会话 PPTX + 二进制桥 → 聊天区演示文稿浮层打开", async () => {
+    usePersonalStore.setState({
+      sessions: [{ id: "s6", title: "演示", agent: "codex", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" }],
+      activeProjectId: undefined,
+      activeSessionId: "s6",
+    });
+    const abs = "/Users/mike/.codex/outputs/slides.pptx";
+    const openPath = vi.fn(async () => "");
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "codex", time: "06:03", uid: "m6", text: `产物在 [演示](${abs})` }],
+      saveChat: async () => {},
+      fileExists: vi.fn(async () => true),
+      readFileBinary: vi.fn(async () => ({ data: "UEsDBA==", truncated: false, size: 4, mtimeMs: 1 })),
+      openPath,
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("演示")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("演示"));
+
+    expect(await screen.findByLabelText("slides.pptx 演示文稿预览")).toBeInTheDocument();
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it("历史会话:file:/// HTML 链接保留绝对路径并在内置浏览器打开", async () => {
+    const noProjectDir = "/Users/mike/Documents/cortex/2026-07-23";
+    const expectedPath = `${noProjectDir}/outputs/report.html`;
+    const fileUrl = `file://${expectedPath}`;
     usePersonalStore.setState({
       sessions: [
-        { id: "s2", title: "Session 2", agent: "claude", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" },
+        { id: "s2", title: "Session 2", agent: "claude", createdAt: NOW, updatedAt: NOW, noProjectDir },
       ],
       activeProjectId: undefined,
       activeSessionId: "s2",
     });
-    renderAreaWithChat([
-      { kind: "text", who: "claude", time: "12:02", uid: "m2", text: "见 `packages/core/x.ts` 文件" },
-    ]);
-    const code = await screen.findByText("packages/core/x.ts");
-    expect(code).not.toHaveClass("file-link");
-    fireEvent.click(code);
+    const openPath = vi.fn(async () => "");
+    const fileExists = vi.fn(async () => true);
+    const browserResolveLocalHtml = vi.fn(async () => fileUrl);
+    const b = {
+      loadChat: async () => [
+        {
+          kind: "text",
+          who: "claude",
+          time: "12:02",
+          uid: "m2",
+          // 真实历史存档格式:react-markdown 默认会把 file:// href 清空,导致 DevTools 只剩 <a href>。
+          text: `已生成 [outputs/report.html](file://${expectedPath})`,
+        },
+      ],
+      saveChat: async () => {},
+      fileExists,
+      openPath,
+      browserResolveLocalHtml,
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+
+    const link = await screen.findByRole("link", { name: "outputs/report.html" });
+    await waitFor(() => expect(link).toHaveClass("file-link"));
+    fireEvent.click(link);
+
+    await waitFor(() => expect(browserResolveLocalHtml).toHaveBeenCalledWith(expectedPath));
+    expect(fileExists).toHaveBeenCalledWith(expectedPath);
+    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe(fileUrl);
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+    expect(openPath).not.toHaveBeenCalled();
     expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
   });
 

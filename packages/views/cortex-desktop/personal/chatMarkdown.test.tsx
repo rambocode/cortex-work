@@ -4,7 +4,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DesktopBridge } from "@cortex-work/core";
 import { DEFAULT_BROWSER_CONTROL, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
-import { chatMarkdownComponents } from "./chatMarkdown";
+import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./chatMarkdown";
 
 function setLocalUrlTarget(target: "internal" | "system") {
   usePersonalStore.setState((s) => ({
@@ -31,7 +31,11 @@ function renderMd(
     ...(imageReadAny ? { imageReadAny } : {}),
   } as unknown as DesktopBridge;
   const { container } = render(
-    <Markdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents({ onOpenFile, projectPath, bridge })}>
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      components={chatMarkdownComponents({ onOpenFile, projectPath, bridge })}
+      urlTransform={chatMarkdownUrlTransform}
+    >
       {text}
     </Markdown>,
   );
@@ -79,6 +83,20 @@ describe("chatMarkdownComponents", () => {
     fireEvent.click(container.querySelector("a")!);
     expect(onOpenFile).toHaveBeenCalledWith("docs/a.md");
     expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it("历史 file:/// 链接 → 转为本机绝对路径后探测并点击", async () => {
+    const abs = "/Users/mike/Documents/cortex/2026-07-23/outputs/report.html";
+    const fileExists = vi.fn<(path: string) => Promise<boolean>>().mockResolvedValue(true);
+    const { container, onOpenFile } = renderMd(`[outputs/report.html](file://${abs})`, { fileExists });
+    await waitFor(() => expect(container.querySelector("a.file-link")).not.toBeNull());
+    expect(fileExists).toHaveBeenCalledWith(abs);
+    fireEvent.click(container.querySelector("a.file-link")!);
+    expect(onOpenFile).toHaveBeenCalledWith(abs);
+  });
+
+  it("非本机 file host 仍被拒绝", () => {
+    expect(chatMarkdownUrlTransform("file://remote-host/share/report.html")).toBe("");
   });
 
   it("markdown 外链 → 点击进内置浏览器(requestBrowserUrl + 展开右栏),不触发 openExternal / onOpenFile", () => {

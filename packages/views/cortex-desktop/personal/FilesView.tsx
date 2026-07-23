@@ -10,7 +10,15 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { ChangedFile, ContentSearchResult, GitChangesResult, PromptNode } from "@cortex-work/core";
-import { FileIcon, fileIconSpec, isOpenExternalLike, isSpreadsheetLike } from "./fileIcons";
+import {
+  FileIcon,
+  fileIconSpec,
+  inAppDocumentKind,
+  isOpenExternalLike,
+  isSpreadsheetLike,
+  type InAppDocumentKind,
+} from "./fileIcons";
+import { DocumentViewer } from "./DocumentViewer";
 import { SheetViewer } from "./sheet/SheetViewer";
 import { isBinaryDoc } from "./docIntake";
 import { langForName, wordWrapForName } from "./monacoLang";
@@ -33,8 +41,9 @@ interface Preview {
   content: string;
   isDiff: boolean;
   truncated?: boolean;
-  // "sheet" = 内置表格预览(xlsx/csv,SheetViewer 自行经二进制通道读写);缺省为文本。
-  kind?: "sheet";
+  // 二进制内置预览类型;缺省为文本。
+  kind?: "sheet" | InAppDocumentKind;
+  reloadKey?: number;
 }
 
 function TreeRowIcon({ name }: { name: string }) {
@@ -311,6 +320,20 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     setEditMode(false);
     setDirty(false);
     setSelection("");
+    // DOCX/PDF/PPTX → 内置只读文档预览。无二进制桥(web/旧壳)时回退系统默认应用。
+    const documentKind = inAppDocumentKind(name);
+    if (documentKind) {
+      if (bridge.readFileBinary) {
+        setPreview({ name, path, content: "", isDiff: false, kind: documentKind, reloadKey: Date.now() });
+        return;
+      }
+      try {
+        await bridge.openPath?.(path);
+      } catch (err) {
+        onToast(t("openFailed", { error: err instanceof Error ? err.message : String(err) }));
+      }
+      return;
+    }
     // 电子表格(xlsx/csv)→ 内置表格预览(SheetViewer 自行经二进制通道读取)。
     // 无二进制桥(web/旧壳):xlsx 回退系统打开;csv 落回下方文本路径(原行为)。
     if (isSpreadsheetLike(name)) {
@@ -452,7 +475,9 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
 
   if (preview) {
     const isSheet = preview.kind === "sheet";
-    const canEdit = !isSheet && !preview.isDiff && !preview.truncated && !!preview.path;
+    const documentKind = preview.kind !== "sheet" ? preview.kind : undefined;
+    const isDocument = !!documentKind;
+    const canEdit = !isSheet && !isDocument && !preview.isDiff && !preview.truncated && !!preview.path;
     return (
       <div className="pw-rp-view is-fileopen">
         <div className="pw-editor-h pw-file-toolbar">
@@ -485,7 +510,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                   {t("toolbar.edit")}
                 </button>
               ) : null}
-              {!isSheet ? (
+              {!isSheet && !isDocument ? (
                 <button
                   className="pw-ftb-btn"
                   title={t("toolbar.copyContentTitle")}
@@ -536,6 +561,15 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
             onDirtyChange={setDirty}
             onOpenAsText={() => void openTextFile(preview.path!, preview.name)}
             dirChangeTick={dirTick}
+          />
+        ) : documentKind && preview.path && bridge ? (
+          <DocumentViewer
+            kind={documentKind}
+            filePath={preview.path}
+            fileName={preview.name}
+            bridge={bridge}
+            reloadKey={preview.reloadKey}
+            onToast={onToast}
           />
         ) : preview.isDiff ? (
           <DiffText content={preview.content} />

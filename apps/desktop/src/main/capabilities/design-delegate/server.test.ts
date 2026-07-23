@@ -147,8 +147,8 @@ describe("slides role helper", () => {
       prompt: "找出影响导出的渲染问题"
     });
     expect(prompt).toContain("slides pipeline role: render-reviewer");
-    expect(prompt).toContain("只返回单个 JSON 对象");
-    expect(prompt).toContain("不能 Write/Edit deck");
+    expect(prompt).toContain("return exactly one JSON object");
+    expect(prompt).toContain("never Write/Edit the deck");
     expect(prompt).toContain("仅检查第 2 页图文布局");
     expect(prompt).toContain("找出影响导出的渲染问题");
   });
