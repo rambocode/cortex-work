@@ -76,7 +76,10 @@ const codexServers = new CodexServerManager({
 const cancelledRunIds = new Set<string>();
 // 安全重试前的退避:限流/上游瞬断后零延迟重试几乎必然再次撞墙,给上游一个恢复窗口。
 const RETRY_BACKOFF_MS = 800;
-const VERIFY_TIMEOUT_MS = 3000;
+// 探针超时:codex 的 npm 包只是 shim,真正执行的是约 260MB 的原生 rust 二进制;app 冷启动
+// (磁盘忙、二进制不在 page cache)时 `codex --version` 可能远超几秒。给足冷启动窗口,避免把
+// 已安装的 agent 误判为不可用。ENOENT(未安装)走 onError 立即返回,不受此值影响。
+const VERIFY_TIMEOUT_MS = 15000;
 let detectedAgents: Promise<Record<AgentKind, boolean>> | null = null;
 
 // 主进程活跃度看门狗(U5)。基于 stdout/事件活跃度(非 CPU)。默认 40 分钟,可被环境变量覆盖,
@@ -577,7 +580,12 @@ function verifyAgentCli(agent: Exclude<AgentKind, "pi">, env: NodeJS.ProcessEnv)
 // 启动期验证本机可用 agent。pi 内置打包,恒为 true；claude/codex 需能实际启动。
 export async function detectAgents(): Promise<Record<AgentKind, boolean>> {
   detectedAgents ??= detectAgentsOnce();
-  return detectedAgents;
+  const result = await detectedAgents;
+  // 负结果不永久缓存:claude/codex 首探可能因原生 CLI 冷启动超时、或安装/PATH 就绪竞态而误判
+  // 不可用。此时清掉缓存,让下次调用(工作区重挂载、cli:start 门控、用户手动重试)重新探测,
+  // 实现自愈,而非把误判卡死到重启 app。全部可用才长期缓存,避免每次都重复 spawn 探针。
+  if (!result.claude || !result.codex) detectedAgents = null;
+  return result;
 }
 
 async function detectAgentsOnce(): Promise<Record<AgentKind, boolean>> {

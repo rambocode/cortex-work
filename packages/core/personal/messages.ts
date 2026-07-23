@@ -117,21 +117,50 @@ export interface TodoAttachment {
 
 export type PersonalAttachment = PromptAttachment | TodoAttachment;
 
+// skill 附件的磁盘目录:path 去掉最后一段。用纯字符串计算而非 node:path(core 包硬边界:
+// 不得依赖 Node API)。路径缺失或无目录可推导(空串/仅文件名/根下文件)时返回 undefined。
+function skillBaseDir(path: string): string | undefined {
+  const idx = path.lastIndexOf("/");
+  return idx > 0 ? path.slice(0, idx) : undefined;
+}
+
+// 把拖入的 skill / todo 附件序列化为 system prompt 上下文块。
+// skill 块必须带 path/base_dir:仅内联正文时 agent 不知 SKILL.md 在磁盘何处,无法解析
+// 其中对同目录脚本/文档的相对引用(拖拽链路 PromptPanel → ComposerShell 一路携带 path,
+// 此处是唯一消费点)。无路径的旧数据回退旧格式。
 export function buildAttachmentSystemPrompt(attachments: PersonalAttachment[]): string | undefined {
   if (attachments.length === 0) return undefined;
-  return attachments
-    .map((a) =>
-      a.kind === "prompt"
-        ? `<skill name="${a.name}">\n${a.content}\n</skill>`
-        : [
-            `<todo name="${a.name}" project="${a.projectName}">`,
-            `# ${a.name}`,
-            "",
-            a.content,
-            "</todo>",
-          ].join("\n"),
-    )
-    .join("\n\n");
+  const blocks = attachments.map((a) => {
+    if (a.kind === "prompt") {
+      const baseDir = skillBaseDir(a.path);
+      return baseDir
+        ? `<skill name="${a.name}" path="${a.path}" base_dir="${baseDir}">\n${a.content}\n</skill>`
+        : `<skill name="${a.name}">\n${a.content}\n</skill>`;
+    }
+    return [
+      `<todo name="${a.name}" project="${a.projectName}">`,
+      `# ${a.name}`,
+      "",
+      a.content,
+      "</todo>",
+    ].join("\n");
+  });
+  // 存在带路径的 skill 时追加一次公共说明,指导 agent 按 base_dir 解析 skill 内的相对引用
+  if (attachments.some((a) => a.kind === "prompt" && skillBaseDir(a.path))) {
+    blocks.push("注：skill 内的相对路径均基于其 base_dir；被引用的脚本/文档可直接按路径读取。");
+  }
+  return blocks.join("\n\n");
+}
+
+// 附件块(拖入 skill/todo)并入本轮 CLI prompt 文本,而非 appendSystemPrompt:
+// claude --resume / codex exec resume 只回放对话历史,不回放上一轮 system prompt——附件块若走
+// append,只在拖入那一轮对 agent 可见,续轮 skill 流程整体丢失(实测第二轮 agent 已按常识自由发挥)。
+// 进 prompt 文本后随 CLI 历史持久;显示层 appendUserMessage 仍存原始 text,不受影响。
+// 编辑重发/分支的历史行定位按「\n\n+原文」后缀匹配该前缀形态(session-trim.ts,与 pi 的
+// piEntryMatchesText 同一模式)。
+export function buildTurnPromptText(text: string, attachmentPrompt: string | undefined): string {
+  if (!attachmentPrompt) return text;
+  return [attachmentPrompt, text].filter(Boolean).join("\n\n");
 }
 
 // 个人工作区项目清单 → system prompt 块（让 agent 知道用户有哪些本地项目及绝对路径）。
@@ -2725,9 +2754,19 @@ export function usePersonalActions(): PersonalActions {
 
       const attachmentPrompt = buildAttachmentSystemPrompt(attachments);
       const docPrompt = docRefs ? buildDocFilesSystemPrompt(docRefs) : undefined;
-      // 组装顺序:全局指令/语言(U3/U4,三端统一) → 项目信息(Spotlight) → 附件 skills/todos → 文档清单;皆空仍传 undefined。
+      const globalAppend = buildGlobalAppend();
+      // 组装顺序:全局指令/语言(U3/U4,三端统一) → 项目信息(Spotlight) → 文档清单;皆空仍传 undefined。
+      // 附件块刻意不在此列:claude --resume / codex exec resume 只回放对话历史,不回放上一轮 system
+      // prompt,附件走 append 只在拖入那一轮生效,续轮 skill 指令即丢失 → 经 buildTurnPromptText 并入
+      // prompt 文本随历史持久。
       const appendSystemPrompt =
-        [buildGlobalAppend(), extraSystemPrompt, attachmentPrompt, docPrompt].filter(Boolean).join("\n\n") || undefined;
+        [globalAppend, extraSystemPrompt, docPrompt].filter(Boolean).join("\n\n") || undefined;
+      // pi 例外:RPC 长驻会话,注入前缀随进程内历史持久,维持既有「附件并入 append 前缀」行为
+      // (buildPiPromptMessage);其编辑重发定位(piEntryMatchesText 后缀匹配)已覆盖该形态。
+      const piAppendSystemPrompt =
+        [globalAppend, extraSystemPrompt, attachmentPrompt, docPrompt].filter(Boolean).join("\n\n") || undefined;
+      // claude/codex 单发与编排:附件块前缀进 prompt 文本(run.promptText / 显示层仍存原始 text)。
+      const cliText = buildTurnPromptText(text, attachmentPrompt);
 
       // 委派（delegate）@mention 优先级高于 pi 专有路径：消息含 @mention 时任何 agent 都走单发
       // startCli + delegate 工具注入（主 agent 经 ask_<id> 自主委派），不走 pi RPC。提前检测以避免
@@ -2741,7 +2780,7 @@ export function usePersonalActions(): PersonalActions {
       // 或开启三段编排时,pi 也改走下面单发/编排管线（per-turn delegate 工具集 / 编排各段都需 fresh
       // spawn，RPC 工具集在 pi:open 时冻结无法逐轮变化）。
       if (session.agent === "pi" && !hasDelegateMentions && !useOrchestration) {
-        await sendPiTurn(qc, bridge, session, projectPath, text, appendSystemPrompt, { runId, typingUid }, imagePaths);
+        await sendPiTurn(qc, bridge, session, projectPath, text, piAppendSystemPrompt, { runId, typingUid }, imagePaths);
         return true;
       }
       // pi 委派路径不走 sendPiTurn → piSendStarting 锁必须立即释放，
@@ -2871,7 +2910,8 @@ export function usePersonalActions(): PersonalActions {
             sessionId: sendSession.id,
             agent: isPiOrchestration ? "pi" : spawnAgent,
             cwd: projectPath,
-            prompt: text,
+            // 编排各段 fresh spawn 无历史,附件块随 prompt 文本直达(cliText)。
+            prompt: cliText,
             model: sendSession.model,
             effort: sendSession.effort,
             // 仅段2透传：让子 agent 真实执行尊重会话执行/目录权限，并带 skills/附件/项目上下文。
@@ -2930,7 +2970,8 @@ export function usePersonalActions(): PersonalActions {
             sessionId: sendSession.id,
             agent: spawnAgent,
             cwd: projectPath,
-            prompt: text,
+            // 附件块前缀进 prompt(cliText):随 claude/codex CLI 会话历史持久,续轮 resume 仍可见。
+            prompt: cliText,
             model: delegateModel,
             effort: sendSession.effort,
             // 委派 fresh spawn，不续接（per-turn 独立编排）；普通对话照常 resume。

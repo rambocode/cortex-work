@@ -1161,4 +1161,45 @@ describe("detectAgents", () => {
     await expect(detectAgents()).resolves.toEqual({ claude: true, codex: true, pi: true });
     expect(spawnMock).toHaveBeenCalledTimes(2);
   });
+
+  // 根因:codex 原生二进制约 260MB,app 冷启动首探可能超时/竞态误判为不可用;若把该负结果
+  // 永久缓存,用户随后在终端把 codex 跑热也无法自愈,只能重启 app。故负结果必须不缓存、可重探。
+  it("负结果不永久缓存:codex 首轮失败后再次 detect 会重探并自愈为可用", async () => {
+    const claude1 = fakeChild();
+    const codex1 = fakeChild();
+    spawnMock.mockImplementationOnce(() => claude1).mockImplementationOnce(() => codex1);
+
+    const first = detectAgents();
+    claude1.emit("close", 0);
+    codex1.emit("close", 1); // 冷启动超时/失败 → 本轮不可用
+    await expect(first).resolves.toEqual({ claude: true, codex: false, pi: true });
+
+    // 第二轮:codex 已就绪,应重新探测而非返回上一轮缓存的 false。
+    const claude2 = fakeChild();
+    const codex2 = fakeChild();
+    spawnMock.mockImplementationOnce(() => claude2).mockImplementationOnce(() => codex2);
+    const second = detectAgents();
+    claude2.emit("close", 0);
+    codex2.emit("close", 0);
+    await expect(second).resolves.toEqual({ claude: true, codex: true, pi: true });
+    expect(spawnMock).toHaveBeenCalledTimes(4); // 两轮各 2 次 → 证明确实重探
+  });
+
+  it("容忍大体积原生 CLI 冷启动:超过旧 3s 阈值后才退出仍判为可用", async () => {
+    vi.useFakeTimers();
+    try {
+      const claude = fakeChild();
+      const codex = fakeChild();
+      spawnMock.mockImplementationOnce(() => claude).mockImplementationOnce(() => codex);
+
+      const resultPromise = detectAgents();
+      // 推进超过旧的 3000ms 阈值:放宽后不应提前判失败。
+      vi.advanceTimersByTime(6000);
+      claude.emit("close", 0);
+      codex.emit("close", 0);
+      await expect(resultPromise).resolves.toEqual({ claude: true, codex: true, pi: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

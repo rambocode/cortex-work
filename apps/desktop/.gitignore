@@ -1,2 +1,5 @@
 # 打包前由 scripts/extract-release-notes.mjs 生成的构建产物,不入库（每次发布覆盖）。
 build/release-notes.md
+# Cortex Desktop MCP(自动注入,勿提交)
+.mcp.json
+.mcp.json.cortex

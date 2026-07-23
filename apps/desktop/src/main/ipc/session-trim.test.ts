@@ -47,6 +47,17 @@ describe("claudeTrimIndex", () => {
     ];
     expect(claudeTrimIndex(lines, "块消息", 0)).toBe(0);
   });
+
+  // 带附件的轮:prompt 文本为「附件块 + \n\n + 原文」(buildTurnPromptText),按「\n\n+原文」后缀定位
+  //(与 pi 的 piEntryMatchesText 同一模式);无 \n\n 分隔的尾串不得误命中。
+  it("带附件前缀(附件块\\n\\n原文)按后缀匹配定位;无分隔尾串不误命中", () => {
+    const lines = [
+      claudeUser('<skill name="a">规则</skill>\n\n带附件的问题'),
+      claudeUser("xyz带附件的问题"),
+    ];
+    expect(claudeTrimIndex(lines, "带附件的问题", 0)).toBe(0);
+    expect(claudeTrimIndex(lines, "带附件的问题", 1)).toBe(-1);
+  });
 });
 
 // ── codex:rollout-*.jsonl 的行形状 ────────────────────────────────────────
@@ -71,6 +82,15 @@ describe("codexTrimIndex", () => {
 
   it("带附件时按 <user_request> 包装匹配", () => {
     expect(codexTrimIndex(codexLines, "带附件的问题", 0)).toBe(4);
+  });
+
+  // 附件块并入 prompt 文本后,codex 历史形态为 <user_request>\n附件块\n\n原文\n</user_request>,
+  // 需按「\n\n+原文+\n</user_request>」后缀定位。
+  it("附件块在 user_request 内(前缀形态)也能定位", () => {
+    const lines = [
+      codexUser('append\n\n<user_request>\n<skill name="a">规则</skill>\n\n带附件的问题\n</user_request>'),
+    ];
+    expect(codexTrimIndex(lines, "带附件的问题", 0)).toBe(0);
   });
 
   it("找不到返回 -1(AGENTS 指令行不会误匹配)", () => {

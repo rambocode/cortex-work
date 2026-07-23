@@ -24,6 +24,7 @@ import {
   serializeAskQuestionAnswers,
   agentSessionPatch,
   buildAttachmentSystemPrompt,
+  buildTurnPromptText,
   buildGlobalAppend,
   buildSingleSendSkillInjection,
   piEntryMatchesText,
@@ -600,7 +601,8 @@ describe("ensureChatLoaded 即建即发不丢首条消息", () => {
 });
 
 describe("personal attachment system prompt", () => {
-  it("把 prompt 和 todo 附件序列化为不同上下文块", () => {
+  // skill 注入块必须携带 path/base_dir + 公共说明，否则 agent 无法定位 SKILL.md 及其引用的同目录文件
+  it("把 prompt 和 todo 附件序列化为不同上下文块，skill 块带 path/base_dir 与解析说明", () => {
     expect(
       buildAttachmentSystemPrompt([
         { id: "p1", name: "review.md", path: "/prompts/review.md", kind: "prompt", content: "Review rules" },
@@ -615,7 +617,7 @@ describe("personal attachment system prompt", () => {
       ]),
     ).toBe(
       [
-        '<skill name="review.md">',
+        '<skill name="review.md" path="/prompts/review.md" base_dir="/prompts">',
         "Review rules",
         "</skill>",
         "",
@@ -624,8 +626,54 @@ describe("personal attachment system prompt", () => {
         "",
         "## 验收\n- 测试通过",
         "</todo>",
+        "",
+        "注：skill 内的相对路径均基于其 base_dir；被引用的脚本/文档可直接按路径读取。",
       ].join("\n"),
     );
+  });
+
+  it("base_dir 为 path 去掉最后一段（嵌套目录）", () => {
+    const out = buildAttachmentSystemPrompt([
+      {
+        id: "p1",
+        name: "incident-apology-report",
+        path: "/Users/mike/source/ai/skills/cortex-desktop/incident-apology-report/SKILL.md",
+        kind: "prompt",
+        content: "steps",
+      },
+    ]);
+    expect(out).toContain('path="/Users/mike/source/ai/skills/cortex-desktop/incident-apology-report/SKILL.md"');
+    expect(out).toContain('base_dir="/Users/mike/source/ai/skills/cortex-desktop/incident-apology-report"');
+  });
+
+  // path 无目录可推导（空串/仅文件名）时回退旧格式，且不输出公共说明——兼容旧数据
+  it("path 无目录可推导时回退旧格式，不带属性与说明", () => {
+    expect(
+      buildAttachmentSystemPrompt([{ id: "p1", name: "review.md", path: "", kind: "prompt", content: "rules" }]),
+    ).toBe('<skill name="review.md">\nrules\n</skill>');
+    expect(
+      buildAttachmentSystemPrompt([
+        { id: "p2", name: "solo", path: "SKILL.md", kind: "prompt", content: "rules" },
+      ]),
+    ).toBe('<skill name="solo">\nrules\n</skill>');
+  });
+});
+
+describe("buildTurnPromptText 附件块并入 prompt 文本（续轮留存）", () => {
+  // claude --resume / codex exec resume 只回放对话历史,不回放上一轮 system prompt;
+  // 附件块必须进 prompt 文本才能在续轮仍对 agent 可见（回归:第二轮 agent 丢失 skill 流程）。
+  it("有附件块 → 附件块 + 空行 + 原文", () => {
+    expect(buildTurnPromptText("继续实现", '<skill name="a">x</skill>')).toBe(
+      '<skill name="a">x</skill>\n\n继续实现',
+    );
+  });
+
+  it("无附件块 → 原文原样", () => {
+    expect(buildTurnPromptText("继续实现", undefined)).toBe("继续实现");
+  });
+
+  it("纯附件无文本（如纯图发送）→ 仅附件块", () => {
+    expect(buildTurnPromptText("", '<skill name="a">x</skill>')).toBe('<skill name="a">x</skill>');
   });
 });
 

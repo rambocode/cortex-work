@@ -67,13 +67,17 @@ function matchIndexes(
 
 /** 返回应截断的起始行号;找不到/同文序号越界返回 -1。 */
 export function claudeTrimIndex(lines: string[], promptText: string, occurrence: number): number {
-  return matchIndexes(lines, promptText, claudeUserText)[occurrence] ?? -1;
+  // 带附件的轮:prompt 文本为「附件块\n\n原文」(buildTurnPromptText 前缀),按「\n\n+原文」后缀
+  // 定位——与 pi 的 piEntryMatchesText 同一模式;要求 \n\n 分隔,避免任意尾串误命中。
+  return matchIndexes(lines, promptText, claudeUserText, (t) => t.endsWith(`\n\n${promptText}`))[occurrence] ?? -1;
 }
 
 export function codexTrimIndex(lines: string[], promptText: string, occurrence: number): number {
-  // 带附件时 prompt 被包进 <user_request> 块(codex adapter 的 promptWithSkills)。
+  // appendSystemPrompt 存在时 prompt 被包进 <user_request> 块(codex adapter 的 promptWithSkills);
+  // 附件块并入 prompt 文本后,块内形态为「附件块\n\n原文」→ 再按「\n\n+原文+\n</user_request>」后缀兜底。
   const needle = `<user_request>\n${promptText}\n</user_request>`;
-  return matchIndexes(lines, promptText, codexUserText, (t) => t.endsWith(needle))[occurrence] ?? -1;
+  const also = (t: string) => t.endsWith(needle) || t.endsWith(`\n\n${promptText}\n</user_request>`);
+  return matchIndexes(lines, promptText, codexUserText, also)[occurrence] ?? -1;
 }
 
 function findClaudeSessionFile(sessionId: string, home = homedir()): string | null {
