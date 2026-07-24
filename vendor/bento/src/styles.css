@@ -1,4 +1,4 @@
-/* ————— Bento Slides chrome ————— */
+/* ————— Slides editor chrome ————— */
 
 :root {
   --ink: #1e2a3a;
@@ -62,9 +62,6 @@ option { background: #fff; color: #1e2a3a; }
   border-bottom: 1px solid var(--line);
   z-index: 20;
 }
-
-.ed-logo { display: flex; align-items: center; gap: 7px; font-size: 15px; white-space: nowrap; }
-.ed-logo-mark { display: block; border-radius: 5px; }
 
 .ed-title {
   font: inherit;
@@ -440,11 +437,6 @@ option { background: #fff; color: #1e2a3a; }
 .ed-hint code { font-size: 10.5px; word-break: break-all; }
 .ed-morph-warn { color: #C0392B; background: rgba(192, 57, 43, 0.08); }
 
-.ed-btn-update {
-  background: #FF9E8A !important;
-  color: #0D1B2E !important;
-  font-weight: 700;
-}
 .ed-shadow-cap {
   font-size: 11px;
   font-weight: 700;
@@ -501,52 +493,7 @@ option { background: #fff; color: #1e2a3a; }
   max-height: 88vh;
   overflow-y: auto;
 }
-.ed-about-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.ed-about-head b { font-size: 15px; display: block; }
-.ed-about-head span { font-size: 11.5px; color: var(--muted); }
-/* logo/wordmark links home — keep it looking like the logo, not a link */
-.ed-about-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: inherit;
-  text-decoration: none;
-  border-radius: 8px;
-}
-.ed-about-logo:hover { opacity: 0.82; }
-/* engagement line back to the site */
-.ed-about-promo {
-  font-size: 12.5px;
-  color: var(--muted);
-  line-height: 1.5;
-  margin: -2px 0 2px;
-}
-.ed-about-promo a { color: var(--blue); text-decoration: none; }
-.ed-about-promo a:hover { text-decoration: underline; }
 .ed-about-row { display: flex; gap: 8px; }
-.ed-about-status {
-  min-height: 18px;
-  color: var(--ink);
-  line-height: 1.5;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: flex-start;
-}
-.ed-about-new { font-weight: 600; }
-.ed-about-notes {
-  color: var(--muted);
-  background: var(--chrome);
-  border-radius: 8px;
-  padding: 7px 10px;
-  white-space: pre-wrap;
-  max-height: 140px;
-  overflow: auto;
-}
 .ed-about-json {
   width: 100%;
   font: 11px/1.4 ui-monospace, Menlo, monospace;
@@ -1803,11 +1750,9 @@ body.ed-col-resizing { cursor: col-resize; user-select: none; }
 /* --- responsive topbar: labels give way, never a scrollbar ---------------- */
 .ed-topbar { min-width: 0; }
 .ed-topbar .ed-group { flex-shrink: 0; }
-.ed-logo { flex-shrink: 0; }
 .ed-title { flex: 0 1 220px; min-width: 48px; }
 @media (max-width: 1200px) {
   .ed-topbar .ed-btn > span { display: none; } /* icons + tooltips take over */
-  .ed-topbar .ed-btn.ed-btn-update > span { display: inline; } /* version chip is signal */
   /* …but NEVER inside an open dropdown/menu — those items are text; hiding
      their labels left icon-only mystery menus on phones. */
   .ed-topbar .ed-menu .ed-btn > span,
@@ -1816,7 +1761,6 @@ body.ed-col-resizing { cursor: col-resize; user-select: none; }
 }
 @media (max-width: 760px) {
   .ed-topbar { gap: 4px; padding: 6px 6px; }
-  .ed-logo > b { display: none; } /* mark only — the icon is the brand */
 }
 
 /* panel collapse chevrons live ON the resizer strips, not in the topbar */

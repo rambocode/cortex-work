@@ -1,12 +1,13 @@
 // bento-embed 的单测:#bento-doc 块提取/注入的往返一致性与转义红线。
 // 合同对齐上游 bento save.ts 的 serializeBody:块内容为 '\n' + JSON(`<`→`<`) + '\n'。
 import { describe, expect, it } from 'vitest'
-import { extractBentoDocJson, injectBentoDoc } from './bento-embed'
+import { extractBentoDocJson, extractBentoRuntimeId, injectBentoDoc, injectBentoDocJson } from './bento-embed'
 
 /** 最小化的 bento 空壳(结构对齐真实 runtime:head 内空 #bento-doc 块 + 其它脚本)。 */
 const SHELL =
   '<!DOCTYPE html>\n<html><head><meta charset="utf-8">\n' +
-  '<title>Bento Slides</title>\n' +
+  '<title>演示文稿</title>\n' +
+  '<meta name="cortex-slides-runtime" content="runtime-a">\n' +
   '<script type="application/bento+json" id="bento-doc"></script>\n' +
   '<script type="text/plain" id="bento-rt">AAAA</script>\n' +
   '</head><body><div id="app"></div><script id="bento-loader">boot()</script></body></html>'
@@ -47,7 +48,15 @@ describe('injectBentoDoc / extractBentoDocJson', () => {
 
   it('注入会把 <title> 同步为文档标题', () => {
     const html = injectBentoDoc(SHELL, doc)!
-    expect(html).toContain('<title>测试&lt;deck&gt; — Bento Slides</title>')
+    expect(html).toContain('<title>测试&lt;deck&gt;</title>')
+    expect(html).not.toContain('Bento Slides')
+  })
+
+  it('可读取当前 runtime 内容标识,缺失或空值时返回 null', () => {
+    expect(extractBentoRuntimeId(SHELL)).toBe('runtime-a')
+    expect(extractBentoRuntimeId('<meta content="runtime-b" name="cortex-slides-runtime">')).toBe('runtime-b')
+    expect(extractBentoRuntimeId('<meta name="cortex-slides-runtime" content="">')).toBeNull()
+    expect(extractBentoRuntimeId('<html></html>')).toBeNull()
   })
 
   it('壳内无 #bento-doc 块时注入返回 null(损坏壳不静默产出坏文件)', () => {
@@ -63,5 +72,12 @@ describe('injectBentoDoc / extractBentoDocJson', () => {
     const twice = injectBentoDoc(once, { ...doc, title: 'v2' })!
     expect(twice.match(/id="bento-doc"/g)?.length).toBe(1)
     expect(JSON.parse(extractBentoDocJson(twice)!).title).toBe('v2')
+  })
+
+  it('原始 JSON 注入保留空白与加密 envelope 字段,只转义危险的 <', () => {
+    const raw = '{\n  "format": "bento/enc",\n  "v": 1,\n  "it": 300000,\n  "salt": "s",\n  "iv": "i",\n  "data": "cipher<text"\n}'
+    const html = injectBentoDocJson(SHELL, raw)
+    expect(html).not.toBeNull()
+    expect(extractBentoDocJson(html!)).toBe(raw.replace(/</g, '\\u003c'))
   })
 })

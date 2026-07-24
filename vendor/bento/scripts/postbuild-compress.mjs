@@ -26,6 +26,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { deflateRawSync } from 'node:zlib'
+import { createHash } from 'node:crypto'
 
 const path = process.argv[2]
 if (!path) {
@@ -61,8 +62,7 @@ const cssB64 = b64(css)
 const notice = html.match(/<!--\s*NOTICE[\s\S]*?-->/)?.[0] ?? ''
 const docBlock = html.match(/<script type="application\/bento\+json" id="bento-doc">[\s\S]*?<\/script>/)?.[0]
 if (!docBlock) throw new Error('#bento-doc not found')
-const favicon = html.match(/<link rel="icon"[^>]*\/?>/)?.[0] ?? ''
-const title = html.match(/<title>[\s\S]*?<\/title>/)?.[0] ?? '<title>Bento Slides</title>'
+const title = html.match(/<title>[\s\S]*?<\/title>/)?.[0] ?? '<title>演示文稿</title>'
 const splashDiv = html.match(/<div id="bento-splash"[\s\S]*?<\/div>\s*<\/div>/)?.[0] ?? ''
 const splashCss = (() => {
   const bodyPart = html.slice(html.indexOf('<body'))
@@ -83,7 +83,7 @@ const TOOLING_COMMENT = `<!--
   · The base64 blocks near the end are the DEFLATE-compressed app runtime
     (open source, https://bento.page) — no user content, leave them alone.
   · In a running file, window.bento exposes { doc, serialize(), loadDoc(json),
-    comments(), updates, i18n }. In the app UI: About → Copy / Replace JSON.
+    comments(), i18n }. In the app UI: Save menu → Copy / Replace JSON.
 
   MAKE A GREAT DECK, NOT JUST A CORRECT ONE
   Bento's whole point is motion + interactivity. A wall of text slides wastes
@@ -156,6 +156,17 @@ const loader = `
 if (loader.includes('</scr' + 'ipt>')) throw new Error('loader contains script-close')
 
 // --- assemble ----------------------------------------------------------------
+// CORTEX-PATCH: fingerprint every executable/visible shell input, not document data.
+// This makes loader-, splash-, title- and notice-only fixes migrate legacy decks too.
+const runtimeId = createHash('sha256')
+  .update(html.replace(docBlock, '<script type="application/bento+json" id="bento-doc"></script>'))
+  .update('\0')
+  .update(TOOLING_COMMENT)
+  .update('\0')
+  .update(loader)
+  .digest('hex')
+  .slice(0, 16)
+
 const out = `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -163,7 +174,7 @@ const out = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="only light" />
     <meta name="generator" content="bento-slides" />
-    ${favicon}
+    <meta name="cortex-slides-runtime" content="${runtimeId}" />
     ${title}
     ${notice}
     ${TOOLING_COMMENT}

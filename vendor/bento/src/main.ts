@@ -9,10 +9,8 @@ import {
   capturePristine, readEmbeddedDoc, serializeFile, serializeAuto, downloadFile,
   suggestedFileName, parseEnvelope, decryptEnvelope, setEncryptionPassword,
 } from './save'
-import { APP_VERSION, checkForUpdates, buildUpdatedFile, applyUpdate } from './update'
 import { i18nApi, t } from './i18n'
-import { parseDoc, type BentoDoc } from './model'
-import { starterDoc } from './starterdeck'
+import { newDoc, parseDoc, type BentoDoc } from './model'
 import { injectFonts } from './fonts'
 import { Store } from './store'
 import { Editor } from './editor/editor'
@@ -32,7 +30,8 @@ const envelope = embedded ? parseEnvelope(embedded) : null
 if (envelope) {
   void passwordGate()
 } else {
-  bootWith((embedded && parseDoc(embedded)) || starterDoc())
+  // CORTEX-PATCH: empty runtime opens a neutral one-slide document, not the upstream showcase.
+  bootWith((embedded && parseDoc(embedded)) || newDoc())
 }
 
 /** Encrypted file: ask for the password (looping on failure), then boot. */
@@ -88,7 +87,7 @@ function bootWith(doc: BentoDoc) {
  * never expose the editor. Leaving the presentation lands on a minimal card.
  */
 function playerMode(doc: BentoDoc) {
-  document.title = `${doc.title} — Bento Slides`
+  document.title = doc.title
   if (doc.fonts?.length) injectFonts(doc)
   document.getElementById('bento-splash')?.remove()
   const card = document.createElement('div')
@@ -115,7 +114,7 @@ function playerMode(doc: BentoDoc) {
 
 function editorMode(doc: BentoDoc) {
 
-document.title = `${doc.title} — Bento Slides`
+document.title = doc.title
 
 // Embedded fonts: register @font-face rules from the asset table so text
 // elements can use bundled families in the editor, presenter and thumbnails.
@@ -154,6 +153,7 @@ if (location.hash === '#present') {
 
 // Small scripting surface for tooling and automation: read/replace the
 // document model and serialize the full .bento.html file.
+// CORTEX-PATCH: tooling surface intentionally excludes upstream self-update APIs.
 ;(window as any).bento = {
   format: doc.format,
   get doc() {
@@ -198,24 +198,6 @@ if (location.hash === '#present') {
     if (!next) return false
     store.replaceDoc(next)
     return true
-  },
-  /**
-   * Self-update surface (all user/tooling-initiated, never automatic):
-   * check() fetches + signature-verifies the release manifest; build()
-   * returns the updated file's html (this doc inside the new shell);
-   * apply() downloads it. check(url) accepts an override for testing.
-   */
-  updates: {
-    version: APP_VERSION,
-    check: (url?: string) => checkForUpdates(url),
-    build: (release: any) => {
-      session.stampInto(store.doc)
-      return buildUpdatedFile(release, store.doc)
-    },
-    apply: (release: any) => {
-      session.stampInto(store.doc)
-      return applyUpdate(release, store.doc)
-    },
   },
   /**
    * Flat list of every review comment thread — the entry point for tooling

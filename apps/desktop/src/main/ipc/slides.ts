@@ -24,6 +24,7 @@ import type {
 } from "./slides-ipc-types";
 import {
   createBentoDeck,
+  ensureBentoDeckRuntime,
   readBentoDeck,
   reshellBentoPresentation,
   updateBentoDeckMeta,
@@ -77,6 +78,12 @@ export function registerSlidesHandlers(): void {
 
   ipcMain.handle("slides:bentoGetDeck", (_e, req: BentoDeckScopedRequest): Promise<BentoGetDeckResult> =>
     guarded("读取演示文稿失败", async () => {
+      const ensured = await ensureBentoDeckRuntime({
+        workspaceRoot: req.workspaceRoot,
+        deckId: req.deckId,
+        runtimeHtml: await readBentoRuntimeHtml(),
+      });
+      if (!ensured.ok) return { ok: false as const, error: ensured.error };
       const res = await readBentoDeck({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
       return res.ok
         ? {
@@ -113,7 +120,7 @@ export function registerSlidesHandlers(): void {
     }),
   );
 
-  // 另存为 .bento.html:文件本体即交付物,直接拷贝;目标路径只由保存对话框决定。
+  // 另存为 .bento.html:文档注入当前 runtime 后交付,避免旧 deck 导出历史运行壳。
   ipcMain.handle("slides:bentoExportFile", (event, req: BentoDeckScopedRequest): Promise<BentoExportFileResult> =>
     guarded("导出演示文稿失败", async () => {
       const res = await readBentoDeck({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
@@ -128,9 +135,21 @@ export function registerSlidesHandlers(): void {
       // 测试经存根 invoke 传 event=null;真实 IPC 恒有 sender,这里防御性判空。
       const sender = (event as { sender?: Electron.WebContents } | null)?.sender;
       const parent = sender ? BrowserWindow.fromWebContents(sender) : null;
-      const target = await showSaveDialog(parent, safeName, { name: "Bento 演示文稿", extensions: ["html"] });
+      const target = await showSaveDialog(parent, safeName, { name: "HTML 演示文稿", extensions: ["html"] });
       if (!target) return { ok: false as const, canceled: true as const };
-      await fsp.copyFile(res.value.htmlAbs, target);
+      // 保存对话框可停留任意时长;用户确认路径后重新读取,确保导出包含等待期间的编辑。
+      const latest = await readBentoDeck({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
+      if (!latest.ok) return { ok: false as const, error: latest.error };
+      const exportedHtml = latest.value.json
+        ? reshellBentoPresentation(latest.value.json, await readBentoRuntimeHtml())
+        : null;
+      if (!exportedHtml) {
+        return {
+          ok: false as const,
+          error: { code: "invalid_doc" as const, message: "演示文稿缺少有效文档,无法导出" },
+        };
+      }
+      await fsp.writeFile(target, exportedHtml, "utf8");
       return { ok: true as const, path: target };
     }),
   );

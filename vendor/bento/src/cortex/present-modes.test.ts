@@ -86,6 +86,7 @@ describe('Cortex speaker view layout', () => {
   it('split 布局:NOTES 通栏为 .sv-main 直接子节点,几何经 CSS 变量下发', () => {
     expect(tryCortexPresentBoot(doc)).toBe(true)
 
+    expect(document.title).toBe(doc.title)
     expect(document.body.classList.contains('bento-speaker--split')).toBe(true)
     const main = document.querySelector<HTMLElement>('.sv-main')!
     // 旧布局的 .sv-side 侧栏包裹已移除,NOTES 提升为底部通栏

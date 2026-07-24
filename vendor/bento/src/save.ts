@@ -41,8 +41,9 @@ function serializeBody(shell: Document, body: string, title: string): string {
   // <-escape so the JSON can never contain "</script>" and break the file.
   block.textContent = '\n' + body.replace(/</g, '\\u003c') + '\n'
 
+  // CORTEX-PATCH: visible document title is product-neutral.
   const titleEl = clone.querySelector('title')
-  if (titleEl) titleEl.textContent = title + ' — Bento Slides'
+  if (titleEl) titleEl.textContent = title
 
   const html = '<!DOCTYPE html>\n' + clone.documentElement.outerHTML
   // Belt-and-braces: an unescaped close tag anywhere in generated output would
@@ -55,8 +56,8 @@ function serializeBody(shell: Document, body: string, title: string): string {
 
 /**
  * Serialize `doc` into an arbitrary app shell (a parsed Bento HTML document).
- * Used with the boot-time pristine copy on every save, and by the self-update
- * flow with a freshly fetched NEWER shell — same document, new app around it.
+ * Used with the boot-time pristine copy on every save and by the Cortex host
+ * when it places an existing document into the current runtime shell.
  * PLAIN output — encryption-aware callers use serializeDocInto/serializeAuto.
  */
 export function serializeWith(shell: Document, doc: BentoDoc): string {
@@ -75,7 +76,7 @@ export function serializeFile(doc: BentoDoc): string {
 // contract old updaters rely on) — but the block holds a bento/enc envelope
 // instead of the document: AES-GCM-256 over the doc JSON, key derived from
 // the password with PBKDF2-SHA-256. The password is held in memory for the
-// session so ⌘S and self-update keep writing encrypted output.
+// session so every save keeps writing encrypted output.
 
 export interface EncEnvelope {
   format: 'bento/enc'
@@ -161,7 +162,7 @@ export async function decryptEnvelope(env: EncEnvelope, password: string): Promi
 
 /**
  * Encryption-aware serialization into an arbitrary shell — THE path for
- * saves and self-updates. Plain when no password is active.
+ * persistence write. Plain when no password is active.
  */
 export async function serializeDocInto(shell: Document, doc: BentoDoc): Promise<string> {
   const body = encPassword
@@ -198,7 +199,8 @@ async function pickHandle(doc: BentoDoc, suffix = ''): Promise<FsFileHandle | nu
   try {
     return await (window as any).showSaveFilePicker({
       suggestedName: suggestedFileName(doc, suffix),
-      types: [{ description: 'Bento Slides', accept: { 'text/html': ['.html'] } }],
+      // CORTEX-PATCH: do not expose the vendored library name in the system picker.
+      types: [{ description: 'HTML Presentation', accept: { 'text/html': ['.html'] } }],
     })
   } catch (err: any) {
     if (err?.name === 'AbortError') return null
@@ -251,12 +253,12 @@ export async function saveFile(doc: BentoDoc, forcePicker = false): Promise<Save
 
 export const currentFileName = () => fileHandle?.name ?? null
 
-// --- self-update writing ----------------------------------------------------
+// --- host/file writing ------------------------------------------------------
 
-/** Whether we hold a writable handle to the file (in-place update possible). */
+/** Whether we hold a writable handle to the file. */
 export const hasFileHandle = () => fileHandle !== null
 
-/** Overwrite the held file with arbitrary html (the freshly updated shell). */
+/** Overwrite the held file with arbitrary html. */
 export async function writeUpdatedFile(html: string): Promise<void> {
   if (!fileHandle) throw new Error('no file handle')
   await writeHandle(fileHandle, html)

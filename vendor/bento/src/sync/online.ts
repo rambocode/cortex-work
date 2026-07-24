@@ -14,7 +14,7 @@ import type { Store } from '../store'
 import type { BentoDoc } from '../model'
 import type { SyncStateJSON } from './crdt'
 import type { Frame, SyncSession, Transport } from './session'
-import { offlineEnabled } from '../update'
+import { offlineEnabled } from './offline' // CORTEX-PATCH: updater-free network preference
 
 export const DEFAULT_SYNC_HOST = 'wss://sync.bento.page'
 const SNAP_EVERY = 200 // ops between encrypted snapshot uploads

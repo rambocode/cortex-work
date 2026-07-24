@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SLIDES_IPC_CHANNELS as CORE_CHANNELS } from "@cortex-work/core/desktop/slides-ipc-types";
+import { dialog } from "electron";
 
 const { handlers } = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, req: unknown) => Promise<unknown>>(),
@@ -88,6 +89,41 @@ describe("bento deck 生命周期经 IPC", () => {
     expect(JSON.parse(loaded.json!).title).toBe("IPC 测试");
   });
 
+  it("bentoGetDeck 在编辑器加载前把旧壳换成当前 runtime,revision 不变", async () => {
+    const deckId = "deckoldrt1";
+    const created = await invoke<{ ok: boolean; revision?: number }>("slides:bentoCreateDeck", {
+      workspaceRoot: root,
+      deckId,
+      title: "旧壳",
+    });
+    expect(created.ok).toBe(true);
+    const doc = buildStarterBentoDoc("旧壳");
+    const staleShell =
+      "STALE_EDITOR_RUNTIME " +
+      '<!DOCTYPE html><html><head><title>旧壳</title>' +
+      '<script type="application/bento+json" id="bento-doc"></script>' +
+      "</head><body></body></html>";
+    const staleHtml = injectBentoDoc(staleShell, doc)!;
+    const saved = await invoke<{ ok: boolean; revision?: number }>("slides:bentoWriteDeckHtml", {
+      workspaceRoot: root,
+      deckId,
+      html: staleHtml,
+    });
+    expect(saved.ok).toBe(true);
+
+    const loaded = await invoke<{ ok: boolean; revision?: number; json?: string }>("slides:bentoGetDeck", {
+      workspaceRoot: root,
+      deckId,
+    });
+
+    expect(loaded.ok).toBe(true);
+    expect(loaded.revision).toBe(saved.revision);
+    expect(JSON.parse(loaded.json!).title).toBe("旧壳");
+    const migrated = readFileSync(join(root, ".cortex-design", deckId, "deck.bento.html"), "utf8");
+    expect(migrated).not.toContain("STALE_EDITOR_RUNTIME");
+    expect(migrated).toContain('name="cortex-slides-runtime"');
+  });
+
   it("bentoSetStage 推进 gate;bentoWriteDeckHtml 覆写并 bump revision", async () => {
     const staged = await invoke<{ ok: boolean }>("slides:bentoSetStage", {
       workspaceRoot: root,
@@ -122,6 +158,76 @@ describe("bento deck 生命周期经 IPC", () => {
     });
     expect(res.ok).toBe(false);
     expect(res.canceled).toBe(true);
+  });
+
+  it("bentoExportFile 使用当前 runtime 换壳并采用中性文件类型名称", async () => {
+    const deckId = "deckexport1";
+    const target = join(root, "exported.bento.html");
+    const created = await invoke<{ ok: boolean }>("slides:bentoCreateDeck", {
+      workspaceRoot: root,
+      deckId,
+      title: "导出测试",
+    });
+    expect(created.ok).toBe(true);
+    const doc = buildStarterBentoDoc("导出测试");
+    const staleHtml = injectBentoDoc(
+      'STALE_EXPORT_RUNTIME <html><head><title>旧</title><script type="application/bento+json" id="bento-doc"></script></head><body></body></html>',
+      doc,
+    )!;
+    expect((await invoke<{ ok: boolean }>("slides:bentoWriteDeckHtml", {
+      workspaceRoot: root,
+      deckId,
+      html: staleHtml,
+    })).ok).toBe(true);
+    vi.mocked(dialog.showSaveDialog).mockResolvedValueOnce({ canceled: false, filePath: target });
+
+    const result = await invoke<{ ok: boolean; path?: string }>("slides:bentoExportFile", {
+      workspaceRoot: root,
+      deckId,
+    });
+
+    expect(result).toEqual({ ok: true, path: target });
+    const exported = readFileSync(target, "utf8");
+    expect(exported).not.toContain("STALE_EXPORT_RUNTIME");
+    expect(exported).toContain('name="cortex-slides-runtime"');
+    expect(JSON.parse(extractBentoDocJson(exported)!)).toMatchObject({ title: "导出测试" });
+    expect(vi.mocked(dialog.showSaveDialog)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filters: [{ name: "HTML 演示文稿", extensions: ["html"] }] }),
+    );
+  });
+
+  it("bentoExportFile 在用户选定路径后读取最新文档,不丢失对话框等待期间的编辑", async () => {
+    const deckId = "deckexport2";
+    const target = join(root, "exported-latest.bento.html");
+    expect((await invoke<{ ok: boolean }>("slides:bentoCreateDeck", {
+      workspaceRoot: root,
+      deckId,
+      title: "导出前",
+    })).ok).toBe(true);
+    let resolveDialog!: (value: { canceled: false; filePath: string }) => void;
+    let markDialogShown!: () => void;
+    const dialogShown = new Promise<void>((resolve) => { markDialogShown = resolve; });
+    vi.mocked(dialog.showSaveDialog).mockImplementationOnce(async () => {
+      markDialogShown();
+      return await new Promise((resolve) => { resolveDialog = resolve; });
+    });
+
+    const exporting = invoke<{ ok: boolean; path?: string }>("slides:bentoExportFile", {
+      workspaceRoot: root,
+      deckId,
+    });
+    await dialogShown;
+    const currentHtml = readFileSync(join(root, ".cortex-design", deckId, "deck.bento.html"), "utf8");
+    const latestDoc = buildStarterBentoDoc("导出后");
+    expect((await invoke<{ ok: boolean }>("slides:bentoWriteDeckHtml", {
+      workspaceRoot: root,
+      deckId,
+      html: injectBentoDoc(currentHtml, latestDoc)!,
+    })).ok).toBe(true);
+    resolveDialog({ canceled: false, filePath: target });
+
+    expect(await exporting).toEqual({ ok: true, path: target });
+    expect(JSON.parse(extractBentoDocJson(readFileSync(target, "utf8"))!)).toMatchObject({ title: "导出后" });
   });
 });
 

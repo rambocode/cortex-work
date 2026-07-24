@@ -12,6 +12,7 @@ vi.mock("../../log", () => ({
 
 import {
   createBentoDeck,
+  ensureBentoDeckRuntime,
   readBentoDeck,
   reshellBentoPresentation,
   writeBentoDoc,
@@ -21,9 +22,14 @@ import {
 const DECK = "deckabc1";
 // 最小合成壳:与真实 runtime 的合同一致(空 #bento-doc 块)。
 const SHELL =
-  '<!DOCTYPE html>\n<html><head><title>Bento Slides</title>\n' +
+  '<!DOCTYPE html>\n<html><head><title>演示文稿</title>\n' +
   '<script type="application/bento+json" id="bento-doc"></script>\n' +
   '</head><body><div id="app"></div></body></html>';
+const CURRENT_RUNTIME =
+  '<!DOCTYPE html>\n<html><head><title>演示文稿</title>\n' +
+  '<meta name="cortex-slides-runtime" content="runtime-current">\n' +
+  '<script type="application/bento+json" id="bento-doc"></script>\n' +
+  '</head><body><div id="app">CURRENT_RUNTIME_MARKER</div></body></html>';
 
 let root: string;
 
@@ -184,5 +190,91 @@ describe("reshellBentoPresentation(放映换壳)", () => {
   it("坏 JSON 或新壳缺 #bento-doc 块 → null(调用方回退直接加载 deck)", () => {
     expect(reshellBentoPresentation("{oops", SHELL)).toBeNull();
     expect(reshellBentoPresentation("{}", "<html>no block</html>")).toBeNull();
+  });
+});
+
+describe("ensureBentoDeckRuntime(编辑器存量换壳)", () => {
+  it("旧 deck 原子换成当前 runtime,文档与 sidecar revision 保持不变", async () => {
+    await createOk();
+    const beforeJson = extractBentoDocJson(readFileSync(deckHtmlFile(), "utf8"));
+    const beforeMeta = readFileSync(join(root, ".cortex-design", DECK, "deck.meta.json"), "utf8");
+
+    const migrated = await ensureBentoDeckRuntime({
+      workspaceRoot: root,
+      deckId: DECK,
+      runtimeHtml: CURRENT_RUNTIME,
+    });
+
+    expect(migrated).toEqual({ ok: true, value: { migrated: true } });
+    const html = readFileSync(deckHtmlFile(), "utf8");
+    expect(html).toContain('content="runtime-current"');
+    expect(html).toContain("CURRENT_RUNTIME_MARKER");
+    expect(extractBentoDocJson(html)).toBe(beforeJson);
+    expect(readFileSync(join(root, ".cortex-design", DECK, "deck.meta.json"), "utf8")).toBe(beforeMeta);
+  });
+
+  it("runtime 标识相同则不重复换壳", async () => {
+    await createOk();
+    const first = await ensureBentoDeckRuntime({
+      workspaceRoot: root,
+      deckId: DECK,
+      runtimeHtml: CURRENT_RUNTIME,
+    });
+    expect(first.ok && first.value.migrated).toBe(true);
+    const html = readFileSync(deckHtmlFile(), "utf8");
+
+    const second = await ensureBentoDeckRuntime({
+      workspaceRoot: root,
+      deckId: DECK,
+      runtimeHtml: CURRENT_RUNTIME,
+    });
+
+    expect(second).toEqual({ ok: true, value: { migrated: false } });
+    expect(readFileSync(deckHtmlFile(), "utf8")).toBe(html);
+  });
+
+  it("当前 runtime 缺少内容标识时拒绝换壳且不覆盖旧文件", async () => {
+    await createOk();
+    const before = readFileSync(deckHtmlFile(), "utf8");
+
+    const result = await ensureBentoDeckRuntime({
+      workspaceRoot: root,
+      deckId: DECK,
+      runtimeHtml: SHELL,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("invalid_doc");
+    expect(readFileSync(deckHtmlFile(), "utf8")).toBe(before);
+  });
+
+  it("加密 envelope 换壳时密文字段和 JSON 排版原样保留,sidecar 不变", async () => {
+    await createOk();
+    const envelopeJson = JSON.stringify({
+      format: "bento/enc",
+      v: 1,
+      it: 300_000,
+      salt: "salt-value",
+      iv: "iv-value",
+      data: "cipher-value",
+    }, null, 2);
+    const current = readFileSync(deckHtmlFile(), "utf8");
+    const encrypted = current.replace(
+      /(<script\b[^>]*\bid="bento-doc"[^>]*>)[\s\S]*?(<\/script>)/,
+      `$1\n${envelopeJson}\n$2`,
+    );
+    const saved = await writeBentoDeckHtml({ workspaceRoot: root, deckId: DECK, html: encrypted });
+    expect(saved.ok).toBe(true);
+    const metaBefore = readFileSync(join(root, ".cortex-design", DECK, "deck.meta.json"), "utf8");
+
+    const migrated = await ensureBentoDeckRuntime({
+      workspaceRoot: root,
+      deckId: DECK,
+      runtimeHtml: CURRENT_RUNTIME,
+    });
+
+    expect(migrated).toEqual({ ok: true, value: { migrated: true } });
+    expect(extractBentoDocJson(readFileSync(deckHtmlFile(), "utf8"))).toBe(envelopeJson);
+    expect(readFileSync(join(root, ".cortex-design", DECK, "deck.meta.json"), "utf8")).toBe(metaBefore);
   });
 });

@@ -33,7 +33,7 @@ function parseModeHash(hash: string): { mode: CortexPresentMode; startIndex: num
 export function tryCortexPresentBoot(doc: BentoDoc): boolean {
   const req = parseModeHash(location.hash)
   if (!req) return false
-  document.title = `${doc.title} — Bento Slides`
+  document.title = doc.title
   if (doc.fonts?.length) injectFonts(doc)
   document.getElementById('bento-splash')?.remove()
   const startIndex = Math.max(0, Math.min(req.startIndex, doc.slides.length - 1))

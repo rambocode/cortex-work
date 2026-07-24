@@ -5,13 +5,12 @@
 
 import type { Store } from '../store'
 import {
-  FORMAT_VERSION,
   MEDIA_EMBED_BUDGET,
   applyChartPalette, applyLayout, builtinLayouts, defaultChart, defaultImage, defaultMedia, defaultShape, defaultTable, defaultText,
   instantiateLayout, isLightBg, layoutElementIds, newDocId, readableInk, syncLinkedChart, uid,
   type ChartElement, type ShapeKind, type Slide, type SlideElement, type TableElement,
 } from '../model'
-import { APP_VERSION, applyUpdate, applyUpdateInPlace, autoCheckEnabled, canUpdateInPlace, checkForUpdates, offlineEnabled, setAutoCheck, setOffline } from '../update'
+import { offlineEnabled, setOffline } from '../sync/offline'
 import { CHART_PRESETS } from '../charts'
 import { renderSlide, renderThumbnail } from '../render'
 import { SlideCanvas } from './canvas'
@@ -48,13 +47,10 @@ export class Editor {
   private dirtyDot!: HTMLElement
   private thumbTimer = 0
   private presenting = false
-  private updatesB!: HTMLElement
   private avatarsBox!: HTMLElement
   private shareB!: HTMLElement
   private shareWrap!: HTMLElement
   private session: import('../sync/session').SyncSession | null = null
-  private updateFound: string | null = null
-  private lastAutoCheck: import('../update').UpdateCheck | null = null
   /** side panel widths (px) — user-resizable, persisted per browser */
   private panelW = { left: 188, right: 236 }
 
@@ -188,17 +184,7 @@ export class Editor {
 
     // topbar
     const bar = div('ed-topbar')
-    const logo = div('ed-logo')
-    logo.innerHTML =
-      `<svg class="ed-logo-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true">` +
-      `<rect width="32" height="32" rx="7" fill="#16273E"/>` +
-      `<rect x="5" y="5" width="7" height="22" rx="2.5" fill="#5E7699"/>` +
-      `<rect x="14" y="5" width="13" height="10" rx="2.5" fill="#FF9E8A"/>` +
-      `<rect x="14" y="17" width="13" height="10" rx="2.5" fill="#F0EBE0"/>` +
-      `</svg> <b>Bento<span style="color:#FF9E8A">/</span>Slides</b>`
-    logo.title = t('About Bento Slides — version, updates, licenses')
-    logo.style.cursor = 'pointer'
-    logo.addEventListener('click', () => this.openAbout())
+    // CORTEX-PATCH: the host owns product identity; start directly with the deck title.
     const title = document.createElement('input')
     title.className = 'ed-title'
     title.title = t('Deck title — shown in the tab, on {{title}} fields, and as the suggested file name')
@@ -206,13 +192,13 @@ export class Editor {
     title.spellcheck = false
     title.addEventListener('change', () => {
       this.store.commit(() => { this.store.doc.title = title.value || 'Untitled' })
-      document.title = `${this.store.doc.title} — Bento Slides`
+      document.title = this.store.doc.title
     })
     // remote/programmatic title changes reflect live (unless being typed in)
     this.store.on('doc', () => {
       if (document.activeElement !== title && title.value !== this.store.doc.title) {
         title.value = this.store.doc.title
-        document.title = `${this.store.doc.title} — Bento Slides`
+        document.title = this.store.doc.title
       }
     })
     this.dirtyDot = div('ed-dirty')
@@ -236,25 +222,6 @@ export class Editor {
     insert.appendChild(commentB)
 
     const actions = div('ed-group ed-group-right')
-    // the update chip sits beside the wordmark and exists ONLY when an
-    // update is available (manual checks live in the About dialog)
-    this.updatesB = btn(ICONS.sync, '', () => this.openAbout(true), t('Check for updates'))
-    this.updatesB.style.display = 'none'
-    setTimeout(async () => {
-      if (!autoCheckEnabled() || offlineEnabled()) return
-      const r = await checkForUpdates()
-      this.lastAutoCheck = r
-      if (r.status === 'update') {
-        this.updateFound = r.release.version
-        this.updatesB.style.display = ''
-        this.updatesB.classList.add('ed-btn-update')
-        this.updatesB.innerHTML = `${ICONS.sync}<span>v${r.release.version}</span>`
-        this.updatesB.title = t('Version {v} is available — click to update', { v: r.release.version })
-        this.toast(t('Update available: v{v} — click the peach button to update', { v: r.release.version }))
-      } else if (r.status === 'current') {
-        this.toast(t('Up to date — v{v}', { v: APP_VERSION }))
-      }
-    }, 1500)
     const undoB = btn(ICONS.undo, '', () => this.store.undo(), t('Undo (⌘Z)'))
     const redoB = btn(ICONS.redo, '', () => this.store.redo(), t('Redo (⇧⌘Z)'))
     const saveB = btn(ICONS.save, t('Save'), () => this.save(false), t('Save — rewrite this file in place (⌘S)'))
@@ -271,7 +238,7 @@ export class Editor {
     const saveGroup = div('ed-split')
     saveGroup.append(saveB, this.saveDropdown())
     actions.append(pdfB, this.avatarsBox, this.shareDropdown(), saveGroup, this.languageDropdown(), helpB)
-    bar.append(logo, this.updatesB, title, history, insert, actions)
+    bar.append(title, history, insert, actions)
 
     // main area
     const main = div('ed-main')
@@ -496,8 +463,10 @@ export class Editor {
           () => void this.setFilePassword())
       }
       // the document AS DATA — history and the AI/JSON round-trip live with
-      // the other file operations now (they were buried in the About dialog)
+      // the other file operations.
       menu.appendChild(div('ed-menu-sep'))
+      item('', t('Document properties'), t('Document properties'),
+        () => this.openDocumentProperties())
       item(ICONS.history, t('Version history…'),
         t('Restore an earlier auto-saved version of this deck (kept locally in this browser).'),
         () => void this.openVersionHistory())
@@ -853,7 +822,6 @@ export class Editor {
 
     if (offlineEnabled()) {
       note(t('Offline mode is on — nothing leaves this computer.'))
-      note(t('Tabs on this machine still sync; turn offline mode off in the About dialog to collaborate online.'))
       return
     }
 
@@ -1726,19 +1694,9 @@ export class Editor {
     const ul = document.createElement('ul'); ul.className = 'ed-help-tips'
     for (const tip of [
       t('Paste an image or text straight onto the canvas with ⌘V.'),
-      t('Copy a slide (⌘C with nothing selected) and paste it into another Bento deck.'),
       t('Make a chart from a table and it stays linked — edit the table, the chart updates.'),
-      t('Your work auto-saves; restore earlier versions from About → Version history.'),
     ]) { const li = document.createElement('li'); li.textContent = tip; ul.appendChild(li) }
     tips.appendChild(ul); colL.appendChild(tips)
-    const more = div('ed-help-more')
-    const link = document.createElement('a')
-    link.href = 'https://bento.page/help'
-    link.target = '_blank'
-    link.rel = 'noopener'
-    link.textContent = t('Full guide at bento.page/help →')
-    more.appendChild(link)
-    box.appendChild(more)
     overlay.appendChild(box)
     const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true) }
     const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { ev.stopPropagation(); close() } }
@@ -1933,144 +1891,16 @@ export class Editor {
 
   // --- toast ------------------------------------------------------------------
 
-  // --- about & updates ------------------------------------------------------
+  // --- document properties --------------------------------------------------
 
-  /** About dialog: version, user-initiated update check, licenses. */
-  private openAbout(runCheck = false) {
+  // CORTEX-PATCH: preserve metadata/offline controls without upstream branding or updater UI.
+  /** Document metadata, offline preference and bundled third-party notices. */
+  private openDocumentProperties() {
     document.querySelector('.ed-about-overlay')?.remove()
     const overlay = div('ed-about-overlay')
     const box = div('ed-about')
 
-    const head = div('ed-about-head')
-    // The logo/wordmark links home (new tab) — a gentle route back to the site.
-    head.innerHTML =
-      `<a class="ed-about-logo" href="https://bento.page" target="_blank" rel="noopener">` +
-      `<svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">` +
-      `<rect width="32" height="32" rx="7" fill="#16273E"/>` +
-      `<rect x="5" y="5" width="7" height="22" rx="2.5" fill="#5E7699"/>` +
-      `<rect x="14" y="5" width="13" height="10" rx="2.5" fill="#FF9E8A"/>` +
-      `<rect x="14" y="17" width="13" height="10" rx="2.5" fill="#F0EBE0"/>` +
-      `</svg><div><b>Bento<span style="color:#FF9E8A">/</span>Slides</b><span>v${APP_VERSION} · format v${FORMAT_VERSION}</span></div>` +
-      `</a>`
-    head.querySelector('a')?.setAttribute('title', t('Visit bento.page (opens in a new tab)'))
-    box.appendChild(head)
-
-    // Engagement nudge back to the site (templates / gallery / agent guide).
-    const promo = div('ed-about-promo')
-    promo.innerHTML = t(
-      'New to Bento? Find templates, the gallery and the AI editing guide at {home} — or ⭐ it on {gh}.',
-      {
-        home: '<a href="https://bento.page" target="_blank" rel="noopener">bento.page</a>',
-        gh: '<a href="https://github.com/nyblnet/bento" target="_blank" rel="noopener">GitHub</a>',
-      },
-    )
-    box.appendChild(promo)
-
-    const status = div('ed-about-status')
-    status.textContent =
-      this.lastAutoCheck?.status === 'current'
-        ? t("Checked automatically at launch — you're on the latest version (v{v}).", { v: APP_VERSION })
-        : this.lastAutoCheck?.status === 'error'
-          ? t("Launch check couldn't reach the release server ({m}). Check manually below.", { m: this.lastAutoCheck.message })
-          : t('This file carries its own app — it works offline, forever, as is.')
-
-    const row = div('ed-about-row')
-    const checkB = document.createElement('button')
-    checkB.className = 'ed-btn'
-    checkB.textContent = t('Check for updates')
-    checkB.addEventListener('click', async () => {
-      checkB.disabled = true
-      status.textContent = t('Checking…')
-      const result = await checkForUpdates()
-      checkB.disabled = false
-      if (result.status === 'current') {
-        status.textContent = t("You're on the latest version (v{v}).", { v: result.version })
-      } else if (result.status === 'error') {
-        status.textContent = t("Couldn't check: {m}", { m: result.message })
-      } else {
-        const { release } = result
-        status.textContent = ''
-        const line = div('ed-about-new')
-        line.textContent = t('Version {v} is available.', { v: release.version })
-        status.appendChild(line)
-        if (release.notes) {
-          const notes = div('ed-about-notes')
-          notes.textContent = release.notes
-          status.appendChild(notes)
-        }
-        const fail = (err: any) => { status.textContent = t('Update failed: {m}', { m: String(err?.message ?? err) }) }
-        const done = () => {
-          status.textContent = ''
-          const ok = div('ed-about-new')
-          ok.textContent = t('Updated to v{v} on disk.', { v: release.version })
-          status.appendChild(ok)
-          const note = div('ed-about-notes')
-          note.textContent = canUpdateInPlace()
-            ? t('This window is still running v{v} — reload to finish. A v{v} backup was downloaded.', { v: APP_VERSION })
-            : t("This window is still running v{v}. If you overwrote the file that's open here, reload; otherwise open the file you saved.", { v: APP_VERSION })
-          status.appendChild(note)
-          const reloadB = document.createElement('button')
-          reloadB.className = 'ed-btn ed-btn-primary'
-          reloadB.textContent = t('Reload into new version')
-          reloadB.addEventListener('click', () => {
-            this.store.setDirty(false) // disk already holds this exact document
-            location.reload()
-          })
-          status.appendChild(reloadB)
-        }
-
-        const inPlaceB = document.createElement('button')
-        inPlaceB.className = 'ed-btn ed-btn-primary'
-        inPlaceB.textContent = canUpdateInPlace() ? t('Update this file') : t('Update this file…')
-        inPlaceB.title = canUpdateInPlace()
-          ? t('Downloads a backup of the current version, then rewrites this file on disk as the new version — document untouched.')
-          : t('Verifies and builds the new version with this document inside, then asks where to save it — pick the file you have open to update it.')
-        inPlaceB.addEventListener('click', async () => {
-          inPlaceB.disabled = true
-          inPlaceB.textContent = t('Verifying…')
-          try {
-            this.session?.stampInto(this.store.doc)
-            const written = await applyUpdateInPlace(release, this.store.doc)
-            if (written) done()
-            else { inPlaceB.disabled = false; inPlaceB.textContent = t('Update this file…') }
-          } catch (err: any) { fail(err) }
-        })
-        status.appendChild(inPlaceB)
-
-        const getB = document.createElement('button')
-        getB.className = 'ed-btn'
-        getB.textContent = t('Download updated copy')
-        getB.title = t('Downloads the new version with this document inside. The file you have now is not touched.')
-        getB.addEventListener('click', async () => {
-          getB.disabled = true
-          getB.textContent = t('Verifying…')
-          try {
-            this.session?.stampInto(this.store.doc)
-            await applyUpdate(release, this.store.doc)
-            getB.textContent = t('Downloaded ✓')
-            const note = div('ed-about-notes')
-            note.textContent = t('This window keeps running v{v} until you open the downloaded file.', { v: APP_VERSION })
-            status.appendChild(note)
-          } catch (err: any) { fail(err) }
-        })
-        status.appendChild(getB)
-      }
-    })
-    row.appendChild(checkB)
-    box.append(row, status)
-
-    const autoRow = document.createElement('label')
-    autoRow.className = 'ed-about-auto'
-    const autoCb = document.createElement('input')
-    autoCb.type = 'checkbox'
-    autoCb.checked = autoCheckEnabled()
-    autoCb.addEventListener('change', () => setAutoCheck(autoCb.checked))
-    autoRow.append(autoCb, document.createTextNode(' ' + t('Check for updates automatically at launch')))
-    box.appendChild(autoRow)
-
-    // the hard no-network switch: blocks update checks AND online
-    // collaboration for this browser. Same-machine tab sync is not
-    // networking and stays on.
+    // Same-machine tab sync is not networking and stays on.
     const offRow = document.createElement('label')
     offRow.className = 'ed-about-auto'
     const offCb = document.createElement('input')
@@ -2090,7 +1920,7 @@ export class Editor {
           : t('Offline mode off — online features re-enabled'),
       )
     })
-    offRow.append(offCb, document.createTextNode(' ' + t('Offline mode — block all network features (updates, online collaboration)')))
+    offRow.append(offCb, document.createTextNode(' ' + t('Offline mode — block online collaboration')))
     box.appendChild(offRow)
 
     // Document properties → fillable {{author}} {{company}} {{subject}} {{event}} fields
@@ -2124,8 +1954,7 @@ export class Editor {
     box.appendChild(metaWrap)
 
     const fine = div('ed-about-fine')
-    fine.innerHTML =
-      `${t('Checks contact the release server and send nothing about you or this document — no ids, no telemetry.')}<br>` +
+    fine.textContent =
       t('Includes reveal.js, Moveable, Selecto (MIT) · Fraunces + Instrument Sans typefaces (OFL-1.1) — full notices travel in this file’s source.')
     box.appendChild(fine)
 
@@ -2145,7 +1974,6 @@ export class Editor {
     })
     document.addEventListener('keydown', onKey, true)
     document.body.appendChild(overlay)
-    if (runCheck || this.updateFound) checkB.click()
   }
 
   toast(message: string) {

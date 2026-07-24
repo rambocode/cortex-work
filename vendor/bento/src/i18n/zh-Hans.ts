@@ -290,6 +290,7 @@ export const zhHans: Catalog = {
   "Offline mode is on — nothing leaves this computer.": "离线模式已开启 — 任何数据都不会离开这台电脑。",
   "Tabs on this machine still sync; turn offline mode off in the About dialog to collaborate online.": "本机的标签页仍会同步；要在线协作，请在“关于”对话框中关闭离线模式。",
   "Offline mode — block all network features (updates, online collaboration)": "离线模式 — 屏蔽所有网络功能（更新检查、在线协作）",
+  "Offline mode — block online collaboration": "离线模式 — 屏蔽在线协作",
   "Offline mode on — nothing leaves this computer": "离线模式已开启 — 任何数据都不会离开这台电脑",
   "Offline mode off — online features re-enabled": "离线模式已关闭 — 在线功能已恢复",
   "Save as template…": "另存为模板…",

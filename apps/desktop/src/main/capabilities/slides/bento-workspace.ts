@@ -14,7 +14,12 @@ import {
   type BentoDoc,
 } from "@cortex-work/core/design/slides/bento/bento-doc-schema";
 import { buildStarterBentoDoc } from "@cortex-work/core/design/slides/bento/bento-doc-schema";
-import { extractBentoDocJson, injectBentoDoc } from "@cortex-work/core/design/slides/bento/bento-embed";
+import {
+  extractBentoDocJson,
+  extractBentoRuntimeId,
+  injectBentoDoc,
+  injectBentoDocJson,
+} from "@cortex-work/core/design/slides/bento/bento-embed";
 import {
   bentoDeckHtmlPath,
   bentoDeckMetaPath,
@@ -235,6 +240,54 @@ export async function readBentoDeck(options: {
   });
 }
 
+/**
+ * 编辑器换壳:存量 deck 若不是当前 runtime,只替换应用壳并原样保留文档 JSON。
+ * sidecar 元数据不参与写入,因此 revision/stage/outline 均保持不变。
+ */
+export async function ensureBentoDeckRuntime(options: {
+  workspaceRoot: string;
+  deckId: string;
+  runtimeHtml: string;
+}): Promise<BentoWorkspaceResult<{ migrated: boolean }>> {
+  const resolved = await resolveBentoDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const paths = resolved.value;
+  return enqueueDeck(paths.deckRootAbs, async () => {
+    const currentRuntimeId = extractBentoRuntimeId(options.runtimeHtml);
+    if (!currentRuntimeId) {
+      return fail<{ migrated: boolean }>("invalid_doc", "当前 runtime 缺少 cortex-slides-runtime 内容标识");
+    }
+    let html: string;
+    try {
+      html = await fsp.readFile(paths.htmlAbs, "utf8");
+    } catch {
+      return fail<{ migrated: boolean }>("not_found", `deck 不存在: ${options.deckId}`);
+    }
+    const json = extractBentoDocJson(html);
+    if (!json) {
+      return fail<{ migrated: boolean }>("invalid_doc", "deck 文件缺少有效的 #bento-doc 文档");
+    }
+    const doc = safeJsonParse(json);
+    if (!doc || typeof doc !== "object") {
+      return fail<{ migrated: boolean }>("invalid_doc", "deck 文件缺少有效的 #bento-doc 文档");
+    }
+    if (extractBentoRuntimeId(html) === currentRuntimeId) {
+      return { ok: true, value: { migrated: false } };
+    }
+    const next = injectBentoDocJson(options.runtimeHtml, json, (doc as { title?: unknown }).title);
+    if (next === null) {
+      return fail<{ migrated: boolean }>("invalid_doc", "当前 runtime 壳缺少 #bento-doc 块");
+    }
+    try {
+      await atomicWriteFile(paths.htmlAbs, next);
+      return { ok: true, value: { migrated: true } };
+    } catch (err) {
+      log.error(`[bento] ensureBentoDeckRuntime 换壳失败: ${String(err)}`);
+      return fail<{ migrated: boolean }>("io_error", `更新演示文稿 runtime 失败: ${String(err)}`);
+    }
+  });
+}
+
 function safeJsonParse(text: string): unknown {
   try {
     return JSON.parse(text) as unknown;
@@ -252,7 +305,7 @@ function safeJsonParse(text: string): unknown {
 export function reshellBentoPresentation(deckDocJson: string, runtimeHtml: string): string | null {
   const doc = safeJsonParse(deckDocJson);
   if (!doc || typeof doc !== "object") return null;
-  return injectBentoDoc(runtimeHtml, doc as { title?: unknown });
+  return injectBentoDocJson(runtimeHtml, deckDocJson, (doc as { title?: unknown }).title);
 }
 
 /** AI 整份写文档:schema 校验 + expectedRevision 乐观锁 + 原子替换 #bento-doc 块。 */
