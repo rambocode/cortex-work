@@ -11,7 +11,8 @@
 //   {type:"session",id}                                              → init
 //   {type:"message_update",assistantMessageEvent:{type:"text_delta",delta}} → text 增量
 //   {type:"message_update",assistantMessageEvent:{type:"thinking_delta",delta}} → thinking 增量
-//   {type:"tool_execution_start",toolName,args}                      → tool 步骤
+//   {type:"tool_execution_start",toolCallId,toolName,args}           → tool start
+//   {type:"tool_execution_end",toolCallId,toolName,result,isError}   → tool end
 //   {type:"message_end",message:{role:"assistant",stopReason,...}}   → 收尾(result)
 //   另有 agent_start/turn_start/turn_end/agent_end/message_start 等,一律忽略;
 //   message_update 的 text/thinking start-end、toolcall_* 子帧与 user 回显的 message_end
@@ -43,6 +44,37 @@ function joinText(content: unknown): string | undefined {
     .map((b) => b.text as string)
     .join("");
   return text || undefined;
+}
+
+const MAX_TOOL_OUTPUT = 8_000;
+
+// 单发 pi 同样会产 tool_execution_end；此前只映射 start，导致失败工具在 UI 中也被提前标绿，
+// 并触发 parse 的“未映射帧”巨量日志。输出规则与 pi-rpc 保持一致。
+function normalizeToolResult(result: unknown): string | undefined {
+  if (result == null) return undefined;
+  let text: string;
+  if (typeof result === "string") {
+    text = result;
+  } else {
+    const content = (result as Record<string, unknown>).content;
+    if (Array.isArray(content)) {
+      text = content
+        .map((block) => {
+          const item = block as Record<string, unknown>;
+          return item.type === "text" && typeof item.text === "string" ? item.text : "";
+        })
+        .filter(Boolean)
+        .join("\n");
+    } else {
+      try {
+        text = JSON.stringify(result);
+      } catch {
+        text = String(result);
+      }
+    }
+  }
+  if (!text || text === "{}") return undefined;
+  return text.length > MAX_TOOL_OUTPUT ? `${text.slice(0, MAX_TOOL_OUTPUT)}…` : text;
 }
 
 // diagnostics 最后一项里的错误信息（provider_transport_failure 等）。
@@ -180,7 +212,26 @@ export const piDef: AgentDef = {
         const todos = normalizePiTodos(obj.args);
         return todos.length > 0 ? { type: "todo", todos } : null;
       }
-      return { type: "tool", name: obj.toolName, detail: toolDetail(obj.args) };
+      return {
+        type: "tool",
+        name: obj.toolName,
+        detail: toolDetail(obj.args),
+        input: obj.args,
+        phase: "start",
+        toolCallId: typeof obj.toolCallId === "string" ? obj.toolCallId : undefined,
+      };
+    }
+
+    if (obj.type === "tool_execution_end" && typeof obj.toolName === "string") {
+      if (obj.toolName === TODO_TOOL_NAME) return null;
+      return {
+        type: "tool",
+        name: obj.toolName,
+        output: normalizeToolResult(obj.result),
+        isError: !!obj.isError,
+        phase: "end",
+        toolCallId: typeof obj.toolCallId === "string" ? obj.toolCallId : undefined,
+      };
     }
 
     if (obj.type === "message_end") {

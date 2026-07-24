@@ -1,0 +1,1191 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 The Bento/Suite authors
+// Present mode: a fullscreen Reveal.js overlay generated from the model.
+// Slides marked transition:'morph' use GSAP Flip to animate elements whose
+// ids match across the two slides (PowerPoint "Morph" behaviour).
+
+import Reveal from 'reveal.js'
+import 'reveal.js/dist/reveal.css'
+import { anim, resetXform } from './anim'
+import { chartSnapshotSvg, mountChart } from './charts'
+import type { BentoDoc, GradientFill, ShapeElement, Slide, SlideElement } from './model'
+import { applyElementFrame, gradientLineCoords, renderSlide } from './render'
+import { paintSpeaker, setSpeakerWindow, speakerIdleBody, speakerWindow } from './screens'
+import { t } from './i18n'
+
+const MORPH_DURATION = 0.65
+const MORPH_EASE = 'power2.inOut'
+
+export interface PresentSession {
+  exit(): void
+  // CORTEX-PATCH: 宿主(Electron 主进程)受控翻页面——把闭包内的导航暴露出去。
+  controls?: {
+    goto(index: number): void
+    next(): void
+    prev(): void
+    first(): void
+    last(): void
+    index(): number
+    count: number
+  }
+}
+
+export function startPresentation(
+  doc: BentoDoc,
+  startIndex: number,
+  onExit: (lastIndex: number) => void,
+  // CORTEX-PATCH: hostControlled = 翻页权威在宿主进程,页内键盘/触摸/链接导航全部关闭。
+  opts: { fullscreen?: boolean; hostControlled?: boolean } = {},
+): PresentSession {
+  const hostControlled = opts.hostControlled === true // CORTEX-PATCH
+  const overlay = document.createElement('div')
+  overlay.className = 'bento-present-overlay'
+  overlay.style.setProperty('--bento-accent', doc.theme.accent)
+  // Reveal ignores key events originating from form fields. If focus is still
+  // on an editor input (title, notes…) when the show starts, arrows go dead.
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+
+  const revealEl = document.createElement('div')
+  revealEl.className = 'reveal'
+  const slidesEl = document.createElement('div')
+  slidesEl.className = 'slides'
+  revealEl.appendChild(slidesEl)
+  overlay.appendChild(revealEl)
+
+  doc.slides.forEach((slide) => {
+    const section = document.createElement('section')
+    // Morph slides swap instantly; the Flip animation supplies the motion.
+    section.dataset.transition = slide.transition === 'morph' ? 'none' : slide.transition
+    if (slide.stateOf) section.dataset.bentoState = '1' // dimmed in overview
+    const surface = renderSlide(slide, doc, { hidePlaceholders: true, liveMedia: true })
+    // reveal slides start with only the default hover set visible
+    if (slide.hover?.type === 'reveal') applyRevealSet(surface, slide.hover.default ?? null, slide.hover.default)
+    section.appendChild(surface)
+    if (slide.notes) {
+      const aside = document.createElement('aside')
+      aside.className = 'notes'
+      aside.textContent = slide.notes
+      section.appendChild(aside)
+    }
+    slidesEl.appendChild(section)
+  })
+
+  document.body.appendChild(overlay)
+
+  // ——— state-aware linear navigation ———
+  // Slides with stateOf are interactive states: linked-to, never walked-to.
+  const isState = (i: number) => !!doc.slides[i]?.stateOf
+  const anchorOf = (i: number) => {
+    const pid = doc.slides[i]?.stateOf
+    const p = doc.slides.findIndex((s) => s.id === pid)
+    return p >= 0 ? p : i
+  }
+  const goNext = () => {
+    const cur = deck.getIndices().h
+    for (let i = (isState(cur) ? anchorOf(cur) : cur) + 1; i < doc.slides.length; i++) {
+      if (!isState(i)) return deck.slide(i, 0)
+    }
+  }
+  const goPrev = () => {
+    const cur = deck.getIndices().h
+    if (isState(cur)) return deck.slide(anchorOf(cur), 0)
+    for (let i = cur - 1; i >= 0; i--) {
+      if (!isState(i)) return deck.slide(i, 0)
+    }
+  }
+  const hasNext = () => {
+    const cur = deck.getIndices().h
+    for (let i = (isState(cur) ? anchorOf(cur) : cur) + 1; i < doc.slides.length; i++) {
+      if (!isState(i)) return true
+    }
+    return false
+  }
+  const hasPrev = () => {
+    const cur = deck.getIndices().h
+    if (isState(cur)) return true // right-swipe returns to the parent slide
+    for (let i = cur - 1; i >= 0; i--) {
+      if (!isState(i)) return true
+    }
+    return false
+  }
+  const visibleIndex = (i: number) => doc.slides.slice(0, i + 1).filter((s) => !s.stateOf).length
+  const visibleTotal = doc.slides.filter((s) => !s.stateOf).length
+  // real slide indices that appear in linear navigation (states are excluded) —
+  // the presenter-view thumbnail rail and grid iterate this.
+  const railIndices = doc.slides.map((_, i) => i).filter((i) => !isState(i))
+  const goFirst = () => deck.slide(railIndices[0] ?? 0, 0)
+  const goLast = () => deck.slide(railIndices[railIndices.length - 1] ?? 0, 0)
+
+  // ——— black-screen (audience blackout; presenter keeps notes) ———
+  let blacked = false
+  const blackout = document.createElement('div')
+  blackout.className = 'bento-blackout'
+  blackout.hidden = true
+  overlay.appendChild(blackout)
+  const setBlack = (on: boolean) => {
+    blacked = on
+    blackout.hidden = !on
+    updateSpeakerControls()
+  }
+  const toggleBlack = () => setBlack(!blacked)
+
+  // ——— reduced motion (a VIEWER/PRESENTER preference, never in the doc) ———
+  // Defaults to the OS 'prefers-reduced-motion'; an explicit toggle (M, or the
+  // speaker view) overrides it and persists per browser. When on, slide
+  // transitions cut instantly and every fx animation (morph, entrances,
+  // count-ups, loops, ken-burns) is skipped — elements just show their final
+  // state. The '.reduce-motion' class also neutralises CSS motion (svg
+  // animations, Reveal's section transitions). Mirrors how locale/auto-check
+  // are viewer prefs that never enter the document format.
+  const reduceQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+  const readMotionPref = (): boolean | null => {
+    try {
+      const v = localStorage.getItem('bento-reduce-motion')
+      return v === 'on' ? true : v === 'off' ? false : null
+    } catch { return null }
+  }
+  let reduceMotion = readMotionPref() ?? reduceQuery.matches
+  overlay.classList.toggle('reduce-motion', reduceMotion)
+
+  let exited = false
+  const deck = new Reveal(revealEl, {
+    embedded: true,
+    width: doc.size.width,
+    height: doc.size.height,
+    margin: 0,
+    // Reveal's default maxScale is 2.0 — on a 1280-wide deck that caps the show
+    // at 2560px and letterboxes it in the middle of large displays (a 4K/5K/8K
+    // screen shows a small centred slide). Bento content is vector/text, so it
+    // upscales crisply: allow it to fill any display. minScale stays generous
+    // for tiny embeds.
+    minScale: 0.1,
+    maxScale: 100,
+    center: false,
+    hash: false,
+    history: false,
+    transition: 'fade',
+    transitionSpeed: 'default',
+    backgroundTransition: 'fade',
+    controls: doc.present?.controls ?? false, // links/keys navigate; corner arrows are clutter
+    progress: doc.present?.progress ?? true,
+    slideNumber: (doc.present?.slideNumber ?? true)
+      ? (((slideEl: HTMLElement) => {
+          const i = [...slidesEl.children].indexOf(slideEl)
+          return [`${visibleIndex(i)} / ${visibleTotal}`]
+        }) as any)
+      : false,
+    // touch is handled by our own swipe logic below (state-aware + ends exit)
+    touch: false,
+    // heavy decks: paint only the neighbourhood of the current slide
+    viewDistance: 1,
+    keyboardCondition: null,
+    plugins: [],
+  })
+
+  const onResize = () => deck.layout()
+
+  // ——— speaker view (S) ———
+  // Reveal's stock speaker window reloads the presentation URL in iframes —
+  // which in a Bento file boots the EDITOR. Instead: our own popup, rendered
+  // with the same renderer from this one app instance and synced directly.
+  let speaker: Window | null = null
+  let speakerTimer = 0
+  let speakerStart = 0
+  // opening the speaker popup drops the main window out of OS fullscreen on most
+  // browsers; this guards the fullscreenchange handler so that bounce doesn't
+  // end the show (see onFsChange).
+  let openingSpeaker = false
+  // Reveal reports valid indices only after initialize(). The speaker view can
+  // be opened (from the editor) before that, so gate any deck.getIndices() read
+  // and re-populate once the deck is ready.
+  let deckReady = false
+  // true when we adopted a speaker window the EDITOR opened — we drive it but
+  // must not close it on exit (it lives beyond this present session).
+  let speakerAdopted = false
+  // Second-screen placement is set up in the EDITOR (properties panel) before
+  // presenting — that's where the Window Management permission is granted via a
+  // dedicated gesture, and the layout is cached in ../screens. Here we just read
+  // the chosen display synchronously when the notes open.
+  const nextVisibleIndex = (from: number) => {
+    for (let i = (isState(from) ? anchorOf(from) : from) + 1; i < doc.slides.length; i++) {
+      if (!isState(i)) return i
+    }
+    return -1
+  }
+  const svSlide = (idx: number, w: number): HTMLElement => {
+    const frame = document.createElement('div')
+    frame.className = 'sv-frame'
+    const scale = w / doc.size.width
+    frame.style.width = `${w}px`
+    frame.style.height = `${doc.size.height * scale}px`
+    if (idx >= 0) {
+      const inner = document.createElement('div')
+      inner.style.cssText = `transform:scale(${scale});transform-origin:0 0`
+      inner.appendChild(renderSlide(doc.slides[idx], doc, { hidePlaceholders: true }))
+      frame.appendChild(inner)
+    } else {
+      frame.classList.add('end')
+      frame.textContent = t('End of deck')
+    }
+    return frame
+  }
+  // Cheap, one-shot update of just the controls (highlight, counter, button
+  // states) — called on every slidechange AND on black toggle without re-rendering
+  // the (expensive) current/next slides or the thumbnail rail.
+  const updateSpeakerControls = () => {
+    if (!speaker || speaker.closed || !deckReady) return
+    const d = speaker.document
+    const cur = deck.getIndices().h
+    const anchor = isState(cur) ? anchorOf(cur) : cur
+    const count = d.querySelector('.sv-count')
+    if (count) count.textContent = `${visibleIndex(cur)} / ${visibleTotal}`
+    d.querySelectorAll<HTMLElement>('.sv-thumb').forEach((th) => {
+      const on = Number(th.dataset.idx) === anchor
+      th.classList.toggle('current', on)
+      if (on && th.closest('.sv-rail')) th.scrollIntoView({ block: 'nearest', inline: 'center' })
+    })
+    const nav = (k: string) => d.querySelector<HTMLButtonElement>(`.sv-btn[data-nav="${k}"]`)
+    nav('prev')?.toggleAttribute('disabled', !hasPrev())
+    nav('first')?.toggleAttribute('disabled', !hasPrev())
+    nav('next')?.toggleAttribute('disabled', !hasNext())
+    nav('last')?.toggleAttribute('disabled', !hasNext())
+    nav('black')?.classList.toggle('active', blacked)
+    nav('reduce')?.classList.toggle('active', reduceMotion)
+  }
+
+  // A brief centred pill so a keypress (M) gives visible confirmation — the
+  // audience overlay otherwise changes silently.
+  let toastTimer = 0
+  const flashPresentMsg = (text: string) => {
+    let el = overlay.querySelector<HTMLElement>('.bento-present-toast')
+    if (!el) { el = document.createElement('div'); el.className = 'bento-present-toast'; overlay.appendChild(el) }
+    el.textContent = text
+    el.classList.remove('show'); void el.offsetWidth; el.classList.add('show') // restart the fade
+    clearTimeout(toastTimer)
+    toastTimer = window.setTimeout(() => el!.classList.remove('show'), 1400)
+  }
+
+  const setReduceMotion = (on: boolean, persist = true) => {
+    reduceMotion = on
+    if (persist) { try { localStorage.setItem('bento-reduce-motion', on ? 'on' : 'off') } catch { /* storage off */ } }
+    overlay.classList.toggle('reduce-motion', on)
+    // Toast only on an explicit toggle (M / speaker button), not the silent
+    // OS-preference follow or the initial state.
+    if (persist) flashPresentMsg(on ? t('Reduced motion: on') : t('Reduced motion: off'))
+    // Re-settle the CURRENT slide: kill any running tweens and restore final
+    // frames (a killed entrance would otherwise strand an element at opacity 0);
+    // if motion is back on, replay this slide's entrance + ambient fx.
+    if (deckReady) {
+      const cur = deck.getIndices().h
+      const section = slidesEl.children[cur] as HTMLElement | undefined
+      const slide = doc.slides[cur]
+      if (section && slide) {
+        anim.killTweensOf(section.querySelectorAll('.bento-el'))
+        for (const el of slide.elements) {
+          const node = section.querySelector<HTMLElement>(`[data-el-id="${CSS.escape(el.id)}"]`)
+          if (node) { applyElementFrame(node, el); resetXform(node) }
+        }
+        if (!on) { runEnterFx(slide, section); runAmbientFx(slide, section); restartSvgAnimations(section) }
+      }
+    }
+    updateSpeakerControls()
+  }
+  const toggleReduceMotion = () => setReduceMotion(!reduceMotion)
+  // Follow later OS changes ONLY while the user hasn't set an explicit choice.
+  const onMotionQuery = (e: MediaQueryListEvent) => { if (readMotionPref() === null) setReduceMotion(e.matches, false) }
+  reduceQuery.addEventListener?.('change', onMotionQuery)
+
+  const updateSpeaker = () => {
+    if (!speaker || speaker.closed) return
+    if (!deckReady) return // opened pre-init — populated on ready
+    const d = speaker.document
+    const cur = deck.getIndices().h
+    const nxt = nextVisibleIndex(cur)
+    const curBox = d.querySelector('.sv-current')
+    const nxtBox = d.querySelector('.sv-nextbox')
+    if (!curBox || !nxtBox) return
+    curBox.innerHTML = ''
+    curBox.appendChild(d.importNode(svSlide(cur, 660), true))
+    nxtBox.innerHTML = ''
+    nxtBox.appendChild(d.importNode(svSlide(nxt, 300), true))
+    const notes = d.querySelector('.sv-notes')
+    if (notes) notes.textContent = doc.slides[cur]?.notes || t('— no notes for this slide —')
+    updateSpeakerControls()
+  }
+  const openSpeaker = () => {
+    if (speaker && !speaker.closed) {
+      speaker.focus()
+      return
+    }
+    // guard the whole open + fullscreen-restore dance: the popup makes the
+    // browser leave fullscreen, and without this that would end the show
+    const wasFullscreen = document.fullscreenElement === overlay
+    openingSpeaker = true
+    // ADOPT a window the editor already opened (the clean two-gesture path:
+    // opened in its own gesture, never fought fullscreen for this click's
+    // activation, never trapped in the fullscreen Space). Only open a fresh one —
+    // on THIS display — when none was pre-opened (e.g. S pressed mid-show).
+    const pre = speakerWindow()
+    if (pre) {
+      speaker = pre
+      speakerAdopted = true
+    } else {
+      speaker = window.open('', 'bento-speaker', 'width=1200,height=800')
+      speakerAdopted = false
+    }
+    if (!speaker) { openingSpeaker = false; console.warn('[bento-speaker] popup blocked — allow pop-ups for this site'); return }
+    setSpeakerWindow(speaker)
+    ;(window as unknown as Record<string, unknown>).__bentoSpeaker = speaker // diagnostics
+    const d = speaker.document
+    d.title = `${doc.title} — ${t('Speaker view')}`
+    if (!d.head.querySelector('style')) { // already styled when adopting an editor window
+      for (const st of document.querySelectorAll('style')) d.head.appendChild(d.importNode(st, true))
+    }
+    d.body.className = 'bento-speaker'
+    const navBtn = (k: string, glyph: string, label: string) =>
+      `<button class="sv-btn" data-nav="${k}" title="${label}" aria-label="${label}">${glyph}</button>`
+    d.body.innerHTML =
+      `<div class="sv-top">` +
+        `<div class="sv-timer" title="${t('Click to reset')}">00:00</div>` +
+        `<div class="sv-clock"></div>` +
+        `<div class="sv-count"></div>` +
+        `<div class="sv-ctrls">` +
+          navBtn('first', '⇤', t('First slide')) +
+          navBtn('prev', '‹', t('Previous')) +
+          navBtn('next', '›', t('Next')) +
+          navBtn('last', '⇥', t('Last slide')) +
+          navBtn('black', '■', t('Black screen (B)')) +
+          navBtn('grid', '▦', t('All slides (G)')) +
+          navBtn('reduce', '⏸', t('Reduce motion (M)')) +
+        `</div>` +
+      `</div>` +
+      `<div class="sv-main">` +
+        `<div class="sv-current"></div>` +
+        `<div class="sv-side">` +
+          `<div class="sv-next-wrap"><div class="sv-label">${t('Next')}</div><div class="sv-nextbox"></div></div>` +
+          `<div class="sv-notes-wrap"><div class="sv-label">${t('Notes')}</div><div class="sv-notes"></div></div>` +
+        `</div>` +
+      `</div>` +
+      `<div class="sv-rail"></div>` +
+      `<div class="sv-grid" hidden><div class="sv-grid-inner"></div></div>`
+
+    speakerStart = performance.now()
+    d.querySelector('.sv-timer')?.addEventListener('click', () => { speakerStart = performance.now() })
+    clearInterval(speakerTimer)
+    speakerTimer = window.setInterval(() => {
+      if (!speaker || speaker.closed) { clearInterval(speakerTimer); return }
+      const el = speaker.document.querySelector('.sv-timer')
+      if (el) {
+        const s = Math.floor((performance.now() - speakerStart) / 1000)
+        el.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+      }
+      const clock = speaker.document.querySelector('.sv-clock')
+      if (clock) clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }, 1000)
+
+    // a clickable thumbnail: an imported slide render inside a button, badged
+    // with its slide number; clicking jumps the live show there.
+    const thumb = (idx: number, w: number): HTMLElement => {
+      const b = d.createElement('button')
+      b.className = 'sv-thumb'
+      b.dataset.idx = String(idx)
+      b.appendChild(d.importNode(svSlide(idx, w), true))
+      const num = d.createElement('span')
+      num.className = 'sv-thumb-n'
+      num.textContent = String(visibleIndex(idx))
+      b.appendChild(num)
+      b.addEventListener('click', () => { deck.slide(idx, 0); toggleGrid(false) })
+      return b
+    }
+
+    const rail = d.querySelector('.sv-rail')!
+    for (const idx of railIndices) rail.appendChild(thumb(idx, 150))
+
+    // all-slides grid overlay — built lazily on first open (cheap for small decks,
+    // but a big deck shouldn't pay for it unless the presenter asks).
+    const grid = d.querySelector('.sv-grid') as HTMLElement
+    const gridInner = d.querySelector('.sv-grid-inner')!
+    let gridBuilt = false
+    const toggleGrid = (on?: boolean) => {
+      const show = on ?? grid.hasAttribute('hidden')
+      if (show && !gridBuilt) { for (const idx of railIndices) gridInner.appendChild(thumb(idx, 240)); gridBuilt = true }
+      grid.toggleAttribute('hidden', !show)
+      if (show) updateSpeakerControls()
+    }
+    grid.addEventListener('click', (ev) => { if (ev.target === grid) toggleGrid(false) })
+
+    const doNav = (k: string) => {
+      if (k === 'first') goFirst()
+      else if (k === 'prev') goPrev()
+      else if (k === 'next') goNext()
+      else if (k === 'last') goLast()
+      else if (k === 'black') toggleBlack()
+      else if (k === 'grid') toggleGrid()
+      else if (k === 'reduce') toggleReduceMotion()
+    }
+    d.querySelectorAll<HTMLButtonElement>('.sv-btn[data-nav]').forEach((b) => {
+      b.addEventListener('click', () => doNav(b.dataset.nav!))
+    })
+
+    // drive the show FROM the speaker window (its keys fire in its own document)
+    d.addEventListener('keydown', (ev: KeyboardEvent) => {
+      const k = ev.key
+      if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'n') { ev.preventDefault(); goNext() }
+      else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'p') { ev.preventDefault(); goPrev() }
+      else if (k === 'Home') { ev.preventDefault(); goFirst() }
+      else if (k === 'End') { ev.preventDefault(); goLast() }
+      else if (k === 'b' || k === 'B') { ev.preventDefault(); toggleBlack() }
+      else if (k === 'g' || k === 'G') { ev.preventDefault(); toggleGrid() }
+      else if (k === 'm' || k === 'M') { ev.preventDefault(); toggleReduceMotion() }
+      else if (k === 'Escape' && !grid.hasAttribute('hidden')) { ev.preventDefault(); toggleGrid(false) }
+    })
+
+    updateSpeaker()
+    if (!speakerAdopted && wasFullscreen) {
+      // A fresh window on THIS display sits behind the fullscreen slides — drop
+      // fullscreen so the notes are visible. (Open notes from the Slide panel and
+      // drag them to a second screen to keep the slides fullscreen.)
+      document.exitFullscreen?.().catch(() => {})
+    }
+    window.setTimeout(() => { openingSpeaker = false }, 500)
+  }
+
+  // Real fullscreen (F toggles; Present enters it by default). The overlay
+  // element is what goes fullscreen, so the speaker popup stays independent.
+  // Requests can be denied (iframes, no user activation) — tab-fill mode is
+  // the graceful floor, and stays the mode for testing/sharing via F.
+  const enterFullscreen = () => {
+    overlay.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {})
+  }
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+    else enterFullscreen()
+  }
+  // leaving fullscreen — Esc, F, the browser's own UI, an OS gesture —
+  // ends the show outright; it never drops into tab-fill mode. (Tab mode
+  // is only ever entered deliberately, via the small present button.)
+  let wentFullscreen = false
+  const onFsChange = () => {
+    if (document.fullscreenElement === overlay) wentFullscreen = true
+    else if (wentFullscreen && !exited && !openingSpeaker) exit()
+  }
+  document.addEventListener('fullscreenchange', onFsChange)
+  if (opts.fullscreen !== false) enterFullscreen()
+  // If the editor already opened notes on the second screen, go live on that
+  // existing window now — no new window.open, so fullscreen above kept this
+  // click's activation and the notes were never trapped in the fullscreen Space.
+  if (speakerWindow()) openSpeaker()
+
+  const exit = () => {
+    if (exited) return
+    exited = true
+    pauseMediaIn(slidesEl) // stop any playing clip before teardown
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+    const last = deck.getIndices().h
+    try {
+      deck.destroy()
+    } catch {
+      /* Reveal teardown is best-effort */
+    }
+    overlay.remove()
+    window.removeEventListener('resize', onResize)
+    document.removeEventListener('keydown', onKeydown, true)
+    document.removeEventListener('fullscreenchange', onFsChange)
+    reduceQuery.removeEventListener?.('change', onMotionQuery)
+    clearInterval(speakerTimer)
+    if (speaker && !speaker.closed) {
+      if (speakerAdopted) {
+        // editor-owned window — leave it open, reset to the idle placeholder so
+        // it's ready for the next run instead of freezing on the last slide
+        paintSpeaker(speaker, `${doc.title} — ${t('Speaker view')}`,
+          speakerIdleBody(doc.title, t('Presentation ended. Start it again to bring these notes back to life.')))
+      } else {
+        speaker.close()
+        setSpeakerWindow(null)
+      }
+    }
+    onExit(last)
+  }
+
+  // Capture-phase keys: Esc exits; arrows navigate unconditionally. Reveal
+  // drops key events when focus sits in odd places (a leftover form field, a
+  // host-embedded frame) — present mode has no fields, so arrows are always
+  // navigation. Handled here exclusively (stopPropagation avoids double-steps).
+  const onKeydown = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') {
+      if (deck.isOverview()) return // let Reveal close its overview first
+      ev.preventDefault()
+      ev.stopPropagation()
+      exit()
+      return
+    }
+    if (ev.key === 's' || ev.key === 'S') {
+      ev.preventDefault()
+      ev.stopPropagation()
+      openSpeaker()
+      return
+    }
+    if (ev.key === 'f' || ev.key === 'F') {
+      ev.preventDefault()
+      ev.stopPropagation()
+      toggleFullscreen()
+      return
+    }
+    if (ev.key === 'm' || ev.key === 'M') {
+      ev.preventDefault()
+      ev.stopPropagation()
+      toggleReduceMotion()
+      return
+    }
+    const key = ev.key || ({ 32: ' ', 37: 'ArrowLeft', 39: 'ArrowRight', 33: 'PageUp', 34: 'PageDown' } as Record<number, string>)[ev.keyCode]
+    if (key === 'ArrowRight' || key === 'PageDown' || key === ' ') {
+      ev.preventDefault()
+      ev.stopPropagation()
+      goNext()
+    } else if (key === 'ArrowLeft' || key === 'PageUp') {
+      ev.preventDefault()
+      ev.stopPropagation()
+      goPrev()
+    }
+  }
+  // CORTEX-PATCH: 宿主受控模式下页面不自听键盘(避免与主进程广播的 goto 双重翻页)。
+  if (!hostControlled) document.addEventListener('keydown', onKeydown, true)
+
+  // ——— touch: swipe left/right to navigate; swiping past either end of
+  // the deck drops back into the editor (phones have no Esc) ———
+  let touchX = 0
+  let touchY = 0
+  if (!hostControlled) { // CORTEX-PATCH: 触摸导航同理交给宿主(块内两只监听一起关)
+  overlay.addEventListener('touchstart', (ev) => {
+    touchX = ev.touches[0].clientX
+    touchY = ev.touches[0].clientY
+  }, { passive: true })
+  overlay.addEventListener('touchend', (ev) => {
+    const t0 = ev.changedTouches[0]
+    if (!t0) return
+    const dx = t0.clientX - touchX
+    const dy = t0.clientY - touchY
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.2) return // a tap or a scroll
+    if (dx < 0) {
+      if (hasNext()) goNext()
+      else exit()
+    } else {
+      if (hasPrev()) goPrev()
+      else exit()
+    }
+  }, { passive: true })
+  } // CORTEX-PATCH end
+
+  deck.on('slidechanged', ((event: any) => {
+    const from = event.previousSlide as HTMLElement | undefined
+    const to = event.currentSlide as HTMLElement
+    if (!to) return
+    const fromIdx = from ? [...slidesEl.children].indexOf(from) : -1
+    const toIdx = [...slidesEl.children].indexOf(to)
+    if (from) {
+      // Kill the outgoing slide's tweens, then restore model frames —
+      // a tween killed during its delay would otherwise leave the element
+      // stuck at its "from" state (invisible) for every future visit.
+      anim.killTweensOf(from.querySelectorAll('.bento-el'))
+      const fromSlide = doc.slides[fromIdx]
+      for (const el of fromSlide?.elements ?? []) {
+        const node = from.querySelector<HTMLElement>(`[data-el-id="${CSS.escape(el.id)}"]`)
+        if (node) {
+          applyElementFrame(node, el) // resets style.transform…
+          resetXform(node) // …so the engine must forget its composed state
+        }
+      }
+      if (fromSlide?.hover?.type === 'reveal') {
+        applyRevealSet(from, null, fromSlide.hover.default)
+      }
+    }
+    const forward = toIdx > fromIdx
+    // Morph forward into a morph slide, and un-morph when backing out of one.
+    const morphing =
+      from &&
+      ((forward && doc.slides[toIdx]?.transition === 'morph') ||
+        (!forward && doc.slides[fromIdx]?.transition === 'morph'))
+    if (morphing) { if (!reduceMotion) runMorph(doc, from!, to, fromIdx, toIdx) }
+    else if (!reduceMotion) runEnterFx(doc.slides[toIdx], to)
+    if (!reduceMotion) {
+      runAmbientFx(doc.slides[toIdx], to)
+      restartSvgAnimations(to)
+    }
+    wireHoverFocus(doc.slides[toIdx], to)
+    if (from) disposeLiveCharts(doc.slides[fromIdx], from)
+    mountLiveCharts(doc.slides[toIdx], to, morphing ? doc.slides[fromIdx] : undefined)
+    if (from) pauseMediaIn(from)
+    startMediaIn(to)
+    updateSpeaker()
+  }) as any)
+
+  // Clicking an element with a link jumps to its target slide.
+  // CORTEX-PATCH: 宿主受控模式下禁用页内链接跳转(观众页自行跳页会与演讲者页脱同步)。
+  if (!hostControlled)
+  slidesEl.addEventListener('click', (ev) => {
+    const target = (ev.target as HTMLElement).closest<HTMLElement>('[data-link]')
+    if (!target) return
+    const idx = doc.slides.findIndex((s) => s.id === target.dataset.link)
+    if (idx >= 0) {
+      ev.preventDefault()
+      ev.stopPropagation()
+      deck.slide(idx, 0)
+    }
+  })
+
+  deck.initialize().then(() => {
+    deckReady = true
+    if (startIndex > 0) deck.slide(startIndex, 0)
+    // if the speaker view was opened before init (macOS reorder), fill it now
+    updateSpeaker()
+    // late layout: fonts/images that finish loading after init can change
+    // the measured size, and the boot viewport may still be settling
+    window.addEventListener('resize', onResize)
+    setTimeout(onResize, 120)
+    setTimeout(onResize, 600)
+    const first = slidesEl.children[startIndex] as HTMLElement | undefined
+    if (first) {
+      if (!reduceMotion) {
+        runEnterFx(doc.slides[startIndex], first)
+        runAmbientFx(doc.slides[startIndex], first)
+        restartSvgAnimations(first)
+      }
+      wireHoverFocus(doc.slides[startIndex], first)
+      mountLiveCharts(doc.slides[startIndex], first)
+      startMediaIn(first)
+    }
+  })
+
+  // CORTEX-PATCH: 导航闭包出栈,供 cortex/present-modes 转发给主进程受控翻页。
+  return {
+    exit,
+    controls: {
+      goto: (index: number) => deck.slide(index, 0),
+      next: goNext,
+      prev: goPrev,
+      first: goFirst,
+      last: goLast,
+      index: () => deck.getIndices().h,
+      count: doc.slides.length,
+    },
+  }
+}
+
+// --- media playback -----------------------------------------------------------
+
+// Autoplay is intentionally NOT set at render time (it would fire on the editor
+// canvas and in every thumbnail). Present mode starts flagged media on entry
+// and pauses everything on exit so a paused clip doesn't keep playing off-slide.
+function startMediaIn(section: HTMLElement) {
+  section.querySelectorAll<HTMLMediaElement>('video[data-autoplay="1"], audio[data-autoplay="1"]').forEach((m) => {
+    try { m.currentTime = 0 } catch { /* not seekable yet */ }
+    void m.play().catch(() => { /* blocked (e.g. un-muted video) — leave paused */ })
+  })
+}
+
+function pauseMediaIn(section: HTMLElement) {
+  section.querySelectorAll<HTMLMediaElement>('video, audio').forEach((m) => { m.pause() })
+}
+
+// --- live charts --------------------------------------------------------------
+
+// Present mode swaps chart snapshots for live ECharts instances (tooltips,
+// dataZoom). Leaving the slide disposes the instance and restores the
+// snapshot so the section stays presentable in Reveal's viewDistance cache.
+const chartHandles = new WeakMap<HTMLElement, Array<() => void>>()
+
+function mountLiveCharts(slide: Slide, section: HTMLElement, fromSlide?: Slide) {
+  const handles: Array<() => void> = []
+  for (const el of slide?.elements ?? []) {
+    if (el.type !== 'chart') continue
+    const node = section.querySelector<HTMLElement>(`[data-el-id="${CSS.escape(el.id)}"]`)
+    if (!node) continue
+    // a matching chart on the other side of a morph: animate its data over
+    const fromEl = fromSlide?.elements.find((e) => e.id === el.id && e.type === 'chart')
+    const dispose = mountChart(el, node, fromEl && fromEl.type === 'chart' ? fromEl.option : undefined)
+    handles.push(() => {
+      dispose()
+      node.innerHTML = chartSnapshotSvg(el)
+      const csvg = node.querySelector('svg')
+      if (csvg) {
+        csvg.setAttribute('preserveAspectRatio', 'none')
+        ;(csvg as SVGElement).style.cssText = 'width:100%;height:100%;display:block'
+      }
+    })
+  }
+  if (handles.length) chartHandles.set(section, handles)
+}
+
+function disposeLiveCharts(_slide: Slide, section: HTMLElement) {
+  for (const h of chartHandles.get(section) ?? []) h()
+  chartHandles.delete(section)
+}
+
+// --- element fx -------------------------------------------------------------
+
+function fxNodes(slide: Slide, section: HTMLElement): Array<[SlideElement, HTMLElement]> {
+  const pairs: Array<[SlideElement, HTMLElement]> = []
+  for (const el of slide?.elements ?? []) {
+    if (!el.fx) continue
+    const node = section.querySelector<HTMLElement>(`[data-el-id="${CSS.escape(el.id)}"]`)
+    if (node) pairs.push([el, node])
+  }
+  return pairs
+}
+
+/** Staggered entrance animations + count-ups for the incoming slide. */
+function runEnterFx(slide: Slide, section: HTMLElement) {
+  const entering = fxNodes(slide, section)
+    // reveal-set members are shown/hidden by hover, never by entrance tweens
+    .filter(([el]) => (el.fx!.enter || el.fx!.countUp) && !el.showOnHover)
+    .sort((a, b) => (a[0].fx!.order ?? 0) - (b[0].fx!.order ?? 0))
+  // Delay derives from fx.order when set (equal order ⇒ elements enter
+  // together — how a diagram reveals band-by-band), else from list position.
+  entering.forEach(([el, node], i) => {
+    const fx = el.fx!
+    const step = fx.order ?? i
+    // motion-path loops own the transform — an entrance tween on the same
+    // node would fight it and freeze the dot off its path
+    if (fx.loop?.type === 'motion-path') return
+    if (fx.enter) {
+      // directional entrances: fade-* nudge 16px, slide-* sweep 120px from an
+      // edge. x needs the x transform channel (added to anim.ts).
+      const D = 120
+      const from = { opacity: 0, x: 0, y: 0 }
+      if (fx.enter === 'fade-up') from.y = 16
+      else if (fx.enter === 'fade-down') from.y = -16
+      else if (fx.enter === 'slide-left') from.x = D // starts to the right, slides in leftward
+      else if (fx.enter === 'slide-right') from.x = -D
+      else if (fx.enter === 'slide-up') from.y = D
+      else if (fx.enter === 'slide-down') from.y = -D
+      const slide = fx.enter.startsWith('slide-')
+      anim.fromTo(
+        node,
+        from,
+        {
+          opacity: el.opacity,
+          x: 0,
+          y: 0,
+          duration: fx.enterDur ?? (slide ? 0.75 : 0.55),
+          delay: 0.12 + Math.min(step, 24) * 0.05,
+          ease: slide ? 'power3.out' : 'power2.out',
+        },
+      )
+    }
+    if (fx.countUp) runCountUp(node)
+  })
+  settleGuarantee(entering.map(([el, node]) => [node, el]))
+}
+
+/**
+ * Wall-clock safety net: on starved render loops (throttled tabs, weak
+ * machines) tween progress crawls — guarantee every animated element lands
+ * on its final model state instead of lingering half-invisible.
+ */
+function settleGuarantee(pairs: Array<[HTMLElement, SlideElement]>) {
+  // Ambient/looping elements run infinite tweens by design — their progress
+  // never reaches 1, and "settling" them would kill the loop and freeze the
+  // element (a real bug once: orbit dots died 2.8s after every morph entry).
+  pairs = pairs.filter(([, el]) => !el.fx?.loop && el.fx?.ambient !== 'kenburns')
+  if (!pairs.length) return
+  setTimeout(() => {
+    for (const [node, el] of pairs) {
+      if (!node.isConnected) continue
+      const tweens = anim.getTweensOf(node)
+      if (tweens.some((t) => t.progress() < 1)) {
+        anim.killTweensOf(node)
+        applyElementFrame(node, el)
+        resetXform(node)
+      }
+    }
+  }, 2800)
+}
+
+/** Animate every number in the element's text from 0 to its final value. */
+function runCountUp(node: HTMLElement) {
+  const inner = node.querySelector<HTMLElement>('.bento-text-inner') ?? node
+  const final = inner.textContent ?? ''
+  const tokens = [...final.matchAll(/\d+(?:[.,]\d+)?/g)]
+  if (!tokens.length) return
+  const state = { p: 0 }
+  anim.to(state, {
+    p: 1,
+    duration: 1.15,
+    delay: 0.15,
+    ease: 'power2.out',
+    onUpdate() {
+      let out = ''
+      let last = 0
+      for (const m of tokens) {
+        out += final.slice(last, m.index)
+        const raw = m[0].replace(',', '.')
+        const decimals = raw.includes('.') ? raw.split('.')[1].length : 0
+        out += (parseFloat(raw) * state.p).toFixed(decimals)
+        last = m.index! + m[0].length
+      }
+      inner.textContent = out + final.slice(last)
+    },
+  })
+}
+
+/** Re-parse inline svg elements so their CSS animations replay on entry. */
+function restartSvgAnimations(section: HTMLElement) {
+  for (const host of section.querySelectorAll<HTMLElement>('.bento-el-svg')) {
+    if (host.querySelector('animate, [style*="animation"], style')) {
+      // eslint-disable-next-line no-self-assign
+      host.innerHTML = host.innerHTML
+    }
+  }
+}
+
+/** Continuous motion: ken-burns zoom, marching dashes, dots along paths. */
+function runAmbientFx(slide: Slide, section: HTMLElement) {
+  for (const [el, node] of fxNodes(slide, section)) {
+    const fx = el.fx!
+    if (fx.ambient === 'kenburns') {
+      const ken = fx.ken ?? {}
+      const dir = ken.dir ?? 'drift'
+      if (dir === 'drift') {
+        anim.fromTo(
+          node,
+          { scale: 1.02 },
+          { scale: ken.scale ?? 1.1, duration: ken.duration ?? 26, ease: 'none', repeat: -1, yoyo: true, transformOrigin: '50% 40%' },
+        )
+      } else {
+        // one-shot settle, replayed on every slide entry
+        const far = ken.scale ?? 1.06
+        const dur = ken.duration ?? 2.5
+        anim.fromTo(
+          node,
+          { scale: dir === 'out' ? far : 1 },
+          { scale: dir === 'out' ? 1 : far, duration: dur, ease: 'power2.out', transformOrigin: '50% 50%' },
+        )
+      }
+    }
+    if (fx.loop?.type === 'dash-march') {
+      const target = node.querySelector('path, line, rect, ellipse, polygon') as SVGElement | null
+      if (target) {
+        // Seamless marching ants: the offset must travel a WHOLE number of
+        // dash+gap periods, or the pattern snaps back mid-cycle each loop and
+        // reads as an incomplete/janky loop. Snap the requested distance to
+        // the nearest whole multiple of the element's dasharray period.
+        const da = target.getAttribute('stroke-dasharray') || getComputedStyle(target).strokeDasharray || ''
+        const parts = da.split(/[\s,]+/).map(parseFloat).filter((n) => n > 0)
+        const period = parts.reduce((a, b) => a + b, 0)
+        let travel = fx.loop.distance ?? 18
+        if (period > 0) {
+          // SVG doubles an odd-count dasharray, so one visual period is 2× then.
+          const unit = parts.length % 2 ? period * 2 : period
+          travel = Math.max(1, Math.round(travel / unit)) * unit
+        }
+        anim.fromTo(
+          target,
+          { strokeDashoffset: travel },
+          { strokeDashoffset: 0, duration: fx.loop.duration ?? 1.4, ease: 'none', repeat: -1 },
+        )
+      }
+    }
+    if (fx.loop?.type === 'motion-path') {
+      anim.to(node, {
+        motionPath: { path: fx.loop.path, speeds: fx.loop.speeds },
+        duration: fx.loop.duration,
+        delay: fx.loop.delay ?? 0,
+        ease: fx.loop.ease ?? 'none',
+        repeat: -1,
+      })
+    }
+  }
+}
+
+/** Show only the showOnHover set for `group` (falling back to the default). */
+function applyRevealSet(root: HTMLElement, group: string | null, def?: string | null) {
+  const active = group ?? def ?? null
+  for (const node of root.querySelectorAll<HTMLElement>('[data-show-on-hover]')) {
+    const show = node.dataset.showOnHover === active
+    node.style.transition = 'opacity .18s ease'
+    node.style.opacity = show ? '' : '0'
+    node.style.pointerEvents = show ? '' : 'none'
+  }
+}
+
+/**
+ * Hover behaviours. focus-group: pointing at a grouped element dims every
+ * element outside its group. reveal: pointing at a grouped element shows the
+ * matching showOnHover set (in-slide content swap — no state slides needed).
+ */
+function wireHoverFocus(slide: Slide, section: HTMLElement) {
+  if (!slide?.hover || section.dataset.hoverWired) return
+  section.dataset.hoverWired = '1'
+  const mode = slide.hover.type
+  const dim = slide.hover.dim ?? 0.13
+  const def = slide.hover.default ?? null
+  let current: string | null = null
+  const apply = (group: string | null) => {
+    if (group === current) return
+    current = group
+    if (mode === 'reveal') {
+      applyRevealSet(section, group, def)
+      return
+    }
+    for (const node of section.querySelectorAll<HTMLElement>('[data-group]')) {
+      const other = group !== null && node.dataset.group !== group
+      node.style.transition = 'opacity .25s ease'
+      node.style.opacity = other ? String(dim) : ''
+    }
+  }
+  section.addEventListener('mouseover', (ev) => {
+    const hit = (ev.target as HTMLElement).closest<HTMLElement>('[data-group]')
+    apply(hit ? hit.dataset.group! : null)
+  })
+  section.addEventListener('mouseleave', () => apply(null))
+}
+
+// --- morph ------------------------------------------------------------------
+
+function elementsById(root: HTMLElement): Map<string, HTMLElement> {
+  const map = new Map<string, HTMLElement>()
+  root.querySelectorAll<HTMLElement>('[data-flip-id]').forEach((n) => {
+    map.set(n.dataset.flipId!, n)
+  })
+  return map
+}
+
+function modelById(doc: BentoDoc, index: number): Map<string, SlideElement> {
+  const map = new Map<string, SlideElement>()
+  for (const el of doc.slides[index]?.elements ?? []) map.set(el.id, el)
+  return map
+}
+
+function runMorph(
+  doc: BentoDoc,
+  fromSection: HTMLElement,
+  toSection: HTMLElement,
+  fromIdx: number,
+  toIdx: number,
+) {
+  const fromEls = elementsById(fromSection)
+  const toEls = elementsById(toSection)
+  const fromModel = modelById(doc, fromIdx)
+  const toModel = modelById(doc, toIdx)
+
+  const matchedFrom: HTMLElement[] = []
+  const matchedTo: HTMLElement[] = []
+  for (const [id, el] of fromEls) {
+    const target = toEls.get(id)
+    if (target) {
+      matchedFrom.push(el)
+      matchedTo.push(target)
+    }
+  }
+
+  // Unmatched incoming elements fade/rise in — to their MODEL opacity
+  // (clearProps would wipe reveal-set hiding and dimmed-state opacities).
+  const toSlide = doc.slides[toIdx]
+  const activeSet = toSlide?.hover?.type === 'reveal' ? (toSlide.hover.default ?? null) : null
+  const entering: Array<[HTMLElement, number]> = []
+  for (const n of toEls.values()) {
+    const id = n.dataset.flipId!
+    if (fromEls.has(id)) continue
+    const m = toModel.get(id)
+    if (m?.showOnHover && m.showOnHover !== activeSet) continue // hover-revealed, stays hidden
+    entering.push([n, m?.opacity ?? 1])
+  }
+  if (entering.length) {
+    const spread = Math.min(0.45, entering.length * 0.03)
+    entering.forEach(([n, opacity], i) => {
+      // motion-path loops own the transform — entrance limited to opacity
+      const m = toModel.get(n.dataset.flipId!)
+      const owns = m?.fx?.loop?.type === 'motion-path'
+      anim.fromTo(n,
+        owns ? { opacity: 0 } : { opacity: 0, y: 14 },
+        {
+          opacity, ...(owns ? {} : { y: 0 }), duration: 0.45,
+          delay: MORPH_DURATION * 0.4 + (spread * i) / entering.length,
+          ease: 'power2.out',
+        })
+    })
+    settleGuarantee(entering.map(([n]) => {
+      const m = toModel.get(n.dataset.flipId!)
+      return [n, m!] as [HTMLElement, SlideElement]
+    }).filter(([, m]) => !!m))
+  }
+  if (!matchedFrom.length) return
+
+  // Geometry straight from the model — no DOM measuring needed (both sides'
+  // frames are in the doc), so the outgoing section's Reveal styling is
+  // irrelevant. Each matched node animates from the from-slide's frame to its
+  // own via translate+scale about the top-left corner (scale mode like
+  // PowerPoint: text scales instead of reflowing mid-morph). Rotating morphs
+  // pivot slightly differently than center-origin — rare and acceptable.
+  for (const node of matchedTo) {
+    const id = node.dataset.flipId!
+    const a = fromModel.get(id)
+    const b = toModel.get(id)
+    if (!a || !b) continue
+    if (a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && (a.rotation ?? 0) === (b.rotation ?? 0)) continue
+    const state = { p: 0 }
+    node.style.transformOrigin = '0 0'
+    anim.to(state, {
+      p: 1,
+      duration: MORPH_DURATION,
+      ease: MORPH_EASE,
+      onUpdate() {
+        const p = state.p
+        const x = a.x + (b.x - a.x) * p
+        const y = a.y + (b.y - a.y) * p
+        const w = a.w + (b.w - a.w) * p
+        const h = a.h + (b.h - a.h) * p
+        const r = (a.rotation ?? 0) + ((b.rotation ?? 0) - (a.rotation ?? 0)) * p
+        node.style.transform =
+          `translate(${x - b.x}px, ${y - b.y}px)` +
+          (r ? ` rotate(${r}deg)` : '') +
+          ` scale(${w / Math.max(b.w, 0.01)}, ${h / Math.max(b.h, 0.01)})`
+      },
+      onComplete() {
+        node.style.transformOrigin = ''
+        node.style.transform = b.rotation ? `rotate(${b.rotation}deg)` : ''
+        resetXform(node)
+      },
+    })
+  }
+
+  // Styles morph straight from the model — exact values, no DOM sniffing.
+  for (const to of matchedTo) {
+    const id = to.dataset.flipId!
+    const a = fromModel.get(id)
+    const b = toModel.get(id)
+    if (!a || !b) continue
+    if (a.opacity !== b.opacity) {
+      anim.fromTo(to, { opacity: a.opacity }, { opacity: b.opacity, duration: MORPH_DURATION, ease: MORPH_EASE })
+    }
+    if (a.type === 'shape' && b.type === 'shape') {
+      const target = to.querySelector<SVGElement>('rect,ellipse,polygon,line,path')
+      if (target) morphShapeFill(target, a, b)
+    }
+    if (a.type === 'text' && b.type === 'text' && a.color !== b.color) {
+      const inner = to.querySelector<HTMLElement>('.bento-text-inner')
+      if (inner) {
+        anim.fromTo(inner, { color: a.color }, { color: b.color, duration: MORPH_DURATION, ease: MORPH_EASE })
+      }
+    }
+  }
+}
+
+// --- fill morphing (solid ⇄ solid, solid ⇄ gradient, gradient ⇄ gradient) ----
+
+const SVG_NS = 'http://www.w3.org/2000/svg'
+let morphGradSeq = 0
+
+/** Any solid CSS color we author (#hex / rgb / rgba) → [r, g, b, a]. */
+function colorParts(v: string): [number, number, number, number] {
+  const m = v?.match(/rgba?\(([^)]+)\)/)
+  if (m) {
+    const p = m[1].split(/[\s,/]+/).map(Number)
+    return [p[0] || 0, p[1] || 0, p[2] || 0, Number.isFinite(p[3]) ? p[3] : 1]
+  }
+  let hex = (v ?? '').trim()
+  if (/^#[0-9a-fA-F]{3}$/.test(hex)) hex = '#' + [...hex.slice(1)].map((c) => c + c).join('')
+  if (/^#[0-9a-fA-F]{6,8}$/.test(hex)) {
+    return [
+      parseInt(hex.slice(1, 3), 16),
+      parseInt(hex.slice(3, 5), 16),
+      parseInt(hex.slice(5, 7), 16),
+      hex.length === 9 ? parseInt(hex.slice(7, 9), 16) / 255 : 1,
+    ]
+  }
+  return [0, 0, 0, v === 'transparent' || v === 'none' ? 0 : 1]
+}
+
+const rgbaStr = (c: [number, number, number, number]) =>
+  `rgba(${Math.round(c[0])}, ${Math.round(c[1])}, ${Math.round(c[2])}, ${Math.round(c[3] * 1000) / 1000})`
+
+/** Color of a gradient evaluated at position t (piecewise-linear between stops). */
+function sampleGradient(stops: GradientFill['stops'], t: number): string {
+  const s = [...stops].sort((x, y) => x.at - y.at)
+  if (t <= s[0].at) return rgbaStr(colorParts(s[0].color))
+  for (let i = 0; i < s.length - 1; i++) {
+    const a = s[i]
+    const b = s[i + 1]
+    if (t <= b.at) {
+      const f = b.at === a.at ? 0 : (t - a.at) / (b.at - a.at)
+      const ca = colorParts(a.color)
+      const cb = colorParts(b.color)
+      return rgbaStr([0, 1, 2, 3].map((k) => ca[k] + (cb[k] - ca[k]) * f) as [number, number, number, number])
+    }
+  }
+  return rgbaStr(colorParts(s[s.length - 1].color))
+}
+
+/**
+ * Tween a shape's fill from element a's to element b's. Solids tween the fill
+ * attribute; when a gradient is involved the tween runs on the <stop> nodes
+ * (colors sampled from the other side at matching positions) and on the
+ * gradient line, so angle changes sweep too. A solid destination gets a
+ * temporary gradient that collapses to the flat color and is then removed.
+ */
+function morphShapeFill(target: SVGElement, a: ShapeElement, b: ShapeElement) {
+  if (a.fill === b.fill && JSON.stringify(a.fillGradient) === JSON.stringify(b.fillGradient)) return
+  // line shapes paint with stroke (fill is the line color in the model)
+  if (b.shape === 'line' && target.tagName === 'line') {
+    anim.fromTo(target, { attr: { stroke: a.fill } }, { attr: { stroke: b.fill }, duration: MORPH_DURATION, ease: MORPH_EASE })
+    return
+  }
+  const ag = a.fillGradient?.stops.length ? a.fillGradient : undefined
+  const bg = b.fillGradient?.stops.length ? b.fillGradient : undefined
+  if (!ag && !bg) {
+    if (a.fill !== b.fill) {
+      anim.fromTo(target, { attr: { fill: a.fill } }, { attr: { fill: b.fill }, duration: MORPH_DURATION, ease: MORPH_EASE })
+    }
+    return
+  }
+  const svg = target.ownerSVGElement
+  if (!svg) return
+
+  let lin = svg.querySelector('linearGradient')
+  if (!lin) {
+    // destination is solid — fabricate a gradient shaped like the source so
+    // there is something to tween through, then collapse it to b.fill
+    lin = document.createElementNS(SVG_NS, 'linearGradient')
+    lin.id = `bento-morph-grad-${morphGradSeq++}`
+    for (const s of ag!.stops) {
+      const stop = document.createElementNS(SVG_NS, 'stop')
+      stop.setAttribute('offset', String(s.at))
+      lin.appendChild(stop)
+    }
+    const defs = document.createElementNS(SVG_NS, 'defs')
+    defs.appendChild(lin)
+    svg.appendChild(defs)
+    target.setAttribute('fill', `url(#${lin.id})`)
+  }
+
+  const stops = [...lin.querySelectorAll('stop')]
+  // per rendered stop: where it sits, what it starts as, what it ends as
+  const finals = bg ? bg.stops : ag!.stops.map((s) => ({ at: s.at, color: b.fill }))
+  stops.forEach((node, i) => {
+    const at = finals[i]?.at ?? 1
+    const fromColor = ag ? sampleGradient(ag.stops, at) : rgbaStr(colorParts(a.fill))
+    const toColor = finals[i]?.color ?? b.fill
+    anim.fromTo(
+      node,
+      { attr: { 'stop-color': fromColor } },
+      {
+        attr: { 'stop-color': toColor },
+        duration: MORPH_DURATION,
+        ease: MORPH_EASE,
+        ...(i === 0 && !bg
+          ? {
+              // solid destination: swap the temp gradient back to a flat fill
+              onComplete: () => {
+                target.setAttribute('fill', b.fill)
+                lin!.parentElement?.remove()
+              },
+            }
+          : {}),
+      },
+    )
+  })
+
+  const fromLine = gradientLineCoords((ag ?? bg)!.angle)
+  const toLine = gradientLineCoords((bg ?? ag)!.angle)
+  anim.fromTo(lin, { attr: fromLine }, { attr: toLine, duration: MORPH_DURATION, ease: MORPH_EASE })
+}

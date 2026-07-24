@@ -129,47 +129,15 @@ import type {
 } from "../main/ipc/writing-pdf-types";
 // AI Slides IPC 契约类型(type-only,编译期擦除;与 core/desktop/slides-ipc-types.ts 镜像)。
 import type {
-  SlidesApplyTemplateRequest,
-  SlidesAnalyzeExportQualityRequest,
-  SlidesAnalyzeExportQualityResult,
-  SlidesApproveOutlineRequest,
-  SlidesListTemplatesResult,
-  SlidesCheckRequest,
-  SlidesCheckResult,
-  SlidesCreateDeckRequest,
-  SlidesCancelPipelineRunRequest,
-  SlidesDeckScopedRequest,
-  SlidesDeckIpcResult,
-  SlidesDeleteSlideRequest,
-  SlidesDuplicateSlideRequest,
-  SlidesExportRequest,
-  SlidesExportResult,
+  BentoCreateDeckRequest,
+  BentoDeckIpcResult,
+  BentoDeckScopedRequest,
+  BentoExportFileResult,
+  BentoGetDeckResult,
+  BentoSetStageRequest,
+  BentoWriteDeckHtmlRequest,
   SlidesPresentRequest,
   SlidesPresentResult,
-  SlidesInsertSlideRequest,
-  SlidesLoadDeckRequest,
-  SlidesReadOutlineDraftRequest,
-  SlidesReadOutlineDraftResult,
-  SlidesReadNotesRequest,
-  SlidesReadNotesResult,
-  SlidesReadSlideHtmlRequest,
-  SlidesReadSlideHtmlResult,
-  SlidesReadSnapshotRequest,
-  SlidesReadSnapshotResult,
-  SlidesReadTemplateReferenceRequest,
-  SlidesReadTemplateReferenceResult,
-  SlidesGetPipelineRunRequest,
-  SlidesPipelineRoleDecisionRequest,
-  SlidesPipelineRunResult,
-  SlidesRenameDeckRequest,
-  SlidesReorderRequest,
-  SlidesSaveEditedHtmlRequest,
-  SlidesSaveNotesRequest,
-  SlidesScreenshotRequest,
-  SlidesScreenshotResult,
-  SlidesSetActiveSlideRequest,
-  SlidesSetAnimationStyleRequest,
-  SlidesSetSlideAnimationRequest,
 } from "../main/ipc/slides-ipc-types";
 import type {
   LocalWhisperModelProgress,
@@ -301,61 +269,16 @@ const personal = {
   // ── AI Slides(deck 持久化 / 提纲 / 编辑保存 / 检查 / 导出)────────────────
   // 窄面契约:只暴露 slides* invoke,不暴露通用 fs/BrowserWindow/debugger;
   // 请求/结果形状见 main/ipc/slides-ipc-types(与 core/desktop/slides-ipc-types 镜像)。
-  slidesCreateDeck: (req: SlidesCreateDeckRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:createDeck", req),
-  slidesLoadDeck: (req: SlidesLoadDeckRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:loadDeck", req),
-  slidesRenameDeck: (req: SlidesRenameDeckRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:renameDeck", req),
-  slidesListTemplates: (): Promise<SlidesListTemplatesResult> => ipcRenderer.invoke("slides:listTemplates"),
-  slidesApplyTemplate: (req: SlidesApplyTemplateRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:applyTemplate", req),
-  slidesReadTemplateReference: (req: SlidesReadTemplateReferenceRequest): Promise<SlidesReadTemplateReferenceResult> =>
-    ipcRenderer.invoke("slides:readTemplateReference", req),
-  slidesApproveOutline: (req: SlidesApproveOutlineRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:approveOutline", req),
-  slidesReadOutlineDraft: (req: SlidesReadOutlineDraftRequest): Promise<SlidesReadOutlineDraftResult> =>
-    ipcRenderer.invoke("slides:readOutlineDraft", req),
-  slidesReorderSlides: (req: SlidesReorderRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:reorderSlides", req),
-  slidesInsertSlide: (req: SlidesInsertSlideRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:insertSlide", req),
-  slidesDuplicateSlide: (req: SlidesDuplicateSlideRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:duplicateSlide", req),
-  slidesDeleteSlide: (req: SlidesDeleteSlideRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:deleteSlide", req),
-  slidesSetActiveSlide: (req: SlidesSetActiveSlideRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:setActiveSlide", req),
-  slidesSetAnimationStyle: (req: SlidesSetAnimationStyleRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:setAnimationStyle", req),
-  slidesSetSlideAnimation: (req: SlidesSetSlideAnimationRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:setSlideAnimation", req),
-  slidesSaveEditedHtml: (req: SlidesSaveEditedHtmlRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:saveEditedHtml", req),
-  slidesReadNotes: (req: SlidesReadNotesRequest): Promise<SlidesReadNotesResult> =>
-    ipcRenderer.invoke("slides:readNotes", req),
-  slidesSaveNotes: (req: SlidesSaveNotesRequest): Promise<SlidesDeckIpcResult> =>
-    ipcRenderer.invoke("slides:saveNotes", req),
-  slidesReadSlideHtml: (req: SlidesReadSlideHtmlRequest): Promise<SlidesReadSlideHtmlResult> =>
-    ipcRenderer.invoke("slides:readSlideHtml", req),
-  slidesReadSnapshot: (req: SlidesReadSnapshotRequest): Promise<SlidesReadSnapshotResult> =>
-    ipcRenderer.invoke("slides:readSnapshot", req),
-  slidesCheck: (req: SlidesCheckRequest): Promise<SlidesCheckResult> => ipcRenderer.invoke("slides:check", req),
-  slidesScreenshot: (req: SlidesScreenshotRequest): Promise<SlidesScreenshotResult> =>
-    ipcRenderer.invoke("slides:screenshot", req),
-  slidesAnalyzeExportQuality: (req: SlidesAnalyzeExportQualityRequest): Promise<SlidesAnalyzeExportQualityResult> =>
-    ipcRenderer.invoke("slides:analyzeExportQuality", req),
-  slidesGetLatestPipelineRun: (req: SlidesDeckScopedRequest): Promise<SlidesPipelineRunResult> =>
-    ipcRenderer.invoke("slides:getLatestPipelineRun", req),
-  slidesGetPipelineRun: (req: SlidesGetPipelineRunRequest): Promise<SlidesPipelineRunResult> =>
-    ipcRenderer.invoke("slides:getPipelineRun", req),
-  slidesCancelPipelineRun: (req: SlidesCancelPipelineRunRequest): Promise<SlidesPipelineRunResult> =>
-    ipcRenderer.invoke("slides:cancelPipelineRun", req),
-  slidesAcceptPipelineRole: (req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult> =>
-    ipcRenderer.invoke("slides:acceptPipelineRole", req),
-  slidesRejectPipelineRole: (req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult> =>
-    ipcRenderer.invoke("slides:rejectPipelineRole", req),
-  slidesExport: (req: SlidesExportRequest): Promise<SlidesExportResult> => ipcRenderer.invoke("slides:export", req),
+  slidesBentoCreateDeck: (req: BentoCreateDeckRequest): Promise<BentoDeckIpcResult> =>
+    ipcRenderer.invoke("slides:bentoCreateDeck", req),
+  slidesBentoGetDeck: (req: BentoDeckScopedRequest): Promise<BentoGetDeckResult> =>
+    ipcRenderer.invoke("slides:bentoGetDeck", req),
+  slidesBentoSetStage: (req: BentoSetStageRequest): Promise<BentoDeckIpcResult> =>
+    ipcRenderer.invoke("slides:bentoSetStage", req),
+  slidesBentoWriteDeckHtml: (req: BentoWriteDeckHtmlRequest): Promise<BentoDeckIpcResult> =>
+    ipcRenderer.invoke("slides:bentoWriteDeckHtml", req),
+  slidesBentoExportFile: (req: BentoDeckScopedRequest): Promise<BentoExportFileResult> =>
+    ipcRenderer.invoke("slides:bentoExportFile", req),
   slidesPresent: (req: SlidesPresentRequest): Promise<SlidesPresentResult> => ipcRenderer.invoke("slides:present", req),
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),

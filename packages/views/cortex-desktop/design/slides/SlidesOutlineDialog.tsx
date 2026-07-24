@@ -1,15 +1,15 @@
 // 提纲确认面板:agent propose_outline 后弹出;用户可就地编辑标题/目的/要点,
-// 「批准并开始生成」→ IPC approveOutline(主进程盖章 + 生成空 slots)→ onApproved
-// 回调(由宿主自动发送生成指令);「关闭」只收起面板,草案保留,用户可在对话里要求重做。
+// 「批准并开始生成」→ gate 推进 outline-approved → onApproved(编辑后的提纲)回调
+// (宿主把它并入生成指令);「关闭」只收起面板,草案保留,用户可在对话里要求重做。
 import { useEffect, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import type { SlidesOutline } from '@cortex-work/core/design/slides/slides-types'
-import { useSlidesStore } from './slides-store'
+import { useBentoSlidesStore } from './bento-slides-store'
 
 type Props = {
-  /** 批准成功后的回调(宿主据此自动发送「开始生成」的 agent 指令)。 */
-  onApproved?: () => void
+  /** 批准成功后的回调,携带用户编辑后的提纲(宿主据此自动发送「开始生成」指令)。 */
+  onApproved?: (outline: Omit<SlidesOutline, 'approvedAt'>) => void
 }
 
 type EditableItem = {
@@ -35,11 +35,11 @@ function toEditable(outline: SlidesOutline | null): { summary: string; items: Ed
 
 export function SlidesOutlineDialog({ onApproved }: Props): ReactElement | null {
   const { t } = useTranslation('design')
-  const open = useSlidesStore((s) => s.outlineDialogOpen)
-  const draft = useSlidesStore((s) => s.outlineDraft)
-  const mutating = useSlidesStore((s) => s.mutating)
-  const close = useSlidesStore((s) => s.closeOutlineDialog)
-  const approve = useSlidesStore((s) => s.approveOutline)
+  const open = useBentoSlidesStore((s) => s.outlineDialogOpen)
+  const draft = useBentoSlidesStore((s) => s.outline)
+  const mutating = useBentoSlidesStore((s) => s.mutating)
+  const close = useBentoSlidesStore((s) => s.closeOutlineDialog)
+  const approve = useBentoSlidesStore((s) => s.approveOutline)
 
   const [summary, setSummary] = useState('')
   const [items, setItems] = useState<EditableItem[]>([])
@@ -75,7 +75,7 @@ export function SlidesOutlineDialog({ onApproved }: Props): ReactElement | null 
       }))
     }
     const ok = await approve(outline)
-    if (ok) onApproved?.()
+    if (ok) onApproved?.(outline)
   }
 
   return (

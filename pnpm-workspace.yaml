@@ -1,6 +1,8 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # vendored 第三方源码包(bento slides 运行时),见 vendor/bento/CORTEX_PATCHES.md
+  - "vendor/*"
 
 catalog:
   # Core React

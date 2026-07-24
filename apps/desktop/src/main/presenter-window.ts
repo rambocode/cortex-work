@@ -1,123 +1,100 @@
-// Slides 演示窗口:把 buildPresenterHtml 生成的自包含演示 HTML 写入临时文件后 loadFile 播放。
+// Slides 演示窗口(bento 化):直接 loadFile deck.bento.html,以 boot hash 选择放映形态
+// (vendor/bento 的 cortex/present-modes:solo / audience / speaker)。
 //
 // 两种形态:
-//  - 单屏(只有一块显示器):沿用原行为 —— 单个全屏窗口播放观众页,方向键/备注/缩放全部
-//    由 presenter HTML 自带运行时处理,主进程只拦 Esc。零回归。
-//  - 双屏(≥2 块显示器):外接屏放观众页(#bar 隐藏),主屏放演讲者页(speaker view)。
-//    翻页权威收归主进程:两窗都拦方向键 → 更新 currentIndex → 对两窗广播 location.hash,
-//    复用各页现成的 hashchange→show 联动;初始定位靠各窗 loadFile 的 hash,无 load 竞态。
+//  - 单屏:单个全屏窗口以 #cortex-present-solo 进 bento 放映,键盘/交互由 bento 自带
+//    运行时处理,主进程只拦 Esc 与 cortex-presenter://control/end。
+//  - 双屏(≥2 块显示器):外接屏 #cortex-present-audience(页内导航全禁),主屏
+//    #cortex-present-speaker(自渲染 notes/下一页)。翻页权威在主进程:两窗拦方向键 →
+//    更新 currentPos → 对两窗 executeJavaScript 调 window.cortexPresent.goto(实页索引)。
 //
 // 契约:
 //  - 单例:重复播放 = 销毁旧 session 重建(deck 内容/起始页可能已变),不是聚焦复用。
-//  - 起始页经 URL hash(#N,1 基)传给各页运行时,它初始化即读 location.hash。
-//  - 任何演示窗口都**不注入 preload/bridge**(纯静态本地 HTML,开沙箱,不暴露桌面能力)。
-import { app, BrowserWindow, screen } from "electron";
+//  - stateOf 状态页不进入线性导航:主进程持 railIndices(非状态页的实页索引),
+//    方向键在 rail 内推进,goto 广播实页索引(与 bento present 的语义一致)。
+//  - 任何演示窗口都**不注入 preload**(deck 是本地自包含 HTML,开沙箱,不暴露桌面能力);
+//    主进程与页面只有两条通道:executeJavaScript(驱动)与 cortex-presenter:// URL(回控)。
+import { BrowserWindow, screen } from "electron";
 import { promises as fsp } from "node:fs";
-import { join } from "node:path";
-import {
-  ENTRANCE_PRESETS,
-  STYLE_DURATION_SCALE,
-  defaultHeuristicEntranceDurationMs,
-} from "@cortex-work/core/design/slides/slides-animation";
-import type {
-  SlidesAnimationStyle,
-  SlidesSlotAnimation,
-} from "@cortex-work/core/design/slides/slides-types";
-import { buildPresenterHtml, type PresenterSlide } from "./capabilities/slides/export/html";
-import { buildSpeakerHtml } from "./capabilities/slides/present/speaker-html";
 import { pickPresentDisplays } from "./present-display-geometry";
 import { createLogger } from "./log";
 
 const log = createLogger("slides");
 
 // 演示 session:双窗模式 audience(观众)+ speaker(演讲者);单窗模式 speaker 为 null。
-// currentIndex/currentStep/total 是主进程持有的唯一翻页权威(双窗联动的单一数据源)。
-// entranceSteps 按 manifest 显式 entrances 预计算为有序去重的「待按键步骤」；step 0
-// 在进入页面时自动播放，不进入此序列。无显式注解的启发式也全部归 step 0。
+// currentPos 是主进程持有的唯一翻页权威(rail 内位置,0 基)。
 interface PresentSession {
   audience: BrowserWindow;
   speaker: BrowserWindow | null;
-  currentIndex: number;
-  /** 当前页已推进到的分步档位(0 基;0 = 仅自动入场的 step 0 已播)。 */
-  currentStep: number;
-  entranceSteps: number[][];
-  stepDurations: Array<Record<number, number>>;
-  busyUntil: number;
-  total: number;
+  /** 线性可走页的实页索引表(已剔除 stateOf 状态页,升序)。 */
+  railIndices: number[];
+  /** rail 内当前位置(0 基)。 */
+  currentPos: number;
+  /** 放映换壳临时目录(slides:present 换壳产物):放映页 reload 依赖它在盘上,关窗即删。 */
+  cleanupPath?: string;
 }
 
 let session: PresentSession | null = null;
 
-// 纯静态本地 HTML 的 webPreferences:无 preload、无 Node、开沙箱,不暴露任何桌面能力。
-const PRESENT_WEB_PREFERENCES = { sandbox: true, contextIsolation: true } as const;
+/** 删除换壳临时目录(尽力而为;仅关窗路径调用)。 */
+function cleanupSessionFiles(s: PresentSession): void {
+  if (!s.cleanupPath) return;
+  fsp.rm(s.cleanupPath, { recursive: true, force: true }).catch(() => {});
+}
 
-function clampIndex(n: number, total: number): number {
+// 纯静态本地 HTML 的 webPreferences:无 preload、无 Node、开沙箱,不暴露任何桌面能力。
+// partition 与编辑器 webview 同为 persist:cortex-slides(packages/views 的
+// slides-webview-partition.ts,跨包各持一份字面量,勿改成非 persist):
+// file:// 源共享 localStorage —— 编辑器里设的语言(bento-lang)/动效偏好对
+// 演讲者视图的 t() 界面与放映动效生效,且偏好跨重启存活。
+const PRESENT_WEB_PREFERENCES = {
+  sandbox: true,
+  contextIsolation: true,
+  partition: "persist:cortex-slides",
+} as const;
+
+// Cortex 的“播放”语义是忠实执行文稿内配置的动画。deck.bento.html 是自包含文件,
+// 旧 deck 会继续携带创建时的 runtime,因此宿主在 load 后统一关闭该 file origin 的
+// reduce-motion 偏好；若 runtime 已按系统设置静态启动,只重载一次让当前页动画生效。
+const ENSURE_PRESENTATION_MOTION_SOURCE = `(() => {
+  let attempts = 20;
+  const enable = () => {
+    const overlay = document.querySelector('.bento-present-overlay');
+    if (!overlay) {
+      if (attempts-- > 0) window.setTimeout(enable, 100);
+      return;
+    }
+    if (!overlay.classList.contains('reduce-motion')) return;
+    localStorage.setItem('bento-reduce-motion', 'off');
+    location.reload();
+  };
+  enable();
+})()`;
+
+function clampPos(n: number, total: number): number {
   return Math.max(0, Math.min(total - 1, n));
 }
 
-function pendingEntranceSteps(animation: SlidesSlotAnimation | undefined): number[] {
-  const steps = animation?.entrances?.map((entry) => entry.step).filter((step) => step > 0) ?? [];
-  return [...new Set(steps)].sort((a, b) => a - b);
-}
-
-function entranceStepDurations(
-  animation: SlidesSlotAnimation | undefined,
-  style: SlidesAnimationStyle,
-  slideHtml: string,
-): Record<number, number> {
-  const durations: Record<number, number> = {};
-  if (!(animation?.entrances?.length) && slideHtml.includes("data-cortex-id")) {
-    durations[0] = defaultHeuristicEntranceDurationMs(style);
-    return durations;
-  }
-  for (const entry of animation?.entrances ?? []) {
-    const preset = ENTRANCE_PRESETS[entry.preset];
-    const duration = entry.durationMs ?? Math.round(preset.defaultDurationMs * STYLE_DURATION_SCALE[style]);
-    durations[entry.step] = Math.max(durations[entry.step] ?? 0, (entry.delayMs ?? 0) + duration);
-  }
-  return durations;
-}
-
-// hash 契约(与 presenter-runtime 对齐):`#页[.步|.all]`,1 基页号。
-// speaker 页 parseInt 解析天然只取页号,无需感知 step。
-function broadcastHash(idx: number, token?: number | "all"): void {
-  if (!session) return;
-  const suffix = token === undefined || token === 0 ? "" : `.${token}`;
-  for (const w of [session.audience, session.speaker]) {
+// 主进程权威翻页:更新 rail 位置并向两窗广播实页索引。
+// bento 侧 window.cortexPresent.goto 是幂等跳页(audience 驱动 reveal,speaker 重绘)。
+function broadcastGoto(): void {
+  const s = session;
+  if (!s) return;
+  const realIndex = s.railIndices[s.currentPos] ?? 0;
+  for (const w of [s.audience, s.speaker]) {
     if (w && !w.isDestroyed()) {
-      w.webContents.executeJavaScript(`location.hash='#${idx + 1}${suffix}'`).catch(() => {});
+      w.webContents
+        .executeJavaScript(`window.cortexPresent && window.cortexPresent.goto(${realIndex})`)
+        .catch(() => {});
     }
   }
 }
 
-// 主进程权威翻页。mode:'auto' = 正向进入新页(step 归零、自动入场);
-// 'all' = 回退/跳页(该页全显、不播动画,标准 PPT 语义)。
-function navigate(target: number, mode: "auto" | "all"): void {
-  if (!session) return;
-  const idx = clampIndex(target, session.total);
-  session.currentIndex = idx;
-  const steps = session.entranceSteps[idx] ?? [];
-  session.currentStep = mode === "all" ? (steps.at(-1) ?? 0) : 0;
-  session.busyUntil = mode === "auto" ? Date.now() + (session.stepDurations[idx]?.[0] ?? 0) : 0;
-  broadcastHash(idx, mode === "all" ? "all" : 0);
-}
-
-function advancePresentation(): void {
+function navigate(pos: number): void {
   const s = session;
-  if (!s || Date.now() < s.busyUntil) return;
-  const nextStep = (s.entranceSteps[s.currentIndex] ?? []).find((candidate) => candidate > s.currentStep);
-  if (nextStep !== undefined) {
-    s.currentStep = nextStep;
-    s.busyUntil = Date.now() + (s.stepDurations[s.currentIndex]?.[nextStep] ?? 0);
-    broadcastHash(s.currentIndex, nextStep);
-  } else if (s.currentIndex + 1 < s.total) {
-    navigate(s.currentIndex + 1, "auto");
-  }
-}
-
-function backPresentation(): void {
-  const s = session;
-  if (s && s.currentIndex > 0) navigate(s.currentIndex - 1, "all");
+  if (!s) return;
+  s.currentPos = clampPos(pos, s.railIndices.length);
+  broadcastGoto();
 }
 
 type PresenterControlCommand =
@@ -153,15 +130,19 @@ function isPresenterControlUrl(rawUrl: string): boolean {
 }
 
 function handlePresenterControl(command: PresenterControlCommand): void {
-  if (command.type === "advance") advancePresentation();
-  else if (command.type === "back") backPresentation();
-  else if (command.type === "jump") navigate(command.pageIndex, "auto");
-  else destroyPresenterWindow();
+  const s = session;
+  if (!s) return;
+  if (command.type === "advance") navigate(s.currentPos + 1);
+  else if (command.type === "back") navigate(s.currentPos - 1);
+  else if (command.type === "jump") {
+    // jump 的入参是「实页序号」(speaker 控制条以 1 基实页发起);换算到 rail 内最近位置。
+    const pos = s.railIndices.findIndex((idx) => idx >= command.pageIndex);
+    navigate(pos >= 0 ? pos : s.railIndices.length - 1);
+  } else destroyPresenterWindow();
 }
 
 // 双窗模式的键盘处理:两窗都拦方向/翻页键(preventDefault 阻止事件下发到页面,避免页面内
-// 自带的 keydown 再翻一次导致两窗脱同步),Esc 关全部窗口;f/n 等其它键放行给页面。
-// 正向推进是 (page, step) 状态机:本页还有未播分步 → step+1;否则翻下一页。
+// 残留的 keydown 再翻一次导致两窗脱同步),Esc 关全部窗口;其它键放行给页面。
 function handleDualInput(event: { preventDefault: () => void }, input: { type: string; key: string }): void {
   if (input.type !== "keyDown") return;
   const s = session;
@@ -173,74 +154,62 @@ function handleDualInput(event: { preventDefault: () => void }, input: { type: s
     case "ArrowLeft":
     case "PageUp":
       event.preventDefault();
-      backPresentation();
+      if (s) navigate(s.currentPos - 1);
       break;
     case "ArrowRight":
     case "PageDown":
-    case " ": {
+    case " ":
       event.preventDefault();
-      advancePresentation();
+      if (s) navigate(s.currentPos + 1);
       break;
-    }
     case "Home":
       event.preventDefault();
-      navigate(0, "all");
+      navigate(0);
       break;
     case "End":
       event.preventDefault();
-      navigate((s?.total ?? 1) - 1, "all");
+      if (s) navigate(s.railIndices.length - 1);
       break;
-    // 其它键(f/n 等)不 preventDefault,放行给页面自身处理。
+    // 其它键不 preventDefault,放行给页面自身处理。
   }
 }
 
-/** 打开演示窗口:从 startIndex(0 基)起播;多屏时自动分观众屏/演讲者屏。 */
+/** 打开演示窗口:加载 deck.bento.html,从 startIndex(实页 0 基)起播;多屏自动分观众/演讲者屏。 */
 export async function openPresenterWindow(options: {
   title: string;
-  slides: PresenterSlide[];
+  /** deck.bento.html 的绝对路径(由 bento-workspace 校验后传入;换壳时为临时副本)。 */
+  deckHtmlPath: string;
   startIndex: number;
-  /** 全局动画风格(deck.json 的 animationStyle);缺省 none = 静态播放,零回归。 */
-  animationStyle?: SlidesAnimationStyle;
+  /** 线性可走页的实页索引表(剔除 stateOf;至少一项)。 */
+  railIndices: number[];
+  /** 换壳临时目录:关窗时删除;未换壳(直接加载 deck 原文件)时不传。 */
+  cleanupPath?: string;
 }): Promise<void> {
-  // 旧 session 先销毁(其 closed 回调清理共享临时目录):内容可能已变,重建不串台。
+  // 旧 session 先销毁:deck 内容可能已变,重建不串台。
   destroyPresenterWindow();
 
-  const total = options.slides.length;
-  const startIndex = clampIndex(options.startIndex, total);
-  const hash = String(startIndex + 1);
+  const railIndices = options.railIndices.length > 0 ? [...options.railIndices].sort((a, b) => a - b) : [0];
+  // 起始页吸附到 rail 内不小于它的最近线性页。
+  const startPosRaw = railIndices.findIndex((idx) => idx >= options.startIndex);
+  const startPos = startPosRaw >= 0 ? startPosRaw : railIndices.length - 1;
+  const startReal = railIndices[startPos] ?? 0;
 
-  // 观众页(与单窗同一份 presenter 导出运行时)。
-  const audienceHtml = buildPresenterHtml({
-    title: options.title,
-    slides: options.slides,
-    animationStyle: options.animationStyle
-  });
-  // 共享 mkdtemp 目录:双窗的 audience.html / speaker.html 同放此目录,全部窗口关闭后统一清理。
-  const tmpDir = await fsp.mkdtemp(join(app.getPath("temp"), "cortex-present-"));
-  const audienceFile = join(tmpDir, "audience.html");
-  await fsp.writeFile(audienceFile, audienceHtml, "utf8");
-
-  // 是否分屏:仅当 ≥2 块屏且存在非主屏时,才走双窗;否则单窗全屏(零回归)。
+  // 是否分屏:仅当 ≥2 块屏且存在非主屏时,才走双窗;否则单窗全屏(与旧行为一致)。
   const displays = screen.getAllDisplays();
   const pick = pickPresentDisplays(displays, screen.getPrimaryDisplay().id);
 
   const audience = new BrowserWindow({
-    fullscreen: !pick, // 单窗维持原 fullscreen:true;双窗改由 ready-to-show 里 setFullScreen 到指定屏。
+    fullscreen: !pick,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: "#0b0d12", // 与 body 底色一致,避免全屏切换白闪。
+    backgroundColor: "#0b0d12", // 与放映底色一致,避免全屏切换白闪。
     ...(pick
       ? {
-          // 双窗:无边框 + 目标屏 bounds(全屏由 ready-to-show 里 simpleFullScreen 完成)。
+          // 双窗:无边框 + 目标屏 bounds。macOS 用 panel 严格覆盖 Display.bounds
+          // (不用 simpleFullScreen:它会全局隐藏 Dock,历史踩坑,勿回退)。
           frame: false,
           ...(process.platform === "darwin"
-            ? {
-                // macOS 普通窗口会把 y=0 强制夹到菜单栏下方。允许超出工作区后,panel
-                // 才能严格覆盖 Display.bounds,无需不可靠的 Spaces 全屏转场。
-                type: "panel" as const,
-                enableLargerThanScreen: true,
-                fullscreenable: false,
-              }
+            ? { type: "panel" as const, enableLargerThanScreen: true, fullscreenable: false }
             : {}),
           x: pick.audience.bounds.x,
           y: pick.audience.bounds.y,
@@ -251,26 +220,13 @@ export async function openPresenterWindow(options: {
     webPreferences: { ...PRESENT_WEB_PREFERENCES },
   });
   if (pick && process.platform === "darwin") {
-    // screen-saver 层级盖住观众屏自己的菜单栏/Dock;只提升这一个窗口,不会像
-    // simpleFullScreen 那样修改 NSApp 全局 presentationOptions、隐藏主屏 Dock。
+    // screen-saver 层级盖住观众屏自己的菜单栏/Dock;只提升这一个窗口。
     audience.setAlwaysOnTop(true, "screen-saver");
-    audience.setVisibleOnAllWorkspaces(true, {
-      visibleOnFullScreen: true,
-      skipTransformProcessType: true,
-    });
+    audience.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   }
 
   let speaker: BrowserWindow | null = null;
-  let speakerFile: string | null = null;
   if (pick) {
-    speakerFile = join(tmpDir, "speaker.html");
-    const speakerHtml = buildSpeakerHtml({
-      title: options.title,
-      slides: options.slides,
-      startIndex,
-      animationStyle: options.animationStyle,
-    });
-    await fsp.writeFile(speakerFile, speakerHtml, "utf8");
     speaker = new BrowserWindow({
       fullscreen: false,
       frame: false,
@@ -285,67 +241,45 @@ export async function openPresenterWindow(options: {
     });
   }
 
-  // 风格为 none(或缺省)时动画整体关闭,不存在待按键的分步。
-  const animationOn = (options.animationStyle ?? "none") !== "none";
-  const animationStyle = options.animationStyle ?? "none";
-  const entranceSteps = options.slides.map((slide) => (animationOn ? pendingEntranceSteps(slide.animation) : []));
-  const stepDurations = options.slides.map((slide) =>
-    animationOn ? entranceStepDurations(slide.animation, animationStyle, slide.html) : {},
-  );
-  const s: PresentSession = {
-    audience,
-    speaker,
-    currentIndex: startIndex,
-    currentStep: 0,
-    entranceSteps,
-    stepDurations,
-    busyUntil: Date.now() + (stepDurations[startIndex]?.[0] ?? 0),
-    total,
-  };
+  const s: PresentSession = { audience, speaker, railIndices, currentPos: startPos };
+  if (options.cleanupPath) s.cleanupPath = options.cleanupPath;
   session = s;
 
   const allWins = speaker ? [audience, speaker] : [audience];
 
-  // 共享临时目录清理:两窗共用同一 tmpDir,任一窗先关就 rm 会删掉另一窗的临时文件(虽已 load
-  // 进内存,语义不干净)—— 故计数到全部窗口 closed 才 rm(幂等,best-effort,OS temp 兜底)。
-  let remaining = allWins.length;
-  const cleanupDir = (): void => {
-    remaining -= 1;
-    if (remaining <= 0) void fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-  };
-
-  // 任一窗 closed → 连带销毁另一窗、清空 session(仅当仍是当前 session,重建场景下已被替换)。
+  // 任一窗 closed → 连带销毁另一窗、清空 session(仅当仍是当前 session)、删换壳临时目录。
   const onClosed = (): void => {
-    cleanupDir();
     if (session === s) {
       session = null;
       for (const w of allWins) {
-        releaseSimpleFullscreen(w);
         if (!w.isDestroyed()) w.destroy();
       }
+      cleanupSessionFiles(s);
     }
   };
 
-  if (pick && speaker) {
-    // 双窗:两窗都收权威翻页键;观众窗额外隐藏 #bar(鼠标点 #bar 会绕过主进程翻页权威致两窗脱同步)。
-    for (const w of allWins) w.webContents.on("before-input-event", handleDualInput);
-    speaker.webContents.on("will-navigate", (event, navigationUrl) => {
+  for (const w of allWins) {
+    // bento 放映页里的 's'(speaker popup)等 window.open 路径一律拒绝:
+    // 演示窗口不允许衍生新窗口(speaker 由主进程自己开)。
+    w.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    // cortex-presenter://control/...:solo 的页内退出与 speaker 的控制条都走这条通道。
+    w.webContents.on("will-navigate", (event, navigationUrl) => {
       if (!isPresenterControlUrl(navigationUrl)) return;
       event.preventDefault();
       const command = parsePresenterControlUrl(navigationUrl);
-      if (!command) return;
-      handlePresenterControl(command);
+      if (command) handlePresenterControl(command);
     });
-    audience.webContents.on("dom-ready", () => {
-      audience.webContents.insertCSS("#bar{display:none!important}").catch(() => {});
+    w.webContents.on("did-finish-load", () => {
+      if (w === audience) {
+        void w.webContents.executeJavaScript(ENSURE_PRESENTATION_MOTION_SOURCE).catch(() => {});
+      }
     });
-    // 目标屏定位与全屏策略(历史沿革,勿回退):
-    //  - setSimpleFullScreen 经 NSApp 级 presentationOptions **全局隐藏 Dock 与菜单栏**
-    //    (用户明确要求:演示期间不得隐藏程序坞),弃用;
-    //  - 原生 setFullScreen(Spaces)在双窗场景会被系统吞掉,并且把演讲者窗等待在
-    //    enter-full-screen 后会导致两窗一起不可用。macOS 因此改为无边框 panel 严格覆盖
-    //    Display.bounds;观众/演讲者两窗各自 ready 后独立展示,没有跨窗时序依赖;
-    //  - 其它平台无 Spaces/presentationOptions 概念,两窗仍用 setFullScreen。
+    w.on("closed", onClosed);
+  }
+
+  if (pick && speaker) {
+    // 双窗:两窗都收权威翻页键。
+    for (const w of allWins) w.webContents.on("before-input-event", handleDualInput);
     const enterFullscreen = (w: BrowserWindow, bounds: Electron.Rectangle): void => {
       if (session !== s || w.isDestroyed()) return;
       w.setBounds(bounds);
@@ -355,21 +289,20 @@ export async function openPresenterWindow(options: {
     audience.once("ready-to-show", () => enterFullscreen(audience, pick.audience.bounds));
     speaker.once("ready-to-show", () => enterFullscreen(speaker!, pick.speaker.bounds));
   } else {
-    // 单窗:仅拦 Esc(方向键交给 presenter HTML 自带运行时),保留可点 #bar,行为与改造前一致。
+    // 单窗:仅拦 Esc(方向键交给 bento 放映运行时),行为与改造前一致。
     audience.webContents.on("before-input-event", (_event, input: { type: string; key: string }) => {
       if (input.type === "keyDown" && input.key === "Escape") audience.close();
     });
     audience.once("ready-to-show", () => audience.show());
   }
 
-  // close(销毁前)先退自身 simple fullscreen —— 兜住用户经系统途径(Cmd+W 等)关窗的路径。
-  for (const w of allWins) w.on("close", () => releaseSimpleFullscreen(w));
-  for (const w of allWins) w.on("closed", onClosed);
-
-  // hash = 起始页序号(1 基),各页初始化读 location.hash 定位。
+  // boot hash 决定放映形态与起始实页(cortex/present-modes 解析)。
+  const soloHash = `cortex-present-solo.${startReal}`;
   try {
-    const loads: Array<Promise<void>> = [audience.loadFile(audienceFile, { hash })];
-    if (speaker && speakerFile) loads.push(speaker.loadFile(speakerFile, { hash }));
+    const loads: Array<Promise<void>> = [
+      audience.loadFile(options.deckHtmlPath, { hash: pick ? `cortex-present-audience.${startReal}` : soloHash }),
+    ];
+    if (speaker) loads.push(speaker.loadFile(options.deckHtmlPath, { hash: `cortex-present-speaker.${startReal}` }));
     await Promise.all(loads);
   } catch (err) {
     log.warn(`[present] loadFile failed: ${String(err)}`);
@@ -379,27 +312,14 @@ export async function openPresenterWindow(options: {
 }
 
 /** 销毁演示窗口(若存在);幂等。先清空 session 再销毁,避免 closed 回调重入。 */
-/**
- * 防御性兜底:双窗路径已不再进入 simpleFullScreen(演示期间保留 Dock,见 enterFullscreen
- * 注释),正常流程下这里恒为 no-op;保留是防未来某路径又把窗口置入 simple 态时,
- * 销毁前忘还原 presentation options 导致退出演示后程序坞消失(历史踩坑)。
- */
-function releaseSimpleFullscreen(w: BrowserWindow | null): void {
-  try {
-    if (w && !w.isDestroyed() && w.isSimpleFullScreen()) w.setSimpleFullScreen(false);
-  } catch {
-    /* 窗口正在销毁等边缘态,忽略 */
-  }
-}
-
 export function destroyPresenterWindow(): void {
   const s = session;
   session = null;
   if (!s) return;
   for (const w of [s.audience, s.speaker]) {
-    releaseSimpleFullscreen(w);
     if (w && !w.isDestroyed()) w.destroy();
   }
+  cleanupSessionFiles(s);
 }
 
 /** 测试/调试用:当前演示窗口(以观众窗为准,已销毁视为 null)。 */
@@ -407,6 +327,3 @@ export function getPresenterWindow(): BrowserWindow | null {
   const w = session?.audience;
   return w && !w.isDestroyed() ? w : null;
 }
-
-// re-export 供 handler/测试引用同一类型,避免出现第二个 PresenterSlide 形状。
-export type { PresenterSlide };

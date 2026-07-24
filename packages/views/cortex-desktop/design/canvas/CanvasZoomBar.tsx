@@ -20,7 +20,8 @@ import {
   zoomCanvasToEditableSelection
 } from '@cortex-work/core/design/canvas/canvas-focus'
 
-const isMac = navigator.platform.startsWith('Mac')
+// SSR(web 端预渲染)时 navigator 未定义:模块求值阶段必须判空,否则 next build 直接失败。
+const isMac = typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac')
 const MOD = isMac ? '⌘' : 'Ctrl+'
 
 function CanvasZoomBarInner() {

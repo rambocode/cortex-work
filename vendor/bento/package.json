@@ -1,0 +1,25 @@
+{
+  "name": "@cortex-work/bento-slides",
+  "private": true,
+  "version": "1.0.7",
+  "license": "MIT",
+  "type": "module",
+  "description": "Vendored bento slides runtime (nyblnet/bento, slides/ 子目录) + Cortex 定制层(src/cortex/)。构建产出自包含 dist/runtime.html 空壳,见 CORTEX_PATCHES.md。",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && SINGLEFILE=1 vite build && mv dist/index.html dist/runtime.html && node scripts/postbuild-compress.mjs dist/runtime.html"
+  },
+  "dependencies": {
+    "moveable": "^0.53.0",
+    "reveal.js": "^5.2.1",
+    "selecto": "^1.26.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@types/reveal.js": "^5.2.1",
+    "qrcode": "^1.5.4",
+    "typescript": "~5.8.3",
+    "vite": "^7.1.1",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}

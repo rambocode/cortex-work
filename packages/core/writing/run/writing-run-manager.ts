@@ -243,15 +243,14 @@ function handleWritingCliEvent(runId: string, ev: CliStreamEvent): void {
       }
       // 工具开始:先落定当前流式正文/thinking 块(保持时间线顺序 思考→文本→工具→文本)。
       finalizeLiveBlocks(run, { text: true, thinking: true });
-      // claude/codex 带结构化 input(序列化展示);pi 只带已提取的 detail 字符串。
+      // 新 adapter 带结构化 input(序列化展示);旧 adapter 可能只有 detail 字符串。
       const detail =
         ev.input !== undefined
           ? typeof ev.input === "string"
             ? ev.input
             : safeStringify(ev.input)
           : ev.detail;
-      // pi adapter 只发 tool start(无 phase),没有对应 end 事件 → 状态直接落定 success,
-      // 否则芯片永远停在 running;claude/codex 有 phase:start 才先置 running、等 end 翻转。
+      // phase:start 先置 running、等 end 翻转；无 phase 的旧 adapter 按单帧已完成处理。
       const status: "running" | "success" = ev.phase === "start" ? "running" : "success";
       store.pushMessage(run.threadId, { id: toolId, role: "tool", name: ev.name, detail, status });
       return;

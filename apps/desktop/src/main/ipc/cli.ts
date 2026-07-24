@@ -37,16 +37,6 @@ import {
 } from "../capabilities/design-delegate/server";
 import { ensureSlidesMcpServerConfig } from "../capabilities/slides/server";
 import {
-  failSlidesPipelineRoleResult,
-  recordSlidesPipelineRoleResult,
-  startSlidesPipelineRole,
-} from "../capabilities/slides/pipeline/tools";
-import {
-  hasCompletedSlidesPipelineRunKind,
-  loadSlidesPipelineRun,
-  cancelSlidesPipelineRun,
-} from "../capabilities/slides/pipeline/workspace";
-import {
   isSlidesRunId,
   parseSlidesRunId,
   registerSlidesSession,
@@ -816,28 +806,9 @@ export function registerCliHandlers(): void {
     // (父 agent 同款底层 agent、fresh sessionId、跑该页 prompt),事件带 label(page:<artifactId>)
     // 实时推渲染端。子 agent 用 fresh sessionId 不注册本 session → 无 delegate_task 工具 → 防递归。
     let designDelegateAbort: AbortController | undefined;
-    const activeSlidesPipelineRuns = new Map<string, number>();
-    const cancelActiveSlidesPipelineRuns = (): void => {
-      const deckId = parseSlidesRunId(req.runId);
-      if (!deckId) return;
-      for (const runId of activeSlidesPipelineRuns.keys()) {
-        void loadSlidesPipelineRun({ workspaceRoot: req.cwd, deckId, runId }).then((loaded) => {
-          if (!loaded.ok) return;
-          if (loaded.value.status !== "running" && loaded.value.status !== "awaiting-approval") return;
-          return cancelSlidesPipelineRun({
-            workspaceRoot: req.cwd,
-            deckId,
-            runId,
-            expectedUpdatedAt: loaded.value.updatedAt,
-          });
-        });
-      }
-      activeSlidesPipelineRuns.clear();
-    };
     if (req.runId.startsWith("design:") || isSlidesRunId(req.runId)) {
       const controller = new AbortController();
       designDelegateAbort = controller;
-      const delegatedSlidesDocId = parseSlidesRunId(req.runId);
       const state: DesignDelegateSessionState = {
         sessionId: req.sessionId,
         runId: req.runId,
@@ -862,58 +833,6 @@ export function registerCliHandlers(): void {
             onEvent,
             controller.signal,
           ),
-        slides: delegatedSlidesDocId
-          ? {
-              onRoleEvent: async (event) => {
-                if (event.status === "started") {
-                  activeSlidesPipelineRuns.set(event.runId, (activeSlidesPipelineRuns.get(event.runId) ?? 0) + 1);
-                }
-                const result = event.status === "started"
-                  ? await startSlidesPipelineRole({
-                      workspaceRoot: req.cwd,
-                      deckId: delegatedSlidesDocId,
-                      runId: event.runId,
-                      role: event.role,
-                    })
-                  : event.status === "succeeded"
-                  ? await recordSlidesPipelineRoleResult({
-                      workspaceRoot: req.cwd,
-                      deckId: delegatedSlidesDocId,
-                      runId: event.runId,
-                      role: event.role,
-                      result: event.artifact,
-                    })
-                  : await failSlidesPipelineRoleResult({
-                      workspaceRoot: req.cwd,
-                      deckId: delegatedSlidesDocId,
-                      runId: event.runId,
-                      role: event.role,
-                      errorMessage: event.error,
-                      rawSummary: event.rawSummary,
-                    });
-                if (!result.ok) throw new Error(result.error.message);
-                if (event.status !== "started") {
-                  const remaining = (activeSlidesPipelineRuns.get(event.runId) ?? 1) - 1;
-                  if (remaining > 0) activeSlidesPipelineRuns.set(event.runId, remaining);
-                  else activeSlidesPipelineRuns.delete(event.runId);
-                }
-              },
-              canDelegateNotesWriter: async (runId) => {
-                const run = await loadSlidesPipelineRun({
-                  workspaceRoot: req.cwd,
-                  deckId: delegatedSlidesDocId,
-                  runId,
-                });
-                if (!run.ok || run.value.kind !== "notes") return false;
-                const review = await hasCompletedSlidesPipelineRunKind({
-                  workspaceRoot: req.cwd,
-                  deckId: delegatedSlidesDocId,
-                  kind: "review",
-                });
-                return review.ok && review.value;
-              },
-            }
-          : undefined,
       };
       registerDesignDelegateSession(state);
     }
@@ -1166,7 +1085,6 @@ export function registerCliHandlers(): void {
         }
         if (designDelegateAbort) {
           designDelegateAbort.abort();
-          cancelActiveSlidesPipelineRuns();
           unregisterDesignDelegateSession(req.sessionId);
         }
         if (slidesSessionActive) unregisterSlidesSession(req.sessionId);
@@ -1240,7 +1158,6 @@ export function registerCliHandlers(): void {
         }
         if (designDelegateAbort) {
           designDelegateAbort.abort();
-          cancelActiveSlidesPipelineRuns();
           unregisterDesignDelegateSession(req.sessionId);
         }
         // Slides 会话状态注销:回合终态即失效(下一轮 cli:start 会重新注册),防跨 deck 泄漏。

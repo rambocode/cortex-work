@@ -82,6 +82,20 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** 文件存在性探测:优先轻量 statFile,旧壳无此能力时退化为 readFile;任何异常按不存在。 */
+async function probeFileExists(bridge: DesktopBridge, abs: string): Promise<boolean> {
+  try {
+    if (bridge.statFile) {
+      await bridge.statFile(abs);
+      return true;
+    }
+    await bridge.readFile(abs);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // 把 DesktopBridge 装配成 KunGuiPort。剪贴板/图片挑选三项 cortex 暂无对等桥接，
 // 返回 ok:false 让画布图片导入路径优雅降级（后续需要时再补 IPC）。
 export function createBridgeKunGuiPort(bridge: DesktopBridge): KunGuiPort {
@@ -163,7 +177,17 @@ export function createBridgeKunGuiPort(bridge: DesktopBridge): KunGuiPort {
       const abs = resolveWorkspacePath(payload);
       try {
         const fileUrl = await bridge.browserResolveLocalHtml?.(abs);
-        if (!fileUrl) return { ok: false as const, message: "local html not authorized" };
+        if (!fileUrl) {
+          // resolveLocalHtml 把「文件不存在」与「不在允许根」统一吞成 null;这里补一次
+          // 存在性探测把两种失败区分开 —— 'prototype file not found' 是 PreviewHost
+          // 等待-重试分支的哨兵串(文件由主进程异步创建的场景必须可重试,如 bento deck
+          // 刚建档时的授权竞态),真正的越权才落 'local html not authorized' 硬错误。
+          const exists = await probeFileExists(bridge, abs);
+          return {
+            ok: false as const,
+            message: exists ? "local html not authorized" : "prototype file not found",
+          };
+        }
         return { ok: true as const, absolutePath: abs, fileUrl };
       } catch (err) {
         return { ok: false as const, message: message(err) };

@@ -13,7 +13,7 @@ import {
   sendDesignMessage,
 } from "@cortex-work/core/design/run/design-run-manager";
 import { buildSlidesTurnPrompt } from "@cortex-work/core/design/slides/slides-prompt";
-import { useSlidesStore } from "./slides/slides-store";
+import { useBentoSlidesStore } from "./slides/bento-slides-store";
 import { implementDesignInProject } from "@cortex-work/core/design/run/design-implement";
 import { useChatStore } from "@cortex-work/core/design/compat/chat-store";
 import { useCanvasShapeStore } from "@cortex-work/core/design/canvas/canvas-shape-store";
@@ -126,9 +126,8 @@ export function DesignWorkspace(): ReactElement {
   // 右栏与中间区域共享同一会话管线,但 slides 设计稿的上下文语义不同(见 DesignAIRail.slidesMode)。
   const activeDoc = documents.find((d) => d.id === activeDocumentId) ?? null;
   const slidesMode = activeDoc ? designDocumentKind(activeDoc) === "slides" : false;
-  // deck 状态决定本轮该做什么(主题/提纲/逐页生成);未加载时按 draft。
-  const slidesStatus = useSlidesStore((s) => s.manifest?.status);
-  const slidesThemeName = useSlidesStore((s) => s.manifest?.theme.name);
+  // deck 阶段决定本轮该做什么(提纲 gate / 全篇生成 / 局部修订);未加载时按 draft。
+  const slidesStage = useBentoSlidesStore((s) => s.stage);
 
   const handleSend = (): void => {
     const decision = routeDesignComposerSend({ input, slidesMode });
@@ -138,28 +137,10 @@ export function DesignWorkspace(): ReactElement {
       return;
     }
     setInput("");
-    // 舞台选区(用户点选元素后发话):并入本轮上下文,让 Agent 只精准调整所选。
-    // 从 getState 取而非订阅:发送瞬间的快照即可,不需要因选区变化重渲染本组件。
-    const slidesState = useSlidesStore.getState();
-    const stageSelection = slidesState.stageSelection;
-    const slotOrder = slidesState.manifest
-      ? [...slidesState.manifest.slides].sort((a, b) => a.order - b.order).map((s) => s.id)
-      : [];
-    const selection =
-      stageSelection && stageSelection.items.length > 0
-        ? {
-            slotId: stageSelection.slotId,
-            slideIndex:
-              slotOrder.indexOf(stageSelection.slotId) >= 0 ? slotOrder.indexOf(stageSelection.slotId) + 1 : undefined,
-            items: stageSelection.items.map((item) => ({
-              id: item.elementId,
-              tag: item.tagName,
-              text: item.text || undefined,
-            })),
-          }
-        : undefined;
+    // bento 化后编辑选区在 bento 编辑器内部,不再经宿主注入上下文;
+    // 用户可在对话里用「第 N 页 / 标题元素」等自然语言指代,AI 经 get_deck_state 对齐。
     void sendDesignMessage(
-      buildSlidesTurnPrompt({ text: decision.text, stage: slidesStatus, themeName: slidesThemeName, selection }),
+      buildSlidesTurnPrompt({ text: decision.text, stage: slidesStage }),
       "agent",
       { displayText: decision.text },
     );

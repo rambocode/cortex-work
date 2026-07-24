@@ -467,6 +467,8 @@ function DesignAIRailInner({
               blocks={timelineBlocks}
               liveReasoning={timelineLiveReasoning}
               live={timelineLiveAssistant}
+              busy={effectiveBusy}
+              busyLabel={t(slidesMode ? 'slidesRailWorking' : 'designAgentManagerStatusRunning')}
               activeThreadId={timelineThreadId}
               runtimeConnection={runtimeConnection}
               onRetryConnection={onRetryConnection}

@@ -119,47 +119,15 @@ import type {
 import type { WritingPdfDataRequest, WritingPdfDataResult } from "./writing-pdf-types";
 // AI Slides IPC 契约类型(与 apps/desktop/src/main/ipc/slides-ipc-types.ts 镜像）。
 import type {
-  SlidesApplyTemplateRequest,
-  SlidesAnalyzeExportQualityRequest,
-  SlidesAnalyzeExportQualityResult,
-  SlidesApproveOutlineRequest,
-  SlidesListTemplatesResult,
-  SlidesCheckRequest,
-  SlidesCheckResult,
-  SlidesCreateDeckRequest,
-  SlidesCancelPipelineRunRequest,
-  SlidesDeckScopedRequest,
-  SlidesDeckIpcResult,
-  SlidesDeleteSlideRequest,
-  SlidesDuplicateSlideRequest,
-  SlidesExportRequest,
-  SlidesExportResult,
+  BentoCreateDeckRequest,
+  BentoDeckIpcResult,
+  BentoDeckScopedRequest,
+  BentoExportFileResult,
+  BentoGetDeckResult,
+  BentoSetStageRequest,
+  BentoWriteDeckHtmlRequest,
   SlidesPresentRequest,
   SlidesPresentResult,
-  SlidesInsertSlideRequest,
-  SlidesLoadDeckRequest,
-  SlidesReadOutlineDraftRequest,
-  SlidesReadOutlineDraftResult,
-  SlidesReadNotesRequest,
-  SlidesReadNotesResult,
-  SlidesReadSlideHtmlRequest,
-  SlidesReadSlideHtmlResult,
-  SlidesReadSnapshotRequest,
-  SlidesReadSnapshotResult,
-  SlidesReadTemplateReferenceRequest,
-  SlidesReadTemplateReferenceResult,
-  SlidesGetPipelineRunRequest,
-  SlidesPipelineRoleDecisionRequest,
-  SlidesPipelineRunResult,
-  SlidesRenameDeckRequest,
-  SlidesReorderRequest,
-  SlidesSaveEditedHtmlRequest,
-  SlidesSaveNotesRequest,
-  SlidesScreenshotRequest,
-  SlidesScreenshotResult,
-  SlidesSetActiveSlideRequest,
-  SlidesSetAnimationStyleRequest,
-  SlidesSetSlideAnimationRequest,
 } from "./slides-ipc-types";
 import type { ChannelId } from "../reply/channels";
 import type { MemoryFile, MemoryScope, MemoryState } from "../reply/memory";
@@ -274,43 +242,16 @@ export interface DesktopBridge {
   // 读 PDF 原始字节(base64)交渲染端 pdfjs 阅读器渲染;失败给结构化 message(渲染端展示错误占位)。
   // 可选——web/旧壳无此能力时 .pdf 无法在写作台打开(阅读器降级为不支持提示)。
   writingReadPdf?(req: WritingPdfDataRequest): Promise<WritingPdfDataResult>;
-  // ── AI Slides(演示文稿 deck)────────────────────────────────────────────
-  // deck.json 与 slide HTML 只经主进程读写(renderer 不直接碰 deck 文件);全部结果
-  // 结构化 { ok } envelope,revision 冲突返回 revision_conflict 由 UI 提示刷新。
+  // ── AI Slides(演示文稿 deck,bento 单文件体系)──────────────────────────
+  // deck.bento.html 只经主进程读写(renderer 不直接碰 deck 文件);全部结果结构化
+  // { ok } envelope,revision 冲突返回 revision_conflict 由 UI 提示刷新。
   // 可选——web/旧壳无此能力时「演示文稿」创建入口降级隐藏。
-  slidesCreateDeck?(req: SlidesCreateDeckRequest): Promise<SlidesDeckIpcResult>;
-  slidesLoadDeck?(req: SlidesLoadDeckRequest): Promise<SlidesDeckIpcResult>;
-  slidesRenameDeck?(req: SlidesRenameDeckRequest): Promise<SlidesDeckIpcResult>;
-  slidesListTemplates?(): Promise<SlidesListTemplatesResult>;
-  slidesApplyTemplate?(req: SlidesApplyTemplateRequest): Promise<SlidesDeckIpcResult>;
-  // 模板参考页 HTML(模板下拉 hover 预览);可选——无能力时预览退化为色板占位。
-  slidesReadTemplateReference?(req: SlidesReadTemplateReferenceRequest): Promise<SlidesReadTemplateReferenceResult>;
-  slidesApproveOutline?(req: SlidesApproveOutlineRequest): Promise<SlidesDeckIpcResult>;
-  slidesReadOutlineDraft?(req: SlidesReadOutlineDraftRequest): Promise<SlidesReadOutlineDraftResult>;
-  slidesReorderSlides?(req: SlidesReorderRequest): Promise<SlidesDeckIpcResult>;
-  slidesInsertSlide?(req: SlidesInsertSlideRequest): Promise<SlidesDeckIpcResult>;
-  slidesDuplicateSlide?(req: SlidesDuplicateSlideRequest): Promise<SlidesDeckIpcResult>;
-  slidesDeleteSlide?(req: SlidesDeleteSlideRequest): Promise<SlidesDeckIpcResult>;
-  slidesSetActiveSlide?(req: SlidesSetActiveSlideRequest): Promise<SlidesDeckIpcResult>;
-  // 动画:全局风格(none/subtle/lively)与单页转场/入场注解。可选——无能力时工具栏
-  // 动画菜单降级隐藏(与 present 一致的探测方式)。
-  slidesSetAnimationStyle?(req: SlidesSetAnimationStyleRequest): Promise<SlidesDeckIpcResult>;
-  slidesSetSlideAnimation?(req: SlidesSetSlideAnimationRequest): Promise<SlidesDeckIpcResult>;
-  slidesSaveEditedHtml?(req: SlidesSaveEditedHtmlRequest): Promise<SlidesDeckIpcResult>;
-  slidesReadNotes?(req: SlidesReadNotesRequest): Promise<SlidesReadNotesResult>;
-  slidesSaveNotes?(req: SlidesSaveNotesRequest): Promise<SlidesDeckIpcResult>;
-  slidesReadSlideHtml?(req: SlidesReadSlideHtmlRequest): Promise<SlidesReadSlideHtmlResult>;
-  slidesReadSnapshot?(req: SlidesReadSnapshotRequest): Promise<SlidesReadSnapshotResult>;
-  slidesCheck?(req: SlidesCheckRequest): Promise<SlidesCheckResult>;
-  slidesScreenshot?(req: SlidesScreenshotRequest): Promise<SlidesScreenshotResult>;
-  slidesAnalyzeExportQuality?(req: SlidesAnalyzeExportQualityRequest): Promise<SlidesAnalyzeExportQualityResult>;
-  slidesGetLatestPipelineRun?(req: SlidesDeckScopedRequest): Promise<SlidesPipelineRunResult>;
-  slidesGetPipelineRun?(req: SlidesGetPipelineRunRequest): Promise<SlidesPipelineRunResult>;
-  slidesCancelPipelineRun?(req: SlidesCancelPipelineRunRequest): Promise<SlidesPipelineRunResult>;
-  slidesAcceptPipelineRole?(req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult>;
-  slidesRejectPipelineRole?(req: SlidesPipelineRoleDecisionRequest): Promise<SlidesPipelineRunResult>;
-  slidesExport?(req: SlidesExportRequest): Promise<SlidesExportResult>;
-  // 演示模式:主进程开独立全屏窗口播放整套 ready 页,从 startSlideId 起播。
+  slidesBentoCreateDeck?(req: BentoCreateDeckRequest): Promise<BentoDeckIpcResult>;
+  slidesBentoGetDeck?(req: BentoDeckScopedRequest): Promise<BentoGetDeckResult>;
+  slidesBentoSetStage?(req: BentoSetStageRequest): Promise<BentoDeckIpcResult>;
+  slidesBentoWriteDeckHtml?(req: BentoWriteDeckHtmlRequest): Promise<BentoDeckIpcResult>;
+  slidesBentoExportFile?(req: BentoDeckScopedRequest): Promise<BentoExportFileResult>;
+  // 演示模式:主进程加载 deck.bento.html 开演示窗(单屏/双屏),startIndex 为实页索引。
   // 可选——web/旧壳无此能力时工具栏「播放」按钮隐藏。
   slidesPresent?(req: SlidesPresentRequest): Promise<SlidesPresentResult>;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。

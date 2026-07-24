@@ -38,6 +38,15 @@ exports.default = async function beforePack(context) {
 
   console.log(`[before-pack] 目标平台: ${targetKey}`);
 
+  // ── 步骤 0：同步 bento slides 运行时 ─────────────────────────────────────
+  // vendored bento 构建产物(自包含单 HTML)→ resources/slides/bento/runtime.html,
+  // 随 extraResources 的 resources/slides 一起进包。产物缺失/过期时脚本内自动构建。
+  execFileSync(
+    process.execPath,
+    [join(desktopRoot, "scripts", "sync-bento-runtime.mjs")],
+    { stdio: "inherit", cwd: desktopRoot },
+  );
+
   // ── 步骤 1：构建 whisper-cli ─────────────────────────────────────────────
   // v1 仅 darwin-arm64：其他平台 prepare 脚本会报清晰错误并退出，beforePack 捕获后仅告警，
   // 不阻断打包（非 local-whisper 用户不应因此失败）。

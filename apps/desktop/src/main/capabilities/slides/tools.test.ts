@@ -1,27 +1,25 @@
-// cortex-slides MCP 工具集测试:用捕获式假 McpServer + 真实 tmp deck 验证
-// 工具清单契约、提纲批准 gate、revision 乐观锁、唯一匹配替换与资产白名单。
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+// cortex-slides MCP 工具集测试(bento 化):捕获式假 McpServer + 真实 tmp deck 验证
+// 工具清单契约、提纲批准 gate、revision 乐观锁与资产写入。
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { buildStarterBentoDoc } from "@cortex-work/core/design/slides/bento/bento-doc-schema";
 
 vi.mock("../../log", () => ({
   createLogger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
 }));
 
 import { registerSlidesTools } from "./tools";
-import { createDeckWorkspace, loadDeckManifest, updateDeckManifest } from "./workspace";
-import {
-  clearAllSlidesSessions,
-  getSlidesSession,
-  parseSlidesRunId,
-  registerSlidesSession,
-  unregisterSlidesSession,
-} from "./session";
-import { slidesSlideHtmlPath } from "@cortex-work/core/design/slides/slides-paths";
+import { createBentoDeck, readBentoDeck } from "./bento-workspace";
 
 const DECK = "decktool01";
+const SHELL =
+  '<!DOCTYPE html>\n<html><head><title>Bento Slides</title>\n' +
+  '<script type="application/bento+json" id="bento-doc"></script>\n' +
+  "</head><body><div id=\"app\"></div></body></html>";
+
 let root: string;
 
 // 捕获式假 McpServer:只记录 registerTool,handler 由测试直接调用。
@@ -40,15 +38,20 @@ async function call(name: string, input: Record<string, unknown> = {}): Promise<
   return JSON.parse(result.content[0]!.text) as Record<string, unknown>;
 }
 
-async function currentRevision(): Promise<number> {
-  const loaded = await loadDeckManifest({ workspaceRoot: root, deckId: DECK });
-  if (!loaded.ok) throw new Error("load failed");
-  return loaded.value.manifest.revision;
+/** 以 starter 为基底扩展出 N 页文档(结构合法)。 */
+function docWithSlides(title: string, count: number): Record<string, unknown> {
+  const starter = buildStarterBentoDoc(title) as unknown as { slides: Array<Record<string, unknown>> };
+  const first = starter.slides[0]!;
+  const slides = Array.from({ length: count }, (_, i) => ({
+    ...structuredClone(first),
+    id: `slide-${i + 1}`,
+  }));
+  return { ...(starter as unknown as Record<string, unknown>), slides };
 }
 
 beforeAll(async () => {
-  root = mkdtempSync(join(tmpdir(), "cortex-slides-tools-"));
-  const created = await createDeckWorkspace({ workspaceRoot: root, deckId: DECK, title: "工具测试" });
+  root = mkdtempSync(join(tmpdir(), "cortex-bento-tools-"));
+  const created = await createBentoDeck({ workspaceRoot: root, deckId: DECK, title: "工具测试", runtimeHtml: SHELL });
   expect(created.ok).toBe(true);
   registerSlidesTools(fakeMcp, {
     sessionId: "sess-1",
@@ -62,293 +65,105 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe("工具清单契约(MVP)", () => {
-  it("注册的工具名固定", () => {
-    expect([...tools.keys()].sort()).toEqual(
-      [
-        "get_deck_state",
-        "set_theme",
-        "propose_outline",
-        "place_slide_html",
-        "read_slide_html",
-        "replace_slide_text",
-        "move_slide",
-        "insert_slide",
-        "delete_slide",
-        "check_slide",
-        "screenshot_slide",
-        "upload_asset",
-        "list_templates",
-        "apply_template",
-        "generate_speaker_notes",
-        "read_speaker_notes",
-        "set_deck_animation_style",
-        "set_slide_animation",
-        "create_pipeline_run",
-        "get_pipeline_run",
-        "record_role_result",
-        "accept_role_result",
-        "reject_role_result",
-      ].sort(),
-    );
+describe("工具清单契约(bento)", () => {
+  it("注册的工具名固定且不含旧 slot 工具", () => {
+    expect([...tools.keys()].sort()).toEqual(["add_asset", "get_deck_state", "propose_outline", "set_deck_doc"]);
   });
 });
 
-describe("提纲批准 gate 与生成流", () => {
-  it("draft 态直接 place_slide_html 被拒(outline_not_approved)", async () => {
-    // 先插入一个 slot(结构操作不受 gate 限制)。
-    const inserted = await call("insert_slide", { expected_revision: await currentRevision(), title: "P1" });
-    expect(inserted.ok).toBe(true);
-    const result = await call("place_slide_html", {
-      expected_revision: await currentRevision(),
-      slot_id: inserted.slotId,
-      html: "<!doctype html><html><body>x</body></html>",
-    });
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe("outline_not_approved");
-  });
-
-  it("propose_outline 写草案并把状态推进为 outline-proposed", async () => {
-    const result = await call("propose_outline", {
-      expected_revision: await currentRevision(),
-      summary: "三页方案",
-      items: [
-        { id: "o1", title: "开场", purpose: "hook", keyPoints: ["a"] },
-        { id: "o2", title: "收尾", purpose: "cta", keyPoints: ["b"] },
-      ],
-    });
-    expect(result.ok).toBe(true);
-    expect(existsSync(join(root, ".cortex-design", DECK, "drafts", "outline.json"))).toBe(true);
-    const state = await call("get_deck_state");
-    expect((state.deck as { status: string }).status).toBe("outline-proposed");
-    // proposed 态仍不能写页面。
-    const denied = await call("place_slide_html", {
-      expected_revision: await currentRevision(),
-      slot_id: "slot-001",
-      html: "<html></html>",
-    });
-    expect(denied.code).toBe("outline_not_approved");
-  });
-
-  it("批准后 place_slide_html 可写入并 bump slot 状态", async () => {
-    // 模拟用户批准(IPC approveOutline 的等价 manifest 变更)。
-    const approved = await updateDeckManifest({
-      workspaceRoot: root,
-      deckId: DECK,
-      expectedRevision: await currentRevision(),
-      mutate: (m) => {
-        m.status = "outline-approved";
-        return m;
-      },
-    });
-    expect(approved.ok).toBe(true);
-    const result = await call("place_slide_html", {
-      expected_revision: await currentRevision(),
-      slot_id: "slot-001",
-      html: "<!doctype html><html><body><h1 data-cortex-id=\"t\">标题一</h1></body></html>",
-    });
-    expect(result.ok).toBe(true);
-    expect((result.slot as { status: string }).status).toBe("ready");
-  });
-
-  it("set_theme 携带过期 revision → revision_conflict", async () => {
-    const result = await call("set_theme", {
-      expected_revision: 0,
-      theme: {
-        name: "深色",
-        mood: ["bold"],
-        palette: {
-          background: "#0f172a",
-          foreground: "#f8fafc",
-          primary: "#38bdf8",
-          secondary: "#94a3b8",
-          accent: "#f59e0b",
-        },
-        fonts: { heading: "PingFang SC", body: "PingFang SC" },
-        density: "balanced",
-      },
-    });
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe("revision_conflict");
+describe("get_deck_state", () => {
+  it("返回 doc/revision/stage/hint", async () => {
+    const res = await call("get_deck_state");
+    expect(res.ok).toBe(true);
+    expect(res.revision).toBe(0);
+    expect(res.stage).toBe("draft");
+    expect((res.doc as { title: string }).title).toBe("工具测试");
+    expect(String(res.hint)).toContain("propose_outline");
   });
 });
 
-describe("replace_slide_text 唯一匹配", () => {
-  it("命中唯一目标才替换;0 次/多次都报错", async () => {
-    const zero = await call("replace_slide_text", {
-      expected_revision: await currentRevision(),
-      slot_id: "slot-001",
-      find: "不存在的文本",
-      replace: "x",
-    });
-    expect(zero.code).toBe("not_found");
+describe("提纲 gate 与 set_deck_doc", () => {
+  it("draft 阶段拒绝多页全篇写入(outline_not_approved)", async () => {
+    const res = await call("set_deck_doc", { expected_revision: 0, doc: docWithSlides("工具测试", 5) });
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe("outline_not_approved");
+  });
 
-    const ok = await call("replace_slide_text", {
-      expected_revision: await currentRevision(),
-      slot_id: "slot-001",
-      find: "标题一",
-      replace: "标题壹",
+  it("propose_outline → stage 变 outline-proposed;仍拒绝全篇", async () => {
+    const res = await call("propose_outline", {
+      version: 1,
+      summary: "narrative",
+      items: [{ id: "o1", title: "开场", purpose: "hook", keyPoints: ["a"] }],
     });
-    expect(ok.ok).toBe(true);
-    const html = readFileSync(join(root, slidesSlideHtmlPath(DECK, "slot-001")), "utf8");
-    expect(html).toContain("标题壹");
+    expect(res.ok).toBe(true);
+    expect(res.stage).toBe("outline-proposed");
+    const rejected = await call("set_deck_doc", { expected_revision: 0, doc: docWithSlides("工具测试", 3) });
+    expect(rejected.code).toBe("outline_not_approved");
+  });
 
-    // 制造重复文本再断言多次匹配被拒。
-    await call("place_slide_html", {
-      expected_revision: await currentRevision(),
-      slot_id: "slot-001",
-      html: "<!doctype html><html><body><p>重复</p><p>重复</p></body></html>",
+  it("批准(stage=outline-approved)后全篇写入成功且推进 ready", async () => {
+    const { updateBentoDeckMeta } = await import("./bento-workspace");
+    await updateBentoDeckMeta({ workspaceRoot: root, deckId: DECK, patch: { stage: "outline-approved" } });
+    const res = await call("set_deck_doc", { expected_revision: 0, doc: docWithSlides("工具测试", 4) });
+    expect(res.ok).toBe(true);
+    expect(res.stage).toBe("ready");
+    expect(res.revision).toBe(1);
+    const state = await readBentoDeck({ workspaceRoot: root, deckId: DECK });
+    if (state.ok) expect(state.value.doc?.slides).toHaveLength(4);
+  });
+
+  it("兼容模型把完整 doc 作为 JSON 字符串传入", async () => {
+    const doc = docWithSlides("字符串文档", 3);
+    const res = await call("set_deck_doc", {
+      expected_revision: 1,
+      doc: JSON.stringify(doc),
     });
-    const multi = await call("replace_slide_text", {
-      expected_revision: await currentRevision(),
-      slot_id: "slot-001",
-      find: "重复",
-      replace: "x",
-    });
-    expect(multi.ok).toBe(false);
-    expect(multi.code).toBe("invalid_payload");
+    expect(res.ok).toBe(true);
+    expect(res.revision).toBe(2);
+    const state = await readBentoDeck({ workspaceRoot: root, deckId: DECK });
+    if (state.ok) {
+      expect(state.value.doc?.title).toBe("字符串文档");
+      expect(state.value.doc?.slides).toHaveLength(3);
+    }
+  });
+
+  it("错误 expected_revision → revision_conflict", async () => {
+    const res = await call("set_deck_doc", { expected_revision: 0, doc: docWithSlides("工具测试", 4) });
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe("revision_conflict");
+  });
+
+  it("schema 不通过 → invalid_doc", async () => {
+    const res = await call("set_deck_doc", { expected_revision: 2, doc: { format: "bento/slides", slides: [] } });
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe("invalid_doc");
   });
 });
 
-describe("结构操作与资产", () => {
-  it("move_slide 调整顺序", async () => {
-    await call("insert_slide", { expected_revision: await currentRevision(), title: "尾页" });
-    const state = await call("get_deck_state");
-    const ids = (state.deck as { slides: Array<{ id: string; order: number }> }).slides
-      .sort((a, b) => a.order - b.order)
-      .map((s) => s.id);
-    const moved = await call("move_slide", {
-      expected_revision: await currentRevision(),
-      slot_id: ids.at(-1)!,
-      to_index: 0,
+describe("add_asset", () => {
+  it("写入资产表并返回 asset:<key> 引用", async () => {
+    const res = await call("add_asset", {
+      expected_revision: 2,
+      file_name: "Hero Image.PNG",
+      mime_type: "image/png",
+      base64: "aGVsbG8=",
     });
-    expect(moved.ok).toBe(true);
-    expect((moved.order as string[])[0]).toBe(ids.at(-1));
+    expect(res.ok).toBe(true);
+    expect(res.asset).toBe("asset:hero-image.png");
+    const state = await readBentoDeck({ workspaceRoot: root, deckId: DECK });
+    if (state.ok) {
+      expect(state.value.doc?.assets?.["hero-image.png"]).toBe("data:image/png;base64,aGVsbG8=");
+    }
   });
 
-  it("delete_slide 软删", async () => {
-    const state = await call("get_deck_state");
-    const ids = (state.deck as { slides: Array<{ id: string; order: number }> }).slides.map((s) => s.id);
-    const removed = await call("delete_slide", {
-      expected_revision: await currentRevision(),
-      slot_id: ids.at(-1)!,
+  it("非法 base64 → invalid_asset", async () => {
+    const res = await call("add_asset", {
+      expected_revision: 3,
+      file_name: "x.png",
+      mime_type: "image/png",
+      base64: "%%%",
     });
-    expect(removed.ok).toBe(true);
-  });
-
-  it("upload_asset 白名单与路径返回;非法扩展名被拒", async () => {
-    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64");
-    const ok = await call("upload_asset", { file_name: "hero.png", base64: png });
-    expect(ok.ok).toBe(true);
-    expect(ok.path).toBe(`.cortex-design/${DECK}/assets/generated/hero.png`);
-    // 同名自动加序号。
-    const again = await call("upload_asset", { file_name: "hero.png", base64: png });
-    expect(again.path).toBe(`.cortex-design/${DECK}/assets/generated/hero-2.png`);
-    const bad = await call("upload_asset", { file_name: "evil.sh", base64: png });
-    expect(bad.ok).toBe(false);
-    expect(bad.code).toBe("unsupported_format");
-  });
-
-  it("upload_asset 在 base64 解码前拒绝超过编码上限的输入", async () => {
-    const oversized = await call("upload_asset", {
-      file_name: "huge.png",
-      base64: "A".repeat(11_184_817),
-    });
-    expect(oversized.ok).toBe(false);
-    expect(oversized.message).toContain("base64");
-  });
-});
-
-describe("动画注解工具", () => {
-  it("set_deck_animation_style 写入全局风格并 bump revision", async () => {
-    const before = await currentRevision();
-    const result = await call("set_deck_animation_style", {
-      expected_revision: before,
-      style: "lively",
-    });
-    expect(result.ok).toBe(true);
-    expect(result.revision).toBe(before + 1);
-    const state = await call("get_deck_state");
-    expect((state.deck as { animationStyle?: string }).animationStyle).toBe("lively");
-  });
-
-  it("set_slide_animation 写入转场与入场注解", async () => {
-    const state = await call("get_deck_state");
-    const slotId = (state.deck as { slides: Array<{ id: string }> }).slides[0]!.id;
-    const result = await call("set_slide_animation", {
-      expected_revision: await currentRevision(),
-      slot_id: slotId,
-      transition: "page-flip",
-      entrances: [
-        { element_id: "t", preset: "reveal-clip", step: 0 },
-        { element_id: "b", preset: "fade-up", step: 1, delay_ms: 120 },
-      ],
-    });
-    expect(result.ok).toBe(true);
-    const after = await call("get_deck_state");
-    const slot = (after.deck as { slides: Array<{ id: string; animation?: Record<string, unknown> }> }).slides.find(
-      (s) => s.id === slotId,
-    );
-    expect(slot?.animation?.transition).toBe("page-flip");
-    const entrances = slot?.animation?.entrances as Array<Record<string, unknown>>;
-    expect(entrances).toHaveLength(2);
-    expect(entrances[0]).toMatchObject({ elementId: "t", preset: "reveal-clip", step: 0 });
-    expect(entrances[1]).toMatchObject({ elementId: "b", preset: "fade-up", step: 1, delayMs: 120 });
-  });
-
-  it("set_slide_animation 对不存在的 slot 报错;过期 revision 冲突", async () => {
-    const missing = await call("set_slide_animation", {
-      expected_revision: await currentRevision(),
-      slot_id: "slot-999",
-      transition: "fade",
-    });
-    expect(missing.ok).toBe(false);
-    const state = await call("get_deck_state");
-    const slotId = (state.deck as { slides: Array<{ id: string }> }).slides[0]!.id;
-    const conflict = await call("set_slide_animation", {
-      expected_revision: 0,
-      slot_id: slotId,
-      transition: "fade",
-    });
-    expect(conflict.ok).toBe(false);
-    expect(conflict.code).toBe("revision_conflict");
-  });
-
-  it("set_slide_animation 只带 transition 时保留已有 entrances", async () => {
-    const state = await call("get_deck_state");
-    const slotId = (state.deck as { slides: Array<{ id: string }> }).slides[0]!.id;
-    const result = await call("set_slide_animation", {
-      expected_revision: await currentRevision(),
-      slot_id: slotId,
-      transition: "zoom",
-    });
-    expect(result.ok).toBe(true);
-    const after = await call("get_deck_state");
-    const slot = (after.deck as { slides: Array<{ id: string; animation?: Record<string, unknown> }> }).slides.find(
-      (s) => s.id === slotId,
-    );
-    expect(slot?.animation?.transition).toBe("zoom");
-    // 上一个用例写入的 entrances 不应被只改转场的调用清掉。
-    expect((slot?.animation?.entrances as unknown[]).length).toBe(2);
-  });
-});
-
-describe("session 注册表", () => {
-  it("parseSlidesRunId 只接受 slides:<docId>: 前缀", () => {
-    expect(parseSlidesRunId("slides:abc123:r1")).toBe("abc123");
-    expect(parseSlidesRunId("design:abc123:r1")).toBeNull();
-    expect(parseSlidesRunId("slides:../evil:r1")).toBeNull();
-    expect(parseSlidesRunId("slides:abc123")).toBeNull();
-  });
-
-  it("register/unregister/clear 生命周期;未注册会话取不到 state", () => {
-    expect(getSlidesSession("nope")).toBeUndefined();
-    registerSlidesSession({ sessionId: "s1", runId: "slides:d1:r", documentId: "d1", workspaceRoot: "/w" });
-    expect(getSlidesSession("s1")?.documentId).toBe("d1");
-    unregisterSlidesSession("s1");
-    expect(getSlidesSession("s1")).toBeUndefined();
-    registerSlidesSession({ sessionId: "s2", runId: "slides:d2:r", documentId: "d2", workspaceRoot: "/w" });
-    clearAllSlidesSessions();
-    expect(getSlidesSession("s2")).toBeUndefined();
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe("invalid_asset");
   });
 });

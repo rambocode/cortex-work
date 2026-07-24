@@ -25,3 +25,6 @@ apps/desktop/native/Cortex_Helper/.build/
 
 # Compound Engineering 本地配置
 .compound-engineering/*.local.yaml
+
+# bento slides 运行时空壳,由 apps/desktop/scripts/sync-bento-runtime.mjs 从 vendor/bento 构建产物同步
+apps/desktop/resources/slides/bento/

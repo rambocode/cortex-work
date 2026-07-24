@@ -168,7 +168,34 @@ describe("piDef.parseLine", () => {
       toolName: "bash",
       args: { command: "ls -la" },
     });
-    expect(piDef.parseLine(line)).toEqual({ type: "tool", name: "bash", detail: "ls -la" });
+    expect(piDef.parseLine(line)).toEqual({
+      type: "tool",
+      name: "bash",
+      detail: "ls -la",
+      input: { command: "ls -la" },
+      phase: "start",
+      toolCallId: "call_1",
+    });
+  });
+
+  it("tool_execution_end → 可配对的 tool end 事件,透传失败与输出", () => {
+    const line = JSON.stringify({
+      type: "tool_execution_end",
+      toolCallId: "call_1",
+      toolName: "set_deck_doc",
+      result: {
+        content: [{ type: "text", text: 'Validation failed: doc must be object' }],
+      },
+      isError: true,
+    });
+    expect(piDef.parseLine(line)).toEqual({
+      type: "tool",
+      name: "set_deck_doc",
+      output: "Validation failed: doc must be object",
+      isError: true,
+      phase: "end",
+      toolCallId: "call_1",
+    });
   });
 
   it("tool_execution_start todo_write → todo 整表快照事件(不产 tool);空清单丢弃", () => {

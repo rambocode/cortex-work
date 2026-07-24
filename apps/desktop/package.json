@@ -6,19 +6,20 @@
   "main": "./out/main/index.js",
   "scripts": {
     "build:pi": "node scripts/build-pi-binary.mjs",
+    "sync:bento": "node scripts/sync-bento-runtime.mjs",
     "build:cortex-helper": "node scripts/build-cortex-helper.mjs",
     "build:whisper": "node scripts/prepare-whisper-runner.mjs --platform darwin --arch arm64",
     "prepare:agent-browser": "node scripts/prepare-agent-browser.mjs",
     "rebuild:native": "node scripts/rebuild-native-modules.mjs",
     "prebuild:notes": "node scripts/extract-release-notes.mjs",
-    "dev": "pnpm run rebuild:native && pnpm run build:pi && pnpm run build:cortex-helper && electron-vite dev",
+    "dev": "pnpm run sync:bento && pnpm run rebuild:native && pnpm run build:pi && pnpm run build:cortex-helper && electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
     "lint": "eslint .",
-    "test": "vitest run --exclude src/main/capabilities/slides/export/pptx-fixtures.test.ts && vitest run src/main/capabilities/slides/export/pptx-fixtures.test.ts --maxWorkers=1",
+    "test": "vitest run",
     "dist": "pnpm run rebuild:native && pnpm run prebuild:notes && pnpm run build:pi && pnpm run build:cortex-helper && pnpm run prepare:agent-browser && electron-vite build && electron-builder --mac -c.mac.identity=null -c.mac.notarize=false",
     "dist:dir": "pnpm run rebuild:native && pnpm run build:pi && pnpm run build:cortex-helper && pnpm run prepare:agent-browser && electron-vite build && electron-builder --mac --dir --publish never -c.mac.identity=null -c.mac.notarize=false",
     "dist:zip": "pnpm run rebuild:native && pnpm run prebuild:notes && pnpm run build:pi && pnpm run build:cortex-helper && pnpm run prepare:agent-browser && electron-vite build && electron-builder --mac zip --publish never -c.mac.identity=null -c.mac.notarize=false",
@@ -47,7 +48,6 @@
     "node-pty": "^1.1.0",
     "nodemailer": "^8.0.11",
     "officeparser": "^7.2.1",
-    "pptxgenjs": "^4.0.1",
     "zod": "^4.4.3",
     "zustand": "catalog:"
   },
@@ -55,6 +55,7 @@
     "node-mac-permissions": "^2.5.0"
   },
   "devDependencies": {
+    "@cortex-work/bento-slides": "workspace:*",
     "@cortex-work/eslint-config": "workspace:*",
     "@cortex-work/tsconfig": "workspace:*",
     "@cortex-work/views": "workspace:*",

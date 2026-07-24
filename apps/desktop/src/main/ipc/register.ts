@@ -95,7 +95,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerWritingExportHandlers(); // 写作重型导出(DOCX/PDF/PNG/HTML/复制富文本）IPC 域（U6）
   registerWritingLlmHandlers(); // 写作 LLM(ghost text 续写 + Cmd-K 就地改写）IPC 域（U3）
   registerWritingPdfHandlers(); // 写作 PDF 阅读(取原始字节交渲染端 pdfjs 渲染）IPC 域（U5）
-  registerSlidesHandlers(); // AI Slides deck(创建/加载/提纲/排序/编辑保存/导出）IPC 域
+  registerSlidesHandlers(); // AI Slides deck(bento 单文件:创建/读取/阶段/保存/另存为/演示)IPC 域
 }
 
 export { killAllCli } from "./cli";

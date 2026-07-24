@@ -15,10 +15,20 @@ type MessageTimelineProps = {
   // 流式中的助手增量文本（尚未落定为 block）。
   live?: string;
   liveReasoning?: string;
+  busy?: boolean;
+  busyLabel?: string;
 } & Record<string, unknown>;
 
 // 工具名 → 简短中文标签 + 图标。key 一律小写(查表时归一化),未知工具回退短名 + 等宽截断。
-const TOOL_META: Record<string, { icon: string; label: string }> = {
+type ToolMeta = {
+  icon: string;
+  label: string;
+  runningLabel?: string;
+  successLabel?: string;
+  errorLabel?: string;
+};
+
+const TOOL_META: Record<string, ToolMeta> = {
   // —— 内置工具 ——
   read: { icon: "📖", label: "读取" },
   write: { icon: "✏️", label: "写入" },
@@ -32,29 +42,35 @@ const TOOL_META: Record<string, { icon: string; label: string }> = {
   websearch: { icon: "🌐", label: "联网搜索" },
   task: { icon: "⚡", label: "子任务" },
   delegate_task: { icon: "⚡", label: "并行子任务" },
-  delegate_slides_role: { icon: "⚡", label: "派发角色" },
-  // —— cortex-slides MCP(见 apps/desktop/src/main/capabilities/slides/tools.ts + pipeline/tools.ts)——
-  get_deck_state: { icon: "📄", label: "读取状态" },
-  set_theme: { icon: "🎨", label: "设置主题" },
-  propose_outline: { icon: "🧭", label: "提交提纲" },
-  place_slide_html: { icon: "✏️", label: "写入页面" },
-  read_slide_html: { icon: "📖", label: "读取页面" },
-  replace_slide_text: { icon: "✏️", label: "替换文字" },
-  move_slide: { icon: "↕", label: "移动页面" },
-  insert_slide: { icon: "➕", label: "插入页面" },
-  delete_slide: { icon: "🗑", label: "删除页面" },
-  list_templates: { icon: "🗂", label: "列出模板" },
-  apply_template: { icon: "🎨", label: "应用模板" },
-  generate_speaker_notes: { icon: "🗒", label: "写备注" },
-  read_speaker_notes: { icon: "📖", label: "读备注" },
-  check_slide: { icon: "✅", label: "检查页面" },
-  screenshot_slide: { icon: "📸", label: "刷新缩略图" },
-  upload_asset: { icon: "🖼", label: "上传素材" },
-  create_pipeline_run: { icon: "⚙", label: "创建流程" },
-  get_pipeline_run: { icon: "⚙", label: "读取流程" },
-  record_role_result: { icon: "📥", label: "记录结果" },
-  accept_role_result: { icon: "✅", label: "采纳结果" },
-  reject_role_result: { icon: "✖", label: "驳回结果" },
+  // —— cortex-slides MCP(bento 化,见 apps/desktop/src/main/capabilities/slides/tools.ts)——
+  get_deck_state: {
+    icon: "📄",
+    label: "读取状态",
+    runningLabel: "正在读取状态",
+    successLabel: "已读取状态",
+    errorLabel: "读取状态失败",
+  },
+  propose_outline: {
+    icon: "🧭",
+    label: "提交提纲",
+    runningLabel: "正在提交提纲",
+    successLabel: "已提交提纲",
+    errorLabel: "提交提纲失败",
+  },
+  set_deck_doc: {
+    icon: "✏️",
+    label: "写入文档",
+    runningLabel: "正在写入文档",
+    successLabel: "已写入文档",
+    errorLabel: "写入文档失败",
+  },
+  add_asset: {
+    icon: "🖼",
+    label: "写入素材",
+    runningLabel: "正在写入素材",
+    successLabel: "已写入素材",
+    errorLabel: "写入素材失败",
+  },
   // —— 其它工作台 MCP ——
   generate_image: { icon: "🖼", label: "生成图片" },
   generate_video: { icon: "🎬", label: "生成视频" },
@@ -84,9 +100,16 @@ function parseToolId(raw: string): { server: string; tool: string } {
 
 // 查表大小写不敏感(运行时工具名多为首字母大写 Read/ToolSearch,表 key 全小写)。
 // 未知工具兜底:只显 tool 短名 + 等宽字体(mono),渲染处 truncate,绝不让长名撑破布局。
-function metaFor(rawName: string): { icon: string; label: string; mono?: boolean } {
+function metaFor(rawName: string): ToolMeta & { mono?: boolean } {
   const { tool } = parseToolId(rawName);
   return TOOL_META[tool.toLowerCase()] ?? { icon: "⚙", label: tool, mono: true };
+}
+
+function toolStatusLabel(rawName: string, status: ToolBlock["status"]): string {
+  const meta = metaFor(rawName);
+  if (status === "running") return meta.runningLabel ?? meta.label;
+  if (status === "error") return meta.errorLabel ?? meta.label;
+  return meta.successLabel ?? meta.label;
 }
 
 // 从工具 block 的 detail(input JSON)里提取一行可读摘要:文件路径 / 命令 / 标签等。
@@ -141,7 +164,7 @@ function ToolGroup({ tools }: { tools: ToolBlock[] }): ReactElement {
       <div className="flex max-w-full items-center gap-2 self-start rounded-lg border border-ds-border-muted bg-ds-card px-2.5 py-1 text-[11.5px] text-ds-muted">
         <span className="shrink-0" aria-hidden="true">{m.icon}</span>
         {/* 未知工具(mono)用等宽 + 截断,防止超长 MCP 工具名撑破芯片 */}
-        <span className={`shrink-0 whitespace-nowrap font-medium text-ds-ink${m.mono ? " max-w-[160px] truncate font-mono" : ""}`}>{m.label}</span>
+        <span className={`shrink-0 whitespace-nowrap font-medium text-ds-ink${m.mono ? " max-w-[160px] truncate font-mono" : ""}`}>{toolStatusLabel(toolNameOf(t), t.status)}</span>
         {detail ? <span className="min-w-0 flex-1 truncate opacity-70">{detail}</span> : null}
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass(t.status)}`} />
       </div>
@@ -169,7 +192,7 @@ function ToolGroup({ tools }: { tools: ToolBlock[] }): ReactElement {
             return (
               <div key={t.id} className="flex items-center gap-2 text-[11.5px] text-ds-muted">
                 <span className="shrink-0" aria-hidden="true">{m.icon}</span>
-                <span className={`shrink-0 whitespace-nowrap text-ds-ink${m.mono ? " max-w-[140px] truncate font-mono" : ""}`}>{m.label}</span>
+                <span className={`shrink-0 whitespace-nowrap text-ds-ink${m.mono ? " max-w-[140px] truncate font-mono" : ""}`}>{toolStatusLabel(toolNameOf(t), t.status)}</span>
                 {detail ? <span className="min-w-0 flex-1 truncate opacity-70">{detail}</span> : null}
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass(t.status)}`} />
               </div>
@@ -199,8 +222,9 @@ function segmentize(blocks: ChatBlock[]): Segment[] {
 }
 
 export function MessageTimeline(props: MessageTimelineProps): ReactElement {
-  const { blocks, live } = props;
+  const { blocks, live, busy = false, busyLabel = "Agent 处理中…" } = props;
   const segments = segmentize(blocks);
+  const hasRunningTool = blocks.some((block) => block.kind === "tool" && block.status === "running");
   return (
     <div className="flex flex-col gap-3.5 px-1 py-2 text-[13px] leading-relaxed">
       {segments.map((seg, i) => {
@@ -240,6 +264,12 @@ export function MessageTimeline(props: MessageTimelineProps): ReactElement {
       {live?.trim() ? (
         <div className="md-body md-soft px-0.5 text-ds-ink opacity-80">
           <Markdown remarkPlugins={MD_PLUGINS}>{live}</Markdown>
+        </div>
+      ) : null}
+      {busy && !hasRunningTool ? (
+        <div className="flex items-center gap-2 self-start rounded-lg border border-ds-border-muted bg-ds-card px-2.5 py-1 text-[11.5px] text-ds-muted">
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-500" />
+          <span>{busyLabel}</span>
         </div>
       ) : null}
     </div>

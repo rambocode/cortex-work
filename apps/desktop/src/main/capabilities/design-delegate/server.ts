@@ -11,9 +11,7 @@
 // sessionId 且不注册本 session → 子 agent 取不到 state → 无 delegate_task 工具 → 无法再派发。
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SlidesRole, SlidesRoleResultByRole } from "@cortex-work/core/design/slides/slides-pipeline-types";
 import { createMcpHost, type McpHostHandle } from "../mcp-host/server";
-import { parseSlidesRoleResult } from "../slides/pipeline/role-schemas";
 import type { McpServerConfig, CliStreamEvent } from "../../ipc/types";
 
 // 注入用 server id（= MCP server 名）。须为 TOML 裸键安全（codex -c mcp_servers.<id>）。
@@ -24,70 +22,15 @@ export const DESIGN_DELEGATE_SERVER_ID = "cortex-design-delegate";
 const MAX_DELEGATE_CALLS = 12;
 const MAX_DELEGATE_LABEL_CHARS = 256;
 const MAX_DELEGATE_PROMPT_CHARS = 32_000;
-const MAX_SLIDES_SCOPE_CHARS = 12_000;
-const MAX_SLIDES_PROMPT_CHARS = 32_000;
 const MAX_EMBEDDED_BASE64_CHARS = 12 * 1024 * 1024;
-const SLIDES_ROLE_RUN_CONCURRENCY = 3;
-const SLIDES_ROLE_MAX_ATTEMPTS = 2;
-const SLIDES_PIPELINE_ROLES = [
-  "topic-researcher",
-  "visual-researcher",
-  "narrative-reviewer",
-  "render-reviewer",
-  "notes-writer",
-] as const satisfies readonly SlidesRole[];
-const SLIDES_RUN_ID_PATTERN = /^run-[a-z0-9][a-z0-9-]{0,63}$/;
-
 const designDelegateHost = createMcpHost(DESIGN_DELEGATE_SERVER_ID);
 let hostStartPromise: Promise<McpHostHandle> | null = null;
-const slidesRunLimiterMap = new Map<string, ReturnType<typeof createTaskLimiter>>();
-const slidesRoleAttemptCountMap = new Map<string, number>();
 
 // 子 agent 一次执行的结果。
 export interface DesignSubAgentResult {
   text: string;
   ok: boolean;
   error?: string;
-}
-
-export type DesignDelegateSlidesRoleEvent<R extends SlidesRole = SlidesRole> =
-  | {
-      status: "started";
-      runId: string;
-      role: R;
-      label: string;
-      scope: string;
-      prompt: string;
-      attempt: number;
-    }
-  | {
-      status: "succeeded";
-      runId: string;
-      role: R;
-      label: string;
-      scope: string;
-      prompt: string;
-      attempt: number;
-      artifact: SlidesRoleResultByRole[R];
-      rawText: string;
-      rawSummary: string;
-    }
-  | {
-      status: "failed";
-      runId: string;
-      role: R;
-      label: string;
-      scope: string;
-      prompt: string;
-      attempt: number;
-      error: string;
-      rawText: string;
-      rawSummary: string;
-    };
-
-export interface DesignDelegateSlidesContext {
-  onRoleEvent: (event: DesignDelegateSlidesRoleEvent) => void | Promise<void>;
-  canDelegateNotesWriter?: (runId: string) => boolean | Promise<boolean>;
 }
 
 // per-session 运行时状态（由 cli.ts cli:start 构造并注册；含运行时回调）。
@@ -105,8 +48,6 @@ export interface DesignDelegateSessionState {
   // cli.ts 注入：以「父 agent 同款底层 agent」spawn 子 agent 执行 prompt。label 作为子 agent 的
   // roleId/stageLabel 透传（page:<artifactId>），供渲染端/画布把子 agent 进度回映到对应页。
   runSubAgent: (label: string, prompt: string, onEvent: (ev: CliStreamEvent) => void) => Promise<DesignSubAgentResult>;
-  // slides pipeline 角色化委派（仅 slides 会话注入；普通 design 会话保持 undefined）。
-  slides?: DesignDelegateSlidesContext;
 }
 
 const sessionStateMap = new Map<string, DesignDelegateSessionState>();
@@ -117,7 +58,6 @@ export function registerDesignDelegateSession(state: DesignDelegateSessionState)
 
 export function unregisterDesignDelegateSession(sessionId: string): void {
   sessionStateMap.delete(sessionId);
-  clearSlidesSessionCaches(sessionId);
 }
 
 // app 退出清理：取消所有在途设计委派。
@@ -130,7 +70,6 @@ export function killAllDesignDelegates(): void {
     }
   }
   sessionStateMap.clear();
-  clearSlidesSessionCaches();
 }
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -188,261 +127,6 @@ export function createTaskLimiter(maxConcurrency: number): <T>(job: () => Promis
       });
       pump();
     });
-}
-
-const SLIDES_ROLE_SYSTEM_CONTRACT: Record<SlidesRole, string> = {
-  "topic-researcher":
-    "Duty: supply facts, sources, key judgements and open questions. Do not write the deck; never fabricate unsupported conclusions.",
-  "visual-researcher":
-    "Duty: propose visual assets, chart suggestions and visual risks. Do not change slide implementations; no unrelated prose.",
-  "narrative-reviewer":
-    "Duty: review narrative structure, argument order and slide-level issues. Do not modify the deck directly.",
-  "render-reviewer":
-    "Duty: review layout, density, readability and export risks. Do not modify the deck directly.",
-  "notes-writer":
-    "Duty: draft speaker notes based on the completed review. Do not write notes files or modify the deck directly.",
-};
-
-const SLIDES_ROLE_JSON_SHAPE: Record<SlidesRole, string> = {
-  "topic-researcher":
-    '{"facts":["..."],"sources":[{"title":"...","url":"https://...","note":"..."}],"claims":["..."],"openQuestions":["..."]}',
-  "visual-researcher":
-    '{"assetIdeas":[{"slideId":"slot-001","query":"...","rationale":"..."}],"chartIdeas":[{"slideId":"slot-001","chartType":"bar","rationale":"..."}],"visualRisks":[{"slideId":"slot-001","message":"...","hint":"..."}]}',
-  "narrative-reviewer":
-    '{"deckFindings":[{"code":"...","message":"...","hint":"..."}],"slideFindings":[{"slideId":"slot-001","code":"...","message":"...","hint":"..."}],"suggestedOrder":["slot-001"]}',
-  "render-reviewer":
-    '{"findings":[{"severity":"warning","slideId":"slot-001","elementId":"...","code":"...","message":"...","hint":"..."}]}',
-  "notes-writer":
-    '{"slots":[{"slotId":"slot-001","markdown":"## Title\\n\\nNotes body"}]}',
-};
-
-function summarizeSlidesRoleText(text: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized) return "(empty)";
-  return normalized.length > 240 ? `${normalized.slice(0, 240)}…` : normalized;
-}
-
-function slidesRunLimiterKey(sessionId: string, runId: string): string {
-  return `${sessionId}:${runId}`;
-}
-
-function slidesRoleAttemptKey(sessionId: string, runId: string, role: SlidesRole): string {
-  return `${sessionId}:${runId}:${role}`;
-}
-
-function getSlidesRunLimiter(sessionId: string, runId: string): ReturnType<typeof createTaskLimiter> {
-  const key = slidesRunLimiterKey(sessionId, runId);
-  let limiter = slidesRunLimiterMap.get(key);
-  if (!limiter) {
-    limiter = createTaskLimiter(SLIDES_ROLE_RUN_CONCURRENCY);
-    slidesRunLimiterMap.set(key, limiter);
-  }
-  return limiter;
-}
-
-function clearSlidesSessionCaches(sessionId?: string): void {
-  if (!sessionId) {
-    slidesRunLimiterMap.clear();
-    slidesRoleAttemptCountMap.clear();
-    return;
-  }
-  const prefix = `${sessionId}:`;
-  for (const key of slidesRunLimiterMap.keys()) {
-    if (key.startsWith(prefix)) slidesRunLimiterMap.delete(key);
-  }
-  for (const key of slidesRoleAttemptCountMap.keys()) {
-    if (key.startsWith(prefix)) slidesRoleAttemptCountMap.delete(key);
-  }
-}
-
-export function buildSlidesRoleDelegateLabel(runId: string, role: SlidesRole): string {
-  return `slides:${role}:${runId}`;
-}
-
-export function buildSlidesRoleDelegatePrompt(options: {
-  runId: string;
-  role: SlidesRole;
-  scope: string;
-  prompt: string;
-}): string {
-  const scope = options.scope.trim() || "(no scope provided)";
-  const task = options.prompt.trim();
-  return [
-    `slides pipeline role: ${options.role}`,
-    `run id: ${options.runId}`,
-    SLIDES_ROLE_SYSTEM_CONTRACT[options.role],
-    "Hard constraints: return exactly one JSON object; no markdown fences; no explanatory prose; never Write/Edit the deck; never call the official slides write tools; never modify any file.",
-    `Output JSON shape: ${SLIDES_ROLE_JSON_SHAPE[options.role]}`,
-    `scope:\n${scope}`,
-    `task:\n${task}`,
-  ].join("\n\n");
-}
-
-function extractJsonCandidateFromText(text: string): string | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  const fenceMatches = Array.from(trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi));
-  for (const match of fenceMatches) {
-    const candidate = match[1]?.trim();
-    if (candidate) return candidate;
-  }
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return trimmed.slice(firstBrace, lastBrace + 1).trim();
-  }
-  return null;
-}
-
-export function parseSlidesRoleAgentText<R extends SlidesRole>(
-  role: R,
-  text: string,
-): ReturnType<typeof parseSlidesRoleResult<R>> {
-  const candidate = extractJsonCandidateFromText(text);
-  if (!candidate) {
-    return { ok: false, error: { code: "invalid_payload", message: `未找到 ${role} 的 JSON 输出` } };
-  }
-  return parseSlidesRoleResult(role, candidate);
-}
-
-export async function runSlidesRoleDelegate(
-  state: DesignDelegateSessionState,
-  args: { run_id: string; role: SlidesRole; scope: string; prompt: string },
-): Promise<ToolResult> {
-  if (state.signal.aborted) return errorResult("已取消");
-  if (!state.slides) return errorResult("当前会话未启用 slides 委派");
-
-  const runId = args.run_id.trim();
-  let prompt: string;
-  let scope: string;
-  try {
-    prompt = normalizeBoundedText(args.prompt, { field: "prompt", maxChars: MAX_SLIDES_PROMPT_CHARS }) ?? "";
-    scope = normalizeBoundedText(args.scope, { field: "scope", maxChars: MAX_SLIDES_SCOPE_CHARS }) ?? "";
-    validateEmbeddedBase64Length(prompt, "prompt");
-    validateEmbeddedBase64Length(scope, "scope");
-  } catch (error) {
-    return errorResult(`slides role 委派失败:${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (!SLIDES_RUN_ID_PATTERN.test(runId)) return errorResult(`非法 run_id: ${args.run_id}`);
-  if (!prompt) return errorResult("slides role 委派失败: prompt 为空。");
-  if (!scope) return errorResult("slides role 委派失败: scope 为空。");
-  if (state.callCount.n >= MAX_DELEGATE_CALLS) {
-    return errorResult(`本轮 delegate_task 调用已达上限(${MAX_DELEGATE_CALLS}),请基于已有结果收尾。`);
-  }
-
-  if (args.role === "notes-writer") {
-    const gate = state.slides.canDelegateNotesWriter;
-    if (!gate) return errorResult("notes-writer 仅在 review 完成后可委派。");
-    const allowed = await gate(runId);
-    if (!allowed) return errorResult("notes-writer 仅在 review 完成后可委派。");
-  }
-
-  state.callCount.n += 1;
-  const label = buildSlidesRoleDelegateLabel(runId, args.role);
-  const delegatePrompt = buildSlidesRoleDelegatePrompt({
-    runId,
-    role: args.role,
-    scope,
-    prompt,
-  });
-  const limiter = getSlidesRunLimiter(state.sessionId, runId);
-  const attemptKey = slidesRoleAttemptKey(state.sessionId, runId, args.role);
-
-  return limiter(async () => {
-    const emitLifecycle = async (event: Parameters<NonNullable<NonNullable<typeof state.slides>["onRoleEvent"]>>[0]): Promise<string | null> => {
-      try {
-        await state.slides!.onRoleEvent(event);
-        return null;
-      } catch (error) {
-        return error instanceof Error ? error.message : String(error);
-      }
-    };
-    const failRole = async (error: string, attempt: number, rawText = ""): Promise<ToolResult> => {
-      const lifecycleError = await emitLifecycle({
-        status: "failed",
-        runId,
-        role: args.role,
-        label,
-        scope,
-        prompt,
-        attempt,
-        error,
-        rawText,
-        rawSummary: summarizeSlidesRoleText(rawText || error),
-      });
-      const finalError = lifecycleError ? `${error}; lifecycle: ${lifecycleError}` : error;
-      emitRoleResult(state, label, false, finalError);
-      return errorResult(`slides role「${args.role}」执行失败:${finalError}`);
-    };
-
-    let consumed = slidesRoleAttemptCountMap.get(attemptKey) ?? 0;
-    if (consumed >= SLIDES_ROLE_MAX_ATTEMPTS) {
-      return errorResult(`slides role「${args.role}」在 run「${runId}」已达最大委派次数(${SLIDES_ROLE_MAX_ATTEMPTS})。`);
-    }
-
-    const startEventError = await emitLifecycle({
-      status: "started",
-      runId,
-      role: args.role,
-      label,
-      scope,
-      prompt,
-      attempt: consumed + 1,
-    });
-    if (startEventError) {
-      emitRoleResult(state, label, false, startEventError);
-      return errorResult(`slides role「${args.role}」执行失败:${startEventError}`);
-    }
-
-    let lastError = "未知错误";
-    let lastRawText = "";
-    while (consumed < SLIDES_ROLE_MAX_ATTEMPTS) {
-      if (state.signal.aborted) return failRole("已取消", consumed || 1);
-      consumed += 1;
-      slidesRoleAttemptCountMap.set(attemptKey, consumed);
-
-      state.pushEvent({ type: "init", sessionId: state.sessionId, roleId: label, stageLabel: label });
-      const onEvent = (ev: CliStreamEvent) => {
-        state.pushEvent(ev);
-        state.bumpWatchdog();
-      };
-      let result: DesignSubAgentResult;
-      try {
-        result = await state.runSubAgent(label, delegatePrompt, onEvent);
-      } catch (error) {
-        return failRole(error instanceof Error ? error.message : String(error), consumed);
-      }
-      if (!result.ok) {
-        lastError = result.error ?? "未知错误";
-        lastRawText = result.text ?? "";
-        continue;
-      }
-
-      const parsed = parseSlidesRoleAgentText(args.role, result.text);
-      if (parsed.ok) {
-        const successEventError = await emitLifecycle({
-          status: "succeeded",
-          runId,
-          role: args.role,
-          label,
-          scope,
-          prompt,
-          attempt: consumed,
-          artifact: parsed.result,
-          rawText: result.text,
-          rawSummary: summarizeSlidesRoleText(result.text),
-        });
-        if (successEventError) return failRole(successEventError, consumed, result.text);
-        emitRoleResult(state, label, true);
-        return textResult(JSON.stringify(parsed.result));
-      }
-
-      lastError = parsed.error.message;
-      lastRawText = result.text;
-    }
-
-    return failRole(lastError, consumed, lastRawText);
-  });
 }
 
 // 注册通用 delegate_task 工具。
@@ -514,25 +198,6 @@ function registerDelegateTaskTool(mcp: McpServer, state: DesignDelegateSessionSt
   );
 }
 
-function registerDelegateSlidesRoleTool(mcp: McpServer, state: DesignDelegateSessionState): void {
-  mcp.registerTool(
-    "delegate_slides_role",
-    {
-      description:
-        "Delegate a single slides-pipeline role task to a fresh-session sub-agent. The sub-agent may only return a JSON result; " +
-        "it can never Write/Edit the deck or call the official slides write tools.",
-      inputSchema: {
-        run_id: z.string().regex(SLIDES_RUN_ID_PATTERN).describe("Target slides pipeline run id, e.g. run-abc123."),
-        role: z.enum(SLIDES_PIPELINE_ROLES).describe("The slides pipeline role."),
-        scope: z.string().min(1).describe("The task boundary / slide range / review scope for this role task."),
-        prompt: z.string().min(1).describe("A complete, self-contained task description for the role."),
-      },
-    },
-    async (args: { run_id: string; role: SlidesRole; scope: string; prompt: string }): Promise<ToolResult> =>
-      runSlidesRoleDelegate(state, args),
-  );
-}
-
 export function startDesignDelegateHost(): Promise<McpHostHandle> {
   if (designDelegateHost.getHandle()) return designDelegateHost.start();
   if (hostStartPromise) return hostStartPromise;
@@ -541,7 +206,6 @@ export function startDesignDelegateHost(): Promise<McpHostHandle> {
     // 取不到 state（未注册 / 子 agent 的 fresh sessionId）→ 不注册 delegate_task,只剩 ping(防递归)。
     if (!state) return;
     registerDelegateTaskTool(mcp, state);
-    if (state.slides) registerDelegateSlidesRoleTool(mcp, state);
   });
   hostStartPromise.finally(() => {
     hostStartPromise = null;

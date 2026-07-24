@@ -631,8 +631,8 @@ export interface AgentProjectInfo {
 //   - usage(U3)/retry(U7)/thinking/turn 均为新变体;tool 增可选 phase/toolCallId 字段。
 //   - 生产者:usage(claude result / codex turn.completed)、retry(主进程安全重试)、
 //     thinking(claude thinking_delta)、turn(claude message_delta 的 stop_reason);
-//     tool.phase/toolCallId 由 claude/codex 在 tool 起始事件标注(当前只产 "start",
-//     "end" 为承载能力预留,避免重复 tool 事件污染渲染端 agentLog 折叠)。
+//     tool.phase/toolCallId 由 claude/codex/pi 标注；pi 单发同时产 start/end，
+//     其余 adapter 可只产 start，消费端仍向后兼容无 phase 的旧事件。
 // 现有消费端(if 链 / 无 default 的 switch)自然忽略未知 type;`foldCliEvent` 对非 text/tool 事件
 // 原样返回,故 usage/retry/thinking/turn 不破坏文本/工具折叠;tool 的新增可选字段不影响既有读取。
 // ⚠️ 跨包契约:本类型在 packages/core/desktop/types.ts 有逐字镜像,任何改动两处必须同步。

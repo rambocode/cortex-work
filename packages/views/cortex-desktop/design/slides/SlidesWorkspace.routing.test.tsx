@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
-import { slidesManifestPath } from '@cortex-work/core/design/slides/slides-paths'
+import { bentoDeckHtmlPath } from '@cortex-work/core/design/slides/slides-paths'
 import type { DesignDocument } from '@cortex-work/core/design/design-types'
 
 vi.mock('./SlidesWorkspace', () => ({
@@ -43,7 +43,7 @@ afterEach(() => {
 describe('DesignWorkspaceView kind 分流', () => {
   it('slides 设计稿渲染 SlidesWorkspace', () => {
     useDesignWorkspaceStore.setState({
-      documents: [doc('deckdoc01', { kind: 'slides', slidesManifestPath: slidesManifestPath('deckdoc01') })],
+      documents: [doc('deckdoc01', { kind: 'slides', slidesManifestPath: bentoDeckHtmlPath('deckdoc01') })],
       activeDocumentId: 'deckdoc01'
     })
     render(<DesignWorkspaceView leftSidebarCollapsed={false} onToggleLeftSidebar={() => {}} />)

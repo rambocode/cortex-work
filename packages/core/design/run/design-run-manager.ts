@@ -89,16 +89,15 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
       mirror.foldLiveAssistant(run.turnId);
       // detail 存入 input 的 JSON:多页并行的 deriveParallelDesignPageStatesFromBlocks 靠
       // toolName==='delegate_task' + detail.label(page:<artifactId>)把子 agent 进度回映到对应页。
-      // claude/codex 带 input(对象,序列化后含 delegate_task 的 label 供 per-page 映射);
-      // pi 只带 detail(已提取的路径/命令字符串)。两者都存进 detail 供聊天面板展示。
+      // 新 adapter 带 input(对象,序列化后含 delegate_task 的 label 供 per-page 映射);
+      // 旧 adapter 可能只有 detail。两者都存进 detail 供聊天面板展示。
       const inputJson =
         ev.input !== undefined
           ? typeof ev.input === "string"
             ? ev.input
             : safeStringify(ev.input)
           : ev.detail;
-      // pi adapter 只发 tool start(无 phase),没有对应的 end 事件 → 状态直接落定为 success,
-      // 否则芯片永远停在 running(琥珀);claude/codex 有 phase:start 才先置 running、等 end 翻转。
+      // phase:start 先置 running、等 end 翻转；无 phase 的旧 adapter 按单帧已完成处理。
       const initialStatus: "running" | "success" = ev.phase === "start" ? "running" : "success";
       mirror.pushBlock({
         kind: "tool",
