@@ -12,7 +12,12 @@
 import { z } from "zod";
 
 import { clampResearchBudget } from "./budget";
-import { SEARCH_LIMITS, countUtf8Chars, truncateToChars } from "./search-api";
+import {
+  SEARCH_CATEGORIES,
+  SEARCH_LIMITS,
+  countUtf8Chars,
+  truncateToChars,
+} from "./search-api";
 import type {
   CompletionCriteria,
   PlannedQuery,
@@ -28,6 +33,7 @@ import type {
 
 /// 时间范围枚举。与 ./types 的 ResearchTimeRange、Go 侧的 time_range 同集合。
 const researchTimeRangeSchema = z.enum(["day", "week", "month", "year", "all"]);
+const researchCategorySchema = z.enum(SEARCH_CATEGORIES);
 
 /// 已清洗过的单条查询。text 的上限按 code point 计（与 Go 的 rune 计数一致，见 ./search-api）。
 const plannedQuerySchema = z.object({
@@ -40,7 +46,7 @@ const plannedQuerySchema = z.object({
       message: `查询文本超过 ${SEARCH_LIMITS.maxQueryChars} 字符`,
     }),
   language: z.string().min(1).optional(),
-  categories: z.array(z.string().min(1)).optional(),
+  categories: z.array(researchCategorySchema).optional(),
   timeRange: researchTimeRangeSchema.optional(),
   domainAllowlist: z.array(z.string().min(1)).optional(),
   domainBlocklist: z.array(z.string().min(1)).optional(),
@@ -125,6 +131,30 @@ const plannedQueryInputSchema = z.object({
 });
 
 type PlannedQueryInput = z.infer<typeof plannedQueryInputSchema>;
+
+const researchCategorySet = new Set<string>(SEARCH_CATEGORIES);
+
+function cleanCategories(
+  categories: readonly string[] | undefined,
+  at: string,
+  sink: WarningSink,
+): Array<(typeof SEARCH_CATEGORIES)[number]> | undefined {
+  if (!categories) return undefined;
+
+  const cleaned: Array<(typeof SEARCH_CATEGORIES)[number]> = [];
+  const seen = new Set<string>();
+  for (const item of categories) {
+    const category = item.trim().toLowerCase();
+    if (!researchCategorySet.has(category)) {
+      sink.push(`[plan.category_dropped] ${at} 移除不支持的搜索类别：${item}`);
+      continue;
+    }
+    if (seen.has(category)) continue;
+    seen.add(category);
+    cleaned.push(category as (typeof SEARCH_CATEGORIES)[number]);
+  }
+  return cleaned.length > 0 ? cleaned : undefined;
+}
 
 /// 模型给出的 Plan。budget 与 completion 刻意不在此校验：它们由本文件自行归一，
 /// 模型写坏了也不该导致整份计划作废（预算有硬上限兜底，阈值有默认值兜底）。
@@ -401,8 +431,8 @@ function cleanQueries(
     // 逐字段白名单重建：模型给的任何额外字段都不会进入编排层。
     const query: PlannedQuery = { queryId, subquestionId, text };
     if (raw.language) query.language = raw.language;
-    const categories = raw.categories?.map((item) => item.trim()).filter((item) => item.length > 0);
-    if (categories && categories.length > 0) query.categories = categories;
+    const categories = cleanCategories(raw.categories, `${at}.categories`, sink);
+    if (categories) query.categories = categories;
     if (raw.timeRange) query.timeRange = raw.timeRange;
 
     const allowlist = cleanAllowlist(

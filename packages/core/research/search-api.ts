@@ -28,6 +28,14 @@ export const SEARCH_LIMITS = {
   totalTimeoutMs: 20000,
 } as const;
 
+/// SearXNG 当前接入并经过 smoke test 的搜索类别。
+/// Planner、请求构造和 Go 服务端都必须使用同一集合，避免模型输出任意原生类别，
+/// 从而意外切换到未验收的引擎子集。
+export const SEARCH_CATEGORIES = ["general", "it", "science", "news"] as const;
+export type SearchCategory = (typeof SEARCH_CATEGORIES)[number];
+
+const searchCategorySet = new Set<string>(SEARCH_CATEGORIES);
+
 // ---------------------------------------------------------------------------
 // 请求
 // ---------------------------------------------------------------------------
@@ -37,7 +45,7 @@ export interface SearchBatchQuery {
   query_id: string;
   text: string;
   language?: string;
-  categories?: string[];
+  categories?: SearchCategory[];
   time_range?: "day" | "week" | "month" | "year" | "all";
   domain_allowlist?: string[];
   domain_blocklist?: string[];
@@ -148,6 +156,26 @@ function normalizeDomains(domains: string[] | undefined): string[] | undefined {
   return cleaned.length > 0 ? cleaned : undefined;
 }
 
+/// 搜索类别按稳定契约归一：大小写与首尾空白不敏感、去重，并丢弃未接入类别。
+/// Go 服务端仍会拒绝非法值，这里只负责让模型生成的查询尽量可用。
+export function normalizeSearchCategories(
+  categories: readonly string[] | undefined,
+): SearchCategory[] | undefined {
+  if (!categories) return undefined;
+
+  const cleaned: SearchCategory[] = [];
+  const seen = new Set<SearchCategory>();
+  for (const item of categories) {
+    const category = item.trim().toLowerCase();
+    if (!searchCategorySet.has(category)) continue;
+    const supported = category as SearchCategory;
+    if (seen.has(supported)) continue;
+    seen.add(supported);
+    cleaned.push(supported);
+  }
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
 /// 从 camelCase 的 PlannedQuery 构造 snake_case 请求体，并在此处强制客户端侧硬限制。
 ///
 /// 夹取而非报错的理由：Planner 已经过 plan-schema 清洗，走到这里的越界值属于编排层 bug 或
@@ -170,7 +198,7 @@ export function buildSearchBatchRequest(input: {
     // 逐字段白名单重建，保证 PlannedQuery 上任何多余字段都不会漏到线上请求里。
     const query: SearchBatchQuery = { query_id: queryId, text };
     if (source.language) query.language = source.language;
-    const categories = normalizeDomains(source.categories);
+    const categories = normalizeSearchCategories(source.categories);
     if (categories) query.categories = categories;
     if (source.timeRange) query.time_range = source.timeRange;
     const allowlist = normalizeDomains(source.domainAllowlist);
