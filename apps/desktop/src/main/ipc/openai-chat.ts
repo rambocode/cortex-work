@@ -6,6 +6,24 @@
 import { chatCompletionsUrl } from "./push-sign";
 import { authHeaders } from "../capabilities/whisper/transcribe-auth";
 
+/// 输出被 token 上限截断的标记。
+///
+/// 附在返回文本末尾而不是抛错：截断的输出**有时仍然可用**（比如报告正文截掉结尾一段，
+/// 总比整个 Session 失败好），所以不能一律当失败处理；但解析失败时，
+/// 调用方要能一眼看出是截断而不是模型乱写——真实踩过：计划 JSON 被截断，
+/// 报出来的却是「输出不是合法 JSON」，据此去查 JSON 提取逻辑完全查不到根因。
+///
+/// 用 \u0000 开头：正常模型输出不会包含 NUL，不会误判。
+export const TRUNCATED_MARKER = "\n\u0000[truncated:length]";
+
+/// 判断一段模型输出是否被截断，并剥掉标记。
+export function stripTruncationMarker(text: string): { text: string; truncated: boolean } {
+  if (text.endsWith(TRUNCATED_MARKER)) {
+    return { text: text.slice(0, -TRUNCATED_MARKER.length), truncated: true };
+  }
+  return { text, truncated: false };
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -59,9 +77,26 @@ export async function postChatCompletion(params: PostChatCompletionParams): Prom
     const body = await res.text().catch(() => "");
     throw new Error(`模型接口 HTTP ${res.status}${body ? `:${body.slice(0, 200)}` : ""}`);
   }
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  const content = data.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim()) throw new Error("模型未返回内容");
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string; reasoning_content?: string }; finish_reason?: string }[];
+  };
+  const choice = data.choices?.[0];
+  const content = choice?.message?.content;
+  if (typeof content !== "string" || !content.trim()) {
+    // 推理模型（reasoning model）在 token 预算被思考耗尽时会返回空 content、
+    // 内容全在 reasoning_content 里。区分开报错，否则调用方只看到「模型未返回内容」，
+    // 完全指不到「预算不够」这个真正可操作的原因。
+    if (choice?.finish_reason === "length") {
+      throw new Error("模型输出被 token 上限截断（finish_reason=length），请提高 maxTokens");
+    }
+    throw new Error("模型未返回内容");
+  }
+  // **内容非空但仍被截断**是最阴险的一种：调用方拿到一段看似正常、实际断在半路的 JSON，
+  // 报出来的却是「输出不是合法 JSON」——真实踩过，据此去查 JSON 提取逻辑完全查不到根因。
+  // 在文本尾部附一个标记，让上层的解析失败信息里带上真正的原因。
+  if (choice?.finish_reason === "length") {
+    return `${content}${TRUNCATED_MARKER}`;
+  }
   return content;
 }
 

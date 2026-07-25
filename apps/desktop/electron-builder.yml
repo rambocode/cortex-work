@@ -128,6 +128,10 @@ extraResources:
 # 故无需再为 pi 依赖 unpack 任何 node_modules。这里只留必须落地的原生模块:node-pty。
 #（@mariozechner/clipboard 的 NAPI 由 electron-builder 自动 unpack,无需显式列出。）
 asarUnpack:
+  # Research Worker（CRE）：utilityProcess.fork 的入口是纯 JS，理论上从 asar 内加载没问题，
+  # 但子进程的模块解析根与 asar 边界的交互历史上不稳（见 doc-extract 的教训），且解包纯 JS
+  # 零成本。打包后须实测 fork 成功（P9 的 verify-research-packaging.mjs）。
+  - "out/worker/**"
   - "**/node_modules/node-pty/**"
   # node-mac-permissions（reply 权限查询,U4):node-gyp 从源码编译的原生模块,无 prebuilds。
   # 原生 .node 必须以真实文件解包才可被主进程 dynamic import 加载(asar 内加载不可靠);

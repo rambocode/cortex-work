@@ -67,19 +67,41 @@ function broadcastPushSettingsIfChanged(prev: PushSettings | undefined, next: Pu
   }
 }
 
+// onSaved 的模块级引用。提到模块作用域是为了让 updatePersistedState（main 内部发起的窄写）
+// 与 renderer 发起的 store:save 走**完全相同**的提交路径——否则 main 侧写入不会触发订阅方
+// （如 syncResearchEngineRuntime），改了设置却要重启才生效。
+let onSavedCallback: ((state: PersistedState) => void) | undefined;
+
+/// 统一的提交路径：更新内存镜像 → 通知订阅方 → 广播 → 串行落盘。
+function commit(prev: PersistedState | null, state: PersistedState): Promise<void> {
+  cached = state;
+  onSavedCallback?.(state);
+  broadcastPushSettingsIfChanged(prev?.pushSettings, state.pushSettings);
+  writeQueue = writeQueue.then(() => savePersistedState(state)).catch((err) => {
+    log.error("save failed:", err);
+  });
+  return writeQueue;
+}
+
+/// main 内部的窄写通道：在**权威态**上就地合并后落盘，返回合并后的状态。
+///
+/// 为什么不让 renderer 传全量状态过来：那会有「陈旧全量快照 clobber」问题
+/// （同 store:patchPushSettings 的注释）。main 侧要写的东西——比如 safeStorage 加密后的
+/// Search Server 密文——renderer 根本不该持有全量上下文，只能由 main 读最新态再改一处。
+export async function updatePersistedState(
+  mutate: (state: PersistedState) => PersistedState,
+): Promise<PersistedState> {
+  const base = await getPersistedState();
+  const next = mutate(base);
+  await commit(base, next);
+  return next;
+}
+
 // onSaved：每次 renderer 全量落设置后同步调用（cached 已更新）。用于让 main 侧订阅方即时
 // 反应设置变更——当前唯一订阅方是任务提醒调度器（读 pushSettings.internal.enabled opt-in 变化，
 // off→on 建 Cron/补跑、on→off 拆全部）。回调抛错不阻断落盘（调用方自行兜底）。
 export function registerStoreHandlers(onSaved?: (state: PersistedState) => void): void {
-  const commit = (prev: PersistedState | null, state: PersistedState): Promise<void> => {
-    cached = state;
-    onSaved?.(state);
-    broadcastPushSettingsIfChanged(prev?.pushSettings, state.pushSettings);
-    writeQueue = writeQueue.then(() => savePersistedState(state)).catch((err) => {
-      log.error("save failed:", err);
-    });
-    return writeQueue;
-  };
+  onSavedCallback = onSaved;
   ipcMain.handle("store:load", () => getPersistedState());
   ipcMain.handle("store:save", (_e, state: PersistedState) => commit(cached, state));
   // pushSettings 窄写通道：main 在权威态上就地合并后落盘，供不挂全量持久化的窗口

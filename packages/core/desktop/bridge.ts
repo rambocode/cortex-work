@@ -145,6 +145,8 @@ import type {
   LocalWhisperSourcesResult,
 } from "../whisper/models";
 import type { AsrSettings } from "./media-gen-types";
+// 研究引擎桥契约（真源单独成文件,见其头部注释:三处同形约定 + 1200 行上限的理由）。
+import type { CortexResearchBridge } from "./research-bridge";
 import type { Locale } from "../i18n/locales";
 import type { WorkflowDef, WorkflowRun, WorkflowRunEvent } from "./workflow-types";
 
@@ -751,4 +753,10 @@ export interface DesktopBridge {
   onPetEnabledChange?(cb: (enabled: boolean) => void): () => void;
   /** 订阅主进程广播的宠物状态快照(overlay 窗口用)。返回退订函数。 */
   onPetSyncState?(cb: (snapshot: PetStateSnapshot) => void): () => void;
+
+  // ── 深度研究引擎（CRE）────────────────────────────────────────────────────
+  // 整段可选：Web 端与旧壳没有它,侧栏入口与整窗覆盖层据此整体降级隐藏(同本文件全可选约定)。
+  // 契约与 IPC channel 见 packages/core/desktop/research-bridge.ts 头部注释;
+  // 实现在 apps/desktop/src/preload/research-bridge.ts,挂在 window.desktopAPI.personal.research。
+  research?: CortexResearchBridge;
 }

@@ -1552,3 +1552,104 @@ describe("写作工作台整窗视图态(writingOpen)", () => {
     expect("writingOpen" in toPersistedState(usePersonalStore.getState())).toBe(false);
   });
 });
+
+// 深度研究整窗覆盖层视图态(researchOpen,P8 接线)：与其它中心视图互斥、瞬态不持久化。
+// 互斥双向断言是本块的重点——漏掉任一清位点就会出现「两个整窗覆盖层同时显示」的错乱。
+describe("深度研究整窗视图态(researchOpen)", () => {
+  it("openResearch 置 researchOpen 并互斥清空其它中心视图标志", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.setState({
+      homeOpen: true,
+      designOpen: true,
+      writingOpen: true,
+      automationOpen: true,
+      workflowOpen: true,
+      settingsOpen: true,
+      noteEditorId: "n1",
+      timelineProjectId: "p1",
+    });
+    usePersonalStore.getState().openResearch();
+    const s = usePersonalStore.getState();
+    expect(s.researchOpen).toBe(true);
+    expect(s.homeOpen).toBe(false);
+    expect(s.designOpen).toBe(false);
+    expect(s.writingOpen).toBe(false);
+    expect(s.automationOpen).toBe(false);
+    expect(s.workflowOpen).toBe(false);
+    expect(s.settingsOpen).toBe(false);
+    expect(s.noteEditorId).toBeUndefined();
+    expect(s.timelineProjectId).toBeUndefined();
+  });
+
+  it("closeResearch 复位 researchOpen 并回落首页", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openResearch();
+    usePersonalStore.getState().closeResearch();
+    const s = usePersonalStore.getState();
+    expect(s.researchOpen).toBe(false);
+    expect(s.homeOpen).toBe(true);
+  });
+
+  // 反向断言：每个既有 openXxx / 切会话 / 切项目入口都必须清 researchOpen(最易漏点)。
+  it("切到其它任一视图入口时清空 researchOpen(让位)", () => {
+    const seed = () => {
+      usePersonalStore.getState().hydrate({
+        ...base,
+        sessions: [{ id: "c1", title: "会话", agent: "claude", createdAt: 1, updatedAt: 1 }],
+        projects: [proj({ id: "p1" })],
+      });
+      usePersonalStore.getState().openResearch();
+      expect(usePersonalStore.getState().researchOpen).toBe(true);
+    };
+
+    seed();
+    usePersonalStore.getState().openHome();
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openDesign();
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openWriting();
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openAutomation();
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openWorkflow();
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openSettings();
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openNoteEditor("n1");
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().openTimeline("p1");
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().setActiveSession("c1");
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().activateProject("p1");
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+
+    seed();
+    usePersonalStore.getState().createSession(undefined, "claude");
+    expect(usePersonalStore.getState().researchOpen).toBe(false);
+  });
+
+  it("researchOpen 不进 toPersistedState(瞬态,重启不残留)", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().openResearch();
+    expect("researchOpen" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  });
+});

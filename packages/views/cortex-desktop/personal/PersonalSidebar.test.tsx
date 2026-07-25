@@ -80,6 +80,8 @@ beforeEach(() => {
     homeOpen: true,
     writingOpen: false,
     designOpen: false,
+    // 深度研究整窗覆盖层（P8）：与其它视图同为互斥标志，逐例复位避免串场。
+    researchOpen: false,
     automationOpen: false,
     workflowOpen: false,
     settingsOpen: false,
@@ -279,5 +281,72 @@ describe("PersonalSidebar 项目上下文结构", () => {
     fireEvent.click(screen.getByRole("button", { name: /无项目/ }));
     expect(usePersonalStore.getState().activeSessionId).toBe(noProject.id);
     expect(container.querySelector(".pw-context-card")?.textContent).toContain("无项目会话");
+  });
+});
+
+// 深度研究入口（P8 接线）：双门控 —— 桥有 research 子域 **且** 设置里开了研究引擎。
+// 任一不满足都不显示，避免用户点进一个后端没起 Worker 的空壳。
+describe("PersonalSidebar 深度研究入口", () => {
+  /// 造一个带 research 子域的桥（只需存在性，方法体不会被侧栏调用）。
+  function bridgeWithResearch(): DesktopBridge {
+    return { ...bridgeWith(), research: {} } as unknown as DesktopBridge;
+  }
+
+  /// 写入 researchEngine 设置切片；enabled 决定入口是否出现。
+  function setResearchEnabled(enabled: boolean): void {
+    usePersonalStore.setState((s) => ({
+      generalSettings: {
+        ...s.generalSettings,
+        researchEngine: {
+          enabled,
+          deepResearchEnabled: true,
+          chatEnabled: false,
+          slidesEnabled: false,
+          writingEnabled: false,
+          memoryEnabled: false,
+          defaultModelDataPolicy: "evidence_allowed" as const,
+        },
+      },
+    }));
+  }
+
+  afterEach(() => {
+    usePersonalStore.setState((s) => ({
+      generalSettings: { ...s.generalSettings, researchEngine: undefined },
+    }));
+  });
+
+  it("桥有 research 且设置已启用 → 显示「研究」按钮", () => {
+    setResearchEnabled(true);
+    const { container } = renderSidebar(bridgeWithResearch());
+    expect(container.querySelector(".pw-sidebar-modes")?.textContent).toContain("研究");
+  });
+
+  it("桥无 research 子域（旧壳）→ 不显示入口", () => {
+    setResearchEnabled(true);
+    const { container } = renderSidebar(bridgeWith());
+    expect(container.querySelector(".pw-sidebar-modes")?.textContent).not.toContain("研究");
+  });
+
+  it("设置未启用研究引擎 → 不显示入口", () => {
+    setResearchEnabled(false);
+    const { container } = renderSidebar(bridgeWithResearch());
+    expect(container.querySelector(".pw-sidebar-modes")?.textContent).not.toContain("研究");
+  });
+
+  it("点击「研究」触发 openResearch（researchOpen=true、homeOpen 清空）", () => {
+    setResearchEnabled(true);
+    renderSidebar(bridgeWithResearch());
+    fireEvent.click(screen.getByText("研究"));
+    expect(usePersonalStore.getState().researchOpen).toBe(true);
+    expect(usePersonalStore.getState().homeOpen).toBe(false);
+  });
+
+  it("researchOpen 时「会话」不再高亮（整窗覆盖层已接管主区）", () => {
+    setResearchEnabled(true);
+    usePersonalStore.setState({ researchOpen: true, homeOpen: false });
+    renderSidebar(bridgeWithResearch());
+    expect(screen.getByText("会话").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("研究").getAttribute("aria-pressed")).toBe("true");
   });
 });

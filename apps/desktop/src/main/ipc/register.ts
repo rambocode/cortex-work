@@ -42,6 +42,8 @@ import { registerWritingLlmHandlers } from "./writing-llm";
 import { registerWritingPdfHandlers } from "./writing-pdf";
 import { registerSlidesHandlers } from "./slides";
 import { registerAgentBrowserHandlers, syncAgentBrowserRuntime } from "./agent-browser";
+import { registerResearchHandlers } from "./research";
+import { syncResearchEngineRuntime } from "../research/runtime";
 
 interface RegisterIpcHandlersOptions {
   update?: RegisterUpdateHandlersOptions;
@@ -57,6 +59,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerStoreHandlers((state) => {
     tasksReminderScheduler.setEnabled(isTasksReminderOptInEnabled(state));
     syncAgentBrowserRuntime(state.generalSettings?.agentBrowser?.enabled !== false);
+    // 研究引擎设置落盘即生效：关掉总开关时 runtime 会顺带停掉 Research Worker。
+    syncResearchEngineRuntime(state.generalSettings?.researchEngine);
   });
   registerNotesHandlers();
   registerTasksHandlers(); // 真任务系统（替换 doc 聚合 Tasks）
@@ -96,6 +100,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerWritingLlmHandlers(); // 写作 LLM(ghost text 续写 + Cmd-K 就地改写）IPC 域（U3）
   registerWritingPdfHandlers(); // 写作 PDF 阅读(取原始字节交渲染端 pdfjs 渲染）IPC 域（U5）
   registerSlidesHandlers(); // AI Slides deck(bento 单文件:创建/读取/阶段/保存/另存为/演示)IPC 域
+  registerResearchHandlers(); // Cortex Research Engine(会话/编排/证据/引用)IPC 域(U5)
 }
 
 export { killAllCli } from "./cli";
@@ -106,6 +111,9 @@ export { closeAllWatchers } from "./watch";
 export { killAllAutomations } from "../automation/runner";
 export { killAllWorkflows } from "../workflow/index";
 export { syncAgentBrowserRuntime } from "./agent-browser";
+// Research Worker 回收：utilityProcess 子进程不随主进程退出自动消失,必须接进退出钩子。
+export { killAllResearchWorkers } from "../research/worker/kill-all";
+export { runResearchStartupTasks, syncResearchEngineRuntime } from "../research/runtime";
 // 编排子进程回收：接入 app 退出钩子（与 killAllCli/killAllHeadlessPrompts 并列）
 export { killAllOrchestrations } from "./orchestrate";
 export { killAllRoundtables } from "./roundtable";

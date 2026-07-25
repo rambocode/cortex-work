@@ -174,6 +174,9 @@ export interface PersonalState {
   // 主区写作工作台视图（整窗覆盖层,desktop-only）。瞬态,不持久化（消掉 web 恢复白屏路径）;
   // 与其它主区视图互斥——所有 openXxx/切会话/切项目入口都清它。
   writingOpen: boolean;
+  // 主区深度研究工作台视图（整窗覆盖层,desktop-only）。瞬态,不持久化（同 writingOpen）;
+  // 与其它主区视图互斥——所有 openXxx/切会话/切项目入口都清它,漏一处会两层覆盖层同显。
+  researchOpen: boolean;
   // 设置整页视图（全屏覆盖层接管整窗、隐藏侧栏;底层工作区不卸载以保活终端）。
   // 瞬态,不持久化;与其它主区视图互斥（其它 open 入口清它,它不清底层视图标志,
   // 故 closeSettings 后回到打开设置前的视图）。
@@ -336,6 +339,9 @@ export interface PersonalState {
   // 打开/关闭写作工作台整窗覆盖层（互斥清其它视图标志;closeWriting 回落首页,同 closeDesign 写法）。
   openWriting: () => void;
   closeWriting: () => void;
+  // 打开/关闭深度研究整窗覆盖层（互斥清其它视图标志;closeResearch 回落首页,同 closeWriting）。
+  openResearch: () => void;
+  closeResearch: () => void;
   // 打开/关闭设置整页（settingsOpen 瞬态;openSettings 不清底层视图标志,见实现注释）。
   // 可选 tab：外部入口（如快捷回复气泡「去设置」）指定要跳转的分区，SettingsMenu 据此切换。
   openSettings: (tab?: string) => void;
@@ -534,6 +540,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   workflowOpen: false,
   designOpen: false,
   writingOpen: false,
+  researchOpen: false,
   settingsOpen: false,
   settingsTab: undefined,
   timelineSettings: DEFAULT_TIMELINE_SETTINGS,
@@ -885,6 +892,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       workflowOpen: false,
       designOpen: false,
       writingOpen: false,
+      researchOpen: false,
       settingsOpen: false,
       // 记忆本次选择（下次 Spotlight/新会话默认沿用;用 sess.* 取已 resolve 的值）。
       lastAgent: agent,
@@ -977,6 +985,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         workflowOpen: false,
         designOpen: false,
         writingOpen: false,
+        researchOpen: false,
         noteEditorId: undefined,
         settingsOpen: false,
       };
@@ -993,6 +1002,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       workflowOpen: false,
       designOpen: false,
       writingOpen: false,
+      researchOpen: false,
       noteEditorId: undefined,
       settingsOpen: false,
     }),
@@ -1103,43 +1113,50 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setProjectsDetailWidth: (width) => set({ projectsDetailWidth: width }),
 
   openTimeline: (projectId) =>
-    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, noteEditorId: undefined, settingsOpen: false }),
+    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, researchOpen: false, noteEditorId: undefined, settingsOpen: false }),
   closeTimeline: () => set({ timelineProjectId: undefined }),
 
   // 回首页时右栏同步切回 todos（全部项目列表）——项目内的文件/Skills 面板
   // 是项目上下文,不应停留在首页。
-  openHome: () => set({ homeOpen: true, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, timelineProjectId: undefined, noteEditorId: undefined, settingsOpen: false, rightView: "todos" }),
+  openHome: () => set({ homeOpen: true, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, researchOpen: false, timelineProjectId: undefined, noteEditorId: undefined, settingsOpen: false, rightView: "todos" }),
 
   // 进入自动化主区视图（互斥清其它视图字段）。
   openAutomation: () =>
-    set({ automationOpen: true, workflowOpen: false, designOpen: false, writingOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ automationOpen: true, workflowOpen: false, designOpen: false, writingOpen: false, researchOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
 
   // 进入 loop 工作流主区视图（优先级最高,互斥清其它视图字段）。
   openWorkflow: () =>
-    set({ workflowOpen: true, automationOpen: false, designOpen: false, writingOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ workflowOpen: true, automationOpen: false, designOpen: false, writingOpen: false, researchOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
   closeWorkflow: () => set({ workflowOpen: false }),
 
   // 进入设计工作台主区视图（互斥清其它视图字段;docId 缺省沿用上次打开的设计稿）。
   openDesign: (docId) =>
-    set((s) => ({ designOpen: true, activeDesignDocId: docId ?? s.activeDesignDocId, writingOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false })),
+    set((s) => ({ designOpen: true, activeDesignDocId: docId ?? s.activeDesignDocId, writingOpen: false, researchOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false })),
   closeDesign: () => set({ designOpen: false, homeOpen: true }),
 
   // 进入写作工作台整窗覆盖层（互斥清其它视图字段,同 openDesign 写法）。
   openWriting: () =>
-    set({ writingOpen: true, designOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ writingOpen: true, designOpen: false, researchOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
   // 关闭写作工作台回落首页（瞬态 writingOpen 复位;同 closeDesign）。
   closeWriting: () => set({ writingOpen: false, homeOpen: true }),
 
+  // 进入深度研究整窗覆盖层（互斥清其它视图字段,同 openWriting 写法）。
+  openResearch: () =>
+    set({ researchOpen: true, writingOpen: false, designOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+  // 关闭深度研究回落首页（瞬态 researchOpen 复位;同 closeWriting）。
+  closeResearch: () => set({ researchOpen: false, homeOpen: true }),
+
   // 点击闪记进入中心区写作面：互斥清其它中心视图;noteEditorId 瞬态,不进 toPersistedState。
   openNoteEditor: (noteId) =>
-    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, timelineProjectId: undefined, settingsOpen: false }),
+    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, researchOpen: false, timelineProjectId: undefined, settingsOpen: false }),
   closeNoteEditor: () => set({ noteEditorId: undefined }),
 
   // 设置整页：openSettings 仅置 settingsOpen（不清 homeOpen/timelineProjectId 等底层标志,
   // 故 closeSettings 后自然回到打开设置前的视图）;互斥由各 open 入口清 settingsOpen 保证。
   // 注意:openSettings 刻意不清底层视图标志（homeOpen/designOpen 等,见 KTD2a 覆盖层叠加语义）,
-  // 唯独清 writingOpen——写作为瞬态整窗态,不参与「关设置回原视图」的保活,进设置即退出写作。
-  openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab, writingOpen: false }),
+  // 唯独清 writingOpen / researchOpen——两者均为瞬态整窗态,不参与「关设置回原视图」的保活,
+  // 进设置即退出（否则 z-40 覆盖层会盖住设置页拦截点击,见 PersonalWorkspace 的挂载条件）。
+  openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab, writingOpen: false, researchOpen: false }),
   closeSettings: () => set({ settingsOpen: false }),
 
   setTimelineSettings: (patch) =>

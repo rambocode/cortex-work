@@ -136,3 +136,163 @@ ELECTRON_RUN_AS_NODE=1 "/tmp/Test.app/Contents/MacOS/<App>" \
 2. **验产物而非源**：`electron-vite build` 后 `grep -c '<class>' out/renderer/assets/globals-*.css`，与一个「已知在」的类（如 `pw-settings-page`）对照计数；0 = 被丢。
 3. 全文件扫隐患：找注释体内的 `*/`（如 `grep -nE '\*/[^ ]' file.css`），排除正常的行尾 `*/`。
 4. `postcss.parse` 通过**不代表** Lightning CSS 会保留——两者宽严不同，CSS 正确性以构建产物为准。
+
+---
+
+## Vite `build.ssr: true` 默认外部化全部依赖 → 打包后子进程 `import()` 到不存在的包
+
+**现象**：新增的 Research Worker（`utilityProcess.fork` 的子进程，独立 vite config 构建）在 dev 下一切正常、单测全绿，但产物只有 62 KB / 20 modules，且 `grep require\(` 能看到 `require("zod")` 与被原样保留的 `import("pdfjs-dist/legacy/build/pdf.mjs")`。打包后该 worker 的 PDF 抽取会直接失败。
+
+**根因（两层叠加）**：
+1. `build.ssr: true` 让 vite 把**所有 node_modules 依赖判为 external**。`rollupOptions.external` 只能**追加**外部化，**无法反向强制内联**——想真正 bundle 必须显式写 `ssr: { noExternal: true }`（注意是**顶层** `ssr` 字段，不是 `build.ssr`）。
+2. `electron-builder.yml` 的 `files` 段本就把 `pdfjs-dist` 整个排除出 asar（注释写明「renderer+main 均已 bundle」）。主进程那次 dynamic import 之所以没事，正是因为 electron-vite 把它 bundle 进了 `out/main`。新的 worker 不 bundle，就变成 import 一个打包产物里根本不存在的包。
+
+**为何隐蔽**：dev 下 `node_modules` 齐全，一切正常；单测里 `loadPdfJs` 是可注入依赖、根本不加载真 pdfjs；typecheck 也不看运行期解析。**只有打包态才暴露，而打包验证通常排在最后**。
+
+**解法**：新增任何独立 vite 构建入口（尤其给子进程用的）时：
+```ts
+ssr: { noExternal: true },          // ← 顶层，强制内联第三方依赖
+build: {
+  ssr: true,
+  rollupOptions: {
+    external: ["electron", /^electron\/.+/, ...builtinModules.flatMap((m) => [m, `node:${m}`])],
+    output: { entryFileNames: "<确定的名字>.js" },
+  },
+},
+```
+
+**顺带一个坑**：`build.ssr` 模式下 `lib.fileName` **不生效**，产物会退回 `index.js`。依赖确定文件名定位入口的代码（如 worker 的 entry-resolver）会找不到文件。必须用 `rollupOptions.output.entryFileNames` 显式指定。
+
+**验证套路**（改完立刻做，别留到发版）：
+1. `grep -oE 'require\("[^"]+"\)' <产物>` → 除 node 内建外**不应有**任何第三方包。
+2. 对照一个已在生产运行的同类产物（本例：`out/main/pdf-*.js` 与 worker 的 `chunks/pdf-*.js` chunk hash 相同，说明打包行为一致）。
+3. 子进程类产物**真 fork 一次**跑通协议往返，别只看构建成功——本例靠 `doctor` 返回 `pdf_available: true` 才证明 pdfjs 确实能加载。
+
+---
+
+## main 侧窄写通道必须把结果回传给 renderer，否则会被陈旧副本静默覆盖
+
+**现象**：给设置页接「保存 PAT」时，main 用 `safeStorage` 加密后写进
+`personal-workspace.json` 的 `researchEngine.searchServer.encryptedToken`，写入本身完全正确。
+但用户保存完令牌、随手再点一个开关，**刚存的令牌就没了**，且界面上「令牌状态」一直显示「未配置」。
+
+**根因**：这是「双写同一份文档」的经典竞态，与业务无关，任何走
+`store:save` 全量落盘的设置项都会踩：
+
+1. renderer 的 store 里有一份 `searchServer` 副本，**不含** main 刚写的 `encryptedToken`；
+2. 设置组件的全量写回以这份副本为基线（`patch()` 里 `{...base, ...next}`）；
+3. 于是下一次任意设置变更 → 全量 `store:save` → 用缺密文的副本覆盖磁盘 → 令牌蒸发。
+
+main 写得越"对"（绕开 renderer、直接改权威态），这个洞越隐蔽——因为写入路径的单测全绿，
+问题只在「main 写完 + renderer 随后再写一次」的时序里才出现。
+
+**解法**：main 侧的窄写通道**返回落盘后的结果**，renderer 拿到后写回自己的 store，
+让两边副本重新对齐。回传密文是安全的——renderer 本来就持有它（只有 main 能解）。
+
+```ts
+// core 的桥契约：返回值不是可有可无的
+setSearchServerCredential?(input): Promise<ResearchSearchServerSettings>;
+
+// renderer：拿到就回写，别丢
+void fn(input).then((saved) => { if (saved) patch({ searchServer: saved }); });
+```
+
+**判据**：只要满足「main 能直接改某个 renderer 也会全量写回的持久化字段」，
+就必须回答一句「renderer 怎么知道它变了」。答案只有两个——**回传**或**广播**
+（`store:patchPushSettings` 走的是广播，见 `store.ts` 的 `broadcastPushSettingsIfChanged`）。
+没有第三种，"反正下次重启会读到"不算。
+
+**测试怎么写才咬得住**：断言「保存后 store 里有密文」是不够的，那只覆盖了第 1 步。
+必须**再动一个无关开关**，然后断言密文还在——这才复现第 3 步：
+
+```ts
+fireEvent.click(screen.getByRole("switch", { name: "会话内检索" }));
+expect(research()?.searchServer?.encryptedToken).toBe("CIPHER-FROM-MAIN");
+```
+
+---
+
+## 自动触发的动作失败后，必须同时留下「手动重试入口」和「失败原因」
+
+**现象**：新建研究后会话一直停在「待开始」，界面上四个按钮全灰，没有任何错误提示。
+用户无从判断该等它自己恢复、还是自己要做点什么——实际上两者都不是，只能删掉重建。
+
+**根因是两个独立的洞叠在一起**，各自都不致命，凑一起就成了死局：
+
+1. **状态机有个没人能推动的中间态**。创建表单会自动调一次 `run`，失败后会话停在 `created`：
+   它不是运行中（不能暂停）、不是已暂停或中断（不能恢复）、也不是终态。
+   `canPause/canResume/canCancel` 三个判定各自都对，但**没有一个覆盖 `created`**。
+   启动恢复也不管它——那只把「运行中途挂掉」的会话转成 `interrupted`。
+2. **失败原因写在了一个即将卸载的组件的局部 state 上**：
+   ```ts
+   catch (e) { setError(`启动失败：${e.message}`); }
+   setSubmitting(false);
+   onCreated(summary);        // ← 宿主在这里 setCreating(false)，表单当场卸载
+   ```
+   `setError` 的内容一帧都没显示就没了。代码注释还写着「列表里能看到、可重跑」——
+   **可重跑的入口从来不存在**，注释描述的是意图，不是事实。
+
+**解法**：
+- 给 `created` 补一个「开始」按钮（`canStartSession(status) === "created"`）。
+  `service.run()` 本来就不挑状态，能力一直在，只是没有入口。
+- 失败原因由宿主保管并透传给会话视图（连 sessionId 一起存，切会话时清掉），
+  而不是留在创建表单里。
+
+**可复用的判据**（每次写「自动执行某个动作」时问一遍）：
+1. 这个动作失败后，**用户点哪里能重试**？答不上来就是死局。
+2. 失败原因**显示在哪个组件上**？如果那个组件在失败后的下一步就被卸载，等于没显示。
+3. 遍历状态枚举，确认**每个非终态都至少被一个操作判定覆盖**——
+   逐个判定单独看都对，不代表并集是全的。
+
+**测试要咬住第 3 条**，别只测你想到的那个状态：
+```ts
+expect(canStartSession("created")).toBe(true);
+for (const s of RESEARCH_SESSION_STATUSES.filter((s) => s !== "created")) {
+  expect(canStartSession(s)).toBe(false);
+}
+```
+
+---
+
+## agent-browser 的 action policy 认「规范动作名」，不认子命令名
+
+**现象**：Deep Research 的 Browser 兜底对所有站点都救不回来——403 站点再吃一次 403，
+JS 渲染页拿到 0 字。但适配器的单测全绿，日志里也只有一句普通的抓取失败。
+
+**根因是三个洞叠在一起，每一个单独看都不显眼**：
+
+1. **装配层漏接**：`runtime.ts` 构造 `ResearchService` 时没传 `agentBrowserBinary`。
+   该依赖是 `?:`，漏传不会有编译错误，也不会让任何单测变红（单测都自己构造 deps）。
+   worker 侧于是在 `if (!binary) return null` 处直接放弃——**整条兜底是死代码**。
+2. **policy 写了子命令名而不是规范名**：allow 列表里是 `"open"`，但 agent-browser 把
+   `open` 子命令归一成 `navigate` 再比对，于是导航永远 `denied by policy`。
+   适配器只能退用 `read <url>`，而那条路走的是 agent-browser **自带的 HTTP 客户端**
+   （`source: "html-fallback"`、`browserLaunched: false`），**根本不启动 Chrome**。
+   也就是说：兜底对它存在的全部三个触发场景（403 / 429 / 空正文）统统无效。
+3. **导航后没等渲染**：`open` 返回 ≠ 页面渲染完。实测同一 SPA 页，5 次里 2 次读到空壳
+   （11 字 vs 完整 3188 字）。`wait --load networkidle` 后 5/5 稳定。
+   而它的规范名是 `waitforloadstate`——**同一个坑又踩一次**。
+
+**这个「子命令名 ≠ 规范动作名」的坑已经踩了三次**：
+`eval`→`evaluate`（U0 S4 发现，代码里留了 `PROBE_DENIED_ACTION` /
+`PROBE_DENIED_ACTION_NAME` 两个常量）、`open`→`navigate`、`wait --load`→`waitforloadstate`。
+
+**规则**：往 allow 列表加动作前，**先用真二进制跑一次并读错误文案**——
+`Action 'navigate' denied by policy` 里的那个词才是要写进列表的名字。
+别照着 `--help` 的子命令名抄。两个名字都留着最安全（语义等价时不放大权限）。
+
+**更一般的教训 —— 可选依赖的装配层要有测试**。凡是 `deps.foo?:` 这种形状，
+漏接一个的代价是「功能静默消失」而不是「报错」，而所有既有单测都测不到它，
+因为它们自己构造 deps。装配点值得一个哪怕很粗糙的结构断言：
+
+```ts
+const runtimeSource = readFileSync(join(__dirname, "runtime.ts"), "utf8");
+it("必须注入 agentBrowserBinary，否则 Browser 兜底是死代码", () => {
+  expect(runtimeSource).toContain("agentBrowserBinary");
+});
+```
+
+断言源码文本很糙，但它咬住的正是「有没有接线」这件唯一会漏的事。
+
+**验证要用真二进制、并且要重复跑**：这个 bug 的第 3 层是概率性的，
+跑一次「成功了」会直接把它放过去。

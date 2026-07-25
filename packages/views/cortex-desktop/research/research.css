@@ -1,0 +1,546 @@
+/* Deep Research 工作区样式（pw-res-* 命名空间）。
+   刻意放在本目录并由 ResearchWorkspace.tsx 直接 import，而不是往 cortex-desktop.css 里加：
+   研究工作区是自成一块的整窗覆盖层，样式与个人工作区没有共享需求，独立文件便于后续整块增删。
+   颜色一律引用 cortex-desktop.css 里的主题变量，自动跟随明暗主题，不写死色值。 */
+
+.pw-res-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  color: var(--text-1);
+  font-size: 13px;
+}
+
+/* 顶栏：整窗覆盖层需要自己的返回入口（原窗口顶栏被盖住了）。
+   mac 原生隐藏式标题栏下红绿灯会压在本层左上角，由宿主加 ds-window-controls-safe-inset 避让；
+   本层同时声明拖拽区，否则覆盖层把窗口唯一可拖的位置也吃掉了。 */
+.pw-res-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 46px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  -webkit-app-region: drag;
+}
+.pw-res-titlebar .pw-res-btn { -webkit-app-region: no-drag; }
+.pw-res-titlebar-t {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* 三栏：左固定 280 / 中自适应 / 右固定 340。中栏是唯一可伸缩的一栏。 */
+.pw-res-cols { display: flex; flex: 1 1 auto; min-height: 0; }
+.pw-res-col-left {
+  flex: 0 0 280px;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  overflow: auto;
+}
+.pw-res-col-center { flex: 1 1 auto; min-width: 0; overflow: auto; }
+.pw-res-col-right {
+  flex: 0 0 340px;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-right);
+  overflow: auto;
+}
+
+/* ---------- 通用零件 ---------- */
+/* 按钮三档：默认描边（次动作）、is-primary（当前唯一建设性动作）、is-ghost（导出/收起这类弱动作）。 */
+.pw-res-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-app);
+  color: var(--text-1);
+  border-radius: var(--radius-sm);
+  padding: 4px 12px;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease,
+    color 140ms ease, filter 140ms ease, opacity 140ms ease;
+}
+.pw-res-btn:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-strong); }
+.pw-res-btn:active:not(:disabled) { filter: brightness(0.97); }
+.pw-res-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pw-res-btn.is-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: var(--shadow-card);
+}
+.pw-res-btn.is-primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  filter: brightness(1.08);
+}
+.pw-res-btn.is-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+.pw-res-btn.is-ghost:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
+
+.pw-res-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.pw-res-badge.is-idle { background: var(--bg-chip); color: var(--text-2); }
+.pw-res-badge.is-run { background: var(--blue-soft); color: var(--blue); }
+.pw-res-badge.is-warn { background: var(--amber-soft); color: var(--amber); }
+.pw-res-badge.is-ok { background: var(--green-soft); color: var(--green); }
+.pw-res-badge.is-bad { background: var(--red-soft); color: var(--red); }
+/* 运行中的徽章加呼吸点，让「还在跑」在静态截图之外的场景一眼可见。 */
+.pw-res-badge.is-run::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+  animation: pw-res-pulse 1.6s ease-in-out infinite;
+}
+@keyframes pw-res-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.pw-res-hint { padding: 10px 14px; color: var(--text-3); font-size: 12px; line-height: 1.6; }
+.pw-res-empty { padding: 32px 16px; color: var(--text-3); font-size: 12px; text-align: center; line-height: 1.7; }
+.pw-res-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--red) 25%, transparent);
+  background: var(--red-soft);
+  color: var(--red);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pw-res-error.is-banner { margin: 8px 12px 0; }
+.pw-res-warn {
+  margin: 6px 0;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--amber) 25%, transparent);
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ---------- 左栏：会话列表 ---------- */
+.pw-res-list { display: flex; flex-direction: column; }
+.pw-res-list-top { padding: 12px; }
+.pw-res-list-top .pw-res-btn { width: 100%; padding: 6px 12px; border-radius: var(--radius); }
+.pw-res-items { display: flex; flex-direction: column; gap: 3px; padding: 0 8px 12px; }
+/* 会话卡片：active 态用左侧 2px 强调条 + 背景区分，避免仅靠灰底看不出选中。 */
+.pw-res-item {
+  position: relative;
+  padding: 9px 10px 9px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+.pw-res-item:hover { background: var(--bg-hover); }
+.pw-res-item.is-active { background: var(--bg-active); }
+.pw-res-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.pw-res-item-head { display: flex; align-items: center; gap: 6px; }
+.pw-res-item-mode { color: var(--text-3); font-size: 11px; }
+/* 删除平时收起，hover / 键盘聚焦时才浮现——列表里常驻一排「删除」是纯粹的视觉噪音。
+   用 opacity 而非 display，jsdom 测试与键盘可达性（focus-within）都不受影响。 */
+.pw-res-item-del {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease;
+}
+.pw-res-item:hover .pw-res-item-del,
+.pw-res-item:focus-within .pw-res-item-del { opacity: 1; }
+.pw-res-item-del:hover { color: var(--red); }
+.pw-res-item-obj {
+  margin-top: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-1);
+  /* 目标可能很长；列表里最多两行，完整内容在中栏标题处展示。 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pw-res-item-meta { margin-top: 4px; color: var(--text-3); font-size: 11px; }
+.pw-res-item-err { margin-top: 3px; color: var(--red); font-size: 11px; }
+
+/* ---------- 中栏：运行视图 ---------- */
+.pw-res-run { display: flex; flex-direction: column; height: 100%; }
+.pw-res-run.is-empty { justify-content: center; }
+.pw-res-run-head { padding: 18px 24px 14px; border-bottom: 1px solid var(--border-soft); }
+.pw-res-run-title { font-size: 17px; font-weight: 700; line-height: 1.45; }
+.pw-res-run-sub { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.pw-res-progress { color: var(--text-2); font-size: 12px; }
+/* 细进度条：有 completed/total 时给一条 3px 轨道，比纯文字更直观地传达「跑了一半」。 */
+.pw-res-progressbar {
+  flex: 0 1 160px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--bg-chip);
+  overflow: hidden;
+}
+.pw-res-progressbar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 300ms ease;
+}
+.pw-res-run-actions { display: flex; gap: 6px; margin-top: 12px; }
+.pw-res-run-body { padding: 16px 24px 32px; }
+
+/* 内容分节：标题带小节刻度线，让「计划 / 轮次 / 失败 / 报告」在长页面里可扫读。 */
+.pw-res-sec { margin-bottom: 24px; }
+.pw-res-sec-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.pw-res-sec-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+.pw-res-sec-sub { margin: 12px 0 6px; color: var(--text-3); font-size: 12px; font-weight: 600; }
+
+/* 子问题：自定义序号圆点代替原生圆点，rationale 另起一行弱化，形成「问题 + 为什么」两层。 */
+.pw-res-subq { margin: 0; padding: 0; list-style: none; counter-reset: pw-res-q; }
+.pw-res-subq li {
+  position: relative;
+  padding: 2px 0 8px 26px;
+  counter-increment: pw-res-q;
+}
+.pw-res-subq li::before {
+  content: counter(pw-res-q);
+  position: absolute;
+  left: 0;
+  top: 3px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+.pw-res-subq-text { line-height: 1.55; }
+.pw-res-subq-why { display: block; margin-top: 2px; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+
+/* 初始查询：chip 化的检索词，区别于子问题的叙述句。 */
+.pw-res-queries { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.pw-res-queries li {
+  padding: 3px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--bg-card-2);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 轮次：左侧圆点 + 竖线的时间线，强调「一轮一轮推进」的时序感。 */
+.pw-res-rounds { list-style: none; margin: 0; padding: 0; }
+.pw-res-rounds li {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 5px 0 5px 18px;
+}
+.pw-res-rounds li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 11px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+/* 竖线贯穿到下一项的圆点；最后一项不收尾，避免底部多出一截孤线。 */
+.pw-res-rounds li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 6.5px;
+  top: 19px;
+  bottom: -4px;
+  width: 1px;
+  background: var(--border);
+}
+.pw-res-round-idx { font-weight: 600; }
+.pw-res-round-meta { color: var(--text-3); font-size: 12px; }
+
+/* 未采信来源：琥珀色左边框卡片。失败码做成 chip，正文用次色——
+   原本「抓取失败（fetch_http_error） 抓取失败：…」两遍前缀的重复感靠视觉分层消化。 */
+.pw-res-failures { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pw-res-failures li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-left: 2px solid var(--amber);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--amber-soft) 45%, transparent);
+}
+.pw-res-fail-code {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pw-res-fail-msg { color: var(--text-2); overflow-wrap: anywhere; }
+
+/* 报告：纸张式卡片 + 阅读宽度限制，正文排版按长文阅读调校。 */
+.pw-res-report-card {
+  max-width: 760px;
+  padding: 20px 24px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card-2);
+  box-shadow: var(--shadow-card);
+}
+.pw-res-md { line-height: 1.75; font-size: 13px; }
+.pw-res-md h1, .pw-res-md h2, .pw-res-md h3 { margin: 18px 0 8px; font-weight: 700; line-height: 1.4; }
+.pw-res-md h1 { font-size: 17px; }
+.pw-res-md h2 { font-size: 15px; padding-bottom: 6px; border-bottom: 1px solid var(--border-soft); }
+.pw-res-md h3 { font-size: 13.5px; }
+.pw-res-md p { margin: 8px 0; }
+.pw-res-md a { color: var(--link); }
+.pw-res-md code {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-chip);
+}
+.pw-res-md pre {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-chip);
+  overflow-x: auto;
+}
+.pw-res-md pre code { padding: 0; background: transparent; }
+.pw-res-md blockquote {
+  margin: 8px 0;
+  padding: 2px 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-2);
+}
+.pw-res-md ul, .pw-res-md ol { padding-left: 22px; margin: 8px 0; }
+.pw-res-md li { margin: 3px 0; }
+.pw-res-md table { border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+.pw-res-md th, .pw-res-md td { border: 1px solid var(--border); padding: 5px 10px; }
+.pw-res-md th { background: var(--bg-chip); font-weight: 600; }
+.pw-res-md hr { border: 0; border-top: 1px solid var(--border-soft); margin: 14px 0; }
+.pw-res-md li::marker { color: var(--text-3); }
+
+/* 引用 chip：[^chunkId] 经 reportDisplay 转成 [n] 编号链接后的样子。
+   上标小号 accent 底色，不打断正文阅读节奏；hover 加深提示可点。 */
+.pw-res-cite {
+  display: inline-block;
+  padding: 0 5px;
+  margin: 0 1px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  vertical-align: 2px;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.pw-res-cite:hover { background: var(--accent); color: #fff; }
+
+/* 参考来源列表：与正文 chip 同编号，被 chip 跳转命中时整条高亮。 */
+.pw-res-refs { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+.pw-res-refs-title { font-size: 12px; font-weight: 700; color: var(--text-2); margin-bottom: 6px; }
+.pw-res-refs-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.pw-res-refs-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  transition: background-color 300ms ease;
+}
+.pw-res-refs-list li:target { background: var(--accent-soft); }
+.pw-res-refs-idx { flex: 0 0 auto; color: var(--accent); font-weight: 600; font-size: 11px; }
+.pw-res-refs-name {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 新建表单 ---------- */
+.pw-res-form { padding: 20px 24px; max-width: 640px; }
+.pw-res-form-title { font-size: 16px; font-weight: 700; margin-bottom: 14px; }
+.pw-res-field { display: block; margin-bottom: 14px; }
+.pw-res-lbl { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+.pw-res-textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-1);
+  padding: 8px 10px;
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.pw-res-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.pw-res-fieldset { border: 0; margin: 0 0 14px; padding: 0; }
+.pw-res-opt {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.pw-res-opt:hover { background: var(--bg-hover); }
+.pw-res-opt.is-on { border-color: var(--accent); background: var(--accent-soft); }
+.pw-res-opt-l { font-weight: 600; }
+.pw-res-opt-hint { color: var(--text-3); font-size: 12px; }
+.pw-res-opt-budget { grid-column: 2 / -1; color: var(--text-2); font-size: 11px; }
+.pw-res-check { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; }
+/* M1 未开放的来源范围（local_file，见 ResearchCreateForm 的 SCOPE_OPTIONS 注释）。 */
+.pw-res-check.is-disabled { color: var(--text-3); cursor: not-allowed; }
+.pw-res-soon { padding: 0 5px; border-radius: 4px; background: var(--bg-3); color: var(--text-3); font-size: 10px; }
+.pw-res-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ---------- 策略告知 ---------- */
+.pw-res-notice {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card-2);
+}
+/* 会出站的策略用暖色描边，让「有数据离开本机」在视觉上先被看见。 */
+.pw-res-notice.is-remote { border-color: var(--amber); background: var(--amber-soft); }
+.pw-res-notice-title { font-weight: 700; margin-bottom: 3px; }
+.pw-res-notice-summary { font-size: 12px; color: var(--text-2); }
+.pw-res-notice-list { margin: 6px 0 8px; padding-left: 18px; font-size: 12px; }
+
+/* ---------- 右栏：来源 ---------- */
+.pw-res-sources { display: flex; flex-direction: column; }
+/* 头部吸顶：文档列表很长时「收起」入口不随滚动丢失。 */
+.pw-res-sources-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-right);
+}
+.pw-res-sources-title { font-size: 13px; font-weight: 700; }
+.pw-res-doclist { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+/* 来源项卡片化：原本全宽分割线平铺，域名/标题/时间混成一团，扫读成本高。 */
+.pw-res-doc {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg-app);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: border-color 140ms ease;
+}
+.pw-res-doc.is-open { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.pw-res-doc-head { padding: 9px 12px; cursor: pointer; transition: background-color 140ms ease; }
+.pw-res-doc-head:hover { background: var(--bg-hover); }
+.pw-res-doc-title { display: block; font-size: 12px; font-weight: 500; line-height: 1.45; }
+.pw-res-doc-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--text-3); font-size: 11px; }
+.pw-res-doc-domain { color: var(--text-2); font-weight: 500; }
+/* 抓取方式做成 chip：浏览器抓取是成本最高的降级路径，需要在列表里一眼可辨。 */
+.pw-res-doc-method {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-chip);
+  font-size: 10px;
+  line-height: 16px;
+}
+.pw-res-doc-time { margin-left: auto; }
+.pw-res-doc-chunks { padding: 2px 12px 10px; }
+/* 证据片段：引用式左边框，和文档头拉开层级。 */
+.pw-res-chunk {
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  border-left: 2px solid var(--accent-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--bg-card);
+}
+.pw-res-chunk-path { color: var(--text-3); font-size: 11px; margin-bottom: 3px; }
+.pw-res-chunk-text { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+
+/* ---------- Web 端降级 ---------- */
+.pw-res-fallback {
+  margin: auto;
+  max-width: 420px;
+  padding: 24px;
+  text-align: center;
+}
+.pw-res-fallback-title { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+.pw-res-fallback-desc { color: var(--text-2); font-size: 12px; line-height: 1.7; margin-bottom: 14px; }

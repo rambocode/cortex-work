@@ -23,7 +23,8 @@
     "reply": "Quick Reply",
     "design": "Design",
     "writing": "Writing",
-    "memory": "Memory"
+    "memory": "Memory",
+    "research": "Research"
   },
   "tabGroups": {
     "general": "General",

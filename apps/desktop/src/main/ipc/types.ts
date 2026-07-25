@@ -1,6 +1,10 @@
 // 个人工作区 IPC 类型（主进程侧）。与 packages/core/desktop/types.ts 镜像 ——
 // core 不能依赖 app 包，故两侧各持一份；preload 以 core 的 DesktopBridge 为准对齐。
 
+import type { ResearchEngineMainSettings } from "./types-research";
+
+export type { ResearchEngineMainSettings, ResearchSearchServerSettings } from "./types-research";
+
 export type AgentKind = "claude" | "codex" | "pi";
 
 // M3-A:用户 JSON(agents.local.json)派生/覆盖的 agent 元数据(经 agents:profiles IPC 透出,
@@ -256,6 +260,8 @@ export interface GeneralSettings {
   browserControl?: BrowserControlSettings;
   // 用户记忆总开关（与 core 镜像）。主进程读它门控做梦整理管线（memory/dreamer.ts）;缺省 = 开启。
   memoryEnabled?: boolean;
+  // 研究引擎（CRE）配置。形状见 ./types-research（单列文件以守住本文件 1200 行上限）。
+  researchEngine?: ResearchEngineMainSettings;
 }
 
 // 浏览器控制配置（与 packages/core/desktop/types.ts 逐字镜像）。

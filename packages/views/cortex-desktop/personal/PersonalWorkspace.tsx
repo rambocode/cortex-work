@@ -30,6 +30,8 @@ import { AutomationView } from "./AutomationView";
 import { WorkflowView } from "./WorkflowView";
 import { DesignWorkspace } from "../design/DesignWorkspace";
 import { WritingWorkspace } from "../writing/WritingWorkspace";
+import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
+import { ResearchWorkspace } from "../research/ResearchWorkspace";
 import { FlashNoteEditor } from "./FlashNoteEditor";
 import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
 import { PersonalSettingsView } from "./SettingsMenu";
@@ -85,6 +87,12 @@ export function PersonalWorkspace({
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const leftCollapsed = useCortexUIStore((s) => s.leftCollapsed);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
+  // 研究引擎的默认出站策略（新建研究表单的初值）。用选择器订阅而不是 getState()：
+  // 后者在渲染期读快照是 React 反模式，且设置改动后不会触发重渲染。
+  // 归一化保证旧存档缺字段时也有稳妥默认值。
+  const researchDefaultPolicy = usePersonalStore(
+    (s) => normalizeResearchEngineSettings(s.generalSettings.researchEngine).defaultModelDataPolicy,
+  );
   const automationOpen = usePersonalStore((s) => s.automationOpen);
   // loop 工作流主区视图（优先级最高；bridge.workflowList 为 null 时不可能为 true）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
@@ -92,6 +100,9 @@ export function PersonalWorkspace({
   const designOpen = usePersonalStore((s) => s.designOpen);
   // 写作工作区整窗覆盖层(desktop-only;瞬态,与设计/设置同级 z-40)。
   const writingOpen = usePersonalStore((s) => s.writingOpen);
+  // 深度研究整窗覆盖层(CRE,desktop-only;入口门控在侧栏,此处只负责渲染)。
+  const researchOpen = usePersonalStore((s) => s.researchOpen);
+  const closeResearch = usePersonalStore((s) => s.closeResearch);
   // 设置整页：全屏覆盖层叠加在工作区之上（不卸载 pw-main → 终端 PTY 存活）。
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
@@ -215,6 +226,18 @@ export function PersonalWorkspace({
       {/* 写作工作区:整窗覆盖层,与设计同构。settingsOpen 时不渲染(同设计,避免 z-40 覆盖层
           盖住设置页拦截点击);写作 run 由 writing-run-manager 独立持有(U7),卸载不中断。 */}
       {writingOpen && !settingsOpen ? <WritingWorkspace /> : null}
+      {/* 深度研究:整窗覆盖层,与设计/写作同构。settingsOpen 时让位(否则 z-40 盖住设置页拦点击)。
+          研究会话真源在主进程(SQLite + 编排器),覆盖层卸载不会中断正在跑的研究,重开后由
+          bridge.list() + research:event 重新灌入 ui-store。桥经 CoreProvider 注入,组件不摸 window。 */}
+      {researchOpen && !settingsOpen ? (
+        <ResearchWorkspace
+          bridge={bridge.research ?? null}
+          onClose={closeResearch}
+          // 新建表单的策略默认值取设置页的「默认数据出站策略」。
+          // 这里是唯一读设置的地方——views 的研究组件本身不碰 personal store。
+          defaultModelDataPolicy={researchDefaultPolicy}
+        />
+      ) : null}
       {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
       <SessionSearchDialog />

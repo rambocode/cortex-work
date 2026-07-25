@@ -281,6 +281,9 @@ export function PersonalSidebar({
   // 写作工作区(整窗覆盖层);desktop-only,bridge 为 null(web 端)自动降级隐藏。
   const writingOpen = usePersonalStore((s) => s.writingOpen);
   const openWriting = usePersonalStore((s) => s.openWriting);
+  // 深度研究(CRE 整窗覆盖层);双门控见下方 researchAvailable。
+  const researchOpen = usePersonalStore((s) => s.researchOpen);
+  const openResearch = usePersonalStore((s) => s.openResearch);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
@@ -342,7 +345,12 @@ export function PersonalSidebar({
   const projectChoices = visible.filter((project) => project.id !== contextProject?.id);
   const archivedChoices = archived.filter((project) => project.id !== contextProject?.id);
   const defaultAgent = resolveDefaultAgent({ generalSettings, agentsAvailable });
-  const conversationModeOpen = !writingOpen && !designOpen && !automationOpen && !workflowOpen && !settingsOpen;
+  // 深度研究入口的**双门控**：桥有 research 子域(旧壳/Web 端没有) **且** 设置里开了研究引擎。
+  // 少任一条都不显示——主进程按同一个 enabled 决定要不要拉起 Research Worker(research/runtime.ts),
+  // 入口若先于开关出现，用户点进去的是一个后端根本没起来的空壳。
+  const researchAvailable = !!bridge?.research && generalSettings.researchEngine?.enabled === true;
+  const conversationModeOpen =
+    !writingOpen && !designOpen && !researchOpen && !automationOpen && !workflowOpen && !settingsOpen;
 
   const createContextSession = () => {
     createSession(contextProject?.id, defaultAgent);
@@ -389,6 +397,11 @@ export function PersonalSidebar({
         {bridge ? (
           <button className={designOpen ? "is-active" : ""} onClick={() => openDesign()} aria-pressed={designOpen}>
             设计
+          </button>
+        ) : null}
+        {researchAvailable ? (
+          <button className={researchOpen ? "is-active" : ""} onClick={openResearch} aria-pressed={researchOpen}>
+            研究
           </button>
         ) : null}
       </div>

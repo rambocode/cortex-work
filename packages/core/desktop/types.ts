@@ -597,6 +597,10 @@ export interface GeneralSettings {
   // 用户记忆总开关（跨会话/写作/设计共享的持久记忆,见 core/memory/）:关闭后既不注入 prompt,
   // 主进程做梦整理管线也停跑。缺省 = 开启（只有显式 false 才关）。主进程读它门控 Dreamer,**进** main 镜像。
   memoryEnabled?: boolean;
+  // 研究引擎（CRE）设置。类型真源在 core/research/settings.ts，此处用 inline import 引用而不新增
+  // import 语句——本文件已远超 1200 行硬上限，只能减不能加。主进程读 enabled/deepResearchEnabled/
+  // searchServer 决定是否拉起 Research Worker，**进** main 镜像（main/ipc/types-research.ts）。
+  researchEngine?: import("../research/settings").ResearchEngineSettings;
 }
 
 // pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。

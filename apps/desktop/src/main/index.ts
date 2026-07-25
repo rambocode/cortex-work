@@ -13,6 +13,9 @@ import {
   killAllOrchestrations,
   killAllRoundtables,
   syncAgentBrowserRuntime,
+  killAllResearchWorkers,
+  runResearchStartupTasks,
+  syncResearchEngineRuntime,
 } from "./ipc/register";
 import { installBrowserWebviewGuards } from "./browser/webviewGuards";
 import { configureBrowserPartition } from "./browser/partition";
@@ -564,6 +567,15 @@ if (!app.requestSingleInstanceLock()) {
     void getPersistedState().then((state) => {
       syncAgentBrowserRuntime(state.generalSettings?.agentBrowser?.enabled !== false);
     }).catch((err) => log.warn("[agent-browser] 启动检查失败", err));
+    // 研究引擎（CRE）：先同步设置快照,再跑启动恢复（非终态 Session → interrupted、
+    // 未提交 operation 标记可重试、清理过期 tmp）。引擎关闭时 runResearchStartupTasks 是
+    // no-op——连数据库都不会打开。fire-and-forget:恢复失败已内部降级,不阻塞建窗。
+    void getPersistedState()
+      .then(async (state) => {
+        syncResearchEngineRuntime(state.generalSettings?.researchEngine);
+        await runResearchStartupTasks();
+      })
+      .catch((err) => log.warn("[research] 启动恢复失败", err));
     // 全局热键唤起闪记浮层(全仓首次用 globalShortcut)。读用户配置的 notesHotkey,
     // 无效或缺失则回退默认 NOTES_HOTKEY_ACCELERATOR。register 返回 false = 被占用 →
     // 不抛错,降级到仅窗口图标入口,并把提示文案在主窗口就绪后 best-effort 推给渲染端 toast。
@@ -721,6 +733,7 @@ if (!app.requestSingleInstanceLock()) {
     killAllAsk();
     killAllPiSessions();
     killAllPty();
+    killAllResearchWorkers(); // Research Worker(utilityProcess)不随主进程退出自动消失,必须显式杀
     closeAllWatchers();
     destroyTray();
     destroySpotlight();

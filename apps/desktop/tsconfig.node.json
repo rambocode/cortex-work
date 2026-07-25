@@ -1,6 +1,14 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
-  "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*"],
+  "include": [
+    "electron.vite.config.*",
+    "electron.worker.config.*",
+    "src/main/**/*",
+    "src/preload/**/*",
+    // Research Worker 跑在 utilityProcess 里，是 Node 侧代码（禁 import electron），
+    // 与 main/preload 同属 node tsconfig；构建由 electron.worker.config.ts 单独负责。
+    "src/worker/**/*"
+  ],
   "compilerOptions": {
     "composite": true,
     "types": ["electron-vite/node"]

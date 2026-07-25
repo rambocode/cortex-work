@@ -25,6 +25,7 @@
     "./desktop/types": "./desktop/types.ts",
     "./desktop/tasks-types": "./desktop/tasks-types.ts",
     "./desktop/bridge": "./desktop/bridge.ts",
+    "./desktop/research-bridge": "./desktop/research-bridge.ts",
     "./desktop/writing-retrieval-types": "./desktop/writing-retrieval-types.ts",
     "./desktop/slides-ipc-types": "./desktop/slides-ipc-types.ts",
     "./desktop/media-gen-types": "./desktop/media-gen-types.ts",
@@ -65,6 +66,8 @@
     "./whisper/models": "./whisper/models.ts",
     "./reply/*": "./reply/*.ts",
     "./memory/*": "./memory/*.ts",
+    "./research/*": "./research/*.ts",
+    "./retrieval/*": "./retrieval/*.ts",
     "./store/memory": "./store/memory.ts"
   },
   "dependencies": {

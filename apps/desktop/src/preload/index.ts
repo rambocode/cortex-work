@@ -154,6 +154,8 @@ import type {
   UserMemoryScope,
   UserMemoryState,
 } from "@cortex-work/core/memory/memory";
+// 深度研究（CRE）子桥：8 个 research:* channel + research:event 事件流,单独成文件（见其头部注释）。
+import { createResearchBridge } from "./research-bridge";
 
 interface AppInfo {
   version: string;
@@ -915,6 +917,10 @@ const personal = {
     ipcRenderer.on("pet:sync-state", listener);
     return () => ipcRenderer.removeListener("pet:sync-state", listener);
   },
+  // ── 深度研究引擎（CRE）子域 ────────────────────────────────────────────────
+  // 必须挂在 personal 下：渲染端经 CoreProvider 注入的 DesktopBridge 就是这个对象，
+  // 挂到 desktopAPI 顶层的话 views 侧的 bridge?.research 永远是 undefined。
+  research: createResearchBridge(),
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

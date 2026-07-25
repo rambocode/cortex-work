@@ -175,6 +175,45 @@ export function userMemoryDreamStatePath(): string {
   return join(userMemoryDir(), "dream-state.json");
 }
 
+// ---------------------------------------------------------------------------
+// Cortex Research Engine（CRE）本地存储（spec §13.1）
+// ---------------------------------------------------------------------------
+
+// CRE 存储根：~/.cortex-desktop/research/
+//   research.sqlite   Session / 计划 / 证据元数据（正文不在其中）
+//   blobs/            正文按 <sha256>.gz 落盘（blob-store.ts）
+//   browser-policy/   Research Browser 的 action policy JSON（KTD7）
+//   tmp/              仅限临时文件,启动时清理超 24 小时且不属于 active operation 的残留
+//
+// **对 spec 的刻意偏离**：spec 写的是 `<userData>/research/`,这里落在 cortexHome() 下,
+// 与个人工作区其余数据同根,避免用户数据散落两处（本仓库既有全部存储都已迁到 ~/.cortex-desktop）。
+// 两者同样位于 asar 之外的受控位置,§19.5 的打包要求不受影响。
+export function researchDir(): string {
+  return join(cortexHome(), "research");
+}
+
+// SQLite 主库路径。node:sqlite 只在 main/research/sqlite-driver.ts 一处动态 import。
+export function researchDbPath(): string {
+  return join(researchDir(), "research.sqlite");
+}
+
+// 正文 blob 目录。**必须与 researchTmpDir 同卷**：blob 写入是 tmp 落盘 + rename 就位,
+// 跨卷 rename 会退化成复制,原子性丢失（见 blob-store.ts 的 writeAtomic）。
+export function researchBlobsDir(): string {
+  return join(researchDir(), "blobs");
+}
+
+// 临时文件目录。除此之外任何位置都不得写研究中间产物（spec §13.1）。
+export function researchTmpDir(): string {
+  return join(researchDir(), "tmp");
+}
+
+// Research Browser 的 action policy 落盘目录（KTD7 + U0 spike S4a：
+// agent-browser 对畸形/缺失 policy 是 fail-open 的,适配器必须自检探针后才可继续）。
+export function researchBrowserPolicyDir(): string {
+  return join(researchDir(), "browser-policy");
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await fsp.access(path);
