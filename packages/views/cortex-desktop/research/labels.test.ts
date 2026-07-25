@@ -4,7 +4,6 @@ import { FETCH_FAILURE_CODES } from "@cortex-work/core/research/evidence";
 import { RESEARCH_SESSION_STATUSES } from "@cortex-work/core/research/session-status";
 import {
   FETCH_FAILURE_LABELS,
-  MODEL_DATA_POLICY_LABELS,
   RESEARCH_MODE_LABELS,
   RESEARCH_STAGE_LABELS,
   RESEARCH_STATUS_META,
@@ -30,9 +29,8 @@ describe("labels 枚举覆盖", () => {
     expect(Object.keys(FETCH_FAILURE_LABELS).sort()).toEqual([...FETCH_FAILURE_CODES].sort());
   });
 
-  it("mode / policy / stage 都有中文标签", () => {
+  it("mode / stage 都有中文标签", () => {
     expect(Object.keys(RESEARCH_MODE_LABELS)).toHaveLength(3);
-    expect(Object.keys(MODEL_DATA_POLICY_LABELS)).toHaveLength(3);
     expect(Object.keys(RESEARCH_STAGE_LABELS)).toHaveLength(5);
   });
 });

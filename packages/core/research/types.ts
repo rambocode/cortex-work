@@ -15,7 +15,7 @@
 import type { CitationRef, EvidenceChunk, ResearchDocument, TrustZone } from "./evidence";
 
 // ---------------------------------------------------------------------------
-// 消费者、模式与数据出站策略
+// 消费者与模式
 // ---------------------------------------------------------------------------
 
 /// 调用 CRE 的产品能力（spec §7.1）。每个 Consumer 的默认配置见 ./consumer。
@@ -30,16 +30,12 @@ export type ResearchConsumer =
 /// 研究强度档位。决定默认预算（轮数/查询数/文档数/时长），具体数值见 ./budget。
 export type ResearchMode = "quick" | "standard" | "deep";
 
-/// 模型数据出站策略（spec KTD5）。每个 Session 固定一个，**不会在运行中静默放宽**：
-/// local_only 无可用本地模型时应直接失败并提示，绝不回退云模型。
-export type ModelDataPolicy =
-  /// 只允许本地模型；任何正文都不得发往云模型。
-  | "local_only"
-  /// 云模型只接收标题、摘要、域名与统计等元数据，不接收正文。
-  | "metadata_only"
-  /// 用户已授权把证据片段发给所选模型供应商。
-  | "evidence_allowed";
-
+// 关于「数据出站」：**没有独立的出站策略枚举**（原 spec KTD5 的 ModelDataPolicy 已移除）。
+// 数据去哪完全由用户为研究选定的模型决定——选 loopback 上的本地模型，正文就不离开本机；
+// 选云供应商，证据正文片段就会发给它。再叠一层三选一的枚举只是同一件事的第二个真源，
+// 用户既要选模型又要选策略，两者还能互相矛盾（选了云模型又选 local_only → 研究直接不可用）。
+// 选型与「所选模型是否在本机」的判定见 ./model-selection。
+//
 /// 一次研究允许的来源范围。判别字段是 kind，新增来源类型时必须同步 ./consumer 的默认表。
 export type SourceScope =
   | { kind: "public_web" }
@@ -60,7 +56,7 @@ export interface ResearchBudget {
   maxDocuments: number;
   maxBrowserFetches: number;
   maxDurationMs: number;
-  /// 单次 Session 允许发给模型的证据总字符数上限，是 ModelDataPolicy 之外的第二道出站闸门。
+  /// 单次 Session 允许发给模型的证据总字符数上限，是来源级 allowCloudModel 之外的第二道出站闸门。
   maxEvidenceCharsToModel: number;
 }
 
@@ -135,7 +131,6 @@ export interface ResearchRequest {
   objective: string;
   mode: ResearchMode;
   sourceScopes: SourceScope[];
-  modelDataPolicy: ModelDataPolicy;
   output: ResearchOutputRequest;
   budget?: Partial<ResearchBudget>;
 }

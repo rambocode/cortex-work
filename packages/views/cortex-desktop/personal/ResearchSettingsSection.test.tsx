@@ -3,7 +3,8 @@
 // 三条红线各有一例守着，改动时不要顺手删：
 //   1. M1 未实现的 consumer 开关必须禁用且标注「即将支持」——否则给用户一个点了没反应的开关；
 //   2. Search Server 的 PAT **永不明文回显**（store 里只有 safeStorage 密文，UI 连密文都不展示）；
-//   3. 出站策略说明文案来自 core 的 describeEgress，切策略必须跟着变（避免 UI 自写一套说明后漂移）。
+//   3. 「用哪个模型 + 数据会去哪」显示的必须是**实际生效**的那个（core 的 selectResearchModel
+//      会把失效偏好静默降级），否则用户以为在用 A、其实跑的是 B。
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore, type DesktopBridge } from "@cortex-work/core";
@@ -31,7 +32,6 @@ function setResearch(patch: Partial<ResearchEngineSettings>): void {
         slidesEnabled: false,
         writingEnabled: false,
         memoryEnabled: false,
-        defaultModelDataPolicy: "evidence_allowed",
         ...patch,
       },
     },
@@ -91,20 +91,87 @@ describe("ResearchSettingsSection 功能开关", () => {
   });
 });
 
-describe("ResearchSettingsSection 出站策略", () => {
-  it("策略说明取自 describeEgress，切策略时文案随之变化", () => {
-    setResearch({ enabled: true, defaultModelDataPolicy: "evidence_allowed" });
+/// 造两个供应商：一个本机 loopback、一个云端，用于验证出站说明随所选模型变化。
+function setProviders(): void {
+  usePersonalStore.setState({
+    providerSettings: {
+      providers: [
+        {
+          id: "ollama",
+          name: "本机 Ollama",
+          baseUrl: "http://localhost:11434/v1",
+          endpointFormat: "chat_completions",
+          models: [{ id: "qwen3:8b" }, { id: "llama3.1" }],
+          enabled: true,
+        },
+        {
+          id: "deepseek",
+          name: "DeepSeek",
+          baseUrl: "https://api.deepseek.com/v1",
+          endpointFormat: "chat_completions",
+          models: [{ id: "deepseek-chat" }, { id: "deepseek-reasoner" }],
+          enabled: true,
+        },
+      ],
+      defaultProviderId: "deepseek",
+      defaultModel: "deepseek-chat",
+    },
+  });
+}
+
+describe("ResearchSettingsSection 研究模型", () => {
+  beforeEach(() => setProviders());
+
+  it("缺省跟随全局默认模型，并说明证据正文会出站", () => {
+    setResearch({ enabled: true });
     const { container } = renderSection();
-    expect(container.textContent).toContain("证据正文片段与元数据会发送给所选的模型供应商");
+    expect(container.textContent).toContain("本次研究将使用：DeepSeek / deepseek-chat");
+    expect(container.textContent).toContain("发送给所选的模型供应商");
+  });
 
-    fireEvent.change(screen.getByLabelText("默认数据出站策略"), { target: { value: "local_only" } });
-    expect(research()?.defaultModelDataPolicy).toBe("local_only");
-    expect(container.textContent).toContain("证据正文与元数据都不会离开这台设备");
+  it("选本机模型后出站说明改为「不会离开这台设备」", () => {
+    setResearch({ enabled: true });
+    const { container } = renderSection();
 
-    fireEvent.change(screen.getByLabelText("默认数据出站策略"), {
-      target: { value: "metadata_only" },
-    });
-    expect(container.textContent).toContain("抓取到的正文不会发送");
+    fireEvent.change(screen.getByLabelText("研究模型供应商"), { target: { value: "ollama" } });
+    expect(research()?.modelProviderId).toBe("ollama");
+    expect(container.textContent).toContain("本次研究将使用：本机 Ollama / qwen3:8b");
+    expect(container.textContent).toContain("不会离开这台设备");
+  });
+
+  it("模型下拉只列生效供应商名下的模型（不串别家的）", () => {
+    setResearch({ enabled: true, modelProviderId: "ollama" });
+    renderSection();
+
+    const options = Array.from(
+      (screen.getByLabelText("研究模型") as HTMLSelectElement).options,
+    ).map((o) => o.value);
+    expect(options).toEqual(["", "qwen3:8b", "llama3.1"]);
+    expect(options).not.toContain("deepseek-chat");
+  });
+
+  it("换供应商时清掉旧的 modelId（模型 id 属于某个供应商，留着会显示一个不生效的值）", () => {
+    setResearch({ enabled: true, modelProviderId: "deepseek", modelId: "deepseek-reasoner" });
+    renderSection();
+
+    fireEvent.change(screen.getByLabelText("研究模型供应商"), { target: { value: "ollama" } });
+    // 归一化把空串折叠成 undefined，所以这里断言「没有值」而不是空串。
+    expect(research()?.modelId ?? "").toBe("");
+  });
+
+  it("偏好指向已删除的供应商时，显示的是实际会用的那个", () => {
+    setResearch({ enabled: true, modelProviderId: "已删除的供应商", modelId: "已删除的模型" });
+    const { container } = renderSection();
+    expect(container.textContent).toContain("本次研究将使用：DeepSeek / deepseek-chat");
+    expect(container.textContent).not.toContain("已删除");
+  });
+
+  it("一个供应商都没配时给出引导文案而不是空白", () => {
+    usePersonalStore.setState({ providerSettings: { providers: [] } });
+    setResearch({ enabled: true });
+    const { container } = renderSection();
+    expect(container.textContent).toContain("尚未配置可用的模型");
+    expect(container.textContent).toContain("请先在设置中添加并启用");
   });
 });
 

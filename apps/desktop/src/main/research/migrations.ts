@@ -281,9 +281,32 @@ CREATE INDEX idx_document_chunks_document ON document_chunks(document_id);
 CREATE INDEX idx_research_operations_session_committed ON research_operations(session_id, committed_at);
 `;
 
+// ---------------------------------------------------------------------------
+// v2：移除 research_sessions.model_data_policy
+// ---------------------------------------------------------------------------
+//
+// 出站策略枚举（原 spec KTD5 的 ModelDataPolicy）已整体移除：数据去哪由用户为研究选定的
+// 模型唯一决定（选 loopback 上的本地模型即等于「正文不出站」），Session 再存一份策略只是
+// 同一件事的第二个真源，两者还能互相矛盾。
+//
+// **为什么不直接把这一列从 V1_SQL 里删掉**：迁移只前进。已经建过库的环境（含开发机）
+// schema_migrations 里已有 version=1，改 V1 的 SQL 对它们毫无作用——那条迁移不会重跑，
+// 于是新库没有这一列、旧库还留着，schema 就此分叉。用一条新迁移删列，新库（v1 建 → v2 删）
+// 与旧库（v2 删）才会落到同一个最终态。代价是 V1_SQL 里留着一个随即被删的列，
+// 但那是真实发生过的历史。
+//
+// DROP COLUMN 需要 SQLite ≥ 3.35（Node 内置的版本远高于此）；该列无索引、无约束引用，
+// 满足 DROP COLUMN 的限制条件。
+const V2_SQL = `
+ALTER TABLE research_sessions DROP COLUMN model_data_policy;
+`;
+
 /// 全部迁移，按 version 升序。**只追加，永不修改已发布的条目**——
 /// 已经跑过 v1 的用户库不会重跑 v1，就地改 V1_SQL 只会造成新老库 schema 不一致。
-export const MIGRATIONS: readonly ResearchMigration[] = [{ version: 1, sql: V1_SQL }];
+export const MIGRATIONS: readonly ResearchMigration[] = [
+  { version: 1, sql: V1_SQL },
+  { version: 2, sql: V2_SQL },
+];
 
 /// 把 migrations 应用到数据库，返回应用后的最终版本号。
 ///

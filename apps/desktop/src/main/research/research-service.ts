@@ -15,7 +15,6 @@ import type { ResearchEngineSettings } from "@cortex-work/core/research/settings
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
 import { TERMINAL_RESEARCH_STATUSES } from "@cortex-work/core/research/session-status";
 import type {
-  ModelDataPolicy,
   ResearchConsumer,
   ResearchDetailLevel,
   ResearchEngineFacade,
@@ -99,23 +98,9 @@ export interface ResearchServiceDeps {
   ///
   /// **为什么由外部注入而不是 service 自己 new**：provider 配置与 apiKey 属于设置层，
   /// service 不该知道它们；装配点见 planner/llm-hooks.ts 的 createResearchLlmHooks。
-  llmHooks?: (input: {
-    summary: ResearchSessionSummary;
-    modelDataPolicy: ModelDataPolicy;
-  }) => ResearchLlmHooks | null;
+  llmHooks?: (input: { summary: ResearchSessionSummary }) => ResearchLlmHooks | null;
   logger?: { warn(...args: unknown[]): void; info?(...args: unknown[]): void };
 }
-
-/// 记不住 Session 策略时的**fail-closed 兜底**。
-///
-/// 兜底策略：**只在仓储也读不到时**才用（会话行已被删、或库损坏）。
-///
-/// 选 local_only 是 fail-closed：宁可 LLM 能力降级为确定性摘要，也不把用户当初只允许留在
-/// 本机的正文发去云端。注意这条路径现在应当**极少**触发——正常读回走
-/// repository.getSessionModelDataPolicy。曾经它是「进程重启后」的常规路径，
-/// 副作用远超预期：用户选的 metadata_only 被当成 local_only，选型只在 loopback provider 里挑，
-/// 挑中一个不是 chat 模型的本地模型，调用秒失败，Planner 与报告双双静默降级。
-const FALLBACK_MODEL_DATA_POLICY: ModelDataPolicy = "local_only";
 
 /// 各 Consumer 对应的灰度开关。coding / knowledge 暂无独立开关，跟随总开关（U9/U10 再拆）。
 const CONSUMER_SWITCHES: Partial<Record<ResearchConsumer, keyof ResearchEngineSettings>> = {
@@ -137,8 +122,6 @@ interface RunEntry {
 export class ResearchService implements ResearchEngineFacade {
   private readonly running = new Map<string, RunEntry>();
   private readonly senders = new Set<ResearchEventSender>();
-  /// sessionId → 本 Session 的出站策略。见 FALLBACK_MODEL_DATA_POLICY 的说明。
-  private readonly policyBySession = new Map<string, ModelDataPolicy>();
 
   constructor(private readonly deps: ResearchServiceDeps) {}
 
@@ -154,7 +137,6 @@ export class ResearchService implements ResearchEngineFacade {
       consumer: request.consumer,
       objective: request.objective,
       mode: request.mode,
-      modelDataPolicy: request.modelDataPolicy,
       sourceScopes: request.sourceScopes,
       output: request.output,
       budget,
@@ -169,7 +151,6 @@ export class ResearchService implements ResearchEngineFacade {
       sessionId,
       buildSeedPlan({ objective: request.objective, mode: request.mode, budget }),
     );
-    this.policyBySession.set(sessionId, request.modelDataPolicy);
     return summary;
   }
 
@@ -180,7 +161,7 @@ export class ResearchService implements ResearchEngineFacade {
   /// 就地擦掉 rounds / documents / report 再退回 created 会拆掉那条不变量：旧报告引用的
   /// 证据凭空消失，而那份报告可能已经被导出、被别处引用过。克隆则两全，旧会话原样留着。
   ///
-  /// 参数**逐项继承**而不是取默认值：来源范围、出站策略、输出要求、预算任一项悄悄换掉，
+  /// 参数**逐项继承**而不是取默认值：来源范围、输出要求、预算任一项悄悄换掉，
   /// 都会让「重跑」变成「跑了个不一样的东西」，而用户完全看不出来。
   async rerun(sessionId: string): Promise<ResearchSessionSummary> {
     const view = await this.deps.repository.getSession(sessionId, "full");
@@ -192,9 +173,6 @@ export class ResearchService implements ResearchEngineFacade {
       throw new Error(`只有已结束的研究才能重跑，当前状态：${status}`);
     }
 
-    const policy =
-      (await this.deps.repository.getSessionModelDataPolicy(sessionId)) ?? FALLBACK_MODEL_DATA_POLICY;
-
     return this.create({
       consumer: view.summary.consumer,
       objective: view.summary.objective,
@@ -202,7 +180,6 @@ export class ResearchService implements ResearchEngineFacade {
       // 来源范围缺失只可能是旧数据；退回 public_web 是这里唯一的猜测，
       // 且它是最小权限的那一档（不含 memory / 本地文件）。
       sourceScopes: [...(view.sourceScopes ?? [{ kind: "public_web" as const }])],
-      modelDataPolicy: policy,
       output: view.output ?? { format: "report", requireCitations: true },
       // 预算存在 plan 上（session 行不回传预算，见 create 里的注释）。
       ...(view.plan?.budget ? { budget: view.plan.budget } : {}),
@@ -286,7 +263,6 @@ export class ResearchService implements ResearchEngineFacade {
       entry.controller.abort();
       await entry.promise.catch(() => undefined);
     }
-    this.policyBySession.delete(sessionId);
     await this.deps.repository.deleteSession(sessionId);
     await this.collectGarbage();
   }
@@ -336,14 +312,9 @@ export class ResearchService implements ResearchEngineFacade {
     if (!searchClient) throw new SearchServerNotConfiguredError();
     const worker = await this.deps.workerProvider.ensure();
 
-    // LLM 注入项按 Session 装配：策略与 provider 快照在一次编排内保持稳定。
-    // 策略优先取本进程缓存（本次运行内最快），缓存缺失（典型：重启后恢复一个已有 Session）
-    // 时回仓储读回真值，两者都没有才 fail-closed —— 见 FALLBACK_MODEL_DATA_POLICY。
-    const modelDataPolicy =
-      this.policyBySession.get(sessionId) ??
-      (await this.deps.repository.getSessionModelDataPolicy(sessionId)) ??
-      FALLBACK_MODEL_DATA_POLICY;
-    const hooks = this.deps.llmHooks?.({ summary, modelDataPolicy }) ?? null;
+    // LLM 注入项按 Session 装配：provider 快照在一次编排内保持稳定，
+    // 用户中途改设置不会让同一个 Session 的前后两次调用发往不同供应商。
+    const hooks = this.deps.llmHooks?.({ summary }) ?? null;
 
     const orchestrator = new ResearchOrchestrator({
       repository: this.deps.repository,

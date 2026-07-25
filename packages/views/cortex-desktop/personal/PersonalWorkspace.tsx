@@ -1,7 +1,7 @@
 // 个人工作区三栏容器：项目/Session 列表（左）+ CLI 会话（中）+ Prompt 库（右）。
 // 仅桌面端可用（依赖 DesktopBridge）；web 端显示降级提示但保留 tab 可切回团队。
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   useAutomationEvents,
@@ -32,6 +32,7 @@ import { DesignWorkspace } from "../design/DesignWorkspace";
 import { WritingWorkspace } from "../writing/WritingWorkspace";
 import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { ResearchWorkspace } from "../research/ResearchWorkspace";
+import { resolveResearchModelDisplay } from "../research/modelDisplay";
 import { FlashNoteEditor } from "./FlashNoteEditor";
 import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
 import { PersonalSettingsView } from "./SettingsMenu";
@@ -87,12 +88,12 @@ export function PersonalWorkspace({
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const leftCollapsed = useCortexUIStore((s) => s.leftCollapsed);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
-  // 研究引擎的默认出站策略（新建研究表单的初值）。用选择器订阅而不是 getState()：
-  // 后者在渲染期读快照是 React 反模式，且设置改动后不会触发重渲染。
-  // 归一化保证旧存档缺字段时也有稳妥默认值。
-  const researchDefaultPolicy = usePersonalStore(
-    (s) => normalizeResearchEngineSettings(s.generalSettings.researchEngine).defaultModelDataPolicy,
-  );
+  // 研究引擎的模型偏好与全局供应商配置：两者一起决定「本次研究会用哪个模型、正文会不会
+  // 出本机」，由下面的 useMemo 解析成一行告知文案交给新建表单。
+  // 用选择器订阅而不是 getState()：后者在渲染期读快照是 React 反模式，且设置改动后不会
+  // 触发重渲染。归一化保证旧存档缺字段时也有稳妥默认值。
+  const researchEngineSettings = usePersonalStore((s) => s.generalSettings.researchEngine);
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
   // loop 工作流主区视图（优先级最高；bridge.workflowList 为 null 时不可能为 true）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
@@ -103,6 +104,19 @@ export function PersonalWorkspace({
   // 深度研究整窗覆盖层(CRE,desktop-only;入口门控在侧栏,此处只负责渲染)。
   const researchOpen = usePersonalStore((s) => s.researchOpen);
   const closeResearch = usePersonalStore((s) => s.closeResearch);
+  // 解析「本次研究会用哪个模型 + 数据会去哪」。走 core 的 selectResearchModel（经
+  // resolveResearchModelDisplay），与设置页、以及主进程编排层用的是同一套三级回落规则，
+  // 所以界面显示的就是实际会用的那个，不会出现「设置里写着 A、实际跑 B」。
+  const researchModel = useMemo(
+    () => {
+      const research = normalizeResearchEngineSettings(researchEngineSettings);
+      return resolveResearchModelDisplay(providerSettings, {
+        ...(research.modelProviderId ? { providerId: research.modelProviderId } : {}),
+        ...(research.modelId ? { modelId: research.modelId } : {}),
+      });
+    },
+    [researchEngineSettings, providerSettings],
+  );
   // 设置整页：全屏覆盖层叠加在工作区之上（不卸载 pw-main → 终端 PTY 存活）。
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
@@ -233,9 +247,9 @@ export function PersonalWorkspace({
         <ResearchWorkspace
           bridge={bridge.research ?? null}
           onClose={closeResearch}
-          // 新建表单的策略默认值取设置页的「默认数据出站策略」。
+          // 「本次研究用哪个模型」由设置决定，这里解析成只读告知交给表单显示。
           // 这里是唯一读设置的地方——views 的研究组件本身不碰 personal store。
-          defaultModelDataPolicy={researchDefaultPolicy}
+          model={researchModel}
         />
       ) : null}
       {settingsOpen ? <PersonalSettingsView /> : null}

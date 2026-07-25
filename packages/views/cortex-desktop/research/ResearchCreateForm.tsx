@@ -1,4 +1,4 @@
-// 新建研究表单：目标 + 强度档位 + 数据出站策略 + 来源范围，提交后 create → run。
+// 新建研究表单：目标 + 强度档位 + 来源范围，提交后 create → run。
 //
 // 预算数字全部取自 core 的 MODE_BUDGETS，不在 UI 里重抄一份——抄一份的结果必然是
 // core 调了预算而界面还在展示旧值，用户按旧承诺规划时间。
@@ -9,7 +9,6 @@
 import { useState, type ReactElement } from "react";
 import { MODE_BUDGETS } from "@cortex-work/core/research/budget";
 import type {
-  ModelDataPolicy,
   ResearchConsumer,
   ResearchMode,
   ResearchRequest,
@@ -17,21 +16,19 @@ import type {
   SourceScope,
 } from "@cortex-work/core/research/types";
 import type { ResearchBridgeLike } from "./bridge-like";
-import { MODEL_DATA_POLICY_LABELS, RESEARCH_MODE_LABELS } from "./labels";
-import { ResearchPolicyNotice } from "./ResearchPolicyNotice";
+import { RESEARCH_MODE_LABELS } from "./labels";
+import type { ResearchModelDisplay } from "./modelDisplay";
 
 /// 新建研究表单的 props。
 export interface ResearchCreateFormProps {
   bridge: ResearchBridgeLike;
   /// 发起方（决定 main 侧的默认配置，见 core 的 consumer.ts）。整窗 Deep Research 固定 deep_research。
   consumer?: ResearchConsumer;
-  /// 收件方展示名，透传给策略告知条。
-  providerLabel?: string;
-  /// 数据出站策略的默认值，来自设置页的「默认数据出站策略」。
+  /// 本次研究将使用的模型（展示名 + 是否本机 + 出站说明），由宿主按设置解析后注入。
   ///
   /// 由宿主注入而不是表单自己读 store：views 层不依赖 personal store（那是个人工作区的
-  /// 设置容器），保持组件可在任意宿主里复用。缺省退回 metadata_only。
-  defaultModelDataPolicy?: ModelDataPolicy;
+  /// 设置容器），保持组件可在任意宿主里复用。缺省则不显示这一行。
+  model?: ResearchModelDisplay;
   /// 创建完成。startError 非空表示「会话建好了但没跑起来」——宿主必须把它显示在会话视图上，
   /// 因为本表单在这一刻就被卸载，局部 state 里的错误会随之丢失。
   onCreated: (summary: ResearchSessionSummary, startError?: string) => void;
@@ -68,23 +65,16 @@ function budgetSummary(mode: ResearchMode): string {
   return `最多 ${b.maxRounds} 轮 · ${b.maxDocuments} 篇文档 · ${Math.round(b.maxDurationMs / 60000)} 分钟`;
 }
 
-/// 新建研究表单：目标、模式、来源范围、模型数据策略的采集入口，提交后交给宿主发起 create。
+/// 新建研究表单：目标、模式、来源范围的采集入口，提交后交给宿主发起 create。
 export function ResearchCreateForm({
   bridge,
   consumer = "deep_research",
-  providerLabel,
-  defaultModelDataPolicy,
+  model,
   onCreated,
   onCancel,
 }: ResearchCreateFormProps): ReactElement {
   const [objective, setObjective] = useState("");
   const [mode, setMode] = useState<ResearchMode>("standard");
-  // 默认值来自**设置页**的「默认数据出站策略」，缺省才退回 metadata_only。
-  //
-  // 这里曾经把 metadata_only 写死，无视设置——后果比看上去严重得多：metadata_only 下模型
-  // 从来看不到正文，只拿到标题与域名，报告于是变成「根据标题字面含义推测」。
-  // 用户看到的是「报告和研究对象没关系」，却完全不知道自己设的那档策略压根没生效。
-  const [policy, setPolicy] = useState<ModelDataPolicy>(defaultModelDataPolicy ?? "metadata_only");
   const [scopes, setScopes] = useState<ScopeKey[]>(["public_web"]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +101,6 @@ export function ResearchCreateForm({
       sourceScopes: SCOPE_OPTIONS.filter((o) => !o.disabled && scopes.includes(o.key)).map((o) =>
         toScope(o.key),
       ),
-      modelDataPolicy: policy,
       output: { format: "report", requireCitations: true },
     };
     let summary: ResearchSessionSummary;
@@ -168,24 +157,17 @@ export function ResearchCreateForm({
         ))}
       </fieldset>
 
-      <fieldset className="pw-res-fieldset">
-        <legend className="pw-res-lbl">数据出站策略</legend>
-        {(["local_only", "metadata_only", "evidence_allowed"] as const).map((p) => (
-          <label key={p} className={`pw-res-opt${policy === p ? " is-on" : ""}`}>
-            <input
-              type="radio"
-              name="research-policy"
-              checked={policy === p}
-              onChange={() => setPolicy(p)}
-            />
-            <span className="pw-res-opt-l">{MODEL_DATA_POLICY_LABELS[p].label}</span>
-            <span className="pw-res-opt-hint">{MODEL_DATA_POLICY_LABELS[p].hint}</span>
-          </label>
-        ))}
-      </fieldset>
-
-      {/* 纯告知模式（不传 onAcknowledge）：随选择实时变化，用户按下「开始研究」前一定看得到。 */}
-      <ResearchPolicyNotice policy={policy} providerLabel={providerLabel} />
+      {/* 模型是**只读告知**而不是选择项：研究用哪个模型在设置里定，这里只让用户在按下
+          「开始研究」之前看清楚「会用谁、正文会不会出本机」。放在这里而不是折叠起来，
+          是因为「数据发给谁」必须在动作发生前可见。 */}
+      {model ? (
+        <div className={`pw-res-notice is-${model.isLocal ? "local" : "remote"}`}>
+          <div className="pw-res-notice-title">
+            {model.label ? `本次研究将使用：${model.label}` : "尚未配置可用的模型"}
+          </div>
+          <div className="pw-res-notice-summary">{model.egressZh}</div>
+        </div>
+      ) : null}
 
       <fieldset className="pw-res-fieldset">
         <legend className="pw-res-lbl">来源范围</legend>

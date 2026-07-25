@@ -1,8 +1,8 @@
 // P7 装配层的接线测试：网关 + Planner + Report Generator 拼起来之后，
 // 三条注入项的签名与安全语义是否仍然成立。
 //
-// 这里刻意用**真的 PolicyAwareModelGateway**（只注入假 fetch），
-// 因为要验的正是「装配之后 local_only 依然不出站」这条跨模块的性质。
+// 这里刻意用**真的 ResearchModelGateway**（只注入假 fetch），
+// 因为要验的正是「装配之后，选型失败依然零出站」这条跨模块的性质。
 import { describe, expect, it } from "vitest";
 import type { ProviderSettings } from "@cortex-work/core/desktop/types";
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
@@ -97,11 +97,10 @@ const CHUNK: EvidenceChunk = {
 };
 
 describe("createResearchLlmHooks", () => {
-  it("local_only + 只有云 provider：三个注入项全部走确定性降级，fetch 一次都不发", async () => {
+  it("一个可用供应商都没有：三个注入项全部走确定性降级，fetch 一次都不发", async () => {
     const fetcher = makeFetch("不该被调用");
     const hooks = createResearchLlmHooks({
-      providerSettings: cloudOnly(),
-      policy: "local_only",
+      providerSettings: { providers: [] },
       consumer: "deep_research",
       fetchFn: fetcher.fetchFn,
     });
@@ -138,11 +137,11 @@ describe("createResearchLlmHooks", () => {
     });
     expect(markdown).toContain("[^ch_1]");
 
-    // spec §19.2.5：local_only 下没有任何请求到达远程模型
+    // spec §19.2.5：选型失败时没有任何请求出站（一个字节都不发）
     expect(fetcher.calls).toBe(0);
   });
 
-  it("evidence_allowed 时按模型输出产出计划与报告", async () => {
+  it("模型可用时按模型输出产出计划与报告", async () => {
     const planJson = JSON.stringify({
       schemaVersion: 1,
       objective: "调研 node:sqlite 是否可用于生产",
@@ -151,7 +150,6 @@ describe("createResearchLlmHooks", () => {
     });
     const hooks = createResearchLlmHooks({
       providerSettings: cloudOnly(),
-      policy: "evidence_allowed",
       consumer: "deep_research",
       complete: async (params) =>
         params.messages[0]!.content.includes("Markdown 研究报告")

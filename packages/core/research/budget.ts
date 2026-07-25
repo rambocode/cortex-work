@@ -30,8 +30,8 @@ const MAX_DURATION_KEY: keyof ResearchBudget = "maxDurationMs";
 /// - maxCandidates = maxDocuments × 3：候选只是「线索」，抓取前会因去重、robots、私网、
 ///   媒体类型不支持等被大量淘汰，经验上要 3 倍候选池才填得满目标文档数。
 /// - maxEvidenceCharsToModel：quick 20k / standard 60k / deep 120k 字符，约等于 5k / 15k / 30k
-///   token，量级对齐主流模型单次上下文的安全区间，同时是 ModelDataPolicy 之外的第二道出站闸门
-///   （即使用户授权了 evidence_allowed，也不会把整个抓取库倒给云模型）。
+///   token，量级对齐主流模型单次上下文的安全区间，同时是来源级 allowCloudModel 之外的第二道
+///   出站闸门（即使来源允许出站，也不会把整个抓取库倒给云模型）。
 export const MODE_BUDGETS: Record<ResearchMode, ResearchBudget> = {
   quick: {
     maxRounds: 1,

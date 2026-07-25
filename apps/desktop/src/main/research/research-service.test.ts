@@ -21,7 +21,6 @@ const REQUEST: ResearchRequest = {
   objective: "调研 node:sqlite 是否可用于生产",
   mode: "quick",
   sourceScopes: [{ kind: "public_web" }],
-  modelDataPolicy: "evidence_allowed",
   output: { format: "report", requireCitations: true },
 };
 
@@ -275,11 +274,11 @@ describe("ResearchService 事件广播", () => {
 });
 
 describe("ResearchService 的 P7 LLM 接线", () => {
-  it("把 Session 的出站策略与注入项透传给编排器", async () => {
-    const seen: Array<{ policy: string }> = [];
+  it("把 Session 的 summary 与注入项透传给编排器", async () => {
+    const seen: Array<{ sessionId: string }> = [];
     let reportCalls = 0;
-    const harness = makeHarness(enabledSettings(), ({ modelDataPolicy }) => {
-      seen.push({ policy: modelDataPolicy });
+    const harness = makeHarness(enabledSettings(), ({ summary }) => {
+      seen.push({ sessionId: summary.sessionId });
       return {
         planInitial: async (input) =>
           ({
@@ -308,7 +307,8 @@ describe("ResearchService 的 P7 LLM 接线", () => {
     const summary = await harness.service.create(REQUEST);
     await harness.service.run(summary.sessionId);
 
-    expect(seen).toEqual([{ policy: "evidence_allowed" }]);
+    // 装配回调对每个 Session 只调一次，且拿到的是这个 Session 自己的 summary。
+    expect(seen).toEqual([{ sessionId: summary.sessionId }]);
     expect(reportCalls).toBe(1);
     const view = await harness.service.get(summary.sessionId, "full");
     expect(view.report!.markdown).toContain("模型撰写的报告正文");
@@ -321,31 +321,6 @@ describe("ResearchService 的 P7 LLM 接线", () => {
     const view = await harness.service.get(summary.sessionId, "full");
     expect(view.summary.status).toBe("completed");
     expect(view.report!.markdown).toContain(REQUEST.objective);
-  });
-});
-
-/// 回归：进程重启后 ModelDataPolicy 必须能从仓储读回。
-///
-/// 曾经的行为是「读不回就 fail-closed 成 local_only」，副作用比想象中大：用户建 Session 时
-/// 选的是 metadata_only（允许用云模型，只是不许证据正文出站），重启后却被当成 local_only，
-/// 于是选型只在 loopback provider 里挑，挑中一个根本不是 chat 模型的本地模型，
-/// 调用秒失败 → Planner 与报告双双降级为确定性输出。用户看到的是「计划只有一行、
-/// 报告像证据堆砌」，而日志里只有一句 call_failed，根本指不到这里。
-describe("ModelDataPolicy 跨重启", () => {
-  it("内存缓存缺失时从仓储读回，而不是退化成 local_only", async () => {
-    const repository = new InMemoryResearchRepository();
-    await repository.createSession(
-      fixtureSessionInput({ sessionId: "s-policy", modelDataPolicy: "metadata_only" }),
-    );
-
-    // 关键：**不经过 create()**，模拟「进程重启后内存缓存是空的」。
-    const policy = await repository.getSessionModelDataPolicy("s-policy");
-    expect(policy).toBe("metadata_only");
-  });
-
-  it("会话不存在时返回 null，由调用方 fail-closed", async () => {
-    const repository = new InMemoryResearchRepository();
-    expect(await repository.getSessionModelDataPolicy("不存在")).toBeNull();
   });
 });
 
@@ -364,7 +339,6 @@ describe("rerun（终态会话的重跑）", () => {
       objective: "llm 与 agent 的关系",
       mode: "standard",
       sourceScopes: [{ kind: "public_web" }],
-      modelDataPolicy: "metadata_only",
       output: { format: "report", maxWords: 3000, requireCitations: true },
     });
     await repository.updateSessionStatus(created.sessionId, "completed");
@@ -384,13 +358,14 @@ describe("rerun（终态会话的重跑）", () => {
     expect(old?.summary.status).toBe("completed");
   });
 
-  it("出站策略与输出要求一并继承（否则重跑会悄悄换一套约束）", async () => {
+  it("来源范围与输出要求一并继承（否则重跑会悄悄换一套约束）", async () => {
     const { service, repository, sessionId } = await completedSession();
     const clone = await service.rerun(sessionId);
 
-    expect(await repository.getSessionModelDataPolicy(clone.sessionId)).toBe("metadata_only");
     const view = await repository.getSession(clone.sessionId, "summary");
+    expect(view?.sourceScopes).toEqual([{ kind: "public_web" }]);
     expect(view?.output?.maxWords).toBe(3000);
+    expect(view?.output?.requireCitations).toBe(true);
   });
 
   it("新会话带种子计划，可以直接点开始", async () => {

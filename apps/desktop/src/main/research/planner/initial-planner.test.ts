@@ -3,7 +3,7 @@
 // 网关是手写替身（记录每次调用的 prompt 并回放预设输出），零真实网络。
 import { describe, expect, it } from "vitest";
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
-import type { ModelCallInput, ModelCallResult } from "../policy-aware-model-gateway";
+import type { ModelCallInput, ModelCallResult } from "../research-model-gateway";
 import { planInitial, isPlanFailure, resolvePlanMaxTokens } from "./initial-planner";
 
 /// 记录调用并按序回放输出的假网关。
@@ -38,7 +38,6 @@ const INPUT = {
   mode: "standard" as const,
   scope: { language: "zh" },
   budget: BUDGET,
-  policy: "evidence_allowed" as const,
 };
 
 const GOOD_PLAN = JSON.stringify({
@@ -136,13 +135,13 @@ describe("planInitial", () => {
     expect(plan.budget).toEqual(BUDGET);
   });
 
-  it("模型不可用（local_only 无本地模型）时直接种子计划，不做无谓重试", async () => {
+  it("模型不可用（一个供应商都没配）时直接种子计划，不做无谓重试", async () => {
     const { gateway, calls } = fakeGateway({
       ok: false,
-      code: "local_model_unavailable",
-      message: "没有本地模型",
+      code: "no_provider_configured",
+      message: "尚未配置任何可用的模型供应商",
     });
-    const plan = await planInitial({ ...INPUT, policy: "local_only" }, { gateway });
+    const plan = await planInitial(INPUT, { gateway });
 
     expect(calls).toHaveLength(1);
     expect(isPlanFailure(plan)).toBe(false);
@@ -162,7 +161,6 @@ describe("planInitial", () => {
     const { gateway, calls } = fakeGateway(ok(GOOD_PLAN));
     await planInitial(INPUT, { gateway });
     expect(calls[0]!.maxPromptChars).toBe(BUDGET.maxEvidenceCharsToModel);
-    expect(calls[0]!.policy).toBe("evidence_allowed");
   });
 });
 

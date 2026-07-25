@@ -239,7 +239,25 @@ describe("清洗 5：domain allowlist / blocklist 范围校验", () => {
   });
 });
 
-describe("清洗 6：拒绝空结构与未知枚举", () => {
+describe("清洗 6：搜索类别只允许已接入的四类", () => {
+  it("归一化大小写、去重并丢弃未知类别", () => {
+    const raw = validRawPlan();
+    const queries = raw.initialQueries as Record<string, unknown>[];
+    queries[1]!.categories = [" IT ", "unknown", "news", "it", "SCIENCE"];
+
+    const result = expectOk(parseResearchPlan(raw, baseCtx));
+
+    expect(result.plan.initialQueries[1]!.categories).toEqual(["it", "news", "science"]);
+    expect(
+      result.warnings.some(
+        (warning) =>
+          warning.startsWith("[plan.category_dropped]") && warning.includes("unknown"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("清洗 7：拒绝空结构与未知枚举", () => {
   it.each([
     [
       "空 subquestions",
@@ -317,7 +335,7 @@ describe("清洗 6：拒绝空结构与未知枚举", () => {
   });
 });
 
-describe("清洗 7：单条查询文本超长截断", () => {
+describe("清洗 8：单条查询文本超长截断", () => {
   it("超过 512 字符按 code point 截断并记 warning", () => {
     const raw = validRawPlan();
     raw.initialQueries = [{ queryId: "q_01", subquestionId: "sq_01", text: "字".repeat(600) }];

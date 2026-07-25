@@ -18,6 +18,13 @@ function tableNames(driver: SqliteDriver): string[] {
     .filter((n) => !n.startsWith("sqlite_"));
 }
 
+function columnNames(driver: SqliteDriver, table: string): string[] {
+  return driver
+    .prepare(`PRAGMA table_info(${table})`)
+    .all<{ name: string }>()
+    .map((r) => r.name);
+}
+
 describe("research migrations（真 SQLite）", () => {
   it("空库全量迁移后建出 spec §13.2 的全部 16 张表", async () => {
     const driver = await freshDriver();
@@ -25,6 +32,45 @@ describe("research migrations（真 SQLite）", () => {
       const version = applyMigrations(driver);
       expect(version).toBe(MIGRATIONS[MIGRATIONS.length - 1]!.version);
       expect(tableNames(driver).sort()).toEqual([...RESEARCH_SCHEMA_TABLES].sort());
+    } finally {
+      driver.close();
+    }
+  });
+
+  // v2 删掉了 model_data_policy（出站策略枚举已移除）。两条路径必须落到同一 schema：
+  // 全新库走 v1 建列 → v2 删列；已建过 v1 的旧库只跑 v2。任一路径留下这一列，
+  // 仓储的 INSERT（不再提供该值、而它是 NOT NULL 无默认）就会在运行时炸。
+  it("v2 后 research_sessions 不再有 model_data_policy 列（新库路径）", async () => {
+    const driver = await freshDriver();
+    try {
+      applyMigrations(driver);
+      const columns = columnNames(driver, "research_sessions");
+      expect(columns).not.toContain("model_data_policy");
+      expect(columns).toContain("user_scope");
+    } finally {
+      driver.close();
+    }
+  });
+
+  it("只跑过 v1 的旧库经 v2 迁移后同样不留该列，且原有会话数据保住", async () => {
+    const driver = await freshDriver();
+    try {
+      // 模拟「上个版本建的库」：只应用 v1。
+      applyMigrations(driver, [MIGRATIONS[0]!]);
+      driver
+        .prepare(
+          "INSERT INTO research_sessions (session_id, consumer, objective, mode, status, model_data_policy, user_scope, source_scopes_json, output_json, budget_json, budget_spent_json, created_at, updated_at, round_count, document_count, chunk_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        )
+        .run(["old-1", "chat", "旧会话", "quick", "completed", "local_only", "u1", "[]", "{}", "{}", "{}", "t", "t", 0, 0, 0]);
+
+      applyMigrations(driver);
+
+      expect(columnNames(driver, "research_sessions")).not.toContain("model_data_policy");
+      // 删列不该动行：旧会话仍然读得到（DROP COLUMN 只重写表结构）。
+      const row = driver
+        .prepare("SELECT objective FROM research_sessions WHERE session_id = ?")
+        .get<{ objective: string }>(["old-1"]);
+      expect(row?.objective).toBe("旧会话");
     } finally {
       driver.close();
     }
@@ -78,9 +124,9 @@ describe("research migrations（真 SQLite）", () => {
       applyMigrations(driver);
       driver
         .prepare(
-          "INSERT INTO research_sessions (session_id, consumer, objective, mode, status, model_data_policy, user_scope, source_scopes_json, output_json, budget_json, budget_spent_json, created_at, updated_at, round_count, document_count, chunk_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO research_sessions (session_id, consumer, objective, mode, status, user_scope, source_scopes_json, output_json, budget_json, budget_spent_json, created_at, updated_at, round_count, document_count, chunk_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         )
-        .run(["s1", "chat", "o", "quick", "created", "local_only", "u1", "[]", "{}", "{}", "{}", "t", "t", 0, 0, 0]);
+        .run(["s1", "chat", "o", "quick", "created", "u1", "[]", "{}", "{}", "{}", "t", "t", 0, 0, 0]);
       driver
         .prepare(
           "INSERT INTO research_rounds (session_id, round_index, started_at, query_ids_json, candidate_count, document_count, chunk_count) VALUES (?,?,?,?,?,?,?)",

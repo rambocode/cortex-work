@@ -93,6 +93,16 @@ describe("buildSearchBatchRequest", () => {
     ]);
   });
 
+  it("categories 只发送受支持的四类，并归一化大小写与重复项", () => {
+    const request = buildSearchBatchRequest({
+      requestId: "req_01",
+      sessionId: "research_01",
+      queries: [query({ categories: [" IT ", "unknown", "news", "it", "SCIENCE"] })],
+    });
+
+    expect(request.queries[0]!.categories).toEqual(["it", "news", "science"]);
+  });
+
   it("超过 8 条查询时截断到前 8 条", () => {
     const request = buildSearchBatchRequest({
       requestId: "req_01",

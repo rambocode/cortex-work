@@ -136,18 +136,31 @@ Memory Candidate
 
 ### KTD5：模型数据出站必须显式
 
-每次 Session 固定一个 `ModelDataPolicy`：
-
-```ts
-export type ModelDataPolicy =
-  | "local_only"       // 只允许本地模型；任何正文不得发送云模型
-  | "metadata_only"    // 云模型只接收标题、摘要、域名和统计
-  | "evidence_allowed" // 用户允许证据片段发送给所选模型供应商
-```
-
-- UI 在首次使用或策略变化时显示模型供应商和可能出站的数据类型。
-- `local_only` 无可用本地模型时失败并提示，不静默回退云模型。
-- 本地文件、登录网页和 Memory 默认不继承 `evidence_allowed`，需来源级授权。
+> **本条已按实现修订（2026-07-25）**：原设计给每个 Session 固定一个三态
+> `ModelDataPolicy`（`local_only` / `metadata_only` / `evidence_allowed`），该枚举**已整体移除**。
+>
+> 移除的理由：它与「用户选哪个模型」是同一件事的两个真源。选 loopback 上的本地模型，正文本
+> 来就不离开本机；选云供应商，正文本来就会出站。两个真源还能产出自相矛盾的组合——用户选了
+> 云模型又选 `local_only`，结果是研究直接不可用；选了 `metadata_only`，模型从来看不到正文，
+> 报告退化成「按标题字面推测」，而用户完全看不出是哪个设置导致的。
+>
+> 修订后的规则：
+>
+> - 用户在研究设置里选**研究专用的供应商 + 模型**（`ResearchEngineSettings.modelProviderId` /
+>   `modelId`，两者缺省 = 跟随全局默认模型）。证据正文一律允许发给所选模型。
+> - 「数据会不会离开本机」是从选型结果**推导**出的事实，不是配置项：
+>   `selectResearchModel` 返回 `isLocal`，`describeModelEgress(isLocal)` 给出唯一的出站说明文案。
+>   因此文案与实际行为不可能漂移（原先两者可以各说一套）。
+> - UI 在新建研究表单与设置页各显示一行只读告知（「本次研究将使用：X / Y」+ 出站说明），
+>   在按下「开始研究」之前一定可见。
+> - **来源级零信任照旧**：本地文件、登录网页和 Memory 默认不得送进模型，需来源级授权
+>   （`canSendToCloudModel(policy)`，只看来源不看模型）。这条与选哪个模型正交，未被削弱。
+> - 失效的模型偏好（供应商被删/改名）在 `selectResearchModel` 里**静默降级**到全局默认，
+>   绝不因此让研究不可用；界面显示的始终是实际会用的那个。
+>
+> 落地位置：`packages/core/research/model-selection.ts`（原 `model-policy.ts`）、
+> `apps/desktop/src/main/research/research-model-gateway.ts`（原 `policy-aware-model-gateway.ts`）、
+> SQLite 迁移 v2 删除 `research_sessions.model_data_policy` 列。
 
 ### KTD6：Search Server 复用现有认证
 
@@ -244,7 +257,7 @@ export interface SourcePolicy {
 
 | Trust Zone | 可发 Search Server | 可发云模型 | 跨 Session 复用 |
 | --- | --- | --- | --- |
-| `public_web` | 是，查询会出站 | 按 `ModelDataPolicy` | 是，受 TTL 限制 |
+| `public_web` | 是，查询会出站 | 是（正文可发所选模型） | 是，受 TTL 限制 |
 | `authenticated_web` | 否 | 默认否，需单独批准 | 否 |
 | `local_file` | 否 | 默认否，需单独批准 | 同一 workspace 内可选 |
 | `enterprise` | 仅企业节点 | 由企业策略决定 | 同租户、同权限范围 |
@@ -270,7 +283,7 @@ flowchart LR
   Orchestrator --> WorkerClient["WorkerProcessClient"]
   Orchestrator --> Repo["ResearchRepository"]
   Orchestrator --> Citation["CitationValidator"]
-  Orchestrator --> ModelGateway["PolicyAwareModelGateway"]
+  Orchestrator --> ModelGateway["ResearchModelGateway"]
   SearchClient --> Server["../server + SearXNG"]
   WorkerClient --> Worker["Rust Worker"]
   Worker --> Browser["existing agent-browser binary"]
@@ -288,7 +301,6 @@ export interface ResearchRequest {
   objective: string;
   mode: "quick" | "standard" | "deep";
   sourceScopes: SourceScope[];
-  modelDataPolicy: ModelDataPolicy;
   output: ResearchOutputRequest;
   budget?: Partial<ResearchBudget>;
 }
@@ -513,8 +525,7 @@ Worker 返回后不能先修改内存状态再异步落盘。
 - 用户目标；
 - Consumer、语言和时间范围；
 - 允许的数据源；
-- 硬预算；
-- ModelDataPolicy。
+- 硬预算。
 
 输出严格匹配 `ResearchPlan` schema。模型不得生成 URL。
 
@@ -934,7 +945,7 @@ apps/desktop/src/main/research/
 ├── operation-runner.ts
 ├── coverage-evaluator.ts
 ├── citation-validator.ts
-├── policy-aware-model-gateway.ts
+├── research-model-gateway.ts
 ├── planner/
 │   ├── initial-planner.ts
 │   ├── gap-planner.ts
@@ -1044,7 +1055,7 @@ apps/desktop/resources/research-worker/
 ### U7：多轮 Planner
 
 - Initial Planner、Gap Planner、Coverage、停止策略；
-- PolicyAwareModelGateway；
+- ResearchModelGateway；
 - Prompt Injection trust boundary。
 
 ### U8：Deep Research UI
@@ -1081,7 +1092,7 @@ apps/desktop/resources/research-worker/
 2. 公网 URL 30x 跳私网被拒绝。
 3. Browser 页面导航、子资源、fetch、WebSocket 到非 allowlist 域均被拦截。
 4. Public Web 内容不能获得 Memory、本地文件、终端、发送和写工具。
-5. `local_only` 策略下没有任何证据请求到达远程模型 mock server。
+5. 选型失败（一个可用供应商都没有）时没有任何请求到达远程模型 mock server。
 6. Hosted Search 无 JWT/PAT 返回 401；非 workspace member 返回 403。
 7. 打包产物不包含共享 Search API Key。
 

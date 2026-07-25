@@ -3,8 +3,7 @@
 // 设置来自磁盘 JSON，可能由旧版本写入、被用户手改、或整体缺失，因此归一化函数对任意 unknown
 // 输入都必须给出可用结果且绝不抛错——设置读坏导致应用起不来，是比「设置丢了」严重得多的故障。
 //
-// 相关文件：ModelDataPolicy 见 ./types；各 Consumer 的默认配置见 ./consumer。
-import type { ModelDataPolicy } from "./types";
+// 相关文件：模型选型见 ./model-selection；各 Consumer 的默认配置见 ./consumer。
 
 /// 自建 Search Server 的连接配置（spec KTD6 self-hosted 模式）。
 export interface ResearchSearchServerSettings {
@@ -26,19 +25,22 @@ export interface ResearchEngineSettings {
   writingEnabled: boolean;
   /// 是否允许生成 MemoryCandidate（仍需逐条批准才写入，见 ./knowledge）。
   memoryEnabled: boolean;
-  defaultModelDataPolicy: ModelDataPolicy;
+  /// 研究专用的模型偏好（供应商 id 与模型 id）。**两者都可缺省 = 跟随全局默认模型**
+  /// （ProviderSettings.defaultProviderId / defaultModel）。
+  ///
+  /// 为什么给研究单列一份而不复用全局默认：研究是长任务，一次 Session 的 token 消耗比一次
+  /// 聊天高一到两个数量级，用户往往想给它配更便宜或更长上下文的模型；也有人专门给研究配
+  /// 本机模型（选 loopback 供应商即等于「正文不出站」，这取代了原先的出站策略枚举）。
+  /// 让研究换模型不必改动全局默认、连带影响聊天。
+  ///
+  /// 只存 id 不存快照：供应商可能被删或改名，运行时按 id 现查（见 ./model-selection 的三级回落），
+  /// 查不到就落回全局默认，绝不因为设置里存了个失效 id 就让研究不可用。
+  modelProviderId?: string;
+  modelId?: string;
   searchServer?: ResearchSearchServerSettings;
 }
 
-/// 合法的 ModelDataPolicy 值清单，用于归一化时判定非法枚举。
-const MODEL_DATA_POLICIES = [
-  "local_only",
-  "metadata_only",
-  "evidence_allowed",
-] as const satisfies readonly ModelDataPolicy[];
-
-/// 出厂默认：所有开关关闭；策略取 evidence_allowed（用户真开启 CRE 时的常规预期），
-/// 但它只是「默认值」，具体 Session 仍以 ResearchRequest.modelDataPolicy 为准。
+/// 出厂默认：所有开关关闭；模型偏好留空 = 跟随全局默认模型。
 export const DEFAULT_RESEARCH_ENGINE_SETTINGS: ResearchEngineSettings = {
   enabled: false,
   deepResearchEnabled: false,
@@ -46,7 +48,6 @@ export const DEFAULT_RESEARCH_ENGINE_SETTINGS: ResearchEngineSettings = {
   slidesEnabled: false,
   writingEnabled: false,
   memoryEnabled: false,
-  defaultModelDataPolicy: "evidence_allowed",
 };
 
 /// 只接受真正的布尔值。字符串 "true" / 数字 1 一律不算 true —— 这些开关控制的是数据出站，
@@ -54,6 +55,18 @@ export const DEFAULT_RESEARCH_ENGINE_SETTINGS: ResearchEngineSettings = {
 function readBoolean(source: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const value = source[key];
   return typeof value === "boolean" ? value : fallback;
+}
+
+/// 读一个可选的非空字符串标识（供应商 id / 模型 id）。
+///
+/// 空串与非字符串一律视为「未设置」而返回 undefined：空串若被当成有效 id 存下来，
+/// 选型时会拿它去匹配供应商、匹配不上再回落，多绕一圈；且 UI 的「跟随全局默认」选项
+/// 提交的正是空串，这里必须把它折叠回 undefined，否则设置里会留下 `modelId: ""` 这种脏值。
+function readOptionalId(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /// 归一化 searchServer 段。baseUrl 与 workspaceId 缺一不可：半截配置会在运行时报出难懂的
@@ -82,12 +95,8 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
   }
   const source = raw as Record<string, unknown>;
 
-  const policy = source.defaultModelDataPolicy;
-  const defaultModelDataPolicy = MODEL_DATA_POLICIES.includes(policy as ModelDataPolicy)
-    ? (policy as ModelDataPolicy)
-    : DEFAULT_RESEARCH_ENGINE_SETTINGS.defaultModelDataPolicy;
-
   // 逐字段白名单重建（而非展开 raw），未知字段自然被丢弃，也杜绝原型污染类的键混入。
+  // 附带效果：旧版本写入的 defaultModelDataPolicy 会在这里被自然丢弃，无需专门的迁移代码。
   const normalized: ResearchEngineSettings = {
     enabled: readBoolean(source, "enabled", DEFAULT_RESEARCH_ENGINE_SETTINGS.enabled),
     deepResearchEnabled: readBoolean(
@@ -103,8 +112,14 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
       DEFAULT_RESEARCH_ENGINE_SETTINGS.writingEnabled,
     ),
     memoryEnabled: readBoolean(source, "memoryEnabled", DEFAULT_RESEARCH_ENGINE_SETTINGS.memoryEnabled),
-    defaultModelDataPolicy,
   };
+
+  // 可选字段一律「有值才写键」：exactOptionalPropertyTypes 下 `key: undefined` 不合法，
+  // 且写进去会让落盘 JSON 多出一堆 null。
+  const modelProviderId = readOptionalId(source, "modelProviderId");
+  if (modelProviderId) normalized.modelProviderId = modelProviderId;
+  const modelId = readOptionalId(source, "modelId");
+  if (modelId) normalized.modelId = modelId;
 
   const searchServer = normalizeSearchServer(source.searchServer);
   if (searchServer) normalized.searchServer = searchServer;

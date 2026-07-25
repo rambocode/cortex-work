@@ -1,9 +1,8 @@
 // trust-policy.ts 的测试。这是数据出站的最后一道判定，任何一格判错都是隐私事故，
-// 所以 5 个信任区 × 3 种 ModelDataPolicy 的 15 格全部显式断言，不做归纳抽查。
+// 所以 5 个信任区全部显式断言，不做归纳抽查。
 import { describe, expect, it } from "vitest";
 
 import type { SourcePolicy, TrustZone } from "./evidence";
-import type { ModelDataPolicy } from "./types";
 
 import { TRUST_ZONES } from "./evidence";
 import {
@@ -64,35 +63,35 @@ describe("canSendToSearchServer", () => {
   });
 });
 
-describe("canSendToCloudModel（5 zone × 3 policy 全 15 格）", () => {
-  const MODEL_POLICIES: ModelDataPolicy[] = ["local_only", "metadata_only", "evidence_allowed"];
-
+describe("canSendToCloudModel（5 个信任区逐格断言）", () => {
   for (const zone of TRUST_ZONES) {
-    for (const modelPolicy of MODEL_POLICIES) {
-      // 唯一为 true 的格子：public_web 默认策略 + 用户已授权 evidence_allowed。
-      const expected = zone === "public_web" && modelPolicy === "evidence_allowed";
-      it(`${zone} + ${modelPolicy} → ${expected}`, () => {
-        expect(canSendToCloudModel(DEFAULT_SOURCE_POLICIES[zone], modelPolicy)).toBe(expected);
-      });
-    }
+    // 唯一为 true 的格子：public_web —— 其余信任区默认不允许把正文送进模型。
+    const expected = zone === "public_web";
+    it(`${zone} 默认策略 → ${expected}`, () => {
+      expect(canSendToCloudModel(DEFAULT_SOURCE_POLICIES[zone])).toBe(expected);
+    });
   }
 
-  it("local_only 恒 false，即使来源级已批准云模型", () => {
-    const approved: SourcePolicy = { ...DEFAULT_SOURCE_POLICIES.local_file, allowCloudModel: true };
-    expect(canSendToCloudModel(approved, "local_only")).toBe(false);
-  });
-
-  it("metadata_only 恒 false（正文不出站，元数据另走通道）", () => {
-    const approved: SourcePolicy = { ...DEFAULT_SOURCE_POLICIES.memory, allowCloudModel: true };
-    expect(canSendToCloudModel(approved, "metadata_only")).toBe(false);
-  });
-
-  it("evidence_allowed 下才看来源级开关", () => {
+  it("来源级单独批准后放行（授权流程写入更宽的 policy）", () => {
     const approved: SourcePolicy = {
       ...DEFAULT_SOURCE_POLICIES.authenticated_web,
       allowCloudModel: true,
     };
-    expect(canSendToCloudModel(approved, "evidence_allowed")).toBe(true);
+    expect(canSendToCloudModel(approved)).toBe(true);
+  });
+
+  // fail-closed：policy 可能来自持久化数据或被手改的配置，非布尔值一律按「不允许」处理。
+  it.each([
+    ["undefined", undefined],
+    ["字符串 true", "true"],
+    ["数字 1", 1],
+    ["null", null],
+  ])("allowCloudModel 为 %s 时不放行", (_label, value) => {
+    const malformed = {
+      ...DEFAULT_SOURCE_POLICIES.public_web,
+      allowCloudModel: value,
+    } as unknown as SourcePolicy;
+    expect(canSendToCloudModel(malformed)).toBe(false);
   });
 });
 

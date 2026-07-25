@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
 import type { CoverageReport } from "@cortex-work/core/research/types";
-import type { ModelCallInput, ModelCallResult } from "../policy-aware-model-gateway";
+import type { ModelCallInput, ModelCallResult } from "../research-model-gateway";
 import { planGap } from "./gap-planner";
 
 function fakeGateway(...responses: ModelCallResult[]): {
@@ -53,7 +53,6 @@ const INPUT = {
   missingSummary: ["sq_1：独立域名不足（1/2）"],
   candidates: [{ candidateId: "cand_1", title: "Node 22 Release Notes", domain: "nodejs.org" }],
   knownCandidateIds: ["cand_1"],
-  policy: "evidence_allowed" as const,
 };
 
 describe("planGap 的隔离约束（spec §10.3）", () => {
@@ -163,10 +162,10 @@ describe("planGap 的降级", () => {
   it("模型不可用时返回 finish 而不是抛错", async () => {
     const { gateway } = fakeGateway({
       ok: false,
-      code: "local_model_unavailable",
-      message: "没有本地模型",
+      code: "no_provider_configured",
+      message: "尚未配置任何可用的模型供应商",
     });
-    const decision = await planGap({ ...INPUT, policy: "local_only" }, { gateway });
+    const decision = await planGap(INPUT, { gateway });
     expect(decision.action).toBe("finish");
   });
 

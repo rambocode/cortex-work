@@ -25,7 +25,6 @@ import type {
 } from "@cortex-work/core/research/evidence";
 import type {
   CoverageReport,
-  ModelDataPolicy,
   PlannedQuery,
   ResearchBudget,
   ResearchConsumer,
@@ -82,7 +81,6 @@ export interface CreateSessionInput {
   consumer: ResearchConsumer;
   objective: string;
   mode: ResearchMode;
-  modelDataPolicy: ModelDataPolicy;
   sourceScopes: readonly SourceScope[];
   output: ResearchOutputRequest;
   budget: ResearchBudget;
@@ -171,12 +169,6 @@ export interface ResearchRepository {
   createSession(input: CreateSessionInput): Promise<ResearchSessionSummary>;
   /// 按 detail 逐级返回；不存在返回 null。summary 层级绝不读取任何正文。
   getSession(sessionId: string, detail: ResearchDetailLevel): Promise<ResearchSessionView | null>;
-  /// 单独读回某个 Session 的出站策略；不存在返回 null。
-  ///
-  /// 为什么不并进 ResearchSessionSummary：summary 会经 IPC 送到 renderer，而出站策略属于
-  /// main 的执行决策，renderer 既不需要也不该据它做判断（真正的判定点只有
-  /// PolicyAwareModelGateway 一处）。做成窄方法，让「谁需要它」在类型上是显式的。
-  getSessionModelDataPolicy(sessionId: string): Promise<ModelDataPolicy | null>;
   listSessions(filter?: ResearchSessionQuery): Promise<ResearchSessionSummary[]>;
   /// 不做状态机校验：转移合法性属编排层职责（core/research/session-status 的 canTransition），
   /// 而启动恢复要写入由 statusOnAppRestart 归一出来的状态，仓储在这里必须是"听话"的。
@@ -220,10 +212,10 @@ export class SqliteResearchRepository implements ResearchRepository {
     this.driver
       .prepare(
         `INSERT INTO research_sessions
-           (session_id, consumer, objective, mode, status, model_data_policy, user_scope,
+           (session_id, consumer, objective, mode, status, user_scope,
             source_scopes_json, output_json, budget_json, budget_spent_json,
             error_message, created_at, updated_at, round_count, document_count, chunk_count)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0)`,
       )
       .run([
         input.sessionId,
@@ -231,7 +223,6 @@ export class SqliteResearchRepository implements ResearchRepository {
         input.objective,
         input.mode,
         status,
-        input.modelDataPolicy,
         input.userScope,
         JSON.stringify(input.sourceScopes),
         JSON.stringify(input.output),
@@ -253,15 +244,6 @@ export class SqliteResearchRepository implements ResearchRepository {
       documentCount: 0,
       chunkCount: 0,
     };
-  }
-
-  /// 只取策略一列，不走 SELECT *：这条会在每次 run 时被调用，没必要把整行拉出来。
-  async getSessionModelDataPolicy(sessionId: string): Promise<ModelDataPolicy | null> {
-    const row = this.driver
-      .prepare("SELECT model_data_policy FROM research_sessions WHERE session_id = ?")
-      .get<{ model_data_policy: string }>([sessionId]);
-    if (!row) return null;
-    return row.model_data_policy as ModelDataPolicy;
   }
 
   async getSession(sessionId: string, detail: ResearchDetailLevel): Promise<ResearchSessionView | null> {

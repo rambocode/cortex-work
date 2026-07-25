@@ -18,8 +18,9 @@ describe("DEFAULT_RESEARCH_ENGINE_SETTINGS", () => {
     expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.memoryEnabled).toBe(false);
   });
 
-  it("默认模型数据策略是 evidence_allowed", () => {
-    expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.defaultModelDataPolicy).toBe("evidence_allowed");
+  it("默认不指定研究模型（跟随全局默认模型）", () => {
+    expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.modelProviderId).toBeUndefined();
+    expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.modelId).toBeUndefined();
   });
 
   it("默认不带 searchServer 配置", () => {
@@ -40,14 +41,32 @@ describe("normalizeResearchEngineSettings", () => {
       expected: { ...DEFAULT_RESEARCH_ENGINE_SETTINGS, enabled: true, chatEnabled: true },
     },
     {
-      name: "非法 policy 值回落默认",
-      raw: { defaultModelDataPolicy: "send_everything" },
+      // 出站策略枚举已移除：旧版本写入的这个键必须被白名单重建自然丢弃，
+      // 不能作为未知字段残留在归一化结果里（否则设置页写回时又落回磁盘）。
+      name: "旧版本的 defaultModelDataPolicy 被丢弃",
+      raw: { enabled: true, defaultModelDataPolicy: "local_only" },
+      expected: { ...DEFAULT_RESEARCH_ENGINE_SETTINGS, enabled: true },
+    },
+    {
+      name: "研究模型偏好保留（含前后空白裁剪）",
+      raw: { modelProviderId: " ollama ", modelId: "qwen3:8b" },
+      expected: {
+        ...DEFAULT_RESEARCH_ENGINE_SETTINGS,
+        modelProviderId: "ollama",
+        modelId: "qwen3:8b",
+      },
+    },
+    {
+      // UI 的「跟随全局默认」选项提交空串，必须折叠回「未设置」，
+      // 否则设置里会留下 modelId: "" 这种脏值，选型时还要多绕一圈匹配。
+      name: "空串 / 纯空白的模型偏好等同未设置",
+      raw: { modelProviderId: "", modelId: "   " },
       expected: DEFAULT_RESEARCH_ENGINE_SETTINGS,
     },
     {
-      name: "合法 policy 值保留",
-      raw: { defaultModelDataPolicy: "local_only" },
-      expected: { ...DEFAULT_RESEARCH_ENGINE_SETTINGS, defaultModelDataPolicy: "local_only" },
+      name: "非字符串的模型偏好被丢弃",
+      raw: { modelProviderId: 123, modelId: { id: "x" } },
+      expected: DEFAULT_RESEARCH_ENGINE_SETTINGS,
     },
     {
       name: "非布尔开关（字符串 'true'）不算 true",

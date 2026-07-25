@@ -9,17 +9,16 @@
 //   3. **写回时保留 raw.searchServer**：encryptedToken 是主进程写的，归一化在 baseUrl/workspaceId
 //      不全时会整段丢弃 searchServer，若拿归一化结果直接回写就会把密文抹掉（clobber）。
 //
-// 文案硬编码 zh-Hans（个人工作区惯例，不走 t()）；出站策略说明复用 ResearchPolicyNotice，
-// 其真源是 core 的 describeEgress —— 设置页不另写一套解释，避免与实际行为漂移。
+// 文案硬编码 zh-Hans（个人工作区惯例，不走 t()）；「用哪个模型 + 数据会去哪」经
+// resolveResearchModelDisplay 解析，与新建表单、主进程编排层同走 core 的 selectResearchModel，
+// 设置页不另写一套规则，避免「设置里显示 A、实际跑 B」。
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { usePersonalStore, useDesktopBridge } from "@cortex-work/core";
 import {
   normalizeResearchEngineSettings,
   type ResearchEngineSettings,
 } from "@cortex-work/core/research/settings";
-import type { ModelDataPolicy } from "@cortex-work/core/research/types";
-import { ResearchPolicyNotice } from "../research/ResearchPolicyNotice";
-import { MODEL_DATA_POLICY_LABELS } from "../research/labels";
+import { resolveResearchModelDisplay } from "../research/modelDisplay";
 import "../research/research.css";
 import { SettingCard, SRow } from "./settingsControls";
 
@@ -63,8 +62,6 @@ function FlagRow({
 /// 与 main 的 CONSUMER_FLAG 映射表配套：那边有键位，这边有开关，但适配器还没写。
 const COMING_SOON_BADGE = "即将支持";
 
-const POLICY_ORDER: ModelDataPolicy[] = ["local_only", "metadata_only", "evidence_allowed"];
-
 export function ResearchSettingsSection(): ReactElement {
   const bridge = useDesktopBridge();
   // raw 是磁盘/主进程写入的原始切片；normalize 只用于「读」出稳妥的展示值，
@@ -72,6 +69,22 @@ export function ResearchSettingsSection(): ReactElement {
   const raw = usePersonalStore((s) => s.generalSettings.researchEngine);
   const setGeneralSettings = usePersonalStore((s) => s.setGeneralSettings);
   const settings = useMemo(() => normalizeResearchEngineSettings(raw), [raw]);
+  // 全局供应商配置：模型下拉的选项来源，同时提供「跟随全局默认」这一档的实际取值。
+  const providerSettings = usePersonalStore((s) => s.providerSettings);
+
+  // 实际生效的研究模型。**显示这个而不是显示用户填的字面值**：偏好指向的供应商被删掉时，
+  // core 会静默降级到全局默认，界面必须站在实际那一侧，否则用户以为在用 A、其实跑的是 B。
+  const model = useMemo(
+    () =>
+      resolveResearchModelDisplay(providerSettings, {
+        ...(settings.modelProviderId ? { providerId: settings.modelProviderId } : {}),
+        ...(settings.modelId ? { modelId: settings.modelId } : {}),
+      }),
+    [providerSettings, settings.modelProviderId, settings.modelId],
+  );
+  // 模型下拉只列**生效供应商**名下的模型：列出别家的模型，用户选了也会被选型丢弃。
+  const modelOptions =
+    providerSettings.providers.find((p) => p.id === model.providerId)?.models ?? [];
 
   // Search Server 的 baseUrl / workspaceId 用本地草稿驱动显示：归一化在两者不全时会整段丢弃
   // searchServer，若直接以归一化结果回填输入框，用户「先填地址后填工作区」的中间态会被清空。
@@ -203,25 +216,53 @@ export function ResearchSettingsSection(): ReactElement {
         />
       </SettingCard>
 
-      <SettingCard title="数据出站策略">
+      <SettingCard title="模型">
+        <div className="pw-srow-desc">
+          研究是长任务，一次会话的 token 消耗比一次聊天高一到两个数量级，可以在这里单独指定模型。
+          留「跟随全局默认」则使用「供应商」分区里的默认模型。
+        </div>
         <label className="pw-set-field">
-          <span className="pw-set-lbl">默认数据出站策略</span>
+          <span className="pw-set-lbl">研究模型供应商</span>
+          {/* 换供应商时必须一并清掉 modelId：模型 id 属于某个供应商，留着旧的会在下拉里
+              显示一个不属于新供应商的值（选型侧会丢弃它，但界面看着像生效了）。 */}
           <select
             className="pw-set-input"
-            value={settings.defaultModelDataPolicy}
-            onChange={(e) => patch({ defaultModelDataPolicy: e.target.value as ModelDataPolicy })}
+            aria-label="研究模型供应商"
+            value={settings.modelProviderId ?? ""}
+            onChange={(e) => patch({ modelProviderId: e.target.value, modelId: "" })}
           >
-            {POLICY_ORDER.map((p) => (
-              <option key={p} value={p}>
-                {MODEL_DATA_POLICY_LABELS[p].label}
+            <option value="">跟随全局默认</option>
+            {providerSettings.providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name?.trim() || p.id}
+                {p.enabled ? "" : "（已停用）"}
               </option>
             ))}
           </select>
         </label>
-        {/* 「这个策略下什么数据会出站」由 core 的 describeEgress 说了算，此处只做渲染。 */}
-        <ResearchPolicyNotice policy={settings.defaultModelDataPolicy} />
-        <div className="pw-srow-desc">
-          这是新建研究时的默认值，单次研究仍可在新建表单里另选。
+        <label className="pw-set-field">
+          <span className="pw-set-lbl">研究模型</span>
+          <select
+            className="pw-set-input"
+            aria-label="研究模型"
+            value={settings.modelId ?? ""}
+            onChange={(e) => patch({ modelId: e.target.value })}
+          >
+            <option value="">跟随全局默认</option>
+            {modelOptions.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id}
+              </option>
+            ))}
+          </select>
+        </label>
+        {/* 出站说明由所选模型是否在本机推导（core 的 describeModelEgress），
+            不是一个可配置项——用户选完模型就已经决定了数据去哪。 */}
+        <div className={`pw-res-notice is-${model.isLocal ? "local" : "remote"}`}>
+          <div className="pw-res-notice-title">
+            {model.label ? `本次研究将使用：${model.label}` : "尚未配置可用的模型"}
+          </div>
+          <div className="pw-res-notice-summary">{model.egressZh}</div>
         </div>
       </SettingCard>
 

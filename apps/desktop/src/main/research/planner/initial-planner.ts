@@ -9,7 +9,6 @@
 // 那属于调用方传参错误，必须暴露。
 import { parseResearchPlan } from "@cortex-work/core/research/plan-schema";
 import type {
-  ModelDataPolicy,
   ResearchBudget,
   ResearchConsumer,
   ResearchMode,
@@ -17,7 +16,7 @@ import type {
   ResearchScope,
 } from "@cortex-work/core/research/types";
 import { buildSeedPlan } from "../research-orchestrator";
-import type { ModelCallInput, ModelCallResult } from "../policy-aware-model-gateway";
+import type { ModelCallInput, ModelCallResult } from "../research-model-gateway";
 import { stripTruncationMarker } from "../../ipc/openai-chat";
 import { extractJsonObject } from "./json-output";
 import { INITIAL_PLANNER_SYSTEM_PROMPT, buildInitialPlanUserPrompt } from "./prompts";
@@ -44,7 +43,6 @@ export interface InitialPlanInput {
   scope: ResearchScope;
   /// Session 的**权威预算**（已夹取）。模型输出里的 budget 一律被它覆盖。
   budget: ResearchBudget;
-  policy: ModelDataPolicy;
   signal?: AbortSignal;
 }
 
@@ -115,13 +113,12 @@ export async function planInitial(
         budget: input.budget,
         ...(previousErrors.length > 0 ? { previousErrors } : {}),
       }),
-      policy: input.policy,
       maxTokens: resolvePlanMaxTokens(input.budget),
       maxPromptChars: input.budget.maxEvidenceCharsToModel,
       ...(input.signal ? { signal: input.signal } : {}),
     });
 
-    // 模型压根不可用（没配供应商 / local_only 没有本地模型）：重试没有意义，立刻降级。
+    // 模型压根不可用（一个可用供应商都没配）：重试没有意义，立刻降级。
     if (!result.ok) {
       // 只记 code 会丢掉全部可操作信息（真实踩过：一句 call_failed 查了很久才发现
       // 是选中了一个 reranker 当 chat 模型）。message 已在网关侧脱敏，provider/model 是配置。

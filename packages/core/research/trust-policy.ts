@@ -5,7 +5,6 @@
 //
 // 类型真源在 ./evidence（TrustZone / SourcePolicy），这里只提供默认矩阵与纯判定函数。
 import type { SourcePolicy, TrustZone } from "./evidence";
-import type { ModelDataPolicy } from "./types";
 
 /// 信任区类型从 ./evidence 重导出，让调用方只 import 本文件即可写出完整签名，
 /// 同时保证全仓只有一处 TrustZone 声明。
@@ -16,7 +15,7 @@ export type { TrustZone };
 /// 总原则是零信任：**只有 public_web 默认允许出站**，其余信任区一律要走来源级单独批准
 /// （由 resolveSourcePolicy 之外的授权流程写入更宽的 policy，而不是在这里放宽默认值）。
 export const DEFAULT_SOURCE_POLICIES: Record<TrustZone, SourcePolicy> = {
-  // 公网内容本来就是公开的：查询可以出站给 Search Server，正文按 ModelDataPolicy 决定，
+  // 公网内容本来就是公开的：查询可以出站给 Search Server，正文可以发给所选模型，
   // 抓取快照可跨 Session 复用（受来源级 expiresAt 的 TTL 限制）。
   public_web: {
     trustZone: "public_web",
@@ -72,20 +71,16 @@ export function canSendToSearchServer(policy: SourcePolicy): boolean {
   return policy.allowSearchServer === true;
 }
 
-/// 该来源的正文是否可以发给云模型。
+/// 该来源的正文是否可以发给模型。
 ///
-/// 这是两道闸门的**与**运算，缺一不可：
-/// - Session 级的 ModelDataPolicy 表达「用户这次授权到什么程度」：
-///   local_only 恒 false（没有本地模型就直接失败，绝不静默回退云模型）；
-///   metadata_only 同样恒 false —— 元数据（标题、域名、统计）走的是另一条构造通道，
-///   本函数判定的对象只有正文，所以这里不能因为「只发元数据」就放行；
-///   只有 evidence_allowed 才轮到看来源。
-/// - 来源级的 policy.allowCloudModel 表达「这份数据本身允不允许出站」。
-export function canSendToCloudModel(
-  policy: SourcePolicy,
-  modelDataPolicy: ModelDataPolicy,
-): boolean {
-  if (modelDataPolicy !== "evidence_allowed") return false;
+/// **只看来源级授权**：「数据会不会离开本机」由用户选的研究模型决定（本地模型 = 不出站，
+/// 见 ./model-selection 的 isLocal），不再有 Session 级的出站策略枚举参与这个判定。
+/// 本函数回答的是另一个正交问题——这份数据本身允不允许被送进模型（authenticated_web、
+/// local_file、memory 默认全禁，须走来源级单独批准）。
+///
+/// 显式比较 `=== true` 而不是直接返回：policy 可能来自持久化数据或被手改的配置，
+/// undefined / 字符串等非布尔值一律按「不允许」处理（fail-closed）。
+export function canSendToCloudModel(policy: SourcePolicy): boolean {
   return policy.allowCloudModel === true;
 }
 

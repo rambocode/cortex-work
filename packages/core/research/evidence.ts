@@ -52,7 +52,7 @@ export interface SourceRef {
 }
 
 /// 单个来源的授权与复用策略（spec §6）。**默认矩阵**：
-/// public_web 可发 Search Server、按 ModelDataPolicy 发云模型、可跨 Session 复用（受 TTL）；
+/// public_web 可发 Search Server、可发云模型、可跨 Session 复用（受 TTL）；
 /// 其余信任区默认都不发 Search Server、不发云模型，需要来源级单独批准。
 export interface SourcePolicy {
   trustZone: TrustZone;

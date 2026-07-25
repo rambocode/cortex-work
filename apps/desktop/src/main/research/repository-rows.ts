@@ -43,7 +43,6 @@ export interface SessionRow {
   objective: string;
   mode: string;
   status: string;
-  model_data_policy: string;
   user_scope: string;
   source_scopes_json: string;
   output_json: string;

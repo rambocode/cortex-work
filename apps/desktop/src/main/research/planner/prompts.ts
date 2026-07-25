@@ -39,6 +39,7 @@ export const INITIAL_PLANNER_SYSTEM_PROMPT = `${SAFETY_PREAMBLE}
     "subquestionId": string,           // 必须是上面某个子问题的 id
     "text": string,                    // 搜索引擎查询词，不是自然语言长句
     "language"?: string,
+    "categories"?: ("general"|"it"|"science"|"news")[],
     "timeRange"?: "day"|"week"|"month"|"year"|"all",
     "domainAllowlist"?: string[],      // 只填裸域名，如 "example.com"
     "domainBlocklist"?: string[]
@@ -56,6 +57,7 @@ export const INITIAL_PLANNER_SYSTEM_PROMPT = `${SAFETY_PREAMBLE}
 - 子问题 2~5 个，id 用 sq_1、sq_2… 且不得重复；
 - 每个子问题至少 1 条查询，查询总数不超过给定的预算上限；
 - 查询词要能直接喂给搜索引擎（关键词组合，避免整句提问）；
+- 技术/软件查询用 it，论文/科研查询用 science，时事查询用 news；通用查询用 general，不确定时省略 categories；
 - **不要输出 budget 字段**，预算由系统决定。`;
 
 /// Gap Planner 的 system prompt（静态前缀，spec §10.3）。
@@ -67,13 +69,14 @@ export const GAP_PLANNER_SYSTEM_PROMPT = `${SAFETY_PREAMBLE}
 任务：根据上一轮研究的**覆盖度统计**决定下一步。你看不到任何网页正文，只能看到统计量与缺口描述——这是刻意的隔离设计，请基于这些统计做判断。
 
 输出 JSON schema（三选一）：
-{ "action": "search_more", "reason": string, "queries": [ { "queryId": string, "subquestionId": string, "text": string, "timeRange"?: string, "domainAllowlist"?: string[], "domainBlocklist"?: string[] } ] }
+{ "action": "search_more", "reason": string, "queries": [ { "queryId": string, "subquestionId": string, "text": string, "categories"?: ("general"|"it"|"science"|"news")[], "timeRange"?: string, "domainAllowlist"?: string[], "domainBlocklist"?: string[] } ] }
 { "action": "fetch_more", "reason": string, "candidateIds": string[] }   // 只能从给定的候选清单里选 id
 { "action": "finish", "reason": string }
 
 判断原则：
 - 所有子问题都已 sufficient，或剩余预算不足以支撑一轮有意义的检索 → finish；
 - 缺口是「没搜到合适来源」→ search_more，查询要与已执行查询明显不同（换措辞、换语言、换时间范围、换限定域名）；
+- search_more 的技术/软件查询用 it，论文/科研查询用 science，时事查询用 news；通用查询用 general，不确定时省略 categories；
 - 缺口是「候选清单里已有合适来源但还没抓取」→ fetch_more；
 - reason 用中文一句话说明依据。`;
 
@@ -194,39 +197,6 @@ export function buildReportUserPrompt(input: {
     }
     for (const item of section.items) {
       lines.push(`- [${item.chunkId}]（来源：${item.title}）${item.excerpt}`);
-    }
-  }
-  return lines.join("\n");
-}
-
-/// Report Generator 的变量段（**元数据版**，metadata_only 策略专用）。
-///
-/// 与上面的差异是**结构性**的：这个函数根本没有 excerpt 参数，因此在 metadata_only 下
-/// 「正文进不了 prompt」不是靠运行时判断，而是靠调用哪个构造函数决定的——
-/// 这才是 spec KTD5 要求的那种「构造侧就不放正文」。网关里的 assertNoEvidenceText 是第二道防线。
-export function buildMetadataReportUserPrompt(input: {
-  objective: string;
-  sections: ReadonlyArray<{
-    heading: string;
-    items: ReadonlyArray<{ chunkId: string; title: string; domain: string }>;
-  }>;
-}): string {
-  const lines = [
-    "研究目标：",
-    input.objective,
-    "",
-    "注意：当前隐私策略下你只能看到来源的标题与域名，看不到正文。请只写出「找到了哪些来源、它们分别覆盖哪个子问题」这类可由元数据支撑的结论，不要编造来源里的具体内容。",
-    "",
-    "来源清单（引用时使用方括号里的片段 ID）：",
-  ];
-  for (const section of input.sections) {
-    lines.push("", `## ${section.heading}`);
-    if (section.items.length === 0) {
-      lines.push("（本节没有可用来源，请在报告中如实说明。）");
-      continue;
-    }
-    for (const item of section.items) {
-      lines.push(`- [${item.chunkId}]｜${item.domain}｜${item.title}`);
     }
   }
   return lines.join("\n");

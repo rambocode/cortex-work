@@ -216,11 +216,18 @@ async function assembleService(): Promise<ResearchService> {
       }),
     // P7：按 Session 装配 Planner / Report Generator。返回 null（未配供应商）时编排层沿用
     // 确定性的种子计划 + 单轮 + 证据摘要，**不让 Session 失败**。
-    llmHooks: ({ summary, modelDataPolicy }) =>
+    // 研究模型偏好取自设置快照：与 providerSettings 同一份 personal-workspace.json，
+    // 两者都在落盘回调里刷新，所以同一个 Session 内选型稳定（见 refreshProviderSnapshot）。
+    llmHooks: ({ summary }) =>
       buildResearchLlmHooks({
         summary,
-        modelDataPolicy,
         providerSettings: providerSettingsSnapshot,
+        preference: {
+          ...(settingsSnapshot.modelProviderId
+            ? { providerId: settingsSnapshot.modelProviderId }
+            : {}),
+          ...(settingsSnapshot.modelId ? { modelId: settingsSnapshot.modelId } : {}),
+        },
         logger: log,
       }),
     logger: log,

@@ -74,7 +74,6 @@ describe("ResearchCreateForm", () => {
       target: { value: "调查 SQLite WAL 的写放大" },
     });
     fireEvent.click(screen.getByRole("radio", { name: /深度/ }));
-    fireEvent.click(screen.getByRole("radio", { name: /允许证据出站/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /个人记忆/ }));
     fireEvent.click(screen.getByRole("button", { name: "开始研究" }));
 
@@ -82,7 +81,6 @@ describe("ResearchCreateForm", () => {
     const request = createCalls[0]!;
     expect(request.objective).toBe("调查 SQLite WAL 的写放大");
     expect(request.mode).toBe("deep");
-    expect(request.modelDataPolicy).toBe("evidence_allowed");
     expect(request.sourceScopes).toEqual([{ kind: "public_web" }, { kind: "memory" }]);
     expect(request.output).toEqual({ format: "report", requireCitations: true });
     expect(runCalls).toEqual(["new-1"]);
@@ -112,13 +110,6 @@ describe("ResearchCreateForm", () => {
     expect(runCalls).toEqual([]);
   });
 
-  it("切换策略时展示对应的出站告知", () => {
-    const { bridge } = makeBridge();
-    render(<ResearchCreateForm bridge={bridge} onCreated={() => {}} onCancel={() => {}} />);
-    expect(screen.getByText(/云端模型只会收到标题、摘要、域名与统计等元数据/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("radio", { name: /仅本地模型/ }));
-    expect(screen.getByText(/证据正文与元数据都不会离开这台设备/)).toBeTruthy();
-  });
 });
 
 describe("ResearchCreateForm 的来源范围与 IPC schema 对齐", () => {
@@ -150,27 +141,72 @@ describe("ResearchCreateForm 的来源范围与 IPC schema 对齐", () => {
   });
 });
 
-describe("默认出站策略来自设置", () => {
-  /// 真实踩过：表单把 metadata_only 写死成默认值，无视设置页的「默认数据出站策略」。
-  /// 后果隐蔽得多——metadata_only 下模型**从来看不到正文**，只拿到标题与域名，
-  /// 于是报告变成「根据标题字面含义推测」，用户看到的是「报告和研究对象没关系」，
-  /// 而根本不知道自己（以为）设的那档策略压根没生效。
-  it("有 defaultModelDataPolicy 时用它，而不是硬编码的 metadata_only", () => {
+describe("模型告知（只读，不是选择项）", () => {
+  /// 「数据发给谁」必须在**动作发生前**可见：这一行在「开始研究」按钮之上，
+  /// 用户按下去之前一定看得到。它是只读的——研究用哪个模型在设置里定，
+  /// 表单里再给一份选择只会产生两个可以互相矛盾的真源。
+  it("远端模型：显示模型名与「会发送」说明", () => {
     const { bridge } = makeBridge();
-    render(
+    const { container } = render(
       <ResearchCreateForm
         bridge={bridge}
-        defaultModelDataPolicy="evidence_allowed"
+        model={{
+          label: "DeepSeek / deepseek-chat",
+          isLocal: false,
+          egressZh: "证据正文片段与元数据会发送给所选的模型供应商。",
+        }}
         onCreated={() => {}}
         onCancel={() => {}}
       />,
     );
-    expect((screen.getByRole("radio", { name: /允许证据出站/ }) as HTMLInputElement).checked).toBe(true);
+    expect(container.textContent).toContain("本次研究将使用：DeepSeek / deepseek-chat");
+    expect(container.textContent).toContain("会发送给所选的模型供应商");
+    expect(container.querySelector(".pw-res-notice.is-remote")).toBeTruthy();
   });
 
-  it("没传时退回 metadata_only（最不容易让用户后悔的那档）", () => {
+  it("本机模型：标记为 local，说明数据不离开设备", () => {
+    const { bridge } = makeBridge();
+    const { container } = render(
+      <ResearchCreateForm
+        bridge={bridge}
+        model={{
+          label: "本机 Ollama / qwen3:8b",
+          isLocal: true,
+          egressZh: "该模型运行在本机：证据正文与元数据都不会离开这台设备。",
+        }}
+        onCreated={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(container.textContent).toContain("不会离开这台设备");
+    expect(container.querySelector(".pw-res-notice.is-local")).toBeTruthy();
+  });
+
+  it("没配可用模型时给出提示而不是空白", () => {
+    const { bridge } = makeBridge();
+    const { container } = render(
+      <ResearchCreateForm
+        bridge={bridge}
+        model={{ label: null, isLocal: false, egressZh: "尚未配置任何可用的模型供应商。" }}
+        onCreated={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(container.textContent).toContain("尚未配置可用的模型");
+  });
+
+  it("宿主没传 model 时整段不渲染（Web 端或旧宿主）", () => {
+    const { bridge } = makeBridge();
+    const { container } = render(
+      <ResearchCreateForm bridge={bridge} onCreated={() => {}} onCancel={() => {}} />,
+    );
+    expect(container.querySelector(".pw-res-notice")).toBeNull();
+  });
+
+  it("表单里不再有出站策略选择项", () => {
     const { bridge } = makeBridge();
     render(<ResearchCreateForm bridge={bridge} onCreated={() => {}} onCancel={() => {}} />);
-    expect((screen.getByRole("radio", { name: /仅元数据出站/ }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByText("数据出站策略")).toBeNull();
+    expect(screen.queryByRole("radio", { name: /允许证据出站/ })).toBeNull();
   });
 })

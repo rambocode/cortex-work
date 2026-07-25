@@ -11,7 +11,6 @@
 import { parsePlannerDecision } from "@cortex-work/core/research/plan-schema";
 import type {
   CoverageReport,
-  ModelDataPolicy,
   PlannerDecision,
   ResearchBudget,
   ResearchSubquestion,
@@ -34,7 +33,6 @@ export interface GapPlanInput {
   candidates?: readonly { candidateId: string; title: string; domain: string }[];
   /// 允许出现在 fetch_more 里的候选 id 全集（通常是本 Session 的全部候选）。
   knownCandidateIds?: readonly string[];
-  policy: ModelDataPolicy;
   signal?: AbortSignal;
 }
 
@@ -60,7 +58,6 @@ export async function planGap(input: GapPlanInput, deps: PlannerDeps): Promise<P
     purpose: "gap_plan",
     systemPrompt: GAP_PLANNER_SYSTEM_PROMPT,
     userPrompt,
-    policy: input.policy,
     maxTokens: DECISION_MAX_TOKENS,
     maxPromptChars: input.remainingBudget.maxEvidenceCharsToModel,
     ...(input.signal ? { signal: input.signal } : {}),

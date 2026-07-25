@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
 import type { EvidenceChunk, ResearchDocument } from "@cortex-work/core/research/evidence";
-import type { ModelCallInput, ModelCallResult } from "./policy-aware-model-gateway";
+import type { ModelCallInput, ModelCallResult } from "./research-model-gateway";
 import { generateReport } from "./report-generator";
 
 function fakeGateway(...responses: ModelCallResult[]): {
@@ -76,7 +76,6 @@ const INPUT = {
   subquestions: [{ id: "sq_1", text: "node:sqlite 的稳定性状态" }],
   chunks: [chunk("ch_1", "doc_1", PUBLIC_TEXT, "public_web")],
   documents: [document("doc_1", "public_web")],
-  policy: "evidence_allowed" as const,
   budget: BUDGET,
   generatedAt: "2026-07-25T10:00:00.000Z",
 };
@@ -103,7 +102,7 @@ describe("generateReport 的引用校验（spec §19.1.6）", () => {
 });
 
 describe("generateReport 的出站过滤（spec §10.4）", () => {
-  it("evidence_allowed 下不允许出站的来源不会进入 prompt", async () => {
+  it("不允许出站的来源不会进入 prompt（memory / 未批准来源被剔除）", async () => {
     const { gateway, calls } = fakeGateway(ok("结论[^ch_1]。"));
     await generateReport(
       {
@@ -123,42 +122,17 @@ describe("generateReport 的出站过滤（spec §10.4）", () => {
     expect(prompt).not.toContain("ch_2");
   });
 
-  it("metadata_only 下 prompt 只有标题与域名，正文一个字都不出现", async () => {
-    const { gateway, calls } = fakeGateway(ok("找到了官方来源[^ch_1]。"));
-    await generateReport({ ...INPUT, policy: "metadata_only" }, { gateway });
-
-    const prompt = calls[0]!.userPrompt;
-    expect(prompt).toContain("nodejs.org");
-    expect(prompt).toContain("文档 doc_1");
-    expect(prompt).not.toContain(BODY_MARKER);
-    // 同时把正文交给网关做第二道守卫
-    expect(calls[0]!.forbiddenEvidenceTexts).toContain(PUBLIC_TEXT);
-    expect(calls[0]!.policy).toBe("metadata_only");
-  });
-
-  it("metadata_only 下未获批准来源的标题与域名同样不出站（spec §19.3.3）", async () => {
+  it("public_web 的正文可以直接进 prompt（证据正文允许发给所选模型）", async () => {
     const { gateway, calls } = fakeGateway(ok("结论[^ch_1]。"));
-    await generateReport(
-      {
-        ...INPUT,
-        policy: "metadata_only",
-        chunks: [
-          chunk("ch_1", "doc_1", PUBLIC_TEXT, "public_web"),
-          chunk("ch_2", "doc_2", MEMORY_TEXT, "memory"),
-        ],
-        documents: [document("doc_1", "public_web"), document("doc_2", "memory")],
-      },
-      { gateway },
-    );
-
-    expect(calls[0]!.userPrompt).not.toContain("doc_2");
-    expect(calls[0]!.userPrompt).toContain("doc_1");
-  });
-
-  it("local_only 下允许把正文交给本地模型（数据不出本机）", async () => {
-    const { gateway, calls } = fakeGateway(ok("结论[^ch_1]。"));
-    await generateReport({ ...INPUT, policy: "local_only" }, { gateway });
+    await generateReport(INPUT, { gateway });
     expect(calls[0]!.userPrompt).toContain(BODY_MARKER);
+  });
+
+  // fail-closed：拿不到 chunk 对应的文档就拿不到来源策略，此时不能假定它可以出站。
+  it("文档元数据缺失时该 chunk 被剔除", async () => {
+    const { gateway, calls } = fakeGateway(ok("结论。"));
+    await generateReport({ ...INPUT, documents: [] }, { gateway });
+    expect(calls[0]!.userPrompt).not.toContain(BODY_MARKER);
   });
 
   it("出站预算被传给网关", async () => {
@@ -169,13 +143,13 @@ describe("generateReport 的出站过滤（spec §10.4）", () => {
 });
 
 describe("generateReport 的降级", () => {
-  it("local_only 无本地模型时降级为确定性证据摘要，而不是失败", async () => {
+  it("一个供应商都没配时降级为确定性证据摘要，而不是失败", async () => {
     const { gateway } = fakeGateway({
       ok: false,
-      code: "local_model_unavailable",
-      message: "没有本地模型",
+      code: "no_provider_configured",
+      message: "尚未配置任何可用的模型供应商",
     });
-    const report = await generateReport({ ...INPUT, policy: "local_only" }, { gateway });
+    const report = await generateReport(INPUT, { gateway });
 
     expect(report.markdown).toContain("node:sqlite");
     expect(report.markdown).toContain("[^ch_1]");

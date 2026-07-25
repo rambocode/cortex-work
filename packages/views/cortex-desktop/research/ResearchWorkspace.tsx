@@ -11,12 +11,13 @@
 // bridge 为 null（Web 端没有桌面桥）时渲染降级提示，不做任何订阅与请求。
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useResearchUiStore } from "@cortex-work/core/research/ui-store";
-import type { ModelDataPolicy, ResearchSessionSummary } from "@cortex-work/core/research/types";
+import type { ResearchSessionSummary } from "@cortex-work/core/research/types";
 import type { ResearchBridgeLike } from "./bridge-like";
 import { ResearchCreateForm } from "./ResearchCreateForm";
 import { ResearchRunView } from "./ResearchRunView";
 import { ResearchSessionList } from "./ResearchSessionList";
 import { ResearchSourcePanel } from "./ResearchSourcePanel";
+import type { ResearchModelDisplay } from "./modelDisplay";
 import "./research.css";
 
 /// 工作区 props。bridge 由宿主壳注入（组件不摸 window），onClose 供整窗覆盖层关闭。
@@ -24,9 +25,9 @@ export interface ResearchWorkspaceProps {
   /// 桌面桥；Web 端传 null，组件走降级分支。
   bridge: ResearchBridgeLike | null;
   onClose: () => void;
-  /// 新建表单里「数据出站策略」的默认值，来自设置页。
+  /// 本次研究将使用的模型（展示名 + 是否本机 + 出站说明），来自设置。
   /// 由宿主注入：views 不读个人工作区的设置 store，保持可复用。
-  defaultModelDataPolicy?: ModelDataPolicy;
+  model?: ResearchModelDisplay;
 }
 
 /// 统一的错误消息提取（Error / 任意抛出物都能变成一句可展示的话）。
@@ -40,7 +41,7 @@ function errText(e: unknown): string {
 export function ResearchWorkspace({
   bridge,
   onClose,
-  defaultModelDataPolicy,
+  model,
 }: ResearchWorkspaceProps): ReactElement {
   const sessions = useResearchUiStore((s) => s.sessions);
   const activeSessionId = useResearchUiStore((s) => s.activeSessionId);
@@ -189,7 +190,7 @@ export function ResearchWorkspace({
           {creating ? (
             <ResearchCreateForm
               bridge={bridge}
-              defaultModelDataPolicy={defaultModelDataPolicy}
+              {...(model ? { model } : {})}
               onCreated={onCreated}
               onCancel={() => setCreating(false)}
             />

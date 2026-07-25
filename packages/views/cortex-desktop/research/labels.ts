@@ -9,7 +9,6 @@ import {
   canTransition,
 } from "@cortex-work/core/research/session-status";
 import type {
-  ModelDataPolicy,
   ResearchMode,
   ResearchSessionStatus,
   ResearchStage,
@@ -52,13 +51,6 @@ export const RESEARCH_MODE_LABELS: Record<ResearchMode, { label: string; hint: s
   quick: { label: "快速", hint: "单轮检索，几分钟内给出初步结论" },
   standard: { label: "标准", hint: "多轮补搜，覆盖度不足会自动追问" },
   deep: { label: "深度", hint: "更多轮次与来源，耗时最长、最全面" },
-};
-
-/// 三种数据出站策略的中文标签（详细影响由 describeEgress 渲染，见 ResearchPolicyNotice）。
-export const MODEL_DATA_POLICY_LABELS: Record<ModelDataPolicy, { label: string; hint: string }> = {
-  local_only: { label: "仅本地模型", hint: "任何内容都不出本机；没有本地模型时直接失败" },
-  metadata_only: { label: "仅元数据出站", hint: "云端模型只看标题、摘要与域名，不看正文" },
-  evidence_allowed: { label: "允许证据出站", hint: "证据正文片段会发给所选模型供应商" },
 };
 
 /// 抓取失败码的中文说明（面向用户，解释「为什么这条来源没进证据」）。

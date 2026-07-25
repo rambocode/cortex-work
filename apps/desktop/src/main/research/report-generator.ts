@@ -2,10 +2,10 @@
 //
 // 三条约束，每条都有对应的结构性保证而不只是提示词约定：
 //
-// 1. **只有允许出站的 chunk 进 prompt**：evidence_allowed 下逐来源过 canSendToCloudModel，
-//    metadata_only 下走另一个**根本没有正文参数**的 prompt 构造函数
-//    （buildMetadataReportUserPrompt），local_only 下允许全文——因为网关保证此时模型在本机。
-// 2. **无工具**：模型经 PolicyAwareModelGateway 调用，它的请求体里没有 tools/functions，
+// 1. **只有允许出站的 chunk 进 prompt**：逐来源过 canSendToCloudModel（来源级零信任闸门，
+//    memory / local_file / 未批准的来源被剔除；文档元数据缺失时 fail-closed）。
+//    这条闸门与「用户选了哪个模型」正交——它回答的是「这份数据本身允不允许被送进模型」。
+// 2. **无工具**：模型经 ResearchModelGateway 调用，它的请求体里没有 tools/functions，
 //    因此不存在网络、终端、文件写入或 Browser 能力（spec §6.1 第 4 条）。
 // 3. **产物必过 Citation Validator**：未知 chunkId 被物理删除，失去支撑的事实段标 unsupported。
 //    这里先校验一次是因为**本文件是 LLM 输出进入系统的边界**；编排层落库前还会再校验一次，
@@ -17,7 +17,6 @@
 import { canSendToCloudModel } from "@cortex-work/core/research/trust-policy";
 import type { EvidenceChunk, ResearchDocument } from "@cortex-work/core/research/evidence";
 import type {
-  ModelDataPolicy,
   ResearchBudget,
   ResearchPlan,
   ResearchReport,
@@ -25,11 +24,7 @@ import type {
 } from "@cortex-work/core/research/types";
 import { validateResearchReport } from "./citation-validator";
 import type { ModelGatewayLike } from "./planner/initial-planner";
-import {
-  REPORT_SYSTEM_PROMPT,
-  buildMetadataReportUserPrompt,
-  buildReportUserPrompt,
-} from "./planner/prompts";
+import { REPORT_SYSTEM_PROMPT, buildReportUserPrompt } from "./planner/prompts";
 import { buildEvidenceReport } from "./report-builder";
 
 /// 单条证据摘录的出站字符上限。与 report-builder 的口径一致：
@@ -108,7 +103,6 @@ export interface ReportGenerationInput {
   chunks: readonly EvidenceChunk[];
   /// 用于回填引用元数据（标题 / URL / 抓取时间）。缺失的文档对应的引用会被丢弃。
   documents?: readonly ResearchDocument[];
-  policy: ModelDataPolicy;
   budget: ResearchBudget;
   /// 输出要求（格式 / 目标字数 / 是否强制引用）。maxWords 决定输出 token 预算，
   /// 见 resolveReportMaxTokens。
@@ -148,25 +142,22 @@ interface ReportSection {
   chunks: EvidenceChunk[];
 }
 
-/// 按子问题分节，并在此处完成**出站过滤**。
+/// 按子问题分节，并在此处完成**出站过滤**：逐来源过 canSendToCloudModel。
 ///
-/// 过滤规则（policy → 允许哪些 chunk 进 prompt）：
-/// - local_only：全部允许。canSendToCloudModel 在这个策略下恒为 false，但它判定的是「云模型」；
-///   网关已保证 local_only 只会选中 loopback provider，正文根本不离开本机（见 core 的 describeEgress）。
-/// - metadata_only：正文一律不出站（由 buildMetadataReportUserPrompt 结构性保证），
-///   但**连元数据也要过来源级闸门**——本地文件的路径、Memory 的标题同样是隐私
-///   （spec §19.3.3：未批准的本地文件与 Memory 不得进入远程模型请求）。
-/// - evidence_allowed：逐来源过 canSendToCloudModel（memory / local_file / 未批准的来源被剔除）。
+/// 这道闸门是**来源级**的（memory / local_file / 未批准的来源被剔除，见 spec §19.3.3），
+/// 与「用户为研究选了哪个模型」无关——后者决定数据去哪，前者决定这份数据允不允许被送进模型。
+///
+/// 已知取舍：所选模型在本机时，理论上连 memory / local_file 的正文也可以放行
+/// （数据根本没离开设备）。这里**不做这个放宽**，因为 M1 的 deep research 只有 public_web
+/// 一种来源，那条分支现在是死代码；等 local_file / memory 来源真正落地时，再按网关选型的
+/// isLocal 有条件放宽，届时才有真实场景可验证。
 function buildSections(input: ReportGenerationInput): ReportSection[] {
   const documentById = new Map((input.documents ?? []).map((item) => [item.documentId, item]));
   const allowed = input.chunks.filter((chunk) => {
-    if (input.policy === "local_only") return true;
     const document = documentById.get(chunk.documentId);
     // 文档缺失时按 fail-closed 处理：拿不到来源策略就不能假定它可以出站。
     if (!document) return false;
-    return input.policy === "metadata_only"
-      ? document.policy.allowCloudModel === true
-      : canSendToCloudModel(document.policy, input.policy);
+    return canSendToCloudModel(document.policy);
   });
 
   const maxChunks = MAX_CHUNKS_BY_MODE[tierOf(input.budget)];
@@ -207,46 +198,24 @@ async function requestMarkdown(
   const documentById = new Map((input.documents ?? []).map((item) => [item.documentId, item]));
   const titleOf = (chunk: EvidenceChunk): string =>
     documentById.get(chunk.documentId)?.title ?? "未知来源";
-  const domainOf = (chunk: EvidenceChunk): string =>
-    documentById.get(chunk.documentId)?.source.domain ?? "unknown";
-
-  const userPrompt =
-    input.policy === "metadata_only"
-      ? buildMetadataReportUserPrompt({
-          objective: input.objective,
-          sections: sections.map((section) => ({
-            heading: section.heading,
-            items: section.chunks.map((chunk) => ({
-              chunkId: chunk.chunkId,
-              title: titleOf(chunk),
-              domain: domainOf(chunk),
-            })),
-          })),
-        })
-      : buildReportUserPrompt({
-          objective: input.objective,
-          sections: sections.map((section) => ({
-            heading: section.heading,
-            items: section.chunks.map((chunk) => ({
-              chunkId: chunk.chunkId,
-              title: titleOf(chunk),
-              excerpt: excerptOf(chunk.text),
-            })),
-          })),
-        });
+  const userPrompt = buildReportUserPrompt({
+    objective: input.objective,
+    sections: sections.map((section) => ({
+      heading: section.heading,
+      items: section.chunks.map((chunk) => ({
+        chunkId: chunk.chunkId,
+        title: titleOf(chunk),
+        excerpt: excerptOf(chunk.text),
+      })),
+    })),
+  });
 
   const result = await deps.gateway.call({
     purpose: "report",
     systemPrompt: REPORT_SYSTEM_PROMPT,
     userPrompt,
-    policy: input.policy,
     maxTokens: resolveReportMaxTokens(input),
     maxPromptChars: input.budget.maxEvidenceCharsToModel,
-    // 第二道防线：把「绝不能出站的正文」交给网关做运行时比对。
-    // metadata_only 之外的策略下网关自己会放行，这里无条件传即可。
-    // 已知取舍：若某来源的标题恰好与正文有 24 字符以上的重叠，守卫会误判并拦下本次调用，
-    // 结果是降级成确定性摘要——方向是安全的（宁可少一次润色，也不放过一次可能的正文外泄）。
-    forbiddenEvidenceTexts: input.chunks.map((chunk) => chunk.text),
     ...(input.signal ? { signal: input.signal } : {}),
   });
 

@@ -304,7 +304,6 @@ describe("PersonalSidebar 深度研究入口", () => {
           slidesEnabled: false,
           writingEnabled: false,
           memoryEnabled: false,
-          defaultModelDataPolicy: "evidence_allowed" as const,
         },
       },
     }));

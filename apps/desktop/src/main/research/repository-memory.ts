@@ -27,7 +27,6 @@ import type {
   ResearchSessionStatus,
   ResearchSessionSummary,
   ResearchSessionView,
-  ModelDataPolicy,
   SourceScope,
 } from "@cortex-work/core/research/types";
 import {
@@ -47,7 +46,6 @@ import {
 interface SessionRecord {
   summary: ResearchSessionSummary;
   userScope: string;
-  modelDataPolicy: ModelDataPolicy;
   sourceScopes: readonly SourceScope[];
   output: ResearchOutputRequest;
   budget: ResearchBudget;
@@ -110,7 +108,6 @@ export class InMemoryResearchRepository implements ResearchRepository {
     this.state.sessions[input.sessionId] = {
       summary,
       userScope: input.userScope,
-      modelDataPolicy: input.modelDataPolicy,
       sourceScopes: clone(input.sourceScopes),
       output: clone(input.output),
       budget: clone(input.budget),
@@ -125,10 +122,6 @@ export class InMemoryResearchRepository implements ResearchRepository {
       citations: [],
     };
     return clone(summary);
-  }
-
-  async getSessionModelDataPolicy(sessionId: string): Promise<ModelDataPolicy | null> {
-    return this.state.sessions[sessionId]?.modelDataPolicy ?? null;
   }
 
   async getSession(sessionId: string, detail: ResearchDetailLevel): Promise<ResearchSessionView | null> {

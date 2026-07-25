@@ -39,7 +39,6 @@ export function fixtureSessionInput(overrides: Partial<CreateSessionInput> = {})
     consumer: "deep_research",
     objective: "调研 Electron 39 的 node:sqlite 稳定性",
     mode: "standard",
-    modelDataPolicy: "evidence_allowed",
     sourceScopes: [{ kind: "public_web" }],
     output: { format: "report", requireCitations: true },
     budget: MODE_BUDGETS.standard,

@@ -8,7 +8,7 @@
 //     1. FakeWorkerTransport —— 代替 utilityProcess 管道，但走**真的** ResearchWorkerProcess
 //        + ResearchRpcClient + 协议 zod 校验，响应取 core/research/protocol-fixtures 的真实形状；
 //     2. fetchFn —— 代替真网络，但走**真的** SearchServerClient（含 request_id 校验与 zod）；
-//     3. complete —— 代替模型 HTTP，但走**真的** PolicyAwareModelGateway + Planner + 报告生成。
+//     3. complete —— 代替模型 HTTP，但走**真的** ResearchModelGateway + Planner + 报告生成。
 //   生产实现（不替身）：ResearchService、ResearchOrchestrator、候选选择、worker-mapping、
 //     覆盖度评估、Citation Validator、状态机、预算记账。仓储用 InMemory 版（SQLite 版由
 //     research-repository.sqlite.test.ts 覆盖，两者实现同一个 ResearchRepository 接口）。
@@ -40,7 +40,6 @@ const REQUEST: ResearchRequest = {
   objective: "调研 node:sqlite 是否可用于生产",
   mode: "quick",
   sourceScopes: [{ kind: "public_web" }],
-  modelDataPolicy: "evidence_allowed",
   output: { format: "report", requireCitations: true },
 };
 
@@ -234,7 +233,7 @@ async function makeHarness(): Promise<Harness> {
     });
   };
 
-  // 3. 模型：真 PolicyAwareModelGateway + 假 complete。
+  // 3. 模型：真 ResearchModelGateway + 假 complete。
   // enabled + 非空 models 是 selectResearchModel 认「可用 provider」的硬条件，
   // 少任何一个都会被判 no_provider_configured 并静默降级成确定性摘要（那正是本测试要排除的）。
   const providerSettings: ProviderSettings = {
@@ -281,10 +280,9 @@ async function makeHarness(): Promise<Harness> {
       },
     },
     userScope: () => "local",
-    llmHooks: ({ modelDataPolicy }) =>
+    llmHooks: () =>
       createResearchLlmHooks({
         providerSettings,
-        policy: modelDataPolicy,
         consumer: "deep_research",
         complete: async (params) => {
           modelSystemPrompts.push(params.messages[0]!.content);

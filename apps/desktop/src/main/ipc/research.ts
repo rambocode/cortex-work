@@ -60,7 +60,6 @@ const researchRequestSchema = z
     objective: z.string().trim().min(1).max(MAX_OBJECTIVE_CHARS),
     mode: z.enum(["quick", "standard", "deep"]),
     sourceScopes: z.array(sourceScopeSchema).min(1).max(4),
-    modelDataPolicy: z.enum(["local_only", "metadata_only", "evidence_allowed"]),
     output: z
       .object({
         format: z.enum(["report", "evidence_package", "answer"]),
