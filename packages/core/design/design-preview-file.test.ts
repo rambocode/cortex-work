@@ -45,6 +45,67 @@ describe('design preview file helpers', () => {
     expect(designPreviewRenderState('```html\n<html><body>oops')).toBe('transient')
   })
 
+  // fs:readFile 有 2MB 截断线,bento deck 实测 1.5MB 且随保存世代增长。被截断的内容
+  // 一定没有 </html>,拿关闭标签当「写完了」的证据会让 deck 恒判 transient → webview
+  // 永不挂载 → revision 永不推进(用户实测:AI 改完中间画布毫无变化)。
+  it('treats truncated reads with an open HTML shell as renderable', () => {
+    const openOnly = `<!doctype html><html><head><title>Deck</title></head><body><div id="bento-doc">${'x'.repeat(64)}`
+
+    expect(designPreviewRenderState(openOnly, { truncated: true })).toBe('renderable')
+    // 同样内容未被截断 → 仍是「写到一半」,不能挂载。
+    expect(designPreviewRenderState(openOnly, { truncated: false })).toBe('transient')
+    expect(designPreviewRenderState(openOnly)).toBe('transient')
+    // 截断也不能把 markdown 代码块伪装成 HTML 文档。
+    expect(designPreviewRenderState('```html\n<html><body>oops', { truncated: true })).toBe('transient')
+    // skeleton 判定与 truncated 无关(骨架文件极小,不会触到截断线)。
+    expect(designPreviewRenderState(buildDesignPreviewSkeleton('a.html'), { truncated: true })).toBe('skeleton')
+  })
+
+  it('forwards the truncated flag from both the initial watch read and change events', async () => {
+    const bigOpenShell = `<!doctype html><html><body><div id="bento-doc">${'x'.repeat(32)}`
+    const { api, emit } = createWatchApi({
+      ok: true,
+      watchId: 'watch-1',
+      path: '/workspace/.cortex-design/d7b7/deck.bento.html',
+      content: bigOpenShell,
+      size: 2 * 1024 * 1024,
+      truncated: true,
+      startedAt: '2026-06-21T00:00:00.000Z'
+    })
+    const onRevision = vi.fn()
+    const onPreviewStateChange = vi.fn()
+    const dispose = startDesignHtmlPreviewWatch({
+      api,
+      workspaceRoot: '/workspace',
+      path: '.cortex-design/d7b7/deck.bento.html',
+      onRevision,
+      onPreviewStateChange,
+      onError: vi.fn(),
+      revisionDebounceMs: 0
+    })
+    await flushPromises()
+
+    expect(onPreviewStateChange).toHaveBeenCalledWith('renderable')
+    expect(onRevision).toHaveBeenCalledTimes(1)
+
+    emit({
+      ok: true,
+      watchId: 'watch-1',
+      workspaceRoot: '/workspace',
+      path: '/workspace/.cortex-design/d7b7/deck.bento.html',
+      content: bigOpenShell,
+      size: 2 * 1024 * 1024,
+      truncated: true,
+      changedAt: '2026-06-21T00:00:02.000Z'
+    })
+
+    expect(onPreviewStateChange).toHaveBeenLastCalledWith('renderable')
+    expect(onRevision).toHaveBeenCalledTimes(2)
+    expect(onRevision).toHaveBeenNthCalledWith(2, 2)
+
+    dispose()
+  })
+
   it('creates a visible skeleton for a new HTML turn before sending', async () => {
     const writeWorkspaceFile = vi.fn(async () => ({
       ok: true as const,

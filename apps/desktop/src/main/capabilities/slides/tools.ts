@@ -85,7 +85,7 @@ function stageHint(stage: BentoDeckStage): string {
     case "outline-approved":
       return "The outline is approved: produce the complete document (all slides) in one set_deck_doc call.";
     case "ready":
-      return "The deck is ready: fetch with get_deck_state, then edit ONLY the affected slides with set_slides (send just those slides, not the whole deck). Use set_deck_doc only when adding, deleting or reordering slides.";
+      return "The deck is ready: fetch with get_deck_state, then edit ONLY the affected slides with set_slides — at most 3 slides per call, chaining nextExpectedRevision from each response into the next batch. Use set_deck_doc only when adding, deleting or reordering slides.";
   }
 }
 
@@ -190,7 +190,15 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       });
       if (!result.ok) return errorResult(result.error.code, result.error.message);
       log.info(`[mcp] set_deck_doc deck=${ctx.deckId} slides=${slideCount} rev=${result.value.revision}`);
-      return jsonResult({ ok: true, revision: result.value.revision, stage: nextStage ?? stage });
+      // slideCount / nextExpectedRevision 显式回传:UI 的工具芯片直接读它显示「全篇 13 页 · rev 72」,
+      // 模型也不必再自己从 revision 推断下一批该带什么(推断错就是一次 revision_conflict)。
+      return jsonResult({
+        ok: true,
+        revision: result.value.revision,
+        nextExpectedRevision: result.value.revision,
+        slideCount,
+        stage: nextStage ?? stage,
+      });
     },
   );
 
@@ -204,7 +212,10 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
         "This is the DEFAULT way to edit a deck that already exists — send only the slides you changed, " +
         "never the whole document. Each item must be a COMPLETE slide object (id + background + transition + " +
         "elements + notes); it replaces that slide wholesale, it is not a field-level merge. " +
-        "Requires expected_revision. Cannot add, delete or reorder slides — use set_deck_doc for that.",
+        "Send AT MOST 3 slides per call and call it repeatedly for larger revisions: the response returns " +
+        "nextExpectedRevision, pass that as expected_revision for the next batch (no need to re-read the deck). " +
+        "Small batches land reliably instead of being truncated mid-JSON, and the user sees the deck update " +
+        "page by page. Requires expected_revision. Cannot add, delete or reorder slides — use set_deck_doc for that.",
       inputSchema: {
         expected_revision: z.number().int().min(0),
         slides: slidesInputShape.describe(
@@ -227,10 +238,14 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       log.info(
         `[mcp] set_slides deck=${ctx.deckId} ids=${result.value.replacedIds.join(",")} rev=${result.value.revision}`,
       );
+      // replacedPages(1 基页码)给 UI 用 —— agent 只认 slide id,用户只认「第几页」;
+      // nextExpectedRevision 让模型直接续写下一批,不必再跑一次 get_deck_state。
       return jsonResult({
         ok: true,
         revision: result.value.revision,
+        nextExpectedRevision: result.value.revision,
         replacedSlideIds: result.value.replacedIds,
+        replacedPages: result.value.replacedPages,
       });
     },
   );

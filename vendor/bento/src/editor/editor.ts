@@ -25,6 +25,7 @@ import { ICONS } from '../icons'
 import { t, setLocale, locale, LOCALE_CHOICES } from '../i18n'
 import { disconnectOnline, joinFromDoc, mintCollab, mintInvite, onlineTransport, rotateKeys, sharingOn, startSharing, stopSharing } from '../sync/online'
 import { cortexPromptText } from '../cortex/prompt-dialog' // CORTEX-PATCH
+import { cortexHost } from '../cortex/host-bridge' // CORTEX-PATCH
 
 const i18nT = t
 
@@ -238,7 +239,13 @@ export class Editor {
     history.append(undoB, redoB)
     const saveGroup = div('ed-split')
     saveGroup.append(saveB, this.saveDropdown())
-    actions.append(pdfB, this.avatarsBox, this.shareDropdown(), saveGroup, this.languageDropdown(), helpB)
+    // CORTEX-PATCH: Share 入口不进工具栏 —— 在线协作在本运行时整体未接线(见
+    // src/cortex/no-sync.ts)。但 shareDropdown() 仍必须调用:它负责创建
+    // this.shareB / this.shareWrap,而 wireOnlineStatus() 是被无条件调用的、会直接读
+    // this.shareB;删掉引用会抛 TypeError,且 noUnusedLocals 会因私有方法无调用点报
+    // TS6133。建好的节点留在游离 DOM 里,用户点不到,是"关掉协作 UI"代价最小的做法。
+    this.shareDropdown()
+    actions.append(pdfB, this.avatarsBox, saveGroup, this.languageDropdown(), helpB)
     bar.append(title, history, insert, actions)
 
     // main area
@@ -447,6 +454,15 @@ export class Editor {
       item(ICONS.plus, t('Duplicate as new deck…'),
         t('A separate deck for you — same content, new identity; it never syncs with this one.'),
         () => this.saveAsNewDeck())
+      // CORTEX-PATCH: 这两个入口上游挂在 Share 面板的 canWrite 分支里,但它们**与协作
+      // 无关** —— 都只是"另存成一个别的文件"。协作 UI 一撤掉就会连带消失,所以搬到
+      // Save 菜单(File operations 才是它们的正确归属)。
+      item(ICONS.slideshow, t('Present-only file…'),
+        t('A sealed hand-out that opens straight into the show — no editor, no live connection.'),
+        () => void this.savePresentationPackage())
+      item(ICONS.template, t('Template…'),
+        t('A reusable starter: everyone who opens it gets their own fresh, independent deck.'),
+        () => void this.saveAsTemplate())
       if (isEncryptionActive()) {
         item(ICONS.lock, t('Change password…'),
           t('Pick a new password for this file — takes effect on the next save.'),
@@ -1525,8 +1541,28 @@ export class Editor {
   private wireAutosave() {
     if (this.store.doc.readonly) return // player file — nothing to autosave
     void pruneOld()
-    void this.checkRecovery()
+    // CORTEX-PATCH: 宿主环境下 IndexedDB crash-recovery 整体关闭。
+    // 那里磁盘才是唯一真源(主进程按 revision 乐观锁写 deck.bento.html),AI 每改一次稿,
+    // 浏览器侧这份快照都必然"比文件新且不同",checkRecovery() 就必弹「发现未保存的修改」,
+    // 而点 Restore 等于用旧稿整份覆盖 AI 新稿 —— 这是内容重叠/回退的一条独立通路。
+    // 只在落盘后 clearRecovery 不够:自己 2500ms 的 runAutosave 会立刻把它写回来,
+    // 所以这里连读带写一起断(写的一侧见 runAutosave),并顺手清掉存量残留。
+    // addVersion 刻意保留 —— 版本历史是「热应用覆盖了我的编辑」的第二条找回途径。
+    if (cortexHost()) void clearRecovery(this.store.doc.docId)
+    else void this.checkRecovery()
     this.store.on('doc', () => this.scheduleAutosave())
+  }
+
+  /**
+   * CORTEX-PATCH: 宿主热应用(src/cortex/apply-doc.ts)换完文档后的收尾。
+   * render() 是兜底重绘(store 的 doc/current 事件本就会驱动 canvas,但热应用是
+   * 跨进程注入的路径,不依赖订阅关系仍然成立);清 autosave timer + 清脏标记是因为
+   * 这份内容**就是磁盘上的内容**,不该再被当成"用户的未保存修改"回写一遍。
+   */
+  cortexAfterHostApply() {
+    this.canvas.render()
+    clearTimeout(this.autosaveTimer)
+    this.store.setDirty(false)
   }
 
   private scheduleAutosave() {
@@ -1541,7 +1577,8 @@ export class Editor {
     // Never write an encrypted deck's plaintext to IndexedDB; its file
     // write-back below stays encrypted via serializeAuto.
     if (!isEncryptionActive()) {
-      await putRecovery(doc)
+      // CORTEX-PATCH: 宿主环境不写 recovery 快照(理由见 wireAutosave);版本历史照写。
+      if (!cortexHost()) await putRecovery(doc)
       if (Date.now() - this.lastVersionAt > 120_000) { this.lastVersionAt = Date.now(); await addVersion(doc) }
     }
     // Silent file write-back once we hold a writable handle (Chrome/Edge).

@@ -15,11 +15,12 @@ import { injectFonts } from './fonts'
 import { Store } from './store'
 import { Editor } from './editor/editor'
 import { startPresentation } from './present'
-import { SyncSession } from './sync/session'
-import { onlineTransport, startSharing, stopSharing } from './sync/online'
-// CORTEX-PATCH: Electron 宿主定制层(放映窗 boot 分流 + 编辑器保存桥),见 src/cortex/。
+// CORTEX-PATCH: Electron 宿主定制层(放映窗 boot 分流 + 编辑器保存桥 + 热应用 + 零协作),
+// 见 src/cortex/ 与 CORTEX_PATCHES.md。上游的 SyncSession / sync/online 刻意不再接线。
 import { tryCortexPresentBoot } from './cortex/present-modes'
 import { initCortexHostBridge } from './cortex/host-bridge'
+import { initCortexApplyDoc } from './cortex/apply-doc'
+import { createNoSyncSession } from './cortex/no-sync'
 
 capturePristine()
 
@@ -126,9 +127,15 @@ const editor = new Editor(document.getElementById('app')!, store)
 // CORTEX-PATCH: Electron 宿主在场时,编辑变更经保存桥持续回写磁盘(浏览器环境为 no-op)。
 initCortexHostBridge(store)
 
-// Live collaboration (bento-sync): same-machine tabs sync automatically over
-// BroadcastChannel; the online relay transport joins via the Share UI.
-const session = new SyncSession(store)
+// CORTEX-PATCH: 宿主热应用入口 —— AI 改稿落盘后就地换文档,不重载 webview
+// (保住选区与撤销栈)。必须排在 initCortexHostBridge 之后:热应用要用它的写入闸门。
+initCortexApplyDoc(store, editor)
+
+// CORTEX-PATCH: 协作会话换成零同步空壳(src/cortex/no-sync.ts)。
+// 上游的 SyncSession 构造即会给没有 collab 的文档铸造凭据并连公共中继,重开时全量重放
+// 房间历史 + CRDT 并集合并 —— 表现为「新旧内容重贴在一起」,还会外传 deck 内容。
+// Cortex 的 deck 是单机单编辑器 + 磁盘真源 + 主进程 revision 乐观锁,不需要 CRDT。
+const session = createNoSyncSession(store)
 editor.connectSync(session)
 
 // Opening a link ending in #present starts the show immediately (player mode).
@@ -172,7 +179,11 @@ if (location.hash === '#present') {
   anim,
   /** i18n: t/locale/setLocale/choices — setLocale('x-pseudo') audits the sweep */
   i18n: i18nApi,
-  /** live-collaboration session: actor id, connected peers, force a diff-flush */
+  /**
+   * CORTEX-PATCH — **对外脚本面契约变化**:形状保持不变(诊断脚本/自动化不会崩),
+   * 但语义已降级为「永远离线」。share() 恒 null、unshare() 无操作、online() 恒 'off',
+   * peers() 恒空、transports() 恒 []。理由见 src/cortex/no-sync.ts。
+   */
   sync: {
     get actor() {
       return session.actor
@@ -180,13 +191,12 @@ if (location.hash === '#present') {
     peers: () => session.peers(),
     flush: () => session.flush(),
     transports: () => session.transportKinds,
-    /** start an online session (mints doc.collab, connects the relay) */
-    share: () => {
-      void startSharing(session, store)
-      return store.doc.collab
-    },
-    unshare: () => stopSharing(session, store),
-    online: () => onlineTransport()?.status ?? 'off',
+    /** 已停用:本运行时不铸造协作凭据、不连中继。恒返回 null。 */
+    share: () => null,
+    /** 已停用:没有会话可断开。 */
+    unshare: () => undefined,
+    /** 恒 'off' —— 没有任何在线传输存在。 */
+    online: () => 'off',
   },
   /**
    * AI/tooling round-trip: replace the whole document from a JSON string

@@ -157,17 +157,24 @@ export function isDesignPreviewSkeleton(content: string): boolean {
 
 export type DesignPreviewRenderState = 'skeleton' | 'renderable' | 'transient'
 
-function looksLikeRenderableStandaloneHtml(content: string): boolean {
+function looksLikeRenderableStandaloneHtml(content: string, truncated: boolean): boolean {
   const trimmed = content.trim()
   if (!trimmed) return false
   if (HTML_CODE_FENCE_RE.test(trimmed)) return false
   if (!HTML_SHELL_OPEN_RE.test(trimmed)) return false
+  // 读文件有大小上限(见 main/ipc/fs.ts 的 MAX_FILE_BYTES,2MB):被截断的内容一定
+  // 没有 </html>,把关闭标签当「写完了」的证据会把大文件恒判为 transient。bento deck
+  // 实测 1.5MB 且随保存世代增长,越线后预览会彻底不挂载 —— 所以截断时只认开壳。
+  if (truncated) return true
   return HTML_SHELL_CLOSE_RE.test(trimmed)
 }
 
-export function designPreviewRenderState(content: string): DesignPreviewRenderState {
+export function designPreviewRenderState(
+  content: string,
+  options?: { truncated?: boolean }
+): DesignPreviewRenderState {
   if (isDesignPreviewSkeleton(content)) return 'skeleton'
-  return looksLikeRenderableStandaloneHtml(content) ? 'renderable' : 'transient'
+  return looksLikeRenderableStandaloneHtml(content, options?.truncated === true) ? 'renderable' : 'transient'
 }
 
 function currentPrepareApi(api?: DesignPreviewPrepareApi): DesignPreviewPrepareApi | undefined {
@@ -283,8 +290,10 @@ export function startDesignHtmlPreviewWatch(options: StartDesignHtmlPreviewWatch
     }, debounceMs)
   }
 
-  const reportContentState = (content: string): DesignPreviewRenderState => {
-    const state = designPreviewRenderState(content)
+  // truncated 由 watch 契约(WorkspaceFileWatchResult / WorkspaceFileChangePayload)透传:
+  // 主进程读文件超上限时只给前 2MB,判定必须知道「没有 </html> 是被剪掉了」。
+  const reportContentState = (content: string, truncated: boolean): DesignPreviewRenderState => {
+    const state = designPreviewRenderState(content, { truncated })
     options.onSkeletonChange?.(state !== 'renderable')
     options.onPreviewStateChange?.(state)
     return state
@@ -295,7 +304,7 @@ export function startDesignHtmlPreviewWatch(options: StartDesignHtmlPreviewWatch
     if (payload.ok) {
       // Report skeleton state immediately so the webview can mount as soon as the
       // first SAFE real HTML lands, but debounce the reload-triggering revision bump.
-      const state = reportContentState(payload.content)
+      const state = reportContentState(payload.content, payload.truncated)
       if (state === 'renderable') scheduleBumpRevision()
       return
     }
@@ -317,7 +326,7 @@ export function startDesignHtmlPreviewWatch(options: StartDesignHtmlPreviewWatch
         return
       }
       watchId = result.watchId
-      const state = reportContentState(result.content)
+      const state = reportContentState(result.content, result.truncated)
       if (state !== 'transient') bumpRevision()
     })
     .catch((error: unknown) => {

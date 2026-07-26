@@ -15,6 +15,7 @@ import { SlidesOutlineDialog } from './SlidesOutlineDialog'
 import { SlidesStage } from './SlidesStage'
 import { SlidesToolbar } from './SlidesToolbar'
 import { useBentoSlidesStore } from './bento-slides-store'
+import { useSlidesDeckActivity } from './use-slides-deck-activity'
 
 type Props = {
   workspaceRoot: string
@@ -49,6 +50,9 @@ export function SlidesWorkspace({
     if (!bridge || !workspaceRoot || !documentId) return
     void setup({ bridge, workspaceRoot, deckId: documentId, title: documentTitle })
   }, [bridge, workspaceRoot, documentId, documentTitle, setup])
+
+  // AI 每写成一次盘就在会话时间线补一条「已更新 第N页 · rev X」(与工具芯片互相独立)。
+  useSlidesDeckActivity({ bridge, workspaceRoot, deckId: documentId })
 
   // 生成期间每 2s 轮询(stage/提纲跟进;文档内容重载由文件 watcher 驱动);回合结束再刷终态。
   const wasBusyRef = useRef(false)

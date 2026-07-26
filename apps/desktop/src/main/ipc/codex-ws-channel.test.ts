@@ -136,6 +136,12 @@ describe("parseAppServerEvent(U4)", () => {
       name: "MCP",
       detail: "memory",
     });
+    // server+tool 齐全时拼成 mcp__<server>__<tool>,渲染端才能查到中文标签(见 codexMcpToolName)。
+    expect(
+      parseAppServerEvent("item/started", {
+        item: { type: "mcpToolCall", server: "cortex-slides", tool: "set_slides" },
+      }),
+    ).toMatchObject({ name: "mcp__cortex-slides__set_slides" });
     expect(parseAppServerEvent("item/started", { item: { type: "webSearch", query: "cats" } })).toMatchObject({
       name: "WebSearch",
       detail: "cats",

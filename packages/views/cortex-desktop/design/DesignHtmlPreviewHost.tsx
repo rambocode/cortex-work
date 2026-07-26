@@ -65,6 +65,8 @@ export type DesignHtmlPreviewHostProps = {
   webpreferences?: string
   /** See shouldRenderDesignHtmlPreviewWebview. Defaults to true. */
   mountWhileSkeleton?: boolean
+  /** 见 shouldRenderDesignHtmlPreviewWebview:宿主自证文件可渲染时跳过体检。默认 false。 */
+  assumeRenderable?: boolean
   onError?: (message: string) => void
   onRevision?: (revision: number) => void
   onRenderStateChange?: (state: DesignPreviewRenderState) => void
@@ -84,7 +86,8 @@ export function shouldRenderDesignHtmlPreviewWebview({
   fileUrl,
   renderState,
   hasRenderableContent,
-  mountWhileSkeleton = true
+  mountWhileSkeleton = true,
+  assumeRenderable = false
 }: {
   fileUrl: string
   renderState: DesignPreviewRenderState
@@ -95,9 +98,19 @@ export function shouldRenderDesignHtmlPreviewWebview({
    * never paints; the webview then mounts only once real content exists.
    */
   mountWhileSkeleton?: boolean
+  /**
+   * 由宿主自己保证文件可渲染,跳过 renderState 体检直接挂载(默认 false,行为不变)。
+   *
+   * slides 的 deck 由主进程写、结构由 injectBentoDocJson 保证,挂载 gate 已由
+   * SlidesWorkspace 的 doc 就绪判定承担 —— 不该再让「渲染端读整份 1.5MB HTML 做字符串
+   * 体检」卡在链路上:读文件有 2MB 截断线,一旦越线 renderState 恒为 'transient',
+   * webview 根本不挂载、revision 永不推进(实测症状:AI 改完中间画布毫无变化)。
+   */
+  assumeRenderable?: boolean
 }): boolean {
   if (!fileUrl) return false
   if (hasRenderableContent) return true
+  if (assumeRenderable) return true
   return mountWhileSkeleton && renderState === 'skeleton'
 }
 
@@ -125,7 +138,8 @@ export function executeDesignHtmlPreviewScript(
  * revision 导航决策(纯函数,便于单测):
  *  - 'none':revision 未变,无需动作;
  *  - 'skip':增量 revision 但属于「页面自己写回」(如 slides 编辑保存)—— 页面 DOM 即
- *    刚落盘的内容,重载只会闪屏并清空选区/光标,标记已消费但不导航;
+ *    刚落盘的内容,重载只会闪屏并清空选区/光标,故本次不导航;注意**不消费** revision
+ *    (见 designHtmlPreviewConsumedRevision),否则静默窗内到达的外部改写会被永久吞掉;
  *  - 'load':需要真实导航(首次加载一律 load,不受 skip 影响)。
  */
 export function designHtmlPreviewNavigateAction(options: {
@@ -136,6 +150,22 @@ export function designHtmlPreviewNavigateAction(options: {
   if (options.lastLoadedRevision === options.revision) return 'none'
   const firstLoad = options.lastLoadedRevision < 0
   return !firstLoad && options.skipSelfReload ? 'skip' : 'load'
+}
+
+/**
+ * 导航后 lastLoadedRevision 应推进到哪一版(纯函数,便于单测)。
+ *
+ * 'skip' **不消费** revision:它只是「这一次不导航」,不是「这一版已加载」。
+ * 提前消费会让落在自写回静默窗内的外部改写(Agent 写盘)被永久标记为已加载,
+ * 之后再也不会加载 —— 用户实测症状是「AI 改完演示文稿,中间画布毫无变化」。
+ * 只有真的 loadURL/reload 过,页面 DOM 才等于那一版内容,才允许消费。
+ */
+export function designHtmlPreviewConsumedRevision(
+  action: 'none' | 'skip' | 'load',
+  lastLoadedRevision: number,
+  revision: number
+): number {
+  return action === 'load' ? revision : lastLoadedRevision
 }
 
 export function designHtmlPreviewUrl(fileUrl: string, revision: number): string {
@@ -152,6 +182,7 @@ export function useDesignHtmlPreview({
   retryMissingFile = true,
   webpreferences = 'contextIsolation=yes,nodeIntegration=no,sandbox=yes',
   mountWhileSkeleton = true,
+  assumeRenderable = false,
   onError,
   onRevision,
   onRenderStateChange,
@@ -275,7 +306,8 @@ export function useDesignHtmlPreview({
     fileUrl,
     renderState,
     hasRenderableContent,
-    mountWhileSkeleton
+    mountWhileSkeleton,
+    assumeRenderable
   })
     ? designHtmlPreviewUrl(fileUrl, revision)
     : ''
@@ -296,9 +328,15 @@ export function useDesignHtmlPreview({
         revision,
         skipSelfReload: shouldSkipReload?.() === true
       })
+      // 先算动作再决定是否消费:'skip' 直接 return 且**不写 ref**(见
+      // designHtmlPreviewConsumedRevision 的注释),否则静默窗会吞掉外部改写。
       if (action === 'none') return
-      lastLoadedRevisionRef.current = revision
       if (action === 'skip') return
+      lastLoadedRevisionRef.current = designHtmlPreviewConsumedRevision(
+        action,
+        lastLoadedRevisionRef.current,
+        revision
+      )
       if (typeof webview.loadURL === 'function') {
         try {
           void webview.loadURL(target).catch(() => undefined)

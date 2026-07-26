@@ -37,7 +37,29 @@ const CODEX_TOOL_NAMES: Record<string, string> = {
   mcp_tool_call: "MCP",
   web_search: "WebSearch",
 };
-function codexToolName(itemType: string): string {
+/**
+ * MCP 调用的显示名:拼成 claude 同款的 `mcp__<server>__<tool>`。
+ *
+ * 为什么必须拼:codex 把每一次 MCP 调用都叫 "MCP",于是渲染端一屏「N 个操作 · MCP ×N」
+ * 看不出各自在做什么(用户实测:演示文稿改稿全程只有一个裸芯片),`TOOL_META` 也永远
+ * 查不到中文标签。渲染端现成的 `parseToolId` 会按 `__` 切分,兼容含连字符的 server id。
+ * 缺任一段返回 null(调用方回落 "MCP"),绝不拼半截名字。
+ *
+ * exec(item.type='mcp_tool_call')与 app-server ws(item.type='mcpToolCall')两条 codex
+ * 路径共用本函数 —— 否则会出现「exec 下有中文标签、ws 下没有」的分歧。
+ */
+export function codexMcpToolName(item: { server?: unknown; tool?: unknown }): string | null {
+  const server = typeof item.server === "string" ? item.server : "";
+  const tool = typeof item.tool === "string" ? item.tool : "";
+  return server && tool ? `mcp__${server}__${tool}` : null;
+}
+
+function codexToolName(item: Record<string, unknown>): string {
+  const itemType = typeof item.type === "string" ? item.type : "";
+  if (itemType === "mcp_tool_call") {
+    const mcpName = codexMcpToolName(item);
+    if (mcpName) return mcpName;
+  }
   return CODEX_TOOL_NAMES[itemType] ?? itemType;
 }
 
@@ -239,7 +261,7 @@ export const codexDef: AgentDef = {
     if (obj.type === "item.started" && typeof item?.type === "string" && CODEX_TOOL_TYPES.has(item.type)) {
       return {
         type: "tool",
-        name: codexToolName(item.type),
+        name: codexToolName(item),
         detail: codexToolDetail(item),
         // 完整调用参数(运行过程详情视图展示):codex item 本身就是调用描述,原样透出。
         input: item,
@@ -263,7 +285,7 @@ export const codexDef: AgentDef = {
       delete itemMeta.output;
       return {
         type: "tool",
-        name: codexToolName(item.type),
+        name: codexToolName(item),
         // end 帧也带 detail:web_search 的查询词在 item.started 时常为空,完成帧才有 →
         // 供渲染端回填调用行/结果行摘要(与 ws 路径 parseAppServerEvent 行为对齐)。
         detail: codexToolDetail(item),

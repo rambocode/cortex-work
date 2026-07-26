@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { SLIDES_IPC_CHANNELS as CORE_CHANNELS } from "@cortex-work/core/desktop/slides-ipc-types";
+import {
+  SLIDES_DECK_EVENT_CHANNEL as CORE_DECK_EVENT_CHANNEL,
+  SLIDES_IPC_CHANNELS as CORE_CHANNELS,
+} from "@cortex-work/core/desktop/slides-ipc-types";
 import { dialog } from "electron";
 
 const { handlers } = vi.hoisted(() => ({
@@ -41,7 +44,7 @@ import { openPresenterWindow } from "../presenter-window";
 import { writeBentoDoc } from "../capabilities/slides/bento-workspace";
 import { buildStarterBentoDoc } from "@cortex-work/core/design/slides/bento/bento-doc-schema";
 import { extractBentoDocJson, injectBentoDoc } from "@cortex-work/core/design/slides/bento/bento-embed";
-import { SLIDES_IPC_CHANNELS } from "./slides-ipc-types";
+import { SLIDES_DECK_EVENT_CHANNEL, SLIDES_IPC_CHANNELS } from "./slides-ipc-types";
 
 const DECK = "deckipc01";
 let root: string;
@@ -69,6 +72,15 @@ describe("契约镜像一致性", () => {
 
   it("注册面恰好等于契约通道清单", () => {
     expect([...handlers.keys()].sort()).toEqual([...SLIDES_IPC_CHANNELS].sort());
+  });
+
+  it("deck 变更推送通道两侧一致", () => {
+    expect(SLIDES_DECK_EVENT_CHANNEL).toBe(CORE_DECK_EVENT_CHANNEL);
+  });
+
+  // 推送通道不是 invoke handler。混进 SLIDES_IPC_CHANNELS 会让「注册面 == 清单」失真。
+  it("推送通道不在 invoke 通道清单里", () => {
+    expect([...SLIDES_IPC_CHANNELS] as string[]).not.toContain(SLIDES_DECK_EVENT_CHANNEL);
   });
 });
 
@@ -149,6 +161,30 @@ describe("bento deck 生命周期经 IPC", () => {
     });
     expect(saved.ok).toBe(true);
     expect(saved.revision).toBe(loaded.revision + 1);
+  });
+
+  // 回归(实测):deck 从 488KB 涨到 1.58MB,里面 10 份重复的 92KB 应用 CSS ——
+  // 上游 capturePristine 抓的是已注入 CSS 的活 DOM,每个保存世代再烙一份。
+  // 经 IPC 用真实 runtime 壳往返多次,字节数必须恒定。
+  it("编辑器回写经 IPC 规范化:连写三次字节数不增长,且垃圾 style 不落盘", async () => {
+    const deckId = "decksize01";
+    expect((await invoke<{ ok: boolean }>("slides:bentoCreateDeck", { workspaceRoot: root, deckId, title: "体积" })).ok)
+      .toBe(true);
+    const file = join(root, ".cortex-design", deckId, "deck.bento.html");
+    const sizes: number[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      // 模拟 capturePristine 的副作用:每一代都在壳里多烙一份 style。
+      const bloated = readFileSync(file, "utf8").replace("</head>", `<style>BLOAT_${i}</style></head>`);
+      const saved = await invoke<{ ok: boolean }>("slides:bentoWriteDeckHtml", {
+        workspaceRoot: root,
+        deckId,
+        html: bloated,
+      });
+      expect(saved.ok).toBe(true);
+      sizes.push(readFileSync(file, "utf8").length);
+    }
+    expect(new Set(sizes).size).toBe(1);
+    expect(readFileSync(file, "utf8")).not.toContain("BLOAT_");
   });
 
   it("bentoExportFile:用户取消 → canceled=true 不算失败", async () => {

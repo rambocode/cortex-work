@@ -4,7 +4,9 @@ import { render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { ChatBlock } from "@cortex-work/core/design/compat/agent-types";
-import { MessageTimeline } from "./MessageTimeline";
+import { MessageTimeline, shouldExpandToolGroup } from "./MessageTimeline";
+
+type ToolBlock = Extract<ChatBlock, { kind: "tool" }>;
 
 function tool(status: "running" | "success" | "error"): ChatBlock {
   return {
@@ -125,5 +127,104 @@ describe("MessageTimeline 工具状态", () => {
       }),
     );
     expect(html).toContain("正在生成演示文稿…");
+  });
+});
+
+describe("MessageTimeline slides 工具芯片", () => {
+  const slidesTool = (over: Partial<ToolBlock> = {}): ChatBlock =>
+    ({
+      kind: "tool",
+      id: "t1",
+      summary: "mcp__cortex-slides__set_slides",
+      status: "success",
+      meta: { toolName: "mcp__cortex-slides__set_slides" },
+      ...over,
+    }) as ChatBlock;
+
+  it("set_slides 有中文标签(此前落到 mono 兜底,看不出在做什么)", () => {
+    const html = renderToStaticMarkup(createElement(MessageTimeline, { blocks: [slidesTool()] }));
+    expect(html).toContain("已更新页面");
+  });
+
+  it("详情显示页码与 revision(主进程随结果回传的 replacedPages)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        blocks: [
+          slidesTool({
+            meta: {
+              toolName: "mcp__cortex-slides__set_slides",
+              output: JSON.stringify({ ok: true, revision: 72, replacedPages: [3, 7] }),
+            },
+          } as Partial<ToolBlock>),
+        ],
+      }),
+    );
+    expect(html).toContain("第3、7页 · rev 72");
+  });
+
+  it("运行中的工具组默认展开(改稿进度必须可见)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        blocks: [
+          slidesTool({ id: "a", status: "running" } as Partial<ToolBlock>),
+          slidesTool({ id: "b", status: "running" } as Partial<ToolBlock>),
+        ],
+      }),
+    );
+    expect(html).toContain("2 个操作");
+    // 展开时逐条渲染 → 「正在改写页面」出现在明细行里。
+    expect(html).toContain("正在改写页面");
+  });
+
+  it("全部完成的工具组默认折叠(不让一长串读取芯片刷屏)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        blocks: [slidesTool({ id: "a" } as Partial<ToolBlock>), slidesTool({ id: "b" } as Partial<ToolBlock>)],
+      }),
+    );
+    expect(html).toContain("2 个操作");
+    expect(html).not.toContain("已更新页面 ");
+  });
+});
+
+describe("shouldExpandToolGroup", () => {
+  it("有运行中 → 展开;全完成 → 折叠", () => {
+    expect(shouldExpandToolGroup([{ status: "running" }, { status: "success" }], null)).toBe(true);
+    expect(shouldExpandToolGroup([{ status: "success" }], null)).toBe(false);
+  });
+
+  it("用户手动表态后一律尊重用户(运行中也不强行展开)", () => {
+    expect(shouldExpandToolGroup([{ status: "running" }], false)).toBe(false);
+    expect(shouldExpandToolGroup([{ status: "success" }], true)).toBe(true);
+  });
+});
+
+// system 块此前一律红框(只用于报错)。演示文稿改稿活动条复用它,必须按 severity 分叉,
+// 否则「已更新 第3页」会被渲染成一条报错。
+describe("MessageTimeline system 块按 severity 分叉", () => {
+  const systemBlock = (severity?: "info" | "warning" | "error"): ChatBlock => ({
+    kind: "system",
+    id: `sys-${severity ?? "default"}`,
+    text: "已更新 第3页 · rev 72",
+    ...(severity ? { severity } : {}),
+  });
+
+  it("severity=info → 中性芯片,不带红色类", () => {
+    const html = renderToStaticMarkup(createElement(MessageTimeline, { blocks: [systemBlock("info")] }));
+    expect(html).toContain("已更新 第3页 · rev 72");
+    expect(html).not.toContain("text-red-600");
+  });
+
+  it("severity=warning → 琥珀色提示", () => {
+    const html = renderToStaticMarkup(createElement(MessageTimeline, { blocks: [systemBlock("warning")] }));
+    expect(html).toContain("amber");
+    expect(html).not.toContain("text-red-600");
+  });
+
+  it("severity=error 与缺省一律保持红框(既有报错不被静默降级)", () => {
+    expect(renderToStaticMarkup(createElement(MessageTimeline, { blocks: [systemBlock("error")] }))).toContain(
+      "text-red-600",
+    );
+    expect(renderToStaticMarkup(createElement(MessageTimeline, { blocks: [systemBlock()] }))).toContain("text-red-600");
   });
 });

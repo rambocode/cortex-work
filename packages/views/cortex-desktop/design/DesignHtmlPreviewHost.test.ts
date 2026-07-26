@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  designHtmlPreviewConsumedRevision,
   designHtmlPreviewNavigateAction,
   designHtmlPreviewUrl,
   designHtmlPreviewWebviewZoomFactor,
@@ -70,6 +71,62 @@ describe('DesignHtmlPreviewHost helpers', () => {
     expect(designHtmlPreviewNavigateAction({ lastLoadedRevision: 0, revision: 1, skipSelfReload: true })).toBe('skip')
     // 外部改写(不在静默窗)→ 正常重载。
     expect(designHtmlPreviewNavigateAction({ lastLoadedRevision: 1, revision: 2, skipSelfReload: false })).toBe('load')
+  })
+
+  // 只有真的导航过才算「这一版已加载」。'skip' 只是「这一次不导航」——
+  // 提前消费会让静默窗内到达的外部改写被永久吞掉(用户实测:AI 改完中间画布再也不刷新)。
+  it('consumes revision only on a real load, never on skip', () => {
+    expect(designHtmlPreviewConsumedRevision('skip', 0, 1)).toBe(0)
+    expect(designHtmlPreviewConsumedRevision('load', 0, 1)).toBe(1)
+    expect(designHtmlPreviewConsumedRevision('none', 3, 3)).toBe(3)
+    // 首次加载:lastLoadedRevision 为哨兵 -1,load 后推进到真实 revision。
+    expect(designHtmlPreviewConsumedRevision('load', -1, 0)).toBe(0)
+  })
+
+  // 回归场景(阶段 5 bug (a)):静默窗内到达的 AI revision 判 skip 后不得被消费,
+  // 否则静默窗结束后同一个 revision 再也不会触发导航。
+  it('keeps a muted external revision loadable after the mute window closes', () => {
+    let lastLoaded = 0
+    const muted = designHtmlPreviewNavigateAction({
+      lastLoadedRevision: lastLoaded,
+      revision: 1,
+      skipSelfReload: true
+    })
+    expect(muted).toBe('skip')
+    lastLoaded = designHtmlPreviewConsumedRevision(muted, lastLoaded, 1)
+    expect(lastLoaded).toBe(0)
+
+    const afterMute = designHtmlPreviewNavigateAction({
+      lastLoadedRevision: lastLoaded,
+      revision: 1,
+      skipSelfReload: false
+    })
+    expect(afterMute).toBe('load')
+    expect(designHtmlPreviewConsumedRevision(afterMute, lastLoaded, 1)).toBe(1)
+  })
+
+  // slides 的 deck 由主进程写、结构由 injectBentoDocJson 保证,挂载 gate 已由
+  // SlidesWorkspace 的 doc 就绪判定承担 —— 不该再让「读整份 1.5MB HTML 做字符串体检」卡住链路。
+  it('mounts transient content when the surface asserts the file is renderable', () => {
+    expect(shouldRenderDesignHtmlPreviewWebview({
+      fileUrl: 'file:///workspace/.cortex-design/d7b7/deck.bento.html',
+      renderState: 'transient',
+      hasRenderableContent: false,
+      assumeRenderable: true
+    })).toBe(true)
+    // 缺省(不传)必须与既有行为逐字一致。
+    expect(shouldRenderDesignHtmlPreviewWebview({
+      fileUrl: 'file:///workspace/.cortex-design/d7b7/deck.bento.html',
+      renderState: 'transient',
+      hasRenderableContent: false
+    })).toBe(false)
+    // fileUrl 仍是硬前置条件:没有 URL 就没有可导航目标。
+    expect(shouldRenderDesignHtmlPreviewWebview({
+      fileUrl: '',
+      renderState: 'transient',
+      hasRenderableContent: false,
+      assumeRenderable: true
+    })).toBe(false)
   })
 
   it('guards synchronous Electron executeJavaScript throws', async () => {

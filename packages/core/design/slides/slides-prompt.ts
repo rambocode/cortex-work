@@ -38,7 +38,11 @@ const CONTRACT = [
   '- EDIT an existing deck with set_slides: send ONLY the slides you actually change, each as a complete',
   '  slide object keyed by its existing id. This is the default for every revision request. A full deck is',
   '  tens of thousands of tokens — re-emitting all of it to change one element is slow, and long enough to',
-  '  be cut off mid-JSON so the write never lands.',
+  '  be cut off mid-JSON so the write never lands. BATCH IT: at most 3 slides per set_slides call, then call',
+  '  it again for the next batch until the revision is complete. Each successful call returns',
+  '  nextExpectedRevision — pass THAT as expected_revision for the following batch (no need to re-run',
+  '  get_deck_state). Small batches land reliably instead of being truncated, and the user watches the deck',
+  '  update page by page instead of staring at nothing until the end.',
   '- Use set_deck_doc ONLY to create the deck initially, or to add / delete / reorder slides. It passes the',
   '  COMPLETE document (all slides), not a diff.',
   '- Either way: preserve untouched slides/elements verbatim from get_deck_state — never regenerate content',
@@ -101,10 +105,15 @@ const STAGE_INSTRUCTION: Record<SlidesTurnStage, string> = {
     'Prefer charts/tables/morph per the feature mapping. Report briefly after the write succeeds.'
   ].join('\n'),
   ready: [
-    'The deck exists. Apply the requested revision with set_slides: fetch via get_deck_state, work out which',
-    'slide ids are affected, and send back ONLY those slides (complete slide objects, everything the user did',
-    'not ask about kept byte-identical). Do NOT re-emit the whole deck — reach for set_deck_doc only if the',
-    'change adds, deletes or reorders slides.'
+    'The deck exists. Apply the requested revision with set_slides, IN BATCHES:',
+    '1) get_deck_state once, then state which slide ids the request affects;',
+    '2) send back ONLY those slides — at most 3 per set_slides call (complete slide objects; everything the',
+    '   user did not ask about kept byte-identical), using the revision from get_deck_state for the first',
+    '   batch and each response\'s nextExpectedRevision for the next;',
+    '3) repeat until every affected slide is written, then report what changed.',
+    'Do NOT re-emit the whole deck, and do not try to do it in one giant call: that is slow, risks being cut',
+    'off mid-JSON (the write then never lands), and leaves the user with no visible progress. Reach for',
+    'set_deck_doc only if the change adds, deletes or reorders slides.'
   ].join('\n')
 }
 

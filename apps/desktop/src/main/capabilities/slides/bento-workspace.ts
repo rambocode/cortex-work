@@ -7,7 +7,7 @@
 //      编辑器 autosave 是就地权威,不带锁,直接 last-writer(队列内串行)。
 // revision 存 sidecar deck.meta.json:HTML 本体是 bento 的领地,宿主元数据不污染其格式;
 // meta 缺失(用户手动拷入文件)按 revision 0 处理,下次写入时重建。
-import { promises as fsp } from "node:fs";
+import { constants as fsConstants, promises as fsp } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import {
   parseBentoDoc,
@@ -21,6 +21,8 @@ import {
   injectBentoDocJson,
 } from "@cortex-work/core/design/slides/bento/bento-embed";
 import { mergeSlideComments } from "@cortex-work/core/design/slides/bento/merge-comments";
+import { normalizeDeckHtml } from "@cortex-work/core/design/slides/bento/normalize-deck-html";
+import { sanitizeDeckDoc } from "@cortex-work/core/design/slides/bento/sanitize-deck-doc";
 import { applySlideReplacements } from "@cortex-work/core/design/slides/bento/slide-patch";
 import {
   bentoDeckHtmlPath,
@@ -29,7 +31,9 @@ import {
   slidesDeckRootPath,
   slidesSourcesManifestPath,
 } from "@cortex-work/core/design/slides/slides-paths";
+import type { SlidesDeckChangeSource } from "../../ipc/slides-ipc-types";
 import { createLogger } from "../../log";
+import { emitSlidesDeckChanged } from "./deck-events";
 
 const log = createLogger("slides");
 
@@ -122,6 +126,65 @@ async function resolveBentoDeckPaths(
       sourcesAbs: resolve(realWorkspaceRoot, slidesSourcesManifestPath(deckId)),
     },
   };
+}
+
+// ---- 破坏性写入前的一次性备份 ----
+//
+// 动机(用户实测):AI 一次改稿会覆盖十几页;若产物不理想(或曾被协作合并污染),
+// 用户手上没有任何"改之前那一版"。这里在**本进程内每个 deck 只备份一次**——
+// 目的是留住"AI 大改之前"那一版,而不是跟着每秒一次的编辑器 autosave 滚动覆盖。
+const backedUpDecks = new Set<string>();
+
+async function backupOnce(htmlAbs: string): Promise<void> {
+  if (backedUpDecks.has(htmlAbs)) return;
+  backedUpDecks.add(htmlAbs);
+  try {
+    // copyFile 的 EXCL:已存在的 .bak(上次会话留下的)一律不覆盖。
+    await fsp.copyFile(htmlAbs, `${htmlAbs}.bak`, fsConstants.COPYFILE_EXCL);
+  } catch {
+    // 备份是尽力而为:文件不存在(新建流程)、.bak 已存在、磁盘满都不该阻断真正的写入。
+  }
+}
+
+/** 仅供单测复位「每进程每 deck 一次」的备份记录。 */
+export function __resetSlidesDeckBackups(): void {
+  backedUpDecks.clear();
+}
+
+// ---- 变更广播 ----
+
+/** 从文档(对象或原始 JSON 文本)里数页数;解析不了按 0 处理(只用于展示文案)。 */
+function countSlides(doc: unknown): number {
+  const slides = (doc as { slides?: unknown } | null)?.slides;
+  return Array.isArray(slides) ? slides.length : 0;
+}
+
+/**
+ * 写盘成功后广播一次内容变更。
+ * **只在成功路径调用**:失败路径广播会让渲染端刷新到一个并不存在的新 revision。
+ */
+function announceDeckChange(options: {
+  workspaceRoot: string;
+  deckId: string;
+  revision: number;
+  source: SlidesDeckChangeSource;
+  slideIds?: string[];
+  pages?: number[];
+  slideCount: number;
+}): void {
+  emitSlidesDeckChanged(
+    {
+      workspaceRoot: options.workspaceRoot,
+      deckId: options.deckId,
+      revision: options.revision,
+      source: options.source,
+      slideIds: options.slideIds ?? [],
+      pages: options.pages ?? [],
+      slideCount: options.slideCount,
+      at: new Date().toISOString(),
+    },
+    log,
+  );
 }
 
 /** 临时文件 + rename 原子写。失败清理 tmp,不破坏旧文件。 */
@@ -247,8 +310,15 @@ export async function readBentoDeck(options: {
 }
 
 /**
- * 编辑器换壳:存量 deck 若不是当前 runtime,只替换应用壳并原样保留文档 JSON。
- * sidecar 元数据不参与写入,因此 revision/stage/outline 均保持不变。
+ * 打开 deck 前的两件维护动作(每次 bentoGetDeck 都会跑,幂等):
+ *   1. 换壳:存量 deck 若不是当前 runtime,只替换应用壳、原样保留文档 JSON;
+ *   2. 清洗:剥离 collab(在线协作凭据 + CRDT 状态,见 sanitize-deck-doc 的动机)。
+ *
+ * revision 契约(**已从「换壳一律不动 revision」修订**):
+ *   · 纯换壳 → revision 不变(壳不是文档内容,老契约保留);
+ *   · 剥离了 collab → **revision + 1** 并广播。因为那是文档内容的改变,若悄悄改而不动
+ *     revision,webview 内存文档与磁盘就静默分叉 —— 编辑器回写的 baseRevision 弱锁会
+ *     放行一次「带 collab 的旧稿」,与清洗形成来回覆盖的死循环。
  */
 export async function ensureBentoDeckRuntime(options: {
   workspaceRoot: string;
@@ -277,20 +347,43 @@ export async function ensureBentoDeckRuntime(options: {
     if (!doc || typeof doc !== "object") {
       return fail<{ migrated: boolean }>("invalid_doc", "deck 文件缺少有效的 #bento-doc 文档");
     }
-    if (extractBentoRuntimeId(html) === currentRuntimeId) {
+    // 加密 deck(bento/enc 信封)不做清洗:结构不是 BentoDoc,宿主不该猜它的字段。
+    const sanitized = (doc as { format?: unknown }).format === "bento/enc" ? { doc, stripped: [] } : sanitizeDeckDoc(doc);
+    const runtimeStale = extractBentoRuntimeId(html) !== currentRuntimeId;
+    const needsClean = sanitized.stripped.length > 0;
+    // 两件事都不需要做 → 什么都不写(幂等,每次 bentoGetDeck 都会走到这里)。
+    if (!runtimeStale && !needsClean) {
       return { ok: true, value: { migrated: false } };
     }
-    const next = injectBentoDocJson(options.runtimeHtml, json, (doc as { title?: unknown }).title);
+    // 未清洗时用**原始 JSON 文本**重注:避免 JSON.stringify 造成键序抖动与无意义 diff
+    // (既有测试断言纯换壳后 extractBentoDocJson 逐字节不变)。
+    const nextJson = needsClean ? JSON.stringify(sanitized.doc) : json;
+    // 壳:陈旧才换;只清洗时沿用 deck 自己的壳(避免把「清洗」偷偷变成一次换壳)。
+    const shell = runtimeStale ? options.runtimeHtml : html;
+    const next = injectBentoDocJson(shell, nextJson, (sanitized.doc as { title?: unknown }).title);
     if (next === null) {
       return fail<{ migrated: boolean }>("invalid_doc", "当前 runtime 壳缺少 #bento-doc 块");
     }
+    const meta = needsClean ? await readMeta(paths.metaAbs) : null;
     try {
+      if (needsClean) await backupOnce(paths.htmlAbs);
       await atomicWriteFile(paths.htmlAbs, next);
-      return { ok: true, value: { migrated: true } };
+      if (meta) await writeMeta(paths.metaAbs, { ...meta, revision: meta.revision + 1 });
     } catch (err) {
-      log.error(`[bento] ensureBentoDeckRuntime 换壳失败: ${String(err)}`);
+      log.error(`[bento] ensureBentoDeckRuntime 换壳/清洗失败: ${String(err)}`);
       return fail<{ migrated: boolean }>("io_error", `更新演示文稿 runtime 失败: ${String(err)}`);
     }
+    if (meta) {
+      log.info(`[bento] deck=${options.deckId} 已剥离 ${sanitized.stripped.join(",")} rev=${meta.revision + 1}`);
+      announceDeckChange({
+        workspaceRoot: options.workspaceRoot,
+        deckId: options.deckId,
+        revision: meta.revision + 1,
+        source: "runtime",
+        slideCount: countSlides(sanitized.doc),
+      });
+    }
+    return { ok: true, value: { migrated: true } };
   });
 }
 
@@ -358,16 +451,26 @@ export async function writeBentoDoc(options: {
     // 编辑器语义(用户的评审数据),不属于 AI 的创作范围。只要模型没原样抄回来,用户的评论
     // 就会在下一次改稿时静默消失。这里按 slide id 确定性补回,不赌模型自觉。
     // AI 若显式给了 comments(含空数组 = 主动清空)则以新的为准。
-    const merged = mergeSlideComments(readPrevDoc(html), parsed.doc);
+    // collab 剥离:模型原样抄回 get_deck_state 给的 collab 是常态,而那份凭据会让编辑器
+    // 每次打开都连公共中继、把历史世代的元素并集合并回来(见 sanitize-deck-doc 的文件头)。
+    const merged = sanitizeDeckDoc(mergeSlideComments(readPrevDoc(html), parsed.doc)).doc;
     const next = injectBentoDoc(html, merged);
     if (next === null) return fail<{ revision: number }>("invalid_doc", "deck 文件缺少 #bento-doc 块(文件损坏)");
     try {
+      await backupOnce(paths.htmlAbs);
       await atomicWriteFile(paths.htmlAbs, next);
       await writeMeta(paths.metaAbs, { ...meta, revision: meta.revision + 1, stage: options.stage ?? meta.stage });
     } catch (err) {
       log.error(`[bento] writeBentoDoc 落盘失败: ${String(err)}`);
       return fail<{ revision: number }>("io_error", `写入失败: ${String(err)}`);
     }
+    announceDeckChange({
+      workspaceRoot: options.workspaceRoot,
+      deckId: options.deckId,
+      revision: meta.revision + 1,
+      source: "agent",
+      slideCount: countSlides(merged),
+    });
     return { ok: true, value: { revision: meta.revision + 1 } };
   });
 }
@@ -384,11 +487,11 @@ export async function writeBentoSlides(options: {
   deckId: string;
   slides: unknown;
   expectedRevision: number;
-}): Promise<BentoWorkspaceResult<{ revision: number; replacedIds: string[] }>> {
+}): Promise<BentoWorkspaceResult<{ revision: number; replacedIds: string[]; replacedPages: number[] }>> {
   const resolved = await resolveBentoDeckPaths(options.workspaceRoot, options.deckId);
   if (!resolved.ok) return resolved;
   const paths = resolved.value;
-  type Out = { revision: number; replacedIds: string[] };
+  type Out = { revision: number; replacedIds: string[]; replacedPages: number[] };
   return enqueueDeck(paths.deckRootAbs, async () => {
     let html: string;
     try {
@@ -410,35 +513,81 @@ export async function writeBentoSlides(options: {
     const parsed = parseBentoDoc(patched.doc);
     if (!parsed.ok) return fail<Out>("invalid_doc", `替换后的文档未通过校验: ${parsed.error}`);
     // 与整份写入同一条评论保全逻辑(未被替换的页天然保留;被替换的页若没带 comments 则补回)。
-    const merged = mergeSlideComments(readPrevDoc(html), parsed.doc);
+    // collab 剥离:模型原样抄回 get_deck_state 给的 collab 是常态,而那份凭据会让编辑器
+    // 每次打开都连公共中继、把历史世代的元素并集合并回来(见 sanitize-deck-doc 的文件头)。
+    const merged = sanitizeDeckDoc(mergeSlideComments(readPrevDoc(html), parsed.doc)).doc;
     const next = injectBentoDoc(html, merged);
     if (next === null) return fail<Out>("invalid_doc", "deck 文件缺少 #bento-doc 块(文件损坏)");
     try {
+      await backupOnce(paths.htmlAbs);
       await atomicWriteFile(paths.htmlAbs, next);
       await writeMeta(paths.metaAbs, { ...meta, revision: meta.revision + 1 });
     } catch (err) {
       log.error(`[bento] writeBentoSlides 落盘失败: ${String(err)}`);
       return fail<Out>("io_error", `写入失败: ${String(err)}`);
     }
-    return { ok: true, value: { revision: meta.revision + 1, replacedIds: patched.replacedIds } };
+    announceDeckChange({
+      workspaceRoot: options.workspaceRoot,
+      deckId: options.deckId,
+      revision: meta.revision + 1,
+      source: "agent",
+      slideIds: patched.replacedIds,
+      pages: patched.replacedPages,
+      slideCount: countSlides(merged),
+    });
+    return {
+      ok: true,
+      value: {
+        revision: meta.revision + 1,
+        replacedIds: patched.replacedIds,
+        replacedPages: patched.replacedPages,
+      },
+    };
   });
 }
 
-/** 编辑器 autosave:整份 HTML 直写(就地权威,无锁),仅做完整性与体量守门。 */
+/**
+ * 编辑器 autosave:整份 HTML 直写。仅做完整性/体量守门 + **弱**乐观锁。
+ *
+ * 为什么需要弱锁(用户实测的丢稿通路):webview 里的文档若已过期(AI 刚写过盘而页面还没
+ * 刷新),这条无锁路径会把旧稿整份盖回去 —— AI 改的十几页静默消失。
+ *   · baseRevision 省略 → last-writer 旧行为(兼容旧壳/旧渲染端);
+ *   · 与磁盘一致 → 接受,revision + 1;
+ *   · 落后 → revision_conflict(复用既有错误码:这个函数此前不可能返回它,语义无歧义)。
+ * 渲染端收到冲突不应报错,而是丢弃这份旧 HTML 并刷新到最新稿(见 SlidesStage)。
+ */
 export async function writeBentoDeckHtml(options: {
   workspaceRoot: string;
   deckId: string;
   html: string;
+  /** webview 内存文档对应的磁盘 revision;省略即不校验。 */
+  baseRevision?: number;
+  /**
+   * 当前 bento runtime 壳。提供时把回写产物规范化为「当前壳 + 传入的 #bento-doc」——
+   * 上游 capturePristine 会把 loader 注入的 92KB 应用 CSS 逐世代烙进产物(实测 10 份重复、
+   * 文件 1.5MB,逼近 fs:readFile 的 2MB 截断线)。省略则原样直写(旧行为)。
+   * 由调用方注入而非本模块自取:bento-runtime 依赖 electron.app,持久层不能 import electron。
+   */
+  runtimeHtml?: string;
 }): Promise<BentoWorkspaceResult<{ revision: number }>> {
   const resolved = await resolveBentoDeckPaths(options.workspaceRoot, options.deckId);
   if (!resolved.ok) return resolved;
   const paths = resolved.value;
+  // 体量守门用**传入**字节数:规范化产物必然更小,先拦住失控调用方。
   if (typeof options.html !== "string" || Buffer.byteLength(options.html, "utf8") > MAX_DECK_HTML_BYTES) {
     return fail("too_large", `deck HTML 超出 ${MAX_DECK_HTML_BYTES} 字节上限`);
   }
   // 编辑器序列化产物必含非空 #bento-doc 块;缺块说明调用方传了坏内容,拒写保护旧文件。
   if (!extractBentoDocJson(options.html)) {
     return fail("invalid_doc", "HTML 缺少非空 #bento-doc 块,拒绝覆盖 deck 文件");
+  }
+  // 规范化(可选):no_doc_block 已被上面拦住;bad_shell(壳损坏)回落原样写入 ——
+  // 壳的问题不该拦住用户保存自己的编辑。
+  let htmlToWrite = options.html;
+  if (options.runtimeHtml) {
+    const normalized = normalizeDeckHtml(options.html, options.runtimeHtml);
+    if (normalized.ok) htmlToWrite = normalized.html;
+    else log.error(`[bento] deck HTML 规范化失败(回落原样写入): ${normalized.code} ${normalized.message}`);
   }
   return enqueueDeck(paths.deckRootAbs, async () => {
     try {
@@ -447,13 +596,27 @@ export async function writeBentoDeckHtml(options: {
       return fail<{ revision: number }>("not_found", `deck 不存在: ${options.deckId}`);
     }
     const meta = await readMeta(paths.metaAbs);
+    if (options.baseRevision !== undefined && meta.revision !== options.baseRevision) {
+      return fail<{ revision: number }>(
+        "revision_conflict",
+        `编辑器持有 rev ${options.baseRevision},磁盘已到 rev ${meta.revision}:放弃本次回写并刷新到最新稿`,
+      );
+    }
     try {
-      await atomicWriteFile(paths.htmlAbs, options.html);
+      await backupOnce(paths.htmlAbs);
+      await atomicWriteFile(paths.htmlAbs, htmlToWrite);
       await writeMeta(paths.metaAbs, { ...meta, revision: meta.revision + 1 });
     } catch (err) {
       log.error(`[bento] writeBentoDeckHtml 落盘失败: ${String(err)}`);
       return fail<{ revision: number }>("io_error", `写入失败: ${String(err)}`);
     }
+    announceDeckChange({
+      workspaceRoot: options.workspaceRoot,
+      deckId: options.deckId,
+      revision: meta.revision + 1,
+      source: "editor",
+      slideCount: countSlides(readPrevDoc(htmlToWrite)),
+    });
     return { ok: true, value: { revision: meta.revision + 1 } };
   });
 }

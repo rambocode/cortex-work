@@ -6,6 +6,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Pencil } from "lucide-react";
 import type { ChatBlock } from "@cortex-work/core/design/compat/agent-types";
+import { formatSlidesToolDetail } from "@cortex-work/core/design/slides/slides-tool-detail";
 
 const MD_PLUGINS = [remarkGfm];
 // 本组件是 Kun 的替身层,不接 i18n(同文件其余文案亦为硬编码中文)。
@@ -73,12 +74,34 @@ const TOOL_META: Record<string, ToolMeta> = {
     successLabel: "已写入文档",
     errorLabel: "写入文档失败",
   },
+  // 改稿闭环最常用的工具:缺了它,一整轮改稿在时间线上只剩裸 mono 名字,看起来像「没跑」。
+  set_slides: {
+    icon: "✏️",
+    label: "改写页面",
+    runningLabel: "正在改写页面",
+    successLabel: "已更新页面",
+    errorLabel: "改写页面失败",
+  },
   add_asset: {
     icon: "🖼",
     label: "写入素材",
     runningLabel: "正在写入素材",
     successLabel: "已写入素材",
     errorLabel: "写入素材失败",
+  },
+  add_source: {
+    icon: "🔗",
+    label: "记录来源",
+    runningLabel: "正在记录来源",
+    successLabel: "已记录来源",
+    errorLabel: "记录来源失败",
+  },
+  list_sources: {
+    icon: "🔗",
+    label: "查看来源",
+    runningLabel: "正在查看来源",
+    successLabel: "已查看来源",
+    errorLabel: "查看来源失败",
   },
   // —— 其它工作台 MCP ——
   generate_image: { icon: "🖼", label: "生成图片" },
@@ -90,6 +113,16 @@ const TOOL_META: Record<string, ToolMeta> = {
   browser_read_console: { icon: "🖥", label: "读控制台" },
   browser_screenshot: { icon: "📸", label: "浏览器截图" },
 };
+
+/** detail 是 input 的 JSON 文本;坏 JSON 返回 undefined(交给下游兜底,绝不抛)。 */
+function safeParse(raw: string | undefined): unknown {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
+}
 
 function toolNameOf(block: ToolBlock): string {
   const fromMeta = typeof block.meta?.toolName === "string" ? block.meta.toolName : "";
@@ -123,6 +156,11 @@ function toolStatusLabel(rawName: string, status: ToolBlock["status"]): string {
 
 // 从工具 block 的 detail(input JSON)里提取一行可读摘要:文件路径 / 命令 / 标签等。
 function toolDetailLine(block: ToolBlock): string {
+  // cortex-slides 工具优先走页面粒度详情:主进程已随结果回传 replacedPages / revision,
+  // 「已更新页面 第3、7页 · rev 72」比「cortex-slides · set_slides」有信息量得多。
+  const { tool } = parseToolId(toolNameOf(block));
+  const slidesDetail = formatSlidesToolDetail(tool, block.meta?.input ?? safeParse(block.detail), block.meta?.output);
+  if (slidesDetail) return slidesDetail;
   const raw = block.detail;
   if (!raw) return "";
   let obj: Record<string, unknown> | null = null;
@@ -159,9 +197,27 @@ function statusDotClass(status: string): string {
   return "bg-emerald-500";
 }
 
+/**
+ * 工具组的展开策略(纯函数,便于单测)。
+ *
+ * 默认折叠是为了不让一长串「读取」芯片刷屏;但**正在跑的时候**必须展开 ——
+ * 用户实测的抱怨正是「改稿过程看不见细节,只有一个结果」:改稿期间十几次 set_slides
+ * 全被压成一行「N 个操作」,进度完全不可见。跑完不自动收起(用户往回看时还要它开着)。
+ * 用户手动切换过(userToggled)之后一律尊重用户的选择。
+ */
+export function shouldExpandToolGroup(
+  tools: Array<{ status: ToolBlock["status"] }>,
+  userToggled: boolean | null,
+): boolean {
+  if (userToggled !== null) return userToggled;
+  return tools.some((t) => t.status === "running");
+}
+
 // 连续工具调用的可折叠组。折叠:一行摘要(总数 + 按类型计数);展开:逐条 icon+标签+详情+状态点。
 function ToolGroup({ tools }: { tools: ToolBlock[] }): ReactElement {
-  const [open, setOpen] = useState(false);
+  // null = 用户还没表态,按 shouldExpandToolGroup 的默认策略走(运行中自动展开)。
+  const [userToggled, setUserToggled] = useState<boolean | null>(null);
+  const open = shouldExpandToolGroup(tools, userToggled);
   const anyRunning = tools.some((t) => t.status === "running");
   const anyError = tools.some((t) => t.status === "error");
   // 按工具类型计数,拼成 "读取 ×8 · 命令 ×2"。
@@ -194,7 +250,7 @@ function ToolGroup({ tools }: { tools: ToolBlock[] }): ReactElement {
     <div className="min-w-0 self-stretch">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setUserToggled(!open)}
         className="flex w-full items-center gap-2 rounded-lg border border-ds-border-muted bg-ds-card px-2.5 py-1.5 text-left text-[11.5px] text-ds-muted transition hover:bg-ds-hover"
       >
         <span className="shrink-0" aria-hidden="true">{open ? "▾" : "▸"}</span>
@@ -220,6 +276,20 @@ function ToolGroup({ tools }: { tools: ToolBlock[] }): ReactElement {
       ) : null}
     </div>
   );
+}
+
+/**
+ * system 块的样式:按 severity 分叉。
+ * 缺省(undefined)仍按 error 处理 —— 历史上 system 块只用于报错,改默认值会让既有错误静默变灰。
+ * info 用于「已更新 第3页 · rev 72」这类进度条目,视觉语言与工具芯片保持一致(中性灰底)。
+ */
+export function systemBlockClass(severity?: "info" | "warning" | "error"): string {
+  const base = "self-start rounded-lg px-3 py-1.5 text-[12px]";
+  if (severity === "info") return `${base} border border-ds-border-muted bg-ds-card text-ds-muted`;
+  if (severity === "warning") {
+    return `${base} border border-amber-500/30 bg-amber-500/8 text-amber-700 dark:text-amber-300`;
+  }
+  return `${base} border border-red-500/25 bg-red-500/8 text-red-600 dark:text-red-300`;
 }
 
 // 把连续的 tool block 聚成组;其它块类型保持独立。返回渲染段列表。
@@ -282,10 +352,7 @@ export function MessageTimeline(props: MessageTimelineProps): ReactElement {
         }
         if (block.kind === "system" && block.text.trim()) {
           return (
-            <div
-              key={block.id}
-              className="self-start rounded-lg border border-red-500/25 bg-red-500/8 px-3 py-1.5 text-[12px] text-red-600 dark:text-red-300"
-            >
+            <div key={block.id} className={systemBlockClass(block.severity)} data-testid="system-block">
               {block.text}
             </div>
           );

@@ -136,6 +136,7 @@ import type {
   BentoGetDeckResult,
   BentoSetStageRequest,
   BentoWriteDeckHtmlRequest,
+  SlidesDeckChangedEvent,
   SlidesPresentRequest,
   SlidesPresentResult,
 } from "../main/ipc/slides-ipc-types";
@@ -282,6 +283,13 @@ const personal = {
   slidesBentoExportFile: (req: BentoDeckScopedRequest): Promise<BentoExportFileResult> =>
     ipcRenderer.invoke("slides:bentoExportFile", req),
   slidesPresent: (req: SlidesPresentRequest): Promise<SlidesPresentResult> => ipcRenderer.invoke("slides:present", req),
+  // deck 内容变更推送:主进程写盘后广播,舞台据此把新文档热应用进编辑器(见 SlidesStage)。
+  // 必须返回退订函数 —— 否则 reload 会累积 listener(MaxListeners 告警)。
+  onSlidesDeckChanged: (cb: (event: SlidesDeckChangedEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, event: SlidesDeckChangedEvent): void => cb(event);
+    ipcRenderer.on("slides:deckChanged", listener);
+    return () => ipcRenderer.removeListener("slides:deckChanged", listener);
+  },
   createTaskFile: (projectRoot: string, todoId: string, title: string): Promise<string> =>
     ipcRenderer.invoke("fs:createTaskFile", projectRoot, todoId, title),
   listTaskFiles: (projectRoot: string): Promise<TaskFilesResult> => ipcRenderer.invoke("fs:listTaskFiles", projectRoot),

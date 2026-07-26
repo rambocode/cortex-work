@@ -210,6 +210,34 @@ describe("codexDef.parseLine", () => {
     expect(ev({ id: "i3", type: "mcp_tool_call", tool: "fs.read" })).toMatchObject({ name: "MCP", detail: "fs.read" });
   });
 
+  // 回归(用户实测):演示文稿改稿时一屏只看到「N 个操作 · MCP ×N」,看不出哪一步在做什么。
+  // 根因是所有 MCP 调用都被归一成同一个名字 "MCP" —— 渲染端 TOOL_META 因此永远查不到中文标签。
+  // 带上 server/tool 拼成 mcp__<server>__<tool> 后,渲染端 parseToolId 就能查表。
+  it("mcp_tool_call 带 server+tool 时归一化成 mcp__<server>__<tool>", () => {
+    const ev = (item: Record<string, unknown>) =>
+      codexDef.parseLine(JSON.stringify({ type: "item.started", item }));
+    expect(
+      ev({ id: "i1", type: "mcp_tool_call", server: "cortex-slides", tool: "set_slides" }),
+    ).toMatchObject({ name: "mcp__cortex-slides__set_slides" });
+    // 完成帧同样带上,否则 start/end 的 name 不一致会让渲染端配不上同一个块。
+    expect(
+      codexDef.parseLine(
+        JSON.stringify({
+          type: "item.completed",
+          item: { id: "i1", type: "mcp_tool_call", server: "cortex-slides", tool: "set_slides" },
+        }),
+      ),
+    ).toMatchObject({ name: "mcp__cortex-slides__set_slides", phase: "end" });
+  });
+
+  it("mcp_tool_call 缺 server 或 tool 时回落 MCP(不拼出半截名字)", () => {
+    const ev = (item: Record<string, unknown>) =>
+      codexDef.parseLine(JSON.stringify({ type: "item.started", item }));
+    expect(ev({ id: "i1", type: "mcp_tool_call", server: "cortex-slides" })).toMatchObject({ name: "MCP" });
+    expect(ev({ id: "i2", type: "mcp_tool_call", tool: "set_slides" })).toMatchObject({ name: "MCP" });
+    expect(ev({ id: "i3", type: "mcp_tool_call", server: "", tool: "" })).toMatchObject({ name: "MCP" });
+  });
+
   it("todo_list 三种帧(started/updated/completed)→ todo 整表快照事件,不产 tool 事件", () => {
     const items = [
       { text: "分析结构", completed: true },

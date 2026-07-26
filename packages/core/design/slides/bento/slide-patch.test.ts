@@ -49,6 +49,26 @@ describe('applySlideReplacements', () => {
     expect(res.replacedIds.sort()).toEqual(['s1', 's3'])
   })
 
+  // replacedPages 给「会话里看得见改了第几页」用:AI 只知道 slide id,用户只认页码。
+  // 在主进程算好,渲染端就不必再拿整份文档反查。
+  it('replacedPages 与 replacedIds 顺序对齐,页码 1 基', () => {
+    const res = applySlideReplacements(doc(['s1', 's2', 's3']), [
+      slide('s3', { notes: 'C' }),
+      slide('s1', { notes: 'A' })
+    ])
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.replacedIds).toEqual(['s3', 's1'])
+    expect(res.replacedPages).toEqual([3, 1])
+  })
+
+  it('replacedPages 覆盖首尾页', () => {
+    const res = applySlideReplacements(doc(['s1', 's2', 's3']), [slide('s1'), slide('s3')])
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.replacedPages).toEqual([1, 3])
+  })
+
   it('文档顶层字段(theme/size/title)完全不受影响', () => {
     const before = { ...doc(['s1']), theme: { background: '#111' } }
     const res = applySlideReplacements(before, [slide('s1', { notes: 'x' })])

@@ -20,6 +20,40 @@ export const SLIDES_IPC_CHANNELS = [
 
 export type SlidesIpcChannel = (typeof SLIDES_IPC_CHANNELS)[number]
 
+// ── deck 内容变更推送(main → renderer 单向广播)────────────────────────────────
+//
+// **刻意不进 SLIDES_IPC_CHANNELS**:那份清单的契约是「等于 ipcMain.handle 的注册面」,
+// 推送通道不是 invoke handler,混进去会让契约测试变红。
+
+/** deck 内容变更推送通道名(preload 侧订阅同一个名字)。 */
+export const SLIDES_DECK_EVENT_CHANNEL = 'slides:deckChanged'
+
+/** 谁改的:agent = MCP 工具写入;editor = bento 编辑器 autosave 回写;runtime = 主进程换壳/清洗。 */
+export type SlidesDeckChangeSource = 'agent' | 'editor' | 'runtime'
+
+/**
+ * 一次 deck 内容变更。渲染端据此判断「要不要把新文档应用进编辑器」以及「时间线上写什么」。
+ *
+ * 为什么要推送而不是让渲染端轮询:MCP 工具直接写盘,渲染端此前只能靠文件 watcher
+ * 搬运整份 HTML(几百 KB~MB 级)做字符串比对,既慢又会撞上 fs:readFile 的截断上限。
+ */
+export interface SlidesDeckChangedEvent {
+  /** 调用方原样传入的工作区根(**不是 realpath**),便于渲染端字符串比对。 */
+  workspaceRoot: string
+  deckId: string
+  /** 写入完成后的新 revision(= deck.meta.json 权威值)。 */
+  revision: number
+  source: SlidesDeckChangeSource
+  /** 本次实际被替换的 slide id(set_slides);整份写入 / 换壳为空数组。 */
+  slideIds: string[]
+  /** 与 slideIds 顺序对齐的 1 基页码(写入后文档中的位置);无法解析时为空数组。 */
+  pages: number[]
+  /** 写入后的总页数;解析失败为 0。 */
+  slideCount: number
+  /** 写入完成时刻 ISO 串;仅供展示,不参与任何判定。 */
+  at: string
+}
+
 // ── bento 化 deck 契约(单文件 .bento.html 体系;详见 capabilities/slides/bento-workspace)──
 
 export interface BentoDeckScopedRequest {
@@ -34,6 +68,12 @@ export interface BentoCreateDeckRequest extends BentoDeckScopedRequest {
 /** 编辑器 autosave 整份 HTML 回写(webview 内 bento 编辑器产物)。 */
 export interface BentoWriteDeckHtmlRequest extends BentoDeckScopedRequest {
   html: string
+  /**
+   * 弱乐观锁:webview 内文档所对应的 revision。
+   * 省略 = 旧壳/旧渲染端 → 保持 last-writer 旧行为(向后兼容);
+   * 提供且不等于磁盘当前 revision → revision_conflict(编辑器持有的是过期稿,不许覆盖)。
+   */
+  baseRevision?: number
 }
 
 export interface BentoDeckIpcError {

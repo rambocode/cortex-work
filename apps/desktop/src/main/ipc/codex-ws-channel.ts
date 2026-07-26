@@ -12,7 +12,7 @@
 
 import type { CliStreamEvent, CliStartRequest, PermissionMode } from "./types";
 import { createLogger } from "../log";
-import { codexWebSearchOutput } from "../agents/codex";
+import { codexMcpToolName, codexWebSearchOutput } from "../agents/codex";
 import {
   CODEX_NOTIF,
   type AgentMessageDeltaParams,
@@ -71,6 +71,18 @@ const WS_TOOL_NAMES: Record<string, string> = {
   imageGeneration: "Image", // imagegen skill:item/started 走过程「Image」步骤,完成时另出内联图(见 itemCompleted)
 };
 const WS_TOOL_TYPES = new Set(Object.keys(WS_TOOL_NAMES));
+
+// MCP 调用带上 server/tool(与 exec 路径共用 codexMcpToolName):否则渲染端只看到裸「MCP」,
+// 查不到中文标签、也分不清同一回合里的十几次调用各自在做什么。
+function wsToolName(item: NonNullable<ItemNotificationParams["item"]>): string {
+  if (item.type === "mcpToolCall") {
+    const mcpName = codexMcpToolName(item);
+    if (mcpName) return mcpName;
+  }
+  // 调用点已用 WS_TOOL_TYPES.has(item.type) 守过,查表必命中;类型上仍兜底为原始 type。
+  const type = item.type ?? "";
+  return WS_TOOL_NAMES[type] ?? type;
+}
 
 function clip(s: unknown): string | undefined {
   if (typeof s !== "string") return undefined;
@@ -142,7 +154,7 @@ export function parseAppServerEvent(
         delete itemMeta.aggregated_output;
         return {
           type: "tool",
-          name: WS_TOOL_NAMES[item.type],
+          name: wsToolName(item),
           // end 帧也透出 detail:webSearch 的查询词在 item/started 时常为空(服务端尚未生成),
           // 完成帧才带上 → 渲染端靠它回填调用行/结果行摘要,否则整条搜索呈现为「空调用+无输出」。
           detail: toolDetail(item),
@@ -165,7 +177,7 @@ export function parseAppServerEvent(
       if (!item || typeof item.type !== "string" || !WS_TOOL_TYPES.has(item.type)) return null;
       return {
         type: "tool",
-        name: WS_TOOL_NAMES[item.type],
+        name: wsToolName(item),
         detail: toolDetail(item),
         // 完整调用参数(运行过程详情视图展示):item 本身即调用描述,原样透出。
         input: item,

@@ -31,7 +31,19 @@ import {
   writeBentoDeckHtml,
 } from "../capabilities/slides/bento-workspace";
 import { readBentoRuntimeHtml } from "../capabilities/slides/bento-runtime";
+import {
+  addSlidesDeckEventSender,
+  type SlidesDeckEventSender,
+} from "../capabilities/slides/deck-events";
 import { openPresenterWindow } from "../presenter-window";
+
+// 渲染端调任意 slides IPC 就意味着它在看某份 deck,需要接收 slides:deckChanged 推送 ——
+// 与 ipc/research.ts 同一手法,不再单开一个 subscribe 通道(少一个通道少一处漂移)。
+// 测试经存根 invoke 传 event=null,故防御性判空。
+function registerSender(event: unknown): void {
+  const sender = (event as { sender?: SlidesDeckEventSender } | null)?.sender;
+  if (sender) addSlidesDeckEventSender(sender);
+}
 
 // 统一兜底:handler 内任何意外异常都转成结构化 io_error,不让 invoke reject。
 async function guarded<T>(
@@ -63,8 +75,9 @@ async function showSaveDialog(
 }
 
 export function registerSlidesHandlers(): void {
-  ipcMain.handle("slides:bentoCreateDeck", (_e, req: BentoCreateDeckRequest): Promise<BentoDeckIpcResult> =>
-    guarded("创建演示文稿失败", async () => {
+  ipcMain.handle("slides:bentoCreateDeck", (event, req: BentoCreateDeckRequest): Promise<BentoDeckIpcResult> => {
+    registerSender(event);
+    return guarded("创建演示文稿失败", async () => {
       const runtimeHtml = await readBentoRuntimeHtml();
       const res = await createBentoDeck({
         workspaceRoot: req.workspaceRoot,
@@ -73,11 +86,12 @@ export function registerSlidesHandlers(): void {
         runtimeHtml,
       });
       return res.ok ? { ok: true as const, revision: res.value.revision } : { ok: false as const, error: res.error };
-    }),
-  );
+    });
+  });
 
-  ipcMain.handle("slides:bentoGetDeck", (_e, req: BentoDeckScopedRequest): Promise<BentoGetDeckResult> =>
-    guarded("读取演示文稿失败", async () => {
+  ipcMain.handle("slides:bentoGetDeck", (event, req: BentoDeckScopedRequest): Promise<BentoGetDeckResult> => {
+    registerSender(event);
+    return guarded("读取演示文稿失败", async () => {
       const ensured = await ensureBentoDeckRuntime({
         workspaceRoot: req.workspaceRoot,
         deckId: req.deckId,
@@ -94,12 +108,13 @@ export function registerSlidesHandlers(): void {
             outline: res.value.outline,
           }
         : { ok: false as const, error: res.error };
-    }),
-  );
+    });
+  });
 
   // 提纲 gate 阶段推进(批准/退回;详见 bento-workspace 的 BentoDeckStage)。
-  ipcMain.handle("slides:bentoSetStage", (_e, req: BentoSetStageRequest): Promise<BentoDeckIpcResult> =>
-    guarded("更新演示文稿阶段失败", async () => {
+  ipcMain.handle("slides:bentoSetStage", (event, req: BentoSetStageRequest): Promise<BentoDeckIpcResult> => {
+    registerSender(event);
+    return guarded("更新演示文稿阶段失败", async () => {
       const res = await updateBentoDeckMeta({
         workspaceRoot: req.workspaceRoot,
         deckId: req.deckId,
@@ -110,19 +125,30 @@ export function registerSlidesHandlers(): void {
       return state.ok
         ? { ok: true as const, revision: state.value.revision }
         : { ok: false as const, error: state.error };
-    }),
-  );
+    });
+  });
 
-  ipcMain.handle("slides:bentoWriteDeckHtml", (_e, req: BentoWriteDeckHtmlRequest): Promise<BentoDeckIpcResult> =>
-    guarded("保存演示文稿失败", async () => {
-      const res = await writeBentoDeckHtml({ workspaceRoot: req.workspaceRoot, deckId: req.deckId, html: req.html });
+  ipcMain.handle("slides:bentoWriteDeckHtml", (event, req: BentoWriteDeckHtmlRequest): Promise<BentoDeckIpcResult> => {
+    registerSender(event);
+    return guarded("保存演示文稿失败", async () => {
+      // runtimeHtml 用于落盘规范化(治体积膨胀,见 normalize-deck-html)。读壳失败不阻断保存:
+      // 缺该参数时持久层退回原样直写,用户的编辑一定落得下去。
+      const runtimeHtml = await readBentoRuntimeHtml().catch(() => undefined);
+      const res = await writeBentoDeckHtml({
+        workspaceRoot: req.workspaceRoot,
+        deckId: req.deckId,
+        html: req.html,
+        baseRevision: req.baseRevision,
+        runtimeHtml,
+      });
       return res.ok ? { ok: true as const, revision: res.value.revision } : { ok: false as const, error: res.error };
-    }),
-  );
+    });
+  });
 
   // 另存为 .bento.html:文档注入当前 runtime 后交付,避免旧 deck 导出历史运行壳。
-  ipcMain.handle("slides:bentoExportFile", (event, req: BentoDeckScopedRequest): Promise<BentoExportFileResult> =>
-    guarded("导出演示文稿失败", async () => {
+  ipcMain.handle("slides:bentoExportFile", (event, req: BentoDeckScopedRequest): Promise<BentoExportFileResult> => {
+    registerSender(event);
+    return guarded("导出演示文稿失败", async () => {
       const res = await readBentoDeck({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
       if (!res.ok) return { ok: false as const, error: res.error };
       let title = req.deckId;
@@ -151,13 +177,14 @@ export function registerSlidesHandlers(): void {
       }
       await fsp.writeFile(target, exportedHtml, "utf8");
       return { ok: true as const, path: target };
-    }),
-  );
+    });
+  });
 
   // 演示模式(bento):直接加载 deck.bento.html;只读操作(不动 deck)。
   // stateOf 状态页不进线性导航,railIndices 在此从文档计算后交给演示窗口。
-  ipcMain.handle("slides:present", (_e, req: SlidesPresentRequest): Promise<SlidesPresentResult> =>
-    guarded("打开演示窗口失败", async () => {
+  ipcMain.handle("slides:present", (event, req: SlidesPresentRequest): Promise<SlidesPresentResult> => {
+    registerSender(event);
+    return guarded("打开演示窗口失败", async () => {
       const res = await readBentoDeck({ workspaceRoot: req.workspaceRoot, deckId: req.deckId });
       if (!res.ok) return { ok: false as const, error: res.error };
       // doc 解析失败(上游新格式)时退回宽松 JSON 读取 slides;再不行按无页处理。
@@ -202,6 +229,6 @@ export function registerSlidesHandlers(): void {
         cleanupPath,
       });
       return { ok: true as const };
-    }),
-  );
+    });
+  });
 }

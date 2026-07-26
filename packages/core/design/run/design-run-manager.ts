@@ -21,6 +21,7 @@ import { useDesignWorkspaceStore } from "../design-workspace-store";
 import { designDocumentKind } from "../design-types";
 import { installDesignPlatform } from "../platform/bridge-adapter";
 import { designUiStorage } from "../platform/design-ui-storage";
+import { createToolBlockIdTracker } from "./tool-block-ids";
 
 // 活跃设计 run 注册表(runId → 上下文)。渲染端权威;主进程崩溃/退出由 cli:exit 兜底清理。
 type DesignRunContext = {
@@ -32,6 +33,12 @@ type DesignRunContext = {
 let installedBridge: DesktopBridge | null = null;
 let unsubscribes: Array<() => void> = [];
 const activeRuns = new Map<string, DesignRunContext>();
+// 工具 block id 分配器:adapter 不给 toolCallId 时按 (runId, name) FIFO 配对,
+// 避免同回合十几次同名调用(codex 把所有 MCP 都叫 "MCP")撞成同一个 block。
+const toolBlockIds = createToolBlockIdTracker();
+
+// 工具输出存进 block.meta 的截断上限:芯片只需要摘要,大输出会白占渲染端内存。
+const MAX_TOOL_OUTPUT_IN_META = 4_000;
 
 function uid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -77,14 +84,27 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
       // v1 不单独展示推理流(镜像无 liveReasoning 字段);刻意丢弃。
       return;
     case "tool": {
-      const toolId = ev.toolCallId ?? `${runId}:${ev.name}`;
       if (ev.phase === "end") {
+        const toolId = toolBlockIds.end(runId, ev.name, ev.toolCallId);
         // 落定时不覆写 detail(保留 input 里的 label,供 per-page 状态映射);只更新状态。
+        // output 合进 meta:slides 的芯片详情要靠它显示「第3、7页 · rev 72」(主进程已算好页码)。
+        // **必须先读旧 meta 再合并** —— patchBlock 是浅合并,直接传 meta 会把 toolName 冲掉,
+        // 而 delegate_task 的 per-page 映射正依赖 meta.toolName。
+        const prev = useChatStore.getState().blocks.find((b) => b.id === toolId);
+        const prevMeta = (prev?.kind === "tool" ? prev.meta : undefined) ?? {};
+        const output =
+          typeof ev.output === "string" && ev.output
+            ? ev.output.length > MAX_TOOL_OUTPUT_IN_META
+              ? ev.output.slice(0, MAX_TOOL_OUTPUT_IN_META) + "…"
+              : ev.output
+            : undefined;
         mirror.patchBlock(toolId, {
           status: ev.isError ? "error" : "success",
+          ...(output ? { meta: { ...prevMeta, output } } : {}),
         } as Partial<ChatBlock>);
         return;
       }
+      const toolId = toolBlockIds.start(runId, ev.name, ev.toolCallId);
       // 工具开始前先把已流出的正文落定,保持时间线顺序(文本→工具→文本)。
       mirror.foldLiveAssistant(run.turnId);
       // detail 存入 input 的 JSON:多页并行的 deriveParallelDesignPageStatesFromBlocks 靠
@@ -142,6 +162,8 @@ function handleDesignCliExit(runId: string, code: number | null, error?: string)
   const run = activeRuns.get(runId);
   if (!run) return;
   activeRuns.delete(runId);
+  // 回合结束清掉待配对的工具队列(进程被杀时可能有 start 永远等不到 end)。
+  toolBlockIds.clearRun(runId);
   const mirror = useChatStore.getState();
   mirror.foldLiveAssistant(run.turnId);
   if (code !== 0 && (code !== null || error)) {
@@ -370,6 +392,7 @@ export async function cancelActiveDesignRuns(): Promise<void> {
   const ids = [...activeRuns.keys()];
   await Promise.allSettled(ids.map((id) => bridge.killCli(id)));
   // exit 事件会逐个清理;这里兜底立即复位 busy,避免进程组已死但事件丢失时卡忙碌态。
+  for (const id of ids) toolBlockIds.clearRun(id);
   activeRuns.clear();
   useChatStore.getState().endTurn();
 }

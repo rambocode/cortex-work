@@ -126,6 +126,7 @@ import type {
   BentoGetDeckResult,
   BentoSetStageRequest,
   BentoWriteDeckHtmlRequest,
+  SlidesDeckChangedEvent,
   SlidesPresentRequest,
   SlidesPresentResult,
 } from "./slides-ipc-types";
@@ -256,6 +257,13 @@ export interface DesktopBridge {
   // 演示模式:主进程加载 deck.bento.html 开演示窗(单屏/双屏),startIndex 为实页索引。
   // 可选——web/旧壳无此能力时工具栏「播放」按钮隐藏。
   slidesPresent?(req: SlidesPresentRequest): Promise<SlidesPresentResult>;
+  /**
+   * 订阅主进程的 deck 内容变更广播(AI 写盘 / 编辑器回写 / 换壳清洗)。
+   * **返回退订函数**,调用方卸载时必须调用(与 onDirChanged / research.onEvent 同一约定,
+   * 否则 reload 会累积 listener 触发 MaxListeners 告警)。
+   * 可选——web/旧壳无此能力时舞台退化为「靠文件 watcher 重载」的旧行为。
+   */
+  onSlidesDeckChanged?(cb: (event: SlidesDeckChangedEvent) => void): () => void;
   // 写作工作区:重命名文件/目录(同目录重名预检,目标已存在则抛错不覆盖)。
   // 可选——web/旧壳无 → 文件树重命名功能降级隐藏。
   renameEntry?(from: string, to: string): Promise<void>;

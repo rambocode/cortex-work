@@ -61,6 +61,20 @@ describe('buildSlidesTurnPrompt(bento 合同)', () => {
     expect(p).toContain('Do NOT re-emit the whole deck')
   })
 
+  // 分批是两个用户可感知问题的共同解:① 一次十几页极易撞上模型输出上限被截断,写入永远
+  // 落不了盘;② 一次写完 = 会话里只有一个芯片、画布只在最后跳一次,过程完全不可见。
+  it('ready:要求按 ≤3 页分批,并用返回的 nextExpectedRevision 续写下一批', () => {
+    const p = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
+    expect(p).toContain('at most 3')
+    expect(p).toContain('nextExpectedRevision')
+  })
+
+  it('合同段也写明分批规则(阶段指令之外的常驻约束)', () => {
+    const p = buildSlidesTurnPrompt({ text: 'x', stage: 'draft' })
+    expect(p).toContain('BATCH IT')
+    expect(p).toContain('at most 3 slides per set_slides call')
+  })
+
   it('合同里两条写入路径的分工写清楚了(局部改 vs 增删重排)', () => {
     const p = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
     expect(p).toContain('EDIT an existing deck with set_slides')

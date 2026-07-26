@@ -74,18 +74,43 @@ describe('approveOutline', () => {
 })
 
 describe('saveEditedDeckHtml', () => {
-  it('成功 → revision 前进;失败 → 错误浮出且返回 false', async () => {
+  it('成功 → revision 前进;失败 → 错误浮出且返回 ok:false', async () => {
     const bridge = makeBridge()
     await useBentoSlidesStore.getState().setup({ bridge, workspaceRoot: '/ws', deckId: 'deck1', title: 'x' })
-    expect(await useBentoSlidesStore.getState().saveEditedDeckHtml('<html>…</html>')).toBe(true)
+    expect(await useBentoSlidesStore.getState().saveEditedDeckHtml('<html>…</html>')).toMatchObject({
+      ok: true,
+      revision: 4
+    })
     expect(useBentoSlidesStore.getState().revision).toBe(4)
 
     const failing = makeBridge({
       slidesBentoWriteDeckHtml: vi.fn().mockResolvedValue({ ok: false, error: { code: 'io_error', message: '磁盘满' } })
     } as Partial<DesktopBridge>)
     await useBentoSlidesStore.getState().setup({ bridge: failing, workspaceRoot: '/ws', deckId: 'deck1', title: 'x' })
-    expect(await useBentoSlidesStore.getState().saveEditedDeckHtml('<html>…</html>')).toBe(false)
+    expect(await useBentoSlidesStore.getState().saveEditedDeckHtml('<html>…</html>')).toMatchObject({ ok: false })
     expect(useBentoSlidesStore.getState().deckError?.message).toBe('磁盘满')
+  })
+
+  it('把 baseRevision 一并传给主进程(弱乐观锁的输入)', async () => {
+    const write = vi.fn().mockResolvedValue({ ok: true, revision: 9 })
+    const bridge = makeBridge({ slidesBentoWriteDeckHtml: write } as Partial<DesktopBridge>)
+    await useBentoSlidesStore.getState().setup({ bridge, workspaceRoot: '/ws', deckId: 'deck1', title: 'x' })
+    await useBentoSlidesStore.getState().saveEditedDeckHtml('<html>…</html>', 8)
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({ baseRevision: 8 }))
+  })
+
+  // revision_conflict 不是失败,是竞态的正常出口:webview 持的是过期稿(AI 刚写过盘)。
+  // 弹一条红色错误只会让用户以为「存不进去了」,正确处理是丢弃这份 HTML 并刷新到最新稿。
+  it('revision_conflict → stale:true 且不置 deckError', async () => {
+    const bridge = makeBridge({
+      slidesBentoWriteDeckHtml: vi
+        .fn()
+        .mockResolvedValue({ ok: false, error: { code: 'revision_conflict', message: '磁盘已到 rev 5' } })
+    } as Partial<DesktopBridge>)
+    await useBentoSlidesStore.getState().setup({ bridge, workspaceRoot: '/ws', deckId: 'deck1', title: 'x' })
+    const res = await useBentoSlidesStore.getState().saveEditedDeckHtml('<html>…</html>', 3)
+    expect(res).toMatchObject({ ok: false, stale: true })
+    expect(useBentoSlidesStore.getState().deckError).toBeNull()
   })
 })
 

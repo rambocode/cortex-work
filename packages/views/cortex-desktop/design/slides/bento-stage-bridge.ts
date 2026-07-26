@@ -38,6 +38,13 @@ export function buildBentoHostShimSource(options: BentoHostShimOptions = {}): st
   const author = options.authorName ? jsLiteral(options.authorName) : 'undefined'
   return `(() => {
   const AUTHOR = ${author}
+  // 在线协作硬开关(vendor 的 sync/offline.ts 读这个偏好):第三道闸。
+  // 前两道在主进程(写盘剥离 collab)与 vendor(不建 SyncSession);这一道兜住「存量 deck
+  // 已带 collab、且 runtime 尚未重建」的窗口期。partition 是 persist: 的,写一次跨重载生效,
+  // 所以从第二次 boot 起连 boot 期的 tryJoin 也被挡在门外。
+  // 走 window.localStorage 而不是裸 localStorage:页内两者等价,但显式写 window 才能在
+  // 「假 window + new Function」的单测桩上被观测到(见 bento-stage-bridge.test.ts 的 runner)。
+  try { window.localStorage.setItem('bento-offline', 'on') } catch {}
   if (window.__cortexDrainDeckSave && window.cortexSlidesHost) {
     if (AUTHOR !== undefined) window.cortexSlidesHost.authorName = AUTHOR
     return true
@@ -66,6 +73,21 @@ export function buildBentoHostShimSource(options: BentoHostShimOptions = {}): st
 
 /** drain 表达式:有待存 HTML 返回字符串,否则 null。 */
 export const DRAIN_BENTO_SAVE_SOURCE = 'window.__cortexDrainDeckSave ? window.__cortexDrainDeckSave() : null'
+
+/**
+ * 热应用表达式:把新的文档 JSON 就地换进编辑器(不重载 webview)。
+ * 页内实现在 vendor/bento/src/cortex/apply-doc.ts;未注入(旧壳/尚未 boot)时返回 null,
+ * 宿主据此回落整页重载 —— 这条回落路径必须保留,否则换壳期间 AI 的改动会看不见。
+ */
+export function APPLY_BENTO_DOC_SOURCE(json: string, revision: number): string {
+  const rev = Number.isFinite(revision) ? Math.floor(revision) : 0
+  return `window.__cortexApplyDeckDoc ? window.__cortexApplyDeckDoc(${jsLiteral(json)}, ${rev}) : null`
+}
+
+/** 热应用结果归一化:只有页内明确返回 true 才算成功(null/undefined/异常都算失败 → 回落重载)。 */
+export function parseBentoApplyResult(raw: unknown): boolean {
+  return raw === true
+}
 
 /** 选区读取表达式:seq 与宿主已知的一致(或从未推送过)时返回 null,避免每轮搬运整份快照。 */
 export function READ_BENTO_SELECTION_SOURCE(lastSeq: number): string {

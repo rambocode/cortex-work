@@ -9,6 +9,15 @@ import { parseBentoDoc, type BentoDoc } from '@cortex-work/core/design/slides/be
 import type { SlidesSelectionSnapshot } from '@cortex-work/core/design/slides/slides-selection'
 import type { SlidesOutline } from '@cortex-work/core/design/slides/slides-types'
 
+/** 编辑器回写结果。stale 与 ok:false 的区别见 saveEditedDeckHtml 的注释。 */
+export type SaveEditedDeckResult = {
+  ok: boolean
+  /** 写入成功后的磁盘 revision。 */
+  revision?: number
+  /** 磁盘已更新、本次回写被弱锁拒绝(不是错误)。 */
+  stale?: boolean
+}
+
 interface BentoSlidesUiState {
   bridge: DesktopBridge | null
   workspaceRoot: string
@@ -35,8 +44,13 @@ interface BentoSlidesUiState {
   closeOutlineDialog(): void
   /** 批准提纲:gate 推进到 outline-approved;编辑后的提纲随生成指令进入对话(不回写 meta)。 */
   approveOutline(outline: Omit<SlidesOutline, 'approvedAt'>): Promise<boolean>
-  /** 编辑器 autosave 整份 HTML 落盘(SlidesStage drain 调用)。 */
-  saveEditedDeckHtml(html: string): Promise<boolean>
+  /**
+   * 编辑器 autosave 整份 HTML 落盘(SlidesStage drain 调用)。
+   * baseRevision = webview 内存文档对应的磁盘 revision(弱乐观锁的输入);
+   * 返回 stale:true 表示磁盘已经更新过(AI 写过盘),这份 HTML 是过期稿、已被主进程拒绝 ——
+   * 调用方应当丢弃它并把舞台刷新到最新稿,**而不是**当成错误弹给用户。
+   */
+  saveEditedDeckHtml(html: string, baseRevision?: number): Promise<SaveEditedDeckResult>
   /** 另存为 .bento.html(交付物即文件本体)。返回 false 仅在真实失败(取消不算)。 */
   exportDeck(): Promise<boolean>
   setSelection(selection: SlidesSelectionSnapshot | null): void
@@ -122,17 +136,25 @@ export const useBentoSlidesStore = create<BentoSlidesUiState>((set, get) => ({
     return true
   },
 
-  async saveEditedDeckHtml(html) {
+  async saveEditedDeckHtml(html, baseRevision) {
     const { bridge, workspaceRoot, deckId } = get()
-    if (!bridge?.slidesBentoWriteDeckHtml) return false
-    const res = await bridge.slidesBentoWriteDeckHtml({ workspaceRoot, deckId, html })
+    if (!bridge?.slidesBentoWriteDeckHtml) return { ok: false }
+    const res = await bridge.slidesBentoWriteDeckHtml({
+      workspaceRoot,
+      deckId,
+      html,
+      ...(baseRevision === undefined ? {} : { baseRevision })
+    })
     if (!res.ok) {
-      // 编辑落盘失败要浮出(磁盘满/权限),但不打断编辑器 —— 下一次变更会重试。
+      // revision_conflict 不是失败:webview 持的是过期稿(AI 刚写过盘),主进程拒写是对的。
+      // 报红只会让用户以为「存不进去了」,真正该做的是丢弃这份 HTML 并刷新到最新稿。
+      if (res.error.code === 'revision_conflict') return { ok: false, stale: true }
+      // 其余失败要浮出(磁盘满/权限),但不打断编辑器 —— 下一次变更会重试。
       set({ deckError: res.error })
-      return false
+      return { ok: false }
     }
     set({ revision: res.revision, deckError: null })
-    return true
+    return { ok: true, revision: res.revision }
   },
 
   async exportDeck() {

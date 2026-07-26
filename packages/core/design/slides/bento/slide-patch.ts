@@ -15,7 +15,17 @@
  */
 
 export type SlidePatchResult =
-  | { ok: true; doc: Record<string, unknown>; replacedIds: string[] }
+  | {
+      ok: true
+      doc: Record<string, unknown>
+      replacedIds: string[]
+      /**
+       * 与 replacedIds 顺序对齐的 1 基页码。
+       * 为什么在这里算:AI 只知道 slide id,用户只认「第几页」;在纯函数里顺手算出来,
+       * 会话时间线与工具芯片就不必再拿整份文档反查(渲染端拿不到文档全文)。
+       */
+      replacedPages: number[]
+    }
   | { ok: false; code: 'invalid_doc' | 'invalid_slides' | 'unknown_slide_id'; message: string }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -72,9 +82,21 @@ export function applySlideReplacements(doc: unknown, slides: unknown): SlidePatc
     )
   }
 
-  const nextSlides = current.map((slide) => {
+  // 一次遍历同时完成替换与页码记录:pageOf 按替换后文档中的位置(1 基)。
+  const pageOf = new Map<string, number>()
+  const nextSlides = current.map((slide, index) => {
     const id = idOf(slide)
-    return id && byId.has(id) ? byId.get(id)! : slide
+    if (id && byId.has(id)) {
+      pageOf.set(id, index + 1)
+      return byId.get(id)!
+    }
+    return slide
   })
-  return { ok: true, doc: { ...docRecord, slides: nextSlides }, replacedIds: [...byId.keys()] }
+  const replacedIds = [...byId.keys()]
+  return {
+    ok: true,
+    doc: { ...docRecord, slides: nextSlides },
+    replacedIds,
+    replacedPages: replacedIds.map((id) => pageOf.get(id) ?? 0)
+  }
 }
