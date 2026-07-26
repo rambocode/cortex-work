@@ -38,6 +38,12 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 
 ## 架构
 
+### 功能定位速查（改需求先看这里）
+
+用户用功能名词描述需求（如「闪记」「深度研究」「演示文稿」「快捷回复」）时，**先读 `docs/module-map.md`** 定位对应的 views / core / main 三端文件，再进代码，避免全仓盲搜。
+
+**维护规则（务必遵守）**：新增功能模块、IPC 域、工作区视图或独立窗口时，必须同步在 `docs/module-map.md` 补充对应条目；目录重命名/迁移时同步修正。缺更新视为该功能改动未完成。
+
 ### 包分层与硬边界（务必遵守，详见 `docs/floder.md`）
 
 - `packages/core/` — 共享业务核心：类型、API client、React Query hooks、Zustand stores、平台桥接。**不得依赖 `react-dom`、`localStorage`、`process.env`。**
