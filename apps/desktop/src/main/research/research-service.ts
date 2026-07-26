@@ -2,7 +2,7 @@
 // Worker 生命周期。
 //
 // 定位：这是 CRE 对所有 Consumer 的**唯一入口**。它刻意不暴露任意 URL fetch、任意 Worker
-// method、数据库句柄或本地路径——IPC 层只能调这 8 个方法。
+// method、数据库句柄或本地路径——IPC 层只能调这 9 个方法。
 //
 // 三条设计约束：
 // 1. **一个 Session 同时只有一个编排在跑**（单飞）。并发 run 返回同一个 Promise，
@@ -20,6 +20,7 @@ import type {
   ResearchEngineFacade,
   ResearchEvent,
   ResearchRequest,
+  ResearchReport,
   ResearchSessionFilter,
   ResearchSessionSummary,
   ResearchSessionView,
@@ -35,6 +36,7 @@ import {
 } from "./research-orchestrator";
 import type { ResearchRepository, ResearchSessionQuery } from "./research-repository";
 import { SessionStateWriter } from "./session-state";
+import { validateResearchReport } from "./citation-validator";
 
 /// 推送事件的 IPC 通道名。preload 侧订阅同一个名字（spec §16 的 onEvent）。
 export const RESEARCH_EVENT_CHANNEL = "research:event";
@@ -118,9 +120,15 @@ interface RunEntry {
   promise: Promise<void>;
 }
 
+interface ReportRegenerationEntry {
+  controller: AbortController;
+  promise: Promise<ResearchReport>;
+}
+
 /// CRE 的 main 侧门面。
 export class ResearchService implements ResearchEngineFacade {
   private readonly running = new Map<string, RunEntry>();
+  private readonly regeneratingReports = new Map<string, ReportRegenerationEntry>();
   private readonly senders = new Set<ResearchEventSender>();
 
   constructor(private readonly deps: ResearchServiceDeps) {}
@@ -184,6 +192,26 @@ export class ResearchService implements ResearchEngineFacade {
       // 预算存在 plan 上（session 行不回传预算，见 create 里的注释）。
       ...(view.plan?.budget ? { budget: view.plan.budget } : {}),
     });
+  }
+
+  async regenerateReport(sessionId: string): Promise<ResearchReport> {
+    const existing = this.regeneratingReports.get(sessionId);
+    if (existing) return existing.promise;
+
+    const controller = new AbortController();
+    const promise = this.generateReplacementReport(sessionId, controller.signal)
+      .finally(() => {
+        // Session 本身始终保持 completed；复用 done 事件让所有 renderer 清掉流式草稿并
+        // 重拉 full 详情。失败时重拉到的仍是旧报告。
+        this.broadcast({ type: "done", sessionId, status: "completed" });
+      })
+      .finally(() => {
+        if (this.regeneratingReports.get(sessionId)?.controller === controller) {
+          this.regeneratingReports.delete(sessionId);
+        }
+      });
+    this.regeneratingReports.set(sessionId, { controller, promise });
+    return promise;
   }
 
   /// 启动一次编排。**启动即返回，不等编排跑完**。
@@ -284,6 +312,11 @@ export class ResearchService implements ResearchEngineFacade {
       entry.controller.abort();
       await entry.promise.catch(() => undefined);
     }
+    const regeneration = this.regeneratingReports.get(sessionId);
+    if (regeneration) {
+      regeneration.controller.abort();
+      await regeneration.promise.catch(() => undefined);
+    }
     await this.deps.repository.deleteSession(sessionId);
     await this.collectGarbage();
   }
@@ -319,11 +352,109 @@ export class ResearchService implements ResearchEngineFacade {
   /// 停掉 Worker（应用退出 / 用户关闭总开关时调用）。
   async shutdown(): Promise<void> {
     for (const entry of this.running.values()) entry.controller.abort();
+    for (const entry of this.regeneratingReports.values()) entry.controller.abort();
     await Promise.allSettled([...this.running.values()].map((entry) => entry.promise));
+    await Promise.allSettled([...this.regeneratingReports.values()].map((entry) => entry.promise));
     await this.deps.workerProvider.stop();
   }
 
   // ── 内部 ─────────────────────────────────────────────────────────────────
+
+  private async generateReplacementReport(
+    sessionId: string,
+    signal: AbortSignal,
+  ): Promise<ResearchReport> {
+    const view = await this.deps.repository.getSession(sessionId, "evidence");
+    if (!view) throw new Error(`未知的研究 Session：${sessionId}`);
+    this.assertEnabled(view.summary.consumer);
+    if (view.summary.status !== "completed") {
+      throw new Error(`只有已完成的研究才能重新生成报告，当前状态：${view.summary.status}`);
+    }
+    if (!view.plan) throw new Error("研究计划缺失，无法重新生成报告");
+    if (!view.chunks || view.chunks.length === 0 || !view.documents) {
+      throw new Error("研究证据缺失，无法重新生成报告");
+    }
+
+    const hooks = this.deps.llmHooks?.({ summary: view.summary }) ?? null;
+    if (!hooks) throw new Error("研究模型不可用，已保留原报告");
+    const spent = await this.deps.repository.getBudgetSpend(sessionId);
+    const remainingEvidenceChars =
+      view.plan.budget.maxEvidenceCharsToModel - spent.evidenceCharsToModel;
+    if (remainingEvidenceChars <= 0) {
+      throw new Error("本次研究的证据出站预算已用尽，已保留原报告");
+    }
+    const regenerationPlan = {
+      ...view.plan,
+      budget: {
+        ...view.plan.budget,
+        maxEvidenceCharsToModel: remainingEvidenceChars,
+      },
+    };
+    const generatedAt = this.nowIso();
+    const generated = await hooks.generateReport({
+      plan: regenerationPlan,
+      chunks: view.chunks,
+      documents: view.documents,
+      coverage: view.coverage ?? [],
+      rounds: view.rounds ?? [],
+      signal,
+      onDelta: (delta) =>
+        this.broadcast({ type: "report_delta", sessionId, delta }),
+    });
+    const output = typeof generated === "string" ? { markdown: generated } : generated;
+    if (output.generationStats?.usedFallback) {
+      const promptEvidenceChars = output.generationStats.promptEvidenceChars;
+      if (promptEvidenceChars > 0) {
+        // 模型调用失败也可能已经把证据发出去了。报告必须保留旧版，但隐私预算按实际
+        // 出站量记账，否则反复点击可不断复用同一份“剩余额度”绕过 Session 硬上限。
+        const failedOperationId = `op_${this.newId()}_report_regenerate_failed`;
+        await this.deps.repository.beginOperation({
+          operationId: failedOperationId,
+          sessionId,
+          kind: "report",
+          requestPayloadHash: `regenerate-failed:${sessionId}:${generatedAt}`,
+          createdAt: generatedAt,
+        });
+        await this.deps.repository.commitOperation(
+          failedOperationId,
+          (tx) => tx.consumeBudget({ evidenceCharsToModel: promptEvidenceChars }),
+          generatedAt,
+        );
+      }
+      throw new Error("报告模型调用失败，已保留原报告");
+    }
+    const validated = validateResearchReport({
+      markdown: output.markdown,
+      chunks: view.chunks,
+      documents: view.documents,
+      generatedAt,
+    }).report;
+    const report: ResearchReport = {
+      ...validated,
+      ...(output.generationStats ? { generationStats: output.generationStats } : {}),
+    };
+
+    const operationId = `op_${this.newId()}_report_regenerate`;
+    await this.deps.repository.beginOperation({
+      operationId,
+      sessionId,
+      kind: "report",
+      requestPayloadHash: `regenerate:${sessionId}:${generatedAt}`,
+      createdAt: generatedAt,
+    });
+    await this.deps.repository.commitOperation(
+      operationId,
+      (tx) => {
+        tx.insertReport(report);
+        tx.insertCitations(report.citations);
+        tx.consumeBudget({
+          evidenceCharsToModel: report.generationStats?.promptEvidenceChars ?? 0,
+        });
+      },
+      generatedAt,
+    );
+    return report;
+  }
 
   /// 真正跑一轮编排。Worker 按需装配——总开关关闭时根本走不到这里，
   /// 因此"不起 worker"是结构性保证而不是靠 if 记得写。

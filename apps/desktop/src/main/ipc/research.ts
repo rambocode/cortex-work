@@ -127,6 +127,10 @@ export function registerResearchHandlers(): void {
 
   handle("research:rerun", async (service, [rawId]) => service.rerun(sessionIdSchema.parse(rawId)));
 
+  handle("research:regenerateReport", async (service, [rawId]) =>
+    service.regenerateReport(sessionIdSchema.parse(rawId)),
+  );
+
   handle("research:run", async (service, [rawId]) => service.run(sessionIdSchema.parse(rawId)));
 
   handle("research:pause", async (service, [rawId]) => service.pause(sessionIdSchema.parse(rawId)));

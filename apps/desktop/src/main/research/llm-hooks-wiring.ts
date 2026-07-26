@@ -37,6 +37,7 @@ export function buildResearchLlmHooks(input: ResearchLlmWiringInput): ResearchLl
   return createResearchLlmHooks({
     providerSettings: input.providerSettings as ProviderSettings,
     consumer: input.summary.consumer,
+    mode: input.summary.mode,
     ...(input.preference ? { preference: input.preference } : {}),
     ...(input.blockedDomains ? { blockedDomains: input.blockedDomains } : {}),
     ...(input.fetchFn ? { fetchFn: input.fetchFn } : {}),

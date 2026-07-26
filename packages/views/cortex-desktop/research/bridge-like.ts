@@ -24,6 +24,8 @@ export interface ResearchBridgeLike {
   create(request: ResearchRequest): Promise<ResearchSessionSummary>;
   /// 终态会话的重跑：用同一批参数新建一个会话，旧会话原样保留。
   rerun(sessionId: string): Promise<ResearchSessionSummary>;
+  /// 复用原计划与证据重新撰写并覆盖当前报告，不重新搜索。
+  regenerateReport(sessionId: string): ReturnType<ResearchEngineFacade["regenerateReport"]>;
   run(sessionId: string): Promise<void>;
   pause(sessionId: string): Promise<void>;
   resume(sessionId: string): Promise<void>;

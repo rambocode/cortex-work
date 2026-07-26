@@ -117,6 +117,7 @@ export type ReportGenerator = (input: {
   chunks: readonly EvidenceChunk[];
   documents: readonly ResearchDocument[];
   coverage: readonly CoverageReport[];
+  rounds?: readonly ResearchRound[];
   signal: AbortSignal;
   /// 正文增量回调。实现方支持流式时应逐段调用；不支持就忽略（编排层只是拿不到草稿）。
   onDelta?: (delta: string) => void;
@@ -352,6 +353,7 @@ export class ResearchOrchestrator {
           chunks,
           documents,
           coverage,
+          rounds: committed?.rounds ?? [],
           signal: innerSignal,
           onDelta: draft.push,
         }).finally(draft.flush);

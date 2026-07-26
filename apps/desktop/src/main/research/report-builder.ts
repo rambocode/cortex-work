@@ -31,7 +31,20 @@ export function buildEvidenceReport(input: EvidenceReportInput): string {
   const budget = input.maxEvidenceChars ?? input.plan.budget.maxEvidenceCharsToModel;
   const documentById = new Map(input.documents.map((document) => [document.documentId, document]));
 
-  const lines: string[] = [`# ${input.plan.objective}`, ""];
+  const lines: string[] = [
+    `# ${input.plan.objective}`,
+    "",
+    "## 执行摘要",
+    "",
+    "- 当前报告由确定性证据摘要器生成，仅整理可回溯证据，不补写模型推断。",
+    `- 研究计划包含 ${input.plan.subquestions.length} 个子问题，当前有 ${input.documents.length} 篇已抓取文档和 ${input.chunks.length} 个证据片段。`,
+    "",
+    "## 研究范围与方法",
+    "",
+    "- 方法：按子问题相关性排序证据，并为每条摘录保留片段级引用。",
+    `- 证据字符预算：${budget}。`,
+    "",
+  ];
   let spent = 0;
 
   for (const subquestion of input.plan.subquestions) {
@@ -60,6 +73,26 @@ export function buildEvidenceReport(input: EvidenceReportInput): string {
     if (listed === 0) lines.push("未找到可引用的证据。");
     lines.push("");
   }
+
+  lines.push(
+    "## 综合分析与争议",
+    "",
+    "- 确定性降级模式不执行跨来源推理；请结合各子问题证据检查一致结论与冲突。",
+    "",
+    "## 关键洞察与应用建议",
+    "",
+    "- 当前产物可作为证据索引；恢复可用研究模型后，可重新生成完整分析和行动建议。",
+    "",
+    "## 局限与待验证问题",
+    "",
+    "- 未找到证据的子问题仍需补充检索。",
+    "- 当前摘要不把搜索候选或无引用内容当作研究结论。",
+    "",
+    "## 结论",
+    "",
+    "- 本报告保留了现有证据链，但未替代完整的模型综合分析。",
+    "",
+  );
 
   return lines.join("\n").trimEnd() + "\n";
 }

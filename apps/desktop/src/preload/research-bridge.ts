@@ -1,4 +1,4 @@
-// Deep Research（CRE）的 preload 桥：把 8 个 research:* IPC channel 与 research:event 事件流
+// Deep Research（CRE）的 preload 桥：把 9 个 research:* IPC channel 与 research:event 事件流
 // 包成 CortexResearchBridge 暴露给渲染端（挂在 window.desktopAPI.personal.research 下）。
 //
 // **必须挂在 personal 下**：views 是经 CoreProvider 注入的 DesktopBridge 拿到它的，
@@ -19,6 +19,7 @@ import type {
   ResearchDetailLevel,
   ResearchEvent,
   ResearchRequest,
+  ResearchReport,
   ResearchSessionFilter,
   ResearchSessionSummary,
   ResearchSessionView,
@@ -32,6 +33,8 @@ export function createResearchBridge(): CortexResearchBridge {
       ipcRenderer.invoke("research:create", request),
     rerun: (sessionId: string): Promise<ResearchSessionSummary> =>
       ipcRenderer.invoke("research:rerun", sessionId),
+    regenerateReport: (sessionId: string): Promise<ResearchReport> =>
+      ipcRenderer.invoke("research:regenerateReport", sessionId),
     run: (sessionId: string): Promise<void> => ipcRenderer.invoke("research:run", sessionId),
     pause: (sessionId: string): Promise<void> => ipcRenderer.invoke("research:pause", sessionId),
     resume: (sessionId: string): Promise<void> => ipcRenderer.invoke("research:resume", sessionId),

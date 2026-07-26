@@ -15,6 +15,7 @@ import type {
 } from "@cortex-work/core/research/ui-store";
 import { NON_TERMINAL_RESEARCH_STATUSES } from "@cortex-work/core/research/session-status";
 import type {
+  ResearchReport,
   ResearchSessionSummary,
   ResearchSessionView,
 } from "@cortex-work/core/research/types";
@@ -110,6 +111,8 @@ export interface ResearchRunViewProps {
   /// 都属于工作区的职责（同 onCreated）。缺省时按钮禁用——没人接管新会话的话，
   /// 用户点完会看到「什么都没发生」，而后台其实已经建了一个会话。
   onRerun?: (created: ResearchSessionSummary) => void;
+  /// 原证据重生成成功后的报告；宿主负责替换 detail cache。
+  onReportRegenerated?: (report: ResearchReport) => void;
 }
 
 /// 单个研究会话的运行视图：进度、轮次、报告正文与来源面板的容器。
@@ -124,9 +127,11 @@ export function ResearchRunView({
   onExportMarkdown,
   startError,
   onRerun,
+  onReportRegenerated,
 }: ResearchRunViewProps): ReactElement {
   // 控制类调用的失败提示（暂停/恢复/取消可能因状态已变而被 main 拒绝）。
   const [actionError, setActionError] = useState<string | null>(null);
+  const [regeneratingReport, setRegeneratingReport] = useState(false);
 
   // 报告正文的展示层预处理：剥重复标题、引用标记编号化（见 reportDisplay 的头部注释）。
   // 只影响渲染——导出用的仍是原始 report.markdown。
@@ -232,6 +237,33 @@ export function ResearchRunView({
             }}
           >
             重跑
+          </button>
+          <button
+            type="button"
+            className="pw-res-btn"
+            disabled={
+              !bridge ||
+              status !== "completed" ||
+              !report ||
+              !onReportRegenerated ||
+              regeneratingReport
+            }
+            onClick={() => {
+              if (!bridge || !report || !onReportRegenerated) return;
+              setActionError(null);
+              setRegeneratingReport(true);
+              void bridge
+                .regenerateReport(session.sessionId)
+                .then(onReportRegenerated)
+                .catch((e: unknown) =>
+                  setActionError(
+                    `重新生成报告失败：${e instanceof Error ? e.message : String(e)}`,
+                  ),
+                )
+                .finally(() => setRegeneratingReport(false));
+            }}
+          >
+            {regeneratingReport ? "正在重新生成…" : "重新生成报告"}
           </button>
           <button
             type="button"
@@ -360,6 +392,11 @@ export function ResearchRunView({
             {report.unsupportedSections.length > 0 ? (
               <div className="pw-res-warn">
                 {`有 ${report.unsupportedSections.length} 处结论缺少有效引用，已标注为待核实`}
+              </div>
+            ) : null}
+            {report.generationStats?.qualityPassed === false ? (
+              <div className="pw-res-warn">
+                {`报告未完全达到研究完整度标准：${report.generationStats.qualityIssues?.join("；") || "请检查内容与证据覆盖"}`}
               </div>
             ) : null}
             {/* 报告正文放进纸张式卡片并限宽，长文阅读不靠整栏铺满。 */}

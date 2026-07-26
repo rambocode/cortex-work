@@ -17,9 +17,12 @@
 import { canSendToCloudModel } from "@cortex-work/core/research/trust-policy";
 import type { EvidenceChunk, ResearchDocument } from "@cortex-work/core/research/evidence";
 import type {
+  CoverageReport,
   ResearchBudget,
+  ResearchMode,
   ResearchPlan,
   ResearchReport,
+  ResearchRound,
   ResearchSubquestion,
 } from "@cortex-work/core/research/types";
 import { validateResearchReport } from "./citation-validator";
@@ -48,11 +51,10 @@ const MAX_CHUNKS_BY_MODE = {
   deep: 28,
 } as const;
 
-/// 由 budget 反推模式档位。
+/// 兼容旧调用方：仅在未显式传入 Session.mode 时由 budget 反推模式档位。
 ///
-/// budget 里没有 mode 字段，而 maxEvidenceCharsToModel 是唯一能区分三档的量
-/// （quick 20k / standard 60k / deep 120k）。阈值取两档中点，用户手动覆盖过预算时
-/// 也能落到最接近的一档。
+/// 生产链路始终传入 Session.mode；maxEvidenceCharsToModel 可能因剩余预算被缩减，
+/// 不能作为重新生成报告时的权威模式来源。
 function tierOf(budget: ResearchBudget): keyof typeof MAX_CHUNKS_BY_MODE {
   const chars = budget.maxEvidenceCharsToModel;
   return chars >= 90_000 ? "deep" : chars >= 40_000 ? "standard" : "quick";
@@ -73,21 +75,41 @@ const REPORT_MAX_TOKENS_BY_MODE = {
   deep: 14_000,
 } as const;
 
+const REPORT_LENGTH_TARGETS = {
+  quick: { label: "1500~2500 个中文字符", minimum: 1_500, citedDocuments: 2 },
+  standard: { label: "4000~7000 个中文字符", minimum: 4_000, citedDocuments: 4 },
+  deep: { label: "7000~12000 个中文字符", minimum: 7_000, citedDocuments: 6 },
+} as const;
+
+function modeOf(
+  input: Pick<ReportGenerationInput, "mode" | "budget">,
+): keyof typeof REPORT_LENGTH_TARGETS {
+  return input.mode ?? tierOf(input.budget);
+}
+
 /// 推导本次报告的输出 token 上限。
 ///
-/// **它是安全阀，不是篇幅指令**：报告该写多长由用户在研究目标里的表述决定
-/// （"简要说明" / "详尽综述" 模型自己读得懂），配置层不预设字数——两套长度真源必然打架，
-/// 而且用户改不了配置里的那套。这里只保证「不会因为一次失控生成烧穿配额」，
-/// 并让上限与本次喂进去的材料量同向缩放（档位判定见 tierOf）。
-export function resolveReportMaxTokens(input: { budget: ResearchBudget }): number {
-  return REPORT_MAX_TOKENS_BY_MODE[tierOf(input.budget)];
+/// **它是安全阀，不是篇幅指令**：真正的篇幅软目标由 REPORT_LENGTH_TARGETS 随模式给进
+/// 报告契约，并按证据覆盖度缩放；这里仅保证一次失控生成不会烧穿配额。两者同向分档，
+/// 但一个负责“至少充分展开到什么程度”，另一个负责“最多允许输出多少 token”。
+export function resolveReportMaxTokens(input: {
+  budget: ResearchBudget;
+  mode?: ResearchMode;
+}): number {
+  return REPORT_MAX_TOKENS_BY_MODE[input.mode ?? tierOf(input.budget)];
 }
 
 /// 报告生成入参。
 export interface ReportGenerationInput {
   objective: string;
+  /// Session 创建时的研究强度是报告档位真源；缺省仅用于兼容旧调用方。
+  mode?: ResearchMode;
   /// 分节依据；缺省时全部证据放在一节里。
   subquestions?: readonly ResearchSubquestion[];
+  /// 各轮覆盖度；同一子问题出现多次时最后一项代表最新一轮。
+  coverage?: readonly CoverageReport[];
+  /// 仅用于报告中的系统过程统计，不参与事实结论。
+  rounds?: readonly ResearchRound[];
   chunks: readonly EvidenceChunk[];
   /// 用于回填引用元数据（标题 / URL / 抓取时间）。缺失的文档对应的引用会被丢弃。
   documents?: readonly ResearchDocument[];
@@ -140,8 +162,15 @@ export async function generateReport(
     documents: input.documents ?? [],
     generatedAt,
   }).report;
+  let quality = assessReportQuality(validated, input, sections, prepared.includedChunks);
+  let qualityRetryCount = 0;
 
-  if (hasInsufficientSourceDiversity(validated, prepared.includedChunks)) {
+  if (
+    input.budget.maxEvidenceCharsToModel >= 2 &&
+    first.modelSucceeded &&
+    quality.issues.length > 0
+  ) {
+    qualityRetryCount = 1;
     // 第一份草稿已经流给 UI；重试若继续流式会把第二份完整报告直接拼在第一份后面。
     const { onDelta: _dropRetryDelta, ...retryInput } = input;
     const retried = await requestMarkdown(
@@ -150,22 +179,26 @@ export async function generateReport(
       prepared.userPrompt,
       prepared.includedChunks,
       promptBudgetPerCall,
-      true,
+      quality.issues,
     );
     promptEvidenceChars += retried.promptEvidenceChars;
-    validated = validateResearchReport({
+    const retryValidated = validateResearchReport({
       markdown: retried.markdown,
       chunks: input.chunks,
       documents: input.documents ?? [],
       generatedAt,
     }).report;
-    if (hasInsufficientSourceDiversity(validated, prepared.includedChunks)) {
-      validated = validateResearchReport({
-        markdown: fallbackMarkdown({ ...input, chunks: prepared.includedChunks }),
-        chunks: input.chunks,
-        documents: input.documents ?? [],
-        generatedAt,
-      }).report;
+    const retryQuality = assessReportQuality(
+      retryValidated,
+      input,
+      sections,
+      prepared.includedChunks,
+    );
+    // 重试仍可能因为供应商截断或证据确实不足而不达标。保留质量更高的一稿，
+    // 而不是为了“重试过”就无条件覆盖一份更完整的首稿。
+    if (retried.modelSucceeded && retryQuality.score >= quality.score) {
+      validated = retryValidated;
+      quality = retryQuality;
     }
   }
 
@@ -191,6 +224,12 @@ export async function generateReport(
       citedChunkCount: citedChunkIds.size,
       promptEvidenceChars,
       promptTruncated: uniqueIncludedChunks.size < eligibleChunkIds.size,
+      reportBodyChars: quality.bodyChars,
+      coveredSubquestionCount: quality.coveredSubquestionCount,
+      qualityRetryCount,
+      qualityPassed: quality.issues.length === 0,
+      qualityIssues: quality.issues,
+      usedFallback: !first.modelSucceeded,
     },
   };
 }
@@ -219,19 +258,27 @@ function buildSections(input: ReportGenerationInput): ReportSection[] {
     return canSendToCloudModel(document.policy);
   });
 
-  const maxChunks = MAX_CHUNKS_BY_MODE[tierOf(input.budget)];
+  const maxChunks = MAX_CHUNKS_BY_MODE[modeOf(input)];
   const subquestions = input.subquestions ?? [];
   if (subquestions.length === 0) {
     return [
       {
         heading: input.objective,
-        chunks: rank(allowed, undefined, maxChunks, input.minimumRelevance ?? 0),
+        chunks: rank(allowed, undefined, maxChunks, input.minimumRelevance ?? 0, []),
       },
     ];
   }
+  const latestCoverage = new Map<string, CoverageReport>();
+  for (const report of input.coverage ?? []) latestCoverage.set(report.subquestionId, report);
   return subquestions.map((subquestion) => ({
     heading: subquestion.text,
-    chunks: rank(allowed, subquestion.id, maxChunks, input.minimumRelevance ?? 0),
+    chunks: rank(
+      allowed,
+      subquestion.id,
+      maxChunks,
+      input.minimumRelevance ?? 0,
+      latestCoverage.get(subquestion.id)?.bestChunkIds ?? [],
+    ),
   }));
 }
 
@@ -242,14 +289,25 @@ function rank(
   subquestionId: string | undefined,
   maxChunks: number,
   minimumRelevance: number,
+  priorityChunkIds: readonly string[],
 ): EvidenceChunk[] {
+  const priority = new Map(priorityChunkIds.map((chunkId, index) => [chunkId, index]));
   const ranked = chunks
     .map((chunk) => ({
       chunk,
       score: subquestionId ? (chunk.subquestionScores[subquestionId] ?? 0) : chunk.objectiveScore,
     }))
     .filter((entry) => entry.score > 0 && entry.score >= minimumRelevance)
-    .sort((a, b) => b.score - a.score || a.chunk.chunkId.localeCompare(b.chunk.chunkId));
+    .sort((a, b) => {
+      const aPriority = priority.get(a.chunk.chunkId);
+      const bPriority = priority.get(b.chunk.chunkId);
+      if (aPriority !== undefined || bPriority !== undefined) {
+        if (aPriority === undefined) return 1;
+        if (bPriority === undefined) return -1;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+      }
+      return b.score - a.score || a.chunk.chunkId.localeCompare(b.chunk.chunkId);
+    });
 
   // 先给每篇文档一个席位，再允许同一文档补第二个片段。否则一篇长页面很容易凭多个
   // 同分 chunk 吃完小预算，报告看似“引用很多”却没有来源多样性。
@@ -278,15 +336,18 @@ async function requestMarkdown(
   userPrompt: string,
   fallbackChunks: readonly EvidenceChunk[],
   maxPromptChars: number,
-  retryForDiversity = false,
-): Promise<{ markdown: string; promptEvidenceChars: number }> {
+  retryIssues: readonly string[] = [],
+): Promise<{ markdown: string; promptEvidenceChars: number; modelSucceeded: boolean }> {
   const result = await deps.gateway.call({
     purpose: "report",
-    systemPrompt: retryForDiversity
-      ? `${REPORT_SYSTEM_PROMPT}\n\n上一次报告虽然收到了多篇独立来源，却只引用了一篇。请重新撰写，并在证据支持的前提下引用至少两篇不同来源。`
+    systemPrompt: retryIssues.length > 0
+      ? `${REPORT_SYSTEM_PROMPT}\n\n上一次报告未达到质量标准，请重新撰写并逐项修正：\n${retryIssues.map((issue) => `- ${issue}`).join("\n")}`
       : REPORT_SYSTEM_PROMPT,
     userPrompt,
-    maxTokens: resolveReportMaxTokens(input),
+    maxTokens: resolveReportMaxTokens({
+      budget: input.budget,
+      ...(input.mode ? { mode: input.mode } : {}),
+    }),
     maxPromptChars,
     ...(input.signal ? { signal: input.signal } : {}),
     ...(input.onDelta ? { onDelta: input.onDelta } : {}),
@@ -312,11 +373,13 @@ async function requestMarkdown(
         !result.ok && result.code === "no_provider_configured"
           ? 0
           : Math.min([...userPrompt].length, maxPromptChars),
+      modelSucceeded: false,
     };
   }
   return {
     markdown: result.text,
     promptEvidenceChars: Math.min([...userPrompt].length, maxPromptChars),
+    modelSucceeded: true,
   };
 }
 
@@ -333,9 +396,18 @@ function buildBudgetedReportPrompt(
     excerptTitle(documentById.get(chunk.documentId)?.title ?? "未知来源");
   const selected: PromptItem[][] = sections.map(() => []);
   const selectedChunks: EvidenceChunk[][] = sections.map(() => []);
+  const mode = modeOf(input);
+  const rounds = input.rounds ?? [];
   const render = (): string =>
     buildReportUserPrompt({
       objective: input.objective,
+      mode,
+      targetLength: REPORT_LENGTH_TARGETS[mode].label,
+      rounds: rounds.length,
+      queryCount: rounds.reduce((total, round) => total + round.queryIds.length, 0),
+      documentCount: input.documents?.length ?? 0,
+      chunkCount: input.chunks.length,
+      ...(input.coverage ? { coverage: input.coverage } : {}),
       sections: sections.map((section, index) => ({
         heading: section.heading,
         items: selected[index] ?? [],
@@ -364,13 +436,137 @@ function buildBudgetedReportPrompt(
   return { userPrompt: render(), includedChunks: selectedChunks.flat() };
 }
 
-function hasInsufficientSourceDiversity(
+interface ReportQualityAssessment {
+  issues: string[];
+  bodyChars: number;
+  coveredSubquestionCount: number;
+  score: number;
+}
+
+function assessReportQuality(
   report: ResearchReport,
+  input: ReportGenerationInput,
+  sections: readonly ReportSection[],
   includedChunks: readonly EvidenceChunk[],
-): boolean {
+): ReportQualityAssessment {
+  const issues: string[] = [];
+  const bodyChars = visibleBodyChars(report.markdown);
   const availableDocuments = new Set(includedChunks.map((chunk) => chunk.documentId));
-  if (availableDocuments.size < 2) return false;
-  return new Set(report.citations.map((citation) => citation.documentId)).size < 2;
+  const citedDocuments = new Set(report.citations.map((citation) => citation.documentId));
+  const citedChunkIds = new Set(report.citations.map((citation) => citation.chunkId));
+  const subquestions = input.subquestions ?? [];
+  let coveredSubquestionCount = 0;
+
+  for (const [index, subquestion] of subquestions.entries()) {
+    const section = sections[index];
+    if (!section || section.chunks.length === 0) continue;
+    const markdownSection = sectionMarkdown(report.markdown, subquestion.text);
+    if (
+      markdownSection &&
+      section.chunks.some(
+        (chunk) =>
+          citedChunkIds.has(chunk.chunkId) &&
+          markdownSection.includes(`[^${chunk.chunkId}]`),
+      )
+    ) {
+      coveredSubquestionCount += 1;
+    }
+  }
+
+  // coverage 的存在表示调用方走的是标准报告链路；旧调用方和单元测试不传该字段时，
+  // 仍只执行已有的来源多样性守门，保持 API 向后兼容。
+  if (input.coverage !== undefined) {
+    const requiredHeadings = [
+      "执行摘要",
+      "研究范围与方法",
+      "综合分析与争议",
+      "关键洞察与应用建议",
+      "局限与待验证问题",
+      "结论",
+    ];
+    for (const heading of requiredHeadings) {
+      if (!hasMarkdownHeading(report.markdown, heading)) issues.push(`缺少“${heading}”章节`);
+    }
+    for (const [index, subquestion] of subquestions.entries()) {
+      const section = sections[index];
+      if (!hasMarkdownHeading(report.markdown, subquestion.text)) {
+        issues.push(`缺少子问题章节“${subquestion.text}”`);
+      } else if (section && section.chunks.length > 0) {
+        const markdownSection = sectionMarkdown(report.markdown, subquestion.text);
+        if (
+          !section.chunks.some(
+            (chunk) =>
+              citedChunkIds.has(chunk.chunkId) &&
+              markdownSection.includes(`[^${chunk.chunkId}]`),
+          )
+        ) {
+          issues.push(`子问题“${subquestion.text}”没有使用本节有效证据`);
+        }
+      }
+    }
+
+    const mode = modeOf(input);
+    const target = REPORT_LENGTH_TARGETS[mode];
+    const evidenceBackedSections = sections.filter((section) => section.chunks.length > 0).length;
+    const evidenceRatio =
+      sections.length === 0 ? 0 : Math.max(0.5, evidenceBackedSections / sections.length);
+    const effectiveMinimum =
+      evidenceBackedSections === 0 ? 0 : Math.round(target.minimum * evidenceRatio);
+    if (bodyChars < effectiveMinimum) {
+      issues.push(`正文长度不足：当前 ${bodyChars} 字符，证据条件下软目标至少 ${effectiveMinimum} 字符`);
+    }
+
+    const requiredCitedDocuments = Math.min(availableDocuments.size, target.citedDocuments);
+    if (citedDocuments.size < requiredCitedDocuments) {
+      issues.push(
+        `来源覆盖不足：已引用 ${citedDocuments.size} 篇，应尽量引用 ${requiredCitedDocuments} 篇独立来源`,
+      );
+    }
+  } else if (availableDocuments.size >= 2 && citedDocuments.size < 2) {
+    issues.push("来源覆盖不足：收到多篇独立来源但最终只引用了一篇");
+  }
+
+  const headingScore = [
+    "执行摘要",
+    "研究范围与方法",
+    "综合分析与争议",
+    "关键洞察与应用建议",
+    "局限与待验证问题",
+    "结论",
+  ].filter((heading) => hasMarkdownHeading(report.markdown, heading)).length;
+  return {
+    issues,
+    bodyChars,
+    coveredSubquestionCount,
+    score:
+      (issues.length === 0 ? 1_000_000 : 0) +
+      coveredSubquestionCount * 10_000 +
+      headingScore * 1_000 +
+      citedDocuments.size * 100 +
+      Math.min(bodyChars, 20_000),
+  };
+}
+
+function hasMarkdownHeading(markdown: string, heading: string): boolean {
+  return markdown.split("\n").some((line) => line.trim() === `## ${heading}`);
+}
+
+function sectionMarkdown(markdown: string, heading: string): string {
+  const marker = `## ${heading}`;
+  const start = markdown.split("\n").findIndex((line) => line.trim() === marker);
+  if (start < 0) return "";
+  const lines = markdown.split("\n");
+  const endOffset = lines.slice(start + 1).findIndex((line) => /^##\s/u.test(line.trim()));
+  const end = endOffset < 0 ? lines.length : start + 1 + endOffset;
+  return lines.slice(start + 1, end).join("\n");
+}
+
+function visibleBodyChars(markdown: string): number {
+  return markdown
+    .replace(/\[\^[A-Za-z0-9_][A-Za-z0-9_.:-]*\]/gu, "")
+    .replace(/^#{1,6}\s+.*$/gmu, "")
+    .replace(/[`*_>|#-]/gu, "")
+    .replace(/\s/gu, "").length;
 }
 
 /// 确定性降级产物：复用 P5 的证据摘要生成器。

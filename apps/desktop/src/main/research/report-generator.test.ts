@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
 import type { EvidenceChunk, ResearchDocument } from "@cortex-work/core/research/evidence";
+import type { CoverageReport } from "@cortex-work/core/research/types";
 import type { ModelCallInput, ModelCallResult } from "./research-model-gateway";
 import { generateReport, resolveReportMaxTokens } from "./report-generator";
 
@@ -79,6 +80,179 @@ const INPUT = {
   budget: BUDGET,
   generatedAt: "2026-07-25T10:00:00.000Z",
 };
+
+function coverage(
+  bestChunkIds: string[],
+  overrides: Partial<CoverageReport> = {},
+): CoverageReport {
+  return {
+    subquestionId: "sq_1",
+    status: "sufficient",
+    sourceCount: 4,
+    independentDomainCount: 4,
+    primarySourceCount: 1,
+    contradictionCount: 0,
+    averageRelevance: 0.9,
+    bestChunkIds,
+    missing: [],
+    ...overrides,
+  };
+}
+
+function standardReport(body: string, citations = "[^ch_1]"): string {
+  return [
+    "# node:sqlite 生产可用性研究报告",
+    "",
+    "## 执行摘要",
+    `${body}${citations}`,
+    "",
+    "## 研究范围与方法",
+    "- 研究模式：standard",
+    "- 证据范围：公开网页",
+    "",
+    "## node:sqlite 的稳定性状态",
+    `${body}${citations}`,
+    "",
+    "## 综合分析与争议",
+    `${body}${citations}`,
+    "",
+    "## 关键洞察与应用建议",
+    `${body}${citations}`,
+    "",
+    "## 局限与待验证问题",
+    `${body}${citations}`,
+    "",
+    "## 结论",
+    `${body}${citations}`,
+  ].join("\n");
+}
+
+describe("标准研究报告契约", () => {
+  it("把混合研究框架、模式篇幅目标和覆盖度统计写入 prompt", async () => {
+    const { gateway, calls } = fakeGateway(ok(standardReport("证据支持该结论。".repeat(300))));
+
+    await generateReport(
+      {
+        ...INPUT,
+        coverage: [coverage(["ch_1"])],
+        rounds: [
+          {
+            roundIndex: 0,
+            startedAt: "2026-07-25T09:00:00.000Z",
+            queryIds: ["q_1"],
+            candidateCount: 8,
+            documentCount: 1,
+            chunkCount: 1,
+          },
+        ],
+      },
+      { gateway },
+    );
+
+    expect(calls[0]!.systemPrompt).toContain("执行摘要");
+    expect(calls[0]!.systemPrompt).toContain("综合分析与争议");
+    expect(calls[0]!.systemPrompt).toContain("局限与待验证问题");
+    expect(calls[0]!.userPrompt).toContain("目标正文长度：4000~7000 个中文字符");
+    expect(calls[0]!.userPrompt).toContain("研究轮次：1");
+    expect(calls[0]!.userPrompt).toContain("覆盖状态 sufficient");
+  });
+
+  it("优先把 coverage 评定的最佳片段放在对应章节前面", async () => {
+    const highScore = {
+      ...chunk("ch_score", "doc_score", "仅按分数会排在前面的材料", "public_web"),
+      subquestionScores: { sq_1: 0.99 },
+    };
+    const coverageBest = {
+      ...chunk("ch_best", "doc_best", "覆盖度评估选出的最佳材料", "public_web"),
+      subquestionScores: { sq_1: 0.7 },
+    };
+    const { gateway, calls } = fakeGateway(
+      ok(standardReport("综合两份证据。".repeat(300), "[^ch_score][^ch_best]")),
+    );
+
+    await generateReport(
+      {
+        ...INPUT,
+        chunks: [highScore, coverageBest],
+        documents: [document("doc_score", "public_web"), document("doc_best", "public_web")],
+        coverage: [coverage(["ch_best"])],
+      },
+      { gateway },
+    );
+
+    expect(calls[0]!.userPrompt.indexOf("[ch_best]")).toBeLessThan(
+      calls[0]!.userPrompt.indexOf("[ch_score]"),
+    );
+  });
+
+  it("首稿过短或缺少标准章节时只重写一次，并保存达标稿", async () => {
+    const complete = standardReport("证据支持该结论。".repeat(300));
+    const { gateway, calls } = fakeGateway(ok("简短结论[^ch_1]。"), ok(complete));
+
+    const report = await generateReport(
+      {
+        ...INPUT,
+        coverage: [coverage(["ch_1"])],
+      },
+      { gateway },
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.systemPrompt).toContain("上一次报告未达到质量标准");
+    expect(calls[1]!.systemPrompt).toContain("正文长度不足");
+    expect(report.markdown).toBe(complete);
+    expect(report.generationStats).toMatchObject({
+      qualityRetryCount: 1,
+      qualityPassed: true,
+      coveredSubquestionCount: 1,
+    });
+    expect(report.generationStats?.reportBodyChars).toBeGreaterThanOrEqual(4_000);
+  });
+
+  it("剩余出站预算不足以分配两次调用时不重试，且不突破硬上限", async () => {
+    const oneCharacterBudget = clampResearchBudget("quick", {
+      maxEvidenceCharsToModel: 1,
+    });
+    const { gateway, calls } = fakeGateway(ok("简短结论[^ch_1]。"));
+
+    const report = await generateReport(
+      {
+        ...INPUT,
+        mode: "quick",
+        budget: oneCharacterBudget,
+        coverage: [coverage(["ch_1"])],
+      },
+      { gateway },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(report.generationStats?.promptEvidenceChars).toBeLessThanOrEqual(1);
+    expect(report.generationStats?.qualityRetryCount).toBe(0);
+  });
+
+  it("研究模式是报告档位真源，证据预算被覆盖后不能反向改变 deep 篇幅", async () => {
+    const deepWithSmallEvidenceBudget = clampResearchBudget("deep", {
+      maxEvidenceCharsToModel: 20_000,
+    });
+    const { gateway, calls } = fakeGateway(
+      ok(standardReport("证据支持该结论。".repeat(600))),
+    );
+
+    await generateReport(
+      {
+        ...INPUT,
+        mode: "deep",
+        budget: deepWithSmallEvidenceBudget,
+        coverage: [coverage(["ch_1"])],
+      },
+      { gateway },
+    );
+
+    expect(calls[0]!.userPrompt).toContain("研究强度：deep");
+    expect(calls[0]!.userPrompt).toContain("目标正文长度：7000~12000 个中文字符");
+    expect(calls[0]!.maxTokens).toBe(14_000);
+  });
+});
 
 describe("generateReport 的引用校验（spec §19.1.6）", () => {
   it("模型编造未知 chunkId 时该引用被删，且失去支撑的段落被标 unsupported", async () => {
@@ -354,6 +528,7 @@ describe("generateReport 的降级", () => {
       includedDocumentCount: 0,
       includedChunkCount: 0,
       promptEvidenceChars: 0,
+      usedFallback: true,
     });
   });
 
@@ -457,11 +632,9 @@ describe("generateReport 的流式输出", () => {
   });
 });
 
-/// 输出 token 上限是**安全阀**，不是篇幅指令。
-///
-/// 报告写多长由用户在研究目标里的表述决定（"简要说明" / "详尽综述" 模型自己读得懂），
-/// 配置层不预设字数——预设一份就等于有了两套长度真源，而用户改不了配置里的那套。
-/// 这里只钉两件事：上限与「本次喂了多少材料」同向缩放；以及没有任何配置字段能改写它。
+/// 输出 token 上限是**安全阀**，不与报告契约里的模式软目标混为一谈。
+/// 这里只钉两件事：上限与「本次喂了多少材料」同向缩放；以及没有第二个用户配置字段
+/// 可以绕开统一的模式档位改写它。
 describe("报告输出预算", () => {
   function captureMaxTokens(): {
     gateway: { call: (input: ModelCallInput) => Promise<ModelCallResult>; preflight: () => never };
@@ -490,11 +663,9 @@ describe("报告输出预算", () => {
     expect(deep.seen[0]!).toBeGreaterThan(quick.seen[0]!);
   });
 
-  // 防回归：曾经有过一个 output.maxWords，它能把上限压到比模式档位更低（预设 3000 字 →
-  // 4500 token，而 deep 档是 14000），等于让配置层悄悄决定报告篇幅。
-  // 这条钉住「上限完全由 budget 推出」——resolveReportMaxTokens 只收 budget 一个参数，
-  // 想再塞进一个篇幅旋钮就必须先改签名，改签名就会撞到这条断言。
-  it("输出上限完全由 budget 推出，没有第二个输入", async () => {
+  // 旧内部调用方尚未显式携带 mode 时仍按预算档位兼容；生产装配会传 Session.mode，
+  // 因此用户收窄证据预算不会反向降低报告强度。
+  it("旧调用方省略 mode 时仍可由 budget 推出兼容档位", async () => {
     const budget = clampResearchBudget("deep");
     const { gateway, seen } = captureMaxTokens();
     await generateReport({ ...INPUT, budget }, { gateway });

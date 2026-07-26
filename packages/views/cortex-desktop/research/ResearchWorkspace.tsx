@@ -16,7 +16,7 @@
 // bridge 为 null（Web 端没有桌面桥）时渲染降级提示，不做任何订阅与请求。
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { useResearchUiStore } from "@cortex-work/core/research/ui-store";
-import type { ResearchSessionSummary } from "@cortex-work/core/research/types";
+import type { ResearchReport, ResearchSessionSummary } from "@cortex-work/core/research/types";
 import type { ResearchBridgeLike } from "./bridge-like";
 import { ResearchCreateForm } from "./ResearchCreateForm";
 import { ResearchRunView } from "./ResearchRunView";
@@ -174,6 +174,17 @@ export function ResearchWorkspace({
     setStartError(null);
   }, []);
 
+  const onReportRegenerated = useCallback(
+    (report: ResearchReport) => {
+      if (!activeSessionId) return;
+      const store = useResearchUiStore.getState();
+      const current = store.detailCache[activeSessionId];
+      if (current) store.setDetail(activeSessionId, { ...current, report });
+      else fetchDetail(activeSessionId);
+    },
+    [activeSessionId, fetchDetail],
+  );
+
   /// 新建完成：落位之后立刻启动。
   ///
   /// 顺序是硬约束——upsertSession 必须先于 bridge.run 完成，否则编排一开始发出的事件会落到
@@ -269,6 +280,7 @@ export function ResearchWorkspace({
               onExportMarkdown={exportMarkdown}
               // 重跑产出的新会话走与新建完全相同的落位逻辑（插列表 + 选中 + 清错）。
               onRerun={onCreated}
+              onReportRegenerated={onReportRegenerated}
               startError={
                 startError && startError.sessionId === activeSessionId ? startError.message : null
               }

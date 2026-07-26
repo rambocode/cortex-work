@@ -11,6 +11,7 @@ import type { ResearchModelPreference } from "@cortex-work/core/research/model-s
 import type {
   PlannerDecision,
   ResearchConsumer,
+  ResearchMode,
   ResearchPlan,
 } from "@cortex-work/core/research/types";
 import type { postChatCompletion, postChatCompletionStream } from "../../ipc/openai-chat";
@@ -33,6 +34,8 @@ export interface ResearchLlmHooksInput {
   /// 研究模型偏好（研究设置的 modelProviderId / modelId）；缺省 = 跟随全局默认模型。
   preference?: ResearchModelPreference;
   consumer: ResearchConsumer;
+  /// Session 的权威研究强度；报告档位不得由可覆盖预算反推。
+  mode?: ResearchMode;
   blockedDomains?: readonly string[];
   complete?: typeof postChatCompletion;
   /// 报告是唯一走流式的调用，因此它有独立的注入口（Planner 仍走 complete）。
@@ -96,7 +99,10 @@ export function createResearchLlmHooks(input: ResearchLlmHooksInput): ResearchLl
       const report = await generateReport(
         {
           objective: call.plan.objective,
+          ...(input.mode ? { mode: input.mode } : {}),
           subquestions: call.plan.subquestions,
+          coverage: call.coverage,
+          ...(call.rounds ? { rounds: call.rounds } : {}),
           chunks: call.chunks,
           documents: call.documents,
           budget: call.plan.budget,

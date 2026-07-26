@@ -8,7 +8,13 @@ import type { ResearchEngineSettings } from "@cortex-work/core/research/settings
 import type { ResearchRequest } from "@cortex-work/core/research/types";
 import type { SearchBatchResponse } from "@cortex-work/core/research/search-api";
 import { InMemoryResearchRepository } from "./repository-memory";
-import { fixtureChunk, fixtureDocument, fixtureRound, fixtureSessionInput } from "./repository-fixtures";
+import {
+  fixtureChunk,
+  fixtureDocument,
+  fixtureReport,
+  fixtureRound,
+  fixtureSessionInput,
+} from "./repository-fixtures";
 import {
   ResearchDisabledError,
   ResearchService,
@@ -498,3 +504,134 @@ describe("rerun（终态会话的重跑）", () => {
     await expect(service.rerun("不存在")).rejects.toThrow();
   });
 })
+
+describe("regenerateReport（复用证据覆盖原报告）", () => {
+  async function completedWithEvidence(
+    generateReport: NonNullable<ReturnType<NonNullable<ResearchServiceDeps["llmHooks"]>>>["generateReport"],
+    initialEvidenceSpend = 0,
+  ): Promise<Harness & { sessionId: string }> {
+    const harness = makeHarness(enabledSettings(), () => ({
+      planInitial: async () => {
+        throw new Error("本用例不该重新规划");
+      },
+      planGap: async () => ({ action: "finish", reason: "本用例不该补充检索" }),
+      generateReport,
+    }));
+    const created = await harness.service.create(REQUEST);
+    const oldReport = fixtureReport({
+      markdown: "旧报告正文[^chunk-1]。",
+      generatedAt: "2026-07-25T09:00:00.000Z",
+    });
+    await harness.repository.beginOperation({
+      operationId: "seed-report",
+      sessionId: created.sessionId,
+      kind: "report",
+      requestPayloadHash: "seed",
+      createdAt: "2026-07-25T09:00:00.000Z",
+    });
+    await harness.repository.commitOperation("seed-report", (tx) => {
+      tx.insertDocuments([fixtureDocument()]);
+      tx.insertChunks([fixtureChunk()]);
+      tx.insertReport(oldReport);
+      tx.insertCitations(oldReport.citations);
+      if (initialEvidenceSpend > 0) {
+        tx.consumeBudget({ evidenceCharsToModel: initialEvidenceSpend });
+      }
+    });
+    await harness.repository.updateSessionStatus(created.sessionId, "completed");
+    return { ...harness, sessionId: created.sessionId };
+  }
+
+  it("不重新搜索或启动 Worker，直接用原计划与证据生成并覆盖报告", async () => {
+    let receivedChunks = 0;
+    const harness = await completedWithEvidence(async (input) => {
+      receivedChunks = input.chunks.length;
+      return { markdown: "新报告正文[^chunk-1]。" };
+    });
+
+    const report = await harness.service.regenerateReport(harness.sessionId);
+    const persisted = await harness.repository.getSession(harness.sessionId, "full");
+
+    expect(receivedChunks).toBe(1);
+    expect(harness.ensureCalls).toBe(0);
+    expect(report.markdown).toBe("新报告正文[^chunk-1]。");
+    expect(persisted?.report?.markdown).toBe("新报告正文[^chunk-1]。");
+    expect(persisted?.report?.citations.map((item) => item.chunkId)).toEqual(["chunk-1"]);
+    expect(persisted?.summary.status).toBe("completed");
+  });
+
+  it("生成失败时旧报告与旧引用保持不变", async () => {
+    const harness = await completedWithEvidence(async () => {
+      throw new Error("模型暂不可用");
+    });
+
+    await expect(harness.service.regenerateReport(harness.sessionId)).rejects.toThrow("模型暂不可用");
+    const persisted = await harness.repository.getSession(harness.sessionId, "full");
+
+    expect(persisted?.report?.markdown).toBe("旧报告正文[^chunk-1]。");
+    expect(persisted?.report?.citations.map((item) => item.chunkId)).toEqual(["chunk-1"]);
+  });
+
+  it("真实生成器走确定性降级时拒绝覆盖旧报告", async () => {
+    const fallbackStats = {
+      ...fixtureReport().generationStats!,
+      usedFallback: true,
+    };
+    const harness = await completedWithEvidence(async () => ({
+      markdown: "模型失败后的降级摘要[^chunk-1]。",
+      generationStats: fallbackStats,
+    }));
+
+    await expect(harness.service.regenerateReport(harness.sessionId)).rejects.toThrow(
+      /保留原报告/,
+    );
+    const persisted = await harness.repository.getSession(harness.sessionId, "full");
+    const spent = await harness.repository.getBudgetSpend(harness.sessionId);
+    expect(persisted?.report?.markdown).toBe("旧报告正文[^chunk-1]。");
+    expect(spent.evidenceCharsToModel).toBe(800);
+  });
+
+  it("只使用 Session 剩余证据出站预算，耗尽后拒绝连续重生成", async () => {
+    let calls = 0;
+    let receivedBudget = 0;
+    const harness = await completedWithEvidence(async (input) => {
+      calls += 1;
+      receivedBudget = input.plan.budget.maxEvidenceCharsToModel;
+      return {
+        markdown: "预算内的新报告[^chunk-1]。",
+        generationStats: {
+          ...fixtureReport().generationStats!,
+          promptEvidenceChars: receivedBudget,
+          usedFallback: false,
+        },
+      };
+    }, 19_000);
+
+    await harness.service.regenerateReport(harness.sessionId);
+    await expect(harness.service.regenerateReport(harness.sessionId)).rejects.toThrow(/预算已用尽/);
+
+    expect(receivedBudget).toBe(1_000);
+    expect(calls).toBe(1);
+  });
+
+  it("并发点击采用 single-flight，只生成一次", async () => {
+    let calls = 0;
+    let release: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const harness = await completedWithEvidence(async () => {
+      calls += 1;
+      await blocked;
+      return { markdown: "并发后的新报告[^chunk-1]。" };
+    });
+
+    const first = harness.service.regenerateReport(harness.sessionId);
+    const second = harness.service.regenerateReport(harness.sessionId);
+    release!();
+    const reports = await Promise.all([first, second]);
+
+    expect(calls).toBe(1);
+    expect(reports[0].markdown).toBe(reports[1].markdown);
+  });
+});

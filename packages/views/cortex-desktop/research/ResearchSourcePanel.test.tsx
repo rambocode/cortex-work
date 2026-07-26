@@ -17,6 +17,9 @@ function makeBridge() {
     async rerun(): Promise<never> {
       throw new Error("本用例不该重跑");
     },
+    async regenerateReport(): Promise<never> {
+      throw new Error("本用例不该重新生成报告");
+    },
     async run() {},
     async pause() {},
     async resume() {},

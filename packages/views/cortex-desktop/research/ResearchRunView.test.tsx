@@ -20,6 +20,10 @@ function makeBridge() {
       calls.push(["rerun", id]);
       return makeSummary({ sessionId: `${id}-clone`, status: "created" });
     },
+    async regenerateReport(id) {
+      calls.push(["regenerateReport", id]);
+      return makeReport({ markdown: "重新生成后的报告正文。" });
+    },
     async pause(id) {
       calls.push(["pause", id]);
     },
@@ -321,6 +325,40 @@ describe("重跑（终态会话的出路）", () => {
     const { bridge } = makeBridge();
     render(<ResearchRunView bridge={bridge} session={makeSummary({ status: "completed" })} />);
     expect(screen.getByRole("button", { name: "重跑" })).toBeDisabled();
+  });
+});
+
+describe("重新生成报告（复用原证据）", () => {
+  it("已完成且已有报告时可重新生成，并把替换后的报告交给宿主", async () => {
+    const { bridge, calls } = makeBridge();
+    const reports: string[] = [];
+    render(
+      <ResearchRunView
+        bridge={bridge}
+        session={makeSummary({ sessionId: "s1", status: "completed" })}
+        view={makeFullView({ report: makeReport() })}
+        onReportRegenerated={(report) => reports.push(report.markdown)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成报告" }));
+
+    await waitFor(() => expect(calls).toContainEqual(["regenerateReport", "s1"]));
+    await waitFor(() => expect(reports).toEqual(["重新生成后的报告正文。"]));
+  });
+
+  it("没有已落库报告时禁用重新生成", () => {
+    const { bridge } = makeBridge();
+    render(
+      <ResearchRunView
+        bridge={bridge}
+        session={makeSummary({ status: "completed" })}
+        view={makeFullView({ report: undefined })}
+        onReportRegenerated={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "重新生成报告" })).toBeDisabled();
   });
 });
 

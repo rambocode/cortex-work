@@ -23,7 +23,11 @@ describe("buildEvidenceReport", () => {
     });
 
     expect(markdown).toContain(`# ${PLAN.objective}`);
+    expect(markdown).toContain("## 执行摘要");
+    expect(markdown).toContain("## 研究范围与方法");
     expect(markdown).toContain("## node:sqlite 的 API 稳定性如何");
+    expect(markdown).toContain("## 局限与待验证问题");
+    expect(markdown).toContain("## 结论");
     expect(markdown).toContain("[^c1]");
     expect(markdown).toContain("[^c2]");
     // 高分证据排在前面

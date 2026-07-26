@@ -33,7 +33,7 @@ export interface ResearchSearchServerCredentialInput {
 
 /// 研究引擎的桌面桥。
 ///
-/// 必选方法 = ResearchEngineFacade 的八件套 + onEvent，与 main 的 8 个 IPC channel 一一对应。
+/// 必选方法 = ResearchEngineFacade 的九件套 + onEvent，与 main 的 9 个 IPC channel 一一对应。
 /// **入参里刻意没有** 模型 API key / Search token / Worker 路径 / 任意本地输出路径（spec §16）：
 /// main 侧 zod schema 是 .strict()，多传字段会被直接拒绝，所以桥这层就不提供这些参数。
 export interface CortexResearchBridge extends ResearchEngineFacade {

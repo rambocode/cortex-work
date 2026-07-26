@@ -120,11 +120,10 @@ export interface ResearchPlan {
 /// 消费方对产物形态的要求。requireCitations 为 true 时，无有效 CitationRef 的事实段
 /// 必须被标记为 unsupported，不得表现为确定事实（spec §10.4）。
 ///
-/// **刻意没有 maxWords 之类的篇幅字段**：报告写多长由用户在研究目标里的表述决定
-/// （「简要说明」「详尽综述」模型自己读得懂），不由配置层预先钉死。曾经有过一个
-/// maxWords，结果是两套互相矛盾的长度真源——预设里写 3000 字、模式档位却给 deep 留了
-/// 6 倍的材料量，谁生效全看装配层有没有转发。模型的输出 token 上限是**安全阀**而不是
-/// 篇幅指令，按研究强度分档即可（见 report-generator 的 resolveReportMaxTokens）。
+/// **刻意没有 maxWords 之类的用户配置字段**：报告生成器按 quick / standard / deep
+/// 提供统一的证据感知软目标，用户在研究目标里的「简要说明」「详尽综述」仍可进一步调节。
+/// 曾经的 maxWords 会与模式档位形成两套互相矛盾的真源，因此不再开放第二个长度旋钮。
+/// 模型的输出 token 上限仍只是安全阀（见 report-generator 的 resolveReportMaxTokens）。
 export interface ResearchOutputRequest {
   format: "report" | "evidence_package" | "answer";
   requireCitations: boolean;
@@ -216,6 +215,18 @@ export interface ReportGenerationStats {
   promptEvidenceChars: number;
   /// 至少一个符合条件的证据片段因 prompt 字符预算未被送入模型。
   promptTruncated: boolean;
+  /// 去掉 Markdown 标记与引用编号后的正文字符数，用于判断报告是否明显偏短。
+  reportBodyChars?: number;
+  /// 有证据可写且最终正文中至少出现一个有效引用的子问题数量。
+  coveredSubquestionCount?: number;
+  /// 本次是否因完整度或来源多样性不足执行过一次质量重写。
+  qualityRetryCount?: number;
+  /// 最终报告是否达到当前研究强度对应的结构、覆盖和篇幅软目标。
+  qualityPassed?: boolean;
+  /// 未达到的质量项；历史报告没有该字段。
+  qualityIssues?: string[];
+  /// true 表示模型不可用、调用失败或空输出，正文来自确定性降级摘要。
+  usedFallback?: boolean;
 }
 
 export interface ResearchReport {
@@ -339,6 +350,9 @@ export interface ResearchEngineFacade {
   /// 刻意是**克隆**而不是就地重置：终态在状态机里没有出口，理由见 session-status 的注释
   /// ——就地改写会让旧报告引用的证据凭空消失，而报告可能已被导出。
   rerun(sessionId: string): Promise<ResearchSessionSummary>;
+  /// 复用已完成 Session 的原计划、覆盖度与证据重新撰写报告；成功后原子覆盖正文与引用。
+  /// 不重新搜索、不改变 Session 状态，失败时旧报告保持不变。
+  regenerateReport(sessionId: string): Promise<ResearchReport>;
   /// 启动一次编排。**返回 = 已启动，不等于已完成**：调用方不该 await 它来等研究结束
   /// （那会让整条 IPC 挂上几分钟，期间 renderer 拿不到会话、事件全被丢弃）。
   /// 进度与结束一律经 onEvent 观察；启动前就能判定的失败（未开启 / 搜索服务未配置）仍原样抛出。
