@@ -1,4 +1,4 @@
-// Deep Research（CRE）的 preload 桥：把 9 个 research:* IPC channel 与 research:event 事件流
+// Deep Research（CRE）的 preload 桥：把 13 个 research:* IPC channel 与 research:event 事件流
 // 包成 CortexResearchBridge 暴露给渲染端（挂在 window.desktopAPI.personal.research 下）。
 //
 // **必须挂在 personal 下**：views 是经 CoreProvider 注入的 DesktopBridge 拿到它的，
@@ -11,10 +11,18 @@
 import { ipcRenderer, type IpcRendererEvent } from "electron";
 import type {
   CortexResearchBridge,
+  MemoryCandidateStatus,
+  ResearchDirectSearchCredentialInput,
+  ResearchMemoryCandidateView,
+  ResearchMemoryReviewAction,
   ResearchSearchServerCredentialInput,
   ResearchSearchServerProbe,
 } from "@cortex-work/core/desktop/research-bridge";
-import type { ResearchSearchServerSettings } from "@cortex-work/core/research/settings";
+import type {
+  ResearchDirectSearchSettings,
+  ResearchSearchServerSettings,
+} from "@cortex-work/core/research/settings";
+import type { GatherRequest, GatherResult } from "@cortex-work/core/research/quick-types";
 import type {
   ResearchDetailLevel,
   ResearchEvent,
@@ -60,5 +68,25 @@ export function createResearchBridge(): CortexResearchBridge {
     // 探测不接受也不回传凭据：main 用已落盘的密文自行解密发起，只回成败与一句人话。
     testSearchServer: (): Promise<ResearchSearchServerProbe> =>
       ipcRenderer.invoke("research:testSearchServer"),
+    // 直连搜索逃生阀的两个能力，与上面两个同性质（明文密钥单向流向 main，反向只回密文）。
+    setDirectSearchCredential: (
+      input: ResearchDirectSearchCredentialInput,
+    ): Promise<ResearchDirectSearchSettings> =>
+      ipcRenderer.invoke("research:setDirectSearchCredential", input),
+    testDirectSearch: (): Promise<ResearchSearchServerProbe> =>
+      ipcRenderer.invoke("research:testDirectSearch"),
+    // 窄面检索：入参只有查询词，抓哪几条由 main 自行从搜索结果里选（见 core 契约的注释）。
+    gather: (request: GatherRequest): Promise<GatherResult> =>
+      ipcRenderer.invoke("research:gather", request),
+    // U10：记忆候选的读取与审阅。审阅只接受三个动作，不接受目标状态（见 core 契约的注释）。
+    listMemoryCandidates: (
+      status?: MemoryCandidateStatus,
+    ): Promise<ResearchMemoryCandidateView[]> =>
+      ipcRenderer.invoke("research:listMemoryCandidates", status),
+    reviewMemoryCandidate: (
+      candidateId: string,
+      action: ResearchMemoryReviewAction,
+    ): Promise<void> =>
+      ipcRenderer.invoke("research:reviewMemoryCandidate", candidateId, action),
   };
 }

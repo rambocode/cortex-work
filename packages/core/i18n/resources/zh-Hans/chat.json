@@ -75,6 +75,7 @@
       "label": "自定义"
     },
     "uploadFile": "文件",
+    "toResearch": "转为深度研究",
     "uploadImage": "上传图片",
     "uploadDoc": "上传文档",
     "noProvider": "未配置供应商（去设置 → 供应商）",

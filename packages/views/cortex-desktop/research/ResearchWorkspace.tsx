@@ -19,6 +19,7 @@ import { useResearchUiStore } from "@cortex-work/core/research/ui-store";
 import type { ResearchReport, ResearchSessionSummary } from "@cortex-work/core/research/types";
 import type { ResearchBridgeLike } from "./bridge-like";
 import { ResearchCreateForm } from "./ResearchCreateForm";
+import type { ResearchExportTarget } from "./ResearchRunView";
 import { ResearchRunView } from "./ResearchRunView";
 import { ResearchSessionList } from "./ResearchSessionList";
 import { ResearchSourcePanel } from "./ResearchSourcePanel";
@@ -33,6 +34,11 @@ export interface ResearchWorkspaceProps {
   /// 本次研究将使用的模型（展示名 + 是否本机 + 出站说明），来自设置。
   /// 由宿主注入：views 不读个人工作区的设置 store，保持可复用。
   model?: ResearchModelDisplay;
+  /// 新建表单的预填目标（「转为深度研究」等反向入口带上下文进来）。
+  initialObjective?: string;
+  /// 报告的额外去向（存为写作文档 / 闪记 / 演示大纲…）。
+  /// 由宿主注入：研究工作区不该知道其它工作区的存在（见 ResearchRunView 的同名 prop 注释）。
+  exportTargets?: readonly ResearchExportTarget[];
 }
 
 /// 统一的错误消息提取（Error / 任意抛出物都能变成一句可展示的话）。
@@ -59,6 +65,8 @@ export function ResearchWorkspace({
   bridge,
   onClose,
   model,
+  initialObjective,
+  exportTargets,
 }: ResearchWorkspaceProps): ReactElement {
   const sessions = useResearchUiStore((s) => s.sessions);
   const activeSessionId = useResearchUiStore((s) => s.activeSessionId);
@@ -69,7 +77,9 @@ export function ResearchWorkspace({
   const draftMap = useResearchUiStore((s) => s.reportDraft);
   const loading = useResearchUiStore((s) => s.loading);
   const error = useResearchUiStore((s) => s.error);
-  const [creating, setCreating] = useState(false);
+  // 带着预填目标进来（「转为深度研究」）时直接落在新建表单上：
+  // 用户的意图已经明确，还让他先点一次「新建」是多余的一步。
+  const [creating, setCreating] = useState(() => !!initialObjective);
   // 「会话建好了但没跑起来」的原因，连同它属于哪个会话一起记——创建表单在 onCreated 时就被
   // 卸载，它自己的错误 state 会随之消失，原因必须由这里保管并显示在会话视图上。
   const [startError, setStartError] = useState<{ sessionId: string; message: string } | null>(null);
@@ -265,6 +275,7 @@ export function ResearchWorkspace({
             <ResearchCreateForm
               bridge={bridge}
               {...(model ? { model } : {})}
+              {...(initialObjective ? { initialObjective } : {})}
               onCreated={onCreatedAndStart}
               onCancel={() => setCreating(false)}
             />
@@ -278,6 +289,7 @@ export function ResearchWorkspace({
               activities={activeSessionId ? activityMap[activeSessionId] : undefined}
               reportDraft={activeSessionId ? draftMap[activeSessionId] : undefined}
               onExportMarkdown={exportMarkdown}
+              {...(exportTargets ? { exportTargets } : {})}
               // 重跑产出的新会话走与新建完全相同的落位逻辑（插列表 + 选中 + 清错）。
               onRerun={onCreated}
               onReportRegenerated={onReportRegenerated}

@@ -23,6 +23,8 @@ import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate"
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
+import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
+import { unregisterResearchSession } from "../capabilities/research/server";
 import {
   ensureDelegateMcpServerConfig,
   registerDelegateSession,
@@ -688,6 +690,14 @@ export function registerCliHandlers(): void {
             }),
           ),
           buildBrowserMcpServerConfig(gs?.browserControl, req.sessionId),
+          // 研究引擎:给 agent 补上「搜索」这一块能力(浏览器工具只能打开给定 URL,不能自己搜)。
+          // 双门控在 buildResearchMcpServerConfig 内部(总开关+会话内检索开关+搜索后端已配)。
+          // Consumer 决定受哪个灰度开关约束与默认预算:slides 回合归 slides,其余归 chat。
+          buildResearchMcpServerConfig(
+            gs?.researchEngine,
+            req.sessionId,
+            isSlidesRunId(req.runId) ? "slides" : "chat",
+          ),
           buildDocExtractMcpServerConfig(req.sessionId),
           buildMediaGenMcpServerConfig(persistedState.mediaGenSettings, req.sessionId, req.cwd),
           // loop 工作流 MCP 注入（U14）：无 enabled+callable 工作流时返回 null，不注入。
@@ -926,6 +936,7 @@ export function registerCliHandlers(): void {
           if (req.sessionId) {
             unregisterMediaGenSession(req.sessionId);
             unregisterLoopWorkflowsSession(req.sessionId);
+            unregisterResearchSession(req.sessionId);
           }
           sendExit(exit);
         },
@@ -1150,6 +1161,8 @@ export function registerCliHandlers(): void {
           unregisterMediaGenSession(req.sessionId);
           // U14：清理 loop 工作流 session cwd 映射。
           unregisterLoopWorkflowsSession(req.sessionId);
+          // 清理研究 MCP 的 session→Consumer 映射（下一轮 cli:start 会重新 register）。
+          unregisterResearchSession(req.sessionId);
         }
         // 委派清理:取消所有在途子 agent + 注销 delegate session + 移除看门狗复位器。
         if (delegateAbort) {

@@ -5,6 +5,11 @@
 // 加解密与落盘留在 runtime.ts / ipc/research.ts，本文件只做「怎么合并」与「怎么解释错误」。
 import { SearchServerError } from "./clients/search-server-client";
 import type { SearchBatchRequest, SearchBatchResponse } from "@cortex-work/core/research/search-api";
+import {
+  DIRECT_SEARCH_PROVIDERS,
+  type DirectSearchProviderId,
+} from "@cortex-work/core/research/direct-search";
+import type { ResearchDirectSearchSettings } from "@cortex-work/core/research/settings";
 import type { ResearchSearchServerSettings } from "../ipc/types-research";
 
 /// 合并 Search Server 设置的入参。encryptedToken 省略 = 只改地址/工作区，保留已存密文。
@@ -31,6 +36,30 @@ export function mergeSearchServerSettings(
   };
   const token = input.encryptedToken ?? current?.encryptedToken;
   if (token) merged.encryptedToken = token;
+  return merged;
+}
+
+/// 合并直连搜索设置的入参。encryptedApiKey 省略 = 只改供应商，语义见下。
+export interface DirectSearchMergeInput {
+  provider: DirectSearchProviderId;
+  /// safeStorage 加密后的 base64 密文。**永远不是明文**。
+  encryptedApiKey?: string;
+}
+
+/// 合并出新的 directSearch 设置切片。
+///
+/// 与 mergeSearchServerSettings 的关键差异：**换供应商时不保留旧密文**。
+/// Search Server 那边改的是同一个后端的地址，令牌仍然有效；这边 brave 的 key 拿去打 tavily
+/// 必然 401，留着它只会让设置页显示「已配置」而实际每次搜索都失败——那种失败最难查，
+/// 因为用户记得自己确实填过 key。
+export function mergeDirectSearchSettings(
+  current: ResearchDirectSearchSettings | undefined,
+  input: DirectSearchMergeInput,
+): ResearchDirectSearchSettings {
+  const merged: ResearchDirectSearchSettings = { provider: input.provider };
+  const sameProvider = current?.provider === input.provider;
+  const key = input.encryptedApiKey ?? (sameProvider ? current?.encryptedApiKey : undefined);
+  if (key) merged.encryptedApiKey = key;
   return merged;
 }
 
@@ -115,6 +144,73 @@ function explain(err: unknown): string {
       return "服务端响应与请求不匹配，可能中间有代理改写了内容。";
     case "invalid_response":
       return "服务端响应不是预期格式，请确认服务地址指向的是 Cortex 后端而非其它服务。";
+  }
+}
+
+/// 对直连商业搜索做一次连通性探测（设置页「连接测试」的直连分支）。
+///
+/// **为什么不能复用 probeSearchServer**：DirectSearchClient 刻意不抛错——除调用方取消外，
+/// 所有失败都收敛进响应体的 `results[].errors`（理由见该文件头「局部失败不整批失败」）。
+/// 拿 probeSearchServer 那套「没抛错就算通」的判定套上去，一个无效的 API key 会被报成
+/// 「连接正常，但本次试搜未搜到内容」，把用户引向完全错误的排查方向。
+export async function probeDirectSearch(
+  client: ProbeClientLike,
+  provider: DirectSearchProviderId,
+  plainApiKey?: string,
+): Promise<SearchServerProbeResult> {
+  const request: SearchBatchRequest = {
+    request_id: "probe",
+    research_session_id: "probe",
+    queries: [{ query_id: "probe", text: PROBE_QUERY_TEXT, limit: 1 }],
+  };
+
+  const label = DIRECT_SEARCH_PROVIDERS[provider].label;
+
+  let response: SearchBatchResponse;
+  try {
+    response = await client.searchBatch(request);
+  } catch (err) {
+    // 走到这里只可能是取消或意外异常；错误详情刻意不外泄（可能夹带凭据或上游正文）。
+    return {
+      ok: false,
+      message: scrub(`测试失败：${err instanceof Error ? err.name : "未知错误"}`, plainApiKey),
+    };
+  }
+
+  // 错误优先于结果数判定：有错误就是配置或额度问题，必须直说。
+  const firstError = response.results.flatMap((result) => result.errors)[0];
+  if (firstError) {
+    return { ok: false, message: scrub(explainDirect(firstError.code, label), plainApiKey) };
+  }
+
+  const count = response.results.reduce((sum, result) => sum + result.items.length, 0);
+  return count > 0
+    ? { ok: true, message: `连接正常，${label} 试搜返回 ${count} 条结果。` }
+    : { ok: true, message: `连接正常，但本次试搜未搜到内容（${label} 这次没有命中）。` };
+}
+
+/// 直连错误码 → 一句能指导下一步动作的人话。
+/// 与 explain 一样按 code 分支，不看 message 文本。
+function explainDirect(code: string, label: string): string {
+  switch (code) {
+    case "unauthorized":
+      return `${label} 拒绝了这个密钥（无效或已撤销），请重新申请后重填。`;
+    case "forbidden":
+      return `${label} 拒绝访问：多为免费额度已耗尽或该密钥未开通搜索套餐。`;
+    case "rate_limited":
+      return `${label} 触发了限流，请稍后重试；若频繁出现，说明当前套餐的 QPS 不够用。`;
+    case "unavailable":
+      return `${label} 服务暂时不可用，请稍后重试。`;
+    case "timeout":
+      return `请求 ${label} 超时（未在预期时间内响应），请检查本机到该服务的网络（可能需要代理）。`;
+    case "network_error":
+      return `连不上 ${label}，请确认本机网络可直达该服务（可能需要代理）。`;
+    case "too_large":
+      return `${label} 返回的响应体过大，可能不是预期的服务。`;
+    case "invalid_response":
+      return `${label} 返回的不是合法 JSON，可能被中间网络设备改写了内容。`;
+    default:
+      return `${label} 返回了未知错误（${code}）。`;
   }
 }
 

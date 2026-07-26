@@ -31,7 +31,12 @@ import { WorkflowView } from "./WorkflowView";
 import { DesignWorkspace } from "../design/DesignWorkspace";
 import { WritingWorkspace } from "../writing/WritingWorkspace";
 import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
+import {
+  useResearchBackgroundStore,
+  useResearchBackgroundWatch,
+} from "@cortex-work/core/research/background-watch";
 import { ResearchWorkspace } from "../research/ResearchWorkspace";
+import { useResearchExportTargets } from "../research/useResearchExportTargets";
 import { resolveResearchModelDisplay } from "../research/modelDisplay";
 import { FlashNoteEditor } from "./FlashNoteEditor";
 import { PiToolConfirmDialog } from "./PiToolConfirmDialog";
@@ -87,6 +92,8 @@ export function PersonalWorkspace({
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const leftCollapsed = useCortexUIStore((s) => s.leftCollapsed);
+  // 研究完成通知用（见下方 useEffect）。
+  const pushToast = useCortexUIStore((s) => s.pushToast);
   const homeOpen = usePersonalStore((s) => s.homeOpen);
   // 研究引擎的模型偏好与全局供应商配置：两者一起决定「本次研究会用哪个模型、正文会不会
   // 出本机」，由下面的 useMemo 解析成一行告知文案交给新建表单。
@@ -104,6 +111,41 @@ export function PersonalWorkspace({
   // 深度研究整窗覆盖层(CRE,desktop-only;入口门控在侧栏,此处只负责渲染)。
   const researchOpen = usePersonalStore((s) => s.researchOpen);
   const closeResearch = usePersonalStore((s) => s.closeResearch);
+  // 反向入口带进来的预填目标（一次性；覆盖层挂载后由 ResearchCreateForm 作为初值消费）。
+  const researchInitialObjective = usePersonalStore((s) => s.researchInitialObjective);
+  // 报告的产物去向（存为写作文档 / 闪记）。按当前可用能力动态增减，见 hook 内注释。
+  const researchExportTargets = useResearchExportTargets();
+
+  // ── 研究的后台观察（侧栏角标 + 完成通知）────────────────────────────────────
+  //
+  // **必须挂在这里而不是研究覆盖层里**：覆盖层是互斥整窗的，用户切走它就卸载了，
+  // 而研究要跑好几分钟。挂在覆盖层上等于「只有盯着看才知道进度」，那正是要解决的问题。
+  // bridge 在此处仍可能为 null（下方才有早退守卫），故一律走可选链。
+  const researchWatchEnabled =
+    !!bridge?.research && normalizeResearchEngineSettings(researchEngineSettings).enabled;
+  useResearchBackgroundWatch(bridge?.research ?? null, researchWatchEnabled);
+
+  // 完成通知：done 事件排进队列后，这里逐条弹 toast 并立刻清掉（不清会每次重渲染再弹一次）。
+  const finishedResearch = useResearchBackgroundStore((s) => s.finished);
+  useEffect(() => {
+    if (finishedResearch.length === 0) return;
+    const clearFinished = useResearchBackgroundStore.getState().clearFinished;
+    for (const item of finishedResearch) {
+      const title =
+        item.status === "completed"
+          ? "研究完成"
+          : item.status === "failed"
+            ? "研究失败"
+            : "研究已取消";
+      pushToast(item.objective || "深度研究", {
+        title,
+        kind: item.status === "completed" ? "success" : "error",
+        // 常驻直到用户关闭：研究跑了几分钟，一条 2.4 秒就消失的提示很容易完全错过。
+        duration: 0,
+      });
+      clearFinished(item.sessionId);
+    }
+  }, [finishedResearch, pushToast]);
   // 解析「本次研究会用哪个模型 + 数据会去哪」。走 core 的 selectResearchModel（经
   // resolveResearchModelDisplay），与设置页、以及主进程编排层用的是同一套三级回落规则，
   // 所以界面显示的就是实际会用的那个，不会出现「设置里写着 A、实际跑 B」。
@@ -250,6 +292,10 @@ export function PersonalWorkspace({
           // 「本次研究用哪个模型」由设置决定，这里解析成只读告知交给表单显示。
           // 这里是唯一读设置的地方——views 的研究组件本身不碰 personal store。
           model={researchModel}
+          // 反向入口（聊天/写作里的「转为深度研究」）带进来的预填目标，一次性消费。
+          {...(researchInitialObjective ? { initialObjective: researchInitialObjective } : {})}
+          // 产物去向（存为写作文档 / 闪记）。研究组件只负责给内容，去哪儿由宿主决定。
+          exportTargets={researchExportTargets}
         />
       ) : null}
       {settingsOpen ? <PersonalSettingsView /> : null}

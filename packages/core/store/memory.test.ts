@@ -13,9 +13,9 @@ describe("hydrateMemory 半缺兜底", () => {
       profile: { manual: "只有手写" },
     } as unknown as UserMemoryState);
     const memory = useMemoryStore.getState().memory;
-    expect(memory.profile).toEqual({ manual: "只有手写", auto: "" });
-    expect(memory.preferences).toEqual({ manual: "", auto: "" });
-    expect(memory.projects).toEqual({ manual: "", auto: "" });
+    expect(memory.profile).toEqual({ manual: "只有手写", auto: "", research: "" });
+    expect(memory.preferences).toEqual({ manual: "", auto: "", research: "" });
+    expect(memory.projects).toEqual({ manual: "", auto: "", research: "" });
   });
 });
 
@@ -23,22 +23,22 @@ describe("本地缓存操作", () => {
   it("setMemoryFile 合并式更新单分区", () => {
     useMemoryStore.getState().setMemoryFile("profile", { manual: "手写" });
     useMemoryStore.getState().setMemoryFile("profile", { auto: "- 要点" });
-    expect(useMemoryStore.getState().memory.profile).toEqual({ manual: "手写", auto: "- 要点" });
+    expect(useMemoryStore.getState().memory.profile).toEqual({ manual: "手写", auto: "- 要点", research: "" });
   });
 
   it("clearAutoMemory 保留手写、清空自动区", () => {
     useMemoryStore.getState().hydrateMemory({
       ...emptyUserMemoryState(),
-      profile: { manual: "手写", auto: "- 自动" },
+      profile: { manual: "手写", auto: "- 自动", research: "" },
     });
     useMemoryStore.getState().clearAutoMemory();
-    expect(useMemoryStore.getState().memory.profile).toEqual({ manual: "手写", auto: "" });
+    expect(useMemoryStore.getState().memory.profile).toEqual({ manual: "手写", auto: "", research: "" });
   });
 
   it("clearAllMemory 全部重置为空", () => {
     useMemoryStore.getState().hydrateMemory({
       ...emptyUserMemoryState(),
-      projects: { manual: "x", auto: "y" },
+      projects: { manual: "x", auto: "y", research: "" },
     });
     useMemoryStore.getState().clearAllMemory();
     expect(useMemoryStore.getState().memory).toEqual(emptyUserMemoryState());

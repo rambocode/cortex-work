@@ -177,6 +177,10 @@ export interface PersonalState {
   // 主区深度研究工作台视图（整窗覆盖层,desktop-only）。瞬态,不持久化（同 writingOpen）;
   // 与其它主区视图互斥——所有 openXxx/切会话/切项目入口都清它,漏一处会两层覆盖层同显。
   researchOpen: boolean;
+  // 打开研究覆盖层时要预填进新建表单的研究目标（「转为深度研究」等反向入口用）。
+  // **瞬态且一次性**：ResearchWorkspace 挂载时消费一次即清（consumeResearchObjective），
+  // 不清的话用户下次从侧栏点「研究」还会看到上次那条目标。
+  researchInitialObjective?: string;
   // 设置整页视图（全屏覆盖层接管整窗、隐藏侧栏;底层工作区不卸载以保活终端）。
   // 瞬态,不持久化;与其它主区视图互斥（其它 open 入口清它,它不清底层视图标志,
   // 故 closeSettings 后回到打开设置前的视图）。
@@ -340,8 +344,11 @@ export interface PersonalState {
   openWriting: () => void;
   closeWriting: () => void;
   // 打开/关闭深度研究整窗覆盖层（互斥清其它视图标志;closeResearch 回落首页,同 closeWriting）。
-  openResearch: () => void;
+  // objective 非空时预填新建表单（聊天/写作里的「转为深度研究」带上下文进来）。
+  openResearch: (objective?: string) => void;
   closeResearch: () => void;
+  // 取走并清空预填目标（ResearchWorkspace 挂载时调一次）。
+  consumeResearchObjective: () => string | undefined;
   // 打开/关闭设置整页（settingsOpen 瞬态;openSettings 不清底层视图标志,见实现注释）。
   // 可选 tab：外部入口（如快捷回复气泡「去设置」）指定要跳转的分区，SettingsMenu 据此切换。
   openSettings: (tab?: string) => void;
@@ -1141,10 +1148,17 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   closeWriting: () => set({ writingOpen: false, homeOpen: true }),
 
   // 进入深度研究整窗覆盖层（互斥清其它视图字段,同 openWriting 写法）。
-  openResearch: () =>
-    set({ researchOpen: true, writingOpen: false, designOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+  openResearch: (objective) =>
+    set({ researchOpen: true, researchInitialObjective: objective?.trim() || undefined, writingOpen: false, designOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
   // 关闭深度研究回落首页（瞬态 researchOpen 复位;同 closeWriting）。
-  closeResearch: () => set({ researchOpen: false, homeOpen: true }),
+  // 一并清预填目标：否则下次从侧栏点「研究」会看到上次那条。
+  closeResearch: () => set({ researchOpen: false, researchInitialObjective: undefined, homeOpen: true }),
+  // 取走预填目标并立刻清空（一次性消费,防止重复预填）。
+  consumeResearchObjective: () => {
+    const objective = get().researchInitialObjective;
+    if (objective !== undefined) set({ researchInitialObjective: undefined });
+    return objective;
+  },
 
   // 点击闪记进入中心区写作面：互斥清其它中心视图;noteEditorId 瞬态,不进 toPersistedState。
   openNoteEditor: (noteId) =>

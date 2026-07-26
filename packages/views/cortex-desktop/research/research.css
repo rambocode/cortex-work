@@ -609,3 +609,20 @@
 }
 .pw-res-fallback-title { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
 .pw-res-fallback-desc { color: var(--text-2); font-size: 12px; line-height: 1.7; margin-bottom: 14px; }
+
+/* 研究记忆候选卡（U10）。每条候选是一个独立小块：正文 + 来源说明 + 动作，
+   用分隔线而不是卡片阴影——它嵌在设置页的 SettingCard 里，再套一层卡片会显得很挤。 */
+.pw-mem-cand {
+  padding: 8px 0;
+  border-top: 1px solid var(--line-1, rgba(0, 0, 0, 0.08));
+}
+.pw-mem-cand:first-of-type { border-top: none; }
+.pw-mem-cand-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-1);
+  margin-bottom: 4px;
+  /* 候选原文必须完整可读——用户要据此判断该不该写进长期记忆，截断了就没法核对。 */
+  white-space: pre-wrap;
+  word-break: break-word;
+}

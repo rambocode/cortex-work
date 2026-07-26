@@ -6,6 +6,7 @@ import { useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_AGENT_THINKING, prewarmPiSession, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { AgentThinkingValue, DirPermission, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { ComposerShell } from "./ComposerShell";
 import { useSlashCommands } from "./useSlashCommands";
 
@@ -67,6 +68,19 @@ export function PersonalComposer({
     void prewarmPiSession(qc, bridge, session, project.path);
   }, [bridge, qc, session]);
 
+  // 「转为深度研究」入口：把输入框里已经写好的问题直接带进研究新建表单。
+  //
+  // 门控与侧栏「研究」入口一致（有 research 子域 + 引擎已开启）：少任一条都不给这个菜单项，
+  // 否则用户点进去的是一个后端根本没起来的空壳。这里读 store 而不是从上层透传 prop——
+  // PersonalComposer 本来就直接读 bridge 与 store，多穿两层反而更绕。
+  const researchEngine = usePersonalStore((s) => s.generalSettings.researchEngine);
+  const openResearch = usePersonalStore((s) => s.openResearch);
+  const researchAvailable = !!bridge?.research && normalizeResearchEngineSettings(researchEngine).enabled;
+  const handleToResearch = useCallback(
+    (objective: string) => openResearch(objective),
+    [openResearch],
+  );
+
   return (
     <ComposerShell
       agent={session.agent}
@@ -91,6 +105,7 @@ export function PersonalComposer({
       subagentOrchestration={session.subagentOrchestration === true}
       onToggleSubagentOrchestration={onToggleSubagentOrchestration}
       onToggleSkills={onToggleSkills}
+      {...(researchAvailable ? { onToResearch: handleToResearch } : {})}
       onCancelEdit={onCancelEdit}
       onToast={onToast}
       onPrewarm={handlePrewarm}

@@ -13,24 +13,32 @@ import type { ProviderSettings } from "@cortex-work/core/desktop/types";
 import {
   DEFAULT_RESEARCH_ENGINE_SETTINGS,
   normalizeResearchEngineSettings,
+  type ResearchDirectSearchSettings,
   type ResearchEngineSettings,
 } from "@cortex-work/core/research/settings";
+import type { DirectSearchProviderId } from "@cortex-work/core/research/direct-search";
 import { createLogger } from "../log";
 import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { getPersistedState, updatePersistedState } from "../ipc/store";
+// U10：已批准的记忆候选写入 / 撤销（研究服务经 researchMemorySink 调它）。
+import { userMemoryStore } from "../ipc/memory";
+import { applyApprovedResearchMemory, revokeResearchMemory } from "../memory/research-memory";
 import type { PersistedState } from "../ipc/types";
 import type { ResearchSearchServerSettings } from "../ipc/types-research";
 import { researchBlobsDir, researchDbPath, researchDir, researchTmpDir } from "../paths";
 import { ResearchBlobStore } from "./blob-store";
 import { buildResearchLlmHooks } from "./llm-hooks-wiring";
 import { SearchServerClient } from "./clients/search-server-client";
+import { DirectSearchClient } from "./clients/direct-search-client";
 import { StealthFetchClient } from "./clients/stealth-fetch-client";
 import { openResearchDatabase } from "./db-open";
 import { applyMigrations } from "./migrations";
 import { redactResearchLog } from "./redact-research";
 import { SqliteResearchRepository, type ResearchRepository } from "./research-repository";
 import {
+  mergeDirectSearchSettings,
   mergeSearchServerSettings,
+  probeDirectSearch,
   probeSearchServer,
   type SearchServerProbeResult,
 } from "./search-credential";
@@ -38,6 +46,7 @@ import {
   ResearchService,
   type ResearchWorkerProvider,
 } from "./research-service";
+import { QuickRetrieval } from "./quick-retrieval";
 import type { ResearchWorkerLike, SearchClientLike } from "./research-orchestrator";
 import { createNodeSqliteDriver } from "./sqlite-driver";
 import { runResearchStartupRecovery } from "./startup-recovery";
@@ -69,10 +78,18 @@ export function syncResearchEngineRuntime(raw: unknown): void {
   // 这里 fire-and-forget 刷新快照：llmHooks 是同步回调（每个 Session 建一次），拿不到 await。
   // getPersistedState() 有内存镜像，这次读几乎无成本。
   void refreshProviderSnapshot();
-  if (!settingsSnapshot.enabled && servicePromise) {
-    void servicePromise
-      .then((service) => service.shutdown())
-      .catch((err) => log.warn("[research] 关闭引擎时停 Worker 失败", err));
+  if (!settingsSnapshot.enabled) {
+    if (servicePromise) {
+      void servicePromise
+        .then((service) => service.shutdown())
+        .catch((err) => log.warn("[research] 关闭引擎时停 Worker 失败", err));
+    }
+    // 窄面（agent 的 web_search / web_read）也会 fork 同一个 Worker，且它不经 ResearchService。
+    // 只停 service 的话，「从没开过深度研究、只用过 agent 联网」的用户关掉总开关后，
+    // 后台仍留着一个 Worker 进程——与设置页显示的状态不一致。
+    void workerProviderSingleton
+      ?.stop()
+      .catch((err) => log.warn("[research] 关闭引擎时停共享 Worker 失败", err));
   }
 }
 
@@ -127,10 +144,14 @@ export async function runResearchStartupTasks(): Promise<void> {
 
 /// 停掉研究运行时（应用退出钩子）。
 export async function shutdownResearchRuntime(): Promise<void> {
-  if (!servicePromise) return;
   try {
-    await (await servicePromise).shutdown();
-    repositoryRef?.close();
+    if (servicePromise) {
+      await (await servicePromise).shutdown();
+      repositoryRef?.close();
+    }
+    // Worker 提供方是 service 与窄面共享的：只在 servicePromise 存在时才停，
+    // 会漏掉「只用过 agent 的 web_search、从没开过深度研究」这条路径上 fork 出来的 Worker。
+    await workerProviderSingleton?.stop();
   } catch (err) {
     log.warn("[research] 停止研究运行时失败", err);
   }
@@ -179,6 +200,35 @@ async function quarantineDatabase(dbPath: string): Promise<string> {
   return backupPath;
 }
 
+/// 窄同步检索面（discover / prepare）。
+///
+/// **与 ResearchService 共用同一个 Worker 提供方实例**：两者都可能同时在跑，
+/// 各起一个 utilityProcess 等于把抓取进程数翻倍，而 Worker 内部本来就有并发闸。
+/// 它不碰 SQLite / blob，所以不需要等 assembleService，独立懒加载即可。
+let quickRetrieval: QuickRetrieval | null = null;
+
+/// 取（必要时创建）窄面实例。
+///
+/// 与 getResearchService 不同，这里是同步的：窄面不开数据库、不做启动恢复，
+/// 没有任何需要 await 的装配步骤。MCP 工具 handler 因此不必为拿它多一次异步跳转。
+export function getQuickRetrieval(): QuickRetrieval {
+  quickRetrieval ??= new QuickRetrieval({
+    settings: () => settingsSnapshot,
+    createSearchClient: () => createSearchClient(),
+    workerProvider: sharedWorkerProvider(),
+    newId: () => randomUUID(),
+    logger: log,
+  });
+  return quickRetrieval;
+}
+
+/// 进程内共享的 Worker 提供方。ResearchService 与 QuickRetrieval 都取这一个。
+let workerProviderSingleton: ElectronResearchWorkerProvider | null = null;
+function sharedWorkerProvider(): ElectronResearchWorkerProvider {
+  workerProviderSingleton ??= new ElectronResearchWorkerProvider();
+  return workerProviderSingleton;
+}
+
 /// 组装 ResearchService。
 async function assembleService(): Promise<ResearchService> {
   const repository = await getResearchRepository();
@@ -200,7 +250,7 @@ async function assembleService(): Promise<ResearchService> {
     // 服务端 stealth 抓取（反爬站点）。未配置 Search Server 或密钥库不可用时返回 null，
     // 编排层据此跳过该路径，行为与从前完全一致。
     createStealthFetchClient: () => createStealthFetchClient(),
-    workerProvider: new ElectronResearchWorkerProvider(),
+    workerProvider: sharedWorkerProvider(),
     userScope: () => USER_SCOPE,
     newId: () => randomUUID(),
     // Browser 兜底的二进制。**每次现取而不是启动时取一次**：dev 态下 node_modules 可能在
@@ -230,12 +280,28 @@ async function assembleService(): Promise<ResearchService> {
         },
         logger: log,
       }),
+    // U10：已批准候选 → 用户记忆的 research 段（含 provenance sidecar）。
+    // 这里是把「记忆模块」接进研究服务的唯一一处；service 本身不知道记忆文件在哪。
+    researchMemorySink: {
+      approve: (candidate, chunkIds, approvedAt) =>
+        applyApprovedResearchMemory(userMemoryStore, candidate, chunkIds, approvedAt),
+      revoke: (candidateId) => revokeResearchMemory(userMemoryStore, candidateId),
+    },
     logger: log,
   });
 }
 
-/// 依据当前设置构造搜索客户端；未配置或密文解不开时返回 null（上层报"未配置"）。
+/// 依据当前设置构造搜索客户端；两条路径都未配置（或密文解不开）时返回 null（上层报"未配置"）。
+///
+/// **优先级：自建 Search Server > 直连商业搜索**。理由是隐私边界不同——走 Search Server 时
+/// 查询词经服务端转发、有限流与审计；直连是查询词从桌面端直接出站到第三方。用户既然部署了
+/// 服务端，就不该被静默降级到隐私更弱的那条路。直连只是"没有服务端时也能用"的逃生阀。
 function createSearchClient(): SearchClientLike | null {
+  return createSearchServerClient() ?? createDirectSearchClient();
+}
+
+/// 自建 Search Server 客户端；未配置或密文解不开时返回 null。
+function createSearchServerClient(): SearchClientLike | null {
   const config = settingsSnapshot.searchServer;
   if (!config?.baseUrl || !config.workspaceId) return null;
 
@@ -246,6 +312,17 @@ function createSearchClient(): SearchClientLike | null {
     { baseUrl: config.baseUrl, workspaceId: config.workspaceId, token },
     { clientVersion: app.getVersion() },
   );
+}
+
+/// 直连商业搜索客户端；未配置或密文解不开时返回 null。
+function createDirectSearchClient(): DirectSearchClient | null {
+  const config = settingsSnapshot.directSearch;
+  if (!config?.provider) return null;
+
+  const apiKey = decryptToken(config.encryptedApiKey);
+  if (apiKey === null) return null;
+
+  return new DirectSearchClient({ provider: config.provider, apiKey });
 }
 
 /// 写入 Search Server 连接配置（设置页「保存令牌」）。
@@ -327,6 +404,66 @@ export async function testSearchServer(): Promise<SearchServerProbeResult> {
   );
   // 把明文交给 probe 只为擦除服务端可能回显的凭据，probe 自身不发送也不记录它。
   return probeSearchServer(client, token);
+}
+
+/// 写入直连搜索配置（设置页「保存密钥」）。
+///
+/// 与 setSearchServerCredential 同一套安全约定：明文 API key 的唯一归宿是这里，
+/// safeStorage 加密 → base64 → 落进 researchEngine.directSearch.encryptedApiKey；
+/// 钥匙串不可用时 **fail closed**（宁可拒绝保存，也不把明文写进那份明文 JSON）。
+///
+/// 返回落盘后的切片（含密文、不含明文），renderer 必须拿它更新自己的 store——
+/// 否则它那份没有 encryptedApiKey 的副本会在下一次全量写回时把刚存的密钥抹掉
+/// （这个坑在 Search Server 那条路径上真实踩过，见 setSearchServerCredential 的注释）。
+export async function setDirectSearchCredential(input: {
+  provider: DirectSearchProviderId;
+  apiKey?: string;
+}): Promise<ResearchDirectSearchSettings> {
+  let encryptedApiKey: string | undefined;
+  if (input.apiKey) {
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error("系统密钥库不可用，无法安全保存搜索密钥");
+    }
+    encryptedApiKey = safeStorage.encryptString(input.apiKey).toString("base64");
+  }
+
+  const next = await updatePersistedState((state) => {
+    const general = state.generalSettings;
+    // 基线取磁盘上的旧值而非 settingsSnapshot（后者可能还没被落盘回调刷新）。
+    const research = normalizeResearchEngineSettings(general?.researchEngine);
+    const researchEngine = {
+      ...research,
+      directSearch: mergeDirectSearchSettings(research.directSearch, {
+        provider: input.provider,
+        ...(encryptedApiKey !== undefined ? { encryptedApiKey } : {}),
+      }),
+    };
+    return {
+      ...state,
+      generalSettings: { ...(general ?? {}), researchEngine } as NonNullable<
+        PersistedState["generalSettings"]
+      >,
+    };
+  });
+  syncResearchEngineRuntime(next.generalSettings?.researchEngine);
+  return next.generalSettings?.researchEngine?.directSearch ?? { provider: input.provider };
+}
+
+/// 直连搜索的连通性探测（设置页「连接测试」的直连分支）。
+export async function testDirectSearch(): Promise<SearchServerProbeResult> {
+  const config = settingsSnapshot.directSearch;
+  if (!config?.provider) {
+    return { ok: false, message: "请先选择搜索服务商。" };
+  }
+  const apiKey = decryptToken(config.encryptedApiKey);
+  if (apiKey === null) {
+    return { ok: false, message: "尚未保存 API 密钥，或本机密钥库无法解密它，请重新保存密钥。" };
+  }
+  return probeDirectSearch(
+    new DirectSearchClient({ provider: config.provider, apiKey }),
+    config.provider,
+    apiKey,
+  );
 }
 
 /// 依据当前设置构造服务端 stealth 抓取客户端；未配置或密文解不开时返回 null。

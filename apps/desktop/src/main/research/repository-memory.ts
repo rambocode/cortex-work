@@ -37,9 +37,11 @@ import {
   type RepositoryTx,
   type ResearchBudgetSpend,
   type ResearchOperationKind,
+  type MemoryCandidateView,
   type ResearchRepository,
   type ResearchSessionQuery,
 } from "./research-repository";
+import type { KnowledgeItem, MemoryCandidate } from "@cortex-work/core/research/knowledge";
 
 /// 单个 Session 的全部内存状态。字段划分刻意对齐 SQLite 的表，
 /// 让「内存版漏实现了某张表」这类偏差在读写路径上立刻可见。
@@ -281,6 +283,54 @@ export class InMemoryResearchRepository implements ResearchRepository {
       for (const doc of record.documents) hashes.add(doc.contentHash);
     }
     return hashes;
+  }
+
+  // ── U10：Knowledge 与 Memory 候选 ─────────────────────────────────────────
+  //
+  // 内存实现按 Map 存，语义与 SQLite 版逐条对齐——尤其是
+  // **重复 save 不重置已有 status**（用户批准/拒绝过的候选不能被再次沉淀打回待批）。
+  private readonly knowledge = new Map<string, KnowledgeItem>();
+  private readonly candidates = new Map<string, MemoryCandidate>();
+
+  async saveKnowledgeAndCandidates(input: {
+    sessionId: string;
+    items: readonly KnowledgeItem[];
+    candidates: readonly MemoryCandidate[];
+  }): Promise<void> {
+    for (const item of input.items) this.knowledge.set(item.knowledgeId, { ...item });
+    for (const candidate of input.candidates) {
+      const existing = this.candidates.get(candidate.candidateId);
+      this.candidates.set(candidate.candidateId, {
+        ...candidate,
+        ...(existing
+          ? { status: existing.status, ...(existing.approvedAt ? { approvedAt: existing.approvedAt } : {}) }
+          : {}),
+      });
+    }
+  }
+
+  async listMemoryCandidates(status?: MemoryCandidate["status"]): Promise<MemoryCandidateView[]> {
+    return [...this.candidates.values()]
+      .filter((candidate) => (status ? candidate.status === status : true))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((candidate) => ({
+        candidate: { ...candidate },
+        knowledge: this.knowledge.get(candidate.knowledgeId) ?? null,
+      }));
+  }
+
+  async updateMemoryCandidateStatus(
+    candidateId: string,
+    status: MemoryCandidate["status"],
+    at: string = new Date().toISOString(),
+  ): Promise<void> {
+    const existing = this.candidates.get(candidateId);
+    if (!existing) return;
+    this.candidates.set(candidateId, {
+      ...existing,
+      status,
+      ...(status === "approved" ? { approvedAt: at } : {}),
+    });
   }
 
   close(): void {

@@ -40,6 +40,7 @@ import type {
   ResearchSessionView,
   SourceScope,
 } from "@cortex-work/core/research/types";
+import type { KnowledgeItem, MemoryCandidate } from "@cortex-work/core/research/knowledge";
 import type { SqlValue, SqliteDriver } from "./sqlite-driver";
 // 行类型与「行 → 领域对象」映射拆到独立文件，本文件只留查询与事务逻辑（见 repository-rows.ts 头注）。
 import {
@@ -194,7 +195,36 @@ export interface ResearchRepository {
   getBudgetSpend(sessionId: string): Promise<ResearchBudgetSpend>;
   /// 仍被引用的正文哈希全集，是 blob GC 的输入（spec §19.3.4）。
   listReferencedContentHashes(): Promise<Set<string>>;
+
+  // ── U10：Knowledge 与 Memory 候选 ─────────────────────────────────────────
+  //
+  // KTD10 红线：候选**必须**经用户逐条批准（status='approved'）才允许进入 Memory。
+  // 仓储层只负责存取与状态流转，绝不自己把任何候选标成 approved。
+
+  /// 写入一批知识条目与由它们派生的候选（同一事务）。
+  /// 重复调用按主键 upsert：同一份报告重复沉淀不该产生重复候选。
+  saveKnowledgeAndCandidates(input: {
+    sessionId: string;
+    items: readonly KnowledgeItem[];
+    candidates: readonly MemoryCandidate[];
+  }): Promise<void>;
+  /// 列出候选（按状态筛选；缺省列全部）。附带派生它的知识条目，供 UI 展示来源。
+  listMemoryCandidates(status?: MemoryCandidate["status"]): Promise<MemoryCandidateView[]>;
+  /// 流转候选状态（批准 / 拒绝 / 撤销 / 标记过期）。
+  /// approvedAt 只在转入 approved 时写；转出时保留原值（撤销后仍要知道当初何时批的）。
+  updateMemoryCandidateStatus(
+    candidateId: string,
+    status: MemoryCandidate["status"],
+    at?: string,
+  ): Promise<void>;
+
   close(): void;
+}
+
+/// 候选 + 它所依据的知识条目（UI 展示与写入 Memory 都要这两样）。
+export interface MemoryCandidateView {
+  candidate: MemoryCandidate;
+  knowledge: KnowledgeItem | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -460,6 +490,114 @@ export class SqliteResearchRepository implements ResearchRepository {
         .all<{ content_hash: string }>()
         .map((r) => r.content_hash),
     );
+  }
+
+  // ── U10：Knowledge 与 Memory 候选 ─────────────────────────────────────────
+
+  async saveKnowledgeAndCandidates(input: {
+    sessionId: string;
+    items: readonly KnowledgeItem[];
+    candidates: readonly MemoryCandidate[];
+  }): Promise<void> {
+    this.driver.transaction(() => {
+      for (const item of input.items) {
+        this.driver
+          .prepare(
+            `INSERT INTO knowledge_items
+               (knowledge_id, session_id, subject, statement, confidence,
+                citation_chunk_ids_json, trust_zones_json, valid_from, valid_until, created_at, updated_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)
+             ON CONFLICT(knowledge_id) DO UPDATE SET
+               subject = excluded.subject, statement = excluded.statement,
+               confidence = excluded.confidence,
+               citation_chunk_ids_json = excluded.citation_chunk_ids_json,
+               trust_zones_json = excluded.trust_zones_json,
+               valid_from = excluded.valid_from, valid_until = excluded.valid_until,
+               updated_at = excluded.updated_at`,
+          )
+          .run([
+            item.knowledgeId,
+            input.sessionId,
+            item.subject,
+            item.statement,
+            item.confidence,
+            JSON.stringify(item.citationChunkIds),
+            JSON.stringify(item.trustZones),
+            item.validFrom ?? null,
+            item.validUntil ?? null,
+            item.createdAt,
+            item.updatedAt,
+          ]);
+      }
+      for (const candidate of input.candidates) {
+        // **status 不进 ON CONFLICT 的 UPDATE 列表**：重复沉淀同一份报告时，
+        // 用户已经批准/拒绝过的候选绝不能被重置回 pending——那等于让用户白批一次，
+        // 更糟的是「已撤销」的条目会悄悄复活成待批。
+        this.driver
+          .prepare(
+            `INSERT INTO memory_candidates
+               (candidate_id, knowledge_id, scope, text, citation_chunk_ids_json, status, approved_at, created_at)
+             VALUES (?,?,?,?,?,?,?,?)
+             ON CONFLICT(candidate_id) DO UPDATE SET
+               scope = excluded.scope, text = excluded.text,
+               citation_chunk_ids_json = excluded.citation_chunk_ids_json`,
+          )
+          .run([
+            candidate.candidateId,
+            candidate.knowledgeId,
+            candidate.scope,
+            candidate.text,
+            JSON.stringify(candidate.citationChunkIds),
+            candidate.status,
+            candidate.approvedAt ?? null,
+            candidate.createdAt,
+          ]);
+      }
+    });
+  }
+
+  async listMemoryCandidates(status?: MemoryCandidate["status"]): Promise<MemoryCandidateView[]> {
+    const rows = status
+      ? this.driver
+          .prepare(
+            `SELECT c.*, k.subject AS k_subject, k.statement AS k_statement, k.confidence AS k_confidence,
+                    k.citation_chunk_ids_json AS k_chunks, k.trust_zones_json AS k_zones,
+                    k.valid_from AS k_valid_from, k.valid_until AS k_valid_until,
+                    k.created_at AS k_created_at, k.updated_at AS k_updated_at
+               FROM memory_candidates c
+               LEFT JOIN knowledge_items k ON k.knowledge_id = c.knowledge_id
+              WHERE c.status = ?
+              ORDER BY c.created_at DESC`,
+          )
+          .all([status])
+      : this.driver
+          .prepare(
+            `SELECT c.*, k.subject AS k_subject, k.statement AS k_statement, k.confidence AS k_confidence,
+                    k.citation_chunk_ids_json AS k_chunks, k.trust_zones_json AS k_zones,
+                    k.valid_from AS k_valid_from, k.valid_until AS k_valid_until,
+                    k.created_at AS k_created_at, k.updated_at AS k_updated_at
+               FROM memory_candidates c
+               LEFT JOIN knowledge_items k ON k.knowledge_id = c.knowledge_id
+              ORDER BY c.created_at DESC`,
+          )
+          .all();
+    return rows.map((row) => toMemoryCandidateView(row as Record<string, SqlValue>));
+  }
+
+  async updateMemoryCandidateStatus(
+    candidateId: string,
+    status: MemoryCandidate["status"],
+    at: string = new Date().toISOString(),
+  ): Promise<void> {
+    // approved_at 只在转入 approved 时写；转出（拒绝/撤销）保留原值，
+    // 撤销之后仍然要能回答「当初是什么时候批的」。
+    this.driver
+      .prepare(
+        `UPDATE memory_candidates
+            SET status = ?, approved_at = CASE WHEN ? = 'approved' THEN ? ELSE approved_at END
+          WHERE candidate_id = ?`,
+      )
+      .run([status, status, at, candidateId]);
   }
 
   close(): void {
@@ -802,4 +940,43 @@ function insertQueryRows(
       base + i,
     ]);
   });
+}
+
+/// 行 → 候选视图。JSON 列解析失败一律回空数组：候选是可再生的派生数据，
+/// 一条脏行不该让整个待批列表打不开。
+function toMemoryCandidateView(row: Record<string, SqlValue>): MemoryCandidateView {
+  const parseIds = (value: SqlValue): string[] => {
+    try {
+      const parsed = JSON.parse(String(value ?? "[]")) as unknown;
+      return Array.isArray(parsed) ? (parsed as string[]) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const candidate: MemoryCandidate = {
+    candidateId: String(row.candidate_id),
+    knowledgeId: String(row.knowledge_id),
+    scope: String(row.scope) as MemoryCandidate["scope"],
+    text: String(row.text),
+    citationChunkIds: parseIds(row.citation_chunk_ids_json),
+    status: String(row.status) as MemoryCandidate["status"],
+    createdAt: String(row.created_at),
+  };
+  if (row.approved_at != null) candidate.approvedAt = String(row.approved_at);
+
+  if (row.k_subject == null) return { candidate, knowledge: null };
+  const knowledge: KnowledgeItem = {
+    knowledgeId: candidate.knowledgeId,
+    subject: String(row.k_subject),
+    statement: String(row.k_statement),
+    confidence: String(row.k_confidence) as KnowledgeItem["confidence"],
+    citationChunkIds: parseIds(row.k_chunks),
+    trustZones: parseIds(row.k_zones) as KnowledgeItem["trustZones"],
+    createdAt: String(row.k_created_at),
+    updatedAt: String(row.k_updated_at),
+  };
+  if (row.k_valid_from != null) knowledge.validFrom = String(row.k_valid_from);
+  if (row.k_valid_until != null) knowledge.validUntil = String(row.k_valid_until);
+  return { candidate, knowledge };
 }

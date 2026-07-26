@@ -162,6 +162,7 @@ export function ComposerShell({
   subagentOrchestration,
   onToggleSubagentOrchestration,
   onToggleSkills,
+  onToResearch,
   onCancelEdit,
   onToast,
   onPrewarm,
@@ -215,6 +216,9 @@ export function ComposerShell({
   subagentOrchestration?: boolean;
   onToggleSubagentOrchestration?: () => void;
   onToggleSkills: () => void;
+  /// 「转为深度研究」：把当前输入原样送去新建一次研究。
+  /// 缺省（研究引擎未开 / 无桥）时整个菜单项不渲染——给一个点了没反应的入口比不给更糟。
+  onToResearch?: (objective: string) => void;
   onCancelEdit?: () => void;
   onToast: (text: string) => void;
   // 会话预热(opt-in):输入非空文本时触发,供个人工作区提前拉起 pi 进程消除首轮冷启。
@@ -924,6 +928,23 @@ export function ComposerShell({
                     {useOwnSkills ? t("composer.skillsOn") : t("composer.skillsOff")}
                   </span>
                 </button>
+                {/* 反向入口：把输入框里已经写好的一句话直接送进深度研究。
+                    只在研究可用时出现（宿主传 onToResearch 才渲染）——那个判定要读设置与桥，
+                    composer 不该知道这些。输入为空时禁用：没有目标的研究没有意义。 */}
+                {onToResearch ? (
+                  <button
+                    className="pw-tb-menu-item"
+                    role="menuitem"
+                    disabled={text.trim().length === 0}
+                    onClick={() => {
+                      onToResearch(text.trim());
+                      attachMenu.setOpen(false);
+                    }}
+                  >
+                    <Icon.Search size={14} />
+                    <span>{t("composer.toResearch")}</span>
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>

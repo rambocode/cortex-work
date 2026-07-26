@@ -11,6 +11,7 @@
 // 段与段之间以空行分隔;空段自动省略(filter(Boolean))。
 
 import type { WritingRetrievalContext, WritingRetrievalSnippet } from "../desktop/writing-retrieval-types";
+import type { PreparedDocument } from "../research/quick-types";
 
 // ── 哨兵常量(拼装 + 反解析共用)──────────────────────────────────────────
 export const WRITING_CONTEXT_HEADING = "[写作上下文]";
@@ -21,6 +22,12 @@ export const WRITING_REVISION_HEADING = "[改稿约定]";
 // 检索上下文(U4)哨兵:片段正文可能含空行,故用成对起止标记框定,展示反解析据此整块剥离。
 export const WRITING_RETRIEVAL_HEADING = "[相关文献上下文]";
 export const WRITING_RETRIEVAL_END = "[/相关文献上下文]";
+// 外部网页证据段的哨兵（写作检索，consumer=writing）。与本地文献段分开而不是共用一套：
+// 两者的可信度与引用方式完全不同——本地片段是用户自己的资料（路径:行号可溯源），
+// 外部网页是刚抓回来的第三方内容（必须给出 URL 让读者自己核对）。混成一段会让 agent
+// 分不清哪些能当作用户既有材料引用、哪些必须标注外部来源。
+export const WRITING_WEB_HEADING = "[外部网页资料]";
+export const WRITING_WEB_END = "[/外部网页资料]";
 
 // 改稿约定正文:恒定注入,框定 agent 的落盘行为(R12 的 prompt 级契约,非强制沙箱)。
 // 三条要点:① 用 Edit/Write 工具把改动直接写盘,不要只在回复里贴改后文本;② 只改写作空间内文件;
@@ -139,6 +146,8 @@ export interface WritingPromptContext {
   activeFilePath?: string | null;
   // 工作区级检索命中的相关片段(U4);为空/未开启检索时省略该段。
   retrieval?: WritingRetrievalContext | null;
+  // 外部网页证据（写作检索，走 CRE 的窄面 gather）；为空/未开启时省略该段。
+  webEvidence?: readonly PreparedDocument[] | null;
 }
 
 // ── 检索上下文格式化(U4)──────────────────────────────────────────────────
@@ -177,6 +186,28 @@ export function formatWritingRetrievalForPrompt(
   return lines.join("\n");
 }
 
+// 把外部网页证据格式化为 prompt 段（含起止哨兵，理由同本地检索段）。
+//
+// 每条都带 URL 且**明确要求标注来源**：这些内容是刚从公网抓回来的，与用户自己的工作区资料
+// 不是一回事，直接混进正文而不注明出处，等于让 agent 替用户做了一次没有署名的引用。
+export function formatWritingWebEvidenceForPrompt(
+  documents: readonly PreparedDocument[] | null | undefined,
+): string {
+  if (!documents?.length) return "";
+  const lines = [
+    WRITING_WEB_HEADING,
+    "以下是刚为本次写作联网检索到的外部资料。引用其中内容时必须在文中标注来源链接；未被这些资料覆盖的部分不要写成来自它们的事实。",
+  ];
+  documents.forEach((document, index) => {
+    lines.push("");
+    lines.push(`[W${index + 1}] ${document.title?.trim() || document.url}`);
+    lines.push(`来源: ${document.url}${document.truncated ? "（正文已截断）" : ""}`);
+    lines.push(document.text);
+  });
+  lines.push(WRITING_WEB_END);
+  return lines.join("\n");
+}
+
 // 拼装完整 prompt:上下文块(当前文件相对路径)+ 引用片段(0..n)+ 改稿约定 + 用户正文。
 // 改稿约定恒在(即便无正文/无引用),确保每回合都带落盘契约。
 export function composeWritingPrompt(
@@ -197,8 +228,13 @@ export function composeWritingPrompt(
   const quoteText = quotes.map(formatQuoteForPrompt).join("\n\n");
   // 检索片段紧随引用之后、改稿约定之前:作为参考材料先于「怎么改」的约定与用户正文出现。
   const retrievalText = formatWritingRetrievalForPrompt(context.retrieval);
+  // 外部网页资料排在本地文献之后：用户自己的资料优先级更高，
+  // 冲突时应以工作区里的内容为准（同「手写记忆优先于自动整理」的取舍）。
+  const webText = formatWritingWebEvidenceForPrompt(context.webEvidence);
   const revisionText = `${WRITING_REVISION_HEADING}\n${WRITING_REVISION_RULE}`;
-  return [contextText, quoteText, retrievalText, revisionText, body].filter(Boolean).join("\n\n");
+  return [contextText, quoteText, retrievalText, webText, revisionText, body]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 // ── 展示层反解析(哨兵驱动)──────────────────────────────────────────────
@@ -253,14 +289,21 @@ function parseQuoteHeader(header: string): Omit<WritingPromptDisplayQuote, "text
   };
 }
 
-// 整块剥离检索上下文段(起止哨兵之间,含哨兵):检索片段正文可能含空行,若不先整块剥离,
-// 后续按空行切段会把片段正文误并入用户正文。检索为静默注入,展示层本就不该显示它。
-function stripRetrievalBlock(text: string): string {
-  const start = text.indexOf(WRITING_RETRIEVAL_HEADING);
+// 整块剥离一个哨兵包裹段(起止哨兵之间,含哨兵):片段正文可能含空行,若不先整块剥离,
+// 后续按空行切段会把片段正文误并入用户正文。检索/网页资料都是静默注入,展示层本就不该显示。
+function stripSentinelBlock(text: string, heading: string, endMarker: string): string {
+  const start = text.indexOf(heading);
   if (start < 0) return text;
-  const endMarker = text.indexOf(WRITING_RETRIEVAL_END, start);
-  const end = endMarker >= 0 ? endMarker + WRITING_RETRIEVAL_END.length : text.length;
+  const endIndex = text.indexOf(endMarker, start);
+  const end = endIndex >= 0 ? endIndex + endMarker.length : text.length;
   return `${text.slice(0, start)}${text.slice(end)}`.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// 剥离本地检索段 + 外部网页资料段。**两段都要剥**：只剥一段的话，
+// 另一段的正文会被按空行切碎并当成用户输入显示在消息气泡里。
+function stripRetrievalBlock(text: string): string {
+  const withoutLocal = stripSentinelBlock(text, WRITING_RETRIEVAL_HEADING, WRITING_RETRIEVAL_END);
+  return stripSentinelBlock(withoutLocal, WRITING_WEB_HEADING, WRITING_WEB_END);
 }
 
 // 反解析完整 prompt。无任何哨兵时返回 null(说明是裸文本,展示层直显即可)。
@@ -270,7 +313,8 @@ export function parseWritingPromptForDisplay(text: string): WritingPromptDisplay
     !raw.includes(WRITING_CONTEXT_HEADING) &&
     !raw.includes(WRITING_QUOTE_HEADING) &&
     !raw.includes(WRITING_REVISION_HEADING) &&
-    !raw.includes(WRITING_RETRIEVAL_HEADING)
+    !raw.includes(WRITING_RETRIEVAL_HEADING) &&
+    !raw.includes(WRITING_WEB_HEADING)
   ) {
     return null;
   }

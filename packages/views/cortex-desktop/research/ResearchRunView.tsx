@@ -81,6 +81,14 @@ function ReportAnchor(props: AnchorHTMLAttributes<HTMLAnchorElement>): ReactElem
 /// react-markdown 的组件映射。模块级常量，避免每次渲染换引用导致整棵 markdown 树重建。
 const REPORT_MD_COMPONENTS = { a: ReportAnchor };
 
+/// 一个产物去向。run 可以是异步的（写文件 / 建闪记都要过 IPC），
+/// 失败时抛错即可——视图会把原因显示在按钮旁，不需要各去向自己做提示。
+export interface ResearchExportTarget {
+  id: string;
+  label: string;
+  run: (markdown: string, session: ResearchSessionSummary) => void | Promise<void>;
+}
+
 /// 运行视图的 props。onExportMarkdown 可覆盖默认的浏览器下载（宿主可改走桌面桥写盘）。
 export interface ResearchRunViewProps {
   /// 为 null 表示没有桌面桥（Web 端）；此时所有控制按钮禁用，内容仍可只读展示。
@@ -99,6 +107,12 @@ export interface ResearchRunViewProps {
   reportDraft?: string;
   /// 导出报告 Markdown。由宿主决定落盘方式（下载 / 写文件 / 复制），组件只负责给内容。
   onExportMarkdown?: (markdown: string, session: ResearchSessionSummary) => void;
+  /// 额外的产物去向（存为写作文档 / 闪记 / 演示大纲…）。
+  ///
+  /// **组件只负责给内容，去哪儿全由宿主决定**——与 onExportMarkdown 同一个约定。
+  /// 研究视图不该知道写作空间、闪记或演示文稿的存在，那会把整窗覆盖层和三个工作区
+  /// 耦合成一坨；宿主（PersonalWorkspace）本来就同时持有这几个域的入口。
+  exportTargets?: readonly ResearchExportTarget[];
   /// 新建时自动 run 失败的原因。
   ///
   /// 由宿主透传而不是本组件自己产生：那次 run 发生在创建表单里，而表单在 onCreated 之后
@@ -125,6 +139,7 @@ export function ResearchRunView({
   activities,
   reportDraft,
   onExportMarkdown,
+  exportTargets,
   startError,
   onRerun,
   onReportRegenerated,
@@ -132,6 +147,9 @@ export function ResearchRunView({
   // 控制类调用的失败提示（暂停/恢复/取消可能因状态已变而被 main 拒绝）。
   const [actionError, setActionError] = useState<string | null>(null);
   const [regeneratingReport, setRegeneratingReport] = useState(false);
+  // 正在执行的产物去向 id（同一时刻只允许一个：写文件/建闪记都会跳去另一个工作区，
+  // 并发点两个只会让用户搞不清最后落在哪）。
+  const [runningTargetId, setRunningTargetId] = useState<string | null>(null);
 
   // 报告正文的展示层预处理：剥重复标题、引用标记编号化（见 reportDisplay 的头部注释）。
   // 只影响渲染——导出用的仍是原始 report.markdown。
@@ -185,6 +203,23 @@ export function ResearchRunView({
       await bridge[action](session.sessionId);
     } catch (e) {
       setActionError(`${label}失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  /// 执行一个产物去向。失败原因走同一条 actionError 通道展示——
+  /// 各去向自己弹提示的话，用户在覆盖层里会收到风格各异的四种错误。
+  const runExportTarget = async (
+    target: ResearchExportTarget,
+    markdown: string,
+  ): Promise<void> => {
+    setActionError(null);
+    setRunningTargetId(target.id);
+    try {
+      await target.run(markdown, session);
+    } catch (e) {
+      setActionError(`${target.label}失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRunningTargetId(null);
     }
   };
 
@@ -305,6 +340,20 @@ export function ResearchRunView({
           >
             导出 Markdown
           </button>
+          {/* 产物去向：报告不该止步于一次下载——研究做完最常见的下一步就是拿去写东西。
+              每个去向一个按钮而不是下拉菜单：目前只有两三个，下拉多一次点击、还要处理
+              点外关闭与键盘导航，不值当。数量再涨时再收进菜单。 */}
+          {(exportTargets ?? []).map((target) => (
+            <button
+              key={target.id}
+              type="button"
+              className="pw-res-btn is-ghost"
+              disabled={!report || runningTargetId !== null}
+              onClick={() => report && void runExportTarget(target, report.markdown)}
+            >
+              {runningTargetId === target.id ? "处理中…" : target.label}
+            </button>
+          ))}
         </div>
         {actionError ? <div className="pw-res-error">{actionError}</div> : null}
         {/* 本地操作错误优先：用户刚点过按钮时，那条更贴近他当下的动作。 */}

@@ -9,7 +9,13 @@
 //   3. packages/views/cortex-desktop/research/bridge-like.ts（组件侧的注入契约镜像）。
 // 其中 1 与 3 的一致性由 bridge-like.ts 的编译期哨兵 + 本文件的哨兵共同兜住。
 import type { ResearchEngineFacade, ResearchEvent } from "../research/types";
-import type { ResearchSearchServerSettings } from "../research/settings";
+import type {
+  ResearchDirectSearchSettings,
+  ResearchSearchServerSettings,
+} from "../research/settings";
+import type { DirectSearchProviderId } from "../research/direct-search";
+import type { GatherRequest, GatherResult } from "../research/quick-types";
+import type { KnowledgeItem, MemoryCandidate } from "../research/knowledge";
 
 /// Search Server 连接测试结果（设置页「连接测试」按钮消费）。
 ///
@@ -29,6 +35,14 @@ export interface ResearchSearchServerCredentialInput {
   workspaceId: string;
   /// 明文 PAT。省略 = 只改 baseUrl/workspaceId，保留已存密文。
   token?: string;
+}
+
+/// 设置直连搜索密钥的入参。明文 API key 的流向与 PAT 相同：只在此处单向流向 main。
+export interface ResearchDirectSearchCredentialInput {
+  provider: DirectSearchProviderId;
+  /// 明文 API key。省略 = 只改供应商；**换供应商时旧密钥会被丢弃**
+  /// （A 家的 key 在 B 家必然无效，留着只会让设置页显示"已配置"而每次搜索都失败）。
+  apiKey?: string;
 }
 
 /// 研究引擎的桌面桥。
@@ -54,6 +68,44 @@ export interface CortexResearchBridge extends ResearchEngineFacade {
   ): Promise<ResearchSearchServerSettings>;
   /// 用已保存的凭据做一次连通性探测；不接受也不回传凭据。
   testSearchServer?(): Promise<ResearchSearchServerProbe>;
+
+  /// 写入直连商业搜索配置（含明文 API key，main 侧加密后落盘）。
+  ///
+  /// 与 setSearchServerCredential 同样**必须把返回的切片写回 store**（理由同上）。
+  /// 入参刻意没有 endpoint/baseUrl：端点常量在 core/research/direct-search，
+  /// 让 renderer 指定它等于开一个任意 URL 出站通道。
+  setDirectSearchCredential?(
+    input: ResearchDirectSearchCredentialInput,
+  ): Promise<ResearchDirectSearchSettings>;
+  /// 用已保存的密钥对直连搜索做一次连通性探测；不接受也不回传凭据。
+  testDirectSearch?(): Promise<ResearchSearchServerProbe>;
+
+  /// 一次「搜一下并把前几条读回来」——会话内自动检索与写作检索共用。
+  ///
+  /// **入参里没有 urls**，这是刻意的：抓哪几条由主进程从搜索结果里选。
+  /// 若开放 urls，就等于给了渲染端一条「指挥主进程抓任意地址」的通道，
+  /// 与 ipc/research.ts 拒绝 local_file sourceScope 是同一条边界。
+  gather?(request: GatherRequest): Promise<GatherResult>;
+
+  /// 列出记忆候选（U10）。缺省列全部；传 status 只列该状态。
+  listMemoryCandidates?(status?: MemoryCandidateStatus): Promise<ResearchMemoryCandidateView[]>;
+  /// 审阅一条候选。
+  ///
+  /// **入参是「动作」不是「目标状态」**：开放 status 直传等于让渲染端把一条候选直接置成
+  /// approved，绕开用户逐条批准这道闸（KTD10）。
+  reviewMemoryCandidate?(candidateId: string, action: ResearchMemoryReviewAction): Promise<void>;
+}
+
+/// 候选状态（与 core/research/knowledge 的 MemoryCandidate["status"] 同源）。
+export type MemoryCandidateStatus = MemoryCandidate["status"];
+
+/// 用户可执行的三个审阅动作。
+export type ResearchMemoryReviewAction = "approve" | "reject" | "revoke";
+
+/// 候选 + 派生它的知识条目（UI 展示来源用）。与 main 的 MemoryCandidateView 同形。
+export interface ResearchMemoryCandidateView {
+  candidate: MemoryCandidate;
+  knowledge: KnowledgeItem | null;
 }
 
 /// 「A 必须可赋给 B」的编译期断言载体（同 views/bridge-like.ts 的写法）。

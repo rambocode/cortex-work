@@ -34,28 +34,27 @@ import {
   type SearchClientLike,
   type StealthFetchLike,
 } from "./research-orchestrator";
-import type { ResearchRepository, ResearchSessionQuery } from "./research-repository";
+import type { MemoryCandidate } from "@cortex-work/core/research/knowledge";
+import { assertResearchEnabled, SearchServerNotConfiguredError } from "./consumer-gate";
+import { extractKnowledgeFromReport } from "./knowledge-extractor";
+import type {
+  MemoryCandidateView,
+  ResearchRepository,
+  ResearchSessionQuery,
+} from "./research-repository";
 import { SessionStateWriter } from "./session-state";
 import { validateResearchReport } from "./citation-validator";
 
 /// 推送事件的 IPC 通道名。preload 侧订阅同一个名字（spec §16 的 onEvent）。
 export const RESEARCH_EVENT_CHANNEL = "research:event";
 
-/// 功能未开启。IPC 层据此回一个明确的提示，而不是让用户看到一条底层报错。
-export class ResearchDisabledError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ResearchDisabledError";
-  }
-}
-
-/// 搜索服务未配置。与"未开启"分开：前者要去设置页填地址，后者只需打开开关。
-export class SearchServerNotConfiguredError extends Error {
-  constructor() {
-    super("尚未配置研究搜索服务，请在设置中填写地址与凭据");
-    this.name = "SearchServerNotConfiguredError";
-  }
-}
+// 准入闸与两个错误类型已移到 ./consumer-gate（QuickRetrieval 与本服务共用一份判定，
+// 两份拷贝漂移的后果是「某条路径绕过了用户明确关掉的开关」）。此处原样 re-export，
+// 既有 import 路径不变。
+export {
+  ResearchDisabledError,
+  SearchServerNotConfiguredError,
+} from "./consumer-gate";
 
 /// 事件接收方的最小面。真实类型是 Electron.WebContents，
 /// 收窄成三个方法是为了让测试用 20 行的手写替身就能覆盖广播与回收逻辑。
@@ -102,15 +101,19 @@ export interface ResearchServiceDeps {
   /// service 不该知道它们；装配点见 planner/llm-hooks.ts 的 createResearchLlmHooks。
   llmHooks?: (input: { summary: ResearchSessionSummary }) => ResearchLlmHooks | null;
   logger?: { warn(...args: unknown[]): void; info?(...args: unknown[]): void };
+  /// U10：把已批准的候选落进用户记忆的 research 段（实现见 main/memory/research-memory.ts）。
+  ///
+  /// 注入而非直接 import：service 不该知道记忆文件在哪、长什么样；
+  /// 也让测试可以只验「批准时调了 approve、拒绝/撤销时调了 revoke」而不碰文件系统。
+  researchMemorySink?: {
+    approve(
+      candidate: MemoryCandidate,
+      chunkIds: readonly string[],
+      approvedAt: string,
+    ): Promise<void>;
+    revoke(candidateId: string): Promise<boolean>;
+  };
 }
-
-/// 各 Consumer 对应的灰度开关。coding / knowledge 暂无独立开关，跟随总开关（U9/U10 再拆）。
-const CONSUMER_SWITCHES: Partial<Record<ResearchConsumer, keyof ResearchEngineSettings>> = {
-  chat: "chatEnabled",
-  deep_research: "deepResearchEnabled",
-  slides: "slidesEnabled",
-  writing: "writingEnabled",
-};
 
 /// 一次在途编排。
 interface RunEntry {
@@ -468,8 +471,72 @@ export class ResearchService implements ResearchEngineFacade {
   ): Promise<void> {
     try {
       await this.orchestrate(summary, entry, searchClient);
+      // 记忆沉淀（U10）：编排成功返回即代表会话已 completed，此时报告已落库。
+      //
+      // **必须包在自己的 try 里**：沉淀是可选的派生产物（候选可再生），
+      // 它失败绝不能把一次成功的研究翻成失败——那会让用户丢掉真正想要的报告。
+      await this.distillMemoryCandidates(summary.sessionId);
     } catch (err) {
       await this.failSession(summary.sessionId, err);
+    }
+  }
+
+  // ── U10：记忆候选的读取与审阅 ─────────────────────────────────────────────
+
+  /// 列出记忆候选（可按状态筛选）。
+  async listMemoryCandidates(status?: MemoryCandidate["status"]): Promise<MemoryCandidateView[]> {
+    return this.deps.repository.listMemoryCandidates(status);
+  }
+
+  /// 审阅一条候选。**这里是 KTD10 的唯一执行点**。
+  ///
+  /// 三个动作与状态的对应刻意收窄（renderer 传不了任意 status，见 ipc/research.ts 的 schema）：
+  ///   - approve：pending/rejected/revoked → approved，**并真正写进 Memory**；
+  ///   - reject ：→ rejected，不碰 Memory；
+  ///   - revoke ：→ revoked，**按 candidateId 精确删除**已写入的那条（不做文本模糊匹配）。
+  ///
+  /// 先流转状态再写 Memory：写入函数会核对 status === "approved"，
+  /// 顺序反过来的话那道核对就永远不成立，等于把红线检查写成了死代码。
+  async reviewMemoryCandidate(
+    candidateId: string,
+    action: "approve" | "reject" | "revoke",
+  ): Promise<void> {
+    const status = action === "approve" ? "approved" : action === "reject" ? "rejected" : "revoked";
+    const at = this.nowIso();
+    await this.deps.repository.updateMemoryCandidateStatus(candidateId, status, at);
+
+    const sink = this.deps.researchMemorySink;
+    // 没有 sink（测试替身 / 记忆模块未初始化）时只流转状态，不写盘。
+    if (!sink) return;
+
+    if (action === "approve") {
+      const view = (await this.deps.repository.listMemoryCandidates("approved")).find(
+        (item) => item.candidate.candidateId === candidateId,
+      );
+      if (!view) return;
+      await sink.approve(view.candidate, view.candidate.citationChunkIds, at);
+      return;
+    }
+    // reject 与 revoke 都要确保它不在 Memory 里：用户可能先批准、再拒绝。
+    await sink.revoke(candidateId);
+  }
+
+  /// 从已完成会话的报告归纳待批记忆候选。
+  ///
+  /// 开关关闭（默认）时什么都不做——这是**默认不产生副作用**的能力，
+  /// 用户没打开「记忆沉淀」就不该有任何东西被提议写进他的长期记忆。
+  private async distillMemoryCandidates(sessionId: string): Promise<void> {
+    if (this.deps.settings().memoryEnabled !== true) return;
+    try {
+      // evidence 级别：collectTrustZones 需要 chunk 的信任区。
+      const view = await this.deps.repository.getSession(sessionId, "evidence");
+      if (!view) return;
+      const { items, candidates } = extractKnowledgeFromReport({ view });
+      if (candidates.length === 0) return;
+      await this.deps.repository.saveKnowledgeAndCandidates({ sessionId, items, candidates });
+      this.deps.logger?.info?.(`[research] 沉淀 ${candidates.length} 条待批记忆候选`, sessionId);
+    } catch (err) {
+      this.deps.logger?.warn("[research] 记忆沉淀失败（不影响报告）", sessionId, err);
     }
   }
 
@@ -539,16 +606,9 @@ export class ResearchService implements ResearchEngineFacade {
     }
   }
 
-  /// 总开关 + Consumer 灰度开关。两者都通过才允许发起研究。
+  /// 总开关 + Consumer 灰度开关。判定实现在 ./consumer-gate（与 QuickRetrieval 共用）。
   private assertEnabled(consumer: ResearchConsumer): void {
-    const settings = this.deps.settings();
-    if (!settings.enabled) {
-      throw new ResearchDisabledError("研究引擎未开启，请在设置中启用");
-    }
-    const key = CONSUMER_SWITCHES[consumer];
-    if (key && settings[key] !== true) {
-      throw new ResearchDisabledError(`该场景的研究能力未开启：${consumer}`);
-    }
+    assertResearchEnabled(this.deps.settings(), consumer);
   }
 
   private async requireSummary(sessionId: string): Promise<ResearchSessionSummary> {

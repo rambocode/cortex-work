@@ -30,6 +30,9 @@ export interface ResearchCreateFormProps {
   /// 由宿主注入而不是表单自己读 store：views 层不依赖 personal store（那是个人工作区的
   /// 设置容器），保持组件可在任意宿主里复用。缺省则不显示这一行。
   model?: ResearchModelDisplay;
+  /// 预填的研究目标（聊天/写作里的「转为深度研究」带上下文进来）。
+  /// 只作初值，用户仍可改——所以是 useState 的初始值而不是受控 value。
+  initialObjective?: string;
   /// 创建完成。宿主负责把会话放进列表、选中它，**并发起 run**（顺序见文件头注释）。
   onCreated: (summary: ResearchSessionSummary) => void;
   onCancel: () => void;
@@ -70,10 +73,11 @@ export function ResearchCreateForm({
   bridge,
   consumer = "deep_research",
   model,
+  initialObjective,
   onCreated,
   onCancel,
 }: ResearchCreateFormProps): ReactElement {
-  const [objective, setObjective] = useState("");
+  const [objective, setObjective] = useState(initialObjective ?? "");
   const [mode, setMode] = useState<ResearchMode>("standard");
   const [scopes, setScopes] = useState<ScopeKey[]>(["public_web"]);
   const [submitting, setSubmitting] = useState(false);

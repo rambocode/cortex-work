@@ -17,8 +17,8 @@ describe("composeMemoryAppend 纯组装", () => {
   it("按分区顺序拼装，手写在前自动在后，HTML 注释被剥离", () => {
     const out = composeMemoryAppend(
       stateWith({
-        profile: { manual: "<!-- 引导 -->\n我是前端工程师", auto: "- 在做 cortex" },
-        projects: { manual: "", auto: "- 项目 X 进行中" },
+        profile: { manual: "<!-- 引导 -->\n我是前端工程师", auto: "- 在做 cortex", research: "" },
+        projects: { manual: "", auto: "- 项目 X 进行中", research: "" },
       }),
     );
     expect(out).toBeDefined();
@@ -33,8 +33,8 @@ describe("composeMemoryAppend 纯组装", () => {
     const big = "很长的内容".repeat(60); // 单段远超预算
     const out = composeMemoryAppend(
       stateWith({
-        profile: { manual: big, auto: "" },
-        preferences: { manual: "短偏好", auto: "" },
+        profile: { manual: big, auto: "", research: "" },
+        preferences: { manual: "短偏好", auto: "", research: "" },
       }),
       100,
     );
@@ -47,7 +47,7 @@ describe("composeMemoryAppend 纯组装", () => {
 describe("buildMemoryAppend 读 store + 开关门控", () => {
   beforeEach(() => {
     useMemoryStore.getState().hydrateMemory(
-      stateWith({ profile: { manual: "我是 Mike", auto: "" } }),
+      stateWith({ profile: { manual: "我是 Mike", auto: "", research: "" } }),
     );
   });
 

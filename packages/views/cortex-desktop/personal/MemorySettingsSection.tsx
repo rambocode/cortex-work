@@ -16,6 +16,7 @@ import {
   type UserMemoryScope,
 } from "@cortex-work/core/memory/memory";
 import { SettingCard, SRow } from "./settingsControls";
+import { ResearchMemoryCandidates } from "./ResearchMemoryCandidates";
 
 // 译函数最小签名（与 SettingsMenu 一致,避免引入 react-i18next 的 TFunction 泛型）。
 type TFunction = (key: string, opts?: Record<string, unknown>) => string;
@@ -252,6 +253,10 @@ export function MemorySettingsSection() {
 
       {/* 做梦整理：立即整理 + 上次时间 + 历史 */}
       <DreamCard />
+
+      {/* 研究记忆候选（U10）：KTD10 那道「逐条批准」闸的人机界面。
+          桥不支持时组件自己返回 null，这里不必再 gate 一次。 */}
+      <ResearchMemoryCandidates />
 
       {/* 数据管理：打开文件夹 / 清自动区 / 清全部 */}
       <SettingCard title={t("memory.dataCard")}>

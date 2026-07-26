@@ -1,5 +1,5 @@
 // bento deck 持久层测试:真实文件系统(mkdtemp)验证创建/读写/乐观锁/串行化/路径安全。
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,9 +11,12 @@ vi.mock("../../log", () => ({
 }));
 
 import {
+  MAX_SLIDES_SOURCES,
+  appendSlidesSource,
   createBentoDeck,
   ensureBentoDeckRuntime,
   readBentoDeck,
+  readSlidesSources,
   reshellBentoPresentation,
   writeBentoDoc,
   writeBentoDeckHtml,
@@ -276,5 +279,125 @@ describe("ensureBentoDeckRuntime(编辑器存量换壳)", () => {
     expect(migrated).toEqual({ ok: true, value: { migrated: true } });
     expect(extractBentoDocJson(readFileSync(deckHtmlFile(), "utf8"))).toBe(envelopeJson);
     expect(readFileSync(join(root, ".cortex-design", DECK, "deck.meta.json"), "utf8")).toBe(metaBefore);
+  });
+});
+
+describe("研究来源清单（演示文稿检索）", () => {
+  const entry = (url: string, over: Record<string, unknown> = {}) => ({
+    url,
+    title: `标题 ${url}`,
+    addedAt: "2026-07-26T00:00:00Z",
+    ...over,
+  });
+
+  async function makeDeck(): Promise<void> {
+    await createBentoDeck({ workspaceRoot: root, deckId: DECK, title: "测试", runtimeHtml: SHELL });
+  }
+
+  it("deck 不存在时报 not_found（不凭空建一个来源文件）", async () => {
+    const res = await appendSlidesSource({ workspaceRoot: root, deckId: DECK, entry: entry("https://a.com") });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("not_found");
+  });
+
+  it("追加后能读回，且落在 drafts/research/manifest.json", async () => {
+    await makeDeck();
+    const res = await appendSlidesSource({ workspaceRoot: root, deckId: DECK, entry: entry("https://a.com") });
+    expect(res.ok).toBe(true);
+
+    const manifestPath = join(root, ".cortex-design", DECK, "drafts", "research", "manifest.json");
+    expect(existsSync(manifestPath)).toBe(true);
+    const read = await readSlidesSources({ workspaceRoot: root, deckId: DECK });
+    expect(read.ok).toBe(true);
+    if (read.ok) expect(read.value.sources.map((s) => s.url)).toEqual(["https://a.com"]);
+  });
+
+  /// 来源清单是**制作期溯源材料**，不该跟着 deck 导出给观众——
+  /// 所以它必须在 deck.bento.html 之外，这条守着那个边界。
+  it("来源不写进 deck 交付物本身", async () => {
+    await makeDeck();
+    await appendSlidesSource({
+      workspaceRoot: root,
+      deckId: DECK,
+      entry: entry("https://secret-source.example"),
+    });
+    expect(readFileSync(deckHtmlFile(), "utf8")).not.toContain("secret-source.example");
+  });
+
+  it("同一 URL 去重：重复追加只更新不新增", async () => {
+    await makeDeck();
+    await appendSlidesSource({ workspaceRoot: root, deckId: DECK, entry: entry("https://a.com") });
+    const res = await appendSlidesSource({
+      workspaceRoot: root,
+      deckId: DECK,
+      entry: entry("https://a.com", { usedFor: "第 3 页市场规模" }),
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value.total).toBe(1);
+
+    const read = await readSlidesSources({ workspaceRoot: root, deckId: DECK });
+    if (read.ok) expect(read.value.sources[0]?.usedFor).toBe("第 3 页市场规模");
+  });
+
+  it("超过上限时丢最早的（新来源更贴近当前正在做的页面）", async () => {
+    await makeDeck();
+    for (let i = 0; i < MAX_SLIDES_SOURCES + 5; i += 1) {
+      await appendSlidesSource({ workspaceRoot: root, deckId: DECK, entry: entry(`https://a.com/${i}`) });
+    }
+    const read = await readSlidesSources({ workspaceRoot: root, deckId: DECK });
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.value.sources).toHaveLength(MAX_SLIDES_SOURCES);
+      expect(read.value.sources[0]?.url).toBe("https://a.com/5");
+    }
+  });
+
+  it("清单文件损坏时回空清单而不是让写入失败（纯追加的溯源材料，读坏不该阻断 deck 流程）", async () => {
+    await makeDeck();
+    const dir = join(root, ".cortex-design", DECK, "drafts", "research");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "manifest.json"), "{ 这不是 JSON", "utf8");
+
+    const read = await readSlidesSources({ workspaceRoot: root, deckId: DECK });
+    expect(read.ok).toBe(true);
+    if (read.ok) expect(read.value.sources).toEqual([]);
+
+    const res = await appendSlidesSource({ workspaceRoot: root, deckId: DECK, entry: entry("https://a.com") });
+    expect(res.ok).toBe(true);
+  });
+
+  /// 回归：空清单曾是一个模块级常量 + 浅拷贝，`sources` 数组被所有 deck 共享，
+  /// 一个 deck 的首次写入会污染另一个 deck 的「空」清单（跨 deck 串数据）。
+  it("不同 deck 的空清单互不污染", async () => {
+    await makeDeck();
+    await appendSlidesSource({ workspaceRoot: root, deckId: DECK, entry: entry("https://first.example") });
+
+    const otherRoot = mkdtempSync(join(tmpdir(), "cortex-bento-ws-other-"));
+    try {
+      await createBentoDeck({ workspaceRoot: otherRoot, deckId: DECK, title: "另一个", runtimeHtml: SHELL });
+      const read = await readSlidesSources({ workspaceRoot: otherRoot, deckId: DECK });
+      expect(read.ok).toBe(true);
+      if (read.ok) expect(read.value.sources).toEqual([]);
+
+      const res = await appendSlidesSource({
+        workspaceRoot: otherRoot,
+        deckId: DECK,
+        entry: entry("https://second.example"),
+      });
+      expect(res.ok).toBe(true);
+      if (res.ok) expect(res.value.total).toBe(1);
+    } finally {
+      rmSync(otherRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("非法 deck id 被拒（路径穿越）", async () => {
+    const res = await appendSlidesSource({
+      workspaceRoot: root,
+      deckId: "../escape",
+      entry: entry("https://a.com"),
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("invalid_path");
   });
 });

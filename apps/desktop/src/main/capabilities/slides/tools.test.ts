@@ -67,7 +67,15 @@ afterAll(() => {
 
 describe("工具清单契约(bento)", () => {
   it("注册的工具名固定且不含旧 slot 工具", () => {
-    expect([...tools.keys()].sort()).toEqual(["add_asset", "get_deck_state", "propose_outline", "set_deck_doc"]);
+    expect([...tools.keys()].sort()).toEqual([
+      "add_asset",
+      // 研究来源登记（演示文稿检索）：制作期溯源材料，不进 deck 交付物。
+      "add_source",
+      "get_deck_state",
+      "list_sources",
+      "propose_outline",
+      "set_deck_doc",
+    ]);
   });
 });
 

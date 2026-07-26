@@ -15,6 +15,7 @@ import {
   usePersonalStore,
 } from "@cortex-work/core";
 import type { EditorInfo, ProjectMeta, SessionMeta } from "@cortex-work/core";
+import { useRunningResearchCount } from "@cortex-work/core/research/background-watch";
 import { SettingsMenu } from "./SettingsMenu";
 import { ProjectMenu } from "./ProjectMenu";
 import { SidebarLeftControls } from "./SidebarControls";
@@ -284,6 +285,8 @@ export function PersonalSidebar({
   // 深度研究(CRE 整窗覆盖层);双门控见下方 researchAvailable。
   const researchOpen = usePersonalStore((s) => s.researchOpen);
   const openResearch = usePersonalStore((s) => s.openResearch);
+  // 在跑的研究数量（由常驻的 useResearchBackgroundWatch 维护，不依赖覆盖层是否挂载）。
+  const runningResearchCount = useRunningResearchCount();
   const sessions = usePersonalStore((s) => s.sessions);
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
@@ -400,8 +403,21 @@ export function PersonalSidebar({
           </button>
         ) : null}
         {researchAvailable ? (
-          <button className={researchOpen ? "is-active" : ""} onClick={openResearch} aria-pressed={researchOpen}>
+          // 必须包一层箭头函数：openResearch 现在收一个可选的预填目标，
+          // 直接当 onClick 会把 React 的鼠标事件对象当成研究目标传进去。
+          <button
+            className={researchOpen ? "is-active" : ""}
+            onClick={() => openResearch()}
+            aria-pressed={researchOpen}
+          >
             研究
+            {/* 后台运行角标：研究是分钟级任务且覆盖层是互斥整窗的，切走之后
+                没有这个角标就完全看不出「还有东西在跑」。 */}
+            {runningResearchCount > 0 ? (
+              <span className="pw-nav-badge" aria-label={`${runningResearchCount} 个研究进行中`}>
+                {runningResearchCount}
+              </span>
+            ) : null}
           </button>
         ) : null}
       </div>

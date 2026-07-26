@@ -70,7 +70,7 @@ export class UserMemoryStore {
   /// 写单分区的手写区/自动区：读-改-写该分区文件（其余文件不动,保留用户手写与注释）。
   setFile(scope: UserMemoryScope, patch: Partial<UserMemoryFile>): Promise<void> {
     return this.enqueue(async () => {
-      const current = (await this.readScope(scope)) ?? { manual: "", auto: "" };
+      const current = (await this.readScope(scope)) ?? { manual: "", auto: "", research: "" };
       await this.writeScope(scope, renderUserMemoryMarkdown({ ...current, ...patch }));
     });
   }
@@ -90,7 +90,12 @@ export class UserMemoryStore {
       for (const scope of USER_MEMORY_SCOPES) {
         const current = await this.readScope(scope);
         if (!current || current.auto.length === 0) continue;
-        await this.writeScope(scope, renderUserMemoryMarkdown({ manual: current.manual, auto: "" }));
+        // **只清 auto，保留 research**：那是用户逐条批准写入的研究结论，
+        // 「清空自动整理」不该连它一起抹掉（清 research 走独立入口）。
+        await this.writeScope(
+          scope,
+          renderUserMemoryMarkdown({ manual: current.manual, auto: "", research: current.research }),
+        );
       }
     });
   }

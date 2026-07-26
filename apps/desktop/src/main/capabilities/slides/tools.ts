@@ -10,7 +10,9 @@ import { slidesOutlineSchema } from "@cortex-work/core/design/slides/slides-sche
 import { createLogger } from "../../log";
 import type { SlidesSessionState } from "./session";
 import {
+  appendSlidesSource,
   readBentoDeck,
+  readSlidesSources,
   updateBentoDeckMeta,
   writeBentoDoc,
   type BentoDeckStage,
@@ -214,6 +216,64 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
         asset: `asset:${key}`,
         hint: `Reference it as src/asset "asset:${key}" in image/svg elements.`,
       });
+    },
+  );
+
+  // 研究来源登记（spec §15.3）。与 add_asset 的关键差别：**不动 deck 文档**，
+  // 因此不需要 expected_revision——来源清单是 deck 外的独立 sidecar，
+  // 与页面写入互不争用乐观锁（理由见 bento-workspace 的 appendSlidesSource 注释）。
+  mcp.registerTool(
+    "add_source",
+    {
+      description:
+        "Record an external source you used while building this deck (from web_search / web_read / deep_research). " +
+        "Sources are stored alongside the deck as production-time provenance — they are NOT rendered into slides, " +
+        "so the presenter can verify where each figure or claim came from. " +
+        "Call this whenever a slide states a fact, figure or quote taken from the web.",
+      inputSchema: {
+        url: z.string().min(1).max(2048).describe("Source URL"),
+        title: z.string().min(1).max(300).describe("Source title"),
+        used_for: z
+          .string()
+          .max(300)
+          .optional()
+          .describe("Which slide or claim this source supports, e.g. 'slide 3 market size'"),
+        chunk_id: z
+          .string()
+          .max(128)
+          .optional()
+          .describe("Evidence chunk id, only available for deep_research results"),
+      },
+    },
+    async ({ url, title, used_for, chunk_id }): Promise<ToolResult> => {
+      const result = await appendSlidesSource({
+        ...ctx,
+        entry: {
+          url,
+          title,
+          ...(used_for ? { usedFor: used_for } : {}),
+          ...(chunk_id ? { chunkId: chunk_id } : {}),
+          addedAt: new Date().toISOString(),
+        },
+      });
+      if (!result.ok) return errorResult(result.error.code, result.error.message);
+      return jsonResult({ ok: true, total: result.value.total });
+    },
+  );
+
+  // 读回全部来源：agent 收尾时可据此在备注里列出参考资料，
+  // 也让「这一版 deck 引了哪些东西」有个可机读的答案。
+  mcp.registerTool(
+    "list_sources",
+    {
+      description:
+        "List all external sources recorded for this deck via add_source (production-time provenance).",
+      inputSchema: {},
+    },
+    async (): Promise<ToolResult> => {
+      const result = await readSlidesSources(ctx);
+      if (!result.ok) return errorResult(result.error.code, result.error.message);
+      return jsonResult({ ok: true, sources: result.value.sources });
     },
   );
 }

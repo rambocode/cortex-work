@@ -36,6 +36,8 @@ import { t } from "../i18n";
 import { languageInstruction } from "../i18n/native";
 import { useCortexUIStore } from "../store/ui";
 import { buildMemoryAppend } from "../memory/inject";
+// 会话内前置检索（可选开关）：发送前联网抓一次资料，失败静默降级，见其文件头。
+import { retrieveChatEvidence } from "../research/chat-retrieval";
 import {
   abortPi,
   closePiSession,
@@ -2755,16 +2757,29 @@ export function usePersonalActions(): PersonalActions {
       const attachmentPrompt = buildAttachmentSystemPrompt(attachments);
       const docPrompt = docRefs ? buildDocFilesSystemPrompt(docRefs) : undefined;
       const globalAppend = buildGlobalAppend();
+      // 会话内前置检索（可选，默认关）：开启后每轮发送前先联网抓一次资料，注入 system prompt。
+      // **必须在这里 await 而不是并进 buildGlobalAppend**：后者是同步函数，被三处调用，
+      // 改成异步会波及整条发送链路；而检索本身只在 chat 的这一个发送点需要。
+      // 失败/超时静默降级（见 retrieveChatEvidence 的注释），绝不阻断本轮发送。
+      const evidenceAppend = await retrieveChatEvidence({
+        gather: bridge.research?.gather?.bind(bridge.research),
+        settings: usePersonalStore.getState().generalSettings.researchEngine,
+        query: text,
+      });
       // 组装顺序:全局指令/语言(U3/U4,三端统一) → 项目信息(Spotlight) → 文档清单;皆空仍传 undefined。
       // 附件块刻意不在此列:claude --resume / codex exec resume 只回放对话历史,不回放上一轮 system
       // prompt,附件走 append 只在拖入那一轮生效,续轮 skill 指令即丢失 → 经 buildTurnPromptText 并入
       // prompt 文本随历史持久。
+      // 证据段排在最后：它是本轮一次性资料，优先级低于全局指令与记忆（那两者是长期约束）。
       const appendSystemPrompt =
-        [globalAppend, extraSystemPrompt, docPrompt].filter(Boolean).join("\n\n") || undefined;
+        [globalAppend, extraSystemPrompt, docPrompt, evidenceAppend].filter(Boolean).join("\n\n") ||
+        undefined;
       // pi 例外:RPC 长驻会话,注入前缀随进程内历史持久,维持既有「附件并入 append 前缀」行为
       // (buildPiPromptMessage);其编辑重发定位(piEntryMatchesText 后缀匹配)已覆盖该形态。
       const piAppendSystemPrompt =
-        [globalAppend, extraSystemPrompt, attachmentPrompt, docPrompt].filter(Boolean).join("\n\n") || undefined;
+        [globalAppend, extraSystemPrompt, attachmentPrompt, docPrompt, evidenceAppend]
+          .filter(Boolean)
+          .join("\n\n") || undefined;
       // claude/codex 单发与编排:附件块前缀进 prompt 文本(run.promptText / 显示层仍存原始 text)。
       const cliText = buildTurnPromptText(text, attachmentPrompt);
 

@@ -54,6 +54,11 @@ import type {
 } from "@cortex-work/core/desktop/writing-retrieval-types";
 import type { DesktopBridge } from "@cortex-work/core/desktop/bridge";
 import {
+  normalizeResearchEngineSettings,
+  type ResearchEngineSettings,
+} from "@cortex-work/core/research/settings";
+import type { PreparedDocument } from "@cortex-work/core/research/quick-types";
+import {
   cancelRunsForSpace,
   getResumeSessionId,
   installWritingRuntime,
@@ -168,6 +173,32 @@ async function retrieveContextWithTimeout(
     return result.context;
   } catch {
     return null;
+  }
+}
+
+// 外部网页证据的硬超时。比本地检索(2s)宽得多——那是查本机索引，这里要真的联网搜+抓，
+// 5~10 秒是常态。但仍远短于写作 agent 自己跑一轮的时间，超时就当这次没有外部资料。
+const WEB_EVIDENCE_TIMEOUT_MS = 12_000;
+
+// 带超时的外部网页检索：失败/超时/未开启一律回空数组 → 静默不注入。
+// 与本地检索同一条纪律：检索绝不能阻断或报错打断发送回合。
+async function retrieveWebEvidence(
+  bridge: DesktopBridge | null,
+  settings: ResearchEngineSettings,
+  query: string,
+): Promise<PreparedDocument[]> {
+  // 双门控与研究 MCP 注入一致：总开关 + 写作检索灰度开关。
+  if (!settings.enabled || settings.writingEnabled !== true) return [];
+  const gather = bridge?.research?.gather;
+  if (!gather || !query.trim()) return [];
+  try {
+    const result = await Promise.race([
+      gather.call(bridge.research, { consumer: "writing", query: query.trim() }),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), WEB_EVIDENCE_TIMEOUT_MS)),
+    ]);
+    return result?.documents ?? [];
+  } catch {
+    return [];
   }
 }
 
@@ -520,14 +551,26 @@ export function WritingAssistantPanel({
 
     // 检索上下文(U4):开关开启且有正文时,以用户正文查询 top-k 片段注入 prompt。
     // 超时/失败/无命中一律回 null → 静默不注入,绝不阻断发送(见 retrieveContextWithTimeout)。
-    const retrieval =
+    // 本地片段与外部网页**并发**发起：两者互不依赖，串行等于把两份超时叠加，
+    // 而它们各自的降级路径已经独立（任一失败都只是少一段资料）。
+    const [retrieval, webEvidence] = await Promise.all([
       curRetrievalEnabled && body
-        ? await retrieveContextWithTimeout(curBridge, {
+        ? retrieveContextWithTimeout(curBridge, {
             root: curSpace.root,
             query: body,
             k: RETRIEVAL_TOP_K,
           })
-        : null;
+        : Promise.resolve(null),
+      body
+        ? retrieveWebEvidence(
+            curBridge,
+            normalizeResearchEngineSettings(
+              usePersonalStore.getState().generalSettings.researchEngine,
+            ),
+            body,
+          )
+        : Promise.resolve([] as PreparedDocument[]),
+    ]);
 
     // claude slash 回合:prompt 整条 = 裸 slash;写作上下文(文件/引用/检索/改稿约定)整块
     // 降级进 appendSystemPrompt,保证 claude CLI 的输入层 slash 展开不被前置文本破坏。
@@ -535,6 +578,7 @@ export function WritingAssistantPanel({
       workspaceRoot: curSpace.root,
       activeFilePath: curFile,
       retrieval,
+      webEvidence,
     });
     const prompt = claudeSlashText ?? composed;
     const appendSystemPrompt =

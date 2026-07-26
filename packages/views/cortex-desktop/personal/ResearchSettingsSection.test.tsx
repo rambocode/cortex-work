@@ -29,6 +29,7 @@ function setResearch(patch: Partial<ResearchEngineSettings>): void {
         enabled: true,
         deepResearchEnabled: true,
         chatEnabled: false,
+        chatAutoRetrieve: false,
         slidesEnabled: false,
         writingEnabled: false,
         memoryEnabled: false,
@@ -75,19 +76,50 @@ describe("ResearchSettingsSection 功能开关", () => {
     expect(research()?.chatEnabled).toBe(true);
   });
 
-  it("M1 未实现的 consumer（演示文稿 / 写作 / 记忆)开关禁用并标注「即将支持」", () => {
+  it("「总是先检索再回答」依赖「会话内检索」：后者关闭时禁用且点不动", () => {
+    setResearch({ enabled: true, chatEnabled: false });
+    renderSection();
+    const auto = screen.getByRole("switch", { name: "总是先检索再回答" });
+    expect(auto.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(auto);
+    expect(research()?.chatAutoRetrieve).toBe(false);
+  });
+
+  it("会话内检索开启后，「总是先检索再回答」可点击并落库", () => {
+    setResearch({ enabled: true, chatEnabled: true });
+    renderSection();
+    fireEvent.click(screen.getByRole("switch", { name: "总是先检索再回答" }));
+    expect(research()?.chatAutoRetrieve).toBe(true);
+  });
+
+  /// 曾有三个 consumer 开关是禁用 + 标「即将支持」的；四个 consumer 全部落地后，
+  /// 页面上不该再残留任何「即将支持」角标——留着会让用户以为功能还没做。
+  it("不再有「即将支持」的占位开关", () => {
     setResearch({ enabled: true });
     renderSection();
-    for (const name of ["演示文稿检索", "写作检索", "记忆沉淀"]) {
-      const sw = screen.getByRole("switch", { name });
-      expect(sw.hasAttribute("disabled")).toBe(true);
-      // 点了也不能落库——禁用只做视觉不做拦截的话，用户仍会写进一个后端根本不读的开关。
-      fireEvent.click(sw);
+    expect(screen.queryAllByText("即将支持")).toHaveLength(0);
+  });
+
+  it.each([
+    ["写作检索", "writingEnabled"],
+    ["演示文稿检索", "slidesEnabled"],
+    ["记忆沉淀", "memoryEnabled"],
+  ] as const)("%s 已落地：可点击并落库", (name, key) => {
+    setResearch({ enabled: true });
+    renderSection();
+    const sw = screen.getByRole("switch", { name });
+    expect(sw.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(sw);
+    expect(research()?.[key]).toBe(true);
+  });
+
+  /// 总开关是所有 consumer 开关的前置条件：引擎没开时后端根本不会读它们。
+  it("总开关关闭时全部 consumer 开关禁用", () => {
+    setResearch({ enabled: false });
+    renderSection();
+    for (const name of ["深度研究", "会话内检索", "写作检索", "演示文稿检索", "记忆沉淀"]) {
+      expect(screen.getByRole("switch", { name }).hasAttribute("disabled")).toBe(true);
     }
-    expect(research()?.slidesEnabled).toBe(false);
-    expect(research()?.writingEnabled).toBe(false);
-    expect(research()?.memoryEnabled).toBe(false);
-    expect(screen.getAllByText("即将支持").length).toBe(3);
   });
 });
 
@@ -217,8 +249,14 @@ describe("ResearchSettingsSection Search Server 凭据", () => {
     setResearch({ enabled: true });
     renderSection({} as DesktopBridge);
     expect((screen.getByRole("button", { name: "保存令牌" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "连接测试" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/当前版本尚不支持/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "测试 Search Server 连接" }) as HTMLButtonElement).disabled).toBe(true);
+    // Search Server 与直连搜索两张卡各说明一次：两条路径的降级提示都要出现，
+    // 否则用户只看到一半，会以为另一条路可用。
+    expect(screen.getAllByText(/当前版本尚不支持/)).toHaveLength(2);
+    expect((screen.getByRole("button", { name: "保存密钥" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "测试直连搜索连接" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("桥提供能力时：保存只单向传明文一次，测试结果直接展示", async () => {
@@ -243,7 +281,7 @@ describe("ResearchSettingsSection Search Server 凭据", () => {
     // 提交后立即清空输入框：明文不在渲染进程多停留一秒。
     await vi.waitFor(() => expect(pat.value).toBe(""));
 
-    fireEvent.click(screen.getByRole("button", { name: "连接测试" }));
+    fireEvent.click(screen.getByRole("button", { name: "测试 Search Server 连接" }));
     await vi.waitFor(() => expect(screen.getByText(/连接成功：workspace ws-1/)).toBeTruthy());
     // 测试探测不接受任何凭据入参（凭据由 main 自行解密）。
     expect(testConn).toHaveBeenCalledWith();
@@ -278,5 +316,88 @@ describe("ResearchSettingsSection Search Server 凭据", () => {
     // 再动一个无关开关：全量写回时密文必须还在。
     fireEvent.click(screen.getByRole("switch", { name: "会话内检索" }));
     expect(research()?.searchServer?.encryptedToken).toBe("CIPHER-FROM-MAIN");
+  });
+});
+
+describe("ResearchSettingsSection 直连搜索", () => {
+  it("明确告知查询词会直接出站（隐私边界与自建服务端不同，用户配置前就该知道）", () => {
+    setResearch({ enabled: true });
+    renderSection();
+    expect(screen.getByText(/查询词会从本机直接发送给所选服务商/)).toBeTruthy();
+  });
+
+  it("切换供应商写入 store，但不经加密通道（一次下拉切换不该走保存密钥的路径）", () => {
+    setResearch({ enabled: true });
+    const setCred = vi.fn(async () => ({ provider: "tavily" as const }));
+    renderSection({
+      research: { setDirectSearchCredential: setCred, testDirectSearch: vi.fn() },
+    } as unknown as DesktopBridge);
+
+    fireEvent.change(screen.getByLabelText("搜索服务商"), { target: { value: "tavily" } });
+    expect(research()?.directSearch?.provider).toBe("tavily");
+    expect(setCred).not.toHaveBeenCalled();
+  });
+
+  it("换供应商后密钥状态显示为未配置（旧家的 key 在新家必然无效）", () => {
+    setResearch({
+      enabled: true,
+      directSearch: { provider: "brave", encryptedApiKey: "CIPHER" },
+    });
+    renderSection();
+    // 初始停在 brave，已配置。
+    expect(screen.getByText("已配置")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("搜索服务商"), { target: { value: "tavily" } });
+    expect(screen.queryByText("已配置")).toBeNull();
+  });
+
+  it("保存密钥：明文只单向传一次并立即清空，密文回写 store", async () => {
+    setResearch({ enabled: true });
+    const setCred = vi.fn(async () => ({
+      provider: "brave" as const,
+      encryptedApiKey: "CIPHER-FROM-MAIN",
+    }));
+    renderSection({
+      research: { setDirectSearchCredential: setCred, testDirectSearch: vi.fn() },
+    } as unknown as DesktopBridge);
+
+    const input = screen.getByLabelText("API 密钥") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "sk-plain-123" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存密钥" }));
+
+    expect(setCred).toHaveBeenCalledWith({ provider: "brave", apiKey: "sk-plain-123" });
+    await vi.waitFor(() => expect(input.value).toBe(""));
+    // 同 PAT 的回归点：不回写密文的话，下一次全量写回会把刚存的密钥抹掉。
+    await vi.waitFor(() =>
+      expect(research()?.directSearch?.encryptedApiKey).toBe("CIPHER-FROM-MAIN"),
+    );
+
+    fireEvent.click(screen.getByRole("switch", { name: "会话内检索" }));
+    expect(research()?.directSearch?.encryptedApiKey).toBe("CIPHER-FROM-MAIN");
+  });
+
+  it("未保存密钥时连接测试禁用（避免必然失败的一次调用）", () => {
+    setResearch({ enabled: true });
+    renderSection({
+      research: { setDirectSearchCredential: vi.fn(), testDirectSearch: vi.fn() },
+    } as unknown as DesktopBridge);
+    expect(
+      (screen.getByRole("button", { name: "测试直连搜索连接" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("连接测试结果直接展示，且不接受任何凭据入参", async () => {
+    setResearch({
+      enabled: true,
+      directSearch: { provider: "brave", encryptedApiKey: "CIPHER" },
+    });
+    const testFn = vi.fn(async () => ({ ok: false, message: "Brave Search API 拒绝了这个密钥" }));
+    renderSection({
+      research: { setDirectSearchCredential: vi.fn(), testDirectSearch: testFn },
+    } as unknown as DesktopBridge);
+
+    fireEvent.click(screen.getByRole("button", { name: "测试直连搜索连接" }));
+    await vi.waitFor(() => expect(screen.getByText(/拒绝了这个密钥/)).toBeTruthy());
+    expect(testFn).toHaveBeenCalledWith();
   });
 });

@@ -108,6 +108,38 @@ describe("normalizeResearchEngineSettings", () => {
         searchServer: { baseUrl: "https://s.example.com", workspaceId: "ws_1" },
       },
     },
+    {
+      name: "完整 directSearch 保留",
+      raw: { enabled: true, directSearch: { provider: "brave", encryptedApiKey: "AQID" } },
+      expected: {
+        ...DEFAULT_RESEARCH_ENGINE_SETTINGS,
+        enabled: true,
+        directSearch: { provider: "brave", encryptedApiKey: "AQID" },
+      },
+    },
+    {
+      // provider 是**已支持供应商**的封闭枚举。留一个不认识的值会让 runtime 拿它去查
+      // DIRECT_SEARCH_PROVIDERS 得到 undefined，再在构造请求时炸在很远的地方。
+      name: "directSearch 的 provider 非法枚举时整段丢弃",
+      raw: { directSearch: { provider: "google", encryptedApiKey: "AQID" } },
+      expected: DEFAULT_RESEARCH_ENGINE_SETTINGS,
+    },
+    {
+      name: "directSearch 非对象时丢弃",
+      raw: { directSearch: "brave" },
+      expected: DEFAULT_RESEARCH_ENGINE_SETTINGS,
+    },
+    {
+      // 只选了供应商还没填 key 是设置页上的正常中间态，必须能存下来。
+      name: "directSearch 缺 encryptedApiKey 时保留 provider",
+      raw: { directSearch: { provider: "tavily" } },
+      expected: { ...DEFAULT_RESEARCH_ENGINE_SETTINGS, directSearch: { provider: "tavily" } },
+    },
+    {
+      name: "directSearch 的 encryptedApiKey 非字符串时丢弃该字段但保留 provider",
+      raw: { directSearch: { provider: "tavily", encryptedApiKey: 42 } },
+      expected: { ...DEFAULT_RESEARCH_ENGINE_SETTINGS, directSearch: { provider: "tavily" } },
+    },
   ];
 
   it.each(cases)("$name", ({ raw, expected }) => {

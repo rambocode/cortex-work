@@ -75,6 +75,7 @@
       "label": "Customize"
     },
     "uploadFile": "File",
+    "toResearch": "Turn into deep research",
     "uploadImage": "Upload image",
     "uploadDoc": "Upload document",
     "noProvider": "No provider configured (go to Settings → Providers)",

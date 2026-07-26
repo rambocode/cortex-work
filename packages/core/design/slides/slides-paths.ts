@@ -32,3 +32,14 @@ export function bentoDeckHtmlPath(deckId: string): string {
 export function bentoDeckMetaPath(deckId: string): string {
   return `${slidesDeckRootPath(deckId)}/deck.meta.json`
 }
+
+/**
+ * 研究来源清单（写作检索 / 演示文稿检索的产物落点，spec §15.3）。
+ *
+ * 与 deck 正文分开存放的理由：`deck.bento.html` 是「存储即交付物」的自包含单文件，
+ * 任何非展示内容混进去都会跟着导出给观众。来源清单是**制作期的溯源材料**——
+ * 演讲者需要它核对数据出处，观众不需要看到它。
+ */
+export function slidesSourcesManifestPath(deckId: string): string {
+  return `${slidesDeckRootPath(deckId)}/drafts/research/manifest.json`
+}

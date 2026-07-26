@@ -6,15 +6,18 @@ import {
   WRITING_QUOTE_HEADING,
   WRITING_RETRIEVAL_HEADING,
   WRITING_REVISION_HEADING,
+  WRITING_WEB_HEADING,
   WRITING_REVISION_RULE,
   composeWritingPrompt,
   formatWritingRetrievalForPrompt,
+  formatWritingWebEvidenceForPrompt,
   parseWritingPromptForDisplay,
   quoteFromSelection,
   relativeWritingPath,
   type WritingQuote,
 } from "./prompt";
 import type { WritingRetrievalContext } from "../desktop/writing-retrieval-types";
+import type { PreparedDocument } from "../research/quick-types";
 
 // 构造一个含单条文本片段的检索上下文(U4)。
 function makeRetrieval(): WritingRetrievalContext {
@@ -243,5 +246,70 @@ describe("检索上下文注入(U4)", () => {
     expect(display!.userInput).toBe("请润色这一段");
     expect(display!.userInput).not.toContain("叶绿素");
     expect(display!.activeFile).toBe("sub/a.md");
+  });
+});
+
+describe("外部网页资料段（写作检索）", () => {
+  const doc = (over: Partial<PreparedDocument> = {}): PreparedDocument => ({
+    url: "https://a.com/p",
+    title: "外部标题",
+    text: "网页正文",
+    truncated: false,
+    fetchMethod: "http",
+    ...over,
+  });
+
+  it("无资料时整段省略（不留一个空标题）", () => {
+    expect(formatWritingWebEvidenceForPrompt([])).toBe("");
+    expect(formatWritingWebEvidenceForPrompt(null)).toBe("");
+    expect(composeWritingPrompt("正文", [], { webEvidence: [] })).not.toContain(WRITING_WEB_HEADING);
+  });
+
+  it("每条都带 URL，并要求标注来源", () => {
+    const out = formatWritingWebEvidenceForPrompt([doc()]);
+    expect(out).toContain("https://a.com/p");
+    expect(out).toContain("外部标题");
+    expect(out).toContain("网页正文");
+    expect(out).toContain("必须在文中标注来源链接");
+  });
+
+  it("标题缺失时用 URL 兜底", () => {
+    expect(formatWritingWebEvidenceForPrompt([doc({ title: undefined })])).toContain("[W1] https://a.com/p");
+  });
+
+  it("截断的正文标注出来（避免 agent 把节选当全文引用）", () => {
+    expect(formatWritingWebEvidenceForPrompt([doc({ truncated: true })])).toContain("正文已截断");
+  });
+
+  /// 本地资料是用户自己的东西，冲突时应以它为准——同「手写记忆优先于自动整理」的取舍。
+  it("排在本地文献之后、改稿约定之前", () => {
+    const composed = composeWritingPrompt("正文", [], {
+      retrieval: makeRetrieval(),
+      webEvidence: [doc()],
+    });
+    const localIdx = composed.indexOf(WRITING_RETRIEVAL_HEADING);
+    const webIdx = composed.indexOf(WRITING_WEB_HEADING);
+    const revisionIdx = composed.indexOf("正文");
+    expect(localIdx).toBeGreaterThanOrEqual(0);
+    expect(webIdx).toBeGreaterThan(localIdx);
+    expect(revisionIdx).toBeGreaterThan(webIdx);
+  });
+
+  /// 回归点：只剥本地段的话，网页正文会被按空行切碎并当成用户输入显示在消息气泡里。
+  it("展示层反解析把网页资料段整块剥掉，用户正文不被污染", () => {
+    const composed = composeWritingPrompt("我写的正文", [], {
+      webEvidence: [doc({ text: "网页正文\n\n含空行的第二段" })],
+    });
+    const display = parseWritingPromptForDisplay(composed);
+    expect(display).not.toBeNull();
+    expect(display!.userInput).toBe("我写的正文");
+    expect(display!.userInput).not.toContain("网页正文");
+    expect(display!.userInput).not.toContain("含空行的第二段");
+  });
+
+  it("只有网页资料段（无其它哨兵）时也能被识别并剥离", () => {
+    const composed = composeWritingPrompt("我写的正文", [], { webEvidence: [doc()] });
+    const display = parseWritingPromptForDisplay(composed);
+    expect(display?.userInput).toBe("我写的正文");
   });
 });

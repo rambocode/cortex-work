@@ -27,6 +27,8 @@ import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "../capabilities/agent-browser/inject";
 import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
+import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
+import { unregisterResearchSession } from "../capabilities/research/server";
 import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -204,10 +206,15 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
         arch: process.arch,
       }),
     );
+    // 研究引擎:pi 与 claude/codex 拿到同一套联网能力(web_search / web_read)。
+    // pi 走 mcpInjection==="none",不经 cli.ts 的 builtinServers 数组,必须在这里单独并入——
+    // 漏掉它就会出现「同一个开关，claude 能搜、pi 不能」这种查起来很费劲的不一致。
+    const researchServer = buildResearchMcpServerConfig(gs?.researchEngine, prepared.uiSessionId);
     const bridgeInputs = [
       ...userServers,
       ...(docServer ? [docServer] : []),
       ...(agentBrowserServer ? [agentBrowserServer] : []),
+      ...(researchServer ? [researchServer] : []),
     ];
     const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, prepared.uiSessionId);
     const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
@@ -374,13 +381,19 @@ export function registerPiSessionHandlers(): void {
     if (entry) {
       entry.session.stop();
       sessions.delete(uiSessionId);
+      // 清理研究 MCP 的 session→Consumer 映射（下一次 pi:open 会重新 register）。
+      // pi 是长驻会话,不清的话映射会随开合累积。
+      unregisterResearchSession(uiSessionId);
     }
   });
 }
 
 // 退出清理:终止所有 pi RPC 会话子进程（app window-all-closed / before-quit 调）。
 export function killAllPiSessions(): void {
-  for (const { session } of sessions.values()) session.stop();
+  for (const [uiSessionId, { session }] of sessions) {
+    session.stop();
+    unregisterResearchSession(uiSessionId);
+  }
   sessions.clear();
 }
 

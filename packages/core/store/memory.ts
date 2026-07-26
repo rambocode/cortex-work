@@ -49,12 +49,18 @@ export const useMemoryStore = create<MemoryStore>((set) => ({
 
   clearAllMemory: () => set({ memory: emptyUserMemoryState() }),
 
-  // 逐分区保留 manual、清空 auto——用新对象重建，保证引用变化触发订阅方刷新。
+  // 逐分区保留 manual 与 research、只清 auto——用新对象重建，保证引用变化触发订阅方刷新。
+  // **research 必须保留**：那是用户逐条批准写入的研究结论，「清空自动整理」不该连它一起抹掉
+  // （清 research 有独立入口，见设置页）。
   clearAutoMemory: () =>
     set((state) => {
       const next = emptyUserMemoryState();
       for (const scope of Object.keys(next) as UserMemoryScope[]) {
-        next[scope] = { manual: state.memory[scope].manual, auto: "" };
+        next[scope] = {
+          manual: state.memory[scope].manual,
+          auto: "",
+          research: state.memory[scope].research ?? "",
+        };
       }
       return { memory: next };
     }),

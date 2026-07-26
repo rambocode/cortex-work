@@ -27,6 +27,7 @@ import { registerBrowserTools } from "./capabilities/browser/tools";
 import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extract/mcp";
 import { startMediaGenHost, stopMediaGenHost } from "./capabilities/media-gen/server";
 import { startLoopWorkflowsHost, stopLoopWorkflowsHost } from "./capabilities/loop-workflows/server";
+import { startResearchHost, stopResearchHost } from "./capabilities/research/server";
 import { startDelegateHost, stopDelegateHost, killAllDelegates } from "./capabilities/delegate/server";
 import { startDesignDelegateHost, stopDesignDelegateHost, killAllDesignDelegates } from "./capabilities/design-delegate/server";
 import { stopSlidesHost } from "./capabilities/slides/server";
@@ -658,6 +659,9 @@ if (!app.requestSingleInstanceLock()) {
     void startDelegateHost();
     // 设计委派 MCP host:给设计工作台多页并行提供 delegate_task 工具。
     void startDesignDelegateHost();
+    // 研究 MCP host:给 agent 提供 web_search / web_read（+ 开了深度研究时的 deep_research）。
+    // 常驻;研究引擎未开启或搜索后端未配置时,注入侧返回 null 不连接。
+    void startResearchHost();
     // 安装自定义主菜单(去除 macOS View 菜单重复的全屏项),须在建窗前就位。
     installAppMenu();
     createWindow();
@@ -721,6 +725,7 @@ if (!app.requestSingleInstanceLock()) {
     stopLoopWorkflowsHost();
     stopDelegateHost();
     stopDesignDelegateHost();
+    stopResearchHost();
     stopSlidesHost();
     clearAllSlidesSessions();
     killAllAutomations();

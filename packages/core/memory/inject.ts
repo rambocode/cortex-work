@@ -19,7 +19,7 @@ import { usePersonalStore } from "../store/personal";
 export const MEMORY_APPEND_BUDGET = 1500;
 
 const HEADER =
-  "以下是跨会话持久的用户记忆（由过往会话自动整理 + 用户手写），供你了解用户背景与偏好；「手写」部分优先级最高，与其它信息冲突时以手写为准：";
+  "以下是跨会话持久的用户记忆（用户手写 + 过往会话自动整理 + 已批准的研究结论），供你了解用户背景与偏好；「手写」部分优先级最高，与其它信息冲突时以手写为准：";
 
 /// 纯组装：把记忆状态渲染成注入段。全部分区为空 → undefined（append 数组 filter 掉）。
 export function composeMemoryAppend(
@@ -34,9 +34,13 @@ export function composeMemoryAppend(
     if (!file) continue;
     const manual = stripUserMemoryComments(file.manual ?? "");
     const auto = stripUserMemoryComments(file.auto ?? "");
+    const research = stripUserMemoryComments(file.research ?? "");
     const parts: string[] = [];
     if (manual.length > 0) parts.push(`手写补充：\n${manual}`);
     if (auto.length > 0) parts.push(`自动整理：\n${auto}`);
+    // 已批准研究结论排在最后，并单独标注：它与前两段的可信度来源不同——
+    // 每条都经用户逐条批准且可回溯到来源（见 core/research/knowledge.ts 的 KTD10）。
+    if (research.length > 0) parts.push(`已批准研究：\n${research}`);
     if (parts.length === 0) continue;
     const section = `【${userMemoryScopeName(scope)}】\n${parts.join("\n")}`;
     // 预算截断：整段放不下就弃（分区内部分截断会产生残句，宁缺毋滥）；首个分区超预算时

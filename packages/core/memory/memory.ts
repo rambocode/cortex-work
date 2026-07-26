@@ -15,10 +15,18 @@ export type UserMemoryScope = "profile" | "preferences" | "projects";
 /// 全部分区，顺序即设置页展示顺序与注入 prompt 的优先级顺序（预算截断时后面的先弃）。
 export const USER_MEMORY_SCOPES: readonly UserMemoryScope[] = ["profile", "preferences", "projects"];
 
-/// 一个分区的两段内容：手写区（manual，用户直接编辑，优先级最高）+ 自动学习区（auto，做梦产出）。
+/// 一个分区的三段内容（spec §14.2）：
+///   - manual：手写区，用户直接编辑，**优先级最高**；
+///   - auto：自动学习区，做梦从会话历史蒸馏而来；
+///   - research：已批准的研究记忆，来自深度研究结论，**每条都有来源可查**。
+///
+/// research 单列一段而不是并进 auto 的理由：两者的产出者与撤销方式完全不同。
+/// 做梦每轮**整段覆盖** auto；research 是用户逐条批准的，绝不能被做梦顺手抹掉
+/// （红线见 apps/desktop/src/main/memory/dreamer.ts 与 core/research/knowledge.ts KTD10）。
 export interface UserMemoryFile {
   manual: string;
   auto: string;
+  research: string;
 }
 
 /// 全部分区的记忆状态；主进程 memory-store 与渲染端只读缓存都以此为单一形状。
@@ -58,9 +66,9 @@ export function userMemoryDreamTarget(scope: UserMemoryScope): string {
 /// 生成全空记忆状态（每分区 manual/auto 均为空串），供 store hydrate 与主进程兜底。
 export function emptyUserMemoryState(): UserMemoryState {
   return {
-    profile: { manual: "", auto: "" },
-    preferences: { manual: "", auto: "" },
-    projects: { manual: "", auto: "" },
+    profile: { manual: "", auto: "", research: "" },
+    preferences: { manual: "", auto: "", research: "" },
+    projects: { manual: "", auto: "", research: "" },
   };
 }
 
@@ -72,7 +80,9 @@ export function normalizeUserMemory(memory: Partial<UserMemoryState> | undefined
   for (const scope of USER_MEMORY_SCOPES) {
     const file = memory[scope] as Partial<UserMemoryFile> | undefined;
     if (file) {
-      base[scope] = { manual: file.manual ?? "", auto: file.auto ?? "" };
+      // research 缺省空串：旧档（三段化之前写的）没有这个字段，必须补齐，
+      // 否则下游 .trim() 会在 undefined 上炸。
+      base[scope] = { manual: file.manual ?? "", auto: file.auto ?? "", research: file.research ?? "" };
     }
   }
   return base;

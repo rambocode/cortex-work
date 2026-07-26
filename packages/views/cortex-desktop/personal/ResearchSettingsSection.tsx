@@ -1,9 +1,9 @@
 // 研究引擎（Cortex Research Engine）设置分区（P8 接线）。
 //
 // 三处刻意的设计，改动前请先读完：
-//   1. **未实现的 consumer 开关一律禁用**并标「即将支持」。M1 只有 chat 与 deep_research 真正接入
-//      （见 core/research/consumer.ts 头注与 main 的 research-service.ts 开关映射表），
-//      给用户一个写得进配置、后端却不读的开关，比不给还糟。
+//   1. **开关只在后端真的会读它时才可点**。曾有三个 consumer 开关是禁用 + 标「即将支持」的，
+//      现在 chat / writing / slides / memory 全部落地，禁用条件收敛为「总开关未开」。
+//      给用户一个写得进配置、后端却不读的开关，比不给还糟——新增开关时守住这条。
 //   2. **PAT 明文只单向流向 main**：输入框永远从空开始，落盘的是 safeStorage 密文，UI 连密文都不展示，
 //      只显示「已配置 / 未配置」。渲染进程不持久化明文，也不向 main 反向索取（spec §16）。
 //   3. **写回时保留 raw.searchServer**：encryptedToken 是主进程写的，归一化在 baseUrl/workspaceId
@@ -18,6 +18,11 @@ import {
   normalizeResearchEngineSettings,
   type ResearchEngineSettings,
 } from "@cortex-work/core/research/settings";
+import {
+  DIRECT_SEARCH_PROVIDER_IDS,
+  DIRECT_SEARCH_PROVIDERS,
+  type DirectSearchProviderId,
+} from "@cortex-work/core/research/direct-search";
 import { resolveResearchModelDisplay } from "../research/modelDisplay";
 import "../research/research.css";
 import { SettingCard, SRow } from "./settingsControls";
@@ -57,10 +62,6 @@ function FlagRow({
     </SRow>
   );
 }
-
-/// M1 尚未落地的 consumer 开关清单（UI 禁用 + 标注）。
-/// 与 main 的 CONSUMER_FLAG 映射表配套：那边有键位，这边有开关，但适配器还没写。
-const COMING_SOON_BADGE = "即将支持";
 
 export function ResearchSettingsSection(): ReactElement {
   const bridge = useDesktopBridge();
@@ -160,6 +161,70 @@ export function ResearchSettingsSection(): ReactElement {
 
   const serverReady = server.baseUrl.trim().length > 0 && server.workspaceId.trim().length > 0;
 
+  // ── 直连搜索逃生阀 ──────────────────────────────────────────────────────────
+  // 供应商下拉的本地草稿：未配置时展示第一档，用户选完但还没保存密钥也要能停在那一档上。
+  const [directProvider, setDirectProvider] = useState<DirectSearchProviderId>(
+    () => raw?.directSearch?.provider ?? DIRECT_SEARCH_PROVIDER_IDS[0],
+  );
+  // 明文 API key：只存在于这个 state，提交后立即清空，不写 store、不落盘。
+  const [apiKey, setApiKey] = useState("");
+  const [directProbeText, setDirectProbeText] = useState<string | null>(null);
+
+  // 「已配置」只在**当前选中的供应商**下成立：换到另一家时旧密钥不适用（main 侧
+  // mergeDirectSearchSettings 也会把它丢掉），此处必须同步显示为未配置，
+  // 否则用户会以为不用再填而直接点连接测试。
+  const hasApiKey =
+    !!raw?.directSearch?.encryptedApiKey && raw.directSearch.provider === directProvider;
+  const canSaveDirect = typeof researchBridge?.setDirectSearchCredential === "function";
+  const canTestDirect = typeof researchBridge?.testDirectSearch === "function";
+
+  /// 切换供应商：先落本地草稿，再写 store。
+  /// 换供应商本身就要落盘（否则刷新后回到旧值），但**不带密钥**——
+  /// 用 patch 而非 setDirectSearchCredential，避免为一次下拉切换就走加密通道。
+  const selectDirectProvider = useCallback(
+    (provider: DirectSearchProviderId) => {
+      setDirectProvider(provider);
+      setDirectProbeText(null);
+      const previous = raw?.directSearch;
+      patch({
+        directSearch:
+          previous?.provider === provider && previous.encryptedApiKey
+            ? previous
+            : { provider },
+      });
+    },
+    [raw, patch],
+  );
+
+  /// 提交明文 API key：单向传给 main 加密落盘，成功与否都立刻清空输入框。
+  /// 同 saveToken，**必须把 main 回传的切片写回 store**，否则下一次全量写回会抹掉密钥。
+  const saveApiKey = useCallback(() => {
+    const fn = researchBridge?.setDirectSearchCredential;
+    if (!fn) return;
+    const plain = apiKey;
+    setApiKey("");
+    void fn({ provider: directProvider, apiKey: plain })
+      .then((saved) => {
+        if (saved) patch({ directSearch: saved });
+        setDirectProbeText("密钥已保存（已加密存储）");
+      })
+      .catch((e: unknown) =>
+        setDirectProbeText(`保存失败：${e instanceof Error ? e.message : String(e)}`),
+      );
+  }, [researchBridge, apiKey, directProvider, patch]);
+
+  /// 直连连通性探测：同样不传也不回传任何凭据。
+  const testDirect = useCallback(() => {
+    const fn = researchBridge?.testDirectSearch;
+    if (!fn) return;
+    setDirectProbeText("正在测试连接…");
+    void fn()
+      .then((r) => setDirectProbeText(r.message))
+      .catch((e: unknown) =>
+        setDirectProbeText(`测试失败：${e instanceof Error ? e.message : String(e)}`),
+      );
+  }, [researchBridge]);
+
   return (
     <div>
       <div className="pw-dlg-title">研究引擎</div>
@@ -183,36 +248,43 @@ export function ResearchSettingsSection(): ReactElement {
         />
         <FlagRow
           label="会话内检索"
-          desc="聊天里需要最新信息时，自动做一次快速检索并附引用。"
+          desc="给聊天里的 agent 加上联网能力：可自行调用搜索与网页正文抓取，回答附来源链接。"
           value={settings.chatEnabled}
           onChange={(v) => patch({ chatEnabled: v })}
           disabled={!settings.enabled}
+        />
+        {/* 「总是先检索」依赖「会话内检索」：后者关掉时这一项即便为 true 也不生效
+            （判定在 core 的 shouldAutoRetrieve），所以 UI 上必须一并禁用，
+            否则用户会看到一个开着却没有任何效果的开关。 */}
+        <FlagRow
+          label="总是先检索再回答"
+          desc="每轮发送前都先联网查一次并附上资料，不依赖模型自己判断。会给每轮回复增加数秒延迟。"
+          value={settings.chatAutoRetrieve}
+          onChange={(v) => patch({ chatAutoRetrieve: v })}
+          disabled={!settings.enabled || !settings.chatEnabled}
         />
         {/* 以下三项的适配器尚未落地（M1 只接了 chat 与 deep_research），一律禁用 + 标注，
             不给「点了没反应」的开关。适配器落地时把 disabled 去掉即可，无需改数据结构。 */}
         <FlagRow
           label="演示文稿检索"
-          desc="为演示文稿自动收集素材与来源。"
+          desc="演示文稿 agent 可自行联网查资料，并把引用的来源登记在 deck 旁供演讲者核对。"
           value={settings.slidesEnabled}
           onChange={(v) => patch({ slidesEnabled: v })}
-          disabled
-          badge={COMING_SOON_BADGE}
+          disabled={!settings.enabled}
         />
         <FlagRow
           label="写作检索"
-          desc="写作工作区引用外部资料时复用研究引擎。"
+          desc="写作助手发消息前联网查一次资料，与工作区本地检索并行，结果附来源链接。"
           value={settings.writingEnabled}
           onChange={(v) => patch({ writingEnabled: v })}
-          disabled
-          badge={COMING_SOON_BADGE}
+          disabled={!settings.enabled}
         />
         <FlagRow
           label="记忆沉淀"
-          desc="把研究结论整理成记忆候选（仍需逐条批准后写入）。"
+          desc="深度研究完成后，把报告里被引用过的结论整理成候选；须在「记忆」设置里逐条批准才写入。"
           value={settings.memoryEnabled}
           onChange={(v) => patch({ memoryEnabled: v })}
-          disabled
-          badge={COMING_SOON_BADGE}
+          disabled={!settings.enabled}
         />
       </SettingCard>
 
@@ -267,8 +339,11 @@ export function ResearchSettingsSection(): ReactElement {
       </SettingCard>
 
       <SettingCard title="Search Server">
+        {/* 这句必须如实说「留空则回落到直连搜索」：此处原本写的是「留空时使用内置检索能力」，
+            而实际上并不存在任何内置检索——未配置时 createSearchClient() 返回 null，研究直接
+            抛「搜索服务未配置」。假文案会把用户的排查方向引到完全错误的地方。 */}
         <div className="pw-srow-desc">
-          自建检索服务的连接配置。留空时研究引擎使用内置检索能力。
+          自建检索服务的连接配置。查询经服务端转发，有限流与审计。留空则回落到下方的直连搜索。
         </div>
         <label className="pw-set-field">
           <span className="pw-set-lbl">服务地址</span>
@@ -323,11 +398,84 @@ export function ResearchSettingsSection(): ReactElement {
             >
               保存令牌
             </button>
+            {/* 两个卡片里各有一个「连接测试」按钮，可见文案相同。aria-label 必须区分开，
+                否则读屏按按钮列表浏览时会看到两个完全一样的项，无从判断点哪个。 */}
             <button
               type="button"
               className="pw-btn-sm"
+              aria-label="测试 Search Server 连接"
               disabled={!canTestServer || !serverReady}
               onClick={testServer}
+            >
+              连接测试
+            </button>
+          </div>
+        </div>
+      </SettingCard>
+
+      <SettingCard title="直连搜索（未部署 Search Server 时使用）">
+        {/* 出站提示必须显眼且如实：这条路径与自建服务端的隐私边界不同，用户有权在配置前就知道。 */}
+        <div className="pw-res-notice is-remote">
+          <div className="pw-res-notice-title">查询词会从本机直接发送给所选服务商</div>
+          <div className="pw-res-notice-summary">
+            不经 Search Server 转发，因此没有服务端的限流与审计。网页正文仍在本机抓取与处理，
+            不会上传。已配置 Search Server 时优先走它，这里的配置不生效。
+          </div>
+        </div>
+        <label className="pw-set-field">
+          <span className="pw-set-lbl">搜索服务商</span>
+          <select
+            className="pw-set-input"
+            value={directProvider}
+            aria-label="搜索服务商"
+            onChange={(e) => selectDirectProvider(e.target.value as DirectSearchProviderId)}
+          >
+            {DIRECT_SEARCH_PROVIDER_IDS.map((id) => (
+              <option key={id} value={id}>
+                {DIRECT_SEARCH_PROVIDERS[id].label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="pw-srow-desc">{DIRECT_SEARCH_PROVIDERS[directProvider].hint}</div>
+        {/* API key：与 PAT 同样只单向流向 main，输入框永远从空开始。 */}
+        <label className="pw-set-field">
+          <span className="pw-set-lbl">API 密钥</span>
+          <input
+            className="pw-set-input"
+            type="password"
+            value={apiKey}
+            placeholder={hasApiKey ? "如需更换请输入新密钥" : "粘贴 API 密钥"}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+        </label>
+        <SRow label="密钥状态" desc="密钥加密保存在本机，界面不会回显。" end>
+          <span className="pw-srow-desc">{hasApiKey ? "已配置" : "未配置"}</span>
+        </SRow>
+        <div className="pw-srow">
+          <div className="pw-srow-l">
+            {!canSaveDirect || !canTestDirect ? (
+              <span className="pw-srow-desc">当前版本尚不支持在此保存密钥或测试连接。</span>
+            ) : null}
+            {directProbeText ? <span className="pw-srow-desc">{directProbeText}</span> : null}
+          </div>
+          <div className="pw-srow-c pw-srow-c-end">
+            <button
+              type="button"
+              className="pw-btn-sm"
+              disabled={!canSaveDirect || apiKey.length === 0}
+              onClick={saveApiKey}
+            >
+              保存密钥
+            </button>
+            <button
+              type="button"
+              className="pw-btn-sm"
+              aria-label="测试直连搜索连接"
+              disabled={!canTestDirect || !hasApiKey}
+              onClick={testDirect}
             >
               连接测试
             </button>

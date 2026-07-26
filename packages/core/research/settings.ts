@@ -3,7 +3,9 @@
 // 设置来自磁盘 JSON，可能由旧版本写入、被用户手改、或整体缺失，因此归一化函数对任意 unknown
 // 输入都必须给出可用结果且绝不抛错——设置读坏导致应用起不来，是比「设置丢了」严重得多的故障。
 //
-// 相关文件：模型选型见 ./model-selection；各 Consumer 的默认配置见 ./consumer。
+// 相关文件：模型选型见 ./model-selection；各 Consumer 的默认配置见 ./consumer；
+// 直连搜索逃生阀的供应商表与请求构造见 ./direct-search。
+import { isDirectSearchProviderId, type DirectSearchProviderId } from "./direct-search";
 
 /// 自建 Search Server 的连接配置（spec KTD6 self-hosted 模式）。
 export interface ResearchSearchServerSettings {
@@ -15,12 +17,30 @@ export interface ResearchSearchServerSettings {
   encryptedToken?: string;
 }
 
+/// 直连商业搜索的配置（Search Server 未部署时的逃生阀，见 ./direct-search 的文件头）。
+///
+/// **没有 baseUrl 字段**，这是刻意的：端点写死在 DIRECT_SEARCH_PROVIDERS 里。
+/// 可配置的 baseUrl 等于从设置页开一个「任意 URL 出站」后门，绕开 url-safety / dns-guard。
+export interface ResearchDirectSearchSettings {
+  provider: DirectSearchProviderId;
+  /// **Electron safeStorage 加密后的密文**，与 Search Server 的 PAT 同一条通道，
+  /// renderer 提交明文后立即由 main 加密落盘，回读始终是密文（或「已配置」布尔）。
+  encryptedApiKey?: string;
+}
+
 /// CRE 的全部用户可配置项。各 *Enabled 是按 Consumer 的灰度开关，允许「只开 Deep Research」。
 export interface ResearchEngineSettings {
   /// 总开关。缺省 false —— 新能力，必须用户显式开启。
   enabled: boolean;
   deepResearchEnabled: boolean;
+  /// 会话内检索：给聊天里的 agent 注入 web_search / web_read 工具，由模型自行决定何时用。
   chatEnabled: boolean;
+  /// 「总是先检索再回答」：每轮发送前先跑一次 gather，把证据注入 system prompt。
+  ///
+  /// 与 chatEnabled 是两种触发方式而非层级关系，但**依赖它**：关掉会话内检索时，
+  /// 这一项即便为 true 也不生效（判定在消费方，不在此处表达）。
+  /// 默认关闭——它给每一轮对话都加上几秒延迟，不该是所有人的默认体验。
+  chatAutoRetrieve: boolean;
   slidesEnabled: boolean;
   writingEnabled: boolean;
   /// 是否允许生成 MemoryCandidate（仍需逐条批准才写入，见 ./knowledge）。
@@ -38,6 +58,9 @@ export interface ResearchEngineSettings {
   modelProviderId?: string;
   modelId?: string;
   searchServer?: ResearchSearchServerSettings;
+  /// 直连商业搜索。**仅在 searchServer 未配置时生效**（自建服务端优先），
+  /// 优先级由 main 的 createSearchClient 实现，不在此处表达。
+  directSearch?: ResearchDirectSearchSettings;
 }
 
 /// 出厂默认：所有开关关闭；模型偏好留空 = 跟随全局默认模型。
@@ -45,6 +68,7 @@ export const DEFAULT_RESEARCH_ENGINE_SETTINGS: ResearchEngineSettings = {
   enabled: false,
   deepResearchEnabled: false,
   chatEnabled: false,
+  chatAutoRetrieve: false,
   slidesEnabled: false,
   writingEnabled: false,
   memoryEnabled: false,
@@ -87,6 +111,24 @@ function normalizeSearchServer(raw: unknown): ResearchSearchServerSettings | und
   return normalized;
 }
 
+/// 归一化 directSearch 段。provider 非法枚举时**整段丢弃**：留一个不认识的 id，
+/// runtime 拿它查 DIRECT_SEARCH_PROVIDERS 会得到 undefined，然后在构造请求时炸在很远的地方，
+/// 而用户在设置页上看到的却是「已配置」。
+///
+/// 只选了供应商还没填 key 是正常中间态，必须保留（否则用户选完下拉、还没粘贴 key 就被清空）。
+function normalizeDirectSearch(raw: unknown): ResearchDirectSearchSettings | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  const source = raw as Record<string, unknown>;
+  if (!isDirectSearchProviderId(source.provider)) return undefined;
+
+  const normalized: ResearchDirectSearchSettings = { provider: source.provider };
+  const encryptedApiKey = source.encryptedApiKey;
+  if (typeof encryptedApiKey === "string" && encryptedApiKey.length > 0) {
+    normalized.encryptedApiKey = encryptedApiKey;
+  }
+  return normalized;
+}
+
 /// 把任意 unknown（磁盘 JSON / IPC 入参）归一为完整的 ResearchEngineSettings。
 /// 语义：未知字段丢弃、缺失字段取默认、类型或枚举非法一律回落默认，永不抛错。
 export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSettings {
@@ -105,6 +147,11 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
       DEFAULT_RESEARCH_ENGINE_SETTINGS.deepResearchEnabled,
     ),
     chatEnabled: readBoolean(source, "chatEnabled", DEFAULT_RESEARCH_ENGINE_SETTINGS.chatEnabled),
+    chatAutoRetrieve: readBoolean(
+      source,
+      "chatAutoRetrieve",
+      DEFAULT_RESEARCH_ENGINE_SETTINGS.chatAutoRetrieve,
+    ),
     slidesEnabled: readBoolean(source, "slidesEnabled", DEFAULT_RESEARCH_ENGINE_SETTINGS.slidesEnabled),
     writingEnabled: readBoolean(
       source,
@@ -123,5 +170,7 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
 
   const searchServer = normalizeSearchServer(source.searchServer);
   if (searchServer) normalized.searchServer = searchServer;
+  const directSearch = normalizeDirectSearch(source.directSearch);
+  if (directSearch) normalized.directSearch = directSearch;
   return normalized;
 }

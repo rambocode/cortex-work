@@ -25,6 +25,7 @@ import {
   bentoDeckMetaPath,
   isValidDeckId,
   slidesDeckRootPath,
+  slidesSourcesManifestPath,
 } from "@cortex-work/core/design/slides/slides-paths";
 import { createLogger } from "../../log";
 
@@ -72,6 +73,8 @@ interface BentoDeckPaths {
   deckRootAbs: string;
   htmlAbs: string;
   metaAbs: string;
+  /// 研究来源清单（制作期溯源材料，不进 deck 交付物，见 core 的 slidesSourcesManifestPath）。
+  sourcesAbs: string;
 }
 
 function isInsideRoot(rootAbs: string, targetAbs: string): boolean {
@@ -114,6 +117,7 @@ async function resolveBentoDeckPaths(
       deckRootAbs,
       htmlAbs: resolve(realWorkspaceRoot, bentoDeckHtmlPath(deckId)),
       metaAbs: resolve(realWorkspaceRoot, bentoDeckMetaPath(deckId)),
+      sourcesAbs: resolve(realWorkspaceRoot, slidesSourcesManifestPath(deckId)),
     },
   };
 }
@@ -412,4 +416,99 @@ export async function updateBentoDeckMeta(options: {
     }
     return { ok: true, value: { stage: next.stage } };
   });
+}
+
+// ── 研究来源清单（演示文稿检索，spec §15.3）───────────────────────────────────
+//
+// 单独一个 JSON 文件而不是塞进 deck.meta.json：meta 是 revision 乐观锁的载体，
+// 每次写页面都会读改写它；来源清单是低频追加的溯源材料，混在一起会让两种写入互相等锁，
+// 也会让一次来源追加意外碰到页面写入的版本冲突。
+
+/// 一条被引用的来源。chunkId 留空是允许的——窄面检索不落库，引用锚在 URL 上
+/// （见 core/research/quick-types 的文件头）。
+export interface SlidesSourceEntry {
+  url: string;
+  title: string;
+  /// 这条来源支撑的是哪一页 / 哪个论点（agent 自己填，用于演讲者核对）。
+  usedFor?: string;
+  /// 深度研究产物才有的证据片段 id；窄面检索留空。
+  chunkId?: string;
+  addedAt: string;
+}
+
+export interface SlidesSourcesManifest {
+  version: 1;
+  sources: SlidesSourceEntry[];
+}
+
+/// 空清单**必须每次新造**，不能共享一个常量再浅拷贝。
+///
+/// 真实踩过：写成 `const EMPTY = { version: 1, sources: [] }` + `{ ...EMPTY }`，
+/// 展开是浅拷贝，`sources` 仍指向同一个数组——调用方一 push，模块级那个数组就被污染，
+/// 于是「另一个 deck 的空清单」凭空带上了别处的来源。测试里表现为跨 deck 串数据。
+function emptySources(): SlidesSourcesManifest {
+  return { version: 1, sources: [] };
+}
+
+/// 读来源清单。文件不存在 / 解析失败一律回空清单——
+/// 这是纯追加的溯源材料，读坏了不该让整个 deck 写入流程失败。
+async function readSources(sourcesAbs: string): Promise<SlidesSourcesManifest> {
+  try {
+    const raw = JSON.parse(await fsp.readFile(sourcesAbs, "utf8")) as unknown;
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return emptySources();
+    const sources = (raw as { sources?: unknown }).sources;
+    return { version: 1, sources: Array.isArray(sources) ? (sources as SlidesSourceEntry[]) : [] };
+  } catch {
+    return emptySources();
+  }
+}
+
+/// 单个 deck 最多保留的来源条数。上限存在的理由：agent 可能在长回合里反复 add_source，
+/// 没有上限的话这个文件会无限增长；超出时丢最早的（新来源通常更贴近当前正在做的页面）。
+export const MAX_SLIDES_SOURCES = 200;
+
+/// 追加一条来源。**按 URL 去重**：同一篇资料支撑多页是常态，
+/// 重复条目只会让演讲者核对时反复看到同一个链接。已存在时更新 usedFor 而不是新增。
+export async function appendSlidesSource(options: {
+  workspaceRoot: string;
+  deckId: string;
+  entry: SlidesSourceEntry;
+}): Promise<BentoWorkspaceResult<{ total: number }>> {
+  const resolved = await resolveBentoDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const paths = resolved.value;
+  return enqueueDeck(paths.deckRootAbs, async () => {
+    try {
+      await fsp.access(paths.htmlAbs);
+    } catch {
+      return fail<{ total: number }>("not_found", `deck 不存在: ${options.deckId}`);
+    }
+    const manifest = await readSources(paths.sourcesAbs);
+    const existing = manifest.sources.findIndex((s) => s.url === options.entry.url);
+    if (existing >= 0) {
+      manifest.sources[existing] = { ...manifest.sources[existing], ...options.entry };
+    } else {
+      manifest.sources.push(options.entry);
+      if (manifest.sources.length > MAX_SLIDES_SOURCES) {
+        manifest.sources = manifest.sources.slice(-MAX_SLIDES_SOURCES);
+      }
+    }
+    try {
+      await atomicWriteFile(paths.sourcesAbs, JSON.stringify(manifest, null, 2));
+    } catch (err) {
+      log.error(`[bento] appendSlidesSource 落盘失败: ${String(err)}`);
+      return fail<{ total: number }>("io_error", `写入失败: ${String(err)}`);
+    }
+    return { ok: true, value: { total: manifest.sources.length } };
+  });
+}
+
+/// 读全部来源（导出「附来源页」与 UI 展示用）。
+export async function readSlidesSources(options: {
+  workspaceRoot: string;
+  deckId: string;
+}): Promise<BentoWorkspaceResult<SlidesSourcesManifest>> {
+  const resolved = await resolveBentoDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  return { ok: true, value: await readSources(resolved.value.sourcesAbs) };
 }
