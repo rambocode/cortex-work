@@ -36,7 +36,6 @@ function settings(overrides: Partial<ResearchEngineSettings> = {}): ResearchEngi
     enabled: true,
     deepResearchEnabled: false,
     chatAutoRetrieve: false,
-    slidesEnabled: false,
     writingEnabled: false,
     memoryEnabled: false,
     searchBackend: "server",
@@ -91,12 +90,22 @@ describe("buildResearchMcpServerConfig 开关门控", () => {
     expect(buildResearchMcpServerConfig(settings(), "s1", "chat")).toBeNull();
   });
 
-  it("slides consumer 看 slidesEnabled，不受会话级联网开关影响", () => {
-    const noSlides = settings({ slidesEnabled: false });
-    expect(buildResearchMcpServerConfig(noSlides, "s1", "slides", true)).toBeNull();
+  it("slides consumer 只看会话级联网开关", () => {
+    expect(buildResearchMcpServerConfig(settings(), "s1", "slides", false)).toBeNull();
+    expect(buildResearchMcpServerConfig(settings(), "s1", "slides", true)).not.toBeNull();
+  });
 
-    const onlySlides = settings({ slidesEnabled: true });
-    expect(buildResearchMcpServerConfig(onlySlides, "s1", "slides", false)).not.toBeNull();
+  it("slides consumer 不越过研究总开关", () => {
+    expect(
+      buildResearchMcpServerConfig(settings({ enabled: false }), "s1", "slides", true),
+    ).toBeNull();
+  });
+
+  it("旧配置残留 slidesEnabled=true 不能替代会话级联网开关", () => {
+    const legacy = { ...settings(), slidesEnabled: true };
+    expect(
+      buildResearchMcpServerConfig(legacy, "s1", "slides", false),
+    ).toBeNull();
   });
 
   it("writing consumer 看 writingEnabled", () => {

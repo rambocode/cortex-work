@@ -301,7 +301,6 @@ describe("PersonalSidebar 深度研究入口", () => {
           enabled,
           deepResearchEnabled: true,
           chatAutoRetrieve: false,
-          slidesEnabled: false,
           writingEnabled: false,
           memoryEnabled: false,
           searchBackend: "direct",

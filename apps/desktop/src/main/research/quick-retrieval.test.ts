@@ -18,7 +18,6 @@ const ENABLED: ResearchEngineSettings = {
   enabled: true,
   deepResearchEnabled: true,
   chatAutoRetrieve: false,
-  slidesEnabled: false,
   writingEnabled: false,
   memoryEnabled: false,
   searchBackend: "direct",

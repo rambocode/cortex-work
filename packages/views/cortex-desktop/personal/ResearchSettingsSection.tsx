@@ -263,15 +263,7 @@ export function ResearchSettingsSection(): ReactElement {
           onChange={(v) => patch({ chatAutoRetrieve: v })}
           disabled={!settings.enabled}
         />
-        {/* 以下三项的适配器尚未落地（M1 只接了 chat 与 deep_research），一律禁用 + 标注，
-            不给「点了没反应」的开关。适配器落地时把 disabled 去掉即可，无需改数据结构。 */}
-        <FlagRow
-          label="演示文稿检索"
-          desc="演示文稿 agent 可自行联网查资料，并把引用的来源登记在 deck 旁供演讲者核对。"
-          value={settings.slidesEnabled}
-          onChange={(v) => patch({ slidesEnabled: v })}
-          disabled={!settings.enabled}
-        />
+        {/* 演示文稿联网与聊天一致，由会话栏 pill 按轮决定，不在全局设置里放第二个真源。 */}
         <FlagRow
           label="写作检索"
           desc="写作助手发消息前联网查一次资料，与工作区本地检索并行，结果附来源链接。"

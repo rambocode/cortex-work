@@ -14,6 +14,10 @@ import {
   formatSlidesSelectionForPrompt,
   type SlidesSelectionSnapshot
 } from './slides-selection'
+import {
+  formatSlidesTextFilesForPrompt,
+  type SlidesTextFile
+} from './slides-text-files'
 
 /** deck 阶段 → 该回合该做什么(与 deck.meta.json 的 stage 对齐)。 */
 export type SlidesTurnStage = 'draft' | 'outline-proposed' | 'outline-approved' | 'ready'
@@ -25,6 +29,8 @@ export type BuildSlidesTurnPromptOptions = {
   stage?: SlidesTurnStage
   /** 用户在 bento 编辑器里选中的元素;空/缺省时整段不拼。 */
   selection?: SlidesSelectionSnapshot | null
+  /** 用户本轮提供的纯文本参考文件。 */
+  files?: SlidesTextFile[]
 }
 
 // BentoDoc schema 摘要 + 素材→特性映射 + 转义红线。权威定义在 vendor/bento/src/model.ts;
@@ -128,6 +134,8 @@ export function buildSlidesTurnPrompt(options: BuildSlidesTurnPromptOptions): st
   // 不变,prompt 缓存照常命中;空选区时整段不拼,输出与无选区完全一致。
   const selection = formatSlidesSelectionForPrompt(options.selection)
   if (selection) parts.push(selection)
+  const files = formatSlidesTextFilesForPrompt(options.files ?? [])
+  if (files) parts.push(files)
   // 用户原话原样透传(不翻译),仍固定在末尾以命中 prompt 缓存。
   parts.push(`User request:\n${options.text.trim()}`)
   return parts.join('\n\n')

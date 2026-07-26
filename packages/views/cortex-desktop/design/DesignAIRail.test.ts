@@ -183,3 +183,57 @@ describe('DesignAIRail target toggle', () => {
     )
   })
 })
+
+describe('DesignAIRail slides 联网 pill', () => {
+  it('反映联网开关的两种状态', () => {
+    const off = renderToStaticMarkup(createElement(DesignAIRail, props({
+      slidesMode: true,
+      slidesWebSearch: false,
+      onToggleSlidesWebSearch: () => {}
+    })))
+    const on = renderToStaticMarkup(createElement(DesignAIRail, props({
+      slidesMode: true,
+      slidesWebSearch: true,
+      onToggleSlidesWebSearch: () => {}
+    })))
+    expect(off).toMatch(/data-testid="slides-web-search-pill"[^>]*aria-pressed="false"/)
+    expect(on).toMatch(/data-testid="slides-web-search-pill"[^>]*aria-pressed="true"/)
+  })
+
+  it('搜索后端未配置时禁用并解释原因', () => {
+    const html = renderToStaticMarkup(createElement(DesignAIRail, props({
+      slidesMode: true,
+      slidesWebSearchUnavailable: true,
+      onToggleSlidesWebSearch: () => {}
+    })))
+    expect(html).toMatch(/data-testid="slides-web-search-pill"[^>]*disabled=""/)
+    expect(html).toContain('请先在研究引擎设置中配置搜索后端')
+  })
+
+  it('运行中禁用', () => {
+    const html = renderToStaticMarkup(createElement(DesignAIRail, props({
+      slidesMode: true,
+      busy: true,
+      activeThreadId: 'design-deck-1',
+      designThreads: [{
+        id: 'design-deck-1',
+        title: 'Deck',
+        model: 'deepseek-chat',
+        mode: 'agent',
+        updatedAt: '2026-07-26T00:00:00.000Z'
+      }],
+      onToggleSlidesWebSearch: () => {}
+    })))
+    expect(html).toMatch(/data-testid="slides-web-search-pill"[^>]*disabled=""/)
+  })
+
+  it('未接 toggle 或非 slides 模式时不渲染', () => {
+    expect(renderToStaticMarkup(createElement(DesignAIRail, props({ slidesMode: true })))).not.toContain(
+      'slides-web-search-pill'
+    )
+    expect(renderToStaticMarkup(createElement(DesignAIRail, props({
+      slidesMode: false,
+      onToggleSlidesWebSearch: () => {}
+    })))).not.toContain('slides-web-search-pill')
+  })
+})

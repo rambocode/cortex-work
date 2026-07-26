@@ -29,7 +29,6 @@ function setResearch(patch: Partial<ResearchEngineSettings>): void {
         enabled: true,
         deepResearchEnabled: true,
         chatAutoRetrieve: false,
-        slidesEnabled: false,
         writingEnabled: false,
         memoryEnabled: false,
         searchBackend: "direct",
@@ -82,6 +81,12 @@ describe("ResearchSettingsSection 功能开关", () => {
     expect(screen.queryByRole("switch", { name: "会话内检索" })).toBeNull();
   });
 
+  it("不再有全局的「演示文稿检索」开关", () => {
+    setResearch({ enabled: true });
+    renderSection();
+    expect(screen.queryByRole("switch", { name: "演示文稿检索" })).toBeNull();
+  });
+
   it("「总是先检索再回答」只受总开关约束：引擎开着即可点并落库", () => {
     setResearch({ enabled: true });
     renderSection();
@@ -109,7 +114,6 @@ describe("ResearchSettingsSection 功能开关", () => {
 
   it.each([
     ["写作检索", "writingEnabled"],
-    ["演示文稿检索", "slidesEnabled"],
     ["记忆沉淀", "memoryEnabled"],
   ] as const)("%s 已落地：可点击并落库", (name, key) => {
     setResearch({ enabled: true });
@@ -124,7 +128,7 @@ describe("ResearchSettingsSection 功能开关", () => {
   it("总开关关闭时全部 consumer 开关禁用", () => {
     setResearch({ enabled: false });
     renderSection();
-    for (const name of ["深度研究", "总是先检索再回答", "写作检索", "演示文稿检索", "记忆沉淀"]) {
+    for (const name of ["深度研究", "总是先检索再回答", "写作检索", "记忆沉淀"]) {
       expect(screen.getByRole("switch", { name }).hasAttribute("disabled")).toBe(true);
     }
   });

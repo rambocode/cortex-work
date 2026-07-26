@@ -3,6 +3,7 @@
 // 并在挂载时装配 design 运行时(startCli 管线 + 文件系统端口 + designUi 存储)。
 // 设计回合的派发/流式/取消全部经 core 的 design-run-manager,不触碰个人会话管线。
 import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 import { useDesktopBridge } from "@cortex-work/core/provider";
 import { usePersonalStore, resolveDefaultAgent } from "@cortex-work/core/store/personal";
 import type { AgentKind } from "@cortex-work/core";
@@ -14,6 +15,24 @@ import {
 } from "@cortex-work/core/design/run/design-run-manager";
 import { buildSlidesTurnPrompt } from "@cortex-work/core/design/slides/slides-prompt";
 import { slidesSelectionKey } from "@cortex-work/core/design/slides/slides-selection";
+import {
+  MAX_TEXT_FILES_PER_TURN,
+  MAX_TEXT_FILE_CHARS,
+  MAX_TEXT_TOTAL_CHARS,
+  SLIDES_TEXT_EXTS,
+  checkTextFile,
+  looksBinary,
+  textFileRejectText,
+} from "@cortex-work/core/design/slides/slides-text-files";
+import {
+  readSlidesWebSearch,
+  slidesWebSearchKey,
+  slidesWebSearchValue,
+} from "@cortex-work/core/design/slides/slides-web-search";
+import {
+  hasSearchBackend,
+  normalizeResearchEngineSettings,
+} from "@cortex-work/core/research/settings";
 import { useBentoSlidesStore } from "./slides/bento-slides-store";
 import { implementDesignInProject } from "@cortex-work/core/design/run/design-implement";
 import { useChatStore } from "@cortex-work/core/design/compat/chat-store";
@@ -22,7 +41,10 @@ import { useCanvasSelectionStore } from "@cortex-work/core/design/canvas/canvas-
 import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspace-store";
 import { designDocumentKind, type DesignArtifact } from "@cortex-work/core/design/design-types";
 import { DesignAIRail } from "./DesignAIRail";
-import type { ComposerPendingImage } from "./compat/FloatingComposer";
+import type {
+  ComposerPendingImage,
+  ComposerPendingTextFile,
+} from "./compat/FloatingComposer";
 import { DesignSidebar } from "./DesignSidebar";
 import { DesignWorkspaceView } from "./DesignWorkspaceView";
 import { useDesignComposerContextState } from "./useDesignComposerContextState";
@@ -42,13 +64,16 @@ export function routeDesignComposerSend(options: {
   slidesMode: boolean;
   /** 只贴了图没打字也应发得出去(截图 + 后续追问是常见用法)。 */
   hasImages?: boolean;
+  /** 只附了文本文件没打字也应发得出去。 */
+  hasTextFiles?: boolean;
 }): { kind: "ignore" } | { kind: "design-prompt" } | { kind: "slides-turn"; text: string } {
   const text = options.input.trim();
-  if (!text && !options.hasImages) return { kind: "ignore" };
+  if (!text && !options.hasImages && !options.hasTextFiles) return { kind: "ignore" };
   return options.slidesMode ? { kind: "slides-turn", text } : { kind: "design-prompt" };
 }
 
 export function DesignWorkspace(): ReactElement {
+  const { t } = useTranslation("design");
   const bridge = useDesktopBridge();
   const closeDesign = usePersonalStore((s) => s.closeDesign);
   const openSettings = usePersonalStore((s) => s.openSettings);
@@ -63,6 +88,8 @@ export function DesignWorkspace(): ReactElement {
   const setDesignSettings = usePersonalStore((s) => s.setDesignSettings);
   const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
   const setDerivedAgents = usePersonalStore((s) => s.setDerivedAgents);
+  const designUi = usePersonalStore((s) => s.designUi);
+  const setDesignUiItem = usePersonalStore((s) => s.setDesignUiItem);
 
   const setDesignWorkspaceRoot = useDesignWorkspaceStore((s) => s.setWorkspaceRoot);
   const loadDesignSettings = useDesignWorkspaceStore((s) => s.loadDesignSettings);
@@ -130,6 +157,13 @@ export function DesignWorkspace(): ReactElement {
   // 右栏与中间区域共享同一会话管线,但 slides 设计稿的上下文语义不同(见 DesignAIRail.slidesMode)。
   const activeDoc = documents.find((d) => d.id === activeDocumentId) ?? null;
   const slidesMode = activeDoc ? designDocumentKind(activeDoc) === "slides" : false;
+  const researchSettings = normalizeResearchEngineSettings(generalSettings.researchEngine);
+  const researchAvailable = !!bridge?.research && researchSettings.enabled;
+  const webSearchUnavailable = !hasSearchBackend(researchSettings);
+  const slidesWebSearch =
+    slidesMode && activeDocumentId
+      ? readSlidesWebSearch(designUi, activeDocumentId)
+      : false;
   // deck 阶段决定本轮该做什么(提纲 gate / 全篇生成 / 局部修订);未加载时按 draft。
   const slidesStage = useBentoSlidesStore((s) => s.stage);
   // bento 编辑器内的当前选区(SlidesStage 轮询回传)。
@@ -145,6 +179,7 @@ export function DesignWorkspace(): ReactElement {
   // 待发图片(粘贴 / 选取 / 拖入)。读成 ArrayBuffer 后由 sendDesignMessage 落盘换绝对路径,
   // dataUrl 只用于 composer 的本地缩略图。发送成功即清空。
   const [composerImages, setComposerImages] = useState<ComposerPendingImage[]>([]);
+  const [composerTextFiles, setComposerTextFiles] = useState<ComposerPendingTextFile[]>([]);
   const addComposerImages = (files: File[]): void => {
     void Promise.all(
       files.map(async (file) => ({
@@ -164,12 +199,76 @@ export function DesignWorkspace(): ReactElement {
     });
   };
 
+  const addComposerTextFiles = (files: File[]): void => {
+    void (async () => {
+      const accepted: ComposerPendingTextFile[] = [];
+      for (const file of files) {
+        const rejected = checkTextFile(file);
+        if (rejected) {
+          setError(
+            rejected === "size"
+              ? t("slidesFileRejectSize", { name: file.name })
+              : t("slidesFileRejectType", { name: file.name }),
+          );
+          continue;
+        }
+        try {
+          const raw = await file.text();
+          if (looksBinary(raw)) {
+            setError(textFileRejectText("binary", file.name));
+            continue;
+          }
+          accepted.push({
+            id: `file-${file.name}-${file.size}-${file.lastModified}`,
+            name: file.name || "text.txt",
+            sizeBytes: file.size,
+            content: raw.slice(0, MAX_TEXT_FILE_CHARS),
+            truncated: raw.length > MAX_TEXT_FILE_CHARS,
+          });
+        } catch (err) {
+          setError(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (!accepted.length) return;
+      setComposerTextFiles((current) => {
+        const unique = accepted.filter((next) => !current.some((item) => item.id === next.id));
+        const slots = Math.max(0, MAX_TEXT_FILES_PER_TURN - current.length);
+        if (unique.length > slots) {
+          setError(
+            t("slidesFileRejectCount", {
+              count: MAX_TEXT_FILES_PER_TURN,
+              defaultValue: `每轮最多添加 ${MAX_TEXT_FILES_PER_TURN} 个文本文件`,
+            }),
+          );
+        }
+        let remaining =
+          MAX_TEXT_TOTAL_CHARS - current.reduce((sum, file) => sum + file.content.length, 0);
+        const appended = unique.slice(0, slots).map((file) => {
+          const content = file.content.slice(0, Math.max(0, remaining));
+          remaining -= content.length;
+          return {
+            ...file,
+            content,
+            truncated: file.truncated === true || content.length < file.content.length,
+          };
+        });
+        return [...current, ...appended];
+      });
+    })();
+  };
+
   const handleSend = (): void => {
-    const decision = routeDesignComposerSend({ input, slidesMode, hasImages: composerImages.length > 0 });
+    const decision = routeDesignComposerSend({
+      input,
+      slidesMode,
+      hasImages: composerImages.length > 0,
+      hasTextFiles: composerTextFiles.length > 0,
+    });
     if (decision.kind === "ignore") return;
     if (decision.kind === "design-prompt") {
       const boardImages = composerImages;
       setComposerImages([]);
+      setComposerTextFiles([]);
       // board 路径与 slides 路径共用同一个 composer,图片必须两条都接 ——
       // 只接一条会让另一条静默吞图。
       promptController.sendDesignPrompt(input, {
@@ -181,7 +280,9 @@ export function DesignWorkspace(): ReactElement {
     }
     setInput("");
     const images = composerImages;
+    const files = composerTextFiles;
     setComposerImages([]);
+    setComposerTextFiles([]);
     // 选区经 SlidesStage 的轮询桥从 bento 编辑器回传,在这里并入本轮 prompt,
     // 让「把它换成折线图」这类指代能直接落到用户选中的元素上。
     // displayText 只放用户原话 —— 引用段不该出现在对话气泡里。
@@ -190,11 +291,24 @@ export function DesignWorkspace(): ReactElement {
         text: decision.text,
         stage: slidesStage,
         selection: activeSlidesSelection,
+        files,
       }),
       "agent",
       {
         displayText: decision.text,
         ...(images.length ? { images: images.map(({ name, mimeType, data }) => ({ name, mimeType, data })) } : {}),
+        ...(files.length
+          ? {
+              attachments: files.map((file) => ({
+                id: file.id,
+                kind: "document" as const,
+                name: file.name,
+                byteSize: file.sizeBytes,
+                truncated: file.truncated,
+              })),
+            }
+          : {}),
+        ...(slidesWebSearch ? { webSearch: true } : {}),
       },
     );
   };
@@ -206,6 +320,8 @@ export function DesignWorkspace(): ReactElement {
   // 设计稿会话时才清(初次挂载 activeThreadId 为空,不误清)。
   useEffect(() => {
     if (!activeDocumentId) return;
+    setComposerImages([]);
+    setComposerTextFiles([]);
     const wantThread = `design-${activeDocumentId}`;
     const cur = useChatStore.getState().activeThreadId;
     if (cur && cur !== wantThread) useChatStore.getState().resetMirror();
@@ -341,6 +457,28 @@ export function DesignWorkspace(): ReactElement {
           composerImages={composerImages}
           onAddComposerImages={addComposerImages}
           onRemoveComposerImage={(id) => setComposerImages((cur) => cur.filter((c) => c.id !== id))}
+          {...(slidesMode
+            ? {
+                composerTextFiles,
+                composerTextFileAccept: SLIDES_TEXT_EXTS.map((ext) => `.${ext}`).join(","),
+                onAddComposerTextFiles: addComposerTextFiles,
+                onRemoveComposerTextFile: (id: string) =>
+                  setComposerTextFiles((current) => current.filter((file) => file.id !== id)),
+              }
+            : {})}
+          {...(slidesMode && researchAvailable
+            ? {
+                slidesWebSearch,
+                slidesWebSearchUnavailable: webSearchUnavailable,
+                onToggleSlidesWebSearch: () => {
+                  if (!activeDocumentId) return;
+                  setDesignUiItem(
+                    slidesWebSearchKey(activeDocumentId),
+                    slidesWebSearchValue(!slidesWebSearch),
+                  );
+                },
+              }
+            : {})}
           designAgent={displayAgent}
           designDerivedAgentId={designSettings.derivedAgentId || undefined}
           agentsAvailable={agentsAvailable}

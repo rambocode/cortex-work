@@ -111,6 +111,58 @@ describe("MessageTimeline 工具状态", () => {
     expect(seen).toEqual(["改成折线图"]);
   });
 
+  it("用户附件渲染文件名与截断标记", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        blocks: [
+          {
+            kind: "user",
+            id: "u-files",
+            text: "<contract>",
+            meta: {
+              displayText: "按资料制作",
+              attachments: [
+                { id: "f1", kind: "document", name: "brief.md", truncated: false },
+                { id: "f2", kind: "document", name: "data.csv", truncated: true },
+              ],
+            },
+          } as ChatBlock,
+        ],
+      }),
+    );
+    expect(html).toContain('data-testid="user-attachments"');
+    expect(html).toContain("brief.md");
+    expect(html).toContain("data.csv（已截断）");
+  });
+
+  it("无附件时不渲染附件容器", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessageTimeline, { blocks: [userBlock("hi")] }),
+    );
+    expect(html).not.toContain("user-attachments");
+  });
+
+  it("编辑回填仍只有 displayText，不包含附件名", async () => {
+    const seen: string[] = [];
+    const block = {
+      kind: "user",
+      id: "u-edit-files",
+      text: "<contract>",
+      meta: {
+        displayText: "按资料制作",
+        attachments: [{ id: "f1", kind: "document", name: "brief.md" }],
+      },
+    } as ChatBlock;
+    const { getByRole } = render(
+      createElement(MessageTimeline, {
+        blocks: [block],
+        onEditUserMessage: (text: string) => seen.push(text),
+      }),
+    );
+    await userEvent.click(getByRole("button", { name: "编辑并重新发送" }));
+    expect(seen).toEqual(["按资料制作"]);
+  });
+
   it("未接线时不渲染编辑按钮(不打扰只读场景)", () => {
     const html = renderToStaticMarkup(
       createElement(MessageTimeline, { blocks: [userBlock("hi")] }),

@@ -26,6 +26,11 @@ const m = vi.hoisted(() => ({
   }) as unknown),
   migrateLegacyAgentBrowserMcp: vi.fn((settings: unknown) => settings),
   agentSessionExists: vi.fn(() => true),
+  buildResearchMcpServerConfig: vi.fn(
+    (_settings: unknown, _sessionId?: unknown, _consumer?: unknown, _optIn?: unknown) =>
+      null as unknown,
+  ),
+  writeMcpBridgeExtension: vi.fn((_servers: unknown[], fileName: string) => `/tmp/${fileName}`),
 }));
 
 // mock ../log:避免加载真 electron-log,并断言 scoped logger 承接了原 console 调用。
@@ -59,6 +64,22 @@ vi.mock("../capabilities/agent-browser/inject", () => ({
   buildAgentBrowserMcpServerConfig: m.buildAgentBrowserMcpServerConfig,
   migrateLegacyAgentBrowserMcp: m.migrateLegacyAgentBrowserMcp,
 }));
+vi.mock("../capabilities/research/inject", () => ({
+  buildResearchMcpServerConfig: (
+    settings: unknown,
+    sessionId?: unknown,
+    consumer?: unknown,
+    optIn?: unknown,
+  ) => m.buildResearchMcpServerConfig(settings, sessionId, consumer, optIn),
+}));
+vi.mock("../agents/pi-mcp-bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../agents/pi-mcp-bridge")>();
+  return {
+    ...actual,
+    writeMcpBridgeExtension: (servers: unknown[], fileName: string) =>
+      m.writeMcpBridgeExtension(servers, fileName),
+  };
+});
 
 // U2 claude 桥接接线单测:mock 掉 buildClaudeSkillBridge 本体(其自身行为已由 claude-bridge.test.ts
 // 覆盖),这里只验证 cli.ts 的守卫条件/降级路径是否正确调用它、正确写回 req.skillsBridgeDir。
@@ -150,6 +171,10 @@ beforeEach(() => {
   });
   m.migrateLegacyAgentBrowserMcp.mockReset().mockImplementation((settings) => settings);
   m.agentSessionExists.mockReset().mockReturnValue(true);
+  m.buildResearchMcpServerConfig.mockReset().mockReturnValue(null);
+  m.writeMcpBridgeExtension
+    .mockReset()
+    .mockImplementation((_servers: unknown[], fileName: string) => `/tmp/${fileName}`);
   buildClaudeSkillBridgeMock.mockReset().mockReturnValue(undefined);
   designDelegateState.current = null;
   killAllDelegates();
@@ -485,6 +510,77 @@ describe("cli:start claude 原生 skill 桥接接线(U2)", () => {
 });
 
 describe("cli:start trace", () => {
+  it("pi slides 联网轮次把 research 合进同一个 MCP bridge", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-slides-research-"));
+    spawnMock.mockReturnValueOnce(fakeChild());
+    const researchSettings = { enabled: true };
+    m.getPersistedState.mockResolvedValue({ generalSettings: { researchEngine: researchSettings } });
+    m.buildResearchMcpServerConfig.mockReturnValue({
+      id: "cortex-research",
+      label: "研究引擎（内置）",
+      transport: "http",
+      url: "http://127.0.0.1:51234/mcp",
+    });
+    registerCliHandlers();
+
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send: vi.fn() } },
+        {
+          runId: "slides:deck-1:run-1",
+          sessionId: "session-slides",
+          agent: "pi",
+          cwd,
+          prompt: "联网查资料",
+          webSearch: true,
+        },
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+
+    expect(m.buildResearchMcpServerConfig).toHaveBeenCalledWith(
+      researchSettings,
+      "session-slides",
+      "slides",
+      true,
+    );
+    expect(m.writeMcpBridgeExtension).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: "cortex-research" })]),
+      "design-bridge-session-slides.js",
+    );
+  });
+
+  it("pi slides 缺省联网状态按 false 传给 research gate", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-slides-off-"));
+    spawnMock.mockReturnValueOnce(fakeChild());
+    const researchSettings = { enabled: true };
+    m.getPersistedState.mockResolvedValue({ generalSettings: { researchEngine: researchSettings } });
+    registerCliHandlers();
+
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send: vi.fn() } },
+        {
+          runId: "slides:deck-2:run-1",
+          sessionId: "session-slides-off",
+          agent: "pi",
+          cwd,
+          prompt: "不联网",
+        },
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+
+    expect(m.buildResearchMcpServerConfig).toHaveBeenCalledWith(
+      researchSettings,
+      "session-slides-off",
+      "slides",
+      false,
+    );
+  });
+
   it("pi 委派轮次按需启动 delegate host 并注入 ask 工具桥接扩展", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-delegate-"));
     const child = fakeChild();

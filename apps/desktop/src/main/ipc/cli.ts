@@ -696,7 +696,7 @@ export function registerCliHandlers(): void {
           //
           // chat 的准入是**会话级**的:req.webSearch 即用户在该会话输入框上按下的「联网」
           // (SessionMeta.webSearch),全局已无 chatEnabled。claude/codex 逐轮 fresh spawn,
-          // 故改开关下一轮即生效。slides 回合不看它 —— 那条路仍归全局 slidesEnabled。
+          // 故改开关下一轮即生效。slides 与 chat 同款，均看 req.webSearch。
           buildResearchMcpServerConfig(
             gs?.researchEngine,
             req.sessionId,
@@ -872,18 +872,33 @@ export function registerCliHandlers(): void {
       }
     }
 
-    // ── pi 的 MCP 桥接:design-delegate 与 cortex-slides **必须合成一个扩展文件** ──
+    // ── pi 的 MCP 桥接:design-delegate、cortex-slides 与 research **必须合成一个扩展文件** ──
     // pi 不进 builtinServers 注入块(mcpInjection==="none"),经 -e 扩展桥接注入;而 pi 的工具
     // 去重只在单个扩展内生效 —— 两个扩展各自注册 ping 会直接报
     //   Failed to load extension "…": Tool "ping" conflicts with "…"
     // 使后加载的那个(slides)整体挂不上、工具全丢(实测)。writeMcpBridgeExtension 本就收数组,
     // 故把本轮所有 server 合并进一个 bridge 文件,由其内部 registered 去重。
     if (baseAgentKindOf(req.agent) === "pi") {
+      // pi 的 adapter.mcpInjection==="none"，不会经过上面的 builtinServers 块。这里按轮重新读取
+      // 设置并复用同一套 research gate；slides 走 cli:start 单发，每轮都会得到 fresh 工具集。
+      let researchCfg: McpServerConfig | null = null;
+      try {
+        const persistedState = await getPersistedState();
+        researchCfg = buildResearchMcpServerConfig(
+          persistedState.generalSettings?.researchEngine,
+          req.sessionId,
+          isSlidesRunId(req.runId) ? "slides" : "chat",
+          req.webSearch === true,
+        );
+      } catch {
+        /* 配置不可读 → research 不注入，不阻断 pi 启动 */
+      }
       const piBridgeCfgs = [
         req.runId.startsWith("design:") || isSlidesRunId(req.runId)
           ? await ensureDesignDelegateMcpServerConfig(req.sessionId)
           : null,
         slidesSessionActive ? await ensureSlidesMcpServerConfig(req.sessionId) : null,
+        researchCfg,
       ].filter((c): c is McpServerConfig => c !== null);
       const bridges = piBridgeCfgs.map(mcpServerToBridge).filter((b): b is NonNullable<typeof b> => b !== null);
       if (bridges.length) {

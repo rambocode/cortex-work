@@ -2,8 +2,8 @@
 //
 // **三门控**，缺任一条都返回 null：
 //   1. 研究引擎总开关要开；
-//   2. 本 Consumer 的准入要过 —— chat 看会话级 sessionOptIn（用户在该会话输入框上按下的
-//      「联网」），其余 Consumer 看各自的全局灰度开关；
+//   2. 本 Consumer 的准入要过 —— chat / slides 看会话级 sessionOptIn（用户在该会话输入框
+//      上按下的「联网」），其余 Consumer 看各自的全局灰度开关；
 //   3. 搜索后端要真的配好了（自建 Search Server 或直连搜索二选一）。
 //
 // 第 3 条不能省。没有它，一个没配搜索后端的用户会拿到一个完整的 web_search 工具，
@@ -29,18 +29,18 @@ const log = createLogger("research-inject");
 /// 该 Consumer 的研究能力是否已开启。
 ///
 /// 与 consumer-gate 的 assertResearchEnabled 判定一致，只是这里要的是布尔而不是抛错——
-/// 注入阶段不该用异常做控制流。非 chat 的 Consumer 共用同一张 CONSUMER_SWITCHES 表，不会漂移。
+/// 注入阶段不该用异常做控制流。非会话级的 Consumer 共用同一张 CONSUMER_SWITCHES 表，不会漂移。
 ///
-/// chat 单独一条分支：它已无全局灰度开关（见 consumer-gate 的注释），准入完全由调用方传入的
-/// 会话级选择决定。**这里不能回落到「表里没有该 key 就放行」的通用分支**——那会让 chat
-/// 变成只要总开关开着就注入，正是本次要消灭的行为。
+/// chat / slides 单独一条分支：它们已无全局灰度开关（见 consumer-gate 的注释），准入完全
+/// 由调用方传入的会话级选择决定。**这里不能回落到「表里没有该 key 就放行」的通用分支**——
+/// 那会让会话只要总开关开着就注入，正是本次要消灭的行为。
 function isConsumerEnabled(
   settings: ResearchEngineSettings,
   consumer: ResearchConsumer,
   sessionOptIn: boolean,
 ): boolean {
   if (!settings.enabled) return false;
-  if (consumer === "chat") return sessionOptIn;
+  if (consumer === "chat" || consumer === "slides") return sessionOptIn;
   const key = CONSUMER_SWITCHES[consumer];
   return key ? settings[key] === true : true;
 }
@@ -50,7 +50,7 @@ function isConsumerEnabled(
 /// @param settings 当前研究引擎设置快照
 /// @param sessionId 当前 agent session id（经 X-Cortex-Session 头传给 server）
 /// @param consumer  本会话属于哪个 Consumer；决定受哪个开关约束与默认预算
-/// @param sessionOptIn 仅 chat 生效：用户在该会话上是否开了「联网」（SessionMeta.webSearch）。
+/// @param sessionOptIn 仅 chat / slides 生效：用户在该会话栏是否开了「联网」。
 ///        **缺省 false**——出站能力的默认必须落在保守那一侧，漏传的调用点应退化为
 ///        「没有联网」而不是「悄悄联网」。
 export function buildResearchMcpServerConfig(

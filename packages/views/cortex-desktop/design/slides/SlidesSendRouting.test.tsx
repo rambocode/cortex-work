@@ -32,7 +32,22 @@ describe('routeDesignComposerSend', () => {
     })
   })
 
-  it('既无文字也无图片仍然不发', () => {
-    expect(routeDesignComposerSend({ input: '  ', slidesMode: true, hasImages: false })).toEqual({ kind: 'ignore' })
+  it('只有文本附件没有文字时照发', () => {
+    expect(routeDesignComposerSend({ input: '', slidesMode: true, hasTextFiles: true })).toEqual({
+      kind: 'slides-turn',
+      text: ''
+    })
+    expect(routeDesignComposerSend({ input: '', slidesMode: false, hasTextFiles: true })).toEqual({
+      kind: 'design-prompt'
+    })
+  })
+
+  it('文字、图片、文件三者都空时不发', () => {
+    expect(routeDesignComposerSend({
+      input: '  ',
+      slidesMode: true,
+      hasImages: false,
+      hasTextFiles: false
+    })).toEqual({ kind: 'ignore' })
   })
 })

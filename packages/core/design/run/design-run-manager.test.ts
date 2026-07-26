@@ -4,6 +4,7 @@ import type { PersonalState } from "../../store/personal";
 import type { DesktopBridge } from "../../desktop/bridge";
 import type { CliStreamEvent } from "../../desktop/types";
 import { useChatStore } from "../compat/chat-store";
+import { useDesignWorkspaceStore } from "../design-workspace-store";
 
 // 构造 resolveDesignRunAgent 所需的最小 personal 切片（只填被读到的字段）。
 function slice(input: {
@@ -59,6 +60,67 @@ describe("resolveDesignRunAgent", () => {
         slice({ agent: "claude", derivedAgentId: "ghost", agentsAvailable: { claude: true }, derivedAgents: [] }),
       ).derivedId,
     ).toBeUndefined();
+  });
+});
+
+describe("sendDesignMessage 回合元数据", () => {
+  let startCli: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    useChatStore.setState({ blocks: [], threads: [], activeThreadId: null, liveAssistant: "" });
+    useDesignWorkspaceStore.setState({
+      workspaceRoot: "/tmp/ws",
+      activeDocumentId: "deck-1",
+      documents: [
+        {
+          id: "deck-1",
+          title: "Deck",
+          createdAt: "",
+          updatedAt: "",
+          order: 0,
+          artifacts: [],
+          activeArtifactId: null,
+          kind: "slides",
+          slidesManifestPath: ".cortex-design/deck-1/deck.json",
+        },
+      ],
+    });
+    startCli = vi.fn(async () => undefined);
+    installDesignRuntime({
+      onCliEvent: () => () => undefined,
+      onCliExit: () => () => undefined,
+      startCli,
+      killCli: vi.fn(async () => undefined),
+      designWorkspaceRoot: async () => "/tmp/ws",
+    } as unknown as DesktopBridge);
+  });
+
+  it("webSearch=true 透传给 cli:start", async () => {
+    await sendDesignMessage("查资料", "agent", { webSearch: true });
+    expect(startCli).toHaveBeenCalledWith(expect.objectContaining({ webSearch: true }));
+  });
+
+  it("未开启 webSearch 时不发送该字段", async () => {
+    await sendDesignMessage("不用联网");
+    expect(startCli).toHaveBeenCalledWith(expect.not.objectContaining({ webSearch: expect.anything() }));
+  });
+
+  it("附件引用落进 user block meta", async () => {
+    const attachments = [
+      { id: "file-1", kind: "document" as const, name: "brief.md", byteSize: 12, truncated: false },
+    ];
+    await sendDesignMessage("按附件制作", "agent", { attachments });
+    const user = useChatStore.getState().blocks.find((block) => block.kind === "user");
+    expect(user?.meta?.attachments).toEqual(attachments);
+  });
+
+  it("仅附件回合保留空 displayText，避免把完整合同显示在用户气泡", async () => {
+    const attachments = [
+      { id: "file-1", kind: "document" as const, name: "brief.md", byteSize: 12 },
+    ];
+    await sendDesignMessage("<slides contract>", "agent", { displayText: "", attachments });
+    const user = useChatStore.getState().blocks.find((block) => block.kind === "user");
+    expect(user?.meta?.displayText).toBe("");
   });
 });
 

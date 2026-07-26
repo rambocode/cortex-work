@@ -267,8 +267,16 @@ export async function sendDesignMessage(
     id: userBlockId,
     turnId,
     text,
-    // displayText 供转录/标题派生展示(完整 prompt 往往含大量上下文)。
-    meta: overrides?.displayText ? { displayText: overrides.displayText } : undefined,
+    // displayText 供转录/标题派生展示(完整 prompt 往往含大量上下文)；附件引用只用于回显。
+          meta:
+            overrides?.displayText !== undefined || overrides?.attachments?.length
+              ? {
+                  ...(overrides.displayText !== undefined
+                    ? { displayText: overrides.displayText }
+                    : {}),
+                  ...(overrides.attachments?.length ? { attachments: overrides.attachments } : {}),
+                }
+              : undefined,
   } as ChatBlock);
   mirror.beginTurn(turnId, userBlockId);
 
@@ -358,6 +366,7 @@ export async function sendDesignMessage(
     ...(provider ? { provider } : {}),
     ...(memoryAppend ? { appendSystemPrompt: memoryAppend } : {}),
     ...(imageRefs?.length ? { images: imageRefs } : {}),
+    ...(overrides?.webSearch ? { webSearch: true } : {}),
     ...(overrides?.reasoningEffort ? {} : {}),
     // accept-edits:免审批写工作区文件(设计回合只需 Write/Edit HTML+MD),
     // 不放开任意命令;print 模式无交互审批,approvalPolicy 必须 auto。

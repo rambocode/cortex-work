@@ -4,7 +4,7 @@
 // Props 用「显式核心字段 + 开放索引」:Kun 调用点传的 30+ 个 props 不必逐一声明。
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { ImagePlus, X } from "lucide-react";
+import { ImagePlus, Paperclip, X } from "lucide-react";
 import type { DesignComposerContext } from "@cortex-work/core/design/design-composer-context";
 
 export type { DesignComposerContext };
@@ -16,6 +16,14 @@ export type ComposerPendingImage = {
   mimeType: string;
   data: ArrayBuffer;
   dataUrl: string;
+};
+
+export type ComposerPendingTextFile = {
+  id: string;
+  name: string;
+  sizeBytes: number;
+  content: string;
+  truncated?: boolean;
 };
 
 type FloatingComposerProps = {
@@ -30,32 +38,61 @@ type FloatingComposerProps = {
   images?: ComposerPendingImage[];
   onAddImages?: (files: File[]) => void;
   onRemoveImage?: (id: string) => void;
+  /** 待发纯文本文件；扩展名与大小校验由宿主负责。 */
+  textFiles?: ComposerPendingTextFile[];
+  textFileAccept?: string;
+  onAddTextFiles?: (files: File[]) => void;
+  onRemoveTextFile?: (id: string) => void;
 } & Record<string, unknown>;
 
 export function FloatingComposer(props: FloatingComposerProps) {
   const { t } = useTranslation("design");
-  const { input, setInput, busy, onSend, onInterrupt, placeholder, images, onAddImages, onRemoveImage } = props;
-  const fileRef = useRef<HTMLInputElement>(null);
+  const {
+    input,
+    setInput,
+    busy,
+    onSend,
+    onInterrupt,
+    placeholder,
+    images,
+    onAddImages,
+    onRemoveImage,
+    textFiles,
+    textFileAccept,
+    onAddTextFiles,
+    onRemoveTextFile,
+  } = props;
+  const imageFileRef = useRef<HTMLInputElement>(null);
+  const textFileRef = useRef<HTMLInputElement>(null);
   const imagesEnabled = typeof onAddImages === "function";
+  const filesEnabled = typeof onAddTextFiles === "function";
   const pending = images ?? [];
+  const pendingTextFiles = textFiles ?? [];
   // 有图时允许「只发图不打字」——一张截图配一句「照这个改」很常见,但只发图也说得通。
-  const canSend = !busy && (input.trim().length > 0 || pending.length > 0);
+  const canSend =
+    !busy && (input.trim().length > 0 || pending.length > 0 || pendingTextFiles.length > 0);
 
-  /** 从 DataTransfer / input.files 里挑出图片交给宿主(非图片一律忽略)。 */
-  const takeImages = (list: FileList | null | undefined): void => {
-    if (!list || !onAddImages) return;
-    const picked = Array.from(list).filter((f) => f.type.startsWith("image/"));
-    if (picked.length) onAddImages(picked);
+  /** 一次遍历把图片和其他文件分流；文本 allowlist 校验归宿主。 */
+  const takeFiles = (list: FileList | File[] | null | undefined): void => {
+    if (!list) return;
+    const imageFiles: File[] = [];
+    const otherFiles: File[] = [];
+    for (const file of Array.from(list)) {
+      if (file.type.startsWith("image/")) imageFiles.push(file);
+      else otherFiles.push(file);
+    }
+    if (imageFiles.length && onAddImages) onAddImages(imageFiles);
+    if (otherFiles.length && onAddTextFiles) onAddTextFiles(otherFiles);
   };
   return (
     <div
       className="flex flex-col gap-2 rounded-xl border border-black/10 bg-white/70 p-2 dark:border-white/10 dark:bg-black/20"
-      onDragOver={imagesEnabled ? (e) => e.preventDefault() : undefined}
+      onDragOver={imagesEnabled || filesEnabled ? (e) => e.preventDefault() : undefined}
       onDrop={
-        imagesEnabled
+        imagesEnabled || filesEnabled
           ? (e) => {
               e.preventDefault();
-              takeImages(e.dataTransfer?.files);
+              takeFiles(e.dataTransfer?.files);
             }
           : undefined
       }
@@ -84,13 +121,39 @@ export function FloatingComposer(props: FloatingComposerProps) {
           ))}
         </div>
       ) : null}
+      {pendingTextFiles.length ? (
+        <div className="flex flex-wrap gap-1.5 px-0.5" data-testid="composer-text-files">
+          {pendingTextFiles.map((file) => (
+            <div
+              key={file.id}
+              className="flex max-w-full items-center gap-1 rounded-md border border-black/10 bg-black/5 px-2 py-1 text-xs dark:border-white/15 dark:bg-white/8"
+            >
+              <Paperclip className="h-3 w-3 shrink-0" strokeWidth={1.8} />
+              <span className="min-w-0 truncate">
+                {file.name}
+                {file.truncated ? "（已截断）" : ""}
+              </span>
+              {onRemoveTextFile ? (
+                <button
+                  type="button"
+                  onClick={() => onRemoveTextFile(file.id)}
+                  title={`${t("composerFileRemove", { defaultValue: "移除文件" })}: ${file.name}`}
+                  aria-label={`${t("composerFileRemove", { defaultValue: "移除文件" })}: ${file.name}`}
+                >
+                  <X className="h-3 w-3" strokeWidth={2} />
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
       <textarea
         className="min-h-[72px] w-full resize-none bg-transparent px-1 py-0.5 text-sm outline-hidden"
         value={input}
         placeholder={placeholder ?? t("composerPlaceholder", { defaultValue: "描述你的设计需求…" })}
         onChange={(e) => setInput(e.target.value)}
         // 截图直接 ⌘V 是最常用的入口(用户拿设计稿/报错截图来问)。
-        onPaste={imagesEnabled ? (e) => takeImages(e.clipboardData?.files) : undefined}
+        onPaste={imagesEnabled || filesEnabled ? (e) => takeFiles(e.clipboardData?.files) : undefined}
         onKeyDown={(e) => {
           // Enter 发送、Shift+Enter 换行（与个人工作区 composer 习惯一致）。
           if (e.key === "Enter" && !e.shiftKey && canSend) {
@@ -100,29 +163,57 @@ export function FloatingComposer(props: FloatingComposerProps) {
         }}
       />
       <div className="flex items-center justify-end gap-2">
-        {imagesEnabled ? (
-          <>
+        {imagesEnabled || filesEnabled ? (
+          <div className="mr-auto flex items-center gap-1">
+            {imagesEnabled ? (
+              <>
             <input
-              ref={fileRef}
+              ref={imageFileRef}
               type="file"
               accept="image/*"
               multiple
               className="hidden"
               onChange={(e) => {
-                takeImages(e.target.files);
+                takeFiles(e.target.files);
                 e.target.value = ""; // 允许连选同一张
               }}
             />
             <button
               type="button"
-              className="mr-auto rounded-md p-1.5 text-black/45 transition hover:bg-black/5 hover:text-black/70 dark:text-white/45 dark:hover:bg-white/10 dark:hover:text-white/80"
-              onClick={() => fileRef.current?.click()}
+              className="rounded-md p-1.5 text-black/45 transition hover:bg-black/5 hover:text-black/70 dark:text-white/45 dark:hover:bg-white/10 dark:hover:text-white/80"
+              onClick={() => imageFileRef.current?.click()}
               title={t("composerImageAdd", { defaultValue: "添加图片(也可直接粘贴或拖入)" })}
               aria-label={t("composerImageAdd", { defaultValue: "添加图片(也可直接粘贴或拖入)" })}
             >
               <ImagePlus className="h-4 w-4" strokeWidth={1.8} />
             </button>
-          </>
+              </>
+            ) : null}
+            {filesEnabled ? (
+              <>
+                <input
+                  ref={textFileRef}
+                  type="file"
+                  accept={textFileAccept}
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    takeFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  className="rounded-md p-1.5 text-black/45 transition hover:bg-black/5 hover:text-black/70 dark:text-white/45 dark:hover:bg-white/10 dark:hover:text-white/80"
+                  onClick={() => textFileRef.current?.click()}
+                  title={t("composerFileAdd", { defaultValue: "添加文件(也可直接粘贴或拖入)" })}
+                  aria-label={t("composerFileAdd", { defaultValue: "添加文件(也可直接粘贴或拖入)" })}
+                >
+                  <Paperclip className="h-4 w-4" strokeWidth={1.8} />
+                </button>
+              </>
+            ) : null}
+          </div>
         ) : null}
         {busy ? (
           <button

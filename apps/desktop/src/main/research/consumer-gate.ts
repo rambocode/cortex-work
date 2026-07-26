@@ -26,15 +26,15 @@ export class SearchServerNotConfiguredError extends Error {
 
 /// 各 Consumer 对应的灰度开关。coding / knowledge 暂无独立开关，跟随总开关（U9/U10 再拆）。
 ///
-/// **chat 刻意不在表内**：聊天里的联网已改为会话级（SessionMeta.webSearch，输入框上的
-/// 「联网」pill），全局不再有 chatEnabled。chat 的准入落在两处调用方，而不是这张表：
+/// **chat 与 slides 刻意不在表内**：两者的联网都由各自会话栏上的「联网」pill 决定，
+/// 全局不再有对应的 consumer 开关。会话级准入落在调用方，而不是这张表：
 ///   - 注入层 capabilities/research/inject 的 sessionOptIn —— 没有它就不注入 MCP，
 ///     agent 压根拿不到 web_search / web_read；
 ///   - 发送层 core/research/chat-retrieval 的 sessionWebSearch —— 前置检索同样要会话表态。
-/// 因此本文件对 chat 只把总开关这道门；真正的「这个会话能不能联网」由上面两处决定。
+/// slides 不走聊天前置检索，它的准入是会话栏 pill → cli:start 的 sessionOptIn。
+/// 因此本文件对 chat / slides 只把总开关这道门；真正的「这个会话能不能联网」由上述路径决定。
 export const CONSUMER_SWITCHES: Partial<Record<ResearchConsumer, keyof ResearchEngineSettings>> = {
   deep_research: "deepResearchEnabled",
-  slides: "slidesEnabled",
   writing: "writingEnabled",
 };
 

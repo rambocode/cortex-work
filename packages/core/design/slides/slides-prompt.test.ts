@@ -134,3 +134,41 @@ describe('buildSlidesTurnPrompt(选区引用)', () => {
     }
   })
 })
+
+describe('buildSlidesTurnPrompt(文本附件)', () => {
+  it('无 files 与不传参数逐字节一致', () => {
+    const base = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
+    expect(buildSlidesTurnPrompt({ text: 'x', stage: 'ready', files: [] })).toBe(base)
+  })
+
+  it('附件段排在选区之后、用户原话之前', () => {
+    const selection = {
+      slideIndex: 0,
+      slideId: 's1',
+      totalCount: 1,
+      items: [{ id: 'title', type: 'text', x: 96, y: 80, w: 800, h: 100 }]
+    }
+    const p = buildSlidesTurnPrompt({
+      text: '按资料修改',
+      stage: 'ready',
+      selection,
+      files: [{ name: 'brief.md', content: 'Revenue grew 20%.' }]
+    })
+    expect(p.indexOf('The user has selected')).toBeLessThan(p.indexOf('Attached files'))
+    expect(p.indexOf('Attached files')).toBeLessThan(p.indexOf('User request:'))
+    expect(p).toContain('brief.md')
+    expect(p).toContain('Revenue grew 20%.')
+  })
+
+  it('附件只影响变量尾段，静态前缀逐字节不变', () => {
+    const withFiles = buildSlidesTurnPrompt({
+      text: 'x',
+      stage: 'ready',
+      files: [{ name: 'brief.md', content: 'hello' }]
+    })
+    const without = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
+    expect(withFiles.slice(0, withFiles.indexOf('Attached files'))).toBe(
+      without.slice(0, without.indexOf('User request:'))
+    )
+  })
+})

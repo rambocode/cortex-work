@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Layers,
   Loader2,
+  Globe,
   MessageSquare,
   Plus,
   Sparkles,
@@ -30,7 +31,7 @@ import {
 import type { AgentKind, DerivedAgentMeta } from '@cortex-work/core'
 import { MessageTimeline } from './compat/MessageTimeline'
 import { FloatingComposer } from './compat/FloatingComposer'
-import type { ComposerPendingImage } from './compat/FloatingComposer'
+import type { ComposerPendingImage, ComposerPendingTextFile } from './compat/FloatingComposer'
 import type { DesignComposerContext } from './compat/FloatingComposer'
 import type { ComposerReasoningEffort } from './compat/FloatingComposerModelPicker'
 import { DesignTargetToggle } from './DesignTargetToggle'
@@ -100,6 +101,13 @@ type Props = {
   composerImages?: ComposerPendingImage[]
   onAddComposerImages?: (files: File[]) => void
   onRemoveComposerImage?: (id: string) => void
+  slidesWebSearch?: boolean
+  slidesWebSearchUnavailable?: boolean
+  onToggleSlidesWebSearch?: () => void
+  composerTextFiles?: ComposerPendingTextFile[]
+  composerTextFileAccept?: string
+  onAddComposerTextFiles?: (files: File[]) => void
+  onRemoveComposerTextFile?: (id: string) => void
 }
 
 export function designThreadTitleLooksDefault(
@@ -167,7 +175,14 @@ function DesignAIRailInner({
   onClearSlidesSelection,
   composerImages,
   onAddComposerImages,
-  onRemoveComposerImage
+  onRemoveComposerImage,
+  slidesWebSearch = false,
+  slidesWebSearchUnavailable = false,
+  onToggleSlidesWebSearch,
+  composerTextFiles,
+  composerTextFileAccept,
+  onAddComposerTextFiles,
+  onRemoveComposerTextFile
 }: Props): ReactElement {
   const { t, i18n } = useTranslation('design')
   const workspaceRoot = useDesignWorkspaceStore((s) => s.workspaceRoot)
@@ -555,6 +570,31 @@ function DesignAIRailInner({
                 <span className="shrink-0 text-ds-ink">{t('slidesRailContextCanvas')}</span>
               </div>
             ) : null}
+            {slidesMode && onToggleSlidesWebSearch ? (
+              <button
+                type="button"
+                data-testid="slides-web-search-pill"
+                aria-pressed={slidesWebSearch}
+                aria-label={t('slidesWebSearchLabel')}
+                title={
+                  slidesWebSearchUnavailable
+                    ? t('slidesWebSearchUnconfiguredTitle')
+                    : slidesWebSearch
+                      ? t('slidesWebSearchOnTitle')
+                      : t('slidesWebSearchOffTitle')
+                }
+                disabled={effectiveBusy || slidesWebSearchUnavailable}
+                onClick={onToggleSlidesWebSearch}
+                className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 text-[12.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                  slidesWebSearch
+                    ? 'border-accent bg-accent text-white'
+                    : 'border-ds-border bg-ds-surface-subtle text-ds-muted hover:text-ds-ink dark:bg-white/6'
+                }`}
+              >
+                <Globe className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                {t('slidesWebSearchLabel')}
+              </button>
+            ) : null}
             {/* slides 选区引用:让用户在发消息前就看见「这一轮 agent 会盯着哪些元素改」。
                 与上面的演示上下文 chip 并列,而不是走 primaryContextChip —— 那条链路是
                 自由画布的产物上下文,容器从未给 slides 接线。 */}
@@ -715,6 +755,10 @@ function DesignAIRailInner({
             images={composerImages}
             onAddImages={onAddComposerImages}
             onRemoveImage={onRemoveComposerImage}
+            textFiles={composerTextFiles}
+            textFileAccept={composerTextFileAccept}
+            onAddTextFiles={onAddComposerTextFiles}
+            onRemoveTextFile={onRemoveComposerTextFile}
             onSend={onSend}
             onInterrupt={onInterrupt}
             onConfigureProviders={onConfigureProviders}

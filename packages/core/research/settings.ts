@@ -42,10 +42,10 @@ export interface ResearchDirectSearchSettings {
 
 /// CRE 的全部用户可配置项。各 *Enabled 是按 Consumer 的灰度开关，允许「只开 Deep Research」。
 ///
-/// **chat 场景刻意没有灰度开关**：聊天里的联网由会话级 SessionMeta.webSearch 决定
-///（输入框上的「联网」pill）。联网带有数据出站语义，「这次对话要不要联网」是用户当下的意图，
-/// 全局开关会让此后每个会话都悄悄具备出站能力、而界面上看不出痕迹。原 chatEnabled 因此移除；
-/// 旧配置里残留的该键由下面的白名单重建自然丢弃，无需迁移代码。
+/// **chat / slides 场景刻意没有灰度开关**：联网由各自会话栏的「联网」pill 决定。联网带有
+/// 数据出站语义，「这一轮要不要联网」是用户当下的意图，全局开关会让后续会话悄悄具备出站能力、
+/// 而界面上看不出痕迹。旧配置里残留的 chatEnabled / slidesEnabled 由下面的白名单重建自然
+/// 丢弃，无需迁移代码。
 export interface ResearchEngineSettings {
   /// 总开关。缺省 false —— 新能力，必须用户显式开启。
   enabled: boolean;
@@ -58,7 +58,6 @@ export interface ResearchEngineSettings {
   /// 所以留在全局设置里。
   /// 默认关闭——它给每一轮对话都加上几秒延迟，不该是所有人的默认体验。
   chatAutoRetrieve: boolean;
-  slidesEnabled: boolean;
   writingEnabled: boolean;
   /// 是否允许生成 MemoryCandidate（仍需逐条批准才写入，见 ./knowledge）。
   memoryEnabled: boolean;
@@ -94,7 +93,6 @@ export const DEFAULT_RESEARCH_ENGINE_SETTINGS: ResearchEngineSettings = {
   enabled: false,
   deepResearchEnabled: false,
   chatAutoRetrieve: false,
-  slidesEnabled: false,
   writingEnabled: false,
   memoryEnabled: false,
   searchBackend: "direct",
@@ -195,7 +193,6 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
       "chatAutoRetrieve",
       DEFAULT_RESEARCH_ENGINE_SETTINGS.chatAutoRetrieve,
     ),
-    slidesEnabled: readBoolean(source, "slidesEnabled", DEFAULT_RESEARCH_ENGINE_SETTINGS.slidesEnabled),
     writingEnabled: readBoolean(
       source,
       "writingEnabled",

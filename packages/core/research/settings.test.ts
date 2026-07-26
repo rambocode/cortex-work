@@ -14,7 +14,6 @@ describe("DEFAULT_RESEARCH_ENGINE_SETTINGS", () => {
     expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.enabled).toBe(false);
     expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.deepResearchEnabled).toBe(false);
     expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.chatAutoRetrieve).toBe(false);
-    expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.slidesEnabled).toBe(false);
     expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.writingEnabled).toBe(false);
     expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.memoryEnabled).toBe(false);
   });
@@ -23,6 +22,10 @@ describe("DEFAULT_RESEARCH_ENGINE_SETTINGS", () => {
   /// 留一个没有 UI、没有读者的字段就是死代码，且会诱使后续代码去读它。
   it("不再有 chat 场景的全局灰度开关", () => {
     expect("chatEnabled" in DEFAULT_RESEARCH_ENGINE_SETTINGS).toBe(false);
+  });
+
+  it("不再有 slides 场景的全局灰度开关", () => {
+    expect("slidesEnabled" in DEFAULT_RESEARCH_ENGINE_SETTINGS).toBe(false);
   });
 
   it("默认不指定研究模型（跟随全局默认模型）", () => {
@@ -66,6 +69,11 @@ describe("normalizeResearchEngineSettings", () => {
       // 也会让日后误读它的代码「看起来能工作」。
       name: "旧版本的 chatEnabled 被丢弃",
       raw: { enabled: true, chatEnabled: true },
+      expected: { ...DEFAULT_RESEARCH_ENGINE_SETTINGS, enabled: true },
+    },
+    {
+      name: "旧版本的 slidesEnabled 被丢弃",
+      raw: { enabled: true, slidesEnabled: true },
       expected: { ...DEFAULT_RESEARCH_ENGINE_SETTINGS, enabled: true },
     },
     {

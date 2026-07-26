@@ -322,7 +322,9 @@ export function MessageTimeline(props: MessageTimelineProps): ReactElement {
         const block = seg.block;
         if (block.kind === "user") {
           // displayText 是用户原话(不含上下文/合同拼装),编辑重发要回填的正是它。
-          const display = (block.meta?.displayText as string | undefined)?.trim() || block.text;
+          const display =
+            typeof block.meta?.displayText === "string" ? block.meta.displayText : block.text;
+          const attachments = block.meta?.attachments ?? [];
           return (
             <div key={block.id} className="group flex items-start justify-end gap-1">
               {onEditUserMessage && display.trim() ? (
@@ -337,8 +339,21 @@ export function MessageTimeline(props: MessageTimelineProps): ReactElement {
                   <Pencil className="h-3.5 w-3.5" strokeWidth={1.9} />
                 </button>
               ) : null}
-              <div className="max-w-[88%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm border border-ds-border-muted bg-[var(--ds-sidebar-row-active)] px-3.5 py-2 text-ds-ink">
-                {display}
+              <div className="flex max-w-[88%] flex-col gap-1.5 whitespace-pre-wrap break-words rounded-2xl rounded-br-sm border border-ds-border-muted bg-[var(--ds-sidebar-row-active)] px-3.5 py-2 text-ds-ink">
+                {display ? <div>{display}</div> : null}
+                {attachments.length ? (
+                  <div className="flex flex-wrap gap-1" data-testid="user-attachments">
+                    {attachments.map((attachment) => (
+                      <span
+                        key={attachment.id}
+                        className="rounded-md border border-ds-border-muted bg-white/45 px-1.5 py-0.5 text-[11.5px] text-ds-muted dark:bg-white/6"
+                      >
+                        {attachment.name}
+                        {attachment.truncated ? "（已截断）" : ""}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           );

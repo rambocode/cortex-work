@@ -58,4 +58,6 @@ export type SendMessageOverrides = {
   attachmentIds?: string[];
   attachments?: AttachmentReference[];
   fileReferences?: UserFileReference[];
+  /** 本轮是否允许联网；缺省 false，出站能力默认保守。 */
+  webSearch?: boolean;
 };
