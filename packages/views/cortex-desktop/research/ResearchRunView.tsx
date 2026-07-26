@@ -5,7 +5,14 @@
 //
 // 本组件不自行拉取详情：view 由宿主（ResearchWorkspace）按 "full" 级别取好后传入。
 // 这样「什么时候拉、拉到什么级别」只有一个地方决定，证据正文不会被中栏悄悄带出来。
-import { useMemo, useState, type AnchorHTMLAttributes, type ReactElement } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type AnchorHTMLAttributes,
+  type ReactElement,
+} from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
@@ -125,9 +132,18 @@ export interface ResearchRunViewProps {
   /// 都属于工作区的职责（同 onCreated）。缺省时按钮禁用——没人接管新会话的话，
   /// 用户点完会看到「什么都没发生」，而后台其实已经建了一个会话。
   onRerun?: (created: ResearchSessionSummary) => void;
-  /// 原证据重生成成功后的报告；宿主负责替换 detail cache。
-  onReportRegenerated?: (report: ResearchReport) => void;
+  /// 原证据重生成成功后的报告；宿主按 sessionId 替换对应 detail cache。
+  ///
+  /// sessionId 必须显式回传：生成可能持续数分钟，期间用户可以切换会话，不能把旧会话的
+  /// 新报告误写进当前选中的另一条会话。
+  onReportRegenerated?: (report: ResearchReport, sessionId: string) => void;
 }
+
+type ReportRegenerationFeedback =
+  | { kind: "running"; title: string; detail: string }
+  | { kind: "success"; title: string; detail: string }
+  | { kind: "error"; title: string; detail: string }
+  | null;
 
 /// 单个研究会话的运行视图：进度、轮次、报告正文与来源面板的容器。
 export function ResearchRunView({
@@ -146,7 +162,11 @@ export function ResearchRunView({
 }: ResearchRunViewProps): ReactElement {
   // 控制类调用的失败提示（暂停/恢复/取消可能因状态已变而被 main 拒绝）。
   const [actionError, setActionError] = useState<string | null>(null);
-  const [regeneratingReport, setRegeneratingReport] = useState(false);
+  const [reportRegenerationFeedback, setReportRegenerationFeedback] =
+    useState<ReportRegenerationFeedback>(null);
+  const activeSessionIdRef = useRef(session?.sessionId);
+  activeSessionIdRef.current = session?.sessionId;
+  const regeneratingReport = reportRegenerationFeedback?.kind === "running";
   // 正在执行的产物去向 id（同一时刻只允许一个：写文件/建闪记都会跳去另一个工作区，
   // 并发点两个只会让用户搞不清最后落在哪）。
   const [runningTargetId, setRunningTargetId] = useState<string | null>(null);
@@ -172,6 +192,12 @@ export function ResearchRunView({
         : null,
     [report, objective],
   );
+
+  // 操作提示只属于发起它的会话。切换左栏选择时立即清理，避免把上一条研究的成功/失败
+  // 错认成当前会话的状态；在途 Promise 回来时也会用 activeSessionIdRef 再做一次隔离。
+  useEffect(() => {
+    setReportRegenerationFeedback(null);
+  }, [session?.sessionId]);
 
   if (!session) {
     return (
@@ -220,6 +246,36 @@ export function ResearchRunView({
       setActionError(`${target.label}失败：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setRunningTargetId(null);
+    }
+  };
+
+  const regenerateCurrentReport = async (): Promise<void> => {
+    if (!bridge || !report || !onReportRegenerated || regeneratingReport) return;
+    const requestedSessionId = session.sessionId;
+    setActionError(null);
+    setReportRegenerationFeedback({
+      kind: "running",
+      title: "正在使用已有证据重新生成报告",
+      detail: "通常需要 2–4 分钟。可继续查看当前报告，完成后将自动覆盖原报告。",
+    });
+    try {
+      const regenerated = await bridge.regenerateReport(requestedSessionId);
+      onReportRegenerated(regenerated, requestedSessionId);
+      if (activeSessionIdRef.current === requestedSessionId) {
+        setReportRegenerationFeedback({
+          kind: "success",
+          title: "报告已重新生成并覆盖原报告",
+          detail: "正文、引用和来源统计均已更新。",
+        });
+      }
+    } catch (e) {
+      if (activeSessionIdRef.current === requestedSessionId) {
+        setReportRegenerationFeedback({
+          kind: "error",
+          title: `重新生成报告失败：${e instanceof Error ? e.message : String(e)}`,
+          detail: "原报告已保留，可重试。",
+        });
+      }
     }
   };
 
@@ -275,7 +331,9 @@ export function ResearchRunView({
           </button>
           <button
             type="button"
-            className="pw-res-btn"
+            className={`pw-res-btn${regeneratingReport ? " is-running" : ""}`}
+            aria-busy={regeneratingReport}
+            aria-label={regeneratingReport ? "正在重新生成报告" : "重新生成报告"}
             disabled={
               !bridge ||
               status !== "completed" ||
@@ -284,18 +342,7 @@ export function ResearchRunView({
               regeneratingReport
             }
             onClick={() => {
-              if (!bridge || !report || !onReportRegenerated) return;
-              setActionError(null);
-              setRegeneratingReport(true);
-              void bridge
-                .regenerateReport(session.sessionId)
-                .then(onReportRegenerated)
-                .catch((e: unknown) =>
-                  setActionError(
-                    `重新生成报告失败：${e instanceof Error ? e.message : String(e)}`,
-                  ),
-                )
-                .finally(() => setRegeneratingReport(false));
+              void regenerateCurrentReport();
             }}
           >
             {regeneratingReport ? "正在重新生成…" : "重新生成报告"}
@@ -355,6 +402,20 @@ export function ResearchRunView({
             </button>
           ))}
         </div>
+        {reportRegenerationFeedback ? (
+          <div
+            className={`pw-res-operation is-${reportRegenerationFeedback.kind}`}
+            role={reportRegenerationFeedback.kind === "error" ? "alert" : "status"}
+            aria-live={reportRegenerationFeedback.kind === "error" ? "assertive" : "polite"}
+            aria-atomic="true"
+          >
+            <span className="pw-res-operation-indicator" aria-hidden="true" />
+            <span className="pw-res-operation-copy">
+              <strong>{reportRegenerationFeedback.title}</strong>
+              <span>{reportRegenerationFeedback.detail}</span>
+            </span>
+          </div>
+        ) : null}
         {actionError ? <div className="pw-res-error">{actionError}</div> : null}
         {/* 本地操作错误优先：用户刚点过按钮时，那条更贴近他当下的动作。 */}
         {!actionError && startError ? <div className="pw-res-error">{startError}</div> : null}

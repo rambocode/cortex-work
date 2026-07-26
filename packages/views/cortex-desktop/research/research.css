@@ -88,6 +88,66 @@
   color: var(--text-2);
 }
 .pw-res-btn.is-ghost:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
+.pw-res-btn.is-running {
+  min-width: 126px;
+  color: var(--blue);
+  border-color: color-mix(in srgb, var(--blue) 28%, var(--border));
+  background: var(--blue-soft);
+}
+
+/* 长任务必须有独立、持续的状态反馈，不能只靠按钮文案一闪而过。 */
+.pw-res-operation {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 8px 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pw-res-operation-indicator {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.pw-res-operation-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.pw-res-operation-copy strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.pw-res-operation.is-running {
+  border-color: color-mix(in srgb, var(--blue) 25%, var(--border));
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+.pw-res-operation.is-running .pw-res-operation-indicator {
+  animation: pw-res-pulse 1.2s ease-in-out infinite;
+}
+.pw-res-operation.is-success {
+  border-color: color-mix(in srgb, var(--green) 25%, var(--border));
+  background: var(--green-soft);
+  color: var(--green);
+}
+.pw-res-operation.is-error {
+  border-color: color-mix(in srgb, var(--red) 25%, var(--border));
+  background: var(--red-soft);
+  color: var(--red);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pw-res-operation.is-running .pw-res-operation-indicator { animation: none; }
+}
 
 .pw-res-badge {
   display: inline-block;

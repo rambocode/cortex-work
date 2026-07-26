@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ResearchReport } from "@cortex-work/core/research/types";
 import type { ResearchBridgeLike } from "./bridge-like";
 import { ResearchRunView } from "./ResearchRunView";
 import { makeFullView, makeReport, makeSummary } from "./testFixtures";
@@ -329,22 +330,101 @@ describe("重跑（终态会话的出路）", () => {
 });
 
 describe("重新生成报告（复用原证据）", () => {
-  it("已完成且已有报告时可重新生成，并把替换后的报告交给宿主", async () => {
-    const { bridge, calls } = makeBridge();
-    const reports: string[] = [];
+  it("长任务执行期间显示持续状态并禁用重复提交", async () => {
+    const { bridge } = makeBridge();
+    let resolveReport: ((report: ResearchReport) => void) | undefined;
+    bridge.regenerateReport = () =>
+      new Promise<ResearchReport>((resolve) => {
+        resolveReport = resolve;
+      });
     render(
       <ResearchRunView
         bridge={bridge}
         session={makeSummary({ sessionId: "s1", status: "completed" })}
         view={makeFullView({ report: makeReport() })}
-        onReportRegenerated={(report) => reports.push(report.markdown)}
+        onReportRegenerated={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成报告" }));
+
+    expect(screen.getByRole("button", { name: "正在重新生成报告" })).toBeDisabled();
+    expect(screen.getByRole("status").textContent).toContain(
+      "正在使用已有证据重新生成报告",
+    );
+    expect(screen.getByRole("status").textContent).toContain("完成后将自动覆盖原报告");
+
+    resolveReport?.(makeReport());
+    await waitFor(() => expect(screen.queryByText("正在使用已有证据重新生成报告")).toBeNull());
+  });
+
+  it("已完成且已有报告时可重新生成，并把替换后的报告交给宿主", async () => {
+    const { bridge, calls } = makeBridge();
+    const reports: Array<[string, string]> = [];
+    render(
+      <ResearchRunView
+        bridge={bridge}
+        session={makeSummary({ sessionId: "s1", status: "completed" })}
+        view={makeFullView({ report: makeReport() })}
+        onReportRegenerated={(report, sessionId) => reports.push([sessionId, report.markdown])}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "重新生成报告" }));
 
     await waitFor(() => expect(calls).toContainEqual(["regenerateReport", "s1"]));
-    await waitFor(() => expect(reports).toEqual(["重新生成后的报告正文。"]));
+    await waitFor(() =>
+      expect(reports).toEqual([["s1", "重新生成后的报告正文。"]]),
+    );
+    expect(screen.getByRole("status").textContent).toContain("报告已重新生成并覆盖原报告");
+    expect(screen.getByRole("button", { name: "重新生成报告" })).not.toBeDisabled();
+  });
+
+  it("失败时明确说明原报告已保留，并允许重试", async () => {
+    const { bridge } = makeBridge();
+    bridge.regenerateReport = async () => {
+      throw new Error("模型调用超时");
+    };
+    render(
+      <ResearchRunView
+        bridge={bridge}
+        session={makeSummary({ sessionId: "s1", status: "completed" })}
+        view={makeFullView({ report: makeReport() })}
+        onReportRegenerated={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成报告" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("重新生成报告失败：模型调用超时");
+    expect(alert.textContent).toContain("原报告已保留，可重试");
+    expect(screen.getByRole("button", { name: "重新生成报告" })).not.toBeDisabled();
+  });
+
+  it("切换研究会话时清除上一会话的完成提示", async () => {
+    const { bridge } = makeBridge();
+    const { rerender } = render(
+      <ResearchRunView
+        bridge={bridge}
+        session={makeSummary({ sessionId: "s1", status: "completed" })}
+        view={makeFullView({ report: makeReport() })}
+        onReportRegenerated={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "重新生成报告" }));
+    await screen.findByText("报告已重新生成并覆盖原报告");
+
+    rerender(
+      <ResearchRunView
+        bridge={bridge}
+        session={makeSummary({ sessionId: "s2", status: "completed" })}
+        view={makeFullView({ report: makeReport() })}
+        onReportRegenerated={() => undefined}
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByText("报告已重新生成并覆盖原报告")).toBeNull());
   });
 
   it("没有已落库报告时禁用重新生成", () => {

@@ -185,14 +185,13 @@ export function ResearchWorkspace({
   }, []);
 
   const onReportRegenerated = useCallback(
-    (report: ResearchReport) => {
-      if (!activeSessionId) return;
+    (report: ResearchReport, sessionId: string) => {
       const store = useResearchUiStore.getState();
-      const current = store.detailCache[activeSessionId];
-      if (current) store.setDetail(activeSessionId, { ...current, report });
-      else fetchDetail(activeSessionId);
+      const current = store.detailCache[sessionId];
+      if (current) store.setDetail(sessionId, { ...current, report });
+      else fetchDetail(sessionId);
     },
-    [activeSessionId, fetchDetail],
+    [fetchDetail],
   );
 
   /// 新建完成：落位之后立刻启动。
