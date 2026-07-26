@@ -69,13 +69,24 @@ export function buildClaudeMcpJson(servers: McpServerConfig[]): string {
 
 // codex 经 -c 注入(dotted path,值按 TOML 解析;实测 `codex exec -c mcp_servers.<id>.command="..."`)。
 // 取代 M1 的 `-c mcp_servers={}` 清空。非法 id 跳过。stdio 用 command/args/env;sse/http 用 url + http_headers(鉴权头)。
-export function buildCodexMcpArgs(settings: McpSettings): string[] {
+//
+// builtinIds:内置 server(cortex-slides / design-delegate / 浏览器控制等)的 id 清单,会额外拿到
+// `default_tools_approval_mode="approve"` 预授权。**必须有**:codex 0.145 对 MCP 工具调用有一道
+// 独立于 shell 的审批闸(core/src/mcp_tool_call.rs 的 mcp_tool_call_approval),而 `codex exec` 是
+// 非交互的 —— 没人应答就判成 `user cancelled MCP tool call`,内置工具一次都调不成(用户实测:
+// 演示文稿里 get_deck_state 被取消,改不动任何东西)。approval_policy=never 管的是 shell 审批,
+// 不覆盖这条路径。claude 侧的对等物是 buildArgs 的 `--allowed-tools mcp__<id>`。
+// 取值枚举经 codex 自身校验确认为 auto | prompt | writes | approve。
+// 只预授权内置 server:用户自配的第三方 MCP 仍按用户自己的 codex 配置走,不替他放行。
+export function buildCodexMcpArgs(settings: McpSettings, builtinIds: readonly string[] = []): string[] {
   if (!settings.enabled || settings.servers.length === 0) return [];
+  const builtin = new Set(builtinIds);
   const out: string[] = [];
   const push = (key: string, tomlValue: string) => out.push("-c", `${key}=${tomlValue}`);
   for (const s of settings.servers) {
     if (!isValidServerId(s.id)) continue;
     const base = `mcp_servers.${s.id}`;
+    if (builtin.has(s.id)) push(`${base}.default_tools_approval_mode`, '"approve"');
     if (s.transport === "stdio") {
       if (s.command) push(`${base}.command`, JSON.stringify(s.command)); // TOML 基本字符串
       if (s.args?.length) push(`${base}.args`, JSON.stringify(s.args)); // TOML 字符串数组

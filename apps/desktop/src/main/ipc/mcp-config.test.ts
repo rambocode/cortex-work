@@ -84,6 +84,43 @@ describe("buildCodexMcpArgs", () => {
     expect(out).toContain('mcp_servers.cortex-browser.url="http://127.0.0.1:9/mcp"');
     expect(out).toContain('mcp_servers.cortex-browser.http_headers={ "Authorization" = "Bearer tok" }');
   });
+
+  // 回归(用户实测):codex 0.145 对 MCP 工具调用有一道**独立于 shell 的审批闸**
+  // (core/src/mcp_tool_call.rs 的 mcp_tool_call_approval)。`codex exec` 非交互、无人应答,
+  // 于是内置 server 的每次调用都以 `user cancelled MCP tool call` 失败 —— 表现为演示文稿里
+  // get_deck_state 调不动、什么都改不了。claude 侧早有对等预授权(--allowed-tools mcp__<id>),
+  // codex 侧此前缺失。取值枚举经 codex 自身校验确认:auto | prompt | writes | approve。
+  it("内置 server → 预授权 default_tools_approval_mode=approve", () => {
+    const out = buildCodexMcpArgs(
+      { enabled: true, servers: [{ id: "cortex-slides", transport: "http", url: "http://127.0.0.1:9/mcp" }] },
+      ["cortex-slides"],
+    );
+    expect(out).toContain('mcp_servers.cortex-slides.default_tools_approval_mode="approve"');
+  });
+
+  it("用户自配 server 不被预授权(仍走用户自己的 codex 配置)", () => {
+    const out = buildCodexMcpArgs({ enabled: true, servers: [stdio, http] }, ["cortex-slides"]);
+    expect(out.join(" ")).not.toContain("default_tools_approval_mode");
+  });
+
+  it("同一轮里内置与用户 server 并存时,只预授权内置那个", () => {
+    const out = buildCodexMcpArgs(
+      { enabled: true, servers: [stdio, { id: "cortex-slides", transport: "http", url: "http://127.0.0.1:9/mcp" }] },
+      ["cortex-slides"],
+    );
+    expect(out).toContain('mcp_servers.cortex-slides.default_tools_approval_mode="approve"');
+    expect(out).not.toContain('mcp_servers.fs.default_tools_approval_mode="approve"');
+  });
+
+  it("未传内置清单 → 行为与改动前逐字一致(不影响 ask/oneshot 等旧调用点)", () => {
+    expect(buildCodexMcpArgs({ enabled: true, servers: [stdio, http] })).toEqual(
+      buildCodexMcpArgs({ enabled: true, servers: [stdio, http] }, []),
+    );
+  });
+
+  it("内置清单里的非法 id 不产生错位 dotted key", () => {
+    expect(buildCodexMcpArgs({ enabled: true, servers: [{ id: "a.b", transport: "stdio", command: "z" }] }, ["a.b"])).toEqual([]);
+  });
 });
 
 describe("decideClaudeMcpAction(严格 gate)", () => {

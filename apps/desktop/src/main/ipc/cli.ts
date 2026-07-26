@@ -734,7 +734,9 @@ export function registerCliHandlers(): void {
           log.warn(`applyClaudeMcp failed: ${String(e)}`); // 注入失败不阻断启动
         }
       } else if (adapter.mcpInjection === "codex-c") {
-        mcpArgs = buildCodexMcpArgs(mcp);
+        // 内置 server 需显式预授权,否则 codex 的 MCP 审批闸在非交互 exec 下把每次调用判为
+        // 「user cancelled」(与上面 claude 的 --allowed-tools mcp__<id> 同一意图)。
+        mcpArgs = buildCodexMcpArgs(mcp, req.builtinMcpServers ?? []);
       }
     }
 
