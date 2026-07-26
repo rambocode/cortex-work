@@ -3,6 +3,7 @@ import type { DesignArtifact, DesignDocument } from '@cortex-work/core/design/de
 import {
   getDesignSidebarDocumentLabel,
   getDesignSidebarDocumentScreenCount,
+  getDesignSidebarFilteredDocuments,
   getDesignSidebarVisibleArtifacts
 } from './DesignSidebar'
 
@@ -49,7 +50,21 @@ describe('DesignSidebar helpers', () => {
     expect(getDesignSidebarDocumentScreenCount(doc)).toBe(1)
   })
 
-  it('uses the document ID as the sidebar label', () => {
-    expect(getDesignSidebarDocumentLabel({ id: 'a1b2c3d4' })).toBe('a1b2c3d4')
+  it('prefers the document title as the sidebar label, falling back to the ID', () => {
+    expect(getDesignSidebarDocumentLabel({ id: 'a1b2c3d4', title: 'a1b2c3d4' })).toBe('a1b2c3d4')
+    expect(getDesignSidebarDocumentLabel({ id: 'a1b2c3d4', title: '发布会初稿' })).toBe('发布会初稿')
+    expect(getDesignSidebarDocumentLabel({ id: 'a1b2c3d4', title: '   ' })).toBe('a1b2c3d4')
+  })
+
+  it('filters documents by kind for the create-section filter', () => {
+    const docs = [
+      { id: 'board-1', kind: undefined, slidesManifestPath: undefined },
+      { id: 'deck-1', kind: 'slides' as const, slidesManifestPath: '.cortex-design/deck-1/deck.bento.html' },
+      { id: 'board-2', kind: undefined, slidesManifestPath: undefined }
+    ]
+
+    expect(getDesignSidebarFilteredDocuments(docs, null).map((doc) => doc.id)).toEqual(['board-1', 'deck-1', 'board-2'])
+    expect(getDesignSidebarFilteredDocuments(docs, 'board').map((doc) => doc.id)).toEqual(['board-1', 'board-2'])
+    expect(getDesignSidebarFilteredDocuments(docs, 'slides').map((doc) => doc.id)).toEqual(['deck-1'])
   })
 })

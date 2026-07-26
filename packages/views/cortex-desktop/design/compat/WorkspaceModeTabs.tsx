@@ -15,7 +15,7 @@ export function WorkspaceModeTabs({ onCodeOpen }: WorkspaceModeTabsProps) {
     <button
       type="button"
       onClick={() => onCodeOpen?.()}
-      className="ds-no-drag flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] text-ds-muted transition hover:bg-[var(--ds-sidebar-row-hover)]"
+      className="ds-no-drag flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] text-ds-muted transition hover:bg-[var(--ds-sidebar-row-hover)]"
     >
       <ChevronLeft className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
       <span>返回工作区</span>

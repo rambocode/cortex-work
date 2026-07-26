@@ -10,6 +10,8 @@ type SidebarFrameProps = {
   children: ReactNode
   footer?: ReactNode
   onCollapse?: () => void
+  /** 渲染在红绿灯安全块右侧的标题栏内容(如「返回工作区」),随标题栏一起参与窗口拖拽布局。 */
+  titlebarContent?: ReactNode
   className?: string
 }
 
@@ -46,6 +48,7 @@ export function SidebarFrame({
   children,
   footer,
   onCollapse,
+  titlebarContent,
   className
 }: SidebarFrameProps): ReactElement {
   return (
@@ -56,14 +59,16 @@ export function SidebarFrame({
       )}
     >
       <div className="ds-sidebar-titlebar-spacer shrink-0 pb-2 pt-2">
-        <div className="ds-sidebar-titlebar-row flex min-h-[34px] items-start justify-between">
+        <div className="ds-sidebar-titlebar-row flex min-h-[34px] items-center justify-between">
+          {/* 红绿灯安全块:占位 macOS 窗口按钮区域,其右侧才是可交互的标题栏内容 */}
           <div aria-hidden className="ds-titlebar-safe-block min-w-[86px]" />
+          {titlebarContent ? <div className="flex min-w-0 flex-1 items-center">{titlebarContent}</div> : null}
           {onCollapse ? (
             <SidebarTitlebarToggleButton
               onClick={onCollapse}
               title={title}
               ariaLabel={title}
-              className="ds-sidebar-titlebar-toggle mt-[5px]"
+              className="ds-sidebar-titlebar-toggle"
             />
           ) : null}
         </div>

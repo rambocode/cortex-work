@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next'
 import type { SettingsRouteSection } from '@cortex-work/core/design/compat/chat-store'
 import { WorkspaceModeTabs } from './compat/WorkspaceModeTabs'
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
-import { designDocumentKind, type DesignArtifact, type DesignDocument } from '@cortex-work/core/design/design-types'
+import { designDocumentKind, type DesignArtifact, type DesignDocument, type DesignDocumentKind } from '@cortex-work/core/design/design-types'
 import { collectAgentDrawingArtifactIds, groupDesignArtifacts } from '@cortex-work/core/design/design-artifact-actions'
 import { findDesignBoardArtifact } from '@cortex-work/core/design/design-board'
 import { useCanvasShapeStore } from '@cortex-work/core/design/canvas/canvas-shape-store'
@@ -58,8 +58,21 @@ export function getDesignSidebarDocumentScreenCount(doc: Pick<DesignDocument, 'a
   return getDesignSidebarVisibleArtifacts(doc.artifacts).filter((artifact) => artifact.kind === 'html').length
 }
 
-export function getDesignSidebarDocumentLabel(doc: Pick<DesignDocument, 'id'>): string {
-  return doc.id
+/** 侧栏文稿标签:优先展示用户命名(title 在创建/重命名时写入,缺省与 id 相同),空白时回退到 id。 */
+export function getDesignSidebarDocumentLabel(doc: Pick<DesignDocument, 'id' | 'title'>): string {
+  return doc.title.trim() || doc.id
+}
+
+/** 新建区的类型过滤:null 表示全部,'board'/'slides' 只展示对应类型的文稿。 */
+export type DesignSidebarKindFilter = DesignDocumentKind | null
+
+/** 按新建区选中的类型过滤文稿列表;kind 判定复用 designDocumentKind(旧数据缺 kind 时归 board)。 */
+export function getDesignSidebarFilteredDocuments<T extends Pick<DesignDocument, 'kind' | 'slidesManifestPath'>>(
+  documents: readonly T[],
+  filter: DesignSidebarKindFilter
+): T[] {
+  if (filter === null) return [...documents]
+  return documents.filter((doc) => designDocumentKind(doc) === filter)
 }
 
 /**
@@ -111,6 +124,11 @@ export function DesignSidebar({
   const [docDraft, setDocDraft] = useState('')
   const committingDocRef = useRef(false)
   const [agentDrawingsOpen, setAgentDrawingsOpen] = useState(true)
+  // 新建区选中类型的过滤态;null = 展示全部文稿
+  const [kindFilter, setKindFilter] = useState<DesignSidebarKindFilter>(null)
+  // 「+」点击后弹出的命名对话框:记录要创建的类型与输入的名称
+  const [createPrompt, setCreatePrompt] = useState<{ kind: 'board' | 'slides' } | null>(null)
+  const [createName, setCreateName] = useState('')
 
   const canvasDocument = useCanvasShapeStore((s) => s.document)
   const canvasObjects = canvasDocument.objects
@@ -146,6 +164,10 @@ export function DesignSidebar({
     () => [...documents].sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt)),
     [documents]
   )
+  const visibleDocuments = useMemo(
+    () => getDesignSidebarFilteredDocuments(sortedDocuments, kindFilter),
+    [sortedDocuments, kindFilter]
+  )
 
   const focusComposer = (): void => {
     requestAnimationFrame(() => {
@@ -178,14 +200,37 @@ export function DesignSidebar({
   }
 
   // New 设计稿: a fresh top-level container (its own canvas + conversation).
-  // kind === 'slides' 时创建演示文稿(deck 目录/manifest 由 SlidesWorkspace 挂载时经 IPC 补建)。
-  const handleNewDocument = (kind?: 'slides'): void => {
+  // kind === 'slides' 时创建演示文稿(deck 目录/manifest 由 SlidesWorkspace 挂载时经 IPC 补建);
+  // title 来自命名对话框,落盘为文稿名(侧栏标签优先展示它)。
+  const handleNewDocument = (kind: 'board' | 'slides' = 'board', title?: string): void => {
     closeImplementPanel()
     setDesignIntentMode('generate')
     setCanvasAssistantOpen(true)
     useCanvasSelectionStore.getState().clearSelection()
-    createDocument(undefined, kind === 'slides' ? { kind: 'slides' } : undefined)
+    createDocument(title, kind === 'slides' ? { kind: 'slides' } : undefined)
+    // 新文档一定要在列表里可见:过滤切到其所属类型,避免「创建了却看不到」
+    setKindFilter(kind)
     focusComposer()
+  }
+
+  // 新建区行点击 = 切换该类型的列表过滤(再点一次还原为全部)。
+  const toggleKindFilter = (kind: 'board' | 'slides'): void => {
+    setKindFilter((prev) => (prev === kind ? null : kind))
+  }
+
+  // 行尾「+」:弹出命名对话框,确认后才创建对应类型的新文稿。
+  const openCreatePrompt = (kind: 'board' | 'slides'): void => {
+    setCreateName('')
+    setCreatePrompt({ kind })
+  }
+
+  const confirmCreatePrompt = (): void => {
+    if (!createPrompt) return
+    const name = createName.trim()
+    if (!name) return
+    handleNewDocument(createPrompt.kind, name)
+    setCreatePrompt(null)
+    setCreateName('')
   }
 
   const handleSelectDocument = (documentId: string): void => {
@@ -513,6 +558,15 @@ export function DesignSidebar({
     <>
       <SidebarFrame
         title={t('appName')}
+        titlebarContent={
+          /* 「返回工作区」放在红绿灯右侧的标题栏,腾出侧栏首屏给新建/文稿区 */
+          <WorkspaceModeTabs
+            activeView="design"
+            onCodeOpen={onCodeOpen}
+            onWriteOpen={onWriteOpen}
+            onDesignOpen={onDesignOpen}
+          />
+        }
         footer={
           <div className="space-y-1">
             <div className="flex items-center gap-1">
@@ -540,28 +594,63 @@ export function DesignSidebar({
         }
       >
         <div className="ds-no-drag flex flex-col px-1">
-          <WorkspaceModeTabs
-            activeView="design"
-            onCodeOpen={onCodeOpen}
-            onWriteOpen={onWriteOpen}
-            onDesignOpen={onDesignOpen}
-          />
-          {/* 导航(返回)与内容区之间的分隔线:给侧栏三段(导航/新建/文稿)建立层级 */}
-          <div className="mx-1.5 my-2 border-t border-[var(--ds-sidebar-divider)]" />
-          <SidebarSectionHeader label={t('designSidebarCreateSection')} />
           <SidebarCommandRow
             icon={<FilePlus2 className="h-4 w-4" strokeWidth={1.9} />}
             label={t('slidesNewBoard')}
-            onClick={() => handleNewDocument()}
+            onClick={() => toggleKindFilter('board')}
             variant="accent"
-            trailing={<Plus className="h-3.5 w-3.5 text-ds-faint" strokeWidth={1.9} aria-hidden="true" />}
+            active={kindFilter === 'board'}
+            trailing={
+              // 嵌在 button 里的「+」不能用 button 元素(非法嵌套),用 span + role 模拟;
+              // stopPropagation 保证点 + 只弹命名框、不触发行主体的过滤切换。
+              <span
+                role="button"
+                tabIndex={0}
+                title={t('designCreateDocumentTitle', { kind: t('slidesNewBoard') })}
+                aria-label={t('designCreateDocumentTitle', { kind: t('slidesNewBoard') })}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openCreatePrompt('board')
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation()
+                    openCreatePrompt('board')
+                  }
+                }}
+                className="flex h-5 w-5 items-center justify-center rounded-md text-ds-faint transition hover:bg-[var(--ds-sidebar-row-hover)] hover:text-ds-muted"
+              >
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
+              </span>
+            }
           />
           <SidebarCommandRow
             icon={<Presentation className="h-4 w-4" strokeWidth={1.9} />}
             label={t('slidesNewDeck')}
-            onClick={() => handleNewDocument('slides')}
+            onClick={() => toggleKindFilter('slides')}
             variant="accent"
-            trailing={<Plus className="h-3.5 w-3.5 text-ds-faint" strokeWidth={1.9} aria-hidden="true" />}
+            active={kindFilter === 'slides'}
+            trailing={
+              <span
+                role="button"
+                tabIndex={0}
+                title={t('designCreateDocumentTitle', { kind: t('slidesNewDeck') })}
+                aria-label={t('designCreateDocumentTitle', { kind: t('slidesNewDeck') })}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openCreatePrompt('slides')
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation()
+                    openCreatePrompt('slides')
+                  }
+                }}
+                className="flex h-5 w-5 items-center justify-center rounded-md text-ds-faint transition hover:bg-[var(--ds-sidebar-row-hover)] hover:text-ds-muted"
+              >
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden="true" />
+              </span>
+            }
           />
         </div>
 
@@ -570,8 +659,8 @@ export function DesignSidebar({
             <SidebarSectionHeader
               label={t('designSidebarDocsSection')}
               actions={
-                sortedDocuments.length > 0 ? (
-                  <span className="text-[11.5px] text-ds-faint">{sortedDocuments.length}</span>
+                visibleDocuments.length > 0 ? (
+                  <span className="text-[11.5px] text-ds-faint">{visibleDocuments.length}</span>
                 ) : null
               }
             />
@@ -580,12 +669,63 @@ export function DesignSidebar({
                 <p className="text-[15px] font-medium text-ds-muted">{t('designNewDocument')}</p>
                 <p className="mt-1 text-[13px] leading-5 text-ds-faint">{t('designSidebarEmpty')}</p>
               </div>
+            ) : visibleDocuments.length === 0 ? (
+              <div className="mx-2 mt-2 rounded-lg px-2 py-2">
+                <p className="text-[13px] leading-5 text-ds-faint">{t('designSidebarFilterEmpty')}</p>
+              </div>
             ) : (
-              <ul className="space-y-0.5">{sortedDocuments.map((doc) => renderDocument(doc))}</ul>
+              <ul className="space-y-0.5">{visibleDocuments.map((doc) => renderDocument(doc))}</ul>
             )}
           </div>
         </div>
       </SidebarFrame>
+      {/* 新建文稿命名对话框:fixed 居中,覆盖整个设计区(侧栏太窄放不下) */}
+      {createPrompt ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/35"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('designCreateDocumentTitle', { kind: t(createPrompt.kind === 'slides' ? 'slidesNewDeck' : 'slidesNewBoard') })}
+          onClick={() => setCreatePrompt(null)}
+        >
+          <div
+            className="w-[320px] rounded-xl bg-ds-main p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-[14px] font-semibold text-ds-strong">
+              {t('designCreateDocumentTitle', { kind: t(createPrompt.kind === 'slides' ? 'slidesNewDeck' : 'slidesNewBoard') })}
+            </h2>
+            <input
+              autoFocus
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmCreatePrompt()
+                else if (e.key === 'Escape') setCreatePrompt(null)
+              }}
+              placeholder={t('designCreateDocumentNamePlaceholder')}
+              className="mt-3 h-8 w-full rounded-lg border border-black/12 bg-transparent px-2.5 text-[13px] text-ds-strong outline-hidden focus:border-[#3b82d8] dark:border-white/12"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCreatePrompt(null)}
+                className="h-8 rounded-lg px-3 text-[13px] text-ds-muted transition hover:text-ds-strong"
+              >
+                {t('slidesCancel')}
+              </button>
+              <button
+                type="button"
+                disabled={createName.trim().length === 0}
+                onClick={confirmCreatePrompt}
+                className="h-8 rounded-lg bg-[#3b82d8] px-3 text-[13px] font-medium text-white transition hover:bg-[#2f72c4] disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {t('designCreateDocumentConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }
