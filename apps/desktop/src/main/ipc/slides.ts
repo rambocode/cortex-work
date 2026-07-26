@@ -23,6 +23,7 @@ import type {
   SlidesPresentResult,
 } from "./slides-ipc-types";
 import {
+  approveBentoOutline,
   createBentoDeck,
   ensureBentoDeckRuntime,
   readBentoDeck,
@@ -115,6 +116,18 @@ export function registerSlidesHandlers(): void {
   ipcMain.handle("slides:bentoSetStage", (event, req: BentoSetStageRequest): Promise<BentoDeckIpcResult> => {
     registerSender(event);
     return guarded("更新演示文稿阶段失败", async () => {
+      // 批准最终提纲时同时建立全部占位页并 bump revision。renderer 随即派发生成回合,
+      // Agent 只需按现有 id 分批 set_slides,每批都能被画布热应用。
+      if (req.stage === "outline-approved" && req.outline) {
+        const approved = await approveBentoOutline({
+          workspaceRoot: req.workspaceRoot,
+          deckId: req.deckId,
+          outline: req.outline,
+        });
+        return approved.ok
+          ? { ok: true as const, revision: approved.value.revision }
+          : { ok: false as const, error: approved.error };
+      }
       const res = await updateBentoDeckMeta({
         workspaceRoot: req.workspaceRoot,
         deckId: req.deckId,

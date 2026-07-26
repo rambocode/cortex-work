@@ -46,10 +46,13 @@ describe('buildSlidesTurnPrompt(bento 合同)', () => {
     expect(p).toContain('approval')
   })
 
-  it('outline-approved:一次 set_deck_doc 产出完整文档', () => {
+  it('outline-approved:按 ≤3 页 set_slides 分批填充审批时建立的占位页', () => {
     const p = buildSlidesTurnPrompt({ text: 'x', stage: 'outline-approved' })
-    expect(p).toContain('ONE set_deck_doc')
-    expect(p).toContain('COMPLETE')
+    expect(p).toContain('set_slides')
+    expect(p).toContain('at most 3')
+    expect(p).toContain('nextExpectedRevision')
+    expect(p).toContain('pending placeholder')
+    expect(p).not.toContain('ONE set_deck_doc')
   })
 
   // 改版:ready 阶段改用 set_slides 局部写入。整份 12 页 deck 约 12 万字符(~5.6 万 token),

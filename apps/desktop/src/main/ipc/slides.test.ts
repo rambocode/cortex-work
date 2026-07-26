@@ -163,6 +163,60 @@ describe("bento deck 生命周期经 IPC", () => {
     expect(saved.revision).toBe(loaded.revision + 1);
   });
 
+  it("批准编辑后的提纲时立即建立同页数的生成占位骨架", async () => {
+    const deckId = "deckstream01";
+    expect(
+      (await invoke<{ ok: boolean }>("slides:bentoCreateDeck", {
+        workspaceRoot: root,
+        deckId,
+        title: "流式生成",
+      })).ok,
+    ).toBe(true);
+    const outline = {
+      version: 2,
+      summary: "三页叙事",
+      items: [
+        { id: "o1", title: "开场", purpose: "hook", keyPoints: ["痛点"] },
+        { id: "o2", title: "方案", purpose: "explain", keyPoints: ["能力", "路径"] },
+        { id: "o3", title: "结论", purpose: "close", keyPoints: ["行动"] },
+      ],
+    };
+
+    const approved = await invoke<{ ok: boolean; revision?: number }>("slides:bentoSetStage", {
+      workspaceRoot: root,
+      deckId,
+      stage: "outline-approved",
+      outline,
+    });
+
+    expect(approved).toEqual({ ok: true, revision: 1 });
+    const loaded = await invoke<{
+      ok: boolean;
+      json: string;
+      revision: number;
+      stage: string;
+      outline: { approvedAt?: string };
+    }>("slides:bentoGetDeck", { workspaceRoot: root, deckId });
+    const doc = JSON.parse(loaded.json) as {
+      slides: Array<{
+        id: string;
+        name?: string;
+        cortexGeneration?: { status?: string; outlineItemId?: string };
+      }>;
+    };
+    expect(loaded.stage).toBe("outline-approved");
+    expect(loaded.revision).toBe(1);
+    expect(loaded.outline.approvedAt).toEqual(expect.any(String));
+    expect(doc.slides).toHaveLength(3);
+    expect(doc.slides.map((slide) => slide.id)).toEqual(["slide-1", "slide-2", "slide-3"]);
+    expect(doc.slides.map((slide) => slide.name)).toEqual(["开场", "方案", "结论"]);
+    expect(doc.slides.map((slide) => slide.cortexGeneration)).toEqual([
+      { status: "pending", outlineItemId: "o1" },
+      { status: "pending", outlineItemId: "o2" },
+      { status: "pending", outlineItemId: "o3" },
+    ]);
+  });
+
   // 回归(实测):deck 从 488KB 涨到 1.58MB,里面 10 份重复的 92KB 应用 CSS ——
   // 上游 capturePristine 抓的是已注入 CSS 的活 DOM,每个保存世代再烙一份。
   // 经 IPC 用真实 runtime 壳往返多次,字节数必须恒定。

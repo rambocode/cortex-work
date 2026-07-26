@@ -61,14 +61,24 @@ describe('approveOutline', () => {
     const bridge = makeBridge()
     await useBentoSlidesStore.getState().setup({ bridge, workspaceRoot: '/ws', deckId: 'deck1', title: 'x' })
     useBentoSlidesStore.getState().openOutlineDialog()
-    const ok = await useBentoSlidesStore.getState().approveOutline({ version: 1, summary: '', items: [] })
+    const outline = {
+      version: 1,
+      summary: '两页产品介绍',
+      items: [
+        { id: 'o1', title: '开场', purpose: 'hook', keyPoints: ['痛点'] },
+        { id: 'o2', title: '方案', purpose: 'explain', keyPoints: ['能力'] }
+      ]
+    }
+    const ok = await useBentoSlidesStore.getState().approveOutline(outline)
     expect(ok).toBe(true)
     expect(useBentoSlidesStore.getState().stage).toBe('outline-approved')
+    expect(useBentoSlidesStore.getState().revision).toBe(3)
     expect(useBentoSlidesStore.getState().outlineDialogOpen).toBe(false)
     expect(bridge.slidesBentoSetStage).toHaveBeenCalledWith({
       workspaceRoot: '/ws',
       deckId: 'deck1',
-      stage: 'outline-approved'
+      stage: 'outline-approved',
+      outline
     })
   })
 })

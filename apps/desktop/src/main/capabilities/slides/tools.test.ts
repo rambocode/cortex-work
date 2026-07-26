@@ -178,3 +178,87 @@ describe("add_asset", () => {
     expect(res.code).toBe("invalid_asset");
   });
 });
+
+describe("初始生成按页分批落盘", () => {
+  it("占位骨架期间拒绝整份覆盖和 >3 页批次,最后一批自动推进 ready", async () => {
+    const { updateBentoDeckMeta, writeBentoDoc } = await import("./bento-workspace");
+    const skeleton = docWithSlides("流式生成", 4) as {
+      slides: Array<Record<string, unknown>>;
+    } & Record<string, unknown>;
+    skeleton.slides = skeleton.slides.map((slide, index) => ({
+      ...slide,
+      name: `第 ${index + 1} 页`,
+      cortexGeneration: { status: "pending", outlineItemId: `o${index + 1}` },
+    }));
+    expect(
+      (
+        await writeBentoDoc({
+          workspaceRoot: root,
+          deckId: DECK,
+          doc: skeleton,
+          expectedRevision: 3,
+          stage: "outline-approved",
+        })
+      ).ok,
+    ).toBe(true);
+    await updateBentoDeckMeta({
+      workspaceRoot: root,
+      deckId: DECK,
+      patch: { stage: "outline-approved" },
+    });
+
+    const fullWrite = await call("set_deck_doc", {
+      expected_revision: 4,
+      doc: docWithSlides("不应整份覆盖", 4),
+    });
+    expect(fullWrite).toMatchObject({ ok: false, code: "streaming_required" });
+
+    const state = await readBentoDeck({ workspaceRoot: root, deckId: DECK });
+    expect(state.ok).toBe(true);
+    if (!state.ok || !state.value.doc) return;
+    const generated = state.value.doc.slides.map((slide) => {
+      const { cortexGeneration: _pending, ...complete } = slide as typeof slide & {
+        cortexGeneration?: unknown;
+      };
+      return { ...complete, notes: "生成完成" };
+    });
+
+    const tooLarge = await call("set_slides", {
+      expected_revision: 4,
+      slides: generated,
+    });
+    expect(tooLarge).toMatchObject({ ok: false, code: "too_many_slides" });
+
+    const firstBatch = await call("set_slides", {
+      expected_revision: 4,
+      slides: generated.slice(0, 3),
+    });
+    expect(firstBatch).toMatchObject({
+      ok: true,
+      revision: 5,
+      nextExpectedRevision: 5,
+      stage: "outline-approved",
+      remainingPages: [4],
+    });
+
+    const lastBatch = await call("set_slides", {
+      expected_revision: 5,
+      slides: generated.slice(3),
+    });
+    expect(lastBatch).toMatchObject({
+      ok: true,
+      revision: 6,
+      nextExpectedRevision: 6,
+      stage: "ready",
+      remainingPages: [],
+    });
+    const completed = await readBentoDeck({ workspaceRoot: root, deckId: DECK });
+    expect(completed.ok).toBe(true);
+    if (completed.ok) {
+      expect(completed.value.stage).toBe("ready");
+      expect(
+        completed.value.doc?.slides.some((slide) => "cortexGeneration" in slide),
+      ).toBe(false);
+    }
+  });
+});

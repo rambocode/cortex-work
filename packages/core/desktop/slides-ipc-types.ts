@@ -7,6 +7,7 @@
  *    绝不信任 renderer 传入的任何路径。
  *  - 结果一律结构化 { ok } envelope;用户取消导出用 canceled=true 与失败区分。
  */
+import type { SlidesOutline } from '../design/slides/slides-types'
 
 /** IPC 通道名清单(运行时常量,契约测试用)。 */
 export const SLIDES_IPC_CHANNELS = [
@@ -28,7 +29,7 @@ export type SlidesIpcChannel = (typeof SLIDES_IPC_CHANNELS)[number]
 /** deck 内容变更推送通道名(preload 侧订阅同一个名字)。 */
 export const SLIDES_DECK_EVENT_CHANNEL = 'slides:deckChanged'
 
-/** 谁改的:agent = MCP 工具写入;editor = bento 编辑器 autosave 回写;runtime = 主进程换壳/清洗。 */
+/** 谁改的:agent = MCP 工具写入;editor = bento 编辑器 autosave;runtime = 主进程维护/工作流写入。 */
 export type SlidesDeckChangeSource = 'agent' | 'editor' | 'runtime'
 
 /**
@@ -88,6 +89,8 @@ export type BentoDeckStage = 'draft' | 'outline-proposed' | 'outline-approved' |
 
 export interface BentoSetStageRequest extends BentoDeckScopedRequest {
   stage: BentoDeckStage
+  /** 批准时携带用户在确认面板里编辑后的最终提纲,供主进程原子建立生成占位骨架。 */
+  outline?: Omit<SlidesOutline, 'approvedAt'>
 }
 
 /** 读取 deck:json 为内嵌 #bento-doc 原文(空块 null);渲染端按需 JSON.parse。 */

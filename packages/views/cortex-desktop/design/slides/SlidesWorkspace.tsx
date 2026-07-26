@@ -2,7 +2,7 @@
 // 布局收敛为「工具栏 + bento 编辑器舞台」;缩略图/画布编辑由 bento 内置编辑器承担,
 // 右侧 Agent 会话栏仍由 DesignWorkspace 统一渲染。
 // 生命周期:挂载 setup(load/补建 deck)→ AI 回合中轮询 refresh(MCP 直接写盘,无推送)
-// → stage 变 outline-proposed 时自动弹提纲批准 → 批准后派发全篇生成指令。
+// → stage 变 outline-proposed 时自动弹提纲批准 → 批准后按占位页派发分批生成指令。
 import { useEffect, useRef, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, TriangleAlert } from 'lucide-react'
@@ -75,7 +75,8 @@ export function SlidesWorkspace({
     if (stage === 'outline-proposed' && !agentBusy) openOutlineDialog()
   }, [stage, agentBusy, openOutlineDialog])
 
-  // 批准后自动派发全篇生成指令:把用户编辑后的提纲原文并入本轮,AI 据此一次 set_deck_doc。
+  // 批准动作已在主进程建立同页数占位骨架;随后把用户编辑后的提纲并入本轮,
+  // AI 按既有 slide id 分批 set_slides,每批写盘都会在画布与右侧时间线即时可见。
   const handleOutlineApproved = (outline: Omit<SlidesOutline, 'approvedAt'>): void => {
     void sendDesignMessage(
       buildSlidesTurnPrompt({

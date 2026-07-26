@@ -1153,7 +1153,7 @@ export default interface Resources {
     "slidesFindingIgnore": "忽略此建议",
     "slidesFontLarger": "增大字号",
     "slidesFontSmaller": "减小字号",
-    "slidesGenerateApprovedPrompt": "提纲已批准。请调用 get_deck_state 获取最新 revision 与批准的提纲,然后用一次 set_deck_doc 产出完整的 bento 文档:主题 + 提纲对应的全部页面(含演讲者备注),按素材选用 chart/table/morph/stateOf 等特性。写入成功后简要汇报。",
+    "slidesGenerateApprovedPrompt": "提纲已批准，系统已按提纲建立全部占位页。请调用 get_deck_state 获取最新 revision 和现有 slide id，然后用 set_slides 每批最多生成 3 页；每批把返回的 nextExpectedRevision 用于下一批，直到 remainingPages 为空且 stage=ready。生成期间不要调用 set_deck_doc。全部写入后简要汇报。",
     "slidesItalic": "斜体",
     "slidesLayerBack": "置于底层",
     "slidesLayerDown": "下移一层",

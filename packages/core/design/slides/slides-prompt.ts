@@ -3,7 +3,7 @@
  *
  * 为什么 slides 不能复用 design 的 prompt 路由:自由画布的 `sendDesignPrompt` 会过
  * multi-page 闸门,把一句话展开成多页流水线,产物与 deck.bento.html 完全无关(用户实测踩到)。
- * slides 走自己的合同:主题+提纲(等用户批准)→ 一次 set_deck_doc 产出整份 BentoDoc。
+ * slides 走自己的合同:主题+提纲(等用户批准)→ 宿主建占位页 → set_slides 分批填充。
  *
  * 底层是 bento(nyblnet/bento)单文件演示格式:文档是一份声明式 JSON(format "bento/slides"),
  * AI 用 cortex-slides 工具整份读写;渲染/动画/图表由 bento 运行时兜底。
@@ -53,8 +53,8 @@ const CONTRACT = [
   '  nextExpectedRevision — pass THAT as expected_revision for the following batch (no need to re-run',
   '  get_deck_state). Small batches land reliably instead of being truncated, and the user watches the deck',
   '  update page by page instead of staring at nothing until the end.',
-  '- Use set_deck_doc ONLY to create the deck initially, or to add / delete / reorder slides. It passes the',
-  '  COMPLETE document (all slides), not a diff.',
+  '- Use set_deck_doc ONLY to add / delete / reorder slides after initial generation. It passes the COMPLETE',
+  '  document (all slides), not a diff, and is rejected while pending placeholder pages still exist.',
   '- Either way: preserve untouched slides/elements verbatim from get_deck_state — never regenerate content',
   '  the user did not ask to change, and keep existing element ids stable (ids drive morph pairing and',
   '  user selections).',
@@ -110,9 +110,14 @@ const STAGE_INSTRUCTION: Record<SlidesTurnStage, string> = {
     'call propose_outline again with a new version. Do not generate the full deck before approval.'
   ].join('\n'),
   'outline-approved': [
-    'The outline is approved. Produce the COMPLETE document in ONE set_deck_doc call: theme + every slide',
-    'from the approved outline (title slide, content slides, closing), each with elements and speaker notes.',
-    'Prefer charts/tables/morph per the feature mapping. Report briefly after the write succeeds.'
+    'The outline is approved. The host has already created one pending placeholder slide per outline item.',
+    'Fill those EXISTING slide ids with set_slides in visible batches:',
+    '1) call get_deck_state once and keep the placeholder slide ids/order;',
+    '2) replace at most 3 slides per set_slides call with complete slides (elements + speaker notes), using',
+    '   the current revision for the first batch and each response\'s nextExpectedRevision for the next;',
+    '3) continue until remainingPages is empty and the returned stage is ready.',
+    'Do not call set_deck_doc during initial generation. Prefer charts/tables/morph per the feature mapping,',
+    'and report briefly only after every placeholder has been replaced.'
   ].join('\n'),
   ready: [
     'The deck exists. Apply the requested revision with set_slides, IN BATCHES:',

@@ -12,6 +12,7 @@ import { dirname, resolve, sep } from "node:path";
 import {
   parseBentoDoc,
   type BentoDoc,
+  type BentoSlide,
 } from "@cortex-work/core/design/slides/bento/bento-doc-schema";
 import { buildStarterBentoDoc } from "@cortex-work/core/design/slides/bento/bento-doc-schema";
 import {
@@ -24,6 +25,8 @@ import { mergeSlideComments } from "@cortex-work/core/design/slides/bento/merge-
 import { normalizeDeckHtml } from "@cortex-work/core/design/slides/bento/normalize-deck-html";
 import { sanitizeDeckDoc } from "@cortex-work/core/design/slides/bento/sanitize-deck-doc";
 import { applySlideReplacements } from "@cortex-work/core/design/slides/bento/slide-patch";
+import { slidesOutlineSchema } from "@cortex-work/core/design/slides/slides-schema";
+import type { SlidesOutline } from "@cortex-work/core/design/slides/slides-types";
 import {
   bentoDeckHtmlPath,
   bentoDeckMetaPath,
@@ -212,6 +215,115 @@ export interface BentoDeckMeta {
   outline: unknown;
 }
 
+/** 宿主专用的初始生成标记。Bento schema 为 passthrough,运行时会安全忽略。 */
+export const BENTO_PENDING_GENERATION_FIELD = "cortexGeneration";
+
+type PendingGenerationMarker = {
+  status: "pending";
+  outlineItemId: string;
+};
+
+function pendingGenerationMarker(slide: unknown): PendingGenerationMarker | null {
+  if (!slide || typeof slide !== "object") return null;
+  const marker = (slide as Record<string, unknown>)[BENTO_PENDING_GENERATION_FIELD];
+  if (!marker || typeof marker !== "object") return null;
+  const candidate = marker as Partial<PendingGenerationMarker>;
+  return candidate.status === "pending" && typeof candidate.outlineItemId === "string"
+    ? { status: "pending", outlineItemId: candidate.outlineItemId }
+    : null;
+}
+
+/** 1 基页码,同时供工具 gate 与写入完成态判断。 */
+export function pendingBentoGenerationPages(doc: unknown): number[] {
+  const slides = (doc as { slides?: unknown } | null)?.slides;
+  if (!Array.isArray(slides)) return [];
+  return slides.flatMap((slide, index) => (pendingGenerationMarker(slide) ? [index + 1] : []));
+}
+
+function escapeInlineHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function buildGenerationPlaceholder(
+  item: SlidesOutline["items"][number],
+  index: number,
+  total: number,
+  doc: BentoDoc,
+): BentoSlide {
+  const title = escapeInlineHtml(item.title);
+  const points = item.keyPoints
+    .slice(0, 4)
+    .map((point) => `• ${escapeInlineHtml(point)}`)
+    .join("<br>");
+  return {
+    id: `slide-${index + 1}`,
+    name: item.title,
+    background: doc.theme.background,
+    transition: "fade",
+    elements: [
+      {
+        id: `generation-kicker-${index + 1}`,
+        type: "text",
+        x: 96,
+        y: 84,
+        w: 1088,
+        h: 34,
+        rotation: 0,
+        opacity: 1,
+        html: `GENERATING · ${index + 1} / ${total}`,
+        fontSize: 18,
+        fontFamily: doc.theme.fontFamily,
+        fontWeight: 600,
+        color: doc.theme.accent,
+        align: "left",
+        valign: "middle",
+        lineHeight: 1.2,
+      },
+      {
+        id: `generation-title-${index + 1}`,
+        type: "text",
+        x: 96,
+        y: 176,
+        w: 1088,
+        h: 116,
+        rotation: 0,
+        opacity: 1,
+        html: title,
+        fontSize: 52,
+        fontFamily: doc.theme.fontFamily,
+        fontWeight: 700,
+        color: doc.theme.color,
+        align: "left",
+        valign: "middle",
+        lineHeight: 1.12,
+      },
+      {
+        id: `generation-points-${index + 1}`,
+        type: "text",
+        x: 96,
+        y: 342,
+        w: 900,
+        h: 220,
+        rotation: 0,
+        opacity: 0.72,
+        html: points || escapeInlineHtml(item.purpose),
+        fontSize: 24,
+        fontFamily: doc.theme.fontFamily,
+        fontWeight: 400,
+        color: doc.theme.color,
+        align: "left",
+        valign: "top",
+        lineHeight: 1.5,
+      },
+    ],
+    notes: "",
+    [BENTO_PENDING_GENERATION_FIELD]: {
+      status: "pending",
+      outlineItemId: item.id,
+    },
+  };
+}
+
 /** 读 sidecar meta;缺失/损坏一律回落安全默认(手动拷入的 deck 也能继续工作)。 */
 async function readMeta(metaAbs: string): Promise<BentoDeckMeta> {
   try {
@@ -306,6 +418,81 @@ export async function readBentoDeck(options: {
       ok: true,
       value: { doc, json, revision: meta.revision, stage: meta.stage, outline: meta.outline, htmlAbs: paths.htmlAbs },
     };
+  });
+}
+
+/**
+ * 用户批准最终提纲后建立整套可见占位页。
+ *
+ * 这是初始生成能够真正流式落盘的关键:模型不再负责第一次「建页」,而只需按既有 slide id
+ * 用 set_slides 填充内容。每批写入都会复用既有 deckChanged → webview 热应用链路。
+ */
+export async function approveBentoOutline(options: {
+  workspaceRoot: string;
+  deckId: string;
+  outline: Omit<SlidesOutline, "approvedAt">;
+}): Promise<BentoWorkspaceResult<{ revision: number }>> {
+  const approvedAt = new Date().toISOString();
+  const parsedOutline = slidesOutlineSchema.safeParse({ ...options.outline, approvedAt });
+  if (!parsedOutline.success || parsedOutline.data.items.length === 0) {
+    const detail = parsedOutline.success
+      ? "提纲至少需要一页"
+      : parsedOutline.error.issues[0]?.message ?? "提纲格式无效";
+    return fail("invalid_doc", `无法批准提纲: ${detail}`);
+  }
+  const resolved = await resolveBentoDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const paths = resolved.value;
+  return enqueueDeck(paths.deckRootAbs, async () => {
+    let html: string;
+    try {
+      html = await fsp.readFile(paths.htmlAbs, "utf8");
+    } catch {
+      return fail<{ revision: number }>("not_found", `deck 不存在: ${options.deckId}`);
+    }
+    const current = parseBentoDoc(readPrevDoc(html));
+    if (!current.ok) {
+      return fail<{ revision: number }>("invalid_doc", `当前 deck 无法建立生成骨架: ${current.error}`);
+    }
+    const meta = await readMeta(paths.metaAbs);
+    const slides = parsedOutline.data.items.map((item, index) =>
+      buildGenerationPlaceholder(item, index, parsedOutline.data.items.length, current.doc),
+    );
+    const skeleton = parseBentoDoc({
+      ...current.doc,
+      slides,
+      modified: approvedAt,
+    });
+    if (!skeleton.ok) {
+      return fail<{ revision: number }>("invalid_doc", `生成占位骨架未通过校验: ${skeleton.error}`);
+    }
+    const next = injectBentoDoc(html, skeleton.doc);
+    if (next === null) return fail<{ revision: number }>("invalid_doc", "deck 文件缺少 #bento-doc 块(文件损坏)");
+    const revision = meta.revision + 1;
+    try {
+      await backupOnce(paths.htmlAbs);
+      await atomicWriteFile(paths.htmlAbs, next);
+      await writeMeta(paths.metaAbs, {
+        ...meta,
+        revision,
+        stage: "outline-approved",
+        outline: parsedOutline.data,
+      });
+    } catch (err) {
+      log.error(`[bento] approveBentoOutline 落盘失败: ${String(err)}`);
+      return fail<{ revision: number }>("io_error", `建立生成占位页失败: ${String(err)}`);
+    }
+    // 宿主工作流变更使用 runtime 来源:画布立即热应用,但不把占位页误报成 Agent 已生成内容。
+    announceDeckChange({
+      workspaceRoot: options.workspaceRoot,
+      deckId: options.deckId,
+      revision,
+      source: "runtime",
+      slideIds: slides.map((slide) => slide.id),
+      pages: slides.map((_, index) => index + 1),
+      slideCount: slides.length,
+    });
+    return { ok: true, value: { revision } };
   });
 }
 
@@ -487,11 +674,25 @@ export async function writeBentoSlides(options: {
   deckId: string;
   slides: unknown;
   expectedRevision: number;
-}): Promise<BentoWorkspaceResult<{ revision: number; replacedIds: string[]; replacedPages: number[] }>> {
+}): Promise<
+  BentoWorkspaceResult<{
+    revision: number;
+    replacedIds: string[];
+    replacedPages: number[];
+    stage: BentoDeckStage;
+    remainingPages: number[];
+  }>
+> {
   const resolved = await resolveBentoDeckPaths(options.workspaceRoot, options.deckId);
   if (!resolved.ok) return resolved;
   const paths = resolved.value;
-  type Out = { revision: number; replacedIds: string[]; replacedPages: number[] };
+  type Out = {
+    revision: number;
+    replacedIds: string[];
+    replacedPages: number[];
+    stage: BentoDeckStage;
+    remainingPages: number[];
+  };
   return enqueueDeck(paths.deckRootAbs, async () => {
     let html: string;
     try {
@@ -508,20 +709,45 @@ export async function writeBentoSlides(options: {
     }
     // slide-patch 的 invalid_slides / unknown_slide_id 不在 IPC 错误码契约里(这条路径
     // 只在主进程内部走,不过 IPC),统一映射为 invalid_doc,可自纠的细节留在 message。
-    const patched = applySlideReplacements(readPrevDoc(html), options.slides);
+    const previousDoc = readPrevDoc(html);
+    const pendingBefore = pendingBentoGenerationPages(previousDoc);
+    const patched = applySlideReplacements(previousDoc, options.slides);
     if (!patched.ok) return fail<Out>("invalid_doc", patched.message);
-    const parsed = parseBentoDoc(patched.doc);
+    // 被替换的占位页无论模型是否原样带回宿主标记,都视为已经生成并剥掉标记。
+    const replaced = new Set(patched.replacedIds);
+    const patchedRecord = patched.doc as { slides?: unknown[] } & Record<string, unknown>;
+    const withoutCompletedMarkers = {
+      ...patchedRecord,
+      slides: Array.isArray(patchedRecord.slides)
+        ? patchedRecord.slides.map((slide) => {
+            if (!slide || typeof slide !== "object" || !replaced.has(String((slide as { id?: unknown }).id))) {
+              return slide;
+            }
+            const {
+              [BENTO_PENDING_GENERATION_FIELD]: _completed,
+              ...completeSlide
+            } = slide as Record<string, unknown>;
+            return completeSlide;
+          })
+        : patchedRecord.slides,
+    };
+    const parsed = parseBentoDoc(withoutCompletedMarkers);
     if (!parsed.ok) return fail<Out>("invalid_doc", `替换后的文档未通过校验: ${parsed.error}`);
     // 与整份写入同一条评论保全逻辑(未被替换的页天然保留;被替换的页若没带 comments 则补回)。
     // collab 剥离:模型原样抄回 get_deck_state 给的 collab 是常态,而那份凭据会让编辑器
     // 每次打开都连公共中继、把历史世代的元素并集合并回来(见 sanitize-deck-doc 的文件头)。
     const merged = sanitizeDeckDoc(mergeSlideComments(readPrevDoc(html), parsed.doc)).doc;
+    const remainingPages = pendingBentoGenerationPages(merged);
+    const nextStage =
+      meta.stage === "outline-approved" && pendingBefore.length > 0 && remainingPages.length === 0
+        ? "ready"
+        : meta.stage;
     const next = injectBentoDoc(html, merged);
     if (next === null) return fail<Out>("invalid_doc", "deck 文件缺少 #bento-doc 块(文件损坏)");
     try {
       await backupOnce(paths.htmlAbs);
       await atomicWriteFile(paths.htmlAbs, next);
-      await writeMeta(paths.metaAbs, { ...meta, revision: meta.revision + 1 });
+      await writeMeta(paths.metaAbs, { ...meta, revision: meta.revision + 1, stage: nextStage });
     } catch (err) {
       log.error(`[bento] writeBentoSlides 落盘失败: ${String(err)}`);
       return fail<Out>("io_error", `写入失败: ${String(err)}`);
@@ -541,6 +767,8 @@ export async function writeBentoSlides(options: {
         revision: meta.revision + 1,
         replacedIds: patched.replacedIds,
         replacedPages: patched.replacedPages,
+        stage: nextStage,
+        remainingPages,
       },
     };
   });

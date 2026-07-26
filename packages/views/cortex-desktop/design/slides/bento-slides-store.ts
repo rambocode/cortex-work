@@ -47,7 +47,7 @@ interface BentoSlidesUiState {
   refresh(): Promise<void>
   openOutlineDialog(): void
   closeOutlineDialog(): void
-  /** 批准提纲:gate 推进到 outline-approved;编辑后的提纲随生成指令进入对话(不回写 meta)。 */
+  /** 批准提纲:主进程持久化编辑后的提纲并建立逐页生成占位骨架。 */
   approveOutline(outline: Omit<SlidesOutline, 'approvedAt'>): Promise<boolean>
   /**
    * 编辑器 autosave 整份 HTML 落盘(SlidesStage drain 调用)。
@@ -131,17 +131,22 @@ export const useBentoSlidesStore = create<BentoSlidesUiState>((set, get) => ({
     set({ outlineDialogOpen: false })
   },
 
-  async approveOutline() {
+  async approveOutline(outline) {
     const { bridge, workspaceRoot, deckId } = get()
     if (!bridge?.slidesBentoSetStage) return false
     set({ mutating: true })
-    const res = await bridge.slidesBentoSetStage({ workspaceRoot, deckId, stage: 'outline-approved' })
+    const res = await bridge.slidesBentoSetStage({
+      workspaceRoot,
+      deckId,
+      stage: 'outline-approved',
+      outline
+    })
     set({ mutating: false })
     if (!res.ok) {
       set({ deckError: res.error })
       return false
     }
-    set({ stage: 'outline-approved', outlineDialogOpen: false })
+    set({ revision: res.revision, stage: 'outline-approved', outlineDialogOpen: false })
     return true
   },
 

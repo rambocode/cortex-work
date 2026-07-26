@@ -1,6 +1,6 @@
 // cortex-slides MCP 工具集(bento 化)。所有工具:
 //   - 只经 bento-workspace 读写 deck(路径校验/原子写/revision 乐观锁全部继承);
-//   - 主写工具 set_deck_doc 整份替换 BentoDoc(zod 结构校验 + expected_revision);
+//   - set_deck_doc 只做结构变更;初始生成与内容编辑统一走分批 set_slides;
 //   - 提纲批准 gate:stage 为 draft/outline-proposed 时拒绝多页全篇写入
 //     (outline_not_approved),强制「先确认提纲再生成全篇」的产品流程;
 //   - 结果一律 JSON 文本(ok/code/message + 数据),Agent 可直接机读。
@@ -11,6 +11,7 @@ import { createLogger } from "../../log";
 import type { SlidesSessionState } from "./session";
 import {
   appendSlidesSource,
+  pendingBentoGenerationPages,
   readBentoDeck,
   readSlidesSources,
   updateBentoDeckMeta,
@@ -33,6 +34,8 @@ function errorResult(code: string, message: string): ToolResult {
 
 // 单个 base64 资产上限(约 3MB 原始字节;更大的图应引导外部压缩后再入)。
 export const MAX_ASSET_BASE64_CHARS = 4 * 1024 * 1024;
+/** 强制小批写入,不能只靠模型遵循工具描述。 */
+export const MAX_SLIDES_PER_BATCH = 3;
 
 const outlineItemShape = z.object({
   id: z.string().min(1).describe("Stable outline item id, e.g. 'o1'"),
@@ -83,7 +86,7 @@ function stageHint(stage: BentoDeckStage): string {
     case "outline-proposed":
       return "The outline is submitted and awaiting user approval in the UI; full-deck set_deck_doc is rejected before approval.";
     case "outline-approved":
-      return "The outline is approved: produce the complete document (all slides) in one set_deck_doc call.";
+      return "The outline is approved and every page already exists as a pending placeholder. Replace those existing pages with set_slides, at most 3 per call, chaining nextExpectedRevision until remainingPages is empty. Do not call set_deck_doc.";
     case "ready":
       return "The deck is ready: fetch with get_deck_state, then edit ONLY the affected slides with set_slides — at most 3 slides per call, chaining nextExpectedRevision from each response into the next batch. Use set_deck_doc only when adding, deleting or reordering slides.";
   }
@@ -153,7 +156,8 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       description:
         "Replace the deck's COMPLETE Bento document (format bento/slides). Pass every slide — this is a full overwrite, " +
         "not a merge; preserve untouched content verbatim from get_deck_state. Requires expected_revision. " +
-        "While the outline is not approved, only single-slide skeleton writes are allowed (multi-slide docs are rejected).",
+        "Use only for structural add/delete/reorder operations. While the outline is not approved, only single-slide " +
+        "skeleton writes are allowed; while approved placeholders are being generated, full overwrite is rejected.",
       inputSchema: {
         expected_revision: z.number().int().min(0),
         doc: deckDocInputShape.describe(
@@ -170,6 +174,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       const current = await readBentoDeck(ctx);
       if (!current.ok) return errorResult(current.error.code, current.error.message);
       const stage = current.value.stage;
+      const pendingPages = pendingBentoGenerationPages(current.value.doc);
       const slideCount = Array.isArray(normalizedDoc.slides)
         ? normalizedDoc.slides.length
         : 0;
@@ -178,6 +183,12 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
         return errorResult(
           "outline_not_approved",
           "The outline has not been approved yet. Call propose_outline and wait for the user to approve it in the UI before generating the full deck.",
+        );
+      }
+      if (pendingPages.length > 0) {
+        return errorResult(
+          "streaming_required",
+          `Initial generation is in progress on placeholder pages ${pendingPages.join(", ")}. Replace them with set_slides in batches of at most ${MAX_SLIDES_PER_BATCH}; do not overwrite the whole deck.`,
         );
       }
       // 全篇生成成功即视为 ready(gate 完成使命);其余写入保持原 stage。
@@ -229,6 +240,12 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       if (!normalized) {
         return errorResult("invalid_doc", "slides 必须是 slide 对象数组,或可解析为该数组的 JSON 字符串");
       }
+      if (normalized.length > MAX_SLIDES_PER_BATCH) {
+        return errorResult(
+          "too_many_slides",
+          `set_slides 每次最多写 ${MAX_SLIDES_PER_BATCH} 页;请拆分批次并把本次返回的 nextExpectedRevision 用于下一批`,
+        );
+      }
       const result = await writeBentoSlides({
         ...ctx,
         slides: normalized,
@@ -246,6 +263,8 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
         nextExpectedRevision: result.value.revision,
         replacedSlideIds: result.value.replacedIds,
         replacedPages: result.value.replacedPages,
+        stage: result.value.stage,
+        remainingPages: result.value.remainingPages,
       });
     },
   );

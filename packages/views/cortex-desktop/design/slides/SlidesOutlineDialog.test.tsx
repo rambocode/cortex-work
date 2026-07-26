@@ -65,7 +65,8 @@ describe('SlidesOutlineDialog', () => {
     expect(bridge.slidesBentoSetStage).toHaveBeenCalledWith({
       workspaceRoot: ROOT,
       deckId: DECK,
-      stage: 'outline-approved'
+      stage: 'outline-approved',
+      outline
     })
     expect(useBentoSlidesStore.getState().stage).toBe('outline-approved')
     expect(useBentoSlidesStore.getState().outlineDialogOpen).toBe(false)

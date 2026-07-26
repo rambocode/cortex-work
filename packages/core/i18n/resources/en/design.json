@@ -507,7 +507,7 @@
   "slidesCheckSeverity_blocking": "Blocking",
   "slidesCheckSeverity_warning": "Warning",
   "slidesCheckSeverity_info": "Info",
-  "slidesGenerateApprovedPrompt": "The outline is approved. Call get_deck_state for the latest revision and the approved outline, then produce the COMPLETE bento document in one set_deck_doc call: theme plus every outlined slide (with speaker notes), using charts/tables/morph/stateOf where the material fits. Report briefly once the write succeeds.",
+  "slidesGenerateApprovedPrompt": "The outline is approved and the system has created every placeholder page. Call get_deck_state for the latest revision and existing slide ids, then generate at most 3 pages per set_slides call. Pass each response's nextExpectedRevision into the next batch until remainingPages is empty and stage=ready. Do not call set_deck_doc during generation. Report briefly after every page is written.",
   "slidesRetrySlidePrompt": "Slide {{index}} (slot {{slotId}}) previously failed or needs a redo. Call get_deck_state for the latest revision and regenerate only this slot with place_slide_html (1280×720). Do not touch other slides.",
   "designOpenExternal": "Open in browser",
   "designOperationJournalAffected": "{{count}} affected",
