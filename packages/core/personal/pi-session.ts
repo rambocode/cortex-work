@@ -103,6 +103,10 @@ function extensionFingerprint(req: PiOpenRequest): string {
     // 扩展市场（U3）:启用集经 -e 冷启注入,同 skillPaths——启停/卸载改 extensionPaths → 指纹漂移
     // → 下一轮重开生效（否则禁用静默不生效"裸奔"）。keyed 完整解析路径,使重装/更新换路径也漂移。
     extensionPaths: [...(req.extensionPaths ?? [])].sort(),
+    // 会话级联网:研究引擎 MCP 经桥接 extension 在 pi:open 时并入,pi 无运行时增删工具集的命令。
+    // 不进指纹会让中途切开关复用温会话的旧工具集——开了却没有 web_search、或关了仍留着一套
+    // 能出站的工具（后者是安全问题）。与 confineToCwd / skillPaths 同类。
+    webSearch: !!req.webSearch,
     provider: req.provider
       ? {
           id: req.provider.id,

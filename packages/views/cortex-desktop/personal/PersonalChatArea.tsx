@@ -673,6 +673,7 @@ export function PersonalChatArea({
           updateSession(session.id, { subagentOrchestration: session.subagentOrchestration !== true })
         }
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
+        onToggleWebSearch={() => updateSession(session.id, { webSearch: session.webSearch !== true })}
         onToast={onToast}
       />
 

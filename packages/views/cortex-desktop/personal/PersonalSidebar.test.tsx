@@ -300,11 +300,11 @@ describe("PersonalSidebar 深度研究入口", () => {
         researchEngine: {
           enabled,
           deepResearchEnabled: true,
-          chatEnabled: false,
           chatAutoRetrieve: false,
           slidesEnabled: false,
           writingEnabled: false,
           memoryEnabled: false,
+          searchBackend: "direct",
         },
       },
     }));

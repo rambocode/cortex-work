@@ -17,7 +17,19 @@ export interface ResearchSearchServerSettings {
   encryptedToken?: string;
 }
 
-/// 直连商业搜索的配置（Search Server 未部署时的逃生阀，见 ./direct-search 的文件头）。
+/// 搜索后端的选择。**单选，二者不并存**：
+///   - "direct" 直连商业搜索（Brave / Tavily 等）——查询词从本机直接出站给服务商；
+///   - "server" 自建 Search Server——查询词经服务端转发，有限流与审计。
+///
+/// 为什么要一个显式字段、而不是像从前那样「两边都配、按优先级挑」：优先级是隐式规则，
+/// 用户看着两张都填好的表单无法判断此刻究竟哪条在生效（截图里那位就同时配了两边）。
+/// 单选把这件事变成界面上看得见的一次选择。
+///
+/// 另一个后果是**不再静默回落**：选了 server 而它配坏了，就报「未配置」，
+/// 不会悄悄降级到隐私边界更弱的直连——降级到用户没选的出站路径本身就是个问题。
+export type ResearchSearchBackend = "direct" | "server";
+
+/// 直连商业搜索的配置（默认后端，见 ./direct-search 的文件头）。
 ///
 /// **没有 baseUrl 字段**，这是刻意的：端点写死在 DIRECT_SEARCH_PROVIDERS 里。
 /// 可配置的 baseUrl 等于从设置页开一个「任意 URL 出站」后门，绕开 url-safety / dns-guard。
@@ -29,16 +41,21 @@ export interface ResearchDirectSearchSettings {
 }
 
 /// CRE 的全部用户可配置项。各 *Enabled 是按 Consumer 的灰度开关，允许「只开 Deep Research」。
+///
+/// **chat 场景刻意没有灰度开关**：聊天里的联网由会话级 SessionMeta.webSearch 决定
+///（输入框上的「联网」pill）。联网带有数据出站语义，「这次对话要不要联网」是用户当下的意图，
+/// 全局开关会让此后每个会话都悄悄具备出站能力、而界面上看不出痕迹。原 chatEnabled 因此移除；
+/// 旧配置里残留的该键由下面的白名单重建自然丢弃，无需迁移代码。
 export interface ResearchEngineSettings {
   /// 总开关。缺省 false —— 新能力，必须用户显式开启。
   enabled: boolean;
   deepResearchEnabled: boolean;
-  /// 会话内检索：给聊天里的 agent 注入 web_search / web_read 工具，由模型自行决定何时用。
-  chatEnabled: boolean;
   /// 「总是先检索再回答」：每轮发送前先跑一次 gather，把证据注入 system prompt。
   ///
-  /// 与 chatEnabled 是两种触发方式而非层级关系，但**依赖它**：关掉会话内检索时，
-  /// 这一项即便为 true 也不生效（判定在消费方，不在此处表达）。
+  /// 与「模型自主调用 web_search」是两种触发方式而非层级关系，但**依赖会话级联网开关**：
+  /// 会话没开「联网」时，这一项即便为 true 也不生效（判定在 ./chat-retrieval 的
+  /// shouldAutoRetrieve，不在此处表达）。它管的是「联网时的行为风格」而非「是否允许联网」，
+  /// 所以留在全局设置里。
   /// 默认关闭——它给每一轮对话都加上几秒延迟，不该是所有人的默认体验。
   chatAutoRetrieve: boolean;
   slidesEnabled: boolean;
@@ -57,21 +74,30 @@ export interface ResearchEngineSettings {
   /// 查不到就落回全局默认，绝不因为设置里存了个失效 id 就让研究不可用。
   modelProviderId?: string;
   modelId?: string;
+  /// 用哪条搜索路径（单选）。缺省 "direct"：绝大多数人不会自建 Search Server，
+  /// 默认该落在「填个 API key 就能用」的那一档。
+  ///
+  /// 旧配置没有这个键，归一化时会按既有实际生效项推断（见 readSearchBackend），
+  /// 而不是一律取默认——否则已配好 Search Server 的用户升级后联网会直接失效。
+  searchBackend: ResearchSearchBackend;
+  /// 自建 Search Server 的连接配置。仅在 searchBackend === "server" 时被读取。
   searchServer?: ResearchSearchServerSettings;
-  /// 直连商业搜索。**仅在 searchServer 未配置时生效**（自建服务端优先），
-  /// 优先级由 main 的 createSearchClient 实现，不在此处表达。
+  /// 直连商业搜索的配置。仅在 searchBackend === "direct" 时被读取。
+  ///
+  /// 两个字段都保留下来（而非选了哪条就清掉另一条）是刻意的：用户来回切换后端时
+  /// 不该丢掉另一边已经填好的地址与密钥，切回去还得重新配一遍。
   directSearch?: ResearchDirectSearchSettings;
 }
 
-/// 出厂默认：所有开关关闭；模型偏好留空 = 跟随全局默认模型。
+/// 出厂默认：所有开关关闭；模型偏好留空 = 跟随全局默认模型；搜索后端默认直连。
 export const DEFAULT_RESEARCH_ENGINE_SETTINGS: ResearchEngineSettings = {
   enabled: false,
   deepResearchEnabled: false,
-  chatEnabled: false,
   chatAutoRetrieve: false,
   slidesEnabled: false,
   writingEnabled: false,
   memoryEnabled: false,
+  searchBackend: "direct",
 };
 
 /// 只接受真正的布尔值。字符串 "true" / 数字 1 一律不算 true —— 这些开关控制的是数据出站，
@@ -129,8 +155,26 @@ function normalizeDirectSearch(raw: unknown): ResearchDirectSearchSettings | und
   return normalized;
 }
 
+/// 读 searchBackend，缺失或非法时**按既有配置推断**而不是取默认。
+///
+/// 这个键是「两条路径改单选」时新加的，所有升级上来的配置都没有它。若一律回落 "direct"，
+/// 已经部署并配好 Search Server 的用户升级后会突然走到「直连但没填 key」，联网整个失效——
+/// 而设置页上他的 Search Server 明明显示「已配置」，无从排查。
+///
+/// 推断依据是**升级前实际生效的那一条**：旧的 createSearchClient 是
+/// `createSearchServerClient() ?? createDirectSearchClient()`，而 Search Server 客户端
+/// 需要 baseUrl + workspaceId + 可解密的令牌才构造得出来。所以只有三者齐全才推断 server，
+/// 缺令牌的半截配置在升级前走的也是直连回落，推断成 direct 才叫「保持既有行为」。
+function readSearchBackend(source: Record<string, unknown>): ResearchSearchBackend {
+  const value = source.searchBackend;
+  if (value === "direct" || value === "server") return value;
+  const server = normalizeSearchServer(source.searchServer);
+  return server?.encryptedToken ? "server" : "direct";
+}
+
 /// 把任意 unknown（磁盘 JSON / IPC 入参）归一为完整的 ResearchEngineSettings。
 /// 语义：未知字段丢弃、缺失字段取默认、类型或枚举非法一律回落默认，永不抛错。
+/// 例外是 searchBackend：它按既有配置推断而非取默认，理由见 readSearchBackend。
 export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSettings {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ...DEFAULT_RESEARCH_ENGINE_SETTINGS };
@@ -146,7 +190,6 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
       "deepResearchEnabled",
       DEFAULT_RESEARCH_ENGINE_SETTINGS.deepResearchEnabled,
     ),
-    chatEnabled: readBoolean(source, "chatEnabled", DEFAULT_RESEARCH_ENGINE_SETTINGS.chatEnabled),
     chatAutoRetrieve: readBoolean(
       source,
       "chatAutoRetrieve",
@@ -159,6 +202,7 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
       DEFAULT_RESEARCH_ENGINE_SETTINGS.writingEnabled,
     ),
     memoryEnabled: readBoolean(source, "memoryEnabled", DEFAULT_RESEARCH_ENGINE_SETTINGS.memoryEnabled),
+    searchBackend: readSearchBackend(source),
   };
 
   // 可选字段一律「有值才写键」：exactOptionalPropertyTypes 下 `key: undefined` 不合法，
@@ -173,4 +217,27 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
   const directSearch = normalizeDirectSearch(source.directSearch);
   if (directSearch) normalized.directSearch = directSearch;
   return normalized;
+}
+
+/// 当前选中的搜索后端是否已配好。
+///
+/// **只看 searchBackend 选中的那一条**，另一条配得再全也不算。否则会出现
+/// 「选了直连、只配了 Server」而「联网」pill 却可点的状态，用户开了之后主进程那侧
+/// createSearchClient 返回 null，得到的是一句「搜索服务未配置」。
+///
+/// **只看配置是否完整，不做连通性探测**：主进程侧的调用发生在 agent 启动路径上，
+/// 为此发一次网络请求会给每次会话启动加上几百毫秒；配了但不通，由工具调用时的错误信息告知，
+/// 那时用户已经在等结果、有心理预期。
+///
+/// **住在 core 而非各自实现一份**：主进程用它决定是否注入研究 MCP，渲染端用它决定输入框上
+/// 「联网」pill 是否可点。两份拷贝一旦漂移，就会出现「按钮可点、点了不注入」这种查不出原因的
+/// 状态——与 consumer-gate 抽成单文件是同一个理由。判定条件必须与 main 的
+/// createSearchServerClient / createDirectSearchClient 的构造前提保持一致。
+export function hasSearchBackend(settings: ResearchEngineSettings | undefined): boolean {
+  if (!settings) return false;
+  if (settings.searchBackend === "server") {
+    const server = settings.searchServer;
+    return !!(server?.baseUrl && server.workspaceId && server.encryptedToken);
+  }
+  return !!settings.directSearch?.encryptedApiKey;
 }

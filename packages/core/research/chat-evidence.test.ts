@@ -5,7 +5,11 @@
 import { describe, expect, it } from "vitest";
 import type { PreparedDocument } from "./quick-types";
 
-import { CHAT_EVIDENCE_BUDGET, composeChatEvidenceAppend } from "./chat-evidence";
+import {
+  CHAT_EVIDENCE_BUDGET,
+  composeChatEvidenceAppend,
+  composeChatRetrievalFailureNotice,
+} from "./chat-evidence";
 import { MEMORY_APPEND_BUDGET } from "../memory/inject";
 
 function doc(overrides: Partial<PreparedDocument> = {}): PreparedDocument {
@@ -91,5 +95,54 @@ describe("composeChatEvidenceAppend 空结果", () => {
 
   it("全部文档正文为空时同样走空结果说明", () => {
     expect(composeChatEvidenceAppend([doc({ text: "" })])).toContain("没能验证最新信息");
+  });
+});
+
+// ── 故障通知与「搜到 0 条」必须分开 ────────────────────────────────────────────
+//
+// 上线首日的真实事故：前置检索因搜索后端故障失败，却注入了「本轮已尝试联网检索，但没有取到
+// 可用资料」。模型的工具调用记录里**没有任何检索**，于是它下一轮只好跟用户解释
+// 「之前的声明是系统预设的提示——实际上我还没有主动尝试过联网检索」。
+// 让模型对用户讨论系统提示的来源，是文案与事实脱节造成的，必须从源头分开这两种情形。
+describe("composeChatRetrievalFailureNotice", () => {
+  it("不声称检索已执行（这正是把模型逼去解释系统提示的那句话）", () => {
+    const notice = composeChatRetrievalFailureNotice();
+    expect(notice).not.toContain("已尝试");
+    expect(notice).not.toContain("没有取到可用资料");
+  });
+
+  it("要求模型如实告知未联网核对", () => {
+    expect(composeChatRetrievalFailureNotice()).toContain("没有联网");
+  });
+
+  /// 防编造：故障时模型手里没有任何来源，绝不能顺嘴写出"据某网站"。
+  it("明确禁止声称查阅过网络资料", () => {
+    expect(composeChatRetrievalFailureNotice()).toContain("不要声称");
+  });
+
+  it("带上原因供模型如实转述（用户才有排查线索）", () => {
+    expect(composeChatRetrievalFailureNotice("检索超时")).toContain("检索超时");
+  });
+
+  /// 原因来自底层异常，可能很长甚至带栈。注入段不该被它挤占，且模型不需要看栈。
+  it("超长原因被截断", () => {
+    const notice = composeChatRetrievalFailureNotice("x".repeat(2000));
+    expect(notice.length).toBeLessThan(500);
+  });
+
+  it("与「搜到 0 条」的说明段是两段不同的文本", () => {
+    expect(composeChatRetrievalFailureNotice()).not.toBe(composeChatEvidenceAppend([]));
+  });
+});
+
+/// 0 结果的说明段同样要防编造：检索确实跑了但两手空空，模型也不该编来源。
+describe("composeChatEvidenceAppend 零结果说明", () => {
+  it("如实说明检索已执行但没取到", () => {
+    const notice = composeChatEvidenceAppend([]);
+    expect(notice).toContain("没能验证最新信息");
+  });
+
+  it("禁止声称查阅过网络资料", () => {
+    expect(composeChatEvidenceAppend([])).toContain("不要声称");
   });
 });

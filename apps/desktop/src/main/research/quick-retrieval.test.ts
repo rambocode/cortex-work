@@ -17,11 +17,11 @@ import { ResearchDisabledError, SearchServerNotConfiguredError } from "./consume
 const ENABLED: ResearchEngineSettings = {
   enabled: true,
   deepResearchEnabled: true,
-  chatEnabled: true,
   chatAutoRetrieve: false,
   slidesEnabled: false,
   writingEnabled: false,
   memoryEnabled: false,
+  searchBackend: "direct",
 };
 
 /// 搜索响应替身：n 条同域或跨域结果。
@@ -127,17 +127,25 @@ describe("QuickRetrieval 准入闸", () => {
   });
 
   it("Consumer 灰度开关关闭时 discover 抛 ResearchDisabledError", async () => {
-    const quick = makeQuick({ settings: { ...ENABLED, chatEnabled: false } });
-    await expect(quick.discover({ consumer: "chat", query: "x" })).rejects.toBeInstanceOf(
+    const quick = makeQuick({ settings: { ...ENABLED, writingEnabled: false } });
+    await expect(quick.discover({ consumer: "writing", query: "x" })).rejects.toBeInstanceOf(
       ResearchDisabledError,
     );
   });
 
   it("prepare 同样受闸（别只在 discover 上把门，绕一步就进去了）", async () => {
-    const quick = makeQuick({ settings: { ...ENABLED, chatEnabled: false } });
+    const quick = makeQuick({ settings: { ...ENABLED, writingEnabled: false } });
     await expect(
-      quick.prepare({ consumer: "chat", objective: "o", urls: ["https://a.com"] }),
+      quick.prepare({ consumer: "writing", objective: "o", urls: ["https://a.com"] }),
     ).rejects.toBeInstanceOf(ResearchDisabledError);
+  });
+
+  /// chat 已无全局灰度开关：它的准入在注入层（buildResearchMcpServerConfig 的 sessionOptIn）
+  /// 与发送层（shouldAutoRetrieve 的 sessionWebSearch），此处只受总开关约束。
+  /// 若哪天有人给 chat 补回一个全局开关，这条会立刻变红——那正是要讨论的时刻。
+  it("chat consumer 只受总开关约束，不再有全局灰度开关", async () => {
+    const quick = makeQuick({ settings: ENABLED });
+    await expect(quick.discover({ consumer: "chat", query: "x" })).resolves.toBeDefined();
   });
 
   it("准入闸在触网之前：开关关闭时一次搜索都不发", async () => {
@@ -318,5 +326,105 @@ describe("QuickRetrieval.prepare", () => {
 
     const total = result.documents.reduce((sum, d) => sum + d.text.length, 0);
     expect(total).toBeLessThanOrEqual(QUICK_RETRIEVAL_LIMITS.maxTotalChars);
+  });
+});
+
+// ── 上游限流：退避重试 + 并发闸 ────────────────────────────────────────────────
+//
+// 真实事故：模型一轮里并发甩出 3~5 个 web_search，而 Brave 免费档是 1 QPS 量级，
+// 大半请求回 rate_limited。旧行为把限流一律渲染成「没有搜到相关结果」，模型据此换个词继续搜
+// —— 配额烧得更快，用户看到的是「一轮对话反复出现多次没有搜索到结果」。
+//
+// 两道防线：并发闸把同时在飞的请求压到 maxSearchConcurrency；限流仍发生时退避重试一次。
+describe("QuickRetrieval 上游限流处理", () => {
+  /// 带错误码的搜索响应替身（0 结果 + 指定 provider 错误）。
+  function errorResponse(code: string, provider = "brave"): SearchBatchResponse {
+    return searchResponse([], [{ provider, code }]);
+  }
+
+  it("限流且零结果 → 退避重试一次", async () => {
+    const searchBatch = vi
+      .fn<(r: SearchBatchRequest, s?: AbortSignal) => Promise<SearchBatchResponse>>()
+      .mockResolvedValueOnce(errorResponse("rate_limited"))
+      .mockResolvedValueOnce(searchResponse([{ url: "https://a.com/1" }]));
+
+    const result = await makeQuick({ searchBatch }).discover({ consumer: "chat", query: "x" });
+    expect(searchBatch).toHaveBeenCalledTimes(2);
+    expect(result.leads).toHaveLength(1);
+  });
+
+  it("重试后仍限流 → 结构化错误码透出（供上层分流成「限流」而非「没命中」）", async () => {
+    const searchBatch = vi.fn(async () => errorResponse("rate_limited"));
+    const result = await makeQuick({ searchBatch }).discover({ consumer: "chat", query: "x" });
+
+    expect(searchBatch).toHaveBeenCalledTimes(1 + QUICK_RETRIEVAL_LIMITS.searchRetries);
+    expect(result.leads).toHaveLength(0);
+    expect(result.providerErrors).toEqual([{ provider: "brave", code: "rate_limited" }]);
+    // 人话 warning 仍保留（面向用户展示）。
+    expect(result.warnings.join()).toContain("rate_limited");
+  });
+
+  /// 配置类错误重试一万次也不会有 key，只会让每次工具调用白等。
+  it("非临时错误（auth_failed）不重试", async () => {
+    const searchBatch = vi.fn(async () => errorResponse("auth_failed"));
+    const result = await makeQuick({ searchBatch }).discover({ consumer: "chat", query: "x" });
+    expect(searchBatch).toHaveBeenCalledTimes(1);
+    expect(result.providerErrors).toEqual([{ provider: "brave", code: "auth_failed" }]);
+  });
+
+  /// 一个源限流、另一个源有结果 = 这次调用已经拿到东西了，重试纯属浪费配额。
+  it("有结果时即便带限流警告也不重试", async () => {
+    const searchBatch = vi.fn(async () =>
+      searchResponse([{ url: "https://a.com/1" }], [{ provider: "brave", code: "rate_limited" }]),
+    );
+    const result = await makeQuick({ searchBatch }).discover({ consumer: "chat", query: "x" });
+    expect(searchBatch).toHaveBeenCalledTimes(1);
+    expect(result.leads).toHaveLength(1);
+  });
+
+  it("真的没命中（零结果且无上游错误）不重试", async () => {
+    const searchBatch = vi.fn(async () => searchResponse([]));
+    const result = await makeQuick({ searchBatch }).discover({ consumer: "chat", query: "x" });
+    expect(searchBatch).toHaveBeenCalledTimes(1);
+    expect(result.providerErrors ?? []).toEqual([]);
+  });
+
+  /// 并发闸是这次修复的第一道防线：不压住并发，退避重试也只是把限流往后挪。
+  it("并发 discover 时在飞请求数不超过 maxSearchConcurrency", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const searchBatch = vi.fn(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return searchResponse([{ url: "https://a.com/1" }]);
+    });
+
+    const quick = makeQuick({ searchBatch });
+    await Promise.all(
+      Array.from({ length: 6 }, () => quick.discover({ consumer: "chat", query: "x" })),
+    );
+    expect(searchBatch).toHaveBeenCalledTimes(6);
+    expect(peak).toBeLessThanOrEqual(QUICK_RETRIEVAL_LIMITS.maxSearchConcurrency);
+  });
+
+  /// 闸不能把请求吞掉或串错：6 个并发全部要拿到自己的结果。
+  it("并发闸下所有请求都完成", async () => {
+    const searchBatch = vi.fn(async (r: SearchBatchRequest) =>
+      searchResponse([{ url: `https://a.com/${r.queries[0]!.text}` }]),
+    );
+    const quick = makeQuick({ searchBatch });
+    const results = await Promise.all(
+      ["a", "b", "c", "d", "e", "f"].map((q) => quick.discover({ consumer: "chat", query: q })),
+    );
+    expect(results.map((r) => r.leads[0]!.url).sort()).toEqual([
+      "https://a.com/a",
+      "https://a.com/b",
+      "https://a.com/c",
+      "https://a.com/d",
+      "https://a.com/e",
+      "https://a.com/f",
+    ]);
   });
 });

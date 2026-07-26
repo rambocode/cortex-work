@@ -18,11 +18,11 @@ const settingsRef: { current: ResearchEngineSettings } = {
   current: {
     enabled: true,
     deepResearchEnabled: false,
-    chatEnabled: true,
     chatAutoRetrieve: false,
     slidesEnabled: false,
     writingEnabled: false,
     memoryEnabled: false,
+    searchBackend: "direct",
   },
 };
 // 显式标注入参与返回类型：不写的话 vi.fn 推断出零参签名，
@@ -207,5 +207,105 @@ describe("web_read 行为", () => {
     expect(result.content[0].text).toContain("有正文");
     expect(result.content[0].text).toContain("正文已截断");
     expect(result.content[0].text).toContain("HTTP 403");
+  });
+});
+
+// ── 限流必须与「真的没命中」分流 ──────────────────────────────────────────────
+//
+// 真实事故：上游 Brave 免费档被打限流，web_search 一律回「没有搜到相关结果」。模型据此
+// 判断"这个词没有结果"，于是换个词继续搜——并发更多、限流更重，用户看到的是
+// 「一轮对话反复出现多次没有搜索到结果」。
+//
+// 这两种情形给模型的信号必须相反：没命中 → 换个说法再试；限流 → 停下别再搜。
+describe("web_search 上游限流分流", () => {
+  it("限流时明确说明是上游限流，而不是「没有搜到相关结果」", async () => {
+    discover.mockResolvedValueOnce({
+      leads: [],
+      warnings: ["搜索源 brave 未返回结果（rate_limited）"],
+      providerErrors: [{ provider: "brave", code: "rate_limited" }],
+    });
+    const mcp = fakeMcp();
+    registerResearchTools(mcp as never, { sessionId: "s1" });
+    const result = (await mcp.tools.get("web_search")!({ query: "x" })) as {
+      isError?: boolean;
+      content: [{ text: string }];
+    };
+    expect(result.content[0].text).toContain("限流");
+    expect(result.content[0].text).not.toContain("没有搜到相关结果");
+  });
+
+  /// 关键一条：必须明确劝阻立即重搜。否则模型的默认反应就是换个词再来一次。
+  it("限流时告知模型不要立即重复搜索", async () => {
+    discover.mockResolvedValueOnce({
+      leads: [],
+      warnings: [],
+      providerErrors: [{ provider: "brave", code: "rate_limited" }],
+    });
+    const mcp = fakeMcp();
+    registerResearchTools(mcp as never, { sessionId: "s1" });
+    const result = (await mcp.tools.get("web_search")!({ query: "x" })) as {
+      content: [{ text: string }];
+    };
+    expect(result.content[0].text).toMatch(/不要(立即)?(重复|再)/);
+  });
+
+  /// 上游故障应当以 isError 呈现：模型对失败与空结果的处置本就不同，
+  /// 把故障伪装成成功是这次事故的起点。
+  it("上游故障回 isError（空结果不是成功）", async () => {
+    discover.mockResolvedValueOnce({
+      leads: [],
+      warnings: [],
+      providerErrors: [{ provider: "brave", code: "rate_limited" }],
+    });
+    const mcp = fakeMcp();
+    registerResearchTools(mcp as never, { sessionId: "s1" });
+    const result = (await mcp.tools.get("web_search")!({ query: "x" })) as { isError?: boolean };
+    expect(result.isError).toBe(true);
+  });
+
+  it("非限流的上游错误（auth_failed）同样分流为故障，并带上错误码", async () => {
+    discover.mockResolvedValueOnce({
+      leads: [],
+      warnings: [],
+      providerErrors: [{ provider: "brave", code: "auth_failed" }],
+    });
+    const mcp = fakeMcp();
+    registerResearchTools(mcp as never, { sessionId: "s1" });
+    const result = (await mcp.tools.get("web_search")!({ query: "x" })) as {
+      isError?: boolean;
+      content: [{ text: string }];
+    };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("auth_failed");
+  });
+
+  /// 真的没命中仍走原路径：这是正常结果，不是错误，模型该换个说法再试。
+  it("零结果且无上游错误 → 仍是「没有搜到相关结果」且不是 isError", async () => {
+    discover.mockResolvedValueOnce({ leads: [], warnings: [] });
+    const mcp = fakeMcp();
+    registerResearchTools(mcp as never, { sessionId: "s1" });
+    const result = (await mcp.tools.get("web_search")!({ query: "x" })) as {
+      isError?: boolean;
+      content: [{ text: string }];
+    };
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("没有搜到相关结果");
+  });
+
+  /// 有结果时限流警告只是附注，绝不能把一次成功的搜索标成失败。
+  it("有结果 + 限流警告 → 正常返回结果，不标 isError", async () => {
+    discover.mockResolvedValueOnce({
+      leads: [{ url: "https://a.com/p", title: "T", domain: "a.com" }],
+      warnings: ["搜索源 brave 未返回结果（rate_limited）"],
+      providerErrors: [{ provider: "brave", code: "rate_limited" }],
+    });
+    const mcp = fakeMcp();
+    registerResearchTools(mcp as never, { sessionId: "s1" });
+    const result = (await mcp.tools.get("web_search")!({ query: "x" })) as {
+      isError?: boolean;
+      content: [{ text: string }];
+    };
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("找到 1 条线索");
   });
 });

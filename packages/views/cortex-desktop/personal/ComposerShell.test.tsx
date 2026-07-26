@@ -840,3 +840,89 @@ describe("ComposerShell agent 选择器(opt-in)", () => {
     expect(container.querySelector(".pw-sh-agent")).toBeNull();
   });
 });
+
+// ── 会话级「联网」pill ────────────────────────────────────────────────────────
+//
+// 这个 pill 是「本会话要不要联网」的唯一入口（全局 chatEnabled 已移除），四条要守住：
+//   1. **opt-in**：宿主不传 onToggleWebSearch（研究引擎未开 / 无桥）时整个 pill 不渲染——
+//      给一个点了没反应的出站开关比不给更糟；
+//   2. **状态一眼可见**：aria-pressed 与 .is-on 必须跟着 webSearch 走。联网带数据出站语义，
+//      当前是开还是关不能靠猜；
+//   3. 搜索后端没配好时**禁用而非消失**，tooltip 指向设置页（主进程那侧本来就不会注入）；
+//   4. 运行中禁用：claude/codex 的工具集在本轮 spawn 时已定，此刻可点只会造成「改了没用」的误解。
+describe("ComposerShell 联网 pill", () => {
+  function renderWebSearch(props: {
+    webSearch?: boolean;
+    onToggleWebSearch?: () => void;
+    webSearchUnavailable?: boolean;
+    running?: boolean;
+  }) {
+    return render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
+        <ComposerShell
+          agent="claude"
+          model={undefined}
+          providerId={undefined}
+          useOwnSkills={false}
+          running={props.running ?? false}
+          onSend={() => {}}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onToggleSkills={() => {}}
+          webSearch={props.webSearch}
+          {...(props.onToggleWebSearch ? { onToggleWebSearch: props.onToggleWebSearch } : {})}
+          webSearchUnavailable={props.webSearchUnavailable}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+  }
+
+  /// 用 aria-pressed 定位：不依赖 i18n 文案是否已加载，也不锁死类名细节。
+  /// comp-foot 里其余按钮走的是 aria-haspopup/aria-expanded，不会误命中。
+  const pill = (c: HTMLElement) =>
+    c.querySelector<HTMLButtonElement>(".comp-foot button[aria-pressed]");
+
+  it("不传 onToggleWebSearch（研究引擎未开 / 无桥）→ 不渲染", () => {
+    const { container } = renderWebSearch({});
+    expect(pill(container)).toBeNull();
+  });
+
+  it("传回调即渲染；点击触发 toggle", () => {
+    const onToggleWebSearch = vi.fn();
+    const { container } = renderWebSearch({ onToggleWebSearch });
+    const btn = pill(container);
+    expect(btn).not.toBeNull();
+    fireEvent.click(btn!);
+    expect(onToggleWebSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("开启态反映在 aria-pressed 与 is-on 上", () => {
+    const { container } = renderWebSearch({ webSearch: true, onToggleWebSearch: () => {} });
+    const btn = pill(container)!;
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    expect(btn.className).toContain("is-on");
+  });
+
+  it("关闭态不带 is-on", () => {
+    const { container } = renderWebSearch({ webSearch: false, onToggleWebSearch: () => {} });
+    const btn = pill(container)!;
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    expect(btn.className).not.toContain("is-on");
+  });
+
+  it("搜索后端未配置 → 禁用且点不动，但仍渲染（tooltip 指路，而不是让入口凭空消失）", () => {
+    const onToggleWebSearch = vi.fn();
+    const { container } = renderWebSearch({ onToggleWebSearch, webSearchUnavailable: true });
+    const btn = pill(container);
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
+    fireEvent.click(btn!);
+    expect(onToggleWebSearch).not.toHaveBeenCalled();
+  });
+
+  it("运行中禁用（本轮工具集已定，改了也要等下一轮）", () => {
+    const { container } = renderWebSearch({ onToggleWebSearch: () => {}, running: true });
+    expect(pill(container)!.disabled).toBe(true);
+  });
+});

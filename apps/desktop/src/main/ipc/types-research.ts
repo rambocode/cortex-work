@@ -20,7 +20,7 @@ export type ResearchSearchServerSettings = CoreResearchSearchServerSettings;
 ///      main 本来就依赖 core（ipc/research.ts、research/runtime.ts 都直接 import core 的类型），
 ///      所以这里没有必须复制的约束，复制只会白白制造漂移点。
 ///   2. **结构子集在 TS 里是反向不兼容的**：曾把它写成「只镜像 main 真正会读的 3 个字段」，
-///      结果 main 的 PersistedState 不可赋给 core 的 PersistedState（少 chatEnabled /
+///      结果 main 的 PersistedState 不可赋给 core 的 PersistedState（少 chatAutoRetrieve /
 ///      slidesEnabled / writingEnabled / memoryEnabled 等必填字段），
 ///      preload 把 window.desktopAPI.personal 当 DesktopBridge 用时整体崩掉。
 ///      子集类型只在「作为形参」时兼容，作为**属性值**时必须是超集或等价。

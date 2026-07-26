@@ -17,6 +17,7 @@ import {
   clampLeadLimit,
   clampPrepareUrls,
   clipPreparedDocuments,
+  isRetryableSearchError,
   type DiscoveryRequest,
   type DiscoveryResult,
   type GatherRequest,
@@ -24,6 +25,7 @@ import {
   type PrepareFailure,
   type PreparedSourcesResult,
   type PrepareSourcesRequest,
+  type SearchProviderError,
 } from "@cortex-work/core/research/quick-types";
 import { buildSearchBatchRequest } from "@cortex-work/core/research/search-api";
 import { checkUrlPolicy } from "@cortex-work/core/research/url-safety";
@@ -47,6 +49,56 @@ const QUICK_HTTP_CONCURRENCY = 3;
 const QUICK_PER_HOST_CONCURRENCY = 2;
 const QUICK_REQUEST_TIMEOUT_MS = 10_000;
 
+/// 极简并发闸：同时最多 limit 个任务在跑，其余排队。
+///
+/// **为什么需要它**：模型在一轮里会并发甩出好几个 web_search，而商业搜索免费档普遍是
+/// 1 QPS 量级，无闸并发会让大半请求被限流。这里不引入调度库——一个计数器加一条等待队列
+/// 就够，且行为完全可预测（FIFO，无优先级、无超时抢占）。
+///
+/// 闸只管上游搜索请求，不管抓取：抓取那边有自己的 HTTP/host 并发参数。
+class ConcurrencyGate {
+  private active = 0;
+  private readonly queue: Array<() => void> = [];
+
+  constructor(private readonly limit: number) {}
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    if (this.active >= this.limit) {
+      await new Promise<void>((resolve) => this.queue.push(resolve));
+    }
+    this.active += 1;
+    try {
+      return await task();
+    } finally {
+      this.active -= 1;
+      // 只放行一个，保持在飞数恒 ≤ limit。**必须在 finally 里放**，否则任务抛错时
+      // 队列会永久卡住（一次搜索报错让此后所有搜索排队等死）。
+      this.queue.shift()?.();
+    }
+  }
+}
+
+/// 上游错误里是否存在值得退避重试的码。
+function hasRetryableError(errors: readonly SearchProviderError[]): boolean {
+  return errors.some((error) => isRetryableSearchError(error.code));
+}
+
+/// 可被 signal 打断的退避等待。
+function backoffDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort(): void {
+      clearTimeout(timer);
+      resolve();
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /// QuickRetrieval 的依赖。与 ResearchServiceDeps 同风格：全部注入，无模块级单例。
 export interface QuickRetrievalDeps {
   /// 读当前设置快照（每次调用都重读，设置页改动立即生效）。
@@ -60,8 +112,12 @@ export interface QuickRetrievalDeps {
   logger?: { warn(...args: unknown[]): void };
 }
 
-/// 窄面实现。无状态，单例复用即可。
+/// 窄面实现。单例复用即可——**唯一的实例级状态是搜索并发闸**（见 searchGate），
+/// 它必须跨调用共享才有意义，这也是这个类不再是纯无状态的原因。
 export class QuickRetrieval {
+  /// 上游搜索的并发闸。跨 discover 调用共享，用来压住模型的并发批量搜索。
+  private readonly searchGate = new ConcurrencyGate(QUICK_RETRIEVAL_LIMITS.maxSearchConcurrency);
+
   constructor(private readonly deps: QuickRetrievalDeps) {}
 
   /// 搜索线索：只发一次搜索，不抓取任何页面。典型 2~5 秒。
@@ -94,8 +150,34 @@ export class QuickRetrieval {
       ],
     });
 
-    const combined = this.withTimeout(QUICK_RETRIEVAL_LIMITS.discoverTimeoutMs, signal);
-    const response = await searchClient.searchBatch(batch, combined);
+    // 过并发闸 + 限流退避重试。**超时按「每次尝试」独立计**（不是整个重试链共用一个 8s）：
+    // 限流响应通常是快速失败，共用预算会让重试根本没机会跑完。
+    const response = await this.searchGate.run(async () => {
+      let attempt = 0;
+      for (;;) {
+        const combined = this.withTimeout(QUICK_RETRIEVAL_LIMITS.discoverTimeoutMs, signal);
+        const current = await searchClient.searchBatch(batch, combined);
+        const errors = collectProviderErrors(current);
+        // 只在「一条结果都没拿到」且「错误是临时性的」时重试：
+        // 有结果说明这次调用已经有用了，重试纯属浪费上游配额；
+        // auth/配置类错误重试一万次也不会变好，只会让工具调用白等。
+        const empty = current.results.every((r) => r.items.length === 0);
+        if (
+          attempt >= QUICK_RETRIEVAL_LIMITS.searchRetries ||
+          !empty ||
+          !hasRetryableError(errors)
+        ) {
+          return current;
+        }
+        attempt += 1;
+        this.deps.logger?.warn(
+          `[quick-retrieval] 上游临时失败，${QUICK_RETRIEVAL_LIMITS.searchRetryBackoffMs}ms 后重试`,
+          errors.map((e) => `${e.provider}:${e.code}`).join(","),
+        );
+        await backoffDelay(QUICK_RETRIEVAL_LIMITS.searchRetryBackoffMs, signal);
+        if (signal?.aborted) return current;
+      }
+    });
 
     const candidates = toSearchCandidates(response, { newId: () => this.newId() });
     // 复用编排层的候选选择：URL 归一去重 + 单域名配额 + 域名黑名单。
@@ -117,6 +199,11 @@ export class QuickRetrieval {
         ...(candidate.publishedAt !== undefined ? { publishedAt: candidate.publishedAt } : {}),
       })),
       warnings: collectSearchWarnings(response),
+      // 结构化错误码与 warnings 同源。**有才带这个键**（exactOptionalPropertyTypes 下
+      // `key: undefined` 不合法），空数组也不带——调用方只需判「有没有」。
+      ...(collectProviderErrors(response).length > 0
+        ? { providerErrors: collectProviderErrors(response) }
+        : {}),
     };
   }
 
@@ -307,6 +394,25 @@ function quickBudgetForLeads(limit: number): Parameters<typeof selectCandidates>
     maxDurationMs: QUICK_RETRIEVAL_LIMITS.discoverTimeoutMs,
     maxEvidenceCharsToModel: QUICK_RETRIEVAL_LIMITS.maxTotalChars,
   };
+}
+
+/// 把搜索响应里的上游错误按 provider+code 去重收集（结构化形态）。
+///
+/// 与 collectSearchWarnings 同源，区别是**保留错误码**：重试判定与上层的
+/// 「限流 vs 没命中」分流都要靠 code，拍平成中文字符串就只能靠匹配文案猜。
+function collectProviderErrors(response: {
+  results: ReadonlyArray<{ errors: ReadonlyArray<{ provider: string; code: string }> }>;
+}): SearchProviderError[] {
+  const seen = new Map<string, SearchProviderError>();
+  for (const result of response.results) {
+    for (const error of result.errors) {
+      seen.set(`${error.provider} ${error.code}`, {
+        provider: error.provider,
+        code: error.code,
+      });
+    }
+  }
+  return [...seen.values()];
 }
 
 /// 把搜索响应里的局部失败转成可展示的一句话。

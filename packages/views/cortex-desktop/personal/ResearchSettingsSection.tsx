@@ -2,8 +2,10 @@
 //
 // 三处刻意的设计，改动前请先读完：
 //   1. **开关只在后端真的会读它时才可点**。曾有三个 consumer 开关是禁用 + 标「即将支持」的，
-//      现在 chat / writing / slides / memory 全部落地，禁用条件收敛为「总开关未开」。
+//      现在 writing / slides / memory 全部落地，禁用条件收敛为「总开关未开」。
 //      给用户一个写得进配置、后端却不读的开关，比不给还糟——新增开关时守住这条。
+//      同理，**这里刻意没有「会话内检索」**：聊天里的联网是会话级的（输入框「联网」pill →
+//      SessionMeta.webSearch），全局再放一个开关就会出现两个真源互相打脸。
 //   2. **PAT 明文只单向流向 main**：输入框永远从空开始，落盘的是 safeStorage 密文，UI 连密文都不展示，
 //      只显示「已配置 / 未配置」。渲染进程不持久化明文，也不向 main 反向索取（spec §16）。
 //   3. **写回时保留 raw.searchServer**：encryptedToken 是主进程写的，归一化在 baseUrl/workspaceId
@@ -17,6 +19,7 @@ import { usePersonalStore, useDesktopBridge } from "@cortex-work/core";
 import {
   normalizeResearchEngineSettings,
   type ResearchEngineSettings,
+  type ResearchSearchBackend,
 } from "@cortex-work/core/research/settings";
 import {
   DIRECT_SEARCH_PROVIDER_IDS,
@@ -246,22 +249,19 @@ export function ResearchSettingsSection(): ReactElement {
           onChange={(v) => patch({ deepResearchEnabled: v })}
           disabled={!settings.enabled}
         />
-        <FlagRow
-          label="会话内检索"
-          desc="给聊天里的 agent 加上联网能力：可自行调用搜索与网页正文抓取，回答附来源链接。"
-          value={settings.chatEnabled}
-          onChange={(v) => patch({ chatEnabled: v })}
-          disabled={!settings.enabled}
-        />
-        {/* 「总是先检索」依赖「会话内检索」：后者关掉时这一项即便为 true 也不生效
-            （判定在 core 的 shouldAutoRetrieve），所以 UI 上必须一并禁用，
-            否则用户会看到一个开着却没有任何效果的开关。 */}
+        {/* 聊天里的联网**没有全局开关**：它是会话级的（输入框上的「联网」pill，
+            落 SessionMeta.webSearch）。联网带有数据出站语义，「这次对话要不要联网」是用户
+            当下的意图，不该由一个一劳永逸的全局开关替所有会话决定。
+
+            这一项管的是「联网时的行为风格」（模型自主判断 vs 每轮强制先查），不是「是否允许
+            联网」，所以留在全局。它只在会话开了「联网」时才真正生效（判定在 core 的
+            shouldAutoRetrieve），故 desc 必须点明这层依赖——否则用户开了却不见联网、无从排查。 */}
         <FlagRow
           label="总是先检索再回答"
-          desc="每轮发送前都先联网查一次并附上资料，不依赖模型自己判断。会给每轮回复增加数秒延迟。"
+          desc="在开启了「联网」的会话里，每轮发送前都先联网查一次并附上资料，不依赖模型自己判断。会给每轮回复增加数秒延迟。"
           value={settings.chatAutoRetrieve}
           onChange={(v) => patch({ chatAutoRetrieve: v })}
-          disabled={!settings.enabled || !settings.chatEnabled}
+          disabled={!settings.enabled}
         />
         {/* 以下三项的适配器尚未落地（M1 只接了 chat 与 deep_research），一律禁用 + 标注，
             不给「点了没反应」的开关。适配器落地时把 disabled 去掉即可，无需改数据结构。 */}
@@ -338,12 +338,37 @@ export function ResearchSettingsSection(): ReactElement {
         </div>
       </SettingCard>
 
-      <SettingCard title="Search Server">
-        {/* 这句必须如实说「留空则回落到直连搜索」：此处原本写的是「留空时使用内置检索能力」，
-            而实际上并不存在任何内置检索——未配置时 createSearchClient() 返回 null，研究直接
-            抛「搜索服务未配置」。假文案会把用户的排查方向引到完全错误的地方。 */}
+      {/* 搜索后端是**单选**，选择器与该后端的配置表单同在一张卡里——「选哪条路」和
+          「这条路怎么配」是同一个功能，拆成两张卡会让用户以为是两件独立的事。
+          界面上看得见的表单就是实际生效的那一条；两侧已填的地址/密钥都保留在设置里，
+          来回切不用重配。 */}
+      <SettingCard title="搜索后端">
+        <label className="pw-set-field">
+          <span className="pw-set-lbl">检索走哪条路径</span>
+          <select
+            className="pw-set-input"
+            aria-label="搜索后端"
+            value={settings.searchBackend}
+            onChange={(e) => patch({ searchBackend: e.target.value as ResearchSearchBackend })}
+          >
+            <option value="direct">直连搜索（推荐，填一个 API 密钥即可用）</option>
+            <option value="server">自建 Search Server</option>
+          </select>
+        </label>
         <div className="pw-srow-desc">
-          自建检索服务的连接配置。查询经服务端转发，有限流与审计。留空则回落到下方的直连搜索。
+          {settings.searchBackend === "server"
+            ? "查询词经自建服务端转发，有服务端的限流与审计。选定后仅读取下方的配置。"
+            : "查询词从本机直接发送给搜索服务商，无服务端中转。选定后仅读取下方的配置。"}
+        </div>
+
+      {settings.searchBackend === "server" ? (
+      <>
+        {/* 这句必须如实说明未配置的后果：此处原本写的是「留空时使用内置检索能力」，
+            而实际上并不存在任何内置检索——未配置时 createSearchClient() 返回 null，研究直接
+            抛「搜索服务未配置」。假文案会把用户的排查方向引到完全错误的地方。
+            单选后也**不再回落到直连**：选了这条就只走这条，配不全就报错。 */}
+        <div className="pw-srow-desc">
+          自建检索服务的连接配置。三项都填齐（含令牌）才算可用；配不全时研究会直接报「搜索服务未配置」，不会自动改走直连。
         </div>
         <label className="pw-set-field">
           <span className="pw-set-lbl">服务地址</span>
@@ -398,8 +423,8 @@ export function ResearchSettingsSection(): ReactElement {
             >
               保存令牌
             </button>
-            {/* 两个卡片里各有一个「连接测试」按钮，可见文案相同。aria-label 必须区分开，
-                否则读屏按按钮列表浏览时会看到两个完全一样的项，无从判断点哪个。 */}
+            {/* 两条后端各有一个「连接测试」按钮，可见文案相同（单选后同一时刻只渲染一个，
+                但测试与读屏仍需要能区分）。aria-label 必须区分开。 */}
             <button
               type="button"
               className="pw-btn-sm"
@@ -411,15 +436,17 @@ export function ResearchSettingsSection(): ReactElement {
             </button>
           </div>
         </div>
-      </SettingCard>
+      </>
+      ) : null}
 
-      <SettingCard title="直连搜索（未部署 Search Server 时使用）">
+      {settings.searchBackend === "direct" ? (
+      <>
         {/* 出站提示必须显眼且如实：这条路径与自建服务端的隐私边界不同，用户有权在配置前就知道。 */}
         <div className="pw-res-notice is-remote">
           <div className="pw-res-notice-title">查询词会从本机直接发送给所选服务商</div>
           <div className="pw-res-notice-summary">
             不经 Search Server 转发，因此没有服务端的限流与审计。网页正文仍在本机抓取与处理，
-            不会上传。已配置 Search Server 时优先走它，这里的配置不生效。
+            不会上传。
           </div>
         </div>
         <label className="pw-set-field">
@@ -481,6 +508,8 @@ export function ResearchSettingsSection(): ReactElement {
             </button>
           </div>
         </div>
+      </>
+      ) : null}
       </SettingCard>
     </div>
   );

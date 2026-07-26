@@ -691,12 +691,17 @@ export function registerCliHandlers(): void {
           ),
           buildBrowserMcpServerConfig(gs?.browserControl, req.sessionId),
           // 研究引擎:给 agent 补上「搜索」这一块能力(浏览器工具只能打开给定 URL,不能自己搜)。
-          // 双门控在 buildResearchMcpServerConfig 内部(总开关+会话内检索开关+搜索后端已配)。
-          // Consumer 决定受哪个灰度开关约束与默认预算:slides 回合归 slides,其余归 chat。
+          // 三门控在 buildResearchMcpServerConfig 内部(总开关 + Consumer 准入 + 搜索后端已配)。
+          // Consumer 决定受哪个开关约束与默认预算:slides 回合归 slides,其余归 chat。
+          //
+          // chat 的准入是**会话级**的:req.webSearch 即用户在该会话输入框上按下的「联网」
+          // (SessionMeta.webSearch),全局已无 chatEnabled。claude/codex 逐轮 fresh spawn,
+          // 故改开关下一轮即生效。slides 回合不看它 —— 那条路仍归全局 slidesEnabled。
           buildResearchMcpServerConfig(
             gs?.researchEngine,
             req.sessionId,
             isSlidesRunId(req.runId) ? "slides" : "chat",
+            req.webSearch === true,
           ),
           buildDocExtractMcpServerConfig(req.sessionId),
           buildMediaGenMcpServerConfig(persistedState.mediaGenSettings, req.sessionId, req.cwd),

@@ -11,11 +11,11 @@ import { retrieveChatEvidence, shouldAutoRetrieve } from "./chat-retrieval";
 const ON: ResearchEngineSettings = {
   enabled: true,
   deepResearchEnabled: false,
-  chatEnabled: true,
   chatAutoRetrieve: true,
   slidesEnabled: false,
   writingEnabled: false,
   memoryEnabled: false,
+  searchBackend: "direct",
 };
 
 function gatherOk(documents: GatherResult["documents"]) {
@@ -31,25 +31,25 @@ const DOC = {
 };
 
 describe("shouldAutoRetrieve", () => {
-  it("三个开关全开才为 true", () => {
-    expect(shouldAutoRetrieve(ON)).toBe(true);
+  it("总开关 + 会话级联网 + 自动检索三者全开才为 true", () => {
+    expect(shouldAutoRetrieve(ON, true)).toBe(true);
   });
 
   it.each([
     ["总开关关闭", { enabled: false }],
-    ["会话内检索关闭", { chatEnabled: false }],
     ["自动检索本身关闭", { chatAutoRetrieve: false }],
   ])("%s → false", (_name, patch) => {
-    expect(shouldAutoRetrieve({ ...ON, ...patch })).toBe(false);
+    expect(shouldAutoRetrieve({ ...ON, ...patch }, true)).toBe(false);
   });
 
   it("settings 缺失 → false", () => {
-    expect(shouldAutoRetrieve(undefined)).toBe(false);
+    expect(shouldAutoRetrieve(undefined, true)).toBe(false);
   });
 
-  /// 这条是信任边界：用户在 UI 上关掉了「会话内检索」，就不该再有任何联网发生。
-  it("chatAutoRetrieve 依赖 chatEnabled，后者关掉时前者不生效", () => {
-    expect(shouldAutoRetrieve({ ...ON, chatEnabled: false, chatAutoRetrieve: true })).toBe(false);
+  /// 这条是信任边界：用户没在这个会话上打开「联网」，就不该有任何联网发生——
+  /// 即便全局的「总是先检索再回答」开着。会话级开关是最终裁决者。
+  it("chatAutoRetrieve 依赖会话级联网开关，后者关闭时前者不生效", () => {
+    expect(shouldAutoRetrieve({ ...ON, chatAutoRetrieve: true }, false)).toBe(false);
   });
 });
 
@@ -59,6 +59,20 @@ describe("retrieveChatEvidence 门控", () => {
     const result = await retrieveChatEvidence({
       gather,
       settings: { ...ON, chatAutoRetrieve: false },
+      sessionWebSearch: true,
+      query: "问题",
+    });
+    expect(result).toBeUndefined();
+    expect(gather).not.toHaveBeenCalled();
+  });
+
+  /// 会话没开联网 → 一次检索都不发。全局开关再怎么开也越不过这一关。
+  it("会话级联网关闭时返回 undefined，且一次检索都不发", async () => {
+    const gather = gatherOk([DOC]);
+    const result = await retrieveChatEvidence({
+      gather,
+      settings: ON,
+      sessionWebSearch: false,
       query: "问题",
     });
     expect(result).toBeUndefined();
@@ -67,13 +81,20 @@ describe("retrieveChatEvidence 门控", () => {
 
   it("桥没有 gather（Web 端 / 旧壳）→ undefined", async () => {
     expect(
-      await retrieveChatEvidence({ gather: undefined, settings: ON, query: "问题" }),
+      await retrieveChatEvidence({
+        gather: undefined,
+        settings: ON,
+        sessionWebSearch: true,
+        query: "问题",
+      }),
     ).toBeUndefined();
   });
 
   it("空查询 → undefined，不发无意义的检索", async () => {
     const gather = gatherOk([DOC]);
-    expect(await retrieveChatEvidence({ gather, settings: ON, query: "   " })).toBeUndefined();
+    expect(
+      await retrieveChatEvidence({ gather, settings: ON, sessionWebSearch: true, query: "   " }),
+    ).toBeUndefined();
     expect(gather).not.toHaveBeenCalled();
   });
 });
@@ -83,6 +104,7 @@ describe("retrieveChatEvidence 结果", () => {
     const result = await retrieveChatEvidence({
       gather: gatherOk([DOC]),
       settings: ON,
+      sessionWebSearch: true,
       query: "问题",
     });
     expect(result).toContain("网页正文");
@@ -91,7 +113,12 @@ describe("retrieveChatEvidence 结果", () => {
 
   it("用消息原文当查询词，consumer 固定 chat", async () => {
     const gather = gatherOk([DOC]);
-    await retrieveChatEvidence({ gather, settings: ON, query: "  今天的新闻  " });
+    await retrieveChatEvidence({
+      gather,
+      settings: ON,
+      sessionWebSearch: true,
+      query: "  今天的新闻  ",
+    });
     expect(gather).toHaveBeenCalledWith({ consumer: "chat", query: "今天的新闻" });
   });
 
@@ -101,6 +128,7 @@ describe("retrieveChatEvidence 结果", () => {
     const result = await retrieveChatEvidence({
       gather: gatherOk([]),
       settings: ON,
+      sessionWebSearch: true,
       query: "问题",
     });
     expect(result).toContain("没能验证最新信息");
@@ -108,28 +136,52 @@ describe("retrieveChatEvidence 结果", () => {
 });
 
 describe("retrieveChatEvidence 不阻断发送", () => {
-  it("底层抛错时吞掉，回说明段而不是把异常抛给发送路径", async () => {
+  /// 故障 ≠ 搜到 0 条。故障时**不能**注入声称"检索已执行"的说明段：模型的工具记录里没有
+  /// 任何检索动作，读到那种提示会转而向用户解释系统提示的来源（上线首日的真实事故）。
+  it("底层抛错时吞掉，回故障说明段并带上原因", async () => {
     const gather = vi.fn(async () => {
       throw new Error("尚未配置研究搜索服务");
     });
-    const result = await retrieveChatEvidence({ gather, settings: ON, query: "问题" });
-    expect(result).toContain("没能验证最新信息");
+    const result = await retrieveChatEvidence({
+      gather,
+      settings: ON,
+      sessionWebSearch: true,
+      query: "问题",
+    });
+    expect(result).toContain("没有执行成功");
+    expect(result).toContain("尚未配置研究搜索服务"); // 原因透出，用户才有排查线索
+    expect(result).not.toContain("已执行联网检索");
   });
 
-  it("超时后照常返回说明段，不无限等待", async () => {
+  it("超时回故障说明段（而不是「搜到 0 条」），不无限等待", async () => {
     vi.useFakeTimers();
     try {
       const gather = vi.fn(() => new Promise<GatherResult>(() => {})); // 永不 resolve
       const promise = retrieveChatEvidence({
         gather,
         settings: ON,
+        sessionWebSearch: true,
         query: "问题",
         timeoutMs: 100,
       });
       await vi.advanceTimersByTimeAsync(150);
-      expect(await promise).toContain("没能验证最新信息");
+      const result = await promise;
+      expect(result).toContain("没有执行成功");
+      expect(result).toContain("超时");
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  /// 真的搜到 0 条走另一段：检索确实跑过，说"已执行"是准确的。
+  it("搜到 0 条时回零结果说明段，与故障段区分", async () => {
+    const result = await retrieveChatEvidence({
+      gather: gatherOk([]),
+      settings: ON,
+      sessionWebSearch: true,
+      query: "问题",
+    });
+    expect(result).toContain("已执行联网检索");
+    expect(result).not.toContain("没有执行成功");
   });
 });

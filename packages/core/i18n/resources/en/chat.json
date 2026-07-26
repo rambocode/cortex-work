@@ -118,6 +118,12 @@
       "onHint": "This session runs the three-stage pipeline (intent -> sub-agent execution -> refine); the process panel shows each stage",
       "offHint": "Send directly in one shot (default). When on, runs the three-stage pipeline at ~3x cost and latency"
     },
+    "webSearch": {
+      "label": "Web",
+      "onTitle": "Web access is on for this session: the agent can search and fetch page content, citing sources. Click to turn off",
+      "offTitle": "Turn on web access for this session: the agent can search and fetch page content, citing sources",
+      "unconfiguredTitle": "No search backend configured yet - set a self-hosted service URL or a direct search key under Settings > Research engine"
+    },
     "modeBlock": {
       "planEdit": "You're in Plan (read-only files) access — {{name}} was blocked from editing files. Switch access and retry this turn?",
       "planExec": "You're in Plan (read-only files) access — {{name}} was blocked from running a command. Switch access and retry this turn?",

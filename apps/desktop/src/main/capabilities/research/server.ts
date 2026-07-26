@@ -24,7 +24,10 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ResearchConsumer, ResearchMode } from "@cortex-work/core/research/types";
 import { SEARCH_CATEGORIES } from "@cortex-work/core/research/search-api";
-import { QUICK_RETRIEVAL_LIMITS } from "@cortex-work/core/research/quick-types";
+import {
+  isRetryableSearchError,
+  QUICK_RETRIEVAL_LIMITS,
+} from "@cortex-work/core/research/quick-types";
 
 import { createMcpHost, type McpHostHandle, type ToolContext } from "../mcp-host/server";
 import { createLogger } from "../../log";
@@ -119,7 +122,12 @@ function registerWebSearch(mcp: McpServer, ctx: ToolContext): void {
         "联网搜索，返回若干条线索（标题、URL、摘要）。用于查找最新信息、核实事实、发现资料来源。" +
         "\n\n重要：返回的 snippet 是搜索引擎给的摘要，**未经抓取核对，不得直接当作事实引用**。" +
         "要基于某条结果作答，请先用 web_read 取回该 URL 的正文。" +
-        `\n单次最多返回 ${QUICK_RETRIEVAL_LIMITS.maxLeads} 条，同一域名最多 3 条。`,
+        `\n单次最多返回 ${QUICK_RETRIEVAL_LIMITS.maxLeads} 条，同一域名最多 3 条。` +
+        // 从源头压并发：搜索走的是有配额的第三方 API（免费档常见 1 QPS 量级）。
+        // 模型默认倾向于一次甩出四五个查询词，那会直接把配额打满、大半请求被限流。
+        // 这句和 maxSearchConcurrency 的闸是一件事的两端——闸兜底，提示减少无效请求。
+        "\n\n配额提示：搜索走第三方 API 且有速率限制。请**逐个查询、按需再搜**，" +
+        "不要为同一个主题一次性并发多个查询词；先看完上一次的结果再决定要不要继续搜。",
       inputSchema: {
         query: z.string().min(1).max(512).describe("搜索关键词或问题"),
         category: z
@@ -155,10 +163,28 @@ function registerWebSearch(mcp: McpServer, ctx: ToolContext): void {
         });
 
         if (result.leads.length === 0) {
-          // 搜索源部分失败时，把 warning 说出来——否则 agent 会把「引擎挂了」当成「确实没有」。
-          const reason =
-            result.warnings.length > 0 ? `（${result.warnings.join("；")}）` : "（搜索未命中）";
-          return makeSuccessResult(`没有搜到相关结果${reason}`, { leads: [], warnings: result.warnings });
+          // 「上游故障」与「这个词确实没结果」必须给模型相反的信号：
+          //   没命中 → 换个说法再试是合理的下一步；
+          //   限流/故障 → 再搜只会加剧，必须让它停下。
+          //
+          // 曾经两者共用「没有搜到相关结果」+ makeSuccessResult，于是 Brave 免费档被打限流时，
+          // 模型换个词继续搜、并发更多、限流更重，用户看到的是一轮对话里反复"没搜到"。
+          const upstreamErrors = result.providerErrors ?? [];
+          if (upstreamErrors.length > 0) {
+            const codes = upstreamErrors.map((e) => `${e.provider}: ${e.code}`).join("；");
+            const rateLimited = upstreamErrors.some((e) => isRetryableSearchError(e.code));
+            // 已在 QuickRetrieval 里退避重试过（见 searchRetries），走到这里说明重试也没救回来。
+            const advice = rateLimited
+              ? "上游搜索服务当前被限流或临时不可用（已自动重试仍失败）。请不要立即重复搜索——" +
+                "换关键词也一样会被限流。可以先用已有信息作答并如实说明这一点，或改用 web_read 抓取你已知的具体网址。"
+              : "上游搜索服务返回了错误，本次搜索未能执行。请不要反复重试同一查询；" +
+                "可以先用已有信息作答并如实说明这一点。";
+            return makeErrorResult(`web_search 未能取到结果（${codes}）。${advice}`);
+          }
+          return makeSuccessResult("没有搜到相关结果（搜索未命中）", {
+            leads: [],
+            warnings: result.warnings,
+          });
         }
 
         const summary = result.leads

@@ -28,11 +28,11 @@ function setResearch(patch: Partial<ResearchEngineSettings>): void {
       researchEngine: {
         enabled: true,
         deepResearchEnabled: true,
-        chatEnabled: false,
         chatAutoRetrieve: false,
         slidesEnabled: false,
         writingEnabled: false,
         memoryEnabled: false,
+        searchBackend: "direct",
         ...patch,
       },
     },
@@ -67,29 +67,36 @@ describe("ResearchSettingsSection 功能开关", () => {
     expect(research()?.enabled).toBe(true);
   });
 
-  it("已实现的 consumer 开关（深度研究 / 会话内检索）可点击并落库", () => {
+  it("深度研究开关可点击并落库", () => {
     setResearch({ enabled: true, deepResearchEnabled: false });
     renderSection();
     fireEvent.click(screen.getByRole("switch", { name: "深度研究" }));
     expect(research()?.deepResearchEnabled).toBe(true);
-    fireEvent.click(screen.getByRole("switch", { name: "会话内检索" }));
-    expect(research()?.chatEnabled).toBe(true);
   });
 
-  it("「总是先检索再回答」依赖「会话内检索」：后者关闭时禁用且点不动", () => {
-    setResearch({ enabled: true, chatEnabled: false });
+  /// 聊天里的联网已改为会话级（输入框上的「联网」pill），全局不该再有这一项——
+  /// 留着会出现「设置里开了、会话里没开」这种两个真源互相打脸的状态。
+  it("不再有全局的「会话内检索」开关", () => {
+    setResearch({ enabled: true });
+    renderSection();
+    expect(screen.queryByRole("switch", { name: "会话内检索" })).toBeNull();
+  });
+
+  it("「总是先检索再回答」只受总开关约束：引擎开着即可点并落库", () => {
+    setResearch({ enabled: true });
     renderSection();
     const auto = screen.getByRole("switch", { name: "总是先检索再回答" });
-    expect(auto.hasAttribute("disabled")).toBe(true);
+    expect(auto.hasAttribute("disabled")).toBe(false);
     fireEvent.click(auto);
-    expect(research()?.chatAutoRetrieve).toBe(false);
+    expect(research()?.chatAutoRetrieve).toBe(true);
   });
 
-  it("会话内检索开启后，「总是先检索再回答」可点击并落库", () => {
-    setResearch({ enabled: true, chatEnabled: true });
-    renderSection();
-    fireEvent.click(screen.getByRole("switch", { name: "总是先检索再回答" }));
-    expect(research()?.chatAutoRetrieve).toBe(true);
+  /// 它只在会话开了「联网」时才真正生效（判定在 core 的 shouldAutoRetrieve），
+  /// 所以文案必须说清依赖，否则用户开了却不见联网、无从排查。
+  it("「总是先检索再回答」的说明指向会话级联网开关", () => {
+    setResearch({ enabled: true });
+    const { container } = renderSection();
+    expect(container.textContent).toContain("联网");
   });
 
   /// 曾有三个 consumer 开关是禁用 + 标「即将支持」的；四个 consumer 全部落地后，
@@ -117,9 +124,68 @@ describe("ResearchSettingsSection 功能开关", () => {
   it("总开关关闭时全部 consumer 开关禁用", () => {
     setResearch({ enabled: false });
     renderSection();
-    for (const name of ["深度研究", "会话内检索", "写作检索", "演示文稿检索", "记忆沉淀"]) {
+    for (const name of ["深度研究", "总是先检索再回答", "写作检索", "演示文稿检索", "记忆沉淀"]) {
       expect(screen.getByRole("switch", { name }).hasAttribute("disabled")).toBe(true);
     }
+  });
+});
+
+/// 两条搜索路径是**单选**。这一组守的是「界面上看得见的那张卡就是实际生效的那条」——
+/// 从前两张卡同时在、靠一句「已配置 Search Server 时优先走它」区分，用户看着两张都填好的
+/// 表单无从判断哪条在生效。
+describe("ResearchSettingsSection 搜索后端单选", () => {
+  const backendSelect = () => screen.getByLabelText("搜索后端") as HTMLSelectElement;
+
+  it("默认直连：只渲染直连搜索卡，不渲染 Search Server 卡", () => {
+    setResearch({ enabled: true });
+    renderSection();
+    expect(backendSelect().value).toBe("direct");
+    expect(screen.getByLabelText("API 密钥")).toBeTruthy();
+    expect(screen.queryByLabelText("服务地址")).toBeNull();
+    expect(screen.queryByLabelText("访问令牌（PAT）")).toBeNull();
+  });
+
+  it("切到自建 Search Server：只渲染 Server 卡，直连卡消失", () => {
+    setResearch({ enabled: true });
+    renderSection();
+    fireEvent.change(backendSelect(), { target: { value: "server" } });
+    expect(research()?.searchBackend).toBe("server");
+    expect(screen.getByLabelText("服务地址")).toBeTruthy();
+    expect(screen.queryByLabelText("API 密钥")).toBeNull();
+    expect(screen.queryByLabelText("搜索服务商")).toBeNull();
+  });
+
+  it("从 server 切回 direct 同样只留一张卡", () => {
+    setResearch({ enabled: true, searchBackend: "server" });
+    renderSection();
+    expect(screen.getByLabelText("服务地址")).toBeTruthy();
+    fireEvent.change(backendSelect(), { target: { value: "direct" } });
+    expect(research()?.searchBackend).toBe("direct");
+    expect(screen.getByLabelText("API 密钥")).toBeTruthy();
+    expect(screen.queryByLabelText("服务地址")).toBeNull();
+  });
+
+  /// 切后端**不清另一边已填的配置**：来回切换不该让用户重新配一遍地址与密钥。
+  it("切换后端保留另一侧已填的配置（不清空）", () => {
+    setResearch({
+      enabled: true,
+      searchBackend: "server",
+      searchServer: { baseUrl: "https://s.example.com", workspaceId: "ws-1", encryptedToken: "CIPHER" },
+      directSearch: { provider: "brave", encryptedApiKey: "KEY" },
+    });
+    renderSection();
+    fireEvent.change(backendSelect(), { target: { value: "direct" } });
+    expect(research()?.searchServer?.encryptedToken).toBe("CIPHER");
+    expect(research()?.directSearch?.encryptedApiKey).toBe("KEY");
+  });
+
+  /// 旧的「优先走它，这里的配置不生效」是隐式优先级的说明，单选后不该再出现——
+  /// 留着会让用户以为两边还是共存关系。
+  it("不再有「优先走它 / 这里的配置不生效」这类隐式优先级说明", () => {
+    setResearch({ enabled: true });
+    const { container } = renderSection();
+    expect(container.textContent).not.toContain("优先走它");
+    expect(container.textContent).not.toContain("不生效");
   });
 });
 
@@ -211,6 +277,7 @@ describe("ResearchSettingsSection Search Server 凭据", () => {
   it("PAT 输入是 password 类型，且已保存的密文永不回显", () => {
     setResearch({
       enabled: true,
+      searchBackend: "server",
       searchServer: {
         baseUrl: "https://search.example.com",
         workspaceId: "ws-1",
@@ -227,7 +294,7 @@ describe("ResearchSettingsSection Search Server 凭据", () => {
   });
 
   it("未配置时展示「未配置」而非空白", () => {
-    setResearch({ enabled: true });
+    setResearch({ enabled: true, searchBackend: "server" });
     const { container } = renderSection();
     expect(container.textContent).toContain("未配置");
   });
@@ -235,6 +302,7 @@ describe("ResearchSettingsSection Search Server 凭据", () => {
   it("baseUrl / workspaceId 落库时保留已有密文（不 clobber main 写入的加密令牌）", () => {
     setResearch({
       enabled: true,
+      searchBackend: "server",
       searchServer: { baseUrl: "https://old", workspaceId: "ws-1", encryptedToken: "CIPHER" },
     });
     renderSection();
@@ -245,23 +313,21 @@ describe("ResearchSettingsSection Search Server 凭据", () => {
     expect(research()?.searchServer?.encryptedToken).toBe("CIPHER");
   });
 
+  /// 单选后同时只渲染一张卡，所以降级提示按后端各测一次（从前是一个用例里断言两条同时出现）。
   it("桥缺 setSearchServerCredential / testSearchServer 时按钮禁用并说明原因（优雅降级）", () => {
-    setResearch({ enabled: true });
+    setResearch({ enabled: true, searchBackend: "server" });
     renderSection({} as DesktopBridge);
     expect((screen.getByRole("button", { name: "保存令牌" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "测试 Search Server 连接" }) as HTMLButtonElement).disabled).toBe(true);
-    // Search Server 与直连搜索两张卡各说明一次：两条路径的降级提示都要出现，
-    // 否则用户只看到一半，会以为另一条路可用。
-    expect(screen.getAllByText(/当前版本尚不支持/)).toHaveLength(2);
-    expect((screen.getByRole("button", { name: "保存密钥" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(
-      (screen.getByRole("button", { name: "测试直连搜索连接" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect(screen.getAllByText(/当前版本尚不支持/)).toHaveLength(1);
+    // 未选中的那条后端整卡不渲染，其按钮自然不存在。
+    expect(screen.queryByRole("button", { name: "保存密钥" })).toBeNull();
   });
 
   it("桥提供能力时：保存只单向传明文一次，测试结果直接展示", async () => {
     setResearch({
       enabled: true,
+      searchBackend: "server",
       searchServer: { baseUrl: "https://search.example.com", workspaceId: "ws-1" },
     });
     const setCred = vi.fn(async () => {});
@@ -293,6 +359,7 @@ describe("ResearchSettingsSection Search Server 凭据", () => {
   it("保存令牌后把 main 返回的密文写回 store，后续改开关不会把令牌弄丢", async () => {
     setResearch({
       enabled: true,
+      searchBackend: "server",
       searchServer: { baseUrl: "https://search.example.com", workspaceId: "ws-1" },
     });
     const setCred = vi.fn(async () => ({
@@ -314,7 +381,7 @@ describe("ResearchSettingsSection Search Server 凭据", () => {
     expect(screen.getByText("已配置")).toBeTruthy();
 
     // 再动一个无关开关：全量写回时密文必须还在。
-    fireEvent.click(screen.getByRole("switch", { name: "会话内检索" }));
+    fireEvent.click(screen.getByRole("switch", { name: "记忆沉淀" }));
     expect(research()?.searchServer?.encryptedToken).toBe("CIPHER-FROM-MAIN");
   });
 });
@@ -372,8 +439,22 @@ describe("ResearchSettingsSection 直连搜索", () => {
       expect(research()?.directSearch?.encryptedApiKey).toBe("CIPHER-FROM-MAIN"),
     );
 
-    fireEvent.click(screen.getByRole("switch", { name: "会话内检索" }));
+    fireEvent.click(screen.getByRole("switch", { name: "记忆沉淀" }));
     expect(research()?.directSearch?.encryptedApiKey).toBe("CIPHER-FROM-MAIN");
+  });
+
+  /// 与 Search Server 那侧对称：桥缺能力时直连的两个按钮也要禁用并说明原因。
+  /// 单选后两条后端不同屏，这条是拆出来的另一半（原先合在一个用例里）。
+  it("桥缺 setDirectSearchCredential / testDirectSearch 时按钮禁用并说明原因（优雅降级）", () => {
+    setResearch({ enabled: true });
+    renderSection({} as DesktopBridge);
+    expect((screen.getByRole("button", { name: "保存密钥" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "测试直连搜索连接" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getAllByText(/当前版本尚不支持/)).toHaveLength(1);
+    // 未选中的 Search Server 整卡不渲染。
+    expect(screen.queryByRole("button", { name: "保存令牌" })).toBeNull();
   });
 
   it("未保存密钥时连接测试禁用（避免必然失败的一次调用）", () => {

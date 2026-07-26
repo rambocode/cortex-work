@@ -162,6 +162,9 @@ export function ComposerShell({
   subagentOrchestration,
   onToggleSubagentOrchestration,
   onToggleSkills,
+  webSearch,
+  onToggleWebSearch,
+  webSearchUnavailable,
   onToResearch,
   onCancelEdit,
   onToast,
@@ -216,6 +219,16 @@ export function ComposerShell({
   subagentOrchestration?: boolean;
   onToggleSubagentOrchestration?: () => void;
   onToggleSkills: () => void;
+  /// 联网检索开关(会话级布尔,opt-in)。开启后主进程给本会话的 agent 注入 web_search / web_read。
+  ///
+  /// **放在底栏而不是收进二级菜单**:联网带有数据出站语义,当前是开还是关必须一眼看得见。
+  /// 与其它 opt-in 分组同范式——只有宿主传 onToggleWebSearch 时才渲染(研究引擎未开 / 无桥时不渲染)。
+  webSearch?: boolean;
+  onToggleWebSearch?: () => void;
+  /// 引擎开着但搜索后端还没配好:pill 仍渲染但禁用 + tooltip 指路,而不是悄悄消失。
+  /// 直接不注入(见 buildResearchMcpServerConfig 的后端门控)时若还给个可点的按钮,
+  /// 用户会以为开了却毫无反应。
+  webSearchUnavailable?: boolean;
   /// 「转为深度研究」：把当前输入原样送去新建一次研究。
   /// 缺省（研究引擎未开 / 无桥）时整个菜单项不渲染——给一个点了没反应的入口比不给更糟。
   onToResearch?: (objective: string) => void;
@@ -970,6 +983,29 @@ export function ComposerShell({
               onToggleSubagentOrchestration={onToggleSubagentOrchestration}
               running={running}
             />
+          ) : null}
+          {/* 「联网」开关(会话级):开启后本会话的 agent 拿到 web_search / web_read,自行决定何时用。
+              刻意做成底栏上一眼可见的独立 pill 而非菜单项——出站能力的当前状态不该藏在二级菜单里。
+              运行中不可改:claude/codex 的工具集在本轮 spawn 时已定,改了也要等下一轮,
+              让按钮此刻可点只会造成「我改了但没用」的误解。 */}
+          {onToggleWebSearch ? (
+            <button
+              className={`pill ${webSearch ? "is-on" : ""}`}
+              type="button"
+              aria-pressed={!!webSearch}
+              disabled={running || webSearchUnavailable}
+              title={t(
+                webSearchUnavailable
+                  ? "composer.webSearch.unconfiguredTitle"
+                  : webSearch
+                  ? "composer.webSearch.onTitle"
+                  : "composer.webSearch.offTitle",
+              )}
+              onClick={onToggleWebSearch}
+            >
+              <Icon.Globe size={13} />
+              <span>{t("composer.webSearch.label")}</span>
+            </button>
           ) : null}
           <div className="spacer" />
           {/* agent 选择器(opt-in):仅新会话落地页传 onChangeAgent 时渲染,置于模型 pill 前;

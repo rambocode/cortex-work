@@ -37,6 +37,18 @@ export const QUICK_RETRIEVAL_LIMITS = {
   /// 一次 prepare 回传的正文字符总上限。与 MODE_BUDGETS.quick 的
   /// maxEvidenceCharsToModel（20k）取同值：两者都是「一次交互能塞给模型多少」的闸。
   maxTotalChars: 20_000,
+  /// 同时在飞行的上游搜索请求上限。
+  ///
+  /// 为什么必须有：模型在一轮里会并发甩出好几个 web_search（实测一次 3~5 个），而
+  /// 商业搜索的免费档普遍是 1 QPS 量级（Brave 免费档即是）。无闸并发 → 大半请求被限流 →
+  /// 模型看到"没搜到"就换词再试 → 配额烧得更快。取 2 而不是 1：完全串行会让批量搜索
+  /// 明显变慢，而 2 已经能把限流压到靠一次退避重试就能救回来的程度。
+  maxSearchConcurrency: 2,
+  /// 上游临时错误（限流等）的退避重试次数。**只重试一次**：交互式工具调用不能为了
+  /// 一条搜索等太久，而限流响应通常是快速失败，一次退避已能救回大多数情况。
+  searchRetries: 1,
+  /// 退避等待。取 1s 是因为免费档的配额窗口通常按秒计。
+  searchRetryBackoffMs: 1_000,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -64,10 +76,38 @@ export interface DiscoveryLead {
   publishedAt?: string;
 }
 
+/// 上游搜索源的错误码。**保留结构而不是只留人话字符串**：调用方要据此分流——
+/// 「配额被限流」和「这个词确实没有结果」对 agent 是截然不同的信号，前者该退避、后者该换词。
+/// 曾经只有 warnings: string[]，server 层只能靠匹配中文文案猜，于是把限流一律说成
+/// 「没有搜到相关结果」，模型换个词继续搜，反而把配额烧得更快。
+export interface SearchProviderError {
+  provider: string;
+  code: string;
+}
+
+/// 视为「上游临时不可用、值得退避重试」的错误码。
+///
+/// 只收**明确表示"稍后再来"**的码。auth/配置类错误重试是纯浪费（重试一万次也不会有 key），
+/// 且会拖长每次工具调用的等待。
+export const RETRYABLE_SEARCH_ERROR_CODES: readonly string[] = [
+  "rate_limited",
+  "timeout",
+  "unavailable",
+  "upstream_error",
+];
+
+/// 该错误码是否值得退避重试。
+export function isRetryableSearchError(code: string): boolean {
+  return RETRYABLE_SEARCH_ERROR_CODES.includes(code.toLowerCase());
+}
+
 export interface DiscoveryResult {
   leads: DiscoveryLead[];
   /// 局部失败说明（某个 provider 挂了但其它有结果）。可直接展示给用户，不含凭据。
   warnings: string[];
+  /// 上游错误的结构化形态，与 warnings 同源（warnings 是它的人话渲染）。
+  /// 缺省/空数组 = 没有上游错误。调用方用它区分「限流」与「没命中」。
+  providerErrors?: SearchProviderError[];
 }
 
 // ---------------------------------------------------------------------------

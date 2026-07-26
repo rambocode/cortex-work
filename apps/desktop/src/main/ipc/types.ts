@@ -578,6 +578,10 @@ export interface CliStartRequest {
   // pi 专属:除 piExtensionPath 外的额外 -e 扩展路径（如 delegate 桥接）。主进程内部填充，
   // pi.ts buildArgs 逐个 -e 注入。与 core 镜像。
   extraExtensionPaths?: string[];
+  // 本轮是否允许联网检索（SessionMeta.webSearch 的逐轮投影）。true 时才注入研究引擎 MCP
+  // （web_search / web_read）,见 cli.ts 的 buildResearchMcpServerConfig 调用。
+  // **缺省视为 false**：出站能力的默认必须落在保守那一侧。与 core 镜像。
+  webSearch?: boolean;
 }
 
 // 历史消息追问的临时流式应答请求（与 core/desktop/types.ts 镜像）。
@@ -741,6 +745,9 @@ export interface PiOpenRequest {
   appendSystemPrompt?: string;
   // pi 思考强度初值（阶段5）:renderer 传,buildRpcArgs → --thinking（冷启设初值）。
   thinkingLevel?: string;
+  // 会话级联网检索（SessionMeta.webSearch）:pi-session.ts 据此决定是否把研究引擎 MCP
+  // 并进桥接扩展。renderer 侧计入 extensionFingerprint,改值触发会话重开。缺省视为 false。与 core 镜像。
+  webSearch?: boolean;
   // 主进程内部填充:askquestion extension 的会话级 sentinel。renderer 不传。
   askQuestionSentinel?: string;
 }

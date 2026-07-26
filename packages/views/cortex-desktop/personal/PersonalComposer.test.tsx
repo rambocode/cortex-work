@@ -42,6 +42,7 @@ function renderComposer(agent: "pi" | "claude", bridge: DesktopBridge): void {
       onChangeDirPermission={() => {}}
       onToggleSubagentOrchestration={() => {}}
       onToggleSkills={() => {}}
+      onToggleWebSearch={() => {}}
       onToast={() => {}}
     />
   );

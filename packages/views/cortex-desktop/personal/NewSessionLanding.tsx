@@ -30,6 +30,10 @@ import type {
   ProviderSettings,
   SessionMeta,
 } from "@cortex-work/core";
+import {
+  hasSearchBackend,
+  normalizeResearchEngineSettings,
+} from "@cortex-work/core/research/settings";
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
 import { useSlashCommands } from "./useSlashCommands";
@@ -88,8 +92,16 @@ export function NewSessionLanding({
       dirPermission: DEFAULT_NEW_SESSION_DIR_PERMISSION as DirPermission,
       // 子 agent 编排开关(默认关)。三个 agent(claude/codex/pi)均可在新会话落地页开启。
       subagentOrchestration: false,
+      // 联网检索(默认关)。出站能力必须由用户每次显式选择,不继承任何全局默认。
+      webSearch: false,
     };
   });
+
+  // 落地页的「联网」pill 门控:与会话内 PersonalComposer 同源(有 research 子域 + 引擎已开启;
+  // 搜索后端没配好则渲染但禁用)。不复用那个组件是因为落地页走草稿态、还没有 SessionMeta。
+  const researchSettings = normalizeResearchEngineSettings(generalSettings.researchEngine);
+  const researchAvailable = !!bridge?.research && researchSettings.enabled;
+  const webSearchUnavailable = !hasSearchBackend(researchSettings);
 
   // 落地页 slash:用草稿 agent/useOwnSkills + 选中项目构造最小会话对象喂 useSlashCommands
   //(usePiEnabledSkills 仅读 agent/useOwnSkills/projectId)。与会话页共用同一 hook,保证 slash 一致。
@@ -128,6 +140,9 @@ export function NewSessionLanding({
     if (draft.dirPermission !== DEFAULT_DIR_PERMISSION) patch.dirPermission = draft.dirPermission;
     // 子 agent 编排:开启才落盘(默认关)。落到会话后,首轮 send 即按编排管线走。
     if (draft.subagentOrchestration) patch.subagentOrchestration = true;
+    // 联网检索:开启才落盘(默认关)。必须落到会话上——send 读的是 sendSession.webSearch,
+    // 不落盘的话用户在落地页开的「联网」到首轮就丢了。
+    if (draft.webSearch) patch.webSearch = true;
     if (Object.keys(patch).length) updateSession(sess.id, patch);
     return { ...sess, ...patch };
   };
@@ -206,6 +221,11 @@ export function NewSessionLanding({
         subagentOrchestration={draft.subagentOrchestration}
         onToggleSubagentOrchestration={() => setDraft((d) => ({ ...d, subagentOrchestration: !d.subagentOrchestration }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
+        webSearch={draft.webSearch}
+        webSearchUnavailable={webSearchUnavailable}
+        {...(researchAvailable
+          ? { onToggleWebSearch: () => setDraft((d) => ({ ...d, webSearch: !d.webSearch })) }
+          : {})}
         onToast={onToast}
       />
 

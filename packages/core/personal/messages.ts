@@ -2033,6 +2033,9 @@ async function buildPiOpenForSession(
     enableSampleCommands: piCustom?.sampleCommands || undefined,
     appendSystemPrompt: piSystemPrompt || undefined,
     thinkingLevel,
+    // 会话级联网:主进程据此把研究引擎 MCP 并进桥接扩展。pi 工具集在 open 时冻结,
+    // 故该值计入 extensionFingerprint(见 ./pi-session)——中途切开关会触发会话重开。
+    webSearch: session.webSearch === true,
   };
 }
 
@@ -2757,13 +2760,15 @@ export function usePersonalActions(): PersonalActions {
       const attachmentPrompt = buildAttachmentSystemPrompt(attachments);
       const docPrompt = docRefs ? buildDocFilesSystemPrompt(docRefs) : undefined;
       const globalAppend = buildGlobalAppend();
-      // 会话内前置检索（可选，默认关）：开启后每轮发送前先联网抓一次资料，注入 system prompt。
+      // 会话内前置检索（可选，默认关）：需要「该会话开了联网」+ 全局「总是先检索再回答」两者
+      // 同时成立，才在每轮发送前先联网抓一次资料并注入 system prompt。
       // **必须在这里 await 而不是并进 buildGlobalAppend**：后者是同步函数，被三处调用，
       // 改成异步会波及整条发送链路；而检索本身只在 chat 的这一个发送点需要。
       // 失败/超时静默降级（见 retrieveChatEvidence 的注释），绝不阻断本轮发送。
       const evidenceAppend = await retrieveChatEvidence({
         gather: bridge.research?.gather?.bind(bridge.research),
         settings: usePersonalStore.getState().generalSettings.researchEngine,
+        sessionWebSearch: session.webSearch === true,
         query: text,
       });
       // 组装顺序:全局指令/语言(U3/U4,三端统一) → 项目信息(Spotlight) → 文档清单;皆空仍传 undefined。
@@ -3008,6 +3013,9 @@ export function usePersonalActions(): PersonalActions {
             // 委派：本轮被 @ 的协作者 → cli.ts 据此 per-turn 注册 ask_<id> 工具集（claude/codex 经
             // builtinServers；pi 阶段2 另生成桥接）。无 @mention 时 undefined，正常单发。
             delegateRoles: hasDelegateMentions ? earlyMentions.map((m) => m.role) : undefined,
+            // 会话级联网:主进程据此决定是否注入研究引擎 MCP（web_search / web_read）。
+            // 逐轮 fresh spawn,改开关下一轮即生效,无需重开。
+            webSearch: sendSession.webSearch === true,
             // pi 委派单发的 provider（生成 provider extension）；claude/codex / 非委派为 undefined。
             provider: delegateProvider,
           });

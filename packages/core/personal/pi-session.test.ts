@@ -237,6 +237,24 @@ describe("ensurePiSession", () => {
     expect(bridge.piClose).not.toHaveBeenCalled();
   });
 
+  /// 会话级「联网」:研究引擎 MCP 经桥接 extension 在 pi:open 时并入,pi 无运行时增删工具集的命令。
+  /// 不进指纹会让中途切开关复用温会话的旧工具集——**关掉后仍留着一套能出站的工具**,那是安全问题。
+  it("webSearch 变化（会话级联网开关）→ 指纹漂移关旧重开,新工具集才真正加载", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), webSearch: true }); // 开着联网:带研究引擎 MCP
+    await ensurePiSession(bridge, { ...req() }); // 关掉:必须重开,把工具卸掉
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("webSearch 不变 → 指纹一致复用不重开", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req(), webSearch: true });
+    await ensurePiSession(bridge, { ...req(), webSearch: true });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
   it("thinkingLevel 仅运行时态 → 不进指纹,切档复用温会话不重开（阶段5）", async () => {
     const bridge = fakeBridge();
     await ensurePiSession(bridge, { ...req(), thinkingLevel: "low" });

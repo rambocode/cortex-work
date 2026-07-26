@@ -291,13 +291,17 @@ async function assembleService(): Promise<ResearchService> {
   });
 }
 
-/// 依据当前设置构造搜索客户端；两条路径都未配置（或密文解不开）时返回 null（上层报"未配置"）。
+/// 依据当前设置构造搜索客户端；选中的那条未配置（或密文解不开）时返回 null（上层报"未配置"）。
 ///
-/// **优先级：自建 Search Server > 直连商业搜索**。理由是隐私边界不同——走 Search Server 时
-/// 查询词经服务端转发、有限流与审计；直连是查询词从桌面端直接出站到第三方。用户既然部署了
-/// 服务端，就不该被静默降级到隐私更弱的那条路。直连只是"没有服务端时也能用"的逃生阀。
+/// **两条路径是单选，按 settings.searchBackend 走，彼此不回落**（曾经是
+/// `createSearchServerClient() ?? createDirectSearchClient()` 的优先级链）。
+/// 不回落是刻意的：两条路径的隐私边界不同——Search Server 的查询词经服务端转发、有限流与审计，
+/// 直连是查询词从本机直接出站给第三方。选了 server 却因为令牌解不开而静默改走直连，
+/// 等于把查询词发去了用户没有选择的地方。报「未配置」让用户自己决定怎么修。
 function createSearchClient(): SearchClientLike | null {
-  return createSearchServerClient() ?? createDirectSearchClient();
+  return settingsSnapshot.searchBackend === "server"
+    ? createSearchServerClient()
+    : createDirectSearchClient();
 }
 
 /// 自建 Search Server 客户端；未配置或密文解不开时返回 null。

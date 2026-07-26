@@ -106,6 +106,16 @@ export interface SessionMeta {
   // 二次加工，见 orchestrate.ts），渲染端过程面板按 stage 展示。缺省/false = 走单发 startCli（历史默认）。
   // Claude/Codex 走 CLI fresh spawn；Pi 走临时 RPC fresh 会话，不污染当前长驻 Pi 对话。逐轮 fresh 决策，改值下一轮即生效。
   subagentOrchestration?: boolean;
+  // 联网检索开关（会话级）:开启后主进程给该会话的 agent 注入研究引擎 MCP（web_search / web_read），
+  // 由模型自行决定何时调用。缺省/false = 不注入,行为与从前完全一致。
+  //
+  // **为什么是会话级而不是全局设置**:联网带有数据出站语义,「这次对话要不要联网」是用户当下的
+  // 意图,不是一劳永逸的偏好。全局开关会让此后每个会话都悄悄具备出站能力,而输入框上看不出痕迹。
+  // 原全局开关 researchEngine.chatEnabled 已因此移除。
+  //
+  // 生效时机分两家:claude/codex 逐轮 fresh spawn,经 CliStartRequest.webSearch 传递,改值下一轮即生效;
+  // pi 是长驻 RPC,工具集在 pi:open 时冻结,故 webSearch 计入 extensionFingerprint → 改值触发会话重开。
+  webSearch?: boolean;
   // /clear 后默认隐藏到此游标为止的历史消息；消息文件本身仍完整保留。
   hiddenHistory?: HiddenHistoryMeta;
   // 归档时间戳;缺省 = 在会话列表。归档后默认从列表隐藏。
@@ -1085,6 +1095,10 @@ export interface CliStartRequest {
   delegateRoles?: RoleConfig[];
   // pi 专属:除 piExtensionPath 外的额外 -e 扩展路径（如 delegate 桥接）。主进程内部填充。与 ipc/types.ts 镜像。
   extraExtensionPaths?: string[];
+  // 本轮是否允许联网检索（SessionMeta.webSearch 的逐轮投影）。true 时主进程才注入研究引擎 MCP
+  // （web_search / web_read）。**缺省视为 false**——出站能力的默认必须落在保守那一侧,
+  // 漏传的调用点应退化为「没有联网」而不是「悄悄联网」。与 ipc/types.ts 镜像。
+  webSearch?: boolean;
 }
 
 // 历史消息追问的临时流式应答请求（与 apps/desktop/src/main/ipc/types.ts 镜像）。
@@ -1202,6 +1216,10 @@ export interface OrchestrateStartRequest {
   permissionMode?: PermissionMode;
   approvalPolicy?: ApprovalPolicy;
   appendSystemPrompt?: string;
+  // 刻意**没有** webSearch：三段编排的子进程走 orchestrate.ts 的 runStage 直接 spawn，
+  // 不经 cli:start 的内置 MCP 注入路径（codex 更是显式 CODEX_MCP_CLEAR），
+  // 因此编排回合本来就拿不到任何内置 MCP（研究引擎/浏览器/文档抽取同理）。
+  // 在此加一个主进程无人读取的字段只会制造「传了却不生效」的假象。
   /** Pi 三段编排所需的 RPC open 参数；由 renderer 按普通 Pi 发送同源装配。 */
   piOpen?: Omit<PiOpenRequest, "uiSessionId" | "cwd">;
 }
@@ -1254,6 +1272,10 @@ export interface PiOpenRequest {
   // pi:setThinking）。用 string 与 ipc 镜像一致(DTO 不强类型;UI 侧 SessionMeta.thinkingLevel /
   // GeneralSettings.piThinkingDefault 仍是 ThinkingLevel)。
   thinkingLevel?: string;
+  // 会话级联网检索（SessionMeta.webSearch）:pi:open 据此决定是否把研究引擎 MCP 并进桥接扩展。
+  // pi 的工具集在 open 时冻结、无运行时增删命令,故该值计入 extensionFingerprint ——
+  // 中途切开关会让指纹漂移并触发会话重开,新工具集才真正加载。缺省视为 false。
+  webSearch?: boolean;
 }
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。

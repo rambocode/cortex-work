@@ -209,7 +209,15 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
     // 研究引擎:pi 与 claude/codex 拿到同一套联网能力(web_search / web_read)。
     // pi 走 mcpInjection==="none",不经 cli.ts 的 builtinServers 数组,必须在这里单独并入——
     // 漏掉它就会出现「同一个开关，claude 能搜、pi 不能」这种查起来很费劲的不一致。
-    const researchServer = buildResearchMcpServerConfig(gs?.researchEngine, prepared.uiSessionId);
+    //
+    // 准入同 claude/codex 走会话级的 webSearch。差别在生效时机:pi 的工具集在 open 时冻结,
+    // 故 renderer 侧把 webSearch 计入 extensionFingerprint,中途切开关会触发会话重开。
+    const researchServer = buildResearchMcpServerConfig(
+      gs?.researchEngine,
+      prepared.uiSessionId,
+      "chat",
+      prepared.webSearch === true,
+    );
     const bridgeInputs = [
       ...userServers,
       ...(docServer ? [docServer] : []),
