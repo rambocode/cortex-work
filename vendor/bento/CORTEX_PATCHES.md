@@ -17,9 +17,11 @@ vendored 基线 commit:`455517a2b3a55fe655cae6842318cd86d8041915`(2026-07-24,上
 - `src/cortex/host-bridge.ts` — Electron 宿主桥,三件事:
   1. 保存:订阅 Store 的 `doc` 事件(debounce),把整份 `serializeAuto()` HTML 经
      `host.save()` 回写磁盘,取代 File System Access 保存;
-  2. 选区回传:订阅 `selection` **与** `current` 事件(切页也会让引用失效),把当前选区
-     快照 JSON 经 `host.selectionChanged()` 推给宿主,右栏「演示助手」据此显示引用;
-     校验/截断在宿主侧(`packages/core/design/slides/slides-selection.ts`);
+  2. 页面/选区回传:订阅 `selection` **与** `current` 事件,把当前页和元素选区快照 JSON
+     经 `host.selectionChanged()` 推给宿主。空元素选区仍回传当前页,右栏「演示助手」会自动
+     显示页码并把它作为页级修改的默认目标;校验/截断在宿主侧
+     (`packages/core/design/slides/slides-selection.ts`)。另暴露 `__cortexPushDeckContext`,
+     与宿主 shim 双向握手,消除 vendor boot / shim 注入先后竞态;
   3. `host.authorName` — 宿主身份名,作为评论作者的默认值。
   另外导出宿主热应用闸门 `beginHostApply()` / `endHostApply()`(计数式):`store.on('doc')`
   首行判 `applyDepth > 0` 就 return。否则宿主刚塞进来的文档会被立刻原样回写一遍

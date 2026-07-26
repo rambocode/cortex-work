@@ -135,6 +135,34 @@ describe('buildSlidesTurnPrompt(选区引用)', () => {
   })
 })
 
+describe('buildSlidesTurnPrompt(当前页引用)', () => {
+  const page = {
+    slideIndex: 2,
+    slideId: 's3',
+    slideName: 'LLM 发展简史'
+  }
+
+  it('把编辑器当前页自动拼在用户原话之前', () => {
+    const p = buildSlidesTurnPrompt({ text: '把标题改短一点', stage: 'ready', page })
+    expect(p).toContain('current editor page')
+    expect(p).toContain('slide 3')
+    expect(p).toContain('LLM 发展简史')
+    expect(p).toContain('#s3')
+    expect(p.indexOf('current editor page')).toBeLessThan(p.indexOf('User request:'))
+  })
+
+  it('当前页只作为页级请求的默认目标，不覆盖用户明确的全稿要求', () => {
+    const p = buildSlidesTurnPrompt({ text: '统一所有页面字体', stage: 'ready', page })
+    expect(p).toContain('page-scoped')
+    expect(p).toContain('whole deck')
+  })
+
+  it('未取得当前页时输出与原来逐字节一致', () => {
+    const base = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
+    expect(buildSlidesTurnPrompt({ text: 'x', stage: 'ready', page: null })).toBe(base)
+  })
+})
+
 describe('buildSlidesTurnPrompt(文本附件)', () => {
   it('无 files 与不传参数逐字节一致', () => {
     const base = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })

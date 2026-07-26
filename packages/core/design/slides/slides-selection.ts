@@ -37,6 +37,14 @@ export type SlidesSelectionSnapshot = {
   truncated?: boolean
 }
 
+/** Bento 编辑器当前停留的页面；与元素选区分离，空选区时也必须保留。 */
+export type SlidesPageSnapshot = {
+  /** 0 起的页序号；展示/prompt 里 +1。 */
+  slideIndex: number
+  slideId: string
+  slideName?: string
+}
+
 /** 条目上限:全选整页时避免把几十个元素灌进每一轮 prompt。 */
 export const SLIDES_SELECTION_ITEMS_MAX = 24
 /** 单条 label / 页名的字符上限(超出以 … 收尾)。 */
@@ -46,6 +54,19 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
+}
+
+function snapshotRecord(raw: unknown): Record<string, unknown> | null {
+  let value: unknown = raw
+  if (typeof value === 'string') {
+    if (!value.trim()) return null
+    try {
+      value = JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  return asRecord(value)
 }
 
 /** 有限数才收:webview 侧可能给出 NaN/Infinity/字符串,绝不能带进 prompt。 */
@@ -83,26 +104,35 @@ function parseItem(raw: unknown): SlidesSelectionItem | null {
   return item
 }
 
+function pageFromRecord(record: Record<string, unknown>): SlidesPageSnapshot | null {
+  const slideIndex = finiteOrUndefined(record.slideIndex)
+  const slideId = typeof record.slideId === 'string' ? record.slideId.trim() : ''
+  if (slideIndex === undefined || slideIndex < 0 || !slideId) return null
+  const page: SlidesPageSnapshot = {
+    slideIndex: Math.floor(slideIndex),
+    slideId
+  }
+  const slideName = trimLabel(record.slideName)
+  if (slideName !== undefined) page.slideName = slideName
+  return page
+}
+
+/** 空元素选区也能解析当前页；桥接 payload 非法或显式清空时返回 null。 */
+export function parseSlidesPageSnapshot(raw: unknown): SlidesPageSnapshot | null {
+  const record = snapshotRecord(raw)
+  return record ? pageFromRecord(record) : null
+}
+
 /**
  * 把桥回传的原始值(JSON 字符串或已解析对象)归一化为快照;任何不合规输入一律 null。
  * 空选区也返回 null —— 「没选中」与「选区非法」对上层是同一件事:不显示引用、不拼 prompt 段。
  */
 export function parseSlidesSelectionSnapshot(raw: unknown): SlidesSelectionSnapshot | null {
-  let value: unknown = raw
-  if (typeof value === 'string') {
-    if (!value.trim()) return null
-    try {
-      value = JSON.parse(value)
-    } catch {
-      return null
-    }
-  }
-  const record = asRecord(value)
+  const record = snapshotRecord(raw)
   if (!record) return null
 
-  const slideIndex = finiteOrUndefined(record.slideIndex)
-  const slideId = typeof record.slideId === 'string' ? record.slideId.trim() : ''
-  if (slideIndex === undefined || slideIndex < 0 || !slideId) return null
+  const page = pageFromRecord(record)
+  if (!page) return null
   if (!Array.isArray(record.items)) return null
 
   const parsed = record.items
@@ -111,15 +141,32 @@ export function parseSlidesSelectionSnapshot(raw: unknown): SlidesSelectionSnaps
   if (!parsed.length) return null
 
   const snapshot: SlidesSelectionSnapshot = {
-    slideIndex: Math.floor(slideIndex),
-    slideId,
+    slideIndex: page.slideIndex,
+    slideId: page.slideId,
     items: parsed.slice(0, SLIDES_SELECTION_ITEMS_MAX),
     totalCount: parsed.length
   }
-  const slideName = trimLabel(record.slideName)
-  if (slideName !== undefined) snapshot.slideName = slideName
+  if (page.slideName !== undefined) snapshot.slideName = page.slideName
   if (parsed.length > SLIDES_SELECTION_ITEMS_MAX) snapshot.truncated = true
   return snapshot
+}
+
+/**
+ * 当前页的 prompt 指针：页级请求默认落到这里，明确的全稿/跨页请求仍以用户原话为准。
+ */
+export function formatSlidesPageForPrompt(
+  page: SlidesPageSnapshot | null | undefined
+): string {
+  if (!page) return ''
+  const where = page.slideName
+    ? `slide ${page.slideIndex + 1} 「${page.slideName}」`
+    : `slide ${page.slideIndex + 1}`
+  return [
+    `The user's current editor page is ${where} (#${page.slideId}).`,
+    'Use it as the default target for page-scoped requests such as "this page" or 「当前页」.',
+    'This context does not override an explicit request about multiple slides or the whole deck.',
+    'If an element selection is listed below, that more specific selection takes precedence.'
+  ].join('\n')
 }
 
 /**

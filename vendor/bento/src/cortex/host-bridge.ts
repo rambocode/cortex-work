@@ -2,8 +2,8 @@
 // Cortex Desktop 的 webview 注入 window.cortexSlidesHost 后:
 //   1. 每次文档变更 debounce 后把整份 .bento.html(serializeAuto,含加密态)推给宿主落盘,
 //      取代浏览器端 File System Access 保存;
-//   2. 每次选区/切页变化把当前选区快照推给宿主,右栏「演示助手」据此显示引用,
-//      让用户说「把它换成折线图」时 agent 知道「它」是谁;
+//   2. 每次选区/切页变化把当前页 + 元素选区快照推给宿主,右栏「演示助手」据此显示引用,
+//      让用户说「修改当前页」或「把它换成折线图」时 agent 都能准确定位;
 //   3. 读取宿主身份名,作为评论作者的默认值。
 // 浏览器/非宿主环境下本模块完全无副作用。
 import { serializeAuto } from '../save'
@@ -13,7 +13,7 @@ import type { SlideElement } from '../model'
 /** 注入的宿主契约(与 views/design/slides/bento-stage-bridge.ts 的 shim 对齐)。 */
 export interface CortexSlidesHost {
   save(html: string): Promise<unknown> | unknown
-  /** 选区快照 JSON;无选区时传 null。宿主侧做校验与截断(见 core 的 slides-selection.ts)。 */
+  /** 当前页 + 选区快照 JSON;无元素选区时 items 为空。宿主侧做校验与截断。 */
   selectionChanged?(payload: string | null): unknown
   /** 宿主当前身份名,给评论作者名兜底。 */
   authorName?: string
@@ -142,10 +142,6 @@ function initSelectionBridge(store: Store): void {
     const host = cortexHost()
     if (!host?.selectionChanged) return
     const elements = store.selectedElements
-    if (!elements.length) {
-      host.selectionChanged(null)
-      return
-    }
     const slide = store.slide
     try {
       host.selectionChanged(
@@ -168,6 +164,10 @@ function initSelectionBridge(store: Store): void {
       // 序列化失败(异常元素)不该拖垮编辑器:本轮放弃推送,下一次选区变化再试。
     }
   }
+  // 宿主 shim 与 vendor boot 存在先后竞态：两边谁后就绪，谁负责触发一次首次握手。
+  const hostWindow = window as unknown as { __cortexPushDeckContext?: () => void }
+  hostWindow.__cortexPushDeckContext = push
   store.on('selection', push)
   store.on('current', push)
+  push()
 }

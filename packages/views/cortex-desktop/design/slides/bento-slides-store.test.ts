@@ -73,6 +73,28 @@ describe('approveOutline', () => {
   })
 })
 
+describe('editor context', () => {
+  it('原子保存当前页与元素选区，reset 时一并清空', () => {
+    const setEditorContext = useBentoSlidesStore.getState().setEditorContext
+    expect(typeof setEditorContext).toBe('function')
+    setEditorContext(
+      { slideIndex: 2, slideId: 's3', slideName: '第三页' },
+      {
+        slideIndex: 2,
+        slideId: 's3',
+        slideName: '第三页',
+        items: [{ id: 'title', type: 'text' }]
+      }
+    )
+    expect(useBentoSlidesStore.getState().currentPage?.slideId).toBe('s3')
+    expect(useBentoSlidesStore.getState().selection?.items[0]?.id).toBe('title')
+
+    useBentoSlidesStore.getState().reset()
+    expect(useBentoSlidesStore.getState().currentPage).toBeNull()
+    expect(useBentoSlidesStore.getState().selection).toBeNull()
+  })
+})
+
 describe('saveEditedDeckHtml', () => {
   it('成功 → revision 前进;失败 → 错误浮出且返回 ok:false', async () => {
     const bridge = makeBridge()

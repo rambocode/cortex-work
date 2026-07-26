@@ -237,3 +237,27 @@ describe('DesignAIRail slides 联网 pill', () => {
     })))).not.toContain('slides-web-search-pill')
   })
 })
+
+describe('DesignAIRail slides 当前页引用', () => {
+  it('slides 模式自动显示当前页码与页名', () => {
+    const html = renderToStaticMarkup(createElement(DesignAIRail, props({
+      slidesMode: true,
+      slidesCurrentPage: {
+        slideIndex: 2,
+        slideId: 's3',
+        slideName: 'LLM 发展简史'
+      }
+    })))
+    expect(html).toContain('data-testid="slides-current-page-chip"')
+    expect(html).toContain('第 3 页')
+    expect(html).toContain('LLM 发展简史')
+  })
+
+  it('board 模式不显示 Slides 当前页引用', () => {
+    const html = renderToStaticMarkup(createElement(DesignAIRail, props({
+      slidesMode: false,
+      slidesCurrentPage: { slideIndex: 0, slideId: 's1' }
+    })))
+    expect(html).not.toContain('slides-current-page-chip')
+  })
+})

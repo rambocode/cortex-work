@@ -11,7 +11,9 @@
  */
 
 import {
+  formatSlidesPageForPrompt,
   formatSlidesSelectionForPrompt,
+  type SlidesPageSnapshot,
   type SlidesSelectionSnapshot
 } from './slides-selection'
 import {
@@ -29,6 +31,8 @@ export type BuildSlidesTurnPromptOptions = {
   stage?: SlidesTurnStage
   /** 用户在 bento 编辑器里选中的元素;空/缺省时整段不拼。 */
   selection?: SlidesSelectionSnapshot | null
+  /** bento 编辑器当前停留的页面；即使没有元素选区也自动注入。 */
+  page?: SlidesPageSnapshot | null
   /** 用户本轮提供的纯文本参考文件。 */
   files?: SlidesTextFile[]
 }
@@ -130,6 +134,8 @@ const STAGE_INSTRUCTION: Record<SlidesTurnStage, string> = {
 export function buildSlidesTurnPrompt(options: BuildSlidesTurnPromptOptions): string {
   const stage = options.stage ?? 'draft'
   const parts = [CONTRACT, STAGE_INSTRUCTION[stage]]
+  const page = formatSlidesPageForPrompt(options.page)
+  if (page) parts.push(page)
   // 选区引用同属变量段,排在用户原话之前:静态前缀(CONTRACT + 阶段指令)保持逐字节
   // 不变,prompt 缓存照常命中;空选区时整段不拼,输出与无选区完全一致。
   const selection = formatSlidesSelectionForPrompt(options.selection)

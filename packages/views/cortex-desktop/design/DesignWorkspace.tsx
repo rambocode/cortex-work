@@ -166,6 +166,7 @@ export function DesignWorkspace(): ReactElement {
       : false;
   // deck 阶段决定本轮该做什么(提纲 gate / 全篇生成 / 局部修订);未加载时按 draft。
   const slidesStage = useBentoSlidesStore((s) => s.stage);
+  const slidesCurrentPage = useBentoSlidesStore((s) => s.currentPage);
   // bento 编辑器内的当前选区(SlidesStage 轮询回传)。
   const slidesSelection = useBentoSlidesStore((s) => s.selection);
   // 「清除引用」是本地抑制而非清空选区 —— 画布上的选中态归 bento 管,宿主无权替用户取消。
@@ -290,6 +291,7 @@ export function DesignWorkspace(): ReactElement {
       buildSlidesTurnPrompt({
         text: decision.text,
         stage: slidesStage,
+        page: slidesCurrentPage,
         selection: activeSlidesSelection,
         files,
       }),
@@ -452,6 +454,7 @@ export function DesignWorkspace(): ReactElement {
           onSwitchThread={() => {}}
           onCollapse={() => setAssistantOpen(false)}
           slidesMode={slidesMode}
+          slidesCurrentPage={slidesMode ? slidesCurrentPage : null}
           slidesSelection={activeSlidesSelection}
           onClearSlidesSelection={() => setDismissedSelectionKey(slidesSelectionKey(slidesSelection))}
           composerImages={composerImages}

@@ -45,7 +45,7 @@ export function SlidesStage({ workspaceRoot, deckId }: Props): ReactElement {
   const { t } = useTranslation('design')
   const bridge = useDesktopBridge()
   const saveEditedDeckHtml = useBentoSlidesStore((s) => s.saveEditedDeckHtml)
-  const setSelection = useBentoSlidesStore((s) => s.setSelection)
+  const setEditorContext = useBentoSlidesStore((s) => s.setEditorContext)
   // 宿主身份用作 bento 评论的默认作者名,免去页内再问一次(Electron 不支持 window.prompt)。
   const { identity } = useCoreContext()
   const authorName = identity?.name
@@ -246,16 +246,16 @@ export function SlidesStage({ workspaceRoot, deckId }: Props): ReactElement {
       // 切 deck 竞态:与保存泵同一防线,A 稿的选区绝不能落到 B 稿的会话上。
       if (deckIdRef.current !== deckId) return
       lastSeq = read.seq
-      setSelection(read.selection)
+      setEditorContext(read.page, read.selection)
     }
     const timer = window.setInterval(() => void pump(), BENTO_SELECTION_POLL_INTERVAL_MS)
     return () => {
       disposed = true
       window.clearInterval(timer)
       // 卸载/切 deck:清掉右栏的引用 chip,免得指向已经看不见的元素。
-      setSelection(null)
+      setEditorContext(null, null)
     }
-  }, [preview.state.ready, executeScript, setSelection, deckId])
+  }, [preview.state.ready, executeScript, setEditorContext, deckId])
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 bg-black/4 dark:bg-black/30" data-testid="bento-slides-stage">

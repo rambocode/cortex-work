@@ -75,6 +75,6 @@ describe("PptxViewer real renderer", () => {
     render(<PptxViewer filePath={REAL_PPTX.path} fileName={REAL_PPTX.name} bridge={bridge} />);
 
     expect(await screen.findByText("真实幻灯片", {}, { timeout: 10_000 })).toBeInTheDocument();
-    expect(screen.getByText("1 / 1")).toBeInTheDocument();
+    expect(await screen.findByText("1 / 1")).toBeInTheDocument();
   });
 });

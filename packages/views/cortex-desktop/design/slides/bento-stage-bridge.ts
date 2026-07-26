@@ -10,8 +10,14 @@
 //   - selection 是「当前状态」→ 读取不清空,靠单调 seq 判断有无变化;若也做成取后即清,
 //     轮询会把状态吃掉,面板上的引用 chip 就会自己闪没。
 
-import type { SlidesSelectionSnapshot } from '@cortex-work/core/design/slides/slides-selection'
-import { parseSlidesSelectionSnapshot } from '@cortex-work/core/design/slides/slides-selection'
+import type {
+  SlidesPageSnapshot,
+  SlidesSelectionSnapshot
+} from '@cortex-work/core/design/slides/slides-selection'
+import {
+  parseSlidesPageSnapshot,
+  parseSlidesSelectionSnapshot
+} from '@cortex-work/core/design/slides/slides-selection'
 
 /** 嵌入注入脚本的字面量转义。JSON.stringify 已覆盖引号/反斜杠/换行;
  *  U+2028/2029 在旧 JS 引擎里是非法的字符串内换行,一并转义以防注入脚本语法错误。 */
@@ -47,6 +53,7 @@ export function buildBentoHostShimSource(options: BentoHostShimOptions = {}): st
   try { window.localStorage.setItem('bento-offline', 'on') } catch {}
   if (window.__cortexDrainDeckSave && window.cortexSlidesHost) {
     if (AUTHOR !== undefined) window.cortexSlidesHost.authorName = AUTHOR
+    try { window.__cortexPushDeckContext?.() } catch {}
     return true
   }
   let pendingSave = null
@@ -67,6 +74,7 @@ export function buildBentoHostShimSource(options: BentoHostShimOptions = {}): st
     if (!selectionSeq || selectionSeq === lastSeq) return null
     return { seq: selectionSeq, payload: selectionPayload }
   }
+  try { window.__cortexPushDeckContext?.() } catch {}
   return true
 })()`
 }
@@ -108,6 +116,8 @@ export function parseBentoSaveDrain(raw: unknown): string | null {
 
 export type BentoSelectionRead = {
   seq: number
+  /** 当前编辑页；即使元素选区为空也保留。 */
+  page: SlidesPageSnapshot | null
   /** 归一化后的选区;页内清空选区时为 null(与「未变化」区分开)。 */
   selection: SlidesSelectionSnapshot | null
 }
@@ -121,5 +131,9 @@ export function parseBentoSelectionRead(raw: unknown): BentoSelectionRead | null
   const record = raw as Record<string, unknown>
   const seq = typeof record.seq === 'number' && Number.isFinite(record.seq) ? record.seq : null
   if (seq === null) return null
-  return { seq, selection: parseSlidesSelectionSnapshot(record.payload) }
+  return {
+    seq,
+    page: parseSlidesPageSnapshot(record.payload),
+    selection: parseSlidesSelectionSnapshot(record.payload)
+  }
 }

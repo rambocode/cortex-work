@@ -1109,6 +1109,8 @@ export default interface Resources {
     "slidesCheckSourceRules": "规则检查",
     "slidesChecking": "正在检查页面…",
     "slidesConflictNotice": "页面已在其他位置更新",
+    "slidesCurrentPage": "第 {{index}} 页",
+    "slidesCurrentPageNamed": "第 {{index}} 页 · {{name}}",
     "slidesDeckBroken": "演示文稿数据损坏,无法打开",
     "slidesDeckLoading": "正在加载演示文稿…",
     "slidesDeckRecovered": "已从临时副本恢复演示文稿",

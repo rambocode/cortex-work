@@ -26,6 +26,7 @@ import { defaultFrameSizeForDesignTarget } from '@cortex-work/core/design/design
 import { cancelDesignPagesRun } from '@cortex-work/core/design/design-pages-run'
 import {
   slidesSelectionCount,
+  type SlidesPageSnapshot,
   type SlidesSelectionSnapshot
 } from '@cortex-work/core/design/slides/slides-selection'
 import type { AgentKind, DerivedAgentMeta } from '@cortex-work/core'
@@ -90,6 +91,8 @@ type Props = {
    * 换成 slides 自己的空态/占位文案。
    */
   slidesMode?: boolean
+  /** bento 编辑器当前页；自动显示且不可清除，发送时作为页级请求默认目标。 */
+  slidesCurrentPage?: SlidesPageSnapshot | null
   /**
    * bento 编辑器内的当前选区(仅 slidesMode 有意义)。有选区时在上下文行显示引用 chip,
    * 让用户看得见「agent 这一轮会盯着哪些元素改」;发送时由容器并入 slides 回合 prompt。
@@ -171,6 +174,7 @@ function DesignAIRailInner({
   onSwitchAgent,
   className = '',
   slidesMode = false,
+  slidesCurrentPage = null,
   slidesSelection = null,
   onClearSlidesSelection,
   composerImages,
@@ -568,6 +572,31 @@ function DesignAIRailInner({
                 <span className="shrink-0 text-ds-ink">{t('slidesRailContextLabel')}</span>
                 <span className="text-ds-faint">·</span>
                 <span className="shrink-0 text-ds-ink">{t('slidesRailContextCanvas')}</span>
+              </div>
+            ) : null}
+            {slidesMode && slidesCurrentPage ? (
+              <div
+                data-testid="slides-current-page-chip"
+                className="flex max-w-full items-center gap-1.5 rounded-full border border-ds-border bg-ds-surface-subtle px-3 py-2 text-[12.5px] font-semibold text-ds-muted dark:bg-white/6"
+                title={
+                  slidesCurrentPage.slideName
+                    ? t('slidesCurrentPageNamed', {
+                        index: slidesCurrentPage.slideIndex + 1,
+                        name: slidesCurrentPage.slideName
+                      })
+                    : t('slidesCurrentPage', { index: slidesCurrentPage.slideIndex + 1 })
+                }
+              >
+                <Layers className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
+                <span className="shrink-0 text-ds-ink">
+                  {t('slidesCurrentPage', { index: slidesCurrentPage.slideIndex + 1 })}
+                </span>
+                {slidesCurrentPage.slideName ? (
+                  <>
+                    <span className="text-ds-faint">·</span>
+                    <span className="min-w-0 truncate">{slidesCurrentPage.slideName}</span>
+                  </>
+                ) : null}
               </div>
             ) : null}
             {slidesMode && onToggleSlidesWebSearch ? (

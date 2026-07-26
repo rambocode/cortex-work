@@ -448,6 +448,8 @@
   "slidesRailWorking": "正在生成演示文稿…",
   "slidesRailContextLabel": "演示上下文",
   "slidesRailContextCanvas": "16:9 · 1280 × 720 演示页",
+  "slidesCurrentPage": "第 {{index}} 页",
+  "slidesCurrentPageNamed": "第 {{index}} 页 · {{name}}",
   "slidesRailContextHint": "演示页尺寸固定为 1280 × 720(16:9),由 deck 合同锁定。",
   "slidesWebSearchLabel": "联网",
   "slidesWebSearchOnTitle": "本轮允许 Agent 联网检索",

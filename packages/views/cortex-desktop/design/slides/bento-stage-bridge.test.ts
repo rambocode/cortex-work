@@ -56,6 +56,16 @@ describe('buildBentoHostShimSource', () => {
     expect(ctx.run(DRAIN_BENTO_SAVE_SOURCE)).toBe('<html>pending</html>')
   })
 
+  it('首次与幂等重注都会请求页内立即推送当前页', () => {
+    let pushes = 0
+    ctx.win.__cortexPushDeckContext = () => {
+      pushes += 1
+    }
+    ctx.run(buildBentoHostShimSource({ authorName: '我' }))
+    ctx.run(buildBentoHostShimSource({ authorName: '我' }))
+    expect(pushes).toBe(2)
+  })
+
   it('作者名缺失时不注入该字段,让页内回退到自己问', () => {
     ctx.run(buildBentoHostShimSource({}))
     expect((ctx.win.cortexSlidesHost as Record<string, unknown>).authorName).toBeUndefined()

@@ -448,6 +448,8 @@
   "slidesRailWorking": "Generating presentation…",
   "slidesRailContextLabel": "Slides context",
   "slidesRailContextCanvas": "16:9 · 1280 × 720 slide",
+  "slidesCurrentPage": "Slide {{index}}",
+  "slidesCurrentPageNamed": "Slide {{index}} · {{name}}",
   "slidesRailContextHint": "Slide size is fixed at 1280 × 720 (16:9) by the deck contract.",
   "slidesWebSearchLabel": "Web",
   "slidesWebSearchOnTitle": "Allow the agent to search the web for this turn",

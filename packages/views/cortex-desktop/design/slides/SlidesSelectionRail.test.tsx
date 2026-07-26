@@ -33,9 +33,21 @@ const payload = {
 describe('bento 选区 → 会话引用(端到端链路)', () => {
   it('页内推的选区能被宿主原样读出并归一化', () => {
     const read = pipeSelection(payload)
+    expect(read?.page).toEqual({
+      slideIndex: 2,
+      slideId: 's3',
+      slideName: 'LLM 发展简史'
+    })
     expect(read?.selection?.slideId).toBe('s3')
     expect(read?.selection?.items[0]?.id).toBe('el_7f2a')
     expect(slidesSelectionCount(read?.selection ?? null)).toBe(1)
+  })
+
+  it('没有选中元素时仍保留当前页，元素选区保持 null', () => {
+    const read = pipeSelection({ ...payload, items: [] })
+    expect(read?.page?.slideId).toBe('s3')
+    expect(read?.page?.slideIndex).toBe(2)
+    expect(read?.selection).toBeNull()
   })
 
   it('选区进入 prompt,且用户原话仍固定在末尾', () => {
@@ -58,6 +70,7 @@ describe('bento 选区 → 会话引用(端到端链路)', () => {
       (win.__cortexReadDeckSelection as (s: number) => unknown)(first?.seq ?? 0)
     )
     expect(cleared).not.toBeNull()
+    expect(cleared?.page).toBeNull()
     expect(cleared?.selection).toBeNull()
   })
 
