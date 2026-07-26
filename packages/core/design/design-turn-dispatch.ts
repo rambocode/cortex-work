@@ -1,5 +1,5 @@
 import type { AttachmentReference } from './compat/agent-types'
-import type { SendMessageOverrides } from './compat/chat-store-types'
+import type { DesignPendingImage, SendMessageOverrides } from './compat/chat-store-types'
 import type { DesignTurnTarget } from './design-turn-prompt'
 import type { DesignWorkspaceState } from './design-workspace-store-types'
 
@@ -19,6 +19,8 @@ export type DesignTurnSendOptions = DesignAssistantModelOptions & {
   target: DesignTurnTarget
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
+  /** 本轮随消息发送的图片(composer 粘贴/选取/拖入)。 */
+  images?: DesignPendingImage[]
 }
 
 export type CodeCanvasSendOptions = {
@@ -47,7 +49,8 @@ export function buildDesignTurnSendOverrides(options: DesignTurnSendOptions): Se
     displayText: options.displayText,
     ...buildAssistantModelOverrides(options),
     ...(options.target === 'canvas' ? { guiDesignCanvas: true } : {}),
-    ...(attachmentIds.length ? { attachmentIds, attachments } : {})
+    ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
+    ...(options.images?.length ? { images: options.images } : {})
   }
 }
 

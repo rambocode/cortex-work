@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import type { DesktopBridge } from '@cortex-work/core/desktop/bridge'
 import type { BentoDeckIpcError, BentoDeckStage } from '@cortex-work/core/desktop/slides-ipc-types'
 import { parseBentoDoc, type BentoDoc } from '@cortex-work/core/design/slides/bento/bento-doc-schema'
+import type { SlidesSelectionSnapshot } from '@cortex-work/core/design/slides/slides-selection'
 import type { SlidesOutline } from '@cortex-work/core/design/slides/slides-types'
 
 interface BentoSlidesUiState {
@@ -21,6 +22,11 @@ interface BentoSlidesUiState {
   mutating: boolean
   deckError: BentoDeckIpcError | null
   outlineDialogOpen: boolean
+  /**
+   * bento 编辑器内的当前选区(SlidesStage 轮询回传)。纯运行时态、不落盘:
+   * 右栏据此显示引用 chip,发送时并入 slides 回合 prompt。切 deck / 卸载时清空。
+   */
+  selection: SlidesSelectionSnapshot | null
 
   /** 挂载/切 deck:读取,不存在则用文档标题补建(设计稿索引先行的场景)。 */
   setup(options: { bridge: DesktopBridge; workspaceRoot: string; deckId: string; title: string }): Promise<void>
@@ -33,6 +39,7 @@ interface BentoSlidesUiState {
   saveEditedDeckHtml(html: string): Promise<boolean>
   /** 另存为 .bento.html(交付物即文件本体)。返回 false 仅在真实失败(取消不算)。 */
   exportDeck(): Promise<boolean>
+  setSelection(selection: SlidesSelectionSnapshot | null): void
   reset(): void
 }
 
@@ -55,11 +62,13 @@ export const useBentoSlidesStore = create<BentoSlidesUiState>((set, get) => ({
   mutating: false,
   deckError: null,
   outlineDialogOpen: false,
+  selection: null,
 
   async setup({ bridge, workspaceRoot, deckId, title }) {
     // doc 先清空:SlidesWorkspace 以「doc 就绪」gate 舞台挂载 —— deck 文件可能尚在
     // 主进程补建中,残留上一稿的 doc 会让 webview 提前对不存在的文件发起授权(竞态)。
-    set({ bridge, workspaceRoot, deckId, doc: null, revision: 0, outline: null, loading: true, deckError: null, outlineDialogOpen: false })
+    // selection 一并清空:上一稿的选区绝不能带进新 deck(会让右栏引用指向不存在的元素)。
+    set({ bridge, workspaceRoot, deckId, doc: null, revision: 0, outline: null, loading: true, deckError: null, outlineDialogOpen: false, selection: null })
     if (!bridge.slidesBentoGetDeck || !bridge.slidesBentoCreateDeck) {
       set({ loading: false, deckError: { code: 'io_error', message: 'bento slides 桥不可用(桌面端专属能力)' } })
       return
@@ -139,6 +148,10 @@ export const useBentoSlidesStore = create<BentoSlidesUiState>((set, get) => ({
     return true
   },
 
+  setSelection(selection) {
+    set({ selection })
+  },
+
   reset() {
     set({
       bridge: null,
@@ -151,7 +164,8 @@ export const useBentoSlidesStore = create<BentoSlidesUiState>((set, get) => ({
       loading: false,
       mutating: false,
       deckError: null,
-      outlineDialogOpen: false
+      outlineDialogOpen: false,
+      selection: null
     })
   }
 }))

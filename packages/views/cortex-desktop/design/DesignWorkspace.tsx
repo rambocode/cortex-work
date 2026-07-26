@@ -13,6 +13,7 @@ import {
   sendDesignMessage,
 } from "@cortex-work/core/design/run/design-run-manager";
 import { buildSlidesTurnPrompt } from "@cortex-work/core/design/slides/slides-prompt";
+import { slidesSelectionKey } from "@cortex-work/core/design/slides/slides-selection";
 import { useBentoSlidesStore } from "./slides/bento-slides-store";
 import { implementDesignInProject } from "@cortex-work/core/design/run/design-implement";
 import { useChatStore } from "@cortex-work/core/design/compat/chat-store";
@@ -21,6 +22,7 @@ import { useCanvasSelectionStore } from "@cortex-work/core/design/canvas/canvas-
 import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspace-store";
 import { designDocumentKind, type DesignArtifact } from "@cortex-work/core/design/design-types";
 import { DesignAIRail } from "./DesignAIRail";
+import type { ComposerPendingImage } from "./compat/FloatingComposer";
 import { DesignSidebar } from "./DesignSidebar";
 import { DesignWorkspaceView } from "./DesignWorkspaceView";
 import { useDesignComposerContextState } from "./useDesignComposerContextState";
@@ -38,9 +40,11 @@ import type { ComposerReasoningEffort } from "./compat/FloatingComposerModelPick
 export function routeDesignComposerSend(options: {
   input: string;
   slidesMode: boolean;
+  /** 只贴了图没打字也应发得出去(截图 + 后续追问是常见用法)。 */
+  hasImages?: boolean;
 }): { kind: "ignore" } | { kind: "design-prompt" } | { kind: "slides-turn"; text: string } {
   const text = options.input.trim();
-  if (!text) return { kind: "ignore" };
+  if (!text && !options.hasImages) return { kind: "ignore" };
   return options.slidesMode ? { kind: "slides-turn", text } : { kind: "design-prompt" };
 }
 
@@ -128,21 +132,70 @@ export function DesignWorkspace(): ReactElement {
   const slidesMode = activeDoc ? designDocumentKind(activeDoc) === "slides" : false;
   // deck 阶段决定本轮该做什么(提纲 gate / 全篇生成 / 局部修订);未加载时按 draft。
   const slidesStage = useBentoSlidesStore((s) => s.stage);
+  // bento 编辑器内的当前选区(SlidesStage 轮询回传)。
+  const slidesSelection = useBentoSlidesStore((s) => s.selection);
+  // 「清除引用」是本地抑制而非清空选区 —— 画布上的选中态归 bento 管,宿主无权替用户取消。
+  // 记下被清除的那一份选区的身份键,用户下次改选区键就变了,引用自动恢复。
+  const [dismissedSelectionKey, setDismissedSelectionKey] = useState<string | null>(null);
+  const activeSlidesSelection = useMemo(() => {
+    if (!slidesMode || !slidesSelection) return null;
+    return slidesSelectionKey(slidesSelection) === dismissedSelectionKey ? null : slidesSelection;
+  }, [slidesMode, slidesSelection, dismissedSelectionKey]);
+
+  // 待发图片(粘贴 / 选取 / 拖入)。读成 ArrayBuffer 后由 sendDesignMessage 落盘换绝对路径,
+  // dataUrl 只用于 composer 的本地缩略图。发送成功即清空。
+  const [composerImages, setComposerImages] = useState<ComposerPendingImage[]>([]);
+  const addComposerImages = (files: File[]): void => {
+    void Promise.all(
+      files.map(async (file) => ({
+        id: `img-${file.name}-${file.size}-${file.lastModified}`,
+        name: file.name || "image",
+        mimeType: file.type || "image/png",
+        data: await file.arrayBuffer(),
+        dataUrl: await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result ?? ""));
+          reader.readAsDataURL(file);
+        }),
+      })),
+    ).then((next) => {
+      // 同一张图重复粘贴不叠加(id 由 名称+大小+mtime 组成)。
+      setComposerImages((cur) => [...cur, ...next.filter((n) => !cur.some((c) => c.id === n.id))]);
+    });
+  };
 
   const handleSend = (): void => {
-    const decision = routeDesignComposerSend({ input, slidesMode });
+    const decision = routeDesignComposerSend({ input, slidesMode, hasImages: composerImages.length > 0 });
     if (decision.kind === "ignore") return;
     if (decision.kind === "design-prompt") {
-      void promptController.sendDesignPrompt(input);
+      const boardImages = composerImages;
+      setComposerImages([]);
+      // board 路径与 slides 路径共用同一个 composer,图片必须两条都接 ——
+      // 只接一条会让另一条静默吞图。
+      promptController.sendDesignPrompt(input, {
+        ...(boardImages.length
+          ? { images: boardImages.map(({ name, mimeType, data }) => ({ name, mimeType, data })) }
+          : {}),
+      });
       return;
     }
     setInput("");
-    // bento 化后编辑选区在 bento 编辑器内部,不再经宿主注入上下文;
-    // 用户可在对话里用「第 N 页 / 标题元素」等自然语言指代,AI 经 get_deck_state 对齐。
+    const images = composerImages;
+    setComposerImages([]);
+    // 选区经 SlidesStage 的轮询桥从 bento 编辑器回传,在这里并入本轮 prompt,
+    // 让「把它换成折线图」这类指代能直接落到用户选中的元素上。
+    // displayText 只放用户原话 —— 引用段不该出现在对话气泡里。
     void sendDesignMessage(
-      buildSlidesTurnPrompt({ text: decision.text, stage: slidesStage }),
+      buildSlidesTurnPrompt({
+        text: decision.text,
+        stage: slidesStage,
+        selection: activeSlidesSelection,
+      }),
       "agent",
-      { displayText: decision.text },
+      {
+        displayText: decision.text,
+        ...(images.length ? { images: images.map(({ name, mimeType, data }) => ({ name, mimeType, data })) } : {}),
+      },
     );
   };
   const canvasDocument = useCanvasShapeStore((s) => s.document);
@@ -283,6 +336,11 @@ export function DesignWorkspace(): ReactElement {
           onSwitchThread={() => {}}
           onCollapse={() => setAssistantOpen(false)}
           slidesMode={slidesMode}
+          slidesSelection={activeSlidesSelection}
+          onClearSlidesSelection={() => setDismissedSelectionKey(slidesSelectionKey(slidesSelection))}
+          composerImages={composerImages}
+          onAddComposerImages={addComposerImages}
+          onRemoveComposerImage={(id) => setComposerImages((cur) => cur.filter((c) => c.id !== id))}
           designAgent={displayAgent}
           designDerivedAgentId={designSettings.derivedAgentId || undefined}
           agentsAvailable={agentsAvailable}

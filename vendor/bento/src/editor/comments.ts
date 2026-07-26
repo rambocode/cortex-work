@@ -9,22 +9,40 @@
 import type { Store } from '../store'
 import { uid, type Comment } from '../model'
 import { t } from '../i18n'
+import { cortexHost } from '../cortex/host-bridge' // CORTEX-PATCH
+import { cortexPromptText } from '../cortex/prompt-dialog' // CORTEX-PATCH
 
 /** The commenter's name, remembered per browser (localStorage, never sent
- *  anywhere); asked for on first use. */
-export function commentAuthor(): string | null {
+ *  anywhere); asked for on first use.
+ *
+ *  CORTEX-PATCH: async(window.prompt 在 Electron 里抛异常,改用页内弹层),并在询问前
+ *  先取宿主注入的身份名 —— 桌面端已经知道用户是谁,不该再拦一次。宿主名只作默认值,
+ *  写进 localStorage 后用户仍可经气泡里的「✎」改成真名。 */
+export async function commentAuthor(): Promise<string | null> {
   let name = localStorage.getItem('bento-author')
   if (!name) {
-    name = window.prompt(t('Your name (shown on comments):'))?.trim() || ''
-    if (!name) return null
-    localStorage.setItem('bento-author', name)
+    name = cortexHost()?.authorName?.trim() || ''
   }
+  if (!name) {
+    name =
+      (await cortexPromptText({
+        title: t('Your name (shown on comments):'),
+        okLabel: t('Done'),
+      })) || ''
+    if (!name) return null
+  }
+  localStorage.setItem('bento-author', name)
   return name
 }
 
 /** Re-ask for the name; existing threads keep their original author. */
-export function changeCommentAuthor(): string | null {
-  const next = window.prompt(t('Your name (shown on new comments):'), localStorage.getItem('bento-author') ?? '')?.trim()
+export async function changeCommentAuthor(): Promise<string | null> {
+  // CORTEX-PATCH: window.prompt → 页内弹层。
+  const next = await cortexPromptText({
+    title: t('Your name (shown on new comments):'),
+    value: localStorage.getItem('bento-author') ?? '',
+    okLabel: t('Done'),
+  })
   if (!next) return null
   localStorage.setItem('bento-author', next)
   return next
@@ -90,11 +108,16 @@ export class CommentsUI {
     })
   }
 
-  /** Start a new thread on an element, at a point, or on the slide. */
-  openNew(elementId?: string, point?: { x: number; y: number }) {
-    const author = commentAuthor()
+  /** Start a new thread on an element, at a point, or on the slide.
+   *  CORTEX-PATCH: async —— 作者名与正文都改走页内弹层(window.prompt 在 Electron 里抛异常)。 */
+  async openNew(elementId?: string, point?: { x: number; y: number }) {
+    const author = await commentAuthor()
     if (!author) return
-    const text = window.prompt(t('Comment:'))?.trim()
+    const text = await cortexPromptText({
+      title: t('Comment:'),
+      multiline: true,
+      okLabel: t('Add'),
+    })
     if (!text) return
     const comment: Comment = {
       id: uid('cmt'), elementId, ...(point ?? {}), author, text, at: new Date().toISOString(),
@@ -127,8 +150,10 @@ export class CommentsUI {
     me.textContent = t('you: {name} ✎', { name: localStorage.getItem('bento-author') ?? '—' })
     me.title = t('Change the name used for your new comments and replies')
     me.addEventListener('click', () => {
-      const next = changeCommentAuthor()
-      if (next) me.textContent = t('you: {name} ✎', { name: next })
+      // CORTEX-PATCH: 改名转异步(页内弹层)。
+      void changeCommentAuthor().then((next) => {
+        if (next) me.textContent = t('you: {name} ✎', { name: next })
+      })
     })
     head.append(headLabel, me)
     pop.appendChild(head)
@@ -164,16 +189,19 @@ export class CommentsUI {
       return b
     }
     foot.append(
+      // CORTEX-PATCH: 作者名解析转异步(首次回复可能弹出页内输入框)。
       mkBtn(t('Reply'), () => {
         const text = reply.value.trim()
-        const author = commentAuthor()
-        if (!text || !author) return
-        this.store.commit(() => {
-          const live = this.store.slide.comments?.find((x) => x.id === commentId)
-          if (live) live.replies = [...(live.replies ?? []), { id: uid('cmt'), author, text, at: new Date().toISOString() }]
+        if (!text) return
+        void commentAuthor().then((author) => {
+          if (!author) return
+          this.store.commit(() => {
+            const live = this.store.slide.comments?.find((x) => x.id === commentId)
+            if (live) live.replies = [...(live.replies ?? []), { id: uid('cmt'), author, text, at: new Date().toISOString() }]
+          })
+          pop.remove()
+          this.refresh()
         })
-        pop.remove()
-        this.refresh()
       }),
       mkBtn(c.resolved ? t('Reopen') : t('Resolve'), () => {
         this.store.commit(() => {

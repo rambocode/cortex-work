@@ -381,8 +381,10 @@ export class SlideCanvas {
       cleanup()
       ev.preventDefault()
       ev.stopPropagation()
-      if (!a) this.comments.openNew() // off-slide canvas click = whole slide
-      else this.comments.openNew(a.el?.id, a.el ? undefined : { x: a.x, y: a.y })
+      // CORTEX-PATCH: openNew 现在是 async(页内弹层取代 window.prompt)。handler 本身
+      // 保持同步 —— preventDefault/stopPropagation 已在上面执行完,不能挪到 await 之后。
+      if (!a) void this.comments.openNew() // off-slide canvas click = whole slide
+      else void this.comments.openNew(a.el?.id, a.el ? undefined : { x: a.x, y: a.y })
     }
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') cleanup()

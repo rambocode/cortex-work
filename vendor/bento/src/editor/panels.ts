@@ -11,6 +11,7 @@ import { CHART_PRESETS } from '../charts'
 import { FONT_CHOICES, firstFamily, injectFonts } from '../fonts'
 import { ICONS } from '../icons'
 import { t } from '../i18n'
+import { cortexPromptText } from '../cortex/prompt-dialog' // CORTEX-PATCH
 
 // Hover help for panel rows, keyed by the RAW English label (translated at
 // render). A missing entry means no tooltip — better silence than an echo.
@@ -317,13 +318,16 @@ export class PropsPanel {
     saveLy.textContent = t('＋ Save slide as layout…')
     saveLy.title = "Add this slide to the document's layout picker (New slide button)"
     saveLy.addEventListener('click', () => {
-      const name = window.prompt('Layout name', this.store.slide.name ?? 'My layout')
-      if (!name) return
-      this.edit(() => {
-        const doc = this.store.doc
-        const copy: Slide = JSON.parse(JSON.stringify(this.store.slide))
-        doc.layouts = [...(doc.layouts ?? []), { ...copy, id: uid('layout'), name, stateOf: undefined, notes: '' }]
-      }, true)
+      // CORTEX-PATCH: window.prompt → 页内弹层(Electron 不支持 window.prompt)。
+      void cortexPromptText({ title: 'Layout name', value: this.store.slide.name ?? 'My layout', okLabel: t('Save') })
+        .then((name) => {
+          if (!name) return
+          this.edit(() => {
+            const doc = this.store.doc
+            const copy: Slide = JSON.parse(JSON.stringify(this.store.slide))
+            doc.layouts = [...(doc.layouts ?? []), { ...copy, id: uid('layout'), name, stateOf: undefined, notes: '' }]
+          }, true)
+        })
     })
     this.host.appendChild(saveLy)
 

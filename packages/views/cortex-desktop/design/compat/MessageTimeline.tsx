@@ -4,9 +4,12 @@
 import { useState, type ReactElement } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Pencil } from "lucide-react";
 import type { ChatBlock } from "@cortex-work/core/design/compat/agent-types";
 
 const MD_PLUGINS = [remarkGfm];
+// 本组件是 Kun 的替身层,不接 i18n(同文件其余文案亦为硬编码中文)。
+const EDIT_AND_RESEND_LABEL = "编辑并重新发送";
 
 type ToolBlock = Extract<ChatBlock, { kind: "tool" }>;
 
@@ -17,6 +20,12 @@ type MessageTimelineProps = {
   liveReasoning?: string;
   busy?: boolean;
   busyLabel?: string;
+  /**
+   * 「编辑重发」:把这条用户消息的原话放回输入框。
+   * 回合可能因供应商侧错误失败(如 402 Insufficient Balance),原话却只留在气泡里 ——
+   * 用户得手打一遍才能重试。传入即在用户气泡上显示编辑按钮。
+   */
+  onEditUserMessage?: (text: string) => void;
 } & Record<string, unknown>;
 
 // 工具名 → 简短中文标签 + 图标。key 一律小写(查表时归一化),未知工具回退短名 + 等宽截断。
@@ -124,6 +133,15 @@ function toolDetailLine(block: ToolBlock): string {
     return raw.length > 120 ? raw.slice(0, 120) + "…" : raw;
   }
   const pick = (k: string): string | undefined => (typeof obj?.[k] === "string" ? (obj[k] as string) : undefined);
+  // MCP 调用优先显示被调工具名:芯片标签只写「MCP」,不带工具名时一屏三个「MCP」看不出
+  // 各自在做什么(用户实测)。codex 的 mcp_tool_call item 形如
+  // { server:"cortex-slides", tool:"get_deck_state", arguments:{…} } —— 走 input JSON 落进
+  // detail 后,原先只认 file_path/command/label/pattern,于是整条摘要为空。
+  const mcpTool = pick("tool");
+  if (mcpTool) {
+    const server = pick("server");
+    return server ? `${server} · ${mcpTool}` : mcpTool;
+  }
   const path = pick("file_path") ?? pick("path") ?? pick("filePath");
   if (path) return path.replace(/^.*\.cortex-design\//, ".cortex-design/"); // 只显尾部相对路径
   const command = pick("command");
@@ -222,7 +240,7 @@ function segmentize(blocks: ChatBlock[]): Segment[] {
 }
 
 export function MessageTimeline(props: MessageTimelineProps): ReactElement {
-  const { blocks, live, busy = false, busyLabel = "Agent 处理中…" } = props;
+  const { blocks, live, busy = false, busyLabel = "Agent 处理中…", onEditUserMessage } = props;
   const segments = segmentize(blocks);
   const hasRunningTool = blocks.some((block) => block.kind === "tool" && block.status === "running");
   return (
@@ -233,9 +251,22 @@ export function MessageTimeline(props: MessageTimelineProps): ReactElement {
         }
         const block = seg.block;
         if (block.kind === "user") {
+          // displayText 是用户原话(不含上下文/合同拼装),编辑重发要回填的正是它。
           const display = (block.meta?.displayText as string | undefined)?.trim() || block.text;
           return (
-            <div key={block.id} className="flex justify-end">
+            <div key={block.id} className="group flex items-start justify-end gap-1">
+              {onEditUserMessage && display.trim() ? (
+                <button
+                  type="button"
+                  onClick={() => onEditUserMessage(display)}
+                  // 常态隐藏、悬停/聚焦浮现:时间线上每条都挂一个可见按钮太吵。
+                  className="mt-1 shrink-0 rounded-md p-1 text-ds-faint opacity-0 transition hover:bg-ds-hover hover:text-ds-ink focus-visible:opacity-100 group-hover:opacity-100"
+                  title={EDIT_AND_RESEND_LABEL}
+                  aria-label={EDIT_AND_RESEND_LABEL}
+                >
+                  <Pencil className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </button>
+              ) : null}
               <div className="max-w-[88%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm border border-ds-border-muted bg-[var(--ds-sidebar-row-active)] px-3.5 py-2 text-ds-ink">
                 {display}
               </div>

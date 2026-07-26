@@ -52,10 +52,21 @@ describe('buildSlidesTurnPrompt(bento 合同)', () => {
     expect(p).toContain('COMPLETE')
   })
 
-  it('ready:整份读改写,未提及内容保持原样', () => {
+  // 改版:ready 阶段改用 set_slides 局部写入。整份 12 页 deck 约 12 万字符(~5.6 万 token),
+  // 为改一条折线颜色重发整份会慢到像卡死、且极易被截断导致写入永远落不了盘(用户实测)。
+  it('ready:只回发被改的页,并明确禁止重发整份', () => {
     const p = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
-    expect(p).toContain('only')
-    expect(p).toContain('full document')
+    expect(p).toContain('set_slides')
+    expect(p).toContain('ONLY those slides')
+    expect(p).toContain('Do NOT re-emit the whole deck')
+  })
+
+  it('合同里两条写入路径的分工写清楚了(局部改 vs 增删重排)', () => {
+    const p = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
+    expect(p).toContain('EDIT an existing deck with set_slides')
+    expect(p).toContain('add / delete / reorder slides')
+    // 未触及的内容仍要逐字保留 —— 局部写入不能成为「顺手重写别处」的借口
+    expect(p).toContain('verbatim')
   })
 
   it('用户原话固定在末尾(静态前缀在前,命中 prompt 缓存)', () => {
@@ -64,5 +75,48 @@ describe('buildSlidesTurnPrompt(bento 合同)', () => {
     // 两次构造的静态前缀逐字节一致。
     const q = buildSlidesTurnPrompt({ text: '换一句', stage: 'ready' })
     expect(p.slice(0, p.indexOf('User request:'))).toBe(q.slice(0, q.indexOf('User request:')))
+  })
+})
+
+describe('buildSlidesTurnPrompt(选区引用)', () => {
+  const selection = {
+    slideIndex: 2,
+    slideId: 's3',
+    slideName: 'LLM 发展简史',
+    totalCount: 1,
+    items: [{ id: 'el_7f2a', type: 'chart', x: 96, y: 120, w: 720, h: 520 }]
+  }
+
+  it('带选区时把引用段拼在用户原话之前', () => {
+    const p = buildSlidesTurnPrompt({ text: '把它换成折线图', stage: 'ready', selection })
+    expect(p).toContain('#el_7f2a')
+    expect(p.indexOf('#el_7f2a')).toBeLessThan(p.indexOf('User request:'))
+    expect(p.endsWith('User request:\n把它换成折线图')).toBe(true)
+  })
+
+  it('不带选区/空选区时不留任何痕迹(与原输出逐字节一致)', () => {
+    const base = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
+    expect(buildSlidesTurnPrompt({ text: 'x', stage: 'ready', selection: null })).toBe(base)
+    expect(
+      buildSlidesTurnPrompt({ text: 'x', stage: 'ready', selection: { ...selection, items: [] } })
+    ).toBe(base)
+  })
+
+  it('缓存回归:选区只影响变量尾段,CONTRACT + 阶段指令的静态前缀逐字节不变', () => {
+    const withSel = buildSlidesTurnPrompt({ text: 'x', stage: 'ready', selection })
+    const without = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
+    const head = (p: string): string => p.slice(0, p.indexOf('The user has selected') >= 0
+      ? p.indexOf('The user has selected')
+      : p.indexOf('User request:'))
+    expect(head(withSel)).toBe(head(without))
+  })
+
+  // 刻意的例外:整体 prompt 文案为英文,但指代词绑定必须同时列中文——
+  // 用户会中英混说「把它换成折线图」,不列中文模型容易改错元素(board 侧同一处理)。
+  it('指代词绑定段允许出现中文指代词', () => {
+    const p = buildSlidesTurnPrompt({ text: 'x', stage: 'ready', selection })
+    for (const word of ['this', '这个', '这里', '选中']) {
+      expect(p).toContain(word)
+    }
   })
 })

@@ -24,6 +24,7 @@ import { borderPoint, boxCenter, lineEndpoints, setLineEndpoints, sideMidpoint }
 import { ICONS } from '../icons'
 import { t, setLocale, locale, LOCALE_CHOICES } from '../i18n'
 import { disconnectOnline, joinFromDoc, mintCollab, mintInvite, onlineTransport, rotateKeys, sharingOn, startSharing, stopSharing } from '../sync/online'
+import { cortexPromptText } from '../cortex/prompt-dialog' // CORTEX-PATCH
 
 const i18nT = t
 
@@ -1287,8 +1288,8 @@ export class Editor {
       menu.appendChild(btn(ICONS.media, t(label), () => { wrap.classList.remove('open'); onClick() }))
     }
     item('Video or audio file…', () => this.pickMedia())
-    item('Video from a link…', () => this.promptMediaUrl('video'))
-    item('Audio from a link…', () => this.promptMediaUrl('audio'))
+    item('Video from a link…', () => void this.promptMediaUrl('video')) // CORTEX-PATCH: 转异步
+    item('Audio from a link…', () => void this.promptMediaUrl('audio')) // CORTEX-PATCH: 转异步
     wrap.append(trigger, menu)
     document.addEventListener('pointerdown', (ev) => {
       if (!wrap.contains(ev.target as Node)) wrap.classList.remove('open')
@@ -1296,9 +1297,13 @@ export class Editor {
     return wrap
   }
 
-  /** Insert a media element that REFERENCES a URL (not embedded). */
-  private promptMediaUrl(kind: 'video' | 'audio') {
-    const url = window.prompt(t('Paste the {kind} URL — it stays a link, the file is not embedded:', { kind }))?.trim()
+  /** Insert a media element that REFERENCES a URL (not embedded).
+   *  CORTEX-PATCH: window.prompt → 页内弹层(Electron 不支持 window.prompt)。 */
+  private async promptMediaUrl(kind: 'video' | 'audio') {
+    const url = await cortexPromptText({
+      title: t('Paste the {kind} URL — it stays a link, the file is not embedded:', { kind }),
+      okLabel: t('Add'),
+    })
     if (!url) return
     this.insertMedia(kind, url)
   }

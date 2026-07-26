@@ -1909,6 +1909,39 @@ dialog.ed-pwdialog input {
   font-size: 14px;
 }
 dialog.ed-pwdialog .ed-pwerr { color: #C33; }
+/* CORTEX-PATCH: 页内文本输入弹层(src/cortex/prompt-dialog.ts)。Electron 不支持
+   window.prompt,评论/媒体外链/布局命名改走 <dialog>;沿用上面密码弹层的观感,
+   只多一个多行输入形态。 */
+dialog.ed-cortexprompt {
+  border: 0;
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgb(15 23 36 / 0.3);
+  padding: 20px;
+  width: 360px;
+  font-size: 13px;
+  font-family: inherit;
+}
+dialog.ed-cortexprompt::backdrop { background: rgb(15 23 36 / 0.38); }
+dialog.ed-cortexprompt h2 { font-size: 15px; margin-bottom: 10px; }
+dialog.ed-cortexprompt label {
+  display: block;
+  margin: 8px 0 2px;
+  font-weight: 600;
+  color: #334;
+}
+dialog.ed-cortexprompt input,
+dialog.ed-cortexprompt textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid #ccd;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+dialog.ed-cortexprompt textarea { min-height: 76px; resize: vertical; }
 .ed-dialog-actions {
   display: flex;
   justify-content: flex-end;

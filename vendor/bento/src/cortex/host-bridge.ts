@@ -1,13 +1,22 @@
-// CORTEX-PATCH file — Electron 宿主保存桥。
-// Cortex Desktop 的 webview 经 preload 注入 window.cortexSlidesHost 后,编辑器的
-// 每次文档变更都在 debounce 后把整份 .bento.html(serializeAuto,含加密态)推给宿主
-// 落盘,取代浏览器端 File System Access 保存;浏览器/非宿主环境下本模块完全无副作用。
+// CORTEX-PATCH file — Electron 宿主桥。
+// Cortex Desktop 的 webview 注入 window.cortexSlidesHost 后:
+//   1. 每次文档变更 debounce 后把整份 .bento.html(serializeAuto,含加密态)推给宿主落盘,
+//      取代浏览器端 File System Access 保存;
+//   2. 每次选区/切页变化把当前选区快照推给宿主,右栏「演示助手」据此显示引用,
+//      让用户说「把它换成折线图」时 agent 知道「它」是谁;
+//   3. 读取宿主身份名,作为评论作者的默认值。
+// 浏览器/非宿主环境下本模块完全无副作用。
 import { serializeAuto } from '../save'
 import type { Store } from '../store'
+import type { SlideElement } from '../model'
 
-/** preload 注入的宿主保存契约(与 apps/desktop preload 的 cortexSlidesHost 对齐)。 */
+/** 注入的宿主契约(与 views/design/slides/bento-stage-bridge.ts 的 shim 对齐)。 */
 export interface CortexSlidesHost {
   save(html: string): Promise<unknown> | unknown
+  /** 选区快照 JSON;无选区时传 null。宿主侧做校验与截断(见 core 的 slides-selection.ts)。 */
+  selectionChanged?(payload: string | null): unknown
+  /** 宿主当前身份名,给评论作者名兜底。 */
+  authorName?: string
 }
 
 /** 变更到落盘的静默窗:编辑操作常成串出现(拖拽、连续打字),600ms 合并成一次写。 */
@@ -66,4 +75,67 @@ export function initCortexHostBridge(store: Store): void {
       void flush()
     }
   })
+
+  initSelectionBridge(store)
+}
+
+/** 元素的人类可读短标签:文本取正文、图表取类型、媒体取形态,其余留空。
+ *  只为让右栏 chip 与 prompt 里的引用「看得出是哪个」,不是元素内容的完整转写
+ *  —— 真正的细节由 agent 自己调 get_deck_state 取。截断在宿主侧统一做。 */
+function elementLabel(el: SlideElement): string | undefined {
+  switch (el.type) {
+    case 'text':
+      // html 里可能有内联标签,剥成纯文本再交给宿主。
+      return el.html?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || undefined
+    case 'shape':
+      return el.shape
+    case 'media':
+      return el.kind
+    case 'table':
+      return `${el.rows?.length ?? 0}×${el.columns?.length ?? 0}`
+    default:
+      return undefined
+  }
+}
+
+/**
+ * 把选区变化持续推给宿主。
+ *
+ * 同时订阅 'selection' 与 'current':切页会清空选区,但若只听 'selection',
+ * 「切到别的页」这件事本身不会通知宿主,右栏引用就会停在上一页的元素上。
+ * 选区是纯运行时态,推送不触发保存、不进 #bento-doc。
+ */
+function initSelectionBridge(store: Store): void {
+  const push = (): void => {
+    const host = cortexHost()
+    if (!host?.selectionChanged) return
+    const elements = store.selectedElements
+    if (!elements.length) {
+      host.selectionChanged(null)
+      return
+    }
+    const slide = store.slide
+    try {
+      host.selectionChanged(
+        JSON.stringify({
+          slideIndex: store.currentIndex,
+          slideId: slide.id,
+          slideName: slide.name,
+          items: elements.map((el) => ({
+            id: el.id,
+            type: el.type,
+            x: Math.round(el.x),
+            y: Math.round(el.y),
+            w: Math.round(el.w),
+            h: Math.round(el.h),
+            label: elementLabel(el),
+          })),
+        }),
+      )
+    } catch {
+      // 序列化失败(异常元素)不该拖垮编辑器:本轮放弃推送,下一次选区变化再试。
+    }
+  }
+  store.on('selection', push)
+  store.on('current', push)
 }

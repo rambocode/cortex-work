@@ -32,8 +32,20 @@ export type QueuedUserMessage = {
 };
 
 // sendMessage 的覆盖参数（模型/供应商/附件等按回合覆盖）。
+/**
+ * 本轮随消息发送的图片(尚未落盘)。与个人会话的 PendingImage 同形状:
+ * run-manager 经 bridge.imageSave 落盘换绝对路径,再交给各 agent 的原生图片通道。
+ */
+export type DesignPendingImage = {
+  name: string;
+  mimeType: string;
+  data: ArrayBuffer;
+};
+
 export type SendMessageOverrides = {
   queued?: QueuedUserMessage;
+  /** 待发图片;两条发送路径(slides 合同回合 / design prompt 路由)共用同一字段。 */
+  images?: DesignPendingImage[];
   // 回合模式标记(Kun 语义;design-assistant 派发时透传)。
   mode?: string;
   model?: string;

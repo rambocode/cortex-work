@@ -1,5 +1,5 @@
 import type { AttachmentReference } from './compat/agent-types'
-import type { SendMessageOverrides } from './compat/chat-store-types'
+import type { DesignPendingImage, SendMessageOverrides } from './compat/chat-store-types'
 import { canvasOpErrorKey, takeLastCanvasOpErrors } from './canvas/apply-shape-ops'
 import { useCanvasSelectionStore } from './canvas/canvas-selection-store'
 import { useCanvasShapeStore } from './canvas/canvas-shape-store'
@@ -71,6 +71,8 @@ export type SubmitDesignTurnOptions = SubmitDesignTurnDeps & {
   reasoningEffort?: string
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
+  /** 本轮随消息发送的图片(composer 粘贴/选取/拖入);run-manager 负责落盘换路径。 */
+  images?: DesignPendingImage[]
   suppressedIds?: ReadonlySet<string>
   htmlElementContext?: DesignHtmlElementContext | null
   explicitScreenShapeId?: string | null
@@ -168,7 +170,8 @@ export async function submitDesignTurn(
       ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       target: resolvedTarget.target,
       attachmentIds: options.attachmentIds ?? [],
-      attachments: options.attachments ?? []
+      attachments: options.attachments ?? [],
+      ...(options.images?.length ? { images: options.images } : {})
     })
   )
   return sent

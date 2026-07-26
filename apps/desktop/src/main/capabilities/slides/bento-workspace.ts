@@ -20,6 +20,8 @@ import {
   injectBentoDoc,
   injectBentoDocJson,
 } from "@cortex-work/core/design/slides/bento/bento-embed";
+import { mergeSlideComments } from "@cortex-work/core/design/slides/bento/merge-comments";
+import { applySlideReplacements } from "@cortex-work/core/design/slides/bento/slide-patch";
 import {
   bentoDeckHtmlPath,
   bentoDeckMetaPath,
@@ -313,6 +315,18 @@ export function reshellBentoPresentation(deckDocJson: string, runtimeHtml: strin
 }
 
 /** AI 整份写文档:schema 校验 + expectedRevision 乐观锁 + 原子替换 #bento-doc 块。 */
+/** 从磁盘上的 deck HTML 取回上一版文档(仅供合并评论用)。
+ *  解析失败一律返回 null —— 合并是「尽力保全」而非守门,绝不能因此挡住 AI 的写盘。 */
+function readPrevDoc(html: string): unknown {
+  const json = extractBentoDocJson(html);
+  if (!json) return null;
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 export async function writeBentoDoc(options: {
   workspaceRoot: string;
   deckId: string;
@@ -340,7 +354,12 @@ export async function writeBentoDoc(options: {
         `revision 冲突: 当前 ${meta.revision},期望 ${options.expectedRevision}(先 get_deck_state 取最新再改)`,
       );
     }
-    const next = injectBentoDoc(html, parsed.doc);
+    // 评论保全:set_deck_doc 是整份覆盖,而工具描述与 prompt 都没提 comments —— 它属于
+    // 编辑器语义(用户的评审数据),不属于 AI 的创作范围。只要模型没原样抄回来,用户的评论
+    // 就会在下一次改稿时静默消失。这里按 slide id 确定性补回,不赌模型自觉。
+    // AI 若显式给了 comments(含空数组 = 主动清空)则以新的为准。
+    const merged = mergeSlideComments(readPrevDoc(html), parsed.doc);
+    const next = injectBentoDoc(html, merged);
     if (next === null) return fail<{ revision: number }>("invalid_doc", "deck 文件缺少 #bento-doc 块(文件损坏)");
     try {
       await atomicWriteFile(paths.htmlAbs, next);
@@ -350,6 +369,58 @@ export async function writeBentoDoc(options: {
       return fail<{ revision: number }>("io_error", `写入失败: ${String(err)}`);
     }
     return { ok: true, value: { revision: meta.revision + 1 } };
+  });
+}
+
+/**
+ * 局部写入:按 slide id 整页替换,其余页原样保留。
+ *
+ * 与 writeBentoDoc 走完全相同的队列 / 乐观锁 / 原子写 / schema 守门 —— 唯一区别是
+ * Agent 只需给出被改的那几页,而不是整份 ~12 万字符的文档(见 slide-patch.ts 的动机)。
+ * 合并后仍跑一次 parseBentoDoc:局部改动照样可能写出非法结构,守门不能因为「只改一页」放松。
+ */
+export async function writeBentoSlides(options: {
+  workspaceRoot: string;
+  deckId: string;
+  slides: unknown;
+  expectedRevision: number;
+}): Promise<BentoWorkspaceResult<{ revision: number; replacedIds: string[] }>> {
+  const resolved = await resolveBentoDeckPaths(options.workspaceRoot, options.deckId);
+  if (!resolved.ok) return resolved;
+  const paths = resolved.value;
+  type Out = { revision: number; replacedIds: string[] };
+  return enqueueDeck(paths.deckRootAbs, async () => {
+    let html: string;
+    try {
+      html = await fsp.readFile(paths.htmlAbs, "utf8");
+    } catch {
+      return fail<Out>("not_found", `deck 不存在: ${options.deckId}`);
+    }
+    const meta = await readMeta(paths.metaAbs);
+    if (meta.revision !== options.expectedRevision) {
+      return fail<Out>(
+        "revision_conflict",
+        `revision 冲突: 当前 ${meta.revision},期望 ${options.expectedRevision}(先 get_deck_state 取最新再改)`,
+      );
+    }
+    // slide-patch 的 invalid_slides / unknown_slide_id 不在 IPC 错误码契约里(这条路径
+    // 只在主进程内部走,不过 IPC),统一映射为 invalid_doc,可自纠的细节留在 message。
+    const patched = applySlideReplacements(readPrevDoc(html), options.slides);
+    if (!patched.ok) return fail<Out>("invalid_doc", patched.message);
+    const parsed = parseBentoDoc(patched.doc);
+    if (!parsed.ok) return fail<Out>("invalid_doc", `替换后的文档未通过校验: ${parsed.error}`);
+    // 与整份写入同一条评论保全逻辑(未被替换的页天然保留;被替换的页若没带 comments 则补回)。
+    const merged = mergeSlideComments(readPrevDoc(html), parsed.doc);
+    const next = injectBentoDoc(html, merged);
+    if (next === null) return fail<Out>("invalid_doc", "deck 文件缺少 #bento-doc 块(文件损坏)");
+    try {
+      await atomicWriteFile(paths.htmlAbs, next);
+      await writeMeta(paths.metaAbs, { ...meta, revision: meta.revision + 1 });
+    } catch (err) {
+      log.error(`[bento] writeBentoSlides 落盘失败: ${String(err)}`);
+      return fail<Out>("io_error", `写入失败: ${String(err)}`);
+    }
+    return { ok: true, value: { revision: meta.revision + 1, replacedIds: patched.replacedIds } };
   });
 }
 

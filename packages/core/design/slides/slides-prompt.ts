@@ -10,6 +10,11 @@
  * 这里只拼「回合指令」,不含任何平台/文件系统假设;真正的落盘全在 cortex-slides 工具里。
  */
 
+import {
+  formatSlidesSelectionForPrompt,
+  type SlidesSelectionSnapshot
+} from './slides-selection'
+
 /** deck 阶段 → 该回合该做什么(与 deck.meta.json 的 stage 对齐)。 */
 export type SlidesTurnStage = 'draft' | 'outline-proposed' | 'outline-approved' | 'ready'
 
@@ -18,6 +23,8 @@ export type BuildSlidesTurnPromptOptions = {
   text: string
   /** 当前 deck 阶段;缺省按 draft 处理。 */
   stage?: SlidesTurnStage
+  /** 用户在 bento 编辑器里选中的元素;空/缺省时整段不拼。 */
+  selection?: SlidesSelectionSnapshot | null
 }
 
 // BentoDoc schema 摘要 + 素材→特性映射 + 转义红线。权威定义在 vendor/bento/src/model.ts;
@@ -26,11 +33,17 @@ const CONTRACT = [
   'You are working in the Cortex "Slides" workspace. The deck is a Bento Slides document: one declarative',
   'JSON model (format "bento/slides") rendered by the bento runtime. Read and write it ONLY through the',
   'cortex-slides tools:',
-  '- Start with get_deck_state to fetch the current document JSON and revision (set_deck_doc requires',
+  '- Start with get_deck_state to fetch the current document JSON and revision (both write tools require',
   '  expected_revision; on revision_conflict re-fetch and re-apply your change).',
-  '- Write with set_deck_doc: pass the COMPLETE document (all slides), not a diff. Preserve untouched',
-  '  slides/elements verbatim from get_deck_state — never regenerate content the user did not ask to change,',
-  '  and keep existing element ids stable (ids drive morph pairing and user selections).',
+  '- EDIT an existing deck with set_slides: send ONLY the slides you actually change, each as a complete',
+  '  slide object keyed by its existing id. This is the default for every revision request. A full deck is',
+  '  tens of thousands of tokens — re-emitting all of it to change one element is slow, and long enough to',
+  '  be cut off mid-JSON so the write never lands.',
+  '- Use set_deck_doc ONLY to create the deck initially, or to add / delete / reorder slides. It passes the',
+  '  COMPLETE document (all slides), not a diff.',
+  '- Either way: preserve untouched slides/elements verbatim from get_deck_state — never regenerate content',
+  '  the user did not ask to change, and keep existing element ids stable (ids drive morph pairing and',
+  '  user selections).',
   '',
   'Document shape (structural essentials; unknown/misspelled fields fail silently — use ONLY these):',
   '- Root: { format:"bento/slides", version:1, title, size:{width:1280,height:720},',
@@ -88,8 +101,10 @@ const STAGE_INSTRUCTION: Record<SlidesTurnStage, string> = {
     'Prefer charts/tables/morph per the feature mapping. Report briefly after the write succeeds.'
   ].join('\n'),
   ready: [
-    'The deck exists. Apply the requested revision with set_deck_doc: fetch via get_deck_state, modify only',
-    'what the user asked for, keep everything else byte-identical, then write the full document back.'
+    'The deck exists. Apply the requested revision with set_slides: fetch via get_deck_state, work out which',
+    'slide ids are affected, and send back ONLY those slides (complete slide objects, everything the user did',
+    'not ask about kept byte-identical). Do NOT re-emit the whole deck — reach for set_deck_doc only if the',
+    'change adds, deletes or reorders slides.'
   ].join('\n')
 }
 
@@ -100,6 +115,10 @@ const STAGE_INSTRUCTION: Record<SlidesTurnStage, string> = {
 export function buildSlidesTurnPrompt(options: BuildSlidesTurnPromptOptions): string {
   const stage = options.stage ?? 'draft'
   const parts = [CONTRACT, STAGE_INSTRUCTION[stage]]
+  // 选区引用同属变量段,排在用户原话之前:静态前缀(CONTRACT + 阶段指令)保持逐字节
+  // 不变,prompt 缓存照常命中;空选区时整段不拼,输出与无选区完全一致。
+  const selection = formatSlidesSelectionForPrompt(options.selection)
+  if (selection) parts.push(selection)
   // 用户原话原样透传(不翻译),仍固定在末尾以命中 prompt 缓存。
   parts.push(`User request:\n${options.text.trim()}`)
   return parts.join('\n\n')

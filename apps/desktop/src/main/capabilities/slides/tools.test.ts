@@ -75,6 +75,9 @@ describe("工具清单契约(bento)", () => {
       "list_sources",
       "propose_outline",
       "set_deck_doc",
+      // 局部写入:改一页只发一页。整份 deck 可达数万 token,为改一处重发整份会被截断,
+      // 写入永远落不了盘(用户实测「卡在正在生成演示文稿」)。
+      "set_slides",
     ]);
   });
 });

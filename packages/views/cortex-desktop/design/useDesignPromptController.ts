@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AttachmentReference } from '@cortex-work/core/design/compat/agent-types'
 import type { ModelProviderModelGroup } from '@cortex-work/core/design/compat/kun-gui-api'
+import type { DesignPendingImage } from '@cortex-work/core/design/compat/chat-store-types'
 import { providerIdForComposerModel } from '@cortex-work/core/design/compat/chat-store-helpers'
 import type { ComposerAttachmentScope } from './compat/workbench-composer-attachments'
 import {
@@ -49,6 +50,8 @@ export type SendDesignPromptOptions = {
   displayText?: string
   source?: DesignPromptSource
   screenShapeId?: string
+  /** 本轮随消息发送的图片(composer 粘贴/选取/拖入)。 */
+  images?: DesignPendingImage[]
 }
 
 export function useDesignPromptController({
@@ -155,6 +158,7 @@ export function useDesignPromptController({
         reasoningEffort: composerReasoningEffortRequestValue(composerReasoningEffort),
         attachmentIds,
         attachments,
+        ...(options.images?.length ? { images: options.images } : {}),
         suppressedIds: designContextSuppressedIds,
         htmlElementContext: designHtmlElementContext,
         explicitScreenShapeId: options.screenShapeId,

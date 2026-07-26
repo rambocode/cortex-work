@@ -2,18 +2,23 @@
 // Moveable 拖拽/属性面板)即编辑体验,宿主不再自研画布工具。
 // 职责只剩三件:
 //   1. 经 DesignHtmlPreviewHost 加载(partition 授权 + 文件 watch 重载闸门);
-//   2. dom-ready 注入保存桥 shim,周期 drain 编辑器 autosave 的整份 HTML 落盘;
+//   2. dom-ready 注入宿主桥 shim(保存 + 选区 + 作者名),周期 drain 整份 HTML 落盘;
 //   3. 自写回静默窗:autosave 落盘 → watcher 推 revision,窗口期内跳过重载,
-//      避免编辑中被自己的保存打断(选区/撤销栈会随重载消亡)。
+//      避免编辑中被自己的保存打断(选区/撤销栈会随重载消亡);
+//   4. 选区泵:把 bento 内的当前选区回传给 store,供右栏会话面板显示引用 chip。
 import { useCallback, useEffect, useRef, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useCoreContext } from '@cortex-work/core/provider'
 import { bentoDeckHtmlPath } from '@cortex-work/core/design/slides/slides-paths'
 import { useDesignHtmlPreview } from '../DesignHtmlPreviewHost'
 import {
   BENTO_DRAIN_INTERVAL_MS,
-  BENTO_HOST_SHIM_SOURCE,
+  BENTO_SELECTION_POLL_INTERVAL_MS,
   DRAIN_BENTO_SAVE_SOURCE,
-  parseBentoSaveDrain
+  READ_BENTO_SELECTION_SOURCE,
+  buildBentoHostShimSource,
+  parseBentoSaveDrain,
+  parseBentoSelectionRead
 } from './bento-stage-bridge'
 import { useBentoSlidesStore } from './bento-slides-store'
 import { SLIDES_WEBVIEW_PARTITION } from './slides-webview-partition'
@@ -30,16 +35,20 @@ const SELF_SAVE_RELOAD_MUTE_MS = 2000
 export function SlidesStage({ workspaceRoot, deckId }: Props): ReactElement {
   const { t } = useTranslation('design')
   const saveEditedDeckHtml = useBentoSlidesStore((s) => s.saveEditedDeckHtml)
+  const setSelection = useBentoSlidesStore((s) => s.setSelection)
+  // 宿主身份用作 bento 评论的默认作者名,免去页内再问一次(Electron 不支持 window.prompt)。
+  const { identity } = useCoreContext()
+  const authorName = identity?.name
 
   const selfSaveUntilRef = useRef(0)
   const shouldSkipReload = useCallback(() => Date.now() < selfSaveUntilRef.current, [])
 
-  // dom-ready(含每次重载)注入保存桥 shim;幂等,重复注入无害。
+  // dom-ready(含每次重载)注入宿主桥 shim;幂等,重复注入只刷新 authorName。
   const handleWebviewReady = useCallback(
     (webview: { executeJavaScript?: (code: string) => Promise<unknown> }) => {
-      void webview.executeJavaScript?.(BENTO_HOST_SHIM_SOURCE).catch(() => undefined)
+      void webview.executeJavaScript?.(buildBentoHostShimSource({ authorName })).catch(() => undefined)
     },
-    []
+    [authorName]
   )
 
   const preview = useDesignHtmlPreview({
@@ -82,6 +91,31 @@ export function SlidesStage({ workspaceRoot, deckId }: Props): ReactElement {
       void pump()
     }
   }, [preview.state.ready, executeScript, saveEditedDeckHtml, deckId])
+
+  // 选区泵:与保存泵独立(选区要跟手、保存要合并写)。页内以单调 seq 标记状态版本,
+  // 未变化时表达式直接返回 null,所以 300ms 轮询的代价只是一次空往返。
+  useEffect(() => {
+    if (!preview.state.ready) return
+    let disposed = false
+    // 页内以「seq 与宿主已知值相等即视为未变化」判断,不是单调比大小 —— webview 重载后
+    // 页内 seq 从 1 重新开始,同样能被识别为变化,不需要额外的重载对齐逻辑。
+    let lastSeq = 0
+    const pump = async (): Promise<void> => {
+      const read = parseBentoSelectionRead(await executeScript(READ_BENTO_SELECTION_SOURCE(lastSeq)))
+      if (disposed || !read) return
+      // 切 deck 竞态:与保存泵同一防线,A 稿的选区绝不能落到 B 稿的会话上。
+      if (deckIdRef.current !== deckId) return
+      lastSeq = read.seq
+      setSelection(read.selection)
+    }
+    const timer = window.setInterval(() => void pump(), BENTO_SELECTION_POLL_INTERVAL_MS)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+      // 卸载/切 deck:清掉右栏的引用 chip,免得指向已经看不见的元素。
+      setSelection(null)
+    }
+  }, [preview.state.ready, executeScript, setSelection, deckId])
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 bg-black/4 dark:bg-black/30" data-testid="bento-slides-stage">

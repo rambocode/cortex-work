@@ -15,6 +15,7 @@ import {
   readSlidesSources,
   updateBentoDeckMeta,
   writeBentoDoc,
+  writeBentoSlides,
   type BentoDeckStage,
 } from "./bento-workspace";
 
@@ -46,6 +47,22 @@ const deckDocInputShape = z.union([
   z.string().min(2),
 ]);
 
+const slidesInputShape = z.union([
+  z.array(z.unknown()),
+  z.string().min(2),
+]);
+
+/** 与 deck doc 同样的容错:部分 provider 会把深层嵌套的工具参数整体字符串化。 */
+function normalizeSlidesInput(slides: unknown[] | string): unknown[] | null {
+  if (Array.isArray(slides)) return slides;
+  try {
+    const parsed = JSON.parse(slides) as unknown;
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeDeckDocInput(doc: Record<string, unknown> | string): Record<string, unknown> | null {
   if (typeof doc !== "string") return doc;
   try {
@@ -68,7 +85,7 @@ function stageHint(stage: BentoDeckStage): string {
     case "outline-approved":
       return "The outline is approved: produce the complete document (all slides) in one set_deck_doc call.";
     case "ready":
-      return "The deck is ready: fetch with get_deck_state, change only what the user asked, write the full document back with set_deck_doc.";
+      return "The deck is ready: fetch with get_deck_state, then edit ONLY the affected slides with set_slides (send just those slides, not the whole deck). Use set_deck_doc only when adding, deleting or reordering slides.";
   }
 }
 
@@ -174,6 +191,47 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       if (!result.ok) return errorResult(result.error.code, result.error.message);
       log.info(`[mcp] set_deck_doc deck=${ctx.deckId} slides=${slideCount} rev=${result.value.revision}`);
       return jsonResult({ ok: true, revision: result.value.revision, stage: nextStage ?? stage });
+    },
+  );
+
+  // 局部写入:改一页就只发这一页。整份 12 页 deck 的 JSON 约 12 万字符(~5.6 万 token),
+  // 走 set_deck_doc 改一条折线颜色会慢到像卡死、且极易撞上模型输出上限被截断(用户实测)。
+  mcp.registerTool(
+    "set_slides",
+    {
+      description:
+        "Replace one or more EXISTING slides by id, leaving every other slide untouched. " +
+        "This is the DEFAULT way to edit a deck that already exists — send only the slides you changed, " +
+        "never the whole document. Each item must be a COMPLETE slide object (id + background + transition + " +
+        "elements + notes); it replaces that slide wholesale, it is not a field-level merge. " +
+        "Requires expected_revision. Cannot add, delete or reorder slides — use set_deck_doc for that.",
+      inputSchema: {
+        expected_revision: z.number().int().min(0),
+        slides: slidesInputShape.describe(
+          "Array of complete slide objects, each with an existing slide id. " +
+          "A JSON-encoded array string is also accepted for providers that stringify deeply nested tool arguments.",
+        ),
+      },
+    },
+    async ({ expected_revision, slides }): Promise<ToolResult> => {
+      const normalized = normalizeSlidesInput(slides);
+      if (!normalized) {
+        return errorResult("invalid_doc", "slides 必须是 slide 对象数组,或可解析为该数组的 JSON 字符串");
+      }
+      const result = await writeBentoSlides({
+        ...ctx,
+        slides: normalized,
+        expectedRevision: expected_revision,
+      });
+      if (!result.ok) return errorResult(result.error.code, result.error.message);
+      log.info(
+        `[mcp] set_slides deck=${ctx.deckId} ids=${result.value.replacedIds.join(",")} rev=${result.value.revision}`,
+      );
+      return jsonResult({
+        ok: true,
+        revision: result.value.revision,
+        replacedSlideIds: result.value.replacedIds,
+      });
     },
   );
 

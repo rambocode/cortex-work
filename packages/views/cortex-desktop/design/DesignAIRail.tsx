@@ -23,9 +23,14 @@ import { DESIGN_ASSISTANT_THREAD_TITLE } from '@cortex-work/core/design/design-t
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
 import { defaultFrameSizeForDesignTarget } from '@cortex-work/core/design/design-context'
 import { cancelDesignPagesRun } from '@cortex-work/core/design/design-pages-run'
+import {
+  slidesSelectionCount,
+  type SlidesSelectionSnapshot
+} from '@cortex-work/core/design/slides/slides-selection'
 import type { AgentKind, DerivedAgentMeta } from '@cortex-work/core'
 import { MessageTimeline } from './compat/MessageTimeline'
 import { FloatingComposer } from './compat/FloatingComposer'
+import type { ComposerPendingImage } from './compat/FloatingComposer'
 import type { DesignComposerContext } from './compat/FloatingComposer'
 import type { ComposerReasoningEffort } from './compat/FloatingComposerModelPicker'
 import { DesignTargetToggle } from './DesignTargetToggle'
@@ -84,6 +89,17 @@ type Props = {
    * 换成 slides 自己的空态/占位文案。
    */
   slidesMode?: boolean
+  /**
+   * bento 编辑器内的当前选区(仅 slidesMode 有意义)。有选区时在上下文行显示引用 chip,
+   * 让用户看得见「agent 这一轮会盯着哪些元素改」;发送时由容器并入 slides 回合 prompt。
+   */
+  slidesSelection?: SlidesSelectionSnapshot | null
+  /** 清除引用:只抑制本次显示与本轮注入,用户下次改选区会自动恢复。 */
+  onClearSlidesSelection?: () => void
+  /** 待发图片(粘贴 / 选取 / 拖入);由容器持有,发送后清空。 */
+  composerImages?: ComposerPendingImage[]
+  onAddComposerImages?: (files: File[]) => void
+  onRemoveComposerImage?: (id: string) => void
 }
 
 export function designThreadTitleLooksDefault(
@@ -146,7 +162,12 @@ function DesignAIRailInner({
   derivedAgents,
   onSwitchAgent,
   className = '',
-  slidesMode = false
+  slidesMode = false,
+  slidesSelection = null,
+  onClearSlidesSelection,
+  composerImages,
+  onAddComposerImages,
+  onRemoveComposerImage
 }: Props): ReactElement {
   const { t, i18n } = useTranslation('design')
   const workspaceRoot = useDesignWorkspaceStore((s) => s.workspaceRoot)
@@ -474,6 +495,16 @@ function DesignAIRailInner({
               onRetryConnection={onRetryConnection}
               onOpenSettings={() => onOpenSettings('agents')}
               onSelectSuggestion={(text: string) => setInput(text)}
+              // 编辑重发:回合可能因供应商侧错误失败(如 402 Insufficient Balance),
+              // 原话只留在气泡里、得手打一遍才能重试。回填后聚焦输入框直接改。
+              onEditUserMessage={(text: string) => {
+                setInput(text)
+                requestAnimationFrame(() => {
+                  const el = document.querySelector<HTMLTextAreaElement>('[data-design-rail-composer] textarea')
+                  el?.focus()
+                  el?.setSelectionRange(text.length, text.length)
+                })
+              }}
               onOpenChildThread={openChildThread}
               compactCards
             />
@@ -501,6 +532,8 @@ function DesignAIRailInner({
             {designAgent && onSwitchAgent ? (
               <AgentSelect
                 menuPlacement="up"
+                // 选择器在 chip 行最左侧:默认右对齐会让菜单向左越过右栏边界被裁(用户实测)。
+                menuAlign="left"
                 agent={designAgent}
                 derivedAgentId={designDerivedAgentId}
                 agentsAvailable={agentsAvailable}
@@ -521,7 +554,33 @@ function DesignAIRailInner({
                 <span className="text-ds-faint">·</span>
                 <span className="shrink-0 text-ds-ink">{t('slidesRailContextCanvas')}</span>
               </div>
-            ) : (
+            ) : null}
+            {/* slides 选区引用:让用户在发消息前就看见「这一轮 agent 会盯着哪些元素改」。
+                与上面的演示上下文 chip 并列,而不是走 primaryContextChip —— 那条链路是
+                自由画布的产物上下文,容器从未给 slides 接线。 */}
+            {slidesMode && slidesSelection ? (
+              <div
+                className="flex max-w-full items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-2 text-[12.5px] font-semibold text-ds-muted"
+                data-testid="slides-selection-chip"
+              >
+                <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
+                <span className="min-w-0 truncate text-ds-ink">
+                  {t('slidesSelectionHint', { count: slidesSelectionCount(slidesSelection) })}
+                </span>
+                {onClearSlidesSelection ? (
+                  <button
+                    type="button"
+                    onClick={onClearSlidesSelection}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink"
+                    title={t('slidesSelectionClear')}
+                    aria-label={t('slidesSelectionClear')}
+                  >
+                    <X className="h-3.5 w-3.5" strokeWidth={1.9} />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {!slidesMode ? (
               <>
                 <DesignTargetToggle
                   designTarget={designTarget}
@@ -541,7 +600,7 @@ function DesignAIRailInner({
                   <span className="hidden min-w-0 truncate text-ds-faint sm:inline">{designTargetDetail}</span>
                 </div>
               </>
-            )}
+            ) : null}
             {showContextControls ? (
               <>
             {pagesRun ? (
@@ -653,6 +712,9 @@ function DesignAIRailInner({
             onPasteClipboardImage={onPasteClipboardImage}
             onRemoveAttachment={onRemoveAttachment}
             onRemoveContextChip={onRemoveContextChip}
+            images={composerImages}
+            onAddImages={onAddComposerImages}
+            onRemoveImage={onRemoveComposerImage}
             onSend={onSend}
             onInterrupt={onInterrupt}
             onConfigureProviders={onConfigureProviders}

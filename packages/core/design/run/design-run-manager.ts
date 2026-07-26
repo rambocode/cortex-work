@@ -289,6 +289,42 @@ export async function sendDesignMessage(
   // 用户记忆注入:设计回合不做 session 续接(见下方注释),记忆经 appendSystemPrompt 每轮下发,
   // 正好补上「agent 无对话记忆」的用户背景空缺(开关关/全空 → undefined 不带字段)。
   const memoryAppend = buildMemoryAppend();
+  // 图片先落盘拿绝对路径,再交给各 agent 的原生图片通道(claude 路径进 prompt / codex -i /
+  // pi RPC base64)。逐张串行保序;任一张失败即中止本轮 —— 与其让 agent 看到残缺的图组,
+  // 不如让用户知道图没带上(已落盘的前几张是孤儿,随会话清理)。
+  let imageRefs: Array<{ path: string; mimeType: string }> | undefined;
+  if (overrides?.images?.length) {
+    if (!bridge.imageSave) {
+      mirror.pushBlock({
+        kind: "system",
+        id: uid("err"),
+        text: "当前环境不支持发送图片(bridge 缺少 imageSave)",
+        severity: "error",
+      } as ChatBlock);
+      return false;
+    }
+    try {
+      const refs: Array<{ path: string; mimeType: string }> = [];
+      for (const img of overrides.images) {
+        const { path } = await bridge.imageSave({
+          sessionId,
+          fileName: img.name,
+          mimeType: img.mimeType,
+          data: img.data,
+        });
+        refs.push({ path, mimeType: img.mimeType });
+      }
+      imageRefs = refs;
+    } catch (err) {
+      mirror.pushBlock({
+        kind: "system",
+        id: uid("err"),
+        text: `图片保存失败:${err instanceof Error ? err.message : String(err)}`,
+        severity: "error",
+      } as ChatBlock);
+      return false;
+    }
+  }
   const req: CliStartRequest = {
     runId,
     sessionId,
@@ -299,6 +335,7 @@ export async function sendDesignMessage(
     ...(model ? { model } : {}),
     ...(provider ? { provider } : {}),
     ...(memoryAppend ? { appendSystemPrompt: memoryAppend } : {}),
+    ...(imageRefs?.length ? { images: imageRefs } : {}),
     ...(overrides?.reasoningEffort ? {} : {}),
     // accept-edits:免审批写工作区文件(设计回合只需 Write/Edit HTML+MD),
     // 不放开任意命令;print 模式无交互审批,approvalPolicy 必须 auto。

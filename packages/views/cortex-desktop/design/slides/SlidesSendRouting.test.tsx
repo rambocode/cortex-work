@@ -20,4 +20,19 @@ describe('routeDesignComposerSend', () => {
     expect(routeDesignComposerSend({ input: '   ', slidesMode: true })).toEqual({ kind: 'ignore' })
     expect(routeDesignComposerSend({ input: '', slidesMode: false })).toEqual({ kind: 'ignore' })
   })
+
+  // 只贴一张截图不打字也应发得出去(「照这个改」的常见用法);文本仍为空串透传。
+  it('只有图片没有文字时照发', () => {
+    expect(routeDesignComposerSend({ input: '', slidesMode: true, hasImages: true })).toEqual({
+      kind: 'slides-turn',
+      text: ''
+    })
+    expect(routeDesignComposerSend({ input: '  ', slidesMode: false, hasImages: true })).toEqual({
+      kind: 'design-prompt'
+    })
+  })
+
+  it('既无文字也无图片仍然不发', () => {
+    expect(routeDesignComposerSend({ input: '  ', slidesMode: true, hasImages: false })).toEqual({ kind: 'ignore' })
+  })
 })
