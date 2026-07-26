@@ -10,6 +10,7 @@ import type { AgentKind } from "@cortex-work/core";
 import { buildDesignAgentSwitchPatch } from "@cortex-work/core/design/compat/app-settings";
 import {
   cancelActiveDesignRuns,
+  clearDesignResumeSessions,
   installDesignRuntime,
   sendDesignMessage,
 } from "@cortex-work/core/design/run/design-run-manager";
@@ -127,8 +128,16 @@ export function DesignWorkspace(): ReactElement {
   // 设计助手栏当前显示的 base agent：显式选择优先,未选择则跟随系统「新会话默认 Agent」。
   const displayAgent: AgentKind =
     (designSettings.agent as AgentKind) || resolveDefaultAgent({ generalSettings, agentsAvailable });
+  const resetCurrentDesignConversation = (): void => {
+    clearDesignResumeSessions(useDesignWorkspaceStore.getState().activeDocumentId ?? undefined);
+    useChatStore.getState().resetMirror();
+  };
   // 切 agent:落 designSettings 的联动 patch(pi 配齐 provider+model、其余清空),同步 composer 模型显示。
   const onSwitchAgent = (agent: AgentKind, derived?: Parameters<typeof buildDesignAgentSwitchPatch>[2]): void => {
+    const agentChanged =
+      displayAgent !== agent ||
+      (designSettings.derivedAgentId || "") !== (derived?.id ?? "");
+    if (agentChanged) resetCurrentDesignConversation();
     const patch = buildDesignAgentSwitchPatch(agent, providerSettings, derived);
     setDesignSettings(patch);
     setComposerModel(patch.model ?? "");
@@ -322,6 +331,7 @@ export function DesignWorkspace(): ReactElement {
   // 设计稿会话时才清(初次挂载 activeThreadId 为空,不误清)。
   useEffect(() => {
     if (!activeDocumentId) return;
+    clearDesignResumeSessions();
     setComposerImages([]);
     setComposerTextFiles([]);
     const wantThread = `design-${activeDocumentId}`;
@@ -441,7 +451,10 @@ export function DesignWorkspace(): ReactElement {
           composerModel={composerModel}
           composerPickList={composerModel ? [composerModel] : []}
           composerReasoningEffort={composerReasoningEffort}
-          setComposerModel={(modelId) => setComposerModel(modelId)}
+          setComposerModel={(modelId) => {
+            if (modelId !== composerModel) resetCurrentDesignConversation();
+            setComposerModel(modelId);
+          }}
           setComposerReasoningEffort={setComposerReasoningEffort}
           queuedMessages={[]}
           removeQueuedMessage={() => {}}
@@ -449,7 +462,7 @@ export function DesignWorkspace(): ReactElement {
           onInterrupt={() => void cancelActiveDesignRuns()}
           onRetryConnection={() => installDesignRuntime(bridge)}
           onOpenSettings={() => openSettings("design")}
-          onNewConversation={() => useChatStore.getState().resetMirror()}
+          onNewConversation={resetCurrentDesignConversation}
           designThreads={designThreads}
           onSwitchThread={() => {}}
           onCollapse={() => setAssistantOpen(false)}

@@ -1,8 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { installDesignRuntime, resolveDesignRunAgent, sendDesignMessage } from "./design-run-manager";
-import type { PersonalState } from "../../store/personal";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  clearDesignResumeSessions,
+  installDesignRuntime,
+  resolveDesignRunAgent,
+  sendDesignMessage,
+} from "./design-run-manager";
+import { usePersonalStore, type PersonalState } from "../../store/personal";
 import type { DesktopBridge } from "../../desktop/bridge";
-import type { CliStreamEvent } from "../../desktop/types";
+import type { CliExitEvent, CliStreamEvent } from "../../desktop/types";
 import { useChatStore } from "../compat/chat-store";
 import { useDesignWorkspaceStore } from "../design-workspace-store";
 
@@ -65,8 +70,22 @@ describe("resolveDesignRunAgent", () => {
 
 describe("sendDesignMessage 回合元数据", () => {
   let startCli: ReturnType<typeof vi.fn>;
+  let emit: (runId: string, event: CliStreamEvent) => void;
+  let emitExit: (exit: CliExitEvent) => void;
 
   beforeEach(() => {
+    clearDesignResumeSessions();
+    usePersonalStore.setState((state) => ({
+      designSettings: {
+        ...state.designSettings,
+        agent: "pi",
+        derivedAgentId: "",
+        providerId: "",
+        model: "",
+      },
+      providerSettings: { providers: [] },
+      derivedAgents: [],
+    }));
     useChatStore.setState({ blocks: [], threads: [], activeThreadId: null, liveAssistant: "" });
     useDesignWorkspaceStore.setState({
       workspaceRoot: "/tmp/ws",
@@ -87,12 +106,24 @@ describe("sendDesignMessage 回合元数据", () => {
     });
     startCli = vi.fn(async () => undefined);
     installDesignRuntime({
-      onCliEvent: () => () => undefined,
-      onCliExit: () => () => undefined,
+      onCliEvent: (cb: (runId: string, event: CliStreamEvent) => void) => {
+        emit = cb;
+        return () => undefined;
+      },
+      onCliExit: (cb: (exit: CliExitEvent) => void) => {
+        emitExit = cb;
+        return () => undefined;
+      },
       startCli,
       killCli: vi.fn(async () => undefined),
       designWorkspaceRoot: async () => "/tmp/ws",
     } as unknown as DesktopBridge);
+  });
+
+  afterEach(() => {
+    for (const [request] of startCli.mock.calls) {
+      emitExit({ runId: (request as { runId: string }).runId, code: 0 });
+    }
   });
 
   it("webSearch=true 透传给 cli:start", async () => {
@@ -121,6 +152,238 @@ describe("sendDesignMessage 回合元数据", () => {
     await sendDesignMessage("<slides contract>", "agent", { displayText: "", attachments });
     const user = useChatStore.getState().blocks.find((block) => block.kind === "user");
     expect(user?.meta?.displayText).toBe("");
+  });
+
+  it("同一设计稿第二轮续接第一轮返回的 Agent session", async () => {
+    await sendDesignMessage("第一轮：把标题改短");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "agent-session-1" });
+
+    await sendDesignMessage("第二轮：再简洁一点");
+
+    expect(startCli.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ resumeSessionId: "agent-session-1" }),
+    );
+  });
+
+  it("委派子 Agent 的合成 init 不覆盖顶层 Agent session", async () => {
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-delegate-init" });
+    await sendDesignMessage("第一轮");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "top-level-agent-session" });
+    emit(firstRequest.runId, {
+      type: "init",
+      sessionId: "design-deck-delegate-init",
+      roleId: "page-slide-3",
+    });
+
+    await sendDesignMessage("第二轮");
+
+    expect(startCli.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ resumeSessionId: "top-level-agent-session" }),
+    );
+  });
+
+  it("同一设计稿切换模型后不续接旧 Agent session", async () => {
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-model-switch" });
+    usePersonalStore.setState((state) => ({
+      designSettings: {
+        ...state.designSettings,
+        agent: "codex",
+        derivedAgentId: "",
+        model: "model-a",
+      },
+    }));
+    await sendDesignMessage("第一轮");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "model-a-session" });
+
+    usePersonalStore.setState((state) => ({
+      designSettings: { ...state.designSettings, model: "model-b" },
+    }));
+    await sendDesignMessage("切换模型后的第一轮");
+
+    expect(startCli.mock.calls[1]?.[0]).toEqual(
+      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+    );
+  });
+
+  it("切换设计稿后清除旧设计稿的 Agent session", async () => {
+    usePersonalStore.setState((state) => ({
+      designSettings: {
+        ...state.designSettings,
+        agent: "codex",
+        derivedAgentId: "",
+        model: "model-a",
+      },
+    }));
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-switch-a" });
+    await sendDesignMessage("A 稿第一轮");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "deck-a-session" });
+
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-switch-b" });
+    await sendDesignMessage("B 稿第一轮");
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-switch-a" });
+    await sendDesignMessage("重新进入 A 稿");
+
+    expect(startCli.mock.calls[2]?.[0]).toEqual(
+      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+    );
+  });
+
+  it("显式清除设计稿会话后下一轮不再续接", async () => {
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-new-conversation" });
+    await sendDesignMessage("第一轮");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "old-agent-session" });
+
+    clearDesignResumeSessions("deck-new-conversation");
+    await sendDesignMessage("新会话第一轮");
+
+    expect(startCli.mock.calls[1]?.[0]).toEqual(
+      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+    );
+  });
+
+  it("清除后迟到的旧 init 不会恢复已失效的 Agent session", async () => {
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-late-init" });
+    await sendDesignMessage("旧会话第一轮");
+    const oldRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+
+    clearDesignResumeSessions("deck-late-init");
+    emit(oldRequest.runId, { type: "init", sessionId: "late-old-session" });
+    await sendDesignMessage("新会话第一轮");
+
+    expect(startCli.mock.calls[1]?.[0]).toEqual(
+      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+    );
+  });
+
+  it("Agent 明确报告 resume session 丢失后下一轮回退为新会话", async () => {
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-resume-lost" });
+    await sendDesignMessage("第一轮");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "missing-agent-session" });
+
+    await sendDesignMessage("第二轮");
+    const resumedRequest = startCli.mock.calls[1]?.[0] as { runId: string };
+    emit(resumedRequest.runId, {
+      type: "result",
+      ok: false,
+      error: "thread/resume failed: session not found",
+    });
+    await sendDesignMessage("恢复后的第一轮");
+
+    expect(startCli.mock.calls[2]?.[0]).toEqual(
+      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+    );
+  });
+
+  it("子 Agent 的 session-lost result 不清除顶层 Agent session", async () => {
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-child-resume-lost" });
+    await sendDesignMessage("第一轮");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "top-level-agent-session" });
+
+    await sendDesignMessage("第二轮");
+    const resumedRequest = startCli.mock.calls[1]?.[0] as { runId: string };
+    emit(resumedRequest.runId, {
+      type: "result",
+      ok: false,
+      error: "thread/resume failed: session not found",
+      roleId: "page-slide-3",
+    });
+    await sendDesignMessage("第三轮");
+
+    expect(startCli.mock.calls[2]?.[0]).toEqual(
+      expect.objectContaining({ resumeSessionId: "top-level-agent-session" }),
+    );
+  });
+
+  it("切换 Agent 后不续接旧 Agent session", async () => {
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-agent-switch" });
+    usePersonalStore.setState((state) => ({
+      designSettings: {
+        ...state.designSettings,
+        agent: "codex",
+        derivedAgentId: "",
+        model: "",
+      },
+    }));
+    await sendDesignMessage("Codex 第一轮");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "codex-session" });
+
+    usePersonalStore.setState((state) => ({
+      designSettings: { ...state.designSettings, agent: "claude" },
+    }));
+    await sendDesignMessage("Claude 第一轮");
+
+    expect(startCli.mock.calls[1]?.[0]).toEqual(
+      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+    );
+  });
+
+  it("切换 Pi provider 后不续接旧 Agent session", async () => {
+    const providers = ["provider-a", "provider-b"].map((id) => ({
+      id,
+      name: id,
+      baseUrl: `https://${id}.example.com/v1`,
+      endpointFormat: "chat_completions" as const,
+      enabled: true,
+      models: [{ id: "shared-model", label: "Shared Model" }],
+    }));
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-provider-switch" });
+    usePersonalStore.setState((state) => ({
+      designSettings: {
+        ...state.designSettings,
+        agent: "pi",
+        providerId: "provider-a",
+        model: "shared-model",
+      },
+      providerSettings: { providers },
+    }));
+    await sendDesignMessage("Provider A 第一轮");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "provider-a-session" });
+
+    usePersonalStore.setState((state) => ({
+      designSettings: { ...state.designSettings, providerId: "provider-b" },
+    }));
+    await sendDesignMessage("Provider B 第一轮");
+
+    expect(startCli.mock.calls[1]?.[0]).toEqual(
+      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+    );
+  });
+
+  it("切换派生 Agent 后不续接旧 Agent session", async () => {
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-derived-switch" });
+    usePersonalStore.setState((state) => ({
+      designSettings: {
+        ...state.designSettings,
+        agent: "claude",
+        derivedAgentId: "derived-a",
+        model: "",
+      },
+      derivedAgents: [
+        { id: "derived-a", base: "claude" },
+        { id: "derived-b", base: "claude" },
+      ],
+    }));
+    await sendDesignMessage("派生 Agent A 第一轮");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    emit(firstRequest.runId, { type: "init", sessionId: "derived-a-session" });
+
+    usePersonalStore.setState((state) => ({
+      designSettings: { ...state.designSettings, derivedAgentId: "derived-b" },
+    }));
+    await sendDesignMessage("派生 Agent B 第一轮");
+
+    expect(startCli.mock.calls[1]?.[0]).toEqual(
+      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+    );
   });
 });
 

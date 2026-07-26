@@ -28,17 +28,25 @@ type DesignRunContext = {
   sessionId: string;
   docId: string;
   turnId: string;
+  resumeKey: string;
+  resumeSessionId?: string;
 };
 
 let installedBridge: DesktopBridge | null = null;
 let unsubscribes: Array<() => void> = [];
 const activeRuns = new Map<string, DesignRunContext>();
+// 设计稿 + 实际 Agent 配置 → Agent 侧真实 sessionId。配置变化时不能串用旧会话。
+const resumeByConfig = new Map<string, string>();
+const activeResumeKeyByDocument = new Map<string, string>();
+let activeResumeDocumentId: string | null = null;
 // 工具 block id 分配器:adapter 不给 toolCallId 时按 (runId, name) FIFO 配对,
 // 避免同回合十几次同名调用(codex 把所有 MCP 都叫 "MCP")撞成同一个 block。
 const toolBlockIds = createToolBlockIdTracker();
 
 // 工具输出存进 block.meta 的截断上限:芯片只需要摘要,大输出会白占渲染端内存。
 const MAX_TOOL_OUTPUT_IN_META = 4_000;
+const RESUME_SESSION_LOST_RE =
+  /thread\/resume failed|no session found|session (?:not found|missing)|unknown session/i;
 
 function uid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -68,6 +76,22 @@ export function designRunBusy(): boolean {
   return activeRuns.size > 0;
 }
 
+/** 清除某一设计稿(或全部设计稿)的 Agent 会话续接状态。 */
+export function clearDesignResumeSessions(docId?: string): void {
+  if (!docId) {
+    resumeByConfig.clear();
+    activeResumeKeyByDocument.clear();
+    activeResumeDocumentId = null;
+    return;
+  }
+  const keyPrefix = `${docId}\u0000`;
+  for (const key of resumeByConfig.keys()) {
+    if (key.startsWith(keyPrefix)) resumeByConfig.delete(key);
+  }
+  activeResumeKeyByDocument.delete(docId);
+  if (activeResumeDocumentId === docId) activeResumeDocumentId = null;
+}
+
 // ── CLI 事件折叠：CliStreamEvent → chat 镜像 ──────────────────────────────
 function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
   const run = activeRuns.get(runId);
@@ -75,7 +99,14 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
   const mirror = useChatStore.getState();
   switch (ev.type) {
     case "init":
-      // 设计回合不续接,init 仅标记会话已启动(不记录 sessionId)。
+      if (
+        ev.sessionId &&
+        !ev.roleId &&
+        !ev.stage &&
+        activeResumeKeyByDocument.get(run.docId) === run.resumeKey
+      ) {
+        resumeByConfig.set(run.resumeKey, ev.sessionId);
+      }
       return;
     case "text":
       mirror.appendLiveAssistant(ev.delta);
@@ -131,6 +162,17 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
       return;
     }
     case "result": {
+      if (
+        !ev.ok &&
+        !ev.roleId &&
+        !ev.stage &&
+        run.resumeSessionId &&
+        RESUME_SESSION_LOST_RE.test(ev.error ?? "") &&
+        activeResumeKeyByDocument.get(run.docId) === run.resumeKey &&
+        resumeByConfig.get(run.resumeKey) === run.resumeSessionId
+      ) {
+        resumeByConfig.delete(run.resumeKey);
+      }
       // 有的 agent(尤其 pi)不走流式 text 事件,最终输出只在 result.text 里。若本回合没有
       // 流式文本累积(liveAssistant 空),把 result.text 补成一条 assistant 块,否则聊天看不到回复。
       const hadStreamed = useChatStore.getState().liveAssistant.trim().length > 0;
@@ -238,6 +280,12 @@ export async function sendDesignMessage(
   }
 
   const sessionId = `design-${docId}`;
+  if (activeResumeDocumentId && activeResumeDocumentId !== docId) {
+    const previousDocId = activeResumeDocumentId;
+    clearDesignResumeSessions(previousDocId);
+    clearDesignResumeSessions(docId);
+  }
+  activeResumeDocumentId = docId;
   // Slides 设计稿的回合用 slides: 前缀 —— 主进程据此注入 cortex-slides MCP 工具;
   // 普通 board 设计稿保持 design: 前缀(注入 design-delegate)。
   const activeDoc = ws.documents.find((d) => d.id === ws.activeDocumentId);
@@ -316,8 +364,20 @@ export async function sendDesignMessage(
         providerProfile?.models?.[0]?.id ||
         undefined
       : personal.designSettings.model || undefined;
-  // 用户记忆注入:设计回合不做 session 续接(见下方注释),记忆经 appendSystemPrompt 每轮下发,
-  // 正好补上「agent 无对话记忆」的用户背景空缺(开关关/全空 → undefined 不带字段)。
+  const resumeKey = [
+    docId,
+    derivedId ?? agent,
+    provider?.id ?? "",
+    model ?? "",
+  ].join("\u0000");
+  const previousResumeKey = activeResumeKeyByDocument.get(docId);
+  if (previousResumeKey && previousResumeKey !== resumeKey) {
+    resumeByConfig.delete(previousResumeKey);
+  }
+  activeResumeKeyByDocument.set(docId, resumeKey);
+  const resumeSessionId = resumeByConfig.get(resumeKey);
+  // 用户记忆与会话历史分层:历史通过 resumeSessionId 续接,长期用户背景仍经
+  // appendSystemPrompt 每轮下发(开关关/全空 → undefined 不带字段)。
   const memoryAppend = buildMemoryAppend();
   // 图片先落盘拿绝对路径,再交给各 agent 的原生图片通道(claude 路径进 prompt / codex -i /
   // pi RPC base64)。逐张串行保序;任一张失败即中止本轮 —— 与其让 agent 看到残缺的图组,
@@ -367,17 +427,22 @@ export async function sendDesignMessage(
     ...(memoryAppend ? { appendSystemPrompt: memoryAppend } : {}),
     ...(imageRefs?.length ? { images: imageRefs } : {}),
     ...(overrides?.webSearch ? { webSearch: true } : {}),
+    ...(resumeSessionId ? { resumeSessionId } : {}),
     ...(overrides?.reasoningEffort ? {} : {}),
     // accept-edits:免审批写工作区文件(设计回合只需 Write/Edit HTML+MD),
     // 不放开任意命令;print 模式无交互审批,approvalPolicy 必须 auto。
     permissionMode: "accept-edits",
     approvalPolicy: "auto",
-    // 不做 session 续接:设计各回合(spec/系统/logo/每页)彼此独立,上下文靠磁盘上的
-    // design.md / DESIGN_SYSTEM.md / 兄弟页清单传递,不依赖 agent 对话记忆。续接反而
-    // 会因 agent 未持久化上一回合会话而报「No session found」直接失败(pi 尤甚)。
+    // 主进程会在 Agent session 已被清理时自动去掉 resumeSessionId 并回退为新会话。
   };
 
-  activeRuns.set(runId, { sessionId, docId, turnId });
+  activeRuns.set(runId, {
+    sessionId,
+    docId,
+    turnId,
+    resumeKey,
+    ...(resumeSessionId ? { resumeSessionId } : {}),
+  });
   try {
     await bridge.startCli(req);
     return true;
