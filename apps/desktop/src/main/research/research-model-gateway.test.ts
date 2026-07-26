@@ -5,7 +5,10 @@
 // 以及请求体里永远没有 tools —— 后者是处理 public_web 内容时的 prompt injection 防线。
 import { describe, expect, it } from "vitest";
 import type { ProviderSettings } from "@cortex-work/core/desktop/types";
-import { ResearchModelGateway } from "./research-model-gateway";
+import {
+  ResearchModelGateway,
+  type ModelCallInput,
+} from "./research-model-gateway";
 
 /// 记录调用的假 fetch。默认回一个合法的 chat completions 响应。
 function makeFetch(content = "模型输出"): {
@@ -206,6 +209,25 @@ describe("ResearchModelGateway 失败处理", () => {
       maxTokens: 256,
     });
     expect(Object.keys(seen[0]!)).not.toContain("tools");
+  });
+
+  it("单次调用的长报告超时会透传给底层补全", async () => {
+    const seen: Array<number | undefined> = [];
+    const gateway = new ResearchModelGateway({
+      providerSettings: providers({ id: "cloud", baseUrl: "https://api.example.com/v1" }),
+      complete: async (params) => {
+        seen.push(params.timeoutMs);
+        return "ok";
+      },
+    });
+    const input = {
+      ...BASE_INPUT,
+      timeoutMs: 240_000,
+    } as ModelCallInput & { timeoutMs: number };
+
+    await gateway.call(input);
+
+    expect(seen).toEqual([240_000]);
   });
 });
 

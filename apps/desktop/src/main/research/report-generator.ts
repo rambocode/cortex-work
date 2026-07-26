@@ -25,6 +25,7 @@ import type {
   ResearchRound,
   ResearchSubquestion,
 } from "@cortex-work/core/research/types";
+import { stripTruncationMarker } from "../ipc/openai-chat";
 import { validateResearchReport } from "./citation-validator";
 import type { ModelGatewayLike } from "./planner/initial-planner";
 import { REPORT_SYSTEM_PROMPT, buildReportUserPrompt } from "./planner/prompts";
@@ -73,6 +74,14 @@ const REPORT_MAX_TOKENS_BY_MODE = {
   quick: 4_000,
   standard: 8_000,
   deep: 14_000,
+} as const;
+
+// 长报告的真实生成时间会随输出规模增长。所有值保持在主进程约 300s 看门狗以内，
+// 同时避免 quick 报告在供应商卡死时也等待完整的 deep 档时长。
+const REPORT_TIMEOUT_MS_BY_MODE = {
+  quick: 120_000,
+  standard: 240_000,
+  deep: 280_000,
 } as const;
 
 const REPORT_LENGTH_TARGETS = {
@@ -348,16 +357,22 @@ async function requestMarkdown(
       budget: input.budget,
       ...(input.mode ? { mode: input.mode } : {}),
     }),
+    timeoutMs: REPORT_TIMEOUT_MS_BY_MODE[modeOf(input)],
     maxPromptChars,
     ...(input.signal ? { signal: input.signal } : {}),
     ...(input.onDelta ? { onDelta: input.onDelta } : {}),
   });
+  const completed = result.ok ? stripTruncationMarker(result.text) : null;
 
-  if (!result.ok || result.text.trim().length === 0) {
+  if (!result.ok || !completed || completed.truncated || completed.text.trim().length === 0) {
     deps.logger?.warn(
       "[research] 报告生成降级为确定性证据摘要",
       result.ok
-        ? { code: "empty_output", provider: result.providerId, model: result.model }
+        ? {
+            code: completed?.truncated ? "output_truncated" : "empty_output",
+            provider: result.providerId,
+            model: result.model,
+          }
         : {
             code: result.code,
             message: result.message,
@@ -377,7 +392,7 @@ async function requestMarkdown(
     };
   }
   return {
-    markdown: result.text,
+    markdown: completed.text,
     promptEvidenceChars: Math.min([...userPrompt].length, maxPromptChars),
     modelSucceeded: true,
   };

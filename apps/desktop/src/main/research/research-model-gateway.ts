@@ -42,6 +42,8 @@ export interface ModelCallInput {
   /// 变量段。超限时从这里截断。
   userPrompt: string;
   maxTokens?: number;
+  /// 本次调用的超时。报告生成明显长于 Planner，必须允许调用方按用途覆盖 60s 默认值。
+  timeoutMs?: number;
   signal?: AbortSignal;
   /// 出站字符上限，取 budget.maxEvidenceCharsToModel；缺省用 DEFAULT_MAX_PROMPT_CHARS。
   maxPromptChars?: number;
@@ -146,7 +148,11 @@ export class ResearchModelGateway {
       ],
       ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}),
       ...(input.signal ? { signal: input.signal } : {}),
-      ...(this.deps.timeoutMs !== undefined ? { timeoutMs: this.deps.timeoutMs } : {}),
+      ...(input.timeoutMs !== undefined
+        ? { timeoutMs: input.timeoutMs }
+        : this.deps.timeoutMs !== undefined
+          ? { timeoutMs: this.deps.timeoutMs }
+          : {}),
       ...(this.deps.fetchFn ? { fetchFn: this.deps.fetchFn } : {}),
     };
     try {

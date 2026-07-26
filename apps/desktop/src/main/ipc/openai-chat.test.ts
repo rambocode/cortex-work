@@ -2,7 +2,11 @@
 // 尤其是「temperature 未定义则不下发该字段」的旧行为(llm:openaiComplete 依赖,间接覆盖不到)。
 
 import { describe, it, expect } from "vitest";
-import { postChatCompletion } from "./openai-chat";
+import {
+  postChatCompletion,
+  postChatCompletionStream,
+  TRUNCATED_MARKER,
+} from "./openai-chat";
 
 /** 构造可注入的假 fetch：记录请求并返回给定响应。 */
 function fakeFetch(response: { status?: number; body?: unknown; text?: string }) {
@@ -103,5 +107,72 @@ describe("postChatCompletion", () => {
         fetchFn,
       }),
     ).rejects.toThrow("模型未返回内容");
+  });
+});
+
+describe("postChatCompletionStream", () => {
+  it("流式报告同样下发 max_tokens，保持输出预算契约", async () => {
+    const calls: RequestInit[] = [];
+    const encoder = new TextEncoder();
+    const fetchFn = (async (_url: unknown, init?: RequestInit) => {
+      calls.push(init ?? {});
+      return {
+        ok: true,
+        status: 200,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode('data: {"choices":[{"delta":{"content":"报告"}}]}\n\n'),
+            );
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          },
+        }),
+        text: async () => "",
+      } as Response;
+    }) as typeof fetch;
+
+    await postChatCompletionStream({
+      baseUrl: "https://api.example.com/v1",
+      model: "m1",
+      messages: [{ role: "user", content: "生成长报告" }],
+      maxTokens: 8_000,
+      fetchFn,
+    });
+
+    const body = JSON.parse(String(calls[0]!.body)) as Record<string, unknown>;
+    expect(body.max_tokens).toBe(8_000);
+  });
+
+  it("SSE 以 finish_reason=length 结束时保留截断标记", async () => {
+    const encoder = new TextEncoder();
+    const fetchFn = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode('data: {"choices":[{"delta":{"content":"未完报告"}}]}\n\n'),
+            );
+            controller.enqueue(
+              encoder.encode('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n'),
+            );
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          },
+        }),
+        text: async () => "",
+      }) as Response) as typeof fetch;
+
+    const output = await postChatCompletionStream({
+      baseUrl: "https://api.example.com/v1",
+      model: "m1",
+      messages: [],
+      maxTokens: 8_000,
+      fetchFn,
+    });
+
+    expect(output).toBe(`未完报告${TRUNCATED_MARKER}`);
   });
 });

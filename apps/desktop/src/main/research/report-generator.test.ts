@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
 import type { EvidenceChunk, ResearchDocument } from "@cortex-work/core/research/evidence";
 import type { CoverageReport } from "@cortex-work/core/research/types";
+import { TRUNCATED_MARKER } from "../ipc/openai-chat";
 import type { ModelCallInput, ModelCallResult } from "./research-model-gateway";
 import { generateReport, resolveReportMaxTokens } from "./report-generator";
 
@@ -544,6 +545,15 @@ describe("generateReport 的降级", () => {
     expect(report.markdown).toContain("[^ch_1]");
   });
 
+  it("模型达到输出 token 上限时降级，不把截断报告当成功稿", async () => {
+    const { gateway } = fakeGateway(ok(`看似完整但已截断${TRUNCATED_MARKER}`));
+
+    const report = await generateReport(INPUT, { gateway });
+
+    expect(report.markdown).toContain(BODY_MARKER);
+    expect(report.generationStats?.usedFallback).toBe(true);
+  });
+
   it("没有任何证据时仍产出可用的报告骨架（不抛错）", async () => {
     const { gateway } = fakeGateway({ ok: false, code: "call_failed", message: "x" });
     const report = await generateReport({ ...INPUT, chunks: [], documents: [] }, { gateway });
@@ -670,6 +680,25 @@ describe("报告输出预算", () => {
     const { gateway, seen } = captureMaxTokens();
     await generateReport({ ...INPUT, budget }, { gateway });
     expect(seen[0]).toBe(resolveReportMaxTokens({ budget }));
+  });
+
+  it.each([
+    ["quick", 120_000],
+    ["standard", 240_000],
+    ["deep", 280_000],
+  ] as const)("%s 报告按输出规模获得足够的生成超时", async (mode, timeoutMs) => {
+    const { gateway, calls } = fakeGateway(ok("# 报告\n\n正文[^ch_1]。"));
+
+    await generateReport(
+      {
+        ...INPUT,
+        mode,
+        budget: clampResearchBudget(mode),
+      },
+      { gateway },
+    );
+
+    expect(calls[0]).toMatchObject({ timeoutMs });
   });
 });
 

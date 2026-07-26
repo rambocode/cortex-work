@@ -122,6 +122,7 @@ export async function postChatCompletionStream(
       model: params.model,
       messages: params.messages,
       ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+      ...(params.maxTokens !== undefined ? { max_tokens: params.maxTokens } : {}),
       stream: true,
     }),
     signal,
@@ -138,18 +139,23 @@ export async function postChatCompletionStream(
   let acc = ""; // 已累计的正文
   let raw = ""; // 原始响应全文（非 SSE 回退解析用）
   let lineBuf = ""; // 跨 chunk 的半行缓冲（SSE 事件可能被网络分包截断）
+  let finishReason: string | undefined;
   const consumeLine = (line: string): void => {
     const trimmed = line.trim();
     if (!trimmed.startsWith("data:")) return;
     const payload = trimmed.slice(5).trim();
     if (payload === "[DONE]") return;
     try {
-      const evt = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
-      const delta = evt.choices?.[0]?.delta?.content;
+      const evt = JSON.parse(payload) as {
+        choices?: { delta?: { content?: string }; finish_reason?: string }[];
+      };
+      const choice = evt.choices?.[0];
+      const delta = choice?.delta?.content;
       if (typeof delta === "string" && delta.length > 0) {
         acc += delta;
         params.onDelta?.(acc);
       }
+      if (typeof choice?.finish_reason === "string") finishReason = choice.finish_reason;
     } catch {
       // 非 JSON 的 data 行（心跳/注释）忽略
     }
@@ -170,14 +176,19 @@ export async function postChatCompletionStream(
   }
   consumeLine(lineBuf);
 
-  if (acc.trim().length > 0) return acc;
+  if (acc.trim().length > 0) {
+    return finishReason === "length" ? `${acc}${TRUNCATED_MARKER}` : acc;
+  }
   // 回退：部分兼容供应商无视 stream:true 直接回普通 JSON
   try {
-    const data = JSON.parse(raw) as { choices?: { message?: { content?: string } }[] };
-    const content = data.choices?.[0]?.message?.content;
+    const data = JSON.parse(raw) as {
+      choices?: { message?: { content?: string }; finish_reason?: string }[];
+    };
+    const choice = data.choices?.[0];
+    const content = choice?.message?.content;
     if (typeof content === "string" && content.trim()) {
       params.onDelta?.(content);
-      return content;
+      return choice?.finish_reason === "length" ? `${content}${TRUNCATED_MARKER}` : content;
     }
   } catch {
     // 非 JSON：落入统一「无内容」错误
