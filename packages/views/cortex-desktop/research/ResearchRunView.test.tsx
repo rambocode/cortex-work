@@ -193,6 +193,29 @@ describe("ResearchRunView 内容", () => {
     expect(screen.getByText("Tokio 教程")).toBeTruthy();
   });
 
+  it("明确区分已抓取、入选 prompt 与最终引用的来源数量", () => {
+    const { bridge } = makeBridge();
+    const view = makeFullView({
+      summary: makeSummary({ status: "completed", documentCount: 18 }),
+      report: makeReport({
+        generationStats: {
+          availableDocumentCount: 18,
+          availableChunkCount: 312,
+          includedDocumentCount: 7,
+          includedChunkCount: 12,
+          citedDocumentCount: 1,
+          citedChunkCount: 1,
+          promptEvidenceChars: 12_000,
+          promptTruncated: true,
+        },
+      }),
+    });
+
+    render(<ResearchRunView bridge={bridge} session={view.summary} view={view} />);
+
+    expect(screen.getByText("18 篇已抓取 · 7 篇入选 · 1 篇引用")).toBeTruthy();
+  });
+
   it("与目标重复的报告 h1 在展示时被剥掉", async () => {
     const { bridge } = makeBridge();
     const view = makeFullView({

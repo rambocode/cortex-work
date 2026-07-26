@@ -133,6 +133,11 @@ export function ResearchRunView({
   // 注意必须放在「!session 提前 return」之前：hook 数量不能随 props 变化。
   const report = view?.report;
   const objective = session?.objective ?? "";
+  const reportSourceStats = report
+    ? report.generationStats
+      ? `${report.generationStats.availableDocumentCount} 篇已抓取 · ${report.generationStats.includedDocumentCount} 篇入选 · ${report.generationStats.citedDocumentCount} 篇引用`
+      : `${session?.documentCount ?? 0} 篇已抓取 · ${new Set(report.citations.map((citation) => citation.documentId)).size} 篇引用`
+    : null;
   const preparedReport = useMemo(
     () =>
       report
@@ -306,7 +311,7 @@ export function ResearchRunView({
                 <li key={r.roundIndex}>
                   <span className="pw-res-round-idx">{`第 ${r.roundIndex + 1} 轮`}</span>
                   <span className="pw-res-round-meta">
-                    {`${r.queryIds.length} 条查询 · ${r.candidateCount} 个候选 · ${r.documentCount} 篇文档`}
+                    {`${r.queryIds.length} 条查询 · ${r.candidateCount} 个候选 · ${r.documentCount} 篇已抓取文档`}
                   </span>
                 </li>
               ))}
@@ -351,6 +356,7 @@ export function ResearchRunView({
         {report && preparedReport ? (
           <section className="pw-res-sec">
             <div className="pw-res-sec-title">研究报告</div>
+            {reportSourceStats ? <div className="pw-res-sec-sub">{reportSourceStats}</div> : null}
             {report.unsupportedSections.length > 0 ? (
               <div className="pw-res-warn">
                 {`有 ${report.unsupportedSections.length} 处结论缺少有效引用，已标注为待核实`}

@@ -52,6 +52,13 @@ describe("research migrations（真 SQLite）", () => {
     }
   });
 
+  it("research_reports 持久化报告生成统计", async () => {
+    const driver = await createNodeSqliteDriver(":memory:");
+    applyMigrations(driver);
+
+    expect(columnNames(driver, "research_reports")).toContain("generation_stats_json");
+  });
+
   it("只跑过 v1 的旧库经 v2 迁移后同样不留该列，且原有会话数据保住", async () => {
     const driver = await freshDriver();
     try {

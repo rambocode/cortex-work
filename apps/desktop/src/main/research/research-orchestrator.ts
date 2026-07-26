@@ -32,6 +32,7 @@ import type {
   ResearchEvent,
   ResearchMode,
   ResearchPlan,
+  ReportGenerationStats,
   ResearchRound,
   ResearchSessionView,
 } from "@cortex-work/core/research/types";
@@ -106,6 +107,11 @@ export interface BlobWriterLike {
 }
 
 /// 报告生成器注入点。P7 接 LLM 时替换默认实现；signal 必须被尊重，否则取消会卡在报告阶段。
+export interface ReportGeneratorOutput {
+  markdown: string;
+  generationStats?: ReportGenerationStats;
+}
+
 export type ReportGenerator = (input: {
   plan: ResearchPlan;
   chunks: readonly EvidenceChunk[];
@@ -114,7 +120,7 @@ export type ReportGenerator = (input: {
   signal: AbortSignal;
   /// 正文增量回调。实现方支持流式时应逐段调用；不支持就忽略（编排层只是拿不到草稿）。
   onDelta?: (delta: string) => void;
-}) => Promise<string>;
+}) => Promise<string | ReportGeneratorOutput>;
 
 /// Initial Planner 注入点（P7）。budget 是 Session 的**权威预算**，实现必须原样带回计划里。
 export interface InitialPlannerInput {
@@ -149,6 +155,11 @@ export type GapPlanner = (input: GapPlannerInput) => Promise<PlannerDecision>;
 type RoundStep =
   | { kind: "search"; queries: readonly PlannedQuery[] }
   | { kind: "fetch"; candidateIds: readonly string[] };
+
+interface RoundSearchResult {
+  candidates: SearchCandidate[];
+  queryIds: string[];
+}
 
 /// 多轮循环的跨轮内存态。
 ///
@@ -275,7 +286,7 @@ export class ResearchOrchestrator {
         ...(drivingDecision ? { decision: drivingDecision } : {}),
       });
       const remaining = await this.remainingBudget(sessionId, plan.budget);
-      const roundCandidates = await this.runSearchPhase({
+      const searched = await this.runSearchPhase({
         sessionId,
         state,
         signal,
@@ -295,7 +306,8 @@ export class ResearchOrchestrator {
         step,
         remaining,
         context,
-        roundCandidates,
+        roundCandidates: searched.candidates,
+        executedQueryIds: searched.queryIds,
         ...(drivingDecision ? { drivingDecision } : {}),
       });
 
@@ -335,7 +347,7 @@ export class ResearchOrchestrator {
       execute: async (innerSignal) => {
         // 报告是整个研究里最慢的一步：不把增量推出去，用户就只能盯着一个「撰写中」发呆。
         const draft = this.createDraftStream(sessionId);
-        const markdown = await this.generateReport({
+        const generated = await this.generateReport({
           plan,
           chunks,
           documents,
@@ -344,7 +356,21 @@ export class ResearchOrchestrator {
           onDelta: draft.push,
         }).finally(draft.flush);
         // 引用校验是产物落库前的最后一道闸：未知 chunkId 的伪造引用在这里被物理删除。
-        return validateResearchReport({ markdown, chunks, documents, generatedAt: this.nowIso() });
+        const validated = validateResearchReport({
+          markdown: generated.markdown,
+          chunks,
+          documents,
+          generatedAt: this.nowIso(),
+        });
+        return {
+          ...validated,
+          report: {
+            ...validated.report,
+            ...(generated.generationStats
+              ? { generationStats: generated.generationStats }
+              : {}),
+          },
+        };
       },
       validate: (validated: ValidatedResearchReport) => {
         if (validated.report.markdown.trim().length === 0) throw new Error("报告正文为空");
@@ -352,7 +378,9 @@ export class ResearchOrchestrator {
       apply: (tx, validated: ValidatedResearchReport) => {
         tx.insertReport(validated.report);
         tx.insertCitations(validated.report.citations);
-        tx.consumeBudget({ evidenceCharsToModel: validated.report.markdown.length });
+        tx.consumeBudget({
+          evidenceCharsToModel: validated.report.generationStats?.promptEvidenceChars ?? 0,
+        });
       },
     });
 
@@ -371,56 +399,79 @@ export class ResearchOrchestrator {
     step: RoundStep;
     remaining: ResearchBudget;
     context: LoopContext;
-  }): Promise<SearchCandidate[]> {
+  }): Promise<RoundSearchResult> {
     const { sessionId, step, context } = input;
-    if (step.kind !== "search") return [];
+    if (step.kind !== "search") return { candidates: [], queryIds: [] };
 
     await input.state.to("searching");
     this.emit({ type: "stage", sessionId, stage: "searching" });
-    const searchRequest = buildSearchBatchRequest({
-      requestId: `op_${input.runId}_r${input.roundIndex}_search`,
-      sessionId,
-      queries: [...step.queries],
-    });
-    const searched = await runOperation({
-      repository: this.deps.repository,
-      sessionId,
-      operationId: searchRequest.request_id,
-      kind: "search",
-      signal: input.signal,
-      ...(this.deps.now ? { now: this.deps.now } : {}),
-      execute: async (innerSignal) => {
-        const response = await this.deps.searchClient.searchBatch(searchRequest, innerSignal);
-        // 候选在 execute 阶段就铸造好 id：apply 是同步的，且必须与返回给调用方的对象是同一批
-        //（在 apply 里再映射一次会得到另一组 id，落库的与内存里的就对不上了）。
-        const candidates = toSearchCandidates(response, { newId: () => this.newId() }).slice(
-          0,
-          Math.max(0, input.remaining.maxCandidates),
-        );
-        return { response, candidates };
-      },
-      validate: ({ response }) => {
-        // spec §9.1 第 3 步：客户端已校验一次，这里再断言一次，避免注入了别的 client 实现时漏检。
-        if (response.request_id !== searchRequest.request_id) {
-          throw new Error("搜索响应的 request_id 与请求不一致");
-        }
-      },
-      apply: (tx, { candidates }) => {
-        tx.insertCandidates(candidates, input.roundIndex);
-        tx.consumeBudget({ queries: searchRequest.queries.length, candidates: candidates.length });
-      },
-    });
+    const queries = step.queries.slice(0, Math.max(0, input.remaining.maxQueries));
+    const allCandidates: SearchCandidate[] = [];
+    const executedQueryIds: string[] = [];
+    // 候选预算是全 Session 预算，不能让首轮一次吃完。按剩余轮数均摊，未用完的额度自然
+    // 留到后续轮次；最后一轮 remaining.maxRounds=1 时可使用全部余量。
+    let candidateSlots = Math.max(
+      0,
+      Math.ceil(input.remaining.maxCandidates / Math.max(1, input.remaining.maxRounds)),
+    );
 
-    // 归因表与「已执行查询」按轮累积：后续轮次的 chunk 也要能定位回它服务的子问题，
-    // Gap Planner 也要看到全部历史查询才不会重复出题。
-    for (const query of step.queries) {
-      context.subquestionByQueryId.set(query.queryId, query.subquestionId);
-      context.executedQueries.push(query.text);
-      // 查询词本身早就随 plan.initialQueries 给过 renderer，作为流水展示不引入新数据。
-      this.activity(sessionId, "query", query.text, input.roundIndex);
+    // Search Server 每次最多接收 8 条查询。这里显式分批，而不是依赖 buildSearchBatchRequest
+    // 静默截断；否则 UI/round 记录 16 条，线上却只执行前 8 条。
+    for (let offset = 0; offset < queries.length; offset += SEARCH_LIMITS.maxQueriesPerRequest) {
+      const batch = queries.slice(offset, offset + SEARCH_LIMITS.maxQueriesPerRequest);
+      const batchIndex = Math.floor(offset / SEARCH_LIMITS.maxQueriesPerRequest);
+      const searchRequest = buildSearchBatchRequest({
+        requestId: `op_${input.runId}_r${input.roundIndex}_search_b${batchIndex}`,
+        sessionId,
+        queries: batch,
+      });
+      if (searchRequest.queries.length === 0) continue;
+      const remainingQueryCount = queries.length - offset;
+      const batchCandidateSlots = Math.min(
+        candidateSlots,
+        Math.ceil((candidateSlots * batch.length) / Math.max(1, remainingQueryCount)),
+      );
+
+      const searched = await runOperation({
+        repository: this.deps.repository,
+        sessionId,
+        operationId: searchRequest.request_id,
+        kind: "search",
+        signal: input.signal,
+        ...(this.deps.now ? { now: this.deps.now } : {}),
+        execute: async (innerSignal) => {
+          const response = await this.deps.searchClient.searchBatch(searchRequest, innerSignal);
+          const candidates = takeCandidatesByQuery(
+            toSearchCandidates(response, { newId: () => this.newId() }),
+            batchCandidateSlots,
+          );
+          return { response, candidates };
+        },
+        validate: ({ response }) => {
+          if (response.request_id !== searchRequest.request_id) {
+            throw new Error("搜索响应的 request_id 与请求不一致");
+          }
+        },
+        apply: (tx, { candidates }) => {
+          tx.insertCandidates(candidates, input.roundIndex);
+          tx.consumeBudget({ queries: searchRequest.queries.length, candidates: candidates.length });
+        },
+      });
+
+      candidateSlots = Math.max(0, candidateSlots - searched.candidates.length);
+      allCandidates.push(...searched.candidates);
+      const sentIds = new Set(searchRequest.queries.map((query) => query.query_id));
+      for (const query of batch) {
+        if (!sentIds.has(query.queryId)) continue;
+        executedQueryIds.push(query.queryId);
+        context.subquestionByQueryId.set(query.queryId, query.subquestionId);
+        context.executedQueries.push(query.text);
+        this.activity(sessionId, "query", query.text, input.roundIndex);
+      }
     }
-    context.candidates.push(...searched.candidates);
-    return searched.candidates;
+
+    context.candidates.push(...allCandidates);
+    return { candidates: allCandidates, queryIds: executedQueryIds };
   }
 
   /// 抓取阶段：选候选 → Worker → 写 blob → 单事务提交（轮次 + 文档 + chunk + 覆盖度）。
@@ -435,6 +486,7 @@ export class ResearchOrchestrator {
     remaining: ResearchBudget;
     context: LoopContext;
     roundCandidates: readonly SearchCandidate[];
+    executedQueryIds: readonly string[];
     drivingDecision?: PlannerDecision["action"];
   }): Promise<void> {
     const { sessionId } = input.view.summary;
@@ -452,6 +504,8 @@ export class ResearchOrchestrator {
       candidates: pool,
       alreadyFetched: alreadyFetchedUrls(context.documents),
       budget: input.remaining,
+      subquestionByQueryId: context.subquestionByQueryId,
+      prioritySubquestionIds: prioritizedSubquestions(plan, context.coverage),
       ...(this.deps.blockedDomains ? { blockedDomains: [...this.deps.blockedDomains] } : {}),
     });
 
@@ -465,8 +519,7 @@ export class ResearchOrchestrator {
 
     const startedAt = this.nowIso();
     const fetchOperationId = `op_${input.runId}_r${input.roundIndex}_fetch`;
-    const queryIds =
-      input.step.kind === "search" ? input.step.queries.map((query) => query.queryId) : [];
+    const queryIds = input.step.kind === "search" ? [...input.executedQueryIds] : [];
 
     const fetched = await runOperation({
       repository: this.deps.repository,
@@ -600,6 +653,25 @@ export class ResearchOrchestrator {
     });
 
     const remainingBudget = await this.remainingBudget(input.sessionId, plan.budget);
+    const executableCandidates = selectCandidates({
+      candidates: unfetched,
+      alreadyFetched: fetchedUrls,
+      budget: remainingBudget,
+      subquestionByQueryId: context.subquestionByQueryId,
+      prioritySubquestionIds: prioritizedSubquestions(plan, context.coverage),
+      ...(this.deps.blockedDomains ? { blockedDomains: [...this.deps.blockedDomains] } : {}),
+    });
+    const canSearchMore =
+      remainingBudget.maxQueries > 0 &&
+      remainingBudget.maxCandidates > 0 &&
+      remainingBudget.maxDocuments > 0;
+    const fetchableCandidateIds = executableCandidates.map((candidate) => candidate.candidateId);
+    const executableCandidateIdSet = new Set(fetchableCandidateIds);
+    const canFetchMore = fetchableCandidateIds.length > 0;
+    if (!canSearchMore && !canFetchMore) {
+      return { action: "finish", reason: "没有可执行的补充检索或抓取动作，使用已有证据收尾" };
+    }
+
     try {
       const decision = await this.deps.planGap({
         plan,
@@ -613,20 +685,39 @@ export class ResearchOrchestrator {
           report.missing.map((item) => `${report.subquestionId}：${item}`),
         ),
         // 只传元数据（id / 标题 / 域名）——正文、snippet 一律不出现在 Gap Planner 的视野里。
-        candidates: unfetched.map((candidate) => ({
+        candidates: executableCandidates.map((candidate) => ({
           candidateId: candidate.candidateId,
           title: candidate.title,
           domain: candidate.domain,
         })),
-        knownCandidateIds: context.candidates.map((candidate) => candidate.candidateId),
+        knownCandidateIds: fetchableCandidateIds,
         signal: input.signal,
       });
+      if (decision.action === "search_more" && !canSearchMore) {
+        if (canFetchMore) {
+          return {
+            action: "fetch_more",
+            reason: "候选发现额度已耗尽，改为抓取已发现但未抓取的来源",
+            candidateIds: fetchableCandidateIds,
+          };
+        }
+        return { action: "finish", reason: "检索预算已耗尽，使用已有证据收尾" };
+      }
       // 空决策（模型给了 search_more 却没有查询）会导致一轮空转，直接收尾。
       if (decision.action === "search_more" && decision.queries.length === 0) {
         return { action: "finish", reason: "补充查询为空，使用已有证据收尾" };
       }
       if (decision.action === "fetch_more" && decision.candidateIds.length === 0) {
         return { action: "finish", reason: "补充候选为空，使用已有证据收尾" };
+      }
+      if (decision.action === "fetch_more") {
+        const candidateIds = decision.candidateIds.filter((candidateId) =>
+          executableCandidateIdSet.has(candidateId),
+        );
+        if (candidateIds.length === 0) {
+          return { action: "finish", reason: "补充候选不可抓取，使用已有证据收尾" };
+        }
+        return { ...decision, candidateIds };
       }
       return decision;
     } catch (err) {
@@ -880,13 +971,20 @@ export class ResearchOrchestrator {
   }
 
   /// 生成报告正文。默认走确定性证据摘要（P5 无 LLM）。
-  private async generateReport(input: Parameters<ReportGenerator>[0]): Promise<string> {
-    if (this.deps.generateReport) return this.deps.generateReport(input);
-    return buildEvidenceReport({
-      plan: input.plan,
-      chunks: input.chunks,
-      documents: input.documents,
-    });
+  private async generateReport(
+    input: Parameters<ReportGenerator>[0],
+  ): Promise<ReportGeneratorOutput> {
+    if (this.deps.generateReport) {
+      const output = await this.deps.generateReport(input);
+      return typeof output === "string" ? { markdown: output } : output;
+    }
+    return {
+      markdown: buildEvidenceReport({
+        plan: input.plan,
+        chunks: input.chunks,
+        documents: input.documents,
+      }),
+    };
   }
 
   /// 为缺少计划的 Session 补一份种子计划并落库。
@@ -1033,6 +1131,49 @@ function alreadyFetchedUrls(documents: readonly ResearchDocument[]): Set<string>
     if (canonical) urls.add(canonical);
   }
   return urls;
+}
+
+function prioritizedSubquestions(
+  plan: ResearchPlan,
+  coverage: readonly CoverageReport[],
+): string[] {
+  const statusById = new Map(coverage.map((report) => [report.subquestionId, report.status]));
+  const weight = { missing: 0, weak: 1, sufficient: 2 } as const;
+  return plan.subquestions
+    .map((subquestion, position) => ({
+      id: subquestion.id,
+      position,
+      weight: weight[statusById.get(subquestion.id) ?? "missing"],
+    }))
+    .sort((a, b) => a.weight - b.weight || a.position - b.position)
+    .map((entry) => entry.id);
+}
+
+/// 发现阶段也必须按查询交替取样。只在 fetch 选择阶段做公平性已经太晚：如果这里直接
+/// slice，Search Server 返回的第一个查询就可能先把候选额度吃完，后续子问题没有候选可选。
+function takeCandidatesByQuery(
+  candidates: readonly SearchCandidate[],
+  limit: number,
+): SearchCandidate[] {
+  const groups = new Map<string, SearchCandidate[]>();
+  for (const candidate of candidates) {
+    const bucket = groups.get(candidate.queryId) ?? [];
+    bucket.push(candidate);
+    groups.set(candidate.queryId, bucket);
+  }
+  const selected: SearchCandidate[] = [];
+  for (let depth = 0; selected.length < limit; depth += 1) {
+    let added = false;
+    for (const bucket of groups.values()) {
+      const candidate = bucket[depth];
+      if (!candidate) continue;
+      selected.push(candidate);
+      added = true;
+      if (selected.length >= limit) break;
+    }
+    if (!added) break;
+  }
+  return selected;
 }
 
 /// 没有候选可抓时的空结果。走与正常路径完全相同的提交流程，

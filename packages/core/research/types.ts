@@ -202,11 +202,29 @@ export interface ResearchRound {
 
 /// 最终报告。citations 中的 chunkId 必须全部是已知 id，未知的由 Citation Validator 删除；
 /// unsupportedSections 记录被判定为「无有效引用」的段落标识，供 UI 显式降级展示。
+export interface ReportGenerationStats {
+  /// 报告生成时已经抓取并可供编排器使用的文档/片段总量。
+  availableDocumentCount: number;
+  availableChunkCount: number;
+  /// 经过出站策略、相关性和 prompt 预算筛选后实际送入模型的独立文档/片段数。
+  includedDocumentCount: number;
+  includedChunkCount: number;
+  /// 最终通过 Citation Validator 的独立文档/片段数。
+  citedDocumentCount: number;
+  citedChunkCount: number;
+  /// 所有报告模型调用实际发送的 prompt 字符总数；重试会累计。
+  promptEvidenceChars: number;
+  /// 至少一个符合条件的证据片段因 prompt 字符预算未被送入模型。
+  promptTruncated: boolean;
+}
+
 export interface ResearchReport {
   markdown: string;
   citations: CitationRef[];
   unsupportedSections: string[];
   generatedAt: string;
+  /// 老数据库中的报告没有该字段，读取时保持可选以兼容历史数据。
+  generationStats?: ReportGenerationStats;
 }
 
 /// 按 detail level 逐级填充的 Session 视图。

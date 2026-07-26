@@ -99,6 +99,56 @@ describe("generateReport 的引用校验（spec §19.1.6）", () => {
       retrievedAt: "2026-07-25T09:00:00.000Z",
     });
   });
+
+  it("模型拿到多篇来源却只引用一篇时重试一次", async () => {
+    const { gateway, calls } = fakeGateway(
+      ok("只引用第一篇[^ch_1]。"),
+      ok("综合两篇独立来源[^ch_1][^ch_2]。"),
+    );
+    const report = await generateReport(
+      {
+        ...INPUT,
+        chunks: [
+          chunk("ch_1", "doc_1", PUBLIC_TEXT, "public_web"),
+          chunk("ch_2", "doc_2", "第二篇独立来源支持相同主题。", "public_web"),
+        ],
+        documents: [document("doc_1", "public_web"), document("doc_2", "public_web")],
+      },
+      { gateway },
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.maxPromptChars).toBeLessThanOrEqual(
+      Math.floor(BUDGET.maxEvidenceCharsToModel / 2),
+    );
+    expect(report.citations.map((item) => item.documentId).sort()).toEqual(["doc_1", "doc_2"]);
+  });
+
+  it("记录已抓取、入选 prompt 与最终引用三层统计", async () => {
+    const { gateway } = fakeGateway(ok("综合两篇来源[^ch_1][^ch_2]。"));
+    const report = await generateReport(
+      {
+        ...INPUT,
+        chunks: [
+          chunk("ch_1", "doc_1", PUBLIC_TEXT, "public_web"),
+          chunk("ch_2", "doc_2", "第二篇独立来源。", "public_web"),
+        ],
+        documents: [document("doc_1", "public_web"), document("doc_2", "public_web")],
+      },
+      { gateway },
+    );
+
+    expect(report.generationStats).toMatchObject({
+      availableDocumentCount: 2,
+      availableChunkCount: 2,
+      includedDocumentCount: 2,
+      includedChunkCount: 2,
+      citedDocumentCount: 2,
+      citedChunkCount: 2,
+      promptTruncated: false,
+    });
+    expect(report.generationStats?.promptEvidenceChars).toBeGreaterThan(0);
+  });
 });
 
 describe("generateReport 的出站过滤（spec §10.4）", () => {
@@ -138,7 +188,152 @@ describe("generateReport 的出站过滤（spec §10.4）", () => {
   it("出站预算被传给网关", async () => {
     const { gateway, calls } = fakeGateway(ok("结论[^ch_1]。"));
     await generateReport(INPUT, { gateway });
-    expect(calls[0]!.maxPromptChars).toBe(BUDGET.maxEvidenceCharsToModel);
+    expect(calls[0]!.maxPromptChars).toBe(Math.floor(BUDGET.maxEvidenceCharsToModel / 2));
+  });
+
+  it("超长来源标题不会挤掉同一节的后续证据", async () => {
+    const { gateway, calls } = fakeGateway(ok("结论[^ch_1][^ch_2]。"));
+    await generateReport(
+      {
+        ...INPUT,
+        chunks: [
+          chunk("ch_1", "doc_1", PUBLIC_TEXT, "public_web"),
+          chunk("ch_2", "doc_2", "第二篇独立来源提供了 Agent 架构证据。", "public_web"),
+        ],
+        documents: [
+          { ...document("doc_1", "public_web"), title: `GitHub - ${"异常标题".repeat(20_000)}` },
+          { ...document("doc_2", "public_web"), title: "第二篇正常来源" },
+        ],
+      },
+      { gateway },
+    );
+
+    const prompt = calls[0]!.userPrompt;
+    expect([...prompt].length).toBeLessThanOrEqual(BUDGET.maxEvidenceCharsToModel);
+    expect(prompt).toContain("[ch_1]");
+    expect(prompt).toContain("[ch_2]");
+    expect(prompt).toContain("第二篇正常来源");
+  });
+
+  it("证据总量超预算时按子问题轮询装入，不会只保留前面的章节", async () => {
+    const subquestions = Array.from({ length: 5 }, (_, i) => ({
+      id: `sq_${i + 1}`,
+      text: `子问题 ${i + 1}`,
+    }));
+    const chunks = subquestions.flatMap((subquestion, sectionIndex) =>
+      Array.from({ length: 8 }, (_, chunkIndex) => ({
+        ...chunk(
+          `ch_${sectionIndex + 1}_${chunkIndex + 1}`,
+          `doc_${sectionIndex + 1}_${chunkIndex + 1}`,
+          `${"证据正文".repeat(200)} section-${sectionIndex + 1}`,
+          "public_web",
+        ),
+        subquestionScores: { [subquestion.id]: 0.9 },
+      })),
+    );
+    const documents = chunks.map((item) => ({
+      ...document(item.documentId, "public_web"),
+      title: `来源 ${item.documentId}`,
+    }));
+    const quickBudget = clampResearchBudget("quick");
+    const { gateway, calls } = fakeGateway(ok("综述[^ch_1_1][^ch_5_1]。"));
+
+    await generateReport(
+      {
+        ...INPUT,
+        subquestions,
+        chunks,
+        documents,
+        budget: quickBudget,
+      },
+      { gateway },
+    );
+
+    const prompt = calls[0]!.userPrompt;
+    expect([...prompt].length).toBeLessThanOrEqual(quickBudget.maxEvidenceCharsToModel);
+    expect(prompt).toContain("[ch_1_1]");
+    expect(prompt).toContain("[ch_5_1]");
+  });
+
+  it("同一子问题优先装入不同文档，单篇文档最多两个片段", async () => {
+    const constrainedBudget = clampResearchBudget("quick", { maxEvidenceCharsToModel: 3_000 });
+    const chunks = [
+      { ...chunk("ch_a1", "doc_a", "A".repeat(900), "public_web"), objectiveScore: 1, subquestionScores: { sq_1: 1 } },
+      { ...chunk("ch_a2", "doc_a", "B".repeat(900), "public_web"), objectiveScore: 0.9, subquestionScores: { sq_1: 0.9 } },
+      { ...chunk("ch_a3", "doc_a", "C".repeat(900), "public_web"), objectiveScore: 0.8, subquestionScores: { sq_1: 0.8 } },
+      { ...chunk("ch_b1", "doc_b", "D".repeat(900), "public_web"), objectiveScore: 0.7, subquestionScores: { sq_1: 0.7 } },
+    ];
+    const { gateway, calls } = fakeGateway(ok("结论[^ch_a1][^ch_b1]。"));
+
+    await generateReport(
+      {
+        ...INPUT,
+        chunks,
+        documents: [document("doc_a", "public_web"), document("doc_b", "public_web")],
+        budget: constrainedBudget,
+      },
+      { gateway },
+    );
+
+    const prompt = calls[0]!.userPrompt;
+    expect(prompt).toContain("[ch_a1]");
+    expect(prompt).toContain("[ch_b1]");
+    expect(prompt).not.toContain("[ch_a3]");
+  });
+});
+
+describe("generateReport 的相关性门槛", () => {
+  it("低于计划 minimumRelevance 的片段不会进入报告 prompt", async () => {
+    const { gateway, calls } = fakeGateway(ok("结论[^ch_high]。"));
+    const low = {
+      ...chunk("ch_low", "doc_2", "低相关材料", "public_web"),
+      objectiveScore: 0.2,
+      subquestionScores: { sq_1: 0.2 },
+    };
+    const high = {
+      ...chunk("ch_high", "doc_1", "高相关材料", "public_web"),
+      objectiveScore: 0.8,
+      subquestionScores: { sq_1: 0.8 },
+    };
+
+    await generateReport(
+      {
+        ...INPUT,
+        chunks: [low, high],
+        documents: [document("doc_1", "public_web"), document("doc_2", "public_web")],
+        minimumRelevance: 0.5,
+      },
+      { gateway },
+    );
+
+    expect(calls[0]!.userPrompt).toContain("ch_high");
+    expect(calls[0]!.userPrompt).not.toContain("ch_low");
+  });
+
+  it("模型失败后的确定性报告也不会重新引入低相关片段", async () => {
+    const { gateway } = fakeGateway({ ok: false, code: "call_failed", message: "offline" });
+    const low = {
+      ...chunk("ch_low", "doc_2", "低相关材料", "public_web"),
+      objectiveScore: 0.2,
+      subquestionScores: { sq_1: 0.2 },
+    };
+    const high = {
+      ...chunk("ch_high", "doc_1", "高相关材料", "public_web"),
+      objectiveScore: 0.8,
+      subquestionScores: { sq_1: 0.8 },
+    };
+
+    const report = await generateReport(
+      {
+        ...INPUT,
+        chunks: [low, high],
+        documents: [document("doc_1", "public_web"), document("doc_2", "public_web")],
+        minimumRelevance: 0.5,
+      },
+      { gateway },
+    );
+
+    expect(report.citations.map((citation) => citation.chunkId)).toEqual(["ch_high"]);
   });
 });
 
@@ -155,6 +350,11 @@ describe("generateReport 的降级", () => {
     expect(report.markdown).toContain("[^ch_1]");
     expect(report.citations.map((item) => item.chunkId)).toEqual(["ch_1"]);
     expect(report.generatedAt).toBe("2026-07-25T10:00:00.000Z");
+    expect(report.generationStats).toMatchObject({
+      includedDocumentCount: 0,
+      includedChunkCount: 0,
+      promptEvidenceChars: 0,
+    });
   });
 
   it("模型调用失败时降级为确定性证据摘要", async () => {
@@ -227,6 +427,34 @@ describe("generateReport 的流式输出", () => {
     expect(seen).toEqual([]);
     expect(report.markdown).toContain("[^ch_1]");
   });
+
+  it("来源多样性重试不把第二份完整报告追加到第一份流式草稿后面", async () => {
+    const seen: string[] = [];
+    let call = 0;
+    const gateway = {
+      call: async (input: ModelCallInput): Promise<ModelCallResult> => {
+        call += 1;
+        input.onDelta?.(call === 1 ? "第一份草稿" : "第二份草稿");
+        return ok(call === 1 ? "只引用第一篇[^ch_1]。" : "综合两篇[^ch_1][^ch_2]。");
+      },
+    };
+
+    const report = await generateReport(
+      {
+        ...INPUT,
+        chunks: [
+          chunk("ch_1", "doc_1", PUBLIC_TEXT, "public_web"),
+          chunk("ch_2", "doc_2", "第二篇独立来源。", "public_web"),
+        ],
+        documents: [document("doc_1", "public_web"), document("doc_2", "public_web")],
+        onDelta: (delta) => seen.push(delta),
+      },
+      { gateway },
+    );
+
+    expect(seen).toEqual(["第一份草稿"]);
+    expect(report.citations).toHaveLength(2);
+  });
 });
 
 /// 输出 token 上限是**安全阀**，不是篇幅指令。
@@ -278,7 +506,9 @@ describe("每节证据条数也要按模式分档", () => {
   /// 只放大输出预算是不够的：模型手上只有 8 条摘录时，让它写 9000 字只会得到注水。
   /// 输入材料量与输出长度必须一起放大，否则「报告变长」只是幻觉。
   function manyChunks(n: number): EvidenceChunk[] {
-    return Array.from({ length: n }, (_, i) => chunk(`ch_${i}`, "doc_1", PUBLIC_TEXT, "public_web"));
+    return Array.from({ length: n }, (_, i) =>
+      chunk(`ch_${i}`, `doc_${Math.floor(i / 2)}`, PUBLIC_TEXT, "public_web"),
+    );
   }
 
   function capturePrompt(): {
@@ -302,14 +532,15 @@ describe("每节证据条数也要按模式分档", () => {
 
   it("deep 模式送进 prompt 的 chunk 数多于 quick", async () => {
     const chunks = manyChunks(40);
+    const documents = Array.from({ length: 20 }, (_, i) => document(`doc_${i}`, "public_web"));
     const quick = capturePrompt();
     await generateReport(
-      { ...INPUT, chunks, budget: clampResearchBudget("quick") },
+      { ...INPUT, chunks, documents, budget: clampResearchBudget("quick") },
       { gateway: quick.gateway },
     );
     const deep = capturePrompt();
     await generateReport(
-      { ...INPUT, chunks, budget: clampResearchBudget("deep") },
+      { ...INPUT, chunks, documents, budget: clampResearchBudget("deep") },
       { gateway: deep.gateway },
     );
 

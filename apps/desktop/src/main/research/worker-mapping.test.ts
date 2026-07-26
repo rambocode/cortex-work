@@ -81,9 +81,9 @@ describe("mapFetchPrepareResult", () => {
       headingPath: ["Example Domain"],
       text: "This domain is for use in documentation examples.",
       textHash: "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
-      objectiveScore: 0.41,
+      objectiveScore: 0.41 / 1.41,
       // 该 chunk 所属文档由 q_1 触发，故相关性归到 q_1 的子问题上。
-      subquestionScores: { sq_1: 0.41 },
+      subquestionScores: { sq_1: 0.41 / 1.41 },
       trustZone: "public_web",
     });
 
@@ -105,13 +105,34 @@ describe("mapFetchPrepareResult", () => {
     expect(mapped.notes).toEqual([]);
   });
 
-  it("lexical_score 越界时夹到 0..1", () => {
+  it("正的原始词法分数单调归一化到 0..1，不会全部饱和为 1", () => {
     const result = fixtureResult();
     result.chunks[0]!.lexical_score = 2.7;
-    expect(mapFetchPrepareResult(result, context()).chunks[0]!.objectiveScore).toBe(1);
+    const medium = mapFetchPrepareResult(result, context()).chunks[0]!.objectiveScore;
+    result.chunks[0]!.lexical_score = 10;
+    const high = mapFetchPrepareResult(result, context()).chunks[0]!.objectiveScore;
+    expect(medium).toBeCloseTo(2.7 / 3.7);
+    expect(high).toBeCloseTo(10 / 11);
+    expect(high).toBeGreaterThan(medium);
+    expect(high).toBeLessThan(1);
 
     result.chunks[0]!.lexical_score = -3;
     expect(mapFetchPrepareResult(result, context()).chunks[0]!.objectiveScore).toBe(0);
+  });
+
+  it("优先采用 Worker 返回的目标与逐子问题分数", () => {
+    const result = fixtureResult();
+    Object.assign(result.chunks[0]!, {
+      objective_score: 2,
+      subquestion_scores: { sq_1: 0.5, sq_2: 3 },
+    });
+    const mapped = mapFetchPrepareResult(result, context()).chunks[0]!;
+
+    expect(mapped.objectiveScore).toBeCloseTo(2 / 3);
+    expect(mapped.subquestionScores).toEqual({
+      sq_1: 0.5 / 1.5,
+      sq_2: 3 / 4,
+    });
   });
 
   it("duplicate_of 指向本批次内的 content_hash 时换算成代表文档的 documentId", () => {

@@ -188,15 +188,9 @@ const BUDGET_GATES: ReadonlyArray<{
   used: (usage: ResearchUsage) => number | undefined;
   limit: (budget: ResearchBudget) => number;
 }> = [
-  { label: "查询数", used: (u) => u.queries, limit: (b) => b.maxQueries },
-  { label: "候选数", used: (u) => u.candidates, limit: (b) => b.maxCandidates },
+  // 只有文档数是“后续搜索和抓取都没有意义”的全局硬门。
+  // 查询/候选耗尽仍可 fetch_more，Browser 耗尽仍可 HTTP 抓取，报告字符数只约束最终 prompt。
   { label: "文档数", used: (u) => u.documents, limit: (b) => b.maxDocuments },
-  { label: "浏览器抓取数", used: (u) => u.browserFetches, limit: (b) => b.maxBrowserFetches },
-  {
-    label: "出站证据字符数",
-    used: (u) => u.evidenceCharsToModel,
-    limit: (b) => b.maxEvidenceCharsToModel,
-  },
 ];
 
 /// 判断编排循环是否该停止（spec §8.1）。

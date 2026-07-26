@@ -4,7 +4,7 @@
 // 零 Electron、零网络、零 SQLite。
 import { beforeEach, describe, expect, it } from "vitest";
 import type { PlannerDecision, ResearchEvent, ResearchPlan } from "@cortex-work/core/research/types";
-import type { SearchBatchResponse } from "@cortex-work/core/research/search-api";
+import type { SearchBatchRequest, SearchBatchResponse } from "@cortex-work/core/research/search-api";
 import { StealthFetchError } from "./clients/stealth-fetch-client";
 import { InMemoryResearchRepository } from "./repository-memory";
 import { fixtureSessionInput } from "./repository-fixtures";
@@ -153,18 +153,19 @@ interface Harness {
 }
 
 interface HarnessOptions {
-  search?: (requestId: string) => Promise<SearchBatchResponse>;
+  search?: (requestId: string, request: SearchBatchRequest) => Promise<SearchBatchResponse>;
   fetch?: (
     operationId: string,
     params: { candidates: Array<{ candidate_id: string; url: string }> },
   ) => Promise<WorkerFetchPrepareResult>;
-  generateReport?: (input: Parameters<ReportGenerator>[0]) => Promise<string>;
+  generateReport?: ReportGenerator;
   abortIntent?: () => "cancel" | "pause";
   /// P7：多轮循环的 Gap Planner 注入点。
   planGap?: (input: GapPlannerInput) => Promise<PlannerDecision>;
   /// P7：Initial Planner 注入点。
   planInitial?: (input: InitialPlannerInput) => Promise<ResearchPlan>;
   mode?: "quick" | "standard" | "deep";
+  blockedDomains?: readonly string[];
   /// stealth 抓取注入点。缺省 = 不注入,编排层行为与从前完全一致(只发一轮)。
   stealthFetch?: (url: string, signal?: AbortSignal) => Promise<{
     status: number;
@@ -204,7 +205,7 @@ async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
       searchBatch: async (request) => {
         harness.searchCalls += 1;
         return options.search
-          ? await options.search(request.request_id)
+          ? await options.search(request.request_id, request)
           : searchResponse(request.request_id);
       },
     },
@@ -237,6 +238,7 @@ async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
     ...(options.stealthFetch ? { stealthFetch: { fetch: options.stealthFetch } } : {}),
     ...(options.planGap ? { planGap: options.planGap } : {}),
     ...(options.planInitial ? { planInitial: options.planInitial } : {}),
+    ...(options.blockedDomains ? { blockedDomains: options.blockedDomains } : {}),
   });
   return harness;
 }
@@ -294,11 +296,37 @@ describe("ResearchOrchestrator 单轮闭环", () => {
       startOffset: 0,
       endOffset: 27,
       headingPath: ["Example A"],
-      objectiveScore: 0.8,
+      objectiveScore: 0.8 / 1.8,
       trustZone: "public_web",
     });
     // 子问题相关性由"候选 → 查询 → 子问题"归因补齐（协议本身不提供）
     expect(Object.keys(view.chunks![0]!.subquestionScores)).toHaveLength(1);
+  });
+
+  it("报告预算按实际发送给模型的 prompt 字符记账，不再误用输出 markdown 长度", async () => {
+    const tracked = await makeHarness({
+      generateReport: async () => ({
+        markdown: "短报告[^id_5]。",
+        generationStats: {
+          availableDocumentCount: 1,
+          availableChunkCount: 1,
+          includedDocumentCount: 1,
+          includedChunkCount: 1,
+          citedDocumentCount: 1,
+          citedChunkCount: 1,
+          promptEvidenceChars: 1234,
+          promptTruncated: false,
+        },
+      }),
+    });
+
+    await tracked.orchestrator.run(SESSION_ID, new AbortController().signal);
+
+    expect((await tracked.repository.getBudgetSpend(SESSION_ID)).evidenceCharsToModel).toBe(1234);
+    expect(
+      (await tracked.repository.getSession(SESSION_ID, "full"))?.report?.generationStats
+        ?.includedDocumentCount,
+    ).toBe(1);
   });
 
   it("搜索无候选时不调用 Worker，仍收敛到 completed", async () => {
@@ -511,6 +539,149 @@ function fetchResultForCandidate(
 }
 
 describe("ResearchOrchestrator 多轮循环（spec §19.1.2）", () => {
+  it("首轮只使用按剩余轮数分摊的候选额度，为后续补充检索保留候选预算", async () => {
+    const harness = await makeHarness({
+      mode: "standard",
+      search: async (requestId) => ({
+        request_id: requestId,
+        results: [
+          {
+            query_id: "q_1",
+            items: Array.from({ length: 72 }, (_, i) => ({
+              url: `https://source-${i}.example.com/article`,
+              title: `来源 ${i}`,
+              domain: `source-${i}.example.com`,
+              engines: ["test"],
+              score: 1 - i / 100,
+            })),
+            errors: [],
+          },
+        ],
+        stats: {
+          provider_count: 1,
+          raw_result_count: 72,
+          returned_result_count: 72,
+          cache_hit: false,
+          duration_ms: 1,
+        },
+      }),
+    });
+
+    await harness.orchestrator.run(SESSION_ID, new AbortController().signal);
+
+    expect((await harness.repository.getBudgetSpend(SESSION_ID)).candidates).toBe(24);
+  });
+
+  it("候选额度在查询间公平分配，后序子问题不会被前序查询的大量结果挤掉", async () => {
+    let fetchedUrls: string[] = [];
+    const harness = await makeHarness({
+      mode: "standard",
+      planInitial: async (input) => ({
+        ...buildSeedPlan({ objective: input.objective, mode: input.mode }),
+        subquestions: [
+          { id: "sq_1", text: "常见资料" },
+          { id: "sq_2", text: "稀缺资料" },
+        ],
+        initialQueries: [
+          { queryId: "q_1", subquestionId: "sq_1", text: "常见查询" },
+          { queryId: "q_2", subquestionId: "sq_2", text: "稀缺查询" },
+        ],
+      }),
+      search: async (requestId) => ({
+        request_id: requestId,
+        results: [
+          {
+            query_id: "q_1",
+            items: Array.from({ length: 30 }, (_, i) => ({
+              url: `https://common-${i}.example.com/article`,
+              title: `常见来源 ${i}`,
+              domain: `common-${i}.example.com`,
+              engines: ["test"],
+              score: 1 - i / 100,
+            })),
+            errors: [],
+          },
+          {
+            query_id: "q_2",
+            items: [
+              {
+                url: "https://rare.example.com/article",
+                title: "稀缺来源",
+                domain: "rare.example.com",
+                engines: ["test"],
+                score: 0.1,
+              },
+            ],
+            errors: [],
+          },
+        ],
+        stats: {
+          provider_count: 1,
+          raw_result_count: 31,
+          returned_result_count: 31,
+          cache_hit: false,
+          duration_ms: 1,
+        },
+      }),
+      fetch: async (operationId, params) => {
+        fetchedUrls = params.candidates.map((candidate) => candidate.url);
+        return fetchResultForCandidate(operationId, params.candidates[0]!);
+      },
+    });
+
+    await harness.orchestrator.run(SESSION_ID, new AbortController().signal);
+
+    expect(fetchedUrls).toContain("https://rare.example.com/article");
+  });
+
+  it("历史计划含 16 条初始查询时分两批全部执行，不静默丢掉后 8 条", async () => {
+    const sentQueryIds: string[] = [];
+    const harness = await makeHarness({
+      mode: "standard",
+      planInitial: async (input) => ({
+        schemaVersion: 1,
+        objective: input.objective,
+        scope: {},
+        subquestions: [{ id: "sq_1", text: "完整覆盖" }],
+        initialQueries: Array.from({ length: 16 }, (_, i) => ({
+          queryId: `q_${i + 1}`,
+          subquestionId: "sq_1",
+          text: `查询 ${i + 1}`,
+        })),
+        budget: input.budget,
+        completion: {
+          minSourcesPerSubquestion: 1,
+          minIndependentDomains: 1,
+          requirePrimarySource: false,
+          requireContradiction: false,
+          minimumRelevance: 0.2,
+        },
+      }),
+      search: async (requestId, request) => {
+        sentQueryIds.push(...request.queries.map((query) => query.query_id));
+        return {
+          request_id: requestId,
+          results: request.queries.map((query) => ({ query_id: query.query_id, items: [], errors: [] })),
+          stats: {
+            provider_count: 1,
+            raw_result_count: 0,
+            returned_result_count: 0,
+            cache_hit: false,
+            duration_ms: 1,
+          },
+        };
+      },
+    });
+
+    await harness.orchestrator.run(SESSION_ID, new AbortController().signal);
+
+    expect(harness.searchCalls).toBe(2);
+    expect(sentQueryIds).toEqual(Array.from({ length: 16 }, (_, i) => `q_${i + 1}`));
+    const view = (await harness.repository.getSession(SESSION_ID, "evidence"))!;
+    expect(view.rounds![0]!.queryIds).toEqual(sentQueryIds);
+    expect((await harness.repository.getBudgetSpend(SESSION_ID)).queries).toBe(16);
+  });
+
   it("覆盖度不足时按 Gap Planner 的 search_more 再跑一轮，达标后收尾", async () => {
     const gapInputs: GapPlannerInput[] = [];
     const harness = await makeHarness({
@@ -574,6 +745,110 @@ describe("ResearchOrchestrator 多轮循环（spec §19.1.2）", () => {
     expect(harness.searchCalls).toBe(1);
     expect(view.documents).toHaveLength(2);
     expect(view.summary.status).toBe("completed");
+  });
+
+  it("候选发现额度耗尽后把不可执行的 search_more 降级为抓取已发现候选", async () => {
+    const harness = await makeHarness({
+      mode: "standard",
+      planInitial: async (input) => ({
+        ...buildSeedPlan({ objective: input.objective, mode: input.mode }),
+        budget: {
+          ...input.budget,
+          maxRounds: 2,
+          maxCandidates: 1,
+        },
+      }),
+      // 首次抓取没有产出文档，候选仍处于“已发现但未抓取”状态；第二次抓取成功。
+      fetch: (() => {
+        let call = 0;
+        return async (operationId, params) => {
+          call += 1;
+          const result = fetchResultForCandidate(operationId, params.candidates[0]!);
+          return call === 1 ? { ...result, documents: [], chunks: [] } : result;
+        };
+      })(),
+      planGap: async () => ({
+        action: "search_more",
+        reason: "模型仍想继续搜索",
+        queries: [{ queryId: "q_2", subquestionId: "sq_1", text: "更多资料" }],
+      }),
+    });
+
+    await harness.orchestrator.run(SESSION_ID, new AbortController().signal);
+
+    const view = (await harness.repository.getSession(SESSION_ID, "evidence"))!;
+    expect(harness.searchCalls).toBe(1);
+    expect(view.rounds).toHaveLength(2);
+    expect(view.rounds![1]!.decision).toBe("fetch_more");
+    expect(view.documents).toHaveLength(1);
+    expect(view.summary.status).toBe("completed");
+  });
+
+  it("自动 fetch_more 只暴露可执行候选，不让黑名单候选占满抓取名额", async () => {
+    let fetchCall = 0;
+    const harness = await makeHarness({
+      mode: "standard",
+      blockedDomains: ["blocked.example.com"],
+      planInitial: async (input) => ({
+        ...buildSeedPlan({ objective: input.objective, mode: input.mode }),
+        budget: {
+          ...input.budget,
+          maxRounds: 2,
+          maxQueries: 1,
+          maxCandidates: 3,
+          maxDocuments: 1,
+        },
+      }),
+      search: async (requestId) => ({
+        request_id: requestId,
+        results: [
+          {
+            query_id: "q_1",
+            items: [
+              {
+                url: "https://blocked.example.com/article",
+                title: "黑名单来源",
+                domain: "blocked.example.com",
+                engines: ["test"],
+                score: 1,
+              },
+              {
+                url: "https://allowed.example.com/article",
+                title: "合法来源",
+                domain: "allowed.example.com",
+                engines: ["test"],
+                score: 0.9,
+              },
+            ],
+            errors: [],
+          },
+        ],
+        stats: {
+          provider_count: 1,
+          raw_result_count: 2,
+          returned_result_count: 2,
+          cache_hit: false,
+          duration_ms: 1,
+        },
+      }),
+      fetch: async (operationId, params) => {
+        fetchCall += 1;
+        const result = fetchResultForCandidate(operationId, params.candidates[0]!);
+        return fetchCall === 1 ? { ...result, documents: [], chunks: [] } : result;
+      },
+      planGap: async () => ({
+        action: "search_more",
+        reason: "模型仍想搜索",
+        queries: [{ queryId: "q_2", subquestionId: "sq_1", text: "更多资料" }],
+      }),
+    });
+
+    await harness.orchestrator.run(SESSION_ID, new AbortController().signal);
+
+    const view = (await harness.repository.getSession(SESSION_ID, "evidence"))!;
+    expect(fetchCall).toBe(2);
+    expect(view.rounds![1]!.decision).toBe("fetch_more");
+    expect(view.documents?.[0]?.source.domain).toBe("allowed.example.com");
   });
 
   it("轮数耗尽时强制收尾，不再询问 Gap Planner", async () => {

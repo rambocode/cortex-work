@@ -129,14 +129,14 @@ describe("createResearchLlmHooks", () => {
     });
     expect(decision.action).toBe("finish");
 
-    const markdown = await hooks.generateReport({
+    const generated = await hooks.generateReport({
       plan: PLAN,
       chunks: [CHUNK],
       documents: [DOCUMENT],
       coverage: [],
       signal,
     });
-    expect(markdown).toContain("[^ch_1]");
+    expect(typeof generated === "string" ? generated : generated.markdown).toContain("[^ch_1]");
 
     // spec §19.2.5：选型失败时没有任何请求出站（一个字节都不发）
     expect(fetcher.calls).toBe(0);
@@ -167,14 +167,16 @@ describe("createResearchLlmHooks", () => {
     });
     expect(plan.subquestions[0]!.id).toBe("sq_a");
 
-    const markdown = await hooks.generateReport({
+    const generated = await hooks.generateReport({
       plan: PLAN,
       chunks: [CHUNK],
       documents: [DOCUMENT],
       coverage: [],
       signal,
     });
-    expect(markdown).toBe("node:sqlite 是实验特性[^ch_1]。");
+    expect(typeof generated === "string" ? generated : generated.markdown).toBe(
+      "node:sqlite 是实验特性[^ch_1]。",
+    );
   });
 
   // 报告篇幅由用户在研究目标里的表述决定，装配层不注入任何字数指令；

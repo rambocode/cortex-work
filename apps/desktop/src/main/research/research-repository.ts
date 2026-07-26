@@ -691,14 +691,21 @@ class SqliteRepositoryTx implements RepositoryTx {
   insertReport(report: ResearchReport): void {
     this.driver
       .prepare(
-        `INSERT INTO research_reports (session_id, markdown, unsupported_sections_json, generated_at)
-         VALUES (?,?,?,?)
+        `INSERT INTO research_reports (session_id, markdown, unsupported_sections_json, generated_at, generation_stats_json)
+         VALUES (?,?,?,?,?)
          ON CONFLICT(session_id) DO UPDATE SET
            markdown = excluded.markdown,
            unsupported_sections_json = excluded.unsupported_sections_json,
-           generated_at = excluded.generated_at`,
+           generated_at = excluded.generated_at,
+           generation_stats_json = excluded.generation_stats_json`,
       )
-      .run([this.sessionId, report.markdown, JSON.stringify(report.unsupportedSections), report.generatedAt]);
+      .run([
+        this.sessionId,
+        report.markdown,
+        JSON.stringify(report.unsupportedSections),
+        report.generatedAt,
+        report.generationStats ? JSON.stringify(report.generationStats) : null,
+      ]);
   }
 
   insertCitations(citations: readonly CitationRef[]): void {

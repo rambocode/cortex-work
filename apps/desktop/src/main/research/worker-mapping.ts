@@ -120,10 +120,18 @@ export function mapFetchPrepareResult(
       notes.push(`丢弃无归属文档的 chunk：${raw.chunk_id}`);
       continue;
     }
-    const objectiveScore = clamp01(raw.lexical_score);
+    const objectiveScore = normalizeLexicalScore(raw.objective_score ?? raw.lexical_score);
     const candidate = candidateByDocumentId.get(documentId);
     const subquestionId = candidate ? ctx.subquestionByQueryId.get(candidate.queryId) : undefined;
-    if (subquestionId === undefined) missingSubquestion += 1;
+    const workerSubquestionScores = raw.subquestion_scores
+      ? Object.fromEntries(
+          Object.entries(raw.subquestion_scores).map(([id, score]) => [
+            id,
+            normalizeLexicalScore(score),
+          ]),
+        )
+      : undefined;
+    if (!workerSubquestionScores && subquestionId === undefined) missingSubquestion += 1;
 
     const chunk: EvidenceChunk = {
       // 重新铸造 id：Worker 的 chunk_id 只在单次调用内唯一（见文件头原则 1）。
@@ -135,7 +143,8 @@ export function mapFetchPrepareResult(
       // 协议的 fetch_prepare 结果**没有 per-subquestion 相关性**（rerank 也只回单一分数）。
       // 折中：把词法分数归给"触发该文档的查询所属子问题"——这是可解释、可回放的归因，
       // 比留空导致 Coverage 恒为 missing 有用得多。真正的语义打分留给 P7 的模型重排。
-      subquestionScores: subquestionId ? { [subquestionId]: objectiveScore } : {},
+      subquestionScores:
+        workerSubquestionScores ?? (subquestionId ? { [subquestionId]: objectiveScore } : {}),
       trustZone: findTrustZone(result, raw.content_hash),
     };
     if (raw.page !== undefined) chunk.page = raw.page;
@@ -269,11 +278,12 @@ function findTrustZone(
   return result.documents.find((doc) => doc.content_hash === contentHash)?.trust_zone ?? "public_web";
 }
 
-/// 把分数夹到 0..1。Worker 的 lexical_score 是无上界的 BM25 类分值，
-/// 而领域模型约定 objectiveScore ∈ [0,1]，越界值会让 Coverage 的均值失真。
-function clamp01(value: number): number {
+/// Worker 的 lexical_score 是无上界的 BM25 类分值。直接 clamp 会让所有大于 1 的结果
+/// 饱和成同分，最终按随机 UUID 排序；x/(1+x) 保持严格单调且自然收敛到 1。
+function normalizeLexicalScore(value: number): number {
   if (!Number.isFinite(value)) return 0;
-  return Math.min(1, Math.max(0, value));
+  const positive = Math.max(0, value);
+  return positive / (1 + positive);
 }
 
 /// 取 URL 的主机名；解析失败返回 undefined（不抛错，映射不该因一条脏 URL 整体失败）。

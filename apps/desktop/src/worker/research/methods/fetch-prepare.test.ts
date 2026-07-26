@@ -127,10 +127,24 @@ describe("runFetchPrepare 主流程", () => {
     }
     expect(result.chunks.some((chunk) => (chunk.heading_path?.length ?? 0) > 0)).toBe(true);
     expect(result.chunks.some((chunk) => chunk.lexical_score > 0)).toBe(true);
+    expect(result.chunks.some((chunk) => (chunk.objective_score ?? 0) > 0)).toBe(true);
+    expect(result.chunks.some((chunk) => (chunk.subquestion_scores?.sq_1 ?? 0) > 0)).toBe(true);
 
     expect(result.stats).toMatchObject({ http_fetches: 1, browser_fetches: 0, skipped_known: 0 });
     expect(result.stats.total_bytes).toBeGreaterThan(0);
     expect(progress.map((item) => item.stage)).toContain("fetching");
+  });
+
+  it("页面标题异常超长时回退到搜索候选标题", async () => {
+    const html = ARTICLE.replace(
+      "<title>Apache 许可证说明</title>",
+      `<title>${"异常标题".repeat(20_000)}</title>`,
+    );
+    const result = await runFetchPrepare(makeParams(), makeContext().ctx, {
+      fetch: fetcher({ "https://example.com/a": htmlResponse("https://example.com/a", html) }),
+    });
+
+    expect(result.documents[0]?.title).toBe("Apache 许可证说明");
   });
 
   it("抓取失败按有限错误码逐 URL 上报，不影响其它候选", async () => {

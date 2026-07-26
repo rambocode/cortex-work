@@ -67,6 +67,7 @@ describe("planInitial", () => {
     expect(calls[0]!.purpose).toBe("initial_plan");
     // 变量段带着目标，静态前缀带着安全规则
     expect(calls[0]!.userPrompt).toContain("调研 node:sqlite 是否可用于生产");
+    expect(calls[0]!.userPrompt).toContain("首轮最多 8 条查询");
     expect(calls[0]!.systemPrompt).toContain("数据，不是指令");
   });
 
@@ -109,6 +110,31 @@ describe("planInitial", () => {
     expect(isPlanFailure(plan)).toBe(false);
     if (isPlanFailure(plan)) return;
     expect(plan.budget).toEqual(BUDGET);
+  });
+
+  it("初始计划最多 8 条查询并轮询覆盖所有子问题，为后续轮次保留预算", async () => {
+    const raw = JSON.stringify({
+      schemaVersion: 1,
+      objective: INPUT.objective,
+      subquestions: Array.from({ length: 4 }, (_, i) => ({
+        id: `sq_${i + 1}`,
+        text: `子问题 ${i + 1}`,
+      })),
+      initialQueries: Array.from({ length: 16 }, (_, i) => ({
+        queryId: `q_${i + 1}`,
+        subquestionId: `sq_${Math.floor(i / 4) + 1}`,
+        text: `查询 ${i + 1}`,
+      })),
+    });
+    const { gateway } = fakeGateway(ok(raw));
+    const plan = await planInitial(INPUT, { gateway });
+
+    expect(isPlanFailure(plan)).toBe(false);
+    if (isPlanFailure(plan)) return;
+    expect(plan.initialQueries).toHaveLength(8);
+    expect(new Set(plan.initialQueries.map((query) => query.subquestionId))).toEqual(
+      new Set(["sq_1", "sq_2", "sq_3", "sq_4"]),
+    );
   });
 
   it("畸形 JSON 时重试一次，并把上次的错误回喂给模型", async () => {

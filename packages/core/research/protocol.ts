@@ -194,6 +194,9 @@ const workerChunkSchema = z.object({
   text: z.string().min(1),
   text_hash: z.string().min(1),
   lexical_score: z.number(),
+  /// 新 Worker 返回分别针对研究目标与各子问题的原始词法分数。可选以兼容旧 Worker。
+  objective_score: z.number().optional(),
+  subquestion_scores: z.record(z.string(), z.number()).optional(),
 });
 
 const duplicateClusterSchema = z.object({

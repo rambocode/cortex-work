@@ -8,6 +8,7 @@
 // 唯一返回 PlanFailure 的情况是**连种子计划都构造不出来**（目标为空），
 // 那属于调用方传参错误，必须暴露。
 import { parseResearchPlan } from "@cortex-work/core/research/plan-schema";
+import { SEARCH_LIMITS } from "@cortex-work/core/research/search-api";
 import type {
   ResearchBudget,
   ResearchConsumer,
@@ -183,6 +184,31 @@ function applySessionInvariants(
     ...plan,
     objective,
     scope: { ...plan.scope, ...input.scope },
+    initialQueries: selectInitialQueries(plan),
     budget: input.budget,
   };
+}
+
+/// 首轮最多发一个 Search Server batch。按子问题轮询而不是直接 slice，避免计划按章节排列时
+/// 前两个章节吃完 8 个名额，后续章节从一开始就没有任何检索机会。
+function selectInitialQueries(plan: ResearchPlan): ResearchPlan["initialQueries"] {
+  const buckets = new Map(
+    plan.subquestions.map((subquestion) => [
+      subquestion.id,
+      plan.initialQueries.filter((query) => query.subquestionId === subquestion.id),
+    ]),
+  );
+  const selected: ResearchPlan["initialQueries"] = [];
+  for (let depth = 0; selected.length < SEARCH_LIMITS.maxQueriesPerRequest; depth += 1) {
+    let added = false;
+    for (const subquestion of plan.subquestions) {
+      const query = buckets.get(subquestion.id)?.[depth];
+      if (!query) continue;
+      selected.push(query);
+      added = true;
+      if (selected.length >= SEARCH_LIMITS.maxQueriesPerRequest) break;
+    }
+    if (!added) break;
+  }
+  return selected;
 }

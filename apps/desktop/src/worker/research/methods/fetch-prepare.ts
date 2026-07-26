@@ -175,7 +175,7 @@ async function tryBrowserFallback(
       candidateId: candidate.candidate_id,
       url: result.finalUrl,
       ...(candidate.canonical_url ? { canonicalUrl: candidate.canonical_url } : {}),
-      title: result.title || candidate.title || result.finalUrl,
+      title: safeDocumentTitle(result.title, candidate.title, result.finalUrl),
       ...(candidate.published_at ? { publishedAt: candidate.published_at } : {}),
       mediaType: "text/html",
       fetchMethod: "browser",
@@ -277,7 +277,7 @@ async function prepareCandidate(
         candidateId: candidate.candidate_id,
         url: response.finalUrl,
         ...(candidate.canonical_url ? { canonicalUrl: candidate.canonical_url } : {}),
-        title: candidate.title || response.finalUrl,
+        title: safeDocumentTitle("", candidate.title, response.finalUrl),
         ...(candidate.published_at ? { publishedAt: candidate.published_at } : {}),
         mediaType: response.mediaType,
         fetchMethod: "pdf",
@@ -324,7 +324,7 @@ function htmlToOutcome(
       candidateId: candidate.candidate_id,
       url: finalUrl,
       ...(canonicalUrl ? { canonicalUrl } : {}),
-      title: extracted.title || candidate.title || finalUrl,
+      title: safeDocumentTitle(extracted.title, candidate.title, finalUrl),
       ...(publishedAt ? { publishedAt } : {}),
       mediaType: "text/html",
       fetchMethod,
@@ -469,17 +469,32 @@ export async function runFetchPrepare(
 
   // 打分放在全部块就位之后：BM25 的 IDF 需要本批的语料统计，逐篇打分会得到互不可比的分数。
   const titleByHash = new Map(documents.map((document) => [document.contentHash, document.title]));
+  const scorableChunks = outputChunks.map((chunk) => ({
+    chunkId: chunk.chunk_id,
+    text: chunk.text,
+    title: titleByHash.get(chunk.content_hash) ?? "",
+    headingPath: chunk.heading_path ?? [],
+  }));
   const scores = scoreChunks(
     buildQueryText(params.objective, params.subquestions),
-    outputChunks.map((chunk) => ({
-      chunkId: chunk.chunk_id,
-      text: chunk.text,
-      title: titleByHash.get(chunk.content_hash) ?? "",
-      headingPath: chunk.heading_path ?? [],
-    })),
+    scorableChunks,
+  );
+  const objectiveScores = scoreChunks(params.objective, scorableChunks);
+  const subquestionScores = new Map(
+    params.subquestions.map((subquestion) => [
+      subquestion.id,
+      scoreChunks(subquestion.text, scorableChunks),
+    ]),
   );
   for (const chunk of outputChunks) {
     chunk.lexical_score = scores.get(chunk.chunk_id) ?? 0;
+    chunk.objective_score = objectiveScores.get(chunk.chunk_id) ?? 0;
+    chunk.subquestion_scores = Object.fromEntries(
+      params.subquestions.map((subquestion) => [
+        subquestion.id,
+        subquestionScores.get(subquestion.id)?.get(chunk.chunk_id) ?? 0,
+      ]),
+    );
   }
 
   return {
@@ -502,4 +517,22 @@ export async function runFetchPrepare(
       skipped_known: skippedKnown,
     },
   };
+}
+const MAX_DOCUMENT_TITLE_CHARS = 300;
+
+/// 网页标题属于不可信正文元数据。超长标题通常是畸形 HTML 或站点把整段内容塞进
+/// `<title>`，此时回退到搜索结果标题；最终无论来自哪条路径都限制长度。
+function safeDocumentTitle(extracted: string, candidate: string, fallback: string): string {
+  const clean = (value: string): string => value.replace(/\s+/gu, " ").trim();
+  const extractedClean = clean(extracted);
+  const candidateClean = clean(candidate);
+  const extractedPoints = [...extractedClean];
+  const preferred =
+    extractedPoints.length > 0 && extractedPoints.length <= MAX_DOCUMENT_TITLE_CHARS
+      ? extractedClean
+      : candidateClean || clean(fallback);
+  const points = [...preferred];
+  return points.length <= MAX_DOCUMENT_TITLE_CHARS
+    ? preferred
+    : `${points.slice(0, MAX_DOCUMENT_TITLE_CHARS).join("")}…`;
 }

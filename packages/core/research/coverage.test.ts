@@ -290,6 +290,24 @@ describe("decideStop", () => {
     ).toEqual({ stop: true, reason: "预算已用尽（文档数 10/10）" });
   });
 
+  it("查询、候选、Browser 或报告字符额度耗尽不直接终止整个研究循环", () => {
+    const result = decideStop({
+      coverage: weak,
+      roundsUsed: 1,
+      budget: budget(),
+      elapsedMs: 1000,
+      usage: {
+        queries: 12,
+        candidates: 60,
+        documents: 1,
+        browserFetches: 2,
+        evidenceCharsToModel: 100_000,
+      },
+    });
+
+    expect(result.stop).toBe(false);
+  });
+
   it("还有余量且未达标时继续", () => {
     expect(decideStop({ coverage: weak, roundsUsed: 1, budget: budget(), elapsedMs: 1000 })).toEqual({
       stop: false,

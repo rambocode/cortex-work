@@ -212,6 +212,16 @@ export function fixtureReport(overrides: Partial<ResearchReport> = {}): Research
     citations: [fixtureCitation()],
     unsupportedSections: ["风险展望"],
     generatedAt: "2026-07-25T00:05:00.000Z",
+    generationStats: {
+      availableDocumentCount: 2,
+      availableChunkCount: 3,
+      includedDocumentCount: 1,
+      includedChunkCount: 1,
+      citedDocumentCount: 1,
+      citedChunkCount: 1,
+      promptEvidenceChars: 800,
+      promptTruncated: true,
+    },
     ...overrides,
   };
 }

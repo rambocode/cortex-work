@@ -92,7 +92,7 @@ export function createResearchLlmHooks(input: ResearchLlmHooksInput): ResearchLl
         plannerDeps,
       ),
 
-    generateReport: async (call): Promise<string> => {
+    generateReport: async (call) => {
       const report = await generateReport(
         {
           objective: call.plan.objective,
@@ -100,6 +100,7 @@ export function createResearchLlmHooks(input: ResearchLlmHooksInput): ResearchLl
           chunks: call.chunks,
           documents: call.documents,
           budget: call.plan.budget,
+          minimumRelevance: call.plan.completion.minimumRelevance,
           signal: call.signal,
           // 流式增量原样转交编排层（它负责节流并转成 report_delta 事件）。
           ...(call.onDelta ? { onDelta: call.onDelta } : {}),
@@ -110,10 +111,13 @@ export function createResearchLlmHooks(input: ResearchLlmHooksInput): ResearchLl
           ...(input.logger ? { logger: input.logger } : {}),
         },
       );
-      // 编排器要的是 markdown（它会再过一次 Citation Validator 并自行组装 CitationRef）。
-      // 这里的 report.citations 会被丢弃不是浪费：generateReport 里的那次校验负责
+      // 编排器会再过一次 Citation Validator 并自行组装 CitationRef。这里的 citations
+      // 会被丢弃不是浪费：generateReport 里的那次校验负责
       // **在 LLM 输出进入系统的第一时间**就删掉伪造引用，两次校验是幂等的纯函数。
-      return report.markdown;
+      return {
+        markdown: report.markdown,
+        ...(report.generationStats ? { generationStats: report.generationStats } : {}),
+      };
     },
   };
 }

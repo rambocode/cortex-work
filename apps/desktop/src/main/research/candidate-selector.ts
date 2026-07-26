@@ -26,11 +26,17 @@ export interface SelectCandidatesInput {
   /// 用户或 Consumer 配置的域名黑名单；命中该域名或其子域即剔除。
   blockedDomains?: readonly string[];
   maxPerDomain?: number;
+  /// 查询归属，用于在不同子问题之间公平分配本轮抓取名额。
+  subquestionByQueryId?: ReadonlyMap<string, string>;
+  /// 优先顺序通常是 missing → weak → sufficient；未列出的子问题仍会排在后面。
+  prioritySubquestionIds?: readonly string[];
 }
 
 /// 选出本轮要抓取的候选（保持"高分优先 + 域名交替"的确定性顺序）。
 export function selectCandidates(input: SelectCandidatesInput): SearchCandidate[] {
-  const limit = Math.max(0, Math.min(input.budget.maxDocuments, input.budget.maxCandidates));
+  // 传入本函数的候选已经完成发现并计入 maxCandidates；这里是在决定抓哪些，只消耗文档额度。
+  // 若再次套候选额度，首轮发现额度用尽后 fetch_more 会永远选不到任何已有候选。
+  const limit = Math.max(0, input.budget.maxDocuments);
   if (limit === 0) return [];
 
   const maxPerDomain = input.maxPerDomain ?? DEFAULT_MAX_PER_DOMAIN;
@@ -68,13 +74,40 @@ export function selectCandidates(input: SelectCandidatesInput): SearchCandidate[
     else buckets.set(entry.domain, [entry.candidate]);
   }
 
-  const selected: SearchCandidate[] = [];
-  for (let round = 0; round < maxPerDomain && selected.length < limit; round += 1) {
+  const diverse: SearchCandidate[] = [];
+  for (let round = 0; round < maxPerDomain; round += 1) {
     for (const bucket of buckets.values()) {
-      if (selected.length >= limit) break;
       const candidate = bucket[round];
-      if (candidate) selected.push(candidate);
+      if (candidate) diverse.push(candidate);
     }
+  }
+  if (!input.subquestionByQueryId) return diverse.slice(0, limit);
+
+  const groupOf = (candidate: SearchCandidate): string =>
+    input.subquestionByQueryId?.get(candidate.queryId) ?? "__unassigned__";
+  const groups = new Map<string, SearchCandidate[]>();
+  for (const candidate of diverse) {
+    const key = groupOf(candidate);
+    const group = groups.get(key);
+    if (group) group.push(candidate);
+    else groups.set(key, [candidate]);
+  }
+  const preferred = input.prioritySubquestionIds ?? [];
+  const order = [
+    ...preferred.filter((id, index) => preferred.indexOf(id) === index && groups.has(id)),
+    ...[...groups.keys()].filter((id) => !preferred.includes(id)),
+  ];
+  const selected: SearchCandidate[] = [];
+  for (let depth = 0; selected.length < limit; depth += 1) {
+    let added = false;
+    for (const id of order) {
+      const candidate = groups.get(id)?.[depth];
+      if (!candidate) continue;
+      selected.push(candidate);
+      added = true;
+      if (selected.length >= limit) break;
+    }
+    if (!added) break;
   }
   return selected;
 }

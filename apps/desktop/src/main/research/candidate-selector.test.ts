@@ -100,13 +100,13 @@ const CASES: Case[] = [
     expected: ["a", "b"],
   },
   {
-    name: "maxCandidates 比 maxDocuments 更紧时以它为准",
+    name: "候选已发现后只受文档额度限制，不再受候选发现额度限制",
     candidates: [
       candidate({ candidateId: "a", url: "https://a.com/1", serverScore: 0.9 }),
       candidate({ candidateId: "b", url: "https://b.com/1", serverScore: 0.8 }),
     ],
     budget: { maxDocuments: 5, maxCandidates: 1 },
-    expected: ["a"],
+    expected: ["a", "b"],
   },
   {
     name: "预算为 0 时不选任何候选",
@@ -133,6 +133,27 @@ describe("selectCandidates", () => {
     const snapshot = [...input];
     selectCandidates({ candidates: input, alreadyFetched: new Set(), budget: MODE_BUDGETS.quick });
     expect(input).toEqual(snapshot);
+  });
+
+  it("按子问题轮询分配抓取名额，低分子问题不会被高分子问题饿死", () => {
+    const input = [
+      candidate({ candidateId: "a1", queryId: "q1", url: "https://a.com/1", serverScore: 0.99 }),
+      candidate({ candidateId: "b1", queryId: "q1", url: "https://b.com/1", serverScore: 0.98 }),
+      candidate({ candidateId: "c1", queryId: "q1", url: "https://c.com/1", serverScore: 0.97 }),
+      candidate({ candidateId: "d1", queryId: "q2", url: "https://d.com/1", serverScore: 0.1 }),
+    ];
+    const selected = selectCandidates({
+      candidates: input,
+      alreadyFetched: new Set(),
+      budget: budgetWith({ maxDocuments: 2 }),
+      subquestionByQueryId: new Map([
+        ["q1", "sq1"],
+        ["q2", "sq2"],
+      ]),
+      prioritySubquestionIds: ["sq1", "sq2"],
+    });
+
+    expect(selected.map((item) => item.candidateId)).toEqual(["a1", "d1"]);
   });
 });
 

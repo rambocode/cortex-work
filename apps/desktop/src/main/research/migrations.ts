@@ -301,11 +301,17 @@ const V2_SQL = `
 ALTER TABLE research_sessions DROP COLUMN model_data_policy;
 `;
 
+// v3：报告生成漏斗统计。NULL 兼容 v3 前已生成的历史报告。
+const V3_SQL = `
+ALTER TABLE research_reports ADD COLUMN generation_stats_json TEXT;
+`;
+
 /// 全部迁移，按 version 升序。**只追加，永不修改已发布的条目**——
 /// 已经跑过 v1 的用户库不会重跑 v1，就地改 V1_SQL 只会造成新老库 schema 不一致。
 export const MIGRATIONS: readonly ResearchMigration[] = [
   { version: 1, sql: V1_SQL },
   { version: 2, sql: V2_SQL },
+  { version: 3, sql: V3_SQL },
 ];
 
 /// 把 migrations 应用到数据库，返回应用后的最终版本号。

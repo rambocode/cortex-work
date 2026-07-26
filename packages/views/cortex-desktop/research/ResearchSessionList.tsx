@@ -84,7 +84,7 @@ export function ResearchSessionList({
               </div>
               <div className="pw-res-item-obj">{s.objective}</div>
               <div className="pw-res-item-meta">
-                {`${s.roundCount} 轮 · ${s.documentCount} 篇 · ${s.chunkCount} 片段 · ${shortTime(s.updatedAt)}`}
+                {`${s.roundCount} 轮 · ${s.documentCount} 篇已抓取 · ${s.chunkCount} 片段 · ${shortTime(s.updatedAt)}`}
               </div>
               {s.status === "failed" && s.errorMessage ? (
                 <div className="pw-res-item-err">{s.errorMessage}</div>

@@ -8,6 +8,7 @@
 // 变量段（目标、覆盖度、证据）全部放在 userPrompt 且**变量放在尾部**。供应商的 prompt 缓存
 // 命中的是「相同前缀」，把变量插进 system 会让每次调用都 miss，成本直接翻倍。
 import type { CoverageReport, ResearchBudget, ResearchScope, ResearchSubquestion } from "@cortex-work/core/research/types";
+import { SEARCH_LIMITS } from "@cortex-work/core/research/search-api";
 
 /// 三个 Planner/Report prompt 共用的安全前言。
 ///
@@ -119,6 +120,7 @@ export function buildInitialPlanUserPrompt(input: {
     `语言偏好：${input.scope.language ?? "不限"}`,
     `时间范围：${input.scope.timeRange ?? "不限"}`,
     `本次预算：最多 ${input.budget.maxQueries} 条查询、${input.budget.maxDocuments} 篇文档、${input.budget.maxRounds} 轮。`,
+    `首轮最多 ${Math.min(SEARCH_LIMITS.maxQueriesPerRequest, input.budget.maxQueries)} 条查询；请均匀覆盖所有子问题，其余查询预算留给后续补充检索。`,
   ];
   if (input.previousErrors && input.previousErrors.length > 0) {
     lines.push(

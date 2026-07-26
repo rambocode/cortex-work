@@ -171,6 +171,7 @@ export interface ReportRow {
   markdown: string;
   unsupported_sections_json: string;
   generated_at: string;
+  generation_stats_json: string | null;
 }
 /// 引用行。position 保序：报告里的引用顺序必须可复现，SQLite 不保证无 ORDER BY 时的行序。
 export interface CitationRow {
@@ -309,12 +310,18 @@ export function rowToCitation(row: CitationRow): CitationRef {
 
 /// 报告行 + 引用行 → ResearchReport。引用分表存放，读取时在这里合流。
 export function rowToReport(row: ReportRow, citations: readonly CitationRow[]): ResearchReport {
-  return {
+  const report: ResearchReport = {
     markdown: row.markdown,
     citations: citations.map(rowToCitation),
     unsupportedSections: parseJson<string[]>(row.unsupported_sections_json),
     generatedAt: row.generated_at,
   };
+  if (row.generation_stats_json !== null) {
+    report.generationStats = parseJson<NonNullable<ResearchReport["generationStats"]>>(
+      row.generation_stats_json,
+    );
+  }
+  return report;
 }
 
 /// 证据片段行 → EvidenceChunk。**只应在 detail === "evidence" 的路径上被调用**：

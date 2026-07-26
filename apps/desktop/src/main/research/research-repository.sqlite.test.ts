@@ -106,6 +106,7 @@ describe("SqliteResearchRepository（真 SQLite）", () => {
     expect(full?.rounds?.[0]).toMatchObject({ roundIndex: 0, decision: "search_more", queryIds: ["q-1", "q-2"] });
     expect(full?.coverage?.[0]?.bestChunkIds).toEqual(["chunk-1"]);
     expect(full?.report?.citations.map((c) => c.chunkId)).toEqual(["chunk-1"]);
+    expect(full?.report?.generationStats?.includedDocumentCount).toBe(1);
     expect(full?.documents).toBeUndefined();
 
     const evidence = await repo.getSession("sess-1", "evidence");
