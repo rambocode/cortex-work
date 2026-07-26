@@ -35,7 +35,7 @@
   letter-spacing: 0.01em;
 }
 
-/* 三栏：左固定 280 / 中自适应 / 右固定 340。中栏是唯一可伸缩的一栏。 */
+/* 三栏：左固定 280 / 中自适应 / 右固定 510。中栏是唯一可伸缩的一栏。 */
 .pw-res-cols { display: flex; flex: 1 1 auto; min-height: 0; }
 .pw-res-col-left {
   flex: 0 0 280px;
@@ -46,10 +46,10 @@
 }
 .pw-res-col-center { flex: 1 1 auto; min-width: 0; overflow: auto; }
 .pw-res-col-right {
-  flex: 0 0 340px;
+  flex: 0 0 510px;
   min-width: 0;
   border-left: 1px solid var(--border);
-  background: var(--bg-right);
+  /* 与中栏同一原则：不要底色。栏与栏之间靠这条分隔线区分就够了。 */
   overflow: auto;
 }
 
@@ -63,6 +63,9 @@
   padding: 4px 12px;
   font-size: 12px;
   line-height: 20px;
+  /* 按钮文案都是短标签，任何时候不允许在按钮内部换行——
+     窄宽度下应整排换行（见 .pw-res-run-actions 的 flex-wrap），而不是把「重跑」竖过来。 */
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color 140ms ease, border-color 140ms ease,
     color 140ms ease, filter 140ms ease, opacity 140ms ease;
@@ -285,7 +288,9 @@
   background: var(--accent);
   transition: width 300ms ease;
 }
-.pw-res-run-actions { display: flex; gap: 6px; margin-top: 12px; }
+/* 中栏变窄时整排按钮折到下一行；不设 wrap 时 flex 会压缩每个按钮，
+   配合按钮内的 nowrap 就会溢出/错乱（曾出现「重跑」被挤成竖排）。 */
+.pw-res-run-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .pw-res-run-body { padding: 16px 24px 32px; }
 
 /* 内容分节：标题带小节刻度线，让「计划 / 轮次 / 失败 / 报告」在长页面里可扫读。 */
@@ -420,8 +425,7 @@
 /* 滚动锚点：不占位，只作为 scrollIntoView 的目标。 */
 .pw-res-feed-end { height: 0; }
 
-/* 报告草稿：与正式报告同一张纸，靠虚线边框和闪烁标签表明「还在写」。 */
-.pw-res-report-card.is-draft { border-style: dashed; box-shadow: none; }
+/* 报告草稿：「还在写」只靠闪烁标签表明（报告卡片已去背景/边框，草稿不再有虚线边框可标）。 */
 .pw-res-draft-tag {
   padding: 0 6px;
   border-radius: 4px;
@@ -465,15 +469,8 @@
 }
 .pw-res-fail-msg { color: var(--text-2); overflow-wrap: anywhere; }
 
-/* 报告：纸张式卡片 + 阅读宽度限制，正文排版按长文阅读调校。 */
-.pw-res-report-card {
-  max-width: 760px;
-  padding: 20px 24px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card-2);
-  box-shadow: var(--shadow-card);
-}
+/* 报告：不要纸张式卡片——背景色/边框会把正文与中栏其它内容割裂成两块，
+   且限宽在宽栏下两侧留白浪费。正文直接铺开（.pw-res-md），宽度随中栏自适应。 */
 .pw-res-md { line-height: 1.75; font-size: 13px; }
 .pw-res-md h1, .pw-res-md h2, .pw-res-md h3 { margin: 18px 0 8px; font-weight: 700; line-height: 1.4; }
 .pw-res-md h1 { font-size: 17px; }
@@ -527,7 +524,7 @@
 }
 .pw-res-cite:hover { background: var(--accent); color: #fff; }
 
-/* 参考来源列表：与正文 chip 同编号，被 chip 跳转命中时整条高亮。 */
+/* 参考来源列表：与正文 chip 同编号。条目可点——点击在右栏打开该条引用详情。 */
 .pw-res-refs { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
 .pw-res-refs-title { font-size: 12px; font-weight: 700; color: var(--text-2); margin-bottom: 6px; }
 .pw-res-refs-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
@@ -538,9 +535,10 @@
   padding: 3px 6px;
   border-radius: var(--radius-sm);
   font-size: 12px;
-  transition: background-color 300ms ease;
+  cursor: pointer;
+  transition: background-color 140ms ease;
 }
-.pw-res-refs-list li:target { background: var(--accent-soft); }
+.pw-res-refs-list li:hover { background: var(--bg-hover); }
 .pw-res-refs-idx { flex: 0 0 auto; color: var(--accent); font-weight: 600; font-size: 11px; }
 .pw-res-refs-name {
   color: var(--text-2);
@@ -609,7 +607,8 @@
 
 /* ---------- 右栏：来源 ---------- */
 .pw-res-sources { display: flex; flex-direction: column; }
-/* 头部吸顶：文档列表很长时「收起」入口不随滚动丢失。 */
+/* 头部吸顶：长证据滚动时「关闭」入口不丢失。背景用应用底色只是为了盖住下方滚过的
+   内容（sticky 需要不透明），不是面板专属色。 */
 .pw-res-sources-head {
   position: sticky;
   top: 0;
@@ -618,47 +617,38 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-right);
-}
-.pw-res-sources-title { font-size: 13px; font-weight: 700; }
-.pw-res-doclist { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
-/* 来源项卡片化：原本全宽分割线平铺，域名/标题/时间混成一团，扫读成本高。 */
-.pw-res-doc {
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
   background: var(--bg-app);
-  box-shadow: var(--shadow-card);
+}
+.pw-res-sources-title {
+  font-size: 13px;
+  font-weight: 700;
+  /* 标题形如「[12] 很长的来源标题」，超宽时省略而不是把关闭按钮挤出去。 */
   overflow: hidden;
-  transition: border-color 140ms ease;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.pw-res-doc.is-open { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
-.pw-res-doc-head { padding: 9px 12px; cursor: pointer; transition: background-color 140ms ease; }
-.pw-res-doc-head:hover { background: var(--bg-hover); }
-.pw-res-doc-title { display: block; font-size: 12px; font-weight: 500; line-height: 1.45; }
-.pw-res-doc-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--text-3); font-size: 11px; }
-.pw-res-doc-domain { color: var(--text-2); font-weight: 500; }
-/* 抓取方式做成 chip：浏览器抓取是成本最高的降级路径，需要在列表里一眼可辨。 */
-.pw-res-doc-method {
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--bg-chip);
-  font-size: 10px;
-  line-height: 16px;
+/* 引用详情与中栏报告同一原则：不要卡片套卡片、不要区块底色，
+   靠留白、分隔与字级差异分层。面板头部已显示「[n] 标题」，正文不再重复标题。 */
+.pw-res-sources > .pw-res-doc { padding: 12px 16px 20px; }
+.pw-res-doc-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--text-3);
+  font-size: 11px;
 }
-.pw-res-doc-time { margin-left: auto; }
-.pw-res-doc-chunks { padding: 2px 12px 10px; }
-/* 证据片段：引用式左边框，和文档头拉开层级。 */
+.pw-res-doc-domain { color: var(--text-2); font-weight: 500; overflow-wrap: anywhere; }
+.pw-res-doc-time { margin-left: auto; white-space: nowrap; }
+/* 证据片段：引用式左边框（不要底色的灰块），长文按阅读排版。 */
 .pw-res-chunk {
-  margin-bottom: 8px;
-  padding: 7px 10px;
+  padding: 2px 0 2px 12px;
   border-left: 2px solid var(--accent-soft);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: var(--bg-card);
 }
-.pw-res-chunk-path { color: var(--text-3); font-size: 11px; margin-bottom: 3px; }
-.pw-res-chunk-text { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.pw-res-chunk-path { color: var(--text-3); font-size: 11px; margin-bottom: 4px; }
+.pw-res-chunk-text { font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
 
 /* ---------- Web 端降级 ---------- */
 .pw-res-fallback {

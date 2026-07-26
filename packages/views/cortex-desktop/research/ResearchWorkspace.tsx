@@ -1,13 +1,18 @@
-// Deep Research 整窗覆盖层（fixed inset-0），三栏：左会话列表 / 中运行视图 / 右来源面板。
+// Deep Research 整窗覆盖层（fixed inset-0），三栏：左会话列表 / 中运行视图 / 右引用详情面板。
 // 结构照 WritingWorkspace / DesignWorkspace 的覆盖层惯例，文案硬编码 zh-Hans（个人工作区惯例）。
 //
 // 数据流：
 //   挂载 → bridge.list() 灌入 ui-store → bridge.onEvent 订阅，事件经 applyEvent 落状态；
 //   选中会话 → bridge.get(id, "full") 拿计划/轮次/报告（**不是 evidence**）；
 //   运行中 → round / done / status 事件触发防抖重拉 "full"（详情只在 main，事件里不带）；
-//   证据正文 → 只由右栏在用户展开时经 get(id, "evidence") 按需拉。
-// 「什么时候拉、拉到什么级别」全部收在本组件与右栏两处，别的地方不要再发起 get，
+//   证据正文 → 只在用户点击报告里的引用后，由本组件经 get(id, "evidence") 按需拉并缓存。
+// 「什么时候拉、拉到什么级别」全部收在本组件一处，别的地方不要再发起 get，
 // 否则很容易出现某个角落顺手拉了 evidence 把正文带进内存（spec §16 / §19.3.2）。
+//
+// 右栏是**引用详情面板，默认隐藏**：早先它常驻 340px 展示完整来源列表，日常使用价值低
+// 且长期挤占中栏报告宽度。现在只有点击报告里的引用（正文 chip 或文末参考来源条目）才
+// 展开，且只显示被点的那一条。evidence 缓存必须留在本组件（而不是面板内）：
+// 右栏关闭即卸载，面板内缓存会随之丢失，每次重开都得重拉几 MB 正文。
 //
 // **启动研究由本组件负责，不在创建表单里**：表单在 onCreated 之后立刻卸载，而 run 必须
 // 发生在「会话已经进入 ui-store 的列表」之后——否则编排发出的事件会被 applyEvent 当作
@@ -15,6 +20,10 @@
 //
 // bridge 为 null（Web 端没有桌面桥）时渲染降级提示，不做任何订阅与请求。
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import type {
+  EvidenceChunk,
+  ResearchDocument,
+} from "@cortex-work/core/research/evidence";
 import { useResearchUiStore } from "@cortex-work/core/research/ui-store";
 import type { ResearchReport, ResearchSessionSummary } from "@cortex-work/core/research/types";
 import type { ResearchBridgeLike } from "./bridge-like";
@@ -22,8 +31,9 @@ import { ResearchCreateForm } from "./ResearchCreateForm";
 import type { ResearchExportTarget } from "./ResearchRunView";
 import { ResearchRunView } from "./ResearchRunView";
 import { ResearchSessionList } from "./ResearchSessionList";
-import { ResearchSourcePanel } from "./ResearchSourcePanel";
+import { ResearchSourcePanel, type FocusedCitation } from "./ResearchSourcePanel";
 import type { ResearchModelDisplay } from "./modelDisplay";
+import type { DisplayRef } from "./reportDisplay";
 import "./research.css";
 
 /// 工作区 props。bridge 由宿主壳注入（组件不摸 window），onClose 供整窗覆盖层关闭。
@@ -59,8 +69,8 @@ function shouldRefreshDetail(event: { type: string }): boolean {
 }
 
 /// Deep Research 工作区根组件：列表 + 新建表单 + 运行视图的编排者。
-/// **detail 级别的分工是硬约束**：这里只在选中会话时拉 "full"，"evidence" 一律由
-/// ResearchSourcePanel 在用户点开来源时按需拉取，别处不得发起 get。
+/// **detail 级别的分工是硬约束**：这里只在选中会话时拉 "full"；"evidence" 只在用户
+/// 点击报告里的引用后按需拉取（见 openCitation），别处不得发起 get。
 export function ResearchWorkspace({
   bridge,
   onClose,
@@ -84,6 +94,20 @@ export function ResearchWorkspace({
   // 卸载，它自己的错误 state 会随之消失，原因必须由这里保管并显示在会话视图上。
   const [startError, setStartError] = useState<{ sessionId: string; message: string } | null>(null);
 
+  // ── 右栏引用详情面板 ─────────────────────────────────────────────────────
+  // focus 为 null 即「右栏隐藏」。focus 里带 sessionId：拉取与展示都以它为准，
+  // 避免「点击后立刻切会话」时把旧会话的引用显示到新会话上。
+  const [focus, setFocus] = useState<(FocusedCitation & { sessionId: string }) | null>(null);
+  // evidence 按 sessionId 缓存：右栏关闭即卸载，缓存若放面板内会随卸载丢失。
+  // 不进 ui-store——正文可能是几 MB，唯一消费者就是这里，放全局只会拖累每个 selector。
+  const [evidenceCache, setEvidenceCache] = useState<
+    Record<string, { documents: ResearchDocument[]; chunks: EvidenceChunk[] }>
+  >({});
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  // 在途拉取的 sessionId：连点两条 chip 不该并发拉两次同一份 evidence。
+  const evidenceInflightRef = useRef<string | null>(null);
+
   // 详情重拉的防抖计时器。放 ref 而不是 state：它只影响副作用的时序，不该触发渲染。
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -99,6 +123,51 @@ export function ResearchWorkspace({
         );
     },
     [bridge],
+  );
+
+  // 按需拉 evidence 并写入缓存（spec §16：只允许在用户点击引用之后走到这里）。
+  // 已在缓存或同会话在途时直接跳过——连点 chip / 重开右栏都不该再发请求。
+  const loadEvidence = useCallback(
+    (sessionId: string) => {
+      if (!bridge) return;
+      if (evidenceCache[sessionId] || evidenceInflightRef.current === sessionId) return;
+      evidenceInflightRef.current = sessionId;
+      setEvidenceLoading(true);
+      setEvidenceError(null);
+      void bridge
+        .get(sessionId, "evidence")
+        .then((view) =>
+          setEvidenceCache((c) => ({
+            ...c,
+            [sessionId]: { documents: view.documents ?? [], chunks: view.chunks ?? [] },
+          })),
+        )
+        .catch((e: unknown) => setEvidenceError(`加载来源失败：${errText(e)}`))
+        .finally(() => {
+          evidenceInflightRef.current = null;
+          setEvidenceLoading(false);
+        });
+    },
+    [bridge, evidenceCache],
+  );
+
+  /// 点击报告里的引用：展开右栏并聚焦该条。聚焦先行（右栏立刻出现、显示加载中），
+  /// evidence 随后按需拉；已缓存则零请求。
+  const openCitation = useCallback(
+    (ref: DisplayRef) => {
+      const sessionId = useResearchUiStore.getState().activeSessionId;
+      if (!sessionId) return;
+      setFocus({
+        sessionId,
+        index: ref.index,
+        chunkId: ref.chunkId,
+        ...(ref.title ? { title: ref.title } : {}),
+        ...(ref.url ? { url: ref.url } : {}),
+      });
+      setEvidenceError(null);
+      loadEvidence(sessionId);
+    },
+    [loadEvidence],
   );
 
   // 挂载：拉列表 + 订阅事件。两件事放一个 effect，保证订阅在列表回来之前就已建立——
@@ -156,6 +225,8 @@ export function ResearchWorkspace({
       setCreating(false);
       // 换会话即清掉启动失败提示：它只属于刚才那个会话。
       setStartError(null);
+      // 聚焦的引用同样只属于旧会话：右栏随之关闭（缓存按 sessionId 隔离，保留）。
+      setFocus(null);
       fetchDetail(sessionId);
     },
     [fetchDetail],
@@ -167,7 +238,17 @@ export function ResearchWorkspace({
       void bridge
         .delete(sessionId)
         // 先等 main 删成功再改本地：乐观删除一旦失败，会话会从列表消失但其实还在跑。
-        .then(() => useResearchUiStore.getState().removeSession(sessionId))
+        .then(() => {
+          useResearchUiStore.getState().removeSession(sessionId);
+          // 顺手清掉该会话的 evidence 缓存：几 MB 正文不该为一个已删除的会话滞留内存。
+          setEvidenceCache((c) => {
+            if (!(sessionId in c)) return c;
+            const next = { ...c };
+            delete next[sessionId];
+            return next;
+          });
+          setFocus((f) => (f?.sessionId === sessionId ? null : f));
+        })
         .catch((e: unknown) =>
           useResearchUiStore.getState().setError(`删除失败：${errText(e)}`),
         );
@@ -182,6 +263,7 @@ export function ResearchWorkspace({
     store.selectSession(summary.sessionId);
     setCreating(false);
     setStartError(null);
+    setFocus(null);
   }, []);
 
   const onReportRegenerated = useCallback(
@@ -292,6 +374,7 @@ export function ResearchWorkspace({
               // 重跑产出的新会话走与新建完全相同的落位逻辑（插列表 + 选中 + 清错）。
               onRerun={onCreated}
               onReportRegenerated={onReportRegenerated}
+              onCitationClick={openCitation}
               startError={
                 startError && startError.sessionId === activeSessionId ? startError.message : null
               }
@@ -299,9 +382,21 @@ export function ResearchWorkspace({
           )}
         </div>
 
-        <div className="pw-res-col-right">
-          <ResearchSourcePanel bridge={bridge} session={activeSession} />
-        </div>
+        {/* 右栏只在有聚焦引用时渲染：默认隐藏，中栏报告占满宽度。
+            focus.sessionId 必须仍等于当前选中会话——点击后立刻切会话的竞态下，
+            旧会话的引用不该显示在新会话上（selectSession 也会清 focus，这里是双保险）。 */}
+        {focus && focus.sessionId === activeSessionId ? (
+          <div className="pw-res-col-right">
+            <ResearchSourcePanel
+              citation={focus}
+              evidence={evidenceCache[focus.sessionId] ?? null}
+              loading={evidenceLoading && !evidenceCache[focus.sessionId]}
+              error={evidenceError}
+              onRetry={() => loadEvidence(focus.sessionId)}
+              onClose={() => setFocus(null)}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

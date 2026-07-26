@@ -6,6 +6,8 @@
 // 本组件不自行拉取详情：view 由宿主（ResearchWorkspace）按 "full" 级别取好后传入。
 // 这样「什么时候拉、拉到什么级别」只有一个地方决定，证据正文不会被中栏悄悄带出来。
 import {
+  createContext,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -38,7 +40,7 @@ import {
   canStartSession,
   fetchFailureLabel,
 } from "./labels";
-import { prepareReportMarkdown } from "./reportDisplay";
+import { prepareReportMarkdown, type DisplayRef } from "./reportDisplay";
 
 /// 链接 href 的展示层白名单：报告内容源自抓取的外部网页与 LLM 输出，
 /// 自定义锚点组件不能默认信任 href——只放行 http(s) / mailto 与页内/相对地址，
@@ -57,10 +59,16 @@ function isSafeHref(href: string): boolean {
   }
 }
 
+/// 引用 chip 的点击回调（参数是 1 起的展示编号）。经 context 下传而不是 props：
+/// REPORT_MD_COMPONENTS 是模块级常量（防止每次渲染重建整棵 markdown 树），
+/// 组件映射拿不到 props 闭包，只能从这里取。默认 no-op——不联动右栏时点击安全无事。
+const ReportCitationContext = createContext<(index: number) => void>(() => {});
+
 /// 引用 chip 的锚点渲染：prepareReportMarkdown 已把 [^chunkId] 转成 [[n]](#cite-n) 链接，
-/// 这里拦截 #cite- 前缀渲染成上标 chip，点击平滑滚动到文末对应的参考来源条目。
-/// 其余链接先过 isSafeHref 白名单再渲染。滚动 API 在 jsdom 里不存在，用可选调用兜底。
+/// 这里拦截 #cite- 前缀渲染成上标 chip，点击经 context 通知宿主打开右栏引用详情。
+/// 其余链接先过 isSafeHref 白名单再渲染。
 function ReportAnchor(props: AnchorHTMLAttributes<HTMLAnchorElement>): ReactElement {
+  const onCite = useContext(ReportCitationContext);
   const href = props.href ?? "";
   if (!href.startsWith("#cite-")) {
     if (isSafeHref(href)) return <a {...props} />;
@@ -75,9 +83,8 @@ function ReportAnchor(props: AnchorHTMLAttributes<HTMLAnchorElement>): ReactElem
       title={props.title}
       onClick={(e) => {
         e.preventDefault();
-        document
-          .getElementById(href.slice(1))
-          ?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+        const index = Number(href.slice("#cite-".length));
+        if (Number.isFinite(index)) onCite(index);
       }}
     >
       {props.children}
@@ -137,6 +144,9 @@ export interface ResearchRunViewProps {
   /// sessionId 必须显式回传：生成可能持续数分钟，期间用户可以切换会话，不能把旧会话的
   /// 新报告误写进当前选中的另一条会话。
   onReportRegenerated?: (report: ResearchReport, sessionId: string) => void;
+  /// 点击报告里的引用（正文 chip 或文末参考来源条目）。宿主借此打开右栏引用详情；
+  /// 缺省时引用仅展示、点击无动作（组件可脱离右栏独立使用）。
+  onCitationClick?: (ref: DisplayRef) => void;
 }
 
 type ReportRegenerationFeedback =
@@ -159,6 +169,7 @@ export function ResearchRunView({
   startError,
   onRerun,
   onReportRegenerated,
+  onCitationClick,
 }: ResearchRunViewProps): ReactElement {
   // 控制类调用的失败提示（暂停/恢复/取消可能因状态已变而被 main 拒绝）。
   const [actionError, setActionError] = useState<string | null>(null);
@@ -191,6 +202,16 @@ export function ResearchRunView({
           })
         : null,
     [report, objective],
+  );
+
+  // 编号 → DisplayRef 的解析只在报告变化时重建；经 context 传给 chip，也直接用于文末条目。
+  // 注意必须放在「!session 提前 return」之前：hook 数量不能随 props 变化。
+  const handleCite = useMemo(
+    () => (index: number) => {
+      const ref = preparedReport?.refs[index - 1];
+      if (ref) onCitationClick?.(ref);
+    },
+    [preparedReport, onCitationClick],
   );
 
   // 操作提示只属于发起它的会话。切换左栏选择时立即清理，避免把上一条研究的成功/失败
@@ -485,12 +506,10 @@ export function ResearchRunView({
               研究报告
               <span className="pw-res-draft-tag">正在撰写…</span>
             </div>
-            <div className="pw-res-report-card is-draft">
-              <div className="pw-res-md">
-                <Markdown remarkPlugins={[remarkGfm]} components={REPORT_MD_COMPONENTS}>
-                  {draft}
-                </Markdown>
-              </div>
+            <div className="pw-res-md">
+              <Markdown remarkPlugins={[remarkGfm]} components={REPORT_MD_COMPONENTS}>
+                {draft}
+              </Markdown>
             </div>
           </section>
         ) : null}
@@ -509,20 +528,34 @@ export function ResearchRunView({
                 {`报告未完全达到研究完整度标准：${report.generationStats.qualityIssues?.join("；") || "请检查内容与证据覆盖"}`}
               </div>
             ) : null}
-            {/* 报告正文放进纸张式卡片并限宽，长文阅读不靠整栏铺满。 */}
-            <div className="pw-res-report-card">
+            {/* 报告正文直接铺开（无卡片背景/限宽），宽度随中栏自适应。
+                Provider 把引用点击回调喂给正文 chip（ReportAnchor 经 context 取）。 */}
+            <ReportCitationContext.Provider value={handleCite}>
               <div className="pw-res-md">
                 <Markdown remarkPlugins={[remarkGfm]} components={REPORT_MD_COMPONENTS}>
                   {preparedReport.markdown}
                 </Markdown>
               </div>
-              {/* 参考来源：编号与正文 chip 一一对应，锚点 id 供 chip 点击滚动定位。 */}
+              {/* 参考来源：编号与正文 chip 一一对应。条目可点，与 chip 走同一回调——
+                  点击即在右栏打开该条的引用详情。 */}
               {preparedReport.refs.length > 0 ? (
                 <div className="pw-res-refs">
                   <div className="pw-res-refs-title">{`参考来源（${preparedReport.refs.length}）`}</div>
                   <ol className="pw-res-refs-list">
                     {preparedReport.refs.map((ref) => (
-                      <li key={ref.chunkId} id={`cite-${ref.index}`}>
+                      <li
+                        key={ref.chunkId}
+                        id={`cite-${ref.index}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleCite(ref.index)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleCite(ref.index);
+                          }
+                        }}
+                      >
                         <span className="pw-res-refs-idx">{`[${ref.index}]`}</span>
                         <span className="pw-res-refs-name" title={ref.url}>
                           {ref.title ?? ref.chunkId}
@@ -532,7 +565,7 @@ export function ResearchRunView({
                   </ol>
                 </div>
               ) : null}
-            </div>
+            </ReportCitationContext.Provider>
           </section>
         ) : null}
       </div>

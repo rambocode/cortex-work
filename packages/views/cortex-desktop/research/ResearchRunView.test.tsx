@@ -501,3 +501,94 @@ describe("ResearchRunView 实时活动与报告草稿", () => {
     expect(screen.queryByText("草稿残留内容。")).toBeNull();
   });
 });
+
+describe("ResearchRunView 引用点击联动", () => {
+  /// 带两条引用的报告视图：chip [1]/[2] 与文末参考来源条目都由此而来。
+  function makeCitedView() {
+    return makeFullView({
+      report: makeReport({
+        markdown:
+          "Tokio 是当前最主流的选择[^ch1]（来源：Tokio 教程）。async-std 紧随其后[^ch2]（来源：async-std 文档）。",
+        citations: [
+          {
+            chunkId: "ch1",
+            documentId: "d1",
+            title: "Tokio 教程",
+            url: "https://tokio.rs/tokio/tutorial",
+            retrievedAt: "2026-07-25T02:30:00.000Z",
+            textHash: "th1",
+          },
+          {
+            chunkId: "ch2",
+            documentId: "d2",
+            title: "async-std 文档",
+            url: "https://docs.rs/async-std",
+            retrievedAt: "2026-07-25T02:40:00.000Z",
+            textHash: "th2",
+          },
+        ],
+      }),
+    });
+  }
+
+  it("点击正文里的引用 chip 触发 onCitationClick，带上编号 / chunkId / 标题 / URL", async () => {
+    const { bridge } = makeBridge();
+    const view = makeCitedView();
+    const clicks: Array<{ index: number; chunkId: string }> = [];
+    const { container } = render(
+      <ResearchRunView
+        bridge={bridge}
+        session={view.summary}
+        view={view}
+        onCitationClick={(ref) => clicks.push(ref)}
+      />,
+    );
+    await screen.findAllByText("[1]");
+    const chip = container.querySelector("a.pw-res-cite");
+    expect(chip).not.toBeNull();
+    fireEvent.click(chip!);
+    expect(clicks).toEqual([
+      {
+        index: 1,
+        chunkId: "ch1",
+        title: "Tokio 教程",
+        url: "https://tokio.rs/tokio/tutorial",
+      },
+    ]);
+  });
+
+  it("点击文末参考来源条目触发同一个 onCitationClick（与 chip 殊途同归）", async () => {
+    const { bridge } = makeBridge();
+    const view = makeCitedView();
+    const clicks: Array<{ index: number; chunkId: string }> = [];
+    render(
+      <ResearchRunView
+        bridge={bridge}
+        session={view.summary}
+        view={view}
+        onCitationClick={(ref) => clicks.push(ref)}
+      />,
+    );
+    // 文末条目按来源标题定位（正文 chip 里没有标题文本）。
+    fireEvent.click(await screen.findByText("async-std 文档"));
+    expect(clicks).toEqual([
+      {
+        index: 2,
+        chunkId: "ch2",
+        title: "async-std 文档",
+        url: "https://docs.rs/async-std",
+      },
+    ]);
+  });
+
+  it("未传 onCitationClick 时点击 chip 不抛错（组件可独立使用）", async () => {
+    const { bridge } = makeBridge();
+    const view = makeCitedView();
+    const { container } = render(
+      <ResearchRunView bridge={bridge} session={view.summary} view={view} />,
+    );
+    await screen.findAllByText("[1]");
+    const chip = container.querySelector("a.pw-res-cite");
+    expect(() => fireEvent.click(chip!)).not.toThrow();
+  });
+});

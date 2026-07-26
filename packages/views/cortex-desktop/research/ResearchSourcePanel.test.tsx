@@ -1,134 +1,82 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+// 引用详情面板的受控组件测试。
+//
+// 面板已改为纯展示：fetch、「按需加载」契约与缓存都上移到了 ResearchWorkspace
+// （那些守卫见 ResearchWorkspace.test.tsx 的「引用联动右栏」一组）。
+// 这里只守渲染分支：正常详情 / chunk 缺失降级 / loading / error+重试 / 关闭。
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ResearchDetailLevel } from "@cortex-work/core/research/types";
-import type { ResearchBridgeLike } from "./bridge-like";
-import { ResearchSourcePanel } from "./ResearchSourcePanel";
-import { makeChunk, makeDocument, makeSummary } from "./testFixtures";
+import { ResearchSourcePanel, type ResearchSourcePanelProps } from "./ResearchSourcePanel";
+import { makeChunk, makeDocument } from "./testFixtures";
 
 afterEach(() => cleanup());
 
-/// 手写 bridge 替身：记录 get 的 (sessionId, detail) 序列，这就是「按需加载」的契约断言点。
-function makeBridge() {
-  const getCalls: Array<[string, ResearchDetailLevel]> = [];
-  const bridge: ResearchBridgeLike = {
-    async create() {
-      throw new Error("不应被调用");
-    },
-    async rerun(): Promise<never> {
-      throw new Error("本用例不该重跑");
-    },
-    async regenerateReport(): Promise<never> {
-      throw new Error("本用例不该重新生成报告");
-    },
-    async run() {},
-    async pause() {},
-    async resume() {},
-    async cancel() {},
-    async get(sessionId, detail) {
-      getCalls.push([sessionId, detail]);
-      return {
-        summary: makeSummary({ sessionId, documentCount: 2, chunkCount: 1 }),
-        documents: [
-          makeDocument(),
-          makeDocument({
-            documentId: "d2",
-            title: "async-std 文档",
-            fetchMethod: "browser",
-            fetchedAt: "2026-07-25T02:40:00.000Z",
-            source: {
-              sourceType: "documentation",
-              trustZone: "public_web",
-              locator: "https://docs.rs/async-std",
-              domain: "docs.rs",
-            },
-          }),
-        ],
-        chunks: [makeChunk()],
-      };
-    },
-    async list() {
-      return [];
-    },
-    async delete() {},
-    onEvent() {
-      return () => {};
-    },
+/// 聚焦的引用（编号 + chunkId + 标题/URL 兜底信息）。
+const citation = {
+  index: 1,
+  chunkId: "ch1",
+  title: "Tokio 教程",
+  url: "https://tokio.rs/tokio/tutorial",
+};
+
+/// 与该引用配对的 evidence：d1 文档 + 带标题路径的 ch1 片段。
+const evidence = {
+  documents: [makeDocument()],
+  chunks: [makeChunk({ headingPath: ["调度", "工作窃取"] })],
+};
+
+/// 以最小骨架渲染面板，只覆盖当前用例关心的 props。
+function renderPanel(patch: Partial<ResearchSourcePanelProps> = {}) {
+  const props: ResearchSourcePanelProps = {
+    citation,
+    evidence,
+    loading: false,
+    error: null,
+    onRetry: () => {},
+    onClose: () => {},
+    ...patch,
   };
-  return { bridge, getCalls };
+  return render(<ResearchSourcePanel {...props} />);
 }
 
-describe("ResearchSourcePanel 按需加载", () => {
-  it("挂载时不调用 get(_, 'evidence')（spec §16：证据只在显式打开来源面板时才返回）", () => {
-    const { bridge, getCalls } = makeBridge();
-    render(
-      <ResearchSourcePanel bridge={bridge} session={makeSummary({ documentCount: 2 })} />,
-    );
-    expect(getCalls).toEqual([]);
-    expect(screen.getByText("证据正文按需加载，展开后才会读取抓取内容")).toBeTruthy();
-  });
-
-  it("点击「展开来源」后才拉 evidence，并渲染域名 / 标题 / 抓取方式 / 时间", async () => {
-    const { bridge, getCalls } = makeBridge();
-    render(
-      <ResearchSourcePanel bridge={bridge} session={makeSummary({ sessionId: "s7", documentCount: 2 })} />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "展开来源（2）" }));
-    await waitFor(() => expect(getCalls).toEqual([["s7", "evidence"]]));
-
-    expect(await screen.findByText("Tokio 教程")).toBeTruthy();
+describe("ResearchSourcePanel 引用详情", () => {
+  it("渲染聚焦引用的编号、来源信息（域名 / 抓取方式）与证据正文", () => {
+    const { container } = renderPanel();
+    expect(container.querySelector(".pw-res-sources-title")?.textContent).toBe("[1] Tokio 教程");
     expect(screen.getByText("tokio.rs")).toBeTruthy();
-    expect(screen.getByText("docs.rs")).toBeTruthy();
     expect(screen.getByText("直接抓取")).toBeTruthy();
-    expect(screen.getByText("浏览器抓取")).toBeTruthy();
+    expect(screen.getByText("调度 › 工作窃取")).toBeTruthy();
+    expect(screen.getByText("Tokio 使用工作窃取调度器。")).toBeTruthy();
   });
 
-  it("展开单条来源才显示其证据正文，且不再重复请求 evidence", async () => {
-    const { bridge, getCalls } = makeBridge();
-    render(<ResearchSourcePanel bridge={bridge} session={makeSummary({ documentCount: 2 })} />);
-    fireEvent.click(screen.getByRole("button", { name: "展开来源（2）" }));
-    await screen.findByText("Tokio 教程");
+  /// 报告重生成后旧聚焦可能指向已被移除的证据：降级展示兜底信息，而不是空白或崩溃。
+  it("evidence 里找不到对应 chunk 时降级为标题 / URL + 未找到提示", () => {
+    renderPanel({ citation: { ...citation, chunkId: "ch-gone" } });
+    expect(screen.getByText(/未找到对应证据片段/)).toBeTruthy();
+    expect(screen.getByText("https://tokio.rs/tokio/tutorial")).toBeTruthy();
+  });
 
+  it("loading 时显示加载中，不渲染正文", () => {
+    renderPanel({ evidence: null, loading: true });
+    expect(screen.getByText("加载中…")).toBeTruthy();
     expect(screen.queryByText("Tokio 使用工作窃取调度器。")).toBeNull();
-    fireEvent.click(screen.getByText("Tokio 教程"));
-    expect(await screen.findByText("Tokio 使用工作窃取调度器。")).toBeTruthy();
-    expect(getCalls).toHaveLength(1);
   });
 
-  it("切换会话会收起面板，新会话仍不预取", async () => {
-    const { bridge, getCalls } = makeBridge();
-    const { rerender } = render(
-      <ResearchSourcePanel bridge={bridge} session={makeSummary({ sessionId: "s1", documentCount: 2 })} />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "展开来源（2）" }));
-    await screen.findByText("Tokio 教程");
-
-    rerender(
-      <ResearchSourcePanel bridge={bridge} session={makeSummary({ sessionId: "s2", documentCount: 5 })} />,
-    );
-    expect(getCalls).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "展开来源（5）" })).toBeTruthy();
-  });
-
-  it("bridge 为 null 时展示降级提示且展开按钮禁用", () => {
-    render(<ResearchSourcePanel bridge={null} session={makeSummary({ documentCount: 2 })} />);
-    expect(screen.getByRole("button", { name: "展开来源（2）" })).toBeDisabled();
-  });
-
-  it("加载失败时展示错误，可重试", async () => {
-    const { bridge } = makeBridge();
-    let attempts = 0;
-    const flaky: ResearchBridgeLike = {
-      ...bridge,
-      async get(sessionId, detail) {
-        attempts += 1;
-        if (attempts === 1) throw new Error("读取证据失败");
-        return bridge.get(sessionId, detail);
-      },
-    };
-    render(<ResearchSourcePanel bridge={flaky} session={makeSummary({ documentCount: 2 })} />);
-    fireEvent.click(screen.getByRole("button", { name: "展开来源（2）" }));
-    expect(await screen.findByText("加载来源失败：读取证据失败")).toBeTruthy();
+  it("error 时显示错误文案，点击重试触发 onRetry", () => {
+    let retries = 0;
+    renderPanel({
+      evidence: null,
+      error: "加载来源失败：读取证据失败",
+      onRetry: () => (retries += 1),
+    });
+    expect(screen.getByText("加载来源失败：读取证据失败")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(await screen.findByText("Tokio 教程")).toBeTruthy();
+    expect(retries).toBe(1);
+  });
+
+  it("点击关闭触发 onClose", () => {
+    let closes = 0;
+    renderPanel({ onClose: () => (closes += 1) });
+    fireEvent.click(screen.getByRole("button", { name: "关闭引用详情" }));
+    expect(closes).toBe(1);
   });
 });
