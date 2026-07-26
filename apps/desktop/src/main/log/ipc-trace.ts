@@ -21,6 +21,14 @@ function summarizeArgs(args: unknown[]): unknown {
   return redactData(args.slice(1));
 }
 
+/** ENOENT(读/stat 不存在的路径)。errno code 优先,message 兜底(部分包装层只留文案)。 */
+function isMissingFileError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === "ENOENT") return true;
+  const message = (err as Error | null)?.message;
+  return typeof message === "string" && message.startsWith("ENOENT");
+}
+
 // 幂等接管 ipcMain.handle。须在任何 registerXxxHandlers() 之前调用，使其后所有 .handle 被包裹。
 // ipcMain.handle 有重载签名，难以直接结构匹配；用一个宽松的本地别名 + 经 unknown 转回。
 type IpcHandle = typeof ipcMain.handle;
@@ -43,7 +51,12 @@ export function installIpcTrace(): void {
         return result;
       } catch (err) {
         try {
-          log.error(`ipc ${channel} 失败`, {
+          // 「文件不存在」不是故障:探测可选文件是常规用法(如设计稿的
+          // .cortex-design/<doc>/chat/meta.json —— 首次打开本就没有),调用方按 ok:false
+          // 优雅降级。按 error 记会持续刷屏、把真正的故障淹掉,故降到 debug。
+          // 其余错误(EACCES/EISDIR/业务异常)一律保持 error。
+          const level = isMissingFileError(err) ? log.debug : log.error;
+          level(`ipc ${channel} 失败`, {
             ms: Date.now() - start,
             args: summarizeArgs(args),
             error: (err as Error)?.message ?? String(err),

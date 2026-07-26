@@ -59,6 +59,34 @@ describe("installIpcTrace", () => {
     expect(JSON.stringify(meta.args)).not.toContain("sk-xyz");
   });
 
+  // 「文件不存在」是探测可选文件时的正常结果，调用方本就按 ok:false 优雅降级
+  // （如 hydrateDesignChatMetaForDoc 读 .cortex-design/<doc>/chat/meta.json）。
+  // 按 error 记会在 dev 日志里持续刷屏并淹没真错误 —— 降到 debug，但仍原样抛出。
+  it("ENOENT 记 debug（可选文件探测不是错误），仍原样抛出", async () => {
+    installIpcTrace();
+    ipcMainStub.handle("fs:readFile", async () => {
+      throw Object.assign(new Error("ENOENT: no such file or directory, stat '/x/chat/meta.json'"), {
+        code: "ENOENT",
+      });
+    });
+    const wrapped = handleStore.get("fs:readFile")!;
+    await expect(wrapped(fakeEvent, "/x/chat/meta.json")).rejects.toThrow("ENOENT");
+    expect(logSpies.error).not.toHaveBeenCalled();
+    expect(logSpies.debug).toHaveBeenCalledTimes(1);
+    const [msg, meta] = logSpies.debug.mock.calls[0];
+    expect(msg).toContain("fs:readFile");
+    expect(meta.error).toContain("ENOENT");
+  });
+
+  it("其它错误仍记 error（不因上条降级而漏报真故障）", async () => {
+    installIpcTrace();
+    ipcMainStub.handle("fs:readFile", async () => {
+      throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+    });
+    await expect(handleStore.get("fs:readFile")!(fakeEvent, "/x")).rejects.toThrow("EACCES");
+    expect(logSpies.error).toHaveBeenCalledTimes(1);
+  });
+
   it("幂等：重复 install 不重复包裹（成功仅记一次）", async () => {
     installIpcTrace();
     installIpcTrace();
