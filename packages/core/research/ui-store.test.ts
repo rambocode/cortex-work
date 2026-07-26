@@ -72,12 +72,22 @@ describe("useResearchUiStore 基础动作", () => {
     st.selectSession("s1");
     st.setDetail("s1", { summary: summary() } as ResearchSessionView);
     st.applyEvent({ type: "stage", sessionId: "s1", stage: "searching" });
+    st.applyEvent({
+      type: "activity",
+      sessionId: "s1",
+      at: "2026-07-25T00:00:00.000Z",
+      kind: "query",
+      text: "q",
+    });
+    st.applyEvent({ type: "report_delta", sessionId: "s1", delta: "草稿" });
 
     useResearchUiStore.getState().removeSession("s1");
     const next = useResearchUiStore.getState();
     expect(next.sessions.map((s) => s.sessionId)).toEqual(["s2"]);
     expect(next.detailCache.s1).toBeUndefined();
     expect(next.progress.s1).toBeUndefined();
+    expect(next.activities.s1).toBeUndefined();
+    expect(next.reportDraft.s1).toBeUndefined();
     expect(next.activeSessionId).toBeNull();
   });
 
@@ -188,6 +198,80 @@ describe("applyEvent", () => {
     expect(next.sessions).toEqual(before);
     expect(next.progress.ghost).toBeUndefined();
     expect(next.warnings.ghost).toBeUndefined();
+  });
+
+  it("status：任意状态都能落地（含 done 表达不了的 paused）", () => {
+    useResearchUiStore.getState().applyEvent({ type: "stage", sessionId: "s1", stage: "fetching" });
+    useResearchUiStore.getState().applyEvent({ type: "status", sessionId: "s1", status: "paused" });
+    const next = useResearchUiStore.getState();
+    expect(next.sessions[0]?.status).toBe("paused");
+    // 暂停后进度失去意义（恢复时会重新发 stage 事件）。
+    expect(next.progress.s1).toBeUndefined();
+  });
+
+  it("status：终态会话不会被乱序的运行中状态拉回去", () => {
+    useResearchUiStore.getState().applyEvent({ type: "done", sessionId: "s1", status: "completed" });
+    useResearchUiStore.getState().applyEvent({ type: "status", sessionId: "s1", status: "fetching" });
+    expect(useResearchUiStore.getState().sessions[0]?.status).toBe("completed");
+  });
+
+  it("activity：按会话追加流水，保留插入顺序", () => {
+    useResearchUiStore.getState().applyEvent({
+      type: "activity",
+      sessionId: "s1",
+      at: "2026-07-25T00:00:01.000Z",
+      kind: "query",
+      text: "大语言模型 原理",
+      roundIndex: 0,
+    });
+    useResearchUiStore.getState().applyEvent({
+      type: "activity",
+      sessionId: "s1",
+      at: "2026-07-25T00:00:02.000Z",
+      kind: "document",
+      text: "example.com",
+    });
+    const list = useResearchUiStore.getState().activities.s1 ?? [];
+    expect(list.map((a) => a.kind)).toEqual(["query", "document"]);
+    expect(list[0]?.text).toBe("大语言模型 原理");
+  });
+
+  it("activity：按会话保留上限，长跑研究不会把内存吃满", () => {
+    for (let i = 0; i < 260; i += 1) {
+      useResearchUiStore.getState().applyEvent({
+        type: "activity",
+        sessionId: "s1",
+        at: "2026-07-25T00:00:00.000Z",
+        kind: "document",
+        text: `site-${i}.com`,
+      });
+    }
+    const list = useResearchUiStore.getState().activities.s1 ?? [];
+    expect(list.length).toBe(200);
+    expect(list[list.length - 1]?.text).toBe("site-259.com");
+  });
+
+  it("report_delta：增量按会话拼接成草稿；done 后草稿清空（最终稿走 get(full)）", () => {
+    useResearchUiStore.getState().applyEvent({ type: "report_delta", sessionId: "s1", delta: "# 标" });
+    useResearchUiStore.getState().applyEvent({ type: "report_delta", sessionId: "s1", delta: "题" });
+    expect(useResearchUiStore.getState().reportDraft.s1).toBe("# 标题");
+
+    useResearchUiStore.getState().applyEvent({ type: "done", sessionId: "s1", status: "completed" });
+    expect(useResearchUiStore.getState().reportDraft.s1).toBeUndefined();
+  });
+
+  it("未知 sessionId 的流水与草稿事件同样被丢弃", () => {
+    useResearchUiStore.getState().applyEvent({
+      type: "activity",
+      sessionId: "ghost",
+      at: "2026-07-25T00:00:00.000Z",
+      kind: "query",
+      text: "x",
+    });
+    useResearchUiStore.getState().applyEvent({ type: "report_delta", sessionId: "ghost", delta: "x" });
+    const next = useResearchUiStore.getState();
+    expect(next.activities.ghost).toBeUndefined();
+    expect(next.reportDraft.ghost).toBeUndefined();
   });
 
   it("警告列表按会话保留上限，避免长跑会话把内存吃满", () => {

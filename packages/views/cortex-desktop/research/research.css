@@ -314,6 +314,72 @@
 .pw-res-round-idx { font-weight: 600; }
 .pw-res-round-meta { color: var(--text-3); font-size: 12px; }
 
+/* 实时活动流水：等宽时间 + 类型 chip + 内容三列，像一条执行日志。
+   固定高度 + 自动滚底：它是「此刻在干什么」的窗口，不该把下面的报告一直往外挤。 */
+.pw-res-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pw-res-feed-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pw-res-feed-item:hover { background: var(--bg-hover); }
+.pw-res-feed-time {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.pw-res-feed-kind {
+  flex: 0 0 auto;
+  min-width: 44px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-card-2);
+  color: var(--text-3);
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+}
+/* 只给「取到 / 没取到」两类上色：全部染色等于没有重点。 */
+.pw-res-feed-item.is-document .pw-res-feed-kind { background: var(--accent-soft); color: var(--accent); }
+.pw-res-feed-item.is-fetch_failed .pw-res-feed-kind { background: var(--amber-soft); color: var(--amber); }
+.pw-res-feed-text { color: var(--text-2); overflow-wrap: anywhere; }
+/* 滚动锚点：不占位，只作为 scrollIntoView 的目标。 */
+.pw-res-feed-end { height: 0; }
+
+/* 报告草稿：与正式报告同一张纸，靠虚线边框和闪烁标签表明「还在写」。 */
+.pw-res-report-card.is-draft { border-style: dashed; box-shadow: none; }
+.pw-res-draft-tag {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 500;
+  animation: pw-res-draft-pulse 1.6s ease-in-out infinite;
+}
+@keyframes pw-res-draft-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+/* 尊重系统的减少动效设置：闪烁对前庭敏感人群不友好。 */
+@media (prefers-reduced-motion: reduce) {
+  .pw-res-draft-tag { animation: none; }
+}
+
 /* 未采信来源：琥珀色左边框卡片。失败码做成 chip，正文用次色——
    原本「抓取失败（fetch_http_error） 抓取失败：…」两遍前缀的重复感靠视觉分层消化。 */
 .pw-res-failures { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

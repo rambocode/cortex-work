@@ -300,3 +300,63 @@ describe("重跑（终态会话的出路）", () => {
     expect(screen.getByRole("button", { name: "重跑" })).toBeDisabled();
   });
 });
+
+// 执行过程的实时可见性：流水逐条上屏 + 报告逐字上屏。
+// 没有这两块，用户在几分钟的执行期里只能看到一个不动的阶段徽标。
+describe("ResearchRunView 实时活动与报告草稿", () => {
+  const ACTIVITIES = [
+    { at: "2026-07-25T10:00:00.000Z", kind: "query" as const, text: "大语言模型 原理", roundIndex: 0 },
+    { at: "2026-07-25T10:00:05.000Z", kind: "document" as const, text: "example.com", roundIndex: 0 },
+    { at: "2026-07-25T10:00:06.000Z", kind: "decision" as const, text: "补充检索", roundIndex: 0 },
+  ];
+
+  it("按序渲染流水，每条带类型标签", () => {
+    const { bridge } = makeBridge();
+    render(
+      <ResearchRunView
+        bridge={bridge}
+        session={makeSummary({ status: "fetching" })}
+        activities={ACTIVITIES}
+      />,
+    );
+    expect(screen.getByText("大语言模型 原理")).toBeTruthy();
+    expect(screen.getByText("example.com")).toBeTruthy();
+    expect(screen.getByText("补充检索")).toBeTruthy();
+  });
+
+  it("没有流水时不渲染这一段（空框比没有更糟）", () => {
+    const { bridge } = makeBridge();
+    const { container } = render(
+      <ResearchRunView bridge={bridge} session={makeSummary({ status: "created" })} />,
+    );
+    expect(container.querySelector(".pw-res-feed")).toBeNull();
+  });
+
+  it("撰写中：渲染报告草稿", () => {
+    const { bridge } = makeBridge();
+    render(
+      <ResearchRunView
+        bridge={bridge}
+        session={makeSummary({ status: "reporting" })}
+        reportDraft={"# 结论\n\n模型正在写的正文。"}
+      />,
+    );
+    expect(screen.getByText("模型正在写的正文。")).toBeTruthy();
+    expect(screen.getByText("正在撰写…")).toBeTruthy();
+  });
+
+  it("最终报告到位后不再显示草稿（避免同一份内容出现两遍）", () => {
+    const { bridge } = makeBridge();
+    const session = makeSummary({ status: "completed" });
+    render(
+      <ResearchRunView
+        bridge={bridge}
+        session={session}
+        view={makeFullView({ summary: session, report: makeReport({ markdown: "最终报告正文。" }) })}
+        reportDraft={"草稿残留内容。"}
+      />,
+    );
+    expect(screen.getByText("最终报告正文。")).toBeTruthy();
+    expect(screen.queryByText("草稿残留内容。")).toBeNull();
+  });
+});

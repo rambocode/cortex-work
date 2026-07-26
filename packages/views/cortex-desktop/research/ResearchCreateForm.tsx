@@ -1,11 +1,12 @@
-// 新建研究表单：目标 + 强度档位 + 来源范围，提交后 create → run。
+// 新建研究表单：目标 + 强度档位 + 来源范围，提交后 create，**启动交给宿主**。
 //
 // 预算数字全部取自 core 的 MODE_BUDGETS，不在 UI 里重抄一份——抄一份的结果必然是
 // core 调了预算而界面还在展示旧值，用户按旧承诺规划时间。
 //
-// 提交是两步（create 再 run）而不是一步：create 成功即表示会话已落库、可在列表里看到，
-// 之后 run 失败也不会丢掉用户填的目标（能从列表里重跑）。所以 run 的失败只做提示，
-// 不回滚已创建的会话。
+// 为什么本表单不再自己调 run（这条是真实踩过的坑）：run 必须发生在「会话已经进入
+// ui-store 的列表」之后，而那件事由宿主在 onCreated 里做。表单自己 run 的话，编排开头
+// 发出的事件会落到一个列表里还不存在的会话上，被 ui-store 直接丢弃——界面在整个执行
+// 期间毫无反应。启动与启动失败的展示都收在 ResearchWorkspace 一处。
 import { useState, type ReactElement } from "react";
 import { MODE_BUDGETS } from "@cortex-work/core/research/budget";
 import type {
@@ -29,9 +30,8 @@ export interface ResearchCreateFormProps {
   /// 由宿主注入而不是表单自己读 store：views 层不依赖 personal store（那是个人工作区的
   /// 设置容器），保持组件可在任意宿主里复用。缺省则不显示这一行。
   model?: ResearchModelDisplay;
-  /// 创建完成。startError 非空表示「会话建好了但没跑起来」——宿主必须把它显示在会话视图上，
-  /// 因为本表单在这一刻就被卸载，局部 state 里的错误会随之丢失。
-  onCreated: (summary: ResearchSessionSummary, startError?: string) => void;
+  /// 创建完成。宿主负责把会话放进列表、选中它，**并发起 run**（顺序见文件头注释）。
+  onCreated: (summary: ResearchSessionSummary) => void;
   onCancel: () => void;
 }
 
@@ -111,18 +111,8 @@ export function ResearchCreateForm({
       setSubmitting(false);
       return;
     }
-    let startError: string | undefined;
-    try {
-      await bridge.run(summary.sessionId);
-    } catch (e) {
-      // 会话已创建，只是没跑起来（最常见：搜索服务未配置）。**必须把原因交给宿主**——
-      // 只 setError 是没用的，下一行的 onCreated 会立刻卸载本表单，那条提示还没来得及被看见
-      // 就消失了，用户只剩一个停在「待开始」的会话和零线索。会话本身仍可在视图里点「开始」重跑。
-      startError = `启动失败：${e instanceof Error ? e.message : String(e)}`;
-      setError(startError);
-    }
     setSubmitting(false);
-    onCreated(summary, startError);
+    onCreated(summary);
   };
 
   return (

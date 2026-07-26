@@ -119,9 +119,14 @@ export interface ResearchPlan {
 
 /// 消费方对产物形态的要求。requireCitations 为 true 时，无有效 CitationRef 的事实段
 /// 必须被标记为 unsupported，不得表现为确定事实（spec §10.4）。
+///
+/// **刻意没有 maxWords 之类的篇幅字段**：报告写多长由用户在研究目标里的表述决定
+/// （「简要说明」「详尽综述」模型自己读得懂），不由配置层预先钉死。曾经有过一个
+/// maxWords，结果是两套互相矛盾的长度真源——预设里写 3000 字、模式档位却给 deep 留了
+/// 6 倍的材料量，谁生效全看装配层有没有转发。模型的输出 token 上限是**安全阀**而不是
+/// 篇幅指令，按研究强度分档即可（见 report-generator 的 resolveReportMaxTokens）。
 export interface ResearchOutputRequest {
   format: "report" | "evidence_package" | "answer";
-  maxWords?: number;
   requireCitations: boolean;
 }
 
@@ -208,11 +213,10 @@ export interface ResearchReport {
 /// summary → 只有 summary；full → 补 plan/rounds/coverage/report；evidence → 再补 documents/chunks。
 export interface ResearchSessionView {
   summary: ResearchSessionSummary;
-  /// 创建时的输出要求（格式 / 目标字数 / 是否强制引用）。
+  /// 创建时的输出要求（产物形态 / 是否强制引用）。
   ///
   /// 放在 view 而不是 summary：summary 会经 IPC 送给 renderer 并用于列表渲染，
-  /// 而 output 只有报告生成阶段需要。maxWords 决定报告的输出 token 预算——
-  /// 它此前一直没人读，用户/预设指定的长度被静默忽略。
+  /// 而 output 只有重跑（逐项继承参数）需要。
   output?: ResearchOutputRequest;
   /// 创建时的来源范围。与 output 同理放在 view 而不是 summary：只有重跑与编排需要它。
   sourceScopes?: readonly SourceScope[];
@@ -236,8 +240,27 @@ export interface ResearchSessionFilter {
 // 事件
 // ---------------------------------------------------------------------------
 
+/// 执行流水的一条记录（UI 的「实时活动」列表）。
+///
+/// **text 的内容受限**（spec §19.3.1/§19.3.2）：只允许出现查询词、域名、决策名与计数。
+/// 抓取到的网页正文、标题、完整 URL（query string 可能含搜索词）一律不得进入——
+/// 它们属于 evidence 级别，只能由右栏在用户显式展开来源时经 get(..., "evidence") 取。
+export interface ResearchActivityEvent {
+  type: "activity";
+  sessionId: string;
+  /// 发生时刻（ISO）。UI 按它排序与展示，不参与任何状态判定。
+  at: string;
+  kind: "query" | "document" | "fetch_failed" | "decision" | "report";
+  text: string;
+  roundIndex?: number;
+}
+
 /// main → renderer 的研究事件（spec §16）。
-/// **只带 sessionId、阶段、进度和可展示错误，绝不带正文**——正文只能经 get(..., "evidence") 显式取。
+///
+/// **不带证据正文**——网页正文、摘录、文档标题只能经 get(..., "evidence") 显式取。
+/// 唯一携带长文本的是 report_delta，它带的是**模型自己写的报告正文**：这份内容本来就要经
+/// get(..., "full") 完整回到 renderer，流式只是把它提前一点送到，并没有新增数据类别。
+/// activity 的 text 另有更严的约束，见 ResearchActivityEvent。
 export type ResearchEvent =
   | {
       type: "stage";
@@ -247,10 +270,28 @@ export type ResearchEvent =
       progress?: { completed: number; total: number };
     }
   | {
+      /// 任意一次状态落库都会广播它（由 SessionStateWriter 的 onStatus 单点发出）。
+      ///
+      /// 为什么不能只靠 stage / done：ResearchStage 只覆盖 5 个运行中阶段，done 只覆盖 3 个终态，
+      /// paused / interrupted 两个状态在事件里根本无法表达——这正是「点暂停后界面不变、
+      /// 必须重开覆盖层才看到」的成因。
+      type: "status";
+      sessionId: string;
+      status: ResearchSessionStatus;
+    }
+  | {
       type: "round";
       sessionId: string;
       roundIndex: number;
       decision?: PlannerDecision["action"];
+    }
+  | ResearchActivityEvent
+  | {
+      /// 报告正文的流式增量（**增量而非累计全文**：累计会让长报告的 IPC 流量变成 O(n²)）。
+      /// 仅供展示；落库的永远是引用校验后的最终稿。
+      type: "report_delta";
+      sessionId: string;
+      delta: string;
     }
   | {
       type: "error";
@@ -280,6 +321,9 @@ export interface ResearchEngineFacade {
   /// 刻意是**克隆**而不是就地重置：终态在状态机里没有出口，理由见 session-status 的注释
   /// ——就地改写会让旧报告引用的证据凭空消失，而报告可能已被导出。
   rerun(sessionId: string): Promise<ResearchSessionSummary>;
+  /// 启动一次编排。**返回 = 已启动，不等于已完成**：调用方不该 await 它来等研究结束
+  /// （那会让整条 IPC 挂上几分钟，期间 renderer 拿不到会话、事件全被丢弃）。
+  /// 进度与结束一律经 onEvent 观察；启动前就能判定的失败（未开启 / 搜索服务未配置）仍原样抛出。
   run(sessionId: string): Promise<void>;
   pause(sessionId: string): Promise<void>;
   resume(sessionId: string): Promise<void>;

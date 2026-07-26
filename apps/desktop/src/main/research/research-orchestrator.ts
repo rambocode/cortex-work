@@ -27,6 +27,7 @@ import type {
   CoverageReport,
   PlannedQuery,
   PlannerDecision,
+  ResearchActivityEvent,
   ResearchBudget,
   ResearchEvent,
   ResearchMode,
@@ -54,6 +55,18 @@ import {
 /// Worker 侧也会自行强制一遍（不能假设对方已经夹过）。
 const MAX_TOTAL_FETCH_BYTES = 50 * 1024 * 1024;
 
+/// 报告草稿的节流阈值：攒够 200 字或 120ms 发一条 IPC。
+/// 两个条件是「或」：慢模型靠时间兜底（不会长时间不动），快模型靠字数兜底（不会刷屏）。
+const DRAFT_FLUSH_CHARS = 200;
+const DRAFT_FLUSH_MS = 120;
+
+/// Gap Planner 决策的流水文案（zh-Hans，直接进 UI；UI 侧不再翻一次以免两处漂移）。
+const DECISION_LABELS: Record<PlannerDecision["action"], string> = {
+  search_more: "补充检索",
+  fetch_more: "补充抓取",
+  finish: "证据充分，收尾撰写",
+};
+
 /// 抓取并发与单请求超时。与 spec §19.4 的性能基线一致（Browser 并发另由 Worker 控制）。
 const HTTP_CONCURRENCY = 6;
 const PER_HOST_CONCURRENCY = 2;
@@ -78,7 +91,13 @@ export interface SearchClientLike {
 
 /// 编排层需要的 Worker 最小面（生产由 ResearchWorkerProcess 满足）。
 export interface ResearchWorkerLike {
-  request<M extends WorkerMethod>(method: M, params: unknown): Promise<WorkerResultOf<M>>;
+  /// onProgress：Worker 在这次请求期间上报的进度（协议里的 type:"event"，按 operation_id 路由）。
+  /// 抓取一批 URL 动辄几十秒，没有它的话 UI 只能停在「抓取中 0/N」直到整批结束。
+  request<M extends WorkerMethod>(
+    method: M,
+    params: unknown,
+    onProgress?: (progress: { completed: number; total: number }) => void,
+  ): Promise<WorkerResultOf<M>>;
 }
 
 /// 编排层需要的 blob 写入面（生产由 ResearchBlobStore 满足）。
@@ -93,6 +112,8 @@ export type ReportGenerator = (input: {
   documents: readonly ResearchDocument[];
   coverage: readonly CoverageReport[];
   signal: AbortSignal;
+  /// 正文增量回调。实现方支持流式时应逐段调用；不支持就忽略（编排层只是拿不到草稿）。
+  onDelta?: (delta: string) => void;
 }) => Promise<string>;
 
 /// Initial Planner 注入点（P7）。budget 是 Session 的**权威预算**，实现必须原样带回计划里。
@@ -192,8 +213,11 @@ export class ResearchOrchestrator {
     const view = await this.deps.repository.getSession(sessionId, "evidence");
     if (!view) throw new Error(`未知的研究 Session：${sessionId}`);
 
+    // onStatus：每次状态落库都广播。有它之后，paused / interrupted 这些 stage 与 done
+    // 都表达不了的状态也能实时到达 renderer（此前只能等下一次 list() 才看得到）。
     const state = new SessionStateWriter(this.deps.repository, sessionId, view.summary.status, {
       ...(this.deps.now ? { now: this.deps.now } : {}),
+      onStatus: (status) => this.emit({ type: "status", sessionId, status }),
     });
 
     try {
@@ -280,6 +304,7 @@ export class ResearchOrchestrator {
       await state.to("evaluating");
       this.emit({ type: "stage", sessionId, stage: "evaluating" });
       const decision = await this.decideNext({ sessionId, plan, context, signal });
+      this.activity(sessionId, "decision", DECISION_LABELS[decision.action], roundIndex);
       if (decision.action === "finish") break;
 
       roundIndex += 1;
@@ -293,14 +318,12 @@ export class ResearchOrchestrator {
     // 5. reporting ─────────────────────────────────────────────────────────
     await state.to("reporting");
     this.emit({ type: "stage", sessionId, stage: "reporting" });
+    this.activity(sessionId, "report", "开始撰写报告");
     // 重新读一次：报告要基于**已提交**的全部证据，而不是内存里这一轮的增量。
     const committed = await this.deps.repository.getSession(sessionId, "evidence");
     const chunks = committed?.chunks ?? context.chunks;
     const documents = committed?.documents ?? context.documents;
     const coverage = committed?.coverage ?? context.coverage;
-    // 创建时的输出要求（含 maxWords）。与 chunks/documents 同源于这次重读，
-    // 缺失时报告生成按模式分档取默认预算。
-    const output = committed?.output;
 
     await runOperation({
       repository: this.deps.repository,
@@ -310,16 +333,16 @@ export class ResearchOrchestrator {
       signal,
       ...(this.deps.now ? { now: this.deps.now } : {}),
       execute: async (innerSignal) => {
+        // 报告是整个研究里最慢的一步：不把增量推出去，用户就只能盯着一个「撰写中」发呆。
+        const draft = this.createDraftStream(sessionId);
         const markdown = await this.generateReport({
           plan,
           chunks,
           documents,
           coverage,
-          // 创建时的输出要求。maxWords 决定报告的输出 token 预算——
-          // 它此前一直没被传下来，用户/预设指定的长度被静默忽略。
-          ...(output ? { output } : {}),
           signal: innerSignal,
-        });
+          onDelta: draft.push,
+        }).finally(draft.flush);
         // 引用校验是产物落库前的最后一道闸：未知 chunkId 的伪造引用在这里被物理删除。
         return validateResearchReport({ markdown, chunks, documents, generatedAt: this.nowIso() });
       },
@@ -393,6 +416,8 @@ export class ResearchOrchestrator {
     for (const query of step.queries) {
       context.subquestionByQueryId.set(query.queryId, query.subquestionId);
       context.executedQueries.push(query.text);
+      // 查询词本身早就随 plan.initialQueries 给过 renderer，作为流水展示不引入新数据。
+      this.activity(sessionId, "query", query.text, input.roundIndex);
     }
     context.candidates.push(...searched.candidates);
     return searched.candidates;
@@ -463,6 +488,18 @@ export class ResearchOrchestrator {
                 operationId: fetchOperationId,
                 limits: input.remaining,
                 signal: innerSignal,
+                // Worker 的进度直接转成阶段进度。total 以 Worker 报的为准（它才知道
+                // 自己实际在抓几个），缺失时回落到我们选中的候选数。
+                onProgress: (progress) =>
+                  this.emit({
+                    type: "stage",
+                    sessionId,
+                    stage: "fetching",
+                    progress: {
+                      completed: progress.completed,
+                      total: progress.total || selected.length,
+                    },
+                  }),
               });
 
         // 正文必须在提交**之前**落 blob：apply 是同步的，不能在事务里 await（spec §9.1）。
@@ -519,6 +556,12 @@ export class ResearchOrchestrator {
     context.documents.push(...fetched.mapped.documents);
     context.chunks.push(...fetched.mapped.chunks);
     context.coverage = fetched.coverage;
+    // 流水只在**提交成功后**发：先发再提交的话，一次回滚会让用户看到几篇根本没入库的来源。
+    for (const document of fetched.mapped.documents) {
+      // source.domain 是映射层已经算好的域名；缺失时才从 locator（URL）现取。
+      const host = document.source.domain ?? hostnameOf(document.source.locator);
+      this.activity(sessionId, "document", host, input.roundIndex);
+    }
     this.reportDegradations(sessionId, fetched.mapped);
   }
 
@@ -636,6 +679,8 @@ export class ResearchOrchestrator {
     operationId: string;
     limits: ResearchBudget;
     signal: AbortSignal;
+    /// Worker 的抓取进度回调（转成 stage:fetching 事件给 UI）。
+    onProgress?: (progress: { completed: number; total: number }) => void;
   }): Promise<MappedFetchResult> {
     const params: WorkerFetchPrepareParams = {
       operation_id: input.operationId,
@@ -672,7 +717,7 @@ export class ResearchOrchestrator {
     };
     if (this.deps.agentBrowserBinary) params.agent_browser_binary = this.deps.agentBrowserBinary;
 
-    let raw = await this.requestWorkerWithCancel(params, input.signal);
+    let raw = await this.requestWorkerWithCancel(params, input.signal, input.onProgress);
     if (raw.operation_id !== params.operation_id) {
       throw new Error("Worker 响应的 operation_id 与请求不一致");
     }
@@ -691,7 +736,11 @@ export class ResearchOrchestrator {
         ),
         prefetched,
       };
-      const retryRaw = await this.requestWorkerWithCancel(retryParams, input.signal);
+      const retryRaw = await this.requestWorkerWithCancel(
+        retryParams,
+        input.signal,
+        input.onProgress,
+      );
       // 合并：第二轮的产出并进第一轮，并把已被救回的候选从 failures 里摘掉。
       const rescued = new Set(retryRaw.documents.map((d) => d.candidate_id));
       raw = {
@@ -777,9 +826,10 @@ export class ResearchOrchestrator {
   private requestWorkerWithCancel(
     params: WorkerFetchPrepareParams,
     signal: AbortSignal,
+    onProgress?: (progress: { completed: number; total: number }) => void,
   ): Promise<WorkerFetchPrepareResult> {
     if (signal.aborted) return Promise.reject(new OperationCancelledError(params.operation_id));
-    const pending = this.deps.worker.request("fetch_prepare", params);
+    const pending = this.deps.worker.request("fetch_prepare", params, onProgress);
 
     return new Promise<WorkerFetchPrepareResult>((resolve, reject) => {
       const onAbort = (): void => {
@@ -801,6 +851,32 @@ export class ResearchOrchestrator {
       // 会变成一条 unhandledRejection。
       pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
     });
+  }
+
+  /// 报告草稿的节流推送器。
+  ///
+  /// 为什么必须节流：模型逐 token 回吐，一篇 5000 字的报告能产生上千次回调，
+  /// 每次都发一条 IPC 会把渲染进程的事件队列灌满（UI 反而更卡）。攒够字数或攒够时间才发一条，
+  /// 收尾时 flush 掉尾巴——少了 flush，报告的最后一段会永远停在草稿之外。
+  private createDraftStream(sessionId: string): {
+    push: (delta: string) => void;
+    flush: () => void;
+  } {
+    let buffer = "";
+    let lastFlushAt = Date.now();
+    const flush = (): void => {
+      if (buffer.length === 0) return;
+      this.emit({ type: "report_delta", sessionId, delta: buffer });
+      buffer = "";
+      lastFlushAt = Date.now();
+    };
+    return {
+      push: (delta) => {
+        buffer += delta;
+        if (buffer.length >= DRAFT_FLUSH_CHARS || Date.now() - lastFlushAt >= DRAFT_FLUSH_MS) flush();
+      },
+      flush,
+    };
   }
 
   /// 生成报告正文。默认走确定性证据摘要（P5 无 LLM）。
@@ -841,14 +917,18 @@ export class ResearchOrchestrator {
   /// 但用户有权知道"10 个来源里有 3 个没拿到"。
   private reportDegradations(sessionId: string, mapped: MappedFetchResult): void {
     for (const failure of mapped.failures) {
+      // 只带域名不带完整 URL：URL 的 query string 可能含搜索词（§19.3.1）。
+      const host = hostnameOf(failure.url);
       this.emit({
         type: "error",
         sessionId,
         code: `fetch_${failure.code}`,
-        // 只带域名不带完整 URL：URL 的 query string 可能含搜索词（§19.3.1）。
-        message: `抓取失败：${hostnameOf(failure.url)}（${failure.code}）`,
+        message: `抓取失败：${host}（${failure.code}）`,
         terminal: false,
       });
+      // 同一件事发两条事件是有意的：error 进「未能采信的来源」清单（可回看），
+      // activity 只是流水里的一行（会滚走）。两个视图的生命周期不同。
+      this.activity(sessionId, "fetch_failed", `${host}（${failure.code}）`);
     }
     if (mapped.notes.length > 0) {
       this.deps.logger?.warn("[research] 映射降级", mapped.notes);
@@ -883,6 +963,27 @@ export class ResearchOrchestrator {
 
   private emit(event: ResearchEvent): void {
     this.deps.emit?.(event);
+  }
+
+  /// 发一条执行流水。
+  ///
+  /// **text 的取值受 spec §19.3.1/§19.3.2 约束**：只允许查询词、域名、决策名与计数——
+  /// 完整 URL（query string 可能含搜索词）、网页正文、文档标题都不得出现在这里。
+  /// 调用点自己负责把 URL 收敛成域名（hostnameOf）。
+  private activity(
+    sessionId: string,
+    kind: ResearchActivityEvent["kind"],
+    text: string,
+    roundIndex?: number,
+  ): void {
+    this.emit({
+      type: "activity",
+      sessionId,
+      at: this.nowIso(),
+      kind,
+      text,
+      ...(roundIndex !== undefined ? { roundIndex } : {}),
+    });
   }
 
   private newId(): string {

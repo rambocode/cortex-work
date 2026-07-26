@@ -8,6 +8,7 @@ import type { ProviderSettings } from "@cortex-work/core/desktop/types";
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
 import type { EvidenceChunk, ResearchDocument } from "@cortex-work/core/research/evidence";
 import type { ResearchPlan } from "@cortex-work/core/research/types";
+import { resolveReportMaxTokens } from "../report-generator";
 import { createResearchLlmHooks } from "./llm-hooks";
 
 function cloudOnly(): ProviderSettings {
@@ -174,5 +175,29 @@ describe("createResearchLlmHooks", () => {
       signal,
     });
     expect(markdown).toBe("node:sqlite 是实验特性[^ch_1]。");
+  });
+
+  // 报告篇幅由用户在研究目标里的表述决定，装配层不注入任何字数指令；
+  // 输出 token 上限只是安全阀，按研究强度分档（见 report-generator 的 resolveReportMaxTokens）。
+  it("按研究强度给出输出上限，不受任何篇幅配置影响", async () => {
+    const seen: Array<number | undefined> = [];
+    const hooks = createResearchLlmHooks({
+      providerSettings: cloudOnly(),
+      consumer: "deep_research",
+      complete: async (params) => {
+        seen.push(params.maxTokens);
+        return "正文[^ch_1]。";
+      },
+    });
+
+    await hooks.generateReport({
+      plan: PLAN,
+      chunks: [CHUNK],
+      documents: [DOCUMENT],
+      coverage: [],
+      signal: new AbortController().signal,
+    });
+
+    expect(seen[0]).toBe(resolveReportMaxTokens({ budget: PLAN.budget }));
   });
 });

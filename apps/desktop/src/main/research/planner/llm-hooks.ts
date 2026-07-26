@@ -13,7 +13,7 @@ import type {
   ResearchConsumer,
   ResearchPlan,
 } from "@cortex-work/core/research/types";
-import type { postChatCompletion } from "../../ipc/openai-chat";
+import type { postChatCompletion, postChatCompletionStream } from "../../ipc/openai-chat";
 import { ResearchModelGateway } from "../research-model-gateway";
 import { generateReport } from "../report-generator";
 import type { GapPlanner, InitialPlanner, ReportGenerator } from "../research-orchestrator";
@@ -27,7 +27,7 @@ export interface ResearchLlmHooks {
   generateReport: ReportGenerator;
 }
 
-/// 装配入参。complete / fetchFn 只为测试注入而存在，生产不传。
+/// 装配入参。complete / completeStream / fetchFn 只为测试注入而存在，生产不传。
 export interface ResearchLlmHooksInput {
   providerSettings: ProviderSettings;
   /// 研究模型偏好（研究设置的 modelProviderId / modelId）；缺省 = 跟随全局默认模型。
@@ -35,6 +35,8 @@ export interface ResearchLlmHooksInput {
   consumer: ResearchConsumer;
   blockedDomains?: readonly string[];
   complete?: typeof postChatCompletion;
+  /// 报告是唯一走流式的调用，因此它有独立的注入口（Planner 仍走 complete）。
+  completeStream?: typeof postChatCompletionStream;
   fetchFn?: typeof fetch;
   now?: () => Date;
   logger?: { warn(...args: unknown[]): void; info?(...args: unknown[]): void };
@@ -46,6 +48,7 @@ export function createResearchLlmHooks(input: ResearchLlmHooksInput): ResearchLl
     providerSettings: input.providerSettings,
     ...(input.preference ? { preference: input.preference } : {}),
     ...(input.complete ? { complete: input.complete } : {}),
+    ...(input.completeStream ? { completeStream: input.completeStream } : {}),
     ...(input.fetchFn ? { fetchFn: input.fetchFn } : {}),
     ...(input.logger ? { logger: input.logger } : {}),
   });
@@ -98,6 +101,8 @@ export function createResearchLlmHooks(input: ResearchLlmHooksInput): ResearchLl
           documents: call.documents,
           budget: call.plan.budget,
           signal: call.signal,
+          // 流式增量原样转交编排层（它负责节流并转成 report_delta 事件）。
+          ...(call.onDelta ? { onDelta: call.onDelta } : {}),
         },
         {
           gateway,

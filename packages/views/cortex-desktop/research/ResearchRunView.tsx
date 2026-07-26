@@ -9,14 +9,17 @@ import { useMemo, useState, type AnchorHTMLAttributes, type ReactElement } from 
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
+  ResearchActivity,
   ResearchProgress,
   ResearchWarning,
 } from "@cortex-work/core/research/ui-store";
+import { NON_TERMINAL_RESEARCH_STATUSES } from "@cortex-work/core/research/session-status";
 import type {
   ResearchSessionSummary,
   ResearchSessionView,
 } from "@cortex-work/core/research/types";
 import type { ResearchBridgeLike } from "./bridge-like";
+import { ResearchActivityFeed } from "./ResearchActivityFeed";
 import {
   RESEARCH_STAGE_LABELS,
   RESEARCH_STATUS_META,
@@ -88,6 +91,11 @@ export interface ResearchRunViewProps {
   progress?: ResearchProgress;
   /// 非终态错误累积的警告，按 FetchFailureCode 翻成中文说明。
   warnings?: ResearchWarning[];
+  /// 实时活动流水（事件派生态）。缺省或为空时整段不渲染。
+  activities?: readonly ResearchActivity[];
+  /// 报告的流式草稿。只在「撰写中且最终报告还没落库」时展示——
+  /// 最终稿到位后必须让位，否则同一份内容会出现两遍（且草稿那份没有引用 chip）。
+  reportDraft?: string;
   /// 导出报告 Markdown。由宿主决定落盘方式（下载 / 写文件 / 复制），组件只负责给内容。
   onExportMarkdown?: (markdown: string, session: ResearchSessionSummary) => void;
   /// 新建时自动 run 失败的原因。
@@ -111,6 +119,8 @@ export function ResearchRunView({
   view,
   progress,
   warnings,
+  activities,
+  reportDraft,
   onExportMarkdown,
   startError,
   onRerun,
@@ -148,6 +158,10 @@ export function ResearchRunView({
   const plan = view?.plan;
   const rounds = view?.rounds ?? [];
   const failures = warnings ?? [];
+  const running = (NON_TERMINAL_RESEARCH_STATUSES as readonly string[]).includes(status);
+  // 草稿只在「还没有最终报告」时出场。最终稿一到（done 事件后宿主会重拉 full），
+  // 这里自动切回带引用 chip 的正式渲染。
+  const draft = !report && reportDraft ? reportDraft : null;
 
   // 控制动作统一包一层：禁用态直接不触发，失败只提示不改本地状态
   // （状态真源在 main，会经事件回流，本地猜测反而会闪烁）。
@@ -300,6 +314,8 @@ export function ResearchRunView({
           </section>
         ) : null}
 
+        <ResearchActivityFeed activities={activities ?? []} running={running} />
+
         {failures.length > 0 ? (
           <section className="pw-res-sec">
             <div className="pw-res-sec-title">{`未能采信的来源（${failures.length}）`}</div>
@@ -311,6 +327,24 @@ export function ResearchRunView({
                 </li>
               ))}
             </ul>
+          </section>
+        ) : null}
+
+        {/* 报告草稿：模型边写边推的正文。刻意**不做**引用 chip 化——引用表要等报告落库后
+            才存在，草稿阶段把 [^chunkId] 硬渲染成 chip 只会得到一串指向空处的编号。 */}
+        {draft ? (
+          <section className="pw-res-sec">
+            <div className="pw-res-sec-title">
+              研究报告
+              <span className="pw-res-draft-tag">正在撰写…</span>
+            </div>
+            <div className="pw-res-report-card is-draft">
+              <div className="pw-res-md">
+                <Markdown remarkPlugins={[remarkGfm]} components={REPORT_MD_COMPONENTS}>
+                  {draft}
+                </Markdown>
+              </div>
+            </div>
           </section>
         ) : null}
 

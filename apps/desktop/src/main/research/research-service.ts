@@ -186,25 +186,46 @@ export class ResearchService implements ResearchEngineFacade {
     });
   }
 
+  /// 启动一次编排。**启动即返回，不等编排跑完**。
+  ///
+  /// 为什么不能 await 到底（真实踩过）：renderer 的「新建 → 开始」是一次 ipcRenderer.invoke，
+  /// 挂到编排结束才 resolve 的话，会话在那几分钟里根本进不了渲染端的列表，而 ui-store 会把
+  /// 「不在列表里的会话」的事件全部丢弃——用户看到的就是「点了开始，页面毫无反应」。
+  ///
+  /// 代价是启动之后的失败没人 await 得到，因此分成两段：
+  /// **启动前能判定的失败**（未开启 / 搜索服务未配置 / 未知会话）在这里同步抛回 renderer；
+  /// **启动后的失败**由 execute 兜底，转成 error(terminal) + done(failed) 事件广播。
   async run(sessionId: string): Promise<void> {
     const summary = await this.requireSummary(sessionId);
     this.assertEnabled(summary.consumer);
 
-    // 单飞：并发调用共享同一个 Promise，不会起第二个编排。
-    const existing = this.running.get(sessionId);
-    if (existing) return existing.promise;
+    // 单飞：已有在途编排就直接返回（不再 await 别人那一轮，语义同样是「已启动」）。
+    if (this.running.has(sessionId)) return;
+
+    // 搜索客户端在这里现取而不是留给 execute：它是「配置没填」这一类可预判失败的唯一来源，
+    // 放到后台去抛的话，用户点完开始只会得到一个静静停在 created 的会话。
+    const searchClient = this.deps.createSearchClient();
+    if (!searchClient) throw new SearchServerNotConfiguredError();
 
     const controller = new AbortController();
     const entry: RunEntry = { controller, intent: "cancel", promise: Promise.resolve() };
     // 先入注册表再启动：否则"启动过程中的第二次 run"会看到空注册表而重复起一轮。
     this.running.set(sessionId, entry);
 
-    entry.promise = this.execute(summary, entry).finally(() => {
+    entry.promise = this.execute(summary, entry, searchClient).finally(() => {
       // 竞态守卫：只有仍是自己这一轮时才摘条目，避免把后来者的注册表项误删
       //（照 capabilities/agent-browser/runtime.ts 的 this.controller === controller 写法）。
       if (this.running.get(sessionId) === entry) this.running.delete(sessionId);
     });
-    return entry.promise;
+    // 没人 await 这个 promise 时，它的 rejection 会变成 unhandledRejection 把主进程刷屏。
+    // execute 内部已经把失败转成事件了，这里只需要标记为「已处理」。
+    entry.promise.catch(() => undefined);
+  }
+
+  /// 等某个 Session 当前这一轮编排收敛（无在途则立即返回）。
+  /// 给关停流程与测试用；**产品代码不要用它来等研究结束**，那是 onEvent 的职责。
+  async settled(sessionId: string): Promise<void> {
+    await this.running.get(sessionId)?.promise.catch(() => undefined);
   }
 
   async pause(sessionId: string): Promise<void> {
@@ -304,12 +325,31 @@ export class ResearchService implements ResearchEngineFacade {
 
   // ── 内部 ─────────────────────────────────────────────────────────────────
 
-  /// 真正跑一轮编排。Worker 与搜索客户端都在这里按需装配——
-  /// 总开关关闭时根本走不到这里，因此"不起 worker"是结构性保证而不是靠 if 记得写。
-  private async execute(summary: ResearchSessionSummary, entry: RunEntry): Promise<void> {
+  /// 真正跑一轮编排。Worker 按需装配——总开关关闭时根本走不到这里，
+  /// 因此"不起 worker"是结构性保证而不是靠 if 记得写。
+  ///
+  /// **失败必须自己收口**：run 已经返回，没有任何调用方在 await 这个 promise，
+  /// 异常若只是往上抛就等于凭空消失，会话会永远停在 created/planning 且界面上零线索。
+  private async execute(
+    summary: ResearchSessionSummary,
+    entry: RunEntry,
+    searchClient: SearchClientLike,
+  ): Promise<void> {
+    try {
+      await this.orchestrate(summary, entry, searchClient);
+    } catch (err) {
+      await this.failSession(summary.sessionId, err);
+    }
+  }
+
+  /// 装配编排器并跑一轮。编排器内部的失败由它自己 settle（写 failed + 发事件）后再抛出，
+  /// 抛到 execute 的多是**编排开始之前**的失败（Worker 拉不起来、LLM 装配失败等）。
+  private async orchestrate(
+    summary: ResearchSessionSummary,
+    entry: RunEntry,
+    searchClient: SearchClientLike,
+  ): Promise<void> {
     const sessionId = summary.sessionId;
-    const searchClient = this.deps.createSearchClient();
-    if (!searchClient) throw new SearchServerNotConfiguredError();
     const worker = await this.deps.workerProvider.ensure();
 
     // LLM 注入项按 Session 装配：provider 快照在一次编排内保持稳定，
@@ -346,6 +386,28 @@ export class ResearchService implements ResearchEngineFacade {
     await orchestrator.run(sessionId, entry.controller.signal);
   }
 
+  /// 把一次「没人 await 得到」的失败落成终态并广播出去。
+  ///
+  /// 已经是终态的会话（编排器自己 settle 过）不重复写：forceTo 会因终态无出口而抛错，
+  /// 那正好说明状态已经落定，此时只补事件是错的——会话可能已经 cancelled，不该再报 failed。
+  private async failSession(sessionId: string, err: unknown): Promise<void> {
+    const message = err instanceof Error ? err.message : String(err);
+    this.deps.logger?.warn("[research] 编排启动失败", sessionId, message);
+    try {
+      const view = await this.deps.repository.getSession(sessionId, "summary");
+      const status = view?.summary.status;
+      if (!status || TERMINAL_RESEARCH_STATUSES.includes(status as (typeof TERMINAL_RESEARCH_STATUSES)[number])) {
+        return;
+      }
+      const state = await this.stateWriter(sessionId);
+      await state.forceTo("failed", message);
+      this.broadcast({ type: "error", sessionId, code: "research_failed", message, terminal: true });
+      this.broadcast({ type: "done", sessionId, status: "failed" });
+    } catch (settleError) {
+      this.deps.logger?.warn("[research] 失败收尾写入失败", sessionId, settleError);
+    }
+  }
+
   /// 总开关 + Consumer 灰度开关。两者都通过才允许发起研究。
   private assertEnabled(consumer: ResearchConsumer): void {
     const settings = this.deps.settings();
@@ -364,10 +426,15 @@ export class ResearchService implements ResearchEngineFacade {
     return view.summary;
   }
 
+  /// 构造一个「每次状态落库都会广播」的状态写入器。
+  ///
+  /// onStatus 是状态变更广播的**唯一单点**：漏传它的那条路径（此前的 pause）就会出现
+  /// 「main 已经改了状态，renderer 却要等下一次 list() 才知道」的漂移。
   private async stateWriter(sessionId: string): Promise<SessionStateWriter> {
     const summary = await this.requireSummary(sessionId);
     return new SessionStateWriter(this.deps.repository, sessionId, summary.status, {
       ...(this.deps.now ? { now: this.deps.now } : {}),
+      onStatus: (status) => this.broadcast({ type: "status", sessionId, status }),
     });
   }
 

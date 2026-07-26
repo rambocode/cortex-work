@@ -27,7 +27,7 @@ import {
   type ResearchModelPreference,
 } from "@cortex-work/core/research/model-selection";
 import { truncateToChars } from "@cortex-work/core/research/search-api";
-import { postChatCompletion } from "../ipc/openai-chat";
+import { postChatCompletion, postChatCompletionStream } from "../ipc/openai-chat";
 import { redactResearchLog } from "./redact-research";
 
 /// 一次模型调用的用途。只用于日志与预算归因，不影响选型。
@@ -45,6 +45,12 @@ export interface ModelCallInput {
   signal?: AbortSignal;
   /// 出站字符上限，取 budget.maxEvidenceCharsToModel；缺省用 DEFAULT_MAX_PROMPT_CHARS。
   maxPromptChars?: number;
+  /// 流式增量回调。**传了才走 SSE**：Planner 那类要完整 JSON 才能解析的调用没有流式的意义，
+  /// 多开一条 SSE 只会多一份容错分支。
+  ///
+  /// 收到的是**增量**而不是累计全文（底层 postChatCompletionStream 给的是累计，这里已经切好）：
+  /// 累计全文一路传到 IPC 会让长报告的流量变成 O(n²)。
+  onDelta?: (delta: string) => void;
 }
 
 /// 网关依赖。providerSettings 是快照而非读取函数：一次编排期间选型必须稳定，
@@ -56,6 +62,9 @@ export interface ModelGatewayDeps {
   preference?: ResearchModelPreference;
   /// 补全实现的注入口（测试传替身）。默认 postChatCompletion。
   complete?: typeof postChatCompletion;
+  /// 流式补全实现的注入口（测试传替身）。默认 postChatCompletionStream，只在调用方传了
+  /// onDelta 时才会被用到。
+  completeStream?: typeof postChatCompletionStream;
   /// fetch 的注入口，透传给 postChatCompletion；用于「零真实网络」的验收测试。
   fetchFn?: typeof fetch;
   /// 单次调用超时；默认 60s（与 postChatCompletion 一致）。
@@ -127,21 +136,23 @@ export class ResearchModelGateway {
     }
 
     // 3. 真正出站。**这里刻意没有 tools/functions**（spec §6.1 第 4 条）。
-    const complete = this.deps.complete ?? postChatCompletion;
+    const params = {
+      baseUrl: provider.baseUrl,
+      ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
+      model: selection.model,
+      messages: [
+        { role: "system" as const, content: input.systemPrompt },
+        { role: "user" as const, content: userPrompt },
+      ],
+      ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}),
+      ...(input.signal ? { signal: input.signal } : {}),
+      ...(this.deps.timeoutMs !== undefined ? { timeoutMs: this.deps.timeoutMs } : {}),
+      ...(this.deps.fetchFn ? { fetchFn: this.deps.fetchFn } : {}),
+    };
     try {
-      const text = await complete({
-        baseUrl: provider.baseUrl,
-        ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
-        model: selection.model,
-        messages: [
-          { role: "system", content: input.systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}),
-        ...(input.signal ? { signal: input.signal } : {}),
-        ...(this.deps.timeoutMs !== undefined ? { timeoutMs: this.deps.timeoutMs } : {}),
-        ...(this.deps.fetchFn ? { fetchFn: this.deps.fetchFn } : {}),
-      });
+      const text = input.onDelta
+        ? await this.completeStreaming(params, input.onDelta)
+        : await (this.deps.complete ?? postChatCompletion)(params);
       return {
         ok: true,
         text,
@@ -161,6 +172,27 @@ export class ResearchModelGateway {
         model: selection.model,
       };
     }
+  }
+
+  /// 走 SSE 拿正文，并把底层的**累计全文**切成增量交给调用方。
+  ///
+  /// 为什么在这里切：postChatCompletionStream 的 onDelta 给的是累计串（它自己的既有契约），
+  /// 而增量才是能安全跨 IPC 传的形态。切一次比让每个调用方各自记 prev 长度可靠得多。
+  private async completeStreaming(
+    params: Parameters<typeof postChatCompletionStream>[0],
+    onDelta: (delta: string) => void,
+  ): Promise<string> {
+    const stream = this.deps.completeStream ?? postChatCompletionStream;
+    let emitted = 0;
+    return stream({
+      ...params,
+      onDelta: (accumulated) => {
+        // 防御：个别供应商会在重试时回吐一段更短的累计串，此时不倒着切。
+        if (accumulated.length <= emitted) return;
+        onDelta(accumulated.slice(emitted));
+        emitted = accumulated.length;
+      },
+    });
   }
 }
 

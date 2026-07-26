@@ -4,12 +4,17 @@
 // 数据流：
 //   挂载 → bridge.list() 灌入 ui-store → bridge.onEvent 订阅，事件经 applyEvent 落状态；
 //   选中会话 → bridge.get(id, "full") 拿计划/轮次/报告（**不是 evidence**）；
+//   运行中 → round / done / status 事件触发防抖重拉 "full"（详情只在 main，事件里不带）；
 //   证据正文 → 只由右栏在用户展开时经 get(id, "evidence") 按需拉。
 // 「什么时候拉、拉到什么级别」全部收在本组件与右栏两处，别的地方不要再发起 get，
 // 否则很容易出现某个角落顺手拉了 evidence 把正文带进内存（spec §16 / §19.3.2）。
 //
+// **启动研究由本组件负责，不在创建表单里**：表单在 onCreated 之后立刻卸载，而 run 必须
+// 发生在「会话已经进入 ui-store 的列表」之后——否则编排发出的事件会被 applyEvent 当作
+// 未知会话丢弃（那正是「点了开始后页面毫无反应」的根因）。
+//
 // bridge 为 null（Web 端没有桌面桥）时渲染降级提示，不做任何订阅与请求。
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { useResearchUiStore } from "@cortex-work/core/research/ui-store";
 import type { ResearchSessionSummary } from "@cortex-work/core/research/types";
 import type { ResearchBridgeLike } from "./bridge-like";
@@ -35,6 +40,18 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/// 事件触发重拉详情的防抖窗口。
+///
+/// 一轮里 round / status / activity 会密集到达，每条都去 get("full") 等于把 SQLite 当轮询接口打。
+/// 500ms 对人眼已经是「立刻」，对数据库则是把几十次查询压成一次。
+const DETAIL_REFRESH_DEBOUNCE_MS = 500;
+
+/// 哪些事件意味着「main 那边的详情变了，该重新拉一次」。
+/// stage 不在其中：它只改阶段徽标，计划 / 轮次 / 报告都没动（reporting 由 status 事件覆盖）。
+function shouldRefreshDetail(event: { type: string }): boolean {
+  return event.type === "round" || event.type === "done" || event.type === "status";
+}
+
 /// Deep Research 工作区根组件：列表 + 新建表单 + 运行视图的编排者。
 /// **detail 级别的分工是硬约束**：这里只在选中会话时拉 "full"，"evidence" 一律由
 /// ResearchSourcePanel 在用户点开来源时按需拉取，别处不得发起 get。
@@ -48,12 +65,31 @@ export function ResearchWorkspace({
   const detailCache = useResearchUiStore((s) => s.detailCache);
   const progressMap = useResearchUiStore((s) => s.progress);
   const warningMap = useResearchUiStore((s) => s.warnings);
+  const activityMap = useResearchUiStore((s) => s.activities);
+  const draftMap = useResearchUiStore((s) => s.reportDraft);
   const loading = useResearchUiStore((s) => s.loading);
   const error = useResearchUiStore((s) => s.error);
   const [creating, setCreating] = useState(false);
   // 「会话建好了但没跑起来」的原因，连同它属于哪个会话一起记——创建表单在 onCreated 时就被
   // 卸载，它自己的错误 state 会随之消失，原因必须由这里保管并显示在会话视图上。
   const [startError, setStartError] = useState<{ sessionId: string; message: string } | null>(null);
+
+  // 详情重拉的防抖计时器。放 ref 而不是 state：它只影响副作用的时序，不该触发渲染。
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 拉一次 "full" 详情并落 store。**只有这里和右栏能发 get**（见文件头的分工约束）。
+  const fetchDetail = useCallback(
+    (sessionId: string) => {
+      if (!bridge) return;
+      void bridge
+        .get(sessionId, "full")
+        .then((view) => useResearchUiStore.getState().setDetail(sessionId, view))
+        .catch((e: unknown) =>
+          useResearchUiStore.getState().setError(`加载研究详情失败：${errText(e)}`),
+        );
+    },
+    [bridge],
+  );
 
   // 挂载：拉列表 + 订阅事件。两件事放一个 effect，保证订阅在列表回来之前就已建立——
   // 反过来（先拿列表再订阅）会漏掉这段窗口期内发生的事件。
@@ -62,7 +98,18 @@ export function ResearchWorkspace({
     if (!bridge) return;
     const store = useResearchUiStore.getState();
     let alive = true;
-    const off = bridge.onEvent((event) => useResearchUiStore.getState().applyEvent(event));
+    const off = bridge.onEvent((event) => {
+      useResearchUiStore.getState().applyEvent(event);
+      // 详情（真实计划 / 轮次 / 报告）不在事件里，只能重新拉。只拉当前选中的那个会话——
+      // 后台跑着的其它会话没人在看，拉回来只是白占内存。
+      if (!shouldRefreshDetail(event)) return;
+      if (useResearchUiStore.getState().activeSessionId !== event.sessionId) return;
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => {
+        refreshTimer.current = null;
+        if (alive) fetchDetail(event.sessionId);
+      }, DETAIL_REFRESH_DEBOUNCE_MS);
+    });
 
     store.setLoading(true);
     store.setError(null);
@@ -82,12 +129,16 @@ export function ResearchWorkspace({
 
     return () => {
       alive = false;
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
       off();
     };
-  }, [bridge]);
+  }, [bridge, fetchDetail]);
 
-  // 选中会话时补 "full" 详情。已缓存过 plan 的不再重复拉——
-  // 运行中的增量变化由事件推送，不靠轮询详情。
+  // 选中会话时补 "full" 详情。
+  //
+  // **stale-while-revalidate**：缓存里的先渲染（没有空白闪烁），同时无条件再拉一次。
+  // 曾经这里是「缓存里有 plan 就不拉了」，而 create 时就落了一份种子计划——结果真实计划、
+  // 轮次与报告在整个生命周期里都不会出现，只能重启应用。
   const selectSession = useCallback(
     (sessionId: string) => {
       const store = useResearchUiStore.getState();
@@ -95,15 +146,9 @@ export function ResearchWorkspace({
       setCreating(false);
       // 换会话即清掉启动失败提示：它只属于刚才那个会话。
       setStartError(null);
-      if (!bridge || store.detailCache[sessionId]?.plan) return;
-      void bridge
-        .get(sessionId, "full")
-        .then((view) => useResearchUiStore.getState().setDetail(sessionId, view))
-        .catch((e: unknown) =>
-          useResearchUiStore.getState().setError(`加载研究详情失败：${errText(e)}`),
-        );
+      fetchDetail(sessionId);
     },
-    [bridge],
+    [fetchDetail],
   );
 
   const deleteSession = useCallback(
@@ -120,15 +165,33 @@ export function ResearchWorkspace({
     [bridge],
   );
 
-  const onCreated = useCallback((summary: ResearchSessionSummary, startError?: string) => {
+  /// 新建 / 重跑产出会话后的统一落位：插列表 + 选中 + 清错。**不启动**。
+  const onCreated = useCallback((summary: ResearchSessionSummary) => {
     const store = useResearchUiStore.getState();
     store.upsertSession(summary);
     store.selectSession(summary.sessionId);
     setCreating(false);
-    // 只对刚创建的这个会话记错：切到别的会话时清掉（见 selectSession），
-    // 否则一条「启动失败」会跟着用户在所有会话之间飘。
-    setStartError(startError ? { sessionId: summary.sessionId, message: startError } : null);
+    setStartError(null);
   }, []);
+
+  /// 新建完成：落位之后立刻启动。
+  ///
+  /// 顺序是硬约束——upsertSession 必须先于 bridge.run 完成，否则编排一开始发出的事件会落到
+  /// 一个「列表里还没有」的会话上，被 ui-store 直接丢弃。
+  ///
+  /// run 现在是**启动即返回**的（main 侧 fire-and-forget），所以这里的 catch 只可能抓到
+  /// 启动前就能判定的失败（研究未开启 / 搜索服务未配置）。这条原因必须由本组件保管：
+  /// 创建表单在 onCreated 的那一刻就被卸载，它自己的 state 里那条提示还没来得及被看见就没了。
+  const onCreatedAndStart = useCallback(
+    (summary: ResearchSessionSummary) => {
+      onCreated(summary);
+      if (!bridge) return;
+      void bridge.run(summary.sessionId).catch((e: unknown) => {
+        setStartError({ sessionId: summary.sessionId, message: `启动失败：${errText(e)}` });
+      });
+    },
+    [bridge, onCreated],
+  );
 
   // 导出报告：浏览器下载。jsdom 与老壳可能没有 createObjectURL，缺失时静默跳过
   // （调用方也可以自己传 onExportMarkdown 覆盖，例如走 bridge 写盘）。
@@ -191,7 +254,7 @@ export function ResearchWorkspace({
             <ResearchCreateForm
               bridge={bridge}
               {...(model ? { model } : {})}
-              onCreated={onCreated}
+              onCreated={onCreatedAndStart}
               onCancel={() => setCreating(false)}
             />
           ) : (
@@ -201,6 +264,8 @@ export function ResearchWorkspace({
               view={activeView}
               progress={activeSessionId ? progressMap[activeSessionId] : undefined}
               warnings={activeSessionId ? warningMap[activeSessionId] : undefined}
+              activities={activeSessionId ? activityMap[activeSessionId] : undefined}
+              reportDraft={activeSessionId ? draftMap[activeSessionId] : undefined}
               onExportMarkdown={exportMarkdown}
               // 重跑产出的新会话走与新建完全相同的落位逻辑（插列表 + 选中 + 清错）。
               onRerun={onCreated}

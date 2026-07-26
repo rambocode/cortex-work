@@ -288,6 +288,16 @@ async function makeHarness(): Promise<Harness> {
           modelSystemPrompts.push(params.messages[0]!.content);
           return modelScript(params.messages[0]!.content, params.messages[1]!.content);
         },
+        // 报告走流式：分两段回吐**累计全文**（与真实 postChatCompletionStream 的契约一致），
+        // 由网关切成增量、编排层节流后广播成 report_delta。
+        completeStream: async (params) => {
+          modelSystemPrompts.push(params.messages[0]!.content);
+          const text = modelScript(params.messages[0]!.content, params.messages[1]!.content);
+          const half = Math.ceil(text.length / 2);
+          params.onDelta?.(text.slice(0, half));
+          params.onDelta?.(text);
+          return text;
+        },
       }),
   });
 
@@ -307,6 +317,7 @@ describe("CRE 端到端：create → run → get", () => {
 
     // ── run：编排全程 ────────────────────────────────────────────────────────
     await service.run(summary.sessionId);
+    await service.settled(summary.sessionId);
 
     // ── get("full")：renderer 选中会话时拉的层级 ──────────────────────────────
     const full = (await service.get(summary.sessionId, "full"))!;
@@ -360,6 +371,7 @@ describe("CRE 端到端：create → run → get", () => {
 
     const summary = await service.create(REQUEST);
     await service.run(summary.sessionId);
+    await service.settled(summary.sessionId);
 
     // 通道名必须是 preload/research-bridge.ts 订阅的那个，写错则 UI 永远收不到事件。
     expect(received.length).toBeGreaterThan(0);
@@ -368,13 +380,25 @@ describe("CRE 端到端：create → run → get", () => {
     const types = received.map((entry) => (entry.payload as { type: string }).type);
     expect(types).toContain("stage");
     expect(types).toContain("round");
+    // 实时性的三件套：状态变更、执行流水、报告草稿。缺任何一样，界面在几分钟里都是死的。
+    expect(types).toContain("status");
+    expect(types).toContain("activity");
+    expect(types).toContain("report_delta");
     expect(received.at(-1)!.payload).toEqual({
       type: "done",
       sessionId: summary.sessionId,
       status: "completed",
     });
 
-    // spec §16：事件是给 UI 更新进度用的，**一个字的抓取正文都不许带**。
+    // 草稿增量拼起来就是模型写的那份正文（增量而非累计，拼接才不会重复）。
+    const draft = received
+      .map((entry) => entry.payload as { type: string; delta?: string })
+      .filter((payload) => payload.type === "report_delta")
+      .map((payload) => payload.delta ?? "")
+      .join("");
+    expect(draft).toContain("node:sqlite 目前仍被标记为实验特性");
+
+    // spec §16：事件里**一个字的抓取正文都不许带**（报告草稿是模型自己写的，不在此列）。
     expect(JSON.stringify(received)).not.toContain(DOC_TEXT.slice(0, 20));
   });
 });

@@ -67,6 +67,56 @@ describe("ResearchRpcClient 请求应答", () => {
     await expect(first).resolves.toEqual(helloResult);
   });
 
+  // 进度事件不带请求 id（协议里它与请求无关联），只能按 operation_id 找回发起方——
+  // 没有这层路由，进度就只能进全局 onEvent，main 侧压根不知道该记到哪个 Session 上。
+  it("进度事件按 operation_id 路由回发起这次请求的回调", async () => {
+    const { transport, client } = setup();
+    const mine: Array<{ completed: number; total: number }> = [];
+    const pending = client.request("cancel", { operation_id: "op_mine" }, (progress) =>
+      mine.push(progress),
+    );
+
+    transport.emitLine(
+      JSON.stringify({
+        type: "event",
+        event: "progress",
+        operation_id: "op_mine",
+        stage: "fetching",
+        completed: 2,
+        total: 5,
+      }),
+    );
+    // 别人的 operation：不得串到我这里。
+    transport.emitLine(
+      JSON.stringify({
+        type: "event",
+        event: "progress",
+        operation_id: "op_other",
+        stage: "fetching",
+        completed: 1,
+        total: 3,
+      }),
+    );
+
+    expect(mine).toEqual([{ completed: 2, total: 5 }]);
+
+    transport.emitLine(JSON.stringify({ type: "response", id: "req_1", result: { ok: true } }));
+    await pending;
+
+    // 请求已结束：迟到的进度不该再回调（回调方可能已经卸载）。
+    transport.emitLine(
+      JSON.stringify({
+        type: "event",
+        event: "progress",
+        operation_id: "op_mine",
+        stage: "chunking",
+        completed: 5,
+        total: 5,
+      }),
+    );
+    expect(mine).toHaveLength(1);
+  });
+
   it("错误信封 reject 成带 code 的 WorkerRpcError", async () => {
     const { transport, client } = setup();
     const pending = client.request("doctor", {});

@@ -63,7 +63,7 @@ describe("ResearchCreateForm", () => {
     expect(screen.getByRole("button", { name: "开始研究" })).toBeDisabled();
   });
 
-  it("提交：按选择组装 ResearchRequest → create → run → onCreated", async () => {
+  it("提交：按选择组装 ResearchRequest → create → onCreated（启动由宿主负责）", async () => {
     const { bridge, createCalls, runCalls } = makeBridge();
     const created: ResearchSessionSummary[] = [];
     render(
@@ -83,8 +83,9 @@ describe("ResearchCreateForm", () => {
     expect(request.mode).toBe("deep");
     expect(request.sourceScopes).toEqual([{ kind: "public_web" }, { kind: "memory" }]);
     expect(request.output).toEqual({ format: "report", requireCitations: true });
-    expect(runCalls).toEqual(["new-1"]);
     expect(created.map((s) => s.sessionId)).toEqual(["new-1"]);
+    // 表单**不自己启动**：run 必须发生在宿主把会话放进 store 之后（见组件头注释）。
+    expect(runCalls).toEqual([]);
   });
 
   it("至少要勾选一个来源范围，全不选时提交禁用", () => {

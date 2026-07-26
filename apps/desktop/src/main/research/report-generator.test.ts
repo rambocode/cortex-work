@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
 import type { EvidenceChunk, ResearchDocument } from "@cortex-work/core/research/evidence";
 import type { ModelCallInput, ModelCallResult } from "./research-model-gateway";
-import { generateReport } from "./report-generator";
+import { generateReport, resolveReportMaxTokens } from "./report-generator";
 
 function fakeGateway(...responses: ModelCallResult[]): {
   gateway: { call(input: ModelCallInput): Promise<ModelCallResult> };
@@ -177,15 +177,64 @@ describe("generateReport 的降级", () => {
   });
 });
 
+// 报告是整个研究里最慢的一步（几十秒到几分钟）。不流式的话，用户在这段时间里
+// 只能看到一个「撰写中」的徽标，完全无法判断是在写还是卡死了。
+describe("generateReport 的流式输出", () => {
+  /// 会主动喂增量的网关替身（模拟供应商 SSE 逐段回吐）。
+  function streamingGateway(pieces: string[]): {
+    gateway: { call(input: ModelCallInput): Promise<ModelCallResult> };
+  } {
+    return {
+      gateway: {
+        call: async (input) => {
+          let acc = "";
+          for (const piece of pieces) {
+            acc += piece;
+            input.onDelta?.(piece);
+          }
+          return ok(acc);
+        },
+      },
+    };
+  }
+
+  it("把模型的增量按序透传给调用方，拼起来等于最终正文", async () => {
+    const seen: string[] = [];
+    const { gateway } = streamingGateway(["# 报告\n\n", "node:sqlite ", "仍是实验特性[^ch_1]。"]);
+
+    const report = await generateReport(
+      { ...INPUT, onDelta: (delta) => seen.push(delta) },
+      { gateway },
+    );
+
+    expect(seen.join("")).toBe("# 报告\n\nnode:sqlite 仍是实验特性[^ch_1]。");
+    expect(report.markdown).toContain("[^ch_1]");
+  });
+
+  it("不传 onDelta 时不向网关要求流式（Planner 等场景保持原样）", async () => {
+    const { gateway, calls } = fakeGateway(ok("结论[^ch_1]。"));
+    await generateReport(INPUT, { gateway });
+    expect(calls[0]!.onDelta).toBeUndefined();
+  });
+
+  it("降级路径不发增量（用户不该看到草稿最后被一份完全不同的摘要替换）", async () => {
+    const seen: string[] = [];
+    const { gateway } = fakeGateway({ ok: false, code: "call_failed", message: "HTTP 500" });
+    const report = await generateReport(
+      { ...INPUT, onDelta: (delta) => seen.push(delta) },
+      { gateway },
+    );
+    expect(seen).toEqual([]);
+    expect(report.markdown).toContain("[^ch_1]");
+  });
+});
+
+/// 输出 token 上限是**安全阀**，不是篇幅指令。
+///
+/// 报告写多长由用户在研究目标里的表述决定（"简要说明" / "详尽综述" 模型自己读得懂），
+/// 配置层不预设字数——预设一份就等于有了两套长度真源，而用户改不了配置里的那套。
+/// 这里只钉两件事：上限与「本次喂了多少材料」同向缩放；以及没有任何配置字段能改写它。
 describe("报告输出预算", () => {
-  /// 现状的两个问题：
-  ///   1. 输出 token 固定 3000，而输入侧 maxEvidenceCharsToModel 按模式分档
-  ///      （quick 20k / standard 60k / deep 120k 字符）。deep 喂 6 倍证据却用同样的输出
-  ///      预算，报告必然覆盖不全——用户看到的就是「读了很多、写得很少」。
-  ///   2. `output.maxWords` 在 core 的类型与 consumer 预设里都存在（report 预设写的是
-  ///      3000 words），但报告生成器**从不消费它**，用户指定的长度被静默忽略。
-  ///
-  /// 3000 token 对中文约等于 2000 字，作为一篇带引用的研究报告确实偏薄。
   function captureMaxTokens(): {
     gateway: { call: (input: ModelCallInput) => Promise<ModelCallResult>; preflight: () => never };
     seen: Array<number | undefined>;
@@ -205,17 +254,7 @@ describe("报告输出预算", () => {
     };
   }
 
-  it("maxWords 存在时按它推导输出预算（中文 1 字 ≈ 1 token，留余量）", async () => {
-    const { gateway, seen } = captureMaxTokens();
-    await generateReport(
-      { ...INPUT, output: { format: "report" as const, maxWords: 3000, requireCitations: true } },
-      { gateway },
-    );
-    // 3000 字 → 至少 4500 token，绝不能还是原来那个固定的 3000。
-    expect(seen[0]!).toBeGreaterThanOrEqual(4500);
-  });
-
-  it("没有 maxWords 时按模式分档：deep 的输出预算必须大于 quick", async () => {
+  it("按模式分档：deep 的输出上限必须大于 quick（材料多 6 倍，写得一样短就是覆盖不全）", async () => {
     const quick = captureMaxTokens();
     await generateReport({ ...INPUT, budget: clampResearchBudget("quick") }, { gateway: quick.gateway });
     const deep = captureMaxTokens();
@@ -223,13 +262,15 @@ describe("报告输出预算", () => {
     expect(deep.seen[0]!).toBeGreaterThan(quick.seen[0]!);
   });
 
-  it("输出预算有硬上限（避免一个畸形 maxWords 把单次调用烧穿）", async () => {
+  // 防回归：曾经有过一个 output.maxWords，它能把上限压到比模式档位更低（预设 3000 字 →
+  // 4500 token，而 deep 档是 14000），等于让配置层悄悄决定报告篇幅。
+  // 这条钉住「上限完全由 budget 推出」——resolveReportMaxTokens 只收 budget 一个参数，
+  // 想再塞进一个篇幅旋钮就必须先改签名，改签名就会撞到这条断言。
+  it("输出上限完全由 budget 推出，没有第二个输入", async () => {
+    const budget = clampResearchBudget("deep");
     const { gateway, seen } = captureMaxTokens();
-    await generateReport(
-      { ...INPUT, output: { format: "report" as const, maxWords: 10_000_000, requireCitations: true } },
-      { gateway },
-    );
-    expect(seen[0]!).toBeLessThanOrEqual(32_000);
+    await generateReport({ ...INPUT, budget }, { gateway });
+    expect(seen[0]).toBe(resolveReportMaxTokens({ budget }));
   });
 });
 

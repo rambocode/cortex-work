@@ -58,6 +58,7 @@ interface Harness {
 function makeHarness(
   settings: ResearchEngineSettings = enabledSettings(),
   llmHooks?: ResearchServiceDeps["llmHooks"],
+  overrides: Partial<ResearchServiceDeps> = {},
 ): Harness {
   const repository = new InMemoryResearchRepository();
   const harness: Harness = {
@@ -86,8 +87,25 @@ function makeHarness(
     newId: () => `id_${(seq += 1)}`,
     now: () => new Date("2026-07-25T10:00:00.000Z"),
     ...(llmHooks ? { llmHooks } : {}),
+    ...overrides,
   });
   return harness;
+}
+
+/// 轮询等待 Session 落到某个状态（编排是后台跑的，状态不会在 run 返回的那一刻就位）。
+/// 只让出微任务、不用假定时器，避免与被测代码里的真实 await 顺序耦合。
+async function waitForStatus(
+  harness: Harness,
+  sessionId: string,
+  target: string,
+  maxTicks = 50,
+): Promise<string | undefined> {
+  for (let i = 0; i < maxTicks; i += 1) {
+    const status = (await harness.repository.getSession(sessionId, "summary"))?.summary.status;
+    if (status === target) return status;
+    await Promise.resolve();
+  }
+  return (await harness.repository.getSession(sessionId, "summary"))?.summary.status;
 }
 
 /// 可观测的假 renderer sender（形状与 WebContents 的相关子集一致）。
@@ -155,10 +173,79 @@ describe("ResearchService.run", () => {
     const summary = await harness.service.create(REQUEST);
 
     await Promise.all([harness.service.run(summary.sessionId), harness.service.run(summary.sessionId)]);
+    await harness.service.settled(summary.sessionId);
 
     expect(harness.ensureCalls).toBe(1);
     expect((await harness.repository.getSession(summary.sessionId, "summary"))!.summary.status).toBe(
       "completed",
+    );
+  });
+
+  // run 是**启动即返回**的：它挂到编排跑完才 resolve 的话，renderer 那条 IPC 会一直悬着，
+  // 会话在界面上根本不会出现，整个执行期间的事件也就无处可落（这正是「点开始后页面毫无反应」）。
+  it("启动即返回：编排还在跑时 run 就已经 resolve", async () => {
+    let releaseSearch: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      releaseSearch = resolve;
+    });
+    const harness = makeHarness(enabledSettings(), undefined, {
+      createSearchClient: () => ({
+        searchBatch: async (request) => {
+          await blocked;
+          return emptySearch(request.request_id);
+        },
+      }),
+    });
+    const summary = await harness.service.create(REQUEST);
+
+    await harness.service.run(summary.sessionId);
+
+    // run 已经返回，而编排此刻正卡在搜索里——会话处于运行中而不是终态，
+    // 这正是「启动即返回」与旧行为的分水岭（旧行为下 run 要等到 completed 才 resolve）。
+    const midway = await waitForStatus(harness, summary.sessionId, "searching");
+    expect(midway).toBe("searching");
+
+    releaseSearch!();
+    await harness.service.settled(summary.sessionId);
+    expect((await harness.repository.getSession(summary.sessionId, "summary"))!.summary.status).toBe(
+      "completed",
+    );
+  });
+
+  // 「搜索服务未配置」是用户最常撞的启动失败，必须在 run 返回前就原样抛回 renderer，
+  // 不能因为改成 fire-and-forget 而变成一条悄无声息的后台失败。
+  it("搜索服务未配置时同步抛错，且不拉起 Worker", async () => {
+    const harness = makeHarness(enabledSettings(), undefined, { createSearchClient: () => null });
+    const summary = await harness.service.create(REQUEST);
+
+    await expect(harness.service.run(summary.sessionId)).rejects.toThrow(/搜索服务/);
+    expect(harness.ensureCalls).toBe(0);
+  });
+
+  // 启动之后才发生的失败（Worker 拉不起来等）没人能 await 了，必须以终态事件的形式广播出去。
+  it("启动后的失败会落 failed 并广播 error(terminal) + done(failed)", async () => {
+    const harness = makeHarness(enabledSettings(), undefined, {
+      workerProvider: {
+        ensure: async () => {
+          throw new Error("Worker 拉起失败");
+        },
+        stop: async () => undefined,
+      },
+    });
+    const sender = new FakeSender();
+    harness.service.addEventSender(sender);
+    const summary = await harness.service.create(REQUEST);
+
+    await harness.service.run(summary.sessionId);
+    await harness.service.settled(summary.sessionId);
+
+    expect((await harness.repository.getSession(summary.sessionId, "summary"))!.summary.status).toBe(
+      "failed",
+    );
+    const types = sender.received.map((e) => (e as { type: string }).type);
+    expect(types).toContain("error");
+    expect(sender.received).toContainEqual(
+      expect.objectContaining({ type: "done", status: "failed" }),
     );
   });
 });
@@ -245,6 +332,26 @@ describe("ResearchService.cancel / delete", () => {
   });
 });
 
+describe("ResearchService.pause", () => {
+  // 暂停只写库不广播的话，renderer 会一直显示「抓取中」，必须重开覆盖层才看得到真实状态。
+  it("广播 status 事件，renderer 无需重新拉列表就能看到 paused", async () => {
+    const harness = makeHarness();
+    const sender = new FakeSender();
+    harness.service.addEventSender(sender);
+    const summary = await harness.service.create(REQUEST);
+    // 没有在途编排的静止会话：走 service 自己的状态转移分支。
+    await harness.repository.updateSessionStatus(summary.sessionId, "searching");
+
+    await harness.service.pause(summary.sessionId);
+
+    expect(sender.received).toContainEqual({
+      type: "status",
+      sessionId: summary.sessionId,
+      status: "paused",
+    });
+  });
+});
+
 describe("ResearchService 事件广播", () => {
   it("推给所有活跃 sender；sender 销毁后自动回收且不再收到事件", async () => {
     const harness = makeHarness();
@@ -257,6 +364,7 @@ describe("ResearchService 事件广播", () => {
 
     const summary = await harness.service.create(REQUEST);
     await harness.service.run(summary.sessionId);
+    await harness.service.settled(summary.sessionId);
     const beforeDestroy = alive.received.length;
     expect(beforeDestroy).toBeGreaterThan(0);
     expect(dying.received.length).toBe(beforeDestroy);
@@ -306,6 +414,7 @@ describe("ResearchService 的 P7 LLM 接线", () => {
 
     const summary = await harness.service.create(REQUEST);
     await harness.service.run(summary.sessionId);
+    await harness.service.settled(summary.sessionId);
 
     // 装配回调对每个 Session 只调一次，且拿到的是这个 Session 自己的 summary。
     expect(seen).toEqual([{ sessionId: summary.sessionId }]);
@@ -318,6 +427,7 @@ describe("ResearchService 的 P7 LLM 接线", () => {
     const harness = makeHarness();
     const summary = await harness.service.create(REQUEST);
     await harness.service.run(summary.sessionId);
+    await harness.service.settled(summary.sessionId);
     const view = await harness.service.get(summary.sessionId, "full");
     expect(view.summary.status).toBe("completed");
     expect(view.report!.markdown).toContain(REQUEST.objective);
@@ -339,7 +449,7 @@ describe("rerun（终态会话的重跑）", () => {
       objective: "llm 与 agent 的关系",
       mode: "standard",
       sourceScopes: [{ kind: "public_web" }],
-      output: { format: "report", maxWords: 3000, requireCitations: true },
+      output: { format: "answer", requireCitations: false },
     });
     await repository.updateSessionStatus(created.sessionId, "completed");
     return { service, repository, sessionId: created.sessionId };
@@ -364,8 +474,10 @@ describe("rerun（终态会话的重跑）", () => {
 
     const view = await repository.getSession(clone.sessionId, "summary");
     expect(view?.sourceScopes).toEqual([{ kind: "public_web" }]);
-    expect(view?.output?.maxWords).toBe(3000);
-    expect(view?.output?.requireCitations).toBe(true);
+    // 产物形态与引用要求都得原样继承：任一项被悄悄换成默认值，
+    // 「重跑」就变成了「跑了个不一样的东西」，而用户看不出来。
+    expect(view?.output?.format).toBe("answer");
+    expect(view?.output?.requireCitations).toBe(false);
   });
 
   it("新会话带种子计划，可以直接点开始", async () => {

@@ -63,7 +63,6 @@ const researchRequestSchema = z
     output: z
       .object({
         format: z.enum(["report", "evidence_package", "answer"]),
-        maxWords: z.number().int().min(1).max(50_000).optional(),
         requireCitations: z.boolean(),
       })
       .strict(),

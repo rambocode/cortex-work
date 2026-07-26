@@ -54,12 +54,27 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /// 本次请求的 operation_id（若参数里带）。请求了结时按它摘掉进度订阅。
+  operationId?: string;
+}
+
+/// 从请求参数里取 operation_id。协议里所有长耗时 method 的参数都有这个字段，
+/// 它同时是进度事件的路由键——**进度事件不带请求 id**，只能靠它找回发起方。
+function operationIdOf(params: unknown): string | undefined {
+  const id = (params as { operation_id?: unknown } | null)?.operation_id;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
 /// main 侧 RPC 客户端。
 export class ResearchRpcClient {
   private sequence = 0;
   private readonly pending = new Map<string, PendingRequest>();
+  /// operation_id → 进度订阅。请求了结（成功 / 失败 / 超时）时必须摘掉，
+  /// 否则迟到的进度会回调到已经不在乎它的一方（甚至已卸载的 UI 状态）。
+  private readonly progressListeners = new Map<
+    string,
+    (progress: { completed: number; total: number }) => void
+  >();
 
   constructor(
     private readonly transport: WorkerTransport,
@@ -74,14 +89,23 @@ export class ResearchRpcClient {
   }
 
   /// 发一条请求并等待应答。
-  request<M extends WorkerMethod>(method: M, params: unknown): Promise<ResultOf<M>> {
+  ///
+  /// onProgress：本次请求期间 Worker 上报的进度（按 params.operation_id 路由）。
+  /// 抓取一批 URL 可能要几十秒，没有它上层就只能在整批结束后才知道进展。
+  request<M extends WorkerMethod>(
+    method: M,
+    params: unknown,
+    onProgress?: (progress: { completed: number; total: number }) => void,
+  ): Promise<ResultOf<M>> {
     this.sequence += 1;
     const id = `req_${this.sequence}`;
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const operationId = operationIdOf(params);
+    if (onProgress && operationId) this.progressListeners.set(operationId, onProgress);
 
     return new Promise<ResultOf<M>>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
+        this.settle(id);
         reject(new WorkerRpcError("timeout", `Worker 请求 ${method} 超时（${timeoutMs}ms）`));
       }, timeoutMs);
 
@@ -90,6 +114,7 @@ export class ResearchRpcClient {
         resolve: resolve as (value: unknown) => void,
         reject,
         timer,
+        ...(operationId ? { operationId } : {}),
       });
       this.transport.writeLine(JSON.stringify({ type: "request", id, method, params }));
     });
@@ -102,6 +127,17 @@ export class ResearchRpcClient {
       entry.reject(err);
     }
     this.pending.clear();
+    this.progressListeners.clear();
+  }
+
+  /// 摘掉一条在途请求连同它的进度订阅。
+  private settle(id: string): PendingRequest | undefined {
+    const entry = this.pending.get(id);
+    if (!entry) return undefined;
+    this.pending.delete(id);
+    clearTimeout(entry.timer);
+    if (entry.operationId) this.progressListeners.delete(entry.operationId);
+    return entry;
   }
 
   private handleLine(line: string): void {
@@ -130,14 +166,17 @@ export class ResearchRpcClient {
         completed: message.completed,
         total: message.total,
       });
+      // 再按 operation_id 送给这次请求的发起方（它才知道这批进度属于哪个 Session）。
+      this.progressListeners.get(message.operation_id)?.({
+        completed: message.completed,
+        total: message.total,
+      });
       return;
     }
 
-    const entry = this.pending.get(message.id);
+    const entry = this.settle(message.id);
     // 未知 id：迟到的旧请求响应（已超时被清掉）。忽略，避免串台。
     if (!entry) return;
-    this.pending.delete(message.id);
-    clearTimeout(entry.timer);
 
     if (message.error) {
       entry.reject(new WorkerRpcError(message.error.code, message.error.message, message.error.data));

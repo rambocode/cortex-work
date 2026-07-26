@@ -14,6 +14,7 @@ import {
   buildSeedPlan,
   type GapPlannerInput,
   type InitialPlannerInput,
+  type ReportGenerator,
 } from "./research-orchestrator";
 import type { WorkerFetchPrepareResult } from "./worker-mapping";
 
@@ -157,7 +158,7 @@ interface HarnessOptions {
     operationId: string,
     params: { candidates: Array<{ candidate_id: string; url: string }> },
   ) => Promise<WorkerFetchPrepareResult>;
-  generateReport?: (signal: AbortSignal) => Promise<string>;
+  generateReport?: (input: Parameters<ReportGenerator>[0]) => Promise<string>;
   abortIntent?: () => "cancel" | "pause";
   /// P7：多轮循环的 Gap Planner 注入点。
   planGap?: (input: GapPlannerInput) => Promise<PlannerDecision>;
@@ -170,6 +171,8 @@ interface HarnessOptions {
     html: string;
     finalUrl: string;
   }>;
+  /// Worker 在返回结果前上报的抓取进度（模拟真实 Worker 的 type:"event" 流）。
+  fetchProgress?: Array<{ completed: number; total: number }>;
 }
 
 async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
@@ -206,13 +209,19 @@ async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
       },
     },
     worker: {
-      request: (async (method: string, params: unknown) => {
+      request: (async (
+        method: string,
+        params: unknown,
+        onProgress?: (progress: { completed: number; total: number }) => void,
+      ) => {
         workerCalls.push({ method, params });
         if (method === "cancel") return { ok: true };
         const typed = params as {
           operation_id: string;
           candidates: Array<{ candidate_id: string; url: string }>;
         };
+        // 真实 Worker 在抓取过程中会持续上报进度，返回结果之前发完。
+        for (const progress of options.fetchProgress ?? []) onProgress?.(progress);
         return options.fetch
           ? await options.fetch(typed.operation_id, typed)
           : fetchResult(typed.operation_id, typed.candidates[0]!.candidate_id);
@@ -222,9 +231,7 @@ async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
     newId: () => `id_${(seq += 1)}`,
     now: () => new Date("2026-07-25T10:00:00.000Z"),
     emit: (event) => events.push(event),
-    ...(options.generateReport
-      ? { generateReport: (input: { signal: AbortSignal }) => options.generateReport!(input.signal) }
-      : {}),
+    ...(options.generateReport ? { generateReport: options.generateReport } : {}),
     ...(options.abortIntent ? { abortIntent: options.abortIntent } : {}),
     // stealth 注入点：包成 StealthFetchLike 的形状（编排层只要一个 fetch 方法）。
     ...(options.stealthFetch ? { stealthFetch: { fetch: options.stealthFetch } } : {}),
@@ -313,6 +320,48 @@ describe("ResearchOrchestrator 单轮闭环", () => {
 
     expect(empty.workerCalls).toEqual([]);
     expect((await empty.repository.getSession(SESSION_ID, "summary"))!.summary.status).toBe("completed");
+  });
+});
+
+// 执行流水是「研究正在干什么」的唯一实时来源：没有它，用户在几分钟里只能看到一个不动的阶段徽标。
+describe("ResearchOrchestrator 执行流水与抓取进度", () => {
+  it("发出查询 / 文档 / 决策三类流水，且不夹带任何正文", async () => {
+    const harness = await makeHarness();
+    await harness.orchestrator.run(SESSION_ID, new AbortController().signal);
+
+    const activities = harness.events.filter((event) => event.type === "activity");
+    const kinds = activities.map((a) => a.kind);
+    expect(kinds).toContain("query");
+    expect(kinds).toContain("document");
+    expect(kinds).toContain("report");
+
+    // 查询流水带的是查询词本身（它已在 plan.initialQueries 里给过 renderer）。
+    expect(activities.find((a) => a.kind === "query")?.text).toContain("node:sqlite");
+    // 文档流水**只带域名**：完整 URL 的 query string 可能含搜索词，标题属 evidence 级别。
+    const doc = activities.find((a) => a.kind === "document")!;
+    expect(doc.text).toBe("example.com");
+    expect(doc.roundIndex).toBe(0);
+    // 兜底：任何一条流水都不得出现抓取到的正文或文档标题。
+    for (const a of activities) {
+      expect(a.text).not.toContain("实验特性");
+      expect(a.text).not.toContain("Example A");
+    }
+  });
+
+  it("Worker 的抓取进度被转成 stage:fetching 的 completed/total", async () => {
+    const harness = await makeHarness({
+      fetchProgress: [
+        { completed: 1, total: 2 },
+        { completed: 2, total: 2 },
+      ],
+    });
+    await harness.orchestrator.run(SESSION_ID, new AbortController().signal);
+
+    const fetching = harness.events.flatMap((event) =>
+      event.type === "stage" && event.stage === "fetching" ? [event.progress?.completed] : [],
+    );
+    // 起始的 0/N 之外，Worker 报几次就该有几条，且 completed 递增。
+    expect(fetching).toEqual([0, 1, 2]);
   });
 });
 

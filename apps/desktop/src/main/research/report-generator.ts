@@ -69,29 +69,13 @@ const REPORT_MAX_TOKENS_BY_MODE = {
   deep: 14_000,
 } as const;
 
-/// 输出预算的硬上限。
+/// 推导本次报告的输出 token 上限。
 ///
-/// 存在的理由：`output.maxWords` 来自调用方（consumer 预设或用户），一个畸形的大值
-/// （手滑多打几个 0）会让单次调用烧穿配额甚至触发供应商限流。夹在这里，方向永远偏向可控。
-const REPORT_MAX_TOKENS_CEILING = 32_000;
-
-/// 中文场景下「字 → token」的换算余量。1 字 ≈ 1 token，×1.5 覆盖 markdown 结构与引用标记。
-const WORDS_TO_TOKENS_RATIO = 1.5;
-
-/// 依据「用户要多长」与「本次模式喂了多少材料」推导输出 token 预算。
-///
-/// 优先用 `output.maxWords`：它在 core 的类型与 consumer 预设里一直存在（report 预设写的是
-/// 3000 words），但此前**从没有人消费它**——用户/预设指定的长度被静默忽略。
-/// 缺省时按模式分档，与输入侧的缩放保持同向。
-export function resolveReportMaxTokens(input: {
-  output?: { maxWords?: number };
-  budget: ResearchBudget;
-}): number {
-  const words = input.output?.maxWords;
-  if (typeof words === "number" && Number.isFinite(words) && words > 0) {
-    return Math.min(REPORT_MAX_TOKENS_CEILING, Math.ceil(words * WORDS_TO_TOKENS_RATIO));
-  }
-  // 没有 maxWords 时按模式分档，与输入侧同向缩放（档位判定见 tierOf）。
+/// **它是安全阀，不是篇幅指令**：报告该写多长由用户在研究目标里的表述决定
+/// （"简要说明" / "详尽综述" 模型自己读得懂），配置层不预设字数——两套长度真源必然打架，
+/// 而且用户改不了配置里的那套。这里只保证「不会因为一次失控生成烧穿配额」，
+/// 并让上限与本次喂进去的材料量同向缩放（档位判定见 tierOf）。
+export function resolveReportMaxTokens(input: { budget: ResearchBudget }): number {
   return REPORT_MAX_TOKENS_BY_MODE[tierOf(input.budget)];
 }
 
@@ -104,12 +88,15 @@ export interface ReportGenerationInput {
   /// 用于回填引用元数据（标题 / URL / 抓取时间）。缺失的文档对应的引用会被丢弃。
   documents?: readonly ResearchDocument[];
   budget: ResearchBudget;
-  /// 输出要求（格式 / 目标字数 / 是否强制引用）。maxWords 决定输出 token 预算，
-  /// 见 resolveReportMaxTokens。
-  output?: { format?: string; maxWords?: number; requireCitations?: boolean };
   /// 报告时间戳；缺省取 deps.now()。
   generatedAt?: string;
   signal?: AbortSignal;
+  /// 正文的流式增量。传了才向网关要求流式。
+  ///
+  /// 只用于展示：真正落库的是下面 validateResearchReport 的产物（伪造引用已被删掉），
+  /// 与流出去的草稿可能有细微差别。**降级路径不发增量**——那份摘要与草稿完全是两份东西，
+  /// 边写边被替换会让用户以为报告写坏了。
+  onDelta?: (delta: string) => void;
 }
 
 /// 报告生成依赖。
@@ -217,6 +204,7 @@ async function requestMarkdown(
     maxTokens: resolveReportMaxTokens(input),
     maxPromptChars: input.budget.maxEvidenceCharsToModel,
     ...(input.signal ? { signal: input.signal } : {}),
+    ...(input.onDelta ? { onDelta: input.onDelta } : {}),
   });
 
   if (!result.ok || result.text.trim().length === 0) {

@@ -44,14 +44,14 @@ export const CONSUMER_DEFAULTS: Record<ResearchConsumer, ConsumerDefaults> = {
     mode: "quick",
     sourceScopes: [{ kind: "public_web" }],
     allowedTrustZones: ["public_web"],
-    output: { format: "answer", maxWords: 400, requireCitations: true },
+    output: { format: "answer", requireCitations: true },
   },
   deep_research: {
     mode: "deep",
     sourceScopes: [{ kind: "public_web" }],
     // 登录站点仍需来源级单独授权，这里只表示「该 Consumer 允许出现这个信任区」。
     allowedTrustZones: ["public_web", "authenticated_web"],
-    output: { format: "report", maxWords: 3000, requireCitations: true },
+    output: { format: "report", requireCitations: true },
   },
   slides: {
     mode: "standard",

@@ -108,11 +108,16 @@ export class ResearchWorkerProcess {
   }
 
   /// 发一条业务请求。未启动时立即失败，绝不静默挂起。
-  request<M extends WorkerMethod>(method: M, params: unknown): Promise<ResultOf<M>> {
+  /// onProgress 透传给 RPC 客户端，由它按 operation_id 路由回本次请求。
+  request<M extends WorkerMethod>(
+    method: M,
+    params: unknown,
+    onProgress?: (progress: { completed: number; total: number }) => void,
+  ): Promise<ResultOf<M>> {
     if (!this.running || !this.client) {
       return Promise.reject(new WorkerRpcError("not_ready", "Research Worker 未启动或已停止"));
     }
-    return this.client.request(method, params);
+    return this.client.request(method, params, onProgress);
   }
 
   /// 主动停止：先请求优雅退出，宽限期内没走就强杀。

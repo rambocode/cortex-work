@@ -13,6 +13,7 @@ import { create } from "zustand";
 import { TERMINAL_RESEARCH_STATUSES } from "./session-status";
 import type {
   PlannerDecision,
+  ResearchActivityEvent,
   ResearchEvent,
   ResearchSessionStatus,
   ResearchSessionSummary,
@@ -38,6 +39,13 @@ export interface ResearchWarning {
 /// 全留在内存里既没人看也白占内存，只保留最近若干条。
 const MAX_WARNINGS_PER_SESSION = 50;
 
+/// 单会话执行流水条数上限。同理只保留最近若干条——流水是"正在发生什么"的即时反馈，
+/// 完整的执行记录在 main 的轮次表与文档表里，不靠这个内存列表留档。
+const MAX_ACTIVITIES_PER_SESSION = 200;
+
+/// 一条执行流水（事件去掉 type/sessionId 后的展示体）。
+export type ResearchActivity = Omit<ResearchActivityEvent, "type" | "sessionId">;
+
 /// 终态集合的运行时查表（乱序事件守卫用）。
 const TERMINAL: readonly ResearchSessionStatus[] = TERMINAL_RESEARCH_STATUSES;
 
@@ -56,6 +64,11 @@ export interface ResearchUiState {
   progress: Record<string, ResearchProgress>;
   /// 非终态错误累积的警告，按 sessionId 索引。
   warnings: Record<string, ResearchWarning[]>;
+  /// 事件派生的执行流水（查询 / 抓到的域名 / 决策），按 sessionId 索引。只在内存里活着。
+  activities: Record<string, ResearchActivity[]>;
+  /// 报告的流式草稿，按 sessionId 索引。**只在 reporting 阶段有值**：会话结束后立即清空，
+  /// 最终稿一律来自 get(..., "full")（那份才过了引用校验）。
+  reportDraft: Record<string, string>;
   /// 最近一次 Gap Planner 决策，按 sessionId 索引（供中栏展示「本轮在补搜/补抓/收尾」）。
   lastDecision: Record<string, PlannerDecision["action"]>;
 
@@ -107,6 +120,8 @@ const INITIAL = {
   error: null as string | null,
   progress: {} as Record<string, ResearchProgress>,
   warnings: {} as Record<string, ResearchWarning[]>,
+  activities: {} as Record<string, ResearchActivity[]>,
+  reportDraft: {} as Record<string, string>,
   lastDecision: {} as Record<string, PlannerDecision["action"]>,
 };
 
@@ -122,6 +137,8 @@ export const useResearchUiStore = create<ResearchUiState>((set) => ({
         detailCache: omitKeys(state.detailCache, drop),
         progress: omitKeys(state.progress, drop),
         warnings: omitKeys(state.warnings, drop),
+        activities: omitKeys(state.activities, drop),
+        reportDraft: omitKeys(state.reportDraft, drop),
         lastDecision: omitKeys(state.lastDecision, drop),
         // 选中的会话若已被服务端删除，回落到未选中，避免中栏指向不存在的 id。
         activeSessionId:
@@ -146,6 +163,8 @@ export const useResearchUiStore = create<ResearchUiState>((set) => ({
         detailCache: omitKeys(state.detailCache, drop),
         progress: omitKeys(state.progress, drop),
         warnings: omitKeys(state.warnings, drop),
+        activities: omitKeys(state.activities, drop),
+        reportDraft: omitKeys(state.reportDraft, drop),
         lastDecision: omitKeys(state.lastDecision, drop),
         activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
       };
@@ -184,6 +203,41 @@ export const useResearchUiStore = create<ResearchUiState>((set) => ({
               ? state.sessions
               : (patchSession(state.sessions, id, (prev) => ({ ...prev, status: event.stage })) ??
                 state.sessions),
+          };
+        }
+
+        case "status": {
+          // 与 stage 同一套乱序守卫：终态一旦落定就不再被任何运行中状态覆盖。
+          const current = state.sessions.find((s) => s.sessionId === id)?.status;
+          if (current !== undefined && TERMINAL.includes(current)) return {};
+          const done = TERMINAL.includes(event.status) || event.status === "paused";
+          return {
+            sessions:
+              patchSession(state.sessions, id, (prev) => ({ ...prev, status: event.status })) ??
+              state.sessions,
+            // 暂停或结束后，上一阶段的瞬时进度不再成立，留着会让进度条僵在那儿。
+            progress: done ? omitKeys(state.progress, (key) => key === id) : state.progress,
+          };
+        }
+
+        case "activity": {
+          const prev = state.activities[id] ?? [];
+          const next = [
+            ...prev,
+            {
+              at: event.at,
+              kind: event.kind,
+              text: event.text,
+              ...(event.roundIndex !== undefined ? { roundIndex: event.roundIndex } : {}),
+            },
+          ].slice(-MAX_ACTIVITIES_PER_SESSION);
+          return { activities: { ...state.activities, [id]: next } };
+        }
+
+        case "report_delta": {
+          // 增量拼接。事件带的是 delta 而非累计全文，所以这里必须是 += 而不是覆盖。
+          return {
+            reportDraft: { ...state.reportDraft, [id]: (state.reportDraft[id] ?? "") + event.delta },
           };
         }
 
@@ -229,8 +283,16 @@ export const useResearchUiStore = create<ResearchUiState>((set) => ({
               state.sessions,
             // 会话已结束，实时进度失去意义；留着会让 UI 一直显示进度条。
             progress: omitKeys(state.progress, (key) => key === id),
+            // 草稿的使命到此为止：最终稿（过了引用校验、带引用表）由 get(..., "full") 提供，
+            // 两份同时留着只会让 UI 纠结显示哪一份。
+            reportDraft: omitKeys(state.reportDraft, (key) => key === id),
           };
         }
+
+        // 兜底：事件是跨进程来的，将来 main 侧多发一类事件时，这里必须是"忽略"而不是
+        // 返回 undefined —— zustand 的 set(undefined) 会把整个 state 替换掉（真实踩过）。
+        default:
+          return {};
       }
     }),
 
