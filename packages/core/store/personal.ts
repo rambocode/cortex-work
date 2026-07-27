@@ -124,13 +124,22 @@ export interface PersonalState {
   // （tasks 文档「插入并运行」用;跨组件契约,见 ComposerShell 消费 effect）。
   // plugin:插件「在对话中试用」携带的插件上下文（id+名称），ComposerShell 据此在输入框前渲染插件 pill。
   // images:随文本注入 composer 的待发图片(如批注「始终包含截图」,plan U4)。瞬态,不进 toPersistedState。
+  // skill:落地页场景 chip「演示文稿 / 设计稿」预置的 skill 上下文,ComposerShell 消费时 setSelectedSkill
+  //（等价用户在输入框敲 `/skill:xxx` 选中）。跨包契约:cmd 必须是 parseSkillSlash 认得的 `/skill:<name>`,
+  //  displayName 仅用于 pill 展示。此路径的 text 通常为空串——纯预置 pill,由用户补主题后回车。
   composerInsert?: {
     text: string;
     nonce: number;
     submit?: boolean;
     plugin?: { id: string; name: string; icon?: string };
     images?: PendingImage[];
+    skill?: { cmd: string; displayName: string };
   };
+  // composer 当前选中的 skill pill。**单向镜像**:唯一写方是 ComposerShell(选中/发送/移除时同步),
+  // 落地页 SceneChips 只读——据此在场景 chips 下方展示该 skill 的示例提示词。
+  // 不做真源(pill 的真源仍是 ComposerShell 内部 state),避免会话切换时 pill 跨会话残留。
+  // 瞬态,不进 toPersistedState。
+  composerSkill?: { cmd: string; displayName: string };
   // GitBar「查看 diff」请求（FilesView 消费后即清,不持久化;不用 nonce——
   // FilesView 可能在请求发出时未挂载,消费即清才能让挂载后的 effect 接到）。
   gitDiffRequest?: { projectId: string };
@@ -308,8 +317,15 @@ export interface PersonalState {
   consumePendingTerminalText: () => string | undefined;
   insertToComposer: (
     text: string,
-    opts?: { submit?: boolean; plugin?: { id: string; name: string; icon?: string }; images?: PendingImage[] },
+    opts?: {
+      submit?: boolean;
+      plugin?: { id: string; name: string; icon?: string };
+      images?: PendingImage[];
+      skill?: { cmd: string; displayName: string };
+    },
   ) => void;
+  // ComposerShell 镜像当前 skill pill(传 undefined 表示已清除)。
+  setComposerSkill: (skill?: { cmd: string; displayName: string }) => void;
   // GitBar 点击 ± 徽章:右栏切到文件视图并请求整仓 diff 预览。
   requestGitDiff: (projectId: string) => void;
   consumeGitDiffRequest: () => { projectId: string } | undefined;
@@ -1061,8 +1077,11 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         submit: opts?.submit,
         plugin: opts?.plugin,
         images: opts?.images,
+        skill: opts?.skill,
       },
     })),
+
+  setComposerSkill: (skill) => set({ composerSkill: skill }),
 
   requestGitDiff: (projectId) => set({ gitDiffRequest: { projectId }, rightView: "files" }),
 

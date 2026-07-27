@@ -261,6 +261,13 @@ export function ComposerShell({
   const [tryPlugin, setTryPlugin] = useState<{ id: string; name: string; icon?: string } | null>(null);
   // 选项1(图2):选中 skill 后在输入框上方显示的 pill(icon + 友好名);textarea 只留参数,发送时拼回 cmd。
   const [selectedSkill, setSelectedSkill] = useState<{ cmd: string; displayName: string } | null>(null);
+  // 把 pill 单向镜像进 store,供落地页 SceneChips 展示对应 skill 的示例提示词。
+  // 真源仍是上面的本地 state:组件卸载(切会话/离开落地页)时清掉,避免 pill 跨会话残留在示例区。
+  const setComposerSkill = usePersonalStore((s) => s.setComposerSkill);
+  useEffect(() => {
+    setComposerSkill(selectedSkill ?? undefined);
+  }, [selectedSkill, setComposerSkill]);
+  useEffect(() => () => setComposerSkill(undefined), [setComposerSkill]);
   const taRef = useRef<HTMLTextAreaElement>(null);
   // 上传入口合并:图片/文档共用单个隐藏 input,经「+」菜单「文件」项触发,onChange 按 MIME 分流。
   const attachInputRef = useRef<HTMLInputElement>(null);
@@ -463,11 +470,16 @@ export function ComposerShell({
     if (!composerInsert || composerInsert.nonce === consumedNonceRef.current) return;
     consumedNonceRef.current = composerInsert.nonce;
     if (composerInsert.plugin) setTryPlugin(composerInsert.plugin); // 插件试用上下文 → 输入框前 pill
+    if (composerInsert.skill) setSelectedSkill(composerInsert.skill); // 落地页场景 chip → 输入框前 skill pill
     const prev = textRef.current;
-    const finalText = !prev.trim()
-      ? composerInsert.text
-      : `${prev}${prev.endsWith("\n") ? "" : "\n"}${composerInsert.text}`;
-    setText(finalText);
+    // 空文本 insert（纯预置 pill 的场景 chip 路径）不得动 textarea:否则会往用户已写的半句后面
+    // 追加一个空行。仅在真的带文本时才做「空则替换 / 非空则换行追加」。
+    const finalText = !composerInsert.text
+      ? prev
+      : !prev.trim()
+        ? composerInsert.text
+        : `${prev}${prev.endsWith("\n") ? "" : "\n"}${composerInsert.text}`;
+    if (finalText !== prev) setText(finalText);
     // 随插入携带的待发图片(如批注「始终包含截图」,U4):并入 images,沿用去重 + 张数上限。
     // 满张数上限时溢出图片不静默丢——同拖拽路径出 toast(评审 correctness)。
     if (composerInsert.images?.length) {

@@ -505,6 +505,52 @@ describe("ComposerShell 插入并运行（submit 标志）", () => {
     await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("标注内容"));
     expect(container.querySelector(".img-attach-thumb")).toBeTruthy();
   });
+
+  // 落地页场景 chip:纯预置 skill pill（text 为空），用户补主题后回车才拼成 `/skill:xxx 主题`。
+  it("composerInsert 携带 skill → 出现 skill pill,补主题回车发出 `/skill:slides 主题`", async () => {
+    const onSend = vi.fn(() => true);
+    renderInsert({ onSend });
+    act(() =>
+      usePersonalStore.getState().insertToComposer("", { skill: { cmd: "/skill:slides", displayName: "Slides" } }),
+    );
+    await waitFor(() => expect(screen.getByText("Slides")).toBeInTheDocument());
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(ta.value).toBe("");
+    fireEvent.change(ta, { target: { value: "季度汇报" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith("/skill:slides 季度汇报", expect.anything(), undefined, undefined),
+    );
+  });
+
+  // 选中的 skill pill 单向镜像进 store,落地页示例区据此联动;发送 / 手动移除后必须同步清掉。
+  it("skill pill 镜像到 store.composerSkill,发送后清空", async () => {
+    const onSend = vi.fn(() => true);
+    renderInsert({ onSend });
+    act(() =>
+      usePersonalStore.getState().insertToComposer("", { skill: { cmd: "/skill:slides", displayName: "Slides" } }),
+    );
+    await waitFor(() =>
+      expect(usePersonalStore.getState().composerSkill).toEqual({ cmd: "/skill:slides", displayName: "Slides" }),
+    );
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "季度汇报" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    await waitFor(() => expect(usePersonalStore.getState().composerSkill).toBeUndefined());
+  });
+
+  // 回归:空文本 insert 不能往已有输入后面追加空行（chip 点击时用户可能已经打了字）。
+  it("已有输入时 composerInsert 空文本 → 只加 pill,输入框原文不变", async () => {
+    const onSend = vi.fn(() => true);
+    renderInsert({ onSend });
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "已经写了一半" } });
+    act(() =>
+      usePersonalStore.getState().insertToComposer("", { skill: { cmd: "/skill:design", displayName: "Design" } }),
+    );
+    await waitFor(() => expect(screen.getByText("Design")).toBeInTheDocument());
+    expect(ta.value).toBe("已经写了一半");
+  });
 });
 
 describe("ComposerShell 文件预览拖入会话（U6）", () => {

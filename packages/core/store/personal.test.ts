@@ -369,6 +369,25 @@ describe("文件片段发送中转（终端 / composer）", () => {
     usePersonalStore.getState().insertToComposer("插入并运行", { submit: true });
     expect(usePersonalStore.getState().composerInsert?.submit).toBe(true);
   });
+
+  it("insertToComposer 透传 skill（落地页场景 chip 预置 skill pill）", () => {
+    usePersonalStore.getState().insertToComposer("", { skill: { cmd: "/skill:slides", displayName: "Slides" } });
+    const insert = usePersonalStore.getState().composerInsert;
+    // 纯 pill 预置:文本为空,skill 原样透传给 ComposerShell 消费。
+    expect(insert?.text).toBe("");
+    expect(insert?.skill).toEqual({ cmd: "/skill:slides", displayName: "Slides" });
+
+    usePersonalStore.getState().insertToComposer("无 skill");
+    expect(usePersonalStore.getState().composerInsert?.skill).toBeUndefined();
+  });
+
+  it("setComposerSkill 记录/清除当前 skill pill（落地页示例区据此联动）", () => {
+    usePersonalStore.getState().setComposerSkill({ cmd: "/skill:slides", displayName: "Slides" });
+    expect(usePersonalStore.getState().composerSkill).toEqual({ cmd: "/skill:slides", displayName: "Slides" });
+
+    usePersonalStore.getState().setComposerSkill(undefined);
+    expect(usePersonalStore.getState().composerSkill).toBeUndefined();
+  });
 });
 
 describe("GitBar 整仓 diff 请求中转", () => {
