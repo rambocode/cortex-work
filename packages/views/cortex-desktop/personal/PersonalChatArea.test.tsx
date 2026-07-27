@@ -1447,3 +1447,39 @@ describe("PersonalChatArea /skill 发送派发（U6）", () => {
     });
   });
 });
+
+// 新建会话(尚无消息)与新会话落地页应当是同一个页面:同样的 Hero + 场景 tab/chips,
+// 唯一区别是落地页还要选项目、这里项目已经定了。避免两套落地内容各自漂移。
+describe("PersonalChatArea 空会话落地内容", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      timelineProjectId: undefined,
+      runningBySession: {},
+      composerSkill: undefined,
+    });
+  });
+
+  it("没有任何消息时渲染与落地页相同的 Hero + 场景 chips", async () => {
+    const { container } = renderAreaWithChat([]);
+    await waitFor(() => expect(container.querySelector(".pw-hero-title")?.textContent).toBeTruthy());
+    expect(screen.getByRole("tab", { name: "日常办公" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "设计创意" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "演示文稿" })).toBeInTheDocument();
+  });
+
+  it("已有消息时不再渲染落地内容(回到消息流)", async () => {
+    const { container } = renderAreaWithChat([
+      { kind: "text", who: "me", time: "10:00", text: "第一句", uid: "m1" },
+    ]);
+    expect(await screen.findByText("第一句")).toBeInTheDocument();
+    expect(container.querySelector(".pw-hero-title")).toBeNull();
+    expect(screen.queryByRole("tab", { name: "日常办公" })).toBeNull();
+  });
+});

@@ -64,7 +64,7 @@
 | 插件 / 扩展市场 | `personal/PluginManager.tsx`、`PluginsHome.tsx`、`ExtensionPanel.tsx` | `personal/extensions.ts` | `ipc/plugins.ts`、`plugins/` |
 | 技能（Skill） | `personal/SkillPanel.tsx` | `personal/skill-injection.ts`、`piSkills.ts` | `ipc/skills.ts`、`skills/` |
 | 快速打开 / 斜杠命令 | `personal/QuickOpenDialog.tsx`、`useSlashCommands.ts` | — | — |
-| 落地页 / 新会话首页 / 场景快捷入口 | `personal/NewSessionLanding.tsx`、`HomeView.tsx`（HomeBoard）、`SceneChips.tsx`、`LandingHero.tsx` | `store/personal.ts`（`composerInsert.skill` 预置 skill pill、`composerSkill` 由 ComposerShell 单向镜像供示例区联动、`openResearch`/`openWriting`/`openAutomation`/`openWorkflow`） | — |
+| 落地页 / 新会话首页 / 场景快捷入口 | `personal/HomeView.tsx`（**HomeBoard = 落地内容单一来源**，`NewSessionLanding.tsx` 与 `PersonalChatArea.tsx` 空会话态共用）、`SceneChips.tsx`、`LandingHero.tsx` | `store/personal.ts`（`composerInsert.skill` 预置 skill pill、`composerSkill` 由 ComposerShell 单向镜像供示例区联动、`openResearch`/`openWriting`/`openAutomation`/`openWorkflow`） | — |
 | 归档会话 | `personal/ArchivedSessionsSection.tsx` | `store/archivedSessions.ts` | — |
 | 在编辑器打开（VS Code 等） | — | — | `ipc/editors.ts` |
 | 应用更新 | `UpdateButton.tsx`、`UpdateDialog.tsx` | `desktop/useUpdateState.ts` | `ipc/update.ts` |

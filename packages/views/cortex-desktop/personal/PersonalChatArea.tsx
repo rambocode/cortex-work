@@ -40,6 +40,7 @@ import { resolveExistingFile } from "./resolveFileRef";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
+import { HomeBoard } from "./HomeView";
 import { ModeBlockBanner } from "./ModeBlockBanner";
 import { PersonalComposer } from "./PersonalComposer";
 import {
@@ -575,8 +576,19 @@ export function PersonalChatArea({
 
   // 会话标题 / agent 标签 / 项目路径 / agent 切换已上移到中栏顶栏（见 PersonalSessionHeader），
   // 会话区不再渲染 chat-head，直接以消息流开头。
+  // 空会话 = 新会话落地态:挂 pw-landing 让 Hero/chips/输入框共用同一封顶居中列,
+  // 与 NewSessionLanding 视觉一致;一旦有消息就回到普通会话布局。
+  const landing = convo === null;
   return (
-    <main className="chat">
+    <main className={landing ? "chat pw-landing" : "chat"}>
+      {/* 会话还没有任何消息时,中栏就是「新会话落地页」——渲染与 NewSessionLanding 同一份
+          HomeBoard(Hero + 场景 tab/chips),两处不再各写一套内容。区别只在于:落地页底部
+          还要选项目,这里项目已经由会话定死,GitBar 只读展示。 */}
+      {landing ? (
+        <div className="pw-landing-board">
+          <HomeBoard />
+        </div>
+      ) : (
       <MessageStream
         key={session.id}
         contact={contact}
@@ -605,6 +617,7 @@ export function PersonalChatArea({
           ) : undefined
         }
       />
+      )}
 
       {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
       {conversationArtifacts(session).map((artifact) => (
@@ -635,6 +648,7 @@ export function PersonalChatArea({
       <PersonalComposer
         session={session}
         running={running}
+        className={landing ? "pw-landing-composer" : undefined}
         editing={editing}
         onCancelEdit={() => setEditing(null)}
         onSend={async (text, attachments, images, docFiles) => {
