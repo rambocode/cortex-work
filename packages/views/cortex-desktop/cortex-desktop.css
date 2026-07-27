@@ -8435,154 +8435,83 @@ button.sb-row {
   color: var(--text-3);
 }
 
-/* ── 落地页用量日历卡片（UsageCalendarCard：活动/token 切换 + 刷新/折叠 + 空态） ── */
-.pw-usagecal {
-  display: flex; flex-direction: column; gap: 12px;
-  padding: 14px 16px 16px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg-app);
+/* ── 落地页场景 tab + 快捷能力 chips（SceneChips） ─────────────────────────
+   替代已下线的用量日历 / 一日总结。分段 tab 走 --bg-active 选中态（与侧栏模式条同款），
+   chips 为一行可换行的圆角按钮，配色沿用 .pw-tl-chip 体系，深浅色主题共用现有 token。 */
+.pw-scene {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 2px 0 4px;
 }
-/* 折叠态：去掉卡片边框/底色,只居中一个圆形展开按钮（效果图 1） */
-.pw-usagecal--collapsed {
-  gap: 0;
-  align-items: center;
-  padding: 6px 0;
-  border-color: transparent;
-  background: transparent;
-}
-.pw-usagecal-expand {
-  display: inline-flex; align-items: center; justify-content: center;
-  appearance: none; cursor: pointer;
-  width: 40px; height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  color: var(--accent);
-  background: var(--bg-app);
-  box-shadow: 0 4px 16px color-mix(in srgb, var(--text-1) 9%, transparent);
-  transition: background 0.14s, color 0.14s, box-shadow 0.14s, transform 0.14s;
-}
-.pw-usagecal-expand:hover {
-  background: var(--bg-hover);
-  box-shadow: 0 7px 20px color-mix(in srgb, var(--text-1) 13%, transparent);
-  transform: translateY(1px);
-}
-.pw-usagecal-expand:active { transform: translateY(2px); }
-.pw-usagecal-head { display: flex; align-items: center; gap: 8px; }
-.pw-usagecal-sp { flex: 1; }
-.pw-usagecal-title {
-  font-size: 13px; font-weight: 600; color: var(--text-1);
-}
-.pw-usagecal-refresh {
-  display: inline-flex; align-items: center; gap: 5px;
-  appearance: none; cursor: pointer;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px; color: var(--text-2);
-  background: var(--bg-app);
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-.pw-usagecal-refresh:hover { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-1); }
-.pw-usagecal-toggle {
-  display: inline-flex; align-items: center; justify-content: center;
-  appearance: none; cursor: pointer;
-  width: 28px; height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  color: var(--text-3);
-  background: var(--bg-app);
-  transition: background 0.12s, color 0.12s;
-}
-.pw-usagecal-toggle:hover { background: var(--bg-hover); color: var(--text-1); }
-.pw-usagecal-toggle .chev { display: inline-flex; transition: transform 0.16s; }
-.pw-usagecal-toggle .chev[data-open="true"] { transform: rotate(180deg); }
-.pw-usagecal-loading { padding: 18px 4px; font-size: 12px; color: var(--text-4); }
-/* warmup 空态：左占位网格 + 右文案 */
-.pw-usagecal-warmup {
-  display: flex; gap: 22px; align-items: center;
-  padding: 6px 2px 4px;
-}
-.pw-usagecal-preview { flex: 1; min-width: 0; opacity: 0.6; pointer-events: none; }
-.pw-usagecal-warmup-text {
-  flex-shrink: 0; width: 232px;
-  display: flex; flex-direction: column; gap: 8px;
-  padding-left: 22px;
-  border-left: 1px solid var(--border);
-}
-.pw-usagecal-warmup-text strong { font-size: 14.5px; color: var(--text-1); }
-.pw-usagecal-warmup-text p { margin: 0; font-size: 12.5px; line-height: 1.65; color: var(--text-3); }
-.pw-usagecal-badge {
-  align-self: flex-start;
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 9px;
+/* 分段 pill：外层一枚胶囊底槽，内部两个 tab 共享，选中项抬色而非描边（避免宽度跳动） */
+.pw-scene-tabs {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border-soft);
   border-radius: 999px;
-  font-size: 11.5px; font-weight: 600;
-  color: color-mix(in srgb, var(--accent) 30%, var(--text-1));
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-@media (max-width: 640px) {
-  .pw-usagecal-warmup { flex-direction: column; align-items: stretch; gap: 14px; }
-  .pw-usagecal-warmup-text { width: auto; padding-left: 0; border-left: 0; }
-}
-
-/* 热力图：周列方格,横向滚动 */
-.pw-hm {
   background: var(--bg-card-2);
+}
+.pw-scene-tab {
+  appearance: none; cursor: pointer;
+  padding: 5px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12.5px; color: var(--text-3);
+  transition: background 0.14s, color 0.14s;
+}
+.pw-scene-tab:hover { color: var(--text-1); }
+.pw-scene-tab.is-active { background: var(--bg-active); color: var(--text-1); font-weight: 600; }
+.pw-scene-chips {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+}
+.pw-scene-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  appearance: none; cursor: pointer;
+  padding: 6px 12px;
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  padding: 12px 14px 10px;
-}
-.pw-hm-body { display: flex; gap: 6px; }
-.pw-hm-wd {
-  display: flex; flex-direction: column; justify-content: space-between;
-  padding-top: 18px; /* 对齐月份标签行高度 */
-  font-size: 10px; color: var(--text-4);
-}
-/* padding+负margin 外扩裁切边界:今天的 outline / 选中的 box-shadow
-   超出格子 2-3px,否则最右/边缘列被 overflow 裁掉一截 */
-.pw-hm-scroll { overflow-x: auto; flex: 1; padding: 3px; margin: -3px; }
-.pw-hm-months {
-  display: grid;
-  grid-auto-flow: column;
-  /* 自适应:格子宽 14-18px 封顶,多余空间摊到列间距（与下方格子网格一致,保持对齐） */
-  grid-auto-columns: minmax(14px, 22px);
-  gap: 3px;
-  justify-content: space-between;
-  height: 15px;
-  font-size: 10px; color: var(--text-4);
+  border-radius: 999px;
+  background: var(--bg-card-2);
+  font-size: 12.5px; color: var(--text-2);
   white-space: nowrap;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
 }
-.pw-hm-grid {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(14px, 22px);
-  gap: 3px;
-  justify-content: space-between;
+.pw-scene-chip:hover { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-1); }
+.pw-scene-chip:active { transform: translateY(1px); }
+.pw-scene-chip svg { color: var(--text-4); flex-shrink: 0; }
+.pw-scene-chip:hover svg { color: var(--accent); }
+/* 该 skill 已在输入框里选中：chip 与下方示例区、输入框 pill 共用蓝色语义，形成一条视觉链路 */
+.pw-scene-chip.is-active {
+  border-color: color-mix(in srgb, var(--blue) 40%, transparent);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  color: var(--blue);
 }
-.pw-hm-col { display: flex; flex-direction: column; gap: 3px; }
-.pw-hm-cell {
-  /* 方形格子随列宽缩放（14-22px）,避免拉成扁条 */
-  width: 100%; height: auto; aspect-ratio: 1;
-  border-radius: 3px;
-  background: var(--bg-app);
-  border: 1px solid var(--border-soft);
-  padding: 0;
-  cursor: pointer;
+.pw-scene-chip.is-active svg { color: var(--blue); }
+
+/* 选中 skill 后展示的示例提示词：点一下把整段需求填进输入框（完整文案在 title 里悬浮可见） */
+.pw-scene-examples {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  max-width: 100%;
 }
-.pw-hm-cell:disabled { opacity: 0.25; cursor: default; }
-.pw-hm-cell:not(:disabled):hover { border-color: var(--border-strong); }
-.pw-hm-cell[data-heat="1"] { background: color-mix(in srgb, var(--accent-soft) 55%, var(--bg-app)); border-color: color-mix(in srgb, var(--accent) 14%, var(--border-soft)); }
-.pw-hm-cell[data-heat="2"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 24%, var(--border-soft)); }
-.pw-hm-cell[data-heat="3"] { background: color-mix(in srgb, var(--accent) 26%, var(--bg-app)); border-color: color-mix(in srgb, var(--accent) 40%, var(--border-soft)); }
-.pw-hm-cell[data-heat="4"] { background: color-mix(in srgb, var(--accent) 46%, var(--bg-app)); border-color: var(--accent); }
-.pw-hm-cell[data-today="true"] { outline: 1.5px solid var(--accent); outline-offset: 1px; }
-.pw-hm-cell[data-selected="true"] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent); }
-.pw-hm-legend {
-  display: flex; align-items: center; gap: 14px;
-  margin-top: 10px;
-  font-size: 11px; color: var(--text-4);
+.pw-scene-example {
+  display: inline-flex; align-items: center; gap: 5px;
+  appearance: none; cursor: pointer;
+  max-width: 220px;
+  padding: 5px 11px;
+  border: 1px dashed color-mix(in srgb, var(--blue) 32%, var(--border-soft));
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12px; color: var(--text-3);
+  white-space: nowrap;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
 }
+.pw-scene-example > span { overflow: hidden; text-overflow: ellipsis; }
+.pw-scene-example svg { color: var(--text-4); flex-shrink: 0; }
+.pw-scene-example:hover {
+  border-style: solid;
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+  color: var(--text-1);
+}
+.pw-scene-example:hover svg { color: var(--blue); }
 
 /* 项目检索 */
 .pw-home-projects { display: flex; flex-direction: column; gap: 8px; }
@@ -8623,18 +8552,6 @@ button.sb-row {
 }
 .pw-agent-dot[data-agent="claude"] { background: #d97757; }
 .pw-agent-dot[data-agent="codex"] { background: var(--green); }
-
-/* 全局一日总结 */
-.pw-home-summary {
-  background: transparent;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  padding: 10px 14px 12px;
-  display: flex; flex-direction: column; gap: 8px;
-}
-.pw-home-summary-h { display: flex; align-items: center; gap: 8px; }
-.pw-home-summary-day { font-size: 13px; font-weight: 700; color: var(--text-1); font-family: var(--mono); }
-.pw-home-summary-projects { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* ── ProjectPicker（项目选择下拉,会话页 chat-head / 落地页顶部条复用） ─────── */
 /* 触发器:行内一段,带 ▾ 箭头,可点态 */
@@ -8703,11 +8620,16 @@ button.sb-row {
   display: flex; flex-direction: column;
   overflow: hidden;
 }
+/* 看板内容纵向居中:日历/日报下线后只剩 Hero + 场景 chips,顶部锚定会在其与输入框之间
+   留一大片空白。`safe center` 在内容超出高度时自动退回 start——窄窗口下不会把 Hero 顶出
+   可视区且无法向上滚(普通 center 的经典裁切问题);浏览器不识别时整条声明失效 = 保持旧行为。 */
+.pw-landing .pw-home {
+  justify-content: safe center;
+}
 /* 看板封顶居中:滚动容器 .pw-home 保持整宽(滚动条贴窗口右缘),只对内部分区
    封顶居中,与 GitBar/输入框共用 --pw-landing-col 左右对齐。 */
-.pw-landing .pw-home > .pw-home-section,
 .pw-landing .pw-home > .pw-hero,
-.pw-landing .pw-home > .pw-usagecal {
+.pw-landing .pw-home > .pw-scene {
   width: 100%;
   max-width: var(--pw-landing-col);
   margin-inline: auto;
@@ -9635,9 +9557,19 @@ button.sb-row {
   font-size: 11px; font-weight: 700; color: var(--text-1);
 }
 .pw-try-pill-name { line-height: 1; }
-/* 已选 skill pill(选项1):图标与名称用蓝色(--accent 在部分主题是橙红,故显式用蓝),无方块底。 */
+/* 已选 skill pill(选项1):蓝底实心胶囊(--accent 在部分主题是橙红,故显式用蓝)。
+   给底色而非只染字,是因为它在输入框里与用户正在打的字同行——没有底色时容易被当成已输入的文本。
+   用 color-mix 兑出低饱和底,深浅色主题共用一套值。 */
+.composer .input-area .pw-skill-pill {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 30%, transparent);
+}
 .pw-skill-pill .pw-try-pill-ico { color: var(--blue); background: transparent; }
 .pw-skill-pill .pw-try-pill-name { color: var(--blue); }
+.pw-skill-pill .pw-try-pill-x { color: color-mix(in srgb, var(--blue) 65%, var(--text-3)); }
+.pw-skill-pill .pw-try-pill-x:hover { color: var(--blue); }
 .pw-artifact-pill { border-color: color-mix(in srgb, var(--blue) 32%, var(--border)); }
 .pw-artifact-pill-open {
   display: inline-flex;

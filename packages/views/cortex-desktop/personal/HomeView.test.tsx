@@ -1,29 +1,24 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { CoreProvider, usePersonalStore, useCortexUIStore } from "@cortex-work/core";
-import type { DesktopBridge, TimelineEvent } from "@cortex-work/core";
+import type { DesktopBridge } from "@cortex-work/core";
 import { HomeView } from "./HomeView";
 
 const NOW = Date.now();
 
-// 只实现 HomeBoard 数据路径用到的桥方法：loadTimeline（热力图/一日总结聚合，
-// backfilledAt 已置位 → 不触发历史回填）。
-function fakeBridge(eventsByProject: Record<string, TimelineEvent[]> = {}): DesktopBridge {
+// 首页现在只需 Hero + 场景 chips：Hero 走 useDailyEncouragement（无默认 agent → 静态兜底文案），
+// chips 的能力门控读桥子域。loadChat 是 CoreProvider 初始化的最小面。
+function fakeBridge(): DesktopBridge {
   return {
-    loadTimeline: async (projectId: string) => ({
-      version: 1,
-      backfilledAt: 1,
-      events: eventsByProject[projectId] ?? [],
-    }),
-    saveTimeline: async () => {},
     loadChat: async () => [],
+    saveChat: async () => {},
   } as unknown as DesktopBridge;
 }
 
 function renderHome(bridge: DesktopBridge) {
   return render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-      <HomeView onToast={() => {}} />
+      <HomeView />
     </CoreProvider>,
   );
 }
@@ -50,40 +45,28 @@ describe("HomeView", () => {
     useCortexUIStore.setState({ rightOpen: false });
   });
 
-  it("渲染 Hero + 用量日历卡片 + 一日总结,不再有 Tasks 区与「Agent 项目」检索", () => {
+  it("渲染 Hero + 场景 tab / 快捷 chips", () => {
     const { container } = renderHome(fakeBridge());
     // 顶部 Hero：文案为激励问候语（静态池兜底,动态,只断言结构与非空）。
     expect(container.querySelector(".pw-hero-title")?.textContent).toBeTruthy();
-    // 用量日历卡片：默认折叠,只露出展开按钮
-    expect(screen.getByLabelText("展开用量日历")).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "活动" })).toBeNull();
-    expect(screen.queryByText("活动热力图")).toBeNull();
-    // 保留一日总结
-    expect(screen.getByText("一日总结 · 所有项目")).toBeInTheDocument();
-    // Tasks 区已从落地页移除
+    expect(screen.getByRole("tab", { name: "日常办公" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "设计创意" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "演示文稿" })).toBeInTheDocument();
+  });
+
+  it("用量日历与一日总结已下线", () => {
+    renderHome(fakeBridge());
+    expect(screen.queryByLabelText("展开用量日历")).toBeNull();
+    expect(screen.queryByText("一日总结 · 所有项目")).toBeNull();
+    // 更早移除的 Tasks 区与「Agent 项目」检索也不应回归
     expect(screen.queryByText("Tasks · 所有项目")).toBeNull();
-    // 「Agent 项目」检索区已移除
     expect(screen.queryByText("Agent 项目")).toBeNull();
-    expect(screen.queryByPlaceholderText(/检索项目/)).toBeNull();
   });
 
-  it("一日总结聚合所有可见项目当天统计", async () => {
-    renderHome(
-      fakeBridge({
-        p1: [{ id: "e1", projectId: "p1", ts: NOW, kind: "run", title: "修复登录" }],
-        p2: [{ id: "e2", projectId: "p2", ts: NOW, kind: "run", title: "加测试" }],
-      }),
-    );
-    // 两个项目的事件都聚合进当天统计（chips 在 bridge 数据 resolve 后出现）。
-    expect(await screen.findByText("2 个项目")).toBeInTheDocument();
-    expect(screen.getByText("2 轮交互")).toBeInTheDocument();
-  });
-
-  it("工作区为空时仍渲染 Hero + 用量日历卡片 + 一日总结", () => {
+  it("工作区为空时仍渲染 Hero + 场景 chips", () => {
     usePersonalStore.setState({ projects: [], sessions: [] });
     const { container } = renderHome(fakeBridge());
     expect(container.querySelector(".pw-hero-title")?.textContent).toBeTruthy();
-    expect(screen.getByLabelText("展开用量日历")).toBeInTheDocument();
-    expect(screen.getByText("一日总结 · 所有项目")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "日常办公" })).toBeInTheDocument();
   });
 });

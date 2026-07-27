@@ -16,7 +16,9 @@ const SLASH_COMMANDS: SlashCommand[] = [
 const PI_SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/compact", desc: "压缩当前会话上下文", kind: "builtin" },
 ];
-const ARTIFACT_SKILL_COMMANDS: SlashCommand[] = [
+// 产物类系统 skill(设计稿 / 演示文稿):slash 菜单与落地页场景 chip 共用同一份定义,
+// 避免 cmd / displayName 在两处双写漂移(chip 预置 pill 时按 cmd 反查 displayName)。
+export const ARTIFACT_SKILL_COMMANDS: SlashCommand[] = [
   {
     cmd: "/skill:design",
     displayName: "Design",

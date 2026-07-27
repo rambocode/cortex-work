@@ -257,7 +257,7 @@ export function NewSessionLanding({
   return (
     <main className="chat pw-landing">
       <div className="pw-landing-board">
-        <HomeBoard onToast={onToast} />
+        <HomeBoard />
       </div>
 
       <ComposerShell

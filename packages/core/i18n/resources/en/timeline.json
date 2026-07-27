@@ -92,6 +92,59 @@
     "generateHint": "Click \"Generate summary\" and AI will summarize all projects' work that day",
     "projectChipTitle": "{{count}} interactions",
     "sectionTitle": "Daily Summary · All Projects",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "scene": {
+      "title": "Scenario",
+      "office": "Daily work",
+      "creative": "Design & ideas",
+      "chipsLabel": "Quick actions",
+      "slides": "Slides",
+      "design": "Design",
+      "research": "Deep research",
+      "writing": "Writing",
+      "automation": "Automation",
+      "workflow": "Loop workflow",
+      "slidesHint": "Preloads the Slides skill — just add a topic",
+      "designHint": "Preloads the Design skill — just add a brief",
+      "examplesLabel": "Examples",
+      "examples": {
+        "slides": {
+          "pixel": {
+            "label": "Pixel-art intro deck",
+            "prompt": "Build a 6-slide product intro deck in a pixel-game style with bold, playful colors"
+          },
+          "launch": {
+            "label": "Product launch",
+            "prompt": "Build a 10-slide launch keynote — a strong opening and a clear call to action at the end"
+          },
+          "defense": {
+            "label": "Thesis defense",
+            "prompt": "Build a thesis defense deck covering background, method, results and conclusion"
+          },
+          "report": {
+            "label": "Quarterly review",
+            "prompt": "Turn this quarter's progress into an 8-slide review deck focused on data and takeaways"
+          }
+        },
+        "design": {
+          "landing": {
+            "label": "Product landing page",
+            "prompt": "Design a SaaS landing page, dark theme, with a sharp value proposition above the fold"
+          },
+          "mobile": {
+            "label": "Mobile home screen",
+            "prompt": "Design the home screen of a budgeting app — card layout, light and airy"
+          },
+          "poster": {
+            "label": "Event poster",
+            "prompt": "Design a poster for an offline tech meetup with clear hierarchy and a striking key visual"
+          },
+          "dashboard": {
+            "label": "Analytics dashboard",
+            "prompt": "Design an operations dashboard with key metric cards and trend charts"
+          }
+        }
+      }
+    }
   }
 }

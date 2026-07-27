@@ -2451,6 +2451,59 @@ export default interface Resources {
       "reportCopied": "已复制全局日报",
       "reportGenerateFailed": "日报生成失败,请检查 设置 → 时间线 的模型配置",
       "reportGenerated": "{{day}} 全局日报已生成",
+      "scene": {
+        "automation": "自动化",
+        "chipsLabel": "快捷能力",
+        "creative": "设计创意",
+        "design": "设计稿",
+        "designHint": "预置设计稿 skill,补一句需求即可生成",
+        "examples": {
+          "design": {
+            "dashboard": {
+              "label": "数据看板",
+              "prompt": "设计一个运营数据看板,包含关键指标卡片与趋势图"
+            },
+            "landing": {
+              "label": "产品落地页",
+              "prompt": "设计一个 SaaS 产品的落地页,深色主题,首屏要有清晰的价值主张"
+            },
+            "mobile": {
+              "label": "移动端首页",
+              "prompt": "设计一款记账 App 的首页,卡片式布局,浅色清爽风格"
+            },
+            "poster": {
+              "label": "活动海报",
+              "prompt": "设计一张线下技术沙龙的活动海报,信息层级清楚,主视觉抢眼"
+            }
+          },
+          "slides": {
+            "defense": {
+              "label": "论文答辩 PPT",
+              "prompt": "按研究背景、方法、结果、结论四段,做一份论文答辩 PPT"
+            },
+            "launch": {
+              "label": "新品发布会",
+              "prompt": "做一份新品发布会演讲 PPT,10 页,开场要有冲击力,结尾放行动号召"
+            },
+            "pixel": {
+              "label": "像素风介绍 PPT",
+              "prompt": "做一份 6 页的产品介绍 PPT,像素游戏风格排版,配色炫酷丰富"
+            },
+            "report": {
+              "label": "季度汇报",
+              "prompt": "把本季度的工作进展做成 8 页汇报 PPT,重点讲数据和结论"
+            }
+          }
+        },
+        "examplesLabel": "示例",
+        "office": "日常办公",
+        "research": "深度研究",
+        "slides": "演示文稿",
+        "slidesHint": "预置演示文稿 skill,补一句主题即可生成",
+        "title": "场景",
+        "workflow": "Loop 工作流",
+        "writing": "写作"
+      },
       "sectionTitle": "一日总结 · 所有项目"
     },
     "list": {
