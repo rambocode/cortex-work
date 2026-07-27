@@ -784,7 +784,9 @@ export function PersonalChatArea({
             setRightOpen(true);
             // 会话流里留一条本地用户消息:研究本身不产生 agent 轮次,没有这一条的话
             // 用户回头翻会话只能看到一张卡片,记不起当时问的是什么。
-            await appendLocalUserMessage(session, text);
+            // 存 objective 而非原始 text:/skill:research 前缀是派发指令不是内容,
+            // 显示出来是噪音,还会经 applyFallbackTitle 污染会话标题(用户反馈)。
+            await appendLocalUserMessage(session, ref.objective);
             return true;
           }
           let outText = text;

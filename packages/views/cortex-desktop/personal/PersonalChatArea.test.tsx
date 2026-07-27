@@ -1576,9 +1576,12 @@ describe("PersonalChatArea /skill:research 派发分叉", () => {
     expect(useCortexUIStore.getState().rightOpen).toBe(true);
   });
 
-  it("会话流里留下那条用户消息（否则回头只看到一张卡片，记不起问的是什么）", async () => {
+  // 会话流留痕,但**只留研究目标、不留 /skill:research 前缀**：前缀是派发指令不是内容,
+  // 显示出来是噪音,还会经 applyFallbackTitle 把会话标题也污染成 "/skill:research ..."（用户反馈）。
+  it("会话流里留下研究目标本身（不含 /skill:research 前缀）", async () => {
     await sendResearch(researchBridge());
-    expect(await screen.findByText("/skill:research 调研向量数据库选型")).toBeInTheDocument();
+    expect(await screen.findByText("调研向量数据库选型")).toBeInTheDocument();
+    expect(screen.queryByText(/\/skill:research/)).toBeNull();
   });
 
   it("create 失败：toast 报错，不绑定、不切右栏", async () => {

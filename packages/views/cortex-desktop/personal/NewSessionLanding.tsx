@@ -191,7 +191,8 @@ export function NewSessionLanding({
       });
       setRightView("research");
       setRightOpen(true);
-      await appendLocalUserMessage(sess, text);
+      // 存 objective 而非原始 text:不让 /skill:research 前缀进会话流与标题(用户反馈)。
+      await appendLocalUserMessage(sess, ref.objective);
       return true;
     }
     const parsed = parseSkillSlash(text);
