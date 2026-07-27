@@ -14,6 +14,18 @@ import { buildMemoryAppend } from "../../memory/inject";
 import { setDesignRuntimeClient } from "../compat/runtime-client";
 import { setDesignRuntimeProvider } from "../compat/agent-registry";
 import { useChatStore } from "../compat/chat-store";
+import {
+  clearDesignAssistantResumeSessions,
+  clearLostDesignResumeSession,
+  ensureDesignAssistantSessionLoaded,
+  flushDesignAssistantSession,
+  installDesignAssistantSessionPersistence,
+  isDesignResumeKeyActive,
+  prepareDesignResumeSession,
+  resetDesignAssistantSession,
+  setDesignAssistantSessionRunCanceller,
+  setDesignResumeSession,
+} from "../design-assistant-session";
 import type { ChatBlock, NormalizedThread } from "../compat/agent-types";
 import type { AppSettingsV1 } from "../compat/app-settings";
 import type { SendMessageOverrides } from "../compat/chat-store-types";
@@ -35,10 +47,6 @@ type DesignRunContext = {
 let installedBridge: DesktopBridge | null = null;
 let unsubscribes: Array<() => void> = [];
 const activeRuns = new Map<string, DesignRunContext>();
-// 设计稿 + 实际 Agent 配置 → Agent 侧真实 sessionId。配置变化时不能串用旧会话。
-const resumeByConfig = new Map<string, string>();
-const activeResumeKeyByDocument = new Map<string, string>();
-let activeResumeDocumentId: string | null = null;
 // 工具 block id 分配器:adapter 不给 toolCallId 时按 (runId, name) FIFO 配对,
 // 避免同回合十几次同名调用(codex 把所有 MCP 都叫 "MCP")撞成同一个 block。
 const toolBlockIds = createToolBlockIdTracker();
@@ -78,24 +86,16 @@ export function designRunBusy(): boolean {
 
 /** 清除某一设计稿(或全部设计稿)的 Agent 会话续接状态。 */
 export function clearDesignResumeSessions(docId?: string): void {
-  if (!docId) {
-    resumeByConfig.clear();
-    activeResumeKeyByDocument.clear();
-    activeResumeDocumentId = null;
-    return;
-  }
-  const keyPrefix = `${docId}\u0000`;
-  for (const key of resumeByConfig.keys()) {
-    if (key.startsWith(keyPrefix)) resumeByConfig.delete(key);
-  }
-  activeResumeKeyByDocument.delete(docId);
-  if (activeResumeDocumentId === docId) activeResumeDocumentId = null;
+  clearDesignAssistantResumeSessions(docId);
+  if (docId) void resetDesignAssistantSession(docId);
 }
 
 // ── CLI 事件折叠：CliStreamEvent → chat 镜像 ──────────────────────────────
 function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
   const run = activeRuns.get(runId);
   if (!run) return;
+  // 文稿切换后旧 run 可能还有缓冲事件到达；全局聊天镜像已属于新文稿，必须直接丢弃。
+  if (useDesignWorkspaceStore.getState().activeDocumentId !== run.docId) return;
   const mirror = useChatStore.getState();
   switch (ev.type) {
     case "init":
@@ -103,9 +103,9 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
         ev.sessionId &&
         !ev.roleId &&
         !ev.stage &&
-        activeResumeKeyByDocument.get(run.docId) === run.resumeKey
+        isDesignResumeKeyActive(run.docId, run.resumeKey)
       ) {
-        resumeByConfig.set(run.resumeKey, ev.sessionId);
+        setDesignResumeSession(run.docId, run.resumeKey, ev.sessionId);
       }
       return;
     case "text":
@@ -168,10 +168,9 @@ function handleDesignCliEvent(runId: string, ev: CliStreamEvent): void {
         !ev.stage &&
         run.resumeSessionId &&
         RESUME_SESSION_LOST_RE.test(ev.error ?? "") &&
-        activeResumeKeyByDocument.get(run.docId) === run.resumeKey &&
-        resumeByConfig.get(run.resumeKey) === run.resumeSessionId
+        isDesignResumeKeyActive(run.docId, run.resumeKey)
       ) {
-        resumeByConfig.delete(run.resumeKey);
+        clearLostDesignResumeSession(run.docId, run.resumeKey, run.resumeSessionId);
       }
       // 有的 agent(尤其 pi)不走流式 text 事件,最终输出只在 result.text 里。若本回合没有
       // 流式文本累积(liveAssistant 空),把 result.text 补成一条 assistant 块,否则聊天看不到回复。
@@ -206,6 +205,7 @@ function handleDesignCliExit(runId: string, code: number | null, error?: string)
   activeRuns.delete(runId);
   // 回合结束清掉待配对的工具队列(进程被杀时可能有 start 永远等不到 end)。
   toolBlockIds.clearRun(runId);
+  if (useDesignWorkspaceStore.getState().activeDocumentId !== run.docId) return;
   const mirror = useChatStore.getState();
   mirror.foldLiveAssistant(run.turnId);
   if (code !== 0 && (code !== null || error)) {
@@ -217,6 +217,7 @@ function handleDesignCliExit(runId: string, code: number | null, error?: string)
     } as ChatBlock);
   }
   if (activeRuns.size === 0) mirror.endTurn();
+  void flushDesignAssistantSession(run.docId);
 }
 
 // 解析设计回合实际使用的 agent(纯函数,便于测试):
@@ -240,6 +241,43 @@ export function resolveDesignRunAgent(
   const validDerived =
     derivedId && (s.derivedAgents ?? []).some((d) => d.id === derivedId) ? derivedId : undefined;
   return { agent, derivedId: validDerived };
+}
+
+function resolveDesignRunConfiguration(personal: PersonalState): {
+  agent: AgentKind;
+  derivedId?: string;
+  provider?: CliStartRequest["provider"];
+  model?: string;
+} {
+  const { agent, derivedId } = resolveDesignRunAgent(personal);
+  const enabledProviders = (personal.providerSettings?.providers ?? []).filter((p) => p.enabled !== false);
+  const providerProfile =
+    agent === "pi"
+      ? enabledProviders.find(
+          (p) =>
+            p.id ===
+            (personal.designSettings.providerId ||
+              personal.lastProviderId ||
+              personal.providerSettings?.defaultProviderId),
+        ) ?? enabledProviders[0]
+      : undefined;
+  const provider = providerProfile
+    ? {
+        id: providerProfile.id,
+        baseUrl: providerProfile.baseUrl,
+        apiKey: providerProfile.apiKey,
+        models: providerProfile.models.map((m) => ({ id: m.id, name: m.label })),
+      }
+    : undefined;
+  const model =
+    agent === "pi"
+      ? personal.designSettings.model ||
+        (personal.lastAgent === "pi" ? personal.lastModel : undefined) ||
+        personal.providerSettings?.defaultModel ||
+        providerProfile?.models?.[0]?.id ||
+        undefined
+      : personal.designSettings.model || undefined;
+  return { agent, derivedId, provider, model };
 }
 
 // ── 回合派发 ────────────────────────────────────────────────────────────
@@ -279,18 +317,29 @@ export async function sendDesignMessage(
     return false;
   }
 
-  const sessionId = `design-${docId}`;
-  if (activeResumeDocumentId && activeResumeDocumentId !== docId) {
-    const previousDocId = activeResumeDocumentId;
-    clearDesignResumeSessions(previousDocId);
-    clearDesignResumeSessions(docId);
+  const activeDoc = ws.documents.find((d) => d.id === ws.activeDocumentId);
+  const slidesMode = activeDoc ? designDocumentKind(activeDoc) === "slides" : false;
+  await ensureDesignAssistantSessionLoaded(cwd, docId, slidesMode);
+  const { agent, derivedId, provider, model } = resolveDesignRunConfiguration(personal);
+  const resumeKey = [
+    docId,
+    derivedId ?? agent,
+    provider?.id ?? "",
+    model ?? "",
+  ].join("\u0000");
+  let preparedResume = prepareDesignResumeSession(docId, resumeKey);
+  if (slidesMode && preparedResume.configurationChanged) {
+    // 全局 Agent/模型配置可能在其它文稿中被切换；重新进入本稿时不能显示旧历史却 fresh start。
+    // 先删除旧快照与附件，再用当前配置建立该文稿的新会话。
+    await resetDesignAssistantSession(docId);
+    preparedResume = prepareDesignResumeSession(docId, resumeKey);
   }
-  activeResumeDocumentId = docId;
+  const resumeSessionId = preparedResume.resumeSessionId;
+  const sessionId = `design-${docId}`;
   // Slides 设计稿的回合用 slides: 前缀 —— 主进程据此注入 cortex-slides MCP 工具;
   // 普通 board 设计稿保持 design: 前缀(注入 design-delegate)。
-  const activeDoc = ws.documents.find((d) => d.id === ws.activeDocumentId);
   const runPrefix =
-    activeDoc && designDocumentKind(activeDoc) === "slides" ? SLIDES_RUN_PREFIX : DESIGN_RUN_PREFIX;
+    slidesMode ? SLIDES_RUN_PREFIX : DESIGN_RUN_PREFIX;
   const runId = `${runPrefix}${docId}:${uid("r")}`;
   const turnId = uid("turn");
   const userBlockId = uid("u");
@@ -304,7 +353,7 @@ export async function sendDesignMessage(
         id: sessionId,
         title: "",
         updatedAt: new Date().toISOString(),
-        model: personal.designSettings.model || personal.lastModel || "",
+        model: model || "",
         mode: "agent",
       } as NormalizedThread,
     ]);
@@ -328,54 +377,6 @@ export async function sendDesignMessage(
   } as ChatBlock);
   mirror.beginTurn(turnId, userBlockId);
 
-  // agent:设计助手栏显式选择优先(designSettings.agent),未设置/陈旧则跟随系统「新会话默认 Agent」。
-  // derivedId 存在时仅覆盖 spawn 的 req.agent,下方 model/provider 配对仍用 base agent。
-  const { agent, derivedId } = resolveDesignRunAgent(personal);
-  // model + provider 必须**与解析出的 agent 配对**(mirror initialModelDraft):
-  //   · pi:选一个已启用供应商(设计设置 > lastProviderId > defaultProviderId > 首个),并**必须**配上
-  //     该供应商的一个模型(设计设置 > 同为 pi 时的 lastModel > 供应商默认模型 > 首个模型)——
-  //     pi 缺 model 会回落到内置默认 openai-codex(常 deactivated),LLM 调用直接失败、一个文件都不写。
-  //   · claude/codex:用各自 CLI 自带鉴权,不挂 provider;model 仅取设计设置显式值(否则用 CLI 默认,
-  //     绝不继承 lastModel——那可能是 pi 的模型名,传给 claude 会因未知模型瞬间退出)。
-  const enabledProviders = (personal.providerSettings?.providers ?? []).filter((p) => p.enabled !== false);
-  const providerProfile =
-    agent === "pi"
-      ? enabledProviders.find(
-          (p) =>
-            p.id ===
-            (personal.designSettings.providerId ||
-              personal.lastProviderId ||
-              personal.providerSettings?.defaultProviderId),
-        ) ?? enabledProviders[0]
-      : undefined;
-  const provider = providerProfile
-    ? {
-        id: providerProfile.id,
-        baseUrl: providerProfile.baseUrl,
-        apiKey: providerProfile.apiKey,
-        models: providerProfile.models.map((m) => ({ id: m.id, name: m.label })),
-      }
-    : undefined;
-  const model =
-    agent === "pi"
-      ? personal.designSettings.model ||
-        (personal.lastAgent === "pi" ? personal.lastModel : undefined) ||
-        personal.providerSettings?.defaultModel ||
-        providerProfile?.models?.[0]?.id ||
-        undefined
-      : personal.designSettings.model || undefined;
-  const resumeKey = [
-    docId,
-    derivedId ?? agent,
-    provider?.id ?? "",
-    model ?? "",
-  ].join("\u0000");
-  const previousResumeKey = activeResumeKeyByDocument.get(docId);
-  if (previousResumeKey && previousResumeKey !== resumeKey) {
-    resumeByConfig.delete(previousResumeKey);
-  }
-  activeResumeKeyByDocument.set(docId, resumeKey);
-  const resumeSessionId = resumeByConfig.get(resumeKey);
   // 用户记忆与会话历史分层:历史通过 resumeSessionId 续接,长期用户背景仍经
   // appendSystemPrompt 每轮下发(开关关/全空 → undefined 不带字段)。
   const memoryAppend = buildMemoryAppend();
@@ -471,6 +472,19 @@ export async function cancelActiveDesignRuns(): Promise<void> {
   useChatStore.getState().endTurn();
 }
 
+async function cancelDesignRunsForDocument(documentId: string): Promise<void> {
+  const bridge = installedBridge;
+  if (!bridge) return;
+  const ids = [...activeRuns.entries()]
+    .filter(([, run]) => run.docId === documentId)
+    .map(([runId]) => runId);
+  await Promise.allSettled(ids.map((runId) => bridge.killCli(runId)));
+  for (const runId of ids) {
+    activeRuns.delete(runId);
+    toolBlockIds.clearRun(runId);
+  }
+}
+
 // ── 装配 ────────────────────────────────────────────────────────────────
 // DesignWorkspace 容器挂载时调用;幂等(同 bridge 重复调用跳过)。
 export function installDesignRuntime(bridge: DesktopBridge | null | undefined): void {
@@ -479,6 +493,8 @@ export function installDesignRuntime(bridge: DesktopBridge | null | undefined): 
   for (const un of unsubscribes) un();
   unsubscribes = [];
   installedBridge = bridge;
+  installDesignAssistantSessionPersistence(bridge);
+  setDesignAssistantSessionRunCanceller(cancelDesignRunsForDocument);
 
   // 平台端口:文件系统(kunGuiPort)+ UI 态存储(designUi 分片)。
   installDesignPlatform(bridge, designUiStorage);

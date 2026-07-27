@@ -49,6 +49,7 @@ import {
   userCreatedDocumentIds
 } from './design-workspace-store/helpers'
 import { duplicateHtmlArtifact, prepareDesignHtmlTurn } from './design-workspace-store/html-turn'
+import { deleteDesignAssistantSession } from './design-assistant-session'
 
 export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) => {
   const persistIndex = (): void => {
@@ -171,7 +172,15 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
           deleteArtifactDir(workspaceRoot, artifact.relativePath)
         }
       }
-      deleteDocumentDir(workspaceRoot, documentId)
+      // Slides 助手会话与文稿同生命周期：先排空/封存会话写入并清附件，再删整稿目录，
+      // 避免迟到的持久化写把刚删除的 `.cortex-design/<docId>` 重新创建。
+      if (doc?.kind === 'slides') {
+        void deleteDesignAssistantSession(workspaceRoot, documentId).finally(() => {
+          void deleteDocumentDir(workspaceRoot, documentId)
+        })
+      } else {
+        void deleteDocumentDir(workspaceRoot, documentId)
+      }
       set((state) => {
         const documents = state.documents.filter((d) => d.id !== documentId)
         const activeDocumentId =

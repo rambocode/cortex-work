@@ -37,6 +37,7 @@ import {
 import { useBentoSlidesStore } from "./slides/bento-slides-store";
 import { implementDesignInProject } from "@cortex-work/core/design/run/design-implement";
 import { useChatStore } from "@cortex-work/core/design/compat/chat-store";
+import { ensureDesignAssistantSessionLoaded } from "@cortex-work/core/design/design-assistant-session";
 import { useCanvasShapeStore } from "@cortex-work/core/design/canvas/canvas-shape-store";
 import { useCanvasSelectionStore } from "@cortex-work/core/design/canvas/canvas-selection-store";
 import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspace-store";
@@ -121,6 +122,7 @@ export function DesignWorkspace(): ReactElement {
   const [mode, setMode] = useState<"plan" | "agent">("agent");
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [assistantSessionLoading, setAssistantSessionLoading] = useState(false);
   const [composerModel, setComposerModel] = useState(designSettings.model);
   const [composerReasoningEffort, setComposerReasoningEffort] =
     useState<ComposerReasoningEffort>("auto");
@@ -330,14 +332,24 @@ export function DesignWorkspace(): ReactElement {
   // 清空聊天镜像——否则上一稿的对话消息会跨稿累积在右侧面板。仅当镜像已绑定到别的
   // 设计稿会话时才清(初次挂载 activeThreadId 为空,不误清)。
   useEffect(() => {
-    if (!activeDocumentId) return;
-    clearDesignResumeSessions();
+    if (!activeDocumentId) {
+      setAssistantSessionLoading(false);
+      return;
+    }
+    let cancelled = false;
     setComposerImages([]);
     setComposerTextFiles([]);
+    setAssistantSessionLoading(slidesMode);
+    void ensureDesignAssistantSessionLoaded(workspaceRoot, activeDocumentId, slidesMode).finally(() => {
+      if (!cancelled) setAssistantSessionLoading(false);
+    });
     const wantThread = `design-${activeDocumentId}`;
     const cur = useChatStore.getState().activeThreadId;
-    if (cur && cur !== wantThread) useChatStore.getState().resetMirror();
-  }, [activeDocumentId]);
+    if (!slidesMode && cur && cur !== wantThread) useChatStore.getState().resetMirror();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDocumentId, slidesMode, workspaceRoot]);
 
   const contextState = useDesignComposerContextState({
     route: "design",
@@ -346,7 +358,11 @@ export function DesignWorkspace(): ReactElement {
     setInput,
   });
 
-  const runtimeConnection = bridge ? "ready" : "offline";
+  const runtimeConnection = bridge
+    ? assistantSessionLoading
+      ? "checking"
+      : "ready"
+    : "offline";
 
   const promptController = useDesignPromptController({
     route: "design",

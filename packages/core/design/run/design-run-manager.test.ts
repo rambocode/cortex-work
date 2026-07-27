@@ -7,7 +7,7 @@ import {
 } from "./design-run-manager";
 import { usePersonalStore, type PersonalState } from "../../store/personal";
 import type { DesktopBridge } from "../../desktop/bridge";
-import type { CliExitEvent, CliStreamEvent } from "../../desktop/types";
+import type { CliExitEvent, CliStartRequest, CliStreamEvent } from "../../desktop/types";
 import { useChatStore } from "../compat/chat-store";
 import { useDesignWorkspaceStore } from "../design-workspace-store";
 
@@ -70,6 +70,7 @@ describe("resolveDesignRunAgent", () => {
 
 describe("sendDesignMessage 回合元数据", () => {
   let startCli: ReturnType<typeof vi.fn>;
+  let killCli: ReturnType<typeof vi.fn>;
   let emit: (runId: string, event: CliStreamEvent) => void;
   let emitExit: (exit: CliExitEvent) => void;
 
@@ -105,6 +106,7 @@ describe("sendDesignMessage 回合元数据", () => {
       ],
     });
     startCli = vi.fn(async () => undefined);
+    killCli = vi.fn(async () => undefined);
     installDesignRuntime({
       onCliEvent: (cb: (runId: string, event: CliStreamEvent) => void) => {
         emit = cb;
@@ -115,7 +117,7 @@ describe("sendDesignMessage 回合元数据", () => {
         return () => undefined;
       },
       startCli,
-      killCli: vi.fn(async () => undefined),
+      killCli,
       designWorkspaceRoot: async () => "/tmp/ws",
     } as unknown as DesktopBridge);
   });
@@ -166,6 +168,184 @@ describe("sendDesignMessage 回合元数据", () => {
     );
   });
 
+  it("应用重启后从演示文稿磁盘会话恢复消息与 Agent session", async () => {
+    const restoredStartCli = vi.fn(async () => undefined);
+    const persistedSession = {
+      version: 1,
+      documentId: "deck-1",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+      thread: {
+        id: "design-deck-1",
+        title: "",
+        updatedAt: "2026-07-27T00:00:00.000Z",
+        model: "",
+        mode: "agent",
+      },
+      blocks: [
+        { kind: "user", id: "u-old", turnId: "turn-old", text: "旧问题" },
+        { kind: "assistant", id: "a-old", turnId: "turn-old", text: "旧回答" },
+      ],
+      liveAssistant: "",
+      resumeKey: ["deck-1", "pi", "", ""].join("\u0000"),
+      resumeSessionId: "persisted-agent-session",
+    };
+    installDesignRuntime({
+      onCliEvent: () => () => undefined,
+      onCliExit: () => () => undefined,
+      startCli: restoredStartCli,
+      killCli: vi.fn(async () => undefined),
+      designWorkspaceRoot: async () => "/tmp/ws",
+      readFile: vi.fn(async (path: string) => {
+        if (path.endsWith("/.cortex-design/deck-1/assistant-session.json")) {
+          return { content: JSON.stringify(persistedSession), truncated: false };
+        }
+        throw new Error("not found");
+      }),
+      writeFile: vi.fn(async () => undefined),
+      deleteEntry: vi.fn(async () => undefined),
+      deleteChat: vi.fn(async () => undefined),
+    } as unknown as DesktopBridge);
+
+    await sendDesignMessage("重启后的下一轮");
+
+    expect(useChatStore.getState().blocks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "u-old", text: "旧问题" }),
+        expect.objectContaining({ id: "a-old", text: "旧回答" }),
+      ]),
+    );
+    expect(restoredStartCli).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeSessionId: "persisted-agent-session" }),
+    );
+  });
+
+  it("持久化会话的 Agent 配置与当前不一致时先清空旧会话再 fresh start", async () => {
+    const mismatchStartCli = vi.fn(async () => undefined);
+    const deleteEntry = vi.fn(async () => undefined);
+    const deleteChat = vi.fn(async () => undefined);
+    const persistedSession = {
+      version: 1,
+      documentId: "deck-1",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+      thread: {
+        id: "design-deck-1",
+        title: "",
+        updatedAt: "2026-07-27T00:00:00.000Z",
+        model: "old-model",
+        mode: "agent",
+      },
+      blocks: [{ kind: "user", id: "u-old-config", text: "旧配置问题" }],
+      liveAssistant: "",
+      resumeKey: ["deck-1", "codex", "", "old-model"].join("\u0000"),
+      resumeSessionId: "old-config-session",
+    };
+    installDesignRuntime({
+      onCliEvent: () => () => undefined,
+      onCliExit: () => () => undefined,
+      startCli: mismatchStartCli,
+      killCli: vi.fn(async () => undefined),
+      designWorkspaceRoot: async () => "/tmp/ws",
+      readFile: vi.fn(async () => ({
+        content: JSON.stringify(persistedSession),
+        truncated: false,
+      })),
+      writeFile: vi.fn(async () => undefined),
+      deleteEntry,
+      deleteChat,
+    } as unknown as DesktopBridge);
+
+    await sendDesignMessage("新配置问题");
+
+    expect(useChatStore.getState().blocks.some((block) => block.id === "u-old-config")).toBe(false);
+    expect(useChatStore.getState().blocks).toEqual([
+      expect.objectContaining({ kind: "user", text: "新配置问题" }),
+    ]);
+    expect(mismatchStartCli).toHaveBeenCalledWith(
+      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+    );
+    expect(deleteEntry).toHaveBeenCalled();
+    expect(deleteChat).toHaveBeenCalledWith("design-deck-1");
+  });
+
+  it("回合结束时把演示文稿消息与 Agent session 写入文稿目录", async () => {
+    let persistedEmit!: (runId: string, event: CliStreamEvent) => void;
+    let persistedExit!: (exit: CliExitEvent) => void;
+    const writeFile = vi.fn<(path: string, content: string) => Promise<void>>(async () => undefined);
+    const persistedStartCli = vi.fn<(request: CliStartRequest) => Promise<void>>(async () => undefined);
+    installDesignRuntime({
+      onCliEvent: (cb: (runId: string, event: CliStreamEvent) => void) => {
+        persistedEmit = cb;
+        return () => undefined;
+      },
+      onCliExit: (cb: (exit: CliExitEvent) => void) => {
+        persistedExit = cb;
+        return () => undefined;
+      },
+      startCli: persistedStartCli,
+      killCli: vi.fn(async () => undefined),
+      designWorkspaceRoot: async () => "/tmp/ws",
+      readFile: vi.fn(async () => {
+        throw new Error("not found");
+      }),
+      writeFile,
+      deleteEntry: vi.fn(async () => undefined),
+      deleteChat: vi.fn(async () => undefined),
+    } as unknown as DesktopBridge);
+
+    await sendDesignMessage("需要持久化的问题");
+    const request = persistedStartCli.mock.calls[0]?.[0] as { runId: string };
+    const runId = request.runId;
+    persistedEmit(runId, { type: "init", sessionId: "persist-me" });
+    persistedEmit(runId, { type: "text", delta: "需要持久化的回答" });
+    persistedExit({ runId, code: 0 });
+    await vi.waitFor(() => expect(writeFile).toHaveBeenCalled());
+
+    expect(writeFile).toHaveBeenCalledWith(
+      expect.stringMatching(/\.cortex-design\/deck-1\/assistant-session\.json$/),
+      expect.stringContaining('"resumeSessionId":"persist-me"'),
+    );
+    expect(writeFile.mock.calls.at(-1)?.[1]).toContain("需要持久化的问题");
+    expect(writeFile.mock.calls.at(-1)?.[1]).toContain("需要持久化的回答");
+  });
+
+  it("删除演示文稿时同步删除助手会话附件与文稿目录", async () => {
+    const deleteEntry = vi.fn(async () => undefined);
+    const deleteChat = vi.fn(async () => undefined);
+    installDesignRuntime({
+      onCliEvent: () => () => undefined,
+      onCliExit: () => () => undefined,
+      startCli: vi.fn(async () => undefined),
+      killCli: vi.fn(async () => undefined),
+      designWorkspaceRoot: async () => "/tmp/ws",
+      readFile: vi.fn(async () => {
+        throw new Error("not found");
+      }),
+      writeFile: vi.fn(async () => undefined),
+      deleteEntry,
+      deleteChat,
+    } as unknown as DesktopBridge);
+
+    useDesignWorkspaceStore.getState().removeDocument("deck-1");
+
+    await vi.waitFor(() => {
+      expect(deleteChat).toHaveBeenCalledWith("design-deck-1");
+      expect(deleteEntry).toHaveBeenCalledWith(
+        expect.stringMatching(/\.cortex-design\/deck-1$/),
+      );
+    });
+  });
+
+  it("删除仍在生成的演示文稿时先停止该文稿的 Agent run", async () => {
+    await sendDesignMessage("生成中");
+    const request = startCli.mock.calls[0]?.[0] as { runId: string };
+
+    useDesignWorkspaceStore.getState().removeDocument("deck-1");
+
+    await vi.waitFor(() => {
+      expect(killCli).toHaveBeenCalledWith(request.runId);
+    });
+  });
+
   it("委派子 Agent 的合成 init 不覆盖顶层 Agent session", async () => {
     useDesignWorkspaceStore.setState({ activeDocumentId: "deck-delegate-init" });
     await sendDesignMessage("第一轮");
@@ -208,7 +388,7 @@ describe("sendDesignMessage 回合元数据", () => {
     );
   });
 
-  it("切换设计稿后清除旧设计稿的 Agent session", async () => {
+  it("切换演示文稿后分别续接各自的 Agent session", async () => {
     usePersonalStore.setState((state) => ({
       designSettings: {
         ...state.designSettings,
@@ -224,12 +404,29 @@ describe("sendDesignMessage 回合元数据", () => {
 
     useDesignWorkspaceStore.setState({ activeDocumentId: "deck-switch-b" });
     await sendDesignMessage("B 稿第一轮");
+    const secondRequest = startCli.mock.calls[1]?.[0] as { runId: string };
+    emit(secondRequest.runId, { type: "init", sessionId: "deck-b-session" });
     useDesignWorkspaceStore.setState({ activeDocumentId: "deck-switch-a" });
     await sendDesignMessage("重新进入 A 稿");
 
     expect(startCli.mock.calls[2]?.[0]).toEqual(
-      expect.not.objectContaining({ resumeSessionId: expect.anything() }),
+      expect.objectContaining({ resumeSessionId: "deck-a-session" }),
     );
+  });
+
+  it("切换文稿后忽略旧文稿迟到的流式事件，避免污染当前会话", async () => {
+    await sendDesignMessage("A 稿问题");
+    const firstRequest = startCli.mock.calls[0]?.[0] as { runId: string };
+    useDesignWorkspaceStore.setState({ activeDocumentId: "deck-other" });
+
+    emit(firstRequest.runId, { type: "text", delta: "A 稿迟到回答" });
+
+    expect(useChatStore.getState().liveAssistant).toBe("");
+    expect(
+      useChatStore.getState().blocks.some(
+        (block) => block.kind === "assistant" && block.text.includes("A 稿迟到回答"),
+      ),
+    ).toBe(false);
   });
 
   it("显式清除设计稿会话后下一轮不再续接", async () => {
