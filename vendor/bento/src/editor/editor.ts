@@ -53,8 +53,9 @@ export class Editor {
   private shareB!: HTMLElement
   private shareWrap!: HTMLElement
   private session: import('../sync/session').SyncSession | null = null
+  private thumbContextCleanup: (() => void) | null = null
   /** side panel widths (px) — user-resizable, persisted per browser */
-  private panelW = { left: 188, right: 236 }
+  private panelW = { left: 188, right: 256 }
 
   constructor(
     private root: HTMLElement,
@@ -326,7 +327,7 @@ export class Editor {
   // --- resizable side panels ------------------------------------------------
 
   private static PANEL_BOUNDS = { left: [110, 400], right: [190, 520] } as const
-  private static PANEL_DEFAULTS = { left: 188, right: 236 } as const
+  private static PANEL_DEFAULTS = { left: 188, right: 256 } as const
 
   private restorePanelWidths() {
     try {
@@ -986,15 +987,129 @@ export class Editor {
       badge.title = `${slide.comments.filter((c) => !c.resolved).length} open comment(s)`
       item.appendChild(badge)
     }
-    const tools = div('ed-thumb-tools')
-    tools.append(
-      btn(ICONS.copy, '', (ev) => { ev.stopPropagation(); this.duplicateSlide(i) }, t('Duplicate slide')),
-      btn(ICONS.trash, '', (ev) => { ev.stopPropagation(); this.deleteSlide(i) }, t('Delete slide')),
-    )
-    item.append(num, surface, tools)
+    item.append(num, surface)
     item.addEventListener('click', () => this.store.goTo(i))
+    item.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      this.store.goTo(i)
+      this.openThumbContextMenu(ev.clientX, ev.clientY, i, isState)
+    })
     if (!isState) this.wireThumbDrag(item, i)
     return item
+  }
+
+  /** Native-feeling slide actions at the pointer, shared by mouse and trackpad right-click. */
+  private openThumbContextMenu(x: number, y: number, index: number, isState: boolean) {
+    this.closeThumbContextMenu()
+    const menu = div('ed-thumb-context')
+    menu.setAttribute('role', 'menu')
+    menu.setAttribute('aria-label', t('Slide actions'))
+
+    const slides = this.store.doc.slides
+    const readOnly = this.store.readOnly
+    const hasPrevious = !isState && slides.slice(0, index).some((slide) => !slide.stateOf)
+    const hasNext = !isState && slides.slice(index + 1).some((slide) => !slide.stateOf)
+    const addAction = (
+      action: string,
+      icon: string,
+      label: string,
+      disabled: boolean,
+      run: () => void,
+      danger = false,
+    ) => {
+      const button = btn(icon, t(label), () => {
+        if (disabled) return
+        this.closeThumbContextMenu()
+        run()
+      }) as HTMLButtonElement
+      button.dataset.action = action
+      button.setAttribute('role', 'menuitem')
+      button.disabled = disabled
+      if (danger) button.classList.add('danger')
+      menu.appendChild(button)
+    }
+
+    addAction('move-up', ICONS.arrow, 'Move slide up', readOnly || !hasPrevious, () => this.moveSlide(index, -1))
+    addAction('move-down', ICONS.arrow, 'Move slide down', readOnly || !hasNext, () => this.moveSlide(index, 1))
+    const moveWrap = div('ed-thumb-move')
+    const moveMenu = div('ed-thumb-destinations')
+    moveMenu.setAttribute('role', 'menu')
+    moveMenu.setAttribute('aria-label', t('Move slide after'))
+    const movableTargets = slides
+      .map((slide, targetIndex) => ({ slide, targetIndex }))
+      .filter(({ slide, targetIndex }) => !slide.stateOf && targetIndex !== index)
+    const openMoveMenu = (focusFirst: boolean) => {
+      if (moveTo.disabled) return
+      moveWrap.classList.add('open')
+      moveTo.setAttribute('aria-expanded', 'true')
+      moveMenu.classList.remove('open-left')
+      const rootRect = menu.getBoundingClientRect()
+      const moveRect = moveMenu.getBoundingClientRect()
+      if (rootRect.right + moveRect.width + 6 > window.innerWidth - 8) moveMenu.classList.add('open-left')
+      const overflow = rootRect.top + moveRect.height - window.innerHeight + 8
+      moveMenu.style.top = `${Math.min(-5, -5 - Math.max(0, overflow))}px`
+      if (focusFirst) moveMenu.querySelector<HTMLButtonElement>('button')?.focus()
+    }
+    const moveTo = btn(ICONS.arrow, t('Move to…'), () => {
+      if (moveWrap.classList.contains('open')) {
+        moveWrap.classList.remove('open')
+        moveTo.setAttribute('aria-expanded', 'false')
+      } else {
+        openMoveMenu(true)
+      }
+    }) as HTMLButtonElement
+    moveTo.dataset.action = 'move-to'
+    moveTo.classList.add('ed-thumb-move-trigger')
+    moveTo.setAttribute('role', 'menuitem')
+    moveTo.setAttribute('aria-haspopup', 'menu')
+    moveTo.setAttribute('aria-expanded', 'false')
+    moveTo.disabled = readOnly || !movableTargets.length
+    for (const { slide, targetIndex } of movableTargets) {
+      const destination = document.createElement('button')
+      destination.className = 'ed-btn'
+      destination.dataset.action = 'move-after'
+      destination.dataset.targetId = slide.id
+      destination.setAttribute('role', 'menuitem')
+      const page = t('After slide {n}', { n: this.linearNumber(targetIndex) })
+      destination.textContent = slide.name?.trim() ? `${page} · ${slide.name.trim()}` : page
+      destination.addEventListener('click', () => {
+        this.closeThumbContextMenu()
+        this.moveSlideAfter(index, slide.id)
+      })
+      moveMenu.appendChild(destination)
+    }
+    moveWrap.addEventListener('pointerenter', () => openMoveMenu(false))
+    moveWrap.append(moveTo, moveMenu)
+    menu.appendChild(moveWrap)
+    menu.appendChild(div('ed-menu-sep'))
+    addAction('duplicate', ICONS.copy, 'Duplicate slide', readOnly, () => this.duplicateSlide(index))
+    addAction('delete', ICONS.trash, 'Delete slide', readOnly || slides.length <= 1, () => this.deleteSlide(index), true)
+
+    document.body.appendChild(menu)
+    const rect = menu.getBoundingClientRect()
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`
+
+    const closeOutside = (ev: PointerEvent) => {
+      if (!menu.contains(ev.target as Node)) this.closeThumbContextMenu()
+    }
+    const closeOnKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') this.closeThumbContextMenu()
+    }
+    document.addEventListener('pointerdown', closeOutside, true)
+    document.addEventListener('keydown', closeOnKey, true)
+    this.thumbContextCleanup = () => {
+      menu.remove()
+      document.removeEventListener('pointerdown', closeOutside, true)
+      document.removeEventListener('keydown', closeOnKey, true)
+      this.thumbContextCleanup = null
+    }
+    menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+  }
+
+  private closeThumbContextMenu() {
+    this.thumbContextCleanup?.()
   }
 
   /** 1-based position among non-state slides (what the audience counts). */
@@ -1196,6 +1311,54 @@ export class Editor {
       this.store.doc.slides.splice(i + 1, 0, clone)
     }, 'slides')
     this.store.goTo(i + 1)
+  }
+
+  /** Move a linear slide together with its contiguous interactive states. */
+  private moveSlide(i: number, direction: -1 | 1) {
+    const slides = this.store.doc.slides
+    const slide = slides[i]
+    if (!slide || slide.stateOf) return
+
+    const blockEnd = this.slideBlockEnd(i)
+    let targetStart = direction < 0 ? i - 1 : blockEnd
+    if (direction < 0) {
+      while (targetStart >= 0 && slides[targetStart].stateOf) targetStart--
+    }
+    if (targetStart < 0 || targetStart >= slides.length || slides[targetStart].stateOf) return
+
+    let targetEnd = targetStart + 1
+    while (targetEnd < slides.length && slides[targetEnd].stateOf === slides[targetStart].id) targetEnd++
+    this.relocateSlideBlock(i, direction < 0 ? targetStart : targetEnd)
+  }
+
+  private moveSlideAfter(i: number, targetId: string) {
+    const targetIndex = this.store.doc.slides.findIndex((slide) => slide.id === targetId && !slide.stateOf)
+    if (targetIndex < 0 || targetIndex === i) return
+    this.relocateSlideBlock(i, this.slideBlockEnd(targetIndex))
+  }
+
+  private slideBlockEnd(i: number): number {
+    const slides = this.store.doc.slides
+    const parentId = slides[i]?.id
+    let end = i + 1
+    while (end < slides.length && slides[end].stateOf === parentId) end++
+    return end
+  }
+
+  private relocateSlideBlock(i: number, insertionIndex: number) {
+    const slides = this.store.doc.slides
+    const slide = slides[i]
+    if (!slide || slide.stateOf) return
+    const blockEnd = this.slideBlockEnd(i)
+    if (insertionIndex >= i && insertionIndex <= blockEnd) return
+    const blockLength = blockEnd - i
+    const adjustedIndex = insertionIndex > i ? insertionIndex - blockLength : insertionIndex
+    this.store.commit(() => {
+      const block = slides.splice(i, blockLength)
+      slides.splice(adjustedIndex, 0, ...block)
+      this.store.currentIndex = slides.findIndex((candidate) => candidate.id === slide.id)
+    }, 'slides')
+    this.store.emit('current')
   }
 
   private deleteSlide(i: number) {

@@ -51,6 +51,8 @@ export interface SlidesDeckChangedEvent {
   pages: number[]
   /** 写入后的总页数;解析失败为 0。 */
   slideCount: number
+  /** add_asset 写入的素材键;存在时活动条应展示素材变更,而不是误报整篇重写。 */
+  assetKey?: string
   /** 写入完成时刻 ISO 串;仅供展示,不参与任何判定。 */
   at: string
 }

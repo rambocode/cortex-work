@@ -107,6 +107,7 @@ describe('buildSlidesTurnPrompt(选区引用)', () => {
   it('带选区时把引用段拼在用户原话之前', () => {
     const p = buildSlidesTurnPrompt({ text: '把它换成折线图', stage: 'ready', selection })
     expect(p).toContain('#el_7f2a')
+    expect(p).toContain('slide_ids: ["s3"]')
     expect(p.indexOf('#el_7f2a')).toBeLessThan(p.indexOf('User request:'))
     expect(p.endsWith('User request:\n把它换成折线图')).toBe(true)
   })
@@ -151,6 +152,7 @@ describe('buildSlidesTurnPrompt(当前页引用)', () => {
     expect(p).toContain('slide 3')
     expect(p).toContain('LLM 发展简史')
     expect(p).toContain('#s3')
+    expect(p).toContain('slide_ids: ["s3"]')
     expect(p.indexOf('current editor page')).toBeLessThan(p.indexOf('User request:'))
   })
 

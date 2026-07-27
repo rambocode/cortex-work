@@ -164,6 +164,7 @@ export function formatSlidesPageForPrompt(
   return [
     `The user's current editor page is ${where} (#${page.slideId}).`,
     'Use it as the default target for page-scoped requests such as "this page" or 「当前页」.',
+    `For such a page-scoped request, fetch only this page with get_deck_state slide_ids: ["${page.slideId}"].`,
     'This context does not override an explicit request about multiple slides or the whole deck.',
     'If an element selection is listed below, that more specific selection takes precedence.'
   ].join('\n')
@@ -222,7 +223,7 @@ export function formatSlidesSelectionForPrompt(
     '',
     'Treat this selection as the binding target for wording like "this", "these", "here",',
     '「这个」, 「这里」, 「选中的」. Apply the request to these elements only, unless the user',
-    'clearly asks for something else. Fetch their current definition with get_deck_state before',
+    `clearly asks for something else. Fetch their current definition with get_deck_state slide_ids: ["${snapshot.slideId}"] before`,
     'editing, and keep every other element byte-identical when you write the document back.'
   )
   return lines.join('\n')

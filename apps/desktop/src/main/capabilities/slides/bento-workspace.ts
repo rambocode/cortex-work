@@ -174,6 +174,7 @@ function announceDeckChange(options: {
   slideIds?: string[];
   pages?: number[];
   slideCount: number;
+  assetKey?: string;
 }): void {
   emitSlidesDeckChanged(
     {
@@ -184,6 +185,7 @@ function announceDeckChange(options: {
       slideIds: options.slideIds ?? [],
       pages: options.pages ?? [],
       slideCount: options.slideCount,
+      ...(options.assetKey ? { assetKey: options.assetKey } : {}),
       at: new Date().toISOString(),
     },
     log,
@@ -614,6 +616,8 @@ export async function writeBentoDoc(options: {
   expectedRevision: number;
   /** 随写入一并推进的 gate 阶段(如全篇生成成功后置 ready);缺省保持原样。 */
   stage?: BentoDeckStage;
+  /** 本次整份文档写入对应的用户可见活动;缺省表示真正的整篇重写。 */
+  activity?: { kind: "asset"; assetKey: string };
 }): Promise<BentoWorkspaceResult<{ revision: number }>> {
   const resolved = await resolveBentoDeckPaths(options.workspaceRoot, options.deckId);
   if (!resolved.ok) return resolved;
@@ -657,6 +661,7 @@ export async function writeBentoDoc(options: {
       revision: meta.revision + 1,
       source: "agent",
       slideCount: countSlides(merged),
+      ...(options.activity?.kind === "asset" ? { assetKey: options.activity.assetKey } : {}),
     });
     return { ok: true, value: { revision: meta.revision + 1 } };
   });

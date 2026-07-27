@@ -77,6 +77,7 @@ function formatPages(pages: number[]): string {
  */
 export function formatSlidesDeckActivity(event: SlidesDeckChangedEvent): string | null {
   if (event.source !== 'agent') return null
+  if (event.assetKey) return `已添加素材 ${event.assetKey} · rev ${event.revision}`
   const pages = formatPages(event.pages ?? [])
   if (pages) return `已更新 第${pages} · rev ${event.revision}`
   if (event.slideCount > 0) return `已重写全篇 ${event.slideCount} 页 · rev ${event.revision}`

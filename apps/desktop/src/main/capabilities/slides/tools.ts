@@ -78,6 +78,73 @@ function normalizeDeckDocInput(doc: Record<string, unknown> | string): Record<st
   }
 }
 
+type AgentAssetManifestItem = {
+  key: string;
+  mimeType?: string;
+  byteSize: number;
+};
+
+function assetManifestItem(key: string, value: unknown): AgentAssetManifestItem {
+  if (typeof value !== "string") return { key, byteSize: 0 };
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(value);
+  if (!match) return { key, byteSize: Buffer.byteLength(value, "utf8") };
+  const encoded = match[2]!.replace(/\s+/g, "");
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return {
+    key,
+    mimeType: match[1],
+    byteSize: Math.max(0, Math.floor((encoded.length * 3) / 4) - padding),
+  };
+}
+
+/**
+ * MCP 工具结果只传可编辑结构，不传 assets 里的 base64 二进制。
+ *
+ * 真实 deck 的两张 PNG 就可能占近 400 万字符；把它们塞进 tool_result 会在模型准备回答前
+ * 直接撞穿上下文窗口。资产 key 仍经 assetManifest 暴露，页面里的 asset:<key> 引用不变。
+ */
+function deckStateForAgent(
+  doc: Record<string, unknown>,
+  requestedSlideIds: readonly string[],
+): {
+  doc: Record<string, unknown>;
+  assetManifest: AgentAssetManifestItem[];
+  totalSlideCount: number;
+  returnedSlideIds: string[];
+  missingSlideIds: string[];
+  partial: boolean;
+} {
+  const { assets, ...withoutAssets } = doc;
+  const allSlides = Array.isArray(doc.slides) ? doc.slides : [];
+  const requested = new Set(requestedSlideIds);
+  const slides = requested.size
+    ? allSlides.filter(
+        (slide) =>
+          !!slide &&
+          typeof slide === "object" &&
+          requested.has(String((slide as { id?: unknown }).id ?? "")),
+      )
+    : allSlides;
+  const returnedSlideIds = slides
+    .map((slide) =>
+      slide && typeof slide === "object" ? String((slide as { id?: unknown }).id ?? "") : "",
+    )
+    .filter(Boolean);
+  const returned = new Set(returnedSlideIds);
+  const assetRecord =
+    assets && typeof assets === "object" && !Array.isArray(assets)
+      ? (assets as Record<string, unknown>)
+      : {};
+  return {
+    doc: { ...withoutAssets, slides },
+    assetManifest: Object.entries(assetRecord).map(([key, value]) => assetManifestItem(key, value)),
+    totalSlideCount: allSlides.length,
+    returnedSlideIds,
+    missingSlideIds: requestedSlideIds.filter((id) => !returned.has(id)),
+    partial: requested.size > 0,
+  };
+}
+
 // stage → Agent 下一步提示(与 slides-prompt 的阶段指令口径一致)。
 function stageHint(stage: BentoDeckStage): string {
   switch (stage) {
@@ -100,20 +167,48 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
     {
       description:
         "Read the deck's current Bento document (format bento/slides), pending outline draft, stage and revision. " +
-        "set_deck_doc requires the revision returned here as expected_revision.",
-      inputSchema: {},
+        "For a page-scoped edit, pass the known slide id in slide_ids so only that page enters model context. " +
+        "Embedded asset base64 is never returned; assetManifest lists its keys and metadata instead. " +
+        "set_deck_doc requires the revision returned here as expected_revision and preserves existing assets when doc.assets is omitted.",
+      inputSchema: {
+        slide_ids: z
+          .array(z.string().min(1))
+          .min(1)
+          .max(MAX_SLIDES_PER_BATCH)
+          .optional()
+          .describe("Known slide ids to fetch for a page-scoped edit; omit only when the whole deck structure is needed"),
+      },
     },
-    async (): Promise<ToolResult> => {
+    async ({ slide_ids }): Promise<ToolResult> => {
       const result = await readBentoDeck(ctx);
       if (!result.ok) return errorResult(result.error.code, result.error.message);
       const { doc, json, revision, stage, outline } = result.value;
+      let rawDoc: Record<string, unknown> | null = doc as unknown as Record<string, unknown> | null;
+      if (!rawDoc && json) {
+        try {
+          const parsed = JSON.parse(json) as unknown;
+          rawDoc =
+            parsed && typeof parsed === "object" && !Array.isArray(parsed)
+              ? (parsed as Record<string, unknown>)
+              : null;
+        } catch {
+          rawDoc = null;
+        }
+      }
+      const agentState = rawDoc ? deckStateForAgent(rawDoc, slide_ids ?? []) : null;
       return jsonResult({
         ok: true,
         revision,
         stage,
         outline,
-        // doc 优先给解析后的对象;上游新格式解析失败时退回原文,Agent 仍可读改。
-        doc: doc ?? (json ? json : null),
+        // 无论 schema 是否是上游新版本，都先按普通 JSON 解析并剥离二进制；解析失败不再把
+        // 可能数 MB 的原文塞给模型，避免一次损坏文档拖垮整个会话。
+        doc: agentState?.doc ?? null,
+        assetManifest: agentState?.assetManifest ?? [],
+        totalSlideCount: agentState?.totalSlideCount ?? 0,
+        returnedSlideIds: agentState?.returnedSlideIds ?? [],
+        missingSlideIds: agentState?.missingSlideIds ?? (slide_ids ?? []),
+        partial: agentState?.partial ?? Boolean(slide_ids?.length),
         hint: stageHint(stage),
       });
     },
@@ -173,10 +268,17 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       }
       const current = await readBentoDeck(ctx);
       if (!current.ok) return errorResult(current.error.code, current.error.message);
+      // get_deck_state 刻意不回传 assets 的 base64。模型按完整结构写回时通常不会带 assets，
+      // 这里由宿主补回磁盘上的权威资产表，避免结构性增删页顺手把所有图片删掉。
+      const docForWrite =
+        !Object.prototype.hasOwnProperty.call(normalizedDoc, "assets") &&
+        current.value.doc?.assets
+          ? { ...normalizedDoc, assets: current.value.doc.assets }
+          : normalizedDoc;
       const stage = current.value.stage;
       const pendingPages = pendingBentoGenerationPages(current.value.doc);
-      const slideCount = Array.isArray(normalizedDoc.slides)
-        ? normalizedDoc.slides.length
+      const slideCount = Array.isArray(docForWrite.slides)
+        ? docForWrite.slides.length
         : 0;
       // 提纲 gate:批准前禁止多页全篇生成(允许单页骨架,如标题页微调)。
       if ((stage === "draft" || stage === "outline-proposed") && slideCount > 1) {
@@ -195,7 +297,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
       const nextStage: BentoDeckStage | undefined = stage === "outline-approved" && slideCount > 1 ? "ready" : undefined;
       const result = await writeBentoDoc({
         ...ctx,
-        doc: normalizedDoc,
+        doc: docForWrite,
         expectedRevision: expected_revision,
         stage: nextStage,
       });
@@ -300,6 +402,7 @@ export function registerSlidesTools(mcp: McpServer, state: SlidesSessionState): 
         ...ctx,
         doc: { ...current.value.doc, assets },
         expectedRevision: expected_revision,
+        activity: { kind: "asset", assetKey: key },
       });
       if (!result.ok) return errorResult(result.error.code, result.error.message);
       return jsonResult({

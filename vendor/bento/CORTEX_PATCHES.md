@@ -106,7 +106,14 @@ vendored 基线 commit:`455517a2b3a55fe655cae6842318cd86d8041915`(2026-07-24,上
      `store.setDirty(false)`(热应用进来的内容**就是磁盘上的内容**,不该再被当成
      「用户的未保存修改」回写一遍)。
 - `src/editor/panels.ts` — 「保存为布局」的命名 `window.prompt` 改走 `cortexPromptText()`。
-- `src/styles.css` — 追加 `dialog.ed-cortexprompt` 样式块(沿用密码弹层观感 + 多行输入形态);
+- `src/editor/editor.ts`、`src/styles.css`、`src/i18n/zh-Hans.ts` —
+  左侧 `.ed-thumb` 增加明确的当前页视觉层级:未选中页降低亮度/饱和度,
+  hover 部分恢复,当前页使用完整色彩 + accent 外环和阴影;缩略图右键提供
+  上移/下移、移动到任意指定页后、复制、删除操作,首尾页与单页场景禁用
+  无效操作,并移除 hover 时遮挡缩略图内容的复制/删除按钮;右侧属性栏默认
+  宽度由 236px 增至 256px,属性行与双列数值网格
+  使用稳定轨道,避免中文标签换行、控件重叠及属性切换抖动;追加
+  `dialog.ed-cortexprompt` 样式块(沿用密码弹层观感 + 多行输入形态);
   sv-* 段末追加 `.bento-speaker--split` 样式块
   (`/* CORTEX-PATCH */` 标记):Electron 演讲者视图的 split 布局(当前页占满主区
   + NEXT 右上 + NOTES 底部通栏),scoped 在修饰类下,不影响上游弹窗版 speaker 视图。

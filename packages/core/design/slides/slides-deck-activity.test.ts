@@ -93,6 +93,12 @@ describe('formatSlidesDeckActivity', () => {
     expect(formatSlidesDeckActivity(ev({ slideIds: [], pages: [] }))).toBe('已重写全篇 13 页 · rev 72')
   })
 
+  it('素材写入优先显示素材键,不误报全篇重写', () => {
+    expect(formatSlidesDeckActivity(ev({ slideIds: [], pages: [], assetKey: 'hero-image.png' }))).toBe(
+      '已添加素材 hero-image.png · rev 72'
+    )
+  })
+
   it('整份写入但页数未知 → 不报页数', () => {
     expect(formatSlidesDeckActivity(ev({ slideIds: [], pages: [], slideCount: 0 }))).toBe('已重写演示文稿 · rev 72')
   })

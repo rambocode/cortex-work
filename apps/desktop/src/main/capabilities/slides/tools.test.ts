@@ -7,8 +7,15 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { buildStarterBentoDoc } from "@cortex-work/core/design/slides/bento/bento-doc-schema";
 
+const emittedDeckEvents = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+
 vi.mock("../../log", () => ({
   createLogger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
+}));
+
+// 只替换 Electron 广播出口;add_asset、持久化、revision 与事件组装仍走真实实现。
+vi.mock("./deck-events", () => ({
+  emitSlidesDeckChanged: (event: Record<string, unknown>) => emittedDeckEvents.push(event),
 }));
 
 import { registerSlidesTools } from "./tools";
@@ -91,6 +98,89 @@ describe("get_deck_state", () => {
     expect((res.doc as { title: string }).title).toBe("工具测试");
     expect(String(res.hint)).toContain("propose_outline");
   });
+
+  it("单页读取不把内嵌资产送进模型，完整文档写回时仍保留原资产", async () => {
+    const deckId = "deckassets";
+    const localTools = new Map<string, ToolHandler>();
+    const localMcp = {
+      registerTool: (name: string, _def: unknown, handler: ToolHandler) => {
+        localTools.set(name, handler);
+      },
+    } as unknown as McpServer;
+    const localCall = async (
+      name: string,
+      input: Record<string, unknown> = {},
+    ): Promise<Record<string, unknown>> => {
+      const handler = localTools.get(name);
+      if (!handler) throw new Error(`tool 未注册: ${name}`);
+      const result = await handler(input);
+      return JSON.parse(result.content[0]!.text) as Record<string, unknown>;
+    };
+    expect(
+      (
+        await createBentoDeck({
+          workspaceRoot: root,
+          deckId,
+          title: "资产脱敏",
+          runtimeHtml: SHELL,
+        })
+      ).ok,
+    ).toBe(true);
+    const { updateBentoDeckMeta, writeBentoDoc } = await import("./bento-workspace");
+    expect(
+      (
+        await writeBentoDoc({
+          workspaceRoot: root,
+          deckId,
+          doc: docWithSlides("资产脱敏", 2),
+          expectedRevision: 0,
+          stage: "ready",
+        })
+      ).ok,
+    ).toBe(true);
+    await updateBentoDeckMeta({ workspaceRoot: root, deckId, patch: { stage: "ready" } });
+    registerSlidesTools(localMcp, {
+      sessionId: "sess-assets",
+      runId: `slides:${deckId}:r1`,
+      documentId: deckId,
+      workspaceRoot: root,
+    });
+    expect(
+      (
+        await localCall("add_asset", {
+          expected_revision: 1,
+          file_name: "hero.png",
+          mime_type: "image/png",
+          base64: "aGVsbG8=",
+        })
+      ).ok,
+    ).toBe(true);
+
+    const single = await localCall("get_deck_state", { slide_ids: ["slide-2"] });
+    expect((single.doc as { slides: Array<{ id: string }> }).slides.map((slide) => slide.id)).toEqual([
+      "slide-2",
+    ]);
+    expect(single).toMatchObject({
+      partial: true,
+      totalSlideCount: 2,
+      returnedSlideIds: ["slide-2"],
+      assetManifest: [{ key: "hero.png", mimeType: "image/png", byteSize: 5 }],
+    });
+    expect(JSON.stringify(single)).not.toContain("aGVsbG8=");
+    expect((single.doc as { assets?: unknown }).assets).toBeUndefined();
+
+    const full = await localCall("get_deck_state");
+    const rewrite = await localCall("set_deck_doc", {
+      expected_revision: 2,
+      doc: full.doc as Record<string, unknown>,
+    });
+    expect(rewrite.ok).toBe(true);
+    const persisted = await readBentoDeck({ workspaceRoot: root, deckId });
+    expect(persisted.ok).toBe(true);
+    if (persisted.ok) {
+      expect(persisted.value.doc?.assets?.["hero.png"]).toBe("data:image/png;base64,aGVsbG8=");
+    }
+  });
 });
 
 describe("提纲 gate 与 set_deck_doc", () => {
@@ -153,6 +243,7 @@ describe("提纲 gate 与 set_deck_doc", () => {
 
 describe("add_asset", () => {
   it("写入资产表并返回 asset:<key> 引用", async () => {
+    emittedDeckEvents.length = 0;
     const res = await call("add_asset", {
       expected_revision: 2,
       file_name: "Hero Image.PNG",
@@ -165,6 +256,15 @@ describe("add_asset", () => {
     if (state.ok) {
       expect(state.value.doc?.assets?.["hero-image.png"]).toBe("data:image/png;base64,aGVsbG8=");
     }
+    expect(emittedDeckEvents).toEqual([
+      expect.objectContaining({
+        source: "agent",
+        revision: 3,
+        slideIds: [],
+        pages: [],
+        assetKey: "hero-image.png",
+      }),
+    ]);
   });
 
   it("非法 base64 → invalid_asset", async () => {
