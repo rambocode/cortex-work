@@ -306,12 +306,19 @@ const V3_SQL = `
 ALTER TABLE research_reports ADD COLUMN generation_stats_json TEXT;
 `;
 
+// v4：会话归属的项目 id（NULL = 不使用项目，报告落 Documents）。
+// 只加列不加索引：project_id 从不参与 WHERE/JOIN，只在归档报告时按 session 单行读一次。
+const V4_SQL = `
+ALTER TABLE research_sessions ADD COLUMN project_id TEXT;
+`;
+
 /// 全部迁移，按 version 升序。**只追加，永不修改已发布的条目**——
 /// 已经跑过 v1 的用户库不会重跑 v1，就地改 V1_SQL 只会造成新老库 schema 不一致。
 export const MIGRATIONS: readonly ResearchMigration[] = [
   { version: 1, sql: V1_SQL },
   { version: 2, sql: V2_SQL },
   { version: 3, sql: V3_SQL },
+  { version: 4, sql: V4_SQL },
 ];
 
 /// 把 migrations 应用到数据库，返回应用后的最终版本号。

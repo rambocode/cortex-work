@@ -83,6 +83,47 @@ describe("research migrations（真 SQLite）", () => {
     }
   });
 
+  // v4 把研究会话与「所选项目」关联起来（报告归档到 <项目>/research/）。
+  // 老库里的会话没有项目归属，必须读回 NULL 而不是空串——空串会被归档逻辑
+  // 当成「有项目但路径为空」，进而把报告写到错误位置。
+  it("v3 老库升到 v4 后 research_sessions 有 project_id 列，且旧行为 NULL", async () => {
+    const driver = await freshDriver();
+    try {
+      // 模拟「v4 之前发布版本建的库」：只应用 v1..v3。
+      applyMigrations(
+        driver,
+        MIGRATIONS.filter((m) => m.version <= 3),
+      );
+      driver
+        .prepare(
+          "INSERT INTO research_sessions (session_id, consumer, objective, mode, status, user_scope, source_scopes_json, output_json, budget_json, budget_spent_json, created_at, updated_at, round_count, document_count, chunk_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        )
+        .run(["old-v3", "chat", "旧会话", "quick", "completed", "u1", "[]", "{}", "{}", "{}", "t", "t", 0, 0, 0]);
+
+      applyMigrations(driver);
+
+      expect(columnNames(driver, "research_sessions")).toContain("project_id");
+      const row = driver
+        .prepare("SELECT project_id FROM research_sessions WHERE session_id = ?")
+        .get<{ project_id: string | null }>(["old-v3"]);
+      expect(row?.project_id).toBeNull();
+    } finally {
+      driver.close();
+    }
+  });
+
+  it("v4 重复应用幂等：project_id 只加一次，不会因重复 ALTER 抛错", async () => {
+    const driver = await freshDriver();
+    try {
+      applyMigrations(driver);
+      expect(() => applyMigrations(driver)).not.toThrow();
+      const projectIdColumns = columnNames(driver, "research_sessions").filter((n) => n === "project_id");
+      expect(projectIdColumns).toEqual(["project_id"]);
+    } finally {
+      driver.close();
+    }
+  });
+
   it("重复执行幂等：版本不变、不重复建表、schema_migrations 不多行", async () => {
     const driver = await freshDriver();
     try {

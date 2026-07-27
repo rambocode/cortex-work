@@ -50,6 +50,8 @@ interface SessionRecord {
   userScope: string;
   sourceScopes: readonly SourceScope[];
   output: ResearchOutputRequest;
+  /// 与 SQLite 版的 project_id 列同义：缺省表示不使用项目。
+  projectId?: string;
   budget: ResearchBudget;
   budgetSpend: ResearchBudgetSpend;
   plan?: ResearchPlan;
@@ -112,6 +114,8 @@ export class InMemoryResearchRepository implements ResearchRepository {
       userScope: input.userScope,
       sourceScopes: clone(input.sourceScopes),
       output: clone(input.output),
+      // 有值才赋键：与 SQLite 版「NULL 读回 undefined」保持同形，避免出现 projectId: undefined 键。
+      ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
       budget: clone(input.budget),
       budgetSpend: { ...EMPTY_BUDGET_SPEND },
       rounds: [],
@@ -136,6 +140,8 @@ export class InMemoryResearchRepository implements ResearchRepository {
       output: clone(record.output),
       sourceScopes: clone(record.sourceScopes),
     };
+    // 项目归属只进 view 不进 summary（与 SQLite 版同一条隐私红线）。
+    if (record.projectId !== undefined) view.projectId = record.projectId;
     if (detail === "summary") return view;
 
     if (record.plan) view.plan = clone(record.plan);

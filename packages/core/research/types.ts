@@ -249,6 +249,11 @@ export interface ResearchSessionView {
   output?: ResearchOutputRequest;
   /// 创建时的来源范围。与 output 同理放在 view 而不是 summary：只有重跑与编排需要它。
   sourceScopes?: readonly SourceScope[];
+  /// 会话归属的项目 id；缺省表示不使用项目（报告归档落 Documents）。
+  ///
+  /// 与 output / sourceScopes 同理放 view 不放 summary：summary 会整批过 IPC 用于列表渲染，
+  /// 而「这次研究属于哪个项目」只有报告归档与重跑继承需要。
+  projectId?: string;
   plan?: ResearchPlan;
   rounds?: ResearchRound[];
   coverage?: CoverageReport[];

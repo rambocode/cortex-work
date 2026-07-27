@@ -42,6 +42,23 @@ describe("InMemoryResearchRepository", () => {
     });
   });
 
+  // 与 SQLite 版同形断言：projectId 只进 view 不进 summary（隐私红线，
+  // 与 output / sourceScopes 同一条先例）。
+  it("projectId 各 detail 级别都从 view 读回，且不进 summary", async () => {
+    const repo = new InMemoryResearchRepository();
+    await repo.createSession(fixtureSessionInput({ projectId: "proj-1" }));
+    for (const detail of ["summary", "full", "evidence"] as const) {
+      const view = await repo.getSession("sess-1", detail);
+      expect(view?.projectId).toBe("proj-1");
+      expect(view?.summary).not.toHaveProperty("projectId");
+    }
+  });
+
+  it("不带 projectId 建的会话读回时 projectId 缺省（而非空串）", async () => {
+    const repo = await seeded();
+    expect((await repo.getSession("sess-1", "summary"))?.projectId).toBeUndefined();
+  });
+
   it("未知 session 返回 null", async () => {
     const repo = await seeded();
     expect(await repo.getSession("nope", "summary")).toBeNull();

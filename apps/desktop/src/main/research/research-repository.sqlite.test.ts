@@ -74,6 +74,24 @@ describe("SqliteResearchRepository（真 SQLite）", () => {
     expect(await repo.getSession("ghost", "summary")).toBeNull();
   });
 
+  // projectId 决定报告归档到哪个项目目录。它只进 view、不进 summary：
+  // summary 会随列表整批过 IPC，把「这次研究属于哪个项目」摊给列表渲染是隐私红线
+  // （与 output / sourceScopes 同一条先例）。
+  it("projectId 建时写入、各 detail 级别都从 view 读回，且不进 summary", async () => {
+    await repo.createSession(fixtureSessionInput({ projectId: "proj-1" }));
+    for (const detail of ["summary", "full", "evidence"] as const) {
+      const view = await repo.getSession("sess-1", detail);
+      expect(view?.projectId).toBe("proj-1");
+      expect(view?.summary).not.toHaveProperty("projectId");
+    }
+    expect((await repo.listSessions({}))[0]).not.toHaveProperty("projectId");
+  });
+
+  it("不带 projectId 建的会话读回时 projectId 缺省（而非空串）", async () => {
+    await seedSession();
+    expect((await repo.getSession("sess-1", "summary"))?.projectId).toBeUndefined();
+  });
+
   it("getSession(id, \"summary\") 不返回任何正文，且 SQL 层不触碰 chunk/report 正文列", async () => {
     await seedSession();
     await repo.savePlan("sess-1", fixturePlan());

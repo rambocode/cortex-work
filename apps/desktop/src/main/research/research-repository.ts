@@ -87,6 +87,9 @@ export interface CreateSessionInput {
   budget: ResearchBudget;
   /// KTD9 的隔离键（当前用户/工作区）。跨 Session 复用查询必须带上它。
   userScope: string;
+  /// 会话归属的项目 id；缺省表示不使用项目（报告归档落 Documents）。
+  /// 仓储只存 id 不存路径：路径在归档时刻按 id 现查，项目被删就自动退回 Documents。
+  projectId?: string;
   status?: ResearchSessionStatus;
   createdAt?: string;
 }
@@ -244,8 +247,8 @@ export class SqliteResearchRepository implements ResearchRepository {
         `INSERT INTO research_sessions
            (session_id, consumer, objective, mode, status, user_scope,
             source_scopes_json, output_json, budget_json, budget_spent_json,
-            error_message, created_at, updated_at, round_count, document_count, chunk_count)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0)`,
+            error_message, project_id, created_at, updated_at, round_count, document_count, chunk_count)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0)`,
       )
       .run([
         input.sessionId,
@@ -259,6 +262,7 @@ export class SqliteResearchRepository implements ResearchRepository {
         JSON.stringify(input.budget),
         JSON.stringify(EMPTY_BUDGET_SPEND),
         null,
+        toSql(input.projectId),
         createdAt,
         createdAt,
       ]);
@@ -284,6 +288,11 @@ export class SqliteResearchRepository implements ResearchRepository {
     if (!row) return null;
 
     const view: ResearchSessionView = { summary: rowToSummary(row) };
+    // 项目归属只进 view 不进 summary（隐私红线，与下面的 output/sourceScopes 同一条先例）。
+    // 有值才赋值：老库的 NULL 要读回 undefined 而不是 null，否则归档逻辑会把它当「有项目」。
+    if (row.project_id !== null && row.project_id !== undefined) {
+      view.projectId = row.project_id;
+    }
     // output 在 summary 层级就解出来：它只是一小段 JSON（格式/字数/是否强制引用），
     // 不涉及正文，不违反「summary 路径不读正文」的隐私红线。
     // 解析失败**只是丢掉这个字段**而不是让整次 getSession 失败：旧数据或人工改坏的行

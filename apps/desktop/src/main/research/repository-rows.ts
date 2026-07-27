@@ -49,6 +49,10 @@ export interface SessionRow {
   budget_json: string;
   budget_spent_json: string;
   error_message: string | null;
+  /// 会话归属的项目 id（v4 加列，NULL = 不使用项目，报告落 Documents）。
+  /// **刻意不进 rowToSummary**：summary 会整批过 IPC 给列表渲染，
+  /// 「这次研究属于哪个项目」只有归档报告与重跑继承需要，照 output/sourceScopes 先例只进 View。
+  project_id: string | null;
   created_at: string;
   updated_at: string;
   round_count: number;
