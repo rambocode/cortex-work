@@ -18,6 +18,7 @@ import {
   readBentoDeck,
   readSlidesSources,
   reshellBentoPresentation,
+  updateBentoDeckMeta,
   writeBentoDoc,
   writeBentoSlides,
   writeBentoDeckHtml,
@@ -703,6 +704,36 @@ describe("deck 变更广播(slides:deckChanged)", () => {
     expect(res.ok).toBe(true);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ source: "editor", revision: 1 });
+  });
+
+  it("updateBentoDeckMeta 成功 → 广播同 revision 的 runtime 事件,让 renderer 刷新提纲阶段", async () => {
+    await createOk();
+    const events = collectDeckEvents();
+
+    const res = await updateBentoDeckMeta({
+      workspaceRoot: root,
+      deckId: DECK,
+      patch: {
+        stage: "outline-proposed",
+        outline: {
+          version: 1,
+          summary: "三页产品介绍",
+          items: [{ id: "o1", title: "开场", purpose: "介绍", keyPoints: ["定位"] }],
+        },
+      },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      workspaceRoot: root,
+      deckId: DECK,
+      revision: 0,
+      source: "runtime",
+      slideIds: [],
+      pages: [],
+      slideCount: 0,
+    });
   });
 
   // 失败路径广播会让渲染端凭空刷新到一个并不存在的新 revision。

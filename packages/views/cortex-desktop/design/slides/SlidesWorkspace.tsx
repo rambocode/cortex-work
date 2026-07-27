@@ -10,6 +10,7 @@ import { useDesktopBridge } from '@cortex-work/core/provider'
 import type { SlidesOutline } from '@cortex-work/core/design/slides/slides-types'
 import { sendDesignMessage } from '@cortex-work/core/design/run/design-run-manager'
 import { buildSlidesTurnPrompt } from '@cortex-work/core/design/slides/slides-prompt'
+import { matchesSlidesDeckChange } from '@cortex-work/core/design/slides/slides-deck-activity'
 import { useChatStore } from '@cortex-work/core/design/compat/chat-store'
 import { SlidesOutlineDialog } from './SlidesOutlineDialog'
 import { SlidesStage } from './SlidesStage'
@@ -53,6 +54,17 @@ export function SlidesWorkspace({
 
   // AI 每写成一次盘就在会话时间线补一条「已更新 第N页 · rev X」(与工具芯片互相独立)。
   useSlidesDeckActivity({ bridge, workspaceRoot, deckId: documentId })
+
+  // 正文写盘和 meta-only 阶段推进都走 deckChanged。会话里的 slides skill 不会驱动
+  // 旧设计会话的 agentBusy，因此不能只靠 busy 轮询；收到当前 deck 事件后主动拉取
+  // stage/outline，outline-proposed 随即由下方 effect 打开审批面板。
+  useEffect(() => {
+    if (!bridge?.onSlidesDeckChanged || !workspaceRoot || !documentId) return
+    return bridge.onSlidesDeckChanged((event) => {
+      if (!matchesSlidesDeckChange(event, { workspaceRoot, deckId: documentId })) return
+      void refresh()
+    })
+  }, [bridge, workspaceRoot, documentId, refresh])
 
   // 生成期间每 2s 轮询(stage/提纲跟进;文档内容重载由文件 watcher 驱动);回合结束再刷终态。
   const wasBusyRef = useRef(false)

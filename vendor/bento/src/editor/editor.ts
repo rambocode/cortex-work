@@ -294,15 +294,17 @@ export class Editor {
       if (zb) corner.appendChild(zb)
     })
     this.props = div('ed-props')
+    // CORTEX-PATCH: 右栏产物编辑器本身已经占用会话的一部分宽度，属性面板默认收起，
+    // 把首屏空间优先留给画布；边缘 chevron 与 ] 快捷键仍可随时重新展开。
+    this.props.classList.add('ed-collapsed')
     main.append(this.sidebar, this.makeResizer('left'), canvasWrap, this.makeResizer('right'), this.props)
 
     this.root.append(bar, main)
 
-    // phones/small windows: start with both panels collapsed so the CANVAS
-    // is what you see — the topbar toggles (and [ / ]) bring them back
+    // phones/small windows: additionally collapse the slide list so the CANVAS
+    // is what you see — the edge toggles (and [ / ]) bring both panels back
     if (window.innerWidth < 700) {
       this.sidebar.classList.add('ed-collapsed')
-      this.props.classList.add('ed-collapsed')
     }
 
     this.restorePanelWidths()

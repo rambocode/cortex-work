@@ -6,7 +6,7 @@
 // 注入,只作用于详情态的 CSS 档位,返回列表恢复固定 320px）;双击恢复自动宽度。
 // 拖拽条的显示时机由 CSS :has 控制（见 .pw-rp-resizer）。
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
@@ -41,16 +41,19 @@ export function PersonalRightPanel({
   const width = usePersonalStore((s) => s.rightPanelWidth);
   const setWidth = usePersonalStore((s) => s.setRightPanelWidth);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
+  const cancelResizeRef = useRef<(() => void) | null>(null);
   const activeArtifact = usePersonalStore((s) =>
     s.sessions.find((session) => session.id === s.activeSessionId)?.activeArtifact
   );
   useEffect(() => {
     if (view === "artifact" && !activeArtifact) setRightOpen(false);
   }, [activeArtifact, setRightOpen, view]);
+  useEffect(() => () => cancelResizeRef.current?.(), []);
 
   const startResize = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       e.preventDefault();
+      cancelResizeRef.current?.();
       const aside = e.currentTarget.parentElement;
       if (!aside) return;
       const rect = aside.getBoundingClientRect();
@@ -77,22 +80,33 @@ export function PersonalRightPanel({
         // 重渲染整棵右栏(含 BrowserView/webview),造成拖动抖动。松手才提交一次 store。
         aside.style.setProperty("--rp-custom-width", `${nextWidth}px`);
       };
-      const onUp = () => {
+      let finished = false;
+      const finishResize = (commit: boolean) => {
+        if (finished) return;
+        finished = true;
         document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        window.removeEventListener("blur", onBlur);
         document.body.style.removeProperty("cursor");
         document.body.style.removeProperty("user-select");
         // 拖拽结束:恢复内嵌浏览器(webview/iframe)的指针事件。
         document.body.classList.remove("pw-rp-resizing");
         // 提交最终宽度:持久化 + 让后续渲染沿用(与拖拽中直写的 DOM 变量值一致,无跳变)。
-        if (moved) setWidth(nextWidth);
+        if (commit && moved) setWidth(nextWidth);
+        if (cancelResizeRef.current === cancelResize) cancelResizeRef.current = null;
       };
+      const onUp = () => finishResize(true);
+      const onBlur = () => finishResize(true);
+      const cancelResize = () => finishResize(false);
+      cancelResizeRef.current = cancelResize;
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
       // 拖拽期间禁用内嵌浏览器帧的指针事件,否则鼠标移到 webview/iframe 上时
       // 事件被其捕获,document 收不到 mouseup —— 表现为「松手无效、宽度一直跟随鼠标」。
       document.body.classList.add("pw-rp-resizing");
       document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp, { once: true });
+      document.addEventListener("mouseup", onUp);
+      window.addEventListener("blur", onBlur);
     },
     [setWidth],
   );

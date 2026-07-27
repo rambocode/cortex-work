@@ -1,4 +1,5 @@
 import { cleanup, render, fireEvent, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { CoreProvider, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
@@ -9,6 +10,7 @@ import {
 } from "./PersonalRightPanel";
 
 const bridge = {} as unknown as DesktopBridge;
+const desktopCss = readFileSync("cortex-desktop/cortex-desktop.css", "utf8");
 
 function renderPanel() {
   return render(
@@ -196,6 +198,31 @@ describe("PersonalRightPanel 拖拽调宽", () => {
 
     expect(aside.style.getPropertyValue("--rp-custom-width")).toBe("");
     expect(usePersonalStore.getState().rightPanelWidth).toBeUndefined();
+  });
+
+  it("产物编辑器内的 webview/iframe 在拖拽期间不截获 mouseup", () => {
+    expect(desktopCss).toMatch(
+      /\.pw-rp-resizing\s+\.pw-artifact-editor\s+(?:webview|iframe)[^{]*\{[^}]*pointer-events:\s*none/s,
+    );
+  });
+
+  it("窗口失焦时结束拖拽并移除全局监听,避免拖拽状态粘住", () => {
+    const { container } = renderPanel();
+    const aside = container.querySelector<HTMLElement>("aside.pw-prompts")!;
+    const resizer = container.querySelector<HTMLElement>(".pw-rp-resizer")!;
+    aside.getBoundingClientRect = () =>
+      ({ right: 900, left: 480, width: 420, top: 0, bottom: 0, x: 480, y: 0, height: 0, toJSON() {} }) as DOMRect;
+
+    fireEvent.mouseDown(resizer, { clientX: 480 });
+    fireEvent.mouseMove(document, { clientX: 460 });
+    expect(document.body).toHaveClass("pw-rp-resizing");
+
+    fireEvent.blur(window);
+    expect(document.body).not.toHaveClass("pw-rp-resizing");
+    expect(usePersonalStore.getState().rightPanelWidth).toBe(440);
+
+    fireEvent.mouseMove(document, { clientX: 400 });
+    expect(aside.style.getPropertyValue("--rp-custom-width")).toBe("440px");
   });
 
   it("双击拖拽条恢复自动宽度", () => {

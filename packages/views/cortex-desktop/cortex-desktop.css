@@ -3953,9 +3953,11 @@ button.sb-row {
   min-height: 0;
   overflow: hidden;
 }
-/* 拖拽调宽期间:禁用内嵌浏览器帧(webview/iframe)的指针事件,使 mouseup/mousemove
-   能落到 document,避免「松手无效、宽度一直跟随鼠标」。 */
-.pw-rp-resizing .pw-browser-frame { pointer-events: none; }
+/* 拖拽调宽期间:禁用内嵌浏览器/产物编辑器帧(webview/iframe)的指针事件,使
+   mouseup/mousemove 能落到 document,避免「松手无效、宽度一直跟随鼠标」。 */
+.pw-rp-resizing .pw-browser-frame,
+.pw-rp-resizing .pw-artifact-editor webview,
+.pw-rp-resizing .pw-artifact-editor iframe { pointer-events: none; }
 /* 详情/文件预览态:--rp-custom-width（拖拽设置）优先,未设置走自动档位。
    返回列表后回到上方固定 320px,自定义宽度不影响列表。 */
 .pw-prompts:has(.pw-todos.is-detail) {
@@ -9653,7 +9655,9 @@ button.sb-row {
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: 0 20px 10px;
+  width: calc(100% - 80px);
+  max-width: 728px;
+  margin: 0 auto 10px;
   border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--border));
   border-radius: 10px;
   padding: 9px 11px;

@@ -115,6 +115,18 @@ describe('幻灯片缩略图右键菜单', () => {
     expect(document.querySelector('.ed-thumb-tools')).toBeNull()
   })
 
+  it('右侧属性面板默认收起,仍可通过边缘按钮展开', () => {
+    boot()
+
+    const props = document.querySelector<HTMLElement>('.ed-props')
+    const toggles = document.querySelectorAll<HTMLButtonElement>('.ed-panel-toggle')
+    expect(props).not.toBeNull()
+    expect(props!.classList.contains('ed-collapsed')).toBe(true)
+
+    toggles[1]!.click()
+    expect(props!.classList.contains('ed-collapsed')).toBe(false)
+  })
+
   it('右键目标缩略图后显示移动、复制和删除操作', () => {
     const store = boot()
 

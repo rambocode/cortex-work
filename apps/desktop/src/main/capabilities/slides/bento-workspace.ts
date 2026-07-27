@@ -854,7 +854,13 @@ export async function writeBentoDeckHtml(options: {
   });
 }
 
-/** 更新 gate 阶段/提纲草案(不动 HTML 本体,revision 不变;队列内串行)。 */
+/**
+ * 更新 gate 阶段/提纲草案(不动 HTML 本体,revision 不变;队列内串行)。
+ *
+ * meta 写成后仍广播 deckChanged:会话技能不经过旧设计 Agent 的 busy 状态，
+ * renderer 只能靠这条推送得知 outline-proposed 并打开审批面板。source=runtime
+ * 让活动时间线忽略这类无正文变化的宿主状态事件。
+ */
 export async function updateBentoDeckMeta(options: {
   workspaceRoot: string;
   deckId: string;
@@ -881,6 +887,13 @@ export async function updateBentoDeckMeta(options: {
       log.error(`[bento] updateBentoDeckMeta 落盘失败: ${String(err)}`);
       return fail<{ stage: BentoDeckStage }>("io_error", `写入失败: ${String(err)}`);
     }
+    announceDeckChange({
+      workspaceRoot: options.workspaceRoot,
+      deckId: options.deckId,
+      revision: next.revision,
+      source: "runtime",
+      slideCount: 0,
+    });
     return { ok: true, value: { stage: next.stage } };
   });
 }
