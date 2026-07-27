@@ -3941,9 +3941,14 @@ button.sb-row {
   width: var(--rp-custom-width, min(calc(100vw * 3 / 7), max(280px, calc(100vw - 250px))));
   min-width: min(360px, max(280px, calc(100vw - 250px)));
 }
+/* 产物编辑器(演示文稿 / 设计稿):默认展宽,但必须给中栏(会话区)留出 660px——
+   低于这个宽度消息气泡与输入框那一排控件会被挤成窄条(实机反馈)。
+   660 与 PersonalRightPanel 的 RP_LEFT_RESERVED_ARTIFACT 是同一个数,改一处要改两处。
+   288px 是左栏 .sidebar 的固定宽。窗口本身撑不下「288+660+编辑器」时由 max() 兜底:
+   宁可让中栏低于 660,也不能把编辑器夹成不可用的窄缝。 */
 .pw-prompts:has(.pw-artifact-editor) {
-  width: var(--rp-custom-width, min(62vw, max(640px, calc(100vw - 360px))));
-  min-width: var(--rp-custom-width, min(640px, calc(100vw - 280px)));
+  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
 }
 .pw-prompts:has(.pw-artifact-editor) .pw-rp-resizer { display: block; }
 .pw-artifact-editor {

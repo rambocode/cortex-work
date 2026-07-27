@@ -6,6 +6,7 @@ import type { DesktopBridge } from "@cortex-work/core";
 import {
   PersonalRightPanel,
   RP_LEFT_RESERVED,
+  RP_LEFT_RESERVED_ARTIFACT,
   RP_MIN_WIDTH,
 } from "./PersonalRightPanel";
 
@@ -203,6 +204,52 @@ describe("PersonalRightPanel 拖拽调宽", () => {
   it("产物编辑器内的 webview/iframe 在拖拽期间不截获 mouseup", () => {
     expect(desktopCss).toMatch(
       /\.pw-rp-resizing\s+\.pw-artifact-editor\s+(?:webview|iframe)[^{]*\{[^}]*pointer-events:\s*none/s,
+    );
+  });
+
+  // 演示文稿/设计稿的产物编辑器默认就展得很宽,中栏(会话区)必须留够宽度才不会挤成窄条。
+  it("产物编辑器态拖拽给中栏保留 660px(其它视图仍是 250px)", () => {
+    expect(RP_LEFT_RESERVED_ARTIFACT).toBe(660);
+    usePersonalStore.setState({
+      sessions: [{
+        id: "s1",
+        title: "S",
+        agent: "claude",
+        createdAt: 1,
+        updatedAt: 1,
+        activeArtifact: {
+          kind: "slides",
+          documentId: "d1",
+          title: "Deck",
+          workspaceRoot: "/w",
+          entryPath: "/w/.cortex-slides/d1",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      }],
+      activeSessionId: "s1",
+      rightView: "artifact",
+    });
+    useCortexUIStore.setState({ rightOpen: true });
+    const { container } = renderPanel();
+    const aside = container.querySelector<HTMLElement>("aside.pw-prompts")!;
+    const resizer = container.querySelector<HTMLElement>(".pw-rp-resizer")!;
+    aside.getBoundingClientRect = () =>
+      ({ right: 900, left: 480, width: 420, top: 0, bottom: 0, x: 480, y: 0, height: 0, toJSON() {} }) as DOMRect;
+    const parentWidth = 1600;
+    aside.parentElement!.getBoundingClientRect = () =>
+      ({ right: parentWidth, left: 0, width: parentWidth, top: 0, bottom: 0, x: 0, y: 0, height: 0, toJSON() {} }) as DOMRect;
+
+    fireEvent.mouseDown(resizer, { clientX: 480 });
+    fireEvent.mouseMove(document, { clientX: -5000 }); // 拖到极左 → 吃满上限
+    expect(aside.style.getPropertyValue("--rp-custom-width")).toBe(`${parentWidth - RP_LEFT_RESERVED_ARTIFACT}px`);
+    fireEvent.mouseUp(document);
+  });
+
+  it("产物编辑器默认宽度按 660px 中栏下限算(CSS 契约)", () => {
+    // 默认宽度里必须扣掉中栏下限,否则宽屏下右栏吃掉大半、会话区被压成窄条。
+    expect(desktopCss).toMatch(
+      /\.pw-prompts:has\(\.pw-artifact-editor\)\s*\{[^}]*width:[^;]*660px/s,
     );
   });
 

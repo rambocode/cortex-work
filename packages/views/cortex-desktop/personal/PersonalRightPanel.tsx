@@ -31,6 +31,10 @@ export const RP_MIN_WIDTH = 280;
 // 左侧内容(中栏)至少保留的宽度。拖拽上限至少保留拖拽开始时已经渲染出来的宽度,
 // 避免第一帧把面板夹小造成可见边界向右跳。
 export const RP_LEFT_RESERVED = 250;
+// 产物编辑器(演示文稿 / 设计稿)例外:它默认就展得很宽,若沿用 250px 的保留,
+// 中栏会被压成放不下消息气泡与输入框控件的窄条,故把中栏下限抬到 660px。
+// 与 CSS 里 .pw-prompts:has(.pw-artifact-editor) 的默认宽度公式是同一个数,改一处要改两处。
+export const RP_LEFT_RESERVED_ARTIFACT = 660;
 
 export function PersonalRightPanel({
   onToast,
@@ -63,7 +67,8 @@ export function PersonalRightPanel({
       const startWidth = rect.width || RP_MIN_WIDTH;
       // 用位移增量算宽度,不依赖 rect.left/right 是否等于视觉拖拽条位置。正常状态给
       // 左侧保留空间;若起始布局已经超过这个保留区,本次拖拽允许到父容器宽度,不能反向夹小。
-      const reservedMax = Math.max(RP_MIN_WIDTH, parentWidth - RP_LEFT_RESERVED);
+      const reserved = view === "artifact" ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
+      const reservedMax = Math.max(RP_MIN_WIDTH, parentWidth - reserved);
       const max = startWidth > reservedMax
         ? Math.max(RP_MIN_WIDTH, startWidth, parentWidth)
         : reservedMax;
@@ -108,7 +113,7 @@ export function PersonalRightPanel({
       document.addEventListener("mouseup", onUp);
       window.addEventListener("blur", onBlur);
     },
-    [setWidth],
+    [setWidth, view],
   );
 
   return (
