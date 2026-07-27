@@ -18,6 +18,7 @@ import {
   __processCleanupTimerCountForTest,
   __autoTitleForTest,
   adjustHiddenHistoryForSanitize,
+  appendLocalUserMessage,
   artifactResumeKey,
   beginPiRun,
   reapSessionRun,
@@ -2586,5 +2587,117 @@ describe("todo 事件折叠(任务清单卡片)", () => {
     expect(out[1]).toMatchObject({ kind: "todoList", active: false, todos: TODOS_V1 });
     // count 与落盘后长度一致(游标不偏移)。
     expect(createHiddenHistory(msgs, 1).count).toBe(out.length);
+  });
+});
+
+// appendLocalUserMessage：把一条用户消息追加进会话流并落盘，但**不发给任何 agent**。
+//
+// 用于「消息本身不是给 agent 的」派发——/skill:research 的活由 CRE 引擎干，
+// 会话流里那一条只是让用户回头能看见「我当时问了什么」。
+// 这一组测试守的核心是**它绝不能顺手把消息发出去**：一旦哪次改动让它走上 send 的老路，
+// 用户发起一次研究会额外烧掉一轮 agent 的钱，而界面上看不出任何异常。
+describe("appendLocalUserMessage 本地追加(不 spawn CLI)", () => {
+  /// 桩桥：只提供落盘与历史加载两条通道。**故意不提供任何 spawn 通道**——
+  /// 真去调 startCli/oneshotCli 会直接 TypeError，比断言更早地把回归打出来。
+  function stubBridge() {
+    const saveChat = vi.fn(async () => undefined);
+    const loadChat = vi.fn(async () => [] as Message[]);
+    const startCli = vi.fn();
+    const oneshotCli = vi.fn();
+    const bridge = { saveChat, loadChat, startCli, oneshotCli } as unknown as DesktopBridge;
+    __setBridgeForTest(bridge);
+    return { bridge, saveChat, loadChat, startCli, oneshotCli };
+  }
+
+  it("消息进会话流并立即落盘", async () => {
+    const qc = new QueryClient();
+    const session = { ...baseSession, id: "s-res" };
+    usePersonalStore.setState({ sessions: [session] });
+    const { bridge, saveChat } = stubBridge();
+    // 分支态预置为空:flushChat 落盘前要求它已加载(v2 兼容),与本文件其它落盘用例同一前置。
+    qc.setQueryData(personalBranchKeys.detail("s-res"), []);
+
+    await appendLocalUserMessage(qc, bridge, session, "调研向量数据库选型");
+
+    const messages = qc.getQueryData<Message[]>(personalChatKeys.detail("s-res")) ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ kind: "text", who: "me", text: "调研向量数据库选型" });
+    // 立即落盘（而非等节流 timer）：用户可能马上切走会话或关窗。
+    expect(saveChat).toHaveBeenCalledTimes(1);
+  });
+
+  it("不 spawn 任何 CLI（研究由 CRE 引擎跑，这条消息不该产生 agent 轮次）", async () => {
+    const qc = new QueryClient();
+    const session = { ...baseSession, id: "s-res" };
+    usePersonalStore.setState({ sessions: [session] });
+    const { bridge, startCli, oneshotCli } = stubBridge();
+    qc.setQueryData(personalBranchKeys.detail("s-res"), []);
+
+    await appendLocalUserMessage(qc, bridge, session, "调研向量数据库选型");
+
+    expect(startCli).not.toHaveBeenCalled();
+    expect(oneshotCli).not.toHaveBeenCalled();
+    // 也不该点亮运行态：中栏据此转圈，而这条消息没有任何东西在跑。
+    expect(usePersonalStore.getState().runningBySession["s-res"]).toBeFalsy();
+  });
+
+  it("会话仍是默认标题时按首条内容改名（否则侧栏永远挂着 Session N）", async () => {
+    const qc = new QueryClient();
+    const session = { ...baseSession, id: "s-res", title: "Session 7" };
+    usePersonalStore.setState({ sessions: [session] });
+    const { bridge } = stubBridge();
+    qc.setQueryData(personalBranchKeys.detail("s-res"), []);
+
+    await appendLocalUserMessage(qc, bridge, session, "调研向量数据库选型");
+
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("调研向量数据库选型");
+  });
+
+  it("用户手改过标题就不动它（哪怕仍长得像 Session N）", async () => {
+    const qc = new QueryClient();
+    const session = { ...baseSession, id: "s-res", title: "Session 7", titleManuallyEdited: true };
+    usePersonalStore.setState({ sessions: [session] });
+    const { bridge } = stubBridge();
+    qc.setQueryData(personalBranchKeys.detail("s-res"), []);
+
+    await appendLocalUserMessage(qc, bridge, session, "调研向量数据库选型");
+
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("Session 7");
+  });
+
+  it("已有非默认标题的会话不被改名（第二次研究不该顶掉原标题）", async () => {
+    const qc = new QueryClient();
+    const session = { ...baseSession, id: "s-res", title: "向量库调研" };
+    usePersonalStore.setState({ sessions: [session] });
+    const { bridge } = stubBridge();
+    qc.setQueryData(personalBranchKeys.detail("s-res"), []);
+
+    await appendLocalUserMessage(qc, bridge, session, "再调研一次别的东西");
+
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("向量库调研");
+  });
+
+  /// 历史尚未加载时先补载再追加，否则这条消息会被随后 resolve 的磁盘历史整个盖掉
+  /// （与 send 路径同一个坑，见「ensureChatLoaded 即建即发不丢首条消息」）。
+  it("先加载历史再追加，已有历史不被覆盖", async () => {
+    const qc = new QueryClient();
+    const session = { ...baseSession, id: "s-res" };
+    usePersonalStore.setState({ sessions: [session] });
+    const saveChat = vi.fn(async () => undefined);
+    const existing: Message[] = [
+      { kind: "text", who: "me", time: "10:00", text: "先前的对话", uid: "u0" } as Message,
+    ];
+    const loadChat = vi.fn(async () => existing);
+    const bridge = { saveChat, loadChat } as unknown as DesktopBridge;
+    __setBridgeForTest(bridge);
+    qc.setQueryData(personalBranchKeys.detail("s-res"), []);
+
+    await appendLocalUserMessage(qc, bridge, session, "调研向量数据库选型");
+
+    const messages = qc.getQueryData<Message[]>(personalChatKeys.detail("s-res")) ?? [];
+    expect(messages.map((m) => (m as { text?: string }).text)).toEqual([
+      "先前的对话",
+      "调研向量数据库选型",
+    ]);
   });
 });

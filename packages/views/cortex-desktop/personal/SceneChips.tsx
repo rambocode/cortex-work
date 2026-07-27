@@ -11,7 +11,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { ARTIFACT_SKILL_COMMANDS } from "./useSlashCommands";
+import { SYSTEM_SKILL_COMMANDS } from "./useSlashCommands";
 
 type SceneKey = "office" | "creative";
 type ChipIcon = keyof typeof Icon;
@@ -32,7 +32,7 @@ function skillNameOf(cmd: string): string {
   return cmd.replace(/^\/skill:/, "");
 }
 
-// skill chip 只记 cmd，展示名从 ARTIFACT_SKILL_COMMANDS 反查，保证与 slash 菜单同源。
+// skill chip 只记 cmd，展示名从 SYSTEM_SKILL_COMMANDS 反查，保证与 slash 菜单同源。
 type SceneChip =
   | { key: string; kind: "skill"; cmd: string; icon: ChipIcon; hintKey?: string }
   | { key: string; kind: "view"; action: ViewAction; icon: ChipIcon };
@@ -99,7 +99,7 @@ export function SceneChips() {
 
   // 点 skill chip：只预置 pill，不带文本、不自动提交，等用户补主题。
   const pickSkill = (cmd: string) => {
-    const command = ARTIFACT_SKILL_COMMANDS.find((c) => c.cmd === cmd);
+    const command = SYSTEM_SKILL_COMMANDS.find((c) => c.cmd === cmd);
     insertToComposer("", { skill: { cmd, displayName: command?.displayName ?? cmd } });
   };
 

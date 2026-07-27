@@ -1034,3 +1034,70 @@ describe("ComposerShell 联网 pill", () => {
     expect(pill(container)!.disabled).toBe(true);
   });
 });
+
+// 「转为深度研究」菜单项：套一个 skill pill，而不是直接发起研究。
+//
+// 走 pill 意味着与用户手敲 `/skill:research` 完全同一条路径——发起前还能改词、
+// 也能按退格取消。**已写的文本必须原样留在输入框**：它就是研究目标，
+// 清空它等于让用户白写一遍（这是把「直接发起」改成「套 pill」时最容易摔的一跤）。
+describe("ComposerShell 转为深度研究", () => {
+  function renderResearch(available: boolean) {
+    return render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
+        <ComposerShell
+          agent="claude"
+          model={undefined}
+          providerId={undefined}
+          useOwnSkills={false}
+          running={false}
+          onSend={() => {}}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onToggleSkills={() => {}}
+          researchSkillAvailable={available}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+  }
+
+  /// 「+」菜单：用 aria-haspopup 定位触发器，避免锁死 i18n 文案。
+  const openAttachMenu = (c: HTMLElement) => {
+    fireEvent.click(c.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!);
+  };
+  const researchItem = (c: HTMLElement) =>
+    [...c.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) =>
+      b.textContent?.includes("研究"),
+    );
+
+  it("研究不可用时整个菜单项不渲染（点了没反应的入口比没有更糟）", () => {
+    const { container } = renderResearch(false);
+    openAttachMenu(container);
+    expect(researchItem(container)).toBeUndefined();
+  });
+
+  it("点击后套上 skill pill，且输入框里已写的文本原样保留", () => {
+    const { container } = renderResearch(true);
+    const ta = container.querySelector("textarea")!;
+    fireEvent.change(ta, { target: { value: "调研向量数据库选型" } });
+
+    openAttachMenu(container);
+    fireEvent.click(researchItem(container)!);
+
+    expect(container.querySelector(".pw-skill-pill")?.textContent).toContain("深度研究");
+    expect((container.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
+      "调研向量数据库选型",
+    );
+  });
+
+  /// 先套 pill 再想目标是常见顺序，所以不能按「文本为空」禁用——
+  /// 空目标的拒绝留给发送那一刻（那里才有机会给出人话提示）。
+  it("输入为空时菜单项仍可点（先套 pill 再写目标）", () => {
+    const { container } = renderResearch(true);
+    openAttachMenu(container);
+    const item = researchItem(container)!;
+    expect(item.disabled).toBe(false);
+    fireEvent.click(item);
+    expect(container.querySelector(".pw-skill-pill")).not.toBeNull();
+  });
+});

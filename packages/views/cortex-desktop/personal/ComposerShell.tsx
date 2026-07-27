@@ -30,6 +30,7 @@ import { AgentSelect } from "./AgentSelect";
 import { CustomizePill } from "./CustomizePill";
 import { ModelThinkingPill } from "./ModelThinkingPill";
 import { useDismissableMenu } from "./useDismissableMenu";
+import { RESEARCH_SKILL_PILL } from "./useSlashCommands"; // 只取常量;反向引用是 import type,无运行时循环
 import { MentionDropdown, useMentionAutocomplete } from "./MentionAutocomplete";
 import { PROMPT_DRAG_MIME } from "./PromptPanel";
 import { TODO_DRAG_MIME } from "./TodosView";
@@ -180,7 +181,7 @@ export function ComposerShell({
   webSearch,
   onToggleWebSearch,
   webSearchUnavailable,
-  onToResearch,
+  researchSkillAvailable,
   onCancelEdit,
   onToast,
   onPrewarm,
@@ -247,9 +248,9 @@ export function ComposerShell({
   /// 直接不注入(见 buildResearchMcpServerConfig 的后端门控)时若还给个可点的按钮,
   /// 用户会以为开了却毫无反应。
   webSearchUnavailable?: boolean;
-  /// 「转为深度研究」：把当前输入原样送去新建一次研究。
-  /// 缺省（研究引擎未开 / 无桥）时整个菜单项不渲染——给一个点了没反应的入口比不给更糟。
-  onToResearch?: (objective: string) => void;
+  /// 「转为深度研究」菜单项是否可用。判定要读设置与桥（见 useResearchSkillAvailable），composer
+  /// 不该知道这些，故只收一个布尔；false 时整项不渲染——点了没反应的入口比不给更糟。
+  researchSkillAvailable?: boolean;
   onCancelEdit?: () => void;
   onToast: (text: string) => void;
   // 会话预热(opt-in):输入非空文本时触发,供个人工作区提前拉起 pi 进程消除首轮冷启。
@@ -1002,16 +1003,15 @@ export function ComposerShell({
                     {useOwnSkills ? t("composer.skillsOn") : t("composer.skillsOff")}
                   </span>
                 </button>
-                {/* 反向入口：把输入框里已经写好的一句话直接送进深度研究。
-                    只在研究可用时出现（宿主传 onToResearch 才渲染）——那个判定要读设置与桥，
-                    composer 不该知道这些。输入为空时禁用：没有目标的研究没有意义。 */}
-                {onToResearch ? (
+                {/* 反向入口：套上「深度研究」skill pill，已写的文本原样留着当研究目标。走 pill 而非
+                    直接发起 = 与用户敲 `/skill:research` 同一条路径，发起前能改词、也能退格取消。
+                    **不按文本为空禁用**：先套 pill 再想目标是常见顺序，空目标留给发送那一刻拒。 */}
+                {researchSkillAvailable ? (
                   <button
                     className="pw-tb-menu-item"
                     role="menuitem"
-                    disabled={text.trim().length === 0}
                     onClick={() => {
-                      onToResearch(text.trim());
+                      setSelectedSkill(RESEARCH_SKILL_PILL);
                       attachMenu.setOpen(false);
                     }}
                   >

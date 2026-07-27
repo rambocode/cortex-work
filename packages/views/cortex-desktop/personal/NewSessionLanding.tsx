@@ -38,7 +38,7 @@ import {
 } from "@cortex-work/core/research/settings";
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
-import { useSlashCommands } from "./useSlashCommands";
+import { useResearchSkillAvailable, useSlashCommands } from "./useSlashCommands";
 import { GitBar } from "./GitBar";
 import {
   buildConversationArtifactPrompt,
@@ -111,6 +111,8 @@ export function NewSessionLanding({
   const researchSettings = normalizeResearchEngineSettings(generalSettings.researchEngine);
   const researchAvailable = !!bridge?.research && researchSettings.enabled;
   const webSearchUnavailable = !hasSearchBackend(researchSettings);
+  // 「转为深度研究」菜单项:与会话页同源,比「联网」pill 多一层深度研究档的门控。
+  const researchSkillAvailable = useResearchSkillAvailable();
 
   // 落地页 slash:用草稿 agent/useOwnSkills + 选中项目构造最小会话对象喂 useSlashCommands
   //(usePiEnabledSkills 仅读 agent/useOwnSkills/projectId)。与会话页共用同一 hook,保证 slash 一致。
@@ -291,6 +293,7 @@ export function NewSessionLanding({
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
         webSearch={draft.webSearch}
         webSearchUnavailable={webSearchUnavailable}
+        researchSkillAvailable={researchSkillAvailable}
         {...(researchAvailable
           ? { onToggleWebSearch: () => setDraft((d) => ({ ...d, webSearch: !d.webSearch })) }
           : {})}

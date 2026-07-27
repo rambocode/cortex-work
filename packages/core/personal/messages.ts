@@ -2349,13 +2349,33 @@ function sanitizeTitle(raw: string): string {
   return last.length > 24 ? last.slice(0, 24) : last;
 }
 
+/// 用首条消息的截断文本给会话占位改名，仅在「仍是默认标题且用户没手改过」时。
+///
+/// 抽出来是因为有两条路径要用同一套条件：正常发送（autoTitle,占位之后还要跑 haiku 概括）
+/// 与本地追加（appendLocalUserMessage,只要占位这一步）。条件写两份迟早漂移成
+/// 「一条路径会顶掉用户手改的标题」。
+///
+/// 返回改名前的会话与刚写入的占位标题（调用方还要读 agent 决定后续动作、
+/// 并在异步概括回来时比对占位值是否仍在），不满足条件返回 null。
+function applyFallbackTitle(
+  session: SessionMeta,
+  text: string,
+): { previous: SessionMeta; title: string } | null {
+  const liveSession = usePersonalStore.getState().sessions.find((item) => item.id === session.id);
+  if (!liveSession || liveSession.titleManuallyEdited || !DEFAULT_TITLE.test(liveSession.title)) {
+    return null;
+  }
+  const title = fallbackTitle(text);
+  usePersonalStore.getState().updateSession(session.id, { title });
+  return { previous: liveSession, title };
+}
+
 // 首条消息发出后:先用截断文本占位,再用 haiku 异步生成概括标题（不阻塞会话）。
 function autoTitle(bridge: DesktopBridge, session: SessionMeta, text: string): void {
-  const liveSession = usePersonalStore.getState().sessions.find((item) => item.id === session.id);
-  if (!liveSession || liveSession.titleManuallyEdited || !DEFAULT_TITLE.test(liveSession.title)) return;
-  const fallback = fallbackTitle(text);
-  usePersonalStore.getState().updateSession(session.id, { title: fallback });
-  if (liveSession.agent !== "claude") return;
+  const applied = applyFallbackTitle(session, text);
+  if (!applied) return;
+  const fallback = applied.title;
+  if (applied.previous.agent !== "claude") return;
   void bridge
     .oneshotCli({
       // 不传 cwd:在中性目录运行,不加载项目上下文,不与正式会话抢资源。
@@ -2378,6 +2398,31 @@ function autoTitle(bridge: DesktopBridge, session: SessionMeta, text: string): v
 }
 
 export const __autoTitleForTest = autoTitle;
+
+/// 只往会话流追加一条用户消息并落盘，**不 spawn 任何 CLI**。
+///
+/// 用于「这条消息本身不是给 agent 的」派发场景：`/skill:research` 的活由 CRE 引擎干，
+/// 会话里不产生 agent 轮次；但用户回头翻这个会话时得看得见自己当时要研究什么，
+/// 所以消息仍要进流、要落盘、也要参与首条消息改名。
+///
+/// **绝不要图省事改成调 send**：那会让每次发起研究都白烧一轮 agent 的钱，
+/// 而界面上看不出任何异常（回归测试钉着这条）。
+export async function appendLocalUserMessage(
+  qc: QueryClient,
+  bridge: DesktopBridge,
+  session: SessionMeta,
+  text: string,
+): Promise<void> {
+  // 历史尚未加载时先补载,否则这条消息会被随后 resolve 的磁盘历史整个盖掉
+  // （与 send 路径同一个坑,见 ensureChatLoaded 的注释）。
+  await ensureChatLoaded(qc, bridge, session.id);
+  appendUserMessage(qc, session.id, text, []);
+  // 立即落盘而不等节流:用户点完就可能切走会话或关窗,这条消息没有后续事件再触发保存。
+  flushChat(qc, session.id);
+  // 只做占位改名,不跑 haiku 概括——研究目标本身就是一句凝练的话，
+  // 再花一次模型调用去概括它不划算。
+  applyFallbackTitle(session, text);
+}
 
 // ── Hooks ─────────────────────────────────────────────────────────────────
 
@@ -2768,6 +2813,9 @@ export interface PersonalActions {
   ) => Promise<void>;
   // /clear:默认隐藏当前历史;磁盘历史保留,重启后仍从隐藏游标后显示。
   clearView: (sessionId: string) => void;
+  // 只往会话流追加一条用户消息并落盘,**不发给 agent**(见同名模块级函数的注释)。
+  // 给 /skill:research 这类「活由别的引擎干、会话里只留一条痕迹」的派发用。
+  appendLocalUserMessage: (session: SessionMeta, text: string) => Promise<void>;
 }
 
 export function usePersonalActions(): PersonalActions {
@@ -3492,5 +3540,25 @@ export function usePersonalActions(): PersonalActions {
     [qc],
   );
 
-  return { send, stop, steer, compact, setPiModel, setThinking, setPiThinking, editResend, clearView };
+  // 无桥（Web 端）时静默 no-op：与本文件其它动作同一约定，调用方不必先判桥。
+  const appendLocal = useCallback<PersonalActions["appendLocalUserMessage"]>(
+    async (session, text) => {
+      if (!bridge) return;
+      await appendLocalUserMessage(qc, bridge, session, text);
+    },
+    [bridge, qc],
+  );
+
+  return {
+    send,
+    stop,
+    steer,
+    compact,
+    setPiModel,
+    setThinking,
+    setPiThinking,
+    editResend,
+    clearView,
+    appendLocalUserMessage: appendLocal,
+  };
 }

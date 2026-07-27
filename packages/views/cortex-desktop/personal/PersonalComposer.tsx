@@ -9,7 +9,7 @@ import type { AgentThinkingValue, DirPermission, ExecPermission, PendingDocFile,
 import { hasSearchBackend, normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { ComposerShell } from "./ComposerShell";
 import { upsertConversationArtifact } from "./artifactDispatch";
-import { useSlashCommands } from "./useSlashCommands";
+import { useResearchSkillAvailable, useSlashCommands } from "./useSlashCommands";
 
 export function PersonalComposer({
   session,
@@ -78,21 +78,16 @@ export function PersonalComposer({
     void prewarmPiSession(qc, bridge, session, project.path);
   }, [bridge, qc, session]);
 
-  // 「转为深度研究」入口：把输入框里已经写好的问题直接带进研究新建表单。
-  //
-  // 门控与侧栏「研究」入口一致（有 research 子域 + 引擎已开启）：少任一条都不给这个菜单项，
-  // 否则用户点进去的是一个后端根本没起来的空壳。这里读 store 而不是从上层透传 prop——
-  // PersonalComposer 本来就直接读 bridge 与 store，多穿两层反而更绕。
+  // 「转为深度研究」菜单项的门控：与 slash 菜单里的 `/skill:research` 同一份判定
+  //（桥有 research 子域 + 引擎总开关 + 深度研究档），少任一条都不给这个入口，
+  // 否则用户点出来的 pill 发出去必然被拒。
+  const researchSkillAvailable = useResearchSkillAvailable();
+
+  // 「联网」pill 的可用性:门控**只到「引擎已开启」这一层**，不看深度研究档——
+  // 会话联网与深度研究是两件事，关掉深度研究不该顺手把聊天的联网开关也藏了。
   const researchEngine = usePersonalStore((s) => s.generalSettings.researchEngine);
-  const openResearch = usePersonalStore((s) => s.openResearch);
   const researchSettings = normalizeResearchEngineSettings(researchEngine);
   const researchAvailable = !!bridge?.research && researchSettings.enabled;
-  const handleToResearch = useCallback(
-    (objective: string) => openResearch(objective),
-    [openResearch],
-  );
-
-  // 「联网」pill 的可用性:门控与「转为深度研究」同源（有 research 子域 + 引擎已开启）,
   // 额外一层是搜索后端是否配好——后端没配时主进程根本不会注入（buildResearchMcpServerConfig
   // 的后端门控），此时给一个可点的开关等于让用户开了个没有效果的东西，故禁用 + tooltip 指路。
   // hasSearchBackend 与主进程共用 core 的同一实现，避免「按钮可点、点了不注入」的漂移。
@@ -125,7 +120,8 @@ export function PersonalComposer({
       onToggleSkills={onToggleSkills}
       webSearch={session.webSearch === true}
       webSearchUnavailable={webSearchUnavailable}
-      {...(researchAvailable ? { onToResearch: handleToResearch, onToggleWebSearch } : {})}
+      researchSkillAvailable={researchSkillAvailable}
+      {...(researchAvailable ? { onToggleWebSearch } : {})}
       onCancelEdit={onCancelEdit}
       onToast={onToast}
       onPrewarm={handlePrewarm}
