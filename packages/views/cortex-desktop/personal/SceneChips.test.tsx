@@ -1,5 +1,8 @@
 // 落地页场景 tab + 快捷能力 chips:skill chip 走 composerInsert 预置 pill,
 // 视图 chip 直接切工作台;不可用能力(桥缺子域/研究引擎未开)整条不渲染。
+//
+// 深度研究已从视图 chip 改为 skill chip(`/skill:research`),因此它的门控走 skill 侧的
+// gate 字段,判定复用 useSlashCommands 的 useResearchSkillAvailable——**两个研究开关都要开**。
 
 import { act, cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -37,13 +40,13 @@ describe("SceneChips", () => {
       composerInsert: undefined,
       composerSkill: undefined,
       homeOpen: true,
-      researchOpen: false,
       writingOpen: false,
       automationOpen: false,
       workflowOpen: false,
       generalSettings: {
         ...usePersonalStore.getState().generalSettings,
-        researchEngine: normalizeResearchEngineSettings({ enabled: true }),
+        // 两档都要开:deepResearchEnabled 默认是 false,只开总开关时 chip 不该出现。
+        researchEngine: normalizeResearchEngineSettings({ enabled: true, deepResearchEnabled: true }),
       },
     });
   });
@@ -87,14 +90,20 @@ describe("SceneChips", () => {
     expect(usePersonalStore.getState().designOpen).toBe(false);
   });
 
-  it("点「深度研究」→ 打开研究工作台", () => {
+  // 深度研究不再是整窗工作台入口:点 chip 只预置 pill,与演示文稿/设计稿同构,
+  // 用户补一句研究目标后回车才真正发起（派发在 PersonalChatArea / NewSessionLanding）。
+  it("点「深度研究」→ 预置 /skill:research pill,不打开任何工作台", () => {
     renderChips(FULL_BRIDGE);
     fireEvent.click(screen.getByRole("button", { name: "深度研究" }));
-    expect(usePersonalStore.getState().researchOpen).toBe(true);
-    expect(usePersonalStore.getState().homeOpen).toBe(false);
+    const insert = usePersonalStore.getState().composerInsert;
+    expect(insert?.skill).toEqual({ cmd: "/skill:research", displayName: "深度研究" });
+    expect(insert?.text).toBe("");
+    expect(insert?.submit).toBeFalsy();
+    // 落地页留在原地:发起研究是回车之后的事,点 chip 不该跳走。
+    expect(usePersonalStore.getState().homeOpen).toBe(true);
   });
 
-  it("研究引擎未启用 → 深度研究 chip 不渲染", () => {
+  it("研究引擎总开关未启用 → 深度研究 chip 不渲染", () => {
     usePersonalStore.setState({
       generalSettings: {
         ...usePersonalStore.getState().generalSettings,
@@ -105,6 +114,25 @@ describe("SceneChips", () => {
     expect(screen.queryByRole("button", { name: "深度研究" })).toBeNull();
     // 其余 chip 不受影响
     expect(screen.getByRole("button", { name: "写作" })).toBeInTheDocument();
+  });
+
+  // 总开关开着但深度研究这一档关着:后端会直接拒绝创建,chip 再可点也只是个空壳。
+  it("深度研究档位未启用 → chip 不渲染(总开关开着也一样)", () => {
+    usePersonalStore.setState({
+      generalSettings: {
+        ...usePersonalStore.getState().generalSettings,
+        researchEngine: normalizeResearchEngineSettings({ enabled: true, deepResearchEnabled: false }),
+      },
+    });
+    renderChips(FULL_BRIDGE);
+    expect(screen.queryByRole("button", { name: "深度研究" })).toBeNull();
+    expect(screen.getByRole("button", { name: "演示文稿" })).toBeInTheDocument();
+  });
+
+  it("桥缺 research 子域(旧壳 / Web 端) → 深度研究 chip 不渲染", () => {
+    renderChips(fakeBridge({ automation: true, workflow: true }));
+    expect(screen.queryByRole("button", { name: "深度研究" })).toBeNull();
+    expect(screen.getByRole("button", { name: "演示文稿" })).toBeInTheDocument();
   });
 
   // 选中 skill 后的示例区：composerSkill 由 ComposerShell 镜像写入,这里直接置位模拟。
@@ -133,6 +161,21 @@ describe("SceneChips", () => {
     const insert = usePersonalStore.getState().composerInsert;
     expect(insert?.text).toBe("做一份 6 页的产品介绍 PPT,像素游戏风格排版,配色炫酷丰富");
     // 只插文本:不重置 pill、不自动提交
+    expect(insert?.skill).toBeUndefined();
+    expect(insert?.submit).toBeFalsy();
+  });
+
+  // 研究示例是完整可跑的研究目标(不是「补一个词」的半句话),点一下即可回车发起。
+  it("选中 research 后整行换成研究示例,示例是完整目标句", () => {
+    renderChips(FULL_BRIDGE);
+    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:research", displayName: "深度研究" } }));
+    expect(screen.queryByRole("button", { name: "演示文稿" })).toBeNull();
+    const example = screen.getByRole("button", { name: "行业市场调研" });
+    expect(example).toHaveAttribute("title", expect.stringContaining("市场格局"));
+
+    fireEvent.click(example);
+    const insert = usePersonalStore.getState().composerInsert;
+    expect(insert?.text).toContain("AI 编程助手");
     expect(insert?.skill).toBeUndefined();
     expect(insert?.submit).toBeFalsy();
   });

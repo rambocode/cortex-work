@@ -1,17 +1,18 @@
 // 落地页(新会话首页)的「场景 tab + 快捷能力 chips」:替代原先价值偏低的用量日历 + 一日总结。
 // 两类 chip：
-//   - skill 类(演示文稿 / 设计稿)：不直接提交，只经 store 的 composerInsert.skill 在下方输入框
-//     预置一个 skill pill(等价用户敲 `/skill:xxx` 选中)，用户补一句主题后回车走既有 artifact 派发链路。
-//   - 视图类(深度研究 / 写作 / 自动化 / Loop 工作流)：调 store 的 open* action 直接切到对应工作台。
-// 能力门控与 PersonalSidebar 保持一致：桥缺对应子域(Web 端 bridge 为 null)或研究引擎未开时，
-// 整条 chip 不渲染——入口不该出现在一个后端根本没起来的功能上。
+//   - skill 类(演示文稿 / 设计稿 / 深度研究)：不直接提交，只经 store 的 composerInsert.skill
+//     在下方输入框预置一个 skill pill(等价用户敲 `/skill:xxx` 选中)，用户补一句主题后回车
+//     走既有派发链路(产物类走 artifact 派发，研究走 researchDispatch)。
+//   - 视图类(写作 / 自动化 / Loop 工作流)：调 store 的 open* action 直接切到对应工作台。
+// 两类 chip **都可能带门控**：视图类看桥的对应子域，skill 类看 `gate` 字段(目前只有深度研究，
+// 它要求桥有 research 子域且设置里两个研究开关都开)。不满足时整条 chip 不渲染——
+// 入口不该出现在一个后端根本没起来的功能上。
 
 import { useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
-import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { SYSTEM_SKILL_COMMANDS } from "./useSlashCommands";
+import { RESEARCH_SKILL_CMD, SYSTEM_SKILL_COMMANDS, useResearchSkillAvailable } from "./useSlashCommands";
 
 type SceneKey = "office" | "creative";
 type ChipIcon = keyof typeof Icon;
@@ -20,11 +21,14 @@ type ChipIcon = keyof typeof Icon;
 // 逐处 `as "home.scene.office"` 只是噪音，统一收在一个窄化过的取值函数里。
 type TFixed = (key: string) => string;
 
-// 每个产物类 skill 的示例提示词 id（文案在 timeline.json 的 home.scene.examples.<skill>.<id>）。
-// 只有产物类 skill 配示例——用户手动敲 `/skill:xxx` 选中别的 skill 时示例区自动不出现。
+// 每个系统 skill 的示例提示词 id（文案在 timeline.json 的 home.scene.examples.<skill>.<id>）。
+// 只有系统 skill 配示例——用户手动敲 `/skill:xxx` 选中别的 skill 时示例区自动不出现。
 const SKILL_EXAMPLES: Record<string, string[]> = {
   "/skill:slides": ["pixel", "launch", "defense", "report"],
   "/skill:design": ["landing", "mobile", "poster", "dashboard"],
+  // 研究示例是完整可跑的研究目标（市场 / 技术选型 / 政策合规 / 竞品），
+  // 点一下就能直接回车——深度研究没有「补一个词」的用法，目标写得含糊等于白跑几分钟。
+  [RESEARCH_SKILL_CMD]: ["market", "tech", "policy", "compare"],
 };
 
 // `/skill:slides` → `slides`，用于拼示例文案的 i18n key。
@@ -33,11 +37,16 @@ function skillNameOf(cmd: string): string {
 }
 
 // skill chip 只记 cmd，展示名从 SYSTEM_SKILL_COMMANDS 反查，保证与 slash 菜单同源。
+// gate 可选：缺省 = 无条件展示（design / slides 这类不依赖后端子域的产物 skill）。
 type SceneChip =
-  | { key: string; kind: "skill"; cmd: string; icon: ChipIcon; hintKey?: string }
+  | { key: string; kind: "skill"; cmd: string; icon: ChipIcon; hintKey?: string; gate?: SkillGate }
   | { key: string; kind: "view"; action: ViewAction; icon: ChipIcon };
 
-type ViewAction = "research" | "writing" | "automation" | "workflow";
+type ViewAction = "writing" | "automation" | "workflow";
+
+/// skill chip 的门控名。判定实现一律复用 useSlashCommands 的 hook，不在这里另写一套——
+/// 落地页 chip 与 slash 菜单必须同时出现或同时消失。
+type SkillGate = "research";
 
 // 场景 → chips 顺序表。设计稿刻意走 `/skill:design` 而非 store 的 openDesign()——
 // 后者的 designOpen 目前没有任何渲染方(死开关)，接上去只会得到一片空白。
@@ -46,7 +55,14 @@ const SCENES: { key: SceneKey; chips: SceneChip[] }[] = [
     key: "office",
     chips: [
       { key: "slides", kind: "skill", cmd: "/skill:slides", icon: "Chart", hintKey: "slidesHint" },
-      { key: "research", kind: "view", action: "research", icon: "Search" },
+      {
+        key: "research",
+        kind: "skill",
+        cmd: RESEARCH_SKILL_CMD,
+        icon: "Search",
+        hintKey: "researchHint",
+        gate: "research",
+      },
       { key: "writing", kind: "view", action: "writing", icon: "Edit" },
       { key: "automation", kind: "view", action: "automation", icon: "Workflow" },
     ],
@@ -69,32 +85,40 @@ export function SceneChips() {
   const [scene, setScene] = useState<SceneKey>("office");
 
   const insertToComposer = usePersonalStore((s) => s.insertToComposer);
-  const openResearch = usePersonalStore((s) => s.openResearch);
   const openWriting = usePersonalStore((s) => s.openWriting);
   const openAutomation = usePersonalStore((s) => s.openAutomation);
   const openWorkflow = usePersonalStore((s) => s.openWorkflow);
-  const researchEngine = usePersonalStore((s) => s.generalSettings.researchEngine);
   // 输入框当前的 skill pill(ComposerShell 单向镜像),决定示例区展示哪一组提示词。
   const composerSkill = usePersonalStore((s) => s.composerSkill);
 
-  // 深度研究双门控(同 PersonalSidebar)：桥有 research 子域 **且** 设置里开了研究引擎。
-  const researchAvailable = !!bridge?.research && normalizeResearchEngineSettings(researchEngine).enabled;
+  // 深度研究的三重门控复用 slash 菜单那份实现：chip 与 slash 必须同时出现或同时消失，
+  // 在这里再写一遍判定迟早漂移成「chip 还在、slash 没了」。
+  const skillGateAvailable: Record<SkillGate, boolean> = {
+    research: useResearchSkillAvailable(),
+  };
   const viewAvailable: Record<ViewAction, boolean> = {
-    research: researchAvailable,
     writing: !!bridge, // 写作是整窗覆盖层，desktop-only；Web 端 bridge 为 null 自动降级
     automation: !!bridge?.automationList,
     workflow: !!bridge?.workflowList,
   };
   const viewOpen: Record<ViewAction, () => void> = {
-    research: () => openResearch(),
     writing: openWriting,
     automation: openAutomation,
     workflow: openWorkflow,
   };
 
   const chips = useMemo(
-    () => SCENES.find((s) => s.key === scene)!.chips.filter((c) => c.kind === "skill" || viewAvailable[c.action]),
-    [scene, viewAvailable.research, viewAvailable.writing, viewAvailable.automation, viewAvailable.workflow],
+    () =>
+      SCENES.find((s) => s.key === scene)!.chips.filter((c) =>
+        c.kind === "skill" ? !c.gate || skillGateAvailable[c.gate] : viewAvailable[c.action],
+      ),
+    [
+      scene,
+      skillGateAvailable.research,
+      viewAvailable.writing,
+      viewAvailable.automation,
+      viewAvailable.workflow,
+    ],
   );
 
   // 点 skill chip：只预置 pill，不带文本、不自动提交，等用户补主题。

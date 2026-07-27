@@ -284,29 +284,13 @@ describe("PersonalSidebar 项目上下文结构", () => {
   });
 });
 
-// 深度研究入口（P8 接线）：双门控 —— 桥有 research 子域 **且** 设置里开了研究引擎。
-// 任一不满足都不显示，避免用户点进一个后端没起 Worker 的空壳。
-describe("PersonalSidebar 深度研究入口", () => {
-  /// 造一个带 research 子域的桥（只需存在性，方法体不会被侧栏调用）。
+// 深度研究**已不再是左栏模式**：入口改为会话内的 `/skill:research`（落地页 skill chip + slash 菜单），
+// 进度与报告在会话右栏。这里只留一条防回归断言——把按钮加回来是件很顺手的事，
+// 而它一旦回来，用户就又有了两条语义不同的研究入口（整窗覆盖层 vs 会话产物）。
+describe("PersonalSidebar 不再有深度研究入口", () => {
+  /// 造一个带 research 子域的桥（曾经的门控条件之一，现在有它也不该出现按钮）。
   function bridgeWithResearch(): DesktopBridge {
     return { ...bridgeWith(), research: {} } as unknown as DesktopBridge;
-  }
-
-  /// 写入 researchEngine 设置切片；两个开关共同决定入口是否出现。
-  function setResearchEnabled(enabled: boolean, deepResearchEnabled = true): void {
-    usePersonalStore.setState((s) => ({
-      generalSettings: {
-        ...s.generalSettings,
-        researchEngine: {
-          enabled,
-          deepResearchEnabled,
-          chatAutoRetrieve: false,
-          writingEnabled: false,
-          memoryEnabled: false,
-          searchBackend: "direct",
-        },
-      },
-    }));
   }
 
   afterEach(() => {
@@ -315,45 +299,25 @@ describe("PersonalSidebar 深度研究入口", () => {
     }));
   });
 
-  it("桥有 research 且设置已启用 → 显示「研究」按钮", () => {
-    setResearchEnabled(true);
+  it("桥有 research 子域且两个研究开关全开时，模式条里也没有「研究」", () => {
+    usePersonalStore.setState((s) => ({
+      generalSettings: {
+        ...s.generalSettings,
+        researchEngine: {
+          enabled: true,
+          deepResearchEnabled: true,
+          chatAutoRetrieve: false,
+          writingEnabled: false,
+          memoryEnabled: false,
+          searchBackend: "direct",
+        },
+      },
+    }));
     const { container } = renderSidebar(bridgeWithResearch());
-    expect(container.querySelector(".pw-sidebar-modes")?.textContent).toContain("研究");
-  });
-
-  it("桥无 research 子域（旧壳）→ 不显示入口", () => {
-    setResearchEnabled(true);
-    const { container } = renderSidebar(bridgeWith());
-    expect(container.querySelector(".pw-sidebar-modes")?.textContent).not.toContain("研究");
-  });
-
-  it("设置未启用研究引擎 → 不显示入口", () => {
-    setResearchEnabled(false);
-    const { container } = renderSidebar(bridgeWithResearch());
-    expect(container.querySelector(".pw-sidebar-modes")?.textContent).not.toContain("研究");
-  });
-
-  // 总开关开着但深度研究这一档关着：常驻事件订阅同样不挂（core/research/live-sync.ts），
-  // 列表必然是空的，入口再可点也只是个空壳。
-  it("总开关开着但深度研究未启用 → 不显示入口", () => {
-    setResearchEnabled(true, false);
-    const { container } = renderSidebar(bridgeWithResearch());
-    expect(container.querySelector(".pw-sidebar-modes")?.textContent).not.toContain("研究");
-  });
-
-  it("点击「研究」触发 openResearch（researchOpen=true、homeOpen 清空）", () => {
-    setResearchEnabled(true);
-    renderSidebar(bridgeWithResearch());
-    fireEvent.click(screen.getByText("研究"));
-    expect(usePersonalStore.getState().researchOpen).toBe(true);
-    expect(usePersonalStore.getState().homeOpen).toBe(false);
-  });
-
-  it("researchOpen 时「会话」不再高亮（整窗覆盖层已接管主区）", () => {
-    setResearchEnabled(true);
-    usePersonalStore.setState({ researchOpen: true, homeOpen: false });
-    renderSidebar(bridgeWithResearch());
-    expect(screen.getByText("会话").getAttribute("aria-pressed")).toBe("false");
-    expect(screen.getByText("研究").getAttribute("aria-pressed")).toBe("true");
+    const modes = container.querySelector(".pw-sidebar-modes");
+    expect(modes?.textContent).not.toContain("研究");
+    // 其余模式不受影响。
+    expect(modes?.textContent).toContain("会话");
+    expect(modes?.textContent).toContain("写作");
   });
 });

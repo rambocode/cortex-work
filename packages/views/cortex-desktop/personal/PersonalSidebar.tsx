@@ -15,7 +15,6 @@ import {
   usePersonalStore,
 } from "@cortex-work/core";
 import type { EditorInfo, ProjectMeta, SessionMeta } from "@cortex-work/core";
-import { useRunningResearchCount } from "@cortex-work/core/research/background-watch";
 import { SettingsMenu } from "./SettingsMenu";
 import { ProjectMenu } from "./ProjectMenu";
 import { SidebarLeftControls } from "./SidebarControls";
@@ -279,11 +278,6 @@ export function PersonalSidebar({
   // 写作工作区(整窗覆盖层);desktop-only,bridge 为 null(web 端)自动降级隐藏。
   const writingOpen = usePersonalStore((s) => s.writingOpen);
   const openWriting = usePersonalStore((s) => s.openWriting);
-  // 深度研究(CRE 整窗覆盖层);双门控见下方 researchAvailable。
-  const researchOpen = usePersonalStore((s) => s.researchOpen);
-  const openResearch = usePersonalStore((s) => s.openResearch);
-  // 在跑的研究数量（由常驻的 useResearchBackgroundWatch 维护，不依赖覆盖层是否挂载）。
-  const runningResearchCount = useRunningResearchCount();
   const sessions = usePersonalStore((s) => s.sessions);
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
@@ -345,17 +339,11 @@ export function PersonalSidebar({
   const projectChoices = visible.filter((project) => project.id !== contextProject?.id);
   const archivedChoices = archived.filter((project) => project.id !== contextProject?.id);
   const defaultAgent = resolveDefaultAgent({ generalSettings, agentsAvailable });
-  // 深度研究入口的**三重门控**：桥有 research 子域(旧壳/Web 端没有)、设置里开了研究引擎总开关、
-  // 且开了深度研究这一档。少任一条都不显示——主进程按同一个 enabled 决定要不要拉起
-  // Research Worker(research/runtime.ts)，入口若先于开关出现，用户点进去的是一个后端根本
-  // 没起来的空壳；deepResearchEnabled 关着时事件订阅(core/research/live-sync.ts)同样不挂，
-  // 列表会是空的，与「入口可点」自相矛盾。
-  const researchAvailable =
-    !!bridge?.research &&
-    generalSettings.researchEngine?.enabled === true &&
-    generalSettings.researchEngine.deepResearchEnabled === true;
+  // 深度研究**不再是左栏模式**：它已改为会话内的 `/skill:research`，进度与报告在会话右栏。
+  // 门控与入口都收敛到 useSlashCommands 的 useResearchSkillAvailable + 落地页 skill chip，
+  // 这里不该再留任何研究相关的读取。
   const conversationModeOpen =
-    !writingOpen && !researchOpen && !automationOpen && !workflowOpen && !settingsOpen;
+    !writingOpen && !automationOpen && !workflowOpen && !settingsOpen;
 
   const createContextSession = () => {
     createSession(contextProject?.id, defaultAgent);
@@ -397,24 +385,6 @@ export function PersonalSidebar({
         {bridge ? (
           <button className={writingOpen ? "is-active" : ""} onClick={openWriting} aria-pressed={writingOpen}>
             写作
-          </button>
-        ) : null}
-        {researchAvailable ? (
-          // 必须包一层箭头函数：openResearch 现在收一个可选的预填目标，
-          // 直接当 onClick 会把 React 的鼠标事件对象当成研究目标传进去。
-          <button
-            className={researchOpen ? "is-active" : ""}
-            onClick={() => openResearch()}
-            aria-pressed={researchOpen}
-          >
-            研究
-            {/* 后台运行角标：研究是分钟级任务且覆盖层是互斥整窗的，切走之后
-                没有这个角标就完全看不出「还有东西在跑」。 */}
-            {runningResearchCount > 0 ? (
-              <span className="pw-nav-badge" aria-label={`${runningResearchCount} 个研究进行中`}>
-                {runningResearchCount}
-              </span>
-            ) : null}
           </button>
         ) : null}
       </div>

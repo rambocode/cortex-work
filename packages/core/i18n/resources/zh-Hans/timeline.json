@@ -106,6 +106,7 @@
       "workflow": "Loop 工作流",
       "slidesHint": "预置演示文稿 skill,补一句主题即可生成",
       "designHint": "预置设计稿 skill,补一句需求即可生成",
+      "researchHint": "预置深度研究 skill,补一句研究目标即可开跑",
       "examples": {
         "slides": {
           "pixel": {
@@ -141,6 +142,24 @@
           "dashboard": {
             "label": "数据看板",
             "prompt": "设计一个运营数据看板,包含关键指标卡片与趋势图"
+          }
+        },
+        "research": {
+          "market": {
+            "label": "行业市场调研",
+            "prompt": "调研 2026 年国内 AI 编程助手的市场格局、主要玩家与商业模式"
+          },
+          "tech": {
+            "label": "技术选型对比",
+            "prompt": "对比 Postgres、MySQL 与 SQLite 在中小型 SaaS 后端上的选型取舍,给出结论与理由"
+          },
+          "policy": {
+            "label": "政策合规要求",
+            "prompt": "梳理国内生成式 AI 应用上线需要满足的备案与合规要求,以及各环节的时间成本"
+          },
+          "compare": {
+            "label": "竞品逐项对比",
+            "prompt": "对比 Notion、Obsidian 与 Craft 的定位、核心能力与定价,给出适用场景建议"
           }
         }
       }
