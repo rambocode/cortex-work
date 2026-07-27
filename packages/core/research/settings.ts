@@ -6,6 +6,7 @@
 // 相关文件：模型选型见 ./model-selection；各 Consumer 的默认配置见 ./consumer；
 // 直连搜索逃生阀的供应商表与请求构造见 ./direct-search。
 import { isDirectSearchProviderId, type DirectSearchProviderId } from "./direct-search";
+import type { ResearchMode } from "./types";
 
 /// 自建 Search Server 的连接配置（spec KTD6 self-hosted 模式）。
 export interface ResearchSearchServerSettings {
@@ -86,16 +87,49 @@ export interface ResearchEngineSettings {
   /// 两个字段都保留下来（而非选了哪条就清掉另一条）是刻意的：用户来回切换后端时
   /// 不该丢掉另一边已经填好的地址与密钥，切回去还得重新配一遍。
   directSearch?: ResearchDirectSearchSettings;
+  /// 发起深度研究时用哪一档强度（预算档位，具体数值见 ./budget）。
+  ///
+  /// **为什么是全局默认档而不是每次选**：深度研究的新建表单已随「研究改为会话 skill」
+  /// 一并移除，`/skill:research` 直接由一句话目标派发，派发路径上没有让用户逐次挑档位的
+  /// 界面。档位对绝大多数人是「设一次就不动」的偏好，放全局比每次弹表单更贴合实际。
+  ///
+  /// 类型上可选、但归一化后必然有值（见 NormalizedResearchEngineSettings）：声明成可选
+  /// 只是为了让手写的部分设置字面量（主要是各处测试夹具）不必逐个补齐。读取方走
+  /// normalizeResearchEngineSettings 拿到的就是非可选的档位，不要再写 `?? "standard"`
+  /// 兜底——那会让默认值有第二个真源。
+  defaultMode?: ResearchMode;
+  /// 研究时是否把「个人记忆」纳入来源范围（SourceScope 的 memory 档）。
+  ///
+  /// 同样是原新建表单上的勾选项。默认关闭：它会把本机记忆正文送进研究流程并可能随证据
+  /// 发给云端模型，属于数据出站语义，与本文件其它出站开关一样必须用户显式开启。
+  includeMemoryScope?: boolean;
 }
 
-/// 出厂默认：所有开关关闭；模型偏好留空 = 跟随全局默认模型；搜索后端默认直连。
-export const DEFAULT_RESEARCH_ENGINE_SETTINGS: ResearchEngineSettings = {
+/// 归一化之后的设置：研究默认档两项在这里是**非可选**的。
+///
+/// 为什么要单独一个类型而不是把字段本身改成必填：ResearchEngineSettings 也被手写的部分
+/// 配置字面量用着（测试夹具、IPC 入参片段），改成必填要逐个补齐；而归一化的产物是有保证的，
+/// 让调用方在类型上直接看到这份保证，就不会再各写一次 `?? "standard"` 兜底。
+export type NormalizedResearchEngineSettings = ResearchEngineSettings &
+  Required<Pick<ResearchEngineSettings, "defaultMode" | "includeMemoryScope">>;
+
+/// 研究默认档的出厂值。**单独提出来而不是只写在 DEFAULT_RESEARCH_ENGINE_SETTINGS 里**：
+/// 这两项在类型上是可选的，从那个对象上读会得到 `ResearchMode | undefined`，
+/// 归一化处就得再写一次 `?? "standard"`——默认值一旦有两个字面量，改默认档时必漏一个。
+const DEFAULT_RESEARCH_MODE: ResearchMode = "standard";
+const DEFAULT_INCLUDE_MEMORY_SCOPE = false;
+
+/// 出厂默认：所有开关关闭；模型偏好留空 = 跟随全局默认模型；搜索后端默认直连；
+/// 研究强度取「标准」（原新建表单的初始选中项，保持既有体验），个人记忆不入来源范围。
+export const DEFAULT_RESEARCH_ENGINE_SETTINGS: NormalizedResearchEngineSettings = {
   enabled: false,
   deepResearchEnabled: false,
   chatAutoRetrieve: false,
   writingEnabled: false,
   memoryEnabled: false,
   searchBackend: "direct",
+  defaultMode: DEFAULT_RESEARCH_MODE,
+  includeMemoryScope: DEFAULT_INCLUDE_MEMORY_SCOPE,
 };
 
 /// 只接受真正的布尔值。字符串 "true" / 数字 1 一律不算 true —— 这些开关控制的是数据出站，
@@ -115,6 +149,16 @@ function readOptionalId(source: Record<string, unknown>, key: string): string | 
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/// 读研究强度档位。封闭枚举，非法值一律回落标准档而不是保留原值——
+/// 档位会直接索引 ./budget 的 MODE_BUDGETS，留个不认识的值会让预算取到 undefined，
+/// 然后在夹取时炸在离设置很远的地方。
+function readMode(source: Record<string, unknown>): ResearchMode {
+  const value = source.defaultMode;
+  return value === "quick" || value === "standard" || value === "deep"
+    ? value
+    : DEFAULT_RESEARCH_MODE;
 }
 
 /// 归一化 searchServer 段。baseUrl 与 workspaceId 缺一不可：半截配置会在运行时报出难懂的
@@ -170,10 +214,10 @@ function readSearchBackend(source: Record<string, unknown>): ResearchSearchBacke
   return server?.encryptedToken ? "server" : "direct";
 }
 
-/// 把任意 unknown（磁盘 JSON / IPC 入参）归一为完整的 ResearchEngineSettings。
+/// 把任意 unknown（磁盘 JSON / IPC 入参）归一为完整的设置。
 /// 语义：未知字段丢弃、缺失字段取默认、类型或枚举非法一律回落默认，永不抛错。
 /// 例外是 searchBackend：它按既有配置推断而非取默认，理由见 readSearchBackend。
-export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSettings {
+export function normalizeResearchEngineSettings(raw: unknown): NormalizedResearchEngineSettings {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ...DEFAULT_RESEARCH_ENGINE_SETTINGS };
   }
@@ -181,7 +225,7 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
 
   // 逐字段白名单重建（而非展开 raw），未知字段自然被丢弃，也杜绝原型污染类的键混入。
   // 附带效果：旧版本写入的 defaultModelDataPolicy 会在这里被自然丢弃，无需专门的迁移代码。
-  const normalized: ResearchEngineSettings = {
+  const normalized: NormalizedResearchEngineSettings = {
     enabled: readBoolean(source, "enabled", DEFAULT_RESEARCH_ENGINE_SETTINGS.enabled),
     deepResearchEnabled: readBoolean(
       source,
@@ -200,6 +244,11 @@ export function normalizeResearchEngineSettings(raw: unknown): ResearchEngineSet
     ),
     memoryEnabled: readBoolean(source, "memoryEnabled", DEFAULT_RESEARCH_ENGINE_SETTINGS.memoryEnabled),
     searchBackend: readSearchBackend(source),
+    // 这两个键**无条件写出**（不走下面「有值才写键」那条规则）：它们类型上可选，
+    // 但派发路径要拿它们构造 ResearchRequest，缺省时必须由这里给出唯一的默认值，
+    // 而不是让每个调用方各写一次 `?? "standard"`。
+    defaultMode: readMode(source),
+    includeMemoryScope: readBoolean(source, "includeMemoryScope", DEFAULT_INCLUDE_MEMORY_SCOPE),
   };
 
   // 可选字段一律「有值才写键」：exactOptionalPropertyTypes 下 `key: undefined` 不合法，

@@ -134,6 +134,51 @@ describe("ResearchSettingsSection 功能开关", () => {
   });
 });
 
+/// 深度研究的新建表单移除后，档位与「个人记忆」来源改由这里设一次默认档，
+/// 由 /skill:research 派发时读取。**这两项不能没有界面**——那是功能回归。
+describe("ResearchSettingsSection 深度研究默认档", () => {
+  const modeSelect = () => screen.getByLabelText("研究强度") as HTMLSelectElement;
+
+  it("缺省显示标准档", () => {
+    setResearch({ enabled: true, deepResearchEnabled: true });
+    renderSection();
+    expect(modeSelect().value).toBe("standard");
+  });
+
+  it("选深度档落库", () => {
+    setResearch({ enabled: true, deepResearchEnabled: true });
+    renderSection();
+    fireEvent.change(modeSelect(), { target: { value: "deep" } });
+    expect(research()?.defaultMode).toBe("deep");
+  });
+
+  /// 说明跟着选中项走：三档说明全列出来会把这张卡变成一堵字墙。
+  it("档位说明跟随当前选中项", () => {
+    setResearch({ enabled: true, deepResearchEnabled: true, defaultMode: "quick" });
+    const { container } = renderSection();
+    expect(container.textContent).toContain("单轮检索");
+    expect(container.textContent).not.toContain("耗时最长");
+  });
+
+  it("「研究时使用个人记忆」可点击并落库", () => {
+    setResearch({ enabled: true, deepResearchEnabled: true });
+    renderSection();
+    fireEvent.click(screen.getByRole("switch", { name: "研究时使用个人记忆" }));
+    expect(research()?.includeMemoryScope).toBe(true);
+  });
+
+  /// 只对深度研究生效的两项，深度研究关着时必须禁用——否则用户配了一通，
+  /// 而这份配置根本没有读者（与本文件第 1 条红线同一个道理）。
+  it("深度研究关闭时两个控件都禁用", () => {
+    setResearch({ enabled: true, deepResearchEnabled: false });
+    renderSection();
+    expect(modeSelect().hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByRole("switch", { name: "研究时使用个人记忆" }).hasAttribute("disabled"),
+    ).toBe(true);
+  });
+});
+
 /// 两条搜索路径是**单选**。这一组守的是「界面上看得见的那张卡就是实际生效的那条」——
 /// 从前两张卡同时在、靠一句「已配置 Search Server 时优先走它」区分，用户看着两张都填好的
 /// 表单无从判断哪条在生效。

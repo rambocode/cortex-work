@@ -26,6 +26,8 @@ import {
   DIRECT_SEARCH_PROVIDERS,
   type DirectSearchProviderId,
 } from "@cortex-work/core/research/direct-search";
+import type { ResearchMode } from "@cortex-work/core/research/types";
+import { RESEARCH_MODE_LABELS } from "../research/labels";
 import { resolveResearchModelDisplay } from "../research/modelDisplay";
 import "../research/research.css";
 import { SettingCard, SRow } from "./settingsControls";
@@ -277,6 +279,44 @@ export function ResearchSettingsSection(): ReactElement {
           value={settings.memoryEnabled}
           onChange={(v) => patch({ memoryEnabled: v })}
           disabled={!settings.enabled}
+        />
+      </SettingCard>
+
+      {/* 深度研究改由 `/skill:research` 按一句话目标直接发起，原先那张「新建研究」表单
+          （档位三选一 + 来源勾选）随之移除。档位与「个人记忆」来源不能就此消失——那是功能回归，
+          所以搬到这里做全局默认档，派发时读取。**刻意不做成会话级**：它们是「设一次就不动」
+          的偏好，为此在输入框上再加两个 pill 只会把发起研究这条路径变重。 */}
+      <SettingCard title="深度研究默认档">
+        <div className="pw-srow-desc">
+          用 /skill:research 发起研究时套用的默认设置。发起后不再逐次询问。
+        </div>
+        <label className="pw-set-field">
+          <span className="pw-set-lbl">研究强度</span>
+          <select
+            className="pw-set-input"
+            aria-label="研究强度"
+            value={settings.defaultMode}
+            disabled={!settings.enabled || !settings.deepResearchEnabled}
+            onChange={(e) => patch({ defaultMode: e.target.value as ResearchMode })}
+          >
+            {(Object.keys(RESEARCH_MODE_LABELS) as ResearchMode[]).map((m) => (
+              <option key={m} value={m}>
+                {RESEARCH_MODE_LABELS[m].label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {/* 档位说明跟着当前选中项走：三行全列出来会让这张卡变成一堵字墙，
+            而用户此刻只关心自己选的这一档意味着多长时间。 */}
+        <div className="pw-srow-desc">
+          {RESEARCH_MODE_LABELS[settings.defaultMode].hint}
+        </div>
+        <FlagRow
+          label="研究时使用个人记忆"
+          desc="把本机的个人记忆一并作为研究来源。记忆正文会进入研究流程，并可能随证据发给所选模型。"
+          value={settings.includeMemoryScope}
+          onChange={(v) => patch({ includeMemoryScope: v })}
+          disabled={!settings.enabled || !settings.deepResearchEnabled}
         />
       </SettingCard>
 

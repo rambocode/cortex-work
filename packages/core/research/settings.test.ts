@@ -42,6 +42,18 @@ describe("DEFAULT_RESEARCH_ENGINE_SETTINGS", () => {
   it("默认搜索后端是直连", () => {
     expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.searchBackend).toBe("direct");
   });
+
+  /// 研究强度与「个人记忆」来源原本在新建表单里逐次选，表单移除后改为全局默认档。
+  /// 默认取「标准」而非「快速」：标准是原表单的初始选中项，保持既有体验。
+  it("默认研究强度是标准档", () => {
+    expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.defaultMode).toBe("standard");
+  });
+
+  /// 个人记忆默认不进来源范围：它把本机记忆正文送进研究流程，属于数据出站语义，
+  /// 与其它出站相关开关一样必须由用户显式开启。
+  it("默认不把个人记忆纳入来源范围", () => {
+    expect(DEFAULT_RESEARCH_ENGINE_SETTINGS.includeMemoryScope).toBe(false);
+  });
 });
 
 describe("normalizeResearchEngineSettings", () => {
@@ -181,6 +193,33 @@ describe("normalizeResearchEngineSettings", () => {
       raw: { searchBackend: "elasticsearch" },
       expected: DEFAULT_RESEARCH_ENGINE_SETTINGS,
     },
+    {
+      name: "研究默认档：合法值原样保留",
+      raw: { defaultMode: "deep", includeMemoryScope: true },
+      expected: {
+        ...DEFAULT_RESEARCH_ENGINE_SETTINGS,
+        defaultMode: "deep",
+        includeMemoryScope: true,
+      },
+    },
+    {
+      // 档位是封闭枚举，直接决定预算上限（见 ./budget）。留一个不认识的值会让
+      // MODE_BUDGETS[mode] 取到 undefined，然后在夹取预算时炸在很远的地方。
+      name: "未知档位字符串 → 回落标准档",
+      raw: { defaultMode: "exhaustive" },
+      expected: DEFAULT_RESEARCH_ENGINE_SETTINGS,
+    },
+    {
+      name: "非字符串档位 → 回落标准档",
+      raw: { defaultMode: 2 },
+      expected: DEFAULT_RESEARCH_ENGINE_SETTINGS,
+    },
+    {
+      // 与其它出站相关开关同一条规则：字符串 "true" / 数字 1 都不算 true。
+      name: "非布尔的个人记忆开关不算 true",
+      raw: { includeMemoryScope: "true" },
+      expected: DEFAULT_RESEARCH_ENGINE_SETTINGS,
+    },
   ];
 
   it.each(cases)("$name", ({ raw, expected }) => {
@@ -190,6 +229,20 @@ describe("normalizeResearchEngineSettings", () => {
   it("不会把 DEFAULT_RESEARCH_ENGINE_SETTINGS 本身返回出去（防止调用方就地改默认值）", () => {
     const normalized = normalizeResearchEngineSettings({});
     expect(normalized).not.toBe(DEFAULT_RESEARCH_ENGINE_SETTINGS);
+  });
+
+  /// 三档都要认。派发路径（/skill:research）直接把 defaultMode 塞进 ResearchRequest.mode，
+  /// 少认一档就等于那一档在设置页选得上、跑起来却变成标准档。
+  it.each(["quick", "standard", "deep"] as const)("接受档位 %s", (mode) => {
+    expect(normalizeResearchEngineSettings({ defaultMode: mode }).defaultMode).toBe(mode);
+  });
+
+  /// 归一化后这两个键**必然存在**：调用方（派发、设置页）不必再各写一次 `?? "standard"`，
+  /// 否则默认值就有了第二个真源，改默认档时会漏改。
+  it("归一化结果总是带上研究默认档两个键（哪怕输入里没有）", () => {
+    const normalized = normalizeResearchEngineSettings({ enabled: true });
+    expect("defaultMode" in normalized).toBe(true);
+    expect("includeMemoryScope" in normalized).toBe(true);
   });
 });
 
