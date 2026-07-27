@@ -50,6 +50,14 @@ import {
   upsertConversationArtifact,
 } from "./artifactDispatch";
 export { buildConversationArtifactPrompt } from "./artifactDispatch";
+import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
+import { useResearchUiStore } from "@cortex-work/core/research/ui-store";
+import { RESEARCH_STATUS_META } from "../research/labels";
+import {
+  parseResearchSkill,
+  prepareResearchDispatch,
+  upsertConversationResearch,
+} from "./researchDispatch";
 
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
 const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
@@ -178,8 +186,20 @@ export function PersonalChatArea({
   const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
-  const { send, stop: stopRun, steer, compact, setPiModel, setThinking, editResend, clearView } =
-    usePersonalActions();
+  const {
+    send,
+    stop: stopRun,
+    steer,
+    compact,
+    setPiModel,
+    setThinking,
+    editResend,
+    clearView,
+    appendLocalUserMessage,
+  } = usePersonalActions();
+  // 研究派发要用的两样：全局默认档（档位 / 来源范围）与研究会话的实时状态（卡片副标题）。
+  const researchSettings = normalizeResearchEngineSettings(generalSettings.researchEngine);
+  const researchStatuses = useResearchUiStore((s) => s.sessions);
   // 分支回复:刷新=归档旧回复为分支重新生成;回复下方「‹ i/n ›」分页器切换查看/续聊各分支。
   const branchGroups = usePersonalBranches(session?.id);
   const { regenerate, switchBranch } = useBranchActions();
@@ -579,8 +599,10 @@ export function PersonalChatArea({
   // 空会话 = 新会话落地态:挂 pw-landing 让 Hero/chips/输入框共用同一封顶居中列,
   // 与 NewSessionLanding 视觉一致;一旦有消息就回到普通会话布局。
   const landing = convo === null;
+  // pw-personal-chat:个人会话作用域类——CSS 据此隐藏消息头里的发送者名(悬停头像见名),
+  // 团队会话(同用 MessageStream)不受影响。
   return (
-    <main className={landing ? "chat pw-landing" : "chat"}>
+    <main className={landing ? "chat pw-landing pw-personal-chat" : "chat pw-personal-chat"}>
       {/* 会话还没有任何消息时,中栏就是「新会话落地页」——渲染与 NewSessionLanding 同一份
           HomeBoard(Hero + 场景 tab/chips),两处不再各写一套内容。区别只在于:落地页底部
           还要选项目,这里项目已经由会话定死,GitBar 只读展示。 */}
@@ -640,6 +662,34 @@ export function PersonalChatArea({
         </button>
       ))}
 
+      {/* 研究卡片:形状照产物卡片。**状态不存在卡片自己身上**——按 sessionId 现查 ui-store,
+          那份状态由常驻的事件订阅(useResearchLiveSync)维护,是唯一真源;卡片存一份副本
+          就会出现「会话流里显示检索中、右栏已经完成」这种对不上的状态。 */}
+      {(session.researchSessions ?? []).map((research) => {
+        const status = researchStatuses.find((s) => s.sessionId === research.sessionId)?.status;
+        return (
+          <button
+            key={research.sessionId}
+            type="button"
+            className="pw-artifact-card"
+            onClick={() => {
+              updateSession(session.id, { activeResearchSessionId: research.sessionId });
+              setRightView("research");
+              setRightOpen(true);
+            }}
+          >
+            <Icon.Search size={15} />
+            <span>
+              <strong>{research.objective}</strong>
+              <small>
+                深度研究 · {status ? RESEARCH_STATUS_META[status].label : "读取中"} · 点击查看
+              </small>
+            </span>
+            <Icon.ChevronRight size={14} />
+          </button>
+        );
+      })}
+
       <AskQuestionCard sessionId={session.id} />
 
       {/* 运行模式拦截提示:plan/accept-edits 下 agent 被拦时,提示切档并自动重发本轮。 */}
@@ -656,6 +706,13 @@ export function PersonalChatArea({
           // 本期编辑态不增删图,composer 的待发 images 忽略;返回 true 让 composer 清空。
           if (editing) {
             if (!bridge) return false;
+            // 研究消息不支持编辑重发:editResend 的语义是「截断到这条、以新文本重跑一轮 agent」，
+            // 而研究那条消息背后没有 agent 轮次可截断,重跑要走引擎自己的 rerun(克隆会话,
+            // 保住旧报告引用的证据)。放行只会得到一轮空转。
+            if (parseResearchSkill(text)) {
+              onToast("研究消息不支持编辑重发，重跑请用面板的重跑按钮");
+              return false;
+            }
             const uid = editing.uid;
             const artifactDispatch = await prepareArtifactDispatch(bridge, session, text);
             if (artifactDispatch.error) {
@@ -707,6 +764,29 @@ export function PersonalChatArea({
           // 按 transport 走 ws 原生触发 / exec prose 回退)。圆桌编排路径无原生挂点 → claude/codex 都维持
           // 现状 renderSkillInvocation prose(与 messages.ts 编排分支不改动对齐)。找不到对应 skill
           //(未启用 / 不适用当前 agent / 无桥)时原样发送,不阻断——与菜单侧 supportedAgents 过滤一致。
+          // 深度研究分叉:必须在产物派发**之前**。研究不经 agent(活由 CRE 引擎干),
+          // 这条路径不产生 agent 轮次,也就没有可以喂给 prepareArtifactDispatch 的 outText。
+          //
+          // 先同步 parse 再决定要不要 await:普通消息占绝大多数,不该为这条分叉多等一个微任务
+          //(发送路径的时序被既有测试与 composer 的乐观清空依赖着)。
+          if (parseResearchSkill(text)) {
+            const researchDispatch = await prepareResearchDispatch(bridge, session, text, researchSettings);
+            if (researchDispatch.error) {
+              onToast(researchDispatch.error);
+              return false; // 未消费:目标写错了,输入框里的文本要留着让用户改
+            }
+            const ref = researchDispatch.ref!;
+            updateSession(session.id, {
+              researchSessions: upsertConversationResearch(session.researchSessions, ref),
+              activeResearchSessionId: ref.sessionId,
+            });
+            setRightView("research");
+            setRightOpen(true);
+            // 会话流里留一条本地用户消息:研究本身不产生 agent 轮次,没有这一条的话
+            // 用户回头翻会话只能看到一张卡片,记不起当时问的是什么。
+            await appendLocalUserMessage(session, text);
+            return true;
+          }
           let outText = text;
           let invokedSkill: { name: string; path: string } | undefined;
           const artifactDispatch = await prepareArtifactDispatch(bridge, session, text);

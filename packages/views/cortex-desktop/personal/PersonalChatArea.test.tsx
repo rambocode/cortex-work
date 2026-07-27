@@ -11,6 +11,7 @@ import {
 } from "@cortex-work/core";
 import type { DesktopBridge, SessionMeta } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
+import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { isOrchestrationSend, renderClaudeSkillSlash, renderSkillInvocation } from "@cortex-work/core";
 import type { InjectableSkill } from "@cortex-work/core";
 import { MessageStream } from "../ChatArea";
@@ -1481,5 +1482,111 @@ describe("PersonalChatArea 空会话落地内容", () => {
     expect(await screen.findByText("第一句")).toBeInTheDocument();
     expect(container.querySelector(".pw-hero-title")).toBeNull();
     expect(screen.queryByRole("tab", { name: "日常办公" })).toBeNull();
+  });
+});
+
+// /skill:research 分叉：研究由 CRE 引擎跑，**这条路径绝不能走到 agent 上**。
+//
+// 守两件事：一是不 spawn CLI（走上 send 的老路会让每次发起研究白烧一轮 agent 的钱，
+// 而界面上看不出异常）；二是不落到产物派发（研究没有可以喂给 agent 的 outText）。
+describe("PersonalChatArea /skill:research 派发分叉", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      runningBySession: {},
+      providerSettings: { providers: [] },
+    });
+    // generalSettings 是整块结构，只改研究切片要走展开写法（其余字段仍需存在）。
+    usePersonalStore.setState((s) => ({
+      generalSettings: {
+        ...s.generalSettings,
+        researchEngine: normalizeResearchEngineSettings({ enabled: true, deepResearchEnabled: true }),
+      },
+    }));
+  });
+
+  function researchBridge(createRejects?: Error) {
+    const create = vi.fn(async () => ({
+      sessionId: "res-1",
+      consumer: "deep_research",
+      objective: "调研向量数据库选型",
+      mode: "standard",
+      status: "created",
+      createdAt: "2026-07-27T00:00:00.000Z",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+      roundCount: 0,
+      documentCount: 0,
+      chunkCount: 0,
+    }));
+    const b = {
+      loadChat: async () => [],
+      saveChat: async () => {},
+      startCli: vi.fn(),
+      oneshotCli: vi.fn(),
+      artifactCreate: vi.fn(),
+      research: {
+        create: createRejects ? vi.fn(async () => { throw createRejects; }) : create,
+        run: vi.fn(async () => {}),
+        onEvent: () => () => {},
+        list: async () => [],
+      },
+    } as unknown as DesktopBridge;
+    return b;
+  }
+
+  async function sendResearch(b: DesktopBridge, onToast: (t: string) => void = () => {}) {
+    const view = render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={onToast} />
+      </CoreProvider>,
+    );
+    const ta = view.container.querySelector("textarea")!;
+    fireEvent.change(ta, { target: { value: "/skill:research 调研向量数据库选型" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("发送 (Enter)"));
+    });
+    return view;
+  }
+
+  it("命中研究：建会话并启动，但不 spawn 任何 CLI、也不走产物派发", async () => {
+    const b = researchBridge();
+    await sendResearch(b);
+    const research = (b as unknown as { research: { create: ReturnType<typeof vi.fn>; run: ReturnType<typeof vi.fn> } }).research;
+
+    expect(research.create).toHaveBeenCalledTimes(1);
+    expect(research.run).toHaveBeenCalledTimes(1);
+    expect(b.startCli).not.toHaveBeenCalled();
+    expect(b.oneshotCli).not.toHaveBeenCalled();
+    expect(b.artifactCreate).not.toHaveBeenCalled();
+  });
+
+  it("绑定写进会话并把右栏切到研究面板", async () => {
+    await sendResearch(researchBridge());
+    const session = usePersonalStore.getState().sessions.find((s) => s.id === "s1")!;
+
+    expect(session.researchSessions?.map((r) => r.sessionId)).toEqual(["res-1"]);
+    expect(session.activeResearchSessionId).toBe("res-1");
+    expect(usePersonalStore.getState().rightView).toBe("research");
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+  });
+
+  it("会话流里留下那条用户消息（否则回头只看到一张卡片，记不起问的是什么）", async () => {
+    await sendResearch(researchBridge());
+    expect(await screen.findByText("/skill:research 调研向量数据库选型")).toBeInTheDocument();
+  });
+
+  it("create 失败：toast 报错，不绑定、不切右栏", async () => {
+    const onToast = vi.fn();
+    await sendResearch(researchBridge(new Error("搜索服务未配置")), onToast);
+
+    expect(onToast).toHaveBeenCalledWith(expect.stringContaining("搜索服务未配置"));
+    const session = usePersonalStore.getState().sessions.find((s) => s.id === "s1")!;
+    expect(session.researchSessions).toBeUndefined();
   });
 });

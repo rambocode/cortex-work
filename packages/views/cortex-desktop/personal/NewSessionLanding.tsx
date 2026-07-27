@@ -39,6 +39,11 @@ import {
 import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
 import { useResearchSkillAvailable, useSlashCommands } from "./useSlashCommands";
+import {
+  parseResearchSkill,
+  prepareResearchDispatch,
+  upsertConversationResearch,
+} from "./researchDispatch";
 import { GitBar } from "./GitBar";
 import {
   buildConversationArtifactPrompt,
@@ -82,7 +87,7 @@ export function NewSessionLanding({
   const updateSession = usePersonalStore((s) => s.updateSession);
   const setRightView = usePersonalStore((s) => s.setRightView);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
-  const { send } = usePersonalActions();
+  const { send, appendLocalUserMessage } = usePersonalActions();
 
   // 新会话默认「不使用项目」(selectedProjectId=undefined),可随时在 GitBar 切到具体项目。
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(undefined);
@@ -170,6 +175,25 @@ export function NewSessionLanding({
     docFiles?: PendingDocFile[],
   ): Promise<boolean> => {
     if (!bridge) return false;
+    // 深度研究分叉:必须在产物分支之前。会话此刻已经建出来了,所以出错也只 toast、不回滚——
+    // 用户改完目标可以在这个会话里直接重发。**不调 send**:研究不经 agent。
+    // 先同步 parse 再决定要不要 await:普通消息不该为这条分叉多等一个微任务。
+    if (parseResearchSkill(text)) {
+      const researchDispatch = await prepareResearchDispatch(bridge, sess, text, researchSettings);
+      if (researchDispatch.error) {
+        onToast(researchDispatch.error);
+        return false;
+      }
+      const ref = researchDispatch.ref!;
+      updateSession(sess.id, {
+        researchSessions: upsertConversationResearch(sess.researchSessions, ref),
+        activeResearchSessionId: ref.sessionId,
+      });
+      setRightView("research");
+      setRightOpen(true);
+      await appendLocalUserMessage(sess, text);
+      return true;
+    }
     const parsed = parseSkillSlash(text);
     if (parsed?.name !== "design" && parsed?.name !== "slides") {
       return send(
