@@ -129,6 +129,30 @@ describe("archiveResearchReport", () => {
     expect(await listArchive(dir)).toEqual(["etc passwd.md"]);
   });
 
+  // 包含性校验以 realpath 后的归档目录为基准：research/（或其父级）被换成软链时，
+  // 纯字符串前缀比较会被绕过。但返回值与写入仍用调用方给的原始路径——realpath 会把
+  // macOS 的 /var 规范化成 /private/var，返回规范化路径会让调用方看到与配置不一致的落点。
+  it("归档目录是软链时仍写进去，且返回调用方给的原始路径（不做 realpath 规范化）", async () => {
+    const realHome = join(root, "real-home");
+    const projectPath = join(root, "proj");
+    await fsp.mkdir(join(realHome, "research"), { recursive: true });
+    await fsp.mkdir(projectPath, { recursive: true });
+    // proj/research → real-home/research
+    await fsp.symlink(join(realHome, "research"), join(projectPath, "research"), "dir");
+
+    const written = await archiveResearchReport({
+      projectPath,
+      sessionId: "s1",
+      objective: "主题",
+      markdown: "正文",
+    });
+
+    // 返回的是软链路径本身，不是解析后的真实路径。
+    expect(written).toBe(join(projectPath, "research", "主题.md"));
+    // 内容确实落在软链目标里。
+    expect(await fsp.readFile(join(realHome, "research", "主题.md"), "utf8")).toContain("正文");
+  });
+
   it("目标清洗后为空时用 research-<id8> 兜底", async () => {
     const projectPath = join(root, "proj");
     const written = await archiveResearchReport({

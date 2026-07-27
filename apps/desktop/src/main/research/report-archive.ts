@@ -66,14 +66,19 @@ export async function archiveResearchReport(input: ArchiveResearchReportInput): 
 
 /// 尝试独占创建一个文件；已存在返回 null（换下一个候选名），其余错误原样抛出。
 ///
-/// 落盘前再做一次 resolve 包含性校验：文件名理应已被 researchReportFileBaseName 清洗干净，
+/// 落盘前再做一次包含性校验：文件名理应已被 researchReportFileBaseName 清洗干净，
 /// 这里是纵深防御——万一清洗规则将来被改松，路径穿越也只会在这里报错，而不是真的写出去。
+///
+/// 校验基准用 realpath 后的归档目录而非原始字符串：若 research/（或其父级）被换成软链，
+/// 纯字符串的 startsWith 前缀检查会被绕过，realpath 让校验落在真实落点上。
+/// 但写入与返回值仍用调用方传入的原始路径——realpath 会规范化掉 /var→/private/var 这类
+/// 系统软链，返回规范化路径会让调用方（与测试）看到和配置不一致的落盘位置。
 async function tryWrite(dir: string, fileName: string, body: string): Promise<string | null> {
-  const target = resolve(dir, fileName);
-  const dirPrefix = resolve(dir) + sep;
-  if (!target.startsWith(dirPrefix)) {
+  const realDir = await fsp.realpath(dir);
+  if (!resolve(realDir, fileName).startsWith(realDir + sep)) {
     throw new Error(`研究报告归档失败：文件名越出归档目录（${fileName}）`);
   }
+  const target = resolve(dir, fileName);
 
   try {
     await fsp.writeFile(target, body, { encoding: "utf8", flag: "wx" });
