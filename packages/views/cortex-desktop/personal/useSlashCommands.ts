@@ -21,14 +21,15 @@ const PI_SLASH_COMMANDS: SlashCommand[] = [
 export const ARTIFACT_SKILL_COMMANDS: SlashCommand[] = [
   {
     cmd: "/skill:design",
-    displayName: "Design",
+    // 展示名用中文:它会原样出现在输入框的 skill pill 上,与 desc/tag 的中文保持一致。
+    displayName: "设计稿",
     tag: "系统",
     desc: "在会话中创建设计稿，并在右栏继续编辑",
     kind: "skill",
   },
   {
     cmd: "/skill:slides",
-    displayName: "Slides",
+    displayName: "演示文稿",
     tag: "系统",
     desc: "在会话中创建演示文稿，并在右栏继续编辑",
     kind: "skill",

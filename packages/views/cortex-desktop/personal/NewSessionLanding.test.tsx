@@ -76,11 +76,12 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     expect(await screen.findByText("/clear")).toBeTruthy();
   });
 
-  it("落地页 slash 默认提供第一方 Design 与 Slides Skill", async () => {
+  it("落地页 slash 默认提供第一方「设计稿」与「演示文稿」Skill", async () => {
     renderLanding(fakeBridge());
     fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "/" } });
-    expect(await screen.findByText("Design")).toBeTruthy();
-    expect(await screen.findByText("Slides")).toBeTruthy();
+    // 展示名走中文(与输入框 skill pill 一致)。按 option 角色取,避免与落地页场景 chip 的同名按钮撞名。
+    expect(await screen.findByRole("option", { name: /设计稿/ })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: /演示文稿/ })).toBeTruthy();
   });
 
   it("从落地页调用 Design Skill 时先创建会话产物再发送", async () => {
@@ -105,7 +106,7 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     }));
     const input = screen.getByPlaceholderText(/开启新会话/);
     fireEvent.change(input, { target: { value: "/" } });
-    fireEvent.mouseDown(await screen.findByRole("option", { name: /Design/ }));
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /设计稿/ }));
     fireEvent.change(input, { target: { value: "Dashboard" } });
     fireEvent.click(screen.getByTitle("发送 (Enter)"));
     await waitFor(() =>

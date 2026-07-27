@@ -73,7 +73,8 @@ describe("SceneChips", () => {
     renderChips(FULL_BRIDGE);
     fireEvent.click(screen.getByRole("button", { name: "演示文稿" }));
     const insert = usePersonalStore.getState().composerInsert;
-    expect(insert?.skill).toEqual({ cmd: "/skill:slides", displayName: "Slides" });
+    // pill 展示名走中文(与输入框内 pill 一致)
+    expect(insert?.skill).toEqual({ cmd: "/skill:slides", displayName: "演示文稿" });
     expect(insert?.text).toBe("");
     expect(insert?.submit).toBeFalsy();
   });
@@ -112,21 +113,17 @@ describe("SceneChips", () => {
     expect(screen.queryByText("像素风介绍 PPT")).toBeNull();
   });
 
-  it("选中 slides 后收起其它 chip,该 skill 与示例同处一行", () => {
+  it("选中 slides 后整行换成示例,不再重复显示该 skill(输入框 pill 已经在了)", () => {
     renderChips(FULL_BRIDGE);
-    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:slides", displayName: "Slides" } }));
-    // 一行放不下 4 个 chip + 4 条示例,选中态只留该 skill 自己 + 它的示例
-    expect(screen.getByRole("button", { name: "演示文稿" })).toBeInTheDocument();
+    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:slides", displayName: "演示文稿" } }));
+    expect(screen.queryByRole("button", { name: "演示文稿" })).toBeNull();
     expect(screen.queryByRole("button", { name: "深度研究" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "写作" })).toBeNull();
-    // skill chip 与示例在同一个 chips 容器里(同一行)
-    const row = screen.getByRole("button", { name: "演示文稿" }).parentElement;
-    expect(row).toBe(screen.getByRole("button", { name: "像素风介绍 PPT" }).parentElement);
+    expect(screen.getByRole("button", { name: "像素风介绍 PPT" })).toBeInTheDocument();
   });
 
   it("选中 slides 后点示例把完整提示词插入输入框", () => {
     renderChips(FULL_BRIDGE);
-    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:slides", displayName: "Slides" } }));
+    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:slides", displayName: "演示文稿" } }));
     const example = screen.getByRole("button", { name: "像素风介绍 PPT" });
     expect(example).toBeInTheDocument();
     // 悬浮提示给出完整提示词(参考图的 tooltip 行为)
@@ -142,7 +139,7 @@ describe("SceneChips", () => {
 
   it("选中 design 后展示 design 的示例,不串 slides 的", () => {
     renderChips(FULL_BRIDGE);
-    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:design", displayName: "Design" } }));
+    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:design", displayName: "设计稿" } }));
     expect(screen.getByRole("button", { name: "产品落地页" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "像素风介绍 PPT" })).toBeNull();
   });
@@ -157,7 +154,7 @@ describe("SceneChips", () => {
 
   it("清空 pill 后 chips 恢复完整,示例消失", () => {
     renderChips(FULL_BRIDGE);
-    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:slides", displayName: "Slides" } }));
+    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:slides", displayName: "演示文稿" } }));
     expect(screen.queryByRole("button", { name: "写作" })).toBeNull();
     act(() => usePersonalStore.setState({ composerSkill: undefined }));
     expect(screen.getByRole("button", { name: "写作" })).toBeInTheDocument();

@@ -159,6 +159,13 @@ export const Icon = {
       <path d="M9 6l6 6-6 6" />
     </IconBase>
   ),
+  // ArrowDownRight：斜向下箭头（↘）。落地页场景示例用它指向下方的输入框，暗示「点了会填到那里」。
+  ArrowDownRight: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M7 7l10 10" />
+      <path d="M17 9v8h-8" />
+    </IconBase>
+  ),
   Run: (p: IconProps) => (
     <IconBase {...p}>
       <polygon points="7 5 19 12 7 19 7 5" />
