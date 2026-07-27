@@ -31,6 +31,24 @@ export type ConversationArtifactResult =
   | { ok: true; artifact: ConversationArtifactRef }
   | { ok: false; error: string };
 
+/**
+ * 会话与右栏研究面板之间持久化的深度研究引用。
+ *
+ * 只存定位所需的窄面元数据：研究的真源是 main 侧的 research.sqlite（会话列表、计划、
+ * 证据、报告全在那儿），这里存的仅仅是「这个对话发起过哪几次研究」这条归属关系。
+ * 状态、进度、报告一律按 sessionId 现查 ui-store / bridge，**绝不在这里存一份快照**——
+ * 存了就会出现「卡片显示进行中、面板显示已完成」的漂移。
+ *
+ * projectId 记的是发起当时选中的项目（决定报告归档去哪个目录），与 SessionMeta.projectId
+ * 分开存：会话事后改绑项目，不该让已经归档完的旧报告看起来像是落在新项目里。
+ */
+export interface ConversationResearchRef {
+  sessionId: string;
+  objective: string;
+  createdAt: number;
+  projectId?: string;
+}
+
 // M3-A:用户 JSON(agents.local.json)派生/覆盖的 agent 元数据。与 ipc/types.ts 镜像同步。
 export interface DerivedAgentMeta {
   id: string;
@@ -110,6 +128,11 @@ export interface SessionMeta {
   artifacts?: ConversationArtifactRef[];
   // 每个产物独立续接 Agent session，避免覆盖普通聊天及其它产物的 resume id。
   artifactSessionIds?: Record<string, string>;
+  // 本会话经 /skill:research 发起过的深度研究；解除当前展示不会删除，用户可从会话流里的
+  // 研究卡片重新进入（与 artifacts 同一套「历史留痕」语义）。
+  researchSessions?: ConversationResearchRef[];
+  // 右栏研究面板当前展示的那条研究。**不等于「最后一条」**：用户可以在面板里回看旧研究。
+  activeResearchSessionId?: string;
   agent: AgentKind;
   // M3-A/U7:用户 JSON 派生的新 id agent。缺省 = 用 agent(内置)。spawn 时 req.agent = derivedAgentId ?? agent。
   // agent 字段仍存其 base 内置值,使全仓 Record<AgentKind> 索引(模型/标签/头像/续接槽)无需放宽。与 ipc 镜像。

@@ -96,6 +96,7 @@ export {
   type ConversationArtifactRef,
   type ConversationArtifactCreateRequest,
   type ConversationArtifactResult,
+  type ConversationResearchRef,
   type SpotlightIntent,
   type TodoMeta,
   type TodoStatus,

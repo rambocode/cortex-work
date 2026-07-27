@@ -6,15 +6,18 @@
 // 注入,只作用于详情态的 CSS 档位,返回列表恢复固定 320px）;双击恢复自动宽度。
 // 拖拽条的显示时机由 CSS :has 控制（见 .pw-rp-resizer）。
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
+import { useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
 import { PromptPanel } from "./PromptPanel";
 import { TasksView } from "./TasksView";
 import { NotesView } from "./NotesView";
 import { BrowserView } from "./BrowserView";
 import { ArtifactEditorPanel } from "../design/ArtifactEditorPanel";
+import { ResearchArtifactPanel } from "../research/ResearchArtifactPanel";
+import type { ResearchExportTarget } from "../research/ResearchRunView";
+import type { ResearchModelDisplay } from "../research/modelDisplay";
 
 // 右栏视图 → 顶部头标题（内容沿用现有视图名）。
 const RIGHT_VIEW_TITLE: Record<string, string> = {
@@ -24,6 +27,7 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
   notes: "闪记",
   browser: "浏览器",
   artifact: "产物",
+  research: "深度研究",
 };
 
 // 导出供测试引用,调参不破坏断言。
@@ -31,27 +35,56 @@ export const RP_MIN_WIDTH = 280;
 // 左侧内容(中栏)至少保留的宽度。拖拽上限至少保留拖拽开始时已经渲染出来的宽度,
 // 避免第一帧把面板夹小造成可见边界向右跳。
 export const RP_LEFT_RESERVED = 250;
-// 产物编辑器(演示文稿 / 设计稿)例外:它默认就展得很宽,若沿用 250px 的保留,
+// 产物编辑器(演示文稿 / 设计稿)与深度研究面板例外:两者默认就展得很宽,若沿用 250px 的保留,
 // 中栏会被压成放不下消息气泡与输入框控件的窄条,故把中栏下限抬到 660px。
-// 与 CSS 里 .pw-prompts:has(.pw-artifact-editor) 的默认宽度公式是同一个数,改一处要改两处。
+// 与 CSS 里 .pw-prompts:has(.pw-artifact-editor) / :has(.pw-research-panel) 的默认宽度公式
+// 是同一个数,改一处要改三处(两条 CSS 规则 + 本常量)。
 export const RP_LEFT_RESERVED_ARTIFACT = 660;
+
+/// 这些视图按「宽面板」档位给中栏保留 660px；其余走 RP_LEFT_RESERVED。
+function isWidePanel(view: string): boolean {
+  return view === "artifact" || view === "research";
+}
 
 export function PersonalRightPanel({
   onToast,
+  researchModel,
+  researchExportTargets,
 }: {
   onToast: (text: string) => void;
+  // 研究面板的两个展示型注入（由 PersonalWorkspace 按设置解析）：
+  // views 层不读个人工作区的设置 store，保持研究组件可在任意宿主里复用。
+  researchModel?: ResearchModelDisplay;
+  researchExportTargets?: readonly ResearchExportTarget[];
 }) {
   const view = usePersonalStore((s) => s.rightView);
   const width = usePersonalStore((s) => s.rightPanelWidth);
   const setWidth = usePersonalStore((s) => s.setRightPanelWidth);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
+  const bridge = useDesktopBridge();
   const cancelResizeRef = useRef<(() => void) | null>(null);
-  const activeArtifact = usePersonalStore((s) =>
-    s.sessions.find((session) => session.id === s.activeSessionId)?.activeArtifact
+  const activeSession = usePersonalStore((s) =>
+    s.sessions.find((session) => session.id === s.activeSessionId),
   );
+  const activeArtifact = activeSession?.activeArtifact;
+  const researchRefs = activeSession?.researchSessions;
+  const activeSessionId = usePersonalStore((s) => s.activeSessionId);
+
+  // 面板内「回看另一条研究」的临时选择（D6：只切展示，不写回会话归属）。
+  // 换会话即失效——上一条对话看到哪儿，不该带进下一条对话。
+  const [viewingResearchId, setViewingResearchId] = useState<string | null>(null);
+  useEffect(() => setViewingResearchId(null), [activeSessionId]);
+  const researchSessionId =
+    viewingResearchId ??
+    activeSession?.activeResearchSessionId ??
+    researchRefs?.[researchRefs.length - 1]?.sessionId ??
+    null;
+
   useEffect(() => {
     if (view === "artifact" && !activeArtifact) setRightOpen(false);
-  }, [activeArtifact, setRightOpen, view]);
+    // 研究面板同理：会话解除全部研究绑定后面板没有可展示的内容，自动收起而不是留一个空壳。
+    if (view === "research" && !researchSessionId) setRightOpen(false);
+  }, [activeArtifact, researchSessionId, setRightOpen, view]);
   useEffect(() => () => cancelResizeRef.current?.(), []);
 
   const startResize = useCallback(
@@ -67,7 +100,7 @@ export function PersonalRightPanel({
       const startWidth = rect.width || RP_MIN_WIDTH;
       // 用位移增量算宽度,不依赖 rect.left/right 是否等于视觉拖拽条位置。正常状态给
       // 左侧保留空间;若起始布局已经超过这个保留区,本次拖拽允许到父容器宽度,不能反向夹小。
-      const reserved = view === "artifact" ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
+      const reserved = isWidePanel(view) ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
       const reservedMax = Math.max(RP_MIN_WIDTH, parentWidth - reserved);
       const max = startWidth > reservedMax
         ? Math.max(RP_MIN_WIDTH, startWidth, parentWidth)
@@ -140,6 +173,15 @@ export function PersonalRightPanel({
       </div>
       {view === "artifact" ? (
         activeArtifact ? <ArtifactEditorPanel artifact={activeArtifact} /> : null
+      ) : view === "research" ? (
+        <ResearchArtifactPanel
+          bridge={bridge?.research ?? null}
+          sessionId={researchSessionId}
+          refs={researchRefs ?? []}
+          onSelect={setViewingResearchId}
+          {...(researchModel ? { model: researchModel } : {})}
+          {...(researchExportTargets ? { exportTargets: researchExportTargets } : {})}
+        />
       ) : view === "files" ? (
         <FilesView onToast={onToast} />
       ) : view === "todos" ? (

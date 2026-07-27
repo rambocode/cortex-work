@@ -14,8 +14,13 @@ export interface ResearchSessionListProps {
   activeSessionId: string | null;
   loading?: boolean;
   onSelect: (sessionId: string) => void;
-  onCreate: () => void;
-  onDelete: (sessionId: string) => void;
+  /// 新建入口。会话右栏面板不给这个入口（发起研究走输入框的 /skill:research），
+  /// 故与 hideCreate 一起是可选的。
+  onCreate?: () => void;
+  hideCreate?: boolean;
+  /// 删除入口。缺省则不渲染删除按钮——嵌在会话右栏里时，删掉研究会让会话流里的
+  /// 研究卡片变成死链，那个决定应当在能看到卡片的地方做。
+  onDelete?: (sessionId: string) => void;
 }
 
 /// ISO 时间 → 「MM-DD HH:mm」。列表只需要相对定位，完整时间戳留给详情页。
@@ -35,20 +40,26 @@ export function ResearchSessionList({
   loading,
   onSelect,
   onCreate,
+  hideCreate,
   onDelete,
 }: ResearchSessionListProps): ReactElement {
+  const showCreate = !hideCreate && !!onCreate;
   return (
     <div className="pw-res-list">
-      <div className="pw-res-list-top">
-        <button type="button" className="pw-res-btn is-primary" onClick={onCreate}>
-          新建研究
-        </button>
-      </div>
+      {showCreate ? (
+        <div className="pw-res-list-top">
+          <button type="button" className="pw-res-btn is-primary" onClick={onCreate}>
+            新建研究
+          </button>
+        </div>
+      ) : null}
 
       {loading ? <div className="pw-res-hint">加载中…</div> : null}
 
       {sessions.length === 0 && !loading ? (
-        <div className="pw-res-empty">尚无研究记录，点上方「新建研究」开始</div>
+        <div className="pw-res-empty">
+          {showCreate ? "尚无研究记录，点上方「新建研究」开始" : "尚无研究记录"}
+        </div>
       ) : null}
 
       <div className="pw-res-items">
@@ -69,18 +80,20 @@ export function ResearchSessionList({
               <div className="pw-res-item-head">
                 <span className={`pw-res-badge is-${meta.tone}`}>{meta.label}</span>
                 <span className="pw-res-item-mode">{RESEARCH_MODE_LABELS[s.mode]?.label ?? s.mode}</span>
-                <button
-                  type="button"
-                  className="pw-res-item-del"
-                  aria-label="删除研究"
-                  // 删除按钮嵌在可点击的行里，必须阻断冒泡，否则「删一个」会顺带把它选中。
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(s.sessionId);
-                  }}
-                >
-                  删除
-                </button>
+                {onDelete ? (
+                  <button
+                    type="button"
+                    className="pw-res-item-del"
+                    aria-label="删除研究"
+                    // 删除按钮嵌在可点击的行里，必须阻断冒泡，否则「删一个」会顺带把它选中。
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(s.sessionId);
+                    }}
+                  >
+                    删除
+                  </button>
+                ) : null}
               </div>
               <div className="pw-res-item-obj">{s.objective}</div>
               <div className="pw-res-item-meta">

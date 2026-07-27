@@ -3951,6 +3951,15 @@ button.sb-row {
   min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
 }
 .pw-prompts:has(.pw-artifact-editor) .pw-rp-resizer { display: block; }
+/* 深度研究面板(/skill:research 的右栏)：与上面的产物编辑器**同一条宽度公式**。
+   报告是长文本 + 引用抽屉，窄栏读不了；而中栏仍要留够 660px 才能继续对话。
+   两处必须一起改（PersonalRightPanel 的 RP_LEFT_RESERVED_ARTIFACT 判定也把 research
+   算进同一档），否则会出现「拖拽上限按 660 算、默认宽度按 250 算」的错位。 */
+.pw-prompts:has(.pw-research-panel) {
+  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+}
+.pw-prompts:has(.pw-research-panel) .pw-rp-resizer { display: block; }
 .pw-artifact-editor {
   display: flex;
   flex: 1;

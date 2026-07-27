@@ -135,6 +135,11 @@ describe("ResearchWorkspace 生命周期", () => {
     const { unmount } = render(<ResearchWorkspace bridge={bridge} onClose={() => {}} />);
     expect(await screen.findByText("调查 A")).toBeTruthy();
     expect(state.listCalls).toBe(0);
+
+    // 选中之后才有订阅：没有选中会话时，事件订阅只为触发「当前会话」的详情重拉，
+    // 一条都不可能匹配，故 useResearchSessionDetail 干脆不订阅。
+    fireEvent.click(screen.getByText("调查 A"));
+    await waitFor(() => expect(state.getCalls).toHaveLength(1));
     expect(state.unsubscribeCalls).toBe(0);
 
     unmount();

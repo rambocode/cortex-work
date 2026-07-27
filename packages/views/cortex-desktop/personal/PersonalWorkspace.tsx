@@ -269,7 +269,15 @@ export function PersonalWorkspace({
                 由组件自身依据「中栏显示会话区 + 当前会话有过程」判定是否渲染。 */}
             <PersonalProcessPanel />
           </div>
-          {!workflowOpen && !automationOpen && rightOpen ? <PersonalRightPanel onToast={onToast} /> : null}
+          {/* researchModel / researchExportTargets 透传给右栏的研究面板：模型是按设置解析出的
+              「本次会用谁、正文出不出本机」，产物去向是本机可用能力，两者都只有宿主知道。 */}
+          {!workflowOpen && !automationOpen && rightOpen ? (
+            <PersonalRightPanel
+              onToast={onToast}
+              researchModel={researchModel}
+              researchExportTargets={researchExportTargets}
+            />
+          ) : null}
         </div>
         <TerminalPanel onToast={onToast} />
       </div>

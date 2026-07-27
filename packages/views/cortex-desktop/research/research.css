@@ -676,3 +676,85 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---------- 会话右栏的研究面板（.pw-research-panel） ---------- */
+/* 与整窗覆盖层（.pw-res-root）共用全部 pw-res-* 零件样式，差别只在容器：
+   右栏只有一栏可用，所以这里是单列纵向布局，引用详情盖在面板内而不是另开一栏。
+   宽度公式在 cortex-desktop.css 的 .pw-prompts:has(.pw-research-panel)，与产物编辑器并列。 */
+.pw-research-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  /* 引用详情抽屉以此为定位上下文（绝对定位盖在面板内）。 */
+  position: relative;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+/* 模型/出站告知行：一行说清「用谁、正文会不会出本机」。
+   紧贴顶部而不是折叠起来——数据发给谁必须在动作发生前可见。 */
+.pw-research-panel-model {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.pw-research-panel-model-t { font-size: 12px; font-weight: 600; }
+.pw-research-panel-model-egress { color: var(--text-3); font-size: 11px; }
+
+/* 「全部研究」入口 + 本会话多条研究时的快捷切换行。 */
+.pw-research-panel-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.pw-research-panel-refs {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  /* 目标可能很长：横向滚动，不换行把工具条撑高。 */
+  overflow-x: auto;
+}
+.pw-research-panel-ref {
+  max-width: 160px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.pw-research-panel-ref.is-active { color: var(--text-1); border-color: var(--text-3); }
+
+/* 全部研究抽屉：限高，避免把主体报告挤没。 */
+.pw-research-panel-drawer {
+  flex: 0 0 auto;
+  max-height: 40%;
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+
+.pw-research-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+/* 引用详情抽屉：盖住面板下半部分。右栏不够宽再开一栏，两栏都会窄到不可读。 */
+.pw-research-panel-source {
+  position: absolute;
+  inset: auto 0 0 0;
+  max-height: 70%;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--bg-app);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+}

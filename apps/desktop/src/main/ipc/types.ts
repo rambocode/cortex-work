@@ -29,6 +29,15 @@ export type ConversationArtifactResult =
   | { ok: true; artifact: ConversationArtifactRef }
   | { ok: false; error: string };
 
+// 会话与右栏研究面板之间持久化的深度研究引用。与 core 镜像同步（语义详见 core 侧注释）。
+// 只存归属关系，状态/报告一律按 sessionId 现查 research.sqlite，不在这里存快照。
+export interface ConversationResearchRef {
+  sessionId: string;
+  objective: string;
+  createdAt: number;
+  projectId?: string;
+}
+
 // M3-A:用户 JSON(agents.local.json)派生/覆盖的 agent 元数据(经 agents:profiles IPC 透出,
 // 供渲染端在 agent 选择器列出新 agent)。spawn 时 agent 字段用其 id。与 core 镜像同步。
 export interface DerivedAgentMeta {
@@ -145,6 +154,9 @@ export interface SessionMeta {
   activeArtifact?: ConversationArtifactRef;
   artifacts?: ConversationArtifactRef[];
   artifactSessionIds?: Record<string, string>;
+  // /skill:research 发起过的深度研究引用与当前展示项。与 core 镜像同步。
+  researchSessions?: ConversationResearchRef[];
+  activeResearchSessionId?: string;
   agent: AgentKind;
   // M3-A/U7:用户 JSON 派生的新 id agent。缺省 = 用 agent(内置)。spawn 时 req.agent = derivedAgentId ?? agent。
   // agent 字段仍存其 base 内置值,使全仓 Record<AgentKind> 索引(模型/标签/头像/续接槽)无需放宽。

@@ -54,6 +54,76 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     );
   });
 
+  // ── 深度研究面板（/skill:research 的右栏视图）──────────────────────────────
+  // 与产物面板同构：同为右栏视图、同为 660px 中栏保留宽度、同样在失去绑定时自动收起。
+
+  it("会话绑定了研究时渲染研究面板，标题是「深度研究」", () => {
+    usePersonalStore.setState({
+      sessions: [{
+        id: "s1",
+        title: "S",
+        agent: "claude",
+        createdAt: 1,
+        updatedAt: 1,
+        researchSessions: [{ sessionId: "r1", objective: "调查 A", createdAt: 1 }],
+        activeResearchSessionId: "r1",
+      }],
+      activeSessionId: "s1",
+      rightView: "research",
+    });
+    useCortexUIStore.setState({ rightOpen: true });
+    const { container } = renderPanel();
+    expect(container.querySelector(".pw-research-panel")).not.toBeNull();
+    expect(container.querySelector(".pw-col-head-title")?.textContent).toBe("深度研究");
+  });
+
+  it("切到没有研究绑定的会话时自动收起右栏（不留一个空壳面板）", async () => {
+    usePersonalStore.setState({
+      sessions: [{ id: "plain", title: "Plain", agent: "claude", createdAt: 1, updatedAt: 1 }],
+      activeSessionId: "plain",
+      rightView: "research",
+    });
+    useCortexUIStore.setState({ rightOpen: true });
+    renderPanel();
+    await waitFor(() => expect(useCortexUIStore.getState().rightOpen).toBe(false));
+  });
+
+  it("研究面板态拖拽同样给中栏保留 660px（与产物编辑器同档）", () => {
+    usePersonalStore.setState({
+      sessions: [{
+        id: "s1",
+        title: "S",
+        agent: "claude",
+        createdAt: 1,
+        updatedAt: 1,
+        researchSessions: [{ sessionId: "r1", objective: "调查 A", createdAt: 1 }],
+        activeResearchSessionId: "r1",
+      }],
+      activeSessionId: "s1",
+      rightView: "research",
+    });
+    useCortexUIStore.setState({ rightOpen: true });
+    const { container } = renderPanel();
+    const aside = container.querySelector<HTMLElement>("aside.pw-prompts")!;
+    const resizer = container.querySelector<HTMLElement>(".pw-rp-resizer")!;
+    aside.getBoundingClientRect = () =>
+      ({ right: 900, left: 480, width: 420, top: 0, bottom: 0, x: 480, y: 0, height: 0, toJSON() {} }) as DOMRect;
+    const parentWidth = 1600;
+    aside.parentElement!.getBoundingClientRect = () =>
+      ({ right: parentWidth, left: 0, width: parentWidth, top: 0, bottom: 0, x: 0, y: 0, height: 0, toJSON() {} }) as DOMRect;
+
+    fireEvent.mouseDown(resizer, { clientX: 480 });
+    fireEvent.mouseMove(document, { clientX: -5000 }); // 拖到极左 → 吃满上限
+    expect(aside.style.getPropertyValue("--rp-custom-width")).toBe(`${parentWidth - RP_LEFT_RESERVED_ARTIFACT}px`);
+    fireEvent.mouseUp(document);
+  });
+
+  it("研究面板默认宽度按 660px 中栏下限算(CSS 契约,与产物编辑器同一条公式)", () => {
+    expect(desktopCss).toMatch(
+      /\.pw-prompts:has\(\.pw-research-panel\)\s*\{[^}]*width:[^;]*660px/s,
+    );
+  });
+
   it("自定义宽度以 --rp-custom-width 变量注入(只作用于详情态档位);未设置时无变量", () => {
     const { container, rerender } = renderPanel();
     const aside = container.querySelector<HTMLElement>("aside.pw-prompts")!;
