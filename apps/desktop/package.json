@@ -68,7 +68,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react": "catalog:",
+    "@vitejs/plugin-react": "^5.2.0",
     "builder-util": "^26.15.0",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",
@@ -79,8 +79,10 @@
     "node-gyp": "^12.4.0",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "semver": "^7.7.4",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
+    "vite": "^7.3.6",
     "vitest": "catalog:"
   }
 }
