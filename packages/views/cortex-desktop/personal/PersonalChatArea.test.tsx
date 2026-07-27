@@ -902,6 +902,8 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       projectId: "p1",
       title: "已有会话",
       agent: "pi",
+      providerId: "deepseek",
+      model: "deepseek-v4-flash",
       useOwnSkills: true,
       createdAt: NOW,
       updatedAt: NOW,
@@ -933,6 +935,21 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       piRuntimeBySession: {},
       timelineProjectId: undefined,
       rightView: "files",
+      providerSettings: {
+        providers: [
+          {
+            id: "deepseek",
+            name: "DeepSeek",
+            baseUrl: "https://api.deepseek.com",
+            apiKey: "sk-test",
+            endpointFormat: "chat_completions",
+            enabled: true,
+            models: [{ id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" }],
+          },
+        ],
+        defaultProviderId: "deepseek",
+        defaultModel: "deepseek-v4-flash",
+      },
     });
     useCortexUIStore.setState({ rightOpen: false });
     const b = {
@@ -978,6 +995,13 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
         cwd: artifact.workspaceRoot,
         prompt: "/skill:slides 帮我做一个简单的演示文稿",
         artifactContext: artifact,
+        model: "deepseek-v4-flash",
+        provider: {
+          id: "deepseek",
+          baseUrl: "https://api.deepseek.com",
+          apiKey: "sk-test",
+          models: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }],
+        },
         skillPaths: ["/builtin/slides"],
         invokedSkill: undefined,
       }),

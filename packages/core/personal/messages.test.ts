@@ -143,6 +143,42 @@ describe("personal message agent session helpers", () => {
     expect(usePersonalStore.getState().runningBySession.s1).toBe(runId);
   });
 
+  it("当前会话的产物运行成功后自动打开右栏编辑器", () => {
+    const artifact = {
+      kind: "slides" as const,
+      documentId: "deck-auto-open",
+      title: "自动打开的演示文稿",
+      workspaceRoot: "/project",
+      entryPath: "/project/.cortex-design/deck-auto-open/deck.bento.html",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    usePersonalStore.setState({
+      sessions: [{
+        ...baseSession,
+        activeArtifact: artifact,
+        artifacts: [artifact],
+      }],
+      activeSessionId: "s1",
+      rightView: "files",
+      runningBySession: {},
+    });
+    useCortexUIStore.setState({ rightOpen: false });
+    const qc = new QueryClient();
+    const runId = "artifact:slides:deck-auto-open:run-1";
+
+    __handleCliEventForTest(
+      qc,
+      runId,
+      { type: "result", ok: true, text: "演示文稿已生成" },
+      "s1",
+    );
+    __handleCliExitForTest(qc, runId, 0, undefined, "s1");
+
+    expect(usePersonalStore.getState().rightView).toBe("artifact");
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+  });
+
   it("并发子角色文本按事件 roleId 归属，父文本回到主消息", () => {
     const artifact = {
       kind: "slides" as const,

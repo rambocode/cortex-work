@@ -1422,6 +1422,29 @@ function finalizeRun(
   const runOk = run.gotResult && run.resultOk !== false && !error && (code === null || code === 0);
   if (runOk) finalizeProcessForRetain(qc, sessionId);
   else clearProcess(qc, sessionId);
+  // 会话产物成功落定后重新聚焦编辑器。生成期间用户可能收起/切走右栏；仅当前仍停留在
+  // 该会话时自动打开，后台会话完成不能抢走用户正在查看的其它会话。
+  if (runOk && run.artifactResumeKey) {
+    const store = usePersonalStore.getState();
+    if (store.activeSessionId === sessionId) {
+      const artifactMatch = /^artifact:(design|slides):([^:]+):/.exec(runId);
+      const session = store.sessions.find((item) => item.id === sessionId);
+      const artifact = artifactMatch && session
+        ? [session.activeArtifact, ...(session.artifacts ?? [])]
+            .filter((item): item is ConversationArtifactRef => !!item)
+            .find(
+              (item) =>
+                item.kind === artifactMatch[1] &&
+                item.documentId === artifactMatch[2],
+            )
+        : undefined;
+      if (artifact) {
+        store.updateSession(sessionId, { activeArtifact: artifact });
+        store.setRightView("artifact");
+        useCortexUIStore.getState().setRightOpen(true);
+      }
+    }
+  }
   // 一轮结束立即冲刷落盘，不等节流窗口。
   flushChat(qc, sessionId);
   // 成功收尾 → 开心一下;失败/中断 → 回闲置。
@@ -3139,16 +3162,17 @@ export function usePersonalActions(): PersonalActions {
             run.delegate = true;
             run.roleCursors = new Map();
           }
-          // pi 委派走单发：解析 provider（apiKey 生成 provider extension）+ model。claude/codex 不需要 provider。
-          let delegateProvider:
+          // Pi 只要走 fresh startCli（@mention 委派或隔离产物）都必须继承当前供应商；否则即使
+          // 普通长驻会话已配置 API key，fresh 进程仍会退回 Pi 默认 provider 并报未登录。
+          let piProvider:
             | { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] }
             | undefined;
-          let delegateModel = sendSession.model;
-          if (hasDelegateMentions && sendSession.agent === "pi") {
+          let resolvedModel = sendSession.model;
+          if (sendSession.agent === "pi") {
             const ps = usePersonalStore.getState().providerSettings;
             const p = ps.providers.find((x) => x.id === (sendSession.providerId ?? ps.defaultProviderId) && x.enabled);
-            delegateModel = sendSession.model ?? ps.defaultModel ?? p?.models[0]?.id;
-            delegateProvider = p
+            resolvedModel = sendSession.model ?? ps.defaultModel ?? p?.models[0]?.id;
+            piProvider = p
               ? { id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey, models: p.models.map((m) => ({ id: m.id, name: m.label })) }
               : undefined;
           }
@@ -3169,7 +3193,7 @@ export function usePersonalActions(): PersonalActions {
             // 附件块前缀进 prompt(cliText):随 claude/codex CLI 会话历史持久,续轮 resume 仍可见。
             prompt: cliText,
             ...(artifact ? { artifactContext: artifact } : {}),
-            model: delegateModel,
+            model: resolvedModel,
             effort: sendSession.effort,
             // 委派 fresh spawn，不续接（per-turn 独立编排）；普通对话照常 resume。
             resumeSessionId: hasDelegateMentions ? undefined : resumeSessionId,
@@ -3193,8 +3217,8 @@ export function usePersonalActions(): PersonalActions {
             // 会话级联网:主进程据此决定是否注入研究引擎 MCP（web_search / web_read）。
             // 逐轮 fresh spawn,改开关下一轮即生效,无需重开。
             webSearch: sendSession.webSearch === true,
-            // pi 委派单发的 provider（生成 provider extension）；claude/codex / 非委派为 undefined。
-            provider: delegateProvider,
+            // Pi fresh 单发的 provider（生成 provider extension）；claude/codex 为 undefined。
+            provider: piProvider,
           });
         }
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。
