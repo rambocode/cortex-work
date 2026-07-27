@@ -115,9 +115,9 @@ describe("useCloseRightPanelOnHome 进入落地页收起右栏", () => {
   });
 });
 
-// 深度研究整窗覆盖层的接线（P8）：与设计/写作同构 —— researchOpen 且未打开设置页才渲染。
-// settingsOpen 时必须让位，否则 z-40 覆盖层会盖住设置页把「返回」按钮拦掉。
-describe("PersonalWorkspace 深度研究覆盖层接线", () => {
+// 深度研究整窗覆盖层已移除（入口统一为会话 /skill:research,展示在右栏 ResearchArtifactPanel）。
+// 本块是防回归：确保覆盖层不会被谁「顺手加回来」——工作区任何状态下都不得出现 .pw-res-root。
+describe("PersonalWorkspace 深度研究覆盖层已移除", () => {
   // 个人工作区整体渲染依赖若干无条件调用的桥方法与 matchMedia（响应式左栏），逐一给最小替身。
   const stubBridge = (): DesktopBridge =>
     ({
@@ -146,7 +146,6 @@ describe("PersonalWorkspace 深度研究覆盖层接线", () => {
       projects: [],
       sessions: [],
       homeOpen: false,
-      researchOpen: false,
       settingsOpen: false,
     });
   });
@@ -160,20 +159,7 @@ describe("PersonalWorkspace 深度研究覆盖层接线", () => {
     );
   }
 
-  it("researchOpen 时渲染 ResearchWorkspace 覆盖层", () => {
-    usePersonalStore.setState({ researchOpen: true });
-    const { container } = renderWorkspace(stubBridge());
-    expect(container.querySelector(".pw-res-root")).toBeTruthy();
-    expect(container.textContent).toContain("深度研究");
-  });
-
-  it("researchOpen=false 时不渲染", () => {
-    const { container } = renderWorkspace(stubBridge());
-    expect(container.querySelector(".pw-res-root")).toBeNull();
-  });
-
-  it("settingsOpen 时让位（不与设置页叠加）", () => {
-    usePersonalStore.setState({ researchOpen: true, settingsOpen: true });
+  it("任何状态下都不再渲染研究整窗覆盖层(.pw-res-root)", () => {
     const { container } = renderWorkspace(stubBridge());
     expect(container.querySelector(".pw-res-root")).toBeNull();
   });

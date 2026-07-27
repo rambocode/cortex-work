@@ -1572,103 +1572,45 @@ describe("写作工作台整窗视图态(writingOpen)", () => {
   });
 });
 
-// 深度研究整窗覆盖层视图态(researchOpen,P8 接线)：与其它中心视图互斥、瞬态不持久化。
-// 互斥双向断言是本块的重点——漏掉任一清位点就会出现「两个整窗覆盖层同时显示」的错乱。
-describe("深度研究整窗视图态(researchOpen)", () => {
-  it("openResearch 置 researchOpen 并互斥清空其它中心视图标志", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.setState({
-      homeOpen: true,
-      designOpen: true,
-      writingOpen: true,
-      automationOpen: true,
-      workflowOpen: true,
-      settingsOpen: true,
-      noteEditorId: "n1",
-      timelineProjectId: "p1",
+// 会话绑定的研究引用(/skill:research)：researchOpen 整窗覆盖层已移除,研究改走右栏面板,
+// 会话与研究的关联只剩 SessionMeta.researchSessions / activeResearchSessionId 两个持久化字段。
+// 本块钉住「随 sessions 整体进 toPersistedState 并可 hydrate 回来」——崩溃恢复后卡片必须还在。
+describe("会话绑定的研究引用(researchSessions)", () => {
+  it("researchSessions / activeResearchSessionId 随 sessions 持久化往返", () => {
+    const ref = { sessionId: "r1", objective: "调研市场", createdAt: 123, projectId: "p1" };
+    usePersonalStore.getState().hydrate({
+      ...base,
+      sessions: [
+        {
+          id: "c1",
+          title: "会话",
+          agent: "claude",
+          createdAt: 1,
+          updatedAt: 1,
+          researchSessions: [ref],
+          activeResearchSessionId: "r1",
+        },
+      ],
     });
-    usePersonalStore.getState().openResearch();
-    const s = usePersonalStore.getState();
-    expect(s.researchOpen).toBe(true);
-    expect(s.homeOpen).toBe(false);
-    expect(s.designOpen).toBe(false);
-    expect(s.writingOpen).toBe(false);
-    expect(s.automationOpen).toBe(false);
-    expect(s.workflowOpen).toBe(false);
-    expect(s.settingsOpen).toBe(false);
-    expect(s.noteEditorId).toBeUndefined();
-    expect(s.timelineProjectId).toBeUndefined();
+    const persisted = toPersistedState(usePersonalStore.getState());
+    expect(persisted.sessions[0]?.researchSessions).toEqual([ref]);
+    expect(persisted.sessions[0]?.activeResearchSessionId).toBe("r1");
+
+    // 二次 hydrate（模拟重启）后字段原样回来。
+    usePersonalStore.getState().hydrate(persisted);
+    const s = usePersonalStore.getState().sessions[0];
+    expect(s?.researchSessions).toEqual([ref]);
+    expect(s?.activeResearchSessionId).toBe("r1");
   });
 
-  it("closeResearch 复位 researchOpen 并回落首页", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().openResearch();
-    usePersonalStore.getState().closeResearch();
-    const s = usePersonalStore.getState();
-    expect(s.researchOpen).toBe(false);
-    expect(s.homeOpen).toBe(true);
-  });
-
-  // 反向断言：每个既有 openXxx / 切会话 / 切项目入口都必须清 researchOpen(最易漏点)。
-  it("切到其它任一视图入口时清空 researchOpen(让位)", () => {
-    const seed = () => {
-      usePersonalStore.getState().hydrate({
-        ...base,
-        sessions: [{ id: "c1", title: "会话", agent: "claude", createdAt: 1, updatedAt: 1 }],
-        projects: [proj({ id: "p1" })],
-      });
-      usePersonalStore.getState().openResearch();
-      expect(usePersonalStore.getState().researchOpen).toBe(true);
-    };
-
-    seed();
-    usePersonalStore.getState().openHome();
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().openDesign();
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().openWriting();
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().openAutomation();
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().openWorkflow();
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().openSettings();
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().openNoteEditor("n1");
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().openTimeline("p1");
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().setActiveSession("c1");
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().activateProject("p1");
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().createSession(undefined, "claude");
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
-  });
-
-  it("researchOpen 不进 toPersistedState(瞬态,重启不残留)", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().openResearch();
-    expect("researchOpen" in toPersistedState(usePersonalStore.getState())).toBe(false);
+  it("旧存档无研究引用字段时 hydrate 不报错且字段缺省", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      sessions: [{ id: "c1", title: "会话", agent: "claude", createdAt: 1, updatedAt: 1 }],
+    });
+    const s = usePersonalStore.getState().sessions[0];
+    expect(s?.researchSessions).toBeUndefined();
+    expect(s?.activeResearchSessionId).toBeUndefined();
   });
 });
+

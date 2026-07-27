@@ -1,11 +1,9 @@
 // Deep Research 组件层的对外出口。
 //
-// 目前尚未接线：侧栏入口与设置页由后续阶段接入，届时只需在
-// `packages/views/cortex-desktop/index.ts` 里转出本 barrel（或直接从子路径 import），
-// 不必再改动本目录内部结构。
-export { ResearchWorkspace, type ResearchWorkspaceProps } from "./ResearchWorkspace";
+// 整窗覆盖层（ResearchWorkspace/ResearchCreateForm）已移除：入口统一为会话 /skill:research
+// （派发在 personal/researchDispatch.ts），进度与报告在右栏 ResearchArtifactPanel 展示。
+export { ResearchArtifactPanel, type ResearchArtifactPanelProps } from "./ResearchArtifactPanel";
 export { ResearchSessionList, type ResearchSessionListProps } from "./ResearchSessionList";
-export { ResearchCreateForm, type ResearchCreateFormProps } from "./ResearchCreateForm";
 export { ResearchRunView, type ResearchRunViewProps } from "./ResearchRunView";
 export { ResearchSourcePanel, type ResearchSourcePanelProps } from "./ResearchSourcePanel";
 export type { ResearchBridgeLike } from "./bridge-like";

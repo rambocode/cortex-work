@@ -32,7 +32,7 @@ const CONTENT_HASH = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0
 const TEXT_HASH = "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae";
 const DOC_TEXT = "node:sqlite 自 Node 22 起内置，但文档仍将其标记为实验特性。";
 
-/// renderer 侧 ResearchCreateForm 真正会构造的请求（逐字段对齐它的 submit()）：
+/// renderer 侧 researchDispatch（/skill:research 派发）真正会构造的请求（逐字段对齐 prepareResearchDispatch）：
 /// 没有 token、没有本地路径、没有 provider 信息——这正是 ipc/research.ts 的 .strict() schema
 /// 允许的全部字段。形状对不上时 zod 会在 IPC 层拒绝，因此这份常量也是一份契约快照。
 const REQUEST: ResearchRequest = {

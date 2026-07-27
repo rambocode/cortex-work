@@ -32,7 +32,6 @@ import { WritingWorkspace } from "../writing/WritingWorkspace";
 import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { useResearchBackgroundStore } from "@cortex-work/core/research/background-watch";
 import { useResearchLiveSync } from "@cortex-work/core/research/live-sync";
-import { ResearchWorkspace } from "../research/ResearchWorkspace";
 import { useResearchExportTargets } from "../research/useResearchExportTargets";
 import { resolveResearchModelDisplay } from "../research/modelDisplay";
 import { FlashNoteEditor } from "./FlashNoteEditor";
@@ -103,11 +102,6 @@ export function PersonalWorkspace({
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
   // 写作工作区整窗覆盖层(desktop-only;瞬态,与设计/设置同级 z-40)。
   const writingOpen = usePersonalStore((s) => s.writingOpen);
-  // 深度研究整窗覆盖层(CRE,desktop-only;入口门控在侧栏,此处只负责渲染)。
-  const researchOpen = usePersonalStore((s) => s.researchOpen);
-  const closeResearch = usePersonalStore((s) => s.closeResearch);
-  // 反向入口带进来的预填目标（一次性；覆盖层挂载后由 ResearchCreateForm 作为初值消费）。
-  const researchInitialObjective = usePersonalStore((s) => s.researchInitialObjective);
   // 报告的产物去向（存为写作文档 / 闪记）。按当前可用能力动态增减，见 hook 内注释。
   const researchExportTargets = useResearchExportTargets();
 
@@ -286,22 +280,8 @@ export function PersonalWorkspace({
       {/* 写作工作区:整窗覆盖层,与设计同构。settingsOpen 时不渲染(同设计,避免 z-40 覆盖层
           盖住设置页拦截点击);写作 run 由 writing-run-manager 独立持有(U7),卸载不中断。 */}
       {writingOpen && !settingsOpen ? <WritingWorkspace /> : null}
-      {/* 深度研究:整窗覆盖层,与设计/写作同构。settingsOpen 时让位(否则 z-40 盖住设置页拦点击)。
-          研究会话真源在主进程(SQLite + 编排器),覆盖层卸载不会中断正在跑的研究,重开后由
-          bridge.list() + research:event 重新灌入 ui-store。桥经 CoreProvider 注入,组件不摸 window。 */}
-      {researchOpen && !settingsOpen ? (
-        <ResearchWorkspace
-          bridge={bridge.research ?? null}
-          onClose={closeResearch}
-          // 「本次研究用哪个模型」由设置决定，这里解析成只读告知交给表单显示。
-          // 这里是唯一读设置的地方——views 的研究组件本身不碰 personal store。
-          model={researchModel}
-          // 反向入口（聊天/写作里的「转为深度研究」）带进来的预填目标，一次性消费。
-          {...(researchInitialObjective ? { initialObjective: researchInitialObjective } : {})}
-          // 产物去向（存为写作文档 / 闪记）。研究组件只负责给内容，去哪儿由宿主决定。
-          exportTargets={researchExportTargets}
-        />
-      ) : null}
+      {/* 深度研究整窗覆盖层已移除:入口统一为会话 /skill:research,进度与报告在右栏
+          ResearchArtifactPanel 展示(researchModel/researchExportTargets 经 PersonalRightPanel 透传)。 */}
       {settingsOpen ? <PersonalSettingsView /> : null}
       <PiToolConfirmDialog />
       <SessionSearchDialog />

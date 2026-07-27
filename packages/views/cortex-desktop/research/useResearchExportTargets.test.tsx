@@ -129,13 +129,12 @@ describe("存为写作文档", () => {
 
   it("写完切到写作工作区（点这个按钮的意图就是「拿它去写」）", async () => {
     setSpace("/tmp/space");
-    usePersonalStore.setState({ writingOpen: false, researchOpen: true });
+    usePersonalStore.setState({ writingOpen: false });
     const bridge = { writeFile: vi.fn(async () => {}) } as unknown as DesktopBridge;
     const { result } = renderHook(() => useResearchExportTargets(), { wrapper: wrapper(bridge) });
 
     await result.current[0]!.run("# 报告", SESSION);
     expect(usePersonalStore.getState().writingOpen).toBe(true);
-    expect(usePersonalStore.getState().researchOpen).toBe(false);
   });
 
   it("写盘失败时把异常抛给调用方（由 ResearchRunView 统一展示原因）", async () => {

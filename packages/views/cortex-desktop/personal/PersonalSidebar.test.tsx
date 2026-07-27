@@ -80,8 +80,6 @@ beforeEach(() => {
     homeOpen: true,
     writingOpen: false,
     designOpen: false,
-    // 深度研究整窗覆盖层（P8）：与其它视图同为互斥标志，逐例复位避免串场。
-    researchOpen: false,
     automationOpen: false,
     workflowOpen: false,
     settingsOpen: false,

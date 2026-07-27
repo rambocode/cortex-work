@@ -3,7 +3,7 @@
 // **按钮可用性完全由 status 决定**，判定委托给 ./labels 里那三个由 core 状态机推导的函数。
 // UI 不发明第二套规则：亮着但点了报错，是最难排查的一类问题。
 //
-// 本组件不自行拉取详情：view 由宿主（ResearchWorkspace）按 "full" 级别取好后传入。
+// 本组件不自行拉取详情：view 由宿主（ResearchArtifactPanel 经 useResearchSessionDetail）按 "full" 级别取好后传入。
 // 这样「什么时候拉、拉到什么级别」只有一个地方决定，证据正文不会被中栏悄悄带出来。
 import {
   createContext,

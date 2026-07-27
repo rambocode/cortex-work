@@ -1,7 +1,7 @@
 // 引用详情面板的受控组件测试。
 //
-// 面板已改为纯展示：fetch、「按需加载」契约与缓存都上移到了 ResearchWorkspace
-// （那些守卫见 ResearchWorkspace.test.tsx 的「引用联动右栏」一组）。
+// 面板已改为纯展示：fetch、「按需加载」契约与缓存都上移到了 useResearchSessionDetail
+// （那些守卫见 ResearchArtifactPanel.test.tsx 的引用联动一组）。
 // 这里只守渲染分支：正常详情 / chunk 缺失降级 / loading / error+重试 / 关闭。
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";

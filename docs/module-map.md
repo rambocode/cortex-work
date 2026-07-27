@@ -21,7 +21,7 @@
 |---|---|
 | `main/ipc/register.ts` | 主进程全部 40+ IPC 域一屏可见，找主进程功能先看这里 |
 | `views/personal/PersonalWorkspace.tsx` | 个人工作区三栏容器，主区视图互斥切换总表 |
-| `core/store/personal.ts` | 视图开关（`designOpen`/`writingOpen`/`researchOpen`/…）与个人工作区客户端态总店。注意 `designOpen` 目前**没有任何渲染方**（死开关），新入口勿挂 `openDesign()`，设计稿走 `/skill:design` |
+| `core/store/personal.ts` | 视图开关（`designOpen`/`writingOpen`/…）与个人工作区客户端态总店。注意 `designOpen` 目前**没有任何渲染方**（死开关），新入口勿挂 `openDesign()`，设计稿走 `/skill:design`；深度研究无整窗视图态，入口是会话 `/skill:research`，右栏 `rightView:"research"` 展示 |
 
 ## 一级功能名词表
 
@@ -42,7 +42,7 @@
 | 写作 / 写作台 | `writing/`（`WritingWorkspace.tsx` 三栏容器） | `writing/` | `ipc/writing-*.ts`（见下文写作域） |
 | 设计 / 会话产物 / 画布 | `personal/artifactDispatch.ts`、`design/ArtifactEditorPanel.tsx`、`design/DesignWorkspaceView.tsx`、`design/canvas/` | `personal/messages.ts`（产物 resume 隔离）、`design/`（子域见下文 core 表） | `ipc/artifact.ts`、`ipc/artifact-workspace.ts`、`ipc/design-types.ts` |
 | 演示文稿 / Slides / 放映 | `design/ArtifactEditorPanel.tsx`、`design/slides/SlidesWorkspace.tsx` | `design/slides/`（含 `bento/`、`slides-text-files.ts`） | `ipc/artifact.ts`、`ipc/slides.ts`、`capabilities/slides/`、`capabilities/research/inject.ts`（会话级联网准入）、`presenter-window.ts` |
-| 研究 / 深度研究（CRE） | `research/`（`ResearchWorkspace.tsx` 三栏容器） | `research/` | `research/`（引擎，报告归档见 `research/report-archive.ts`）、`ipc/research.ts`、`capabilities/research/`；chat 与 slides 均由各自会话栏按轮准入 |
+| 研究 / 深度研究（CRE） | `research/`（`ResearchArtifactPanel.tsx` 右栏面板 + `ResearchRunView` 等子组件；入口是会话 `/skill:research`，派发在 `personal/researchDispatch.ts`，已无整窗覆盖层） | `research/` | `research/`（引擎，报告归档见 `research/report-archive.ts`）、`ipc/research.ts`、`capabilities/research/`；chat 与 slides 均由各自会话栏按轮准入 |
 | 任务 | `personal/TasksView.tsx`、`TaskDetail.tsx`、`Task*Field.tsx` | `personal/tasks.ts`、`taskTree.ts` 等 | `ipc/tasks*.ts`、`tasks-reminder-scheduler.ts` |
 | 项目管理 / 项目阶段（独立窗口） | `personal/ProjectsWorkbench.tsx`、`ProjectStagesBar.tsx`、`StageTimeline*.tsx` | `personal/projectStages.ts`、`stageTemplates.ts` | `projects-window.ts` |
 | 闪记（Flash Notes） | `personal/NotesView.tsx`、`FlashNoteEditor.tsx` | `personal/notes.ts` | `ipc/notes*.ts`、`notes-overlay.ts`（浮层窗口） |
@@ -111,7 +111,7 @@
 |---|---|
 | `design/` | 设计工作台：`canvas/`（画布）、`slides/`（演示文稿）、`directions/`（方向探索）、`design-system/`（设计系统/Tokens）、`code-binding/`（代码同步）、`prototype-flow/` + `prototype-player/`（原型）、`html-quality/`（质量检查）、`design-contract/` + `interop/`（交付/Penpot）、`agent-manager/` + `agent-actions/` + `agent-notes/`（设计智能体）、`run/`（回合派发）、`compat/`（Kun 移植兼容层）、`generator-lane/`（生成流水线） |
 | `writing/` | 写作台：spaces / threads / file-tree / inline-edit / review-manager（评审 diff）/ attribution / `run/writing-run-manager.ts` |
-| `research/` | 深度研究：protocol / evidence / citation / coverage / trust-policy / ui-store |
+| `research/` | 深度研究：protocol / evidence / citation / coverage / trust-policy / ui-store / live-sync（常驻事件订阅）/ report-export（归档文件名与抬头） |
 | `personal/` | 个人工作区全部业务纯逻辑：任务、项目阶段、时间线、闪记、@提及、自动化、工作流、分支、推送、权限模式等（一名词一文件，按文件名找） |
 | `cortex/`、`live/`、`mock/`、`api/` | 团队工作区服务端态：React Query options / 实时查询 / 假数据 / HTTP client |
 | `store/` | 全部 Zustand 客户端态：`ui.ts`（Tweaks）、`personal.ts`（视图开关总店）、`pet.ts`、`memory.ts`、`reply.ts`、`archivedSessions.ts` |
