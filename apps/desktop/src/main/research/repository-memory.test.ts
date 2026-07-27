@@ -59,6 +59,30 @@ describe("InMemoryResearchRepository", () => {
     expect((await repo.getSession("sess-1", "summary"))?.projectId).toBeUndefined();
   });
 
+  // 与 SQLite 版同形：归档路径在报告落库之后单独写，未写时缺省、报告不存在时静默 no-op。
+  it("setReportArchivedPath 写入后从 report.archivedPath 读回；无报告时 no-op", async () => {
+    const repo = await seeded();
+    await repo.beginOperation({
+      sessionId: "sess-1",
+      operationId: "op-ar",
+      kind: "fetch",
+      requestPayloadHash: fixtureHash("op-ar"),
+    });
+    await repo.commitOperation("op-ar", (tx) => {
+      tx.insertReport(fixtureReport());
+    });
+    expect((await repo.getSession("sess-1", "full"))?.report?.archivedPath).toBeUndefined();
+
+    await repo.setReportArchivedPath("sess-1", "/tmp/proj/research/调研.md");
+    expect((await repo.getSession("sess-1", "full"))?.report?.archivedPath).toBe(
+      "/tmp/proj/research/调研.md",
+    );
+
+    const empty = new InMemoryResearchRepository();
+    await empty.createSession(fixtureSessionInput());
+    await expect(empty.setReportArchivedPath("sess-1", "/tmp/x.md")).resolves.toBeUndefined();
+  });
+
   it("未知 session 返回 null", async () => {
     const repo = await seeded();
     expect(await repo.getSession("nope", "summary")).toBeNull();

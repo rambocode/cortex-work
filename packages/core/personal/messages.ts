@@ -2424,6 +2424,27 @@ export async function appendLocalUserMessage(
   applyFallbackTitle(session, text);
 }
 
+/// 往会话流追加一条**非用户侧**的本地消息并落盘，**不 spawn 任何 CLI**。
+///
+/// 与 appendLocalUserMessage 的差别只在 who：这条是「系统/引擎说的话」，
+/// 渲染成 agent 侧气泡（PersonalChatArea 只按 who === "me" 区分两侧），
+/// 且不参与会话改名——研究完成回执不该顶掉用户自己写的标题。
+///
+/// 唯一用途：CRE 研究结束后把结论指针（状态 / 统计 / 报告文件路径）回流到发起它的会话，
+/// 否则用户切走再回来，聊天流里只剩自己问的那句话，看不出结果落在哪。
+export async function appendLocalAgentMessage(
+  qc: QueryClient,
+  bridge: DesktopBridge,
+  sessionId: string,
+  who: string,
+  text: string,
+): Promise<void> {
+  await ensureChatLoaded(qc, bridge, sessionId);
+  appendMsg(qc, sessionId, { kind: "text", who, time: realHHMM(), text, uid: uid("res") });
+  // 立即落盘:研究结束时用户很可能不在这个会话里,没有后续事件再触发保存。
+  flushChat(qc, sessionId);
+}
+
 // ── Hooks ─────────────────────────────────────────────────────────────────
 
 // 全局只挂一次（PersonalWorkspace 根部）：订阅主进程 CLI 事件。
@@ -2816,6 +2837,9 @@ export interface PersonalActions {
   // 只往会话流追加一条用户消息并落盘,**不发给 agent**(见同名模块级函数的注释)。
   // 给 /skill:research 这类「活由别的引擎干、会话里只留一条痕迹」的派发用。
   appendLocalUserMessage: (session: SessionMeta, text: string) => Promise<void>;
+  /// 追加一条 agent 侧的本地消息（不 spawn CLI、不改会话标题）。
+  /// 用于 CRE 研究结束后把结论指针回流到发起会话，见 appendLocalAgentMessage。
+  appendLocalAgentMessage: (sessionId: string, who: string, text: string) => Promise<void>;
 }
 
 export function usePersonalActions(): PersonalActions {
@@ -3549,6 +3573,14 @@ export function usePersonalActions(): PersonalActions {
     [bridge, qc],
   );
 
+  const appendLocalAgent = useCallback<PersonalActions["appendLocalAgentMessage"]>(
+    async (sessionId, who, text) => {
+      if (!bridge) return;
+      await appendLocalAgentMessage(qc, bridge, sessionId, who, text);
+    },
+    [bridge, qc],
+  );
+
   return {
     send,
     stop,
@@ -3560,5 +3592,6 @@ export function usePersonalActions(): PersonalActions {
     editResend,
     clearView,
     appendLocalUserMessage: appendLocal,
+    appendLocalAgentMessage: appendLocalAgent,
   };
 }

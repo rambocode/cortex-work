@@ -92,6 +92,24 @@ describe("SqliteResearchRepository（真 SQLite）", () => {
     expect((await repo.getSession("sess-1", "summary"))?.projectId).toBeUndefined();
   });
 
+  // 归档路径在报告落库之后单独写（归档发生在 done 之后），聊天会话的完成回传消息据此
+  // 告诉用户「报告文件在哪」。未归档时必须是缺省而非空串——空串会让界面显示一个空路径。
+  it("setReportArchivedPath 写入后从 report.archivedPath 读回；未写时缺省", async () => {
+    await seedSession();
+    await commitFullRound();
+    expect((await repo.getSession("sess-1", "full"))?.report?.archivedPath).toBeUndefined();
+
+    await repo.setReportArchivedPath("sess-1", "/tmp/proj/research/调研.md");
+    expect((await repo.getSession("sess-1", "full"))?.report?.archivedPath).toBe(
+      "/tmp/proj/research/调研.md",
+    );
+  });
+
+  it("setReportArchivedPath 对不存在的报告静默 no-op（不抛错）", async () => {
+    await repo.createSession(fixtureSessionInput());
+    await expect(repo.setReportArchivedPath("sess-1", "/tmp/x.md")).resolves.toBeUndefined();
+  });
+
   it("getSession(id, \"summary\") 不返回任何正文，且 SQL 层不触碰 chunk/report 正文列", async () => {
     await seedSession();
     await repo.savePlan("sess-1", fixturePlan());

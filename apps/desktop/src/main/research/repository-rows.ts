@@ -176,6 +176,8 @@ export interface ReportRow {
   unsupported_sections_json: string;
   generated_at: string;
   generation_stats_json: string | null;
+  // v5 归档路径；v5 前的历史报告为 NULL。
+  archived_path: string | null;
 }
 /// 引用行。position 保序：报告里的引用顺序必须可复现，SQLite 不保证无 ORDER BY 时的行序。
 export interface CitationRow {
@@ -325,6 +327,7 @@ export function rowToReport(row: ReportRow, citations: readonly CitationRow[]): 
       row.generation_stats_json,
     );
   }
+  if (row.archived_path !== null) report.archivedPath = row.archived_path;
   return report;
 }
 

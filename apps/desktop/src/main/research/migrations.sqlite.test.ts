@@ -124,6 +124,38 @@ describe("research migrations（真 SQLite）", () => {
     }
   });
 
+  // v5 记录报告归档后的落盘路径。老库里的报告没归档过，必须读回 NULL——
+  // rowToReport 据此让 archivedPath 缺省，完成消息就不会展示一个不存在的路径。
+  it("v4 老库升到 v5 后 research_reports 有 archived_path 列，且旧行为 NULL", async () => {
+    const driver = await freshDriver();
+    try {
+      applyMigrations(
+        driver,
+        MIGRATIONS.filter((m) => m.version <= 4),
+      );
+      driver
+        .prepare(
+          "INSERT INTO research_sessions (session_id, consumer, objective, mode, status, user_scope, source_scopes_json, output_json, budget_json, budget_spent_json, created_at, updated_at, round_count, document_count, chunk_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        )
+        .run(["old-v4", "chat", "旧会话", "quick", "completed", "u1", "[]", "{}", "{}", "{}", "t", "t", 0, 0, 0]);
+      driver
+        .prepare(
+          "INSERT INTO research_reports (session_id, markdown, unsupported_sections_json, generated_at) VALUES (?,?,?,?)",
+        )
+        .run(["old-v4", "# 报告", "[]", "t"]);
+
+      applyMigrations(driver);
+
+      expect(columnNames(driver, "research_reports")).toContain("archived_path");
+      const row = driver
+        .prepare("SELECT archived_path FROM research_reports WHERE session_id = ?")
+        .get<{ archived_path: string | null }>(["old-v4"]);
+      expect(row?.archived_path).toBeNull();
+    } finally {
+      driver.close();
+    }
+  });
+
   it("重复执行幂等：版本不变、不重复建表、schema_migrations 不多行", async () => {
     const driver = await freshDriver();
     try {

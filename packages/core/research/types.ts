@@ -241,6 +241,9 @@ export interface ResearchReport {
   generatedAt: string;
   /// 老数据库中的报告没有该字段，读取时保持可选以兼容历史数据。
   generationStats?: ReportGenerationStats;
+  /// 归档到项目/Documents 后的落盘绝对路径；未归档（失败或旧数据）时缺省。
+  /// 研究完成后回传聊天会话的完成消息据此告知用户「报告文件在哪」。
+  archivedPath?: string;
 }
 
 /// 按 detail level 逐级填充的 Session 视图。

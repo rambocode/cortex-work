@@ -527,6 +527,9 @@ export class ResearchService implements ResearchEngineFacade {
         markdown,
         ...(view.projectId ? { projectId: view.projectId } : {}),
       });
+      // 路径写回 DB：聊天会话的「研究完成」回传消息与右栏面板据此展示报告文件在哪。
+      // write 返回 null（本次不归档）时不写——保持 archived_path 为 NULL 的「未归档」语义。
+      if (path) await this.deps.repository.setReportArchivedPath(sessionId, path);
       this.deps.logger?.info?.("[research] 报告已归档", sessionId, path);
     } catch (err) {
       this.deps.logger?.warn("[research] 报告归档失败（不影响会话状态）", sessionId, err);

@@ -198,6 +198,13 @@ export class InMemoryResearchRepository implements ResearchRepository {
     }
   }
 
+  async setReportArchivedPath(sessionId: string, archivedPath: string): Promise<void> {
+    // 与 SQLite 版一致：报告不存在时静默 no-op（UPDATE 影响 0 行的等价语义）。
+    const record = this.state.sessions[sessionId];
+    if (!record?.report) return;
+    record.report.archivedPath = archivedPath;
+  }
+
   async savePlan(sessionId: string, plan: ResearchPlan): Promise<void> {
     const record = this.requireSession(sessionId);
     record.plan = clone(plan);

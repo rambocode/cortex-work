@@ -32,6 +32,7 @@ import { WritingWorkspace } from "../writing/WritingWorkspace";
 import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { useResearchBackgroundStore } from "@cortex-work/core/research/background-watch";
 import { useResearchLiveSync } from "@cortex-work/core/research/live-sync";
+import { useResearchCompletionRelay } from "../research/useResearchCompletionRelay";
 import { useResearchExportTargets } from "../research/useResearchExportTargets";
 import { resolveResearchModelDisplay } from "../research/modelDisplay";
 import { FlashNoteEditor } from "./FlashNoteEditor";
@@ -119,6 +120,9 @@ export function PersonalWorkspace({
     return !!bridge?.research && research.enabled && research.deepResearchEnabled;
   }, [bridge, researchEngineSettings]);
   useResearchLiveSync(bridge?.research ?? null, researchWatchEnabled);
+  // 研究结束后把结论指针（状态 / 统计 / 报告文件路径）写回发起它的聊天会话。
+  // 与 live-sync 同级常驻:研究是分钟级任务,挂在会话页里的话用户切走即卸载、回流就丢了。
+  useResearchCompletionRelay(bridge?.research ?? null);
 
   // 完成通知：done 事件排进队列后，这里逐条弹 toast 并立刻清掉（不清会每次重渲染再弹一次）。
   const finishedResearch = useResearchBackgroundStore((s) => s.finished);

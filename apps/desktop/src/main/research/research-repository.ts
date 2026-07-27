@@ -183,6 +183,10 @@ export interface ResearchRepository {
     updatedAt?: string,
   ): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
+  /// 记录报告归档后的落盘路径（v5）。归档发生在报告落库与 done 之后
+  /// （research-service.archiveReport），故单独 UPDATE 而非并入 insertReport 事务；
+  /// 报告不存在时静默 no-op（归档前置判断已保证有报告，这里只防御竞态删除）。
+  setReportArchivedPath(sessionId: string, archivedPath: string): Promise<void>;
   savePlan(sessionId: string, plan: ResearchPlan): Promise<void>;
   beginOperation(input: BeginOperationInput): Promise<void>;
   /// 在一个事务里执行 apply 并把操作标记为已提交。apply 抛错时整笔回滚，
@@ -365,6 +369,13 @@ export class SqliteResearchRepository implements ResearchRepository {
     // 子表全部 ON DELETE CASCADE（migrations.ts），且建库时开了 PRAGMA foreign_keys，
     // 因此一条 DELETE 就能清空整条证据链。
     this.driver.prepare("DELETE FROM research_sessions WHERE session_id = ?").run([sessionId]);
+  }
+
+  async setReportArchivedPath(sessionId: string, archivedPath: string): Promise<void> {
+    // 报告行不存在时 UPDATE 影响 0 行,即接口约定的静默 no-op。
+    this.driver
+      .prepare("UPDATE research_reports SET archived_path = ? WHERE session_id = ?")
+      .run([archivedPath, sessionId]);
   }
 
   async savePlan(sessionId: string, plan: ResearchPlan): Promise<void> {

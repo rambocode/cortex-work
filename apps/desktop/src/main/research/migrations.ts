@@ -312,6 +312,13 @@ const V4_SQL = `
 ALTER TABLE research_sessions ADD COLUMN project_id TEXT;
 `;
 
+// v5：报告归档后的落盘绝对路径（NULL = 未归档/归档失败）。
+// 归档发生在报告落库之后（research-service.archiveReport），所以单独 UPDATE 而非并入 insertReport；
+// 会话完成消息要把这个路径回传给聊天会话，这是它存在的唯一理由。
+const V5_SQL = `
+ALTER TABLE research_reports ADD COLUMN archived_path TEXT;
+`;
+
 /// 全部迁移，按 version 升序。**只追加，永不修改已发布的条目**——
 /// 已经跑过 v1 的用户库不会重跑 v1，就地改 V1_SQL 只会造成新老库 schema 不一致。
 export const MIGRATIONS: readonly ResearchMigration[] = [
@@ -319,6 +326,7 @@ export const MIGRATIONS: readonly ResearchMigration[] = [
   { version: 2, sql: V2_SQL },
   { version: 3, sql: V3_SQL },
   { version: 4, sql: V4_SQL },
+  { version: 5, sql: V5_SQL },
 ];
 
 /// 把 migrations 应用到数据库，返回应用后的最终版本号。
