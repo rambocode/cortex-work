@@ -34,6 +34,8 @@ import { StealthFetchClient } from "./clients/stealth-fetch-client";
 import { openResearchDatabase } from "./db-open";
 import { applyMigrations } from "./migrations";
 import { redactResearchLog } from "./redact-research";
+// D8：报告归档（研究服务经 reportArchive 调它）。
+import { archiveResearchReport } from "./report-archive";
 import { SqliteResearchRepository, type ResearchRepository } from "./research-repository";
 import {
   mergeDirectSearchSettings,
@@ -287,8 +289,31 @@ async function assembleService(): Promise<ResearchService> {
         applyApprovedResearchMemory(userMemoryStore, candidate, chunkIds, approvedAt),
       revoke: (candidateId) => revokeResearchMemory(userMemoryStore, candidateId),
     },
+    // D8：报告跑完归档到所选项目目录。service 只交出 projectId，路径解析在这里，
+    // 这是「renderer 不得指定落盘路径」那条红线的落点。
+    reportArchive: {
+      write: async ({ projectId, ...rest }) =>
+        archiveResearchReport({ ...rest, projectPath: await resolveProjectPath(projectId) }),
+    },
     logger: log,
   });
+}
+
+/// projectId → 项目目录绝对路径；无项目 / 项目已被删除 / 读设置失败时返回 null
+/// （归档随即落 Documents 兜底，而不是失败）。
+///
+/// **在写盘时刻现查而不是建会话时解析**：一次研究要跑几分钟，期间用户完全可能改掉项目路径
+/// 甚至把项目移出工作区。现查能保证要么写进项目当前的真实位置，要么干净地退回 Documents，
+/// 不会往一个已经不存在的旧路径上重建目录。
+async function resolveProjectPath(projectId?: string): Promise<string | null> {
+  if (!projectId) return null;
+  try {
+    const state = await getPersistedState();
+    return state.projects.find((project) => project.id === projectId)?.path ?? null;
+  } catch (err) {
+    log.warn("[research] 读取项目列表失败，报告归档回落 Documents", redactResearchLog(err));
+    return null;
+  }
 }
 
 /// 依据当前设置构造搜索客户端；选中的那条未配置（或密文解不开）时返回 null（上层报"未配置"）。

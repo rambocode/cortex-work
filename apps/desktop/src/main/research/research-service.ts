@@ -113,6 +113,19 @@ export interface ResearchServiceDeps {
     ): Promise<void>;
     revoke(candidateId: string): Promise<boolean>;
   };
+  /// 报告归档：会话跑完后把报告写进所选项目目录（无项目落 Documents）。
+  ///
+  /// 与 researchMemorySink 同一注入范式：service 不该知道项目目录在哪、文件怎么命名。
+  /// **入参只有 projectId 没有路径**——id → 目录的解析由注入实现在写盘时刻现查完成，
+  /// 项目已被删除时自动退回 Documents（见 research/runtime.ts 与 report-archive.ts）。
+  reportArchive?: {
+    write(input: {
+      sessionId: string;
+      objective: string;
+      markdown: string;
+      projectId?: string;
+    }): Promise<string>;
+  };
 }
 
 /// 一次在途编排。
@@ -152,6 +165,9 @@ export class ResearchService implements ResearchEngineFacade {
       output: request.output,
       budget,
       userScope: this.deps.userScope(),
+      // 归属项目随会话落库：报告归档发生在几分钟后，那时用户可能已经切走了当前项目，
+      // 所以必须记在会话上，而不是归档时再去问「现在选的是哪个项目」。
+      ...(request.projectId ? { projectId: request.projectId } : {}),
       createdAt: this.nowIso(),
     });
 
@@ -194,6 +210,9 @@ export class ResearchService implements ResearchEngineFacade {
       output: view.output ?? { format: "report", requireCitations: true },
       // 预算存在 plan 上（session 行不回传预算，见 create 里的注释）。
       ...(view.plan?.budget ? { budget: view.plan.budget } : {}),
+      // 归属项目同样逐项继承：漏了它，重跑的报告会归档到别处（多半是 Documents），
+      // 用户在项目目录里只能看到第一次的那份。
+      ...(view.projectId ? { projectId: view.projectId } : {}),
     });
   }
 
@@ -471,6 +490,10 @@ export class ResearchService implements ResearchEngineFacade {
   ): Promise<void> {
     try {
       await this.orchestrate(summary, entry, searchClient);
+      // 报告归档（D8）：编排成功返回即代表报告已落库，此时才有正文可写盘。
+      // 放在记忆沉淀之前——归档是用户直接感知的产物，沉淀是可选的派生物，
+      // 前者不该排在后者后面等着。同样自带 try/catch（见方法内注释）。
+      await this.archiveReport(summary.sessionId);
       // 记忆沉淀（U10）：编排成功返回即代表会话已 completed，此时报告已落库。
       //
       // **必须包在自己的 try 里**：沉淀是可选的派生产物（候选可再生），
@@ -478,6 +501,35 @@ export class ResearchService implements ResearchEngineFacade {
       await this.distillMemoryCandidates(summary.sessionId);
     } catch (err) {
       await this.failSession(summary.sessionId, err);
+    }
+  }
+
+  /// 把已完成会话的报告归档到所选项目目录（D8）。
+  ///
+  /// **整个方法自己吞掉异常**：归档最常见的失败是项目目录被删或没有写权限，
+  /// 而此刻用户真正想要的报告已经安全落在 SQLite 里了。让归档失败把会话翻成 failed，
+  /// 等于因为一个副产物丢掉主产物——所以这里只 warn，绝不向上抛。
+  ///
+  /// 只在 completed 时归档：pause / cancel 收敛的会话没有成品报告，
+  /// 把半成品写进用户的项目目录是噪音。
+  private async archiveReport(sessionId: string): Promise<void> {
+    const archive = this.deps.reportArchive;
+    if (!archive) return;
+    try {
+      const view = await this.deps.repository.getSession(sessionId, "full");
+      if (!view || view.summary.status !== "completed") return;
+      const markdown = view.report?.markdown;
+      if (!markdown) return;
+
+      const path = await archive.write({
+        sessionId,
+        objective: view.summary.objective,
+        markdown,
+        ...(view.projectId ? { projectId: view.projectId } : {}),
+      });
+      this.deps.logger?.info?.("[research] 报告已归档", sessionId, path);
+    } catch (err) {
+      this.deps.logger?.warn("[research] 报告归档失败（不影响会话状态）", sessionId, err);
     }
   }
 

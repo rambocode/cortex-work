@@ -137,6 +137,11 @@ export interface ResearchRequest {
   sourceScopes: SourceScope[];
   output: ResearchOutputRequest;
   budget?: Partial<ResearchBudget>;
+  /// 会话归属的项目 id；缺省表示不使用项目（报告归档落 Documents）。
+  ///
+  /// **只传 id 不传路径**：路径由 main 按 id 现查 personal-workspace.json 解析。
+  /// renderer 传路径等于开了一条「指挥主进程往任意目录写文件」的通道。
+  projectId?: string;
 }
 
 // ---------------------------------------------------------------------------

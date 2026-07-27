@@ -256,6 +256,100 @@ describe("ResearchService.run", () => {
   });
 });
 
+// D8：报告归档在主进程完成，renderer 只传 projectId。归档是**派生副产物**，
+// 与记忆沉淀同一条原则——它失败绝不能把一次成功的研究翻成失败。
+describe("报告归档到所选项目", () => {
+  interface ArchiveCall {
+    sessionId: string;
+    objective: string;
+    markdown: string;
+    projectId?: string;
+  }
+
+  function archiveHarness(write: (input: ArchiveCall) => Promise<string>) {
+    const calls: ArchiveCall[] = [];
+    const harness = makeHarness(enabledSettings(), undefined, {
+      reportArchive: {
+        write: async (input) => {
+          calls.push(input);
+          return write(input);
+        },
+      },
+    });
+    return { harness, calls };
+  }
+
+  it("跑完后按会话的 projectId 归档报告正文", async () => {
+    const { harness, calls } = archiveHarness(async () => "/tmp/研究.md");
+    const summary = await harness.service.create({ ...REQUEST, projectId: "proj-1" });
+
+    await harness.service.run(summary.sessionId);
+    await harness.service.settled(summary.sessionId);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      sessionId: summary.sessionId,
+      objective: REQUEST.objective,
+      projectId: "proj-1",
+    });
+    expect(calls[0]!.markdown.length).toBeGreaterThan(0);
+  });
+
+  it("未选项目时照常归档，只是不带 projectId（由归档实现落 Documents）", async () => {
+    const { harness, calls } = archiveHarness(async () => "/tmp/研究.md");
+    const summary = await harness.service.create(REQUEST);
+
+    await harness.service.run(summary.sessionId);
+    await harness.service.settled(summary.sessionId);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toHaveProperty("projectId");
+  });
+
+  // 归档失败最常见的原因是项目目录被删/无写权限。这时用户真正想要的报告已经在库里了，
+  // 把会话翻成 failed 等于因为一个副产物丢掉主产物。
+  it("归档抛错时会话仍是 completed，done 事件照发", async () => {
+    const { harness } = archiveHarness(async () => {
+      throw new Error("EACCES: 项目目录不可写");
+    });
+    const sender = new FakeSender();
+    harness.service.addEventSender(sender);
+    const summary = await harness.service.create({ ...REQUEST, projectId: "proj-1" });
+
+    await harness.service.run(summary.sessionId);
+    await harness.service.settled(summary.sessionId);
+
+    expect((await harness.repository.getSession(summary.sessionId, "summary"))!.summary.status).toBe(
+      "completed",
+    );
+    expect(sender.received).toContainEqual(
+      expect.objectContaining({ type: "done", status: "completed" }),
+    );
+  });
+
+  it("未注入 reportArchive 时一切照旧（测试替身 / 归档未装配）", async () => {
+    const harness = makeHarness();
+    const summary = await harness.service.create({ ...REQUEST, projectId: "proj-1" });
+
+    await harness.service.run(summary.sessionId);
+    await harness.service.settled(summary.sessionId);
+
+    expect((await harness.repository.getSession(summary.sessionId, "summary"))!.summary.status).toBe(
+      "completed",
+    );
+  });
+
+  it("create 把 projectId 落库，rerun 继承它（否则重跑的报告会归错档）", async () => {
+    const { service, repository } = makeHarness();
+    const summary = await service.create({ ...REQUEST, projectId: "proj-1" });
+    expect((await repository.getSession(summary.sessionId, "summary"))?.projectId).toBe("proj-1");
+
+    await repository.updateSessionStatus(summary.sessionId, "completed");
+    const clone = await service.rerun(summary.sessionId);
+    expect((await repository.getSession(clone.sessionId, "summary"))?.projectId).toBe("proj-1");
+  });
+});
+
 describe("ResearchService.get / list", () => {
   it("get(id, \"summary\") 不含任何正文（spec §19.3.2）", async () => {
     const { service, repository } = makeHarness();

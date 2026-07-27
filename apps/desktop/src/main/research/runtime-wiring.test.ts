@@ -23,4 +23,17 @@ describe("runtime.ts 的 ResearchService 装配", () => {
   it("agentBrowserBinary 走公用的 resolveAgentBrowserBinary，不另写一套路径推断", () => {
     expect(runtimeSource).toContain("resolveAgentBrowserBinary");
   });
+
+  /// reportArchive 缺席时研究照跑照完成，只是报告永远不落到项目目录——
+  /// 与 agentBrowserBinary 同类的「静默失效」，单测全绿也发现不了。
+  it("必须注入 reportArchive，否则报告永远不会落到项目目录", () => {
+    expect(runtimeSource).toContain("reportArchive");
+    expect(runtimeSource).toContain("archiveResearchReport");
+  });
+
+  /// 路径解析必须留在装配层：service 只拿 projectId，
+  /// 一旦有人把路径提到 IPC 入参里，这条断言就该连同 schema 测试一起响。
+  it("项目路径由装配层按 id 解析，不从入参接收", () => {
+    expect(runtimeSource).toContain("resolveProjectPath");
+  });
 });

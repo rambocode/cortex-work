@@ -62,7 +62,8 @@ const budgetOverrideSchema = z
   })
   .strict();
 
-const researchRequestSchema = z
+/// 导出仅供 research-schema.test.ts 做真实 parse；handler 之外没有别的调用方。
+export const researchRequestSchema = z
   .object({
     consumer: z.enum(["chat", "deep_research", "slides", "writing", "coding", "knowledge"]),
     objective: z.string().trim().min(1).max(MAX_OBJECTIVE_CHARS),
@@ -75,6 +76,10 @@ const researchRequestSchema = z
       })
       .strict(),
     budget: budgetOverrideSchema.optional(),
+    // 报告归档到哪个项目。**只收 id，不收路径**——收路径就等于让 renderer 指挥主进程
+    // 往任意目录写文件（本文件头注那句「会不会让 renderer 碰到它本来碰不到的位置」）。
+    // id → 目录的解析在 research/runtime.ts 的归档注入实现里按现查完成。
+    projectId: z.string().min(1).max(128).optional(),
   })
   // strict：未知字段直接拒绝而不是静默剥离。渲染端若开始往请求里塞 token 之类的东西，
   // 我们要在第一时间炸出来，而不是让它"看起来能用"。
