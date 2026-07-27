@@ -2,7 +2,8 @@
 // 结构照 WritingWorkspace / DesignWorkspace 的覆盖层惯例，文案硬编码 zh-Hans（个人工作区惯例）。
 //
 // 数据流：
-//   挂载 → bridge.list() 灌入 ui-store → bridge.onEvent 订阅，事件经 applyEvent 落状态；
+//   会话列表与事件落状态（applyEvent）由**常驻**的 useResearchLiveSync 负责，不在本组件
+//   （core/research/live-sync.ts；本组件绝不许再调 applyEvent，增量事件扇出两次会翻倍）；
 //   选中会话 → bridge.get(id, "full") 拿计划/轮次/报告（**不是 evidence**）；
 //   运行中 → round / done / status 事件触发防抖重拉 "full"（详情只在 main，事件里不带）；
 //   证据正文 → 只在用户点击报告里的引用后，由本组件经 get(id, "evidence") 按需拉并缓存。
@@ -170,15 +171,17 @@ export function ResearchWorkspace({
     [loadEvidence],
   );
 
-  // 挂载：拉列表 + 订阅事件。两件事放一个 effect，保证订阅在列表回来之前就已建立——
-  // 反过来（先拿列表再订阅）会漏掉这段窗口期内发生的事件。
-  // 清理函数必须调用 onEvent 返回的退订函数，否则整窗反复开合会累积监听器。
+  // 挂载：订阅事件，**只为触发详情重拉**。
+  //
+  // 列表灌入与 applyEvent 已由常驻的 useResearchLiveSync（core/research/live-sync.ts）接管——
+  // 它挂在 PersonalWorkspace 上，不随本组件开合而断。本组件**绝不能再调 applyEvent**：
+  // report_delta 是增量拼接、activity 是环形追加，扇出两次报告正文就会翻倍。
+  // 这里订阅的唯一目的是「main 侧详情变了，重拉一次 full」，那是幂等的。
+  // 清理函数必须调用 onEvent 返回的退订函数，否则反复开合会累积监听器。
   useEffect(() => {
     if (!bridge) return;
-    const store = useResearchUiStore.getState();
     let alive = true;
     const off = bridge.onEvent((event) => {
-      useResearchUiStore.getState().applyEvent(event);
       // 详情（真实计划 / 轮次 / 报告）不在事件里，只能重新拉。只拉当前选中的那个会话——
       // 后台跑着的其它会话没人在看，拉回来只是白占内存。
       if (!shouldRefreshDetail(event)) return;
@@ -189,22 +192,6 @@ export function ResearchWorkspace({
         if (alive) fetchDetail(event.sessionId);
       }, DETAIL_REFRESH_DEBOUNCE_MS);
     });
-
-    store.setLoading(true);
-    store.setError(null);
-    void bridge
-      .list()
-      .then((list) => {
-        if (!alive) return;
-        useResearchUiStore.getState().setSessions(list);
-      })
-      .catch((e: unknown) => {
-        if (!alive) return;
-        useResearchUiStore.getState().setError(`加载研究列表失败：${errText(e)}`);
-      })
-      .finally(() => {
-        if (alive) useResearchUiStore.getState().setLoading(false);
-      });
 
     return () => {
       alive = false;

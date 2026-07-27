@@ -13,10 +13,14 @@ import { makeChunk, makeDocument, makeFullView, makeReport, makeSummary } from "
 beforeEach(() => useResearchUiStore.getState().reset());
 afterEach(() => cleanup());
 
-/// 手写 bridge 替身：可控的 list 结果 + 记录订阅/退订次数 + 暴露 emit 手动推事件。
+/// 手写 bridge 替身：记录订阅/退订次数 + 暴露 emit 手动推事件。
 /// get 按 detail 分流：full 返回带两条引用（ch1/ch2）的报告（供引用 chip 可点），
 /// evidence 返回配对的 documents + chunks——引用联动右栏的测试全靠这份数据对上号。
+///
+/// **sessions 由用例直接播种进 ui-store，不再经 bridge.list()**：列表灌入与 applyEvent
+/// 已经上提到常驻的 useResearchLiveSync，本组件挂载时不再拉列表（拉了就是双份订阅）。
 function makeBridge(sessions: ResearchSessionSummary[] = []) {
+  useResearchUiStore.getState().setSessions(sessions);
   const state = {
     listCalls: 0,
     unsubscribeCalls: 0,
@@ -124,35 +128,28 @@ describe("ResearchWorkspace 降级", () => {
 });
 
 describe("ResearchWorkspace 生命周期", () => {
-  it("挂载时拉列表并渲染，卸载时调用 onEvent 返回的退订函数", async () => {
+  // 列表由常驻的 useResearchLiveSync 灌入（core/research/live-sync.ts），本组件只渲染 store。
+  // 自己再拉一次就是双份 IPC，且很容易顺手把 applyEvent 也搬回来——那条路径非幂等。
+  it("渲染 store 里的列表而不自己拉，卸载时调用 onEvent 返回的退订函数", async () => {
     const { bridge, state } = makeBridge([makeSummary({ sessionId: "s1", objective: "调查 A" })]);
     const { unmount } = render(<ResearchWorkspace bridge={bridge} onClose={() => {}} />);
-    await waitFor(() => expect(state.listCalls).toBe(1));
     expect(await screen.findByText("调查 A")).toBeTruthy();
+    expect(state.listCalls).toBe(0);
     expect(state.unsubscribeCalls).toBe(0);
 
     unmount();
     expect(state.unsubscribeCalls).toBe(1);
   });
 
-  it("订阅到的事件经 ui-store 落到界面（stage 事件更新状态徽标）", async () => {
+  // 风险点 1 的钉子：applyEvent 的 report_delta 是增量拼接、activity 是环形追加，都非幂等。
+  // 常驻 sync 已经扇出过一次，本组件再扇一次就会让报告正文翻倍。
+  it("不调 applyEvent：订阅到的事件不改状态徽标（那是常驻 sync 的活）", async () => {
     const { bridge, emit } = makeBridge([makeSummary({ sessionId: "s1", status: "created" })]);
     render(<ResearchWorkspace bridge={bridge} onClose={() => {}} />);
     await screen.findByText("待开始");
     emit({ type: "stage", sessionId: "s1", stage: "searching" });
-    expect(await screen.findByText("检索中")).toBeTruthy();
-  });
-
-  it("list 失败时展示错误而不是空白", async () => {
-    const { bridge } = makeBridge();
-    const failing: ResearchBridgeLike = {
-      ...bridge,
-      async list() {
-        throw new Error("主进程未就绪");
-      },
-    };
-    render(<ResearchWorkspace bridge={failing} onClose={() => {}} />);
-    expect(await screen.findByText("加载研究列表失败：主进程未就绪")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("待开始")).toBeTruthy());
+    expect(screen.queryByText("检索中")).toBeNull();
   });
 
   it("选中会话拉 full 详情（不是 evidence——证据由右栏按需加载）", async () => {

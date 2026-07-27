@@ -30,10 +30,8 @@ import { AutomationView } from "./AutomationView";
 import { WorkflowView } from "./WorkflowView";
 import { WritingWorkspace } from "../writing/WritingWorkspace";
 import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
-import {
-  useResearchBackgroundStore,
-  useResearchBackgroundWatch,
-} from "@cortex-work/core/research/background-watch";
+import { useResearchBackgroundStore } from "@cortex-work/core/research/background-watch";
+import { useResearchLiveSync } from "@cortex-work/core/research/live-sync";
 import { ResearchWorkspace } from "../research/ResearchWorkspace";
 import { useResearchExportTargets } from "../research/useResearchExportTargets";
 import { resolveResearchModelDisplay } from "../research/modelDisplay";
@@ -113,14 +111,20 @@ export function PersonalWorkspace({
   // 报告的产物去向（存为写作文档 / 闪记）。按当前可用能力动态增减，见 hook 内注释。
   const researchExportTargets = useResearchExportTargets();
 
-  // ── 研究的后台观察（侧栏角标 + 完成通知）────────────────────────────────────
+  // ── 研究事件的唯一常驻订阅（喂 ui-store 完整状态 + 后台观察的角标/完成通知）──────
   //
-  // **必须挂在这里而不是研究覆盖层里**：覆盖层是互斥整窗的，用户切走它就卸载了，
-  // 而研究要跑好几分钟。挂在覆盖层上等于「只有盯着看才知道进度」，那正是要解决的问题。
+  // **必须挂在这里而不是研究界面里**：研究界面会随用户切走而卸载，而研究要跑好几分钟，
+  // 事件流里的 report_delta 是**补不回来的增量**——订阅一断，那段报告草稿就永久丢了。
+  // 详见 core/research/live-sync.ts 的文件头（applyEvent 全应用只此一处调用）。
+  //
+  // 门控要两个开关都开：总开关关着时整个研究引擎不可用；deepResearchEnabled 关着时
+  // 用户没有任何入口能发起深度研究，订阅回来的只会是空列表，白打一次 IPC。
   // bridge 在此处仍可能为 null（下方才有早退守卫），故一律走可选链。
-  const researchWatchEnabled =
-    !!bridge?.research && normalizeResearchEngineSettings(researchEngineSettings).enabled;
-  useResearchBackgroundWatch(bridge?.research ?? null, researchWatchEnabled);
+  const researchWatchEnabled = useMemo(() => {
+    const research = normalizeResearchEngineSettings(researchEngineSettings);
+    return !!bridge?.research && research.enabled && research.deepResearchEnabled;
+  }, [bridge, researchEngineSettings]);
+  useResearchLiveSync(bridge?.research ?? null, researchWatchEnabled);
 
   // 完成通知：done 事件排进队列后，这里逐条弹 toast 并立刻清掉（不清会每次重渲染再弹一次）。
   const finishedResearch = useResearchBackgroundStore((s) => s.finished);

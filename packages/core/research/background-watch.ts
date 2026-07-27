@@ -1,15 +1,13 @@
-// 研究会话的后台观察：让研究不必守在整窗覆盖层里。
+// 研究会话的后台观察：让研究不必守在研究界面里。
 //
-// **要解决的问题**：研究是分钟级的长任务，而它的 UI 是一个互斥整窗覆盖层——用户一旦切走去
-// 聊天或写作，就完全看不到它跑到哪了、什么时候完事。主进程侧其实早就支持后台跑
-// （覆盖层卸载不中断编排），缺的只是「切走之后还能知道进度」这一层。
+// **要解决的问题**：研究是分钟级的长任务，用户一旦切走去聊天或写作，就完全看不到它跑到
+// 哪了、什么时候完事。主进程侧其实早就支持后台跑（界面卸载不中断编排），缺的只是
+// 「切走之后还能知道进度」这一层。
 //
-// **为什么不复用 ui-store**：那个 store 的事件订阅与 list() 都发生在 ResearchWorkspace 挂载时，
-// 覆盖层一关就断供。这里需要的是一个**始终在线**的订阅（挂在常驻的工作区根组件上），
-// 只跟踪两件极小的事：还有几个在跑、刚有哪个跑完了。
+// **为什么不复用 ui-store**：这里只跟踪两件极小的事——还有几个在跑、刚有哪个跑完了，
+// 供侧栏角标与完成通知使用，不关心报告草稿、流水这些只有研究界面才看的状态。
 //
-// 相关文件：覆盖层内部的完整状态见 ./ui-store；事件类型见 ./types。
-import { useEffect } from "react";
+// 相关文件：完整展示状态见 ./ui-store；喂给本 store 的常驻订阅见 ./live-sync；事件类型见 ./types。
 import { create } from "zustand";
 
 import { NON_TERMINAL_RESEARCH_STATUSES } from "./session-status";
@@ -106,39 +104,7 @@ export function useRunningResearchCount(): number {
   return useResearchBackgroundStore((s) => Object.keys(s.running).length);
 }
 
-/// 观察者所需的最小桥面。收窄到两个方法，让宿主与测试都能传手写替身。
-export interface ResearchWatchBridge {
-  list(): Promise<ResearchSessionSummary[]>;
-  onEvent(listener: (event: ResearchEvent) => void): () => void;
-}
-
-/// 挂在**常驻**组件上的观察 hook（个人工作区根组件），而不是研究覆盖层——
-/// 挂在覆盖层上就等于没做，那正是本模块要解决的问题。
-///
-/// enabled 为 false（研究引擎未开启 / 无桥）时不订阅也不 list：
-/// 绝大多数用户没开这个功能，不该为此在每次启动时多打一次 IPC。
-export function useResearchBackgroundWatch(
-  bridge: ResearchWatchBridge | null | undefined,
-  enabled: boolean,
-): void {
-  useEffect(() => {
-    if (!bridge || !enabled) return;
-    let disposed = false;
-
-    // 播种：覆盖层从没打开过时（用户从 agent 的 deep_research 工具发起研究），
-    // 事件订阅之前就已经在跑的会话只能靠这一次快照拿到。
-    void bridge
-      .list()
-      .then((sessions) => {
-        if (!disposed) useResearchBackgroundStore.getState().seed(sessions);
-      })
-      // 播种失败不影响订阅：事件照样能把后续状态补上，角标只是起始值不准。
-      .catch(() => {});
-
-    const off = bridge.onEvent((event) => useResearchBackgroundStore.getState().apply(event));
-    return () => {
-      disposed = true;
-      off();
-    };
-  }, [bridge, enabled]);
-}
+// 本模块**不再自己订阅事件**：seed / apply 由 ./live-sync 的 useResearchLiveSync 统一驱动。
+// 两处各订阅一次曾是可行的（这里只看 status / done，都是幂等的），但两份订阅意味着两条
+// 生命周期与两次 list() IPC，而且很容易被后人照抄到 applyEvent 上——那条路径非幂等，
+// 扇出两次报告就翻倍。收成一处订阅、一处扇出，是唯一不会出错的形状。

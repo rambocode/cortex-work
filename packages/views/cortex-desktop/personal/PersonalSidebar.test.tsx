@@ -292,14 +292,14 @@ describe("PersonalSidebar 深度研究入口", () => {
     return { ...bridgeWith(), research: {} } as unknown as DesktopBridge;
   }
 
-  /// 写入 researchEngine 设置切片；enabled 决定入口是否出现。
-  function setResearchEnabled(enabled: boolean): void {
+  /// 写入 researchEngine 设置切片；两个开关共同决定入口是否出现。
+  function setResearchEnabled(enabled: boolean, deepResearchEnabled = true): void {
     usePersonalStore.setState((s) => ({
       generalSettings: {
         ...s.generalSettings,
         researchEngine: {
           enabled,
-          deepResearchEnabled: true,
+          deepResearchEnabled,
           chatAutoRetrieve: false,
           writingEnabled: false,
           memoryEnabled: false,
@@ -329,6 +329,14 @@ describe("PersonalSidebar 深度研究入口", () => {
 
   it("设置未启用研究引擎 → 不显示入口", () => {
     setResearchEnabled(false);
+    const { container } = renderSidebar(bridgeWithResearch());
+    expect(container.querySelector(".pw-sidebar-modes")?.textContent).not.toContain("研究");
+  });
+
+  // 总开关开着但深度研究这一档关着：常驻事件订阅同样不挂（core/research/live-sync.ts），
+  // 列表必然是空的，入口再可点也只是个空壳。
+  it("总开关开着但深度研究未启用 → 不显示入口", () => {
+    setResearchEnabled(true, false);
     const { container } = renderSidebar(bridgeWithResearch());
     expect(container.querySelector(".pw-sidebar-modes")?.textContent).not.toContain("研究");
   });
