@@ -2003,22 +2003,46 @@ export async function resolveEnabledSkillPaths(
   return deduped.map((s) => s.dir);
 }
 
-// U5:单发(bridge.startCli)路径的 skill 注入分派。两 agent 走两条本质不同的机制:
+// U5:单发(bridge.startCli)路径的 skill 注入分派。三类 agent 走各自的原生机制:
 //  - claude:走原生目录发现 —— 把已启用 skill 记录经 startCli 的 skillRecords 交主进程建桥接目录
 //    (U2 buildClaudeSkillBridge + --add-dir),claude 自己加载/展开 `/<name>`。故**不再**把 skill
 //    列表渲染成 prose 并入 appendSystemPrompt(R5),appendWithSkills 只保留原始 appendSystemPrompt。
 //  - codex:无目录桥接,维持现状 —— renderSkillBlock 渲染成 prose 并入 appendSystemPrompt,不带 skillRecords。
+//  - pi:把共享记录与本轮第一方产物 skill 变成 skillPaths,由 adapter 逐项生成 --skill；不 prose 注入。
 // ⚠️ 仅用于单发分支;圆桌编排(bridge.startOrchestration)分支不走此函数,继续沿用现状批量 prose
 // 注入(见 System-Wide Impact / U5 Approach)。纯函数,便于单测。
 export function buildSingleSendSkillInjection(
   agent: string,
   appendSystemPrompt: string | undefined,
   records: InjectableSkill[],
-): { appendWithSkills: string | undefined; skillRecords: InjectableSkill[] | undefined } {
+  options?: {
+    useOwnSkills?: boolean;
+    artifactSkill?: { name: string; path: string };
+  },
+): {
+  appendWithSkills: string | undefined;
+  skillRecords: InjectableSkill[] | undefined;
+  skillPaths: string[] | undefined;
+} {
+  if (agent === "pi") {
+    const paths = records
+      .filter((record) => options?.useOwnSkills !== true || record.origin !== "agent")
+      .map((record) => record.dir);
+    if (options?.artifactSkill) paths.push(options.artifactSkill.path);
+    return {
+      appendWithSkills: appendSystemPrompt,
+      skillRecords: undefined,
+      skillPaths: [...new Set(paths)],
+    };
+  }
   const useClaudeNativeSkills = agent === "claude";
   const skillBlock = useClaudeNativeSkills ? "" : renderSkillBlock(records);
   const appendWithSkills = [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
-  return { appendWithSkills, skillRecords: useClaudeNativeSkills ? records : undefined };
+  return {
+    appendWithSkills,
+    skillRecords: useClaudeNativeSkills ? records : undefined,
+    skillPaths: undefined,
+  };
 }
 
 // 扩展市场（U3）:据 piExtensions 配置解析出注入 pi 的 -e 路径集合。
@@ -2684,9 +2708,9 @@ export interface PersonalActions {
     presavedImages?: ChatImageRef[],
     // 待发文档(send 内逐个落盘;内容不进消息,由 agent 经 extract_document 按需读取)。
     docFiles?: PendingDocFile[],
-    // U6:codex 单发原生 skill 触发。发送侧解析 /skill:name 命中已启用 codex skill 时填入
-    // { name, path },随请求落到 CliStartRequest.invokedSkill,主进程按 transport 决定 ws 结构化
-    // 触发 / exec prose 回退(见 cli.ts U4)。claude 走裸 slash(不用此字段)、pi 透传时恒 undefined。
+    // U6:单发原生 skill 触发。codex 随请求落到 CliStartRequest.invokedSkill,主进程按 transport
+    // 决定 ws 结构化触发 / exec prose 回退(见 cli.ts U4)；Pi 的会话产物调用复用同一元数据，
+    // 在发送边界转换成 skillPaths，确保 fresh artifact run 带 --skill。
     invokedSkill?: { name: string; path: string },
     // 已落盘文档引用(编辑/刷新重发复用原消息的引用文件,不重新落盘;与 presavedImages 对称)。
     presavedDocs?: ChatFileRef[],
@@ -2713,6 +2737,11 @@ export interface PersonalActions {
     msgUid: string,
     text: string,
     attachments: PersonalAttachment[],
+    artifactDispatch?: {
+      extraSystemPrompt?: string;
+      invokedSkill?: { name: string; path: string };
+      artifact?: ConversationArtifactRef;
+    },
   ) => Promise<void>;
   // /clear:默认隐藏当前历史;磁盘历史保留,重启后仍从隐藏游标后显示。
   clearView: (sessionId: string) => void;
@@ -2752,7 +2781,9 @@ export function usePersonalActions(): PersonalActions {
         flushChat(qc, session.id);
         return false;
       }
-      if (session.agent === "pi" && !piRpcAvailable(bridge)) {
+      // 普通 Pi 对话依赖长驻 RPC；会话产物则刻意走隔离 cwd 的 fresh startCli，
+      // 不应被无关的 piOpen/onPiEvent 能力门禁拦住。
+      if (session.agent === "pi" && !artifact && !piRpcAvailable(bridge)) {
         await ensureChatLoaded(qc, bridge, session.id);
         // editResend 复用的已落盘图(presavedImages)仍回显,避免兜底分支静默丢图;
         // 新待发图此刻尚未落盘(imageSave 在下方),留在 composer(return false 保留)。
@@ -3083,20 +3114,23 @@ export function usePersonalActions(): PersonalActions {
             piOpen,
           });
         } else {
-          // 跨 agent skill 注入:此分支仅 claude/codex(Pi 非编排已在上面 sendPiTurn 走 --skill 并 return)。
-          // useOwnSkills 短路对 claude/codex 同样生效(RISK-2):resolveEnabledSkillRecords 据其早退。
-          // 派发(U5):claude 走原生目录发现(记录经 skillRecords 交主进程建桥接目录,不再 prose 注入),
-          // codex 仍把已启用 skill 渲染成 prose 并入 appendSystemPrompt;与 pi 的 --skill 互斥 → 不双注入(R3)。
+          // 跨 agent skill 注入:普通 Pi 对话已在上面 sendPiTurn return；会话产物 Pi 为隔离 cwd /
+          // resume 槽而走本 fresh startCli 分支。派发(U5):claude 走原生目录发现，codex 走 prose +
+          // invokedSkill，Pi 走 skillPaths；三路互斥，避免重复注入。
           const enabledSkillRecords = await resolveEnabledSkillRecords(
             bridge,
             projectPath,
             sendSession.useOwnSkills,
             sendSession.agent,
           );
-          const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection(
+          const { appendWithSkills, skillRecords, skillPaths } = buildSingleSendSkillInjection(
             sendSession.agent,
             appendSystemPrompt,
             enabledSkillRecords,
+            {
+              useOwnSkills: sendSession.useOwnSkills,
+              ...(artifact && invokedSkill ? { artifactSkill: invokedSkill } : {}),
+            },
           );
           // 委派（delegate，@mention 触发）：主 agent 单发 startCli + 注入 cortex-delegate 工具集，
           // 经 ask_<id> 自主委派给被 @ 的协作者。子 agent 事件带 roleId（渲染端 roleHeader 分隔），
@@ -3141,13 +3175,13 @@ export function usePersonalActions(): PersonalActions {
             resumeSessionId: hasDelegateMentions ? undefined : resumeSessionId,
             appendSystemPrompt: appendWithDelegate,
             useOwnSkills: sendSession.useOwnSkills,
-            skillPaths: undefined,
+            skillPaths,
             // U5:claude 走原生目录发现时把已启用 skill 记录交主进程建桥接目录(U2);codex 为 undefined
             // (走上面 appendWithSkills 的 prose 注入,无目录桥接)。
             skillRecords,
             // U6:codex 单发原生 skill 触发(发送侧解析 /skill:name 命中时填入)。主进程按 transport
             // 决定 ws 结构化触发 / exec prose 回退(cli.ts U4);claude/pi 及非 skill 发送恒 undefined。
-            invokedSkill,
+            invokedSkill: sendSession.agent === "codex" ? invokedSkill : undefined,
             images: cliImages,
             // 执行/目录权限派生的线格式:claude/codex adapter 翻译成原生标志;缺省 full-auto/auto(历史默认)。
             // 逐轮 fresh spawn,改值下一轮即生效,无需重开。
@@ -3174,7 +3208,7 @@ export function usePersonalActions(): PersonalActions {
   );
 
   const editResend = useCallback<PersonalActions["editResend"]>(
-    async (session, projectPath, msgUid, text, attachments) => {
+    async (session, projectPath, msgUid, text, attachments, artifactDispatch) => {
       if (!bridge || !text.trim()) return;
       // 运行中不允许编辑历史(先停止再说),避免与流式写入打架。
       if (usePersonalStore.getState().runningBySession[session.id]) return;
@@ -3215,7 +3249,19 @@ export function usePersonalActions(): PersonalActions {
           usePersonalStore.getState().updateSession(session.id, { piSessionFile: undefined });
           sendSession = { ...session, piSessionFile: undefined };
         }
-        await send(sendSession, projectPath, text, attachments, undefined, undefined, originalImages, undefined, undefined, originalFiles);
+        await send(
+          sendSession,
+          projectPath,
+          text,
+          attachments,
+          artifactDispatch?.extraSystemPrompt,
+          undefined,
+          originalImages,
+          undefined,
+          artifactDispatch?.invokedSkill,
+          originalFiles,
+          artifactDispatch?.artifact,
+        );
         return;
       }
 
@@ -3244,7 +3290,19 @@ export function usePersonalActions(): PersonalActions {
 
       qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
       flushChat(qc, session.id);
-      await send(sendSession, projectPath, text, attachments, undefined, undefined, originalImages, undefined, undefined, originalFiles);
+      await send(
+        sendSession,
+        projectPath,
+        text,
+        attachments,
+        artifactDispatch?.extraSystemPrompt,
+        undefined,
+        originalImages,
+        undefined,
+        artifactDispatch?.invokedSkill,
+        originalFiles,
+        artifactDispatch?.artifact,
+      );
     },
     [bridge, qc, send],
   );

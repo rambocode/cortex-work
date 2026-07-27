@@ -100,20 +100,21 @@ export async function prepareArtifactDispatch(
   const skill = meta
     ? { name: meta.name, description: meta.description, dir: meta.dir }
     : null;
-  const outText = session.agent === "codex" && skill
-    ? parsed.args
-    : skill
-      ? renderSkillInvocation(
+  let outText = parsed.args;
+  if (skill && session.agent === "pi") {
+    outText = parsed.args ? `/skill:${kind} ${parsed.args}` : `/skill:${kind}`;
+  } else if (skill && session.agent !== "codex") {
+    outText = renderSkillInvocation(
         skill,
         parsed.args || (kind === "slides" ? "创建一份演示文稿" : "创建一份设计稿"),
-      )
-      : parsed.args;
+    );
+  }
   return {
     handledSkill: true,
     outText,
     artifact,
     ...(created ? { created: true } : {}),
-    ...(session.agent === "codex" && skill
+    ...((session.agent === "codex" || session.agent === "pi") && skill
       ? { invokedSkill: { name: skill.name, path: skill.dir } }
       : {}),
   };

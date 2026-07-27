@@ -2109,6 +2109,23 @@ describe("buildSingleSendSkillInjection（U5 单发 skill 注入分派）", () =
     expect(skillRecords).toBeUndefined();
   });
 
+  it("pi 产物单发走 --skill 路径，不把 skill 列表改写成 prose", () => {
+    const piRecords = [
+      { name: "native", description: "Pi 自发现", dir: "/pi/native", origin: "agent" as const },
+      { name: "shared", description: "共享", dir: "/shared/skill", origin: "shared" as const },
+    ];
+
+    const result = buildSingleSendSkillInjection("pi", "全局指令", piRecords, {
+      useOwnSkills: true,
+      artifactSkill: { name: "slides", path: "/builtin/slides" },
+    });
+
+    expect(result.appendWithSkills).toBe("全局指令");
+    expect(result.appendWithSkills).not.toContain("已启用的 Skills");
+    expect(result.skillRecords).toBeUndefined();
+    expect(result.skillPaths).toEqual(["/shared/skill", "/builtin/slides"]);
+  });
+
   it("claude:空记录也走原生路径(skillRecords 为空数组,不 prose)", () => {
     const { appendWithSkills, skillRecords } = buildSingleSendSkillInjection("claude", undefined, []);
     expect(appendWithSkills).toBeUndefined();

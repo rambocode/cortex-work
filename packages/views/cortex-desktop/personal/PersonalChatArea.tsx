@@ -641,9 +641,36 @@ export function PersonalChatArea({
           // 编辑重发:截断目标消息及其后内容,按新文本重发(复用原消息已落盘图,见 editResend)。
           // 本期编辑态不增删图,composer 的待发 images 忽略;返回 true 让 composer 清空。
           if (editing) {
+            if (!bridge) return false;
             const uid = editing.uid;
+            const artifactDispatch = await prepareArtifactDispatch(bridge, session, text);
+            if (artifactDispatch.error) {
+              onToast(artifactDispatch.error);
+              return false;
+            }
+            const artifact = artifactDispatch.artifact;
+            if (artifactDispatch.handledSkill) {
+              if (artifactDispatch.created && artifact) {
+                updateSession(session.id, {
+                  activeArtifact: artifact,
+                  artifacts: upsertConversationArtifact(session.artifacts, artifact),
+                });
+              }
+              setRightView("artifact");
+              setRightOpen(true);
+            }
             setEditing(null);
-            void editResend(session, project.path, uid, text, attachments);
+            void editResend(
+              session,
+              project.path,
+              uid,
+              artifactDispatch.outText,
+              attachments,
+              {
+                ...(artifact ? { extraSystemPrompt: buildConversationArtifactPrompt(artifact), artifact } : {}),
+                ...(artifactDispatch.invokedSkill ? { invokedSkill: artifactDispatch.invokedSkill } : {}),
+              },
+            );
             return true;
           }
           // slash 命令:/clear 默认隐藏当前历史(磁盘历史保留,重启仍隐藏)。

@@ -894,6 +894,102 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
     expect(cached.some((m) => m.kind === "text" && m.who === "pi" && m.uid === "err-1-w1")).toBe(false);
     usePersonalStore.getState().setRunning("s1", undefined);
   });
+
+  it("Pi 编辑重发 /skill:slides 仍创建隔离产物并走内置 skill", async () => {
+    const qc = new QueryClient();
+    const piSession: SessionMeta = {
+      id: "s1",
+      projectId: "p1",
+      title: "已有会话",
+      agent: "pi",
+      useOwnSkills: true,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    const stale: Message[] = [
+      { kind: "text", who: "me", time: "18:25", uid: "u1", text: "帮我做一个简单的演示文稿" },
+      { kind: "text", who: "pi", time: "18:26", uid: "a1", text: "旧回答" },
+    ];
+    const artifact = {
+      kind: "slides" as const,
+      documentId: "slides-1",
+      title: "帮我做一个简单的演示文稿",
+      workspaceRoot: "/code/alpha/.cortex-design/slides-1",
+      entryPath: "/code/alpha/.cortex-design/slides-1/deck.bento.html",
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    const artifactCreate = vi.fn(async () => ({ ok: true as const, artifact }));
+    const startCli = vi.fn(async () => undefined);
+    const piPrompt = vi.fn(async () => undefined);
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [piSession],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      agentsAvailable: { claude: true, codex: true, pi: true },
+      runningBySession: {},
+      piRuntimeBySession: {},
+      timelineProjectId: undefined,
+      rightView: "files",
+    });
+    useCortexUIStore.setState({ rightOpen: false });
+    const b = {
+      loadChat: async () => stale,
+      saveChat: vi.fn(async () => undefined),
+      artifactCreate,
+      builtinSkillGet: async () => ({
+        name: "slides",
+        description: "创建演示文稿",
+        dir: "/builtin/slides",
+        skillMdPath: "/builtin/slides/SKILL.md",
+      }),
+      piSkillsList: async () => [],
+      startCli,
+      piOpen: vi.fn(async () => ({ uiSessionId: "s1", sessionId: "pi-live", sessionFile: "/tmp/pi.jsonl" })),
+      piPrompt,
+    } as unknown as DesktopBridge;
+
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b} queryClient={qc}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    await screen.findByText("旧回答");
+
+    fireEvent.click(screen.getByTitle("编辑后重新发送(将清除其后的所有消息)"));
+    const input = screen.getByRole("textbox");
+    await waitFor(() => expect(input).toHaveValue("帮我做一个简单的演示文稿"));
+    fireEvent.change(input, { target: { value: "/skill:slides 帮我做一个简单的演示文稿" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+    await waitFor(() =>
+      expect(artifactCreate).toHaveBeenCalledWith({
+        kind: "slides",
+        title: "帮我做一个简单的演示文稿",
+        projectId: "p1",
+      }),
+    );
+    await waitFor(() => expect(startCli).toHaveBeenCalled());
+    expect(startCli).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent: "pi",
+        cwd: artifact.workspaceRoot,
+        prompt: "/skill:slides 帮我做一个简单的演示文稿",
+        artifactContext: artifact,
+        skillPaths: ["/builtin/slides"],
+        invokedSkill: undefined,
+      }),
+    );
+    expect(piPrompt).not.toHaveBeenCalled();
+    expect(usePersonalStore.getState()).toMatchObject({
+      rightView: "artifact",
+      sessions: [expect.objectContaining({ id: "s1", activeArtifact: artifact })],
+    });
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+    usePersonalStore.getState().setRunning("s1", undefined);
+  });
 });
 
 // U5:assistant 消息「追问」按钮 + 浮层挂载 + Web/能力门控。

@@ -96,6 +96,29 @@ describe("conversation artifact dispatch", () => {
     expect(result.outText).toBe("调整首页");
   });
 
+  it("Pi 产物调用保留原生 slash，并把第一方 skill 路径交给发送层", async () => {
+    const result = await prepareArtifactDispatch(
+      {
+        artifactCreate: vi.fn(),
+        artifactValidate: async () => ({ ok: true as const, artifact: design }),
+        builtinSkillGet: async () => ({
+          name: "design",
+          description: "Builtin",
+          dir: "/builtin/design",
+          skillMdPath: "/builtin/design/SKILL.md",
+        }),
+      } as unknown as DesktopBridge,
+      { ...session, agent: "pi" },
+      "/skill:design 调整首页",
+    );
+
+    expect(result.outText).toBe("/skill:design 调整首页");
+    expect(result.invokedSkill).toEqual({
+      name: "design",
+      path: "/builtin/design",
+    });
+  });
+
   it("切换产物类型时创建新产物", async () => {
     const slides = {
       ...design,
