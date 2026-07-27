@@ -52,6 +52,7 @@ import { duplicateHtmlArtifact, prepareDesignHtmlTurn } from './design-workspace
 import { deleteDesignAssistantSession } from './design-assistant-session'
 
 export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) => {
+  let workspaceRevision = 0
   const persistIndex = (): void => {
     const s = get()
     persistDocumentsIndex(s.workspaceRoot, s.documents, s.activeDocumentId)
@@ -97,7 +98,10 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
     pagesRun: null,
     parallelPageStates: {},
 
-    setWorkspaceRoot: (workspaceRoot) => set({ workspaceRoot }),
+    setWorkspaceRoot: (workspaceRoot) => {
+      if (get().workspaceRoot !== workspaceRoot) workspaceRevision += 1
+      set({ workspaceRoot })
+    },
 
     setCanvasView: (view) => {
       writeBrowserStorageItem(CANVAS_VIEW_KEY, view)
@@ -535,6 +539,7 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
     },
 
     loadDesignSettings: async () => {
+      const revision = workspaceRevision
       set({ settingsLoaded: false })
       try {
         try {
@@ -579,12 +584,15 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
         } catch {
           // Keep local/default state and still let rehydration/fallback below settle the workspace.
         }
+        if (revision !== workspaceRevision) return
         await get().rehydrateArtifacts()
+        if (revision !== workspaceRevision) return
         await get().refreshDesignSystemHash()
+        if (revision !== workspaceRevision) return
         // Always land on an active 设计稿 so the canvas has somewhere to render.
         if (get().documents.length === 0) get().createDocument()
       } finally {
-        set({ settingsLoaded: true })
+        if (revision === workspaceRevision) set({ settingsLoaded: true })
       }
     },
 
@@ -599,7 +607,11 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
       const res = await kunGuiPort()!
         .readWorkspaceFile({ path: '.cortex-design/DESIGN_SYSTEM.md', workspaceRoot })
         .catch(() => null)
-      set({ designSystemHash: res && res.ok ? hashDesignSystem(res.content) : '' })
+      set((state) =>
+        state.workspaceRoot === workspaceRoot
+          ? { designSystemHash: res && res.ok ? hashDesignSystem(res.content) : '' }
+          : {}
+      )
     },
 
     resetWorkspace: () =>

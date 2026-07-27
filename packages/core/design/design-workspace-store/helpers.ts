@@ -289,6 +289,7 @@ export async function rehydrateDesignWorkspaceArtifacts({
   persistIndex
 }: RehydrateDesignWorkspaceArtifactsOptions): Promise<void> {
   const { workspaceRoot } = get()
+  const isCurrentWorkspace = (): boolean => get().workspaceRoot === workspaceRoot
   const api = kunGuiPort()
   if (
     !workspaceRoot ||
@@ -300,9 +301,10 @@ export async function rehydrateDesignWorkspaceArtifacts({
   }
   
   const indexRead = await api.readWorkspaceFile({ path: documentsIndexPath(), workspaceRoot }).catch(() => null)
+  if (!isCurrentWorkspace()) return
   const index = indexRead && indexRead.ok ? parseDocumentsIndex(indexRead.content) : null
   const listing = await api.listWorkspaceDirectory({ path: DESIGN_DIR, workspaceRoot }).catch(() => null)
-  if (!listing || !listing.ok) return
+  if (!isCurrentWorkspace() || !listing || !listing.ok) return
   const topDirs = listing.entries.filter((e) => e.type === 'directory')
   
   if (index) {
@@ -311,6 +313,7 @@ export async function rehydrateDesignWorkspaceArtifacts({
     for (const entry of index.documents) {
       if (removedDocumentIds.has(entry.id)) continue
       const artifacts = await loadArtifactsForDoc(workspaceRoot, entry.id)
+      if (!isCurrentWorkspace()) return
       const activeArtifactId = artifacts.some((a) => a.id === entry.activeArtifactId)
         ? entry.activeArtifactId
         : artifacts[0]?.id ?? null
@@ -331,14 +334,17 @@ export async function rehydrateDesignWorkspaceArtifacts({
     await Promise.all(
       loaded.map((doc) => hydrateDesignChatMetaForDoc({ workspaceRoot, docId: doc.id }))
     )
+    if (!isCurrentWorkspace()) return
     // Adopt orphan top-level artifact dirs (hand-authored / migration fallback).
     const orphans: DesignArtifact[] = []
     for (const entry of topDirs) {
       if (docIds.has(entry.name) || removedArtifactIds.has(entry.name)) continue
       const artifact = await loadArtifactDir(workspaceRoot, `${DESIGN_DIR}/${entry.name}`, entry.name)
+      if (!isCurrentWorkspace()) return
       if (artifact) orphans.push(artifact)
     }
     set((state) => {
+      if (state.workspaceRoot !== workspaceRoot) return {}
       if (state.documents.length === 0) {
         let documents = loaded
         if (orphans.length > 0) {
@@ -400,15 +406,16 @@ export async function rehydrateDesignWorkspaceArtifacts({
           : documents[0]?.id ?? null
       return { documents, activeDocumentId, ...projectActiveDoc(documents, activeDocumentId) }
     })
-    persistIndex()
+    if (isCurrentWorkspace()) persistIndex()
     return
   }
   
   // No index → legacy upgrade (or fresh workspace).
   const defaultDoc = await migrateLegacyToDefaultDoc(workspaceRoot, topDirs)
-  if (!defaultDoc) return
+  if (!isCurrentWorkspace() || !defaultDoc) return
   saveDesignThreadRegistry(migrateRegistryToDoc(readDesignThreadRegistry(), workspaceRoot, defaultDoc.id))
   set((state) => {
+    if (state.workspaceRoot !== workspaceRoot) return {}
     if (state.documents.some((d) => d.id === defaultDoc.id)) return {}
     // Drop empty stub 设计稿 from an eager pre-rehydrate auto-create; the
     // migrated 设计稿 is authoritative for legacy data.
@@ -419,5 +426,5 @@ export async function rehydrateDesignWorkspaceArtifacts({
       : defaultDoc.id
     return { documents, activeDocumentId, ...projectActiveDoc(documents, activeDocumentId) }
   })
-  persistIndex()
+  if (isCurrentWorkspace()) persistIndex()
 }

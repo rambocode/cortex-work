@@ -13,8 +13,10 @@ import {
   DEFAULT_DIR_PERMISSION,
   dayKey,
   mapThinkingForAgent,
+  parseSkillSlash,
   resolveDefaultAgent,
   useDesktopBridge,
+  useCortexUIStore,
   usePersonalActions,
   usePersonalStore,
 } from "@cortex-work/core";
@@ -38,6 +40,11 @@ import { HomeBoard } from "./HomeView";
 import { ComposerShell } from "./ComposerShell";
 import { useSlashCommands } from "./useSlashCommands";
 import { GitBar } from "./GitBar";
+import {
+  buildConversationArtifactPrompt,
+  prepareArtifactDispatch,
+  upsertConversationArtifact,
+} from "./artifactDispatch";
 
 // 按目标 agent 解析草稿默认 model/provider：pi 用默认 provider + 默认模型(或 provider 首模型);
 // 其余内置 agent 用各自 DEFAULT_MODEL。初始化与切换 agent 共用,保证两处默认一致(R4)。
@@ -73,6 +80,8 @@ export function NewSessionLanding({
   const providerSettings = usePersonalStore((s) => s.providerSettings);
   const createSession = usePersonalStore((s) => s.createSession);
   const updateSession = usePersonalStore((s) => s.updateSession);
+  const setRightView = usePersonalStore((s) => s.setRightView);
+  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const { send } = usePersonalActions();
 
   // 新会话默认「不使用项目」(selectedProjectId=undefined),可随时在 GitBar 切到具体项目。
@@ -150,6 +159,58 @@ export function NewSessionLanding({
   // GitBar 据此查 git/显示分支;undefined（未选 / 不使用项目）只显示项目选择器。
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
 
+  const sendCreatedSession = async (
+    sess: SessionMeta,
+    cwd: string,
+    text: string,
+    attachments: PersonalAttachment[],
+    images?: PendingImage[],
+    docFiles?: PendingDocFile[],
+  ): Promise<boolean> => {
+    if (!bridge) return false;
+    const parsed = parseSkillSlash(text);
+    if (parsed?.name !== "design" && parsed?.name !== "slides") {
+      return send(
+        sess,
+        cwd,
+        text,
+        attachments,
+        undefined,
+        images,
+        undefined,
+        docFiles,
+      );
+    }
+    const dispatch = await prepareArtifactDispatch(bridge, sess, text);
+    if (dispatch.error) {
+      onToast(dispatch.error);
+      return false;
+    }
+    if (dispatch.artifact) {
+      updateSession(sess.id, {
+        activeArtifact: dispatch.artifact,
+        artifacts: upsertConversationArtifact(sess.artifacts, dispatch.artifact),
+      });
+      setRightView("artifact");
+      setRightOpen(true);
+    }
+    return send(
+      sess,
+      cwd,
+      dispatch.outText,
+      attachments,
+      dispatch.artifact
+        ? buildConversationArtifactPrompt(dispatch.artifact)
+        : undefined,
+      images,
+      undefined,
+      docFiles,
+      dispatch.invokedSkill,
+      undefined,
+      dispatch.artifact,
+    );
+  };
+
   // 先 createSession 拿到 sessionId,再 await send(图片落盘在 send 内、以新 sessionId 为目录键)。
   // 纯图(无文本)允许发送。返回 send 的「已消费」结果供 composer 决定清空待发图。
   const onSubmit = (
@@ -169,7 +230,14 @@ export function NewSessionLanding({
             return false;
           }
           const sess = applyDraftPatch(createSession(selectedProjectId, draft.agent, draft.model));
-          return await send(sess, selectedProject.path, trimmed, attachments, undefined, images, undefined, docFiles);
+          return await sendCreatedSession(
+            sess,
+            selectedProject.path,
+            trimmed,
+            attachments,
+            images,
+            docFiles,
+          );
         }
         // selectedProjectId 为 undefined = 不使用项目:在当天的无项目工作目录下新建会话。
         if (!bridge?.ensureNoProjectDir) {
@@ -178,7 +246,7 @@ export function NewSessionLanding({
         }
         const dir = await bridge.ensureNoProjectDir(dayKey(Date.now()));
         const sess = applyDraftPatch(createSession(undefined, draft.agent, draft.model, { noProjectDir: dir }));
-        return await send(sess, dir, trimmed, attachments, undefined, images, undefined, docFiles);
+        return await sendCreatedSession(sess, dir, trimmed, attachments, images, docFiles);
       } catch (err) {
         onToast(`发送失败：${err instanceof Error ? err.message : String(err)}`);
         return false;

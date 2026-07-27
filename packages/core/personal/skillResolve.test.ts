@@ -8,6 +8,7 @@ import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS, DEFAULT_PI_EXTENSIONS } fr
 import { usePersonalStore } from "../store/personal";
 import { resolveEnabledSkillPaths, resolveEnabledExtensionPaths } from "./messages";
 import { resolveEnabledSkillRecords } from "./skill-injection";
+import * as skillInjection from "./skill-injection";
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
 
@@ -145,6 +146,25 @@ describe("resolveEnabledSkillRecords", () => {
     const recs = await resolveEnabledSkillRecords(bridge, "/proj", undefined, "pi");
     expect(recs.find((r) => r.dir === "/g/x")?.origin).toBe("agent");
     expect(recs.find((r) => r.dir === "/g/y")?.origin).toBe("shared");
+  });
+});
+
+describe("会话产物上下文规划", () => {
+  it("同类型复用当前产物,无产物或类型变化时创建新产物", () => {
+    expect(skillInjection).toHaveProperty("resolveArtifactTarget");
+    const resolveArtifactTarget = (
+      skillInjection as unknown as {
+        resolveArtifactTarget: (
+          kind: "design" | "slides",
+          current?: { kind: "design" | "slides"; documentId: string },
+        ) => { mode: "create" | "edit"; artifact?: { documentId: string } };
+      }
+    ).resolveArtifactTarget;
+    const design = { kind: "design" as const, documentId: "d1" };
+
+    expect(resolveArtifactTarget("design")).toEqual({ mode: "create" });
+    expect(resolveArtifactTarget("design", design)).toEqual({ mode: "edit", artifact: design });
+    expect(resolveArtifactTarget("slides", design)).toEqual({ mode: "create" });
   });
 });
 

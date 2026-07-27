@@ -3941,6 +3941,18 @@ button.sb-row {
   width: var(--rp-custom-width, min(calc(100vw * 3 / 7), max(280px, calc(100vw - 250px))));
   min-width: min(360px, max(280px, calc(100vw - 250px)));
 }
+.pw-prompts:has(.pw-artifact-editor) {
+  width: var(--rp-custom-width, min(62vw, max(640px, calc(100vw - 360px))));
+  min-width: var(--rp-custom-width, min(640px, calc(100vw - 280px)));
+}
+.pw-prompts:has(.pw-artifact-editor) .pw-rp-resizer { display: block; }
+.pw-artifact-editor {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 /* 拖拽调宽期间:禁用内嵌浏览器帧(webview/iframe)的指针事件,使 mouseup/mousemove
    能落到 document,避免「松手无效、宽度一直跟随鼠标」。 */
 .pw-rp-resizing .pw-browser-frame { pointer-events: none; }
@@ -9624,6 +9636,35 @@ button.sb-row {
 /* 已选 skill pill(选项1):图标与名称用蓝色(--accent 在部分主题是橙红,故显式用蓝),无方块底。 */
 .pw-skill-pill .pw-try-pill-ico { color: var(--blue); background: transparent; }
 .pw-skill-pill .pw-try-pill-name { color: var(--blue); }
+.pw-artifact-pill { border-color: color-mix(in srgb, var(--blue) 32%, var(--border)); }
+.pw-artifact-pill-open {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.pw-artifact-pill .pw-try-pill-name { max-width: 150px; color: var(--blue); }
+.pw-artifact-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 20px 10px;
+  border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--border));
+  border-radius: 10px;
+  padding: 9px 11px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--blue) 6%, var(--surface));
+  cursor: pointer;
+  text-align: left;
+}
+.pw-artifact-card > span { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.pw-artifact-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-artifact-card small { color: var(--muted); font-size: 11px; }
 .pw-try-pill-x {
   display: inline-flex; align-items: center; justify-content: center;
   border: none; background: transparent; color: var(--text-3); cursor: pointer; padding: 0 1px;

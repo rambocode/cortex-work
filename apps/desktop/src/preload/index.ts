@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type {
   AgentKind,
+  ConversationArtifactCreateRequest,
+  ConversationArtifactRef,
+  ConversationArtifactResult,
   AgentTraceEvent,
   AgentSessionRequest,
   AgentProjectInfo,
@@ -338,6 +341,12 @@ const personal = {
   },
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
+  artifactCreate: (
+    request: ConversationArtifactCreateRequest,
+  ): Promise<ConversationArtifactResult> => ipcRenderer.invoke("artifact:create", request),
+  artifactValidate: (
+    artifact: ConversationArtifactRef,
+  ): Promise<ConversationArtifactResult> => ipcRenderer.invoke("artifact:validate", artifact),
   // pushSettings 窄写通道 + 变更订阅：供不挂全量持久化的窗口（项目管理）安全读写推送开关，
   // 变更由 main 广播到所有窗口保持镜像新鲜（见 main/ipc/store.ts）。
   patchPushSettings: (patch: Partial<PushSettings>): Promise<void> =>
@@ -694,6 +703,8 @@ const personal = {
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。形状与 DesktopBridge
   // 的可选 skillGet/skillsList 逐字对齐（手工比对,无 satisfies）。
   skillGet: (name: string): Promise<SkillMeta | null> => ipcRenderer.invoke("skills:get", name),
+  builtinSkillGet: (name: string): Promise<SkillMeta | null> =>
+    ipcRenderer.invoke("skills:get-builtin", name),
   skillsList: (): Promise<SkillMeta[]> => ipcRenderer.invoke("skills:list"),
   // 插件管理（U3）:扫描多根 / 打开范围根。形状与 DesktopBridge 的可选方法逐字对齐。
   piSkillsList: (args: {

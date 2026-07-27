@@ -276,9 +276,6 @@ export function PersonalSidebar({
   // loop 工作流视图状态（bridge.workflowList 有值时才渲染入口，web 端 bridge 为 null 自动降级）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
   const openWorkflow = usePersonalStore((s) => s.openWorkflow);
-  // 设计工作台(AI 设计画布);desktop-only,bridge 为 null(web 端)自动降级隐藏。
-  const designOpen = usePersonalStore((s) => s.designOpen);
-  const openDesign = usePersonalStore((s) => s.openDesign);
   // 写作工作区(整窗覆盖层);desktop-only,bridge 为 null(web 端)自动降级隐藏。
   const writingOpen = usePersonalStore((s) => s.writingOpen);
   const openWriting = usePersonalStore((s) => s.openWriting);
@@ -353,7 +350,7 @@ export function PersonalSidebar({
   // 入口若先于开关出现，用户点进去的是一个后端根本没起来的空壳。
   const researchAvailable = !!bridge?.research && generalSettings.researchEngine?.enabled === true;
   const conversationModeOpen =
-    !writingOpen && !designOpen && !researchOpen && !automationOpen && !workflowOpen && !settingsOpen;
+    !writingOpen && !researchOpen && !automationOpen && !workflowOpen && !settingsOpen;
 
   const createContextSession = () => {
     createSession(contextProject?.id, defaultAgent);
@@ -395,11 +392,6 @@ export function PersonalSidebar({
         {bridge ? (
           <button className={writingOpen ? "is-active" : ""} onClick={openWriting} aria-pressed={writingOpen}>
             写作
-          </button>
-        ) : null}
-        {bridge ? (
-          <button className={designOpen ? "is-active" : ""} onClick={() => openDesign()} aria-pressed={designOpen}>
-            设计
           </button>
         ) : null}
         {researchAvailable ? (

@@ -16,7 +16,7 @@ function normalizeSupportedAgents(raw: string[] | undefined): AgentKind[] | unde
   const valid = raw.filter((a): a is AgentKind => AGENT_KINDS.has(a as AgentKind));
   return valid.length ? valid : undefined;
 }
-import { skillsRoots } from "./locate";
+import { builtinSkillsRoot, skillsRoots } from "./locate";
 
 // 配套文档白名单后缀（U5）:仅列文档型文件,排除二进制/图片等噪声。SKILL.md 单独排除。
 const DOC_EXTS = new Set([".md", ".markdown", ".txt", ".json", ".yaml", ".yml"]);
@@ -150,4 +150,9 @@ export async function listSkills(): Promise<SkillMeta[]> {
 // 按 name 取单个 skill;不存在返回 null。
 export async function getSkill(name: string): Promise<SkillMeta | null> {
   return (await listSkills()).find((s) => s.name === name) ?? null;
+}
+
+// 第一方能力入口必须固定读取随应用发布的 skill，不能被 userData 下的同名目录替换。
+export async function getBuiltinSkill(name: string): Promise<SkillMeta | null> {
+  return (await scanRoot(builtinSkillsRoot())).get(name) ?? null;
 }

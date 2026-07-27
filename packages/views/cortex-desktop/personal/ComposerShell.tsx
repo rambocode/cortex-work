@@ -24,6 +24,7 @@ import type {
   PendingDocFile,
   PendingImage,
   PersonalAttachment,
+  ConversationArtifactRef,
 } from "@cortex-work/core";
 import { AgentSelect } from "./AgentSelect";
 import { CustomizePill } from "./CustomizePill";
@@ -169,6 +170,9 @@ export function ComposerShell({
   onCancelEdit,
   onToast,
   onPrewarm,
+  artifact,
+  onOpenArtifact,
+  onRemoveArtifact,
 }: {
   agent: AgentKind;
   // agent 选择器(opt-in,仅新会话落地页用):选中的派生 id + 候选/门控数据 + 切换回调。
@@ -237,6 +241,10 @@ export function ComposerShell({
   // 会话预热(opt-in):输入非空文本时触发,供个人工作区提前拉起 pi 进程消除首轮冷启。
   // 每次非空变更都会调用,幂等/去重由调用方负责;团队侧不传 → no-op。
   onPrewarm?: () => void;
+  /** 会话当前绑定的设计/Slides 产物。普通追问默认继续作用于它。 */
+  artifact?: ConversationArtifactRef;
+  onOpenArtifact?: () => void;
+  onRemoveArtifact?: () => void;
 }) {
   const { t } = useTranslation("chat");
   const bridge = useDesktopBridge();
@@ -798,6 +806,29 @@ export function ComposerShell({
           </div>
         ) : null}
         <div className="input-area">
+          {artifact ? (
+            <span className="pw-try-pill pw-artifact-pill" title={artifact.entryPath}>
+              <button
+                type="button"
+                className="pw-artifact-pill-open"
+                aria-label={`打开产物 ${artifact.title}`}
+                onClick={onOpenArtifact}
+              >
+                <span className="pw-try-pill-ico">
+                  <Icon.Sparkle size={12} />
+                </span>
+                <span className="pw-try-pill-name">{artifact.title}</span>
+              </button>
+              <button
+                type="button"
+                className="pw-try-pill-x"
+                aria-label="移除当前产物"
+                onClick={onRemoveArtifact}
+              >
+                <Icon.X size={11} />
+              </button>
+            </span>
+          ) : null}
           {/* 插件「在对话中试用」pill:图标(首字母)+名称,内联在提示词左侧。点 × 移除。 */}
           {tryPlugin ? (
             <span className="pw-try-pill" title={tryPlugin.name}>

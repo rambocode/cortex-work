@@ -700,4 +700,53 @@ describe('design workspace store', () => {
       { id: 'existing-doc', title: 'Existing design' }
     ])
   })
+
+  it('ignores a stale workspace rehydrate after switching from A to B', async () => {
+    const aIndexRead = deferred<{ ok: true; content: string }>()
+    const indexFor = (id: string) => JSON.stringify({
+      version: 1,
+      activeDocumentId: id,
+      documents: [{
+        id,
+        title: id,
+        order: 0,
+        createdAt,
+        updatedAt: createdAt,
+        activeArtifactId: null
+      }]
+    })
+    const readWorkspaceFile = vi.fn(
+      (request: { path: string; workspaceRoot?: string }) => {
+        if (request.path !== '.cortex-design/documents.json') {
+          return Promise.resolve({ ok: false as const, error: 'missing' })
+        }
+        if (request.workspaceRoot === '/workspace-a') return aIndexRead.promise
+        return Promise.resolve({ ok: true as const, content: indexFor('doc-b') })
+      }
+    )
+    const listWorkspaceDirectory = vi.fn(async () => ({
+      ok: true as const,
+      entries: [] as Array<{ name: string; type: 'file' | 'directory' }>
+    }))
+    setKunGuiPort({
+      writeWorkspaceFile,
+      readWorkspaceFile,
+      listWorkspaceDirectory
+    } as unknown as KunGuiPort)
+    useDesignWorkspaceStore.getState().resetWorkspace()
+    useDesignWorkspaceStore.getState().setWorkspaceRoot('/workspace-a')
+
+    const loadingA = useDesignWorkspaceStore.getState().rehydrateArtifacts()
+    await Promise.resolve()
+    useDesignWorkspaceStore.getState().resetWorkspace()
+    useDesignWorkspaceStore.getState().setWorkspaceRoot('/workspace-b')
+    await useDesignWorkspaceStore.getState().rehydrateArtifacts()
+
+    aIndexRead.resolve({ ok: true, content: indexFor('doc-a') })
+    await loadingA
+
+    const state = useDesignWorkspaceStore.getState()
+    expect(state.workspaceRoot).toBe('/workspace-b')
+    expect(state.documents.map((document) => document.id)).toEqual(['doc-b'])
+  })
 })

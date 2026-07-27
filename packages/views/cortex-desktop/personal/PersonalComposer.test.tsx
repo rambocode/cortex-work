@@ -6,6 +6,7 @@ import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CoreProvider,
+  useCortexUIStore,
   usePersonalStore,
   DEFAULT_GENERAL_SETTINGS,
   DEFAULT_PI_SKILLS,
@@ -140,5 +141,57 @@ describe("PersonalComposer 动态 slash 菜单", () => {
     const paths = fn.mock.calls[0]![0]!.rootSpecs.map((r) => r.path);
     expect(paths).toContain("~/.claude/skills");
     expect(paths).not.toContain("~/.pi/agent/skills");
+  });
+});
+
+describe("PersonalComposer 当前产物 Chip", () => {
+  it("打开右栏编辑器并可解除当前产物绑定", () => {
+    const activeArtifact = {
+      kind: "design" as const,
+      documentId: "design-1",
+      title: "Home",
+      workspaceRoot: "/proj",
+      entryPath: "/proj/.cortex-design/design-1",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const active: SessionMeta = {
+      ...session("claude"),
+      activeArtifact,
+    };
+    usePersonalStore.setState({ sessions: [active], activeSessionId: active.id });
+    useCortexUIStore.setState({ rightOpen: false });
+
+    render(
+      <CoreProvider
+        wsId="w"
+        identity={{ userId: "u", name: "n" }}
+        desktopBridge={fakeBridge([])}
+      >
+        <PersonalComposer
+          session={active}
+          running={false}
+          onSend={() => {}}
+          onStop={() => {}}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onChangeThinking={() => {}}
+          onChangeExecPermission={() => {}}
+          onChangeDirPermission={() => {}}
+          onToggleSubagentOrchestration={() => {}}
+          onToggleSkills={() => {}}
+          onToggleWebSearch={() => {}}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开产物 Home" }));
+    expect(usePersonalStore.getState().rightView).toBe("artifact");
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "移除当前产物" }));
+    expect(usePersonalStore.getState().sessions[0]?.activeArtifact).toBeUndefined();
+    expect(usePersonalStore.getState().sessions[0]?.artifacts).toEqual([activeArtifact]);
   });
 });

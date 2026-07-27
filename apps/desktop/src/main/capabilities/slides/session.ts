@@ -17,9 +17,9 @@ export interface SlidesSessionState {
 
 const sessions = new Map<string, SlidesSessionState>();
 
-/** 解析 slides runId(`slides:<documentId>:<turnId>`)→ documentId;非 slides 回合返回 null。 */
+/** 解析独立工作台或会话产物的 slides runId → documentId；其它回合返回 null。 */
 export function parseSlidesRunId(runId: string): string | null {
-  const m = /^slides:([a-zA-Z0-9][a-zA-Z0-9_-]{0,63}):/.exec(runId);
+  const m = /^(?:slides:|artifact:slides:)([a-zA-Z0-9][a-zA-Z0-9_-]{0,63}):/.exec(runId);
   return m ? m[1] : null;
 }
 

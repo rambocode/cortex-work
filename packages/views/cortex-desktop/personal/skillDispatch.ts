@@ -9,6 +9,15 @@ import type { AgentKind, InjectableSkill } from "@cortex-work/core";
 export interface SkillDispatch {
   outText: string;
   invokedSkill?: { name: string; path: string };
+  artifactKind?: "design" | "slides";
+}
+
+function artifactKindForSkill(skill: InjectableSkill): SkillDispatch["artifactKind"] {
+  return skill.name === "design" || skill.name === "slides" ? skill.name : undefined;
+}
+
+function withArtifactKind(artifactKind: SkillDispatch["artifactKind"]): Pick<SkillDispatch, "artifactKind"> {
+  return artifactKind ? { artifactKind } : {};
 }
 
 // U6:把命中的 /skill:name 按 agent + 路由改写成三路(纯函数,便于单测)。
@@ -26,11 +35,25 @@ export function resolveSkillDispatch(
   useOrchestration: boolean,
   allRecords: InjectableSkill[],
 ): SkillDispatch {
-  if (useOrchestration) return { outText: renderSkillInvocation(skill, parsedArgs) };
+  const artifactKind = artifactKindForSkill(skill);
+  if (useOrchestration) {
+    return { outText: renderSkillInvocation(skill, parsedArgs), ...withArtifactKind(artifactKind) };
+  }
   // claude 的裸 slash 命令名需按「本批次已启用 skill 集合」推导(碰撞消歧/空 slug 兜底与主进程建
   // 桥接目录时的算法一致,见 renderClaudeSkillSlash/resolveClaudeSlashName 注释),故传入 allRecords
   // 而非只传中选的这一条——否则会跟桥接目录的实际命名漂移(R7)。
-  if (agent === "claude") return { outText: renderClaudeSkillSlash(skill, parsedArgs, allRecords) };
-  if (agent === "codex") return { outText: parsedArgs, invokedSkill: { name: skill.name, path: skill.dir } };
-  return { outText: originalText };
+  if (agent === "claude") {
+    return {
+      outText: renderClaudeSkillSlash(skill, parsedArgs, allRecords),
+      ...withArtifactKind(artifactKind),
+    };
+  }
+  if (agent === "codex") {
+    return {
+      outText: parsedArgs,
+      invokedSkill: { name: skill.name, path: skill.dir },
+      ...withArtifactKind(artifactKind),
+    };
+  }
+  return { outText: originalText, ...withArtifactKind(artifactKind) };
 }

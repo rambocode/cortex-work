@@ -1,4 +1,4 @@
-import { cleanup, render, fireEvent, screen } from "@testing-library/react";
+import { cleanup, render, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { CoreProvider, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
@@ -30,6 +30,25 @@ describe("PersonalRightPanel 拖拽调宽", () => {
       rightView: "todos",
       rightPanelWidth: undefined,
     });
+  });
+
+  it("切到没有当前产物的会话时关闭遗留的产物右栏", async () => {
+    usePersonalStore.setState({
+      sessions: [{
+        id: "plain",
+        title: "Plain",
+        agent: "claude",
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+      activeSessionId: "plain",
+      rightView: "artifact",
+    });
+    useCortexUIStore.setState({ rightOpen: true });
+    renderPanel();
+    await waitFor(() =>
+      expect(useCortexUIStore.getState().rightOpen).toBe(false),
+    );
   });
 
   it("自定义宽度以 --rp-custom-width 变量注入(只作用于详情态档位);未设置时无变量", () => {

@@ -18,6 +18,7 @@ import {
   __processCleanupTimerCountForTest,
   __autoTitleForTest,
   adjustHiddenHistoryForSanitize,
+  artifactResumeKey,
   beginPiRun,
   reapSessionRun,
   respondPiUi,
@@ -29,6 +30,7 @@ import {
   buildSingleSendSkillInjection,
   piEntryMatchesText,
   clearAgentSessionPatch,
+  clearArtifactSessionPatch,
   createHiddenHistory,
   emptyFoldCursor,
   finalizeAgentLog,
@@ -42,6 +44,7 @@ import {
   prewarmPiSession,
   resolveSpawnAgentId,
   restrictedToolForMode,
+  runUsesNestedRoleEvents,
   sanitizeForSave,
   sessionResumeId,
   sameTextOrdinal,
@@ -94,6 +97,120 @@ describe("会话自动标题", () => {
 });
 
 describe("personal message agent session helpers", () => {
+  it("产物运行把带 roleId 的设计子代理事件视为嵌套事件", () => {
+    expect(runUsesNestedRoleEvents({ artifactResumeKey: "artifact-key" })).toBe(true);
+    expect(runUsesNestedRoleEvents({})).toBe(false);
+  });
+
+  it("恢复中的产物运行忽略子代理 init/result，不覆盖 resume 或提前收尾", async () => {
+    vi.useFakeTimers();
+    const artifact = {
+      kind: "slides" as const,
+      documentId: "deck-1",
+      title: "Deck",
+      workspaceRoot: "/project",
+      entryPath: "/project/.cortex-design/deck-1/deck.bento.html",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const key = artifactResumeKey(baseSession, artifact);
+    usePersonalStore.setState({
+      sessions: [{
+        ...baseSession,
+        artifacts: [artifact],
+        artifactSessionIds: { [key]: "parent-session" },
+      }],
+      runningBySession: {},
+    });
+    const qc = new QueryClient();
+    const runId = "artifact:slides:deck-1:run-1";
+    __handleCliEventForTest(
+      qc,
+      runId,
+      { type: "init", sessionId: "child-session", roleId: "design-delegate" },
+      "s1",
+    );
+    expect(usePersonalStore.getState().sessions[0]?.artifactSessionIds?.[key]).toBe(
+      "parent-session",
+    );
+    __handleCliEventForTest(
+      qc,
+      runId,
+      { type: "result", ok: true, text: "child done", roleId: "design-delegate" },
+      "s1",
+    );
+    await vi.advanceTimersByTimeAsync(RESULT_EXIT_GRACE_MS + 1);
+    expect(usePersonalStore.getState().runningBySession.s1).toBe(runId);
+  });
+
+  it("并发子角色文本按事件 roleId 归属，父文本回到主消息", () => {
+    const artifact = {
+      kind: "slides" as const,
+      documentId: "deck-roles",
+      title: "Deck",
+      workspaceRoot: "/project",
+      entryPath: "/project/.cortex-design/deck-roles/deck.bento.html",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, artifacts: [artifact] }],
+      runningBySession: {},
+    });
+    const qc = new QueryClient();
+    const runId = "artifact:slides:deck-roles:run-1";
+    __handleCliEventForTest(qc, runId, {
+      type: "init",
+      sessionId: "role-a-session",
+      roleId: "role-a",
+    }, "s1");
+    __handleCliEventForTest(qc, runId, {
+      type: "init",
+      sessionId: "role-b-session",
+      roleId: "role-b",
+    }, "s1");
+    __handleCliEventForTest(qc, runId, { type: "text", delta: "A1", roleId: "role-a" }, "s1");
+    __handleCliEventForTest(qc, runId, { type: "text", delta: "B1", roleId: "role-b" }, "s1");
+    __handleCliEventForTest(qc, runId, { type: "text", delta: "A2", roleId: "role-a" }, "s1");
+    __handleCliEventForTest(qc, runId, { type: "result", ok: true, roleId: "role-a" }, "s1");
+    __handleCliEventForTest(qc, runId, { type: "result", ok: true, roleId: "role-b" }, "s1");
+    __handleCliEventForTest(qc, runId, { type: "text", delta: "parent" }, "s1");
+
+    const visible = (
+      qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? []
+    ).flatMap<string>((message) => {
+      if (message.kind === "roleHeader") {
+        return [`header:${message.roleId}`];
+      }
+      if (message.kind === "text") {
+        return [`text:${message.roleId ?? "parent"}:${String(message.text)}`];
+      }
+      return [];
+    });
+    expect(visible).toEqual([
+      "header:role-a",
+      "text:role-a:A1A2",
+      "header:role-b",
+      "text:role-b:B1",
+      "text:parent:parent",
+    ]);
+  });
+
+  it("不同产物与模型使用彼此隔离的 resume key", () => {
+    const artifact = {
+      kind: "design" as const,
+      documentId: "doc-1",
+      title: "Home",
+      workspaceRoot: "/project",
+      entryPath: "/project/.cortex-design/doc-1",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const first = artifactResumeKey(baseSession, artifact);
+    expect(artifactResumeKey(baseSession, { ...artifact, documentId: "doc-2" })).not.toBe(first);
+    expect(artifactResumeKey({ ...baseSession, model: "other" }, artifact)).not.toBe(first);
+  });
+
   it("Claude 旧字段可作为 resume id 回退", () => {
     expect(sessionResumeId({ ...baseSession, claudeSessionId: "claude-old" })).toBe("claude-old");
   });
@@ -133,6 +250,19 @@ describe("personal message agent session helpers", () => {
         "codex",
       ),
     ).toEqual({ agentSessionIds: { claude: "claude-new", pi: "pi-session" } });
+  });
+
+  it("清理产物 resume id 时不污染普通会话与其它产物", () => {
+    expect(
+      clearArtifactSessionPatch(
+        {
+          ...baseSession,
+          agentSessionIds: { claude: "chat" },
+          artifactSessionIds: { first: "one", second: "two" },
+        },
+        "first",
+      ),
+    ).toEqual({ artifactSessionIds: { second: "two" } });
   });
 
   it("清理 Claude resume id 时同步清理旧兼容字段", () => {

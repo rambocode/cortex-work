@@ -40,8 +40,8 @@
 | Agent 追踪窗口 | `personal/AgentTracePanel.tsx` | — | `ipc/agent-trace.ts`、`agent-trace-window.ts` |
 | Agent 项目扫描（本机项目聚合） | — | — | `ipc/agent-projects.ts` |
 | 写作 / 写作台 | `writing/`（`WritingWorkspace.tsx` 三栏容器） | `writing/` | `ipc/writing-*.ts`（见下文写作域） |
-| 设计 / 设计工作台 / 画布 | `design/`（`DesignWorkspace.tsx` 容器 + 各 Panel + `canvas/`） | `design/`（子域见下文 core 表） | `ipc/design-types.ts` |
-| 演示文稿 / Slides / 放映 | `design/slides/SlidesWorkspace.tsx`、`design/DesignAIRail.tsx` | `design/slides/`（含 `bento/`、`slides-text-files.ts`） | `ipc/slides.ts`、`capabilities/slides/`、`capabilities/research/inject.ts`（会话级联网准入）、`presenter-window.ts` |
+| 设计 / 会话产物 / 画布 | `personal/artifactDispatch.ts`、`design/ArtifactEditorPanel.tsx`、`design/DesignWorkspaceView.tsx`、`design/canvas/` | `personal/messages.ts`（产物 resume 隔离）、`design/`（子域见下文 core 表） | `ipc/artifact.ts`、`ipc/artifact-workspace.ts`、`ipc/design-types.ts` |
+| 演示文稿 / Slides / 放映 | `design/ArtifactEditorPanel.tsx`、`design/slides/SlidesWorkspace.tsx` | `design/slides/`（含 `bento/`、`slides-text-files.ts`） | `ipc/artifact.ts`、`ipc/slides.ts`、`capabilities/slides/`、`capabilities/research/inject.ts`（会话级联网准入）、`presenter-window.ts` |
 | 研究 / 深度研究（CRE） | `research/`（`ResearchWorkspace.tsx` 三栏容器） | `research/` | `research/`（引擎）、`ipc/research.ts`、`capabilities/research/`；chat 与 slides 均由各自会话栏按轮准入 |
 | 任务 | `personal/TasksView.tsx`、`TaskDetail.tsx`、`Task*Field.tsx` | `personal/tasks.ts`、`taskTree.ts` 等 | `ipc/tasks*.ts`、`tasks-reminder-scheduler.ts` |
 | 项目管理 / 项目阶段（独立窗口） | `personal/ProjectsWorkbench.tsx`、`ProjectStagesBar.tsx`、`StageTimeline*.tsx` | `personal/projectStages.ts`、`stageTemplates.ts` | `projects-window.ts` |
@@ -100,7 +100,7 @@
 
 **写作域**（前缀 `writing-`）：`writing-types.ts`（空间/文档契约）、`writing-llm.ts`（续写 + Cmd-K 改写）、`writing-retrieval.ts`（轻量 RAG）、`writing-pdf.ts`、`writing-export.ts`（DOCX/PDF/PNG/HTML）、`writing-infographic.ts`（信息图）。
 
-**设计 / 演示 / 研究**：`design-types.ts`（设计工作台持久化契约）、`slides.ts` + `slides-ipc-types.ts`（演示文稿）、`research.ts` + `types-research.ts`（深度研究）、`agent-browser.ts`（Agent 用浏览器）。
+**设计 / 演示 / 研究**：`artifact.ts` + `artifact-workspace.ts`（会话产物创建、索引与路径校验）、`design-types.ts`（历史设计工作台持久化契约）、`slides.ts` + `slides-ipc-types.ts`（演示文稿）、`research.ts` + `types-research.ts`（深度研究）、`agent-browser.ts`（Agent 用浏览器）。
 
 主进程另有非 ipc 的功能目录：`agents/`（CLI 适配器）、`capabilities/`（给 Agent 的 MCP 能力：browser / doc-extract / delegate / design-delegate / loop-workflows / media-gen / research / slides / whisper / mcp-host）、`research/`（CRE 引擎：orchestrator / planner / clients / worker / report / SQLite 存储）、`automation/`、`workflow/`、`memory/`、`reply/`、`skills/`、`plugins/`、`browser/`、`log/`。
 

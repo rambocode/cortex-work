@@ -8,6 +8,7 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import type { ChatFileRef, ChatImageRef, Message, TodoListItem, TypingActivity } from "../types";
 import type {
   AgentKind,
+  ConversationArtifactRef,
   AskQuestionAnswers,
   AskQuestionEnvelope,
   CliStreamEvent,
@@ -225,6 +226,11 @@ interface RunState {
   promptText?: string;
   startedAt?: number;
   cwd?: string;
+  // 会话产物使用独立 resume 槽，避免普通聊天与不同产物共用 agent 上下文。
+  artifactResumeKey?: string;
+  // Artifact 能力会注入带 roleId 的设计子代理；刷新恢复时即使尚未重建 resume key，
+  // 也必须把这些帧当作嵌套事件，避免子结果收尾父回合。
+  nestedRoleEvents?: boolean;
   changedFiles?: Set<string>;
   resultExitFallback?: ReturnType<typeof setTimeout>;
   // 本轮运行模式(plan/accept-edits/full-auto):用于检测「被模式拦截的工具尝试」→ 切档提示。
@@ -245,6 +251,8 @@ interface RunState {
   delegate?: boolean;
   // 圆桌模式下各角色的文本折叠游标（roleId → FoldCursor），每角色独立累积消息。
   roleCursors?: Map<string, FoldCursor>;
+  roleHeaders?: Map<string, Extract<Message, { kind: "roleHeader" }>>;
+  emittedRoleHeaders?: Set<string>;
   // 当前活跃的角色 id（最近一个 init[roleId] 设定的），用于路由后续 text/tool/thinking 事件。
   activeRoleId?: string;
   // pi 思考流（reasoning）的折叠块（独立于 text/tool 游标:思考通常先于正文,累进同一块）。
@@ -256,6 +264,17 @@ interface RunState {
 }
 
 const runs = new Map<string, RunState>();
+
+export function runUsesNestedRoleEvents(
+  run: Pick<RunState, "roundtable" | "delegate" | "artifactResumeKey" | "nestedRoleEvents">,
+): boolean {
+  return !!(
+    run.roundtable ||
+    run.delegate ||
+    run.artifactResumeKey ||
+    run.nestedRoleEvents
+  );
+}
 
 // pi 同会话「发送在途」同步锁:覆盖 running 置位前的异步窗口（ensureChatLoaded 等 await）,
 // 防并发/抖动 send 同会话造孤儿 run + 永不自杀的看门狗。beginPiRun 置 running 后即交棒释放。
@@ -431,6 +450,19 @@ export function sessionResumeId(session: SessionMeta): string | undefined {
   return session.agentSessionIds?.[session.agent] ?? (session.agent === "claude" ? session.claudeSessionId : undefined);
 }
 
+export function artifactResumeKey(
+  session: SessionMeta,
+  artifact: ConversationArtifactRef,
+): string {
+  return [
+    artifact.workspaceRoot,
+    artifact.documentId,
+    session.derivedAgentId ?? session.agent,
+    session.providerId ?? "",
+    session.model ?? "",
+  ].join("\u0000");
+}
+
 export function agentSessionPatch(session: SessionMeta, agent: AgentKind, id: string): Partial<SessionMeta> {
   const agentSessionIds = { ...session.agentSessionIds, [agent]: id };
   return agent === "claude" ? { agentSessionIds, claudeSessionId: id } : { agentSessionIds };
@@ -440,6 +472,17 @@ export function clearAgentSessionPatch(session: SessionMeta, agent: AgentKind): 
   const agentSessionIds = { ...session.agentSessionIds };
   delete agentSessionIds[agent];
   return agent === "claude" ? { agentSessionIds, claudeSessionId: undefined } : { agentSessionIds };
+}
+
+export function clearArtifactSessionPatch(
+  session: SessionMeta,
+  key: string,
+): Partial<SessionMeta> {
+  return {
+    artifactSessionIds: Object.fromEntries(
+      Object.entries(session.artifactSessionIds ?? {}).filter(([candidate]) => candidate !== key),
+    ),
+  };
 }
 
 export function isMissingAgentSessionError(error?: string): boolean {
@@ -769,6 +812,10 @@ export interface FoldCtx {
   agent: AgentKind;
   time: string;
   newUid: (prefix: string) => string;
+  textMeta?: Pick<
+    Extract<Message, { kind: "text" }>,
+    "roleId" | "roleLabel" | "roleColor"
+  >;
 }
 
 export function emptyFoldCursor(): FoldCursor {
@@ -828,7 +875,14 @@ export function foldCliEvent(
     // 这里的 messages 不含该 logUid,旧的同数组收尾会成为静默 no-op（KTD6）。跨流收尾由调用方
     // （handleCliEvent/handlePiEvent）对 process key 单独执行。
     const textUid = ctx.newUid("at");
-    const textMsg: Message = { kind: "text", who: ctx.agent, time: ctx.time, text: ev.delta, uid: textUid };
+    const textMsg: Message = {
+      kind: "text",
+      who: ctx.agent,
+      time: ctx.time,
+      text: ev.delta,
+      uid: textUid,
+      ...ctx.textMeta,
+    };
     return {
       messages: [...messages, textMsg],
       cursor: { lastKind: "text", textUid, logUid: undefined, segmentText: ev.delta },
@@ -876,13 +930,20 @@ export function foldCliEvent(
 // 把一个 text 事件折叠进**持久消息流**,并回写 run.cursor。tool 不再走这条（改走过程流）。
 // run.cursor.lastKind 仍跟踪整体到达顺序:tool 事件会把它翻到 "tool"（见 markCursorTool）,
 // 故下一个 text 在 foldCliEvent 里被判为异类切换、开新文本块（语义与原交错折叠一致）。
-function foldTextIntoCache(qc: QueryClient, sessionId: string, run: RunState, delta: string): void {
+function foldTextIntoCache(
+  qc: QueryClient,
+  sessionId: string,
+  run: RunState,
+  delta: string,
+  textMeta?: FoldCtx["textMeta"],
+): void {
   let nextCursor = run.cursor;
   setMessages(qc, sessionId, (prev) => {
     const folded = foldCliEvent(prev, { type: "text", delta }, run.cursor, {
       agent: run.agent,
       time: realHHMM(),
       newUid: uid,
+      textMeta,
     });
     nextCursor = folded.cursor;
     return folded.messages;
@@ -947,10 +1008,43 @@ function finalizeProcessAgentLog(qc: QueryClient, sessionId: string, run: RunSta
   run.processCursor = emptyProcessCursor();
 }
 
-function clearStoredAgentSessionId(sessionId: string, agent: AgentKind): void {
-  const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
+function clearRunSessionId(run: RunState): void {
+  const sess = usePersonalStore.getState().sessions.find((item) => item.id === run.sessionId);
   if (!sess) return;
-  usePersonalStore.getState().updateSession(sessionId, clearAgentSessionPatch(sess, agent));
+  const patch = run.artifactResumeKey
+    ? clearArtifactSessionPatch(sess, run.artifactResumeKey)
+    : clearAgentSessionPatch(sess, run.agent);
+  usePersonalStore.getState().updateSession(run.sessionId, patch);
+}
+
+function ensureRoleHeader(
+  qc: QueryClient,
+  sessionId: string,
+  run: RunState,
+  roleId: string,
+): Extract<Message, { kind: "roleHeader" }> {
+  if (!run.roleHeaders) run.roleHeaders = new Map();
+  let header = run.roleHeaders.get(roleId);
+  if (!header) {
+    const roleConfig = usePersonalStore.getState().roles.find((role) => role.id === roleId);
+    header = {
+      kind: "roleHeader",
+      who: run.agent,
+      time: realHHMM(),
+      uid: uid("rh"),
+      roleId,
+      roleLabel: roleConfig?.label ?? roleId,
+      roleColor: roleConfig?.color,
+      roleAvatar: roleConfig?.avatar,
+    };
+    run.roleHeaders.set(roleId, header);
+  }
+  if (!run.emittedRoleHeaders) run.emittedRoleHeaders = new Set();
+  if (!run.emittedRoleHeaders.has(roleId)) {
+    appendMsg(qc, sessionId, header);
+    run.emittedRoleHeaders.add(roleId);
+  }
+  return header;
 }
 
 function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sessionIdHint?: string): void {
@@ -966,6 +1060,16 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 让仍在跑的流继续渲染,而不是永远卡在「运行中」。
     if (!sessionIdHint) return;
     const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionIdHint);
+    const artifactMatch = /^artifact:(design|slides):([^:]+):/.exec(runId);
+    const recoveredArtifact = artifactMatch && sess
+      ? [sess.activeArtifact, ...(sess.artifacts ?? [])]
+          .filter((artifact): artifact is ConversationArtifactRef => !!artifact)
+          .find(
+            (artifact) =>
+              artifact.kind === artifactMatch[1] &&
+              artifact.documentId === artifactMatch[2],
+          )
+      : undefined;
     run = {
       sessionId: sessionIdHint,
       agent: sess?.agent ?? "claude",
@@ -977,6 +1081,11 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       gotResult: false,
       phase: "thinking",
       lastEventAt: Date.now(),
+      artifactResumeKey:
+        sess && recoveredArtifact
+          ? artifactResumeKey(sess, recoveredArtifact)
+          : undefined,
+      nestedRoleEvents: !!artifactMatch,
     };
     runs.set(runId, run);
     usePersonalStore.getState().setRunning(sessionIdHint, runId);
@@ -988,7 +1097,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
 
   if (ev.type === "init") {
     // 圆桌编排：roleId 标注角色起始，在聊天流插入 roleHeader 分隔符，初始化该角色折叠游标。
-    if ("roleId" in ev && ev.roleId && (run.roundtable || run.delegate)) {
+    if ("roleId" in ev && ev.roleId && runUsesNestedRoleEvents(run)) {
       run.phase = "thinking";
       run.activeRoleId = ev.roleId;
       if (!run.roleCursors) run.roleCursors = new Map();
@@ -1002,8 +1111,9 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       const roleLabel = ev.stageLabel ?? ev.roleId;
       const roles = usePersonalStore.getState().roles;
       const roleConfig = roles.find((r) => r.id === ev.roleId);
-      appendMsg(qc, sessionId, {
-        kind: "roleHeader" as Message["kind"],
+      if (!run.roleHeaders) run.roleHeaders = new Map();
+      run.roleHeaders.set(ev.roleId, {
+        kind: "roleHeader",
         who: run.agent,
         time: realHHMM(),
         uid: uid("rh"),
@@ -1011,7 +1121,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
         roleLabel,
         roleColor: roleConfig?.color,
         roleAvatar: roleConfig?.avatar,
-      } as Message);
+      });
       updateTypingMsg(qc, sessionId, run.typingUid, `${roleLabel} 思考中…`);
       return;
     }
@@ -1023,7 +1133,17 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 不 resume，故只推进 phase/typing，不落 session patch。
     if (!ev.stage && !run.delegate) {
       const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
-      if (sess) usePersonalStore.getState().updateSession(sessionId, agentSessionPatch(sess, run.agent, ev.sessionId));
+      if (sess) {
+        const patch = run.artifactResumeKey
+          ? {
+              artifactSessionIds: {
+                ...sess.artifactSessionIds,
+                [run.artifactResumeKey]: ev.sessionId,
+              },
+            }
+          : agentSessionPatch(sess, run.agent, ev.sessionId);
+        usePersonalStore.getState().updateSession(sessionId, patch);
+      }
     }
     return;
   }
@@ -1124,9 +1244,11 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     }
     // 圆桌模式：文本折叠到当前活跃角色的独立游标，每个角色输出各自成独立消息块。
     // 临时交换 run.cursor 到角色游标，复用 foldTextIntoCache，结束后换回。
-    if ((run.roundtable || run.delegate) && run.activeRoleId && run.roleCursors) {
-      const roleId = run.activeRoleId;
+    if (runUsesNestedRoleEvents(run) && ev.roleId) {
+      const roleId = ev.roleId;
+      if (!run.roleCursors) run.roleCursors = new Map();
       const roleCursor = run.roleCursors.get(roleId) ?? emptyFoldCursor();
+      const roleHeader = ensureRoleHeader(qc, sessionId, run, roleId);
       const mainCursor = run.cursor;
       run.cursor = roleCursor;
       usePetStore.getState().set("replying");
@@ -1135,7 +1257,11 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       run.sawText = true;
       finalizeRunReasoning(qc, run);
       finalizeProcessAgentLog(qc, sessionId, run);
-      foldTextIntoCache(qc, sessionId, run, ev.delta);
+      foldTextIntoCache(qc, sessionId, run, ev.delta, {
+        roleId,
+        roleLabel: roleHeader.roleLabel,
+        roleColor: roleHeader.roleColor,
+      });
       run.roleCursors.set(roleId, run.cursor);
       run.cursor = mainCursor;
       return;
@@ -1154,16 +1280,21 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   if (ev.type === "result") {
     // 圆桌编排：带 roleId 的 result 是单角色完成/失败信号，不触发 finalizeRun。
     // 失败时在聊天流追加该角色的错误标注，后续角色继续执行。
-    if ("roleId" in ev && ev.roleId && (run.roundtable || run.delegate)) {
+    if ("roleId" in ev && ev.roleId && runUsesNestedRoleEvents(run)) {
       finalizeProcessAgentLog(qc, sessionId, run);
       finalizeRunReasoning(qc, run);
+      if (run.activeRoleId === ev.roleId) run.activeRoleId = undefined;
       if (!ev.ok) {
+        const roleHeader = ensureRoleHeader(qc, sessionId, run, ev.roleId);
         appendMsg(qc, sessionId, {
           kind: "text",
           who: run.agent,
           time: realHHMM(),
           text: `⚠️ 角色执行失败: ${ev.error ?? "未知错误"}`,
           uid: uid("rerr"),
+          roleId: ev.roleId,
+          roleLabel: roleHeader.roleLabel,
+          roleColor: roleHeader.roleColor,
         });
       }
       return;
@@ -1175,7 +1306,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     if (!ev.ok) {
       dropMsg(qc, sessionId, run.typingUid);
       if (run.agent === "codex" && isMissingAgentSessionError(ev.error)) {
-        clearStoredAgentSessionId(sessionId, run.agent);
+        clearRunSessionId(run);
         appendMsg(qc, sessionId, {
           kind: "text",
           who: run.agent,
@@ -1272,7 +1403,7 @@ function finalizeRun(
 
   if (!run.gotResult && (error || (code !== null && code !== 0))) {
     const missingCodexSession = run.agent === "codex" && isMissingAgentSessionError(error);
-    if (missingCodexSession) clearStoredAgentSessionId(sessionId, run.agent);
+    if (missingCodexSession) clearRunSessionId(run);
     const friendly = missingCodexSession
       ? t("chat:core.codexSessionLostBody")
       : error && /ENOENT/.test(error)
@@ -2559,6 +2690,8 @@ export interface PersonalActions {
     invokedSkill?: { name: string; path: string },
     // 已落盘文档引用(编辑/刷新重发复用原消息的引用文件,不重新落盘;与 presavedImages 对称)。
     presavedDocs?: ChatFileRef[],
+    // 当前会话绑定的设计/Slides 产物；有值时使用独立 cwd、run identity 与 resume 槽。
+    artifact?: ConversationArtifactRef,
     // 返回是否「已消费」(真正发出/已落定):composer 据此决定是否清空待发图/文档(未消费则保留供重试)。
   ) => Promise<boolean>;
   stop: (sessionId: string) => Promise<void>;
@@ -2590,7 +2723,7 @@ export function usePersonalActions(): PersonalActions {
   const qc = useQueryClient();
 
   const send = useCallback<PersonalActions["send"]>(
-    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles, invokedSkill, presavedDocs) => {
+    async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles, invokedSkill, presavedDocs, artifact) => {
       if (!bridge) return false;
       const hasImages = !!(images?.length || presavedImages?.length);
       const hasDocs = !!(docFiles?.length || presavedDocs?.length);
@@ -2739,7 +2872,9 @@ export function usePersonalActions(): PersonalActions {
       }
       const docRefs = fileRefs.length ? fileRefs : undefined;
 
-      const runId = uid("run");
+      const runId = artifact
+        ? `artifact:${artifact.kind}:${artifact.documentId}:${uid("run")}`
+        : uid("run");
       const typingUid = uid("typing");
 
       // 历史尚未加载时先加载,避免首条写入把磁盘历史盖掉。
@@ -2794,12 +2929,12 @@ export function usePersonalActions(): PersonalActions {
       const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
       const hasDelegateMentions = earlyMentions.length > 0 && !!bridge.startCli;
       // 三段编排开关（claude/codex/pi 通用，12790c0 起 pi 也参与）:开启后走下面统一 orchestrate 管线。
-      const useOrchestration = session.subagentOrchestration && bridge.startOrchestration;
+      const useOrchestration = !artifact && session.subagentOrchestration && bridge.startOrchestration;
 
       // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。有 @mention 委派
       // 或开启三段编排时,pi 也改走下面单发/编排管线（per-turn delegate 工具集 / 编排各段都需 fresh
       // spawn，RPC 工具集在 pi:open 时冻结无法逐轮变化）。
-      if (session.agent === "pi" && !hasDelegateMentions && !useOrchestration) {
+      if (session.agent === "pi" && !artifact && !hasDelegateMentions && !useOrchestration) {
         await sendPiTurn(qc, bridge, session, projectPath, text, piAppendSystemPrompt, { runId, typingUid }, imagePaths);
         return true;
       }
@@ -2820,7 +2955,9 @@ export function usePersonalActions(): PersonalActions {
         lastEventAt: Date.now(),
         promptText: text,
         startedAt: Date.now(),
-        cwd: projectPath,
+        cwd: artifact?.workspaceRoot ?? projectPath,
+        artifactResumeKey: artifact ? artifactResumeKey(session, artifact) : undefined,
+        nestedRoleEvents: !!artifact,
         // 派生后的访问范围:供 restrictedToolForMode/maybeEmitModeBlockHint 判断受限工具与切档提示。
         // session/sendSession 仅差 agentSessionId 清理 patch（不触权限两轴），故据 session 派生即可。
         permissionMode: toAdapterPermissions(session.execPermission, session.dirPermission).permissionMode,
@@ -2882,12 +3019,17 @@ export function usePersonalActions(): PersonalActions {
       usePetStore.getState().set("thinking");
 
       try {
-        let resumeSessionId = sessionResumeId(session);
+        const resumeKey = artifact ? artifactResumeKey(session, artifact) : undefined;
+        let resumeSessionId = resumeKey
+          ? session.artifactSessionIds?.[resumeKey]
+          : sessionResumeId(session);
         let sendSession = session;
         if (resumeSessionId && bridge.agentSessionExists) {
           const exists = await bridge.agentSessionExists({ agent: session.agent, agentSessionId: resumeSessionId });
           if (!exists) {
-            const patch = clearAgentSessionPatch(session, session.agent);
+            const patch = resumeKey
+              ? clearArtifactSessionPatch(session, resumeKey)
+              : clearAgentSessionPatch(session, session.agent);
             usePersonalStore.getState().updateSession(session.id, patch);
             sendSession = { ...session, ...patch };
             resumeSessionId = undefined;
@@ -2929,7 +3071,7 @@ export function usePersonalActions(): PersonalActions {
             orchestrationRunId: runId,
             sessionId: sendSession.id,
             agent: isPiOrchestration ? "pi" : spawnAgent,
-            cwd: projectPath,
+            cwd: artifact?.workspaceRoot ?? projectPath,
             // 编排各段 fresh spawn 无历史,附件块随 prompt 文本直达(cliText)。
             prompt: cliText,
             model: sendSession.model,
@@ -2989,9 +3131,10 @@ export function usePersonalActions(): PersonalActions {
             runId,
             sessionId: sendSession.id,
             agent: spawnAgent,
-            cwd: projectPath,
+            cwd: artifact?.workspaceRoot ?? projectPath,
             // 附件块前缀进 prompt(cliText):随 claude/codex CLI 会话历史持久,续轮 resume 仍可见。
             prompt: cliText,
+            ...(artifact ? { artifactContext: artifact } : {}),
             model: delegateModel,
             effort: sendSession.effort,
             // 委派 fresh spawn，不续接（per-turn 独立编排）；普通对话照常 resume。

@@ -6,7 +6,7 @@
 // 注入,只作用于详情态的 CSS 档位,返回列表恢复固定 320px）;双击恢复自动宽度。
 // 拖拽条的显示时机由 CSS :has 控制（见 .pw-rp-resizer）。
 
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
@@ -14,6 +14,7 @@ import { PromptPanel } from "./PromptPanel";
 import { TasksView } from "./TasksView";
 import { NotesView } from "./NotesView";
 import { BrowserView } from "./BrowserView";
+import { ArtifactEditorPanel } from "../design/ArtifactEditorPanel";
 
 // 右栏视图 → 顶部头标题（内容沿用现有视图名）。
 const RIGHT_VIEW_TITLE: Record<string, string> = {
@@ -22,6 +23,7 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
   todos: "Tasks",
   notes: "闪记",
   browser: "浏览器",
+  artifact: "产物",
 };
 
 // 导出供测试引用,调参不破坏断言。
@@ -39,6 +41,12 @@ export function PersonalRightPanel({
   const width = usePersonalStore((s) => s.rightPanelWidth);
   const setWidth = usePersonalStore((s) => s.setRightPanelWidth);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
+  const activeArtifact = usePersonalStore((s) =>
+    s.sessions.find((session) => session.id === s.activeSessionId)?.activeArtifact
+  );
+  useEffect(() => {
+    if (view === "artifact" && !activeArtifact) setRightOpen(false);
+  }, [activeArtifact, setRightOpen, view]);
 
   const startResize = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -111,7 +119,9 @@ export function PersonalRightPanel({
           <Icon.X size={14} />
         </button>
       </div>
-      {view === "files" ? (
+      {view === "artifact" ? (
+        activeArtifact ? <ArtifactEditorPanel artifact={activeArtifact} /> : null
+      ) : view === "files" ? (
         <FilesView onToast={onToast} />
       ) : view === "todos" ? (
         <TasksView onToast={onToast} />

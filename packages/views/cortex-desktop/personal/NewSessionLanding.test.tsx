@@ -1,4 +1,4 @@
-import { cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, DEFAULT_MODEL, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
@@ -74,6 +74,50 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     renderLanding(fakeBridge());
     fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "/" } });
     expect(await screen.findByText("/clear")).toBeTruthy();
+  });
+
+  it("落地页 slash 默认提供第一方 Design 与 Slides Skill", async () => {
+    renderLanding(fakeBridge());
+    fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "/" } });
+    expect(await screen.findByText("Design")).toBeTruthy();
+    expect(await screen.findByText("Slides")).toBeTruthy();
+  });
+
+  it("从落地页调用 Design Skill 时先创建会话产物再发送", async () => {
+    const artifact = {
+      kind: "design" as const,
+      documentId: "design-1",
+      title: "Dashboard",
+      workspaceRoot: "/docs/cortex/design",
+      entryPath: "/docs/cortex/design/.cortex-design/design-1",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const artifactCreate = vi.fn(async () => ({ ok: true as const, artifact }));
+    renderLanding(fakeBridge({
+      artifactCreate,
+      skillGet: async () => ({
+        name: "design",
+        description: "创建设计",
+        dir: "/builtin/design",
+        skillMdPath: "/builtin/design/SKILL.md",
+      }),
+    }));
+    const input = screen.getByPlaceholderText(/开启新会话/);
+    fireEvent.change(input, { target: { value: "/" } });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /Design/ }));
+    fireEvent.change(input, { target: { value: "Dashboard" } });
+    fireEvent.click(screen.getByTitle("发送 (Enter)"));
+    await waitFor(() =>
+      expect(artifactCreate).toHaveBeenCalledWith({
+        kind: "design",
+        title: "Dashboard",
+      }),
+    );
+    const createdSession = usePersonalStore.getState().sessions.find((item) => item.id !== "s1");
+    expect(createdSession?.activeArtifact).toEqual(artifact);
+    expect(createdSession?.artifacts).toEqual([artifact]);
+    expect(sendSpy.mock.calls.at(-1)?.[10]).toEqual(artifact);
   });
 
   it("落地页 slash:Skills 默认开 → 输入 / 直接显示已启用 skill(Title-Case 名)", async () => {

@@ -42,6 +42,13 @@ import { FollowupOverlay } from "./FollowupOverlay";
 import { GitBar } from "./GitBar";
 import { ModeBlockBanner } from "./ModeBlockBanner";
 import { PersonalComposer } from "./PersonalComposer";
+import {
+  buildConversationArtifactPrompt,
+  conversationArtifacts,
+  prepareArtifactDispatch,
+  upsertConversationArtifact,
+} from "./artifactDispatch";
+export { buildConversationArtifactPrompt } from "./artifactDispatch";
 
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
 const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
@@ -148,6 +155,7 @@ export function PersonalChatArea({
   const requestBrowserUrl = usePersonalStore((s) => s.requestBrowserUrl);
   const autoOpenedPreviewKeys = usePersonalStore((s) => s.autoOpenedPreviewKeys);
   const markAutoOpenedPreview = usePersonalStore((s) => s.markAutoOpenedPreview);
+  const setRightView = usePersonalStore((s) => s.setRightView);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
 
@@ -599,6 +607,26 @@ export function PersonalChatArea({
       />
 
       {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
+      {conversationArtifacts(session).map((artifact) => (
+        <button
+          key={`${artifact.workspaceRoot}:${artifact.documentId}`}
+          type="button"
+          className="pw-artifact-card"
+          onClick={() => {
+            updateSession(session.id, { activeArtifact: artifact });
+            setRightView("artifact");
+            setRightOpen(true);
+          }}
+        >
+          <Icon.Sparkle size={15} />
+          <span>
+            <strong>{artifact.title}</strong>
+            <small>{artifact.kind === "slides" ? "演示文稿" : "设计稿"} · 点击继续编辑</small>
+          </span>
+          <Icon.ChevronRight size={14} />
+        </button>
+      ))}
+
       <AskQuestionCard sessionId={session.id} />
 
       {/* 运行模式拦截提示:plan/accept-edits 下 agent 被拦时,提示切档并自动重发本轮。 */}
@@ -632,6 +660,7 @@ export function PersonalChatArea({
             void compact(session.id);
             return false;
           }
+          if (!bridge) return false;
           // /skill:name 派发(U6):按 agent + 路由三路分支。pi 透传(pi CLI 自行展开);claude 单发转
           // 裸 slash(claude 原生展开,桥接目录见 U1/U2);codex 单发置 invokedSkill 结构化字段(主进程
           // 按 transport 走 ws 原生触发 / exec prose 回退)。圆桌编排路径无原生挂点 → claude/codex 都维持
@@ -639,8 +668,26 @@ export function PersonalChatArea({
           //(未启用 / 不适用当前 agent / 无桥)时原样发送,不阻断——与菜单侧 supportedAgents 过滤一致。
           let outText = text;
           let invokedSkill: { name: string; path: string } | undefined;
-          if (session.agent !== "pi" && bridge) {
-            const parsed = parseSkillSlash(text);
+          const artifactDispatch = await prepareArtifactDispatch(bridge, session, text);
+          if (artifactDispatch.error) {
+            onToast(artifactDispatch.error);
+            return false;
+          }
+          const artifact = artifactDispatch.artifact;
+          if (artifactDispatch.handledSkill) {
+            outText = artifactDispatch.outText;
+            invokedSkill = artifactDispatch.invokedSkill;
+            if (artifactDispatch.created && artifact) {
+              updateSession(session.id, {
+                activeArtifact: artifact,
+                artifacts: upsertConversationArtifact(session.artifacts, artifact),
+              });
+            }
+            setRightView("artifact");
+            setRightOpen(true);
+          }
+          const parsed = parseSkillSlash(text);
+          if (!artifactDispatch.handledSkill && session.agent !== "pi") {
             if (parsed) {
               const records = await resolveEnabledSkillRecords(bridge, project.path, session.useOwnSkills, session.agent);
               const skill = records.find((s) => s.name === parsed.name);
@@ -660,7 +707,22 @@ export function PersonalChatArea({
               }
             }
           }
-          return send(session, project.path, outText, attachments, undefined, images, undefined, docFiles, invokedSkill);
+          const artifactPrompt = artifact
+            ? buildConversationArtifactPrompt(artifact)
+            : undefined;
+          return send(
+            session,
+            project.path,
+            outText,
+            attachments,
+            artifactPrompt,
+            images,
+            undefined,
+            docFiles,
+            invokedSkill,
+            undefined,
+            artifact,
+          );
         }}
         onStop={() => void stopRun(session.id)}
         onSteer={session.agent === "pi" ? (text) => void steer(session.id, text) : undefined}

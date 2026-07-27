@@ -92,6 +92,10 @@ export {
   type NotificationSettings,
   type LogSettings,
   type SessionMeta,
+  type ConversationArtifactKind,
+  type ConversationArtifactRef,
+  type ConversationArtifactCreateRequest,
+  type ConversationArtifactResult,
   type SpotlightIntent,
   type TodoMeta,
   type TodoStatus,
@@ -338,6 +342,7 @@ export {
   renderClaudeSkillSlash,
   parseSkillSlash,
   isOrchestrationSend,
+  resolveArtifactTarget,
   type InjectableSkill,
 } from "./personal/skill-injection";
 // per-agent skill 扫描根解析(Design B,plan 002):下拉与注入共用的单一实现。

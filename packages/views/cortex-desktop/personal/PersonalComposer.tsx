@@ -4,10 +4,11 @@
 
 import { useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { DEFAULT_AGENT_THINKING, prewarmPiSession, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
+import { DEFAULT_AGENT_THINKING, prewarmPiSession, useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { AgentThinkingValue, DirPermission, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { hasSearchBackend, normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { ComposerShell } from "./ComposerShell";
+import { upsertConversationArtifact } from "./artifactDispatch";
 import { useSlashCommands } from "./useSlashCommands";
 
 export function PersonalComposer({
@@ -57,6 +58,9 @@ export function PersonalComposer({
 }) {
   // slash 命令(内建 + 已启用 skill),与新会话落地页共用同一 hook(见 useSlashCommands)。
   const slashCommands = useSlashCommands(session);
+  const updateSession = usePersonalStore((s) => s.updateSession);
+  const setRightView = usePersonalStore((s) => s.setRightView);
+  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
 
   // 会话预热:首字符输入时提前拉起 pi 进程(消除首轮冷启)。每会话只发一次请求
   // (prewarmedFor 去重,ComposerShell 每次非空变更都会调);实际开启/复用由 prewarmPiSession 幂等保证。
@@ -121,6 +125,25 @@ export function PersonalComposer({
       onCancelEdit={onCancelEdit}
       onToast={onToast}
       onPrewarm={handlePrewarm}
+      artifact={session.activeArtifact}
+      onOpenArtifact={() => {
+        setRightView("artifact");
+        setRightOpen(true);
+      }}
+      onRemoveArtifact={() => {
+        updateSession(session.id, {
+          activeArtifact: undefined,
+          ...(session.activeArtifact
+            ? {
+                artifacts: upsertConversationArtifact(
+                  session.artifacts,
+                  session.activeArtifact,
+                ),
+              }
+            : {}),
+        });
+        setRightOpen(false);
+      }}
     />
   );
 }

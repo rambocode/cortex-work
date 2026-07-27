@@ -4,6 +4,9 @@
 
 import type {
   AgentKind,
+  ConversationArtifactCreateRequest,
+  ConversationArtifactRef,
+  ConversationArtifactResult,
   AgentTraceEvent,
   AgentSessionRequest,
   AgentProjectInfo,
@@ -315,6 +318,11 @@ export interface DesktopBridge {
   // 持久化
   loadState(): Promise<PersistedState>;
   saveState(state: PersistedState): Promise<void>;
+  // 会话内设计/Slides 产物：主进程负责选择受信工作区、建索引并校验持久引用。
+  artifactCreate?(
+    request: ConversationArtifactCreateRequest,
+  ): Promise<ConversationArtifactResult>;
+  artifactValidate?(artifact: ConversationArtifactRef): Promise<ConversationArtifactResult>;
   // pushSettings 窄写通道：main 在权威态上就地合并后落盘。供不挂全量持久化的窗口
   // （项目管理）写推送开关，绕开陈旧全量快照 clobber。可选（web/旧壳无）。
   patchPushSettings?(patch: Partial<PushSettings>): Promise<void>;
@@ -572,6 +580,7 @@ export interface DesktopBridge {
   // 内置 skill 元数据（深化注入 ce-ideate / 生成 plan 注入 ce-plan）。可选:web/旧壳无此
   // 能力 → 深化入口降级 toast。第一阶段读内置 resources/skills,第二阶段叠加 userData/skills。
   skillGet?(name: string): Promise<SkillMeta | null>;
+  builtinSkillGet?(name: string): Promise<SkillMeta | null>;
   skillsList?(): Promise<SkillMeta[]>;
   // 插件管理（U3）:按 piSkills 配置扫描多根 → PluginSkill[];打开/创建范围根（白名单校验）。
   // 可选:web/旧壳无此能力 → 插件管理器降级空态。

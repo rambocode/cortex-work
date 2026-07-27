@@ -91,13 +91,13 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("PersonalSidebar 模式切换与项目管理", () => {
-  it("bridge 完整时渲染会话 / 写作 / 设计三种模式和项目管理", () => {
+  it("bridge 完整时渲染会话 / 写作模式且不再暴露独立设计入口", () => {
     const { container } = renderSidebar(bridgeWith(), { onOpenProjectsWindow: () => {} });
     const modes = container.querySelector(".pw-sidebar-modes");
     expect(modes).toBeTruthy();
     expect(modes?.textContent).toContain("会话");
     expect(modes?.textContent).toContain("写作");
-    expect(modes?.textContent).toContain("设计");
+    expect(modes?.textContent).not.toContain("设计");
     expect(container.querySelector(".pw-context-card")?.textContent).toContain("项目管理");
   });
 
@@ -168,13 +168,13 @@ describe("PersonalSidebar 退役入口", () => {
 });
 
 describe("PersonalSidebar 项目上下文结构", () => {
-  it("把会话 / 写作 / 设计渲染在模式切换区", () => {
+  it("把会话 / 写作渲染在模式切换区", () => {
     const { container } = renderSidebar(bridgeWith());
     const modes = container.querySelector(".pw-sidebar-modes");
     expect(modes).toBeTruthy();
     expect(modes?.textContent).toContain("会话");
     expect(modes?.textContent).toContain("写作");
-    expect(modes?.textContent).toContain("设计");
+    expect(modes?.textContent).not.toContain("设计");
   });
 
   it("把闪记 / 自动化 / Loop / 设置固定在滚动区外", () => {

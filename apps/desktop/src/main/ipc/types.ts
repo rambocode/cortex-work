@@ -7,6 +7,28 @@ export type { ResearchEngineMainSettings, ResearchSearchServerSettings } from ".
 
 export type AgentKind = "claude" | "codex" | "pi";
 
+export type ConversationArtifactKind = "design" | "slides";
+
+export interface ConversationArtifactRef {
+  kind: ConversationArtifactKind;
+  documentId: string;
+  title: string;
+  workspaceRoot: string;
+  entryPath: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ConversationArtifactCreateRequest {
+  kind: ConversationArtifactKind;
+  title: string;
+  projectId?: string;
+}
+
+export type ConversationArtifactResult =
+  | { ok: true; artifact: ConversationArtifactRef }
+  | { ok: false; error: string };
+
 // M3-A:用户 JSON(agents.local.json)派生/覆盖的 agent 元数据(经 agents:profiles IPC 透出,
 // 供渲染端在 agent 选择器列出新 agent)。spawn 时 agent 字段用其 id。与 core 镜像同步。
 export interface DerivedAgentMeta {
@@ -120,6 +142,9 @@ export interface SessionMeta {
   title: string;
   claudeSessionId?: string;
   agentSessionIds?: Partial<Record<AgentKind, string>>;
+  activeArtifact?: ConversationArtifactRef;
+  artifacts?: ConversationArtifactRef[];
+  artifactSessionIds?: Record<string, string>;
   agent: AgentKind;
   // M3-A/U7:用户 JSON 派生的新 id agent。缺省 = 用 agent(内置)。spawn 时 req.agent = derivedAgentId ?? agent。
   // agent 字段仍存其 base 内置值,使全仓 Record<AgentKind> 索引(模型/标签/头像/续接槽)无需放宽。
@@ -533,6 +558,7 @@ export interface CliStartRequest {
   agent: string;
   cwd: string;
   prompt: string;
+  artifactContext?: ConversationArtifactRef;
   model?: string;
   resumeSessionId?: string;
   // 续接最近会话(U4):claude --continue / codex exec resume --last。与 resumeSessionId 互斥,优先生效。

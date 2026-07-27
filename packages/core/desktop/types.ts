@@ -5,6 +5,32 @@ import type { PetKind, PetMode, PetState } from "../store/pet";
 
 export type AgentKind = "claude" | "codex" | "pi";
 
+export type ConversationArtifactKind = "design" | "slides";
+
+/**
+ * 会话与右栏之间持久化的产物引用。只保存定位所需的窄面元数据，文稿正文仍由
+ * `.cortex-design/<documentId>/` 下的既有格式负责。
+ */
+export interface ConversationArtifactRef {
+  kind: ConversationArtifactKind;
+  documentId: string;
+  title: string;
+  workspaceRoot: string;
+  entryPath: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ConversationArtifactCreateRequest {
+  kind: ConversationArtifactKind;
+  title: string;
+  projectId?: string;
+}
+
+export type ConversationArtifactResult =
+  | { ok: true; artifact: ConversationArtifactRef }
+  | { ok: false; error: string };
+
 // M3-A:用户 JSON(agents.local.json)派生/覆盖的 agent 元数据。与 ipc/types.ts 镜像同步。
 export interface DerivedAgentMeta {
   id: string;
@@ -78,6 +104,12 @@ export interface SessionMeta {
   claudeSessionId?: string;
   // 各 agent 自己的会话 id，后续轮次 resume 用。
   agentSessionIds?: Partial<Record<AgentKind, string>>;
+  // 当前会话输入框绑定的设计/Slides 产物；存在时普通追问继续修改该产物。
+  activeArtifact?: ConversationArtifactRef;
+  // 会话内创建过的产物历史；解除当前绑定不会删除，用户可从持久卡片重新进入。
+  artifacts?: ConversationArtifactRef[];
+  // 每个产物独立续接 Agent session，避免覆盖普通聊天及其它产物的 resume id。
+  artifactSessionIds?: Record<string, string>;
   agent: AgentKind;
   // M3-A/U7:用户 JSON 派生的新 id agent。缺省 = 用 agent(内置)。spawn 时 req.agent = derivedAgentId ?? agent。
   // agent 字段仍存其 base 内置值,使全仓 Record<AgentKind> 索引(模型/标签/头像/续接槽)无需放宽。与 ipc 镜像。
@@ -1046,6 +1078,8 @@ export interface CliStartRequest {
   agent: string;
   cwd: string; // 项目路径
   prompt: string;
+  // 会话内设计/Slides 产物上下文。main 会按注册项目与索引复核。
+  artifactContext?: ConversationArtifactRef;
   model?: string;
   resumeSessionId?: string; // 多轮续接
   continueSession?: boolean; // 续接最近会话(U4):claude --continue / codex resume --last;与 resumeSessionId 互斥优先

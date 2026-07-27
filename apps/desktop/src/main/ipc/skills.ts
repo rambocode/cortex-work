@@ -9,7 +9,7 @@
 import { ipcMain, shell } from "electron";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
-import { getSkill, listSkills, scanSkillRoots } from "../skills/registry";
+import { getBuiltinSkill, getSkill, listSkills, scanSkillRoots } from "../skills/registry";
 import { expandTilde, expandRootSpecs, pluginSkillRoots, type ScanRoot } from "../skills/locate";
 import { agentNativePluginRoots } from "../skills/agent-native";
 import { installedPluginsRoot } from "../plugins/locate";
@@ -70,6 +70,9 @@ function yamlScalar(v: string): string {
 
 export function registerSkillsHandlers(): void {
   ipcMain.handle("skills:get", (_e, name: string): Promise<SkillMeta | null> => getSkill(name));
+  ipcMain.handle("skills:get-builtin", (_e, name: string): Promise<SkillMeta | null> =>
+    getBuiltinSkill(name),
+  );
   ipcMain.handle("skills:list", (): Promise<SkillMeta[]> => listSkills());
 
   // 插件管理:按配置扫描多根 → PluginSkill[]（enabled 恒 true,启用/授信态由渲染端叠加）。

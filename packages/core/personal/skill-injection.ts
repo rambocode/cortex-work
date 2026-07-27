@@ -10,6 +10,7 @@
 // 继续堆叠、也避免两份过滤规则漂移。
 import type { DesktopBridge } from "../desktop/bridge";
 import { DEFAULT_PI_SKILLS, DEFAULT_PLUGIN_ENABLE, type AgentKind, type PluginSkill } from "../desktop/types";
+import type { ConversationArtifactKind, ConversationArtifactRef } from "../desktop/types";
 import { usePersonalStore } from "../store/personal";
 import { resolveAgentSkillRoots } from "./skill-roots";
 
@@ -153,6 +154,14 @@ export function renderSkillInvocation(skill: InjectableSkill, args: string): str
   ];
   if (args) lines.push(`本次参数:${args}`);
   return lines.join("\n");
+}
+
+/** 同类型 Skill 继续编辑当前产物；无绑定或类型变化时创建新产物。 */
+export function resolveArtifactTarget(
+  kind: ConversationArtifactKind,
+  current?: Pick<ConversationArtifactRef, "kind" | "documentId">,
+): { mode: "create" } | { mode: "edit"; artifact: typeof current } {
+  return current?.kind === kind ? { mode: "edit", artifact: current } : { mode: "create" };
 }
 
 // 解析已启用 skill 的注入记录(U2)。复用与 resolveEnabledSkillPaths 同一过滤链:

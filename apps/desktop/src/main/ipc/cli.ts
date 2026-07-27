@@ -46,6 +46,14 @@ import {
 } from "../capabilities/slides/session";
 import { loadWorkflows } from "../workflow/store";
 import { getPersistedState } from "./store";
+import { assertAllowed } from "./fs";
+import {
+  assertConversationArtifactRunIdentity,
+  assertConversationArtifactRequestShape,
+  isKnownConversationArtifactRoot,
+  validateConversationArtifact,
+} from "./artifact-workspace";
+import { documentsCortexDir } from "../paths";
 import { CodexServerManager } from "../agents/codex-app-server";
 import { startCodexWsRun, closeAllCodexChannels } from "./codex-ws-run";
 import { renderCodexSkillFallback } from "./codex-ws-channel";
@@ -619,6 +627,23 @@ export function registerCliHandlers(): void {
   setInterval(() => codexServers.sweepIdle(), 5 * 60_000).unref();
 
   ipcMain.handle("cli:start", async (event, req: CliStartRequest) => {
+    assertConversationArtifactRequestShape(req.runId, req.artifactContext);
+    if (req.artifactContext) {
+      const fallbackRoot = join(documentsCortexDir(), "design");
+      const persistedState = await getPersistedState();
+      if (
+        !isKnownConversationArtifactRoot(
+          req.artifactContext.workspaceRoot,
+          persistedState,
+          fallbackRoot,
+        )
+      ) {
+        throw new Error("产物工作区未注册");
+      }
+      assertConversationArtifactRunIdentity(req.artifactContext, req.cwd, req.runId);
+      await assertAllowed(req.artifactContext.workspaceRoot);
+      await validateConversationArtifact(req.artifactContext);
+    }
     // 设计工作台回合的诊断日志(runId 前缀 design:):便于排查 agent 是否真被拉起、传了什么。
     if (req.runId.startsWith("design:")) {
       log.info(`[design] cli:start agent=${req.agent} model=${req.model ?? "(default)"} cwd=${req.cwd} runId=${req.runId}`);

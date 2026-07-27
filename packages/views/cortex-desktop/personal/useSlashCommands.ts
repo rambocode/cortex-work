@@ -16,6 +16,22 @@ const SLASH_COMMANDS: SlashCommand[] = [
 const PI_SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/compact", desc: "压缩当前会话上下文", kind: "builtin" },
 ];
+const ARTIFACT_SKILL_COMMANDS: SlashCommand[] = [
+  {
+    cmd: "/skill:design",
+    displayName: "Design",
+    tag: "系统",
+    desc: "在会话中创建设计稿，并在右栏继续编辑",
+    kind: "skill",
+  },
+  {
+    cmd: "/skill:slides",
+    displayName: "Slides",
+    tag: "系统",
+    desc: "在会话中创建演示文稿，并在右栏继续编辑",
+    kind: "skill",
+  },
+];
 
 export function useSlashCommands(session: SessionMeta | undefined): SlashCommand[] {
   // 已启用 skill(hook 内按 agent/useOwnSkills/桥门控;useOwnSkills!==true 或非 pi/claude/codex → [])。
@@ -30,5 +46,11 @@ export function useSlashCommands(session: SessionMeta | undefined): SlashCommand
     kind: "skill",
   }));
   const builtins = session?.agent === "pi" ? [...SLASH_COMMANDS, ...PI_SLASH_COMMANDS] : SLASH_COMMANDS;
-  return [...builtins, ...skillCommands];
+  const artifactSkills = session && session.useOwnSkills !== false ? ARTIFACT_SKILL_COMMANDS : [];
+  const artifactSkillNames = new Set(ARTIFACT_SKILL_COMMANDS.map((command) => command.cmd));
+  return [
+    ...builtins,
+    ...artifactSkills,
+    ...skillCommands.filter((command) => !artifactSkillNames.has(command.cmd)),
+  ];
 }

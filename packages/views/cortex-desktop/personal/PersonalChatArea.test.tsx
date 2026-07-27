@@ -14,7 +14,11 @@ import type { Message } from "@cortex-work/core/types";
 import { isOrchestrationSend, renderClaudeSkillSlash, renderSkillInvocation } from "@cortex-work/core";
 import type { InjectableSkill } from "@cortex-work/core";
 import { MessageStream } from "../ChatArea";
-import { PersonalChatArea, resolveSkillDispatch } from "./PersonalChatArea";
+import {
+  buildConversationArtifactPrompt,
+  PersonalChatArea,
+  resolveSkillDispatch,
+} from "./PersonalChatArea";
 
 const NOW = Date.now();
 
@@ -1229,6 +1233,21 @@ describe("PersonalChatArea 追问收尾语义(FIX-1 / FIX-6)", () => {
 describe("PersonalChatArea /skill 发送派发（U6）", () => {
   const skill: InjectableSkill = { name: "My Skill!", description: "干活", dir: "/g/s" };
 
+  it("产物上下文明确锁定工作区、文稿 id 与入口", () => {
+    const prompt = buildConversationArtifactPrompt({
+      kind: "slides",
+      documentId: "deck-1",
+      title: "Quarterly",
+      workspaceRoot: "/project",
+      entryPath: "/project/.cortex-design/deck-1/deck.bento.html",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(prompt).toContain("类型:slides");
+    expect(prompt).toContain("文稿 ID:deck-1");
+    expect(prompt).toContain("入口:/project/.cortex-design/deck-1/deck.bento.html");
+  });
+
   describe("isOrchestrationSend 路由判断", () => {
     it("开启编排 + 支持 startOrchestration + 无 @mention 委派 → 走圆桌编排", () => {
       expect(isOrchestrationSend(true, true, false)).toBe(true);
@@ -1266,6 +1285,21 @@ describe("PersonalChatArea /skill 发送派发（U6）", () => {
       const d = resolveSkillDispatch("codex", "/skill:my-skill", "", skill, false, allRecords);
       expect(d.outText).toBe("");
       expect(d.invokedSkill).toEqual({ name: "My Skill!", path: "/g/s" });
+    });
+
+    it("第一方 design/slides skill 标记产物类型,普通 skill 不获得产物权限", () => {
+      const design: InjectableSkill = { name: "design", dir: "/builtin/design" };
+      const slides: InjectableSkill = { name: "slides", dir: "/builtin/slides" };
+
+      expect(
+        resolveSkillDispatch("codex", "/skill:design landing page", "landing page", design, false, [design]),
+      ).toMatchObject({ artifactKind: "design" });
+      expect(
+        resolveSkillDispatch("claude", "/skill:slides quarterly review", "quarterly review", slides, false, [slides]),
+      ).toMatchObject({ artifactKind: "slides" });
+      expect(resolveSkillDispatch("codex", "/skill:my-skill", "", skill, false, allRecords)).not.toHaveProperty(
+        "artifactKind",
+      );
     });
 
     it("claude 走圆桌编排 → 维持现状 prose,不带 invokedSkill", () => {
