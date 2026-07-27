@@ -62,9 +62,11 @@ describe("researchFileBaseName", () => {
     expect(name).not.toMatch(/[\\/:*?"<>|]/);
   });
 
-  it("超长目标截到 40 字（完整目标做文件名在文件树里没法看）", () => {
+  // 规则本体连同边界用例（路径穿越、Windows 保留名、控制字符）在
+  // core/research/report-export.test.ts；这里只留一条冒烟，确认 re-export 没接错。
+  it("超长目标截到 60 字（完整目标做文件名在文件树里没法看）", () => {
     const name = researchFileBaseName({ ...SESSION, objective: "长".repeat(200) });
-    expect([...name]).toHaveLength(40);
+    expect([...name]).toHaveLength(60);
   });
 
   it("空目标回落 sessionId（永远要有个名字）", () => {

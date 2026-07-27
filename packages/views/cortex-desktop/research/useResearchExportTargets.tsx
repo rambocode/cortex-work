@@ -10,31 +10,17 @@ import { useMemo } from "react";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useAddNote } from "@cortex-work/core/personal/notes";
 import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
-import type { ResearchSessionSummary } from "@cortex-work/core/research/types";
+import {
+  researchReportFileBaseName,
+  withResearchHeader,
+} from "@cortex-work/core/research/report-export";
 
 import type { ResearchExportTarget } from "./ResearchRunView";
 
-/// 文件名里不安全的字符。研究目标是用户自由输入的一句话，直接当文件名会撞到
-/// 路径分隔符与 Windows 保留字符。
-const UNSAFE_FILENAME_CHARS = /[\\/:*?"<>|\n\r\t]+/g;
-
-/// 研究目标 → 文件名（不含扩展名）。
-///
-/// 截到 40 个字符：完整目标动辄几十上百字，做成文件名在文件树里没法看，
-/// 而前 40 字已经足够辨认是哪一次研究。空目标回落到 sessionId，保证永远有个名字。
-export function researchFileBaseName(session: ResearchSessionSummary): string {
-  const cleaned = session.objective.replace(UNSAFE_FILENAME_CHARS, " ").trim();
-  const clipped = [...cleaned].slice(0, 40).join("").trim();
-  return clipped.length > 0 ? clipped : `research-${session.sessionId}`;
-}
-
-/// 给报告加一段来源抬头。
-///
-/// 落到别处之后，「这份内容是怎么来的」就只剩这段抬头能说明了——
-/// 没有它，几周后在写作空间里翻到这个文件，没人认得出它是研究产物。
-export function withResearchHeader(markdown: string, session: ResearchSessionSummary): string {
-  return `> 来自 Cortex 深度研究：${session.objective}\n> 会话 ID：${session.sessionId}\n\n${markdown}`;
-}
+// 文件名与抬头规则已下沉到 core（主进程归档也用同一份，见 core/research/report-export.ts）。
+// 这里保留旧名字原样 re-export，避免调用点与测试跟着改 import 路径。
+export { withResearchHeader };
+export { researchReportFileBaseName as researchFileBaseName };
 
 /// 组装当前可用的产物去向。
 ///
@@ -64,7 +50,7 @@ export function useResearchExportTargets(): ResearchExportTarget[] {
         id: "writing",
         label: "存为写作文档",
         run: async (markdown, session) => {
-          const path = `${activeRoot}/${researchFileBaseName(session)}.md`;
+          const path = `${activeRoot}/${researchReportFileBaseName(session)}.md`;
           await writeFile(path, withResearchHeader(markdown, session));
           // 写完直接切过去：用户点这个按钮的意图就是「拿它去写」，
           // 停在研究覆盖层里还得自己再点两下才能看到成果。
