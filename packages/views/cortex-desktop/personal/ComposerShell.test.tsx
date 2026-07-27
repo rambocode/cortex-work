@@ -523,6 +523,39 @@ describe("ComposerShell 插入并运行（submit 标志）", () => {
     );
   });
 
+  // 产物 pill 的标题来自用户那句话,可能很长(点场景示例填入的提示词就是整段需求)。
+  // 视觉上靠 CSS 省略号截断,但截掉的部分必须能找回来——hover 提示要带全名,而不只是路径。
+  it("产物 pill 的 title 含完整标题(长标题被省略号截断后仍可读全)", () => {
+    const longTitle = "做一份 6 页的产品介绍 PPT,像素游戏风格排版,配色炫酷丰富";
+    render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={bridge}>
+        <ComposerShell
+          agent="claude"
+          model={undefined}
+          providerId={undefined}
+          useOwnSkills={false}
+          running={false}
+          artifact={{
+            kind: "slides",
+            documentId: "d1",
+            title: longTitle,
+            workspaceRoot: "/w",
+            entryPath: "/w/.cortex-slides/d1",
+            createdAt: 1,
+            updatedAt: 1,
+          }}
+          onSend={() => true}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onToggleSkills={() => {}}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+    const pill = screen.getByText(longTitle).closest(".pw-artifact-pill");
+    expect(pill).toHaveAttribute("title", expect.stringContaining(longTitle));
+  });
+
   // 撤销:程序化 setText 不进浏览器原生撤销栈,Cmd+Z 撤不回被填入的示例提示词。
   // 走 execCommand("insertText") 才算「用户编辑」——这里断言它被用上,且不支持时仍能回退填入。
   it("插入文本走 execCommand 以进入原生撤销栈", async () => {

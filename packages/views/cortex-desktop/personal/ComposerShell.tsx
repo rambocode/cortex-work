@@ -836,7 +836,8 @@ export function ComposerShell({
         ) : null}
         <div className="input-area">
           {artifact ? (
-            <span className="pw-try-pill pw-artifact-pill" title={artifact.entryPath}>
+            // 标题过长时靠 CSS 省略号截断,hover 提示带上全名(而不只是落盘路径),否则截掉的部分无处可查。
+            <span className="pw-try-pill pw-artifact-pill" title={`${artifact.title}\n${artifact.entryPath}`}>
               <button
                 type="button"
                 className="pw-artifact-pill-open"

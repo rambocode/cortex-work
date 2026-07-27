@@ -9573,7 +9573,17 @@ button.sb-row {
   background: transparent;
   cursor: pointer;
 }
-.pw-artifact-pill .pw-try-pill-name { max-width: 150px; color: var(--blue); }
+/* 产物标题来自用户那句话,可能很长(点场景示例填入的就是整段需求)。
+   .pw-try-pill 是 white-space:nowrap,只给 max-width 而不给 overflow:hidden 的话文字会溢出
+   pill 压住占位符/输入内容(实机 bug)——必须补 overflow + 省略号,并让 pill 本身可收缩。 */
+.pw-artifact-pill { min-width: 0; flex: 0 1 auto; }
+.pw-artifact-pill .pw-artifact-pill-open { overflow: hidden; }
+.pw-artifact-pill .pw-try-pill-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--blue);
+}
 .pw-artifact-card {
   display: flex;
   align-items: center;
