@@ -106,7 +106,6 @@
       "workflow": "Loop 工作流",
       "slidesHint": "预置演示文稿 skill,补一句主题即可生成",
       "designHint": "预置设计稿 skill,补一句需求即可生成",
-      "examplesLabel": "示例",
       "examples": {
         "slides": {
           "pixel": {

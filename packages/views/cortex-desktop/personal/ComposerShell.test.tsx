@@ -523,6 +523,35 @@ describe("ComposerShell 插入并运行（submit 标志）", () => {
     );
   });
 
+  // 撤销:程序化 setText 不进浏览器原生撤销栈,Cmd+Z 撤不回被填入的示例提示词。
+  // 走 execCommand("insertText") 才算「用户编辑」——这里断言它被用上,且不支持时仍能回退填入。
+  it("插入文本走 execCommand 以进入原生撤销栈", async () => {
+    const exec = vi.fn(() => true);
+    const original = document.execCommand;
+    // jsdom 未实现 execCommand,显式打桩后再断言调用。
+    Object.defineProperty(document, "execCommand", { value: exec, configurable: true, writable: true });
+    try {
+      renderInsert({ onSend: vi.fn(() => true) });
+      act(() => usePersonalStore.getState().insertToComposer("做一份 6 页的产品介绍 PPT"));
+      await waitFor(() => expect(exec).toHaveBeenCalledWith("insertText", false, "做一份 6 页的产品介绍 PPT"));
+    } finally {
+      Object.defineProperty(document, "execCommand", { value: original, configurable: true, writable: true });
+    }
+  });
+
+  it("execCommand 不可用时回退到直接填入", async () => {
+    const exec = vi.fn(() => false);
+    const original = document.execCommand;
+    Object.defineProperty(document, "execCommand", { value: exec, configurable: true, writable: true });
+    try {
+      renderInsert({ onSend: vi.fn(() => true) });
+      act(() => usePersonalStore.getState().insertToComposer("回退文本"));
+      await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("回退文本"));
+    } finally {
+      Object.defineProperty(document, "execCommand", { value: original, configurable: true, writable: true });
+    }
+  });
+
   // 选中的 skill pill 单向镜像进 store,落地页示例区据此联动;发送 / 手动移除后必须同步清掉。
   it("skill pill 镜像到 store.composerSkill,发送后清空", async () => {
     const onSend = vi.fn(() => true);

@@ -106,7 +106,6 @@
       "workflow": "Loop workflow",
       "slidesHint": "Preloads the Slides skill — just add a topic",
       "designHint": "Preloads the Design skill — just add a brief",
-      "examplesLabel": "Examples",
       "examples": {
         "slides": {
           "pixel": {

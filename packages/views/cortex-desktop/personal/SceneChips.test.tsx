@@ -112,7 +112,19 @@ describe("SceneChips", () => {
     expect(screen.queryByText("像素风介绍 PPT")).toBeNull();
   });
 
-  it("选中 slides 后展示其示例,点击把完整提示词插入输入框", () => {
+  it("选中 slides 后收起其它 chip,该 skill 与示例同处一行", () => {
+    renderChips(FULL_BRIDGE);
+    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:slides", displayName: "Slides" } }));
+    // 一行放不下 4 个 chip + 4 条示例,选中态只留该 skill 自己 + 它的示例
+    expect(screen.getByRole("button", { name: "演示文稿" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "深度研究" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "写作" })).toBeNull();
+    // skill chip 与示例在同一个 chips 容器里(同一行)
+    const row = screen.getByRole("button", { name: "演示文稿" }).parentElement;
+    expect(row).toBe(screen.getByRole("button", { name: "像素风介绍 PPT" }).parentElement);
+  });
+
+  it("选中 slides 后点示例把完整提示词插入输入框", () => {
     renderChips(FULL_BRIDGE);
     act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:slides", displayName: "Slides" } }));
     const example = screen.getByRole("button", { name: "像素风介绍 PPT" });
@@ -135,11 +147,21 @@ describe("SceneChips", () => {
     expect(screen.queryByRole("button", { name: "像素风介绍 PPT" })).toBeNull();
   });
 
-  it("非产物类 skill(无示例表)不渲染示例区", () => {
+  it("非产物类 skill(无示例表)不渲染示例区,chips 保持完整", () => {
     renderChips(FULL_BRIDGE);
     act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:code-review", displayName: "Code Review" } }));
     expect(screen.queryByText("像素风介绍 PPT")).toBeNull();
     expect(screen.queryByText("产品落地页")).toBeNull();
+    expect(screen.getByRole("button", { name: "深度研究" })).toBeInTheDocument();
+  });
+
+  it("清空 pill 后 chips 恢复完整,示例消失", () => {
+    renderChips(FULL_BRIDGE);
+    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:slides", displayName: "Slides" } }));
+    expect(screen.queryByRole("button", { name: "写作" })).toBeNull();
+    act(() => usePersonalStore.setState({ composerSkill: undefined }));
+    expect(screen.getByRole("button", { name: "写作" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "像素风介绍 PPT" })).toBeNull();
   });
 
   it("桥缺 automation/workflow 子域 → 对应 chip 不渲染,skill chip 仍在", () => {

@@ -134,6 +134,20 @@ export function matchSlashCommands(query: string, commands: SlashCommand[]): Sla
     .map((x) => x.c);
 }
 
+// 以「用户编辑」的方式整体替换 textarea 内容,使这次写入进入浏览器原生撤销栈(Cmd+Z 可撤回)。
+// 程序化 setText 不会被原生撤销栈记录——用户点场景示例填入提示词后按 Cmd+Z 撤不回来(用户反馈)。
+// execCommand 虽已废弃,但仍是 Chromium 里唯一能写进撤销栈的通道;返回 false 表示未生效,调用方回退。
+function insertTextAsUserEdit(ta: HTMLTextAreaElement | null, next: string): boolean {
+  if (!ta || typeof document.execCommand !== "function") return false;
+  try {
+    ta.focus();
+    ta.setSelectionRange(0, ta.value.length);
+    return document.execCommand("insertText", false, next) === true;
+  } catch {
+    return false;
+  }
+}
+
 export function ComposerShell({
   agent,
   derivedAgentId,
@@ -479,7 +493,10 @@ export function ComposerShell({
       : !prev.trim()
         ? composerInsert.text
         : `${prev}${prev.endsWith("\n") ? "" : "\n"}${composerInsert.text}`;
-    if (finalText !== prev) setText(finalText);
+    // 走「用户编辑」通道写入,让这次插入进浏览器原生撤销栈(Cmd+Z 可撤回填入的示例提示词);
+    // 直接 setText 是程序化改值,原生撤销栈看不见。execCommand 已废弃但 Chromium 仍支持,
+    // 失败/环境不支持(如 jsdom)时回退直接填入——功能不受影响,只是那次插入撤不回。
+    if (finalText !== prev && !insertTextAsUserEdit(taRef.current, finalText)) setText(finalText);
     // 随插入携带的待发图片(如批注「始终包含截图」,U4):并入 images,沿用去重 + 张数上限。
     // 满张数上限时溢出图片不静默丢——同拖拽路径出 toast(评审 correctness)。
     if (composerInsert.images?.length) {

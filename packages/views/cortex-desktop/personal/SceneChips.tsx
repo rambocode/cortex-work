@@ -103,10 +103,17 @@ export function SceneChips() {
     insertToComposer("", { skill: { cmd, displayName: command?.displayName ?? cmd } });
   };
 
-  // 已选 skill 的示例提示词：点一下把整段需求填进输入框，用户可再改。
+  // 已选 skill 的示例提示词：点一下把整段需求追加进输入框（输入框已有内容时另起一行，不覆盖用户已写的字）。
   // 不带 skill 字段——pill 已经在了，重复下发只会白刷一次 setSelectedSkill。
   const examples = composerSkill ? (SKILL_EXAMPLES[composerSkill.cmd] ?? []) : [];
   const exampleBase = composerSkill ? `home.scene.examples.${skillNameOf(composerSkill.cmd)}` : "";
+  // 选中某个有示例的 skill 时收起其余 chip：一行放不下 4 个 chip + 4 条示例，
+  // 而「该 skill + 它的示例」同处一行才读得出从属关系。清掉输入框里的 pill 即恢复完整 chips。
+  const activeSkillChip = composerSkill
+    ? SCENES.flatMap((s) => s.chips).find((c) => c.kind === "skill" && c.cmd === composerSkill.cmd)
+    : undefined;
+  const focused = !!activeSkillChip && examples.length > 0;
+  const rowChips = focused && activeSkillChip ? [activeSkillChip] : chips;
 
   return (
     <section className="pw-scene" aria-label={t("home.scene.title")}>
@@ -125,7 +132,7 @@ export function SceneChips() {
       </div>
 
       <div className="pw-scene-chips" aria-label={t("home.scene.chipsLabel")}>
-        {chips.map((chip) => {
+        {rowChips.map((chip) => {
           const Glyph = Icon[chip.icon];
           const label = tx(`home.scene.${chip.key}`);
           return (
@@ -140,26 +147,20 @@ export function SceneChips() {
             </button>
           );
         })}
-      </div>
 
-      {examples.length > 0 ? (
-        <div className="pw-scene-examples" aria-label={t("home.scene.examplesLabel")}>
-          {examples.map((id) => {
-            const prompt = tx(`${exampleBase}.${id}.prompt`);
-            return (
-              <button
-                key={id}
-                className="pw-scene-example"
-                title={prompt}
-                onClick={() => insertToComposer(prompt)}
-              >
-                <span>{tx(`${exampleBase}.${id}.label`)}</span>
-                <Icon.Fwd size={12} />
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+        {/* 示例与它所属的 skill chip 同处一行:尾部朝下的箭头指向下方输入框,暗示「点了会填到那里」 */}
+        {focused
+          ? examples.map((id) => {
+              const prompt = tx(`${exampleBase}.${id}.prompt`);
+              return (
+                <button key={id} className="pw-scene-example" title={prompt} onClick={() => insertToComposer(prompt)}>
+                  <span>{tx(`${exampleBase}.${id}.label`)}</span>
+                  <Icon.Chevron size={12} />
+                </button>
+              );
+            })
+          : null}
+      </div>
     </section>
   );
 }

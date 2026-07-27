@@ -8487,11 +8487,8 @@ button.sb-row {
 }
 .pw-scene-chip.is-active svg { color: var(--blue); }
 
-/* 选中 skill 后展示的示例提示词：点一下把整段需求填进输入框（完整文案在 title 里悬浮可见） */
-.pw-scene-examples {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
-  max-width: 100%;
-}
+/* 选中 skill 后展示的示例提示词：与该 skill chip 同处一行（.pw-scene-chips 内），
+   点一下把整段需求填进输入框（完整文案在 title 里悬浮可见）。 */
 .pw-scene-example {
   display: inline-flex; align-items: center; gap: 5px;
   appearance: none; cursor: pointer;
@@ -8620,11 +8617,16 @@ button.sb-row {
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-/* 看板内容纵向居中:日历/日报下线后只剩 Hero + 场景 chips,顶部锚定会在其与输入框之间
-   留一大片空白。`safe center` 在内容超出高度时自动退回 start——窄窗口下不会把 Hero 顶出
-   可视区且无法向上滚(普通 center 的经典裁切问题);浏览器不识别时整条声明失效 = 保持旧行为。 */
+/* 落地页整体上提:日历/日报下线后看板只剩 Hero + 场景 chips,若仍让它吃满剩余高度,
+   输入框会被压在窗口最底、与 chips 之间空一大片。改为看板按内容高度收缩,
+   由 .pw-landing 把「看板 + 输入框 + GitBar」当一组纵向居中——输入框上移、示例行紧贴输入框。
+   看板保留 overflow-y:auto + min-height:0,窄窗口下内容超高时仍可滚动。 */
+.pw-landing { justify-content: center; }
+.pw-landing-board { flex: 0 1 auto; }
 .pw-landing .pw-home {
-  justify-content: safe center;
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  padding-bottom: 10px;
 }
 /* 看板封顶居中:滚动容器 .pw-home 保持整宽(滚动条贴窗口右缘),只对内部分区
    封顶居中,与 GitBar/输入框共用 --pw-landing-col 左右对齐。 */

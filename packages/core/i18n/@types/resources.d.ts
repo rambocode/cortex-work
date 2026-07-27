@@ -2495,7 +2495,6 @@ export default interface Resources {
             }
           }
         },
-        "examplesLabel": "示例",
         "office": "日常办公",
         "research": "深度研究",
         "slides": "演示文稿",
